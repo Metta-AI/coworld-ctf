@@ -58,6 +58,14 @@ const
   TrailDotSize = 3
   TrailDotSpacing = 10
   TrailMaxDots = 10
+  TracerDotSpriteId = 760      ## single bright shot-tracer dot sprite.
+  TracerDotObjectBase = 15000  ## tracer object-id pool base.
+  TracerDotSize = 3
+  TracerDotSpacing = 5         ## px between sampled tracer dots along a shot.
+  TracerDotColor = 8'u8        ## bright yellow (255,236,39): pops on the dark arena.
+  TracerMaxShots = 8           ## most tracers drawn at once (one per shooter).
+  TracerDotsPerShot = 34       ## dots per shot (gunRange / spacing, plus slack).
+  TracerMaxDots = TracerMaxShots * TracerDotsPerShot
   PlayerNameSpriteBase = 7000
   PlayerNameObjectBase = 7000
   PlayerNameZ = 30002
@@ -506,6 +514,12 @@ proc buildTrailDotSprite(color: uint8): seq[uint8] {.measure.} =
   result = newRgbaPixels(TrailDotSize, TrailDotSize)
   for i in 0 ..< TrailDotSize * TrailDotSize:
     result.putRgbaPixel(i, color)
+
+proc buildTracerDotSprite(): seq[uint8] {.measure.} =
+  ## Builds the single bright shot-tracer dot sprite.
+  result = newRgbaPixels(TracerDotSize, TracerDotSize)
+  for i in 0 ..< TracerDotSize * TracerDotSize:
+    result.putRgbaPixel(i, TracerDotColor)
 
 proc buildMapSpritePixels(sim: SimServer): seq[uint8] {.measure.} =
   ## Returns the true-color map pixels for a global protocol sprite.
@@ -1047,6 +1061,14 @@ proc buildSpriteProtocolInit(
       buildTrailDotSprite(PlayerColors[i]),
       "trail " & playerColorName(i)
     )
+  result.addSpriteChanged(
+    spriteDefs,
+    TracerDotSpriteId,
+    TracerDotSize,
+    TracerDotSize,
+    buildTracerDotSprite(),
+    "shot tracer"
+  )
   sim.addSpriteProtocolInterstitialSprites(spriteDefs, result)
   sim.addPlayerActorSprites(spriteDefs, result, selected = true)
 
@@ -1116,6 +1138,14 @@ proc buildSpriteProtocolPlayerInit(
     CarrierBarHeight,
     buildCarrierBarSprite(CarrierBarColor),
     "carrier indicator"
+  )
+  result.addSpriteChanged(
+    spriteDefs,
+    TracerDotSpriteId,
+    TracerDotSize,
+    TracerDotSize,
+    buildTracerDotSprite(),
+    "shot tracer"
   )
   sim.addSpriteProtocolInterstitialSprites(spriteDefs, result)
   sim.addPlayerActorSprites(spriteDefs, result, selected = false)
@@ -1447,6 +1477,49 @@ proc addSpritePlayerFlagArrow(
     SpritePlayerArrowSpriteId
   )
 
+proc addShotTracers(
+  sim: SimServer,
+  cameraX, cameraY: int,
+  clipToFrame: bool,
+  currentIds: var seq[int],
+  packet: var seq[uint8]
+) {.measure.} =
+  ## Places bright tracer dots for each active shot from a fixed object pool.
+  ## Map view passes camera (0, 0) and clipToFrame = false; the per-player POV
+  ## passes its camera offset and clips dots outside the 128x128 window.
+  var nextDot = 0
+  for shotIndex in 0 ..< min(sim.recentShots.len, TracerMaxShots):
+    let shot = sim.recentShots[shotIndex]
+    let
+      dx = shot.x1 - shot.x0
+      dy = shot.y1 - shot.y0
+      length = max(abs(dx), abs(dy))
+      steps = max(1, length div TracerDotSpacing)
+    for s in 0 .. steps:
+      if nextDot >= TracerMaxDots:
+        break
+      let
+        mx = shot.x0 + dx * s div steps
+        my = shot.y0 + dy * s div steps
+        px = mx - cameraX - TracerDotSize div 2
+        py = my - cameraY - TracerDotSize div 2
+      if clipToFrame and (
+        px + TracerDotSize <= 0 or py + TracerDotSize <= 0 or
+        px >= ScreenWidth or py >= ScreenHeight
+      ):
+        continue
+      let objectId = TracerDotObjectBase + nextDot
+      inc nextDot
+      currentIds.add(objectId)
+      packet.addObject(
+        objectId,
+        px,
+        py,
+        30005,
+        MapLayerId,
+        TracerDotSpriteId
+      )
+
 proc buildSpriteProtocolPlayerUpdates*(
   sim: var SimServer,
   playerIndex: int,
@@ -1595,6 +1668,8 @@ proc buildSpriteProtocolPlayerUpdates*(
       currentIds,
       result
     )
+
+    sim.addShotTracers(cameraX, cameraY, clipToFrame = true, currentIds, result)
 
     # Fire-cooldown icon in the bottom-left corner.
     if player.alive:
@@ -2042,6 +2117,8 @@ proc buildSpriteProtocolUpdates*(
         MapLayerId,
         TrailDotSpriteBase + dot.colorIndex
       )
+
+  sim.addShotTracers(0, 0, clipToFrame = false, currentIds, result)
 
   for playerIndex in 0 ..< sim.players.len:
     let player = sim.players[playerIndex]

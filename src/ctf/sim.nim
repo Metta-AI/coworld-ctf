@@ -1,7 +1,7 @@
 import
   std/[json, math, os, random, strutils],
   bitworld/aseprite, bitworld/client as bitworldClient,
-  bitworld/pixelfonts, bitworld/profile, bitworld/spriteprotocol, bitworld/resources,
+  bitworld/pixelfonts, bitworld/profile, bitworld/spriteprotocol,
   bitworld/server,
   jsony, pixie
 
@@ -9,7 +9,7 @@ const
   GameName* = "ctf"
   GameVersion* = "1"
   ReplayFps* = 24
-  DefaultMapPath* = "data/croatoan.resources"
+  DefaultMapPath* = "arena"
   DarkBgPath* = "data/darkbg.aseprite"
   SpriteSheetAsepritePath = "data/spritesheet.aseprite"
   MapWidth* = 1235
@@ -19,7 +19,8 @@ const
   CrewSpriteVariants* = 8
   CollisionW* = 1
   CollisionH* = 1
-  SpriteDrawOffX* = 2
+  PlayerHalf* = 6             ## half-extent of the solid player footprint, in px.
+  SpriteDrawOffX* = 8
   SpriteDrawOffY* = 8
   MotionScale* = 256
   Accel* = 76
@@ -42,6 +43,7 @@ const
   GunRange* = 150             ## px, a bit beyond the 128px view window.
   GunConeDeg* = 25            ## firing cone half-angle in degrees.
   FireCooldownTicks* = 12     ## ~0.5s between shots.
+  ShotFxTicks* = 12           ## ~0.5s a shot tracer stays visible (cosmetic only).
   CarrierSpeedPct* = 70       ## carrier moves at 70% speed.
   FlagReturnTicks* = 192      ## ~8s idle before a dropped flag resets.
 
@@ -164,7 +166,6 @@ type
   CtfMap* = object
     name*: string
     path*: string
-    asepritePath*: string
     width*, height*: int
     mapLayer*, walkLayer*, wallLayer*: int
     center*: MapPoint
@@ -260,6 +261,12 @@ type
     originMx, originMy: int
     mask: seq[bool]
 
+  ShotFx* = object
+    ## A cosmetic shot tracer segment; never enters gameHash (replay-safe).
+    x0*, y0*, x1*, y1*: int
+    firedTick*: int
+    color*: uint8
+
   SimServer* = object
     config*: GameConfig
     players*: seq[Player]
@@ -281,6 +288,7 @@ type
     rng*: Rand
     nextJoinOrder*: int
     tickCount*: int
+    recentShots*: seq[ShotFx]  ## cosmetic shot tracers; excluded from gameHash.
     gameStartTick*: int
     startWaitTimer*: int
     phase*: GamePhase
@@ -347,33 +355,6 @@ proc gameDir*(): string =
 proc clientDataDir*(): string =
   ## Returns the shared client data directory.
   bitworldClient.clientDir() / "data"
-
-proc resolveGamePath*(path: string, baseDir = ""): string =
-  ## Resolves a game data path against the map file and game directory.
-  let trimmed = path.strip()
-  if trimmed.len == 0 or trimmed.isAbsolute():
-    return trimmed
-  if baseDir.len > 0:
-    let basePath = baseDir / trimmed
-    if fileExists(basePath):
-      return basePath
-  if fileExists(trimmed):
-    return trimmed
-  if baseDir.len > 0:
-    return baseDir / trimmed
-  gameDir() / trimmed
-
-proc resolveMapPath*(path: string): string =
-  ## Resolves a CTF resource map path.
-  let trimmed =
-    if path.strip().len == 0:
-      DefaultMapPath
-    else:
-      path.strip()
-  if trimmed.isAbsolute() or fileExists(trimmed):
-    trimmed
-  else:
-    gameDir() / trimmed
 
 proc spriteSheetPath(): string =
   ## Returns the sprite sheet aseprite path.
@@ -449,20 +430,6 @@ proc crewVariantIndex*(slotId: int): int =
   ((slotId mod CrewSpriteVariants) + CrewSpriteVariants) mod
     CrewSpriteVariants
 
-proc centerPoint(room: Room): MapPoint =
-  ## Returns the center point for one room rectangle.
-  MapPoint(x: room.x + room.w div 2, y: room.y + room.h div 2)
-
-proc resourceNameKey(value: string): string =
-  ## Returns a normalized resource name key.
-  value.strip().toLowerAscii()
-
-proc isRoomResource(name: string): bool =
-  ## Returns true when a resource block is a named room rectangle.
-  let key = name.resourceNameKey()
-  key.len > 0 and key notin ["vents", "tasks", "rooms"] and
-    not key.startsWith("vent") and key != "task"
-
 proc validateMapRect(name: string, rect: MapRect, width, height: int) =
   ## Raises if one map rectangle is outside the map.
   if rect.w <= 0 or rect.h <= 0:
@@ -478,8 +445,6 @@ proc validateMapPoint(name: string, point: MapPoint, width, height: int) =
 
 proc validateMap(gameMap: CtfMap) =
   ## Raises if a loaded map has invalid geometry.
-  if gameMap.asepritePath.len == 0:
-    raise newException(CtfError, "Map aseprite path cannot be empty.")
   if gameMap.width != MapWidth or gameMap.height != MapHeight:
     raise newException(
       CtfError,
@@ -494,148 +459,149 @@ proc validateMap(gameMap: CtfMap) =
       gameMap.height
     )
 
-proc loadResourceCtfMap(
-  resolvedPath: string,
-  readAsepriteSize = true
-): CtfMap =
-  ## Loads a CTF map from a CSS-like resource file.
-  let
-    baseDir = resolvedPath.splitFile().dir
-    asepritePath = resolvedPath.changeFileExt(".aseprite")
-  if readAsepriteSize and not fileExists(asepritePath):
-    raise newException(
-      CtfError,
-      "Resource map is missing matching aseprite: " & asepritePath
-    )
+const
+  ArenaName = "arena"
+  ArenaBorder = 10             ## perimeter wall thickness in px.
+  ArenaFlagRing = 70           ## clear radius around the center flag.
+  ArenaCaptureClear = 210      ## x-columns kept traversable for carriers.
+  ArenaSpawnClearW = 70        ## half-width of the open spawn pockets.
+  ArenaSpawnClearH = 130       ## half-height of the open spawn pockets.
 
-  let rects = loadResourceRects(resolvedPath)
-  if rects.len == 0:
-    raise newException(
-      CtfError,
-      "Resource map did not contain any rectangles: " & resolvedPath
-    )
+  ArenaFloor = rgba(24, 26, 34, 255)      ## dark walkable floor.
+  ArenaWall = rgba(96, 104, 128, 255)     ## lighter, distinct wall.
+  ArenaBorderColor = rgba(60, 66, 84, 255)
+  ArenaRedTint = rgba(120, 40, 44, 70)    ## territory wash over Red half.
+  ArenaBlueTint = rgba(44, 60, 128, 70)   ## territory wash over Blue half.
+  ArenaPedestal = rgba(210, 200, 120, 255)
 
-  result.name = resolvedPath.splitFile().name
-  result.path = resolvedPath
-  result.asepritePath = resolveGamePath(asepritePath, baseDir)
-  if readAsepriteSize:
-    let sprite = readAseprite(asepritePath)
-    result.width = sprite.header.width
-    result.height = sprite.header.height
-  else:
-    result.width = MapWidth
-    result.height = MapHeight
+  ## Interior obstacle rectangles for the LEFT half only. Each is mirrored
+  ## across the vertical center line so both halves are identical; the
+  ## top/bottom pairs also make the layout 4-fold symmetric. Rects sit
+  ## between the capture/spawn columns (x >= ArenaCaptureClear) and the mid
+  ## lane, leaving top / mid (past the flag) / bottom lanes open.
+  ArenaLeftObstacles = [
+    MapRect(x: 300, y: 88, w: 62, h: 62),    ## upper pillar
+    MapRect(x: 300, y: 470, w: 62, h: 62),   ## lower pillar
+    MapRect(x: 430, y: 100, w: 24, h: 150),  ## upper long wall
+    MapRect(x: 430, y: 410, w: 24, h: 150),  ## lower long wall
+    MapRect(x: 296, y: 300, w: 78, h: 24),   ## mid-left cover block
+    MapRect(x: 512, y: 150, w: 96, h: 20),   ## upper flank wall near flag
+    MapRect(x: 512, y: 490, w: 96, h: 20),   ## lower flank wall near flag
+    MapRect(x: 232, y: 44, w: 20, h: 96),    ## top corner cover
+    MapRect(x: 232, y: 520, w: 20, h: 96),   ## bottom corner cover
+  ]
+
+proc arenaCtfMap(): CtfMap =
+  ## Returns the procedurally-defined symmetric arena metadata.
+  result.name = ArenaName
+  result.path = ArenaName
+  result.width = MapWidth
+  result.height = MapHeight
   result.mapLayer = 0
   result.walkLayer = 1
   result.wallLayer = 2
-
-  for rect in rects:
-    if rect.name.isRoomResource():
-      result.rooms.add Room(
-        name: rect.name,
-        x: rect.x,
-        y: rect.y,
-        w: rect.w,
-        h: rect.h
-      )
-
-  result.center = MapPoint(x: result.width div 2, y: result.height div 2)
+  result.center = MapPoint(x: MapWidth div 2, y: MapHeight div 2)
+  result.rooms = @[
+    Room(name: "Center", x: MapWidth div 2 - 80, y: MapHeight div 2 - 80,
+         w: 160, h: 160),
+    Room(name: "Red Base", x: 0, y: MapHeight div 2 - 130,
+         w: ArenaCaptureClear, h: 260),
+    Room(name: "Blue Base", x: MapWidth - ArenaCaptureClear,
+         y: MapHeight div 2 - 130, w: ArenaCaptureClear, h: 260),
+  ]
   result.validateMap()
 
 proc loadCtfMap*(path = ""): CtfMap =
-  ## Loads a CTF resource map and its matching Aseprite file.
-  let resolvedPath = resolveMapPath(path)
-  if resolvedPath.splitFile().ext.toLowerAscii() != ".resources":
-    raise newException(
-      CtfError,
-      "Map path must be a .resources file: " & resolvedPath
-    )
-  loadResourceCtfMap(resolvedPath)
+  ## Returns the procedurally-generated symmetric CTF arena.
+  arenaCtfMap()
 
 proc loadCtfMapMetadata*(path = ""): CtfMap =
-  ## Loads resource map metadata without opening map image assets.
-  let resolvedPath = resolveMapPath(path)
-  if resolvedPath.splitFile().ext.toLowerAscii() != ".resources":
-    raise newException(
-      CtfError,
-      "Map path must be a .resources file: " & resolvedPath
-    )
-  loadResourceCtfMap(resolvedPath, readAsepriteSize = false)
+  ## Returns arena metadata (same as loadCtfMap; nothing is read from disk).
+  arenaCtfMap()
 
-proc asepritePixelAt(
-  aseprite: AsepriteSprite,
-  cel: AsepriteCel,
-  i: int
-): ColorRGBA =
-  ## Converts one decoded aseprite cel pixel to RGBA.
-  case aseprite.header.colorDepth
-  of DepthRgba:
-    let base = i * 4
-    rgba(
-      cel.data[base],
-      cel.data[base + 1],
-      cel.data[base + 2],
-      cel.data[base + 3]
-    )
-  of DepthGrayscale:
-    let base = i * 2
-    rgba(cel.data[base], cel.data[base], cel.data[base], cel.data[base + 1])
-  of DepthIndexed:
-    let index = cel.data[i].int
-    if index == aseprite.header.transparentIndex:
-      rgba(0, 0, 0, 0)
-    elif index < aseprite.palette.len:
-      aseprite.palette[index]
-    else:
-      rgba(0, 0, 0, 0)
+proc mirrorX(rect: MapRect): MapRect =
+  ## Mirrors one rectangle across the vertical center line.
+  MapRect(x: MapWidth - rect.x - rect.w, y: rect.y, w: rect.w, h: rect.h)
 
-proc asepriteLayerImage(
-  aseprite: AsepriteSprite,
-  layerIndex: int
-): Image =
-  ## Renders one normal aseprite layer from the first frame.
-  if aseprite.frames.len == 0:
-    raise newException(CtfError, "Map aseprite has no frames.")
-  if layerIndex < 0 or layerIndex >= aseprite.layers.len:
-    raise newException(
-      CtfError,
-      "Map aseprite is missing layer " & $(layerIndex + 1) & "."
-    )
-  result = newImage(aseprite.header.width, aseprite.header.height)
-  result.fill(rgba(0, 0, 0, 0))
-  for cel in aseprite.frames[0].cels:
-    if cel.layerIndex != layerIndex:
-      continue
-    if cel.kind notin {CelRaw, CelCompressed}:
-      continue
-    for y in 0 ..< cel.height:
-      let dstY = cel.y + y
-      if dstY < 0 or dstY >= result.height:
-        continue
-      for x in 0 ..< cel.width:
-        let dstX = cel.x + x
-        if dstX < 0 or dstX >= result.width:
-          continue
-        let pixel = aseprite.asepritePixelAt(cel, y * cel.width + x)
-        if pixel.a > 0:
-          result[dstX, dstY] = pixel
+proc inRect(x, y: int, rect: MapRect): bool =
+  ## Returns true when (x, y) lies inside the rectangle.
+  x >= rect.x and x < rect.x + rect.w and
+    y >= rect.y and y < rect.y + rect.h
+
+proc isProtectedFloor(x, y, cx, cy: int): bool =
+  ## Regions that MUST stay walkable: the flag ring, both spawn pockets,
+  ## and the two home capture columns. Walls are never carved here.
+  if x < ArenaCaptureClear or x >= MapWidth - ArenaCaptureClear:
+    return true
+  let
+    dx = x - cx
+    dy = y - cy
+  if dx * dx + dy * dy <= ArenaFlagRing * ArenaFlagRing:
+    return true
+  for homeX in [186, 1049]:
+    if abs(x - homeX) <= ArenaSpawnClearW and abs(y - cy) <= ArenaSpawnClearH:
+      return true
+  false
+
+proc isArenaWall(x, y, cx, cy: int): bool =
+  ## Returns true when (x, y) is a wall pixel on the generated arena.
+  if x < ArenaBorder or y < ArenaBorder or
+      x >= MapWidth - ArenaBorder or y >= MapHeight - ArenaBorder:
+    return true
+  if isProtectedFloor(x, y, cx, cy):
+    return false
+  for rect in ArenaLeftObstacles:
+    if inRect(x, y, rect) or inRect(x, y, rect.mirrorX()):
+      return true
+  false
+
+proc overTint(base, tint: ColorRGBA): ColorRGBA =
+  ## Alpha-composites a translucent tint over an opaque base color.
+  let a = tint.a.int
+  rgba(
+    uint8((base.r.int * (255 - a) + tint.r.int * a) div 255),
+    uint8((base.g.int * (255 - a) + tint.g.int * a) div 255),
+    uint8((base.b.int * (255 - a) + tint.b.int * a) div 255),
+    255
+  )
 
 proc loadMapLayers*(gameMap: CtfMap): tuple[mapImage, walkImage, wallImage: Image] =
-  ## Loads the map, floor mask, and wall mask from aseprite layers.
+  ## Builds the visual map plus the walk and wall masks for the arena.
   let
-    path = gameMap.asepritePath
-    sprite = readAseprite(path)
-  if sprite.header.width != gameMap.width or sprite.header.height != gameMap.height:
-    raise newException(
-      CtfError,
-      path & " dimensions must be " &
-        $gameMap.width & "x" & $gameMap.height & "."
-    )
-  (
-    mapImage: sprite.asepriteLayerImage(gameMap.mapLayer),
-    walkImage: sprite.asepriteLayerImage(gameMap.walkLayer),
-    wallImage: sprite.asepriteLayerImage(gameMap.wallLayer)
-  )
+    w = gameMap.width
+    h = gameMap.height
+    cx = gameMap.center.x
+    cy = gameMap.center.y
+  result.mapImage = newImage(w, h)
+  result.walkImage = newImage(w, h)
+  result.wallImage = newImage(w, h)
+  let
+    clear = rgba(0, 0, 0, 0)
+    opaque = rgba(255, 255, 255, 255)
+  for y in 0 ..< h:
+    for x in 0 ..< w:
+      let
+        onBorder = x < ArenaBorder or y < ArenaBorder or
+          x >= w - ArenaBorder or y >= h - ArenaBorder
+        wall = isArenaWall(x, y, cx, cy)
+      var color =
+        if onBorder: ArenaBorderColor
+        elif wall: ArenaWall
+        else: ArenaFloor
+      if not wall:
+        ## Team territory wash on the readable floor.
+        if x < cx:
+          color = overTint(color, ArenaRedTint)
+        else:
+          color = overTint(color, ArenaBlueTint)
+      result.mapImage[x, y] = color
+      result.walkImage[x, y] = if wall: clear else: opaque
+      result.wallImage[x, y] = if wall: opaque else: clear
+  ## Draw a small pedestal marker at the flag center (stays walkable).
+  for dy in -4 .. 4:
+    for dx in -4 .. 4:
+      if dx * dx + dy * dy <= 16:
+        result.mapImage[cx + dx, cy + dy] = ArenaPedestal
 
 proc loadDarkBgPixels*(): seq[uint8] =
   ## Loads the dark interstitial background as palette pixels.
@@ -1240,8 +1206,10 @@ proc isWalkable*(sim: SimServer, x, y: int): bool =
   sim.walkMask[mapIndex(x, y)]
 
 proc canOccupy*(sim: SimServer, x, y: int): bool =
-  for dy in 0 ..< CollisionH:
-    for dx in 0 ..< CollisionW:
+  ## True when the player's solid footprint, a box of half-extent PlayerHalf
+  ## centered on (x, y), fits entirely on walkable floor.
+  for dy in -PlayerHalf .. PlayerHalf:
+    for dx in -PlayerHalf .. PlayerHalf:
       if not sim.isWalkable(x + dx, y + dy):
         return false
   true
@@ -1892,6 +1860,7 @@ proc playerResultsJson*(sim: SimServer): string =
 
 proc startGame*(sim: var SimServer) =
   sim.logGameEvent("game started: players=" & $sim.players.len)
+  sim.recentShots = @[]
   sim.arrangeHomePositions()
   for i in 0 ..< sim.players.len:
     sim.players[i].alive = true
@@ -2159,6 +2128,34 @@ proc tryFire*(sim: var SimServer, shooterIndex: int) =
       bestDist = d
       bestTarget = i
   sim.players[shooterIndex].fireCooldown = sim.config.fireCooldownTicks
+  # Record a cosmetic tracer for the shot (never enters gameHash).
+  var
+    ex = sx
+    ey = sy
+  if bestTarget >= 0:
+    ex = sim.players[bestTarget].x + CollisionW div 2
+    ey = sim.players[bestTarget].y + CollisionH div 2
+  else:
+    # March along the normalized facing to the last clear pixel or max range.
+    let maxRange = sim.config.gunRange
+    var lastClear = 0
+    for step in 1 .. maxRange:
+      let
+        rx = sx + int(round(fdx / facingLen * float(step)))
+        ry = sy + int(round(fdy / facingLen * float(step)))
+      if not sim.lineOfSightClear(sx, sy, rx, ry):
+        break
+      lastClear = step
+    ex = sx + int(round(fdx / facingLen * float(lastClear)))
+    ey = sy + int(round(fdy / facingLen * float(lastClear)))
+  sim.recentShots.add ShotFx(
+    x0: sx,
+    y0: sy,
+    x1: ex,
+    y1: ey,
+    firedTick: sim.tickCount,
+    color: shooter.color
+  )
   if bestTarget >= 0:
     sim.killPlayer(bestTarget, shooterIndex)
     sim.recordKill(shooterIndex)
@@ -2909,6 +2906,7 @@ proc resetToLobby*(sim: var SimServer) =
   sim.phase = Lobby
   sim.players = @[]
   sim.shadowCaches = @[]
+  sim.recentShots = @[]
   sim.nextJoinOrder = 0
   sim.tickCount = 0
   sim.gameStartTick = -1
@@ -2996,3 +2994,10 @@ proc step*(
 
   sim.checkWinCondition()
   sim.checkMaxTicks()
+
+  # Prune expired shot tracers (cosmetic only; excluded from gameHash).
+  var kept: seq[ShotFx] = @[]
+  for shot in sim.recentShots:
+    if sim.tickCount - shot.firedTick < ShotFxTicks:
+      kept.add shot
+  sim.recentShots = kept

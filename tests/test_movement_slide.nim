@@ -5,8 +5,8 @@ import
 
 const GameDir = currentSourcePath.parentDir.parentDir
 
-proc initCrewriftForTest(config: GameConfig): SimServer =
-  ## Initializes Crewrift from the game directory.
+proc initCtfForTest(config: GameConfig): SimServer =
+  ## Initializes the CTF sim from the game directory.
   let previousDir = getCurrentDir()
   setCurrentDir(GameDir)
   try:
@@ -19,51 +19,43 @@ proc blockAll(sim: var SimServer) =
   for i in 0 ..< sim.walkMask.len:
     sim.walkMask[i] = false
 
-proc setWalk(sim: var SimServer, x, y: int, walk: bool) =
-  ## Updates one walk mask cell for movement tests.
-  sim.walkMask[mapIndex(x, y)] = walk
+proc openField(sim: var SimServer, x0, y0, x1, y1: int) =
+  ## Opens a rectangular block of walkable floor.
+  for y in y0 .. y1:
+    for x in x0 .. x1:
+      sim.walkMask[mapIndex(x, y)] = true
 
-suite "movement slide":
-  test "slides toward input around a blocked step":
-    var sim = initCrewriftForTest(defaultGameConfig())
-    let playerIndex = sim.addPlayer("slider")
+proc placeStill(sim: var SimServer, index, x, y: int) =
+  sim.players[index].x = x
+  sim.players[index].y = y
+  sim.players[index].velX = 0
+  sim.players[index].velY = 0
+  sim.players[index].carryX = 0
+  sim.players[index].carryY = 0
+
+suite "movement footprint":
+  test "moves across open floor toward input":
+    var sim = initCtfForTest(defaultGameConfig())
+    let p = sim.addPlayer("mover")
     sim.blockAll()
-    sim.players[playerIndex].x = 20
-    sim.players[playerIndex].y = 20
-    sim.players[playerIndex].velX =
-      sim.config.motionScale - sim.config.accel
-    sim.setWalk(20, 20, true)
-    sim.setWalk(20, 21, true)
-    sim.setWalk(21, 21, true)
+    sim.openField(40, 40, 240, 240)
+    sim.placeStill(p, 100, 100)
+    for _ in 0 .. 20:
+      sim.applyInput(p, InputState(right: true), InputState())
+    check sim.players[p].x > 100          # accelerated to the right
+    check sim.players[p].y == 100          # no vertical drift
 
-    sim.applyInput(
-      playerIndex,
-      InputState(right: true, down: true),
-      InputState()
-    )
-
-    check sim.players[playerIndex].x == 21
-    check sim.players[playerIndex].y == 21
-
-  test "scans farther when several pixels are queued":
-    var sim = initCrewriftForTest(defaultGameConfig())
-    let playerIndex = sim.addPlayer("scanner")
+  test "solid footprint cannot overlap a wall":
+    var sim = initCtfForTest(defaultGameConfig())
+    let p = sim.addPlayer("bumper")
     sim.blockAll()
-    sim.players[playerIndex].x = 30
-    sim.players[playerIndex].y = 30
-    sim.players[playerIndex].velX =
-      sim.config.maxSpeed - sim.config.accel
-    sim.setWalk(30, 30, true)
-    sim.setWalk(30, 31, true)
-    sim.setWalk(30, 32, true)
-    sim.setWalk(30, 33, true)
-    sim.setWalk(31, 33, true)
-
-    sim.applyInput(
-      playerIndex,
-      InputState(right: true, down: true),
-      InputState()
-    )
-
-    check sim.players[playerIndex].x == 31
-    check sim.players[playerIndex].y == 33
+    sim.openField(40, 40, 240, 240)
+    # Wall column starting at x = 150.
+    for y in 40 .. 240:
+      for x in 150 .. 240:
+        sim.walkMask[mapIndex(x, y)] = false
+    sim.placeStill(p, 100, 100)
+    for _ in 0 .. 80:
+      sim.applyInput(p, InputState(right: true), InputState())
+    check sim.players[p].x > 100                    # advanced toward the wall
+    check sim.players[p].x + PlayerHalf < 150        # but never entered it
