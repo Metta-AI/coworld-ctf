@@ -1,0 +1,7 @@
+{
+  "author": "daveey@softmax.com",
+  "name": "baseline",
+  "image_uri": "public.ecr.aws/PLACEHOLDER/players/baseline:latest",
+  "run": ["/bin/baseline"],
+  "games": ["ctf"]
+}
