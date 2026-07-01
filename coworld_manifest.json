@@ -7,10 +7,11 @@
     "owner": "treeform@softmax.com",
     "runnable": {
       "type": "game",
-      "image": "ghcr.io/metta-ai/coworld-ctf:latest",
+      "image": "{{GAME_IMAGE}}",
       "run": [
         "/bin/ctf"
-      ]
+      ],
+      "source_url": "https://github.com/Metta-AI/coworld-ctf/tree/main"
     },
     "config_schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -312,10 +313,11 @@
       "name": "baseline",
       "type": "player",
       "description": "Minimal sprite-protocol CTF baseline bot: grab the flag, run it home, shoot enemies in front. Image placeholder is replaced at deploy time.",
-      "image": "ghcr.io/metta-ai/coworld-ctf-baseline:latest",
+      "image": "{{PLAYER_IMAGE}}",
       "run": [
         "/bin/baseline"
-      ]
+      ],
+      "source_url": "https://github.com/Metta-AI/coworld-ctf/tree/main/players/baseline"
     }
   ],
   "commissioner": [
@@ -324,28 +326,8 @@
       "name": "CTF Commissioner",
       "type": "commissioner",
       "description": "Config-driven ruleset-strategy commissioner for CTF: team_blocks seating with team_count 2 (Red/Blue, 8 seats each), win-based EWMA leaderboard. Defined by configs/ctf.yaml (RULESET_STRATEGY_CONFIG_NAME=ctf, baked into the image). Requires num_agents:16 in the variant game_config.",
-      "source_url": "https://github.com/Metta-AI/commissioners/tree/main/commissioners/ruleset_strategy_commissioner",
-      "image": "ghcr.io/metta-ai/commissioners-ctf:latest"
-    }
-  ],
-  "reporter": [
-    {
-      "id": "ctf-eventlog-reporter",
-      "name": "CTF Event-Log Reporter",
-      "type": "reporter",
-      "description": "Placeholder reporter that expands a completed CTF episode replay into a structured event log. Deployment artifact owned by another worker.",
-      "source_url": "https://github.com/Metta-AI/coworld-ctf/tree/main/reporters/eventlog",
-      "image": "ghcr.io/metta-ai/reporters-ctf-eventlog:latest"
-    }
-  ],
-  "grader": [
-    {
-      "id": "ctf-grader",
-      "name": "CTF Grader",
-      "type": "grader",
-      "description": "Placeholder CTF grader that scores episodes from team wins. Deployment artifact owned by another worker.",
-      "source_url": "https://github.com/Metta-AI/graders/tree/main/graders/ctf/ctf_grader",
-      "image": "ghcr.io/metta-ai/graders-ctf:latest"
+      "source_url": "https://github.com/Metta-AI/coworld-tools/tree/main/commissioners/commissioners/ruleset_strategy_commissioner",
+      "image": "{{COMMISSIONER_IMAGE}}"
     }
   ],
   "variants": [

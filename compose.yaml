@@ -1,0 +1,28 @@
+x-coworld-role-contexts:
+  game: &game_context ${GAME_CONTEXT:-.}
+  commissioner: &commissioner_context ${COMMISSIONER_CONTEXT:-../coworld-tools/commissioners}
+
+services:
+  game:
+    image: coworld-ctf-game:latest
+    platform: linux/amd64
+    build:
+      context: *game_context
+      dockerfile: Dockerfile
+      network: host
+  player:
+    image: coworld-ctf-baseline:latest
+    platform: linux/amd64
+    build:
+      context: *game_context
+      dockerfile: players/baseline/Dockerfile
+      network: host
+  commissioner:
+    image: coworld-ctf-commissioner:latest
+    platform: linux/amd64
+    build:
+      context: *commissioner_context
+      dockerfile: commissioners/Dockerfile
+      args:
+        COMMISSIONER_KEY: config_driven
+        RULESET_STRATEGY_CONFIG_NAME: ctf
