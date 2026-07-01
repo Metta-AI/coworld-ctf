@@ -1035,10 +1035,12 @@ proc runBot(url: string) =
   bot.resetTransient()
   echo "baseline slot=", slot, " team=", team, " role=", role, " -> ", endpoint
   let client = initProtocolClient()
+  var everConnected = false
   while true:
     try:
       let ws = newWebSocket(endpoint)
       echo "connected ", endpoint
+      everConnected = true
       client.reset()
       bot.navBuilt = false
       bot.resetTransient()
@@ -1057,7 +1059,12 @@ proc runBot(url: string) =
           ws.send(inputBlob(mask), BinaryMessage)
           lastMask = mask
     except Exception as e:
-      echo "disconnected: ", e.msg
+      if everConnected:
+        # The game ended and the server went away: exit so the episode
+        # runner sees a clean player shutdown.
+        echo "game over, exiting: ", e.msg
+        quit(0)
+      echo "connect retry: ", e.msg
       sleep(250)
 
 when isMainModule:
