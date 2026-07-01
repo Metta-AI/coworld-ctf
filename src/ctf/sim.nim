@@ -40,10 +40,11 @@ const
   Lives* = 3
   RespawnTicks* = 72          ## ~3s before respawning at home.
   SpawnProtectTicks* = 24     ## ~1s spawn invulnerability.
-  GunRange* = 150             ## px, a bit beyond the 128px view window.
+  GunRange* = 260             ## px, well beyond the 128px view window.
   GunConeDeg* = 25            ## firing cone half-angle in degrees.
   FireCooldownTicks* = 12     ## ~0.5s between shots.
   ShotFxTicks* = 12           ## ~0.5s a shot tracer stays visible (cosmetic only).
+  SplatterFxTicks* = 120      ## ~5s a death splatter stays visible (cosmetic only).
   CarrierSpeedPct* = 70       ## carrier moves at 70% speed.
   FlagReturnTicks* = 192      ## ~8s idle before a dropped flag resets.
 
@@ -51,8 +52,8 @@ const
   GameOverTicks* = 360
   MaxTicks* = 10_000  ## 0 = no limit.
   MaxGames* = 0  ## 0 = no limit.
-  MaxPlayers* = 8
-  MinPlayers* = 8
+  MaxPlayers* = 16
+  MinPlayers* = 16
 
   WinReward* = 100
 
@@ -267,6 +268,12 @@ type
     firedTick*: int
     color*: uint8
 
+  SplatterFx* = object
+    ## A cosmetic death splatter mark; never enters gameHash (replay-safe).
+    x*, y*: int
+    tick*: int
+    color*: uint8
+
   SimServer* = object
     config*: GameConfig
     players*: seq[Player]
@@ -289,6 +296,7 @@ type
     nextJoinOrder*: int
     tickCount*: int
     recentShots*: seq[ShotFx]  ## cosmetic shot tracers; excluded from gameHash.
+    splatters*: seq[SplatterFx]  ## cosmetic death splatters; excluded from gameHash.
     gameStartTick*: int
     startWaitTimer*: int
     phase*: GamePhase
@@ -476,19 +484,36 @@ const
 
   ## Interior obstacle rectangles for the LEFT half only. Each is mirrored
   ## across the vertical center line so both halves are identical; the
-  ## top/bottom pairs also make the layout 4-fold symmetric. Rects sit
-  ## between the capture/spawn columns (x >= ArenaCaptureClear) and the mid
-  ## lane, leaving top / mid (past the flag) / bottom lanes open.
+  ## top/bottom pairs also make the layout 4-fold symmetric. Many small
+  ## pillars, wall stubs, and cover blocks break up sightlines while keeping
+  ## three readable lanes (top / mid past the flag / bottom) and >= 26px
+  ## corridors for the 13px player footprint. Rects sit between the
+  ## capture/spawn columns (x >= ArenaCaptureClear) and the flag ring.
   ArenaLeftObstacles = [
-    MapRect(x: 300, y: 88, w: 62, h: 62),    ## upper pillar
-    MapRect(x: 300, y: 470, w: 62, h: 62),   ## lower pillar
-    MapRect(x: 430, y: 100, w: 24, h: 150),  ## upper long wall
-    MapRect(x: 430, y: 410, w: 24, h: 150),  ## lower long wall
-    MapRect(x: 296, y: 300, w: 78, h: 24),   ## mid-left cover block
-    MapRect(x: 512, y: 150, w: 96, h: 20),   ## upper flank wall near flag
-    MapRect(x: 512, y: 490, w: 96, h: 20),   ## lower flank wall near flag
-    MapRect(x: 232, y: 44, w: 20, h: 96),    ## top corner cover
-    MapRect(x: 232, y: 520, w: 20, h: 96),   ## bottom corner cover
+    ## Top-half pieces.
+    MapRect(x: 240, y: 60, w: 20, h: 20),    ## top-left pillar
+    MapRect(x: 310, y: 40, w: 16, h: 56),    ## top lane wall stub
+    MapRect(x: 390, y: 80, w: 24, h: 24),    ## top-mid pillar
+    MapRect(x: 460, y: 40, w: 18, h: 60),    ## top lane wall stub
+    MapRect(x: 540, y: 90, w: 28, h: 28),    ## pillar near center top
+    MapRect(x: 300, y: 150, w: 30, h: 30),   ## upper-mid pillar
+    MapRect(x: 400, y: 180, w: 16, h: 64),   ## upper vertical stub
+    MapRect(x: 500, y: 170, w: 60, h: 16),   ## upper flank stub near flag
+    MapRect(x: 280, y: 250, w: 24, h: 24),   ## mid-left pillar
+    MapRect(x: 360, y: 296, w: 56, h: 18),   ## mid slot cover, upper lip
+    MapRect(x: 470, y: 280, w: 20, h: 20),   ## pillar left of the flag ring
+    ## Bottom-half mirrors (y' = MapHeight - y - h).
+    MapRect(x: 240, y: 579, w: 20, h: 20),   ## bottom-left pillar
+    MapRect(x: 310, y: 563, w: 16, h: 56),   ## bottom lane wall stub
+    MapRect(x: 390, y: 555, w: 24, h: 24),   ## bottom-mid pillar
+    MapRect(x: 460, y: 559, w: 18, h: 60),   ## bottom lane wall stub
+    MapRect(x: 540, y: 541, w: 28, h: 28),   ## pillar near center bottom
+    MapRect(x: 300, y: 479, w: 30, h: 30),   ## lower-mid pillar
+    MapRect(x: 400, y: 415, w: 16, h: 64),   ## lower vertical stub
+    MapRect(x: 500, y: 473, w: 60, h: 16),   ## lower flank stub near flag
+    MapRect(x: 280, y: 385, w: 24, h: 24),   ## mid-left pillar
+    MapRect(x: 360, y: 345, w: 56, h: 18),   ## mid slot cover, lower lip
+    MapRect(x: 470, y: 359, w: 20, h: 20),   ## pillar left of the flag ring
   ]
 
 proc arenaCtfMap(): CtfMap =
@@ -1861,6 +1886,7 @@ proc playerResultsJson*(sim: SimServer): string =
 proc startGame*(sim: var SimServer) =
   sim.logGameEvent("game started: players=" & $sim.players.len)
   sim.recentShots = @[]
+  sim.splatters = @[]
   sim.arrangeHomePositions()
   for i in 0 ..< sim.players.len:
     sim.players[i].alive = true
@@ -2067,6 +2093,13 @@ proc killPlayer(sim: var SimServer, targetIndex, killerIndex: int) =
   if sim.players[targetIndex].carryingFlag or sim.flagCarrier == targetIndex:
     sim.players[targetIndex].carryingFlag = false
     sim.dropFlagAt(sim.players[targetIndex].x, sim.players[targetIndex].y)
+  # Leave a cosmetic splatter at the death spot (never enters gameHash).
+  sim.splatters.add SplatterFx(
+    x: sim.players[targetIndex].x,
+    y: sim.players[targetIndex].y,
+    tick: sim.tickCount,
+    color: sim.players[targetIndex].color
+  )
   sim.players[targetIndex].alive = false
   sim.players[targetIndex].velX = 0
   sim.players[targetIndex].velY = 0
@@ -2907,6 +2940,7 @@ proc resetToLobby*(sim: var SimServer) =
   sim.players = @[]
   sim.shadowCaches = @[]
   sim.recentShots = @[]
+  sim.splatters = @[]
   sim.nextJoinOrder = 0
   sim.tickCount = 0
   sim.gameStartTick = -1
@@ -2995,9 +3029,15 @@ proc step*(
   sim.checkWinCondition()
   sim.checkMaxTicks()
 
-  # Prune expired shot tracers (cosmetic only; excluded from gameHash).
+  # Prune expired shot tracers and splatters (cosmetic only; excluded from
+  # gameHash).
   var kept: seq[ShotFx] = @[]
   for shot in sim.recentShots:
     if sim.tickCount - shot.firedTick < ShotFxTicks:
       kept.add shot
   sim.recentShots = kept
+  var keptSplatters: seq[SplatterFx] = @[]
+  for splatter in sim.splatters:
+    if sim.tickCount - splatter.tick < SplatterFxTicks:
+      keptSplatters.add splatter
+  sim.splatters = keptSplatters

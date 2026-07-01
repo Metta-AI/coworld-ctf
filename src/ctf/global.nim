@@ -53,19 +53,19 @@ const
   CarrierBarHeight = 2
   CarrierBarYOffset = 4
   CarrierBarColor = 2'u8
-  TrailDotSpriteBase = 720
-  TrailDotObjectBase = 6000
-  TrailDotSize = 3
-  TrailDotSpacing = 10
-  TrailMaxDots = 10
   TracerDotSpriteId = 760      ## single bright shot-tracer dot sprite.
   TracerDotObjectBase = 15000  ## tracer object-id pool base.
   TracerDotSize = 3
   TracerDotSpacing = 5         ## px between sampled tracer dots along a shot.
   TracerDotColor = 8'u8        ## bright yellow (255,236,39): pops on the dark arena.
-  TracerMaxShots = 8           ## most tracers drawn at once (one per shooter).
-  TracerDotsPerShot = 34       ## dots per shot (gunRange / spacing, plus slack).
+  TracerMaxShots = 16          ## most tracers drawn at once (one per shooter).
+  TracerDotsPerShot = 56       ## dots per shot (gunRange / spacing, plus slack).
   TracerMaxDots = TracerMaxShots * TracerDotsPerShot
+  SplatterSpriteBase = 16000   ## per color-and-fade-stage splatter sprites.
+  SplatterObjectBase = 16500   ## splatter object-id pool base.
+  SplatterSize = 13
+  SplatterStages = 4           ## fade stages across SplatterFxTicks.
+  SplatterMaxCount = 32        ## most splatters drawn at once.
   PlayerNameSpriteBase = 7000
   PlayerNameObjectBase = 7000
   PlayerNameZ = 30002
@@ -127,15 +127,6 @@ const
   ]
 
 type
-  TrailDot = object
-    x, y: int
-    colorIndex: int
-
-  PlayerTrail = ref object
-    joinOrder: int
-    lastX, lastY: int
-    dots: seq[TrailDot]
-
   SpriteDefinition = ref object
     spriteId: int
     width: int
@@ -157,7 +148,6 @@ type
     scrubbingReplay*: bool
     replaySeekTick*: int
     replayCommands*: seq[char]
-    trails: seq[PlayerTrail]
     spriteDefs: seq[SpriteDefinition]
 
   PlayerViewerState* = ref object
@@ -509,17 +499,36 @@ proc buildCarrierBarSprite(color: uint8): seq[uint8] {.measure.} =
   for i in 0 ..< CarrierBarWidth * CarrierBarHeight:
     result.putRgbaPixel(i, color)
 
-proc buildTrailDotSprite(color: uint8): seq[uint8] {.measure.} =
-  ## Builds one global-only player trail dot sprite.
-  result = newRgbaPixels(TrailDotSize, TrailDotSize)
-  for i in 0 ..< TrailDotSize * TrailDotSize:
-    result.putRgbaPixel(i, color)
-
 proc buildTracerDotSprite(): seq[uint8] {.measure.} =
   ## Builds the single bright shot-tracer dot sprite.
   result = newRgbaPixels(TracerDotSize, TracerDotSize)
   for i in 0 ..< TracerDotSize * TracerDotSize:
     result.putRgbaPixel(i, TracerDotColor)
+
+proc buildSplatterSprite(colorIndex, stage: int): seq[uint8] {.measure.} =
+  ## Builds one death-splatter blob: a dense irregular blob of the victim's
+  ## color at stage 0 that grows sparser and darker toward the last stage.
+  result = newRgbaPixels(SplatterSize, SplatterSize)
+  let
+    color = PlayerColors[colorIndex and 0x0f]
+    shade = ShadowMap[color and 0x0f]
+    half = SplatterSize div 2
+  for y in 0 ..< SplatterSize:
+    for x in 0 ..< SplatterSize:
+      let
+        dx = x - half
+        dy = y - half
+        d2 = dx * dx + dy * dy
+      if d2 > half * half:
+        continue
+      var noise = uint32(x) * 374761393'u32 + uint32(y) * 668265263'u32
+      noise = (noise xor (noise shr 13)) * 1274126177'u32
+      let density = 120 - stage * 25 - d2 * 2
+      if int((noise shr 16) mod 100) < density:
+        result.putRgbaPixel(
+          y * SplatterSize + x,
+          if stage >= SplatterStages div 2: shade else: color
+        )
 
 proc buildMapSpritePixels(sim: SimServer): seq[uint8] {.measure.} =
   ## Returns the true-color map pixels for a global protocol sprite.
@@ -1052,15 +1061,6 @@ proc buildSpriteProtocolInit(
     buildCarrierBarSprite(CarrierBarColor),
     "carrier indicator"
   )
-  for i in 0 ..< PlayerColors.len:
-    result.addSpriteChanged(
-      spriteDefs,
-      TrailDotSpriteBase + i,
-      TrailDotSize,
-      TrailDotSize,
-      buildTrailDotSprite(PlayerColors[i]),
-      "trail " & playerColorName(i)
-    )
   result.addSpriteChanged(
     spriteDefs,
     TracerDotSpriteId,
@@ -1317,10 +1317,6 @@ proc playerLabelLines(
   ## Returns label lines (name plus lives) for one player.
   result = @[playerLabelText(player)]
 
-proc spriteTrailDotObjectId(joinOrder, dotIndex: int): int =
-  ## Returns the stable global protocol object id for a trail dot.
-  TrailDotObjectBase + joinOrder * TrailMaxDots + dotIndex
-
 proc spritePlayerX(player: Player): int =
   ## Returns the global viewer x position for a player sprite.
   player.x - SpriteDrawOffX - 1
@@ -1328,66 +1324,6 @@ proc spritePlayerX(player: Player): int =
 proc spritePlayerY(player: Player): int =
   ## Returns the global viewer y position for a player sprite.
   player.y - SpriteDrawOffY - 1
-
-proc trailCenter(player: Player): tuple[x, y: int] =
-  ## Returns the map position used for a player's trail.
-  (
-    x: player.x + CollisionW div 2,
-    y: player.y + CollisionH div 2
-  )
-
-proc trailIndex(state: GlobalViewerState, joinOrder: int): int =
-  ## Returns the trail index for one player join order.
-  for i in 0 ..< state.trails.len:
-    if state.trails[i].joinOrder == joinOrder:
-      return i
-  -1
-
-proc playerExists(sim: SimServer, joinOrder: int): bool =
-  ## Returns true when a player join order is still present.
-  for player in sim.players:
-    if player.joinOrder == joinOrder:
-      return true
-  false
-
-proc updateTrails(state: var GlobalViewerState, sim: SimServer) {.measure.} =
-  ## Updates global-only player trails from current player positions.
-  for i in countdown(state.trails.high, 0):
-    if not sim.playerExists(state.trails[i].joinOrder):
-      state.trails.delete(i)
-
-  for player in sim.players:
-    let
-      center = player.trailCenter()
-      colorIndex = playerColorIndex(player.color)
-    var index = state.trailIndex(player.joinOrder)
-    if index < 0:
-      state.trails.add PlayerTrail(
-        joinOrder: player.joinOrder,
-        lastX: center.x,
-        lastY: center.y,
-        dots: @[TrailDot(
-          x: center.x,
-          y: center.y,
-          colorIndex: colorIndex
-        )]
-      )
-      continue
-    if distSq(
-      center.x,
-      center.y,
-      state.trails[index].lastX,
-      state.trails[index].lastY
-    ) >= TrailDotSpacing * TrailDotSpacing:
-      state.trails[index].dots.add TrailDot(
-        x: center.x,
-        y: center.y,
-        colorIndex: colorIndex
-      )
-      state.trails[index].lastX = center.x
-      state.trails[index].lastY = center.y
-      while state.trails[index].dots.len > TrailMaxDots:
-        state.trails[index].dots.delete(0)
 
 proc spriteActorSpriteId(player: Player, selectedJoinOrder: int): int =
   ## Returns the sprite id for a player in the global viewer.
@@ -1519,6 +1455,60 @@ proc addShotTracers(
         MapLayerId,
         TracerDotSpriteId
       )
+
+proc splatterSpriteId(colorIndex, stage: int): int =
+  ## Returns the sprite id for one splatter color and fade stage.
+  SplatterSpriteBase + colorIndex * SplatterStages + stage
+
+proc addSplatters(
+  sim: SimServer,
+  cameraX, cameraY: int,
+  clipToFrame: bool,
+  spriteDefs: var seq[SpriteDefinition],
+  currentIds: var seq[int],
+  packet: var seq[uint8]
+) {.measure.} =
+  ## Places fading death splatters from a fixed object pool. The fade stage
+  ## comes from the splatter age quartile; splatters draw under the players.
+  var nextSplatter = 0
+  for splatter in sim.splatters:
+    if nextSplatter >= SplatterMaxCount:
+      break
+    let
+      age = sim.tickCount - splatter.tick
+      stage = clamp(
+        age * SplatterStages div SplatterFxTicks,
+        0,
+        SplatterStages - 1
+      )
+      colorIndex = playerColorIndex(splatter.color)
+      px = splatter.x - cameraX - SplatterSize div 2
+      py = splatter.y - cameraY - SplatterSize div 2
+    if clipToFrame and (
+      px + SplatterSize <= 0 or py + SplatterSize <= 0 or
+      px >= ScreenWidth or py >= ScreenHeight
+    ):
+      continue
+    let spriteId = splatterSpriteId(colorIndex, stage)
+    packet.addSpriteChanged(
+      spriteDefs,
+      spriteId,
+      SplatterSize,
+      SplatterSize,
+      buildSplatterSprite(colorIndex, stage),
+      "splatter " & playerColorName(colorIndex) & " stage " & $stage
+    )
+    let objectId = SplatterObjectBase + nextSplatter
+    inc nextSplatter
+    currentIds.add(objectId)
+    packet.addObject(
+      objectId,
+      px,
+      py,
+      splatter.y - 100,
+      MapLayerId,
+      spriteId
+    )
 
 proc buildSpriteProtocolPlayerUpdates*(
   sim: var SimServer,
@@ -1669,6 +1659,14 @@ proc buildSpriteProtocolPlayerUpdates*(
       result
     )
 
+    sim.addSplatters(
+      cameraX,
+      cameraY,
+      clipToFrame = true,
+      nextState.spriteDefs,
+      currentIds,
+      result
+    )
     sim.addShotTracers(cameraX, cameraY, clipToFrame = true, currentIds, result)
 
     # Fire-cooldown icon in the bottom-left corner.
@@ -2095,7 +2093,6 @@ proc buildSpriteProtocolUpdates*(
     )
     nextState.initialized = true
 
-  nextState.updateTrails(sim)
   var currentIds: seq[int] = @[]
   sim.addScoreboard(
     nextState.spriteDefs,
@@ -2103,21 +2100,14 @@ proc buildSpriteProtocolUpdates*(
     result,
     nextState.selectedJoinOrder
   )
-  for trail in nextState.trails:
-    for i in 0 ..< trail.dots.len:
-      let
-        dot = trail.dots[i]
-        objectId = spriteTrailDotObjectId(trail.joinOrder, i)
-      currentIds.add(objectId)
-      result.addObject(
-        objectId,
-        dot.x - TrailDotSize div 2,
-        dot.y - TrailDotSize div 2,
-        dot.y - 100,
-        MapLayerId,
-        TrailDotSpriteBase + dot.colorIndex
-      )
-
+  sim.addSplatters(
+    0,
+    0,
+    clipToFrame = false,
+    nextState.spriteDefs,
+    currentIds,
+    result
+  )
   sim.addShotTracers(0, 0, clipToFrame = false, currentIds, result)
 
   for playerIndex in 0 ..< sim.players.len:

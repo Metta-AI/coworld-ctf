@@ -126,6 +126,39 @@ suite "ctf game":
       sim.step(noInput, noInput)
     check sim.recentShots.len == 0
 
+  test "a kill leaves a splatter that skips the hash and fades out":
+    var sim = twoTeamGame()
+    let cx = sim.gameMap.center.x
+    let cy = sim.gameMap.center.y
+    sim.players[0].x = cx
+    sim.players[0].y = cy
+    sim.players[0].facingDx = 1
+    sim.players[0].facingDy = 0
+    sim.players[0].fireCooldown = 0
+    sim.players[1].x = cx + 6
+    sim.players[1].y = cy
+    sim.players[1].spawnProtect = 0
+
+    sim.tryFire(0)
+
+    check sim.splatters.len == 1
+    check sim.splatters[0].x == sim.players[1].x
+    check sim.splatters[0].y == sim.players[1].y
+    check sim.splatters[0].color == sim.players[1].color
+
+    # Cosmetic splatters must never change the deterministic gameplay hash:
+    # mutating splatters leaves the hash untouched.
+    let hashWithSplatter = sim.gameHash()
+    sim.splatters.add SplatterFx(x: 1, y: 2, tick: 9, color: 5)
+    check sim.gameHash() == hashWithSplatter
+    sim.splatters.setLen(1)
+    check sim.gameHash() == hashWithSplatter
+
+    let noInput = newSeq[InputState](sim.players.len)
+    for _ in 0 ..< SplatterFxTicks:
+      sim.step(noInput, noInput)
+    check sim.splatters.len == 0
+
   test "shot misses a target outside the cone":
     var sim = twoTeamGame()
     let cx = sim.gameMap.center.x
