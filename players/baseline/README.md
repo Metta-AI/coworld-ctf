@@ -1,63 +1,167 @@
-# baseline — Coworld CTF bot
+# baseline — Coworld CTF bot (8v8)
 
-A readable capture-the-flag reference bot that speaks the Bitworld Sprite v1
-protocol. It is intentionally simple — a legible policy, not a research agent —
-but it plays visibly better than a naive "walk to flag and shoot ahead" bot:
-it splits the team into roles, escorts its carrier, defends home, and picks its
-shots.
+A capture-the-flag reference bot that speaks the Bitworld Sprite v1 protocol.
+It keeps a persistent world model on top of the partially-observable 128×128
+view and plays a coordinated 8v8 team game on the dense-cover arena:
+cover-aware pathfinding, a flag-rushing mid trio, wide flankers, peek-and-shoot
+overwatch posts, carrier interception at the enemy capture gate, and
+disciplined one-shot-kill gunplay at the full 260px gun range.
 
-All decision logic lives in `decideMask` in `baseline.nim`.
+All decision logic lives in `decide` in `baseline.nim`.
 
 ## View model
 
-The per-player view is 128×128 **screen-space**; our own avatar is at the center
-(~64, 64), so "direction to X" is just `objectCenter - center`. **Facing equals
-movement direction** (you shoot where you walk), so to fire at a target we
-briefly steer toward it. Object labels we read:
+The per-player view is 128×128 **screen-space** with LOS occlusion (you see
+~64px around you — the gun far outranges your eyes). The map object's offset
+is the camera, so `mapPos = objectCenter + camera`, and our own avatar sits at
+exactly **(66, 66)** on screen (see `playerView` in `src/ctf/sim.nim`).
+**Facing equals movement direction** (you shoot where you walk) and only a
+**fresh A press** fires, so to shoot we steer into the target's octant and
+pulse A. Labels we read:
 
-- `"player <color> right"` / `"player <color> left"` — a player; the suffix is
-  their facing. Our color is a teammate, the other is an enemy.
-- `"flag"` — the flag. A carried flag rides its carrier's sprite, so a flag
-  near our center means **we** carry it; a flag overlapping a teammate/enemy
-  sprite means **they** carry it; otherwise it is loose on the ground.
+- `"player <color> right|left"` — a player; the suffix is horizontal facing.
+  Our own sprite shares our color label and is filtered by distance.
+- `"flag"` — a carried flag rides its carrier's exact position, so flag-on-me
+  means we carry, flag-on-a-sprite means they carry, otherwise it is loose.
 - `"flag arrow"` — off-screen direction hint to the flag.
+- `"walkability map"` — the full static map mask, sent once at init.
+- `"shadow"` — present only while we are alive (ghost views drop it).
+- `"fire icon"` / `"fire icon cooldown"` — whether our shot is ready.
+- Death splatters and shot tracers render under their own labels and are
+  ignored (cosmetic only).
 
-## Roles (deterministic from slot)
+## Nav grid, cost field & cover-aware movement
 
-Slot parity picks the team (even = Red, home = left edge; odd = Blue, home =
-right). The per-team seat index (`slot div 2`, 0–3) picks the role so the team
-is not a monolith:
+At init the full-map walkability mask is eroded by the player's solid
+footprint (`PlayerHalf` = 6px, matching the sim's `canOccupy`) into an
+8px-cell grid (`NavCell`). Movement goals run a **cost field (Dijkstra)** over
+that grid: orthogonal steps cost `StepCost`, diagonals `DiagCost` (no corner
+cuts), and entering a cell **exposed to a remembered enemy** adds
+`ExposedCost`. Exposure is recomputed per repath from the freshest few enemy
+tracks (`ExposureThreats`, age ≤ `ExposureTrackTtl`): a cell is exposed when
+it is inside gun range (`ExposureRange`) of the track with a coarsely-clear
+line. The soft cost makes every unit — attackers and carriers alike — advance
+cover-to-cover and keep obstacles between themselves and known threats
+without hard-blocking any route. Steering follows the cost gradient with a
+waypoint lookahead (`LookaheadCells`) plus a grid raycast; the field refreshes
+when the goal cell changes or every `RepathTicks`. A stuck detector (no
+movement for ~1s, and not deliberately holding behind cover) bursts in a
+random direction and forces a repath.
 
-- **Attackers** (lower two seats): chase the loose flag, grab it, and carry it
-  home; escort a teammate carrier.
-- **Defenders** (upper two seats): hang back toward home and face the incoming
-  lane, intercepting enemies and enemy carriers.
+## Cover model
 
-## Per-frame decision
+From the eroded grid we precompute **cover cells** — walkable cells adjacent
+to an obstacle (`coverCell`). They feed three behaviors:
 
-1. **Movement target**, in priority order:
-   - Carrying the flag → beeline to our home edge.
-   - A teammate is carrying → escort: sit just behind them toward home and cover.
-   - An enemy is carrying → chase the carrier down.
-   - Defender with no flag in view → hold near home, facing the nearest enemy.
-   - Flag visible and loose → go grab it.
-   - Otherwise → follow the flag arrow (or jitter to avoid deadlock).
-2. **Aim bias**: if the nearest enemy is close and roughly ahead, briefly steer
-   toward it — a one-shot kill is worth a short detour.
-3. **Retreat / jink**: if a close enemy is facing us (a right-facer to our left,
-   or a left-facer to our right) and we are not closing to shoot, strafe
-   perpendicular instead of walking into its muzzle.
-4. **Fire (A)**: shoot the nearest enemy that is in gun range and inside our
-   firing cone (a looser cone at point-blank). A friendly-fire guard holds fire
-   when a closer teammate sits tightly in the line.
+- **Duck**: during the 12-tick fire cooldown with a remembered threat nearby,
+  move to the nearest directly-reachable cell whose center the threat cannot
+  see (exact pixel raycast, the sim's LOS rule) and hold there until the gun
+  is back up (`findDuckCell`).
+- **Peek**: with the gun up and the nearest fresh track wall-blocked, step
+  sideways to the nearest cell that opens a firing line within gun range
+  (`findPeekCell`); the engage logic fires the moment the ray clears, and the
+  next cooldown ducks us back. This peek → fire → duck cycle is the default
+  combat mode for every non-carrier, non-rushing unit.
+- **Overwatch posts**: at nav-build each overwatch seat scans for a cover
+  cell just on our side of the flag ring (`pickPost`) whose obstacle blocks
+  the line toward the enemy half (`CoverShieldDist`) and which has a sideways
+  peek cell owning a ≥`PeekLineDist` open firing line toward the enemy half.
+  The bot holds the post, sidesteps to the peek cell when a remembered enemy
+  is in reach with the gun up, fires, and ducks back on cooldown.
 
-Randomized jitter breaks ties and prevents deadlocks throughout.
+## Memory (the world is partially observable)
+
+- **Player tracks**: visible players are matched to remembered tracks
+  (position, blended px/tick velocity, last-seen tick, facing). Tracks expire
+  after `TrackTtl` (~5s) and are capped at the **8** real opponents/teammates
+  (`TrackCap`). Ghost frames are ignored so corpses never poison memory.
+- **Flag memory**: the last flag position is trusted for `FlagMemoryTtl`
+  (~7s — a dropped flag auto-returns after 8s); after that we follow the flag
+  arrow, else assume center.
+- **Enemy carrier memory**: a carrier sighting is trusted for `CarryTtl`
+  (~10s — roughly a full run home) and cleared the moment we see the flag
+  loose or on a teammate.
+
+## Roles & lanes (deterministic from the seat)
+
+Slot parity picks the team (even = Red/left, odd = Blue/right); the per-team
+seat index (`slot div 2`) picks the role via `roleForSeat`:
+
+- **Seats 2/3 — MidTop (rusher) + MidBottom**: both seats spawn at flag
+  height, but the sim's un-mirrored ±6px spawn offset makes seat 3 the
+  closest spawn for Red and seat 2 for Blue — the **rusher** takes whichever
+  is closer for its team (still fully deterministic) and races the flag dead
+  straight, winning the opening pickup race. The other trails offset low.
+- **Seat 1 — MidGuard**: third mid, trails the rusher offset high; the trio
+  is spread so one 25° enemy cone cannot kill two of them.
+- **Seats 0/6 — FlankBottom/FlankTop**: route wide via the extreme bottom/top
+  lanes (`LaneBottom`/`LaneTop`) to `FlankDepth` past mid (sticky
+  `behindLines` progress so they never oscillate), then stage
+  `BehindFlagDist` past the flag and hit the contest from the octant the
+  enemy is facing away from.
+- **Seats 4/5 — OverwatchTop/OverwatchBottom**: hold the shielded cover posts
+  flanking the flag ring (see cover model) and run the peek-fire-duck cycle
+  on anything crossing mid.
+- **Seat 7 — HomeDefender**: holds the choke between the flag and our capture
+  column, snapped to the nearest cover cell (`chokeHold`); grabs a loose flag
+  on our half and chases intruders.
+
+Priorities override the defaults for everyone: carry → run home; enemy
+carrier known → intercept (see below); teammate carries → escort (mids and
+flankers take spread positions ahead toward home, the guard screens the
+nearest threat, overwatch keeps its posts covering the retreat, the defender
+holds the choke).
+
+## Carrier play & interception
+
+Our carrier picks the home lane (top/mid/bottom) with the fewest remembered
+enemies (`safestLaneY`) and paths deep into the capture zone; the exposure
+cost keeps the run hugging cover past remembered enemies. Carriers never
+peek, duck, or jink and only engage enemies within `CarrierFireRange`.
+
+Against an enemy carrier: a fresh sighting (≤ ~40 ticks) makes everyone
+converge on its predicted path. A **stale** sighting means it is running home
+out of view — instead of chasing a fading prediction, units cut it off at the
+**enemy capture gate** (`InterceptGateX` past mid on the mid lane), the fixed
+choke every carrier must cross. Mids chase the flag itself (the arrow tracks
+a carried flag globally).
+
+## Fire discipline & combat micro
+
+- **Target**: nearest track seen within `FreshShotTicks`, led by its velocity
+  (`LeadTicks`), within `FireRange` = 250 (the 260px gun outranges the 128px
+  view, so fresh off-screen tracks are fair targets), with a clear pixel
+  raycast against the walkability mask (exactly the sim's LOS rule). Shoot
+  first from max range — first shot wins.
+- **Aim**: steer into the target's octant — the worst-case 22.5° octant error
+  sits inside the 25° firing cone — and pulse A only when the fire icon shows
+  ready (fresh presses fire; A is released for a frame between shots).
+- **Friendly fire guard**: hold fire when a remembered teammate is inside the
+  firing corridor along the **full ray** out to the target (point-to-ray
+  distance under `CorridorHalfWidth`, inflated with sighting age) or inside a
+  30° cone closer than the target — the server kills the nearest player in
+  the cone, friend or foe, and 8v8 puts many teammates downrange.
+- **Rushing**: the mid trio skips peek/duck while playing for the flag —
+  pickup races and carrier chases are lost to positioning detours — and
+  shoots on the move instead.
+- **Jink**: when a visible enemy inside `ThreatRange` faces us and we have no
+  shot lined up (and no duck cell breaks its line), strafe perpendicular.
+- **Spacing**: soft repulsion keeps teammates ~`MateSpacing` (40px) apart so
+  one burst (or one of our own shots) cannot hit two of us.
+
+## Tuning
+
+The knobs are the constants at the top of `baseline.nim` (ranges, memory
+TTLs, cover/exposure costs, lane y-coordinates, spacing, corridor width).
+Role assignment is `roleForSeat`; lane via-points, `chokeSpot`, `homeDeepX`,
+and `InterceptGateX` encode the map geometry (1235×659, center 617,329,
+capture zones x≤~206 / x≥~1029, flag ring clear radius 70).
 
 ## Build & run
 
 ```bash
 # From the repo root:
-nim c --hints:off -o:players/baseline/baseline.out players/baseline/baseline.nim
+nim c -d:release --opt:speed --out:players/baseline/baseline.out players/baseline/baseline.nim
 COWORLD_PLAYER_WS_URL="ws://localhost:8080/player?slot=0&token=0xBADA55_0" \
   ./players/baseline/baseline.out
 ```
