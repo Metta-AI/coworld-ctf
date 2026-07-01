@@ -7,8 +7,10 @@
     "owner": "treeform@softmax.com",
     "runnable": {
       "type": "game",
-      "image": "public.ecr.aws/s3j4p9s7/treeform/games/ctf:latest",
-      "run": ["/bin/ctf"]
+      "image": "ghcr.io/metta-ai/coworld-ctf:latest",
+      "run": [
+        "/bin/ctf"
+      ]
     },
     "config_schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -188,9 +190,16 @@
           "default": true
         },
         "mapPath": {
-          "description": "Resource map file path.",
+          "description": "Arena map identifier (procedurally generated).",
           "type": "string",
-          "default": "data/croatoan.resources"
+          "default": "arena"
+        },
+        "num_agents": {
+          "description": "Number of agent seats; must equal the player slot count. Used by the team commissioner for block seating.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16,
+          "default": 8
         }
       }
     },
@@ -303,7 +312,7 @@
       "name": "baseline",
       "type": "player",
       "description": "Minimal sprite-protocol CTF baseline bot: grab the flag, run it home, shoot enemies in front. Image placeholder is replaced at deploy time.",
-      "image": "public.ecr.aws/PLACEHOLDER/players/baseline:latest",
+      "image": "ghcr.io/metta-ai/coworld-ctf-baseline:latest",
       "run": [
         "/bin/baseline"
       ]
@@ -311,12 +320,12 @@
   ],
   "commissioner": [
     {
-      "id": "ctf-team-commissioner",
-      "name": "CTF Team Commissioner",
+      "id": "ctf-commissioner",
+      "name": "CTF Commissioner",
       "type": "commissioner",
-      "description": "Placeholder team commissioner: fixed Red/Blue seating and win/loss ranking. CTF is team-based and needs a dedicated team commissioner; this entry points at a placeholder image to be replaced at deploy time by another worker.",
-      "source_url": "https://github.com/Metta-AI/commissioners/tree/main/commissioners/ctf/ctf_commissioner",
-      "image": "ghcr.io/metta-ai/commissioners-ctf-commissioner:latest"
+      "description": "Config-driven ruleset-strategy commissioner for CTF: team_blocks seating with team_count 2 (Red/Blue, 4 seats each), win-based EWMA leaderboard. Defined by configs/ctf.yaml (RULESET_STRATEGY_CONFIG_NAME=ctf, baked into the image). Requires num_agents:8 in the variant game_config.",
+      "source_url": "https://github.com/Metta-AI/commissioners/tree/main/commissioners/ruleset_strategy_commissioner",
+      "image": "ghcr.io/metta-ai/commissioners-ctf:latest"
     }
   ],
   "reporter": [
@@ -346,26 +355,59 @@
       "description": "Eight-player 4v4 CTF episode using the default balanced game settings.",
       "game_config": {
         "players": [
-          { "name": "Player1" },
-          { "name": "Player2" },
-          { "name": "Player3" },
-          { "name": "Player4" },
-          { "name": "Player5" },
-          { "name": "Player6" },
-          { "name": "Player7" },
-          { "name": "Player8" }
+          {
+            "name": "Player1"
+          },
+          {
+            "name": "Player2"
+          },
+          {
+            "name": "Player3"
+          },
+          {
+            "name": "Player4"
+          },
+          {
+            "name": "Player5"
+          },
+          {
+            "name": "Player6"
+          },
+          {
+            "name": "Player7"
+          },
+          {
+            "name": "Player8"
+          }
         ],
         "slots": [
-          { "team": "red" },
-          { "team": "blue" },
-          { "team": "red" },
-          { "team": "blue" },
-          { "team": "red" },
-          { "team": "blue" },
-          { "team": "red" },
-          { "team": "blue" }
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          }
         ],
         "seed": 679961,
+        "num_agents": 8,
         "minPlayers": 8,
         "lives": 3,
         "respawnTicks": 72,
@@ -379,51 +421,100 @@
         "gameOverTicks": 360,
         "maxTicks": 10000,
         "maxGames": 1,
-        "mapPath": "data/croatoan.resources",
+        "mapPath": "arena",
         "showPlayerLabels": true
       }
     }
   ],
   "certification": {
     "players": [
-      { "player_id": "baseline" },
-      { "player_id": "baseline" },
-      { "player_id": "baseline" },
-      { "player_id": "baseline" },
-      { "player_id": "baseline" },
-      { "player_id": "baseline" },
-      { "player_id": "baseline" },
-      { "player_id": "baseline" }
+      {
+        "player_id": "baseline"
+      },
+      {
+        "player_id": "baseline"
+      },
+      {
+        "player_id": "baseline"
+      },
+      {
+        "player_id": "baseline"
+      },
+      {
+        "player_id": "baseline"
+      },
+      {
+        "player_id": "baseline"
+      },
+      {
+        "player_id": "baseline"
+      },
+      {
+        "player_id": "baseline"
+      }
     ],
     "game_config": {
       "players": [
-        { "name": "Player1" },
-        { "name": "Player2" },
-        { "name": "Player3" },
-        { "name": "Player4" },
-        { "name": "Player5" },
-        { "name": "Player6" },
-        { "name": "Player7" },
-        { "name": "Player8" }
+        {
+          "name": "Player1"
+        },
+        {
+          "name": "Player2"
+        },
+        {
+          "name": "Player3"
+        },
+        {
+          "name": "Player4"
+        },
+        {
+          "name": "Player5"
+        },
+        {
+          "name": "Player6"
+        },
+        {
+          "name": "Player7"
+        },
+        {
+          "name": "Player8"
+        }
       ],
       "slots": [
-        { "team": "red" },
-        { "team": "blue" },
-        { "team": "red" },
-        { "team": "blue" },
-        { "team": "red" },
-        { "team": "blue" },
-        { "team": "red" },
-        { "team": "blue" }
+        {
+          "team": "red"
+        },
+        {
+          "team": "blue"
+        },
+        {
+          "team": "red"
+        },
+        {
+          "team": "blue"
+        },
+        {
+          "team": "red"
+        },
+        {
+          "team": "blue"
+        },
+        {
+          "team": "red"
+        },
+        {
+          "team": "blue"
+        }
       ],
       "seed": 679961,
+      "num_agents": 8,
       "minPlayers": 8,
       "lives": 1,
       "startWaitTicks": 0,
       "gameOverTicks": 1,
       "maxTicks": 300,
       "maxGames": 1,
-      "mapPath": "data/croatoan.resources",
+      "mapPath": "arena",
       "showPlayerLabels": true
     }
   }

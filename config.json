@@ -9,6 +9,7 @@
   "carrierSpeedPct":70,
   "flagReturnTicks":192,
   "maxTicks":10000,
+  "mapPath":"arena",
   "tokens":[
     "0xBADA55_0",
     "0xBADA55_1",
