@@ -5,7 +5,7 @@ import
 
 const
   GameDir = currentSourcePath.parentDir.parentDir
-  NotsusReplayPath = GameDir / "tests" / "replays" / "notsus.bitreplay"
+  CtfReplayPath = GameDir / "tests" / "replays" / "ctf.bitreplay"
 
 proc initReplaySim(data: ReplayData): SimServer =
   ## Initializes a replay simulation from the replay config JSON.
@@ -19,9 +19,9 @@ proc initReplaySim(data: ReplayData): SimServer =
   finally:
     setCurrentDir(previousDir)
 
-suite "notsus replay":
+suite "ctf replay":
   test "sim serializes with flatty":
-    let data = loadReplay(NotsusReplayPath)
+    let data = loadReplay(CtfReplayPath)
     var
       sim = data.initReplaySim()
       replay = initReplayPlayer(data)
@@ -41,7 +41,7 @@ suite "notsus replay":
     check restored.gameHash() == hash
 
   test "keyframed seek restores matching state":
-    let data = loadReplay(NotsusReplayPath)
+    let data = loadReplay(CtfReplayPath)
     var
       baseline = data.initReplaySim()
       baselineReplay = initReplayPlayer(data)
@@ -52,7 +52,7 @@ suite "notsus replay":
     replay.looping = false
     replay.mismatchQuit = true
 
-    let target = 1234
+    let target = 300
     while baseline.tickCount < target:
       baselineReplay.stepReplay(baseline)
     let hash = baseline.gameHash()
@@ -65,7 +65,7 @@ suite "notsus replay":
     check sim.gameHash() == hash
 
   test "hashes match":
-    let data = loadReplay(NotsusReplayPath)
+    let data = loadReplay(CtfReplayPath)
     var
       sim = data.initReplaySim()
       replay = initReplayPlayer(data)
