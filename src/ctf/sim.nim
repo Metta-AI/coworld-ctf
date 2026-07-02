@@ -484,36 +484,54 @@ const
 
   ## Interior obstacle rectangles for the LEFT half only. Each is mirrored
   ## across the vertical center line so both halves are identical; the
-  ## top/bottom pairs also make the layout 4-fold symmetric. Many small
-  ## pillars, wall stubs, and cover blocks break up sightlines while keeping
-  ## three readable lanes (top / mid past the flag / bottom) and >= 26px
-  ## corridors for the 13px player footprint. Rects sit between the
-  ## capture/spawn columns (x >= ArenaCaptureClear) and the flag ring.
+  ## top/bottom pairs also make the layout 4-fold symmetric. With map-wide
+  ## guns the layout is a slalom: five staggered columns of vertical wall
+  ## stubs (x = 268/340/412/484/556 plus their x-mirrors) whose in-column
+  ## gaps are offset from the neighbours', so every horizontal row hits a
+  ## stub and no straight cross-field ray survives, while every gap stays
+  ## >= 35px for the 13px player footprint. The stub pair straddling the
+  ## horizontal midline closes the former mid lane outside the flag ring;
+  ## the ring itself stays an open disc for close flag fights. Rects sit
+  ## between the capture/spawn columns and the flag ring; isProtectedFloor
+  ## carves them out of the ring, pockets, and capture columns.
   ArenaLeftObstacles = [
-    ## Top-half pieces.
-    MapRect(x: 240, y: 60, w: 20, h: 20),    ## top-left pillar
-    MapRect(x: 310, y: 40, w: 16, h: 56),    ## top lane wall stub
-    MapRect(x: 390, y: 80, w: 24, h: 24),    ## top-mid pillar
-    MapRect(x: 460, y: 40, w: 18, h: 60),    ## top lane wall stub
-    MapRect(x: 540, y: 90, w: 28, h: 28),    ## pillar near center top
-    MapRect(x: 300, y: 150, w: 30, h: 30),   ## upper-mid pillar
-    MapRect(x: 400, y: 180, w: 16, h: 64),   ## upper vertical stub
-    MapRect(x: 500, y: 170, w: 60, h: 16),   ## upper flank stub near flag
-    MapRect(x: 280, y: 250, w: 24, h: 24),   ## mid-left pillar
-    MapRect(x: 360, y: 296, w: 56, h: 18),   ## mid slot cover, upper lip
-    MapRect(x: 470, y: 280, w: 20, h: 20),   ## pillar left of the flag ring
-    ## Bottom-half mirrors (y' = MapHeight - y - h).
-    MapRect(x: 240, y: 579, w: 20, h: 20),   ## bottom-left pillar
-    MapRect(x: 310, y: 563, w: 16, h: 56),   ## bottom lane wall stub
-    MapRect(x: 390, y: 555, w: 24, h: 24),   ## bottom-mid pillar
-    MapRect(x: 460, y: 559, w: 18, h: 60),   ## bottom lane wall stub
-    MapRect(x: 540, y: 541, w: 28, h: 28),   ## pillar near center bottom
-    MapRect(x: 300, y: 479, w: 30, h: 30),   ## lower-mid pillar
-    MapRect(x: 400, y: 415, w: 16, h: 64),   ## lower vertical stub
-    MapRect(x: 500, y: 473, w: 60, h: 16),   ## lower flank stub near flag
-    MapRect(x: 280, y: 385, w: 24, h: 24),   ## mid-left pillar
-    MapRect(x: 360, y: 345, w: 56, h: 18),   ## mid slot cover, lower lip
-    MapRect(x: 470, y: 359, w: 20, h: 20),   ## pillar left of the flag ring
+    ## Column 1 (x=268): phase 0, border-attached top/bottom stubs.
+    MapRect(x: 268, y: 10, w: 18, h: 62),
+    MapRect(x: 268, y: 108, w: 18, h: 60),
+    MapRect(x: 268, y: 204, w: 18, h: 60),
+    MapRect(x: 268, y: 300, w: 18, h: 59),   ## self-mirroring midline stub
+    MapRect(x: 268, y: 395, w: 18, h: 60),   ## mirror of y=204
+    MapRect(x: 268, y: 491, w: 18, h: 60),   ## mirror of y=108
+    MapRect(x: 268, y: 587, w: 18, h: 62),   ## mirror of y=10
+    ## Column 2 (x=340): phase +48 (half period) vs column 1.
+    MapRect(x: 340, y: 60, w: 18, h: 60),
+    MapRect(x: 340, y: 156, w: 18, h: 60),
+    MapRect(x: 340, y: 252, w: 18, h: 60),
+    MapRect(x: 340, y: 347, w: 18, h: 60),   ## mirror of y=252
+    MapRect(x: 340, y: 443, w: 18, h: 60),   ## mirror of y=156
+    MapRect(x: 340, y: 539, w: 18, h: 60),   ## mirror of y=60
+    ## Column 3 (x=412): phase +24.
+    MapRect(x: 412, y: 36, w: 18, h: 60),
+    MapRect(x: 412, y: 132, w: 18, h: 60),
+    MapRect(x: 412, y: 228, w: 18, h: 60),
+    MapRect(x: 412, y: 371, w: 18, h: 60),   ## mirror of y=228
+    MapRect(x: 412, y: 467, w: 18, h: 60),   ## mirror of y=132
+    MapRect(x: 412, y: 563, w: 18, h: 60),   ## mirror of y=36
+    ## Column 4 (x=484): phase +72; the y=276/329 pair merges into one
+    ## midline-straddling stub that blocks the old mid lane at mid range.
+    MapRect(x: 484, y: 84, w: 18, h: 60),
+    MapRect(x: 484, y: 180, w: 18, h: 60),
+    MapRect(x: 484, y: 276, w: 18, h: 54),
+    MapRect(x: 484, y: 329, w: 18, h: 54),   ## mirror of y=276 (contiguous)
+    MapRect(x: 484, y: 419, w: 18, h: 60),   ## mirror of y=180
+    MapRect(x: 484, y: 515, w: 18, h: 60),   ## mirror of y=84
+    ## Column 5 (x=556): phase +14, flanking the flag ring (ring carves it).
+    MapRect(x: 556, y: 24, w: 18, h: 66),
+    MapRect(x: 556, y: 126, w: 18, h: 60),
+    MapRect(x: 556, y: 222, w: 18, h: 60),
+    MapRect(x: 556, y: 377, w: 18, h: 60),   ## mirror of y=222
+    MapRect(x: 556, y: 473, w: 18, h: 60),   ## mirror of y=126
+    MapRect(x: 556, y: 569, w: 18, h: 66),   ## mirror of y=24
   ]
 
 proc arenaCtfMap(): CtfMap =

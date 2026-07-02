@@ -2,6 +2,7 @@
 import
   test_input_buffer,
   test_global_pov_shadow,
+  test_map_los,
   test_movement_slide,
   test_replay,
   test_replay_controls,

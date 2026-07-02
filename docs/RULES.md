@@ -17,8 +17,10 @@ game layer (roles, tasks, voting) with teams, guns, and a flag.
 - **8 players, 4 vs 4.** Red team spawns along the **left edge**, Blue along the
   **right edge**.
 - **One neutral flag** spawns at the **center** of the map.
-- The arena is filled with **variously shaped obstacles** (cover), mirrored
-  symmetrically so neither team has a positional advantage.
+- The arena is filled with **dense staggered cover** (a slalom of offset wall
+  stubs, mirrored symmetrically so neither team has a positional advantage):
+  **no straight sightline crosses the field**, so every approach is a series
+  of corners.
 - A round ends when a team **captures the flag** or is **wiped out**.
 
 ## Teams & spawns

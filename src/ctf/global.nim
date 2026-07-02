@@ -53,15 +53,14 @@ const
   CarrierBarHeight = 2
   CarrierBarYOffset = 4
   CarrierBarColor = 2'u8
-  TracerDotSpriteId = 760      ## single bright shot-tracer dot sprite.
+  TracerDotSpriteBase = 760    ## per-color tracer dot sprites: 760..775.
   TracerDotObjectBase = 15000  ## tracer object-id pool base.
   TracerDotSize = 3
   TracerDotSpacing = 12        ## px between sampled tracer dots along a shot.
-  TracerDotColor = 8'u8        ## bright yellow (255,236,39): pops on the dark arena.
   TracerMaxShots = 16          ## most tracers drawn at once (one per shooter).
   TracerDotsPerShot = GunRange div TracerDotSpacing + 4  ## dots per full-range shot, plus slack.
   TracerMaxDots = TracerMaxShots * TracerDotsPerShot  ## 1792 ids: 15000..16791.
-  SplatterSpriteBase = 16000   ## per color-and-fade-stage splatter sprites.
+  SplatterSpriteBase = 16000   ## per color-and-fade-stage splatter sprites: 16000..16063.
   SplatterObjectBase = 17000   ## splatter object-id pool base, above the tracer ids.
   SplatterSize = 13
   SplatterStages = 4           ## fade stages across SplatterFxTicks.
@@ -499,11 +498,20 @@ proc buildCarrierBarSprite(color: uint8): seq[uint8] {.measure.} =
   for i in 0 ..< CarrierBarWidth * CarrierBarHeight:
     result.putRgbaPixel(i, color)
 
-proc buildTracerDotSprite(): seq[uint8] {.measure.} =
-  ## Builds the single bright shot-tracer dot sprite.
+proc buildTracerDotSprite(colorIndex: int): seq[uint8] {.measure.} =
+  ## Builds one shot-tracer dot sprite: the shooter's palette color mixed
+  ## halfway toward white, so beams read bright on the dark floor but keep
+  ## the shooter's hue.
   result = newRgbaPixels(TracerDotSize, TracerDotSize)
+  let base = Palette[PlayerColors[colorIndex and 0x0f] and 0x0f]
   for i in 0 ..< TracerDotSize * TracerDotSize:
-    result.putRgbaPixel(i, TracerDotColor)
+    result.putRawRgbaPixel(
+      i,
+      uint8((base.r.int + 255) div 2),
+      uint8((base.g.int + 255) div 2),
+      uint8((base.b.int + 255) div 2),
+      255
+    )
 
 proc buildSplatterSprite(colorIndex, stage: int): seq[uint8] {.measure.} =
   ## Builds one death-splatter blob: a dense irregular blob of the victim's
@@ -1061,14 +1069,6 @@ proc buildSpriteProtocolInit(
     buildCarrierBarSprite(CarrierBarColor),
     "carrier indicator"
   )
-  result.addSpriteChanged(
-    spriteDefs,
-    TracerDotSpriteId,
-    TracerDotSize,
-    TracerDotSize,
-    buildTracerDotSprite(),
-    "shot tracer"
-  )
   sim.addSpriteProtocolInterstitialSprites(spriteDefs, result)
   sim.addPlayerActorSprites(spriteDefs, result, selected = true)
 
@@ -1138,14 +1138,6 @@ proc buildSpriteProtocolPlayerInit(
     CarrierBarHeight,
     buildCarrierBarSprite(CarrierBarColor),
     "carrier indicator"
-  )
-  result.addSpriteChanged(
-    spriteDefs,
-    TracerDotSpriteId,
-    TracerDotSize,
-    TracerDotSize,
-    buildTracerDotSprite(),
-    "shot tracer"
   )
   sim.addSpriteProtocolInterstitialSprites(spriteDefs, result)
   sim.addPlayerActorSprites(spriteDefs, result, selected = false)
@@ -1413,24 +1405,39 @@ proc addSpritePlayerFlagArrow(
     SpritePlayerArrowSpriteId
   )
 
+proc tracerDotSpriteId(colorIndex: int): int =
+  ## Returns the sprite id for one tracer dot color.
+  TracerDotSpriteBase + colorIndex
+
 proc addShotTracers(
   sim: SimServer,
   cameraX, cameraY: int,
   clipToFrame: bool,
+  spriteDefs: var seq[SpriteDefinition],
   currentIds: var seq[int],
   packet: var seq[uint8]
 ) {.measure.} =
-  ## Places bright tracer dots for each active shot from a fixed object pool.
+  ## Places tracer dots in each shooter's color from a fixed object pool.
   ## Map view passes camera (0, 0) and clipToFrame = false; the per-player POV
   ## passes its camera offset and clips dots outside the 128x128 window.
   var nextDot = 0
   for shotIndex in 0 ..< min(sim.recentShots.len, TracerMaxShots):
     let shot = sim.recentShots[shotIndex]
     let
+      colorIndex = playerColorIndex(shot.color)
+      spriteId = tracerDotSpriteId(colorIndex)
       dx = shot.x1 - shot.x0
       dy = shot.y1 - shot.y0
       length = max(abs(dx), abs(dy))
       steps = max(1, length div TracerDotSpacing)
+    packet.addSpriteChanged(
+      spriteDefs,
+      spriteId,
+      TracerDotSize,
+      TracerDotSize,
+      buildTracerDotSprite(colorIndex),
+      "shot tracer " & playerColorName(colorIndex)
+    )
     for s in 0 .. steps:
       if nextDot >= TracerMaxDots:
         break
@@ -1453,7 +1460,7 @@ proc addShotTracers(
         py,
         30005,
         MapLayerId,
-        TracerDotSpriteId
+        spriteId
       )
 
 proc splatterSpriteId(colorIndex, stage: int): int =
@@ -1667,7 +1674,14 @@ proc buildSpriteProtocolPlayerUpdates*(
       currentIds,
       result
     )
-    sim.addShotTracers(cameraX, cameraY, clipToFrame = true, currentIds, result)
+    sim.addShotTracers(
+      cameraX,
+      cameraY,
+      clipToFrame = true,
+      nextState.spriteDefs,
+      currentIds,
+      result
+    )
 
     # Fire-cooldown icon in the bottom-left corner.
     if player.alive:
@@ -2108,7 +2122,14 @@ proc buildSpriteProtocolUpdates*(
     currentIds,
     result
   )
-  sim.addShotTracers(0, 0, clipToFrame = false, currentIds, result)
+  sim.addShotTracers(
+    0,
+    0,
+    clipToFrame = false,
+    nextState.spriteDefs,
+    currentIds,
+    result
+  )
 
   for playerIndex in 0 ..< sim.players.len:
     let player = sim.players[playerIndex]
