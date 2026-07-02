@@ -18,9 +18,9 @@ game layer (roles, tasks, voting) with teams, guns, and a flag.
   **right edge**.
 - **One neutral flag** spawns at the **center** of the map.
 - The arena is filled with **dense staggered cover** (a slalom of offset wall
-  stubs, mirrored symmetrically so neither team has a positional advantage):
-  **no straight sightline crosses the field**, so every approach is a series
-  of corners.
+  stubs, diamonds, discs, and diagonal chevron walls, mirrored symmetrically so
+  neither team has a positional advantage): **no straight sightline crosses the
+  field**, so every approach is a series of corners.
 - A round ends when a team **captures the flag** or is **wiped out**.
 
 ## Teams & spawns
@@ -65,9 +65,9 @@ game layer (roles, tasks, voting) with teams, guns, and a flag.
 - The flag is **neutral** and starts at the center.
 - **Touch the flag to pick it up.** While carrying it you move **slower** but can
   **still shoot**.
-- If the carrier is killed, the flag **drops where they fell**. Anyone — either
-  team — can pick it up.
-- A dropped flag that is left untouched for a while **auto-returns to the center**.
+- If the carrier is killed (or disconnects), the flag **returns instantly to the
+  center**. The flag is never left loose on the ground: it is either carried or
+  sitting on its center pedestal.
 - It is a **tug-of-war over one flag**: Red wants it at the left edge, Blue wants
   it at the right edge.
 
@@ -118,7 +118,7 @@ These are starting values, exposed in the game config and tuned in self-play.
 | Firing cone | ~±25° | Main "aim difficulty" knob |
 | Fire cooldown | ~0.5s | Minimum time between shots |
 | Carrier speed | ~70% | Movement penalty while holding the flag |
-| Flag auto-return | ~8s | Idle time before a dropped flag resets |
+| Flag auto-return | instant | The flag snaps back to center the moment its carrier dies |
 | Time limit | (TBD) ticks | Round length cap before tiebreak |
 | Map size | 1235×659 | Inherited from Crewrift; may change |
 
@@ -145,7 +145,7 @@ This section is a build plan, not player-facing rules.
 
 - `sim.nim`: replace `Crewmate`/`Imposter` roles with `Red`/`Blue` teams; replace
   `tryKill` (proximity grab) with **directional hitscan + LOS + cone**; add
-  **lives/respawn**, **flag pickup/carry/drop/return**, **team win-check**, and a
+  **lives/respawn**, **flag pickup/carry/return**, **team win-check**, and a
   **Lobby → Playing → GameOver** phase machine (drop RoleReveal/Voting/VoteResult).
 - Player struct: keep `x,y,velX,velY,carryX,carryY,alive,color,reward`; drop
   task/vent/vote fields; add `team`, `lives`, `respawnTimer`, `fireCooldown`,

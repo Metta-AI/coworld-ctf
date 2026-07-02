@@ -28,7 +28,7 @@ logs or replay links, and the smallest repro.
 - **Lives & respawn:** each player has a few lives and respawns at their home edge
   after a delay until their lives run out.
 - **The flag:** touch it to pick it up; you carry it slower but can still shoot.
-  Drop it on death; a loose flag auto-returns to center after a while.
+  If the carrier dies, the flag returns instantly to the center.
 - **Win** by carrying the flag to **your own home edge**, or by **wiping** the
   enemy team. Scoring is **win-only** (+100 to the winning team).
 
@@ -113,7 +113,7 @@ exits when the runner stops it.
 ## Inspect replay timelines
 
 Use `tools/expand_replay.nim` to get a text view of a replay — tick numbers, phase
-changes, movement, shots, kills, flag pickups/drops/captures, and score changes.
+changes, movement, shots, kills, flag pickups/returns/captures, and score changes.
 
 ```sh
 nim r tools/expand_replay.nim tests/replays/<replay>.bitreplay

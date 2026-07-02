@@ -46,7 +46,6 @@ const
   ShotFxTicks* = 12           ## ~0.5s a shot tracer stays visible (cosmetic only).
   SplatterFxTicks* = 120      ## ~5s a death splatter stays visible (cosmetic only).
   CarrierSpeedPct* = 70       ## carrier moves at 70% speed.
-  FlagReturnTicks* = 192      ## ~8s idle before a dropped flag resets.
 
   StartWaitTicks* = 5 * TargetFps
   GameOverTicks* = 360
@@ -161,6 +160,24 @@ type
   MapRect* = object
     x*, y*, w*, h*: int
 
+  ArenaShapeKind* = enum
+    shapeRect
+    shapeDisc
+    shapeDiamond
+    shapeDiagonal
+
+  ArenaShape* = object
+    ## One arena obstacle. Discs and diamonds are center + radius (L2 and L1
+    ## norms); diagonals are a 45-degree wall segment of given perpendicular
+    ## thickness between two endpoints.
+    case kind*: ArenaShapeKind
+    of shapeRect:
+      rect*: MapRect
+    of shapeDisc, shapeDiamond:
+      cx*, cy*, radius*: int
+    of shapeDiagonal:
+      x0*, y0*, x1*, y1*, thickness*: int
+
   MapPoint* = object
     x*, y*: int
 
@@ -216,7 +233,6 @@ type
     gunConeDeg*: int
     fireCooldownTicks*: int
     carrierSpeedPct*: int
-    flagReturnTicks*: int
     minPlayers*: int
     startWaitTicks*: int
     gameOverTicks*: int
@@ -284,7 +300,6 @@ type
     rooms*: seq[Room]
     flagX*, flagY*: int
     flagCarrier*: int          ## player index carrying the flag, -1 when loose.
-    flagIdleTimer*: int        ## ticks a loose flag has sat untouched.
     mapPixels*: seq[uint8]
     mapRgba*: seq[uint8]
     darkBgPixels*: seq[uint8]
@@ -482,56 +497,67 @@ const
   ArenaBlueTint = rgba(44, 60, 128, 70)   ## territory wash over Blue half.
   ArenaPedestal = rgba(210, 200, 120, 255)
 
-  ## Interior obstacle rectangles for the LEFT half only. Each is mirrored
-  ## across the vertical center line so both halves are identical; the
-  ## top/bottom pairs also make the layout 4-fold symmetric. With map-wide
-  ## guns the layout is a slalom: five staggered columns of vertical wall
-  ## stubs (x = 268/340/412/484/556 plus their x-mirrors) whose in-column
-  ## gaps are offset from the neighbours', so every horizontal row hits a
-  ## stub and no straight cross-field ray survives, while every gap stays
-  ## >= 35px for the 13px player footprint. The stub pair straddling the
-  ## horizontal midline closes the former mid lane outside the flag ring;
-  ## the ring itself stays an open disc for close flag fights. Rects sit
+  ## Interior obstacle shapes for the LEFT half only. Each is mirrored
+  ## across the vertical center line so both halves are identical, and the
+  ## in-column shapes come in top/bottom mirrored pairs around the map's
+  ## horizontal midline. With map-wide guns the layout is a slalom of five
+  ## staggered columns (x-centers 277/349/421/493/565 plus their x-mirrors)
+  ## whose in-column gaps are offset from the neighbours', so every
+  ## horizontal row hits a shape and no straight cross-field ray survives,
+  ## while every corridor stays >= 26px for the 13px player footprint. The
+  ## columns vary the shape per lane: border-attached rect stubs, diamonds,
+  ## discs, 45-degree chevron walls angling across the old corridors, and
+  ## rect/diamond stubs flanking the flag ring. The chevron pair straddling
+  ## the horizontal midline closes the mid lane outside the flag ring; the
+  ## ring itself stays an open disc for close flag fights. Shapes sit
   ## between the capture/spawn columns and the flag ring; isProtectedFloor
   ## carves them out of the ring, pockets, and capture columns.
   ArenaLeftObstacles = [
-    ## Column 1 (x=268): phase 0, border-attached top/bottom stubs.
-    MapRect(x: 268, y: 10, w: 18, h: 62),
-    MapRect(x: 268, y: 108, w: 18, h: 60),
-    MapRect(x: 268, y: 204, w: 18, h: 60),
-    MapRect(x: 268, y: 300, w: 18, h: 59),   ## self-mirroring midline stub
-    MapRect(x: 268, y: 395, w: 18, h: 60),   ## mirror of y=204
-    MapRect(x: 268, y: 491, w: 18, h: 60),   ## mirror of y=108
-    MapRect(x: 268, y: 587, w: 18, h: 62),   ## mirror of y=10
-    ## Column 2 (x=340): phase +48 (half period) vs column 1.
-    MapRect(x: 340, y: 60, w: 18, h: 60),
-    MapRect(x: 340, y: 156, w: 18, h: 60),
-    MapRect(x: 340, y: 252, w: 18, h: 60),
-    MapRect(x: 340, y: 347, w: 18, h: 60),   ## mirror of y=252
-    MapRect(x: 340, y: 443, w: 18, h: 60),   ## mirror of y=156
-    MapRect(x: 340, y: 539, w: 18, h: 60),   ## mirror of y=60
-    ## Column 3 (x=412): phase +24.
-    MapRect(x: 412, y: 36, w: 18, h: 60),
-    MapRect(x: 412, y: 132, w: 18, h: 60),
-    MapRect(x: 412, y: 228, w: 18, h: 60),
-    MapRect(x: 412, y: 371, w: 18, h: 60),   ## mirror of y=228
-    MapRect(x: 412, y: 467, w: 18, h: 60),   ## mirror of y=132
-    MapRect(x: 412, y: 563, w: 18, h: 60),   ## mirror of y=36
-    ## Column 4 (x=484): phase +72; the y=276/329 pair merges into one
-    ## midline-straddling stub that blocks the old mid lane at mid range.
-    MapRect(x: 484, y: 84, w: 18, h: 60),
-    MapRect(x: 484, y: 180, w: 18, h: 60),
-    MapRect(x: 484, y: 276, w: 18, h: 54),
-    MapRect(x: 484, y: 329, w: 18, h: 54),   ## mirror of y=276 (contiguous)
-    MapRect(x: 484, y: 419, w: 18, h: 60),   ## mirror of y=180
-    MapRect(x: 484, y: 515, w: 18, h: 60),   ## mirror of y=84
-    ## Column 5 (x=556): phase +14, flanking the flag ring (ring carves it).
-    MapRect(x: 556, y: 24, w: 18, h: 66),
-    MapRect(x: 556, y: 126, w: 18, h: 60),
-    MapRect(x: 556, y: 222, w: 18, h: 60),
-    MapRect(x: 556, y: 377, w: 18, h: 60),   ## mirror of y=222
-    MapRect(x: 556, y: 473, w: 18, h: 60),   ## mirror of y=126
-    MapRect(x: 556, y: 569, w: 18, h: 66),   ## mirror of y=24
+    # Column 1 (x=268..286): rect stubs, phase 0, border-attached ends.
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 268, y: 10, w: 18, h: 62)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 268, y: 108, w: 18, h: 60)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 268, y: 204, w: 18, h: 60)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 268, y: 300, w: 18, h: 59)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 268, y: 395, w: 18, h: 60)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 268, y: 491, w: 18, h: 60)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 268, y: 587, w: 18, h: 62)),
+    # Column 2 (x=349): diamonds, phase +48 (half period) vs column 1.
+    ArenaShape(kind: shapeDiamond, cx: 349, cy: 90, radius: 28),
+    ArenaShape(kind: shapeDiamond, cx: 349, cy: 186, radius: 28),
+    ArenaShape(kind: shapeDiamond, cx: 349, cy: 282, radius: 28),
+    ArenaShape(kind: shapeDiamond, cx: 349, cy: 376, radius: 28),
+    ArenaShape(kind: shapeDiamond, cx: 349, cy: 472, radius: 28),
+    ArenaShape(kind: shapeDiamond, cx: 349, cy: 568, radius: 28),
+    # Column 3 (x=421): discs, phase +24.
+    ArenaShape(kind: shapeDisc, cx: 421, cy: 66, radius: 28),
+    ArenaShape(kind: shapeDisc, cx: 421, cy: 162, radius: 28),
+    ArenaShape(kind: shapeDisc, cx: 421, cy: 258, radius: 28),
+    ArenaShape(kind: shapeDisc, cx: 421, cy: 400, radius: 28),
+    ArenaShape(kind: shapeDisc, cx: 421, cy: 496, radius: 28),
+    ArenaShape(kind: shapeDisc, cx: 421, cy: 592, radius: 28),
+    # Column 4 (x=479..509): 45-degree chevron walls, phase +72; the pair
+    # straddling the midline forms one continuous zigzag that closes the
+    # old mid lane at mid range.
+    ArenaShape(kind: shapeDiagonal, x0: 479, y0: 86, x1: 507, y1: 114, thickness: 12),
+    ArenaShape(kind: shapeDiagonal, x0: 507, y0: 114, x1: 479, y1: 142, thickness: 12),
+    ArenaShape(kind: shapeDiagonal, x0: 507, y0: 182, x1: 479, y1: 210, thickness: 12),
+    ArenaShape(kind: shapeDiagonal, x0: 479, y0: 210, x1: 507, y1: 238, thickness: 12),
+    ArenaShape(kind: shapeDiagonal, x0: 479, y0: 276, x1: 506, y1: 303, thickness: 12),
+    ArenaShape(kind: shapeDiagonal, x0: 506, y0: 303, x1: 479, y1: 330, thickness: 12),
+    ArenaShape(kind: shapeDiagonal, x0: 479, y0: 329, x1: 506, y1: 356, thickness: 12),
+    ArenaShape(kind: shapeDiagonal, x0: 506, y0: 356, x1: 479, y1: 383, thickness: 12),
+    ArenaShape(kind: shapeDiagonal, x0: 507, y0: 421, x1: 479, y1: 449, thickness: 12),
+    ArenaShape(kind: shapeDiagonal, x0: 479, y0: 449, x1: 507, y1: 477, thickness: 12),
+    ArenaShape(kind: shapeDiagonal, x0: 479, y0: 517, x1: 507, y1: 545, thickness: 12),
+    ArenaShape(kind: shapeDiagonal, x0: 507, y0: 545, x1: 479, y1: 573, thickness: 12),
+    # Column 5 (x=556..595): rect stubs at the borders, diamonds flanking
+    # the flag ring (the ring carves their inner edges).
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 556, y: 24, w: 18, h: 66)),
+    ArenaShape(kind: shapeDiamond, cx: 565, cy: 156, radius: 30),
+    ArenaShape(kind: shapeDiamond, cx: 565, cy: 252, radius: 30),
+    ArenaShape(kind: shapeDiamond, cx: 565, cy: 406, radius: 30),
+    ArenaShape(kind: shapeDiamond, cx: 565, cy: 502, radius: 30),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 556, y: 569, w: 18, h: 66)),
   ]
 
 proc arenaCtfMap(): CtfMap =
@@ -566,10 +592,83 @@ proc mirrorX(rect: MapRect): MapRect =
   ## Mirrors one rectangle across the vertical center line.
   MapRect(x: MapWidth - rect.x - rect.w, y: rect.y, w: rect.w, h: rect.h)
 
+proc mirrorX(shape: ArenaShape): ArenaShape =
+  ## Mirrors one arena shape across the vertical center line.
+  case shape.kind
+  of shapeRect:
+    ArenaShape(kind: shapeRect, rect: shape.rect.mirrorX())
+  of shapeDisc:
+    ArenaShape(
+      kind: shapeDisc,
+      cx: MapWidth - 1 - shape.cx,
+      cy: shape.cy,
+      radius: shape.radius
+    )
+  of shapeDiamond:
+    ArenaShape(
+      kind: shapeDiamond,
+      cx: MapWidth - 1 - shape.cx,
+      cy: shape.cy,
+      radius: shape.radius
+    )
+  of shapeDiagonal:
+    ArenaShape(
+      kind: shapeDiagonal,
+      x0: MapWidth - 1 - shape.x0,
+      y0: shape.y0,
+      x1: MapWidth - 1 - shape.x1,
+      y1: shape.y1,
+      thickness: shape.thickness
+    )
+
 proc inRect(x, y: int, rect: MapRect): bool =
   ## Returns true when (x, y) lies inside the rectangle.
   x >= rect.x and x < rect.x + rect.w and
     y >= rect.y and y < rect.y + rect.h
+
+proc inShape(x, y: int, shape: ArenaShape): bool =
+  ## Returns true when (x, y) lies inside one arena shape.
+  case shape.kind
+  of shapeRect:
+    inRect(x, y, shape.rect)
+  of shapeDisc:
+    let
+      dx = x - shape.cx
+      dy = y - shape.cy
+    dx * dx + dy * dy <= shape.radius * shape.radius
+  of shapeDiamond:
+    abs(x - shape.cx) + abs(y - shape.cy) <= shape.radius
+  of shapeDiagonal:
+    ## Bounding-box rejection first, then point-to-segment distance in
+    ## integers: (x, y) is inside when its distance to the segment is at
+    ## most half the wall thickness.
+    let half = shape.thickness div 2 + 1
+    if x < min(shape.x0, shape.x1) - half or
+        x > max(shape.x0, shape.x1) + half or
+        y < min(shape.y0, shape.y1) - half or
+        y > max(shape.y0, shape.y1) + half:
+      false
+    else:
+      let
+        vx = shape.x1 - shape.x0
+        vy = shape.y1 - shape.y0
+        wx = x - shape.x0
+        wy = y - shape.y0
+        len2 = vx * vx + vy * vy
+        t = clamp(wx * vx + wy * vy, 0, len2)
+        dx = wx * len2 - t * vx
+        dy = wy * len2 - t * vy
+      dx * dx + dy * dy <=
+        shape.thickness * shape.thickness * len2 * len2 div 4
+
+const ArenaObstacles = block:
+  ## The full obstacle set: every left-half shape plus its x-mirror,
+  ## precomputed once so the per-pixel wall test never re-mirrors.
+  var shapes: seq[ArenaShape]
+  for shape in ArenaLeftObstacles:
+    shapes.add shape
+    shapes.add shape.mirrorX()
+  shapes
 
 proc isProtectedFloor(x, y, cx, cy: int): bool =
   ## Regions that MUST stay walkable: the flag ring, both spawn pockets,
@@ -593,8 +692,8 @@ proc isArenaWall(x, y, cx, cy: int): bool =
     return true
   if isProtectedFloor(x, y, cx, cy):
     return false
-  for rect in ArenaLeftObstacles:
-    if inRect(x, y, rect) or inRect(x, y, rect.mirrorX()):
+  for shape in ArenaObstacles:
+    if inShape(x, y, shape):
       return true
   false
 
@@ -702,7 +801,6 @@ proc defaultGameConfig*(): GameConfig =
     gunConeDeg: GunConeDeg,
     fireCooldownTicks: FireCooldownTicks,
     carrierSpeedPct: CarrierSpeedPct,
-    flagReturnTicks: FlagReturnTicks,
     minPlayers: MinPlayers,
     startWaitTicks: StartWaitTicks,
     gameOverTicks: GameOverTicks,
@@ -960,7 +1058,7 @@ proc validate(config: GameConfig) =
   if config.startWaitTicks < 0:
     raise newException(CtfError, "Config field startWaitTicks must be non-negative.")
   if config.respawnTicks < 0 or config.spawnProtectTicks < 0 or
-      config.fireCooldownTicks < 0 or config.flagReturnTicks < 0:
+      config.fireCooldownTicks < 0:
     raise newException(CtfError, "Timer config fields must not be negative.")
   if config.gameOverTicks < 0 or config.maxTicks < 0 or config.maxGames < 0:
     raise newException(CtfError, "Timer config fields must not be negative.")
@@ -1024,7 +1122,6 @@ proc update*(config: var GameConfig, jsonText: string) =
   node.readConfigInt("gunConeDeg", config.gunConeDeg)
   node.readConfigInt("fireCooldownTicks", config.fireCooldownTicks)
   node.readConfigInt("carrierSpeedPct", config.carrierSpeedPct)
-  node.readConfigInt("flagReturnTicks", config.flagReturnTicks)
   node.readConfigInt("minPlayers", config.minPlayers)
   node.readConfigInt("startWaitTicks", config.startWaitTicks)
   node.readConfigInt("gameStartWaitTicks", config.startWaitTicks)
@@ -1091,7 +1188,6 @@ proc configJson*(config: GameConfig): string =
     "gunConeDeg": config.gunConeDeg,
     "fireCooldownTicks": config.fireCooldownTicks,
     "carrierSpeedPct": config.carrierSpeedPct,
-    "flagReturnTicks": config.flagReturnTicks,
     "minPlayers": config.minPlayers,
     "startWaitTicks": config.startWaitTicks,
     "gameOverTicks": config.gameOverTicks,
@@ -1215,7 +1311,6 @@ proc gameHash*(sim: SimServer): uint64 =
   result.mixHashInt(sim.flagX)
   result.mixHashInt(sim.flagY)
   result.mixHashInt(sim.flagCarrier)
-  result.mixHashInt(sim.flagIdleTimer)
   result.mixHashInt(sim.players.len)
   for player in sim.players:
     result.mixHashInt(player.x)
@@ -1325,11 +1420,10 @@ proc arrangeHomePositions*(sim: var SimServer) =
     sim.resetPlayerToHome(i)
 
 proc resetFlag*(sim: var SimServer) =
-  ## Returns the flag to the center, loose and idle.
+  ## Returns the flag to the center, loose.
   sim.flagX = sim.gameMap.center.x
   sim.flagY = sim.gameMap.center.y
   sim.flagCarrier = -1
-  sim.flagIdleTimer = 0
 
 proc teamForSlot(sim: SimServer, order: int): Team =
   ## Returns the configured or default team for one slot.
@@ -1678,8 +1772,8 @@ proc removePlayerAt*(sim: var SimServer, playerIndex: int) =
   if playerIndex < 0 or playerIndex >= sim.players.len:
     return
   if sim.flagCarrier == playerIndex:
-    sim.flagCarrier = -1
-    sim.flagIdleTimer = 0
+    sim.logGameEvent("flag returned to center")
+    sim.resetFlag()
   elif sim.flagCarrier > playerIndex:
     dec sim.flagCarrier
   sim.players.delete(playerIndex)
@@ -2090,16 +2184,9 @@ proc lineOfSightClear(sim: SimServer, ax, ay, bx, by: int): bool =
       return false
   true
 
-proc dropFlagAt(sim: var SimServer, x, y: int) =
-  ## Drops the flag at a map point and marks it loose.
-  let walkable = sim.nearestWalkable(x, y)
-  sim.flagX = walkable.x
-  sim.flagY = walkable.y
-  sim.flagCarrier = -1
-  sim.flagIdleTimer = 0
-
 proc killPlayer(sim: var SimServer, targetIndex, killerIndex: int) =
-  ## Applies a fatal hit: drop the flag, decrement lives, start respawn.
+  ## Applies a fatal hit: return the flag to center, decrement lives, start
+  ## respawn.
   if targetIndex < 0 or targetIndex >= sim.players.len:
     return
   if not sim.players[targetIndex].alive:
@@ -2110,7 +2197,8 @@ proc killPlayer(sim: var SimServer, targetIndex, killerIndex: int) =
   )
   if sim.players[targetIndex].carryingFlag or sim.flagCarrier == targetIndex:
     sim.players[targetIndex].carryingFlag = false
-    sim.dropFlagAt(sim.players[targetIndex].x, sim.players[targetIndex].y)
+    sim.logGameEvent("flag returned to center")
+    sim.resetFlag()
   # Leave a cosmetic splatter at the death spot (never enters gameHash).
   sim.splatters.add SplatterFx(
     x: sim.players[targetIndex].x,
@@ -2224,27 +2312,20 @@ proc tryPickupFlag(sim: var SimServer, playerIndex: int) =
     rangeSq = FlagPickupRange * FlagPickupRange
   if distSq(px, py, sim.flagX, sim.flagY) <= rangeSq:
     sim.flagCarrier = playerIndex
-    sim.flagIdleTimer = 0
     sim.players[playerIndex].carryingFlag = true
     sim.logGameEvent(sim.playerText(playerIndex) & " picked up the flag")
 
 proc updateFlag(sim: var SimServer) =
-  ## Keeps the flag glued to its carrier and auto-returns a loose flag.
+  ## Keeps the flag glued to its carrier; a carrier that stops carrying for
+  ## any reason other than capture sends the flag straight back to center.
   if sim.flagCarrier >= 0 and sim.flagCarrier < sim.players.len and
       sim.players[sim.flagCarrier].alive:
     sim.flagX = sim.players[sim.flagCarrier].x + CollisionW div 2
     sim.flagY = sim.players[sim.flagCarrier].y + CollisionH div 2
-    sim.flagIdleTimer = 0
-  else:
-    if sim.flagCarrier >= 0:
-      # Carrier vanished without a death drop; release the flag where it is.
-      sim.flagCarrier = -1
-      sim.flagIdleTimer = 0
-    inc sim.flagIdleTimer
-    if sim.config.flagReturnTicks > 0 and
-        sim.flagIdleTimer >= sim.config.flagReturnTicks:
-      sim.logGameEvent("flag returned to center")
-      sim.resetFlag()
+  elif sim.flagCarrier >= 0:
+    # Carrier vanished; the flag goes straight back to center.
+    sim.logGameEvent("flag returned to center")
+    sim.resetFlag()
 
 proc applyInput*(
   sim: var SimServer,
@@ -2949,7 +3030,6 @@ proc initSimServer*(config: GameConfig): SimServer =
   result.flagCarrier = -1
   result.flagX = result.gameMap.center.x
   result.flagY = result.gameMap.center.y
-  result.flagIdleTimer = 0
   result.lastLobbyPlayersLogged = -1
   result.lastLobbyNeededLogged = -1
   result.lastLobbySecondsLogged = -1

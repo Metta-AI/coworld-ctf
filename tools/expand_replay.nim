@@ -11,7 +11,6 @@ type
     PhaseChanged
     Kill
     FlagPickup
-    FlagDrop
     FlagReturn
     Capture
     Respawn
@@ -87,10 +86,6 @@ proc playerSlot(sim: SimServer, i: int): int =
   if i >= 0 and i < sim.players.len:
     return sim.players[i].joinOrder
   -1
-
-proc flagAtCenter(sim: SimServer): bool =
-  ## Returns true when the loose flag sits on its center pedestal.
-  sim.flagX == sim.gameMap.center.x and sim.flagY == sim.gameMap.center.y
 
 proc addPlayerEvent(
   events: var seq[ReplayEvent],
@@ -201,30 +196,15 @@ proc printFlagChanges(
   sim: SimServer,
   tick: int,
   events: var seq[ReplayEvent],
-  prevCarrier: var int,
-  prevAtCenter: var bool
+  prevCarrier: var int
 ) =
-  ## Adds flag pickup, drop, and return events by diffing flag ownership.
-  let
-    carrier = sim.flagCarrier
-    atCenter = sim.flagAtCenter()
-  if carrier != prevCarrier:
-    # A carrier losing the flag mid-tick (killed) drops it in the field unless
-    # it snapped back to center on capture. A different player may grab it in
-    # the same tick, so the -1 carrier state is never visible at tick edges.
-    if prevCarrier >= 0 and not atCenter:
-      events.add ReplayEvent(
-        tick: tick,
-        kind: FlagDrop,
-        actorSlot: -1,
-        actorLabel: "",
-        secondarySlot: -1,
-        phase: sim.phase
-      )
-    if carrier >= 0:
-      events.addPlayerEvent(tick, FlagPickup, sim, carrier)
-    prevCarrier = carrier
-  elif carrier < 0 and atCenter and not prevAtCenter:
+  ## Adds flag pickup and return events by diffing flag ownership. A carrier
+  ## losing the flag for any reason other than capture sends it straight
+  ## back to center; captures keep the carrier and are reported separately.
+  let carrier = sim.flagCarrier
+  if carrier == prevCarrier:
+    return
+  if prevCarrier >= 0:
     events.add ReplayEvent(
       tick: tick,
       kind: FlagReturn,
@@ -233,7 +213,9 @@ proc printFlagChanges(
       secondarySlot: -1,
       phase: sim.phase
     )
-  prevAtCenter = atCenter
+  if carrier >= 0:
+    events.addPlayerEvent(tick, FlagPickup, sim, carrier)
+  prevCarrier = carrier
 
 proc scoreAmountText(amount: int): string =
   ## Returns a readable signed score amount.
@@ -253,8 +235,6 @@ proc key*(event: ReplayEvent): string =
     "kill"
   of FlagPickup:
     "flag_pickup"
-  of FlagDrop:
-    "flag_drop"
   of FlagReturn:
     "flag_return"
   of Capture:
@@ -277,8 +257,6 @@ proc text*(event: ReplayEvent): string =
     "  player " & event.actorLabel & " killed " & event.secondaryLabel
   of FlagPickup:
     "  player " & event.actorLabel & " picked up the flag"
-  of FlagDrop:
-    "  flag dropped"
   of FlagReturn:
     "  flag returned to center"
   of Capture:
@@ -306,7 +284,7 @@ proc jsonRow*(event: ReplayEvent): JsonNode =
     value["victim_label"] = %event.secondaryLabel
   of FlagPickup, Capture, Respawn:
     value["label"] = %event.actorLabel
-  of FlagDrop, FlagReturn:
+  of FlagReturn:
     discard
   of ScoreChanged:
     value["amount"] = %event.scoreAmount
@@ -338,7 +316,6 @@ proc expandReplayTimeline*(data: ReplayData): ReplayTimeline =
       track: TrackState
       phase = sim.phase
       prevCarrier = sim.flagCarrier
-      prevAtCenter = sim.flagAtCenter()
 
     sim.gameEventLoggingEnabled = false
     replay.looping = false
@@ -376,7 +353,7 @@ proc expandReplayTimeline*(data: ReplayData): ReplayTimeline =
 
       sim.syncPlayers(tick, result.events, track)
       sim.printKillsAndDeaths(tick, result.events, track)
-      sim.printFlagChanges(tick, result.events, prevCarrier, prevAtCenter)
+      sim.printFlagChanges(tick, result.events, prevCarrier)
       sim.printCaptures(tick, result.events, track)
       sim.printScoreChanges(tick, result.events, track)
   finally:

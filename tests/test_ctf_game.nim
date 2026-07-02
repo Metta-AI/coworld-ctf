@@ -192,6 +192,44 @@ suite "ctf game":
 
     check sim.players[1].alive
 
+  test "killing the carrier returns the flag to center":
+    var sim = twoTeamGame()
+    let cx = sim.gameMap.center.x
+    let cy = sim.gameMap.center.y
+    sim.players[0].x = cx
+    sim.players[0].y = cy
+    sim.players[0].facingDx = 1
+    sim.players[0].facingDy = 0
+    sim.players[0].fireCooldown = 0
+    sim.players[1].x = cx + 40
+    sim.players[1].y = cy
+    sim.players[1].spawnProtect = 0
+    sim.flagCarrier = 1
+    sim.players[1].carryingFlag = true
+    sim.flagX = sim.players[1].x
+    sim.flagY = sim.players[1].y
+
+    sim.tryFire(0)
+
+    check not sim.players[1].alive
+    check not sim.players[1].carryingFlag
+    check sim.flagCarrier == -1
+    check sim.flagX == sim.gameMap.center.x
+    check sim.flagY == sim.gameMap.center.y
+
+  test "removing the carrier returns the flag to center":
+    var sim = twoTeamGame()
+    sim.flagCarrier = 1
+    sim.players[1].carryingFlag = true
+    sim.flagX = sim.players[1].x
+    sim.flagY = sim.players[1].y
+
+    sim.removePlayerAt(1)
+
+    check sim.flagCarrier == -1
+    check sim.flagX == sim.gameMap.center.x
+    check sim.flagY == sim.gameMap.center.y
+
   test "carrier in its home zone captures and wins":
     var sim = twoTeamGame()
     sim.flagCarrier = 0

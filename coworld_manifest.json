@@ -155,12 +155,6 @@
           "maximum": 100,
           "default": 70
         },
-        "flagReturnTicks": {
-          "description": "Idle ticks before a dropped flag returns to center (~8s).",
-          "type": "integer",
-          "minimum": 0,
-          "default": 192
-        },
         "startWaitTicks": {
           "description": "Lobby countdown ticks after enough players join.",
           "type": "integer",
@@ -446,7 +440,6 @@
         "gunConeDeg": 25,
         "fireCooldownTicks": 12,
         "carrierSpeedPct": 70,
-        "flagReturnTicks": 192,
         "startWaitTicks": 120,
         "gameOverTicks": 360,
         "maxTicks": 10000,
