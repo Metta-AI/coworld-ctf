@@ -56,13 +56,13 @@ const
   TracerDotSpriteId = 760      ## single bright shot-tracer dot sprite.
   TracerDotObjectBase = 15000  ## tracer object-id pool base.
   TracerDotSize = 3
-  TracerDotSpacing = 5         ## px between sampled tracer dots along a shot.
+  TracerDotSpacing = 12        ## px between sampled tracer dots along a shot.
   TracerDotColor = 8'u8        ## bright yellow (255,236,39): pops on the dark arena.
   TracerMaxShots = 16          ## most tracers drawn at once (one per shooter).
-  TracerDotsPerShot = 56       ## dots per shot (gunRange / spacing, plus slack).
-  TracerMaxDots = TracerMaxShots * TracerDotsPerShot
+  TracerDotsPerShot = GunRange div TracerDotSpacing + 4  ## dots per full-range shot, plus slack.
+  TracerMaxDots = TracerMaxShots * TracerDotsPerShot  ## 1792 ids: 15000..16791.
   SplatterSpriteBase = 16000   ## per color-and-fade-stage splatter sprites.
-  SplatterObjectBase = 16500   ## splatter object-id pool base.
+  SplatterObjectBase = 17000   ## splatter object-id pool base, above the tracer ids.
   SplatterSize = 13
   SplatterStages = 4           ## fade stages across SplatterFxTicks.
   SplatterMaxCount = 32        ## most splatters drawn at once.

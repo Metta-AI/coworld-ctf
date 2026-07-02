@@ -42,8 +42,8 @@ game layer (roles, tasks, voting) with teams, guns, and a flag.
   continuous beam).
 - A shot is **hitscan** (instant, not a traveling projectile). It hits the
   **nearest player** that is:
-  1. within **gun range** (limited — you must close distance; you cannot snipe
-     across the whole map),
+  1. within **gun range** (effectively map-wide — long open sightlines are
+     lethal, so cover and lanes matter more than distance),
   2. within your **firing cone** (a narrow arc around your facing direction), and
   3. in **clear line of sight** (walls block shots).
 - **Friendly fire is ON.** A shot hits the first valid target regardless of team,
@@ -112,7 +112,7 @@ These are starting values, exposed in the game config and tuned in self-play.
 | Lives per player | 3 | Out of lives = out for the round |
 | Respawn delay | ~3s | Time dead before respawning at home |
 | Spawn protection | ~1s | Invulnerability after respawn |
-| Gun range | ~150px | A bit beyond the 128px view window |
+| Gun range | 1300px | Effectively map-wide; the cone and line of sight are the real limits |
 | Firing cone | ~±25° | Main "aim difficulty" knob |
 | Fire cooldown | ~0.5s | Minimum time between shots |
 | Carrier speed | ~70% | Movement penalty while holding the flag |

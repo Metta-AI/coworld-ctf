@@ -133,7 +133,7 @@
           "description": "Maximum hitscan gun range in pixels.",
           "type": "integer",
           "minimum": 1,
-          "default": 260
+          "default": 1300
         },
         "gunConeDeg": {
           "description": "Firing cone half-angle in degrees around the facing direction.",
@@ -442,7 +442,7 @@
         "lives": 3,
         "respawnTicks": 72,
         "spawnProtectTicks": 24,
-        "gunRange": 260,
+        "gunRange": 1300,
         "gunConeDeg": 25,
         "fireCooldownTicks": 12,
         "carrierSpeedPct": 70,

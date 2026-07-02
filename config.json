@@ -3,7 +3,7 @@
   "lives":3,
   "respawnTicks":72,
   "spawnProtectTicks":24,
-  "gunRange":260,
+  "gunRange":1300,
   "gunConeDeg":25,
   "fireCooldownTicks":12,
   "carrierSpeedPct":70,

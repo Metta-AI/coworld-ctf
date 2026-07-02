@@ -40,7 +40,7 @@ const
   Lives* = 3
   RespawnTicks* = 72          ## ~3s before respawning at home.
   SpawnProtectTicks* = 24     ## ~1s spawn invulnerability.
-  GunRange* = 260             ## px, well beyond the 128px view window.
+  GunRange* = 1300            ## px, effectively map-wide; LOS and the cone are the real limits.
   GunConeDeg* = 25            ## firing cone half-angle in degrees.
   FireCooldownTicks* = 12     ## ~0.5s between shots.
   ShotFxTicks* = 12           ## ~0.5s a shot tracer stays visible (cosmetic only).
@@ -2169,14 +2169,15 @@ proc tryFire*(sim: var SimServer, shooterIndex: int) =
     ex = sim.players[bestTarget].x + CollisionW div 2
     ey = sim.players[bestTarget].y + CollisionH div 2
   else:
-    # March along the normalized facing to the last clear pixel or max range.
+    # March along the normalized facing to the last wall-free pixel or max
+    # range (checking each sampled pixel keeps this O(range) at 1300px).
     let maxRange = sim.config.gunRange
     var lastClear = 0
     for step in 1 .. maxRange:
       let
         rx = sx + int(round(fdx / facingLen * float(step)))
         ry = sy + int(round(fdy / facingLen * float(step)))
-      if not sim.lineOfSightClear(sx, sy, rx, ry):
+      if sim.isWall(rx, ry):
         break
       lastClear = step
     ex = sx + int(round(fdx / facingLen * float(lastClear)))

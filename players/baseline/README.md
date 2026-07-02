@@ -3,9 +3,10 @@
 A capture-the-flag reference bot that speaks the Bitworld Sprite v1 protocol.
 It keeps a persistent world model on top of the partially-observable 128×128
 view and plays a coordinated 8v8 team game on the dense-cover arena:
-cover-aware pathfinding, a flag-rushing mid trio, wide flankers, peek-and-shoot
-overwatch posts, carrier interception at the enemy capture gate, and
-disciplined one-shot-kill gunplay at the full 260px gun range.
+cover-aware pathfinding, a flag-rushing mid trio, wide flankers, overwatch
+snipers on the longest firing lines, carrier interception at the enemy capture
+gate, arrow-guided carrier sniping, and disciplined one-shot-kill gunplay
+under the effectively map-wide 1300px gun.
 
 All decision logic lives in `decide` in `baseline.nim`.
 
@@ -65,9 +66,10 @@ to an obstacle (`coverCell`). They feed three behaviors:
 - **Overwatch posts**: at nav-build each overwatch seat scans for a cover
   cell just on our side of the flag ring (`pickPost`) whose obstacle blocks
   the line toward the enemy half (`CoverShieldDist`) and which has a sideways
-  peek cell owning a ≥`PeekLineDist` open firing line toward the enemy half.
-  The bot holds the post, sidesteps to the peek cell when a remembered enemy
-  is in reach with the gun up, fires, and ducks back on cooldown.
+  peek cell with an open firing line toward the enemy half (≥`PeekLineDist`,
+  scored by the longest line — sniper posts). The bot holds the post,
+  sidesteps to the peek cell when a remembered enemy is in reach with the gun
+  up, fires, and ducks back on cooldown.
 
 ## Memory (the world is partially observable)
 
@@ -101,7 +103,10 @@ seat index (`slot div 2`) picks the role via `roleForSeat`:
   enemy is facing away from.
 - **Seats 4/5 — OverwatchTop/OverwatchBottom**: hold the shielded cover posts
   flanking the flag ring (see cover model) and run the peek-fire-duck cycle
-  on anything crossing mid.
+  on anything crossing mid. Post selection is sniper-first: candidate peek
+  cells are scored by the **length of their clear firing line** toward the
+  enemy half (`openLineLen`, floor `PeekLineDist`), because under a map-wide
+  gun a post is worth what its lane can reach.
 - **Seat 7 — HomeDefender**: holds the choke between the flag and our capture
   column, snapped to the nearest cover cell (`chokeHold`); grabs a loose flag
   on our half and chases intruders.
@@ -114,10 +119,13 @@ holds the choke).
 
 ## Carrier play & interception
 
-Our carrier picks the home lane (top/mid/bottom) with the fewest remembered
-enemies (`safestLaneY`) and paths deep into the capture zone; the exposure
-cost keeps the run hugging cover past remembered enemies. Carriers never
-peek, duck, or jink and only engage enemies within `CarrierFireRange`.
+Our carrier picks the home lane (top/mid/bottom) that combines the fewest
+remembered enemies with the best **cover continuity** (`safestLaneY` samples
+the run home and charges stretches with no cover cell nearby — under map-wide
+guns an open lane is a shooting gallery even when it looks empty) and paths
+deep into the capture zone; the exposure cost keeps the run hugging cover
+past remembered enemies. Carriers never peek, duck, or jink and only engage
+enemies within `CarrierFireRange`.
 
 Against an enemy carrier: a fresh sighting (≤ ~40 ticks) makes everyone
 converge on its predicted path. A **stale** sighting means it is running home
@@ -126,26 +134,48 @@ out of view — instead of chasing a fading prediction, units cut it off at the
 choke every carrier must cross. Mids chase the flag itself (the arrow tracks
 a carried flag globally).
 
+**Arrow-guided carrier snipe**: while an enemy carrier is remembered
+(`CarryTtl`) and the flag is off-screen, the flag arrow tracks the carried
+flag globally — a live global bearing to the carrier. Any unit with its shot
+ready fires down the arrow ray whenever the ray is long-open
+(`openLineLen` ≥ `SnipeMinOpen`) and no remembered mate is on it: the
+hitscan kills the nearest player along the ray, and the only player known to
+be on it is the carrier. This is the bot's real long-range weapon — it kills
+carriers from far beyond the 64px view, anywhere on the map.
+
 ## Fire discipline & combat micro
 
 - **Target**: nearest track seen within `FreshShotTicks`, led by its velocity
-  (`LeadTicks`), within `FireRange` = 250 (the 260px gun outranges the 128px
-  view, so fresh off-screen tracks are fair targets), with a clear pixel
-  raycast against the walkability mask (exactly the sim's LOS rule). Shoot
-  first from max range — first shot wins.
+  (`LeadTicks`), within `FireRange` = 1250 (the 1300px gun is effectively
+  map-wide, so chases keep shooting after the target leaves the view — the
+  wide long-range cone forgives track drift), with a clear pixel raycast
+  against the walkability mask (exactly the sim's LOS rule). Shoot first —
+  first shot wins. Tracks only form inside the ~64px view, so track
+  engagements stay short-range in practice; the arrow snipe (above) is what
+  actually uses the range.
 - **Aim**: steer into the target's octant — the worst-case 22.5° octant error
   sits inside the 25° firing cone — and pulse A only when the fire icon shows
   ready (fresh presses fire; A is released for a frame between shots).
-- **Friendly fire guard**: hold fire when a remembered teammate is inside the
-  firing corridor along the **full ray** out to the target (point-to-ray
-  distance under `CorridorHalfWidth`, inflated with sighting age) or inside a
-  30° cone closer than the target — the server kills the nearest player in
-  the cone, friend or foe, and 8v8 puts many teammates downrange.
+- **Friendly fire guard**: the server kills the **nearest** player inside the
+  25° cone around our true 8-way facing, friend or foe — and at long range
+  that cone is hundreds of px wide laterally. `friendlyBlocked` therefore
+  checks remembered mates closer than the target against both the tight
+  corridor (`CorridorHalfWidth`, inflated with sighting age) and the full
+  server cone around the real fire axis (`octantDir`, `FireConeCos`).
+  Mate-blocked targets are **skipped at selection**, so the bot retargets a
+  clear enemy instead of holding fire.
 - **Rushing**: the mid trio skips peek/duck while playing for the flag —
   pickup races and carrier chases are lost to positioning detours — and
   shoots on the move instead.
 - **Jink**: when a visible enemy inside `ThreatRange` faces us and we have no
   shot lined up (and no duck cell breaks its line), strafe perpendicular.
+- **Serpentine**: non-rushing, non-carrying units weave
+  (`SerpentineNear`..`SerpentineFar`) while a fresh remembered enemy at mid
+  distance has a clear pixel line to us — under map-wide guns a straight run
+  across a watched lane is lethal.
+- **Duck radius**: cooldown ducking reacts to remembered threats out to
+  `DuckRange` (340px), beyond the old close-quarters radius, since threats
+  outside the view can kill us the moment their line clears.
 - **Spacing**: soft repulsion keeps teammates ~`MateSpacing` (40px) apart so
   one burst (or one of our own shots) cannot hit two of us.
 

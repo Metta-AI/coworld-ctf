@@ -16,19 +16,23 @@
 ## - **Roles** (deterministic from the per-team seat, 8 seats): a mid trio
 ##   (rusher plus two trailing attackers) races and contests the flag, two
 ##   flankers route wide via the extreme top/bottom lanes to get behind the
-##   enemy contest, two overwatch bots hold shielded cover posts with peek
-##   cells flanking the flag ring, and one home defender guards the choke
-##   before our capture column. A stale enemy-carrier sighting sends everyone
-##   who knows to the enemy capture gate to cut the run off.
+##   enemy contest, two overwatch snipers hold shielded cover posts whose peek
+##   cells own the longest clear firing lines down the mid lanes, and one home
+##   defender guards the choke before our capture column. A stale
+##   enemy-carrier sighting sends everyone who knows to the enemy capture gate
+##   to cut the run off.
 ## - **Peek-and-shoot**: the default combat mode. With the gun up and a
 ##   remembered enemy blocked by a wall, step sideways to the nearest cell
 ##   that opens the firing line; during the 12-tick cooldown, duck behind the
 ##   nearest cover that breaks the threat's line and hold until ready.
-## - **Fire discipline**: the 260px gun vastly outranges the 128px view, so
-##   fresh tracks are engaged out to ~250px. Steer into the target's octant so
-##   the 25-degree cone covers it, lead it slightly, and hold fire when a
-##   remembered teammate sits anywhere in the corridor (friendly fire is on,
-##   one hit kills, and 8v8 puts many teammates downrange).
+## - **Fire discipline**: the 1300px gun is effectively map-wide, so any fresh
+##   track with a clear pixel ray is engaged out to ~1250px. Steer into the
+##   target's octant so the 25-degree cone covers it, lead it slightly, and
+##   skip targets with a remembered teammate near the fire axis (friendly fire
+##   is on, the server kills the NEAREST player in the cone, and at long range
+##   the cone is hundreds of px wide laterally). While a remembered enemy runs
+##   our flag home, the flag arrow tracks it globally: fire down a long-open
+##   arrow ray to snipe the carrier from anywhere on the map.
 ##
 ## Coordinate model: objects arrive in screen space and the map object's offset
 ## is the camera, so mapPos = objectCenter + camera; our own avatar sits at
@@ -56,31 +60,39 @@ const
   RepathTicks = 10            # refresh the cost field at least this often
   LookaheadCells = 6          # how far ahead on the path we aim the waypoint
 
-  FireRange = 250.0           # engage distance (gun range is 260)
+  FireRange = 1250.0          # engage distance (the 1300px gun is map-wide)
   CarrierFireRange = 110.0    # while carrying, only shoot enemies this close
-  ThreatRange = 200.0         # react to an enemy this close facing us
+  ThreatRange = 200.0         # react to a visible enemy this close facing us
+  DuckRange = 340.0           # duck from remembered threats this close on cooldown
+  SnipeMinOpen = 300.0        # min open ray for an arrow-guided carrier snipe
   MateSpacing = 40.0          # soft repulsion radius between teammates
   CorridorHalfWidth = 15.0    # friendly-fire corridor half width along the ray
-  ConeBlockCos = 0.866        # cos 30 deg: a closer mate in this cone blocks
+  FireConeCos = 0.88          # cos ~28 deg: the server's 25-deg hit cone plus slack
   LeadTicks = 2.0             # aim this many ticks ahead of a moving enemy
   TrackMatchDist = 40.0       # a sighting matches a track within this distance
   TrackTtl = 120              # forget a player not seen for ~5s
   TrackCap = 8                # eight real opponents / teammates per side
-  FreshShotTicks = 8          # only fire at tracks seen this recently
+  FreshShotTicks = 12         # only fire at tracks seen this recently; the
+                              # wide long-range cone forgives the drift, so
+                              # chases keep shooting after the target is gone
   CarryTtl = 240              # trust an enemy-carrier sighting for ~10s (a
                               # carrier's run home takes about that long)
   FlagMemoryTtl = 168         # trust a remembered flag spot for ~7s
 
   CoverShieldDist = 42.0      # an obstacle this close blocks a threat direction
-  PeekLineDist = 150.0        # open px an overwatch peek firing line needs
+  PeekLineDist = 150.0        # floor for an overwatch peek firing line; post
+                              # scoring strongly prefers the longest line
   DuckSearchCells = 3         # duck-cell search radius in nav cells
   PeekSearchCells = 3         # peek-cell search radius in nav cells
-  ExposureRange = 260.0       # enemy gun range used for exposure costing
+  ExposureRange = 380.0       # enemy threat radius used for exposure costing
   ExposureThreats = 3         # cost only the freshest few remembered threats
   ExposureTrackTtl = 60       # only cost threats remembered this recently
+  UnderFireTrackTtl = 16      # tracks this fresh can pin us on open ground
+  SerpentineNear = 100.0      # serpentine band: closer threats are jink/duck
+  SerpentineFar = 400.0       # ... and farther tracks cannot really aim at us
   StepCost = 5'i32            # orthogonal move cost in the nav field
   DiagCost = 7'i32            # ~sqrt(2) * StepCost
-  ExposedCost = 6'i32         # extra cost to enter a threat-exposed cell
+  ExposedCost = 8'i32         # extra cost to enter a threat-exposed cell
   BehindFlagDist = 120.0      # flankers stage this far past the flag first
   InterceptGateX = 390.0      # camp distance past mid: the enemy capture gate
   FlankDepth = 260.0          # wide flankers cross this far past mid
@@ -191,6 +203,14 @@ proc octantBits(d: Vec): uint8 =
   of 6: ButtonUp
   else: ButtonUp or ButtonRight
 
+proc octantDir(d: Vec): Vec =
+  ## The unit vector of the 8-way direction octantBits picks for `d`: the
+  ## facing the sim gives us when we steer that way, hence the true fire axis.
+  if d.len() < 1e-6:
+    return vec(0, 0)
+  let angle = float(int(round(arctan2(d.y, d.x) / (PI / 4)))) * (PI / 4)
+  vec(cos(angle), sin(angle))
+
 proc slotFromUrl(url: string): int =
   ## Reads the `slot` query parameter from the websocket URL.
   let key = "slot="
@@ -286,6 +306,17 @@ proc rayClearCoarse(client: ProtocolClient, a, b: Vec, step: float): bool =
       return false
   true
 
+proc openLineLen(client: ProtocolClient, a, dir: Vec, maxLen, step: float): float =
+  ## Length of the wall-free ray from `a` along unit `dir`, capped at maxLen.
+  ## Sizes sniper firing lines and arrow-snipe rays under the map-wide gun.
+  var l = step
+  while l <= maxLen:
+    let p = a + dir * l
+    if not client.walkableAt(int(p.x), int(p.y)):
+      return l - step
+    l += step
+  maxLen
+
 proc homeSign(team: Team): float =
   ## -1 toward Red's home edge (left), +1 toward Blue's (right).
   if team == Red: -1.0 else: 1.0
@@ -343,9 +374,10 @@ proc snapToCover(bot: Bot, p: Vec): Vec =
         result = cellCenter(nc)
 
 proc pickPost(bot: Bot, client: ProtocolClient) =
-  ## Chooses the overwatch post: a cover cell on our side of mid whose
+  ## Chooses the overwatch sniper post: a cover cell on our side of mid whose
   ## obstacle shields it from the enemy half, with a sideways peek cell that
-  ## owns a long firing line across the mid lane. Fire from the peek, duck
+  ## owns the LONGEST clear firing line toward the enemy half — the map-wide
+  ## gun makes the lane length the post's value. Fire from the peek, duck
   ## back to the hold during cooldown.
   bot.postReady = false
   if bot.role notin {OverwatchTop, OverwatchBottom}:
@@ -368,19 +400,21 @@ proc pickPost(bot: Bot, client: ProtocolClient) =
         continue                         # nothing shields us from the front
       var
         peek: Vec
-        havePeek = false
+        peekLine = 0.0
       for dyc in [-2, 2, -1, 1]:
         let ny = cy + dyc
         if ny < 0 or ny >= GridH or not bot.cellWalkable[ny * GridW + cx]:
           continue
         let q = cellCenter(ny * GridW + cx)
-        if rayClearCoarse(client, q, q + vec(eSign * PeekLineDist, 0.0), 6.0):
+        let line = openLineLen(client, q, vec(eSign, 0.0), FireRange, 6.0)
+        if line > peekLine:
+          peekLine = line
           peek = q
-          havePeek = true
-          break
-      if not havePeek:
+      if peekLine < PeekLineDist:
         continue
-      let score = abs(p.y - wantY) + abs(fwd + 90.0) * 0.7
+      # The firing-line length dominates; the position terms break near-ties
+      # toward the wanted flank height and hugging the flag ring.
+      let score = abs(p.y - wantY) + abs(fwd + 90.0) * 0.7 - peekLine * 0.7
       if score < bestScore:
         bestScore = score
         bot.postHold = p
@@ -665,7 +699,9 @@ proc resetTransient(bot: Bot) =
   bot.navGoal = -1
 
 proc safestLaneY(bot: Bot, me: Vec): float =
-  ## The lane with the fewest remembered enemies between us and home.
+  ## The carrier's lane home: fewest remembered enemies AND the best cover
+  ## continuity — under map-wide guns a lane whose run has no cover nearby is
+  ## a shooting gallery even when it looks empty.
   var
     bestLane = LaneMid
     bestScore = 1e18
@@ -677,6 +713,35 @@ proc safestLaneY(bot: Bot, me: Vec): float =
         else: t.pos.x > me.x - 200
       if towardHome and abs(t.pos.y - lane) < 120:
         score += 1.0
+    if bot.navBuilt:
+      # Cover continuity: sample the run home along the lane and charge each
+      # sample with no cover cell in its 3x3 nav neighborhood.
+      let
+        goalX = homeDeepX(bot.team)
+        stepX = (if goalX > me.x: 32.0 else: -32.0)
+      var
+        x = me.x
+        samples = 0
+        bare = 0
+      while (stepX > 0.0 and x < goalX) or (stepX < 0.0 and x > goalX):
+        inc samples
+        let
+          c = cellOf(vec(x, lane))
+          cx = c mod GridW
+          cy = c div GridW
+        block covered:
+          for dy in -1 .. 1:
+            for dx in -1 .. 1:
+              let
+                nx = cx + dx
+                ny = cy + dy
+              if nx >= 0 and ny >= 0 and nx < GridW and ny < GridH and
+                  bot.coverCell[ny * GridW + nx]:
+                break covered
+          inc bare
+        x += stepX
+      if samples > 0:
+        score += float(bare) / float(samples) * 2.0
     if score < bestScore:
       bestScore = score
       bestLane = lane
@@ -684,9 +749,11 @@ proc safestLaneY(bot: Bot, me: Vec): float =
 
 proc friendlyBlocked(bot: Bot, me, aim: Vec, enemyDist: float): bool =
   ## True when a remembered teammate could eat the shot: the server kills the
-  ## nearest player inside the 25-degree cone, friend or foe, along the full
-  ## 260px ray — and 8v8 puts many teammates downrange.
-  let dir = norm(aim - me)
+  ## NEAREST player inside the 25-degree cone around our real 8-way facing,
+  ## friend or foe, along the full ray. At long range the cone is huge
+  ## laterally (~550px half width at 1250px), so any mate closer than the
+  ## target and near the fire axis blocks — 8v8 puts many teammates downrange.
+  let dir = octantDir(aim - me)
   for t in bot.mates:
     let age = float(bot.tick - t.lastSeen)
     if age > 36:
@@ -697,10 +764,11 @@ proc friendlyBlocked(bot: Bot, me, aim: Vec, enemyDist: float): bool =
       along = dot(rel, dir)
     if along <= 0 or d < 1e-6:
       continue
-    if along < enemyDist + 14.0 and
-        abs(cross(rel, dir)) < CorridorHalfWidth + age * 0.35:
+    if along >= enemyDist + 14.0:
+      continue                          # beyond the target: the target dies first
+    if abs(cross(rel, dir)) < CorridorHalfWidth + age * 0.35:
       return true
-    if d < enemyDist + 6.0 and dot(rel, dir) / d >= ConeBlockCos:
+    if along / d >= FireConeCos:
       return true
   false
 
@@ -884,9 +952,10 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     else:
       discard
 
-  # Combat: the nearest recently-seen enemy with a clear pixel ray is the
-  # engage target; the nearest fresh-but-wall-blocked track is the peek
-  # candidate. The gun outranges the view, so fresh off-screen tracks count.
+  # Combat: the nearest fresh track with a clear pixel ray AND a mate-free
+  # fire cone is the engage target; the nearest fresh-but-wall-blocked track
+  # is the peek candidate. The map-wide gun engages fresh tracks far beyond
+  # the view, so chases keep killing after the target leaves the window.
   var
     engage = -1
     engageD = (if iCarry: CarrierFireRange else: FireRange)
@@ -903,6 +972,8 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     if d >= engageD:
       continue
     if client.pixelRayClear(me, predicted):
+      if bot.friendlyBlocked(me, predicted, d):
+        continue                        # prefer a target with an empty corridor
       engageD = d
       engage = i
       aim = predicted
@@ -915,7 +986,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # used to pick which line to break when ducking through cooldown.
   var
     nearThreat = -1
-    nearThreatD = ThreatRange + 60.0
+    nearThreatD = DuckRange
   for i in 0 ..< bot.enemies.len:
     if bot.tick - bot.enemies[i].lastSeen > 30:
       continue
@@ -936,9 +1007,9 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     holdStill = false
   if engage >= 0 and shotReady:
     # Shoot first from max range: steer into the target's octant (facing
-    # follows movement) and fire when no teammate is in the corridor.
+    # follows movement) and fire; the mate corridor was checked at selection.
     mask = octantBits(aim - me)
-    if not bot.firedLast and not bot.friendlyBlocked(me, aim, engageD):
+    if not bot.firedLast:
       mask = mask or ButtonA
     acted = true
   elif not iCarry and not rushing and not shotReady and nearThreat >= 0:
@@ -958,6 +1029,21 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     if peek >= 0 and dist(cellCenter(peek), me) > 4.0:
       mask = octantBits(cellCenter(peek) - me)
       acted = true
+
+  if not acted and shotReady and not bot.firedLast and not iCarry and
+      enemyCarryKnown and arrows.len > 0:
+    # Arrow-guided carrier snipe: while an enemy runs our flag home out of
+    # view, the flag arrow tracks the carried flag globally and the map-wide
+    # gun can reach it. Fire down the arrow ray when it is long-open and no
+    # remembered mate is on it — the nearest player on that ray is the
+    # carrier, and the wide long-range cone forgives the arrow quantization.
+    let dir = norm(client.mapPos(arrows[0]) - me)
+    if dir.len() > 0.5:
+      let open = openLineLen(client, me, dir, FireRange, 4.0)
+      if open >= SnipeMinOpen and
+          not bot.friendlyBlocked(me, me + dir * open, open):
+        mask = octantBits(dir) or ButtonA
+        acted = true
 
   if not acted:
     # Threat jink: sidestep a visible enemy that is facing us while our own
@@ -991,6 +1077,22 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         let d = dist(t.pos, me)
         if d < MateSpacing and d > 0.5:
           steer = steer + norm(me - t.pos) * ((MateSpacing - d) / MateSpacing) * 0.9
+      # Serpentine when a fresh remembered enemy at mid distance has a clear
+      # line to us: with map-wide guns a straight run across its lane is
+      # lethal. Closer threats are the jink/duck branches' job; rushers and
+      # the carrier skip it — for them speed beats evasion.
+      if not iCarry and not rushing:
+        for t in bot.enemies:
+          if bot.tick - t.lastSeen > UnderFireTrackTtl:
+            continue
+          let d = dist(t.pos, me)
+          if d >= SerpentineNear and d <= SerpentineFar and
+              client.pixelRayClear(me, t.pos):
+            var side = vec(-steer.y, steer.x)
+            if (bot.tick div 8 + bot.slot) mod 2 == 0:
+              side = side * -1.0
+            steer = norm(steer) + side * 0.6
+            break
       steer = steer + vec(rand(-0.12 .. 0.12), rand(-0.12 .. 0.12))
       mask = octantBits(steer)
       if bot.tick < bot.jinkUntil:
