@@ -82,21 +82,30 @@ const
   TransportSpeedGap = 16
   TransportX = 2
   TransportY = 1
+  ## Sprite/object id pools (sprites and objects are separate namespaces).
+  ## Sprites: team flags 700..701 (FlagSpriteBase), carrier bar 740, tracer
+  ## dots 760..775, flag arrows 5005 (enemy) + 5011 (own), splatters
+  ## 16000..16063. Objects: flags 6500..6501 (map view) / 5009..5010 (player
+  ## view), flag arrows 7001 (enemy) + 7002 (own), tracer dots 15000..16791,
+  ## splatters 17000..17031.
   SpritePlayerFireSpriteId = 5000
   SpritePlayerFireShadowSpriteId = 5001
   SpritePlayerRemainingSpriteId = 5003
-  SpritePlayerArrowSpriteId = 5005
+  SpritePlayerEnemyArrowSpriteId = 5005
   SpritePlayerInterstitialSpriteId = 5006
   SpritePlayerWalkabilitySpriteId = 5007
+  SpritePlayerOwnArrowSpriteId = 5011
   SpritePlayerInterstitialObjectId = 5006
   SpritePlayerRemainingObjectId = 5008
-  SpritePlayerFlagObjectId = 5009
+  SpritePlayerFlagObjectBase = 5009  ## 5009 red flag, 5010 blue flag.
   SpritePlayerShadowSpriteId = 5010
   SpritePlayerShadowObjectId = 13000
   SpritePlayerShadowZ = -32767
-  SpritePlayerCarrierObjectId = 10004
-  SpritePlayerArrowObjectId = 7001
-  FlagObjectId = 6500
+  SpritePlayerEnemyArrowObjectId = 7001
+  SpritePlayerOwnArrowObjectId = 7002
+  EnemyArrowColor = 8'u8       ## yellow: bearing to the flag we steal.
+  OwnArrowColor = 3'u8         ## red alert: our flag is stolen.
+  FlagObjectBase = 6500        ## 6500 red flag, 6501 blue flag.
   MapMarkerSpriteBase = 20000
   MapMarkerObjectBase = 20000
   MapMarkerZ = -32767
@@ -979,9 +988,40 @@ proc addSpriteProtocolInterstitialSprites(
     "interstitial background"
   )
 
-proc buildFlagSprite(sim: SimServer): seq[uint8] {.measure.} =
-  ## Builds the neutral flag sprite from the reused icon cell.
-  buildSpriteProtocolRawSprite(sim.flagSprite)
+proc buildFlagSprite(sim: SimServer, team: Team): seq[uint8] {.measure.} =
+  ## Builds one team-colored flag sprite from the reused icon cell: every
+  ## body pixel takes the team color, the outline stays.
+  let sprite = sim.flagSprite
+  result = newRgbaPixels(sprite.width, sprite.height)
+  for y in 0 ..< sprite.height:
+    for x in 0 ..< sprite.width:
+      let colorIndex = sprite.pixels[sprite.spriteIndex(x, y)]
+      if colorIndex == TransparentColorIndex:
+        continue
+      result.putRgbaPixel(
+        sprite.spriteIndex(x, y),
+        if colorIndex == OutlineColor: colorIndex else: teamColor(team)
+      )
+
+proc flagLabel(team: Team): string =
+  ## Returns the observation label for one team's flag sprite.
+  teamText(team) & " flag"
+
+proc addFlagSprites(
+  sim: SimServer,
+  spriteDefs: var seq[SpriteDefinition],
+  packet: var seq[uint8]
+) {.measure.} =
+  ## Adds both team-colored flag sprite definitions.
+  for team in Team:
+    packet.addSpriteChanged(
+      spriteDefs,
+      FlagSpriteBase + ord(team),
+      sim.flagSprite.width,
+      sim.flagSprite.height,
+      sim.buildFlagSprite(team),
+      flagLabel(team)
+    )
 
 proc addPlayerActorSprites(
   sim: SimServer,
@@ -1053,14 +1093,7 @@ proc buildSpriteProtocolInit(
   )
   result.addObject(MapObjectId, 0, 0, low(int16), MapLayerId, MapSpriteId)
   sim.addMapMarkers(spriteDefs, result)
-  result.addSpriteChanged(
-    spriteDefs,
-    FlagSpriteId,
-    sim.flagSprite.width,
-    sim.flagSprite.height,
-    sim.buildFlagSprite(),
-    "flag"
-  )
+  sim.addFlagSprites(spriteDefs, result)
   result.addSpriteChanged(
     spriteDefs,
     CarrierBarSpriteBase,
@@ -1099,14 +1132,7 @@ proc buildSpriteProtocolPlayerInit(
     sim.buildWalkabilitySpritePixels(),
     "walkability map"
   )
-  result.addSpriteChanged(
-    spriteDefs,
-    FlagSpriteId,
-    sim.flagSprite.width,
-    sim.flagSprite.height,
-    sim.buildFlagSprite(),
-    "flag"
-  )
+  sim.addFlagSprites(spriteDefs, result)
   result.addSpriteChanged(
     spriteDefs,
     SpritePlayerFireSpriteId,
@@ -1125,11 +1151,19 @@ proc buildSpriteProtocolPlayerInit(
   )
   result.addSpriteChanged(
     spriteDefs,
-    SpritePlayerArrowSpriteId,
+    SpritePlayerEnemyArrowSpriteId,
     1,
     1,
-    buildSolidSprite(1, 1, 8'u8),
-    "flag arrow"
+    buildSolidSprite(1, 1, EnemyArrowColor),
+    "enemy flag arrow"
+  )
+  result.addSpriteChanged(
+    spriteDefs,
+    SpritePlayerOwnArrowSpriteId,
+    1,
+    1,
+    buildSolidSprite(1, 1, OwnArrowColor),
+    "own flag arrow"
   )
   result.addSpriteChanged(
     spriteDefs,
@@ -1358,29 +1392,27 @@ proc selectedPlayerIndex(
       return i
   -1
 
-proc addSpritePlayerFlagArrow(
+proc addSpritePlayerArrow(
   sim: SimServer,
   playerIndex: int,
-  cameraX,
-  cameraY: int,
+  view: PlayerView,
+  targetX, targetY, objectId, spriteId: int,
   currentIds: var seq[int],
   packet: var seq[uint8]
 ) {.measure.} =
-  ## Adds an off-screen direction marker pointing toward the flag.
-  if playerIndex < 0 or playerIndex >= sim.players.len:
+  ## Adds one direction marker pointing toward a world point, skipped only
+  ## while the point itself is visible on screen (so a flag arrow is present
+  ## exactly when its flag is not).
+  if sim.screenPointVisible(view, targetX, targetY):
     return
   let
-    flagSx = sim.flagX - SpriteSize div 2 - cameraX
-    flagSy = sim.flagY - SpriteSize div 2 - cameraY
-  if flagSx + SpriteSize > 0 and flagSy + SpriteSize > 0 and
-      flagSx < ScreenWidth and flagSy < ScreenHeight:
-    return
-  let
+    cameraX = view.cameraX
+    cameraY = view.cameraY
     player = sim.players[playerIndex]
     px = float(player.x + CollisionW div 2 - cameraX)
     py = float(player.y + CollisionH div 2 - cameraY)
-    dx = float(sim.flagX - cameraX) - px
-    dy = float(sim.flagY - cameraY) - py
+    dx = float(targetX - cameraX) - px
+    dy = float(targetY - cameraY) - py
   if abs(dx) < 0.5 and abs(dy) < 0.5:
     return
   var ex, ey: float
@@ -1395,15 +1427,54 @@ proc addSpritePlayerFlagArrow(
   else:
     ey = if dy > 0: maxY else: minY
     ex = clamp(px + dx * (ey - py) / dy, minX, maxX)
-  currentIds.add(SpritePlayerArrowObjectId)
+  currentIds.add(objectId)
   packet.addObject(
-    SpritePlayerArrowObjectId,
+    objectId,
     int(ex),
     int(ey),
     30000,
     MapLayerId,
-    SpritePlayerArrowSpriteId
+    spriteId
   )
+
+proc addSpritePlayerFlagArrows(
+  sim: SimServer,
+  playerIndex: int,
+  view: PlayerView,
+  currentIds: var seq[int],
+  packet: var seq[uint8]
+) {.measure.} =
+  ## Adds this viewer's flag bearings. "enemy flag arrow" points at the flag
+  ## the viewer's team wants to steal (its pedestal or its carrier). "own flag
+  ## arrow" appears only while the viewer's own flag is stolen and points at
+  ## the thief; while the flag sits home the arrow is hidden.
+  if playerIndex < 0 or playerIndex >= sim.players.len:
+    return
+  let
+    team = sim.players[playerIndex].team
+    enemyFlag = sim.flags[enemy(team)]
+    ownFlag = sim.flags[team]
+  sim.addSpritePlayerArrow(
+    playerIndex,
+    view,
+    enemyFlag.x,
+    enemyFlag.y,
+    SpritePlayerEnemyArrowObjectId,
+    SpritePlayerEnemyArrowSpriteId,
+    currentIds,
+    packet
+  )
+  if ownFlag.carrier >= 0:
+    sim.addSpritePlayerArrow(
+      playerIndex,
+      view,
+      ownFlag.x,
+      ownFlag.y,
+      SpritePlayerOwnArrowObjectId,
+      SpritePlayerOwnArrowSpriteId,
+      currentIds,
+      packet
+    )
 
 proc tracerDotSpriteId(colorIndex: int): int =
   ## Returns the sprite id for one tracer dot color.
@@ -1619,17 +1690,20 @@ proc buildSpriteProtocolPlayerUpdates*(
     else:
       nextState.shadowReady = false
 
-    # The flag, when visible.
-    if sim.screenPointVisible(view, sim.flagX, sim.flagY):
-      currentIds.add(SpritePlayerFlagObjectId)
-      result.addObject(
-        SpritePlayerFlagObjectId,
-        sim.flagX - SpriteSize div 2 - cameraX,
-        sim.flagY - SpriteSize div 2 - cameraY,
-        sim.flagY,
-        MapLayerId,
-        FlagSpriteId
-      )
+    # The team flags, when visible (a carried flag rides its carrier).
+    for team in Team:
+      let flag = sim.flags[team]
+      if sim.screenPointVisible(view, flag.x, flag.y):
+        let objectId = SpritePlayerFlagObjectBase + ord(team)
+        currentIds.add(objectId)
+        result.addObject(
+          objectId,
+          flag.x - SpriteSize div 2 - cameraX,
+          flag.y - SpriteSize div 2 - cameraY,
+          flag.y + 1,
+          MapLayerId,
+          FlagSpriteBase + ord(team)
+        )
 
     for other in sim.players:
       if not view.screenPointInFrame(
@@ -1658,10 +1732,9 @@ proc buildSpriteProtocolPlayerUpdates*(
         other.spriteActorSpriteId(-1)
       )
 
-    sim.addSpritePlayerFlagArrow(
+    sim.addSpritePlayerFlagArrows(
       playerIndex,
-      cameraX,
-      cameraY,
+      view,
       currentIds,
       result
     )
@@ -2192,16 +2265,19 @@ proc buildSpriteProtocolUpdates*(
         labelSpriteId
       )
 
-  # The flag, when loose on the ground (carried flags ride the carrier sprite).
-  if sim.flagCarrier < 0:
-    currentIds.add(FlagObjectId)
+  # Both team flags: on the home pedestal or riding the carrier sprite.
+  for team in Team:
+    let
+      flag = sim.flags[team]
+      objectId = FlagObjectBase + ord(team)
+    currentIds.add(objectId)
     result.addObject(
-      FlagObjectId,
-      sim.flagX - SpriteSize div 2,
-      sim.flagY - SpriteSize div 2,
-      sim.flagY,
+      objectId,
+      flag.x - SpriteSize div 2,
+      flag.y - SpriteSize div 2,
+      flag.y + 1,
       MapLayerId,
-      FlagSpriteId
+      FlagSpriteBase + ord(team)
     )
 
   if sim.hasInterstitialFrame():

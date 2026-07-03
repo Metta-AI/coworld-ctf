@@ -10,8 +10,8 @@ type
     PlayerJoined
     PhaseChanged
     Kill
-    FlagPickup
-    FlagReturn
+    FlagSteal
+    FlagReturnHome
     Capture
     Respawn
     ScoreChanged
@@ -26,6 +26,7 @@ type
     secondaryLabel*: string
     phase*: GamePhase
     scoreAmount*: int
+    flagTeam*: Team
     winner*: Team
     isDraw*: bool
 
@@ -67,14 +68,6 @@ proc replayConfig(data: ReplayData): GameConfig =
   ## Returns the game config embedded in a replay.
   result = defaultGameConfig()
   result.update(data.configJson)
-
-proc teamText(team: Team): string =
-  ## Returns the readable team name.
-  case team
-  of Red:
-    "red"
-  of Blue:
-    "blue"
 
 proc player(sim: SimServer, i: int): string =
   ## Returns team, color, and username for one player.
@@ -166,10 +159,19 @@ proc printCaptures(
   events: var seq[ReplayEvent],
   track: var TrackState
 ) =
-  ## Adds capture events by diffing per-player capture counters.
+  ## Adds capture events by diffing per-player capture counters. A player
+  ## always captures the enemy team's flag.
   for i, p in sim.players:
     if p.captures > track.captures[i]:
-      events.addPlayerEvent(tick, Capture, sim, i)
+      events.add ReplayEvent(
+        tick: tick,
+        kind: Capture,
+        actorSlot: sim.playerSlot(i),
+        actorLabel: sim.player(i),
+        secondarySlot: -1,
+        flagTeam: enemy(p.team),
+        phase: sim.phase
+      )
     track.captures[i] = p.captures
 
 proc printScoreChanges(
@@ -196,26 +198,37 @@ proc printFlagChanges(
   sim: SimServer,
   tick: int,
   events: var seq[ReplayEvent],
-  prevCarrier: var int
+  prevCarriers: var array[Team, int]
 ) =
-  ## Adds flag pickup and return events by diffing flag ownership. A carrier
-  ## losing the flag for any reason other than capture sends it straight
-  ## back to center; captures keep the carrier and are reported separately.
-  let carrier = sim.flagCarrier
-  if carrier == prevCarrier:
-    return
-  if prevCarrier >= 0:
-    events.add ReplayEvent(
-      tick: tick,
-      kind: FlagReturn,
-      actorSlot: -1,
-      actorLabel: "",
-      secondarySlot: -1,
-      phase: sim.phase
-    )
-  if carrier >= 0:
-    events.addPlayerEvent(tick, FlagPickup, sim, carrier)
-  prevCarrier = carrier
+  ## Adds per-team flag steal and return-home events by diffing each flag's
+  ## carrier. A carrier losing a flag for any reason other than capture sends
+  ## it straight back to its pedestal; captures keep the carrier and are
+  ## reported separately.
+  for team in Team:
+    let carrier = sim.flags[team].carrier
+    if carrier == prevCarriers[team]:
+      continue
+    if prevCarriers[team] >= 0:
+      events.add ReplayEvent(
+        tick: tick,
+        kind: FlagReturnHome,
+        actorSlot: -1,
+        actorLabel: "",
+        secondarySlot: -1,
+        flagTeam: team,
+        phase: sim.phase
+      )
+    if carrier >= 0:
+      events.add ReplayEvent(
+        tick: tick,
+        kind: FlagSteal,
+        actorSlot: sim.playerSlot(carrier),
+        actorLabel: sim.player(carrier),
+        secondarySlot: -1,
+        flagTeam: team,
+        phase: sim.phase
+      )
+    prevCarriers[team] = carrier
 
 proc scoreAmountText(amount: int): string =
   ## Returns a readable signed score amount.
@@ -233,10 +246,10 @@ proc key*(event: ReplayEvent): string =
     "phase"
   of Kill:
     "kill"
-  of FlagPickup:
-    "flag_pickup"
-  of FlagReturn:
-    "flag_return"
+  of FlagSteal:
+    "flag_steal"
+  of FlagReturnHome:
+    "flag_return_home"
   of Capture:
     "capture"
   of Respawn:
@@ -255,12 +268,14 @@ proc text*(event: ReplayEvent): string =
     "  phase " & $event.phase
   of Kill:
     "  player " & event.actorLabel & " killed " & event.secondaryLabel
-  of FlagPickup:
-    "  player " & event.actorLabel & " picked up the flag"
-  of FlagReturn:
-    "  flag returned to center"
+  of FlagSteal:
+    "  player " & event.actorLabel & " stole the " &
+      teamText(event.flagTeam) & " flag"
+  of FlagReturnHome:
+    "  " & teamText(event.flagTeam) & " flag returned home"
   of Capture:
-    "  player " & event.actorLabel & " captured the flag"
+    "  player " & event.actorLabel & " captured the " &
+      teamText(event.flagTeam) & " flag"
   of Respawn:
     "  player " & event.actorLabel & " respawned"
   of ScoreChanged:
@@ -282,10 +297,13 @@ proc jsonRow*(event: ReplayEvent): JsonNode =
   of Kill:
     value["victim_slot"] = %event.secondarySlot
     value["victim_label"] = %event.secondaryLabel
-  of FlagPickup, Capture, Respawn:
+  of FlagSteal, Capture:
     value["label"] = %event.actorLabel
-  of FlagReturn:
-    discard
+    value["flag"] = %teamText(event.flagTeam)
+  of Respawn:
+    value["label"] = %event.actorLabel
+  of FlagReturnHome:
+    value["flag"] = %teamText(event.flagTeam)
   of ScoreChanged:
     value["amount"] = %event.scoreAmount
   of GameOver:
@@ -315,7 +333,9 @@ proc expandReplayTimeline*(data: ReplayData): ReplayTimeline =
       replay = initReplayPlayer(data)
       track: TrackState
       phase = sim.phase
-      prevCarrier = sim.flagCarrier
+      prevCarriers: array[Team, int]
+    for team in Team:
+      prevCarriers[team] = sim.flags[team].carrier
 
     sim.gameEventLoggingEnabled = false
     replay.looping = false
@@ -353,7 +373,7 @@ proc expandReplayTimeline*(data: ReplayData): ReplayTimeline =
 
       sim.syncPlayers(tick, result.events, track)
       sim.printKillsAndDeaths(tick, result.events, track)
-      sim.printFlagChanges(tick, result.events, prevCarrier)
+      sim.printFlagChanges(tick, result.events, prevCarriers)
       sim.printCaptures(tick, result.events, track)
       sim.printScoreChanges(tick, result.events, track)
   finally:

@@ -24,12 +24,45 @@ proc twoTeamGame(): SimServer =
   result.players[1].team = Blue
 
 suite "ctf game":
-  test "starts in playing with a loose, centered flag":
+  test "starts in playing with both flags home on their pedestals":
     let sim = twoTeamGame()
     check sim.phase == Playing
-    check sim.flagCarrier == -1
-    check sim.flagX == sim.gameMap.center.x
-    check sim.flagY == sim.gameMap.center.y
+    for team in Team:
+      let home = sim.gameMap.flagHome(team)
+      check sim.flags[team].carrier == -1
+      check sim.flags[team].x == home.x
+      check sim.flags[team].y == home.y
+
+  test "only the enemy flag can be picked up":
+    var sim = twoTeamGame()
+    let
+      redHome = sim.gameMap.flagHome(Red)
+      blueHome = sim.gameMap.flagHome(Blue)
+    # Red player 0 standing on its OWN pedestal: no interaction.
+    sim.players[0].x = redHome.x
+    sim.players[0].y = redHome.y
+    sim.tryPickupFlags(0)
+    check sim.flags[Red].carrier == -1
+    check not sim.players[0].carryingFlag
+    # The same player on Blue's pedestal steals the blue flag.
+    sim.players[0].x = blueHome.x
+    sim.players[0].y = blueHome.y
+    sim.tryPickupFlags(0)
+    check sim.flags[Blue].carrier == 0
+    check sim.players[0].carryingFlag
+    # The red flag never moved.
+    check sim.flags[Red].carrier == -1
+    check sim.flags[Red].x == redHome.x
+    check sim.flags[Red].y == redHome.y
+
+  test "a dead player cannot steal a flag":
+    var sim = twoTeamGame()
+    let blueHome = sim.gameMap.flagHome(Blue)
+    sim.players[0].x = blueHome.x
+    sim.players[0].y = blueHome.y
+    sim.players[0].alive = false
+    sim.tryPickupFlags(0)
+    check sim.flags[Blue].carrier == -1
 
   test "hitscan kills an enemy inside the firing cone":
     var sim = twoTeamGame()
@@ -192,10 +225,13 @@ suite "ctf game":
 
     check sim.players[1].alive
 
-  test "killing the carrier returns the flag to center":
+  test "killing the carrier returns the flag to its own pedestal":
     var sim = twoTeamGame()
-    let cx = sim.gameMap.center.x
-    let cy = sim.gameMap.center.y
+    let
+      cx = sim.gameMap.center.x
+      cy = sim.gameMap.center.y
+      redHome = sim.gameMap.flagHome(Red)
+      blueHome = sim.gameMap.flagHome(Blue)
     sim.players[0].x = cx
     sim.players[0].y = cy
     sim.players[0].facingDx = 1
@@ -204,35 +240,52 @@ suite "ctf game":
     sim.players[1].x = cx + 40
     sim.players[1].y = cy
     sim.players[1].spawnProtect = 0
-    sim.flagCarrier = 1
+    # Blue player 1 is running the RED flag home.
+    sim.flags[Red].carrier = 1
     sim.players[1].carryingFlag = true
-    sim.flagX = sim.players[1].x
-    sim.flagY = sim.players[1].y
+    sim.flags[Red].x = sim.players[1].x
+    sim.flags[Red].y = sim.players[1].y
 
     sim.tryFire(0)
 
     check not sim.players[1].alive
     check not sim.players[1].carryingFlag
-    check sim.flagCarrier == -1
-    check sim.flagX == sim.gameMap.center.x
-    check sim.flagY == sim.gameMap.center.y
+    check sim.flags[Red].carrier == -1
+    check sim.flags[Red].x == redHome.x
+    check sim.flags[Red].y == redHome.y
+    # The blue flag was untouched by all of that.
+    check sim.flags[Blue].carrier == -1
+    check sim.flags[Blue].x == blueHome.x
+    check sim.flags[Blue].y == blueHome.y
 
-  test "removing the carrier returns the flag to center":
+  test "removing the carrier returns the flag to its own pedestal":
     var sim = twoTeamGame()
-    sim.flagCarrier = 1
+    let redHome = sim.gameMap.flagHome(Red)
+    sim.flags[Red].carrier = 1
     sim.players[1].carryingFlag = true
-    sim.flagX = sim.players[1].x
-    sim.flagY = sim.players[1].y
+    sim.flags[Red].x = sim.players[1].x
+    sim.flags[Red].y = sim.players[1].y
 
     sim.removePlayerAt(1)
 
-    check sim.flagCarrier == -1
-    check sim.flagX == sim.gameMap.center.x
-    check sim.flagY == sim.gameMap.center.y
+    check sim.flags[Red].carrier == -1
+    check sim.flags[Red].x == redHome.x
+    check sim.flags[Red].y == redHome.y
 
-  test "carrier in its home zone captures and wins":
+  test "removing a lower-index player keeps the carrier index aligned":
     var sim = twoTeamGame()
-    sim.flagCarrier = 0
+    sim.flags[Red].carrier = 1
+    sim.players[1].carryingFlag = true
+
+    sim.removePlayerAt(0)
+
+    check sim.flags[Red].carrier == 0
+    check sim.players[0].carryingFlag
+
+  test "carrying the enemy flag into your home zone captures and wins":
+    var sim = twoTeamGame()
+    # Red player 0 carries the BLUE flag into Red's capture zone.
+    sim.flags[Blue].carrier = 0
     sim.players[0].carryingFlag = true
     sim.players[0].x = 0          # leftmost column is always in Red's zone
     sim.players[0].alive = true
@@ -242,6 +295,31 @@ suite "ctf game":
     check sim.phase == GameOver
     check sim.winner == Red
     check not sim.isDraw
+    check sim.players[0].captures == 1
+
+  test "carrying your own flag home does not exist: own flag never leaves":
+    var sim = twoTeamGame()
+    # A Red player inside Red's zone while only the RED flag is carried by
+    # Blue must not trigger a Red capture.
+    sim.flags[Red].carrier = 1
+    sim.players[1].carryingFlag = true
+    sim.players[0].x = 0
+    sim.players[0].alive = true
+    sim.players[1].x = sim.gameMap.center.x
+
+    sim.checkWinCondition()
+
+    check sim.phase == Playing
+
+  test "gameHash covers both flags' state":
+    var sim = twoTeamGame()
+    let base = sim.gameHash()
+    sim.flags[Red].x += 1
+    check sim.gameHash() != base
+    sim.flags[Red].x -= 1
+    check sim.gameHash() == base
+    sim.flags[Blue].carrier = 0
+    check sim.gameHash() != base
 
   test "wiping the enemy team wins":
     var sim = twoTeamGame()

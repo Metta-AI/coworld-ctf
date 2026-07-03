@@ -56,7 +56,7 @@ const
 
   WinReward* = 100
 
-  FlagPickupRange* = 12       ## touch radius to pick up a loose flag.
+  FlagPickupRange* = 12       ## touch radius to steal the enemy flag.
   CaptureZoneWidth* = 40      ## width of each home-edge capture zone.
 
   TextColor* = 2'u8
@@ -72,7 +72,7 @@ const
   ZoomableLayerFlag* = 1
   UiLayerFlag* = 2
   PlayerSpriteBase* = 100
-  FlagSpriteId* = 700
+  FlagSpriteBase* = 700       ## team flag sprites: 700 red flag, 701 blue flag.
   SelectedPlayerSpriteBase* = 800
   SelectedTextSpriteId* = 4000
   SelectedViewportSpriteId* = 4001
@@ -290,6 +290,12 @@ type
     tick*: int
     color*: uint8
 
+  FlagState* = object
+    ## One team's flag: provably either sitting on its home pedestal
+    ## (carrier == -1) or carried by an enemy player (never loose).
+    x*, y*: int
+    carrier*: int              ## player index carrying this flag, -1 when home.
+
   SimServer* = object
     config*: GameConfig
     players*: seq[Player]
@@ -298,8 +304,7 @@ type
     flagSprite*: Sprite
     gameMap*: CtfMap
     rooms*: seq[Room]
-    flagX*, flagY*: int
-    flagCarrier*: int          ## player index carrying the flag, -1 when loose.
+    flags*: array[Team, FlagState]  ## per-team flags on the home pedestals.
     mapPixels*: seq[uint8]
     mapRgba*: seq[uint8]
     darkBgPixels*: seq[uint8]
@@ -337,9 +342,9 @@ const
   SpritePlayerObservationGridFeatures = SpritePlayerObservationGridSize * SpritePlayerObservationGridSize
   SpritePlayerObservationPlayerSlots = MaxPlayers
   SpritePlayerObservationPlayerFeatures = 4
-  SpritePlayerObservationFlagSlots = 1
+  SpritePlayerObservationFlagSlots = 2      ## slot 0 = red flag, slot 1 = blue flag.
   SpritePlayerObservationFlagFeatures = 4
-  SpritePlayerObservationArrowSlots = 1
+  SpritePlayerObservationArrowSlots = 2     ## slot 0 = enemy flag, slot 1 = own flag.
   SpritePlayerObservationArrowFeatures = 5
   SpritePlayerObservationGridOffset = SpritePlayerObservationHeaderFeatures
   SpritePlayerObservationPlayerOffset = SpritePlayerObservationGridOffset + SpritePlayerObservationGridFeatures
@@ -363,7 +368,7 @@ const
   RenderPlayerGhost = 32'u8
   RenderPlayerCarrier = 64'u8
 
-  RenderFlagLoose = 1'u8
+  RenderFlagHome = 1'u8
   RenderFlagCarried = 2'u8
 
   RenderArrowVisible = 2'u8
@@ -485,7 +490,7 @@ proc validateMap(gameMap: CtfMap) =
 const
   ArenaName = "arena"
   ArenaBorder = 10             ## perimeter wall thickness in px.
-  ArenaFlagRing = 70           ## clear radius around the center flag.
+  ArenaFlagRing = 70           ## clear radius of the open center ring.
   ArenaCaptureClear = 210      ## x-columns kept traversable for carriers.
   ArenaSpawnClearW = 70        ## half-width of the open spawn pockets.
   ArenaSpawnClearH = 130       ## half-height of the open spawn pockets.
@@ -495,7 +500,8 @@ const
   ArenaBorderColor = rgba(60, 66, 84, 255)
   ArenaRedTint = rgba(120, 40, 44, 70)    ## territory wash over Red half.
   ArenaBlueTint = rgba(44, 60, 128, 70)   ## territory wash over Blue half.
-  ArenaPedestal = rgba(210, 200, 120, 255)
+  ArenaRedPedestal = rgba(224, 96, 88, 255)   ## Red flag pedestal marker.
+  ArenaBluePedestal = rgba(96, 128, 232, 255) ## Blue flag pedestal marker.
 
   ## Interior obstacle shapes for the LEFT half only. Each is mirrored
   ## across the vertical center line so both halves are identical, and the
@@ -587,6 +593,19 @@ proc loadCtfMap*(path = ""): CtfMap =
 proc loadCtfMapMetadata*(path = ""): CtfMap =
   ## Returns arena metadata (same as loadCtfMap; nothing is read from disk).
   arenaCtfMap()
+
+proc teamHomeX*(gameMap: CtfMap, team: Team): int =
+  ## Returns the home-edge x anchor for one team's spawn strip and pedestal.
+  case team
+  of Red:
+    gameMap.center.x - (gameMap.center.x * 7 div 10)
+  of Blue:
+    gameMap.center.x + ((gameMap.width - gameMap.center.x) * 7 div 10)
+
+proc flagHome*(gameMap: CtfMap, team: Team): MapPoint =
+  ## Returns the pedestal position for one team's flag, at the center of the
+  ## team's protected spawn pocket.
+  MapPoint(x: gameMap.teamHomeX(team), y: gameMap.center.y)
 
 proc mirrorX(rect: MapRect): MapRect =
   ## Mirrors one rectangle across the vertical center line.
@@ -739,11 +758,16 @@ proc loadMapLayers*(gameMap: CtfMap): tuple[mapImage, walkImage, wallImage: Imag
       result.mapImage[x, y] = color
       result.walkImage[x, y] = if wall: clear else: opaque
       result.wallImage[x, y] = if wall: opaque else: clear
-  ## Draw a small pedestal marker at the flag center (stays walkable).
-  for dy in -4 .. 4:
-    for dx in -4 .. 4:
-      if dx * dx + dy * dy <= 16:
-        result.mapImage[cx + dx, cy + dy] = ArenaPedestal
+  ## Draw a small team-colored pedestal marker under each flag home (stays
+  ## walkable; the pedestals sit inside the protected spawn pockets).
+  for team in Team:
+    let
+      home = gameMap.flagHome(team)
+      color = (if team == Red: ArenaRedPedestal else: ArenaBluePedestal)
+    for dy in -4 .. 4:
+      for dx in -4 .. 4:
+        if dx * dx + dy * dy <= 16:
+          result.mapImage[home.x + dx, home.y + dy] = color
 
 proc loadDarkBgPixels*(): seq[uint8] =
   ## Loads the dark interstitial background as palette pixels.
@@ -1224,7 +1248,7 @@ proc lobbyStartSecondsRemaining*(sim: SimServer): int =
     return 0
   max(1, (ticks + TargetFps - 1) div TargetFps)
 
-proc teamText(team: Team): string =
+proc teamText*(team: Team): string =
   ## Returns the readable team name.
   case team
   of Red:
@@ -1239,6 +1263,14 @@ proc teamColor*(team: Team): uint8 =
     RedTeamColor
   of Blue:
     BlueTeamColor
+
+proc enemy*(team: Team): Team =
+  ## Returns the opposing team.
+  case team
+  of Red:
+    Blue
+  of Blue:
+    Red
 
 proc playerText(sim: SimServer, playerIndex: int): string =
   ## Returns the readable player color for one player index.
@@ -1308,9 +1340,10 @@ proc gameHash*(sim: SimServer): uint64 =
   result.mixHashBool(sim.isDraw)
   result.mixHashBool(sim.needsReregister)
   result.mixHashInt(sim.nextJoinOrder)
-  result.mixHashInt(sim.flagX)
-  result.mixHashInt(sim.flagY)
-  result.mixHashInt(sim.flagCarrier)
+  for team in Team:
+    result.mixHashInt(sim.flags[team].x)
+    result.mixHashInt(sim.flags[team].y)
+    result.mixHashInt(sim.flags[team].carrier)
   result.mixHashInt(sim.players.len)
   for player in sim.players:
     result.mixHashInt(player.x)
@@ -1370,11 +1403,7 @@ proc nearestWalkable(sim: SimServer, x, y: int): tuple[x, y: int] =
 
 proc teamHomeX(sim: SimServer, team: Team): int =
   ## Returns the home-edge x anchor for one team's spawn strip.
-  case team
-  of Red:
-    sim.gameMap.center.x - (sim.gameMap.center.x * 7 div 10)
-  of Blue:
-    sim.gameMap.center.x + ((MapWidth - sim.gameMap.center.x) * 7 div 10)
+  sim.gameMap.teamHomeX(team)
 
 proc spawnPosition*(sim: SimServer, team: Team, order: int): tuple[x, y: int] =
   ## Returns a deterministic spawn position just inside a team's home edge.
@@ -1419,11 +1448,15 @@ proc arrangeHomePositions*(sim: var SimServer) =
     sim.players[i].homeY = spawn.y
     sim.resetPlayerToHome(i)
 
-proc resetFlag*(sim: var SimServer) =
-  ## Returns the flag to the center, loose.
-  sim.flagX = sim.gameMap.center.x
-  sim.flagY = sim.gameMap.center.y
-  sim.flagCarrier = -1
+proc resetFlag*(sim: var SimServer, team: Team) =
+  ## Returns one team's flag to its home pedestal.
+  let home = sim.gameMap.flagHome(team)
+  sim.flags[team] = FlagState(x: home.x, y: home.y, carrier: -1)
+
+proc resetFlags*(sim: var SimServer) =
+  ## Returns both flags to their home pedestals.
+  for team in Team:
+    sim.resetFlag(team)
 
 proc teamForSlot(sim: SimServer, order: int): Team =
   ## Returns the configured or default team for one slot.
@@ -1771,11 +1804,12 @@ proc removePlayerAt*(sim: var SimServer, playerIndex: int) =
   ## Removes one live player and keeps index-keyed state aligned.
   if playerIndex < 0 or playerIndex >= sim.players.len:
     return
-  if sim.flagCarrier == playerIndex:
-    sim.logGameEvent("flag returned to center")
-    sim.resetFlag()
-  elif sim.flagCarrier > playerIndex:
-    dec sim.flagCarrier
+  for team in Team:
+    if sim.flags[team].carrier == playerIndex:
+      sim.logGameEvent(teamText(team) & " flag returned home")
+      sim.resetFlag(team)
+    elif sim.flags[team].carrier > playerIndex:
+      dec sim.flags[team].carrier
   sim.players.delete(playerIndex)
   if playerIndex < sim.shadowCaches.len:
     sim.shadowCaches.delete(playerIndex)
@@ -2011,7 +2045,7 @@ proc startGame*(sim: var SimServer) =
     sim.players[i].deaths = 0
     sim.players[i].captures = 0
     sim.recordGameTeamAssigned(i)
-  sim.resetFlag()
+  sim.resetFlags()
   sim.phase = Playing
   sim.gameStartTick = sim.tickCount
   sim.timeLimitReached = false
@@ -2185,8 +2219,8 @@ proc lineOfSightClear(sim: SimServer, ax, ay, bx, by: int): bool =
   true
 
 proc killPlayer(sim: var SimServer, targetIndex, killerIndex: int) =
-  ## Applies a fatal hit: return the flag to center, decrement lives, start
-  ## respawn.
+  ## Applies a fatal hit: return any carried flag to its pedestal, decrement
+  ## lives, start respawn.
   if targetIndex < 0 or targetIndex >= sim.players.len:
     return
   if not sim.players[targetIndex].alive:
@@ -2195,10 +2229,11 @@ proc killPlayer(sim: var SimServer, targetIndex, killerIndex: int) =
     playerColorText(sim.players[targetIndex].color) &
       " killed by " & sim.playerText(killerIndex)
   )
-  if sim.players[targetIndex].carryingFlag or sim.flagCarrier == targetIndex:
-    sim.players[targetIndex].carryingFlag = false
-    sim.logGameEvent("flag returned to center")
-    sim.resetFlag()
+  for team in Team:
+    if sim.flags[team].carrier == targetIndex:
+      sim.players[targetIndex].carryingFlag = false
+      sim.logGameEvent(teamText(team) & " flag returned home")
+      sim.resetFlag(team)
   # Leave a cosmetic splatter at the death spot (never enters gameHash).
   sim.splatters.add SplatterFx(
     x: sim.players[targetIndex].x,
@@ -2300,32 +2335,41 @@ proc tryFire*(sim: var SimServer, shooterIndex: int) =
     sim.killPlayer(bestTarget, shooterIndex)
     sim.recordKill(shooterIndex)
 
-proc tryPickupFlag(sim: var SimServer, playerIndex: int) =
-  ## Picks up a loose flag when a living player touches it.
-  if sim.flagCarrier >= 0:
+proc tryPickupFlags*(sim: var SimServer, playerIndex: int) =
+  ## Lets a living player steal the ENEMY team's flag off its pedestal by
+  ## touch. A player's own flag cannot be interacted with by their own team.
+  if not sim.players[playerIndex].alive or sim.players[playerIndex].carryingFlag:
     return
-  if not sim.players[playerIndex].alive:
+  let flagTeam = enemy(sim.players[playerIndex].team)
+  if sim.flags[flagTeam].carrier >= 0:
     return
   let
     px = sim.players[playerIndex].x + CollisionW div 2
     py = sim.players[playerIndex].y + CollisionH div 2
     rangeSq = FlagPickupRange * FlagPickupRange
-  if distSq(px, py, sim.flagX, sim.flagY) <= rangeSq:
-    sim.flagCarrier = playerIndex
+  if distSq(px, py, sim.flags[flagTeam].x, sim.flags[flagTeam].y) <= rangeSq:
+    sim.flags[flagTeam].carrier = playerIndex
     sim.players[playerIndex].carryingFlag = true
-    sim.logGameEvent(sim.playerText(playerIndex) & " picked up the flag")
+    sim.logGameEvent(
+      teamText(sim.players[playerIndex].team) & " stole the " &
+        teamText(flagTeam) & " flag"
+    )
 
-proc updateFlag(sim: var SimServer) =
-  ## Keeps the flag glued to its carrier; a carrier that stops carrying for
-  ## any reason other than capture sends the flag straight back to center.
-  if sim.flagCarrier >= 0 and sim.flagCarrier < sim.players.len and
-      sim.players[sim.flagCarrier].alive:
-    sim.flagX = sim.players[sim.flagCarrier].x + CollisionW div 2
-    sim.flagY = sim.players[sim.flagCarrier].y + CollisionH div 2
-  elif sim.flagCarrier >= 0:
-    # Carrier vanished; the flag goes straight back to center.
-    sim.logGameEvent("flag returned to center")
-    sim.resetFlag()
+proc updateFlags(sim: var SimServer) =
+  ## Keeps each carried flag glued to its carrier; a carrier that stops
+  ## carrying for any reason other than capture sends the flag straight back
+  ## to its own pedestal.
+  for team in Team:
+    let carrier = sim.flags[team].carrier
+    if carrier < 0:
+      continue
+    if carrier < sim.players.len and sim.players[carrier].alive:
+      sim.flags[team].x = sim.players[carrier].x + CollisionW div 2
+      sim.flags[team].y = sim.players[carrier].y + CollisionH div 2
+    else:
+      # Carrier vanished; the flag goes straight back home.
+      sim.logGameEvent(teamText(team) & " flag returned home")
+      sim.resetFlag(team)
 
 proc applyInput*(
   sim: var SimServer,
@@ -2658,13 +2702,17 @@ proc teamLivesRemaining(sim: SimServer, team: Team): int =
       inc result
 
 proc teamFlagProgress(sim: SimServer, team: Team): int =
-  ## Returns how far the flag has progressed toward a team's home edge.
-  ## Higher is closer to that team's home.
+  ## Returns how far the ENEMY flag has been advanced toward this team's
+  ## home while carried; 0 when it sits on its pedestal.
+  let flag = sim.flags[enemy(team)]
+  if flag.carrier < 0:
+    return 0
+  let home = sim.gameMap.flagHome(enemy(team))
   case team
   of Red:
-    MapWidth - sim.flagX
+    max(0, home.x - flag.x)
   of Blue:
-    sim.flagX
+    max(0, flag.x - home.x)
 
 proc teamHasLivePlayers(sim: SimServer, team: Team): bool =
   ## Returns true when a team still has a player who can act this round.
@@ -2685,16 +2733,22 @@ proc checkWinCondition*(sim: var SimServer) {.measure.} =
   ## Resolves capture and wipe win conditions.
   if sim.phase != Playing or sim.players.len == 0:
     return
-  # Capture: a living carrier inside their own home capture zone.
-  if sim.flagCarrier >= 0 and sim.flagCarrier < sim.players.len and
-      sim.players[sim.flagCarrier].alive:
+  # Capture: a living carrier bringing the enemy flag into their own home
+  # capture zone (deliberately no own-flag-must-be-home precondition).
+  for flagTeam in Team:
+    let carrierIndex = sim.flags[flagTeam].carrier
+    if carrierIndex < 0 or carrierIndex >= sim.players.len or
+        not sim.players[carrierIndex].alive:
+      continue
     let
-      carrier = sim.players[sim.flagCarrier]
+      carrier = sim.players[carrierIndex]
       zone = sim.captureZoneXRange(carrier.team)
       cx = carrier.x + CollisionW div 2
     if cx >= zone.lo and cx <= zone.hi:
-      sim.recordCapture(sim.flagCarrier)
-      sim.logGameEvent(teamText(carrier.team) & " captured the flag")
+      sim.recordCapture(carrierIndex)
+      sim.logGameEvent(
+        teamText(carrier.team) & " captured the " & teamText(flagTeam) & " flag"
+      )
       sim.finishGame(carrier.team)
       return
   # Wipe: a team with no live players left loses.
@@ -2897,43 +2951,46 @@ proc writeSpritePlayerObservationUiPlayers(
   of Playing:
     discard
 
-proc writeSpritePlayerObservationFlag(
+proc writeSpritePlayerObservationFlags(
   sim: SimServer,
   playerIndex: int,
   output: var openArray[uint8]
 ) =
+  ## Writes both team flags (slot 0 = red flag, slot 1 = blue flag) when
+  ## visible: on the pedestal or riding a carrier.
   if sim.phase != Playing or playerIndex < 0 or playerIndex >= sim.players.len:
     return
   let view = sim.playerView(playerIndex)
-  if not sim.spritePlayerObservationWorldPointVisible(view, sim.flagX, sim.flagY):
-    return
-  let
-    base = SpritePlayerObservationFlagOffset
-    sx = sim.flagX - view.cameraX
-    sy = sim.flagY - view.cameraY
-  output[base] = uint8(clamp(sx, 0, 255))
-  output[base + 1] = uint8(clamp(sy, 0, 255))
-  output[base + 2] = uint8(clamp(sim.flagCarrier + 1, 0, 255))
-  output[base + RenderFlagFlagsFeature] =
-    if sim.flagCarrier >= 0: RenderFlagCarried else: RenderFlagLoose
+  for team in Team:
+    let flag = sim.flags[team]
+    if not sim.spritePlayerObservationWorldPointVisible(view, flag.x, flag.y):
+      continue
+    let
+      base = SpritePlayerObservationFlagOffset +
+        ord(team) * SpritePlayerObservationFlagFeatures
+      sx = flag.x - view.cameraX
+      sy = flag.y - view.cameraY
+    output[base] = uint8(clamp(sx, 0, 255))
+    output[base + 1] = uint8(clamp(sy, 0, 255))
+    output[base + 2] = uint8(clamp(flag.carrier + 1, 0, 255))
+    output[base + RenderFlagFlagsFeature] =
+      if flag.carrier >= 0: RenderFlagCarried else: RenderFlagHome
 
 proc writeSpritePlayerObservationArrow(
   sim: SimServer,
-  playerIndex: int,
+  view: PlayerView,
+  slot, targetX, targetY: int,
   output: var openArray[uint8]
 ) =
-  ## Writes an off-screen direction marker pointing toward the flag.
-  if sim.phase != Playing or playerIndex < 0 or playerIndex >= sim.players.len:
-    return
-  let view = sim.playerView(playerIndex)
-  # Skip when the flag is already on screen and visible.
-  if sim.spritePlayerObservationWorldPointVisible(view, sim.flagX, sim.flagY):
+  ## Writes one off-screen direction marker pointing toward a world point.
+  # Skip when the target is already on screen and visible.
+  if sim.spritePlayerObservationWorldPointVisible(view, targetX, targetY):
     return
   let
     px = float(view.originMx - view.cameraX)
     py = float(view.originMy - view.cameraY)
-    dx = float(sim.flagX - view.cameraX) - px
-    dy = float(sim.flagY - view.cameraY) - py
+    dx = float(targetX - view.cameraX) - px
+    dy = float(targetY - view.cameraY) - py
   if abs(dx) < 0.5 and abs(dy) < 0.5:
     return
   var ex, ey: float
@@ -2948,10 +3005,31 @@ proc writeSpritePlayerObservationArrow(
   else:
     ey = if dy > 0: maxY else: minY
     ex = clamp(px + dx * (ey - py) / dy, minX, maxX)
-  let base = SpritePlayerObservationArrowOffset
+  let base = SpritePlayerObservationArrowOffset +
+    slot * SpritePlayerObservationArrowFeatures
   output[base + 2] = uint8(int(ex))
   output[base + 3] = uint8(int(ey))
   output[base + RenderArrowFlagsFeature] = RenderArrowVisible
+
+proc writeSpritePlayerObservationArrows(
+  sim: SimServer,
+  playerIndex: int,
+  output: var openArray[uint8]
+) =
+  ## Per-viewer flag bearings. Slot 0 ("enemy flag arrow") points at the flag
+  ## this player's team wants to steal — its pedestal or its carrier. Slot 1
+  ## ("own flag arrow") appears only while the viewer's own flag is stolen and
+  ## points at the thief; when the flag is home the arrow is hidden.
+  if sim.phase != Playing or playerIndex < 0 or playerIndex >= sim.players.len:
+    return
+  let
+    view = sim.playerView(playerIndex)
+    team = sim.players[playerIndex].team
+    enemyFlag = sim.flags[enemy(team)]
+    ownFlag = sim.flags[team]
+  sim.writeSpritePlayerObservationArrow(view, 0, enemyFlag.x, enemyFlag.y, output)
+  if ownFlag.carrier >= 0:
+    sim.writeSpritePlayerObservationArrow(view, 1, ownFlag.x, ownFlag.y, output)
 
 proc writeSpritePlayerObservation*(
   sim: var SimServer,
@@ -2970,8 +3048,8 @@ proc writeSpritePlayerObservation*(
   sim.writeSpritePlayerObservationGrid(playerIndex, output)
   if sim.phase == Playing:
     sim.writeSpritePlayerObservationPlayingPlayers(playerIndex, output)
-    sim.writeSpritePlayerObservationFlag(playerIndex, output)
-    sim.writeSpritePlayerObservationArrow(playerIndex, output)
+    sim.writeSpritePlayerObservationFlags(playerIndex, output)
+    sim.writeSpritePlayerObservationArrows(playerIndex, output)
   else:
     sim.writeSpritePlayerObservationUiPlayers(playerIndex, output)
 
@@ -3027,9 +3105,7 @@ proc initSimServer*(config: GameConfig): SimServer =
   result.gameStartTick = -1
   result.startWaitTimer = 0
   result.gameEventLoggingEnabled = true
-  result.flagCarrier = -1
-  result.flagX = result.gameMap.center.x
-  result.flagY = result.gameMap.center.y
+  result.resetFlags()
   result.lastLobbyPlayersLogged = -1
   result.lastLobbyNeededLogged = -1
   result.lastLobbySecondsLogged = -1
@@ -3047,7 +3123,7 @@ proc resetToLobby*(sim: var SimServer) =
   sim.timeLimitReached = false
   sim.isDraw = false
   sim.needsReregister = true
-  sim.resetFlag()
+  sim.resetFlags()
   sim.lastLobbyPlayersLogged = -1
   sim.lastLobbyNeededLogged = -1
   sim.lastLobbySecondsLogged = -1
@@ -3121,8 +3197,8 @@ proc step*(
     sim.applyInput(playerIndex, input, prev)
 
   for playerIndex in 0 ..< sim.players.len:
-    sim.tryPickupFlag(playerIndex)
-  sim.updateFlag()
+    sim.tryPickupFlags(playerIndex)
+  sim.updateFlags()
   sim.respawnPlayers()
 
   sim.checkWinCondition()
