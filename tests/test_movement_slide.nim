@@ -41,7 +41,7 @@ suite "movement footprint":
     sim.openField(40, 40, 240, 240)
     sim.placeStill(p, 100, 100)
     for _ in 0 .. 20:
-      sim.applyInput(p, InputState(right: true), InputState())
+      sim.applyInput(p, InputState(right: true))
     check sim.players[p].x > 100          # accelerated to the right
     check sim.players[p].y == 100          # no vertical drift
 
@@ -56,6 +56,6 @@ suite "movement footprint":
         sim.walkMask[mapIndex(x, y)] = false
     sim.placeStill(p, 100, 100)
     for _ in 0 .. 80:
-      sim.applyInput(p, InputState(right: true), InputState())
+      sim.applyInput(p, InputState(right: true))
     check sim.players[p].x > 100                    # advanced toward the wall
     check sim.players[p].x + PlayerHalf < 150        # but never entered it

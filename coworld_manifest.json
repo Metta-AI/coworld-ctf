@@ -3,7 +3,7 @@
   "game": {
     "name": "ctf",
     "version": "0.1.0",
-    "description": "A two-team capture-the-flag shooter. Red and Blue spawn on opposite edges, fight over a single neutral flag with one-shot-kill guns, and win by capturing the flag at their home edge or wiping the enemy team.",
+    "description": "A two-team capture-the-flag shooter with fog-of-war vision. Red and Blue spawn on opposite edges, each guarding a flag on its home pedestal. Steal the enemy flag and carry it home - or wipe the enemy team - under one-shot-kill map-wide guns and cone-limited vision.",
     "owner": "treeform@softmax.com",
     "runnable": {
       "type": "game",
@@ -154,6 +154,19 @@
           "minimum": 1,
           "maximum": 100,
           "default": 70
+        },
+        "visionConeDeg": {
+          "description": "Vision cone half-angle in degrees around the facing direction. Fog of war hides everything outside the cone, the vision bubble, and line of sight.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 180,
+          "default": 45
+        },
+        "visionBubble": {
+          "description": "Omnidirectional vision radius in pixels around each player, seen regardless of facing.",
+          "type": "integer",
+          "minimum": 0,
+          "default": 90
         },
         "startWaitTicks": {
           "description": "Lobby countdown ticks after enough players join.",
@@ -440,6 +453,8 @@
         "gunConeDeg": 25,
         "fireCooldownTicks": 12,
         "carrierSpeedPct": 70,
+        "visionConeDeg": 45,
+        "visionBubble": 90,
         "startWaitTicks": 120,
         "gameOverTicks": 360,
         "maxTicks": 10000,

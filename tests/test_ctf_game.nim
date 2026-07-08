@@ -225,6 +225,32 @@ suite "ctf game":
 
     check sim.players[1].alive
 
+  test "a same-tick mutual duel kills both shooters (no order advantage)":
+    var sim = twoTeamGame()
+    let cx = sim.gameMap.center.x
+    let cy = sim.gameMap.center.y
+    # Face each other, both ready, both pulling the trigger the same tick.
+    sim.players[0].x = cx - 20
+    sim.players[0].y = cy
+    sim.players[0].facingDx = 1
+    sim.players[0].facingDy = 0
+    sim.players[0].fireCooldown = 0
+    sim.players[0].spawnProtect = 0
+    sim.players[1].x = cx + 20
+    sim.players[1].y = cy
+    sim.players[1].facingDx = -1
+    sim.players[1].facingDy = 0
+    sim.players[1].fireCooldown = 0
+    sim.players[1].spawnProtect = 0
+
+    sim.resolveSimultaneousFire([0, 1])
+
+    check not sim.players[0].alive
+    check not sim.players[1].alive
+    check sim.players[0].kills == 1
+    check sim.players[1].kills == 1
+    check sim.recentShots.len == 2
+
   test "killing the carrier returns the flag to its own pedestal":
     var sim = twoTeamGame()
     let

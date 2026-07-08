@@ -1,14 +1,16 @@
 # Coworld CTF — AI Capture-the-Flag Shooter
 
 Coworld CTF is a two-team capture-the-flag shooter for the Coworld platform. Two
-teams (Red and Blue) start on opposite edges of a symmetric arena. A single flag
-sits in the center. Players move, take cover behind obstacles, and shoot. Carry
-the flag to your home edge — or wipe the enemy team — to win.
+teams (Red and Blue) start on opposite edges of a symmetric arena, each with its
+own flag on a home pedestal. Players move, take cover behind obstacles, and
+shoot. Steal the enemy flag and carry it home — or wipe the enemy team — to win.
+Vision is fog-of-war: you observe the full map, but enemies only appear inside
+your forward vision cone (walls block it) or your small omnidirectional bubble.
 
 It is a fork of [Crewrift](https://github.com/Metta-AI/coworld-crewrift). It keeps
-Crewrift's continuous 2D movement, line-of-sight, per-player camera, Sprite v1
-protocol, websocket server, and replay infrastructure, and replaces the
-social-deduction game layer (roles, tasks, voting) with teams, guns, and a flag.
+Crewrift's continuous 2D movement, line-of-sight, Sprite v1 protocol, websocket
+server, and replay infrastructure, and replaces the social-deduction game layer
+(roles, tasks, voting) with teams, guns, flags, and fog-of-war vision.
 
 The **full, authoritative ruleset lives in [`docs/RULES.md`](docs/RULES.md)**. The
 summary below is just an orientation.
@@ -20,17 +22,24 @@ logs or replay links, and the smallest repro.
 
 ## Rules at a glance
 
-- **4 vs 4.** Red spawns on the **left** edge, Blue on the **right**. A neutral
-  flag spawns in the **center**.
+- **8 vs 8.** Red spawns on the **left** edge, Blue on the **right**. Each team's
+  flag sits on a pedestal inside its spawn pocket.
 - **Move** with the d-pad; you face the direction you last moved.
-- **Shoot** with **A**: an instant, line-of-sight, limited-range hitscan in your
-  facing direction. One hit kills. **Friendly fire is on.**
+- **Vision is fog-of-war:** the map itself is always visible, but enemies (and an
+  enemy carrying a flag) only appear inside your **forward vision cone** (±45°
+  around your facing, unlimited range, walls block it) or your **~90px
+  omnidirectional bubble**. Facing aims your vision — you see where you walk.
+  Teammates, both pedestals, your own flag's state, and your own position (a
+  distinct self marker) are always visible.
+- **Shoot** with **A**: an instant, line-of-sight, effectively map-wide hitscan in
+  your facing direction. One hit kills. **Friendly fire is on.**
 - **Lives & respawn:** each player has a few lives and respawns at their home edge
   after a delay until their lives run out.
-- **The flag:** touch it to pick it up; you carry it slower but can still shoot.
-  If the carrier dies, the flag returns instantly to the center.
-- **Win** by carrying the flag to **your own home edge**, or by **wiping** the
-  enemy team. Scoring is **win-only** (+100 to the winning team).
+- **The flags:** touch the **enemy** pedestal flag to steal it; you carry it
+  slower but can still shoot. If the carrier dies, the flag returns instantly to
+  its own pedestal.
+- **Win** by carrying the enemy flag into **your own home capture zone**, or by
+  **wiping** the enemy team. Scoring is **win-only** (+100 to the winning team).
 
 See [`docs/RULES.md`](docs/RULES.md) for exact mechanics and tuning defaults.
 
@@ -59,11 +68,11 @@ Build the baseline bot:
 nim c players/baseline/baseline.nim
 ```
 
-Run 8 bots in parallel (slots 0–7, four per team, with the matching tokens from
-`config.json`):
+Run 16 bots in parallel (slots 0–15, eight per team, with the matching tokens
+from `config.json`):
 
 ```sh
-for i in 0 1 2 3 4 5 6 7; do
+for i in $(seq 0 15); do
   token="0xBADA55_$i"
   url="ws://localhost:2000/player?slot=$i&token=$token"
   COWORLD_PLAYER_WS_URL="$url" ./players/baseline/baseline.out &

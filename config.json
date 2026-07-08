@@ -7,6 +7,8 @@
   "gunConeDeg":25,
   "fireCooldownTicks":12,
   "carrierSpeedPct":70,
+  "visionConeDeg":45,
+  "visionBubble":90,
   "maxTicks":10000,
   "mapPath":"arena",
   "tokens":[

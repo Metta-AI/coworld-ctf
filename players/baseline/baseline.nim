@@ -1,8 +1,16 @@
 ## Baseline capture-the-flag bot for Coworld CTF (8v8, classic two-flag,
-## dense-cover arena).
+## dense-cover arena, FOG-OF-WAR full-map vision).
 ##
-## Speaks the Bitworld Sprite v1 protocol over a websocket. The bot keeps a
-## persistent world model on top of the partially-observable 128x128 view:
+## Speaks the Bitworld Sprite v1 protocol over a websocket. The observation is
+## the FULL map in map coordinates, but entities are fogged: an enemy (and an
+## enemy carrying our flag) is only streamed while it sits inside OUR vision —
+## a forward cone (half-angle ~45 degrees around our 8-dir facing, unlimited
+## range, walls block) plus a small omnidirectional bubble (~90px). Always
+## visible: the static map, our teammates (team radio), BOTH flag pedestals,
+## our own flag's state (an empty own pedestal means it is stolen), and
+## ourselves via the distinct "self <color> right|left" marker. FACING AIMS
+## VISION: we look where we walk, so where we point the cone is a tactical
+## decision. The bot keeps a persistent world model on top of that:
 ##
 ## - **Nav grid**: the full walkability mask arrives once at init; we erode it
 ##   by the player footprint into an 8px cell grid and run a cost field
@@ -11,43 +19,46 @@
 ##   cells". Cells a remembered enemy could shoot into (range + coarse LOS)
 ##   get a soft path cost, so movement naturally advances cover-to-cover and
 ##   keeps obstacles between us and known threats.
-## - **Flag model** (two flags): each team's flag sits on a pedestal at a
-##   STATIC, known position inside its spawn pocket — no arrow is needed to
-##   find the enemy pedestal. Only the enemy flag can be stolen, so the
-##   "<enemy color> flag" sprite tells us about our own attack (on the
-##   pedestal, on me, or on a mate) while the "<my color> flag" sprite plus
-##   the "own flag arrow" (present exactly while our flag is stolen and
-##   off-screen) tell us about the thief.
-## - **Memory**: visible players are tracked across frames (position, velocity,
-##   last-seen tick), the enemy flag's last position is remembered, and a
-##   thief fix (position + velocity) is kept while our flag is stolen.
-## - **Roles** (deterministic from the per-team seat, 8 seats): a mid trio
-##   (rusher plus two trailing attackers) races lanes to the ENEMY pedestal,
-##   two flankers route wide via the extreme top/bottom lanes and hit the
-##   pocket from behind, two overwatch snipers hold shielded cover posts whose
-##   peek cells own the longest firing lines over mid (both the thief's escape
-##   route and the approach to our own pedestal), and one home defender guards
-##   the choke before our pedestal. While our flag is stolen the back line
-##   (defender + overwatch) hunts the thief along its predicted route to ITS
-##   home zone; attackers press on — captures are instant wins both ways, so
-##   the race stays on.
+## - **Flag model** (two flags): pedestals are STATIC known positions and
+##   pedestal flags are never fogged. Only OUR team can carry the enemy flag,
+##   so the "<enemy color> flag" sprite is always visible and fully describes
+##   our attack (pedestal / on me / on a mate). Only the enemy can carry OUR
+##   flag: the "<my color> flag" sprite on its pedestal means safe, visible
+##   off-pedestal is a live thief fix, and ABSENT means stolen by a fogged
+##   carrier somewhere between our pedestal and its home edge.
+## - **Memory**: visible players are matched to tracks (position, velocity,
+##   last-seen tick) that persist through fog, and the last thief fix guides
+##   the hunt after the carrier fogs out.
+## - **Roles** (deterministic from the per-team seat, 8 seats): a mid QUAD
+##   races lanes to the ENEMY pedestal, two flankers route wide and hit the
+##   pocket from behind, one overwatch sniper holds a shielded cover post
+##   whose peek cell owns the longest firing line over mid — under fog a lane
+##   watcher SEES map-wide down its open lane, so overwatch is also the radar
+##   — and one home defender guards the choke before our pedestal. The attack
+##   wave is deliberately six strong: with no global flag tracking, a carrier
+##   that slips the contest is hard to reacquire, so committed offense turns
+##   steals into captures. While our flag is stolen the back line hunts the
+##   thief along its predicted route toward ITS home edge; attackers press on
+##   — captures are instant wins both ways, so the race stays on.
+## - **Scanning**: units holding a position (overwatch posts, the defender's
+##   choke, cooldown ducks) sweep their facing with brief one-tick direction
+##   pulses (~1px of drift) so the vision cone rakes across the watch arc
+##   instead of staring down one ray.
 ## - **Peek-and-shoot**: the default combat mode. With the gun up and a
 ##   remembered enemy blocked by a wall, step sideways to the nearest cell
 ##   that opens the firing line; during the 12-tick cooldown, duck behind the
 ##   nearest cover that breaks the threat's line and hold until ready.
-## - **Fire discipline**: the 1300px gun is effectively map-wide, so any fresh
-##   track with a clear pixel ray is engaged out to ~1250px. Steer into the
-##   target's octant so the 25-degree cone covers it, lead it slightly, and
-##   skip targets with a remembered teammate near the fire axis (friendly fire
-##   is on, the server kills the NEAREST player in the cone, and at long range
-##   the cone is hundreds of px wide laterally). While a thief runs OUR flag
-##   home, the own-flag arrow tracks it globally: fire down a long-open arrow
-##   ray to snipe the thief from anywhere on the map.
+## - **Fire discipline**: the 1300px gun is effectively map-wide and the cone
+##   sees map-wide, so any fresh track with a clear pixel ray is engaged out
+##   to ~1250px. Steer into the target's octant so the 25-degree cone covers
+##   it, lead it slightly, and skip targets with a remembered teammate near
+##   the fire axis (friendly fire is on, the server kills the NEAREST player
+##   in the cone, and at long range the cone is hundreds of px wide
+##   laterally).
 ##
-## Coordinate model: objects arrive in screen space and the map object's offset
-## is the camera, so mapPos = objectCenter + camera; our own avatar sits at
-## exactly (66, 66) on screen (see playerView in src/ctf/sim.nim). Facing ==
-## last movement direction and only a fresh A press fires, so to shoot we steer
+## Coordinate model: the map object sits at (0, 0), so object positions ARE
+## map coordinates; we find ourselves via the self marker. Facing == last
+## movement direction and only a fresh A press fires, so to shoot we steer
 ## toward the target for a frame and pulse A.
 
 import
@@ -58,7 +69,6 @@ import
 
 const
   WebSocketPath = "/player"
-  SelfScreen = 66             # our sprite's exact screen-space center (x and y)
   MapW = 1235
   MapH = 659
   CenterX = MapW div 2
@@ -77,7 +87,6 @@ const
   PocketRushRange = 210.0     # this close to the enemy pedestal, just GRAB
   ThreatRange = 200.0         # react to a visible enemy this close facing us
   DuckRange = 340.0           # duck from remembered threats this close on cooldown
-  SnipeMinOpen = 300.0        # min open ray for an arrow-guided carrier snipe
   MateSpacing = 40.0          # soft repulsion radius between teammates
   CorridorHalfWidth = 15.0    # friendly-fire corridor half width along the ray
   FireConeCos = 0.88          # cos ~28 deg: the server's 25-deg hit cone plus slack
@@ -89,7 +98,7 @@ const
                               # wide long-range cone forgives the drift, so
                               # chases keep shooting after the target is gone
   ThiefFixTtl = 40            # a thief position fix guides the chase this long
-  FlagMemoryTtl = 168         # trust a remembered enemy-flag spot for ~7s
+  ScanPeriod = 10             # ticks between scan-facing pulses while holding
 
   CoverShieldDist = 42.0      # an obstacle this close blocks a threat direction
   PeekLineDist = 150.0        # floor for an overwatch peek firing line; post
@@ -104,8 +113,12 @@ const
   SerpentineFar = 400.0       # ... and farther tracks cannot really aim at us
   StepCost = 5'i32            # orthogonal move cost in the nav field
   DiagCost = 7'i32            # ~sqrt(2) * StepCost
-  ExposedCost = 8'i32         # extra cost to enter a threat-exposed cell
+  ExposedCost = 14'i32        # extra cost to enter a threat-exposed cell:
+                              # under fog the exposure model (enemy sniper
+                              # posts + fresh tracks) is the only warning of
+                              # watched lanes, so routes respect it hard
   FlankDepth = 260.0          # wide flankers cross this far past mid
+  WeaveBand = 280.0           # rushers serpentine within this x-band of mid
 
   LaneTop = 40.0              # open corridor above the mirrored obstacles
   LaneMid = float(CenterY)
@@ -117,7 +130,7 @@ type
 
   Role = enum
     MidTop, MidBottom, MidGuard, FlankTop, FlankBottom,
-    OverwatchTop, OverwatchBottom, HomeDefender
+    Overwatch, HomeDefender
 
   Vec = object                # a map-space point or direction
     x, y: float
@@ -150,8 +163,6 @@ type
     behindLines: bool         # flanker has crossed deep into the enemy half
     enemies: seq[Track]
     mates: seq[Track]
-    enemyFlagPos: Vec         # last place we saw the enemy flag (our prize)
-    enemyFlagSeen: int
     carrierPos, carrierVel: Vec   # last fix on the thief carrying OUR flag
     carrierSeen: int
     firedLast: bool           # A was set on the previous sent mask
@@ -165,13 +176,17 @@ proc roleForSeat(seat: int, team: Team): Role =
   ## spawn at flag height, but the sim's un-mirrored +-6px spawn offset makes
   ## seat 3 the closest spawn to the flag for Red and seat 2 for Blue — the
   ## rusher takes whichever is closest so we win the opening pickup race.
+  ## Under fog the attack wave is six strong (a mid quad plus two flankers):
+  ## with no global flag tracking a carrier that slips the contest is hard to
+  ## reacquire, so committed offense converts steals into captures, and the
+  ## back line is one lane sniper plus the home defender.
   case seat
   of 0: FlankBottom      # wide bottom lane, get behind the contest
   of 1: MidGuard         # third mid, trails offset high and cleans up
   of 2: (if team == Blue: MidTop else: MidBottom)
   of 3: (if team == Red: MidTop else: MidBottom)
-  of 4: OverwatchTop     # cover post flanking the ring, upper side
-  of 5: OverwatchBottom  # cover post flanking the ring, lower side
+  of 4: MidBottom        # fourth mid: the second trailing attacker
+  of 5: Overwatch        # cover post flanking the ring: the lane sniper
   of 6: FlankTop         # wide top lane, get behind the contest
   else: HomeDefender     # choke guard before our capture column
 
@@ -235,28 +250,30 @@ proc slotFromUrl(url: string): int =
     inc i
   if digits.len == 0: 0 else: digits.parseInt()
 
-proc selfPos(client: ProtocolClient): Vec =
-  ## Our avatar's map position: the camera plus the fixed screen center.
-  vec(float(client.mapCameraX + SelfScreen), float(client.mapCameraY + SelfScreen))
-
 proc mapPos(client: ProtocolClient, o: SpriteObjectInfo): Vec =
-  ## Map-space center of a screen-space sprite object.
+  ## Map-space center of a sprite object (the map object sits at the origin,
+  ## so the camera offset is zero; keep it for exactness).
   vec(
     float(o.x + o.width div 2 + client.mapCameraX),
     float(o.y + o.height div 2 + client.mapCameraY)
   )
 
-proc actorsFor(
-    client: ProtocolClient, me: Vec, color: string, dropSelf: bool): seq[Actor] =
+proc findSelf(
+    client: ProtocolClient, color: string): tuple[alive: bool, pos: Vec] =
+  ## Our avatar via the distinct self marker, only drawn while we are alive.
+  for facingRight in [true, false]:
+    let label = "self " & color & (if facingRight: " right" else: " left")
+    for o in client.spriteObjectsWithLabel(label):
+      return (alive: true, pos: client.mapPos(o))
+
+proc actorsFor(client: ProtocolClient, color: string): seq[Actor] =
   ## Visible players of one color in map coordinates plus horizontal facing.
-  ## Our own sprite shares our color label, so `dropSelf` filters it out.
+  ## Our own sprite carries the distinct "self" label, so no filtering is
+  ## needed; enemies only appear while inside OUR vision.
   for facingRight in [true, false]:
     let label = "player " & color & (if facingRight: " right" else: " left")
     for o in client.spriteObjectsWithLabel(label):
-      let pos = client.mapPos(o)
-      if dropSelf and dist(pos, me) <= 3:
-        continue
-      result.add(Actor(pos: pos, facingRight: facingRight))
+      result.add(Actor(pos: client.mapPos(o), facingRight: facingRight))
 
 proc walkableAt(client: ProtocolClient, x, y: int): bool =
   if x < 0 or y < 0 or x >= client.walkabilityWidth or
@@ -334,7 +351,8 @@ proc homeSign(team: Team): float =
 
 proc homeDeepX(team: Team): float =
   ## A point well inside our capture zone (Red x <= ~206, Blue x >= ~1029).
-  if team == Red: 150.0 else: 1085.0
+  ## Blue mirrors Red exactly across the x = 617 center line.
+  if team == Red: 150.0 else: float(MapW - 1) - 150.0
 
 proc enemy(team: Team): Team =
   ## The opposing team.
@@ -346,8 +364,9 @@ proc flagHome(team: Team): Vec =
   if team == Red: vec(186, 329) else: vec(1049, 329)
 
 proc chokeSpot(team: Team): Vec =
-  ## Defender hold point between the flag and our home edge.
-  if team == Red: vec(390, 340) else: vec(float(MapW - 390), 340)
+  ## Defender hold point between the flag and our home edge, mirrored
+  ## exactly across the x = 617 center line.
+  if team == Red: vec(390, 340) else: vec(float(MapW - 1) - 390.0, 340)
 
 proc nearestOpenCell(bot: Bot, cell: int): int =
   ## The nearest walkable nav cell, searched in expanding rings.
@@ -437,14 +456,14 @@ proc scanPost(
         result.ready = true
 
 proc pickPost(bot: Bot, client: ProtocolClient) =
-  ## Chooses our own overwatch post (overwatch seats only): fire from the
+  ## Chooses our own overwatch post (the overwatch seat only): fire from the
   ## peek, duck back to the hold during cooldown.
   bot.postReady = false
-  if bot.role notin {OverwatchTop, OverwatchBottom}:
+  if bot.role != Overwatch:
     return
   let
     eSign = -homeSign(bot.team)
-    wantY = float(CenterY) + (if bot.role == OverwatchTop: -60.0 else: 60.0)
+    wantY = float(CenterY) + 60.0
   let post = bot.scanPost(client, eSign, wantY)
   if post.ready:
     bot.postHold = post.hold
@@ -452,15 +471,14 @@ proc pickPost(bot: Bot, client: ProtocolClient) =
     bot.postReady = true
 
 proc findEnemyPosts(bot: Bot, client: ProtocolClient) =
-  ## Precomputes where the ENEMY overwatch snipers sit (the mirrored post
-  ## scan): stationary, hidden killers every carrier run has to cross. They
-  ## are fed into exposure costing and lane choice as permanent virtual
-  ## threats so routes give their firing lanes a wide berth.
+  ## Precomputes where the ENEMY overwatch sniper sits (the mirrored post
+  ## scan): a stationary, hidden killer every carrier run has to cross. It is
+  ## fed into exposure costing and lane choice as a permanent virtual threat
+  ## so routes give its firing lane a wide berth.
   bot.enemyPosts.setLen(0)
-  for wantOffset in [-60.0, 60.0]:
-    let post = bot.scanPost(client, homeSign(bot.team), float(CenterY) + wantOffset)
-    if post.ready:
-      bot.enemyPosts.add(post.peek)
+  let post = bot.scanPost(client, homeSign(bot.team), float(CenterY) + 60.0)
+  if post.ready:
+    bot.enemyPosts.add(post.peek)
 
 proc buildNavGrid(bot: Bot, client: ProtocolClient) =
   ## Erodes the pixel walkability mask into a footprint-safe nav grid, then
@@ -738,14 +756,30 @@ proc resetTransient(bot: Bot) =
   ## Drops per-game memory between rounds (lobby / game-over interstitials).
   bot.enemies.setLen(0)
   bot.mates.setLen(0)
-  bot.enemyFlagPos = flagHome(enemy(bot.team))
-  bot.enemyFlagSeen = -100_000
   bot.carrierSeen = -100_000
   bot.firedLast = false
   bot.stuckTicks = 0
   bot.jinkUntil = 0
   bot.behindLines = false
   bot.navGoal = -1
+
+proc rotated(d: Vec, degrees: float): Vec =
+  ## Returns `d` rotated by `degrees`.
+  let
+    a = degrees * PI / 180.0
+    c = cos(a)
+    s = sin(a)
+  vec(d.x * c - d.y * s, d.x * s + d.y * c)
+
+proc scanMask(bot: Bot, watch: Vec): uint8 =
+  ## Sweeps the vision cone across the arc around `watch` while holding a
+  ## position: one movement tick every ScanPeriod ticks turns our facing with
+  ## about a pixel of drift, raking the 90-degree cone over ~180 degrees.
+  if bot.tick mod ScanPeriod != 0:
+    return 0
+  let phase = (bot.tick div ScanPeriod + bot.slot div 2) mod 4
+  let sweep = [0.0, 45.0, 0.0, -45.0][phase]
+  octantBits(rotated(norm(watch), sweep))
 
 proc safestLaneY(bot: Bot, me: Vec): float =
   ## The carrier's lane home: fewest remembered enemies AND the best cover
@@ -829,54 +863,52 @@ proc friendlyBlocked(bot: Bot, me, aim: Vec, enemyDist: float): bool =
 proc decide(bot: Bot, client: ProtocolClient): uint8 =
   ## Core CTF policy for one frame.
   let
-    me = client.selfPos()
-    alive = client.spriteObjectsWithLabel("shadow").len > 0
-    shotReady = client.spriteObjectsWithLabel("fire icon").len > 0
     myColor = (if bot.team == Red: "red" else: "blue")
     enemyColor = (if bot.team == Red: "blue" else: "red")
-    seenEnemies = client.actorsFor(me, enemyColor, dropSelf = false)
-    seenMates = client.actorsFor(me, myColor, dropSelf = true)
-
-  # Ghost views show corpses under the same labels; only trust sightings
-  # while alive so memory is not poisoned by bodies.
-  if alive:
-    bot.updateTracks(bot.enemies, seenEnemies)
-    bot.updateTracks(bot.mates, seenMates)
+    (alive, me) = client.findSelf(myColor)
+  if not alive:
+    # Dead: the ghost view shows everything (including corpses under the
+    # normal labels), so skip perception entirely — inputs are ignored and
+    # ghost sightings would poison memory.
+    bot.firedLast = false
+    return 0
+  let
+    shotReady = client.spriteObjectsWithLabel("fire icon").len > 0
+    seenEnemies = client.actorsFor(enemyColor)
+    seenMates = client.actorsFor(myColor)
+  bot.updateTracks(bot.enemies, seenEnemies)
+  bot.updateTracks(bot.mates, seenMates)
 
   # Flag bookkeeping (two flags; a carried flag rides its carrier's exact
-  # position). Only OUR team can hold the enemy flag and only the enemy can
-  # hold ours, so the two flag sprites answer different questions: the enemy
-  # flag is our attack state (pedestal / on me / on a mate), the own flag is
-  # the thief's position.
+  # position). The enemy flag can only be carried by OUR team, so its sprite
+  # is never fogged and fully describes our attack (pedestal / on me / on a
+  # mate). Our own flag can only be carried by the enemy: on its pedestal it
+  # is safe, visible off-pedestal is a live thief fix, and ABSENT means a
+  # fogged thief is running it toward its home edge.
   var
     iCarry = false
     mateCarry = false
     mateCarryPos: Vec
-    ownFlagStolenSeen = false
   let
     stealTarget = flagHome(enemy(bot.team))  # the enemy pedestal is static
     ownHome = flagHome(bot.team)
     enemyFlags = client.spriteObjectsWithLabel(enemyColor & " flag")
     ownFlags = client.spriteObjectsWithLabel(myColor & " flag")
-  if alive and enemyFlags.len > 0:
+  if enemyFlags.len > 0:
     let fp = client.mapPos(enemyFlags[0])
-    bot.enemyFlagPos = fp
-    bot.enemyFlagSeen = bot.tick
     if dist(fp, me) <= 4:
       iCarry = true
-    else:
-      for a in seenMates:
-        if dist(fp, a.pos) <= 8:
-          mateCarry = true
-          mateCarryPos = a.pos
-          break
-  if alive and ownFlags.len > 0:
+    elif dist(fp, stealTarget) > 16.0:
+      mateCarry = true                   # only a teammate can be carrying it
+      mateCarryPos = fp
+  var ownStolen = ownFlags.len == 0
+  if ownFlags.len > 0:
     let fp = client.mapPos(ownFlags[0])
     if dist(fp, ownHome) <= 6:
       bot.carrierSeen = -100_000         # our flag is safely home
     else:
-      # The thief holding our flag is right here: take a fresh fix.
-      ownFlagStolenSeen = true
+      # The thief holding our flag is inside our vision: take a fresh fix.
+      ownStolen = true
       bot.carrierPos = fp
       bot.carrierVel = vec(0, 0)
       for t in bot.enemies:
@@ -884,30 +916,6 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           bot.carrierVel = t.vel
           break
       bot.carrierSeen = bot.tick
-
-  if not alive:
-    bot.firedLast = false
-    return 0                             # dead: inputs are ignored anyway
-
-  # The own-flag arrow exists exactly while our flag is stolen and off-screen,
-  # so stolen-ness is fully observable every frame: arrow present, or the own
-  # flag visibly off its pedestal.
-  let
-    ownArrows = client.spriteObjectsWithLabel("own flag arrow")
-    enemyArrows = client.spriteObjectsWithLabel("enemy flag arrow")
-    ownStolen = ownArrows.len > 0 or ownFlagStolenSeen
-  if not ownStolen:
-    bot.carrierSeen = -100_000
-  # A remembered away-from-pedestal enemy flag means a mate is running it
-  # home (only our team can carry it): keep escorting the remembered spot,
-  # refreshed by the enemy-flag arrow bearing when it is off-screen.
-  if not iCarry and not mateCarry and
-      bot.tick - bot.enemyFlagSeen <= FlagMemoryTtl and
-      dist(bot.enemyFlagPos, stealTarget) > 16.0:
-    mateCarry = true
-    mateCarryPos = bot.enemyFlagPos
-    if enemyFlags.len == 0 and enemyArrows.len > 0:
-      mateCarryPos = me + norm(client.mapPos(enemyArrows[0]) - me) * 180.0
 
   # Flank progress: sticky so lane-runners do not oscillate at the boundary.
   if bot.role in {FlankTop, FlankBottom}:
@@ -925,15 +933,14 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # enemies.
     target = vec(homeDeepX(bot.team), bot.safestLaneY(me))
   elif ownStolen and (bot.role == HomeDefender or
-      (bot.role in {OverwatchTop, OverwatchBottom} and
+      (bot.role == Overwatch and
        bot.tick - bot.carrierSeen <= ThiefFixTtl)):
     # The back line intercepts the thief running OUR flag toward ITS home
-    # zone; attackers keep pressing the enemy pedestal so the capture race
-    # stays on. Pursuit is bounded: with a fresh fix, converge on the
-    # predicted route; without one the defender guards the mid crossing the
-    # thief has to make and overwatch keeps its long mid lanes plus the
-    # arrow snipe — chasing the beacon across the map just feeds the
-    # thief's escort wall.
+    # edge; attackers keep pressing the enemy pedestal so the capture race
+    # stays on. With a fresh fix, converge on the predicted route; without
+    # one the thief is fogged but MUST cross mid toward its home edge, so
+    # the defender guards the crossing on the lane nearest the last fix and
+    # sweeps its vision — reacquisition takes eyes, not magic.
     if bot.tick - bot.carrierSeen <= ThiefFixTtl:
       # Converge on the thief's predicted path toward the enemy capture edge.
       var predicted = bot.carrierPos +
@@ -942,7 +949,14 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       target = vec(clamp(predicted.x, 20.0, float(MapW - 20)),
                    clamp(predicted.y, 20.0, float(MapH - 20)))
     else:
-      target = vec(float(CenterX) - homeSign(bot.team) * 60.0, LaneMid)
+      var laneY = LaneMid
+      if bot.carrierSeen > -100_000:
+        var bestD = 1e18
+        for lane in [LaneTop, LaneMid, LaneBottom]:
+          if abs(bot.carrierPos.y - lane) < bestD:
+            bestD = abs(bot.carrierPos.y - lane)
+            laneY = lane
+      target = vec(float(CenterX) - homeSign(bot.team) * 60.0, laneY)
   elif mateCarry:
     case bot.role
     of MidTop, FlankTop:
@@ -968,7 +982,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         target = mateCarryPos + norm(bot.enemies[threat].pos - mateCarryPos) * 30.0
       else:
         target = mateCarryPos + vec(-homeSign(bot.team) * 32.0, 0.0)
-    of OverwatchTop, OverwatchBottom:
+    of Overwatch:
       # The posts already overwatch the carrier's retreat across mid.
       target =
         if bot.postReady: bot.postHold
@@ -994,7 +1008,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       target = bot.enemies[intruder].pos + bot.enemies[intruder].vel * 6.0
     else:
       target = bot.chokeHold
-  elif bot.role in {OverwatchTop, OverwatchBottom}:
+  elif bot.role == Overwatch:
     if bot.postReady:
       # Peek-and-shoot cycle: hold behind the post; with the gun up and a
       # remembered enemy in reach, sidestep to the peek cell to open the
@@ -1119,11 +1133,13 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   elif not iCarry and not rushing and not pocketRush and not shotReady and
       nearThreat >= 0:
     # Cooldown: duck behind the nearest cover that breaks the threat's line
-    # and hold there until the gun is back up.
+    # and hold there until the gun is back up, sweeping our vision across
+    # the arc the threat would push through.
     let duck = bot.findDuckCell(client, me, bot.enemies[nearThreat].pos)
     if duck >= 0:
       if dist(cellCenter(duck), me) < 5.0:
         holdStill = true
+        mask = bot.scanMask(bot.enemies[nearThreat].pos - me)
       else:
         mask = octantBits(cellCenter(duck) - me)
       acted = true
@@ -1134,24 +1150,6 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     if peek >= 0 and dist(cellCenter(peek), me) > 4.0:
       mask = octantBits(cellCenter(peek) - me)
       acted = true
-
-  if not acted and shotReady and not bot.firedLast and not iCarry and
-      ownArrows.len > 0 and
-      bot.role in {HomeDefender, OverwatchTop, OverwatchBottom}:
-    # Arrow-guided thief snipe (back line only — attackers keep pressing the
-    # pedestal so the capture race stays on): while an enemy runs OUR flag
-    # home out of view, the own-flag arrow tracks the carried flag globally
-    # and the map-wide gun can reach it. Fire down the arrow ray when it is
-    # long-open and no remembered mate is on it — the nearest player on that
-    # ray is the thief, and the wide long-range cone forgives the arrow
-    # quantization.
-    let dir = norm(client.mapPos(ownArrows[0]) - me)
-    if dir.len() > 0.5:
-      let open = openLineLen(client, me, dir, FireRange, 4.0)
-      if open >= SnipeMinOpen and
-          not bot.friendlyBlocked(me, me + dir * open, open):
-        mask = octantBits(dir) or ButtonA
-        acted = true
 
   if not acted:
     # Threat jink: sidestep a visible enemy that is facing us while our own
@@ -1175,6 +1173,17 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       if not bot.gridRayClear(me, me + side * 24.0):
         side = side * -1.0
       mask = octantBits(side + away * 0.4)
+    elif bot.role in {Overwatch, HomeDefender} and
+        dist(me, target) < 6.0:
+      # Holding a watch position: facing aims the vision cone, so sweep it
+      # across the arc threats cross. While our flag is stolen the thief
+      # comes from our own half; otherwise intruders come from the enemy
+      # half.
+      let watch =
+        if ownStolen: vec(homeSign(bot.team), 0.0)
+        else: vec(-homeSign(bot.team), 0.0)
+      mask = bot.scanMask(watch)
+      holdStill = true
     else:
       # Navigate: cover-aware path steering plus soft repulsion from nearby
       # teammates so one burst (or our own shot) cannot hit two of us.
@@ -1185,22 +1194,30 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         let d = dist(t.pos, me)
         if d < MateSpacing and d > 0.5:
           steer = steer + norm(me - t.pos) * ((MateSpacing - d) / MateSpacing) * 0.9
-      # Serpentine when a fresh remembered enemy at mid distance has a clear
-      # line to us: with map-wide guns a straight run across its lane is
-      # lethal. Closer threats are the jink/duck branches' job; rushers and
-      # the carrier skip it — for them speed beats evasion.
-      if not iCarry and not rushing and not pocketRush:
-        for t in bot.enemies:
-          if bot.tick - t.lastSeen > UnderFireTrackTtl:
-            continue
-          let d = dist(t.pos, me)
-          if d >= SerpentineNear and d <= SerpentineFar and
-              client.pixelRayClear(me, t.pos):
-            var side = vec(-steer.y, steer.x)
-            if (bot.tick div 8 + bot.slot div 2) mod 2 == 0:
-              side = side * -1.0
-            steer = norm(steer) + side * 0.6
-            break
+      # Serpentine when a straight run would cross watched ground. Fog cuts
+      # both ways: a fresh remembered enemy with a clear pixel line pins
+      # anyone, and rushers crossing the contested MIDDLE weave even without
+      # intel — the snipers watching their lane are exactly the enemies they
+      # cannot see. Close threats are the jink/duck branches' job; carriers
+      # and the pocket grab skip it — for them speed beats evasion.
+      if not iCarry and not pocketRush:
+        var weave = false
+        if rushing:
+          weave = abs(me.x - float(CenterX)) < WeaveBand
+        else:
+          for t in bot.enemies:
+            if bot.tick - t.lastSeen > UnderFireTrackTtl:
+              continue
+            let d = dist(t.pos, me)
+            if d >= SerpentineNear and d <= SerpentineFar and
+                client.pixelRayClear(me, t.pos):
+              weave = true
+              break
+        if weave:
+          var side = vec(-steer.y, steer.x)
+          if (bot.tick div 8 + bot.slot div 2) mod 2 == 0:
+            side = side * -1.0
+          steer = norm(steer) + side * 0.6
       steer = steer + vec(rand(-0.12 .. 0.12), rand(-0.12 .. 0.12))
       mask = octantBits(steer)
       if bot.tick < bot.jinkUntil:

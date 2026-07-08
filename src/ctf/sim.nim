@@ -46,6 +46,13 @@ const
   ShotFxTicks* = 12           ## ~0.5s a shot tracer stays visible (cosmetic only).
   SplatterFxTicks* = 120      ## ~5s a death splatter stays visible (cosmetic only).
   CarrierSpeedPct* = 70       ## carrier moves at 70% speed.
+  VisionConeDeg* = 45         ## vision cone half-angle around the 8-dir facing.
+  VisionBubble* = 90          ## omnidirectional vision radius in px.
+
+  FovCellSize* = 8            ## fog-of-war visibility grid cell size in px.
+  FovGridW* = (MapWidth + FovCellSize - 1) div FovCellSize
+  FovGridH* = (MapHeight + FovCellSize - 1) div FovCellSize
+  FovCellCount* = FovGridW * FovGridH
 
   StartWaitTicks* = 5 * TargetFps
   GameOverTicks* = 360
@@ -233,6 +240,8 @@ type
     gunConeDeg*: int
     fireCooldownTicks*: int
     carrierSpeedPct*: int
+    visionConeDeg*: int
+    visionBubble*: int
     minPlayers*: int
     startWaitTicks*: int
     gameOverTicks*: int
@@ -265,18 +274,13 @@ type
     deaths*: int
     captures*: int
 
-  ShadowPathCache = object
-    ready: bool
-    originSx, originSy: int
-    starts: seq[int]
-    offsets: seq[int32]
-    xs, ys: seq[int16]
-
-  PlayerShadowMask = object
-    valid: bool
-    cameraX, cameraY: int
-    originMx, originMy: int
-    mask: seq[bool]
+  PlayerFov* = object
+    ## One player's cached fog-of-war visibility grid (FovGridW x FovGridH
+    ## cells). Recomputed only when the viewer's cell or facing changes.
+    valid*: bool
+    originCx*, originCy*: int
+    facingDx*, facingDy*: int
+    visible*: seq[bool]
 
   ShotFx* = object
     ## A cosmetic shot tracer segment; never enters gameHash (replay-safe).
@@ -310,8 +314,8 @@ type
     darkBgPixels*: seq[uint8]
     walkMask*: seq[bool]
     wallMask*: seq[bool]
-    shadowBuf*: seq[bool]
-    shadowCaches: seq[PlayerShadowMask]
+    fovBlocked*: seq[bool]     ## FovGridW x FovGridH; a cell is opaque when mostly wall.
+    fovCaches: seq[PlayerFov]
     rng*: Rand
     nextJoinOrder*: int
     tickCount*: int
@@ -330,51 +334,6 @@ type
     lastLobbyPlayersLogged*: int
     lastLobbyNeededLogged*: int
     lastLobbySecondsLogged*: int
-
-  PlayerView* = object
-    cameraX*, cameraY*: int
-    originMx*, originMy*: int
-    viewerIsGhost*: bool
-
-const
-  SpritePlayerObservationHeaderFeatures = 4
-  SpritePlayerObservationGridSize = 32
-  SpritePlayerObservationGridFeatures = SpritePlayerObservationGridSize * SpritePlayerObservationGridSize
-  SpritePlayerObservationPlayerSlots = MaxPlayers
-  SpritePlayerObservationPlayerFeatures = 4
-  SpritePlayerObservationFlagSlots = 2      ## slot 0 = red flag, slot 1 = blue flag.
-  SpritePlayerObservationFlagFeatures = 4
-  SpritePlayerObservationArrowSlots = 2     ## slot 0 = enemy flag, slot 1 = own flag.
-  SpritePlayerObservationArrowFeatures = 5
-  SpritePlayerObservationGridOffset = SpritePlayerObservationHeaderFeatures
-  SpritePlayerObservationPlayerOffset = SpritePlayerObservationGridOffset + SpritePlayerObservationGridFeatures
-  SpritePlayerObservationFlagOffset =
-    SpritePlayerObservationPlayerOffset + SpritePlayerObservationPlayerSlots * SpritePlayerObservationPlayerFeatures
-  SpritePlayerObservationArrowOffset =
-    SpritePlayerObservationFlagOffset + SpritePlayerObservationFlagSlots * SpritePlayerObservationFlagFeatures
-  SpritePlayerObservationFeatures* =
-    SpritePlayerObservationArrowOffset + SpritePlayerObservationArrowSlots * SpritePlayerObservationArrowFeatures
-
-  RenderHeaderFireIcon = 1
-  RenderHeaderLives = 2
-
-  RenderPlayerFlagsFeature = 3
-  RenderFlagFlagsFeature = 3
-  RenderArrowFlagsFeature = 4
-
-  RenderPlayerPresent = 1'u8
-  RenderPlayerAlive = 4'u8
-  RenderPlayerFlipH = 16'u8
-  RenderPlayerGhost = 32'u8
-  RenderPlayerCarrier = 64'u8
-
-  RenderFlagHome = 1'u8
-  RenderFlagCarried = 2'u8
-
-  RenderArrowVisible = 2'u8
-
-var
-  ShadowPaths: ShadowPathCache
 
 proc gameDir*(): string =
   ## Returns the CTF game directory.
@@ -825,6 +784,8 @@ proc defaultGameConfig*(): GameConfig =
     gunConeDeg: GunConeDeg,
     fireCooldownTicks: FireCooldownTicks,
     carrierSpeedPct: CarrierSpeedPct,
+    visionConeDeg: VisionConeDeg,
+    visionBubble: VisionBubble,
     minPlayers: MinPlayers,
     startWaitTicks: StartWaitTicks,
     gameOverTicks: GameOverTicks,
@@ -1074,6 +1035,10 @@ proc validate(config: GameConfig) =
     raise newException(CtfError, "Config field gunConeDeg must be between 0 and 180.")
   if config.carrierSpeedPct <= 0 or config.carrierSpeedPct > 100:
     raise newException(CtfError, "Config field carrierSpeedPct must be 1..100.")
+  if config.visionConeDeg < 0 or config.visionConeDeg > 180:
+    raise newException(CtfError, "Config field visionConeDeg must be between 0 and 180.")
+  if config.visionBubble < 0:
+    raise newException(CtfError, "Config field visionBubble must be non-negative.")
   if config.speed notin [1, 2, 3, 4, 8, 16]:
     raise newException(
       CtfError,
@@ -1146,6 +1111,8 @@ proc update*(config: var GameConfig, jsonText: string) =
   node.readConfigInt("gunConeDeg", config.gunConeDeg)
   node.readConfigInt("fireCooldownTicks", config.fireCooldownTicks)
   node.readConfigInt("carrierSpeedPct", config.carrierSpeedPct)
+  node.readConfigInt("visionConeDeg", config.visionConeDeg)
+  node.readConfigInt("visionBubble", config.visionBubble)
   node.readConfigInt("minPlayers", config.minPlayers)
   node.readConfigInt("startWaitTicks", config.startWaitTicks)
   node.readConfigInt("gameStartWaitTicks", config.startWaitTicks)
@@ -1212,6 +1179,8 @@ proc configJson*(config: GameConfig): string =
     "gunConeDeg": config.gunConeDeg,
     "fireCooldownTicks": config.fireCooldownTicks,
     "carrierSpeedPct": config.carrierSpeedPct,
+    "visionConeDeg": config.visionConeDeg,
+    "visionBubble": config.visionBubble,
     "minPlayers": config.minPlayers,
     "startWaitTicks": config.startWaitTicks,
     "gameOverTicks": config.gameOverTicks,
@@ -1811,8 +1780,8 @@ proc removePlayerAt*(sim: var SimServer, playerIndex: int) =
     elif sim.flags[team].carrier > playerIndex:
       dec sim.flags[team].carrier
   sim.players.delete(playerIndex)
-  if playerIndex < sim.shadowCaches.len:
-    sim.shadowCaches.delete(playerIndex)
+  if playerIndex < sim.fovCaches.len:
+    sim.fovCaches.delete(playerIndex)
 
 proc addPlayer*(
   sim: var SimServer,
@@ -1871,9 +1840,9 @@ proc addPlayer*(
     color: color,
     reward: sim.rewardAccounts[accountIndex].reward
   )
-  sim.shadowCaches.add PlayerShadowMask(
+  sim.fovCaches.add PlayerFov(
     valid: false,
-    mask: newSeq[bool](ScreenWidth * ScreenHeight)
+    visible: newSeq[bool](FovCellCount)
   )
   sim.advanceJoinOrder()
   sim.arrangeHomePositions()
@@ -2255,17 +2224,21 @@ proc killPlayer(sim: var SimServer, targetIndex, killerIndex: int) =
     else:
       0
 
-proc tryFire*(sim: var SimServer, shooterIndex: int) =
-  ## Casts a hitscan shot along the shooter's facing and kills the first
-  ## valid target in range, cone, and clear line of sight (friendly fire on).
+proc canFire(sim: SimServer, shooterIndex: int): bool =
+  ## Returns whether one player is able to fire a shot right now.
   if shooterIndex < 0 or shooterIndex >= sim.players.len:
-    return
+    return false
   let shooter = sim.players[shooterIndex]
-  if not shooter.alive or shooter.fireCooldown > 0:
-    return
-  if shooter.facingDx == 0 and shooter.facingDy == 0:
-    return
+  shooter.alive and shooter.fireCooldown <= 0 and
+    (shooter.facingDx != 0 or shooter.facingDy != 0)
+
+proc selectFireTarget(sim: SimServer, shooterIndex: int): int =
+  ## Returns the nearest valid hitscan target along the shooter's facing —
+  ## in range, inside the firing cone, in clear line of sight (friendly fire
+  ## on) — or -1 for a miss.
+  result = -1
   let
+    shooter = sim.players[shooterIndex]
     sx = shooter.x + CollisionW div 2
     sy = shooter.y + CollisionH div 2
     rangeSq = sim.config.gunRange * sim.config.gunRange
@@ -2273,9 +2246,7 @@ proc tryFire*(sim: var SimServer, shooterIndex: int) =
     fdy = float(shooter.facingDy)
     facingLen = sqrt(fdx * fdx + fdy * fdy)
     coneCos = cos(float(sim.config.gunConeDeg) * 3.14159265358979 / 180.0)
-  var
-    bestDist = high(int)
-    bestTarget = -1
+  var bestDist = high(int)
   for i in 0 ..< sim.players.len:
     if i == shooterIndex or not sim.players[i].alive:
       continue
@@ -2300,15 +2271,27 @@ proc tryFire*(sim: var SimServer, shooterIndex: int) =
       continue
     if d < bestDist:
       bestDist = d
-      bestTarget = i
+      result = i
+
+proc applyFire(sim: var SimServer, shooterIndex, targetIndex: int) =
+  ## Applies one selected shot: cooldown, tracer, and the kill. The target
+  ## may already have died to another shot this tick; the shot still lands
+  ## (tracer and all) but only an alive target yields a kill.
+  let
+    shooter = sim.players[shooterIndex]
+    sx = shooter.x + CollisionW div 2
+    sy = shooter.y + CollisionH div 2
+    fdx = float(shooter.facingDx)
+    fdy = float(shooter.facingDy)
+    facingLen = sqrt(fdx * fdx + fdy * fdy)
   sim.players[shooterIndex].fireCooldown = sim.config.fireCooldownTicks
   # Record a cosmetic tracer for the shot (never enters gameHash).
   var
     ex = sx
     ey = sy
-  if bestTarget >= 0:
-    ex = sim.players[bestTarget].x + CollisionW div 2
-    ey = sim.players[bestTarget].y + CollisionH div 2
+  if targetIndex >= 0:
+    ex = sim.players[targetIndex].x + CollisionW div 2
+    ey = sim.players[targetIndex].y + CollisionH div 2
   else:
     # March along the normalized facing to the last wall-free pixel or max
     # range (checking each sampled pixel keeps this O(range) at 1300px).
@@ -2331,9 +2314,27 @@ proc tryFire*(sim: var SimServer, shooterIndex: int) =
     firedTick: sim.tickCount,
     color: shooter.color
   )
-  if bestTarget >= 0:
-    sim.killPlayer(bestTarget, shooterIndex)
+  if targetIndex >= 0 and sim.players[targetIndex].alive:
+    sim.killPlayer(targetIndex, shooterIndex)
     sim.recordKill(shooterIndex)
+
+proc tryFire*(sim: var SimServer, shooterIndex: int) =
+  ## Fires one shot immediately (the single-shooter path).
+  if not sim.canFire(shooterIndex):
+    return
+  sim.applyFire(shooterIndex, sim.selectFireTarget(shooterIndex))
+
+proc resolveSimultaneousFire*(sim: var SimServer, shooters: openArray[int]) =
+  ## Resolves every shot pressed this tick at once: all targets are chosen
+  ## against the same snapshot before any kill is applied, so a mutual duel
+  ## kills both shooters and neither team gains an input-processing-order
+  ## advantage.
+  var shots: seq[tuple[shooter, target: int]] = @[]
+  for shooterIndex in shooters:
+    if sim.canFire(shooterIndex):
+      shots.add((shooterIndex, sim.selectFireTarget(shooterIndex)))
+  for shot in shots:
+    sim.applyFire(shot.shooter, shot.target)
 
 proc tryPickupFlags*(sim: var SimServer, playerIndex: int) =
   ## Lets a living player steal the ENEMY team's flag off its pedestal by
@@ -2374,9 +2375,10 @@ proc updateFlags(sim: var SimServer) =
 proc applyInput*(
   sim: var SimServer,
   playerIndex: int,
-  input: InputState,
-  prevInput: InputState
+  input: InputState
 ) {.measure.} =
+  ## Applies one player's movement input. Firing is resolved separately and
+  ## simultaneously for all players (resolveSimultaneousFire).
   if playerIndex < 0 or playerIndex >= sim.players.len:
     return
   template player: untyped = sim.players[playerIndex]
@@ -2460,190 +2462,218 @@ proc applyInput*(
     false
   )
 
-  let freshA = input.attack and not prevInput.attack
-  if freshA:
-    sim.tryFire(playerIndex)
+proc fovCellIndex*(cx, cy: int): int {.inline.} =
+  ## Returns the flat index of one fog-of-war grid cell.
+  cy * FovGridW + cx
 
-proc playerView*(sim: SimServer, playerIndex: int): PlayerView =
-  ## Returns the canonical per-player camera and visibility origin.
+proc fovCellAt*(x, y: int): tuple[cx, cy: int] {.inline.} =
+  ## Returns the fog-of-war grid cell containing one map point.
+  (clamp(x div FovCellSize, 0, FovGridW - 1),
+   clamp(y div FovCellSize, 0, FovGridH - 1))
+
+proc fovCellCenter*(cx, cy: int): tuple[x, y: int] {.inline.} =
+  ## Returns the map-pixel center of one fog-of-war grid cell.
+  (cx * FovCellSize + FovCellSize div 2, cy * FovCellSize + FovCellSize div 2)
+
+proc buildFovBlocked*(wallMask: seq[bool]): seq[bool] =
+  ## Downsamples the pixel wall mask into the fog-of-war occlusion grid: a
+  ## cell is opaque when at least half of its pixels are wall.
+  result = newSeq[bool](FovCellCount)
+  for cy in 0 ..< FovGridH:
+    for cx in 0 ..< FovGridW:
+      var
+        walls = 0
+        pixels = 0
+      for py in cy * FovCellSize ..< min((cy + 1) * FovCellSize, MapHeight):
+        for px in cx * FovCellSize ..< min((cx + 1) * FovCellSize, MapWidth):
+          inc pixels
+          if wallMask[mapIndex(px, py)]:
+            inc walls
+      result[fovCellIndex(cx, cy)] = walls * 2 >= pixels
+
+proc castFovOctant(
+  blocked: openArray[bool],
+  visible: var seq[bool],
+  originCx, originCy, row: int,
+  startSlope, endSlope: float,
+  xx, xy, yx, yy: int
+) =
+  ## Recursive shadowcasting over one octant of the fog-of-war grid
+  ## (Bergstrom-style). Row distance is unbounded; scanning stops at the grid
+  ## edge, so vision range is limited only by walls.
+  if startSlope < endSlope:
+    return
+  var
+    start = startSlope
+    rowBlocked = false
+    newStart = 0.0
+  let maxDist = FovGridW + FovGridH
+  for dist in row .. maxDist:
+    if rowBlocked:
+      break
+    var anyInside = false
+    for dx in -dist .. 0:
+      let
+        dy = -dist
+        lSlope = (float(dx) - 0.5) / (float(dy) + 0.5)
+        rSlope = (float(dx) + 0.5) / (float(dy) - 0.5)
+      if start < rSlope:
+        continue
+      if endSlope > lSlope:
+        break
+      let
+        cx = originCx + dx * xx + dy * xy
+        cy = originCy + dx * yx + dy * yy
+      if cx < 0 or cy < 0 or cx >= FovGridW or cy >= FovGridH:
+        continue
+      anyInside = true
+      let index = fovCellIndex(cx, cy)
+      visible[index] = true
+      if rowBlocked:
+        if blocked[index]:
+          newStart = rSlope
+        else:
+          rowBlocked = false
+          start = newStart
+      elif blocked[index]:
+        rowBlocked = true
+        castFovOctant(
+          blocked,
+          visible,
+          originCx,
+          originCy,
+          dist + 1,
+          start,
+          lSlope,
+          xx, xy, yx, yy
+        )
+        newStart = rSlope
+    if not anyInside and dist > row:
+      break
+
+proc computeFovVisible*(
+  sim: SimServer,
+  originCx, originCy, facingDx, facingDy: int,
+  visible: var seq[bool]
+) {.measure.} =
+  ## Computes one viewer's fog-of-war cell visibility: recursive shadowcasting
+  ## from the viewer's cell (walls block), intersected with the forward vision
+  ## cone (half-angle visionConeDeg around the 8-dir facing, unlimited range)
+  ## plus the omnidirectional vision bubble (visionBubble px).
+  if visible.len != FovCellCount:
+    visible.setLen(FovCellCount)
+  zeroMem(addr visible[0], visible.len * sizeof(bool))
+  visible[fovCellIndex(originCx, originCy)] = true
+  const Octants = [
+    (1, 0, 0, 1), (0, 1, 1, 0), (0, -1, 1, 0), (-1, 0, 0, 1),
+    (-1, 0, 0, -1), (0, -1, -1, 0), (0, 1, -1, 0), (1, 0, 0, -1)
+  ]
+  for (xx, xy, yx, yy) in Octants:
+    castFovOctant(
+      sim.fovBlocked,
+      visible,
+      originCx,
+      originCy,
+      1,
+      1.0,
+      0.0,
+      xx, xy, yx, yy
+    )
+  let
+    (ox, oy) = fovCellCenter(originCx, originCy)
+    fdx = float(facingDx)
+    fdy = float(facingDy)
+    facingLen = sqrt(fdx * fdx + fdy * fdy)
+    coneCos = cos(float(sim.config.visionConeDeg) * PI / 180.0)
+    bubbleSq = float(sim.config.visionBubble * sim.config.visionBubble)
+  for cy in 0 ..< FovGridH:
+    for cx in 0 ..< FovGridW:
+      let index = fovCellIndex(cx, cy)
+      if not visible[index]:
+        continue
+      let
+        (px, py) = fovCellCenter(cx, cy)
+        vx = float(px - ox)
+        vy = float(py - oy)
+        d2 = vx * vx + vy * vy
+      if d2 <= bubbleSq:
+        continue
+      if facingLen <= 0.0:
+        visible[index] = false
+        continue
+      let dot = vx * fdx + vy * fdy
+      if dot < coneCos * sqrt(d2) * facingLen:
+        visible[index] = false
+
+proc ensureFovCacheSlots(sim: var SimServer) =
+  ## Keeps player-indexed fog-of-war cache storage aligned with players.
+  while sim.fovCaches.len < sim.players.len:
+    sim.fovCaches.add PlayerFov(
+      valid: false,
+      visible: newSeq[bool](FovCellCount)
+    )
+  if sim.fovCaches.len > sim.players.len:
+    sim.fovCaches.setLen(sim.players.len)
+
+proc refreshPlayerFov*(sim: var SimServer, playerIndex: int): bool {.measure.} =
+  ## Refreshes one player's cached fog-of-war grid and returns true when it
+  ## was recomputed (the viewer moved to a new cell or turned).
+  sim.ensureFovCacheSlots()
   let
     player = sim.players[playerIndex]
-    spriteX = player.x - SpriteDrawOffX
-    spriteY = player.y - SpriteDrawOffY
-    centerX = spriteX + SpriteSize div 2
-    centerY = spriteY + SpriteSize div 2
-  result.cameraX = centerX - ScreenWidth div 2
-  result.cameraY = centerY - ScreenHeight div 2
-  result.originMx = player.x + CollisionW div 2
-  result.originMy = player.y + CollisionH div 2
-  result.viewerIsGhost = not player.alive
-
-proc screenPointInFrame*(view: PlayerView, worldX, worldY: int): bool =
-  ## Returns true when a world point lands inside this player's camera frame.
-  let
-    sx = worldX - view.cameraX
-    sy = worldY - view.cameraY
-  sx >= 0 and sx < ScreenWidth and sy >= 0 and sy < ScreenHeight
-
-proc screenPointVisible*(sim: SimServer, view: PlayerView, worldX, worldY: int): bool =
-  ## Returns true when a world point is visible in this player's rendered view.
-  let
-    sx = worldX - view.cameraX
-    sy = worldY - view.cameraY
-  if not screenPointInFrame(view, worldX, worldY):
+    (cx, cy) = fovCellAt(
+      player.x + CollisionW div 2,
+      player.y + CollisionH div 2
+    )
+  template cache: untyped = sim.fovCaches[playerIndex]
+  if cache.valid and
+      cache.originCx == cx and
+      cache.originCy == cy and
+      cache.facingDx == player.facingDx and
+      cache.facingDy == player.facingDy:
     return false
-  view.viewerIsGhost or not sim.shadowBuf[sy * ScreenWidth + sx]
+  sim.computeFovVisible(cx, cy, player.facingDx, player.facingDy, cache.visible)
+  cache.valid = true
+  cache.originCx = cx
+  cache.originCy = cy
+  cache.facingDx = player.facingDx
+  cache.facingDy = player.facingDy
+  true
 
-const ScreenPixelCount = ScreenWidth * ScreenHeight
+proc playerFov*(sim: SimServer, playerIndex: int): lent PlayerFov =
+  ## Returns one player's cached fog-of-war grid (refreshPlayerFov first).
+  sim.fovCaches[playerIndex]
 
-proc ensureShadowPaths(originSx, originSy: int) {.measure.} =
-  ## Builds reusable screen-space shadow rays for one origin.
-  if ShadowPaths.ready and
-      ShadowPaths.originSx == originSx and
-      ShadowPaths.originSy == originSy:
-    return
+proc fovVisibleAt*(sim: SimServer, playerIndex, x, y: int): bool =
+  ## Returns whether one map point is inside a viewer's vision. Dead viewers
+  ## are ghosts and see everything. Call refreshPlayerFov first.
+  if not sim.players[playerIndex].alive:
+    return true
+  if playerIndex >= sim.fovCaches.len or not sim.fovCaches[playerIndex].valid:
+    return true
+  let (cx, cy) = fovCellAt(x, y)
+  sim.fovCaches[playerIndex].visible[fovCellIndex(cx, cy)]
 
-  ShadowPaths = ShadowPathCache(
-    ready: true,
-    originSx: originSx,
-    originSy: originSy,
-    starts: newSeq[int](ScreenPixelCount + 1),
-    offsets: newSeqOfCap[int32](ScreenPixelCount * 64),
-    xs: newSeqOfCap[int16](ScreenPixelCount * 64),
-    ys: newSeqOfCap[int16](ScreenPixelCount * 64)
+proc playerVisibleTo*(sim: SimServer, viewerIndex, targetIndex: int): bool =
+  ## Returns whether one player is observable by a viewer: yourself and your
+  ## teammates always are (team radio); enemies only inside your vision.
+  if viewerIndex == targetIndex:
+    return true
+  if sim.players[viewerIndex].team == sim.players[targetIndex].team:
+    return true
+  sim.fovVisibleAt(
+    viewerIndex,
+    sim.players[targetIndex].x + CollisionW div 2,
+    sim.players[targetIndex].y + CollisionH div 2
   )
 
-  for sy in 0 ..< ScreenHeight:
-    for sx in 0 ..< ScreenWidth:
-      let
-        pixelIndex = sy * ScreenWidth + sx
-        dx = sx - originSx
-        dy = sy - originSy
-        steps = max(abs(dx), abs(dy))
-      ShadowPaths.starts[pixelIndex] = ShadowPaths.offsets.len
-      if steps == 0:
-        continue
-      for step in 1 .. steps:
-        let
-          rx = originSx + dx * step div steps
-          ry = originSy + dy * step div steps
-        ShadowPaths.offsets.add(int32(ry * MapWidth + rx))
-        ShadowPaths.xs.add(int16(rx))
-        ShadowPaths.ys.add(int16(ry))
-  ShadowPaths.starts[ScreenPixelCount] = ShadowPaths.offsets.len
-
-proc clearShadowBuffer(sim: var SimServer) =
-  ## Clears the active screen shadow buffer.
-  if sim.shadowBuf.len != ScreenPixelCount:
-    sim.shadowBuf = newSeq[bool](ScreenPixelCount)
-    return
-  if sim.shadowBuf.len > 0:
-    zeroMem(addr sim.shadowBuf[0], sim.shadowBuf.len * sizeof(bool))
-
-proc copyShadowMask(dst: var seq[bool], src: seq[bool]) =
-  ## Copies a screen-sized shadow mask.
-  if dst.len != ScreenPixelCount:
-    dst = newSeq[bool](ScreenPixelCount)
-  if src.len != ScreenPixelCount:
-    zeroMem(addr dst[0], dst.len * sizeof(bool))
-    return
-  copyMem(addr dst[0], unsafeAddr src[0], dst.len * sizeof(bool))
-
-proc ensureShadowCacheSlots(sim: var SimServer) =
-  ## Keeps player-indexed shadow cache storage aligned with players.
-  while sim.shadowCaches.len < sim.players.len:
-    sim.shadowCaches.add PlayerShadowMask(
-      valid: false,
-      mask: newSeq[bool](ScreenPixelCount)
-    )
-  if sim.shadowCaches.len > sim.players.len:
-    sim.shadowCaches.setLen(sim.players.len)
-  for cache in sim.shadowCaches.mitems:
-    if cache.mask.len != ScreenPixelCount:
-      cache.valid = false
-      cache.mask = newSeq[bool](ScreenPixelCount)
-
-{.push checks: off.}
-proc castShadows*(
-  sim: var SimServer,
-  originMx,
-  originMy,
-  cameraX,
-  cameraY: int
-) {.measure.} =
-  let
-    originSx = originMx - cameraX
-    originSy = originMy - cameraY
-  ensureShadowPaths(originSx, originSy)
-  sim.clearShadowBuffer()
-
-  let
-    viewportInside =
-      cameraX >= 0 and cameraY >= 0 and
-      cameraX + ScreenWidth <= MapWidth and
-      cameraY + ScreenHeight <= MapHeight
-    baseIndex = cameraY * MapWidth + cameraX
-    starts = cast[ptr UncheckedArray[int]](addr ShadowPaths.starts[0])
-    offsets = cast[ptr UncheckedArray[int32]](addr ShadowPaths.offsets[0])
-    wallMask = cast[ptr UncheckedArray[bool]](addr sim.wallMask[0])
-    shadowBuf = cast[ptr UncheckedArray[bool]](addr sim.shadowBuf[0])
-
-  if viewportInside:
-    for pixelIndex in 0 ..< ScreenPixelCount:
-      let finish = starts[pixelIndex + 1]
-      var stepIndex = starts[pixelIndex]
-      while stepIndex < finish:
-        if wallMask[baseIndex + int(offsets[stepIndex])]:
-          shadowBuf[pixelIndex] = true
-          break
-        inc stepIndex
-    return
-
-  let
-    xs = cast[ptr UncheckedArray[int16]](addr ShadowPaths.xs[0])
-    ys = cast[ptr UncheckedArray[int16]](addr ShadowPaths.ys[0])
-  for pixelIndex in 0 ..< ScreenPixelCount:
-    let finish = starts[pixelIndex + 1]
-    var stepIndex = starts[pixelIndex]
-    while stepIndex < finish:
-      let
-        mx = cameraX + int(xs[stepIndex])
-        my = cameraY + int(ys[stepIndex])
-      if mx < 0 or my < 0 or mx >= MapWidth or my >= MapHeight or
-          wallMask[my * MapWidth + mx]:
-        shadowBuf[pixelIndex] = true
-        break
-      inc stepIndex
-
-proc usePlayerShadowMask*(
-  sim: var SimServer,
-  playerIndex: int,
-  view: PlayerView
-): bool {.measure.} =
-  ## Loads the shadow mask and returns true when it was refreshed.
-  if playerIndex < 0 or playerIndex >= sim.players.len or view.viewerIsGhost:
-    sim.clearShadowBuffer()
-    return false
-
-  sim.ensureShadowCacheSlots()
-  template cache: untyped = sim.shadowCaches[playerIndex]
-  if cache.valid and
-      cache.cameraX == view.cameraX and
-      cache.cameraY == view.cameraY and
-      cache.originMx == view.originMx and
-      cache.originMy == view.originMy:
-    sim.shadowBuf.copyShadowMask(cache.mask)
-    return false
-
-  sim.castShadows(view.originMx, view.originMy, view.cameraX, view.cameraY)
-  cache.valid = true
-  cache.cameraX = view.cameraX
-  cache.cameraY = view.cameraY
-  cache.originMx = view.originMx
-  cache.originMy = view.originMy
-  cache.mask.copyShadowMask(sim.shadowBuf)
-  result = true
-{.pop.}
+proc flagVisibleTo*(sim: SimServer, viewerIndex: int, team: Team): bool =
+  ## Returns whether one team's flag is observable by a viewer: always on its
+  ## pedestal; riding a carrier it is exactly as visible as the carrier.
+  let carrier = sim.flags[team].carrier
+  if carrier < 0:
+    return true
+  sim.playerVisibleTo(viewerIndex, carrier)
 
 proc finishGame*(sim: var SimServer, winner: Team, isDraw = false, timeLimitReached = false) =
   ## Moves to game over and awards all winning players.
@@ -2784,275 +2814,6 @@ proc checkMaxTicks(sim: var SimServer) =
     else:
       sim.finishGame(Red, isDraw = true, timeLimitReached = true)
 
-proc spritePlayerObservationPointShadowed(
-  sim: SimServer,
-  originMx, originMy, worldX, worldY: int
-): bool {.inline.} =
-  let
-    dx = worldX - originMx
-    dy = worldY - originMy
-    steps = max(abs(dx), abs(dy))
-  if steps == 0:
-    return false
-  for s in 1 .. steps:
-    let
-      rx = originMx + dx * s div steps
-      ry = originMy + dy * s div steps
-    if sim.isWall(rx, ry):
-      return true
-  false
-
-proc spritePlayerObservationWorldPointVisible(
-  sim: SimServer,
-  view: PlayerView,
-  worldX, worldY: int
-): bool {.inline.} =
-  if not view.screenPointInFrame(worldX, worldY):
-    return false
-  view.viewerIsGhost or not sim.spritePlayerObservationPointShadowed(
-    view.originMx,
-    view.originMy,
-    worldX,
-    worldY
-  )
-
-proc spritePlayerObservationFireIconByte(sim: SimServer, playerIndex: int): uint8 =
-  if sim.phase != Playing or playerIndex < 0 or playerIndex >= sim.players.len:
-    return 0'u8
-  let player = sim.players[playerIndex]
-  if not player.alive:
-    return 0'u8
-  if player.fireCooldown > 0: 1'u8 else: 255'u8
-
-proc writeSpritePlayerObservationHeader(
-  sim: SimServer,
-  playerIndex: int,
-  output: var openArray[uint8]
-) =
-  output[0] = uint8(ord(sim.phase))
-  if sim.phase == Playing and playerIndex >= 0 and playerIndex < sim.players.len:
-    output[RenderHeaderFireIcon] = sim.spritePlayerObservationFireIconByte(playerIndex)
-    output[RenderHeaderLives] = uint8(clamp(sim.players[playerIndex].lives, 0, 255))
-
-proc writeSpritePlayerObservationGrid(
-  sim: SimServer,
-  playerIndex: int,
-  output: var openArray[uint8]
-) =
-  if sim.phase != Playing or playerIndex < 0 or playerIndex >= sim.players.len:
-    return
-  let
-    view = sim.playerView(playerIndex)
-    step = ScreenWidth div SpritePlayerObservationGridSize
-  for gy in 0 ..< SpritePlayerObservationGridSize:
-    for gx in 0 ..< SpritePlayerObservationGridSize:
-      let
-        sx = gx * step + step div 2
-        sy = gy * step + step div 2
-        mx = view.cameraX + sx
-        my = view.cameraY + sy
-        index = SpritePlayerObservationGridOffset + gy * SpritePlayerObservationGridSize + gx
-      var color = MapVoidColor
-      if mx >= 0 and my >= 0 and mx < MapWidth and my < MapHeight:
-        let mapIdx = mapIndex(mx, my)
-        color = sim.mapPixels[mapIdx] and 0x0F
-      output[index] = color
-
-proc writeSpritePlayerObservationPlayerSlot(
-  sim: SimServer,
-  targetIndex, slotIndex, sx, sy: int,
-  flags: uint8,
-  output: var openArray[uint8]
-) =
-  let
-    player = sim.players[targetIndex]
-    base = SpritePlayerObservationPlayerOffset + slotIndex * SpritePlayerObservationPlayerFeatures
-  output[base] = uint8(clamp(sx, 0, 255))
-  output[base + 1] = uint8(clamp(sy, 0, 255))
-  output[base + 2] = player.color
-  output[base + RenderPlayerFlagsFeature] = flags
-
-proc writeSpritePlayerObservationPlayingPlayers(
-  sim: SimServer,
-  playerIndex: int,
-  output: var openArray[uint8]
-) =
-  if playerIndex < 0 or playerIndex >= sim.players.len:
-    return
-  let
-    view = sim.playerView(playerIndex)
-    cameraX = view.cameraX
-    cameraY = view.cameraY
-  for i in 0 ..< sim.players.len:
-    let
-      p = sim.players[i]
-      sx = p.x - SpriteDrawOffX - cameraX
-      sy = p.y - SpriteDrawOffY - cameraY
-    if not view.screenPointInFrame(p.x + CollisionW div 2, p.y + CollisionH div 2):
-      continue
-    var flags = RenderPlayerPresent
-    if p.alive:
-      if i != playerIndex and
-          not sim.spritePlayerObservationWorldPointVisible(
-            view,
-            p.x + CollisionW div 2,
-            p.y + CollisionH div 2
-          ):
-        continue
-      flags = flags or RenderPlayerAlive
-    elif view.viewerIsGhost:
-      flags = flags or RenderPlayerGhost
-    else:
-      continue
-    if p.flipH:
-      flags = flags or RenderPlayerFlipH
-    if p.carryingFlag:
-      flags = flags or RenderPlayerCarrier
-    sim.writeSpritePlayerObservationPlayerSlot(i, i, sx, sy, flags, output)
-
-proc writeSpritePlayerObservationUiPlayers(
-  sim: SimServer,
-  playerIndex: int,
-  output: var openArray[uint8]
-) =
-  let n = sim.players.len
-  if n == 0:
-    return
-  case sim.phase
-  of Lobby:
-    let startY = sim.lobbyIconStartY()
-    for i in 0 ..< n:
-      let
-        col = i mod 6
-        row = i div 6
-        sx = 5 + col * 9
-        sy = startY + row * 9
-      let flags = RenderPlayerPresent or RenderPlayerAlive
-      sim.writeSpritePlayerObservationPlayerSlot(i, i, sx, sy, flags, output)
-  of GameOver:
-    let
-      rowH = 14
-      rowsPerCol = 8
-      colW = ScreenWidth div 2
-      iconOffsetX = 4
-      startY = 16
-    for i in 0 ..< n:
-      let
-        col = i div rowsPerCol
-        row = i mod rowsPerCol
-        baseX = min(col, 1) * colW
-        y = startY + row * rowH
-        iconX = baseX + iconOffsetX
-        iconY = y + (rowH - CrewSpriteSize) div 2
-      var flags = RenderPlayerPresent
-      if sim.players[i].alive:
-        flags = flags or RenderPlayerAlive
-      sim.writeSpritePlayerObservationPlayerSlot(i, i, iconX, iconY, flags, output)
-  of Playing:
-    discard
-
-proc writeSpritePlayerObservationFlags(
-  sim: SimServer,
-  playerIndex: int,
-  output: var openArray[uint8]
-) =
-  ## Writes both team flags (slot 0 = red flag, slot 1 = blue flag) when
-  ## visible: on the pedestal or riding a carrier.
-  if sim.phase != Playing or playerIndex < 0 or playerIndex >= sim.players.len:
-    return
-  let view = sim.playerView(playerIndex)
-  for team in Team:
-    let flag = sim.flags[team]
-    if not sim.spritePlayerObservationWorldPointVisible(view, flag.x, flag.y):
-      continue
-    let
-      base = SpritePlayerObservationFlagOffset +
-        ord(team) * SpritePlayerObservationFlagFeatures
-      sx = flag.x - view.cameraX
-      sy = flag.y - view.cameraY
-    output[base] = uint8(clamp(sx, 0, 255))
-    output[base + 1] = uint8(clamp(sy, 0, 255))
-    output[base + 2] = uint8(clamp(flag.carrier + 1, 0, 255))
-    output[base + RenderFlagFlagsFeature] =
-      if flag.carrier >= 0: RenderFlagCarried else: RenderFlagHome
-
-proc writeSpritePlayerObservationArrow(
-  sim: SimServer,
-  view: PlayerView,
-  slot, targetX, targetY: int,
-  output: var openArray[uint8]
-) =
-  ## Writes one off-screen direction marker pointing toward a world point.
-  # Skip when the target is already on screen and visible.
-  if sim.spritePlayerObservationWorldPointVisible(view, targetX, targetY):
-    return
-  let
-    px = float(view.originMx - view.cameraX)
-    py = float(view.originMy - view.cameraY)
-    dx = float(targetX - view.cameraX) - px
-    dy = float(targetY - view.cameraY) - py
-  if abs(dx) < 0.5 and abs(dy) < 0.5:
-    return
-  var ex, ey: float
-  let
-    minX = 0.0
-    maxX = float(ScreenWidth - 1)
-    minY = 0.0
-    maxY = float(ScreenHeight - 1)
-  if abs(dx) > abs(dy):
-    ex = if dx > 0: maxX else: minX
-    ey = clamp(py + dy * (ex - px) / dx, minY, maxY)
-  else:
-    ey = if dy > 0: maxY else: minY
-    ex = clamp(px + dx * (ey - py) / dy, minX, maxX)
-  let base = SpritePlayerObservationArrowOffset +
-    slot * SpritePlayerObservationArrowFeatures
-  output[base + 2] = uint8(int(ex))
-  output[base + 3] = uint8(int(ey))
-  output[base + RenderArrowFlagsFeature] = RenderArrowVisible
-
-proc writeSpritePlayerObservationArrows(
-  sim: SimServer,
-  playerIndex: int,
-  output: var openArray[uint8]
-) =
-  ## Per-viewer flag bearings. Slot 0 ("enemy flag arrow") points at the flag
-  ## this player's team wants to steal — its pedestal or its carrier. Slot 1
-  ## ("own flag arrow") appears only while the viewer's own flag is stolen and
-  ## points at the thief; when the flag is home the arrow is hidden.
-  if sim.phase != Playing or playerIndex < 0 or playerIndex >= sim.players.len:
-    return
-  let
-    view = sim.playerView(playerIndex)
-    team = sim.players[playerIndex].team
-    enemyFlag = sim.flags[enemy(team)]
-    ownFlag = sim.flags[team]
-  sim.writeSpritePlayerObservationArrow(view, 0, enemyFlag.x, enemyFlag.y, output)
-  if ownFlag.carrier >= 0:
-    sim.writeSpritePlayerObservationArrow(view, 1, ownFlag.x, ownFlag.y, output)
-
-proc writeSpritePlayerObservation*(
-  sim: var SimServer,
-  playerIndex: int,
-  output: var openArray[uint8]
-) {.measure.} =
-  ## Writes a compact sprite-player observation with only visible fields.
-  if output.len != SpritePlayerObservationFeatures:
-    raise newException(
-      CtfError,
-      "SpritePlayer observation must be " & $SpritePlayerObservationFeatures & " bytes."
-    )
-  for i in 0 ..< output.len:
-    output[i] = 0
-  sim.writeSpritePlayerObservationHeader(playerIndex, output)
-  sim.writeSpritePlayerObservationGrid(playerIndex, output)
-  if sim.phase == Playing:
-    sim.writeSpritePlayerObservationPlayingPlayers(playerIndex, output)
-    sim.writeSpritePlayerObservationFlags(playerIndex, output)
-    sim.writeSpritePlayerObservationArrows(playerIndex, output)
-  else:
-    sim.writeSpritePlayerObservationUiPlayers(playerIndex, output)
-
 proc initSimServer*(config: GameConfig): SimServer =
   result.config = config
   result.rng = initRand(config.seed)
@@ -3097,9 +2858,8 @@ proc initSimServer*(config: GameConfig): SimServer =
       let pixel = wallImage[x, y]
       result.wallMask[mapIndex(x, y)] = pixel.a > 0
 
-  result.shadowBuf = newSeq[bool](ScreenWidth * ScreenHeight)
-  result.shadowCaches = @[]
-  ensureShadowPaths(ScreenWidth div 2, ScreenHeight div 2)
+  result.fovBlocked = buildFovBlocked(result.wallMask)
+  result.fovCaches = @[]
   result.players = @[]
   result.nextJoinOrder = 0
   result.gameStartTick = -1
@@ -3113,7 +2873,7 @@ proc initSimServer*(config: GameConfig): SimServer =
 proc resetToLobby*(sim: var SimServer) =
   sim.phase = Lobby
   sim.players = @[]
-  sim.shadowCaches = @[]
+  sim.fovCaches = @[]
   sim.recentShots = @[]
   sim.splatters = @[]
   sim.nextJoinOrder = 0
@@ -3184,7 +2944,9 @@ proc step*(
       sim.resetToLobby()
     return
 
-  # Playing.
+  # Playing: move everyone first, then resolve every fresh trigger pull at
+  # once against the post-movement snapshot (no processing-order advantage).
+  var firing: seq[int] = @[]
   for playerIndex in 0 ..< sim.players.len:
     if sim.players[playerIndex].fireCooldown > 0:
       dec sim.players[playerIndex].fireCooldown
@@ -3194,7 +2956,10 @@ proc step*(
     let prev =
       if playerIndex < prevInputs.len: prevInputs[playerIndex]
       else: InputState()
-    sim.applyInput(playerIndex, input, prev)
+    sim.applyInput(playerIndex, input)
+    if input.attack and not prev.attack:
+      firing.add(playerIndex)
+  sim.resolveSimultaneousFire(firing)
 
   for playerIndex in 0 ..< sim.players.len:
     sim.tryPickupFlags(playerIndex)

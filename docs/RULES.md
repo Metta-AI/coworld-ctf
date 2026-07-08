@@ -1,31 +1,34 @@
 # Coworld CTF — Game Rules
 
 Coworld CTF is a two-team capture-the-flag shooter for the Coworld platform. Two
-teams start on opposite edges of a symmetric arena. A single flag sits in the
-center. Players move, take cover behind obstacles, and shoot. Get the flag to
-your home edge — or eliminate the enemy team — to win.
+teams start on opposite edges of a symmetric arena, each with its own flag on a
+home pedestal. Players move, take cover behind obstacles, and shoot. Steal the
+enemy flag and carry it home — or eliminate the enemy team — to win. Vision is
+fog-of-war: the map is always visible, but enemies only appear inside your
+forward vision cone or your small omnidirectional bubble.
 
 It is a fork of [Crewrift](https://github.com/Metta-AI/coworld-crewrift): it keeps
-Crewrift's continuous 2D movement, line-of-sight, per-player camera, sprite
-protocol, server, and replay infrastructure, and replaces the social-deduction
-game layer (roles, tasks, voting) with teams, guns, and a flag.
+Crewrift's continuous 2D movement, line-of-sight, sprite protocol, server, and
+replay infrastructure, and replaces the social-deduction game layer (roles,
+tasks, voting) with teams, guns, flags, and fog-of-war vision.
 
 ---
 
 ## Overview
 
-- **8 players, 4 vs 4.** Red team spawns along the **left edge**, Blue along the
+- **16 players, 8 vs 8.** Red team spawns along the **left edge**, Blue along the
   **right edge**.
-- **One neutral flag** spawns at the **center** of the map.
+- **Two team flags**, one on each team's **home pedestal** inside its spawn
+  pocket (classic two-flag CTF).
 - The arena is filled with **dense staggered cover** (a slalom of offset wall
   stubs, diamonds, discs, and diagonal chevron walls, mirrored symmetrically so
   neither team has a positional advantage): **no straight sightline crosses the
   field**, so every approach is a series of corners.
-- A round ends when a team **captures the flag** or is **wiped out**.
+- A round ends when a team **captures the enemy flag** or is **wiped out**.
 
 ## Teams & spawns
 
-- Players are assigned to **Red** or **Blue** by slot (4 each).
+- Players are assigned to **Red** or **Blue** by slot (8 each).
 - Each team has a **home edge**: Red = left, Blue = right.
 - Players spawn just inside their home edge and respawn there when killed.
 
@@ -36,6 +39,30 @@ game layer (roles, tasks, voting) with teams, guns, and a flag.
 - You have an **8-directional facing** (including diagonals). Facing is set by the
   direction you last moved and **persists when you stop**. You shoot where you
   face — there is no separate aim, so you shoot in the direction you walk.
+
+## Vision (fog of war)
+
+Every player observes the **full map** — the terrain is static knowledge and is
+always drawn — but moving entities are fogged:
+
+- Your **vision** is a **forward cone** of half-angle `visionConeDeg` (default
+  ±45°) around your 8-directional facing, with **unlimited range**, plus a small
+  **omnidirectional bubble** of `visionBubble` (default ~90px) around you.
+- **Walls block vision** — the same walls that block bullets. A long open lane is
+  visible (and lethal) end to end; anything behind cover is not.
+- **Facing aims your vision.** You look where you last moved, so watching a lane,
+  scanning an arc, and turning your back are all real tactical acts.
+- Everything outside your vision is **masked**: enemies, an enemy carrying a
+  flag, and shot tracers / death splatters from unseen events are simply not in
+  your observation. The unseen area is dimmed by a fog overlay.
+- **Always visible regardless of fog:** the static map, your **teammates** (team
+  radio), **both flag pedestals**, your **own flag's state** (its pedestal flag
+  is never hidden — an empty own pedestal means your flag is stolen), and
+  **yourself** via a distinct self marker.
+- There is **no global flag tracking**: once a thief carries your flag into the
+  fog, finding it again takes eyes on it.
+- Dead players spectate as ghosts and see the whole map (their inputs are
+  ignored).
 
 ## Combat
 
@@ -50,6 +77,10 @@ game layer (roles, tasks, voting) with teams, guns, and a flag.
   3. in **clear line of sight** (walls block shots).
 - **Friendly fire is ON.** A shot hits the first valid target regardless of team,
   so firing into a cluster of teammates can kill your own escort.
+- **Same-tick shots resolve simultaneously.** Every trigger pulled on the same
+  tick picks its target against the same snapshot before any kill applies: a
+  mutual face-off duel kills both shooters, and neither team gains an
+  input-processing-order advantage.
 - On respawn you have brief **spawn protection** (temporary invulnerability) to
   prevent spawn-camping.
 
@@ -60,22 +91,24 @@ game layer (roles, tasks, voting) with teams, guns, and a flag.
   you have lives remaining.
 - When you run out of lives, you are **out for the rest of the round**.
 
-## The flag
+## The flags
 
-- The flag is **neutral** and starts at the center.
-- **Touch the flag to pick it up.** While carrying it you move **slower** but can
+- Each team's flag sits on its **home pedestal** inside the team's spawn pocket.
+- **Touch the ENEMY flag to steal it** off its pedestal. Your own flag cannot be
+  interacted with by your own team. While carrying you move **slower** but can
   **still shoot**.
-- If the carrier is killed (or disconnects), the flag **returns instantly to the
-  center**. The flag is never left loose on the ground: it is either carried or
-  sitting on its center pedestal.
-- It is a **tug-of-war over one flag**: Red wants it at the left edge, Blue wants
-  it at the right edge.
+- If the carrier is killed (or disconnects), the flag **returns instantly to its
+  own pedestal**. A flag is never left loose on the ground: it is either carried
+  or sitting on its pedestal.
+- Your own flag's **state** is always observable: its pedestal is never fogged,
+  so an empty own pedestal means it is stolen — but the **thief itself is fogged**
+  like any other enemy.
 
 ## Winning
 
 A round ends immediately when either condition is met:
 
-1. **Capture** — carry the flag to **your own home edge**.
+1. **Capture** — carry the **enemy flag** into **your own home capture zone**.
 2. **Wipe** — the entire **enemy team is out of lives**.
 
 If neither happens before the **time limit**, the round is decided by tiebreak:
@@ -110,7 +143,7 @@ These are starting values, exposed in the game config and tuned in self-play.
 
 | Parameter | Proposed default | Notes |
 | --- | --- | --- |
-| Players | 8 (4v4) | All standard Coworld slots |
+| Players | 16 (8v8) | All standard Coworld slots |
 | Lives per player | 3 | Out of lives = out for the round |
 | Respawn delay | ~3s | Time dead before respawning at home |
 | Spawn protection | ~1s | Invulnerability after respawn |
@@ -118,7 +151,9 @@ These are starting values, exposed in the game config and tuned in self-play.
 | Firing cone | ~±25° | Main "aim difficulty" knob |
 | Fire cooldown | ~0.5s | Minimum time between shots |
 | Carrier speed | ~70% | Movement penalty while holding the flag |
-| Flag auto-return | instant | The flag snaps back to center the moment its carrier dies |
+| Vision cone (`visionConeDeg`) | ±45° | Fog-of-war forward vision half-angle; unlimited range, walls block |
+| Vision bubble (`visionBubble`) | 90px | Omnidirectional close-range vision regardless of facing |
+| Flag auto-return | instant | A flag snaps back to its own pedestal the moment its carrier dies |
 | Time limit | (TBD) ticks | Round length cap before tiebreak |
 | Map size | 1235×659 | Inherited from Crewrift; may change |
 
@@ -135,8 +170,11 @@ This section is a build plan, not player-facing rules.
 
 - Continuous movement, fixed-point sub-pixel carry, wall-sliding collision
   against a per-pixel `walkMask`.
-- Line-of-sight / shadow caster against a per-pixel `wallMask`, and the
-  per-player **128×128 camera** that crops and occludes each bot's view.
+- Line-of-sight against a per-pixel `wallMask`. The old per-player 128×128
+  camera is gone: each player now gets the **full map** with a per-viewer
+  **fog-of-war** (recursive shadowcasting on an 8px visibility cell grid,
+  intersected with the vision cone and bubble) that culls fogged entities from
+  the observation and dims the unseen area with a fog overlay layer.
 - The **Sprite v1** protocol (button-mask input + sprite/object observations),
   websocket server (`/player`, `/global`, `/replay`, `/reward`), replay
   recording/playback, JSON config loading, and reward streaming.
@@ -150,9 +188,11 @@ This section is a build plan, not player-facing rules.
 - Player struct: keep `x,y,velX,velY,carryX,carryY,alive,color,reward`; drop
   task/vent/vote fields; add `team`, `lives`, `respawnTimer`, `fireCooldown`,
   `facing`, `carryingFlag`, `spawnProtect`.
-- `global.nim` observation building: team-colored player sprites, the flag sprite,
-  a **carrier indicator**, a **direction arrow to the flag** (like Crewrift's task
-  arrows), and per-player **lives / fire-cooldown UI**.
+- `global.nim` observation building: team-colored player sprites, the flag
+  sprites, a **carrier indicator**, the per-viewer **fog overlay** and
+  fog-culled entity stream (there are deliberately **no flag arrows** — fog of
+  war replaced all global tracking intel), a distinct **self marker**, and
+  per-player **lives / fire-cooldown UI** on HUD layers.
 - New **symmetric arena**: a new `.resources` map (CSS-like rects) plus an Aseprite
   image with walk/wall layers. Red/Blue spawn strips on the left/right edges,
   flag pedestal at center, obstacles mirrored across the vertical axis, home-edge

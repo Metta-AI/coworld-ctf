@@ -1,5 +1,5 @@
 import
-  std/[math, os],
+  std/[algorithm, math, os],
   bitworld/pixelfonts, bitworld/profile, bitworld/spriteprotocol, bitworld/server,
   sim
 
@@ -84,28 +84,37 @@ const
   TransportY = 1
   ## Sprite/object id pools (sprites and objects are separate namespaces).
   ## Sprites: team flags 700..701 (FlagSpriteBase), carrier bar 740, tracer
-  ## dots 760..775, flag arrows 5005 (enemy) + 5011 (own), splatters
-  ## 16000..16063. Objects: flags 6500..6501 (map view) / 5009..5010 (player
-  ## view), flag arrows 7001 (enemy) + 7002 (own), tracer dots 15000..16791,
-  ## splatters 17000..17031.
+  ## dots 760..775, self markers 5100..5101, splatters 16000..16063, fog runs
+  ## 21000..21155 (one per run width in cells). Objects: flags 6500..6501
+  ## (map view) / 5009..5010 (player view), tracer dots 15000..16791,
+  ## splatters 17000..17031, fog runs 21000..23047.
   SpritePlayerFireSpriteId = 5000
   SpritePlayerFireShadowSpriteId = 5001
   SpritePlayerRemainingSpriteId = 5003
-  SpritePlayerEnemyArrowSpriteId = 5005
   SpritePlayerInterstitialSpriteId = 5006
   SpritePlayerWalkabilitySpriteId = 5007
-  SpritePlayerOwnArrowSpriteId = 5011
   SpritePlayerInterstitialObjectId = 5006
   SpritePlayerRemainingObjectId = 5008
   SpritePlayerFlagObjectBase = 5009  ## 5009 red flag, 5010 blue flag.
-  SpritePlayerShadowSpriteId = 5010
-  SpritePlayerShadowObjectId = 13000
-  SpritePlayerShadowZ = -32767
-  SpritePlayerEnemyArrowObjectId = 7001
-  SpritePlayerOwnArrowObjectId = 7002
-  EnemyArrowColor = 8'u8       ## yellow: bearing to the flag we steal.
-  OwnArrowColor = 3'u8         ## red alert: our flag is stolen.
+  SpritePlayerSelfSpriteBase = 5100  ## 5100 right-facing, 5101 left-facing.
   FlagObjectBase = 6500        ## 6500 red flag, 6501 blue flag.
+  ## Per-viewer fog of war: a second zoomable map-sized layer of translucent
+  ## dark row-run sprites over the unseen 8px visibility cells. It draws over
+  ## the map layer and alpha-blends, dimming everything outside the viewer's
+  ## vision. Run sprites are defined lazily, one per run width in cells.
+  FogLayerId = 4
+  FogRunSpriteBase = 21000
+  FogObjectBase = 21000
+  FogMaxRuns = 2048            ## fog object pool; overflow drops shortest runs.
+  FogAlpha = 160'u8            ## fog dims unseen floor to ~37% brightness.
+  ## Player-view HUD layers (the map layer now spans the whole arena, so the
+  ## HUD sits on dedicated screen-corner UI layers).
+  HudTopRightLayerId = 5       ## lives counter.
+  HudTopRightLayerType = 2
+  HudBottomLeftLayerId = 6     ## fire-readiness icon.
+  HudBottomLeftLayerType = 4
+  PlayerInterstitialLayerId = 7  ## lobby / game-over screens, top-center.
+  PlayerInterstitialLayerType = 5
   MapMarkerSpriteBase = 20000
   MapMarkerObjectBase = 20000
   MapMarkerZ = -32767
@@ -162,11 +171,6 @@ type
     initialized*: bool
     objectIds*: seq[int]
     spriteDefs: seq[SpriteDefinition]
-    shadowReady: bool
-    shadowCameraX: int
-    shadowCameraY: int
-    shadowOriginMx: int
-    shadowOriginMy: int
 
   ProtocolTextItem = ref object
     spriteId: int
@@ -620,29 +624,70 @@ proc addMapMarkers(
     )
     inc index
 
-proc buildPlayerShadowSprite(
+proc buildFogRunSprite(widthCells: int): seq[uint8] {.measure.} =
+  ## Builds one translucent dark fog run sprite covering `widthCells`
+  ## horizontally-adjacent 8px visibility cells.
+  let
+    width = widthCells * FovCellSize
+    height = FovCellSize
+  result = newSeq[uint8](width * height * 4)
+  for i in 0 ..< width * height:
+    result.putRawRgbaPixel(i, 0, 0, 0, FogAlpha)
+
+proc fogRunSpriteId(widthCells: int): int =
+  ## Returns the sprite id for one fog run width.
+  FogRunSpriteBase + widthCells
+
+proc addFogRuns(
   sim: SimServer,
-  cameraX, cameraY: int
-): seq[uint8] {.measure.} =
-  ## Builds one screen-sized transparent shadow overlay.
-  result = newRgbaPixels(ScreenWidth, ScreenHeight)
-  for sy in 0 ..< ScreenHeight:
-    for sx in 0 ..< ScreenWidth:
-      let
-        screenIndex = sy * ScreenWidth + sx
-        mx = cameraX + sx
-        my = cameraY + sy
-      if not sim.shadowBuf[screenIndex]:
+  playerIndex: int,
+  spriteDefs: var seq[SpriteDefinition],
+  currentIds: var seq[int],
+  packet: var seq[uint8]
+) {.measure.} =
+  ## Places the viewer's fog overlay: one translucent dark run object per
+  ## horizontal stretch of unseen cells on each visibility grid row, drawn on
+  ## the fog layer above the map. Overflowing the object pool drops the
+  ## shortest runs (cosmetic only; entity culling is exact regardless).
+  let visible = sim.playerFov(playerIndex).visible
+  var runs: seq[tuple[cx, cy, width: int]] = @[]
+  for cy in 0 ..< FovGridH:
+    var cx = 0
+    while cx < FovGridW:
+      if visible[fovCellIndex(cx, cy)]:
+        inc cx
         continue
-      if mx < 0 or my < 0 or mx >= MapWidth or my >= MapHeight:
-        continue
-      let mapPixel = mapIndex(mx, my)
-      if sim.wallMask[mapPixel]:
-        continue
-      result.putRgbaPixel(
-        screenIndex,
-        ShadowMap[sim.mapPixels[mapPixel] and 0x0f]
+      var runEnd = cx
+      while runEnd < FovGridW and not visible[fovCellIndex(runEnd, cy)]:
+        inc runEnd
+      runs.add((cx: cx, cy: cy, width: runEnd - cx))
+      cx = runEnd
+  if runs.len > FogMaxRuns:
+    runs.sort(proc(a, b: tuple[cx, cy, width: int]): int = cmp(b.width, a.width))
+    runs.setLen(FogMaxRuns)
+  for runIndex, run in runs:
+    let spriteId = fogRunSpriteId(run.width)
+    if spriteDefs.spriteDefinitionIndex(spriteId) < 0:
+      # Building the pixel buffer is the expensive part: only do it the
+      # first time this run width is seen on this connection.
+      packet.addSpriteChanged(
+        spriteDefs,
+        spriteId,
+        run.width * FovCellSize,
+        FovCellSize,
+        buildFogRunSprite(run.width),
+        "fog"
       )
+    let objectId = FogObjectBase + runIndex
+    currentIds.add(objectId)
+    packet.addObject(
+      objectId,
+      run.cx * FovCellSize,
+      run.cy * FovCellSize,
+      0,
+      FogLayerId,
+      spriteId
+    )
 
 proc putTextSpritePixel(
   pixels: var seq[uint8],
@@ -1109,12 +1154,26 @@ proc buildSpriteProtocolPlayerInit(
   sim: SimServer,
   spriteDefs: var seq[SpriteDefinition]
 ): seq[uint8] {.measure.} =
-  ## Builds the initial sprite player snapshot.
+  ## Builds the initial sprite player snapshot: the full-map view (the client
+  ## scales the whole arena to the window), the fog overlay layer, and the
+  ## screen-corner HUD layers.
   result = @[]
   result.addU8(0x04)
   let mapPixels = sim.buildMapSpritePixels()
   result.addLayer(MapLayerId, MapLayerType, ZoomableLayerFlag)
-  result.addViewport(MapLayerId, ScreenWidth, ScreenHeight)
+  result.addViewport(MapLayerId, sim.gameMap.width, sim.gameMap.height)
+  result.addLayer(FogLayerId, MapLayerType, ZoomableLayerFlag)
+  result.addViewport(FogLayerId, sim.gameMap.width, sim.gameMap.height)
+  result.addLayer(HudTopRightLayerId, HudTopRightLayerType, UiLayerFlag)
+  result.addViewport(HudTopRightLayerId, 24, TextLineHeight + 2)
+  result.addLayer(HudBottomLeftLayerId, HudBottomLeftLayerType, UiLayerFlag)
+  result.addViewport(HudBottomLeftLayerId, SpriteSize + 2, SpriteSize + 2)
+  result.addLayer(
+    PlayerInterstitialLayerId,
+    PlayerInterstitialLayerType,
+    UiLayerFlag
+  )
+  result.addViewport(PlayerInterstitialLayerId, ScreenWidth, ScreenHeight)
   result.addSpriteChanged(
     spriteDefs,
     MapSpriteId,
@@ -1148,22 +1207,6 @@ proc buildSpriteProtocolPlayerInit(
     sim.flagSprite.height,
     buildSpriteProtocolShadowSprite(sim.flagSprite),
     "fire icon cooldown"
-  )
-  result.addSpriteChanged(
-    spriteDefs,
-    SpritePlayerEnemyArrowSpriteId,
-    1,
-    1,
-    buildSolidSprite(1, 1, EnemyArrowColor),
-    "enemy flag arrow"
-  )
-  result.addSpriteChanged(
-    spriteDefs,
-    SpritePlayerOwnArrowSpriteId,
-    1,
-    1,
-    buildSolidSprite(1, 1, OwnArrowColor),
-    "own flag arrow"
   )
   result.addSpriteChanged(
     spriteDefs,
@@ -1392,105 +1435,20 @@ proc selectedPlayerIndex(
       return i
   -1
 
-proc addSpritePlayerArrow(
-  sim: SimServer,
-  playerIndex: int,
-  view: PlayerView,
-  targetX, targetY, objectId, spriteId: int,
-  currentIds: var seq[int],
-  packet: var seq[uint8]
-) {.measure.} =
-  ## Adds one direction marker pointing toward a world point, skipped only
-  ## while the point itself is visible on screen (so a flag arrow is present
-  ## exactly when its flag is not).
-  if sim.screenPointVisible(view, targetX, targetY):
-    return
-  let
-    cameraX = view.cameraX
-    cameraY = view.cameraY
-    player = sim.players[playerIndex]
-    px = float(player.x + CollisionW div 2 - cameraX)
-    py = float(player.y + CollisionH div 2 - cameraY)
-    dx = float(targetX - cameraX) - px
-    dy = float(targetY - cameraY) - py
-  if abs(dx) < 0.5 and abs(dy) < 0.5:
-    return
-  var ex, ey: float
-  let
-    minX = 0.0
-    maxX = float(ScreenWidth - 1)
-    minY = 0.0
-    maxY = float(ScreenHeight - 1)
-  if abs(dx) > abs(dy):
-    ex = if dx > 0: maxX else: minX
-    ey = clamp(py + dy * (ex - px) / dx, minY, maxY)
-  else:
-    ey = if dy > 0: maxY else: minY
-    ex = clamp(px + dx * (ey - py) / dy, minX, maxX)
-  currentIds.add(objectId)
-  packet.addObject(
-    objectId,
-    int(ex),
-    int(ey),
-    30000,
-    MapLayerId,
-    spriteId
-  )
-
-proc addSpritePlayerFlagArrows(
-  sim: SimServer,
-  playerIndex: int,
-  view: PlayerView,
-  currentIds: var seq[int],
-  packet: var seq[uint8]
-) {.measure.} =
-  ## Adds this viewer's flag bearings. "enemy flag arrow" points at the flag
-  ## the viewer's team wants to steal (its pedestal or its carrier). "own flag
-  ## arrow" appears only while the viewer's own flag is stolen and points at
-  ## the thief; while the flag sits home the arrow is hidden.
-  if playerIndex < 0 or playerIndex >= sim.players.len:
-    return
-  let
-    team = sim.players[playerIndex].team
-    enemyFlag = sim.flags[enemy(team)]
-    ownFlag = sim.flags[team]
-  sim.addSpritePlayerArrow(
-    playerIndex,
-    view,
-    enemyFlag.x,
-    enemyFlag.y,
-    SpritePlayerEnemyArrowObjectId,
-    SpritePlayerEnemyArrowSpriteId,
-    currentIds,
-    packet
-  )
-  if ownFlag.carrier >= 0:
-    sim.addSpritePlayerArrow(
-      playerIndex,
-      view,
-      ownFlag.x,
-      ownFlag.y,
-      SpritePlayerOwnArrowObjectId,
-      SpritePlayerOwnArrowSpriteId,
-      currentIds,
-      packet
-    )
-
 proc tracerDotSpriteId(colorIndex: int): int =
   ## Returns the sprite id for one tracer dot color.
   TracerDotSpriteBase + colorIndex
 
 proc addShotTracers(
   sim: SimServer,
-  cameraX, cameraY: int,
-  clipToFrame: bool,
   spriteDefs: var seq[SpriteDefinition],
   currentIds: var seq[int],
-  packet: var seq[uint8]
+  packet: var seq[uint8],
+  viewerIndex = -1
 ) {.measure.} =
   ## Places tracer dots in each shooter's color from a fixed object pool.
-  ## Map view passes camera (0, 0) and clipToFrame = false; the per-player POV
-  ## passes its camera offset and clips dots outside the 128x128 window.
+  ## The map view passes no viewer and shows every dot; a player view passes
+  ## its viewer index and only receives the dots crossing its vision.
   var nextDot = 0
   for shotIndex in 0 ..< min(sim.recentShots.len, TracerMaxShots):
     let shot = sim.recentShots[shotIndex]
@@ -1501,34 +1459,32 @@ proc addShotTracers(
       dy = shot.y1 - shot.y0
       length = max(abs(dx), abs(dy))
       steps = max(1, length div TracerDotSpacing)
-    packet.addSpriteChanged(
-      spriteDefs,
-      spriteId,
-      TracerDotSize,
-      TracerDotSize,
-      buildTracerDotSprite(colorIndex),
-      "shot tracer " & playerColorName(colorIndex)
-    )
+    var definedSprite = false
     for s in 0 .. steps:
       if nextDot >= TracerMaxDots:
         break
       let
         mx = shot.x0 + dx * s div steps
         my = shot.y0 + dy * s div steps
-        px = mx - cameraX - TracerDotSize div 2
-        py = my - cameraY - TracerDotSize div 2
-      if clipToFrame and (
-        px + TracerDotSize <= 0 or py + TracerDotSize <= 0 or
-        px >= ScreenWidth or py >= ScreenHeight
-      ):
+      if viewerIndex >= 0 and not sim.fovVisibleAt(viewerIndex, mx, my):
         continue
+      if not definedSprite:
+        definedSprite = true
+        packet.addSpriteChanged(
+          spriteDefs,
+          spriteId,
+          TracerDotSize,
+          TracerDotSize,
+          buildTracerDotSprite(colorIndex),
+          "shot tracer " & playerColorName(colorIndex)
+        )
       let objectId = TracerDotObjectBase + nextDot
       inc nextDot
       currentIds.add(objectId)
       packet.addObject(
         objectId,
-        px,
-        py,
+        mx - TracerDotSize div 2,
+        my - TracerDotSize div 2,
         30005,
         MapLayerId,
         spriteId
@@ -1540,18 +1496,22 @@ proc splatterSpriteId(colorIndex, stage: int): int =
 
 proc addSplatters(
   sim: SimServer,
-  cameraX, cameraY: int,
-  clipToFrame: bool,
   spriteDefs: var seq[SpriteDefinition],
   currentIds: var seq[int],
-  packet: var seq[uint8]
+  packet: var seq[uint8],
+  viewerIndex = -1
 ) {.measure.} =
   ## Places fading death splatters from a fixed object pool. The fade stage
   ## comes from the splatter age quartile; splatters draw under the players.
+  ## The map view passes no viewer and shows every splatter; a player view
+  ## passes its viewer index and only receives the ones inside its vision.
   var nextSplatter = 0
   for splatter in sim.splatters:
     if nextSplatter >= SplatterMaxCount:
       break
+    if viewerIndex >= 0 and
+        not sim.fovVisibleAt(viewerIndex, splatter.x, splatter.y):
+      continue
     let
       age = sim.tickCount - splatter.tick
       stage = clamp(
@@ -1560,13 +1520,8 @@ proc addSplatters(
         SplatterStages - 1
       )
       colorIndex = playerColorIndex(splatter.color)
-      px = splatter.x - cameraX - SplatterSize div 2
-      py = splatter.y - cameraY - SplatterSize div 2
-    if clipToFrame and (
-      px + SplatterSize <= 0 or py + SplatterSize <= 0 or
-      px >= ScreenWidth or py >= ScreenHeight
-    ):
-      continue
+      px = splatter.x - SplatterSize div 2
+      py = splatter.y - SplatterSize div 2
     let spriteId = splatterSpriteId(colorIndex, stage)
     packet.addSpriteChanged(
       spriteDefs,
@@ -1614,171 +1569,123 @@ proc buildSpriteProtocolPlayerUpdates*(
       0,
       0,
       0,
-      MapLayerId,
+      PlayerInterstitialLayerId,
       SpritePlayerInterstitialSpriteId
     )
     sim.addProtocolTextSprites(
       nextState.spriteDefs,
       currentIds,
       result,
-      MapLayerId,
+      PlayerInterstitialLayerId,
       playerIndex
     )
     sim.addProtocolInterstitialActorSprites(
       nextState.spriteDefs,
       currentIds,
       result,
-      MapLayerId,
+      PlayerInterstitialLayerId,
       playerIndex
     )
   else:
     let
       player = sim.players[playerIndex]
-      view = sim.playerView(playerIndex)
-      cameraX = view.cameraX
-      cameraY = view.cameraY
-      viewerIsGhost = view.viewerIsGhost
-    let
-      shadowViewChanged =
-        not nextState.shadowReady or
-        nextState.shadowCameraX != cameraX or
-        nextState.shadowCameraY != cameraY or
-        nextState.shadowOriginMx != view.originMx or
-        nextState.shadowOriginMy != view.originMy
-      shadowChanged =
-        if viewerIsGhost:
-          false
-        else:
-          sim.usePlayerShadowMask(playerIndex, view)
-    currentIds.add(MapObjectId)
-    result.addObject(
-      MapObjectId,
-      -cameraX,
-      -cameraY,
-      low(int16),
-      MapLayerId,
-      MapSpriteId
-    )
+      viewerIsGhost = not player.alive
     if not viewerIsGhost:
-      currentIds.add(SpritePlayerShadowObjectId)
-      if shadowChanged or shadowViewChanged or
-          nextState.spriteDefs.spriteDefinitionIndex(
-            SpritePlayerShadowSpriteId
-          ) < 0:
-        result.addSpriteChanged(
-          nextState.spriteDefs,
-          SpritePlayerShadowSpriteId,
-          ScreenWidth,
-          ScreenHeight,
-          sim.buildPlayerShadowSprite(cameraX, cameraY),
-          "shadow",
-          changed = shadowChanged or shadowViewChanged
-        )
-      nextState.shadowReady = true
-      nextState.shadowCameraX = cameraX
-      nextState.shadowCameraY = cameraY
-      nextState.shadowOriginMx = view.originMx
-      nextState.shadowOriginMy = view.originMy
-      result.addObject(
-        SpritePlayerShadowObjectId,
-        0,
-        0,
-        SpritePlayerShadowZ,
-        MapLayerId,
-        SpritePlayerShadowSpriteId
-      )
-    else:
-      nextState.shadowReady = false
+      discard sim.refreshPlayerFov(playerIndex)
 
-    # The team flags, when visible (a carried flag rides its carrier).
+    # The full static map, always drawn: terrain is static knowledge.
+    currentIds.add(MapObjectId)
+    result.addObject(MapObjectId, 0, 0, low(int16), MapLayerId, MapSpriteId)
+
+    # The fog overlay dims everything outside this viewer's vision. Ghost
+    # viewers (dead players) watch the whole map unfogged.
+    if not viewerIsGhost:
+      sim.addFogRuns(playerIndex, nextState.spriteDefs, currentIds, result)
+
+    # The team flags: a pedestal flag is always visible (so an empty own
+    # pedestal means the own flag is stolen); a carried flag rides its
+    # carrier and is exactly as visible as that carrier.
     for team in Team:
       let flag = sim.flags[team]
-      if sim.screenPointVisible(view, flag.x, flag.y):
+      if viewerIsGhost or sim.flagVisibleTo(playerIndex, team):
         let objectId = SpritePlayerFlagObjectBase + ord(team)
         currentIds.add(objectId)
         result.addObject(
           objectId,
-          flag.x - SpriteSize div 2 - cameraX,
-          flag.y - SpriteSize div 2 - cameraY,
+          flag.x - SpriteSize div 2,
+          flag.y - SpriteSize div 2,
           flag.y + 1,
           MapLayerId,
           FlagSpriteBase + ord(team)
         )
 
-    for other in sim.players:
-      if not view.screenPointInFrame(
-        other.x + CollisionW div 2,
-        other.y + CollisionH div 2
-      ):
-        continue
+    # Players: yourself (a distinct outlined self marker) and teammates are
+    # always visible (team radio); living enemies only inside your vision;
+    # corpses only for ghost viewers.
+    for i in 0 ..< sim.players.len:
+      let other = sim.players[i]
       if other.alive:
-        if other.joinOrder != player.joinOrder:
-          if not sim.screenPointVisible(
-            view,
-            other.x + CollisionW div 2,
-            other.y + CollisionH div 2
-          ):
-            continue
+        if not viewerIsGhost and i != playerIndex and
+            not sim.playerVisibleTo(playerIndex, i):
+          continue
       elif not viewerIsGhost:
         continue
+      var spriteId = other.spriteActorSpriteId(-1)
+      if i == playerIndex and not viewerIsGhost:
+        spriteId = SpritePlayerSelfSpriteBase + (if other.flipH: 1 else: 0)
+        let crew = sim.crewSpriteForSlot(other.joinOrder)
+        result.addSpriteChanged(
+          nextState.spriteDefs,
+          spriteId,
+          crew.width + 2,
+          crew.height + 2,
+          buildCrewProtocolActorSprite(crew, other.color, other.flipH, true),
+          "self " & playerColorText(other.color) &
+            (if other.flipH: " left" else: " right")
+        )
       let objectId = other.spriteObjectId()
       currentIds.add(objectId)
       result.addObject(
         objectId,
-        other.x - SpriteDrawOffX - 1 - cameraX,
-        other.y - SpriteDrawOffY - 1 - cameraY,
+        other.x - SpriteDrawOffX - 1,
+        other.y - SpriteDrawOffY - 1,
         other.y,
         MapLayerId,
-        other.spriteActorSpriteId(-1)
+        spriteId
       )
 
-    sim.addSpritePlayerFlagArrows(
-      playerIndex,
-      view,
-      currentIds,
-      result
-    )
-
     sim.addSplatters(
-      cameraX,
-      cameraY,
-      clipToFrame = true,
       nextState.spriteDefs,
       currentIds,
-      result
+      result,
+      viewerIndex = playerIndex
     )
     sim.addShotTracers(
-      cameraX,
-      cameraY,
-      clipToFrame = true,
       nextState.spriteDefs,
       currentIds,
-      result
+      result,
+      viewerIndex = playerIndex
     )
 
-    # Fire-cooldown icon in the bottom-left corner.
+    # Fire-readiness icon on the bottom-left HUD layer.
     if player.alive:
-      let
-        fireIconX = 1
-        fireIconY = ScreenHeight - SpriteSize - 1
       currentIds.add(SpritePlayerRemainingObjectId)
       result.addObject(
         SpritePlayerRemainingObjectId,
-        fireIconX,
-        fireIconY,
-        30002,
-        MapLayerId,
+        1,
+        1,
+        0,
+        HudBottomLeftLayerId,
         if player.fireCooldown > 0:
           SpritePlayerFireShadowSpriteId
         else:
           SpritePlayerFireSpriteId
       )
 
-    # Lives counter in the top-right corner.
+    # Lives counter on the top-right HUD layer.
     let
       livesText = "x" & $player.lives
       lives = sim.buildSpriteProtocolTextSprite([livesText], 2'u8)
-      textX = ScreenWidth - lives.width
     currentIds.add(SelectedTextObjectId)
     result.addSpriteChanged(
       nextState.spriteDefs,
@@ -1791,10 +1698,10 @@ proc buildSpriteProtocolPlayerUpdates*(
     )
     result.addObject(
       SelectedTextObjectId,
-      textX,
+      23 - lives.width,
+      1,
       0,
-      30003,
-      MapLayerId,
+      HudTopRightLayerId,
       SpritePlayerRemainingSpriteId
     )
 
@@ -2187,22 +2094,8 @@ proc buildSpriteProtocolUpdates*(
     result,
     nextState.selectedJoinOrder
   )
-  sim.addSplatters(
-    0,
-    0,
-    clipToFrame = false,
-    nextState.spriteDefs,
-    currentIds,
-    result
-  )
-  sim.addShotTracers(
-    0,
-    0,
-    clipToFrame = false,
-    nextState.spriteDefs,
-    currentIds,
-    result
-  )
+  sim.addSplatters(nextState.spriteDefs, currentIds, result)
+  sim.addShotTracers(nextState.spriteDefs, currentIds, result)
 
   for playerIndex in 0 ..< sim.players.len:
     let player = sim.players[playerIndex]

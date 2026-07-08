@@ -1,7 +1,8 @@
 {.warning[UnusedImport]: off.}
 import
   test_input_buffer,
-  test_global_pov_shadow,
+  test_fov,
+  test_player_fog,
   test_map_los,
   test_movement_slide,
   test_replay,

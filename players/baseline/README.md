@@ -1,35 +1,56 @@
-# baseline — Coworld CTF bot (8v8)
+# baseline — Coworld CTF bot (8v8, fog-of-war)
 
 A capture-the-flag reference bot that speaks the Bitworld Sprite v1 protocol.
-It keeps a persistent world model on top of the partially-observable 128×128
-view and plays a coordinated 8v8 team game on the dense-cover arena:
-cover-aware pathfinding, a flag-rushing mid trio, wide flankers, overwatch
-snipers on the longest firing lines, carrier interception at the enemy capture
-gate, arrow-guided carrier sniping, and disciplined one-shot-kill gunplay
+It keeps a persistent world model on top of the fog-of-war full-map view and
+plays a coordinated 8v8 team game on the dense-cover arena: cover-aware
+pathfinding, a six-strong attack wave (mid quad plus wide flankers), an
+overwatch sniper whose vision cone owns the longest lane (under fog the lane
+watcher is also the radar), vision-scanning at every hold point, thief
+hunting without any global tracking, and disciplined one-shot-kill gunplay
 under the effectively map-wide 1300px gun.
 
 All decision logic lives in `decide` in `baseline.nim`.
 
-## View model
+## View model (fog-of-war, full-map, map coordinates)
 
-The per-player view is 128×128 **screen-space** with LOS occlusion (you see
-~64px around you — the gun far outranges your eyes). The map object's offset
-is the camera, so `mapPos = objectCenter + camera`, and our own avatar sits at
-exactly **(66, 66)** on screen (see `playerView` in `src/ctf/sim.nim`).
-**Facing equals movement direction** (you shoot where you walk) and only a
-**fresh A press** fires, so to shoot we steer into the target's octant and
-pulse A. Labels we read:
+The observation is the **full 1235×659 map in map coordinates**: the map
+object sits at `(0, 0)`, so object positions ARE map positions (no camera
+math). Entities are **fogged**: an enemy — including an enemy carrying our
+flag — is only streamed while inside OUR vision, which is a **forward cone**
+(half-angle `visionConeDeg` ≈ 45° around our 8-dir facing, **unlimited
+range**, walls block it) plus an **omnidirectional bubble** (`visionBubble` ≈
+90px). **Facing aims vision**: we look where we last moved, so pointing the
+cone is a tactical decision. Always visible regardless of fog: the map, our
+**teammates** (team radio), **both flag pedestals**, our **own flag's state**,
+and **ourselves** via the distinct self marker.
+**Facing equals movement direction** (you shoot — and look — where you walk)
+and only a **fresh A press** fires, so to shoot we steer into the target's
+octant and pulse A. Labels we read:
 
-- `"player <color> right|left"` — a player; the suffix is horizontal facing.
-  Our own sprite shares our color label and is filtered by distance.
-- `"flag"` — a carried flag rides its carrier's exact position, so flag-on-me
-  means we carry, flag-on-a-sprite means they carry, otherwise it is loose.
-- `"flag arrow"` — off-screen direction hint to the flag.
-- `"walkability map"` — the full static map mask, sent once at init.
-- `"shadow"` — present only while we are alive (ghost views drop it).
-- `"fire icon"` / `"fire icon cooldown"` — whether our shot is ready.
-- Death splatters and shot tracers render under their own labels and are
-  ignored (cosmetic only).
+- `"self <color> right|left"` — OUR OWN avatar (an outlined marker sprite);
+  present exactly while we are alive, and how we locate ourselves in map
+  coordinates. The suffix is horizontal facing.
+- `"player <color> right|left"` — another player; the suffix is horizontal
+  facing. Teammates are always streamed; enemies only while inside our
+  vision cone/bubble with line of sight.
+- `"<team> flag"` (`"red flag"` / `"blue flag"`) — a flag, on its pedestal or
+  riding its carrier's exact position. Pedestal flags are never fogged; a
+  carried flag is exactly as visible as its carrier. Consequences: the ENEMY
+  flag (only our team can carry it) is always visible — on its pedestal, on
+  me, or on a mate; our OWN flag on its pedestal means it is safe, visibly
+  off-pedestal is a live thief fix, and ABSENT from the frame means a fogged
+  thief is running it home.
+- `"walkability map"` — the full static walkability mask, sent once at init.
+- `"fire icon"` / `"fire icon cooldown"` — whether our shot is ready (HUD).
+- `"fog"` — the viewer-side fog overlay runs (cosmetic; we ignore them — the
+  entity culling above IS the observation).
+- Death splatters and shot tracers render under their own labels, culled by
+  the same fog, and are ignored (cosmetic only).
+
+There are **no flag arrows** — fog of war deleted all global tracking intel.
+When we are dead the self marker disappears and the ghost view shows the whole
+map (inputs are ignored); the bot returns to lobby behavior and ignores ghost
+frames so corpses never poison memory.
 
 ## Nav grid, cost field & cover-aware movement
 
@@ -71,18 +92,20 @@ to an obstacle (`coverCell`). They feed three behaviors:
   sidesteps to the peek cell when a remembered enemy is in reach with the gun
   up, fires, and ducks back on cooldown.
 
-## Memory (the world is partially observable)
+## Memory (fog makes the entity stream partially observable)
 
 - **Player tracks**: visible players are matched to remembered tracks
   (position, blended px/tick velocity, last-seen tick, facing). Tracks expire
   after `TrackTtl` (~5s) and are capped at the **8** real opponents/teammates
-  (`TrackCap`). Ghost frames are ignored so corpses never poison memory.
-- **Flag memory**: the last flag position is trusted for `FlagMemoryTtl`
-  (~7s — a dropped flag auto-returns after 8s); after that we follow the flag
-  arrow, else assume center.
-- **Enemy carrier memory**: a carrier sighting is trusted for `CarryTtl`
-  (~10s — roughly a full run home) and cleared the moment we see the flag
-  loose or on a teammate.
+  (`TrackCap`). Tracks are what persists through fog: an enemy that walks
+  behind cover or out of the cone stays remembered until the TTL runs out.
+- **Flag state needs no memory**: the enemy flag is always visible somewhere
+  (pedestal / me / a mate), and our own flag's stolen-ness is observable
+  every frame from its pedestal.
+- **Thief fix**: seeing our own flag off-pedestal is a live fix on the thief
+  (position, plus velocity from the matching track). The fix guides pursuit
+  for `ThiefFixTtl` (~1.7s); after that the hunt falls back to guarding the
+  mid crossing on the lane nearest the last fix.
 
 ## Roles & lanes (deterministic from the seat)
 
@@ -94,27 +117,31 @@ seat index (`slot div 2`) picks the role via `roleForSeat`:
   closest spawn for Red and seat 2 for Blue — the **rusher** takes whichever
   is closer for its team (still fully deterministic) and races the flag dead
   straight, winning the opening pickup race. The other trails offset low.
-- **Seat 1 — MidGuard**: third mid, trails the rusher offset high; the trio
-  is spread so one 25° enemy cone cannot kill two of them.
+- **Seats 1/4 — MidGuard + second MidBottom**: the trailing attackers; the
+  quad is spread so one 25° enemy cone cannot kill two of them. The attack
+  wave is deliberately six strong — under fog a carrier that slips the
+  contest is hard to reacquire, so committed offense converts steals into
+  captures.
 - **Seats 0/6 — FlankBottom/FlankTop**: route wide via the extreme bottom/top
   lanes (`LaneBottom`/`LaneTop`) to `FlankDepth` past mid (sticky
-  `behindLines` progress so they never oscillate), then stage
-  `BehindFlagDist` past the flag and hit the contest from the octant the
-  enemy is facing away from.
-- **Seats 4/5 — OverwatchTop/OverwatchBottom**: hold the shielded cover posts
-  flanking the flag ring (see cover model) and run the peek-fire-duck cycle
-  on anything crossing mid. Post selection is sniper-first: candidate peek
-  cells are scored by the **length of their clear firing line** toward the
-  enemy half (`openLineLen`, floor `PeekLineDist`), because under a map-wide
-  gun a post is worth what its lane can reach.
+  `behindLines` progress so they never oscillate), then turn straight in and
+  hit the pocket together with the mid quad.
+- **Seat 5 — Overwatch**: holds a shielded cover post flanking the flag ring
+  (see cover model) and runs the peek-fire-duck cycle on anything crossing
+  mid. Post selection is sniper-first: candidate peek cells are scored by
+  the **length of their clear firing line** toward the enemy half
+  (`openLineLen`, floor `PeekLineDist`), because under a map-wide gun AND
+  map-wide vision cone a post is worth what its lane can reach — the watcher
+  facing down an open lane sees (and kills) intruders at any distance.
+  Overwatch is the team's radar.
 - **Seat 7 — HomeDefender**: holds the choke between the flag and our capture
-  column, snapped to the nearest cover cell (`chokeHold`); grabs a loose flag
-  on our half and chases intruders.
+  column, snapped to the nearest cover cell (`chokeHold`); chases intruders
+  spotted on our half and hunts the thief when our flag leaves its pedestal.
 
 Priorities override the defaults for everyone: carry → run home; enemy
 carrier known → intercept (see below); teammate carries → escort (mids and
 flankers take spread positions ahead toward home, the guard screens the
-nearest threat, overwatch keeps its posts covering the retreat, the defender
+nearest threat, overwatch keeps its post covering the retreat, the defender
 holds the choke).
 
 ## Carrier play & interception
@@ -127,32 +154,31 @@ deep into the capture zone; the exposure cost keeps the run hugging cover
 past remembered enemies. Carriers never peek, duck, or jink and only engage
 enemies within `CarrierFireRange`.
 
-Against an enemy carrier: a fresh sighting (≤ ~40 ticks) makes everyone
-converge on its predicted path. A **stale** sighting means it is running home
-out of view — instead of chasing a fading prediction, units cut it off at the
-**enemy capture gate** (`InterceptGateX` past mid on the mid lane), the fixed
-choke every carrier must cross. Mids chase the flag itself (the arrow tracks
-a carried flag globally).
-
-**Arrow-guided carrier snipe**: while an enemy carrier is remembered
-(`CarryTtl`) and the flag is off-screen, the flag arrow tracks the carried
-flag globally — a live global bearing to the carrier. Any unit with its shot
-ready fires down the arrow ray whenever the ray is long-open
-(`openLineLen` ≥ `SnipeMinOpen`) and no remembered mate is on it: the
-hitscan kills the nearest player along the ray, and the only player known to
-be on it is the carrier. This is the bot's real long-range weapon — it kills
-carriers from far beyond the 64px view, anywhere on the map.
+Against a thief carrying OUR flag (defense without arrows): stolen-ness is
+always observable — the own pedestal is empty — but the thief itself is
+fogged like any enemy. With a **fresh fix** (own flag seen off-pedestal ≤
+`ThiefFixTtl` ago) the back line (defender, and overwatch while the fix is
+fresh) converges on the thief's predicted path toward ITS home edge. With a
+**stale** fix the defender guards the **mid crossing** on the lane nearest
+the last fix (the thief must cross toward its capture zone) and **sweeps its
+vision** there; overwatch keeps its long lanes — reacquisition takes eyes on
+the thief, and the moment any unit's cone touches the carrier, the flag
+sprite itself is the new fix. Attackers keep pressing the enemy pedestal so
+the capture race stays on.
 
 ## Fire discipline & combat micro
 
 - **Target**: nearest track seen within `FreshShotTicks`, led by its velocity
   (`LeadTicks`), within `FireRange` = 1250 (the 1300px gun is effectively
-  map-wide, so chases keep shooting after the target leaves the view — the
+  map-wide, so chases keep shooting briefly after the target fogs out — the
   wide long-range cone forgives track drift), with a clear pixel raycast
   against the walkability mask (exactly the sim's LOS rule). Shoot first —
-  first shot wins. Tracks only form inside the ~64px view, so track
-  engagements stay short-range in practice; the arrow snipe (above) is what
-  actually uses the range.
+  first shot wins. Tracks form anywhere the vision cone reaches, so a lane
+  watcher genuinely engages at map range down its open lane.
+- **Scanning**: any unit holding a position (overwatch posts, the defender's
+  choke or thief gate, cooldown ducks) sweeps its facing with one-tick
+  direction pulses every `ScanPeriod` ticks (~1px drift each), raking the
+  90°-wide cone across a ~180° watch arc instead of staring down one ray.
 - **Aim**: steer into the target's octant — the worst-case 22.5° octant error
   sits inside the 25° firing cone — and pulse A only when the fire icon shows
   ready (fresh presses fire; A is released for a frame between shots).
@@ -182,10 +208,11 @@ carriers from far beyond the 64px view, anywhere on the map.
 ## Tuning
 
 The knobs are the constants at the top of `baseline.nim` (ranges, memory
-TTLs, cover/exposure costs, lane y-coordinates, spacing, corridor width).
-Role assignment is `roleForSeat`; lane via-points, `chokeSpot`, `homeDeepX`,
-and `InterceptGateX` encode the map geometry (1235×659, center 617,329,
-capture zones x≤~206 / x≥~1029, flag ring clear radius 70).
+TTLs, scan period, cover/exposure costs, lane y-coordinates, spacing,
+corridor width). Role assignment is `roleForSeat`; lane via-points,
+`chokeSpot`, and `homeDeepX` encode the map geometry (1235×659, center
+617,329, mirror line x=617, capture zones x≤~206 / x≥~1029, spawn-pocket
+pedestals at 186,329 / 1049,329).
 
 ## Build & run
 
