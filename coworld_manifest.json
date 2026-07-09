@@ -148,15 +148,21 @@
           "maximum": 100,
           "default": 70
         },
+        "aimTurnRate": {
+          "description": "Aim rotation speed in brads (256ths of a turn) per tick while a rotate button is held. B rotates counter-clockwise, Select clockwise; movement never changes the aim.",
+          "type": "integer",
+          "minimum": 1,
+          "default": 5
+        },
         "visionConeDeg": {
-          "description": "Vision cone half-angle in degrees around the facing direction. Fog of war hides everything outside the cone, the vision bubble, and line of sight.",
+          "description": "Vision cone half-angle in degrees around the aim angle. Fog of war hides everything outside the cone, the vision bubble, and line of sight.",
           "type": "integer",
           "minimum": 0,
           "maximum": 180,
           "default": 45
         },
         "visionBubble": {
-          "description": "Omnidirectional vision radius in pixels around each player, seen regardless of facing.",
+          "description": "Omnidirectional vision radius in pixels around each player, seen regardless of aim.",
           "type": "integer",
           "minimum": 0,
           "default": 90
@@ -451,6 +457,7 @@
         "gunRange": 1300,
         "fireCooldownTicks": 12,
         "carrierSpeedPct": 70,
+        "aimTurnRate": 5,
         "visionConeDeg": 45,
         "visionBubble": 90,
         "startWaitTicks": 120,

@@ -70,8 +70,7 @@ suite "ctf game":
     let cy = sim.gameMap.center.y
     sim.players[0].x = cx
     sim.players[0].y = cy
-    sim.players[0].facingDx = 1
-    sim.players[0].facingDy = 0
+    sim.players[0].aimBrads = 0
     sim.players[0].fireCooldown = 0
     sim.players[1].x = cx + 6
     sim.players[1].y = cy
@@ -94,8 +93,7 @@ suite "ctf game":
     let cy = sim.gameMap.center.y
     sim.players[0].x = cx
     sim.players[0].y = cy
-    sim.players[0].facingDx = 1
-    sim.players[0].facingDy = 0
+    sim.players[0].aimBrads = 0
     sim.players[0].fireCooldown = 0
     # Two enemies dead ahead on the same ray: near and far.
     sim.players[1].x = cx + 40
@@ -119,8 +117,7 @@ suite "ctf game":
     let cy = sim.gameMap.center.y
     sim.players[0].x = cx
     sim.players[0].y = cy
-    sim.players[0].facingDx = 1
-    sim.players[0].facingDy = 0
+    sim.players[0].aimBrads = 0
     sim.players[0].fireCooldown = 0
     # Ahead but 60px off the ray: inside the old 25-degree cone, far outside
     # the bullet corridor.
@@ -139,8 +136,7 @@ suite "ctf game":
     let cy = sim.gameMap.center.y
     sim.players[0].x = cx
     sim.players[0].y = cy
-    sim.players[0].facingDx = 1
-    sim.players[0].facingDy = 0
+    sim.players[0].aimBrads = 0
     sim.players[0].fireCooldown = 0
     sim.players[1].x = cx + 60
     sim.players[1].y = cy
@@ -164,8 +160,7 @@ suite "ctf game":
     let cy = sim.gameMap.center.y
     sim.players[0].x = cx
     sim.players[0].y = cy
-    sim.players[0].facingDx = 1
-    sim.players[0].facingDy = 0
+    sim.players[0].aimBrads = 0
     sim.players[0].fireCooldown = 0
     sim.players[1].x = cx + 60
     sim.players[1].y = cy
@@ -188,22 +183,70 @@ suite "ctf game":
     let cy = sim.gameMap.center.y
     sim.players[0].x = cx
     sim.players[0].y = cy
-    sim.players[0].facingDx = 1
-    sim.players[0].facingDy = 0
+    sim.players[0].aimBrads = 0
     sim.players[0].fireCooldown = 0
     sim.players[1].x = cx + 60
     sim.players[1].y = cy
     sim.players[1].spawnProtect = 0
 
     sim.startFireWindup(0)
-    # Turning after the pull must not move the shot off the locked ray.
-    sim.players[0].facingDx = 0
-    sim.players[0].facingDy = 1
+    check sim.players[0].windupBrads == 0
+    # Turning after the pull must not move the shot off the locked angle:
+    # swing the live aim all the way to south during the windup.
+    sim.players[0].aimBrads = 192
 
     let noInput = newSeq[InputState](sim.players.len)
     for _ in 1 .. sim.config.fireWindupTicks:
       sim.step(noInput, noInput)
     check not sim.players[1].alive     # still hit along the original aim
+    check sim.players[0].windupBrads == -1
+
+  test "rotate buttons turn the aim; movement never does":
+    var sim = twoTeamGame()
+    let rate = sim.config.aimTurnRate
+    check sim.players[0].aimBrads == 0     # Red spawns aiming east.
+    check sim.players[1].aimBrads == 128   # Blue spawns aiming west.
+
+    var inputs = newSeq[InputState](sim.players.len)
+    let noInput = newSeq[InputState](sim.players.len)
+    # Holding B rotates counter-clockwise by aimTurnRate per tick.
+    inputs[0] = InputState(b: true)
+    sim.step(inputs, noInput)
+    check sim.players[0].aimBrads == rate
+    # Holding Select rotates clockwise (wrapping under 0).
+    inputs[0] = InputState(select: true)
+    sim.step(inputs, noInput)
+    sim.step(inputs, noInput)
+    check sim.players[0].aimBrads == (256 - rate) mod 256
+    # Holding both rotate buttons cancels the rotation.
+    inputs[0] = InputState(b: true, select: true)
+    sim.step(inputs, noInput)
+    check sim.players[0].aimBrads == (256 - rate) mod 256
+    # Movement moves the player but NEVER changes the aim.
+    inputs[0] = InputState(up: true, left: true)
+    let (x0, y0) = (sim.players[0].x, sim.players[0].y)
+    for _ in 1 .. 6:
+      sim.step(inputs, noInput)
+    check (sim.players[0].x, sim.players[0].y) != (x0, y0)
+    check sim.players[0].aimBrads == (256 - rate) mod 256
+
+  test "fire direction comes from the aim angle (32 = northeast)":
+    var sim = twoTeamGame()
+    let cx = sim.gameMap.center.x
+    let cy = sim.gameMap.center.y
+    sim.players[0].x = cx
+    sim.players[0].y = cy
+    sim.players[0].aimBrads = 32   # northeast: +x, -y in map coordinates.
+    sim.players[0].fireCooldown = 0
+    # The target sits on the exact diagonal, inside the open flag ring.
+    sim.players[1].x = cx + 40
+    sim.players[1].y = cy - 40
+    sim.players[1].spawnProtect = 0
+
+    sim.tryFire(0)
+
+    check not sim.players[1].alive
+    check sim.players[0].kills == 1
 
   test "a hit records a tracer ending at the target and skips the hash":
     var sim = twoTeamGame()
@@ -211,8 +254,7 @@ suite "ctf game":
     let cy = sim.gameMap.center.y
     sim.players[0].x = cx
     sim.players[0].y = cy
-    sim.players[0].facingDx = 1
-    sim.players[0].facingDy = 0
+    sim.players[0].aimBrads = 0
     sim.players[0].fireCooldown = 0
     sim.players[1].x = cx + 6
     sim.players[1].y = cy
@@ -242,8 +284,7 @@ suite "ctf game":
     let cy = sim.gameMap.center.y
     sim.players[0].x = cx
     sim.players[0].y = cy
-    sim.players[0].facingDx = 1
-    sim.players[0].facingDy = 0
+    sim.players[0].aimBrads = 0
     sim.players[0].fireCooldown = 0
     sim.players[1].x = cx - 6      # behind the shooter: no target hit
     sim.players[1].y = cy
@@ -265,8 +306,7 @@ suite "ctf game":
     let cy = sim.gameMap.center.y
     sim.players[0].x = cx
     sim.players[0].y = cy
-    sim.players[0].facingDx = 1
-    sim.players[0].facingDy = 0
+    sim.players[0].aimBrads = 0
     sim.players[0].fireCooldown = 0
     sim.players[1].x = cx - 6
     sim.players[1].y = cy
@@ -285,8 +325,7 @@ suite "ctf game":
     let cy = sim.gameMap.center.y
     sim.players[0].x = cx
     sim.players[0].y = cy
-    sim.players[0].facingDx = 1
-    sim.players[0].facingDy = 0
+    sim.players[0].aimBrads = 0
     sim.players[0].fireCooldown = 0
     sim.players[1].x = cx + 6
     sim.players[1].y = cy
@@ -318,8 +357,7 @@ suite "ctf game":
     let cy = sim.gameMap.center.y
     sim.players[0].x = cx
     sim.players[0].y = cy
-    sim.players[0].facingDx = 1   # facing right
-    sim.players[0].facingDy = 0
+    sim.players[0].aimBrads = 0   # aiming east
     sim.players[0].fireCooldown = 0
     sim.players[1].x = cx - 6     # standing behind the shooter
     sim.players[1].y = cy
@@ -335,7 +373,7 @@ suite "ctf game":
     let cy = sim.gameMap.center.y
     sim.players[0].x = cx
     sim.players[0].y = cy
-    sim.players[0].facingDx = 1
+    sim.players[0].aimBrads = 0
     sim.players[0].fireCooldown = 0
     sim.players[1].x = cx + 6
     sim.players[1].y = cy
@@ -352,14 +390,12 @@ suite "ctf game":
     # Face each other, both ready, both pulling the trigger the same tick.
     sim.players[0].x = cx - 20
     sim.players[0].y = cy
-    sim.players[0].facingDx = 1
-    sim.players[0].facingDy = 0
+    sim.players[0].aimBrads = 0
     sim.players[0].fireCooldown = 0
     sim.players[0].spawnProtect = 0
     sim.players[1].x = cx + 20
     sim.players[1].y = cy
-    sim.players[1].facingDx = -1
-    sim.players[1].facingDy = 0
+    sim.players[1].aimBrads = 128
     sim.players[1].fireCooldown = 0
     sim.players[1].spawnProtect = 0
 
@@ -380,8 +416,7 @@ suite "ctf game":
       blueHome = sim.gameMap.flagHome(Blue)
     sim.players[0].x = cx
     sim.players[0].y = cy
-    sim.players[0].facingDx = 1
-    sim.players[0].facingDy = 0
+    sim.players[0].aimBrads = 0
     sim.players[0].fireCooldown = 0
     sim.players[1].x = cx + 40
     sim.players[1].y = cy

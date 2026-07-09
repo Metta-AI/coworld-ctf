@@ -50,7 +50,10 @@ const
   ShotFxTicks* = 12           ## ~0.5s a shot tracer stays visible (cosmetic only).
   SplatterFxTicks* = 120      ## ~5s a death splatter stays visible (cosmetic only).
   CarrierSpeedPct* = 70       ## carrier moves at 70% speed.
-  VisionConeDeg* = 45         ## vision cone half-angle around the 8-dir facing.
+  AimBradsTurn* = 256         ## aim angle units per full turn (binary radians).
+  AimTurnRate* = 5            ## brads/tick a held rotate button turns the aim
+                              ## (~7 deg/tick; a full turn takes ~2.1s).
+  VisionConeDeg* = 45         ## vision cone half-angle around the aim angle.
   VisionBubble* = 90          ## omnidirectional vision radius in px.
 
   FovCellSize* = 8            ## fog-of-war visibility grid cell size in px.
@@ -244,6 +247,7 @@ type
     fireCooldownTicks*: int
     fireWindupTicks*: int
     carrierSpeedPct*: int
+    aimTurnRate*: int
     visionConeDeg*: int
     visionBubble*: int
     minPlayers*: int
@@ -262,14 +266,15 @@ type
     velX*, velY*: int
     carryX*, carryY*: int
     flipH*: bool
-    facingDx*, facingDy*: int
+    aimBrads*: int             ## aim angle in brads, 0..255: 0 = east (+x),
+                               ## counter-clockwise on screen (64 = north).
     team*: Team
     alive*: bool
     lives*: int
     respawnTimer*: int
     fireCooldown*: int
     fireWindup*: int           ## ticks until a pulled trigger releases its shot.
-    windupDx*, windupDy*: int  ## aim direction locked at the trigger pull.
+    windupBrads*: int          ## aim angle locked at the trigger pull, -1 = none.
     spawnProtect*: int
     carryingFlag*: bool
     joinOrder*: int
@@ -282,10 +287,10 @@ type
 
   PlayerFov* = object
     ## One player's cached fog-of-war visibility grid (FovGridW x FovGridH
-    ## cells). Recomputed only when the viewer's cell or facing changes.
+    ## cells). Recomputed only when the viewer's cell or aim changes.
     valid*: bool
     originCx*, originCy*: int
-    facingDx*, facingDy*: int
+    aimBrads*: int
     visible*: seq[bool]
 
   ShotFx* = object
@@ -790,6 +795,7 @@ proc defaultGameConfig*(): GameConfig =
     fireCooldownTicks: FireCooldownTicks,
     fireWindupTicks: FireWindupTicks,
     carrierSpeedPct: CarrierSpeedPct,
+    aimTurnRate: AimTurnRate,
     visionConeDeg: VisionConeDeg,
     visionBubble: VisionBubble,
     minPlayers: MinPlayers,
@@ -1041,6 +1047,8 @@ proc validate(config: GameConfig) =
     raise newException(CtfError, "Config field fireWindupTicks must not be negative.")
   if config.carrierSpeedPct <= 0 or config.carrierSpeedPct > 100:
     raise newException(CtfError, "Config field carrierSpeedPct must be 1..100.")
+  if config.aimTurnRate < 1:
+    raise newException(CtfError, "Config field aimTurnRate must be at least 1.")
   if config.visionConeDeg < 0 or config.visionConeDeg > 180:
     raise newException(CtfError, "Config field visionConeDeg must be between 0 and 180.")
   if config.visionBubble < 0:
@@ -1117,6 +1125,7 @@ proc update*(config: var GameConfig, jsonText: string) =
   node.readConfigInt("fireCooldownTicks", config.fireCooldownTicks)
   node.readConfigInt("fireWindupTicks", config.fireWindupTicks)
   node.readConfigInt("carrierSpeedPct", config.carrierSpeedPct)
+  node.readConfigInt("aimTurnRate", config.aimTurnRate)
   node.readConfigInt("visionConeDeg", config.visionConeDeg)
   node.readConfigInt("visionBubble", config.visionBubble)
   node.readConfigInt("minPlayers", config.minPlayers)
@@ -1185,6 +1194,7 @@ proc configJson*(config: GameConfig): string =
     "fireCooldownTicks": config.fireCooldownTicks,
     "fireWindupTicks": config.fireWindupTicks,
     "carrierSpeedPct": config.carrierSpeedPct,
+    "aimTurnRate": config.aimTurnRate,
     "visionConeDeg": config.visionConeDeg,
     "visionBubble": config.visionBubble,
     "minPlayers": config.minPlayers,
@@ -1246,6 +1256,21 @@ proc enemy*(team: Team): Team =
     Blue
   of Blue:
     Red
+
+proc spawnAimBrads*(team: Team): int =
+  ## Returns the spawn/respawn aim angle: toward the enemy side.
+  case team
+  of Red:
+    0                          ## east, toward Blue.
+  of Blue:
+    AimBradsTurn div 2         ## west, toward Red.
+
+proc aimVector*(brads: int): tuple[x, y: float] =
+  ## Returns the unit vector for one aim angle in brads (256 per turn):
+  ## 0 points east (+x) and the angle increases counter-clockwise on screen,
+  ## so 64 is north (-y in map coordinates), 128 west, and 192 south.
+  let angle = float(brads) * PI / float(AimBradsTurn div 2)
+  (cos(angle), -sin(angle))
 
 proc playerText(sim: SimServer, playerIndex: int): string =
   ## Returns the readable player color for one player index.
@@ -1330,16 +1355,14 @@ proc gameHash*(sim: SimServer): uint64 =
     result.mixHashInt(player.carryX)
     result.mixHashInt(player.carryY)
     result.mixHashBool(player.flipH)
-    result.mixHashInt(player.facingDx)
-    result.mixHashInt(player.facingDy)
+    result.mixHashInt(player.aimBrads)
     result.mixHashInt(ord(player.team))
     result.mixHashBool(player.alive)
     result.mixHashInt(player.lives)
     result.mixHashInt(player.respawnTimer)
     result.mixHashInt(player.fireCooldown)
     result.mixHashInt(player.fireWindup)
-    result.mixHashInt(player.windupDx)
-    result.mixHashInt(player.windupDy)
+    result.mixHashInt(player.windupBrads)
     result.mixHashInt(player.spawnProtect)
     result.mixHashBool(player.carryingFlag)
     result.mixHashInt(player.joinOrder)
@@ -1839,8 +1862,9 @@ proc addPlayer*(
     y: spawn.y,
     homeX: spawn.x,
     homeY: spawn.y,
-    facingDx: (if team == Red: 1 else: -1),
-    facingDy: 0,
+    aimBrads: spawnAimBrads(team),
+    flipH: team == Blue,
+    windupBrads: -1,
     team: team,
     alive: true,
     lives: sim.config.lives,
@@ -2018,8 +2042,9 @@ proc startGame*(sim: var SimServer) =
     sim.players[i].respawnTimer = 0
     sim.players[i].fireCooldown = 0
     sim.players[i].fireWindup = 0
-    sim.players[i].windupDx = 0
-    sim.players[i].windupDy = 0
+    sim.players[i].windupBrads = -1
+    sim.players[i].aimBrads = spawnAimBrads(sim.players[i].team)
+    sim.players[i].flipH = sim.players[i].team == Blue
     sim.players[i].spawnProtect = sim.config.spawnProtectTicks
     sim.players[i].carryingFlag = false
     sim.players[i].kills = 0
@@ -2212,8 +2237,7 @@ proc killPlayer(sim: var SimServer, targetIndex, killerIndex: int) =
   )
   # A dying trigger pull never releases.
   sim.players[targetIndex].fireWindup = 0
-  sim.players[targetIndex].windupDx = 0
-  sim.players[targetIndex].windupDy = 0
+  sim.players[targetIndex].windupBrads = -1
   for team in Team:
     if sim.flags[team].carrier == targetIndex:
       sim.players[targetIndex].carryingFlag = false
@@ -2245,17 +2269,16 @@ proc canFire(sim: SimServer, shooterIndex: int): bool =
   if shooterIndex < 0 or shooterIndex >= sim.players.len:
     return false
   let shooter = sim.players[shooterIndex]
-  shooter.alive and shooter.fireCooldown <= 0 and
-    (shooter.facingDx != 0 or shooter.facingDy != 0)
+  shooter.alive and shooter.fireCooldown <= 0
 
-proc fireDirection(sim: SimServer, shooterIndex: int): tuple[dx, dy: int] =
-  ## Returns the shot direction: the aim locked at the trigger pull when a
-  ## windup is (or was) pending, else the shooter's current facing.
+proc fireDirection(sim: SimServer, shooterIndex: int): tuple[x, y: float] =
+  ## Returns the unit shot direction: the aim angle locked at the trigger
+  ## pull when a windup is (or was) pending, else the shooter's current aim.
   let shooter = sim.players[shooterIndex]
-  if shooter.windupDx != 0 or shooter.windupDy != 0:
-    (shooter.windupDx, shooter.windupDy)
+  if shooter.windupBrads >= 0:
+    aimVector(shooter.windupBrads)
   else:
-    (shooter.facingDx, shooter.facingDy)
+    aimVector(shooter.aimBrads)
 
 proc selectFireTarget(sim: SimServer, shooterIndex: int): int =
   ## Returns the FIRST player along the shot ray — the bullet travels down
@@ -2264,17 +2287,9 @@ proc selectFireTarget(sim: SimServer, shooterIndex: int): int =
   result = -1
   let
     shooter = sim.players[shooterIndex]
-    (dirX, dirY) = sim.fireDirection(shooterIndex)
+    (ux, uy) = sim.fireDirection(shooterIndex)
     sx = shooter.x + CollisionW div 2
     sy = shooter.y + CollisionH div 2
-    fdx = float(dirX)
-    fdy = float(dirY)
-    facingLen = sqrt(fdx * fdx + fdy * fdy)
-  if facingLen <= 0:
-    return
-  let
-    ux = fdx / facingLen
-    uy = fdy / facingLen
     maxRange = float(sim.config.gunRange)
     corridor = BulletHalfWidth + float(PlayerHalf)
   var bestT = maxRange + 1.0
@@ -2308,15 +2323,11 @@ proc applyFire(sim: var SimServer, shooterIndex, targetIndex: int) =
   ## (tracer and all) but only an alive target yields a kill.
   let
     shooter = sim.players[shooterIndex]
-    (dirX, dirY) = sim.fireDirection(shooterIndex)
+    (ux, uy) = sim.fireDirection(shooterIndex)
     sx = shooter.x + CollisionW div 2
     sy = shooter.y + CollisionH div 2
-    fdx = float(dirX)
-    fdy = float(dirY)
-    facingLen = sqrt(fdx * fdx + fdy * fdy)
   sim.players[shooterIndex].fireCooldown = sim.config.fireCooldownTicks
-  sim.players[shooterIndex].windupDx = 0
-  sim.players[shooterIndex].windupDy = 0
+  sim.players[shooterIndex].windupBrads = -1
   # Record a cosmetic tracer for the shot (never enters gameHash). It ends at
   # the victim, so a bullet visibly never travels past its first hit.
   var
@@ -2325,20 +2336,20 @@ proc applyFire(sim: var SimServer, shooterIndex, targetIndex: int) =
   if targetIndex >= 0:
     ex = sim.players[targetIndex].x + CollisionW div 2
     ey = sim.players[targetIndex].y + CollisionH div 2
-  elif facingLen > 0:
-    # March along the normalized aim to the last wall-free pixel or max
-    # range (checking each sampled pixel keeps this O(range) at 1300px).
+  else:
+    # March along the unit aim to the last wall-free pixel or max range
+    # (checking each sampled pixel keeps this O(range) at 1300px).
     let maxRange = sim.config.gunRange
     var lastClear = 0
     for step in 1 .. maxRange:
       let
-        rx = sx + int(round(fdx / facingLen * float(step)))
-        ry = sy + int(round(fdy / facingLen * float(step)))
+        rx = sx + int(round(ux * float(step)))
+        ry = sy + int(round(uy * float(step)))
       if sim.isWall(rx, ry):
         break
       lastClear = step
-    ex = sx + int(round(fdx / facingLen * float(lastClear)))
-    ey = sy + int(round(fdy / facingLen * float(lastClear)))
+    ex = sx + int(round(ux * float(lastClear)))
+    ey = sy + int(round(uy * float(lastClear)))
   sim.recentShots.add ShotFx(
     x0: sx,
     y0: sy,
@@ -2358,15 +2369,14 @@ proc tryFire*(sim: var SimServer, shooterIndex: int) =
   sim.applyFire(shooterIndex, sim.selectFireTarget(shooterIndex))
 
 proc startFireWindup*(sim: var SimServer, shooterIndex: int) =
-  ## Starts a shot: locks the aim at the current facing and arms the windup.
+  ## Starts a shot: locks the current aim angle and arms the windup.
   ## The shot itself releases fireWindupTicks later (see step).
   if not sim.canFire(shooterIndex):
     return
   if sim.players[shooterIndex].fireWindup > 0:
     return
   sim.players[shooterIndex].fireWindup = sim.config.fireWindupTicks
-  sim.players[shooterIndex].windupDx = sim.players[shooterIndex].facingDx
-  sim.players[shooterIndex].windupDy = sim.players[shooterIndex].facingDy
+  sim.players[shooterIndex].windupBrads = sim.players[shooterIndex].aimBrads
 
 proc resolveSimultaneousFire*(sim: var SimServer, shooters: openArray[int]) =
   ## Resolves every shot released this tick at once: all targets are chosen
@@ -2441,9 +2451,18 @@ proc applyInput*(
   if input.down:
     inputY += 1
 
-  if inputX != 0 or inputY != 0:
-    player.facingDx = inputX
-    player.facingDy = inputY
+  # Aim rotation is decoupled from locomotion: holding B turns the aim
+  # counter-clockwise, holding Select clockwise; holding both cancels out,
+  # and the d-pad never changes the aim.
+  if input.b != input.select:
+    let turn =
+      if input.b: sim.config.aimTurnRate else: -sim.config.aimTurnRate
+    player.aimBrads =
+      (player.aimBrads + turn + AimBradsTurn) mod AimBradsTurn
+  # The sprite flip follows the aim: flipped while aiming left-ish.
+  player.flipH =
+    player.aimBrads > AimBradsTurn div 4 and
+    player.aimBrads < AimBradsTurn * 3 div 4
 
   let
     speedScale =
@@ -2474,11 +2493,6 @@ proc applyInput*(
       (player.velY * sim.config.frictionNum) div sim.config.frictionDen
     if abs(player.velY) < sim.config.stopThreshold:
       player.velY = 0
-
-  if inputX < 0:
-    player.flipH = true
-  elif inputX > 0:
-    player.flipH = false
 
   let
     preferredSlideY =
@@ -2597,12 +2611,12 @@ proc castFovOctant(
 
 proc computeFovVisible*(
   sim: SimServer,
-  originCx, originCy, facingDx, facingDy: int,
+  originCx, originCy, aimBrads: int,
   visible: var seq[bool]
 ) {.measure.} =
   ## Computes one viewer's fog-of-war cell visibility: recursive shadowcasting
   ## from the viewer's cell (walls block), intersected with the forward vision
-  ## cone (half-angle visionConeDeg around the 8-dir facing, unlimited range)
+  ## cone (half-angle visionConeDeg around the aim angle, unlimited range)
   ## plus the omnidirectional vision bubble (visionBubble px).
   if visible.len != FovCellCount:
     visible.setLen(FovCellCount)
@@ -2625,9 +2639,7 @@ proc computeFovVisible*(
     )
   let
     (ox, oy) = fovCellCenter(originCx, originCy)
-    fdx = float(facingDx)
-    fdy = float(facingDy)
-    facingLen = sqrt(fdx * fdx + fdy * fdy)
+    (ax, ay) = aimVector(aimBrads)
     coneCos = cos(float(sim.config.visionConeDeg) * PI / 180.0)
     bubbleSq = float(sim.config.visionBubble * sim.config.visionBubble)
   for cy in 0 ..< FovGridH:
@@ -2642,11 +2654,8 @@ proc computeFovVisible*(
         d2 = vx * vx + vy * vy
       if d2 <= bubbleSq:
         continue
-      if facingLen <= 0.0:
-        visible[index] = false
-        continue
-      let dot = vx * fdx + vy * fdy
-      if dot < coneCos * sqrt(d2) * facingLen:
+      let dot = vx * ax + vy * ay
+      if dot < coneCos * sqrt(d2):
         visible[index] = false
 
 proc ensureFovCacheSlots(sim: var SimServer) =
@@ -2673,15 +2682,13 @@ proc refreshPlayerFov*(sim: var SimServer, playerIndex: int): bool {.measure.} =
   if cache.valid and
       cache.originCx == cx and
       cache.originCy == cy and
-      cache.facingDx == player.facingDx and
-      cache.facingDy == player.facingDy:
+      cache.aimBrads == player.aimBrads:
     return false
-  sim.computeFovVisible(cx, cy, player.facingDx, player.facingDy, cache.visible)
+  sim.computeFovVisible(cx, cy, player.aimBrads, cache.visible)
   cache.valid = true
   cache.originCx = cx
   cache.originCy = cy
-  cache.facingDx = player.facingDx
-  cache.facingDy = player.facingDy
+  cache.aimBrads = player.aimBrads
   true
 
 proc playerFov*(sim: SimServer, playerIndex: int): lent PlayerFov =
@@ -2968,8 +2975,8 @@ proc respawnPlayers(sim: var SimServer) =
         sim.resetPlayerToHome(i)
         sim.players[i].alive = true
         sim.players[i].spawnProtect = sim.config.spawnProtectTicks
-        sim.players[i].facingDx = if sim.players[i].team == Red: 1 else: -1
-        sim.players[i].facingDy = 0
+        sim.players[i].aimBrads = spawnAimBrads(sim.players[i].team)
+        sim.players[i].flipH = sim.players[i].team == Blue
 
 proc step*(
   sim: var SimServer,

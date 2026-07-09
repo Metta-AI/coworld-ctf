@@ -6,6 +6,7 @@
   "gunRange": 1300,
   "fireCooldownTicks": 12,
   "carrierSpeedPct": 70,
+  "aimTurnRate": 5,
   "visionConeDeg": 45,
   "visionBubble": 90,
   "maxTicks": 10000,

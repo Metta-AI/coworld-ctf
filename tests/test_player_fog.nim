@@ -49,11 +49,10 @@ suite "player fog-of-war protocol":
     let
       cx = game.gameMap.center.x
       cy = game.gameMap.center.y
-    # Viewer at the center facing up the open corridor; enemy fogged behind.
+    # Viewer at the center aiming up the open corridor; enemy fogged behind.
     game.players[viewer].x = cx
     game.players[viewer].y = cy
-    game.players[viewer].facingDx = 0
-    game.players[viewer].facingDy = -1
+    game.players[viewer].aimBrads = 64
     game.players[foe].x = cx
     game.players[foe].y = 550
 
@@ -68,6 +67,21 @@ suite "player fog-of-war protocol":
     # The fog overlay and the distinct self marker are present.
     check "fog" in labels
     check ("self red right" in labels) or ("self red left" in labels)
+    # The viewer wears its own aim-indicator dots (bots read their actual
+    # aim angle back from these).
+    check "aim dot red" in labels
+    # The viewer aims north (64 brads): its dots sit above its center.
+    var aimDotNorth = false
+    for message in messages:
+      if message.kind == spkObject and message.objectDef.id >= 18000 and
+          message.objectDef.id < 18064:
+        aimDotNorth = message.objectDef.y < game.players[viewer].y
+    check aimDotNorth
+    # The fogged enemy contributes no aim dots (index 1 pool slots).
+    for message in messages:
+      if message.kind == spkObject:
+        check not (message.objectDef.id >= 18000 + 4 * foe and
+          message.objectDef.id < 18000 + 4 * foe + 4)
     # The map object sits at the origin: object coords are map coords.
     var mapAtOrigin = false
     for message in messages:
@@ -83,7 +97,7 @@ suite "player fog-of-war protocol":
     check messages.hasObject(5010)
 
     # Turn the viewer around: the enemy enters the cone and appears.
-    game.players[viewer].facingDy = 1
+    game.players[viewer].aimBrads = 192
     let turned = game.buildPlayerMessages(viewer, state)
     check turned.hasObject(1000 + game.players[foe].joinOrder)
 
@@ -101,8 +115,7 @@ suite "player fog-of-war protocol":
       cy = game.gameMap.center.y
     game.players[viewer].x = cx
     game.players[viewer].y = cy
-    game.players[viewer].facingDx = 0
-    game.players[viewer].facingDy = -1
+    game.players[viewer].aimBrads = 64
     # The teammate runs the stolen blue flag far behind the viewer.
     game.players[mate].x = cx
     game.players[mate].y = 550

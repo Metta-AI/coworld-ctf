@@ -5,9 +5,10 @@ It keeps a persistent world model on top of the fog-of-war full-map view and
 plays a coordinated 8v8 team game on the dense-cover arena: cover-aware
 pathfinding, a six-strong attack wave (mid quad plus wide flankers), an
 overwatch sniper whose vision cone owns the longest lane (under fog the lane
-watcher is also the radar), vision-scanning at every hold point, thief
-hunting without any global tracking, and disciplined one-shot-kill gunplay
-under the effectively map-wide 1300px gun.
+watcher is also the radar), rotate-button vision sweeps at every hold point,
+thief hunting without any global tracking, and a turret controller that
+traverses the DECOUPLED aim angle onto targets and fires only when the bullet
+corridor covers them.
 
 All decision logic lives in `decide` in `baseline.nim`.
 
@@ -17,22 +18,28 @@ The observation is the **full 1235×659 map in map coordinates**: the map
 object sits at `(0, 0)`, so object positions ARE map positions (no camera
 math). Entities are **fogged**: an enemy — including an enemy carrying our
 flag — is only streamed while inside OUR vision, which is a **forward cone**
-(half-angle `visionConeDeg` ≈ 45° around our 8-dir facing, **unlimited
-range**, walls block it) plus an **omnidirectional bubble** (`visionBubble` ≈
-90px). **Facing aims vision**: we look where we last moved, so pointing the
-cone is a tactical decision. Always visible regardless of fog: the map, our
-**teammates** (team radio), **both flag pedestals**, our **own flag's state**,
-and **ourselves** via the distinct self marker.
-**Facing equals movement direction** (you shoot — and look — where you walk)
-and only a **fresh A press** fires, so to shoot we steer into the target's
-octant and pulse A. Labels we read:
+(half-angle `visionConeDeg` ≈ 45° around our AIM ANGLE, **unlimited range**,
+walls block it) plus an **omnidirectional bubble** (`visionBubble` ≈ 90px).
+**Aim carries vision**: the cone points where the turret points, never where
+we walk, so sweeping it is an explicit rotate-button act. Always visible
+regardless of fog: the map, our **teammates** (team radio), **both flag
+pedestals**, our **own flag's state**, and **ourselves** via the distinct
+self marker.
+**Aim is decoupled from movement** (a per-player angle in brads, 0 = east,
+counter-clockwise; B rotates CCW, Select CW at `AimRate` = 5 brads/tick) and
+only a **fresh A press** fires — the pull locks the aim angle and the bullet
+leaves after a ~5-tick windup. Labels we read:
 
 - `"self <color> right|left"` — OUR OWN avatar (an outlined marker sprite);
   present exactly while we are alive, and how we locate ourselves in map
-  coordinates. The suffix is horizontal facing.
-- `"player <color> right|left"` — another player; the suffix is horizontal
-  facing. Teammates are always streamed; enemies only while inside our
-  vision cone/bubble with line of sight.
+  coordinates. The suffix is the horizontal sprite flip (aim left/right-ish).
+- `"player <color> right|left"` — another player; the suffix is the
+  horizontal sprite flip. Teammates are always streamed; enemies only while
+  inside our vision cone/bubble with line of sight.
+- `"aim dot <color>"` — the aim-indicator dots every visible player wears
+  along its aim line. OUR OWN farthest dot is an absolute readback of our
+  actual aim angle (see the turret controller); a visible enemy's dots are
+  readable intel about where it is looking.
 - `"<team> flag"` (`"red flag"` / `"blue flag"`) — a flag, on its pedestal or
   riding its carrier's exact position. Pedestal flags are never fogged; a
   carried flag is exactly as visible as its carrier. Consequences: the ENEMY
@@ -79,11 +86,13 @@ to an obstacle (`coverCell`). They feed three behaviors:
   move to the nearest directly-reachable cell whose center the threat cannot
   see (exact pixel raycast, the sim's LOS rule) and hold there until the gun
   is back up (`findDuckCell`).
-- **Peek**: with the gun up and the nearest fresh track wall-blocked, step
-  sideways to the nearest cell that opens a firing line within gun range
-  (`findPeekCell`); the engage logic fires the moment the ray clears, and the
-  next cooldown ducks us back. This peek → fire → duck cycle is the default
-  combat mode for every non-carrier, non-rushing unit.
+- **Peek**: with the gun up and the nearest fresh track wall-blocked, PRE-LAY
+  the aim on the blocked target's line while stepping sideways to the nearest
+  cell that opens the firing line (`findPeekCell`); the traverse happens
+  during the step, so the engage logic fires the moment the ray clears, and
+  the next cooldown ducks us back. This aim → peek → fire → duck cycle is the
+  default combat mode for every non-carrier, non-rushing unit and the big
+  payoff of decoupled aim: the shot is already laid before we expose.
 - **Overwatch posts**: at nav-build each overwatch seat scans for a cover
   cell just on our side of the flag ring (`pickPost`) whose obstacle blocks
   the line toward the enemy half (`CoverShieldDist`) and which has a sideways
@@ -95,7 +104,7 @@ to an obstacle (`coverCell`). They feed three behaviors:
 ## Memory (fog makes the entity stream partially observable)
 
 - **Player tracks**: visible players are matched to remembered tracks
-  (position, blended px/tick velocity, last-seen tick, facing). Tracks expire
+  (position, blended px/tick velocity, last-seen tick, sprite flip). Tracks expire
   after `TrackTtl` (~5s) and are capped at the **8** real opponents/teammates
   (`TrackCap`). Tracks are what persists through fog: an enemy that walks
   behind cover or out of the cone stays remembered until the TTL runs out.
@@ -118,7 +127,7 @@ seat index (`slot div 2`) picks the role via `roleForSeat`:
   is closer for its team (still fully deterministic) and races the flag dead
   straight, winning the opening pickup race. The other trails offset low.
 - **Seats 1/4 — MidGuard + second MidBottom**: the trailing attackers; the
-  quad is spread so one 25° enemy cone cannot kill two of them. The attack
+  quad is spread so one enemy vision cone cannot kill two of them. The attack
   wave is deliberately six strong — under fog a carrier that slips the
   contest is hard to reacquire, so committed offense converts steals into
   captures.
@@ -132,7 +141,7 @@ seat index (`slot div 2`) picks the role via `roleForSeat`:
   the **length of their clear firing line** toward the enemy half
   (`openLineLen`, floor `PeekLineDist`), because under a map-wide gun AND
   map-wide vision cone a post is worth what its lane can reach — the watcher
-  facing down an open lane sees (and kills) intruders at any distance.
+  aiming down an open lane sees (and kills) intruders at any distance.
   Overwatch is the team's radar.
 - **Seat 7 — HomeDefender**: holds the choke between the flag and our capture
   column, snapped to the nearest cover cell (`chokeHold`); chases intruders
@@ -142,7 +151,11 @@ Priorities override the defaults for everyone: carry → run home; enemy
 carrier known → intercept (see below); teammate carries → escort (mids and
 flankers take spread positions ahead toward home, the guard screens the
 nearest threat, overwatch keeps its post covering the retreat, the defender
-holds the choke).
+holds the choke). **Endgame push**: with our flag safe, deep into the game
+(`PushOutMinGame`), and no enemy seen for `PushOutTicks` (~15s), even
+Overwatch and the HomeDefender break their posts and push for the steal —
+the late-game survivors are usually exactly the defensive seats, and holding
+forever is a guaranteed tiebreak stalemate.
 
 ## Carrier play & interception
 
@@ -151,7 +164,12 @@ remembered enemies with the best **cover continuity** (`safestLaneY` samples
 the run home and charges stretches with no cover cell nearby — under map-wide
 guns an open lane is a shooting gallery even when it looks empty) and paths
 deep into the capture zone; the exposure cost keeps the run hugging cover
-past remembered enemies. Carriers never peek, duck, or jink and only engage
+past remembered enemies. The **enemy spawn pocket is a standing virtual
+threat** (fed into `enemyPosts`): every kill respawns an armed,
+spawn-protected enemy at the pedestal whose spawn aim points along the
+east-west axis, so a fresh carrier first **bugs out of the pocket
+vertically** (pure-vertical movement exits that cone fastest) and runs home
+along a border lane. Carriers never peek, duck, or jink and only engage
 enemies within `CarrierFireRange`.
 
 Against a thief carrying OUR flag (defense without arrows): stolen-ness is
@@ -168,28 +186,39 @@ the capture race stays on.
 
 ## Fire discipline & combat micro
 
-- **Target**: nearest track seen within `FreshShotTicks`, led by its velocity
-  (`LeadTicks`), within `FireRange` = 1250 (the 1300px gun is effectively
-  map-wide, so chases keep shooting briefly after the target fogs out — the
-  wide long-range cone forgives track drift), with a clear pixel raycast
-  against the walkability mask (exactly the sim's LOS rule). Shoot first —
-  first shot wins. Tracks form anywhere the vision cone reaches, so a lane
-  watcher genuinely engages at map range down its open lane.
+- **Target**: nearest track seen within `FreshShotTicks` (the turret needs
+  traverse time, so tracks stay shootable ~1s), led by its velocity
+  (`LeadTicks` covers the 5-tick windup), within `FireRange`, with a clear
+  pixel raycast against the walkability mask (exactly the sim's LOS rule).
+  Shoot first — first shot wins. Tracks form anywhere the vision cone
+  reaches, so a lane watcher genuinely engages down its open lane.
+- **Turret controller**: the bot tracks its own aim two ways — dead reckoning
+  (spawn aim is toward the enemy side; every elapsed sim tick advances it by
+  the rotation of the last sent mask) plus an **absolute readback** from its
+  own rendered aim dots each frame (`observedAim`, resync when they disagree
+  by > `AimResyncBrads`). Each tick it outputs the rotate button (B = CCW,
+  Select = CW) that closes the shortest arc to the desired aim and stops
+  inside `CombatDeadband` (±2 brads; `AimRate` = 5 cannot settle tighter).
+- **Fire gate**: fire only when the corridor covers the target at its range —
+  the perpendicular miss of the current aim error, `range × sin(err)`, must
+  be within `FireSlackPx` (11px of the ~14px corridor half-width). Closing
+  distance scales the miss down linearly, so the engage branch keeps walking
+  toward the target while the turret settles; far targets fire only on clean
+  alignments. The pull tick never rotates: the shot locks the settled angle.
 - **Scanning**: any unit holding a position (overwatch posts, the defender's
-  choke or thief gate, cooldown ducks) sweeps its facing with one-tick
-  direction pulses every `ScanPeriod` ticks (~1px drift each), raking the
-  90°-wide cone across a ~180° watch arc instead of staring down one ray.
-- **Aim**: steer into the target's octant — the worst-case 22.5° octant error
-  sits inside the 25° firing cone — and pulse A only when the fire icon shows
-  ready (fresh presses fire; A is released for a frame between shots).
-- **Friendly fire guard**: the server kills the **nearest** player inside the
-  25° cone around our true 8-way facing, friend or foe — and at long range
-  that cone is hundreds of px wide laterally. `friendlyBlocked` therefore
-  checks remembered mates closer than the target against both the tight
-  corridor (`CorridorHalfWidth`, inflated with sighting age) and the full
-  server cone around the real fire axis (`octantDir`, `FireConeCos`).
-  Mate-blocked targets are **skipped at selection**, so the bot retargets a
-  clear enemy instead of holding fire.
+  choke or thief gate, cooldown ducks) sweeps the aim back and forth across
+  `±ScanArc` brads around the watch heading with real rotate-button sweeps
+  (`scanAim`), raking the 90°-wide cone over the arc while standing
+  perfectly still — movement no longer leaks (or aims) our vision.
+- **On the move**: when no target demands the turret, the aim leads the
+  movement direction (`CruiseDeadband` hysteresis), so attackers watch
+  down-lane while crossing and the cone points where trouble will appear.
+- **Friendly fire guard**: the bullet corridor kills the **nearest** player
+  inside it, friend or foe. `friendlyBlocked` checks remembered mates closer
+  than the target against the corridor (`CorridorHalfWidth`, inflated with
+  sighting age) around the exact angle the turret would fire. Mate-blocked
+  targets are **skipped at selection**, so the bot retargets a clear enemy
+  instead of holding fire.
 - **Rushing**: the mid trio skips peek/duck while playing for the flag —
   pickup races and carrier chases are lost to positioning detours — and
   shoots on the move instead.
@@ -208,8 +237,9 @@ the capture race stays on.
 ## Tuning
 
 The knobs are the constants at the top of `baseline.nim` (ranges, memory
-TTLs, scan period, cover/exposure costs, lane y-coordinates, spacing,
-corridor width). Role assignment is `roleForSeat`; lane via-points,
+TTLs, aim rate/deadbands/fire slack, scan arc, cover/exposure costs, lane
+y-coordinates, spacing, corridor width). `AimRate` must match the server's
+`aimTurnRate` config (default 5). Role assignment is `roleForSeat`; lane via-points,
 `chokeSpot`, and `homeDeepX` encode the map geometry (1235×659, center
 617,329, mirror line x=617, capture zones x≤~206 / x≥~1029, spawn-pocket
 pedestals at 186,329 / 1049,329).

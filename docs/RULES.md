@@ -32,13 +32,30 @@ tasks, voting) with teams, guns, flags, and fog-of-war vision.
 - Each team has a **home edge**: Red = left, Blue = right.
 - Players spawn just inside their home edge and respawn there when killed.
 
-## Movement & facing
+## Movement
 
 - Movement is **continuous** (acceleration, friction, max speed, wall-sliding) —
   the d-pad drives it.
-- You have an **8-directional facing** (including diagonals). Facing is set by the
-  direction you last moved and **persists when you stop**. You shoot where you
-  face — there is no separate aim, so you shoot in the direction you walk.
+- Movement is **pure locomotion**: it never changes where you aim or look.
+
+## Aim
+
+- Every player has a **continuous aim angle**, measured in **brads** (256 units
+  per full turn, integer — deterministic): **0 = east (+x)**, increasing
+  **counter-clockwise on screen** in map coordinates (64 = north, 128 = west,
+  192 = south).
+- The aim is **decoupled from movement**. Hold **B** to rotate the aim
+  **counter-clockwise**, hold **Select** to rotate **clockwise**, at
+  `aimTurnRate` brads per tick (default 5 ≈ 7°/tick; a full turn takes ~2.1s).
+  Holding both rotate buttons cancels out. The d-pad **never** touches the aim.
+- The aim drives everything directional: the **gun** fires along it, the
+  **vision cone** centers on it, and the sprite flip follows it (you face left
+  while aiming left-ish).
+- On spawn and respawn your aim points **toward the enemy side** (Red → east,
+  Blue → west).
+- A short **aim indicator** line is drawn from every player along its aim: on
+  your own view for yourself and for any player you can see — a visible
+  enemy's aim is readable intel — and for everyone in the spectator view.
 
 ## Vision (fog of war)
 
@@ -46,12 +63,13 @@ Every player observes the **full map** — the terrain is static knowledge and i
 always drawn — but moving entities are fogged:
 
 - Your **vision** is a **forward cone** of half-angle `visionConeDeg` (default
-  ±45°) around your 8-directional facing, with **unlimited range**, plus a small
+  ±45°) around your **aim angle**, with **unlimited range**, plus a small
   **omnidirectional bubble** of `visionBubble` (default ~90px) around you.
 - **Walls block vision** — the same walls that block bullets. A long open lane is
   visible (and lethal) end to end; anything behind cover is not.
-- **Facing aims your vision.** You look where you last moved, so watching a lane,
-  scanning an arc, and turning your back are all real tactical acts.
+- **Your aim carries your vision.** You look where you aim, not where you walk,
+  so watching a lane, sweeping an arc, and turning your back are deliberate
+  rotation choices - and moving somewhere no longer reveals it.
 - Everything outside your vision is **masked**: enemies, an enemy carrying a
   flag, and shot tracers / death splatters from unseen events are simply not in
   your observation. The unseen area is dimmed by a fog overlay.
@@ -73,7 +91,7 @@ always drawn — but moving entities are fogged:
   you pull the trigger, and the bullet leaves at the end of the windup. A
   target that peeks out and ducks back behind cover before the release
   survives the shot.
-- The bullet is **hitscan along your facing ray**: it travels down the locked
+- The bullet is **hitscan along your aim ray**: it travels down the locked
   aim direction and hits the **first player whose footprint crosses its
   narrow corridor** — it never passes through a body to hit someone behind,
   and **walls stop it** (clear line of sight required). Range is effectively
@@ -133,10 +151,10 @@ points. This keeps the training objective tied purely to winning.
 
 | Button | Action |
 | --- | --- |
-| D-pad | Move (also sets your facing direction) |
+| D-pad | Move (locomotion only — never changes your aim) |
 | A | Fire |
-| B | (unused — reserved for future abilities) |
-| Select | (unused — reserved) |
+| B | Rotate aim counter-clockwise (browser client: X or K) |
+| Select | Rotate aim clockwise (browser client: Space or L) |
 
 ---
 
@@ -150,12 +168,13 @@ These are starting values, exposed in the game config and tuned in self-play.
 | Lives per player | 3 | Out of lives = out for the round |
 | Respawn delay | ~3s | Time dead before respawning at home |
 | Spawn protection | ~1s | Invulnerability after respawn |
-| Gun range | 1300px | Effectively map-wide; the cone and line of sight are the real limits |
+| Gun range | 1300px | Effectively map-wide; aim precision and line of sight are the real limits |
 | Fire windup | ~0.2s | Trigger pull to bullet release; aim locks at the pull |
 | Fire cooldown | ~0.5s | Minimum time between shots |
 | Carrier speed | ~70% | Movement penalty while holding the flag |
+| Aim turn rate (`aimTurnRate`) | 5 brads/tick | Rotation speed while B/Select is held (~7°/tick; full turn ~2.1s) |
 | Vision cone (`visionConeDeg`) | ±45° | Fog-of-war forward vision half-angle; unlimited range, walls block |
-| Vision bubble (`visionBubble`) | 90px | Omnidirectional close-range vision regardless of facing |
+| Vision bubble (`visionBubble`) | 90px | Omnidirectional close-range vision regardless of aim |
 | Flag auto-return | instant | A flag snaps back to its own pedestal the moment its carrier dies |
 | Time limit | (TBD) ticks | Round length cap before tiebreak |
 | Map size | 1235×659 | Inherited from Crewrift; may change |
@@ -185,12 +204,12 @@ This section is a build plan, not player-facing rules.
 **Rewritten (the game layer, replacing social deduction):**
 
 - `sim.nim`: replace `Crewmate`/`Imposter` roles with `Red`/`Blue` teams; replace
-  `tryKill` (proximity grab) with **directional hitscan + LOS + cone**; add
+  `tryKill` (proximity grab) with **directional hitscan + LOS along the aim**; add
   **lives/respawn**, **flag pickup/carry/return**, **team win-check**, and a
   **Lobby → Playing → GameOver** phase machine (drop RoleReveal/Voting/VoteResult).
 - Player struct: keep `x,y,velX,velY,carryX,carryY,alive,color,reward`; drop
   task/vent/vote fields; add `team`, `lives`, `respawnTimer`, `fireCooldown`,
-  `facing`, `carryingFlag`, `spawnProtect`.
+  `aimBrads`, `carryingFlag`, `spawnProtect`.
 - `global.nim` observation building: team-colored player sprites, the flag
   sprites, a **carrier indicator**, the per-viewer **fog overlay** and
   fog-culled entity stream (there are deliberately **no flag arrows** — fog of

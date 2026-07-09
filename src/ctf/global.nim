@@ -65,6 +65,12 @@ const
   SplatterSize = 13
   SplatterStages = 4           ## fade stages across SplatterFxTicks.
   SplatterMaxCount = 32        ## most splatters drawn at once.
+  AimDotSpriteBase = 780       ## per-color aim indicator dot sprites: 780..795.
+  AimDotObjectBase = 18000     ## aim dot object-id pool: 18000..18063.
+  AimDotSize = 2
+  AimDotsPerPlayer = 4         ## dots along each player's aim line.
+  AimDotStart = 5              ## px from the player center to the first dot.
+  AimDotSpacing = 3            ## px between aim dots (line reaches ~14px out).
   PlayerNameSpriteBase = 7000
   PlayerNameObjectBase = 7000
   PlayerNameZ = 30002
@@ -84,10 +90,12 @@ const
   TransportY = 1
   ## Sprite/object id pools (sprites and objects are separate namespaces).
   ## Sprites: team flags 700..701 (FlagSpriteBase), carrier bar 740, tracer
-  ## dots 760..775, self markers 5100..5101, splatters 16000..16063, fog runs
-  ## 21000..21155 (one per run width in cells). Objects: flags 6500..6501
-  ## (map view) / 5009..5010 (player view), tracer dots 15000..16791,
-  ## splatters 17000..17031, fog runs 21000..23047.
+  ## dots 760..775, aim dots 780..795, self markers 5100..5101, team score
+  ## text 12100..12101, splatters 16000..16063, fog runs 21000..21155 (one
+  ## per run width in cells), map markers 20000. Objects: flags 6500..6501
+  ## (map view) / 5009..5010 (player view), team score text 9600..9601,
+  ## tracer dots 15000..16791, splatters 17000..17031, aim dots
+  ## 18000..18063, map markers 20000, fog runs 21000..23047.
   SpritePlayerFireSpriteId = 5000
   SpritePlayerFireShadowSpriteId = 5001
   SpritePlayerRemainingSpriteId = 5003
@@ -525,6 +533,20 @@ proc buildTracerDotSprite(colorIndex: int): seq[uint8] {.measure.} =
   result = newRgbaPixels(TracerDotSize, TracerDotSize)
   let base = Palette[PlayerColors[colorIndex and 0x0f] and 0x0f]
   for i in 0 ..< TracerDotSize * TracerDotSize:
+    result.putRawRgbaPixel(
+      i,
+      uint8((base.r.int + 255) div 2),
+      uint8((base.g.int + 255) div 2),
+      uint8((base.b.int + 255) div 2),
+      255
+    )
+
+proc buildAimDotSprite(colorIndex: int): seq[uint8] {.measure.} =
+  ## Builds one aim-indicator dot sprite: the player's palette color mixed
+  ## halfway toward white, matching the tracer-dot styling.
+  result = newRgbaPixels(AimDotSize, AimDotSize)
+  let base = Palette[PlayerColors[colorIndex and 0x0f] and 0x0f]
+  for i in 0 ..< AimDotSize * AimDotSize:
     result.putRawRgbaPixel(
       i,
       uint8((base.r.int + 255) div 2),
@@ -1557,6 +1579,56 @@ proc addShotTracers(
         spriteId
       )
 
+proc addAimIndicators(
+  sim: SimServer,
+  spriteDefs: var seq[SpriteDefinition],
+  currentIds: var seq[int],
+  packet: var seq[uint8],
+  viewerIndex = -1
+) {.measure.} =
+  ## Places each living player's aim indicator: a short line of dots from the
+  ## player's center along its aim angle, in the player's color, on the map
+  ## layer. The map view passes no viewer and shows every aim; a player view
+  ## passes its viewer index and only receives the aims of players it can see
+  ## (a visible enemy's aim is readable intel). Object ids are a fixed pool
+  ## keyed by player index; stale dots fall to the delete sweep.
+  for i in 0 ..< sim.players.len:
+    let player = sim.players[i]
+    if not player.alive:
+      continue
+    if viewerIndex >= 0 and i != viewerIndex and
+        not sim.playerVisibleTo(viewerIndex, i):
+      continue
+    let
+      colorIndex = playerColorIndex(player.color)
+      spriteId = AimDotSpriteBase + colorIndex
+      (ax, ay) = aimVector(player.aimBrads)
+      px = float(player.x + CollisionW div 2)
+      py = float(player.y + CollisionH div 2)
+    packet.addSpriteChanged(
+      spriteDefs,
+      spriteId,
+      AimDotSize,
+      AimDotSize,
+      buildAimDotSprite(colorIndex),
+      "aim dot " & playerColorName(colorIndex)
+    )
+    for d in 0 ..< AimDotsPerPlayer:
+      let
+        reach = float(AimDotStart + d * AimDotSpacing)
+        mx = int(round(px + ax * reach))
+        my = int(round(py + ay * reach))
+        objectId = AimDotObjectBase + i * AimDotsPerPlayer + d
+      currentIds.add(objectId)
+      packet.addObject(
+        objectId,
+        mx - AimDotSize div 2,
+        my - AimDotSize div 2,
+        30003,
+        MapLayerId,
+        spriteId
+      )
+
 proc splatterSpriteId(colorIndex, stage: int): int =
   ## Returns the sprite id for one splatter color and fade stage.
   SplatterSpriteBase + colorIndex * SplatterStages + stage
@@ -1721,6 +1793,12 @@ proc buildSpriteProtocolPlayerUpdates*(
         spriteId
       )
 
+    sim.addAimIndicators(
+      nextState.spriteDefs,
+      currentIds,
+      result,
+      viewerIndex = playerIndex
+    )
     sim.addSplatters(
       nextState.spriteDefs,
       currentIds,
@@ -2165,6 +2243,7 @@ proc buildSpriteProtocolUpdates*(
   )
   sim.addSplatters(nextState.spriteDefs, currentIds, result)
   sim.addShotTracers(nextState.spriteDefs, currentIds, result)
+  sim.addAimIndicators(nextState.spriteDefs, currentIds, result)
 
   for playerIndex in 0 ..< sim.players.len:
     let player = sim.players[playerIndex]

@@ -24,15 +24,20 @@ logs or replay links, and the smallest repro.
 
 - **8 vs 8.** Red spawns on the **left** edge, Blue on the **right**. Each team's
   flag sits on a pedestal inside its spawn pocket.
-- **Move** with the d-pad; you face the direction you last moved.
+- **Move** with the d-pad — locomotion only; it never changes where you aim.
+- **Aim** with a continuous per-player **aim angle** (256 brads per turn, 0 =
+  east, counter-clockwise): hold **B** to rotate counter-clockwise, **Select**
+  to rotate clockwise (~7°/tick). Spawns aim toward the enemy side. A short aim
+  indicator line shows every visible player's aim.
 - **Vision is fog-of-war:** the map itself is always visible, but enemies (and an
   enemy carrying a flag) only appear inside your **forward vision cone** (±45°
-  around your facing, unlimited range, walls block it) or your **~90px
-  omnidirectional bubble**. Facing aims your vision — you see where you walk.
-  Teammates, both pedestals, your own flag's state, and your own position (a
-  distinct self marker) are always visible.
-- **Shoot** with **A**: an instant, line-of-sight, effectively map-wide hitscan in
-  your facing direction. One hit kills. **Friendly fire is on.**
+  around your **aim**, unlimited range, walls block it) or your **~90px
+  omnidirectional bubble**. Your aim carries your vision — you see where you
+  point, not where you walk. Teammates, both pedestals, your own flag's state,
+  and your own position (a distinct self marker) are always visible.
+- **Shoot** with **A**: an instant, line-of-sight, effectively map-wide hitscan
+  along your aim angle (locked at the trigger pull, released after a short
+  windup). One hit kills. **Friendly fire is on.**
 - **Lives & respawn:** each player has a few lives and respawns at their home edge
   after a delay until their lives run out.
 - **The flags:** touch the **enemy** pedestal flag to steal it; you carry it

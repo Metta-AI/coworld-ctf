@@ -4,13 +4,16 @@
 ## Speaks the Bitworld Sprite v1 protocol over a websocket. The observation is
 ## the FULL map in map coordinates, but entities are fogged: an enemy (and an
 ## enemy carrying our flag) is only streamed while it sits inside OUR vision —
-## a forward cone (half-angle ~45 degrees around our 8-dir facing, unlimited
+## a forward cone (half-angle ~45 degrees around our AIM ANGLE, unlimited
 ## range, walls block) plus a small omnidirectional bubble (~90px). Always
 ## visible: the static map, our teammates (team radio), BOTH flag pedestals,
 ## our own flag's state (an empty own pedestal means it is stolen), and
-## ourselves via the distinct "self <color> right|left" marker. FACING AIMS
-## VISION: we look where we walk, so where we point the cone is a tactical
-## decision. The bot keeps a persistent world model on top of that:
+## ourselves via the distinct "self <color> right|left" marker. AIM IS
+## DECOUPLED FROM MOVEMENT: a continuous per-player aim angle (0..255 brads,
+## 0 = east, counter-clockwise on screen) turns while B (CCW) or Select (CW)
+## is held at ~5 brads/tick; the d-pad never touches it. The aim drives the
+## gun, the vision cone, and the sprite flip, so pointing it is THE core
+## tactical decision. The bot keeps a persistent world model on top of that:
 ##
 ## - **Nav grid**: the full walkability mask arrives once at init; we erode it
 ##   by the player footprint into an 8px cell grid and run a cost field
@@ -40,26 +43,32 @@
 ##   steals into captures. While our flag is stolen the back line hunts the
 ##   thief along its predicted route toward ITS home edge; attackers press on
 ##   — captures are instant wins both ways, so the race stays on.
+## - **Turret controller**: the bot dead-reckons its own aim (spawn aim is
+##   toward the enemy side; each held rotate button turns it 5 brads/tick)
+##   and resyncs it every frame from its own rendered aim-indicator dots.
+##   Each tick it outputs the rotate button that traverses toward the desired
+##   aim by the shortest arc, and fires only when the bullet corridor
+##   (~14px half-width) covers the target at its range.
 ## - **Scanning**: units holding a position (overwatch posts, the defender's
-##   choke, cooldown ducks) sweep their facing with brief one-tick direction
-##   pulses (~1px of drift) so the vision cone rakes across the watch arc
-##   instead of staring down one ray.
+##   choke, cooldown ducks) sweep the aim back and forth across the watch arc
+##   with genuine rotate-button sweeps, raking the vision cone over it while
+##   standing perfectly still. On the move, the aim leads the movement
+##   direction when no target demands it, so attackers watch down-lane.
 ## - **Peek-and-shoot**: the default combat mode. With the gun up and a
-##   remembered enemy blocked by a wall, step sideways to the nearest cell
-##   that opens the firing line; during the 12-tick cooldown, duck behind the
-##   nearest cover that breaks the threat's line and hold until ready.
-## - **Fire discipline**: the 1300px gun is effectively map-wide and the cone
-##   sees map-wide, so any fresh track with a clear pixel ray is engaged out
-##   to ~1250px. Steer into the target's octant so the 25-degree cone covers
-##   it, lead it slightly, and skip targets with a remembered teammate near
-##   the fire axis (friendly fire is on, the server kills the NEAREST player
-##   in the cone, and at long range the cone is hundreds of px wide
-##   laterally).
+##   remembered enemy blocked by a wall, PRE-LAY the aim on the firing line
+##   while stepping sideways to the nearest cell that opens it — the shot is
+##   ready the moment the ray clears; during the 12-tick cooldown, duck
+##   behind the nearest cover that breaks the threat's line and hold there.
+## - **Fire discipline**: the bullet is a corridor hitscan along the aim, so
+##   the fire gate is geometric: shoot when the aim error's perpendicular
+##   miss at the target's range is inside the corridor. Skip targets with a
+##   remembered teammate near the fire axis (friendly fire is on; the server
+##   kills the NEAREST player in the corridor).
 ##
 ## Coordinate model: the map object sits at (0, 0), so object positions ARE
-## map coordinates; we find ourselves via the self marker. Facing == last
-## movement direction and only a fresh A press fires, so to shoot we steer
-## toward the target for a frame and pulse A.
+## map coordinates; we find ourselves via the self marker. Only a fresh A
+## press fires, and the aim angle locks at the pull (the bullet leaves after
+## a short windup), so we stop rotating on the tick we pull.
 
 import
   std/[algorithm, heapqueue, math, os, random, strutils],
@@ -89,16 +98,31 @@ const
   DuckRange = 340.0           # duck from remembered threats this close on cooldown
   MateSpacing = 40.0          # soft repulsion radius between teammates
   CorridorHalfWidth = 15.0    # friendly-fire corridor half width along the ray
-  FireConeCos = 0.88          # cos ~28 deg: the server's 25-deg hit cone plus slack
-  LeadTicks = 2.0             # aim this many ticks ahead of a moving enemy
+  LeadTicks = 6.0             # aim this many ticks ahead of a moving enemy:
+                              # the 5-tick windup releases the bullet late
   TrackMatchDist = 40.0       # a sighting matches a track within this distance
   TrackTtl = 120              # forget a player not seen for ~5s
   TrackCap = 8                # eight real opponents / teammates per side
-  FreshShotTicks = 12         # only fire at tracks seen this recently; the
-                              # wide long-range cone forgives the drift, so
-                              # chases keep shooting after the target is gone
+  FreshShotTicks = 24         # only fire at tracks seen this recently; the
+                              # turret needs traverse time, so chases keep
+                              # shooting a bit after the target fogs out
   ThiefFixTtl = 40            # a thief position fix guides the chase this long
-  ScanPeriod = 10             # ticks between scan-facing pulses while holding
+
+  AimBrads = 256              # aim angle units per full turn
+  AimRate = 5                 # brads/tick a held rotate button turns the aim
+                              # (matches the server's aimTurnRate default)
+  AimDotRadius = 16.0         # own aim-indicator dots sit within this radius
+  AimResyncBrads = 4          # trust dead reckoning inside this error
+  CombatDeadband = 2          # stop the traverse within this error (brads);
+                              # AimRate 5 cannot settle tighter than +-2
+  CruiseDeadband = 8          # sloppier deadband for non-combat aim
+  FireSlackPx = 11.0          # fire when the aim error's perpendicular miss
+                              # at the target's range is inside this (the
+                              # corridor half-width is ~14px; keep margin)
+  ScanArc = 44                # scan sweeps this many brads each side of the
+                              # watch heading (cone half-angle is 32 brads)
+  PushOutTicks = 360          # endgame push: no enemy seen for ~15s...
+  PushOutMinGame = 2400       # ...this deep into the game breaks the posts
 
   CoverShieldDist = 42.0      # an obstacle this close blocks a threat direction
   PeekLineDist = 150.0        # floor for an overwatch peek firing line; post
@@ -165,7 +189,13 @@ type
     mates: seq[Track]
     carrierPos, carrierVel: Vec   # last fix on the thief carrying OUR flag
     carrierSeen: int
+    lastEnemySeen: int        # last tick ANY enemy was inside our vision
+    gameStart: int            # tick of the last lobby-to-playing transition
     firedLast: bool           # A was set on the previous sent mask
+    estAim: int               # dead-reckoned own aim angle in brads
+    rotSign: int              # rotation of the last sent mask: +1 B, -1 Select
+    wasDead: bool             # respawn resets the aim to the spawn heading
+    scanHigh: bool            # scan sweep currently heading to the high end
     lastPos: Vec
     stuckTicks: int
     jinkUntil: int
@@ -229,13 +259,28 @@ proc octantBits(d: Vec): uint8 =
   of 6: ButtonUp
   else: ButtonUp or ButtonRight
 
-proc octantDir(d: Vec): Vec =
-  ## The unit vector of the 8-way direction octantBits picks for `d`: the
-  ## facing the sim gives us when we steer that way, hence the true fire axis.
+proc bradsOf(d: Vec): int =
+  ## The aim angle in brads pointing along `d`: 0 = east (+x), increasing
+  ## counter-clockwise on screen (64 = north; map y grows downward).
   if d.len() < 1e-6:
-    return vec(0, 0)
-  let angle = float(int(round(arctan2(d.y, d.x) / (PI / 4)))) * (PI / 4)
-  vec(cos(angle), sin(angle))
+    return 0
+  (int(round(arctan2(-d.y, d.x) * float(AimBrads div 2) / PI)) +
+    AimBrads) mod AimBrads
+
+proc bradsDir(brads: int): Vec =
+  ## The unit vector of one aim angle in brads (the true fire axis).
+  let angle = float(brads) * PI / float(AimBrads div 2)
+  vec(cos(angle), -sin(angle))
+
+proc bradsErr(desired, current: int): int =
+  ## The signed shortest arc from `current` to `desired` in -128..127:
+  ## positive means rotate counter-clockwise (hold B).
+  (desired - current + AimBrads + AimBrads div 2) mod AimBrads -
+    AimBrads div 2
+
+proc spawnAim(team: Team): int =
+  ## The spawn/respawn aim angle: toward the enemy side.
+  if team == Red: 0 else: AimBrads div 2
 
 proc slotFromUrl(url: string): int =
   ## Reads the `slot` query parameter from the websocket URL.
@@ -265,6 +310,22 @@ proc findSelf(
     let label = "self " & color & (if facingRight: " right" else: " left")
     for o in client.spriteObjectsWithLabel(label):
       return (alive: true, pos: client.mapPos(o))
+
+proc observedAim(client: ProtocolClient, me: Vec, color: string): int =
+  ## Our actual aim read back from our own rendered aim-indicator dots: the
+  ## farthest "aim dot <color>" object within the indicator radius points
+  ## along the aim. Returns -1 when no dot is close enough (teammate dots
+  ## share our color but hug their own player). Resolution is ~2 brads —
+  ## an absolute fix that caps dead-reckoning drift.
+  result = -1
+  var bestD = 0.0
+  for o in client.spriteObjectsWithLabel("aim dot " & color):
+    let
+      p = client.mapPos(o)
+      d = dist(p, me)
+    if d <= AimDotRadius and d > bestD:
+      bestD = d
+      result = bradsOf(p - me)
 
 proc actorsFor(client: ProtocolClient, color: string): seq[Actor] =
   ## Visible players of one color in map coordinates plus horizontal facing.
@@ -471,14 +532,17 @@ proc pickPost(bot: Bot, client: ProtocolClient) =
     bot.postReady = true
 
 proc findEnemyPosts(bot: Bot, client: ProtocolClient) =
-  ## Precomputes where the ENEMY overwatch sniper sits (the mirrored post
-  ## scan): a stationary, hidden killer every carrier run has to cross. It is
-  ## fed into exposure costing and lane choice as a permanent virtual threat
-  ## so routes give its firing lane a wide berth.
+  ## Precomputes the standing virtual threats every carrier run has to
+  ## respect, fed into exposure costing and lane choice: the mirrored ENEMY
+  ## overwatch post (a stationary, hidden killer) and the ENEMY spawn
+  ## pocket — every kill respawns an armed, spawn-protected enemy at the
+  ## pedestal aiming our way, so the pocket mouth (and its mid lane) is
+  ## permanently watched ground even when no track remembers anyone there.
   bot.enemyPosts.setLen(0)
   let post = bot.scanPost(client, homeSign(bot.team), float(CenterY) + 60.0)
   if post.ready:
     bot.enemyPosts.add(post.peek)
+  bot.enemyPosts.add(flagHome(enemy(bot.team)))
 
 proc buildNavGrid(bot: Bot, client: ProtocolClient) =
   ## Erodes the pixel walkability mask into a footprint-safe nav grid, then
@@ -757,29 +821,30 @@ proc resetTransient(bot: Bot) =
   bot.enemies.setLen(0)
   bot.mates.setLen(0)
   bot.carrierSeen = -100_000
+  bot.lastEnemySeen = bot.tick
+  bot.gameStart = bot.tick
   bot.firedLast = false
+  bot.estAim = spawnAim(bot.team)
+  bot.rotSign = 0
+  bot.wasDead = false
+  bot.scanHigh = false
   bot.stuckTicks = 0
   bot.jinkUntil = 0
   bot.behindLines = false
   bot.navGoal = -1
 
-proc rotated(d: Vec, degrees: float): Vec =
-  ## Returns `d` rotated by `degrees`.
-  let
-    a = degrees * PI / 180.0
-    c = cos(a)
-    s = sin(a)
-  vec(d.x * c - d.y * s, d.x * s + d.y * c)
-
-proc scanMask(bot: Bot, watch: Vec): uint8 =
-  ## Sweeps the vision cone across the arc around `watch` while holding a
-  ## position: one movement tick every ScanPeriod ticks turns our facing with
-  ## about a pixel of drift, raking the 90-degree cone over ~180 degrees.
-  if bot.tick mod ScanPeriod != 0:
-    return 0
-  let phase = (bot.tick div ScanPeriod + bot.slot div 2) mod 4
-  let sweep = [0.0, 45.0, 0.0, -45.0][phase]
-  octantBits(rotated(norm(watch), sweep))
+proc scanAim(bot: Bot, watch: Vec): int =
+  ## The scan-sweep aim while holding a position: rake the vision cone back
+  ## and forth across the arc around the `watch` heading with real rotation.
+  ## Flip the sweep direction whenever the current end is nearly reached.
+  let center = bradsOf(watch)
+  var goal = (center + (if bot.scanHigh: ScanArc else: -ScanArc) +
+    AimBrads) mod AimBrads
+  if abs(bradsErr(goal, bot.estAim)) <= CombatDeadband:
+    bot.scanHigh = not bot.scanHigh
+    goal = (center + (if bot.scanHigh: ScanArc else: -ScanArc) +
+      AimBrads) mod AimBrads
+  goal
 
 proc safestLaneY(bot: Bot, me: Vec): float =
   ## The carrier's lane home: fewest remembered enemies AND the best cover
@@ -836,12 +901,12 @@ proc safestLaneY(bot: Bot, me: Vec): float =
   bestLane
 
 proc friendlyBlocked(bot: Bot, me, aim: Vec, enemyDist: float): bool =
-  ## True when a remembered teammate could eat the shot: the server kills the
-  ## NEAREST player inside the 25-degree cone around our real 8-way facing,
-  ## friend or foe, along the full ray. At long range the cone is huge
-  ## laterally (~550px half width at 1250px), so any mate closer than the
-  ## target and near the fire axis blocks — 8v8 puts many teammates downrange.
-  let dir = octantDir(aim - me)
+  ## True when a remembered teammate could eat the shot: the bullet is a
+  ## corridor hitscan (~14px half width) along the aim ray and the server
+  ## kills the NEAREST player inside it, friend or foe — 8v8 puts many
+  ## teammates downrange. The fire axis is the exact angle the turret would
+  ## fire at right now.
+  let dir = bradsDir(bradsOf(aim - me))
   for t in bot.mates:
     let age = float(bot.tick - t.lastSeen)
     if age > 36:
@@ -856,8 +921,6 @@ proc friendlyBlocked(bot: Bot, me, aim: Vec, enemyDist: float): bool =
       continue                          # beyond the target: the target dies first
     if abs(cross(rel, dir)) < CorridorHalfWidth + age * 0.35:
       return true
-    if along / d >= FireConeCos:
-      return true
   false
 
 proc decide(bot: Bot, client: ProtocolClient): uint8 =
@@ -871,13 +934,27 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # normal labels), so skip perception entirely — inputs are ignored and
     # ghost sightings would poison memory.
     bot.firedLast = false
+    bot.rotSign = 0
+    bot.wasDead = true
     return 0
+  if bot.wasDead:
+    # Respawned: the server points the aim back at the enemy side.
+    bot.wasDead = false
+    bot.estAim = spawnAim(bot.team)
+  # Absolute turret fix: our own rendered aim-indicator dots show the actual
+  # aim every frame, capping any dead-reckoning drift (mask-apply races).
+  block resync:
+    let seen = client.observedAim(me, myColor)
+    if seen >= 0 and abs(bradsErr(seen, bot.estAim)) > AimResyncBrads:
+      bot.estAim = seen
   let
     shotReady = client.spriteObjectsWithLabel("fire icon").len > 0
     seenEnemies = client.actorsFor(enemyColor)
     seenMates = client.actorsFor(myColor)
   bot.updateTracks(bot.enemies, seenEnemies)
   bot.updateTracks(bot.mates, seenMates)
+  if seenEnemies.len > 0:
+    bot.lastEnemySeen = bot.tick
 
   # Flag bookkeeping (two flags; a carried flag rides its carrier's exact
   # position). The enemy flag can only be carried by OUR team, so its sprite
@@ -925,13 +1002,32 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     elif fwd < 20.0:
       bot.behindLines = false
 
+  # Endgame push: our flag is safe and nobody on OUR side has seen an enemy
+  # for a long while deep into the game. The survivors by then are usually
+  # the defensive seats, and holding their posts forever is a guaranteed
+  # tiebreak stalemate — break the posts and go win by capture (the enemy
+  # team pushes symmetrically, so somebody makes something happen).
+  let pushOut = not ownStolen and
+    bot.tick - bot.gameStart > PushOutMinGame and
+    bot.tick - bot.lastEnemySeen > PushOutTicks
+
   # Movement target from role and flag situation.
   var target: Vec
   if iCarry:
     # Run the stolen enemy flag home along the emptiest lane; the exposure
     # cost in the path field keeps the route hugging cover past remembered
     # enemies.
-    target = vec(homeDeepX(bot.team), bot.safestLaneY(me))
+    let
+      pocket = flagHome(enemy(bot.team))
+      laneY = bot.safestLaneY(me)
+    if abs(me.x - pocket.x) < 60.0 and abs(me.y - laneY) > 70.0:
+      # Bug out of the pocket VERTICALLY first: every kill respawns an
+      # armed, spawn-protected enemy at this pedestal whose spawn aim points
+      # along the east-west axis — pure-vertical movement exits that cone
+      # fastest, then the border lane runs home outside it.
+      target = vec(pocket.x, laneY)
+    else:
+      target = vec(homeDeepX(bot.team), laneY)
   elif ownStolen and (bot.role == HomeDefender or
       (bot.role == Overwatch and
        bot.tick - bot.carrierSeen <= ThiefFixTtl)):
@@ -989,7 +1085,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         else: mateCarryPos + vec(-homeSign(bot.team) * 32.0, 0.0)
     of HomeDefender:
       target = bot.chokeHold
-  elif bot.role == HomeDefender:
+  elif bot.role == HomeDefender and not pushOut:
     # Hold the choke on our pedestal approach; break off to chase the nearest
     # intruder on our half (every steal has to come through here).
     var intruder = -1
@@ -1008,7 +1104,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       target = bot.enemies[intruder].pos + bot.enemies[intruder].vel * 6.0
     else:
       target = bot.chokeHold
-  elif bot.role == Overwatch:
+  elif bot.role == Overwatch and not pushOut:
     if bot.postReady:
       # Peek-and-shoot cycle: hold behind the post; with the gun up and a
       # remembered enemy in reach, sidestep to the peek cell to open the
@@ -1119,41 +1215,53 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       nearThreatD = d
       nearThreat = i
 
+  # Turret + locomotion, decided together but on separate buttons: moveMask
+  # is the d-pad, desiredAim feeds the rotate buttons, wantFire pulls A.
   var
-    mask: uint8
+    moveMask: uint8
+    desiredAim = -1
+    deadband = CombatDeadband
+    wantFire = false
     acted = false
     holdStill = false
   if engage >= 0 and shotReady:
-    # Shoot first from max range: steer into the target's octant (facing
-    # follows movement) and fire; the mate corridor was checked at selection.
-    mask = octantBits(aim - me)
-    if not bot.firedLast:
-      mask = mask or ButtonA
+    # Traverse onto the target and fire once the corridor covers it: the
+    # perpendicular miss of the current aim error at the target's range must
+    # sit inside the ~14px bullet corridor. Advancing scales that miss down
+    # linearly, so keep closing while the turret settles.
+    desiredAim = bradsOf(aim - me)
+    let
+      err = abs(bradsErr(desiredAim, bot.estAim))
+      perpMiss = engageD * sin(float(err) * PI / float(AimBrads div 2))
+    wantFire = perpMiss <= FireSlackPx
+    moveMask = octantBits(aim - me)
     acted = true
   elif not iCarry and not rushing and not pocketRush and not shotReady and
       nearThreat >= 0:
     # Cooldown: duck behind the nearest cover that breaks the threat's line
-    # and hold there until the gun is back up, sweeping our vision across
-    # the arc the threat would push through.
+    # and hold there until the gun is back up, keeping the aim (and the
+    # vision cone) on the arc the threat would push through.
     let duck = bot.findDuckCell(client, me, bot.enemies[nearThreat].pos)
     if duck >= 0:
+      desiredAim = bradsOf(bot.enemies[nearThreat].pos - me)
       if dist(cellCenter(duck), me) < 5.0:
         holdStill = true
-        mask = bot.scanMask(bot.enemies[nearThreat].pos - me)
       else:
-        mask = octantBits(cellCenter(duck) - me)
+        moveMask = octantBits(cellCenter(duck) - me)
       acted = true
   elif not iCarry and not rushing and shotReady and haveBlocked:
-    # Peek: step sideways to the nearest cell that opens the firing line;
-    # the engage branch fires the moment the ray clears.
+    # Peek: PRE-LAY the aim on the blocked target while stepping sideways to
+    # the nearest cell that opens the firing line — the engage branch fires
+    # the moment the ray clears, with the traverse already done.
+    desiredAim = bradsOf(blockedAim - me)
     let peek = bot.findPeekCell(client, me, blockedAim)
     if peek >= 0 and dist(cellCenter(peek), me) > 4.0:
-      mask = octantBits(cellCenter(peek) - me)
+      moveMask = octantBits(cellCenter(peek) - me)
       acted = true
 
   if not acted:
-    # Threat jink: sidestep a visible enemy that is facing us while our own
-    # shot is not lined up, instead of walking into its muzzle.
+    # Threat jink: sidestep a visible enemy that is aiming our way while our
+    # own shot is not lined up, instead of walking into its muzzle.
     var threat = -1
     var threatD = ThreatRange
     for i in 0 ..< seenEnemies.len:
@@ -1172,17 +1280,20 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         side = side * -1.0
       if not bot.gridRayClear(me, me + side * 24.0):
         side = side * -1.0
-      mask = octantBits(side + away * 0.4)
+      moveMask = octantBits(side + away * 0.4)
+      if desiredAim < 0:
+        desiredAim = bradsOf(seenEnemies[threat].pos - me)
     elif bot.role in {Overwatch, HomeDefender} and
         dist(me, target) < 6.0:
-      # Holding a watch position: facing aims the vision cone, so sweep it
-      # across the arc threats cross. While our flag is stolen the thief
-      # comes from our own half; otherwise intruders come from the enemy
-      # half.
+      # Holding a watch position: the aim carries the vision cone, so sweep
+      # it back and forth across the arc threats cross while standing still.
+      # While our flag is stolen the thief comes from our own half;
+      # otherwise intruders come from the enemy half.
       let watch =
         if ownStolen: vec(homeSign(bot.team), 0.0)
         else: vec(-homeSign(bot.team), 0.0)
-      mask = bot.scanMask(watch)
+      if desiredAim < 0:
+        desiredAim = bot.scanAim(watch)
       holdStill = true
     else:
       # Navigate: cover-aware path steering plus soft repulsion from nearby
@@ -1219,9 +1330,15 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
             side = side * -1.0
           steer = norm(steer) + side * 0.6
       steer = steer + vec(rand(-0.12 .. 0.12), rand(-0.12 .. 0.12))
-      mask = octantBits(steer)
+      moveMask = octantBits(steer)
       if bot.tick < bot.jinkUntil:
-        mask = bot.jinkBits                # unsticking burst
+        moveMask = bot.jinkBits            # unsticking burst
+      if desiredAim < 0:
+        # No target demands the turret: the aim leads the movement direction
+        # so the vision cone watches down-lane where we are heading. Movement
+        # no longer leaks our vision, so this is a choice, not a side effect.
+        desiredAim = bradsOf(steer)
+        deadband = CruiseDeadband
 
   # Stuck detection: if we have not moved for a second (and are not holding
   # behind cover on purpose), burst in a random direction and force a repath.
@@ -1239,15 +1356,31 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     bot.navGoal = -1
     if bot.jinkBits == 0:
       bot.jinkBits = ButtonUp
-    mask = bot.jinkBits
+    moveMask = bot.jinkBits
 
-  if mask == 0 and not holdStill:
-    mask = octantBits(vec(rand(-1.0 .. 1.0), rand(-1.0 .. 1.0)))
+  if moveMask == 0 and not holdStill:
+    moveMask = octantBits(vec(rand(-1.0 .. 1.0), rand(-1.0 .. 1.0)))
 
-  # Only a FRESH A press fires: release for at least one frame between shots.
-  if (mask and ButtonA) != 0 and bot.firedLast:
-    mask = mask and not ButtonA
+  # Rotate toward the desired aim by the shortest arc; inside the deadband
+  # (AimRate cannot settle tighter than +-AimRate/2) hold the turret still.
+  var rotBits: uint8 = 0
+  if desiredAim >= 0:
+    let err = bradsErr(desiredAim, bot.estAim)
+    if err > deadband:
+      rotBits = ButtonB
+    elif err < -deadband:
+      rotBits = ButtonSelect
+
+  # Only a FRESH A press fires, and the pull locks the aim angle on the same
+  # tick — never rotate on the pull tick so the lock takes the settled aim.
+  var mask = moveMask or rotBits
+  if wantFire and not bot.firedLast:
+    mask = moveMask or ButtonA
   bot.firedLast = (mask and ButtonA) != 0
+  bot.rotSign =
+    if (mask and ButtonB) != 0: 1
+    elif (mask and ButtonSelect) != 0: -1
+    else: 0
   mask
 
 proc runBot(url: string) =
@@ -1275,7 +1408,12 @@ proc runBot(url: string) =
       while true:
         if not client.receiveLatestFrame(ws, false):
           continue
-        bot.tick += max(1, client.frameAdvance)
+        let advance = max(1, client.frameAdvance)
+        bot.tick += advance
+        # Dead-reckon the aim: the last sent mask keeps rotating on the
+        # server for every elapsed sim tick until we change it.
+        bot.estAim = floorMod(
+          bot.estAim + bot.rotSign * AimRate * advance, AimBrads)
         if not client.mapCameraReady:
           bot.resetTransient()             # lobby / game-over interstitial
           continue
