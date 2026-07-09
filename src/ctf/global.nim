@@ -115,6 +115,13 @@ const
   HudBottomLeftLayerType = 4
   PlayerInterstitialLayerId = 7  ## lobby / game-over screens, top-center.
   PlayerInterstitialLayerType = 5
+  ## Team kills/deaths scoreboard shown above the field in every view.
+  TeamScoreLayerId = 8
+  TeamScoreLayerType = 5       ## top-center anchor.
+  TeamScoreWidth = 132
+  TeamScoreGap = 8             ## px between the red and blue halves.
+  TeamScoreSpriteBase = 12100  ## 12100 red text, 12101 blue text.
+  TeamScoreObjectBase = 9600   ## 9600 red text, 9601 blue text.
   MapMarkerSpriteBase = 20000
   MapMarkerObjectBase = 20000
   MapMarkerZ = -32767
@@ -789,6 +796,62 @@ proc centeredTextX(sim: SimServer, text: string): int =
   ## Returns the centered x position for interstitial text.
   (ScreenWidth - sim.asciiSprites.textWidth(text)) div 2
 
+proc addTeamScoreboard(
+  sim: SimServer,
+  spriteDefs: var seq[SpriteDefinition],
+  currentIds: var seq[int],
+  packet: var seq[uint8]
+) {.measure.} =
+  ## Adds the team kills/deaths scoreboard above the field: red on the left,
+  ## blue on the right, each in its team color.
+  var kills, deaths: array[Team, int]
+  for p in sim.players:
+    kills[p.team] += p.kills
+    deaths[p.team] += p.deaths
+  let
+    redText = "RED " & $kills[Red] & "/" & $deaths[Red]
+    blueText = "BLUE " & $kills[Blue] & "/" & $deaths[Blue]
+    red = sim.buildSpriteProtocolTextSprite([redText], teamColor(Red))
+    blue = sim.buildSpriteProtocolTextSprite([blueText], teamColor(Blue))
+    totalWidth = red.width + TeamScoreGap + blue.width
+    startX = max(0, (TeamScoreWidth - totalWidth) div 2)
+  packet.addSpriteChanged(
+    spriteDefs,
+    TeamScoreSpriteBase,
+    red.width,
+    red.height,
+    red.pixels,
+    "team score " & redText,
+    changed = true
+  )
+  packet.addSpriteChanged(
+    spriteDefs,
+    TeamScoreSpriteBase + 1,
+    blue.width,
+    blue.height,
+    blue.pixels,
+    "team score " & blueText,
+    changed = true
+  )
+  currentIds.add(TeamScoreObjectBase)
+  currentIds.add(TeamScoreObjectBase + 1)
+  packet.addObject(
+    TeamScoreObjectBase,
+    startX,
+    1,
+    0,
+    TeamScoreLayerId,
+    TeamScoreSpriteBase
+  )
+  packet.addObject(
+    TeamScoreObjectBase + 1,
+    startX + red.width + TeamScoreGap,
+    1,
+    0,
+    TeamScoreLayerId,
+    TeamScoreSpriteBase + 1
+  )
+
 proc addTextItem(
   items: var seq[ProtocolTextItem],
   x, y: int,
@@ -1128,6 +1191,8 @@ proc buildSpriteProtocolInit(
   result.addViewport(InterstitialLayerId, ScreenWidth, ScreenHeight)
   result.addLayer(BottomRightLayerId, BottomRightLayerType, UiLayerFlag)
   result.addViewport(BottomRightLayerId, ScreenWidth, ScreenHeight)
+  result.addLayer(TeamScoreLayerId, TeamScoreLayerType, UiLayerFlag)
+  result.addViewport(TeamScoreLayerId, TeamScoreWidth, TextLineHeight + 2)
   result.addSpriteChanged(
     spriteDefs,
     MapSpriteId,
@@ -1174,6 +1239,8 @@ proc buildSpriteProtocolPlayerInit(
     UiLayerFlag
   )
   result.addViewport(PlayerInterstitialLayerId, ScreenWidth, ScreenHeight)
+  result.addLayer(TeamScoreLayerId, TeamScoreLayerType, UiLayerFlag)
+  result.addViewport(TeamScoreLayerId, TeamScoreWidth, TextLineHeight + 2)
   result.addSpriteChanged(
     spriteDefs,
     MapSpriteId,
@@ -1704,6 +1771,8 @@ proc buildSpriteProtocolPlayerUpdates*(
       HudTopRightLayerId,
       SpritePlayerRemainingSpriteId
     )
+
+  sim.addTeamScoreboard(nextState.spriteDefs, currentIds, result)
 
   if not state.isNil:
     for objectId in state.objectIds:
@@ -2276,6 +2345,7 @@ proc buildSpriteProtocolUpdates*(
     result,
     replayMismatchTick
   )
+  sim.addTeamScoreboard(nextState.spriteDefs, currentIds, result)
 
   for objectId in state.objectIds:
     if objectId notin currentIds:
