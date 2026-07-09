@@ -47,12 +47,12 @@ const
   InterstitialObjectId = 4005
   InterstitialLayerId = 2
   InterstitialLayerType = 2
-  CarrierBarSpriteBase = 740
-  CarrierBarObjectBase = 5000
-  CarrierBarWidth = 10
-  CarrierBarHeight = 2
-  CarrierBarYOffset = 4
-  CarrierBarColor = 2'u8
+  OverheadYOffset = 4          ## px gap between a sprite top and overhead UI.
+  HpPipSpriteBase = 820        ## hp pip bar sprites: 820 + remaining hp.
+  HpPipObjectBase = 19000      ## hp pip bar object-id pool: one per player.
+  HpPipSize = 2                ## px per pip square.
+  HpPipGap = 1                 ## px between pips.
+  CarriedFlagLift = 10         ## px a carried flag flies above its carrier.
   TracerDotSpriteBase = 760    ## per-color tracer dot sprites: 760..775.
   TracerDotObjectBase = 15000  ## tracer object-id pool base.
   TracerDotSize = 3
@@ -89,7 +89,7 @@ const
   TransportX = 2
   TransportY = 1
   ## Sprite/object id pools (sprites and objects are separate namespaces).
-  ## Sprites: team flags 700..701 (FlagSpriteBase), carrier bar 740, tracer
+  ## Sprites: team flags 700..701 (FlagSpriteBase), hp pips 820+, tracer
   ## dots 760..775, aim dots 780..795, self markers 5100..5101, team score
   ## text 12100..12101, splatters 16000..16063, fog runs 21000..21155 (one
   ## per run width in cells), map markers 20000. Objects: flags 6500..6501
@@ -520,11 +520,19 @@ proc buildIndexedSpritePixels(
         fallback
     result.putRgbaPixel(i, color)
 
-proc buildCarrierBarSprite(color: uint8): seq[uint8] {.measure.} =
-  ## Builds the flag-carrier indicator bar sprite.
-  result = newRgbaPixels(CarrierBarWidth, CarrierBarHeight)
-  for i in 0 ..< CarrierBarWidth * CarrierBarHeight:
-    result.putRgbaPixel(i, color)
+proc buildHpPipsSprite(hp, maxHp: int): seq[uint8] {.measure.} =
+  ## Builds the overhead hit-point bar: one bright pip per remaining hit
+  ## point, one dark socket per lost one, so the bar length stays constant.
+  let width = maxHp * HpPipSize + (maxHp - 1) * HpPipGap
+  result = newRgbaPixels(width, HpPipSize)
+  for pip in 0 ..< maxHp:
+    for py in 0 ..< HpPipSize:
+      for px in 0 ..< HpPipSize:
+        let i = py * width + pip * (HpPipSize + HpPipGap) + px
+        if pip < hp:
+          result.putRawRgbaPixel(i, 96, 255, 96, 255)
+        else:
+          result.putRawRgbaPixel(i, 40, 40, 40, 200)
 
 proc buildTracerDotSprite(colorIndex: int): seq[uint8] {.measure.} =
   ## Builds one shot-tracer dot sprite: the shooter's palette color mixed
@@ -1226,14 +1234,6 @@ proc buildSpriteProtocolInit(
   result.addObject(MapObjectId, 0, 0, low(int16), MapLayerId, MapSpriteId)
   sim.addMapMarkers(spriteDefs, result)
   sim.addFlagSprites(spriteDefs, result)
-  result.addSpriteChanged(
-    spriteDefs,
-    CarrierBarSpriteBase,
-    CarrierBarWidth,
-    CarrierBarHeight,
-    buildCarrierBarSprite(CarrierBarColor),
-    "carrier indicator"
-  )
   sim.addSpriteProtocolInterstitialSprites(spriteDefs, result)
   sim.addPlayerActorSprites(spriteDefs, result, selected = true)
 
@@ -1297,28 +1297,12 @@ proc buildSpriteProtocolPlayerInit(
     buildSpriteProtocolShadowSprite(sim.flagSprite),
     "fire icon cooldown"
   )
-  result.addSpriteChanged(
-    spriteDefs,
-    CarrierBarSpriteBase,
-    CarrierBarWidth,
-    CarrierBarHeight,
-    buildCarrierBarSprite(CarrierBarColor),
-    "carrier indicator"
-  )
   sim.addSpriteProtocolInterstitialSprites(spriteDefs, result)
   sim.addPlayerActorSprites(spriteDefs, result, selected = false)
 
 proc spriteObjectId(player: Player): int =
   ## Returns the stable global protocol object id for a player.
   PlayerObjectBase + player.joinOrder
-
-proc spriteCarrierBarObjectId(player: Player): int =
-  ## Returns the stable global protocol object id for a carrier bar.
-  CarrierBarObjectBase + player.joinOrder
-
-proc spriteCarrierBarSpriteId(player: Player): int =
-  ## Returns the global protocol sprite id for one carrier bar.
-  CarrierBarSpriteBase
 
 proc spritePlayerNameObjectId(player: Player): int =
   ## Returns the stable global protocol object id for a player name label.
@@ -1629,6 +1613,47 @@ proc addAimIndicators(
         spriteId
       )
 
+proc addHpPips(
+  sim: SimServer,
+  spriteDefs: var seq[SpriteDefinition],
+  currentIds: var seq[int],
+  packet: var seq[uint8],
+  viewerIndex = -1
+) {.measure.} =
+  ## Places a hit-point pip bar above each living player's head. The map view
+  ## passes no viewer and shows every bar; a player view passes its viewer
+  ## index and only receives the bars of players it can see (a wounded
+  ## enemy's hp is readable intel). Object ids are a fixed pool keyed by
+  ## player index; stale bars fall to the delete sweep.
+  let maxHp = sim.config.hitPoints
+  let width = maxHp * HpPipSize + (maxHp - 1) * HpPipGap
+  for i in 0 ..< sim.players.len:
+    let player = sim.players[i]
+    if not player.alive:
+      continue
+    if viewerIndex >= 0 and i != viewerIndex and
+        not sim.playerVisibleTo(viewerIndex, i):
+      continue
+    let spriteId = HpPipSpriteBase + player.hp
+    packet.addSpriteChanged(
+      spriteDefs,
+      spriteId,
+      width,
+      HpPipSize,
+      buildHpPipsSprite(player.hp, maxHp),
+      "hp " & $player.hp & "/" & $maxHp
+    )
+    let objectId = HpPipObjectBase + i
+    currentIds.add(objectId)
+    packet.addObject(
+      objectId,
+      player.x + CollisionW div 2 - width div 2,
+      player.spritePlayerY() - OverheadYOffset - HpPipSize,
+      30001,
+      MapLayerId,
+      spriteId
+    )
+
 proc splatterSpriteId(colorIndex, stage: int): int =
   ## Returns the sprite id for one splatter color and fade stage.
   SplatterSpriteBase + colorIndex * SplatterStages + stage
@@ -1747,12 +1772,14 @@ proc buildSpriteProtocolPlayerUpdates*(
     for team in Team:
       let flag = sim.flags[team]
       if viewerIsGhost or sim.flagVisibleTo(playerIndex, team):
-        let objectId = SpritePlayerFlagObjectBase + ord(team)
+        let
+          objectId = SpritePlayerFlagObjectBase + ord(team)
+          lift = if flag.carrier >= 0: CarriedFlagLift else: 0
         currentIds.add(objectId)
         result.addObject(
           objectId,
           flag.x - SpriteSize div 2,
-          flag.y - SpriteSize div 2,
+          flag.y - SpriteSize div 2 - lift,
           flag.y + 1,
           MapLayerId,
           FlagSpriteBase + ord(team)
@@ -1794,6 +1821,12 @@ proc buildSpriteProtocolPlayerUpdates*(
       )
 
     sim.addAimIndicators(
+      nextState.spriteDefs,
+      currentIds,
+      result,
+      viewerIndex = playerIndex
+    )
+    sim.addHpPips(
       nextState.spriteDefs,
       currentIds,
       result,
@@ -2244,6 +2277,7 @@ proc buildSpriteProtocolUpdates*(
   sim.addSplatters(nextState.spriteDefs, currentIds, result)
   sim.addShotTracers(nextState.spriteDefs, currentIds, result)
   sim.addAimIndicators(nextState.spriteDefs, currentIds, result)
+  sim.addHpPips(nextState.spriteDefs, currentIds, result)
 
   for playerIndex in 0 ..< sim.players.len:
     let player = sim.players[playerIndex]
@@ -2260,23 +2294,6 @@ proc buildSpriteProtocolUpdates*(
       MapLayerId,
       player.spriteActorSpriteId(nextState.selectedJoinOrder)
     )
-    if player.carryingFlag:
-      let
-        barObjectId = player.spriteCarrierBarObjectId()
-        barSpriteId = player.spriteCarrierBarSpriteId()
-        barX = player.spritePlayerX() +
-          (crew.width + 2 - CarrierBarWidth) div 2
-        barY = player.spritePlayerY() - CarrierBarYOffset
-      currentIds.add(barObjectId)
-      result.addObject(
-        barObjectId,
-        barX,
-        barY,
-        30001,
-        MapLayerId,
-        barSpriteId
-      )
-
     if sim.config.showPlayerLabels:
       let
         labelLines = playerLabelLines(sim, player, playerIndex)
@@ -2288,8 +2305,8 @@ proc buildSpriteProtocolUpdates*(
         labelObjectId = player.spritePlayerNameObjectId()
         labelX = player.spritePlayerX() +
           (crew.width + 2 - label.width) div 2
-        labelY = player.spritePlayerY() - CarrierBarYOffset -
-          label.height - 1
+        labelY = player.spritePlayerY() - OverheadYOffset -
+          HpPipSize - label.height - 1
       currentIds.add(labelObjectId)
       result.addSprite(
         labelSpriteId,
@@ -2311,11 +2328,12 @@ proc buildSpriteProtocolUpdates*(
     let
       flag = sim.flags[team]
       objectId = FlagObjectBase + ord(team)
+      lift = if flag.carrier >= 0: CarriedFlagLift else: 0
     currentIds.add(objectId)
     result.addObject(
       objectId,
       flag.x - SpriteSize div 2,
-      flag.y - SpriteSize div 2,
+      flag.y - SpriteSize div 2 - lift,
       flag.y + 1,
       MapLayerId,
       FlagSpriteBase + ord(team)
