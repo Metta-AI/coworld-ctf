@@ -1743,7 +1743,7 @@ proc buildSpriteProtocolPlayerUpdates*(
         1,
         0,
         HudBottomLeftLayerId,
-        if player.fireCooldown > 0:
+        if player.fireCooldown > 0 or player.fireWindup > 0:
           SpritePlayerFireShadowSpriteId
         else:
           SpritePlayerFireSpriteId

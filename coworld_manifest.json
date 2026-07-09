@@ -135,13 +135,6 @@
           "minimum": 1,
           "default": 1300
         },
-        "gunConeDeg": {
-          "description": "Firing cone half-angle in degrees around the facing direction.",
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 180,
-          "default": 25
-        },
         "fireCooldownTicks": {
           "description": "Minimum ticks between shots (~0.5s at 24 ticks/s).",
           "type": "integer",
@@ -208,6 +201,12 @@
           "minimum": 1,
           "maximum": 16,
           "default": 16
+        },
+        "fireWindupTicks": {
+          "description": "Ticks from trigger pull to the shot releasing (~0.2s at 24 ticks/s). Aim locks at the pull; a peeking target can duck back behind cover before the bullet leaves.",
+          "type": "integer",
+          "minimum": 0,
+          "default": 5
         }
       }
     },
@@ -450,7 +449,6 @@
         "respawnTicks": 72,
         "spawnProtectTicks": 24,
         "gunRange": 1300,
-        "gunConeDeg": 25,
         "fireCooldownTicks": 12,
         "carrierSpeedPct": 70,
         "visionConeDeg": 45,

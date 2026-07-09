@@ -69,12 +69,15 @@ always drawn — but moving entities are fogged:
 - **Guns are one-shot-kill.** There is no health bar: if you are hit, you die.
 - Press **A** to fire. Firing has a short **cooldown** between shots (it is not a
   continuous beam).
-- A shot is **hitscan** (instant, not a traveling projectile). It hits the
-  **nearest player** that is:
-  1. within **gun range** (effectively map-wide — long open sightlines are
-     lethal, so cover and lanes matter more than distance),
-  2. within your **firing cone** (a narrow arc around your facing direction), and
-  3. in **clear line of sight** (walls block shots).
+- Pressing fire starts a short **windup** (~0.2s): your aim locks the moment
+  you pull the trigger, and the bullet leaves at the end of the windup. A
+  target that peeks out and ducks back behind cover before the release
+  survives the shot.
+- The bullet is **hitscan along your facing ray**: it travels down the locked
+  aim direction and hits the **first player whose footprint crosses its
+  narrow corridor** — it never passes through a body to hit someone behind,
+  and **walls stop it** (clear line of sight required). Range is effectively
+  map-wide, so cover and angles matter more than distance.
 - **Friendly fire is ON.** A shot hits the first valid target regardless of team,
   so firing into a cluster of teammates can kill your own escort.
 - **Same-tick shots resolve simultaneously.** Every trigger pulled on the same
@@ -148,7 +151,7 @@ These are starting values, exposed in the game config and tuned in self-play.
 | Respawn delay | ~3s | Time dead before respawning at home |
 | Spawn protection | ~1s | Invulnerability after respawn |
 | Gun range | 1300px | Effectively map-wide; the cone and line of sight are the real limits |
-| Firing cone | ~±25° | Main "aim difficulty" knob |
+| Fire windup | ~0.2s | Trigger pull to bullet release; aim locks at the pull |
 | Fire cooldown | ~0.5s | Minimum time between shots |
 | Carrier speed | ~70% | Movement penalty while holding the flag |
 | Vision cone (`visionConeDeg`) | ±45° | Fog-of-war forward vision half-angle; unlimited range, walls block |

@@ -40,9 +40,13 @@ const
   Lives* = 3
   RespawnTicks* = 72          ## ~3s before respawning at home.
   SpawnProtectTicks* = 24     ## ~1s spawn invulnerability.
-  GunRange* = 1300            ## px, effectively map-wide; LOS and the cone are the real limits.
-  GunConeDeg* = 25            ## firing cone half-angle in degrees.
+  GunRange* = 1300            ## px, effectively map-wide; LOS and aim are the real limits.
+  BulletHalfWidth* = 8.0      ## the bullet corridor half-width: a shot travels
+                              ## along the facing ray and hits the FIRST player
+                              ## whose footprint crosses it.
   FireCooldownTicks* = 12     ## ~0.5s between shots.
+  FireWindupTicks* = 5        ## ~0.2s from trigger pull to the shot; aim locks
+                              ## at the pull, so a peeking target can duck back.
   ShotFxTicks* = 12           ## ~0.5s a shot tracer stays visible (cosmetic only).
   SplatterFxTicks* = 120      ## ~5s a death splatter stays visible (cosmetic only).
   CarrierSpeedPct* = 70       ## carrier moves at 70% speed.
@@ -237,8 +241,8 @@ type
     respawnTicks*: int
     spawnProtectTicks*: int
     gunRange*: int
-    gunConeDeg*: int
     fireCooldownTicks*: int
+    fireWindupTicks*: int
     carrierSpeedPct*: int
     visionConeDeg*: int
     visionBubble*: int
@@ -264,6 +268,8 @@ type
     lives*: int
     respawnTimer*: int
     fireCooldown*: int
+    fireWindup*: int           ## ticks until a pulled trigger releases its shot.
+    windupDx*, windupDy*: int  ## aim direction locked at the trigger pull.
     spawnProtect*: int
     carryingFlag*: bool
     joinOrder*: int
@@ -781,8 +787,8 @@ proc defaultGameConfig*(): GameConfig =
     respawnTicks: RespawnTicks,
     spawnProtectTicks: SpawnProtectTicks,
     gunRange: GunRange,
-    gunConeDeg: GunConeDeg,
     fireCooldownTicks: FireCooldownTicks,
+    fireWindupTicks: FireWindupTicks,
     carrierSpeedPct: CarrierSpeedPct,
     visionConeDeg: VisionConeDeg,
     visionBubble: VisionBubble,
@@ -1031,8 +1037,8 @@ proc validate(config: GameConfig) =
     raise newException(CtfError, "Config field lives must be at least 1.")
   if config.gunRange <= 0:
     raise newException(CtfError, "Config field gunRange must be positive.")
-  if config.gunConeDeg < 0 or config.gunConeDeg > 180:
-    raise newException(CtfError, "Config field gunConeDeg must be between 0 and 180.")
+  if config.fireWindupTicks < 0:
+    raise newException(CtfError, "Config field fireWindupTicks must not be negative.")
   if config.carrierSpeedPct <= 0 or config.carrierSpeedPct > 100:
     raise newException(CtfError, "Config field carrierSpeedPct must be 1..100.")
   if config.visionConeDeg < 0 or config.visionConeDeg > 180:
@@ -1108,8 +1114,8 @@ proc update*(config: var GameConfig, jsonText: string) =
   node.readConfigInt("respawnTicks", config.respawnTicks)
   node.readConfigInt("spawnProtectTicks", config.spawnProtectTicks)
   node.readConfigInt("gunRange", config.gunRange)
-  node.readConfigInt("gunConeDeg", config.gunConeDeg)
   node.readConfigInt("fireCooldownTicks", config.fireCooldownTicks)
+  node.readConfigInt("fireWindupTicks", config.fireWindupTicks)
   node.readConfigInt("carrierSpeedPct", config.carrierSpeedPct)
   node.readConfigInt("visionConeDeg", config.visionConeDeg)
   node.readConfigInt("visionBubble", config.visionBubble)
@@ -1176,8 +1182,8 @@ proc configJson*(config: GameConfig): string =
     "respawnTicks": config.respawnTicks,
     "spawnProtectTicks": config.spawnProtectTicks,
     "gunRange": config.gunRange,
-    "gunConeDeg": config.gunConeDeg,
     "fireCooldownTicks": config.fireCooldownTicks,
+    "fireWindupTicks": config.fireWindupTicks,
     "carrierSpeedPct": config.carrierSpeedPct,
     "visionConeDeg": config.visionConeDeg,
     "visionBubble": config.visionBubble,
@@ -1331,6 +1337,9 @@ proc gameHash*(sim: SimServer): uint64 =
     result.mixHashInt(player.lives)
     result.mixHashInt(player.respawnTimer)
     result.mixHashInt(player.fireCooldown)
+    result.mixHashInt(player.fireWindup)
+    result.mixHashInt(player.windupDx)
+    result.mixHashInt(player.windupDy)
     result.mixHashInt(player.spawnProtect)
     result.mixHashBool(player.carryingFlag)
     result.mixHashInt(player.joinOrder)
@@ -2008,6 +2017,9 @@ proc startGame*(sim: var SimServer) =
     sim.players[i].lives = sim.config.lives
     sim.players[i].respawnTimer = 0
     sim.players[i].fireCooldown = 0
+    sim.players[i].fireWindup = 0
+    sim.players[i].windupDx = 0
+    sim.players[i].windupDy = 0
     sim.players[i].spawnProtect = sim.config.spawnProtectTicks
     sim.players[i].carryingFlag = false
     sim.players[i].kills = 0
@@ -2198,6 +2210,10 @@ proc killPlayer(sim: var SimServer, targetIndex, killerIndex: int) =
     playerColorText(sim.players[targetIndex].color) &
       " killed by " & sim.playerText(killerIndex)
   )
+  # A dying trigger pull never releases.
+  sim.players[targetIndex].fireWindup = 0
+  sim.players[targetIndex].windupDx = 0
+  sim.players[targetIndex].windupDy = 0
   for team in Team:
     if sim.flags[team].carrier == targetIndex:
       sim.players[targetIndex].carryingFlag = false
@@ -2232,45 +2248,58 @@ proc canFire(sim: SimServer, shooterIndex: int): bool =
   shooter.alive and shooter.fireCooldown <= 0 and
     (shooter.facingDx != 0 or shooter.facingDy != 0)
 
+proc fireDirection(sim: SimServer, shooterIndex: int): tuple[dx, dy: int] =
+  ## Returns the shot direction: the aim locked at the trigger pull when a
+  ## windup is (or was) pending, else the shooter's current facing.
+  let shooter = sim.players[shooterIndex]
+  if shooter.windupDx != 0 or shooter.windupDy != 0:
+    (shooter.windupDx, shooter.windupDy)
+  else:
+    (shooter.facingDx, shooter.facingDy)
+
 proc selectFireTarget(sim: SimServer, shooterIndex: int): int =
-  ## Returns the nearest valid hitscan target along the shooter's facing —
-  ## in range, inside the firing cone, in clear line of sight (friendly fire
-  ## on) — or -1 for a miss.
+  ## Returns the FIRST player along the shot ray — the bullet travels down
+  ## the locked aim direction and stops at the first footprint it crosses
+  ## (friendly fire on) or the first wall — or -1 for a miss.
   result = -1
   let
     shooter = sim.players[shooterIndex]
+    (dirX, dirY) = sim.fireDirection(shooterIndex)
     sx = shooter.x + CollisionW div 2
     sy = shooter.y + CollisionH div 2
-    rangeSq = sim.config.gunRange * sim.config.gunRange
-    fdx = float(shooter.facingDx)
-    fdy = float(shooter.facingDy)
+    fdx = float(dirX)
+    fdy = float(dirY)
     facingLen = sqrt(fdx * fdx + fdy * fdy)
-    coneCos = cos(float(sim.config.gunConeDeg) * 3.14159265358979 / 180.0)
-  var bestDist = high(int)
+  if facingLen <= 0:
+    return
+  let
+    ux = fdx / facingLen
+    uy = fdy / facingLen
+    maxRange = float(sim.config.gunRange)
+    corridor = BulletHalfWidth + float(PlayerHalf)
+  var bestT = maxRange + 1.0
   for i in 0 ..< sim.players.len:
     if i == shooterIndex or not sim.players[i].alive:
       continue
     if sim.players[i].spawnProtect > 0:
       continue
     let
-      tx = sim.players[i].x + CollisionW div 2
-      ty = sim.players[i].y + CollisionH div 2
-      d = distSq(sx, sy, tx, ty)
-    if d > rangeSq or d == 0:
+      vx = float(sim.players[i].x + CollisionW div 2 - sx)
+      vy = float(sim.players[i].y + CollisionH div 2 - sy)
+      t = vx * ux + vy * uy            # distance along the ray
+    if t <= 0 or t > maxRange:
       continue
-    let
-      vx = float(tx - sx)
-      vy = float(ty - sy)
-      vlen = sqrt(vx * vx + vy * vy)
-    if vlen <= 0 or facingLen <= 0:
+    let perp = abs(vx * uy - vy * ux)  # distance off the ray
+    if perp > corridor:
       continue
-    let dot = (vx * fdx + vy * fdy) / (vlen * facingLen)
-    if dot < coneCos:
+    if not sim.lineOfSightClear(
+      sx, sy,
+      sim.players[i].x + CollisionW div 2,
+      sim.players[i].y + CollisionH div 2
+    ):
       continue
-    if not sim.lineOfSightClear(sx, sy, tx, ty):
-      continue
-    if d < bestDist:
-      bestDist = d
+    if t < bestT:
+      bestT = t
       result = i
 
 proc applyFire(sim: var SimServer, shooterIndex, targetIndex: int) =
@@ -2279,21 +2308,25 @@ proc applyFire(sim: var SimServer, shooterIndex, targetIndex: int) =
   ## (tracer and all) but only an alive target yields a kill.
   let
     shooter = sim.players[shooterIndex]
+    (dirX, dirY) = sim.fireDirection(shooterIndex)
     sx = shooter.x + CollisionW div 2
     sy = shooter.y + CollisionH div 2
-    fdx = float(shooter.facingDx)
-    fdy = float(shooter.facingDy)
+    fdx = float(dirX)
+    fdy = float(dirY)
     facingLen = sqrt(fdx * fdx + fdy * fdy)
   sim.players[shooterIndex].fireCooldown = sim.config.fireCooldownTicks
-  # Record a cosmetic tracer for the shot (never enters gameHash).
+  sim.players[shooterIndex].windupDx = 0
+  sim.players[shooterIndex].windupDy = 0
+  # Record a cosmetic tracer for the shot (never enters gameHash). It ends at
+  # the victim, so a bullet visibly never travels past its first hit.
   var
     ex = sx
     ey = sy
   if targetIndex >= 0:
     ex = sim.players[targetIndex].x + CollisionW div 2
     ey = sim.players[targetIndex].y + CollisionH div 2
-  else:
-    # March along the normalized facing to the last wall-free pixel or max
+  elif facingLen > 0:
+    # March along the normalized aim to the last wall-free pixel or max
     # range (checking each sampled pixel keeps this O(range) at 1300px).
     let maxRange = sim.config.gunRange
     var lastClear = 0
@@ -2324,8 +2357,19 @@ proc tryFire*(sim: var SimServer, shooterIndex: int) =
     return
   sim.applyFire(shooterIndex, sim.selectFireTarget(shooterIndex))
 
+proc startFireWindup*(sim: var SimServer, shooterIndex: int) =
+  ## Starts a shot: locks the aim at the current facing and arms the windup.
+  ## The shot itself releases fireWindupTicks later (see step).
+  if not sim.canFire(shooterIndex):
+    return
+  if sim.players[shooterIndex].fireWindup > 0:
+    return
+  sim.players[shooterIndex].fireWindup = sim.config.fireWindupTicks
+  sim.players[shooterIndex].windupDx = sim.players[shooterIndex].facingDx
+  sim.players[shooterIndex].windupDy = sim.players[shooterIndex].facingDy
+
 proc resolveSimultaneousFire*(sim: var SimServer, shooters: openArray[int]) =
-  ## Resolves every shot pressed this tick at once: all targets are chosen
+  ## Resolves every shot released this tick at once: all targets are chosen
   ## against the same snapshot before any kill is applied, so a mutual duel
   ## kills both shooters and neither team gains an input-processing-order
   ## advantage.
@@ -2944,12 +2988,19 @@ proc step*(
       sim.resetToLobby()
     return
 
-  # Playing: move everyone first, then resolve every fresh trigger pull at
-  # once against the post-movement snapshot (no processing-order advantage).
+  # Playing: move everyone first, then resolve every shot that releases this
+  # tick at once against the post-movement snapshot (no processing-order
+  # advantage). A fresh trigger pull arms a windup with the aim locked at the
+  # pull; the bullet leaves fireWindupTicks later from the shooter's current
+  # position, so a target that ducks back behind cover survives the shot.
   var firing: seq[int] = @[]
   for playerIndex in 0 ..< sim.players.len:
     if sim.players[playerIndex].fireCooldown > 0:
       dec sim.players[playerIndex].fireCooldown
+    if sim.players[playerIndex].fireWindup > 0:
+      dec sim.players[playerIndex].fireWindup
+      if sim.players[playerIndex].fireWindup == 0:
+        firing.add(playerIndex)
     let input =
       if playerIndex < inputs.len: inputs[playerIndex]
       else: InputState()
@@ -2958,7 +3009,11 @@ proc step*(
       else: InputState()
     sim.applyInput(playerIndex, input)
     if input.attack and not prev.attack:
-      firing.add(playerIndex)
+      if sim.config.fireWindupTicks <= 0:
+        if sim.canFire(playerIndex) and sim.players[playerIndex].fireWindup == 0:
+          firing.add(playerIndex)
+      else:
+        sim.startFireWindup(playerIndex)
   sim.resolveSimultaneousFire(firing)
 
   for playerIndex in 0 ..< sim.players.len:

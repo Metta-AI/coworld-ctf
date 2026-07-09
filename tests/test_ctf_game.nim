@@ -64,7 +64,7 @@ suite "ctf game":
     sim.tryPickupFlags(0)
     check sim.flags[Blue].carrier == -1
 
-  test "hitscan kills an enemy inside the firing cone":
+  test "hitscan kills an enemy on the shot ray":
     var sim = twoTeamGame()
     let cx = sim.gameMap.center.x
     let cy = sim.gameMap.center.y
@@ -84,6 +84,126 @@ suite "ctf game":
     check sim.players[1].deaths == 1
     check sim.players[1].lives == livesBefore - 1
     check sim.players[0].kills == 1
+
+  test "a bullet stops at the first target in its path":
+    var sim = twoTeamGame()
+    discard sim.addPlayer("blue1")
+    sim.players[2].team = Blue
+    sim.players[2].alive = true
+    let cx = sim.gameMap.center.x
+    let cy = sim.gameMap.center.y
+    sim.players[0].x = cx
+    sim.players[0].y = cy
+    sim.players[0].facingDx = 1
+    sim.players[0].facingDy = 0
+    sim.players[0].fireCooldown = 0
+    # Two enemies dead ahead on the same ray: near and far.
+    sim.players[1].x = cx + 40
+    sim.players[1].y = cy
+    sim.players[1].spawnProtect = 0
+    sim.players[2].x = cx + 100
+    sim.players[2].y = cy
+    sim.players[2].spawnProtect = 0
+
+    sim.tryFire(0)
+
+    check not sim.players[1].alive     # first body in the path dies
+    check sim.players[2].alive         # the bullet does not pass through
+    check sim.players[0].kills == 1
+    # The tracer ends at the first victim, not beyond it.
+    check sim.recentShots[0].x1 == sim.players[1].x + CollisionW div 2
+
+  test "a shot passes wide of an off-ray target":
+    var sim = twoTeamGame()
+    let cx = sim.gameMap.center.x
+    let cy = sim.gameMap.center.y
+    sim.players[0].x = cx
+    sim.players[0].y = cy
+    sim.players[0].facingDx = 1
+    sim.players[0].facingDy = 0
+    sim.players[0].fireCooldown = 0
+    # Ahead but 60px off the ray: inside the old 25-degree cone, far outside
+    # the bullet corridor.
+    sim.players[1].x = cx + 200
+    sim.players[1].y = cy + 60
+    sim.players[1].spawnProtect = 0
+
+    sim.tryFire(0)
+
+    check sim.players[1].alive
+    check sim.players[0].kills == 0
+
+  test "the windup delays the shot":
+    var sim = twoTeamGame()
+    let cx = sim.gameMap.center.x
+    let cy = sim.gameMap.center.y
+    sim.players[0].x = cx
+    sim.players[0].y = cy
+    sim.players[0].facingDx = 1
+    sim.players[0].facingDy = 0
+    sim.players[0].fireCooldown = 0
+    sim.players[1].x = cx + 60
+    sim.players[1].y = cy
+    sim.players[1].spawnProtect = 0
+
+    sim.startFireWindup(0)
+    check sim.players[0].fireWindup == sim.config.fireWindupTicks
+
+    let noInput = newSeq[InputState](sim.players.len)
+    # The target survives every tick of the windup but the last.
+    for _ in 1 ..< sim.config.fireWindupTicks:
+      sim.step(noInput, noInput)
+      check sim.players[1].alive
+    sim.step(noInput, noInput)
+    check not sim.players[1].alive
+    check sim.players[0].fireCooldown > 0
+
+  test "ducking out of the line during the windup survives the shot":
+    var sim = twoTeamGame()
+    let cx = sim.gameMap.center.x
+    let cy = sim.gameMap.center.y
+    sim.players[0].x = cx
+    sim.players[0].y = cy
+    sim.players[0].facingDx = 1
+    sim.players[0].facingDy = 0
+    sim.players[0].fireCooldown = 0
+    sim.players[1].x = cx + 60
+    sim.players[1].y = cy
+    sim.players[1].spawnProtect = 0
+
+    sim.startFireWindup(0)
+    # The peeker steps back out of the bullet corridor before the release.
+    sim.players[1].y = cy + 40
+
+    let noInput = newSeq[InputState](sim.players.len)
+    for _ in 1 .. sim.config.fireWindupTicks:
+      sim.step(noInput, noInput)
+    check sim.players[1].alive
+    check sim.players[0].kills == 0
+    check sim.recentShots.len == 1     # the shot still fired, into empty space
+
+  test "the aim locks at the trigger pull":
+    var sim = twoTeamGame()
+    let cx = sim.gameMap.center.x
+    let cy = sim.gameMap.center.y
+    sim.players[0].x = cx
+    sim.players[0].y = cy
+    sim.players[0].facingDx = 1
+    sim.players[0].facingDy = 0
+    sim.players[0].fireCooldown = 0
+    sim.players[1].x = cx + 60
+    sim.players[1].y = cy
+    sim.players[1].spawnProtect = 0
+
+    sim.startFireWindup(0)
+    # Turning after the pull must not move the shot off the locked ray.
+    sim.players[0].facingDx = 0
+    sim.players[0].facingDy = 1
+
+    let noInput = newSeq[InputState](sim.players.len)
+    for _ in 1 .. sim.config.fireWindupTicks:
+      sim.step(noInput, noInput)
+    check not sim.players[1].alive     # still hit along the original aim
 
   test "a hit records a tracer ending at the target and skips the hash":
     var sim = twoTeamGame()
@@ -192,7 +312,7 @@ suite "ctf game":
       sim.step(noInput, noInput)
     check sim.splatters.len == 0
 
-  test "shot misses a target outside the cone":
+  test "shot misses a target behind the shooter":
     var sim = twoTeamGame()
     let cx = sim.gameMap.center.x
     let cy = sim.gameMap.center.y
