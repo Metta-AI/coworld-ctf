@@ -33,8 +33,10 @@ logs or replay links, and the smallest repro.
   enemy carrying a flag) only appear inside your **forward vision cone** (±45°
   around your **aim**, unlimited range, walls block it) or your **~90px
   omnidirectional bubble**. Your aim carries your vision — you see where you
-  point, not where you walk. Teammates, both pedestals, your own flag's state,
-  and your own position (a distinct self marker) are always visible.
+  point, not where you walk. Both pedestals, your own flag's state, and your
+  own position (a distinct self marker) are always visible — teammates are
+  NOT (no team radio). Shots you can't see leave a brief sound ring
+  randomly offset from the muzzle: heard, not pinpointed.
 - **Shoot** with **A**: an instant, line-of-sight, effectively map-wide hitscan
   along your aim angle (locked at the trigger pull, released after a short
   windup). Each hit removes one of **3 hit points** — at zero you die, and HP

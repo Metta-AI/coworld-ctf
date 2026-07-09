@@ -53,6 +53,10 @@ const
   HpPipSize = 2                ## px per pip square.
   HpPipGap = 1                 ## px between pips.
   CarriedFlagLift = 10         ## px a carried flag flies above its carrier.
+  SoundRingSpriteId = 830      ## the shot "sound" ring sprite.
+  SoundRingObjectBase = 19100  ## sound ring object-id pool (per recent shot).
+  SoundRingSize = 12           ## px diameter of the sound ring.
+  SoundRingJitter = 20         ## max px the ring strays from the true muzzle.
   TracerDotSpriteBase = 760    ## per-color tracer dot sprites: 760..775.
   TracerDotObjectBase = 15000  ## tracer object-id pool base.
   TracerDotSize = 3
@@ -533,6 +537,31 @@ proc buildHpPipsSprite(hp, maxHp: int): seq[uint8] {.measure.} =
           result.putRawRgbaPixel(i, 96, 255, 96, 255)
         else:
           result.putRawRgbaPixel(i, 40, 40, 40, 200)
+
+proc buildSoundRingSprite(): seq[uint8] {.measure.} =
+  ## Builds the semi-transparent white "sound" ring: a faint filled circle
+  ## with a brighter rim, colorless so it never leaks the shooter's team.
+  result = newRgbaPixels(SoundRingSize, SoundRingSize)
+  let c = float(SoundRingSize - 1) / 2
+  for y in 0 ..< SoundRingSize:
+    for x in 0 ..< SoundRingSize:
+      let d = sqrt((float(x) - c) * (float(x) - c) +
+        (float(y) - c) * (float(y) - c))
+      if d <= c:
+        let alpha = if d >= c - 1.5: 150'u8 else: 45'u8
+        result.putRawRgbaPixel(y * SoundRingSize + x, 255, 255, 255, alpha)
+
+proc soundRingOffset(shot: ShotFx): (int, int) =
+  ## A deterministic pseudo-random offset for one shot's sound ring: stable
+  ## across frames, viewers, and replays, but never the exact muzzle spot.
+  var h = 0x9E3779B9'u32
+  h = (h xor uint32(shot.firedTick)) * 0x85EBCA6B'u32
+  h = (h xor uint32(shot.x0)) * 0xC2B2AE35'u32
+  h = (h xor uint32(shot.y0)) * 0x27D4EB2F'u32
+  h = h xor (h shr 15)
+  let span = uint32(2 * SoundRingJitter + 1)
+  (int(h mod span) - SoundRingJitter,
+    int((h shr 16) mod span) - SoundRingJitter)
 
 proc buildTracerDotSprite(colorIndex: int): seq[uint8] {.measure.} =
   ## Builds one shot-tracer dot sprite: the shooter's palette color mixed
@@ -1613,6 +1642,42 @@ proc addAimIndicators(
         spriteId
       )
 
+proc addSoundRings(
+  sim: SimServer,
+  spriteDefs: var seq[SpriteDefinition],
+  currentIds: var seq[int],
+  packet: var seq[uint8],
+  viewerIndex: int
+) {.measure.} =
+  ## Places a brief semi-transparent ring near the muzzle of every recent
+  ## shot the viewer could NOT see: gunfire is audible through the fog. The
+  ## ring is jittered per shot (soundRingOffset) so it reveals a
+  ## neighborhood, never the exact spot; a shot you can see needs no ring.
+  for shotIndex in 0 ..< min(sim.recentShots.len, TracerMaxShots):
+    let shot = sim.recentShots[shotIndex]
+    if sim.fovVisibleAt(viewerIndex, shot.x0, shot.y0):
+      continue
+    packet.addSpriteChanged(
+      spriteDefs,
+      SoundRingSpriteId,
+      SoundRingSize,
+      SoundRingSize,
+      buildSoundRingSprite(),
+      "shot sound"
+    )
+    let
+      (dx, dy) = soundRingOffset(shot)
+      objectId = SoundRingObjectBase + shotIndex
+    currentIds.add(objectId)
+    packet.addObject(
+      objectId,
+      shot.x0 + dx - SoundRingSize div 2,
+      shot.y0 + dy - SoundRingSize div 2,
+      30000,
+      MapLayerId,
+      SoundRingSpriteId
+    )
+
 proc addHpPips(
   sim: SimServer,
   spriteDefs: var seq[SpriteDefinition],
@@ -1785,9 +1850,9 @@ proc buildSpriteProtocolPlayerUpdates*(
           FlagSpriteBase + ord(team)
         )
 
-    # Players: yourself (a distinct outlined self marker) and teammates are
-    # always visible (team radio); living enemies only inside your vision;
-    # corpses only for ghost viewers.
+    # Players: yourself (a distinct outlined self marker) is always visible;
+    # everyone else — teammates included — only inside your vision; corpses
+    # only for ghost viewers.
     for i in 0 ..< sim.players.len:
       let other = sim.players[i]
       if other.alive:
@@ -1844,6 +1909,13 @@ proc buildSpriteProtocolPlayerUpdates*(
       result,
       viewerIndex = playerIndex
     )
+    if not viewerIsGhost:
+      sim.addSoundRings(
+        nextState.spriteDefs,
+        currentIds,
+        result,
+        viewerIndex = playerIndex
+      )
 
     # Fire-readiness icon on the bottom-left HUD layer.
     if player.alive:

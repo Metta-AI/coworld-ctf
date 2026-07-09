@@ -2725,11 +2725,10 @@ proc fovVisibleAt*(sim: SimServer, playerIndex, x, y: int): bool =
   sim.fovCaches[playerIndex].visible[fovCellIndex(cx, cy)]
 
 proc playerVisibleTo*(sim: SimServer, viewerIndex, targetIndex: int): bool =
-  ## Returns whether one player is observable by a viewer: yourself and your
-  ## teammates always are (team radio); enemies only inside your vision.
+  ## Returns whether one player is observable by a viewer: only yourself is
+  ## always visible; everyone else — teammates included — only inside your
+  ## vision. There is no team radio.
   if viewerIndex == targetIndex:
-    return true
-  if sim.players[viewerIndex].team == sim.players[targetIndex].team:
     return true
   sim.fovVisibleAt(
     viewerIndex,

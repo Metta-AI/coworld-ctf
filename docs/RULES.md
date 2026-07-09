@@ -73,10 +73,16 @@ always drawn — but moving entities are fogged:
 - Everything outside your vision is **masked**: enemies, an enemy carrying a
   flag, and shot tracers / death splatters from unseen events are simply not in
   your observation. The unseen area is dimmed by a fog overlay.
-- **Always visible regardless of fog:** the static map, your **teammates** (team
-  radio), **both flag pedestals**, your **own flag's state** (its pedestal flag
-  is never hidden — an empty own pedestal means your flag is stolen), and
-  **yourself** via a distinct self marker.
+- **Always visible regardless of fog:** the static map, **both flag pedestals**,
+  your **own flag's state** (its pedestal flag is never hidden — an empty own
+  pedestal means your flag is stolen), and **yourself** via a distinct self
+  marker. **Teammates are fogged like everyone else** — there is no team
+  radio; keeping track of your own side takes eyes too.
+- **Gunshots are audible.** A shot you could not see leaves a brief
+  semi-transparent **sound ring** near its muzzle for ~0.5s. The ring is
+  randomly (but deterministically, per shot) offset by up to ~20px, so it
+  tells you someone fired *roughly there* — never the exact spot, and never
+  which team.
 - There is **no global flag tracking**: once a thief carries your flag into the
   fog, finding it again takes eyes on it.
 - Dead players spectate as ghosts and see the whole map (their inputs are

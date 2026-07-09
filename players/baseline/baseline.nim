@@ -6,7 +6,7 @@
 ## enemy carrying our flag) is only streamed while it sits inside OUR vision —
 ## a forward cone (half-angle ~45 degrees around our AIM ANGLE, unlimited
 ## range, walls block) plus a small omnidirectional bubble (~90px). Always
-## visible: the static map, our teammates (team radio), BOTH flag pedestals,
+## visible: the static map, BOTH flag pedestals (teammates are fogged too),
 ## our own flag's state (an empty own pedestal means it is stolen), and
 ## ourselves via the distinct "self <color> right|left" marker. AIM IS
 ## DECOUPLED FROM MOVEMENT: a continuous per-player aim angle (0..255 brads,
