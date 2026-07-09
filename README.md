@@ -37,7 +37,8 @@ logs or replay links, and the smallest repro.
   and your own position (a distinct self marker) are always visible.
 - **Shoot** with **A**: an instant, line-of-sight, effectively map-wide hitscan
   along your aim angle (locked at the trigger pull, released after a short
-  windup). One hit kills. **Friendly fire is on.**
+  windup). Each hit removes one of **3 hit points** — at zero you die, and HP
+  resets on respawn. **Friendly fire is on.**
 - **Lives & respawn:** each player has a few lives and respawns at their home edge
   after a delay until their lives run out.
 - **The flags:** touch the **enemy** pedestal flag to steal it; you carry it

@@ -84,7 +84,9 @@ always drawn — but moving entities are fogged:
 
 ## Combat
 
-- **Guns are one-shot-kill.** There is no health bar: if you are hit, you die.
+- **Every player has `hitPoints` (default 3) per life.** Each bullet that hits
+  removes one hit point; at zero you die. Hit points reset to full on every
+  respawn. Your own remaining HP shows on your HUD next to your lives.
 - Press **A** to fire. Firing has a short **cooldown** between shots (it is not a
   continuous beam).
 - Pressing fire starts a short **windup** (~0.2s): your aim locks the moment
@@ -166,6 +168,7 @@ These are starting values, exposed in the game config and tuned in self-play.
 | --- | --- | --- |
 | Players | 16 (8v8) | All standard Coworld slots |
 | Lives per player | 3 | Out of lives = out for the round |
+| Hit points per life (`hitPoints`) | 3 | Shots to kill; reset to full on respawn |
 | Respawn delay | ~3s | Time dead before respawning at home |
 | Spawn protection | ~1s | Invulnerability after respawn |
 | Gun range | 1300px | Effectively map-wide; aim precision and line of sight are the real limits |

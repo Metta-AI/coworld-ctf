@@ -38,6 +38,7 @@ const
 
   # CTF tuning defaults (RULES.md). Second-based values convert at 24 ticks/sec.
   Lives* = 3
+  HitPoints* = 3              ## hits to kill: each shot removes one hit point.
   RespawnTicks* = 72          ## ~3s before respawning at home.
   SpawnProtectTicks* = 24     ## ~1s spawn invulnerability.
   GunRange* = 1300            ## px, effectively map-wide; LOS and aim are the real limits.
@@ -241,6 +242,7 @@ type
     seed*: int
     speed*: int
     lives*: int
+    hitPoints*: int
     respawnTicks*: int
     spawnProtectTicks*: int
     gunRange*: int
@@ -271,6 +273,7 @@ type
     team*: Team
     alive*: bool
     lives*: int
+    hp*: int                   ## remaining hit points this life.
     respawnTimer*: int
     fireCooldown*: int
     fireWindup*: int           ## ticks until a pulled trigger releases its shot.
@@ -789,6 +792,7 @@ proc defaultGameConfig*(): GameConfig =
     seed: 0xA6019,
     speed: 1,
     lives: Lives,
+    hitPoints: HitPoints,
     respawnTicks: RespawnTicks,
     spawnProtectTicks: SpawnProtectTicks,
     gunRange: GunRange,
@@ -1041,6 +1045,8 @@ proc validate(config: GameConfig) =
     raise newException(CtfError, "can't do more than 8 players.")
   if config.lives < 1:
     raise newException(CtfError, "Config field lives must be at least 1.")
+  if config.hitPoints < 1:
+    raise newException(CtfError, "Config field hitPoints must be at least 1.")
   if config.gunRange <= 0:
     raise newException(CtfError, "Config field gunRange must be positive.")
   if config.fireWindupTicks < 0:
@@ -1119,6 +1125,7 @@ proc update*(config: var GameConfig, jsonText: string) =
   node.readConfigInt("seed", config.seed)
   node.readConfigInt("speed", config.speed)
   node.readConfigInt("lives", config.lives)
+  node.readConfigInt("hitPoints", config.hitPoints)
   node.readConfigInt("respawnTicks", config.respawnTicks)
   node.readConfigInt("spawnProtectTicks", config.spawnProtectTicks)
   node.readConfigInt("gunRange", config.gunRange)
@@ -1188,6 +1195,7 @@ proc configJson*(config: GameConfig): string =
     "seed": config.seed,
     "speed": config.speed,
     "lives": config.lives,
+    "hitPoints": config.hitPoints,
     "respawnTicks": config.respawnTicks,
     "spawnProtectTicks": config.spawnProtectTicks,
     "gunRange": config.gunRange,
@@ -1359,6 +1367,7 @@ proc gameHash*(sim: SimServer): uint64 =
     result.mixHashInt(ord(player.team))
     result.mixHashBool(player.alive)
     result.mixHashInt(player.lives)
+    result.mixHashInt(player.hp)
     result.mixHashInt(player.respawnTimer)
     result.mixHashInt(player.fireCooldown)
     result.mixHashInt(player.fireWindup)
@@ -1868,6 +1877,7 @@ proc addPlayer*(
     team: team,
     alive: true,
     lives: sim.config.lives,
+    hp: sim.config.hitPoints,
     joinOrder: order,
     address: address,
     color: color,
@@ -2039,6 +2049,7 @@ proc startGame*(sim: var SimServer) =
   for i in 0 ..< sim.players.len:
     sim.players[i].alive = true
     sim.players[i].lives = sim.config.lives
+    sim.players[i].hp = sim.config.hitPoints
     sim.players[i].respawnTimer = 0
     sim.players[i].fireCooldown = 0
     sim.players[i].fireWindup = 0
@@ -2359,8 +2370,16 @@ proc applyFire(sim: var SimServer, shooterIndex, targetIndex: int) =
     color: shooter.color
   )
   if targetIndex >= 0 and sim.players[targetIndex].alive:
-    sim.killPlayer(targetIndex, shooterIndex)
-    sim.recordKill(shooterIndex)
+    dec sim.players[targetIndex].hp
+    if sim.players[targetIndex].hp <= 0:
+      sim.killPlayer(targetIndex, shooterIndex)
+      sim.recordKill(shooterIndex)
+    else:
+      sim.logGameEvent(
+        playerColorText(sim.players[targetIndex].color) &
+          " hit by " & sim.playerText(shooterIndex) &
+          " (" & $sim.players[targetIndex].hp & " hp left)"
+      )
 
 proc tryFire*(sim: var SimServer, shooterIndex: int) =
   ## Fires one shot immediately (the single-shooter path).
@@ -2974,6 +2993,7 @@ proc respawnPlayers(sim: var SimServer) =
       if sim.players[i].respawnTimer <= 0:
         sim.resetPlayerToHome(i)
         sim.players[i].alive = true
+        sim.players[i].hp = sim.config.hitPoints
         sim.players[i].spawnProtect = sim.config.spawnProtectTicks
         sim.players[i].aimBrads = spawnAimBrads(sim.players[i].team)
         sim.players[i].flipH = sim.players[i].team == Blue

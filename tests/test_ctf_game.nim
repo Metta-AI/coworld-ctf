@@ -75,6 +75,7 @@ suite "ctf game":
     sim.players[1].x = cx + 6
     sim.players[1].y = cy
     sim.players[1].spawnProtect = 0
+    sim.players[1].hp = 1
     let livesBefore = sim.players[1].lives
 
     sim.tryFire(0)
@@ -83,6 +84,38 @@ suite "ctf game":
     check sim.players[1].deaths == 1
     check sim.players[1].lives == livesBefore - 1
     check sim.players[0].kills == 1
+
+  test "three hits kill: each shot removes one hit point":
+    var sim = twoTeamGame()
+    let cx = sim.gameMap.center.x
+    let cy = sim.gameMap.center.y
+    sim.players[0].x = cx
+    sim.players[0].y = cy
+    sim.players[0].aimBrads = 0
+    sim.players[1].x = cx + 60
+    sim.players[1].y = cy
+    sim.players[1].spawnProtect = 0
+    check sim.players[1].hp == sim.config.hitPoints
+
+    for hit in 1 .. sim.config.hitPoints:
+      sim.players[0].fireCooldown = 0
+      sim.players[0].fireWindup = 0
+      sim.tryFire(0)
+      if hit < sim.config.hitPoints:
+        check sim.players[1].alive
+        check sim.players[1].hp == sim.config.hitPoints - hit
+        check sim.players[1].deaths == 0
+        check sim.players[0].kills == 0
+    check not sim.players[1].alive
+    check sim.players[1].deaths == 1
+    check sim.players[0].kills == 1
+
+    # Respawning restores full hit points.
+    let noInput = newSeq[InputState](sim.players.len)
+    for _ in 1 .. sim.config.respawnTicks + 1:
+      sim.step(noInput, noInput)
+    check sim.players[1].alive
+    check sim.players[1].hp == sim.config.hitPoints
 
   test "a bullet stops at the first target in its path":
     var sim = twoTeamGame()
@@ -102,6 +135,7 @@ suite "ctf game":
     sim.players[2].x = cx + 100
     sim.players[2].y = cy
     sim.players[2].spawnProtect = 0
+    sim.players[1].hp = 1
 
     sim.tryFire(0)
 
@@ -141,6 +175,7 @@ suite "ctf game":
     sim.players[1].x = cx + 60
     sim.players[1].y = cy
     sim.players[1].spawnProtect = 0
+    sim.players[1].hp = 1
 
     sim.startFireWindup(0)
     check sim.players[0].fireWindup == sim.config.fireWindupTicks
@@ -188,6 +223,7 @@ suite "ctf game":
     sim.players[1].x = cx + 60
     sim.players[1].y = cy
     sim.players[1].spawnProtect = 0
+    sim.players[1].hp = 1
 
     sim.startFireWindup(0)
     check sim.players[0].windupBrads == 0
@@ -242,6 +278,7 @@ suite "ctf game":
     sim.players[1].x = cx + 40
     sim.players[1].y = cy - 40
     sim.players[1].spawnProtect = 0
+    sim.players[1].hp = 1
 
     sim.tryFire(0)
 
@@ -330,6 +367,7 @@ suite "ctf game":
     sim.players[1].x = cx + 6
     sim.players[1].y = cy
     sim.players[1].spawnProtect = 0
+    sim.players[1].hp = 1
 
     sim.tryFire(0)
 
@@ -399,6 +437,9 @@ suite "ctf game":
     sim.players[1].fireCooldown = 0
     sim.players[1].spawnProtect = 0
 
+    sim.players[0].hp = 1
+    sim.players[1].hp = 1
+
     sim.resolveSimultaneousFire([0, 1])
 
     check not sim.players[0].alive
@@ -426,6 +467,7 @@ suite "ctf game":
     sim.players[1].carryingFlag = true
     sim.flags[Red].x = sim.players[1].x
     sim.flags[Red].y = sim.players[1].y
+    sim.players[1].hp = 1
 
     sim.tryFire(0)
 

@@ -117,6 +117,12 @@
           "minimum": 1,
           "default": 3
         },
+        "hitPoints": {
+          "description": "Hit points per life. Each shot removes one; at zero you die.",
+          "type": "integer",
+          "minimum": 1,
+          "default": 3
+        },
         "respawnTicks": {
           "description": "Ticks dead before respawning at home (~3s at 24 ticks/s).",
           "type": "integer",
@@ -452,6 +458,7 @@
         "num_agents": 16,
         "minPlayers": 16,
         "lives": 3,
+        "hitPoints": 3,
         "respawnTicks": 72,
         "spawnProtectTicks": 24,
         "gunRange": 1300,
@@ -625,6 +632,7 @@
       "num_agents": 16,
       "minPlayers": 16,
       "lives": 1,
+      "hitPoints": 1,
       "startWaitTicks": 0,
       "gameOverTicks": 1,
       "maxTicks": 300,

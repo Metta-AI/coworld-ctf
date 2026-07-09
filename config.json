@@ -1,6 +1,7 @@
 {
   "maxGames": 1,
   "lives": 3,
+  "hitPoints": 3,
   "respawnTicks": 72,
   "spawnProtectTicks": 24,
   "gunRange": 1300,
