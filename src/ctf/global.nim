@@ -30,10 +30,10 @@ const
   ReplayMismatchBgG = 20'u8
   ReplayMismatchBgB = 20'u8
   ReplayMismatchBgA = 255'u8
-  ScoreboardWidth = 160
-  ScoreboardHeight = 130
+  ScoreboardWidth = 84
+  ScoreboardHeight = 116
   ScoreboardY = 2
-  ScoreboardRowHeight = 8
+  ScoreboardRowHeight = 7
   ScoreboardPipX = 2
   ScoreboardPipY = 2
   ScoreboardPipSize = 4
@@ -141,7 +141,6 @@ const
   ProtocolTextObjectBase = 9000
   ProtocolTextZ = 30010
   ProtocolTextColor = 2'u8
-  ProtocolLobbyIconObjectBase = 9400
   ProtocolGameOverIconObjectBase = 9700
   PlayerColorNames = [
     "red",
@@ -862,7 +861,10 @@ proc addTeamScoreboard(
   packet: var seq[uint8]
 ) {.measure.} =
   ## Adds the team kills/deaths scoreboard above the field: red on the left,
-  ## blue on the right, each in its team color.
+  ## blue on the right, each in its team color. Playing only — interstitial
+  ## screens put their own title in the same top-center spot.
+  if sim.phase != Playing:
+    return
   var kills, deaths: array[Team, int]
   for p in sim.players:
     kills[p.team] += p.kills
@@ -1047,39 +1049,6 @@ proc playerIconSpriteId(player: Player): int =
     false
   )
 
-proc addProtocolLobbyActorSprites(
-  sim: SimServer,
-  currentIds: var seq[int],
-  packet: var seq[uint8],
-  layer: int
-) {.measure.} =
-  ## Adds separate player sprites for the lobby interstitial.
-  if sim.phase != Lobby:
-    return
-  let
-    cols = max(1, min(sim.players.len, 6))
-    cellW = CrewSpriteSize + 2
-    cellH = CrewSpriteSize + 2
-    totalW = cols * cellW
-    startX = (ScreenWidth - totalW) div 2
-    startY = sim.lobbyIconStartY()
-  for i in 0 ..< sim.players.len:
-    let
-      col = i mod cols
-      row = i div cols
-      sx = startX + col * cellW
-      sy = startY + row * cellH
-      objectId = ProtocolLobbyIconObjectBase + i
-    currentIds.add(objectId)
-    packet.addObject(
-      objectId,
-      sx - 1,
-      sy - 1,
-      30000,
-      layer,
-      sim.players[i].playerIconSpriteId()
-    )
-
 proc addProtocolGameOverActorSprites(
   sim: SimServer,
   currentIds: var seq[int],
@@ -1124,8 +1093,6 @@ proc addProtocolInterstitialActorSprites(
 ) {.measure.} =
   ## Adds separate actor sprites for sprite protocol interstitials.
   case sim.phase
-  of Lobby:
-    sim.addProtocolLobbyActorSprites(currentIds, packet, layer)
   of GameOver:
     sim.addProtocolGameOverActorSprites(currentIds, packet, layer)
   else:
@@ -1365,17 +1332,10 @@ proc scoreboardPipSpriteId(colorIndex: int): int =
   ## Returns the stable score pip sprite id for one color.
   ScoreboardPipSpriteBase + colorIndex
 
-proc scoreboardTeamTag(player: Player): string =
-  ## Returns the compact scoreboard team tag for one player.
-  case player.team
-  of Red:
-    "red"
-  of Blue:
-    "blue"
-
 proc scoreboardName(player: Player): string =
-  ## Returns the clickable scoreboard player label.
-  player.playerLabelText() & " (" & player.scoreboardTeamTag() & ")"
+  ## Returns the clickable scoreboard player label. The color pip next to the
+  ## row already carries the team, so no (red)/(blue) tag.
+  player.playerLabelText()
 
 proc scoreboardText(player: Player): string =
   ## Returns one compact scoreboard row.

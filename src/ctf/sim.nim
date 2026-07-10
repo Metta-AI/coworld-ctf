@@ -1315,10 +1315,6 @@ proc logLobbyCountdown(sim: var SimServer) =
   sim.lastLobbySecondsLogged = seconds
   sim.logGameEvent("game starting in " & $seconds)
 
-proc lobbyIconStartY*(sim: SimServer): int =
-  ## Returns the lobby icon row y coordinate.
-  if sim.lobbyIsStarting(): 32 else: 26
-
 proc mapIndex*(x, y: int): int {.inline.} =
   y * MapWidth + x
 
