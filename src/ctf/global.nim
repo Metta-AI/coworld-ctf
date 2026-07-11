@@ -128,7 +128,9 @@ const
   PlayerInterstitialLayerId = 7  ## lobby / game-over screens, top-center.
   PlayerInterstitialLayerType = 5
   ## Team kills/deaths scoreboard shown above the field in every view.
-  TeamScoreLayerId = 8
+  TeamScoreLayerId = 11        ## NOT 8: the replay viewer re-registers layer 8 as its
+                               ## center-BOTTOM scrubber panel, which dragged the team
+                               ## scoreboard to the bottom of replays.
   TeamScoreLayerType = 5       ## top-center anchor.
   TeamScoreWidth = 132
   TeamScoreGap = 8             ## px between the red and blue halves.

@@ -113,6 +113,17 @@ const
                               # (matches the server's aimTurnRate default)
   AimDotRadius = 16.0         # own aim-indicator dots sit within this radius
   AimResyncBrads = 4          # trust dead reckoning inside this error
+  MaxHp = 3                   # hitPoints per life (config default); pip labels
+                              # read "hp <n>/<MaxHp>"
+  HpPipRadius = 22.0          # a player's overhead hp bar sits within this
+  HpFocusBonus = 140.0        # px of effective-distance credit per missing
+                              # enemy hit point (a 1-hp target 250px out
+                              # beats a full-hp target at point blank)
+  FocusFireBonus = 90.0       # px of credit when a visible mate's aim line
+                              # already covers the target (finish together)
+  MateAimRayLen = 700.0       # trust a mate's aim line out to this range
+  MateAimHitSlack = 22.0      # enemy within this perpendicular distance of a
+                              # mate's aim ray counts as mate-targeted
   CombatDeadband = 2          # stop the traverse within this error (brads);
                               # AimRate 5 cannot settle tighter than +-2
   CruiseDeadband = 8          # sloppier deadband for non-combat aim
@@ -162,11 +173,13 @@ type
   Actor = object              # a player visible this frame
     pos: Vec
     facingRight: bool
+    hp: int                   # from the overhead pip bar; 0 = not read
 
   Track = object              # a remembered player
     pos, vel: Vec
     lastSeen: int
     facingRight: bool
+    hp: int                   # last observed hit points; 0 = never read
 
   Bot = ref object
     slot: int
@@ -328,13 +341,42 @@ proc observedAim(client: ProtocolClient, me: Vec, color: string): int =
       result = bradsOf(p - me)
 
 proc actorsFor(client: ProtocolClient, color: string): seq[Actor] =
-  ## Visible players of one color in map coordinates plus horizontal facing.
-  ## Our own sprite carries the distinct "self" label, so no filtering is
-  ## needed; enemies only appear while inside OUR vision.
+  ## Visible players of one color in map coordinates plus horizontal facing
+  ## and hit points. The overhead "hp <n>/<max>" pip bar is fog-culled with
+  ## its player, so whenever the player is visible its hp is too: attach the
+  ## nearest pip bar within HpPipRadius.
   for facingRight in [true, false]:
     let label = "player " & color & (if facingRight: " right" else: " left")
     for o in client.spriteObjectsWithLabel(label):
       result.add(Actor(pos: client.mapPos(o), facingRight: facingRight))
+  for hp in 1 .. MaxHp:
+    for o in client.spriteObjectsWithLabel("hp " & $hp & "/" & $MaxHp):
+      let p = client.mapPos(o)
+      var best = -1
+      var bestD = HpPipRadius
+      for i in 0 ..< result.len:
+        let d = dist(result[i].pos, p)
+        if d < bestD:
+          bestD = d
+          best = i
+      if best >= 0:
+        result[best].hp = hp
+
+proc mateAimBrads(client: ProtocolClient, mate, me: Vec, color: string): int =
+  ## A visible mate's aim angle read from ITS rendered aim-indicator dots
+  ## (the same absolute readback observedAim does for our own turret).
+  ## Returns -1 when the mate is too close to us to attribute dots safely.
+  if dist(mate, me) <= 2.0 * AimDotRadius:
+    return -1
+  result = -1
+  var bestD = 0.0
+  for o in client.spriteObjectsWithLabel("aim dot " & color):
+    let
+      p = client.mapPos(o)
+      d = dist(p, mate)
+    if d <= AimDotRadius and d > bestD and dist(p, me) > AimDotRadius:
+      bestD = d
+      result = bradsOf(p - mate)
 
 proc walkableAt(client: ProtocolClient, x, y: int): bool =
   if x < 0 or y < 0 or x >= client.walkabilityWidth or
@@ -803,9 +845,12 @@ proc updateTracks(bot: Bot, tracks: var seq[Track], seen: seq[Actor]) =
       tracks[best].pos = a.pos
       tracks[best].facingRight = a.facingRight
       tracks[best].lastSeen = bot.tick
+      if a.hp > 0:
+        tracks[best].hp = a.hp
       claimed[best] = true
     else:
-      tracks.add(Track(pos: a.pos, lastSeen: bot.tick, facingRight: a.facingRight))
+      tracks.add(Track(
+        pos: a.pos, lastSeen: bot.tick, facingRight: a.facingRight, hp: a.hp))
       claimed.add(true)
   var kept: seq[Track]
   for t in tracks:
@@ -1176,9 +1221,32 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     elif rushing: RushEngageRange
     elif mateCarry: EscortEngageRange
     else: FireRange
+  # Focus-fire intel: which remembered enemies sit on a visible mate's aim
+  # line right now. A mate's rendered aim dots are an absolute readback of
+  # where it is about to shoot; piling our shot onto the same target converts
+  # two 1-damage hits into a kill instead of two wounded runners.
+  var mateTargeted = newSeq[bool](bot.enemies.len)
+  for m in bot.mates:
+    if bot.tick - m.lastSeen > 2:
+      continue                          # dots exist only while the mate is visible
+    let mAim = client.mateAimBrads(m.pos, me, myColor)
+    if mAim < 0:
+      continue
+    let dir = bradsDir(mAim)
+    for i in 0 ..< bot.enemies.len:
+      if bot.tick - bot.enemies[i].lastSeen > FreshShotTicks:
+        continue
+      let rel = bot.enemies[i].pos - m.pos
+      let along = dot(rel, dir)
+      if along <= 0.0 or along > MateAimRayLen:
+        continue
+      if abs(cross(rel, dir)) <= MateAimHitSlack:
+        mateTargeted[i] = true
+
   var
     engage = -1
     engageD = maxEngage
+    engagePrio = maxEngage
     aim: Vec
     blockedAim: Vec
     haveBlocked = false
@@ -1189,14 +1257,24 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       continue
     let predicted = t.pos + t.vel * (float(bot.tick - t.lastSeen) + LeadTicks)
     let d = dist(predicted, me)
-    if d >= engageD:
+    if d >= maxEngage:
       continue
+    # Target priority: distance, discounted for wounded targets (a 1-hp
+    # enemy dies to one shot — finish it before it resets on respawn) and
+    # for targets a visible mate is already lined up on (focus fire).
+    var prio = d
+    if t.hp in 1 ..< MaxHp:
+      prio -= float(MaxHp - t.hp) * HpFocusBonus
+    if mateTargeted[i]:
+      prio -= FocusFireBonus
     if client.pixelRayClear(me, predicted):
       if bot.friendlyBlocked(me, predicted, d):
         continue                        # prefer a target with an empty corridor
-      engageD = d
-      engage = i
-      aim = predicted
+      if engage < 0 or prio < engagePrio:
+        engagePrio = prio
+        engageD = d
+        engage = i
+        aim = predicted
     elif d < blockedD:
       blockedD = d
       blockedAim = predicted
