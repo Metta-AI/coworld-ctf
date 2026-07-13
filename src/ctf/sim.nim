@@ -462,7 +462,7 @@ proc validateMap(gameMap: CtfMap) =
 
 const
   ArenaName = "arena"
-  ArenaBorder = 10             ## perimeter wall thickness in px.
+  ArenaBorder* = 10            ## perimeter wall thickness in px.
   ArenaFlagRing = 70           ## clear radius of the open center ring.
   ArenaCaptureClear = 210      ## x-columns kept traversable for carriers.
   ArenaSpawnClearW = 70        ## half-width of the open spawn pockets.
@@ -653,7 +653,7 @@ proc inShape(x, y: int, shape: ArenaShape): bool =
       dx * dx + dy * dy <=
         shape.thickness * shape.thickness * len2 * len2 div 4
 
-const ArenaObstacles = block:
+const ArenaObstacles* = block:
   ## The full obstacle set: every left-half shape plus its x-mirror,
   ## precomputed once so the per-pixel wall test never re-mirrors.
   var shapes: seq[ArenaShape]
@@ -661,6 +661,36 @@ const ArenaObstacles = block:
     shapes.add shape
     shapes.add shape.mirrorX()
   shapes
+
+proc inShapeF*(x, y: float, shape: ArenaShape): bool =
+  ## Float-coordinate inShape: the render-scale rasterizer evaluates the same
+  ## geometry at sub-pixel positions for crisp high-resolution wall edges.
+  ## Collision and FOV keep using the integer predicate; the two may disagree
+  ## by less than one map pixel along shape boundaries, which is invisible.
+  case shape.kind
+  of shapeRect:
+    x >= float(shape.rect.x) and x < float(shape.rect.x + shape.rect.w) and
+      y >= float(shape.rect.y) and y < float(shape.rect.y + shape.rect.h)
+  of shapeDisc:
+    let
+      dx = x - float(shape.cx)
+      dy = y - float(shape.cy)
+    dx * dx + dy * dy <= float(shape.radius * shape.radius)
+  of shapeDiamond:
+    abs(x - float(shape.cx)) + abs(y - float(shape.cy)) <=
+      float(shape.radius)
+  of shapeDiagonal:
+    let
+      vx = float(shape.x1 - shape.x0)
+      vy = float(shape.y1 - shape.y0)
+      wx = x - float(shape.x0)
+      wy = y - float(shape.y0)
+      len2 = vx * vx + vy * vy
+      t = clamp(wx * vx + wy * vy, 0.0, len2)
+      dx = wx * len2 - t * vx
+      dy = wy * len2 - t * vy
+    dx * dx + dy * dy <=
+      float(shape.thickness * shape.thickness) * len2 * len2 / 4.0
 
 proc isProtectedFloor(x, y, cx, cy: int): bool =
   ## Regions that MUST stay walkable: the flag ring, both spawn pockets,
@@ -688,6 +718,37 @@ proc isArenaWall(x, y, cx, cy: int): bool =
     if inShape(x, y, shape):
       return true
   false
+
+proc isProtectedFloorF(x, y: float, cx, cy: int): bool =
+  ## Float-coordinate isProtectedFloor for the render-scale rasterizer.
+  if x < float(ArenaCaptureClear) or
+      x >= float(MapWidth - ArenaCaptureClear):
+    return true
+  let
+    dx = x - float(cx)
+    dy = y - float(cy)
+  if dx * dx + dy * dy <= float(ArenaFlagRing * ArenaFlagRing):
+    return true
+  for homeX in [186.0, 1049.0]:
+    if abs(x - homeX) <= float(ArenaSpawnClearW) and
+        abs(y - float(cy)) <= float(ArenaSpawnClearH):
+      return true
+  false
+
+proc obstacleWallAtF*(x, y: float, cx, cy: int): bool =
+  ## Float-coordinate interior-obstacle test (the border ring excluded);
+  ## the high-resolution renderer draws the border as separate slabs.
+  if isProtectedFloorF(x, y, cx, cy):
+    return false
+  for shape in ArenaObstacles:
+    if inShapeF(x, y, shape):
+      return true
+  false
+
+proc shapeWallAtF*(x, y: float, shape: ArenaShape, cx, cy: int): bool =
+  ## Float-coordinate test for one shape with the protected-floor carve
+  ## applied, matching what the integer wall mask keeps of that shape.
+  inShapeF(x, y, shape) and not isProtectedFloorF(x, y, cx, cy)
 
 proc overTint(base, tint: ColorRGBA): ColorRGBA =
   ## Alpha-composites a translucent tint over an opaque base color.

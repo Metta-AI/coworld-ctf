@@ -78,6 +78,11 @@ import
 
 const
   WebSocketPath = "/player"
+  RenderScale = 3             # HD px per map px on the wire; mirrors hd.nim.
+                              # Object coordinates and sprite sizes arrive
+                              # multiplied by this; sprites stay centered on
+                              # the same map points, so dividing the object
+                              # center recovers exact legacy map coordinates.
   MapW = 1235
   MapH = 659
   CenterX = MapW div 2
@@ -310,10 +315,12 @@ proc slotFromUrl(url: string): int =
 
 proc mapPos(client: ProtocolClient, o: SpriteObjectInfo): Vec =
   ## Map-space center of a sprite object (the map object sits at the origin,
-  ## so the camera offset is zero; keep it for exactness).
+  ## so the camera offset is zero; keep it for exactness). The wire carries
+  ## RenderScale-scaled coordinates with sprites centered on scaled map
+  ## points, so the division is exact for every entity the bot reads.
   vec(
-    float(o.x + o.width div 2 + client.mapCameraX),
-    float(o.y + o.height div 2 + client.mapCameraY)
+    float((o.x + o.width div 2) div RenderScale + client.mapCameraX),
+    float((o.y + o.height div 2) div RenderScale + client.mapCameraY)
   )
 
 proc findSelf(
