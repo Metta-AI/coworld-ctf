@@ -191,6 +191,17 @@ These are starting values, exposed in the game config and tuned in self-play.
 Engine tick rate is **24 ticks/sec** (inherited from Crewrift); all
 second-based values above convert at that rate.
 
+**Observation render scale (since 0.6.0):** the sprite-protocol wire carries
+the zoomable map/fog layers at **3x map resolution** -- object coordinates and
+sprite pixel sizes are all multiplied by 3, and every entity sprite is
+centered on its scaled map point. To recover exact legacy map coordinates,
+compute the object center and divide by 3:
+`map_x = (object.x + sprite.width / 2) / 3` (same for y). Everything above
+(map size 1235x659, ranges, speeds) stays in map pixels; only the wire
+representation scaled. The invisible `walkability map` sprite is unscaled and
+still 1235x659. Labels, sprite/object ids, layers, and the input protocol are
+unchanged.
+
 ---
 
 ## Implementation notes
