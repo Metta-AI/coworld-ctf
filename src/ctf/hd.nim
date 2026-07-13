@@ -194,9 +194,12 @@ proc rasterizeWallRegion(
         my = float(originY) + (float(py) + 0.5) * step
       if not inside(mx, my):
         continue
+      # A two-HD-px reach keeps the outline readable at typical zoom.
       let edge =
         not inside(mx - step, my) or not inside(mx + step, my) or
-        not inside(mx, my - step) or not inside(mx, my + step)
+        not inside(mx, my - step) or not inside(mx, my + step) or
+        not inside(mx - 2 * step, my) or not inside(mx + 2 * step, my) or
+        not inside(mx, my - 2 * step) or not inside(mx, my + 2 * step)
       result.putWallPixel(
         py * width + px,
         wallTexel(px, py),
@@ -324,10 +327,10 @@ proc buildBorderSlabs() =
       for px in 0 ..< width:
         let edge =
           case edgeSide
-          of 0: py >= height - RenderScale
-          of 1: py < RenderScale
-          of 2: px >= width - RenderScale
-          else: px < RenderScale
+          of 0: py >= height - 2 * RenderScale
+          of 1: py < 2 * RenderScale
+          of 2: px >= width - 2 * RenderScale
+          else: px < 2 * RenderScale
         result.putWallPixel(py * width + px, wallTexel(px, py), edge)
   hdBorderSprites[0] = (0, 0, w, b, slab(w, b, 0))
   hdBorderSprites[1] = (0, MapHeight - ArenaBorder, w, b, slab(w, b, 1))
