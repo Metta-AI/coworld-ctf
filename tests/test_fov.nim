@@ -63,7 +63,7 @@ suite "fog-of-war vision":
     sim.computeFovVisible(cx div FovCellSize, cy div FovCellSize, 192, visible)
     check sim.fovAt(visible, cx, MapHeight - 20)
 
-  test "enemies are culled when fogged, teammates never are":
+  test "everyone but yourself is culled when fogged, teammates included":
     var game = initCtfForTest()
     discard game.addPlayer("red0")
     discard game.addPlayer("blue0")
@@ -84,9 +84,12 @@ suite "fog-of-war vision":
     # Enemy behind, beyond the bubble: fogged.
     game.players[1].y = 550
     check not game.playerVisibleTo(0, 1)
-    # A teammate at the same fogged spot is always visible (team radio).
+    # A teammate at the same fogged spot fogs too (no team radio).
     game.players[2].x = cx
     game.players[2].y = 550
+    check not game.playerVisibleTo(0, 2)
+    # A teammate ahead in the cone is visible like anyone else.
+    game.players[2].y = 100
     check game.playerVisibleTo(0, 2)
     # And the viewer always sees itself.
     check game.playerVisibleTo(0, 0)
