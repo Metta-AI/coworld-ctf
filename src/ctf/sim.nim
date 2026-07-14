@@ -80,8 +80,10 @@ const
   MapObjectId* = 1
   MapLayerId* = 0
   MapLayerType* = 0
-  ScoreboardLayerId* = 1
+  ScoreboardLayerId* = 1       ## red team roster panel.
   ScoreboardLayerType* = 1     ## top-left anchor.
+  ScoreboardRightLayerId* = 12 ## blue team roster panel.
+  ScoreboardRightLayerType* = 2  ## top-right anchor.
   BottomRightLayerId* = 3
   BottomRightLayerType* = 3
   ZoomableLayerFlag* = 1
