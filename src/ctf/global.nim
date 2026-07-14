@@ -30,9 +30,9 @@ const
   ReplayMismatchBgG = 20'u8
   ReplayMismatchBgB = 20'u8
   ReplayMismatchBgA = 255'u8
-  ## The scoreboard is a bottom-center bar: players grid into columns so the
-  ## roster reads along the bottom of the screen instead of covering the map.
-  ScoreboardCols = 4
+  ## The scoreboard is a top-left panel with one column per team: red on
+  ## the left, blue on the right, mirroring the arena's territory sides.
+  ScoreboardCols = 2
   ScoreboardColWidth = 74
   ScoreboardWidth = ScoreboardCols * ScoreboardColWidth
   ScoreboardY = 2
@@ -46,6 +46,8 @@ const
   ScoreboardPipObjectBase = 12300
   ScoreboardBgSpriteId = 12400
   ScoreboardBgObjectId = 12400
+  ScoreboardHeadSpriteBase = 12500  ## +0 red header, +1 blue header.
+  ScoreboardHeadObjectBase = 12500
   ScoreboardTextColor = 2'u8
   ScoreboardSelectedTextColor = 10'u8
   InterstitialObjectId = 4005
@@ -1332,13 +1334,26 @@ proc addHdPlayerObject(
     spriteId
   )
 
+proc scoreboardCell(sim: SimServer, index: int): tuple[col, row: int] =
+  ## Grid cell for one player: the team picks the column (red left, blue
+  ## right, mirroring the arena sides), join order picks the row.
+  let team = sim.players[index].team
+  var row = 0
+  for i in 0 ..< index:
+    if sim.players[i].team == team:
+      inc row
+  (ord(team), row)
+
 proc scoreboardRows(sim: SimServer): int =
   ## Returns the number of grid rows the roster occupies.
-  max(1, (sim.players.len + ScoreboardCols - 1) div ScoreboardCols)
+  var counts: array[Team, int]
+  for player in sim.players:
+    inc counts[player.team]
+  max(1, max(counts[Red], counts[Blue]))
 
 proc scoreboardHeight(sim: SimServer): int =
-  ## Returns the bar's content height.
-  ScoreboardY + sim.scoreboardRows() * ScoreboardRowHeight + 2
+  ## Returns the panel's content height: team header row plus player rows.
+  ScoreboardY + (sim.scoreboardRows() + 1) * ScoreboardRowHeight + 2
 
 proc buildSpriteProtocolInit(
   sim: SimServer,
@@ -1513,19 +1528,19 @@ proc scoreboardJoinOrderAt(
   mouseY: int
 ): int =
   ## Returns the join order for a clicked scoreboard cell. The whole grid
-  ## cell is the click target so the bar stays easy to hit.
+  ## cell is the click target so the roster stays easy to hit.
   if layer != ScoreboardLayerId:
     return -1
   let
     col = mouseX div ScoreboardColWidth
-    row = (mouseY - ScoreboardY) div ScoreboardRowHeight
+    row = (mouseY - ScoreboardY) div ScoreboardRowHeight - 1
   if col < 0 or col >= ScoreboardCols or row < 0 or
       row >= sim.scoreboardRows():
     return -1
-  let index = row * ScoreboardCols + col
-  if index >= sim.players.len:
-    return -1
-  sim.players[index].joinOrder
+  for i in 0 ..< sim.players.len:
+    if sim.scoreboardCell(i) == (col, row):
+      return sim.players[i].joinOrder
+  -1
 
 proc toggleSelectedJoinOrder(
   state: var GlobalViewerState,
@@ -1544,18 +1559,15 @@ proc addScoreboard(
   spriteDefs: var seq[SpriteDefinition],
   currentIds: var seq[int],
   packet: var seq[uint8],
-  selectedJoinOrder: int,
-  replayEnabled = false
+  selectedJoinOrder: int
 ) {.measure.} =
-  ## Adds the bottom-center roster bar (kills/deaths score picker). In replay
-  ## mode the viewport gains bottom padding so the bar sits above the
-  ## transport/scrubber panels that share the bottom edge.
-  let bottomPad = if replayEnabled: ReplayPanelHeight + 2 else: 0
+  ## Adds the top-left roster panel (kills/deaths score picker), one column
+  ## per team: red left, blue right.
   packet.addLayer(ScoreboardLayerId, ScoreboardLayerType, UiLayerFlag)
   packet.addViewport(
     ScoreboardLayerId,
     ScoreboardWidth,
-    sim.scoreboardHeight() + bottomPad
+    sim.scoreboardHeight()
   )
   # A translucent panel behind the grid: readable over the arena, and the
   # client only routes clicks to a UI layer when the cursor is over one of
@@ -1580,6 +1592,35 @@ proc addScoreboard(
     ScoreboardLayerId,
     ScoreboardBgSpriteId
   )
+  # Team kills/deaths header atop each team column.
+  var kills, deaths: array[Team, int]
+  for p in sim.players:
+    kills[p.team] += p.kills
+    deaths[p.team] += p.deaths
+  for team in Team:
+    let
+      headText = (if team == Red: "RED " else: "BLUE ") &
+        $kills[team] & "/" & $deaths[team]
+      head = sim.buildSpriteProtocolTextSprite([headText], teamColor(team))
+      headObjectId = ScoreboardHeadObjectBase + ord(team)
+    currentIds.add(headObjectId)
+    packet.addSpriteChanged(
+      spriteDefs,
+      ScoreboardHeadSpriteBase + ord(team),
+      head.width,
+      head.height,
+      head.pixels,
+      "team score " & headText,
+      changed = true
+    )
+    packet.addObject(
+      headObjectId,
+      ord(team) * ScoreboardColWidth + ScoreboardTextX,
+      ScoreboardY,
+      0,
+      ScoreboardLayerId,
+      ScoreboardHeadSpriteBase + ord(team)
+    )
   for i in 0 ..< sim.players.len:
     let
       player = sim.players[i]
@@ -1588,8 +1629,9 @@ proc addScoreboard(
       pipObjectId = scoreboardPipObjectId(i)
       textSpriteId = scoreboardTextSpriteId(i)
       textObjectId = scoreboardTextObjectId(i)
-      cellX = (i mod ScoreboardCols) * ScoreboardColWidth
-      rowY = ScoreboardY + (i div ScoreboardCols) * ScoreboardRowHeight
+      (cellCol, cellRow) = sim.scoreboardCell(i)
+      cellX = cellCol * ScoreboardColWidth
+      rowY = ScoreboardY + (cellRow + 1) * ScoreboardRowHeight
       color =
         if player.joinOrder == selectedJoinOrder:
           ScoreboardSelectedTextColor
@@ -1914,9 +1956,12 @@ proc buildSpriteProtocolPlayerUpdates*(
   sim: var SimServer,
   playerIndex: int,
   state: PlayerViewerState,
-  nextState: var PlayerViewerState
+  nextState: var PlayerViewerState,
+  includeTeamScore = true
 ): seq[uint8] {.measure.} =
-  ## Builds sprite protocol updates for one playable player view.
+  ## Builds sprite protocol updates for one playable player view. The
+  ## global viewer's embedded POV passes includeTeamScore = false because
+  ## its roster panel already carries the team scores in the same corner.
   result = @[]
   nextState =
     if state.isNil:
@@ -2084,7 +2129,8 @@ proc buildSpriteProtocolPlayerUpdates*(
       SpritePlayerRemainingSpriteId
     )
 
-  sim.addTeamScoreboard(nextState.spriteDefs, currentIds, result)
+  if includeTeamScore:
+    sim.addTeamScoreboard(nextState.spriteDefs, currentIds, result)
 
   if not state.isNil:
     for objectId in state.objectIds:
@@ -2422,7 +2468,8 @@ proc buildSpriteProtocolUpdates*(
     result = sim.buildSpriteProtocolPlayerUpdates(
       playerIndex,
       nextState.povState,
-      povState
+      povState,
+      includeTeamScore = false
     )
     nextState.povState = povState
     var currentIds: seq[int] = @[]
@@ -2430,8 +2477,7 @@ proc buildSpriteProtocolUpdates*(
       nextState.spriteDefs,
       currentIds,
       result,
-      nextState.selectedJoinOrder,
-      replayEnabled
+      nextState.selectedJoinOrder
     )
     sim.addReplayMismatchWarning(
       nextState.spriteDefs,
@@ -2474,8 +2520,7 @@ proc buildSpriteProtocolUpdates*(
     nextState.spriteDefs,
     currentIds,
     result,
-    nextState.selectedJoinOrder,
-    replayEnabled
+    nextState.selectedJoinOrder
   )
   sim.addMapFurniture(nextState.spriteDefs, currentIds, result)
   sim.addSplatters(nextState.spriteDefs, currentIds, result)
@@ -2647,8 +2692,6 @@ proc buildSpriteProtocolUpdates*(
     result,
     replayMismatchTick
   )
-  sim.addTeamScoreboard(nextState.spriteDefs, currentIds, result)
-
   for objectId in state.objectIds:
     if objectId notin currentIds:
       result.addDeleteObject(objectId)

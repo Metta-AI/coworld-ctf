@@ -81,7 +81,7 @@ const
   MapLayerId* = 0
   MapLayerType* = 0
   ScoreboardLayerId* = 1
-  ScoreboardLayerType* = 8     ## bottom-center anchor.
+  ScoreboardLayerType* = 1     ## top-left anchor.
   BottomRightLayerId* = 3
   BottomRightLayerType* = 3
   ZoomableLayerFlag* = 1
