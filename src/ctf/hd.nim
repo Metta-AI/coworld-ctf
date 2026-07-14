@@ -25,8 +25,7 @@ const
   HdCrewSize* = 96             ## HD player sprite canvas (32 map px).
   HdCrewBodyPx = 50            ## the soldier body's target size on the canvas.
   HdCrewRotations* = 16        ## pre-rotated aim steps (16 brads apart).
-  HdFlagSize* = 60             ## flag art canvas (20 map px): the banner must
-                               ## dominate the canvas to read as a flag in-game.
+  HdFlagSize* = 60             ## heart art canvas (20 map px).
   HdPedestalSize* = 60         ## pedestal pad art canvas (20 map px).
   HdFloorTileMapPx* = 96       ## one floor tile covers 96x96 map px (a
                                ## 288px sprite: small enough to keep the
@@ -389,8 +388,8 @@ proc hdEnsureLoaded*(gameMap: CtfMap) =
   hdCrewMaster.measureCrewBody()
   hdFloorImage = readHdImage("floor.png").resize(HdFloorTilePx, HdFloorTilePx)
   hdWallImage = readHdImage("wall.png")
-  hdFlagPixels[Red] = buildFlagPixels(readHdImage("flag_red.png"))
-  hdFlagPixels[Blue] = buildFlagPixels(readHdImage("flag_blue.png"))
+  hdFlagPixels[Red] = buildFlagPixels(readHdImage("heart_red.png"))
+  hdFlagPixels[Blue] = buildFlagPixels(readHdImage("heart_blue.png"))
   hdPedestalPixels[Red] = buildPedestalPixels(readHdImage("pedestal_red.png"))
   hdPedestalPixels[Blue] = buildPedestalPixels(readHdImage("pedestal_blue.png"))
   hdFloorPixels = hdFloorImage.toStraightRgba()
@@ -622,16 +621,6 @@ proc hdCrewIconPixels*(colorIndex, sizePx: int): seq[uint8] =
   )
   hdCrewIconCache[key] = result
 
-proc hdFlagShadowPixels*(team: Team): seq[uint8] =
-  ## A dark translucent silhouette of the HD flag (fire-cooldown icon).
-  result = hdFlagPixels[team]
-  for i in 0 ..< result.len div 4:
-    let a = result[i * 4 + 3]
-    result[i * 4] = 30
-    result[i * 4 + 1] = 30
-    result[i * 4 + 2] = 34
-    result[i * 4 + 3] = uint8(int(a) * 55 div 100)
-
 proc hdTransportIcon*(
   kind: char,
   sizePx: int,
@@ -682,6 +671,95 @@ proc hdTransportIcon*(
     path.closePath()
   else:
     discard
+  image.fillPath(path, paint)
+  image.toStraightRgba()
+
+var
+  hdGrenadeCache: Table[int, seq[uint8]]
+  hdBlastCache: Table[int, seq[uint8]]
+
+proc hdGrenadePixels*(sizePx: int): seq[uint8] =
+  ## An olive-drab grenade: body sphere, darker safety band, top cap, and a
+  ## small highlight. Drawn procedurally so every size stays crisp.
+  if sizePx in hdGrenadeCache:
+    return hdGrenadeCache[sizePx]
+  var image = newImage(sizePx, sizePx)
+  let
+    s = float32(sizePx)
+    body = newPaint(SolidPaint)
+    band = newPaint(SolidPaint)
+    cap = newPaint(SolidPaint)
+    glint = newPaint(SolidPaint)
+  body.color = color(0.28, 0.36, 0.16, 1.0)
+  band.color = color(0.18, 0.24, 0.10, 1.0)
+  cap.color = color(0.55, 0.55, 0.58, 1.0)
+  glint.color = color(0.85, 0.90, 0.75, 0.9)
+  var path = newPath()
+  path.circle(0.5 * s, 0.56 * s, 0.34 * s)
+  image.fillPath(path, body)
+  path = newPath()
+  path.rect(0.16 * s, 0.48 * s, 0.68 * s, 0.14 * s)
+  var clip = newPath()
+  clip.circle(0.5 * s, 0.56 * s, 0.34 * s)
+  var bandImage = newImage(sizePx, sizePx)
+  bandImage.fillPath(path, band)
+  var mask = newImage(sizePx, sizePx)
+  mask.fillPath(clip, band)
+  for i in 0 ..< sizePx * sizePx:
+    if mask.data[i].a == 0:
+      bandImage.data[i] = rgbx(0, 0, 0, 0)
+  image.draw(bandImage)
+  path = newPath()
+  path.rect(0.40 * s, 0.10 * s, 0.20 * s, 0.16 * s)
+  image.fillPath(path, cap)
+  path = newPath()
+  path.circle(0.38 * s, 0.44 * s, 0.07 * s)
+  image.fillPath(path, glint)
+  result = image.toStraightRgba()
+  hdGrenadeCache[sizePx] = result
+
+proc hdBlastPixels*(stage, stages, radiusPx: int): seq[uint8] =
+  ## One expanding blast-flash frame: a hot core that fades while a shock
+  ## ring grows to the full blast radius.
+  let key = stage * 10000 + radiusPx
+  if key in hdBlastCache:
+    return hdBlastCache[key]
+  let size = radiusPx * 2
+  var image = newImage(size, size)
+  let
+    t = float32(stage) / float32(max(1, stages - 1))
+    c = float32(radiusPx)
+    ring = newPaint(SolidPaint)
+    core = newPaint(SolidPaint)
+  ring.color = color(1.0, 0.62 - 0.3 * t, 0.25 - 0.2 * t, 0.85 - 0.55 * t)
+  core.color = color(1.0, 0.92, 0.60, 0.9 - 0.8 * t)
+  var path = newPath()
+  path.circle(c, c, c * (0.45 + 0.55 * t) - 2.0)
+  image.strokePath(path, ring, strokeWidth = 6.0 - 3.0 * t)
+  path = newPath()
+  path.circle(c, c, c * 0.35 * (1.0 - t) + 2.0)
+  image.fillPath(path, core)
+  result = image.toStraightRgba()
+  hdBlastCache[key] = result
+
+proc hdCrosshairPixels*(sizePx: int, dim: bool): seq[uint8] =
+  ## The fire-readiness HUD icon: a crosshair ring, bright when ready and
+  ## dark translucent while the gun cools down.
+  var image = newImage(sizePx, sizePx)
+  let
+    s = float32(sizePx)
+    paint = newPaint(SolidPaint)
+  paint.color =
+    if dim: color(0.2, 0.2, 0.25, 0.55) else: color(0.95, 0.95, 0.98, 0.95)
+  var ring = newPath()
+  ring.circle(0.5 * s, 0.5 * s, 0.32 * s)
+  image.strokePath(ring, paint, strokeWidth = 0.09 * s)
+  var path = newPath()
+  path.rect(0.47 * s, 0.04 * s, 0.06 * s, 0.22 * s)
+  path.rect(0.47 * s, 0.74 * s, 0.06 * s, 0.22 * s)
+  path.rect(0.04 * s, 0.47 * s, 0.22 * s, 0.06 * s)
+  path.rect(0.74 * s, 0.47 * s, 0.22 * s, 0.06 * s)
+  path.circle(0.5 * s, 0.5 * s, 0.05 * s)
   image.fillPath(path, paint)
   image.toStraightRgba()
 

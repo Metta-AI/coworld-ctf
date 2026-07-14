@@ -24,9 +24,9 @@
 ##   keeps obstacles between us and known threats.
 ## - **Flag model** (two flags): pedestals are STATIC known positions and
 ##   pedestal flags are never fogged. Only OUR team can carry the enemy flag,
-##   so the "<enemy color> flag" sprite is always visible and fully describes
+##   so the "<enemy color> heart" sprite is always visible and fully describes
 ##   our attack (pedestal / on me / on a mate). Only the enemy can carry OUR
-##   flag: the "<my color> flag" sprite on its pedestal means safe, visible
+##   heart: the "<my color> heart" sprite on its pedestal means safe, visible
 ##   off-pedestal is a live thief fix, and ABSENT means stolen by a fogged
 ##   carrier somewhere between our pedestal and its home edge.
 ## - **Memory**: visible players are matched to tracks (position, velocity,
@@ -1020,8 +1020,8 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   let
     stealTarget = flagHome(enemy(bot.team))  # the enemy pedestal is static
     ownHome = flagHome(bot.team)
-    enemyFlags = client.spriteObjectsWithLabel(enemyColor & " flag")
-    ownFlags = client.spriteObjectsWithLabel(myColor & " flag")
+    enemyFlags = client.spriteObjectsWithLabel(enemyColor & " heart")
+    ownFlags = client.spriteObjectsWithLabel(myColor & " heart")
   if enemyFlags.len > 0:
     let fp = client.mapPos(enemyFlags[0])
     if dist(fp, me) <= 4:
