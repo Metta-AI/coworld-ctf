@@ -7,7 +7,7 @@ import
 
 const
   GameName* = "ctf"
-  GameVersion* = "1"
+  GameVersion* = "2"
   ReplayFps* = 24
   DefaultMapPath* = "arena"
   DarkBgPath* = "data/darkbg.aseprite"
@@ -69,10 +69,23 @@ const
   MaxPlayers* = 16
   MinPlayers* = 16
 
-  WinReward* = 100
+  WinReward* = 1              ## each winner scores +1 on capture or wipe.
+  LossReward* = -1            ## each loser scores -1 on capture or wipe.
 
   FlagPickupRange* = 12       ## touch radius to steal the enemy flag.
   CaptureZoneWidth* = 40      ## width of each home-edge capture zone.
+
+  GrenadeSpawnInset* = 40     ## corner grenade spawn inset from the border.
+  GrenadePickupRange* = 12    ## touch radius to pick a grenade up.
+  GrenadeRespawnTicks* = 30 * ReplayFps  ## a taken corner refills after 30s.
+  GrenadeMaxRange* = MapWidth div 5  ## max throw distance (full charge).
+  GrenadeMinRange* = 30       ## a tap's distance: inside the blast radius,
+                              ## so a panicked drop can hurt the thrower.
+  GrenadeChargeTicks* = 24    ## hold this long for a full-strength throw.
+  GrenadeFlightSpeed* = 6     ## airborne px per tick.
+  GrenadeBlastRadius* = 40    ## everyone inside the blast takes damage.
+  GrenadeDamage* = 2          ## hit points removed by one blast.
+  BlastFxTicks* = 12          ## cosmetic blast flash duration in ticks.
 
   TextColor* = 2'u8
   TextLineHeight* = 7
@@ -282,6 +295,8 @@ type
     windupBrads*: int          ## aim angle locked at the trigger pull, -1 = none.
     spawnProtect*: int
     carryingFlag*: bool
+    hasGrenade*: bool          ## each player carries at most one grenade.
+    throwCharge*: int          ## ticks the throw button has been held.
     joinOrder*: int
     address*: string
     color*: uint8
@@ -310,6 +325,27 @@ type
     tick*: int
     color*: uint8
 
+  BlastFx* = object
+    ## A cosmetic grenade blast flash; never enters gameHash (replay-safe).
+    ## Landing is audible: views also derive their landing sound rings here.
+    x*, y*: int
+    tick*: int
+
+  GrenadeSpawn* = object
+    ## One corner grenade pickup point.
+    x*, y*: int
+    present*: bool
+    respawnAt*: int            ## tick the pickup refills (when not present).
+
+  AirborneGrenade* = object
+    ## One thrown grenade in flight: it flies OVER walls in a straight line
+    ## from the throw point to the target and explodes on landing.
+    sx*, sy*: int
+    tx*, ty*: int
+    launchTick*: int
+    flightTicks*: int
+    thrower*: int
+
   FlagState* = object
     ## One team's flag: provably either sitting on its home pedestal
     ## (carrier == -1) or carried by an enemy player (never loose).
@@ -337,6 +373,9 @@ type
     tickCount*: int
     recentShots*: seq[ShotFx]  ## cosmetic shot tracers; excluded from gameHash.
     splatters*: seq[SplatterFx]  ## cosmetic death splatters; excluded from gameHash.
+    recentBlasts*: seq[BlastFx]  ## cosmetic grenade blasts; excluded from gameHash.
+    grenadeSpawns*: array[4, GrenadeSpawn]
+    airborneGrenades*: seq[AirborneGrenade]
     gameStartTick*: int
     startWaitTimer*: int
     phase*: GamePhase
@@ -1433,12 +1472,26 @@ proc gameHash*(sim: SimServer): uint64 =
     result.mixHashInt(player.windupBrads)
     result.mixHashInt(player.spawnProtect)
     result.mixHashBool(player.carryingFlag)
+    result.mixHashBool(player.hasGrenade)
+    result.mixHashInt(player.throwCharge)
     result.mixHashInt(player.joinOrder)
     result.mixHashInt(int(player.color))
     result.mixHashInt(player.reward)
     result.mixHashInt(player.kills)
     result.mixHashInt(player.deaths)
     result.mixHashInt(player.captures)
+  for spawn in sim.grenadeSpawns:
+    result.mixHashBool(spawn.present)
+    result.mixHashInt(spawn.respawnAt)
+  result.mixHashInt(sim.airborneGrenades.len)
+  for grenade in sim.airborneGrenades:
+    result.mixHashInt(grenade.sx)
+    result.mixHashInt(grenade.sy)
+    result.mixHashInt(grenade.tx)
+    result.mixHashInt(grenade.ty)
+    result.mixHashInt(grenade.launchTick)
+    result.mixHashInt(grenade.flightTicks)
+    result.mixHashInt(grenade.thrower)
 
 proc isWalkable*(sim: SimServer, x, y: int): bool =
   if x < 0 or y < 0 or x >= MapWidth or y >= MapHeight:
@@ -1875,7 +1928,7 @@ proc removePlayerAt*(sim: var SimServer, playerIndex: int) =
     return
   for team in Team:
     if sim.flags[team].carrier == playerIndex:
-      sim.logGameEvent(teamText(team) & " flag returned home")
+      sim.logGameEvent(teamText(team) & " heart returned home")
       sim.resetFlag(team)
     elif sim.flags[team].carrier > playerIndex:
       dec sim.flags[team].carrier
@@ -2100,6 +2153,26 @@ proc playerResultsJson*(sim: SimServer): string =
   results["captures"] = capturesList
   $results
 
+proc grenadeSpawnPoints*(): array[4, tuple[x, y: int]] =
+  ## The four corner grenade spawn points: two on each team's side.
+  let inset = ArenaBorder + GrenadeSpawnInset
+  [(inset, inset),
+    (inset, MapHeight - inset),
+    (MapWidth - inset, inset),
+    (MapWidth - inset, MapHeight - inset)]
+
+proc resetGrenades*(sim: var SimServer) =
+  ## Refills every corner pickup and clears carried and airborne grenades.
+  let points = grenadeSpawnPoints()
+  for i in 0 ..< sim.grenadeSpawns.len:
+    sim.grenadeSpawns[i] = GrenadeSpawn(
+      x: points[i].x, y: points[i].y, present: true, respawnAt: 0
+    )
+  sim.airborneGrenades = @[]
+  for i in 0 ..< sim.players.len:
+    sim.players[i].hasGrenade = false
+    sim.players[i].throwCharge = 0
+
 proc startGame*(sim: var SimServer) =
   sim.logGameEvent("game started: players=" & $sim.players.len)
   sim.recentShots = @[]
@@ -2122,6 +2195,7 @@ proc startGame*(sim: var SimServer) =
     sim.players[i].captures = 0
     sim.recordGameTeamAssigned(i)
   sim.resetFlags()
+  sim.resetGrenades()
   sim.phase = Playing
   sim.gameStartTick = sim.tickCount
   sim.timeLimitReached = false
@@ -2305,13 +2379,15 @@ proc killPlayer(sim: var SimServer, targetIndex, killerIndex: int) =
     playerColorText(sim.players[targetIndex].color) &
       " killed by " & sim.playerText(killerIndex)
   )
-  # A dying trigger pull never releases.
+  # A dying trigger pull never releases, and a carried grenade is lost.
   sim.players[targetIndex].fireWindup = 0
   sim.players[targetIndex].windupBrads = -1
+  sim.players[targetIndex].hasGrenade = false
+  sim.players[targetIndex].throwCharge = 0
   for team in Team:
     if sim.flags[team].carrier == targetIndex:
       sim.players[targetIndex].carryingFlag = false
-      sim.logGameEvent(teamText(team) & " flag returned home")
+      sim.logGameEvent(teamText(team) & " heart returned home")
       sim.resetFlag(team)
   # Leave a cosmetic splatter at the death spot (never enters gameHash).
   sim.splatters.add SplatterFx(
@@ -2456,6 +2532,130 @@ proc startFireWindup*(sim: var SimServer, shooterIndex: int) =
   sim.players[shooterIndex].fireWindup = sim.config.fireWindupTicks
   sim.players[shooterIndex].windupBrads = sim.players[shooterIndex].aimBrads
 
+
+proc grenadePosition*(grenade: AirborneGrenade, tick: int): tuple[x, y: int] =
+  ## The grenade's map position while airborne (linear flight over walls).
+  let t = clamp(tick - grenade.launchTick, 0, grenade.flightTicks)
+  (grenade.sx + (grenade.tx - grenade.sx) * t div grenade.flightTicks,
+    grenade.sy + (grenade.ty - grenade.sy) * t div grenade.flightTicks)
+
+proc throwGrenade(sim: var SimServer, playerIndex: int) =
+  ## Releases the charged throw along the thrower's current aim. The charge
+  ## picks the distance (GrenadeMinRange..GrenadeMaxRange); the grenade
+  ## flies over every obstacle and explodes where it lands. Throwing is
+  ## deliberately silent: no sound FX is recorded here.
+  let
+    player = sim.players[playerIndex]
+    charge = clamp(player.throwCharge, 0, GrenadeChargeTicks)
+    strength = GrenadeMinRange +
+      (GrenadeMaxRange - GrenadeMinRange) * charge div GrenadeChargeTicks
+    (ux, uy) = aimVector(player.aimBrads)
+    sx = player.x + CollisionW div 2
+    sy = player.y + CollisionH div 2
+    tx = clamp(
+      sx + int(round(ux * float(strength))),
+      ArenaBorder + 2, MapWidth - ArenaBorder - 2
+    )
+    ty = clamp(
+      sy + int(round(uy * float(strength))),
+      ArenaBorder + 2, MapHeight - ArenaBorder - 2
+    )
+    flight = max(
+      1, int(round(sqrt(float(distSq(sx, sy, tx, ty))))) div GrenadeFlightSpeed
+    )
+  sim.airborneGrenades.add AirborneGrenade(
+    sx: sx,
+    sy: sy,
+    tx: tx,
+    ty: ty,
+    launchTick: sim.tickCount,
+    flightTicks: flight,
+    thrower: playerIndex
+  )
+  sim.players[playerIndex].hasGrenade = false
+  sim.players[playerIndex].throwCharge = 0
+  sim.logGameEvent(playerColorText(player.color) & " threw a grenade")
+
+proc applyGrenadeInput(
+  sim: var SimServer,
+  playerIndex: int,
+  input, prev: InputState
+) =
+  ## Hold C to charge a throw, release to let it fly.
+  if not sim.players[playerIndex].alive or
+      not sim.players[playerIndex].hasGrenade:
+    sim.players[playerIndex].throwCharge = 0
+    return
+  if input.c:
+    sim.players[playerIndex].throwCharge = min(
+      sim.players[playerIndex].throwCharge + 1, GrenadeChargeTicks
+    )
+  elif prev.c and sim.players[playerIndex].throwCharge > 0:
+    sim.throwGrenade(playerIndex)
+  else:
+    sim.players[playerIndex].throwCharge = 0
+
+proc explodeGrenade(sim: var SimServer, grenade: AirborneGrenade) =
+  ## Applies one landing: a cosmetic blast flash (which views also use for
+  ## the audible landing's sound ring) plus blast damage to EVERYONE inside
+  ## the radius — teammates and the thrower included; spawn protection
+  ## still shields.
+  sim.recentBlasts.add BlastFx(
+    x: grenade.tx, y: grenade.ty, tick: sim.tickCount
+  )
+  sim.logGameEvent("grenade landed")
+  let radiusSq = GrenadeBlastRadius * GrenadeBlastRadius
+  for i in 0 ..< sim.players.len:
+    if not sim.players[i].alive or sim.players[i].spawnProtect > 0:
+      continue
+    let
+      px = sim.players[i].x + CollisionW div 2
+      py = sim.players[i].y + CollisionH div 2
+    if distSq(px, py, grenade.tx, grenade.ty) > radiusSq:
+      continue
+    sim.players[i].hp -= GrenadeDamage
+    if sim.players[i].hp <= 0:
+      sim.killPlayer(i, grenade.thrower)
+      if grenade.thrower != i:
+        sim.recordKill(grenade.thrower)
+
+proc updateGrenades(sim: var SimServer) =
+  ## Refills corner pickups whose timer elapsed and lands due grenades.
+  for spawn in sim.grenadeSpawns.mitems:
+    if not spawn.present and sim.tickCount >= spawn.respawnAt:
+      spawn.present = true
+  var
+    landing: seq[AirborneGrenade] = @[]
+    kept: seq[AirborneGrenade] = @[]
+  for grenade in sim.airborneGrenades:
+    if sim.tickCount - grenade.launchTick >= grenade.flightTicks:
+      landing.add grenade
+    else:
+      kept.add grenade
+  sim.airborneGrenades = kept
+  for grenade in landing:
+    sim.explodeGrenade(grenade)
+
+proc tryPickupGrenades*(sim: var SimServer, playerIndex: int) =
+  ## Lets a living player pick up a corner grenade by touch (one carried
+  ## grenade max; either team may take either side's pickups).
+  if not sim.players[playerIndex].alive or sim.players[playerIndex].hasGrenade:
+    return
+  let
+    px = sim.players[playerIndex].x + CollisionW div 2
+    py = sim.players[playerIndex].y + CollisionH div 2
+    rangeSq = GrenadePickupRange * GrenadePickupRange
+  for spawn in sim.grenadeSpawns.mitems:
+    if spawn.present and distSq(px, py, spawn.x, spawn.y) <= rangeSq:
+      spawn.present = false
+      spawn.respawnAt = sim.tickCount + GrenadeRespawnTicks
+      sim.players[playerIndex].hasGrenade = true
+      sim.logGameEvent(
+        playerColorText(sim.players[playerIndex].color) &
+          " picked up a grenade"
+      )
+      return
+
 proc resolveSimultaneousFire*(sim: var SimServer, shooters: openArray[int]) =
   ## Resolves every shot released this tick at once: all targets are chosen
   ## against the same snapshot before any kill is applied, so a mutual duel
@@ -2485,7 +2685,7 @@ proc tryPickupFlags*(sim: var SimServer, playerIndex: int) =
     sim.players[playerIndex].carryingFlag = true
     sim.logGameEvent(
       teamText(sim.players[playerIndex].team) & " stole the " &
-        teamText(flagTeam) & " flag"
+        teamText(flagTeam) & " heart"
     )
 
 proc updateFlags(sim: var SimServer) =
@@ -2501,7 +2701,7 @@ proc updateFlags(sim: var SimServer) =
       sim.flags[team].y = sim.players[carrier].y + CollisionH div 2
     else:
       # Carrier vanished; the flag goes straight back home.
-      sim.logGameEvent(teamText(team) & " flag returned home")
+      sim.logGameEvent(teamText(team) & " heart returned home")
       sim.resetFlag(team)
 
 proc applyInput*(
@@ -2821,20 +3021,25 @@ proc finishGame*(sim: var SimServer, winner: Team, isDraw = false, timeLimitReac
     return
   var awardedAccounts = newSeq[bool](sim.rewardAccounts.len)
   for i in 0 ..< sim.players.len:
+    let accountIndex = sim.rewardAccountForPlayer(i)
+    if awardedAccounts.len < sim.rewardAccounts.len:
+      awardedAccounts.setLen(sim.rewardAccounts.len)
+    if accountIndex >= 0 and accountIndex < awardedAccounts.len:
+      awardedAccounts[accountIndex] = true
     if sim.players[i].team == winner:
-      let accountIndex = sim.rewardAccountForPlayer(i)
-      if awardedAccounts.len < sim.rewardAccounts.len:
-        awardedAccounts.setLen(sim.rewardAccounts.len)
-      if accountIndex >= 0 and accountIndex < awardedAccounts.len:
-        awardedAccounts[accountIndex] = true
       sim.addReward(i, WinReward)
       sim.recordGameWin(i)
+    else:
+      sim.addReward(i, LossReward)
   for i in 0 ..< sim.rewardAccounts.len:
     if i < awardedAccounts.len and awardedAccounts[i]:
       continue
-    if not sim.rewardAccounts[i].hasTeam or sim.rewardAccounts[i].team != winner:
+    if not sim.rewardAccounts[i].hasTeam:
       continue
-    sim.rewardAccounts[i].reward += WinReward
+    if sim.rewardAccounts[i].team == winner:
+      sim.rewardAccounts[i].reward += WinReward
+    else:
+      sim.rewardAccounts[i].reward += LossReward
     sim.rewardAccounts[i].won = true
     if winner == Red:
       inc sim.rewardAccounts[i].winsRed
@@ -2850,28 +3055,6 @@ proc gameTicksElapsed*(sim: SimServer): int =
 proc maxTicksReached(sim: SimServer): bool =
   sim.config.maxTicks > 0 and sim.phase == Playing and
     sim.gameTicksElapsed() >= sim.config.maxTicks
-
-proc teamLivesRemaining(sim: SimServer, team: Team): int =
-  ## Returns total lives remaining (alive players count their current life).
-  for p in sim.players:
-    if p.team != team:
-      continue
-    result += p.lives
-    if p.alive:
-      inc result
-
-proc teamFlagProgress(sim: SimServer, team: Team): int =
-  ## Returns how far the ENEMY flag has been advanced toward this team's
-  ## home while carried; 0 when it sits on its pedestal.
-  let flag = sim.flags[enemy(team)]
-  if flag.carrier < 0:
-    return 0
-  let home = sim.gameMap.flagHome(enemy(team))
-  case team
-  of Red:
-    max(0, home.x - flag.x)
-  of Blue:
-    max(0, flag.x - home.x)
 
 proc teamHasLivePlayers(sim: SimServer, team: Team): bool =
   ## Returns true when a team still has a player who can act this round.
@@ -2906,7 +3089,7 @@ proc checkWinCondition*(sim: var SimServer) {.measure.} =
     if cx >= zone.lo and cx <= zone.hi:
       sim.recordCapture(carrierIndex)
       sim.logGameEvent(
-        teamText(carrier.team) & " captured the " & teamText(flagTeam) & " flag"
+        teamText(carrier.team) & " captured the " & teamText(flagTeam) & " heart"
       )
       sim.finishGame(carrier.team)
       return
@@ -2922,26 +3105,11 @@ proc checkWinCondition*(sim: var SimServer) {.measure.} =
     sim.finishGame(Red, isDraw = true)
 
 proc checkMaxTicks(sim: var SimServer) =
-  ## Resolves a time-limit tiebreak.
+  ## A game that hits the time limit before a capture or a wipe is a
+  ## scoreless draw for both sides: no tiebreak, no rewards.
   if not sim.maxTicksReached():
     return
-  let
-    redLives = sim.teamLivesRemaining(Red)
-    blueLives = sim.teamLivesRemaining(Blue)
-  if redLives > blueLives:
-    sim.finishGame(Red, timeLimitReached = true)
-  elif blueLives > redLives:
-    sim.finishGame(Blue, timeLimitReached = true)
-  else:
-    let
-      redProgress = sim.teamFlagProgress(Red)
-      blueProgress = sim.teamFlagProgress(Blue)
-    if redProgress > blueProgress:
-      sim.finishGame(Red, timeLimitReached = true)
-    elif blueProgress > redProgress:
-      sim.finishGame(Blue, timeLimitReached = true)
-    else:
-      sim.finishGame(Red, isDraw = true, timeLimitReached = true)
+  sim.finishGame(Red, isDraw = true, timeLimitReached = true)
 
 proc initSimServer*(config: GameConfig): SimServer =
   result.config = config
@@ -2995,6 +3163,7 @@ proc initSimServer*(config: GameConfig): SimServer =
   result.startWaitTimer = 0
   result.gameEventLoggingEnabled = true
   result.resetFlags()
+  result.resetGrenades()
   result.lastLobbyPlayersLogged = -1
   result.lastLobbyNeededLogged = -1
   result.lastLobbySecondsLogged = -1
@@ -3003,6 +3172,8 @@ proc resetToLobby*(sim: var SimServer) =
   sim.phase = Lobby
   sim.players = @[]
   sim.fovCaches = @[]
+  sim.resetGrenades()
+  sim.recentBlasts = @[]
   sim.recentShots = @[]
   sim.splatters = @[]
   sim.nextJoinOrder = 0
@@ -3094,6 +3265,7 @@ proc step*(
       if playerIndex < prevInputs.len: prevInputs[playerIndex]
       else: InputState()
     sim.applyInput(playerIndex, input)
+    sim.applyGrenadeInput(playerIndex, input, prev)
     if input.attack and not prev.attack:
       if sim.config.fireWindupTicks <= 0:
         if sim.canFire(playerIndex) and sim.players[playerIndex].fireWindup == 0:
@@ -3101,9 +3273,11 @@ proc step*(
       else:
         sim.startFireWindup(playerIndex)
   sim.resolveSimultaneousFire(firing)
+  sim.updateGrenades()
 
   for playerIndex in 0 ..< sim.players.len:
     sim.tryPickupFlags(playerIndex)
+    sim.tryPickupGrenades(playerIndex)
   sim.updateFlags()
   sim.respawnPlayers()
 
@@ -3117,6 +3291,11 @@ proc step*(
     if sim.tickCount - shot.firedTick < ShotFxTicks:
       kept.add shot
   sim.recentShots = kept
+  var keptBlasts: seq[BlastFx] = @[]
+  for blast in sim.recentBlasts:
+    if sim.tickCount - blast.tick < BlastFxTicks:
+      keptBlasts.add blast
+  sim.recentBlasts = keptBlasts
   var keptSplatters: seq[SplatterFx] = @[]
   for splatter in sim.splatters:
     if sim.tickCount - splatter.tick < SplatterFxTicks:

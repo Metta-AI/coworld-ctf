@@ -69,6 +69,27 @@ const
   ImpactRingSpriteId = 831     ## the shot "impact" ring sprite.
   ImpactRingObjectBase = 19200 ## impact ring object-id pool (per recent shot).
   ImpactRingSize = 10          ## px diameter of the impact ring.
+  ## Grenades: corner pickups, airborne lobs, carried markers, blast FX.
+  GrenadePickupMapPx = 10      ## pickup art footprint in map px.
+  GrenadeAirMapPx = 8          ## airborne art footprint in map px.
+  GrenadeCarryMapPx = 6        ## carried marker footprint in map px.
+  BlastStages = 3              ## blast flash animation frames.
+  GrenadeSoundRingSize = 18    ## px diameter: landings are loud.
+  ThrowMarkerMapPx = 8         ## charge target marker footprint in map px.
+  GrenadeSpriteId = 26000
+  GrenadeAirSpriteId = 26001
+  GrenadeCarrySpriteId = 26002
+  BlastSpriteBase = 26010      ## + stage.
+  GrenadeSoundRingSpriteId = 26020
+  ThrowMarkerSpriteId = 26030
+  GrenadePickupObjectBase = 26050
+  GrenadeAirObjectBase = 26100
+  BlastObjectBase = 26200
+  GrenadeSoundObjectBase = 26300
+  GrenadeCarryObjectBase = 26400  ## + player index.
+  ThrowMarkerObjectBase = 26500   ## + player index.
+  BlastMaxCount = 32
+  HudGrenadeObjectId = 5012    ## HUD carried-grenade indicator object.
   TracerDotSpriteBase = 760    ## per-color tracer dot sprites: 760..775.
   TracerDotObjectBase = 15000  ## tracer object-id pool base.
   TracerDotSize = 3
@@ -867,7 +888,11 @@ proc addFogRuns(
   ## horizontal stretch of unseen cells on each visibility grid row, drawn on
   ## the fog layer above the map. Overflowing the object pool drops the
   ## shortest runs (cosmetic only; entity culling is exact regardless).
-  let visible = sim.playerFov(playerIndex).visible
+  # A dead viewer has no eyes: ignore the (stale) cache and fog every cell.
+  var visible = sim.playerFov(playerIndex).visible
+  if not sim.players[playerIndex].alive or
+      visible.len < FovGridW * FovGridH:
+    visible = newSeq[bool](FovGridW * FovGridH)
   var runs: seq[tuple[cx, cy, width: int]] = @[]
   for cy in 0 ..< FovGridH:
     var cx = 0
@@ -1291,8 +1316,8 @@ proc addSpriteProtocolInterstitialSprites(
   )
 
 proc flagLabel(team: Team): string =
-  ## Returns the observation label for one team's flag sprite.
-  teamText(team) & " flag"
+  ## Returns the observation label for one team's heart sprite.
+  teamText(team) & " heart"
 
 proc addFlagSprites(
   sim: SimServer,
@@ -1494,9 +1519,7 @@ proc buildSpriteProtocolPlayerInit(
     SpritePlayerFireSpriteId,
     HudFireIcon,
     HudFireIcon,
-    hdResizeRgba(
-      hdFlagSpritePixels(Red), HdFlagSize, HdFlagSize, HudFireIcon, HudFireIcon
-    ),
+    hdCrosshairPixels(HudFireIcon, dim = false),
     "fire icon"
   )
   result.addSpriteChanged(
@@ -1504,9 +1527,7 @@ proc buildSpriteProtocolPlayerInit(
     SpritePlayerFireShadowSpriteId,
     HudFireIcon,
     HudFireIcon,
-    hdResizeRgba(
-      hdFlagShadowPixels(Red), HdFlagSize, HdFlagSize, HudFireIcon, HudFireIcon
-    ),
+    hdCrosshairPixels(HudFireIcon, dim = true),
     "fire icon cooldown"
   )
   sim.addSpriteProtocolInterstitialSprites(spriteDefs, result)
@@ -1922,6 +1943,205 @@ proc addSoundRings(
         ImpactRingSpriteId
       )
 
+proc blastRingOffset(blast: BlastFx): (int, int) =
+  ## The landing sound ring's deterministic jitter (its own salt, like the
+  ## gunshot rings).
+  var h = 0x85EBCA6B'u32
+  h = (h xor uint32(blast.tick)) * 0x9E3779B9'u32
+  h = (h xor uint32(blast.x)) * 0xC2B2AE35'u32
+  h = (h xor uint32(blast.y)) * 0x27D4EB2F'u32
+  h = h xor (h shr 15)
+  let span = uint32(2 * SoundRingJitter + 1)
+  (int(h mod span) - SoundRingJitter,
+    int((h shr 16) mod span) - SoundRingJitter)
+
+proc buildThrowMarkerSprite(): seq[uint8] {.measure.} =
+  ## A hollow throw-target ring with a center dot.
+  let size = ThrowMarkerMapPx * RenderScale
+  result = newRgbaPixels(size, size)
+  let c = float(size - 1) / 2
+  for y in 0 ..< size:
+    for x in 0 ..< size:
+      let d = sqrt((float(x) - c) * (float(x) - c) +
+        (float(y) - c) * (float(y) - c))
+      if (d <= c and d >= c - float(RenderScale)) or d <= float(RenderScale):
+        result.putRawRgbaPixel(y * size + x, 255, 240, 180, 200)
+
+proc addGrenades(
+  sim: SimServer,
+  spriteDefs: var seq[SpriteDefinition],
+  currentIds: var seq[int],
+  packet: var seq[uint8],
+  viewerIndex = -1
+) {.measure.} =
+  ## Places grenade pickups, airborne lobs, carried markers, and charge
+  ## targets. The map view passes no viewer and shows everything; a player
+  ## view fogs each piece by its own position (a grenade arcing overhead is
+  ## visible wherever it currently is).
+  packet.addSpriteChanged(
+    spriteDefs,
+    GrenadeSpriteId,
+    GrenadePickupMapPx * RenderScale,
+    GrenadePickupMapPx * RenderScale,
+    hdGrenadePixels(GrenadePickupMapPx * RenderScale),
+    "grenade"
+  )
+  for i in 0 ..< sim.grenadeSpawns.len:
+    let spawn = sim.grenadeSpawns[i]
+    if not spawn.present:
+      continue
+    if viewerIndex >= 0 and
+        not sim.fovVisibleAt(viewerIndex, spawn.x, spawn.y):
+      continue
+    let objectId = GrenadePickupObjectBase + i
+    currentIds.add(objectId)
+    packet.addWorldObject(
+      objectId,
+      spawn.x - GrenadePickupMapPx div 2,
+      spawn.y - GrenadePickupMapPx div 2,
+      spawn.y,
+      MapLayerId,
+      GrenadeSpriteId
+    )
+  packet.addSpriteChanged(
+    spriteDefs,
+    GrenadeAirSpriteId,
+    GrenadeAirMapPx * RenderScale,
+    GrenadeAirMapPx * RenderScale,
+    hdGrenadePixels(GrenadeAirMapPx * RenderScale),
+    "grenade air"
+  )
+  for i in 0 ..< min(sim.airborneGrenades.len, BlastMaxCount):
+    let
+      grenade = sim.airborneGrenades[i]
+      (gx, gy) = grenade.grenadePosition(sim.tickCount)
+    if viewerIndex >= 0 and not sim.fovVisibleAt(viewerIndex, gx, gy):
+      continue
+    let objectId = GrenadeAirObjectBase + i
+    currentIds.add(objectId)
+    packet.addWorldObject(
+      objectId,
+      gx - GrenadeAirMapPx div 2,
+      gy - GrenadeAirMapPx div 2,
+      30004,
+      MapLayerId,
+      GrenadeAirSpriteId
+    )
+  packet.addSpriteChanged(
+    spriteDefs,
+    GrenadeCarrySpriteId,
+    GrenadeCarryMapPx * RenderScale,
+    GrenadeCarryMapPx * RenderScale,
+    hdGrenadePixels(GrenadeCarryMapPx * RenderScale),
+    "grenade carried"
+  )
+  packet.addSpriteChanged(
+    spriteDefs,
+    ThrowMarkerSpriteId,
+    ThrowMarkerMapPx * RenderScale,
+    ThrowMarkerMapPx * RenderScale,
+    buildThrowMarkerSprite(),
+    "throw target"
+  )
+  for i in 0 ..< sim.players.len:
+    let player = sim.players[i]
+    if not player.alive or not player.hasGrenade:
+      continue
+    if viewerIndex >= 0 and i != viewerIndex and
+        not sim.playerVisibleTo(viewerIndex, i):
+      continue
+    let carryObjectId = GrenadeCarryObjectBase + i
+    currentIds.add(carryObjectId)
+    packet.addWorldObject(
+      carryObjectId,
+      player.x + CollisionW div 2 + 8,
+      player.spritePlayerY() - OverheadYOffset - GrenadeCarryMapPx,
+      30001,
+      MapLayerId,
+      GrenadeCarrySpriteId
+    )
+    if player.throwCharge > 0:
+      let
+        charge = clamp(player.throwCharge, 0, GrenadeChargeTicks)
+        strength = GrenadeMinRange +
+          (GrenadeMaxRange - GrenadeMinRange) * charge div GrenadeChargeTicks
+        (ux, uy) = aimVector(player.aimBrads)
+        tx = player.x + CollisionW div 2 + int(round(ux * float(strength)))
+        ty = player.y + CollisionH div 2 + int(round(uy * float(strength)))
+        markerObjectId = ThrowMarkerObjectBase + i
+      currentIds.add(markerObjectId)
+      packet.addWorldObject(
+        markerObjectId,
+        tx - ThrowMarkerMapPx div 2,
+        ty - ThrowMarkerMapPx div 2,
+        30003,
+        MapLayerId,
+        ThrowMarkerSpriteId
+      )
+
+proc addBlasts(
+  sim: SimServer,
+  spriteDefs: var seq[SpriteDefinition],
+  currentIds: var seq[int],
+  packet: var seq[uint8],
+  viewerIndex = -1,
+  withSound = false
+) {.measure.} =
+  ## Places grenade blast flashes; landings a player view could NOT see get
+  ## a loud jittered sound ring instead (throwing is silent, landing is not).
+  for i in 0 ..< min(sim.recentBlasts.len, BlastMaxCount):
+    let
+      blast = sim.recentBlasts[i]
+      age = sim.tickCount - blast.tick
+      stage = clamp(age * BlastStages div BlastFxTicks, 0, BlastStages - 1)
+    if viewerIndex < 0 or sim.fovVisibleAt(viewerIndex, blast.x, blast.y):
+      let spriteId = BlastSpriteBase + stage
+      packet.addSpriteChanged(
+        spriteDefs,
+        spriteId,
+        GrenadeBlastRadius * 2 * RenderScale,
+        GrenadeBlastRadius * 2 * RenderScale,
+        hdBlastPixels(stage, BlastStages, GrenadeBlastRadius * RenderScale),
+        "blast stage " & $stage
+      )
+      let objectId = BlastObjectBase + i
+      currentIds.add(objectId)
+      packet.addWorldObject(
+        objectId,
+        blast.x - GrenadeBlastRadius,
+        blast.y - GrenadeBlastRadius,
+        30005,
+        MapLayerId,
+        spriteId
+      )
+    elif withSound:
+      packet.addSpriteChanged(
+        spriteDefs,
+        GrenadeSoundRingSpriteId,
+        GrenadeSoundRingSize * RenderScale,
+        GrenadeSoundRingSize * RenderScale,
+        hdResizeRgba(
+          buildSoundRingSprite(),
+          SoundRingSize * RenderScale,
+          SoundRingSize * RenderScale,
+          GrenadeSoundRingSize * RenderScale,
+          GrenadeSoundRingSize * RenderScale
+        ),
+        "grenade sound"
+      )
+      let
+        (dx, dy) = blastRingOffset(blast)
+        objectId = GrenadeSoundObjectBase + i
+      currentIds.add(objectId)
+      packet.addWorldObject(
+        objectId,
+        blast.x + dx - GrenadeSoundRingSize div 2,
+        blast.y + dy - GrenadeSoundRingSize div 2,
+        30000,
+        MapLayerId,
+        GrenadeSoundRingSpriteId
+      )
+
 proc addHpPips(
   sim: SimServer,
   spriteDefs: var seq[SpriteDefinition],
@@ -2149,6 +2369,19 @@ proc buildSpriteProtocolPlayerUpdates*(
         result,
         viewerIndex = playerIndex
       )
+    sim.addGrenades(
+      nextState.spriteDefs,
+      currentIds,
+      result,
+      viewerIndex = playerIndex
+    )
+    sim.addBlasts(
+      nextState.spriteDefs,
+      currentIds,
+      result,
+      viewerIndex = playerIndex,
+      withSound = player.alive
+    )
 
     # Fire-readiness icon at the top of the bottom-right HUD panel.
     if player.alive:
@@ -2164,6 +2397,18 @@ proc buildSpriteProtocolPlayerUpdates*(
         else:
           SpritePlayerFireSpriteId
       )
+      # Carried-grenade indicator left of the fire icon.
+      if player.hasGrenade:
+        currentIds.add(HudGrenadeObjectId)
+        result.addObject(
+          HudGrenadeObjectId,
+          HudLivesWidth - 4 - HudFireIcon -
+            GrenadePickupMapPx * RenderScale - 6,
+          9,
+          0,
+          HudLayerId,
+          GrenadeSpriteId
+        )
 
     # Lives counter on the top-right HUD layer.
     let
@@ -2661,6 +2906,8 @@ proc buildSpriteProtocolUpdates*(
     )
   sim.addMapFurniture(nextState.spriteDefs, currentIds, result)
   sim.addSplatters(nextState.spriteDefs, currentIds, result)
+  sim.addGrenades(nextState.spriteDefs, currentIds, result)
+  sim.addBlasts(nextState.spriteDefs, currentIds, result)
   sim.addShotTracers(nextState.spriteDefs, currentIds, result)
   sim.addAimIndicators(nextState.spriteDefs, currentIds, result)
   sim.addHpPips(nextState.spriteDefs, currentIds, result)
