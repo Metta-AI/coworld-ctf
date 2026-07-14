@@ -66,6 +66,9 @@ const
   SoundRingObjectBase = 19100  ## sound ring object-id pool (per recent shot).
   SoundRingSize = 12           ## px diameter of the sound ring.
   SoundRingJitter = 20         ## max px the ring strays from the true muzzle.
+  ImpactRingSpriteId = 831     ## the shot "impact" ring sprite.
+  ImpactRingObjectBase = 19200 ## impact ring object-id pool (per recent shot).
+  ImpactRingSize = 10          ## px diameter of the impact ring.
   TracerDotSpriteBase = 760    ## per-color tracer dot sprites: 760..775.
   TracerDotObjectBase = 15000  ## tracer object-id pool base.
   TracerDotSize = 3
@@ -130,13 +133,14 @@ const
   FogAlpha = 160'u8            ## fog dims unseen floor to ~37% brightness.
   ## Player-view HUD layers (the map layer now spans the whole arena, so the
   ## HUD sits on dedicated screen-corner UI layers).
-  HudTopRightLayerId = 5       ## lives counter (bottom-right; the blue
-                               ## roster panel owns the top-right corner).
-  HudTopRightLayerType = 3
-  HudBottomLeftLayerId = 6     ## fire-readiness icon.
-  HudBottomLeftLayerType = 4
-  HudLivesWidth = 100          ## lives HUD viewport width, HD UI px.
+  HudLayerId = 5               ## fire-readiness icon + lives counter,
+                               ## bottom-right: the blue roster owns the
+                               ## top-right corner and the replay transport
+                               ## owns the bottom-left.
+  HudLayerType = 3
+  HudLivesWidth = 100          ## HUD viewport width, HD UI px.
   HudFireIcon = 42             ## fire-readiness icon size, HD UI px.
+  HudHeight = HudFireIcon + UiTextLine + 12
   PlayerInterstitialLayerId = 7  ## lobby / game-over screens, top-center.
   PlayerInterstitialLayerType = 5
   ## Team kills/deaths scoreboard shown above the field in every view.
@@ -549,6 +553,31 @@ proc soundRingOffset(shot: ShotFx): (int, int) =
   h = (h xor uint32(shot.firedTick)) * 0x85EBCA6B'u32
   h = (h xor uint32(shot.x0)) * 0xC2B2AE35'u32
   h = (h xor uint32(shot.y0)) * 0x27D4EB2F'u32
+  h = h xor (h shr 15)
+  let span = uint32(2 * SoundRingJitter + 1)
+  (int(h mod span) - SoundRingJitter,
+    int((h shr 16) mod span) - SoundRingJitter)
+
+proc buildImpactRingSprite(): seq[uint8] {.measure.} =
+  ## Builds the shot "impact" marker: a hollow ring (versus the muzzle
+  ## ring's filled disc), colorless so it never leaks the shooter's team.
+  let size = ImpactRingSize * RenderScale
+  result = newRgbaPixels(size, size)
+  let c = float(size - 1) / 2
+  for y in 0 ..< size:
+    for x in 0 ..< size:
+      let d = sqrt((float(x) - c) * (float(x) - c) +
+        (float(y) - c) * (float(y) - c))
+      if d <= c and d >= c - 1.5 * float(RenderScale):
+        result.putRawRgbaPixel(y * size + x, 255, 255, 255, 150)
+
+proc impactRingOffset(shot: ShotFx): (int, int) =
+  ## The impact ring's deterministic jitter, salted differently from the
+  ## muzzle ring so the two never correlate.
+  var h = 0x1B873593'u32
+  h = (h xor uint32(shot.firedTick)) * 0x85EBCA6B'u32
+  h = (h xor uint32(shot.x1)) * 0xC2B2AE35'u32
+  h = (h xor uint32(shot.y1)) * 0x27D4EB2F'u32
   h = h xor (h shr 15)
   let span = uint32(2 * SoundRingJitter + 1)
   (int(h mod span) - SoundRingJitter,
@@ -1419,10 +1448,8 @@ proc buildSpriteProtocolPlayerInit(
     sim.gameMap.width * RenderScale,
     sim.gameMap.height * RenderScale
   )
-  result.addLayer(HudTopRightLayerId, HudTopRightLayerType, HdUiFlags)
-  result.addViewport(HudTopRightLayerId, HudLivesWidth, UiTextLine + 6)
-  result.addLayer(HudBottomLeftLayerId, HudBottomLeftLayerType, HdUiFlags)
-  result.addViewport(HudBottomLeftLayerId, HudFireIcon + 6, HudFireIcon + 6)
+  result.addLayer(HudLayerId, HudLayerType, HdUiFlags)
+  result.addViewport(HudLayerId, HudLivesWidth, HudHeight)
   result.addLayer(
     PlayerInterstitialLayerId,
     PlayerInterstitialLayerType,
@@ -1836,34 +1863,55 @@ proc addSoundRings(
   packet: var seq[uint8],
   viewerIndex: int
 ) {.measure.} =
-  ## Places a brief semi-transparent ring near the muzzle of every recent
-  ## shot the viewer could NOT see: gunfire is audible through the fog. The
-  ## ring is jittered per shot (soundRingOffset) so it reveals a
-  ## neighborhood, never the exact spot; a shot you can see needs no ring.
+  ## Places fog-of-war shot markers for every recent shot: a filled disc
+  ## near the muzzle (gunfire is audible through the fog) and a hollow ring
+  ## near the impact point, each only when the viewer could NOT see that
+  ## spot. Both are jittered per shot (deterministically, with different
+  ## salts) so they reveal a neighborhood, never the exact spot.
   for shotIndex in 0 ..< min(sim.recentShots.len, TracerMaxShots):
     let shot = sim.recentShots[shotIndex]
-    if sim.fovVisibleAt(viewerIndex, shot.x0, shot.y0):
-      continue
-    packet.addSpriteChanged(
-      spriteDefs,
-      SoundRingSpriteId,
-      SoundRingSize * RenderScale,
-      SoundRingSize * RenderScale,
-      buildSoundRingSprite(),
-      "shot sound"
-    )
-    let
-      (dx, dy) = soundRingOffset(shot)
-      objectId = SoundRingObjectBase + shotIndex
-    currentIds.add(objectId)
-    packet.addWorldObject(
-      objectId,
-      shot.x0 + dx - SoundRingSize div 2,
-      shot.y0 + dy - SoundRingSize div 2,
-      30000,
-      MapLayerId,
-      SoundRingSpriteId
-    )
+    if not sim.fovVisibleAt(viewerIndex, shot.x0, shot.y0):
+      packet.addSpriteChanged(
+        spriteDefs,
+        SoundRingSpriteId,
+        SoundRingSize * RenderScale,
+        SoundRingSize * RenderScale,
+        buildSoundRingSprite(),
+        "shot sound"
+      )
+      let
+        (dx, dy) = soundRingOffset(shot)
+        objectId = SoundRingObjectBase + shotIndex
+      currentIds.add(objectId)
+      packet.addWorldObject(
+        objectId,
+        shot.x0 + dx - SoundRingSize div 2,
+        shot.y0 + dy - SoundRingSize div 2,
+        30000,
+        MapLayerId,
+        SoundRingSpriteId
+      )
+    if not sim.fovVisibleAt(viewerIndex, shot.x1, shot.y1):
+      packet.addSpriteChanged(
+        spriteDefs,
+        ImpactRingSpriteId,
+        ImpactRingSize * RenderScale,
+        ImpactRingSize * RenderScale,
+        buildImpactRingSprite(),
+        "shot impact"
+      )
+      let
+        (dx, dy) = impactRingOffset(shot)
+        objectId = ImpactRingObjectBase + shotIndex
+      currentIds.add(objectId)
+      packet.addWorldObject(
+        objectId,
+        shot.x1 + dx - ImpactRingSize div 2,
+        shot.y1 + dy - ImpactRingSize div 2,
+        30000,
+        MapLayerId,
+        ImpactRingSpriteId
+      )
 
 proc addHpPips(
   sim: SimServer,
@@ -2098,15 +2146,15 @@ proc buildSpriteProtocolPlayerUpdates*(
         viewerIndex = playerIndex
       )
 
-    # Fire-readiness icon on the bottom-left HUD layer.
+    # Fire-readiness icon at the top of the bottom-right HUD panel.
     if player.alive:
       currentIds.add(SpritePlayerRemainingObjectId)
       result.addObject(
         SpritePlayerRemainingObjectId,
-        3,
+        HudLivesWidth - 4 - HudFireIcon,
         3,
         0,
-        HudBottomLeftLayerId,
+        HudLayerId,
         if player.fireCooldown > 0 or player.fireWindup > 0:
           SpritePlayerFireShadowSpriteId
         else:
@@ -2130,9 +2178,9 @@ proc buildSpriteProtocolPlayerUpdates*(
     result.addObject(
       SelectedTextObjectId,
       HudLivesWidth - 4 - lives.width,
-      3,
+      HudFireIcon + 9,
       0,
-      HudTopRightLayerId,
+      HudLayerId,
       SpritePlayerRemainingSpriteId
     )
 
@@ -2370,6 +2418,113 @@ proc addReplayMismatchWarning(
     ReplayMismatchSpriteId
   )
 
+proc addReplayControls(
+  sim: SimServer,
+  spriteDefs: var seq[SpriteDefinition],
+  currentIds: var seq[int],
+  packet: var seq[uint8],
+  replayTick: int,
+  replayPlaying: bool,
+  replaySpeed, replayMaxTick: int,
+  replayLooping, replayEnabled: bool
+) {.measure.} =
+  ## Adds the replay transport, scrubber, and tick counter panels. Shown in
+  ## both the whole-map view and an embedded player POV so the replay stays
+  ## controllable while spectating one agent through its fog.
+  if not replayEnabled:
+    return
+  packet.addLayer(
+    ReplayCenterBottomLayerId,
+    ReplayCenterBottomLayerType,
+    HdUiFlags
+  )
+  packet.addViewport(
+    ReplayCenterBottomLayerId,
+    ReplayPanelWidth,
+    ReplayPanelHeight
+  )
+  packet.addLayer(
+    ReplayBottomLeftLayerId,
+    ReplayBottomLeftLayerType,
+    HdUiFlags
+  )
+  packet.addViewport(
+    ReplayBottomLeftLayerId,
+    TransportWidth + TransportX * 2,
+    ReplayPanelHeight
+  )
+  let
+    controlTick = max(0, replayTick)
+    controlMaxTick = max(controlTick, replayMaxTick)
+    tickText = sim.buildSpriteProtocolTextSprite(
+      ["TICK " & $controlTick],
+      2'u8
+    )
+    scrubber = buildReplayScrubberSprite(
+      controlTick,
+      controlMaxTick,
+      true
+    )
+    controls = sim.buildReplayControlsSprite(
+      replayPlaying,
+      replaySpeed,
+      replayLooping,
+      replayEnabled
+    )
+  currentIds.add(ReplayTickObjectId)
+  currentIds.add(ReplayControlsObjectId)
+  currentIds.add(ReplayScrubberObjectId)
+  packet.addSpriteChanged(
+    spriteDefs,
+    ReplayTickSpriteId,
+    tickText.width,
+    tickText.height,
+    tickText.pixels,
+    "replay tick " & $controlTick
+  )
+  packet.addObject(
+    ReplayTickObjectId,
+    max(0, (ReplayPanelWidth - tickText.width) div 2),
+    0,
+    0,
+    ReplayCenterBottomLayerId,
+    ReplayTickSpriteId
+  )
+  packet.addSpriteChanged(
+    spriteDefs,
+    ReplayScrubberSpriteId,
+    scrubber.width,
+    scrubber.height,
+    scrubber.pixels,
+    "replay scrubber",
+    changed = true
+  )
+  packet.addObject(
+    ReplayScrubberObjectId,
+    max(0, (ReplayPanelWidth - ReplayScrubberWidth) div 2),
+    ReplayScrubberY,
+    0,
+    ReplayCenterBottomLayerId,
+    ReplayScrubberSpriteId
+  )
+  packet.addSpriteChanged(
+    spriteDefs,
+    ReplayControlsSpriteId,
+    controls.width,
+    controls.height,
+    controls.pixels,
+    "replay controls",
+    changed = true
+  )
+  packet.addObject(
+    ReplayControlsObjectId,
+    TransportX,
+    TransportY,
+    0,
+    ReplayBottomLeftLayerId,
+    ReplayControlsSpriteId
+  )
+
 proc buildSpriteProtocolUpdates*(
   sim: var SimServer,
   state: GlobalViewerState,
@@ -2471,6 +2626,17 @@ proc buildSpriteProtocolUpdates*(
       result,
       replayMismatchTick
     )
+    sim.addReplayControls(
+      nextState.spriteDefs,
+      currentIds,
+      result,
+      replayTick,
+      replayPlaying,
+      replaySpeed,
+      replayMaxTick,
+      replayLooping,
+      replayEnabled
+    )
     if not povClearsObjects:
       for objectId in state.objectIds:
         if objectId notin currentIds:
@@ -2479,26 +2645,6 @@ proc buildSpriteProtocolUpdates*(
     return
   if not nextState.initialized:
     result = sim.buildSpriteProtocolInit(nextState.spriteDefs)
-    result.addLayer(
-      ReplayCenterBottomLayerId,
-      ReplayCenterBottomLayerType,
-      HdUiFlags
-    )
-    result.addViewport(
-      ReplayCenterBottomLayerId,
-      ReplayPanelWidth,
-      ReplayPanelHeight
-    )
-    result.addLayer(
-      ReplayBottomLeftLayerId,
-      ReplayBottomLeftLayerType,
-      HdUiFlags
-    )
-    result.addViewport(
-      ReplayBottomLeftLayerId,
-      TransportWidth + TransportX * 2,
-      ReplayPanelHeight
-    )
     nextState.initialized = true
 
   var currentIds: seq[int] = @[]
@@ -2600,78 +2746,17 @@ proc buildSpriteProtocolUpdates*(
       -1
     )
 
-  if replayEnabled:
-    let
-      controlTick = max(0, replayTick)
-      controlMaxTick = max(controlTick, replayMaxTick)
-      tickText = sim.buildSpriteProtocolTextSprite(
-        ["TICK " & $controlTick],
-        2'u8
-      )
-      scrubber = buildReplayScrubberSprite(
-        controlTick,
-        controlMaxTick,
-        true
-      )
-      controls = sim.buildReplayControlsSprite(
-        replayPlaying,
-        replaySpeed,
-        replayLooping,
-        replayEnabled
-      )
-    currentIds.add(ReplayTickObjectId)
-    currentIds.add(ReplayControlsObjectId)
-    currentIds.add(ReplayScrubberObjectId)
-    result.addSpriteChanged(
-      nextState.spriteDefs,
-      ReplayTickSpriteId,
-      tickText.width,
-      tickText.height,
-      tickText.pixels,
-      "replay tick " & $controlTick
-    )
-    result.addObject(
-      ReplayTickObjectId,
-      max(0, (ReplayPanelWidth - tickText.width) div 2),
-      0,
-      0,
-      ReplayCenterBottomLayerId,
-      ReplayTickSpriteId
-    )
-    result.addSpriteChanged(
-      nextState.spriteDefs,
-      ReplayScrubberSpriteId,
-      scrubber.width,
-      scrubber.height,
-      scrubber.pixels,
-      "replay scrubber",
-      changed = true
-    )
-    result.addObject(
-      ReplayScrubberObjectId,
-      max(0, (ReplayPanelWidth - ReplayScrubberWidth) div 2),
-      ReplayScrubberY,
-      0,
-      ReplayCenterBottomLayerId,
-      ReplayScrubberSpriteId
-    )
-    result.addSpriteChanged(
-      nextState.spriteDefs,
-      ReplayControlsSpriteId,
-      controls.width,
-      controls.height,
-      controls.pixels,
-      "replay controls",
-      changed = true
-    )
-    result.addObject(
-      ReplayControlsObjectId,
-      TransportX,
-      TransportY,
-      0,
-      ReplayBottomLeftLayerId,
-      ReplayControlsSpriteId
-    )
+  sim.addReplayControls(
+    nextState.spriteDefs,
+    currentIds,
+    result,
+    replayTick,
+    replayPlaying,
+    replaySpeed,
+    replayMaxTick,
+    replayLooping,
+    replayEnabled
+  )
   sim.addReplayMismatchWarning(
     nextState.spriteDefs,
     currentIds,
