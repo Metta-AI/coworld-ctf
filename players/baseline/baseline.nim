@@ -181,10 +181,29 @@ type
     facingRight: bool
     hp: int                   # last observed hit points; 0 = never read
 
+  CombatTune = object
+    ## The fire/engage decision knobs, made per-bot so a forked policy can
+    ## sharpen its shooting without touching the shipped baseline. Every field
+    ## mirrors a module const; `defaultCombatTune` fills them WITH those consts,
+    ## so a bot left on the default decides bit-identically to the old code —
+    ## the shipped path is provably unchanged. Only the fields the const used to
+    ## drive in the COMBAT decision are here; nav/post/peek geometry still reads
+    ## the consts directly, so a hunter's tune never perturbs its navigation.
+    fireSlackPx: float        # perp-miss corridor a shot must sit inside
+    freshShotTicks: int       # only fire at tracks seen this recently
+    leadTicks: float          # aim this many ticks ahead of a moving enemy
+    combatDeadband: int       # settle the traverse within this error (brads)
+    fireRange: float          # default engage distance
+    carrierFireRange: float   # engage cap while carrying the flag
+    rushEngageRange: float    # engage cap while racing for the steal
+    escortEngageRange: float  # engage cap while escorting a carrier
+    pocketRushRange: float    # inside this of the enemy pedestal, just GRAB
+
   Bot = ref object
     slot: int
     team: Team
     role: Role
+    tune: CombatTune          # fire/engage knobs; default == baseline consts
     tick: int                 # sim ticks, advanced by frames received
     navBuilt: bool
     cellWalkable: seq[bool]   # eroded walkability, GridW x GridH
@@ -213,6 +232,22 @@ type
     stuckTicks: int
     jinkUntil: int
     jinkBits: uint8
+
+proc defaultCombatTune(): CombatTune =
+  ## The shipped baseline's combat knobs, verbatim from the module consts.
+  ## A Bot constructed without an explicit tune (every shipped seat) gets this,
+  ## so its fire/engage decisions are byte-identical to the pre-refactor code.
+  CombatTune(
+    fireSlackPx: FireSlackPx,
+    freshShotTicks: FreshShotTicks,
+    leadTicks: LeadTicks,
+    combatDeadband: CombatDeadband,
+    fireRange: FireRange,
+    carrierFireRange: CarrierFireRange,
+    rushEngageRange: RushEngageRange,
+    escortEngageRange: EscortEngageRange,
+    pocketRushRange: PocketRushRange,
+  )
 
 proc roleForSeat(seat: int, team: Team): Role =
   ## Deterministic role spread over the 8 per-team seats. Seats 2 and 3 both
@@ -1205,7 +1240,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     nearestMateToSteal = min(nearestMateToSteal, dist(t.pos, stealTarget))
   let pocketRush = not iCarry and not mateCarry and
     bot.role in {MidTop, MidBottom, MidGuard, FlankTop, FlankBottom} and
-    dist(me, stealTarget) < PocketRushRange and
+    dist(me, stealTarget) < bot.tune.pocketRushRange and
     dist(me, stealTarget) < nearestMateToSteal + 8.0
 
   # Combat: the nearest fresh track with a clear pixel ray AND a mate-free
@@ -1217,10 +1252,10 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # is actually in the way, instead of frag-chasing across the map.
   let maxEngage =
     if pocketRush: 0.0
-    elif iCarry: CarrierFireRange
-    elif rushing: RushEngageRange
-    elif mateCarry: EscortEngageRange
-    else: FireRange
+    elif iCarry: bot.tune.carrierFireRange
+    elif rushing: bot.tune.rushEngageRange
+    elif mateCarry: bot.tune.escortEngageRange
+    else: bot.tune.fireRange
   # Focus-fire intel: which remembered enemies sit on a visible mate's aim
   # line right now. A mate's rendered aim dots are an absolute readback of
   # where it is about to shoot; piling our shot onto the same target converts
@@ -1234,7 +1269,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       continue
     let dir = bradsDir(mAim)
     for i in 0 ..< bot.enemies.len:
-      if bot.tick - bot.enemies[i].lastSeen > FreshShotTicks:
+      if bot.tick - bot.enemies[i].lastSeen > bot.tune.freshShotTicks:
         continue
       let rel = bot.enemies[i].pos - m.pos
       let along = dot(rel, dir)
@@ -1253,9 +1288,9 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     blockedD = maxEngage
   for i in 0 ..< bot.enemies.len:
     let t = bot.enemies[i]
-    if bot.tick - t.lastSeen > FreshShotTicks:
+    if bot.tick - t.lastSeen > bot.tune.freshShotTicks:
       continue
-    let predicted = t.pos + t.vel * (float(bot.tick - t.lastSeen) + LeadTicks)
+    let predicted = t.pos + t.vel * (float(bot.tick - t.lastSeen) + bot.tune.leadTicks)
     let d = dist(predicted, me)
     if d >= maxEngage:
       continue
@@ -1298,7 +1333,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   var
     moveMask: uint8
     desiredAim = -1
-    deadband = CombatDeadband
+    deadband = bot.tune.combatDeadband
     wantFire = false
     acted = false
     holdStill = false
@@ -1311,7 +1346,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     let
       err = abs(bradsErr(desiredAim, bot.estAim))
       perpMiss = engageD * sin(float(err) * PI / float(AimBrads div 2))
-    wantFire = perpMiss <= FireSlackPx
+    wantFire = perpMiss <= bot.tune.fireSlackPx
     moveMask = octantBits(aim - me)
     acted = true
   elif not iCarry and not rushing and not pocketRush and not shotReady and
@@ -1469,7 +1504,8 @@ proc runBot(url: string) =
     role = roleForSeat(clamp(slot div 2, 0, 7), team)
     endpoint = ensureWsPath(url, WebSocketPath)
   randomize(slot * 7919 + 1)
-  let bot = Bot(slot: slot, team: team, role: role)
+  let bot = Bot(slot: slot, team: team, role: role,
+                tune: defaultCombatTune())
   bot.resetTransient()
   echo "baseline slot=", slot, " team=", team, " role=", role, " -> ", endpoint
   let client = initProtocolClient()
