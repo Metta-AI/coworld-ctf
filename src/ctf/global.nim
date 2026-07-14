@@ -1301,6 +1301,7 @@ proc addHdPlayerSprite(
       of hdCrewNormal: "player "
       of hdCrewSelf: "self "
       of hdCrewSelected: "selected player "
+      of hdCrewCorpse: "corpse "
   packet.addSpriteChanged(
     spriteDefs,
     spriteId,
@@ -1954,7 +1955,9 @@ proc buildSpriteProtocolPlayerUpdates*(
       elif not viewerIsGhost:
         continue
       let kind =
-        if i == playerIndex and not viewerIsGhost:
+        if not other.alive:
+          hdCrewCorpse
+        elif i == playerIndex and not viewerIsGhost:
           hdCrewSelf
         else:
           hdCrewNormal

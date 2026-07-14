@@ -43,6 +43,7 @@ const
   HdPlayerSpriteBase* = 34000
   HdSelfSpriteBase* = 34500
   HdSelectedSpriteBase* = 35000
+  HdCorpseSpriteBase* = 35500
   ## Map furniture z order (i16 on the wire; the map anchor sits at -32768).
   HdFloorZ* = -32760
   HdTintZ* = -32759
@@ -57,6 +58,7 @@ type
     hdCrewNormal
     hdCrewSelf
     hdCrewSelected
+    hdCrewCorpse
 
   HdWallPiece* = object
     ## One placed wall sprite: a deduped pure form or a carved instance.
@@ -423,7 +425,7 @@ proc recoloredCrew(colorIndex: int): Image =
 
 proc outlineColor(kind: HdCrewKind): ColorRGBA =
   case kind
-  of hdCrewNormal:
+  of hdCrewNormal, hdCrewCorpse:
     rgba(0, 0, 0, 0)
   of hdCrewSelf:
     rgba(255, 255, 255, 255)
@@ -472,6 +474,19 @@ proc hdCrewSpritePixels*(colorIndex, rot: int, kind: HdCrewKind): seq[uint8] =
           pixels[i * 4 + 1] = outline.g
           pixels[i * 4 + 2] = outline.b
           pixels[i * 4 + 3] = outline.a
+  if kind == hdCrewCorpse:
+    # A corpse must never read as a live soldier: desaturate to grey,
+    # darken, and go translucent so the floor shows through.
+    for i in 0 ..< HdCrewSize * HdCrewSize:
+      if pixels[i * 4 + 3] == 0:
+        continue
+      let grey = uint8((
+        int(pixels[i * 4]) + int(pixels[i * 4 + 1]) + int(pixels[i * 4 + 2])
+      ) div 3 * 55 div 100)
+      pixels[i * 4] = grey
+      pixels[i * 4 + 1] = grey
+      pixels[i * 4 + 2] = grey
+      pixels[i * 4 + 3] = uint8(int(pixels[i * 4 + 3]) * 60 div 100)
   hdCrewCache[key] = pixels
   pixels
 
@@ -486,6 +501,7 @@ proc hdPlayerSpriteId*(colorIndex, rot: int, kind: HdCrewKind): int =
     of hdCrewNormal: HdPlayerSpriteBase
     of hdCrewSelf: HdSelfSpriteBase
     of hdCrewSelected: HdSelectedSpriteBase
+    of hdCrewCorpse: HdCorpseSpriteBase
   base + (colorIndex and 0x0f) * HdCrewRotations + rot
 
 proc hdFloorTiles*(): seq[tuple[x, y: int]] =

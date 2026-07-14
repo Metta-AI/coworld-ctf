@@ -200,7 +200,10 @@ compute the object center and divide by 3:
 (map size 1235x659, ranges, speeds) stays in map pixels; only the wire
 representation scaled. The invisible `walkability map` sprite is unscaled and
 still 1235x659. Labels, sprite/object ids, layers, and the input protocol are
-unchanged.
+unchanged, with one exception: in ghost frames (you are dead and see the whole
+field), dead players' sprites are labeled `corpse <color> <side>` instead of
+`player <color> <side>`, so a policy scanning for `player` labels no longer
+mistakes bodies for live enemies.
 
 ---
 
