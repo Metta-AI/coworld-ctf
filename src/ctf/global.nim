@@ -1,16 +1,20 @@
 import
   std/[algorithm, math, os],
+  chroma,
   bitworld/pixelfonts, bitworld/profile, bitworld/spriteprotocol, bitworld/server,
   sim, hd
 
 const
+  ## Every UI layer is authored at UiScale x and smooth-scaled by the client.
+  HdUiFlags = UiLayerFlag or SmoothLayerFlag or HdUiLayerFlag
   ReplayScrubberSpriteId = 4004
   ReplayScrubberObjectId = 4004
-  ReplayScrubberWidth = 84
-  ReplayScrubberHeight = 5
-  ReplayScrubberTrackY = 2
-  ReplayScrubberY = 8
-  ReplayPanelHeight = 20
+  ReplayScrubberWidth = 252
+  ReplayScrubberHeight = 15
+  ReplayScrubberTrackY = 6     ## 3px track band: 6..8.
+  ReplayScrubberY = 24
+  ReplayPanelHeight = 60
+  ReplayPanelWidth = ScreenWidth * UiScale
   ReplayCenterBottomLayerId = 8
   ReplayBottomLeftLayerId = 9
   ReplayCenterBottomLayerType = 8
@@ -23,23 +27,24 @@ const
   ReplayTickObjectId = 4002
   ReplayControlsObjectId = 4003
   ReplayMismatchObjectId = 4006
-  ReplayMismatchMinWidth = 128
-  ReplayMismatchPadX = 4
-  ReplayMismatchPadY = 3
+  ReplayMismatchMinWidth = 384
+  ReplayMismatchPadX = 12
+  ReplayMismatchPadY = 6
   ReplayMismatchBgR = 220'u8
   ReplayMismatchBgG = 20'u8
   ReplayMismatchBgB = 20'u8
   ReplayMismatchBgA = 255'u8
   ## The scoreboard is a top-left panel with one column per team: red on
   ## the left, blue on the right, mirroring the arena's territory sides.
+  ## All scoreboard metrics are HD UI px (the layer carries HdUiLayerFlag).
   ScoreboardCols = 2
-  ScoreboardColWidth = 74
+  ScoreboardColWidth = 172
   ScoreboardWidth = ScoreboardCols * ScoreboardColWidth
-  ScoreboardY = 2
-  ScoreboardRowHeight = 7
-  ScoreboardPipX = 2
-  ScoreboardPipSize = 4
-  ScoreboardTextX = 8
+  ScoreboardY = 6
+  ScoreboardRowHeight = UiTextLine + 1
+  ScoreboardPipX = 6
+  ScoreboardPipSize = 10
+  ScoreboardTextX = 24
   ScoreboardTextSpriteBase = 12000
   ScoreboardTextObjectBase = 12100
   ScoreboardPipSpriteBase = 12200
@@ -86,18 +91,18 @@ const
   PlayerNameZ = 30002
   PlayerNameMaxChars = 16
   PlayerNameColor = 2'u8
-  TransportIconSize = 6
-  TransportIconHeight = 6
+  TransportIconSize = 18
+  TransportIconHeight = 18
   TransportIconCount = 5
-  TransportButtonGap = 2
+  TransportButtonGap = 8
   TransportButtonStride = TransportIconSize + TransportButtonGap
   TransportSpeedX = 0
-  TransportSpeedY = 8
-  TransportWidth = 108
-  TransportHeight = 18
-  TransportSpeedGap = 16
-  TransportX = 2
-  TransportY = 1
+  TransportSpeedY = TransportIconHeight + 6
+  TransportSpeedCell = 34      ## fixed-width speed label hit cells.
+  TransportWidth = 6 * TransportSpeedCell
+  TransportHeight = TransportSpeedY + UiTextLine + 3
+  TransportX = 6
+  TransportY = 3
   ## Sprite/object id pools (sprites and objects are separate namespaces).
   ## Sprites: team flags 700..701 (FlagSpriteBase), hp pips 820+, tracer
   ## dots 760..775, aim dots 780..795, self markers 5100..5101, team score
@@ -131,6 +136,8 @@ const
   HudTopRightLayerType = 2
   HudBottomLeftLayerId = 6     ## fire-readiness icon.
   HudBottomLeftLayerType = 4
+  HudLivesWidth = 100          ## lives HUD viewport width, HD UI px.
+  HudFireIcon = 42             ## fire-readiness icon size, HD UI px.
   PlayerInterstitialLayerId = 7  ## lobby / game-over screens, top-center.
   PlayerInterstitialLayerType = 5
   ## Team kills/deaths scoreboard shown above the field in every view.
@@ -138,8 +145,8 @@ const
                                ## center-BOTTOM scrubber panel, which dragged the team
                                ## scoreboard to the bottom of replays.
   TeamScoreLayerType = 5       ## top-center anchor.
-  TeamScoreWidth = 132
-  TeamScoreGap = 8             ## px between the red and blue halves.
+  TeamScoreWidth = 396
+  TeamScoreGap = 24            ## px between the red and blue halves.
   TeamScoreSpriteBase = 12100  ## 12100 red text, 12101 blue text.
   TeamScoreObjectBase = 9600   ## 9600 red text, 9601 blue text.
   MapMarkerSpriteBase = 20000
@@ -150,6 +157,10 @@ const
   ProtocolTextZ = 30010
   ProtocolTextColor = 2'u8
   ProtocolGameOverIconObjectBase = 9700
+  GameOverRowHeight = 42       ## game-over roster row height, HD UI px.
+  GameOverRowsY = 48           ## first roster row's y, HD UI px.
+  GameOverIconSize = 36        ## crew icon size on the game-over card.
+  HdIconSpriteBase = 36000     ## game-over crew icon sprites, one per color.
   PlayerColorNames = [
     "red",
     "orange",
@@ -931,46 +942,29 @@ proc buildSpriteProtocolTextSprite(
   game: SimServer,
   lines: openArray[string],
   color: uint8,
-  struck = false,
-  scale = 1
+  struck = false
 ): tuple[width, height: int, pixels: seq[uint8]] {.measure.} =
-  ## Builds a transparent multi-line text sprite. UI layers use scale 1;
-  ## text on the render-scaled map layer passes scale = RenderScale.
+  ## Builds a transparent multi-line HD text sprite (UiTextLine px per line)
+  ## from a legacy palette color index. HD UI layers and the render-scaled
+  ## map layer both consume these directly.
+  discard game
+  let rgba = Palette[int(color) and 0x0f]
+  var rendered: seq[tuple[width, height: int, pixels: seq[uint8]]]
   result.width = 1
   for line in lines:
-    result.width = max(result.width, game.asciiSprites.textWidth(line))
-  result.height = max(1, lines.len * TextLineHeight)
+    let text = hdTextLine(line, rgba, struck = struck)
+    result.width = max(result.width, text.width)
+    rendered.add(text)
+  result.height = max(1, lines.len * UiTextLine)
   result.pixels = newRgbaPixels(result.width, result.height)
-  for lineIndex, line in lines:
-    let baseY = lineIndex * TextLineHeight
-    var baseX = 0
-    for ch in line:
-      let glyph = game.asciiSprites.glyphAt(ch)
-      result.pixels.blitGlyph(
-        result.width,
-        result.height,
-        glyph,
-        baseX,
-        baseY,
-        color
+  for lineIndex, text in rendered:
+    let baseY = lineIndex * UiTextLine
+    for y in 0 ..< text.height:
+      copyMem(
+        result.pixels[((baseY + y) * result.width) * 4].addr,
+        text.pixels[(y * text.width) * 4].addr,
+        text.width * 4
       )
-      baseX += game.asciiSprites.glyphAdvance(ch)
-    if struck:
-      let lineY = baseY + 3
-      for x in 0 ..< game.asciiSprites.textWidth(line):
-        result.pixels.putTextSpritePixel(
-          result.width,
-          result.height,
-          x,
-          lineY,
-          3'u8
-        )
-  if scale > 1:
-    result.pixels = scaleRgbaPixels(
-      result.pixels, result.width, result.height, scale
-    )
-    result.width *= scale
-    result.height *= scale
 
 proc textLabel(lines: openArray[string]): string =
   ## Returns a debugger label for one rendered text sprite.
@@ -981,7 +975,8 @@ proc textLabel(lines: openArray[string]): string =
 
 proc centeredTextX(sim: SimServer, text: string): int =
   ## Returns the centered x position for interstitial text.
-  (ScreenWidth - sim.asciiSprites.textWidth(text)) div 2
+  discard sim
+  (ScreenWidth * UiScale - hdTextWidth(text)) div 2
 
 proc addTeamScoreboard(
   sim: SimServer,
@@ -1028,7 +1023,7 @@ proc addTeamScoreboard(
   packet.addObject(
     TeamScoreObjectBase,
     startX,
-    1,
+    3,
     0,
     TeamScoreLayerId,
     TeamScoreSpriteBase
@@ -1036,7 +1031,7 @@ proc addTeamScoreboard(
   packet.addObject(
     TeamScoreObjectBase + 1,
     startX + red.width + TeamScoreGap,
-    1,
+    3,
     0,
     TeamScoreLayerId,
     TeamScoreSpriteBase + 1
@@ -1087,26 +1082,26 @@ proc interstitialTextItems(
   of Lobby:
     let needed = max(0, sim.config.minPlayers - sim.players.len)
     if needed > 0:
-      result.addTextItem(sim.centeredTextX("WAITING"), 4, ["WAITING"])
-      result.addTextItem(sim.centeredTextX("NEED MORE!"), 14, ["NEED MORE!"])
+      result.addTextItem(sim.centeredTextX("WAITING"), 12, ["WAITING"])
+      result.addTextItem(sim.centeredTextX("NEED MORE!"), 42, ["NEED MORE!"])
     else:
-      result.addTextItem(sim.centeredTextX("GAME"), 2, ["GAME"])
-      result.addTextItem(sim.centeredTextX("STARTING"), 11, ["STARTING"])
+      result.addTextItem(sim.centeredTextX("GAME"), 6, ["GAME"])
+      result.addTextItem(sim.centeredTextX("STARTING"), 33, ["STARTING"])
       let
         seconds = sim.lobbyStartSecondsRemaining()
         line = "IN " & $seconds
       if seconds > 0:
-        result.addTextItem(sim.centeredTextX(line), 20, [line])
+        result.addTextItem(sim.centeredTextX(line), 60, [line])
   of Playing:
     if playerIndex < 0 or playerIndex >= sim.players.len:
       let
-        gap = 10
-        blockH = sim.asciiSprites.height * 2 + gap
-        startY = (ScreenHeight - blockH) div 2
+        gap = 30
+        blockH = UiTextLine * 2 + gap
+        startY = (ScreenHeight * UiScale - blockH) div 2
       result.addTextItem(sim.centeredTextX("GAME IN"), startY, ["GAME IN"])
       result.addTextItem(
         sim.centeredTextX("PROGRESS"),
-        startY + sim.asciiSprites.height + gap,
+        startY + UiTextLine + gap,
         ["PROGRESS"]
       )
   of GameOver:
@@ -1116,14 +1111,13 @@ proc interstitialTextItems(
       else:
         teamTitle(sim.winner)
     let
-      titleW = sim.asciiSprites.textWidth(title)
-      titleX = (ScreenWidth - titleW) div 2
-      rowH = 14
+      titleX = sim.centeredTextX(title)
+      rowH = GameOverRowHeight
       rowsPerCol = 8
-      colW = ScreenWidth div 2
-      textOffsetX = 19
-      startY = 16
-    result.addTextItem(titleX, 2, [title])
+      colW = ScreenWidth * UiScale div 2
+      textOffsetX = 57
+      startY = GameOverRowsY
+    result.addTextItem(titleX, 6, [title])
     for i in 0 ..< sim.players.len:
       let
         p = sim.players[i]
@@ -1131,7 +1125,7 @@ proc interstitialTextItems(
         row = i mod rowsPerCol
         baseX = min(col, 1) * colW
         textX = baseX + textOffsetX
-        textY = startY + row * rowH + (rowH - 6) div 2
+        textY = startY + row * rowH + (rowH - UiTextLine) div 2
         tag = if p.team == Red: "RED" else: "BLUE"
       result.addTextItem(textX, textY, [tag], struck = (p.lives <= 0 and not p.alive))
 
@@ -1170,14 +1164,6 @@ proc addProtocolTextSprites(
       item.spriteId
     )
 
-proc playerIconSpriteId(player: Player): int =
-  ## Returns the default right-facing player icon sprite id.
-  crewPlayerSpriteId(
-    playerColorIndex(player.color),
-    player.joinOrder,
-    false
-  )
-
 proc addProtocolGameOverActorSprites(
   sim: SimServer,
   spriteDefs: var seq[SpriteDefinition],
@@ -1185,45 +1171,42 @@ proc addProtocolGameOverActorSprites(
   packet: var seq[uint8],
   layer: int
 ) {.measure.} =
-  ## Adds separate player sprites for the game over interstitial. The 128px
-  ## interstitial is a UI layer, so the icons keep the small legacy crew art
-  ## rather than the render-scaled map sprites.
+  ## Adds player icons for the game over interstitial: the HD crew body
+  ## resized to the roster row.
   if sim.phase != GameOver:
     return
   let
-    rowH = 14
     rowsPerCol = 8
-    colW = ScreenWidth div 2
-    iconOffsetX = 4
-    startY = 16
+    colW = ScreenWidth * UiScale div 2
+    iconOffsetX = 12
   for i in 0 ..< sim.players.len:
     let
       player = sim.players[i]
       colorIndex = playerColorIndex(player.color)
-      crew = sim.crewSpriteForSlot(player.joinOrder)
+      spriteId = HdIconSpriteBase + (colorIndex and 0x0f)
       col = i div rowsPerCol
       row = i mod rowsPerCol
       baseX = min(col, 1) * colW
-      y = startY + row * rowH
+      y = GameOverRowsY + row * GameOverRowHeight
       iconX = baseX + iconOffsetX
-      iconY = y + (rowH - CrewSpriteSize) div 2
+      iconY = y + (GameOverRowHeight - GameOverIconSize) div 2
       objectId = ProtocolGameOverIconObjectBase + i
     packet.addSpriteChanged(
       spriteDefs,
-      player.playerIconSpriteId(),
-      crew.width + 2,
-      crew.height + 2,
-      buildCrewProtocolActorSprite(crew, player.color, false),
+      spriteId,
+      GameOverIconSize,
+      GameOverIconSize,
+      hdCrewIconPixels(colorIndex, GameOverIconSize),
       "icon " & playerColorName(colorIndex)
     )
     currentIds.add(objectId)
     packet.addObject(
       objectId,
-      iconX - 1,
-      iconY - 1,
+      iconX,
+      iconY,
       30000,
       layer,
-      player.playerIconSpriteId()
+      spriteId
     )
 
 proc addProtocolInterstitialActorSprites(
@@ -1253,13 +1236,19 @@ proc addSpriteProtocolInterstitialSprites(
   packet.addSpriteChanged(
     spriteDefs,
     SpritePlayerInterstitialSpriteId,
-    ScreenWidth,
-    ScreenHeight,
-    buildIndexedSpritePixels(
-      sim.darkBgPixels,
+    ScreenWidth * UiScale,
+    ScreenHeight * UiScale,
+    hdResizeRgba(
+      buildIndexedSpritePixels(
+        sim.darkBgPixels,
+        ScreenWidth,
+        ScreenHeight,
+        SpaceColor
+      ),
       ScreenWidth,
       ScreenHeight,
-      SpaceColor
+      ScreenWidth * UiScale,
+      ScreenHeight * UiScale
     ),
     "interstitial background"
   )
@@ -1371,14 +1360,16 @@ proc buildSpriteProtocolInit(
     sim.gameMap.width * RenderScale,
     sim.gameMap.height * RenderScale
   )
-  result.addLayer(ScoreboardLayerId, ScoreboardLayerType, UiLayerFlag)
+  result.addLayer(ScoreboardLayerId, ScoreboardLayerType, HdUiFlags)
   result.addViewport(ScoreboardLayerId, ScoreboardWidth, sim.scoreboardHeight())
-  result.addLayer(InterstitialLayerId, InterstitialLayerType, UiLayerFlag)
-  result.addViewport(InterstitialLayerId, ScreenWidth, ScreenHeight)
-  result.addLayer(BottomRightLayerId, BottomRightLayerType, UiLayerFlag)
-  result.addViewport(BottomRightLayerId, ScreenWidth, ScreenHeight)
-  result.addLayer(TeamScoreLayerId, TeamScoreLayerType, UiLayerFlag)
-  result.addViewport(TeamScoreLayerId, TeamScoreWidth, TextLineHeight + 2)
+  result.addLayer(InterstitialLayerId, InterstitialLayerType, HdUiFlags)
+  result.addViewport(
+    InterstitialLayerId,
+    ScreenWidth * UiScale,
+    ScreenHeight * UiScale
+  )
+  result.addLayer(TeamScoreLayerId, TeamScoreLayerType, HdUiFlags)
+  result.addViewport(TeamScoreLayerId, TeamScoreWidth, UiTextLine + 6)
   # A tiny transparent anchor keeps the (object 1, sprite 1) map origin that
   # sprite agents use as their camera reference; the visible arena arrives as
   # tiled furniture (addMapFurniture).
@@ -1421,18 +1412,22 @@ proc buildSpriteProtocolPlayerInit(
     sim.gameMap.width * RenderScale,
     sim.gameMap.height * RenderScale
   )
-  result.addLayer(HudTopRightLayerId, HudTopRightLayerType, UiLayerFlag)
-  result.addViewport(HudTopRightLayerId, 24, TextLineHeight + 2)
-  result.addLayer(HudBottomLeftLayerId, HudBottomLeftLayerType, UiLayerFlag)
-  result.addViewport(HudBottomLeftLayerId, SpriteSize + 2, SpriteSize + 2)
+  result.addLayer(HudTopRightLayerId, HudTopRightLayerType, HdUiFlags)
+  result.addViewport(HudTopRightLayerId, HudLivesWidth, UiTextLine + 6)
+  result.addLayer(HudBottomLeftLayerId, HudBottomLeftLayerType, HdUiFlags)
+  result.addViewport(HudBottomLeftLayerId, HudFireIcon + 6, HudFireIcon + 6)
   result.addLayer(
     PlayerInterstitialLayerId,
     PlayerInterstitialLayerType,
-    UiLayerFlag
+    HdUiFlags
   )
-  result.addViewport(PlayerInterstitialLayerId, ScreenWidth, ScreenHeight)
-  result.addLayer(TeamScoreLayerId, TeamScoreLayerType, UiLayerFlag)
-  result.addViewport(TeamScoreLayerId, TeamScoreWidth, TextLineHeight + 2)
+  result.addViewport(
+    PlayerInterstitialLayerId,
+    ScreenWidth * UiScale,
+    ScreenHeight * UiScale
+  )
+  result.addLayer(TeamScoreLayerId, TeamScoreLayerType, HdUiFlags)
+  result.addViewport(TeamScoreLayerId, TeamScoreWidth, UiTextLine + 6)
   result.addSpriteChanged(
     spriteDefs,
     MapSpriteId,
@@ -1454,17 +1449,21 @@ proc buildSpriteProtocolPlayerInit(
   result.addSpriteChanged(
     spriteDefs,
     SpritePlayerFireSpriteId,
-    sim.flagSprite.width,
-    sim.flagSprite.height,
-    buildSpriteProtocolRawSprite(sim.flagSprite),
+    HudFireIcon,
+    HudFireIcon,
+    hdResizeRgba(
+      hdFlagSpritePixels(Red), HdFlagSize, HdFlagSize, HudFireIcon, HudFireIcon
+    ),
     "fire icon"
   )
   result.addSpriteChanged(
     spriteDefs,
     SpritePlayerFireShadowSpriteId,
-    sim.flagSprite.width,
-    sim.flagSprite.height,
-    buildSpriteProtocolShadowSprite(sim.flagSprite),
+    HudFireIcon,
+    HudFireIcon,
+    hdResizeRgba(
+      hdFlagShadowPixels(Red), HdFlagSize, HdFlagSize, HudFireIcon, HudFireIcon
+    ),
     "fire icon cooldown"
   )
   sim.addSpriteProtocolInterstitialSprites(spriteDefs, result)
@@ -1513,11 +1512,11 @@ proc scoreboardName(player: Player): string =
 proc scoreboardText(sim: SimServer, player: Player): string =
   ## Returns one compact scoreboard cell: name plus kills/deaths, with the
   ## name truncated until the cell text fits its grid column.
+  discard sim
   var name = player.scoreboardName()
   let stats = " " & $player.kills & "/" & $player.deaths
   while name.len > 3 and
-      sim.asciiSprites.textWidth(name & stats) >
-        ScoreboardColWidth - ScoreboardTextX:
+      hdTextWidth(name & stats) > ScoreboardColWidth - ScoreboardTextX - 4:
     name.setLen(name.len - 1)
   name & stats
 
@@ -1563,7 +1562,7 @@ proc addScoreboard(
 ) {.measure.} =
   ## Adds the top-left roster panel (kills/deaths score picker), one column
   ## per team: red left, blue right.
-  packet.addLayer(ScoreboardLayerId, ScoreboardLayerType, UiLayerFlag)
+  packet.addLayer(ScoreboardLayerId, ScoreboardLayerType, HdUiFlags)
   packet.addViewport(
     ScoreboardLayerId,
     ScoreboardWidth,
@@ -1652,7 +1651,7 @@ proc addScoreboard(
     packet.addObject(
       pipObjectId,
       cellX + ScoreboardPipX,
-      rowY + 1,
+      rowY + (ScoreboardRowHeight - ScoreboardPipSize) div 2,
       0,
       ScoreboardLayerId,
       pipSpriteId
@@ -2096,8 +2095,8 @@ proc buildSpriteProtocolPlayerUpdates*(
       currentIds.add(SpritePlayerRemainingObjectId)
       result.addObject(
         SpritePlayerRemainingObjectId,
-        1,
-        1,
+        3,
+        3,
         0,
         HudBottomLeftLayerId,
         if player.fireCooldown > 0 or player.fireWindup > 0:
@@ -2122,8 +2121,8 @@ proc buildSpriteProtocolPlayerUpdates*(
     )
     result.addObject(
       SelectedTextObjectId,
-      23 - lives.width,
-      1,
+      HudLivesWidth - 4 - lives.width,
+      3,
       0,
       HudTopRightLayerId,
       SpritePlayerRemainingSpriteId
@@ -2138,6 +2137,10 @@ proc buildSpriteProtocolPlayerUpdates*(
         result.addDeleteObject(objectId)
   nextState.objectIds = currentIds
 
+const
+  TransportButtons = ['<', 'b', ' ', 'e', 'r']  ## restart, step, play, end, loop.
+  TransportSpeedKeys = ['1', '2', '3', '4', '8', '6']
+
 proc replayCommandAt(layer, x, y: int): char =
   ## Returns the replay transport command under a UI coordinate.
   if layer != ReplayBottomLeftLayerId:
@@ -2151,27 +2154,11 @@ proc replayCommandAt(layer, x, y: int): char =
       return '\0'
     if localX - index * TransportButtonStride >= TransportIconSize:
       return '\0'
-    case index
-    of 0: return '<'
-    of 1: return ' '
-    of 2: return 'e'
-    of 3: return 'r'
-    of 4: return 'b'
-    else: return '\0'
-  if localY >= TransportSpeedY and localY < TransportSpeedY + 6:
-    let speedX = localX - TransportSpeedX
-    if speedX >= 0 and speedX < 12:
-      return '1'
-    if speedX >= 16 and speedX < 28:
-      return '2'
-    if speedX >= 32 and speedX < 44:
-      return '3'
-    if speedX >= 48 and speedX < 60:
-      return '4'
-    if speedX >= 64 and speedX < 76:
-      return '8'
-    if speedX >= 80 and speedX < 100:
-      return '6'
+    return TransportButtons[index]
+  if localY >= TransportSpeedY and localY < TransportSpeedY + UiTextLine:
+    let index = (localX - TransportSpeedX) div TransportSpeedCell
+    if index >= 0 and index < TransportSpeedKeys.len:
+      return TransportSpeedKeys[index]
   '\0'
 
 proc replayScrubTickAt(
@@ -2182,7 +2169,7 @@ proc replayScrubTickAt(
   if layer != ReplayCenterBottomLayerId or maxTick < 0:
     return -1
   let
-    scrubberX = max(0, (ScreenWidth - ReplayScrubberWidth) div 2)
+    scrubberX = max(0, (ReplayPanelWidth - ReplayScrubberWidth) div 2)
     localX = x - scrubberX
     localY = y - ReplayScrubberY
   if requireInside and (
@@ -2199,7 +2186,8 @@ proc buildReplayScrubberSprite(
   tick, maxTick: int,
   enabled: bool
 ): tuple[width, height: int, pixels: seq[uint8]] {.measure.} =
-  ## Builds a compact replay scrubber sprite.
+  ## Builds the replay scrubber: a slim track with the elapsed part lit and
+  ## a full-height knob at the current tick.
   result.width = ReplayScrubberWidth
   result.height = ReplayScrubberHeight
   result.pixels = newRgbaPixels(ReplayScrubberWidth, ReplayScrubberHeight)
@@ -2212,51 +2200,45 @@ proc buildReplayScrubberSprite(
       )
     else:
       0
-
-  for x in 0 ..< ReplayScrubberWidth:
-    result.pixels.putRgbaPixel(
-      ReplayScrubberTrackY * ReplayScrubberWidth + x,
-      1'u8
-    )
-  if enabled:
-    for x in 0 .. knobX:
-      result.pixels.putRgbaPixel(
-        ReplayScrubberTrackY * ReplayScrubberWidth + x,
-        10'u8
-      )
+  for y in ReplayScrubberTrackY .. ReplayScrubberTrackY + 2:
+    for x in 0 ..< ReplayScrubberWidth:
+      let i = y * ReplayScrubberWidth + x
+      if enabled and x <= knobX:
+        result.pixels.putRawRgbaPixel(i, 235, 235, 245, 255)
+      else:
+        result.pixels.putRawRgbaPixel(i, 95, 95, 110, 255)
   for y in 0 ..< ReplayScrubberHeight:
-    result.pixels.putRgbaPixel(
-      y * ReplayScrubberWidth + knobX,
-      if enabled: 2'u8 else: 1'u8
-    )
-  if knobX > 0:
-    result.pixels.putRgbaPixel(
-      ReplayScrubberTrackY * ReplayScrubberWidth + knobX - 1,
-      if enabled: 2'u8 else: 1'u8
-    )
-  if knobX < ReplayScrubberWidth - 1:
-    result.pixels.putRgbaPixel(
-      ReplayScrubberTrackY * ReplayScrubberWidth + knobX + 1,
-      if enabled: 2'u8 else: 1'u8
-    )
-
-proc blitTransportIcon(
-  target: var seq[uint8],
-  sheet: Sprite,
-  cell, baseX, baseY: int,
-  tint: uint8
-) =
-  ## Blits one transport icon cell into protocol pixels.
-  let sourceX = cell * TransportIconSize
-  for y in 0 ..< TransportIconHeight:
-    for x in 0 ..< TransportIconSize:
-      let colorIndex = sheet.pixels[sheet.spriteIndex(sourceX + x, y)]
-      if colorIndex == TransparentColorIndex:
-        continue
-      target.putRgbaPixel(
-        (baseY + y) * TransportWidth + baseX + x,
-        tint
+    for x in max(0, knobX - 1) .. min(ReplayScrubberWidth - 1, knobX + 1):
+      result.pixels.putRawRgbaPixel(
+        y * ReplayScrubberWidth + x,
+        if enabled: 255 else: 150,
+        if enabled: 255 else: 150,
+        if enabled: 255 else: 160,
+        255
       )
+
+proc blitRgbaSprite(
+  target: var seq[uint8],
+  targetWidth: int,
+  source: seq[uint8],
+  sourceWidth, sourceHeight, baseX, baseY: int
+) =
+  ## Alpha-blits straight RGBA pixels into a larger straight RGBA buffer.
+  for y in 0 ..< sourceHeight:
+    for x in 0 ..< sourceWidth:
+      let
+        src = (y * sourceWidth + x) * 4
+        dst = ((baseY + y) * targetWidth + baseX + x) * 4
+        a = int(source[src + 3])
+      if a == 0:
+        continue
+      let inv = 255 - a
+      target[dst] = uint8((int(source[src]) * a + int(target[dst]) * inv) div 255)
+      target[dst + 1] =
+        uint8((int(source[src + 1]) * a + int(target[dst + 1]) * inv) div 255)
+      target[dst + 2] =
+        uint8((int(source[src + 2]) * a + int(target[dst + 2]) * inv) div 255)
+      target[dst + 3] = max(target[dst + 3], source[src + 3])
 
 proc buildReplayControlsSprite(
   sim: SimServer,
@@ -2265,67 +2247,63 @@ proc buildReplayControlsSprite(
   replayLooping: bool,
   replayEnabled: bool
 ): tuple[width, height: int, pixels: seq[uint8]] {.measure.} =
-  ## Builds the replay transport controls sprite.
+  ## Builds the replay transport controls: vector icons on top, speed
+  ## labels below.
+  discard sim
   result.width = TransportWidth
   result.height = TransportHeight
   result.pixels = newRgbaPixels(TransportWidth, TransportHeight)
   let
-    sheet = transportSheet()
-    iconCells = [
-      0,
-      if replayPlaying: 2 else: 1,
-      3,
-      4,
-      5
-    ]
-  for i in 0 ..< iconCells.len:
-    let tint =
-      if not replayEnabled:
-        1'u8
-      elif i == 3:
-        if replayLooping: 10'u8 else: 1'u8
-      else:
-        2'u8
-    result.pixels.blitTransportIcon(
-      sheet,
-      iconCells[i],
-      i * TransportButtonStride,
-      0,
-      tint
-    )
-
-  let speedTexts = ["1X", "2X", "3X", "4X", "8X", "16X"]
-  var x = TransportSpeedX
-  for i in 0 ..< speedTexts.len:
-    let speed =
-      case i
-      of 0: 1
-      of 1: 2
-      of 2: 3
-      of 3: 4
-      of 4: 8
-      else: 16
-    let color = if speed == replaySpeed: 10'u8 else: 1'u8
-    sim.blitSmallText(
-      result.pixels,
+    dim = rgba(120, 120, 135, 255)
+    lit = rgba(235, 235, 245, 255)
+    active = rgba(120, 235, 140, 255)
+  for i in 0 ..< TransportButtons.len:
+    let
+      command = TransportButtons[i]
+      iconKind =
+        if command == ' ':
+          if replayPlaying: 'P' else: 'p'
+        else:
+          command
+      color =
+        if not replayEnabled:
+          dim
+        elif command == 'r':
+          if replayLooping: active else: dim
+        else:
+          lit
+    result.pixels.blitRgbaSprite(
       TransportWidth,
-      TransportHeight,
-      speedTexts[i],
-      x,
-      TransportSpeedY,
-      color
+      hdTransportIcon(iconKind, TransportIconSize, color),
+      TransportIconSize,
+      TransportIconSize,
+      i * TransportButtonStride,
+      0
     )
-    x += TransportSpeedGap
+  let speedTexts = ["1X", "2X", "3X", "4X", "8X", "16X"]
+  let speeds = [1, 2, 3, 4, 8, 16]
+  for i in 0 ..< speedTexts.len:
+    let color = if speeds[i] == replaySpeed: active else: dim
+    let text = hdTextLine(speedTexts[i], color)
+    result.pixels.blitRgbaSprite(
+      TransportWidth,
+      text.pixels,
+      text.width,
+      text.height,
+      TransportSpeedX + i * TransportSpeedCell,
+      TransportSpeedY
+    )
 
 proc buildReplayMismatchSprite(
   sim: SimServer,
   tick: int
 ): tuple[width, height: int, pixels: seq[uint8], label: string] {.measure.} =
   ## Builds the top-center replay hash mismatch warning sprite.
+  discard sim
   result.label = "hash mismatch at tick " & $tick
-  let textWidth = sim.asciiSprites.textWidth(result.label)
-  result.width = max(ReplayMismatchMinWidth, textWidth + ReplayMismatchPadX * 2)
-  result.height = TextLineHeight + ReplayMismatchPadY * 2
+  let text = hdTextLine(result.label, rgba(255, 235, 235, 255))
+  result.width = max(ReplayMismatchMinWidth, text.width + ReplayMismatchPadX * 2)
+  result.height = UiTextLine + ReplayMismatchPadY * 2
   result.pixels = newRgbaPixels(result.width, result.height)
   for i in 0 ..< result.width * result.height:
     result.pixels.putRawRgbaPixel(
@@ -2335,14 +2313,13 @@ proc buildReplayMismatchSprite(
       ReplayMismatchBgB,
       ReplayMismatchBgA
     )
-  sim.blitSmallText(
-    result.pixels,
+  result.pixels.blitRgbaSprite(
     result.width,
-    result.height,
-    result.label,
-    (result.width - textWidth) div 2,
-    ReplayMismatchPadY,
-    2'u8
+    text.pixels,
+    text.width,
+    text.height,
+    (result.width - text.width) div 2,
+    ReplayMismatchPadY
   )
 
 proc addReplayMismatchWarning(
@@ -2359,7 +2336,7 @@ proc addReplayMismatchWarning(
   packet.addLayer(
     ReplayMismatchLayerId,
     ReplayMismatchLayerType,
-    UiLayerFlag
+    HdUiFlags
   )
   packet.addViewport(
     ReplayMismatchLayerId,
@@ -2496,21 +2473,21 @@ proc buildSpriteProtocolUpdates*(
     result.addLayer(
       ReplayCenterBottomLayerId,
       ReplayCenterBottomLayerType,
-      UiLayerFlag
+      HdUiFlags
     )
     result.addViewport(
       ReplayCenterBottomLayerId,
-      ScreenWidth,
+      ReplayPanelWidth,
       ReplayPanelHeight
     )
     result.addLayer(
       ReplayBottomLeftLayerId,
       ReplayBottomLeftLayerType,
-      UiLayerFlag
+      HdUiFlags
     )
     result.addViewport(
       ReplayBottomLeftLayerId,
-      ScreenWidth,
+      TransportWidth + TransportX * 2,
       ReplayPanelHeight
     )
     nextState.initialized = true
@@ -2548,8 +2525,7 @@ proc buildSpriteProtocolUpdates*(
         labelLines = playerLabelLines(sim, player, playerIndex)
         label = sim.buildSpriteProtocolTextSprite(
           labelLines,
-          PlayerNameColor,
-          scale = RenderScale
+          PlayerNameColor
         )
         labelSpriteId = player.spritePlayerNameSpriteId()
         labelObjectId = player.spritePlayerNameObjectId()
@@ -2646,7 +2622,7 @@ proc buildSpriteProtocolUpdates*(
     )
     result.addObject(
       ReplayTickObjectId,
-      max(0, (ScreenWidth - tickText.width) div 2),
+      max(0, (ReplayPanelWidth - tickText.width) div 2),
       0,
       0,
       ReplayCenterBottomLayerId,
@@ -2663,7 +2639,7 @@ proc buildSpriteProtocolUpdates*(
     )
     result.addObject(
       ReplayScrubberObjectId,
-      max(0, (ScreenWidth - ReplayScrubberWidth) div 2),
+      max(0, (ReplayPanelWidth - ReplayScrubberWidth) div 2),
       ReplayScrubberY,
       0,
       ReplayCenterBottomLayerId,

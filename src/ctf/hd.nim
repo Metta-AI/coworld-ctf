@@ -19,6 +19,9 @@ import
 const
   RenderScale* = 3             ## HD px per map px on the zoomable layers.
   SmoothLayerFlag* = 8         ## client hint: smooth (not nearest) upscaling.
+  UiScale* = 3                 ## HD px per legacy UI px on HD UI layers.
+  HdUiLayerFlag* = 16          ## client hint: UI content authored at UiScale.
+  UiTextLine* = TextLineHeight * UiScale  ## 21: one HD UI text line height.
   HdCrewSize* = 96             ## HD player sprite canvas (32 map px).
   HdCrewBodyPx = 50            ## the soldier body's target size on the canvas.
   HdCrewRotations* = 16        ## pre-rotated aim steps (16 brads apart).
@@ -503,6 +506,155 @@ proc hdPlayerSpriteId*(colorIndex, rot: int, kind: HdCrewKind): int =
     of hdCrewSelected: HdSelectedSpriteBase
     of hdCrewCorpse: HdCorpseSpriteBase
   base + (colorIndex and 0x0f) * HdCrewRotations + rot
+
+var
+  hdUiFont: Font
+  hdUiFontRatio: float32
+  hdTextCache: Table[
+    (string, int, uint32, bool),
+    tuple[width, height: int, pixels: seq[uint8]]
+  ]
+  hdCrewIconCache: Table[(int, int), seq[uint8]]
+
+proc hdFont(): Font =
+  ## The shared UI font, loaded once; hdUiFontRatio converts a wanted line
+  ## height into the font size that produces it.
+  if hdUiFont == nil:
+    hdUiFont = readFont(hdDataDir() / "font.ttf")
+    hdUiFont.size = 100
+    hdUiFontRatio = 100.0'f32 / hdUiFont.defaultLineHeight
+  hdUiFont
+
+proc hdColorKey(color: ColorRGBA): uint32 =
+  uint32(color.r) or (uint32(color.g) shl 8) or
+    (uint32(color.b) shl 16) or (uint32(color.a) shl 24)
+
+proc hdTextWidth*(text: string, linePx = UiTextLine): int =
+  ## Pixel width of one line of HD UI text.
+  let font = hdFont()
+  font.size = float32(linePx) * hdUiFontRatio
+  max(1, int(ceil(font.layoutBounds(text).x)))
+
+proc hdTextLine*(
+  text: string,
+  color: ColorRGBA,
+  linePx = UiTextLine,
+  struck = false
+): tuple[width, height: int, pixels: seq[uint8]] =
+  ## Rasterizes one line of HD UI text; the sprite is exactly linePx tall.
+  let key = (text, linePx, hdColorKey(color), struck)
+  if key in hdTextCache:
+    return hdTextCache[key]
+  let font = hdFont()
+  font.size = float32(linePx) * hdUiFontRatio
+  var paint = newPaint(SolidPaint)
+  paint.color = color.color()
+  font.paint = paint
+  let width = max(1, int(ceil(font.layoutBounds(text).x)))
+  var image = newImage(width, linePx)
+  image.fillText(font, text)
+  var pixels = image.toStraightRgba()
+  if struck:
+    for y in [linePx div 2 - 1, linePx div 2]:
+      for x in 0 ..< width:
+        let i = (y * width + x) * 4
+        pixels[i] = color.r
+        pixels[i + 1] = color.g
+        pixels[i + 2] = color.b
+        pixels[i + 3] = 255
+  result = (width, linePx, pixels)
+  if hdTextCache.len > 1024:
+    hdTextCache.clear()
+  hdTextCache[key] = result
+
+proc hdResizeRgba*(
+  pixels: seq[uint8],
+  width, height, outWidth, outHeight: int
+): seq[uint8] =
+  ## Smoothly resizes straight RGBA pixels.
+  var image = newImage(width, height)
+  for i in 0 ..< width * height:
+    image.data[i] = rgba(
+      pixels[i * 4], pixels[i * 4 + 1], pixels[i * 4 + 2], pixels[i * 4 + 3]
+    ).rgbx()
+  image.resize(outWidth, outHeight).toStraightRgba()
+
+proc hdCrewIconPixels*(colorIndex, sizePx: int): seq[uint8] =
+  ## A right-facing crew body resized for HD UI panels.
+  let key = (colorIndex, sizePx)
+  if key in hdCrewIconCache:
+    return hdCrewIconCache[key]
+  result = hdResizeRgba(
+    hdCrewSpritePixels(colorIndex, 0, hdCrewNormal),
+    HdCrewSize,
+    HdCrewSize,
+    sizePx,
+    sizePx
+  )
+  hdCrewIconCache[key] = result
+
+proc hdFlagShadowPixels*(team: Team): seq[uint8] =
+  ## A dark translucent silhouette of the HD flag (fire-cooldown icon).
+  result = hdFlagPixels[team]
+  for i in 0 ..< result.len div 4:
+    let a = result[i * 4 + 3]
+    result[i * 4] = 30
+    result[i * 4 + 1] = 30
+    result[i * 4 + 2] = 34
+    result[i * 4 + 3] = uint8(int(a) * 55 div 100)
+
+proc hdTransportIcon*(
+  kind: char,
+  sizePx: int,
+  color: ColorRGBA
+): seq[uint8] =
+  ## Draws one replay transport icon as crisp vector shapes:
+  ## '<' restart, 'b' step back, 'p' play, 'P' pause, 'e' to end, 'r' loop.
+  var image = newImage(sizePx, sizePx)
+  let
+    s = float32(sizePx)
+    paint = newPaint(SolidPaint)
+  paint.color = color.color()
+  var path = newPath()
+  case kind
+  of '<':
+    path.rect(0.10 * s, 0.15 * s, 0.12 * s, 0.70 * s)
+    path.moveTo(0.90 * s, 0.15 * s)
+    path.lineTo(0.90 * s, 0.85 * s)
+    path.lineTo(0.30 * s, 0.50 * s)
+    path.closePath()
+  of 'b':
+    path.moveTo(0.75 * s, 0.15 * s)
+    path.lineTo(0.75 * s, 0.85 * s)
+    path.lineTo(0.20 * s, 0.50 * s)
+    path.closePath()
+  of 'p':
+    path.moveTo(0.20 * s, 0.10 * s)
+    path.lineTo(0.90 * s, 0.50 * s)
+    path.lineTo(0.20 * s, 0.90 * s)
+    path.closePath()
+  of 'P':
+    path.rect(0.20 * s, 0.12 * s, 0.20 * s, 0.76 * s)
+    path.rect(0.60 * s, 0.12 * s, 0.20 * s, 0.76 * s)
+  of 'e':
+    path.moveTo(0.10 * s, 0.15 * s)
+    path.lineTo(0.70 * s, 0.50 * s)
+    path.lineTo(0.10 * s, 0.85 * s)
+    path.closePath()
+    path.rect(0.78 * s, 0.15 * s, 0.12 * s, 0.70 * s)
+  of 'r':
+    # A loop ring with a gap plus an arrow head at the gap.
+    var ring = newPath()
+    ring.arc(0.5 * s, 0.5 * s, 0.32 * s, 0.30'f32, 5.30'f32, false)
+    image.strokePath(ring, paint, strokeWidth = 0.12 * s)
+    path.moveTo(0.86 * s, 0.28 * s)
+    path.lineTo(0.98 * s, 0.56 * s)
+    path.lineTo(0.68 * s, 0.52 * s)
+    path.closePath()
+  else:
+    discard
+  image.fillPath(path, paint)
+  image.toStraightRgba()
 
 proc hdFloorTiles*(): seq[tuple[x, y: int]] =
   ## Map-px top-left corners for the tiled floor cover.
