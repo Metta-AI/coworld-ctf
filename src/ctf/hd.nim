@@ -28,7 +28,9 @@ const
   HdFlagSize* = 60             ## flag art canvas (20 map px): the banner must
                                ## dominate the canvas to read as a flag in-game.
   HdPedestalSize* = 60         ## pedestal pad art canvas (20 map px).
-  HdFloorTileMapPx* = 128      ## one floor tile covers 128x128 map px.
+  HdFloorTileMapPx* = 96       ## one floor tile covers 96x96 map px (a
+                               ## 288px sprite: small enough to keep the
+                               ## init snapshot under hosted frame limits).
   HdFloorTilePx = HdFloorTileMapPx * RenderScale
   ## Sprite-id pools (disjoint from everything in global.nim).
   HdFloorSpriteId* = 25000
@@ -79,7 +81,6 @@ var
   hdFlagPixels: array[Team, seq[uint8]]
   hdPedestalPixels: array[Team, seq[uint8]]
   hdFloorPixels: seq[uint8]
-  hdTintPixels: array[Team, seq[uint8]]
   hdCrewRecolored: Table[int, Image]
   hdCrewCache: Table[(int, int, HdCrewKind), seq[uint8]]
   hdWallPieces: seq[HdWallPiece]
@@ -144,14 +145,28 @@ proc buildFlagPixels(image: Image): seq[uint8] =
 proc buildPedestalPixels(image: Image): seq[uint8] =
   image.resize(HdPedestalSize, HdPedestalSize).toStraightRgba()
 
-proc buildTintPixels(team: Team): seq[uint8] =
-  ## One translucent territory wash covering a half of the map at HD scale.
+proc hdTintTiles*(team: Team): seq[tuple[x, y, w, h: int]] =
+  ## Map-px rects exactly partitioning one team's half for the territory
+  ## wash. Tiled (like the floor) because one half-map uniform sprite costs
+  ## ~700KB of snappy copies on the wire; the tiles dedupe to a few KB.
   let
-    width = (MapWidth div 2 + MapWidth mod 2) * RenderScale
-    height = MapHeight * RenderScale
-    tint = if team == Red: ArenaRedWash else: ArenaBlueWash
-  result = newSeq[uint8](width * height * 4)
-  for i in 0 ..< width * height:
+    x0 = if team == Red: 0 else: MapWidth div 2
+    x1 = if team == Red: MapWidth div 2 else: MapWidth
+  var y = 0
+  while y < MapHeight:
+    let h = min(HdFloorTileMapPx, MapHeight - y)
+    var x = x0
+    while x < x1:
+      let w = min(HdFloorTileMapPx, x1 - x)
+      result.add((x, y, w, h))
+      x += w
+    y += h
+
+proc hdTintTilePixels*(team: Team, width, height: int): seq[uint8] =
+  ## One uniform translucent wash tile at HD scale (map-px dimensions in).
+  let tint = if team == Red: ArenaRedWash else: ArenaBlueWash
+  result = newSeq[uint8](width * RenderScale * height * RenderScale * 4)
+  for i in 0 ..< width * RenderScale * height * RenderScale:
     result[i * 4] = tint.r
     result[i * 4 + 1] = tint.g
     result[i * 4 + 2] = tint.b
@@ -321,12 +336,16 @@ proc buildWallPieces(center: MapPoint) =
     )
 
 proc buildBorderSlabs() =
-  ## Four border wall slabs with a darkened inner edge.
+  ## Four border wall TILE sprites with a darkened inner edge: one repeating
+  ## tile per side instead of full-length slabs (a full-width textured slab
+  ## costs ~150KB on the wire; a tile is a few KB and repeats seamlessly
+  ## because its texture is world-anchored and wall.png tiles).
   let
-    w = MapWidth * RenderScale
-    h = MapHeight * RenderScale
     b = ArenaBorder * RenderScale
-  proc slab(width, height, edgeSide: int): seq[uint8] =
+    run = HdFloorTileMapPx * RenderScale
+  proc slabTile(
+    width, height, edgeSide, texOffX, texOffY: int
+  ): seq[uint8] =
     ## edgeSide: 0 bottom edge darkened, 1 top, 2 right, 3 left.
     result = newSeq[uint8](width * height * 4)
     for py in 0 ..< height:
@@ -337,12 +356,30 @@ proc buildBorderSlabs() =
           of 1: py < 2 * RenderScale
           of 2: px >= width - 2 * RenderScale
           else: px < 2 * RenderScale
-        result.putWallPixel(py * width + px, wallTexel(px, py), edge)
-  hdBorderSprites[0] = (0, 0, w, b, slab(w, b, 0))
-  hdBorderSprites[1] = (0, MapHeight - ArenaBorder, w, b, slab(w, b, 1))
-  hdBorderSprites[2] = (0, ArenaBorder, b, h - 2 * b, slab(b, h - 2 * b, 2))
-  hdBorderSprites[3] = (MapWidth - ArenaBorder, ArenaBorder, b, h - 2 * b,
-    slab(b, h - 2 * b, 3))
+        result.putWallPixel(
+          py * width + px, wallTexel(texOffX + px, texOffY + py), edge
+        )
+  hdBorderSprites[0] = (0, 0, run, b, slabTile(run, b, 0, 0, 0))
+  hdBorderSprites[1] = (0, MapHeight - ArenaBorder, run, b,
+    slabTile(run, b, 1, 0, (MapHeight - ArenaBorder) * RenderScale))
+  hdBorderSprites[2] = (0, 0, b, run, slabTile(b, run, 2, 0, 0))
+  hdBorderSprites[3] = (MapWidth - ArenaBorder, 0, b, run,
+    slabTile(b, run, 3, (MapWidth - ArenaBorder) * RenderScale, 0))
+
+proc hdBorderTiles*(): seq[tuple[side, x, y: int]] =
+  ## Map-px placements for the repeating border tiles: full top and bottom
+  ## rows plus full left and right columns. Corner overlaps repeat identical
+  ## world-anchored texture, so draw order there does not matter.
+  var x = 0
+  while x < MapWidth:
+    result.add((0, x, 0))
+    result.add((1, x, MapHeight - ArenaBorder))
+    x += HdFloorTileMapPx
+  var y = 0
+  while y < MapHeight:
+    result.add((2, 0, y))
+    result.add((3, MapWidth - ArenaBorder, y))
+    y += HdFloorTileMapPx
 
 proc hdEnsureLoaded*(gameMap: CtfMap) =
   ## Loads and rasterizes every HD asset once per process.
@@ -357,8 +394,6 @@ proc hdEnsureLoaded*(gameMap: CtfMap) =
   hdPedestalPixels[Red] = buildPedestalPixels(readHdImage("pedestal_red.png"))
   hdPedestalPixels[Blue] = buildPedestalPixels(readHdImage("pedestal_blue.png"))
   hdFloorPixels = hdFloorImage.toStraightRgba()
-  hdTintPixels[Red] = buildTintPixels(Red)
-  hdTintPixels[Blue] = buildTintPixels(Blue)
   buildWallPieces(gameMap.center)
   buildBorderSlabs()
   hdLoaded = true
@@ -371,12 +406,6 @@ proc hdPedestalSpritePixels*(team: Team): seq[uint8] =
 
 proc hdFloorSpritePixels*(): seq[uint8] =
   hdFloorPixels
-
-proc hdTintSpritePixels*(team: Team): seq[uint8] =
-  hdTintPixels[team]
-
-proc hdTintSize*(): tuple[width, height: int] =
-  ((MapWidth div 2 + MapWidth mod 2) * RenderScale, MapHeight * RenderScale)
 
 proc hdWallPiecesList*(): seq[HdWallPiece] =
   hdWallPieces

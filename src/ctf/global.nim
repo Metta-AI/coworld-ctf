@@ -1,5 +1,5 @@
 import
-  std/[algorithm, math, os],
+  std/[algorithm, math, os, tables],
   chroma,
   bitworld/pixelfonts, bitworld/profile, bitworld/spriteprotocol, bitworld/server,
   sim, hd
@@ -696,12 +696,17 @@ proc addMapMarker(
   let
     spriteId = mapMarkerSpriteId(index)
     objectId = mapMarkerObjectId(index)
+  # A 1x1 transparent sprite: the marker is invisible and only its labeled
+  # position matters, while a room-sized transparent buffer costs ~90KB of
+  # compressed zeros on the wire.
+  discard width
+  discard height
   packet.addSpriteChanged(
     spriteDefs,
     spriteId,
-    width * RenderScale,
-    height * RenderScale,
-    newRgbaPixels(width * RenderScale, height * RenderScale),
+    1,
+    1,
+    newRgbaPixels(1, 1),
     label
   )
   packet.addWorldObject(objectId, x, y, MapMarkerZ, MapLayerId, spriteId)
@@ -756,29 +761,31 @@ proc addMapFurniture(
     packet.addWorldObject(
       objectId, tile.x, tile.y, HdFloorZ, MapLayerId, HdFloorSpriteId
     )
-  # Team territory washes over each half's floor.
-  let tintSize = hdTintSize()
+  # Team territory washes over each half's floor, tiled like the floor so
+  # the uniform color costs a few KB instead of ~700KB per half.
+  var
+    tintSpriteIds: Table[(Team, int, int), int]
+    tintObjectIndex = 0
   for team in Team:
-    let spriteId = HdTintSpriteBase + ord(team)
-    if spriteDefs.spriteDefinitionIndex(spriteId) < 0:
-      packet.addSpriteChanged(
-        spriteDefs,
-        spriteId,
-        tintSize.width,
-        tintSize.height,
-        hdTintSpritePixels(team),
-        teamText(team) & " territory"
+    for tile in hdTintTiles(team):
+      let sizeKey = (team, tile.w, tile.h)
+      if sizeKey notin tintSpriteIds:
+        let spriteId = HdTintSpriteBase + ord(team) * 4 + tintSpriteIds.len mod 4
+        tintSpriteIds[sizeKey] = spriteId
+        packet.addSpriteChanged(
+          spriteDefs,
+          spriteId,
+          tile.w * RenderScale,
+          tile.h * RenderScale,
+          hdTintTilePixels(team, tile.w, tile.h),
+          teamText(team) & " territory"
+        )
+      let objectId = HdTintObjectBase + tintObjectIndex
+      inc tintObjectIndex
+      currentIds.add(objectId)
+      packet.addWorldObject(
+        objectId, tile.x, tile.y, HdTintZ, MapLayerId, tintSpriteIds[sizeKey]
       )
-    let objectId = HdTintObjectBase + ord(team)
-    currentIds.add(objectId)
-    packet.addWorldObject(
-      objectId,
-      if team == Red: 0 else: MapWidth div 2,
-      0,
-      HdTintZ,
-      MapLayerId,
-      spriteId
-    )
   # Interior wall shapes (deduped forms plus carved instances).
   var pieceIndex = 0
   for piece in hdWallPiecesList():
@@ -798,19 +805,21 @@ proc addMapFurniture(
     packet.addWorldObject(
       objectId, piece.x, piece.y, HdWallZ, MapLayerId, piece.spriteId
     )
-  # Border slabs.
-  for i in 0 ..< 4:
+  # Border wall tiles: one repeating sprite per side.
+  var borderIndex = 0
+  for tile in hdBorderTiles():
     let
-      spriteId = HdBorderSpriteBase + i
-      slab = hdBorderSlab(i)
+      spriteId = HdBorderSpriteBase + tile.side
+      slab = hdBorderSlab(tile.side)
     if spriteDefs.spriteDefinitionIndex(spriteId) < 0:
       packet.addSpriteChanged(
         spriteDefs, spriteId, slab.width, slab.height, slab.pixels, "wall"
       )
-    let objectId = HdBorderObjectBase + i
+    let objectId = HdBorderObjectBase + borderIndex
+    inc borderIndex
     currentIds.add(objectId)
     packet.addWorldObject(
-      objectId, slab.x, slab.y, HdWallZ, MapLayerId, spriteId
+      objectId, tile.x, tile.y, HdWallZ, MapLayerId, spriteId
     )
   # Flag pedestals (cosmetic; the flag objects carry the game state).
   for team in Team:
