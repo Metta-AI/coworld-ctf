@@ -80,8 +80,8 @@ const
   MapObjectId* = 1
   MapLayerId* = 0
   MapLayerType* = 0
-  TopLeftLayerId* = 1
-  TopLeftLayerType* = 1
+  ScoreboardLayerId* = 1
+  ScoreboardLayerType* = 8     ## bottom-center anchor.
   BottomRightLayerId* = 3
   BottomRightLayerType* = 3
   ZoomableLayerFlag* = 1

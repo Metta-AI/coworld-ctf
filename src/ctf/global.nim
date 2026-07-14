@@ -30,18 +30,22 @@ const
   ReplayMismatchBgG = 20'u8
   ReplayMismatchBgB = 20'u8
   ReplayMismatchBgA = 255'u8
-  ScoreboardWidth = 84
-  ScoreboardHeight = 116
+  ## The scoreboard is a bottom-center bar: players grid into columns so the
+  ## roster reads along the bottom of the screen instead of covering the map.
+  ScoreboardCols = 4
+  ScoreboardColWidth = 74
+  ScoreboardWidth = ScoreboardCols * ScoreboardColWidth
   ScoreboardY = 2
   ScoreboardRowHeight = 7
   ScoreboardPipX = 2
-  ScoreboardPipY = 2
   ScoreboardPipSize = 4
   ScoreboardTextX = 8
   ScoreboardTextSpriteBase = 12000
   ScoreboardTextObjectBase = 12100
   ScoreboardPipSpriteBase = 12200
   ScoreboardPipObjectBase = 12300
+  ScoreboardBgSpriteId = 12400
+  ScoreboardBgObjectId = 12400
   ScoreboardTextColor = 2'u8
   ScoreboardSelectedTextColor = 10'u8
   InterstitialObjectId = 4005
@@ -1328,6 +1332,14 @@ proc addHdPlayerObject(
     spriteId
   )
 
+proc scoreboardRows(sim: SimServer): int =
+  ## Returns the number of grid rows the roster occupies.
+  max(1, (sim.players.len + ScoreboardCols - 1) div ScoreboardCols)
+
+proc scoreboardHeight(sim: SimServer): int =
+  ## Returns the bar's content height.
+  ScoreboardY + sim.scoreboardRows() * ScoreboardRowHeight + 2
+
 proc buildSpriteProtocolInit(
   sim: SimServer,
   spriteDefs: var seq[SpriteDefinition]
@@ -1344,8 +1356,8 @@ proc buildSpriteProtocolInit(
     sim.gameMap.width * RenderScale,
     sim.gameMap.height * RenderScale
   )
-  result.addLayer(TopLeftLayerId, TopLeftLayerType, UiLayerFlag)
-  result.addViewport(TopLeftLayerId, ScoreboardWidth, ScoreboardHeight)
+  result.addLayer(ScoreboardLayerId, ScoreboardLayerType, UiLayerFlag)
+  result.addViewport(ScoreboardLayerId, ScoreboardWidth, sim.scoreboardHeight())
   result.addLayer(InterstitialLayerId, InterstitialLayerType, UiLayerFlag)
   result.addViewport(InterstitialLayerId, ScreenWidth, ScreenHeight)
   result.addLayer(BottomRightLayerId, BottomRightLayerType, UiLayerFlag)
@@ -1483,9 +1495,16 @@ proc scoreboardName(player: Player): string =
   ## row already carries the team, so no (red)/(blue) tag.
   player.playerLabelText()
 
-proc scoreboardText(player: Player): string =
-  ## Returns one compact scoreboard row.
-  player.scoreboardName() & " " & $player.lives
+proc scoreboardText(sim: SimServer, player: Player): string =
+  ## Returns one compact scoreboard cell: name plus kills/deaths, with the
+  ## name truncated until the cell text fits its grid column.
+  var name = player.scoreboardName()
+  let stats = " " & $player.kills & "/" & $player.deaths
+  while name.len > 3 and
+      sim.asciiSprites.textWidth(name & stats) >
+        ScoreboardColWidth - ScoreboardTextX:
+    name.setLen(name.len - 1)
+  name & stats
 
 proc scoreboardJoinOrderAt(
   sim: SimServer,
@@ -1493,23 +1512,20 @@ proc scoreboardJoinOrderAt(
   mouseX,
   mouseY: int
 ): int =
-  ## Returns the join order for a clicked scoreboard name.
-  if layer != TopLeftLayerId:
-    return -1
-  let row = (mouseY - ScoreboardY) div ScoreboardRowHeight
-  if row < 0 or row >= sim.players.len:
+  ## Returns the join order for a clicked scoreboard cell. The whole grid
+  ## cell is the click target so the bar stays easy to hit.
+  if layer != ScoreboardLayerId:
     return -1
   let
-    player = sim.players[row]
-    name = player.scoreboardName()
-    rowY = ScoreboardY + row * ScoreboardRowHeight
-    nameWidth = sim.asciiSprites.textWidth(name)
-  if mouseY < rowY or mouseY >= rowY + TextLineHeight:
+    col = mouseX div ScoreboardColWidth
+    row = (mouseY - ScoreboardY) div ScoreboardRowHeight
+  if col < 0 or col >= ScoreboardCols or row < 0 or
+      row >= sim.scoreboardRows():
     return -1
-  if mouseX < ScoreboardTextX or
-      mouseX >= ScoreboardTextX + nameWidth:
+  let index = row * ScoreboardCols + col
+  if index >= sim.players.len:
     return -1
-  player.joinOrder
+  sim.players[index].joinOrder
 
 proc toggleSelectedJoinOrder(
   state: var GlobalViewerState,
@@ -1528,11 +1544,42 @@ proc addScoreboard(
   spriteDefs: var seq[SpriteDefinition],
   currentIds: var seq[int],
   packet: var seq[uint8],
-  selectedJoinOrder: int
+  selectedJoinOrder: int,
+  replayEnabled = false
 ) {.measure.} =
-  ## Adds the top-left player score picker (per-team lives).
-  packet.addLayer(TopLeftLayerId, TopLeftLayerType, UiLayerFlag)
-  packet.addViewport(TopLeftLayerId, ScoreboardWidth, ScoreboardHeight)
+  ## Adds the bottom-center roster bar (kills/deaths score picker). In replay
+  ## mode the viewport gains bottom padding so the bar sits above the
+  ## transport/scrubber panels that share the bottom edge.
+  let bottomPad = if replayEnabled: ReplayPanelHeight + 2 else: 0
+  packet.addLayer(ScoreboardLayerId, ScoreboardLayerType, UiLayerFlag)
+  packet.addViewport(
+    ScoreboardLayerId,
+    ScoreboardWidth,
+    sim.scoreboardHeight() + bottomPad
+  )
+  # A translucent panel behind the grid: readable over the arena, and the
+  # client only routes clicks to a UI layer when the cursor is over one of
+  # its objects, so the panel makes the whole bar a click target.
+  var bg = newRgbaPixels(ScoreboardWidth, sim.scoreboardHeight())
+  for i in 0 ..< ScoreboardWidth * sim.scoreboardHeight():
+    bg[i * 4 + 3] = 150
+  currentIds.add(ScoreboardBgObjectId)
+  packet.addSpriteChanged(
+    spriteDefs,
+    ScoreboardBgSpriteId,
+    ScoreboardWidth,
+    sim.scoreboardHeight(),
+    bg,
+    "scoreboard"
+  )
+  packet.addObject(
+    ScoreboardBgObjectId,
+    0,
+    0,
+    -1,
+    ScoreboardLayerId,
+    ScoreboardBgSpriteId
+  )
   for i in 0 ..< sim.players.len:
     let
       player = sim.players[i]
@@ -1541,16 +1588,15 @@ proc addScoreboard(
       pipObjectId = scoreboardPipObjectId(i)
       textSpriteId = scoreboardTextSpriteId(i)
       textObjectId = scoreboardTextObjectId(i)
-      rowY = ScoreboardY + i * ScoreboardRowHeight
+      cellX = (i mod ScoreboardCols) * ScoreboardColWidth
+      rowY = ScoreboardY + (i div ScoreboardCols) * ScoreboardRowHeight
       color =
         if player.joinOrder == selectedJoinOrder:
           ScoreboardSelectedTextColor
         else:
           ScoreboardTextColor
-      text = sim.buildSpriteProtocolTextSprite(
-        [player.scoreboardText()],
-        color
-      )
+      rowText = sim.scoreboardText(player)
+      text = sim.buildSpriteProtocolTextSprite([rowText], color)
     currentIds.add(pipObjectId)
     currentIds.add(textObjectId)
     packet.addSpriteChanged(
@@ -1563,10 +1609,10 @@ proc addScoreboard(
     )
     packet.addObject(
       pipObjectId,
-      ScoreboardPipX,
-      ScoreboardPipY + i * ScoreboardRowHeight,
+      cellX + ScoreboardPipX,
+      rowY + 1,
       0,
-      TopLeftLayerId,
+      ScoreboardLayerId,
       pipSpriteId
     )
     packet.addSpriteChanged(
@@ -1575,14 +1621,14 @@ proc addScoreboard(
       text.width,
       text.height,
       text.pixels,
-      "score " & player.scoreboardText() & " color " & $color
+      "score " & rowText & " color " & $color
     )
     packet.addObject(
       textObjectId,
-      ScoreboardTextX,
+      cellX + ScoreboardTextX,
       rowY,
       0,
-      TopLeftLayerId,
+      ScoreboardLayerId,
       textSpriteId
     )
 
@@ -2384,7 +2430,8 @@ proc buildSpriteProtocolUpdates*(
       nextState.spriteDefs,
       currentIds,
       result,
-      nextState.selectedJoinOrder
+      nextState.selectedJoinOrder,
+      replayEnabled
     )
     sim.addReplayMismatchWarning(
       nextState.spriteDefs,
@@ -2427,7 +2474,8 @@ proc buildSpriteProtocolUpdates*(
     nextState.spriteDefs,
     currentIds,
     result,
-    nextState.selectedJoinOrder
+    nextState.selectedJoinOrder,
+    replayEnabled
   )
   sim.addMapFurniture(nextState.spriteDefs, currentIds, result)
   sim.addSplatters(nextState.spriteDefs, currentIds, result)
