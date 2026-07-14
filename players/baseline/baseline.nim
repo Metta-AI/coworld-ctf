@@ -130,6 +130,12 @@ const
   FireSlackPx = 11.0          # fire when the aim error's perpendicular miss
                               # at the target's range is inside this (the
                               # corridor half-width is ~14px; keep margin)
+  CommitBonus = 400.0         # px of priority credit for the committed target,
+                              # so we finish the enemy we are already killing
+                              # instead of switching to a marginally closer one
+  LockTtl = 48                # hold a target commitment this many ticks past
+                              # the last frame we could engage it (~2 shots)
+  LockMatchDist = 60.0        # a candidate this close to the lock fix IS it
   ScanArc = 44                # scan sweeps this many brads each side of the
                               # watch heading (cone half-angle is 32 brads)
   PushOutTicks = 360          # endgame push: no enemy seen for ~15s...
@@ -198,6 +204,11 @@ type
     rushEngageRange: float    # engage cap while racing for the steal
     escortEngageRange: float  # engage cap while escorting a carrier
     pocketRushRange: float    # inside this of the enemy pedestal, just GRAB
+    commit: bool              # target commitment: keep firing on the enemy we
+                              # already wounded until it dies/fogs, instead of
+                              # re-picking the nearest each frame (3 hits kill;
+                              # spread hits only wound). Off => shipped combat.
+    commitBonus: float        # px of priority credit for the committed target
 
   Bot = ref object
     slot: int
@@ -232,6 +243,9 @@ type
     stuckTicks: int
     jinkUntil: int
     jinkBits: uint8
+    lockPos: Vec              # committed target's last-known position, matched
+    lockUntil: int            # frame-to-frame; commit holds it until this tick
+    lockHp: int               # committed target's last-seen hp (0 = unknown)
 
 proc defaultCombatTune(): CombatTune =
   ## The shipped baseline's combat knobs, verbatim from the module consts.
@@ -247,6 +261,8 @@ proc defaultCombatTune(): CombatTune =
     rushEngageRange: RushEngageRange,
     escortEngageRange: EscortEngageRange,
     pocketRushRange: PocketRushRange,
+    commit: false,            # shipped baseline re-picks nearest each frame.
+    commitBonus: CommitBonus,
   )
 
 proc roleForSeat(seat: int, team: Team): Role =
@@ -1302,6 +1318,12 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       prio -= float(MaxHp - t.hp) * HpFocusBonus
     if mateTargeted[i]:
       prio -= FocusFireBonus
+    # Target commitment: heavily favour the enemy we are already engaged with
+    # (matched by its last-known position) so three shots land on ONE target
+    # and kill it, rather than one shot each spread across many wounded ones.
+    if bot.tune.commit and bot.tick <= bot.lockUntil and
+        dist(t.pos, bot.lockPos) <= LockMatchDist:
+      prio -= bot.tune.commitBonus
     if client.pixelRayClear(me, predicted):
       if bot.friendlyBlocked(me, predicted, d):
         continue                        # prefer a target with an empty corridor
@@ -1314,6 +1336,13 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       blockedD = d
       blockedAim = predicted
       haveBlocked = true
+
+  # Refresh the commitment lock onto whichever target we chose this frame, so
+  # next frame's selection is drawn back to it until it dies or fogs out.
+  if bot.tune.commit and engage >= 0:
+    bot.lockPos = bot.enemies[engage].pos
+    bot.lockHp = bot.enemies[engage].hp
+    bot.lockUntil = bot.tick + LockTtl
 
   # The nearest remembered enemy that could be threatening us right now,
   # used to pick which line to break when ducking through cooldown.

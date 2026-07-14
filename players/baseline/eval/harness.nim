@@ -112,11 +112,17 @@ proc hunterTune(): CombatTune =
   ## var (HUNT_* ) so hypotheses A/B without a rebuild. Defaults below encode
   ## the leading hypothesis; a control-vs-hunter run isolates their effect.
   result = defaultCombatTune()
-  result.freshShotTicks = envInt("HUNT_FRESH", 10)     # was 24: don't fire at ~>0.4s-old tracks
-  result.fireSlackPx = envFloat("HUNT_SLACK", 7.0)     # was 11: tighter corridor settle
-  result.leadTicks = envFloat("HUNT_LEAD", 7.0)        # was 6: lead a touch more through windup
-  result.combatDeadband = envInt("HUNT_DEAD", 2)       # was 2: aim-settle tolerance
-  result.fireRange = envFloat("HUNT_RANGE", FireRange) # keep map-wide engage by default
+  # Knob sweep (both directions of fire-discipline were falsified 2026-07-14 —
+  # defaults now sit at the baseline so a SMART run isolates the LOGIC change).
+  result.freshShotTicks = envInt("HUNT_FRESH", FreshShotTicks)
+  result.fireSlackPx = envFloat("HUNT_SLACK", FireSlackPx)
+  result.leadTicks = envFloat("HUNT_LEAD", LeadTicks)
+  result.combatDeadband = envInt("HUNT_DEAD", CombatDeadband)
+  result.fireRange = envFloat("HUNT_RANGE", FireRange)
+  # Fork 1 — target commitment. SMART=1 turns it on; HUNT_COMMIT sweeps the
+  # priority credit for the locked target.
+  result.commit = envInt("SMART", 0) != 0
+  result.commitBonus = envFloat("HUNT_COMMIT", CommitBonus)
 
 proc runEpisode(seed, maxTicks, numPlayers: int, hunterSlots: seq[int]):
     EpisodeResult =
@@ -169,7 +175,8 @@ proc main() =
   if hunterSlots.len > 0:
     let h = hunterTune()
     echo &"  hunter tune: fresh={h.freshShotTicks} slack={h.fireSlackPx} " &
-      &"lead={h.leadTicks} dead={h.combatDeadband} range={h.fireRange}"
+      &"lead={h.leadTicks} dead={h.combatDeadband} range={h.fireRange} " &
+      &"commit={h.commit} commitBonus={h.commitBonus}"
   echo "seed  ticks  over  winner  redK blueK  redC blueC  redS blueS  " &
     "redHit% blueHit%"
 
