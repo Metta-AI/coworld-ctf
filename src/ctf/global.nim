@@ -1,16 +1,20 @@
 import
   std/[algorithm, math, os],
+  chroma,
   bitworld/pixelfonts, bitworld/profile, bitworld/spriteprotocol, bitworld/server,
-  sim
+  sim, hd
 
 const
+  ## Every UI layer is authored at UiScale x and smooth-scaled by the client.
+  HdUiFlags = UiLayerFlag or SmoothLayerFlag or HdUiLayerFlag
   ReplayScrubberSpriteId = 4004
   ReplayScrubberObjectId = 4004
-  ReplayScrubberWidth = 84
-  ReplayScrubberHeight = 5
-  ReplayScrubberTrackY = 2
-  ReplayScrubberY = 8
-  ReplayPanelHeight = 20
+  ReplayScrubberWidth = 252
+  ReplayScrubberHeight = 15
+  ReplayScrubberTrackY = 6     ## 3px track band: 6..8.
+  ReplayScrubberY = 24
+  ReplayPanelHeight = 60
+  ReplayPanelWidth = ScreenWidth * UiScale
   ReplayCenterBottomLayerId = 8
   ReplayBottomLeftLayerId = 9
   ReplayCenterBottomLayerType = 8
@@ -23,25 +27,30 @@ const
   ReplayTickObjectId = 4002
   ReplayControlsObjectId = 4003
   ReplayMismatchObjectId = 4006
-  ReplayMismatchMinWidth = 128
-  ReplayMismatchPadX = 4
-  ReplayMismatchPadY = 3
+  ReplayMismatchMinWidth = 384
+  ReplayMismatchPadX = 12
+  ReplayMismatchPadY = 6
   ReplayMismatchBgR = 220'u8
   ReplayMismatchBgG = 20'u8
   ReplayMismatchBgB = 20'u8
   ReplayMismatchBgA = 255'u8
-  ScoreboardWidth = 84
-  ScoreboardHeight = 116
-  ScoreboardY = 2
-  ScoreboardRowHeight = 7
-  ScoreboardPipX = 2
-  ScoreboardPipY = 2
-  ScoreboardPipSize = 4
-  ScoreboardTextX = 8
+  ## The scoreboard is one roster panel per team: red top-left, blue
+  ## top-right, mirroring the arena's territory sides. All scoreboard
+  ## metrics are HD UI px (the layers carry HdUiLayerFlag).
+  ScoreboardColWidth = 172
+  ScoreboardY = 6
+  ScoreboardRowHeight = UiTextLine + 1
+  ScoreboardPipX = 6
+  ScoreboardPipSize = 10
+  ScoreboardTextX = 24
   ScoreboardTextSpriteBase = 12000
   ScoreboardTextObjectBase = 12100
   ScoreboardPipSpriteBase = 12200
   ScoreboardPipObjectBase = 12300
+  ScoreboardBgSpriteId = 12400  ## +0 red panel, +1 blue panel.
+  ScoreboardBgObjectId = 12400
+  ScoreboardHeadSpriteBase = 12500  ## +0 red header, +1 blue header.
+  ScoreboardHeadObjectBase = 12500
   ScoreboardTextColor = 2'u8
   ScoreboardSelectedTextColor = 10'u8
   InterstitialObjectId = 4005
@@ -57,6 +66,9 @@ const
   SoundRingObjectBase = 19100  ## sound ring object-id pool (per recent shot).
   SoundRingSize = 12           ## px diameter of the sound ring.
   SoundRingJitter = 20         ## max px the ring strays from the true muzzle.
+  ImpactRingSpriteId = 831     ## the shot "impact" ring sprite.
+  ImpactRingObjectBase = 19200 ## impact ring object-id pool (per recent shot).
+  ImpactRingSize = 10          ## px diameter of the impact ring.
   TracerDotSpriteBase = 760    ## per-color tracer dot sprites: 760..775.
   TracerDotObjectBase = 15000  ## tracer object-id pool base.
   TracerDotSize = 3
@@ -80,18 +92,18 @@ const
   PlayerNameZ = 30002
   PlayerNameMaxChars = 16
   PlayerNameColor = 2'u8
-  TransportIconSize = 6
-  TransportIconHeight = 6
+  TransportIconSize = 18
+  TransportIconHeight = 18
   TransportIconCount = 5
-  TransportButtonGap = 2
+  TransportButtonGap = 8
   TransportButtonStride = TransportIconSize + TransportButtonGap
   TransportSpeedX = 0
-  TransportSpeedY = 8
-  TransportWidth = 108
-  TransportHeight = 18
-  TransportSpeedGap = 16
-  TransportX = 2
-  TransportY = 1
+  TransportSpeedY = TransportIconHeight + 6
+  TransportSpeedCell = 34      ## fixed-width speed label hit cells.
+  TransportWidth = 6 * TransportSpeedCell
+  TransportHeight = TransportSpeedY + UiTextLine + 3
+  TransportX = 6
+  TransportY = 3
   ## Sprite/object id pools (sprites and objects are separate namespaces).
   ## Sprites: team flags 700..701 (FlagSpriteBase), hp pips 820+, tracer
   ## dots 760..775, aim dots 780..795, self markers 5100..5101, team score
@@ -121,10 +133,14 @@ const
   FogAlpha = 160'u8            ## fog dims unseen floor to ~37% brightness.
   ## Player-view HUD layers (the map layer now spans the whole arena, so the
   ## HUD sits on dedicated screen-corner UI layers).
-  HudTopRightLayerId = 5       ## lives counter.
-  HudTopRightLayerType = 2
-  HudBottomLeftLayerId = 6     ## fire-readiness icon.
-  HudBottomLeftLayerType = 4
+  HudLayerId = 5               ## fire-readiness icon + lives counter,
+                               ## bottom-right: the blue roster owns the
+                               ## top-right corner and the replay transport
+                               ## owns the bottom-left.
+  HudLayerType = 3
+  HudLivesWidth = 100          ## HUD viewport width, HD UI px.
+  HudFireIcon = 42             ## fire-readiness icon size, HD UI px.
+  HudHeight = HudFireIcon + UiTextLine + 12
   PlayerInterstitialLayerId = 7  ## lobby / game-over screens, top-center.
   PlayerInterstitialLayerType = 5
   ## Team kills/deaths scoreboard shown above the field in every view.
@@ -132,8 +148,8 @@ const
                                ## center-BOTTOM scrubber panel, which dragged the team
                                ## scoreboard to the bottom of replays.
   TeamScoreLayerType = 5       ## top-center anchor.
-  TeamScoreWidth = 132
-  TeamScoreGap = 8             ## px between the red and blue halves.
+  TeamScoreWidth = 396
+  TeamScoreGap = 24            ## px between the red and blue halves.
   TeamScoreSpriteBase = 12100  ## 12100 red text, 12101 blue text.
   TeamScoreObjectBase = 9600   ## 9600 red text, 9601 blue text.
   MapMarkerSpriteBase = 20000
@@ -144,6 +160,10 @@ const
   ProtocolTextZ = 30010
   ProtocolTextColor = 2'u8
   ProtocolGameOverIconObjectBase = 9700
+  GameOverRowHeight = 42       ## game-over roster row height, HD UI px.
+  GameOverRowsY = 48           ## first roster row's y, HD UI px.
+  GameOverIconSize = 36        ## crew icon size on the game-over card.
+  HdIconSpriteBase = 36000     ## game-over crew icon sprites, one per color.
   PlayerColorNames = [
     "red",
     "orange",
@@ -302,14 +322,6 @@ proc crewPlayerSpriteId(colorIndex, slotId: int, flipH: bool): int =
     side = if flipH: 1 else: 0
   PlayerSpriteBase + (colorIndex * CrewSpriteVariants + variant) * 2 + side
 
-proc selectedCrewPlayerSpriteId(colorIndex, slotId: int, flipH: bool): int =
-  ## Returns the selected sprite id for one living crew variant.
-  let
-    variant = crewVariantIndex(slotId)
-    side = if flipH: 1 else: 0
-  SelectedPlayerSpriteBase + (colorIndex * CrewSpriteVariants + variant) * 2 +
-    side
-
 proc spriteDefinitionIndex(
   defs: openArray[SpriteDefinition],
   spriteId: int
@@ -347,6 +359,24 @@ proc addSpriteChanged(
       label: label
     )
   packet.addSprite(spriteId, width, height, pixels, label)
+
+proc addWorldObject(
+  packet: var seq[uint8],
+  objectId, x, y, z, layer, spriteId: int
+) =
+  ## Adds one object whose x/y are MAP-scale coordinates on a render-scaled
+  ## zoomable layer. Placement math stays in map pixels (offsets subtract the
+  ## map-scale sprite footprint); the wire coordinate is scaled here, and the
+  ## HD sprite being exactly RenderScale times its map footprint keeps every
+  ## sprite centered on the same map point as before the HD port.
+  packet.addObject(
+    objectId,
+    x * RenderScale,
+    y * RenderScale,
+    z,
+    layer,
+    spriteId
+  )
 
 proc applyGlobalViewerMessage*(
   state: var GlobalViewerState,
@@ -392,52 +422,6 @@ proc applyPlayerViewerMessage*(
       inputMask = item.mask
     of SpriteClientMouseMoveMessage, SpriteClientMouseButtonMessage:
       discard
-
-proc isSolid(sprite: Sprite, x, y: int, flipH: bool): bool =
-  let srcX = if flipH: sprite.width - 1 - x else: x
-  if srcX < 0 or srcX >= sprite.width or y < 0 or y >= sprite.height:
-    return false
-  sprite.pixels[sprite.spriteIndex(srcX, y)] != TransparentColorIndex
-
-proc buildSpriteProtocolActorSprite(
-  sprite: Sprite,
-  tint: uint8,
-  flipH: bool,
-  selected: bool = false
-): seq[uint8] {.measure.} =
-  ## Builds a tinted actor sprite for the global viewer.
-  let
-    outWidth = sprite.width + 2
-    outHeight = sprite.height + 2
-    outline = if selected: 8'u8 else: OutlineColor
-  result = newRgbaPixels(outWidth, outHeight)
-
-  proc outIndex(x, y: int): int =
-    y * outWidth + x
-
-  if selected:
-    for y in -1 .. sprite.height:
-      for x in -1 .. sprite.width:
-        if sprite.isSolid(x, y, flipH):
-          continue
-        let adjacent =
-          sprite.isSolid(x - 1, y, flipH) or
-          sprite.isSolid(x + 1, y, flipH) or
-          sprite.isSolid(x, y - 1, flipH) or
-          sprite.isSolid(x, y + 1, flipH)
-        if adjacent:
-          result.putRgbaPixel(outIndex(x + 1, y + 1), outline)
-
-  for y in 0 ..< sprite.height:
-    for x in 0 ..< sprite.width:
-      let srcX = if flipH: sprite.width - 1 - x else: x
-      let colorIndex = sprite.pixels[sprite.spriteIndex(srcX, y)]
-      if colorIndex == TransparentColorIndex:
-        continue
-      result.putRgbaPixel(
-        outIndex(x + 1, y + 1),
-        actorColor(colorIndex, tint)
-      )
 
 proc buildCrewProtocolActorSprite(
   sprite: CrewSprite,
@@ -526,31 +510,41 @@ proc buildIndexedSpritePixels(
     result.putRgbaPixel(i, color)
 
 proc buildHpPipsSprite(hp, maxHp: int): seq[uint8] {.measure.} =
-  ## Builds the overhead hit-point bar: one bright pip per remaining hit
-  ## point, one dark socket per lost one, so the bar length stays constant.
-  let width = maxHp * HpPipSize + (maxHp - 1) * HpPipGap
-  result = newRgbaPixels(width, HpPipSize)
-  for pip in 0 ..< maxHp:
-    for py in 0 ..< HpPipSize:
-      for px in 0 ..< HpPipSize:
-        let i = py * width + pip * (HpPipSize + HpPipGap) + px
-        if pip < hp:
-          result.putRawRgbaPixel(i, 96, 255, 96, 255)
-        else:
-          result.putRawRgbaPixel(i, 40, 40, 40, 200)
+  ## Builds the overhead hit-point bar at HD resolution: one bright pip per
+  ## remaining hit point, one dark socket per lost one, so the bar length
+  ## stays constant. Layout runs in map pixels and scales up per HD pixel.
+  let
+    width = maxHp * HpPipSize + (maxHp - 1) * HpPipGap
+    hdWidth = width * RenderScale
+    hdHeight = HpPipSize * RenderScale
+  result = newRgbaPixels(hdWidth, hdHeight)
+  for py in 0 ..< hdHeight:
+    for px in 0 ..< hdWidth:
+      let
+        mx = px div RenderScale
+        stride = HpPipSize + HpPipGap
+        pip = mx div stride
+      if mx mod stride >= HpPipSize:
+        continue
+      let i = py * hdWidth + px
+      if pip < hp:
+        result.putRawRgbaPixel(i, 96, 255, 96, 255)
+      else:
+        result.putRawRgbaPixel(i, 40, 40, 40, 200)
 
 proc buildSoundRingSprite(): seq[uint8] {.measure.} =
   ## Builds the semi-transparent white "sound" ring: a faint filled circle
   ## with a brighter rim, colorless so it never leaks the shooter's team.
-  result = newRgbaPixels(SoundRingSize, SoundRingSize)
-  let c = float(SoundRingSize - 1) / 2
-  for y in 0 ..< SoundRingSize:
-    for x in 0 ..< SoundRingSize:
+  let size = SoundRingSize * RenderScale
+  result = newRgbaPixels(size, size)
+  let c = float(size - 1) / 2
+  for y in 0 ..< size:
+    for x in 0 ..< size:
       let d = sqrt((float(x) - c) * (float(x) - c) +
         (float(y) - c) * (float(y) - c))
       if d <= c:
-        let alpha = if d >= c - 1.5: 150'u8 else: 45'u8
-        result.putRawRgbaPixel(y * SoundRingSize + x, 255, 255, 255, alpha)
+        let alpha = if d >= c - 1.5 * float(RenderScale): 150'u8 else: 45'u8
+        result.putRawRgbaPixel(y * size + x, 255, 255, 255, alpha)
 
 proc soundRingOffset(shot: ShotFx): (int, int) =
   ## A deterministic pseudo-random offset for one shot's sound ring: stable
@@ -564,45 +558,90 @@ proc soundRingOffset(shot: ShotFx): (int, int) =
   (int(h mod span) - SoundRingJitter,
     int((h shr 16) mod span) - SoundRingJitter)
 
+proc buildImpactRingSprite(): seq[uint8] {.measure.} =
+  ## Builds the shot "impact" marker: a hollow ring (versus the muzzle
+  ## ring's filled disc), colorless so it never leaks the shooter's team.
+  let size = ImpactRingSize * RenderScale
+  result = newRgbaPixels(size, size)
+  let c = float(size - 1) / 2
+  for y in 0 ..< size:
+    for x in 0 ..< size:
+      let d = sqrt((float(x) - c) * (float(x) - c) +
+        (float(y) - c) * (float(y) - c))
+      if d <= c and d >= c - 1.5 * float(RenderScale):
+        result.putRawRgbaPixel(y * size + x, 255, 255, 255, 150)
+
+proc impactRingOffset(shot: ShotFx): (int, int) =
+  ## The impact ring's deterministic jitter, salted differently from the
+  ## muzzle ring so the two never correlate.
+  var h = 0x1B873593'u32
+  h = (h xor uint32(shot.firedTick)) * 0x85EBCA6B'u32
+  h = (h xor uint32(shot.x1)) * 0xC2B2AE35'u32
+  h = (h xor uint32(shot.y1)) * 0x27D4EB2F'u32
+  h = h xor (h shr 15)
+  let span = uint32(2 * SoundRingJitter + 1)
+  (int(h mod span) - SoundRingJitter,
+    int((h shr 16) mod span) - SoundRingJitter)
+
 proc buildTracerDotSprite(colorIndex: int): seq[uint8] {.measure.} =
   ## Builds one shot-tracer dot sprite: the shooter's palette color mixed
   ## halfway toward white, so beams read bright on the dark floor but keep
   ## the shooter's hue.
-  result = newRgbaPixels(TracerDotSize, TracerDotSize)
-  let base = Palette[PlayerColors[colorIndex and 0x0f] and 0x0f]
-  for i in 0 ..< TracerDotSize * TracerDotSize:
-    result.putRawRgbaPixel(
-      i,
-      uint8((base.r.int + 255) div 2),
-      uint8((base.g.int + 255) div 2),
-      uint8((base.b.int + 255) div 2),
-      255
-    )
+  let size = TracerDotSize * RenderScale
+  result = newRgbaPixels(size, size)
+  let
+    base = Palette[PlayerColors[colorIndex and 0x0f] and 0x0f]
+    c = float(size - 1) / 2
+  for y in 0 ..< size:
+    for x in 0 ..< size:
+      let d = sqrt((float(x) - c) * (float(x) - c) +
+        (float(y) - c) * (float(y) - c))
+      if d > c:
+        continue
+      # A hot core fading into a soft glow reads as a beam once the dots
+      # overlap along the shot line.
+      let alpha = uint8(clamp(int(290.0 * (1.0 - d / (c + 0.5))), 0, 255))
+      result.putRawRgbaPixel(
+        y * size + x,
+        uint8((base.r.int + 255) div 2),
+        uint8((base.g.int + 255) div 2),
+        uint8((base.b.int + 255) div 2),
+        alpha
+      )
 
 proc buildAimDotSprite(colorIndex: int): seq[uint8] {.measure.} =
   ## Builds one aim-indicator dot sprite: the player's palette color mixed
   ## halfway toward white, matching the tracer-dot styling.
-  result = newRgbaPixels(AimDotSize, AimDotSize)
-  let base = Palette[PlayerColors[colorIndex and 0x0f] and 0x0f]
-  for i in 0 ..< AimDotSize * AimDotSize:
-    result.putRawRgbaPixel(
-      i,
-      uint8((base.r.int + 255) div 2),
-      uint8((base.g.int + 255) div 2),
-      uint8((base.b.int + 255) div 2),
-      255
-    )
+  let size = AimDotSize * RenderScale
+  result = newRgbaPixels(size, size)
+  let
+    base = Palette[PlayerColors[colorIndex and 0x0f] and 0x0f]
+    c = float(size - 1) / 2
+  for y in 0 ..< size:
+    for x in 0 ..< size:
+      let d = sqrt((float(x) - c) * (float(x) - c) +
+        (float(y) - c) * (float(y) - c))
+      if d > c:
+        continue
+      result.putRawRgbaPixel(
+        y * size + x,
+        uint8((base.r.int + 255) div 2),
+        uint8((base.g.int + 255) div 2),
+        uint8((base.b.int + 255) div 2),
+        255
+      )
 
 proc buildSplatterSprite(colorIndex, stage: int): seq[uint8] {.measure.} =
   ## Builds one death-splatter blob: a dense irregular blob of the victim's
   ## color at stage 0 that grows sparser and darker toward the last stage.
-  result = newRgbaPixels(SplatterSize, SplatterSize)
+  let size = SplatterSize * RenderScale
+  result = newRgbaPixels(size, size)
   let
     color = PlayerColors[colorIndex and 0x0f]
     shade = ShadowMap[color and 0x0f]
-    half = SplatterSize div 2
-  for y in 0 ..< SplatterSize:
-    for x in 0 ..< SplatterSize:
+    half = size div 2
+  for y in 0 ..< size:
+    for x in 0 ..< size:
       let
         dx = x - half
         dy = y - half
@@ -611,20 +650,15 @@ proc buildSplatterSprite(colorIndex, stage: int): seq[uint8] {.measure.} =
         continue
       var noise = uint32(x) * 374761393'u32 + uint32(y) * 668265263'u32
       noise = (noise xor (noise shr 13)) * 1274126177'u32
-      let density = 120 - stage * 25 - d2 * 2
+      # The density curve runs in map-pixel distance so the blob keeps the
+      # legacy falloff at RenderScale times the size.
+      let density = 120 - stage * 25 -
+        d2 * 2 div (RenderScale * RenderScale)
       if int((noise shr 16) mod 100) < density:
         result.putRgbaPixel(
-          y * SplatterSize + x,
+          y * size + x,
           if stage >= SplatterStages div 2: shade else: color
         )
-
-proc buildMapSpritePixels(sim: SimServer): seq[uint8] {.measure.} =
-  ## Returns the true-color map pixels for a global protocol sprite.
-  if sim.mapRgba.len == sim.gameMap.width * sim.gameMap.height * 4:
-    return sim.mapRgba
-  result = newRgbaPixels(sim.gameMap.width, sim.gameMap.height)
-  for i in 0 ..< sim.mapPixels.len:
-    result.putRgbaPixel(i, sim.mapPixels[i])
 
 proc buildWalkabilitySpritePixels(sim: SimServer): seq[uint8] {.measure.} =
   ## Returns a binary RGBA walkability mask for sprite agents.
@@ -665,12 +699,12 @@ proc addMapMarker(
   packet.addSpriteChanged(
     spriteDefs,
     spriteId,
-    width,
-    height,
-    newRgbaPixels(width, height),
+    width * RenderScale,
+    height * RenderScale,
+    newRgbaPixels(width * RenderScale, height * RenderScale),
     label
   )
-  packet.addObject(objectId, x, y, MapMarkerZ, MapLayerId, spriteId)
+  packet.addWorldObject(objectId, x, y, MapMarkerZ, MapLayerId, spriteId)
 
 proc addMapMarkers(
   sim: SimServer,
@@ -691,12 +725,120 @@ proc addMapMarkers(
     )
     inc index
 
+proc addMapFurniture(
+  sim: SimServer,
+  spriteDefs: var seq[SpriteDefinition],
+  currentIds: var seq[int],
+  packet: var seq[uint8]
+) {.measure.} =
+  ## Places the static HD arena: tiled floor, team territory washes, the
+  ## textured wall shapes and border slabs, and the flag pedestals. Sprite
+  ## definitions register once per connection (addSpriteChanged dedupes);
+  ## objects re-emit per frame like every other entity so the stale-object
+  ## sweep never collects them. Sent instead of one full-map image because a
+  ## painterly 3705x1977 sprite would compress terribly; the tiled floor plus
+  ## per-shape walls keep the init packet a few hundred KB.
+  # Floor tiles.
+  if spriteDefs.spriteDefinitionIndex(HdFloorSpriteId) < 0:
+    packet.addSpriteChanged(
+      spriteDefs,
+      HdFloorSpriteId,
+      HdFloorTileMapPx * RenderScale,
+      HdFloorTileMapPx * RenderScale,
+      hdFloorSpritePixels(),
+      "floor"
+    )
+  var tileIndex = 0
+  for tile in hdFloorTiles():
+    let objectId = HdFloorObjectBase + tileIndex
+    inc tileIndex
+    currentIds.add(objectId)
+    packet.addWorldObject(
+      objectId, tile.x, tile.y, HdFloorZ, MapLayerId, HdFloorSpriteId
+    )
+  # Team territory washes over each half's floor.
+  let tintSize = hdTintSize()
+  for team in Team:
+    let spriteId = HdTintSpriteBase + ord(team)
+    if spriteDefs.spriteDefinitionIndex(spriteId) < 0:
+      packet.addSpriteChanged(
+        spriteDefs,
+        spriteId,
+        tintSize.width,
+        tintSize.height,
+        hdTintSpritePixels(team),
+        teamText(team) & " territory"
+      )
+    let objectId = HdTintObjectBase + ord(team)
+    currentIds.add(objectId)
+    packet.addWorldObject(
+      objectId,
+      if team == Red: 0 else: MapWidth div 2,
+      0,
+      HdTintZ,
+      MapLayerId,
+      spriteId
+    )
+  # Interior wall shapes (deduped forms plus carved instances).
+  var pieceIndex = 0
+  for piece in hdWallPiecesList():
+    if spriteDefs.spriteDefinitionIndex(piece.spriteId) < 0:
+      let sprite = hdWallSprite(piece.spriteId)
+      packet.addSpriteChanged(
+        spriteDefs,
+        piece.spriteId,
+        sprite.width,
+        sprite.height,
+        sprite.pixels,
+        "wall"
+      )
+    let objectId = HdWallObjectBase + pieceIndex
+    inc pieceIndex
+    currentIds.add(objectId)
+    packet.addWorldObject(
+      objectId, piece.x, piece.y, HdWallZ, MapLayerId, piece.spriteId
+    )
+  # Border slabs.
+  for i in 0 ..< 4:
+    let
+      spriteId = HdBorderSpriteBase + i
+      slab = hdBorderSlab(i)
+    if spriteDefs.spriteDefinitionIndex(spriteId) < 0:
+      packet.addSpriteChanged(
+        spriteDefs, spriteId, slab.width, slab.height, slab.pixels, "wall"
+      )
+    let objectId = HdBorderObjectBase + i
+    currentIds.add(objectId)
+    packet.addWorldObject(
+      objectId, slab.x, slab.y, HdWallZ, MapLayerId, spriteId
+    )
+  # Flag pedestals (cosmetic; the flag objects carry the game state).
+  for team in Team:
+    let spriteId = HdPedestalSpriteBase + ord(team)
+    if spriteDefs.spriteDefinitionIndex(spriteId) < 0:
+      packet.addSpriteChanged(
+        spriteDefs,
+        spriteId,
+        HdPedestalSize,
+        HdPedestalSize,
+        hdPedestalSpritePixels(team),
+        teamText(team) & " pedestal"
+      )
+    let
+      home = sim.gameMap.flagHome(team)
+      half = HdPedestalSize div (2 * RenderScale)
+      objectId = HdPedestalObjectBase + ord(team)
+    currentIds.add(objectId)
+    packet.addWorldObject(
+      objectId, home.x - half, home.y - half, HdPedestalZ, MapLayerId, spriteId
+    )
+
 proc buildFogRunSprite(widthCells: int): seq[uint8] {.measure.} =
   ## Builds one translucent dark fog run sprite covering `widthCells`
   ## horizontally-adjacent 8px visibility cells.
   let
-    width = widthCells * FovCellSize
-    height = FovCellSize
+    width = widthCells * FovCellSize * RenderScale
+    height = FovCellSize * RenderScale
   result = newSeq[uint8](width * height * 4)
   for i in 0 ..< width * height:
     result.putRawRgbaPixel(i, 0, 0, 0, FogAlpha)
@@ -740,14 +882,14 @@ proc addFogRuns(
       packet.addSpriteChanged(
         spriteDefs,
         spriteId,
-        run.width * FovCellSize,
-        FovCellSize,
+        run.width * FovCellSize * RenderScale,
+        FovCellSize * RenderScale,
         buildFogRunSprite(run.width),
         "fog"
       )
     let objectId = FogObjectBase + runIndex
     currentIds.add(objectId)
-    packet.addObject(
+    packet.addWorldObject(
       objectId,
       run.cx * FovCellSize,
       run.cy * FovCellSize,
@@ -808,42 +950,49 @@ proc blitSmallText(
     )
     x += game.asciiSprites.glyphAdvance(ch)
 
+proc scaleRgbaPixels(
+  pixels: seq[uint8],
+  width, height, scale: int
+): seq[uint8] =
+  ## Nearest-neighbour integer upscale for RGBA sprite pixels.
+  result = newSeq[uint8](width * scale * height * scale * 4)
+  for y in 0 ..< height * scale:
+    for x in 0 ..< width * scale:
+      let
+        src = ((y div scale) * width + x div scale) * 4
+        dst = (y * width * scale + x) * 4
+      result[dst] = pixels[src]
+      result[dst + 1] = pixels[src + 1]
+      result[dst + 2] = pixels[src + 2]
+      result[dst + 3] = pixels[src + 3]
+
 proc buildSpriteProtocolTextSprite(
   game: SimServer,
   lines: openArray[string],
   color: uint8,
   struck = false
 ): tuple[width, height: int, pixels: seq[uint8]] {.measure.} =
-  ## Builds a transparent multi-line text sprite.
+  ## Builds a transparent multi-line HD text sprite (UiTextLine px per line)
+  ## from a legacy palette color index. HD UI layers and the render-scaled
+  ## map layer both consume these directly.
+  discard game
+  let rgba = Palette[int(color) and 0x0f]
+  var rendered: seq[tuple[width, height: int, pixels: seq[uint8]]]
   result.width = 1
   for line in lines:
-    result.width = max(result.width, game.asciiSprites.textWidth(line))
-  result.height = max(1, lines.len * TextLineHeight)
+    let text = hdTextLine(line, rgba, struck = struck)
+    result.width = max(result.width, text.width)
+    rendered.add(text)
+  result.height = max(1, lines.len * UiTextLine)
   result.pixels = newRgbaPixels(result.width, result.height)
-  for lineIndex, line in lines:
-    let baseY = lineIndex * TextLineHeight
-    var baseX = 0
-    for ch in line:
-      let glyph = game.asciiSprites.glyphAt(ch)
-      result.pixels.blitGlyph(
-        result.width,
-        result.height,
-        glyph,
-        baseX,
-        baseY,
-        color
+  for lineIndex, text in rendered:
+    let baseY = lineIndex * UiTextLine
+    for y in 0 ..< text.height:
+      copyMem(
+        result.pixels[((baseY + y) * result.width) * 4].addr,
+        text.pixels[(y * text.width) * 4].addr,
+        text.width * 4
       )
-      baseX += game.asciiSprites.glyphAdvance(ch)
-    if struck:
-      let lineY = baseY + 3
-      for x in 0 ..< game.asciiSprites.textWidth(line):
-        result.pixels.putTextSpritePixel(
-          result.width,
-          result.height,
-          x,
-          lineY,
-          3'u8
-        )
 
 proc textLabel(lines: openArray[string]): string =
   ## Returns a debugger label for one rendered text sprite.
@@ -854,7 +1003,8 @@ proc textLabel(lines: openArray[string]): string =
 
 proc centeredTextX(sim: SimServer, text: string): int =
   ## Returns the centered x position for interstitial text.
-  (ScreenWidth - sim.asciiSprites.textWidth(text)) div 2
+  discard sim
+  (ScreenWidth * UiScale - hdTextWidth(text)) div 2
 
 proc addTeamScoreboard(
   sim: SimServer,
@@ -901,7 +1051,7 @@ proc addTeamScoreboard(
   packet.addObject(
     TeamScoreObjectBase,
     startX,
-    1,
+    3,
     0,
     TeamScoreLayerId,
     TeamScoreSpriteBase
@@ -909,7 +1059,7 @@ proc addTeamScoreboard(
   packet.addObject(
     TeamScoreObjectBase + 1,
     startX + red.width + TeamScoreGap,
-    1,
+    3,
     0,
     TeamScoreLayerId,
     TeamScoreSpriteBase + 1
@@ -960,26 +1110,26 @@ proc interstitialTextItems(
   of Lobby:
     let needed = max(0, sim.config.minPlayers - sim.players.len)
     if needed > 0:
-      result.addTextItem(sim.centeredTextX("WAITING"), 4, ["WAITING"])
-      result.addTextItem(sim.centeredTextX("NEED MORE!"), 14, ["NEED MORE!"])
+      result.addTextItem(sim.centeredTextX("WAITING"), 12, ["WAITING"])
+      result.addTextItem(sim.centeredTextX("NEED MORE!"), 42, ["NEED MORE!"])
     else:
-      result.addTextItem(sim.centeredTextX("GAME"), 2, ["GAME"])
-      result.addTextItem(sim.centeredTextX("STARTING"), 11, ["STARTING"])
+      result.addTextItem(sim.centeredTextX("GAME"), 6, ["GAME"])
+      result.addTextItem(sim.centeredTextX("STARTING"), 33, ["STARTING"])
       let
         seconds = sim.lobbyStartSecondsRemaining()
         line = "IN " & $seconds
       if seconds > 0:
-        result.addTextItem(sim.centeredTextX(line), 20, [line])
+        result.addTextItem(sim.centeredTextX(line), 60, [line])
   of Playing:
     if playerIndex < 0 or playerIndex >= sim.players.len:
       let
-        gap = 10
-        blockH = sim.asciiSprites.height * 2 + gap
-        startY = (ScreenHeight - blockH) div 2
+        gap = 30
+        blockH = UiTextLine * 2 + gap
+        startY = (ScreenHeight * UiScale - blockH) div 2
       result.addTextItem(sim.centeredTextX("GAME IN"), startY, ["GAME IN"])
       result.addTextItem(
         sim.centeredTextX("PROGRESS"),
-        startY + sim.asciiSprites.height + gap,
+        startY + UiTextLine + gap,
         ["PROGRESS"]
       )
   of GameOver:
@@ -989,14 +1139,13 @@ proc interstitialTextItems(
       else:
         teamTitle(sim.winner)
     let
-      titleW = sim.asciiSprites.textWidth(title)
-      titleX = (ScreenWidth - titleW) div 2
-      rowH = 14
+      titleX = sim.centeredTextX(title)
+      rowH = GameOverRowHeight
       rowsPerCol = 8
-      colW = ScreenWidth div 2
-      textOffsetX = 19
-      startY = 16
-    result.addTextItem(titleX, 2, [title])
+      colW = ScreenWidth * UiScale div 2
+      textOffsetX = 57
+      startY = GameOverRowsY
+    result.addTextItem(titleX, 6, [title])
     for i in 0 ..< sim.players.len:
       let
         p = sim.players[i]
@@ -1004,7 +1153,7 @@ proc interstitialTextItems(
         row = i mod rowsPerCol
         baseX = min(col, 1) * colW
         textX = baseX + textOffsetX
-        textY = startY + row * rowH + (rowH - 6) div 2
+        textY = startY + row * rowH + (rowH - UiTextLine) div 2
         tag = if p.team == Red: "RED" else: "BLUE"
       result.addTextItem(textX, textY, [tag], struck = (p.lives <= 0 and not p.alive))
 
@@ -1043,47 +1192,49 @@ proc addProtocolTextSprites(
       item.spriteId
     )
 
-proc playerIconSpriteId(player: Player): int =
-  ## Returns the default right-facing player icon sprite id.
-  crewPlayerSpriteId(
-    playerColorIndex(player.color),
-    player.joinOrder,
-    false
-  )
-
 proc addProtocolGameOverActorSprites(
   sim: SimServer,
+  spriteDefs: var seq[SpriteDefinition],
   currentIds: var seq[int],
   packet: var seq[uint8],
   layer: int
 ) {.measure.} =
-  ## Adds separate player sprites for the game over interstitial.
+  ## Adds player icons for the game over interstitial: the HD crew body
+  ## resized to the roster row.
   if sim.phase != GameOver:
     return
   let
-    rowH = 14
     rowsPerCol = 8
-    colW = ScreenWidth div 2
-    iconOffsetX = 4
-    startY = 16
+    colW = ScreenWidth * UiScale div 2
+    iconOffsetX = 12
   for i in 0 ..< sim.players.len:
     let
       player = sim.players[i]
+      colorIndex = playerColorIndex(player.color)
+      spriteId = HdIconSpriteBase + (colorIndex and 0x0f)
       col = i div rowsPerCol
       row = i mod rowsPerCol
       baseX = min(col, 1) * colW
-      y = startY + row * rowH
+      y = GameOverRowsY + row * GameOverRowHeight
       iconX = baseX + iconOffsetX
-      iconY = y + (rowH - CrewSpriteSize) div 2
+      iconY = y + (GameOverRowHeight - GameOverIconSize) div 2
       objectId = ProtocolGameOverIconObjectBase + i
+    packet.addSpriteChanged(
+      spriteDefs,
+      spriteId,
+      GameOverIconSize,
+      GameOverIconSize,
+      hdCrewIconPixels(colorIndex, GameOverIconSize),
+      "icon " & playerColorName(colorIndex)
+    )
     currentIds.add(objectId)
     packet.addObject(
       objectId,
-      iconX - 1,
-      iconY - 1,
+      iconX,
+      iconY,
       30000,
       layer,
-      player.playerIconSpriteId()
+      spriteId
     )
 
 proc addProtocolInterstitialActorSprites(
@@ -1096,7 +1247,7 @@ proc addProtocolInterstitialActorSprites(
   ## Adds separate actor sprites for sprite protocol interstitials.
   case sim.phase
   of GameOver:
-    sim.addProtocolGameOverActorSprites(currentIds, packet, layer)
+    sim.addProtocolGameOverActorSprites(spriteDefs, currentIds, packet, layer)
   else:
     discard
 
@@ -1113,31 +1264,22 @@ proc addSpriteProtocolInterstitialSprites(
   packet.addSpriteChanged(
     spriteDefs,
     SpritePlayerInterstitialSpriteId,
-    ScreenWidth,
-    ScreenHeight,
-    buildIndexedSpritePixels(
-      sim.darkBgPixels,
+    ScreenWidth * UiScale,
+    ScreenHeight * UiScale,
+    hdResizeRgba(
+      buildIndexedSpritePixels(
+        sim.darkBgPixels,
+        ScreenWidth,
+        ScreenHeight,
+        SpaceColor
+      ),
       ScreenWidth,
       ScreenHeight,
-      SpaceColor
+      ScreenWidth * UiScale,
+      ScreenHeight * UiScale
     ),
     "interstitial background"
   )
-
-proc buildFlagSprite(sim: SimServer, team: Team): seq[uint8] {.measure.} =
-  ## Builds one team-colored flag sprite from the reused icon cell: every
-  ## body pixel takes the team color, the outline stays.
-  let sprite = sim.flagSprite
-  result = newRgbaPixels(sprite.width, sprite.height)
-  for y in 0 ..< sprite.height:
-    for x in 0 ..< sprite.width:
-      let colorIndex = sprite.pixels[sprite.spriteIndex(x, y)]
-      if colorIndex == TransparentColorIndex:
-        continue
-      result.putRgbaPixel(
-        sprite.spriteIndex(x, y),
-        if colorIndex == OutlineColor: colorIndex else: teamColor(team)
-      )
 
 proc flagLabel(team: Team): string =
   ## Returns the observation label for one team's flag sprite.
@@ -1148,92 +1290,137 @@ proc addFlagSprites(
   spriteDefs: var seq[SpriteDefinition],
   packet: var seq[uint8]
 ) {.measure.} =
-  ## Adds both team-colored flag sprite definitions.
+  ## Adds both team flag sprite definitions from the HD art masters.
+  discard sim
   for team in Team:
     packet.addSpriteChanged(
       spriteDefs,
       FlagSpriteBase + ord(team),
-      sim.flagSprite.width,
-      sim.flagSprite.height,
-      sim.buildFlagSprite(team),
+      HdFlagSize,
+      HdFlagSize,
+      hdFlagSpritePixels(team),
       flagLabel(team)
     )
 
-proc addPlayerActorSprites(
-  sim: SimServer,
-  spriteDefs: var seq[SpriteDefinition],
+proc playerSideText(player: Player): string =
+  ## The observation label side suffix: the aim-derived sprite flip.
+  if player.flipH: " left" else: " right"
+
+proc addHdPlayerSprite(
   packet: var seq[uint8],
-  selected: bool
-) {.measure.} =
-  ## Adds the team-colored player sprite variants used by both views.
-  for i in 0 ..< PlayerColors.len:
-    for variant in 0 ..< CrewSpriteVariants:
-      let crew = sim.crewSprites[variant]
-      packet.addSpriteChanged(
-        spriteDefs,
-        crewPlayerSpriteId(i, variant, false),
-        crew.width + 2,
-        crew.height + 2,
-        buildCrewProtocolActorSprite(crew, PlayerColors[i], false),
-        "player " & playerColorName(i) & " right"
-      )
-      packet.addSpriteChanged(
-        spriteDefs,
-        crewPlayerSpriteId(i, variant, true),
-        crew.width + 2,
-        crew.height + 2,
-        buildCrewProtocolActorSprite(crew, PlayerColors[i], true),
-        "player " & playerColorName(i) & " left"
-      )
-      if selected:
-        packet.addSpriteChanged(
-          spriteDefs,
-          selectedCrewPlayerSpriteId(i, variant, false),
-          crew.width + 2,
-          crew.height + 2,
-          buildCrewProtocolActorSprite(crew, PlayerColors[i], false, true),
-          "selected player " & playerColorName(i) & " right"
-        )
-        packet.addSpriteChanged(
-          spriteDefs,
-          selectedCrewPlayerSpriteId(i, variant, true),
-          crew.width + 2,
-          crew.height + 2,
-          buildCrewProtocolActorSprite(crew, PlayerColors[i], true, true),
-          "selected player " & playerColorName(i) & " left"
-        )
+  spriteDefs: var seq[SpriteDefinition],
+  player: Player,
+  kind: HdCrewKind
+): int {.measure.} =
+  ## Registers (once per connection) and returns one player's HD sprite for
+  ## its current aim rotation. Pixel buffers cache inside hd.nim, so the
+  ## per-frame cost after the first sighting of a rotation is a lookup.
+  let
+    colorIndex = playerColorIndex(player.color)
+    rot = hdRotIndex(player.aimBrads)
+    spriteId = hdPlayerSpriteId(colorIndex, rot, kind)
+    prefix =
+      case kind
+      of hdCrewNormal: "player "
+      of hdCrewSelf: "self "
+      of hdCrewSelected: "selected player "
+      of hdCrewCorpse: "corpse "
+  packet.addSpriteChanged(
+    spriteDefs,
+    spriteId,
+    HdCrewSize,
+    HdCrewSize,
+    hdCrewSpritePixels(colorIndex, rot, kind),
+    prefix & playerColorName(colorIndex) & player.playerSideText()
+  )
+  spriteId
+
+proc addHdPlayerObject(
+  packet: var seq[uint8],
+  objectId: int,
+  player: Player,
+  spriteId: int
+) =
+  ## Places one HD player sprite centered on the player's map position.
+  packet.addObject(
+    objectId,
+    player.x * RenderScale - HdCrewSize div 2,
+    player.y * RenderScale - HdCrewSize div 2,
+    player.y,
+    MapLayerId,
+    spriteId
+  )
+
+proc scoreboardRow(sim: SimServer, index: int): int =
+  ## The player's row within its team's roster panel (join order).
+  var row = 0
+  for i in 0 ..< index:
+    if sim.players[i].team == sim.players[index].team:
+      inc row
+  row
+
+proc scoreboardTeamLayer(team: Team): int =
+  ## The roster panel layer for one team: red top-left, blue top-right,
+  ## mirroring the arena sides.
+  if team == Red: ScoreboardLayerId else: ScoreboardRightLayerId
+
+proc scoreboardHeight(sim: SimServer, team: Team): int =
+  ## One team panel's content height: team header row plus player rows.
+  var count = 0
+  for player in sim.players:
+    if player.team == team:
+      inc count
+  ScoreboardY + (max(1, count) + 1) * ScoreboardRowHeight + 2
 
 proc buildSpriteProtocolInit(
   sim: SimServer,
   spriteDefs: var seq[SpriteDefinition]
 ): seq[uint8] {.measure.} =
   ## Builds the initial global viewer snapshot.
+  hdEnsureLoaded(sim.gameMap)
   result = @[]
   result.addU8(0x04)
-  let mapPixels = sim.buildMapSpritePixels()
-  result.addLayer(MapLayerId, MapLayerType, ZoomableLayerFlag)
-  result.addViewport(MapLayerId, sim.gameMap.width, sim.gameMap.height)
-  result.addLayer(TopLeftLayerId, TopLeftLayerType, UiLayerFlag)
-  result.addViewport(TopLeftLayerId, ScoreboardWidth, ScoreboardHeight)
-  result.addLayer(InterstitialLayerId, InterstitialLayerType, UiLayerFlag)
-  result.addViewport(InterstitialLayerId, ScreenWidth, ScreenHeight)
-  result.addLayer(BottomRightLayerId, BottomRightLayerType, UiLayerFlag)
-  result.addViewport(BottomRightLayerId, ScreenWidth, ScreenHeight)
-  result.addLayer(TeamScoreLayerId, TeamScoreLayerType, UiLayerFlag)
-  result.addViewport(TeamScoreLayerId, TeamScoreWidth, TextLineHeight + 2)
+  result.addLayer(
+    MapLayerId, MapLayerType, ZoomableLayerFlag or SmoothLayerFlag
+  )
+  result.addViewport(
+    MapLayerId,
+    sim.gameMap.width * RenderScale,
+    sim.gameMap.height * RenderScale
+  )
+  result.addLayer(ScoreboardLayerId, ScoreboardLayerType, HdUiFlags)
+  result.addViewport(
+    ScoreboardLayerId, ScoreboardColWidth, sim.scoreboardHeight(Red)
+  )
+  result.addLayer(
+    ScoreboardRightLayerId, ScoreboardRightLayerType, HdUiFlags
+  )
+  result.addViewport(
+    ScoreboardRightLayerId, ScoreboardColWidth, sim.scoreboardHeight(Blue)
+  )
+  result.addLayer(InterstitialLayerId, InterstitialLayerType, HdUiFlags)
+  result.addViewport(
+    InterstitialLayerId,
+    ScreenWidth * UiScale,
+    ScreenHeight * UiScale
+  )
+  result.addLayer(TeamScoreLayerId, TeamScoreLayerType, HdUiFlags)
+  result.addViewport(TeamScoreLayerId, TeamScoreWidth, UiTextLine + 6)
+  # A tiny transparent anchor keeps the (object 1, sprite 1) map origin that
+  # sprite agents use as their camera reference; the visible arena arrives as
+  # tiled furniture (addMapFurniture).
   result.addSpriteChanged(
     spriteDefs,
     MapSpriteId,
-    sim.gameMap.width,
-    sim.gameMap.height,
-    mapPixels,
+    1,
+    1,
+    newRgbaPixels(1, 1),
     "map"
   )
   result.addObject(MapObjectId, 0, 0, low(int16), MapLayerId, MapSpriteId)
   sim.addMapMarkers(spriteDefs, result)
   sim.addFlagSprites(spriteDefs, result)
   sim.addSpriteProtocolInterstitialSprites(spriteDefs, result)
-  sim.addPlayerActorSprites(spriteDefs, result, selected = true)
 
 proc buildSpriteProtocolPlayerInit(
   sim: SimServer,
@@ -1242,31 +1429,45 @@ proc buildSpriteProtocolPlayerInit(
   ## Builds the initial sprite player snapshot: the full-map view (the client
   ## scales the whole arena to the window), the fog overlay layer, and the
   ## screen-corner HUD layers.
+  hdEnsureLoaded(sim.gameMap)
   result = @[]
   result.addU8(0x04)
-  let mapPixels = sim.buildMapSpritePixels()
-  result.addLayer(MapLayerId, MapLayerType, ZoomableLayerFlag)
-  result.addViewport(MapLayerId, sim.gameMap.width, sim.gameMap.height)
-  result.addLayer(FogLayerId, MapLayerType, ZoomableLayerFlag)
-  result.addViewport(FogLayerId, sim.gameMap.width, sim.gameMap.height)
-  result.addLayer(HudTopRightLayerId, HudTopRightLayerType, UiLayerFlag)
-  result.addViewport(HudTopRightLayerId, 24, TextLineHeight + 2)
-  result.addLayer(HudBottomLeftLayerId, HudBottomLeftLayerType, UiLayerFlag)
-  result.addViewport(HudBottomLeftLayerId, SpriteSize + 2, SpriteSize + 2)
+  result.addLayer(
+    MapLayerId, MapLayerType, ZoomableLayerFlag or SmoothLayerFlag
+  )
+  result.addViewport(
+    MapLayerId,
+    sim.gameMap.width * RenderScale,
+    sim.gameMap.height * RenderScale
+  )
+  result.addLayer(
+    FogLayerId, MapLayerType, ZoomableLayerFlag or SmoothLayerFlag
+  )
+  result.addViewport(
+    FogLayerId,
+    sim.gameMap.width * RenderScale,
+    sim.gameMap.height * RenderScale
+  )
+  result.addLayer(HudLayerId, HudLayerType, HdUiFlags)
+  result.addViewport(HudLayerId, HudLivesWidth, HudHeight)
   result.addLayer(
     PlayerInterstitialLayerId,
     PlayerInterstitialLayerType,
-    UiLayerFlag
+    HdUiFlags
   )
-  result.addViewport(PlayerInterstitialLayerId, ScreenWidth, ScreenHeight)
-  result.addLayer(TeamScoreLayerId, TeamScoreLayerType, UiLayerFlag)
-  result.addViewport(TeamScoreLayerId, TeamScoreWidth, TextLineHeight + 2)
+  result.addViewport(
+    PlayerInterstitialLayerId,
+    ScreenWidth * UiScale,
+    ScreenHeight * UiScale
+  )
+  result.addLayer(TeamScoreLayerId, TeamScoreLayerType, HdUiFlags)
+  result.addViewport(TeamScoreLayerId, TeamScoreWidth, UiTextLine + 6)
   result.addSpriteChanged(
     spriteDefs,
     MapSpriteId,
-    sim.gameMap.width,
-    sim.gameMap.height,
-    mapPixels,
+    1,
+    1,
+    newRgbaPixels(1, 1),
     "map"
   )
   sim.addMapMarkers(spriteDefs, result)
@@ -1282,21 +1483,24 @@ proc buildSpriteProtocolPlayerInit(
   result.addSpriteChanged(
     spriteDefs,
     SpritePlayerFireSpriteId,
-    sim.flagSprite.width,
-    sim.flagSprite.height,
-    buildSpriteProtocolRawSprite(sim.flagSprite),
+    HudFireIcon,
+    HudFireIcon,
+    hdResizeRgba(
+      hdFlagSpritePixels(Red), HdFlagSize, HdFlagSize, HudFireIcon, HudFireIcon
+    ),
     "fire icon"
   )
   result.addSpriteChanged(
     spriteDefs,
     SpritePlayerFireShadowSpriteId,
-    sim.flagSprite.width,
-    sim.flagSprite.height,
-    buildSpriteProtocolShadowSprite(sim.flagSprite),
+    HudFireIcon,
+    HudFireIcon,
+    hdResizeRgba(
+      hdFlagShadowPixels(Red), HdFlagSize, HdFlagSize, HudFireIcon, HudFireIcon
+    ),
     "fire icon cooldown"
   )
   sim.addSpriteProtocolInterstitialSprites(spriteDefs, result)
-  sim.addPlayerActorSprites(spriteDefs, result, selected = false)
 
 proc spriteObjectId(player: Player): int =
   ## Returns the stable global protocol object id for a player.
@@ -1339,9 +1543,16 @@ proc scoreboardName(player: Player): string =
   ## row already carries the team, so no (red)/(blue) tag.
   player.playerLabelText()
 
-proc scoreboardText(player: Player): string =
-  ## Returns one compact scoreboard row.
-  player.scoreboardName() & " " & $player.lives
+proc scoreboardText(sim: SimServer, player: Player): string =
+  ## Returns one compact scoreboard cell: name plus kills/deaths, with the
+  ## name truncated until the cell text fits its grid column.
+  discard sim
+  var name = player.scoreboardName()
+  let stats = " " & $player.kills & "/" & $player.deaths
+  while name.len > 3 and
+      hdTextWidth(name & stats) > ScoreboardColWidth - ScoreboardTextX - 4:
+    name.setLen(name.len - 1)
+  name & stats
 
 proc scoreboardJoinOrderAt(
   sim: SimServer,
@@ -1349,23 +1560,20 @@ proc scoreboardJoinOrderAt(
   mouseX,
   mouseY: int
 ): int =
-  ## Returns the join order for a clicked scoreboard name.
-  if layer != TopLeftLayerId:
+  ## Returns the join order for a clicked scoreboard row. The whole row
+  ## is the click target so the roster stays easy to hit.
+  let team =
+    case layer
+    of ScoreboardLayerId: Red
+    of ScoreboardRightLayerId: Blue
+    else: return -1
+  let row = (mouseY - ScoreboardY) div ScoreboardRowHeight - 1
+  if mouseX < 0 or mouseX >= ScoreboardColWidth or row < 0:
     return -1
-  let row = (mouseY - ScoreboardY) div ScoreboardRowHeight
-  if row < 0 or row >= sim.players.len:
-    return -1
-  let
-    player = sim.players[row]
-    name = player.scoreboardName()
-    rowY = ScoreboardY + row * ScoreboardRowHeight
-    nameWidth = sim.asciiSprites.textWidth(name)
-  if mouseY < rowY or mouseY >= rowY + TextLineHeight:
-    return -1
-  if mouseX < ScoreboardTextX or
-      mouseX >= ScoreboardTextX + nameWidth:
-    return -1
-  player.joinOrder
+  for i in 0 ..< sim.players.len:
+    if sim.players[i].team == team and sim.scoreboardRow(i) == row:
+      return sim.players[i].joinOrder
+  -1
 
 proc toggleSelectedJoinOrder(
   state: var GlobalViewerState,
@@ -1386,27 +1594,85 @@ proc addScoreboard(
   packet: var seq[uint8],
   selectedJoinOrder: int
 ) {.measure.} =
-  ## Adds the top-left player score picker (per-team lives).
-  packet.addLayer(TopLeftLayerId, TopLeftLayerType, UiLayerFlag)
-  packet.addViewport(TopLeftLayerId, ScoreboardWidth, ScoreboardHeight)
+  ## Adds one roster panel per team (kills/deaths score picker): red in the
+  ## top-left corner, blue in the top-right, mirroring the arena sides.
+  var kills, deaths: array[Team, int]
+  for p in sim.players:
+    kills[p.team] += p.kills
+    deaths[p.team] += p.deaths
+  for team in Team:
+    let
+      layer = scoreboardTeamLayer(team)
+      layerType =
+        if team == Red: ScoreboardLayerType else: ScoreboardRightLayerType
+      height = sim.scoreboardHeight(team)
+    packet.addLayer(layer, layerType, HdUiFlags)
+    packet.addViewport(layer, ScoreboardColWidth, height)
+    # A translucent panel behind the roster: readable over the arena, and
+    # the client only routes clicks to a UI layer when the cursor is over
+    # one of its objects, so the panel makes the whole panel a click target.
+    var bg = newRgbaPixels(ScoreboardColWidth, height)
+    for i in 0 ..< ScoreboardColWidth * height:
+      bg[i * 4 + 3] = 150
+    let bgObjectId = ScoreboardBgObjectId + ord(team)
+    currentIds.add(bgObjectId)
+    packet.addSpriteChanged(
+      spriteDefs,
+      ScoreboardBgSpriteId + ord(team),
+      ScoreboardColWidth,
+      height,
+      bg,
+      "scoreboard " & teamText(team)
+    )
+    packet.addObject(
+      bgObjectId,
+      0,
+      0,
+      -1,
+      layer,
+      ScoreboardBgSpriteId + ord(team)
+    )
+    # The team kills/deaths header atop the panel.
+    let
+      headText = (if team == Red: "RED " else: "BLUE ") &
+        $kills[team] & "/" & $deaths[team]
+      head = sim.buildSpriteProtocolTextSprite([headText], teamColor(team))
+      headObjectId = ScoreboardHeadObjectBase + ord(team)
+    currentIds.add(headObjectId)
+    packet.addSpriteChanged(
+      spriteDefs,
+      ScoreboardHeadSpriteBase + ord(team),
+      head.width,
+      head.height,
+      head.pixels,
+      "team score " & headText,
+      changed = true
+    )
+    packet.addObject(
+      headObjectId,
+      ScoreboardTextX,
+      ScoreboardY,
+      0,
+      layer,
+      ScoreboardHeadSpriteBase + ord(team)
+    )
   for i in 0 ..< sim.players.len:
     let
       player = sim.players[i]
+      layer = scoreboardTeamLayer(player.team)
       colorIndex = playerColorIndex(player.color)
       pipSpriteId = scoreboardPipSpriteId(colorIndex)
       pipObjectId = scoreboardPipObjectId(i)
       textSpriteId = scoreboardTextSpriteId(i)
       textObjectId = scoreboardTextObjectId(i)
-      rowY = ScoreboardY + i * ScoreboardRowHeight
+      rowY = ScoreboardY + (sim.scoreboardRow(i) + 1) * ScoreboardRowHeight
       color =
         if player.joinOrder == selectedJoinOrder:
           ScoreboardSelectedTextColor
         else:
           ScoreboardTextColor
-      text = sim.buildSpriteProtocolTextSprite(
-        [player.scoreboardText()],
-        color
-      )
+      rowText = sim.scoreboardText(player)
+      text = sim.buildSpriteProtocolTextSprite([rowText], color)
     currentIds.add(pipObjectId)
     currentIds.add(textObjectId)
     packet.addSpriteChanged(
@@ -1420,9 +1686,9 @@ proc addScoreboard(
     packet.addObject(
       pipObjectId,
       ScoreboardPipX,
-      ScoreboardPipY + i * ScoreboardRowHeight,
+      rowY + (ScoreboardRowHeight - ScoreboardPipSize) div 2,
       0,
-      TopLeftLayerId,
+      layer,
       pipSpriteId
     )
     packet.addSpriteChanged(
@@ -1431,14 +1697,14 @@ proc addScoreboard(
       text.width,
       text.height,
       text.pixels,
-      "score " & player.scoreboardText() & " color " & $color
+      "score " & rowText & " color " & $color
     )
     packet.addObject(
       textObjectId,
       ScoreboardTextX,
       rowY,
       0,
-      TopLeftLayerId,
+      layer,
       textSpriteId
     )
 
@@ -1450,41 +1716,27 @@ proc playerLabelLines(
   ## Returns label lines (name plus lives) for one player.
   result = @[playerLabelText(player)]
 
-proc spritePlayerX(player: Player): int =
-  ## Returns the global viewer x position for a player sprite.
-  player.x - SpriteDrawOffX - 1
-
 proc spritePlayerY(player: Player): int =
   ## Returns the global viewer y position for a player sprite.
   player.y - SpriteDrawOffY - 1
-
-proc spriteActorSpriteId(player: Player, selectedJoinOrder: int): int =
-  ## Returns the sprite id for a player in the global viewer.
-  let
-    colorIndex = playerColorIndex(player.color)
-    selected = player.joinOrder == selectedJoinOrder
-  if selected:
-    selectedCrewPlayerSpriteId(colorIndex, player.joinOrder, player.flipH)
-  else:
-    crewPlayerSpriteId(colorIndex, player.joinOrder, player.flipH)
 
 proc selectSpritePlayer(
   sim: SimServer,
   mouseX,
   mouseY: int
 ): int {.measure.} =
-  ## Returns the join order of the topmost player under the mouse.
+  ## Returns the join order of the topmost player under the mouse. Mouse
+  ## coordinates arrive in map-layer (render-scaled) pixels; the HD sprite
+  ## spans HdCrewSize around the player center.
   result = -1
   var bestY = low(int)
+  let half = HdCrewSize div 2
   for player in sim.players:
-    let crew = sim.crewSpriteForSlot(player.joinOrder)
     let
-      x = player.spritePlayerX()
-      y = player.spritePlayerY()
-      w = crew.width + 2
-      h = crew.height + 2
-    if mouseX >= x and mouseX < x + w and
-        mouseY >= y and mouseY < y + h and
+      x = player.x * RenderScale - half
+      y = player.y * RenderScale - half
+    if mouseX >= x and mouseX < x + HdCrewSize and
+        mouseY >= y and mouseY < y + HdCrewSize and
         player.y >= bestY:
       bestY = player.y
       result = player.joinOrder
@@ -1537,15 +1789,15 @@ proc addShotTracers(
         packet.addSpriteChanged(
           spriteDefs,
           spriteId,
-          TracerDotSize,
-          TracerDotSize,
+          TracerDotSize * RenderScale,
+          TracerDotSize * RenderScale,
           buildTracerDotSprite(colorIndex),
           "shot tracer " & playerColorName(colorIndex)
         )
       let objectId = TracerDotObjectBase + nextDot
       inc nextDot
       currentIds.add(objectId)
-      packet.addObject(
+      packet.addWorldObject(
         objectId,
         mx - TracerDotSize div 2,
         my - TracerDotSize div 2,
@@ -1583,8 +1835,8 @@ proc addAimIndicators(
     packet.addSpriteChanged(
       spriteDefs,
       spriteId,
-      AimDotSize,
-      AimDotSize,
+      AimDotSize * RenderScale,
+      AimDotSize * RenderScale,
       buildAimDotSprite(colorIndex),
       "aim dot " & playerColorName(colorIndex)
     )
@@ -1595,7 +1847,7 @@ proc addAimIndicators(
         my = int(round(py + ay * reach))
         objectId = AimDotObjectBase + i * AimDotsPerPlayer + d
       currentIds.add(objectId)
-      packet.addObject(
+      packet.addWorldObject(
         objectId,
         mx - AimDotSize div 2,
         my - AimDotSize div 2,
@@ -1611,34 +1863,55 @@ proc addSoundRings(
   packet: var seq[uint8],
   viewerIndex: int
 ) {.measure.} =
-  ## Places a brief semi-transparent ring near the muzzle of every recent
-  ## shot the viewer could NOT see: gunfire is audible through the fog. The
-  ## ring is jittered per shot (soundRingOffset) so it reveals a
-  ## neighborhood, never the exact spot; a shot you can see needs no ring.
+  ## Places fog-of-war shot markers for every recent shot: a filled disc
+  ## near the muzzle (gunfire is audible through the fog) and a hollow ring
+  ## near the impact point, each only when the viewer could NOT see that
+  ## spot. Both are jittered per shot (deterministically, with different
+  ## salts) so they reveal a neighborhood, never the exact spot.
   for shotIndex in 0 ..< min(sim.recentShots.len, TracerMaxShots):
     let shot = sim.recentShots[shotIndex]
-    if sim.fovVisibleAt(viewerIndex, shot.x0, shot.y0):
-      continue
-    packet.addSpriteChanged(
-      spriteDefs,
-      SoundRingSpriteId,
-      SoundRingSize,
-      SoundRingSize,
-      buildSoundRingSprite(),
-      "shot sound"
-    )
-    let
-      (dx, dy) = soundRingOffset(shot)
-      objectId = SoundRingObjectBase + shotIndex
-    currentIds.add(objectId)
-    packet.addObject(
-      objectId,
-      shot.x0 + dx - SoundRingSize div 2,
-      shot.y0 + dy - SoundRingSize div 2,
-      30000,
-      MapLayerId,
-      SoundRingSpriteId
-    )
+    if not sim.fovVisibleAt(viewerIndex, shot.x0, shot.y0):
+      packet.addSpriteChanged(
+        spriteDefs,
+        SoundRingSpriteId,
+        SoundRingSize * RenderScale,
+        SoundRingSize * RenderScale,
+        buildSoundRingSprite(),
+        "shot sound"
+      )
+      let
+        (dx, dy) = soundRingOffset(shot)
+        objectId = SoundRingObjectBase + shotIndex
+      currentIds.add(objectId)
+      packet.addWorldObject(
+        objectId,
+        shot.x0 + dx - SoundRingSize div 2,
+        shot.y0 + dy - SoundRingSize div 2,
+        30000,
+        MapLayerId,
+        SoundRingSpriteId
+      )
+    if not sim.fovVisibleAt(viewerIndex, shot.x1, shot.y1):
+      packet.addSpriteChanged(
+        spriteDefs,
+        ImpactRingSpriteId,
+        ImpactRingSize * RenderScale,
+        ImpactRingSize * RenderScale,
+        buildImpactRingSprite(),
+        "shot impact"
+      )
+      let
+        (dx, dy) = impactRingOffset(shot)
+        objectId = ImpactRingObjectBase + shotIndex
+      currentIds.add(objectId)
+      packet.addWorldObject(
+        objectId,
+        shot.x1 + dx - ImpactRingSize div 2,
+        shot.y1 + dy - ImpactRingSize div 2,
+        30000,
+        MapLayerId,
+        ImpactRingSpriteId
+      )
 
 proc addHpPips(
   sim: SimServer,
@@ -1665,14 +1938,14 @@ proc addHpPips(
     packet.addSpriteChanged(
       spriteDefs,
       spriteId,
-      width,
-      HpPipSize,
+      width * RenderScale,
+      HpPipSize * RenderScale,
       buildHpPipsSprite(player.hp, maxHp),
       "hp " & $player.hp & "/" & $maxHp
     )
     let objectId = HpPipObjectBase + i
     currentIds.add(objectId)
-    packet.addObject(
+    packet.addWorldObject(
       objectId,
       player.x + CollisionW div 2 - width div 2,
       player.spritePlayerY() - OverheadYOffset - HpPipSize,
@@ -1717,15 +1990,15 @@ proc addSplatters(
     packet.addSpriteChanged(
       spriteDefs,
       spriteId,
-      SplatterSize,
-      SplatterSize,
+      SplatterSize * RenderScale,
+      SplatterSize * RenderScale,
       buildSplatterSprite(colorIndex, stage),
       "splatter " & playerColorName(colorIndex) & " stage " & $stage
     )
     let objectId = SplatterObjectBase + nextSplatter
     inc nextSplatter
     currentIds.add(objectId)
-    packet.addObject(
+    packet.addWorldObject(
       objectId,
       px,
       py,
@@ -1738,9 +2011,12 @@ proc buildSpriteProtocolPlayerUpdates*(
   sim: var SimServer,
   playerIndex: int,
   state: PlayerViewerState,
-  nextState: var PlayerViewerState
+  nextState: var PlayerViewerState,
+  includeTeamScore = true
 ): seq[uint8] {.measure.} =
-  ## Builds sprite protocol updates for one playable player view.
+  ## Builds sprite protocol updates for one playable player view. The
+  ## global viewer's embedded POV passes includeTeamScore = false because
+  ## its roster panel already carries the team scores in the same corner.
   result = @[]
   nextState =
     if state.isNil:
@@ -1778,74 +2054,60 @@ proc buildSpriteProtocolPlayerUpdates*(
       playerIndex
     )
   else:
-    let
-      player = sim.players[playerIndex]
-      viewerIsGhost = not player.alive
-    if not viewerIsGhost:
+    let player = sim.players[playerIndex]
+    if player.alive:
       discard sim.refreshPlayerFov(playerIndex)
 
     # The full static map, always drawn: terrain is static knowledge.
     currentIds.add(MapObjectId)
     result.addObject(MapObjectId, 0, 0, low(int16), MapLayerId, MapSpriteId)
+    sim.addMapFurniture(nextState.spriteDefs, currentIds, result)
 
-    # The fog overlay dims everything outside this viewer's vision. Ghost
-    # viewers (dead players) watch the whole map unfogged.
-    if not viewerIsGhost:
-      sim.addFogRuns(playerIndex, nextState.spriteDefs, currentIds, result)
+    # The fog overlay dims everything outside this viewer's vision. A dead
+    # viewer has no eyes: fovVisibleAt is false everywhere, so the fog
+    # covers the whole map until respawn.
+    sim.addFogRuns(playerIndex, nextState.spriteDefs, currentIds, result)
 
     # The team flags: a pedestal flag is always visible (so an empty own
     # pedestal means the own flag is stolen); a carried flag rides its
     # carrier and is exactly as visible as that carrier.
     for team in Team:
       let flag = sim.flags[team]
-      if viewerIsGhost or sim.flagVisibleTo(playerIndex, team):
+      if sim.flagVisibleTo(playerIndex, team):
         let
           objectId = SpritePlayerFlagObjectBase + ord(team)
           lift = if flag.carrier >= 0: CarriedFlagLift else: 0
         currentIds.add(objectId)
-        result.addObject(
+        result.addWorldObject(
           objectId,
-          flag.x - SpriteSize div 2,
-          flag.y - SpriteSize div 2 - lift,
+          flag.x - HdFlagSize div (2 * RenderScale),
+          flag.y - HdFlagSize div (2 * RenderScale) - lift,
           flag.y + 1,
           MapLayerId,
           FlagSpriteBase + ord(team)
         )
 
-    # Players: yourself (a distinct outlined self marker) is always visible;
-    # everyone else — teammates included — only inside your vision; corpses
-    # only for ghost viewers.
+    # Players: yourself is always visible — as the outlined self marker
+    # while alive, as your grey corpse while waiting to respawn; everyone
+    # else — teammates included — only inside your vision.
     for i in 0 ..< sim.players.len:
       let other = sim.players[i]
-      if other.alive:
-        if not viewerIsGhost and i != playerIndex and
-            not sim.playerVisibleTo(playerIndex, i):
+      if i != playerIndex:
+        if not other.alive or not sim.playerVisibleTo(playerIndex, i):
           continue
-      elif not viewerIsGhost:
-        continue
-      var spriteId = other.spriteActorSpriteId(-1)
-      if i == playerIndex and not viewerIsGhost:
-        spriteId = SpritePlayerSelfSpriteBase + (if other.flipH: 1 else: 0)
-        let crew = sim.crewSpriteForSlot(other.joinOrder)
-        result.addSpriteChanged(
-          nextState.spriteDefs,
-          spriteId,
-          crew.width + 2,
-          crew.height + 2,
-          buildCrewProtocolActorSprite(crew, other.color, other.flipH, true),
-          "self " & playerColorText(other.color) &
-            (if other.flipH: " left" else: " right")
-        )
+      let kind =
+        if not other.alive:
+          hdCrewCorpse
+        elif i == playerIndex:
+          hdCrewSelf
+        else:
+          hdCrewNormal
+      let spriteId = result.addHdPlayerSprite(
+        nextState.spriteDefs, other, kind
+      )
       let objectId = other.spriteObjectId()
       currentIds.add(objectId)
-      result.addObject(
-        objectId,
-        other.x - SpriteDrawOffX - 1,
-        other.y - SpriteDrawOffY - 1,
-        other.y,
-        MapLayerId,
-        spriteId
-      )
+      result.addHdPlayerObject(objectId, other, spriteId)
 
     sim.addAimIndicators(
       nextState.spriteDefs,
@@ -1871,7 +2133,7 @@ proc buildSpriteProtocolPlayerUpdates*(
       result,
       viewerIndex = playerIndex
     )
-    if not viewerIsGhost:
+    if player.alive:
       sim.addSoundRings(
         nextState.spriteDefs,
         currentIds,
@@ -1879,15 +2141,15 @@ proc buildSpriteProtocolPlayerUpdates*(
         viewerIndex = playerIndex
       )
 
-    # Fire-readiness icon on the bottom-left HUD layer.
+    # Fire-readiness icon at the top of the bottom-right HUD panel.
     if player.alive:
       currentIds.add(SpritePlayerRemainingObjectId)
       result.addObject(
         SpritePlayerRemainingObjectId,
-        1,
-        1,
+        HudLivesWidth - 4 - HudFireIcon,
+        3,
         0,
-        HudBottomLeftLayerId,
+        HudLayerId,
         if player.fireCooldown > 0 or player.fireWindup > 0:
           SpritePlayerFireShadowSpriteId
         else:
@@ -1910,20 +2172,25 @@ proc buildSpriteProtocolPlayerUpdates*(
     )
     result.addObject(
       SelectedTextObjectId,
-      23 - lives.width,
-      1,
+      HudLivesWidth - 4 - lives.width,
+      HudFireIcon + 9,
       0,
-      HudTopRightLayerId,
+      HudLayerId,
       SpritePlayerRemainingSpriteId
     )
 
-  sim.addTeamScoreboard(nextState.spriteDefs, currentIds, result)
+  if includeTeamScore:
+    sim.addTeamScoreboard(nextState.spriteDefs, currentIds, result)
 
   if not state.isNil:
     for objectId in state.objectIds:
       if objectId notin currentIds:
         result.addDeleteObject(objectId)
   nextState.objectIds = currentIds
+
+const
+  TransportButtons = ['<', 'b', ' ', 'e', 'r']  ## restart, step, play, end, loop.
+  TransportSpeedKeys = ['1', '2', '3', '4', '8', '6']
 
 proc replayCommandAt(layer, x, y: int): char =
   ## Returns the replay transport command under a UI coordinate.
@@ -1938,27 +2205,11 @@ proc replayCommandAt(layer, x, y: int): char =
       return '\0'
     if localX - index * TransportButtonStride >= TransportIconSize:
       return '\0'
-    case index
-    of 0: return '<'
-    of 1: return ' '
-    of 2: return 'e'
-    of 3: return 'r'
-    of 4: return 'b'
-    else: return '\0'
-  if localY >= TransportSpeedY and localY < TransportSpeedY + 6:
-    let speedX = localX - TransportSpeedX
-    if speedX >= 0 and speedX < 12:
-      return '1'
-    if speedX >= 16 and speedX < 28:
-      return '2'
-    if speedX >= 32 and speedX < 44:
-      return '3'
-    if speedX >= 48 and speedX < 60:
-      return '4'
-    if speedX >= 64 and speedX < 76:
-      return '8'
-    if speedX >= 80 and speedX < 100:
-      return '6'
+    return TransportButtons[index]
+  if localY >= TransportSpeedY and localY < TransportSpeedY + UiTextLine:
+    let index = (localX - TransportSpeedX) div TransportSpeedCell
+    if index >= 0 and index < TransportSpeedKeys.len:
+      return TransportSpeedKeys[index]
   '\0'
 
 proc replayScrubTickAt(
@@ -1969,7 +2220,7 @@ proc replayScrubTickAt(
   if layer != ReplayCenterBottomLayerId or maxTick < 0:
     return -1
   let
-    scrubberX = max(0, (ScreenWidth - ReplayScrubberWidth) div 2)
+    scrubberX = max(0, (ReplayPanelWidth - ReplayScrubberWidth) div 2)
     localX = x - scrubberX
     localY = y - ReplayScrubberY
   if requireInside and (
@@ -1986,7 +2237,8 @@ proc buildReplayScrubberSprite(
   tick, maxTick: int,
   enabled: bool
 ): tuple[width, height: int, pixels: seq[uint8]] {.measure.} =
-  ## Builds a compact replay scrubber sprite.
+  ## Builds the replay scrubber: a slim track with the elapsed part lit and
+  ## a full-height knob at the current tick.
   result.width = ReplayScrubberWidth
   result.height = ReplayScrubberHeight
   result.pixels = newRgbaPixels(ReplayScrubberWidth, ReplayScrubberHeight)
@@ -1999,51 +2251,45 @@ proc buildReplayScrubberSprite(
       )
     else:
       0
-
-  for x in 0 ..< ReplayScrubberWidth:
-    result.pixels.putRgbaPixel(
-      ReplayScrubberTrackY * ReplayScrubberWidth + x,
-      1'u8
-    )
-  if enabled:
-    for x in 0 .. knobX:
-      result.pixels.putRgbaPixel(
-        ReplayScrubberTrackY * ReplayScrubberWidth + x,
-        10'u8
-      )
+  for y in ReplayScrubberTrackY .. ReplayScrubberTrackY + 2:
+    for x in 0 ..< ReplayScrubberWidth:
+      let i = y * ReplayScrubberWidth + x
+      if enabled and x <= knobX:
+        result.pixels.putRawRgbaPixel(i, 235, 235, 245, 255)
+      else:
+        result.pixels.putRawRgbaPixel(i, 95, 95, 110, 255)
   for y in 0 ..< ReplayScrubberHeight:
-    result.pixels.putRgbaPixel(
-      y * ReplayScrubberWidth + knobX,
-      if enabled: 2'u8 else: 1'u8
-    )
-  if knobX > 0:
-    result.pixels.putRgbaPixel(
-      ReplayScrubberTrackY * ReplayScrubberWidth + knobX - 1,
-      if enabled: 2'u8 else: 1'u8
-    )
-  if knobX < ReplayScrubberWidth - 1:
-    result.pixels.putRgbaPixel(
-      ReplayScrubberTrackY * ReplayScrubberWidth + knobX + 1,
-      if enabled: 2'u8 else: 1'u8
-    )
-
-proc blitTransportIcon(
-  target: var seq[uint8],
-  sheet: Sprite,
-  cell, baseX, baseY: int,
-  tint: uint8
-) =
-  ## Blits one transport icon cell into protocol pixels.
-  let sourceX = cell * TransportIconSize
-  for y in 0 ..< TransportIconHeight:
-    for x in 0 ..< TransportIconSize:
-      let colorIndex = sheet.pixels[sheet.spriteIndex(sourceX + x, y)]
-      if colorIndex == TransparentColorIndex:
-        continue
-      target.putRgbaPixel(
-        (baseY + y) * TransportWidth + baseX + x,
-        tint
+    for x in max(0, knobX - 1) .. min(ReplayScrubberWidth - 1, knobX + 1):
+      result.pixels.putRawRgbaPixel(
+        y * ReplayScrubberWidth + x,
+        if enabled: 255 else: 150,
+        if enabled: 255 else: 150,
+        if enabled: 255 else: 160,
+        255
       )
+
+proc blitRgbaSprite(
+  target: var seq[uint8],
+  targetWidth: int,
+  source: seq[uint8],
+  sourceWidth, sourceHeight, baseX, baseY: int
+) =
+  ## Alpha-blits straight RGBA pixels into a larger straight RGBA buffer.
+  for y in 0 ..< sourceHeight:
+    for x in 0 ..< sourceWidth:
+      let
+        src = (y * sourceWidth + x) * 4
+        dst = ((baseY + y) * targetWidth + baseX + x) * 4
+        a = int(source[src + 3])
+      if a == 0:
+        continue
+      let inv = 255 - a
+      target[dst] = uint8((int(source[src]) * a + int(target[dst]) * inv) div 255)
+      target[dst + 1] =
+        uint8((int(source[src + 1]) * a + int(target[dst + 1]) * inv) div 255)
+      target[dst + 2] =
+        uint8((int(source[src + 2]) * a + int(target[dst + 2]) * inv) div 255)
+      target[dst + 3] = max(target[dst + 3], source[src + 3])
 
 proc buildReplayControlsSprite(
   sim: SimServer,
@@ -2052,67 +2298,63 @@ proc buildReplayControlsSprite(
   replayLooping: bool,
   replayEnabled: bool
 ): tuple[width, height: int, pixels: seq[uint8]] {.measure.} =
-  ## Builds the replay transport controls sprite.
+  ## Builds the replay transport controls: vector icons on top, speed
+  ## labels below.
+  discard sim
   result.width = TransportWidth
   result.height = TransportHeight
   result.pixels = newRgbaPixels(TransportWidth, TransportHeight)
   let
-    sheet = transportSheet()
-    iconCells = [
-      0,
-      if replayPlaying: 2 else: 1,
-      3,
-      4,
-      5
-    ]
-  for i in 0 ..< iconCells.len:
-    let tint =
-      if not replayEnabled:
-        1'u8
-      elif i == 3:
-        if replayLooping: 10'u8 else: 1'u8
-      else:
-        2'u8
-    result.pixels.blitTransportIcon(
-      sheet,
-      iconCells[i],
-      i * TransportButtonStride,
-      0,
-      tint
-    )
-
-  let speedTexts = ["1X", "2X", "3X", "4X", "8X", "16X"]
-  var x = TransportSpeedX
-  for i in 0 ..< speedTexts.len:
-    let speed =
-      case i
-      of 0: 1
-      of 1: 2
-      of 2: 3
-      of 3: 4
-      of 4: 8
-      else: 16
-    let color = if speed == replaySpeed: 10'u8 else: 1'u8
-    sim.blitSmallText(
-      result.pixels,
+    dim = rgba(120, 120, 135, 255)
+    lit = rgba(235, 235, 245, 255)
+    active = rgba(120, 235, 140, 255)
+  for i in 0 ..< TransportButtons.len:
+    let
+      command = TransportButtons[i]
+      iconKind =
+        if command == ' ':
+          if replayPlaying: 'P' else: 'p'
+        else:
+          command
+      color =
+        if not replayEnabled:
+          dim
+        elif command == 'r':
+          if replayLooping: active else: dim
+        else:
+          lit
+    result.pixels.blitRgbaSprite(
       TransportWidth,
-      TransportHeight,
-      speedTexts[i],
-      x,
-      TransportSpeedY,
-      color
+      hdTransportIcon(iconKind, TransportIconSize, color),
+      TransportIconSize,
+      TransportIconSize,
+      i * TransportButtonStride,
+      0
     )
-    x += TransportSpeedGap
+  let speedTexts = ["1X", "2X", "3X", "4X", "8X", "16X"]
+  let speeds = [1, 2, 3, 4, 8, 16]
+  for i in 0 ..< speedTexts.len:
+    let color = if speeds[i] == replaySpeed: active else: dim
+    let text = hdTextLine(speedTexts[i], color)
+    result.pixels.blitRgbaSprite(
+      TransportWidth,
+      text.pixels,
+      text.width,
+      text.height,
+      TransportSpeedX + i * TransportSpeedCell,
+      TransportSpeedY
+    )
 
 proc buildReplayMismatchSprite(
   sim: SimServer,
   tick: int
 ): tuple[width, height: int, pixels: seq[uint8], label: string] {.measure.} =
   ## Builds the top-center replay hash mismatch warning sprite.
+  discard sim
   result.label = "hash mismatch at tick " & $tick
-  let textWidth = sim.asciiSprites.textWidth(result.label)
-  result.width = max(ReplayMismatchMinWidth, textWidth + ReplayMismatchPadX * 2)
-  result.height = TextLineHeight + ReplayMismatchPadY * 2
+  let text = hdTextLine(result.label, rgba(255, 235, 235, 255))
+  result.width = max(ReplayMismatchMinWidth, text.width + ReplayMismatchPadX * 2)
+  result.height = UiTextLine + ReplayMismatchPadY * 2
   result.pixels = newRgbaPixels(result.width, result.height)
   for i in 0 ..< result.width * result.height:
     result.pixels.putRawRgbaPixel(
@@ -2122,14 +2364,13 @@ proc buildReplayMismatchSprite(
       ReplayMismatchBgB,
       ReplayMismatchBgA
     )
-  sim.blitSmallText(
-    result.pixels,
+  result.pixels.blitRgbaSprite(
     result.width,
-    result.height,
-    result.label,
-    (result.width - textWidth) div 2,
-    ReplayMismatchPadY,
-    2'u8
+    text.pixels,
+    text.width,
+    text.height,
+    (result.width - text.width) div 2,
+    ReplayMismatchPadY
   )
 
 proc addReplayMismatchWarning(
@@ -2146,7 +2387,7 @@ proc addReplayMismatchWarning(
   packet.addLayer(
     ReplayMismatchLayerId,
     ReplayMismatchLayerType,
-    UiLayerFlag
+    HdUiFlags
   )
   packet.addViewport(
     ReplayMismatchLayerId,
@@ -2170,6 +2411,113 @@ proc addReplayMismatchWarning(
     0,
     ReplayMismatchLayerId,
     ReplayMismatchSpriteId
+  )
+
+proc addReplayControls(
+  sim: SimServer,
+  spriteDefs: var seq[SpriteDefinition],
+  currentIds: var seq[int],
+  packet: var seq[uint8],
+  replayTick: int,
+  replayPlaying: bool,
+  replaySpeed, replayMaxTick: int,
+  replayLooping, replayEnabled: bool
+) {.measure.} =
+  ## Adds the replay transport, scrubber, and tick counter panels. Shown in
+  ## both the whole-map view and an embedded player POV so the replay stays
+  ## controllable while spectating one agent through its fog.
+  if not replayEnabled:
+    return
+  packet.addLayer(
+    ReplayCenterBottomLayerId,
+    ReplayCenterBottomLayerType,
+    HdUiFlags
+  )
+  packet.addViewport(
+    ReplayCenterBottomLayerId,
+    ReplayPanelWidth,
+    ReplayPanelHeight
+  )
+  packet.addLayer(
+    ReplayBottomLeftLayerId,
+    ReplayBottomLeftLayerType,
+    HdUiFlags
+  )
+  packet.addViewport(
+    ReplayBottomLeftLayerId,
+    TransportWidth + TransportX * 2,
+    ReplayPanelHeight
+  )
+  let
+    controlTick = max(0, replayTick)
+    controlMaxTick = max(controlTick, replayMaxTick)
+    tickText = sim.buildSpriteProtocolTextSprite(
+      ["TICK " & $controlTick],
+      2'u8
+    )
+    scrubber = buildReplayScrubberSprite(
+      controlTick,
+      controlMaxTick,
+      true
+    )
+    controls = sim.buildReplayControlsSprite(
+      replayPlaying,
+      replaySpeed,
+      replayLooping,
+      replayEnabled
+    )
+  currentIds.add(ReplayTickObjectId)
+  currentIds.add(ReplayControlsObjectId)
+  currentIds.add(ReplayScrubberObjectId)
+  packet.addSpriteChanged(
+    spriteDefs,
+    ReplayTickSpriteId,
+    tickText.width,
+    tickText.height,
+    tickText.pixels,
+    "replay tick " & $controlTick
+  )
+  packet.addObject(
+    ReplayTickObjectId,
+    max(0, (ReplayPanelWidth - tickText.width) div 2),
+    0,
+    0,
+    ReplayCenterBottomLayerId,
+    ReplayTickSpriteId
+  )
+  packet.addSpriteChanged(
+    spriteDefs,
+    ReplayScrubberSpriteId,
+    scrubber.width,
+    scrubber.height,
+    scrubber.pixels,
+    "replay scrubber",
+    changed = true
+  )
+  packet.addObject(
+    ReplayScrubberObjectId,
+    max(0, (ReplayPanelWidth - ReplayScrubberWidth) div 2),
+    ReplayScrubberY,
+    0,
+    ReplayCenterBottomLayerId,
+    ReplayScrubberSpriteId
+  )
+  packet.addSpriteChanged(
+    spriteDefs,
+    ReplayControlsSpriteId,
+    controls.width,
+    controls.height,
+    controls.pixels,
+    "replay controls",
+    changed = true
+  )
+  packet.addObject(
+    ReplayControlsObjectId,
+    TransportX,
+    TransportY,
+    0,
+    ReplayBottomLeftLayerId,
+    ReplayControlsSpriteId
   )
 
 proc buildSpriteProtocolUpdates*(
@@ -2255,21 +2603,34 @@ proc buildSpriteProtocolUpdates*(
     result = sim.buildSpriteProtocolPlayerUpdates(
       playerIndex,
       nextState.povState,
-      povState
+      povState,
+      includeTeamScore = false
     )
     nextState.povState = povState
     var currentIds: seq[int] = @[]
-    sim.addScoreboard(
-      nextState.spriteDefs,
-      currentIds,
-      result,
-      nextState.selectedJoinOrder
-    )
+    if not sim.hasInterstitialFrame():
+      sim.addScoreboard(
+        nextState.spriteDefs,
+        currentIds,
+        result,
+        nextState.selectedJoinOrder
+      )
     sim.addReplayMismatchWarning(
       nextState.spriteDefs,
       currentIds,
       result,
       replayMismatchTick
+    )
+    sim.addReplayControls(
+      nextState.spriteDefs,
+      currentIds,
+      result,
+      replayTick,
+      replayPlaying,
+      replaySpeed,
+      replayMaxTick,
+      replayLooping,
+      replayEnabled
     )
     if not povClearsObjects:
       for objectId in state.objectIds:
@@ -2279,35 +2640,17 @@ proc buildSpriteProtocolUpdates*(
     return
   if not nextState.initialized:
     result = sim.buildSpriteProtocolInit(nextState.spriteDefs)
-    result.addLayer(
-      ReplayCenterBottomLayerId,
-      ReplayCenterBottomLayerType,
-      UiLayerFlag
-    )
-    result.addViewport(
-      ReplayCenterBottomLayerId,
-      ScreenWidth,
-      ReplayPanelHeight
-    )
-    result.addLayer(
-      ReplayBottomLeftLayerId,
-      ReplayBottomLeftLayerType,
-      UiLayerFlag
-    )
-    result.addViewport(
-      ReplayBottomLeftLayerId,
-      ScreenWidth,
-      ReplayPanelHeight
-    )
     nextState.initialized = true
 
   var currentIds: seq[int] = @[]
-  sim.addScoreboard(
-    nextState.spriteDefs,
-    currentIds,
-    result,
-    nextState.selectedJoinOrder
-  )
+  if not sim.hasInterstitialFrame():
+    sim.addScoreboard(
+      nextState.spriteDefs,
+      currentIds,
+      result,
+      nextState.selectedJoinOrder
+    )
+  sim.addMapFurniture(nextState.spriteDefs, currentIds, result)
   sim.addSplatters(nextState.spriteDefs, currentIds, result)
   sim.addShotTracers(nextState.spriteDefs, currentIds, result)
   sim.addAimIndicators(nextState.spriteDefs, currentIds, result)
@@ -2317,17 +2660,17 @@ proc buildSpriteProtocolUpdates*(
     let player = sim.players[playerIndex]
     if not player.alive:
       continue
-    let crew = sim.crewSpriteForSlot(player.joinOrder)
+    let kind =
+      if player.joinOrder == nextState.selectedJoinOrder:
+        hdCrewSelected
+      else:
+        hdCrewNormal
+    let spriteId = result.addHdPlayerSprite(
+      nextState.spriteDefs, player, kind
+    )
     let objectId = player.spriteObjectId()
     currentIds.add(objectId)
-    result.addObject(
-      objectId,
-      player.spritePlayerX(),
-      player.spritePlayerY(),
-      player.y,
-      MapLayerId,
-      player.spriteActorSpriteId(nextState.selectedJoinOrder)
-    )
+    result.addHdPlayerObject(objectId, player, spriteId)
     if sim.config.showPlayerLabels:
       let
         labelLines = playerLabelLines(sim, player, playerIndex)
@@ -2337,10 +2680,10 @@ proc buildSpriteProtocolUpdates*(
         )
         labelSpriteId = player.spritePlayerNameSpriteId()
         labelObjectId = player.spritePlayerNameObjectId()
-        labelX = player.spritePlayerX() +
-          (crew.width + 2 - label.width) div 2
-        labelY = player.spritePlayerY() - OverheadYOffset -
-          HpPipSize - label.height - 1
+        # HD-pixel placement: centered over the player, clear of the hp bar.
+        labelX = player.x * RenderScale - label.width div 2
+        labelY = (player.spritePlayerY() - OverheadYOffset - HpPipSize) *
+          RenderScale - label.height - RenderScale
       currentIds.add(labelObjectId)
       result.addSprite(
         labelSpriteId,
@@ -2364,10 +2707,10 @@ proc buildSpriteProtocolUpdates*(
       objectId = FlagObjectBase + ord(team)
       lift = if flag.carrier >= 0: CarriedFlagLift else: 0
     currentIds.add(objectId)
-    result.addObject(
+    result.addWorldObject(
       objectId,
-      flag.x - SpriteSize div 2,
-      flag.y - SpriteSize div 2 - lift,
+      flag.x - HdFlagSize div (2 * RenderScale),
+      flag.y - HdFlagSize div (2 * RenderScale) - lift,
       flag.y + 1,
       MapLayerId,
       FlagSpriteBase + ord(team)
@@ -2398,86 +2741,23 @@ proc buildSpriteProtocolUpdates*(
       -1
     )
 
-  if replayEnabled:
-    let
-      controlTick = max(0, replayTick)
-      controlMaxTick = max(controlTick, replayMaxTick)
-      tickText = sim.buildSpriteProtocolTextSprite(
-        ["TICK " & $controlTick],
-        2'u8
-      )
-      scrubber = buildReplayScrubberSprite(
-        controlTick,
-        controlMaxTick,
-        true
-      )
-      controls = sim.buildReplayControlsSprite(
-        replayPlaying,
-        replaySpeed,
-        replayLooping,
-        replayEnabled
-      )
-    currentIds.add(ReplayTickObjectId)
-    currentIds.add(ReplayControlsObjectId)
-    currentIds.add(ReplayScrubberObjectId)
-    result.addSpriteChanged(
-      nextState.spriteDefs,
-      ReplayTickSpriteId,
-      tickText.width,
-      tickText.height,
-      tickText.pixels,
-      "replay tick " & $controlTick
-    )
-    result.addObject(
-      ReplayTickObjectId,
-      max(0, (ScreenWidth - tickText.width) div 2),
-      0,
-      0,
-      ReplayCenterBottomLayerId,
-      ReplayTickSpriteId
-    )
-    result.addSpriteChanged(
-      nextState.spriteDefs,
-      ReplayScrubberSpriteId,
-      scrubber.width,
-      scrubber.height,
-      scrubber.pixels,
-      "replay scrubber",
-      changed = true
-    )
-    result.addObject(
-      ReplayScrubberObjectId,
-      max(0, (ScreenWidth - ReplayScrubberWidth) div 2),
-      ReplayScrubberY,
-      0,
-      ReplayCenterBottomLayerId,
-      ReplayScrubberSpriteId
-    )
-    result.addSpriteChanged(
-      nextState.spriteDefs,
-      ReplayControlsSpriteId,
-      controls.width,
-      controls.height,
-      controls.pixels,
-      "replay controls",
-      changed = true
-    )
-    result.addObject(
-      ReplayControlsObjectId,
-      TransportX,
-      TransportY,
-      0,
-      ReplayBottomLeftLayerId,
-      ReplayControlsSpriteId
-    )
+  sim.addReplayControls(
+    nextState.spriteDefs,
+    currentIds,
+    result,
+    replayTick,
+    replayPlaying,
+    replaySpeed,
+    replayMaxTick,
+    replayLooping,
+    replayEnabled
+  )
   sim.addReplayMismatchWarning(
     nextState.spriteDefs,
     currentIds,
     result,
     replayMismatchTick
   )
-  sim.addTeamScoreboard(nextState.spriteDefs, currentIds, result)
-
   for objectId in state.objectIds:
     if objectId notin currentIds:
       result.addDeleteObject(objectId)
