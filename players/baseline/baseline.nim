@@ -116,11 +116,16 @@ const
   MaxHp = 3                   # hitPoints per life (config default); pip labels
                               # read "hp <n>/<MaxHp>"
   HpPipRadius = 22.0          # a player's overhead hp bar sits within this
-  HpFocusBonus = 140.0        # px of effective-distance credit per missing
-                              # enemy hit point (a 1-hp target 250px out
-                              # beats a full-hp target at point blank)
-  FocusFireBonus = 90.0       # px of credit when a visible mate's aim line
+  HpFocusBonus = 60.0         # px of effective-distance credit per missing
+                              # enemy hit point — a tiebreak between
+                              # comparably-engageable targets, never a reason
+                              # to swing the turret across the map
+  FocusFireBonus = 45.0       # px of credit when a visible mate's aim line
                               # already covers the target (finish together)
+  TraversePxPerBrad = 1.6     # px of effective distance per brad of turret
+                              # swing needed to lay on the target: err/AimRate
+                              # ticks of traverse at ~8px of enemy closing
+                              # motion per tick = 8/5 px per brad
   MateAimRayLen = 700.0       # trust a mate's aim line out to this range
   MateAimHitSlack = 22.0      # enemy within this perpendicular distance of a
                               # mate's aim ray counts as mate-targeted
@@ -223,15 +228,21 @@ proc roleForSeat(seat: int, team: Team): Role =
   ## with no global flag tracking a carrier that slips the contest is hard to
   ## reacquire, so committed offense converts steals into captures, and the
   ## back line is one lane sniper plus the home defender.
-  case seat
-  of 0: FlankBottom      # wide bottom lane, get behind the contest
-  of 1: MidGuard         # third mid, trails offset high and cleans up
-  of 2: (if team == Blue: MidTop else: MidBottom)
-  of 3: (if team == Red: MidTop else: MidBottom)
-  of 4: MidBottom        # fourth mid: the second trailing attacker
-  of 5: Overwatch        # cover post flanking the ring: the lane sniper
-  of 6: FlankTop         # wide top lane, get behind the contest
-  else: HomeDefender     # choke guard before our capture column
+  when defined(rushAll):
+    # Shuffled-seat leagues deal this policy 1-2 agents onto random mixed
+    # teams: coordinated-wave roles waste the seat, and a single capture wins
+    # the episode outright, so every seat plays the flag-racing rusher.
+    MidTop
+  else:
+    case seat
+    of 0: FlankBottom      # wide bottom lane, get behind the contest
+    of 1: MidGuard         # third mid, trails offset high and cleans up
+    of 2: (if team == Blue: MidTop else: MidBottom)
+    of 3: (if team == Red: MidTop else: MidBottom)
+    of 4: MidBottom        # fourth mid: the second trailing attacker
+    of 5: Overwatch        # cover post flanking the ring: the lane sniper
+    of 6: FlankTop         # wide top lane, get behind the contest
+    else: HomeDefender     # choke guard before our capture column
 
 proc vec(x, y: float): Vec =
   Vec(x: x, y: y)
@@ -1075,7 +1086,12 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       target = vec(homeDeepX(bot.team), laneY)
   elif ownStolen and (bot.role == HomeDefender or
       (bot.role == Overwatch and
+       bot.tick - bot.carrierSeen <= ThiefFixTtl) or
+      (defined(swarm) and not iCarry and not mateCarry and
        bot.tick - bot.carrierSeen <= ThiefFixTtl)):
+    # swarm: in shuffled-seat leagues this policy fields only 2-3 agents and
+    # their roles are seat-lottery — when our flag is stolen with a fresh fix,
+    # whoever sees it hunts, or an enemy capture ends the episode against us.
     # The back line intercepts the thief running OUR flag toward ITS home
     # edge; attackers keep pressing the enemy pedestal so the capture race
     # stays on. With a fresh fix, converge on the predicted route; without
@@ -1124,12 +1140,20 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       else:
         target = mateCarryPos + vec(-homeSign(bot.team) * 32.0, 0.0)
     of Overwatch:
-      # The posts already overwatch the carrier's retreat across mid.
-      target =
-        if bot.postReady: bot.postHold
-        else: mateCarryPos + vec(-homeSign(bot.team) * 32.0, 0.0)
+      when defined(swarm):
+        # Only 2-3 of our agents exist: a completed capture ends the episode,
+        # so even the back line escorts the run home.
+        target = mateCarryPos + vec(homeSign(bot.team) * 40.0, 24.0)
+      else:
+        # The posts already overwatch the carrier's retreat across mid.
+        target =
+          if bot.postReady: bot.postHold
+          else: mateCarryPos + vec(-homeSign(bot.team) * 32.0, 0.0)
     of HomeDefender:
-      target = bot.chokeHold
+      when defined(swarm):
+        target = mateCarryPos + vec(homeSign(bot.team) * 40.0, -24.0)
+      else:
+        target = bot.chokeHold
   elif bot.role == HomeDefender and not pushOut:
     # Hold the choke on our pedestal approach; break off to chase the nearest
     # intruder on our half (every steal has to come through here).
@@ -1259,10 +1283,15 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     let d = dist(predicted, me)
     if d >= maxEngage:
       continue
-    # Target priority: distance, discounted for wounded targets (a 1-hp
-    # enemy dies to one shot — finish it before it resets on respawn) and
-    # for targets a visible mate is already lined up on (focus fire).
-    var prio = d
+    # Target priority: distance plus the turret swing needed to lay on the
+    # target (the traverse is slow, so a target near the current aim line
+    # dies sooner than a nearer one behind us), discounted for wounded
+    # targets (a 1-hp enemy dies to one shot — finish it before it resets on
+    # respawn) and for targets a visible mate is already lined up on (focus
+    # fire). The discounts are tiebreaks between comparably-engageable
+    # targets, deliberately smaller than a real positional difference.
+    var prio = d +
+      float(abs(bradsErr(bradsOf(predicted - me), bot.estAim))) * TraversePxPerBrad
     if t.hp in 1 ..< MaxHp:
       prio -= float(MaxHp - t.hp) * HpFocusBonus
     if mateTargeted[i]:
