@@ -38,7 +38,7 @@ type
     navBuilt: bool
     rng: Rand              ## this bot's OWN RNG stream, isolated per slot.
 
-proc newDriver(slot, team, episodeSeed: int): BotDriver =
+proc newDriver(slot, team, episodeSeed: int, tune: CombatTune): BotDriver =
   ## Mirrors runBot's setup for one seat: role from seat, a fresh
   ## ProtocolClient, transient reset, and — critically — a PER-BOT RNG.
   ##
@@ -57,7 +57,7 @@ proc newDriver(slot, team, episodeSeed: int): BotDriver =
   ## Team: 0 Red / 1 Blue.
   let t = (if team == 0: Red else: Blue)
   let role = roleForSeat(clamp(slot div 2, 0, 7), t)
-  result.bot = Bot(slot: slot, team: t, role: role)
+  result.bot = Bot(slot: slot, team: t, role: role, tune: tune)
   result.bot.resetTransient()
   result.client = initProtocolClient()
   result.lastMask = 0xff'u8
@@ -95,17 +95,43 @@ proc parseSlotSet(spec: string): seq[int] =
     if s.len > 0:
       result.add(parseInt(s))
 
+proc envFloat(name: string, dflt: float): float =
+  let v = getEnv(name)
+  if v.len > 0: parseFloat(v.strip()) else: dflt
+
+proc envInt(name: string, dflt: int): int =
+  let v = getEnv(name)
+  if v.len > 0: parseInt(v.strip()) else: dflt
+
+proc hunterTune(): CombatTune =
+  ## The hunter's fire/engage knobs. Starts from the baseline default and
+  ## sharpens the FIRE DISCIPLINE that the ground-truth diagnosis blamed for
+  ## the ~80% miss rate: (1) stop shooting at stale linearly-extrapolated
+  ## phantoms of juking targets, (2) require the aim to settle tighter inside
+  ## the 14px corridor before pulling. Every field is overridable by an env
+  ## var (HUNT_* ) so hypotheses A/B without a rebuild. Defaults below encode
+  ## the leading hypothesis; a control-vs-hunter run isolates their effect.
+  result = defaultCombatTune()
+  result.freshShotTicks = envInt("HUNT_FRESH", 10)     # was 24: don't fire at ~>0.4s-old tracks
+  result.fireSlackPx = envFloat("HUNT_SLACK", 7.0)     # was 11: tighter corridor settle
+  result.leadTicks = envFloat("HUNT_LEAD", 7.0)        # was 6: lead a touch more through windup
+  result.combatDeadband = envInt("HUNT_DEAD", 2)       # was 2: aim-settle tolerance
+  result.fireRange = envFloat("HUNT_RANGE", FireRange) # keep map-wide engage by default
+
 proc runEpisode(seed, maxTicks, numPlayers: int, hunterSlots: seq[int]):
     EpisodeResult =
-  ## Runs one headless game. hunterSlots is reserved for the forked policy;
-  ## with only the baseline present today it changes nothing (control run),
-  ## but it is threaded through so the A/B rig is ready the moment a hunter
-  ## `decide` variant exists.
-  discard hunterSlots     # reserved: selects hunter seats once that decide exists.
-  let engine = newEvalEngine(numPlayers, seed, maxTicks)
+  ## Runs one headless game. Seats listed in hunterSlots run the HUNTER tune
+  ## (sharpened fire discipline); every other seat runs the baseline default.
+  ## With no hunterSlots this is the all-baseline control (byte-identical to
+  ## the shipped decide), so paired seeds isolate the hunter's fire discipline.
+  let
+    engine = newEvalEngine(numPlayers, seed, maxTicks)
+    baseTune = defaultCombatTune()
+    huntTune = hunterTune()
   var drivers: seq[BotDriver]
   for slot in 0 ..< engine.playerCount():
-    drivers.add(newDriver(slot, engine.teamOfSlot(slot), seed))
+    let tune = (if slot in hunterSlots: huntTune else: baseTune)
+    drivers.add(newDriver(slot, engine.teamOfSlot(slot), seed, tune))
 
   var tick = 0
   while engine.isPlaying() and tick < maxTicks:
@@ -140,6 +166,10 @@ proc main() =
   echo &"CTF eval harness: games={games} baseSeed={baseSeed} " &
     &"maxTicks={maxTicks} players={numPlayers} " &
     &"hunterSlots={(if hunterSlots.len == 0: \"none (control)\" else: $hunterSlots)}"
+  if hunterSlots.len > 0:
+    let h = hunterTune()
+    echo &"  hunter tune: fresh={h.freshShotTicks} slack={h.fireSlackPx} " &
+      &"lead={h.leadTicks} dead={h.combatDeadband} range={h.fireRange}"
   echo "seed  ticks  over  winner  redK blueK  redC blueC  redS blueS  " &
     "redHit% blueHit%"
 
