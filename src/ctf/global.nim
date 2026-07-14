@@ -2054,10 +2054,8 @@ proc buildSpriteProtocolPlayerUpdates*(
       playerIndex
     )
   else:
-    let
-      player = sim.players[playerIndex]
-      viewerIsGhost = not player.alive
-    if not viewerIsGhost:
+    let player = sim.players[playerIndex]
+    if player.alive:
       discard sim.refreshPlayerFov(playerIndex)
 
     # The full static map, always drawn: terrain is static knowledge.
@@ -2065,17 +2063,17 @@ proc buildSpriteProtocolPlayerUpdates*(
     result.addObject(MapObjectId, 0, 0, low(int16), MapLayerId, MapSpriteId)
     sim.addMapFurniture(nextState.spriteDefs, currentIds, result)
 
-    # The fog overlay dims everything outside this viewer's vision. Ghost
-    # viewers (dead players) watch the whole map unfogged.
-    if not viewerIsGhost:
-      sim.addFogRuns(playerIndex, nextState.spriteDefs, currentIds, result)
+    # The fog overlay dims everything outside this viewer's vision. A dead
+    # viewer has no eyes: fovVisibleAt is false everywhere, so the fog
+    # covers the whole map until respawn.
+    sim.addFogRuns(playerIndex, nextState.spriteDefs, currentIds, result)
 
     # The team flags: a pedestal flag is always visible (so an empty own
     # pedestal means the own flag is stolen); a carried flag rides its
     # carrier and is exactly as visible as that carrier.
     for team in Team:
       let flag = sim.flags[team]
-      if viewerIsGhost or sim.flagVisibleTo(playerIndex, team):
+      if sim.flagVisibleTo(playerIndex, team):
         let
           objectId = SpritePlayerFlagObjectBase + ord(team)
           lift = if flag.carrier >= 0: CarriedFlagLift else: 0
@@ -2089,21 +2087,18 @@ proc buildSpriteProtocolPlayerUpdates*(
           FlagSpriteBase + ord(team)
         )
 
-    # Players: yourself (a distinct outlined self marker) is always visible;
-    # everyone else — teammates included — only inside your vision; corpses
-    # only for ghost viewers.
+    # Players: yourself is always visible — as the outlined self marker
+    # while alive, as your grey corpse while waiting to respawn; everyone
+    # else — teammates included — only inside your vision.
     for i in 0 ..< sim.players.len:
       let other = sim.players[i]
-      if other.alive:
-        if not viewerIsGhost and i != playerIndex and
-            not sim.playerVisibleTo(playerIndex, i):
+      if i != playerIndex:
+        if not other.alive or not sim.playerVisibleTo(playerIndex, i):
           continue
-      elif not viewerIsGhost:
-        continue
       let kind =
         if not other.alive:
           hdCrewCorpse
-        elif i == playerIndex and not viewerIsGhost:
+        elif i == playerIndex:
           hdCrewSelf
         else:
           hdCrewNormal
@@ -2138,7 +2133,7 @@ proc buildSpriteProtocolPlayerUpdates*(
       result,
       viewerIndex = playerIndex
     )
-    if not viewerIsGhost:
+    if player.alive:
       sim.addSoundRings(
         nextState.spriteDefs,
         currentIds,

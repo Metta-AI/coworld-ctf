@@ -2775,9 +2775,10 @@ proc playerFov*(sim: SimServer, playerIndex: int): lent PlayerFov =
 
 proc fovVisibleAt*(sim: SimServer, playerIndex, x, y: int): bool =
   ## Returns whether one map point is inside a viewer's vision. Dead viewers
-  ## are ghosts and see everything. Call refreshPlayerFov first.
+  ## have no eyes: everything is fogged until they respawn. Call
+  ## refreshPlayerFov first.
   if not sim.players[playerIndex].alive:
-    return true
+    return false
   if playerIndex >= sim.fovCaches.len or not sim.fovCaches[playerIndex].valid:
     return true
   let (cx, cy) = fovCellAt(x, y)

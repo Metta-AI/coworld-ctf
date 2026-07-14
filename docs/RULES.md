@@ -87,8 +87,9 @@ always drawn — but moving entities are fogged:
   *roughly there* — never the exact spot, and never which team.
 - There is **no global flag tracking**: once a thief carries your flag into the
   fog, finding it again takes eyes on it.
-- Dead players spectate as ghosts and see the whole map (their inputs are
-  ignored).
+- Death does not lift the fog: a dead player sees the whole map fogged —
+  only the terrain, the pedestal flags, and their own corpse — until they
+  respawn (their inputs are ignored).
 
 ## Combat
 
@@ -202,10 +203,10 @@ compute the object center and divide by 3:
 (map size 1235x659, ranges, speeds) stays in map pixels; only the wire
 representation scaled. The invisible `walkability map` sprite is unscaled and
 still 1235x659. Labels, sprite/object ids, layers, and the input protocol are
-unchanged, with one exception: in ghost frames (you are dead and see the whole
-field), dead players' sprites are labeled `corpse <color> <side>` instead of
-`player <color> <side>`, so a policy scanning for `player` labels no longer
-mistakes bodies for live enemies.
+unchanged, with one exception: while you are dead your own body is the only
+player sprite in frame, labeled `corpse <color> <side>` instead of
+`player <color> <side>`, so a policy scanning for `player` labels never
+mistakes a body for a live enemy.
 
 ---
 

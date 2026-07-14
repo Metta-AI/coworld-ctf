@@ -982,9 +982,8 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     enemyColor = (if bot.team == Red: "blue" else: "red")
     (alive, me) = client.findSelf(myColor)
   if not alive:
-    # Dead: the ghost view shows everything (including corpses under the
-    # normal labels), so skip perception entirely — inputs are ignored and
-    # ghost sightings would poison memory.
+    # Dead: the view is fully fogged (only our corpse renders) and inputs
+    # are ignored, so skip perception entirely.
     bot.firedLast = false
     bot.rotSign = 0
     bot.wasDead = true
