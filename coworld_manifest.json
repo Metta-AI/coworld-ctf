@@ -3,7 +3,7 @@
   "game": {
     "name": "ctf",
     "version": "0.1.0",
-    "description": "A two-team capture-the-flag shooter with fog-of-war vision. Red and Blue spawn on opposite edges, each guarding a flag on its home pedestal. Steal the enemy flag and carry it home - or wipe the enemy team. Aim is decoupled from movement and carries your vision cone; guns are map-wide 3-hit-point hitscan with a trigger windup, teammates are fogged like enemies, and unseen gunfire is heard as a jittered sound ring - never pinpointed.",
+    "description": "A two-team capture-the-flag shooter with fog-of-war vision. Red and Blue spawn on opposite edges, each guarding a flag on its home pedestal. Steal the enemy flag and carry it home - or wipe the enemy team. Aim is decoupled from movement and carries your vision cone; guns are map-wide 3-hit-point hitscan with a trigger windup, teammates are fogged like enemies, and unseen gunfire is heard as a jittered sound ring - never pinpointed. Rendered in painted high-resolution art: observation coordinates arrive at 3x map scale since 0.6.0 (see docs/RULES.md, Observation render scale).",
     "owner": "treeform@softmax.com",
     "runnable": {
       "type": "game",

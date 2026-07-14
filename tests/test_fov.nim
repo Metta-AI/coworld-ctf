@@ -150,7 +150,7 @@ suite "fog-of-war vision":
     game.players[1].y = 100
     check game.flagVisibleTo(0, Red)
 
-  test "dead viewers see everything":
+  test "dead viewers see nothing but themselves":
     var game = initCtfForTest()
     discard game.addPlayer("red0")
     discard game.addPlayer("blue0")
@@ -163,4 +163,8 @@ suite "fog-of-war vision":
     game.players[0].alive = false
     game.players[1].x = cx
     game.players[1].y = 550
-    check game.playerVisibleTo(0, 1)
+    # Death does not lift the fog: everything is masked until respawn —
+    # even a target standing right where the viewer died.
+    check not game.playerVisibleTo(0, 1)
+    check not game.fovVisibleAt(0, cx, cy)
+    check game.playerVisibleTo(0, 0)

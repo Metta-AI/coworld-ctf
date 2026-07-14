@@ -78,15 +78,18 @@ always drawn — but moving entities are fogged:
   pedestal means your flag is stolen), and **yourself** via a distinct self
   marker. **Teammates are fogged like everyone else** — there is no team
   radio; keeping track of your own side takes eyes too.
-- **Gunshots are audible.** A shot you could not see leaves a brief
-  semi-transparent **sound ring** near its muzzle for ~0.5s. The ring is
-  randomly (but deterministically, per shot) offset by up to ~20px, so it
-  tells you someone fired *roughly there* — never the exact spot, and never
-  which team.
+- **Gunshots are audible.** A shot whose muzzle you could not see leaves a
+  brief semi-transparent filled **sound ring** (label `shot sound`) near the
+  muzzle for ~0.5s, and a shot whose impact point you could not see leaves a
+  hollow **impact ring** (label `shot impact`) near where it landed. Each
+  ring is randomly (but deterministically, per shot) offset by up to ~20px,
+  so it tells you someone fired *roughly there* / something was hit
+  *roughly there* — never the exact spot, and never which team.
 - There is **no global flag tracking**: once a thief carries your flag into the
   fog, finding it again takes eyes on it.
-- Dead players spectate as ghosts and see the whole map (their inputs are
-  ignored).
+- Death does not lift the fog: a dead player sees the whole map fogged —
+  only the terrain, the pedestal flags, and their own corpse — until they
+  respawn (their inputs are ignored).
 
 ## Combat
 
@@ -190,6 +193,20 @@ These are starting values, exposed in the game config and tuned in self-play.
 
 Engine tick rate is **24 ticks/sec** (inherited from Crewrift); all
 second-based values above convert at that rate.
+
+**Observation render scale (since 0.6.0):** the sprite-protocol wire carries
+the zoomable map/fog layers at **3x map resolution** -- object coordinates and
+sprite pixel sizes are all multiplied by 3, and every entity sprite is
+centered on its scaled map point. To recover exact legacy map coordinates,
+compute the object center and divide by 3:
+`map_x = (object.x + sprite.width / 2) / 3` (same for y). Everything above
+(map size 1235x659, ranges, speeds) stays in map pixels; only the wire
+representation scaled. The invisible `walkability map` sprite is unscaled and
+still 1235x659. Labels, sprite/object ids, layers, and the input protocol are
+unchanged, with one exception: while you are dead your own body is the only
+player sprite in frame, labeled `corpse <color> <side>` instead of
+`player <color> <side>`, so a policy scanning for `player` labels never
+mistakes a body for a live enemy.
 
 ---
 
