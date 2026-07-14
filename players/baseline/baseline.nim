@@ -261,9 +261,18 @@ proc defaultCombatTune(): CombatTune =
     rushEngageRange: RushEngageRange,
     escortEngageRange: EscortEngageRange,
     pocketRushRange: PocketRushRange,
-    commit: false,            # shipped baseline re-picks nearest each frame.
+    commit: false,            # the pure-baseline control: re-pick nearest each frame.
     commitBonus: CommitBonus,
   )
+
+proc shippedCombatTune(): CombatTune =
+  ## The tune the DEPLOYED player runs. Identical to the baseline default plus
+  ## target commitment (A/B'd 2026-07-14: commit + commitBonus 400 beat the
+  ## all-baseline control 14-5 over seeds 200-219 by converting the same kills
+  ## into decisive wins). `defaultCombatTune` stays the untouched control the
+  ## harness A/Bs against; this is what runBot actually plays.
+  result = defaultCombatTune()
+  result.commit = true
 
 proc roleForSeat(seat: int, team: Team): Role =
   ## Deterministic role spread over the 8 per-team seats. Seats 2 and 3 both
@@ -1534,7 +1543,7 @@ proc runBot(url: string) =
     endpoint = ensureWsPath(url, WebSocketPath)
   randomize(slot * 7919 + 1)
   let bot = Bot(slot: slot, team: team, role: role,
-                tune: defaultCombatTune())
+                tune: shippedCombatTune())
   bot.resetTransient()
   echo "baseline slot=", slot, " team=", team, " role=", role, " -> ", endpoint
   let client = initProtocolClient()
