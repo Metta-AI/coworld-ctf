@@ -310,7 +310,7 @@ proc decodeWalkabilityPixels(
     mask[i] = rawPixels[i * 4 + 3].uint8 > 0
   true
 
-proc applySpritePacket(
+proc applySpritePacket*(
   client: ProtocolClient,
   packet: string,
   decodePixels: bool
@@ -523,3 +523,21 @@ proc copyLatestFrame*(
   ## Copies the current parsed frame into bot-owned buffers.
   copyBytes(client.packed, packed)
   copyBytes(client.unpacked, unpacked)
+
+proc feedInProcessPacket*(client: ProtocolClient, packet: string): bool =
+  ## In-process frame feed for a headless eval harness: applies ONE already
+  ## framed sprite packet blob (exactly what the server sends — the output of
+  ## `buildSpriteProtocolPlayerUpdates` run through `blobFromBytes`) and then
+  ## publishes the same frame bookkeeping `receiveLatestFrame(gui=false)` would.
+  ## One packet per sim tick means frameAdvance == 1, matching the live loop.
+  ## No pixel decode / no framebuffer render: bots read the object scene only.
+  client.frameAdvance = 0
+  if not client.applySpritePacket(packet, false):
+    return false
+  inc client.spritePending
+  client.frameAdvance = client.spritePending
+  client.framesDropped = max(0, client.spritePending - 1)
+  client.frameBufferLen = 0
+  client.skippedFrames += client.framesDropped
+  client.spritePending = 0
+  true

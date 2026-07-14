@@ -1642,7 +1642,11 @@ proc runBot(url: string) =
       echo "connect retry: ", e.msg
       sleep(250)
 
-when isMainModule:
+when isMainModule and not defined(ctfEvalHarness):
+  # The eval harness (players/baseline/eval) `include`s this file to drive the
+  # BYTE-IDENTICAL decision path in-process; -d:ctfEvalHarness suppresses only
+  # this websocket entrypoint. The shipped player is built WITHOUT that define,
+  # so its runtime behavior is completely unchanged.
   let url = getEnv("COWORLD_PLAYER_WS_URL", getEnv("COGAMES_ENGINE_WS_URL"))
   if url.len == 0:
     raise newException(ValueError, "COWORLD_PLAYER_WS_URL is required.")
