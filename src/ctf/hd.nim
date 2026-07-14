@@ -19,10 +19,11 @@ import
 const
   RenderScale* = 3             ## HD px per map px on the zoomable layers.
   SmoothLayerFlag* = 8         ## client hint: smooth (not nearest) upscaling.
-  HdCrewSize* = 72             ## HD player sprite canvas (24 map px).
-  HdCrewBodyPx = 46            ## the soldier body's target size on the canvas.
+  HdCrewSize* = 96             ## HD player sprite canvas (32 map px).
+  HdCrewBodyPx = 50            ## the soldier body's target size on the canvas.
   HdCrewRotations* = 16        ## pre-rotated aim steps (16 brads apart).
-  HdFlagSize* = SpriteSize * RenderScale        ## 36: flag art canvas.
+  HdFlagSize* = 60             ## flag art canvas (20 map px): the banner must
+                               ## dominate the canvas to read as a flag in-game.
   HdPedestalSize* = 60         ## pedestal pad art canvas (20 map px).
   HdFloorTileMapPx* = 128      ## one floor tile covers 128x128 map px.
   HdFloorTilePx = HdFloorTileMapPx * RenderScale
@@ -386,7 +387,14 @@ proc recoloredCrew(colorIndex: int): Image =
   ## preserving shading (value) and highlights (desaturation).
   if colorIndex in hdCrewRecolored:
     return hdCrewRecolored[colorIndex]
-  let target = Palette[PlayerColors[colorIndex and 0x0f] and 0x0f]
+  # Saturate and brighten the palette target: the PICO-8 player colors are
+  # muted (e.g. "blue" is lavender 131,118,156) and read grey on the large
+  # HD armor panels.
+  let muted = Palette[PlayerColors[colorIndex and 0x0f] and 0x0f]
+  let grey = (int(muted.r) + int(muted.g) + int(muted.b)) div 3
+  proc lively(c: uint8): uint8 =
+    uint8(clamp((grey + (int(c) - grey) * 2) * 23 div 20, 0, 255))
+  let target = rgba(lively(muted.r), lively(muted.g), lively(muted.b), 255)
   var image = newImage(hdCrewMaster.width, hdCrewMaster.height)
   for i in 0 ..< hdCrewMaster.data.len:
     let c = hdCrewMaster.data[i].rgba()

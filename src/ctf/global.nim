@@ -1935,8 +1935,8 @@ proc buildSpriteProtocolPlayerUpdates*(
         currentIds.add(objectId)
         result.addWorldObject(
           objectId,
-          flag.x - SpriteSize div 2,
-          flag.y - SpriteSize div 2 - lift,
+          flag.x - HdFlagSize div (2 * RenderScale),
+          flag.y - HdFlagSize div (2 * RenderScale) - lift,
           flag.y + 1,
           MapLayerId,
           FlagSpriteBase + ord(team)
@@ -2486,8 +2486,8 @@ proc buildSpriteProtocolUpdates*(
     currentIds.add(objectId)
     result.addWorldObject(
       objectId,
-      flag.x - SpriteSize div 2,
-      flag.y - SpriteSize div 2 - lift,
+      flag.x - HdFlagSize div (2 * RenderScale),
+      flag.y - HdFlagSize div (2 * RenderScale) - lift,
       flag.y + 1,
       MapLayerId,
       FlagSpriteBase + ord(team)
