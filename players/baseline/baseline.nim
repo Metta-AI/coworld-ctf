@@ -242,6 +242,8 @@ type
     mateFixPos: Vec           # last SEEN position of a mate-carried enemy heart
     mateFixTick: int          # tick of that sighting; 0 = never seen this game
     nadeNeed: int             # charge ticks required for the planned throw
+    shoutWant: string         # chat packet to send after this frame's input
+    lastShoutTick: int        # rate limit: server allows one shout per second
 
 proc roleForSeat(seat: int, team: Team): Role =
   ## Deterministic role spread over the 8 per-team seats. Seats 2 and 3 both
@@ -904,6 +906,8 @@ proc resetTransient(bot: Bot) =
   bot.mates.setLen(0)
   bot.nadeCharge = 0
   bot.mateFixTick = 0
+  bot.shoutWant = ""
+  bot.lastShoutTick = 0
   bot.carrierSeen = -100_000
   bot.lastEnemySeen = bot.tick
   bot.gameStart = bot.tick
@@ -1056,6 +1060,39 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     ownHome = flagHome(bot.team)
     enemyFlags = client.spriteObjectsWithLabel(enemyColor & " heart")
     ownFlags = client.spriteObjectsWithLabel(myColor & " heart")
+  when defined(shoutCoord):
+    # Shout intel (0.7.5): teammates broadcast quantized fixes as 10-char
+    # shouts — "C<cx> <cy>" is our carrier's own position, "T<cx> <cy>" a
+    # fresh fix on the enemy thief running OUR heart. The payload carries the
+    # exact quantized position; the bubble's jittered coordinates are ignored.
+    for o in client.spriteObjects():
+      if not o.label.startsWith(myColor & " shout "):
+        continue
+      let sep = o.label.rfind(": ")
+      if sep < 0:
+        continue
+      let text = o.label[sep + 2 .. ^1]
+      if text.len < 4 or text[0] notin {'C', 'T'}:
+        continue
+      let parts = text[1 .. ^1].split(' ')
+      if parts.len != 2:
+        continue
+      var cx, cy: int
+      try:
+        cx = parseInt(parts[0])
+        cy = parseInt(parts[1])
+      except ValueError:
+        continue
+      let p = vec(float(cx * 8 + 4), float(cy * 8 + 4))
+      if text[0] == 'C':
+        # Fresher than any dead-reckoned estimate: pin the escort fix here.
+        bot.mateFixPos = p
+        bot.mateFixTick = bot.tick
+      elif bot.tick - bot.carrierSeen > 8:
+        # Thief fix: adopt unless we have our own fresher eyes on it.
+        bot.carrierPos = p
+        bot.carrierVel = vec(0, 0)
+        bot.carrierSeen = bot.tick
   if enemyFlags.len > 0:
     let fp = client.mapPos(enemyFlags[0])
     # Self-carry test: the heart hovers over its carrier, so "am I the
@@ -1104,6 +1141,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         " mateCarryPos=", int(mateCarryPos.x), ",", int(mateCarryPos.y)
       flushFile(stdout)
   var ownStolen = ownFlags.len == 0
+  var sawThief = false
   if ownFlags.len > 0:
     let fp = client.mapPos(ownFlags[0])
     if dist(fp, ownHome) <= 6:
@@ -1111,6 +1149,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     else:
       # The thief holding our flag is inside our vision: take a fresh fix.
       ownStolen = true
+      sawThief = true
       bot.carrierPos = fp
       bot.carrierVel = vec(0, 0)
       for t in bot.enemies:
@@ -1118,6 +1157,20 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           bot.carrierVel = t.vel
           break
       bot.carrierSeen = bot.tick
+
+  when defined(shoutCoord):
+    # Broadcast intel worth its position leak (shouts are heard by enemies
+    # within ~247px too, but a carrier is already hunted and a defender's
+    # post is no secret). Carrier heartbeat beats thief fix; own eyes only —
+    # re-broadcasting a heard fix would echo it around the map forever.
+    if bot.tick - bot.lastShoutTick >= 26:
+      if iCarry:
+        bot.shoutWant = "C" & $(int(me.x) div 8) & " " & $(int(me.y) div 8)
+        bot.lastShoutTick = bot.tick
+      elif sawThief:
+        bot.shoutWant = "T" & $(int(bot.carrierPos.x) div 8) & " " &
+          $(int(bot.carrierPos.y) div 8)
+        bot.lastShoutTick = bot.tick
 
   # Flank progress: sticky so lane-runners do not oscillate at the boundary.
   if bot.role in {FlankTop, FlankBottom}:
@@ -1706,6 +1759,10 @@ proc runBot(url: string) =
         if mask != lastMask:
           ws.send(inputBlob(mask), BinaryMessage)
           lastMask = mask
+        when defined(shoutCoord):
+          if bot.shoutWant.len > 0:
+            ws.send(chatBlob(bot.shoutWant), BinaryMessage)
+            bot.shoutWant = ""
     except Exception as e:
       if everConnected:
         # The game ended and the server went away: exit so the episode
