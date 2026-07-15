@@ -50,6 +50,7 @@ const
                               ## at the pull, so a peeking target can duck back.
   ShotFxTicks* = 12           ## ~0.5s a shot tracer stays visible (cosmetic only).
   SplatterFxTicks* = 120      ## ~5s a death splatter stays visible (cosmetic only).
+  HitFxTicks* = 34            ## ~1.4s a non-fatal hit's paint splat stays visible.
   CarrierSpeedPct* = 70       ## carrier moves at 70% speed.
   AimBradsTurn* = 256         ## aim angle units per full turn (binary radians).
   AimTurnRate* = 5            ## brads/tick a held rotate button turns the aim
@@ -303,10 +304,13 @@ type
     color*: uint8
 
   SplatterFx* = object
-    ## A cosmetic death splatter mark; never enters gameHash (replay-safe).
+    ## A cosmetic death splatter mark; never enters gameHash (replay-safe). A
+    ## `hit` mark is the smaller, shorter-lived paint spark left by a non-fatal
+    ## hit; a death mark (hit == false) is the larger, long-dwelling splatter.
     x*, y*: int
     tick*: int
     color*: uint8
+    hit*: bool
 
   FlagState* = object
     ## One team's flag: provably either sitting on its home pedestal
@@ -366,11 +370,26 @@ proc loadSpriteSheet*(): Image =
   readAsepriteImage(spriteSheetPath())
 
 proc crewSheetPath(): string =
-  ## Returns the crew sprite sheet path.
-  let path = clientDataDir() / "crew.aseprite"
-  if fileExists(path):
-    return path
+  ## Returns the crew sprite sheet path. A hand-pixeled crew.png (the
+  ## purpose-built tactical soldier) is preferred; the legacy crew.aseprite is
+  ## the fallback so an art rollback needs no code change.
+  for candidate in [
+    gameDir() / "data" / "crew.png",
+    clientDataDir() / "crew.png",
+    clientDataDir() / "crew.aseprite",
+    gameDir() / "data" / "crew.aseprite",
+  ]:
+    if fileExists(candidate):
+      return candidate
   gameDir() / "data" / "crew.aseprite"
+
+proc readCrewSheetImage(path: string): Image =
+  ## Reads the crew sheet as a Pixie image from either a PNG or an aseprite
+  ## file (both render to the same RGBA Image the crew tint path consumes).
+  if path.toLowerAscii.endsWith(".png"):
+    readImage(path)
+  else:
+    readAsepriteImage(path)
 
 proc crewSpriteOffset*(sprite: CrewSprite, x, y: int): int =
   ## Returns the RGBA byte offset for one crew sprite pixel.
@@ -410,7 +429,7 @@ proc loadCrewSpriteRow*(row: int, label: string): seq[CrewSprite] =
     raise newException(CtfError, "Crew sprite sheet row is negative.")
   let
     path = crewSheetPath()
-    image = readAsepriteImage(path)
+    image = readCrewSheetImage(path)
   if image.width < CrewSpriteSize * CrewSpriteVariants or
       image.height < CrewSpriteSize * (row + 1):
     raise newException(
@@ -468,13 +487,10 @@ const
   ArenaSpawnClearW = 70        ## half-width of the open spawn pockets.
   ArenaSpawnClearH = 130       ## half-height of the open spawn pockets.
 
-  ArenaFloor = rgba(24, 26, 34, 255)      ## dark walkable floor.
-  ArenaWall = rgba(96, 104, 128, 255)     ## lighter, distinct wall.
-  ArenaBorderColor = rgba(60, 66, 84, 255)
-  ArenaRedTint = rgba(120, 40, 44, 70)    ## territory wash over Red half.
-  ArenaBlueTint = rgba(44, 60, 128, 70)   ## territory wash over Blue half.
-  ArenaRedPedestal = rgba(224, 96, 88, 255)   ## Red flag pedestal marker.
-  ArenaBluePedestal = rgba(96, 128, 232, 255) ## Blue flag pedestal marker.
+  ## Warm CRT-phosphor arena (REPLAY_DESIGN §3 art-lock): warm-dark floor,
+  ## warm-stone cover, the two team colors the only saturated channels — never
+  ## the cold blue-slate default the house style forbids.
+  ArenaBorderColor = rgba(44, 34, 25, 255)
 
   ## Interior obstacle shapes for the LEFT half only. Each is mirrored
   ## across the vertical center line so both halves are identical, and the
@@ -699,8 +715,159 @@ proc overTint(base, tint: ColorRGBA): ColorRGBA =
     255
   )
 
+proc tileSample(tex: Image, x, y: int): ColorRGBA =
+  ## Samples a seamless texture tiled across the arena (opaque source).
+  tex.unsafe[x mod tex.width, y mod tex.height].rgba
+
+proc blitCover(dst, spr: Image, cx, cy, size: int) =
+  ## Alpha-composites a cover-object sprite onto the board, centered on its
+  ## collision shape and scaled to the shape's footprint (plus a little for the
+  ## baked contact shadow). The sprite's transparency lets the textured floor
+  ## show through; the board stays fully opaque (opaque dst + src-over).
+  if size <= 0 or spr.width == 0:
+    return
+  let scaled = spr.resize(size, size)
+  dst.draw(scaled, translate(vec2((cx - size div 2).float32,
+                                  (cy - size div 2).float32)))
+
+## --- Carved-stone wall material (top-down bevel from the collision mask) ---
+## Every wall pixel — border frame, rect stub, diamond, disc, or chevron — is
+## rendered as one coherent RAISED-STONE block whose shading comes from its
+## distance to the nearest floor pixel. This replaces the old approach of
+## tiling a SIDE-VIEW brick photo into the mask (which sliced the brick course
+## mid-pattern → the "torn ribbon" chevrons) and blitting three clashing prop
+## sprites (wood crate / steampunk pipe / barrel) scaled to a square that never
+## matched the diamond/disc/diagonal footprints. Because the shading is derived
+## from the mask, the art matches every collider EXACTLY and is identical on
+## both halves by construction (the mask is mirror-symmetric). Light comes from
+## the up-left, so the up-left faces catch a highlight and the down-right faces
+## fall into shadow — the Gungeon/Nuclear-Throne top-down convention (L98).
+const
+  WallBevel = 3                          ## px width of the lit/shadow bevel band.
+  StoneFace = rgba(120, 100, 78, 255)    ## flat top face of a raised stone block.
+  StoneHi = rgba(190, 167, 137, 255)     ## up-left lit bevel (catches the light).
+  StoneLo = rgba(68, 54, 41, 255)        ## down-right shaded bevel (falls to dark).
+  StoneInk = rgba(34, 26, 19, 255)       ## warm near-black carve line (never #000).
+
+proc floorDistDir(wall: seq[bool], w, h, x, y, dx, dy, cap: int): int =
+  ## Steps from (x, y) along (dx, dy) until the first floor (non-wall) pixel,
+  ## capped at `cap`. Off-map counts as wall (the border is solid), so a pixel
+  ## with no floor within `cap` in that direction returns cap + 1.
+  for step in 1 .. cap:
+    let
+      nx = x + dx * step
+      ny = y + dy * step
+    if nx < 0 or ny < 0 or nx >= w or ny >= h:
+      continue
+    if not wall[ny * w + nx]:
+      return step
+  cap + 1
+
+proc carvedStoneColor(wall: seq[bool], w, h, x, y: int): ColorRGBA =
+  ## Shades one wall pixel as raised carved stone: a 1px ink carve line where it
+  ## meets the floor, a highlight on faces toward the up-left light, a shadow on
+  ## faces toward the down-right, and a flat face deep inside the block.
+  let
+    up = floorDistDir(wall, w, h, x, y, 0, -1, WallBevel)
+    left = floorDistDir(wall, w, h, x, y, -1, 0, WallBevel)
+    down = floorDistDir(wall, w, h, x, y, 0, 1, WallBevel)
+    right = floorDistDir(wall, w, h, x, y, 1, 0, WallBevel)
+  if min(min(up, down), min(left, right)) == 1:
+    return StoneInk                      ## touches the floor → carve outline.
+  let
+    topDist = min(up, left)              ## nearer the up-left (lit) rim.
+    botDist = min(down, right)           ## nearer the down-right (shaded) rim.
+  if topDist <= WallBevel and topDist <= botDist:
+    ## Graded lit bevel: brightest at the rim (topDist == 2, just inside the
+    ## ink line), easing back to the flat face by WallBevel so the block reads
+    ## as a rounded raised edge, not a flat painted band.
+    let t = (topDist - 2).float / max(1, WallBevel - 2).float
+    mix(StoneHi, StoneFace, clamp(t, 0.0, 1.0))
+  elif botDist <= WallBevel:
+    let t = (botDist - 2).float / max(1, WallBevel - 2).float
+    mix(StoneLo, StoneFace, clamp(t, 0.0, 1.0))
+  else:
+    StoneFace
+
+## --- Capture endzones (the floor a carrier must reach to score) ---
+## The win condition is a full-height vertical column at each home edge: a live
+## carrier scores the instant its center-x crosses the inner threshold, at ANY
+## height (captureZoneXRange / checkWinConditions). We make that legible by
+## painting the endzone INTO the floor — an in-world "painted endzone", not HUD
+## chrome — so it rides the board sprite and scales with the locked composition.
+## The old broad half-board territory wash was removed for muddying the flagstone
+## into "gradient columns" (L98 #4); this is the opposite: a CONFINED tint inside
+## the narrow scoring column only, anchored by a crisp bright threshold line at
+## the exact x a carrier must cross. Cosmetic over mapImage → hash-safe.
+const
+  EndzoneCrackGlow = 165         ## ember alpha on the darkest grout pixels (kept
+                                 ## below the pedestal glow so the flag home
+                                 ## stays the brightest thing in the endzone).
+  EndzoneLineAlpha = 220         ## solid threshold line at the exact score-x.
+  EndzoneLineW = 3               ## px width of that threshold line.
+  # The flagstone texture runs dark (lum ~26..117, faces ~73+, grout ~<46), so
+  # a single "below X" gate lit the whole floor. These two points bracket the
+  # real split: at/above FaceLevel a pixel is a lit face → NO glow; at/below
+  # CrackLevel it's grout → full glow; linear between.
+  EndzoneFaceLevel = 66          ## lit stone face floor luminance (glow = 0).
+  EndzoneCrackLevel = 34         ## grout/seam luminance (glow = full).
+  EndzoneGlowFloor = 0.82        ## min home-falloff so the far end still glows.
+  RedEndzoneColor = rgba(224, 82, 58, 255)    ## team vermillion (§4).
+  BlueEndzoneColor = rgba(63, 124, 196, 255)  ## team cerulean (§4).
+
+proc emberThroughCracks(base, ember: ColorRGBA, strength: float): ColorRGBA =
+  ## Lets a team ember glow seep UP ONLY through the DARK crack/grout pixels of
+  ## the flagstone TEXTURE — the lit stone faces stay completely clean (no base
+  ## wash), so team color is confined to the actual fissures/seams, not a flat
+  ## tint over the tiles (L98 #4). Distinct from the solid capture LINE, which is
+  ## a painted stripe. A two-point luminance gate anchored to the measured floor
+  ## split does the confining; `strength` is a gentle pedestal-side falloff.
+  let l = (base.r.int * 30 + base.g.int * 59 + base.b.int * 11) div 100
+  # 0 at/above a lit face, 1 at/below grout — cracks only, faces untouched.
+  let crack = clamp((EndzoneFaceLevel - l).float /
+    (EndzoneFaceLevel - EndzoneCrackLevel).float, 0.0, 1.0)
+  let a = strength * crack * crack * EndzoneCrackGlow.float
+  overTint(base, rgba(ember.r, ember.g, ember.b, uint8(clamp(a, 0.0, 255.0))))
+
+proc endzoneColorAt(base: ColorRGBA, x, redHi, blueLo, playLo, playHi: int):
+    ColorRGBA =
+  ## Tints one floor pixel if it sits inside a capture endzone column. `redHi`
+  ## is Red's inclusive right threshold x; `blueLo` is Blue's inclusive left
+  ## threshold x; `playLo`/`playHi` are the inner playfield edges (for the
+  ## glow falloff). Team ember seeps up through the tile cracks, brightest at the
+  ## pedestal (the inner threshold edge) and floored so the whole zone still
+  ## glows; the exact threshold x a carrier must cross gets a crisp solid line.
+  if x <= redHi:
+    if x > redHi - EndzoneLineW:
+      overTint(base, rgba(RedEndzoneColor.r, RedEndzoneColor.g,
+        RedEndzoneColor.b, EndzoneLineAlpha))
+    else:
+      let near = clamp((x - playLo).float / max(1, redHi - playLo).float, 0.0, 1.0)
+      emberThroughCracks(base, RedEndzoneColor,
+        EndzoneGlowFloor + (1.0 - EndzoneGlowFloor) * near)
+  elif x >= blueLo:
+    if x < blueLo + EndzoneLineW:
+      overTint(base, rgba(BlueEndzoneColor.r, BlueEndzoneColor.g,
+        BlueEndzoneColor.b, EndzoneLineAlpha))
+    else:
+      let near = clamp((playHi - x).float / max(1, playHi - blueLo).float, 0.0, 1.0)
+      emberThroughCracks(base, BlueEndzoneColor,
+        EndzoneGlowFloor + (1.0 - EndzoneGlowFloor) * near)
+  else:
+    base
+
 proc loadMapLayers*(gameMap: CtfMap): tuple[mapImage, walkImage, wallImage: Image] =
-  ## Builds the visual map plus the walk and wall masks for the arena.
+  ## Builds the visual map plus the walk and wall masks for the arena. The
+  ## visuals: a tiled top-down flagstone floor, and ONE coherent carved-stone
+  ## material for every wall pixel — border frame, rect stub, diamond, disc, and
+  ## chevron alike — beveled from the collision mask itself so the art matches
+  ## each collider EXACTLY and is identical on both halves by construction. The
+  ## old side-view brick texture (sliced mid-course into the shapes → "torn
+  ## ribbon" chevrons) and the three clashing prop sprites (wood crate /
+  ## steampunk pipe / barrel scaled to a square over diamond/disc footprints)
+  ## are gone (L98 #4: one baked material; let flags + pedestals carry team
+  ## identity). Team pedestals stay. The walk/wall COLLISION masks are
+  ## byte-identical to before — the art is cosmetic over the exact geometry.
   let
     w = gameMap.width
     h = gameMap.height
@@ -712,35 +879,51 @@ proc loadMapLayers*(gameMap: CtfMap): tuple[mapImage, walkImage, wallImage: Imag
   let
     clear = rgba(0, 0, 0, 0)
     opaque = rgba(255, 255, 255, 255)
+    dir = gameDir()
+    floorTex = readImage(dir / "data/arena_floor.png")
+    pedRedSpr = readImage(dir / "data/ped_red.png")
+    pedBlueSpr = readImage(dir / "data/ped_blue.png")
+  ## Pass 1: the boolean wall mask (border + obstacles), shared by the shading
+  ## bevel and the collision masks so art and geometry can never disagree.
+  var wallMask = newSeq[bool](w * h)
+  for y in 0 ..< h:
+    for x in 0 ..< w:
+      wallMask[y * w + x] = isArenaWall(x, y, cx, cy)
+  ## The capture endzones: the exact score-columns from checkWinConditions'
+  ## captureZoneXRange (Red's inclusive right threshold, Blue's inclusive left),
+  ## painted into the FLOOR below so a carrier can read where to run.
+  let
+    redHi = gameMap.teamHomeX(Red) + CaptureZoneWidth div 2
+    blueLo = gameMap.teamHomeX(Blue) - CaptureZoneWidth div 2
+    playLo = ArenaBorder                     # inner playfield edges: the glow
+    playHi = w - 1 - ArenaBorder             # anchors home, fades to the line.
+  ## Pass 2: paint. Floor pixels sample the flagstone tile; wall pixels are the
+  ## carved-stone material shaded from the mask. The perimeter frame is the same
+  ## stone darkened so the play space reads as a lit pit. Floor pixels inside a
+  ## capture column get a CONFINED team endzone tint + a bright threshold line
+  ## (endzoneColorAt) — not the removed broad half-board wash (L98 #4).
   for y in 0 ..< h:
     for x in 0 ..< w:
       let
         onBorder = x < ArenaBorder or y < ArenaBorder or
           x >= w - ArenaBorder or y >= h - ArenaBorder
-        wall = isArenaWall(x, y, cx, cy)
+        wall = wallMask[y * w + x]
       var color =
-        if onBorder: ArenaBorderColor
-        elif wall: ArenaWall
-        else: ArenaFloor
-      if not wall:
-        ## Team territory wash on the readable floor.
-        if x < cx:
-          color = overTint(color, ArenaRedTint)
-        else:
-          color = overTint(color, ArenaBlueTint)
+        if wall: carvedStoneColor(wallMask, w, h, x, y)
+        else: endzoneColorAt(tileSample(floorTex, x, y), x, redHi, blueLo,
+          playLo, playHi)
+      if onBorder:
+        color = overTint(color, ArenaBorderColor)
       result.mapImage[x, y] = color
       result.walkImage[x, y] = if wall: clear else: opaque
       result.wallImage[x, y] = if wall: opaque else: clear
-  ## Draw a small team-colored pedestal marker under each flag home (stays
-  ## walkable; the pedestals sit inside the protected spawn pockets).
+  ## Carved team pedestal under each flag home (walkable — sits inside the
+  ## protected spawn pocket; cosmetic only, collision masks untouched).
   for team in Team:
     let
       home = gameMap.flagHome(team)
-      color = (if team == Red: ArenaRedPedestal else: ArenaBluePedestal)
-    for dy in -4 .. 4:
-      for dx in -4 .. 4:
-        if dx * dx + dy * dy <= 16:
-          result.mapImage[home.x + dx, home.y + dy] = color
+      spr = if team == Red: pedRedSpr else: pedBlueSpr
+    blitCover(result.mapImage, spr, home.x, home.y, 96)
 
 proc loadDarkBgPixels*(): seq[uint8] =
   ## Loads the dark interstitial background as palette pixels.
@@ -2255,7 +2438,8 @@ proc killPlayer(sim: var SimServer, targetIndex, killerIndex: int) =
     x: sim.players[targetIndex].x,
     y: sim.players[targetIndex].y,
     tick: sim.tickCount,
-    color: sim.players[targetIndex].color
+    color: sim.players[targetIndex].color,
+    hit: false
   )
   sim.players[targetIndex].alive = false
   sim.players[targetIndex].velX = 0
@@ -2371,6 +2555,15 @@ proc applyFire(sim: var SimServer, shooterIndex, targetIndex: int) =
       sim.killPlayer(targetIndex, shooterIndex)
       sim.recordKill(shooterIndex)
     else:
+      # A non-fatal hit leaves a small, short-lived paint spark in the
+      # shooter's color on the target (cosmetic only, never in gameHash).
+      sim.splatters.add SplatterFx(
+        x: sim.players[targetIndex].x,
+        y: sim.players[targetIndex].y,
+        tick: sim.tickCount,
+        color: shooter.color,
+        hit: true
+      )
       sim.logGameEvent(
         playerColorText(sim.players[targetIndex].color) &
           " hit by " & sim.playerText(shooterIndex) &
@@ -2787,7 +2980,7 @@ proc maxTicksReached(sim: SimServer): bool =
   sim.config.maxTicks > 0 and sim.phase == Playing and
     sim.gameTicksElapsed() >= sim.config.maxTicks
 
-proc teamLivesRemaining(sim: SimServer, team: Team): int =
+proc teamLivesRemaining*(sim: SimServer, team: Team): int =
   ## Returns total lives remaining (alive players count their current life).
   for p in sim.players:
     if p.team != team:
@@ -2796,7 +2989,7 @@ proc teamLivesRemaining(sim: SimServer, team: Team): int =
     if p.alive:
       inc result
 
-proc teamFlagProgress(sim: SimServer, team: Team): int =
+proc teamFlagProgress*(sim: SimServer, team: Team): int =
   ## Returns how far the ENEMY flag has been advanced toward this team's
   ## home while carried; 0 when it sits on its pedestal.
   let flag = sim.flags[enemy(team)]
@@ -3055,6 +3248,7 @@ proc step*(
   sim.recentShots = kept
   var keptSplatters: seq[SplatterFx] = @[]
   for splatter in sim.splatters:
-    if sim.tickCount - splatter.tick < SplatterFxTicks:
+    let life = if splatter.hit: HitFxTicks else: SplatterFxTicks
+    if sim.tickCount - splatter.tick < life:
       keptSplatters.add splatter
   sim.splatters = keptSplatters

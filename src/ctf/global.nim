@@ -1,5 +1,5 @@
 import
-  std/[algorithm, math, os],
+  std/[algorithm, math, os, strutils],
   bitworld/pixelfonts, bitworld/profile, bitworld/spriteprotocol, bitworld/server,
   sim
 
@@ -48,16 +48,38 @@ const
   InterstitialLayerId = 2
   InterstitialLayerType = 2
   OverheadYOffset = 4          ## px gap between a sprite top and overhead UI.
-  HpPipSpriteBase = 820        ## hp pip bar sprites: 820 + remaining hp.
-  HpPipObjectBase = 19000      ## hp pip bar object-id pool: one per player.
-  HpPipSize = 2                ## px per pip square.
-  HpPipGap = 1                 ## px between pips.
-  CarriedFlagLift = 10         ## px a carried flag flies above its carrier.
+  HpPipSpriteBase = 820        ## hp bar sprites: 820 + lit-segment count (0..3).
+  HpPipObjectBase = 19000      ## hp bar object-id pool: one per player.
+  HpBarSegments = 3            ## health shown as 3 fixed thirds, NOT one pip per
+                               ## hit point (a 99-hp config would draw a ~296px
+                               ## neon ribbon over a 16px sprite — the bar length
+                               ## must not scale with the hit-point config).
+  HpBarSegW = 4                ## px width of one health segment.
+  HpBarSegGap = 1              ## px gap between segments.
+  HpBarH = 2                   ## px height of the health bar.
+  HpBarWidth = HpBarSegments * HpBarSegW +
+    (HpBarSegments - 1) * HpBarSegGap  ## 14px total — sized to the crew sprite.
+  CarriedFlagLift = -7         ## px the carried banner rides BELOW the head so it
+                               ## sits on the carrier's body (like a flag held), and
+                               ## never floats up into the nameplate. Negative = down.
+  CarriedFlagSideX = 6         ## px the carried banner shifts toward the carrier's
+                               ## facing side, so it reads as held-out, not centered.
+  FlagBannerW = 16             ## px width of the carried banner sprite.
+  FlagBannerH = 22             ## px height of the banner (bottom-anchored on the pole foot).
+  PlantedFlagScale = 3         ## the HOME banner is drawn this many x bigger so it
+                               ## reads as a real objective on the 96px pedestal.
+  PlantedFlagW = FlagBannerW * PlantedFlagScale
+  PlantedFlagH = FlagBannerH * PlantedFlagScale
+  PlantedFlagSpriteBase = 704  ## scaled home-banner sprites: 704 red, 705 blue.
+  FlagAuraSpriteBase = 702     ## carrier-glow sprites: 702 red-flag halo, 703 blue-flag halo.
+  FlagAuraObjectBase = 19200   ## carrier-glow object pool (one per carried flag).
+  FlagAuraSize = 26            ## px diameter of the carrier halo.
   SoundRingSpriteId = 830      ## the shot "sound" ring sprite.
   SoundRingObjectBase = 19100  ## sound ring object-id pool (per recent shot).
   SoundRingSize = 12           ## px diameter of the sound ring.
   SoundRingJitter = 20         ## max px the ring strays from the true muzzle.
-  TracerDotSpriteBase = 760    ## per-color tracer dot sprites: 760..775.
+  TracerStages = 4             ## age fade stages (protocol has no per-object alpha).
+  TracerDotSpriteBase = 900    ## per color-and-fade-stage tracer dots: 900..963.
   TracerDotObjectBase = 15000  ## tracer object-id pool base.
   TracerDotSize = 3
   TracerDotSpacing = 12        ## px between sampled tracer dots along a shot.
@@ -69,6 +91,9 @@ const
   SplatterSize = 13
   SplatterStages = 4           ## fade stages across SplatterFxTicks.
   SplatterMaxCount = 32        ## most splatters drawn at once.
+  HitSpriteBase = 16100        ## per-color-and-stage hit-splat sprites: 16100..16163.
+  HitSplatSize = 21            ## on-hit paint-splat canvas (~1.3x a 16px player).
+  HitSplatCoreR = 6.0          ## px radius of the splat's main wet blob.
   AimDotSpriteBase = 780       ## per-color aim indicator dot sprites: 780..795.
   AimDotObjectBase = 18000     ## aim dot object-id pool: 18000..18063.
   AimDotSize = 2
@@ -94,7 +119,7 @@ const
   TransportY = 1
   ## Sprite/object id pools (sprites and objects are separate namespaces).
   ## Sprites: team flags 700..701 (FlagSpriteBase), hp pips 820+, tracer
-  ## dots 760..775, aim dots 780..795, self markers 5100..5101, team score
+  ## dots 900..963 (color×fade-stage), aim dots 780..795, self markers 5100..5101, team score
   ## text 12100..12101, splatters 16000..16063, fog runs 21000..21155 (one
   ## per run width in cells), map markers 20000. Objects: flags 6500..6501
   ## (map view) / 5009..5010 (player view), team score text 9600..9601,
@@ -185,6 +210,8 @@ type
     scrubbingReplay*: bool
     replaySeekTick*: int
     replayCommands*: seq[char]
+    broadcastHud*: bool          ## viewer opted into the JSON chrome channel.
+    povSelectPending*: int       ## POV slot requested by a `v:<slot>` command.
     spriteDefs: seq[SpriteDefinition]
 
   PlayerViewerState* = ref object
@@ -211,6 +238,7 @@ proc initGlobalViewerState*(): GlobalViewerState =
   new(result.povState)
   result.replaySeekTick = -1
   result.replayCommands = @[]
+  result.povSelectPending = -2   ## -2 = no request; -1 = clear; >=0 = slot.
 
 proc initPlayerViewerState*(): PlayerViewerState =
   ## Returns the default state for one sprite player viewer.
@@ -371,7 +399,23 @@ proc applyGlobalViewerMessage*(
         else:
           state.scrubbingReplay = false
     of SpriteClientChatMessage:
-      state.replayCommands.add(item.text)
+      # Whole-string ctf-side commands are intercepted before the legacy
+      # char-by-char transport path, so a multi-digit tick or slot is never
+      # mangled into speed keystrokes.
+      if item.text == "hud:on":
+        state.broadcastHud = true
+      elif item.text == "hud:off":
+        state.broadcastHud = false
+      elif item.text.startsWith("s:"):
+        let tick = try: parseInt(item.text[2 .. ^1]) except ValueError: -1
+        if tick >= 0:
+          state.replaySeekTick = tick
+      elif item.text.startsWith("v:"):
+        let slot = try: parseInt(item.text[2 .. ^1]) except ValueError: -2
+        if slot >= -1:
+          state.povSelectPending = slot
+      else:
+        state.replayCommands.add(item.text)
     of SpriteClientInputMessage:
       discard
 
@@ -525,19 +569,22 @@ proc buildIndexedSpritePixels(
         fallback
     result.putRgbaPixel(i, color)
 
-proc buildHpPipsSprite(hp, maxHp: int): seq[uint8] {.measure.} =
-  ## Builds the overhead hit-point bar: one bright pip per remaining hit
-  ## point, one dark socket per lost one, so the bar length stays constant.
-  let width = maxHp * HpPipSize + (maxHp - 1) * HpPipGap
-  result = newRgbaPixels(width, HpPipSize)
-  for pip in 0 ..< maxHp:
-    for py in 0 ..< HpPipSize:
-      for px in 0 ..< HpPipSize:
-        let i = py * width + pip * (HpPipSize + HpPipGap) + px
-        if pip < hp:
-          result.putRawRgbaPixel(i, 96, 255, 96, 255)
+proc buildHpBarSprite(litSegments: int): seq[uint8] {.measure.} =
+  ## Builds the overhead health bar as a fixed row of HpBarSegments thirds. The
+  ## bar length never scales with the hit-point config (a 99-hp game must not
+  ## paint a full-width ribbon over a 16px sprite); health reads as N-of-3 lit
+  ## chunks. A lit third is a calm sage green, a spent one a dim socket, so the
+  ## bar informs without shouting over the board.
+  result = newRgbaPixels(HpBarWidth, HpBarH)
+  for seg in 0 ..< HpBarSegments:
+    let x0 = seg * (HpBarSegW + HpBarSegGap)
+    for py in 0 ..< HpBarH:
+      for px in 0 ..< HpBarSegW:
+        let i = py * HpBarWidth + x0 + px
+        if seg < litSegments:
+          result.putRawRgbaPixel(i, 122, 176, 96, 235)
         else:
-          result.putRawRgbaPixel(i, 40, 40, 40, 200)
+          result.putRawRgbaPixel(i, 44, 40, 34, 170)
 
 proc buildSoundRingSprite(): seq[uint8] {.measure.} =
   ## Builds the semi-transparent white "sound" ring: a faint filled circle
@@ -564,19 +611,23 @@ proc soundRingOffset(shot: ShotFx): (int, int) =
   (int(h mod span) - SoundRingJitter,
     int((h shr 16) mod span) - SoundRingJitter)
 
-proc buildTracerDotSprite(colorIndex: int): seq[uint8] {.measure.} =
-  ## Builds one shot-tracer dot sprite: the shooter's palette color mixed
-  ## halfway toward white, so beams read bright on the dark floor but keep
-  ## the shooter's hue.
+proc buildTracerDotSprite(colorIndex, stage: int): seq[uint8] {.measure.} =
+  ## Builds one shot-tracer dot sprite for one fade stage: the shooter's palette
+  ## color mixed halfway toward white so beams read bright on the dark floor,
+  ## with alpha ramping DOWN by age stage so a shot punches then fades out
+  ## instead of a persistent full-strength dotted line (ux.replay L98). Stage 0
+  ## is the fresh, brightest dot; the last stage is nearly gone.
   result = newRgbaPixels(TracerDotSize, TracerDotSize)
-  let base = Palette[PlayerColors[colorIndex and 0x0f] and 0x0f]
+  let
+    base = Palette[PlayerColors[colorIndex and 0x0f] and 0x0f]
+    alpha = uint8(max(0, 255 - stage * 255 div TracerStages))
   for i in 0 ..< TracerDotSize * TracerDotSize:
     result.putRawRgbaPixel(
       i,
       uint8((base.r.int + 255) div 2),
       uint8((base.g.int + 255) div 2),
       uint8((base.b.int + 255) div 2),
-      255
+      alpha
     )
 
 proc buildAimDotSprite(colorIndex: int): seq[uint8] {.measure.} =
@@ -617,6 +668,82 @@ proc buildSplatterSprite(colorIndex, stage: int): seq[uint8] {.measure.} =
           y * SplatterSize + x,
           if stage >= SplatterStages div 2: shade else: color
         )
+
+proc buildHitSparkSprite(colorIndex, stage: int): seq[uint8] {.measure.} =
+  ## Builds the on-hit PAINT SPLAT left by a non-fatal hit (this is paintball,
+  ## not blood). A wet, glossy blob of the SHOOTER's team paint — big enough
+  ## (~player-sized) to read at a glance, flung droplets around the core so it
+  ## reads unmistakably as a splat, a bright wet-sheen highlight, and a thin
+  ## dark contour so it pops off the dark floor. It fades by ALPHA ONLY and
+  ## never darkens toward brown, so red stays vivid paint (never a blood scab)
+  ## and the SHOOTER's color stays legible for the whole life (enemy tag vs
+  ## friendly fire). Centered on a HitSplatSize canvas.
+  result = newRgbaPixels(HitSplatSize, HitSplatSize)
+  let
+    base = Palette[PlayerColors[colorIndex and 0x0f] and 0x0f]
+    # Paint stays bright: lighten the team color a touch so it never muddies,
+    # and keep a wet-highlight color near white for the sheen.
+    paintR = uint8((base.r.int * 3 + 255) div 4)
+    paintG = uint8((base.g.int * 3 + 255) div 4)
+    paintB = uint8((base.b.int * 3 + 255) div 4)
+    sheenR = uint8((base.r.int + 255 * 3) div 4)
+    sheenG = uint8((base.g.int + 255 * 3) div 4)
+    sheenB = uint8((base.b.int + 255 * 3) div 4)
+    # Dark contour = a deep version of the SAME hue (not brown), so the edge
+    # reads as shadowed paint, keeping the team color unambiguous.
+    edgeR = uint8(base.r.int * 2 div 5)
+    edgeG = uint8(base.g.int * 2 div 5)
+    edgeB = uint8(base.b.int * 2 div 5)
+    c = float(HitSplatSize - 1) / 2
+    # Alpha-only fade: full at stage 0, thinning to a faint stain by the last.
+    fade = 1.0 - 0.62 * (stage.float / float(SplatterStages - 1))
+    coreR2 = HitSplatCoreR * HitSplatCoreR
+  # Six flung droplets ring the core (fixed offsets → deterministic sprite).
+  const droplets = [(-8, -3, 2.4), (7, -6, 2.0), (9, 4, 2.6),
+                    (-6, 7, 2.2), (2, 9, 1.8), (-9, 2, 1.7)]
+  for y in 0 ..< HitSplatSize:
+    for x in 0 ..< HitSplatSize:
+      let
+        dx = float(x) - c
+        dy = float(y) - c
+        d2 = dx * dx + dy * dy
+      # Irregular core edge: hash-perturb the radius so the blob is organic.
+      var noise = uint32(x) * 374761393'u32 + uint32(y) * 668265263'u32
+      noise = (noise xor (noise shr 13)) * 1274126177'u32
+      let wobble = (int((noise shr 16) mod 7) - 3).float  # -3..+3 px
+      let coreEdge = HitSplatCoreR + wobble * 0.5
+      var
+        inShape = d2 <= coreEdge * coreEdge
+        onEdge = d2 > (coreEdge - 1.6) * (coreEdge - 1.6) and inShape
+      # Any droplet the pixel falls inside also paints the shape.
+      if not inShape:
+        for (ox, oy, dr) in droplets:
+          let
+            ddx = float(x) - (c + ox.float)
+            ddy = float(y) - (c + oy.float)
+          if ddx * ddx + ddy * ddy <= dr * dr:
+            inShape = true
+            onEdge = ddx * ddx + ddy * ddy > (dr - 1.0) * (dr - 1.0)
+            break
+      if not inShape:
+        continue
+      # Wet sheen: a small bright offset lobe up-left inside the core.
+      let
+        sxr = dx + 2.0
+        syr = dy + 2.0
+        sheen = d2 <= coreR2 and (sxr * sxr + syr * syr) <= 5.2 * 5.2 and
+          (int((noise shr 9) mod 5) > 0)
+      var r, g, b: uint8
+      if onEdge:
+        (r, g, b) = (edgeR, edgeG, edgeB)
+      elif sheen:
+        (r, g, b) = (sheenR, sheenG, sheenB)
+      else:
+        (r, g, b) = (paintR, paintG, paintB)
+      result.putRawRgbaPixel(
+        y * HitSplatSize + x, r, g, b,
+        uint8(clamp(255.0 * fade, 0.0, 255.0))
+      )
 
 proc buildMapSpritePixels(sim: SimServer): seq[uint8] {.measure.} =
   ## Returns the true-color map pixels for a global protocol sprite.
@@ -1124,19 +1251,118 @@ proc addSpriteProtocolInterstitialSprites(
     "interstitial background"
   )
 
-proc buildFlagSprite(sim: SimServer, team: Team): seq[uint8] {.measure.} =
-  ## Builds one team-colored flag sprite from the reused icon cell: every
-  ## body pixel takes the team color, the outline stays.
-  let sprite = sim.flagSprite
-  result = newRgbaPixels(sprite.width, sprite.height)
-  for y in 0 ..< sprite.height:
-    for x in 0 ..< sprite.width:
-      let colorIndex = sprite.pixels[sprite.spriteIndex(x, y)]
-      if colorIndex == TransparentColorIndex:
+proc buildFlagBannerSprite(team: Team): seq[uint8] {.measure.} =
+  ## Builds one team's planted / carried CTF banner: a dark-wood pole with an
+  ## ember-lit finial and a swallowtail fabric in the team color, a pale
+  ## emblem, and a 1px dark outline so the flag reads on any floor. Replaces the
+  ## reused task-icon flag with a purpose-built banner (ux.replay art direction
+  ## #3): CTF fans expect a visible flag OBJECT, not a recolored pip. The fire
+  ## HUD icon keeps the old task-icon (SpritePlayerFireSpriteId).
+  const
+    W = FlagBannerW
+    H = FlagBannerH
+  let
+    body = teamColor(team)
+    shade = ShadowMap[body and 0x0f]
+  var kind = newSeq[uint8](W * H)  # 0 empty,1 pole,2 fabric,3 furl,4 emblem,5 rim,6 finial
+  proc put(x, y: int, k: uint8) =
+    if x >= 0 and x < W and y >= 0 and y < H:
+      kind[y * W + x] = k
+  proc rightEdge(y: int): int =
+    ## The fabric's free right edge per row: full at top and bottom, notched in
+    ## the middle rows to cut the classic swallowtail (fishtail) flag.
+    case y
+    of 3, 4, 5: 14
+    of 6: 12
+    of 7: 11
+    of 8: 12
+    of 9, 10, 11: 14
+    else: -1
+  for y in 2 .. 20:            # the pole
+    put(6, y, 1)
+    put(7, y, 1)
+  put(6, 1, 6)                 # ember-lit finial cap
+  put(7, 1, 6)
+  for y in 3 .. 11:            # the fabric, attached just right of the pole
+    let re = rightEdge(y)
+    if re < 0:
+      continue
+    for x in 8 .. re:
+      put(x, y, if x >= 12: 3'u8 else: 2'u8)  # trailing third furls into shade
+  for x in 8 .. rightEdge(3):  # warm torch rim along the fabric's top edge
+    put(x, 3, 5)
+  for e in [(10, 6), (9, 7), (10, 7), (11, 7), (10, 8)]:  # pale emblem diamond
+    if kind[e[1] * W + e[0]] in {2'u8, 3'u8}:
+      put(e[0], e[1], 4)
+  result = newRgbaPixels(W, H)
+  for i in 0 ..< W * H:
+    case kind[i]
+    of 1: result.putRgbaPixel(i, 5'u8)                    # dark-brown wood pole
+    of 2: result.putRgbaPixel(i, body)                    # team fabric
+    of 3: result.putRgbaPixel(i, shade)                   # furled shade
+    of 4: result.putRgbaPixel(i, 2'u8)                    # near-white emblem
+    of 5: result.putRawRgbaPixel(i, 255, 163, 0, 255)     # ember rim
+    of 6: result.putRawRgbaPixel(i, 255, 200, 90, 255)    # warm finial
+    else: discard
+  proc solid(x, y: int): bool =
+    x >= 0 and x < W and y >= 0 and y < H and kind[y * W + x] != 0
+  for y in 0 ..< H:            # 1px dark outline around the whole silhouette
+    for x in 0 ..< W:
+      if kind[y * W + x] != 0:
         continue
-      result.putRgbaPixel(
-        sprite.spriteIndex(x, y),
-        if colorIndex == OutlineColor: colorIndex else: teamColor(team)
+      if solid(x - 1, y) or solid(x + 1, y) or solid(x, y - 1) or solid(x, y + 1):
+        result.putRgbaPixel(y * W + x, OutlineColor)
+
+proc scaleRgbaSpriteNearest(
+  src: seq[uint8], srcW, srcH, scale: int
+): seq[uint8] {.measure.} =
+  ## Nearest-neighbor upscale of an RGBA sprite buffer — keeps the crisp pixel-art
+  ## edges (no blur), so the home banner grows to pedestal scale cleanly.
+  let
+    dstW = srcW * scale
+    dstH = srcH * scale
+  result = newSeq[uint8](dstW * dstH * 4)
+  for y in 0 ..< dstH:
+    let sy = y div scale
+    for x in 0 ..< dstW:
+      let
+        sx = x div scale
+        srcOff = (sy * srcW + sx) * 4
+        dstOff = (y * dstW + x) * 4
+      result[dstOff] = src[srcOff]
+      result[dstOff + 1] = src[srcOff + 1]
+      result[dstOff + 2] = src[srcOff + 2]
+      result[dstOff + 3] = src[srcOff + 3]
+
+proc buildPlantedFlagSprite(team: Team): seq[uint8] {.measure.} =
+  ## The HOME (planted) banner, upscaled PlantedFlagScale× so it reads as a real
+  ## objective standing on the pedestal instead of a thumbnail. Same art as the
+  ## carried banner, just bigger; nearest-neighbor keeps the pixel edges crisp.
+  scaleRgbaSpriteNearest(buildFlagBannerSprite(team), FlagBannerW, FlagBannerH,
+    PlantedFlagScale)
+
+proc buildFlagAuraSprite(team: Team): seq[uint8] {.measure.} =
+  ## Builds the soft carrier halo in the FLAG's team color: a feathered disc
+  ## drawn UNDER the carrier so the flag-runner is the brightest, most-tracked
+  ## figure on the board (TagPro / TF2 carrier-glow convention). A blue player
+  ## carrying the red flag glows red. Semi-transparent so it tints the floor
+  ## without hiding the runner.
+  result = newRgbaPixels(FlagAuraSize, FlagAuraSize)
+  let
+    base = Palette[teamColor(team) and 0x0f]
+    c = float(FlagAuraSize - 1) / 2
+  for y in 0 ..< FlagAuraSize:
+    for x in 0 ..< FlagAuraSize:
+      let d = sqrt((float(x) - c) * (float(x) - c) + (float(y) - c) * (float(y) - c))
+      if d > c:
+        continue
+      let alpha = uint8(min(150.0, 30.0 + 130.0 * (1.0 - d / c)))
+      result.putRawRgbaPixel(
+        y * FlagAuraSize + x,
+        uint8((base.r.int + 255) div 2),
+        uint8((base.g.int + 255) div 2),
+        uint8((base.b.int + 255) div 2),
+        alpha
       )
 
 proc flagLabel(team: Team): string =
@@ -1148,15 +1374,31 @@ proc addFlagSprites(
   spriteDefs: var seq[SpriteDefinition],
   packet: var seq[uint8]
 ) {.measure.} =
-  ## Adds both team-colored flag sprite definitions.
+  ## Adds both team banner sprites (carried + big planted) plus carrier halos.
   for team in Team:
     packet.addSpriteChanged(
       spriteDefs,
       FlagSpriteBase + ord(team),
-      sim.flagSprite.width,
-      sim.flagSprite.height,
-      sim.buildFlagSprite(team),
+      FlagBannerW,
+      FlagBannerH,
+      buildFlagBannerSprite(team),
       flagLabel(team)
+    )
+    packet.addSpriteChanged(
+      spriteDefs,
+      PlantedFlagSpriteBase + ord(team),
+      PlantedFlagW,
+      PlantedFlagH,
+      buildPlantedFlagSprite(team),
+      flagLabel(team) & " planted"
+    )
+    packet.addSpriteChanged(
+      spriteDefs,
+      FlagAuraSpriteBase + ord(team),
+      FlagAuraSize,
+      FlagAuraSize,
+      buildFlagAuraSprite(team),
+      flagLabel(team) & " carrier glow"
     )
 
 proc addPlayerActorSprites(
@@ -1450,6 +1692,76 @@ proc playerLabelLines(
   ## Returns label lines (name plus lives) for one player.
   result = @[playerLabelText(player)]
 
+proc carriedFlagTeam(sim: SimServer, playerIndex: int): int =
+  ## Returns the ordinal of the team flag this player is carrying, or -1 if the
+  ## player carries no flag. (A carrier runs the ENEMY team's flag, so the glyph
+  ## is colored for the flag it holds — not the carrier's own team.)
+  for team in Team:
+    if sim.flags[team].carrier == playerIndex:
+      return ord(team)
+  -1
+
+const
+  # A compact flag glyph appended beside a carrier's name so it's obvious WHO
+  # holds the flag, colored for the flag's own team (see carriedFlagTeam). Sized
+  # to the TextLineHeight so it sits on the name's baseline.
+  NameFlagPoleX = 0
+  NameFlagW = 6
+  NameFlagClothRows = [1, 2, 3]   # cloth rows (rest is bare pole) within the line.
+
+proc blitNameFlag(
+  target: var seq[uint8],
+  targetWidth, targetHeight, baseX, baseY: int,
+  team: Team
+) =
+  ## Blits the compact team-colored flag marker (pole + cloth + 1px dark
+  ## outline) into a name sprite at (baseX, baseY). The outline lets it read on
+  ## any floor, matching the board banner.
+  let
+    body = teamColor(team)
+    h = TextLineHeight
+  var kind = newSeq[uint8](NameFlagW * h)  # 0 empty, 1 pole, 2 cloth
+  proc put(x, y: int, k: uint8) =
+    if x >= 0 and x < NameFlagW and y >= 0 and y < h:
+      kind[y * NameFlagW + x] = k
+  for y in 0 ..< h:                       # the pole, full height of the line.
+    put(NameFlagPoleX, y, 1)
+  for y in NameFlagClothRows:             # the cloth, attached right of the pole.
+    for x in NameFlagPoleX + 1 .. NameFlagPoleX + 3:
+      put(x, y, 2)
+  proc solid(x, y: int): bool =
+    x >= 0 and x < NameFlagW and y >= 0 and y < h and kind[y * NameFlagW + x] != 0
+  for y in 0 ..< h:
+    for x in 0 ..< NameFlagW:
+      let px = baseX + x
+      let py = baseY + y
+      case kind[y * NameFlagW + x]
+      of 1: target.putTextSpritePixel(targetWidth, targetHeight, px, py, 5'u8)  # wood pole
+      of 2: target.putTextSpritePixel(targetWidth, targetHeight, px, py, body)  # team cloth
+      else:
+        if solid(x - 1, y) or solid(x + 1, y) or solid(x, y - 1) or solid(x, y + 1):
+          target.putTextSpritePixel(targetWidth, targetHeight, px, py, OutlineColor)
+
+proc buildCarrierNameSprite(
+  sim: SimServer,
+  player: Player,
+  flagTeamOrd: int
+): tuple[width, height: int, pixels: seq[uint8]] {.measure.} =
+  ## Builds a carrier's overhead label: the name in the normal color, then a
+  ## small flag marker in the carried flag's team color set NEXT TO the name (so
+  ## it's obvious who has the flag and whose flag it is), not overlapping it.
+  let
+    name = playerLabelText(player)
+    nameW = sim.asciiSprites.textWidth(name)
+    gap = 2
+  result.width = nameW + gap + NameFlagW
+  result.height = TextLineHeight
+  result.pixels = newRgbaPixels(result.width, result.height)
+  sim.blitSmallText(result.pixels, result.width, result.height, name, 0, 0,
+    PlayerNameColor)
+  result.pixels.blitNameFlag(result.width, result.height, nameW + gap, 0,
+    Team(flagTeamOrd))
+
 proc spritePlayerX(player: Player): int =
   ## Returns the global viewer x position for a player sprite.
   player.x - SpriteDrawOffX - 1
@@ -1499,9 +1811,9 @@ proc selectedPlayerIndex(
       return i
   -1
 
-proc tracerDotSpriteId(colorIndex: int): int =
-  ## Returns the sprite id for one tracer dot color.
-  TracerDotSpriteBase + colorIndex
+proc tracerDotSpriteId(colorIndex, stage: int): int =
+  ## Returns the sprite id for one tracer dot color and fade stage.
+  TracerDotSpriteBase + colorIndex * TracerStages + stage
 
 proc addShotTracers(
   sim: SimServer,
@@ -1518,7 +1830,9 @@ proc addShotTracers(
     let shot = sim.recentShots[shotIndex]
     let
       colorIndex = playerColorIndex(shot.color)
-      spriteId = tracerDotSpriteId(colorIndex)
+      age = sim.tickCount - shot.firedTick
+      stage = clamp(age * TracerStages div ShotFxTicks, 0, TracerStages - 1)
+      spriteId = tracerDotSpriteId(colorIndex, stage)
       dx = shot.x1 - shot.x0
       dy = shot.y1 - shot.y0
       length = max(abs(dx), abs(dy))
@@ -1539,8 +1853,8 @@ proc addShotTracers(
           spriteId,
           TracerDotSize,
           TracerDotSize,
-          buildTracerDotSprite(colorIndex),
-          "shot tracer " & playerColorName(colorIndex)
+          buildTracerDotSprite(colorIndex, stage),
+          "shot tracer " & playerColorName(colorIndex) & " stage " & $stage
         )
       let objectId = TracerDotObjectBase + nextDot
       inc nextDot
@@ -1647,13 +1961,12 @@ proc addHpPips(
   packet: var seq[uint8],
   viewerIndex = -1
 ) {.measure.} =
-  ## Places a hit-point pip bar above each living player's head. The map view
-  ## passes no viewer and shows every bar; a player view passes its viewer
-  ## index and only receives the bars of players it can see (a wounded
-  ## enemy's hp is readable intel). Object ids are a fixed pool keyed by
-  ## player index; stale bars fall to the delete sweep.
-  let maxHp = sim.config.hitPoints
-  let width = maxHp * HpPipSize + (maxHp - 1) * HpPipGap
+  ## Places a fixed 3-segment health bar above each living player's head. The
+  ## map view passes no viewer and shows every bar; a player view passes its
+  ## viewer index and only receives the bars of players it can see (a wounded
+  ## enemy's hp is readable intel). Object ids are a fixed pool keyed by player
+  ## index; stale bars fall to the delete sweep.
+  let maxHp = max(1, sim.config.hitPoints)
   for i in 0 ..< sim.players.len:
     let player = sim.players[i]
     if not player.alive:
@@ -1661,29 +1974,37 @@ proc addHpPips(
     if viewerIndex >= 0 and i != viewerIndex and
         not sim.playerVisibleTo(viewerIndex, i):
       continue
-    let spriteId = HpPipSpriteBase + player.hp
+    # Map remaining hit points onto 3 thirds (ceil, so any living player keeps
+    # at least one lit segment). The bar's pixel size is constant regardless of
+    # the hit-point config, so a 99-hp game reads the same 14px 3-chunk bar.
+    let litSegments = min(HpBarSegments,
+      max(1, (player.hp * HpBarSegments + maxHp - 1) div maxHp))
+    let spriteId = HpPipSpriteBase + litSegments
     packet.addSpriteChanged(
       spriteDefs,
       spriteId,
-      width,
-      HpPipSize,
-      buildHpPipsSprite(player.hp, maxHp),
-      "hp " & $player.hp & "/" & $maxHp
+      HpBarWidth,
+      HpBarH,
+      buildHpBarSprite(litSegments),
+      "hp " & $litSegments & "/" & $HpBarSegments
     )
     let objectId = HpPipObjectBase + i
     currentIds.add(objectId)
     packet.addObject(
       objectId,
-      player.x + CollisionW div 2 - width div 2,
-      player.spritePlayerY() - OverheadYOffset - HpPipSize,
+      player.x + CollisionW div 2 - HpBarWidth div 2,
+      player.spritePlayerY() - OverheadYOffset - HpBarH,
       30001,
       MapLayerId,
       spriteId
     )
 
-proc splatterSpriteId(colorIndex, stage: int): int =
-  ## Returns the sprite id for one splatter color and fade stage.
-  SplatterSpriteBase + colorIndex * SplatterStages + stage
+proc splatterSpriteId(colorIndex, stage: int, hit: bool): int =
+  ## Returns the sprite id for one splatter/hit-spark color and fade stage.
+  ## Hit sparks live in a separate pool so a small tag never reuses a death
+  ## splatter's sprite definition for the same color and stage.
+  (if hit: HitSpriteBase else: SplatterSpriteBase) +
+    colorIndex * SplatterStages + stage
 
 proc addSplatters(
   sim: SimServer,
@@ -1705,22 +2026,26 @@ proc addSplatters(
       continue
     let
       age = sim.tickCount - splatter.tick
+      life = if splatter.hit: HitFxTicks else: SplatterFxTicks
       stage = clamp(
-        age * SplatterStages div SplatterFxTicks,
+        age * SplatterStages div life,
         0,
         SplatterStages - 1
       )
       colorIndex = playerColorIndex(splatter.color)
-      px = splatter.x - SplatterSize div 2
-      py = splatter.y - SplatterSize div 2
-    let spriteId = splatterSpriteId(colorIndex, stage)
+      spriteSize = if splatter.hit: HitSplatSize else: SplatterSize
+      px = splatter.x - spriteSize div 2
+      py = splatter.y - spriteSize div 2
+    let spriteId = splatterSpriteId(colorIndex, stage, splatter.hit)
     packet.addSpriteChanged(
       spriteDefs,
       spriteId,
-      SplatterSize,
-      SplatterSize,
-      buildSplatterSprite(colorIndex, stage),
-      "splatter " & playerColorName(colorIndex) & " stage " & $stage
+      spriteSize,
+      spriteSize,
+      (if splatter.hit: buildHitSparkSprite(colorIndex, stage)
+       else: buildSplatterSprite(colorIndex, stage)),
+      (if splatter.hit: "hit splat " else: "splatter ") &
+        playerColorName(colorIndex) & " stage " & $stage
     )
     let objectId = SplatterObjectBase + nextSplatter
     inc nextSplatter
@@ -1799,18 +2124,46 @@ proc buildSpriteProtocolPlayerUpdates*(
     for team in Team:
       let flag = sim.flags[team]
       if viewerIsGhost or sim.flagVisibleTo(playerIndex, team):
-        let
-          objectId = SpritePlayerFlagObjectBase + ord(team)
-          lift = if flag.carrier >= 0: CarriedFlagLift else: 0
+        # A carried flag glows: the halo rides UNDER the carrier so the runner
+        # is the brightest figure on the board.
+        if flag.carrier >= 0:
+          let auraId = FlagAuraObjectBase + ord(team)
+          currentIds.add(auraId)
+          result.addObject(
+            auraId,
+            flag.x - FlagAuraSize div 2,
+            flag.y - FlagAuraSize div 2,
+            flag.y - 1,
+            MapLayerId,
+            FlagAuraSpriteBase + ord(team)
+          )
+        let objectId = SpritePlayerFlagObjectBase + ord(team)
         currentIds.add(objectId)
-        result.addObject(
-          objectId,
-          flag.x - SpriteSize div 2,
-          flag.y - SpriteSize div 2 - lift,
-          flag.y + 1,
-          MapLayerId,
-          FlagSpriteBase + ord(team)
-        )
+        if flag.carrier >= 0:
+          # Carried: the small banner rides ON the carrier's body (shifted to the
+          # facing side, well below the nameplate), so it never hides the name.
+          let sideX =
+            if flag.carrier < sim.players.len and sim.players[flag.carrier].flipH:
+              -CarriedFlagSideX
+            else: CarriedFlagSideX
+          result.addObject(
+            objectId,
+            flag.x - FlagBannerW div 2 + sideX,
+            flag.y - (FlagBannerH - 2) - CarriedFlagLift,
+            flag.y + 1,
+            MapLayerId,
+            FlagSpriteBase + ord(team)
+          )
+        else:
+          # Home: the BIG planted banner, centered + bottom-anchored on the pedestal.
+          result.addObject(
+            objectId,
+            flag.x - PlantedFlagW div 2,
+            flag.y - (PlantedFlagH - 2),
+            flag.y + 1,
+            MapLayerId,
+            PlantedFlagSpriteBase + ord(team)
+          )
 
     # Players: yourself (a distinct outlined self marker) is always visible;
     # everyone else — teammates included — only inside your vision; corpses
@@ -2189,6 +2542,13 @@ proc buildSpriteProtocolUpdates*(
   nextState = state
   nextState.replayCommands.setLen(0)
   nextState.replaySeekTick = -1
+  # A `v:<slot>` DOM command SETS the POV directly (clear on -1), rather than
+  # toggling like a board click, so the broadcast roster stays authoritative.
+  if nextState.povSelectPending >= -1:
+    nextState.selectedJoinOrder =
+      if nextState.povSelectPending >= 0: nextState.povSelectPending
+      else: -1
+  nextState.povSelectPending = -2
   if nextState.clickPending:
     let scoreJoinOrder = sim.scoreboardJoinOrderAt(
       nextState.mouseLayer,
@@ -2329,18 +2689,24 @@ proc buildSpriteProtocolUpdates*(
       player.spriteActorSpriteId(nextState.selectedJoinOrder)
     )
     if sim.config.showPlayerLabels:
+      let flagTeamOrd = sim.carriedFlagTeam(playerIndex)
       let
-        labelLines = playerLabelLines(sim, player, playerIndex)
-        label = sim.buildSpriteProtocolTextSprite(
-          labelLines,
-          PlayerNameColor
-        )
+        label =
+          if flagTeamOrd >= 0:
+            # This player holds a flag: name + a team-colored flag marker beside
+            # it, so it's obvious who is carrying and whose flag it is.
+            sim.buildCarrierNameSprite(player, flagTeamOrd)
+          else:
+            sim.buildSpriteProtocolTextSprite(
+              playerLabelLines(sim, player, playerIndex),
+              PlayerNameColor
+            )
         labelSpriteId = player.spritePlayerNameSpriteId()
         labelObjectId = player.spritePlayerNameObjectId()
         labelX = player.spritePlayerX() +
           (crew.width + 2 - label.width) div 2
         labelY = player.spritePlayerY() - OverheadYOffset -
-          HpPipSize - label.height - 1
+          HpBarH - label.height - 1
       currentIds.add(labelObjectId)
       result.addSprite(
         labelSpriteId,
@@ -2357,21 +2723,50 @@ proc buildSpriteProtocolUpdates*(
         labelSpriteId
       )
 
-  # Both team flags: on the home pedestal or riding the carrier sprite.
+  # Both team flags: the banner planted on the home pedestal or riding the
+  # carrier, with a floor-glow halo under any carrier so the flag-runner reads
+  # as the brightest figure on the board.
   for team in Team:
     let
       flag = sim.flags[team]
       objectId = FlagObjectBase + ord(team)
-      lift = if flag.carrier >= 0: CarriedFlagLift else: 0
+    if flag.carrier >= 0:
+      let auraId = FlagAuraObjectBase + ord(team)
+      currentIds.add(auraId)
+      result.addObject(
+        auraId,
+        flag.x - FlagAuraSize div 2,
+        flag.y - FlagAuraSize div 2,
+        flag.y - 1,
+        MapLayerId,
+        FlagAuraSpriteBase + ord(team)
+      )
     currentIds.add(objectId)
-    result.addObject(
-      objectId,
-      flag.x - SpriteSize div 2,
-      flag.y - SpriteSize div 2 - lift,
-      flag.y + 1,
-      MapLayerId,
-      FlagSpriteBase + ord(team)
-    )
+    if flag.carrier >= 0:
+      # Carried: the small banner rides ON the carrier's body (shifted to the
+      # facing side, well below the nameplate), so it never hides the name.
+      let sideX =
+        if flag.carrier < sim.players.len and sim.players[flag.carrier].flipH:
+          -CarriedFlagSideX
+        else: CarriedFlagSideX
+      result.addObject(
+        objectId,
+        flag.x - FlagBannerW div 2 + sideX,
+        flag.y - (FlagBannerH - 2) - CarriedFlagLift,
+        flag.y + 1,
+        MapLayerId,
+        FlagSpriteBase + ord(team)
+      )
+    else:
+      # Home: the BIG planted banner, centered + bottom-anchored on the pedestal.
+      result.addObject(
+        objectId,
+        flag.x - PlantedFlagW div 2,
+        flag.y - (PlantedFlagH - 2),
+        flag.y + 1,
+        MapLayerId,
+        PlantedFlagSpriteBase + ord(team)
+      )
 
   if sim.hasInterstitialFrame():
     currentIds.add(InterstitialObjectId)

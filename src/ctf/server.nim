@@ -1,9 +1,9 @@
 import
-  std/[algorithm, locks, monotimes, nativesockets, os, strutils, tables, times],
+  std/[algorithm, json, locks, monotimes, nativesockets, os, strutils, tables, times],
   bitworld/client as bitworldClient, bitworld/profile, bitworld/spriteprotocol,
   bitworld/runtime,
   curly, mummy,
-  sim, global, replays
+  sim, global, replays, broadcast
 
 when defined(posix):
   from std/posix import SHUT_RDWR, shutdown
@@ -54,6 +54,11 @@ const
   AdminWebSocketPath = "/admin"
   ControlRestartPath = "/control/restart"
   ControlKickPath = "/control/kick"
+  # The designed broadcast replay client, embedded at compile time. Served for
+  # the replay routes in place of bitworld's generic global client; a single
+  # self-contained file (font + core JS inlined). Live/player/global paths are
+  # untouched and keep serving the bitworld client (§14 live column).
+  EmbeddedBroadcastReplayHtml = staticRead("../../client/replay_broadcast.html")
 
 proc liveProgressMaxTick(config: GameConfig): int =
   ## Returns the live viewer tick-bar budget.
@@ -557,11 +562,12 @@ proc httpHandler(request: Request) =
         {.gcsafe.}:
           withLock appState.lock:
             appState.pendingReplayUri = replayRequest.uri
-    discard bitworldClient.serveClientFile(
-      request,
-      request.path,
-      bitworldClient.GlobalClientRoute
-    )
+    # Serve the designed broadcast client for the replay routes (ELEVATE-BY-
+    # REBUILD): our self-contained HTML instead of bitworld's generic client.
+    var replayHeaders: HttpHeaders
+    replayHeaders["Content-Type"] = "text/html; charset=utf-8"
+    replayHeaders["Cache-Control"] = "no-cache"
+    request.respond(200, replayHeaders, EmbeddedBroadcastReplayHtml)
   elif bitworldClient.serveClientRoute(
     request,
     bitworldClient.GlobalClientRoute
@@ -817,6 +823,7 @@ proc runServerLoop*(
     prevInputs: seq[InputState]
     liveSpeedIndex = config.liveSpeedIndex()
     gamesPlayed = 0
+    broadcastTracker = initBroadcastTracker()
   if replayLoaded:
     replayPlayer.buildReplayKeyframes(sim)
 
@@ -852,6 +859,7 @@ proc runServerLoop*(
       replayPlayer = initReplayPlayer(replayData)
       replayPlayer.mismatchQuit = runtimeConfig.mismatchQuit
       replayPlayer.buildReplayKeyframes(sim)
+      broadcastTracker = initBroadcastTracker()
       replayLoaded = true
       {.gcsafe.}:
         withLock appState.lock:
@@ -1113,18 +1121,30 @@ proc runServerLoop*(
       runFrameLimiter(lastTick)
       continue
 
+    var frameEvents = newJArray()
     if replayLoaded:
+      var didSeek = false
       for seekTick in replaySeekTicks:
         replayPlayer.applyReplaySeek(sim, seekTick)
+        didSeek = true
       for command in replayCommands:
+        let tickBeforeCommand = sim.tickCount
         replayPlayer.applyReplayCommand(sim, command)
+        if sim.tickCount != tickBeforeCommand:
+          didSeek = true
+      # A scrub/step/skip is a jump, not playback: resync so the tracker diffs
+      # the next real step against here and never fires phantom beats.
+      if didSeek:
+        broadcastTracker.resync(sim)
       if replayPlayer.playing:
         for _ in 0 ..< replayPlayer.replaySpeed():
           if replayPlayer.playing:
             replayPlayer.stepReplay(sim)
+            sim.stepEvents(broadcastTracker, frameEvents)
         if replayPlayer.looping and not replayPlayer.playing:
           replayPlayer.seekReplay(sim, 0)
           replayPlayer.playing = true
+          broadcastTracker.resync(sim)
     else:
       for command in replayCommands:
         liveSpeedIndex.applySpeedCommand(command)
@@ -1217,6 +1237,22 @@ proc runServerLoop*(
         continue
       try:
         globalViewers[i].send(blobFromBytes(packet), BinaryMessage)
+        # The JSON chrome channel is REPLAY-ONLY and OPT-IN: only a viewer that
+        # sent `hud:on` (our broadcast client) receives a TextMessage. The
+        # legacy bitworld client never opts in, so live `/global` spectating and
+        # the generic client stay byte-identical and never see a stray frame.
+        if replayLoaded and globalStates[i].broadcastHud:
+          let stateJson = sim.buildStateJson(
+            frameEvents,
+            replayPlayer.playing,
+            replayPlayer.replaySpeed(),
+            replayPlayer.replayMaxTick(),
+            replayPlayer.looping,
+            replayLoaded,
+            replayPlayer.hashMismatchTick,
+            nextState.selectedJoinOrder
+          )
+          globalViewers[i].send(stateJson, TextMessage)
         {.gcsafe.}:
           withLock appState.lock:
             if globalViewers[i] in appState.globalViewers:
