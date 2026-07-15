@@ -142,6 +142,26 @@ always drawn — but moving entities are fogged:
   above a carrier `grenade carried`, the charge marker `throw target`, the
   landing flash `blast stage N`.
 
+## Shouts
+
+- **Any living player can shout: a short text message, at most 10
+  characters** (longer messages are truncated; non-printable characters are
+  dropped). Send it as a chat packet (`0x81`, the standard sprite-protocol
+  chat message); in the browser client press **Enter**, type, and press
+  Enter again.
+- **Anyone within one fifth of the field width (~247 px) hears it** —
+  through walls and fog, like gunfire. Outside that radius the shout does
+  not appear in your frame at all.
+- A heard shout appears as a speech bubble labeled
+  `<team> shout <player>: <text>` pinned at **deterministically jittered
+  coordinates** (~±20 px, like gunshot sound rings): you learn roughly where
+  the shouter is, never exactly.
+- **Rate limit: one shout per second per player**, and each player has at
+  most one live bubble (a new shout replaces the old). Bubbles fade after
+  **3 seconds**. Dead players cannot shout and hear nothing.
+- The global/replay view draws every bubble at the shouter's actual
+  position, following them while they live.
+
 ## Lives & respawn
 
 - Each player has a fixed number of **lives**.
@@ -192,6 +212,8 @@ points. This keeps the training objective tied purely to winning.
 | A | Fire |
 | B | Rotate aim counter-clockwise (browser client: X or K) |
 | Select | Rotate aim clockwise (browser client: Space or L) |
+| C | Hold to charge a grenade throw, release to throw (browser client: C) |
+| Chat packet | Shout, max 10 chars (browser client: Enter to type) |
 
 ---
 
@@ -238,6 +260,11 @@ mistakes a body for a live enemy.
 are labeled `red heart` / `blue heart` (formerly `red flag` / `blue flag`).
 Grenades add the labels documented in the Grenades section, and the throw
 button is input mask bit 128.
+
+**Since 0.7.5:** shouts (see the Shouts section) add the label
+`<team> shout <player>: <text>`; chat packets, previously ignored, are now
+applied as shouts and recorded in replays (GameVersion 3 — older replays are
+rejected at load).
 
 ---
 

@@ -89,6 +89,9 @@ const
   GrenadeCarryObjectBase = 26400  ## + player index.
   ThrowMarkerObjectBase = 26500   ## + player index.
   BlastMaxCount = 32
+  ShoutSpriteBase = 27000      ## + shout index.
+  ShoutObjectBase = 27100      ## + shout index.
+  ShoutMaxCount = 16           ## most bubbles drawn at once (one per player).
   HudGrenadeObjectId = 5012    ## HUD carried-grenade indicator object.
   TracerDotSpriteBase = 760    ## per-color tracer dot sprites: 760..775.
   TracerDotObjectBase = 15000  ## tracer object-id pool base.
@@ -2142,6 +2145,74 @@ proc addBlasts(
         GrenadeSoundRingSpriteId
       )
 
+proc shoutOffset(shout: Shout): (int, int) =
+  ## The deterministic jitter for one shout's heard position, salted apart
+  ## from the shot rings: nearby players learn the neighborhood the shout
+  ## came from, never the exact spot.
+  var h = 0x2545F491'u32
+  h = (h xor uint32(shout.tick)) * 0x85EBCA6B'u32
+  h = (h xor uint32(shout.x)) * 0xC2B2AE35'u32
+  h = (h xor uint32(shout.y)) * 0x27D4EB2F'u32
+  h = h xor (h shr 15)
+  let span = uint32(2 * SoundRingJitter + 1)
+  (int(h mod span) - SoundRingJitter,
+    int((h shr 16) mod span) - SoundRingJitter)
+
+proc addShouts(
+  sim: SimServer,
+  spriteDefs: var seq[SpriteDefinition],
+  currentIds: var seq[int],
+  packet: var seq[uint8],
+  viewerIndex = -1
+) {.measure.} =
+  ## Places live shout speech bubbles. The map view passes no viewer and
+  ## draws each bubble over the shouter (following them while they move); a
+  ## player view hears only shouts within ShoutRange and pins the bubble at
+  ## deterministically jittered coordinates, like the shot sound rings.
+  for i in 0 ..< min(sim.recentShouts.len, ShoutMaxCount):
+    let shout = sim.recentShouts[i]
+    var
+      anchorX = shout.x
+      anchorTopHd = (shout.y - 12) * RenderScale
+    if viewerIndex >= 0:
+      if not sim.shoutAudibleTo(viewerIndex, shout):
+        continue
+      let (dx, dy) = shoutOffset(shout)
+      anchorX = shout.x + dx
+      anchorTopHd = (shout.y + dy - 12) * RenderScale
+    else:
+      # The map view pins the bubble on the shouter while they live, above
+      # the name label; a dead or departed shouter leaves it where it was
+      # made.
+      for player in sim.players:
+        if player.address == shout.address:
+          if player.alive:
+            anchorX = player.x + CollisionW div 2
+            anchorTopHd = (player.spritePlayerY() - OverheadYOffset -
+              HpPipSize) * RenderScale - 2 * UiTextLine - 2 * RenderScale
+          break
+    let
+      bubble = hdShoutBubble(ord(shout.team), shout.text)
+      spriteId = ShoutSpriteBase + i
+      objectId = ShoutObjectBase + i
+    packet.addSpriteChanged(
+      spriteDefs,
+      spriteId,
+      bubble.width,
+      bubble.height,
+      bubble.pixels,
+      teamText(shout.team) & " shout " & shout.address & ": " & shout.text
+    )
+    currentIds.add(objectId)
+    packet.addObject(
+      objectId,
+      anchorX * RenderScale - bubble.width div 2,
+      anchorTopHd - bubble.height,
+      31000,
+      MapLayerId,
+      spriteId
+    )
+
 proc addHpPips(
   sim: SimServer,
   spriteDefs: var seq[SpriteDefinition],
@@ -2381,6 +2452,12 @@ proc buildSpriteProtocolPlayerUpdates*(
       result,
       viewerIndex = playerIndex,
       withSound = player.alive
+    )
+    sim.addShouts(
+      nextState.spriteDefs,
+      currentIds,
+      result,
+      viewerIndex = playerIndex
     )
 
     # Fire-readiness icon at the top of the bottom-right HUD panel.
@@ -2908,6 +2985,7 @@ proc buildSpriteProtocolUpdates*(
   sim.addSplatters(nextState.spriteDefs, currentIds, result)
   sim.addGrenades(nextState.spriteDefs, currentIds, result)
   sim.addBlasts(nextState.spriteDefs, currentIds, result)
+  sim.addShouts(nextState.spriteDefs, currentIds, result)
   sim.addShotTracers(nextState.spriteDefs, currentIds, result)
   sim.addAimIndicators(nextState.spriteDefs, currentIds, result)
   sim.addHpPips(nextState.spriteDefs, currentIds, result)
