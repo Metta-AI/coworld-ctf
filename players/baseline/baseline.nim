@@ -141,6 +141,8 @@ const
   NadeBlast = 40.0            # blast radius; a pair this close dies together
   NadeFullChargeTicks = 24    # ~1s of holding C reaches max range
   NadePickupDetour = 90.0     # grab a corner pickup within this detour range
+  CarrierEstSpeed = 1.0       # px/tick a fogged mate-carrier is assumed to
+                              # advance homeward (carrier moves at ~70% speed)
   CombatDeadband = 2          # stop the traverse within this error (brads);
                               # AimRate 5 cannot settle tighter than +-2
   CruiseDeadband = 8          # sloppier deadband for non-combat aim
@@ -231,6 +233,8 @@ type
     jinkUntil: int
     jinkBits: uint8
     nadeCharge: int           # ticks the C button has been held; 0 = idle
+    mateFixPos: Vec           # last SEEN position of a mate-carried enemy heart
+    mateFixTick: int          # tick of that sighting; 0 = never seen this game
     nadeNeed: int             # charge ticks required for the planned throw
 
 proc roleForSeat(seat: int, team: Team): Role =
@@ -893,6 +897,7 @@ proc resetTransient(bot: Bot) =
   bot.enemies.setLen(0)
   bot.mates.setLen(0)
   bot.nadeCharge = 0
+  bot.mateFixTick = 0
   bot.carrierSeen = -100_000
   bot.lastEnemySeen = bot.tick
   bot.gameStart = bot.tick
@@ -1050,6 +1055,25 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     elif dist(fp, stealTarget) > 16.0:
       mateCarry = true                   # only a teammate can be carrying it
       mateCarryPos = fp
+      bot.mateFixPos = fp
+      bot.mateFixTick = bot.tick
+  else:
+    # The enemy heart is ABSENT from the frame: it is off its pedestal on a
+    # FOGGED carrier — and only OUR team can carry it, so a teammate is
+    # running it home right now even though we cannot see it. Without this
+    # inference the whole wave keeps pressing an empty pedestal instead of
+    # covering the run. Escort a dead-reckoned fix: the last sighting (or
+    # the pedestal it was lifted from) advanced homeward at carrier speed.
+    mateCarry = true
+    var est =
+      if bot.mateFixTick > 0: bot.mateFixPos
+      else: stealTarget
+    let elapsed = float(bot.tick - max(bot.mateFixTick, bot.gameStart))
+    est.x += homeSign(bot.team) * min(
+      abs(ownHome.x - est.x),
+      elapsed * CarrierEstSpeed
+    )
+    mateCarryPos = est
   var ownStolen = ownFlags.len == 0
   if ownFlags.len > 0:
     let fp = client.mapPos(ownFlags[0])
