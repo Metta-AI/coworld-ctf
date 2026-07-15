@@ -677,6 +677,69 @@ proc hdTransportIcon*(
 var
   hdGrenadeCache: Table[int, seq[uint8]]
   hdBlastCache: Table[int, seq[uint8]]
+  hdShoutCache: Table[(int, string), tuple[width, height: int, pixels: seq[uint8]]]
+
+const
+  HdShoutPadX* = 9             ## bubble horizontal padding in HD px.
+  HdShoutPadY* = 5             ## bubble vertical padding in HD px.
+  HdShoutTailPx* = 7           ## speech-bubble tail height in HD px.
+
+proc hdShoutBubble*(
+  teamIndex: int,
+  text: string
+): tuple[width, height: int, pixels: seq[uint8]] =
+  ## A speech bubble for one shout: white text on a translucent dark pill
+  ## with a team-colored border and a small tail pointing down at the
+  ## shouter. teamIndex 0 = red, 1 = blue.
+  let key = (teamIndex, text)
+  if key in hdShoutCache:
+    return hdShoutCache[key]
+  let
+    line = hdTextLine(text, rgba(240, 240, 240, 255))
+    width = line.width + 2 * HdShoutPadX
+    pillHeight = line.height + 2 * HdShoutPadY
+    height = pillHeight + HdShoutTailPx
+    border = if teamIndex == 0: color(0.85, 0.25, 0.25, 0.95)
+      else: color(0.30, 0.45, 0.90, 0.95)
+  var image = newImage(width, height)
+  let
+    fill = newPaint(SolidPaint)
+    edge = newPaint(SolidPaint)
+  fill.color = color(0.06, 0.07, 0.09, 0.82)
+  edge.color = border
+  var path = newPath()
+  path.roundedRect(
+    1, 1, float32(width - 2), float32(pillHeight - 2), 7, 7, 7, 7
+  )
+  image.fillPath(path, edge)
+  path = newPath()
+  path.roundedRect(
+    3, 3, float32(width - 6), float32(pillHeight - 6), 5, 5, 5, 5
+  )
+  image.fillPath(path, fill)
+  # Tail: a small triangle centered under the pill.
+  let cx = float32(width div 2)
+  path = newPath()
+  path.moveTo(cx - 6, float32(pillHeight - 2))
+  path.lineTo(cx + 6, float32(pillHeight - 2))
+  path.lineTo(cx, float32(height - 1))
+  path.closePath()
+  image.fillPath(path, edge)
+  # Text over the pill, rasterized directly at the padded origin.
+  let font = hdFont()
+  font.size = float32(line.height) * hdUiFontRatio
+  let textPaint = newPaint(SolidPaint)
+  textPaint.color = color(0.94, 0.94, 0.94, 1.0)
+  font.paint = textPaint
+  image.fillText(
+    font,
+    text,
+    translate(vec2(float32(HdShoutPadX), float32(HdShoutPadY)))
+  )
+  result = (width, height, image.toStraightRgba())
+  if hdShoutCache.len > 256:
+    hdShoutCache.clear()
+  hdShoutCache[key] = result
 
 proc hdGrenadePixels*(sizePx: int): seq[uint8] =
   ## An olive-drab grenade: body sphere, darker safety band, top cap, and a

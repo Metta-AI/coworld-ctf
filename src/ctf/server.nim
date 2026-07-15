@@ -1012,6 +1012,17 @@ proc runServerLoop*(
           )
           appState.lastAppliedMasks[websocket] = appliedMask
         if not replayLoaded:
+          for websocket, chatText in appState.chatMessages.pairs:
+            let playerIndex = appState.playerIndices.getOrDefault(
+              websocket,
+              -1
+            )
+            if sim.applyShout(playerIndex, chatText):
+              replayWriter.writeChat(
+                tickTime(sim.tickCount),
+                playerIndex,
+                chatText
+              )
           appState.chatMessages.clear()
         for websocket, state in appState.globalViewers.pairs:
           globalViewers.add(websocket)
