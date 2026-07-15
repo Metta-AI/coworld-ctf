@@ -649,8 +649,13 @@ proc websocketHandler(
 proc serverThreadProc(args: ServerThreadArgs) {.thread.} =
   args.server[].serve(Port(args.port), args.address)
 
-proc runFrameLimiter(previousTick: var MonoTime) =
-  let frameDuration = initDuration(microseconds = 1_000_000 div TargetFps)
+proc runFrameLimiter(previousTick: var MonoTime, fps: int = TargetFps) =
+  ## Paces the loop to `fps` real frames/sec. Live play holds TargetFps; replay
+  ## playback runs FASTER (fps = speed * TargetFps, capped) so it can draw ONE
+  ## recorded sim-tick per frame instead of teleporting N ticks per frame — the
+  ## motion stays smooth because every frame is a true recorded position, and
+  ## the recorded frames themselves are never altered.
+  let frameDuration = initDuration(microseconds = 1_000_000 div max(1, fps))
   let elapsed = getMonoTime() - previousTick
   if elapsed < frameDuration:
     sleep(int((frameDuration - elapsed).inMilliseconds))
@@ -826,6 +831,7 @@ proc runServerLoop*(
     liveSpeedIndex = config.liveSpeedIndex()
     gamesPlayed = 0
     broadcastTracker = initBroadcastTracker()
+    replayFrameFps = TargetFps  # real frames/sec for the replay loop this frame
   if replayLoaded:
     replayPlayer.buildReplayKeyframes(sim)
 
@@ -1139,7 +1145,15 @@ proc runServerLoop*(
       if didSeek:
         broadcastTracker.resync(sim)
       if replayPlayer.playing:
-        for _ in 0 ..< replayPlayer.replaySpeed():
+        # Draw ONE recorded sim-tick per frame whenever the target tick rate
+        # (speed * TargetFps) fits under MaxReplayFps, pacing the loop faster
+        # instead of teleporting several ticks per fixed-rate frame. Only at
+        # very high speed (8x/16x) do we step >1 tick/frame. Effective speed is
+        # held EXACT: ticksPerFrame * replayFrameFps == speed * TargetFps.
+        let targetTickRate = replayPlayer.replaySpeed() * TargetFps
+        let ticksPerFrame = max(1, (targetTickRate + MaxReplayFps - 1) div MaxReplayFps)
+        replayFrameFps = max(TargetFps, targetTickRate div ticksPerFrame)
+        for _ in 0 ..< ticksPerFrame:
           if replayPlayer.playing:
             replayPlayer.stepReplay(sim)
             sim.stepEvents(broadcastTracker, frameEvents)
@@ -1286,4 +1300,9 @@ proc runServerLoop*(
       joinThread(serverThread)
       break
 
-    runFrameLimiter(lastTick)
+    # Live play holds TargetFps; a playing replay paces at replayFrameFps (set
+    # above from the current speed) so it draws one recorded tick per frame.
+    if replayLoaded and replayPlayer.playing:
+      runFrameLimiter(lastTick, replayFrameFps)
+    else:
+      runFrameLimiter(lastTick)

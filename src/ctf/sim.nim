@@ -30,6 +30,18 @@ const
   StopThreshold* = 8
   MovementSlideMaxScan = 3
   TargetFps* = 24
+  MaxReplayFps* = 30          ## cap on the replay's board-frame SEND rate. Kept
+                              ## BELOW a 60Hz display on purpose: a send rate
+                              ## faster than the screen refresh (e.g. 3x -> 72
+                              ## board-frames/s) beats against vsync, drops
+                              ## frames, and resets the client tween mid-slide —
+                              ## the "jitter". Under the cap the server sends
+                              ## keyframes at <=30/s and the client interpolates
+                              ## every display frame in between, so motion stays
+                              ## smooth at ANY speed. At 1x-3x that is one
+                              ## recorded tick per 24-fps frame; above 3x it
+                              ## sends several ticks per frame (still <=30/s) and
+                              ## the tween covers the wider gap.
   SpaceColor* = 0'u8
   MapVoidColor* = 12'u8
   TintColor* = 3'u8

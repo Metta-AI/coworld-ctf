@@ -32,3 +32,6 @@ __pycache__/
 client/screenshots/
 players/modulabot/modulabot
 players/modulabot/test/parity
+# Raw nanobanana generation intermediates — the PACKED results live in data/hd/;
+# only the generation SCRIPTS (scripts/art/) are tracked, not the big masters.
+art/gen/

@@ -38,6 +38,7 @@ type
 
 const
   PlaybackSpeeds* = [1, 2, 3, 4, 8, 16]
+  DefaultReplaySpeedIndex* = 2  ## 3x — the recommended default watch speed.
   ReplayKeyframeTicks* = 100
   CtfReplayMagic = "COWLDCTF"
   CtfReplayFormatVersion = 1'u16
@@ -86,7 +87,11 @@ proc initReplayPlayer*(data: ReplayData): ReplayPlayer =
   result.lastAppliedMasks = @[]
   result.playing = true
   result.looping = true
-  result.speedIndex = 0
+  # Default to 3x (PlaybackSpeeds index 2): a full match is ~140s at 1x, which
+  # reads as "stuck / timeline never fills". At 3x the smooth-per-tick pacing
+  # keeps motion fluid while the scrubber sweeps the whole match in ~45s — the
+  # recommended watch speed. Viewers can still drop to 1x for a close look.
+  result.speedIndex = DefaultReplaySpeedIndex
   result.hashMismatchTick = -1
 
 proc replaySpeed*(replay: ReplayPlayer): int =
