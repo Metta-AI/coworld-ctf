@@ -6,11 +6,16 @@
 <title>Ctf — Broadcast Replay</title>
 <style>
 /* ============================================================
-   Ink & Print — warm CRT-phosphor arena broadcast.
-   Palette (never pure black/white): stage #16110d→#241a12,
-   paper #f2e8d8, ink #2a1f16, red #e0523a, blue #3f7cc4,
-   amber #e8a33d, ghost #8a7f72. Typography + weight + whitespace
-   carry hierarchy; strokes are warm-dark, minimal, reserved-slot.
+   Torchlit Dungeon — a cozy heart-crawler broadcast. The capture
+   object is a heart, so the chrome is framed like a warm roguelike
+   HUD (Isaac / Hades / Gungeon): torch-gold light, warm-stone
+   parchment panels, heart-red team, and a cool torch-teal team,
+   all over a dungeon-shadow letterbox. Palette (never pure
+   black/white): stage #211826→#2e222f, parchment #ece3cf,
+   ink #3a2e33, heart-red #d24a52, torch-teal #4f97b3,
+   torch-gold #f4b154, warm-stone #9a8b7e. Typography + weight +
+   whitespace carry hierarchy; the pixel face reads roguelike;
+   strokes are warm-dark, minimal, reserved-slot.
    ============================================================ */
 @font-face {
   font-family: 'nes-pixel';
@@ -19,16 +24,23 @@
 }
 
 :root {
-  --stage-lo: #16110d;
-  --stage-hi: #241a12;
-  --paper: #f2e8d8;
-  --paper-dim: #b8ac98;
-  --ink: #2a1f16;
-  --ink-soft: rgba(20, 14, 9, 0.62);
-  --red: #e0523a;
-  --blue: #3f7cc4;
-  --amber: #e8a33d;
-  --ghost: #8a7f72;
+  /* Dungeon-shadow stage (Dungeon-20 deep purples) → the letterboxed crawler
+     backdrop the arena sits in. */
+  --stage-lo: #211826;
+  --stage-hi: #2e222f;
+  /* Warm parchment + warm ink carry every label (never pure #fff/#000). */
+  --paper: #ece3cf;
+  --paper-dim: #a9b2a2;
+  --ink: #3a2e33;
+  --ink-soft: rgba(46, 34, 47, 0.62);
+  /* Team accents track the board's heart/crew colours: a warm heart-red vs a
+     cool torch-teal-blue, both pulled toward the Dungeon-20 ramp. */
+  --red: #d24a52;
+  --blue: #4f97b3;
+  /* Torch gold is the single "light" accent — flame halos, active edges. */
+  --amber: #f4b154;
+  /* Warm carved stone for hairlines, pedestals, and quiet structure. */
+  --ghost: #9a8b7e;
   --hudscale: 1;
   /* chrome measures derive off the CONTAINER via --hudscale, not the viewport */
   --u: calc(1px * var(--hudscale));
@@ -42,10 +54,10 @@ html, body {
   width: 100%;
   height: 100%;
   overflow: hidden;
-  /* The letterbox around the composition — warm near-black, NEVER pure #000.
-     The Observatory embed hands us an arbitrary box; the fixed-aspect stage is
-     centered inside it and this warm tone fills whatever is left over. */
-  background: #120d09;
+  /* The letterbox around the composition — a deep dungeon shadow, NEVER pure
+     #000. The Observatory embed hands us an arbitrary box; the fixed-aspect
+     stage is centered inside it and this warm-purple gloom fills the rest. */
+  background: #1a1420;
   color: var(--paper);
   font-family: var(--finefont);
   -webkit-font-smoothing: antialiased;
@@ -86,28 +98,39 @@ html, body {
   image-rendering: pixelated;
 }
 
-/* A soft light pool focuses the eye on the arena (not a literal set). */
+/* Torchlight pool — a warm gold wash pulled toward centre with the dungeon
+   dark closing in at the edges, so the arena reads like a torchlit room. */
 #lightpool {
   position: absolute;
   inset: 0;
   pointer-events: none;
   background:
-    radial-gradient(70% 58% at 50% 46%, transparent 40%, rgba(12, 8, 5, 0.34) 100%);
+    radial-gradient(64% 54% at 50% 44%,
+      rgba(244, 177, 84, 0.10) 0%, transparent 46%),
+    radial-gradient(78% 66% at 50% 46%,
+      transparent 40%, rgba(20, 14, 26, 0.44) 100%);
   z-index: 2;
 }
 
-/* CRT phosphor grain drift — ambient, paused under prefers-reduced-motion. */
+/* Torch flicker — a whisper-faint warm luminance breathing over the scene,
+   replacing the old CRT scanlines. Paused under prefers-reduced-motion. */
 #grain {
   position: absolute;
-  inset: -20%;
+  inset: -10%;
   pointer-events: none;
-  opacity: 0.05;
+  opacity: 0.5;
   z-index: 3;
-  background-image:
-    repeating-linear-gradient(0deg, rgba(0,0,0,0.5) 0 1px, transparent 1px 3px);
-  animation: graindrift 7s steps(4) infinite;
+  mix-blend-mode: soft-light;
+  background:
+    radial-gradient(120% 90% at 50% 30%,
+      rgba(244, 177, 84, 0.16) 0%, transparent 60%);
+  animation: torchflicker 3.4s ease-in-out infinite;
 }
-@keyframes graindrift { to { transform: translateY(3px); } }
+@keyframes torchflicker {
+  0%, 100% { opacity: 0.42; }
+  40%      { opacity: 0.58; }
+  70%      { opacity: 0.48; }
+}
 
 #chrome {
   position: absolute;
@@ -127,7 +150,9 @@ html, body {
   align-items: stretch;
   gap: calc(6 * var(--u));
   padding: calc(9 * var(--u)) calc(12 * var(--u)) calc(16 * var(--u));
-  background: linear-gradient(to bottom, rgba(11, 7, 4, 0.86) 0%, rgba(11, 7, 4, 0.38) 70%, transparent 100%);
+  /* Dungeon-shadow scrim so the top band reads over the lit stone floor —
+     a top-down fade, never a hard-edged box (keeps hierarchy from weight). */
+  background: linear-gradient(to bottom, rgba(26, 18, 32, 0.88) 0%, rgba(26, 18, 32, 0.40) 68%, transparent 100%);
 }
 
 .plate {
@@ -451,7 +476,7 @@ html, body {
   flex-direction: column;
   gap: calc(5 * var(--u));
   padding: calc(10 * var(--u)) calc(12 * var(--u)) calc(9 * var(--u));
-  background: linear-gradient(to top, rgba(11, 7, 4, 0.9) 0%, rgba(11, 7, 4, 0.42) 68%, transparent 100%);
+  background: linear-gradient(to top, rgba(26, 18, 32, 0.92) 0%, rgba(26, 18, 32, 0.44) 68%, transparent 100%);
 }
 #transport.disabled { opacity: 0.35; pointer-events: none; }
 
@@ -586,7 +611,10 @@ html, body {
   align-items: center;
   justify-content: center;
   gap: calc(12 * var(--u));
-  background: radial-gradient(80% 70% at 50% 45%, rgba(16, 11, 7, 0.82), rgba(9, 6, 3, 0.95));
+  /* Dungeon-shadow curtain with a faint torch-gold warmth pooled at centre. */
+  background:
+    radial-gradient(70% 58% at 50% 42%, rgba(244, 177, 84, 0.07), transparent 60%),
+    radial-gradient(85% 72% at 50% 45%, rgba(33, 24, 38, 0.86), rgba(20, 14, 26, 0.96));
   z-index: 30;
   padding: calc(20 * var(--u));
   text-align: center;
@@ -1341,8 +1369,9 @@ html, body {
 (function () {
   'use strict';
 
-  // ---- palette (mirrors board tints so chrome matches the arena) ----
-  var RED = '#e0523a', BLUE = '#3f7cc4', AMBER = '#e8a33d', PAPER = '#f2e8d8';
+  // ---- palette (mirrors the --root tokens so JS-drawn chrome — heart icons,
+  // beat markers — matches the torchlit-dungeon CSS theme exactly) ----
+  var RED = '#d24a52', BLUE = '#4f97b3', AMBER = '#f4b154', PAPER = '#ece3cf';
   var SPEEDS = [1, 2, 3, 4, 8, 16];
   var FPS = 24;
 
@@ -1414,8 +1443,8 @@ html, body {
       '</svg>' +
       '<div class="carrier-tag"></div>';
   }
-  buildFlag($('flag-red'), RED, '#7a2436');
-  buildFlag($('flag-blue'), BLUE, '#274b6e');
+  buildFlag($('flag-red'), RED, '#7a3045');
+  buildFlag($('flag-blue'), BLUE, '#2d5f70');
 
   // ---- speed chips ----
   var speedChipsEl = $('speedchips');
@@ -1875,7 +1904,7 @@ html, body {
     var bg = document.createElementNS(MOM_SVGNS, 'rect');
     bg.setAttribute('x', 0); bg.setAttribute('y', 0);
     bg.setAttribute('width', VBW); bg.setAttribute('height', VBH);
-    bg.setAttribute('fill', 'rgba(11,7,4,0.55)');
+    bg.setAttribute('fill', 'rgba(26,18,32,0.58)');
     el.appendChild(bg);
     // even-lives midline
     var mid = document.createElementNS(MOM_SVGNS, 'line');
@@ -1999,8 +2028,8 @@ html, body {
     var boxW = viewport.clientWidth, boxH = viewport.clientHeight;
     if (!boxW || !boxH) return;
     // Fit the board aspect into the box (contain): the larger dimension is
-    // capped by whichever axis binds first, and the warm #120d09 letterbox
-    // fills the remainder (never pure #000).
+    // capped by whichever axis binds first, and the dungeon-shadow #1a1420
+    // letterbox fills the remainder (never pure #000).
     var stageW, stageH;
     if (boxW / boxH > BOARD_ASPECT) {
       stageH = boxH; stageW = Math.round(boxH * BOARD_ASPECT);
