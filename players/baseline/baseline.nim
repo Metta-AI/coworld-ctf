@@ -136,6 +136,42 @@ const
   LockTtl = 48                # hold a target commitment this many ticks past
                               # the last frame we could engage it (~2 shots)
   LockMatchDist = 60.0        # a candidate this close to the lock fix IS it
+  AimHoldTtl = 60             # TARGET-LOCK: keep the turret (and the vision
+                              # cone, which rides the aim) pinned on a committed
+                              # enemy's bearing for this many ticks past the last
+                              # sighting. The server turns a fixed 5 brads/tick
+                              # (aimTurnRate, uncappable), so LOSING a target into
+                              # fog and re-slewing to re-acquire is the single
+                              # costliest waste of the scarcest resource; holding
+                              # the bearing keeps them lit AND pre-lined for the
+                              # next shot (SEAL: never fixate, but never lose the
+                              # threat either — cone = fire axis, so tracking
+                              # perfectly IS keeping them out of fog).
+  HuntSweepTtl = 90           # HUNTING POSTURE: with no engageable target, aim
+                              # toward the nearest enemy remembered this recently
+                              # instead of blindly down the movement lane — the
+                              # "always looking / hunting for the next threat"
+                              # habit (SEAL scan-and-assess), so we acquire and
+                              # shoot FIRST in the next trade.
+  AimThreatBonus = 120.0      # px of priority credit for an enemy currently
+                              # FACING us (about to shoot) — "destroy the greatest
+                              # threat first": engage the one that can hurt us now
+                              # ahead of an equidistant one looking away.
+  RetreatRadius = 260.0       # local force-balance radius: count the fresh
+                              # enemies and friendlies within this of us
+  OutnumberMargin = 2         # fall back when fresh local enemies outnumber
+                              # local friendlies (incl. self) by >= this — a
+                              # lone gun walking into 3+ guns dies before it
+                              # can trade, gifting the enemy a kill and a
+                              # numbers edge (WIN-only scoring: lives are the
+                              # tiebreak, so a pointless death loses the game)
+  LocalFreshTicks = 20        # a remembered track counts toward local balance
+                              # only if seen this recently
+  RetreatHold = 24            # once outnumbered, commit to the withdrawal for
+                              # this many ticks (hysteresis; no flip-flopping)
+  RegroupRadius = 460.0       # fall back onto a remembered mate within this
+                              # range (re-form the wave), else straight home
+  RetreatStep = 240.0         # else withdraw this far toward our home side
   ScanArc = 44                # scan sweeps this many brads each side of the
                               # watch heading (cone half-angle is 32 brads)
   PushOutTicks = 360          # endgame push: no enemy seen for ~15s...
@@ -209,6 +245,43 @@ type
                               # re-picking the nearest each frame (3 hits kill;
                               # spread hits only wound). Off => shipped combat.
     commitBonus: float        # px of priority credit for the committed target
+    forceBalance: bool        # local numbers awareness: an attacker/rusher that
+                              # sees more fresh enemies than nearby friendlies
+                              # (incl. self) within RetreatRadius breaks off and
+                              # falls back to regroup instead of trading 1-vs-N
+                              # into a lost duel. Off => shipped (always press).
+                              # FALSIFIED 2026-07-14 as a win lever (retreat
+                              # undoes commit's kill-conversion); kept behind
+                              # this flag, OFF in the shipped tune.
+    outnumberMargin: int      # fall back when localEnemies - localFriends >=
+                              # this (2 => retreat at a 1v3 / 2v4, hold a 1v1/2v3)
+    unstuckEngaged: bool      # BUG FIX: let the stuck-recovery jink fire even
+                              # while a target is selected. The shipped code
+                              # disables it when engage>=0, so a bot grinding an
+                              # obstacle corner as it advances on an enemy (the
+                              # 8-way move quantization clips a corner the clear
+                              # SHOT ray misses) can never break free — it camps
+                              # the corner. Off => shipped behavior.
+    aimLock: bool             # ⭐ TARGET-LOCK: hold the turret on a committed
+                              # enemy's CURRENT bearing whenever we have a fresh
+                              # track (not just when a clear shot exists this
+                              # frame), and NEVER reset the aim to the movement
+                              # lane while a lock is held. Smooth-pursue the body;
+                              # lead only for the fire test. Keeps the target lit
+                              # (cone = fire axis) and pre-lined, killing the
+                              # spin-reacquire-spin cycle. Off => shipped.
+    huntSweep: bool           # HUNTING POSTURE: with no shot this frame, aim at
+                              # the nearest recently-remembered enemy instead of
+                              # down the move lane — actively acquire the next
+                              # threat (SEAL scan-and-assess). Off => shipped.
+    fireOnRealBody: bool      # A1: gate the trigger on the perp-miss to the
+                              # target's REAL last-seen position (small lead
+                              # only), not the full vel*(staleness+lead) phantom
+                              # that swings wide when a target jukes — the
+                              # suspected top miss source. Off => shipped.
+    threatFacingBonus: bool   # danger-score: credit an enemy that is FACING us
+                              # (about to fire) so we engage the greatest threat
+                              # first. Off => shipped (pure distance/wound/focus).
 
   Bot = ref object
     slot: int
@@ -246,6 +319,12 @@ type
     lockPos: Vec              # committed target's last-known position, matched
     lockUntil: int            # frame-to-frame; commit holds it until this tick
     lockHp: int               # committed target's last-seen hp (0 = unknown)
+    aimLockPos: Vec           # TARGET-LOCK: the enemy the turret is pinned on,
+    aimLockUntil: int         # held (aim stays on its bearing, never resets to
+                              # the move lane) until this tick past last sighting
+    retreatUntil: int         # force-balance withdrawal committed until this
+                              # tick (hysteresis so we don't flip-flop on the
+                              # edge of the outnumber test as tracks fog in/out)
 
 proc defaultCombatTune(): CombatTune =
   ## The shipped baseline's combat knobs, verbatim from the module consts.
@@ -263,6 +342,13 @@ proc defaultCombatTune(): CombatTune =
     pocketRushRange: PocketRushRange,
     commit: false,            # the pure-baseline control: re-pick nearest each frame.
     commitBonus: CommitBonus,
+    forceBalance: false,      # control: always press, no numbers awareness.
+    outnumberMargin: OutnumberMargin,
+    unstuckEngaged: false,    # control: shipped disables the jink when engaged.
+    aimLock: false,           # control: aim resets to the move lane off-target.
+    huntSweep: false,         # control: no active acquisition sweep.
+    fireOnRealBody: false,    # control: fire gate uses the full lead phantom.
+    threatFacingBonus: false, # control: danger score ignores enemy facing.
   )
 
 proc shippedCombatTune(): CombatTune =
@@ -271,6 +357,13 @@ proc shippedCombatTune(): CombatTune =
   ## all-baseline control 14-5 over seeds 200-219 by converting the same kills
   ## into decisive wins). `defaultCombatTune` stays the untouched control the
   ## harness A/Bs against; this is what runBot actually plays.
+  ##
+  ## NOTE: aimLock (target-lock) is IMPLEMENTED and gated (`tune.aimLock`) but
+  ## NOT shipped here — its 2026-07-14 A/B win was measured under GameVersion 1's
+  ## lives-remaining tiebreak, which GameVersion 2 REMOVED (win-only scoring:
+  ## capture/wipe = +1/-1, timeout = scoreless draw). That proof does not
+  ## transfer; aimLock must be RE-A/B'd under the v2 win-only harness before it
+  ## may be flipped on here.
   result = defaultCombatTune()
   result.commit = true
 
@@ -937,6 +1030,8 @@ proc resetTransient(bot: Bot) =
   bot.jinkUntil = 0
   bot.behindLines = false
   bot.navGoal = -1
+  bot.aimLockUntil = -100_000
+  bot.retreatUntil = -100_000
 
 proc scanAim(bot: Bot, watch: Vec): int =
   ## The scan-sweep aim while holding a position: rake the vision cone back
@@ -1116,9 +1211,63 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     bot.tick - bot.gameStart > PushOutMinGame and
     bot.tick - bot.lastEnemySeen > PushOutTicks
 
+  # Local force balance: an attacker that finds itself outnumbered by fresh
+  # enemies inside RetreatRadius — more enemy guns than friendly guns, self
+  # included — breaks off and regroups instead of feeding a 1-vs-N duel. The
+  # gun fires ~1.4 shots/s and a kill needs 3 hits, so a lone attacker into
+  # three guns dies long before it can trade; with WIN-only scoring and lives
+  # as the tiebreak, that death gifts the enemy both a kill and the numbers
+  # edge that snowballs into the wipe/tiebreak we then LOSE. We already win by
+  # CONVERTING equal kills into a numbers edge (target commitment); walking a
+  # gun into a losing cluster hands that same edge to the enemy. A bot right at
+  # the enemy pedestal (inside pocketRushRange) still commits to the grab — a
+  # steal is worth a life; the withdrawal is about the APPROACH, not the touch.
+  let offenseRole = bot.role in
+    {MidTop, MidBottom, MidGuard, FlankTop, FlankBottom}
+  let onOffense = bot.tune.forceBalance and offenseRole and
+    not iCarry and not mateCarry and not ownStolen and
+    dist(me, stealTarget) >= bot.tune.pocketRushRange
+  if onOffense:
+    var localEnemies = 0
+    var localFriends = 1                 # ourselves
+    for t in bot.enemies:
+      if bot.tick - t.lastSeen <= LocalFreshTicks and
+          dist(t.pos, me) <= RetreatRadius:
+        inc localEnemies
+    for t in bot.mates:
+      if bot.tick - t.lastSeen <= LocalFreshTicks and
+          dist(t.pos, me) <= RetreatRadius:
+        inc localFriends
+    if localEnemies - localFriends >= bot.tune.outnumberMargin:
+      bot.retreatUntil = bot.tick + RetreatHold   # hysteresis: commit the fall-back
+  let retreating = onOffense and bot.tick <= bot.retreatUntil
+  # The fall-back point: regroup on the nearest fresh mate who is NOT deeper in
+  # enemy territory than we are (two guns beat the 1-vs-N), else withdraw toward
+  # our own side. navSteer routes there cover-aware, hugging the exposure field
+  # away from the cluster instead of grinding straight back through it.
+  var regroupTo = vec(me.x + homeSign(bot.team) * RetreatStep, me.y)
+  if retreating:
+    var bestD = RegroupRadius
+    for t in bot.mates:
+      if bot.tick - t.lastSeen > LocalFreshTicks:
+        continue
+      if homeSign(bot.team) * (t.pos.x - me.x) < -20.0:
+        continue                         # this mate is further into the jaws
+      let d = dist(t.pos, me)
+      if d < bestD:
+        bestD = d
+        regroupTo = t.pos
+    regroupTo.x = clamp(regroupTo.x, 20.0, float(MapW - 20))
+    regroupTo.y = clamp(regroupTo.y, 20.0, float(MapH - 20))
+
   # Movement target from role and flag situation.
   var target: Vec
-  if iCarry:
+  if retreating:
+    # Outnumbered locally: pull back to regroup. The combat block below still
+    # fires at anything already lined up while we withdraw (a free trade on the
+    # way out is fine) — we just stop ADVANCING into the losing cluster.
+    target = regroupTo
+  elif iCarry:
     # Run the stolen enemy flag home along the emptiest lane; the exposure
     # cost in the path field keeps the route hugging cover past remembered
     # enemies.
@@ -1308,6 +1457,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     engageD = maxEngage
     engagePrio = maxEngage
     aim: Vec
+    engageBody: Vec                     # the engage target's REAL last-seen pos
     blockedAim: Vec
     haveBlocked = false
     blockedD = maxEngage
@@ -1327,6 +1477,15 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       prio -= float(MaxHp - t.hp) * HpFocusBonus
     if mateTargeted[i]:
       prio -= FocusFireBonus
+    # Greatest-threat-first (SEAL/FM 3-90): an enemy FACING us can shoot us
+    # this instant, so it is more dangerous than an equidistant one looking
+    # away — engage it first.
+    if bot.tune.threatFacingBonus:
+      let facingMe =
+        (t.facingRight and t.pos.x < me.x) or
+        (not t.facingRight and t.pos.x > me.x)
+      if facingMe:
+        prio -= AimThreatBonus
     # Target commitment: heavily favour the enemy we are already engaged with
     # (matched by its last-known position) so three shots land on ONE target
     # and kill it, rather than one shot each spread across many wounded ones.
@@ -1341,6 +1500,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         engageD = d
         engage = i
         aim = predicted
+        engageBody = t.pos
     elif d < blockedD:
       blockedD = d
       blockedAim = predicted
@@ -1352,6 +1512,31 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     bot.lockPos = bot.enemies[engage].pos
     bot.lockHp = bot.enemies[engage].hp
     bot.lockUntil = bot.tick + LockTtl
+
+  # TARGET-LOCK: pin the turret on a committed enemy's bearing so the vision
+  # cone (which rides the aim) keeps them lit and the gun stays pre-lined —
+  # killing the spin-reacquire-spin cycle. Refresh onto the engage target when
+  # we have one; otherwise hold onto the freshest engageable-range enemy so a
+  # brief fog-out does not throw the aim back to the movement lane. The server
+  # turns a fixed 5 brads/tick and cannot go faster, so never surrender a lined
+  # bearing we already paid to acquire.
+  if bot.tune.aimLock:
+    if engage >= 0:
+      bot.aimLockPos = bot.enemies[engage].pos
+      bot.aimLockUntil = bot.tick + AimHoldTtl
+    else:
+      var best = -1
+      var bestD = maxEngage
+      for i in 0 ..< bot.enemies.len:
+        if bot.tick - bot.enemies[i].lastSeen > bot.tune.freshShotTicks:
+          continue
+        let d = dist(bot.enemies[i].pos, me)
+        if d < bestD:
+          bestD = d
+          best = i
+      if best >= 0:
+        bot.aimLockPos = bot.enemies[best].pos
+        bot.aimLockUntil = bot.tick + AimHoldTtl
 
   # The nearest remembered enemy that could be threatening us right now,
   # used to pick which line to break when ducking through cooldown.
@@ -1385,10 +1570,37 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       err = abs(bradsErr(desiredAim, bot.estAim))
       perpMiss = engageD * sin(float(err) * PI / float(AimBrads div 2))
     wantFire = perpMiss <= bot.tune.fireSlackPx
-    moveMask = octantBits(aim - me)
+    if bot.tune.fireOnRealBody:
+      # A1 (SEAL "fire the instant the line is clear"): the corridor test above
+      # is against the extrapolated lead point, which swings wide when a target
+      # jukes — so a shot that would actually connect with the REAL body gets
+      # suppressed. Also fire when the current aim's perp-miss to the target's
+      # last-seen position sits in the corridor. Aim still LEADS (desiredAim
+      # unchanged); this only OPENS the trigger on a real-body line.
+      let
+        bodyAim = bradsOf(engageBody - me)
+        bodyErr = abs(bradsErr(bodyAim, bot.estAim))
+        bodyD = dist(engageBody, me)
+        bodyMiss = bodyD * sin(float(bodyErr) * PI / float(AimBrads div 2))
+      if bodyMiss <= bot.tune.fireSlackPx and
+          client.pixelRayClear(me, engageBody) and
+          not bot.friendlyBlocked(me, engageBody, bodyD):
+        wantFire = true
+    if retreating:
+      # Outnumbered: keep the gun on the lined-up target and take the free
+      # trade, but WITHDRAW toward the regroup point on the cover-aware path
+      # instead of walking the one gun deeper into the cluster.
+      moveMask = octantBits(bot.navSteer(client, me, target))
+    else:
+      moveMask = octantBits(aim - me)
+    if bot.tune.unstuckEngaged and bot.tick < bot.jinkUntil:
+      # A stuck burst is in flight while we advance on the target: keep jinking
+      # so a corner-grind actually breaks free instead of re-grinding the wall
+      # every frame the aim points back into it. The gun still fires on-line.
+      moveMask = bot.jinkBits
     acted = true
   elif not iCarry and not rushing and not pocketRush and not shotReady and
-      nearThreat >= 0:
+      not retreating and nearThreat >= 0:
     # Cooldown: duck behind the nearest cover that breaks the threat's line
     # and hold there until the gun is back up, keeping the aim (and the
     # vision cone) on the arc the threat would push through.
@@ -1400,10 +1612,11 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       else:
         moveMask = octantBits(cellCenter(duck) - me)
       acted = true
-  elif not iCarry and not rushing and shotReady and haveBlocked:
+  elif not iCarry and not rushing and not retreating and shotReady and haveBlocked:
     # Peek: PRE-LAY the aim on the blocked target while stepping sideways to
     # the nearest cell that opens the firing line — the engage branch fires
-    # the moment the ray clears, with the traverse already done.
+    # the moment the ray clears, with the traverse already done. (Skip while
+    # retreating: opening a new line RE-ENGAGES the cluster we are fleeing.)
     desiredAim = bradsOf(blockedAim - me)
     let peek = bot.findPeekCell(client, me, blockedAim)
     if peek >= 0 and dist(cellCenter(peek), me) > 4.0:
@@ -1484,6 +1697,36 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       moveMask = octantBits(steer)
       if bot.tick < bot.jinkUntil:
         moveMask = bot.jinkBits            # unsticking burst
+      # Carriers and the pocket-grab rusher keep the cone down their escape
+      # lane — for them speed beats gunfighting, so the lock/hunt overrides skip.
+      let mayHunt = not iCarry and not pocketRush
+      if desiredAim < 0 and mayHunt and bot.tune.aimLock and
+          bot.tick <= bot.aimLockUntil:
+        # ⭐ TARGET-LOCK: we hold a fresh enemy but have no clear shot THIS
+        # frame (fogged, wall-blocked, or on cooldown). Do NOT snap the aim to
+        # the movement lane — that surrenders a bearing we paid 5-brads/tick to
+        # acquire and drops the enemy out of the cone (cone = fire axis). Keep
+        # the turret smoothly pursuing the locked body, so the moment the line
+        # clears we fire without a re-slew. Combat deadband: settle precisely.
+        desiredAim = bradsOf(bot.aimLockPos - me)
+      elif desiredAim < 0 and mayHunt and bot.tune.huntSweep:
+        # HUNTING POSTURE: no lock, but actively acquire — aim at the nearest
+        # recently-remembered enemy rather than blindly down-lane, so we see and
+        # shoot FIRST in the next trade (SEAL scan-and-assess).
+        var best = -1
+        var bestD = 1e18
+        for i in 0 ..< bot.enemies.len:
+          if bot.tick - bot.enemies[i].lastSeen > HuntSweepTtl:
+            continue
+          let d = dist(bot.enemies[i].pos, me)
+          if d < bestD:
+            bestD = d
+            best = i
+        if best >= 0:
+          desiredAim = bradsOf(bot.enemies[best].pos - me)
+        else:
+          desiredAim = bradsOf(steer)
+          deadband = CruiseDeadband
       if desiredAim < 0:
         # No target demands the turret: the aim leads the movement direction
         # so the vision cone watches down-lane where we are heading. Movement
@@ -1500,7 +1743,8 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   bot.lastPos = me
   if holdStill:
     bot.stuckTicks = 0
-  if bot.stuckTicks > 20 and engage < 0:
+  if bot.stuckTicks > 20 and
+      (engage < 0 or retreating or bot.tune.unstuckEngaged):
     bot.stuckTicks = 0
     bot.jinkUntil = bot.tick + 10
     bot.jinkBits = octantBits(vec(rand(-1.0 .. 1.0), rand(-1.0 .. 1.0)))

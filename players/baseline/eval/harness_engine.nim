@@ -50,6 +50,10 @@ type
     isDraw*: bool
     redKills*: int
     blueKills*: int
+    redDeaths*: int                  ## deaths taken by each team; the lives
+    blueDeaths*: int                 ## differential (kills-deaths) is the tiebreak.
+    redLives*: int                   ## total lives remaining at game end
+    blueLives*: int                  ## (Σ lives + 1 per still-alive player).
     redCaptures*: int
     blueCaptures*: int
     redShots*: int                   ## fresh tracers credited to Red shooters.
@@ -130,9 +134,14 @@ proc result*(engine: EvalEngine): EpisodeResult =
     result.slots.add SlotStat(
       slot: i, team: team, kills: p.kills, deaths: p.deaths,
       captures: p.captures, lives: p.lives, alive: p.alive)
+    let livesNow = p.lives + (if p.alive: 1 else: 0)
     if team == 0:
       result.redKills += p.kills
+      result.redDeaths += p.deaths
+      result.redLives += livesNow
       result.redCaptures += p.captures
     else:
       result.blueKills += p.kills
+      result.blueDeaths += p.deaths
+      result.blueLives += livesNow
       result.blueCaptures += p.captures
