@@ -3038,13 +3038,13 @@ proc finishGame*(sim: var SimServer, winner: Team, isDraw = false, timeLimitReac
       continue
     if sim.rewardAccounts[i].team == winner:
       sim.rewardAccounts[i].reward += WinReward
+      sim.rewardAccounts[i].won = true
+      if winner == Red:
+        inc sim.rewardAccounts[i].winsRed
+      else:
+        inc sim.rewardAccounts[i].winsBlue
     else:
       sim.rewardAccounts[i].reward += LossReward
-    sim.rewardAccounts[i].won = true
-    if winner == Red:
-      inc sim.rewardAccounts[i].winsRed
-    else:
-      inc sim.rewardAccounts[i].winsBlue
 
 proc gameTicksElapsed*(sim: SimServer): int =
   ## Returns ticks elapsed since the current game left the lobby.
