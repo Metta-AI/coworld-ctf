@@ -8,5 +8,6 @@ import
   test_replay,
   test_replay_controls,
   test_ctf_game,
-  test_grenades
+  test_grenades,
+  test_shouts
 {.warning[UnusedImport]: on.}

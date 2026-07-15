@@ -208,7 +208,8 @@ proc applyReplayEvents(replay: var ReplayPlayer, sim: var SimServer) =
 
   while replay.chatIndex < replay.data.chats.len and
       replay.data.chats[replay.chatIndex].time <= time:
-    # CTF has no in-game chat; consume recorded chat events without applying.
+    let chat = replay.data.chats[replay.chatIndex]
+    sim.applyShout(int(chat.player), chat.message)
     inc replay.chatIndex
 
 proc replayPrevInputs(

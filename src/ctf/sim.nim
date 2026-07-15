@@ -7,7 +7,7 @@ import
 
 const
   GameName* = "ctf"
-  GameVersion* = "2"
+  GameVersion* = "3"
   ReplayFps* = 24
   DefaultMapPath* = "arena"
   DarkBgPath* = "data/darkbg.aseprite"
@@ -86,6 +86,11 @@ const
   GrenadeBlastRadius* = 40    ## everyone inside the blast takes damage.
   GrenadeDamage* = 2          ## hit points removed by one blast.
   BlastFxTicks* = 12          ## cosmetic blast flash duration in ticks.
+
+  ShoutMaxChars* = 10         ## a shout is at most this many characters.
+  ShoutRange* = MapWidth div 5  ## audible within 20% of the screen width.
+  ShoutTicks* = 3 * ReplayFps ## a shout stays observable this long.
+  ShoutCooldownTicks* = ReplayFps  ## at most one shout per second.
 
   TextColor* = 2'u8
   TextLineHeight* = 7
@@ -297,6 +302,7 @@ type
     carryingFlag*: bool
     hasGrenade*: bool          ## each player carries at most one grenade.
     throwCharge*: int          ## ticks the throw button has been held.
+    lastShoutTick*: int        ## tick of this player's latest shout, -1 = never.
     joinOrder*: int
     address*: string
     color*: uint8
@@ -330,6 +336,16 @@ type
     ## Landing is audible: views also derive their landing sound rings here.
     x*, y*: int
     tick*: int
+
+  Shout* = object
+    ## One short player message, audible within ShoutRange of where it was
+    ## made. Bots observe shouts, so they are gameplay state (in gameHash)
+    ## and replays re-apply the recorded chat records that produced them.
+    address*: string           ## the shouter, by player address.
+    team*: Team
+    text*: string              ## sanitized, at most ShoutMaxChars.
+    tick*: int                 ## when it was shouted.
+    x*, y*: int                ## shouter center at shout time.
 
   GrenadeSpawn* = object
     ## One corner grenade pickup point.
@@ -374,6 +390,7 @@ type
     recentShots*: seq[ShotFx]  ## cosmetic shot tracers; excluded from gameHash.
     splatters*: seq[SplatterFx]  ## cosmetic death splatters; excluded from gameHash.
     recentBlasts*: seq[BlastFx]  ## cosmetic grenade blasts; excluded from gameHash.
+    recentShouts*: seq[Shout]  ## live shouts; observable state, in gameHash.
     grenadeSpawns*: array[4, GrenadeSpawn]
     airborneGrenades*: seq[AirborneGrenade]
     gameStartTick*: int
@@ -1474,6 +1491,7 @@ proc gameHash*(sim: SimServer): uint64 =
     result.mixHashBool(player.carryingFlag)
     result.mixHashBool(player.hasGrenade)
     result.mixHashInt(player.throwCharge)
+    result.mixHashInt(player.lastShoutTick)
     result.mixHashInt(player.joinOrder)
     result.mixHashInt(int(player.color))
     result.mixHashInt(player.reward)
@@ -1492,6 +1510,16 @@ proc gameHash*(sim: SimServer): uint64 =
     result.mixHashInt(grenade.launchTick)
     result.mixHashInt(grenade.flightTicks)
     result.mixHashInt(grenade.thrower)
+  result.mixHashInt(sim.recentShouts.len)
+  for shout in sim.recentShouts:
+    for c in shout.address:
+      result.mixHashInt(ord(c))
+    result.mixHashInt(ord(shout.team))
+    for c in shout.text:
+      result.mixHashInt(ord(c))
+    result.mixHashInt(shout.tick)
+    result.mixHashInt(shout.x)
+    result.mixHashInt(shout.y)
 
 proc isWalkable*(sim: SimServer, x, y: int): bool =
   if x < 0 or y < 0 or x >= MapWidth or y >= MapHeight:
@@ -1993,6 +2021,7 @@ proc addPlayer*(
     joinOrder: order,
     address: address,
     color: color,
+    lastShoutTick: -1,
     reward: sim.rewardAccounts[accountIndex].reward
   )
   sim.fovCaches.add PlayerFov(
@@ -2177,8 +2206,10 @@ proc startGame*(sim: var SimServer) =
   sim.logGameEvent("game started: players=" & $sim.players.len)
   sim.recentShots = @[]
   sim.splatters = @[]
+  sim.recentShouts = @[]
   sim.arrangeHomePositions()
   for i in 0 ..< sim.players.len:
+    sim.players[i].lastShoutTick = -1
     sim.players[i].alive = true
     sim.players[i].lives = sim.config.lives
     sim.players[i].hp = sim.config.hitPoints
@@ -2655,6 +2686,63 @@ proc tryPickupGrenades*(sim: var SimServer, playerIndex: int) =
           " picked up a grenade"
       )
       return
+
+proc sanitizeShout*(text: string): string =
+  ## Reduces raw chat text to a legal shout: printable ASCII only, at most
+  ## ShoutMaxChars characters, no leading or trailing spaces.
+  for c in text:
+    if c >= ' ' and c <= '~':
+      result.add(c)
+    if result.len == ShoutMaxChars:
+      break
+  result = result.strip()
+
+proc applyShout*(sim: var SimServer, playerIndex: int, text: string): bool {.discardable.} =
+  ## Applies one player chat message as a shout: a short message audible to
+  ## anyone within ShoutRange of the shouter. Living players only, at most
+  ## one shout per second, and one live bubble per player (a new shout
+  ## replaces the old one). Returns whether the shout was applied.
+  if sim.phase != Playing:
+    return false
+  if playerIndex < 0 or playerIndex >= sim.players.len:
+    return false
+  if not sim.players[playerIndex].alive:
+    return false
+  let shoutText = sanitizeShout(text)
+  if shoutText.len == 0:
+    return false
+  let last = sim.players[playerIndex].lastShoutTick
+  if last >= 0 and sim.tickCount - last < ShoutCooldownTicks:
+    return false
+  sim.players[playerIndex].lastShoutTick = sim.tickCount
+  let address = sim.players[playerIndex].address
+  var kept: seq[Shout] = @[]
+  for shout in sim.recentShouts:
+    if shout.address != address:
+      kept.add shout
+  kept.add Shout(
+    address: address,
+    team: sim.players[playerIndex].team,
+    text: shoutText,
+    tick: sim.tickCount,
+    x: sim.players[playerIndex].x + CollisionW div 2,
+    y: sim.players[playerIndex].y + CollisionH div 2
+  )
+  sim.recentShouts = kept
+  true
+
+proc shoutAudibleTo*(sim: SimServer, viewerIndex: int, shout: Shout): bool =
+  ## Whether one viewer can hear a shout: within ShoutRange of where it was
+  ## made. Shouts carry through walls and fog like gunfire, but dead viewers
+  ## observe nothing.
+  if viewerIndex < 0 or viewerIndex >= sim.players.len:
+    return false
+  if not sim.players[viewerIndex].alive:
+    return false
+  let
+    vx = sim.players[viewerIndex].x + CollisionW div 2
+    vy = sim.players[viewerIndex].y + CollisionH div 2
+  distSq(vx, vy, shout.x, shout.y) <= ShoutRange * ShoutRange
 
 proc resolveSimultaneousFire*(sim: var SimServer, shooters: openArray[int]) =
   ## Resolves every shot released this tick at once: all targets are chosen
@@ -3174,6 +3262,7 @@ proc resetToLobby*(sim: var SimServer) =
   sim.fovCaches = @[]
   sim.resetGrenades()
   sim.recentBlasts = @[]
+  sim.recentShouts = @[]
   sim.recentShots = @[]
   sim.splatters = @[]
   sim.nextJoinOrder = 0
@@ -3296,6 +3385,15 @@ proc step*(
     if sim.tickCount - blast.tick < BlastFxTicks:
       keptBlasts.add blast
   sim.recentBlasts = keptBlasts
+
+  # Expire old shouts. Unlike the cosmetic effects above, shouts are
+  # observable gameplay state (bots hear them), so expiry is part of the
+  # deterministic sim and the hash.
+  var keptShouts: seq[Shout] = @[]
+  for shout in sim.recentShouts:
+    if sim.tickCount - shout.tick < ShoutTicks:
+      keptShouts.add shout
+  sim.recentShouts = keptShouts
   var keptSplatters: seq[SplatterFx] = @[]
   for splatter in sim.splatters:
     if sim.tickCount - splatter.tick < SplatterFxTicks:
