@@ -211,6 +211,7 @@ type
     replaySeekTick*: int
     replayCommands*: seq[char]
     broadcastHud*: bool          ## viewer opted into the JSON chrome channel.
+    momentumSent*: bool          ## full lives-lead series already sent to this viewer.
     povSelectPending*: int       ## POV slot requested by a `v:<slot>` command.
     spriteDefs: seq[SpriteDefinition]
 
@@ -406,6 +407,7 @@ proc applyGlobalViewerMessage*(
         state.broadcastHud = true
       elif item.text == "hud:off":
         state.broadcastHud = false
+        state.momentumSent = false
       elif item.text.startsWith("s:"):
         let tick = try: parseInt(item.text[2 .. ^1]) except ValueError: -1
         if tick >= 0:

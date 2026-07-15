@@ -197,7 +197,8 @@ proc buildStateJson*(
   looping: bool,
   transportEnabled: bool,
   mismatchTick: int,
-  povSlot: int
+  povSlot: int,
+  livesLeadSeries: seq[array[2, int]] = @[]
 ): string =
   ## Assembles the broadcast chrome frame from the current board state plus the
   ## events accumulated across this playback frame. Board-derived STATE (lives,
@@ -223,6 +224,16 @@ proc buildStateJson*(
     "roster": sim.rosterJson(),
     "events": (if events.isNil: newJArray() else: events)
   }
+
+  # Full-timeline lives-lead series (sent ONCE per HUD viewer): [[tick, diff], …]
+  # change-points across the WHOLE match so the momentum graph draws its full
+  # width immediately instead of accumulating to the playhead. Absent on every
+  # later frame — the client caches it.
+  if livesLeadSeries.len > 0:
+    var series = newJArray()
+    for point in livesLeadSeries:
+      series.add(%*[point[0], point[1]])
+    state["lead"] = series
 
   # The end-card is STATE, not an event: present on every game-over frame so a
   # viewer who seeks straight to the end still sees the verdict. isDraw is read

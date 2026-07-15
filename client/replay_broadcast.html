@@ -1456,12 +1456,23 @@ html, body {
     // Even on a jump, register beat markers we can place from state? Markers
     // come from events only; on a jump the tracker resync'd (no events), so we
     // keep whatever markers we already collected.
+    ingestLeadSeries(s);
     recordMomentum(s);
 
     if (s.ph === 'gameover') { renderEndcard(s); }
     else { $('endcard').classList.remove('on'); }
 
     lastTick = s.t;
+  }
+
+  // The server ships the full-match lives-lead change-point series ONCE (on the
+  // first HUD frame). Cache it so the momentum graph draws its whole-timeline
+  // shape immediately, with the playhead riding across a curve that's already
+  // there — a broadcast win-probability graph, not a line that grows as it plays.
+  function ingestLeadSeries(s) {
+    if (!s.lead || fullLeadSeries) return;
+    fullLeadSeries = s.lead.map(function (p) { return { t: p[0], diff: p[1] }; });
+    momentumDirty = true;
   }
 
   // ---------- scorebug ----------
@@ -1796,7 +1807,9 @@ html, body {
   var MOM_SVGNS = 'http://www.w3.org/2000/svg';
   var momentumSeen = {};            // tick -> true (dedup)
   var momentumDirty = true;         // rebuild the path only when a new tick lands
+  var fullLeadSeries = null;        // full-match [{t,diff}] shipped once by the server
   function recordMomentum(s) {
+    if (fullLeadSeries) return;     // full curve already known; nothing to accumulate
     if (s.ph !== 'playing' && s.ph !== 'gameover') return;
     if (momentumSeen[s.t]) return;  // deterministic replay: a tick's diff is fixed
     momentumSeen[s.t] = true;
@@ -1807,7 +1820,10 @@ html, body {
   }
   function renderMomentum() {
     var el = $('momentum');
-    if (!lastState || !momentumSamples.length) { if (!momentumSamples.length) el.innerHTML = ''; return; }
+    // Prefer the full precomputed series (spans the WHOLE timeline from frame 1);
+    // fall back to accumulate-as-you-play only if the server didn't ship it.
+    var samples = fullLeadSeries || momentumSamples;
+    if (!lastState || !samples.length) { if (!samples.length) el.innerHTML = ''; return; }
     if (!momentumDirty && el.childNodes.length) return; // nothing new to draw
     momentumDirty = false;
     var mx = Math.max(1, lastState.mx || 1);
@@ -1815,10 +1831,10 @@ html, body {
     // Full vertical scale = 8 players × config lives (±24). A fixed scale keeps
     // the curve's height meaningful and stable (no rescale as the game plays).
     var maxAbs = 24;
-    momentumSamples.forEach(function (m) { maxAbs = Math.max(maxAbs, Math.abs(m.diff)); });
+    samples.forEach(function (m) { maxAbs = Math.max(maxAbs, Math.abs(m.diff)); });
 
     // Sort by tick and build a STEP series across the full [0, mx] axis.
-    var pts = momentumSamples.slice().sort(function (a, b) { return a.t - b.t; });
+    var pts = samples.slice().sort(function (a, b) { return a.t - b.t; });
     function xOf(t) { return Math.min(1, Math.max(0, t / mx)) * VBW; }
     function yOf(d) { return MID - (d / maxAbs) * (MID - 2); } // clamp off the edges
     var line = '', k;

@@ -1242,6 +1242,9 @@ proc runServerLoop*(
         # legacy bitworld client never opts in, so live `/global` spectating and
         # the generic client stay byte-identical and never see a stray frame.
         if replayLoaded and globalStates[i].broadcastHud:
+          # Ship the full-timeline lives-lead series ONCE per HUD viewer (on the
+          # first frame after opt-in); later frames omit it and the client caches.
+          let sendLead = not globalStates[i].momentumSent
           let stateJson = sim.buildStateJson(
             frameEvents,
             replayPlayer.playing,
@@ -1250,9 +1253,12 @@ proc runServerLoop*(
             replayPlayer.looping,
             replayLoaded,
             replayPlayer.hashMismatchTick,
-            nextState.selectedJoinOrder
+            nextState.selectedJoinOrder,
+            if sendLead: replayPlayer.livesLeadSeries else: @[]
           )
           globalViewers[i].send(stateJson, TextMessage)
+          if sendLead:
+            nextState.momentumSent = true
         {.gcsafe.}:
           withLock appState.lock:
             if globalViewers[i] in appState.globalViewers:

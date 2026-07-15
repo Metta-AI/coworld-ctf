@@ -35,6 +35,12 @@ type
     hashValidationFailed*: bool
     hashMismatchTick*: int
     keyframes*: seq[ReplayKeyframe]
+    livesLeadSeries*: seq[array[2, int]]
+      ## [tick, redLives - blueLives] change-points across the WHOLE match,
+      ## precomputed on the deterministic keyframe walk so the momentum graph
+      ## can draw its full-timeline shape immediately (not accumulate as it
+      ## plays). Only points where the lead CHANGES are stored (compact step
+      ## series); the client holds each value to the next point and to maxTick.
 
 const
   PlaybackSpeeds* = [1, 2, 3, 4, 8, 16]
@@ -294,10 +300,26 @@ proc buildReplayKeyframes*(
   builder.mismatchQuit = replay.mismatchQuit
   replay.keyframes.add(builder.saveReplayKeyframe(sim))
   let maxTick = builder.replayMaxTick()
+  # Record the lives-lead change-points across the full match so the momentum
+  # graph draws its whole-timeline shape up front (deterministic replay: a
+  # tick's lead is fixed). Store only where the lead changes to keep it compact.
+  replay.livesLeadSeries = @[]
+  proc livesLead(sim: SimServer): int =
+    sim.teamLivesRemaining(Red) - sim.teamLivesRemaining(Blue)
+  var lastLead = livesLead(sim)
+  replay.livesLeadSeries.add([sim.tickCount, lastLead])
   while builder.playing and sim.tickCount < maxTick:
     builder.stepReplay(sim)
+    let lead = livesLead(sim)
+    if lead != lastLead:
+      replay.livesLeadSeries.add([sim.tickCount, lead])
+      lastLead = lead
     if sim.tickCount mod max(interval, 1) == 0 or sim.tickCount == maxTick:
       replay.keyframes.add(builder.saveReplayKeyframe(sim))
+  # Anchor the final tick so the client can hold the last value to the end.
+  if replay.livesLeadSeries.len == 0 or
+      replay.livesLeadSeries[^1][0] != sim.tickCount:
+    replay.livesLeadSeries.add([sim.tickCount, lastLead])
 
 proc seekReplay*(replay: var ReplayPlayer, sim: var SimServer, tick: int) =
   ## Seeks replay playback to a target tick.
