@@ -1088,11 +1088,15 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         # Fresher than any dead-reckoned estimate: pin the escort fix here.
         bot.mateFixPos = p
         bot.mateFixTick = bot.tick
-      elif bot.tick - bot.carrierSeen > 8:
-        # Thief fix: adopt unless we have our own fresher eyes on it.
-        bot.carrierPos = p
-        bot.carrierVel = vec(0, 0)
-        bot.carrierSeen = bot.tick
+      else:
+        when defined(shoutThief):
+          # Thief fix: adopt unless we have our own fresher eyes on it.
+          # (Isolated behind its own define: broadcast convergence pulls
+          # defenders across watched ground — measured attrition risk.)
+          if bot.tick - bot.carrierSeen > 8:
+            bot.carrierPos = p
+            bot.carrierVel = vec(0, 0)
+            bot.carrierSeen = bot.tick
   if enemyFlags.len > 0:
     let fp = client.mapPos(enemyFlags[0])
     # Self-carry test: the heart hovers over its carrier, so "am I the
@@ -1167,7 +1171,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       if iCarry:
         bot.shoutWant = "C" & $(int(me.x) div 8) & " " & $(int(me.y) div 8)
         bot.lastShoutTick = bot.tick
-      elif sawThief:
+      elif sawThief and defined(shoutThief):
         bot.shoutWant = "T" & $(int(bot.carrierPos.x) div 8) & " " &
           $(int(bot.carrierPos.y) div 8)
         bot.lastShoutTick = bot.tick
