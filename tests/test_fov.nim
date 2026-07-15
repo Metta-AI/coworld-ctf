@@ -63,10 +63,7 @@ suite "fog-of-war vision":
     sim.computeFovVisible(cx div FovCellSize, cy div FovCellSize, 192, visible)
     check sim.fovAt(visible, cx, MapHeight - 20)
 
-  test "everyone but yourself is culled by the fog — no team radio":
-    # There is no team radio (feat: fog teammates, commit 1c1d160): a teammate
-    # is fogged by the vision cone/bubble exactly like an enemy; only the viewer
-    # itself is always visible. Seeing your own side takes eyes too.
+  test "everyone but yourself is culled when fogged, teammates included":
     var game = initCtfForTest()
     discard game.addPlayer("red0")
     discard game.addPlayer("blue0")
@@ -87,11 +84,11 @@ suite "fog-of-war vision":
     # Enemy behind, beyond the bubble: fogged.
     game.players[1].y = 550
     check not game.playerVisibleTo(0, 1)
-    # A teammate at the same fogged spot is fogged too (no team radio).
+    # A teammate at the same fogged spot fogs too (no team radio).
     game.players[2].x = cx
     game.players[2].y = 550
     check not game.playerVisibleTo(0, 2)
-    # The same teammate ahead in the cone: visible, like anyone else.
+    # A teammate ahead in the cone is visible like anyone else.
     game.players[2].y = 100
     check game.playerVisibleTo(0, 2)
     # And the viewer always sees itself.
@@ -153,7 +150,7 @@ suite "fog-of-war vision":
     game.players[1].y = 100
     check game.flagVisibleTo(0, Red)
 
-  test "dead viewers see everything":
+  test "dead viewers see nothing but themselves":
     var game = initCtfForTest()
     discard game.addPlayer("red0")
     discard game.addPlayer("blue0")
@@ -166,4 +163,8 @@ suite "fog-of-war vision":
     game.players[0].alive = false
     game.players[1].x = cx
     game.players[1].y = 550
-    check game.playerVisibleTo(0, 1)
+    # Death does not lift the fog: everything is masked until respawn —
+    # even a target standing right where the viewer died.
+    check not game.playerVisibleTo(0, 1)
+    check not game.fovVisibleAt(0, cx, cy)
+    check game.playerVisibleTo(0, 0)

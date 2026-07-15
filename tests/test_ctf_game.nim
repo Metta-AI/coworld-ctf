@@ -554,10 +554,38 @@ suite "ctf game":
     check sim.phase == GameOver
     check sim.winner == Red
 
-  test "finishGame awards WinReward to the winning team only":
+  test "a decisive win scores +1 for winners and -1 for losers":
     var sim = twoTeamGame()
     sim.finishGame(Red)
     check sim.phase == GameOver
     check sim.winner == Red
-    check sim.players[0].reward == WinReward
+    check sim.players[0].reward == 1
+    check sim.players[1].reward == -1
+
+  test "a disconnected loser is not marked a winner":
+    var sim = twoTeamGame()
+    # Blue abandons (crashes) before the finish: its reward account remains.
+    sim.recordGameAbandon(1)
+    sim.removePlayerAt(1)
+    sim.finishGame(Red)
+    var red, blue = -1
+    for i in 0 ..< sim.rewardAccounts.len:
+      if sim.rewardAccounts[i].address == "red0": red = i
+      elif sim.rewardAccounts[i].address == "blue0": blue = i
+    check sim.rewardAccounts[red].won
+    check sim.rewardAccounts[red].reward == 1
+    check not sim.rewardAccounts[blue].won
+    check sim.rewardAccounts[blue].reward == -1
+    check sim.rewardAccounts[blue].winsRed == 0
+    check sim.rewardAccounts[blue].winsBlue == 0
+
+  test "a time-limit game is a scoreless draw for both sides":
+    var sim = twoTeamGame()
+    sim.config.maxTicks = 5
+    let none = newSeq[InputState](sim.players.len)
+    while sim.phase == Playing:
+      sim.step(none, none)
+    check sim.isDraw
+    check sim.timeLimitReached
+    check sim.players[0].reward == 0
     check sim.players[1].reward == 0
