@@ -47,6 +47,7 @@ suite "replay controls":
     discard game.buildSpriteProtocolUpdates(
       state,
       next,
+      @[],
       replayTick = 100,
       replayPlaying = true,
       replaySpeed = 1,
@@ -60,6 +61,7 @@ suite "replay controls":
     discard game.buildSpriteProtocolUpdates(
       state,
       next,
+      @[],
       replayTick = 100,
       replayPlaying = true,
       replaySpeed = 1,
@@ -77,6 +79,7 @@ suite "replay controls":
     discard game.buildSpriteProtocolUpdates(
       state,
       next,
+      @[],
       replayTick = 100,
       replayPlaying = false,
       replaySpeed = 1,
@@ -94,6 +97,7 @@ suite "replay controls":
     discard game.buildSpriteProtocolUpdates(
       state,
       next,
+      @[],
       replayTick = 505,
       replayPlaying = false,
       replaySpeed = 1,
@@ -112,6 +116,7 @@ suite "replay controls":
     let packet = game.buildSpriteProtocolUpdates(
       state,
       next,
+      @[],
       replayTick = 100,
       replayPlaying = true,
       replaySpeed = 1,
@@ -128,6 +133,7 @@ suite "replay controls":
     discard game.buildSpriteProtocolUpdates(
       state,
       next,
+      @[],
       replayTick = 100,
       replayPlaying = true,
       replaySpeed = 1,
@@ -146,6 +152,7 @@ suite "replay controls":
     let packet = game.buildSpriteProtocolUpdates(
       state,
       next,
+      @[],
       replayTick = 1208,
       replayPlaying = true,
       replaySpeed = 1,
