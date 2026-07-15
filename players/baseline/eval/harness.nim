@@ -30,6 +30,11 @@ import ./harness_engine
 # its runBot entrypoint never fires; we drive `decide` directly.
 include "../baseline.nim"
 
+var
+  campTicksRed = 0        ## diagnostic: ticks a RED bot spent frozen (<0.8px
+  campTicksBlue = 0       ## moved) while holding a live enemy track — the
+                          ## "grind a corner / camp" pathology, tallied per team.
+
 type
   BotDriver = object
     bot: Bot
@@ -88,6 +93,15 @@ proc frame(driver: var BotDriver, packet: string): uint8 =
   result = bot.decide(client)
   driver.rng = randState()
   driver.lastMask = result
+  # Diagnostic: is this bot frozen (~0.6s of no movement) while it holds a
+  # fresh enemy track? That is the "grind a corner / camp while it has someone
+  # to shoot" pathology. decide() maintains stuckTicks; a fresh enemy is one
+  # seen within FreshShotTicks.
+  if bot.stuckTicks >= 15:
+    for t in bot.enemies:
+      if bot.tick - t.lastSeen <= FreshShotTicks:
+        if bot.team == Red: inc campTicksRed else: inc campTicksBlue
+        break
 
 proc parseSlotSet(spec: string): seq[int] =
   for part in spec.split(','):
@@ -123,6 +137,20 @@ proc hunterTune(): CombatTune =
   # priority credit for the locked target.
   result.commit = envInt("SMART", 0) != 0
   result.commitBonus = envFloat("HUNT_COMMIT", CommitBonus)
+  # Fork 2 — local force balance ("don't feed a 1-vs-N"). BALANCE=1 turns it
+  # on; HUNT_MARGIN sweeps the outnumber threshold (2 => retreat at 1v3 / 2v4).
+  result.forceBalance = envInt("BALANCE", 0) != 0
+  result.outnumberMargin = envInt("HUNT_MARGIN", OutnumberMargin)
+  # Fork 3 — corner-grind BUG FIX: allow the stuck-jink to fire while engaged.
+  result.unstuckEngaged = envInt("UNSTUCK", 0) != 0
+  # SEAL gunfighter forks (2026-07-14). SEAL=1 turns the whole bundle on; each
+  # also has its own env override so an A/B can isolate a single lever.
+  let seal = envInt("SEAL", 0) != 0
+  result.aimLock = envInt("AIMLOCK", (if seal: 1 else: 0)) != 0
+  result.huntSweep = envInt("HUNT", (if seal: 1 else: 0)) != 0
+  result.fireOnRealBody = envInt("REALBODY", (if seal: 1 else: 0)) != 0
+  result.threatFacingBonus = envInt("THREATFACE", (if seal: 1 else: 0)) != 0
+  result.unstuckEngaged = result.unstuckEngaged or seal
 
 proc runEpisode(seed, maxTicks, numPlayers: int, hunterSlots: seq[int]):
     EpisodeResult =
@@ -132,8 +160,13 @@ proc runEpisode(seed, maxTicks, numPlayers: int, hunterSlots: seq[int]):
   ## the shipped decide), so paired seeds isolate the hunter's fire discipline.
   let
     engine = newEvalEngine(numPlayers, seed, maxTicks)
-    baseTune = defaultCombatTune()
     huntTune = hunterTune()
+  var baseTune = defaultCombatTune()
+  # CONTROL_COMMIT=1 gives the CONTROL side target commitment too, so an A/B
+  # isolates a NEW fork (e.g. force balance) as the ONLY delta from the current
+  # shipped Picasso (which already runs commit). Left off => pure-baseline control.
+  if envInt("CONTROL_COMMIT", 0) != 0:
+    baseTune.commit = true
   var drivers: seq[BotDriver]
   for slot in 0 ..< engine.playerCount():
     let tune = (if slot in hunterSlots: huntTune else: baseTune)
@@ -176,7 +209,8 @@ proc main() =
     let h = hunterTune()
     echo &"  hunter tune: fresh={h.freshShotTicks} slack={h.fireSlackPx} " &
       &"lead={h.leadTicks} dead={h.combatDeadband} range={h.fireRange} " &
-      &"commit={h.commit} commitBonus={h.commitBonus}"
+      &"commit={h.commit} commitBonus={h.commitBonus} " &
+      &"forceBalance={h.forceBalance} margin={h.outnumberMargin}"
   echo "seed  ticks  over  winner  redK blueK  redC blueC  redS blueS  " &
     "redHit% blueHit%"
 
@@ -186,6 +220,7 @@ proc main() =
     draws = 0
     unfinished = 0
     totRedK, totBlueK, totRedC, totBlueC, totRedS, totBlueS: int
+    totRedD, totBlueD, totRedL, totBlueL: int
   for g in 0 ..< games:
     let seed = baseSeed + g
     let r = runEpisode(seed, maxTicks, numPlayers, hunterSlots)
@@ -205,6 +240,8 @@ proc main() =
     elif r.winnerTeam == 0: inc redWins
     else: inc blueWins
     totRedK += r.redKills; totBlueK += r.blueKills
+    totRedD += r.redDeaths; totBlueD += r.blueDeaths
+    totRedL += r.redLives; totBlueL += r.blueLives
     totRedC += r.redCaptures; totBlueC += r.blueCaptures
     totRedS += r.redShots; totBlueS += r.blueShots
 
@@ -215,9 +252,14 @@ proc main() =
   echo &"TOTals over {games} games:"
   echo &"  wins:     RED {redWins}  BLUE {blueWins}  draw {draws}  unfinished {unfinished}"
   echo &"  kills:    RED {totRedK}  BLUE {totBlueK}"
+  echo &"  deaths:   RED {totRedD}  BLUE {totBlueD}"
+  echo &"  K-D diff: RED {totRedK - totRedD:+d}  BLUE {totBlueK - totBlueD:+d}  " &
+    &"(lives-remaining tiebreak metric; higher wins)"
+  echo &"  lives end:RED {totRedL}  BLUE {totBlueL}"
   echo &"  captures: RED {totRedC}  BLUE {totBlueC}"
   echo &"  shots:    RED {totRedS}  BLUE {totBlueS}"
   echo &"  hit rate: RED {tRedHit:.2f}%  BLUE {tBlueHit:.2f}%"
+  echo &"  camp-ticks (frozen w/ live target): RED {campTicksRed}  BLUE {campTicksBlue}"
 
 when isMainModule:
   main()
