@@ -1368,7 +1368,8 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # track (value the gun cannot collect) or on a tight enemy pair in range.
   var carryingNade = false
   for o in client.spriteObjectsWithLabel("grenade carried"):
-    if dist(client.mapPos(o), me) <= 16.0:
+    # The marker floats above-right of its carrier (+8 x, ~-20 y from center).
+    if dist(client.mapPos(o), me) <= 30.0:
       carryingNade = true
       break
   var
@@ -1397,12 +1398,41 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         nadeAim = bradsOf(p - me)
         nadeThrowD = d
   elif not carryingNade and not iCarry and not mateCarry and not pocketRush:
-    # A corner pickup within a short detour: touch it on the way through.
+    # Collect a pickup: anyone grabs one within a short detour, and the two
+    # flankers own their lane's friendly-side corner spawn — it sits right on
+    # their border route, so they arm up on the way out every respawn cycle.
     for o in client.spriteObjectsWithLabel("grenade"):
       let p = client.mapPos(o)
-      if dist(p, me) <= NadePickupDetour:
+      if p.x < 40.0 or p.y < 40.0 or p.x > float(MapW - 40) or
+          p.y > float(MapH - 40):
+        continue                     # HUD indicator shares the label
+      let laneMatch =
+        (bot.role == FlankTop and p.y < float(CenterY) and
+         homeSign(bot.team) * (p.x - float(CenterX)) > 0) or
+        (bot.role == FlankBottom and p.y > float(CenterY) and
+         homeSign(bot.team) * (p.x - float(CenterX)) > 0)
+      let reach = if laneMatch: 1e9 else: NadePickupDetour
+      if dist(p, me) <= reach:
+        when defined(nadeDebug):
+          echo "DETOUR to pickup at ", p.x, ",", p.y, " role ", bot.role
         target = p
         break
+
+  # Grenade danger: a visible throw-target ring marks where an enemy's lob
+  # will land, and an airborne grenade is seconds from bursting — anything
+  # inside the blast radius eats 2 of 3 hit points. Fleeing the marked spot
+  # outranks every movement goal except nothing: dead carriers drop the run.
+  var
+    nadeDanger = false
+    nadeDangerFrom: Vec
+  block nadeDangerScan:
+    for label in ["throw target", "grenade air"]:
+      for o in client.spriteObjectsWithLabel(label):
+        let p = client.mapPos(o)
+        if dist(p, me) <= NadeBlast + 18.0:
+          nadeDanger = true
+          nadeDangerFrom = p
+          break nadeDangerScan
 
   # Turret + locomotion, decided together but on separate buttons: moveMask
   # is the d-pad, desiredAim feeds the rotate buttons, wantFire pulls A.
@@ -1565,6 +1595,14 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     if bot.jinkBits == 0:
       bot.jinkBits = ButtonUp
     moveMask = bot.jinkBits
+
+  if nadeDanger:
+    # Sprint straight out of the marked blast zone; drop any hold/duck.
+    let away = me - nadeDangerFrom
+    moveMask = octantBits(
+      if len(away) < 1.0: vec(homeSign(bot.team), 0.3) else: away
+    )
+    holdStill = false
 
   if moveMask == 0 and not holdStill:
     moveMask = octantBits(vec(rand(-1.0 .. 1.0), rand(-1.0 .. 1.0)))
