@@ -121,14 +121,28 @@ const
   MaxHp = 3                   # hitPoints per life (config default); pip labels
                               # read "hp <n>/<MaxHp>"
   HpPipRadius = 22.0          # a player's overhead hp bar sits within this
-  HpFocusBonus = 140.0        # px of effective-distance credit per missing
-                              # enemy hit point (a 1-hp target 250px out
-                              # beats a full-hp target at point blank)
-  FocusFireBonus = 90.0       # px of credit when a visible mate's aim line
+  HpFocusBonus = 60.0         # px of effective-distance credit per missing
+                              # enemy hit point — a tiebreak between
+                              # comparably-engageable targets, never a reason
+                              # to swing the turret across the map
+  FocusFireBonus = 45.0       # px of credit when a visible mate's aim line
                               # already covers the target (finish together)
+  TraversePxPerBrad = 1.6     # px of effective distance per brad of turret
+                              # swing needed to lay on the target: err/AimRate
+                              # ticks of traverse at ~8px of enemy closing
+                              # motion per tick = 8/5 px per brad
   MateAimRayLen = 700.0       # trust a mate's aim line out to this range
   MateAimHitSlack = 22.0      # enemy within this perpendicular distance of a
                               # mate's aim ray counts as mate-targeted
+  ButtonC = 1'u8 shl 7        # grenade charge/throw (input mask bit 128)
+  NadeMaxRange = 240.0        # full-charge throw distance (~fifth of the field)
+  NadeMinRange = 60.0         # never lob inside this — the ~40px blast + drift
+                              # would clip us
+  NadeBlast = 40.0            # blast radius; a pair this close dies together
+  NadeFullChargeTicks = 24    # ~1s of holding C reaches max range
+  NadePickupDetour = 90.0     # grab a corner pickup within this detour range
+  CarrierEstSpeed = 1.0       # px/tick a fogged mate-carrier is assumed to
+                              # advance homeward (carrier moves at ~70% speed)
   CombatDeadband = 2          # stop the traverse within this error (brads);
                               # AimRate 5 cannot settle tighter than +-2
   CruiseDeadband = 8          # sloppier deadband for non-combat aim
@@ -218,6 +232,10 @@ type
     stuckTicks: int
     jinkUntil: int
     jinkBits: uint8
+    nadeCharge: int           # ticks the C button has been held; 0 = idle
+    mateFixPos: Vec           # last SEEN position of a mate-carried enemy heart
+    mateFixTick: int          # tick of that sighting; 0 = never seen this game
+    nadeNeed: int             # charge ticks required for the planned throw
 
 proc roleForSeat(seat: int, team: Team): Role =
   ## Deterministic role spread over the 8 per-team seats. Seats 2 and 3 both
@@ -228,15 +246,21 @@ proc roleForSeat(seat: int, team: Team): Role =
   ## with no global flag tracking a carrier that slips the contest is hard to
   ## reacquire, so committed offense converts steals into captures, and the
   ## back line is one lane sniper plus the home defender.
-  case seat
-  of 0: FlankBottom      # wide bottom lane, get behind the contest
-  of 1: MidGuard         # third mid, trails offset high and cleans up
-  of 2: (if team == Blue: MidTop else: MidBottom)
-  of 3: (if team == Red: MidTop else: MidBottom)
-  of 4: MidBottom        # fourth mid: the second trailing attacker
-  of 5: Overwatch        # cover post flanking the ring: the lane sniper
-  of 6: FlankTop         # wide top lane, get behind the contest
-  else: HomeDefender     # choke guard before our capture column
+  when defined(rushAll):
+    # Shuffled-seat leagues deal this policy 1-2 agents onto random mixed
+    # teams: coordinated-wave roles waste the seat, and a single capture wins
+    # the episode outright, so every seat plays the flag-racing rusher.
+    MidTop
+  else:
+    case seat
+    of 0: FlankBottom      # wide bottom lane, get behind the contest
+    of 1: MidGuard         # third mid, trails offset high and cleans up
+    of 2: (if team == Blue: MidTop else: MidBottom)
+    of 3: (if team == Red: MidTop else: MidBottom)
+    of 4: MidBottom        # fourth mid: the second trailing attacker
+    of 5: Overwatch        # cover post flanking the ring: the lane sniper
+    of 6: FlankTop         # wide top lane, get behind the contest
+    else: HomeDefender     # choke guard before our capture column
 
 proc vec(x, y: float): Vec =
   Vec(x: x, y: y)
@@ -872,6 +896,8 @@ proc resetTransient(bot: Bot) =
   ## Drops per-game memory between rounds (lobby / game-over interstitials).
   bot.enemies.setLen(0)
   bot.mates.setLen(0)
+  bot.nadeCharge = 0
+  bot.mateFixTick = 0
   bot.carrierSeen = -100_000
   bot.lastEnemySeen = bot.tick
   bot.gameStart = bot.tick
@@ -1029,6 +1055,25 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     elif dist(fp, stealTarget) > 16.0:
       mateCarry = true                   # only a teammate can be carrying it
       mateCarryPos = fp
+      bot.mateFixPos = fp
+      bot.mateFixTick = bot.tick
+  else:
+    # The enemy heart is ABSENT from the frame: it is off its pedestal on a
+    # FOGGED carrier — and only OUR team can carry it, so a teammate is
+    # running it home right now even though we cannot see it. Without this
+    # inference the whole wave keeps pressing an empty pedestal instead of
+    # covering the run. Escort a dead-reckoned fix: the last sighting (or
+    # the pedestal it was lifted from) advanced homeward at carrier speed.
+    mateCarry = true
+    var est =
+      if bot.mateFixTick > 0: bot.mateFixPos
+      else: stealTarget
+    let elapsed = float(bot.tick - max(bot.mateFixTick, bot.gameStart))
+    est.x += homeSign(bot.team) * min(
+      abs(ownHome.x - est.x),
+      elapsed * CarrierEstSpeed
+    )
+    mateCarryPos = est
   var ownStolen = ownFlags.len == 0
   if ownFlags.len > 0:
     let fp = client.mapPos(ownFlags[0])
@@ -1081,7 +1126,12 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       target = vec(homeDeepX(bot.team), laneY)
   elif ownStolen and (bot.role == HomeDefender or
       (bot.role == Overwatch and
+       bot.tick - bot.carrierSeen <= ThiefFixTtl) or
+      (defined(swarm) and not iCarry and not mateCarry and
        bot.tick - bot.carrierSeen <= ThiefFixTtl)):
+    # swarm: in shuffled-seat leagues this policy fields only 2-3 agents and
+    # their roles are seat-lottery — when our flag is stolen with a fresh fix,
+    # whoever sees it hunts, or an enemy capture ends the episode against us.
     # The back line intercepts the thief running OUR flag toward ITS home
     # edge; attackers keep pressing the enemy pedestal so the capture race
     # stays on. With a fresh fix, converge on the predicted route; without
@@ -1130,12 +1180,20 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       else:
         target = mateCarryPos + vec(-homeSign(bot.team) * 32.0, 0.0)
     of Overwatch:
-      # The posts already overwatch the carrier's retreat across mid.
-      target =
-        if bot.postReady: bot.postHold
-        else: mateCarryPos + vec(-homeSign(bot.team) * 32.0, 0.0)
+      when defined(swarm):
+        # Only 2-3 of our agents exist: a completed capture ends the episode,
+        # so even the back line escorts the run home.
+        target = mateCarryPos + vec(homeSign(bot.team) * 40.0, 24.0)
+      else:
+        # The posts already overwatch the carrier's retreat across mid.
+        target =
+          if bot.postReady: bot.postHold
+          else: mateCarryPos + vec(-homeSign(bot.team) * 32.0, 0.0)
     of HomeDefender:
-      target = bot.chokeHold
+      when defined(swarm):
+        target = mateCarryPos + vec(homeSign(bot.team) * 40.0, -24.0)
+      else:
+        target = bot.chokeHold
   elif bot.role == HomeDefender and not pushOut:
     # Hold the choke on our pedestal approach; break off to chase the nearest
     # intruder on our half (every steal has to come through here).
@@ -1265,10 +1323,15 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     let d = dist(predicted, me)
     if d >= maxEngage:
       continue
-    # Target priority: distance, discounted for wounded targets (a 1-hp
-    # enemy dies to one shot — finish it before it resets on respawn) and
-    # for targets a visible mate is already lined up on (focus fire).
-    var prio = d
+    # Target priority: distance plus the turret swing needed to lay on the
+    # target (the traverse is slow, so a target near the current aim line
+    # dies sooner than a nearer one behind us), discounted for wounded
+    # targets (a 1-hp enemy dies to one shot — finish it before it resets on
+    # respawn) and for targets a visible mate is already lined up on (focus
+    # fire). The discounts are tiebreaks between comparably-engageable
+    # targets, deliberately smaller than a real positional difference.
+    var prio = d +
+      float(abs(bradsErr(bradsOf(predicted - me), bot.estAim))) * TraversePxPerBrad
     if t.hp in 1 ..< MaxHp:
       prio -= float(MaxHp - t.hp) * HpFocusBonus
     if mateTargeted[i]:
@@ -1299,6 +1362,48 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       nearThreatD = d
       nearThreat = i
 
+  # Grenades (0.7.0): a lobbed 2-hp blast that flies over every wall — the
+  # counter to cover-campers the hitscan gun can never reach. Carry one when a
+  # corner pickup is a short detour away; spend it on a wall-blocked fresh
+  # track (value the gun cannot collect) or on a tight enemy pair in range.
+  var carryingNade = false
+  for o in client.spriteObjectsWithLabel("grenade carried"):
+    if dist(client.mapPos(o), me) <= 16.0:
+      carryingNade = true
+      break
+  var
+    nadeAim = -1
+    nadeThrowD = 0.0
+  if carryingNade and not iCarry:
+    var bestD = 1e18
+    for i in 0 ..< bot.enemies.len:
+      let t = bot.enemies[i]
+      if bot.tick - t.lastSeen > FreshShotTicks:
+        continue
+      let p = t.pos + t.vel * float(bot.tick - t.lastSeen)
+      let d = dist(p, me)
+      if d < NadeMinRange or d > NadeMaxRange or d >= bestD:
+        continue
+      let blocked = not client.pixelRayClear(me, p)
+      var paired = false
+      if not blocked:
+        for j in 0 ..< bot.enemies.len:
+          if j != i and bot.tick - bot.enemies[j].lastSeen <= FreshShotTicks and
+              dist(bot.enemies[j].pos, p) <= NadeBlast:
+            paired = true
+            break
+      if blocked or paired:
+        bestD = d
+        nadeAim = bradsOf(p - me)
+        nadeThrowD = d
+  elif not carryingNade and not iCarry and not mateCarry and not pocketRush:
+    # A corner pickup within a short detour: touch it on the way through.
+    for o in client.spriteObjectsWithLabel("grenade"):
+      let p = client.mapPos(o)
+      if dist(p, me) <= NadePickupDetour:
+        target = p
+        break
+
   # Turret + locomotion, decided together but on separate buttons: moveMask
   # is the d-pad, desiredAim feeds the rotate buttons, wantFire pulls A.
   var
@@ -1308,7 +1413,26 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     wantFire = false
     acted = false
     holdStill = false
-  if engage >= 0 and shotReady:
+    nadeC = false
+  if bot.nadeCharge > 0 or nadeAim >= 0:
+    # Charge-throw: lay the turret on the lob line, then hold C for the ticks
+    # the planned distance needs and release — the grenade leaves along the
+    # CURRENT aim on release, so the turret keeps correcting while charging.
+    if bot.nadeCharge == 0:
+      bot.nadeNeed = max(3, int(float(NadeFullChargeTicks) *
+        (nadeThrowD - 30.0) / (NadeMaxRange - 30.0)))
+    if nadeAim >= 0:
+      desiredAim = nadeAim
+    if bot.nadeCharge > 0 or (desiredAim >= 0 and
+        abs(bradsErr(desiredAim, bot.estAim)) <= CombatDeadband + 2):
+      if bot.nadeCharge < bot.nadeNeed:
+        nadeC = true
+        inc bot.nadeCharge
+      else:
+        bot.nadeCharge = 0           # release this tick = the throw
+    holdStill = true
+    acted = true
+  elif engage >= 0 and shotReady:
     # Traverse onto the target and fire once the corridor covers it: the
     # perpendicular miss of the current aim error at the target's range must
     # sit inside the ~14px bullet corridor. Advancing scales that miss down
@@ -1460,6 +1584,8 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   var mask = moveMask or rotBits
   if wantFire and not bot.firedLast:
     mask = moveMask or ButtonA
+  if nadeC:
+    mask = mask or ButtonC
   bot.firedLast = (mask and ButtonA) != 0
   bot.rotSign =
     if (mask and ButtonB) != 0: 1
