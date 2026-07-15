@@ -7,7 +7,7 @@ import
 
 const
   GameName* = "ctf"
-  GameVersion* = "1"
+  GameVersion* = "2"
   ReplayFps* = 24
   DefaultMapPath* = "arena"
   DarkBgPath* = "data/darkbg.aseprite"
@@ -50,7 +50,9 @@ const
                               ## at the pull, so a peeking target can duck back.
   ShotFxTicks* = 12           ## ~0.5s a shot tracer stays visible (cosmetic only).
   SplatterFxTicks* = 120      ## ~5s a death splatter stays visible (cosmetic only).
-  HitFxTicks* = 34            ## ~1.4s a non-fatal hit's paint splat stays visible.
+  KillFxTicks* = 2            ## kill attribution is consumed the same tick it
+                              ## fires; a 2-tick window keeps it robust without
+                              ## letting the telemetry list grow unbounded.
   CarrierSpeedPct* = 70       ## carrier moves at 70% speed.
   AimBradsTurn* = 256         ## aim angle units per full turn (binary radians).
   AimTurnRate* = 5            ## brads/tick a held rotate button turns the aim
@@ -70,10 +72,23 @@ const
   MaxPlayers* = 16
   MinPlayers* = 16
 
-  WinReward* = 100
+  WinReward* = 1              ## each winner scores +1 on capture or wipe.
+  LossReward* = -1            ## each loser scores -1 on capture or wipe.
 
   FlagPickupRange* = 12       ## touch radius to steal the enemy flag.
   CaptureZoneWidth* = 40      ## width of each home-edge capture zone.
+
+  GrenadeSpawnInset* = 40     ## corner grenade spawn inset from the border.
+  GrenadePickupRange* = 12    ## touch radius to pick a grenade up.
+  GrenadeRespawnTicks* = 30 * ReplayFps  ## a taken corner refills after 30s.
+  GrenadeMaxRange* = MapWidth div 5  ## max throw distance (full charge).
+  GrenadeMinRange* = 30       ## a tap's distance: inside the blast radius,
+                              ## so a panicked drop can hurt the thrower.
+  GrenadeChargeTicks* = 24    ## hold this long for a full-strength throw.
+  GrenadeFlightSpeed* = 6     ## airborne px per tick.
+  GrenadeBlastRadius* = 40    ## everyone inside the blast takes damage.
+  GrenadeDamage* = 2          ## hit points removed by one blast.
+  BlastFxTicks* = 12          ## cosmetic blast flash duration in ticks.
 
   TextColor* = 2'u8
   TextLineHeight* = 7
@@ -81,8 +96,10 @@ const
   MapObjectId* = 1
   MapLayerId* = 0
   MapLayerType* = 0
-  TopLeftLayerId* = 1
-  TopLeftLayerType* = 1
+  ScoreboardLayerId* = 1       ## red team roster panel.
+  ScoreboardLayerType* = 1     ## top-left anchor.
+  ScoreboardRightLayerId* = 12 ## blue team roster panel.
+  ScoreboardRightLayerType* = 2  ## top-right anchor.
   BottomRightLayerId* = 3
   BottomRightLayerType* = 3
   ZoomableLayerFlag* = 1
@@ -281,6 +298,8 @@ type
     windupBrads*: int          ## aim angle locked at the trigger pull, -1 = none.
     spawnProtect*: int
     carryingFlag*: bool
+    hasGrenade*: bool          ## each player carries at most one grenade.
+    throwCharge*: int          ## ticks the throw button has been held.
     joinOrder*: int
     address*: string
     color*: uint8
@@ -304,13 +323,41 @@ type
     color*: uint8
 
   SplatterFx* = object
-    ## A cosmetic death splatter mark; never enters gameHash (replay-safe). A
-    ## `hit` mark is the smaller, shorter-lived paint spark left by a non-fatal
-    ## hit; a death mark (hit == false) is the larger, long-dwelling splatter.
+    ## A cosmetic death splatter mark; never enters gameHash (replay-safe).
     x*, y*: int
     tick*: int
     color*: uint8
-    hit*: bool
+
+  BlastFx* = object
+    ## A cosmetic grenade blast flash; never enters gameHash (replay-safe).
+    ## Landing is audible: views also derive their landing sound rings here.
+    x*, y*: int
+    tick*: int
+
+  KillFx* = object
+    ## Exact killer→victim attribution for one death, recorded at the single
+    ## choke point (killPlayer) so the kill-feed pairs them correctly even when
+    ## several players die on the same tick (grenade blasts, simultaneous
+    ## fire). Counter-diffing alone cannot pair a multi-kill tick. `killer`
+    ## equals `victim` on a self-kill (a thrower caught in their own blast).
+    ## Never enters gameHash (replay-safe telemetry, like the other Fx).
+    victim*, killer*: int
+    tick*: int
+
+  GrenadeSpawn* = object
+    ## One corner grenade pickup point.
+    x*, y*: int
+    present*: bool
+    respawnAt*: int            ## tick the pickup refills (when not present).
+
+  AirborneGrenade* = object
+    ## One thrown grenade in flight: it flies OVER walls in a straight line
+    ## from the throw point to the target and explodes on landing.
+    sx*, sy*: int
+    tx*, ty*: int
+    launchTick*: int
+    flightTicks*: int
+    thrower*: int
 
   FlagState* = object
     ## One team's flag: provably either sitting on its home pedestal
@@ -339,6 +386,10 @@ type
     tickCount*: int
     recentShots*: seq[ShotFx]  ## cosmetic shot tracers; excluded from gameHash.
     splatters*: seq[SplatterFx]  ## cosmetic death splatters; excluded from gameHash.
+    recentBlasts*: seq[BlastFx]  ## cosmetic grenade blasts; excluded from gameHash.
+    recentKills*: seq[KillFx]  ## exact per-death attribution; excluded from gameHash.
+    grenadeSpawns*: array[4, GrenadeSpawn]
+    airborneGrenades*: seq[AirborneGrenade]
     gameStartTick*: int
     startWaitTimer*: int
     phase*: GamePhase
@@ -370,26 +421,11 @@ proc loadSpriteSheet*(): Image =
   readAsepriteImage(spriteSheetPath())
 
 proc crewSheetPath(): string =
-  ## Returns the crew sprite sheet path. A hand-pixeled crew.png (the
-  ## purpose-built tactical soldier) is preferred; the legacy crew.aseprite is
-  ## the fallback so an art rollback needs no code change.
-  for candidate in [
-    gameDir() / "data" / "crew.png",
-    clientDataDir() / "crew.png",
-    clientDataDir() / "crew.aseprite",
-    gameDir() / "data" / "crew.aseprite",
-  ]:
-    if fileExists(candidate):
-      return candidate
+  ## Returns the crew sprite sheet path.
+  let path = clientDataDir() / "crew.aseprite"
+  if fileExists(path):
+    return path
   gameDir() / "data" / "crew.aseprite"
-
-proc readCrewSheetImage(path: string): Image =
-  ## Reads the crew sheet as a Pixie image from either a PNG or an aseprite
-  ## file (both render to the same RGBA Image the crew tint path consumes).
-  if path.toLowerAscii.endsWith(".png"):
-    readImage(path)
-  else:
-    readAsepriteImage(path)
 
 proc crewSpriteOffset*(sprite: CrewSprite, x, y: int): int =
   ## Returns the RGBA byte offset for one crew sprite pixel.
@@ -429,7 +465,7 @@ proc loadCrewSpriteRow*(row: int, label: string): seq[CrewSprite] =
     raise newException(CtfError, "Crew sprite sheet row is negative.")
   let
     path = crewSheetPath()
-    image = readCrewSheetImage(path)
+    image = readAsepriteImage(path)
   if image.width < CrewSpriteSize * CrewSpriteVariants or
       image.height < CrewSpriteSize * (row + 1):
     raise newException(
@@ -481,16 +517,19 @@ proc validateMap(gameMap: CtfMap) =
 
 const
   ArenaName = "arena"
-  ArenaBorder = 10             ## perimeter wall thickness in px.
+  ArenaBorder* = 10            ## perimeter wall thickness in px.
   ArenaFlagRing = 70           ## clear radius of the open center ring.
   ArenaCaptureClear = 210      ## x-columns kept traversable for carriers.
   ArenaSpawnClearW = 70        ## half-width of the open spawn pockets.
   ArenaSpawnClearH = 130       ## half-height of the open spawn pockets.
 
-  ## Warm CRT-phosphor arena (REPLAY_DESIGN §3 art-lock): warm-dark floor,
-  ## warm-stone cover, the two team colors the only saturated channels — never
-  ## the cold blue-slate default the house style forbids.
-  ArenaBorderColor = rgba(44, 34, 25, 255)
+  ArenaFloor = rgba(24, 26, 34, 255)      ## dark walkable floor.
+  ArenaWall = rgba(96, 104, 128, 255)     ## lighter, distinct wall.
+  ArenaBorderColor = rgba(60, 66, 84, 255)
+  ArenaRedTint = rgba(120, 40, 44, 70)    ## territory wash over Red half.
+  ArenaBlueTint = rgba(44, 60, 128, 70)   ## territory wash over Blue half.
+  ArenaRedPedestal = rgba(224, 96, 88, 255)   ## Red flag pedestal marker.
+  ArenaBluePedestal = rgba(96, 128, 232, 255) ## Blue flag pedestal marker.
 
   ## Interior obstacle shapes for the LEFT half only. Each is mirrored
   ## across the vertical center line so both halves are identical, and the
@@ -669,7 +708,7 @@ proc inShape(x, y: int, shape: ArenaShape): bool =
       dx * dx + dy * dy <=
         shape.thickness * shape.thickness * len2 * len2 div 4
 
-const ArenaObstacles = block:
+const ArenaObstacles* = block:
   ## The full obstacle set: every left-half shape plus its x-mirror,
   ## precomputed once so the per-pixel wall test never re-mirrors.
   var shapes: seq[ArenaShape]
@@ -677,6 +716,36 @@ const ArenaObstacles = block:
     shapes.add shape
     shapes.add shape.mirrorX()
   shapes
+
+proc inShapeF*(x, y: float, shape: ArenaShape): bool =
+  ## Float-coordinate inShape: the render-scale rasterizer evaluates the same
+  ## geometry at sub-pixel positions for crisp high-resolution wall edges.
+  ## Collision and FOV keep using the integer predicate; the two may disagree
+  ## by less than one map pixel along shape boundaries, which is invisible.
+  case shape.kind
+  of shapeRect:
+    x >= float(shape.rect.x) and x < float(shape.rect.x + shape.rect.w) and
+      y >= float(shape.rect.y) and y < float(shape.rect.y + shape.rect.h)
+  of shapeDisc:
+    let
+      dx = x - float(shape.cx)
+      dy = y - float(shape.cy)
+    dx * dx + dy * dy <= float(shape.radius * shape.radius)
+  of shapeDiamond:
+    abs(x - float(shape.cx)) + abs(y - float(shape.cy)) <=
+      float(shape.radius)
+  of shapeDiagonal:
+    let
+      vx = float(shape.x1 - shape.x0)
+      vy = float(shape.y1 - shape.y0)
+      wx = x - float(shape.x0)
+      wy = y - float(shape.y0)
+      len2 = vx * vx + vy * vy
+      t = clamp(wx * vx + wy * vy, 0.0, len2)
+      dx = wx * len2 - t * vx
+      dy = wy * len2 - t * vy
+    dx * dx + dy * dy <=
+      float(shape.thickness * shape.thickness) * len2 * len2 / 4.0
 
 proc isProtectedFloor(x, y, cx, cy: int): bool =
   ## Regions that MUST stay walkable: the flag ring, both spawn pockets,
@@ -705,6 +774,37 @@ proc isArenaWall(x, y, cx, cy: int): bool =
       return true
   false
 
+proc isProtectedFloorF(x, y: float, cx, cy: int): bool =
+  ## Float-coordinate isProtectedFloor for the render-scale rasterizer.
+  if x < float(ArenaCaptureClear) or
+      x >= float(MapWidth - ArenaCaptureClear):
+    return true
+  let
+    dx = x - float(cx)
+    dy = y - float(cy)
+  if dx * dx + dy * dy <= float(ArenaFlagRing * ArenaFlagRing):
+    return true
+  for homeX in [186.0, 1049.0]:
+    if abs(x - homeX) <= float(ArenaSpawnClearW) and
+        abs(y - float(cy)) <= float(ArenaSpawnClearH):
+      return true
+  false
+
+proc obstacleWallAtF*(x, y: float, cx, cy: int): bool =
+  ## Float-coordinate interior-obstacle test (the border ring excluded);
+  ## the high-resolution renderer draws the border as separate slabs.
+  if isProtectedFloorF(x, y, cx, cy):
+    return false
+  for shape in ArenaObstacles:
+    if inShapeF(x, y, shape):
+      return true
+  false
+
+proc shapeWallAtF*(x, y: float, shape: ArenaShape, cx, cy: int): bool =
+  ## Float-coordinate test for one shape with the protected-floor carve
+  ## applied, matching what the integer wall mask keeps of that shape.
+  inShapeF(x, y, shape) and not isProtectedFloorF(x, y, cx, cy)
+
 proc overTint(base, tint: ColorRGBA): ColorRGBA =
   ## Alpha-composites a translucent tint over an opaque base color.
   let a = tint.a.int
@@ -715,159 +815,8 @@ proc overTint(base, tint: ColorRGBA): ColorRGBA =
     255
   )
 
-proc tileSample(tex: Image, x, y: int): ColorRGBA =
-  ## Samples a seamless texture tiled across the arena (opaque source).
-  tex.unsafe[x mod tex.width, y mod tex.height].rgba
-
-proc blitCover(dst, spr: Image, cx, cy, size: int) =
-  ## Alpha-composites a cover-object sprite onto the board, centered on its
-  ## collision shape and scaled to the shape's footprint (plus a little for the
-  ## baked contact shadow). The sprite's transparency lets the textured floor
-  ## show through; the board stays fully opaque (opaque dst + src-over).
-  if size <= 0 or spr.width == 0:
-    return
-  let scaled = spr.resize(size, size)
-  dst.draw(scaled, translate(vec2((cx - size div 2).float32,
-                                  (cy - size div 2).float32)))
-
-## --- Carved-stone wall material (top-down bevel from the collision mask) ---
-## Every wall pixel — border frame, rect stub, diamond, disc, or chevron — is
-## rendered as one coherent RAISED-STONE block whose shading comes from its
-## distance to the nearest floor pixel. This replaces the old approach of
-## tiling a SIDE-VIEW brick photo into the mask (which sliced the brick course
-## mid-pattern → the "torn ribbon" chevrons) and blitting three clashing prop
-## sprites (wood crate / steampunk pipe / barrel) scaled to a square that never
-## matched the diamond/disc/diagonal footprints. Because the shading is derived
-## from the mask, the art matches every collider EXACTLY and is identical on
-## both halves by construction (the mask is mirror-symmetric). Light comes from
-## the up-left, so the up-left faces catch a highlight and the down-right faces
-## fall into shadow — the Gungeon/Nuclear-Throne top-down convention (L98).
-const
-  WallBevel = 3                          ## px width of the lit/shadow bevel band.
-  StoneFace = rgba(120, 100, 78, 255)    ## flat top face of a raised stone block.
-  StoneHi = rgba(190, 167, 137, 255)     ## up-left lit bevel (catches the light).
-  StoneLo = rgba(68, 54, 41, 255)        ## down-right shaded bevel (falls to dark).
-  StoneInk = rgba(34, 26, 19, 255)       ## warm near-black carve line (never #000).
-
-proc floorDistDir(wall: seq[bool], w, h, x, y, dx, dy, cap: int): int =
-  ## Steps from (x, y) along (dx, dy) until the first floor (non-wall) pixel,
-  ## capped at `cap`. Off-map counts as wall (the border is solid), so a pixel
-  ## with no floor within `cap` in that direction returns cap + 1.
-  for step in 1 .. cap:
-    let
-      nx = x + dx * step
-      ny = y + dy * step
-    if nx < 0 or ny < 0 or nx >= w or ny >= h:
-      continue
-    if not wall[ny * w + nx]:
-      return step
-  cap + 1
-
-proc carvedStoneColor(wall: seq[bool], w, h, x, y: int): ColorRGBA =
-  ## Shades one wall pixel as raised carved stone: a 1px ink carve line where it
-  ## meets the floor, a highlight on faces toward the up-left light, a shadow on
-  ## faces toward the down-right, and a flat face deep inside the block.
-  let
-    up = floorDistDir(wall, w, h, x, y, 0, -1, WallBevel)
-    left = floorDistDir(wall, w, h, x, y, -1, 0, WallBevel)
-    down = floorDistDir(wall, w, h, x, y, 0, 1, WallBevel)
-    right = floorDistDir(wall, w, h, x, y, 1, 0, WallBevel)
-  if min(min(up, down), min(left, right)) == 1:
-    return StoneInk                      ## touches the floor → carve outline.
-  let
-    topDist = min(up, left)              ## nearer the up-left (lit) rim.
-    botDist = min(down, right)           ## nearer the down-right (shaded) rim.
-  if topDist <= WallBevel and topDist <= botDist:
-    ## Graded lit bevel: brightest at the rim (topDist == 2, just inside the
-    ## ink line), easing back to the flat face by WallBevel so the block reads
-    ## as a rounded raised edge, not a flat painted band.
-    let t = (topDist - 2).float / max(1, WallBevel - 2).float
-    mix(StoneHi, StoneFace, clamp(t, 0.0, 1.0))
-  elif botDist <= WallBevel:
-    let t = (botDist - 2).float / max(1, WallBevel - 2).float
-    mix(StoneLo, StoneFace, clamp(t, 0.0, 1.0))
-  else:
-    StoneFace
-
-## --- Capture endzones (the floor a carrier must reach to score) ---
-## The win condition is a full-height vertical column at each home edge: a live
-## carrier scores the instant its center-x crosses the inner threshold, at ANY
-## height (captureZoneXRange / checkWinConditions). We make that legible by
-## painting the endzone INTO the floor — an in-world "painted endzone", not HUD
-## chrome — so it rides the board sprite and scales with the locked composition.
-## The old broad half-board territory wash was removed for muddying the flagstone
-## into "gradient columns" (L98 #4); this is the opposite: a CONFINED tint inside
-## the narrow scoring column only, anchored by a crisp bright threshold line at
-## the exact x a carrier must cross. Cosmetic over mapImage → hash-safe.
-const
-  EndzoneCrackGlow = 165         ## ember alpha on the darkest grout pixels (kept
-                                 ## below the pedestal glow so the flag home
-                                 ## stays the brightest thing in the endzone).
-  EndzoneLineAlpha = 220         ## solid threshold line at the exact score-x.
-  EndzoneLineW = 3               ## px width of that threshold line.
-  # The flagstone texture runs dark (lum ~26..117, faces ~73+, grout ~<46), so
-  # a single "below X" gate lit the whole floor. These two points bracket the
-  # real split: at/above FaceLevel a pixel is a lit face → NO glow; at/below
-  # CrackLevel it's grout → full glow; linear between.
-  EndzoneFaceLevel = 66          ## lit stone face floor luminance (glow = 0).
-  EndzoneCrackLevel = 34         ## grout/seam luminance (glow = full).
-  EndzoneGlowFloor = 0.82        ## min home-falloff so the far end still glows.
-  RedEndzoneColor = rgba(224, 82, 58, 255)    ## team vermillion (§4).
-  BlueEndzoneColor = rgba(63, 124, 196, 255)  ## team cerulean (§4).
-
-proc emberThroughCracks(base, ember: ColorRGBA, strength: float): ColorRGBA =
-  ## Lets a team ember glow seep UP ONLY through the DARK crack/grout pixels of
-  ## the flagstone TEXTURE — the lit stone faces stay completely clean (no base
-  ## wash), so team color is confined to the actual fissures/seams, not a flat
-  ## tint over the tiles (L98 #4). Distinct from the solid capture LINE, which is
-  ## a painted stripe. A two-point luminance gate anchored to the measured floor
-  ## split does the confining; `strength` is a gentle pedestal-side falloff.
-  let l = (base.r.int * 30 + base.g.int * 59 + base.b.int * 11) div 100
-  # 0 at/above a lit face, 1 at/below grout — cracks only, faces untouched.
-  let crack = clamp((EndzoneFaceLevel - l).float /
-    (EndzoneFaceLevel - EndzoneCrackLevel).float, 0.0, 1.0)
-  let a = strength * crack * crack * EndzoneCrackGlow.float
-  overTint(base, rgba(ember.r, ember.g, ember.b, uint8(clamp(a, 0.0, 255.0))))
-
-proc endzoneColorAt(base: ColorRGBA, x, redHi, blueLo, playLo, playHi: int):
-    ColorRGBA =
-  ## Tints one floor pixel if it sits inside a capture endzone column. `redHi`
-  ## is Red's inclusive right threshold x; `blueLo` is Blue's inclusive left
-  ## threshold x; `playLo`/`playHi` are the inner playfield edges (for the
-  ## glow falloff). Team ember seeps up through the tile cracks, brightest at the
-  ## pedestal (the inner threshold edge) and floored so the whole zone still
-  ## glows; the exact threshold x a carrier must cross gets a crisp solid line.
-  if x <= redHi:
-    if x > redHi - EndzoneLineW:
-      overTint(base, rgba(RedEndzoneColor.r, RedEndzoneColor.g,
-        RedEndzoneColor.b, EndzoneLineAlpha))
-    else:
-      let near = clamp((x - playLo).float / max(1, redHi - playLo).float, 0.0, 1.0)
-      emberThroughCracks(base, RedEndzoneColor,
-        EndzoneGlowFloor + (1.0 - EndzoneGlowFloor) * near)
-  elif x >= blueLo:
-    if x < blueLo + EndzoneLineW:
-      overTint(base, rgba(BlueEndzoneColor.r, BlueEndzoneColor.g,
-        BlueEndzoneColor.b, EndzoneLineAlpha))
-    else:
-      let near = clamp((playHi - x).float / max(1, playHi - blueLo).float, 0.0, 1.0)
-      emberThroughCracks(base, BlueEndzoneColor,
-        EndzoneGlowFloor + (1.0 - EndzoneGlowFloor) * near)
-  else:
-    base
-
 proc loadMapLayers*(gameMap: CtfMap): tuple[mapImage, walkImage, wallImage: Image] =
-  ## Builds the visual map plus the walk and wall masks for the arena. The
-  ## visuals: a tiled top-down flagstone floor, and ONE coherent carved-stone
-  ## material for every wall pixel — border frame, rect stub, diamond, disc, and
-  ## chevron alike — beveled from the collision mask itself so the art matches
-  ## each collider EXACTLY and is identical on both halves by construction. The
-  ## old side-view brick texture (sliced mid-course into the shapes → "torn
-  ## ribbon" chevrons) and the three clashing prop sprites (wood crate /
-  ## steampunk pipe / barrel scaled to a square over diamond/disc footprints)
-  ## are gone (L98 #4: one baked material; let flags + pedestals carry team
-  ## identity). Team pedestals stay. The walk/wall COLLISION masks are
-  ## byte-identical to before — the art is cosmetic over the exact geometry.
+  ## Builds the visual map plus the walk and wall masks for the arena.
   let
     w = gameMap.width
     h = gameMap.height
@@ -879,51 +828,35 @@ proc loadMapLayers*(gameMap: CtfMap): tuple[mapImage, walkImage, wallImage: Imag
   let
     clear = rgba(0, 0, 0, 0)
     opaque = rgba(255, 255, 255, 255)
-    dir = gameDir()
-    floorTex = readImage(dir / "data/arena_floor.png")
-    pedRedSpr = readImage(dir / "data/ped_red.png")
-    pedBlueSpr = readImage(dir / "data/ped_blue.png")
-  ## Pass 1: the boolean wall mask (border + obstacles), shared by the shading
-  ## bevel and the collision masks so art and geometry can never disagree.
-  var wallMask = newSeq[bool](w * h)
-  for y in 0 ..< h:
-    for x in 0 ..< w:
-      wallMask[y * w + x] = isArenaWall(x, y, cx, cy)
-  ## The capture endzones: the exact score-columns from checkWinConditions'
-  ## captureZoneXRange (Red's inclusive right threshold, Blue's inclusive left),
-  ## painted into the FLOOR below so a carrier can read where to run.
-  let
-    redHi = gameMap.teamHomeX(Red) + CaptureZoneWidth div 2
-    blueLo = gameMap.teamHomeX(Blue) - CaptureZoneWidth div 2
-    playLo = ArenaBorder                     # inner playfield edges: the glow
-    playHi = w - 1 - ArenaBorder             # anchors home, fades to the line.
-  ## Pass 2: paint. Floor pixels sample the flagstone tile; wall pixels are the
-  ## carved-stone material shaded from the mask. The perimeter frame is the same
-  ## stone darkened so the play space reads as a lit pit. Floor pixels inside a
-  ## capture column get a CONFINED team endzone tint + a bright threshold line
-  ## (endzoneColorAt) — not the removed broad half-board wash (L98 #4).
   for y in 0 ..< h:
     for x in 0 ..< w:
       let
         onBorder = x < ArenaBorder or y < ArenaBorder or
           x >= w - ArenaBorder or y >= h - ArenaBorder
-        wall = wallMask[y * w + x]
+        wall = isArenaWall(x, y, cx, cy)
       var color =
-        if wall: carvedStoneColor(wallMask, w, h, x, y)
-        else: endzoneColorAt(tileSample(floorTex, x, y), x, redHi, blueLo,
-          playLo, playHi)
-      if onBorder:
-        color = overTint(color, ArenaBorderColor)
+        if onBorder: ArenaBorderColor
+        elif wall: ArenaWall
+        else: ArenaFloor
+      if not wall:
+        ## Team territory wash on the readable floor.
+        if x < cx:
+          color = overTint(color, ArenaRedTint)
+        else:
+          color = overTint(color, ArenaBlueTint)
       result.mapImage[x, y] = color
       result.walkImage[x, y] = if wall: clear else: opaque
       result.wallImage[x, y] = if wall: opaque else: clear
-  ## Carved team pedestal under each flag home (walkable — sits inside the
-  ## protected spawn pocket; cosmetic only, collision masks untouched).
+  ## Draw a small team-colored pedestal marker under each flag home (stays
+  ## walkable; the pedestals sit inside the protected spawn pockets).
   for team in Team:
     let
       home = gameMap.flagHome(team)
-      spr = if team == Red: pedRedSpr else: pedBlueSpr
-    blitCover(result.mapImage, spr, home.x, home.y, 96)
+      color = (if team == Red: ArenaRedPedestal else: ArenaBluePedestal)
+    for dy in -4 .. 4:
+      for dx in -4 .. 4:
+        if dx * dx + dy * dy <= 16:
+          result.mapImage[home.x + dx, home.y + dy] = color
 
 proc loadDarkBgPixels*(): seq[uint8] =
   ## Loads the dark interstitial background as palette pixels.
@@ -1553,12 +1486,26 @@ proc gameHash*(sim: SimServer): uint64 =
     result.mixHashInt(player.windupBrads)
     result.mixHashInt(player.spawnProtect)
     result.mixHashBool(player.carryingFlag)
+    result.mixHashBool(player.hasGrenade)
+    result.mixHashInt(player.throwCharge)
     result.mixHashInt(player.joinOrder)
     result.mixHashInt(int(player.color))
     result.mixHashInt(player.reward)
     result.mixHashInt(player.kills)
     result.mixHashInt(player.deaths)
     result.mixHashInt(player.captures)
+  for spawn in sim.grenadeSpawns:
+    result.mixHashBool(spawn.present)
+    result.mixHashInt(spawn.respawnAt)
+  result.mixHashInt(sim.airborneGrenades.len)
+  for grenade in sim.airborneGrenades:
+    result.mixHashInt(grenade.sx)
+    result.mixHashInt(grenade.sy)
+    result.mixHashInt(grenade.tx)
+    result.mixHashInt(grenade.ty)
+    result.mixHashInt(grenade.launchTick)
+    result.mixHashInt(grenade.flightTicks)
+    result.mixHashInt(grenade.thrower)
 
 proc isWalkable*(sim: SimServer, x, y: int): bool =
   if x < 0 or y < 0 or x >= MapWidth or y >= MapHeight:
@@ -1995,7 +1942,7 @@ proc removePlayerAt*(sim: var SimServer, playerIndex: int) =
     return
   for team in Team:
     if sim.flags[team].carrier == playerIndex:
-      sim.logGameEvent(teamText(team) & " flag returned home")
+      sim.logGameEvent(teamText(team) & " heart returned home")
       sim.resetFlag(team)
     elif sim.flags[team].carrier > playerIndex:
       dec sim.flags[team].carrier
@@ -2220,10 +2167,31 @@ proc playerResultsJson*(sim: SimServer): string =
   results["captures"] = capturesList
   $results
 
+proc grenadeSpawnPoints*(): array[4, tuple[x, y: int]] =
+  ## The four corner grenade spawn points: two on each team's side.
+  let inset = ArenaBorder + GrenadeSpawnInset
+  [(inset, inset),
+    (inset, MapHeight - inset),
+    (MapWidth - inset, inset),
+    (MapWidth - inset, MapHeight - inset)]
+
+proc resetGrenades*(sim: var SimServer) =
+  ## Refills every corner pickup and clears carried and airborne grenades.
+  let points = grenadeSpawnPoints()
+  for i in 0 ..< sim.grenadeSpawns.len:
+    sim.grenadeSpawns[i] = GrenadeSpawn(
+      x: points[i].x, y: points[i].y, present: true, respawnAt: 0
+    )
+  sim.airborneGrenades = @[]
+  for i in 0 ..< sim.players.len:
+    sim.players[i].hasGrenade = false
+    sim.players[i].throwCharge = 0
+
 proc startGame*(sim: var SimServer) =
   sim.logGameEvent("game started: players=" & $sim.players.len)
   sim.recentShots = @[]
   sim.splatters = @[]
+  sim.recentKills = @[]
   sim.arrangeHomePositions()
   for i in 0 ..< sim.players.len:
     sim.players[i].alive = true
@@ -2242,6 +2210,7 @@ proc startGame*(sim: var SimServer) =
     sim.players[i].captures = 0
     sim.recordGameTeamAssigned(i)
   sim.resetFlags()
+  sim.resetGrenades()
   sim.phase = Playing
   sim.gameStartTick = sim.tickCount
   sim.timeLimitReached = false
@@ -2425,21 +2394,22 @@ proc killPlayer(sim: var SimServer, targetIndex, killerIndex: int) =
     playerColorText(sim.players[targetIndex].color) &
       " killed by " & sim.playerText(killerIndex)
   )
-  # A dying trigger pull never releases.
+  # A dying trigger pull never releases, and a carried grenade is lost.
   sim.players[targetIndex].fireWindup = 0
   sim.players[targetIndex].windupBrads = -1
+  sim.players[targetIndex].hasGrenade = false
+  sim.players[targetIndex].throwCharge = 0
   for team in Team:
     if sim.flags[team].carrier == targetIndex:
       sim.players[targetIndex].carryingFlag = false
-      sim.logGameEvent(teamText(team) & " flag returned home")
+      sim.logGameEvent(teamText(team) & " heart returned home")
       sim.resetFlag(team)
   # Leave a cosmetic splatter at the death spot (never enters gameHash).
   sim.splatters.add SplatterFx(
     x: sim.players[targetIndex].x,
     y: sim.players[targetIndex].y,
     tick: sim.tickCount,
-    color: sim.players[targetIndex].color,
-    hit: false
+    color: sim.players[targetIndex].color
   )
   sim.players[targetIndex].alive = false
   sim.players[targetIndex].velX = 0
@@ -2447,6 +2417,13 @@ proc killPlayer(sim: var SimServer, targetIndex, killerIndex: int) =
   sim.players[targetIndex].carryX = 0
   sim.players[targetIndex].carryY = 0
   sim.recordDeath(targetIndex)
+  # Exact attribution for the kill-feed, captured where the killer is known
+  # (both the shot and grenade paths route every death through here).
+  sim.recentKills.add KillFx(
+    victim: targetIndex,
+    killer: killerIndex,
+    tick: sim.tickCount
+  )
   if sim.players[targetIndex].lives > 0:
     dec sim.players[targetIndex].lives
   sim.players[targetIndex].respawnTimer =
@@ -2555,15 +2532,6 @@ proc applyFire(sim: var SimServer, shooterIndex, targetIndex: int) =
       sim.killPlayer(targetIndex, shooterIndex)
       sim.recordKill(shooterIndex)
     else:
-      # A non-fatal hit leaves a small, short-lived paint spark in the
-      # shooter's color on the target (cosmetic only, never in gameHash).
-      sim.splatters.add SplatterFx(
-        x: sim.players[targetIndex].x,
-        y: sim.players[targetIndex].y,
-        tick: sim.tickCount,
-        color: shooter.color,
-        hit: true
-      )
       sim.logGameEvent(
         playerColorText(sim.players[targetIndex].color) &
           " hit by " & sim.playerText(shooterIndex) &
@@ -2585,6 +2553,130 @@ proc startFireWindup*(sim: var SimServer, shooterIndex: int) =
     return
   sim.players[shooterIndex].fireWindup = sim.config.fireWindupTicks
   sim.players[shooterIndex].windupBrads = sim.players[shooterIndex].aimBrads
+
+
+proc grenadePosition*(grenade: AirborneGrenade, tick: int): tuple[x, y: int] =
+  ## The grenade's map position while airborne (linear flight over walls).
+  let t = clamp(tick - grenade.launchTick, 0, grenade.flightTicks)
+  (grenade.sx + (grenade.tx - grenade.sx) * t div grenade.flightTicks,
+    grenade.sy + (grenade.ty - grenade.sy) * t div grenade.flightTicks)
+
+proc throwGrenade(sim: var SimServer, playerIndex: int) =
+  ## Releases the charged throw along the thrower's current aim. The charge
+  ## picks the distance (GrenadeMinRange..GrenadeMaxRange); the grenade
+  ## flies over every obstacle and explodes where it lands. Throwing is
+  ## deliberately silent: no sound FX is recorded here.
+  let
+    player = sim.players[playerIndex]
+    charge = clamp(player.throwCharge, 0, GrenadeChargeTicks)
+    strength = GrenadeMinRange +
+      (GrenadeMaxRange - GrenadeMinRange) * charge div GrenadeChargeTicks
+    (ux, uy) = aimVector(player.aimBrads)
+    sx = player.x + CollisionW div 2
+    sy = player.y + CollisionH div 2
+    tx = clamp(
+      sx + int(round(ux * float(strength))),
+      ArenaBorder + 2, MapWidth - ArenaBorder - 2
+    )
+    ty = clamp(
+      sy + int(round(uy * float(strength))),
+      ArenaBorder + 2, MapHeight - ArenaBorder - 2
+    )
+    flight = max(
+      1, int(round(sqrt(float(distSq(sx, sy, tx, ty))))) div GrenadeFlightSpeed
+    )
+  sim.airborneGrenades.add AirborneGrenade(
+    sx: sx,
+    sy: sy,
+    tx: tx,
+    ty: ty,
+    launchTick: sim.tickCount,
+    flightTicks: flight,
+    thrower: playerIndex
+  )
+  sim.players[playerIndex].hasGrenade = false
+  sim.players[playerIndex].throwCharge = 0
+  sim.logGameEvent(playerColorText(player.color) & " threw a grenade")
+
+proc applyGrenadeInput(
+  sim: var SimServer,
+  playerIndex: int,
+  input, prev: InputState
+) =
+  ## Hold C to charge a throw, release to let it fly.
+  if not sim.players[playerIndex].alive or
+      not sim.players[playerIndex].hasGrenade:
+    sim.players[playerIndex].throwCharge = 0
+    return
+  if input.c:
+    sim.players[playerIndex].throwCharge = min(
+      sim.players[playerIndex].throwCharge + 1, GrenadeChargeTicks
+    )
+  elif prev.c and sim.players[playerIndex].throwCharge > 0:
+    sim.throwGrenade(playerIndex)
+  else:
+    sim.players[playerIndex].throwCharge = 0
+
+proc explodeGrenade(sim: var SimServer, grenade: AirborneGrenade) =
+  ## Applies one landing: a cosmetic blast flash (which views also use for
+  ## the audible landing's sound ring) plus blast damage to EVERYONE inside
+  ## the radius — teammates and the thrower included; spawn protection
+  ## still shields.
+  sim.recentBlasts.add BlastFx(
+    x: grenade.tx, y: grenade.ty, tick: sim.tickCount
+  )
+  sim.logGameEvent("grenade landed")
+  let radiusSq = GrenadeBlastRadius * GrenadeBlastRadius
+  for i in 0 ..< sim.players.len:
+    if not sim.players[i].alive or sim.players[i].spawnProtect > 0:
+      continue
+    let
+      px = sim.players[i].x + CollisionW div 2
+      py = sim.players[i].y + CollisionH div 2
+    if distSq(px, py, grenade.tx, grenade.ty) > radiusSq:
+      continue
+    sim.players[i].hp -= GrenadeDamage
+    if sim.players[i].hp <= 0:
+      sim.killPlayer(i, grenade.thrower)
+      if grenade.thrower != i:
+        sim.recordKill(grenade.thrower)
+
+proc updateGrenades(sim: var SimServer) =
+  ## Refills corner pickups whose timer elapsed and lands due grenades.
+  for spawn in sim.grenadeSpawns.mitems:
+    if not spawn.present and sim.tickCount >= spawn.respawnAt:
+      spawn.present = true
+  var
+    landing: seq[AirborneGrenade] = @[]
+    kept: seq[AirborneGrenade] = @[]
+  for grenade in sim.airborneGrenades:
+    if sim.tickCount - grenade.launchTick >= grenade.flightTicks:
+      landing.add grenade
+    else:
+      kept.add grenade
+  sim.airborneGrenades = kept
+  for grenade in landing:
+    sim.explodeGrenade(grenade)
+
+proc tryPickupGrenades*(sim: var SimServer, playerIndex: int) =
+  ## Lets a living player pick up a corner grenade by touch (one carried
+  ## grenade max; either team may take either side's pickups).
+  if not sim.players[playerIndex].alive or sim.players[playerIndex].hasGrenade:
+    return
+  let
+    px = sim.players[playerIndex].x + CollisionW div 2
+    py = sim.players[playerIndex].y + CollisionH div 2
+    rangeSq = GrenadePickupRange * GrenadePickupRange
+  for spawn in sim.grenadeSpawns.mitems:
+    if spawn.present and distSq(px, py, spawn.x, spawn.y) <= rangeSq:
+      spawn.present = false
+      spawn.respawnAt = sim.tickCount + GrenadeRespawnTicks
+      sim.players[playerIndex].hasGrenade = true
+      sim.logGameEvent(
+        playerColorText(sim.players[playerIndex].color) &
+          " picked up a grenade"
+      )
+      return
 
 proc resolveSimultaneousFire*(sim: var SimServer, shooters: openArray[int]) =
   ## Resolves every shot released this tick at once: all targets are chosen
@@ -2615,7 +2707,7 @@ proc tryPickupFlags*(sim: var SimServer, playerIndex: int) =
     sim.players[playerIndex].carryingFlag = true
     sim.logGameEvent(
       teamText(sim.players[playerIndex].team) & " stole the " &
-        teamText(flagTeam) & " flag"
+        teamText(flagTeam) & " heart"
     )
 
 proc updateFlags(sim: var SimServer) =
@@ -2631,7 +2723,7 @@ proc updateFlags(sim: var SimServer) =
       sim.flags[team].y = sim.players[carrier].y + CollisionH div 2
     else:
       # Carrier vanished; the flag goes straight back home.
-      sim.logGameEvent(teamText(team) & " flag returned home")
+      sim.logGameEvent(teamText(team) & " heart returned home")
       sim.resetFlag(team)
 
 proc applyInput*(
@@ -2905,9 +2997,10 @@ proc playerFov*(sim: SimServer, playerIndex: int): lent PlayerFov =
 
 proc fovVisibleAt*(sim: SimServer, playerIndex, x, y: int): bool =
   ## Returns whether one map point is inside a viewer's vision. Dead viewers
-  ## are ghosts and see everything. Call refreshPlayerFov first.
+  ## have no eyes: everything is fogged until they respawn. Call
+  ## refreshPlayerFov first.
   if not sim.players[playerIndex].alive:
-    return true
+    return false
   if playerIndex >= sim.fovCaches.len or not sim.fovCaches[playerIndex].valid:
     return true
   let (cx, cy) = fovCellAt(x, y)
@@ -2950,20 +3043,25 @@ proc finishGame*(sim: var SimServer, winner: Team, isDraw = false, timeLimitReac
     return
   var awardedAccounts = newSeq[bool](sim.rewardAccounts.len)
   for i in 0 ..< sim.players.len:
+    let accountIndex = sim.rewardAccountForPlayer(i)
+    if awardedAccounts.len < sim.rewardAccounts.len:
+      awardedAccounts.setLen(sim.rewardAccounts.len)
+    if accountIndex >= 0 and accountIndex < awardedAccounts.len:
+      awardedAccounts[accountIndex] = true
     if sim.players[i].team == winner:
-      let accountIndex = sim.rewardAccountForPlayer(i)
-      if awardedAccounts.len < sim.rewardAccounts.len:
-        awardedAccounts.setLen(sim.rewardAccounts.len)
-      if accountIndex >= 0 and accountIndex < awardedAccounts.len:
-        awardedAccounts[accountIndex] = true
       sim.addReward(i, WinReward)
       sim.recordGameWin(i)
+    else:
+      sim.addReward(i, LossReward)
   for i in 0 ..< sim.rewardAccounts.len:
     if i < awardedAccounts.len and awardedAccounts[i]:
       continue
-    if not sim.rewardAccounts[i].hasTeam or sim.rewardAccounts[i].team != winner:
+    if not sim.rewardAccounts[i].hasTeam:
       continue
-    sim.rewardAccounts[i].reward += WinReward
+    if sim.rewardAccounts[i].team == winner:
+      sim.rewardAccounts[i].reward += WinReward
+    else:
+      sim.rewardAccounts[i].reward += LossReward
     sim.rewardAccounts[i].won = true
     if winner == Red:
       inc sim.rewardAccounts[i].winsRed
@@ -2979,28 +3077,6 @@ proc gameTicksElapsed*(sim: SimServer): int =
 proc maxTicksReached(sim: SimServer): bool =
   sim.config.maxTicks > 0 and sim.phase == Playing and
     sim.gameTicksElapsed() >= sim.config.maxTicks
-
-proc teamLivesRemaining*(sim: SimServer, team: Team): int =
-  ## Returns total lives remaining (alive players count their current life).
-  for p in sim.players:
-    if p.team != team:
-      continue
-    result += p.lives
-    if p.alive:
-      inc result
-
-proc teamFlagProgress*(sim: SimServer, team: Team): int =
-  ## Returns how far the ENEMY flag has been advanced toward this team's
-  ## home while carried; 0 when it sits on its pedestal.
-  let flag = sim.flags[enemy(team)]
-  if flag.carrier < 0:
-    return 0
-  let home = sim.gameMap.flagHome(enemy(team))
-  case team
-  of Red:
-    max(0, home.x - flag.x)
-  of Blue:
-    max(0, flag.x - home.x)
 
 proc teamHasLivePlayers(sim: SimServer, team: Team): bool =
   ## Returns true when a team still has a player who can act this round.
@@ -3035,7 +3111,7 @@ proc checkWinCondition*(sim: var SimServer) {.measure.} =
     if cx >= zone.lo and cx <= zone.hi:
       sim.recordCapture(carrierIndex)
       sim.logGameEvent(
-        teamText(carrier.team) & " captured the " & teamText(flagTeam) & " flag"
+        teamText(carrier.team) & " captured the " & teamText(flagTeam) & " heart"
       )
       sim.finishGame(carrier.team)
       return
@@ -3051,26 +3127,11 @@ proc checkWinCondition*(sim: var SimServer) {.measure.} =
     sim.finishGame(Red, isDraw = true)
 
 proc checkMaxTicks(sim: var SimServer) =
-  ## Resolves a time-limit tiebreak.
+  ## A game that hits the time limit before a capture or a wipe is a
+  ## scoreless draw for both sides: no tiebreak, no rewards.
   if not sim.maxTicksReached():
     return
-  let
-    redLives = sim.teamLivesRemaining(Red)
-    blueLives = sim.teamLivesRemaining(Blue)
-  if redLives > blueLives:
-    sim.finishGame(Red, timeLimitReached = true)
-  elif blueLives > redLives:
-    sim.finishGame(Blue, timeLimitReached = true)
-  else:
-    let
-      redProgress = sim.teamFlagProgress(Red)
-      blueProgress = sim.teamFlagProgress(Blue)
-    if redProgress > blueProgress:
-      sim.finishGame(Red, timeLimitReached = true)
-    elif blueProgress > redProgress:
-      sim.finishGame(Blue, timeLimitReached = true)
-    else:
-      sim.finishGame(Red, isDraw = true, timeLimitReached = true)
+  sim.finishGame(Red, isDraw = true, timeLimitReached = true)
 
 proc initSimServer*(config: GameConfig): SimServer =
   result.config = config
@@ -3124,6 +3185,7 @@ proc initSimServer*(config: GameConfig): SimServer =
   result.startWaitTimer = 0
   result.gameEventLoggingEnabled = true
   result.resetFlags()
+  result.resetGrenades()
   result.lastLobbyPlayersLogged = -1
   result.lastLobbyNeededLogged = -1
   result.lastLobbySecondsLogged = -1
@@ -3132,8 +3194,11 @@ proc resetToLobby*(sim: var SimServer) =
   sim.phase = Lobby
   sim.players = @[]
   sim.fovCaches = @[]
+  sim.resetGrenades()
+  sim.recentBlasts = @[]
   sim.recentShots = @[]
   sim.splatters = @[]
+  sim.recentKills = @[]
   sim.nextJoinOrder = 0
   sim.tickCount = 0
   sim.gameStartTick = -1
@@ -3223,6 +3288,7 @@ proc step*(
       if playerIndex < prevInputs.len: prevInputs[playerIndex]
       else: InputState()
     sim.applyInput(playerIndex, input)
+    sim.applyGrenadeInput(playerIndex, input, prev)
     if input.attack and not prev.attack:
       if sim.config.fireWindupTicks <= 0:
         if sim.canFire(playerIndex) and sim.players[playerIndex].fireWindup == 0:
@@ -3230,9 +3296,11 @@ proc step*(
       else:
         sim.startFireWindup(playerIndex)
   sim.resolveSimultaneousFire(firing)
+  sim.updateGrenades()
 
   for playerIndex in 0 ..< sim.players.len:
     sim.tryPickupFlags(playerIndex)
+    sim.tryPickupGrenades(playerIndex)
   sim.updateFlags()
   sim.respawnPlayers()
 
@@ -3246,9 +3314,42 @@ proc step*(
     if sim.tickCount - shot.firedTick < ShotFxTicks:
       kept.add shot
   sim.recentShots = kept
+  var keptBlasts: seq[BlastFx] = @[]
+  for blast in sim.recentBlasts:
+    if sim.tickCount - blast.tick < BlastFxTicks:
+      keptBlasts.add blast
+  sim.recentBlasts = keptBlasts
   var keptSplatters: seq[SplatterFx] = @[]
   for splatter in sim.splatters:
-    let life = if splatter.hit: HitFxTicks else: SplatterFxTicks
-    if sim.tickCount - splatter.tick < life:
+    if sim.tickCount - splatter.tick < SplatterFxTicks:
       keptSplatters.add splatter
   sim.splatters = keptSplatters
+  var keptKills: seq[KillFx] = @[]
+  for k in sim.recentKills:
+    if sim.tickCount - k.tick < KillFxTicks:
+      keptKills.add k
+  sim.recentKills = keptKills
+
+proc teamLivesRemaining*(sim: SimServer, team: Team): int =
+  ## Returns total lives remaining for a team (an alive player also counts
+  ## its current life). Read-only telemetry for the broadcast replay chrome.
+  for p in sim.players:
+    if p.team != team:
+      continue
+    result += p.lives
+    if p.alive:
+      inc result
+
+proc teamHeartProgress*(sim: SimServer, team: Team): int =
+  ## Returns how far the ENEMY heart has been advanced toward this team's
+  ## home while carried; 0 when it sits on its pedestal. Read-only telemetry
+  ## for the broadcast replay chrome (the capture object is a heart post-0.6).
+  let flag = sim.flags[enemy(team)]
+  if flag.carrier < 0:
+    return 0
+  let home = sim.gameMap.flagHome(enemy(team))
+  case team
+  of Red:
+    max(0, home.x - flag.x)
+  of Blue:
+    max(0, flag.x - home.x)

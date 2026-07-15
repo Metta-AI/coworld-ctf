@@ -554,10 +554,21 @@ suite "ctf game":
     check sim.phase == GameOver
     check sim.winner == Red
 
-  test "finishGame awards WinReward to the winning team only":
+  test "a decisive win scores +1 for winners and -1 for losers":
     var sim = twoTeamGame()
     sim.finishGame(Red)
     check sim.phase == GameOver
     check sim.winner == Red
-    check sim.players[0].reward == WinReward
+    check sim.players[0].reward == 1
+    check sim.players[1].reward == -1
+
+  test "a time-limit game is a scoreless draw for both sides":
+    var sim = twoTeamGame()
+    sim.config.maxTicks = 5
+    let none = newSeq[InputState](sim.players.len)
+    while sim.phase == Playing:
+      sim.step(none, none)
+    check sim.isDraw
+    check sim.timeLimitReached
+    check sim.players[0].reward == 0
     check sim.players[1].reward == 0

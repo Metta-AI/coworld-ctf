@@ -65,27 +65,6 @@ proc resync*(tracker: var BroadcastTracker, sim: SimServer) =
   ## `stepEvents` then diffs against this frame, so no phantom beats fire.
   tracker.snapshot(sim)
 
-proc killerThisStep(
-  sim: SimServer,
-  tracker: BroadcastTracker
-): tuple[index: int, ambiguous: bool] =
-  ## Returns the single killer's player index for this step, or an ambiguous
-  ## marker when two or more players scored a kill on the same tick (fidelity
-  ## rule F7 — never guess an attribution the sim can't disambiguate).
-  var
-    killerIndex = -1
-    killerCount = 0
-  for i, p in sim.players:
-    if i < tracker.kills.len and p.kills > tracker.kills[i]:
-      inc killerCount
-      killerIndex = i
-  if killerCount == 1:
-    (killerIndex, false)
-  elif killerCount > 1:
-    (-1, true)
-  else:
-    (-1, false)
-
 proc stepEvents*(
   sim: SimServer,
   tracker: var BroadcastTracker,
@@ -114,20 +93,29 @@ proc stepEvents*(
         "tl": sim.timeLimitReached
       })
 
-  # Kills and respawns, diffed per player like expand_replay.
-  let killer = sim.killerThisStep(tracker)
+  # Kills, from the sim's exact per-death attribution (recentKills), so a
+  # grenade blast or a simultaneous-fire tick that drops several players at
+  # once still pairs each victim with its true killer — counter-diffing alone
+  # cannot. A self-kill (thrower caught in their own blast) has killer==victim.
+  for k in sim.recentKills:
+    if k.tick != tick:
+      continue
+    let
+      selfKill = k.killer == k.victim
+      tk = not selfKill and k.killer >= 0 and k.killer < sim.players.len and
+        sim.players[k.killer].team == sim.players[k.victim].team
+    events.add(%*{
+      "t": tick,
+      "k": "kill",
+      "killer": (if k.killer >= 0: sim.slotOf(k.killer) else: -1),
+      "victim": sim.slotOf(k.victim),
+      "tk": tk,
+      "self": selfKill
+    })
+
+  # Respawns, diffed per player.
   for i, p in sim.players:
-    if i < tracker.deaths.len and p.deaths > tracker.deaths[i]:
-      let tk = killer.index >= 0 and sim.players[killer.index].team == p.team
-      events.add(%*{
-        "t": tick,
-        "k": "kill",
-        "killer": (if killer.index >= 0: sim.slotOf(killer.index) else: -1),
-        "victim": sim.slotOf(i),
-        "tk": tk,
-        "amb": killer.ambiguous
-      })
-    elif i < tracker.alive.len and p.alive and not tracker.alive[i]:
+    if i < tracker.alive.len and p.alive and not tracker.alive[i]:
       events.add(%*{"t": tick, "k": "respawn", "who": sim.slotOf(i)})
 
   # Flag steals and returns, diffed per team like expand_replay. A carrier
@@ -167,7 +155,7 @@ proc teamStateJson(sim: SimServer, team: Team): JsonNode =
     "lives": sim.teamLivesRemaining(team),
     "flag": (if taken: "taken" else: "home"),
     "carrier": (if taken: sim.slotOf(flag.carrier) else: -1),
-    "prog": sim.teamFlagProgress(enemy(team))
+    "prog": sim.teamHeartProgress(enemy(team))
   }
 
 proc rosterJson(sim: SimServer): JsonNode =
@@ -235,8 +223,8 @@ proc buildStateJson*(
       "timeLimit": sim.timeLimitReached,
       "redLives": sim.teamLivesRemaining(Red),
       "blueLives": sim.teamLivesRemaining(Blue),
-      "redProg": sim.teamFlagProgress(Red),
-      "blueProg": sim.teamFlagProgress(Blue)
+      "redProg": sim.teamHeartProgress(Red),
+      "blueProg": sim.teamHeartProgress(Blue)
     }
 
   $state

@@ -121,33 +121,30 @@ proc syncPlayers(
     track.rewards.add(sim.players[i].reward)
     events.addPlayerEvent(tick, PlayerJoined, sim, i)
 
-proc killerThisTick(sim: SimServer, track: TrackState): int =
-  ## Returns the player whose kill count just went up this tick.
-  for i, player in sim.players:
-    if i < track.kills.len and player.kills > track.kills[i]:
-      return i
-  -1
-
 proc printKillsAndDeaths(
   sim: SimServer,
   tick: int,
   events: var seq[ReplayEvent],
   track: var TrackState
 ) =
-  ## Adds kill/respawn events by diffing per-player death and alive counters.
-  let killer = sim.killerThisTick(track)
+  ## Adds kill events from the sim's exact per-death attribution and respawn
+  ## events by diffing the alive counter. Reading recentKills (rather than
+  ## diffing kill counters) pairs each victim with its true killer even when a
+  ## grenade blast or simultaneous fire drops several players on one tick.
+  for k in sim.recentKills:
+    if k.tick != tick:
+      continue
+    events.add ReplayEvent(
+      tick: tick,
+      kind: Kill,
+      actorSlot: if k.killer >= 0: sim.playerSlot(k.killer) else: -1,
+      actorLabel: if k.killer >= 0: sim.player(k.killer) else: "unknown",
+      secondarySlot: sim.playerSlot(k.victim),
+      secondaryLabel: sim.player(k.victim),
+      phase: sim.phase
+    )
   for i, p in sim.players:
-    if p.deaths > track.deaths[i]:
-      events.add ReplayEvent(
-        tick: tick,
-        kind: Kill,
-        actorSlot: if killer >= 0: sim.playerSlot(killer) else: -1,
-        actorLabel: if killer >= 0: sim.player(killer) else: "unknown",
-        secondarySlot: sim.playerSlot(i),
-        secondaryLabel: sim.player(i),
-        phase: sim.phase
-      )
-    elif p.alive and not track.alive[i]:
+    if p.alive and not track.alive[i]:
       events.addPlayerEvent(tick, Respawn, sim, i)
     track.alive[i] = p.alive
     track.kills[i] = p.kills

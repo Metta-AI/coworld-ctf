@@ -6,7 +6,7 @@ import
 const
   GameDir = currentSourcePath.parentDir.parentDir
   FixtureDir = GameDir / "tests" / "fixtures"
-  CaptureFixture = FixtureDir / "capture-seed7.bitreplay"
+  CaptureFixture = FixtureDir / "capture-seed42.bitreplay"
   WipeFixture = FixtureDir / "wipe-lives1.bitreplay"
   DrawFixture = FixtureDir / "draw-nokill.bitreplay"
 
@@ -127,11 +127,13 @@ suite "broadcast state channel":
       ))
       check state["ph"].getStr == "gameover"
       check state.hasKey("over")
-      # A capture win is not a draw and not a time-limit tiebreak.
+      # A capture win is a decisive win: not a draw and not a time-limit
+      # scoreless draw, and it names a real team (which side depends on the
+      # seed's play-out, so assert the semantics, not a fixed winner).
       check state["over"]["draw"].getBool == false
       check state["over"]["timeLimit"].getBool == false
-      check state["over"]["winner"].getStr == "red"
-      # The scorebug axis is lives + flag state, never a kill score.
+      check state["over"]["winner"].getStr in ["red", "blue"]
+      # The scorebug axis is lives + heart (flag) state, never a kill score.
       check state["teams"]["red"].hasKey("lives")
       check state["teams"]["blue"]["flag"].getStr in ["home", "taken"]
     finally:

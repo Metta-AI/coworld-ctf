@@ -1677,12 +1677,12 @@ html, body {
     row.className = 'feed-row';
     var glyph = '▸';
     var badge = '';
-    if (e.amb) {
-      // Genuine same-tick multi-kill: attribution honestly ambiguous (F7).
-      badge = '<span class="badge">traded</span>';
-      row.innerHTML = '<span class="who ' + (killerTeam || '') + '">' + '—' + '</span>' +
-        '<span class="glyph">' + glyph + '</span>' +
-        '<span class="who ' + (victimTeam || '') + '">' + esc(shortName(rosterName(s, victim))) + '</span>' + badge;
+    if (e.self) {
+      // A thrower caught in their own grenade blast. One name, own glyph.
+      badge = '<span class="badge">own blast</span>';
+      row.classList.add('flagkill');
+      row.innerHTML = '<span class="who ' + (victimTeam || '') + '">' + esc(shortName(rosterName(s, victim))) + '</span>' +
+        '<span class="glyph">✸</span>' + badge;
     } else {
       if (e.tk) { badge = '<span class="badge tk">team kill</span>'; row.classList.add('flagkill'); }
       var killerName = killer >= 0 ? shortName(rosterName(s, killer)) : 'the arena';
@@ -1694,13 +1694,13 @@ html, body {
   }
 
   function onSteal(e, s) {
-    var flagTeam = e.flag; // the team whose flag was TAKEN
+    var flagTeam = e.flag; // the team whose HEART was TAKEN
     var thief = shortName(rosterName(s, e.by));
-    banner((flagTeam === 'red' ? 'RED' : 'BLUE') + ' FLAG TAKEN', 'steal ' + (flagTeam + '-accent'));
+    banner((flagTeam === 'red' ? 'RED' : 'BLUE') + ' HEART TAKEN', 'steal ' + (flagTeam + '-accent'));
   }
   function onReturn(e, s) {
     var flagTeam = e.flag;
-    banner((flagTeam === 'red' ? 'RED' : 'BLUE') + ' FLAG RETURNED', 'returned ' + (flagTeam + '-accent'));
+    banner((flagTeam === 'red' ? 'RED' : 'BLUE') + ' HEART RETURNED', 'returned ' + (flagTeam + '-accent'));
   }
   function onCapture(e, s) {
     var byTeam = teamOf(s, e.by);
@@ -1889,12 +1889,15 @@ html, body {
     $('ec-blue').textContent = blueL;
 
     if (o.draw) {
+      // Post-0.6 scoring: a game that hits the time limit is a SCORELESS draw
+      // for both sides — the old lives/heart-progress tiebreak was removed. A
+      // non-time-limit draw is a simultaneous mutual wipe.
       badge.className = 'verdict-badge draw';
       badge.textContent = 'DRAW';
-      head.textContent = 'DEAD EVEN';
+      head.textContent = o.timeLimit ? 'TIME' : 'DEAD EVEN';
       how.textContent = o.timeLimit
-        ? 'Time expired with the teams level on lives and flag progress — a true draw.'
-        : 'The match ended level — no winner.';
+        ? 'Time expired with neither heart captured — a scoreless draw, no points either way.'
+        : 'Both teams were wiped out on the same tick — a true draw.';
       return;
     }
 
@@ -1904,23 +1907,14 @@ html, body {
     badge.textContent = winName + ' WINS';
     head.textContent = winName + ' WINS';
 
-    if (o.timeLimit) {
-      // Tiebreak — name the key and the values (F3).
-      var winL = winner === 'red' ? redL : blueL;
-      var loseL = winner === 'red' ? blueL : redL;
-      if (winL !== loseL) {
-        how.textContent = 'Time expired — ' + winName + ' held more lives (' + winL + ' vs ' + loseL + ').';
-      } else {
-        how.textContent = 'Time expired — lives tied; ' + winName + ' won on flag progress.';
-      }
+    // A decisive win scores +1 for the winner, -1 for the loser. It is always
+    // a capture or a wipe (time-limit games can never have a winner now).
+    var loserLives = winner === 'red' ? blueL : redL;
+    if (loserLives <= 0) {
+      head.textContent = winName + ' WIPES OUT ' + (winner === 'red' ? 'BLUE' : 'RED');
+      how.textContent = winName + ' eliminated every opposing life. (+1 / −1)';
     } else {
-      var loserLives = winner === 'red' ? blueL : redL;
-      if (loserLives <= 0) {
-        head.textContent = winName + ' WIPES OUT ' + (winner === 'red' ? 'BLUE' : 'RED');
-        how.textContent = winName + ' eliminated every opposing life.';
-      } else {
-        how.textContent = winName + ' captured the enemy flag.';
-      }
+      how.textContent = winName + ' carried the enemy heart home. (+1 / −1)';
     }
   }
 

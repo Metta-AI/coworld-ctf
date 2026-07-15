@@ -716,6 +716,8 @@ proc clearPressedInputMask(input: var InputState, mask: uint8) =
     input.attack = false
   if (mask and ButtonB) != 0:
     input.b = false
+  if (mask and ButtonC) != 0:
+    input.c = false
 
 proc clearPressedInputMasks(
   inputs: var seq[InputState],

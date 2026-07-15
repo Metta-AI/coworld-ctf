@@ -11,9 +11,9 @@ const
   # (commit 0c34ade) and stores no hitPoints in its config, so replaying it
   # under today's defaultGameConfig() (HitPoints = 3) deterministically diverges
   # the instant combat starts (hash mismatch at tick 71) — it is stale, not a
-  # bug in the replay engine. This capture-ending fixture (2465 ticks) exceeds
+  # bug in the replay engine. This capture-ending fixture (3445 ticks) exceeds
   # every tick target below and hash-verifies clean end to end.
-  CtfReplayPath = GameDir / "tests" / "fixtures" / "capture-seed7.bitreplay"
+  CtfReplayPath = GameDir / "tests" / "fixtures" / "capture-seed42.bitreplay"
 
 proc initReplaySim(data: ReplayData): SimServer =
   ## Initializes a replay simulation from the replay config JSON.

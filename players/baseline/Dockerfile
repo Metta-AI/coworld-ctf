@@ -30,8 +30,9 @@ COPY nimby.lock .
 RUN nimby --global sync nimby.lock
 
 COPY . .
+ARG NIM_DEFINES=""
 RUN nim c \
-  -d:release \
+  -d:release $NIM_DEFINES \
   -d:useMalloc \
   --opt:speed \
   --stackTrace:on \

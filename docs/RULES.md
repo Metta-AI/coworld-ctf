@@ -1,16 +1,16 @@
 # Coworld CTF — Game Rules
 
-Coworld CTF is a two-team capture-the-flag shooter for the Coworld platform. Two
-teams start on opposite edges of a symmetric arena, each with its own flag on a
+Coworld CTF is a two-team capture-the-heart shooter for the Coworld platform. Two
+teams start on opposite edges of a symmetric arena, each with its own heart on a
 home pedestal. Players move, take cover behind obstacles, and shoot. Steal the
-enemy flag and carry it home — or eliminate the enemy team — to win. Vision is
+enemy heart and carry it home — or eliminate the enemy team — to win. Vision is
 fog-of-war: the map is always visible, but enemies only appear inside your
 forward vision cone or your small omnidirectional bubble.
 
 It is a fork of [Crewrift](https://github.com/Metta-AI/coworld-crewrift): it keeps
 Crewrift's continuous 2D movement, line-of-sight, sprite protocol, server, and
 replay infrastructure, and replaces the social-deduction game layer (roles,
-tasks, voting) with teams, guns, flags, and fog-of-war vision.
+tasks, voting) with teams, guns, hearts, and fog-of-war vision.
 
 ---
 
@@ -18,13 +18,13 @@ tasks, voting) with teams, guns, flags, and fog-of-war vision.
 
 - **16 players, 8 vs 8.** Red team spawns along the **left edge**, Blue along the
   **right edge**.
-- **Two team flags**, one on each team's **home pedestal** inside its spawn
-  pocket (classic two-flag CTF).
+- **Two team hearts**, one on each team's **home pedestal** inside its spawn
+  pocket (classic two-object CTF, with hearts for flags).
 - The arena is filled with **dense staggered cover** (a slalom of offset wall
   stubs, diamonds, discs, and diagonal chevron walls, mirrored symmetrically so
   neither team has a positional advantage): **no straight sightline crosses the
   field**, so every approach is a series of corners.
-- A round ends when a team **captures the enemy flag** or is **wiped out**.
+- A round ends when a team **captures the enemy heart** or is **wiped out**.
 
 ## Teams & spawns
 
@@ -71,22 +71,25 @@ always drawn — but moving entities are fogged:
   so watching a lane, sweeping an arc, and turning your back are deliberate
   rotation choices - and moving somewhere no longer reveals it.
 - Everything outside your vision is **masked**: enemies, an enemy carrying a
-  flag, and shot tracers / death splatters from unseen events are simply not in
+  heart, and shot tracers / death splatters from unseen events are simply not in
   your observation. The unseen area is dimmed by a fog overlay.
-- **Always visible regardless of fog:** the static map, **both flag pedestals**,
-  your **own flag's state** (its pedestal flag is never hidden — an empty own
-  pedestal means your flag is stolen), and **yourself** via a distinct self
+- **Always visible regardless of fog:** the static map, **both heart pedestals**,
+  your **own heart's state** (its pedestal heart is never hidden — an empty own
+  pedestal means your heart is stolen), and **yourself** via a distinct self
   marker. **Teammates are fogged like everyone else** — there is no team
   radio; keeping track of your own side takes eyes too.
-- **Gunshots are audible.** A shot you could not see leaves a brief
-  semi-transparent **sound ring** near its muzzle for ~0.5s. The ring is
-  randomly (but deterministically, per shot) offset by up to ~20px, so it
-  tells you someone fired *roughly there* — never the exact spot, and never
-  which team.
-- There is **no global flag tracking**: once a thief carries your flag into the
+- **Gunshots are audible.** A shot whose muzzle you could not see leaves a
+  brief semi-transparent filled **sound ring** (label `shot sound`) near the
+  muzzle for ~0.5s, and a shot whose impact point you could not see leaves a
+  hollow **impact ring** (label `shot impact`) near where it landed. Each
+  ring is randomly (but deterministically, per shot) offset by up to ~20px,
+  so it tells you someone fired *roughly there* / something was hit
+  *roughly there* — never the exact spot, and never which team.
+- There is **no global heart tracking**: once a thief carries your heart into the
   fog, finding it again takes eyes on it.
-- Dead players spectate as ghosts and see the whole map (their inputs are
-  ignored).
+- Death does not lift the fog: a dead player sees the whole map fogged —
+  only the terrain, the pedestal hearts, and their own corpse — until they
+  respawn (their inputs are ignored).
 
 ## Combat
 
@@ -113,6 +116,32 @@ always drawn — but moving entities are fogged:
 - On respawn you have brief **spawn protection** (temporary invulnerability) to
   prevent spawn-camping.
 
+## Grenades
+
+- **Four grenade pickups spawn in the arena corners** — two on each team's
+  side — a fixed inset inside the border walls. Anyone may take either
+  side's pickups by **touch**; a taken corner **refills 30 seconds later**.
+- **Each player carries at most one grenade.** Dying loses the carried
+  grenade (nothing drops).
+- **Throwing:** hold the **C button** (input mask bit 128) to charge, release
+  to throw along your **current aim**. The charge picks the distance, from a
+  short tap (~30 px — inside the blast radius, so a panicked drop can hurt
+  you) up to a full-charge **maximum of one fifth of the field width**
+  (~247 px) after ~1s of holding. While you charge, a **throw target ring**
+  marks the landing spot on your own view (and is readable intel for anyone
+  who can see you, like your aim line).
+- **Grenades fly over every obstacle** in a straight lob from thrower to
+  target and **explode on landing**.
+- **The blast hurts everyone inside its radius (~40 px): enemies, teammates,
+  and the thrower alike**, removing 2 hit points each. Spawn protection
+  still shields. Kills credit the thrower (except suicides).
+- **Throwing is silent; landing is loud.** A landing you could not see
+  leaves a large jittered sound ring (label `grenade sound`), exactly like
+  gunshot rings. The throw itself leaves nothing.
+- Observation labels: pickups `grenade`, airborne `grenade air`, the marker
+  above a carrier `grenade carried`, the charge marker `throw target`, the
+  landing flash `blast stage N`.
+
 ## Lives & respawn
 
 - Each player has a fixed number of **lives**.
@@ -120,16 +149,16 @@ always drawn — but moving entities are fogged:
   you have lives remaining.
 - When you run out of lives, you are **out for the rest of the round**.
 
-## The flags
+## The hearts
 
-- Each team's flag sits on its **home pedestal** inside the team's spawn pocket.
-- **Touch the ENEMY flag to steal it** off its pedestal. Your own flag cannot be
+- Each team's heart sits on its **home pedestal** inside the team's spawn pocket.
+- **Touch the ENEMY heart to steal it** off its pedestal. Your own heart cannot be
   interacted with by your own team. While carrying you move **slower** but can
   **still shoot**.
-- If the carrier is killed (or disconnects), the flag **returns instantly to its
-  own pedestal**. A flag is never left loose on the ground: it is either carried
+- If the carrier is killed (or disconnects), the heart **returns instantly to its
+  own pedestal**. A heart is never left loose on the ground: it is either carried
   or sitting on its pedestal.
-- Your own flag's **state** is always observable: its pedestal is never fogged,
+- Your own heart's **state** is always observable: its pedestal is never fogged,
   so an empty own pedestal means it is stolen — but the **thief itself is fogged**
   like any other enemy.
 
@@ -137,21 +166,21 @@ always drawn — but moving entities are fogged:
 
 A round ends immediately when either condition is met:
 
-1. **Capture** — carry the **enemy flag** into **your own home capture zone**.
+1. **Capture** — carry the **enemy heart** into **your own home capture zone**.
 2. **Wipe** — the entire **enemy team is out of lives**.
 
-If neither happens before the **time limit**, the round is decided by tiebreak:
-most **total lives remaining**, then **closest flag progress toward home**,
-otherwise a **draw**.
+If neither happens before the **time limit**, the round is a **scoreless
+draw** — there is no tiebreak.
 
 ## Scoring
 
 Scoring is **sparse and win-only**:
 
-- **Winning team: +100** to every player on it.
-- **Losing team / draw: 0.**
+- **Decisive round** (capture or wipe): every winner scores **+1**, every
+  loser scores **-1**.
+- **Time-limit draw: 0 for both sides.**
 
-Kills, deaths, flag pickups, carry time, and captures are still **recorded** in
+Kills, deaths, heart pickups, carry time, and captures are still **recorded** in
 the episode results for leaderboards and analysis — they just do not award
 points. This keeps the training objective tied purely to winning.
 
@@ -180,16 +209,35 @@ These are starting values, exposed in the game config and tuned in self-play.
 | Gun range | 1300px | Effectively map-wide; aim precision and line of sight are the real limits |
 | Fire windup | ~0.2s | Trigger pull to bullet release; aim locks at the pull |
 | Fire cooldown | ~0.5s | Minimum time between shots |
-| Carrier speed | ~70% | Movement penalty while holding the flag |
+| Carrier speed | ~70% | Movement penalty while holding the heart |
 | Aim turn rate (`aimTurnRate`) | 5 brads/tick | Rotation speed while B/Select is held (~7°/tick; full turn ~2.1s) |
 | Vision cone (`visionConeDeg`) | ±45° | Fog-of-war forward vision half-angle; unlimited range, walls block |
 | Vision bubble (`visionBubble`) | 90px | Omnidirectional close-range vision regardless of aim |
-| Flag auto-return | instant | A flag snaps back to its own pedestal the moment its carrier dies |
-| Time limit | (TBD) ticks | Round length cap before tiebreak |
+| Heart auto-return | instant | A heart snaps back to its own pedestal the moment its carrier dies |
+| Time limit | (TBD) ticks | Round length cap before the scoreless draw |
 | Map size | 1235×659 | Inherited from Crewrift; may change |
 
 Engine tick rate is **24 ticks/sec** (inherited from Crewrift); all
 second-based values above convert at that rate.
+
+**Observation render scale (since 0.6.0):** the sprite-protocol wire carries
+the zoomable map/fog layers at **3x map resolution** -- object coordinates and
+sprite pixel sizes are all multiplied by 3, and every entity sprite is
+centered on its scaled map point. To recover exact legacy map coordinates,
+compute the object center and divide by 3:
+`map_x = (object.x + sprite.width / 2) / 3` (same for y). Everything above
+(map size 1235x659, ranges, speeds) stays in map pixels; only the wire
+representation scaled. The invisible `walkability map` sprite is unscaled and
+still 1235x659. Labels, sprite/object ids, layers, and the input protocol are
+unchanged, with one exception: while you are dead your own body is the only
+player sprite in frame, labeled `corpse <color> <side>` instead of
+`player <color> <side>`, so a policy scanning for `player` labels never
+mistakes a body for a live enemy.
+
+**Label changes since 0.7.0:** the capture objects are hearts — their sprites
+are labeled `red heart` / `blue heart` (formerly `red flag` / `blue flag`).
+Grenades add the labels documented in the Grenades section, and the throw
+button is input mask bit 128.
 
 ---
 
@@ -214,19 +262,19 @@ This section is a build plan, not player-facing rules.
 
 - `sim.nim`: replace `Crewmate`/`Imposter` roles with `Red`/`Blue` teams; replace
   `tryKill` (proximity grab) with **directional hitscan + LOS along the aim**; add
-  **lives/respawn**, **flag pickup/carry/return**, **team win-check**, and a
+  **lives/respawn**, **heart pickup/carry/return**, **team win-check**, and a
   **Lobby → Playing → GameOver** phase machine (drop RoleReveal/Voting/VoteResult).
 - Player struct: keep `x,y,velX,velY,carryX,carryY,alive,color,reward`; drop
   task/vent/vote fields; add `team`, `lives`, `respawnTimer`, `fireCooldown`,
   `aimBrads`, `carryingFlag`, `spawnProtect`.
-- `global.nim` observation building: team-colored player sprites, the flag
+- `global.nim` observation building: team-colored player sprites, the heart
   sprites, a **carrier indicator**, the per-viewer **fog overlay** and
-  fog-culled entity stream (there are deliberately **no flag arrows** — fog of
+  fog-culled entity stream (there are deliberately **no heart arrows** — fog of
   war replaced all global tracking intel), a distinct **self marker**, and
   per-player **lives / fire-cooldown UI** on HUD layers.
 - New **symmetric arena**: a new `.resources` map (CSS-like rects) plus an Aseprite
   image with walk/wall layers. Red/Blue spawn strips on the left/right edges,
-  flag pedestal at center, obstacles mirrored across the vertical axis, home-edge
+  heart pedestal at center, obstacles mirrored across the vertical axis, home-edge
   capture zones at the leftmost/rightmost columns.
 - New team-based `config.json` and `coworld_manifest.json` (slots carry `team`
   instead of `role`; results schema reports team/kills/deaths/captures).
