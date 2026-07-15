@@ -134,6 +134,13 @@ const
   MateAimRayLen = 700.0       # trust a mate's aim line out to this range
   MateAimHitSlack = 22.0      # enemy within this perpendicular distance of a
                               # mate's aim ray counts as mate-targeted
+  ButtonC = 1'u8 shl 7        # grenade charge/throw (input mask bit 128)
+  NadeMaxRange = 240.0        # full-charge throw distance (~fifth of the field)
+  NadeMinRange = 60.0         # never lob inside this — the ~40px blast + drift
+                              # would clip us
+  NadeBlast = 40.0            # blast radius; a pair this close dies together
+  NadeFullChargeTicks = 24    # ~1s of holding C reaches max range
+  NadePickupDetour = 90.0     # grab a corner pickup within this detour range
   CombatDeadband = 2          # stop the traverse within this error (brads);
                               # AimRate 5 cannot settle tighter than +-2
   CruiseDeadband = 8          # sloppier deadband for non-combat aim
@@ -223,6 +230,8 @@ type
     stuckTicks: int
     jinkUntil: int
     jinkBits: uint8
+    nadeCharge: int           # ticks the C button has been held; 0 = idle
+    nadeNeed: int             # charge ticks required for the planned throw
 
 proc roleForSeat(seat: int, team: Team): Role =
   ## Deterministic role spread over the 8 per-team seats. Seats 2 and 3 both
@@ -883,6 +892,7 @@ proc resetTransient(bot: Bot) =
   ## Drops per-game memory between rounds (lobby / game-over interstitials).
   bot.enemies.setLen(0)
   bot.mates.setLen(0)
+  bot.nadeCharge = 0
   bot.carrierSeen = -100_000
   bot.lastEnemySeen = bot.tick
   bot.gameStart = bot.tick
@@ -1328,6 +1338,48 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       nearThreatD = d
       nearThreat = i
 
+  # Grenades (0.7.0): a lobbed 2-hp blast that flies over every wall — the
+  # counter to cover-campers the hitscan gun can never reach. Carry one when a
+  # corner pickup is a short detour away; spend it on a wall-blocked fresh
+  # track (value the gun cannot collect) or on a tight enemy pair in range.
+  var carryingNade = false
+  for o in client.spriteObjectsWithLabel("grenade carried"):
+    if dist(client.mapPos(o), me) <= 16.0:
+      carryingNade = true
+      break
+  var
+    nadeAim = -1
+    nadeThrowD = 0.0
+  if carryingNade and not iCarry:
+    var bestD = 1e18
+    for i in 0 ..< bot.enemies.len:
+      let t = bot.enemies[i]
+      if bot.tick - t.lastSeen > FreshShotTicks:
+        continue
+      let p = t.pos + t.vel * float(bot.tick - t.lastSeen)
+      let d = dist(p, me)
+      if d < NadeMinRange or d > NadeMaxRange or d >= bestD:
+        continue
+      let blocked = not client.pixelRayClear(me, p)
+      var paired = false
+      if not blocked:
+        for j in 0 ..< bot.enemies.len:
+          if j != i and bot.tick - bot.enemies[j].lastSeen <= FreshShotTicks and
+              dist(bot.enemies[j].pos, p) <= NadeBlast:
+            paired = true
+            break
+      if blocked or paired:
+        bestD = d
+        nadeAim = bradsOf(p - me)
+        nadeThrowD = d
+  elif not carryingNade and not iCarry and not mateCarry and not pocketRush:
+    # A corner pickup within a short detour: touch it on the way through.
+    for o in client.spriteObjectsWithLabel("grenade"):
+      let p = client.mapPos(o)
+      if dist(p, me) <= NadePickupDetour:
+        target = p
+        break
+
   # Turret + locomotion, decided together but on separate buttons: moveMask
   # is the d-pad, desiredAim feeds the rotate buttons, wantFire pulls A.
   var
@@ -1337,7 +1389,26 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     wantFire = false
     acted = false
     holdStill = false
-  if engage >= 0 and shotReady:
+    nadeC = false
+  if bot.nadeCharge > 0 or nadeAim >= 0:
+    # Charge-throw: lay the turret on the lob line, then hold C for the ticks
+    # the planned distance needs and release — the grenade leaves along the
+    # CURRENT aim on release, so the turret keeps correcting while charging.
+    if bot.nadeCharge == 0:
+      bot.nadeNeed = max(3, int(float(NadeFullChargeTicks) *
+        (nadeThrowD - 30.0) / (NadeMaxRange - 30.0)))
+    if nadeAim >= 0:
+      desiredAim = nadeAim
+    if bot.nadeCharge > 0 or (desiredAim >= 0 and
+        abs(bradsErr(desiredAim, bot.estAim)) <= CombatDeadband + 2):
+      if bot.nadeCharge < bot.nadeNeed:
+        nadeC = true
+        inc bot.nadeCharge
+      else:
+        bot.nadeCharge = 0           # release this tick = the throw
+    holdStill = true
+    acted = true
+  elif engage >= 0 and shotReady:
     # Traverse onto the target and fire once the corridor covers it: the
     # perpendicular miss of the current aim error at the target's range must
     # sit inside the ~14px bullet corridor. Advancing scales that miss down
@@ -1489,6 +1560,8 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   var mask = moveMask or rotBits
   if wantFire and not bot.firedLast:
     mask = moveMask or ButtonA
+  if nadeC:
+    mask = mask or ButtonC
   bot.firedLast = (mask and ButtonA) != 0
   bot.rotSign =
     if (mask and ButtonB) != 0: 1
