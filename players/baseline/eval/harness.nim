@@ -248,15 +248,26 @@ proc main() =
   let
     tRedHit = (if totRedS > 0: 100.0 * totRedK.float / totRedS.float else: 0.0)
     tBlueHit = (if totBlueS > 0: 100.0 * totBlueK.float / totBlueS.float else: 0.0)
+    decisive = redWins + blueWins
+    # GameVersion 2 scoring: +1 to every winner, -1 to every loser, 0 on a
+    # draw. Per team the LEAGUE score is simply (wins - losses); K-D and lives
+    # award NOTHING now (the timeout tiebreak was removed), so they are printed
+    # only as diagnostics below the score.
+    redScore = redWins - blueWins
+    blueScore = blueWins - redWins
   echo ""
   echo &"TOTals over {games} games:"
-  echo &"  wins:     RED {redWins}  BLUE {blueWins}  draw {draws}  unfinished {unfinished}"
+  echo &"  SCORE:    RED {redScore:+d}  BLUE {blueScore:+d}  " &
+    &"(win-only: +1 win / -1 loss / 0 draw — THE leaderboard metric)"
+  echo &"  results:  RED wins {redWins}  BLUE wins {blueWins}  " &
+    &"draw {draws}  unfinished {unfinished}  ({decisive}/{games} decisive)"
+  echo &"  wins by:  capture RED {totRedC} BLUE {totBlueC}  " &
+    &"(rest of the {decisive} decisive games were WIPES)"
+  echo "  --- diagnostics (award NO points under v2, for analysis only) ---"
   echo &"  kills:    RED {totRedK}  BLUE {totBlueK}"
   echo &"  deaths:   RED {totRedD}  BLUE {totBlueD}"
-  echo &"  K-D diff: RED {totRedK - totRedD:+d}  BLUE {totBlueK - totBlueD:+d}  " &
-    &"(lives-remaining tiebreak metric; higher wins)"
+  echo &"  K-D diff: RED {totRedK - totRedD:+d}  BLUE {totBlueK - totBlueD:+d}"
   echo &"  lives end:RED {totRedL}  BLUE {totBlueL}"
-  echo &"  captures: RED {totRedC}  BLUE {totBlueC}"
   echo &"  shots:    RED {totRedS}  BLUE {totBlueS}"
   echo &"  hit rate: RED {tRedHit:.2f}%  BLUE {tBlueHit:.2f}%"
   echo &"  camp-ticks (frozen w/ live target): RED {campTicksRed}  BLUE {campTicksBlue}"
