@@ -153,6 +153,8 @@ const
                               # watch heading (cone half-angle is 32 brads)
   PushOutTicks = 360          # endgame push: no enemy seen for ~15s...
   PushOutMinGame = 2400       # ...this deep into the game breaks the posts
+  LatePushTick = 6800         # all-in on the clock: past this tick a draw is
+                              # the default outcome, so commit to the capture
 
   CoverShieldDist = 42.0      # an obstacle this close blocks a threat direction
   PeekLineDist = 150.0        # floor for an overwatch peek firing line; post
@@ -1103,9 +1105,15 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # the defensive seats, and holding their posts forever is a guaranteed
   # tiebreak stalemate — break the posts and go win by capture (the enemy
   # team pushes symmetrically, so somebody makes something happen).
-  let pushOut = not ownStolen and
-    bot.tick - bot.gameStart > PushOutMinGame and
-    bot.tick - bot.lastEnemySeen > PushOutTicks
+  let pushOut = not ownStolen and (
+    (bot.tick - bot.gameStart > PushOutMinGame and
+     bot.tick - bot.lastEnemySeen > PushOutTicks) or
+    # Late all-in: a timeout is a scoreless draw, so deep into a game with no
+    # capture the posts are worth nothing — break them and go win. Standoffs
+    # keep enemies in sight, so the quiet-field trigger above never fires
+    # against a peek-duck opponent; this one is on the clock.
+    bot.tick - bot.gameStart > LatePushTick
+  )
 
   # Movement target from role and flag situation.
   var target: Vec
