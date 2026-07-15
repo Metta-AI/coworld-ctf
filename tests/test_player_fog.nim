@@ -1,7 +1,7 @@
 import
   std/[os, strutils, unittest],
   bitworld/spriteprotocol,
-  ctf/[global, hd, sim]
+  ctf/[global, sim]
 
 const GameDir = currentSourcePath.parentDir.parentDir
 
@@ -71,13 +71,11 @@ suite "player fog-of-war protocol":
     # aim angle back from these).
     check "aim dot red" in labels
     # The viewer aims north (64 brads): its dots sit above its center.
-    # Object coordinates arrive in render-scale pixels.
     var aimDotNorth = false
     for message in messages:
       if message.kind == spkObject and message.objectDef.id >= 18000 and
           message.objectDef.id < 18064:
-        aimDotNorth = message.objectDef.y <
-          game.players[viewer].y * RenderScale
+        aimDotNorth = message.objectDef.y < game.players[viewer].y
     check aimDotNorth
     # The fogged enemy contributes no aim dots (index 1 pool slots).
     for message in messages:
