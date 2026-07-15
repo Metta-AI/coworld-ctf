@@ -141,6 +141,10 @@ const
   NadeBlast = 40.0            # blast radius; a pair this close dies together
   NadeFullChargeTicks = 24    # ~1s of holding C reaches max range
   NadePickupDetour = 90.0     # grab a corner pickup within this detour range
+  CarrySelfRadius = 26.0      # a carried heart rides CarriedFlagLift (~10 map
+                              # px) above its carrier's center, so our own
+                              # carry shows as the enemy heart floating just
+                              # over our head — never within the old 4px test
   CarrierEstSpeed = 1.0       # px/tick a fogged mate-carrier is assumed to
                               # advance homeward (carrier moves at ~70% speed)
   CombatDeadband = 2          # stop the traverse within this error (brads);
@@ -1005,6 +1009,8 @@ proc friendlyBlocked(bot: Bot, me, aim: Vec, enemyDist: float): bool =
 
 proc decide(bot: Bot, client: ProtocolClient): uint8 =
   ## Core CTF policy for one frame.
+  when defined(statue):
+    return 0'u8                          # test dummy: stand still all game
   let
     myColor = (if bot.team == Red: "red" else: "blue")
     enemyColor = (if bot.team == Red: "blue" else: "red")
@@ -1052,7 +1058,17 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     ownFlags = client.spriteObjectsWithLabel(myColor & " heart")
   if enemyFlags.len > 0:
     let fp = client.mapPos(enemyFlags[0])
-    if dist(fp, me) <= 4:
+    # Self-carry test: the heart hovers over its carrier, so "am I the
+    # carrier" is "is the heart on MY head and on nobody else's" — a visible
+    # mate closer to the heart than us means the mate is the carrier.
+    var mateCloser = false
+    let dSelf = dist(fp, me)
+    for t in bot.mates:
+      if bot.tick - t.lastSeen <= 2 and dist(t.pos, fp) < dSelf:
+        mateCloser = true
+        break
+    if dSelf <= CarrySelfRadius and dist(fp, stealTarget) > 16.0 and
+        not mateCloser:
       iCarry = true
     elif dist(fp, stealTarget) > 16.0:
       mateCarry = true                   # only a teammate can be carrying it
@@ -1076,6 +1092,17 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       elapsed * CarrierEstSpeed
     )
     mateCarryPos = est
+  when defined(carryDebug):
+    if bot.tick mod 50 == 0 and (iCarry or mateCarry):
+      var fpS = "none"
+      if enemyFlags.len > 0:
+        let fp = client.mapPos(enemyFlags[0])
+        fpS = $int(fp.x) & "," & $int(fp.y) & " d=" & $int(dist(fp, me))
+      echo "CARRY t=", bot.tick, " slot=", bot.slot, " role=", bot.role,
+        " iCarry=", iCarry, " mateCarry=", mateCarry,
+        " me=", int(me.x), ",", int(me.y), " fp=", fpS,
+        " mateCarryPos=", int(mateCarryPos.x), ",", int(mateCarryPos.y)
+      flushFile(stdout)
   var ownStolen = ownFlags.len == 0
   if ownFlags.len > 0:
     let fp = client.mapPos(ownFlags[0])
