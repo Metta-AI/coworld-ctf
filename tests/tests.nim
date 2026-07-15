@@ -7,6 +7,7 @@ import
   test_movement_slide,
   test_replay,
   test_replay_controls,
+  test_debug_overlay,
   test_ctf_game,
   test_grenades
 {.warning[UnusedImport]: on.}

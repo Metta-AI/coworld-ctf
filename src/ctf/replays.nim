@@ -1,8 +1,9 @@
 import
+  std/tables,
   flatty,
   bitworld/spriteprotocol,
   bitworld/replays as replayCodec,
-  sim
+  sim, global
 
 type
   ReplayKeyframe* = object
@@ -12,7 +13,10 @@ type
     leaveIndex*: int
     chatIndex*: int
     inputIndex*: int
+    debugSpriteIndex*: int
     hashIndex*: int
+    ## Player leaves shift overlay indices, so keyframes snapshot overlay state.
+    overlaysBytes*: string
     masks*: seq[uint8]
     lastAppliedMasks*: seq[uint8]
     hashValidationFailed*: bool
@@ -24,7 +28,9 @@ type
     leaveIndex*: int
     chatIndex*: int
     inputIndex*: int
+    debugSpriteIndex*: int
     hashIndex*: int
+    overlays*: seq[DebugOverlay]
     masks*: seq[uint8]
     pressedMasks*: seq[uint8]
     lastAppliedMasks*: seq[uint8]
@@ -84,6 +90,7 @@ proc initReplayPlayer*(data: ReplayData): ReplayPlayer =
   result.masks = @[]
   result.pressedMasks = @[]
   result.lastAppliedMasks = @[]
+  result.overlays = @[]
   result.playing = true
   result.looping = true
   result.speedIndex = 0
@@ -105,12 +112,14 @@ proc resetReplay*(replay: var ReplayPlayer) =
   replay.leaveIndex = 0
   replay.chatIndex = 0
   replay.inputIndex = 0
+  replay.debugSpriteIndex = 0
   replay.hashIndex = 0
   replay.hashValidationFailed = false
   replay.hashMismatchTick = -1
   replay.masks = @[]
   replay.pressedMasks = @[]
   replay.lastAppliedMasks = @[]
+  replay.overlays = @[]
 
 proc saveReplayKeyframe(
   replay: ReplayPlayer,
@@ -124,7 +133,9 @@ proc saveReplayKeyframe(
     leaveIndex: replay.leaveIndex,
     chatIndex: replay.chatIndex,
     inputIndex: replay.inputIndex,
+    debugSpriteIndex: replay.debugSpriteIndex,
     hashIndex: replay.hashIndex,
+    overlaysBytes: replay.overlays.toFlatty(),
     masks: replay.masks,
     lastAppliedMasks: replay.lastAppliedMasks,
     hashValidationFailed: replay.hashValidationFailed,
@@ -144,7 +155,9 @@ proc restoreReplayKeyframe(
   replay.leaveIndex = keyframe.leaveIndex
   replay.chatIndex = keyframe.chatIndex
   replay.inputIndex = keyframe.inputIndex
+  replay.debugSpriteIndex = keyframe.debugSpriteIndex
   replay.hashIndex = keyframe.hashIndex
+  replay.overlays = keyframe.overlaysBytes.fromFlatty(seq[DebugOverlay])
   replay.masks = keyframe.masks
   replay.pressedMasks = newSeq[uint8](replay.masks.len)
   replay.lastAppliedMasks = keyframe.lastAppliedMasks
@@ -164,6 +177,7 @@ proc ensureReplayPlayer(replay: var ReplayPlayer, player: int) =
     replay.masks.add(0)
     replay.pressedMasks.add(0)
     replay.lastAppliedMasks.add(0)
+    replay.overlays.add(DebugOverlay())
 
 proc clearReplayPressedMasks(replay: var ReplayPlayer) =
   ## Clears per-step replay press events.
@@ -185,6 +199,8 @@ proc applyReplayEvents(replay: var ReplayPlayer, sim: var SimServer) =
       replay.pressedMasks.delete(int(leave.player))
     if int(leave.player) < replay.lastAppliedMasks.len:
       replay.lastAppliedMasks.delete(int(leave.player))
+    if int(leave.player) < replay.overlays.len:
+      replay.overlays.delete(int(leave.player))
     inc replay.leaveIndex
 
   while replay.joinIndex < replay.data.joins.len and
@@ -210,6 +226,20 @@ proc applyReplayEvents(replay: var ReplayPlayer, sim: var SimServer) =
       replay.data.chats[replay.chatIndex].time <= time:
     # CTF has no in-game chat; consume recorded chat events without applying.
     inc replay.chatIndex
+
+  # Leaves are consumed first, so equal-time debug records use shifted indices.
+  while replay.debugSpriteIndex < replay.data.debugSprites.len and
+      replay.data.debugSprites[replay.debugSpriteIndex].time <= time:
+    let debugSprite = replay.data.debugSprites[replay.debugSpriteIndex]
+    replay.ensureReplayPlayer(int(debugSprite.player))
+    # Crafted replay records are skipped so one malformed packet is non-fatal.
+    try:
+      replay.overlays[int(debugSprite.player)].applyDebugSpritePacket(
+        debugSprite.packet
+      )
+    except SpriteProtocolError:
+      discard
+    inc replay.debugSpriteIndex
 
 proc replayPrevInputs(
   replay: var ReplayPlayer,

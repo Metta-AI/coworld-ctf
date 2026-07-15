@@ -1,6 +1,7 @@
 import
   std/[algorithm, math, os, tables],
   chroma,
+  supersnappy,
   bitworld/pixelfonts, bitworld/profile, bitworld/spriteprotocol, bitworld/server,
   sim, hd
 
@@ -132,7 +133,8 @@ const
   ## per run width in cells), map markers 20000. Objects: flags 6500..6501
   ## (map view) / 5009..5010 (player view), team score text 9600..9601,
   ## tracer dots 15000..16791, splatters 17000..17031, aim dots
-  ## 18000..18063, map markers 20000, fog runs 21000..23047.
+  ## 18000..18063, map markers 20000, fog runs 21000..23047. Debug sprites
+  ## and objects use per-player pools in 40000..56383.
   SpritePlayerFireSpriteId = 5000
   SpritePlayerFireShadowSpriteId = 5001
   SpritePlayerRemainingSpriteId = 5003
@@ -179,6 +181,11 @@ const
   ProtocolTextSpriteBase = 9000
   ProtocolTextObjectBase = 9000
   ProtocolTextZ = 30010
+  DebugSpriteBase* = 40000     ## 1024 sprite ids per player for debug overlays.
+  DebugObjectBase* = 40000     ## 1024 object ids per player for debug overlays.
+  DebugPlayerIdStride* = 1024  ## Payload sprite/object ids must stay in
+                               ## 0..1023; larger ids alias via modulo.
+  DebugOverlayZ* = 29000       ## Above gameplay, below protocol text.
   ProtocolTextColor = 2'u8
   ProtocolGameOverIconObjectBase = 9700
   GameOverRowHeight = 42       ## game-over roster row height, HD UI px.
@@ -210,6 +217,11 @@ type
     width: int
     height: int
     label: string
+    compressedPixels: seq[uint8]
+
+  DebugOverlay* = object
+    sprites*: Table[int, SpritePacketSpriteDef]
+    objects*: Table[int, SpritePacketObject]
 
   GlobalViewerState* = object
     initialized*: bool
@@ -231,6 +243,8 @@ type
   PlayerViewerState* = ref object
     initialized*: bool
     objectIds*: seq[int]
+    pendingDebugSprites*: seq[seq[uint8]]
+    debugSpriteLimitWarned*: bool
     spriteDefs: seq[SpriteDefinition]
 
   ProtocolTextItem = ref object
@@ -256,6 +270,49 @@ proc initGlobalViewerState*(): GlobalViewerState =
 proc initPlayerViewerState*(): PlayerViewerState =
   ## Returns the default state for one sprite player viewer.
   new(result)
+
+proc debugSpritePixels(sprite: SpritePacketSpriteDef): seq[uint8] =
+  ## Decodes one sprite and rejects pixel counts that do not match its shape.
+  result = uncompress(sprite.compressedPixels)
+  if result.len != sprite.width * sprite.height * 4:
+    raise newException(
+      SpriteProtocolError,
+      "debug sprite pixel count does not match its dimensions"
+    )
+
+proc validateDebugSpritePacket*(packet: openArray[uint8]) =
+  ## Validates pixels before they reach replay storage; rendering decodes them.
+  for message in packet.parseSpritePacket():
+    if message.kind == spkSprite:
+      discard message.sprite.debugSpritePixels()
+
+proc applyDebugSpritePacket*(
+  overlay: var DebugOverlay,
+  packet: openArray[uint8]
+) =
+  ## Folds one player-authored sprite packet into an overlay.
+  for message in packet.parseSpritePacket():
+    case message.kind
+    of spkSprite:
+      overlay.sprites[message.sprite.id] = message.sprite
+    of spkObject:
+      overlay.objects[message.objectDef.id] = message.objectDef
+    of spkDeleteObject:
+      overlay.objects.del(message.objectId)
+    of spkClearObjects:
+      overlay.objects.clear()
+    of spkViewport, spkLayer:
+      discard
+
+proc debugSpriteId*(playerIndex, payloadId: int): int =
+  ## Returns the viewer sprite id for one player's payload sprite id.
+  DebugSpriteBase + playerIndex * DebugPlayerIdStride +
+    payloadId mod DebugPlayerIdStride
+
+proc debugObjectId*(playerIndex, payloadId: int): int =
+  ## Returns the viewer object id for one player's payload object id.
+  DebugObjectBase + playerIndex * DebugPlayerIdStride +
+    payloadId mod DebugPlayerIdStride
 
 proc putRgbaPixel(pixels: var seq[uint8], pixelIndex: int, color: uint8) =
   ## Writes one palette color as a global protocol RGBA pixel.
@@ -372,6 +429,7 @@ proc addSpriteChanged(
     defs[index].width = width
     defs[index].height = height
     defs[index].label = label
+    defs[index].compressedPixels = @[]
   else:
     defs.add SpriteDefinition(
       spriteId: spriteId,
@@ -399,6 +457,78 @@ proc addWorldObject(
     spriteId
   )
 
+proc addDebugOverlay(
+  packet: var seq[uint8],
+  spriteDefs: var seq[SpriteDefinition],
+  currentIds: var seq[int],
+  overlay: DebugOverlay,
+  playerIndex: int
+) =
+  ## Adds one selected player's debug overlay to a global viewer packet.
+  var payloadSpriteIds: seq[int] = @[]
+  for payloadId in overlay.sprites.keys:
+    payloadSpriteIds.add(payloadId)
+  payloadSpriteIds.sort()
+  var validSpriteIds: seq[int] = @[]
+  for payloadId in payloadSpriteIds:
+    let
+      sprite = overlay.sprites[payloadId]
+      spriteId = debugSpriteId(playerIndex, payloadId)
+      index = spriteDefs.spriteDefinitionIndex(spriteId)
+    var pixels: seq[uint8]
+    try:
+      pixels = sprite.debugSpritePixels()
+    except SpriteProtocolError, SnappyError:
+      continue
+    validSpriteIds.add(payloadId)
+    let
+      changed = index < 0 or
+        spriteDefs[index].width != sprite.width or
+        spriteDefs[index].height != sprite.height or
+        spriteDefs[index].label != sprite.label or
+        spriteDefs[index].compressedPixels != sprite.compressedPixels
+    if not changed:
+      continue
+    if index >= 0:
+      spriteDefs[index].width = sprite.width
+      spriteDefs[index].height = sprite.height
+      spriteDefs[index].label = sprite.label
+      spriteDefs[index].compressedPixels = sprite.compressedPixels
+    else:
+      spriteDefs.add SpriteDefinition(
+        spriteId: spriteId,
+        width: sprite.width,
+        height: sprite.height,
+        label: sprite.label,
+        compressedPixels: sprite.compressedPixels
+      )
+    packet.addSprite(
+      spriteId,
+      sprite.width,
+      sprite.height,
+      pixels,
+      sprite.label
+    )
+
+  var payloadObjectIds: seq[int] = @[]
+  for payloadId in overlay.objects.keys:
+    payloadObjectIds.add(payloadId)
+  payloadObjectIds.sort()
+  for payloadId in payloadObjectIds:
+    let objectDef = overlay.objects[payloadId]
+    if objectDef.spriteId notin validSpriteIds:
+      continue
+    let objectId = debugObjectId(playerIndex, payloadId)
+    currentIds.add(objectId)
+    packet.addWorldObject(
+      objectId,
+      objectDef.x,
+      objectDef.y,
+      DebugOverlayZ,
+      MapLayerId,
+      debugSpriteId(playerIndex, objectDef.spriteId)
+    )
+
 proc applyGlobalViewerMessage*(
   state: var GlobalViewerState,
   message: string
@@ -425,6 +555,8 @@ proc applyGlobalViewerMessage*(
       state.replayCommands.add(item.text)
     of SpriteClientInputMessage:
       discard
+    of SpriteClientReadyMessage, SpriteClientDebugSpriteMessage:
+      discard
 
 proc applyPlayerViewerMessage*(
   state: var PlayerViewerState,
@@ -441,7 +573,10 @@ proc applyPlayerViewerMessage*(
     of SpriteClientInputMessage:
       pressedMask = pressedMask or (item.mask and not inputMask)
       inputMask = item.mask
-    of SpriteClientMouseMoveMessage, SpriteClientMouseButtonMessage:
+    of SpriteClientDebugSpriteMessage:
+      state.pendingDebugSprites.add(item.debugSprites)
+    of SpriteClientMouseMoveMessage, SpriteClientMouseButtonMessage,
+        SpriteClientReadyMessage:
       discard
 
 proc buildCrewProtocolActorSprite(
@@ -2778,6 +2913,7 @@ proc buildSpriteProtocolUpdates*(
   sim: var SimServer,
   state: GlobalViewerState,
   nextState: var GlobalViewerState,
+  overlays: openArray[DebugOverlay],
   replayTick = -1,
   replayPlaying = false,
   replaySpeed = 1,
@@ -2868,6 +3004,13 @@ proc buildSpriteProtocolUpdates*(
         currentIds,
         result,
         nextState.selectedJoinOrder
+      )
+    if playerIndex < overlays.len:
+      result.addDebugOverlay(
+        nextState.spriteDefs,
+        currentIds,
+        overlays[playerIndex],
+        playerIndex
       )
     sim.addReplayMismatchWarning(
       nextState.spriteDefs,

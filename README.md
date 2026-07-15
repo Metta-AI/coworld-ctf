@@ -127,6 +127,24 @@ exits when the runner stops it.
 - **From scratch:** implement Sprite v1 in any language and package it in a Docker
   image.
 
+## Debug overlays (visualize what your bot is thinking)
+
+A policy can send Sprite v1 **debug sprite** packets (client message `0x86` —
+see the spec above) to draw private annotations: planned paths, target marks,
+heatmaps, labels. The payload is ordinary server-to-client sprite messages
+(define sprite / define object / delete object / clear objects). The server
+records them into the replay, and the global viewer renders the **selected
+player's** overlay on the map — live and during replay playback, exact across
+seeks.
+
+- Payload sprite/object ids must stay in `0..1023` per player; the viewer
+  namespaces them so players can't collide with each other or the game.
+- Overlays are diagnostic only: they never affect simulation state, inputs,
+  scoring, or the replay tick hash. Malformed or oversized packets
+  (> 32 KiB per player per tick) are dropped.
+- Define sprites once and move objects per tick — every accepted packet is
+  stored in the replay, so diff-style authoring keeps files small.
+
 ## Inspect replay timelines
 
 Use `tools/expand_replay.nim` to get a text view of a replay — tick numbers, phase
