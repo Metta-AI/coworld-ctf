@@ -1,0 +1,23 @@
+{
+  "target": {"league_id": "league_3243d905-d32d-4ec6-978b-fa94751d4a37"},
+  "roster": [
+    {"player": {"policy_ref": "Picasso:v2"}, "slot": 0},
+    {"player": {"top_n": 1}, "slot": 1},
+    {"player": {"policy_ref": "Picasso:v2"}, "slot": 2},
+    {"player": {"top_n": 1}, "slot": 3},
+    {"player": {"policy_ref": "Picasso:v2"}, "slot": 4},
+    {"player": {"top_n": 1}, "slot": 5},
+    {"player": {"policy_ref": "Picasso:v2"}, "slot": 6},
+    {"player": {"top_n": 1}, "slot": 7},
+    {"player": {"policy_ref": "Picasso:v2"}, "slot": 8},
+    {"player": {"top_n": 1}, "slot": 9},
+    {"player": {"policy_ref": "Picasso:v2"}, "slot": 10},
+    {"player": {"top_n": 1}, "slot": 11},
+    {"player": {"policy_ref": "Picasso:v2"}, "slot": 12},
+    {"player": {"top_n": 1}, "slot": 13},
+    {"player": {"policy_ref": "Picasso:v2"}, "slot": 14},
+    {"player": {"top_n": 1}, "slot": 15}
+  ],
+  "num_episodes": 20,
+  "notes": "Picasso:v2 (commit + aimLock target-hold + corner-unstuck) fills all 8 RED seats vs Competition top_1 (daveey) on all 8 BLUE. Uniform team blocks = faithful league seating. Lab A/B: v2 beat commit-alone Picasso 15-6 in decisives over 40 seat-swapped seeds (net +9). Test-only sanity vs the live #1 before any league submit."
+}
