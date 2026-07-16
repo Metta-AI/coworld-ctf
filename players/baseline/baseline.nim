@@ -253,6 +253,7 @@ type
     killMoodUntil: int        # taunt window opened by a fresh kill
     lastEnemyShout: string    # last enemy shout label already responded to
     lastComebackReq: int      # rate limit on comeback generation requests
+    wasMateCarry: bool        # edge detector: a fresh steal opens a taunt window
 
 proc roleForSeat(seat: int, team: Team): Role =
   ## Deterministic role spread over the 8 per-team seats. Seats 2 and 3 both
@@ -922,6 +923,7 @@ proc resetTransient(bot: Bot) =
   bot.killMoodUntil = 0
   bot.lastEnemyShout = ""
   bot.lastComebackReq = 0
+  bot.wasMateCarry = false
   bot.carrierSeen = -100_000
   bot.lastEnemySeen = bot.tick
   bot.gameStart = bot.tick
@@ -1215,31 +1217,29 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         bot.lastShoutTick = bot.tick
 
   when defined(taunt):
-    # Taunts spend only LEFTOVER shout budget: never while carrying, never
-    # over a gameplay shout, and never with a live enemy remembered nearby —
-    # a shout is audible (with rough position) to enemies within ~247px, so
-    # trash talk waits for the moment the fight is already won. One taunt
-    # per kill window; comebacks answer a heard enemy shout.
+    # Taunts spend only LEFTOVER shout budget: never while carrying and never
+    # over a gameplay shout (the carrier heartbeat always wins the 1/s slot).
+    # Position leak is a non-issue at the trigger moments — a kill means we
+    # just FIRED, and gunfire is already heard map-wide as a sound ring, so
+    # the ~247px shout bubble tells enemies nothing new. One taunt per
+    # kill/steal window; comebacks answer a heard enemy shout.
+    if mateCarry and not bot.wasMateCarry:
+      bot.killMoodUntil = bot.tick + 72    # a mate just lifted their heart
+    bot.wasMateCarry = mateCarry
     if bot.shoutWant.len == 0 and not iCarry and
         bot.tick - bot.lastShoutTick >= 26 and
         (bot.comebackWant.len > 0 or bot.tick < bot.killMoodUntil):
-      var nearFresh = false
-      for t in bot.enemies:
-        if bot.tick - t.lastSeen <= 48 and dist(t.pos, me) < 400.0:
-          nearFresh = true
-          break
-      if not nearFresh:
-        if bot.comebackWant.len > 0:
-          bot.shoutWant = bot.comebackWant
-          bot.comebackWant = ""
+      if bot.comebackWant.len > 0:
+        bot.shoutWant = bot.comebackWant
+        bot.comebackWant = ""
+      else:
+        if bot.tauntBank.len > 0:
+          bot.shoutWant = bot.tauntBank[0]
+          bot.tauntBank.delete(0)
         else:
-          if bot.tauntBank.len > 0:
-            bot.shoutWant = bot.tauntBank[0]
-            bot.tauntBank.delete(0)
-          else:
-            bot.shoutWant = sample(CannedTaunts)
-          bot.killMoodUntil = 0            # one taunt per kill
-        bot.lastShoutTick = bot.tick
+          bot.shoutWant = sample(CannedTaunts)
+        bot.killMoodUntil = 0              # one taunt per window
+      bot.lastShoutTick = bot.tick
 
   # Flank progress: sticky so lane-runners do not oscillate at the boundary.
   if bot.role in {FlankTop, FlankBottom}:
