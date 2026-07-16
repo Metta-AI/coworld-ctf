@@ -1788,6 +1788,13 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     else: 0
   mask
 
+const ShoutVocab = [
+  "go go go", "on me", "help!", "push left", "flank right",
+  "got it!", "cover me", "nice!", "regroup", "incoming"
+]
+  ## A short kid-friendly chatter set. Only emitted when CTF_BOT_SHOUT is set
+  ## (fixture recording), so tournament play is unchanged.
+
 proc runBot(url: string) =
   ## Connects, then loops frames forever, reconnecting on disconnect.
   let
@@ -1796,7 +1803,9 @@ proc runBot(url: string) =
     role = roleForSeat(clamp(slot div 2, 0, 7), team)
     endpoint = ensureWsPath(url, WebSocketPath)
   randomize(slot * 7919 + 1)
-  let bot = Bot(slot: slot, team: team, role: role)
+  let
+    bot = Bot(slot: slot, team: team, role: role)
+    shoutEnabled = getEnv("CTF_BOT_SHOUT").len > 0
   bot.resetTransient()
   echo "baseline slot=", slot, " team=", team, " role=", role, " -> ", endpoint
   let client = initProtocolClient()
@@ -1830,6 +1839,14 @@ proc runBot(url: string) =
         if mask != lastMask:
           ws.send(inputBlob(mask), BinaryMessage)
           lastMask = mask
+        # Fixture-only chatter: shout on a slot-staggered ~2s cadence so a
+        # recorded episode carries live shouts to exercise the bubble render.
+        if shoutEnabled and
+            (bot.tick + bot.slot * 5) mod (2 * 24) < advance:
+          let phrase = ShoutVocab[(bot.tick div 48 + bot.slot) mod
+            ShoutVocab.len]
+          ws.send(chatBlob(phrase), BinaryMessage)
+        # Competitive coordination / taunt shouts (compile-gated).
         when defined(shoutCoord) or defined(taunt):
           if bot.shoutWant.len > 0:
             ws.send(chatBlob(bot.shoutWant), BinaryMessage)
