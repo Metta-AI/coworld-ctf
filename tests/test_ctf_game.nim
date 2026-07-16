@@ -579,6 +579,26 @@ suite "ctf game":
     check sim.rewardAccounts[blue].winsRed == 0
     check sim.rewardAccounts[blue].winsBlue == 0
 
+  test "an emptied finite match finishes as a scoreless draw inside step":
+    var sim = twoTeamGame()
+    sim.config.maxGames = 1
+    sim.removePlayerAt(1)
+    sim.removePlayerAt(0)
+    let none = newSeq[InputState](0)
+    sim.step(none, none)
+    check sim.phase == GameOver
+    check sim.isDraw
+    check sim.timeLimitReached
+
+  test "an emptied endless match recycles to the lobby inside step":
+    var sim = twoTeamGame()
+    sim.config.maxGames = 0
+    sim.removePlayerAt(1)
+    sim.removePlayerAt(0)
+    let none = newSeq[InputState](0)
+    sim.step(none, none)
+    check sim.phase == Lobby
+
   test "a time-limit game is a scoreless draw for both sides":
     var sim = twoTeamGame()
     sim.config.maxTicks = 5

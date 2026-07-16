@@ -76,6 +76,9 @@ import
   whisky,
   baseline/protocols
 
+when defined(taunt):
+  import baseline/taunts
+
 const
   WebSocketPath = "/player"
   RenderScale = 3             # HD px per map px on the wire; mirrors hd.nim.
@@ -141,6 +144,10 @@ const
   NadeBlast = 40.0            # blast radius; a pair this close dies together
   NadeFullChargeTicks = 24    # ~1s of holding C reaches max range
   NadePickupDetour = 90.0     # grab a corner pickup within this detour range
+  CarrySelfRadius = 26.0      # a carried heart rides CarriedFlagLift (~10 map
+                              # px) above its carrier's center, so our own
+                              # carry shows as the enemy heart floating just
+                              # over our head — never within the old 4px test
   CarrierEstSpeed = 1.0       # px/tick a fogged mate-carrier is assumed to
                               # advance homeward (carrier moves at ~70% speed)
   CombatDeadband = 2          # stop the traverse within this error (brads);
@@ -238,6 +245,14 @@ type
     mateFixPos: Vec           # last SEEN position of a mate-carried enemy heart
     mateFixTick: int          # tick of that sighting; 0 = never seen this game
     nadeNeed: int             # charge ticks required for the planned throw
+    shoutWant: string         # chat packet to send after this frame's input
+    lastShoutTick: int        # rate limit: server allows one shout per second
+    tauntBank: seq[string]    # Bedrock-prefetched taunts, popped front-first
+    comebackWant: string      # pending reply to a heard enemy shout
+    corpseCount: int          # visible enemy corpses last frame (kill signal)
+    killMoodUntil: int        # taunt window opened by a fresh kill
+    lastEnemyShout: string    # last enemy shout label already responded to
+    lastComebackReq: int      # rate limit on comeback generation requests
 
 proc roleForSeat(seat: int, team: Team): Role =
   ## Deterministic role spread over the 8 per-team seats. Seats 2 and 3 both
@@ -900,6 +915,13 @@ proc resetTransient(bot: Bot) =
   bot.mates.setLen(0)
   bot.nadeCharge = 0
   bot.mateFixTick = 0
+  bot.shoutWant = ""
+  bot.lastShoutTick = 0
+  bot.comebackWant = ""
+  bot.corpseCount = 0
+  bot.killMoodUntil = 0
+  bot.lastEnemyShout = ""
+  bot.lastComebackReq = 0
   bot.carrierSeen = -100_000
   bot.lastEnemySeen = bot.tick
   bot.gameStart = bot.tick
@@ -1005,6 +1027,8 @@ proc friendlyBlocked(bot: Bot, me, aim: Vec, enemyDist: float): bool =
 
 proc decide(bot: Bot, client: ProtocolClient): uint8 =
   ## Core CTF policy for one frame.
+  when defined(statue):
+    return 0'u8                          # test dummy: stand still all game
   let
     myColor = (if bot.team == Red: "red" else: "blue")
     enemyColor = (if bot.team == Red: "blue" else: "red")
@@ -1050,9 +1074,80 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     ownHome = flagHome(bot.team)
     enemyFlags = client.spriteObjectsWithLabel(enemyColor & " heart")
     ownFlags = client.spriteObjectsWithLabel(myColor & " heart")
+  when defined(taunt):
+    # Taunt pipeline, all non-blocking: drain whatever the Bedrock worker
+    # produced, notice new ENEMY shouts (queue a comeback), and open a short
+    # taunt window when a corpse appears right after we fired. The worker
+    # thread owns every HTTP call — this block only moves strings around.
+    pollTaunts(bot.tauntBank, bot.comebackWant)
+    for o in client.spriteObjects():
+      if o.label.startsWith(enemyColor & " shout "):
+        if o.label != bot.lastEnemyShout:
+          bot.lastEnemyShout = o.label
+          if bot.tick - bot.lastComebackReq >= 240:
+            bot.lastComebackReq = bot.tick
+            let sep = o.label.rfind(": ")
+            if sep > 0:
+              requestComeback(o.label[sep + 2 .. ^1])
+        break
+    var corpses = 0
+    for facing in [" right", " left"]:
+      corpses += client.spriteObjectsWithLabel(
+        "corpse " & enemyColor & facing).len
+    if corpses > bot.corpseCount and bot.firedLast:
+      bot.killMoodUntil = bot.tick + 72
+    bot.corpseCount = corpses
+
+  when defined(shoutCoord):
+    # Shout intel (0.7.5): teammates broadcast quantized fixes as 10-char
+    # shouts — "C<cx> <cy>" is our carrier's own position, "T<cx> <cy>" a
+    # fresh fix on the enemy thief running OUR heart. The payload carries the
+    # exact quantized position; the bubble's jittered coordinates are ignored.
+    for o in client.spriteObjects():
+      if not o.label.startsWith(myColor & " shout "):
+        continue
+      let sep = o.label.rfind(": ")
+      if sep < 0:
+        continue
+      let text = o.label[sep + 2 .. ^1]
+      if text.len < 4 or text[0] notin {'C', 'T'}:
+        continue
+      let parts = text[1 .. ^1].split(' ')
+      if parts.len != 2:
+        continue
+      var cx, cy: int
+      try:
+        cx = parseInt(parts[0])
+        cy = parseInt(parts[1])
+      except ValueError:
+        continue
+      let p = vec(float(cx * 8 + 4), float(cy * 8 + 4))
+      if text[0] == 'C':
+        # Fresher than any dead-reckoned estimate: pin the escort fix here.
+        bot.mateFixPos = p
+        bot.mateFixTick = bot.tick
+      else:
+        when defined(shoutThief):
+          # Thief fix: adopt unless we have our own fresher eyes on it.
+          # (Isolated behind its own define: broadcast convergence pulls
+          # defenders across watched ground — measured attrition risk.)
+          if bot.tick - bot.carrierSeen > 8:
+            bot.carrierPos = p
+            bot.carrierVel = vec(0, 0)
+            bot.carrierSeen = bot.tick
   if enemyFlags.len > 0:
     let fp = client.mapPos(enemyFlags[0])
-    if dist(fp, me) <= 4:
+    # Self-carry test: the heart hovers over its carrier, so "am I the
+    # carrier" is "is the heart on MY head and on nobody else's" — a visible
+    # mate closer to the heart than us means the mate is the carrier.
+    var mateCloser = false
+    let dSelf = dist(fp, me)
+    for t in bot.mates:
+      if bot.tick - t.lastSeen <= 2 and dist(t.pos, fp) < dSelf:
+        mateCloser = true
+        break
+    if dSelf <= CarrySelfRadius and dist(fp, stealTarget) > 16.0 and
+        not mateCloser:
       iCarry = true
     elif dist(fp, stealTarget) > 16.0:
       mateCarry = true                   # only a teammate can be carrying it
@@ -1076,7 +1171,19 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       elapsed * CarrierEstSpeed
     )
     mateCarryPos = est
+  when defined(carryDebug):
+    if bot.tick mod 50 == 0 and (iCarry or mateCarry):
+      var fpS = "none"
+      if enemyFlags.len > 0:
+        let fp = client.mapPos(enemyFlags[0])
+        fpS = $int(fp.x) & "," & $int(fp.y) & " d=" & $int(dist(fp, me))
+      echo "CARRY t=", bot.tick, " slot=", bot.slot, " role=", bot.role,
+        " iCarry=", iCarry, " mateCarry=", mateCarry,
+        " me=", int(me.x), ",", int(me.y), " fp=", fpS,
+        " mateCarryPos=", int(mateCarryPos.x), ",", int(mateCarryPos.y)
+      flushFile(stdout)
   var ownStolen = ownFlags.len == 0
+  var sawThief = false
   if ownFlags.len > 0:
     let fp = client.mapPos(ownFlags[0])
     if dist(fp, ownHome) <= 6:
@@ -1084,6 +1191,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     else:
       # The thief holding our flag is inside our vision: take a fresh fix.
       ownStolen = true
+      sawThief = true
       bot.carrierPos = fp
       bot.carrierVel = vec(0, 0)
       for t in bot.enemies:
@@ -1091,6 +1199,47 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           bot.carrierVel = t.vel
           break
       bot.carrierSeen = bot.tick
+
+  when defined(shoutCoord):
+    # Broadcast intel worth its position leak (shouts are heard by enemies
+    # within ~247px too, but a carrier is already hunted and a defender's
+    # post is no secret). Carrier heartbeat beats thief fix; own eyes only —
+    # re-broadcasting a heard fix would echo it around the map forever.
+    if bot.tick - bot.lastShoutTick >= 26:
+      if iCarry:
+        bot.shoutWant = "C" & $(int(me.x) div 8) & " " & $(int(me.y) div 8)
+        bot.lastShoutTick = bot.tick
+      elif sawThief and defined(shoutThief):
+        bot.shoutWant = "T" & $(int(bot.carrierPos.x) div 8) & " " &
+          $(int(bot.carrierPos.y) div 8)
+        bot.lastShoutTick = bot.tick
+
+  when defined(taunt):
+    # Taunts spend only LEFTOVER shout budget: never while carrying, never
+    # over a gameplay shout, and never with a live enemy remembered nearby —
+    # a shout is audible (with rough position) to enemies within ~247px, so
+    # trash talk waits for the moment the fight is already won. One taunt
+    # per kill window; comebacks answer a heard enemy shout.
+    if bot.shoutWant.len == 0 and not iCarry and
+        bot.tick - bot.lastShoutTick >= 26 and
+        (bot.comebackWant.len > 0 or bot.tick < bot.killMoodUntil):
+      var nearFresh = false
+      for t in bot.enemies:
+        if bot.tick - t.lastSeen <= 48 and dist(t.pos, me) < 400.0:
+          nearFresh = true
+          break
+      if not nearFresh:
+        if bot.comebackWant.len > 0:
+          bot.shoutWant = bot.comebackWant
+          bot.comebackWant = ""
+        else:
+          if bot.tauntBank.len > 0:
+            bot.shoutWant = bot.tauntBank[0]
+            bot.tauntBank.delete(0)
+          else:
+            bot.shoutWant = sample(CannedTaunts)
+          bot.killMoodUntil = 0            # one taunt per kill
+        bot.lastShoutTick = bot.tick
 
   # Flank progress: sticky so lane-runners do not oscillate at the boundary.
   if bot.role in {FlankTop, FlankBottom}:
@@ -1660,6 +1809,8 @@ proc runBot(url: string) =
   bot.resetTransient()
   echo "baseline slot=", slot, " team=", team, " role=", role, " -> ", endpoint
   let client = initProtocolClient()
+  when defined(taunt):
+    startTaunts()                        # worker thread + bank prefetch
   var everConnected = false
   while true:
     try:
@@ -1695,6 +1846,11 @@ proc runBot(url: string) =
           let phrase = ShoutVocab[(bot.tick div 48 + bot.slot) mod
             ShoutVocab.len]
           ws.send(chatBlob(phrase), BinaryMessage)
+        # Competitive coordination / taunt shouts (compile-gated).
+        when defined(shoutCoord) or defined(taunt):
+          if bot.shoutWant.len > 0:
+            ws.send(chatBlob(bot.shoutWant), BinaryMessage)
+            bot.shoutWant = ""
     except Exception as e:
       if everConnected:
         # The game ended and the server went away: exit so the episode
