@@ -53,9 +53,8 @@ const
   ScoreboardHeadObjectBase = 12500
   ScoreboardTextColor = 2'u8
   ScoreboardSelectedTextColor = 10'u8
-  InterstitialObjectId = 4005
   InterstitialLayerId = 2
-  InterstitialLayerType = 2
+  InterstitialLayerType = 5    ## top-center: status text floats over the arena.
   OverheadYOffset = 4          ## px gap between a sprite top and overhead UI.
   HpPipSpriteBase = 820        ## hp pip bar sprites: 820 + remaining hp.
   HpPipObjectBase = 19000      ## hp pip bar object-id pool: one per player.
@@ -2939,13 +2938,12 @@ proc buildSpriteProtocolUpdates*(
     )
     nextState.povState = povState
     var currentIds: seq[int] = @[]
-    if not sim.hasInterstitialFrame():
-      sim.addScoreboard(
-        nextState.spriteDefs,
-        currentIds,
-        result,
-        nextState.selectedJoinOrder
-      )
+    sim.addScoreboard(
+      nextState.spriteDefs,
+      currentIds,
+      result,
+      nextState.selectedJoinOrder
+    )
     sim.addReplayMismatchWarning(
       nextState.spriteDefs,
       currentIds,
@@ -2974,13 +2972,12 @@ proc buildSpriteProtocolUpdates*(
     nextState.initialized = true
 
   var currentIds: seq[int] = @[]
-  if not sim.hasInterstitialFrame():
-    sim.addScoreboard(
-      nextState.spriteDefs,
-      currentIds,
-      result,
-      nextState.selectedJoinOrder
-    )
+  sim.addScoreboard(
+    nextState.spriteDefs,
+    currentIds,
+    result,
+    nextState.selectedJoinOrder
+  )
   sim.addMapFurniture(nextState.spriteDefs, currentIds, result)
   sim.addSplatters(nextState.spriteDefs, currentIds, result)
   sim.addGrenades(nextState.spriteDefs, currentIds, result)
@@ -3051,15 +3048,9 @@ proc buildSpriteProtocolUpdates*(
     )
 
   if sim.hasInterstitialFrame():
-    currentIds.add(InterstitialObjectId)
-    result.addObject(
-      InterstitialObjectId,
-      0,
-      0,
-      0,
-      InterstitialLayerId,
-      SpritePlayerInterstitialSpriteId
-    )
+    # Status text and (on game over) the winner roster float directly over
+    # the arena: the old full-screen dark interstitial background is gone —
+    # the map, bubbles, and corner rosters stay visible throughout.
     sim.addProtocolTextSprites(
       nextState.spriteDefs,
       currentIds,
