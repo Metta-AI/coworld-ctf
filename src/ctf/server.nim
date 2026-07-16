@@ -903,17 +903,15 @@ proc runServerLoop*(
             sim.removePlayer(websocket)
             socketsToClose.add(websocket)
         if not replayLoaded and sim.shouldAbortFiniteMatch():
+          # Playing/GameOver roster loss now resolves deterministically
+          # inside sim.step (recorded leaves re-derive it in replays); only
+          # the lobby dissolve and process exit stay live-server concerns.
           if sim.phase == Lobby:
             raise newException(
               CtfError,
               "finite match roster dropped below minPlayers before roles were assigned"
             )
-          sim.finishGame(Red, isDraw = true, timeLimitReached = true)
           quitAfterFrame = true
-        elif not replayLoaded and sim.phase != Lobby and sim.players.len == 0:
-          sim.resetToLobby()
-          prevInputs = @[]
-          replayWriter.lastMasks = @[]
 
         if not replayLoaded:
           var newSockets: seq[WebSocket] = @[]

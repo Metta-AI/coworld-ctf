@@ -3324,6 +3324,15 @@ proc step*(
 ) {.measure.} =
   inc sim.tickCount
 
+  # Roster-driven transitions belong inside the deterministic step: leaves
+  # are recorded and re-applied, so replays re-derive these exactly. (They
+  # used to run live-only in the server loop, which made every replay with a
+  # mid-match disconnect-out diverge from its recorded hashes.)
+  if sim.players.len == 0 and sim.phase == Playing and sim.config.maxGames > 0:
+    sim.finishGame(Red, isDraw = true, timeLimitReached = true)
+  elif sim.players.len == 0 and sim.phase != Lobby:
+    sim.resetToLobby()
+
   if sim.phase == Lobby:
     sim.stepLobby()
     return
