@@ -81,7 +81,6 @@ when defined(taunt):
 
 const
   WebSocketPath = "/player"
-  RenderScale = 3             # HD px per map px on the wire; mirrors hd.nim.
                               # Object coordinates and sprite sizes arrive
                               # multiplied by this; sprites stay centered on
                               # the same map points, so dividing the object
@@ -144,10 +143,9 @@ const
   NadeBlast = 40.0            # blast radius; a pair this close dies together
   NadeFullChargeTicks = 24    # ~1s of holding C reaches max range
   NadePickupDetour = 90.0     # grab a corner pickup within this detour range
-  CarrySelfRadius = 26.0      # a carried heart rides CarriedFlagLift (~10 map
-                              # px) above its carrier's center, so our own
-                              # carry shows as the enemy heart floating just
-                              # over our head — never within the old 4px test
+  CarrySelfRadius = 26.0      # the carried flag banner is centered on its
+                              # carrier: anything inside this slack that no
+                              # visible mate sits closer to is OUR carry
   CarrierEstSpeed = 1.0       # px/tick a fogged mate-carrier is assumed to
                               # advance homeward (carrier moves at ~70% speed)
   CombatDeadband = 2          # stop the traverse within this error (brads);
@@ -253,6 +251,7 @@ type
     killMoodUntil: int        # taunt window opened by a fresh kill
     lastEnemyShout: string    # last enemy shout label already responded to
     lastComebackReq: int      # rate limit on comeback generation requests
+    wasMateCarry: bool        # edge detector: a fresh steal opens a taunt window
 
 proc roleForSeat(seat: int, team: Team): Role =
   ## Deterministic role spread over the 8 per-team seats. Seats 2 and 3 both
@@ -356,12 +355,13 @@ proc slotFromUrl(url: string): int =
 
 proc mapPos(client: ProtocolClient, o: SpriteObjectInfo): Vec =
   ## Map-space center of a sprite object (the map object sits at the origin,
-  ## so the camera offset is zero; keep it for exactness). The wire carries
-  ## RenderScale-scaled coordinates with sprites centered on scaled map
-  ## points, so the division is exact for every entity the bot reads.
+  ## so the camera offset is zero; keep it for exactness). Since the 0.7.8
+  ## renderer restore the wire is back to 1x map pixels (the 0.6-0.7.7 HD
+  ## era carried 3x-scaled coordinates), with sprites centered on their map
+  ## points.
   vec(
-    float((o.x + o.width div 2) div RenderScale + client.mapCameraX),
-    float((o.y + o.height div 2) div RenderScale + client.mapCameraY)
+    float(o.x + o.width div 2 + client.mapCameraX),
+    float(o.y + o.height div 2 + client.mapCameraY)
   )
 
 proc findSelf(
@@ -922,6 +922,7 @@ proc resetTransient(bot: Bot) =
   bot.killMoodUntil = 0
   bot.lastEnemyShout = ""
   bot.lastComebackReq = 0
+  bot.wasMateCarry = false
   bot.carrierSeen = -100_000
   bot.lastEnemySeen = bot.tick
   bot.gameStart = bot.tick
@@ -1072,8 +1073,14 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   let
     stealTarget = flagHome(enemy(bot.team))  # the enemy pedestal is static
     ownHome = flagHome(bot.team)
-    enemyFlags = client.spriteObjectsWithLabel(enemyColor & " heart")
-    ownFlags = client.spriteObjectsWithLabel(myColor & " heart")
+    # Since the 0.7.8 renderer restore the objective is labeled a FLAG again,
+    # split into distinct pedestal/carried sprites: "<color> flag planted" is
+    # the always-visible pedestal banner, "<color> flag" the carried banner
+    # centered exactly on its carrier (fogged with the carrier).
+    enemyPlanted = client.spriteObjectsWithLabel(enemyColor & " flag planted")
+    enemyFlags = client.spriteObjectsWithLabel(enemyColor & " flag")
+    ownPlanted = client.spriteObjectsWithLabel(myColor & " flag planted")
+    ownFlags = client.spriteObjectsWithLabel(myColor & " flag")
   when defined(taunt):
     # Taunt pipeline, all non-blocking: drain whatever the Bedrock worker
     # produced, notice new ENEMY shouts (queue a comeback), and open a short
@@ -1135,32 +1142,34 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
             bot.carrierPos = p
             bot.carrierVel = vec(0, 0)
             bot.carrierSeen = bot.tick
-  if enemyFlags.len > 0:
+  if enemyPlanted.len > 0:
+    discard                              # enemy flag sits home: nobody carries
+  elif enemyFlags.len > 0:
+    # Carried banner in sight, centered exactly on its carrier. "Am I the
+    # carrier" is "is the flag on ME and on nobody else" — a visible mate
+    # closer to it than us means the mate is the carrier.
     let fp = client.mapPos(enemyFlags[0])
-    # Self-carry test: the heart hovers over its carrier, so "am I the
-    # carrier" is "is the heart on MY head and on nobody else's" — a visible
-    # mate closer to the heart than us means the mate is the carrier.
     var mateCloser = false
     let dSelf = dist(fp, me)
     for t in bot.mates:
       if bot.tick - t.lastSeen <= 2 and dist(t.pos, fp) < dSelf:
         mateCloser = true
         break
-    if dSelf <= CarrySelfRadius and dist(fp, stealTarget) > 16.0 and
-        not mateCloser:
+    if dSelf <= CarrySelfRadius and not mateCloser:
       iCarry = true
-    elif dist(fp, stealTarget) > 16.0:
+    else:
       mateCarry = true                   # only a teammate can be carrying it
       mateCarryPos = fp
       bot.mateFixPos = fp
       bot.mateFixTick = bot.tick
   else:
-    # The enemy heart is ABSENT from the frame: it is off its pedestal on a
-    # FOGGED carrier — and only OUR team can carry it, so a teammate is
-    # running it home right now even though we cannot see it. Without this
-    # inference the whole wave keeps pressing an empty pedestal instead of
-    # covering the run. Escort a dead-reckoned fix: the last sighting (or
-    # the pedestal it was lifted from) advanced homeward at carrier speed.
+    # No planted banner and no carried banner in the frame: the flag is off
+    # its pedestal on a FOGGED carrier — and only OUR team can carry it, so a
+    # teammate is running it home right now even though we cannot see it.
+    # Without this inference the whole wave keeps pressing an empty pedestal
+    # instead of covering the run. Escort a dead-reckoned fix: the last
+    # sighting (or the pedestal it was lifted from) advanced homeward at
+    # carrier speed.
     mateCarry = true
     var est =
       if bot.mateFixTick > 0: bot.mateFixPos
@@ -1182,23 +1191,21 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         " me=", int(me.x), ",", int(me.y), " fp=", fpS,
         " mateCarryPos=", int(mateCarryPos.x), ",", int(mateCarryPos.y)
       flushFile(stdout)
-  var ownStolen = ownFlags.len == 0
+  var ownStolen = ownPlanted.len == 0
   var sawThief = false
-  if ownFlags.len > 0:
+  if ownPlanted.len > 0:
+    bot.carrierSeen = -100_000           # our flag is safely home
+  elif ownFlags.len > 0:
+    # The thief holding our flag is inside our vision: take a fresh fix.
     let fp = client.mapPos(ownFlags[0])
-    if dist(fp, ownHome) <= 6:
-      bot.carrierSeen = -100_000         # our flag is safely home
-    else:
-      # The thief holding our flag is inside our vision: take a fresh fix.
-      ownStolen = true
-      sawThief = true
-      bot.carrierPos = fp
-      bot.carrierVel = vec(0, 0)
-      for t in bot.enemies:
-        if dist(t.pos, fp) <= 8:
-          bot.carrierVel = t.vel
-          break
-      bot.carrierSeen = bot.tick
+    sawThief = true
+    bot.carrierPos = fp
+    bot.carrierVel = vec(0, 0)
+    for t in bot.enemies:
+      if dist(t.pos, fp) <= 8:
+        bot.carrierVel = t.vel
+        break
+    bot.carrierSeen = bot.tick
 
   when defined(shoutCoord):
     # Broadcast intel worth its position leak (shouts are heard by enemies
@@ -1215,31 +1222,29 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         bot.lastShoutTick = bot.tick
 
   when defined(taunt):
-    # Taunts spend only LEFTOVER shout budget: never while carrying, never
-    # over a gameplay shout, and never with a live enemy remembered nearby —
-    # a shout is audible (with rough position) to enemies within ~247px, so
-    # trash talk waits for the moment the fight is already won. One taunt
-    # per kill window; comebacks answer a heard enemy shout.
+    # Taunts spend only LEFTOVER shout budget: never while carrying and never
+    # over a gameplay shout (the carrier heartbeat always wins the 1/s slot).
+    # Position leak is a non-issue at the trigger moments — a kill means we
+    # just FIRED, and gunfire is already heard map-wide as a sound ring, so
+    # the ~247px shout bubble tells enemies nothing new. One taunt per
+    # kill/steal window; comebacks answer a heard enemy shout.
+    if mateCarry and not bot.wasMateCarry:
+      bot.killMoodUntil = bot.tick + 72    # a mate just lifted their heart
+    bot.wasMateCarry = mateCarry
     if bot.shoutWant.len == 0 and not iCarry and
         bot.tick - bot.lastShoutTick >= 26 and
         (bot.comebackWant.len > 0 or bot.tick < bot.killMoodUntil):
-      var nearFresh = false
-      for t in bot.enemies:
-        if bot.tick - t.lastSeen <= 48 and dist(t.pos, me) < 400.0:
-          nearFresh = true
-          break
-      if not nearFresh:
-        if bot.comebackWant.len > 0:
-          bot.shoutWant = bot.comebackWant
-          bot.comebackWant = ""
+      if bot.comebackWant.len > 0:
+        bot.shoutWant = bot.comebackWant
+        bot.comebackWant = ""
+      else:
+        if bot.tauntBank.len > 0:
+          bot.shoutWant = bot.tauntBank[0]
+          bot.tauntBank.delete(0)
         else:
-          if bot.tauntBank.len > 0:
-            bot.shoutWant = bot.tauntBank[0]
-            bot.tauntBank.delete(0)
-          else:
-            bot.shoutWant = sample(CannedTaunts)
-          bot.killMoodUntil = 0            # one taunt per kill
-        bot.lastShoutTick = bot.tick
+          bot.shoutWant = sample(CannedTaunts)
+        bot.killMoodUntil = 0              # one taunt per window
+      bot.lastShoutTick = bot.tick
 
   # Flank progress: sticky so lane-runners do not oscillate at the boundary.
   if bot.role in {FlankTop, FlankBottom}:
