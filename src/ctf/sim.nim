@@ -63,6 +63,8 @@ const
   ShotFxTicks* = 12           ## ~0.5s a shot tracer stays visible (cosmetic only).
   SplatterFxTicks* = 120      ## ~5s a death splatter stays visible (cosmetic only).
   HitFxTicks* = 34            ## ~1.4s a non-fatal hit's paint splat stays visible.
+  DamageFxTicks* = 26         ## ~1.1s a floating "-1" damage pop rises and fades
+                              ## after a hit (cosmetic only, never in gameHash).
   CarrierSpeedPct* = 70       ## carrier moves at 70% speed.
   AimBradsTurn* = 256         ## aim angle units per full turn (binary radians).
   AimTurnRate* = 5            ## brads/tick a held rotate button turns the aim
@@ -355,6 +357,15 @@ type
     color*: uint8              ## the thrower's paint color, so the landing
                                ## splat reads as that team's paint-bomb.
 
+  DamageFx* = object
+    ## A cosmetic floating "-N" damage number that rises and fades above a
+    ## player the instant they lose hit points; never enters gameHash
+    ## (replay-safe). Makes each of the 3 health bars visibly tick down.
+    x*, y*: int                ## where the hit landed (player center at hit).
+    tick*: int                 ## when the hit landed.
+    amount*: int               ## hit points lost (1 for a shot, GrenadeDamage).
+    color*: uint8              ## the victim's team color, so it reads as their loss.
+
   Shout* = object
     ## One short player message, audible within ShoutRange of where it was
     ## made. Bots observe shouts, so they are gameplay state (in gameHash)
@@ -408,6 +419,7 @@ type
     recentShots*: seq[ShotFx]  ## cosmetic shot tracers; excluded from gameHash.
     splatters*: seq[SplatterFx]  ## cosmetic death splatters; excluded from gameHash.
     recentBlasts*: seq[BlastFx]  ## cosmetic grenade blasts; excluded from gameHash.
+    damagePops*: seq[DamageFx]  ## cosmetic floating "-N" damage numbers; excluded from gameHash.
     recentShouts*: seq[Shout]  ## live shouts; observable state, in gameHash.
     grenadeSpawns*: array[4, GrenadeSpawn]
     airborneGrenades*: seq[AirborneGrenade]
@@ -2570,6 +2582,7 @@ proc startGame*(sim: var SimServer) =
   sim.logGameEvent("game started: players=" & $sim.players.len)
   sim.recentShots = @[]
   sim.splatters = @[]
+  sim.damagePops = @[]
   sim.recentShouts = @[]
   sim.arrangeHomePositions()
   for i in 0 ..< sim.players.len:
@@ -2902,6 +2915,15 @@ proc applyFire(sim: var SimServer, shooterIndex, targetIndex: int) =
   )
   if targetIndex >= 0 and sim.players[targetIndex].alive:
     dec sim.players[targetIndex].hp
+    # A floating "-1" rises and fades from the victim so a lost health bar
+    # reads at a glance (cosmetic only, never in gameHash).
+    sim.damagePops.add DamageFx(
+      x: sim.players[targetIndex].x + CollisionW div 2,
+      y: sim.players[targetIndex].y + CollisionH div 2,
+      tick: sim.tickCount,
+      amount: 1,
+      color: sim.players[targetIndex].color
+    )
     if sim.players[targetIndex].hp <= 0:
       sim.killPlayer(targetIndex, shooterIndex)
       sim.recordKill(shooterIndex)
@@ -3043,6 +3065,11 @@ proc explodeGrenade(sim: var SimServer, grenade: AirborneGrenade) =
     if distSq(px, py, grenade.tx, grenade.ty) > radiusSq:
       continue
     sim.players[i].hp -= GrenadeDamage
+    # Floating damage number for the blast's HP loss (cosmetic, not in gameHash).
+    sim.damagePops.add DamageFx(
+      x: px, y: py, tick: sim.tickCount,
+      amount: GrenadeDamage, color: sim.players[i].color
+    )
     if sim.players[i].hp <= 0:
       sim.killPlayer(i, grenade.thrower)
       if grenade.thrower != i:
@@ -3732,6 +3759,7 @@ proc resetToLobby*(sim: var SimServer) =
   sim.recentShouts = @[]
   sim.recentShots = @[]
   sim.splatters = @[]
+  sim.damagePops = @[]
   sim.nextJoinOrder = 0
   sim.tickCount = 0
   sim.gameStartTick = -1
@@ -3876,3 +3904,8 @@ proc step*(
     if sim.tickCount - splatter.tick < life:
       keptSplatters.add splatter
   sim.splatters = keptSplatters
+  var keptPops: seq[DamageFx] = @[]
+  for pop in sim.damagePops:
+    if sim.tickCount - pop.tick < DamageFxTicks:
+      keptPops.add pop
+  sim.damagePops = keptPops

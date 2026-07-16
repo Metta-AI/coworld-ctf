@@ -17,7 +17,7 @@
 ## checks a draw before a winner (F3/F4).
 
 import
-  std/[json, strutils],
+  std/[json, math, strutils],
   sim
 
 type
@@ -116,17 +116,38 @@ proc stepEvents*(
 
   # Kills and respawns, diffed per player like expand_replay.
   let killer = sim.killerThisStep(tracker)
+  # Provable mutual trade: when exactly two players scored a kill this step AND
+  # exactly those same two players died, each necessarily killed the other (a
+  # player can't kill itself and no third party scored), so attribution IS
+  # recoverable even though `killerThisStep` reports the step ambiguous. We tag
+  # each of the two kill events with its partner's slot so the client can draw
+  # one linked "A traded with B" row instead of two nameless markers. A wider
+  # pileup (>2 kills, or killers != victims) stays honestly ambiguous.
+  var killers, victims: seq[int]
+  for i, p in sim.players:
+    if i < tracker.kills.len and p.kills > tracker.kills[i]:
+      killers.add i
+    if i < tracker.deaths.len and p.deaths > tracker.deaths[i]:
+      victims.add i
+  let tradePair =
+    killers.len == 2 and victims.len == 2 and
+    killers[0] in victims and killers[1] in victims
   for i, p in sim.players:
     if i < tracker.deaths.len and p.deaths > tracker.deaths[i]:
       let tk = killer.index >= 0 and sim.players[killer.index].team == p.team
-      events.add(%*{
+      var event = %*{
         "t": tick,
         "k": "kill",
         "killer": (if killer.index >= 0: sim.slotOf(killer.index) else: -1),
         "victim": sim.slotOf(i),
         "tk": tk,
         "amb": killer.ambiguous
-      })
+      }
+      if tradePair:
+        # The partner is the other victim; each is the other's provable killer.
+        let partner = if victims[0] == i: victims[1] else: victims[0]
+        event["trade"] = %sim.slotOf(partner)
+      events.add(event)
     elif i < tracker.alive.len and p.alive and not tracker.alive[i]:
       events.add(%*{"t": tick, "k": "respawn", "who": sim.slotOf(i)})
 
@@ -188,6 +209,125 @@ proc rosterJson(sim: SimServer): JsonNode =
       "cap": p.captures
     })
 
+const
+  FpColumns = 96              ## raycast columns per first-person frame.
+  FpMarchStep = 2.0           ## px per wall-march step (fine enough at 1235px).
+  FpEntFovMarginBrads = 8.0   ## let a sprite straddling the cone edge still show.
+
+proc bradOffset(a, b: float): float =
+  ## Signed smallest angular difference a-b, wrapped to [-128, 128) brads.
+  result = a - b
+  while result < -float(AimBradsTurn div 2): result += float(AimBradsTurn)
+  while result >= float(AimBradsTurn div 2): result -= float(AimBradsTurn)
+
+proc firstPersonJson(sim: SimServer, playerIndex: int): JsonNode =
+  ## Builds the selected player's first-person (Wolfenstein-style) raycast view:
+  ## per-column perpendicular wall distances plus the billboarded entities the
+  ## player can actually see. The main board keeps showing their fogged top-down
+  ## POV; this rides alongside as the picture-in-picture inset. Everything here is
+  ## derived from the same fog rules the player observes, so the inset never
+  ## reveals more than the seat legitimately sees.
+  if playerIndex < 0 or playerIndex >= sim.players.len:
+    return newJNull()
+  let
+    self = sim.players[playerIndex]
+    selfAlive = self.alive
+    px = float(self.x + CollisionW div 2)
+    py = float(self.y + CollisionH div 2)
+    aim = float(self.aimBrads)
+    # The inset FOV is literally the player's vision-cone half-angle, so the
+    # strip shows exactly the arc they perceive.
+    halfFov = float(sim.config.visionConeDeg) * float(AimBradsTurn) / 360.0
+    maxRange = float(sim.config.gunRange)
+    radPerBrad = PI / float(AimBradsTurn div 2)
+
+  var cols = newJArray()
+  for i in 0 ..< FpColumns:
+    let
+      frac = (if FpColumns == 1: 0.0 else: float(i) / float(FpColumns - 1))
+      # Column 0 = left edge = CCW (+halfFov); column N-1 = right edge = CW.
+      colBrad = aim + halfFov - frac * 2.0 * halfFov
+      rad = colBrad * radPerBrad
+      dx = cos(rad)
+      dy = -sin(rad)
+    var
+      t = FpMarchStep
+      hit = -1
+    while t <= maxRange:
+      let
+        mx = int(px + dx * t)
+        my = int(py + dy * t)
+      if mx < 0 or my < 0 or mx >= MapWidth or my >= MapHeight:
+        break
+      if sim.isWall(mx, my):
+        # Fisheye-correct: project the hit onto the central view axis so a flat
+        # wall reads flat, not bowed.
+        hit = int(t * cos((colBrad - aim) * radPerBrad))
+        break
+      t += FpMarchStep
+    cols.add(%hit)
+
+  var ents = newJArray()
+  proc addEnt(
+    kind, team: string,
+    wx, wy: float,
+    hp: int,
+    carry: bool
+  ) =
+    let
+      dx = wx - px
+      dy = wy - py
+      dist = hypot(dx, dy)
+    if dist < 1.0:
+      return
+    let
+      entBrad = arctan2(-dy, dx) / radPerBrad
+      off = bradOffset(entBrad, aim)
+    if abs(off) > halfFov + FpEntFovMarginBrads:
+      return
+    # o in [-1, 1]: -1 = left edge (+halfFov), +1 = right edge (-halfFov).
+    var e = %*{"k": kind, "team": team, "o": -off / halfFov, "d": int(dist)}
+    if hp >= 0:
+      e["hp"] = %hp
+    if carry:
+      e["carry"] = %true
+    ents.add(e)
+
+  # A ghost (dead viewer) sees the whole map's terrain but NO moving entities,
+  # so its inset is walls-only — matching the fog contract.
+  if selfAlive:
+    for j in 0 ..< sim.players.len:
+      if j == playerIndex:
+        continue
+      let other = sim.players[j]
+      if not other.alive:
+        continue
+      if not sim.playerVisibleTo(playerIndex, j):
+        continue
+      addEnt(
+        (if other.team == self.team: "mate" else: "enemy"),
+        teamText(other.team),
+        float(other.x + CollisionW div 2),
+        float(other.y + CollisionH div 2),
+        other.hp,
+        other.carryingFlag
+      )
+    # Hearts on their pedestals are billboards; a carried heart rides its
+    # carrier (already drawn as that player, tagged carry), so skip it here.
+    for team in Team:
+      if sim.flags[team].carrier >= 0:
+        continue
+      if not sim.flagVisibleTo(playerIndex, team):
+        continue
+      let f = sim.flags[team]
+      addEnt("heart", teamText(team), float(f.x), float(f.y), -1, false)
+
+  result = %*{
+    "mr": int(maxRange),
+    "cols": cols,
+    "ents": ents
+  }
+
 proc buildStateJson*(
   sim: SimServer,
   events: JsonNode,
@@ -226,6 +366,20 @@ proc buildStateJson*(
     "roster": sim.rosterJson(),
     "events": (if events.isNil: newJArray() else: events)
   }
+
+  # First-person picture-in-picture: the selected seat's raycast view, present
+  # only while a player is in POV. The client shows/hides its overlay canvas off
+  # `pov >= 0` (like any other state-driven chrome) and redraws from `fp`.
+  if povSlot >= 0:
+    var povIndex = -1
+    for i, p in sim.players:
+      if p.joinOrder == povSlot:
+        povIndex = i
+        break
+    if povIndex >= 0:
+      let fp = sim.firstPersonJson(povIndex)
+      if fp.kind != JNull:
+        state["fp"] = fp
 
   # Full-timeline lives-lead series (sent ONCE per HUD viewer): [[tick, diff], …]
   # change-points across the WHOLE match so the momentum graph draws its full

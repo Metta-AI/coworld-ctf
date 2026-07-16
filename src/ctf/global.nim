@@ -44,9 +44,8 @@ const
   ScoreboardPipObjectBase = 12300
   ScoreboardTextColor = 2'u8
   ScoreboardSelectedTextColor = 10'u8
-  InterstitialObjectId = 4005
   InterstitialLayerId = 2
-  InterstitialLayerType = 2
+  InterstitialLayerType = 5    ## top-center: status text floats over the arena.
   OverheadYOffset = 4          ## px gap between a sprite top and overhead UI.
   HpPipSpriteBase = 820        ## hp bar sprites: 820 + lit-segment count (0..3).
   HpPipObjectBase = 19000      ## hp bar object-id pool: one per player.
@@ -143,6 +142,14 @@ const
   HitSpriteBase = 16100        ## per-color-and-stage hit-splat sprites: 16100..16163.
   HitSplatSize = 21            ## on-hit paint-splat canvas (~1.3x a 16px player).
   HitSplatCoreR = 6.0          ## px radius of the splat's main wet blob.
+  DamagePopSpriteBase = 31000  ## floating "-N" damage-number sprites keyed
+                               ## color×amount×stage: 31000..31127 (above tracers).
+  DamagePopObjectBase = 31200  ## one drawn damage pop per object: 31200..31215.
+  DamagePopStages = 4          ## alpha fade stages across DamageFxTicks.
+  DamagePopMaxCount = 16       ## most floating numbers drawn at once.
+  DamagePopMaxAmount = 2       ## highest -N shown (a grenade removes GrenadeDamage=2).
+  DamagePopRisePx = 11         ## px the number floats upward over its full life.
+  DamagePopZ = 30006           ## drawn above players, HP bars and name tags.
   AimDotSpriteBase = 780       ## per-color aim indicator dot sprites: 780..795.
   AimDotObjectBase = 18000     ## aim dot object-id pool: 18000..18063.
   AimDotSize = 2
@@ -186,6 +193,9 @@ const
   SpritePlayerFlagObjectBase = 5009  ## 5009 red flag, 5010 blue flag.
   SpritePlayerSelfSpriteBase = 5100  ## white-outlined self soldier, one per aim
                                      ## rotation: 5100..5115 (SoldierRotations).
+  CorpseSpriteBase = 850       ## grey dead-soldier sprites, one per team×rot
+                               ## (850..881): a corpse must never read as a live
+                               ## soldier for a label-scanning ghost viewer.
   FlagObjectBase = 6500        ## 6500 red flag, 6501 blue flag.
   ## Per-viewer fog of war: a second zoomable map-sized layer of translucent
   ## dark row-run sprites over the unseen 8px visibility cells. It draws over
@@ -389,6 +399,20 @@ proc soldierPlayerSpriteId(team: Team, rot: int): int =
 proc selectedSoldierPlayerSpriteId(team: Team, rot: int): int =
   ## Selected (outlined) soldier sprite id at aim rotation `rot`.
   SelectedPlayerSpriteBase + ord(team) * SoldierRotations + rot
+
+proc corpseSoldierSpriteId(team: Team, rot: int): int =
+  ## Sprite id for a dead soldier (grey corpse) at rotation `rot`. Sits in the
+  ## free 850..881 window just above the selected-soldier pool (800..831).
+  CorpseSpriteBase + ord(team) * SoldierRotations + rot
+
+proc soldierFacingRight(rot: int): bool =
+  ## Whether a soldier at rotation step `rot` faces right (east-ish) — the same
+  ## left/right split the sim bakes into `flipH` (flipped while aiming into the
+  ## western half). Used ONLY to attach the documented `<side>` observation
+  ## label to each rotation sprite so exact-match label readers (the baseline
+  ## bot, RULES.md) keep working while the HD art keeps its full-rotation sweep.
+  let brad = rot * (AimBradsTurn div SoldierRotations)
+  not (brad > AimBradsTurn div 4 and brad < AimBradsTurn * 3 div 4)
 
 proc spriteDefinitionIndex(
   defs: openArray[SpriteDefinition],
@@ -982,6 +1006,65 @@ proc buildHitSparkSprite(colorIndex, stage: int): seq[uint8] {.measure.} =
         y * HitSplatSize + x, r, g, b,
         uint8(clamp(255.0 * fade, 0.0, 255.0))
       )
+
+proc buildDamagePopSprite(
+  game: SimServer, colorIndex, amount, stage: int
+): tuple[width, height: int, pixels: seq[uint8]] {.measure.} =
+  ## Builds one floating "-N" damage number: a bright team-tinted numeral with
+  ## a dark 1px contour so it pops off any floor, fading by ALPHA across the
+  ## pop's short life (the protocol has no per-object alpha). Cosmetic only,
+  ## never in gameHash. The tint uses the VICTIM's team color so it reads as
+  ## that player's loss, lightened toward white so the number stays legible.
+  let
+    font = game.asciiSprites
+    text = "-" & $amount
+    textW = max(1, font.textWidth(text))
+    glyphH = max(1, font.height)
+    width = textW + 2          # 1px contour margin on each side
+    height = glyphH + 2
+    base = Palette[PlayerColors[colorIndex and 0x0f] and 0x0f]
+    inkR = uint8((base.r.int + 255 * 2) div 3)
+    inkG = uint8((base.g.int + 255 * 2) div 3)
+    inkB = uint8((base.b.int + 255 * 2) div 3)
+    # Alpha-only fade: full at stage 0, nearly gone by the last stage.
+    fade = 1.0 - 0.85 * (stage.float / float(max(1, DamagePopStages - 1)))
+    alpha = uint8(clamp(255.0 * fade, 0.0, 255.0))
+  result.width = width
+  result.height = height
+  result.pixels = newRgbaPixels(width, height)
+  # Mark the numeral's ink cells, offset by the 1px contour margin.
+  var ink = newSeq[bool](width * height)
+  var penX = 1
+  for ch in text:
+    let glyph = font.glyphAt(ch)
+    for gy in 0 ..< glyph.height:
+      for gx in 0 ..< glyph.width:
+        if glyph.glyphPixel(gx, gy):
+          let
+            ix = penX + gx
+            iy = 1 + gy
+          if ix >= 0 and ix < width and iy >= 0 and iy < height:
+            ink[iy * width + ix] = true
+    penX += font.glyphAdvance(ch)
+  # Paint: ink cells bright; any cell 4-adjacent to ink gets a dark contour so
+  # the number never smears into the floor. The contour fades with the number.
+  for iy in 0 ..< height:
+    for ix in 0 ..< width:
+      let i = iy * width + ix
+      if ink[i]:
+        result.pixels.putRawRgbaPixel(i, inkR, inkG, inkB, alpha)
+      else:
+        var nearInk = false
+        for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+          let
+            nx = ix + dx
+            ny = iy + dy
+          if nx >= 0 and nx < width and ny >= 0 and ny < height and
+              ink[ny * width + nx]:
+            nearInk = true
+            break
+        if nearInk:
+          result.pixels.putRawRgbaPixel(i, 20, 16, 14, alpha)
 
 proc buildMapSpritePixels(sim: SimServer): seq[uint8] {.measure.} =
   ## Returns the true-color map pixels for a global protocol sprite.
@@ -1683,6 +1766,28 @@ proc soldierOutlined(pixels: seq[uint8], outline: uint8): seq[uint8] =
       if adjacent:
         result.putRawRgbaPixel(i, oc.r, oc.g, oc.b, oc.a)
 
+proc soldierCorpse(pixels: seq[uint8]): seq[uint8] =
+  ## Returns a copy of a soldier sprite recolored as a corpse: every solid
+  ## pixel desaturates to grey (luma-weighted) and drops to ~55% opacity, so a
+  ## body reads as fallen debris — never a live soldier — in the ghost view.
+  result = pixels
+  let n = SoldierCanvas * SoldierCanvas
+  for i in 0 ..< n:
+    let a = pixels[i * 4 + 3]
+    if a == 0'u8:
+      continue
+    let
+      r = pixels[i * 4].int
+      g = pixels[i * 4 + 1].int
+      b = pixels[i * 4 + 2].int
+      luma = uint8((r * 54 + g * 183 + b * 19) shr 8)
+      # Pull toward mid-grey so team tint fully washes out.
+      grey = uint8((luma.int + 128) div 2)
+    result[i * 4] = grey
+    result[i * 4 + 1] = grey
+    result[i * 4 + 2] = grey
+    result[i * 4 + 3] = uint8(a.int * 140 div 255)
+
 proc addPlayerActorSprites(
   sim: SimServer,
   spriteDefs: var seq[SpriteDefinition],
@@ -1694,16 +1799,33 @@ proc addPlayerActorSprites(
   ## map view. Replaces the old flat 8-variant + horizontal-flip crew set — the
   ## soldier's held paintball gun now sweeps with the aim angle instead.
   for team in Team:
-    let label = teamText(team)
+    let color = teamText(team)
     for rot in 0 ..< SoldierRotations:
-      let pixels = soldierRotPixels(team, rot)
+      let
+        pixels = soldierRotPixels(team, rot)
+        side = if soldierFacingRight(rot): " right" else: " left"
+      # The HD sprite keeps its full 16-step rotation for the VISUAL; the label
+      # stays the documented `player <color> <side>` (RULES.md) so exact-match
+      # label readers keep working. Distinct rotation ids may share a side label
+      # — the client keys sprites by id, not label, so that is harmless.
       packet.addSpriteChanged(
         spriteDefs,
         soldierPlayerSpriteId(team, rot),
         SoldierCanvas,
         SoldierCanvas,
         pixels,
-        "soldier " & label & " aim " & $rot
+        "player " & color & side
+      )
+      # A grey desaturated corpse per rotation: the ghost view shows fallen
+      # bodies, and the documented `corpse <color> <side>` label (RULES.md)
+      # keeps a label-scanning policy from mistaking a body for a live enemy.
+      packet.addSpriteChanged(
+        spriteDefs,
+        corpseSoldierSpriteId(team, rot),
+        SoldierCanvas,
+        SoldierCanvas,
+        soldierCorpse(pixels),
+        "corpse " & color & side
       )
       if selected:
         packet.addSpriteChanged(
@@ -1712,7 +1834,7 @@ proc addPlayerActorSprites(
           SoldierCanvas,
           SoldierCanvas,
           soldierOutlined(pixels, 8'u8),
-          "selected soldier " & label & " aim " & $rot
+          "selected player " & color & side
         )
 
 proc buildSpriteProtocolInit(
@@ -2597,6 +2719,52 @@ proc addSplatters(
       spriteId
     )
 
+proc addDamagePops(
+  sim: SimServer,
+  spriteDefs: var seq[SpriteDefinition],
+  currentIds: var seq[int],
+  packet: var seq[uint8],
+  viewerIndex = -1
+) {.measure.} =
+  ## Places floating "-N" damage numbers from a fixed object pool. Each rises a
+  ## few pixels and fades over its short life (the stage is its age quartile),
+  ## drawing above players so a lost health bar reads at a glance. The map view
+  ## passes no viewer and shows every pop; a player view passes its viewer index
+  ## and only receives the ones inside its vision (fog honesty).
+  var nextPop = 0
+  for pop in sim.damagePops:
+    if nextPop >= DamagePopMaxCount:
+      break
+    if viewerIndex >= 0 and not sim.fovVisibleAt(viewerIndex, pop.x, pop.y):
+      continue
+    let
+      age = sim.tickCount - pop.tick
+      stage = clamp(age * DamagePopStages div DamageFxTicks, 0,
+        DamagePopStages - 1)
+      colorIndex = playerColorIndex(pop.color)
+      amount = clamp(pop.amount, 1, DamagePopMaxAmount)
+      sprite = sim.buildDamagePopSprite(colorIndex, amount, stage)
+      # Rise a few pixels over the full life so the number lifts off the player.
+      rise = DamagePopRisePx * age div max(1, DamageFxTicks)
+      px = pop.x - sprite.width div 2
+      py = pop.y - sprite.height div 2 - rise
+      spriteId = DamagePopSpriteBase +
+        (colorIndex * DamagePopMaxAmount + (amount - 1)) * DamagePopStages +
+        stage
+    packet.addSpriteChanged(
+      spriteDefs,
+      spriteId,
+      sprite.width,
+      sprite.height,
+      sprite.pixels,
+      "damage pop " & playerColorName(colorIndex) & " -" & $amount &
+        " stage " & $stage
+    )
+    let objectId = DamagePopObjectBase + nextPop
+    inc nextPop
+    currentIds.add(objectId)
+    packet.addObject(objectId, px, py, DamagePopZ, MapLayerId, spriteId)
+
 proc buildSpriteProtocolPlayerUpdates*(
   sim: var SimServer,
   playerIndex: int,
@@ -2713,7 +2881,11 @@ proc buildSpriteProtocolPlayerUpdates*(
       elif not viewerIsGhost:
         continue
       var spriteId = other.spriteActorSpriteId(-1)
-      if i == playerIndex and not viewerIsGhost:
+      if not other.alive:
+        # A body (ghost view only): grey corpse sprite + `corpse <color> <side>`
+        # so it never reads as a live soldier to a label-scanning policy.
+        spriteId = corpseSoldierSpriteId(other.team, soldierRotIndex(other.aimBrads))
+      elif i == playerIndex and not viewerIsGhost:
         # Yourself reads as a distinct white-outlined soldier, pre-rotated to
         # your aim so the gun points where you're looking.
         let rot = soldierRotIndex(other.aimBrads)
@@ -2724,7 +2896,10 @@ proc buildSpriteProtocolPlayerUpdates*(
           SoldierCanvas,
           SoldierCanvas,
           soldierOutlined(soldierRotPixels(other.team, rot), 2'u8),
-          "self soldier " & teamText(other.team) & " aim " & $rot
+          # Documented self marker (RULES.md): `self <color> <side>`, only drawn
+          # while alive. Side follows the aim exactly as the sim's flipH does.
+          "self " & teamText(other.team) &
+            (if soldierFacingRight(rot): " right" else: " left")
         )
       let objectId = other.spriteObjectId()
       currentIds.add(objectId)
@@ -2750,6 +2925,12 @@ proc buildSpriteProtocolPlayerUpdates*(
       viewerIndex = playerIndex
     )
     sim.addSplatters(
+      nextState.spriteDefs,
+      currentIds,
+      result,
+      viewerIndex = playerIndex
+    )
+    sim.addDamagePops(
       nextState.spriteDefs,
       currentIds,
       result,
@@ -3218,6 +3399,7 @@ proc buildSpriteProtocolUpdates*(
     nextState.selectedJoinOrder
   )
   sim.addSplatters(nextState.spriteDefs, currentIds, result)
+  sim.addDamagePops(nextState.spriteDefs, currentIds, result)
   sim.addShotTracers(nextState.spriteDefs, currentIds, result)
   sim.addGrenades(nextState.spriteDefs, currentIds, result)
   sim.addShouts(nextState.spriteDefs, currentIds, result)
@@ -3317,15 +3499,9 @@ proc buildSpriteProtocolUpdates*(
       )
 
   if sim.hasInterstitialFrame():
-    currentIds.add(InterstitialObjectId)
-    result.addObject(
-      InterstitialObjectId,
-      0,
-      0,
-      0,
-      InterstitialLayerId,
-      SpritePlayerInterstitialSpriteId
-    )
+    # Status text and (on game over) the winner roster float directly over
+    # the arena: the old full-screen dark interstitial background is gone —
+    # the map, bubbles, and corner rosters stay visible throughout.
     sim.addProtocolTextSprites(
       nextState.spriteDefs,
       currentIds,

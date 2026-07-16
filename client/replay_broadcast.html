@@ -431,6 +431,58 @@ html, body {
 }
 #povBadge.on { display: flex; }
 
+/* First-person PiP inset: pinned bottom-right, responsive width (§2 — sized off
+   the stage so it scales with the composition). Hidden until a seat is in POV.
+   One quiet hairline frames it as a genuine window, not a decorative card. */
+#fpv {
+  position: absolute;
+  right: calc(12 * var(--u));
+  bottom: calc(64 * var(--u));
+  width: 26%;
+  min-width: calc(120 * var(--u));
+  max-width: calc(300 * var(--u));
+  aspect-ratio: 3 / 2;
+  display: none;
+  z-index: 11;
+  background: rgba(12, 9, 6, 0.66);
+  box-shadow: 0 0 0 1px rgba(232, 163, 61, 0.4),
+    0 calc(6 * var(--u)) calc(18 * var(--u)) rgba(8, 5, 3, 0.5);
+  overflow: hidden;
+  /* Slightly see-through so it never fully hides the arena beneath, and
+     draggable: grab it anywhere to reposition (the caption is the handle hint). */
+  opacity: 0.86;
+  cursor: grab;
+  transition: opacity 0.12s ease;
+}
+#fpv.on { display: block; }
+#fpv:hover { opacity: 1; }
+#fpv.dragging { cursor: grabbing; opacity: 1; }
+/* Once the viewer has dragged it, we pin via left/top and drop the right/bottom
+   anchor so the two don't fight. */
+#fpv.moved { right: auto; bottom: auto; }
+#fpv-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  image-rendering: pixelated;
+  pointer-events: none;   /* clicks fall through to the frame for dragging */
+}
+.fpv-cap {
+  position: absolute;
+  left: calc(6 * var(--u));
+  top: calc(4 * var(--u));
+  font-family: var(--finefont);
+  font-size: calc(7 * var(--u));
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--amber);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+  pointer-events: none;
+  opacity: 0.85;
+}
+
 /* ---------- 5. TRANSPORT ---------- */
 #transport {
   position: absolute;
@@ -718,6 +770,13 @@ html, body {
 
     <div id="mmwarn">Replay hash mismatch — showing recorded inputs</div>
     <div id="povBadge">👁 POV lens — click to clear</div>
+    <!-- First-person picture-in-picture: the selected seat's Wolfenstein-style
+         raycast view, shown only while a player is in POV. A window into what
+         that soldier sees down the barrel, riding alongside their top-down fog. -->
+    <div id="fpv">
+      <canvas id="fpv-canvas"></canvas>
+      <div class="fpv-cap" id="fpv-cap">EYES</div>
+    </div>
     <div id="bannerlane"></div>
     <div id="killfeed"></div>
 
@@ -1633,10 +1692,15 @@ html, body {
       capEl.textContent = 'Game over';
       clk.classList.remove('tiebreak-warn');
     } else {
-      // Time to the REAL tiebreak limit (config.maxTicks) — an honest label (F3).
-      var remain = Math.max(0, (s.mt - s.t)) / FPS;
+      // Playing: a match countdown. The clock starts at this game's full
+      // duration and ticks to exactly 0:00 on the final frame, mirroring the
+      // scrubber span (mx - st). This reads like a game clock whether or not a
+      // hard time limit was configured — the game ends on a capture/wipe (or
+      // the scoreless-draw limit), and the clock hits zero there. There is no
+      // tiebreak round after zero: hitting the limit is simply a scoreless draw.
+      var remain = Math.max(0, (s.mx - s.t)) / FPS;
       timeEl.textContent = fmt(remain);
-      capEl.textContent = 'Tiebreak in';
+      capEl.textContent = 'Time left';
       clk.classList.toggle('tiebreak-warn', remain <= 30);
     }
   }
@@ -1672,7 +1736,183 @@ html, body {
     var badge = $('povBadge');
     badge.classList.toggle('on', s.pov >= 0);
     if (s.pov >= 0) badge.textContent = '👁 POV: ' + shortName(rosterName(s, s.pov)) + ' — click to clear';
+    renderFpv(s);
   }
+
+  // First-person picture-in-picture: draw the selected seat's raycast view into
+  // the bottom-right inset. Wolfenstein-style — each column is one wall slice
+  // whose height is inversely proportional to distance (walls are "full-screen
+  // high" so an enemy running across the mouth of a lane reads as a figure
+  // sweeping between wall faces), with billboarded soldiers/hearts drawn on top.
+  var fpvEl = $('fpv'), fpvCanvas = $('fpv-canvas'), fpvCtx = null;
+
+  // Drag-to-reposition the first-person inset. Grab it anywhere; we pin via
+  // left/top (dropping the right/bottom anchor) and clamp inside the stage so it
+  // can never be dragged off-screen. Purely a viewer convenience — no state sent.
+  (function makeFpvDraggable() {
+    var dragging = false, startX = 0, startY = 0, baseLeft = 0, baseTop = 0;
+    fpvEl.addEventListener('pointerdown', function (ev) {
+      if (ev.button !== 0) return;
+      var rect = fpvEl.getBoundingClientRect();
+      var host = (fpvEl.offsetParent || document.body).getBoundingClientRect();
+      baseLeft = rect.left - host.left;
+      baseTop = rect.top - host.top;
+      startX = ev.clientX;
+      startY = ev.clientY;
+      dragging = true;
+      fpvEl.classList.add('dragging');
+      // Switch to left/top anchoring at the current spot, then move from there.
+      fpvEl.classList.add('moved');
+      fpvEl.style.left = baseLeft + 'px';
+      fpvEl.style.top = baseTop + 'px';
+      fpvEl.setPointerCapture(ev.pointerId);
+      ev.preventDefault();
+    });
+    fpvEl.addEventListener('pointermove', function (ev) {
+      if (!dragging) return;
+      var host = (fpvEl.offsetParent || document.body).getBoundingClientRect();
+      var w = fpvEl.offsetWidth, h = fpvEl.offsetHeight;
+      var nx = baseLeft + (ev.clientX - startX);
+      var ny = baseTop + (ev.clientY - startY);
+      nx = Math.max(0, Math.min(nx, host.width - w));
+      ny = Math.max(0, Math.min(ny, host.height - h));
+      fpvEl.style.left = nx + 'px';
+      fpvEl.style.top = ny + 'px';
+    });
+    function endDrag(ev) {
+      if (!dragging) return;
+      dragging = false;
+      fpvEl.classList.remove('dragging');
+      try { fpvEl.releasePointerCapture(ev.pointerId); } catch (e) {}
+    }
+    fpvEl.addEventListener('pointerup', endDrag);
+    fpvEl.addEventListener('pointercancel', endDrag);
+  })();
+
+  function renderFpv(s) {
+    var show = s.pov >= 0 && s.fp && s.fp.cols;
+    fpvEl.classList.toggle('on', !!show);
+    if (!show) return;
+    if (!fpvCtx) fpvCtx = fpvCanvas.getContext('2d');
+
+    var fp = s.fp;
+    var cols = fp.cols, n = cols.length;
+    // Back the canvas at the inset's on-screen size × dpr for crisp slices.
+    var dpr = window.devicePixelRatio || 1;
+    var cssW = fpvCanvas.clientWidth || 200, cssH = fpvCanvas.clientHeight || 133;
+    var W = Math.max(1, Math.round(cssW * dpr)), H = Math.max(1, Math.round(cssH * dpr));
+    if (fpvCanvas.width !== W) fpvCanvas.width = W;
+    if (fpvCanvas.height !== H) fpvCanvas.height = H;
+    var ctx = fpvCtx;
+    ctx.imageSmoothingEnabled = false;
+
+    // Sky (upper) over floor (lower): a warm dusk gradient split at the horizon
+    // — never a flat void. Matches the stage's ink-and-print warmth.
+    var horizon = H * 0.5;
+    var sky = ctx.createLinearGradient(0, 0, 0, horizon);
+    sky.addColorStop(0, '#241a12'); sky.addColorStop(1, '#3a2b1c');
+    ctx.fillStyle = sky; ctx.fillRect(0, 0, W, horizon);
+    var floor = ctx.createLinearGradient(0, horizon, 0, H);
+    floor.addColorStop(0, '#1a130d'); floor.addColorStop(1, '#0c0906');
+    ctx.fillStyle = floor; ctx.fillRect(0, horizon, W, H - horizon);
+
+    // The projection constant: a wall one "unit" tall at distance d spans
+    // (WALL_SCALE / d) px. The walls are conceptually full-height corridor walls,
+    // so WALL_SCALE is large — a near wall clamps to the whole frame and even a
+    // mid-arena wall stays tall and enclosing (the "walls full screen high" the
+    // seat's own eyes would see), while distance still reads as a clear shrink.
+    // FALLOFF sets how fast warmth sinks to ink with depth; it's scaled to real
+    // corridor distances (~600px), not gun range, so near/far contrast is legible.
+    var colW = W / n;
+    var WALL_SCALE = H * 160;
+    var FALLOFF = 620;
+    for (var i = 0; i < n; i++) {
+      var dist = cols[i];
+      if (dist < 0) continue;              // clean miss: open lane to the sky
+      var d = Math.max(6, dist);
+      var h = Math.min(H, WALL_SCALE / d);
+      var x = Math.floor(i * colW);
+      var w = Math.ceil(colW) + 1;
+      var top = horizon - h / 2;
+      // Distance shading: near walls bright warm stone, far walls sink to ink.
+      var shade = Math.max(0.2, 1 - d / FALLOFF);
+      var r = Math.round(150 * shade + 22);
+      var g = Math.round(118 * shade + 16);
+      var b = Math.round(88 * shade + 12);
+      ctx.fillStyle = 'rgb(' + r + ',' + g + ',' + b + ')';
+      ctx.fillRect(x, top, w, h);
+    }
+
+    // Billboarded entities, far-to-near so nearer figures overdraw. Each sits at
+    // horizontal fraction o∈[-1,1] across the frame; its size tracks distance
+    // exactly like a wall slice (a soldier is ~0.62 of the corridor's height), so
+    // it scales into the corridor believably and stays legible as it runs across.
+    var ents = (fp.ents || []).slice().sort(function (a, b) { return b.d - a.d; });
+    for (var j = 0; j < ents.length; j++) {
+      var e = ents[j];
+      var ed = Math.max(6, e.d);
+      var fig = Math.min(H * 0.92, WALL_SCALE * 0.62 / ed);
+      var ex = W * 0.5 + (e.o || 0) * W * 0.5;
+      var ey = horizon;
+      drawFpvEntity(ctx, e, ex, ey, fig);
+    }
+  }
+
+  function drawFpvEntity(ctx, e, cx, cy, figH) {
+    var col = e.team === 'red' ? RED : (e.team === 'blue' ? BLUE : AMBER);
+    if (e.k === 'heart') {
+      // A heart on its pedestal: a small diamond glyph, team-tinted.
+      var s = figH * 0.5;
+      ctx.save();
+      ctx.translate(cx, cy - s * 0.5);
+      ctx.fillStyle = col;
+      ctx.beginPath();
+      ctx.moveTo(0, -s * 0.5); ctx.lineTo(s * 0.5, 0);
+      ctx.lineTo(0, s * 0.5); ctx.lineTo(-s * 0.5, 0);
+      ctx.closePath(); ctx.fill();
+      ctx.restore();
+      return;
+    }
+    // A soldier: a simple head+body silhouette, feet on the horizon, team-tinted
+    // with a paper outline so it separates from the wall behind it. A carrier
+    // gets an amber heart pip above the head.
+    var bodyW = figH * 0.42;
+    var headR = figH * 0.16;
+    var feet = cy + figH * 0.5;
+    var headCy = feet - figH + headR;
+    ctx.save();
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = 'rgba(12,8,5,0.85)';
+    ctx.lineWidth = Math.max(1, figH * 0.05);
+    // body
+    ctx.fillStyle = col;
+    ctx.beginPath();
+    ctx.rect(cx - bodyW / 2, headCy + headR * 0.6, bodyW, figH - headR * 1.6);
+    ctx.fill(); ctx.stroke();
+    // head
+    ctx.beginPath();
+    ctx.arc(cx, headCy, headR, 0, Math.PI * 2);
+    ctx.fill(); ctx.stroke();
+    // mate ring so teammates read distinct from enemies at a glance
+    if (e.k === 'mate') {
+      ctx.strokeStyle = PAPER;
+      ctx.lineWidth = Math.max(1, figH * 0.04);
+      ctx.beginPath();
+      ctx.arc(cx, headCy, headR * 1.5, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    if (e.carry) {
+      ctx.fillStyle = AMBER;
+      var hs = headR * 0.9;
+      var hy = headCy - headR * 1.9;
+      ctx.beginPath();
+      ctx.moveTo(cx, hy - hs * 0.5); ctx.lineTo(cx + hs * 0.5, hy);
+      ctx.lineTo(cx, hy + hs * 0.5); ctx.lineTo(cx - hs * 0.5, hy);
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.restore();
+  }
+
   function renderMismatch(s) {
     $('mmwarn').classList.toggle('on', s.mm >= 0);
   }
@@ -1692,20 +1932,39 @@ html, body {
     }
   }
 
+  // Slots already drawn as the partner of a provable same-tick trade, so the
+  // second half of the pair is suppressed (one linked row, not two). Keyed by
+  // "tick:victimSlot"; a tiny ring is plenty since only same-tick pairs matter.
+  var tradeConsumed = {};
   function onKill(e, s) {
     var killer = e.killer, victim = e.victim;
     var victimTeam = teamOf(s, victim);
     var killerTeam = killer >= 0 ? teamOf(s, killer) : null;
-    var row = document.createElement('div');
-    row.className = 'feed-row';
     var glyph = '▸';
     var badge = '';
+    if (e.trade !== undefined && e.trade >= 0) {
+      // Provable mutual trade: the server proved these two killed each other
+      // this tick (the two killers ARE the two victims). Draw ONE linked row
+      // with both names; skip the partner's own event so it isn't doubled.
+      if (tradeConsumed[e.t + ':' + victim]) { delete tradeConsumed[e.t + ':' + victim]; return; }
+      tradeConsumed[e.t + ':' + e.trade] = true;
+      var row = document.createElement('div');
+      row.className = 'feed-row';
+      row.innerHTML = '<span class="who ' + (victimTeam || '') + '">' + esc(shortName(rosterName(s, victim))) + '</span>' +
+        '<span class="glyph">⇄</span>' +
+        '<span class="who ' + (teamOf(s, e.trade) || '') + '">' + esc(shortName(rosterName(s, e.trade))) + '</span>' +
+        '<span class="badge">traded</span>';
+      pushFeed(row);
+      return;
+    }
+    var row = document.createElement('div');
+    row.className = 'feed-row';
     if (e.amb) {
-      // Genuine same-tick multi-kill: attribution honestly ambiguous (F7).
-      badge = '<span class="badge">traded</span>';
-      row.innerHTML = '<span class="who ' + (killerTeam || '') + '">' + '—' + '</span>' +
-        '<span class="glyph">' + glyph + '</span>' +
-        '<span class="who ' + (victimTeam || '') + '">' + esc(shortName(rosterName(s, victim))) + '</span>' + badge;
+      // Same-tick multi-kill the sim can't pair (a 3-way pileup or two
+      // independent kills). Attribution is honestly unknown (F7): show the
+      // victim with a neutral marker, never a fabricated killer or "traded".
+      badge = '<span class="badge">double KO</span>';
+      row.innerHTML = '<span class="who ' + (victimTeam || '') + '">' + esc(shortName(rosterName(s, victim))) + '</span>' + badge;
     } else {
       if (e.tk) { badge = '<span class="badge tk">team kill</span>'; row.classList.add('flagkill'); }
       var killerName = killer >= 0 ? shortName(rosterName(s, killer)) : 'the arena';
@@ -1935,10 +2194,10 @@ html, body {
     if (o.draw) {
       badge.className = 'verdict-badge draw';
       badge.textContent = 'DRAW';
-      head.textContent = 'DEAD EVEN';
+      head.textContent = 'NO SCORE';
       how.textContent = o.timeLimit
-        ? 'Time expired with the teams level on lives and flag progress — a true draw.'
-        : 'The match ended level — no winner.';
+        ? 'Time expired before a capture or a wipe — a scoreless draw, with no tiebreak on lives.'
+        : 'The match ended with neither side scoring — no winner.';
       return;
     }
 
@@ -1949,7 +2208,7 @@ html, body {
     head.textContent = winName + ' WINS';
 
     if (o.timeLimit) {
-      // Tiebreak — name the key and the values (F3).
+      // Time-limit resolution — name the key and the values (F3).
       var winL = winner === 'red' ? redL : blueL;
       var loseL = winner === 'red' ? blueL : redL;
       if (winL !== loseL) {
@@ -2016,6 +2275,29 @@ html, body {
     else if (k === '+' || k === '=') send('+');
     else if (k === '-' || k === '_') send('-');
     else if (k >= '1' && k <= '9') send(k);
+  });
+
+  // Click a soldier on the board to select it (mirrors the squad-pip lens, but
+  // for anyone visible on the arena). The board canvas draws ONLY the zoomable
+  // map layer, letterboxed by broadcast_core; chrome (scoreboard, transport) are
+  // HTML overlays, so a canvas click is always a MAP-space click. Invert the
+  // core's letterbox transform to recover native map pixels, then hand them to
+  // clickMap — the server hit-tests the soldier footprint and toggles selection.
+  canvas.addEventListener('click', function (ev) {
+    var rect = canvas.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    // getBoundingClientRect is CSS px; the core's transform lives in the same
+    // CSS space (offsetX/offsetY/scale are computed against clientWidth/Height,
+    // NOT the dpr-scaled backing store), so no devicePixelRatio factor here.
+    var cssX = ev.clientX - rect.left;
+    var cssY = ev.clientY - rect.top;
+    var t = core.getTransform();
+    if (!t || !t.scale) return;
+    var mapX = Math.round((cssX - t.offsetX) / t.scale);
+    var mapY = Math.round((cssY - t.offsetY) / t.scale);
+    // Ignore clicks in the letterbox bands (outside the drawn map).
+    if (mapX < 0 || mapY < 0 || mapX >= t.nativeW || mapY >= t.nativeH) return;
+    core.clickMap(mapX, mapY);
   });
 
   // ============================================================
