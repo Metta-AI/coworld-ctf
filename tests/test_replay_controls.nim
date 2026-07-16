@@ -39,6 +39,15 @@ proc packetHasObject(packet: openArray[uint8], objectId: int): bool =
       return true
 
 suite "replay controls":
+  test "HUD opt-in received during a frame survives the rendered state commit":
+    var renderedState = initGlobalViewerState()
+    var liveState = initGlobalViewerState()
+    liveState.broadcastHud = true
+
+    renderedState.preserveConcurrentBroadcastHud(liveState)
+
+    check renderedState.broadcastHud
+
   test "transport and scrubber use split browser hit layers":
     var game = initCrewriftForTest(defaultGameConfig())
     var state = initGlobalViewerState()
