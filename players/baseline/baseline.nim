@@ -76,6 +76,9 @@ import
   whisky,
   baseline/protocols
 
+when defined(taunt):
+  import baseline/taunts
+
 const
   WebSocketPath = "/player"
   RenderScale = 3             # HD px per map px on the wire; mirrors hd.nim.
@@ -244,6 +247,12 @@ type
     nadeNeed: int             # charge ticks required for the planned throw
     shoutWant: string         # chat packet to send after this frame's input
     lastShoutTick: int        # rate limit: server allows one shout per second
+    tauntBank: seq[string]    # Bedrock-prefetched taunts, popped front-first
+    comebackWant: string      # pending reply to a heard enemy shout
+    corpseCount: int          # visible enemy corpses last frame (kill signal)
+    killMoodUntil: int        # taunt window opened by a fresh kill
+    lastEnemyShout: string    # last enemy shout label already responded to
+    lastComebackReq: int      # rate limit on comeback generation requests
 
 proc roleForSeat(seat: int, team: Team): Role =
   ## Deterministic role spread over the 8 per-team seats. Seats 2 and 3 both
@@ -908,6 +917,11 @@ proc resetTransient(bot: Bot) =
   bot.mateFixTick = 0
   bot.shoutWant = ""
   bot.lastShoutTick = 0
+  bot.comebackWant = ""
+  bot.corpseCount = 0
+  bot.killMoodUntil = 0
+  bot.lastEnemyShout = ""
+  bot.lastComebackReq = 0
   bot.carrierSeen = -100_000
   bot.lastEnemySeen = bot.tick
   bot.gameStart = bot.tick
@@ -1060,6 +1074,30 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     ownHome = flagHome(bot.team)
     enemyFlags = client.spriteObjectsWithLabel(enemyColor & " heart")
     ownFlags = client.spriteObjectsWithLabel(myColor & " heart")
+  when defined(taunt):
+    # Taunt pipeline, all non-blocking: drain whatever the Bedrock worker
+    # produced, notice new ENEMY shouts (queue a comeback), and open a short
+    # taunt window when a corpse appears right after we fired. The worker
+    # thread owns every HTTP call — this block only moves strings around.
+    pollTaunts(bot.tauntBank, bot.comebackWant)
+    for o in client.spriteObjects():
+      if o.label.startsWith(enemyColor & " shout "):
+        if o.label != bot.lastEnemyShout:
+          bot.lastEnemyShout = o.label
+          if bot.tick - bot.lastComebackReq >= 240:
+            bot.lastComebackReq = bot.tick
+            let sep = o.label.rfind(": ")
+            if sep > 0:
+              requestComeback(o.label[sep + 2 .. ^1])
+        break
+    var corpses = 0
+    for facing in [" right", " left"]:
+      corpses += client.spriteObjectsWithLabel(
+        "corpse " & enemyColor & facing).len
+    if corpses > bot.corpseCount and bot.firedLast:
+      bot.killMoodUntil = bot.tick + 72
+    bot.corpseCount = corpses
+
   when defined(shoutCoord):
     # Shout intel (0.7.5): teammates broadcast quantized fixes as 10-char
     # shouts — "C<cx> <cy>" is our carrier's own position, "T<cx> <cy>" a
@@ -1174,6 +1212,33 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       elif sawThief and defined(shoutThief):
         bot.shoutWant = "T" & $(int(bot.carrierPos.x) div 8) & " " &
           $(int(bot.carrierPos.y) div 8)
+        bot.lastShoutTick = bot.tick
+
+  when defined(taunt):
+    # Taunts spend only LEFTOVER shout budget: never while carrying, never
+    # over a gameplay shout, and never with a live enemy remembered nearby —
+    # a shout is audible (with rough position) to enemies within ~247px, so
+    # trash talk waits for the moment the fight is already won. One taunt
+    # per kill window; comebacks answer a heard enemy shout.
+    if bot.shoutWant.len == 0 and not iCarry and
+        bot.tick - bot.lastShoutTick >= 26 and
+        (bot.comebackWant.len > 0 or bot.tick < bot.killMoodUntil):
+      var nearFresh = false
+      for t in bot.enemies:
+        if bot.tick - t.lastSeen <= 48 and dist(t.pos, me) < 400.0:
+          nearFresh = true
+          break
+      if not nearFresh:
+        if bot.comebackWant.len > 0:
+          bot.shoutWant = bot.comebackWant
+          bot.comebackWant = ""
+        else:
+          if bot.tauntBank.len > 0:
+            bot.shoutWant = bot.tauntBank[0]
+            bot.tauntBank.delete(0)
+          else:
+            bot.shoutWant = sample(CannedTaunts)
+          bot.killMoodUntil = 0            # one taunt per kill
         bot.lastShoutTick = bot.tick
 
   # Flank progress: sticky so lane-runners do not oscillate at the boundary.
@@ -1735,6 +1800,8 @@ proc runBot(url: string) =
   bot.resetTransient()
   echo "baseline slot=", slot, " team=", team, " role=", role, " -> ", endpoint
   let client = initProtocolClient()
+  when defined(taunt):
+    startTaunts()                        # worker thread + bank prefetch
   var everConnected = false
   while true:
     try:
@@ -1763,7 +1830,7 @@ proc runBot(url: string) =
         if mask != lastMask:
           ws.send(inputBlob(mask), BinaryMessage)
           lastMask = mask
-        when defined(shoutCoord):
+        when defined(shoutCoord) or defined(taunt):
           if bot.shoutWant.len > 0:
             ws.send(chatBlob(bot.shoutWant), BinaryMessage)
             bot.shoutWant = ""
