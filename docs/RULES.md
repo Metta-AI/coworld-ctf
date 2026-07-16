@@ -53,9 +53,11 @@ tasks, voting) with teams, guns, hearts, and fog-of-war vision.
   while aiming left-ish).
 - On spawn and respawn your aim points **toward the enemy side** (Red → east,
   Blue → west).
-- A short **aim indicator** line is drawn from every player along its aim: on
-  your own view for yourself and for any player you can see — a visible
-  enemy's aim is readable intel — and for everyone in the spectator view.
+- A player's **facing** is shown by the soldier sprite itself: the held gun
+  sweeps to the aim angle (the sprite reports a coarse `right`/`left` side in
+  its label), and — for anyone you can see — the direction they can shoot is
+  exactly the lane their body faces. There is no longer a separate floating
+  aim-dot indicator; the vision cone and the swept gun convey aim.
 
 ## Vision (fog of war)
 
@@ -265,6 +267,15 @@ button is input mask bit 128.
 `<team> shout <player>: <text>`; chat packets, previously ignored, are now
 applied as shouts and recorded in replays (GameVersion 3 — older replays are
 rejected at load).
+
+**Player-sprite labels are stable across the HD art change:** the rotating
+high-definition soldier is a pure visual upgrade — living players are still
+`player <color> <side>` (yourself `self <color> <side>`, selected
+`selected player <color> <side>`, a body `corpse <color> <side>`), where
+`<side>` is the coarse `right`/`left` the aim falls into. The floating
+`aim dot <color>` indicator has been **retired**; facing is read from the
+sprite's swept gun and the vision cone, so a label-scanning policy sees the
+same vocabulary it always has.
 
 ---
 

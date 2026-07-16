@@ -17,11 +17,23 @@ const
   SpriteSize* = 12
   CrewSpriteSize* = 16
   CrewSpriteVariants* = 8
+  ## HD top-down soldier: one hand-painted per-team master (soldier_red/blue.png)
+  ## rendered gun-east, pre-rotated into SoldierRotations aim steps so the held
+  ## paintball marker sweeps with the aim. The body (helmet) is sized to the
+  ## legacy 16px crew footprint; the canvas is larger only so the extended gun
+  ## never clips as it swings around. Emitted through the existing player sprite
+  ## id pool (16 ids per color) — this replaces the flat 8-variant + h-flip crew.
+  SoldierRotations* = 16      ## pre-rotated aim steps (16 brads apart).
+  SoldierCanvas* = 40         ## px square sprite canvas (fits the swinging gun).
+  SoldierBodyPx* = 16         ## helmet diameter target = legacy crew footprint.
   CollisionW* = 1
   CollisionH* = 1
   PlayerHalf* = 6             ## half-extent of the solid player footprint, in px.
   SpriteDrawOffX* = 8
   SpriteDrawOffY* = 8
+  ## Draw offset for the rotated soldier: place the canvas so its center lands on
+  ## the player position (canvas center = the helmet pivot).
+  SoldierDrawOff* = SoldierCanvas div 2
   MotionScale* = 256
   Accel* = 76
   FrictionNum* = 144
@@ -50,6 +62,9 @@ const
                               ## at the pull, so a peeking target can duck back.
   ShotFxTicks* = 12           ## ~0.5s a shot tracer stays visible (cosmetic only).
   SplatterFxTicks* = 120      ## ~5s a death splatter stays visible (cosmetic only).
+  HitFxTicks* = 34            ## ~1.4s a non-fatal hit's paint splat stays visible.
+  DamageFxTicks* = 26         ## ~1.1s a floating "-1" damage pop rises and fades
+                              ## after a hit (cosmetic only, never in gameHash).
   CarrierSpeedPct* = 70       ## carrier moves at 70% speed.
   AimBradsTurn* = 256         ## aim angle units per full turn (binary radians).
   AimTurnRate* = 5            ## brads/tick a held rotate button turns the aim
@@ -326,16 +341,30 @@ type
     color*: uint8
 
   SplatterFx* = object
-    ## A cosmetic death splatter mark; never enters gameHash (replay-safe).
+    ## A cosmetic death splatter mark; never enters gameHash (replay-safe). A
+    ## `hit` mark is the smaller, shorter-lived paint spark left by a non-fatal
+    ## hit; a death mark (hit == false) is the larger, long-dwelling splatter.
     x*, y*: int
     tick*: int
     color*: uint8
+    hit*: bool
 
   BlastFx* = object
     ## A cosmetic grenade blast flash; never enters gameHash (replay-safe).
     ## Landing is audible: views also derive their landing sound rings here.
     x*, y*: int
     tick*: int
+    color*: uint8              ## the thrower's paint color, so the landing
+                               ## splat reads as that team's paint-bomb.
+
+  DamageFx* = object
+    ## A cosmetic floating "-N" damage number that rises and fades above a
+    ## player the instant they lose hit points; never enters gameHash
+    ## (replay-safe). Makes each of the 3 health bars visibly tick down.
+    x*, y*: int                ## where the hit landed (player center at hit).
+    tick*: int                 ## when the hit landed.
+    amount*: int               ## hit points lost (1 for a shot, GrenadeDamage).
+    color*: uint8              ## the victim's team color, so it reads as their loss.
 
   Shout* = object
     ## One short player message, audible within ShoutRange of where it was
@@ -390,6 +419,7 @@ type
     recentShots*: seq[ShotFx]  ## cosmetic shot tracers; excluded from gameHash.
     splatters*: seq[SplatterFx]  ## cosmetic death splatters; excluded from gameHash.
     recentBlasts*: seq[BlastFx]  ## cosmetic grenade blasts; excluded from gameHash.
+    damagePops*: seq[DamageFx]  ## cosmetic floating "-N" damage numbers; excluded from gameHash.
     recentShouts*: seq[Shout]  ## live shouts; observable state, in gameHash.
     grenadeSpawns*: array[4, GrenadeSpawn]
     airborneGrenades*: seq[AirborneGrenade]
@@ -397,6 +427,7 @@ type
     startWaitTimer*: int
     phase*: GamePhase
     asciiSprites*: PixelFont
+    shoutFont*: PixelFont  ## chunky 9px grid font used only for shout bubbles.
     winner*: Team
     gameOverTimer*: int
     timeLimitReached*: bool
@@ -424,11 +455,26 @@ proc loadSpriteSheet*(): Image =
   readAsepriteImage(spriteSheetPath())
 
 proc crewSheetPath(): string =
-  ## Returns the crew sprite sheet path.
-  let path = clientDataDir() / "crew.aseprite"
-  if fileExists(path):
-    return path
+  ## Returns the crew sprite sheet path. A hand-pixeled crew.png (the
+  ## purpose-built tactical soldier) is preferred; the legacy crew.aseprite is
+  ## the fallback so an art rollback needs no code change.
+  for candidate in [
+    gameDir() / "data" / "crew.png",
+    clientDataDir() / "crew.png",
+    clientDataDir() / "crew.aseprite",
+    gameDir() / "data" / "crew.aseprite",
+  ]:
+    if fileExists(candidate):
+      return candidate
   gameDir() / "data" / "crew.aseprite"
+
+proc readCrewSheetImage(path: string): Image =
+  ## Reads the crew sheet as a Pixie image from either a PNG or an aseprite
+  ## file (both render to the same RGBA Image the crew tint path consumes).
+  if path.toLowerAscii.endsWith(".png"):
+    readImage(path)
+  else:
+    readAsepriteImage(path)
 
 proc crewSpriteOffset*(sprite: CrewSprite, x, y: int): int =
   ## Returns the RGBA byte offset for one crew sprite pixel.
@@ -468,7 +514,7 @@ proc loadCrewSpriteRow*(row: int, label: string): seq[CrewSprite] =
     raise newException(CtfError, "Crew sprite sheet row is negative.")
   let
     path = crewSheetPath()
-    image = readAsepriteImage(path)
+    image = readCrewSheetImage(path)
   if image.width < CrewSpriteSize * CrewSpriteVariants or
       image.height < CrewSpriteSize * (row + 1):
     raise newException(
@@ -481,6 +527,172 @@ proc loadCrewSpriteRow*(row: int, label: string): seq[CrewSprite] =
 proc loadCrewSprites*(): seq[CrewSprite] =
   ## Loads the first eight 16x16 living crew sprites.
   loadCrewSpriteRow(0, "Crew")
+
+proc loadRgbaSprite*(name: string, size: int, alphaCutoff = 0'u8): seq[uint8] =
+  ## Loads a hand-painted relic PNG from data/ and returns it as a straight-alpha
+  ## RGBA buffer scaled to size×size for the Sprite v1 protocol. The PNGs carry
+  ## real transparency (alpha-knocked from the art), and pixie stores
+  ## premultiplied alpha internally, so we take `.rgba` to hand the protocol
+  ## un-premultiplied colors.
+  ##
+  ## `alphaCutoff` > 0 snaps the resized alpha to a HARD edge (>= cutoff opaque,
+  ## else fully clear). Pixie's `resize` is bilinear, so downscaling a big PNG
+  ## feathers its bold dark outline into a ring of semi-transparent pixels that
+  ## reads as a fuzzy colored halo bleeding onto the floor. Snapping the alpha
+  ## keeps the SAME art but restores the crisp outline; the interior facets are
+  ## untouched (they were already fully opaque). 128 is the sweet spot at both
+  ## the carried (20px) and planted (60px) footprints.
+  let image = readImage(gameDir() / name).resize(size, size)
+  result = newSeq[uint8](size * size * 4)
+  for y in 0 ..< size:
+    for x in 0 ..< size:
+      let
+        pixel = image[x, y].rgba
+        offset = (y * size + x) * 4
+        alpha = if alphaCutoff == 0'u8: pixel.a
+                elif pixel.a >= alphaCutoff: 255'u8
+                else: 0'u8
+      result[offset] = pixel.r
+      result[offset + 1] = pixel.g
+      result[offset + 2] = pixel.b
+      result[offset + 3] = alpha
+
+proc loadHeartSprite*(team: Team, size: int): seq[uint8] =
+  ## The CTF objective, a glowing team-colored heart-gem relic (0.7.0 renamed the
+  ## "flag" a heart in-sim). Red = crimson life-crystal, Blue = frost life-crystal.
+  ## Hard alpha edge (cutoff 128) so the bold painted outline stays crisp at the
+  ## sprite footprint instead of feathering into a fuzzy halo on the floor.
+  loadRgbaSprite(
+    if team == Red: "data/heart_red.png" else: "data/heart_blue.png",
+    size,
+    alphaCutoff = 128'u8
+  )
+
+proc loadPaintBombSprite*(size: int): seq[uint8] =
+  ## The thrown grenade, a kid-friendly dungeon-crawler alchemical paint-bomb orb
+  ## (cork-stopped rune bottle of swirling paint — NO fuse). Used for the corner
+  ## pickup, the carried icon, and the in-flight projectile.
+  loadRgbaSprite("data/paintbomb.png", size)
+
+## --- HD top-down soldier: pre-rotated per-team masters ---
+## Each team's master (gun pointing east = aim brads 0) is measured for its
+## helmet pivot, scaled so the helmet fills SoldierBodyPx, and pre-rotated into
+## SoldierRotations canvases. Rotations pivot on the helmet center so the body
+## spins in place and the gun sweeps — the same method David uses for HD crew,
+## but rasterized at map scale and emitted on our existing sprite ids.
+var
+  soldierMasters: array[Team, Image]
+  soldierPivotX, soldierPivotY: array[Team, float]
+  soldierScale: array[Team, float]
+  soldierLoaded: array[Team, bool]
+  soldierRotCache: array[Team, array[SoldierRotations, seq[uint8]]]
+
+proc soldierMasterPath(team: Team): string =
+  if team == Red: "data/soldier_red.png" else: "data/soldier_blue.png"
+
+proc measureSoldierBody(team: Team, master: Image) =
+  ## Finds the helmet pivot and the master->canvas scale. The paintball marker
+  ## is a long appendage to the east, so the body (helmet + shoulders) lives in
+  ## the left ~50% of the opaque bounding box; we pivot on that region's
+  ## centroid and size its vertical span to SoldierBodyPx.
+  var
+    minX = master.width
+    maxX = -1
+    minY = master.height
+    maxY = -1
+  for y in 0 ..< master.height:
+    for x in 0 ..< master.width:
+      if master.data[y * master.width + x].a >= 64:
+        minX = min(minX, x); maxX = max(maxX, x)
+        minY = min(minY, y); maxY = max(maxY, y)
+  if maxX < minX:
+    minX = 0; maxX = master.width - 1; minY = 0; maxY = master.height - 1
+  let limX = minX + (maxX - minX + 1) div 2   ## helmet band = left half.
+  var
+    sumX = 0.0
+    sumY = 0.0
+    n = 0
+    hTop = master.height
+    hBot = -1
+  for y in 0 ..< master.height:
+    for x in minX ..< limX:
+      if master.data[y * master.width + x].a >= 64:
+        sumX += float(x); sumY += float(y); inc n
+        hTop = min(hTop, y); hBot = max(hBot, y)
+  if n == 0:
+    soldierPivotX[team] = float(minX + maxX) / 2
+    soldierPivotY[team] = float(minY + maxY) / 2
+    soldierScale[team] = float(SoldierBodyPx) / max(1.0, float(maxY - minY + 1))
+  else:
+    soldierPivotX[team] = sumX / float(n)
+    soldierPivotY[team] = sumY / float(n)
+    soldierScale[team] = float(SoldierBodyPx) / max(1.0, float(hBot - hTop + 1))
+
+proc ensureSoldierLoaded(team: Team) =
+  if soldierLoaded[team]:
+    return
+  let master = readImage(gameDir() / soldierMasterPath(team))
+  soldierMasters[team] = master
+  measureSoldierBody(team, master)
+  soldierLoaded[team] = true
+
+proc soldierRotPixels*(team: Team, rot: int): seq[uint8] =
+  ## One pre-rotated soldier sprite (SoldierCanvas square, straight-alpha RGBA).
+  let r = ((rot mod SoldierRotations) + SoldierRotations) mod SoldierRotations
+  if soldierRotCache[team][r].len > 0:
+    return soldierRotCache[team][r]
+  ensureSoldierLoaded(team)
+  let
+    master = soldierMasters[team]
+    # aim increases counter-clockwise on screen (0=east, 64=north); screen y is
+    # down, so a positive brad step rotates the art clockwise in image space —
+    # i.e. draw at angle -theta to match aimVector.
+    angle = float(r) * 2.0 * PI / float(SoldierRotations)
+    s = soldierScale[team]
+  var canvas = newImage(SoldierCanvas, SoldierCanvas)
+  let mat =
+    translate(vec2(float32(SoldierCanvas) / 2, float32(SoldierCanvas) / 2)) *
+    rotate(float32(-angle)) *
+    scale(vec2(float32(s), float32(s))) *
+    translate(vec2(float32(-soldierPivotX[team]), float32(-soldierPivotY[team])))
+  canvas.draw(master, mat)
+  # Straight-alpha RGBA for the Sprite v1 protocol (pixie stores premultiplied).
+  var pixels = newSeq[uint8](SoldierCanvas * SoldierCanvas * 4)
+  for i in 0 ..< SoldierCanvas * SoldierCanvas:
+    let c = canvas.data[i].rgba()
+    pixels[i * 4] = c.r
+    pixels[i * 4 + 1] = c.g
+    pixels[i * 4 + 2] = c.b
+    pixels[i * 4 + 3] = c.a
+  soldierRotCache[team][r] = pixels
+  pixels
+
+proc soldierRotIndex*(aimBrads: int): int =
+  ## Quantizes an aim angle to the nearest pre-rotated sprite step.
+  ((aimBrads + AimBradsTurn div (SoldierRotations * 2)) *
+    SoldierRotations div AimBradsTurn) mod SoldierRotations
+
+proc soldierIconPixels*(team: Team, sizePx: int): seq[uint8] =
+  ## A compact roster chip: the east-facing soldier scaled so the helmet body
+  ## fills the icon (a stub of gun barrel clips at the right edge — reads as
+  ## "armed" without the full sweep-canvas footprint). Used by the game-over list.
+  ensureSoldierLoaded(team)
+  let
+    master = soldierMasters[team]
+    s = float(sizePx) / float(SoldierBodyPx) * soldierScale[team]
+  var canvas = newImage(sizePx, sizePx)
+  let mat =
+    translate(vec2(float32(sizePx) / 2, float32(sizePx) / 2)) *
+    scale(vec2(float32(s), float32(s))) *
+    translate(vec2(float32(-soldierPivotX[team]), float32(-soldierPivotY[team])))
+  canvas.draw(master, mat)
+  result = newSeq[uint8](sizePx * sizePx * 4)
+  for i in 0 ..< sizePx * sizePx:
+    let c = canvas.data[i].rgba()
+    result[i * 4] = c.r
+    result[i * 4 + 1] = c.g
+    result[i * 4 + 2] = c.b
+    result[i * 4 + 3] = c.a
 
 proc crewVariantIndex*(slotId: int): int =
   ## Returns the crew sprite variant for one player slot.
@@ -526,13 +738,10 @@ const
   ArenaSpawnClearW = 70        ## half-width of the open spawn pockets.
   ArenaSpawnClearH = 130       ## half-height of the open spawn pockets.
 
-  ArenaFloor = rgba(24, 26, 34, 255)      ## dark walkable floor.
-  ArenaWall = rgba(96, 104, 128, 255)     ## lighter, distinct wall.
-  ArenaBorderColor = rgba(60, 66, 84, 255)
-  ArenaRedTint = rgba(120, 40, 44, 70)    ## territory wash over Red half.
-  ArenaBlueTint = rgba(44, 60, 128, 70)   ## territory wash over Blue half.
-  ArenaRedPedestal = rgba(224, 96, 88, 255)   ## Red flag pedestal marker.
-  ArenaBluePedestal = rgba(96, 128, 232, 255) ## Blue flag pedestal marker.
+  ## Warm CRT-phosphor arena (REPLAY_DESIGN §3 art-lock): warm-dark floor,
+  ## warm-stone cover, the two team colors the only saturated channels — never
+  ## the cold blue-slate default the house style forbids.
+  ArenaBorderColor = rgba(44, 34, 25, 255)
 
   ## Interior obstacle shapes for the LEFT half only. Each is mirrored
   ## across the vertical center line so both halves are identical, and the
@@ -818,8 +1027,159 @@ proc overTint(base, tint: ColorRGBA): ColorRGBA =
     255
   )
 
+proc tileSample(tex: Image, x, y: int): ColorRGBA =
+  ## Samples a seamless texture tiled across the arena (opaque source).
+  tex.unsafe[x mod tex.width, y mod tex.height].rgba
+
+proc blitCover(dst, spr: Image, cx, cy, size: int) =
+  ## Alpha-composites a cover-object sprite onto the board, centered on its
+  ## collision shape and scaled to the shape's footprint (plus a little for the
+  ## baked contact shadow). The sprite's transparency lets the textured floor
+  ## show through; the board stays fully opaque (opaque dst + src-over).
+  if size <= 0 or spr.width == 0:
+    return
+  let scaled = spr.resize(size, size)
+  dst.draw(scaled, translate(vec2((cx - size div 2).float32,
+                                  (cy - size div 2).float32)))
+
+## --- Carved-stone wall material (top-down bevel from the collision mask) ---
+## Every wall pixel — border frame, rect stub, diamond, disc, or chevron — is
+## rendered as one coherent RAISED-STONE block whose shading comes from its
+## distance to the nearest floor pixel. This replaces the old approach of
+## tiling a SIDE-VIEW brick photo into the mask (which sliced the brick course
+## mid-pattern → the "torn ribbon" chevrons) and blitting three clashing prop
+## sprites (wood crate / steampunk pipe / barrel) scaled to a square that never
+## matched the diamond/disc/diagonal footprints. Because the shading is derived
+## from the mask, the art matches every collider EXACTLY and is identical on
+## both halves by construction (the mask is mirror-symmetric). Light comes from
+## the up-left, so the up-left faces catch a highlight and the down-right faces
+## fall into shadow — the Gungeon/Nuclear-Throne top-down convention (L98).
+const
+  WallBevel = 3                          ## px width of the lit/shadow bevel band.
+  StoneFace = rgba(120, 100, 78, 255)    ## flat top face of a raised stone block.
+  StoneHi = rgba(190, 167, 137, 255)     ## up-left lit bevel (catches the light).
+  StoneLo = rgba(68, 54, 41, 255)        ## down-right shaded bevel (falls to dark).
+  StoneInk = rgba(34, 26, 19, 255)       ## warm near-black carve line (never #000).
+
+proc floorDistDir(wall: seq[bool], w, h, x, y, dx, dy, cap: int): int =
+  ## Steps from (x, y) along (dx, dy) until the first floor (non-wall) pixel,
+  ## capped at `cap`. Off-map counts as wall (the border is solid), so a pixel
+  ## with no floor within `cap` in that direction returns cap + 1.
+  for step in 1 .. cap:
+    let
+      nx = x + dx * step
+      ny = y + dy * step
+    if nx < 0 or ny < 0 or nx >= w or ny >= h:
+      continue
+    if not wall[ny * w + nx]:
+      return step
+  cap + 1
+
+proc carvedStoneColor(wall: seq[bool], w, h, x, y: int): ColorRGBA =
+  ## Shades one wall pixel as raised carved stone: a 1px ink carve line where it
+  ## meets the floor, a highlight on faces toward the up-left light, a shadow on
+  ## faces toward the down-right, and a flat face deep inside the block.
+  let
+    up = floorDistDir(wall, w, h, x, y, 0, -1, WallBevel)
+    left = floorDistDir(wall, w, h, x, y, -1, 0, WallBevel)
+    down = floorDistDir(wall, w, h, x, y, 0, 1, WallBevel)
+    right = floorDistDir(wall, w, h, x, y, 1, 0, WallBevel)
+  if min(min(up, down), min(left, right)) == 1:
+    return StoneInk                      ## touches the floor → carve outline.
+  let
+    topDist = min(up, left)              ## nearer the up-left (lit) rim.
+    botDist = min(down, right)           ## nearer the down-right (shaded) rim.
+  if topDist <= WallBevel and topDist <= botDist:
+    ## Graded lit bevel: brightest at the rim (topDist == 2, just inside the
+    ## ink line), easing back to the flat face by WallBevel so the block reads
+    ## as a rounded raised edge, not a flat painted band.
+    let t = (topDist - 2).float / max(1, WallBevel - 2).float
+    mix(StoneHi, StoneFace, clamp(t, 0.0, 1.0))
+  elif botDist <= WallBevel:
+    let t = (botDist - 2).float / max(1, WallBevel - 2).float
+    mix(StoneLo, StoneFace, clamp(t, 0.0, 1.0))
+  else:
+    StoneFace
+
+## --- Capture endzones (the floor a carrier must reach to score) ---
+## The win condition is a full-height vertical column at each home edge: a live
+## carrier scores the instant its center-x crosses the inner threshold, at ANY
+## height (captureZoneXRange / checkWinConditions). We make that legible by
+## painting the endzone INTO the floor — an in-world "painted endzone", not HUD
+## chrome — so it rides the board sprite and scales with the locked composition.
+## The old broad half-board territory wash was removed for muddying the flagstone
+## into "gradient columns" (L98 #4); this is the opposite: a CONFINED tint inside
+## the narrow scoring column only, anchored by a crisp bright threshold line at
+## the exact x a carrier must cross. Cosmetic over mapImage → hash-safe.
+const
+  EndzoneCrackGlow = 165         ## ember alpha on the darkest grout pixels (kept
+                                 ## below the pedestal glow so the flag home
+                                 ## stays the brightest thing in the endzone).
+  EndzoneLineAlpha = 220         ## solid threshold line at the exact score-x.
+  EndzoneLineW = 3               ## px width of that threshold line.
+  # The flagstone texture runs dark (lum ~26..117, faces ~73+, grout ~<46), so
+  # a single "below X" gate lit the whole floor. These two points bracket the
+  # real split: at/above FaceLevel a pixel is a lit face → NO glow; at/below
+  # CrackLevel it's grout → full glow; linear between.
+  EndzoneFaceLevel = 66          ## lit stone face floor luminance (glow = 0).
+  EndzoneCrackLevel = 34         ## grout/seam luminance (glow = full).
+  EndzoneGlowFloor = 0.82        ## min home-falloff so the far end still glows.
+  RedEndzoneColor = rgba(224, 82, 58, 255)    ## team vermillion (§4).
+  BlueEndzoneColor = rgba(63, 124, 196, 255)  ## team cerulean (§4).
+
+proc emberThroughCracks(base, ember: ColorRGBA, strength: float): ColorRGBA =
+  ## Lets a team ember glow seep UP ONLY through the DARK crack/grout pixels of
+  ## the flagstone TEXTURE — the lit stone faces stay completely clean (no base
+  ## wash), so team color is confined to the actual fissures/seams, not a flat
+  ## tint over the tiles (L98 #4). Distinct from the solid capture LINE, which is
+  ## a painted stripe. A two-point luminance gate anchored to the measured floor
+  ## split does the confining; `strength` is a gentle pedestal-side falloff.
+  let l = (base.r.int * 30 + base.g.int * 59 + base.b.int * 11) div 100
+  # 0 at/above a lit face, 1 at/below grout — cracks only, faces untouched.
+  let crack = clamp((EndzoneFaceLevel - l).float /
+    (EndzoneFaceLevel - EndzoneCrackLevel).float, 0.0, 1.0)
+  let a = strength * crack * crack * EndzoneCrackGlow.float
+  overTint(base, rgba(ember.r, ember.g, ember.b, uint8(clamp(a, 0.0, 255.0))))
+
+proc endzoneColorAt(base: ColorRGBA, x, redHi, blueLo, playLo, playHi: int):
+    ColorRGBA =
+  ## Tints one floor pixel if it sits inside a capture endzone column. `redHi`
+  ## is Red's inclusive right threshold x; `blueLo` is Blue's inclusive left
+  ## threshold x; `playLo`/`playHi` are the inner playfield edges (for the
+  ## glow falloff). Team ember seeps up through the tile cracks, brightest at the
+  ## pedestal (the inner threshold edge) and floored so the whole zone still
+  ## glows; the exact threshold x a carrier must cross gets a crisp solid line.
+  if x <= redHi:
+    if x > redHi - EndzoneLineW:
+      overTint(base, rgba(RedEndzoneColor.r, RedEndzoneColor.g,
+        RedEndzoneColor.b, EndzoneLineAlpha))
+    else:
+      let near = clamp((x - playLo).float / max(1, redHi - playLo).float, 0.0, 1.0)
+      emberThroughCracks(base, RedEndzoneColor,
+        EndzoneGlowFloor + (1.0 - EndzoneGlowFloor) * near)
+  elif x >= blueLo:
+    if x < blueLo + EndzoneLineW:
+      overTint(base, rgba(BlueEndzoneColor.r, BlueEndzoneColor.g,
+        BlueEndzoneColor.b, EndzoneLineAlpha))
+    else:
+      let near = clamp((playHi - x).float / max(1, playHi - blueLo).float, 0.0, 1.0)
+      emberThroughCracks(base, BlueEndzoneColor,
+        EndzoneGlowFloor + (1.0 - EndzoneGlowFloor) * near)
+  else:
+    base
+
 proc loadMapLayers*(gameMap: CtfMap): tuple[mapImage, walkImage, wallImage: Image] =
-  ## Builds the visual map plus the walk and wall masks for the arena.
+  ## Builds the visual map plus the walk and wall masks for the arena. The
+  ## visuals: a tiled top-down flagstone floor, and ONE coherent carved-stone
+  ## material for every wall pixel — border frame, rect stub, diamond, disc, and
+  ## chevron alike — beveled from the collision mask itself so the art matches
+  ## each collider EXACTLY and is identical on both halves by construction. The
+  ## old side-view brick texture (sliced mid-course into the shapes → "torn
+  ## ribbon" chevrons) and the three clashing prop sprites (wood crate /
+  ## steampunk pipe / barrel scaled to a square over diamond/disc footprints)
+  ## are gone (L98 #4: one baked material; let flags + pedestals carry team
+  ## identity). Team pedestals stay. The walk/wall COLLISION masks are
+  ## byte-identical to before — the art is cosmetic over the exact geometry.
   let
     w = gameMap.width
     h = gameMap.height
@@ -831,35 +1191,51 @@ proc loadMapLayers*(gameMap: CtfMap): tuple[mapImage, walkImage, wallImage: Imag
   let
     clear = rgba(0, 0, 0, 0)
     opaque = rgba(255, 255, 255, 255)
+    dir = gameDir()
+    floorTex = readImage(dir / "data/arena_floor.png")
+    pedRedSpr = readImage(dir / "data/ped_red.png")
+    pedBlueSpr = readImage(dir / "data/ped_blue.png")
+  ## Pass 1: the boolean wall mask (border + obstacles), shared by the shading
+  ## bevel and the collision masks so art and geometry can never disagree.
+  var wallMask = newSeq[bool](w * h)
+  for y in 0 ..< h:
+    for x in 0 ..< w:
+      wallMask[y * w + x] = isArenaWall(x, y, cx, cy)
+  ## The capture endzones: the exact score-columns from checkWinConditions'
+  ## captureZoneXRange (Red's inclusive right threshold, Blue's inclusive left),
+  ## painted into the FLOOR below so a carrier can read where to run.
+  let
+    redHi = gameMap.teamHomeX(Red) + CaptureZoneWidth div 2
+    blueLo = gameMap.teamHomeX(Blue) - CaptureZoneWidth div 2
+    playLo = ArenaBorder                     # inner playfield edges: the glow
+    playHi = w - 1 - ArenaBorder             # anchors home, fades to the line.
+  ## Pass 2: paint. Floor pixels sample the flagstone tile; wall pixels are the
+  ## carved-stone material shaded from the mask. The perimeter frame is the same
+  ## stone darkened so the play space reads as a lit pit. Floor pixels inside a
+  ## capture column get a CONFINED team endzone tint + a bright threshold line
+  ## (endzoneColorAt) — not the removed broad half-board wash (L98 #4).
   for y in 0 ..< h:
     for x in 0 ..< w:
       let
         onBorder = x < ArenaBorder or y < ArenaBorder or
           x >= w - ArenaBorder or y >= h - ArenaBorder
-        wall = isArenaWall(x, y, cx, cy)
+        wall = wallMask[y * w + x]
       var color =
-        if onBorder: ArenaBorderColor
-        elif wall: ArenaWall
-        else: ArenaFloor
-      if not wall:
-        ## Team territory wash on the readable floor.
-        if x < cx:
-          color = overTint(color, ArenaRedTint)
-        else:
-          color = overTint(color, ArenaBlueTint)
+        if wall: carvedStoneColor(wallMask, w, h, x, y)
+        else: endzoneColorAt(tileSample(floorTex, x, y), x, redHi, blueLo,
+          playLo, playHi)
+      if onBorder:
+        color = overTint(color, ArenaBorderColor)
       result.mapImage[x, y] = color
       result.walkImage[x, y] = if wall: clear else: opaque
       result.wallImage[x, y] = if wall: opaque else: clear
-  ## Draw a small team-colored pedestal marker under each flag home (stays
-  ## walkable; the pedestals sit inside the protected spawn pockets).
+  ## Carved team pedestal under each flag home (walkable — sits inside the
+  ## protected spawn pocket; cosmetic only, collision masks untouched).
   for team in Team:
     let
       home = gameMap.flagHome(team)
-      color = (if team == Red: ArenaRedPedestal else: ArenaBluePedestal)
-    for dy in -4 .. 4:
-      for dx in -4 .. 4:
-        if dx * dx + dy * dy <= 16:
-          result.mapImage[home.x + dx, home.y + dy] = color
+      spr = if team == Red: pedRedSpr else: pedBlueSpr
+    blitCover(result.mapImage, spr, home.x, home.y, 96)
 
 proc loadDarkBgPixels*(): seq[uint8] =
   ## Loads the dark interstitial background as palette pixels.
@@ -2206,6 +2582,7 @@ proc startGame*(sim: var SimServer) =
   sim.logGameEvent("game started: players=" & $sim.players.len)
   sim.recentShots = @[]
   sim.splatters = @[]
+  sim.damagePops = @[]
   sim.recentShouts = @[]
   sim.arrangeHomePositions()
   for i in 0 ..< sim.players.len:
@@ -2425,7 +2802,8 @@ proc killPlayer(sim: var SimServer, targetIndex, killerIndex: int) =
     x: sim.players[targetIndex].x,
     y: sim.players[targetIndex].y,
     tick: sim.tickCount,
-    color: sim.players[targetIndex].color
+    color: sim.players[targetIndex].color,
+    hit: false
   )
   sim.players[targetIndex].alive = false
   sim.players[targetIndex].velX = 0
@@ -2537,10 +2915,28 @@ proc applyFire(sim: var SimServer, shooterIndex, targetIndex: int) =
   )
   if targetIndex >= 0 and sim.players[targetIndex].alive:
     dec sim.players[targetIndex].hp
+    # A floating "-1" rises and fades from the victim so a lost health bar
+    # reads at a glance (cosmetic only, never in gameHash).
+    sim.damagePops.add DamageFx(
+      x: sim.players[targetIndex].x + CollisionW div 2,
+      y: sim.players[targetIndex].y + CollisionH div 2,
+      tick: sim.tickCount,
+      amount: 1,
+      color: sim.players[targetIndex].color
+    )
     if sim.players[targetIndex].hp <= 0:
       sim.killPlayer(targetIndex, shooterIndex)
       sim.recordKill(shooterIndex)
     else:
+      # A non-fatal hit leaves a small, short-lived paint spark in the
+      # shooter's color on the target (cosmetic only, never in gameHash).
+      sim.splatters.add SplatterFx(
+        x: sim.players[targetIndex].x,
+        y: sim.players[targetIndex].y,
+        tick: sim.tickCount,
+        color: shooter.color,
+        hit: true
+      )
       sim.logGameEvent(
         playerColorText(sim.players[targetIndex].color) &
           " hit by " & sim.playerText(shooterIndex) &
@@ -2569,6 +2965,22 @@ proc grenadePosition*(grenade: AirborneGrenade, tick: int): tuple[x, y: int] =
   let t = clamp(tick - grenade.launchTick, 0, grenade.flightTicks)
   (grenade.sx + (grenade.tx - grenade.sx) * t div grenade.flightTicks,
     grenade.sy + (grenade.ty - grenade.sy) * t div grenade.flightTicks)
+
+proc throwTarget*(player: Player): tuple[x, y: int] =
+  ## Where a charging player's throw would currently land, along their aim at
+  ## the charge-picked distance. Shares throwGrenade's exact math so the render
+  ## charge-ring can never disagree with where the grenade will actually go.
+  let
+    charge = clamp(player.throwCharge, 0, GrenadeChargeTicks)
+    strength = GrenadeMinRange +
+      (GrenadeMaxRange - GrenadeMinRange) * charge div GrenadeChargeTicks
+    (ux, uy) = aimVector(player.aimBrads)
+    sx = player.x + CollisionW div 2
+    sy = player.y + CollisionH div 2
+  (clamp(sx + int(round(ux * float(strength))),
+      ArenaBorder + 2, MapWidth - ArenaBorder - 2),
+    clamp(sy + int(round(uy * float(strength))),
+      ArenaBorder + 2, MapHeight - ArenaBorder - 2))
 
 proc throwGrenade(sim: var SimServer, playerIndex: int) =
   ## Releases the charged throw along the thrower's current aim. The charge
@@ -2631,8 +3043,16 @@ proc explodeGrenade(sim: var SimServer, grenade: AirborneGrenade) =
   ## the audible landing's sound ring) plus blast damage to EVERYONE inside
   ## the radius — teammates and the thrower included; spawn protection
   ## still shields.
+  # Color the splat by the thrower's TEAM (not their individual slot color), so
+  # a landing reads as that team's paint-bomb — and the sprite id stays within
+  # the two team-color slots, never colliding with the tracer pool.
+  let throwerColor =
+    if grenade.thrower >= 0 and grenade.thrower < sim.players.len:
+      teamColor(sim.players[grenade.thrower].team)
+    else:
+      RedTeamColor
   sim.recentBlasts.add BlastFx(
-    x: grenade.tx, y: grenade.ty, tick: sim.tickCount
+    x: grenade.tx, y: grenade.ty, tick: sim.tickCount, color: throwerColor
   )
   sim.logGameEvent("grenade landed")
   let radiusSq = GrenadeBlastRadius * GrenadeBlastRadius
@@ -2645,6 +3065,11 @@ proc explodeGrenade(sim: var SimServer, grenade: AirborneGrenade) =
     if distSq(px, py, grenade.tx, grenade.ty) > radiusSq:
       continue
     sim.players[i].hp -= GrenadeDamage
+    # Floating damage number for the blast's HP loss (cosmetic, not in gameHash).
+    sim.damagePops.add DamageFx(
+      x: px, y: py, tick: sim.tickCount,
+      amount: GrenadeDamage, color: sim.players[i].color
+    )
     if sim.players[i].hp <= 0:
       sim.killPlayer(i, grenade.thrower)
       if grenade.thrower != i:
@@ -3144,6 +3569,31 @@ proc maxTicksReached(sim: SimServer): bool =
   sim.config.maxTicks > 0 and sim.phase == Playing and
     sim.gameTicksElapsed() >= sim.config.maxTicks
 
+proc teamLivesRemaining*(sim: SimServer, team: Team): int =
+  ## Returns total lives remaining (alive players count their current life).
+  ## Kept for the broadcast scorebug + momentum series (upstream dropped it as
+  ## unused; the replay chrome still reads it).
+  for p in sim.players:
+    if p.team != team:
+      continue
+    result += p.lives
+    if p.alive:
+      inc result
+
+proc teamFlagProgress*(sim: SimServer, team: Team): int =
+  ## Returns how far the ENEMY flag has been advanced toward this team's
+  ## home while carried; 0 when it sits on its pedestal. (0.7.0 relabels the
+  ## flag a "heart" in art/copy, but the carry-to-home mechanic is unchanged.)
+  let flag = sim.flags[enemy(team)]
+  if flag.carrier < 0:
+    return 0
+  let home = sim.gameMap.flagHome(enemy(team))
+  case team
+  of Red:
+    max(0, home.x - flag.x)
+  of Blue:
+    max(0, flag.x - home.x)
+
 proc teamHasLivePlayers(sim: SimServer, team: Team): bool =
   ## Returns true when a team still has a player who can act this round.
   for p in sim.players:
@@ -3199,11 +3649,55 @@ proc checkMaxTicks(sim: var SimServer) =
     return
   sim.finishGame(Red, isDraw = true, timeLimitReached = true)
 
+proc decodeGridFont(image: Image, cellW, cellH, cols: int,
+    spacing = 1): PixelFont =
+  ## Decodes a fixed-cell monospace ASCII sheet (ascii.png: cellW x cellH cells
+  ## laid out `cols` per row, starting at ASCII 32) into a PixelFont. Unlike
+  ## decodePixelFont there is no yellow marker row: each glyph is the cell's
+  ## white ink, trimmed to its own ink width so the font stays proportional.
+  ## Used only for shout bubbles, which want a chunkier, taller face than the
+  ## 6px tiny5 HUD font so the text reads at full desktop size.
+  result.height = cellH
+  result.spacing = spacing
+  proc ink(x, y: int): bool =
+    if x < 0 or y < 0 or x >= image.width or y >= image.height:
+      return false
+    let p = image[x, y]
+    p.a > 20'u8 and p.r >= 120'u8 and p.g >= 120'u8 and p.b >= 120'u8
+  for code in FirstPrintableAscii .. LastPrintableAscii:
+    let
+      idx = code - FirstPrintableAscii
+      cx = (idx mod cols) * cellW
+      cy = (idx div cols) * cellH
+    var minX = cellW
+    var maxX = -1
+    for gx in 0 ..< cellW:
+      for gy in 0 ..< cellH:
+        if ink(cx + gx, cy + gy):
+          minX = min(minX, gx)
+          maxX = max(maxX, gx)
+          break
+    # A blank cell (e.g. the space) gets a fixed narrow advance.
+    let width = if maxX < 0: max(1, cellW div 2) else: maxX - minX + 1
+    let start = if maxX < 0: 0 else: minX
+    var glyph = PixelGlyph(ch: char(code), width: width, height: cellH)
+    glyph.pixels = newSeq[bool](width * cellH)
+    if maxX >= 0:
+      for gy in 0 ..< cellH:
+        for gx in 0 ..< width:
+          glyph.pixels[gy * width + gx] = ink(cx + start + gx, cy + gy)
+    result.glyphs.add(glyph)
+
+proc loadShoutFont(): PixelFont =
+  ## Loads the chunky 7x9 grid font used for shout bubbles.
+  decodeGridFont(readImage(gameDir() / "data" / "ascii.png"), 7, 9, 18)
+
 proc initSimServer*(config: GameConfig): SimServer =
   result.config = config
   result.rng = initRand(config.seed)
   loadPalette(clientDataDir() / "pallete.png")
   result.asciiSprites = readTiny5Font()
+  result.shoutFont = loadShoutFont()
 
   let sheet = loadSpriteSheet()
   result.crewSprites = loadCrewSprites()
@@ -3265,6 +3759,7 @@ proc resetToLobby*(sim: var SimServer) =
   sim.recentShouts = @[]
   sim.recentShots = @[]
   sim.splatters = @[]
+  sim.damagePops = @[]
   sim.nextJoinOrder = 0
   sim.tickCount = 0
   sim.gameStartTick = -1
@@ -3405,6 +3900,12 @@ proc step*(
   sim.recentShouts = keptShouts
   var keptSplatters: seq[SplatterFx] = @[]
   for splatter in sim.splatters:
-    if sim.tickCount - splatter.tick < SplatterFxTicks:
+    let life = if splatter.hit: HitFxTicks else: SplatterFxTicks
+    if sim.tickCount - splatter.tick < life:
       keptSplatters.add splatter
   sim.splatters = keptSplatters
+  var keptPops: seq[DamageFx] = @[]
+  for pop in sim.damagePops:
+    if sim.tickCount - pop.tick < DamageFxTicks:
+      keptPops.add pop
+  sim.damagePops = keptPops

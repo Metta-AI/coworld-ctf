@@ -1,7 +1,7 @@
 import
-  std/[os, strutils, unittest],
+  std/[os, sequtils, strutils, unittest],
   bitworld/spriteprotocol,
-  ctf/[global, hd, sim]
+  ctf/[global, sim]
 
 const GameDir = currentSourcePath.parentDir.parentDir
 
@@ -64,26 +64,14 @@ suite "player fog-of-war protocol":
     for label in labels:
       check not label.contains("arrow")
       check label != "shadow"
-    # The fog overlay and the distinct self marker are present.
+    # The fog overlay and the distinct self marker are present. The viewer reads
+    # as a white-outlined rotating soldier (aim shown by the held gun's sweep),
+    # not the retired floating aim dots — but the marker keeps the DOCUMENTED
+    # `self <color> <side>` label (RULES.md) so exact-match label readers work.
+    # Aim 64 (east-ish) faces right.
     check "fog" in labels
-    check ("self red right" in labels) or ("self red left" in labels)
-    # The viewer wears its own aim-indicator dots (bots read their actual
-    # aim angle back from these).
-    check "aim dot red" in labels
-    # The viewer aims north (64 brads): its dots sit above its center.
-    # Object coordinates arrive in render-scale pixels.
-    var aimDotNorth = false
-    for message in messages:
-      if message.kind == spkObject and message.objectDef.id >= 18000 and
-          message.objectDef.id < 18064:
-        aimDotNorth = message.objectDef.y <
-          game.players[viewer].y * RenderScale
-    check aimDotNorth
-    # The fogged enemy contributes no aim dots (index 1 pool slots).
-    for message in messages:
-      if message.kind == spkObject:
-        check not (message.objectDef.id >= 18000 + 4 * foe and
-          message.objectDef.id < 18000 + 4 * foe + 4)
+    check "self red right" in labels
+    check labels.anyIt(it.startsWith("self red ") or it.startsWith("self blue "))
     # The map object sits at the origin: object coords are map coords.
     var mapAtOrigin = false
     for message in messages:

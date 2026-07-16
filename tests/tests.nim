@@ -9,5 +9,10 @@ import
   test_replay_controls,
   test_ctf_game,
   test_grenades,
-  test_shouts
+  test_shouts,
+  test_first_person_pip,
+  test_board_click_select,
+  test_corpse_label,
+  test_damage_pop,
+  test_trade_pair
 {.warning[UnusedImport]: on.}
