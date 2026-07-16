@@ -198,7 +198,8 @@ proc buildStateJson*(
   transportEnabled: bool,
   mismatchTick: int,
   povSlot: int,
-  livesLeadSeries: seq[array[2, int]] = @[]
+  livesLeadSeries: seq[array[2, int]] = @[],
+  startTick: int = 0
 ): string =
   ## Assembles the broadcast chrome frame from the current board state plus the
   ## events accumulated across this playback frame. Board-derived STATE (lives,
@@ -216,6 +217,7 @@ proc buildStateJson*(
     "pl": playing,
     "sp": speed,
     "mx": maxTick,
+    "st": startTick,
     "lp": looping,
     "en": transportEnabled,
     "mm": mismatchTick,

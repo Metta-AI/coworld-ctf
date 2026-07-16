@@ -828,6 +828,9 @@ proc runServerLoop*(
     broadcastTracker = initBroadcastTracker()
   if replayLoaded:
     replayPlayer.buildReplayKeyframes(sim)
+    # Start playback at first action, not in the dead lobby (WAITING FOR PLAYERS).
+    replayPlayer.seekReplay(sim, replayPlayer.replayStartTick())
+    replayPlayer.playing = true
 
   while true:
     var
@@ -861,6 +864,9 @@ proc runServerLoop*(
       replayPlayer = initReplayPlayer(replayData)
       replayPlayer.mismatchQuit = runtimeConfig.mismatchQuit
       replayPlayer.buildReplayKeyframes(sim)
+      # Start playback at first action, not in the dead lobby.
+      replayPlayer.seekReplay(sim, replayPlayer.replayStartTick())
+      replayPlayer.playing = true
       broadcastTracker = initBroadcastTracker()
       replayLoaded = true
       {.gcsafe.}:
@@ -1020,6 +1026,17 @@ proc runServerLoop*(
           )
           appState.lastAppliedMasks[websocket] = appliedMask
         if not replayLoaded:
+          for websocket, chatText in appState.chatMessages.pairs:
+            let playerIndex = appState.playerIndices.getOrDefault(
+              websocket,
+              -1
+            )
+            if sim.applyShout(playerIndex, chatText):
+              replayWriter.writeChat(
+                tickTime(sim.tickCount),
+                playerIndex,
+                chatText
+              )
           appState.chatMessages.clear()
         for websocket, state in appState.globalViewers.pairs:
           globalViewers.add(websocket)
@@ -1144,7 +1161,7 @@ proc runServerLoop*(
             replayPlayer.stepReplay(sim)
             sim.stepEvents(broadcastTracker, frameEvents)
         if replayPlayer.looping and not replayPlayer.playing:
-          replayPlayer.seekReplay(sim, 0)
+          replayPlayer.seekReplay(sim, replayPlayer.replayStartTick())
           replayPlayer.playing = true
           broadcastTracker.resync(sim)
     else:
@@ -1256,7 +1273,8 @@ proc runServerLoop*(
             replayLoaded,
             replayPlayer.hashMismatchTick,
             nextState.selectedJoinOrder,
-            if sendLead: replayPlayer.livesLeadSeries else: @[]
+            if sendLead: replayPlayer.livesLeadSeries else: @[],
+            replayPlayer.replayStartTick()
           )
           globalViewers[i].send(stateJson, TextMessage)
           if sendLead:

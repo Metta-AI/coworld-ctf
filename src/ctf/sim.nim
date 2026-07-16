@@ -7,7 +7,7 @@ import
 
 const
   GameName* = "ctf"
-  GameVersion* = "2"
+  GameVersion* = "3"
   ReplayFps* = 24
   DefaultMapPath* = "arena"
   DarkBgPath* = "data/darkbg.aseprite"
@@ -17,11 +17,23 @@ const
   SpriteSize* = 12
   CrewSpriteSize* = 16
   CrewSpriteVariants* = 8
+  ## HD top-down soldier: one hand-painted per-team master (soldier_red/blue.png)
+  ## rendered gun-east, pre-rotated into SoldierRotations aim steps so the held
+  ## paintball marker sweeps with the aim. The body (helmet) is sized to the
+  ## legacy 16px crew footprint; the canvas is larger only so the extended gun
+  ## never clips as it swings around. Emitted through the existing player sprite
+  ## id pool (16 ids per color) — this replaces the flat 8-variant + h-flip crew.
+  SoldierRotations* = 16      ## pre-rotated aim steps (16 brads apart).
+  SoldierCanvas* = 40         ## px square sprite canvas (fits the swinging gun).
+  SoldierBodyPx* = 16         ## helmet diameter target = legacy crew footprint.
   CollisionW* = 1
   CollisionH* = 1
   PlayerHalf* = 6             ## half-extent of the solid player footprint, in px.
   SpriteDrawOffX* = 8
   SpriteDrawOffY* = 8
+  ## Draw offset for the rotated soldier: place the canvas so its center lands on
+  ## the player position (canvas center = the helmet pivot).
+  SoldierDrawOff* = SoldierCanvas div 2
   MotionScale* = 256
   Accel* = 76
   FrictionNum* = 144
@@ -87,6 +99,11 @@ const
   GrenadeBlastRadius* = 40    ## everyone inside the blast takes damage.
   GrenadeDamage* = 2          ## hit points removed by one blast.
   BlastFxTicks* = 12          ## cosmetic blast flash duration in ticks.
+
+  ShoutMaxChars* = 10         ## a shout is at most this many characters.
+  ShoutRange* = MapWidth div 5  ## audible within 20% of the screen width.
+  ShoutTicks* = 3 * ReplayFps ## a shout stays observable this long.
+  ShoutCooldownTicks* = ReplayFps  ## at most one shout per second.
 
   TextColor* = 2'u8
   TextLineHeight* = 7
@@ -298,6 +315,7 @@ type
     carryingFlag*: bool
     hasGrenade*: bool          ## each player carries at most one grenade.
     throwCharge*: int          ## ticks the throw button has been held.
+    lastShoutTick*: int        ## tick of this player's latest shout, -1 = never.
     joinOrder*: int
     address*: string
     color*: uint8
@@ -334,6 +352,18 @@ type
     ## Landing is audible: views also derive their landing sound rings here.
     x*, y*: int
     tick*: int
+    color*: uint8              ## the thrower's paint color, so the landing
+                               ## splat reads as that team's paint-bomb.
+
+  Shout* = object
+    ## One short player message, audible within ShoutRange of where it was
+    ## made. Bots observe shouts, so they are gameplay state (in gameHash)
+    ## and replays re-apply the recorded chat records that produced them.
+    address*: string           ## the shouter, by player address.
+    team*: Team
+    text*: string              ## sanitized, at most ShoutMaxChars.
+    tick*: int                 ## when it was shouted.
+    x*, y*: int                ## shouter center at shout time.
 
   GrenadeSpawn* = object
     ## One corner grenade pickup point.
@@ -378,12 +408,14 @@ type
     recentShots*: seq[ShotFx]  ## cosmetic shot tracers; excluded from gameHash.
     splatters*: seq[SplatterFx]  ## cosmetic death splatters; excluded from gameHash.
     recentBlasts*: seq[BlastFx]  ## cosmetic grenade blasts; excluded from gameHash.
+    recentShouts*: seq[Shout]  ## live shouts; observable state, in gameHash.
     grenadeSpawns*: array[4, GrenadeSpawn]
     airborneGrenades*: seq[AirborneGrenade]
     gameStartTick*: int
     startWaitTimer*: int
     phase*: GamePhase
     asciiSprites*: PixelFont
+    shoutFont*: PixelFont  ## chunky 9px grid font used only for shout bubbles.
     winner*: Team
     gameOverTimer*: int
     timeLimitReached*: bool
@@ -483,6 +515,172 @@ proc loadCrewSpriteRow*(row: int, label: string): seq[CrewSprite] =
 proc loadCrewSprites*(): seq[CrewSprite] =
   ## Loads the first eight 16x16 living crew sprites.
   loadCrewSpriteRow(0, "Crew")
+
+proc loadRgbaSprite*(name: string, size: int, alphaCutoff = 0'u8): seq[uint8] =
+  ## Loads a hand-painted relic PNG from data/ and returns it as a straight-alpha
+  ## RGBA buffer scaled to size×size for the Sprite v1 protocol. The PNGs carry
+  ## real transparency (alpha-knocked from the art), and pixie stores
+  ## premultiplied alpha internally, so we take `.rgba` to hand the protocol
+  ## un-premultiplied colors.
+  ##
+  ## `alphaCutoff` > 0 snaps the resized alpha to a HARD edge (>= cutoff opaque,
+  ## else fully clear). Pixie's `resize` is bilinear, so downscaling a big PNG
+  ## feathers its bold dark outline into a ring of semi-transparent pixels that
+  ## reads as a fuzzy colored halo bleeding onto the floor. Snapping the alpha
+  ## keeps the SAME art but restores the crisp outline; the interior facets are
+  ## untouched (they were already fully opaque). 128 is the sweet spot at both
+  ## the carried (20px) and planted (60px) footprints.
+  let image = readImage(gameDir() / name).resize(size, size)
+  result = newSeq[uint8](size * size * 4)
+  for y in 0 ..< size:
+    for x in 0 ..< size:
+      let
+        pixel = image[x, y].rgba
+        offset = (y * size + x) * 4
+        alpha = if alphaCutoff == 0'u8: pixel.a
+                elif pixel.a >= alphaCutoff: 255'u8
+                else: 0'u8
+      result[offset] = pixel.r
+      result[offset + 1] = pixel.g
+      result[offset + 2] = pixel.b
+      result[offset + 3] = alpha
+
+proc loadHeartSprite*(team: Team, size: int): seq[uint8] =
+  ## The CTF objective, a glowing team-colored heart-gem relic (0.7.0 renamed the
+  ## "flag" a heart in-sim). Red = crimson life-crystal, Blue = frost life-crystal.
+  ## Hard alpha edge (cutoff 128) so the bold painted outline stays crisp at the
+  ## sprite footprint instead of feathering into a fuzzy halo on the floor.
+  loadRgbaSprite(
+    if team == Red: "data/heart_red.png" else: "data/heart_blue.png",
+    size,
+    alphaCutoff = 128'u8
+  )
+
+proc loadPaintBombSprite*(size: int): seq[uint8] =
+  ## The thrown grenade, a kid-friendly dungeon-crawler alchemical paint-bomb orb
+  ## (cork-stopped rune bottle of swirling paint — NO fuse). Used for the corner
+  ## pickup, the carried icon, and the in-flight projectile.
+  loadRgbaSprite("data/paintbomb.png", size)
+
+## --- HD top-down soldier: pre-rotated per-team masters ---
+## Each team's master (gun pointing east = aim brads 0) is measured for its
+## helmet pivot, scaled so the helmet fills SoldierBodyPx, and pre-rotated into
+## SoldierRotations canvases. Rotations pivot on the helmet center so the body
+## spins in place and the gun sweeps — the same method David uses for HD crew,
+## but rasterized at map scale and emitted on our existing sprite ids.
+var
+  soldierMasters: array[Team, Image]
+  soldierPivotX, soldierPivotY: array[Team, float]
+  soldierScale: array[Team, float]
+  soldierLoaded: array[Team, bool]
+  soldierRotCache: array[Team, array[SoldierRotations, seq[uint8]]]
+
+proc soldierMasterPath(team: Team): string =
+  if team == Red: "data/soldier_red.png" else: "data/soldier_blue.png"
+
+proc measureSoldierBody(team: Team, master: Image) =
+  ## Finds the helmet pivot and the master->canvas scale. The paintball marker
+  ## is a long appendage to the east, so the body (helmet + shoulders) lives in
+  ## the left ~50% of the opaque bounding box; we pivot on that region's
+  ## centroid and size its vertical span to SoldierBodyPx.
+  var
+    minX = master.width
+    maxX = -1
+    minY = master.height
+    maxY = -1
+  for y in 0 ..< master.height:
+    for x in 0 ..< master.width:
+      if master.data[y * master.width + x].a >= 64:
+        minX = min(minX, x); maxX = max(maxX, x)
+        minY = min(minY, y); maxY = max(maxY, y)
+  if maxX < minX:
+    minX = 0; maxX = master.width - 1; minY = 0; maxY = master.height - 1
+  let limX = minX + (maxX - minX + 1) div 2   ## helmet band = left half.
+  var
+    sumX = 0.0
+    sumY = 0.0
+    n = 0
+    hTop = master.height
+    hBot = -1
+  for y in 0 ..< master.height:
+    for x in minX ..< limX:
+      if master.data[y * master.width + x].a >= 64:
+        sumX += float(x); sumY += float(y); inc n
+        hTop = min(hTop, y); hBot = max(hBot, y)
+  if n == 0:
+    soldierPivotX[team] = float(minX + maxX) / 2
+    soldierPivotY[team] = float(minY + maxY) / 2
+    soldierScale[team] = float(SoldierBodyPx) / max(1.0, float(maxY - minY + 1))
+  else:
+    soldierPivotX[team] = sumX / float(n)
+    soldierPivotY[team] = sumY / float(n)
+    soldierScale[team] = float(SoldierBodyPx) / max(1.0, float(hBot - hTop + 1))
+
+proc ensureSoldierLoaded(team: Team) =
+  if soldierLoaded[team]:
+    return
+  let master = readImage(gameDir() / soldierMasterPath(team))
+  soldierMasters[team] = master
+  measureSoldierBody(team, master)
+  soldierLoaded[team] = true
+
+proc soldierRotPixels*(team: Team, rot: int): seq[uint8] =
+  ## One pre-rotated soldier sprite (SoldierCanvas square, straight-alpha RGBA).
+  let r = ((rot mod SoldierRotations) + SoldierRotations) mod SoldierRotations
+  if soldierRotCache[team][r].len > 0:
+    return soldierRotCache[team][r]
+  ensureSoldierLoaded(team)
+  let
+    master = soldierMasters[team]
+    # aim increases counter-clockwise on screen (0=east, 64=north); screen y is
+    # down, so a positive brad step rotates the art clockwise in image space —
+    # i.e. draw at angle -theta to match aimVector.
+    angle = float(r) * 2.0 * PI / float(SoldierRotations)
+    s = soldierScale[team]
+  var canvas = newImage(SoldierCanvas, SoldierCanvas)
+  let mat =
+    translate(vec2(float32(SoldierCanvas) / 2, float32(SoldierCanvas) / 2)) *
+    rotate(float32(-angle)) *
+    scale(vec2(float32(s), float32(s))) *
+    translate(vec2(float32(-soldierPivotX[team]), float32(-soldierPivotY[team])))
+  canvas.draw(master, mat)
+  # Straight-alpha RGBA for the Sprite v1 protocol (pixie stores premultiplied).
+  var pixels = newSeq[uint8](SoldierCanvas * SoldierCanvas * 4)
+  for i in 0 ..< SoldierCanvas * SoldierCanvas:
+    let c = canvas.data[i].rgba()
+    pixels[i * 4] = c.r
+    pixels[i * 4 + 1] = c.g
+    pixels[i * 4 + 2] = c.b
+    pixels[i * 4 + 3] = c.a
+  soldierRotCache[team][r] = pixels
+  pixels
+
+proc soldierRotIndex*(aimBrads: int): int =
+  ## Quantizes an aim angle to the nearest pre-rotated sprite step.
+  ((aimBrads + AimBradsTurn div (SoldierRotations * 2)) *
+    SoldierRotations div AimBradsTurn) mod SoldierRotations
+
+proc soldierIconPixels*(team: Team, sizePx: int): seq[uint8] =
+  ## A compact roster chip: the east-facing soldier scaled so the helmet body
+  ## fills the icon (a stub of gun barrel clips at the right edge — reads as
+  ## "armed" without the full sweep-canvas footprint). Used by the game-over list.
+  ensureSoldierLoaded(team)
+  let
+    master = soldierMasters[team]
+    s = float(sizePx) / float(SoldierBodyPx) * soldierScale[team]
+  var canvas = newImage(sizePx, sizePx)
+  let mat =
+    translate(vec2(float32(sizePx) / 2, float32(sizePx) / 2)) *
+    scale(vec2(float32(s), float32(s))) *
+    translate(vec2(float32(-soldierPivotX[team]), float32(-soldierPivotY[team])))
+  canvas.draw(master, mat)
+  result = newSeq[uint8](sizePx * sizePx * 4)
+  for i in 0 ..< sizePx * sizePx:
+    let c = canvas.data[i].rgba()
+    result[i * 4] = c.r
+    result[i * 4 + 1] = c.g
+    result[i * 4 + 2] = c.b
+    result[i * 4 + 3] = c.a
 
 proc crewVariantIndex*(slotId: int): int =
   ## Returns the crew sprite variant for one player slot.
@@ -1657,6 +1855,7 @@ proc gameHash*(sim: SimServer): uint64 =
     result.mixHashBool(player.carryingFlag)
     result.mixHashBool(player.hasGrenade)
     result.mixHashInt(player.throwCharge)
+    result.mixHashInt(player.lastShoutTick)
     result.mixHashInt(player.joinOrder)
     result.mixHashInt(int(player.color))
     result.mixHashInt(player.reward)
@@ -1675,6 +1874,16 @@ proc gameHash*(sim: SimServer): uint64 =
     result.mixHashInt(grenade.launchTick)
     result.mixHashInt(grenade.flightTicks)
     result.mixHashInt(grenade.thrower)
+  result.mixHashInt(sim.recentShouts.len)
+  for shout in sim.recentShouts:
+    for c in shout.address:
+      result.mixHashInt(ord(c))
+    result.mixHashInt(ord(shout.team))
+    for c in shout.text:
+      result.mixHashInt(ord(c))
+    result.mixHashInt(shout.tick)
+    result.mixHashInt(shout.x)
+    result.mixHashInt(shout.y)
 
 proc isWalkable*(sim: SimServer, x, y: int): bool =
   if x < 0 or y < 0 or x >= MapWidth or y >= MapHeight:
@@ -2176,6 +2385,7 @@ proc addPlayer*(
     joinOrder: order,
     address: address,
     color: color,
+    lastShoutTick: -1,
     reward: sim.rewardAccounts[accountIndex].reward
   )
   sim.fovCaches.add PlayerFov(
@@ -2360,8 +2570,10 @@ proc startGame*(sim: var SimServer) =
   sim.logGameEvent("game started: players=" & $sim.players.len)
   sim.recentShots = @[]
   sim.splatters = @[]
+  sim.recentShouts = @[]
   sim.arrangeHomePositions()
   for i in 0 ..< sim.players.len:
+    sim.players[i].lastShoutTick = -1
     sim.players[i].alive = true
     sim.players[i].lives = sim.config.lives
     sim.players[i].hp = sim.config.hitPoints
@@ -2732,6 +2944,22 @@ proc grenadePosition*(grenade: AirborneGrenade, tick: int): tuple[x, y: int] =
   (grenade.sx + (grenade.tx - grenade.sx) * t div grenade.flightTicks,
     grenade.sy + (grenade.ty - grenade.sy) * t div grenade.flightTicks)
 
+proc throwTarget*(player: Player): tuple[x, y: int] =
+  ## Where a charging player's throw would currently land, along their aim at
+  ## the charge-picked distance. Shares throwGrenade's exact math so the render
+  ## charge-ring can never disagree with where the grenade will actually go.
+  let
+    charge = clamp(player.throwCharge, 0, GrenadeChargeTicks)
+    strength = GrenadeMinRange +
+      (GrenadeMaxRange - GrenadeMinRange) * charge div GrenadeChargeTicks
+    (ux, uy) = aimVector(player.aimBrads)
+    sx = player.x + CollisionW div 2
+    sy = player.y + CollisionH div 2
+  (clamp(sx + int(round(ux * float(strength))),
+      ArenaBorder + 2, MapWidth - ArenaBorder - 2),
+    clamp(sy + int(round(uy * float(strength))),
+      ArenaBorder + 2, MapHeight - ArenaBorder - 2))
+
 proc throwGrenade(sim: var SimServer, playerIndex: int) =
   ## Releases the charged throw along the thrower's current aim. The charge
   ## picks the distance (GrenadeMinRange..GrenadeMaxRange); the grenade
@@ -2793,8 +3021,16 @@ proc explodeGrenade(sim: var SimServer, grenade: AirborneGrenade) =
   ## the audible landing's sound ring) plus blast damage to EVERYONE inside
   ## the radius — teammates and the thrower included; spawn protection
   ## still shields.
+  # Color the splat by the thrower's TEAM (not their individual slot color), so
+  # a landing reads as that team's paint-bomb — and the sprite id stays within
+  # the two team-color slots, never colliding with the tracer pool.
+  let throwerColor =
+    if grenade.thrower >= 0 and grenade.thrower < sim.players.len:
+      teamColor(sim.players[grenade.thrower].team)
+    else:
+      RedTeamColor
   sim.recentBlasts.add BlastFx(
-    x: grenade.tx, y: grenade.ty, tick: sim.tickCount
+    x: grenade.tx, y: grenade.ty, tick: sim.tickCount, color: throwerColor
   )
   sim.logGameEvent("grenade landed")
   let radiusSq = GrenadeBlastRadius * GrenadeBlastRadius
@@ -2848,6 +3084,63 @@ proc tryPickupGrenades*(sim: var SimServer, playerIndex: int) =
           " picked up a grenade"
       )
       return
+
+proc sanitizeShout*(text: string): string =
+  ## Reduces raw chat text to a legal shout: printable ASCII only, at most
+  ## ShoutMaxChars characters, no leading or trailing spaces.
+  for c in text:
+    if c >= ' ' and c <= '~':
+      result.add(c)
+    if result.len == ShoutMaxChars:
+      break
+  result = result.strip()
+
+proc applyShout*(sim: var SimServer, playerIndex: int, text: string): bool {.discardable.} =
+  ## Applies one player chat message as a shout: a short message audible to
+  ## anyone within ShoutRange of the shouter. Living players only, at most
+  ## one shout per second, and one live bubble per player (a new shout
+  ## replaces the old one). Returns whether the shout was applied.
+  if sim.phase != Playing:
+    return false
+  if playerIndex < 0 or playerIndex >= sim.players.len:
+    return false
+  if not sim.players[playerIndex].alive:
+    return false
+  let shoutText = sanitizeShout(text)
+  if shoutText.len == 0:
+    return false
+  let last = sim.players[playerIndex].lastShoutTick
+  if last >= 0 and sim.tickCount - last < ShoutCooldownTicks:
+    return false
+  sim.players[playerIndex].lastShoutTick = sim.tickCount
+  let address = sim.players[playerIndex].address
+  var kept: seq[Shout] = @[]
+  for shout in sim.recentShouts:
+    if shout.address != address:
+      kept.add shout
+  kept.add Shout(
+    address: address,
+    team: sim.players[playerIndex].team,
+    text: shoutText,
+    tick: sim.tickCount,
+    x: sim.players[playerIndex].x + CollisionW div 2,
+    y: sim.players[playerIndex].y + CollisionH div 2
+  )
+  sim.recentShouts = kept
+  true
+
+proc shoutAudibleTo*(sim: SimServer, viewerIndex: int, shout: Shout): bool =
+  ## Whether one viewer can hear a shout: within ShoutRange of where it was
+  ## made. Shouts carry through walls and fog like gunfire, but dead viewers
+  ## observe nothing.
+  if viewerIndex < 0 or viewerIndex >= sim.players.len:
+    return false
+  if not sim.players[viewerIndex].alive:
+    return false
+  let
+    vx = sim.players[viewerIndex].x + CollisionW div 2
+    vy = sim.players[viewerIndex].y + CollisionH div 2
+  distSq(vx, vy, shout.x, shout.y) <= ShoutRange * ShoutRange
 
 proc resolveSimultaneousFire*(sim: var SimServer, shooters: openArray[int]) =
   ## Resolves every shot released this tick at once: all targets are chosen
@@ -3329,11 +3622,55 @@ proc checkMaxTicks(sim: var SimServer) =
     return
   sim.finishGame(Red, isDraw = true, timeLimitReached = true)
 
+proc decodeGridFont(image: Image, cellW, cellH, cols: int,
+    spacing = 1): PixelFont =
+  ## Decodes a fixed-cell monospace ASCII sheet (ascii.png: cellW x cellH cells
+  ## laid out `cols` per row, starting at ASCII 32) into a PixelFont. Unlike
+  ## decodePixelFont there is no yellow marker row: each glyph is the cell's
+  ## white ink, trimmed to its own ink width so the font stays proportional.
+  ## Used only for shout bubbles, which want a chunkier, taller face than the
+  ## 6px tiny5 HUD font so the text reads at full desktop size.
+  result.height = cellH
+  result.spacing = spacing
+  proc ink(x, y: int): bool =
+    if x < 0 or y < 0 or x >= image.width or y >= image.height:
+      return false
+    let p = image[x, y]
+    p.a > 20'u8 and p.r >= 120'u8 and p.g >= 120'u8 and p.b >= 120'u8
+  for code in FirstPrintableAscii .. LastPrintableAscii:
+    let
+      idx = code - FirstPrintableAscii
+      cx = (idx mod cols) * cellW
+      cy = (idx div cols) * cellH
+    var minX = cellW
+    var maxX = -1
+    for gx in 0 ..< cellW:
+      for gy in 0 ..< cellH:
+        if ink(cx + gx, cy + gy):
+          minX = min(minX, gx)
+          maxX = max(maxX, gx)
+          break
+    # A blank cell (e.g. the space) gets a fixed narrow advance.
+    let width = if maxX < 0: max(1, cellW div 2) else: maxX - minX + 1
+    let start = if maxX < 0: 0 else: minX
+    var glyph = PixelGlyph(ch: char(code), width: width, height: cellH)
+    glyph.pixels = newSeq[bool](width * cellH)
+    if maxX >= 0:
+      for gy in 0 ..< cellH:
+        for gx in 0 ..< width:
+          glyph.pixels[gy * width + gx] = ink(cx + start + gx, cy + gy)
+    result.glyphs.add(glyph)
+
+proc loadShoutFont(): PixelFont =
+  ## Loads the chunky 7x9 grid font used for shout bubbles.
+  decodeGridFont(readImage(gameDir() / "data" / "ascii.png"), 7, 9, 18)
+
 proc initSimServer*(config: GameConfig): SimServer =
   result.config = config
   result.rng = initRand(config.seed)
   loadPalette(clientDataDir() / "pallete.png")
   result.asciiSprites = readTiny5Font()
+  result.shoutFont = loadShoutFont()
 
   let sheet = loadSpriteSheet()
   result.crewSprites = loadCrewSprites()
@@ -3392,6 +3729,7 @@ proc resetToLobby*(sim: var SimServer) =
   sim.fovCaches = @[]
   sim.resetGrenades()
   sim.recentBlasts = @[]
+  sim.recentShouts = @[]
   sim.recentShots = @[]
   sim.splatters = @[]
   sim.nextJoinOrder = 0
@@ -3514,6 +3852,15 @@ proc step*(
     if sim.tickCount - blast.tick < BlastFxTicks:
       keptBlasts.add blast
   sim.recentBlasts = keptBlasts
+
+  # Expire old shouts. Unlike the cosmetic effects above, shouts are
+  # observable gameplay state (bots hear them), so expiry is part of the
+  # deterministic sim and the hash.
+  var keptShouts: seq[Shout] = @[]
+  for shout in sim.recentShouts:
+    if sim.tickCount - shout.tick < ShoutTicks:
+      keptShouts.add shout
+  sim.recentShouts = keptShouts
   var keptSplatters: seq[SplatterFx] = @[]
   for splatter in sim.splatters:
     let life = if splatter.hit: HitFxTicks else: SplatterFxTicks

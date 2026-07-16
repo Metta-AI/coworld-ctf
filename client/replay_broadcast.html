@@ -478,7 +478,13 @@ html, body {
 /* Full-timeline lives-lead graph, occupying the band UNDER the seek track. */
 .momentum {
   position: absolute;
-  left: 0; right: 0; top: calc(12 * var(--u));
+  /* An inline <svg> is a REPLACED element: with width:auto it takes its
+     intrinsic viewBox ratio (1000×100 = 10:1) × height, NOT the left/right
+     box — so it renders ~10× its height wide (a short stub) instead of full
+     width. Pin width:100% so it spans the whole seek track, matching the
+     0→maxTicks x-axis the playhead rides. (preserveAspectRatio:none, so no
+     letterboxing when we override the ratio.) */
+  left: 0; width: 100%; top: calc(12 * var(--u));
   height: calc(22 * var(--u));
   display: block;
   overflow: visible;
@@ -1085,12 +1091,13 @@ html, body {
         ctx.save();
         ctx.scale(dpr, dpr);
         ctx.translate(offsetX, offsetY);
-        if (scale < 1) {
-          ctx.imageSmoothingEnabled = true;
-          ctx.imageSmoothingQuality = 'high';
-        } else {
-          ctx.imageSmoothingEnabled = false;
-        }
+        // Nearest-neighbor at ALL scales (matches #board's image-rendering:
+        // pixelated). The old code force-enabled smoothing whenever the board
+        // had to shrink (scale < 1, e.g. small windows or side panels eating
+        // width), which softened the ENTIRE board — floor, cracks, sprites —
+        // into a uniform blur. Retro pixel art wants crisp pixels, never a
+        // bilinear wash, so keep smoothing off in every regime.
+        ctx.imageSmoothingEnabled = false;
         ctx.drawImage(offscreenCanvas, 0, 0, nativeW * scale, nativeH * scale);
         ctx.restore();
       }
@@ -1644,14 +1651,19 @@ html, body {
     // speed chips
     SPEEDS.forEach(function (sp) { speedChipEls[sp].classList.toggle('on', sp === s.sp); });
 
-    // scrubber
-    var mx = Math.max(1, s.mx || 1);
-    var frac = Math.min(1, Math.max(0, s.t / mx));
+    // scrubber. The x-axis skips the dead lobby: it spans [startTick, maxTick]
+    // so tick 0 on-screen is the first frame of actual play, not "WAITING FOR
+    // PLAYERS". All the derived geometry (fill, head, clock, beats, momentum)
+    // shares this offset origin.
+    var st = Math.max(0, s.st || 0);
+    var mx = Math.max(st + 1, s.mx || 1);
+    var span = mx - st;
+    var frac = Math.min(1, Math.max(0, (s.t - st) / span));
     $('scrub-fill').style.width = (frac * 100) + '%';
     $('scrub-head').style.left = (frac * 100) + '%';
-    $('tick-clock').textContent = s.t + ' / ' + mx;
+    $('tick-clock').textContent = Math.max(0, s.t - st) + ' / ' + span;
 
-    renderBeatMarkers(mx);
+    renderBeatMarkers(st, mx);
     renderMomentum();
   }
 
@@ -1786,12 +1798,13 @@ html, body {
     pendingMarkers.push({ tick: tick, kind: kind });
   }
   var pendingMarkers = [];
-  function renderBeatMarkers(mx) {
+  function renderBeatMarkers(st, mx) {
     if (!pendingMarkers.length) return;
+    var span = Math.max(1, mx - st);
     pendingMarkers.forEach(function (m) {
       var el = document.createElement('div');
       el.className = 'beat-marker ' + m.kind;
-      el.style.left = (Math.min(1, m.tick / mx) * 100) + '%';
+      el.style.left = (Math.min(1, Math.max(0, (m.tick - st) / span)) * 100) + '%';
       scrubEl.appendChild(el);
     });
     pendingMarkers = [];
@@ -1826,17 +1839,32 @@ html, body {
     if (!lastState || !samples.length) { if (!samples.length) el.innerHTML = ''; return; }
     if (!momentumDirty && el.childNodes.length) return; // nothing new to draw
     momentumDirty = false;
-    var mx = Math.max(1, lastState.mx || 1);
+    // Share the scrubber's trimmed [startTick, maxTick] axis so the momentum
+    // curve lines up 1:1 with the playhead (the lobby prefix is flat/even and
+    // carries no signal, so dropping it just removes dead leading space).
+    var st = Math.max(0, lastState.st || 0);
+    var mx = Math.max(st + 1, lastState.mx || 1);
 
-    // Full vertical scale = 8 players × config lives (±24). A fixed scale keeps
-    // the curve's height meaningful and stable (no rescale as the game plays).
-    var maxAbs = 24;
-    samples.forEach(function (m) { maxAbs = Math.max(maxAbs, Math.abs(m.diff)); });
+    // Auto-scale to the match's ACTUAL peak lead so the swings fill the band
+    // (a fixed ±24 scale squashed every real game — a 5-life lead barely lifted
+    // off the midline). Each side of the even-lives midline scales on its OWN
+    // extreme, so the biggest Red lead touches the top edge and the deepest Blue
+    // lead touches the bottom — while 0 stays pinned at MID, keeping the red/blue
+    // shading split honest. Floor at 1 so a dead-even match never divides by zero.
+    var maxPos = 1, maxNeg = 1;
+    samples.forEach(function (m) {
+      if (m.diff > maxPos) maxPos = m.diff;
+      if (-m.diff > maxNeg) maxNeg = -m.diff;
+    });
 
     // Sort by tick and build a STEP series across the full [0, mx] axis.
     var pts = samples.slice().sort(function (a, b) { return a.t - b.t; });
-    function xOf(t) { return Math.min(1, Math.max(0, t / mx)) * VBW; }
-    function yOf(d) { return MID - (d / maxAbs) * (MID - 2); } // clamp off the edges
+    function xOf(t) { return Math.min(1, Math.max(0, (t - st) / (mx - st))) * VBW; }
+    function yOf(d) { // 0 → MID; peak Red → top, peak Blue → bottom (2px inset)
+      return d >= 0
+        ? MID - (d / maxPos) * (MID - 2)
+        : MID + (-d / maxNeg) * (MID - 2);
+    }
     var line = '', k;
     for (k = 0; k < pts.length; k++) {
       var x = xOf(pts[k].t), y = yOf(pts[k].diff);
@@ -1961,7 +1989,10 @@ html, body {
     if (!lastState || !lastState.en) return;
     var rect = this.getBoundingClientRect();
     var frac = Math.min(1, Math.max(0, (ev.clientX - rect.left) / rect.width));
-    var tick = Math.round(frac * Math.max(1, lastState.mx || 1));
+    // Map the click back onto the shown [startTick, maxTick] axis.
+    var st = Math.max(0, lastState.st || 0);
+    var mx = Math.max(st + 1, lastState.mx || 1);
+    var tick = st + Math.round(frac * (mx - st));
     send('s:' + tick);
   });
 

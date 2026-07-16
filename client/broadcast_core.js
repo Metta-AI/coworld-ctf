@@ -313,12 +313,13 @@
         ctx.save();
         ctx.scale(dpr, dpr);
         ctx.translate(offsetX, offsetY);
-        if (scale < 1) {
-          ctx.imageSmoothingEnabled = true;
-          ctx.imageSmoothingQuality = 'high';
-        } else {
-          ctx.imageSmoothingEnabled = false;
-        }
+        // Nearest-neighbor at ALL scales (matches #board's image-rendering:
+        // pixelated). The old code force-enabled smoothing whenever the board
+        // had to shrink (scale < 1, e.g. small windows or side panels eating
+        // width), which softened the ENTIRE board — floor, cracks, sprites —
+        // into a uniform blur. Retro pixel art wants crisp pixels, never a
+        // bilinear wash, so keep smoothing off in every regime.
+        ctx.imageSmoothingEnabled = false;
         ctx.drawImage(offscreenCanvas, 0, 0, nativeW * scale, nativeH * scale);
         ctx.restore();
       }

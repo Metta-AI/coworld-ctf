@@ -35,6 +35,11 @@ type
     hashValidationFailed*: bool
     hashMismatchTick*: int
     keyframes*: seq[ReplayKeyframe]
+    startTick*: int
+      ## First tick the match is actually being PLAYED (the Lobby "WAITING FOR
+      ## PLAYERS" span before this is dead air a spectator should never have to
+      ## watch). Playback auto-starts here, loops back here, and the scrubber /
+      ## tick clock are offset by it so the shown timeline is 0 = first action.
     livesLeadSeries*: seq[array[2, int]]
       ## [tick, redLives - blueLives] change-points across the WHOLE match,
       ## precomputed on the deterministic keyframe walk so the momentum graph
@@ -104,6 +109,11 @@ proc replayMaxTick*(replay: ReplayPlayer): int =
   if replay.data.hashes.len == 0:
     return 0
   int(replay.data.hashes[^1].tick)
+
+proc replayStartTick*(replay: ReplayPlayer): int =
+  ## Returns the first tick a spectator should watch: the moment the match
+  ## leaves the lobby (never negative, never past the end).
+  clamp(max(0, replay.startTick), 0, replay.replayMaxTick())
 
 proc resetReplay*(replay: var ReplayPlayer) =
   ## Resets replay playback cursors.
@@ -214,7 +224,8 @@ proc applyReplayEvents(replay: var ReplayPlayer, sim: var SimServer) =
 
   while replay.chatIndex < replay.data.chats.len and
       replay.data.chats[replay.chatIndex].time <= time:
-    # CTF has no in-game chat; consume recorded chat events without applying.
+    let chat = replay.data.chats[replay.chatIndex]
+    sim.applyShout(int(chat.player), chat.message)
     inc replay.chatIndex
 
 proc replayPrevInputs(
@@ -308,8 +319,13 @@ proc buildReplayKeyframes*(
     sim.teamLivesRemaining(Red) - sim.teamLivesRemaining(Blue)
   var lastLead = livesLead(sim)
   replay.livesLeadSeries.add([sim.tickCount, lastLead])
+  # -1 until the match leaves the lobby: the first tick the game is Playing is
+  # where a spectator's watch should begin (everything before is warmup).
+  replay.startTick = if sim.phase == Playing: sim.gameStartTick else: -1
   while builder.playing and sim.tickCount < maxTick:
     builder.stepReplay(sim)
+    if replay.startTick < 0 and sim.phase == Playing:
+      replay.startTick = sim.gameStartTick
     let lead = livesLead(sim)
     if lead != lastLead:
       replay.livesLeadSeries.add([sim.tickCount, lead])
@@ -343,7 +359,7 @@ proc applyReplaySeek*(
 ) =
   ## Seeks replay playback and pauses on the target tick.
   replay.playing = false
-  replay.seekReplay(sim, clamp(tick, 0, replay.replayMaxTick()))
+  replay.seekReplay(sim, clamp(tick, replay.replayStartTick(), replay.replayMaxTick()))
 
 proc applyReplayCommand*(
   replay: var ReplayPlayer,
@@ -376,10 +392,10 @@ proc applyReplayCommand*(
     replay.speedIndex = 5
   of ',', '<':
     replay.playing = false
-    replay.seekReplay(sim, 0)
+    replay.seekReplay(sim, replay.replayStartTick())
   of 'b':
     replay.playing = false
-    replay.seekReplay(sim, max(0, sim.tickCount - 1))
+    replay.seekReplay(sim, max(replay.replayStartTick(), sim.tickCount - 1))
   of 'e':
     replay.playing = false
     replay.seekReplay(sim, replay.replayMaxTick())
