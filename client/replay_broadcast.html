@@ -716,6 +716,23 @@ html, body {
   .plate.leader .lives-num { animation: none; }
   .banner-chip, .feed-row { animation-duration: 1ms; }
 }
+
+/* ============================================================
+   EMBED MODE — inside the League Replayer shell (?embed=1)
+   The shell owns the walls + scorebug + KDA + standings + transport, drawn from
+   the postMessage frame stream. Here we show ONLY the board (the lit pit floor):
+   hide this client's own scorebug/transport/feed/light-pool so nothing double-
+   draws, and let the board fill the whole embed box edge-to-edge (the shell has
+   already sized the iframe to the board aspect).
+   ============================================================ */
+body[data-embed] #scorebug,
+body[data-embed] #transport,
+body[data-embed] #killfeed,
+body[data-embed] #bannerlane,
+body[data-embed] #lightpool,
+body[data-embed] #grain,
+body[data-embed] #status { display: none !important; }
+body[data-embed] #board { top: 0; height: 100%; }
 </style>
 </head>
 <body>
@@ -1637,6 +1654,21 @@ html, body {
   var canvas = $('board');
   var statusEl = $('status');
 
+  // ---- embed mode (League Replayer) ----------------------------------------
+  // When loaded inside the League Replayer shell (?embed=1), this client renders
+  // ONLY the board (its own scorebug/transport/feed chrome is hidden by CSS via
+  // body[data-embed]) and streams each parsed state frame up to the parent shell
+  // over postMessage. The shell owns the walls + scorebug + KDA + standings and
+  // draws them from this stream, so there is ONE websocket / ONE transport /
+  // perfect tick-sync between the embedded game and the wall HUD.
+  var EMBED = false;
+  try { EMBED = new URLSearchParams(location.search).get('embed') === '1'; } catch (e) {}
+  if (EMBED) document.body.setAttribute('data-embed', '1');
+  function postToShell(type, payload) {
+    if (!EMBED || window.parent === window) return;
+    try { window.parent.postMessage({ src: 'ctf-replay', type: type, data: payload }, '*'); } catch (e) {}
+  }
+
   // The whole replay is ONE fixed-aspect composition locked to the board's
   // native size (sim.nim MapWidth×MapHeight = 1235×659). The stage is sized to
   // this aspect inside the embed box and every overlay scales with it, so the
@@ -1682,6 +1714,20 @@ html, body {
 
   function send(cmd) { core.sendCommand(cmd); }
 
+  // Transport commands relayed DOWN from the League Replayer shell (embed mode):
+  // the shell's wall-mounted transport buttons/scrubber postMessage a command
+  // string, which we forward to the single shared replay websocket. Same command
+  // vocabulary the local transport uses, so the shell drives playback 1:1.
+  if (EMBED) {
+    window.addEventListener('message', function (ev) {
+      var m = ev.data;
+      if (!m || m.src !== 'ctf-shell') return;
+      if (m.type === 'cmd' && typeof m.cmd === 'string') send(m.cmd);
+      else if (m.type === 'seek' && m.tick != null) send('s:' + m.tick);
+      else if (m.type === 'pov' && m.slot != null) send('v:' + m.slot);
+    });
+  }
+
   function onStatus(st) {
     statusEl.textContent = st;
     statusEl.classList.toggle('show', st !== 'open');
@@ -1702,6 +1748,11 @@ html, body {
     var s;
     try { s = JSON.parse(txt); } catch (e) { return; }
     lastState = s;
+
+    // Stream the parsed frame to the League Replayer shell (embed mode). The
+    // shell reads roster/KDA, clock, lives, flags and pov straight off this to
+    // paint the wall-mounted scorebug + KDA tables in lockstep with the board.
+    postToShell('frame', s);
 
     // Detect a jump (seek/loop): clear transient beats so nothing phantoms.
     var jumped = (s.t < lastTick) || (lastTick >= 0 && s.t - lastTick > (s.sp || 1) * 4 + 2);

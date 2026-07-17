@@ -1,0 +1,750 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CTF · League Replayer</title>
+<style>
+@font-face {
+  font-family: 'nes-pixel';
+  src: url(data:font/ttf;base64,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AXr+hgATAXsBev0LAvX+hgATAXsAAPyyA4AAAPyAAAAAAgCAAAACgAQAAAMADwAAAQEBAQEBAQEBAQEBAQEBAQEAAAABAAAA/wAAAP+AAAAAgAAAAQAAAACAAAD/gAAAAAABAAAA/wABgACAAAABgAAAAIAAAP+AAAD+gAAA/4AAAgEAAoACgAQAAAMABwAAAQEBAQEBAQEBAAAAAIAAAACAAAAAgAAAAoABgAAA/oAAAAGAAAD+gAACAAAAgAOABAAAAwAfAAABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQIAAAD/gAAA/wAAAP+AAAAAgAAA/4AAAACAAAABAAAAAIAAAAEAAAAAgAAA/4AAAACAAAD/gAAA/wAAAP+AAAABgAGAAAD+gP8AAIAAAACAAAABgAAAAIAAAACAAAD/gAAAAIAAAP+AAAD/gAAA/oAAAP+AAAD/gAAAAIAAAP+AAAMAAAAAA4AEAAADAAcAIwAAAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAoAAAP+AAAD+AAAAAIAAAACAAAD/AAAAAQAAAP+AAAAAgAAA/4AAAACAAAABAAAAAYAAAP6AAAABAAAAAIAAAP+AAAD/AAAAAQABAAAA/wABgACAAAD/gP2AAIAAAACAAAABAAAAAIAAAACAAAAAgAAAAIAAAP+AAAD/gAAA/4AAAP+AAAD/AAAA/4AAAP+AAAAACwAAAIADgAQAAAMABwALAA8AEwAXABsAHwAjACcAKwAAAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEAAAAAAIAAAAAAAAAAgAAAAgAAAP+AAAD+gAAAAIAAAACAAAABgAAA/gAAAACAAAAAAAAAAIAAAP6AAAD/gAAAAgAAAACAAAD9AAAAAYAAAAGAAAAAgAAAAIAAgAAA/4AAgACAAAD/gAAAAIAAAP+AAIAAgAAA/4D/AAGAAAD+gAGAAIAAAP+AAIAAgAAA/4AAgACAAAD/gAAAAIAAAP+A/4ABgAAA/oABAACAAAD/gAAAAAMAAACAA4AEAAADAAcAHwAAAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEDAAAAAIAAAP+AAAAAgAAA/QAAAP+AAAAAgAAAAIAAAACAAAABgAAA/wAAAP8AAAABAAAAAIAAAACAAAD/gAAAAIAAgAAA/4ABAAEAAAD/AP8AAIAAAAEAAAAAgAAAAQAAAACAAAD/gAAA/oAAAP8AAAABAAAA/4AAAP+AAAD/gAAAAAEBgAKAAgAEAAADAAABAQEBAYAAAACAAAACgAGAAAD+gAAAAAEBAACAAoAEAAALAAABAQEBAQEBAQEBAQEBgAAA/4AAAACAAAABAAAA/4AAAACAAAAAgACAAAACgAAAAIAAAP+AAAD9gAAA/4AAAAABAQAAgAKABAAACwAAAQEBAQEBAQEBAQEBAQAAAACAAAD/gAAAAQAAAACAAAD/gAAAAIAAgAAAAoAAAACAAAD/gAAA/YAAAP+AAAAAAQAAAIADgAQAACsAAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAAAAAACAAAAAgAAA/wAAAAEAAAD/gAAA/4AAAAEAAAAAgAAAAIAAAACAAAABAAAA/4AAAP+AAAABAAAA/wAAAACAAAAAgAAA/wAAAP+AAAD/gAAA/4AAAACAAIAAAACAAAAAgAAAAIAAAACAAAAAgAAAAIAAAP+AAAD/gAAAAIAAAACAAAD/gAAA/4AAAP+AAAD/gAAA/4AAAP+AAAD/gAAAAIAAAACAAAD/gAAA/4AAAAABAIAAgAOABAAACwAAAQEBAQEBAQEBAQEBAYAAAP8AAAABAAAAAQAAAAEAAAD/AAAAAIABgAAAAIAAAAGAAAD+gAAA/4AAAP6AAAAAAQCAAAACAAGAAAcAAAEBAQEBAQEBAIAAAACAAAABAAAA/4AAAAAAAIAAAAEAAAD/AAAA/4AAAAABAIACAAOAAoAAAwAAAQEBAQCAAAADAAAAAgAAgAAA/4AAAAABAQAAgAIAAYAAAwAAAQEBAQEAAAABAAAAAIABAAAA/wAAAAAHAAAAgAOABAAAAwAHAAsADwATABcAGwAAAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQAAAAAAgAAAAAAAAACAAAAAAAAAAIAAAAAAAAAAgAAAAAAAAACAAAAAAAAAAIAAAAAAAAAAgAAAAIAAgAAA/4AAgACAAAD/gACAAIAAAP+AAIAAgAAA/4AAgACAAAD/gACAAIAAAP+AAIAAgAAA/4AAAAACAAAAgAOABAAADQAbAAABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQAAAP+AAAD/gAAAAIAAAACAAAAAgAAAAQAAAAAAAAD/gAAA/wAAAAGAAAAAgAAAAIAAAP+AAAAAgACAAAAAgAAAAYAAAACAAAD+AAAA/4AAAP+AAIACAAAAAIAAAACAAAD/gAAA/4AAAP6AAAD/gAABAIAAgAOABAAACwAAAQEBAQEBAQEBAQEBAIAAAAEAAAD/gAAAAIAAAAEAAAABAAAAAIAAgAAAAgAAAACAAAAAgAAA/QAAAP+AAAAAAQAAAIADgAQAABsAAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEAAAAAAIAAAACAAAABAAAAAIAAAP6AAAD/AAAAAIAAAAKAAAAAgAAA/4AAAP+AAAD/AAAAAgAAAACAAQAAAACAAAAAgAAAAIAAAACAAAD/gAAAAIAAAACAAAD/gAAA/wAAAP+AAAD/gAAA/4AAAP+AAAAAAQAAAIADgAQAABsAAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEAgAAA/4AAAAEAAAABgAAA/oAAAACAAAAAgAAA/gAAAAOAAAD/gAAA/4AAAACAAAAAgAAA/4AAAACAAIAAAACAAAD/gAAAAQAAAACAAAAAgAAAAIAAAACAAAD/gAAA/4AAAP+AAAD/gAAA/wAAAP+AAAAAAgAAAIADgAQAAAUAFQAAAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQIAAAD/gAAA/4AAAAEAAAD+AAAAAIAAAACAAAAAgAAAAYAAAACAAAD/gAAAAgABAAAA/4AAAP+A/oABAAAAAQAAAACAAAAAgAAAAIAAAP4AAAD/gAAA/wAAAAABAAAAgAOABAAAEwAAAQEBAQEBAQEBAQEBAQEBAQEBAQEAgAAA/4AAAAEAAAABgAAA/YAAAAMAAAD+AAAAAgAAAACAAAD/gAAAAIAAgAAAAIAAAP+AAAABgAAAAYAAAP+AAAD/gAAA/4AAAP6AAAD/gAAAAAIAAACAA4AEAAADABcAAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQKAAAD+gAAA/4AAAP+AAAAAgAAAAIAAAAIAAAD+gAAA/4AAAAIAAAAAgAAA/4AAAAEAAQAAAP8A/4AAgAAAAgAAAACAAAAAgAAA/4AAAP+AAAD/gAAA/4AAAP8AAAD/gAABAAAAgAOABAAAEwAAAQEBAQEBAQEBAQEBAQEBAQEBAQEBAAAAAIAAAACAAAAAgAAA/oAAAP8AAAADgAAA/4AAAP+AAAD/gAAAAIABgAAAAIAAAACAAAAAgAAA/4AAAAEAAAD/AAAA/4AAAP+AAAD+gAAAAAMAAACAA4AEAAADAAcAGwAAAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQKAAAD+gAAAAYAAAP6AAAD/gAAA/4AAAACAAAD/gAAAAIAAAAKAAAAAgAAA/4AAAACAAAD/gAAAAQABAAAA/wABgAEAAAD/AP4AAIAAAAEAAAAAgAAAAQAAAACAAAD/gAAA/wAAAP+AAAD/AAAA/4AAAAACAAAAgAOABAAAAwAXAAABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQECgAAA/oAAAP+AAAABgAAAAIAAAP4AAAD/gAAAAIAAAAKAAAAAgAAA/4AAAP+AAAACgAEAAAD/AP4AAIAAAACAAAAAgAAAAIAAAAEAAAAAgAAA/4AAAP4AAAD/gAAA/4AAAgEAAIACAAOAAAMABwAAAQEBAQEBAQEBAAAAAQAAAP8AAAABAAAAAIABAAAA/wACAAEAAAD/AAADAQAAAAIAAwAAAwAJAA0AAAEBAQEBAQEBAQEBAQEBAQAAAACAAAAAAAAA/4AAAAEAAAD/AAAAAQAAAAAAAIAAAP+AAIAAgAAAAIAAAP8AAYABAAAA/wAAAQAAAIADgAQAABsAAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBgAAA/4AAAP+AAAD/gAAAAIAAAACAAAAAgAAAAgAAAP8AAAD/gAAA/4AAAACAAAAAgAAAAQAAAACAAIAAAACAAAAAgAAAAIAAAACAAAAAgAAAAIAAAP+AAAD/gAAA/4AAAP+AAAD/gAAA/4AAAP+AAAAAAgAAAQADAAOAAAMABwAAAQEBAQEBAQEAAAAAAwAAAP0AAAADAAAAAQAAgAAA/4ACAACAAAD/gAABAIAAgAOABAAAGwAAAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQCAAAAAgAAAAIAAAACAAAD/gAAA/4AAAP+AAAABgAAAAIAAAACAAAAAgAAA/4AAAP+AAAD/gAAAAIAAgAAAAIAAAACAAAAAgAAAAIAAAACAAAAAgAAA/4AAAP+AAAD/gAAA/4AAAP+AAAD/gAAA/4AAAAACAAAAAAOABAAAAwAXAAABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBgAAAAQAAAP8AAAAAgAAAAIAAAP6AAAD/AAAAAIAAAAKAAAAAgAAA/4AAAP+AAAAAAAEAAAD/AAGAAQAAAACAAAAAgAAA/wAAAAEAAAAAgAAA/4AAAP8AAAD/gAAA/4AAAgAAAIADgAQAAAMAFQAAAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQKAAAD/gAAA/oAAAP+AAAAAgAAAAoAAAACAAAD/gAAA/oAAAAEAAAD+gAAAAQABgAAA/oD/gACAAAACgAAAAIAAAP+AAAD9gAAA/4AAAAKAAAAAgAAA/QAAAAACAAAAgAOABAAABwAXAAABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQECgAAA/4AAAP+AAAD/gAAA/wAAAACAAAAAgAAAAYAAAACAAAAAgAAA/wAAAP6AAAACAAEAAAAAgAAA/4AAAP8A/oACgAAAAIAAAACAAAD/gAAA/4AAAP2AAAABAAAA/wAAAwAAAIADgAQAAAMABwATAAABAQEBAQEBAQEBAQEBAQEBAQEBAQKAAAD+gAAAAYAAAP6AAAD/AAAAAwAAAACAAAD/gAAAAIAAAP+AAAABAAEAAAD/AAGAAQAAAP8A/gADgAAA/4AAAP8AAAD/gAAA/wAAAP+AAAAAAQAAAIADgAQAABsAAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAAAA/4AAAP+AAAAAgAAAAIAAAAIAAAAAgAAA/wAAAP8AAAD/gAAAAIAAAAEAAAABAAAA/4AAAACAAIAAAACAAAABgAAAAIAAAACAAAD/gAAA/4AAAACAAAD/gAAA/oAAAP+AAAAAgAAA/4AAAP+AAAAAAgAAAIADgAQAAAcAEwAAAQEBAQEBAQEBAQEBAQEBAQEBAQECAAAAAIAAAP+AAAD/AAAA/wAAAAKAAAAAgAAAAIAAAP+AAAD/gAAAAQAAgAAAAYAAAACAAAD9gP+AA4AAAP+AAAD/gAAA/oAAAP+AAAD/gAABAAAAgAOABAAACwAAAQEBAQEBAQEBAQEBAAAAAAOAAAD9gAAAAgAAAP4AAAACgAAAAIADgAAA/4AAAP8AAAD/gAAA/wAAAP+AAAAAAQAAAIADgAQAAAkAAAEBAQEBAQEBAQEAAAAAA4AAAP2AAAACAAAA/gAAAACAA4AAAP+AAAD/AAAA/4AAAP6AAAEAAACAA4AEAAAXAAABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAAAA/4AAAP+AAAAAgAAAAIAAAAKAAAD+AAAA/4AAAACAAAABAAAA/4AAAAGAAAAAgACAAAAAgAAAAYAAAACAAAAAgAAA/4AAAP+AAAD+gAAA/4AAAAEAAAAAgAAA/gAAAAABAAAAgAOABAAACwAAAQEBAQEBAQEBAQEBAAAAAAEAAAABgAAAAQAAAP8AAAD+gAAAAIADgAAA/oAAAAGAAAD8gAAAAYAAAP6AAAAAAQCAAIADgAQAAAsAAAEBAQEBAQEBAQEBAQCAAAABAAAA/wAAAAMAAAD/AAAAAQAAAACAAIAAAAKAAAAAgAAA/4AAAP2AAAD/gAAAAAEAAACAA4AEAAANAAABAQEBAQEBAQEBAQEBAQCAAAD/gAAAAQAAAAGAAAD/AAAAAgAAAP+AAAAAgACAAAABAAAA/wAAAAKAAAAAgAAA/QAAAP+AAAEAAACAA4AEAAAdAAABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEAAAAAAQAAAACAAAAAgAAAAIAAAAEAAAD/gAAA/4AAAP+AAAAAgAAAAIAAAACAAAD+gAAA/4AAAP+AAAAAgAOAAAD+gAAAAIAAAACAAAAAgAAA/4AAAP+AAAD/gAAA/4AAAP+AAAD/gAAA/4AAAACAAAAAgAAA/wAAAQAAAIADgAQAAAUAAAEBAQEBAQAAAAABAAAAAoAAAACAA4AAAP0AAAD/gAABAAAAgAOABAAAEwAAAQEBAQEBAQEBAQEBAQEBAQEBAQEAAAAAAQAAAACAAAAAgAAAAIAAAAEAAAD/AAAA/4AAAP+AAAD/gAAAAIADgAAA/4AAAP+AAAAAgAAAAIAAAPyAAAABgAAA/4AAAACAAAD+gAAAAAEAAACAA4AEAAATAAABAQEBAQEBAQEBAQEBAQEBAQEBAQAAAAABAAAAAIAAAACAAAAAgAAAAQAAAP8AAAD/gAAA/4AAAP+AAAAAgAOAAAD/gAAA/4AAAP+AAAABgAAA/IAAAACAAAAAgAAAAIAAAP6AAAAAAgAAAIADgAQAAAMADwAAAQEBAQEBAQEBAQEBAQEBAQKAAAD+gAAA/4AAAP+AAAAAgAAAAoAAAACAAAD/gAAAAQACgAAA/YD/gACAAAACgAAAAIAAAP+AAAD9gAAA/4AAAgAAAIADgAQAAAMADQAAAQEBAQEBAQEBAQEBAQECgAAA/oAAAP8AAAADAAAAAIAAAP+AAAD+AAAAAgABgAAA/oD+gAOAAAD/gAAA/oAAAP+AAAD/AAAAAAMAAACAA4AEAAADAAsAGQAAAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEDAAAAAIAAAP6AAAD/gAAAAQAAAP6AAAD/gAAA/4AAAACAAAACgAAAAIAAAP+AAAD/gAAAAIAAgAAA/4AAgACAAAAAgAAAAYAAAP2A/4AAgAAAAoAAAACAAAD/gAAA/gAAAP+AAAD/gAACAAAAgAOABAAABQAXAAABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQECAAAAAIAAAP6AAAD/AAAAAwAAAACAAAD/AAAAAIAAAACAAAD+gAAA/4AAAP+AAAACAACAAAABAAAA/oD+gAOAAAD/gAAA/oAAAP+AAAD/gAAA/4AAAACAAAAAgAAA/wAAAQAAAIADgAQAABsAAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEAgAAA/4AAAAEAAAABgAAA/gAAAP+AAAAAgAAAAgAAAACAAAD/AAAA/wAAAAIAAAAAgAAA/4AAAACAAIAAAACAAAD/gAAAAQAAAACAAAABAAAAAIAAAP+AAAD/gAAAAIAAAP8AAAD/gAAA/wAAAP+AAAAAAQCAAIADgAQAAAcAAAEBAQEBAQEBAYAAAP8AAAADAAAA/wAAAACAAwAAAACAAAD/gAAA/QAAAAABAAAAgAOABAAACwAAAQEBAQEBAQEBAQEBAIAAAP+AAAABAAAAAYAAAAEAAAD/gAAAAIAAgAAAAwAAAP0AAAADAAAA/QAAAP+AAAAAAQAAAIADgAQAABcAAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQGAAAD/gAAA/4AAAP+AAAABAAAAAIAAAACAAAAAgAAAAQAAAP+AAAD/gAAA/4AAAACAAIAAAACAAAAAgAAAAgAAAP6AAAD/gAAAAIAAAAGAAAD+AAAA/4AAAP+AAAD/gAAAAAEAAACAA4AEAAATAAABAQEBAQEBAQEBAQEBAQEBAQEBAQAAAAABAAAAAIAAAACAAAAAgAAAAQAAAP8AAAD/gAAA/4AAAP+AAAAAgAOAAAD+gAAAAIAAAP+AAAABgAAA/IAAAACAAAAAgAAA/4AAAP+AAAAAAQAAAIADgAQAACMAAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQAAAAAAgAAAAIAAAP+AAAD/gAAAAQAAAACAAAAAgAAAAIAAAAEAAAD/gAAA/4AAAACAAAAAgAAA/wAAAP+AAAD/gAAA/4AAAACAAQAAAACAAAAAgAAAAIAAAAEAAAD/gAAA/4AAAACAAAAAgAAA/wAAAP+AAAD/gAAA/4AAAP8AAAAAgAAAAIAAAP+AAAD/gAAAAAEAgACAA4AEAAAPAAABAQEBAQEBAQEBAQEBAQEBAYAAAP+AAAD/gAAAAQAAAAEAAAABAAAA/4AAAP+AAAAAgAGAAAAAgAAAAYAAAP6AAAABgAAA/oAAAP+AAAD+gAAAAAEAAACAA4AEAAAXAAABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEAAAAAAIAAAACAAAAAgAAAAIAAAP4AAAADgAAA/4AAAP+AAAD/gAAA/4AAAAIAAAAAgAEAAAAAgAAAAIAAAACAAAAAgAAAAIAAAP8AAAD/gAAA/4AAAP+AAAD/gAAA/4AAAAABAQAAgAKABAAABwAAAQEBAQEBAQEBAAAAAYAAAP+AAAAAgAAAAIADgAAA/4AAAP2AAAD/gAAAAAcAAACAA4AEAAADAAcACwAPABMAFwAbAAABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAwAAAACAAAD/AAAAAIAAAP8AAAAAgAAA/wAAAACAAAD/AAAAAIAAAP8AAAAAgAAA/wAAAACAAAAAgACAAAD/gACAAIAAAP+AAIAAgAAA/4AAgACAAAD/gACAAIAAAP+AAIAAgAAA/4AAgACAAAD/gAAAAAEBAACAAoAEAAAHAAABAQEBAQEBAQEAAAAAgAAA/4AAAAGAAAAAgACAAAACgAAAAIAAAPyAAAAAAQAAAgADgAQAABcAAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQAAAAAAgAAAAIAAAACAAAAAgAAAAIAAAACAAAAAgAAA/wAAAP+AAAD/gAAA/4AAAAIAAIAAAACAAAAAgAAAAIAAAP+AAAD/gAAA/4AAAP+AAAAAgAAAAIAAAP+AAAD/gAAAAAEAAACAA4ABAAADAAABAQEBAAAAAAOAAAAAgACAAAD/gAAAAAIAgAKAAgAEAAADAAkAAAEBAQEBAQEBAQEBgAAAAIAAAP8AAAD/gAAAAQAAAAKAAIAAAP+AAIAAgAAAAIAAAP8AAAAAAgAAAIADgAOAAAcAFwAAAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAoAAAP+AAAD/gAAA/4AAAP8AAAAAgAAAAIAAAAGAAAAAgAAAAIAAAP8AAAD+gAAAAYABAAAAAIAAAP+AAAD/AP8AAgAAAACAAAAAgAAA/4AAAP+AAAD+AAAAAIAAAP+AAAMAAACAA4ADgAADAAcAEwAAAQEBAQEBAQEBAQEBAQEBAQEBAQECgAAA/oAAAAGAAAD+gAAA/wAAAAMAAAAAgAAA/4AAAACAAAD/gAAAAQABAAAA/wABgACAAAD/gP4AAwAAAP+AAAD/gAAA/4AAAP8AAAD/gAAAAAEAAACAA4ADgAATAAABAQEBAQEBAQEBAQEBAQEBAQEBAQCAAAD/gAAAAIAAAAKAAAAAgAAA/wAAAP6AAAABgAAAAQAAAP+AAAAAgACAAAACAAAAAIAAAP+AAAD/gAAAAIAAAP4AAAAAgAAA/4AAAP+AAAAAAgAAAIADgAOAAAMACwAAAQEBAQEBAQEBAQEBAoAAAP6AAAD/AAAAAwAAAACAAAD/gAAAAQACAAAA/gD/gAMAAAD/gAAA/gAAAP+AAAEAAACAA4ADgAALAAABAQEBAQEBAQEBAQEAAAAAA4AAAP2AAAACAAAA/gAAAAKAAAAAgAMAAAD/gAAA/4AAAP+AAAD/AAAA/4AAAAABAAAAgAOAA4AACQAAAQEBAQEBAQEBAQAAAAADgAAA/YAAAAIAAAD+AAAAAIADAAAA/4AAAP8AAAD/gAAA/wAAAQAAAIADgAOAAA8AAAEBAQEBAQEBAQEBAQEBAQEAgAAA/4AAAACAAAACgAAA/gAAAAGAAAD/AAAAAgAAAACAAIAAAAIAAAAAgAAA/4AAAP4AAAAAgAAAAIAAAP6AAAAAAQAAAIADgAOAAAsAAAEBAQEBAQEBAQEBAQAAAAABAAAAAYAAAAEAAAD/AAAA/oAAAACAAwAAAP8AAAABAAAA/QAAAAGAAAD+gAAAAAEBAACAAwADgAALAAABAQEBAQEBAQEBAQEBAAAAAIAAAP+AAAACAAAA/4AAAACAAAAAgACAAAACAAAAAIAAAP+AAAD+AAAA/4AAAAABAAAAgAOAA4AADwAAAQEBAQEBAQEBAQEBAQEBAQCAAAD/gAAAAQAAAAEAAAD/gAAAAgAAAP+AAAD/gAAAAIAAgAAAAIAAAP+AAAACAAAAAIAAAP+AAAD+AAAA/4AAAAACAAAAgAOAA4AABQAXAAABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQECAAAAAIAAAAEAAAD8gAAAAQAAAACAAAAAgAAAAYAAAP8AAAD/gAAA/4AAAP+AAAAAgAEAAAD/gAAA/4AAAAMAAAD/AAAAAIAAAACAAAD/gAAA/4AAAP8AAAAAgAAA/oAAAQAAAIADgAOAAAUAAAEBAQEBAQAAAAABAAAAAoAAAACAAwAAAP2AAAD/gAABAAAAgAOAA4AAEwAAAQEBAQEBAQEBAQEBAQEBAQEBAQEAAAAAAQAAAACAAAAAgAAAAIAAAAEAAAD/AAAA/4AAAP+AAAD/gAAAAIADAAAA/4AAAP+AAAAAgAAAAIAAAP0AAAABgAAA/4AAAACAAAD+gAAAAAEAAACAA4ADgAATAAABAQEBAQEBAQEBAQEBAQEBAQEBAQAAAAABAAAAAIAAAACAAAAAgAAAAQAAAP8AAAD/gAAA/4AAAP+AAAAAgAMAAAD/gAAA/4AAAP+AAAABgAAA/QAAAACAAAAAgAAAAIAAAP6AAAAAAgAAAIADgAOAAAMADwAAAQEBAQEBAQEBAQEBAQEBAQKAAAD+gAAA/4AAAP+AAAAAgAAAAoAAAACAAAD/gAAAAQACAAAA/gD/gACAAAACAAAAAIAAAP+AAAD+AAAA/4AAAgAAAIADgAOAAAMADQAAAQEBAQEBAQEBAQEBAQECgAAA/oAAAP8AAAADAAAAAIAAAP+AAAD+AAAAAYABgAAA/oD/AAMAAAD/gAAA/oAAAP+AAAD/gAAAAAMAAACAA4ADgAADAAkAFwAAAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAYAAAACAAAAAAAAAAIAAAP6AAAD/gAAA/4AAAACAAAACgAAAAIAAAP+AAAAAgAAAAYAAgAAA/4D/gACAAAABgAAA/gD/gACAAAACAAAAAIAAAP+AAAD+gAAA/4AAAP+AAAAAAgAAAIADgAOAAAMAEwAAAQEBAQEBAQEBAQEBAQEBAQEBAQECgAAA/oAAAP8AAAADAAAAAIAAAP+AAAAAgAAA/wAAAP+AAAD/AAAAAgABAAAA/wD+gAMAAAD/gAAA/wAAAP8AAAD/gAAAAIAAAACAAAD/AAABAAAAgAOAA4AAEwAAAQEBAQEBAQEBAQEBAQEBAQEBAQEAAAAAAoAAAP4AAAD/gAAAAIAAAAKAAAD+AAAAAgAAAACAAAD/gAAAAIAAgAAAAQAAAACAAAAAgAAAAIAAAP+AAAD/gAAA/4AAAP8AAAD/gAAAAAEAgACAA4ADgAAHAAABAQEBAQEBAQGAAAD/AAAAAwAAAP8AAAAAgAKAAAAAgAAA/4AAAP2AAAAAAQAAAIADgAOAAAsAAAEBAQEBAQEBAQEBAQCAAAD/gAAAAQAAAAGAAAABAAAA/4AAAACAAIAAAAKAAAD9gAAAAoAAAP2AAAD/gAAAAAEAAACAA4ADgAAXAAABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBgAAA/4AAAP+AAAD/gAAAAQAAAACAAAAAgAAAAIAAAAEAAAD/gAAA/4AAAP+AAAAAgACAAAAAgAAAAIAAAAGAAAD+gAAA/4AAAACAAAABgAAA/oAAAP+AAAD/gAAA/4AAAAABAAAAgAOAA4AAEwAAAQEBAQEBAQEBAQEBAQEBAQEBAQEAAAAAAQAAAACAAAAAgAAAAIAAAAEAAAD/AAAA/4AAAP+AAAD/gAAAAIADAAAA/oAAAACAAAD/gAAAAYAAAP0AAAAAgAAAAIAAAP+AAAD/gAAAAAEAAACAA4ADgAAjAAABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEAAAAAAIAAAACAAAD/gAAA/4AAAAEAAAAAgAAAAIAAAACAAAABAAAA/4AAAP+AAAAAgAAAAIAAAP8AAAD/gAAA/4AAAP+AAAAAgACAAAAAgAAAAQAAAACAAAAAgAAA/4AAAP+AAAAAgAAAAIAAAP+AAAD/gAAA/wAAAP+AAAD/gAAAAIAAAACAAAD/gAAA/4AAAAABAIAAgAOAA4AADwAAAQEBAQEBAQEBAQEBAQEBAQGAAAD/gAAA/4AAAAEAAAABAAAAAQAAAP+AAAD/gAAAAIABAAAAAIAAAAGAAAD+gAAAAYAAAP6AAAD/gAAA/wAAAAABAAAAgAOAA4AAEwAAAQEBAQEBAQEBAQEBAQEBAQEBAQEAAAAAAIAAAAEAAAABAAAA/YAAAAOAAAD/gAAA/wAAAP8AAAACgAAAAIABAAAAAIAAAACAAAAAgAAAAIAAAP8AAAD/gAAA/4AAAP+AAAD/gAAAAAEAgACAAoAEAAATAAABAQEBAQEBAQEBAQEBAQEBAQEBAQGAAAD/gAAA/4AAAACAAAAAgAAAAQAAAP+AAAD/gAAAAIAAAACAAAAAgACAAAABAAAAAIAAAAEAAAAAgAAA/4AAAP8AAAD/gAAA/wAAAP+AAAAAAQEAAIACAAQAAAMAAAEBAQEBAAAAAQAAAACAA4AAAPyAAAAAAQEAAIADAAQAABMAAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQAAAACAAAAAgAAA/4AAAP+AAAABAAAAAIAAAACAAAD/gAAA/4AAAACAAIAAAAEAAAAAgAAAAQAAAACAAAD/gAAA/wAAAP+AAAD/AAAA/4AAAAABAAABAAOAAwAAEwAAAQEBAQEBAQEBAQEBAQEBAQEBAQECAAAA/4AAAP8AAAD/gAAAAIAAAAEAAAAAgAAAAQAAAACAAAD/gAAAAQAAgAAAAIAAAP+AAAABAAAAAIAAAP+AAAD/gAAAAIAAAP8AAAD/gAAAAAIBAAKAAgAEAAAFAAkAAAEBAQEBAQEBAQEBAAAAAIAAAACAAAD/gAAAAIAAAAKAAQAAAP+AAAD/gAEAAIAAAP+AAAAAAgGAAoACgAQAAAMACQAAAQEBAQEBAQEBAQGAAAAAgAAAAAAAAP+AAAABAAAAAoAAgAAA/4AAgACAAAAAgAAA/wAAAAAEAIACgAMABAAABQALAA8AEwAAAQEBAQEBAQEBAQEBAQEBAQEBAQEAgAAAAIAAAACAAAAAgAAAAIAAAACAAAD+AAAAAIAAAAEAAAAAgAAAAoABAAAA/4AAAP+AAAABAAAA/4AAAP+AAQAAgAAA/4AAAACAAAD/gAAEAIACgAMABAAAAwAHAA0AEwAAAQEBAQEBAQEBAQEBAQEBAQEBAQEAgAAAAIAAAAEAAAAAgAAA/oAAAP+AAAABAAAAAQAAAP+AAAABAAAAAoAAgAAA/4AAAACAAAD/gACAAIAAAACAAAD/AAAAAIAAAACAAAD/AAAAADACRgAAAAAAAAAAACgAAAAAAAAAAAABABIAKAAAAAAAAAACAA4AOgAAAAAAAAADABIASAAAAAAAAAAEACIAWgAAAAAAAAAFABYAfAAAAAAAAAAGABAAkgAAAAAAAAAHAFYAogAAAAAAAAAIACwA+AAAAAAAAAAJAAoBJAAAAAAAAAAKAEwBLgAAAAAAAAALAHgBegAAAAAAAAAMAG4B8gAAAAAAAAANACQCYAAAAAAAAAATAFIChAAAAAAAAAEAABgC1gABAAAAAAAAABQC7gABAAAAAAABAAkDAgABAAAAAAACAAcDCwABAAAAAAADAAkDEgABAAAAAAAEABEDGwABAAAAAAAFAAsDLAABAAAAAAAGAAgDNwABAAAAAAAHACsDPwABAAAAAAAIABYDagABAAAAAAAJAAUDgAABAAAAAAAKACUDhQABAAAAAAALADwDqgABAAAAAAAMADcD5gABAAAAAAANABIEHQABAAAAAAATACkELwABAAAAAAEAAAwEWAADAAEECQAAACgEZAADAAEECQABABIEjAADAAEECQACAA4EngADAAEECQADABIErAADAAEECQAEACIEvgADAAEECQAFABYE4AADAAEECQAGABAE9gADAAEECQAHAFYFBgADAAEECQAIACwFXAADAAEECQAJAAoFiAADAAEECQAKAEwFkgADAAEECQALAHgF3gADAAEECQAMAG4GVgADAAEECQANACQGxAADAAEECQATAFIG6AADAAEECQEAABgHOgBDAG8AcAB5AHIAaQBnAGgAdAAgAFIAdQBpAGwAeAAgADIAMAAxADUATgBFAFMAIABQAGkAeABlAGwAUgBlAGcAdQBsAGEAcgBOAEUAUwAgAFAAaQB4AGUAbABOAEUAUwAgAFAAaQB4AGUAbAAgAFIAZQBnAHUAbABhAHIAVgBlAHIAcwBpAG8AbgAgADEALgAwAE4ARQBTAFAAaQB4AGUAbABGAG8AbgB0AFMAdAByAHUAYwB0ACAAaQBzACAAYQAgAHQAcgBhAGQAZQBtAGEAcgBrACAAbwBmACAARgBvAG4AdABTAHQAcgB1AGMAdAAuAGMAbwBtAGgAdAB0AHAAcwA6AC8ALwBmAG8AbgB0AHMAdAByAHUAYwB0AC4AYwBvAG0AUgB1AGkAbAB4IBwATgBFAFMAIABQAGkAeABlAGwgHQAgAHcAYQBzACAAYgB1AGkAbAB0ACAAdwBpAHQAaAAgAEYAbwBuAHQAUwB0AHIAdQBjAHQACgBoAHQAdABwAHMAOgAvAC8AZgBvAG4AdABzAHQAcgB1AGMAdAAuAGMAbwBtAC8AZgBvAG4AdABzAHQAcgB1AGMAdABpAG8AbgBzAC8AcwBoAG8AdwAvADEAMQA5ADgANAA0ADUALwBuAGUAcwBfAHAAaQB4AGUAbABoAHQAdABwAHMAOgAvAC8AZgBvAG4AdABzAHQAcgB1AGMAdAAuAGMAbwBtAC8AZgBvAG4AdABzAHQAcgB1AGMAdABvAHIAcwAvAHMAaABvAHcALwAxADEAOQA3ADcAMAA0AC8AcgB1AGkAbAB4AEYAbwBuAHQAUwB0AHIAdQBjAHQAIABMAGkAYwBlAG4AcwBlAEYAaQB2AGUAIABiAGkAZwAgAHEAdQBhAGMAawBpAG4AZwAgAHoAZQBwAGgAeQByAHMAIABqAG8AbAB0ACAAbQB5ACAAdwBhAHgAIABiAGUAZABBAHcAZwBCAGYAVgAxAGcAVwB3AD0APUNvcHlyaWdodCBSdWlseCAyMDE1TkVTIFBpeGVsUmVndWxhck5FUyBQaXhlbE5FUyBQaXhlbCBSZWd1bGFyVmVyc2lvbiAxLjBORVNQaXhlbEZvbnRTdHJ1Y3QgaXMgYSB0cmFkZW1hcmsgb2YgRm9udFN0cnVjdC5jb21odHRwczovL2ZvbnRzdHJ1Y3QuY29tUnVpbHjSTkVTIFBpeGVs0yB3YXMgYnVpbHQgd2l0aCBGb250U3RydWN0aHR0cHM6Ly9mb250c3RydWN0LmNvbS9mb250c3RydWN0aW9ucy9zaG93LzExOTg0NDUvbmVzX3BpeGVsaHR0cHM6Ly9mb250c3RydWN0LmNvbS9mb250c3RydWN0b3JzL3Nob3cvMTE5NzcwNC9ydWlseEZvbnRTdHJ1Y3QgTGljZW5zZUZpdmUgYmlnIHF1YWNraW5nIHplcGh5cnMgam9sdCBteSB3YXggYmVkQXdnQmZWMWdXdz09AEMAbwBwAHkAcgBpAGcAaAB0ACAAUgB1AGkAbAB4ACAAMgAwADEANQBOAEUAUwAgAFAAaQB4AGUAbABSAGUAZwB1AGwAYQByAE4ARQBTACAAUABpAHgAZQBsAE4ARQBTACAAUABpAHgAZQBsACAAUgBlAGcAdQBsAGEAcgBWAGUAcgBzAGkAbwBuACAAMQAuADAATgBFAFMAUABpAHgAZQBsAEYAbwBuAHQAUwB0AHIAdQBjAHQAIABpAHMAIABhACAAdAByAGEAZABlAG0AYQByAGsAIABvAGYAIABGAG8AbgB0AFMAdAByAHUAYwB0AC4AYwBvAG0AaAB0AHQAcABzADoALwAvAGYAbwBuAHQAcwB0AHIAdQBjAHQALgBjAG8AbQBSAHUAaQBsAHggHABOAEUAUwAgAFAAaQB4AGUAbCAdACAAdwBhAHMAIABiAHUAaQBsAHQAIAB3AGkAdABoACAARgBvAG4AdABTAHQAcgB1AGMAdAAKAGgAdAB0AHAAcwA6AC8ALwBmAG8AbgB0AHMAdAByAHUAYwB0AC4AYwBvAG0ALwBmAG8AbgB0AHMAdAByAHUAYwB0AGkAbwBuAHMALwBzAGgAbwB3AC8AMQAxADkAOAA0ADQANQAvAG4AZQBzAF8AcABpAHgAZQBsAGgAdAB0AHAAcwA6AC8ALwBmAG8AbgB0AHMAdAByAHUAYwB0AC4AYwBvAG0ALwBmAG8AbgB0AHMAdAByAHUAYwB0AG8AcgBzAC8AcwBoAG8AdwAvADEAMQA5ADcANwAwADQALwByAHUAaQBsAHgARgBvAG4AdABTAHQAcgB1AGMAdAAgAEwAaQBjAGUAbgBzAGUARgBpAHYAZQAgAGIAaQBnACAAcQB1AGEAYwBrAGkAbgBnACAAegBlAHAAaAB5AHIAcwAgAGoAbwBsAHQAIABtAHkAIAB3AGEAeAAgAGIAZQBkAEEAdwBnAEIAZgBWADEAZwBXAHcAPQA9AAMAAAAAAAAAZgAzAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAA==) format('truetype');
+  font-display: block;
+}
+
+  :root{
+    --stage-lo:#16110d; --stage-hi:#241a12; --surround:#0b0805;
+    --paper:#f2e8d8; --paper-dim:#b8ac98;
+    --ink:#2a1f16; --ink-soft:rgba(20,14,9,.72);
+    --red:#e0523a; --blue:#3f7cc4; --amber:#e8a33d; --ghost:#8a7f72;
+    --pixfont:'nes-pixel','Courier New',monospace;
+    --finefont:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
+    --u:1px;              /* HUD unit; scaled by layout() from board width */
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{background:var(--surround); color:var(--paper); font-family:var(--finefont); overflow:hidden}
+
+  /* ============================================================
+     THE LEAGUE REPLAYER: a walled stone pit. The embedded replay
+     iframe is the lit floor in the middle; four dungeon walls rise
+     around it to a shared vanishing point; the REAL designed
+     scorebug + transport chroma (ported 1:1 from the broadcast
+     replay) plus the league KDA tables + division standings ride as
+     flat readable panels over the wall stone (no black bars — the
+     bars ARE walls, so the HUD floats on the stone).
+     ============================================================ */
+  #shell{position:fixed; inset:0; overflow:hidden;
+    background:radial-gradient(120% 90% at 50% 42%, var(--stage-hi), var(--surround) 78%);}
+
+  /* the 4 projected dungeon walls (rebuilt by buildWalls on every layout) */
+  #walls{position:absolute; inset:0; z-index:1; pointer-events:none; overflow:hidden}
+  #walls .lv-wall{position:absolute; transform-origin:0 0;
+    background-size:100% 100%; background-repeat:no-repeat;
+    image-rendering:auto; filter:brightness(1.0) contrast(1.03) saturate(.96)}
+  #walls .lv-shade{position:absolute; inset:0}
+
+  /* the embedded replay — the lit pit floor */
+  #floor{position:absolute; z-index:2; overflow:hidden;
+    box-shadow:0 0 calc(40*var(--u)) calc(10*var(--u)) rgba(232,163,61,.10),
+               0 0 0 2px rgba(0,0,0,.55),
+               inset 0 0 0 1px rgba(242,232,216,.05);
+    background:#120c08}
+  #floor iframe{width:100%; height:100%; border:0; display:block; background:#120c08}
+
+  /* HUD panels ride ABOVE the walls */
+  .hud{position:absolute; z-index:5; font-family:var(--pixfont)}
+
+  /* ============================================================
+     SCOREBUG (top wall) — real designed chroma, floated on stone.
+     Per team: NAME on its own line with LIVES · count beneath it,
+     names flanking the center clock; flag-state icon. (Per-player
+     lives live in the side roster tables, not here.)
+     ============================================================ */
+  #scorebug{display:grid; grid-template-columns:1fr auto 1fr; align-items:stretch;
+    gap:calc(6*var(--u)); padding:calc(4*var(--u)) calc(14*var(--u)) calc(6*var(--u)); pointer-events:none}
+  #scorebug > *{pointer-events:auto}
+  .plate{display:flex; align-items:center; gap:calc(9*var(--u)); min-width:0}
+  .plate.blue{flex-direction:row-reverse; text-align:right}
+  /* team-id stacks: NAME on its own line, LIVES beneath it */
+  .plate .team-id{min-width:0; display:flex; flex-direction:column; gap:calc(3*var(--u))}
+  .plate.blue .team-id{align-items:flex-end}
+  .plate .team-name{font-family:var(--pixfont); font-size:calc(19*var(--u)); letter-spacing:.5px;
+    line-height:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    max-width:calc(168*var(--u));
+    text-shadow:0 calc(2*var(--u)) 0 var(--ink), 0 0 calc(9*var(--u)) rgba(0,0,0,.7)}
+  .plate.red .team-name{color:var(--red)} .plate.blue .team-name{color:var(--blue)}
+  .plate .lives-line{display:flex; align-items:baseline; gap:calc(6*var(--u))}
+  .plate.blue .lives-line{flex-direction:row-reverse}
+  .lives-num{font-family:var(--pixfont); font-size:calc(20*var(--u)); line-height:1;
+    color:var(--paper); flex:none; text-shadow:0 calc(2*var(--u)) 0 var(--ink), 0 0 calc(9*var(--u)) rgba(0,0,0,.7)}
+  .lives-label{font-family:var(--finefont); font-size:calc(8*var(--u)); letter-spacing:.14em;
+    text-transform:uppercase; color:var(--paper-dim); flex:none; text-shadow:0 calc(1*var(--u)) 0 #000}
+
+  /* flag-state icon — HOME (on pedestal) / TAKEN (riding a carrier) */
+  .flagicon{position:relative; width:calc(26*var(--u)); height:calc(30*var(--u)); flex:none;
+    filter:drop-shadow(0 calc(1*var(--u)) calc(3*var(--u)) rgba(0,0,0,.7))}
+  .flagicon svg{width:100%; height:100%; display:block}
+  .flagicon .cloth{transition:transform 90ms steps(3); transform-box:fill-box; transform-origin:left center}
+  .flagicon.taken .cloth{transform:scaleX(.62) skewX(-8deg)}
+  .flagicon.flip{animation:flagflip 260ms steps(3); transform-box:fill-box; transform-origin:center}
+  @keyframes flagflip{0%{transform:scaleY(.2)}100%{transform:scaleY(1)}}
+  .flagicon .carrier-tag{position:absolute; bottom:calc(-11*var(--u)); left:50%; transform:translateX(-50%);
+    font-family:var(--finefont); font-size:calc(7*var(--u)); letter-spacing:.08em; white-space:nowrap;
+    color:var(--amber); text-transform:uppercase; text-shadow:0 0 calc(4*var(--u)) #000}
+
+  /* center clock pill + phase */
+  .clock-col{display:flex; flex-direction:column; align-items:center; gap:calc(4*var(--u))}
+  .clock{display:flex; flex-direction:column; align-items:center; justify-content:flex-start;
+    gap:calc(3*var(--u)); padding-top:calc(1*var(--u))}
+  .clock .time{font-family:var(--pixfont); font-size:calc(30*var(--u)); line-height:1; color:var(--paper);
+    text-shadow:0 calc(2*var(--u)) 0 var(--ink), 0 0 calc(10*var(--u)) rgba(0,0,0,.7); font-variant-numeric:tabular-nums}
+  .clock .caption{font-family:var(--finefont); font-size:calc(8.5*var(--u)); letter-spacing:.18em;
+    text-transform:uppercase; color:var(--paper-dim); white-space:nowrap; text-shadow:0 calc(1*var(--u)) 0 #000}
+  .clock.tiebreak-warn .time{color:var(--amber)}
+  .clock.amb{animation:clocktick 2s ease-in-out infinite}
+  @keyframes clocktick{0%,100%{opacity:.94}50%{opacity:1}}
+  .plate.leader .lives-num{animation:leaderpulse 1.9s ease-in-out infinite}
+  @keyframes leaderpulse{0%,100%{text-shadow:0 calc(2*var(--u)) 0 var(--ink)}
+    50%{text-shadow:0 0 calc(11*var(--u)) var(--amber)}}
+
+  /* ============================================================
+     KDA PLAQUES (side walls) — league-specific rosters + standings.
+     ============================================================ */
+  .plaque{display:flex; flex-direction:column; padding:calc(6*var(--u)) calc(10*var(--u)); pointer-events:auto}
+  .plabel{font-family:var(--finefont); font-size:calc(9*var(--u)); letter-spacing:.16em;
+    text-transform:uppercase; color:var(--paper-dim); margin-bottom:calc(6*var(--u)); white-space:nowrap;
+    text-shadow:0 calc(1*var(--u)) 0 #000}
+  .plaque.right .plabel{text-align:right}
+  .khead,.krow{display:grid; align-items:center; gap:calc(5*var(--u));
+    grid-template-columns:calc(15*var(--u)) 1fr calc(16*var(--u)) calc(16*var(--u)) calc(34*var(--u))}
+  .khead{font-family:var(--finefont); font-size:calc(8*var(--u)); letter-spacing:.08em; text-transform:uppercase;
+    color:var(--paper-dim); padding:0 calc(3*var(--u)) calc(4*var(--u)); border-bottom:1px solid rgba(242,232,216,.18)}
+  .khead span:not(:nth-child(2)){text-align:center}
+  .krow{font-family:var(--pixfont); font-size:calc(12*var(--u)); padding:calc(3.5*var(--u)) calc(3*var(--u));
+    border-radius:calc(2*var(--u)); cursor:pointer}
+  .krow:nth-child(odd){background:rgba(242,232,216,.035)}
+  .krow:hover{background:rgba(242,232,216,.09)}
+  .krow.dead{opacity:.42}
+  .krow.pov{background:rgba(232,163,61,.16); box-shadow:inset 0 0 0 1px rgba(232,163,61,.5)}
+  .seatno{font-variant-numeric:tabular-nums; color:var(--paper); text-align:center; opacity:.85}
+  .krow .who{display:flex; align-items:center; gap:calc(5*var(--u)); min-width:0}
+  .who .nm{white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--paper-dim);
+    font-size:calc(11*var(--u))}
+  .who .carry{color:var(--amber)}
+  .krow .n{font-variant-numeric:tabular-nums; text-align:center}
+  .krow .k{color:var(--paper)} .krow .d{color:var(--paper-dim)} .krow .c{color:var(--amber)}
+  .lives{display:flex; gap:calc(2*var(--u)); justify-content:center; flex-wrap:wrap}
+  .lp{width:calc(5*var(--u)); height:calc(5*var(--u)); border-radius:1px}
+  .plaque.left .lp.on{background:var(--red)} .plaque.right .lp.on{background:var(--blue)}
+  .lp.off{background:rgba(242,232,216,.16)}
+
+  /* standing footer bolted to each side wall */
+  .pfoot{margin-top:auto; padding-top:calc(8*var(--u)); border-top:1px solid rgba(242,232,216,.14)}
+  .pfoot .lab{font-family:var(--finefont); font-size:calc(8*var(--u)); letter-spacing:.13em;
+    text-transform:uppercase; color:var(--paper-dim)}
+  .plaque.right .pfoot{text-align:right}
+  .standline{display:flex; align-items:baseline; gap:calc(7*var(--u)); margin-top:calc(3*var(--u))}
+  .plaque.right .standline{justify-content:flex-end}
+  .standline .rk{font-family:var(--pixfont); font-size:calc(24*var(--u))}
+  .plaque.left .rk{color:var(--red)} .plaque.right .rk{color:var(--blue)}
+  .standline .sc{font-family:var(--pixfont); font-size:calc(13*var(--u)); color:var(--paper)}
+  .standline .of{font-family:var(--finefont); font-size:calc(8*var(--u)); color:var(--paper-dim)}
+
+  /* ============================================================
+     TRANSPORT (bottom wall) — real designed chroma: tbar buttons +
+     speed chips over a full-timeline momentum (lives-lead) graph
+     with a click-to-seek track + beat markers.
+     ============================================================ */
+  #transport{display:flex; flex-direction:column; gap:calc(5*var(--u));
+    padding:calc(8*var(--u)) calc(12*var(--u)); pointer-events:auto; justify-content:center}
+  #transport.disabled{opacity:.35; pointer-events:none}
+  .tbar{display:flex; align-items:center; gap:calc(5*var(--u)); flex-wrap:wrap}
+  .tbtn{font-family:var(--pixfont); font-size:calc(11*var(--u)); color:var(--paper);
+    background:rgba(20,14,9,.55); border:none; padding:calc(5*var(--u)) calc(8*var(--u));
+    min-width:calc(26*var(--u)); cursor:pointer; line-height:1; box-shadow:0 0 calc(3*var(--u)) rgba(0,0,0,.5)}
+  .tbtn:hover{background:rgba(242,232,216,.2)}
+  .tbtn.on{color:var(--amber); box-shadow:inset 0 calc(-2*var(--u)) 0 var(--amber)}
+  .tsep{flex:1}
+  .tick-clock{font-family:var(--pixfont); font-size:calc(9*var(--u)); color:var(--paper-dim);
+    font-variant-numeric:tabular-nums; white-space:nowrap}
+  .speedchips{display:flex; gap:calc(2*var(--u))}
+  .chip{font-family:var(--pixfont); font-size:calc(9*var(--u)); color:var(--paper-dim);
+    background:rgba(20,14,9,.55); border:none; padding:calc(4*var(--u)) calc(5*var(--u));
+    cursor:pointer; line-height:1}
+  .chip.on{color:var(--stage-lo); background:var(--amber)}
+  .scrub{position:relative; height:calc(34*var(--u)); cursor:pointer}
+  .scrub-track{position:absolute; left:0; right:0; top:calc(6*var(--u)); height:calc(4*var(--u));
+    background:rgba(242,232,216,.16)}
+  .scrub-fill{position:absolute; left:0; top:calc(6*var(--u)); height:calc(4*var(--u));
+    background:var(--paper); width:0}
+  .scrub-head{position:absolute; top:calc(2*var(--u)); width:calc(3*var(--u)); height:calc(30*var(--u));
+    background:var(--amber); transform:translateX(calc(-1.5*var(--u))); left:0; z-index:3}
+  .momentum{position:absolute; left:0; width:100%; top:calc(12*var(--u)); height:calc(22*var(--u));
+    display:block; overflow:visible}
+  .momentum-label{position:absolute; left:0; top:calc(13*var(--u)); font-family:var(--finefont);
+    font-size:calc(6*var(--u)); letter-spacing:.12em; color:var(--paper-dim); opacity:.5;
+    pointer-events:none; z-index:2}
+  .beat-marker{position:absolute; top:0; width:calc(2*var(--u)); height:calc(10*var(--u));
+    transform:translateX(-1px); z-index:2}
+  .beat-marker.kill{background:var(--paper-dim)}
+  .beat-marker.steal{background:var(--amber)}
+  .beat-marker.capture{background:var(--red)}
+
+  /* connection status toast */
+  #status{position:absolute; z-index:9; left:50%; top:calc(50% - 10px); transform:translate(-50%,-50%);
+    font-family:var(--finefont); font-size:13px; color:var(--paper-dim); background:var(--ink-soft);
+    padding:8px 16px; border-radius:20px; display:none}
+  #status.show{display:block}
+</style>
+</head>
+<body>
+<div id="shell">
+  <div id="walls"></div>
+  <div id="floor"><iframe id="game" title="CTF replay"></iframe></div>
+
+  <div id="scorebug" class="hud">
+    <div class="plate red" data-team="red">
+      <div class="flagicon" id="flag-red"></div>
+      <div class="team-id">
+        <span class="team-name" id="name-red">RED</span>
+        <div class="lives-line">
+          <span class="lives-label">Lives</span>
+          <span class="lives-num" id="lives-red">—</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="clock-col">
+      <div class="clock amb" id="clock">
+        <div class="time" id="clock-time">0:00</div>
+        <div class="caption" id="clock-caption">Warming up</div>
+      </div>
+    </div>
+
+    <div class="plate blue" data-team="blue">
+      <div class="flagicon" id="flag-blue"></div>
+      <div class="team-id">
+        <span class="team-name" id="name-blue">BLUE</span>
+        <div class="lives-line">
+          <span class="lives-label">Lives</span>
+          <span class="lives-num" id="lives-blue">—</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="plaque left hud" id="kda-red">
+    <div class="plabel" id="plabel-red">RED roster</div>
+    <div class="khead"><span>#</span><span>Name</span><span>K</span><span>D</span><span>Lives</span></div>
+    <div id="rows-red"></div>
+    <div class="pfoot" id="foot-red"></div>
+  </div>
+
+  <div class="plaque right hud" id="kda-blue">
+    <div class="plabel" id="plabel-blue">BLUE roster</div>
+    <div class="khead"><span>#</span><span>Name</span><span>K</span><span>D</span><span>Lives</span></div>
+    <div id="rows-blue"></div>
+    <div class="pfoot" id="foot-blue"></div>
+  </div>
+
+  <div id="transport" class="hud">
+    <div class="tbar">
+      <button class="tbtn" id="btn-restart" title="Restart (,)">⟲</button>
+      <button class="tbtn" id="btn-back" title="Back one tick (b)">◂|</button>
+      <button class="tbtn" id="btn-play" title="Play / pause (space)">▶</button>
+      <button class="tbtn" id="btn-fwd" title="Skip +5s (.)">+5s</button>
+      <button class="tbtn" id="btn-end" title="Jump to end (e)">|▸</button>
+      <button class="tbtn" id="btn-loop" title="Loop (r)">↻</button>
+      <span class="tick-clock" id="tick-clock">0 / 0</span>
+      <span class="tsep"></span>
+      <div class="speedchips" id="speedchips"></div>
+    </div>
+    <div class="scrub" id="scrub">
+      <svg class="momentum" id="momentum" viewBox="0 0 1000 100"
+           preserveAspectRatio="none" aria-hidden="true"></svg>
+      <span class="momentum-label">LIVES LEAD</span>
+      <div class="scrub-track"></div>
+      <div class="scrub-fill" id="scrub-fill"></div>
+      <div class="scrub-head" id="scrub-head"></div>
+    </div>
+  </div>
+
+  <div id="status">connecting…</div>
+</div>
+
+<script>
+(function(){
+  'use strict';
+  var $ = function(id){ return document.getElementById(id); };
+  var RED='#e0523a', BLUE='#3f7cc4', AMBER='#e8a33d', PAPER='#f2e8d8';
+  var BOARD_W=1235, BOARD_H=659, BOARD_ASPECT=BOARD_W/BOARD_H;
+  var SPEEDS=[1,2,3,4,8,16];
+  var FPS=24;
+  var MAXLIVES=3;   // per player (3 lives each); refined up if the stream disagrees
+
+  // dungeon-wall textures (nanobanana generations, served as static assets so
+  // the shell stays small and editable). Wide tex for top/bottom, tall for sides.
+  var WALL_H = "/client/art/walls/wall_h.jpg";
+  var WALL_V = "/client/art/walls/wall_v.jpg";
+
+  // ---- URL params: replay uri + Observatory-injected standings -------------
+  var params = new URLSearchParams(location.search);
+  var replayUri = params.get('uri') || '';
+  // standings: base64/JSON of {division, competitors:{red,blue}, ladder:[{name,rank,score,you}]}
+  var standings = null;
+  try {
+    var st0 = params.get('standings');
+    if (st0) standings = JSON.parse(decodeURIComponent(escape(atob(st0))));
+  } catch(e){ standings = null; }
+
+  // ---- build the embedded replay src (board-only embed mode) ---------------
+  (function(){
+    var src = '/client/replay?embed=1';
+    if (replayUri) src += '&uri=' + encodeURIComponent(replayUri);
+    $('game').src = src;
+  })();
+
+  // ==========================================================================
+  //  WALL GEOMETRY — projective homography, one shared vanishing point.
+  //  Each wall is the trapezoid from a SCREEN edge (outer, near) to the matching
+  //  BOARD edge (inner, far). Textures are oriented GRAVITY-UP: floor edge toward
+  //  the bottom of the screen, arches upright, so no wall is upside-down or
+  //  sideways. Adjacent walls share the screen-corner→board-corner diagonal.
+  // ==========================================================================
+  function adj(m){return [m[4]*m[8]-m[5]*m[7],m[2]*m[7]-m[1]*m[8],m[1]*m[5]-m[2]*m[4],
+    m[5]*m[6]-m[3]*m[8],m[0]*m[8]-m[2]*m[6],m[2]*m[3]-m[0]*m[5],
+    m[3]*m[7]-m[4]*m[6],m[1]*m[6]-m[0]*m[7],m[0]*m[4]-m[1]*m[3]];}
+  function mul(a,b){var c=[];for(var i=0;i<3;i++)for(var j=0;j<3;j++){var s=0;
+    for(var k=0;k<3;k++)s+=a[3*i+k]*b[3*k+j];c[3*i+j]=s;}return c;}
+  function mv(m,v){return [m[0]*v[0]+m[1]*v[1]+m[2]*v[2],m[3]*v[0]+m[4]*v[1]+m[5]*v[2],m[6]*v[0]+m[7]*v[1]+m[8]*v[2]];}
+  function basis(x1,y1,x2,y2,x3,y3,x4,y4){var m=[x1,x2,x3,y1,y2,y3,1,1,1];
+    var v=mv(adj(m),[x4,y4,1]);return mul(m,[v[0],0,0,0,v[1],0,0,0,v[2]]);}
+  function proj(sw,sh,d0x,d0y,d1x,d1y,d2x,d2y,d3x,d3y){
+    var s=basis(0,0,sw,0,0,sh,sw,sh), d=basis(d0x,d0y,d1x,d1y,d2x,d2y,d3x,d3y);
+    var t=mul(d,adj(s));for(var i=0;i<9;i++)t[i]/=t[8];
+    return 'matrix3d('+[t[0],t[3],0,t[6], t[1],t[4],0,t[7], 0,0,1,0, t[2],t[5],0,t[8]].join(',')+')';
+  }
+  var wallsEl = $('walls');
+  function buildWalls(bx,by,bw,bh,vw,vh){
+    var bR=bx+bw, bB=by+bh;
+    // per-wall shade: a STEEP shadowbox — dark hugs the outer/near screen edge and
+    // falls off fast, so by the inner/board edge the stone is at floor brightness
+    // (only a faint shadow remains) and the wall reads as the SAME world as the
+    // floor, not a separate panel. The concentrated outer band still lets the HUD
+    // tables/scorebug pop off the stone.
+    var g='rgba(5,3,2,.86)', mid='rgba(8,5,3,.22)', lit='rgba(8,5,3,0)';
+    // src rect corners: TL(0,0)->d0, TR(sw,0)->d1, BL(0,sh)->d2, BR(sw,sh)->d3.
+    function wall(tex,sw,sh, d0x,d0y,d1x,d1y,d2x,d2y,d3x,d3y, grad){
+      return '<div class="lv-wall" style="background-image:url(\''+tex+'\');width:'+sw+'px;height:'+sh+
+        'px;transform:'+proj(sw,sh,d0x,d0y,d1x,d1y,d2x,d2y,d3x,d3y)+
+        '"><div class="lv-shade" style="background:'+grad+'"></div></div>';
+    }
+    var out='';
+    // TOP: unchanged (reads correctly). tex top→screen top, tex floor→board top.
+    out += wall(WALL_H, vw, by,        0,0,  vw,0,  bx,by, bR,by,
+                'linear-gradient(to top,'+lit+' 35%,'+mid+' 62%,'+g+')');
+    // BOTTOM: FLIPPED over its x-axis (was upside-down). Same trapezoid region;
+    //   src top row → outer/screen edge, src bottom row → inner/board edge.
+    out += wall(WALL_H, vw, vh-bB,     0,vh, vw,vh, bx,bB, bR,bB,
+                'linear-gradient(to bottom,'+g+','+mid+' 38%,'+lit+' 65%)');
+    // LEFT: rotated 90° COUNTER-CLOCKWISE within its trapezoid.
+    //   Because the tex is rotated, the DEPTH axis (screen→floor) is the source
+    //   Y axis: y=0→screen edge (outer,dark), y=sh→board edge (inner,light).
+    out += wall(WALL_V, bx, vh,        0,vh, 0,0,   bx,bB, bx,by,
+                'linear-gradient(to top,'+lit+' 35%,'+mid+' 62%,'+g+')');
+    // RIGHT: rotated 90° CLOCKWISE within its trapezoid.
+    out += wall(WALL_V, vw-bR, vh,     vw,0, vw,vh, bR,by, bR,bB,
+                'linear-gradient(to top,'+lit+' 35%,'+mid+' 62%,'+g+')');
+    wallsEl.innerHTML = out;
+  }
+
+  // ==========================================================================
+  //  LAYOUT — maximize the board; walls take only the leftover (kept thin).
+  // ==========================================================================
+  function clamp(a,x,b){return Math.max(a,Math.min(b,x));}
+  var lastLayout = null;
+  function layout(){
+    var vw = window.innerWidth, vh = window.innerHeight;
+    // minimum wall thickness that still fits the HUD (scorebug/KDA/transport).
+    var sideMin = clamp(150, vw*0.135, 300);
+    var topMin  = clamp(56,  vh*0.08,  120);
+    var botMin  = clamp(88,  vh*0.135, 175);
+    var availW = Math.max(1, vw - 2*sideMin);
+    var availH = Math.max(1, vh - topMin - botMin);
+    var bw, bh;
+    if (availW/availH > BOARD_ASPECT){ bh=availH; bw=Math.round(bh*BOARD_ASPECT); }
+    else { bw=availW; bh=Math.round(bw/BOARD_ASPECT); }
+    var bx = Math.round((vw-bw)/2);
+    var by = Math.round(topMin + (availH-bh)/2);
+    var bR = bx+bw, bB = by+bh;
+
+    // one HUD unit scales with board width (authored ~ 760px reference).
+    var u = clamp(0.62, bw/1180, 1.35);
+    document.documentElement.style.setProperty('--u', u+'px');
+
+    // place the floor (embedded replay)
+    var floor = $('floor');
+    floor.style.left=bx+'px'; floor.style.top=by+'px'; floor.style.width=bw+'px'; floor.style.height=bh+'px';
+
+    // build the walls to these exact edges
+    buildWalls(bx,by,bw,bh,vw,vh);
+
+    // ---- position flat HUD panels over the wall zones ----
+    var sb=$('scorebug'); sb.style.left=bx+'px'; sb.style.width=bw+'px'; sb.style.top='0px'; sb.style.height=by+'px';
+    var kr=$('kda-red');  kr.style.left='0px';  kr.style.width=bx+'px';       kr.style.top=by+'px'; kr.style.height=bh+'px';
+    var kb=$('kda-blue'); kb.style.right='0px'; kb.style.width=(vw-bR)+'px';  kb.style.top=by+'px'; kb.style.height=bh+'px';
+    var tp=$('transport'); tp.style.left=bx+'px'; tp.style.width=bw+'px'; tp.style.top=bB+'px'; tp.style.height=(vh-bB)+'px';
+
+    lastLayout = {vw:vw,vh:vh,bx:bx,by:by,bw:bw,bh:bh};
+  }
+  window.addEventListener('resize', layout);
+
+  // ==========================================================================
+  //  FRAME STREAM — the embedded replay postMessages each parsed state here.
+  // ==========================================================================
+  var lastState=null, maxTick=1, lastTick=-1;
+  window.addEventListener('message', function(ev){
+    var m=ev.data; if(!m || m.src!=='ctf-replay') return;
+    if(m.type==='frame'){ onFrame(m.data); }
+  });
+
+  // ---- names (ported from the broadcast client, 1:1) -----------------------
+  function teamName(s, team, fallback){
+    // The headline is the POLICY name, not the color. In a hosted league every
+    // player on a side is the SAME policy → show it. In local self-play each bot
+    // has a distinct generated name (no shared identity) → fall back to color.
+    if (!s.roster) return fallback;
+    var name=null, mixed=false;
+    for (var i=0;i<s.roster.length;i++){
+      var p=s.roster[i];
+      if (p.team!==team) continue;
+      var nm=String(p.name||'');
+      if (name===null) name=nm;
+      else if (nm!==name){ mixed=true; break; }
+    }
+    if (name===null || mixed || name==='') return fallback;
+    return teamHeadline(name);
+  }
+  function teamHeadline(n){
+    n=String(n||'');
+    var at=n.indexOf('@'); if (at>0) n=n.slice(0,at);
+    n=n.replace(/_/g,' ').trim();
+    return (n||'?').toUpperCase();
+  }
+  function rosterName(s, slot){
+    if (!s.roster) return '#'+slot;
+    for (var i=0;i<s.roster.length;i++) if (s.roster[i].s===slot) return s.roster[i].name||('#'+slot);
+    return '#'+slot;
+  }
+  function shortName(n){
+    n=String(n||'');
+    var at=n.indexOf('@'); if (at>0) n=n.slice(0,at);
+    if (n.length>10) n=n.slice(0,10);
+    return n||'?';
+  }
+  function esc(x){return String(x).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+  function setName(id, txt){ var el=$(id); if (el.textContent!==txt) el.textContent=txt; }
+
+  // ---- flag icon svg (HOME/TAKEN are the only two states) ------------------
+  function buildFlag(el, color){
+    el.innerHTML =
+      '<svg viewBox="0 0 26 30" aria-hidden="true">' +
+      '<rect x="4" y="2" width="2" height="26" fill="#2a1f16"/>' +
+      '<g class="cloth"><path d="M6 3 L22 3 L18 9 L22 15 L6 15 Z" fill="'+color+'"/></g>' +
+      '<rect x="1" y="26" width="10" height="3" fill="#8a7f72"/>' +
+      '</svg>' +
+      '<div class="carrier-tag"></div>';
+  }
+  buildFlag($('flag-red'), RED);
+  buildFlag($('flag-blue'), BLUE);
+
+  function updateFlag(id, team, tstate, s){
+    var el=$(id);
+    var taken = tstate.flag==='taken';
+    var was = el.classList.contains('taken');
+    el.classList.toggle('taken', taken);
+    if (was!==taken){ el.classList.remove('flip'); void el.offsetWidth; el.classList.add('flip'); }
+    var tag=el.querySelector('.carrier-tag');
+    if (tag){
+      if (taken && tstate.carrier>=0) tag.textContent = shortName(rosterName(s, tstate.carrier));
+      else tag.textContent='';
+    }
+  }
+
+  function renderScorebug(s){
+    var tr=s.teams||{};
+    var red=tr.red||{}, blue=tr.blue||{};
+    var rl=red.lives||0, bl=blue.lives||0;
+
+    setName('name-red',  teamName(s,'red','RED'));
+    setName('name-blue', teamName(s,'blue','BLUE'));
+    $('lives-red').textContent  = (s.teams&&s.teams.red)?rl:'—';
+    $('lives-blue').textContent = (s.teams&&s.teams.blue)?bl:'—';
+
+    updateFlag('flag-red',  'red',  red,  s);
+    updateFlag('flag-blue', 'blue', blue, s);
+
+    var rp=document.querySelector('.plate.red');
+    var bp=document.querySelector('.plate.blue');
+    rp.classList.toggle('leader', rl-bl>=3 && s.ph==='playing');
+    bp.classList.toggle('leader', bl-rl>=3 && s.ph==='playing');
+  }
+
+  // ---- clock ---------------------------------------------------------------
+  function fmt(sec){ sec=Math.max(0,Math.round(sec)); var m=Math.floor(sec/60), r=sec%60; return m+':'+(r<10?'0':'')+r; }
+  function renderClock(s){
+    var timeEl=$('clock-time'), capEl=$('clock-caption'), clk=$('clock');
+    if (s.ph==='lobby'){
+      timeEl.textContent = s.lob>0 ? (':'+(s.lob<10?'0':'')+s.lob) : '--';
+      capEl.textContent  = s.lob>0 ? 'Starting in' : 'Waiting for players';
+      clk.classList.remove('tiebreak-warn');
+    } else if (s.ph==='gameover'){
+      timeEl.textContent='FINAL'; capEl.textContent='Game over'; clk.classList.remove('tiebreak-warn');
+    } else {
+      var remain = Math.max(0, (s.mx - s.t))/FPS;
+      timeEl.textContent = fmt(remain);
+      capEl.textContent  = 'Time left';
+      clk.classList.toggle('tiebreak-warn', remain<=30);
+    }
+  }
+
+  // ---- KDA plaques (league-specific) ---------------------------------------
+  function pips(n,max){var o='';for(var i=0;i<max;i++)o+='<span class="lp '+(i<n?'on':'off')+'"></span>';return o;}
+  function renderRows(s, team, el){
+    var r=(s.roster||[]).filter(function(p){return p.team===team;}).slice().sort(function(a,b){return a.s-b.s;});
+    var pol = teamName(s,team,team.toUpperCase());
+    var mx=MAXLIVES; r.forEach(function(p){ if(p.lives>mx) mx=p.lives; });
+    el.innerHTML = r.map(function(p,idx){
+      var seat = idx+1;
+      var carry = p.carry ? '<span class="carry">♥</span>' : '';
+      var isPov = (s.pov!=null && s.pov===p.s);
+      return '<div class="krow'+(p.alive?'':' dead')+(isPov?' pov':'')+'" data-slot="'+p.s+'">'+
+        '<span class="seatno">'+seat+'</span>'+
+        '<span class="who"><span class="nm">'+esc(pol)+' '+seat+'</span>'+carry+'</span>'+
+        '<span class="n k">'+(p.k||0)+'</span>'+
+        '<span class="n d">'+(p.d||0)+'</span>'+
+        '<span class="lives">'+pips(p.lives||0, mx)+'</span></div>';
+    }).join('');
+  }
+
+  function renderStandings(){
+    function foot(team, elId){
+      var el=$(elId);
+      if(!standings || !standings.competitors){ el.innerHTML=''; return; }
+      var name = standings.competitors[team];
+      var row = (standings.ladder||[]).filter(function(r){return r.name===name;})[0];
+      if(!row){ el.innerHTML=''; return; }
+      var tot = (standings.ladder||[]).length;
+      el.innerHTML = '<div class="lab">'+esc(standings.division||'Division')+'</div>'+
+        '<div class="standline"><span class="rk">#'+row.rank+'</span>'+
+        '<span class="sc">'+(row.score!=null? Number(row.score).toFixed(2):'—')+'</span>'+
+        '<span class="of">of '+tot+' · EWMA</span></div>';
+    }
+    foot('red','foot-red');
+    foot('blue','foot-blue');
+  }
+
+  // ---- transport (buttons + speed chips + scrubber) ------------------------
+  function renderTransport(s){
+    $('transport').classList.toggle('disabled', !s.en);
+    $('btn-play').textContent = s.pl ? '❘❘' : '▶';
+    $('btn-loop').classList.toggle('on', !!s.lp);
+    SPEEDS.forEach(function(sp){ var b=speedChipEls[sp]; if(b) b.classList.toggle('on', sp===s.sp); });
+
+    // scrubber x-axis skips the dead lobby: spans [startTick, maxTick].
+    var st = Math.max(0, s.st||0);
+    var mx = Math.max(st+1, s.mx||1);
+    var span = mx-st;
+    var frac = Math.min(1, Math.max(0, (s.t-st)/span));
+    $('scrub-fill').style.width = (frac*100)+'%';
+    $('scrub-head').style.left  = (frac*100)+'%';
+    $('tick-clock').textContent = Math.max(0, s.t-st)+' / '+span;
+
+    renderBeatMarkers(st, mx);
+    renderMomentum();
+  }
+
+  // ---- scrubber beat markers -----------------------------------------------
+  var scrubEl=$('scrub');
+  var seenMarkers={}, pendingMarkers=[];
+  function markBeat(tick, kind){
+    var mk=tick+'|'+kind;
+    if (seenMarkers[mk]) return;
+    seenMarkers[mk]={tick:tick,kind:kind};
+    pendingMarkers.push({tick:tick,kind:kind});
+  }
+  function renderBeatMarkers(st, mx){
+    if (!pendingMarkers.length) return;
+    var span=Math.max(1, mx-st);
+    pendingMarkers.forEach(function(m){
+      var el=document.createElement('div');
+      el.className='beat-marker '+m.kind;
+      el.style.left = (Math.min(1,Math.max(0,(m.tick-st)/span))*100)+'%';
+      scrubEl.appendChild(el);
+    });
+    pendingMarkers=[];
+  }
+
+  // ---- momentum graph (lives-lead over the WHOLE timeline) -----------------
+  var VBW=1000, VBH=100, MID=50, MOM_SVGNS='http://www.w3.org/2000/svg';
+  var momentumSeen={}, momentumDirty=true, fullLeadSeries=null, momentumSamples=[];
+  function ingestLeadSeries(s){
+    if (!s.lead || fullLeadSeries) return;
+    fullLeadSeries = s.lead.map(function(p){ return {t:p[0], diff:p[1]}; });
+    momentumDirty=true;
+  }
+  function recordMomentum(s){
+    if (fullLeadSeries) return;
+    if (s.ph!=='playing' && s.ph!=='gameover') return;
+    if (momentumSeen[s.t]) return;
+    momentumSeen[s.t]=true;
+    var tr=s.teams||{};
+    var diff = ((tr.red&&tr.red.lives)||0) - ((tr.blue&&tr.blue.lives)||0);
+    momentumSamples.push({t:s.t, diff:diff});
+    momentumDirty=true;
+  }
+  function renderMomentum(){
+    var el=$('momentum');
+    var samples = fullLeadSeries || momentumSamples;
+    if (!lastState || !samples.length){ if(!samples.length) el.innerHTML=''; return; }
+    if (!momentumDirty && el.childNodes.length) return;
+    momentumDirty=false;
+    var st = Math.max(0, lastState.st||0);
+    var mx = Math.max(st+1, lastState.mx||1);
+    var maxPos=1, maxNeg=1;
+    samples.forEach(function(m){ if(m.diff>maxPos)maxPos=m.diff; if(-m.diff>maxNeg)maxNeg=-m.diff; });
+    var pts = samples.slice().sort(function(a,b){return a.t-b.t;});
+    function xOf(t){ return Math.min(1,Math.max(0,(t-st)/(mx-st)))*VBW; }
+    function yOf(d){ return d>=0 ? MID-(d/maxPos)*(MID-2) : MID+(-d/maxNeg)*(MID-2); }
+    var line='', k;
+    for (k=0;k<pts.length;k++){
+      var x=xOf(pts[k].t), y=yOf(pts[k].diff);
+      if (k===0) line+='M '+x.toFixed(1)+' '+y.toFixed(1);
+      else line+=' H '+x.toFixed(1)+' V '+y.toFixed(1);
+    }
+    var lastX=xOf(pts[pts.length-1].t);
+    var area = line+' L '+lastX.toFixed(1)+' '+MID+' L '+xOf(pts[0].t).toFixed(1)+' '+MID+' Z';
+    el.setAttribute('viewBox','0 0 '+VBW+' '+VBH);
+    el.innerHTML='';
+    var defs=document.createElementNS(MOM_SVGNS,'defs');
+    defs.innerHTML =
+      '<linearGradient id="momfill" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="'+VBH+'">'+
+      '<stop offset="0%" stop-color="'+RED+'" stop-opacity="0.8"/>'+
+      '<stop offset="50%" stop-color="'+RED+'" stop-opacity="0.28"/>'+
+      '<stop offset="50%" stop-color="'+BLUE+'" stop-opacity="0.28"/>'+
+      '<stop offset="100%" stop-color="'+BLUE+'" stop-opacity="0.8"/>'+
+      '</linearGradient>';
+    el.appendChild(defs);
+    var bg=document.createElementNS(MOM_SVGNS,'rect');
+    bg.setAttribute('x',0); bg.setAttribute('y',0); bg.setAttribute('width',VBW); bg.setAttribute('height',VBH);
+    bg.setAttribute('fill','rgba(11,7,4,0.55)');
+    el.appendChild(bg);
+    var midln=document.createElementNS(MOM_SVGNS,'line');
+    midln.setAttribute('x1',0); midln.setAttribute('y1',MID); midln.setAttribute('x2',VBW); midln.setAttribute('y2',MID);
+    midln.setAttribute('stroke','rgba(242,232,216,0.22)'); midln.setAttribute('stroke-width','0.8');
+    el.appendChild(midln);
+    var areaEl=document.createElementNS(MOM_SVGNS,'path');
+    areaEl.setAttribute('d',area); areaEl.setAttribute('fill','url(#momfill)'); areaEl.setAttribute('stroke','none');
+    el.appendChild(areaEl);
+    var lineEl=document.createElementNS(MOM_SVGNS,'path');
+    lineEl.setAttribute('d',line); lineEl.setAttribute('fill','none'); lineEl.setAttribute('stroke',PAPER);
+    lineEl.setAttribute('stroke-width','1.5'); lineEl.setAttribute('stroke-opacity','0.95');
+    lineEl.setAttribute('vector-effect','non-scaling-stroke');
+    el.appendChild(lineEl);
+  }
+
+  // ==========================================================================
+  //  onFrame — paint every wall-mounted HUD from the streamed state.
+  // ==========================================================================
+  function onFrame(s){
+    lastState=s;
+    maxTick = Math.max(1, s.mx||s.mt||1);
+
+    // Detect a jump (seek/loop) — nothing transient to clear here, but we keep
+    // beat markers collected so far (markBeat dedups by tick|kind anyway).
+    var jumped = (s.t < lastTick) || (lastTick>=0 && s.t-lastTick > (s.sp||1)*4+2);
+
+    renderScorebug(s);
+    renderClock(s);
+    renderTransport(s);
+
+    // KDA + labels (league-specific)
+    renderRows(s,'red',  $('rows-red'));
+    renderRows(s,'blue', $('rows-blue'));
+    $('plabel-red').textContent  = teamName(s,'red','RED')+' · roster';
+    $('plabel-blue').textContent = teamName(s,'blue','BLUE')+' · roster';
+    renderStandings();
+
+    // beat markers from events; momentum from lead series
+    if (s.events && s.events.length && !jumped){
+      for (var i=0;i<s.events.length;i++){
+        var e=s.events[i];
+        if (e.k==='kill') markBeat(e.t,'kill');
+        else if (e.k==='steal') markBeat(e.t,'steal');
+        else if (e.k==='capture') markBeat(e.t,'capture');
+      }
+    }
+    ingestLeadSeries(s);
+    recordMomentum(s);
+
+    lastTick = s.t;
+    hideStatus();
+  }
+
+  // ==========================================================================
+  //  TRANSPORT DRIVE — relay commands to the embedded replay (single WS, sync).
+  // ==========================================================================
+  function sendCmd(cmd){ var f=$('game'); if(f && f.contentWindow) f.contentWindow.postMessage({src:'ctf-shell',type:'cmd',cmd:cmd},'*'); }
+  function sendSeek(tick){ var f=$('game'); if(f && f.contentWindow) f.contentWindow.postMessage({src:'ctf-shell',type:'seek',tick:tick},'*'); }
+  function sendPov(slot){ var f=$('game'); if(f && f.contentWindow) f.contentWindow.postMessage({src:'ctf-shell',type:'pov',slot:slot},'*'); }
+  function togglePov(slot){ if (lastState && lastState.pov===slot) sendPov(-1); else sendPov(slot); }
+
+  // transport buttons → command chars (same vocabulary the local transport uses)
+  $('btn-restart').addEventListener('click', function(){ sendCmd(','); });
+  $('btn-back').addEventListener('click',    function(){ sendCmd('b'); });
+  $('btn-play').addEventListener('click',    function(){ sendCmd(' '); });
+  $('btn-fwd').addEventListener('click',     function(){ sendCmd('.'); });
+  $('btn-end').addEventListener('click',     function(){ sendCmd('e'); });
+  $('btn-loop').addEventListener('click',    function(){ sendCmd('r'); });
+
+  // speed chips (absolute set: single-char speed commands; 16× maps to '6')
+  var speedChipEls={};
+  (function(){
+    var host=$('speedchips'), map={1:'1',2:'2',3:'3',4:'4',8:'8',16:'6'};
+    SPEEDS.forEach(function(v){
+      var b=document.createElement('button'); b.className='chip'; b.textContent=v+'×';
+      b.setAttribute('aria-label', v+'x speed');
+      b.addEventListener('click', function(){ if(map[v]) sendCmd(map[v]); });
+      host.appendChild(b); speedChipEls[v]=b;
+    });
+  })();
+
+  // click-to-seek on the scrub track (maps onto the shown [startTick, maxTick] axis)
+  $('scrub').addEventListener('click', function(ev){
+    if (!lastState || !lastState.en) return;
+    var r=this.getBoundingClientRect();
+    var frac=clamp(0,(ev.clientX-r.left)/r.width,1);
+    var st=Math.max(0, lastState.st||0);
+    var mx=Math.max(st+1, lastState.mx||1);
+    sendSeek(st + Math.round(frac*(mx-st)));
+  });
+
+  // clicking a KDA row → POV lens on that player (toggles)
+  ['rows-red','rows-blue'].forEach(function(id){
+    $(id).addEventListener('click', function(ev){
+      var row=ev.target.closest('.krow'); if(!row) return;
+      togglePov(parseInt(row.getAttribute('data-slot'),10));
+    });
+  });
+
+  var statusTimer=null;
+  function hideStatus(){ $('status').classList.remove('show'); if(statusTimer){clearTimeout(statusTimer);statusTimer=null;} }
+  function showStatus(t){ $('status').textContent=t; $('status').classList.add('show'); }
+  showStatus('loading replay…');
+  statusTimer=setTimeout(function(){ if(!lastState) showStatus('waiting for replay frames…'); }, 4000);
+
+  layout();
+})();
+</script>
+</body>
+</html>
