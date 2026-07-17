@@ -268,10 +268,19 @@
   var FPS=24;
   var MAXLIVES=3;   // per player (3 lives each); refined up if the stream disagrees
 
+  // Proxy-aware route base. Observatory serves this shell (and every /client/*
+  // asset + the embedded board) behind a per-session proxy prefix, e.g.
+  //   /v2/coworlds/replays/<key>/sessions/<id>/proxy/client/replay
+  // so root-relative paths ("/client/...") would drop the whole prefix and 404.
+  // Strip the trailing "/client/<page>" to recover the prefix ("" when served
+  // bare locally); every asset + the iframe src hang off it. Mirrors the board
+  // client, which strips "/client/replay" the same way to build its ws path.
+  var ROUTE_BASE = location.pathname.replace(/\/client\/[^/]*$/, "");
+
   // dungeon-wall textures (nanobanana generations, served as static assets so
   // the shell stays small and editable). Wide tex for top/bottom, tall for sides.
-  var WALL_H = "/client/art/walls/wall_h.jpg";
-  var WALL_V = "/client/art/walls/wall_v.jpg";
+  var WALL_H = ROUTE_BASE + "/client/art/walls/wall_h.jpg";
+  var WALL_V = ROUTE_BASE + "/client/art/walls/wall_v.jpg";
 
   // ---- URL params: replay uri + Observatory-injected standings -------------
   var params = new URLSearchParams(location.search);
@@ -284,8 +293,10 @@
   } catch(e){ standings = null; }
 
   // ---- build the embedded replay src (board-only embed mode) ---------------
+  // Same-prefix as the shell so the board's own websocket (derived from its
+  // location.pathname) stays inside the session proxy.
   (function(){
-    var src = '/client/replay?embed=1';
+    var src = ROUTE_BASE + '/client/replay?embed=1';
     if (replayUri) src += '&uri=' + encodeURIComponent(replayUri);
     $('game').src = src;
   })();
