@@ -719,16 +719,15 @@ html, body {
 
 /* ============================================================
    EMBED MODE — inside the League Replayer shell (?embed=1)
-   The shell owns the walls + scorebug + KDA + standings + transport, drawn from
-   the postMessage frame stream. Here we show ONLY the board (the lit pit floor):
-   hide this client's own scorebug/transport/feed/light-pool so nothing double-
-   draws, and let the board fill the whole embed box edge-to-edge (the shell has
-   already sized the iframe to the board aspect).
+   The shell owns the walls + team headers + KDA + standings + transport, drawn
+   from the postMessage frame stream. Here we show the board (the lit pit floor)
+   PLUS the designed broadcast feedback layer that belongs over the play area —
+   the kill feed and the flag-event banner lane (lower-third / center wipes).
+   We hide only the chrome the shell re-draws (scorebug/transport) and the
+   ambient light-pool/grain/status, and let the board fill the embed box.
    ============================================================ */
 body[data-embed] #scorebug,
 body[data-embed] #transport,
-body[data-embed] #killfeed,
-body[data-embed] #bannerlane,
 body[data-embed] #lightpool,
 body[data-embed] #grain,
 body[data-embed] #status { display: none !important; }

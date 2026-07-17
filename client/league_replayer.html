@@ -55,30 +55,49 @@
   .hud{position:absolute; z-index:5; font-family:var(--pixfont)}
 
   /* ============================================================
-     SCOREBUG (top wall) — real designed chroma, floated on stone.
-     Per team: NAME on its own line with LIVES · count beneath it,
-     names flanking the center clock; flag-state icon. (Per-player
-     lives live in the side roster tables, not here.)
+     TOP WALL — match clock centered, with the (possibly long) TEAM
+     NAMES flanking it in the corners. The wall band has the horizontal
+     room the narrow side columns don't, so long league/policy names
+     live up here. Flag + lives stay in the side-column header below.
      ============================================================ */
-  #scorebug{display:grid; grid-template-columns:1fr auto 1fr; align-items:stretch;
-    gap:calc(6*var(--u)); padding:calc(4*var(--u)) calc(14*var(--u)) calc(6*var(--u)); pointer-events:none}
+  #scorebug{display:flex; align-items:center; justify-content:center;
+    padding:calc(6*var(--u)) calc(14*var(--u)); gap:calc(16*var(--u)); pointer-events:none}
   #scorebug > *{pointer-events:auto}
-  .plate{display:flex; align-items:center; gap:calc(9*var(--u)); min-width:0}
-  .plate.blue{flex-direction:row-reverse; text-align:right}
-  /* team-id stacks: NAME on its own line, LIVES beneath it */
-  .plate .team-id{min-width:0; display:flex; flex-direction:column; gap:calc(3*var(--u))}
-  .plate.blue .team-id{align-items:flex-end}
-  .plate .team-name{font-family:var(--pixfont); font-size:calc(19*var(--u)); letter-spacing:.5px;
-    line-height:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-    max-width:calc(168*var(--u));
-    text-shadow:0 calc(2*var(--u)) 0 var(--ink), 0 0 calc(9*var(--u)) rgba(0,0,0,.7)}
-  .plate.red .team-name{color:var(--red)} .plate.blue .team-name{color:var(--blue)}
-  .plate .lives-line{display:flex; align-items:baseline; gap:calc(6*var(--u))}
-  .plate.blue .lives-line{flex-direction:row-reverse}
+  .wallname{flex:1 1 0; min-width:0; font-family:var(--pixfont); font-size:calc(26*var(--u));
+    letter-spacing:.5px; line-height:1.05; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    text-shadow:0 calc(2*var(--u)) 0 var(--ink), 0 0 calc(11*var(--u)) rgba(0,0,0,.72)}
+  .wallname.red{text-align:left; color:var(--red)}
+  .wallname.blue{text-align:right; color:var(--blue)}
+  .clock{flex:none; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:calc(3*var(--u))}
+  .clock .time{font-family:var(--pixfont); font-size:calc(34*var(--u)); line-height:1; color:var(--paper);
+    text-shadow:0 calc(2*var(--u)) 0 var(--ink), 0 0 calc(10*var(--u)) rgba(0,0,0,.7); font-variant-numeric:tabular-nums}
+  .clock .caption{font-family:var(--finefont); font-size:calc(9*var(--u)); letter-spacing:.18em;
+    text-transform:uppercase; color:var(--paper-dim); white-space:nowrap; text-shadow:0 calc(1*var(--u)) 0 #000}
+  .clock.tiebreak-warn .time{color:var(--amber)}
+  .clock.amb{animation:clocktick 2s ease-in-out infinite}
+  @keyframes clocktick{0%,100%{opacity:.94}50%{opacity:1}}
+
+  /* ============================================================
+     KDA PLAQUES (side walls) — team header (flag + NAME inline with
+     LIVES) atop the league roster + standings footer.
+     ============================================================ */
+  .plaque{display:flex; flex-direction:column; padding:calc(6*var(--u)) calc(10*var(--u)); pointer-events:auto}
+
+  /* team header block: flag icon + LIVES counter. (Team NAME lives up in
+     the top-wall corners — see .wallname — so long names never truncate.) */
+  .team-head{display:flex; align-items:center; gap:calc(9*var(--u)); min-width:0;
+    margin-bottom:calc(8*var(--u))}
+  .plaque.right .team-head{flex-direction:row-reverse}
+  .team-head .lives-line{display:flex; align-items:baseline; gap:calc(5*var(--u))}
+  .plaque.right .team-head .lives-line{flex-direction:row-reverse}
   .lives-num{font-family:var(--pixfont); font-size:calc(20*var(--u)); line-height:1;
     color:var(--paper); flex:none; text-shadow:0 calc(2*var(--u)) 0 var(--ink), 0 0 calc(9*var(--u)) rgba(0,0,0,.7)}
   .lives-label{font-family:var(--finefont); font-size:calc(8*var(--u)); letter-spacing:.14em;
     text-transform:uppercase; color:var(--paper-dim); flex:none; text-shadow:0 calc(1*var(--u)) 0 #000}
+  .team-head.leader .lives-num{animation:leaderpulse 1.9s ease-in-out infinite}
+  @keyframes leaderpulse{0%,100%{text-shadow:0 calc(2*var(--u)) 0 var(--ink)}
+    50%{text-shadow:0 0 calc(11*var(--u)) var(--amber)}}
 
   /* flag-state icon — HOME (on pedestal) / TAKEN (riding a carrier) */
   .flagicon{position:relative; width:calc(26*var(--u)); height:calc(30*var(--u)); flex:none;
@@ -88,33 +107,6 @@
   .flagicon.taken .cloth{transform:scaleX(.62) skewX(-8deg)}
   .flagicon.flip{animation:flagflip 260ms steps(3); transform-box:fill-box; transform-origin:center}
   @keyframes flagflip{0%{transform:scaleY(.2)}100%{transform:scaleY(1)}}
-  .flagicon .carrier-tag{position:absolute; bottom:calc(-11*var(--u)); left:50%; transform:translateX(-50%);
-    font-family:var(--finefont); font-size:calc(7*var(--u)); letter-spacing:.08em; white-space:nowrap;
-    color:var(--amber); text-transform:uppercase; text-shadow:0 0 calc(4*var(--u)) #000}
-
-  /* center clock pill + phase */
-  .clock-col{display:flex; flex-direction:column; align-items:center; gap:calc(4*var(--u))}
-  .clock{display:flex; flex-direction:column; align-items:center; justify-content:flex-start;
-    gap:calc(3*var(--u)); padding-top:calc(1*var(--u))}
-  .clock .time{font-family:var(--pixfont); font-size:calc(30*var(--u)); line-height:1; color:var(--paper);
-    text-shadow:0 calc(2*var(--u)) 0 var(--ink), 0 0 calc(10*var(--u)) rgba(0,0,0,.7); font-variant-numeric:tabular-nums}
-  .clock .caption{font-family:var(--finefont); font-size:calc(8.5*var(--u)); letter-spacing:.18em;
-    text-transform:uppercase; color:var(--paper-dim); white-space:nowrap; text-shadow:0 calc(1*var(--u)) 0 #000}
-  .clock.tiebreak-warn .time{color:var(--amber)}
-  .clock.amb{animation:clocktick 2s ease-in-out infinite}
-  @keyframes clocktick{0%,100%{opacity:.94}50%{opacity:1}}
-  .plate.leader .lives-num{animation:leaderpulse 1.9s ease-in-out infinite}
-  @keyframes leaderpulse{0%,100%{text-shadow:0 calc(2*var(--u)) 0 var(--ink)}
-    50%{text-shadow:0 0 calc(11*var(--u)) var(--amber)}}
-
-  /* ============================================================
-     KDA PLAQUES (side walls) — league-specific rosters + standings.
-     ============================================================ */
-  .plaque{display:flex; flex-direction:column; padding:calc(6*var(--u)) calc(10*var(--u)); pointer-events:auto}
-  .plabel{font-family:var(--finefont); font-size:calc(9*var(--u)); letter-spacing:.16em;
-    text-transform:uppercase; color:var(--paper-dim); margin-bottom:calc(6*var(--u)); white-space:nowrap;
-    text-shadow:0 calc(1*var(--u)) 0 #000}
-  .plaque.right .plabel{text-align:right}
   .khead,.krow{display:grid; align-items:center; gap:calc(5*var(--u));
     grid-template-columns:calc(15*var(--u)) 1fr calc(16*var(--u)) calc(16*var(--u)) calc(34*var(--u))}
   .khead{font-family:var(--finefont); font-size:calc(8*var(--u)); letter-spacing:.08em; text-transform:uppercase;
@@ -138,8 +130,11 @@
   .plaque.left .lp.on{background:var(--red)} .plaque.right .lp.on{background:var(--blue)}
   .lp.off{background:rgba(242,232,216,.16)}
 
-  /* standing footer bolted to each side wall */
-  .pfoot{margin-top:auto; padding-top:calc(8*var(--u)); border-top:1px solid rgba(242,232,216,.14)}
+  /* standing footer — sits directly under the roster rows (NOT pinned to the
+     column bottom). Hidden entirely when there are no standings, so no empty
+     divider line floats at the bottom of the column. */
+  .pfoot{margin-top:calc(10*var(--u)); padding-top:calc(8*var(--u)); border-top:1px solid rgba(242,232,216,.14)}
+  .pfoot:empty{display:none}
   .pfoot .lab{font-family:var(--finefont); font-size:calc(8*var(--u)); letter-spacing:.13em;
     text-transform:uppercase; color:var(--paper-dim)}
   .plaque.right .pfoot{text-align:right}
@@ -172,19 +167,19 @@
     background:rgba(20,14,9,.55); border:none; padding:calc(4*var(--u)) calc(5*var(--u));
     cursor:pointer; line-height:1}
   .chip.on{color:var(--stage-lo); background:var(--amber)}
-  .scrub{position:relative; height:calc(34*var(--u)); cursor:pointer}
-  .scrub-track{position:absolute; left:0; right:0; top:calc(6*var(--u)); height:calc(4*var(--u));
+  .scrub{position:relative; height:calc(60*var(--u)); cursor:pointer}
+  .scrub-track{position:absolute; left:0; right:0; top:calc(8*var(--u)); height:calc(5*var(--u));
     background:rgba(242,232,216,.16)}
-  .scrub-fill{position:absolute; left:0; top:calc(6*var(--u)); height:calc(4*var(--u));
+  .scrub-fill{position:absolute; left:0; top:calc(8*var(--u)); height:calc(5*var(--u));
     background:var(--paper); width:0}
-  .scrub-head{position:absolute; top:calc(2*var(--u)); width:calc(3*var(--u)); height:calc(30*var(--u));
+  .scrub-head{position:absolute; top:calc(3*var(--u)); width:calc(3*var(--u)); height:calc(54*var(--u));
     background:var(--amber); transform:translateX(calc(-1.5*var(--u))); left:0; z-index:3}
-  .momentum{position:absolute; left:0; width:100%; top:calc(12*var(--u)); height:calc(22*var(--u));
+  .momentum{position:absolute; left:0; width:100%; top:calc(16*var(--u)); height:calc(42*var(--u));
     display:block; overflow:visible}
-  .momentum-label{position:absolute; left:0; top:calc(13*var(--u)); font-family:var(--finefont);
-    font-size:calc(6*var(--u)); letter-spacing:.12em; color:var(--paper-dim); opacity:.5;
+  .momentum-label{position:absolute; left:0; top:calc(18*var(--u)); font-family:var(--finefont);
+    font-size:calc(7*var(--u)); letter-spacing:.12em; color:var(--paper-dim); opacity:.5;
     pointer-events:none; z-index:2}
-  .beat-marker{position:absolute; top:0; width:calc(2*var(--u)); height:calc(10*var(--u));
+  .beat-marker{position:absolute; top:0; width:calc(2*var(--u)); height:calc(13*var(--u));
     transform:translateX(-1px); z-index:2}
   .beat-marker.kill{background:var(--paper-dim)}
   .beat-marker.steal{background:var(--amber)}
@@ -202,46 +197,37 @@
   <div id="walls"></div>
   <div id="floor"><iframe id="game" title="CTF replay"></iframe></div>
 
+  <!-- top wall: just the match clock, centered -->
   <div id="scorebug" class="hud">
-    <div class="plate red" data-team="red">
-      <div class="flagicon" id="flag-red"></div>
-      <div class="team-id">
-        <span class="team-name" id="name-red">RED</span>
-        <div class="lives-line">
-          <span class="lives-label">Lives</span>
-          <span class="lives-num" id="lives-red">—</span>
-        </div>
-      </div>
+    <div class="wallname red" id="name-red">RED</div>
+    <div class="clock amb" id="clock">
+      <div class="time" id="clock-time">0:00</div>
+      <div class="caption" id="clock-caption">Warming up</div>
     </div>
-
-    <div class="clock-col">
-      <div class="clock amb" id="clock">
-        <div class="time" id="clock-time">0:00</div>
-        <div class="caption" id="clock-caption">Warming up</div>
-      </div>
-    </div>
-
-    <div class="plate blue" data-team="blue">
-      <div class="flagicon" id="flag-blue"></div>
-      <div class="team-id">
-        <span class="team-name" id="name-blue">BLUE</span>
-        <div class="lives-line">
-          <span class="lives-label">Lives</span>
-          <span class="lives-num" id="lives-blue">—</span>
-        </div>
-      </div>
-    </div>
+    <div class="wallname blue" id="name-blue">BLUE</div>
   </div>
 
   <div class="plaque left hud" id="kda-red">
-    <div class="plabel" id="plabel-red">RED roster</div>
+    <div class="team-head red" data-team="red">
+      <div class="flagicon" id="flag-red"></div>
+      <div class="lives-line">
+        <span class="lives-label">Lives</span>
+        <span class="lives-num" id="lives-red">—</span>
+      </div>
+    </div>
     <div class="khead"><span>#</span><span>Name</span><span>K</span><span>D</span><span>Lives</span></div>
     <div id="rows-red"></div>
     <div class="pfoot" id="foot-red"></div>
   </div>
 
   <div class="plaque right hud" id="kda-blue">
-    <div class="plabel" id="plabel-blue">BLUE roster</div>
+    <div class="team-head blue" data-team="blue">
+      <div class="flagicon" id="flag-blue"></div>
+      <div class="lives-line">
+        <span class="lives-label">Lives</span>
+        <span class="lives-num" id="lives-blue">—</span>
+      </div>
+    </div>
     <div class="khead"><span>#</span><span>Name</span><span>K</span><span>D</span><span>Lives</span></div>
     <div id="rows-blue"></div>
     <div class="pfoot" id="foot-blue"></div>
@@ -390,7 +376,11 @@
     buildWalls(bx,by,bw,bh,vw,vh);
 
     // ---- position flat HUD panels over the wall zones ----
-    var sb=$('scorebug'); sb.style.left=bx+'px'; sb.style.width=bw+'px'; sb.style.top='0px'; sb.style.height=by+'px';
+    // scorebug spans the FULL viewport so each team plate hugs its true top
+    // corner — vertically over the side-wall column that holds its roster table
+    // below (red↔left table, blue↔right table). Its horizontal padding matches
+    // the tables' (10u) so the plates line up with the table columns.
+    var sb=$('scorebug'); sb.style.left='0px'; sb.style.width=vw+'px'; sb.style.top='0px'; sb.style.height=by+'px';
     var kr=$('kda-red');  kr.style.left='0px';  kr.style.width=bx+'px';       kr.style.top=by+'px'; kr.style.height=bh+'px';
     var kb=$('kda-blue'); kb.style.right='0px'; kb.style.width=(vw-bR)+'px';  kb.style.top=by+'px'; kb.style.height=bh+'px';
     var tp=$('transport'); tp.style.left=bx+'px'; tp.style.width=bw+'px'; tp.style.top=bB+'px'; tp.style.height=(vh-bB)+'px';
@@ -446,14 +436,15 @@
   function setName(id, txt){ var el=$(id); if (el.textContent!==txt) el.textContent=txt; }
 
   // ---- flag icon svg (HOME/TAKEN are the only two states) ------------------
+  // The carrier's identity is shown by the ♥ marker in the roster table, so the
+  // flag icon carries no name tag here — just the home/taken cloth state.
   function buildFlag(el, color){
     el.innerHTML =
       '<svg viewBox="0 0 26 30" aria-hidden="true">' +
       '<rect x="4" y="2" width="2" height="26" fill="#2a1f16"/>' +
       '<g class="cloth"><path d="M6 3 L22 3 L18 9 L22 15 L6 15 Z" fill="'+color+'"/></g>' +
       '<rect x="1" y="26" width="10" height="3" fill="#8a7f72"/>' +
-      '</svg>' +
-      '<div class="carrier-tag"></div>';
+      '</svg>';
   }
   buildFlag($('flag-red'), RED);
   buildFlag($('flag-blue'), BLUE);
@@ -464,11 +455,6 @@
     var was = el.classList.contains('taken');
     el.classList.toggle('taken', taken);
     if (was!==taken){ el.classList.remove('flip'); void el.offsetWidth; el.classList.add('flip'); }
-    var tag=el.querySelector('.carrier-tag');
-    if (tag){
-      if (taken && tstate.carrier>=0) tag.textContent = shortName(rosterName(s, tstate.carrier));
-      else tag.textContent='';
-    }
   }
 
   function renderScorebug(s){
@@ -484,10 +470,10 @@
     updateFlag('flag-red',  'red',  red,  s);
     updateFlag('flag-blue', 'blue', blue, s);
 
-    var rp=document.querySelector('.plate.red');
-    var bp=document.querySelector('.plate.blue');
-    rp.classList.toggle('leader', rl-bl>=3 && s.ph==='playing');
-    bp.classList.toggle('leader', bl-rl>=3 && s.ph==='playing');
+    var rp=document.querySelector('.team-head.red');
+    var bp=document.querySelector('.team-head.blue');
+    if(rp) rp.classList.toggle('leader', rl-bl>=3 && s.ph==='playing');
+    if(bp) bp.classList.toggle('leader', bl-rl>=3 && s.ph==='playing');
   }
 
   // ---- clock ---------------------------------------------------------------
@@ -668,11 +654,9 @@
     renderClock(s);
     renderTransport(s);
 
-    // KDA + labels (league-specific)
+    // KDA rosters (league-specific); team name/lives ride the header above them
     renderRows(s,'red',  $('rows-red'));
     renderRows(s,'blue', $('rows-blue'));
-    $('plabel-red').textContent  = teamName(s,'red','RED')+' · roster';
-    $('plabel-blue').textContent = teamName(s,'blue','BLUE')+' · roster';
     renderStandings();
 
     // beat markers from events; momentum from lead series
