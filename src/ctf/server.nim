@@ -781,7 +781,15 @@ proc runServerLoop*(
   var replayLoaded = loadReplayPath.len > 0
   var replayData =
     if replayLoaded:
-      loadReplay(loadReplayPath)
+      try:
+        loadReplay(loadReplayPath)
+      except CatchableError as e:
+        # A bad or version-mismatched replay must not kill the server: the
+        # viewer would see a dead socket (frozen shell, 0/0 scrubber, empty
+        # lives) with no explanation. Serve the empty lobby and say why.
+        echo "replay load failed (serving without replay): ", e.msg
+        replayLoaded = false
+        ReplayData()
     else:
       ReplayData()
   var config =
@@ -859,23 +867,35 @@ proc runServerLoop*(
         pendingReplayUri = appState.pendingReplayUri
         appState.pendingReplayUri = ""
     if pendingReplayUri.len > 0:
-      replayData = loadReplayUri(pendingReplayUri)
-      var replayConfig = defaultGameConfig()
-      replayConfig.update(replayData.configJson)
-      config = replayConfig
-      sim = initSimServer(config)
-      replayPlayer = initReplayPlayer(replayData)
-      replayPlayer.mismatchQuit = runtimeConfig.mismatchQuit
-      replayPlayer.buildReplayKeyframes(sim)
-      # Start playback at first action, not in the dead lobby.
-      replayPlayer.seekReplay(sim, replayPlayer.replayStartTick())
-      replayPlayer.playing = true
-      broadcastTracker = initBroadcastTracker()
-      replayLoaded = true
-      {.gcsafe.}:
-        withLock appState.lock:
-          appState.replayLoaded = true
-          appState.config = config
+      var
+        pendingData: ReplayData
+        pendingOk = true
+      try:
+        pendingData = loadReplayUri(pendingReplayUri)
+      except CatchableError as e:
+        # An unreadable or version-mismatched replay must not kill the serve
+        # loop (it serves every connected viewer). Keep the current state and
+        # log why the switch was refused.
+        echo "replay switch failed (keeping current state): ", e.msg
+        pendingOk = false
+      if pendingOk:
+        replayData = pendingData
+        var replayConfig = defaultGameConfig()
+        replayConfig.update(replayData.configJson)
+        config = replayConfig
+        sim = initSimServer(config)
+        replayPlayer = initReplayPlayer(replayData)
+        replayPlayer.mismatchQuit = runtimeConfig.mismatchQuit
+        replayPlayer.buildReplayKeyframes(sim)
+        # Start playback at first action, not in the dead lobby.
+        replayPlayer.seekReplay(sim, replayPlayer.replayStartTick())
+        replayPlayer.playing = true
+        broadcastTracker = initBroadcastTracker()
+        replayLoaded = true
+        {.gcsafe.}:
+          withLock appState.lock:
+            appState.replayLoaded = true
+            appState.config = config
 
     {.gcsafe.}:
       withLock appState.lock:
