@@ -122,11 +122,15 @@ const
   BlastSize = 84                 ## px footprint of the landing splat (~2x GrenadeBlastRadius).
   BlastStages = 4                ## landing-splat fade stages across BlastFxTicks.
   PaintBombPickupObjectBase = 19300  ## corner pickups: 19300..19303 (four corners).
-  MedKitSpriteId = 845           ## center med kit pickup (native size).
+  MedKitSpriteId = 1400          ## center med kit pickup (native size);
+                                 ## 845 collided with red blast stage 1
+                                 ## (BlastSpriteBase 844..847).
   MedKitSize = 26                ## px footprint of a med kit pickup.
-  MedKitObjectBase = 19350       ## center med kits: 19350..19351.
-  RotDiamondSpriteBase = 850     ## spinning diamond frames: 850..865.
-  RotDiamondObjectBase = 19360   ## spinning center diamonds: 19360..19367.
+  MedKitObjectBase = 19600       ## center med kits: 19600..19601.
+  RotDiamondSpriteBase = 1401    ## spinning diamond frames: 1401..1416;
+                                 ## 850 collided with CorpseSpriteBase.
+  RotDiamondObjectBase = 19610   ## spinning center diamonds: 19610..19617;
+                                 ## 19360 collided with PaintBombCarryObjectBase.
   PaintBombAirObjectBase = 19320     ## airborne orbs: one per in-flight grenade.
   PaintBombCarryObjectBase = 19360   ## carried markers: one per player.
   ThrowTargetObjectBase = 19400      ## charge rings: one per player.
@@ -232,9 +236,11 @@ const
   SpritePlayerFlagObjectBase = 5009  ## 5009 red flag, 5010 blue flag.
   SpritePlayerSelfSpriteBase = 5100  ## white-outlined self soldier, one per aim
                                      ## rotation: 5100..5115 (SoldierRotations).
-  CorpseSpriteBase = 850       ## grey dead-soldier sprites, one per team×rot
-                               ## (850..881): a corpse must never read as a live
-                               ## soldier for a label-scanning ghost viewer.
+  CorpseSpriteBase = 1500      ## grey dead-soldier sprites, one per team×rot
+                               ## (1500..1531): a corpse must never read as a
+                               ## live soldier for a label-scanning ghost
+                               ## viewer. Moved off 850: that range overlapped
+                               ## the blue paint-blast sprites (868..871).
   FlagObjectBase = 6500        ## 6500 red flag, 6501 blue flag.
   ## Per-viewer fog of war: a second zoomable map-sized layer of translucent
   ## dark row-run sprites over the unseen 8px visibility cells. It draws over
