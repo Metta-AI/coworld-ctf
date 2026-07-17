@@ -122,7 +122,7 @@ always drawn — but moving entities are fogged:
 
 - **Four grenade pickups spawn in the arena corners** — two on each team's
   side — a fixed inset inside the border walls. Anyone may take either
-  side's pickups by **touch**; a taken corner **refills 30 seconds later**.
+  side's pickups by **touch**; a taken corner **refills 5 seconds later**.
 - **Each player carries at most one grenade.** Dying loses the carried
   grenade (nothing drops).
 - **Throwing:** hold the **C button** (input mask bit 128) to charge, release

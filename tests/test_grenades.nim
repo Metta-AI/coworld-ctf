@@ -42,7 +42,7 @@ proc chargeAndThrow(sim: var SimServer, playerIndex, holdTicks: int) =
   sim.stepWith(sim.none(), prev)
 
 suite "grenades":
-  test "corner pickups exist on both sides and refill after 30 seconds":
+  test "corner pickups exist on both sides and refill after 5 seconds":
     var game = twoTeamGame()
     check game.grenadeSpawns.len == 4
     for spawn in game.grenadeSpawns:
@@ -54,7 +54,7 @@ suite "grenades":
       if spawn.x < MapWidth div 2:
         inc left
     check left == 2
-    # Pick one up and watch the corner refill exactly 30s later.
+    # Pick one up and watch the corner refill exactly 5s later.
     game.players[0].x = game.grenadeSpawns[0].x
     game.players[0].y = game.grenadeSpawns[0].y
     let prev = game.none()

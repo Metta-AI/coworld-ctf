@@ -93,7 +93,7 @@ const
 
   GrenadeSpawnInset* = 40     ## corner grenade spawn inset from the border.
   GrenadePickupRange* = 12    ## touch radius to pick a grenade up.
-  GrenadeRespawnTicks* = 30 * ReplayFps  ## a taken corner refills after 30s.
+  GrenadeRespawnTicks* = 5 * ReplayFps  ## a taken corner refills after 5s.
   GrenadeMaxRange* = MapWidth div 5  ## max throw distance (full charge).
   GrenadeMinRange* = 30       ## a tap's distance: inside the blast radius,
                               ## so a panicked drop can hurt the thrower.
