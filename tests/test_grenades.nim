@@ -131,6 +131,18 @@ suite "grenades":
     check not game.players[1].alive
     check game.players[0].kills == 1
 
+  test "the burst is a fixed two shot windups after release, near or far":
+    for charge in [1, GrenadeChargeTicks div 2, GrenadeChargeTicks]:
+      var game = twoTeamGame()
+      game.players[0].x = 300
+      game.players[0].y = 300
+      game.players[0].aimBrads = 0
+      game.players[0].hasGrenade = true
+      game.chargeAndThrow(0, charge)
+      check game.airborneGrenades.len == 1
+      check game.airborneGrenades[0].flightTicks ==
+        GrenadeFlightMultiple * game.config.fireWindupTicks
+
   test "the blast hurts everyone in the radius, thrower and teammates too":
     var game = initCtfForTest(defaultGameConfig())
     discard game.addPlayer("red0")

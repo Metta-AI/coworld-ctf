@@ -133,7 +133,10 @@ always drawn — but moving entities are fogged:
   marks the landing spot on your own view (and is readable intel for anyone
   who can see you, like your aim line).
 - **Grenades fly over every obstacle** in a straight lob from thrower to
-  target and **explode on landing**.
+  target and **explode on landing**. The burst comes a **fixed two shot
+  windups (~0.4s) after release, near or far** — long throws just travel
+  faster. A grenade is a snap weapon: the reaction window is the same as
+  eating two aimed shots, not a mortar shell you can stroll away from.
 - **The blast hurts everyone inside its radius (~40 px): enemies, teammates,
   and the thrower alike**, removing 2 hit points each. Spawn protection
   still shields. Kills credit the thrower (except suicides).

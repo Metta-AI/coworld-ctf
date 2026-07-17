@@ -7,7 +7,7 @@ import
 
 const
   GameName* = "ctf"
-  GameVersion* = "3"
+  GameVersion* = "4"
   ReplayFps* = 24
   DefaultMapPath* = "arena"
   DarkBgPath* = "data/darkbg.aseprite"
@@ -97,7 +97,11 @@ const
   GrenadeMinRange* = 30       ## a tap's distance: inside the blast radius,
                               ## so a panicked drop can hurt the thrower.
   GrenadeChargeTicks* = 24    ## hold this long for a full-strength throw.
-  GrenadeFlightSpeed* = 6     ## airborne px per tick.
+  GrenadeFlightMultiple* = 2  ## release-to-burst = this many shot windups,
+                              ## REGARDLESS of distance: a grenade is a snap
+                              ## weapon, not a mortar shell you can stroll
+                              ## away from. (Was 6 px/tick of flight — a
+                              ## full-range lob hung airborne ~41 ticks.)
   GrenadeBlastRadius* = 40    ## everyone inside the blast takes damage.
   GrenadeDamage* = 2          ## hit points removed by one blast.
   BlastFxTicks* = 12          ## cosmetic blast flash duration in ticks.
@@ -3003,9 +3007,10 @@ proc throwGrenade(sim: var SimServer, playerIndex: int) =
       sy + int(round(uy * float(strength))),
       ArenaBorder + 2, MapHeight - ArenaBorder - 2
     )
-    flight = max(
-      1, int(round(sqrt(float(distSq(sx, sy, tx, ty))))) div GrenadeFlightSpeed
-    )
+    # Fixed fuse: the burst comes exactly GrenadeFlightMultiple shot-windups
+    # after release, near or far. The visible arc just moves faster on long
+    # throws; the threat window is constant and readable.
+    flight = max(1, GrenadeFlightMultiple * sim.config.fireWindupTicks)
   sim.airborneGrenades.add AirborneGrenade(
     sx: sx,
     sy: sy,
