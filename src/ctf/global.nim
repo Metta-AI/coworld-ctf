@@ -346,11 +346,20 @@ var
     ## toward the cold floor; each baked once and reused for the whole session.
 
 proc endzoneStripRange(gameMap: CtfMap, team: Team): tuple[x0, x1: int] =
-  ## The inclusive x span of one team's endzone column (matches
-  ## captureZoneXRange / the baked endzoneColorAt gate), full map height.
+  ## The inclusive x span of one team's endzone column, full map height. It
+  ## covers BOTH the crack-glow/capture-line column (captureZoneXRange) AND the
+  ## flag-home pedestal footprint, which pokes ~28px past the capture line on the
+  ## inner side — so the crossfade dims the pedestal disc too, with no lit sliver
+  ## left behind. Outside the glow band the hot and cold maps are identical, so
+  ## widening the strip is a visual no-op except over the pedestal.
+  let pedHalf = PedestalCoverSize div 2
   case team
-  of Red: (0, gameMap.teamHomeX(Red) + CaptureZoneWidth div 2)
-  of Blue: (gameMap.teamHomeX(Blue) - CaptureZoneWidth div 2, MapWidth - 1)
+  of Red:
+    (0, max(gameMap.teamHomeX(Red) + CaptureZoneWidth div 2,
+            gameMap.teamHomeX(Red) + pedHalf))
+  of Blue:
+    (min(gameMap.teamHomeX(Blue) - CaptureZoneWidth div 2,
+         gameMap.teamHomeX(Blue) - pedHalf), MapWidth - 1)
 
 proc endzoneStripSprite(
   sim: SimServer,

@@ -76,20 +76,27 @@ html, body {
   overflow: hidden;
 }
 
-/* The board fills the frame; broadcast_core letterboxes it to native aspect. */
+/* The board fills the frame ABOVE the reserved transport band; broadcast_core
+   letterboxes it to native aspect. --band is the bottom strip (set by relayout)
+   where the transport lives, so no chrome ever sits over play. */
 #board {
   position: absolute;
-  inset: 0;
+  left: 0;
+  /* canvas is a replaced element: `inset` won't stretch it, so size explicitly.
+     The board sits BETWEEN the reserved scorebug band (top) and transport band
+     (bottom), so no chrome ever overlaps play. */
+  top: var(--topband, 0px);
   width: 100%;
-  height: 100%;
+  height: calc(100% - var(--topband, 0px) - var(--band, 0px));
   display: block;
   image-rendering: pixelated;
 }
 
-/* A soft light pool focuses the eye on the arena (not a literal set). */
+/* A soft light pool focuses the eye on the arena (not a literal set). Matches
+   the board area so it never darkens the reserved transport band below. */
 #lightpool {
   position: absolute;
-  inset: 0;
+  inset: var(--topband, 0px) 0 var(--band, 0px) 0;
   pointer-events: none;
   background:
     radial-gradient(70% 58% at 50% 46%, transparent 40%, rgba(12, 8, 5, 0.34) 100%);
@@ -125,9 +132,19 @@ html, body {
   display: grid;
   grid-template-columns: 1fr auto 1fr;
   align-items: stretch;
+  /* Shrink the whole scorebug group (names, lives numerals, labels, squad pips,
+     clock) 20% by scaling the local unit — every measure below derives from --u,
+     so one override rescales the band without touching per-element sizes. */
+  --u: calc(1px * var(--hudscale) * 0.8);
   gap: calc(6 * var(--u));
-  padding: calc(9 * var(--u)) calc(12 * var(--u)) calc(16 * var(--u));
-  background: linear-gradient(to bottom, rgba(11, 7, 4, 0.86) 0%, rgba(11, 7, 4, 0.38) 70%, transparent 100%);
+  padding: calc(6 * var(--u)) calc(12 * var(--u)) calc(7 * var(--u));
+  /* Dedicated top band: a solid warm-dark strip that lives ABOVE the board (its
+     measured height = --topband, reserved by relayout), so the scorebug never
+     covers play — grenades/players at the top rows stay fully visible. Mirrors
+     the bottom transport band. */
+  box-sizing: border-box;
+  background: var(--stage-lo);
+  box-shadow: inset 0 calc(-1 * var(--u)) 0 rgba(242, 232, 216, 0.06);
 }
 
 .plate {
@@ -141,30 +158,38 @@ html, body {
 .plate .team-id { min-width: 0; }
 .plate .team-name {
   font-family: var(--pixfont);
-  font-size: calc(15 * var(--u));
+  font-size: calc(16 * var(--u));
   letter-spacing: 0.5px;
   line-height: 1;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  /* Inline with Lives + count on ONE row. Let the name shrink and ellipsis so a
+     long policy name never pushes the label/count off the plate; the label and
+     numeral hold their size. Full name still reads in the CARRYING line + roster. */
+  flex: 0 1 auto;
+  min-width: 0;
   max-width: calc(150 * var(--u));
   text-shadow: 0 calc(2 * var(--u)) 0 var(--ink);
 }
 .plate.red .team-name { color: var(--red); }
 .plate.blue .team-name { color: var(--blue); }
 
+/* One baseline row with the COLOR NAME innermost (toward the center clock):
+   left plate reads "32 LIVES RED", right plate reads "BLUE LIVES 32", so both
+   names flank the clock. Red reverses; blue keeps DOM order (name → label → num). */
 .plate .lives-line {
   display: flex;
   align-items: baseline;
   gap: calc(6 * var(--u));
-  margin-top: calc(4 * var(--u));
 }
-.plate.blue .lives-line { flex-direction: row-reverse; }
+.plate.red .lives-line { flex-direction: row-reverse; }
 .lives-num {
   font-family: var(--pixfont);
   font-size: calc(20 * var(--u));
   line-height: 1;
   color: var(--paper);
+  flex: none;
 }
 .lives-label {
   font-family: var(--finefont);
@@ -172,6 +197,7 @@ html, body {
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--paper-dim);
+  flex: none;
 }
 /* Squad strip: ONE pip per player (8). Lit = alive, dim = down-but-has-lives,
    hollow = eliminated. The strip is the "who's left" read; the big numeral is
@@ -179,7 +205,7 @@ html, body {
 .squad {
   display: flex;
   gap: calc(3 * var(--u));
-  margin-top: calc(6 * var(--u));
+  margin-top: calc(3 * var(--u));
 }
 .plate.blue .squad { justify-content: flex-end; }
 .squad-pip {
@@ -246,7 +272,10 @@ html, body {
 }
 .clock .time {
   font-family: var(--pixfont);
-  font-size: calc(22 * var(--u));
+  /* The clock is the centerpiece: with the name folded into the lives row the
+     side plates are one row shorter, so grow the time numeral into that freed
+     vertical space and let it anchor the band. */
+  font-size: calc(30 * var(--u));
   line-height: 1;
   color: var(--paper);
   text-shadow: 0 calc(2 * var(--u)) 0 var(--ink);
@@ -254,55 +283,21 @@ html, body {
 }
 .clock .caption {
   font-family: var(--finefont);
-  font-size: calc(7.5 * var(--u));
-  letter-spacing: 0.16em;
+  font-size: calc(8.5 * var(--u));
+  letter-spacing: 0.18em;
   text-transform: uppercase;
   color: var(--paper-dim);
   white-space: nowrap;
 }
 .clock.tiebreak-warn .time { color: var(--amber); }
 
-/* Center column stacks the clock over the capture-chase gauge in a reserved
-   slot, so the layout never jumps when a flag steal begins (L84). */
+/* Center column holds just the clock now — the capture-chase gauge was retired
+   in favor of the two bottom carry indicators. */
 .clock-col {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: calc(4 * var(--u));
-}
-.chase {
-  min-height: calc(15 * var(--u));   /* reserved: no layout jump on steal */
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: calc(3 * var(--u));
-  opacity: 0;
-  transition: opacity 180ms;
-}
-.chase.on { opacity: 1; }
-.chase-bar {
-  position: relative;
-  width: calc(150 * var(--u));
-  height: calc(6 * var(--u));
-  background: rgba(242, 232, 216, 0.14);   /* faint paper track */
-  overflow: hidden;
-}
-.chase-fill {
-  position: absolute;
-  top: 0; bottom: 0; left: 0;
-  width: 0%;
-  transition: width 180ms linear;
-}
-.chase.red .chase-fill { background: var(--red); }
-.chase.blue .chase-fill { background: var(--blue); }
-.chase.near .chase-fill { box-shadow: 0 0 calc(8 * var(--u)) var(--amber); }
-.chase-label {
-  font-family: var(--finefont);
-  font-size: calc(7 * var(--u));
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--amber);
-  white-space: nowrap;
 }
 
 /* Clock pill soft tick — the third chrome ambient (§11). A near-imperceptible
@@ -487,45 +482,19 @@ html, body {
 #transport {
   position: absolute;
   left: 0; right: 0; bottom: 0;
+  /* Sits in the reserved band BELOW the board — relayout() measures this strip's
+     natural height and reserves that much (--band) at the bottom of the frame, so
+     the scrubber and buttons never overlap play. A solid warm-dark strip, not a
+     fade — there is no arena underneath it to wash over. */
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   gap: calc(5 * var(--u));
-  padding: calc(10 * var(--u)) calc(12 * var(--u)) calc(9 * var(--u));
-  background: linear-gradient(to top, rgba(11, 7, 4, 0.9) 0%, rgba(11, 7, 4, 0.42) 68%, transparent 100%);
+  padding: calc(8 * var(--u)) calc(12 * var(--u)) calc(8 * var(--u));
+  background: var(--stage-lo);
+  box-shadow: inset 0 calc(1 * var(--u)) 0 rgba(242, 232, 216, 0.06);
 }
 #transport.disabled { opacity: 0.35; pointer-events: none; }
-/* Collapsed drawer: slide the whole transport down past the bottom edge so the
-   board is full-bleed to the frame. A transform (not display:none) keeps the
-   scrubber geometry live, so the reopen animation and any in-flight seek stay
-   coherent; pointer-events off so the hidden strip never eats map clicks. */
-#transport {
-  transition: transform 0.18s ease, opacity 0.18s ease;
-}
-#transport.collapsed {
-  transform: translateY(110%);
-  opacity: 0;
-  pointer-events: none;
-}
-/* Reopen tab — hidden while the transport is open, a thin bottom-edge handle
-   once collapsed. Warm ink-on-paper like the rest of the chrome, never a box. */
-#btn-drawer-show {
-  position: absolute;
-  left: 50%;
-  bottom: 0;
-  transform: translateX(-50%);
-  display: none;
-  font-family: var(--finefont);
-  font-size: calc(6 * var(--u));
-  letter-spacing: 0.14em;
-  color: var(--paper-dim);
-  background: linear-gradient(to top, rgba(11, 7, 4, 0.82), transparent);
-  border: none;
-  padding: calc(3 * var(--u)) calc(14 * var(--u)) calc(2 * var(--u));
-  cursor: pointer;
-  z-index: 4;
-}
-#btn-drawer-show.on { display: block; }
-#btn-drawer-show:hover { color: var(--paper); }
 
 /* scrubber: click-to-seek track (top) over a full-timeline momentum graph.
    The seek track and the momentum graph share the SAME 0→maxTicks x-axis, so
@@ -741,7 +710,6 @@ html, body {
 /* very small floor (≤620px stage): tighten reserves */
 #stage.tiny #killfeed { min-height: calc(3 * 20 * var(--u)); width: calc(190 * var(--u)); }
 #stage.tiny .plate .squad-pip { width: calc(6 * var(--u)); height: calc(6 * var(--u)); }
-#stage.tiny .chase-bar { width: calc(96 * var(--u)); }
 
 @media (prefers-reduced-motion: reduce) {
   #grain, .clock.amb { animation: none; }
@@ -762,10 +730,11 @@ html, body {
       <div class="plate red" data-team="red">
         <div class="flagicon" id="flag-red"></div>
         <div class="team-id">
-          <div class="team-name" id="name-red">RED</div>
+          <!-- One inline row: NAME · Lives · count (e.g. "RED Lives 32"). -->
           <div class="lives-line">
-            <span class="lives-num" id="lives-red">—</span>
+            <span class="team-name" id="name-red">RED</span>
             <span class="lives-label">Lives</span>
+            <span class="lives-num" id="lives-red">—</span>
           </div>
           <!-- one pip per player (8): alive / down / eliminated. The roster IS
                the counter (Valorant/R6/Apex). Clickable → POV lens. -->
@@ -778,22 +747,16 @@ html, body {
           <div class="time" id="clock-time">0:00</div>
           <div class="caption" id="clock-caption">Warming up</div>
         </div>
-        <!-- capture-chase gauge: appears only while a flag is carried; fills
-             toward the defended home as the carrier nears the cap (the flag
-             run made watchable — the #1 CTF drama, prog/863px). -->
-        <div class="chase" id="chase">
-          <div class="chase-bar"><div class="chase-fill" id="chase-fill"></div></div>
-          <div class="chase-label" id="chase-label"></div>
-        </div>
       </div>
 
       <div class="plate blue" data-team="blue">
         <div class="flagicon" id="flag-blue"></div>
         <div class="team-id">
-          <div class="team-name" id="name-blue">BLUE</div>
+          <!-- One inline row, mirrored: count · Lives · NAME ("32 Lives BLUE"). -->
           <div class="lives-line">
-            <span class="lives-num" id="lives-blue">—</span>
+            <span class="team-name" id="name-blue">BLUE</span>
             <span class="lives-label">Lives</span>
+            <span class="lives-num" id="lives-blue">—</span>
           </div>
           <div class="squad" id="squad-blue"></div>
         </div>
@@ -813,6 +776,19 @@ html, body {
     <div id="killfeed"></div>
 
     <div id="transport">
+      <!-- Buttons on top, scrubber/timeline below (the transport sits in its own
+           reserved band under the board, so nothing here overlaps play). -->
+      <div class="tbar">
+        <button class="tbtn" id="btn-restart" title="Restart (,)">⟲</button>
+        <button class="tbtn" id="btn-back" title="Back one tick (b)">◂|</button>
+        <button class="tbtn" id="btn-play" title="Play / pause (space)">▶</button>
+        <button class="tbtn" id="btn-fwd" title="Skip +5s (.)">+5s</button>
+        <button class="tbtn" id="btn-end" title="Jump to end (e)">|▸</button>
+        <button class="tbtn" id="btn-loop" title="Loop (r)">↻</button>
+        <span class="tick-clock" id="tick-clock">0 / 0</span>
+        <span class="tsep"></span>
+        <div class="speedchips" id="speedchips"></div>
+      </div>
       <div class="scrub" id="scrub">
         <!-- momentum graph sits UNDERNEATH the seek track, on the SAME tick/mx
              axis, so the playhead crosses it 1:1 with the timeline -->
@@ -823,24 +799,7 @@ html, body {
         <div class="scrub-fill" id="scrub-fill"></div>
         <div class="scrub-head" id="scrub-head"></div>
       </div>
-      <div class="tbar">
-        <button class="tbtn" id="btn-restart" title="Restart (,)">⟲</button>
-        <button class="tbtn" id="btn-back" title="Back one tick (b)">◂|</button>
-        <button class="tbtn" id="btn-play" title="Play / pause (space)">▶</button>
-        <button class="tbtn" id="btn-fwd" title="Skip +5s (.)">+5s</button>
-        <button class="tbtn" id="btn-end" title="Jump to end (e)">|▸</button>
-        <button class="tbtn" id="btn-loop" title="Loop (r)">↻</button>
-        <button class="tbtn" id="btn-drawer" title="Hide timeline (h)">▾</button>
-        <span class="tick-clock" id="tick-clock">0 / 0</span>
-        <span class="tsep"></span>
-        <div class="speedchips" id="speedchips"></div>
-      </div>
     </div>
-
-    <!-- Drawer handle: when the transport is hidden (to see the bottom of the
-         map full-bleed), this is the only chrome left — a thin centered tab at
-         the very bottom edge that slides the timeline back up. -->
-    <button id="btn-drawer-show" title="Show timeline (h)">▴ TIMELINE</button>
 
     <div id="endcard">
       <div class="verdict-badge" id="ec-badge">GAME OVER</div>
@@ -1780,11 +1739,6 @@ html, body {
   }
 
   // ---------- scorebug ----------
-  // Full pedestal-to-pedestal span (px) a carried flag crosses to score; the
-  // capture-chase gauge normalizes teamFlagProgress against it. Engine-derived
-  // (sim.nim teamHomeX: Red 186, Blue 1049 on the 1235-wide arena).
-  var CHASE_SPAN = 863;
-
   // One pip per PLAYER (8), keyed by stable join slot: lit = alive, dim = down
   // but has lives left, hollow = eliminated. The strip is the "who's left"
   // read (the roster IS the counter); the numeral is the exact lives count.
@@ -1835,7 +1789,6 @@ html, body {
 
     updateFlag('flag-red', 'red', red, s);
     updateFlag('flag-blue', 'blue', blue, s);
-    renderChase(s, red, blue);
 
     // leader pulse when lead >= 3
     var rp = document.querySelector('.plate.red');
@@ -1844,43 +1797,34 @@ html, body {
     bp.classList.toggle('leader', bl - rl >= 3 && s.ph === 'playing');
   }
 
-  // Capture-chase gauge: the flag run made watchable. Within the `red` state
-  // object, `carrier` carries the RED flag (a Blue attacker) and `prog` is how
-  // far that red flag has advanced toward Blue's home — so each flag's run
-  // pairs its OWN carrier + prog, and the attacker is the enemy of the flag's
-  // team. Visible while the flag is TAKEN (carrier ≥ 0), so the gauge appears
-  // at the instant of the steal; the reserved slot means no jump (L84).
-  function renderChase(s, red, blue) {
-    var chase = $('chase');
-    var runs = [];
-    if (red.flag === 'taken' && red.carrier >= 0)
-      runs.push({ prog: red.prog || 0, carrier: red.carrier, attacker: 'blue' });
-    if (blue.flag === 'taken' && blue.carrier >= 0)
-      runs.push({ prog: blue.prog || 0, carrier: blue.carrier, attacker: 'red' });
-    if (!runs.length || s.ph !== 'playing') {
-      chase.classList.remove('on', 'near', 'red', 'blue');
-      return;
-    }
-    // If both flags are out, feature the run nearer to scoring.
-    var run = runs.sort(function (a, b) { return b.prog - a.prog; })[0];
-    var frac = Math.max(0, Math.min(1, run.prog / CHASE_SPAN));
-    chase.classList.add('on');
-    chase.classList.toggle('red', run.attacker === 'red');
-    chase.classList.toggle('blue', run.attacker === 'blue');
-    chase.classList.toggle('near', frac >= 0.72);
-    $('chase-fill').style.width = (frac * 100) + '%';
-    var who = shortName(rosterName(s, run.carrier));
-    $('chase-label').textContent = who + (frac >= 0.72 ? ' — CLOSING!' : ' carrying');
-  }
-
   function teamName(s, team, fallback) {
+    // The scorebug headline is the POLICY name, not the color (the plate color +
+    // board already say which side is which). In a hosted league every player on
+    // a side is the SAME policy, so the whole team shares one name — show it.
+    // In local self-play each baseline bot has a distinct generated name
+    // (Player1, Player2, …) with no shared identity, so fall back to the color
+    // label rather than pinning the whole team to one arbitrary bot.
     if (!s.roster) return fallback;
+    var name = null, mixed = false;
     for (var i = 0; i < s.roster.length; i++) {
-      if (s.roster[i].team === team) {
-        return (fallback === 'RED' ? 'RED' : 'BLUE'); // team label, not player name
-      }
+      var p = s.roster[i];
+      if (p.team !== team) continue;
+      var nm = String(p.name || '');
+      if (name === null) name = nm;
+      else if (nm !== name) { mixed = true; break; }
     }
-    return fallback;
+    if (name === null || mixed || name === '') return fallback;
+    return teamHeadline(name);
+  }
+  function teamHeadline(n) {
+    // Format a policy identity for the scorebug headline: drop any host:port
+    // suffix, restore the spaces the server encodes as underscores, and let the
+    // plate's CSS ellipsis clip anything still too wide (no hard char cut, so a
+    // full name reads whole when it fits).
+    n = String(n || '');
+    var at = n.indexOf('@'); if (at > 0) n = n.slice(0, at);
+    n = n.replace(/_/g, ' ').trim();
+    return (n || '?').toUpperCase();
   }
   function setName(id, txt) { var el = $(id); if (el.textContent !== txt) el.textContent = txt; }
 
@@ -2481,16 +2425,6 @@ html, body {
   $('btn-end').addEventListener('click', function () { send('e'); });
   $('btn-loop').addEventListener('click', function () { send('r'); });
 
-  // Timeline drawer: collapse the transport out of view so the bottom of the
-  // map is fully visible (the board already renders full-height behind it).
-  // Purely local chrome — no server command, no replay-state change.
-  function setDrawer(open) {
-    $('transport').classList.toggle('collapsed', !open);
-    $('btn-drawer-show').classList.toggle('on', !open);
-  }
-  $('btn-drawer').addEventListener('click', function () { setDrawer(false); });
-  $('btn-drawer-show').addEventListener('click', function () { setDrawer(true); });
-
   // click-to-seek: map x-fraction to a tick and send s:<tick>
   $('scrub').addEventListener('click', function (ev) {
     if (!lastState || !lastState.en) return;
@@ -2520,7 +2454,6 @@ html, body {
     else if (k === 'b') send('b');
     else if (k === 'e') send('e');
     else if (k === 'r') send('r');
-    else if (k === 'h' || k === 'H') setDrawer($('transport').classList.contains('collapsed'));
     else if (k === '+' || k === '=') send('+');
     else if (k === '-' || k === '_') send('-');
     else if (k >= '1' && k <= '9') send(k);
@@ -2558,27 +2491,41 @@ html, body {
   function relayout() {
     var boxW = viewport.clientWidth, boxH = viewport.clientHeight;
     if (!boxW || !boxH) return;
-    // Fit the board aspect into the box (contain): the larger dimension is
-    // capped by whichever axis binds first, and the warm #120d09 letterbox
-    // fills the remainder (never pure #000).
-    var stageW, stageH;
-    if (boxW / boxH > BOARD_ASPECT) {
-      stageH = boxH; stageW = Math.round(boxH * BOARD_ASPECT);
-    } else {
-      stageW = boxW; stageH = Math.round(boxW / BOARD_ASPECT);
+    // The board region (game action) fits the board aspect into the box BETWEEN a
+    // reserved top band (the scorebug) and bottom band (the transport), so neither
+    // ever sits over play. Each band's pixel height depends on --hudscale (→ board
+    // width) and the board fit depends on the bands, so iterate twice — the bands
+    // are a small fraction of the height, so it converges immediately.
+    var scorebug = document.getElementById('scorebug');
+    var transport = document.getElementById('transport');
+    var root = document.documentElement;
+    var topBand = parseFloat(getComputedStyle(root).getPropertyValue('--topband')) || 0;
+    var band = parseFloat(getComputedStyle(root).getPropertyValue('--band')) || 0;
+    var stageW = 0, stageH = 0;
+    for (var pass = 0; pass < 2; pass++) {
+      var availH = Math.max(1, boxH - topBand - band);
+      var boardW, boardH;
+      if (boxW / availH > BOARD_ASPECT) {
+        boardH = availH; boardW = Math.round(availH * BOARD_ASPECT);
+      } else {
+        boardW = boxW; boardH = Math.round(boxW / BOARD_ASPECT);
+      }
+      stageW = boardW; stageH = boardH + topBand + band;
+      stage.style.width = stageW + 'px';
+      stage.style.height = stageH + 'px';
+      // One scale for the whole composition: chrome was authored against a
+      // ~760px-wide reference board, so --hudscale is the board's on-screen width
+      // over that reference (clamped so a huge featured embed doesn't bloat the
+      // chrome and a tiny 360px floor stays legible).
+      var scale = Math.max(0.5, Math.min(1.6, boardW / 760));
+      root.style.setProperty('--hudscale', scale.toFixed(3));
+      stage.classList.toggle('tiny', boardW <= 620);
+      // Measure each band's natural height → reserve exactly that.
+      topBand = scorebug ? scorebug.offsetHeight : 0;
+      band = transport ? transport.offsetHeight : 0;
+      root.style.setProperty('--topband', topBand + 'px');
+      root.style.setProperty('--band', band + 'px');
     }
-    stage.style.width = stageW + 'px';
-    stage.style.height = stageH + 'px';
-    // One scale for the whole composition: chrome was authored against a
-    // ~760px-wide reference board, so --hudscale is simply the stage's on-screen
-    // width over that reference (clamped so a huge featured embed doesn't bloat
-    // the chrome and a tiny 360px floor stays legible). Everything — board and
-    // every overlay — now shares this single scale, pinned in stage-space.
-    var scale = Math.max(0.5, Math.min(1.6, stageW / 760));
-    document.documentElement.style.setProperty('--hudscale', scale.toFixed(3));
-    // A narrow embed still holds the same composition; only the chrome density
-    // eases (kept as a hook for the 640×360 floor, no reflow of the layout).
-    stage.classList.toggle('tiny', stageW <= 620);
     core.setViewportFit();
   }
   var ro = new ResizeObserver(relayout);

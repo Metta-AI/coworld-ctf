@@ -89,6 +89,7 @@ const
 
   FlagPickupRange* = 12       ## touch radius to steal the enemy flag.
   CaptureZoneWidth* = 40      ## width of each home-edge capture zone.
+  PedestalCoverSize* = 96     ## px footprint the flag-home pedestal art covers.
 
   GrenadeSpawnInset* = 40     ## corner grenade spawn inset from the border.
   GrenadePickupRange* = 12    ## touch radius to pick a grenade up.
@@ -1065,6 +1066,28 @@ proc tileSample(tex: Image, x, y: int): ColorRGBA =
   ## Samples a seamless texture tiled across the arena (opaque source).
   tex.unsafe[x mod tex.width, y mod tex.height].rgba
 
+const PedestalDimFactor = 0.34
+  ## How dark the powered-down (cold) pedestal disc goes: each lit pixel's RGB is
+  ## scaled to this fraction so the disc reads as an unlit socket, not a bright
+  ## team light, when the heart has been carried away. Alpha is untouched so the
+  ## textured floor still shows through the same silhouette.
+
+proc pedestalDimmed(spr: Image): Image =
+  ## Returns a copy of a pedestal sprite with its RGB scaled down (alpha kept), so
+  ## the "cold" map shows the pedestal powered down. The broadcast glow-fade
+  ## crossfades the lit pedestal toward this, so the disc dims when the heart is
+  ## taken and re-lights when it comes home. Pixie stores premultiplied alpha;
+  ## scaling RGB uniformly keeps the premultiplication valid.
+  result = newImage(spr.width, spr.height)
+  for y in 0 ..< spr.height:
+    for x in 0 ..< spr.width:
+      let p = spr[x, y]
+      result[x, y] = rgbx(
+        uint8(p.r.float * PedestalDimFactor),
+        uint8(p.g.float * PedestalDimFactor),
+        uint8(p.b.float * PedestalDimFactor),
+        p.a)
+
 proc blitCover(dst, spr: Image, cx, cy, size: int) =
   ## Alpha-composites a cover-object sprite onto the board, centered on its
   ## collision shape and scaled to the shape's footprint (plus a little for the
@@ -1319,12 +1342,17 @@ proc loadMapLayers*(gameMap: CtfMap, withEndzoneGlow = true):
       result.walkImage[x, y] = if wall: clear else: opaque
       result.wallImage[x, y] = if wall: opaque else: clear
   ## Carved team pedestal under each flag home (walkable — sits inside the
-  ## protected spawn pocket; cosmetic only, collision masks untouched).
+  ## protected spawn pocket; cosmetic only, collision masks untouched). With the
+  ## glow OFF this is the "cold" map: the pedestal art is dimmed to a powered-down
+  ## disc (see pedestalDimmed) so the broadcast crossfade dims the disc along with
+  ## the floor glow when the heart is gone — otherwise a hot==cold pedestal never
+  ## fades. The RGB/hot map (withEndzoneGlow) keeps the pedestal at full light.
   for team in Team:
     let
       home = gameMap.flagHome(team)
-      spr = if team == Red: pedRedSpr else: pedBlueSpr
-    blitCover(result.mapImage, spr, home.x, home.y, 96)
+      full = if team == Red: pedRedSpr else: pedBlueSpr
+      spr = if withEndzoneGlow: full else: full.pedestalDimmed()
+    blitCover(result.mapImage, spr, home.x, home.y, PedestalCoverSize)
 
 proc coldEndzoneMapRgba*(gameMap: CtfMap): seq[uint8] =
   ## Builds the map RGBA with the endzone crack-glow and capture line OMITTED —
