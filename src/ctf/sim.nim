@@ -7,7 +7,7 @@ import
 
 const
   GameName* = "ctf"
-  GameVersion* = "5"
+  GameVersion* = "6"
   ReplayFps* = 24
   DefaultMapPath* = "arena"
   DarkBgPath* = "data/darkbg.aseprite"
@@ -109,6 +109,10 @@ const
 
   MedKitPickupRange* = 12     ## touch radius to pick a med kit up.
   MedKitRespawnTicks* = 30 * ReplayFps  ## a taken kit refills after 30s.
+
+  ShieldPickupRange* = 12     ## touch radius to pick a shield up.
+  ShieldRespawnTicks* = 30 * ReplayFps  ## a taken endzone shield refills after 30s.
+  ShieldHitPoints* = 6        ## hit points a shield carrier has while carrying.
 
   ShoutMaxChars* = 10         ## a shout is at most this many characters.
   ShoutRange* = MapWidth div 5  ## audible within 20% of the screen width.
@@ -324,6 +328,7 @@ type
     spawnProtect*: int
     carryingFlag*: bool
     hasGrenade*: bool          ## each player carries at most one grenade.
+    hasShield*: bool           ## carrying an endzone shield: 6 hp, can't shoot.
     throwCharge*: int          ## ticks the throw button has been held.
     lastShoutTick*: int        ## tick of this player's latest shout, -1 = never.
     joinOrder*: int
@@ -431,6 +436,7 @@ type
     recentShouts*: seq[Shout]  ## live shouts; observable state, in gameHash.
     grenadeSpawns*: array[4, PickupSpawn]
     medKitSpawns*: array[2, PickupSpawn]
+    shieldSpawns*: array[2, PickupSpawn]  ## one shield per team endzone.
     airborneGrenades*: seq[AirborneGrenade]
     gameStartTick*: int
     startWaitTimer*: int
@@ -582,6 +588,12 @@ proc loadMedKitSprite*(size: int): seq[uint8] =
   ## cross, matching the bold-outline painted item style (heart gem, paint
   ## bomb). Hard alpha edge keeps the outline crisp on the floor.
   loadRgbaSprite("data/medkit.png", size, alphaCutoff = 128'u8)
+
+proc loadShieldSprite*(size: int): seq[uint8] =
+  ## The endzone protective pickup: a chunky bold-outline heater shield in the
+  ## same painted-item style as the med kit and paint bomb. Hard alpha edge
+  ## keeps the outline crisp on the floor.
+  loadRgbaSprite("data/shield.png", size, alphaCutoff = 128'u8)
 
 proc loadPaintBombSprite*(size: int): seq[uint8] =
   ## The thrown grenade, a kid-friendly dungeon-crawler alchemical paint-bomb orb
@@ -2001,6 +2013,7 @@ proc gameHash*(sim: SimServer): uint64 =
     result.mixHashInt(player.spawnProtect)
     result.mixHashBool(player.carryingFlag)
     result.mixHashBool(player.hasGrenade)
+    result.mixHashBool(player.hasShield)
     result.mixHashInt(player.throwCharge)
     result.mixHashInt(player.lastShoutTick)
     result.mixHashInt(player.joinOrder)
@@ -2013,6 +2026,9 @@ proc gameHash*(sim: SimServer): uint64 =
     result.mixHashBool(spawn.present)
     result.mixHashInt(spawn.respawnAt)
   for spawn in sim.medKitSpawns:
+    result.mixHashBool(spawn.present)
+    result.mixHashInt(spawn.respawnAt)
+  for spawn in sim.shieldSpawns:
     result.mixHashBool(spawn.present)
     result.mixHashInt(spawn.respawnAt)
   result.mixHashInt(sim.airborneGrenades.len)
@@ -2729,6 +2745,23 @@ proc resetMedKits*(sim: var SimServer) =
       x: spot.x, y: spot.y, present: true, respawnAt: 0
     )
 
+proc resetShields*(sim: var SimServer) =
+  ## Places one shield in each team's home endzone (the capture column),
+  ## offset off the flag pedestal onto walkable floor, and refills both.
+  let
+    endzoneY = sim.gameMap.center.y - MapHeight div 4
+    targets = [
+      (sim.teamHomeX(Red), endzoneY),
+      (sim.teamHomeX(Blue), endzoneY)
+    ]
+  for i in 0 ..< sim.shieldSpawns.len:
+    let spot = sim.nearestWalkable(targets[i][0], targets[i][1])
+    sim.shieldSpawns[i] = PickupSpawn(
+      x: spot.x, y: spot.y, present: true, respawnAt: 0
+    )
+  for i in 0 ..< sim.players.len:
+    sim.players[i].hasShield = false
+
 proc startGame*(sim: var SimServer) =
   sim.logGameEvent("game started: players=" & $sim.players.len)
   sim.recentShots = @[]
@@ -2749,12 +2782,14 @@ proc startGame*(sim: var SimServer) =
     sim.players[i].flipH = sim.players[i].team == Blue
     sim.players[i].spawnProtect = sim.config.spawnProtectTicks
     sim.players[i].carryingFlag = false
+    sim.players[i].hasShield = false
     sim.players[i].kills = 0
     sim.players[i].deaths = 0
     sim.players[i].captures = 0
     sim.recordGameTeamAssigned(i)
   sim.resetFlags()
   sim.resetGrenades()
+  sim.resetShields()
   sim.phase = Playing
   sim.gameStartTick = sim.tickCount
   sim.timeLimitReached = false
@@ -2942,6 +2977,7 @@ proc killPlayer(sim: var SimServer, targetIndex, killerIndex: int) =
   sim.players[targetIndex].fireWindup = 0
   sim.players[targetIndex].windupBrads = -1
   sim.players[targetIndex].hasGrenade = false
+  sim.players[targetIndex].hasShield = false
   sim.players[targetIndex].throwCharge = 0
   for team in Team:
     if sim.flags[team].carrier == targetIndex:
@@ -2975,7 +3011,7 @@ proc canFire(sim: SimServer, shooterIndex: int): bool =
   if shooterIndex < 0 or shooterIndex >= sim.players.len:
     return false
   let shooter = sim.players[shooterIndex]
-  shooter.alive and shooter.fireCooldown <= 0
+  shooter.alive and shooter.fireCooldown <= 0 and not shooter.hasShield
 
 proc fireDirection(sim: SimServer, shooterIndex: int): tuple[x, y: float] =
   ## Returns the unit shot direction: the aim angle locked at the trigger
@@ -3290,6 +3326,35 @@ proc tryPickupMedKits*(sim: var SimServer, playerIndex: int) =
       sim.logGameEvent(
         playerColorText(sim.players[playerIndex].color) &
           " picked up a med kit"
+      )
+      return
+
+proc updateShields*(sim: var SimServer) =
+  ## Refills endzone shields whose respawn timer elapsed.
+  for spawn in sim.shieldSpawns.mitems:
+    if not spawn.present and sim.tickCount >= spawn.respawnAt:
+      spawn.present = true
+
+proc tryPickupShields*(sim: var SimServer, playerIndex: int) =
+  ## Lets a living player pick up an endzone shield by touch (one carried
+  ## shield max; either team may take either endzone's shield). Carrying a
+  ## shield raises the player to ShieldHitPoints but bars them from shooting;
+  ## a taken shield refills after ShieldRespawnTicks.
+  if not sim.players[playerIndex].alive or sim.players[playerIndex].hasShield:
+    return
+  let
+    px = sim.players[playerIndex].x + CollisionW div 2
+    py = sim.players[playerIndex].y + CollisionH div 2
+    rangeSq = ShieldPickupRange * ShieldPickupRange
+  for spawn in sim.shieldSpawns.mitems:
+    if spawn.present and distSq(px, py, spawn.x, spawn.y) <= rangeSq:
+      spawn.present = false
+      spawn.respawnAt = sim.tickCount + ShieldRespawnTicks
+      sim.players[playerIndex].hasShield = true
+      sim.players[playerIndex].hp = ShieldHitPoints
+      sim.logGameEvent(
+        playerColorText(sim.players[playerIndex].color) &
+          " picked up a shield"
       )
       return
 
@@ -3928,6 +3993,7 @@ proc initSimServer*(config: GameConfig): SimServer =
   result.resetFlags()
   result.resetGrenades()
   result.resetMedKits()
+  result.resetShields()
   result.lastLobbyPlayersLogged = -1
   result.lastLobbyNeededLogged = -1
   result.lastLobbySecondsLogged = -1
@@ -3938,6 +4004,7 @@ proc resetToLobby*(sim: var SimServer) =
   sim.fovCaches = @[]
   sim.resetGrenades()
   sim.resetMedKits()
+  sim.resetShields()
   sim.recentBlasts = @[]
   sim.recentShouts = @[]
   sim.recentShots = @[]
@@ -4051,11 +4118,13 @@ proc step*(
   sim.resolveSimultaneousFire(firing)
   sim.updateGrenades()
   sim.updateMedKits()
+  sim.updateShields()
 
   for playerIndex in 0 ..< sim.players.len:
     sim.tryPickupFlags(playerIndex)
     sim.tryPickupGrenades(playerIndex)
     sim.tryPickupMedKits(playerIndex)
+    sim.tryPickupShields(playerIndex)
   sim.updateFlags()
   sim.respawnPlayers()
 

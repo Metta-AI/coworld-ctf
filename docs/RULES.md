@@ -179,6 +179,22 @@ always drawn — but moving entities are fogged:
 - **Med kits never block anything** — not movement, not bullets, not
   line of sight. They are floor pickups, not cover.
 
+## Shields
+
+- **One shield sits in each team's home endzone** (the capture column),
+  nudged to the nearest walkable floor.
+- **Touch a shield to pick it up** — either team may take either endzone's
+  shield, and a player carries at most one.
+- **While carrying a shield you have 6 hit points but cannot shoot.**
+  Picking one up sets your hit points to 6; the trigger does nothing until
+  you lose the shield. You can still move, carry the heart, and throw
+  grenades.
+- **A shield is lost when you die** and is not dropped on the ground; the
+  taken endzone shield **respawns 30 seconds later** in the same spot.
+- Observation label: `shield`. Shields are fog-gated like the med kits and
+  grenade pickups: you see one only where you have vision, and a small
+  marker floats over a shield carrier you can see.
+
 ## Lives & respawn
 
 - Each player has a fixed number of **lives**.
