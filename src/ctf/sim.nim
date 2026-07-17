@@ -333,6 +333,10 @@ type
     kills*: int
     deaths*: int
     captures*: int
+    shotsFired*: int           ## shots this player released; analysis-only,
+                               ## excluded from gameHash (see gameHash).
+    shotsHit*: int             ## released shots that connected with an enemy;
+                               ## analysis-only, excluded from gameHash.
 
   PlayerFov* = object
     ## One player's cached fog-of-war visibility grid (FovGridW x FovGridH
@@ -2752,6 +2756,8 @@ proc startGame*(sim: var SimServer) =
     sim.players[i].kills = 0
     sim.players[i].deaths = 0
     sim.players[i].captures = 0
+    sim.players[i].shotsFired = 0
+    sim.players[i].shotsHit = 0
     sim.recordGameTeamAssigned(i)
   sim.resetFlags()
   sim.resetGrenades()
@@ -3034,12 +3040,18 @@ proc applyFire(sim: var SimServer, shooterIndex, targetIndex: int) =
     sy = shooter.y + CollisionH div 2
   sim.players[shooterIndex].fireCooldown = sim.config.fireCooldownTicks
   sim.players[shooterIndex].windupBrads = -1
+  # Accuracy bookkeeping (analysis-only, excluded from gameHash): every call
+  # here is one released shot; a shot that locked onto a live enemy on the ray
+  # (targetIndex >= 0) is on-target, so it counts as a hit even in the rare
+  # tick where the victim already died to a simultaneous shot.
+  inc sim.players[shooterIndex].shotsFired
   # Record a cosmetic tracer for the shot (never enters gameHash). It ends at
   # the victim, so a bullet visibly never travels past its first hit.
   var
     ex = sx
     ey = sy
   if targetIndex >= 0:
+    inc sim.players[shooterIndex].shotsHit
     ex = sim.players[targetIndex].x + CollisionW div 2
     ey = sim.players[targetIndex].y + CollisionH div 2
   else:
