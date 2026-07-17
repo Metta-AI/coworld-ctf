@@ -59,6 +59,19 @@ const
   # self-contained file (font + core JS inlined). Live/player/global paths are
   # untouched and keep serving the bitworld client (§14 live column).
   EmbeddedBroadcastReplayHtml = staticRead("../../client/replay_broadcast.html")
+  # The League Replayer shell: a walled stone-pit viewer that EMBEDS the broadcast
+  # client (via ?embed=1) as the lit pit floor and mounts the scorebug, KDA tables,
+  # division standings and transport as flat panels over the dungeon walls. Served
+  # at the bare replay route; embed=1 falls through to the plain broadcast client.
+  EmbeddedLeagueReplayerHtml = staticRead("../../client/league_replayer.html")
+  # Dungeon-wall textures (nanobanana generations) served as static assets so the
+  # shell HTML stays small and editable. Wide for top/bottom, tall for side walls.
+  # Opaque stone, no alpha → JPEG (q82) keeps each well under any committed sprite.
+  WallTextureHorizontal = staticRead("../../client/art/walls/wall_h.jpg")
+  WallTextureVertical = staticRead("../../client/art/walls/wall_v.jpg")
+  LeagueReplayerPath = "/client/league"
+  WallTextureHorizontalPath = "/client/art/walls/wall_h.jpg"
+  WallTextureVerticalPath = "/client/art/walls/wall_v.jpg"
   # Hosted replay closes any WS frame larger than 1 MiB (sends 1009). We chunk
   # outbound sprite packets under a margin below that so no single frame trips it.
   MaxWsFrameBytes = 900_000
@@ -549,9 +562,20 @@ proc httpHandler(request: Request) =
           withLock appState.lock:
             appState.kickRequests.add(identity)
         request.respondControl(202, "kick queued\n")
+  elif request.path in [WallTextureHorizontalPath, WallTextureVerticalPath] and
+      request.httpMethod == "GET":
+    # Dungeon-wall textures for the League Replayer shell (static JPEG assets).
+    var texHeaders: HttpHeaders
+    texHeaders["Content-Type"] = "image/jpeg"
+    texHeaders["Cache-Control"] = "public, max-age=3600"
+    if request.path == WallTextureHorizontalPath:
+      request.respond(200, texHeaders, WallTextureHorizontal)
+    else:
+      request.respond(200, texHeaders, WallTextureVertical)
   elif request.path in [
       bitworldClient.ReplayClientRoute,
-      bitworldClient.CoworldReplayClientRoute
+      bitworldClient.CoworldReplayClientRoute,
+      LeagueReplayerPath
     ] and request.httpMethod == "GET":
     if replayServerModeEnabled():
       let replayRequest = request.replayRequestUriOrPending()
@@ -565,12 +589,18 @@ proc httpHandler(request: Request) =
         {.gcsafe.}:
           withLock appState.lock:
             appState.pendingReplayUri = replayRequest.uri
-    # Serve the designed broadcast client for the replay routes (ELEVATE-BY-
-    # REBUILD): our self-contained HTML instead of bitworld's generic client.
+    # League Replayer: the bare replay routes (and /client/league) serve the
+    # walled-pit SHELL, which embeds the board via ?embed=1. The embed request
+    # falls through to the plain designed broadcast client for the iframe — one
+    # websocket, perfect tick sync. (ELEVATE-BY-REBUILD: our HTML, not bitworld's.)
     var replayHeaders: HttpHeaders
     replayHeaders["Content-Type"] = "text/html; charset=utf-8"
     replayHeaders["Cache-Control"] = "no-cache"
-    request.respond(200, replayHeaders, EmbeddedBroadcastReplayHtml)
+    let embed = request.queryParams.getOrDefault("embed", "") == "1"
+    if embed:
+      request.respond(200, replayHeaders, EmbeddedBroadcastReplayHtml)
+    else:
+      request.respond(200, replayHeaders, EmbeddedLeagueReplayerHtml)
   elif bitworldClient.serveClientRoute(
     request,
     bitworldClient.GlobalClientRoute

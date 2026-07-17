@@ -33,5 +33,7 @@ client/screenshots/
 players/modulabot/modulabot
 players/modulabot/test/parity
 
-# nanobanana art generation scratch (not shipped)
-art/
+# nanobanana art generation scratch (not shipped). Anchored to the repo root so
+# it catches only /art/gen — the League Replayer's shipped dungeon-wall textures
+# under client/art/walls/ ARE part of the build (staticRead into the server).
+/art/
