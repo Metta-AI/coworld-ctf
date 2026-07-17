@@ -7,7 +7,7 @@ import
 
 const
   GameName* = "ctf"
-  GameVersion* = "4"
+  GameVersion* = "5"
   ReplayFps* = 24
   DefaultMapPath* = "arena"
   DarkBgPath* = "data/darkbg.aseprite"
@@ -105,6 +105,9 @@ const
   GrenadeBlastRadius* = 40    ## everyone inside the blast takes damage.
   GrenadeDamage* = 2          ## hit points removed by one blast.
   BlastFxTicks* = 12          ## cosmetic blast flash duration in ticks.
+
+  MedKitPickupRange* = 12     ## touch radius to pick a med kit up.
+  MedKitRespawnTicks* = 30 * ReplayFps  ## a taken kit refills after 30s.
 
   ShoutMaxChars* = 10         ## a shout is at most this many characters.
   ShoutRange* = MapWidth div 5  ## audible within 20% of the screen width.
@@ -380,8 +383,8 @@ type
     tick*: int                 ## when it was shouted.
     x*, y*: int                ## shouter center at shout time.
 
-  GrenadeSpawn* = object
-    ## One corner grenade pickup point.
+  PickupSpawn* = object
+    ## One fixed pickup point: corner grenades and center med kits.
     x*, y*: int
     present*: bool
     respawnAt*: int            ## tick the pickup refills (when not present).
@@ -425,7 +428,8 @@ type
     recentBlasts*: seq[BlastFx]  ## cosmetic grenade blasts; excluded from gameHash.
     damagePops*: seq[DamageFx]  ## cosmetic floating "-N" damage numbers; excluded from gameHash.
     recentShouts*: seq[Shout]  ## live shouts; observable state, in gameHash.
-    grenadeSpawns*: array[4, GrenadeSpawn]
+    grenadeSpawns*: array[4, PickupSpawn]
+    medKitSpawns*: array[2, PickupSpawn]
     airborneGrenades*: seq[AirborneGrenade]
     gameStartTick*: int
     startWaitTimer*: int
@@ -571,6 +575,12 @@ proc loadHeartSprite*(team: Team, size: int): seq[uint8] =
     size,
     alphaCutoff = 128'u8
   )
+
+proc loadMedKitSprite*(size: int): seq[uint8] =
+  ## The center-field healing pickup: a chunky white healer's kit with a red
+  ## cross, matching the bold-outline painted item style (heart gem, paint
+  ## bomb). Hard alpha edge keeps the outline crisp on the floor.
+  loadRgbaSprite("data/medkit.png", size, alphaCutoff = 128'u8)
 
 proc loadPaintBombSprite*(size: int): seq[uint8] =
   ## The thrown grenade, a kid-friendly dungeon-crawler alchemical paint-bomb orb
@@ -1901,6 +1911,9 @@ proc gameHash*(sim: SimServer): uint64 =
   for spawn in sim.grenadeSpawns:
     result.mixHashBool(spawn.present)
     result.mixHashInt(spawn.respawnAt)
+  for spawn in sim.medKitSpawns:
+    result.mixHashBool(spawn.present)
+    result.mixHashInt(spawn.respawnAt)
   result.mixHashInt(sim.airborneGrenades.len)
   for grenade in sim.airborneGrenades:
     result.mixHashInt(grenade.sx)
@@ -2594,13 +2607,26 @@ proc resetGrenades*(sim: var SimServer) =
   ## Refills every corner pickup and clears carried and airborne grenades.
   let points = grenadeSpawnPoints()
   for i in 0 ..< sim.grenadeSpawns.len:
-    sim.grenadeSpawns[i] = GrenadeSpawn(
+    sim.grenadeSpawns[i] = PickupSpawn(
       x: points[i].x, y: points[i].y, present: true, respawnAt: 0
     )
   sim.airborneGrenades = @[]
   for i in 0 ..< sim.players.len:
     sim.players[i].hasGrenade = false
     sim.players[i].throwCharge = 0
+
+proc resetMedKits*(sim: var SimServer) =
+  ## Places both med kits on the center line (a third and two thirds of the
+  ## field height, nudged to the nearest walkable floor) and refills them.
+  let targets = [
+    (MapWidth div 2, MapHeight div 3),
+    (MapWidth div 2, 2 * MapHeight div 3)
+  ]
+  for i in 0 ..< sim.medKitSpawns.len:
+    let spot = sim.nearestWalkable(targets[i][0], targets[i][1])
+    sim.medKitSpawns[i] = PickupSpawn(
+      x: spot.x, y: spot.y, present: true, respawnAt: 0
+    )
 
 proc startGame*(sim: var SimServer) =
   sim.logGameEvent("game started: players=" & $sim.players.len)
@@ -3134,6 +3160,35 @@ proc tryPickupGrenades*(sim: var SimServer, playerIndex: int) =
       sim.logGameEvent(
         playerColorText(sim.players[playerIndex].color) &
           " picked up a grenade"
+      )
+      return
+
+proc updateMedKits*(sim: var SimServer) =
+  ## Refills center med kits whose respawn timer elapsed.
+  for spawn in sim.medKitSpawns.mitems:
+    if not spawn.present and sim.tickCount >= spawn.respawnAt:
+      spawn.present = true
+
+proc tryPickupMedKits*(sim: var SimServer, playerIndex: int) =
+  ## Lets a hurt living player pick up a center med kit by touch, restoring
+  ## hit points back to full. A healthy player walks over it untouched, so a
+  ## kit is never wasted; a taken kit refills after MedKitRespawnTicks.
+  if not sim.players[playerIndex].alive:
+    return
+  if sim.players[playerIndex].hp >= sim.config.hitPoints:
+    return
+  let
+    px = sim.players[playerIndex].x + CollisionW div 2
+    py = sim.players[playerIndex].y + CollisionH div 2
+    rangeSq = MedKitPickupRange * MedKitPickupRange
+  for spawn in sim.medKitSpawns.mitems:
+    if spawn.present and distSq(px, py, spawn.x, spawn.y) <= rangeSq:
+      spawn.present = false
+      spawn.respawnAt = sim.tickCount + MedKitRespawnTicks
+      sim.players[playerIndex].hp = sim.config.hitPoints
+      sim.logGameEvent(
+        playerColorText(sim.players[playerIndex].color) &
+          " picked up a med kit"
       )
       return
 
@@ -3771,6 +3826,7 @@ proc initSimServer*(config: GameConfig): SimServer =
   result.gameEventLoggingEnabled = true
   result.resetFlags()
   result.resetGrenades()
+  result.resetMedKits()
   result.lastLobbyPlayersLogged = -1
   result.lastLobbyNeededLogged = -1
   result.lastLobbySecondsLogged = -1
@@ -3780,6 +3836,7 @@ proc resetToLobby*(sim: var SimServer) =
   sim.players = @[]
   sim.fovCaches = @[]
   sim.resetGrenades()
+  sim.resetMedKits()
   sim.recentBlasts = @[]
   sim.recentShouts = @[]
   sim.recentShots = @[]
@@ -3892,10 +3949,12 @@ proc step*(
         sim.startFireWindup(playerIndex)
   sim.resolveSimultaneousFire(firing)
   sim.updateGrenades()
+  sim.updateMedKits()
 
   for playerIndex in 0 ..< sim.players.len:
     sim.tryPickupFlags(playerIndex)
     sim.tryPickupGrenades(playerIndex)
+    sim.tryPickupMedKits(playerIndex)
   sim.updateFlags()
   sim.respawnPlayers()
 
