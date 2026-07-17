@@ -1366,20 +1366,39 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       if kit >= 0:
         target = bot.kitPos[kit]
   elif ownStolen and (bot.role == HomeDefender or
-      bot.tick - bot.carrierSeen <= ThiefFixTtl):
-    # An enemy is RUNNING OUR FLAG: with a fresh fix (own eyes or a mate's
-    # "T" shout), EVERY role drops what it is doing and converges on the
-    # thief's predicted route — an enemy capture ends the episode against
-    # us, so nothing we were otherwise doing outranks the intercept. Without
-    # a fix, only the back line guards the crossing lanes: the thief is
-    # fogged but MUST cross mid toward its home edge, so the defender holds
-    # the lane nearest the last fix and sweeps its vision — reacquisition
-    # takes eyes, not magic.
+      bot.tick - bot.carrierSeen <= ThiefFixTtl) and
+      not (mateCarry and dist(me, mateCarryPos) < 250.0):
+    # An enemy is RUNNING OUR FLAG: with a fix (own eyes or a mate's "T"
+    # shout), converge — an enemy capture ends the episode against us.
+    # During a CAPTURE RACE (both flags out) the bots already tight on our
+    # own carrier stay with it (winning our race first also ends the game);
+    # everyone else intercepts. Without a fix, only the back line guards the
+    # crossing lanes: the thief is fogged but MUST cross mid toward its home
+    # edge, so the defender holds the lane nearest the last fix and sweeps
+    # its vision — reacquisition takes eyes, not magic.
     if bot.tick - bot.carrierSeen <= ThiefFixTtl:
-      # Converge on the thief's predicted path toward the enemy capture edge.
+      # LEAD pursuit, not a stern chase: a 70%-speed carrier with a head
+      # start outruns a follower forever, but the gun is map-wide — so run
+      # to a CUTOFF ahead of the thief on its lane and let the sightline do
+      # the killing. Lead scales with our distance: far interceptors aim
+      # deep (near the capture edge), close ones effectively chase.
       var predicted = bot.carrierPos +
         bot.carrierVel * float(18 + bot.tick - bot.carrierSeen)
-      predicted.x += -homeSign(bot.team) * 40.0
+      let
+        escapeDir = -homeSign(bot.team)  # thief runs toward ITS home edge
+        lead = min(dist(me, predicted) * 0.7,
+          abs(homeDeepX(enemy(bot.team)) - predicted.x))
+      predicted.x += escapeDir * lead
+      # Snap the cutoff onto the open corridor nearest the thief's line so
+      # the wait is a long-sightline ambush instead of a wall hug.
+      var laneY = predicted.y
+      var bestD = 1e18
+      for lane in [LaneTop, LaneMid, LaneBottom]:
+        if abs(predicted.y - lane) < bestD:
+          bestD = abs(predicted.y - lane)
+          laneY = lane
+      if bestD < 90.0:
+        predicted.y = laneY
       target = vec(clamp(predicted.x, 20.0, float(MapW - 20)),
                    clamp(predicted.y, 20.0, float(MapH - 20)))
     else:
@@ -1783,6 +1802,14 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       moveMask = octantBits(side + away * 0.4)
       if desiredAim < 0:
         desiredAim = bradsOf(seenEnemies[threat].pos - me)
+    elif ownStolen and bot.tick - bot.carrierSeen <= ThiefFixTtl and
+        dist(me, target) < 12.0:
+      # Standing on the intercept cutoff: face the incoming thief and hold —
+      # the map-wide gun plus a pre-laid aim down its approach is what kills
+      # a run that pure pursuit can never catch.
+      if desiredAim < 0:
+        desiredAim = bradsOf(bot.carrierPos - me)
+      holdStill = true
     elif bot.role in {Overwatch, HomeDefender} and
         dist(me, target) < 6.0:
       # Holding a watch position: the aim carries the vision cone, so sweep
