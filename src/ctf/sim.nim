@@ -1168,7 +1168,8 @@ proc endzoneColorAt(base: ColorRGBA, x, redHi, blueLo, playLo, playHi: int):
   else:
     base
 
-proc loadMapLayers*(gameMap: CtfMap): tuple[mapImage, walkImage, wallImage: Image] =
+proc loadMapLayers*(gameMap: CtfMap, withEndzoneGlow = true):
+    tuple[mapImage, walkImage, wallImage: Image] =
   ## Builds the visual map plus the walk and wall masks for the arena. The
   ## visuals: a tiled top-down flagstone floor, and ONE coherent carved-stone
   ## material for every wall pixel — border frame, rect stub, diamond, disc, and
@@ -1222,8 +1223,9 @@ proc loadMapLayers*(gameMap: CtfMap): tuple[mapImage, walkImage, wallImage: Imag
         wall = wallMask[y * w + x]
       var color =
         if wall: carvedStoneColor(wallMask, w, h, x, y)
-        else: endzoneColorAt(tileSample(floorTex, x, y), x, redHi, blueLo,
-          playLo, playHi)
+        elif withEndzoneGlow: endzoneColorAt(tileSample(floorTex, x, y), x,
+          redHi, blueLo, playLo, playHi)
+        else: tileSample(floorTex, x, y)
       if onBorder:
         color = overTint(color, ArenaBorderColor)
       result.mapImage[x, y] = color
@@ -1236,6 +1238,24 @@ proc loadMapLayers*(gameMap: CtfMap): tuple[mapImage, walkImage, wallImage: Imag
       home = gameMap.flagHome(team)
       spr = if team == Red: pedRedSpr else: pedBlueSpr
     blitCover(result.mapImage, spr, home.x, home.y, 96)
+
+proc coldEndzoneMapRgba*(gameMap: CtfMap): seq[uint8] =
+  ## Builds the map RGBA with the endzone crack-glow and capture line OMITTED —
+  ## the "power source is gone" cold floor. Same layout/format as `sim.mapRgba`
+  ## (walls, border, pedestals identical), so a broadcast overlay can crossfade
+  ## the baked-glow map toward this and only the glow + line visibly change.
+  ## Cosmetic, spectator-only: it is NOT the map the player POV / RL agents see.
+  let (mapImage, _, _) = loadMapLayers(gameMap, withEndzoneGlow = false)
+  result = newSeq[uint8](MapWidth * MapHeight * 4)
+  for y in 0 ..< MapHeight:
+    for x in 0 ..< MapWidth:
+      let
+        pixel = mapImage[x, y]
+        offset = (y * MapWidth + x) * 4
+      result[offset] = pixel.r
+      result[offset + 1] = pixel.g
+      result[offset + 2] = pixel.b
+      result[offset + 3] = pixel.a
 
 proc loadDarkBgPixels*(): seq[uint8] =
   ## Loads the dark interstitial background as palette pixels.
