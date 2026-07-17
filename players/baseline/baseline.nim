@@ -127,6 +127,9 @@ const
                               # enemy hit point — a tiebreak between
                               # comparably-engageable targets, never a reason
                               # to swing the turret across the map
+  ThiefFocusBonus = 400.0     # px of credit for the enemy RUNNING OUR FLAG:
+                              # dominates every positional tiebreak — killing
+                              # the thief returns the flag instantly
   FocusFireBonus = 45.0       # px of credit when a visible mate's aim line
                               # already covers the target (finish together)
   TraversePxPerBrad = 1.6     # px of effective distance per brad of turret
@@ -1287,19 +1290,15 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     else:
       target = vec(homeDeepX(bot.team), laneY)
   elif ownStolen and (bot.role == HomeDefender or
-      (bot.role == Overwatch and
-       bot.tick - bot.carrierSeen <= ThiefFixTtl) or
-      (defined(swarm) and not iCarry and not mateCarry and
-       bot.tick - bot.carrierSeen <= ThiefFixTtl)):
-    # swarm: in shuffled-seat leagues this policy fields only 2-3 agents and
-    # their roles are seat-lottery — when our flag is stolen with a fresh fix,
-    # whoever sees it hunts, or an enemy capture ends the episode against us.
-    # The back line intercepts the thief running OUR flag toward ITS home
-    # edge; attackers keep pressing the enemy pedestal so the capture race
-    # stays on. With a fresh fix, converge on the predicted route; without
-    # one the thief is fogged but MUST cross mid toward its home edge, so
-    # the defender guards the crossing on the lane nearest the last fix and
-    # sweeps its vision — reacquisition takes eyes, not magic.
+      bot.tick - bot.carrierSeen <= ThiefFixTtl):
+    # An enemy is RUNNING OUR FLAG: with a fresh fix (own eyes or a mate's
+    # "T" shout), EVERY role drops what it is doing and converges on the
+    # thief's predicted route — an enemy capture ends the episode against
+    # us, so nothing we were otherwise doing outranks the intercept. Without
+    # a fix, only the back line guards the crossing lanes: the thief is
+    # fogged but MUST cross mid toward its home edge, so the defender holds
+    # the lane nearest the last fix and sweeps its vision — reacquisition
+    # takes eyes, not magic.
     if bot.tick - bot.carrierSeen <= ThiefFixTtl:
       # Converge on the thief's predicted path toward the enemy capture edge.
       var predicted = bot.carrierPos +
@@ -1444,6 +1443,9 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   let maxEngage =
     if pocketRush: 0.0
     elif iCarry: CarrierFireRange
+    elif ownStolen and bot.tick - bot.carrierSeen <= ThiefFixTtl: FireRange
+      # A live fix on the enemy running our flag lifts every role's range
+      # cap: the map-wide gun is the fastest flag return there is.
     elif rushing: RushEngageRange
     elif mateCarry: EscortEngageRange
     else: FireRange
@@ -1498,6 +1500,11 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       prio -= float(MaxHp - t.hp) * HpFocusBonus
     if mateTargeted[i]:
       prio -= FocusFireBonus
+    if ownStolen and bot.tick - bot.carrierSeen <= ThiefFixTtl and
+        dist(t.pos, bot.carrierPos) <= 48.0:
+      # This track IS (or shadows) the enemy running our flag: shoot it
+      # before anything else — a dead carrier returns the flag instantly.
+      prio -= ThiefFocusBonus
     if client.pixelRayClear(me, predicted):
       if bot.friendlyBlocked(me, predicted, d):
         continue                        # prefer a target with an empty corridor
