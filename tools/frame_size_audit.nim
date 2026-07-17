@@ -72,17 +72,18 @@ for i in 0 ..< min(sizes.len, 12):
   let (bytes, id, label) = sizes[i]
   echo &"  {bytes:>9}\t#{id}\t{label}"
 
-# --- A later frame with a glow strip active (heart taken) ---
+# --- A stage-TRANSITION frame: BOTH hearts taken so BOTH full-height endzone
+# strips (the widest single sprites the glow-fade ever emits) ride one frame.
+# The strip is re-sent only when its stage changes, so its full pixel payload
+# lands on a transition frame, not the stable frame — this is the wire worst
+# case for the fade overlay and must still chunk under the 1 MiB cap.
 game.flags[Red].carrier = 0
+game.flags[Blue].carrier = 1
 state = next
-for _ in 0 ..< (GlowFadeStages + 2):
-  next = state
-  let p = game.buildSpriteProtocolUpdates(
-    state, next, replayTick = 100, replayEnabled = true, replayMaxTick = 2432)
-  state = next
-let glowChrome = game.buildStateJson(newJArray(), true, 1, 2432, false, true, -1, -1, @[], 0)
-# rebuild one more so the strip pixels are in-packet at full stage
 next = state
 let glowPacket = game.buildSpriteProtocolUpdates(
   state, next, replayTick = 100, replayEnabled = true, replayMaxTick = 2432)
-report("GLOW-ACTIVE FRAME (Red heart taken, no map re-send)", glowPacket, glowChrome)
+state = next
+let glowChrome = game.buildStateJson(newJArray(), true, 1, 2432, false, true, -1, -1, @[], 0)
+report("GLOW TRANSITION (both hearts taken, full strips in-packet)",
+  glowPacket, glowChrome)
