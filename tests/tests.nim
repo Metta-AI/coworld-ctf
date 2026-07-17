@@ -15,5 +15,6 @@ import
   test_board_click_select,
   test_corpse_label,
   test_damage_pop,
-  test_trade_pair
+  test_trade_pair,
+  test_shot_accuracy
 {.warning[UnusedImport]: on.}

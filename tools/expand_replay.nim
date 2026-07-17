@@ -9,6 +9,8 @@ type
   ReplayEventKind* = enum
     PlayerJoined
     PhaseChanged
+    Shot
+    Hit
     Kill
     FlagSteal
     FlagReturnHome
@@ -104,6 +106,8 @@ type
     deaths: seq[int]
     captures: seq[int]
     rewards: seq[int]
+    shotsFired: seq[int]
+    shotsHit: seq[int]
 
 proc syncPlayers(
   sim: SimServer,
@@ -119,6 +123,8 @@ proc syncPlayers(
     track.deaths.add(sim.players[i].deaths)
     track.captures.add(sim.players[i].captures)
     track.rewards.add(sim.players[i].reward)
+    track.shotsFired.add(sim.players[i].shotsFired)
+    track.shotsHit.add(sim.players[i].shotsHit)
     events.addPlayerEvent(tick, PlayerJoined, sim, i)
 
 proc killerThisTick(sim: SimServer, track: TrackState): int =
@@ -152,6 +158,23 @@ proc printKillsAndDeaths(
     track.alive[i] = p.alive
     track.kills[i] = p.kills
     track.deaths[i] = p.deaths
+
+proc printShots(
+  sim: SimServer,
+  tick: int,
+  events: var seq[ReplayEvent],
+  track: var TrackState
+) =
+  ## Adds shot/hit events by diffing per-player shot counters. A player
+  ## releases at most one shot per tick (fire cooldown), so each counter rises
+  ## by at most one; a Hit is a shot that locked onto a live enemy on its ray.
+  for i, p in sim.players:
+    if p.shotsFired > track.shotsFired[i]:
+      events.addPlayerEvent(tick, Shot, sim, i)
+    if p.shotsHit > track.shotsHit[i]:
+      events.addPlayerEvent(tick, Hit, sim, i)
+    track.shotsFired[i] = p.shotsFired
+    track.shotsHit[i] = p.shotsHit
 
 proc printCaptures(
   sim: SimServer,
@@ -244,6 +267,10 @@ proc key*(event: ReplayEvent): string =
     "player_joined"
   of PhaseChanged:
     "phase"
+  of Shot:
+    "shot"
+  of Hit:
+    "hit"
   of Kill:
     "kill"
   of FlagSteal:
@@ -266,6 +293,10 @@ proc text*(event: ReplayEvent): string =
     "  player " & event.actorLabel & " joined"
   of PhaseChanged:
     "  phase " & $event.phase
+  of Shot:
+    "  player " & event.actorLabel & " fired"
+  of Hit:
+    "  player " & event.actorLabel & " landed a shot"
   of Kill:
     "  player " & event.actorLabel & " killed " & event.secondaryLabel
   of FlagSteal:
@@ -300,7 +331,7 @@ proc jsonRow*(event: ReplayEvent): JsonNode =
   of FlagSteal, Capture:
     value["label"] = %event.actorLabel
     value["flag"] = %teamText(event.flagTeam)
-  of Respawn:
+  of Shot, Hit, Respawn:
     value["label"] = %event.actorLabel
   of FlagReturnHome:
     value["flag"] = %teamText(event.flagTeam)
@@ -372,6 +403,7 @@ proc expandReplayTimeline*(data: ReplayData): ReplayTimeline =
         phase = sim.phase
 
       sim.syncPlayers(tick, result.events, track)
+      sim.printShots(tick, result.events, track)
       sim.printKillsAndDeaths(tick, result.events, track)
       sim.printFlagChanges(tick, result.events, prevCarriers)
       sim.printCaptures(tick, result.events, track)
