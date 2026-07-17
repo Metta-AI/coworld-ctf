@@ -589,18 +589,19 @@ proc httpHandler(request: Request) =
         {.gcsafe.}:
           withLock appState.lock:
             appState.pendingReplayUri = replayRequest.uri
-    # League Replayer: the bare replay routes (and /client/league) serve the
-    # walled-pit SHELL, which embeds the board via ?embed=1. The embed request
-    # falls through to the plain designed broadcast client for the iframe — one
-    # websocket, perfect tick sync. (ELEVATE-BY-REBUILD: our HTML, not bitworld's.)
+    # The regular replay routes serve the plain designed broadcast client (the
+    # board) exactly as before. /client/league is an ADD-ON that serves the
+    # walled-pit League Replayer SHELL, which itself embeds the board in an
+    # iframe at /client/replay?embed=1 — the board client reads ?embed=1 to hide
+    # its own chrome so the shell owns the walls/scorebug/rosters. One websocket,
+    # perfect tick sync. (ELEVATE-BY-REBUILD: our HTML, not bitworld's.)
     var replayHeaders: HttpHeaders
     replayHeaders["Content-Type"] = "text/html; charset=utf-8"
     replayHeaders["Cache-Control"] = "no-cache"
-    let embed = request.queryParams.getOrDefault("embed", "") == "1"
-    if embed:
-      request.respond(200, replayHeaders, EmbeddedBroadcastReplayHtml)
-    else:
+    if request.path == LeagueReplayerPath:
       request.respond(200, replayHeaders, EmbeddedLeagueReplayerHtml)
+    else:
+      request.respond(200, replayHeaders, EmbeddedBroadcastReplayHtml)
   elif bitworldClient.serveClientRoute(
     request,
     bitworldClient.GlobalClientRoute
