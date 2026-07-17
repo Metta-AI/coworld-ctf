@@ -122,6 +122,9 @@ const
   BlastSize = 84                 ## px footprint of the landing splat (~2x GrenadeBlastRadius).
   BlastStages = 4                ## landing-splat fade stages across BlastFxTicks.
   PaintBombPickupObjectBase = 19300  ## corner pickups: 19300..19303 (four corners).
+  MedKitSpriteId = 845           ## center med kit pickup (native size).
+  MedKitSize = 26                ## px footprint of a med kit pickup.
+  MedKitObjectBase = 19350       ## center med kits: 19350..19351.
   PaintBombAirObjectBase = 19320     ## airborne orbs: one per in-flight grenade.
   PaintBombCarryObjectBase = 19360   ## carried markers: one per player.
   ThrowTargetObjectBase = 19400      ## charge rings: one per player.
@@ -2541,6 +2544,37 @@ proc addSoundRings(
       SoundRingSpriteId
     )
 
+proc addMedKits(
+  sim: SimServer,
+  spriteDefs: var seq[SpriteDefinition],
+  currentIds: var seq[int],
+  packet: var seq[uint8],
+  viewerIndex = -1
+) {.measure.} =
+  ## Places the two center-field med kit pickups, fog-gated by map position
+  ## like the grenade pickups. The map/replay view passes no viewer and shows
+  ## both. The sprite is defined lazily on first need per connection.
+  for i in 0 ..< sim.medKitSpawns.len:
+    let spawn = sim.medKitSpawns[i]
+    if not spawn.present:
+      continue
+    if viewerIndex >= 0 and not sim.fovVisibleAt(viewerIndex, spawn.x, spawn.y):
+      continue
+    if spriteDefs.spriteDefinitionIndex(MedKitSpriteId) < 0:
+      packet.addSpriteChanged(
+        spriteDefs, MedKitSpriteId,
+        MedKitSize, MedKitSize,
+        loadMedKitSprite(MedKitSize), "med kit"
+      )
+    let objectId = MedKitObjectBase + i
+    currentIds.add(objectId)
+    packet.addObject(
+      objectId,
+      spawn.x - MedKitSize div 2,
+      spawn.y - MedKitSize div 2,
+      spawn.y, MapLayerId, MedKitSpriteId
+    )
+
 proc addGrenades(
   sim: SimServer,
   spriteDefs: var seq[SpriteDefinition],
@@ -3096,6 +3130,12 @@ proc buildSpriteProtocolPlayerUpdates*(
       result,
       viewerIndex = playerIndex
     )
+    sim.addMedKits(
+      nextState.spriteDefs,
+      currentIds,
+      result,
+      viewerIndex = playerIndex
+    )
     sim.addGrenades(
       nextState.spriteDefs,
       currentIds,
@@ -3600,6 +3640,7 @@ proc buildSpriteProtocolUpdates*(
   sim.addSplatters(nextState.spriteDefs, currentIds, result)
   sim.addDamagePops(nextState.spriteDefs, currentIds, result)
   sim.addShotTracers(nextState.spriteDefs, currentIds, result)
+  sim.addMedKits(nextState.spriteDefs, currentIds, result)
   sim.addGrenades(nextState.spriteDefs, currentIds, result)
   sim.addShouts(nextState.spriteDefs, currentIds, result)
   sim.addAimIndicators(nextState.spriteDefs, currentIds, result)

@@ -167,6 +167,16 @@ always drawn — but moving entities are fogged:
 - The global/replay view draws every bubble at the shouter's actual
   position, following them while they live.
 
+## Med kits
+
+- **Two med kits sit on the center line** — at one third and two thirds of
+  the field height, nudged to the nearest walkable floor.
+- **Touching one while hurt restores your hit points back to full.** A
+  healthy player walks over it untouched — a kit is never wasted.
+- **A taken kit respawns 30 seconds later** in the same spot.
+- Observation label: `med kit`. Kits are fog-gated like the grenade
+  pickups: you see one only where you have vision.
+
 ## Lives & respawn
 
 - Each player has a fixed number of **lives**.
