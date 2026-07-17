@@ -15,6 +15,10 @@
 
   const ZoomableFlag = 1;
   const MapLayerType = 0;
+  // Reserved sprite id whose LABEL carries the broadcast chrome JSON on the
+  // binary channel (see server: BroadcastChromeSpriteId). Kept off the drawable
+  // sprite map and fed straight to onText.
+  const CHROME_SPRITE_ID = 4090;
 
   function readU16(bytes, offset) {
     return bytes[offset] | (bytes[offset + 1] << 8);
@@ -359,7 +363,17 @@
           } else {
             offset += width * height;
           }
-          sprites.set(id, { width, height, pixels, label });
+          // Broadcast chrome (scorebug/clock/scrubber/roster/events) is smuggled
+          // as the label of a reserved 1×1 sprite (id 4090). Route it to onText
+          // exactly like the legacy TextMessage chrome channel. This binary path
+          // is the ONLY one that survives a hosted replay, where the interactive
+          // TextMessage opt-in never routes through the recorded stream. Never
+          // register it as a drawable sprite.
+          if (id === CHROME_SPRITE_ID) {
+            if (label) onText(label);
+          } else {
+            sprites.set(id, { width, height, pixels, label });
+          }
           changed = true;
         } else if (type === 0x02) {
           const id = readU16(bytes, offset);

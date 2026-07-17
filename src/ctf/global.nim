@@ -4,6 +4,15 @@ import
   sim
 
 const
+  BroadcastChromeSpriteId* = 4090
+    ## Reserved 1×1 never-drawn sprite whose LABEL carries the broadcast chrome
+    ## JSON (scorebug/clock/scrubber/roster/events). The chrome used to ride a
+    ## separate opt-in `TextMessage`; that interactive text channel does NOT
+    ## survive a hosted replay (the client→server `hud:on` never routes through
+    ## the recorded stream), so hosted the HUD froze at its DOM defaults while
+    ## the board — carried on the binary sprite channel — played fine. Smuggling
+    ## the chrome through the SAME binary channel the board rides makes it
+    ## survive every playback path (live serve, generic client, hosted replay).
   ReplayScrubberSpriteId = 4004
   ReplayScrubberObjectId = 4004
   ReplayScrubberWidth = 84
@@ -30,6 +39,19 @@ const
   ReplayMismatchBgG = 20'u8
   ReplayMismatchBgB = 20'u8
   ReplayMismatchBgA = 255'u8
+  ## Map is emitted as horizontal BANDS, not one sprite. The full arena
+  ## (1235×659 RGBA) compresses to ~1.09 MB — a SINGLE sprite-protocol message
+  ## that alone exceeds the hosted replay's 1 MiB WebSocket frame limit, so the
+  ## viewer closes with 1009 (message too big) and never loads a frame. Splitting
+  ## the map into bands keeps every pixel (each band is a crop at its own
+  ## y-offset; the client composites them into one seamless map layer) while
+  ## making each message a fraction of the cap. Ids 30..(30+bands) and
+  ## 40..(40+bands) sit clear of every other pool (layer ids stop at 12, the next
+  ## sprite/object pools start at 100).
+  MapBandSpriteBase = 30
+  MapBandObjectBase = 40
+  MapBandHeight = 96          ## px rows per band — 659/96 ≈ 7 bands, each well
+                              ## under 200 KB compressed (far below the 1 MiB cap).
   ScoreboardWidth = 84
   ScoreboardHeight = 116
   ScoreboardY = 2
@@ -70,6 +92,18 @@ const
   FlagAuraSpriteBase = 702     ## carrier-glow sprites: 702 red-flag halo, 703 blue-flag halo.
   FlagAuraObjectBase = 19200   ## carrier-glow object pool (one per carried flag).
   FlagAuraSize = 26            ## px diameter of the carrier halo.
+  ## Heart-taken endzone power-down (broadcast/spectator only): when a team's
+  ## heart is stolen (flag.carrier >= 0) that team's endzone crack-glow + capture
+  ## line fade out "like the power source is gone", and fade back when it comes
+  ## home. The glow is BAKED once into the shared map sprite (also the POV/RL
+  ## observation) so it cannot be re-tinted per frame; instead a strip overlay of
+  ## the SAME endzone columns crossfades from the baked-glow crop to a glow-free
+  ## crop, drawn just above the map and below every actor. Purely cosmetic —
+  ## outside gameHash and untouched in the player POV. Sprite ids 4100..4101 and
+  ## object ids 19520..19521 sit clear of every other pool.
+  EndzoneFadeSpriteBase = 4100 ## 4100 red endzone strip, 4101 blue.
+  EndzoneFadeObjectBase = 19520  ## one strip overlay per team.
+  GlowFadeStages* = 8          ## crossfade steps; 0 = full glow, 7 = fully cold.
   ## Grenades (0.7.0): a paint-bomb orb PNG shared by three placements plus a
   ## drawn charge ring and blast flash. Sprite ids 840..845 sit above the sound
   ## ring (830) and below the tracer dots (900). Object pools live at 19300+.
@@ -279,6 +313,9 @@ type
     broadcastHud*: bool          ## viewer opted into the JSON chrome channel.
     momentumSent*: bool          ## full lives-lead series already sent to this viewer.
     povSelectPending*: int       ## POV slot requested by a `v:<slot>` command.
+    endzoneFade*: array[Team, int]  ## per-team endzone glow crossfade stage (0
+                                 ## = full glow / heart home, GlowFadeStages-1 =
+                                 ## dark / heart taken); ramped ±1 per frame.
     spriteDefs: seq[SpriteDefinition]
 
   PlayerViewerState* = ref object
@@ -296,6 +333,55 @@ type
     lines: seq[string]
 
 var TransportSheet: Sprite
+
+var
+  EndzoneColdRgba: seq[uint8]  ## full glow-free map RGBA, lazily built once.
+  EndzoneStripCache: array[Team, array[GlowFadeStages, seq[uint8]]]
+    ## per-team, per-stage endzone strip crops crossfading the baked-glow floor
+    ## toward the cold floor; each baked once and reused for the whole session.
+
+proc endzoneStripRange(gameMap: CtfMap, team: Team): tuple[x0, x1: int] =
+  ## The inclusive x span of one team's endzone column (matches
+  ## captureZoneXRange / the baked endzoneColorAt gate), full map height.
+  case team
+  of Red: (0, gameMap.teamHomeX(Red) + CaptureZoneWidth div 2)
+  of Blue: (gameMap.teamHomeX(Blue) - CaptureZoneWidth div 2, MapWidth - 1)
+
+proc endzoneStripSprite(
+  sim: SimServer,
+  team: Team,
+  stage: int
+): tuple[w, h: int, pixels: seq[uint8]] =
+  ## Returns the opaque endzone-column overlay for one crossfade `stage`: at
+  ## stage 0 it equals the baked-glow floor (a no-op), and at GlowFadeStages-1 it
+  ## equals the cold glow-free floor, linearly blended between. Drawn just above
+  ## the map and below every actor so only the endzone glow + capture line visibly
+  ## power down when a heart is taken — the shared map sprite (and the POV/RL view)
+  ## is never re-baked. Each (team, stage) crop is baked once and cached.
+  let (x0, x1) = sim.gameMap.endzoneStripRange(team)
+  result.w = x1 - x0 + 1
+  result.h = MapHeight
+  let s = clamp(stage, 0, GlowFadeStages - 1)
+  if EndzoneStripCache[team][s].len == result.w * result.h * 4:
+    result.pixels = EndzoneStripCache[team][s]
+    return
+  if EndzoneColdRgba.len != MapWidth * MapHeight * 4:
+    EndzoneColdRgba = coldEndzoneMapRgba(sim.gameMap)
+  result.pixels = newSeq[uint8](result.w * result.h * 4)
+  # t: 0 at stage 0 (all hot/baked glow), 1 at the last stage (all cold).
+  let t = s.float / float(GlowFadeStages - 1)
+  for y in 0 ..< result.h:
+    for x in 0 ..< result.w:
+      let
+        src = mapIndex(x0 + x, y) * 4
+        dst = (y * result.w + x) * 4
+      for c in 0 .. 2:
+        let
+          hot = sim.mapRgba[src + c].float
+          cold = EndzoneColdRgba[src + c].float
+        result.pixels[dst + c] = uint8(hot + (cold - hot) * t)
+      result.pixels[dst + 3] = 255
+  EndzoneStripCache[team][s] = result.pixels
 
 proc initGlobalViewerState*(): GlobalViewerState =
   ## Returns the default state for one global protocol viewer.
@@ -1074,6 +1160,80 @@ proc buildMapSpritePixels(sim: SimServer): seq[uint8] {.measure.} =
   for i in 0 ..< sim.mapPixels.len:
     result.putRgbaPixel(i, sim.mapPixels[i])
 
+proc addMapBands(
+  sim: SimServer,
+  spriteDefs: var seq[SpriteDefinition],
+  packet: var seq[uint8]
+) {.measure.} =
+  ## Emits the static arena map as a stack of horizontal bands instead of one
+  ## giant sprite. Each band is a full-width crop `MapBandHeight` rows tall,
+  ## placed at its own y-offset on the map layer — the client composites them
+  ## into one seamless image (it blits every object at obj.x/obj.y, so adjacent
+  ## bands tile with no seam). This keeps the map pixel-identical while ensuring
+  ## no single sprite message approaches the hosted 1 MiB WS frame cap. Like the
+  ## old single map object, bands are emitted once at init and never tracked in
+  ## objectIds, so the per-frame delete diff leaves them on the client forever.
+  let
+    w = sim.gameMap.width
+    h = sim.gameMap.height
+    mapPixels = sim.buildMapSpritePixels()
+  var band = 0
+  var y0 = 0
+  while y0 < h:
+    let bandH = min(MapBandHeight, h - y0)
+    var bandPixels = newSeq[uint8](w * bandH * 4)
+    copyMem(bandPixels[0].addr, mapPixels[y0 * w * 4].unsafeAddr, w * bandH * 4)
+    let
+      spriteId = MapBandSpriteBase + band
+      objectId = MapBandObjectBase + band
+    packet.addSpriteChanged(
+      spriteDefs, spriteId, w, bandH, bandPixels, "map band " & $band)
+    packet.addObject(objectId, 0, y0, low(int16), MapLayerId, spriteId)
+    inc band
+    y0 += bandH
+
+proc chunkSpritePacket*(packet: seq[uint8], maxBytes: int): seq[seq[uint8]] =
+  ## Splits one sprite-protocol packet into WS-frame-sized chunks at MESSAGE
+  ## boundaries. The client parses each binary WS message independently and
+  ## accumulates sprite/object state across them, so a packet delivered as N
+  ## frames is equivalent to one frame — as long as no frame is cut mid-message.
+  ## Needed because the hosted replay closes any frame over 1 MiB (1009); even
+  ## with the map banded, the init packet's TOTAL can exceed that in one send.
+  ## A single message larger than maxBytes is emitted as its own (oversized)
+  ## chunk rather than split — the map bands guarantee that never happens.
+  result = @[]
+  if packet.len == 0:
+    return
+  var
+    offset = 0
+    chunkStart = 0
+  while offset < packet.len:
+    let msgStart = offset
+    let messageType = packet[offset]
+    inc offset
+    case messageType
+    of 0x01:  # sprite: id,w,h (6) + clen (4) + pixels + llen (2) + label
+      let clen = packet.readU32(offset + 6)
+      offset += 10 + clen
+      let llen = packet.readU16(offset)
+      offset += 2 + llen
+    of 0x02: offset += 11   # object
+    of 0x03: offset += 2    # delete object
+    of 0x04: discard        # clear objects (no payload)
+    of 0x05: offset += 5    # viewport
+    of 0x06: offset += 3    # layer
+    else:
+      # Unknown message: we can't measure it, so flush what we have and ship the
+      # remainder whole rather than risk a mid-message cut.
+      break
+    # If appending this message would overflow the current chunk, close the
+    # chunk at the previous message boundary first (unless it's empty).
+    if offset - chunkStart > maxBytes and msgStart > chunkStart:
+      result.add(packet[chunkStart ..< msgStart])
+      chunkStart = msgStart
+  if chunkStart < packet.len:
+    result.add(packet[chunkStart ..< packet.len])
+
 proc buildWalkabilitySpritePixels(sim: SimServer): seq[uint8] {.measure.} =
   ## Returns a binary RGBA walkability mask for sprite agents.
   result = newSeq[uint8](sim.gameMap.width * sim.gameMap.height * 4)
@@ -1844,7 +2004,6 @@ proc buildSpriteProtocolInit(
   ## Builds the initial global viewer snapshot.
   result = @[]
   result.addU8(0x04)
-  let mapPixels = sim.buildMapSpritePixels()
   result.addLayer(MapLayerId, MapLayerType, ZoomableLayerFlag)
   result.addViewport(MapLayerId, sim.gameMap.width, sim.gameMap.height)
   result.addLayer(TopLeftLayerId, TopLeftLayerType, UiLayerFlag)
@@ -1855,15 +2014,10 @@ proc buildSpriteProtocolInit(
   result.addViewport(BottomRightLayerId, ScreenWidth, ScreenHeight)
   result.addLayer(TeamScoreLayerId, TeamScoreLayerType, UiLayerFlag)
   result.addViewport(TeamScoreLayerId, TeamScoreWidth, TextLineHeight + 2)
-  result.addSpriteChanged(
-    spriteDefs,
-    MapSpriteId,
-    sim.gameMap.width,
-    sim.gameMap.height,
-    mapPixels,
-    "map"
-  )
-  result.addObject(MapObjectId, 0, 0, low(int16), MapLayerId, MapSpriteId)
+  # The map rides as horizontal bands (see addMapBands): one 1.09 MB map sprite
+  # is a single message over the hosted 1 MiB WS frame cap — banding keeps every
+  # pixel while making each message a fraction of the cap.
+  sim.addMapBands(spriteDefs, result)
   sim.addMapMarkers(spriteDefs, result)
   sim.addFlagSprites(spriteDefs, result)
   sim.addSpriteProtocolInterstitialSprites(spriteDefs, result)
@@ -3255,6 +3409,50 @@ proc addReplayMismatchWarning(
     ReplayMismatchSpriteId
   )
 
+proc addEndzoneGlowFade(
+  sim: SimServer,
+  state: var GlobalViewerState,
+  currentIds: var seq[int],
+  packet: var seq[uint8]
+) {.measure.} =
+  ## Powers each team's endzone crack-glow + capture line down when that team's
+  ## heart is taken (flag.carrier >= 0) and back up when it comes home, by
+  ## ramping a per-team crossfade stage ±1 per frame and drawing the matching
+  ## endzone strip crop just above the map (z below every floor decal/actor).
+  ## Spectator/broadcast only — the shared map sprite and the POV/RL view are
+  ## never touched, and stage 0 is a visual no-op (the baked glow itself).
+  for team in Team:
+    let taken = sim.flags[team].carrier >= 0
+    if taken and state.endzoneFade[team] < GlowFadeStages - 1:
+      inc state.endzoneFade[team]
+    elif not taken and state.endzoneFade[team] > 0:
+      dec state.endzoneFade[team]
+    let stage = state.endzoneFade[team]
+    if stage <= 0:
+      continue                         # full glow: the baked map already shows it.
+    let (x0, _) = sim.gameMap.endzoneStripRange(team)
+    let strip = sim.endzoneStripSprite(team, stage)
+    let spriteId = EndzoneFadeSpriteBase + ord(team)
+    let objectId = EndzoneFadeObjectBase + ord(team)
+    currentIds.add(objectId)
+    packet.addSpriteChanged(
+      state.spriteDefs,
+      spriteId,
+      strip.w,
+      strip.h,
+      strip.pixels,
+      "endzone " & (if team == Red: "red" else: "blue") & " power " & $stage,
+      changed = false     # label encodes the stage → re-sent only on change.
+    )
+    packet.addObject(
+      objectId,
+      x0,
+      0,
+      low(int16) + 1,                  # just above the map, below all decals/actors.
+      MapLayerId,
+      spriteId
+    )
+
 proc buildSpriteProtocolUpdates*(
   sim: var SimServer,
   state: GlobalViewerState,
@@ -3398,6 +3596,7 @@ proc buildSpriteProtocolUpdates*(
     result,
     nextState.selectedJoinOrder
   )
+  sim.addEndzoneGlowFade(nextState, currentIds, result)
   sim.addSplatters(nextState.spriteDefs, currentIds, result)
   sim.addDamagePops(nextState.spriteDefs, currentIds, result)
   sim.addShotTracers(nextState.spriteDefs, currentIds, result)
