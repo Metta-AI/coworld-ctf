@@ -146,6 +146,14 @@ const
   NadeBlast = 40.0            # blast radius; a pair this close dies together
   NadeFullChargeTicks = 24    # ~1s of holding C reaches max range
   NadePickupDetour = 90.0     # grab a corner pickup within this detour range
+  MedKitDetour = 80.0         # heal-detour budget when merely wounded
+  MedKitCriticalReach = 180.0 # at 1 hp a heal outranks the current errand
+  MedKitRespawn = 30 * 24     # a taken kit refills after 30s (sim constant)
+  MedKitSeenClear = 55.0      # inside this range an empty spot is truly
+                              # empty (bubble vision), not just fogged
+  MedKitCarrierBudget = 90.0  # extra path px a hurt CARRIER spends to heal:
+                              # a full-heal carrier survives pocket exits
+                              # that kill a 1 hp one
   CarrySelfRadius = 26.0      # the carried flag banner is centered on its
                               # carrier: anything inside this slack that no
                               # visible mate sits closer to is OUR carry
@@ -255,6 +263,9 @@ type
     lastEnemyShout: string    # last enemy shout label already responded to
     lastComebackReq: int      # rate limit on comeback generation requests
     wasMateCarry: bool        # edge detector: a fresh steal opens a taunt window
+    hp: int                   # own hit points, read from the HUD lives label
+    kitPos: seq[Vec]          # discovered med kit spots (two, center line)
+    kitAbsentAt: seq[int]     # tick a spot was last seen empty; -1 = present
 
 proc roleForSeat(seat: int, team: Team): Role =
   ## Deterministic role spread over the 8 per-team seats. Seats 2 and 3 both
@@ -912,12 +923,33 @@ proc updateTracks(bot: Bot, tracks: var seq[Track], seen: seq[Actor]) =
     kept.setLen(TrackCap)
   tracks = kept
 
+proc kitAvailable(bot: Bot, i: int): bool =
+  ## Whether a discovered med kit spot is believed stocked right now: never
+  ## seen empty, or its 30s respawn has elapsed since we saw it taken.
+  bot.kitAbsentAt[i] < 0 or bot.tick - bot.kitAbsentAt[i] > MedKitRespawn + 48
+
+proc bestKitDetour(bot: Bot, me, dest: Vec, budget: float): int =
+  ## The stocked kit spot whose me->kit->dest detour costs the fewest extra
+  ## path px over going straight to dest; -1 when none fits the budget.
+  result = -1
+  var best = budget
+  for i in 0 ..< bot.kitPos.len:
+    if not bot.kitAvailable(i):
+      continue
+    let cost = dist(me, bot.kitPos[i]) + dist(bot.kitPos[i], dest) - dist(me, dest)
+    if cost < best:
+      best = cost
+      result = i
+
 proc resetTransient(bot: Bot) =
   ## Drops per-game memory between rounds (lobby / game-over interstitials).
   bot.enemies.setLen(0)
   bot.mates.setLen(0)
   bot.nadeCharge = 0
   bot.mateFixTick = 0
+  bot.hp = MaxHp
+  for i in 0 ..< bot.kitAbsentAt.len:
+    bot.kitAbsentAt[i] = -1              # both kits restock at game start
   bot.shoutWant = ""
   bot.lastShoutTick = 0
   bot.comebackWant = ""
@@ -1084,6 +1116,42 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     enemyFlags = client.spriteObjectsWithLabel(enemyColor & " flag")
     ownPlanted = client.spriteObjectsWithLabel(myColor & " flag planted")
     ownFlags = client.spriteObjectsWithLabel(myColor & " flag")
+  # Own hit points from the HUD "lives <hp>hp x<lives>" text sprite.
+  for o in client.spriteObjects():
+    if o.label.startsWith("lives "):
+      let text = o.label[6 .. ^1]
+      let cut = text.find("hp")
+      if cut > 0:
+        try:
+          bot.hp = clamp(parseInt(text[0 ..< cut]), 1, MaxHp)
+        except ValueError:
+          discard
+      break
+
+  # Med kits: learn the two center-line spots on sight; presence is
+  # fog-gated, so an empty spot only counts as TAKEN when we pass close
+  # enough that the bubble would show it.
+  var kitSeen: seq[Vec]
+  for o in client.spriteObjectsWithLabel("med kit"):
+    kitSeen.add(client.mapPos(o))
+  for p in kitSeen:
+    var known = false
+    for i in 0 ..< bot.kitPos.len:
+      if dist(bot.kitPos[i], p) < 24.0:
+        known = true
+        bot.kitAbsentAt[i] = -1
+    if not known:
+      bot.kitPos.add(p)
+      bot.kitAbsentAt.add(-1)
+  for i in 0 ..< bot.kitPos.len:
+    if dist(bot.kitPos[i], me) <= MedKitSeenClear and bot.kitAbsentAt[i] < 0:
+      var present = false
+      for p in kitSeen:
+        if dist(bot.kitPos[i], p) < 24.0:
+          present = true
+      if not present:
+        bot.kitAbsentAt[i] = bot.tick
+
   when defined(taunt):
     # Taunt pipeline, all non-blocking: drain whatever the Bedrock worker
     # produced, notice new ENEMY shouts (queue a comeback), and open a short
@@ -1289,6 +1357,14 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       target = vec(pocket.x, laneY)
     else:
       target = vec(homeDeepX(bot.team), laneY)
+    # A hurt carrier detours through a stocked med kit on the way home: the
+    # run crosses the center line anyway, kits are hurt-only pickups (a
+    # healthy escort cannot waste one), and a full-heal carrier survives
+    # pocket exits and mid crossings that kill a 1 hp one.
+    if bot.hp < MaxHp:
+      let kit = bot.bestKitDetour(me, target, MedKitCarrierBudget)
+      if kit >= 0:
+        target = bot.kitPos[kit]
   elif ownStolen and (bot.role == HomeDefender or
       bot.tick - bot.carrierSeen <= ThiefFixTtl):
     # An enemy is RUNNING OUR FLAG: with a fresh fix (own eyes or a mate's
@@ -1566,7 +1642,24 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         bestD = d
         nadeAim = bradsOf(p - me)
         nadeThrowD = d
-  elif not carryingNade and not iCarry and not mateCarry and not pocketRush:
+
+  # Med kit heal detour (hurt bots only; the carrier handles its own detour
+  # in the carry branch). Wounded: a short opportunistic detour. Critical
+  # (1 hp): a heal outranks the current errand at much longer reach — a
+  # healed body is a respawn we did not spend. Never while committing to the
+  # pocket touch or chasing the enemy running our flag, and the CARRIER gets
+  # right of way: if our flag runner is closer to the kit than we are, we
+  # leave it — kits are hurt-only pickups, so deferring costs nothing when
+  # the carrier turns out healthy.
+  if bot.hp < MaxHp and not iCarry and not pocketRush and
+      not (ownStolen and bot.tick - bot.carrierSeen <= ThiefFixTtl):
+    let reach = if bot.hp <= 1: MedKitCriticalReach else: MedKitDetour
+    let kit = bot.bestKitDetour(me, target, reach)
+    if kit >= 0 and not (mateCarry and
+        dist(mateCarryPos, bot.kitPos[kit]) < dist(me, bot.kitPos[kit]) + 100.0):
+      target = bot.kitPos[kit]
+
+  if not carryingNade and not iCarry and not mateCarry and not pocketRush:
     # Collect a pickup: anyone grabs one within a short detour, and the two
     # flankers own their lane's friendly-side corner spawn — it sits right on
     # their border route, so they arm up on the way out every respawn cycle.
