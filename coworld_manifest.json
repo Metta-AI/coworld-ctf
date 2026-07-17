@@ -1,13 +1,13 @@
 {
   "$schema": "https://raw.githubusercontent.com/Metta-AI/metta/main/packages/coworld/src/coworld/coworld_manifest_schema.json",
+  "tags": [
+    "shooter",
+    "team",
+    "ctf"
+  ],
   "game": {
     "name": "ctf",
     "version": "0.1.0",
-    "tags": [
-      "shooter",
-      "team",
-      "ctf"
-    ],
     "description": "A two-team capture-the-heart shooter with fog-of-war vision. Red and Blue spawn on opposite edges, each guarding a heart on its home pedestal. Steal the enemy heart and carry it home - or wipe the enemy team. Two med kits on the center line heal the hurt back to full and respawn after 30 seconds. Grenade pickups wait in the corners: charged throws sail over walls and burst on landing, heard but not seen through the fog. Aim is decoupled from movement and carries your vision cone; guns are map-wide 3-hit-point hitscan with a trigger windup, teammates are fogged like enemies, and unseen gunfire is heard as a jittered sound ring - never pinpointed. Players can shout: 10-character messages heard within a fifth of the field, tagged by player and team at jittered coordinates and drawn as speech bubbles in replays. Rendered in painted high-resolution art: observation coordinates arrive at 3x map scale since 0.6.0 (see docs/RULES.md, Observation render scale).",
     "owner": "treeform@softmax.com",
     "runnable": {
