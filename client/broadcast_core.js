@@ -211,6 +211,35 @@
     let reconnecting = false;
     let stopped = false;
 
+    // ---- Playout buffer (jitter absorption) ----
+    // The stream leaves the server at a clean source cadence (~24fps), but the
+    // delivery chain (container → kube proxy → backend → nginx) is bursty:
+    // gaps >100ms followed by catch-up bursts. Drawing on arrival turns that
+    // into freeze-then-jump. Instead, queue incoming messages and present them
+    // on a fixed cadence inferred from the arrival rate, cushioned by a couple
+    // of frame intervals. Messages are stateful deltas (sprite defs, object
+    // moves), so backlog control must fast-forward — apply everything, draw
+    // once — never discard, or sprite/object state corrupts.
+    const paceEnabled = config.playoutBuffer !== false;
+    const onFrame = config.onFrame || null;
+    const PACE_TARGET_DEPTH = config.paceTargetDepth || 3;
+    const PACE_MAX_DEPTH = PACE_TARGET_DEPTH + 7;
+    const PACE_HARD_QUEUE = 240;
+    const PACE_MIN_INTERVAL = 1000 / 60;
+    const PACE_MAX_INTERVAL = 1000 / 10;
+    const PACE_WINDOW = 48;
+    const PACE_PRIME_TIMEOUT = 300;
+    let paceQueue = [];
+    let paceBinaryCount = 0;
+    let paceArrivals = [];
+    let paceInterval = 1000 / 24;
+    let paceNextDue = 0;
+    let pacePrimed = false;
+    let paceFirstArrival = 0;
+    let pacePresented = 0;
+    let paceRaf = null;
+    let paceTimer = null;
+
     function mapLayer() {
       for (const layer of layers.values()) {
         if ((layer.flags & ZoomableFlag) !== 0 || layer.type === MapLayerType) {
@@ -420,8 +449,145 @@
       }
     }
 
+    function pacePresentOne() {
+      // Pop entries up to and including the next binary frame; text messages
+      // ride along in arrival order without consuming a cadence slot.
+      while (paceQueue.length) {
+        const entry = paceQueue.shift();
+        if (entry.text !== undefined) {
+          onText(entry.text);
+          continue;
+        }
+        paceBinaryCount--;
+        parse(entry.bytes);
+        pacePresented++;
+        if (onFrame) onFrame();
+        return true;
+      }
+      return false;
+    }
+
+    function paceFastForward(keepDepth) {
+      while (paceBinaryCount > keepDepth) pacePresentOne();
+    }
+
+    function paceReset() {
+      // Drain anything still pending (in order — they're valid deltas), then
+      // start priming from scratch. Used on (re)connect.
+      paceFastForward(0);
+      while (paceQueue.length) {
+        const entry = paceQueue.shift();
+        if (entry.text !== undefined) onText(entry.text);
+      }
+      paceArrivals = [];
+      paceFirstArrival = 0;
+      pacePrimed = false;
+    }
+
+    function paceSchedule() {
+      // rAF gives paint-aligned pacing when the page is visible, but it
+      // throttles or fully stops in hidden/occluded tabs — the timer backstop
+      // keeps presentation and backlog control running there. Whichever fires
+      // first cancels the other.
+      if (!paceRaf) paceRaf = requestAnimationFrame(pacePumpRaf);
+      if (!paceTimer) {
+        paceTimer = setTimeout(pacePumpTimer, Math.max(25, paceInterval * 1.5));
+      }
+    }
+
+    function pacePumpRaf(now) {
+      paceRaf = null;
+      if (paceTimer) {
+        clearTimeout(paceTimer);
+        paceTimer = null;
+      }
+      pacePump(now);
+    }
+
+    function pacePumpTimer() {
+      paceTimer = null;
+      if (paceRaf) {
+        cancelAnimationFrame(paceRaf);
+        paceRaf = null;
+      }
+      pacePump(performance.now());
+    }
+
+    function pacePump(now) {
+      if (stopped) return;
+      if (paceBinaryCount > PACE_MAX_DEPTH) {
+        // Fell behind the live stream (delivery burst or stalled tab): apply
+        // the backlog immediately so latency stays bounded at the cushion.
+        paceFastForward(PACE_TARGET_DEPTH);
+        pacePrimed = true;
+        paceNextDue = now;
+      }
+      if (!pacePrimed &&
+          (paceBinaryCount > PACE_TARGET_DEPTH ||
+            (paceFirstArrival && now - paceFirstArrival >= PACE_PRIME_TIMEOUT))) {
+        pacePrimed = true;
+        paceNextDue = now;
+      }
+      // Text messages at the head arrived before every queued binary frame and
+      // their preceding frame is already presented — deliver them now.
+      while (paceQueue.length && paceQueue[0].text !== undefined) {
+        onText(paceQueue.shift().text);
+      }
+      if (pacePrimed && paceBinaryCount > 0) {
+        if (now - paceNextDue > 2 * paceInterval) {
+          // Re-anchor after a long stall instead of machine-gunning the
+          // backlog through the cadence (fast-forward bounds the depth).
+          paceNextDue = now;
+        }
+        // Present every due frame, capped per invocation: a throttled driver
+        // (1Hz setTimeout in a hidden tab) must still keep up, but a
+        // recovering stall shouldn't machine-gun the backlog.
+        let budget = 3;
+        while (budget > 0 && paceBinaryCount > 0 && now >= paceNextDue) {
+          budget--;
+          pacePresentOne();
+          // Nudge the cadence a few percent to hold the cushion at target
+          // depth — imperceptible, but stops underruns from permanently
+          // ratcheting latency upward (and overruns from accumulating).
+          const drift = Math.max(-2, Math.min(2, paceBinaryCount - PACE_TARGET_DEPTH));
+          paceNextDue += paceInterval * (1 - 0.02 * drift);
+        }
+      }
+      if (paceQueue.length) paceSchedule();
+    }
+
+    function paceEnqueue(event) {
+      const isText = typeof event.data === 'string';
+      if (isText) {
+        if (paceQueue.length === 0) {
+          // Nothing buffered ahead of it — no ordering to preserve.
+          onText(event.data);
+          return;
+        }
+        paceQueue.push({ text: event.data });
+      } else {
+        const now = performance.now();
+        if (!paceFirstArrival) paceFirstArrival = now;
+        paceArrivals.push(now);
+        if (paceArrivals.length > PACE_WINDOW) paceArrivals.shift();
+        if (paceArrivals.length >= 8) {
+          const span = paceArrivals[paceArrivals.length - 1] - paceArrivals[0];
+          const mean = span / (paceArrivals.length - 1);
+          paceInterval = Math.min(PACE_MAX_INTERVAL, Math.max(PACE_MIN_INTERVAL, mean));
+        }
+        paceQueue.push({ bytes: new Uint8Array(event.data) });
+        paceBinaryCount++;
+        if (paceBinaryCount > PACE_HARD_QUEUE) {
+          // rAF isn't firing (hidden tab): drain inline to cap memory.
+          paceFastForward(PACE_TARGET_DEPTH);
+        }
+      }
+      paceSchedule();
+    }
+
     function connect() {
       if (stopped) return;
+      if (paceEnabled) paceReset();
       const ws = new WebSocket(websocketAddress(window.location.href));
       socket = ws;
       ws.binaryType = 'arraybuffer';
@@ -429,11 +595,13 @@
 
       ws.onmessage = event => {
         if (socket !== ws) return;
-        if (typeof event.data === 'string') {
+        if (paceEnabled) {
+          paceEnqueue(event);
+        } else if (typeof event.data === 'string') {
           onText(event.data);
         } else {
-          const bytes = new Uint8Array(event.data);
-          parse(bytes);
+          parse(new Uint8Array(event.data));
+          if (onFrame) onFrame();
         }
       };
 
@@ -544,6 +712,24 @@
         cancelAnimationFrame(rafHandle);
         rafHandle = null;
       }
+      if (paceRaf) {
+        cancelAnimationFrame(paceRaf);
+        paceRaf = null;
+      }
+      if (paceTimer) {
+        clearTimeout(paceTimer);
+        paceTimer = null;
+      }
+    }
+
+    function getPaceStats() {
+      return {
+        enabled: paceEnabled,
+        queued: paceBinaryCount,
+        presented: pacePresented,
+        interval: paceInterval,
+        primed: pacePrimed
+      };
     }
 
     return {
@@ -552,6 +738,7 @@
       clickMap,
       getTransform,
       setViewportFit,
+      getPaceStats,
       stop
     };
   }
