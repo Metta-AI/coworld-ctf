@@ -76,6 +76,32 @@ suite "med kits":
       sim.step(none, none)
     check sim.medKitSpawns[0].present
 
+  test "med kits never block bullets":
+    var sim = twoTeamGame()
+    # A shot fired straight across a med kit spawn kills the target behind
+    # it: kits are not walls, not LOS blockers, and not in any mask.
+    let kit = sim.medKitSpawns[0]
+    check not sim.isWall(kit.x, kit.y)
+    sim.players[0].x = kit.x - 24
+    sim.players[0].y = kit.y
+    sim.players[0].aimBrads = 0          # east, straight over the kit
+    sim.players[0].fireCooldown = 0
+    sim.players[1].x = kit.x + 24
+    sim.players[1].y = kit.y
+    sim.players[1].spawnProtect = 0
+    sim.players[1].hp = 1
+    sim.tryFire(0)
+    check not sim.players[1].alive
+
+  test "spinning center diamonds keep their static collision":
+    let sim = twoTeamGame()
+    check AnimatedDiamonds.len == 8
+    for spot in AnimatedDiamonds:
+      # Center of every animated diamond is still a wall for movement, LOS,
+      # and bullets; the spin is drawing only.
+      check sim.isWall(spot.cx, spot.cy)
+      check isAnimatedDiamondPixel(spot.cx, spot.cy)
+
   test "med kit state is in the game hash":
     var sim1 = twoTeamGame()
     var sim2 = twoTeamGame()

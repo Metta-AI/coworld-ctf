@@ -176,6 +176,8 @@ always drawn — but moving entities are fogged:
 - **A taken kit respawns 30 seconds later** in the same spot.
 - Observation label: `med kit`. Kits are fog-gated like the grenade
   pickups: you see one only where you have vision.
+- **Med kits never block anything** — not movement, not bullets, not
+  line of sight. They are floor pickups, not cover.
 
 ## Lives & respawn
 

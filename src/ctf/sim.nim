@@ -943,6 +943,26 @@ const ArenaObstacles* = block:
     shapes.add shape.mirrorX()
   shapes
 
+const AnimatedDiamonds* = block:
+  ## The eight diamonds flanking the center of the field (column 5 and its
+  ## x-mirror): drawn as slowly rotating sprites instead of baked wall art.
+  ## COLLISION, LOS, and the fog masks keep the exact static diamond — the
+  ## spin is pure decoration and never enters gameHash.
+  var spots: seq[tuple[cx, cy, radius: int]]
+  for shape in ArenaObstacles:
+    if shape.kind == shapeDiamond and
+        abs(shape.cx - MapWidth div 2) < 80:
+      spots.add((shape.cx, shape.cy, shape.radius))
+  spots
+
+proc isAnimatedDiamondPixel*(x, y: int): bool =
+  ## Returns true when (x, y) lies inside one of the rotating center
+  ## diamonds (their art is drawn as live objects, not baked wall).
+  for spot in AnimatedDiamonds:
+    if abs(x - spot.cx) + abs(y - spot.cy) <= spot.radius:
+      return true
+  false
+
 proc inShapeF*(x, y: float, shape: ArenaShape): bool =
   ## Float-coordinate inShape: the render-scale rasterizer evaluates the same
   ## geometry at sub-pixel positions for crisp high-resolution wall edges.
@@ -1115,6 +1135,50 @@ proc carvedStoneColor(wall: seq[bool], w, h, x, y: int): ColorRGBA =
   else:
     StoneFace
 
+const
+  DiamondSpinFrames* = 16      ## steps across 90° (a diamond is 4-fold symmetric).
+  DiamondSpinTicksPerFrame* = 4  ## ~2.7s per quarter turn at 24 ticks/s.
+
+var diamondFrameCache: array[DiamondSpinFrames, seq[uint8]]
+
+proc rotatingDiamondPixels*(radius, frame: int): tuple[size: int, pixels: seq[uint8]] =
+  ## One pre-rotated frame of a spinning center diamond, shaded with the same
+  ## carved-stone material as the baked walls: the mask is rotated, then the
+  ## bevel is re-derived from it, so the light stays up-left at every angle.
+  ## Cosmetic only — collision keeps the static diamond.
+  let size = 2 * radius + 8
+  let index = ((frame mod DiamondSpinFrames) + DiamondSpinFrames) mod
+    DiamondSpinFrames
+  if diamondFrameCache[index].len > 0:
+    return (size, diamondFrameCache[index])
+  let
+    angle = float(index) / float(DiamondSpinFrames) * PI / 2.0
+    ca = cos(angle)
+    sa = sin(angle)
+    center = float(size) / 2.0
+  var mask = newSeq[bool](size * size)
+  for y in 0 ..< size:
+    for x in 0 ..< size:
+      let
+        dx = float(x) + 0.5 - center
+        dy = float(y) + 0.5 - center
+        rx = dx * ca + dy * sa
+        ry = -dx * sa + dy * ca
+      mask[y * size + x] = abs(rx) + abs(ry) <= float(radius)
+  var pixels = newSeq[uint8](size * size * 4)
+  for y in 0 ..< size:
+    for x in 0 ..< size:
+      if mask[y * size + x]:
+        let
+          color = carvedStoneColor(mask, size, size, x, y)
+          offset = (y * size + x) * 4
+        pixels[offset] = color.r
+        pixels[offset + 1] = color.g
+        pixels[offset + 2] = color.b
+        pixels[offset + 3] = 255
+  diamondFrameCache[index] = pixels
+  (size, pixels)
+
 ## --- Capture endzones (the floor a carrier must reach to score) ---
 ## The win condition is a full-height vertical column at each home edge: a live
 ## carrier scores the instant its center-x crosses the inner threshold, at ANY
@@ -1216,6 +1280,14 @@ proc loadMapLayers*(gameMap: CtfMap, withEndzoneGlow = true):
   for y in 0 ..< h:
     for x in 0 ..< w:
       wallMask[y * w + x] = isArenaWall(x, y, cx, cy)
+  ## The art mask drops the rotating center diamonds: their pixels paint as
+  ## floor here and the live renderer draws them as spinning objects. The
+  ## COLLISION masks below keep using the unmodified wallMask.
+  var artMask = wallMask
+  for y in 0 ..< h:
+    for x in 0 ..< w:
+      if artMask[y * w + x] and isAnimatedDiamondPixel(x, y):
+        artMask[y * w + x] = false
   ## The capture endzones: the exact score-columns from checkWinConditions'
   ## captureZoneXRange (Red's inclusive right threshold, Blue's inclusive left),
   ## painted into the FLOOR below so a carrier can read where to run.
@@ -1235,8 +1307,9 @@ proc loadMapLayers*(gameMap: CtfMap, withEndzoneGlow = true):
         onBorder = x < ArenaBorder or y < ArenaBorder or
           x >= w - ArenaBorder or y >= h - ArenaBorder
         wall = wallMask[y * w + x]
+        artWall = artMask[y * w + x]
       var color =
-        if wall: carvedStoneColor(wallMask, w, h, x, y)
+        if artWall: carvedStoneColor(artMask, w, h, x, y)
         elif withEndzoneGlow: endzoneColorAt(tileSample(floorTex, x, y), x,
           redHi, blueLo, playLo, playHi)
         else: tileSample(floorTex, x, y)

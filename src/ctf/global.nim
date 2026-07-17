@@ -125,6 +125,8 @@ const
   MedKitSpriteId = 845           ## center med kit pickup (native size).
   MedKitSize = 26                ## px footprint of a med kit pickup.
   MedKitObjectBase = 19350       ## center med kits: 19350..19351.
+  RotDiamondSpriteBase = 850     ## spinning diamond frames: 850..865.
+  RotDiamondObjectBase = 19360   ## spinning center diamonds: 19360..19367.
   PaintBombAirObjectBase = 19320     ## airborne orbs: one per in-flight grenade.
   PaintBombCarryObjectBase = 19360   ## carried markers: one per player.
   ThrowTargetObjectBase = 19400      ## charge rings: one per player.
@@ -2544,6 +2546,39 @@ proc addSoundRings(
       SoundRingSpriteId
     )
 
+proc addRotatingDiamonds(
+  sim: SimServer,
+  spriteDefs: var seq[SpriteDefinition],
+  currentIds: var seq[int],
+  packet: var seq[uint8]
+) {.measure.} =
+  ## Draws the center diamonds as slowly spinning carved-stone sprites over
+  ## the floor the art bake left under them. Map geometry is always visible
+  ## (never fog-gated), and the halves spin in mirrored directions. The spin
+  ## angle derives from tickCount, so replays and every viewer agree; the
+  ## collision masks still hold the static diamond — decoration only.
+  for i in 0 ..< AnimatedDiamonds.len:
+    let
+      spot = AnimatedDiamonds[i]
+      dir = if spot.cx < MapWidth div 2: 1 else: -1
+      step = sim.tickCount div DiamondSpinTicksPerFrame
+      frame = ((step * dir) mod DiamondSpinFrames + DiamondSpinFrames) mod
+        DiamondSpinFrames
+      (size, pixels) = rotatingDiamondPixels(spot.radius, frame)
+      spriteId = RotDiamondSpriteBase + frame
+    if spriteDefs.spriteDefinitionIndex(spriteId) < 0:
+      packet.addSpriteChanged(
+        spriteDefs, spriteId, size, size, pixels, "diamond"
+      )
+    let objectId = RotDiamondObjectBase + i
+    currentIds.add(objectId)
+    packet.addObject(
+      objectId,
+      spot.cx - size div 2,
+      spot.cy - size div 2,
+      spot.cy, MapLayerId, spriteId
+    )
+
 proc addMedKits(
   sim: SimServer,
   spriteDefs: var seq[SpriteDefinition],
@@ -3130,6 +3165,7 @@ proc buildSpriteProtocolPlayerUpdates*(
       result,
       viewerIndex = playerIndex
     )
+    sim.addRotatingDiamonds(nextState.spriteDefs, currentIds, result)
     sim.addMedKits(
       nextState.spriteDefs,
       currentIds,
@@ -3640,6 +3676,7 @@ proc buildSpriteProtocolUpdates*(
   sim.addSplatters(nextState.spriteDefs, currentIds, result)
   sim.addDamagePops(nextState.spriteDefs, currentIds, result)
   sim.addShotTracers(nextState.spriteDefs, currentIds, result)
+  sim.addRotatingDiamonds(nextState.spriteDefs, currentIds, result)
   sim.addMedKits(nextState.spriteDefs, currentIds, result)
   sim.addGrenades(nextState.spriteDefs, currentIds, result)
   sim.addShouts(nextState.spriteDefs, currentIds, result)
