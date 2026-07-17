@@ -264,6 +264,7 @@ type
     lastComebackReq: int      # rate limit on comeback generation requests
     wasMateCarry: bool        # edge detector: a fresh steal opens a taunt window
     hp: int                   # own hit points, read from the HUD lives label
+    rearWatchUntil: int       # respawn window: sweep OUR half while flag out
     kitPos: seq[Vec]          # discovered med kit spots (two, center line)
     kitAbsentAt: seq[int]     # tick a spot was last seen empty; -1 = present
 
@@ -948,6 +949,7 @@ proc resetTransient(bot: Bot) =
   bot.nadeCharge = 0
   bot.mateFixTick = 0
   bot.hp = MaxHp
+  bot.rearWatchUntil = 0
   for i in 0 ..< bot.kitAbsentAt.len:
     bot.kitAbsentAt[i] = -1              # both kits restock at game start
   bot.shoutWant = ""
@@ -1080,6 +1082,12 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # Respawned: the server points the aim back at the enemy side.
     bot.wasDead = false
     bot.estAim = spawnAim(bot.team)
+    bot.rearWatchUntil = bot.tick + 168
+    # Fresh respawns face the enemy side — exactly the wrong way while OUR
+    # flag is escaping through our own half. The window makes the respawn
+    # wave sweep the rear until the flag situation is checked (decoded
+    # Picasso losses: their 1 hp thief crossed our whole half behind a
+    # freshly-respawned wave that never looked back).
   # Absolute turret fix: our own rendered aim-indicator dots show the actual
   # aim every frame, capping any dead-reckoning drift (mask-apply races).
   block resync:
@@ -1365,7 +1373,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       let kit = bot.bestKitDetour(me, target, MedKitCarrierBudget)
       if kit >= 0:
         target = bot.kitPos[kit]
-  elif ownStolen and (bot.role == HomeDefender or
+  elif ownStolen and (bot.role in {HomeDefender, Overwatch} or
       bot.tick - bot.carrierSeen <= ThiefFixTtl):
     # An enemy is RUNNING OUR FLAG: with a fresh fix (own eyes or a mate's
     # "T" shout), EVERY role drops what it is doing and converges on the
@@ -1390,6 +1398,12 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           if abs(bot.carrierPos.y - lane) < bestD:
             bestD = abs(bot.carrierPos.y - lane)
             laneY = lane
+      if bot.role == Overwatch:
+        # Second guard covers a BORDER corridor: decoded Picasso captures
+        # hugged the extreme lanes (y ~30-80) where the single mid-lane
+        # guard never had a sightline. Take the border farthest from the
+        # HomeDefender's pick so two corridors are watched, not one twice.
+        laneY = if laneY == LaneTop: LaneBottom else: LaneTop
       target = vec(float(CenterX) - homeSign(bot.team) * 60.0, laneY)
   elif mateCarry:
     case bot.role
@@ -1833,6 +1847,11 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       moveMask = octantBits(steer)
       if bot.tick < bot.jinkUntil:
         moveMask = bot.jinkBits            # unsticking burst
+      if desiredAim < 0 and ownStolen and bot.tick < bot.rearWatchUntil:
+        # Respawn rear watch: our flag is out and we just respawned facing
+        # the enemy side — sweep OUR half instead; the thief crosses it
+        # behind us. Movement continues unchanged (aim is decoupled).
+        desiredAim = bot.scanAim(vec(homeSign(bot.team), 0.0))
       if desiredAim < 0:
         # No target demands the turret: the aim leads the movement direction
         # so the vision cone watches down-lane where we are heading. Movement
