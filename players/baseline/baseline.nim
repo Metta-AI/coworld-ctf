@@ -90,10 +90,14 @@ const
   RepathTicks = 10            # refresh the cost field at least this often
   LookaheadCells = 6          # how far ahead on the path we aim the waypoint
 
-  CarrierFireRange = 110.0    # while carrying, only shoot enemies this close
-  RushEngageRange = 230.0     # racing for the steal: only fight what blocks it
-  EscortEngageRange = 320.0   # escorting a run: only fight near threats
-  PocketRushRange = 210.0     # this close to the enemy pedestal, just GRAB
+  tuneCarrierFireRange {.intdefine.} = 110 # while carrying, only shoot enemies this close
+  CarrierFireRange = float(tuneCarrierFireRange)
+  tuneRushEngageRange {.intdefine.} = 230 # racing for the steal: only fight what blocks it
+  RushEngageRange = float(tuneRushEngageRange)
+  tuneEscortEngageRange {.intdefine.} = 320 # escorting a run: only fight near threats
+  EscortEngageRange = float(tuneEscortEngageRange)
+  tunePocketRushRange {.intdefine.} = 210 # this close to the enemy pedestal, just GRAB
+  PocketRushRange = float(tunePocketRushRange)
   ThreatRange = 200.0         # react to a visible enemy this close facing us
   DuckRange = 340.0           # duck from remembered threats this close on cooldown
   MateSpacing = 40.0          # soft repulsion radius between teammates
@@ -106,7 +110,9 @@ const
   FreshShotTicks = 24         # only fire at tracks seen this recently; the
                               # turret needs traverse time, so chases keep
                               # shooting a bit after the target fogs out
-  ThiefFixTtl = 40            # a thief position fix guides the chase this long
+  tuneThiefFixTtl {.intdefine.} = 40 # a thief position fix guides the chase this long
+  ThiefFixTtl = tuneThiefFixTtl
+  tuneThiefLeadTicks {.intdefine.} = 18 # ticks of thief-intercept prediction
 
   AimBrads = 256              # aim angle units per full turn
   AimRate = 5                 # brads/tick a held rotate button turns the aim
@@ -120,8 +126,9 @@ const
                               # enemy hit point — a tiebreak between
                               # comparably-engageable targets, never a reason
                               # to swing the turret across the map
-  ThiefFocusBonus = 400.0     # px of credit for the enemy RUNNING OUR FLAG:
-                              # dominates every positional tiebreak — killing
+  tuneThiefFocusBonus {.intdefine.} = 400 # px of credit for the enemy RUNNING OUR FLAG:
+  ThiefFocusBonus = float(tuneThiefFocusBonus)
+                                # dominates every positional tiebreak — killing
                               # the thief returns the flag instantly
   FocusFireBonus = 45.0       # px of credit when a visible mate's aim line
                               # already covers the target (finish together)
@@ -173,7 +180,8 @@ const
                               # watch heading (cone half-angle is 32 brads)
   PushOutTicks = 360          # endgame push: no enemy seen for ~15s...
   PushOutMinGame = 2400       # ...this deep into the game breaks the posts
-  LatePushTick = 6800         # all-in on the clock: past this tick a draw is
+  tuneLatePushTick {.intdefine.} = 6800 # all-in on the clock: past this tick a draw is
+  LatePushTick = tuneLatePushTick
                               # the default outcome, so commit to the capture
 
   CoverShieldDist = 42.0      # an obstacle this close blocks a threat direction
@@ -193,8 +201,14 @@ const
                               # under fog the exposure model (enemy sniper
                               # posts + fresh tracks) is the only warning of
                               # watched lanes, so routes respect it hard
-  FlankDepth = 260.0          # wide flankers cross this far past mid
-  WeaveBand = 280.0           # rushers serpentine within this x-band of mid
+  tuneFlankDepth {.intdefine.} = 260 # wide flankers cross this far past mid
+  FlankDepth = float(tuneFlankDepth)
+  tuneWeaveBand {.intdefine.} = 280 # rushers serpentine within this x-band of mid
+  WeaveBand = float(tuneWeaveBand)
+  tuneWeaveGain {.intdefine.} = 60 # percent side-steer gain while weaving
+  tuneCarrierLaneBiasDiv {.intdefine.} = 500 # nearest-lane stickiness divisor
+  tuneCarrierLaneThreatY {.intdefine.} = 120 # lane-threat y-window
+  tuneExtraDefenders {.intdefine.} = 0 # promote flank/mid seats to defense
 
   LaneTop = 40.0              # open corridor above the mirrored obstacles
 
@@ -309,13 +323,19 @@ proc roleForSeat(seat: int, team: Team): Role =
     MidTop
   else:
     case seat
-    of 0: FlankBottom      # wide bottom lane, get behind the contest
-    of 1: MidGuard         # third mid, trails offset high and cleans up
+    of 0:
+      when tuneExtraDefenders >= 2: HomeDefender
+      else: FlankBottom          # wide bottom lane, get behind the contest
+    of 1:
+      when tuneExtraDefenders >= 3: HomeDefender
+      else: MidGuard               # third mid, trails offset high and cleans up
     of 2: (if team == Blue: MidTop else: MidBottom)
     of 3: (if team == Red: MidTop else: MidBottom)
     of 4: MidBottom        # fourth mid: the second trailing attacker
     of 5: Overwatch        # cover post flanking the ring: the lane sniper
-    of 6: FlankTop         # wide top lane, get behind the contest
+    of 6:
+      when tuneExtraDefenders >= 1: HomeDefender
+      else: FlankTop             # wide top lane, get behind the contest
     else: HomeDefender     # choke guard before our capture column
 
 proc vec(x, y: float): Vec =
@@ -1081,17 +1101,18 @@ proc safestLaneY(bot: Bot, me: Vec): float =
     bestLane = LaneMid
     bestScore = 1e18
   for lane in [LaneTop, LaneMid, LaneBottom]:
-    var score = abs(me.y - lane) / 500.0     # mild bias toward the nearest lane
+    var score = abs(me.y - lane) / float(tuneCarrierLaneBiasDiv)
+                                           # mild bias toward nearest lane
     for t in bot.enemies:
       let towardHome =
         if bot.team == Red: t.pos.x < me.x + 200
         else: t.pos.x > me.x - 200
-      if towardHome and abs(t.pos.y - lane) < 120:
+      if towardHome and abs(t.pos.y - lane) < float(tuneCarrierLaneThreatY):
         score += 1.0
     for post in bot.enemyPosts:
       # The mirrored enemy sniper posts are standing threats on the run home
       # even when nobody has been seen there.
-      if abs(post.y - lane) < 120:
+      if abs(post.y - lane) < float(tuneCarrierLaneThreatY):
         score += 1.0
     if bot.navBuilt:
       # Cover continuity: sample the run home along the lane and charge each
@@ -1405,6 +1426,10 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         bot.carrierVel = t.vel
         break
     bot.carrierSeen = bot.tick
+  when defined(stolenOverwatchGuards):
+    let stolenGuard = bot.role == HomeDefender or bot.role == Overwatch
+  else:
+    let stolenGuard = bot.role == HomeDefender
 
   when defined(shoutCoord):
     # Broadcast intel worth its position leak (shouts are heard by enemies
@@ -1493,7 +1518,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       let kit = bot.bestKitDetour(me, target, MedKitCarrierBudget)
       if kit >= 0:
         target = bot.kitPos[kit]
-  elif ownStolen and (bot.role == HomeDefender or
+  elif ownStolen and (stolenGuard or
       bot.tick - bot.carrierSeen <= ThiefFixTtl):
     # An enemy is RUNNING OUR FLAG: with a fresh fix (own eyes or a mate's
     # "T" shout), EVERY role drops what it is doing and converges on the
@@ -1506,7 +1531,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     if bot.tick - bot.carrierSeen <= ThiefFixTtl:
       # Converge on the thief's predicted path toward the enemy capture edge.
       var predicted = bot.carrierPos +
-        bot.carrierVel * float(18 + bot.tick - bot.carrierSeen)
+        bot.carrierVel * float(tuneThiefLeadTicks + bot.tick - bot.carrierSeen)
       predicted.x += -homeSign(bot.team) * 40.0
       target = vec(clamp(predicted.x, 20.0, float(MapW - 20)),
                    clamp(predicted.y, 20.0, float(MapH - 20)))
@@ -2025,7 +2050,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           var side = vec(-steer.y, steer.x)
           if (bot.tick div 8 + bot.slot div 2) mod 2 == 0:
             side = side * -1.0
-          steer = norm(steer) + side * 0.6
+          steer = norm(steer) + side * (float(tuneWeaveGain) / 100.0)
       steer = steer + vec(rand(-0.12 .. 0.12), rand(-0.12 .. 0.12))
       moveMask = octantBits(steer)
       if bot.tick < bot.jinkUntil:

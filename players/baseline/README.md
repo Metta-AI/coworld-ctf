@@ -236,13 +236,28 @@ the capture race stays on.
 
 ## Tuning
 
-The knobs are the constants at the top of `baseline.nim` (ranges, memory
-TTLs, aim rate/deadbands/fire slack, scan arc, cover/exposure costs, lane
-y-coordinates, spacing, corridor width). `AimRate` must match the server's
-`aimTurnRate` config (default 5). Role assignment is `roleForSeat`; lane via-points,
-`chokeSpot`, and `homeDeepX` encode the map geometry (1235×659, center
-617,329, mirror line x=617, capture zones x≤~206 / x≥~1029, spawn-pocket
-pedestals at 186,329 / 1049,329).
+Strategic levers can be overridden at compile time with `-d:NAME=VALUE`;
+defaults preserve the v15 baseline. `AimRate` must match the server's
+`aimTurnRate` config (default 5). Role assignment is `roleForSeat`; lane
+via-points, `chokeSpot`, and `homeDeepX` encode the map geometry.
+
+| Name | Type | Default | What it does | Sane experimental range |
+| --- | --- | ---: | --- | --- |
+| `tuneRushEngageRange` | int | 230 | Rusher engagement distance | 150–350 |
+| `tunePocketRushRange` | int | 210 | Distance from enemy pedestal to prioritize pickup | 150–300 |
+| `tuneWeaveBand` | int | 280 | Midline x-band where rushers weave | 150–450 |
+| `tuneWeaveGain` | int percent | 60 | Side-steer strength during weaving | 20–100 |
+| `tuneCarrierFireRange` | int | 110 | Carrier engagement distance | 50–180 |
+| `tuneEscortEngageRange` | int | 320 | Engagement distance while escorting | 200–500 |
+| `tuneThiefFixTtl` | int ticks | 40 | Lifetime of a thief position fix | 20–80 |
+| `tuneThiefLeadTicks` | int ticks | 18 | Prediction lead for thief interception | 0–36 |
+| `tuneThiefFocusBonus` | int px | 400 | Target-priority bonus for the enemy flag thief | 0–800 |
+| `tuneFlankDepth` | int px | 260 | How far flankers cross past mid | 150–400 |
+| `tuneLatePushTick` | int ticks | 6800 | Tick after which defensive roles all-in for capture | 5000–9000 |
+| `tuneCarrierLaneBiasDiv` | int px | 500 | Divisor for nearest-lane stickiness | 250–1000 |
+| `tuneCarrierLaneThreatY` | int px | 120 | Enemy lane-threat y-window | 60–220 |
+| `tuneExtraDefenders` | int seats | 0 | Promote seats 6, then 0, then 1 to HomeDefender | 0–3 |
+| `stolenOverwatchGuards` | bool define | off | Make Overwatch guard stale own-flag steals | on/off |
 
 ## Build & run
 
