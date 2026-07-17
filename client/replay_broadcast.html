@@ -494,6 +494,38 @@ html, body {
   background: linear-gradient(to top, rgba(11, 7, 4, 0.9) 0%, rgba(11, 7, 4, 0.42) 68%, transparent 100%);
 }
 #transport.disabled { opacity: 0.35; pointer-events: none; }
+/* Collapsed drawer: slide the whole transport down past the bottom edge so the
+   board is full-bleed to the frame. A transform (not display:none) keeps the
+   scrubber geometry live, so the reopen animation and any in-flight seek stay
+   coherent; pointer-events off so the hidden strip never eats map clicks. */
+#transport {
+  transition: transform 0.18s ease, opacity 0.18s ease;
+}
+#transport.collapsed {
+  transform: translateY(110%);
+  opacity: 0;
+  pointer-events: none;
+}
+/* Reopen tab — hidden while the transport is open, a thin bottom-edge handle
+   once collapsed. Warm ink-on-paper like the rest of the chrome, never a box. */
+#btn-drawer-show {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  transform: translateX(-50%);
+  display: none;
+  font-family: var(--finefont);
+  font-size: calc(6 * var(--u));
+  letter-spacing: 0.14em;
+  color: var(--paper-dim);
+  background: linear-gradient(to top, rgba(11, 7, 4, 0.82), transparent);
+  border: none;
+  padding: calc(3 * var(--u)) calc(14 * var(--u)) calc(2 * var(--u));
+  cursor: pointer;
+  z-index: 4;
+}
+#btn-drawer-show.on { display: block; }
+#btn-drawer-show:hover { color: var(--paper); }
 
 /* scrubber: click-to-seek track (top) over a full-timeline momentum graph.
    The seek track and the momentum graph share the SAME 0→maxTicks x-axis, so
@@ -798,11 +830,17 @@ html, body {
         <button class="tbtn" id="btn-fwd" title="Skip +5s (.)">+5s</button>
         <button class="tbtn" id="btn-end" title="Jump to end (e)">|▸</button>
         <button class="tbtn" id="btn-loop" title="Loop (r)">↻</button>
+        <button class="tbtn" id="btn-drawer" title="Hide timeline (h)">▾</button>
         <span class="tick-clock" id="tick-clock">0 / 0</span>
         <span class="tsep"></span>
         <div class="speedchips" id="speedchips"></div>
       </div>
     </div>
+
+    <!-- Drawer handle: when the transport is hidden (to see the bottom of the
+         map full-bleed), this is the only chrome left — a thin centered tab at
+         the very bottom edge that slides the timeline back up. -->
+    <button id="btn-drawer-show" title="Show timeline (h)">▴ TIMELINE</button>
 
     <div id="endcard">
       <div class="verdict-badge" id="ec-badge">GAME OVER</div>
@@ -843,6 +881,11 @@ html, body {
 
   const ZoomableFlag = 1;
   const MapLayerType = 0;
+  // Reserved sprite id whose LABEL carries the broadcast chrome JSON on the
+  // binary channel (see server: BroadcastChromeSpriteId). Kept off the drawable
+  // sprite map and fed straight to onText — the ONLY channel that survives a
+  // hosted replay (the interactive TextMessage opt-in never routes through it).
+  const CHROME_SPRITE_ID = 4090;
 
   function readU16(bytes, offset) {
     return bytes[offset] | (bytes[offset + 1] << 8);
@@ -1196,7 +1239,15 @@ html, body {
           } else {
             offset += width * height;
           }
-          sprites.set(id, { width, height, pixels, label });
+          // Broadcast chrome (scorebug/clock/scrubber/roster/events) is smuggled
+          // as the label of a reserved 1×1 sprite (id 4090). Route it to onText
+          // exactly like the legacy TextMessage chrome — this binary path is the
+          // only one that survives a hosted replay. Never register it drawable.
+          if (id === CHROME_SPRITE_ID) {
+            if (label) onText(label);
+          } else {
+            sprites.set(id, { width, height, pixels, label });
+          }
           changed = true;
         } else if (type === 0x02) {
           const id = readU16(bytes, offset);
@@ -2243,6 +2294,16 @@ html, body {
   $('btn-end').addEventListener('click', function () { send('e'); });
   $('btn-loop').addEventListener('click', function () { send('r'); });
 
+  // Timeline drawer: collapse the transport out of view so the bottom of the
+  // map is fully visible (the board already renders full-height behind it).
+  // Purely local chrome — no server command, no replay-state change.
+  function setDrawer(open) {
+    $('transport').classList.toggle('collapsed', !open);
+    $('btn-drawer-show').classList.toggle('on', !open);
+  }
+  $('btn-drawer').addEventListener('click', function () { setDrawer(false); });
+  $('btn-drawer-show').addEventListener('click', function () { setDrawer(true); });
+
   // click-to-seek: map x-fraction to a tick and send s:<tick>
   $('scrub').addEventListener('click', function (ev) {
     if (!lastState || !lastState.en) return;
@@ -2272,6 +2333,7 @@ html, body {
     else if (k === 'b') send('b');
     else if (k === 'e') send('e');
     else if (k === 'r') send('r');
+    else if (k === 'h' || k === 'H') setDrawer($('transport').classList.contains('collapsed'));
     else if (k === '+' || k === '=') send('+');
     else if (k === '-' || k === '_') send('-');
     else if (k >= '1' && k <= '9') send(k);

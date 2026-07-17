@@ -59,6 +59,9 @@ const
   # self-contained file (font + core JS inlined). Live/player/global paths are
   # untouched and keep serving the bitworld client (§14 live column).
   EmbeddedBroadcastReplayHtml = staticRead("../../client/replay_broadcast.html")
+  # Hosted replay closes any WS frame larger than 1 MiB (sends 1009). We chunk
+  # outbound sprite packets under a margin below that so no single frame trips it.
+  MaxWsFrameBytes = 900_000
 
 proc liveProgressMaxTick(config: GameConfig): int =
   ## Returns the live viewer tick-bar budget.
@@ -1131,8 +1134,8 @@ proc runServerLoop*(
           withLock appState.lock:
             if sockets[i] in appState.playerViewers:
               appState.playerViewers[sockets[i]] = nextState
-        let frameBlob = blobFromBytes(framePacket)
-        sockets[i].send(frameBlob, BinaryMessage)
+        for chunk in global.chunkSpritePacket(framePacket, MaxWsFrameBytes):
+          sockets[i].send(blobFromBytes(chunk), BinaryMessage)
       for websocket in rewardViewers:
         websocket.send(rewardPacket, TextMessage)
       runFrameLimiter(lastTick)
@@ -1219,9 +1222,9 @@ proc runServerLoop*(
         withLock appState.lock:
           if sockets[i] in appState.playerViewers:
             appState.playerViewers[sockets[i]] = nextState
-      let frameBlob = blobFromBytes(framePacket)
       try:
-        sockets[i].send(frameBlob, BinaryMessage)
+        for chunk in global.chunkSpritePacket(framePacket, MaxWsFrameBytes):
+          sockets[i].send(blobFromBytes(chunk), BinaryMessage)
       except:
         {.gcsafe.}:
           withLock appState.lock:
@@ -1253,14 +1256,19 @@ proc runServerLoop*(
       if packet.len == 0:
         continue
       try:
-        globalViewers[i].send(blobFromBytes(packet), BinaryMessage)
-        # The JSON chrome channel is REPLAY-ONLY and OPT-IN: only a viewer that
-        # sent `hud:on` (our broadcast client) receives a TextMessage. The
-        # legacy bitworld client never opts in, so live `/global` spectating and
-        # the generic client stay byte-identical and never see a stray frame.
-        if replayLoaded and globalStates[i].broadcastHud:
-          # Ship the full-timeline lives-lead series ONCE per HUD viewer (on the
-          # first frame after opt-in); later frames omit it and the client caches.
+        # The JSON chrome channel is REPLAY-ONLY. It rides the SAME binary sprite
+        # channel as the board — as the label of a reserved never-drawn 1×1
+        # sprite (BroadcastChromeSpriteId) — because that is the ONLY channel
+        # that survives a hosted replay. The legacy opt-in `TextMessage` path
+        # never routes the client→server `hud:on` through the recorded stream,
+        # so hosted the HUD froze at its DOM defaults while the board played.
+        # Piggybacking on the binary channel makes the chrome survive every
+        # playback path (live serve, generic client, hosted replay), with no
+        # opt-in. The generic bitworld client simply ignores an unknown sprite id.
+        var outPacket = packet
+        if replayLoaded:
+          # Ship the full-timeline lives-lead series ONCE (first frame), then the
+          # client caches it; later frames omit it to keep the label compact.
           let sendLead = not globalStates[i].momentumSent
           let stateJson = sim.buildStateJson(
             frameEvents,
@@ -1274,9 +1282,17 @@ proc runServerLoop*(
             if sendLead: replayPlayer.livesLeadSeries else: @[],
             replayPlayer.replayStartTick()
           )
-          globalViewers[i].send(stateJson, TextMessage)
+          outPacket.addSprite(BroadcastChromeSpriteId, 1, 1, [0'u8, 0, 0, 0], stateJson)
           if sendLead:
             nextState.momentumSent = true
+        # Ship in WS-frame-sized chunks at message boundaries: the hosted replay
+        # viewer closes any frame over 1 MiB (1009 "message too big"). The client
+        # accumulates sprite/object state across binary messages, so N chunks are
+        # equivalent to one packet. The init frame (banded map + atlas + chrome)
+        # is the only one that ever exceeds the cap; steady-state frames pass
+        # through as a single chunk.
+        for chunk in global.chunkSpritePacket(outPacket, MaxWsFrameBytes):
+          globalViewers[i].send(blobFromBytes(chunk), BinaryMessage)
         {.gcsafe.}:
           withLock appState.lock:
             if globalViewers[i] in appState.globalViewers:
