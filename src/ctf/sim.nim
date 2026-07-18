@@ -2053,6 +2053,8 @@ proc gameHash*(sim: SimServer): uint64 =
     result.mixHashBool(spawn.present)
     result.mixHashInt(spawn.respawnAt)
   for spawn in sim.shieldSpawns:
+    result.mixHashBool(spawn.present)
+    result.mixHashInt(spawn.respawnAt)
   for spawn in sim.swordSpawns:
     result.mixHashBool(spawn.present)
     result.mixHashInt(spawn.respawnAt)
@@ -3059,8 +3061,8 @@ proc canFire*(sim: SimServer, shooterIndex: int): bool =
   if shooterIndex < 0 or shooterIndex >= sim.players.len:
     return false
   let shooter = sim.players[shooterIndex]
-  shooter.alive and shooter.fireCooldown <= 0 and not shooter.hasShield
-  shooter.alive and not shooter.hasSword and shooter.fireCooldown <= 0
+  shooter.alive and shooter.fireCooldown <= 0 and
+    not shooter.hasShield and not shooter.hasSword
 
 proc canSwing*(sim: SimServer, attackerIndex: int): bool =
   ## Returns whether one player can perform an immediate sword swing.
@@ -3481,9 +3483,6 @@ proc tryPickupShields*(sim: var SimServer, playerIndex: int) =
   ## shield raises the player to ShieldHitPoints but bars them from shooting;
   ## a taken shield refills after ShieldRespawnTicks.
   if not sim.players[playerIndex].alive or sim.players[playerIndex].hasShield:
-proc tryPickupSwords*(sim: var SimServer, playerIndex: int) =
-  ## Lets a living player pick up one side-center sword by touch.
-  if not sim.players[playerIndex].alive or sim.players[playerIndex].hasSword:
     return
   let
     px = sim.players[playerIndex].x + CollisionW div 2
@@ -3498,6 +3497,16 @@ proc tryPickupSwords*(sim: var SimServer, playerIndex: int) =
       sim.logGameEvent(
         playerColorText(sim.players[playerIndex].color) &
           " picked up a shield"
+      )
+      return
+
+proc tryPickupSwords*(sim: var SimServer, playerIndex: int) =
+  ## Lets a living player pick up one side-center sword by touch.
+  if not sim.players[playerIndex].alive or sim.players[playerIndex].hasSword:
+    return
+  let
+    px = sim.players[playerIndex].x + CollisionW div 2
+    py = sim.players[playerIndex].y + CollisionH div 2
     rangeSq = SwordPickupRange * SwordPickupRange
   for spawn in sim.swordSpawns.mitems:
     if spawn.present and distSq(px, py, spawn.x, spawn.y) <= rangeSq:
