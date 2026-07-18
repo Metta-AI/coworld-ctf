@@ -133,6 +133,17 @@ const
   ShieldCarrySize = 12           ## px footprint of the carried shield marker.
   ShieldObjectBase = 19602       ## endzone shields: 19602..19603.
   ShieldCarryObjectBase = 19620  ## carried shield markers: one per player.
+  SwordPickupSpriteId = 2000
+  SwordCarrySpriteId = 2001
+  SwordSwipeSpriteBase = 2002
+  SwordSwipeStages = 4
+  SwordPickupSize = 20
+  SwordCarrySize = 10
+  SwordSwipeSize = 2 * SwordRange
+  SwordPickupObjectBase = 19640
+  SwordCarryObjectBase = 19660
+  SwordSwipeObjectBase = 19700
+  SwordMaxSwipes = 16
   RotDiamondSpriteBase = 1401    ## spinning diamond frames: 1401..1416;
                                  ## 850 collided with CorpseSpriteBase.
   RotDiamondObjectBase = 19610   ## spinning center diamonds: 19610..19617;
@@ -813,6 +824,62 @@ proc buildThrowTargetSprite(): seq[uint8] {.measure.} =
         (float(y) - c) * (float(y) - c))
       if d <= c and d >= c - 2.0:                 # a 2px hollow rim
         result.putRawRgbaPixel(y * ThrowTargetSize + x, 255, 190, 70, 210)
+
+proc buildSwordIcon(size: int): seq[uint8] {.measure.} =
+  ## Builds a small, readable sword icon for pickups and carried markers.
+  result = newRgbaPixels(size, size)
+  let center = float(size - 1) / 2
+  for y in 0 ..< size:
+    for x in 0 ..< size:
+      let
+        dx = float(x) - center
+        dy = float(y) - center
+        blade = abs(dx + dy) < 1.5 and dx < center * 0.65
+        guard = abs(dx - dy) < 1.5 and abs(dx) < center * 0.45
+        handle = abs(dx + dy) < 1.6 and dx > center * 0.35
+      if blade:
+        result.putRawRgbaPixel(
+          y * size + x, 230, 238, 242, 235
+        )
+      elif guard:
+        result.putRawRgbaPixel(
+          y * size + x, 247, 190, 70, 245
+        )
+      elif handle:
+        result.putRawRgbaPixel(
+          y * size + x, 92, 56, 36, 245
+        )
+
+proc loadSwordSprite(size: int): seq[uint8] =
+  ## Returns the sword icon at its requested protocol footprint.
+  buildSwordIcon(size)
+
+proc buildSwordSwipeSprite(colorIndex, stage: int): seq[uint8] {.measure.} =
+  ## Builds a team-colored crescent slash with a short fade.
+  result = newRgbaPixels(SwordSwipeSize, SwordSwipeSize)
+  let
+    base = Palette[PlayerColors[colorIndex and 0x0f] and 0x0f]
+    center = float(SwordSwipeSize - 1) / 2
+    radius = float(SwordRange) * 0.82
+    fade = 1.0 - 0.72 * (stage.float /
+      float(max(1, SwordSwipeStages - 1)))
+  for y in 0 ..< SwordSwipeSize:
+    for x in 0 ..< SwordSwipeSize:
+      let
+        dx = float(x) - center
+        dy = float(y) - center
+        distance = sqrt(dx * dx + dy * dy)
+        angle = arctan2(-dy, dx)
+        inArc = angle >= -PI / 4 and angle <= PI / 4
+        onRim = abs(distance - radius) <= 1.8
+      if inArc and onRim:
+        result.putRawRgbaPixel(
+          y * SwordSwipeSize + x,
+          uint8((base.r.int + 255) div 2),
+          uint8((base.g.int + 255) div 2),
+          uint8((base.b.int + 255) div 2),
+          uint8(clamp(255.0 * fade, 0.0, 255.0))
+        )
 
 proc buildBlastSprite(colorIndex, stage: int): seq[uint8] {.measure.} =
   ## The grenade landing: a BIG paint splat in the THROWER's team color — a
@@ -2600,6 +2667,114 @@ proc addRotatingDiamonds(
       spot.cy, MapLayerId, spriteId
     )
 
+proc addSwords(
+  sim: SimServer,
+  spriteDefs: var seq[SpriteDefinition],
+  currentIds: var seq[int],
+  packet: var seq[uint8],
+  viewerIndex = -1
+) {.measure.} =
+  ## Places side-center sword pickups and carried markers.
+  for i in 0 ..< sim.swordSpawns.len:
+    let spawn = sim.swordSpawns[i]
+    if not spawn.present:
+      continue
+    if viewerIndex >= 0 and not sim.fovVisibleAt(viewerIndex, spawn.x, spawn.y):
+      continue
+    if spriteDefs.spriteDefinitionIndex(SwordPickupSpriteId) < 0:
+      packet.addSpriteChanged(
+        spriteDefs,
+        SwordPickupSpriteId,
+        SwordPickupSize,
+        SwordPickupSize,
+        loadSwordSprite(SwordPickupSize),
+        "sword"
+      )
+    let objectId = SwordPickupObjectBase + i
+    currentIds.add(objectId)
+    packet.addObject(
+      objectId,
+      spawn.x - SwordPickupSize div 2,
+      spawn.y - SwordPickupSize div 2,
+      spawn.y,
+      MapLayerId,
+      SwordPickupSpriteId
+    )
+
+  for i in 0 ..< sim.players.len:
+    let player = sim.players[i]
+    if not player.alive or not player.hasSword:
+      continue
+    if viewerIndex >= 0 and i != viewerIndex and
+        not sim.playerVisibleTo(viewerIndex, i):
+      continue
+    if spriteDefs.spriteDefinitionIndex(SwordCarrySpriteId) < 0:
+      packet.addSpriteChanged(
+        spriteDefs,
+        SwordCarrySpriteId,
+        SwordCarrySize,
+        SwordCarrySize,
+        loadSwordSprite(SwordCarrySize),
+        "sword carried"
+      )
+    let objectId = SwordCarryObjectBase + i
+    currentIds.add(objectId)
+    packet.addObject(
+      objectId,
+      player.x + CollisionW div 2 + HpBarWidth div 2 -
+        SwordCarrySize div 2,
+      player.overheadAnchorY() - OverheadYOffset - SwordCarrySize,
+      30006,
+      MapLayerId,
+      SwordCarrySpriteId
+    )
+
+proc addSwordSwipes(
+  sim: SimServer,
+  spriteDefs: var seq[SpriteDefinition],
+  currentIds: var seq[int],
+  packet: var seq[uint8],
+  viewerIndex = -1
+) {.measure.} =
+  ## Places fading sword swipe arcs in front of their attackers.
+  for i in 0 ..< min(sim.swordSwipes.len, SwordMaxSwipes):
+    let swipe = sim.swordSwipes[i]
+    if viewerIndex >= 0 and
+        not sim.fovVisibleAt(viewerIndex, swipe.x, swipe.y):
+      continue
+    let
+      age = max(0, sim.tickCount - swipe.tick)
+      stage = clamp(age * SwordSwipeStages div SwordFxTicks,
+        0, SwordSwipeStages - 1)
+      colorIndex = playerColorIndex(swipe.color)
+      spriteId = SwordSwipeSpriteBase +
+        colorIndex * SwordSwipeStages + stage
+      sweepBrads = SwordArcBrads -
+        min(SwordArcBrads * 2, age * SwordArcBrads * 2 div
+          max(1, SwordFxTicks - 1))
+      (ux, uy) = aimVector(swipe.aimBrads + sweepBrads)
+      px = swipe.x + int(round(ux * float(SwordRange) / 2.0))
+      py = swipe.y + int(round(uy * float(SwordRange) / 2.0))
+    if spriteDefs.spriteDefinitionIndex(spriteId) < 0:
+      packet.addSpriteChanged(
+        spriteDefs,
+        spriteId,
+        SwordSwipeSize,
+        SwordSwipeSize,
+        buildSwordSwipeSprite(colorIndex, stage),
+        "sword swipe"
+      )
+    let objectId = SwordSwipeObjectBase + i
+    currentIds.add(objectId)
+    packet.addObject(
+      objectId,
+      px - SwordSwipeSize div 2,
+      py - SwordSwipeSize div 2,
+      30006,
+      MapLayerId,
+      spriteId
+    )
+
 proc addMedKits(
   sim: SimServer,
   spriteDefs: var seq[SpriteDefinition],
@@ -3260,6 +3435,18 @@ proc buildSpriteProtocolPlayerUpdates*(
       result,
       viewerIndex = playerIndex
     )
+    sim.addSwords(
+      nextState.spriteDefs,
+      currentIds,
+      result,
+      viewerIndex = playerIndex
+    )
+    sim.addSwordSwipes(
+      nextState.spriteDefs,
+      currentIds,
+      result,
+      viewerIndex = playerIndex
+    )
     sim.addShouts(
       nextState.spriteDefs,
       currentIds,
@@ -3762,6 +3949,8 @@ proc buildSpriteProtocolUpdates*(
   sim.addMedKits(nextState.spriteDefs, currentIds, result)
   sim.addShields(nextState.spriteDefs, currentIds, result)
   sim.addGrenades(nextState.spriteDefs, currentIds, result)
+  sim.addSwords(nextState.spriteDefs, currentIds, result)
+  sim.addSwordSwipes(nextState.spriteDefs, currentIds, result)
   sim.addShouts(nextState.spriteDefs, currentIds, result)
   sim.addAimIndicators(nextState.spriteDefs, currentIds, result)
   sim.addHpPips(nextState.spriteDefs, currentIds, result)

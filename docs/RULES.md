@@ -147,6 +147,24 @@ always drawn — but moving entities are fogged:
   above a carrier `grenade carried`, the charge marker `throw target`, the
   landing flash `blast stage N`.
 
+## Sword
+
+- **Two sword pickups spawn at the side midpoints** — one on each side,
+  midway between that side's two corner grenades, nudged to the nearest
+  walkable floor. Both are present when the game starts, and a taken sword
+  respawns after **30 seconds**.
+- **Each player carries at most one sword**, independently of their grenade.
+  Dying loses the carried sword; nothing drops.
+- While carrying a sword, **A performs an immediate melee swipe instead of
+  firing the gun**. The swipe reaches **26 px** in front of the player and
+  covers a **±45° forward arc**. The gun is disabled while the sword is held;
+  C still throws a carried grenade normally.
+- The swipe is lethal to every other living player in its arc, including
+  teammates. It requires line of sight, and spawn protection blocks it.
+  Kills credit the sword attacker.
+- Observation labels: pickup `sword`, carrier marker `sword carried`, and
+  the fading slash `sword swipe`.
+
 ## Shouts
 
 - **Any living player can shout: a short text message, at most 10
@@ -243,7 +261,7 @@ points. This keeps the training objective tied purely to winning.
 | Button | Action |
 | --- | --- |
 | D-pad | Move (locomotion only — never changes your aim) |
-| A | Fire |
+| A | Fire; while carrying a sword, perform a melee swipe |
 | B | Rotate aim counter-clockwise (browser client: X or K) |
 | Select | Rotate aim clockwise (browser client: Space or L) |
 | C | Hold to charge a grenade throw, release to throw (browser client: C) |
@@ -269,6 +287,10 @@ These are starting values, exposed in the game config and tuned in self-play.
 | Aim turn rate (`aimTurnRate`) | 5 brads/tick | Rotation speed while B/Select is held (~7°/tick; full turn ~2.1s) |
 | Vision cone (`visionConeDeg`) | ±45° | Fog-of-war forward vision half-angle; unlimited range, walls block |
 | Vision bubble (`visionBubble`) | 90px | Omnidirectional close-range vision regardless of aim |
+| Sword range (`SwordRange`) | 26px | Forward melee reach |
+| Sword arc (`SwordArcBrads`) | ±32 brads (±45°) | Forward swipe half-angle |
+| Sword respawn | 30s | Taken pickups refill after this interval |
+| Sword swipe lifetime (`SwordFxTicks`) | 8 ticks | Cosmetic slash lifetime |
 | Heart auto-return | instant | A heart snaps back to its own pedestal the moment its carrier dies |
 | Time limit | (TBD) ticks | Round length cap before the scoreless draw |
 | Map size | 1235×659 | Inherited from Crewrift; may change |
@@ -294,6 +316,9 @@ mistakes a body for a live enemy.
 are labeled `red heart` / `blue heart` (formerly `red flag` / `blue flag`).
 Grenades add the labels documented in the Grenades section, and the throw
 button is input mask bit 128.
+
+Swords add the labels documented in the Sword section; their pickup and
+carrier markers are fog-gated like other floor and overhead item markers.
 
 **Since 0.7.5:** shouts (see the Shouts section) add the label
 `<team> shout <player>: <text>`; chat packets, previously ignored, are now

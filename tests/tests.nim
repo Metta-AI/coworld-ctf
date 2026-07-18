@@ -9,6 +9,7 @@ import
   test_replay_controls,
   test_ctf_game,
   test_grenades,
+  test_swords,
   test_shouts,
   test_medkits,
   test_shields,
