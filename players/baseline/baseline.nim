@@ -271,6 +271,10 @@ type
     lastComebackReq: int      # rate limit on comeback generation requests
     wasMateCarry: bool        # edge detector: a fresh steal opens a taunt window
     hp: int                   # own hit points, read from the HUD lives label
+    lastRelayTick: int        # last tick we re-broadcast a heard thief fix
+    relayedFixTick: int       # carrierSeen value we already relayed once
+    wasOwnStolen: bool        # edge detector for the flag-gone alert shout
+    alertPending: bool        # "F!" queued until the shout slot frees up
     kitPos: seq[Vec]          # discovered med kit spots (two, center line)
     kitAbsentAt: seq[int]     # tick a spot was last seen empty; -1 = present
     swordPos: seq[Vec]        # discovered sword spots (side midpoints)
@@ -990,6 +994,10 @@ proc resetTransient(bot: Bot) =
   bot.nadeCharge = 0
   bot.mateFixTick = 0
   bot.hp = MaxHp
+  bot.lastRelayTick = 0
+  bot.relayedFixTick = -1
+  bot.wasOwnStolen = false
+  bot.alertPending = false
   for i in 0 ..< bot.kitAbsentAt.len:
     bot.kitAbsentAt[i] = -1              # both kits restock at game start
   for i in 0 ..< bot.swordAbsentAt.len:
@@ -1371,6 +1379,36 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         bot.shoutWant = "T" & $(int(bot.carrierPos.x) div 8) & " " &
           $(int(bot.carrierPos.y) div 8)
         bot.lastShoutTick = bot.tick
+      elif defined(shoutThief) and ownStolen and not sawThief and
+          bot.tick - bot.carrierSeen in 3 .. 40 and
+          bot.relayedFixTick != bot.carrierSeen and
+          bot.tick - bot.lastRelayTick >= 48 and
+          (bot.tick + bot.slot * 7) mod 2 == 0:
+        # RELAY a heard thief fix exactly once, slot-staggered: shouts only
+        # carry ~247px, so each re-broadcast hop extends the alarm another
+        # ring outward — the whole team knows within two or three hops.
+        # Own-eyes shouts, the fix-age window, and the once-per-fix guard
+        # keep relays from echoing forever.
+        bot.shoutWant = "T" & $(int(bot.carrierPos.x) div 8) & " " &
+          $(int(bot.carrierPos.y) div 8)
+        bot.relayedFixTick = bot.carrierSeen
+        bot.lastRelayTick = bot.tick
+        bot.lastShoutTick = bot.tick
+      elif bot.alertPending and ownStolen:
+        # FLAG GONE: one alert per steal. (Everyone also reads the empty
+        # pedestal directly — the shout doubles as the audible alarm and
+        # marks roughly where the shouter noticed it.)
+        bot.shoutWant = "F!"
+        bot.alertPending = false
+        bot.lastShoutTick = bot.tick
+
+    # Edge-track the steal so the alert queues even while the shout slot
+    # is busy; a returned flag cancels the alarm.
+    if ownStolen and not bot.wasOwnStolen:
+      bot.alertPending = true
+    elif not ownStolen:
+      bot.alertPending = false
+    bot.wasOwnStolen = ownStolen
 
   when defined(taunt):
     # Taunts spend only LEFTOVER shout budget: never while carrying and never
@@ -1445,8 +1483,12 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       let kit = bot.bestKitDetour(me, target, MedKitCarrierBudget)
       if kit >= 0:
         target = bot.kitPos[kit]
-  elif ownStolen and (bot.role == HomeDefender or
-      bot.tick - bot.carrierSeen <= ThiefFixTtl):
+  elif ownStolen and not (mateCarry and dist(me, mateCarryPos) < 250.0) and
+      (not defined(huntIsolate) or bot.role == HomeDefender or
+       bot.tick - bot.carrierSeen <= ThiefFixTtl):
+    # -d:huntIsolate reverts to the pre-hunt-mode gating (HomeDefender-only
+    # crossing guard when there is no fix) for A/B attribution of the 3x3
+    # patrol grid's net effect.
     # An enemy is RUNNING OUR FLAG: with a fresh fix (own eyes or a mate's
     # "T" shout), EVERY role drops what it is doing and converges on the
     # thief's predicted route — an enemy capture ends the episode against
@@ -1463,14 +1505,24 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       target = vec(clamp(predicted.x, 20.0, float(MapW - 20)),
                    clamp(predicted.y, 20.0, float(MapH - 20)))
     else:
-      var laneY = LaneMid
-      if bot.carrierSeen > -100_000:
-        var bestD = 1e18
-        for lane in [LaneTop, LaneMid, LaneBottom]:
-          if abs(bot.carrierPos.y - lane) < bestD:
-            bestD = abs(bot.carrierPos.y - lane)
-            laneY = lane
-      target = vec(float(CenterX) - homeSign(bot.team) * 60.0, laneY)
+      # HUNT MODE: the flag is out and nobody has eyes on the thief. The
+      # whole team (minus our own carrier and its close escorts) blankets
+      # the escape ground with a slot-hashed 3x3 patrol grid — three lanes
+      # by three depth bands from the mid choke back into our half — and
+      # sweeps its vision along the lane. The thief starts at OUR pedestal
+      # and must cross toward its home edge; nine scanning cones make the
+      # fogged run vastly harder than one lane guard ever did.
+      let
+        seat = clamp(bot.slot div 2, 0, 7)
+        lanes = [LaneTop, LaneMid, LaneBottom]
+        laneY = lanes[seat mod 3]
+        bands = [
+          float(CenterX) - homeSign(bot.team) * 60.0,
+          float(CenterX) + homeSign(bot.team) * 160.0,
+          float(CenterX) + homeSign(bot.team) * 320.0,
+        ]
+        bandX = bands[(seat div 3) mod 3]
+      target = vec(bandX, laneY)
   elif mateCarry:
     case bot.role
     of MidTop, FlankTop:
@@ -1928,8 +1980,8 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       moveMask = octantBits(side + away * 0.4)
       if desiredAim < 0:
         desiredAim = bradsOf(seenEnemies[threat].pos - me)
-    elif bot.role in {Overwatch, HomeDefender} and
-        dist(me, target) < 6.0:
+    elif ((bot.role in {Overwatch, HomeDefender}) or ownStolen) and
+        dist(me, target) < 8.0:
       # Holding a watch position: the aim carries the vision cone, so sweep
       # it back and forth across the arc threats cross while standing still.
       # While our flag is stolen the thief comes from our own half;
