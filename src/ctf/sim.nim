@@ -927,17 +927,20 @@ proc inShape(x, y: int, shape: ArenaShape): bool =
         y > max(shape.y0, shape.y1) + half:
       false
     else:
+      # 64-bit throughout: dx*dx + dy*dy reaches ~2.2e9 for these segments,
+      # past int32 max, so on a 32-bit target (wasm) the plain-int form would
+      # overflow. int64 is exact on every target and the comparison is unchanged.
       let
-        vx = shape.x1 - shape.x0
-        vy = shape.y1 - shape.y0
-        wx = x - shape.x0
-        wy = y - shape.y0
+        vx = int64(shape.x1 - shape.x0)
+        vy = int64(shape.y1 - shape.y0)
+        wx = int64(x - shape.x0)
+        wy = int64(y - shape.y0)
         len2 = vx * vx + vy * vy
-        t = clamp(wx * vx + wy * vy, 0, len2)
+        t = clamp(wx * vx + wy * vy, 0'i64, len2)
         dx = wx * len2 - t * vx
         dy = wy * len2 - t * vy
       dx * dx + dy * dy <=
-        shape.thickness * shape.thickness * len2 * len2 div 4
+        int64(shape.thickness) * int64(shape.thickness) * len2 * len2 div 4
 
 const ArenaObstacles* = block:
   ## The full obstacle set: every left-half shape plus its x-mirror,
