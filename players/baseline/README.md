@@ -254,3 +254,26 @@ COWORLD_PLAYER_WS_URL="ws://localhost:8080/player?slot=0&token=0xBADA55_0" \
 ```
 
 Container build uses `players/baseline/Dockerfile` (produces `/bin/baseline`).
+Pass compile-time feature flags through the image's `NIM_DEFINES` build arg
+(e.g. `--build-arg NIM_DEFINES="-d:fastrush"`).
+
+## Build flags (candidate features)
+
+Behavior-changing features are compile-gated so the default build stays the
+pinned champion byte-for-byte. Each is off unless its `-d:` define is set.
+
+- **`-d:fastrush`** — opening-rush steal tempo (v16 candidate). For the first
+  `FastRushWindow` ticks of a round, while our own heart is still safe, an
+  uncommitted attacker (mid trio or flanker) races the enemy pedestal
+  dead-straight: the speculative mid serpentine and the nav exposure-detour
+  cost are dropped so the wave crosses the empty middle at full speed and wins
+  the first steal. Self-cancels once the window elapses or our heart is stolen
+  (routing reverts to exact champion behavior); close-threat jink/duck is
+  untouched. Implies the rush telemetry below.
+- **`-d:rushtelem`** — rush/steal telemetry only, no behavior change (a
+  byte-identical control arm). Emits one stdout line per event per game:
+  `RUSHTELEM reach` (a unit first inside `PocketRushRange` of the enemy
+  pedestal, with ticks-since-start), `RUSHTELEM firststeal` (our team first
+  holds the enemy heart), and `RUSHTELEM enemysteal` (our heart first stolen).
+  Build the champion with `-d:rushtelem` to read time-to-first-steal (ours vs
+  theirs) in the same units as the `-d:fastrush` arm.
