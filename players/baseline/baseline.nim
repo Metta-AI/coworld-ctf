@@ -199,6 +199,15 @@ const
   FlankDepth = 260.0          # wide flankers cross this far past mid
   WeaveBand = 280.0           # rushers serpentine within this x-band of mid
 
+  FastRushWindow = 240        # (-d:fastrush) opening-rush window in ticks
+                              # (~10s): while our flag is still safe an
+                              # uncommitted attacker races the enemy pedestal
+                              # dead-straight — no speculative mid serpentine
+                              # and no exposure detour cost — because decoded
+                              # capture races are won ~4/5 by whoever steals
+                              # FIRST, and the opening weave is pure tempo tax
+                              # before any threat is on the board.
+
   LaneTop = 40.0              # open corridor above the mirrored obstacles
   LaneMid = float(CenterY)
   LaneBottom = 619.0          # open corridor below the mirrored obstacles
@@ -278,6 +287,19 @@ type
     swordAbsentAt: seq[int]
     shieldPos: seq[Vec]       # discovered shield spots (endzone back columns)
     shieldAbsentAt: seq[int]
+    when defined(fastrush) or defined(rushtelem):
+      # Opening-rush candidate state; compiled out (and byte-exact to v15)
+      # unless -d:fastrush or -d:rushtelem is set.
+      fastRush: bool          # (-d:fastrush) opening-rush straight-line active
+      fieldFastRush: bool     # fastRush state the current cost field was built
+                              # under (a flip forces a repath so the exposure
+                              # cost drops/returns immediately)
+      firstStealTick: int     # ticks-since-start our team first held the enemy
+                              # heart; -1 = not yet this game
+      firstEnemyStealTick: int # ticks-since-start our heart was first stolen;
+                              # -1 = not yet this game
+      rushReachTick: int      # ticks-since-start this unit first reached the
+                              # enemy pocket; -1 = not yet this game
 
 proc roleForSeat(seat: int, team: Team): Role =
   ## Deterministic role spread over the 8 per-team seats. Seats 2 and 3 both
@@ -735,6 +757,8 @@ proc computeField(bot: Bot, client: ProtocolClient, goal: int) =
   ## StepCost/DiagCost and entering a threat-exposed cell adds ExposedCost, so
   ## paths prefer segments that keep obstacles between us and known enemies.
   ## Diagonal steps require both orthogonal neighbors open (no corner cuts).
+  when defined(fastrush):
+    bot.fieldFastRush = bot.fastRush
   bot.rebuildExposure(client)
   for i in 0 ..< bot.navDist.len:
     bot.navDist[i] = -1
@@ -765,7 +789,14 @@ proc computeField(bot: Bot, client: ProtocolClient, goal: int) =
         continue
       var step = (if dx != 0 and dy != 0: DiagCost else: StepCost)
       if bot.exposure[nc]:
-        step += ExposedCost
+        when defined(fastrush):
+          # Opening-rush units drop the exposure detour cost: no known threat
+          # is on the board yet, so cover routing only trades tempo for safety
+          # we do not need — race straight and win the first steal.
+          if not bot.fastRush:
+            step += ExposedCost
+        else:
+          step += ExposedCost
       let nd = bot.navDist[cur] + step
       if bot.navDist[nc] < 0 or nd < bot.navDist[nc]:
         bot.navDist[nc] = nd
@@ -789,10 +820,19 @@ proc navSteer(bot: Bot, client: ProtocolClient, me, target: Vec): Vec =
   if not bot.navBuilt:
     return target - me
   let goal = bot.nearestOpenCell(cellOf(target))
-  if goal != bot.navGoal or bot.tick - bot.navStamp >= RepathTicks:
-    bot.computeField(client, goal)
-    bot.navGoal = goal
-    bot.navStamp = bot.tick
+  when defined(fastrush):
+    # A fastRush flip changes the exposure cost, so force a repath the tick it
+    # toggles instead of waiting out the RepathTicks cache.
+    if goal != bot.navGoal or bot.tick - bot.navStamp >= RepathTicks or
+        bot.fieldFastRush != bot.fastRush:
+      bot.computeField(client, goal)
+      bot.navGoal = goal
+      bot.navStamp = bot.tick
+  else:
+    if goal != bot.navGoal or bot.tick - bot.navStamp >= RepathTicks:
+      bot.computeField(client, goal)
+      bot.navGoal = goal
+      bot.navStamp = bot.tick
   let start = bot.nearestOpenCell(cellOf(me))
   if bot.navDist[start] < 0:
     return target - me
@@ -1018,6 +1058,12 @@ proc resetTransient(bot: Bot) =
   bot.jinkUntil = 0
   bot.behindLines = false
   bot.navGoal = -1
+  when defined(fastrush) or defined(rushtelem):
+    bot.fastRush = false
+    bot.fieldFastRush = false
+    bot.firstStealTick = -1
+    bot.firstEnemyStealTick = -1
+    bot.rushReachTick = -1
 
 proc scanAim(bot: Bot, watch: Vec): int =
   ## The scan-sweep aim while holding a position: rake the vision cone back
@@ -1592,6 +1638,48 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     dist(me, stealTarget) < PocketRushRange and
     dist(me, stealTarget) < nearestMateToSteal + 8.0
 
+  # Opening-rush steal tempo. `attacking` is an uncommitted attacker (nobody
+  # on our side carries yet); the fast-rush window is the opening seconds while
+  # our own heart is still safe. In that window (-d:fastrush) the exposure
+  # detour cost and the speculative mid serpentine are dropped so the wave
+  # beelines the enemy pedestal and wins the first steal — decoded capture
+  # races go ~4/5 to whoever steals first (STATE rounds 645-649). It self-
+  # cancels once the window elapses or our heart is stolen (defense reverts to
+  # exact v15 routing), and close-threat evasion is untouched: the jink/duck
+  # branches run before the serpentine block, so this only removes the
+  # no-threat opening weave.
+  when defined(fastrush) or defined(rushtelem):
+    let attacking = not iCarry and not mateCarry and
+      bot.role in {MidTop, MidBottom, MidGuard, FlankTop, FlankBottom}
+    bot.fastRush = false
+    when defined(fastrush):
+      bot.fastRush = attacking and not ownStolen and
+        bot.tick - bot.gameStart <= FastRushWindow
+
+    # Diagnostic (one line per event per game): opening-rush tempo and the
+    # race outcome, so an A/B eval can read time-to-first-steal (ours vs
+    # theirs) and per-unit time-to-pocket straight from stdout without a
+    # replay join. Under -d:fastrush behavior changes AND telemetry emits;
+    # build the baseline arm with -d:rushtelem for the byte-identical control
+    # that only logs.
+    if bot.rushReachTick < 0 and attacking and
+        dist(me, stealTarget) < PocketRushRange:
+      bot.rushReachTick = bot.tick - bot.gameStart
+      echo "RUSHTELEM reach slot=", bot.slot, " team=", bot.team,
+        " role=", bot.role, " ticks=", bot.rushReachTick,
+        " fastRush=", bot.fastRush
+      flushFile(stdout)
+    if bot.firstStealTick < 0 and (iCarry or mateCarry):
+      bot.firstStealTick = bot.tick - bot.gameStart
+      echo "RUSHTELEM firststeal slot=", bot.slot, " team=", bot.team,
+        " ticks=", bot.firstStealTick, " iCarry=", iCarry
+      flushFile(stdout)
+    if bot.firstEnemyStealTick < 0 and ownStolen:
+      bot.firstEnemyStealTick = bot.tick - bot.gameStart
+      echo "RUSHTELEM enemysteal slot=", bot.slot, " team=", bot.team,
+        " ticks=", bot.firstEnemyStealTick
+      flushFile(stdout)
+
   # Combat: the nearest fresh track with a clear pixel ray AND a mate-free
   # fire cone is the engage target; the nearest fresh-but-wall-blocked track
   # is the peek candidate. The map-wide gun engages fresh tracks far beyond
@@ -1950,6 +2038,12 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         var weave = false
         if rushing:
           weave = abs(me.x - float(CenterX)) < WeaveBand
+          when defined(fastrush):
+            # Opening rush: race the crossing straight, do not weave. Close
+            # threats already diverted us via the jink branch above, so this
+            # only drops the speculative no-threat serpentine tempo tax.
+            if bot.fastRush:
+              weave = false
         else:
           for t in bot.enemies:
             if bot.tick - t.lastSeen > UnderFireTrackTtl:
