@@ -1,28 +1,18 @@
 name: Upload Coworld
 
 # Builds the game, baseline-bot, and commissioner images via compose.yaml and
-# uploads a new ctf version to Softmax (https://softmax.com/api) whenever
-# game-affecting files land on main. The version is the latest uploaded ctf
-# version with the patch bumped, unless an explicit version is passed via
-# workflow_dispatch.
+# uploads a new ctf version to Softmax (https://softmax.com/api) on every push
+# to main. The version is the latest uploaded ctf version with the patch
+# bumped, unless an explicit version is passed via workflow_dispatch.
 #
-# Auth: the SOFTMAX_TOKEN repo secret. Rotate it with:
-#   softmax get-token | gh secret set SOFTMAX_TOKEN --repo Metta-AI/coworld-ctf
+# Auth: the SOFTMAX_TOKEN repo secret — the non-expiring "coworld-ctf-ci"
+# user credential (softmax.com/observatory/credentials). If it is ever
+# revoked, mint a new credential on that page and run:
+#   gh secret set SOFTMAX_TOKEN --repo Metta-AI/coworld-ctf
 
 on:
   push:
     branches: [ main ]
-    paths:
-      - src/**
-      - data/**
-      - players/**
-      - Dockerfile
-      - compose.yaml
-      - coworld_manifest.json
-      - config.json
-      - nimby.lock
-      - nim.cfg
-      - .github/workflows/upload-coworld.yml
   workflow_dispatch:
     inputs:
       version:
