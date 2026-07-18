@@ -1859,7 +1859,15 @@ body[data-embed] #board { top: 0; height: 100%; }
     for (var i = 0; i < s.roster.length; i++) {
       var p = s.roster[i];
       if (p.team !== team) continue;
-      var nm = String(p.name || '');
+      // Strip the per-seat " (N)" suffix the hosted runtime appends to the SAME
+      // policy's multiple connections ("softmaxwell (2)", "softmaxwell (7)"…) so
+      // every seat of one policy collapses to a single shared name here. The
+      // killfeed shows the full per-seat name (it colors names per event and
+      // never compares them); the headline needs one shared identity, and this
+      // suffix was tripping the "mixed" check and pinning the header to RED/BLUE.
+      // Distinct local self-play names (Player1, Player2) carry no such suffix,
+      // so they still differ and correctly fall back to the color.
+      var nm = String(p.name || '').replace(/\s*\(\d+\)\s*$/, '');
       if (name === null) name = nm;
       else if (nm !== name) { mixed = true; break; }
     }
