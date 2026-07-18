@@ -1,9 +1,11 @@
 import
   std/[json, math, os, random, strutils],
-  bitworld/aseprite, bitworld/client as bitworldClient,
-  bitworld/pixelfonts, bitworld/profile, bitworld/spriteprotocol,
+  bitworld/aseprite, bitworld/pixelfonts, bitworld/profile, bitworld/spriteprotocol,
   bitworld/server,
   jsony, pixie
+
+when not defined(emscripten):
+  import bitworld/client as bitworldClient
 
 const
   GameName* = "ctf"
@@ -457,7 +459,10 @@ proc gameDir*(): string =
 
 proc clientDataDir*(): string =
   ## Returns the shared client data directory.
-  bitworldClient.clientDir() / "data"
+  when defined(emscripten):
+    gameDir() / "data"
+  else:
+    bitworldClient.clientDir() / "data"
 
 proc spriteSheetPath(): string =
   ## Returns the sprite sheet aseprite path.
@@ -928,16 +933,18 @@ proc inShape(x, y: int, shape: ArenaShape): bool =
       false
     else:
       let
-        vx = shape.x1 - shape.x0
-        vy = shape.y1 - shape.y0
-        wx = x - shape.x0
-        wy = y - shape.y0
+        # These squared distance intermediates exceed 32-bit `int` on the
+        # 1235x659 map. Keep the native and wasm32 geometry identical.
+        vx = int64(shape.x1 - shape.x0)
+        vy = int64(shape.y1 - shape.y0)
+        wx = int64(x - shape.x0)
+        wy = int64(y - shape.y0)
         len2 = vx * vx + vy * vy
-        t = clamp(wx * vx + wy * vy, 0, len2)
+        t = clamp(wx * vx + wy * vy, 0'i64, len2)
         dx = wx * len2 - t * vx
         dy = wy * len2 - t * vy
       dx * dx + dy * dy <=
-        shape.thickness * shape.thickness * len2 * len2 div 4
+        int64(shape.thickness) * int64(shape.thickness) * len2 * len2 div 4
 
 const ArenaObstacles* = block:
   ## The full obstacle set: every left-half shape plus its x-mirror,
@@ -2008,7 +2015,10 @@ proc gameHash*(sim: SimServer): uint64 =
     result.mixHashInt(player.throwCharge)
     result.mixHashInt(player.lastShoutTick)
     result.mixHashInt(player.joinOrder)
-    result.mixHashInt(int(player.color))
+    # Color is an unsigned packed RGBA value. Converting it through `int`
+    # overflows on wasm32 for colors with the high bit set; widening directly
+    # preserves the native replay hash on both 32- and 64-bit targets.
+    result.mixHash(uint64(player.color))
     result.mixHashInt(player.reward)
     result.mixHashInt(player.kills)
     result.mixHashInt(player.deaths)

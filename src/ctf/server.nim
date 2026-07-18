@@ -58,7 +58,10 @@ const
   # the replay routes in place of bitworld's generic global client; a single
   # self-contained file (font + core JS inlined). Live/player/global paths are
   # untouched and keep serving the bitworld client (§14 live column).
-  EmbeddedBroadcastReplayHtml = staticRead("../../client/replay_broadcast.html")
+  EmbeddedBroadcastReplayHtml = staticRead("../../client/replay_broadcast.html").replace(
+    "<!-- BROADCAST_CORE -->",
+    "<script>" & staticRead("../../client/broadcast_core.js") & "</script>"
+  )
   # The League Replayer shell: a walled stone-pit viewer that EMBEDS the broadcast
   # client (via ?embed=1) as the lit pit floor and mounts the scorebug, KDA tables,
   # division standings and transport as flat panels over the dungeon walls. Served

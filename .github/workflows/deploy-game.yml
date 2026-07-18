@@ -1,0 +1,85 @@
+# Rebuild and deploy CTF from repository source. This workflow only runs for
+# main (or an explicit dispatch), so pull requests never mutate Observatory.
+name: Deploy CTF Game
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-game
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: SOFTMAX_OBSERVATORY
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/checkout@v5
+        with:
+          repository: Metta-AI/coworld-tools
+          path: coworld-tools
+
+      # Static replay bundle support landed after the 0.1.33 PyPI artifact.
+      # Pin the exact Metta source revision until the next Coworld release.
+      - uses: actions/checkout@v5
+        with:
+          repository: Metta-AI/metta
+          ref: 8409100e4d53c2dbf45c8dcec1e95c5ae25c6c48
+          path: metta
+          sparse-checkout: |
+            packages/coworld
+            packages/softmax-cli
+            packages/softmax-common
+            pyproject.toml
+            uv.lock
+          sparse-checkout-cone-mode: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Install Coworld CLI
+        run: uv pip install --system ./metta/packages/coworld
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Seed Softmax credentials
+        env:
+          SOFTMAX_API_TOKEN: ${{ secrets.SOFTMAX_API_TOKEN }}
+        run: |
+          if [ -z "$SOFTMAX_API_TOKEN" ]; then
+            echo "::error::SOFTMAX_API_TOKEN is empty"
+            exit 1
+          fi
+          softmax set-token "$SOFTMAX_API_TOKEN" --server https://softmax.com/api
+          python -c "from softmax.auth import clear_active_player_session; clear_active_player_session(server='https://softmax.com/api')"
+
+      - name: Resolve next version
+        id: version
+        run: |
+          next_version="$(coworld next-version ctf)"
+          echo "version=${next_version}" >> "$GITHUB_OUTPUT"
+
+      - name: Build Coworld package from source
+        env:
+          COMMISSIONER_CONTEXT: coworld-tools/commissioners
+        run: |
+          coworld build \
+            --source-context . \
+            --source-context coworld-tools \
+            compose.yaml \
+            coworld_manifest.json \
+            "${{ steps.version.outputs.version }}" \
+            build/coworld_manifest.json
+
+      - name: Deploy Coworld package
+        run: coworld upload-coworld build/coworld_manifest.json --no-wait-hosted-smoke
