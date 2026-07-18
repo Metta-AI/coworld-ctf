@@ -100,6 +100,12 @@ const
   CarrierFireRange = 110.0    # while carrying, only shoot enemies this close
   RushEngageRange = 230.0     # racing for the steal: only fight what blocks it
   EscortEngageRange = 320.0   # escorting a run: only fight near threats
+  ScreenStandoff = 30.0       # ender screen: interpose distance on the
+                              # carrier->threat ray (matches MidGuard screen)
+  ScreenLead = 38.0           # ender screen: lead distance ahead of the
+                              # carrier's run home when no threat is tracked
+  ScreenGrabDetour = 110.0    # ender screen: escorts grab a shield only
+                              # this close by once a mate already carries
   PocketRushRange = 210.0     # this close to the enemy pedestal, just GRAB
   ThreatRange = 200.0         # react to a visible enemy this close facing us
   DuckRange = 340.0           # duck from remembered threats this close on cooldown
@@ -1471,6 +1477,33 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
             bestD = abs(bot.carrierPos.y - lane)
             laneY = lane
       target = vec(float(CenterX) - homeSign(bot.team) * 60.0, laneY)
+  elif mateCarry and hasShield:
+    # ENDER SCREEN: a shield bearer is the team's walking wall — 6 hp and no
+    # gun, and bullets stop at the FIRST body on the ray, so its highest use
+    # is standing ON the line between the carrier and the danger, whatever
+    # seat it holds. With a remembered threat, interpose on that ray; with
+    # nothing tracked, LEAD the run home — under fog first contact comes
+    # from ahead, and the screen eats the shot that would have hit the
+    # 3 hp carrier.
+    var threat = -1
+    var threatD = 1e18
+    for i in 0 ..< bot.enemies.len:
+      let d = dist(bot.enemies[i].pos, mateCarryPos)
+      if d < threatD:
+        threatD = d
+        threat = i
+    if threat >= 0:
+      target = mateCarryPos +
+        norm(bot.enemies[threat].pos - mateCarryPos) * ScreenStandoff
+    else:
+      target = mateCarryPos + vec(homeSign(bot.team) * ScreenLead, 0.0)
+    when defined(screenDebug):
+      if bot.tick mod 24 == 0:
+        echo "SCREEN slot=", bot.slot, " t=", bot.tick,
+          " mode=", (if threat >= 0: "interpose" else: "lead"),
+          " carrier=", int(mateCarryPos.x), ",", int(mateCarryPos.y),
+          " -> ", int(target.x), ",", int(target.y)
+        flushFile(stdout)
   elif mateCarry:
     case bot.role
     of MidTop, FlankTop:
@@ -1731,22 +1764,39 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # roles never take a shield (it bars the gun). SWORDS arm the pocket
   # brawlers: attackers detour a little for one on the way in — the pocket
   # duel is point-blank, where an instant lethal swipe beats any gun.
-  if not iCarry and not hasShield and bot.role == MidGuard and
+  if not iCarry and not hasShield and
+      (bot.role == MidGuard or
+        (mateCarry and
+          bot.role in {MidTop, MidBottom, FlankTop, FlankBottom})) and
       not (ownStolen and bot.tick - bot.carrierSeen <= ThiefFixTtl):
     # ONE designated shield-runner (MidGuard, the trailing mid): the shield
     # sits ~136px BEYOND the enemy pedestal, so the trip costs ~270 path px —
     # never spend the LEAD rusher's tempo on it (first steal wins races).
     # The second wave arrives as a 6 hp bruiser: it steals if the flag is
     # still planted, escorts (and re-steals after a failed run) if not.
+    # ENDER SCREEN extension: once a MATE carries, any attack-wave escort
+    # near the (co-located) endzone pickup column grabs the shield on the
+    # way out — an escort with a gun is one more peeker, but an escort with
+    # 6 hp standing on the carrier->threat ray is a wall (bullets stop at
+    # the first body). Escorts only take the cheap grab (ScreenGrabDetour);
+    # the deep trip stays MidGuard-only.
     var best = -1
     var bestCost = ShieldStealDetour
+    if bot.role != MidGuard:
+      bestCost = ScreenGrabDetour
     for i in 0 ..< bot.shieldPos.len:
       if not pickupAvailable(bot.shieldAbsentAt, i, bot.tick):
         continue
       if homeSign(bot.team) * (bot.shieldPos[i].x - float(CenterX)) > 0.0:
         continue                         # OUR endzone shield: leave the gun
-      let cost = dist(me, bot.shieldPos[i]) + dist(bot.shieldPos[i], stealTarget) -
-        dist(me, stealTarget)
+      let cost =
+        if bot.role == MidGuard:
+          dist(me, bot.shieldPos[i]) + dist(bot.shieldPos[i], stealTarget) -
+            dist(me, stealTarget)
+        else:
+          # Escort screen grab: the mate is already running; the only cost
+          # that matters is how far the spot is from ME right now.
+          dist(me, bot.shieldPos[i])
       if cost < bestCost:
         bestCost = cost
         best = i
