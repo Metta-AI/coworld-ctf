@@ -1924,13 +1924,18 @@ body[data-embed] #board { top: 0; height: 100%; }
       capEl.textContent = 'Game over';
       clk.classList.remove('tiebreak-warn');
     } else {
-      // Playing: a match countdown. The clock starts at this game's full
-      // duration and ticks to exactly 0:00 on the final frame, mirroring the
-      // scrubber span (mx - st). This reads like a game clock whether or not a
-      // hard time limit was configured — the game ends on a capture/wipe (or
-      // the scoreless-draw limit), and the clock hits zero there. There is no
-      // tiebreak round after zero: hitting the limit is simply a scoreless draw.
-      var remain = Math.max(0, (s.mx - s.t)) / FPS;
+      // Playing: an HONEST countdown to the scheduled draw limit, not to the
+      // replay's end. The game is scheduled to end at absolute tick st + mt
+      // (gameStartTick + maxTicks, the scoreless-draw ceiling); the clock counts
+      // down to that. A game decided early by a capture or wipe FREEZES the
+      // clock at whatever was left and flips to FINAL — so a nonzero freeze
+      // reads as "ended it early", and only a genuine grind to the limit ever
+      // reaches 0:00. (Old behavior pinned the end to mx = the replay's last
+      // tick, so every game counted to zero and the race-to-zero was an
+      // artifact.) When no limit is configured (mt <= 0) there is no scheduled
+      // end to count toward, so fall back to the replay span.
+      var end = (s.mt && s.mt > 0) ? ((s.st || 0) + s.mt) : s.mx;
+      var remain = Math.max(0, (end - s.t)) / FPS;
       timeEl.textContent = fmt(remain);
       capEl.textContent = 'Time left';
       clk.classList.toggle('tiebreak-warn', remain <= 30);
