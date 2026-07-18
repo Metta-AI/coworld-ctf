@@ -181,8 +181,9 @@ always drawn — but moving entities are fogged:
 
 ## Shields
 
-- **One shield sits in each team's home endzone** (the capture column),
-  nudged to the nearest walkable floor.
+- **One shield sits deep in each team's endzone**, in the same back column
+  as the corner grenade pickups (centered between the two corners), nudged
+  to the nearest walkable floor.
 - **Touch a shield to pick it up** — either team may take either endzone's
   shield, and a player carries at most one.
 - **While carrying a shield you have 6 hit points but cannot shoot.**

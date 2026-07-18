@@ -2746,13 +2746,15 @@ proc resetMedKits*(sim: var SimServer) =
     )
 
 proc resetShields*(sim: var SimServer) =
-  ## Places one shield in each team's home endzone (the capture column),
-  ## offset off the flag pedestal onto walkable floor, and refills both.
+  ## Places one shield deep in each team's endzone, in the same back column as
+  ## the corner grenade pickups (centered between the two corners), nudged to
+  ## the nearest walkable floor, and refills both.
   let
-    endzoneY = sim.gameMap.center.y - MapHeight div 4
+    inset = ArenaBorder + GrenadeSpawnInset
+    endzoneY = sim.gameMap.center.y
     targets = [
-      (sim.teamHomeX(Red), endzoneY),
-      (sim.teamHomeX(Blue), endzoneY)
+      (inset, endzoneY),
+      (MapWidth - inset, endzoneY)
     ]
   for i in 0 ..< sim.shieldSpawns.len:
     let spot = sim.nearestWalkable(targets[i][0], targets[i][1])
