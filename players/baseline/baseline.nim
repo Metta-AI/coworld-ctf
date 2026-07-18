@@ -196,6 +196,26 @@ const
   LaneMid = float(CenterY)
   LaneBottom = 619.0          # open corridor below the mirrored obstacles
 
+when defined(juke):
+  # MICRO axis (-d:juke): windup-juke dodge + turret-gauntlet strafe. Hitscan
+  # fire has a ~5-tick TRIGGER WINDUP before the bullet leaves; a committed
+  # PERPENDICULAR crossing of the muzzle line during that windup slips the
+  # shot. The dodge is pure lateral (plus a slight FORWARD bias when
+  # attacking) — never backward: conceding ground is what sank the v16/v17
+  # defense candidates, so this raises duel survival WITHOUT retreating.
+  const
+    JukeCommitTicks = 6        # ticks to commit one lateral crossing: long
+                               # enough to clear the muzzle across the windup,
+                               # short enough to re-decide as the duel evolves
+    JukeResolveTicks = 10      # window after a juke to score it as a dodge
+                               # (windup + bullet travel); no hp loss = dodged
+    JukeForwardBias = 0.25     # forward push folded into an attacker's juke so
+                               # the dodge still presses the duel, not retreats
+    GauntletRange = 300.0      # turret-gauntlet: strafe harder when running
+                               # past a firing enemy this close on a clear line
+    GauntletStrafe = 1.0       # perpendicular amplitude in the gauntlet
+                               # (vs the 0.6 default serpentine weave)
+
 type
   Team = enum
     Red, Blue
@@ -266,6 +286,15 @@ type
     hp: int                   # own hit points, read from the HUD lives label
     kitPos: seq[Vec]          # discovered med kit spots (two, center line)
     kitAbsentAt: seq[int]     # tick a spot was last seen empty; -1 = present
+    when defined(juke):
+      jukeAttempts: int        # perpendicular windup-dodges begun this episode
+      jukeResolvedNoHit: int   # jukes after which hp held (dodge succeeded)
+      jukeResolvedHit: int     # jukes after which we still took a hit
+      jukePendingUntil: int    # tick the current juke's resolve window ends
+      jukeHpAtStart: int       # hp when the pending juke began
+      jukeKills: int           # enemy corpses appearing on a tick we fired
+      jukeDeaths: int          # our deaths this episode (duel-loss proxy)
+      jukeCorpseCount: int     # visible enemy corpses last frame
 
 proc roleForSeat(seat: int, team: Team): Role =
   ## Deterministic role spread over the 8 per-team seats. Seats 2 and 3 both
@@ -941,8 +970,29 @@ proc bestKitDetour(bot: Bot, me, dest: Vec, budget: float): int =
       best = cost
       result = i
 
+when defined(juke):
+  proc logJukeEpisode(bot: Bot) =
+    ## Emit the MICRO-axis diagnostic once per episode: perpendicular dodges
+    ## attempted, the dodge-success rate (hits avoided proxy), and a duel
+    ## win/loss proxy (kills on our fire ticks vs our own deaths). Called at
+    ## the game-over interstitial; guarded so idle lobby frames stay silent.
+    let resolved = bot.jukeResolvedNoHit + bot.jukeResolvedHit
+    if bot.jukeAttempts == 0 and bot.jukeDeaths == 0 and bot.jukeKills == 0:
+      return
+    let dodgeRate =
+      if resolved > 0: bot.jukeResolvedNoHit / resolved else: 0.0
+    echo "JUKE episode slot=", bot.slot, " team=", bot.team,
+      " role=", bot.role,
+      " attempts=", bot.jukeAttempts,
+      " dodged=", bot.jukeResolvedNoHit,
+      " hit=", bot.jukeResolvedHit,
+      " dodgeRate=", formatFloat(dodgeRate, ffDecimal, 3),
+      " kills=", bot.jukeKills, " deaths=", bot.jukeDeaths
+
 proc resetTransient(bot: Bot) =
   ## Drops per-game memory between rounds (lobby / game-over interstitials).
+  when defined(juke):
+    bot.logJukeEpisode()
   bot.enemies.setLen(0)
   bot.mates.setLen(0)
   bot.nadeCharge = 0
@@ -970,6 +1020,15 @@ proc resetTransient(bot: Bot) =
   bot.jinkUntil = 0
   bot.behindLines = false
   bot.navGoal = -1
+  when defined(juke):
+    bot.jukeAttempts = 0
+    bot.jukeResolvedNoHit = 0
+    bot.jukeResolvedHit = 0
+    bot.jukePendingUntil = 0
+    bot.jukeHpAtStart = 0
+    bot.jukeKills = 0
+    bot.jukeDeaths = 0
+    bot.jukeCorpseCount = 0
 
 proc scanAim(bot: Bot, watch: Vec): int =
   ## The scan-sweep aim while holding a position: rake the vision cone back
@@ -1072,6 +1131,12 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   if not alive:
     # Dead: the view is fully fogged (only our corpse renders) and inputs
     # are ignored, so skip perception entirely.
+    when defined(juke):
+      if not bot.wasDead:
+        inc bot.jukeDeaths                 # rising edge: one duel/attrition loss
+        if bot.jukePendingUntil > 0:
+          inc bot.jukeResolvedHit          # died inside a juke window: not dodged
+          bot.jukePendingUntil = 0
     bot.firedLast = false
     bot.rotSign = 0
     bot.wasDead = true
@@ -1127,6 +1192,25 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         except ValueError:
           discard
       break
+
+  when defined(juke):
+    # MICRO instrumentation. Resolve a pending juke: if the resolve window has
+    # elapsed with no hp loss the perpendicular crossing dodged the shot;
+    # otherwise it did not. Duel wins are approximated by fresh enemy corpses
+    # appearing on a tick we fired (the same signal the taunt path uses).
+    if bot.jukePendingUntil > 0 and bot.tick >= bot.jukePendingUntil:
+      if bot.hp >= bot.jukeHpAtStart:
+        inc bot.jukeResolvedNoHit
+      else:
+        inc bot.jukeResolvedHit
+      bot.jukePendingUntil = 0
+    var jukeCorpses = 0
+    for facing in [" right", " left"]:
+      jukeCorpses += client.spriteObjectsWithLabel(
+        "corpse " & enemyColor & facing).len
+    if jukeCorpses > bot.jukeCorpseCount and bot.firedLast:
+      inc bot.jukeKills
+    bot.jukeCorpseCount = jukeCorpses
 
   # Med kits: learn the two center-line spots on sight; presence is
   # fog-gated, so an empty spot only counts as TAKEN when we pass close
@@ -1778,9 +1862,31 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       var side = vec(-away.y, away.x)
       if (bot.tick div 12 + bot.slot div 2) mod 2 == 0:
         side = side * -1.0
-      if not bot.gridRayClear(me, me + side * 24.0):
-        side = side * -1.0
-      moveMask = octantBits(side + away * 0.4)
+      when defined(juke):
+        # Windup-juke: the enemy facing us is about to fire, and hitscan has a
+        # ~5-tick trigger windup — a committed PERPENDICULAR crossing of its
+        # muzzle line during the windup slips the shot. Pure lateral (a small
+        # FORWARD bias only when attacking) so the dodge never concedes ground
+        # the way v16/v17's backpedal did. Commit the crossing for a few ticks
+        # (reusing the jink burst) so we actually clear the line, and open a
+        # resolve window to score whether the shot was avoided.
+        if not bot.gridRayClear(me, me + side * 28.0):
+          side = side * -1.0
+        let fwd =
+          if rushing or bot.behindLines: JukeForwardBias else: 0.0
+        let step = norm(side + norm(seenEnemies[threat].pos - me) * fwd)
+        moveMask = octantBits(step)
+        if bot.tick >= bot.jinkUntil:
+          bot.jinkUntil = bot.tick + JukeCommitTicks
+          bot.jinkBits = octantBits(step)
+          inc bot.jukeAttempts
+          if bot.jukePendingUntil <= bot.tick:
+            bot.jukeHpAtStart = bot.hp
+            bot.jukePendingUntil = bot.tick + JukeResolveTicks
+      else:
+        if not bot.gridRayClear(me, me + side * 24.0):
+          side = side * -1.0
+        moveMask = octantBits(side + away * 0.4)
       if desiredAim < 0:
         desiredAim = bradsOf(seenEnemies[threat].pos - me)
     elif bot.role in {Overwatch, HomeDefender} and
@@ -1828,7 +1934,20 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           var side = vec(-steer.y, steer.x)
           if (bot.tick div 8 + bot.slot div 2) mod 2 == 0:
             side = side * -1.0
-          steer = norm(steer) + side * 0.6
+          when defined(juke):
+            # Turret-gauntlet: when running PAST a firing enemy with a clear
+            # line, strafe harder so the run crosses its muzzle line instead of
+            # tracking straight down it — same perpendicular micro as the juke.
+            var amp = 0.6
+            for t in bot.enemies:
+              if bot.tick - t.lastSeen <= UnderFireTrackTtl and
+                  dist(t.pos, me) <= GauntletRange and
+                  client.pixelRayClear(me, t.pos):
+                amp = GauntletStrafe
+                break
+            steer = norm(steer) + side * amp
+          else:
+            steer = norm(steer) + side * 0.6
       steer = steer + vec(rand(-0.12 .. 0.12), rand(-0.12 .. 0.12))
       moveMask = octantBits(steer)
       if bot.tick < bot.jinkUntil:
@@ -1960,6 +2079,8 @@ proc runBot(url: string) =
       if everConnected:
         # The game ended and the server went away: exit so the episode
         # runner sees a clean player shutdown.
+        when defined(juke):
+          bot.logJukeEpisode()             # flush the episode diagnostic on exit
         echo "game over, exiting: ", e.msg
         quit(0)
       echo "connect retry: ", e.msg
