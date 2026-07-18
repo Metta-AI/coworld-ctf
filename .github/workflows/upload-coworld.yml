@@ -1,0 +1,99 @@
+name: Upload Coworld
+
+# Builds the game, baseline-bot, and commissioner images via compose.yaml and
+# uploads a new ctf version to Softmax (https://softmax.com/api) whenever
+# game-affecting files land on main. The version is the latest uploaded ctf
+# version with the patch bumped, unless an explicit version is passed via
+# workflow_dispatch.
+#
+# Auth: the SOFTMAX_TOKEN repo secret. Rotate it with:
+#   softmax get-token | gh secret set SOFTMAX_TOKEN --repo Metta-AI/coworld-ctf
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - src/**
+      - data/**
+      - players/**
+      - Dockerfile
+      - compose.yaml
+      - coworld_manifest.json
+      - config.json
+      - nimby.lock
+      - nim.cfg
+      - .github/workflows/upload-coworld.yml
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Explicit game version (default: bump patch of latest uploaded ctf)"
+        required: false
+
+# One upload at a time; queued runs wait so version query/bump cannot race.
+concurrency:
+  group: upload-coworld
+  cancel-in-progress: false
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: coworld-ctf
+      # Commissioner build context; compose.yaml expects it as a sibling dir.
+      - uses: actions/checkout@v5
+        with:
+          repository: Metta-AI/coworld-tools
+          path: coworld-tools
+      - uses: astral-sh/setup-uv@v6
+      - name: Authenticate to Softmax
+        run: uvx --from "coworld[auth]" softmax set-token "${{ secrets.SOFTMAX_TOKEN }}"
+      - name: Determine version
+        id: version
+        run: |
+          set -euo pipefail
+          version="${{ inputs.version || '' }}"
+          if [ -z "$version" ]; then
+            uvx --from "coworld[auth]" coworld list --json --limit 500 > /tmp/coworlds.json
+            version=$(python3 - <<'EOF'
+          import json
+          rows = json.load(open("/tmp/coworlds.json"))
+          versions = []
+          for row in rows:
+              if row.get("name") == "ctf":
+                  try:
+                      versions.append(tuple(int(part) for part in row["version"].split(".")))
+                  except ValueError:
+                      pass
+          if not versions:
+              raise SystemExit("no uploaded ctf versions found")
+          major, minor, patch = max(versions)
+          print(f"{major}.{minor}.{patch + 1}")
+          EOF
+            )
+          fi
+          echo "Uploading as ctf $version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Build, certify, and upload
+        working-directory: coworld-ctf
+        run: |
+          uvx --from "coworld[auth]" coworld resolve-and-upload \
+            compose.yaml coworld_manifest.json \
+            "${{ steps.version.outputs.version }}" \
+            /tmp/coworld_manifest.resolved.json \
+            --timeout-seconds 900
+      - name: Verify upload
+        run: |
+          set -euo pipefail
+          uvx --from "coworld[auth]" coworld list --json --limit 500 > /tmp/coworlds-after.json
+          python3 - "${{ steps.version.outputs.version }}" <<'EOF'
+          import json, sys
+          expected = sys.argv[1]
+          rows = json.load(open("/tmp/coworlds-after.json"))
+          match = [r for r in rows if r.get("name") == "ctf" and r.get("version") == expected]
+          if not match:
+              raise SystemExit(f"uploaded version {expected} not found on server")
+          entry = match[0]
+          print(entry["id"], entry["name"], entry["version"], "canonical" if entry.get("canonical") else "not-canonical")
+          EOF
