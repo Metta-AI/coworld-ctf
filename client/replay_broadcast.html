@@ -130,7 +130,12 @@ html, body {
   position: absolute;
   top: 0; left: 0; right: 0;
   display: grid;
-  grid-template-columns: 1fr auto 1fr;
+  /* minmax(0,1fr), NOT 1fr: a bare 1fr track floors at its content's min-content
+     width, so a long team name would blow the side track out and shove the center
+     clock off-center. minmax(0,…) lets each side shrink to 0 and clip via the
+     name's own ellipsis at the TRUE track edge — the name then uses all the plate
+     room there actually is, instead of an arbitrary hard cap. */
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: stretch;
   /* Shrink the whole scorebug group (names, lives numerals, labels, squad pips,
      clock) 20% by scaling the local unit — every measure below derives from --u,
@@ -166,10 +171,12 @@ html, body {
   text-overflow: ellipsis;
   /* Inline with Lives + count on ONE row. Let the name shrink and ellipsis so a
      long policy name never pushes the label/count off the plate; the label and
-     numeral hold their size. Full name still reads in the CARRYING line + roster. */
+     numeral hold their size. Full name still reads in the CARRYING line + roster.
+     No max-width: the minmax(0,1fr) side track already bounds it, so the name
+     grows to the full plate width and only ellipsizes when it genuinely runs out
+     of room — not at an arbitrary early cap. */
   flex: 0 1 auto;
   min-width: 0;
-  max-width: calc(150 * var(--u));
   text-shadow: 0 calc(2 * var(--u)) 0 var(--ink);
 }
 .plate.red .team-name { color: var(--red); }
