@@ -254,3 +254,24 @@ COWORLD_PLAYER_WS_URL="ws://localhost:8080/player?slot=0&token=0xBADA55_0" \
 ```
 
 Container build uses `players/baseline/Dockerfile` (produces `/bin/baseline`).
+Compile-time variants are selected with `-d:` build defines, forwarded to the
+container build through the `NIM_DEFINES` build-arg, e.g.
+`docker build --build-arg NIM_DEFINES="-d:juke" -f players/baseline/Dockerfile .`.
+
+### `-d:juke` — MICRO axis (windup-dodge + turret-gauntlet strafe)
+
+An additive candidate over the champion flag set. Hitscan fire has a ~5-tick
+trigger windup before the bullet leaves, so a committed **perpendicular**
+crossing of an enemy's muzzle line during that windup slips the shot. The
+existing threat-jink is upgraded to this windup-juke: the sidestep drops the
+backward component (a small forward bias when attacking) so better duel
+survival never concedes ground — the failure mode that sank the v16/v17
+defense candidates. The serpentine weave gains a **turret-gauntlet** boost:
+when running past a firing enemy on a clear line, the strafe amplitude rises
+so the run crosses the muzzle line instead of tracking down it. When the flag
+is off, the compiled behaviour is byte-identical to the baseline.
+
+The variant is **instrumented**: each bot emits one `JUKE episode ...` line per
+episode to stdout with `attempts`, `dodged`/`hit` (the resolve-window hits-
+avoided proxy), `dodgeRate`, `kills`, and `deaths` — the mechanism check for an
+A/B eval (dodge success + duel win/loss).
