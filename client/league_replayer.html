@@ -108,10 +108,10 @@
   .flagicon.flip{animation:flagflip 260ms steps(3); transform-box:fill-box; transform-origin:center}
   @keyframes flagflip{0%{transform:scaleY(.2)}100%{transform:scaleY(1)}}
   .khead,.krow{display:grid; align-items:center; gap:calc(5*var(--u));
-    grid-template-columns:calc(15*var(--u)) 1fr calc(16*var(--u)) calc(16*var(--u)) calc(34*var(--u))}
+    grid-template-columns:1fr calc(16*var(--u)) calc(16*var(--u)) calc(34*var(--u))}
   .khead{font-family:var(--finefont); font-size:calc(8*var(--u)); letter-spacing:.08em; text-transform:uppercase;
     color:var(--paper-dim); padding:0 calc(3*var(--u)) calc(4*var(--u)); border-bottom:1px solid rgba(242,232,216,.18)}
-  .khead span:not(:nth-child(2)){text-align:center}
+  .khead span:not(:first-child){text-align:center}
   .krow{font-family:var(--pixfont); font-size:calc(12*var(--u)); padding:calc(3.5*var(--u)) calc(3*var(--u));
     border-radius:calc(2*var(--u)); cursor:pointer}
   .krow:nth-child(odd){background:rgba(242,232,216,.035)}
@@ -215,7 +215,7 @@
         <span class="lives-num" id="lives-red">—</span>
       </div>
     </div>
-    <div class="khead"><span>#</span><span>Name</span><span>K</span><span>D</span><span>Lives</span></div>
+    <div class="khead"><span>Name</span><span>K</span><span>D</span><span>Lives</span></div>
     <div id="rows-red"></div>
     <div class="pfoot" id="foot-red"></div>
   </div>
@@ -228,7 +228,7 @@
         <span class="lives-num" id="lives-blue">—</span>
       </div>
     </div>
-    <div class="khead"><span>#</span><span>Name</span><span>K</span><span>D</span><span>Lives</span></div>
+    <div class="khead"><span>Name</span><span>K</span><span>D</span><span>Lives</span></div>
     <div id="rows-blue"></div>
     <div class="pfoot" id="foot-blue"></div>
   </div>
@@ -438,9 +438,12 @@
     return '#'+slot;
   }
   function shortName(n){
+    // Strip any @domain, then let the .nm cell's CSS ellipsis do the visual
+    // truncation — the char cap is only a runaway guard so a pathologically
+    // long name can't blow out the flex row. No mid-word hard cut like before.
     n=String(n||'');
     var at=n.indexOf('@'); if (at>0) n=n.slice(0,at);
-    if (n.length>10) n=n.slice(0,10);
+    if (n.length>28) n=n.slice(0,27)+'…';
     return n||'?';
   }
   function esc(x){return String(x).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
@@ -509,15 +512,20 @@
   function pips(n,max){var o='';for(var i=0;i<max;i++)o+='<span class="lp '+(i<n?'on':'off')+'"></span>';return o;}
   function renderRows(s, team, el){
     var r=(s.roster||[]).filter(function(p){return p.team===team;}).slice().sort(function(a,b){return a.s-b.s;});
-    var pol = teamName(s,team,team.toUpperCase());
     var mx=MAXLIVES; r.forEach(function(p){ if(p.lives>mx) mx=p.lives; });
     el.innerHTML = r.map(function(p,idx){
       var seat = idx+1;
+      // Row label = the PER-PLAYER name the board units carry (via rosterName)
+      // followed by the seat number, e.g. "Richard Higgins 1". No team color:
+      // replays identify players by name, and the trailing seat disambiguates
+      // teammates who share one policy name. Team identity rides the wall-corner
+      // headline above the table.
+      var who = shortName(rosterName(s, p.s));
       var carry = p.carry ? '<span class="carry">♥</span>' : '';
       var isPov = (s.pov!=null && s.pov===p.s);
       return '<div class="krow'+(p.alive?'':' dead')+(isPov?' pov':'')+'" data-slot="'+p.s+'">'+
-        '<span class="seatno">'+seat+'</span>'+
-        '<span class="who"><span class="nm">'+esc(pol)+' '+seat+'</span>'+carry+'</span>'+
+        '<span class="who"><span class="nm">'+esc(who)+'</span>'+
+        '<span class="seatno">'+seat+'</span>'+carry+'</span>'+
         '<span class="n k">'+(p.k||0)+'</span>'+
         '<span class="n d">'+(p.d||0)+'</span>'+
         '<span class="lives">'+pips(p.lives||0, mx)+'</span></div>';
