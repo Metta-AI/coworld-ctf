@@ -501,7 +501,14 @@
     } else if (s.ph==='gameover'){
       timeEl.textContent='FINAL'; capEl.textContent='Game over'; clk.classList.remove('tiebreak-warn');
     } else {
-      var remain = Math.max(0, (s.mx - s.t))/FPS;
+      // Honest countdown to the scheduled draw limit (st + mt = gameStartTick +
+      // maxTicks), NOT to the replay's last tick. A game decided early by a
+      // capture/wipe freezes the clock at whatever was left and flips to FINAL,
+      // so only a real grind to the limit ever reaches 0:00. Fall back to the
+      // replay span when no limit is configured (mt <= 0). Mirrors
+      // replay_broadcast.html renderClock.
+      var end = (s.mt && s.mt > 0) ? ((s.st || 0) + s.mt) : s.mx;
+      var remain = Math.max(0, (end - s.t))/FPS;
       timeEl.textContent = fmt(remain);
       capEl.textContent  = 'Time left';
       clk.classList.toggle('tiebreak-warn', remain<=30);
