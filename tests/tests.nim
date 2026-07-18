@@ -11,6 +11,7 @@ import
   test_grenades,
   test_shouts,
   test_medkits,
+  test_shields,
   test_first_person_pip,
   test_board_click_select,
   test_corpse_label,

@@ -127,6 +127,12 @@ const
                                  ## (BlastSpriteBase 844..847).
   MedKitSize = 26                ## px footprint of a med kit pickup.
   MedKitObjectBase = 19600       ## center med kits: 19600..19601.
+  ShieldSpriteId = 1420          ## endzone shield pickup (native size).
+  ShieldCarrySpriteId = 1421     ## the "shield carried" marker over a carrier.
+  ShieldSize = 26                ## px footprint of an endzone shield pickup.
+  ShieldCarrySize = 12           ## px footprint of the carried shield marker.
+  ShieldObjectBase = 19602       ## endzone shields: 19602..19603.
+  ShieldCarryObjectBase = 19620  ## carried shield markers: one per player.
   RotDiamondSpriteBase = 1401    ## spinning diamond frames: 1401..1416;
                                  ## 850 collided with CorpseSpriteBase.
   RotDiamondObjectBase = 19610   ## spinning center diamonds: 19610..19617;
@@ -2625,6 +2631,61 @@ proc addMedKits(
       spawn.y, MapLayerId, MedKitSpriteId
     )
 
+proc addShields(
+  sim: SimServer,
+  spriteDefs: var seq[SpriteDefinition],
+  currentIds: var seq[int],
+  packet: var seq[uint8],
+  viewerIndex = -1
+) {.measure.} =
+  ## Places the two endzone shield pickups (fog-gated by map position like the
+  ## med kits) plus a small "shield carried" marker over anyone holding one
+  ## (gated on seeing that player). The map/replay view passes no viewer and
+  ## shows all. Sprites are defined lazily on first need per connection.
+  for i in 0 ..< sim.shieldSpawns.len:
+    let spawn = sim.shieldSpawns[i]
+    if not spawn.present:
+      continue
+    if viewerIndex >= 0 and not sim.fovVisibleAt(viewerIndex, spawn.x, spawn.y):
+      continue
+    if spriteDefs.spriteDefinitionIndex(ShieldSpriteId) < 0:
+      packet.addSpriteChanged(
+        spriteDefs, ShieldSpriteId,
+        ShieldSize, ShieldSize,
+        loadShieldSprite(ShieldSize), "shield"
+      )
+    let objectId = ShieldObjectBase + i
+    currentIds.add(objectId)
+    packet.addObject(
+      objectId,
+      spawn.x - ShieldSize div 2,
+      spawn.y - ShieldSize div 2,
+      spawn.y, MapLayerId, ShieldSpriteId
+    )
+
+  for i in 0 ..< sim.players.len:
+    let player = sim.players[i]
+    if not player.alive or not player.hasShield:
+      continue
+    let seeMe = viewerIndex < 0 or i == viewerIndex or
+      sim.playerVisibleTo(viewerIndex, i)
+    if not seeMe:
+      continue
+    if spriteDefs.spriteDefinitionIndex(ShieldCarrySpriteId) < 0:
+      packet.addSpriteChanged(
+        spriteDefs, ShieldCarrySpriteId,
+        ShieldCarrySize, ShieldCarrySize,
+        loadShieldSprite(ShieldCarrySize), "shield carried"
+      )
+    let objectId = ShieldCarryObjectBase + i
+    currentIds.add(objectId)
+    packet.addObject(
+      objectId,
+      player.x + CollisionW div 2 - HpBarWidth div 2 - ShieldCarrySize div 2,
+      player.overheadAnchorY() - OverheadYOffset - ShieldCarrySize,
+      30006, MapLayerId, ShieldCarrySpriteId
+    )
+
 proc addGrenades(
   sim: SimServer,
   spriteDefs: var seq[SpriteDefinition],
@@ -3187,6 +3248,12 @@ proc buildSpriteProtocolPlayerUpdates*(
       result,
       viewerIndex = playerIndex
     )
+    sim.addShields(
+      nextState.spriteDefs,
+      currentIds,
+      result,
+      viewerIndex = playerIndex
+    )
     sim.addGrenades(
       nextState.spriteDefs,
       currentIds,
@@ -3693,6 +3760,7 @@ proc buildSpriteProtocolUpdates*(
   sim.addShotTracers(nextState.spriteDefs, currentIds, result)
   sim.addRotatingDiamonds(nextState.spriteDefs, currentIds, result)
   sim.addMedKits(nextState.spriteDefs, currentIds, result)
+  sim.addShields(nextState.spriteDefs, currentIds, result)
   sim.addGrenades(nextState.spriteDefs, currentIds, result)
   sim.addShouts(nextState.spriteDefs, currentIds, result)
   sim.addAimIndicators(nextState.spriteDefs, currentIds, result)
