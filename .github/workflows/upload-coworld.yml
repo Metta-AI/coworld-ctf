@@ -1,0 +1,128 @@
+name: Upload Coworld
+
+# Builds the CTF game, bundled baseline, and commissioner from Compose, then
+# uploads the hydrated Coworld package to the hosted Softmax platform.
+#
+# Required repository secret:
+#   SOFTMAX_API_TOKEN - a team usr_ token. The workflow seeds it into the
+#                       softmax CLI credential store before running coworld.
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Coworld version to publish (for example, 0.1.0). Leave blank to auto-resolve."
+        required: false
+        default: ""
+
+concurrency:
+  group: upload-coworld
+  cancel-in-progress: false
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    environment: SOFTMAX_OBSERVATORY
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/checkout@v4
+        with:
+          repository: Metta-AI/coworld-tools
+          path: coworld-tools
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Install coworld CLI
+        run: uv pip install --system coworld
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Seed Softmax credentials
+        env:
+          SOFTMAX_API_TOKEN: ${{ secrets.SOFTMAX_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$SOFTMAX_API_TOKEN" ]; then
+            echo "::error::SOFTMAX_API_TOKEN secret is empty. Set a team usr_ token in repo Settings -> Secrets and variables -> Actions."
+            exit 1
+          fi
+          softmax set-token "$SOFTMAX_API_TOKEN" --server https://softmax.com/api
+          python -c "from softmax.auth import clear_active_player_session; clear_active_player_session(server='https://softmax.com/api')"
+
+      - name: Resolve version
+        id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [ -n "$INPUT_VERSION" ]; then
+            VERSION="$INPUT_VERSION"
+          elif [[ "$REF_NAME" == v* ]]; then
+            VERSION="${REF_NAME#v}"
+          else
+            VERSION="$(coworld next-version ctf --server https://softmax.com/api)"
+          fi
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.][0-9]+)?$ ]]; then
+            echo "::error::Coworld version must look like 0.1.0, got: $VERSION"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Uploading ctf:$VERSION"
+
+      - name: Build Coworld manifest
+        env:
+          COMMISSIONER_CONTEXT: ${{ github.workspace }}/coworld-tools/commissioners
+        run: |
+          set -euo pipefail
+          coworld build \
+            compose.yaml \
+            coworld_manifest.json \
+            "${{ steps.version.outputs.version }}" \
+            dist/coworld_manifest.json
+
+      - name: Upload Coworld
+        env:
+          COMMISSIONER_CONTEXT: ${{ github.workspace }}/coworld-tools/commissioners
+        run: |
+          set -euo pipefail
+          coworld upload-coworld dist/coworld_manifest.json \
+            --server https://softmax.com/api \
+            --wait-hosted-smoke \
+            --hosted-smoke-timeout-seconds 1800
+
+      - name: Verify the uploaded version is canonical
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          coworld list --json --limit 500 --server https://softmax.com/api | python3 -c '
+          import json
+          import os
+          import sys
+
+          version = os.environ["VERSION"]
+          rows = json.load(sys.stdin)
+          match = next(
+              (row for row in rows if row.get("name") == "ctf" and row.get("version") == version),
+              None,
+          )
+          if match is None:
+              sys.exit(f"::error::Published ctf:{version} not found in coworld list")
+          if not match.get("canonical"):
+              sys.exit(
+                  f"::error::ctf:{version} published but is not canonical; "
+                  "hosted smoke certification likely did not pass."
+              )
+          print(f"ctf:{version} is canonical ({match['id']})")
+          '
