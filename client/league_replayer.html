@@ -435,9 +435,25 @@
   //  FRAME STREAM — the embedded replay postMessages each parsed state here.
   // ==========================================================================
   var lastState=null, maxTick=1, lastTick=-1;
+
+  // Relay an Esc up to the Observatory theater host (the frame that embeds THIS
+  // shell). keydown never crosses an iframe boundary, so the host can't see
+  // Escape once focus is anywhere inside the theater; both the shell (below)
+  // and the board (which forwards its own Esc as {src:'ctf-replay',type:'esc'})
+  // bubble it up here. No-ops when this shell isn't itself embedded.
+  function postEscToHost(){
+    if (window.parent === window) return;
+    try { window.parent.postMessage({ src:'ctf-shell', type:'esc' }, '*'); } catch(e){}
+  }
+
   window.addEventListener('message', function(ev){
     var m=ev.data; if(!m || m.src!=='ctf-replay') return;
     if(m.type==='frame'){ syncBoardAspect(m.data); onFrame(m.data); }
+    else if(m.type==='esc'){ postEscToHost(); }
+  });
+  // Direct Esc while the shell chrome (transport, KDA rows, scrubber) holds focus.
+  window.addEventListener('keydown', function(ev){
+    if(ev.key==='Escape'){ postEscToHost(); }
   });
 
   // ---- names (ported from the broadcast client, 1:1) -----------------------
