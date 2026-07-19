@@ -154,9 +154,10 @@ const
   SwordReach = 26.0           # melee swipe range (sim SwordReach)
   SwordArcBrads = 32          # +/-45 degree swipe arc in brads
   SwordDetour = 70.0          # attacker detour budget for a sword pickup
-  ShieldStealDetour = 330.0   # MidGuard's shield trip: the enemy endzone
-                              # shield sits ~136px past their pedestal, so
-                              # the round trip inherently costs ~270 path px
+  ShieldStealDetour = 480.0   # MidGuard's shield trip: the enemy endzone
+                              # shield sits low in their back column
+                              # (~215px from the pedestal since the game-v7
+                              # split), so the round trip costs ~430 path px
   PickupRespawn = 30 * 24     # sword/shield respawn timer (sim constant)
   MedKitCarrierBudget = 90.0  # extra path px a hurt CARRIER spends to heal:
                               # a full-heal carrier survives pocket exits
@@ -1132,15 +1133,19 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     let seen = client.observedAim(me, myColor)
     if seen >= 0 and abs(bradsErr(seen, bot.estAim)) > AimResyncBrads:
       bot.estAim = seen
-  # Swords and shields (0.7.2x): both spawn at the SAME endzone back-column
-  # point (inset 50, center line) on each side — seed the two spots up front
-  # (they are deterministic; the fog would otherwise hide them until we are
-  # already on top of them), then let sightings refine the nudged positions.
+  # Swords and shields (game v7) share the endzone back columns (inset 50)
+  # but are vertically SEPARATED: swords in the top half (quarter height),
+  # shields in the bottom half (three-quarter height). Seed the spots up
+  # front (they are deterministic; the fog would otherwise hide them until
+  # we are already on top of them), then let sightings refine the nudged
+  # positions.
   if bot.swordPos.len == 0:
-    for spot in [vec(50.0, float(MapH div 2)),
-                 vec(float(MapW) - 50.0, float(MapH div 2))]:
+    for spot in [vec(50.0, float(MapH div 4)),
+                 vec(float(MapW) - 50.0, float(MapH div 4))]:
       bot.swordPos.add(spot)
       bot.swordAbsentAt.add(-1)
+    for spot in [vec(50.0, float(3 * MapH div 4)),
+                 vec(float(MapW) - 50.0, float(3 * MapH div 4))]:
       bot.shieldPos.add(spot)
       bot.shieldAbsentAt.add(-1)
   var swordSeen, shieldSeen: seq[Vec]

@@ -7,7 +7,7 @@ import
 
 const
   GameName* = "ctf"
-  GameVersion* = "6"
+  GameVersion* = "7"
   ReplayFps* = 24
   DefaultMapPath* = "arena"
   DarkBgPath* = "data/darkbg.aseprite"
@@ -2773,12 +2773,13 @@ proc resetMedKits*(sim: var SimServer) =
     )
 
 proc resetShields*(sim: var SimServer) =
-  ## Places one shield deep in each team's endzone, in the same back column as
-  ## the corner grenade pickups (centered between the two corners), nudged to
-  ## the nearest walkable floor, and refills both.
+  ## Places one shield deep in each team's endzone, in the same back column
+  ## as the corner grenade pickups but in the BOTTOM half (three quarters of
+  ## the map height down) — the swords hold the matching top-half spots —
+  ## nudged to the nearest walkable floor, and refills both.
   let
     inset = ArenaBorder + GrenadeSpawnInset
-    endzoneY = sim.gameMap.center.y
+    endzoneY = 3 * MapHeight div 4
     targets = [
       (inset, endzoneY),
       (MapWidth - inset, endzoneY)
@@ -2791,10 +2792,13 @@ proc resetShields*(sim: var SimServer) =
   for i in 0 ..< sim.players.len:
     sim.players[i].hasShield = false
 proc swordSpawnPoints*(): array[2, tuple[x, y: int]] =
-  ## The two side-center sword spawn points, nudged to walkable floor.
+  ## The two sword spawn points, nudged to walkable floor: the same side
+  ## back columns as the shields, but in the TOP half (a quarter of the map
+  ## height down) so the two pickups no longer sit on top of each other —
+  ## swords high, shields low.
   let inset = ArenaBorder + SwordSpawnInset
-  [(inset, MapHeight div 2),
-    (MapWidth - inset, MapHeight div 2)]
+  [(inset, MapHeight div 4),
+    (MapWidth - inset, MapHeight div 4)]
 
 proc resetSwords*(sim: var SimServer) =
   ## Refills both side-center sword pickups and clears carried swords.

@@ -37,6 +37,10 @@ suite "shields":
     for spawn in sim.shieldSpawns:
       check spawn.present
       check sim.canOccupy(spawn.x, spawn.y)
+      # Shields live in the BOTTOM half (three-quarter height); the swords
+      # hold the matching top-half spots.
+      check abs(spawn.y - 3 * MapHeight div 4) < 120
+      check spawn.y > MapHeight div 2
     # One shield on the red (left) half, one on the blue (right) half.
     check sim.shieldSpawns[0].x < MapWidth div 2
     check sim.shieldSpawns[1].x > MapWidth div 2

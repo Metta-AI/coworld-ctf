@@ -36,12 +36,15 @@ proc stepNone(sim: var SimServer, ticks: int) =
     sim.step(input, input)
 
 suite "swords":
-  test "two swords spawn at walkable side midpoints":
+  test "two swords spawn walkable in the top half of the side columns":
     let game = twoTeamGame()
     for i in 0 ..< game.swordSpawns.len:
       check game.swordSpawns[i].present
       check game.canOccupy(game.swordSpawns[i].x, game.swordSpawns[i].y)
-      check abs(game.swordSpawns[i].y - MapHeight div 2) < 120
+      # Swords live in the TOP half (quarter height); the shields hold the
+      # matching bottom-half spots.
+      check abs(game.swordSpawns[i].y - MapHeight div 4) < 120
+      check game.swordSpawns[i].y < MapHeight div 2
       if i == 0:
         check game.swordSpawns[i].x < MapWidth div 2
       else:
