@@ -222,6 +222,13 @@ when defined(juke):
                                # past a firing enemy this close on a clear line
     GauntletStrafe = 1.0       # perpendicular amplitude in the gauntlet
                                # (vs the 0.6 default serpentine weave)
+    JukeOwnWindupTicks = 6     # RESCUE: suppress the juke while OUR OWN gun
+                               # windup is live. The pull locks the aim; moving
+                               # laterally during the ~5-tick windup shifts our
+                               # shot origin off the locked ray and costs more
+                               # hit-rate than the dodge saves — v25-juke went
+                               # 8W-16L (vs v24's 13W-11L) exactly here. Hold
+                               # still until our own shot has left.
 
 type
   Team = enum
@@ -307,6 +314,8 @@ type
       jukeKills: int           # enemy corpses appearing on a tick we fired
       jukeDeaths: int          # our deaths this episode (duel-loss proxy)
       jukeCorpseCount: int     # visible enemy corpses last frame
+      jukeGunFiredAt: int      # tick of our last GUN pull; the shot is in
+                               # windup for JukeOwnWindupTicks after it
 
 proc roleForSeat(seat: int, team: Team): Role =
   ## Deterministic role spread over the 8 per-team seats. Seats 2 and 3 both
@@ -1077,6 +1086,7 @@ proc resetTransient(bot: Bot) =
     bot.jukeKills = 0
     bot.jukeDeaths = 0
     bot.jukeCorpseCount = 0
+    bot.jukeGunFiredAt = -100_000
 
 proc scanAim(bot: Bot, watch: Vec): int =
   ## The scan-sweep aim while holding a position: rake the vision cone back
@@ -1913,6 +1923,9 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     acted = false
     holdStill = false
     nadeC = false
+  when defined(juke):
+    var jukeSwordSwing = false   # this tick's A press is an instant melee, not
+                                 # a gun pull (a sword swipe has no windup)
   if bot.nadeCharge > 0 or nadeAim >= 0:
     # Charge-throw: lay the turret on the lob line, then hold C for the ticks
     # the planned distance needs and release — the grenade leaves along the
@@ -1940,6 +1953,8 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     if engageD <= SwordReach and err <= SwordArcBrads - 4:
       wantFire = true
       holdStill = true
+      when defined(juke):
+        jukeSwordSwing = true          # instant melee: no windup to protect
     else:
       moveMask = octantBits(aim - me)    # charge in
     acted = true
@@ -2005,19 +2020,25 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         # the way v16/v17's backpedal did. Commit the crossing for a few ticks
         # (reusing the jink burst) so we actually clear the line, and open a
         # resolve window to score whether the shot was avoided.
-        if not bot.gridRayClear(me, me + side * 28.0):
-          side = side * -1.0
-        let fwd =
-          if rushing or bot.behindLines: JukeForwardBias else: 0.0
-        let step = norm(side + norm(seenEnemies[threat].pos - me) * fwd)
-        moveMask = octantBits(step)
-        if bot.tick >= bot.jinkUntil:
-          bot.jinkUntil = bot.tick + JukeCommitTicks
-          bot.jinkBits = octantBits(step)
-          inc bot.jukeAttempts
-          if bot.jukePendingUntil <= bot.tick:
-            bot.jukeHpAtStart = bot.hp
-            bot.jukePendingUntil = bot.tick + JukeResolveTicks
+        if bot.tick - bot.jukeGunFiredAt < JukeOwnWindupTicks:
+          # RESCUE: our own gun shot is mid-windup and its aim is locked —
+          # hold position so the shot lands instead of jerking it off target.
+          # The trailing block keeps our aim on the threat.
+          holdStill = true
+        else:
+          if not bot.gridRayClear(me, me + side * 28.0):
+            side = side * -1.0
+          let fwd =
+            if rushing or bot.behindLines: JukeForwardBias else: 0.0
+          let step = norm(side + norm(seenEnemies[threat].pos - me) * fwd)
+          moveMask = octantBits(step)
+          if bot.tick >= bot.jinkUntil:
+            bot.jinkUntil = bot.tick + JukeCommitTicks
+            bot.jinkBits = octantBits(step)
+            inc bot.jukeAttempts
+            if bot.jukePendingUntil <= bot.tick:
+              bot.jukeHpAtStart = bot.hp
+              bot.jukePendingUntil = bot.tick + JukeResolveTicks
       else:
         if not bot.gridRayClear(me, me + side * 24.0):
           side = side * -1.0
@@ -2150,6 +2171,12 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   var mask = moveMask or rotBits
   if wantFire and not bot.firedLast:
     mask = moveMask or ButtonA
+    when defined(juke):
+      if not jukeSwordSwing:
+        # A GUN pull: the shot is now locked and in windup. Cancel any lateral
+        # commit and mark the windup so the juke holds position until it lands.
+        bot.jukeGunFiredAt = bot.tick
+        bot.jinkUntil = bot.tick
   if nadeC:
     mask = mask or ButtonC
   bot.firedLast = (mask and ButtonA) != 0

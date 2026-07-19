@@ -271,6 +271,15 @@ when running past a firing enemy on a clear line, the strafe amplitude rises
 so the run crosses the muzzle line instead of tracking down it. When the flag
 is off, the compiled behaviour is byte-identical to the baseline.
 
+**Own-windup suppression (rescue).** The first cut (evaluated as `v25-juke`)
+regressed — 8W-16L vs Picasso:v14 against v24's 13W-11L — because jerking
+sideways *during our own* trigger windup shifts the shot origin off the locked
+aim and costs more of our own hit-rate than the dodge saves. The juke is now
+gated on `JukeOwnWindupTicks`: for the windup after each of our GUN pulls (sword
+melee is instant and exempt) the bot holds position and keeps aim on the threat
+so our shot lands, then resumes dodging. Any committed lateral jink is cancelled
+on the pull.
+
 The variant is **instrumented**: each bot emits one `JUKE episode ...` line per
 episode to stdout with `attempts`, `dodged`/`hit` (the resolve-window hits-
 avoided proxy), `dodgeRate`, `kills`, and `deaths` — the mechanism check for an
