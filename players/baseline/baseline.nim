@@ -270,6 +270,7 @@ type
     lastEnemyShout: string    # last enemy shout label already responded to
     lastComebackReq: int      # rate limit on comeback generation requests
     wasMateCarry: bool        # edge detector: a fresh steal opens a taunt window
+    tripping: bool            # mid-errand to a gear spot: sprint, no fights
     hp: int                   # own hit points, read from the HUD lives label
     kitPos: seq[Vec]          # discovered med kit spots (two, center line)
     kitAbsentAt: seq[int]     # tick a spot was last seen empty; -1 = present
@@ -1004,6 +1005,7 @@ proc resetTransient(bot: Bot) =
   bot.lastEnemyShout = ""
   bot.lastComebackReq = 0
   bot.wasMateCarry = false
+  bot.tripping = false
   bot.carrierSeen = -100_000
   bot.lastEnemySeen = bot.tick
   bot.gameStart = bot.tick
@@ -1597,7 +1599,8 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # rushers racing for the steal and escorts guarding a run only fight what
   # is actually in the way, instead of frag-chasing across the map.
   let maxEngage =
-    if hasShield and not hasSword: 0.0   # no weapon at all: run and carry
+    if bot.tripping: 0.0                 # sprinting an errand: no fights
+    elif hasShield and not hasSword: 0.0 # no weapon at all: run and carry
     elif hasSword: SwordReach + 6.0      # melee: only point-blank matters
     elif pocketRush: 0.0
     elif iCarry: CarrierFireRange
@@ -1731,6 +1734,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # roles never take a shield (it bars the gun). SWORDS arm the pocket
   # brawlers: attackers detour a little for one on the way in — the pocket
   # duel is point-blank, where an instant lethal swipe beats any gun.
+  bot.tripping = false
   if not iCarry and not hasShield and bot.role == MidGuard and
       not (ownStolen and bot.tick - bot.carrierSeen <= ThiefFixTtl):
     # ONE designated shield-runner (MidGuard, the trailing mid): the shield
@@ -1751,7 +1755,15 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         bestCost = cost
         best = i
     if best >= 0:
-      target = bot.shieldPos[best]
+      # SPRINT the trip: route via the nearest border lane (the mid belt is
+      # where crossings die), and mark the errand so combat stays off.
+      let spot = bot.shieldPos[best]
+      bot.tripping = true
+      if abs(me.x - spot.x) > 140.0:
+        target = vec(me.x + (if spot.x > me.x: 120.0 else: -120.0),
+          (if me.y < float(CenterY): LaneTop else: LaneBottom))
+      else:
+        target = spot
       when defined(pickupDebug):
         if bot.tick mod 50 == 0:
           echo "SHIELDTRIP slot=", bot.slot, " t=", bot.tick, " me=",
