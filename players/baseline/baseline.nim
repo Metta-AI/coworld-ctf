@@ -1735,47 +1735,24 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # brawlers: attackers detour a little for one on the way in — the pocket
   # duel is point-blank, where an instant lethal swipe beats any gun.
   bot.tripping = false
-  if not iCarry and not hasShield and bot.role == MidGuard and
+  if not iCarry and not hasShield and bot.role == MidTop and
+      enemyPlanted.len > 0 and
       not (ownStolen and bot.tick - bot.carrierSeen <= ThiefFixTtl):
-    # ONE designated shield-runner (MidGuard, the trailing mid): the shield
-    # sits ~136px BEYOND the enemy pedestal, so the trip costs ~270 path px —
-    # never spend the LEAD rusher's tempo on it (first steal wins races).
-    # The second wave arrives as a 6 hp bruiser: it steals if the flag is
-    # still planted, escorts (and re-steals after a failed run) if not.
-    var best = -1
-    var bestCost = ShieldStealDetour
+    # HOME KIT-UP: either team may take either endzone's shield, and OURS
+    # sits ~50px from our own spawn — so the LEAD RUSHER gears up at home
+    # for near-zero tempo (the enemy-side trip was refuted twice: a 3hp
+    # unarmed sprinter cannot cross the map, fighting or not). The rusher
+    # arrives at the pocket as a 6hp bruiser; the co-located sword makes
+    # the pocket duel an instant-lethal swipe instead of a gunfight.
     for i in 0 ..< bot.shieldPos.len:
       if not pickupAvailable(bot.shieldAbsentAt, i, bot.tick):
         continue
-      if homeSign(bot.team) * (bot.shieldPos[i].x - float(CenterX)) > 0.0:
-        continue                         # OUR endzone shield: leave the gun
-      let cost = dist(me, bot.shieldPos[i]) + dist(bot.shieldPos[i], stealTarget) -
-        dist(me, stealTarget)
-      if cost < bestCost:
-        bestCost = cost
-        best = i
-    if best >= 0:
-      # SPRINT the trip: route via the nearest border lane (the mid belt is
-      # where crossings die), and mark the errand so combat stays off.
-      let spot = bot.shieldPos[best]
-      bot.tripping = true
-      if abs(me.x - spot.x) > 140.0:
-        target = vec(me.x + (if spot.x > me.x: 120.0 else: -120.0),
-          (if me.y < float(CenterY): LaneTop else: LaneBottom))
-      else:
-        target = spot
-      when defined(pickupDebug):
-        if bot.tick mod 50 == 0:
-          echo "SHIELDTRIP slot=", bot.slot, " t=", bot.tick, " me=",
-            int(me.x), ",", int(me.y), " -> ", int(target.x), ",",
-            int(target.y), " cost=", int(bestCost)
-          flushFile(stdout)
-    else:
-      when defined(pickupDebug):
-        if bot.tick mod 100 == 0:
-          echo "SHIELDTRIP-NONE slot=", bot.slot, " t=", bot.tick,
-            " spots=", bot.shieldPos.len
-          flushFile(stdout)
+      if homeSign(bot.team) * (bot.shieldPos[i].x - float(CenterX)) < 0.0:
+        continue                         # enemy endzone: refuted suicide run
+      if dist(me, bot.shieldPos[i]) + dist(bot.shieldPos[i], stealTarget) -
+          dist(me, stealTarget) < ShieldStealDetour:
+        target = bot.shieldPos[i]
+        break
   elif not iCarry and not hasSword and
       bot.role in {MidTop, MidBottom, MidGuard, FlankTop, FlankBottom} and
       not mateCarry and not pocketRush:
