@@ -1139,11 +1139,12 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # (they are deterministic; the fog would otherwise hide them until we are
   # already on top of them), then let sightings refine the nudged positions.
   if bot.swordPos.len == 0:
-    for spot in [vec(50.0, float(MapH div 2)),
-                 vec(float(MapW) - 50.0, float(MapH div 2))]:
-      bot.swordPos.add(spot)
+    # Since game v7 the pickups separated vertically: swords in the side
+    # back columns at a QUARTER height, shields at THREE QUARTERS.
+    for x in [50.0, float(MapW) - 50.0]:
+      bot.swordPos.add(vec(x, float(MapH div 4)))
       bot.swordAbsentAt.add(-1)
-      bot.shieldPos.add(spot)
+      bot.shieldPos.add(vec(x, float(3 * MapH div 4)))
       bot.shieldAbsentAt.add(-1)
   var swordSeen, shieldSeen: seq[Vec]
   for o in client.spriteObjectsWithLabel("sword"):
@@ -1967,6 +1968,18 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       moveMask = octantBits(steer)
       if bot.tick < bot.jinkUntil:
         moveMask = bot.jinkBits            # unsticking burst
+      if desiredAim < 0 and ownStolen and
+          bot.role in {FlankTop, FlankBottom} and
+          bot.tick - bot.carrierSeen > ThiefFixTtl:
+        # Flanker rear-view: our flag is out and fogged, and the classic
+        # escape is a 1 hp runner hugging exactly this border lane BEHIND
+        # us (decoded from Picasso v7 and v14 losses alike). Alternate the
+        # sweep between rear and forward along the lane every two seconds —
+        # aim is decoupled from movement, so this costs nothing positional.
+        let sweepDir =
+          if (bot.tick div 48) mod 2 == 0: homeSign(bot.team)
+          else: -homeSign(bot.team)
+        desiredAim = bot.scanAim(vec(sweepDir, 0.0))
       if desiredAim < 0:
         # No target demands the turret: the aim leads the movement direction
         # so the vision cone watches down-lane where we are heading. Movement
