@@ -41,8 +41,9 @@ sightline crosses the field (RULES.md).
   (`carrierSpeedPct: 70`, config.json:9).
 - **Combat ephemera** — hitscan tracers (windup 5 ticks, cooldown 12 ticks, range 1300px ≈ map-wide;
   config.json:6–8, 149; spectator-only, hits draw full-bright while misses draw pre-faded), hit → HP
-  loss (3 HP/life), death splatters, landing impact rings (a shot's only player-audible trace),
-  aim-indicator lines (visible on ALL players in spectator view — RULES.md "Aim").
+  loss (3 HP/life) with a white flash ring over the struck target, death splatters, landing impact
+  rings (a shot's only player-audible trace), aim-indicator lines (visible on ALL players in
+  spectator view — RULES.md "Aim").
 - **Lives**: 3 per player (config.json:3); respawn 72 ticks ≈ 3s; spawn protection 24 ticks ≈ 1s
   (config.json:5–6). Out of lives = ghost for the round.
 

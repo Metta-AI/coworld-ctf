@@ -207,6 +207,11 @@ const
   TracerMaxDots = TracerMaxShots * TracerDotsPerShot  ## 6992 ids: 24000..30991.
   MuzzleBloomSpriteBase = 1290 ## per-fade-stage muzzle flash sprites: 1290..1293.
   MuzzleBloomObjectBase = 16800  ## one flash per drawn shot: 16800..16815.
+  HitFlashSpriteBase = 1294    ## per-stage struck-target rings: 1294..1297.
+  HitFlashStages = 4           ## expanding/fading ring steps over HitFlashTicks.
+  HitFlashSize = 34            ## px canvas: rings the 16px soldier body.
+  HitFlashObjectBase = 16840   ## struck-target ring pool: 16840..16855.
+  HitFlashMaxCount = 16        ## most flash rings drawn at once.
   MuzzleBloomSize = 7          ## a small colorless flash marking the shooter.
   TracerHeadSpriteBase = 1300  ## per color-and-fade-stage leading heads: 1300..1363.
   TracerHeadObjectBase = 16820  ## one leading head per drawn shot: 16820..16835.
@@ -1106,6 +1111,70 @@ proc buildMuzzleBloomSprite(stage: int): seq[uint8] {.measure.} =
         y * MuzzleBloomSize + x,
         uint8(rr), uint8(clamp(gg, 0, 255)), uint8(clamp(bb, 0, 255)), alpha
       )
+
+proc buildHitFlashSprite(stage: int): seq[uint8] {.measure.} =
+  ## Builds one stage of the struck-target flash: a hot white ring that
+  ## expands outward and fades over the flash's short life, ringing the
+  ## victim's body so a connected shot reads instantly in the spectator
+  ## view. Colorless so it never recolors either team.
+  result = newRgbaPixels(HitFlashSize, HitFlashSize)
+  let
+    c = float(HitFlashSize - 1) / 2
+    t = stage.float / float(max(1, HitFlashStages - 1))  ## 0 fresh → 1 dying.
+    radius = 10.0 + 6.0 * t                              ## expands outward.
+    thickness = 2.6 - 1.0 * t                            ## thins as it dies.
+    alphaTop = 235.0 * (1.0 - 0.75 * t)                  ## fades out.
+  for y in 0 ..< HitFlashSize:
+    for x in 0 ..< HitFlashSize:
+      let
+        dx = float(x) - c
+        dy = float(y) - c
+        dist = sqrt(dx * dx + dy * dy)
+        edge = clamp(thickness - abs(dist - radius), 0.0, 1.0)
+      if edge > 0:
+        result.putRawRgbaPixel(
+          y * HitFlashSize + x,
+          255, 255, 255,
+          uint8(clamp(int(alphaTop * edge), 0, 255))
+        )
+
+proc addHitFlashes(
+  sim: SimServer,
+  spriteDefs: var seq[SpriteDefinition],
+  currentIds: var seq[int],
+  packet: var seq[uint8]
+) {.measure.} =
+  ## Rings every recently-struck player with the expanding white hit flash,
+  ## drawn over the victim's CURRENT position so it tracks them while they
+  ## keep moving. SPECTATOR ONLY, like the tracers: player observations never
+  ## contain it, so bots learn nothing new.
+  for i in 0 ..< min(sim.hitFlashes.len, HitFlashMaxCount):
+    let flash = sim.hitFlashes[i]
+    if flash.playerIndex < 0 or flash.playerIndex >= sim.players.len:
+      continue
+    let
+      victim = sim.players[flash.playerIndex]
+      age = sim.tickCount - flash.tick
+      stage = clamp(age * HitFlashStages div HitFlashTicks, 0, HitFlashStages - 1)
+      spriteId = HitFlashSpriteBase + stage
+    packet.addSpriteChanged(
+      spriteDefs,
+      spriteId,
+      HitFlashSize,
+      HitFlashSize,
+      buildHitFlashSprite(stage),
+      "hit flash stage " & $stage
+    )
+    let objectId = HitFlashObjectBase + i
+    currentIds.add(objectId)
+    packet.addObject(
+      objectId,
+      victim.x + CollisionW div 2 - HitFlashSize div 2,
+      victim.y + CollisionH div 2 - HitFlashSize div 2,
+      30007,
+      MapLayerId,
+      spriteId
+    )
 
 proc buildTracerHeadSprite(colorIndex, stage: int): seq[uint8] {.measure.} =
   ## Builds the bright LEADING paintball at a shot's IMPACT end — the comet's
@@ -4058,6 +4127,7 @@ proc buildSpriteProtocolUpdates*(
   sim.addSplatters(nextState.spriteDefs, currentIds, result)
   sim.addDamagePops(nextState.spriteDefs, currentIds, result)
   sim.addShotTracers(nextState.spriteDefs, currentIds, result)
+  sim.addHitFlashes(nextState.spriteDefs, currentIds, result)
   sim.addRotatingDiamonds(nextState.spriteDefs, currentIds, result)
   sim.addMedKits(nextState.spriteDefs, currentIds, result)
   sim.addShields(nextState.spriteDefs, currentIds, result)

@@ -66,6 +66,8 @@ const
   FireWindupTicks* = 5        ## ~0.2s from trigger pull to the shot; aim locks
                               ## at the pull, so a peeking target can duck back.
   ShotFxTicks* = 12           ## ~0.5s a shot tracer stays visible (cosmetic only).
+  HitFlashTicks* = 8          ## ~0.33s the struck-target flash rings a victim
+                              ## in the spectator view (cosmetic only).
   SplatterFxTicks* = 120      ## ~5s a death splatter stays visible (cosmetic only).
   HitFxTicks* = 34            ## ~1.4s a non-fatal hit's paint splat stays visible.
   DamageFxTicks* = 26         ## ~1.1s a floating "-1" damage pop rises and fades
@@ -373,6 +375,15 @@ type
     hit*: bool                 ## the shot connected with a player: its tracer
                                ## draws full-bright, a miss draws pre-faded.
 
+  HitFlashFx* = object
+    ## A cosmetic "target was struck" flash; never enters gameHash
+    ## (replay-safe). The spectator view draws a brief bright ring over the
+    ## victim (tracked by index, so the flash follows them) the instant a
+    ## bullet connects — making hits legible at a glance where the tracer
+    ## alone is ambiguous.
+    playerIndex*: int          ## the struck player; players are only appended.
+    tick*: int                 ## when the bullet connected.
+
   SplatterFx* = object
     ## A cosmetic death splatter mark; never enters gameHash (replay-safe). A
     ## `hit` mark is the smaller, shorter-lived paint spark left by a non-fatal
@@ -457,6 +468,7 @@ type
     nextJoinOrder*: int
     tickCount*: int
     recentShots*: seq[ShotFx]  ## cosmetic shot tracers; excluded from gameHash.
+    hitFlashes*: seq[HitFlashFx]  ## cosmetic struck-target flashes; excluded from gameHash.
     splatters*: seq[SplatterFx]  ## cosmetic death splatters; excluded from gameHash.
     recentBlasts*: seq[BlastFx]  ## cosmetic grenade blasts; excluded from gameHash.
     damagePops*: seq[DamageFx]  ## cosmetic floating "-N" damage numbers; excluded from gameHash.
@@ -2845,6 +2857,7 @@ proc resetSwords*(sim: var SimServer) =
 proc startGame*(sim: var SimServer) =
   sim.logGameEvent("game started: players=" & $sim.players.len)
   sim.recentShots = @[]
+  sim.hitFlashes = @[]
   sim.splatters = @[]
   sim.damagePops = @[]
   sim.recentShouts = @[]
@@ -3276,6 +3289,12 @@ proc applyFire(sim: var SimServer, shooterIndex, targetIndex: int) =
   )
   if targetIndex >= 0 and sim.players[targetIndex].alive:
     dec sim.players[targetIndex].hp
+    # A spectator-view flash rings the struck target the moment the bullet
+    # connects, so hits read at a glance (cosmetic only, never in gameHash).
+    sim.hitFlashes.add HitFlashFx(
+      playerIndex: targetIndex,
+      tick: sim.tickCount
+    )
     # A floating "-1" rises and fades from the victim so a lost health bar
     # reads at a glance (cosmetic only, never in gameHash).
     sim.damagePops.add DamageFx(
@@ -4225,6 +4244,7 @@ proc resetToLobby*(sim: var SimServer) =
   sim.swordSwipes = @[]
   sim.recentShouts = @[]
   sim.recentShots = @[]
+  sim.hitFlashes = @[]
   sim.splatters = @[]
   sim.damagePops = @[]
   sim.nextJoinOrder = 0
@@ -4364,6 +4384,11 @@ proc step*(
     if sim.tickCount - shot.firedTick < ShotFxTicks:
       kept.add shot
   sim.recentShots = kept
+  var keptFlashes: seq[HitFlashFx] = @[]
+  for flash in sim.hitFlashes:
+    if sim.tickCount - flash.tick < HitFlashTicks:
+      keptFlashes.add flash
+  sim.hitFlashes = keptFlashes
   var keptBlasts: seq[BlastFx] = @[]
   for blast in sim.recentBlasts:
     if sim.tickCount - blast.tick < BlastFxTicks:

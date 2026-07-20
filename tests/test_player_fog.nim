@@ -146,6 +146,7 @@ suite "player fog-of-war protocol":
       x0: cx, y0: cy - 40, x1: cx, y1: cy - 140,
       firedTick: game.tickCount, color: game.players[1].color, hit: true
     )
+    game.hitFlashes.add HitFlashFx(playerIndex: 1, tick: game.tickCount)
 
     var state: PlayerViewerState
     let messages = game.buildPlayerMessages(viewer, state)
@@ -156,11 +157,13 @@ suite "player fog-of-war protocol":
     check "shot impact" in labels
     check not messages.hasObject(19100)  # retired muzzle sound-ring pool.
     check "shot sound" notin labels
-    # ...and never any tracer pixels: those are spectator render only.
+    # ...and never any tracer pixels or struck-target flashes: those are
+    # spectator render only.
     for label in labels:
       check not label.startsWith("shot trail")
       check not label.startsWith("shot head")
       check not label.startsWith("muzzle bloom")
+      check not label.startsWith("hit flash")
 
     # A shot fired and landing well behind the viewer still rings at the
     # landing: sound ignores fov.
@@ -189,3 +192,5 @@ suite "player fog-of-war protocol":
       it.endsWith("stage 2"))          # the miss: pre-faded.
     check "muzzle bloom stage 0" in globalLabels
     check "muzzle bloom stage 2" in globalLabels
+    # ...and rings the struck target with the fresh hit flash.
+    check "hit flash stage 0" in globalLabels
