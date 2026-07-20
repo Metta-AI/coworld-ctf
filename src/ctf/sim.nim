@@ -7,7 +7,7 @@ import
 
 const
   GameName* = "ctf"
-  GameVersion* = "8"
+  GameVersion* = "9"
   ReplayFps* = 24
   DefaultMapPath* = "arena"
   DarkBgPath* = "data/darkbg.aseprite"
@@ -17,22 +17,27 @@ const
   SpriteSize* = 12
   CrewSpriteSize* = 16
   CrewSpriteVariants* = 8
-  ## HD top-down soldier: one hand-painted per-team master (soldier_red/blue.png)
-  ## rendered gun-east, pre-rotated into SoldierRotations aim steps so the held
-  ## paintball marker sweeps with the aim. The body (helmet) is sized to the
-  ## legacy 16px crew footprint; the canvas is larger only so the extended gun
-  ## never clips as it swings around. Emitted through the existing player sprite
-  ## id pool (16 ids per color) — this replaces the flat 8-variant + h-flip crew.
-  SoldierRotations* = 16      ## pre-rotated aim steps (16 brads apart).
-  SoldierCanvas* = 40         ## px square sprite canvas (fits the swinging gun).
-  SoldierBodyPx* = 16         ## helmet diameter target = legacy crew footprint.
+  ## HD top-down soldier: the real Cogs-vs-Clips cog, one tinted master per team
+  ## (soldier_red/blue.png, facing SOUTH, smile visor visible) plus the shared
+  ## paintball gun master (paintgun.png, muzzle east). Body and gun are mounted
+  ## as ONE rigid unit — the gun held in FRONT of the face, both pointing the
+  ## same way — and pre-rotated together through SoldierRotations aim steps:
+  ## the cog looks where it aims. The canvas is larger than the body only so
+  ## the extended gun never clips as the unit rotates. Emitted through the
+  ## existing player sprite id pool (16 ids per color) — this replaces the
+  ## flat 8-variant + h-flip crew.
+  SoldierRotations* = 16      ## pre-rendered aim steps (16 brads apart).
+  SoldierCanvas* = 72         ## px square sprite canvas (fits the swinging gun).
+  SoldierBodyPx* = 34         ## cog body target size on the map (full-body unit).
+  GunLengthPx* = 26           ## gun master length on the map, grip to muzzle.
+  GunGripPx* = 8              ## gun grip offset from the body center, along aim.
   CollisionW* = 1
   CollisionH* = 1
   PlayerHalf* = 6             ## half-extent of the solid player footprint, in px.
   SpriteDrawOffX* = 8
   SpriteDrawOffY* = 8
-  ## Draw offset for the rotated soldier: place the canvas so its center lands on
-  ## the player position (canvas center = the helmet pivot).
+  ## Draw offset for the soldier: place the canvas so its center lands on
+  ## the player position (canvas center = the body pivot).
   SoldierDrawOff* = SoldierCanvas div 2
   MotionScale* = 256
   Accel* = 76
@@ -623,59 +628,52 @@ proc loadPaintBombSprite*(size: int): seq[uint8] =
   ## pickup, the carried icon, and the in-flight projectile.
   loadRgbaSprite("data/paintbomb.png", size)
 
-## --- HD top-down soldier: pre-rotated per-team masters ---
-## Each team's master (gun pointing east = aim brads 0) is measured for its
-## helmet pivot, scaled so the helmet fills SoldierBodyPx, and pre-rotated into
-## SoldierRotations canvases. Rotations pivot on the helmet center so the body
-## spins in place and the gun sweeps — the same method David uses for HD crew,
-## but rasterized at map scale and emitted on our existing sprite ids.
+## --- HD top-down soldier: CvC cog + gun, rotated as one rigid unit ---
+## Each team's master (soldier_red/blue.png) is the canonical Cogs-vs-Clips cog
+## facing SOUTH, smile visor visible, used exactly as drawn. It is measured for
+## its body pivot (solid-pixel centroid) and scaled so the body fills
+## SoldierBodyPx. The shared gun master (paintgun.png: muzzle east, barrel
+## centerline at image mid-height) mounts GunGripPx east of the body center
+## with its barrel on the aim ray, and body + gun pre-rotate TOGETHER around
+## the body center — the cog spins with its gun, so east aim (rot 0) shows the
+## master exactly as drawn and tracers always line up with the muzzle.
 var
   soldierMasters: array[Team, Image]
   soldierPivotX, soldierPivotY: array[Team, float]
   soldierScale: array[Team, float]
   soldierLoaded: array[Team, bool]
   soldierRotCache: array[Team, array[SoldierRotations, seq[uint8]]]
+  gunMaster: Image
+  gunScale: float
+  gunLoaded: bool
 
 proc soldierMasterPath(team: Team): string =
   if team == Red: "data/soldier_red.png" else: "data/soldier_blue.png"
 
 proc measureSoldierBody(team: Team, master: Image) =
-  ## Finds the helmet pivot and the master->canvas scale. The paintball marker
-  ## is a long appendage to the east, so the body (helmet + shoulders) lives in
-  ## the left ~50% of the opaque bounding box; we pivot on that region's
-  ## centroid and size its vertical span to SoldierBodyPx.
-  var
-    minX = master.width
-    maxX = -1
-    minY = master.height
-    maxY = -1
-  for y in 0 ..< master.height:
-    for x in 0 ..< master.width:
-      if master.data[y * master.width + x].a >= 64:
-        minX = min(minX, x); maxX = max(maxX, x)
-        minY = min(minY, y); maxY = max(maxY, y)
-  if maxX < minX:
-    minX = 0; maxX = master.width - 1; minY = 0; maxY = master.height - 1
-  let limX = minX + (maxX - minX + 1) div 2   ## helmet band = left half.
+  ## Finds the body pivot and the master->canvas scale: the centroid and
+  ## vertical span of the SOLID pixels (alpha >= 200 — the cog shell; the
+  ## baked-in soft drop shadow sits below that and is excluded, so the cog
+  ## itself, not its shadow, is what centers and fills SoldierBodyPx).
   var
     sumX = 0.0
     sumY = 0.0
     n = 0
-    hTop = master.height
-    hBot = -1
+    top = master.height
+    bot = -1
   for y in 0 ..< master.height:
-    for x in minX ..< limX:
-      if master.data[y * master.width + x].a >= 64:
+    for x in 0 ..< master.width:
+      if master.data[y * master.width + x].a >= 200:
         sumX += float(x); sumY += float(y); inc n
-        hTop = min(hTop, y); hBot = max(hBot, y)
+        top = min(top, y); bot = max(bot, y)
   if n == 0:
-    soldierPivotX[team] = float(minX + maxX) / 2
-    soldierPivotY[team] = float(minY + maxY) / 2
-    soldierScale[team] = float(SoldierBodyPx) / max(1.0, float(maxY - minY + 1))
+    soldierPivotX[team] = float(master.width) / 2
+    soldierPivotY[team] = float(master.height) / 2
+    soldierScale[team] = float(SoldierBodyPx) / max(1.0, float(master.height))
   else:
     soldierPivotX[team] = sumX / float(n)
     soldierPivotY[team] = sumY / float(n)
-    soldierScale[team] = float(SoldierBodyPx) / max(1.0, float(hBot - hTop + 1))
+    soldierScale[team] = float(SoldierBodyPx) / max(1.0, float(bot - top + 1))
 
 proc ensureSoldierLoaded(team: Team) =
   if soldierLoaded[team]:
@@ -685,12 +683,23 @@ proc ensureSoldierLoaded(team: Team) =
   measureSoldierBody(team, master)
   soldierLoaded[team] = true
 
+proc ensureGunLoaded() =
+  if gunLoaded:
+    return
+  gunMaster = readImage(gameDir() / "data/paintgun.png")
+  gunScale = float(GunLengthPx) / max(1.0, float(gunMaster.width))
+  gunLoaded = true
+
 proc soldierRotPixels*(team: Team, rot: int): seq[uint8] =
-  ## One pre-rotated soldier sprite (SoldierCanvas square, straight-alpha RGBA).
+  ## One pre-rendered soldier sprite (SoldierCanvas square, straight-alpha
+  ## RGBA): body + gun as one rigid unit, rotated to aim step `rot`. The
+  ## master's FACE side (south) leads the aim with the gun held in front of
+  ## it — aiming south shows the master exactly as drawn.
   let r = ((rot mod SoldierRotations) + SoldierRotations) mod SoldierRotations
   if soldierRotCache[team][r].len > 0:
     return soldierRotCache[team][r]
   ensureSoldierLoaded(team)
+  ensureGunLoaded()
   let
     master = soldierMasters[team]
     # aim increases counter-clockwise on screen (0=east, 64=north); screen y is
@@ -698,13 +707,31 @@ proc soldierRotPixels*(team: Team, rot: int): seq[uint8] =
     # i.e. draw at angle -theta to match aimVector.
     angle = float(r) * 2.0 * PI / float(SoldierRotations)
     s = soldierScale[team]
+    center = float32(SoldierCanvas) / 2
   var canvas = newImage(SoldierCanvas, SoldierCanvas)
-  let mat =
-    translate(vec2(float32(SoldierCanvas) / 2, float32(SoldierCanvas) / 2)) *
-    rotate(float32(-angle)) *
-    scale(vec2(float32(s), float32(s))) *
-    translate(vec2(float32(-soldierPivotX[team]), float32(-soldierPivotY[team])))
-  canvas.draw(master, mat)
+  let
+    unitRot =
+      translate(vec2(center, center)) *
+      rotate(float32(-angle))
+    # Unit space: +x = aim. The extra -90° turns the master so its SOUTH side
+    # (the smile visor) points along +x — the face leads the aim, right behind
+    # the gun.
+    bodyMat =
+      unitRot *
+      rotate(float32(-PI / 2)) *
+      scale(vec2(float32(s), float32(s))) *
+      translate(
+        vec2(float32(-soldierPivotX[team]), float32(-soldierPivotY[team]))
+      )
+    # Gun-local (0, height/2) — the grip end of the barrel centerline — mounts
+    # GunGripPx east of the body center and spins with the unit.
+    gunMat =
+      unitRot *
+      translate(vec2(float32(GunGripPx), 0)) *
+      scale(vec2(float32(gunScale), float32(gunScale))) *
+      translate(vec2(0, float32(-gunMaster.height) / 2))
+  canvas.draw(master, bodyMat)
+  canvas.draw(gunMaster, gunMat)
   # Straight-alpha RGBA for the Sprite v1 protocol (pixie stores premultiplied).
   var pixels = newSeq[uint8](SoldierCanvas * SoldierCanvas * 4)
   for i in 0 ..< SoldierCanvas * SoldierCanvas:
@@ -722,9 +749,8 @@ proc soldierRotIndex*(aimBrads: int): int =
     SoldierRotations div AimBradsTurn) mod SoldierRotations
 
 proc soldierIconPixels*(team: Team, sizePx: int): seq[uint8] =
-  ## A compact roster chip: the east-facing soldier scaled so the helmet body
-  ## fills the icon (a stub of gun barrel clips at the right edge — reads as
-  ## "armed" without the full sweep-canvas footprint). Used by the game-over list.
+  ## A compact roster chip: the face-on cog scaled so the body fills the icon
+  ## (no gun — the smile visor IS the identity). Used by the game-over list.
   ensureSoldierLoaded(team)
   let
     master = soldierMasters[team]
