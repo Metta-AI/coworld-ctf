@@ -144,6 +144,12 @@ const
   ShieldCarrySize = 12           ## px footprint of the carried shield marker.
   ShieldObjectBase = 19602       ## endzone shields: 19602..19603.
   ShieldCarryObjectBase = 19620  ## carried shield markers: one per player.
+  ShieldBubbleSpriteId = 1422    ## the protective bubble drawn around a carrier.
+  ShieldBubbleSize = 44          ## px bubble diameter (34px soldier body + margin).
+  ShieldBubbleObjectBase = 19680 ## carrier bubbles: one per player, 19680..19695
+                                 ## (clear of sword swipes at 19700).
+  ShieldBubbleMinHp = 4          ## bubble pops once a carrier drops below this hp
+                                 ## (i.e. once the shield's bonus hp is spent).
   SwordPickupSpriteId = 2000
   SwordCarrySpriteId = 2001
   SwordSwipeSpriteBase = 2002
@@ -192,6 +198,8 @@ const
   ## shooter, plus a small muzzle flash marking who fired. The eye locks onto
   ## the head and reads the shot's direction from the fade — never a fat tube.
   TracerStages = 4             ## age fade stages (protocol has no per-object alpha).
+  MissStagePenalty = 2         ## a missed shot's comet draws this many fade
+                               ## stages older: hits stay bright, misses fade.
   TrailBuckets = 6             ## along-beam opacity steps baked into the trail dots.
   TrailFalloff = 1.6           ## trail brightness = t^this (t: 0 muzzle → 1 impact).
   TrailMinAlpha = 0.06         ## drop trail dots fainter than this (trims the tail).
@@ -205,6 +213,11 @@ const
   TracerMaxDots = TracerMaxShots * TracerDotsPerShot  ## 6992 ids: 24000..30991.
   MuzzleBloomSpriteBase = 1290 ## per-fade-stage muzzle flash sprites: 1290..1293.
   MuzzleBloomObjectBase = 16800  ## one flash per drawn shot: 16800..16815.
+  HitFlashSpriteBase = 1294    ## per-stage struck-target rings: 1294..1297.
+  HitFlashStages = 4           ## expanding/fading ring steps over HitFlashTicks.
+  HitFlashSize = 34            ## px canvas: rings the 16px soldier body.
+  HitFlashObjectBase = 16840   ## struck-target ring pool: 16840..16855.
+  HitFlashMaxCount = 16        ## most flash rings drawn at once.
   MuzzleBloomSize = 7          ## a small colorless flash marking the shooter.
   TracerHeadSpriteBase = 1300  ## per color-and-fade-stage leading heads: 1300..1363.
   TracerHeadObjectBase = 16820  ## one leading head per drawn shot: 16820..16835.
@@ -896,6 +909,38 @@ proc buildThrowTargetSprite(): seq[uint8] {.measure.} =
       if d <= c and d >= c - 2.0:                 # a 2px hollow rim
         result.putRawRgbaPixel(y * ThrowTargetSize + x, 255, 190, 70, 210)
 
+proc buildShieldBubbleSprite(): seq[uint8] {.measure.} =
+  ## The shield carrier's protective bubble: a pale-cyan soap-bubble ring drawn
+  ## AROUND the whole soldier — hollow with only a faint interior sheen, so the
+  ## carrier stays fully visible inside it — plus a small specular glint on the
+  ## upper-left rim so it reads as a bubble, not a range ring. Colorless-cool so
+  ## it never leaks the carrier's team.
+  result = newRgbaPixels(ShieldBubbleSize, ShieldBubbleSize)
+  let
+    c = float(ShieldBubbleSize - 1) / 2
+    rim = c - 1.0
+    glintX = -0.7071 * rim
+    glintY = -0.7071 * rim
+  for y in 0 ..< ShieldBubbleSize:
+    for x in 0 ..< ShieldBubbleSize:
+      let
+        dx = float(x) - c
+        dy = float(y) - c
+        d = sqrt(dx * dx + dy * dy)
+      if d > rim + 1.6:
+        continue
+      # Anti-aliased hollow rim over a barely-there interior sheen.
+      var alpha = 175.0 * max(0.0, 1.0 - abs(d - rim) / 1.6)
+      if d < rim:
+        alpha = max(alpha, 20.0)
+      # Specular glint where the upper-left rim catches the light.
+      let glintD = sqrt((dx - glintX) * (dx - glintX) +
+        (dy - glintY) * (dy - glintY))
+      alpha = min(235.0, alpha + 120.0 * max(0.0, 1.0 - glintD / 4.5))
+      result.putRawRgbaPixel(
+        y * ShieldBubbleSize + x, 175, 222, 255, uint8(alpha)
+      )
+
 proc buildSwordIcon(size: int): seq[uint8] {.measure.} =
   ## Builds a small, readable sword icon for pickups and carried markers.
   result = newRgbaPixels(size, size)
@@ -1104,6 +1149,70 @@ proc buildMuzzleBloomSprite(stage: int): seq[uint8] {.measure.} =
         y * MuzzleBloomSize + x,
         uint8(rr), uint8(clamp(gg, 0, 255)), uint8(clamp(bb, 0, 255)), alpha
       )
+
+proc buildHitFlashSprite(stage: int): seq[uint8] {.measure.} =
+  ## Builds one stage of the struck-target flash: a hot white ring that
+  ## expands outward and fades over the flash's short life, ringing the
+  ## victim's body so a connected shot reads instantly in the spectator
+  ## view. Colorless so it never recolors either team.
+  result = newRgbaPixels(HitFlashSize, HitFlashSize)
+  let
+    c = float(HitFlashSize - 1) / 2
+    t = stage.float / float(max(1, HitFlashStages - 1))  ## 0 fresh → 1 dying.
+    radius = 10.0 + 6.0 * t                              ## expands outward.
+    thickness = 2.6 - 1.0 * t                            ## thins as it dies.
+    alphaTop = 235.0 * (1.0 - 0.75 * t)                  ## fades out.
+  for y in 0 ..< HitFlashSize:
+    for x in 0 ..< HitFlashSize:
+      let
+        dx = float(x) - c
+        dy = float(y) - c
+        dist = sqrt(dx * dx + dy * dy)
+        edge = clamp(thickness - abs(dist - radius), 0.0, 1.0)
+      if edge > 0:
+        result.putRawRgbaPixel(
+          y * HitFlashSize + x,
+          255, 255, 255,
+          uint8(clamp(int(alphaTop * edge), 0, 255))
+        )
+
+proc addHitFlashes(
+  sim: SimServer,
+  spriteDefs: var seq[SpriteDefinition],
+  currentIds: var seq[int],
+  packet: var seq[uint8]
+) {.measure.} =
+  ## Rings every recently-struck player with the expanding white hit flash,
+  ## drawn over the victim's CURRENT position so it tracks them while they
+  ## keep moving. SPECTATOR ONLY, like the tracers: player observations never
+  ## contain it, so bots learn nothing new.
+  for i in 0 ..< min(sim.hitFlashes.len, HitFlashMaxCount):
+    let flash = sim.hitFlashes[i]
+    if flash.playerIndex < 0 or flash.playerIndex >= sim.players.len:
+      continue
+    let
+      victim = sim.players[flash.playerIndex]
+      age = sim.tickCount - flash.tick
+      stage = clamp(age * HitFlashStages div HitFlashTicks, 0, HitFlashStages - 1)
+      spriteId = HitFlashSpriteBase + stage
+    packet.addSpriteChanged(
+      spriteDefs,
+      spriteId,
+      HitFlashSize,
+      HitFlashSize,
+      buildHitFlashSprite(stage),
+      "hit flash stage " & $stage
+    )
+    let objectId = HitFlashObjectBase + i
+    currentIds.add(objectId)
+    packet.addObject(
+      objectId,
+      victim.x + CollisionW div 2 - HitFlashSize div 2,
+      victim.y + CollisionH div 2 - HitFlashSize div 2,
+      30007,
+      MapLayerId,
+      spriteId
+    )
 
 proc buildTracerHeadSprite(colorIndex, stage: int): seq[uint8] {.measure.} =
   ## Builds the bright LEADING paintball at a shot's IMPACT end — the comet's
@@ -2553,7 +2662,10 @@ proc addShotTracers(
   ## colorless muzzle flash at the origin (who fired), a thin team-color trail
   ## that fades back toward the shooter, and a bright leading paintball at the
   ## impact end (the eye-anchor pointing at the target). The along-beam fade is
-  ## baked per trail dot via its bucket. SPECTATOR ONLY: only the map/broadcast
+  ## baked per trail dot via its bucket. A shot that HIT draws full-bright; a
+  ## MISS draws pre-aged (its age stage advanced by MissStagePenalty) so the
+  ## whole comet — flash, trail, and head — reads faded and the eye is drawn
+  ## to the shots that connected. SPECTATOR ONLY: only the map/broadcast
   ## view draws tracers; player observations never contain them — a player
   ## learns of a shot solely through its jittered landing ring
   ## (addShotImpactRings).
@@ -2565,7 +2677,12 @@ proc addShotTracers(
     let
       colorIndex = playerColorIndex(shot.color)
       age = sim.tickCount - shot.firedTick
-      stage = clamp(age * TracerStages div ShotFxTicks, 0, TracerStages - 1)
+      ageStage = clamp(age * TracerStages div ShotFxTicks, 0, TracerStages - 1)
+      # A miss starts life half-faded: reuse the age-fade sprites by drawing
+      # the whole comet as if it were already MissStagePenalty stages old.
+      stage =
+        if shot.hit: ageStage
+        else: clamp(ageStage + MissStagePenalty, 0, TracerStages - 1)
       dx = shot.x1 - shot.x0
       dy = shot.y1 - shot.y0
       length = max(abs(dx), abs(dy))
@@ -2884,8 +3001,10 @@ proc addShields(
 ) {.measure.} =
   ## Places the two endzone shield pickups (fog-gated by map position like the
   ## med kits) plus a small "shield carried" marker over anyone holding one
-  ## (gated on seeing that player). The map/replay view passes no viewer and
-  ## shows all. Sprites are defined lazily on first need per connection.
+  ## (gated on seeing that player), plus a protective bubble drawn around a
+  ## carrier while the shield's bonus hp holds (it pops below ShieldBubbleMinHp).
+  ## The map/replay view passes no viewer and shows all. Sprites are defined
+  ## lazily on first need per connection.
   for i in 0 ..< sim.shieldSpawns.len:
     let spawn = sim.shieldSpawns[i]
     if not spawn.present:
@@ -2929,6 +3048,21 @@ proc addShields(
       player.overheadAnchorY() - OverheadYOffset - ShieldCarrySize,
       30006, MapLayerId, ShieldCarrySpriteId
     )
+    if player.hp >= ShieldBubbleMinHp:
+      if spriteDefs.spriteDefinitionIndex(ShieldBubbleSpriteId) < 0:
+        packet.addSpriteChanged(
+          spriteDefs, ShieldBubbleSpriteId,
+          ShieldBubbleSize, ShieldBubbleSize,
+          buildShieldBubbleSprite(), "shield bubble"
+        )
+      let bubbleId = ShieldBubbleObjectBase + i
+      currentIds.add(bubbleId)
+      packet.addObject(
+        bubbleId,
+        player.x + CollisionW div 2 - ShieldBubbleSize div 2,
+        player.y + CollisionH div 2 - ShieldBubbleSize div 2,
+        30000, MapLayerId, ShieldBubbleSpriteId
+      )
 
 proc addGrenades(
   sim: SimServer,
@@ -4048,6 +4182,7 @@ proc buildSpriteProtocolUpdates*(
   sim.addSplatters(nextState.spriteDefs, currentIds, result)
   sim.addDamagePops(nextState.spriteDefs, currentIds, result)
   sim.addShotTracers(nextState.spriteDefs, currentIds, result)
+  sim.addHitFlashes(nextState.spriteDefs, currentIds, result)
   sim.addRotatingDiamonds(nextState.spriteDefs, currentIds, result)
   sim.addMedKits(nextState.spriteDefs, currentIds, result)
   sim.addShields(nextState.spriteDefs, currentIds, result)
