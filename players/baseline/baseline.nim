@@ -146,6 +146,12 @@ const
   NadeBlast = 40.0            # blast radius; a pair this close dies together
   NadeFullChargeTicks = 24    # ~1s of holding C reaches max range
   NadePickupDetour = 90.0     # grab a corner pickup within this detour range
+  # micro-005 mechanism (3): grenade the repeated-duck corner (-d:nadeCorner).
+  NadeCornerMinDucks = 2      # only lob after the enemy ducks the SAME corner
+                              # this many times (a camping pattern, not a pass)
+  NadeCornerSlack = 70.0      # duck edges within this distance are one corner
+  NadeCornerTtl = 120         # ~5s: forget a corner with no re-duck (the camper
+                              # left — do not lob at an empty wall)
   MedKitDetour = 80.0         # heal-detour budget when merely wounded
   MedKitCriticalReach = 180.0 # at 1 hp a heal outranks the current errand
   MedKitRespawn = 30 * 24     # a taken kit refills after 30s (sim constant)
@@ -288,6 +294,15 @@ type
     helpUntil: int            # tick the help retasking expires
     lastEShout: int           # scout sighting-broadcast rate limit
     lastHShout: int           # help-call rate limit
+    when defined(nadeCorner):
+      # micro-005 (3): repeated-duck corner tracker. A camper peeks then ducks
+      # the same corner; each visible->blocked edge is a duck. Remember the
+      # corner and count repeats so we lob at it AFTER the fresh-track window.
+      duckCorner: Vec         # the registered repeated-duck corner (behind wall)
+      duckCorTick: int        # tick of the most recent duck at that corner
+      duckCount: int          # consecutive ducks at the same corner
+      duckWasClear: bool      # edge detector: had a clear fresh target last tick
+      nadeCornerCount: int    # instrumentation: corner lobs this game
 
 proc roleForSeat(seat: int, team: Team): Role =
   ## Deterministic role spread over the 8 per-team seats. Seats 2 and 3 both
@@ -1028,6 +1043,10 @@ proc resetTransient(bot: Bot) =
   bot.enemies.setLen(0)
   bot.mates.setLen(0)
   bot.nadeCharge = 0
+  when defined(nadeCorner):
+    bot.duckCount = 0
+    bot.duckCorTick = 0
+    bot.duckWasClear = false
   bot.mateFixTick = 0
   bot.hp = MaxHp
   for i in 0 ..< bot.kitAbsentAt.len:
@@ -1886,6 +1905,25 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       nearThreatD = d
       nearThreat = i
 
+  when defined(nadeCorner):
+    # micro-005 (3) repeated-duck tracker: while we have a clear line to a
+    # fresh enemy, remember where it is. When that enemy vanishes behind cover
+    # (clear -> blocked) it just DUCKED — register the corner and count repeats
+    # at the same spot. A camper re-ducking the same corner is the target the
+    # hitscan gun cannot reach but the over-wall lob can.
+    let ncClear = engage >= 0
+    if not ncClear and bot.duckWasClear and haveBlocked:
+      if bot.duckCount > 0 and bot.tick - bot.duckCorTick <= NadeCornerTtl and
+          dist(blockedAim, bot.duckCorner) <= NadeCornerSlack:
+        inc bot.duckCount            # same corner again: a camping pattern
+      else:
+        bot.duckCount = 1            # new corner: start the count
+      bot.duckCorner = blockedAim
+      bot.duckCorTick = bot.tick
+    bot.duckWasClear = ncClear
+    if bot.duckCount > 0 and bot.tick - bot.duckCorTick > NadeCornerTtl:
+      bot.duckCount = 0              # stale: the camper left the corner
+
   # Grenades (0.7.0): a lobbed 2-hp blast that flies over every wall — the
   # counter to cover-campers the hitscan gun can never reach. Carry one when a
   # corner pickup is a short detour away; spend it on a wall-blocked fresh
@@ -1921,6 +1959,24 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         bestD = d
         nadeAim = bradsOf(p - me)
         nadeThrowD = d
+
+  when defined(nadeCorner):
+    # micro-005 (3): if the base loop found no fresh nade target but a camper
+    # has ducked the same corner 2+ times and is still there (recent, wall-
+    # blocked, in range), lob at that corner. This STRICTLY EXTENDS the base
+    # lob past the fresh-track window to punish the persistent duck itself.
+    if carryingNade and not iCarry and nadeAim < 0 and
+        bot.duckCount >= NadeCornerMinDucks and
+        bot.tick - bot.duckCorTick <= NadeCornerTtl:
+      let d = dist(bot.duckCorner, me)
+      if d >= NadeMinRange and d <= NadeMaxRange and
+          not client.pixelRayClear(me, bot.duckCorner):
+        nadeAim = bradsOf(bot.duckCorner - me)
+        nadeThrowD = d
+        inc bot.nadeCornerCount
+        when defined(nadeCornerDebug):
+          echo "NADECORNER slot ", bot.slot, " tick ", bot.tick,
+            " ducks ", bot.duckCount, " n ", bot.nadeCornerCount
 
   # Weapon pickups. SHIELD-THEN-STEAL: the enemy endzone shield sits just
   # behind their pedestal — a rusher near the pocket grabs 6 hp first and
