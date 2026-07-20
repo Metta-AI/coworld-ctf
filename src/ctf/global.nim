@@ -144,6 +144,12 @@ const
   ShieldCarrySize = 12           ## px footprint of the carried shield marker.
   ShieldObjectBase = 19602       ## endzone shields: 19602..19603.
   ShieldCarryObjectBase = 19620  ## carried shield markers: one per player.
+  ShieldBubbleSpriteId = 1422    ## the protective bubble drawn around a carrier.
+  ShieldBubbleSize = 44          ## px bubble diameter (34px soldier body + margin).
+  ShieldBubbleObjectBase = 19680 ## carrier bubbles: one per player, 19680..19695
+                                 ## (clear of sword swipes at 19700).
+  ShieldBubbleMinHp = 4          ## bubble pops once a carrier drops below this hp
+                                 ## (i.e. once the shield's bonus hp is spent).
   SwordPickupSpriteId = 2000
   SwordCarrySpriteId = 2001
   SwordSwipeSpriteBase = 2002
@@ -902,6 +908,38 @@ proc buildThrowTargetSprite(): seq[uint8] {.measure.} =
         (float(y) - c) * (float(y) - c))
       if d <= c and d >= c - 2.0:                 # a 2px hollow rim
         result.putRawRgbaPixel(y * ThrowTargetSize + x, 255, 190, 70, 210)
+
+proc buildShieldBubbleSprite(): seq[uint8] {.measure.} =
+  ## The shield carrier's protective bubble: a pale-cyan soap-bubble ring drawn
+  ## AROUND the whole soldier — hollow with only a faint interior sheen, so the
+  ## carrier stays fully visible inside it — plus a small specular glint on the
+  ## upper-left rim so it reads as a bubble, not a range ring. Colorless-cool so
+  ## it never leaks the carrier's team.
+  result = newRgbaPixels(ShieldBubbleSize, ShieldBubbleSize)
+  let
+    c = float(ShieldBubbleSize - 1) / 2
+    rim = c - 1.0
+    glintX = -0.7071 * rim
+    glintY = -0.7071 * rim
+  for y in 0 ..< ShieldBubbleSize:
+    for x in 0 ..< ShieldBubbleSize:
+      let
+        dx = float(x) - c
+        dy = float(y) - c
+        d = sqrt(dx * dx + dy * dy)
+      if d > rim + 1.6:
+        continue
+      # Anti-aliased hollow rim over a barely-there interior sheen.
+      var alpha = 175.0 * max(0.0, 1.0 - abs(d - rim) / 1.6)
+      if d < rim:
+        alpha = max(alpha, 20.0)
+      # Specular glint where the upper-left rim catches the light.
+      let glintD = sqrt((dx - glintX) * (dx - glintX) +
+        (dy - glintY) * (dy - glintY))
+      alpha = min(235.0, alpha + 120.0 * max(0.0, 1.0 - glintD / 4.5))
+      result.putRawRgbaPixel(
+        y * ShieldBubbleSize + x, 175, 222, 255, uint8(alpha)
+      )
 
 proc buildSwordIcon(size: int): seq[uint8] {.measure.} =
   ## Builds a small, readable sword icon for pickups and carried markers.
@@ -2963,8 +3001,10 @@ proc addShields(
 ) {.measure.} =
   ## Places the two endzone shield pickups (fog-gated by map position like the
   ## med kits) plus a small "shield carried" marker over anyone holding one
-  ## (gated on seeing that player). The map/replay view passes no viewer and
-  ## shows all. Sprites are defined lazily on first need per connection.
+  ## (gated on seeing that player), plus a protective bubble drawn around a
+  ## carrier while the shield's bonus hp holds (it pops below ShieldBubbleMinHp).
+  ## The map/replay view passes no viewer and shows all. Sprites are defined
+  ## lazily on first need per connection.
   for i in 0 ..< sim.shieldSpawns.len:
     let spawn = sim.shieldSpawns[i]
     if not spawn.present:
@@ -3008,6 +3048,21 @@ proc addShields(
       player.overheadAnchorY() - OverheadYOffset - ShieldCarrySize,
       30006, MapLayerId, ShieldCarrySpriteId
     )
+    if player.hp >= ShieldBubbleMinHp:
+      if spriteDefs.spriteDefinitionIndex(ShieldBubbleSpriteId) < 0:
+        packet.addSpriteChanged(
+          spriteDefs, ShieldBubbleSpriteId,
+          ShieldBubbleSize, ShieldBubbleSize,
+          buildShieldBubbleSprite(), "shield bubble"
+        )
+      let bubbleId = ShieldBubbleObjectBase + i
+      currentIds.add(bubbleId)
+      packet.addObject(
+        bubbleId,
+        player.x + CollisionW div 2 - ShieldBubbleSize div 2,
+        player.y + CollisionH div 2 - ShieldBubbleSize div 2,
+        30000, MapLayerId, ShieldBubbleSpriteId
+      )
 
 proc addGrenades(
   sim: SimServer,

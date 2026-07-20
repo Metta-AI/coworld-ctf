@@ -169,7 +169,7 @@
           "type": "integer",
           "minimum": 0,
           "maximum": 180,
-          "default": 45
+          "default": 60
         },
         "visionBubble": {
           "description": "Omnidirectional vision radius in pixels around each player, seen regardless of aim.",
@@ -469,7 +469,7 @@
         "fireCooldownTicks": 12,
         "carrierSpeedPct": 70,
         "aimTurnRate": 5,
-        "visionConeDeg": 45,
+        "visionConeDeg": 60,
         "visionBubble": 90,
         "startWaitTicks": 120,
         "gameOverTicks": 360,

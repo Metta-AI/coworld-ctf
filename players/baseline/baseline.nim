@@ -4,7 +4,7 @@
 ## Speaks the Bitworld Sprite v1 protocol over a websocket. The observation is
 ## the FULL map in map coordinates, but entities are fogged: an enemy (and an
 ## enemy carrying our flag) is only streamed while it sits inside OUR vision —
-## a forward cone (half-angle ~45 degrees around our AIM ANGLE, unlimited
+## a forward cone (half-angle ~60 degrees around our AIM ANGLE, unlimited
 ## range, walls block) plus a small omnidirectional bubble (~90px). Always
 ## visible: the static map, BOTH flag pedestals (teammates are fogged too),
 ## our own flag's state (an empty own pedestal means it is stolen), and

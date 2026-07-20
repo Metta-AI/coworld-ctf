@@ -65,7 +65,7 @@ Every player observes the **full map** — the terrain is static knowledge and i
 always drawn — but moving entities are fogged:
 
 - Your **vision** is a **forward cone** of half-angle `visionConeDeg` (default
-  ±45°) around your **aim angle**, with **unlimited range**, plus a small
+  ±60°) around your **aim angle**, with **unlimited range**, plus a small
   **omnidirectional bubble** of `visionBubble` (default ~90px) around you.
 - **Walls block vision** — the same walls that block bullets. A long open lane is
   visible (and lethal) end to end; anything behind cover is not.
@@ -294,7 +294,7 @@ These are starting values, exposed in the game config and tuned in self-play.
 | Fire cooldown | ~0.5s | Minimum time between shots |
 | Carrier speed | ~70% | Movement penalty while holding the heart |
 | Aim turn rate (`aimTurnRate`) | 5 brads/tick | Rotation speed while B/Select is held (~7°/tick; full turn ~2.1s) |
-| Vision cone (`visionConeDeg`) | ±45° | Fog-of-war forward vision half-angle; unlimited range, walls block |
+| Vision cone (`visionConeDeg`) | ±60° | Fog-of-war forward vision half-angle; unlimited range, walls block |
 | Vision bubble (`visionBubble`) | 90px | Omnidirectional close-range vision regardless of aim |
 | Sword range (`SwordRange`) | 26px | Forward melee reach |
 | Sword arc (`SwordArcBrads`) | ±32 brads (±45°) | Forward swipe half-angle |
