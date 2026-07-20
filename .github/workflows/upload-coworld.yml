@@ -62,7 +62,9 @@ jobs:
             --output /tmp/coworld_manifest.resolved.json
           uvx --from "coworld[auth]" coworld upload-coworld \
             /tmp/coworld_manifest.resolved.json \
-            --timeout-seconds 900
+            --timeout-seconds 900 \
+            --wait-hosted-smoke \
+            --hosted-smoke-timeout-seconds 1800
       - name: Verify upload
         run: |
           set -euo pipefail
@@ -75,5 +77,10 @@ jobs:
           if not match:
               raise SystemExit(f"uploaded version {expected} not found on server")
           entry = match[0]
-          print(entry["id"], entry["name"], entry["version"], "canonical" if entry.get("canonical") else "not-canonical")
+          if not entry.get("canonical"):
+              raise SystemExit(
+                  f"ctf:{expected} uploaded but is not canonical; "
+                  "the league will not advance. Hosted smoke certification likely did not pass."
+              )
+          print(entry["id"], entry["name"], entry["version"], "canonical")
           EOF
