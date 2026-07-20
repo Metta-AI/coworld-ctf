@@ -7,7 +7,7 @@ import
 
 const
   GameName* = "ctf"
-  GameVersion* = "12"
+  GameVersion* = "13"
   ReplayFps* = 24
   DefaultMapPath* = "arena"
   DarkBgPath* = "data/darkbg.aseprite"
@@ -246,7 +246,10 @@ type
   ArenaShape* = object
     ## One arena obstacle. Discs and diamonds are center + radius (L2 and L1
     ## norms); diagonals are a 45-degree wall segment of given perpendicular
-    ## thickness between two endpoints.
+    ## thickness between two endpoints. A `window` shape is glass: it blocks
+    ## movement, bullets, and sword line-of-sight exactly like stone, but
+    ## fog-of-war shadowcasting sees straight through it.
+    window*: bool
     case kind*: ArenaShapeKind
     of shapeRect:
       rect*: MapRect
@@ -863,13 +866,14 @@ const
     ArenaShape(kind: shapeDiamond, cx: 349, cy: 376, radius: 28),
     ArenaShape(kind: shapeDiamond, cx: 349, cy: 472, radius: 28),
     ArenaShape(kind: shapeDiamond, cx: 349, cy: 568, radius: 28),
-    # Column 3 (x=421): discs, phase +24.
-    ArenaShape(kind: shapeDisc, cx: 421, cy: 66, radius: 28),
-    ArenaShape(kind: shapeDisc, cx: 421, cy: 162, radius: 28),
-    ArenaShape(kind: shapeDisc, cx: 421, cy: 258, radius: 28),
-    ArenaShape(kind: shapeDisc, cx: 421, cy: 400, radius: 28),
-    ArenaShape(kind: shapeDisc, cx: 421, cy: 496, radius: 28),
-    ArenaShape(kind: shapeDisc, cx: 421, cy: 592, radius: 28),
+    # Column 3 (x=421): discs, phase +24 — GLASS WINDOWS (GameVersion 13):
+    # solid to movement, bullets, and swords, transparent to fog-of-war.
+    ArenaShape(kind: shapeDisc, cx: 421, cy: 66, radius: 28, window: true),
+    ArenaShape(kind: shapeDisc, cx: 421, cy: 162, radius: 28, window: true),
+    ArenaShape(kind: shapeDisc, cx: 421, cy: 258, radius: 28, window: true),
+    ArenaShape(kind: shapeDisc, cx: 421, cy: 400, radius: 28, window: true),
+    ArenaShape(kind: shapeDisc, cx: 421, cy: 496, radius: 28, window: true),
+    ArenaShape(kind: shapeDisc, cx: 421, cy: 592, radius: 28, window: true),
     # Column 4 (x=479..509): 45-degree chevron walls, phase +72; the pair
     # straddling the midline forms one continuous zigzag that closes the
     # old mid lane at mid range.
@@ -944,10 +948,11 @@ proc mirrorX(shape: ArenaShape): ArenaShape =
   ## Mirrors one arena shape across the vertical center line.
   case shape.kind
   of shapeRect:
-    ArenaShape(kind: shapeRect, rect: shape.rect.mirrorX())
+    ArenaShape(kind: shapeRect, window: shape.window, rect: shape.rect.mirrorX())
   of shapeDisc:
     ArenaShape(
       kind: shapeDisc,
+      window: shape.window,
       cx: MapWidth - 1 - shape.cx,
       cy: shape.cy,
       radius: shape.radius
@@ -955,6 +960,7 @@ proc mirrorX(shape: ArenaShape): ArenaShape =
   of shapeDiamond:
     ArenaShape(
       kind: shapeDiamond,
+      window: shape.window,
       cx: MapWidth - 1 - shape.cx,
       cy: shape.cy,
       radius: shape.radius
@@ -962,6 +968,7 @@ proc mirrorX(shape: ArenaShape): ArenaShape =
   of shapeDiagonal:
     ArenaShape(
       kind: shapeDiagonal,
+      window: shape.window,
       x0: MapWidth - 1 - shape.x0,
       y0: shape.y0,
       x1: MapWidth - 1 - shape.x1,
@@ -1095,6 +1102,17 @@ proc isArenaWall(x, y, cx, cy: int): bool =
     return false
   for shape in ArenaObstacles:
     if inShape(x, y, shape):
+      return true
+  false
+
+proc isArenaWindowPixel*(x, y, cx, cy: int): bool =
+  ## Returns true when (x, y) is a GLASS pixel: a wall pixel that belongs to a
+  ## window shape. Glass stays in the collision/shot wall mask but is excluded
+  ## from the fog-of-war occlusion build, so vision passes through it.
+  if not isArenaWall(x, y, cx, cy):
+    return false
+  for shape in ArenaObstacles:
+    if shape.window and inShape(x, y, shape):
       return true
   false
 
@@ -1234,6 +1252,39 @@ proc carvedStoneColor(wall: seq[bool], w, h, x, y: int): ColorRGBA =
     mix(StoneLo, StoneFace, clamp(t, 0.0, 1.0))
   else:
     StoneFace
+
+const
+  ## Glass window material: a pale pane set in the same stone frame language as
+  ## the carved walls. The face targets palette index 1 (light gray) and the
+  ## sheen streaks index 2 (near-white), so windows stay legible after the
+  ## player-view palette quantization — glass must READ as see-through cover.
+  GlassFace = rgba(198, 198, 196, 255)   ## flat pane; quantizes to palette 1.
+  GlassSheen = rgba(240, 236, 226, 255)  ## diagonal streaks; quantizes to 2.
+
+proc windowGlassColor(wall: seq[bool], w, h, x, y: int): ColorRGBA =
+  ## Shades one glass window pixel: the same 1px ink carve line and a 1px stone
+  ## frame where the pane meets the floor (so windows sit in the wall language),
+  ## then a pale pane crossed by 45-degree sheen streaks running down-right,
+  ## perpendicular to the up-left light the stone bevels use.
+  let edge = min(
+    min(
+      floorDistDir(wall, w, h, x, y, 0, -1, 2),
+      floorDistDir(wall, w, h, x, y, 0, 1, 2)
+    ),
+    min(
+      floorDistDir(wall, w, h, x, y, -1, 0, 2),
+      floorDistDir(wall, w, h, x, y, 1, 0, 2)
+    )
+  )
+  if edge == 1:
+    return StoneInk                      ## touches the floor → carve outline.
+  if edge == 2:
+    return StoneFace                     ## 1px stone frame around the pane.
+  let phase = ((x - y) mod 24 + 24) mod 24
+  if phase < 3 or phase in 7 .. 8:
+    GlassSheen
+  else:
+    GlassFace
 
 const
   DiamondSpinFrames* = 16      ## steps across 90° (a diamond is 4-fold symmetric).
@@ -1408,8 +1459,10 @@ proc loadMapLayers*(gameMap: CtfMap, withEndzoneGlow = true):
           x >= w - ArenaBorder or y >= h - ArenaBorder
         wall = wallMask[y * w + x]
         artWall = artMask[y * w + x]
+        windowPixel = wall and isArenaWindowPixel(x, y, cx, cy)
       var color =
-        if artWall: carvedStoneColor(artMask, w, h, x, y)
+        if windowPixel: windowGlassColor(artMask, w, h, x, y)
+        elif artWall: carvedStoneColor(artMask, w, h, x, y)
         elif withEndzoneGlow: endzoneColorAt(tileSample(floorTex, x, y), x,
           redHi, blueLo, playLo, playHi)
         else: tileSample(floorTex, x, y)
@@ -4216,7 +4269,20 @@ proc initSimServer*(config: GameConfig): SimServer =
       let pixel = wallImage[x, y]
       result.wallMask[mapIndex(x, y)] = pixel.a > 0
 
-  result.fovBlocked = buildFovBlocked(result.wallMask)
+  ## The fog occlusion grid builds from the OPAQUE walls only: glass window
+  ## pixels stay in wallMask (movement/bullets/swords) but drop out here, so
+  ## shadowcasting sees straight through every window.
+  var opaqueMask = result.wallMask
+  block:
+    let
+      cx = result.gameMap.center.x
+      cy = result.gameMap.center.y
+    for y in 0 ..< MapHeight:
+      for x in 0 ..< MapWidth:
+        let index = mapIndex(x, y)
+        if opaqueMask[index] and isArenaWindowPixel(x, y, cx, cy):
+          opaqueMask[index] = false
+  result.fovBlocked = buildFovBlocked(opaqueMask)
   result.fovCaches = @[]
   result.players = @[]
   result.nextJoinOrder = 0
