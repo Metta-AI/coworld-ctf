@@ -1998,18 +1998,23 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       moveMask = octantBits(steer)
       if bot.tick < bot.jinkUntil:
         moveMask = bot.jinkBits            # unsticking burst
-      if desiredAim < 0 and ownStolen and
-          bot.role in {FlankTop, FlankBottom} and
-          bot.tick - bot.carrierSeen > ThiefFixTtl:
-        # Flanker rear-view: our flag is out and fogged, and the classic
-        # escape is a 1 hp runner hugging exactly this border lane BEHIND
-        # us (decoded from Picasso v7 and v14 losses alike). Alternate the
-        # sweep between rear and forward along the lane every two seconds —
-        # aim is decoupled from movement, so this costs nothing positional.
-        let sweepDir =
-          if (bot.tick div 48) mod 2 == 0: homeSign(bot.team)
-          else: -homeSign(bot.team)
-        desiredAim = bot.scanAim(vec(sweepDir, 0.0))
+      when not defined(noRearView):
+        if desiredAim < 0 and ownStolen and
+            bot.role in {FlankTop, FlankBottom} and
+            bot.tick - bot.carrierSeen > ThiefFixTtl:
+          # Flanker rear-view: our flag is out and fogged, and the classic
+          # escape is a 1 hp runner hugging exactly this border lane BEHIND
+          # us (decoded from Picasso v7 and v14 losses alike). Alternate the
+          # sweep between rear and forward along the lane every two seconds —
+          # aim is decoupled from movement, so this costs nothing positional.
+          # Compile-gate (comms-004): -d:noRearView ablates this block to
+          # isolate the rear-view's TRUE win/interception delta on the v28
+          # base — the comms-002 refutation was confounded by the v7 gear
+          # split bundled into v24. Default build keeps champion behavior.
+          let sweepDir =
+            if (bot.tick div 48) mod 2 == 0: homeSign(bot.team)
+            else: -homeSign(bot.team)
+          desiredAim = bot.scanAim(vec(sweepDir, 0.0))
       if desiredAim < 0:
         # No target demands the turret: the aim leads the movement direction
         # so the vision cone watches down-lane where we are heading. Movement
