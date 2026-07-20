@@ -127,7 +127,7 @@ suite "player fog-of-war protocol":
     check turned.hasObject(1000 + game.players[mate].joinOrder)
     check turned.hasObject(5010)
 
-  test "an unseen shot leaves a jittered sound ring; a seen shot does not":
+  test "only a shot's landing rings for players; tracers are spectator-only":
     var game = initCtfForTest(defaultGameConfig())
     let viewer = game.addPlayer("red0")
     discard game.addPlayer("blue0")
@@ -139,19 +139,46 @@ suite "player fog-of-war protocol":
       cy = game.gameMap.center.y
     game.players[viewer].x = cx
     game.players[viewer].y = cy
-    game.players[viewer].aimBrads = 64   # looking north.
-    # A shot fired well behind the viewer, outside cone and bubble.
+    game.players[viewer].aimBrads = 64   # looking up the open corridor.
+    # A shot fired dead ahead, fully inside the viewer's vision cone (the
+    # same corridor the fov tests above rely on being open and visible).
     game.recentShots.add ShotFx(
-      x0: cx, y0: 550, x1: cx + 200, y1: 550,
+      x0: cx, y0: cy - 40, x1: cx, y1: cy - 140,
       firedTick: game.tickCount, color: game.players[1].color
     )
 
     var state: PlayerViewerState
     let messages = game.buildPlayerMessages(viewer, state)
-    check messages.hasObject(19100)      # the sound ring (SoundRingObjectBase).
+    let labels = messages.spriteLabels()
+    # Even a fully seen shot yields ONLY the jittered landing ring: the
+    # muzzle emits no signal...
+    check messages.hasObject(19120)      # impact ring (ShotImpactObjectBase).
+    check "shot impact" in labels
+    check not messages.hasObject(19100)  # retired muzzle sound-ring pool.
+    check "shot sound" notin labels
+    # ...and never any tracer pixels: those are spectator render only.
+    for label in labels:
+      check not label.startsWith("shot trail")
+      check not label.startsWith("shot head")
+      check not label.startsWith("muzzle bloom")
 
-    # Turn around: the shot itself is visible, so the ring disappears.
-    game.players[viewer].aimBrads = 192
+    # A shot fired and landing well behind the viewer still rings at the
+    # landing: sound ignores fov.
+    game.recentShots.add ShotFx(
+      x0: cx, y0: 550, x1: cx + 200, y1: 550,
+      firedTick: game.tickCount, color: game.players[1].color
+    )
     var state2: PlayerViewerState
-    let turned = game.buildPlayerMessages(viewer, state2)
-    check not turned.hasObject(19100)
+    let unseen = game.buildPlayerMessages(viewer, state2)
+    check unseen.hasObject(19121)        # second shot's impact ring.
+    check not unseen.hasObject(19101)    # and still no muzzle ring.
+
+    # The broadcast/global view still draws the full tracer comet.
+    var
+      globalState = initGlobalViewerState()
+      globalNext: GlobalViewerState
+    let globalLabels = game.buildSpriteProtocolUpdates(globalState, globalNext)
+      .parseSpritePacket().spriteLabels()
+    check globalLabels.anyIt(it.startsWith("shot trail"))
+    check globalLabels.anyIt(it.startsWith("shot head"))
+    check globalLabels.anyIt(it.startsWith("muzzle bloom"))
