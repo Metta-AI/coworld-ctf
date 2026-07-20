@@ -224,6 +224,7 @@ type
   Track = object              # a remembered player
     pos, vel: Vec
     lastSeen: int
+    synthetic: bool           # injected from an E-shout, not own eyes
     facingRight: bool
     hp: int                   # last observed hit points; 0 = never read
 
@@ -956,6 +957,7 @@ proc updateTracks(bot: Bot, tracks: var seq[Track], seen: seq[Actor]) =
       tracks[best].pos = a.pos
       tracks[best].facingRight = a.facingRight
       tracks[best].lastSeen = bot.tick
+      tracks[best].synthetic = false
       if a.hp > 0:
         tracks[best].hp = a.hp
       claimed[best] = true
@@ -1330,18 +1332,26 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         when defined(zonePhalanx):
           # Scout sighting: feed shared vision into the track table so the
           # pair guns pre-aim before the runner enters their cones. Slightly
-          # aged so a bot's own eyes always outrank the relay.
-          var dup = false
-          for t in bot.enemies.mitems:
-            if dist(t.pos, p) < 70.0:
-              dup = true
-              if bot.tick - t.lastSeen > 10:
-                t.pos = p
-                t.lastSeen = bot.tick - 6
-              break
-          if not dup:
-            bot.enemies.add(Track(pos: p, lastSeen: bot.tick - 6,
-              facingRight: p.x < float(CenterX), hp: MaxHp))
+          # aged so a bot's own eyes always outrank the relay. Own shouts
+          # (origin on top of us) are skipped, and an E never refreshes a
+          # synthetic track — otherwise the relay echoes itself into a
+          # permanently-fresh phantom (probe scar: "E37 10" forever).
+          let shoutOrigin = vec(
+            float(o.x + o.width div 2 + client.mapCameraX),
+            float(o.y + o.height div 2 + client.mapCameraY))
+          if dist(shoutOrigin, me) > 24.0:
+            var dup = false
+            for t in bot.enemies.mitems:
+              if dist(t.pos, p) < 70.0:
+                dup = true
+                if not t.synthetic and bot.tick - t.lastSeen > 10:
+                  discard  # fresh real track outranks the relay
+                elif not t.synthetic:
+                  discard
+                break
+            if not dup:
+              bot.enemies.add(Track(pos: p, lastSeen: bot.tick - 6,
+                synthetic: true, facingRight: p.x < float(CenterX), hp: MaxHp))
         continue
       if text[0] == 'C':
         # Fresher than any dead-reckoned estimate: pin the escort fix here.
@@ -1462,18 +1472,19 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     if bot.shoutWant.len == 0 and not iCarry:
       let pd = bot.phalanxDuty
       if pd in {pdTopA, pdTopB, pdMidA, pdMidB, pdBotA, pdBotB} and
-          bot.tick - bot.lastHShout > 240:
+          bot.tick - bot.lastHShout > 400:
         var near = 0
         for t in bot.enemies:
-          if bot.tick - t.lastSeen <= 50 and dist(t.pos, me) < 420.0:
+          if not t.synthetic and bot.tick - t.lastSeen <= 50 and
+              dist(t.pos, me) < 420.0:
             inc near
-        if near >= 2:
+        if near >= 3:
           bot.shoutWant = "H" & $phalanxLaneNo(pd)
           bot.lastHShout = bot.tick
       if bot.shoutWant.len == 0 and pd == pdScout and
           bot.tick - bot.lastEShout > 30:
         for t in bot.enemies:
-          if bot.tick - t.lastSeen <= 20:
+          if not t.synthetic and bot.tick - t.lastSeen <= 20:
             bot.shoutWant = "E" & $(int(t.pos.x) div 8) & " " &
               $(int(t.pos.y) div 8)
             bot.lastEShout = bot.tick
