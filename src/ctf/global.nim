@@ -178,9 +178,13 @@ const
   GrenadeMaxAirborne = 16      ## most in-flight orbs drawn at once.
   GrenadeMaxBlasts = 16        ## most blast flashes drawn at once.
   SoundRingSpriteId = 830      ## the shot "sound" ring sprite.
-  SoundRingObjectBase = 19100  ## sound ring object-id pool (per recent shot).
+  SoundRingObjectBase = 19100  ## sound ring object-id pool: 19100..19115.
   SoundRingSize = 12           ## px diameter of the sound ring.
   SoundRingJitter = 20         ## max px the ring strays from the true muzzle.
+  ShotImpactSpriteId = 831     ## the hollow shot "impact" ring sprite.
+  ShotImpactObjectBase = 19120 ## impact ring object-id pool: 19120..19135
+                               ## (clear of sound rings above and the flag
+                               ## auras at 19200).
   ## A hitscan shot's whole beam appears at once, so the tracer can't literally
   ## move — but it draws as a COMET (the shape that reads as a fired projectile
   ## and is easiest to follow, per ux.replay research): a bright paintball HEAD
@@ -853,10 +857,25 @@ proc buildSoundRingSprite(): seq[uint8] {.measure.} =
         let alpha = if d >= c - 1.5: 150'u8 else: 45'u8
         result.putRawRgbaPixel(y * SoundRingSize + x, 255, 255, 255, alpha)
 
-proc soundRingOffset(shot: ShotFx): (int, int) =
-  ## A deterministic pseudo-random offset for one shot's sound ring: stable
-  ## across frames, viewers, and replays, but never the exact muzzle spot.
-  var h = 0x9E3779B9'u32
+proc buildShotImpactSprite(): seq[uint8] {.measure.} =
+  ## Builds the hollow white "impact" ring: rim only, no fill, so it reads
+  ## as a different sound than the muzzle ring and never hides what's under
+  ## it. Colorless so it never leaks the shooter's team.
+  result = newRgbaPixels(SoundRingSize, SoundRingSize)
+  let c = float(SoundRingSize - 1) / 2
+  for y in 0 ..< SoundRingSize:
+    for x in 0 ..< SoundRingSize:
+      let d = sqrt((float(x) - c) * (float(x) - c) +
+        (float(y) - c) * (float(y) - c))
+      if d <= c and d >= c - 1.5:
+        result.putRawRgbaPixel(y * SoundRingSize + x, 255, 255, 255, 150)
+
+proc shotRingOffset(shot: ShotFx, salt: uint32): (int, int) =
+  ## A deterministic pseudo-random offset for one shot's ring: stable across
+  ## frames, viewers, and replays, but never the exact spot. The salt keeps
+  ## the muzzle and impact rings of one shot from sharing a jitter, so the
+  ## pair never reveals the beam's true direction.
+  var h = 0x9E3779B9'u32 xor salt
   h = (h xor uint32(shot.firedTick)) * 0x85EBCA6B'u32
   h = (h xor uint32(shot.x0)) * 0xC2B2AE35'u32
   h = (h xor uint32(shot.y0)) * 0x27D4EB2F'u32
@@ -864,6 +883,15 @@ proc soundRingOffset(shot: ShotFx): (int, int) =
   let span = uint32(2 * SoundRingJitter + 1)
   (int(h mod span) - SoundRingJitter,
     int((h shr 16) mod span) - SoundRingJitter)
+
+proc soundRingOffset(shot: ShotFx): (int, int) =
+  ## The muzzle sound ring's jitter for one shot.
+  shotRingOffset(shot, 0)
+
+proc shotImpactOffset(shot: ShotFx): (int, int) =
+  ## The impact ring's jitter for one shot — same identity, different salt,
+  ## so it never matches the muzzle ring's offset scheme.
+  shotRingOffset(shot, 0x5F356495'u32)
 
 proc buildThrowTargetSprite(): seq[uint8] {.measure.} =
   ## The charge-time landing marker: a thin warm-amber ring (a hollow reticle,
@@ -2530,16 +2558,15 @@ proc addShotTracers(
   sim: SimServer,
   spriteDefs: var seq[SpriteDefinition],
   currentIds: var seq[int],
-  packet: var seq[uint8],
-  viewerIndex = -1
+  packet: var seq[uint8]
 ) {.measure.} =
   ## Places each shot's tracer from fixed object pools as a COMET: a small
   ## colorless muzzle flash at the origin (who fired), a thin team-color trail
   ## that fades back toward the shooter, and a bright leading paintball at the
   ## impact end (the eye-anchor pointing at the target). The along-beam fade is
-  ## baked per trail dot via its bucket. The map view passes no viewer and shows
-  ## every part; a player view passes its viewer index and only receives the
-  ## parts crossing its vision (each part fov-gated at its own pixel).
+  ## baked per trail dot via its bucket. SPECTATOR ONLY: only the map/broadcast
+  ## view draws tracers; player observations never contain them — a player
+  ## learns of a shot solely through the jittered sound rings (addSoundRings).
   var
     nextDot = 0
     bucketDefined: array[TrailBuckets, bool]
@@ -2564,9 +2591,6 @@ proc addShotTracers(
       let
         mx = shot.x0 + dx * s div steps
         my = shot.y0 + dy * s div steps
-      if viewerIndex >= 0 and not sim.fovVisibleAt(viewerIndex, mx, my):
-        continue
-      let
         beamT = s / steps                 ## 0 at muzzle → 1 at impact.
         bucket = clamp(int(beamT * float(TrailBuckets)), 0, TrailBuckets - 1)
       if pow((bucket.float + 1.0) / float(TrailBuckets), TrailFalloff) < TrailMinAlpha:
@@ -2595,48 +2619,46 @@ proc addShotTracers(
         spriteId
       )
     # Muzzle bloom at the origin — the colorless flash that says "fired here".
-    if viewerIndex < 0 or sim.fovVisibleAt(viewerIndex, shot.x0, shot.y0):
-      let bloomSpriteId = MuzzleBloomSpriteBase + stage
-      packet.addSpriteChanged(
-        spriteDefs,
-        bloomSpriteId,
-        MuzzleBloomSize,
-        MuzzleBloomSize,
-        buildMuzzleBloomSprite(stage),
-        "muzzle bloom stage " & $stage
-      )
-      let bloomId = MuzzleBloomObjectBase + shotIndex
-      currentIds.add(bloomId)
-      packet.addObject(
-        bloomId,
-        shot.x0 - MuzzleBloomSize div 2,
-        shot.y0 - MuzzleBloomSize div 2,
-        30006,
-        MapLayerId,
-        bloomSpriteId
-      )
+    let bloomSpriteId = MuzzleBloomSpriteBase + stage
+    packet.addSpriteChanged(
+      spriteDefs,
+      bloomSpriteId,
+      MuzzleBloomSize,
+      MuzzleBloomSize,
+      buildMuzzleBloomSprite(stage),
+      "muzzle bloom stage " & $stage
+    )
+    let bloomId = MuzzleBloomObjectBase + shotIndex
+    currentIds.add(bloomId)
+    packet.addObject(
+      bloomId,
+      shot.x0 - MuzzleBloomSize div 2,
+      shot.y0 - MuzzleBloomSize div 2,
+      30006,
+      MapLayerId,
+      bloomSpriteId
+    )
     # Leading head at the impact end — bright white-hot ball that says
     # "struck here", pointing the beam at its target.
-    if viewerIndex < 0 or sim.fovVisibleAt(viewerIndex, shot.x1, shot.y1):
-      let headSpriteId = tracerHeadSpriteId(colorIndex, stage)
-      packet.addSpriteChanged(
-        spriteDefs,
-        headSpriteId,
-        TracerHeadSize,
-        TracerHeadSize,
-        buildTracerHeadSprite(colorIndex, stage),
-        "shot head " & playerColorName(colorIndex) & " stage " & $stage
-      )
-      let headId = TracerHeadObjectBase + shotIndex
-      currentIds.add(headId)
-      packet.addObject(
-        headId,
-        shot.x1 - TracerHeadSize div 2,
-        shot.y1 - TracerHeadSize div 2,
-        30006,
-        MapLayerId,
-        headSpriteId
-      )
+    let headSpriteId = tracerHeadSpriteId(colorIndex, stage)
+    packet.addSpriteChanged(
+      spriteDefs,
+      headSpriteId,
+      TracerHeadSize,
+      TracerHeadSize,
+      buildTracerHeadSprite(colorIndex, stage),
+      "shot head " & playerColorName(colorIndex) & " stage " & $stage
+    )
+    let headId = TracerHeadObjectBase + shotIndex
+    currentIds.add(headId)
+    packet.addObject(
+      headId,
+      shot.x1 - TracerHeadSize div 2,
+      shot.y1 - TracerHeadSize div 2,
+      30006,
+      MapLayerId,
+      headSpriteId
+    )
 
 proc addAimIndicators(
   sim: SimServer,
@@ -2659,14 +2681,16 @@ proc addSoundRings(
   packet: var seq[uint8],
   viewerIndex: int
 ) {.measure.} =
-  ## Places a brief semi-transparent ring near the muzzle of every recent
-  ## shot the viewer could NOT see: gunfire is audible through the fog. The
-  ## ring is jittered per shot (soundRingOffset) so it reveals a
-  ## neighborhood, never the exact spot; a shot you can see needs no ring.
+  ## Gunfire is audible: every recent shot leaves every living viewer two
+  ## brief rings, whether or not any part of the shot crossed their vision —
+  ## a filled "shot sound" ring near the muzzle and a hollow "shot impact"
+  ## ring near the landing point. This is the ONLY trace of a shot in a
+  ## player observation (tracers are spectator render only). Each ring is
+  ## jittered per shot (shotRingOffset, muzzle and impact salted apart) so
+  ## it reveals a neighborhood, never the exact spot, and never which team.
+  discard viewerIndex                     ## sound ignores walls and fov.
   for shotIndex in 0 ..< min(sim.recentShots.len, TracerMaxShots):
     let shot = sim.recentShots[shotIndex]
-    if sim.fovVisibleAt(viewerIndex, shot.x0, shot.y0):
-      continue
     packet.addSpriteChanged(
       spriteDefs,
       SoundRingSpriteId,
@@ -2686,6 +2710,26 @@ proc addSoundRings(
       30000,
       MapLayerId,
       SoundRingSpriteId
+    )
+    packet.addSpriteChanged(
+      spriteDefs,
+      ShotImpactSpriteId,
+      SoundRingSize,
+      SoundRingSize,
+      buildShotImpactSprite(),
+      "shot impact"
+    )
+    let
+      (ix, iy) = shotImpactOffset(shot)
+      impactId = ShotImpactObjectBase + shotIndex
+    currentIds.add(impactId)
+    packet.addObject(
+      impactId,
+      shot.x1 + ix - SoundRingSize div 2,
+      shot.y1 + iy - SoundRingSize div 2,
+      30000,
+      MapLayerId,
+      ShotImpactSpriteId
     )
 
 proc addRotatingDiamonds(
@@ -3459,12 +3503,6 @@ proc buildSpriteProtocolPlayerUpdates*(
       viewerIndex = playerIndex
     )
     sim.addDamagePops(
-      nextState.spriteDefs,
-      currentIds,
-      result,
-      viewerIndex = playerIndex
-    )
-    sim.addShotTracers(
       nextState.spriteDefs,
       currentIds,
       result,
