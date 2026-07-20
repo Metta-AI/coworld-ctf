@@ -172,6 +172,15 @@ const
   FireSlackPx = 11.0          # fire when the aim error's perpendicular miss
                               # at the target's range is inside this (the
                               # corridor half-width is ~14px; keep margin)
+  # micro-005 predictive fire (mechanism 1: peek-cycle pre-fire, -d:preFire).
+  PreFireWindup = 5           # the fire windup: press A this many ticks BEFORE
+                              # the predicted re-peek so the bullet RELEASES
+                              # inside the exposure window (reactive fire
+                              # releases ~5t late — after the peeker ducked).
+  PreFireMinPeriod = 8        # ignore sub-cycles / continuous exposure jitter
+  PreFireMaxPeriod = 96       # ~4s: beyond this the period estimate is stale
+  PreFireSpotSlack = 70.0     # the ducked corner must match the tracked peek
+                              # spot for the learned period to apply
   ScanArc = 44                # scan sweeps this many brads each side of the
                               # watch heading (cone half-angle is 32 brads)
   CounterPunchTick = 2500     # by here a 0-steal attack is not converting:
@@ -288,6 +297,13 @@ type
     helpUntil: int            # tick the help retasking expires
     lastEShout: int           # scout sighting-broadcast rate limit
     lastHShout: int           # help-call rate limit
+    when defined(preFire):
+      # micro-005: peek-cycle tracker at a held station's watched corner.
+      peekSpot: Vec           # where the watched enemy last became ray-clear
+      peekLastAppear: int     # tick of the most recent blocked->visible edge
+      peekPrevAppear: int     # the appearance before that (period = diff)
+      peekVisible: bool       # was a target ray-clear last tick (edge detect)
+      prefireCount: int       # instrumentation: pre-fire pulls this game
 
 proc roleForSeat(seat: int, team: Team): Role =
   ## Deterministic role spread over the 8 per-team seats. Seats 2 and 3 both
@@ -1873,6 +1889,25 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       blockedAim = predicted
       haveBlocked = true
 
+  when defined(preFire):
+    # micro-005 peek-cycle tracker: from a held station our position is roughly
+    # fixed, so the rising edge of a clear ray to the nearest target is a PEEK
+    # by that enemy. Record successive peek ticks at the same corner to learn
+    # the period; reset when the corner moves or the enemy goes quiet.
+    let pfVisible = engage >= 0
+    if pfVisible and not bot.peekVisible:
+      if bot.peekLastAppear > 0 and dist(aim, bot.peekSpot) <= PreFireSpotSlack:
+        bot.peekPrevAppear = bot.peekLastAppear   # same corner: keep the interval
+      else:
+        bot.peekPrevAppear = 0                     # new/other corner: no period yet
+      bot.peekLastAppear = bot.tick
+      bot.peekSpot = aim
+    elif pfVisible:
+      bot.peekSpot = aim                            # refresh the spot while exposed
+    bot.peekVisible = pfVisible
+    if bot.tick - bot.peekLastAppear > PreFireMaxPeriod * 2:
+      bot.peekPrevAppear = 0                        # stale: the enemy left the corner
+
   # The nearest remembered enemy that could be threatening us right now,
   # used to pick which line to break when ducking through cooldown.
   var
@@ -2082,10 +2117,33 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # the nearest cell that opens the firing line — the engage branch fires
     # the moment the ray clears, with the traverse already done.
     desiredAim = bradsOf(blockedAim - me)
-    let peek = bot.findPeekCell(client, me, blockedAim)
-    if peek >= 0 and dist(cellCenter(peek), me) > 4.0:
-      moveMask = octantBits(cellCenter(peek) - me)
-      acted = true
+    when defined(preFire):
+      # micro-005 predictive pre-fire: if this ducked corner has a stable peek
+      # period, the next peek is ~PreFireWindup ticks out, we already have a
+      # clear line to the spot, and the turret is settled on it — pull NOW so
+      # the windup releases into the peek instead of chasing it reactively.
+      block preFire:
+        if bot.peekPrevAppear <= 0: break preFire
+        let period = bot.peekLastAppear - bot.peekPrevAppear
+        if period < PreFireMinPeriod or period > PreFireMaxPeriod: break preFire
+        if dist(blockedAim, bot.peekSpot) > PreFireSpotSlack: break preFire
+        let lead = bot.peekLastAppear + period - bot.tick
+        if lead < PreFireWindup - 1 or lead > PreFireWindup + 2: break preFire
+        if not client.pixelRayClear(me, bot.peekSpot): break preFire
+        desiredAim = bradsOf(bot.peekSpot - me)
+        if abs(bradsErr(desiredAim, bot.estAim)) <= CombatDeadband:
+          wantFire = true
+          holdStill = true
+          acted = true
+          inc bot.prefireCount
+          when defined(preFireDebug):
+            echo "PREFIRE slot ", bot.slot, " tick ", bot.tick,
+              " period ", period, " n ", bot.prefireCount
+    if not acted:
+      let peek = bot.findPeekCell(client, me, blockedAim)
+      if peek >= 0 and dist(cellCenter(peek), me) > 4.0:
+        moveMask = octantBits(cellCenter(peek) - me)
+        acted = true
 
   if not acted:
     # Threat jink: sidestep a visible enemy that is aiming our way while our
