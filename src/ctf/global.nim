@@ -146,6 +146,12 @@ const
   ShieldCarryObjectBase = 19620  ## carried shield markers: one per player.
   ShieldBubbleSpriteId = 1422    ## the protective bubble drawn around a carrier.
   ShieldBubbleSize = 44          ## px bubble diameter (34px soldier body + margin).
+  ShieldBubbleLagPx = 6.0        ## px the bubble center trails BEHIND the aim:
+                                 ## the soldier canvas pivots on the body+gun
+                                 ## unit's center, but the visible team-colored
+                                 ## shell sits ~6px behind it (the dark gun
+                                 ## leads), so an un-lagged bubble reads
+                                 ## off-center around the agent.
   ShieldBubbleObjectBase = 19680 ## carrier bubbles: one per player, 19680..19695
                                  ## (clear of sword swipes at 19700).
   ShieldBubbleMinHp = 4          ## bubble pops once a carrier drops below this hp
@@ -3055,12 +3061,16 @@ proc addShields(
           ShieldBubbleSize, ShieldBubbleSize,
           buildShieldBubbleSprite(), "shield bubble"
         )
-      let bubbleId = ShieldBubbleObjectBase + i
+      let
+        bubbleId = ShieldBubbleObjectBase + i
+        aim = aimVector(player.aimBrads)
       currentIds.add(bubbleId)
       packet.addObject(
         bubbleId,
-        player.x + CollisionW div 2 - ShieldBubbleSize div 2,
-        player.y + CollisionH div 2 - ShieldBubbleSize div 2,
+        player.x + CollisionW div 2 -
+          int(round(aim.x * ShieldBubbleLagPx)) - ShieldBubbleSize div 2,
+        player.y + CollisionH div 2 -
+          int(round(aim.y * ShieldBubbleLagPx)) - ShieldBubbleSize div 2,
         30000, MapLayerId, ShieldBubbleSpriteId
       )
 
