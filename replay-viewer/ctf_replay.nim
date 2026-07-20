@@ -135,6 +135,12 @@ proc ctfPacketPointer(): ptr uint8
 proc ctfPacketLength(): cint {.exportc: "ctf_packet_len", cdecl.} =
   cint(packet.len)
 
+proc ctfMismatchTick(): cint {.exportc: "ctf_mismatch_tick", cdecl.} =
+  if runtimeLoaded:
+    cint(replay.hashMismatchTick)
+  else:
+    -1
+
 proc ctfErrorPointer(): ptr uint8 {.exportc: "ctf_error_ptr", cdecl.} =
   if lastError.len == 0:
     nil

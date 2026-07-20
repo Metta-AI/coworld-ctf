@@ -34,13 +34,20 @@ cleanup() {
 }
 trap cleanup EXIT
 
-docker buildx build \
-  --load \
-  --platform linux/amd64 \
-  --file "${repo_dir}/Dockerfile.replay-viewer" \
-  --target replay-viewer-builder \
-  --tag "${image_tag}" \
+build_args=(
+  --platform linux/amd64
+  --file "${repo_dir}/Dockerfile.replay-viewer"
+  --target replay-viewer-builder
+  --tag "${image_tag}"
   "${repo_dir}"
+)
+if docker buildx version >/dev/null 2>&1; then
+  docker buildx build --load "${build_args[@]}"
+else
+  # Docker Desktop installations without the buildx plugin still honor the
+  # explicit amd64 platform through their Linux VM. CI installs Buildx above.
+  docker build "${build_args[@]}"
+fi
 container_id="$(docker create --platform linux/amd64 "${image_tag}")"
 docker cp "${container_id}:/workspace/ctf/replay-viewer/dist/." "${output_dir}"
 

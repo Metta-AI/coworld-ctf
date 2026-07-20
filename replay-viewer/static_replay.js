@@ -26,6 +26,11 @@ var Module = window.Module || {};
     if (!length) throw new Error('Replay runtime produced an empty frame');
     var pointer = Module._ctf_packet_ptr();
     core.ingest(Module.HEAPU8.slice(pointer, pointer + length));
+    var mismatchTick = Module._ctf_mismatch_tick();
+    if (mismatchTick >= 0) {
+      document.documentElement.setAttribute(
+        'data-replay-mismatch-tick', String(mismatchTick));
+    }
   }
 
   function runtimeError() {
