@@ -180,6 +180,16 @@ const
   PushOutMinGame = 2400       # ...this deep into the game breaks the posts
   LatePushTick = 6800         # all-in on the clock: past this tick a draw is
                               # the default outcome, so commit to the capture
+  StrikeMinTick = 1000        # pocketStrike: front is established by here, so
+                              # open the strike lane for the two least lane-tied
+                              # phalanx seats (scout+float) to touch the pocket
+  StrikeStage = 250.0         # scout's staging ring outside the enemy pocket
+                              # (> PocketRushRange, so no premature grab-commit)
+  StrikeMateRange = 220.0     # a mate this close to the pedestal = the partner
+                              # has drawn the guard; scout commits the grab then
+                              # (matches the decoded win pattern: 2-within-220px)
+  StrikeHardTick = 3600       # if the partner never arrives, the scout commits
+                              # solo by here — still well before LatePushTick
 
   CoverShieldDist = 42.0      # an obstacle this close blocks a threat direction
   PeekLineDist = 150.0        # floor for an overwatch peek firing line; post
@@ -1641,6 +1651,15 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
        dirX = (if bot.team == Red: 1.0 else: -1.0)
        pd = bot.phalanxDuty
      var front = min(180.0 + 0.11 * float(gameTick), float(MapW) - 300.0)
+     # pocketStrike: once the front is established, the two seats NOT holding a
+     # lane pair (scout + float) penetrate to the enemy pedestal — the phalanx
+     # contains Picasso well but its slow front rarely touches the pocket, and
+     # the game is decided by converting ONE steal. Suppressed while our own
+     # flag is out (every seat converges on the thief instead).
+     when defined(pocketStrike):
+       let strikeGate = (not ownStolen) and gameTick > StrikeMinTick
+     else:
+       let strikeGate = false
      case pd
      of pdScout:
        let scHasShield = bot.hp > MaxHp
@@ -1652,6 +1671,22 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
              break
        if not scHasShield and shieldSpot.x >= 0.0 and gameTick < 2200:
          target = shieldSpot
+       elif strikeGate:
+         # The shielded scout is the grabber. Stage just outside the pocket and
+         # commit the final leg only once the float has drawn the flag-guard (a
+         # mate within StrikeMateRange of the pedestal) or the hard clock fires
+         # — a coordinated 2-body touch, never a lone trickle into the grinder.
+         var partnerIn = gameTick > StrikeHardTick
+         for m in bot.mates:
+           if bot.tick - m.lastSeen <= 48 and
+               dist(m.pos, stealTarget) < StrikeMateRange:
+             partnerIn = true
+             break
+         if partnerIn:
+           target = stealTarget
+         else:
+           target = bot.snapToCover(vec(stealTarget.x - dirX * StrikeStage,
+             stealTarget.y))
        else:
          # Forward patrol beyond the front: bottom-biased weave (their
          # runners are 63% bottom lane), or the lane that called for help.
@@ -1670,11 +1705,16 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
          target = vec(ownEdgeX + dirX * (front + 130.0), py)
      of pdFloat:
        if bot.helpUntil > bot.tick:
+         # A lane is breaking: reinforcement outranks the strike.
          target = bot.snapToCover(vec(ownEdgeX + dirX * (front - 60.0),
            (case bot.helpLane
              of 1: LaneTop + 26.0
              of 2: LaneMid
              else: LaneBottom - 26.0)))
+       elif strikeGate:
+         # The gun-armed float pushes to the pocket to draw the flag-guard so
+         # the shielded scout can swoop the grab (guns up covers the touch).
+         target = stealTarget
        else:
          target = bot.chokeHold
      else:
