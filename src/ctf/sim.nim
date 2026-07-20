@@ -7,7 +7,7 @@ import
 
 const
   GameName* = "ctf"
-  GameVersion* = "6"
+  GameVersion* = "8"
   ReplayFps* = 24
   DefaultMapPath* = "arena"
   DarkBgPath* = "data/darkbg.aseprite"
@@ -119,6 +119,8 @@ const
   ShieldPickupRange* = 12     ## touch radius to pick a shield up.
   ShieldRespawnTicks* = 30 * ReplayFps  ## a taken endzone shield refills after 30s.
   ShieldHitPoints* = 6        ## hit points a shield carrier has while carrying.
+  ShieldFireSlowdown* = 3     ## a shield carrier's fire cooldown is this many
+                              ## times longer (3x slower fire rate).
 
   ShoutMaxChars* = 10         ## a shout is at most this many characters.
   ShoutRange* = MapWidth div 5  ## audible within 20% of the screen width.
@@ -334,7 +336,7 @@ type
     spawnProtect*: int
     carryingFlag*: bool
     hasGrenade*: bool          ## each player carries at most one grenade.
-    hasShield*: bool           ## carrying an endzone shield: 6 hp, can't shoot.
+    hasShield*: bool           ## carrying an endzone shield: 6 hp, 3x slower fire.
     hasSword*: bool            ## each player carries at most one sword.
     throwCharge*: int          ## ticks the throw button has been held.
     lastShoutTick*: int        ## tick of this player's latest shout, -1 = never.
@@ -2773,12 +2775,13 @@ proc resetMedKits*(sim: var SimServer) =
     )
 
 proc resetShields*(sim: var SimServer) =
-  ## Places one shield deep in each team's endzone, in the same back column as
-  ## the corner grenade pickups (centered between the two corners), nudged to
-  ## the nearest walkable floor, and refills both.
+  ## Places one shield deep in each team's endzone, in the same back column
+  ## as the corner grenade pickups but in the BOTTOM half (three quarters of
+  ## the map height down) — the swords hold the matching top-half spots —
+  ## nudged to the nearest walkable floor, and refills both.
   let
     inset = ArenaBorder + GrenadeSpawnInset
-    endzoneY = sim.gameMap.center.y
+    endzoneY = 3 * MapHeight div 4
     targets = [
       (inset, endzoneY),
       (MapWidth - inset, endzoneY)
@@ -2791,10 +2794,13 @@ proc resetShields*(sim: var SimServer) =
   for i in 0 ..< sim.players.len:
     sim.players[i].hasShield = false
 proc swordSpawnPoints*(): array[2, tuple[x, y: int]] =
-  ## The two side-center sword spawn points, nudged to walkable floor.
+  ## The two sword spawn points, nudged to walkable floor: the same side
+  ## back columns as the shields, but in the TOP half (a quarter of the map
+  ## height down) so the two pickups no longer sit on top of each other —
+  ## swords high, shields low.
   let inset = ArenaBorder + SwordSpawnInset
-  [(inset, MapHeight div 2),
-    (MapWidth - inset, MapHeight div 2)]
+  [(inset, MapHeight div 4),
+    (MapWidth - inset, MapHeight div 4)]
 
 proc resetSwords*(sim: var SimServer) =
   ## Refills both side-center sword pickups and clears carried swords.
@@ -3061,8 +3067,7 @@ proc canFire*(sim: SimServer, shooterIndex: int): bool =
   if shooterIndex < 0 or shooterIndex >= sim.players.len:
     return false
   let shooter = sim.players[shooterIndex]
-  shooter.alive and shooter.fireCooldown <= 0 and
-    not shooter.hasShield and not shooter.hasSword
+  shooter.alive and shooter.fireCooldown <= 0 and not shooter.hasSword
 
 proc canSwing*(sim: SimServer, attackerIndex: int): bool =
   ## Returns whether one player can perform an immediate sword swing.
@@ -3198,7 +3203,11 @@ proc applyFire(sim: var SimServer, shooterIndex, targetIndex: int) =
     (ux, uy) = sim.fireDirection(shooterIndex)
     sx = shooter.x + CollisionW div 2
     sy = shooter.y + CollisionH div 2
-  sim.players[shooterIndex].fireCooldown = sim.config.fireCooldownTicks
+  sim.players[shooterIndex].fireCooldown =
+    if shooter.hasShield:
+      sim.config.fireCooldownTicks * ShieldFireSlowdown
+    else:
+      sim.config.fireCooldownTicks
   sim.players[shooterIndex].windupBrads = -1
   # Accuracy bookkeeping (analysis-only, excluded from gameHash): every call
   # here is one released shot; a shot that locked onto a live enemy on the ray
@@ -3480,8 +3489,8 @@ proc updateShields*(sim: var SimServer) =
 proc tryPickupShields*(sim: var SimServer, playerIndex: int) =
   ## Lets a living player pick up an endzone shield by touch (one carried
   ## shield max; either team may take either endzone's shield). Carrying a
-  ## shield raises the player to ShieldHitPoints but bars them from shooting;
-  ## a taken shield refills after ShieldRespawnTicks.
+  ## shield raises the player to ShieldHitPoints but slows their fire rate
+  ## ShieldFireSlowdown times; a taken shield refills after ShieldRespawnTicks.
   if not sim.players[playerIndex].alive or sim.players[playerIndex].hasShield:
     return
   let

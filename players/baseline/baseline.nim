@@ -154,9 +154,10 @@ const
   SwordReach = 26.0           # melee swipe range (sim SwordReach)
   SwordArcBrads = 32          # +/-45 degree swipe arc in brads
   SwordDetour = 70.0          # attacker detour budget for a sword pickup
-  ShieldStealDetour = 330.0   # MidGuard's shield trip: the enemy endzone
-                              # shield sits ~136px past their pedestal, so
-                              # the round trip inherently costs ~270 path px
+  ShieldStealDetour = 480.0   # MidGuard's shield trip: the enemy endzone
+                              # shield sits low in their back column
+                              # (~215px from the pedestal since the game-v7
+                              # split), so the round trip costs ~430 path px
   PickupRespawn = 30 * 24     # sword/shield respawn timer (sim constant)
   MedKitCarrierBudget = 90.0  # extra path px a hurt CARRIER spends to heal:
                               # a full-heal carrier survives pocket exits
@@ -1138,10 +1139,12 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     let seen = client.observedAim(me, myColor)
     if seen >= 0 and abs(bradsErr(seen, bot.estAim)) > AimResyncBrads:
       bot.estAim = seen
-  # Swords and shields (0.7.2x): both spawn at the SAME endzone back-column
-  # point (inset 50, center line) on each side — seed the two spots up front
-  # (they are deterministic; the fog would otherwise hide them until we are
-  # already on top of them), then let sightings refine the nudged positions.
+  # Swords and shields (game v7) share the endzone back columns (inset 50)
+  # but are vertically SEPARATED: swords in the top half (quarter height),
+  # shields in the bottom half (three-quarter height). Seed the spots up
+  # front (they are deterministic; the fog would otherwise hide them until
+  # we are already on top of them), then let sightings refine the nudged
+  # positions.
   if bot.swordPos.len == 0:
     # Since game v7 the pickups separated vertically: swords in the side
     # back columns at a QUARTER height, shields at THREE QUARTERS.
@@ -1173,7 +1176,8 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
 
   let
     shotReady = client.spriteObjectsWithLabel("fire icon").len > 0 and
-      not hasShield and not hasSword     # shield bars the gun; sword replaces it
+      not hasSword                       # sword replaces the gun; a shield
+                                         # only slows it (3x cooldown)
     seenEnemies = client.actorsFor(enemyColor)
     seenMates = client.actorsFor(myColor)
   bot.updateTracks(bot.enemies, seenEnemies)
@@ -1631,7 +1635,9 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # is actually in the way, instead of frag-chasing across the map.
   let maxEngage =
     if bot.tripping: 0.0                 # sprinting an errand: no fights
-    elif hasShield and not hasSword: 0.0 # no weapon at all: run and carry
+    elif hasShield and not hasSword:     # game v8: the shield no longer bars
+      CarrierFireRange                   # the gun, it only slows it 3x — so
+                                         # fight what is point-blank in the way
     elif hasSword: SwordReach + 6.0      # melee: only point-blank matters
     elif pocketRush: 0.0
     elif iCarry: CarrierFireRange
@@ -1762,7 +1768,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # Weapon pickups. SHIELD-THEN-STEAL: the enemy endzone shield sits just
   # behind their pedestal — a rusher near the pocket grabs 6 hp first and
   # steals second (the run home is what kills 3 hp carriers). Defensive
-  # roles never take a shield (it bars the gun). SWORDS arm the pocket
+  # roles never take a shield (it slows the gun 3x). SWORDS arm the pocket
   # brawlers: attackers detour a little for one on the way in — the pocket
   # duel is point-blank, where an instant lethal swipe beats any gun.
   bot.tripping = false

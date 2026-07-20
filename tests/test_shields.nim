@@ -37,11 +37,15 @@ suite "shields":
     for spawn in sim.shieldSpawns:
       check spawn.present
       check sim.canOccupy(spawn.x, spawn.y)
+      # Shields live in the BOTTOM half (three-quarter height); the swords
+      # hold the matching top-half spots.
+      check abs(spawn.y - 3 * MapHeight div 4) < 120
+      check spawn.y > MapHeight div 2
     # One shield on the red (left) half, one on the blue (right) half.
     check sim.shieldSpawns[0].x < MapWidth div 2
     check sim.shieldSpawns[1].x > MapWidth div 2
 
-  test "picking up a shield grants 6 hit points and bars shooting":
+  test "picking up a shield grants 6 hit points":
     var sim = twoTeamGame()
     check sim.config.hitPoints < ShieldHitPoints
     sim.standOn(0, 0)
@@ -51,51 +55,34 @@ suite "shields":
     check not sim.shieldSpawns[0].present
     check sim.shieldSpawns[1].present
 
-  test "a shield carrier cannot shoot; an unshielded control kills":
-    # Control: no shield, a point-blank shot kills the enemy.
-    var ctrl = twoTeamGame()
-    ctrl.players[0].x = 300
-    ctrl.players[0].y = 300
-    ctrl.players[0].aimBrads = 0          # east
-    ctrl.players[0].fireCooldown = 0
-    ctrl.players[1].x = 300 + 30
-    ctrl.players[1].y = 300
-    ctrl.players[1].hp = 1
-    ctrl.tryFire(0)
-    check not ctrl.players[1].alive
-
-    # Same setup, but the shooter carries a shield: the shot never fires.
+  test "a shield carrier can still shoot and kill":
     var sim = twoTeamGame()
     sim.players[0].x = 300
     sim.players[0].y = 300
-    sim.players[0].aimBrads = 0
+    sim.players[0].aimBrads = 0           # east
     sim.players[0].fireCooldown = 0
     sim.players[0].hasShield = true
     sim.players[1].x = 300 + 30
     sim.players[1].y = 300
     sim.players[1].hp = 1
     sim.tryFire(0)
-    check sim.players[1].alive
+    check not sim.players[1].alive
 
-  test "attack input from a shielded player releases no shot over many ticks":
+  test "a shield carrier's fire cooldown is 3x the normal cooldown":
+    # Control: no shield, a shot starts the normal cooldown.
+    var ctrl = twoTeamGame()
+    ctrl.players[0].fireCooldown = 0
+    ctrl.tryFire(0)
+    check ctrl.players[0].fireCooldown == ctrl.config.fireCooldownTicks
+
+    # Same shot with a shield: the cooldown is ShieldFireSlowdown times longer.
     var sim = twoTeamGame()
-    sim.players[0].x = 300
-    sim.players[0].y = 300
-    sim.players[0].aimBrads = 0
+    sim.players[0].fireCooldown = 0
     sim.players[0].hasShield = true
-    sim.players[1].x = 300 + 30
-    sim.players[1].y = 300
-    sim.players[1].hp = 1
-    var inputs = newSeq[InputState](sim.players.len)
-    inputs[0].attack = true
-    let none = newSeq[InputState](sim.players.len)
-    var prev = none
-    for _ in 0 ..< 4 * ReplayFps:
-      sim.step(inputs, prev)
-      prev = inputs
-      if not sim.players[0].hasShield:
-        break
-    check sim.players[1].alive
+    sim.tryFire(0)
+    check ShieldFireSlowdown == 3
+    check sim.players[0].fireCooldown ==
+      sim.config.fireCooldownTicks * ShieldFireSlowdown
 
   test "a player carries at most one shield":
     var sim = twoTeamGame()

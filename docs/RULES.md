@@ -149,10 +149,12 @@ always drawn — but moving entities are fogged:
 
 ## Sword
 
-- **Two sword pickups spawn at the side midpoints** — one on each side,
-  midway between that side's two corner grenades, nudged to the nearest
-  walkable floor. Both are present when the game starts, and a taken sword
-  respawns after **30 seconds**.
+- **Two sword pickups spawn high in the side back columns** — one on each
+  side, in the TOP half (a quarter of the map height down, between the top
+  corner grenade and the side midpoint), nudged to the nearest walkable
+  floor. The shields hold the matching bottom-half spots. Both swords are
+  present when the game starts, and a taken sword respawns after
+  **30 seconds**.
 - **Each player carries at most one sword**, independently of their grenade.
   Dying loses the carried sword; nothing drops.
 - While carrying a sword, **A performs an immediate melee swipe instead of
@@ -200,14 +202,16 @@ always drawn — but moving entities are fogged:
 ## Shields
 
 - **One shield sits deep in each team's endzone**, in the same back column
-  as the corner grenade pickups (centered between the two corners), nudged
-  to the nearest walkable floor.
+  as the corner grenade pickups but in the BOTTOM half (three quarters of
+  the map height down, between the side midpoint and the bottom corner
+  grenade), nudged to the nearest walkable floor. The swords hold the
+  matching top-half spots.
 - **Touch a shield to pick it up** — either team may take either endzone's
   shield, and a player carries at most one.
-- **While carrying a shield you have 6 hit points but cannot shoot.**
-  Picking one up sets your hit points to 6; the trigger does nothing until
-  you lose the shield. You can still move, carry the heart, and throw
-  grenades.
+- **While carrying a shield you have 6 hit points but fire 3x slower.**
+  Picking one up sets your hit points to 6; each shot you fire starts a
+  cooldown three times the normal length until you lose the shield. You
+  can still move, carry the heart, and throw grenades.
 - **A shield is lost when you die** and is not dropped on the ground; the
   taken endzone shield **respawns 30 seconds later** in the same spot.
 - Observation label: `shield`. Shields are fog-gated like the med kits and
