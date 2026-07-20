@@ -1618,73 +1618,74 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       else:
         target = bot.chokeHold
   elif phalanxOn and not pushOut:
-    # Zone phalanx: shield scout spots forward and relays sightings, three
-    # staggered pairs hold the lanes at a slowly advancing front (freeze on
-    # contact — never trade cover for ground while a runner is tracked),
-    # the floater answers H-shouts. Steal conversion comes from the late
-    # push, which overrides this whole branch via pushOut.
-    let
-      gameTick = bot.tick - bot.gameStart
-      ownEdgeX = (if bot.team == Red: 0.0 else: float(MapW))
-      dirX = (if bot.team == Red: 1.0 else: -1.0)
-      pd = bot.phalanxDuty
-    var front = min(180.0 + 0.11 * float(gameTick), float(MapW) - 300.0)
-    case pd
-    of pdScout:
-      let scHasShield = bot.hp > MaxHp
-      var shieldSpot = vec(-1.0, -1.0)
-      if not scHasShield:
-        for sp in bot.shieldPos:
-          if dirX * (sp.x - float(CenterX)) < 0.0:  # our own back column
-            shieldSpot = sp
-            break
-      if not scHasShield and shieldSpot.x >= 0.0 and gameTick < 2200:
-        target = shieldSpot
-      else:
-        # Forward patrol beyond the front: bottom-biased weave (their
-        # runners are 63% bottom lane), or the lane that called for help.
-        var py: float
-        if bot.helpUntil > bot.tick:
-          py = (case bot.helpLane
-            of 1: LaneTop + 40.0
-            of 2: LaneMid
-            else: LaneBottom - 40.0)
-        else:
-          let ph = float((gameTick div 3) mod 400)
-          py = (if ph < 200.0:
-              LaneBottom - 40.0 - (LaneBottom - 40.0 - LaneMid) * (ph / 200.0)
-            else:
-              LaneMid + (LaneBottom - 40.0 - LaneMid) * ((ph - 200.0) / 200.0))
-        target = vec(ownEdgeX + dirX * (front + 130.0), py)
-    of pdFloat:
-      if bot.helpUntil > bot.tick:
-        target = bot.snapToCover(vec(ownEdgeX + dirX * (front - 60.0),
-          (case bot.helpLane
-            of 1: LaneTop + 26.0
-            of 2: LaneMid
-            else: LaneBottom - 26.0)))
-      else:
-        target = bot.chokeHold
-    else:
-      let laneY = phalanxLaneY(pd)
-      # Contact freeze: while a fresh track sits near our lane station,
-      # hold the front we had — advance only through quiet ground.
-      var contact = false
-      let probe = vec(ownEdgeX + dirX * front, laneY)
-      for t in bot.enemies:
-        if bot.tick - t.lastSeen <= 90 and dist(t.pos, probe) < 420.0:
-          contact = true
-          break
-      if contact:
-        if bot.phalanxHold <= 0.0:
-          bot.phalanxHold = front
-        front = min(front, bot.phalanxHold)
-      else:
-        bot.phalanxHold = 0.0
-      let lead = pd in {pdTopA, pdMidA, pdBotA}
-      target = bot.snapToCover(vec(
-        ownEdgeX + dirX * (if lead: front else: front - 44.0),
-        laneY + (if lead: -32.0 else: 32.0)))
+   when defined(zonePhalanx):
+     # Zone phalanx: shield scout spots forward and relays sightings, three
+     # staggered pairs hold the lanes at a slowly advancing front (freeze on
+     # contact — never trade cover for ground while a runner is tracked),
+     # the floater answers H-shouts. Steal conversion comes from the late
+     # push, which overrides this whole branch via pushOut.
+     let
+       gameTick = bot.tick - bot.gameStart
+       ownEdgeX = (if bot.team == Red: 0.0 else: float(MapW))
+       dirX = (if bot.team == Red: 1.0 else: -1.0)
+       pd = bot.phalanxDuty
+     var front = min(180.0 + 0.11 * float(gameTick), float(MapW) - 300.0)
+     case pd
+     of pdScout:
+       let scHasShield = bot.hp > MaxHp
+       var shieldSpot = vec(-1.0, -1.0)
+       if not scHasShield:
+         for sp in bot.shieldPos:
+           if dirX * (sp.x - float(CenterX)) < 0.0:  # our own back column
+             shieldSpot = sp
+             break
+       if not scHasShield and shieldSpot.x >= 0.0 and gameTick < 2200:
+         target = shieldSpot
+       else:
+         # Forward patrol beyond the front: bottom-biased weave (their
+         # runners are 63% bottom lane), or the lane that called for help.
+         var py: float
+         if bot.helpUntil > bot.tick:
+           py = (case bot.helpLane
+             of 1: LaneTop + 40.0
+             of 2: LaneMid
+             else: LaneBottom - 40.0)
+         else:
+           let ph = float((gameTick div 3) mod 400)
+           py = (if ph < 200.0:
+               LaneBottom - 40.0 - (LaneBottom - 40.0 - LaneMid) * (ph / 200.0)
+             else:
+               LaneMid + (LaneBottom - 40.0 - LaneMid) * ((ph - 200.0) / 200.0))
+         target = vec(ownEdgeX + dirX * (front + 130.0), py)
+     of pdFloat:
+       if bot.helpUntil > bot.tick:
+         target = bot.snapToCover(vec(ownEdgeX + dirX * (front - 60.0),
+           (case bot.helpLane
+             of 1: LaneTop + 26.0
+             of 2: LaneMid
+             else: LaneBottom - 26.0)))
+       else:
+         target = bot.chokeHold
+     else:
+       let laneY = phalanxLaneY(pd)
+       # Contact freeze: while a fresh track sits near our lane station,
+       # hold the front we had — advance only through quiet ground.
+       var contact = false
+       let probe = vec(ownEdgeX + dirX * front, laneY)
+       for t in bot.enemies:
+         if bot.tick - t.lastSeen <= 90 and dist(t.pos, probe) < 420.0:
+           contact = true
+           break
+       if contact:
+         if bot.phalanxHold <= 0.0:
+           bot.phalanxHold = front
+         front = min(front, bot.phalanxHold)
+       else:
+         bot.phalanxHold = 0.0
+       let lead = pd in {pdTopA, pdMidA, pdBotA}
+       target = bot.snapToCover(vec(
+         ownEdgeX + dirX * (if lead: front else: front - 44.0),
+         laneY + (if lead: -32.0 else: 32.0)))
   elif bot.role == HomeDefender and not pushOut:
     # Hold the choke on our pedestal approach; break off to chase the nearest
     # intruder on our half (every steal has to come through here).
