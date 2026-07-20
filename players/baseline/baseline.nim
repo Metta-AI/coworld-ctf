@@ -174,6 +174,8 @@ const
                               # corridor half-width is ~14px; keep margin)
   ScanArc = 44                # scan sweeps this many brads each side of the
                               # watch heading (cone half-angle is 32 brads)
+  OpenGuardTicks = 1900       # opening guard: the trailing mid mans a second
+                              # choke until the first steal threat resolves
   PushOutTicks = 360          # endgame push: no enemy seen for ~15s...
   PushOutMinGame = 2400       # ...this deep into the game breaks the posts
   LatePushTick = 6800         # all-in on the clock: past this tick a draw is
@@ -278,6 +280,8 @@ type
     swordAbsentAt: seq[int]
     shieldPos: seq[Vec]       # discovered shield spots (endzone back columns)
     shieldAbsentAt: seq[int]
+    guardHold: Vec            # opening-guard post covering the top approach
+    guardDone: bool           # opening guard released (latched for the game)
 
 proc roleForSeat(seat: int, team: Team): Role =
   ## Deterministic role spread over the 8 per-team seats. Seats 2 and 3 both
@@ -693,6 +697,7 @@ proc buildNavGrid(bot: Bot, client: ProtocolClient) =
   bot.pickPost(client)
   bot.findEnemyPosts(client)
   bot.chokeHold = bot.snapToCover(chokeSpot(bot.team))
+  bot.guardHold = bot.snapToCover(chokeSpot(bot.team) + vec(0.0, -64.0))
   bot.navBuilt = true
 
 const NavNeighbors = [
@@ -1346,6 +1351,19 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         " mateCarryPos=", int(mateCarryPos.x), ",", int(mateCarryPos.y)
       flushFile(stdout)
   var ownStolen = ownPlanted.len == 0
+  # Opening guard: telemetry says lost games START lost — our flag falls by
+  # ~tick 1300 and the team spends the rest pinned (-15% shot volume). The
+  # trailing mid mans a second choke through the opening so the enemy's
+  # first rush meets two guns at the pocket; the duty releases for good the
+  # moment the first threat resolves either way (flag stolen, or the opening
+  # window closes quietly).
+  when defined(openGuard):
+    if not bot.guardDone and (ownStolen or
+        bot.tick - bot.gameStart > OpenGuardTicks):
+      bot.guardDone = true
+    let openGuardActive = bot.role == MidGuard and not bot.guardDone
+  else:
+    let openGuardActive = false
   var sawThief = false
   if ownPlanted.len > 0:
     bot.carrierSeen = -100_000           # our flag is safely home
@@ -1533,6 +1551,25 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       target = bot.enemies[intruder].pos + bot.enemies[intruder].vel * 6.0
     else:
       target = bot.chokeHold
+  elif openGuardActive and not pushOut:
+    # Second choke: the home defender's intruder-chase discipline, from a
+    # post shifted toward the top approach (the favored rush/escape lane).
+    var intruder = -1
+    var intruderD = 1e18
+    for i in 0 ..< bot.enemies.len:
+      let onOurHalf =
+        if bot.team == Red: bot.enemies[i].pos.x < float(CenterX) + 60
+        else: bot.enemies[i].pos.x > float(CenterX) - 60
+      if not onOurHalf:
+        continue
+      let d = dist(bot.enemies[i].pos, me)
+      if d < intruderD:
+        intruderD = d
+        intruder = i
+    if intruder >= 0:
+      target = bot.enemies[intruder].pos + bot.enemies[intruder].vel * 6.0
+    else:
+      target = bot.guardHold
   elif bot.role == Overwatch and not pushOut:
     if bot.postReady:
       # Peek-and-shoot cycle: hold behind the post; with the gun up and a
@@ -1574,7 +1611,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # The mid trio plays for the flag, not for position: pickup races and
   # carrier chases are lost to peek/duck detours, so mids keep moving and
   # shoot on the move whenever a mate is not already carrying.
-  let rushing = not iCarry and not mateCarry and
+  let rushing = not iCarry and not mateCarry and not openGuardActive and
     bot.role in {MidTop, MidBottom, MidGuard}
   # The pocket endgame: duelling at the pocket edge is an infinite respawn
   # grinder (respawners appear spawn-protected AT the pedestal), so the
