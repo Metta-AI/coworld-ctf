@@ -205,6 +205,21 @@ const
   LaneMid = float(CenterY)
   LaneBottom = 619.0          # open corridor below the mirrored obstacles
 
+when defined(lifeAware):
+  # Life-aware aggression (micro-006): scale engagement by REMAINING LIVES.
+  # A death with respawns banked is nearly free (back in ~3s at home); a death
+  # on the LAST life permanently shrinks the team and seeds the late wipe. So
+  # trade freely while banked (current aggressive ranges, unchanged) and TURTLE
+  # on the last life to preserve on-field body count (win the lives tiebreak).
+  const
+    MaxLives = 3                # life budget (config default): out after the 3rd death
+    LastLifeEngage = 380.0      # last life: cap general-combat engage — stop the
+                                # map-wide frag-chase, fight only near threats
+    LastLifeExposedCost = 24'i32  # last life: raise cover adherence in the path field
+    LastLifeSupportRange = 260.0  # a fresh mate within this range counts as support
+    LastLifeCrowdRange = 360.0  # count fresh visible enemies within this as a crowd
+    LastLifeFrontCap = 60.0     # last life: hold this far back of mid (no deep push)
+
 type
   Team = enum
     Red, Blue
@@ -275,6 +290,8 @@ type
     wasMateCarry: bool        # edge detector: a fresh steal opens a taunt window
     tripping: bool            # mid-errand to a gear spot: sprint, no fights
     hp: int                   # own hit points, read from the HUD lives label
+    when defined(lifeAware):
+      lives: int              # respawns remaining, read from the HUD "x<N>" pip
     kitPos: seq[Vec]          # discovered med kit spots (two, center line)
     kitAbsentAt: seq[int]     # tick a spot was last seen empty; -1 = present
     swordPos: seq[Vec]        # discovered sword spots (side midpoints)
@@ -803,7 +820,11 @@ proc computeField(bot: Bot, client: ProtocolClient, goal: int) =
         continue
       var step = (if dx != 0 and dy != 0: DiagCost else: StepCost)
       if bot.exposure[nc]:
-        step += ExposedCost
+        when defined(lifeAware):
+          # On the last life, weight exposed cells harder — hug cover to stay alive.
+          step += (if bot.lives <= 1: LastLifeExposedCost else: ExposedCost)
+        else:
+          step += ExposedCost
       let nd = bot.navDist[cur] + step
       if bot.navDist[nc] < 0 or nd < bot.navDist[nc]:
         bot.navDist[nc] = nd
@@ -1030,6 +1051,8 @@ proc resetTransient(bot: Bot) =
   bot.nadeCharge = 0
   bot.mateFixTick = 0
   bot.hp = MaxHp
+  when defined(lifeAware):
+    bot.lives = MaxLives
   for i in 0 ..< bot.kitAbsentAt.len:
     bot.kitAbsentAt[i] = -1              # both kits restock at game start
   for i in 0 ..< bot.swordAbsentAt.len:
@@ -1248,6 +1271,18 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           bot.hp = clamp(parseInt(text[0 ..< cut]), 1, 9)
         except ValueError:
           discard
+      when defined(lifeAware):
+        # Respawns remaining from the trailing "x<N>" pip; a parse miss keeps
+        # the prior value (defaults to MaxLives), i.e. the aggressive branch.
+        let xat = text.find('x', cut)
+        if xat >= 0:
+          var j = xat + 1
+          while j < text.len and text[j] in {'0'..'9'}: inc j
+          if j > xat + 1:
+            try:
+              bot.lives = clamp(parseInt(text[xat + 1 ..< j]), 1, MaxLives)
+            except ValueError:
+              discard
       break
 
   # Med kits: learn the two center-line spots on sight; presence is
@@ -1527,7 +1562,14 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # the defensive seats, and holding their posts forever is a guaranteed
   # tiebreak stalemate — break the posts and go win by capture (the enemy
   # team pushes symmetrically, so somebody makes something happen).
-  let pushOut = not ownStolen and (
+  when defined(lifeAware):
+    # Last life: don't send your last body deep on a speculative all-in break —
+    # turtling to a lives-tiebreak timeout beats seeding a wipe. Still push if
+    # we're the one carrying the enemy flag home.
+    let lifePush = bot.lives > 1 or iCarry
+  else:
+    let lifePush = true
+  let pushOut = not ownStolen and lifePush and (
     (bot.tick - bot.gameStart > PushOutMinGame and
      bot.tick - bot.lastEnemySeen > PushOutTicks) or
     # Late all-in: a timeout is a scoreless draw, so deep into a game with no
@@ -1641,6 +1683,11 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
        dirX = (if bot.team == Red: 1.0 else: -1.0)
        pd = bot.phalanxDuty
      var front = min(180.0 + 0.11 * float(gameTick), float(MapW) - 300.0)
+     when defined(lifeAware):
+       # Last life: hold back of mid — don't advance the front into the enemy
+       # half where a lone last-lifer gets picked off and the wipe snowballs.
+       if bot.lives <= 1:
+         front = min(front, float(CenterX) - LastLifeFrontCap)
      case pd
      of pdScout:
        let scHasShield = bot.hp > MaxHp
@@ -1792,7 +1839,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # but objective play caps the range: the carrier only fights point-blank,
   # rushers racing for the steal and escorts guarding a run only fight what
   # is actually in the way, instead of frag-chasing across the map.
-  let maxEngage =
+  var maxEngage =
     if bot.tripping: 0.0                 # sprinting an errand: no fights
     elif hasShield and not hasSword: 0.0 # no weapon at all: run and carry
     elif hasSword: SwordReach + 6.0      # melee: only point-blank matters
@@ -1804,6 +1851,31 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     elif rushing: RushEngageRange
     elif mateCarry: EscortEngageRange
     else: FireRange
+  when defined(lifeAware):
+    # Last life: turtle. Cap the map-wide general-combat frag-chase to a
+    # near-threat bubble, and decline unsupported duels — a death here is
+    # catastrophic (permanently shrinks the team, seeds the wipe). Objective
+    # caps stay intact: a last-lifer still carries point-blank, escorts a run,
+    # and lifts range to reclaim its own stolen flag.
+    if bot.lives <= 1:
+      let thiefReturn = ownStolen and bot.tick - bot.carrierSeen <= ThiefFixTtl
+      if not iCarry and not mateCarry and not thiefReturn and maxEngage > LastLifeEngage:
+        maxEngage = LastLifeEngage
+      if not iCarry and not mateCarry and not thiefReturn:
+        var crowd = 0
+        for t in bot.enemies:
+          if bot.tick - t.lastSeen <= FreshShotTicks and
+              dist(t.pos, me) <= LastLifeCrowdRange:
+            inc crowd
+        if crowd >= 2:
+          var support = false
+          for m in bot.mates:
+            if bot.tick - m.lastSeen <= FreshShotTicks and
+                dist(m.pos, me) <= LastLifeSupportRange:
+              support = true
+              break
+          if not support:
+            maxEngage = 0.0     # outnumbered, alone: break contact, stay alive
   # Focus-fire intel: which remembered enemies sit on a visible mate's aim
   # line right now. A mate's rendered aim dots are an absolute readback of
   # where it is about to shoot; piling our shot onto the same target converts
