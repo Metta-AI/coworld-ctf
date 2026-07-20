@@ -127,7 +127,7 @@ suite "player fog-of-war protocol":
     check turned.hasObject(1000 + game.players[mate].joinOrder)
     check turned.hasObject(5010)
 
-  test "shots are audible-only to players; tracers are spectator-only":
+  test "only a shot's landing rings for players; tracers are spectator-only":
     var game = initCtfForTest(defaultGameConfig())
     let viewer = game.addPlayer("red0")
     discard game.addPlayer("blue0")
@@ -150,30 +150,33 @@ suite "player fog-of-war protocol":
     var state: PlayerViewerState
     let messages = game.buildPlayerMessages(viewer, state)
     let labels = messages.spriteLabels()
-    # Even a fully seen shot yields both jittered audio rings...
-    check messages.hasObject(19100)      # sound ring (SoundRingObjectBase).
+    # Even a fully seen shot yields ONLY the jittered landing ring: the
+    # muzzle emits no signal...
     check messages.hasObject(19120)      # impact ring (ShotImpactObjectBase).
-    check "shot sound" in labels
     check "shot impact" in labels
+    check not messages.hasObject(19100)  # retired muzzle sound-ring pool.
+    check "shot sound" notin labels
     # ...and never any tracer pixels: those are spectator render only.
     for label in labels:
       check not label.startsWith("shot trail")
       check not label.startsWith("shot head")
       check not label.startsWith("muzzle bloom")
 
-    # A shot fired well behind the viewer still rings: sound ignores fov.
+    # A shot fired and landing well behind the viewer still rings at the
+    # landing: sound ignores fov.
     game.recentShots.add ShotFx(
       x0: cx, y0: 550, x1: cx + 200, y1: 550,
       firedTick: game.tickCount, color: game.players[1].color
     )
     var state2: PlayerViewerState
     let unseen = game.buildPlayerMessages(viewer, state2)
-    check unseen.hasObject(19101)        # second shot's sound ring.
     check unseen.hasObject(19121)        # second shot's impact ring.
+    check not unseen.hasObject(19101)    # and still no muzzle ring.
 
-    # The broadcast/global view (no POV selected) still draws the comet.
-    var globalNext: GlobalViewerState
-    let globalState = initGlobalViewerState()
+    # The broadcast/global view still draws the full tracer comet.
+    var
+      globalState = initGlobalViewerState()
+      globalNext: GlobalViewerState
     let globalLabels = game.buildSpriteProtocolUpdates(globalState, globalNext)
       .parseSpritePacket().spriteLabels()
     check globalLabels.anyIt(it.startsWith("shot trail"))
