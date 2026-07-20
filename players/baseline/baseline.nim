@@ -282,6 +282,11 @@ type
     shieldAbsentAt: seq[int]
     everStoleTheirs: bool     # any own/mate carry of the enemy flag this game
     everLostOurs: bool        # our flag has been stolen at least once
+    phalanxHold: float        # frozen advance front while our lane has contact
+    helpLane: int             # 1=top 2=mid 3=bottom, from an H-shout
+    helpUntil: int            # tick the help retasking expires
+    lastEShout: int           # scout sighting-broadcast rate limit
+    lastHShout: int           # help-call rate limit
 
 proc roleForSeat(seat: int, team: Team): Role =
   ## Deterministic role spread over the 8 per-team seats. Seats 2 and 3 both
@@ -307,6 +312,34 @@ proc roleForSeat(seat: int, team: Team): Role =
     of 5: Overwatch        # cover post flanking the ring: the lane sniper
     of 6: FlankTop         # wide top lane, get behind the contest
     else: HomeDefender     # choke guard before our capture column
+
+when defined(zonePhalanx):
+  type PhalanxDuty = enum
+    pdScout, pdTopA, pdTopB, pdMidA, pdMidB, pdBotA, pdBotB, pdFloat
+
+  proc phalanxDuty(bot: Bot): PhalanxDuty =
+    ## Zone-control assignment: a shield scout spots forward, three staggered
+    ## pairs hold the lanes, the eighth seat floats on help calls.
+    case clamp(bot.slot div 2, 0, 7)
+    of 1: pdScout            # MidGuard seat becomes the forward observer
+    of 6: pdTopA
+    of 2, 3: (if bot.role == MidTop: pdTopB else: pdBotB)
+    of 0: pdBotA
+    of 5: pdMidA
+    of 4: pdMidB
+    else: pdFloat            # HomeDefender seat: choke + reinforcement
+
+  proc phalanxLaneY(d: PhalanxDuty): float =
+    case d
+    of pdTopA, pdTopB: LaneTop + 26.0
+    of pdMidA, pdMidB: LaneMid
+    else: LaneBottom - 26.0
+
+  proc phalanxLaneNo(d: PhalanxDuty): int =
+    case d
+    of pdTopA, pdTopB: 1
+    of pdMidA, pdMidB: 2
+    else: 3
 
 proc vec(x, y: float): Vec =
   Vec(x: x, y: y)
@@ -1275,7 +1308,13 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       if sep < 0:
         continue
       let text = o.label[sep + 2 .. ^1]
-      if text.len < 4 or text[0] notin {'C', 'T'}:
+      when defined(zonePhalanx):
+        # "H<1|2|3>": a lane pair is outnumbered; floater and scout retask.
+        if text.len >= 2 and text[0] == 'H' and text[1] in {'1', '2', '3'}:
+          bot.helpLane = ord(text[1]) - ord('0')
+          bot.helpUntil = bot.tick + 320
+          continue
+      if text.len < 4 or text[0] notin {'C', 'T', 'E'}:
         continue
       let parts = text[1 .. ^1].split(' ')
       if parts.len != 2:
@@ -1287,6 +1326,23 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       except ValueError:
         continue
       let p = vec(float(cx * 8 + 4), float(cy * 8 + 4))
+      if text[0] == 'E':
+        when defined(zonePhalanx):
+          # Scout sighting: feed shared vision into the track table so the
+          # pair guns pre-aim before the runner enters their cones. Slightly
+          # aged so a bot's own eyes always outrank the relay.
+          var dup = false
+          for t in bot.enemies.mitems:
+            if dist(t.pos, p) < 70.0:
+              dup = true
+              if bot.tick - t.lastSeen > 10:
+                t.pos = p
+                t.lastSeen = bot.tick - 6
+              break
+          if not dup:
+            bot.enemies.add(Track(pos: p, lastSeen: bot.tick - 6,
+              facingRight: p.x < float(CenterX), hp: MaxHp))
+        continue
       if text[0] == 'C':
         # Fresher than any dead-reckoned estimate: pin the escort fix here.
         bot.mateFixPos = p
@@ -1366,6 +1422,10 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       bot.everLostOurs and not bot.everStoleTheirs
   else:
     let counterPunch = false
+  when defined(zonePhalanx):
+    let phalanxOn = true
+  else:
+    let phalanxOn = false
   var sawThief = false
   if ownPlanted.len > 0:
     bot.carrierSeen = -100_000           # our flag is safely home
@@ -1395,6 +1455,29 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           $(int(bot.carrierPos.y) div 8)
         bot.lastShoutTick = bot.tick
 
+  when defined(zonePhalanx):
+    # Phalanx comms ride the leftover budget under C/T: help calls first
+    # (a lane about to break matters more than one more sighting), then the
+    # scout's sighting relay.
+    if bot.shoutWant.len == 0 and not iCarry:
+      let pd = bot.phalanxDuty
+      if pd in {pdTopA, pdTopB, pdMidA, pdMidB, pdBotA, pdBotB} and
+          bot.tick - bot.lastHShout > 240:
+        var near = 0
+        for t in bot.enemies:
+          if bot.tick - t.lastSeen <= 50 and dist(t.pos, me) < 420.0:
+            inc near
+        if near >= 2:
+          bot.shoutWant = "H" & $phalanxLaneNo(pd)
+          bot.lastHShout = bot.tick
+      if bot.shoutWant.len == 0 and pd == pdScout and
+          bot.tick - bot.lastEShout > 30:
+        for t in bot.enemies:
+          if bot.tick - t.lastSeen <= 20:
+            bot.shoutWant = "E" & $(int(t.pos.x) div 8) & " " &
+              $(int(t.pos.y) div 8)
+            bot.lastEShout = bot.tick
+            break
   when defined(taunt):
     # Taunts spend only LEFTOVER shout budget: never while carrying and never
     # over a gameplay shout (the carrier heartbeat always wins the 1/s slot).
@@ -1534,6 +1617,74 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         target = mateCarryPos + vec(homeSign(bot.team) * 40.0, -24.0)
       else:
         target = bot.chokeHold
+  elif phalanxOn and not pushOut:
+    # Zone phalanx: shield scout spots forward and relays sightings, three
+    # staggered pairs hold the lanes at a slowly advancing front (freeze on
+    # contact — never trade cover for ground while a runner is tracked),
+    # the floater answers H-shouts. Steal conversion comes from the late
+    # push, which overrides this whole branch via pushOut.
+    let
+      gameTick = bot.tick - bot.gameStart
+      ownEdgeX = (if bot.team == Red: 0.0 else: float(MapW))
+      dirX = (if bot.team == Red: 1.0 else: -1.0)
+      pd = bot.phalanxDuty
+    var front = min(180.0 + 0.11 * float(gameTick), float(MapW) - 300.0)
+    case pd
+    of pdScout:
+      let scHasShield = bot.hp > MaxHp
+      var shieldSpot = vec(-1.0, -1.0)
+      if not scHasShield:
+        for sp in bot.shieldPos:
+          if dirX * (sp.x - float(CenterX)) < 0.0:  # our own back column
+            shieldSpot = sp
+            break
+      if not scHasShield and shieldSpot.x >= 0.0 and gameTick < 2200:
+        target = shieldSpot
+      else:
+        # Forward patrol beyond the front: bottom-biased weave (their
+        # runners are 63% bottom lane), or the lane that called for help.
+        var py: float
+        if bot.helpUntil > bot.tick:
+          py = (case bot.helpLane
+            of 1: LaneTop + 40.0
+            of 2: LaneMid
+            else: LaneBottom - 40.0)
+        else:
+          let ph = float((gameTick div 3) mod 400)
+          py = (if ph < 200.0:
+              LaneBottom - 40.0 - (LaneBottom - 40.0 - LaneMid) * (ph / 200.0)
+            else:
+              LaneMid + (LaneBottom - 40.0 - LaneMid) * ((ph - 200.0) / 200.0))
+        target = vec(ownEdgeX + dirX * (front + 130.0), py)
+    of pdFloat:
+      if bot.helpUntil > bot.tick:
+        target = bot.snapToCover(vec(ownEdgeX + dirX * (front - 60.0),
+          (case bot.helpLane
+            of 1: LaneTop + 26.0
+            of 2: LaneMid
+            else: LaneBottom - 26.0)))
+      else:
+        target = bot.chokeHold
+    else:
+      let laneY = phalanxLaneY(pd)
+      # Contact freeze: while a fresh track sits near our lane station,
+      # hold the front we had — advance only through quiet ground.
+      var contact = false
+      let probe = vec(ownEdgeX + dirX * front, laneY)
+      for t in bot.enemies:
+        if bot.tick - t.lastSeen <= 90 and dist(t.pos, probe) < 420.0:
+          contact = true
+          break
+      if contact:
+        if bot.phalanxHold <= 0.0:
+          bot.phalanxHold = front
+        front = min(front, bot.phalanxHold)
+      else:
+        bot.phalanxHold = 0.0
+      let lead = pd in {pdTopA, pdMidA, pdBotA}
+      target = bot.snapToCover(vec(
+        ownEdgeX + dirX * (if lead: front else: front - 44.0),
+        laneY + (if lead: -32.0 else: 32.0)))
   elif bot.role == HomeDefender and not pushOut:
     # Hold the choke on our pedestal approach; break off to chase the nearest
     # intruder on our half (every steal has to come through here).
@@ -1605,7 +1756,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # carrier chases are lost to peek/duck detours, so mids keep moving and
   # shoot on the move whenever a mate is not already carrying.
   let rushing = not iCarry and not mateCarry and not counterPunch and
-    bot.role in {MidTop, MidBottom, MidGuard}
+    not phalanxOn and bot.role in {MidTop, MidBottom, MidGuard}
   # The pocket endgame: duelling at the pocket edge is an infinite respawn
   # grinder (respawners appear spawn-protected AT the pedestal), so the
   # attacker CLOSEST to the pedestal commits to the touch, unarmed and
