@@ -1980,6 +1980,18 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         var weave = false
         if rushing:
           weave = abs(me.x - float(CenterX)) < WeaveBand
+          when defined(soloRush):
+            # tempo-002 (ledger 2026-07-18-fastrush refinement): the single
+            # lead rusher (MidTop) commits to speed over its OWN half, where no
+            # enemy snipers are set yet in the opening, so dropping the mid
+            # serpentine there is near-free tempo to reach the pedestal contest
+            # first and win the first steal. It RESUMES the serpentine once past
+            # center (enemy half, snipers watching their lanes) so we do not
+            # feed the wave to peek-duck kills the way fastrush's mass no-weave
+            # (rushAll) did. Only MidTop is affected; the rest keep discipline.
+            if bot.role == MidTop and
+                homeSign(bot.team) * (me.x - float(CenterX)) > 0.0:
+              weave = false
         else:
           for t in bot.enemies:
             if bot.tick - t.lastSeen > UnderFireTrackTtl:
