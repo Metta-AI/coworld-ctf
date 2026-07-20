@@ -42,10 +42,13 @@ logs or replay links, and the smallest repro.
   along your aim angle (locked at the trigger pull, released after a short
   windup). Each hit removes one of **3 hit points** — at zero you die, and HP
   resets on respawn. **Friendly fire is on.**
-- **Swords** spawn at the midpoint of each side and respawn 30 seconds after
-  pickup. Carrying one disables the gun; press **A** for a lethal melee swipe
-  in the forward arc. Swipes affect teammates too, respect spawn protection,
-  credit kills to the attacker, and the sword is lost on death.
+- **Plasma arcs** spawn high in the side back columns and respawn 30 seconds
+  after pickup. Carrying one disables the gun; press **A** to ignite a
+  forward plasma cone — 4 squares of reach, 2 squares wide at the tip — that
+  stays on for 5 ticks and takes 20 ticks to reset. A touch deals 3 damage
+  (lethal to a bare cog; a shield carrier survives one), hits teammates too,
+  respects spawn protection, credits kills to the attacker, and the arc is
+  lost on death.
 - **Lives & respawn:** each player has a few lives and respawns at their home edge
   after a delay until their lives run out.
 - **The flags:** touch the **enemy** pedestal flag to steal it; you carry it
