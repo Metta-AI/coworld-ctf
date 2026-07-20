@@ -174,6 +174,8 @@ const
                               # corridor half-width is ~14px; keep margin)
   ScanArc = 44                # scan sweeps this many brads each side of the
                               # watch heading (cone half-angle is 32 brads)
+  CounterPunchTick = 2500     # by here a 0-steal attack is not converting:
+                              # fall back and win the attrition instead
   PushOutTicks = 360          # endgame push: no enemy seen for ~15s...
   PushOutMinGame = 2400       # ...this deep into the game breaks the posts
   LatePushTick = 6800         # all-in on the clock: past this tick a draw is
@@ -278,6 +280,8 @@ type
     swordAbsentAt: seq[int]
     shieldPos: seq[Vec]       # discovered shield spots (endzone back columns)
     shieldAbsentAt: seq[int]
+    everStoleTheirs: bool     # any own/mate carry of the enemy flag this game
+    everLostOurs: bool        # our flag has been stolen at least once
 
 proc roleForSeat(seat: int, team: Team): Role =
   ## Deterministic role spread over the 8 per-team seats. Seats 2 and 3 both
@@ -1346,6 +1350,22 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         " mateCarryPos=", int(mateCarryPos.x), ",", int(mateCarryPos.y)
       flushFile(stdout)
   var ownStolen = ownPlanted.len == 0
+  # Counter-punch: loss telemetry says lost games are 0-steal games — the
+  # wave never converts while the enemy penetrates 3-4 times and wins on
+  # capture or the lives tiebreak. Deep into a game with that exact shape
+  # (they have stolen, we never have), attacking is feeding: fall back to
+  # home-side stations, keep full gun range, punish every thief run, and
+  # take the timeout tiebreak on lives instead. The late all-in push still
+  # fires past LatePushTick, so a tied endgame still plays for the capture.
+  if iCarry or mateCarry:
+    bot.everStoleTheirs = true
+  if ownStolen:
+    bot.everLostOurs = true
+  when defined(counterPunch):
+    let counterPunch = bot.tick - bot.gameStart > CounterPunchTick and
+      bot.everLostOurs and not bot.everStoleTheirs
+  else:
+    let counterPunch = false
   var sawThief = false
   if ownPlanted.len > 0:
     bot.carrierSeen = -100_000           # our flag is safely home
@@ -1547,6 +1567,16 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
             break
     else:
       target = vec(float(CenterX) + homeSign(bot.team) * 70.0, float(CenterY))
+  elif counterPunch and not pushOut:
+    # Home-side stations: one gun per lane on our half, second choke on the
+    # pedestal approach. Combat below runs at full FireRange (not rushing).
+    let sx = float(CenterX) + homeSign(bot.team) * 200.0
+    case bot.role
+    of FlankTop: target = bot.snapToCover(vec(sx, LaneTop))
+    of FlankBottom: target = bot.snapToCover(vec(sx, LaneBottom))
+    of MidTop: target = bot.snapToCover(vec(sx, LaneMid - 90.0))
+    of MidBottom: target = bot.snapToCover(vec(sx, LaneMid + 90.0))
+    else: target = bot.snapToCover(bot.chokeHold + vec(0.0, -64.0))
   else:
     # Attackers: route to the ENEMY pedestal — a fixed, known position by
     # team side. The lead rusher races it dead straight (its seat spawns at
@@ -1574,7 +1604,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # The mid trio plays for the flag, not for position: pickup races and
   # carrier chases are lost to peek/duck detours, so mids keep moving and
   # shoot on the move whenever a mate is not already carrying.
-  let rushing = not iCarry and not mateCarry and
+  let rushing = not iCarry and not mateCarry and not counterPunch and
     bot.role in {MidTop, MidBottom, MidGuard}
   # The pocket endgame: duelling at the pocket edge is an infinite respawn
   # grinder (respawners appear spawn-protected AT the pedestal), so the
