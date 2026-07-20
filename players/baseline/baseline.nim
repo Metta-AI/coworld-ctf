@@ -146,6 +146,14 @@ const
   NadeBlast = 40.0            # blast radius; a pair this close dies together
   NadeFullChargeTicks = 24    # ~1s of holding C reaches max range
   NadePickupDetour = 90.0     # grab a corner pickup within this detour range
+  NadeClusterLead = 12.0     # -d:nadeCluster: ticks of target motion between
+                              # deciding to lob and the burst (charge + ~2
+                              # windup fuse): aim where the cluster WILL be
+  NadeAllySlack = 12.0        # -d:nadeCluster: extra blast margin when
+                              # counting our own bodies — jitter must never
+                              # turn a denial lob into a team kill
+  NadeClusterDetour = 180.0   # -d:nadeCluster: pickup-detour budget while a
+                              # qualifying enemy cluster is forming
   MedKitDetour = 80.0         # heal-detour budget when merely wounded
   MedKitCriticalReach = 180.0 # at 1 hp a heal outranks the current errand
   MedKitRespawn = 30 * 24     # a taken kit refills after 30s (sim constant)
@@ -275,6 +283,9 @@ type
     wasMateCarry: bool        # edge detector: a fresh steal opens a taunt window
     tripping: bool            # mid-errand to a gear spot: sprint, no fights
     hp: int                   # own hit points, read from the HUD lives label
+    myLives: int              # own respawns left, from the same HUD label
+                              # (read under -d:nadeCluster: banked lives relax
+                              # the grenade friendly-fire trade threshold)
     kitPos: seq[Vec]          # discovered med kit spots (two, center line)
     kitAbsentAt: seq[int]     # tick a spot was last seen empty; -1 = present
     swordPos: seq[Vec]        # discovered sword spots (side midpoints)
@@ -1030,6 +1041,7 @@ proc resetTransient(bot: Bot) =
   bot.nadeCharge = 0
   bot.mateFixTick = 0
   bot.hp = MaxHp
+  bot.myLives = 3
   for i in 0 ..< bot.kitAbsentAt.len:
     bot.kitAbsentAt[i] = -1              # both kits restock at game start
   for i in 0 ..< bot.swordAbsentAt.len:
@@ -1248,6 +1260,14 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           bot.hp = clamp(parseInt(text[0 ..< cut]), 1, 9)
         except ValueError:
           discard
+      when defined(nadeCluster):
+        # Respawns banked, from the trailing "x<lives>" of the same label.
+        let xcut = text.rfind('x')
+        if xcut >= 0 and xcut + 1 < text.len:
+          try:
+            bot.myLives = clamp(parseInt(text[xcut + 1 .. ^1]), 0, 9)
+          except ValueError:
+            discard
       break
 
   # Med kits: learn the two center-line spots on sight; presence is
@@ -1899,28 +1919,129 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   var
     nadeAim = -1
     nadeThrowD = 0.0
-  if carryingNade and not iCarry:
-    var bestD = 1e18
-    for i in 0 ..< bot.enemies.len:
-      let t = bot.enemies[i]
-      if bot.tick - t.lastSeen > FreshShotTicks:
-        continue
-      let p = t.pos + t.vel * float(bot.tick - t.lastSeen)
-      let d = dist(p, me)
-      if d < NadeMinRange or d > NadeMaxRange or d >= bestD:
-        continue
-      let blocked = not client.pixelRayClear(me, p)
-      var paired = false
-      if not blocked:
-        for j in 0 ..< bot.enemies.len:
-          if j != i and bot.tick - bot.enemies[j].lastSeen <= FreshShotTicks and
-              dist(bot.enemies[j].pos, p) <= NadeBlast:
-            paired = true
-            break
-      if blocked or paired:
-        bestD = d
-        nadeAim = bradsOf(p - me)
-        nadeThrowD = d
+  when defined(nadeCluster):
+    # CLUSTER DENIAL: grenades are the only area weapon — the one answer to a
+    # massing push the one-body-at-a-time gun loses the attrition math to.
+    # Lob at the predicted centroid of >=2 clustered enemies, but only when
+    # the blast ledger says the trade pays: count enemies AND allies inside
+    # the blast at fuse time, never near our flag carrier, and demand a net
+    # body profit (an even trade is acceptable only with respawns banked).
+    if carryingNade and not iCarry:
+      var
+        bestMembers = 1
+        bestNet = -99
+        bestD = 1e18
+      # Led positions of every fresh track, computed once.
+      var led: seq[Vec]
+      var ledIdx: seq[int]
+      for i in 0 ..< bot.enemies.len:
+        let t = bot.enemies[i]
+        if bot.tick - t.lastSeen > FreshShotTicks:
+          continue
+        ledIdx.add(i)
+        led.add(t.pos + t.vel * (float(bot.tick - t.lastSeen) + NadeClusterLead))
+      when defined(nadeDebug):
+        if led.len >= 2:
+          var minPair = 1e18
+          for a in 0 ..< led.len:
+            for b in a + 1 ..< led.len:
+              minPair = min(minPair, dist(led[a], led[b]))
+          if bot.tick mod 25 == 0:
+            echo "NADECARRY t", bot.tick, " fresh ", led.len,
+              " minPair ", minPair.int
+      for a in 0 ..< led.len:
+        for b in a + 1 ..< led.len:
+          # Pair seed: both bodies inside one blast needs mutual distance
+          # <= 2*radius with the burst centered between them.
+          if dist(led[a], led[b]) > 2.0 * NadeBlast:
+            continue
+          let seedC = (led[a] + led[b]) * 0.5
+          # Members: every fresh enemy inside the blast around the pair
+          # midpoint (then re-center on the true membership centroid).
+          var
+            members = 0
+            csum = vec(0.0, 0.0)
+          for k in 0 ..< led.len:
+            if dist(led[k], seedC) <= NadeBlast:
+              inc members
+              csum = csum + led[k]
+          if members < 2:
+            continue
+          let c = csum * (1.0 / float(members))
+          let d = dist(c, me)
+          if d < NadeMinRange or d > NadeMaxRange:
+            continue
+          # Friendly-fire ledger at the landing point: our bodies inside the
+          # blast (with slack for throw jitter) debit the trade; the carrier
+          # of a stolen flag vetoes the lob outright — a returned flag costs
+          # more than any cluster is worth.
+          if mateCarry and dist(mateCarryPos, c) <= NadeBlast + 3.0 * NadeAllySlack:
+            continue
+          var allies = 0
+          for m in bot.mates:
+            if bot.tick - m.lastSeen > 2 * FreshShotTicks:
+              continue
+            let q = m.pos + m.vel * (float(bot.tick - m.lastSeen) + NadeClusterLead)
+            if dist(q, c) <= NadeBlast + NadeAllySlack:
+              inc allies
+          let net = members - allies
+          let needNet = if bot.myLives >= 2: 0 else: 1
+          if net < needNet:
+            when defined(nadeDebug):
+              echo "CLUSTER vetoed: ", members, " enemies / ", allies,
+                " allies, net ", net, " lives ", bot.myLives
+            continue
+          # Best cluster: most bodies, then best trade, then nearest.
+          if members > bestMembers or
+              (members == bestMembers and net > bestNet) or
+              (members == bestMembers and net == bestNet and d < bestD):
+            bestMembers = members
+            bestNet = net
+            bestD = d
+            nadeAim = bradsOf(c - me)
+            nadeThrowD = d
+            when defined(nadeDebug):
+              echo "CLUSTER lob plan: ", members, " enemies / ", allies,
+                " allies in blast, net ", net, " at d ", d.int
+      if nadeAim < 0:
+        # No paying cluster: fall back to the wall-blocked single — value the
+        # gun cannot collect (the original grenade job).
+        var bestSingleD = 1e18
+        for i in 0 ..< bot.enemies.len:
+          let t = bot.enemies[i]
+          if bot.tick - t.lastSeen > FreshShotTicks:
+            continue
+          let p = t.pos + t.vel * float(bot.tick - t.lastSeen)
+          let d = dist(p, me)
+          if d < NadeMinRange or d > NadeMaxRange or d >= bestSingleD:
+            continue
+          if not client.pixelRayClear(me, p):
+            bestSingleD = d
+            nadeAim = bradsOf(p - me)
+            nadeThrowD = d
+  else:
+    if carryingNade and not iCarry:
+      var bestD = 1e18
+      for i in 0 ..< bot.enemies.len:
+        let t = bot.enemies[i]
+        if bot.tick - t.lastSeen > FreshShotTicks:
+          continue
+        let p = t.pos + t.vel * float(bot.tick - t.lastSeen)
+        let d = dist(p, me)
+        if d < NadeMinRange or d > NadeMaxRange or d >= bestD:
+          continue
+        let blocked = not client.pixelRayClear(me, p)
+        var paired = false
+        if not blocked:
+          for j in 0 ..< bot.enemies.len:
+            if j != i and bot.tick - bot.enemies[j].lastSeen <= FreshShotTicks and
+                dist(bot.enemies[j].pos, p) <= NadeBlast:
+              paired = true
+              break
+        if blocked or paired:
+          bestD = d
+          nadeAim = bradsOf(p - me)
+          nadeThrowD = d
 
   # Weapon pickups. SHIELD-THEN-STEAL: the enemy endzone shield sits just
   # behind their pedestal — a rusher near the pocket grabs 6 hp first and
@@ -1979,6 +2100,21 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # Collect a pickup: anyone grabs one within a short detour, and the two
     # flankers own their lane's friendly-side corner spawn — it sits right on
     # their border route, so they arm up on the way out every respawn cycle.
+    var pickupReach = NadePickupDetour
+    when defined(nadeCluster):
+      # A qualifying cluster is forming: arming up is worth a longer walk —
+      # the massing push snowballs if nobody holds the area answer. The
+      # last-life bot never detours (its body is worth more than the lob).
+      if bot.myLives >= 2:
+        block clusterForming:
+          for i in 0 ..< bot.enemies.len:
+            if bot.tick - bot.enemies[i].lastSeen > FreshShotTicks:
+              continue
+            for j in i + 1 ..< bot.enemies.len:
+              if bot.tick - bot.enemies[j].lastSeen <= FreshShotTicks and
+                  dist(bot.enemies[j].pos, bot.enemies[i].pos) <= NadeBlast:
+                pickupReach = NadeClusterDetour
+                break clusterForming
     for o in client.spriteObjectsWithLabel("grenade"):
       let p = client.mapPos(o)
       if p.x < 40.0 or p.y < 40.0 or p.x > float(MapW - 40) or
@@ -1989,7 +2125,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
          homeSign(bot.team) * (p.x - float(CenterX)) > 0) or
         (bot.role == FlankBottom and p.y > float(CenterY) and
          homeSign(bot.team) * (p.x - float(CenterX)) > 0)
-      let reach = if laneMatch: 1e9 else: NadePickupDetour
+      let reach = if laneMatch: 1e9 else: pickupReach
       if dist(p, me) <= reach:
         when defined(nadeDebug):
           echo "DETOUR to pickup at ", p.x, ",", p.y, " role ", bot.role
