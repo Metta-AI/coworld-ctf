@@ -146,8 +146,11 @@ const
   NadeBlast = 40.0            # blast radius; a pair this close dies together
   NadeFullChargeTicks = 24    # ~1s of holding C reaches max range
   NadePickupDetour = 90.0     # grab a corner pickup within this detour range
-  MedKitDetour = 80.0         # heal-detour budget when merely wounded
-  MedKitCriticalReach = 180.0 # at 1 hp a heal outranks the current errand
+  MedKitDetour = when defined(medAttrition): 140.0 else: 80.0
+                              # heal-detour budget when merely wounded
+                              # (-d:medAttrition: bigger in the v8 wipe regime)
+  MedKitCriticalReach = when defined(medAttrition): 260.0 else: 180.0
+                              # at 1 hp a heal outranks the current errand
   MedKitRespawn = 30 * 24     # a taken kit refills after 30s (sim constant)
   MedKitSeenClear = 55.0      # inside this range an empty spot is truly
                               # empty (bubble vision), not just fogged
@@ -158,7 +161,8 @@ const
                               # shield sits ~136px past their pedestal, so
                               # the round trip inherently costs ~270 path px
   PickupRespawn = 30 * 24     # sword/shield respawn timer (sim constant)
-  MedKitCarrierBudget = 90.0  # extra path px a hurt CARRIER spends to heal:
+  MedKitCarrierBudget = when defined(medAttrition): 140.0 else: 90.0
+                              # extra path px a hurt CARRIER spends to heal:
                               # a full-heal carrier survives pocket exits
                               # that kill a 1 hp one
   CarrySelfRadius = 26.0      # the carried flag banner is centered on its
