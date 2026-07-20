@@ -1929,6 +1929,30 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # brawlers: attackers detour a little for one on the way in — the pocket
   # duel is point-blank, where an instant lethal swipe beats any gun.
   bot.tripping = false
+  when defined(shieldAnchor):
+    # gear-008: shield UPTIME lever. Under v8 a carried shield = 6 hp AND a
+    # 1/3-rate gun (no longer weaponless), so a body that mostly HOLDS and
+    # trades fire nets +3 effective hp for a short detour. The zone-phalanx
+    # scout (pdScout) grabs OUR endzone shield only EARLY (gameTick < 2200);
+    # after that our back-column shield respawns and sits UNCLAIMED for the
+    # whole mid/late wipe war. Let the HOME ANCHOR (HomeDefender seat = pdFloat:
+    # holds the choke on our pedestal approach, trades fire near our back
+    # column) take that unclaimed shield so a defending body carries the bonus
+    # hp through the attrition phase. Conservative: home anchor only, our-side
+    # shield only, tight absolute reach, never while carrying / rushing / with a
+    # sword / already shielded / chasing a thief on our flag.
+    const ShieldAnchorReach = 260.0
+    if not iCarry and not hasShield and not hasSword and
+        bot.role == HomeDefender and not pocketRush and not mateCarry and
+        not (ownStolen and bot.tick - bot.carrierSeen <= ThiefFixTtl):
+      for i in 0 ..< bot.shieldPos.len:
+        if not pickupAvailable(bot.shieldAbsentAt, i, bot.tick):
+          continue
+        if homeSign(bot.team) * (bot.shieldPos[i].x - float(CenterX)) < 0.0:
+          continue                         # our endzone shield only
+        if dist(me, bot.shieldPos[i]) <= ShieldAnchorReach:
+          target = bot.shieldPos[i]
+          break
   if not iCarry and not hasShield and bot.role == MidTop and
       enemyPlanted.len > 0 and
       not (ownStolen and bot.tick - bot.carrierSeen <= ThiefFixTtl):
