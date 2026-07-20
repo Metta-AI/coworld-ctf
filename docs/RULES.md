@@ -84,14 +84,14 @@ always drawn — but moving entities are fogged:
   pedestal means your heart is stolen), and **yourself** via a distinct self
   marker. **Teammates are fogged like everyone else** — there is no team
   radio; keeping track of your own side takes eyes too.
-- **Gunshots are audible — and sound is all a player gets.** Every shot
-  leaves every living player two brief rings for ~0.5s, regardless of line
-  of sight: a semi-transparent filled **sound ring** (label `shot sound`)
-  near the muzzle, and a hollow **impact ring** (label `shot impact`) near
-  where it landed. Each ring is randomly (but deterministically, per shot)
-  offset by up to ~20px, with the muzzle and impact jitters independent, so
-  it tells you someone fired *roughly there* and something was hit *roughly
-  there* — never the exact spot, the exact line, or which team.
+- **Only a shot's landing is audible — and sound is all a player gets.**
+  Every shot leaves every living player one brief hollow **impact ring**
+  (label `shot impact`) near where it landed, for ~0.5s, regardless of line
+  of sight. **Firing itself is silent**: the muzzle emits no signal, so
+  pulling the trigger never reveals the shooter's neighborhood — only where
+  the paint lands. The ring is randomly (but deterministically, per shot)
+  offset by up to ~20px, so it tells you something was hit *roughly there*
+  — never the exact spot, the shot's line, or which team.
 - There is **no global heart tracking**: once a thief carries your heart into the
   fog, finding it again takes eyes on it.
 - Death does not lift the fog: a dead player sees the whole map fogged —
@@ -146,8 +146,8 @@ always drawn — but moving entities are fogged:
   and the thrower alike**, removing 2 hit points each. Spawn protection
   still shields. Kills credit the thrower (except suicides).
 - **Throwing is silent; landing is loud.** A landing you could not see
-  leaves a large jittered sound ring (label `grenade sound`), exactly like
-  gunshot rings. The throw itself leaves nothing.
+  leaves a large jittered sound ring (label `grenade sound`) — landing-only
+  audio, exactly like gunshot impact rings. The throw itself leaves nothing.
 - Observation labels: pickups `grenade`, airborne `grenade air`, the marker
   above a carrier `grenade carried`, the charge marker `throw target`, the
   landing flash `blast stage N`.
@@ -184,7 +184,7 @@ always drawn — but moving entities are fogged:
   not appear in your frame at all.
 - A heard shout appears as a speech bubble labeled
   `<team> shout <player>: <text>` pinned at **deterministically jittered
-  coordinates** (~±20 px, like gunshot sound rings): you learn roughly where
+  coordinates** (~±20 px, like gunshot impact rings): you learn roughly where
   the shouter is, never exactly.
 - **Rate limit: one shout per second per player**, and each player has at
   most one live bubble (a new shout replaces the old). Bubbles fade after
