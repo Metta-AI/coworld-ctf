@@ -158,6 +158,13 @@
           "maximum": 100,
           "default": 70
         },
+        "playerBouncePct": {
+          "description": "Restitution of player-player body collisions in percent: player bodies are solid and cannot pass through each other; 0 makes contact a dead-stop shove, 100 a perfectly elastic billiard bounce.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "default": 40
+        },
         "aimTurnRate": {
           "description": "Aim rotation speed in brads (256ths of a turn) per tick while a rotate button is held. B rotates counter-clockwise, Select clockwise; movement never changes the aim.",
           "type": "integer",
@@ -468,6 +475,7 @@
         "gunRange": 1300,
         "fireCooldownTicks": 12,
         "carrierSpeedPct": 70,
+        "playerBouncePct": 40,
         "aimTurnRate": 5,
         "visionConeDeg": 60,
         "visionBubble": 90,
