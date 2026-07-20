@@ -208,10 +208,10 @@ always drawn — but moving entities are fogged:
   matching top-half spots.
 - **Touch a shield to pick it up** — either team may take either endzone's
   shield, and a player carries at most one.
-- **While carrying a shield you have 6 hit points but cannot shoot.**
-  Picking one up sets your hit points to 6; the trigger does nothing until
-  you lose the shield. You can still move, carry the heart, and throw
-  grenades.
+- **While carrying a shield you have 6 hit points but fire 3x slower.**
+  Picking one up sets your hit points to 6; each shot you fire starts a
+  cooldown three times the normal length until you lose the shield. You
+  can still move, carry the heart, and throw grenades.
 - **A shield is lost when you die** and is not dropped on the ground; the
   taken endzone shield **respawns 30 seconds later** in the same spot.
 - Observation label: `shield`. Shields are fog-gated like the med kits and
