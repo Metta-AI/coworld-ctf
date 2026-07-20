@@ -1926,6 +1926,14 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # the blast ledger says the trade pays: count enemies AND allies inside
     # the blast at fuse time, never near our flag carrier, and demand a net
     # body profit (an even trade is acceptable only with respawns banked).
+    when defined(nadeDebug):
+      if bot.tick mod 100 == 0:
+        var freshNow = 0
+        for i in 0 ..< bot.enemies.len:
+          if bot.tick - bot.enemies[i].lastSeen <= FreshShotTicks:
+            inc freshNow
+        echo "NADESTATE t", bot.tick, " carrying ", carryingNade,
+          " fresh ", freshNow, " lives ", bot.myLives
     if carryingNade and not iCarry:
       var
         bestMembers = 1
