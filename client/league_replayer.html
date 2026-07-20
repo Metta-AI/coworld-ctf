@@ -108,21 +108,29 @@
   .flagicon.flip{animation:flagflip 260ms steps(3); transform-box:fill-box; transform-origin:center}
   @keyframes flagflip{0%{transform:scaleY(.2)}100%{transform:scaleY(1)}}
   .khead,.krow{display:grid; align-items:center; gap:calc(5*var(--u));
-    grid-template-columns:calc(15*var(--u)) 1fr calc(16*var(--u)) calc(16*var(--u)) calc(34*var(--u))}
+    grid-template-columns:1fr calc(16*var(--u)) calc(16*var(--u)) calc(34*var(--u))}
   .khead{font-family:var(--finefont); font-size:calc(8*var(--u)); letter-spacing:.08em; text-transform:uppercase;
     color:var(--paper-dim); padding:0 calc(3*var(--u)) calc(4*var(--u)); border-bottom:1px solid rgba(242,232,216,.18)}
-  .khead span:not(:nth-child(2)){text-align:center}
+  .khead span:not(:first-child){text-align:center}
   .krow{font-family:var(--pixfont); font-size:calc(12*var(--u)); padding:calc(3.5*var(--u)) calc(3*var(--u));
     border-radius:calc(2*var(--u)); cursor:pointer}
   .krow:nth-child(odd){background:rgba(242,232,216,.035)}
   .krow:hover{background:rgba(242,232,216,.09)}
   .krow.dead{opacity:.42}
   .krow.pov{background:rgba(232,163,61,.16); box-shadow:inset 0 0 0 1px rgba(232,163,61,.5)}
-  .seatno{font-variant-numeric:tabular-nums; color:var(--paper); text-align:center; opacity:.85}
-  .krow .who{display:flex; align-items:center; gap:calc(5*var(--u)); min-width:0}
-  .who .nm{white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--paper-dim);
-    font-size:calc(11*var(--u))}
-  .who .carry{color:var(--amber)}
+  /* The seat # is a name DISAMBIGUATOR, not a stat: it sits glued right after the
+     name's ellipsis (small gap, dimmed, tabular) so "Richard Higg… 1" reads as one
+     label. It must NOT drift to the right edge where it reads as a K/D/Lives value. */
+  .seatno{flex:none; font-variant-numeric:tabular-nums; color:var(--paper-dim);
+    font-size:calc(10*var(--u)); opacity:.7}
+  .krow .who{display:flex; align-items:center; gap:calc(3*var(--u)); min-width:0}
+  /* min-width:0 lets a long name actually SHRINK + ellipsize inside the flex row;
+     without it the name keeps its full nowrap width and pushes the seat # away. */
+  .who .nm{min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    color:var(--paper-dim); font-size:calc(11*var(--u))}
+  /* the carry heart rides a FIXED-width slot that is always present (empty when not
+     carrying) so a mid-game grab never shifts the name/seat to its left. */
+  .who .carry{flex:none; width:calc(10*var(--u)); text-align:center; color:var(--amber)}
   .krow .n{font-variant-numeric:tabular-nums; text-align:center}
   .krow .k{color:var(--paper)} .krow .d{color:var(--paper-dim)} .krow .c{color:var(--amber)}
   .lives{display:flex; gap:calc(2*var(--u)); justify-content:center; flex-wrap:wrap}
@@ -168,12 +176,21 @@
     cursor:pointer; line-height:1}
   .chip.on{color:var(--stage-lo); background:var(--amber)}
   .scrub{position:relative; height:calc(60*var(--u)); cursor:pointer}
-  .scrub-track{position:absolute; left:0; right:0; top:calc(8*var(--u)); height:calc(5*var(--u));
-    background:rgba(242,232,216,.16)}
-  .scrub-fill{position:absolute; left:0; top:calc(8*var(--u)); height:calc(5*var(--u));
-    background:var(--paper); width:0}
-  .scrub-head{position:absolute; top:calc(3*var(--u)); width:calc(3*var(--u)); height:calc(54*var(--u));
-    background:var(--amber); transform:translateX(calc(-1.5*var(--u))); left:0; z-index:3}
+  /* The track/fill are the VISIBLE bar (the 60u height is only the click-catcher +
+     momentum band), so a thin 5u line read as a tiny scrubber. Thicken it to a
+     real broadcast seek bar with a rounded fill. */
+  .scrub-track{position:absolute; left:0; right:0; top:calc(6*var(--u)); height:calc(10*var(--u));
+    background:rgba(242,232,216,.16); border-radius:calc(5*var(--u))}
+  .scrub-fill{position:absolute; left:0; top:calc(6*var(--u)); height:calc(10*var(--u));
+    background:var(--paper); width:0; border-radius:calc(5*var(--u))}
+  /* The playhead is a grabbable handle: a bright amber stem down the whole track +
+     momentum band, topped with a round knob so it reads as draggable, not a hairline. */
+  .scrub-head{position:absolute; top:calc(2*var(--u)); width:calc(5*var(--u)); height:calc(56*var(--u));
+    background:var(--amber); transform:translateX(calc(-2.5*var(--u))); left:0; z-index:3;
+    border-radius:calc(2.5*var(--u)); box-shadow:0 0 calc(4*var(--u)) rgba(232,163,61,.55)}
+  .scrub-head::before{content:''; position:absolute; left:50%; top:calc(-2*var(--u));
+    width:calc(13*var(--u)); height:calc(13*var(--u)); transform:translateX(-50%);
+    background:var(--amber); border-radius:50%; box-shadow:0 0 calc(4*var(--u)) rgba(232,163,61,.6)}
   .momentum{position:absolute; left:0; width:100%; top:calc(16*var(--u)); height:calc(42*var(--u));
     display:block; overflow:visible}
   .momentum-label{position:absolute; left:0; top:calc(18*var(--u)); font-family:var(--finefont);
@@ -215,7 +232,7 @@
         <span class="lives-num" id="lives-red">—</span>
       </div>
     </div>
-    <div class="khead"><span>#</span><span>Name</span><span>K</span><span>D</span><span>Lives</span></div>
+    <div class="khead"><span>Name</span><span>K</span><span>D</span><span>Lives</span></div>
     <div id="rows-red"></div>
     <div class="pfoot" id="foot-red"></div>
   </div>
@@ -228,7 +245,7 @@
         <span class="lives-num" id="lives-blue">—</span>
       </div>
     </div>
-    <div class="khead"><span>#</span><span>Name</span><span>K</span><span>D</span><span>Lives</span></div>
+    <div class="khead"><span>Name</span><span>K</span><span>D</span><span>Lives</span></div>
     <div id="rows-blue"></div>
     <div class="pfoot" id="foot-blue"></div>
   </div>
@@ -419,7 +436,16 @@
     for (var i=0;i<s.roster.length;i++){
       var p=s.roster[i];
       if (p.team!==team) continue;
-      var nm=String(p.name||'');
+      // Strip the per-seat " (N)" suffix the hosted runtime appends to
+      // disambiguate the SAME policy's multiple connections ("softmaxwell (2)",
+      // "softmaxwell (7)"…), so all seats of one policy collapse to a single
+      // shared name for the headline. The killfeed shows the full per-seat name
+      // because it colors names per event and never needs them to match; the
+      // headline needs one shared identity, so this suffix was tripping the
+      // "mixed" check and pinning the header to the color. Distinct local
+      // self-play names (Player1, Player2) have no such suffix, so they still
+      // differ and correctly fall back to the color.
+      var nm=String(p.name||'').replace(/\s*\(\d+\)\s*$/, '');
       if (name===null) name=nm;
       else if (nm!==name){ mixed=true; break; }
     }
@@ -438,9 +464,12 @@
     return '#'+slot;
   }
   function shortName(n){
+    // Strip any @domain, then let the .nm cell's CSS ellipsis do the visual
+    // truncation — the char cap is only a runaway guard so a pathologically
+    // long name can't blow out the flex row. No mid-word hard cut like before.
     n=String(n||'');
     var at=n.indexOf('@'); if (at>0) n=n.slice(0,at);
-    if (n.length>10) n=n.slice(0,10);
+    if (n.length>28) n=n.slice(0,27)+'…';
     return n||'?';
   }
   function esc(x){return String(x).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
@@ -498,7 +527,14 @@
     } else if (s.ph==='gameover'){
       timeEl.textContent='FINAL'; capEl.textContent='Game over'; clk.classList.remove('tiebreak-warn');
     } else {
-      var remain = Math.max(0, (s.mx - s.t))/FPS;
+      // Honest countdown to the scheduled draw limit (st + mt = gameStartTick +
+      // maxTicks), NOT to the replay's last tick. A game decided early by a
+      // capture/wipe freezes the clock at whatever was left and flips to FINAL,
+      // so only a real grind to the limit ever reaches 0:00. Fall back to the
+      // replay span when no limit is configured (mt <= 0). Mirrors
+      // replay_broadcast.html renderClock.
+      var end = (s.mt && s.mt > 0) ? ((s.st || 0) + s.mt) : s.mx;
+      var remain = Math.max(0, (end - s.t))/FPS;
       timeEl.textContent = fmt(remain);
       capEl.textContent  = 'Time left';
       clk.classList.toggle('tiebreak-warn', remain<=30);
@@ -506,22 +542,65 @@
   }
 
   // ---- KDA plaques (league-specific) ---------------------------------------
-  function pips(n,max){var o='';for(var i=0;i<max;i++)o+='<span class="lp '+(i<n?'on':'off')+'"></span>';return o;}
+  // Rows are built as PERSISTENT DOM keyed by seat slot and only re-created when
+  // the roster set changes; every other frame updates text/classes IN PLACE. The
+  // old code rewrote el.innerHTML ~24×/s, so a POV click whose mousedown→mouseup
+  // straddled a re-render landed on a node that no longer existed and the browser
+  // never fired `click` — POV selection felt unreliable even on the first try.
+  // (Same cached-DOM discipline the board's squad pips use.)
+  function makeRow(el, slot){
+    var row=document.createElement('div');
+    row.className='krow'; row.setAttribute('data-slot', slot);
+    var who=document.createElement('span'); who.className='who';
+    var nm=document.createElement('span'); nm.className='nm';
+    var seatno=document.createElement('span'); seatno.className='seatno';
+    var carry=document.createElement('span'); carry.className='carry';
+    who.appendChild(nm); who.appendChild(seatno); who.appendChild(carry);
+    var k=document.createElement('span'); k.className='n k';
+    var d=document.createElement('span'); d.className='n d';
+    var lives=document.createElement('span'); lives.className='lives';
+    row.appendChild(who); row.appendChild(k); row.appendChild(d); row.appendChild(lives);
+    el.appendChild(row);
+    return {row:row, nm:nm, seatno:seatno, carry:carry, k:k, d:d, lives:lives, pipKey:''};
+  }
+  function setLivePips(cell, n, max){
+    var key=n+'/'+max;
+    if (cell.pipKey===key) return;      // only rebuild when lives or max changed
+    cell.pipKey=key;
+    var o='';
+    for (var i=0;i<max;i++) o+='<span class="lp '+(i<n?'on':'off')+'"></span>';
+    cell.lives.innerHTML=o;
+  }
   function renderRows(s, team, el){
     var r=(s.roster||[]).filter(function(p){return p.team===team;}).slice().sort(function(a,b){return a.s-b.s;});
-    var pol = teamName(s,team,team.toUpperCase());
     var mx=MAXLIVES; r.forEach(function(p){ if(p.lives>mx) mx=p.lives; });
-    el.innerHTML = r.map(function(p,idx){
-      var seat = idx+1;
-      var carry = p.carry ? '<span class="carry">♥</span>' : '';
-      var isPov = (s.pov!=null && s.pov===p.s);
-      return '<div class="krow'+(p.alive?'':' dead')+(isPov?' pov':'')+'" data-slot="'+p.s+'">'+
-        '<span class="seatno">'+seat+'</span>'+
-        '<span class="who"><span class="nm">'+esc(pol)+' '+seat+'</span>'+carry+'</span>'+
-        '<span class="n k">'+(p.k||0)+'</span>'+
-        '<span class="n d">'+(p.d||0)+'</span>'+
-        '<span class="lives">'+pips(p.lives||0, mx)+'</span></div>';
-    }).join('');
+    var key=r.map(function(p){return p.s;}).join(',');
+    if (el._rowKey!==key){          // roster set changed → (re)build the row DOM once
+      el.innerHTML=''; el._cells={};
+      r.forEach(function(p){ el._cells[p.s]=makeRow(el, p.s); });
+      el._rowKey=key;
+    }
+    var cells=el._cells;
+    r.forEach(function(p,idx){
+      var c=cells[p.s]; if(!c) return;
+      var seat=idx+1;
+      // Row label = the PER-PLAYER name the board units carry (via rosterName)
+      // then the seat number as a small disambiguator, e.g. "Richard Higg… 1".
+      // No team color: replays identify players by name, and the trailing seat
+      // disambiguates teammates who share one policy name. Team identity rides
+      // the wall-corner headline above the table.
+      var who=shortName(rosterName(s, p.s));
+      if (c.nm.textContent!==who) c.nm.textContent=who;
+      var seatTxt=String(seat);
+      if (c.seatno.textContent!==seatTxt) c.seatno.textContent=seatTxt;
+      var heart=p.carry?'♥':'';
+      if (c.carry.textContent!==heart) c.carry.textContent=heart;
+      var kTxt=String(p.k||0); if (c.k.textContent!==kTxt) c.k.textContent=kTxt;
+      var dTxt=String(p.d||0); if (c.d.textContent!==dTxt) c.d.textContent=dTxt;
+      setLivePips(c, p.lives||0, mx);
+      c.row.classList.toggle('dead', !p.alive);
+      c.row.classList.toggle('pov', s.pov!=null && s.pov===p.s);
+    });
   }
 
   function renderStandings(){

@@ -96,13 +96,24 @@ const
   ## heart is stolen (flag.carrier >= 0) that team's endzone crack-glow + capture
   ## line fade out "like the power source is gone", and fade back when it comes
   ## home. The glow is BAKED once into the shared map sprite (also the POV/RL
-  ## observation) so it cannot be re-tinted per frame; instead a strip overlay of
-  ## the SAME endzone columns crossfades from the baked-glow crop to a glow-free
-  ## crop, drawn just above the map and below every actor. Purely cosmetic —
-  ## outside gameHash and untouched in the player POV. Sprite ids 4100..4101 and
-  ## object ids 19520..19521 sit clear of every other pool.
-  EndzoneFadeSpriteBase = 4100 ## 4100 red endzone strip, 4101 blue.
+  ## observation) so it cannot be re-tinted per frame; instead an overlay of the
+  ## SAME endzone columns — cropped to the hot-vs-cold diff box, transparent
+  ## where the two maps agree — crossfades from the baked-glow crop to a
+  ## glow-free crop, drawn just above the map and below every actor. Purely
+  ## cosmetic — outside gameHash and untouched in the player POV. Sprite ids
+  ## 4100..4115 and object ids 19520..19521 sit clear of every other pool.
+  EndzoneFadeSpriteBase = 4100 ## per-(team, stage) fade crops: 4100 +
+                               ## ord(team)*GlowFadeStages + stage → 4100..4115.
+                               ## Every stage owns an id so the crops can be
+                               ## pre-shipped once per connection and the
+                               ## event-time ramp is a pure object remap (bytes
+                               ## ≈ 0) instead of a ~200 KB sprite resend per
+                               ## frame — the burst that stalled WAN replay
+                               ## viewers.
   EndzoneFadeObjectBase = 19520  ## one strip overlay per team.
+  EndzonePrewarmEveryFrames = 4  ## drip one fade crop every N frames after
+                                 ## connect (~1.2 Mbps for ~2.4 s) instead of
+                                 ## dumping all 14 at once.
   GlowFadeStages* = 8          ## crossfade steps; 0 = full glow, 7 = fully cold.
   ## Grenades (0.7.0): a paint-bomb orb PNG shared by three placements plus a
   ## drawn charge ring and blast flash. Sprite ids 840..845 sit above the sound
@@ -127,6 +138,23 @@ const
                                  ## (BlastSpriteBase 844..847).
   MedKitSize = 26                ## px footprint of a med kit pickup.
   MedKitObjectBase = 19600       ## center med kits: 19600..19601.
+  ShieldSpriteId = 1420          ## endzone shield pickup (native size).
+  ShieldCarrySpriteId = 1421     ## the "shield carried" marker over a carrier.
+  ShieldSize = 26                ## px footprint of an endzone shield pickup.
+  ShieldCarrySize = 12           ## px footprint of the carried shield marker.
+  ShieldObjectBase = 19602       ## endzone shields: 19602..19603.
+  ShieldCarryObjectBase = 19620  ## carried shield markers: one per player.
+  SwordPickupSpriteId = 2000
+  SwordCarrySpriteId = 2001
+  SwordSwipeSpriteBase = 2002
+  SwordSwipeStages = 4
+  SwordPickupSize = 20
+  SwordCarrySize = 10
+  SwordSwipeSize = 2 * SwordRange
+  SwordPickupObjectBase = 19640
+  SwordCarryObjectBase = 19660
+  SwordSwipeObjectBase = 19700
+  SwordMaxSwipes = 16
   RotDiamondSpriteBase = 1401    ## spinning diamond frames: 1401..1416;
                                  ## 850 collided with CorpseSpriteBase.
   RotDiamondObjectBase = 19610   ## spinning center diamonds: 19610..19617;
@@ -327,6 +355,8 @@ type
     endzoneFade*: array[Team, int]  ## per-team endzone glow crossfade stage (0
                                  ## = full glow / heart home, GlowFadeStages-1 =
                                  ## dark / heart taken); ramped ±1 per frame.
+    endzonePrewarmFrames*: int   ## frames seen since connect, used to drip the
+                                 ## endzone fade crops to this viewer up front.
     spriteDefs: seq[SpriteDefinition]
 
   PlayerViewerState* = ref object
@@ -348,8 +378,12 @@ var TransportSheet: Sprite
 var
   EndzoneColdRgba: seq[uint8]  ## full glow-free map RGBA, lazily built once.
   EndzoneStripCache: array[Team, array[GlowFadeStages, seq[uint8]]]
-    ## per-team, per-stage endzone strip crops crossfading the baked-glow floor
+    ## per-team, per-stage endzone delta crops crossfading the baked-glow floor
     ## toward the cold floor; each baked once and reused for the whole session.
+  EndzoneDiffBox: array[Team, tuple[x0, y0, x1, y1: int]]
+    ## per-team bounding box (map coords, inclusive) of the pixels that differ
+    ## between the baked-glow map and the cold map; x1 < x0 means empty.
+  EndzoneDiffBoxReady: array[Team, bool]
 
 proc endzoneStripRange(gameMap: CtfMap, team: Team): tuple[x0, x1: int] =
   ## The inclusive x span of one team's endzone column, full map height. It
@@ -367,34 +401,71 @@ proc endzoneStripRange(gameMap: CtfMap, team: Team): tuple[x0, x1: int] =
     (min(gameMap.teamHomeX(Blue) - CaptureZoneWidth div 2,
          gameMap.teamHomeX(Blue) - pedHalf), MapWidth - 1)
 
+proc endzoneDiffBox(sim: SimServer, team: Team): tuple[x0, y0, x1, y1: int] =
+  ## Returns the bounding box (map coords, inclusive) of the pixels inside one
+  ## team's endzone column that differ between the baked-glow map and the cold
+  ## glow-free map — the crack glow, capture line, and pedestal disc. Everything
+  ## else in the column is identical at every crossfade stage, so the fade
+  ## overlay never needs to ship it. Computed once per team and cached.
+  if EndzoneDiffBoxReady[team]:
+    return EndzoneDiffBox[team]
+  if EndzoneColdRgba.len != MapWidth * MapHeight * 4:
+    EndzoneColdRgba = coldEndzoneMapRgba(sim.gameMap)
+  let (sx0, sx1) = sim.gameMap.endzoneStripRange(team)
+  result = (x0: sx1 + 1, y0: MapHeight, x1: sx0 - 1, y1: -1)
+  for y in 0 ..< MapHeight:
+    for x in sx0 .. sx1:
+      let src = mapIndex(x, y) * 4
+      if sim.mapRgba[src] != EndzoneColdRgba[src] or
+          sim.mapRgba[src + 1] != EndzoneColdRgba[src + 1] or
+          sim.mapRgba[src + 2] != EndzoneColdRgba[src + 2]:
+        result.x0 = min(result.x0, x)
+        result.y0 = min(result.y0, y)
+        result.x1 = max(result.x1, x)
+        result.y1 = max(result.y1, y)
+  EndzoneDiffBox[team] = result
+  EndzoneDiffBoxReady[team] = true
+
 proc endzoneStripSprite(
   sim: SimServer,
   team: Team,
   stage: int
-): tuple[w, h: int, pixels: seq[uint8]] =
-  ## Returns the opaque endzone-column overlay for one crossfade `stage`: at
-  ## stage 0 it equals the baked-glow floor (a no-op), and at GlowFadeStages-1 it
-  ## equals the cold glow-free floor, linearly blended between. Drawn just above
-  ## the map and below every actor so only the endzone glow + capture line visibly
-  ## power down when a heart is taken — the shared map sprite (and the POV/RL view)
-  ## is never re-baked. Each (team, stage) crop is baked once and cached.
-  let (x0, x1) = sim.gameMap.endzoneStripRange(team)
-  result.w = x1 - x0 + 1
-  result.h = MapHeight
+): tuple[x, y, w, h: int, pixels: seq[uint8]] =
+  ## Returns the endzone-glow DELTA overlay for one crossfade `stage`, cropped
+  ## to the diff bounding box: pixels where the baked-glow and cold maps agree
+  ## are fully transparent (the identical map shows through), differing pixels
+  ## carry the blend — stage 0 all hot, GlowFadeStages-1 all cold. Drawn just
+  ## above the map and below every actor so only the endzone glow + capture
+  ## line visibly power down when a heart is taken — the shared map sprite (and
+  ## the POV/RL view) is never re-baked. The endzone tint spans the whole
+  ## column floor, so the diff crop still carries most of it (~200 KB vs
+  ## ~400 KB for the full opaque strip) — which is why the crops are ALSO
+  ## pre-shipped per connection (addEndzonePrewarm) so a steal/return ramp
+  ## never pays sprite bytes at event time. Each (team, stage) crop is baked
+  ## once and cached.
+  let box = sim.endzoneDiffBox(team)
+  if box.x1 < box.x0:
+    return (x: 0, y: 0, w: 0, h: 0, pixels: @[])
+  result.x = box.x0
+  result.y = box.y0
+  result.w = box.x1 - box.x0 + 1
+  result.h = box.y1 - box.y0 + 1
   let s = clamp(stage, 0, GlowFadeStages - 1)
   if EndzoneStripCache[team][s].len == result.w * result.h * 4:
     result.pixels = EndzoneStripCache[team][s]
     return
-  if EndzoneColdRgba.len != MapWidth * MapHeight * 4:
-    EndzoneColdRgba = coldEndzoneMapRgba(sim.gameMap)
   result.pixels = newSeq[uint8](result.w * result.h * 4)
   # t: 0 at stage 0 (all hot/baked glow), 1 at the last stage (all cold).
   let t = s.float / float(GlowFadeStages - 1)
   for y in 0 ..< result.h:
     for x in 0 ..< result.w:
       let
-        src = mapIndex(x0 + x, y) * 4
+        src = mapIndex(box.x0 + x, box.y0 + y) * 4
         dst = (y * result.w + x) * 4
+      if sim.mapRgba[src] == EndzoneColdRgba[src] and
+          sim.mapRgba[src + 1] == EndzoneColdRgba[src + 1] and
+          sim.mapRgba[src + 2] == EndzoneColdRgba[src + 2]:
+        continue                       # identical to the map below: transparent.
       for c in 0 .. 2:
         let
           hot = sim.mapRgba[src + c].float
@@ -807,6 +878,62 @@ proc buildThrowTargetSprite(): seq[uint8] {.measure.} =
         (float(y) - c) * (float(y) - c))
       if d <= c and d >= c - 2.0:                 # a 2px hollow rim
         result.putRawRgbaPixel(y * ThrowTargetSize + x, 255, 190, 70, 210)
+
+proc buildSwordIcon(size: int): seq[uint8] {.measure.} =
+  ## Builds a small, readable sword icon for pickups and carried markers.
+  result = newRgbaPixels(size, size)
+  let center = float(size - 1) / 2
+  for y in 0 ..< size:
+    for x in 0 ..< size:
+      let
+        dx = float(x) - center
+        dy = float(y) - center
+        blade = abs(dx + dy) < 1.5 and dx < center * 0.65
+        guard = abs(dx - dy) < 1.5 and abs(dx) < center * 0.45
+        handle = abs(dx + dy) < 1.6 and dx > center * 0.35
+      if blade:
+        result.putRawRgbaPixel(
+          y * size + x, 230, 238, 242, 235
+        )
+      elif guard:
+        result.putRawRgbaPixel(
+          y * size + x, 247, 190, 70, 245
+        )
+      elif handle:
+        result.putRawRgbaPixel(
+          y * size + x, 92, 56, 36, 245
+        )
+
+proc loadSwordSprite(size: int): seq[uint8] =
+  ## Returns the sword icon at its requested protocol footprint.
+  buildSwordIcon(size)
+
+proc buildSwordSwipeSprite(colorIndex, stage: int): seq[uint8] {.measure.} =
+  ## Builds a team-colored crescent slash with a short fade.
+  result = newRgbaPixels(SwordSwipeSize, SwordSwipeSize)
+  let
+    base = Palette[PlayerColors[colorIndex and 0x0f] and 0x0f]
+    center = float(SwordSwipeSize - 1) / 2
+    radius = float(SwordRange) * 0.82
+    fade = 1.0 - 0.72 * (stage.float /
+      float(max(1, SwordSwipeStages - 1)))
+  for y in 0 ..< SwordSwipeSize:
+    for x in 0 ..< SwordSwipeSize:
+      let
+        dx = float(x) - center
+        dy = float(y) - center
+        distance = sqrt(dx * dx + dy * dy)
+        angle = arctan2(-dy, dx)
+        inArc = angle >= -PI / 4 and angle <= PI / 4
+        onRim = abs(distance - radius) <= 1.8
+      if inArc and onRim:
+        result.putRawRgbaPixel(
+          y * SwordSwipeSize + x,
+          uint8((base.r.int + 255) div 2),
+          uint8((base.g.int + 255) div 2),
+          uint8((base.b.int + 255) div 2),
+          uint8(clamp(255.0 * fade, 0.0, 255.0))
+        )
 
 proc buildBlastSprite(colorIndex, stage: int): seq[uint8] {.measure.} =
   ## The grenade landing: a BIG paint splat in the THROWER's team color — a
@@ -2594,6 +2721,114 @@ proc addRotatingDiamonds(
       spot.cy, MapLayerId, spriteId
     )
 
+proc addSwords(
+  sim: SimServer,
+  spriteDefs: var seq[SpriteDefinition],
+  currentIds: var seq[int],
+  packet: var seq[uint8],
+  viewerIndex = -1
+) {.measure.} =
+  ## Places side-center sword pickups and carried markers.
+  for i in 0 ..< sim.swordSpawns.len:
+    let spawn = sim.swordSpawns[i]
+    if not spawn.present:
+      continue
+    if viewerIndex >= 0 and not sim.fovVisibleAt(viewerIndex, spawn.x, spawn.y):
+      continue
+    if spriteDefs.spriteDefinitionIndex(SwordPickupSpriteId) < 0:
+      packet.addSpriteChanged(
+        spriteDefs,
+        SwordPickupSpriteId,
+        SwordPickupSize,
+        SwordPickupSize,
+        loadSwordSprite(SwordPickupSize),
+        "sword"
+      )
+    let objectId = SwordPickupObjectBase + i
+    currentIds.add(objectId)
+    packet.addObject(
+      objectId,
+      spawn.x - SwordPickupSize div 2,
+      spawn.y - SwordPickupSize div 2,
+      spawn.y,
+      MapLayerId,
+      SwordPickupSpriteId
+    )
+
+  for i in 0 ..< sim.players.len:
+    let player = sim.players[i]
+    if not player.alive or not player.hasSword:
+      continue
+    if viewerIndex >= 0 and i != viewerIndex and
+        not sim.playerVisibleTo(viewerIndex, i):
+      continue
+    if spriteDefs.spriteDefinitionIndex(SwordCarrySpriteId) < 0:
+      packet.addSpriteChanged(
+        spriteDefs,
+        SwordCarrySpriteId,
+        SwordCarrySize,
+        SwordCarrySize,
+        loadSwordSprite(SwordCarrySize),
+        "sword carried"
+      )
+    let objectId = SwordCarryObjectBase + i
+    currentIds.add(objectId)
+    packet.addObject(
+      objectId,
+      player.x + CollisionW div 2 + HpBarWidth div 2 -
+        SwordCarrySize div 2,
+      player.overheadAnchorY() - OverheadYOffset - SwordCarrySize,
+      30006,
+      MapLayerId,
+      SwordCarrySpriteId
+    )
+
+proc addSwordSwipes(
+  sim: SimServer,
+  spriteDefs: var seq[SpriteDefinition],
+  currentIds: var seq[int],
+  packet: var seq[uint8],
+  viewerIndex = -1
+) {.measure.} =
+  ## Places fading sword swipe arcs in front of their attackers.
+  for i in 0 ..< min(sim.swordSwipes.len, SwordMaxSwipes):
+    let swipe = sim.swordSwipes[i]
+    if viewerIndex >= 0 and
+        not sim.fovVisibleAt(viewerIndex, swipe.x, swipe.y):
+      continue
+    let
+      age = max(0, sim.tickCount - swipe.tick)
+      stage = clamp(age * SwordSwipeStages div SwordFxTicks,
+        0, SwordSwipeStages - 1)
+      colorIndex = playerColorIndex(swipe.color)
+      spriteId = SwordSwipeSpriteBase +
+        colorIndex * SwordSwipeStages + stage
+      sweepBrads = SwordArcBrads -
+        min(SwordArcBrads * 2, age * SwordArcBrads * 2 div
+          max(1, SwordFxTicks - 1))
+      (ux, uy) = aimVector(swipe.aimBrads + sweepBrads)
+      px = swipe.x + int(round(ux * float(SwordRange) / 2.0))
+      py = swipe.y + int(round(uy * float(SwordRange) / 2.0))
+    if spriteDefs.spriteDefinitionIndex(spriteId) < 0:
+      packet.addSpriteChanged(
+        spriteDefs,
+        spriteId,
+        SwordSwipeSize,
+        SwordSwipeSize,
+        buildSwordSwipeSprite(colorIndex, stage),
+        "sword swipe"
+      )
+    let objectId = SwordSwipeObjectBase + i
+    currentIds.add(objectId)
+    packet.addObject(
+      objectId,
+      px - SwordSwipeSize div 2,
+      py - SwordSwipeSize div 2,
+      30006,
+      MapLayerId,
+      spriteId
+    )
+
 proc addMedKits(
   sim: SimServer,
   spriteDefs: var seq[SpriteDefinition],
@@ -2623,6 +2858,61 @@ proc addMedKits(
       spawn.x - MedKitSize div 2,
       spawn.y - MedKitSize div 2,
       spawn.y, MapLayerId, MedKitSpriteId
+    )
+
+proc addShields(
+  sim: SimServer,
+  spriteDefs: var seq[SpriteDefinition],
+  currentIds: var seq[int],
+  packet: var seq[uint8],
+  viewerIndex = -1
+) {.measure.} =
+  ## Places the two endzone shield pickups (fog-gated by map position like the
+  ## med kits) plus a small "shield carried" marker over anyone holding one
+  ## (gated on seeing that player). The map/replay view passes no viewer and
+  ## shows all. Sprites are defined lazily on first need per connection.
+  for i in 0 ..< sim.shieldSpawns.len:
+    let spawn = sim.shieldSpawns[i]
+    if not spawn.present:
+      continue
+    if viewerIndex >= 0 and not sim.fovVisibleAt(viewerIndex, spawn.x, spawn.y):
+      continue
+    if spriteDefs.spriteDefinitionIndex(ShieldSpriteId) < 0:
+      packet.addSpriteChanged(
+        spriteDefs, ShieldSpriteId,
+        ShieldSize, ShieldSize,
+        loadShieldSprite(ShieldSize), "shield"
+      )
+    let objectId = ShieldObjectBase + i
+    currentIds.add(objectId)
+    packet.addObject(
+      objectId,
+      spawn.x - ShieldSize div 2,
+      spawn.y - ShieldSize div 2,
+      spawn.y, MapLayerId, ShieldSpriteId
+    )
+
+  for i in 0 ..< sim.players.len:
+    let player = sim.players[i]
+    if not player.alive or not player.hasShield:
+      continue
+    let seeMe = viewerIndex < 0 or i == viewerIndex or
+      sim.playerVisibleTo(viewerIndex, i)
+    if not seeMe:
+      continue
+    if spriteDefs.spriteDefinitionIndex(ShieldCarrySpriteId) < 0:
+      packet.addSpriteChanged(
+        spriteDefs, ShieldCarrySpriteId,
+        ShieldCarrySize, ShieldCarrySize,
+        loadShieldSprite(ShieldCarrySize), "shield carried"
+      )
+    let objectId = ShieldCarryObjectBase + i
+    currentIds.add(objectId)
+    packet.addObject(
+      objectId,
+      player.x + CollisionW div 2 - HpBarWidth div 2 - ShieldCarrySize div 2,
+      player.overheadAnchorY() - OverheadYOffset - ShieldCarrySize,
+      30006, MapLayerId, ShieldCarrySpriteId
     )
 
 proc addGrenades(
@@ -3187,7 +3477,25 @@ proc buildSpriteProtocolPlayerUpdates*(
       result,
       viewerIndex = playerIndex
     )
+    sim.addShields(
+      nextState.spriteDefs,
+      currentIds,
+      result,
+      viewerIndex = playerIndex
+    )
     sim.addGrenades(
+      nextState.spriteDefs,
+      currentIds,
+      result,
+      viewerIndex = playerIndex
+    )
+    sim.addSwords(
+      nextState.spriteDefs,
+      currentIds,
+      result,
+      viewerIndex = playerIndex
+    )
+    sim.addSwordSwipes(
       nextState.spriteDefs,
       currentIds,
       result,
@@ -3500,6 +3808,54 @@ proc addReplayMismatchWarning(
     ReplayMismatchSpriteId
   )
 
+proc endzoneFadeSpriteId(team: Team, stage: int): int =
+  ## Returns the sprite id owned by one team's fade crop at one stage.
+  EndzoneFadeSpriteBase + ord(team) * GlowFadeStages + stage
+
+proc addEndzoneFadeSprite(
+  sim: SimServer,
+  state: var GlobalViewerState,
+  packet: var seq[uint8],
+  team: Team,
+  stage: int
+): tuple[x, y, w, h: int] =
+  ## Ships one team's fade crop for one stage to this viewer (no-op if this
+  ## connection already has it — sprite defs are tracked per viewer) and
+  ## returns its placement box. w == 0 means the hot and cold maps agree and
+  ## there is nothing to fade.
+  let strip = sim.endzoneStripSprite(team, stage)
+  result = (x: strip.x, y: strip.y, w: strip.w, h: strip.h)
+  if strip.w <= 0:
+    return
+  packet.addSpriteChanged(
+    state.spriteDefs,
+    endzoneFadeSpriteId(team, stage),
+    strip.w,
+    strip.h,
+    strip.pixels,
+    "endzone " & (if team == Red: "red" else: "blue") & " power " & $stage
+  )
+
+proc addEndzonePrewarm(
+  sim: SimServer,
+  state: var GlobalViewerState,
+  packet: var seq[uint8]
+) {.measure.} =
+  ## Drips every (team, stage) endzone fade crop to this viewer over the first
+  ## seconds of the connection — one crop every EndzonePrewarmEveryFrames — so
+  ## a later steal/return ramp is a pure object remap instead of a ~200 KB
+  ## sprite send per frame right at the dramatic moment. Crops the fade ramp
+  ## already shipped on demand are skipped by the per-viewer sprite-def check.
+  let pairCount = 2 * (GlowFadeStages - 1)     # stages 1..7 per team; 0 never draws.
+  let pairIndex = state.endzonePrewarmFrames div EndzonePrewarmEveryFrames
+  if state.endzonePrewarmFrames mod EndzonePrewarmEveryFrames == 0 and
+      pairIndex < pairCount:
+    let
+      team = if pairIndex < GlowFadeStages - 1: Red else: Blue
+      stage = 1 + pairIndex mod (GlowFadeStages - 1)
+    discard sim.addEndzoneFadeSprite(state, packet, team, stage)
+  inc state.endzonePrewarmFrames
+
 proc addEndzoneGlowFade(
   sim: SimServer,
   state: var GlobalViewerState,
@@ -3509,7 +3865,7 @@ proc addEndzoneGlowFade(
   ## Powers each team's endzone crack-glow + capture line down when that team's
   ## heart is taken (flag.carrier >= 0) and back up when it comes home, by
   ## ramping a per-team crossfade stage ±1 per frame and drawing the matching
-  ## endzone strip crop just above the map (z below every floor decal/actor).
+  ## endzone fade crop just above the map (z below every floor decal/actor).
   ## Spectator/broadcast only — the shared map sprite and the POV/RL view are
   ## never touched, and stage 0 is a visual no-op (the baked glow itself).
   for team in Team:
@@ -3521,27 +3877,18 @@ proc addEndzoneGlowFade(
     let stage = state.endzoneFade[team]
     if stage <= 0:
       continue                         # full glow: the baked map already shows it.
-    let (x0, _) = sim.gameMap.endzoneStripRange(team)
-    let strip = sim.endzoneStripSprite(team, stage)
-    let spriteId = EndzoneFadeSpriteBase + ord(team)
+    let box = sim.addEndzoneFadeSprite(state, packet, team, stage)
+    if box.w <= 0:
+      continue                         # hot and cold maps agree: nothing to fade.
     let objectId = EndzoneFadeObjectBase + ord(team)
     currentIds.add(objectId)
-    packet.addSpriteChanged(
-      state.spriteDefs,
-      spriteId,
-      strip.w,
-      strip.h,
-      strip.pixels,
-      "endzone " & (if team == Red: "red" else: "blue") & " power " & $stage,
-      changed = false     # label encodes the stage → re-sent only on change.
-    )
     packet.addObject(
       objectId,
-      x0,
-      0,
+      box.x,
+      box.y,
       low(int16) + 1,                  # just above the map, below all decals/actors.
       MapLayerId,
-      spriteId
+      endzoneFadeSpriteId(team, stage)
     )
 
 proc buildSpriteProtocolUpdates*(
@@ -3687,13 +4034,17 @@ proc buildSpriteProtocolUpdates*(
     result,
     nextState.selectedJoinOrder
   )
+  sim.addEndzonePrewarm(nextState, result)
   sim.addEndzoneGlowFade(nextState, currentIds, result)
   sim.addSplatters(nextState.spriteDefs, currentIds, result)
   sim.addDamagePops(nextState.spriteDefs, currentIds, result)
   sim.addShotTracers(nextState.spriteDefs, currentIds, result)
   sim.addRotatingDiamonds(nextState.spriteDefs, currentIds, result)
   sim.addMedKits(nextState.spriteDefs, currentIds, result)
+  sim.addShields(nextState.spriteDefs, currentIds, result)
   sim.addGrenades(nextState.spriteDefs, currentIds, result)
+  sim.addSwords(nextState.spriteDefs, currentIds, result)
+  sim.addSwordSwipes(nextState.spriteDefs, currentIds, result)
   sim.addShouts(nextState.spriteDefs, currentIds, result)
   sim.addAimIndicators(nextState.spriteDefs, currentIds, result)
   sim.addHpPips(nextState.spriteDefs, currentIds, result)

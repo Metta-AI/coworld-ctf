@@ -224,7 +224,11 @@
     // once — never discard, or sprite/object state corrupts.
     const paceEnabled = config.playoutBuffer !== false;
     const onFrame = config.onFrame || null;
-    const PACE_TARGET_DEPTH = config.paceTargetDepth || 3;
+    // 12 frames ≈ 500ms at 24fps: replay playback has no latency budget, so a
+    // deep cushion that rides out measured WAN delivery stalls (p99 ≈ 400-500ms
+    // against production, July 2026) beats the responsiveness a live viewer
+    // would want. Live surfaces pass their own paceTargetDepth.
+    const PACE_TARGET_DEPTH = config.paceTargetDepth || 12;
     const PACE_MAX_DEPTH = PACE_TARGET_DEPTH + 7;
     const PACE_HARD_QUEUE = 240;
     const PACE_MIN_INTERVAL = 1000 / 60;

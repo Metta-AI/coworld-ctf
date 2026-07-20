@@ -9,7 +9,7 @@ when not defined(emscripten):
 
 const
   GameName* = "ctf"
-  GameVersion* = "5"
+  GameVersion* = "9"
   ReplayFps* = 24
   DefaultMapPath* = "arena"
   DarkBgPath* = "data/darkbg.aseprite"
@@ -19,22 +19,27 @@ const
   SpriteSize* = 12
   CrewSpriteSize* = 16
   CrewSpriteVariants* = 8
-  ## HD top-down soldier: one hand-painted per-team master (soldier_red/blue.png)
-  ## rendered gun-east, pre-rotated into SoldierRotations aim steps so the held
-  ## paintball marker sweeps with the aim. The body (helmet) is sized to the
-  ## legacy 16px crew footprint; the canvas is larger only so the extended gun
-  ## never clips as it swings around. Emitted through the existing player sprite
-  ## id pool (16 ids per color) — this replaces the flat 8-variant + h-flip crew.
-  SoldierRotations* = 16      ## pre-rotated aim steps (16 brads apart).
-  SoldierCanvas* = 40         ## px square sprite canvas (fits the swinging gun).
-  SoldierBodyPx* = 16         ## helmet diameter target = legacy crew footprint.
+  ## HD top-down soldier: the real Cogs-vs-Clips cog, one tinted master per team
+  ## (soldier_red/blue.png, facing SOUTH, smile visor visible) plus the shared
+  ## paintball gun master (paintgun.png, muzzle east). Body and gun are mounted
+  ## as ONE rigid unit — the gun held in FRONT of the face, both pointing the
+  ## same way — and pre-rotated together through SoldierRotations aim steps:
+  ## the cog looks where it aims. The canvas is larger than the body only so
+  ## the extended gun never clips as the unit rotates. Emitted through the
+  ## existing player sprite id pool (16 ids per color) — this replaces the
+  ## flat 8-variant + h-flip crew.
+  SoldierRotations* = 16      ## pre-rendered aim steps (16 brads apart).
+  SoldierCanvas* = 72         ## px square sprite canvas (fits the swinging gun).
+  SoldierBodyPx* = 34         ## cog body target size on the map (full-body unit).
+  GunLengthPx* = 26           ## gun master length on the map, grip to muzzle.
+  GunGripPx* = 8              ## gun grip offset from the body center, along aim.
   CollisionW* = 1
   CollisionH* = 1
   PlayerHalf* = 6             ## half-extent of the solid player footprint, in px.
   SpriteDrawOffX* = 8
   SpriteDrawOffY* = 8
-  ## Draw offset for the rotated soldier: place the canvas so its center lands on
-  ## the player position (canvas center = the helmet pivot).
+  ## Draw offset for the soldier: place the canvas so its center lands on
+  ## the player position (canvas center = the body pivot).
   SoldierDrawOff* = SoldierCanvas div 2
   MotionScale* = 256
   Accel* = 76
@@ -111,6 +116,18 @@ const
 
   MedKitPickupRange* = 12     ## touch radius to pick a med kit up.
   MedKitRespawnTicks* = 30 * ReplayFps  ## a taken kit refills after 30s.
+  SwordSpawnInset* = GrenadeSpawnInset
+  SwordPickupRange* = 12
+  SwordRespawnTicks* = 30 * ReplayFps
+  SwordRange* = 26
+  SwordArcBrads* = 32
+  SwordFxTicks* = 8
+
+  ShieldPickupRange* = 12     ## touch radius to pick a shield up.
+  ShieldRespawnTicks* = 30 * ReplayFps  ## a taken endzone shield refills after 30s.
+  ShieldHitPoints* = 6        ## hit points a shield carrier has while carrying.
+  ShieldFireSlowdown* = 3     ## a shield carrier's fire cooldown is this many
+                              ## times longer (3x slower fire rate).
 
   ShoutMaxChars* = 10         ## a shout is at most this many characters.
   ShoutRange* = MapWidth div 5  ## audible within 20% of the screen width.
@@ -326,6 +343,8 @@ type
     spawnProtect*: int
     carryingFlag*: bool
     hasGrenade*: bool          ## each player carries at most one grenade.
+    hasShield*: bool           ## carrying an endzone shield: 6 hp, 3x slower fire.
+    hasSword*: bool            ## each player carries at most one sword.
     throwCharge*: int          ## ticks the throw button has been held.
     lastShoutTick*: int        ## tick of this player's latest shout, -1 = never.
     joinOrder*: int
@@ -370,6 +389,13 @@ type
     tick*: int
     color*: uint8              ## the thrower's paint color, so the landing
                                ## splat reads as that team's paint-bomb.
+
+  SwordFx* = object
+    ## A cosmetic melee swipe; never enters gameHash (replay-safe).
+    x*, y*: int
+    aimBrads*: int
+    tick*: int
+    color*: uint8
 
   DamageFx* = object
     ## A cosmetic floating "-N" damage number that rises and fades above a
@@ -437,7 +463,10 @@ type
     recentShouts*: seq[Shout]  ## live shouts; observable state, in gameHash.
     grenadeSpawns*: array[4, PickupSpawn]
     medKitSpawns*: array[2, PickupSpawn]
+    shieldSpawns*: array[2, PickupSpawn]  ## one shield per team endzone.
+    swordSpawns*: array[2, PickupSpawn]
     airborneGrenades*: seq[AirborneGrenade]
+    swordSwipes*: seq[SwordFx]
     gameStartTick*: int
     startWaitTimer*: int
     phase*: GamePhase
@@ -592,65 +621,64 @@ proc loadMedKitSprite*(size: int): seq[uint8] =
   ## bomb). Hard alpha edge keeps the outline crisp on the floor.
   loadRgbaSprite("data/medkit.png", size, alphaCutoff = 128'u8)
 
+proc loadShieldSprite*(size: int): seq[uint8] =
+  ## The endzone protective pickup: a chunky bold-outline heater shield in the
+  ## same painted-item style as the med kit and paint bomb. Hard alpha edge
+  ## keeps the outline crisp on the floor.
+  loadRgbaSprite("data/shield.png", size, alphaCutoff = 128'u8)
+
 proc loadPaintBombSprite*(size: int): seq[uint8] =
   ## The thrown grenade, a kid-friendly dungeon-crawler alchemical paint-bomb orb
   ## (cork-stopped rune bottle of swirling paint — NO fuse). Used for the corner
   ## pickup, the carried icon, and the in-flight projectile.
   loadRgbaSprite("data/paintbomb.png", size)
 
-## --- HD top-down soldier: pre-rotated per-team masters ---
-## Each team's master (gun pointing east = aim brads 0) is measured for its
-## helmet pivot, scaled so the helmet fills SoldierBodyPx, and pre-rotated into
-## SoldierRotations canvases. Rotations pivot on the helmet center so the body
-## spins in place and the gun sweeps — the same method David uses for HD crew,
-## but rasterized at map scale and emitted on our existing sprite ids.
+## --- HD top-down soldier: CvC cog + gun, rotated as one rigid unit ---
+## Each team's master (soldier_red/blue.png) is the canonical Cogs-vs-Clips cog
+## facing SOUTH, smile visor visible, used exactly as drawn. It is measured for
+## its body pivot (solid-pixel centroid) and scaled so the body fills
+## SoldierBodyPx. The shared gun master (paintgun.png: muzzle east, barrel
+## centerline at image mid-height) mounts GunGripPx east of the body center
+## with its barrel on the aim ray, and body + gun pre-rotate TOGETHER around
+## the body center — the cog spins with its gun, so east aim (rot 0) shows the
+## master exactly as drawn and tracers always line up with the muzzle.
 var
   soldierMasters: array[Team, Image]
   soldierPivotX, soldierPivotY: array[Team, float]
   soldierScale: array[Team, float]
   soldierLoaded: array[Team, bool]
   soldierRotCache: array[Team, array[SoldierRotations, seq[uint8]]]
+  gunMaster: Image
+  gunScale: float
+  gunLoaded: bool
 
 proc soldierMasterPath(team: Team): string =
   if team == Red: "data/soldier_red.png" else: "data/soldier_blue.png"
 
 proc measureSoldierBody(team: Team, master: Image) =
-  ## Finds the helmet pivot and the master->canvas scale. The paintball marker
-  ## is a long appendage to the east, so the body (helmet + shoulders) lives in
-  ## the left ~50% of the opaque bounding box; we pivot on that region's
-  ## centroid and size its vertical span to SoldierBodyPx.
-  var
-    minX = master.width
-    maxX = -1
-    minY = master.height
-    maxY = -1
-  for y in 0 ..< master.height:
-    for x in 0 ..< master.width:
-      if master.data[y * master.width + x].a >= 64:
-        minX = min(minX, x); maxX = max(maxX, x)
-        minY = min(minY, y); maxY = max(maxY, y)
-  if maxX < minX:
-    minX = 0; maxX = master.width - 1; minY = 0; maxY = master.height - 1
-  let limX = minX + (maxX - minX + 1) div 2   ## helmet band = left half.
+  ## Finds the body pivot and the master->canvas scale: the centroid and
+  ## vertical span of the SOLID pixels (alpha >= 200 — the cog shell; the
+  ## baked-in soft drop shadow sits below that and is excluded, so the cog
+  ## itself, not its shadow, is what centers and fills SoldierBodyPx).
   var
     sumX = 0.0
     sumY = 0.0
     n = 0
-    hTop = master.height
-    hBot = -1
+    top = master.height
+    bot = -1
   for y in 0 ..< master.height:
-    for x in minX ..< limX:
-      if master.data[y * master.width + x].a >= 64:
+    for x in 0 ..< master.width:
+      if master.data[y * master.width + x].a >= 200:
         sumX += float(x); sumY += float(y); inc n
-        hTop = min(hTop, y); hBot = max(hBot, y)
+        top = min(top, y); bot = max(bot, y)
   if n == 0:
-    soldierPivotX[team] = float(minX + maxX) / 2
-    soldierPivotY[team] = float(minY + maxY) / 2
-    soldierScale[team] = float(SoldierBodyPx) / max(1.0, float(maxY - minY + 1))
+    soldierPivotX[team] = float(master.width) / 2
+    soldierPivotY[team] = float(master.height) / 2
+    soldierScale[team] = float(SoldierBodyPx) / max(1.0, float(master.height))
   else:
     soldierPivotX[team] = sumX / float(n)
     soldierPivotY[team] = sumY / float(n)
-    soldierScale[team] = float(SoldierBodyPx) / max(1.0, float(hBot - hTop + 1))
+    soldierScale[team] = float(SoldierBodyPx) / max(1.0, float(bot - top + 1))
 
 proc ensureSoldierLoaded(team: Team) =
   if soldierLoaded[team]:
@@ -660,12 +688,23 @@ proc ensureSoldierLoaded(team: Team) =
   measureSoldierBody(team, master)
   soldierLoaded[team] = true
 
+proc ensureGunLoaded() =
+  if gunLoaded:
+    return
+  gunMaster = readImage(gameDir() / "data/paintgun.png")
+  gunScale = float(GunLengthPx) / max(1.0, float(gunMaster.width))
+  gunLoaded = true
+
 proc soldierRotPixels*(team: Team, rot: int): seq[uint8] =
-  ## One pre-rotated soldier sprite (SoldierCanvas square, straight-alpha RGBA).
+  ## One pre-rendered soldier sprite (SoldierCanvas square, straight-alpha
+  ## RGBA): body + gun as one rigid unit, rotated to aim step `rot`. The
+  ## master's FACE side (south) leads the aim with the gun held in front of
+  ## it — aiming south shows the master exactly as drawn.
   let r = ((rot mod SoldierRotations) + SoldierRotations) mod SoldierRotations
   if soldierRotCache[team][r].len > 0:
     return soldierRotCache[team][r]
   ensureSoldierLoaded(team)
+  ensureGunLoaded()
   let
     master = soldierMasters[team]
     # aim increases counter-clockwise on screen (0=east, 64=north); screen y is
@@ -673,13 +712,31 @@ proc soldierRotPixels*(team: Team, rot: int): seq[uint8] =
     # i.e. draw at angle -theta to match aimVector.
     angle = float(r) * 2.0 * PI / float(SoldierRotations)
     s = soldierScale[team]
+    center = float32(SoldierCanvas) / 2
   var canvas = newImage(SoldierCanvas, SoldierCanvas)
-  let mat =
-    translate(vec2(float32(SoldierCanvas) / 2, float32(SoldierCanvas) / 2)) *
-    rotate(float32(-angle)) *
-    scale(vec2(float32(s), float32(s))) *
-    translate(vec2(float32(-soldierPivotX[team]), float32(-soldierPivotY[team])))
-  canvas.draw(master, mat)
+  let
+    unitRot =
+      translate(vec2(center, center)) *
+      rotate(float32(-angle))
+    # Unit space: +x = aim. The extra -90° turns the master so its SOUTH side
+    # (the smile visor) points along +x — the face leads the aim, right behind
+    # the gun.
+    bodyMat =
+      unitRot *
+      rotate(float32(-PI / 2)) *
+      scale(vec2(float32(s), float32(s))) *
+      translate(
+        vec2(float32(-soldierPivotX[team]), float32(-soldierPivotY[team]))
+      )
+    # Gun-local (0, height/2) — the grip end of the barrel centerline — mounts
+    # GunGripPx east of the body center and spins with the unit.
+    gunMat =
+      unitRot *
+      translate(vec2(float32(GunGripPx), 0)) *
+      scale(vec2(float32(gunScale), float32(gunScale))) *
+      translate(vec2(0, float32(-gunMaster.height) / 2))
+  canvas.draw(master, bodyMat)
+  canvas.draw(gunMaster, gunMat)
   # Straight-alpha RGBA for the Sprite v1 protocol (pixie stores premultiplied).
   var pixels = newSeq[uint8](SoldierCanvas * SoldierCanvas * 4)
   for i in 0 ..< SoldierCanvas * SoldierCanvas:
@@ -697,9 +754,8 @@ proc soldierRotIndex*(aimBrads: int): int =
     SoldierRotations div AimBradsTurn) mod SoldierRotations
 
 proc soldierIconPixels*(team: Team, sizePx: int): seq[uint8] =
-  ## A compact roster chip: the east-facing soldier scaled so the helmet body
-  ## fills the icon (a stub of gun barrel clips at the right edge — reads as
-  ## "armed" without the full sweep-canvas footprint). Used by the game-over list.
+  ## A compact roster chip: the face-on cog scaled so the body fills the icon
+  ## (no gun — the smile visor IS the identity). Used by the game-over list.
   ensureSoldierLoaded(team)
   let
     master = soldierMasters[team]
@@ -932,9 +988,10 @@ proc inShape(x, y: int, shape: ArenaShape): bool =
         y > max(shape.y0, shape.y1) + half:
       false
     else:
+      # 64-bit throughout: dx*dx + dy*dy reaches ~2.2e9 for these segments,
+      # past int32 max, so on a 32-bit target (wasm) the plain-int form would
+      # overflow. int64 is exact on every target and the comparison is unchanged.
       let
-        # These squared distance intermediates exceed 32-bit `int` on the
-        # 1235x659 map. Keep the native and wasm32 geometry identical.
         vx = int64(shape.x1 - shape.x0)
         vy = int64(shape.y1 - shape.y0)
         wx = int64(x - shape.x0)
@@ -2012,6 +2069,8 @@ proc gameHash*(sim: SimServer): uint64 =
     result.mixHashInt(player.spawnProtect)
     result.mixHashBool(player.carryingFlag)
     result.mixHashBool(player.hasGrenade)
+    result.mixHashBool(player.hasShield)
+    result.mixHashBool(player.hasSword)
     result.mixHashInt(player.throwCharge)
     result.mixHashInt(player.lastShoutTick)
     result.mixHashInt(player.joinOrder)
@@ -2027,6 +2086,12 @@ proc gameHash*(sim: SimServer): uint64 =
     result.mixHashBool(spawn.present)
     result.mixHashInt(spawn.respawnAt)
   for spawn in sim.medKitSpawns:
+    result.mixHashBool(spawn.present)
+    result.mixHashInt(spawn.respawnAt)
+  for spawn in sim.shieldSpawns:
+    result.mixHashBool(spawn.present)
+    result.mixHashInt(spawn.respawnAt)
+  for spawn in sim.swordSpawns:
     result.mixHashBool(spawn.present)
     result.mixHashInt(spawn.respawnAt)
   result.mixHashInt(sim.airborneGrenades.len)
@@ -2743,6 +2808,46 @@ proc resetMedKits*(sim: var SimServer) =
       x: spot.x, y: spot.y, present: true, respawnAt: 0
     )
 
+proc resetShields*(sim: var SimServer) =
+  ## Places one shield deep in each team's endzone, in the same back column
+  ## as the corner grenade pickups but in the BOTTOM half (three quarters of
+  ## the map height down) — the swords hold the matching top-half spots —
+  ## nudged to the nearest walkable floor, and refills both.
+  let
+    inset = ArenaBorder + GrenadeSpawnInset
+    endzoneY = 3 * MapHeight div 4
+    targets = [
+      (inset, endzoneY),
+      (MapWidth - inset, endzoneY)
+    ]
+  for i in 0 ..< sim.shieldSpawns.len:
+    let spot = sim.nearestWalkable(targets[i][0], targets[i][1])
+    sim.shieldSpawns[i] = PickupSpawn(
+      x: spot.x, y: spot.y, present: true, respawnAt: 0
+    )
+  for i in 0 ..< sim.players.len:
+    sim.players[i].hasShield = false
+proc swordSpawnPoints*(): array[2, tuple[x, y: int]] =
+  ## The two sword spawn points, nudged to walkable floor: the same side
+  ## back columns as the shields, but in the TOP half (a quarter of the map
+  ## height down) so the two pickups no longer sit on top of each other —
+  ## swords high, shields low.
+  let inset = ArenaBorder + SwordSpawnInset
+  [(inset, MapHeight div 4),
+    (MapWidth - inset, MapHeight div 4)]
+
+proc resetSwords*(sim: var SimServer) =
+  ## Refills both side-center sword pickups and clears carried swords.
+  let points = swordSpawnPoints()
+  for i in 0 ..< sim.swordSpawns.len:
+    let spot = sim.nearestWalkable(points[i].x, points[i].y)
+    sim.swordSpawns[i] = PickupSpawn(
+      x: spot.x, y: spot.y, present: true, respawnAt: 0
+    )
+  sim.swordSwipes = @[]
+  for i in 0 ..< sim.players.len:
+    sim.players[i].hasSword = false
+
 proc startGame*(sim: var SimServer) =
   sim.logGameEvent("game started: players=" & $sim.players.len)
   sim.recentShots = @[]
@@ -2763,6 +2868,7 @@ proc startGame*(sim: var SimServer) =
     sim.players[i].flipH = sim.players[i].team == Blue
     sim.players[i].spawnProtect = sim.config.spawnProtectTicks
     sim.players[i].carryingFlag = false
+    sim.players[i].hasShield = false
     sim.players[i].kills = 0
     sim.players[i].deaths = 0
     sim.players[i].captures = 0
@@ -2771,6 +2877,8 @@ proc startGame*(sim: var SimServer) =
     sim.recordGameTeamAssigned(i)
   sim.resetFlags()
   sim.resetGrenades()
+  sim.resetShields()
+  sim.resetSwords()
   sim.phase = Playing
   sim.gameStartTick = sim.tickCount
   sim.timeLimitReached = false
@@ -2943,7 +3051,7 @@ proc lineOfSightClear(sim: SimServer, ax, ay, bx, by: int): bool =
       return false
   true
 
-proc killPlayer(sim: var SimServer, targetIndex, killerIndex: int) =
+proc killPlayer*(sim: var SimServer, targetIndex, killerIndex: int) =
   ## Applies a fatal hit: return any carried flag to its pedestal, decrement
   ## lives, start respawn.
   if targetIndex < 0 or targetIndex >= sim.players.len:
@@ -2958,6 +3066,8 @@ proc killPlayer(sim: var SimServer, targetIndex, killerIndex: int) =
   sim.players[targetIndex].fireWindup = 0
   sim.players[targetIndex].windupBrads = -1
   sim.players[targetIndex].hasGrenade = false
+  sim.players[targetIndex].hasShield = false
+  sim.players[targetIndex].hasSword = false
   sim.players[targetIndex].throwCharge = 0
   for team in Team:
     if sim.flags[team].carrier == targetIndex:
@@ -2986,12 +3096,91 @@ proc killPlayer(sim: var SimServer, targetIndex, killerIndex: int) =
     else:
       0
 
-proc canFire(sim: SimServer, shooterIndex: int): bool =
+proc canFire*(sim: SimServer, shooterIndex: int): bool =
   ## Returns whether one player is able to fire a shot right now.
   if shooterIndex < 0 or shooterIndex >= sim.players.len:
     return false
   let shooter = sim.players[shooterIndex]
-  shooter.alive and shooter.fireCooldown <= 0
+  shooter.alive and shooter.fireCooldown <= 0 and not shooter.hasSword
+
+proc canSwing*(sim: SimServer, attackerIndex: int): bool =
+  ## Returns whether one player can perform an immediate sword swing.
+  if attackerIndex < 0 or attackerIndex >= sim.players.len:
+    return false
+  let attacker = sim.players[attackerIndex]
+  attacker.alive and attacker.hasSword and attacker.fireCooldown <= 0
+
+proc selectSwingVictims(
+  sim: SimServer,
+  attackerIndex: int
+): seq[int] =
+  ## Returns every living player inside the attacker's forward sword arc.
+  if not sim.canSwing(attackerIndex):
+    return @[]
+  let
+    attacker = sim.players[attackerIndex]
+    ax = attacker.x + CollisionW div 2
+    ay = attacker.y + CollisionH div 2
+    (ux, uy) = aimVector(attacker.aimBrads)
+    maxDistance = float(SwordRange)
+    arcTan = tan(float(SwordArcBrads) * 2.0 * PI /
+      float(AimBradsTurn))
+  for i in 0 ..< sim.players.len:
+    if i == attackerIndex or not sim.players[i].alive:
+      continue
+    if sim.players[i].spawnProtect > 0:
+      continue
+    let
+      vx = float(sim.players[i].x + CollisionW div 2 - ax)
+      vy = float(sim.players[i].y + CollisionH div 2 - ay)
+      distanceSq = vx * vx + vy * vy
+      forward = vx * ux + vy * uy
+      perpendicular = abs(vx * uy - vy * ux)
+    if distanceSq > maxDistance * maxDistance or forward <= 0:
+      continue
+    if perpendicular > forward * arcTan:
+      continue
+    if not sim.lineOfSightClear(
+      ax,
+      ay,
+      sim.players[i].x + CollisionW div 2,
+      sim.players[i].y + CollisionH div 2
+    ):
+      continue
+    result.add(i)
+
+proc applySwing(
+  sim: var SimServer,
+  attackerIndex: int,
+  victims: openArray[int]
+) =
+  ## Applies one immediate sword swing and records its cosmetic swipe.
+  if attackerIndex < 0 or attackerIndex >= sim.players.len:
+    return
+  let attacker = sim.players[attackerIndex]
+  sim.players[attackerIndex].fireCooldown = sim.config.fireCooldownTicks
+  sim.swordSwipes.add SwordFx(
+    x: attacker.x + CollisionW div 2,
+    y: attacker.y + CollisionH div 2,
+    aimBrads: attacker.aimBrads,
+    tick: sim.tickCount,
+    color: teamColor(attacker.team)
+  )
+  sim.logGameEvent(playerColorText(attacker.color) & " swung a sword")
+  for victimIndex in victims:
+    if victimIndex < 0 or victimIndex >= sim.players.len:
+      continue
+    if sim.players[victimIndex].alive:
+      sim.killPlayer(victimIndex, attackerIndex)
+      if victimIndex != attackerIndex:
+        sim.recordKill(attackerIndex)
+
+proc trySwing*(sim: var SimServer, attackerIndex: int) =
+  ## Performs one sword swing immediately for direct callers and tests.
+  if not sim.canSwing(attackerIndex):
+    return
+  let victims = sim.selectSwingVictims(attackerIndex)
+  sim.applySwing(attackerIndex, victims)
 
 proc fireDirection(sim: SimServer, shooterIndex: int): tuple[x, y: float] =
   ## Returns the unit shot direction: the aim angle locked at the trigger
@@ -3048,7 +3237,11 @@ proc applyFire(sim: var SimServer, shooterIndex, targetIndex: int) =
     (ux, uy) = sim.fireDirection(shooterIndex)
     sx = shooter.x + CollisionW div 2
     sy = shooter.y + CollisionH div 2
-  sim.players[shooterIndex].fireCooldown = sim.config.fireCooldownTicks
+  sim.players[shooterIndex].fireCooldown =
+    if shooter.hasShield:
+      sim.config.fireCooldownTicks * ShieldFireSlowdown
+    else:
+      sim.config.fireCooldownTicks
   sim.players[shooterIndex].windupBrads = -1
   # Accuracy bookkeeping (analysis-only, excluded from gameHash): every call
   # here is one released shot; a shot that locked onto a live enemy on the ray
@@ -3292,6 +3485,12 @@ proc updateMedKits*(sim: var SimServer) =
     if not spawn.present and sim.tickCount >= spawn.respawnAt:
       spawn.present = true
 
+proc updateSwords*(sim: var SimServer) =
+  ## Refills side-center sword pickups whose respawn timer elapsed.
+  for spawn in sim.swordSpawns.mitems:
+    if not spawn.present and sim.tickCount >= spawn.respawnAt:
+      spawn.present = true
+
 proc tryPickupMedKits*(sim: var SimServer, playerIndex: int) =
   ## Lets a hurt living player pick up a center med kit by touch, restoring
   ## hit points back to full. A healthy player walks over it untouched, so a
@@ -3312,6 +3511,56 @@ proc tryPickupMedKits*(sim: var SimServer, playerIndex: int) =
       sim.logGameEvent(
         playerColorText(sim.players[playerIndex].color) &
           " picked up a med kit"
+      )
+      return
+
+proc updateShields*(sim: var SimServer) =
+  ## Refills endzone shields whose respawn timer elapsed.
+  for spawn in sim.shieldSpawns.mitems:
+    if not spawn.present and sim.tickCount >= spawn.respawnAt:
+      spawn.present = true
+
+proc tryPickupShields*(sim: var SimServer, playerIndex: int) =
+  ## Lets a living player pick up an endzone shield by touch (one carried
+  ## shield max; either team may take either endzone's shield). Carrying a
+  ## shield raises the player to ShieldHitPoints but slows their fire rate
+  ## ShieldFireSlowdown times; a taken shield refills after ShieldRespawnTicks.
+  if not sim.players[playerIndex].alive or sim.players[playerIndex].hasShield:
+    return
+  let
+    px = sim.players[playerIndex].x + CollisionW div 2
+    py = sim.players[playerIndex].y + CollisionH div 2
+    rangeSq = ShieldPickupRange * ShieldPickupRange
+  for spawn in sim.shieldSpawns.mitems:
+    if spawn.present and distSq(px, py, spawn.x, spawn.y) <= rangeSq:
+      spawn.present = false
+      spawn.respawnAt = sim.tickCount + ShieldRespawnTicks
+      sim.players[playerIndex].hasShield = true
+      sim.players[playerIndex].hp = ShieldHitPoints
+      sim.logGameEvent(
+        playerColorText(sim.players[playerIndex].color) &
+          " picked up a shield"
+      )
+      return
+
+proc tryPickupSwords*(sim: var SimServer, playerIndex: int) =
+  ## Lets a living player pick up one side-center sword by touch.
+  if not sim.players[playerIndex].alive or sim.players[playerIndex].hasSword:
+    return
+  let
+    px = sim.players[playerIndex].x + CollisionW div 2
+    py = sim.players[playerIndex].y + CollisionH div 2
+    rangeSq = SwordPickupRange * SwordPickupRange
+  for spawn in sim.swordSpawns.mitems:
+    if spawn.present and distSq(px, py, spawn.x, spawn.y) <= rangeSq:
+      spawn.present = false
+      spawn.respawnAt = sim.tickCount + SwordRespawnTicks
+      sim.players[playerIndex].hasSword = true
+      sim.players[playerIndex].fireWindup = 0
+      sim.players[playerIndex].windupBrads = -1
+      sim.logGameEvent(
+        playerColorText(sim.players[playerIndex].color) &
+          " picked up a sword"
       )
       return
 
@@ -3383,6 +3632,19 @@ proc resolveSimultaneousFire*(sim: var SimServer, shooters: openArray[int]) =
       shots.add((shooterIndex, sim.selectFireTarget(shooterIndex)))
   for shot in shots:
     sim.applyFire(shot.shooter, shot.target)
+
+proc resolveSimultaneousSwings*(
+  sim: var SimServer,
+  attackers: openArray[int]
+) =
+  ## Resolves every sword swing this tick against the same post-movement
+  ## snapshot, so mutual melee kills have no input-order advantage.
+  var swings: seq[tuple[attacker: int, victims: seq[int]]] = @[]
+  for attackerIndex in attackers:
+    if sim.canSwing(attackerIndex):
+      swings.add((attackerIndex, sim.selectSwingVictims(attackerIndex)))
+  for swing in swings:
+    sim.applySwing(swing.attacker, swing.victims)
 
 proc tryPickupFlags*(sim: var SimServer, playerIndex: int) =
   ## Lets a living player steal the ENEMY team's flag off its pedestal by
@@ -3950,6 +4212,8 @@ proc initSimServer*(config: GameConfig): SimServer =
   result.resetFlags()
   result.resetGrenades()
   result.resetMedKits()
+  result.resetShields()
+  result.resetSwords()
   result.lastLobbyPlayersLogged = -1
   result.lastLobbyNeededLogged = -1
   result.lastLobbySecondsLogged = -1
@@ -3960,7 +4224,10 @@ proc resetToLobby*(sim: var SimServer) =
   sim.fovCaches = @[]
   sim.resetGrenades()
   sim.resetMedKits()
+  sim.resetShields()
+  sim.resetSwords()
   sim.recentBlasts = @[]
+  sim.swordSwipes = @[]
   sim.recentShouts = @[]
   sim.recentShots = @[]
   sim.splatters = @[]
@@ -4048,7 +4315,9 @@ proc step*(
   # advantage). A fresh trigger pull arms a windup with the aim locked at the
   # pull; the bullet leaves fireWindupTicks later from the shooter's current
   # position, so a target that ducks back behind cover survives the shot.
-  var firing: seq[int] = @[]
+  var
+    firing: seq[int] = @[]
+    swinging: seq[int] = @[]
   for playerIndex in 0 ..< sim.players.len:
     if sim.players[playerIndex].fireCooldown > 0:
       dec sim.players[playerIndex].fireCooldown
@@ -4065,19 +4334,28 @@ proc step*(
     sim.applyInput(playerIndex, input)
     sim.applyGrenadeInput(playerIndex, input, prev)
     if input.attack and not prev.attack:
-      if sim.config.fireWindupTicks <= 0:
-        if sim.canFire(playerIndex) and sim.players[playerIndex].fireWindup == 0:
-          firing.add(playerIndex)
+      if sim.players[playerIndex].hasSword:
+        if sim.canSwing(playerIndex):
+          swinging.add(playerIndex)
       else:
-        sim.startFireWindup(playerIndex)
+        if sim.config.fireWindupTicks <= 0:
+          if sim.canFire(playerIndex) and sim.players[playerIndex].fireWindup == 0:
+            firing.add(playerIndex)
+        else:
+          sim.startFireWindup(playerIndex)
   sim.resolveSimultaneousFire(firing)
+  sim.resolveSimultaneousSwings(swinging)
   sim.updateGrenades()
   sim.updateMedKits()
+  sim.updateShields()
+  sim.updateSwords()
 
   for playerIndex in 0 ..< sim.players.len:
     sim.tryPickupFlags(playerIndex)
     sim.tryPickupGrenades(playerIndex)
     sim.tryPickupMedKits(playerIndex)
+    sim.tryPickupShields(playerIndex)
+    sim.tryPickupSwords(playerIndex)
   sim.updateFlags()
   sim.respawnPlayers()
 
@@ -4096,6 +4374,11 @@ proc step*(
     if sim.tickCount - blast.tick < BlastFxTicks:
       keptBlasts.add blast
   sim.recentBlasts = keptBlasts
+  var keptSwordSwipes: seq[SwordFx] = @[]
+  for swipe in sim.swordSwipes:
+    if sim.tickCount - swipe.tick < SwordFxTicks:
+      keptSwordSwipes.add swipe
+  sim.swordSwipes = keptSwordSwipes
 
   # Expire old shouts. Unlike the cosmetic effects above, shouts are
   # observable gameplay state (bots hear them), so expiry is part of the

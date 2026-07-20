@@ -2,10 +2,22 @@
 set -euo pipefail
 
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-output_dir="$1"
+if [[ "$#" -ne 1 ]]; then
+  echo "usage: $0 /absolute/path/to/static-replay-viewer" >&2
+  exit 1
+fi
 
-if [[ "${output_dir}" != /* || "${output_dir}" == "/" || "${output_dir}" == "${repo_dir}" ]]; then
-  echo "unsafe bundle output: ${output_dir}" >&2
+requested_output="$1"
+
+if [[ "${requested_output}" != /* || "$(basename "${requested_output}")" != "static-replay-viewer" ]]; then
+  echo "unsafe bundle output: ${requested_output}" >&2
+  exit 1
+fi
+
+output_parent="$(cd "$(dirname "${requested_output}")" && pwd -P)"
+output_dir="${output_parent}/static-replay-viewer"
+if [[ "${output_dir}" != "${repo_dir}"/* || -L "${output_dir}" ]]; then
+  echo "unsafe bundle output: ${requested_output}" >&2
   exit 1
 fi
 
@@ -16,19 +28,20 @@ image_tag="coworld-ctf-replay-viewer-build:$$"
 container_id=""
 cleanup() {
   if [[ -n "${container_id}" ]]; then
-    docker rm "${container_id}" >/dev/null
+    docker rm "${container_id}" >/dev/null 2>&1 || true
   fi
-  docker image rm "${image_tag}" >/dev/null
+  docker image rm "${image_tag}" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
-docker build \
+docker buildx build \
+  --load \
   --platform linux/amd64 \
   --file "${repo_dir}/Dockerfile.replay-viewer" \
   --target replay-viewer-builder \
   --tag "${image_tag}" \
   "${repo_dir}"
-container_id="$(docker create "${image_tag}")"
+container_id="$(docker create --platform linux/amd64 "${image_tag}")"
 docker cp "${container_id}:/workspace/ctf/replay-viewer/dist/." "${output_dir}"
 
 test -f "${output_dir}/index.html"

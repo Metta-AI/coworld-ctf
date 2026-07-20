@@ -151,6 +151,14 @@ const
   MedKitRespawn = 30 * 24     # a taken kit refills after 30s (sim constant)
   MedKitSeenClear = 55.0      # inside this range an empty spot is truly
                               # empty (bubble vision), not just fogged
+  SwordReach = 26.0           # melee swipe range (sim SwordReach)
+  SwordArcBrads = 32          # +/-45 degree swipe arc in brads
+  SwordDetour = 70.0          # attacker detour budget for a sword pickup
+  ShieldStealDetour = 480.0   # MidGuard's shield trip: the enemy endzone
+                              # shield sits low in their back column
+                              # (~215px from the pedestal since the game-v7
+                              # split), so the round trip costs ~430 path px
+  PickupRespawn = 30 * 24     # sword/shield respawn timer (sim constant)
   MedKitCarrierBudget = 90.0  # extra path px a hurt CARRIER spends to heal:
                               # a full-heal carrier survives pocket exits
                               # that kill a 1 hp one
@@ -266,6 +274,10 @@ type
     hp: int                   # own hit points, read from the HUD lives label
     kitPos: seq[Vec]          # discovered med kit spots (two, center line)
     kitAbsentAt: seq[int]     # tick a spot was last seen empty; -1 = present
+    swordPos: seq[Vec]        # discovered sword spots (side midpoints)
+    swordAbsentAt: seq[int]
+    shieldPos: seq[Vec]       # discovered shield spots (endzone back columns)
+    shieldAbsentAt: seq[int]
 
 proc roleForSeat(seat: int, team: Team): Role =
   ## Deterministic role spread over the 8 per-team seats. Seats 2 and 3 both
@@ -923,6 +935,37 @@ proc updateTracks(bot: Bot, tracks: var seq[Track], seen: seq[Actor]) =
     kept.setLen(TrackCap)
   tracks = kept
 
+proc trackPickups(
+  positions: var seq[Vec],
+  absentAt: var seq[int],
+  seen: seq[Vec],
+  me: Vec,
+  tick: int,
+) =
+  ## Shared fog-honest pickup memory: learn spots on sight, mark a spot
+  ## taken only when we pass close enough that the bubble would show it,
+  ## and believe it restocked once its respawn timer has elapsed.
+  for p in seen:
+    var known = false
+    for i in 0 ..< positions.len:
+      if dist(positions[i], p) < 24.0:
+        known = true
+        absentAt[i] = -1
+    if not known:
+      positions.add(p)
+      absentAt.add(-1)
+  for i in 0 ..< positions.len:
+    if dist(positions[i], me) <= MedKitSeenClear and absentAt[i] < 0:
+      var present = false
+      for p in seen:
+        if dist(positions[i], p) < 24.0:
+          present = true
+      if not present:
+        absentAt[i] = tick
+
+proc pickupAvailable(absentAt: seq[int], i, tick: int): bool =
+  absentAt[i] < 0 or tick - absentAt[i] > PickupRespawn + 48
+
 proc kitAvailable(bot: Bot, i: int): bool =
   ## Whether a discovered med kit spot is believed stocked right now: never
   ## seen empty, or its 30s respawn has elapsed since we saw it taken.
@@ -950,6 +993,10 @@ proc resetTransient(bot: Bot) =
   bot.hp = MaxHp
   for i in 0 ..< bot.kitAbsentAt.len:
     bot.kitAbsentAt[i] = -1              # both kits restock at game start
+  for i in 0 ..< bot.swordAbsentAt.len:
+    bot.swordAbsentAt[i] = -1
+  for i in 0 ..< bot.shieldAbsentAt.len:
+    bot.shieldAbsentAt[i] = -1
   bot.shoutWant = ""
   bot.lastShoutTick = 0
   bot.comebackWant = ""
@@ -1086,8 +1133,46 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     let seen = client.observedAim(me, myColor)
     if seen >= 0 and abs(bradsErr(seen, bot.estAim)) > AimResyncBrads:
       bot.estAim = seen
+  # Swords and shields (game v7) share the endzone back columns (inset 50)
+  # but are vertically SEPARATED: swords in the top half (quarter height),
+  # shields in the bottom half (three-quarter height). Seed the spots up
+  # front (they are deterministic; the fog would otherwise hide them until
+  # we are already on top of them), then let sightings refine the nudged
+  # positions.
+  if bot.swordPos.len == 0:
+    for spot in [vec(50.0, float(MapH div 4)),
+                 vec(float(MapW) - 50.0, float(MapH div 4))]:
+      bot.swordPos.add(spot)
+      bot.swordAbsentAt.add(-1)
+    for spot in [vec(50.0, float(3 * MapH div 4)),
+                 vec(float(MapW) - 50.0, float(3 * MapH div 4))]:
+      bot.shieldPos.add(spot)
+      bot.shieldAbsentAt.add(-1)
+  var swordSeen, shieldSeen: seq[Vec]
+  for o in client.spriteObjectsWithLabel("sword"):
+    swordSeen.add(client.mapPos(o))
+  for o in client.spriteObjectsWithLabel("shield"):
+    shieldSeen.add(client.mapPos(o))
+  trackPickups(bot.swordPos, bot.swordAbsentAt, swordSeen, me, bot.tick)
+  trackPickups(bot.shieldPos, bot.shieldAbsentAt, shieldSeen, me, bot.tick)
+  # Own carry state: the carried markers float over their carrier, and a
+  # shield carrier's HUD reads 6 hp (the marker is the fallback).
+  var hasSword = false
+  for o in client.spriteObjectsWithLabel("sword carried"):
+    if dist(client.mapPos(o), me) <= 30.0:
+      hasSword = true
+      break
+  var hasShield = bot.hp > MaxHp
+  if not hasShield:
+    for o in client.spriteObjectsWithLabel("shield carried"):
+      if dist(client.mapPos(o), me) <= 30.0:
+        hasShield = true
+        break
+
   let
-    shotReady = client.spriteObjectsWithLabel("fire icon").len > 0
+    shotReady = client.spriteObjectsWithLabel("fire icon").len > 0 and
+      not hasSword                       # sword replaces the gun; a shield
+                                         # only slows it (3x cooldown)
     seenEnemies = client.actorsFor(enemyColor)
     seenMates = client.actorsFor(myColor)
   bot.updateTracks(bot.enemies, seenEnemies)
@@ -1123,7 +1208,8 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       let cut = text.find("hp")
       if cut > 0:
         try:
-          bot.hp = clamp(parseInt(text[0 ..< cut]), 1, MaxHp)
+          # Unclamped past MaxHp: a shield carrier reads 6 hp on the HUD.
+          bot.hp = clamp(parseInt(text[0 ..< cut]), 1, 9)
         except ValueError:
           discard
       break
@@ -1517,7 +1603,10 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # rushers racing for the steal and escorts guarding a run only fight what
   # is actually in the way, instead of frag-chasing across the map.
   let maxEngage =
-    if pocketRush: 0.0
+    if hasShield and not hasSword:       # slow gun (3x cooldown): only fight
+      CarrierFireRange                   # what is point-blank in the way
+    elif hasSword: SwordReach + 6.0      # melee: only point-blank matters
+    elif pocketRush: 0.0
     elif iCarry: CarrierFireRange
     elif ownStolen and bot.tick - bot.carrierSeen <= ThiefFixTtl: FireRange
       # A live fix on the enemy running our flag lifts every role's range
@@ -1643,6 +1732,57 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         nadeAim = bradsOf(p - me)
         nadeThrowD = d
 
+  # Weapon pickups. SHIELD-THEN-STEAL: the enemy endzone shield sits just
+  # behind their pedestal — a rusher near the pocket grabs 6 hp first and
+  # steals second (the run home is what kills 3 hp carriers). Defensive
+  # roles never take a shield (it slows the gun 3x). SWORDS arm the pocket
+  # brawlers: attackers detour a little for one on the way in — the pocket
+  # duel is point-blank, where an instant lethal swipe beats any gun.
+  if not iCarry and not hasShield and bot.role == MidGuard and
+      not (ownStolen and bot.tick - bot.carrierSeen <= ThiefFixTtl):
+    # ONE designated shield-runner (MidGuard, the trailing mid): the shield
+    # sits ~136px BEYOND the enemy pedestal, so the trip costs ~270 path px —
+    # never spend the LEAD rusher's tempo on it (first steal wins races).
+    # The second wave arrives as a 6 hp bruiser: it steals if the flag is
+    # still planted, escorts (and re-steals after a failed run) if not.
+    var best = -1
+    var bestCost = ShieldStealDetour
+    for i in 0 ..< bot.shieldPos.len:
+      if not pickupAvailable(bot.shieldAbsentAt, i, bot.tick):
+        continue
+      if homeSign(bot.team) * (bot.shieldPos[i].x - float(CenterX)) > 0.0:
+        continue                         # OUR endzone shield: leave the gun
+      let cost = dist(me, bot.shieldPos[i]) + dist(bot.shieldPos[i], stealTarget) -
+        dist(me, stealTarget)
+      if cost < bestCost:
+        bestCost = cost
+        best = i
+    if best >= 0:
+      target = bot.shieldPos[best]
+      when defined(pickupDebug):
+        if bot.tick mod 50 == 0:
+          echo "SHIELDTRIP slot=", bot.slot, " t=", bot.tick, " me=",
+            int(me.x), ",", int(me.y), " -> ", int(target.x), ",",
+            int(target.y), " cost=", int(bestCost)
+          flushFile(stdout)
+    else:
+      when defined(pickupDebug):
+        if bot.tick mod 100 == 0:
+          echo "SHIELDTRIP-NONE slot=", bot.slot, " t=", bot.tick,
+            " spots=", bot.shieldPos.len
+          flushFile(stdout)
+  elif not iCarry and not hasSword and
+      bot.role in {MidTop, MidBottom, MidGuard, FlankTop, FlankBottom} and
+      not mateCarry and not pocketRush:
+    # Sword top-up: swipe-armed pocket brawls win point-blank. Cheap when we
+    # are already visiting the endzone column (shield chain) or passing by.
+    for i in 0 ..< bot.swordPos.len:
+      if not pickupAvailable(bot.swordAbsentAt, i, bot.tick):
+        continue
+      if dist(me, bot.swordPos[i]) <= SwordDetour:
+        target = bot.swordPos[i]
+        break
+
   # Med kit heal detour (hurt bots only; the carrier handles its own detour
   # in the carry branch). Wounded: a short opportunistic detour. Critical
   # (1 hp): a heal outranks the current errand at much longer reach — a
@@ -1723,6 +1863,18 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       else:
         bot.nadeCharge = 0           # release this tick = the throw
     holdStill = true
+    acted = true
+  elif hasSword and engage >= 0:
+    # Sword melee: the swipe is INSTANT (no windup, no aim lock) and lethal
+    # in a +/-45 degree arc at 26 px — close the last step and press A the
+    # moment the victim is inside reach and roughly in front.
+    desiredAim = bradsOf(aim - me)
+    let err = abs(bradsErr(desiredAim, bot.estAim))
+    if engageD <= SwordReach and err <= SwordArcBrads - 4:
+      wantFire = true
+      holdStill = true
+    else:
+      moveMask = octantBits(aim - me)    # charge in
     acted = true
   elif engage >= 0 and shotReady:
     # Traverse onto the target and fire once the corridor covers it: the
