@@ -288,6 +288,9 @@ type
     helpUntil: int            # tick the help retasking expires
     lastEShout: int           # scout sighting-broadcast rate limit
     lastHShout: int           # help-call rate limit
+    when defined(impactAwareness):
+      impactPos: Vec          # decayed centroid of recent map-wide shot-impact rings
+      impactWeight: float     # confidence in impactPos; decays each tick
 
 proc roleForSeat(seat: int, team: Team): Role =
   ## Deterministic role spread over the 8 per-team seats. Seats 2 and 3 both
@@ -341,6 +344,12 @@ when defined(zonePhalanx):
     of pdTopA, pdTopB: 1
     of pdMidA, pdMidB: 2
     else: 3
+
+when defined(impactAwareness):
+  const
+    ImpactDecay = 0.82        # per-tick decay of the accumulated cluster weight
+    ImpactMinWeight = 3.0     # act on the cluster only above this confidence
+    ImpactOffCone = 150.0     # ignore clusters basically on top of us (own eyes)
 
 proc vec(x, y: float): Vec =
   Vec(x: x, y: y)
@@ -427,6 +436,32 @@ proc mapPos(client: ProtocolClient, o: SpriteObjectInfo): Vec =
     float(o.x + o.width div 2 + client.mapCameraX),
     float(o.y + o.height div 2 + client.mapCameraY)
   )
+
+when defined(impactAwareness):
+  proc updateImpactCluster(bot: Bot, client: ProtocolClient) =
+    ## Fold this tick's map-wide "shot impact" rings into a decaying centroid.
+    ## GV10 emits one such ring near where every recent shot LANDED, ignoring
+    ## walls and fov and never leaking team, so this is a coarse, symmetric
+    ## "where is combat happening" feed — an attention bias, never a target.
+    var
+      sum = vec(0.0, 0.0)
+      n = 0
+    for o in client.spriteObjectsWithLabel("shot impact"):
+      sum = sum + client.mapPos(o)
+      inc n
+    bot.impactWeight *= ImpactDecay
+    if n > 0:
+      let
+        centroid = sum * (1.0 / float(n))
+        w = float(n)
+        total = bot.impactWeight + w
+      bot.impactPos = bot.impactPos * (bot.impactWeight / total) +
+        centroid * (w / total)
+      bot.impactWeight = total
+
+  proc impactCluster(bot: Bot): tuple[has: bool, pos: Vec] =
+    ## The current confident combat centroid, if any.
+    (bot.impactWeight >= ImpactMinWeight, bot.impactPos)
 
 proc findSelf(
     client: ProtocolClient, color: string): tuple[alive: bool, pos: Vec] =
@@ -1057,6 +1092,9 @@ proc resetTransient(bot: Bot) =
   bot.jinkUntil = 0
   bot.behindLines = false
   bot.navGoal = -1
+  when defined(impactAwareness):
+    bot.impactPos = vec(float(CenterX), float(CenterY))
+    bot.impactWeight = 0.0
 
 proc scanAim(bot: Bot, watch: Vec): int =
   ## The scan-sweep aim while holding a position: rake the vision cone back
@@ -1215,6 +1253,8 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   bot.updateTracks(bot.mates, seenMates)
   if seenEnemies.len > 0:
     bot.lastEnemySeen = bot.tick
+  when defined(impactAwareness):
+    bot.updateImpactCluster(client)
 
   # Flag bookkeeping (two flags; a carried flag rides its carrier's exact
   # position). The enemy flag can only be carried by OUR team, so its sprite
@@ -1587,6 +1627,19 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           if abs(bot.carrierPos.y - lane) < bestD:
             bestD = abs(bot.carrierPos.y - lane)
             laneY = lane
+      when defined(impactAwareness):
+        # Thief-hunt seeding: the carrier is fully fogged with no last-seen
+        # fix, but a map-wide impact cluster on our OWN side of mid marks the
+        # contested exfil corridor — steer the blind lane guess toward it
+        # instead of defaulting to mid, narrowing the search along the fight.
+        let ia = bot.impactCluster()
+        if ia.has and
+            homeSign(bot.team) * (ia.pos.x - float(CenterX)) > -100.0:
+          var bestD = 1e18
+          for lane in [LaneTop, LaneMid, LaneBottom]:
+            if abs(ia.pos.y - lane) < bestD:
+              bestD = abs(ia.pos.y - lane)
+              laneY = lane
       target = vec(float(CenterX) - homeSign(bot.team) * 60.0, laneY)
   elif mateCarry:
     case bot.role
@@ -2117,9 +2170,19 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       # it back and forth across the arc threats cross while standing still.
       # While our flag is stolen the thief comes from our own half;
       # otherwise intruders come from the enemy half.
-      let watch =
+      var watch =
         if ownStolen: vec(homeSign(bot.team), 0.0)
         else: vec(-homeSign(bot.team), 0.0)
+      when defined(impactAwareness):
+        # Rotate-to-contact: the overwatch seat is our radar. If a confident
+        # off-cone combat cluster exists, center the blind hold-sweep on it
+        # instead of the default lane axis. Aim is decoupled from movement, so
+        # this only repoints the vision cone while we hold — never leaves the
+        # post. Kept off the HomeDefender so the home choke stays watched.
+        if bot.role == Overwatch:
+          let ia = bot.impactCluster()
+          if ia.has and dist(ia.pos, me) > ImpactOffCone:
+            watch = norm(ia.pos - me)
       if desiredAim < 0:
         desiredAim = bot.scanAim(watch)
       holdStill = true
