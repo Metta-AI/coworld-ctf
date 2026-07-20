@@ -1206,9 +1206,13 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         hasShield = true
         break
 
+  # v8 shield-fire (GameVersion 8+, live GV10): a carried shield no longer bars the
+  # gun, it only slows fire 3x. -d:shieldShoot adapts the champion to that mechanic —
+  # keep shooting while shielded (sword still replaces the gun). Off = v7 assumption.
+  const shieldBarsGun = not defined(shieldShoot)
   let
     shotReady = client.spriteObjectsWithLabel("fire icon").len > 0 and
-      not hasShield and not hasSword     # shield bars the gun; sword replaces it
+      not (shieldBarsGun and hasShield) and not hasSword  # sword replaces the gun
     seenEnemies = client.actorsFor(enemyColor)
     seenMates = client.actorsFor(myColor)
   bot.updateTracks(bot.enemies, seenEnemies)
@@ -1794,7 +1798,8 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # is actually in the way, instead of frag-chasing across the map.
   let maxEngage =
     if bot.tripping: 0.0                 # sprinting an errand: no fights
-    elif hasShield and not hasSword: 0.0 # no weapon at all: run and carry
+    elif hasShield and not hasSword:
+      if shieldBarsGun: 0.0 else: CarrierFireRange # v8: 3x-slow gun still chips point-blank
     elif hasSword: SwordReach + 6.0      # melee: only point-blank matters
     elif pocketRush: 0.0
     elif iCarry: CarrierFireRange
