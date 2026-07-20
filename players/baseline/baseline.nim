@@ -154,9 +154,10 @@ const
   SwordReach = 26.0           # melee swipe range (sim SwordReach)
   SwordArcBrads = 32          # +/-45 degree swipe arc in brads
   SwordDetour = 70.0          # attacker detour budget for a sword pickup
-  ShieldStealDetour = 330.0   # MidGuard's shield trip: the enemy endzone
-                              # shield sits ~136px past their pedestal, so
-                              # the round trip inherently costs ~270 path px
+  ShieldStealDetour = 480.0   # MidGuard's shield trip: the enemy endzone
+                              # shield sits low in their back column
+                              # (~215px from the pedestal since the game-v7
+                              # split), so the round trip costs ~430 path px
   PickupRespawn = 30 * 24     # sword/shield respawn timer (sim constant)
   MedKitCarrierBudget = 90.0  # extra path px a hurt CARRIER spends to heal:
                               # a full-heal carrier survives pocket exits
