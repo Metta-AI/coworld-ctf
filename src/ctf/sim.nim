@@ -7,7 +7,7 @@ import
 
 const
   GameName* = "ctf"
-  GameVersion* = "10"
+  GameVersion* = "11"
   ReplayFps* = 24
   DefaultMapPath* = "arena"
   DarkBgPath* = "data/darkbg.aseprite"
@@ -370,6 +370,8 @@ type
     x0*, y0*, x1*, y1*: int
     firedTick*: int
     color*: uint8
+    hit*: bool                 ## the shot connected with a player: its tracer
+                               ## draws full-bright, a miss draws pre-faded.
 
   SplatterFx* = object
     ## A cosmetic death splatter mark; never enters gameHash (replay-safe). A
@@ -3269,7 +3271,8 @@ proc applyFire(sim: var SimServer, shooterIndex, targetIndex: int) =
     x1: ex,
     y1: ey,
     firedTick: sim.tickCount,
-    color: shooter.color
+    color: shooter.color,
+    hit: targetIndex >= 0
   )
   if targetIndex >= 0 and sim.players[targetIndex].alive:
     dec sim.players[targetIndex].hp

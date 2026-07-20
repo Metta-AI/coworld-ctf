@@ -192,6 +192,8 @@ const
   ## shooter, plus a small muzzle flash marking who fired. The eye locks onto
   ## the head and reads the shot's direction from the fade — never a fat tube.
   TracerStages = 4             ## age fade stages (protocol has no per-object alpha).
+  MissStagePenalty = 2         ## a missed shot's comet draws this many fade
+                               ## stages older: hits stay bright, misses fade.
   TrailBuckets = 6             ## along-beam opacity steps baked into the trail dots.
   TrailFalloff = 1.6           ## trail brightness = t^this (t: 0 muzzle → 1 impact).
   TrailMinAlpha = 0.06         ## drop trail dots fainter than this (trims the tail).
@@ -2553,7 +2555,10 @@ proc addShotTracers(
   ## colorless muzzle flash at the origin (who fired), a thin team-color trail
   ## that fades back toward the shooter, and a bright leading paintball at the
   ## impact end (the eye-anchor pointing at the target). The along-beam fade is
-  ## baked per trail dot via its bucket. SPECTATOR ONLY: only the map/broadcast
+  ## baked per trail dot via its bucket. A shot that HIT draws full-bright; a
+  ## MISS draws pre-aged (its age stage advanced by MissStagePenalty) so the
+  ## whole comet — flash, trail, and head — reads faded and the eye is drawn
+  ## to the shots that connected. SPECTATOR ONLY: only the map/broadcast
   ## view draws tracers; player observations never contain them — a player
   ## learns of a shot solely through its jittered landing ring
   ## (addShotImpactRings).
@@ -2565,7 +2570,12 @@ proc addShotTracers(
     let
       colorIndex = playerColorIndex(shot.color)
       age = sim.tickCount - shot.firedTick
-      stage = clamp(age * TracerStages div ShotFxTicks, 0, TracerStages - 1)
+      ageStage = clamp(age * TracerStages div ShotFxTicks, 0, TracerStages - 1)
+      # A miss starts life half-faded: reuse the age-fade sprites by drawing
+      # the whole comet as if it were already MissStagePenalty stages old.
+      stage =
+        if shot.hit: ageStage
+        else: clamp(ageStage + MissStagePenalty, 0, TracerStages - 1)
       dx = shot.x1 - shot.x0
       dy = shot.y1 - shot.y0
       length = max(abs(dx), abs(dy))

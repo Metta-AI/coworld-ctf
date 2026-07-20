@@ -144,7 +144,7 @@ suite "player fog-of-war protocol":
     # same corridor the fov tests above rely on being open and visible).
     game.recentShots.add ShotFx(
       x0: cx, y0: cy - 40, x1: cx, y1: cy - 140,
-      firedTick: game.tickCount, color: game.players[1].color
+      firedTick: game.tickCount, color: game.players[1].color, hit: true
     )
 
     var state: PlayerViewerState
@@ -166,19 +166,26 @@ suite "player fog-of-war protocol":
     # landing: sound ignores fov.
     game.recentShots.add ShotFx(
       x0: cx, y0: 550, x1: cx + 200, y1: 550,
-      firedTick: game.tickCount, color: game.players[1].color
+      firedTick: game.tickCount, color: game.players[1].color, hit: false
     )
     var state2: PlayerViewerState
     let unseen = game.buildPlayerMessages(viewer, state2)
     check unseen.hasObject(19121)        # second shot's impact ring.
     check not unseen.hasObject(19101)    # and still no muzzle ring.
 
-    # The broadcast/global view still draws the full tracer comet.
+    # The broadcast/global view still draws the full tracer comet. Both shots
+    # are brand new (age stage 0), but only the HIT draws full-bright: the
+    # miss pre-ages by MissStagePenalty (2) fade stages across its whole
+    # comet, so hits pop and misses read as faded ghosts.
     var
       globalState = initGlobalViewerState()
       globalNext: GlobalViewerState
     let globalLabels = game.buildSpriteProtocolUpdates(globalState, globalNext)
       .parseSpritePacket().spriteLabels()
     check globalLabels.anyIt(it.startsWith("shot trail"))
-    check globalLabels.anyIt(it.startsWith("shot head"))
-    check globalLabels.anyIt(it.startsWith("muzzle bloom"))
+    check globalLabels.anyIt(it.startsWith("shot head") and
+      it.endsWith("stage 0"))          # the hit: full-bright.
+    check globalLabels.anyIt(it.startsWith("shot head") and
+      it.endsWith("stage 2"))          # the miss: pre-faded.
+    check "muzzle bloom stage 0" in globalLabels
+    check "muzzle bloom stage 2" in globalLabels
