@@ -45,32 +45,22 @@ jobs:
           set -euo pipefail
           version="${{ inputs.version || '' }}"
           if [ -z "$version" ]; then
-            uvx --from "coworld[auth]" coworld list --json --limit 500 > /tmp/coworlds.json
-            version=$(python3 - <<'EOF'
-          import json
-          rows = json.load(open("/tmp/coworlds.json"))
-          versions = []
-          for row in rows:
-              if row.get("name") == "ctf":
-                  try:
-                      versions.append(tuple(int(part) for part in row["version"].split(".")))
-                  except ValueError:
-                      pass
-          if not versions:
-              raise SystemExit("no uploaded ctf versions found")
-          major, minor, patch = max(versions)
-          print(f"{major}.{minor}.{patch + 1}")
-          EOF
-            )
+            version=$(uvx --from "coworld[auth]" coworld next-version ctf)
           fi
           echo "Uploading as ctf $version"
           echo "version=$version" >> "$GITHUB_OUTPUT"
+      # `coworld resolve-and-upload` was removed from the coworld CLI; the
+      # replacement is the two-step flow: `build` (compose build + manifest
+      # hydration from the template) then `upload-coworld` (registry push +
+      # hosted smoke certification).
       - name: Build, certify, and upload
         working-directory: coworld-ctf
         run: |
-          uvx --from "coworld[auth]" coworld resolve-and-upload \
-            compose.yaml coworld_manifest.json \
-            "${{ steps.version.outputs.version }}" \
+          uvx --from "coworld[auth]" coworld build \
+            --version "${{ steps.version.outputs.version }}" \
+            --template coworld_manifest.json \
+            --output /tmp/coworld_manifest.resolved.json
+          uvx --from "coworld[auth]" coworld upload-coworld \
             /tmp/coworld_manifest.resolved.json \
             --timeout-seconds 900
       - name: Verify upload
