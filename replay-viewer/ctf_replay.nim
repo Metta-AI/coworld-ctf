@@ -1,7 +1,6 @@
 import
   std/json,
-  bitworld/spriteprotocol,
-  ctf/[broadcast, global, replays, sim]
+  ctf/[broadcast, global, replay_runtime, replays, sim]
 
 var
   runtimeLoaded = false
@@ -17,40 +16,9 @@ proc bytesFromPointer(data: ptr uint8, length: int): string =
   if length > 0:
     copyMem(result[0].addr, data, length)
 
-proc renderCurrent(events = newJArray()) =
+proc renderCurrent(events: JsonNode) =
   var nextViewer: GlobalViewerState
-  packet = game.buildSpriteProtocolUpdates(
-    viewer,
-    nextViewer,
-    game.tickCount,
-    replay.playing,
-    replay.replaySpeed(),
-    replay.replayMaxTick(),
-    replay.looping,
-    true,
-    replay.hashMismatchTick
-  )
-  let sendLead = not viewer.momentumSent
-  packet.addSprite(
-    BroadcastChromeSpriteId,
-    1,
-    1,
-    [0'u8, 0, 0, 0],
-    game.buildStateJson(
-      events,
-      replay.playing,
-      replay.replaySpeed(),
-      replay.replayMaxTick(),
-      replay.looping,
-      true,
-      replay.hashMismatchTick,
-      nextViewer.selectedJoinOrder,
-      if sendLead: replay.livesLeadSeries else: @[],
-      replay.replayStartTick()
-    )
-  )
-  if sendLead:
-    nextViewer.momentumSent = true
+  packet = game.buildReplayViewerPacket(replay, viewer, nextViewer, events)
   viewer = nextViewer
 
 proc ctfLoadReplay(data: ptr uint8, length: cint): cint
@@ -60,27 +28,22 @@ proc ctfLoadReplay(data: ptr uint8, length: cint): cint
     lastError = ""
     let replayData = parseReplayBytes(data.bytesFromPointer(int(length)))
     stage = "load replay config"
-    var config = defaultGameConfig()
-    config.update(replayData.configJson)
-    stage = "initialize simulation"
-    game = initSimServer(config)
-    game.gameEventLoggingEnabled = false
-    stage = "initialize replay"
-    replay = initReplayPlayer(replayData)
+    stage = "initialize replay runtime"
     # Match the native replay server default: keep a historical replay usable
     # after the first integrity mismatch and surface the warning in the shared
     # replay chrome. `--mismatch-quit` remains a native diagnostic mode.
-    replay.mismatchQuit = false
-    stage = "build replay keyframes"
-    replay.buildReplayKeyframes(game)
-    stage = "seek replay start"
-    replay.seekReplay(game, replay.replayStartTick())
-    replay.playing = true
+    var initialized = initReplayRuntime(
+      replayData,
+      mismatchQuit = false,
+      gameEventLoggingEnabled = false
+    )
+    game = move(initialized.sim)
+    replay = move(initialized.player)
+    tracker = move(initialized.tracker)
     viewer = initGlobalViewerState()
-    tracker = initBroadcastTracker()
     runtimeLoaded = true
     stage = "render first frame"
-    renderCurrent()
+    renderCurrent(newJArray())
     return 1
   except Exception as error:
     runtimeLoaded = false
@@ -96,29 +59,15 @@ proc ctfFrame(): cint {.exportc: "ctf_frame", cdecl.} =
   if not runtimeLoaded:
     return 0
   try:
-    var didSeek = false
-    if viewer.replaySeekTick >= 0:
-      replay.applyReplaySeek(game, viewer.replaySeekTick)
-      didSeek = true
-    for command in viewer.replayCommands:
-      let tickBeforeCommand = game.tickCount
-      replay.applyReplayCommand(game, command)
-      if game.tickCount != tickBeforeCommand:
-        didSeek = true
-    if didSeek:
-      tracker.resync(game)
-
-    var events = newJArray()
-    if replay.playing:
-      for _ in 0 ..< replay.replaySpeed():
-        if replay.playing:
-          replay.stepReplay(game)
-          game.stepEvents(tracker, events)
-      if replay.looping and not replay.playing:
-        replay.seekReplay(game, replay.replayStartTick())
-        replay.playing = true
-        tracker.resync(game)
-
+    let seekTicks =
+      if viewer.replaySeekTick >= 0: @[viewer.replaySeekTick]
+      else: newSeq[int]()
+    let events = replay.advanceReplayFrame(
+      game,
+      tracker,
+      seekTicks,
+      viewer.replayCommands
+    )
     renderCurrent(events)
     return 1
   except Exception as error:

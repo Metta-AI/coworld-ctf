@@ -1,7 +1,7 @@
 import
-  std/[os, unittest],
-  ctf/replays,
-  ctf/sim
+  std/[json, os, unittest],
+  bitworld/spriteprotocol,
+  ctf/[global, replay_runtime, replays, sim]
 
 const
   GameDir = currentSourcePath.parentDir.parentDir
@@ -28,6 +28,65 @@ proc initReplaySim(data: ReplayData): SimServer =
     setCurrentDir(previousDir)
 
 suite "ctf replay":
+  test "shared runtime initializes, advances, controls, and renders replay":
+    let
+      data = loadReplay(CtfReplayPath)
+      previousDir = getCurrentDir()
+    setCurrentDir(GameDir)
+    var runtime: InitializedReplay
+    try:
+      runtime = initReplayRuntime(
+        data,
+        mismatchQuit = true,
+        gameEventLoggingEnabled = false
+      )
+    finally:
+      setCurrentDir(previousDir)
+
+    check runtime.player.playing
+    check runtime.sim.tickCount == runtime.player.replayStartTick()
+    check not runtime.sim.gameEventLoggingEnabled
+
+    let tickBefore = runtime.sim.tickCount
+    discard runtime.player.advanceReplayFrame(
+      runtime.sim,
+      runtime.tracker,
+      newSeq[int](),
+      @['6']
+    )
+    check runtime.player.replaySpeed() == 16
+    check runtime.sim.tickCount == tickBefore + 16
+
+    var
+      viewer = initGlobalViewerState()
+      nextViewer: GlobalViewerState
+    let packet = runtime.sim.buildReplayViewerPacket(
+      runtime.player,
+      viewer,
+      nextViewer,
+      newJArray()
+    )
+    var chrome: JsonNode
+    for message in packet.parseSpritePacket():
+      if message.kind == spkSprite and
+          message.sprite.id == BroadcastChromeSpriteId:
+        chrome = message.sprite.label.parseJson()
+    check packet.len > 0
+    check not chrome.isNil
+    check chrome["t"].getInt() == runtime.sim.tickCount
+    check chrome["en"].getBool()
+    check nextViewer.momentumSent
+
+    let seekTick = runtime.player.replayStartTick() + 20
+    discard runtime.player.advanceReplayFrame(
+      runtime.sim,
+      runtime.tracker,
+      @[seekTick],
+      newSeq[char]()
+    )
+    check runtime.sim.tickCount == seekTick
+    check not runtime.player.playing
+
   test "sim serializes with flatty":
     let data = loadReplay(CtfReplayPath)
     var
