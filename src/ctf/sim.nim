@@ -128,6 +128,11 @@ const
   ShieldHitPoints* = 6        ## hit points a shield carrier has while carrying.
   ShieldFireSlowdown* = 3     ## a shield carrier's fire cooldown is this many
                               ## times longer (3x slower fire rate).
+  ShieldBubbleMinHp* = 4      ## the carrier's protective bubble shows at or
+                              ## above this hp — i.e. while the shield's bonus
+                              ## hp (over the base 3) is still holding.
+  BubbleImpactTicks* = 8      ## ~0.33s the bubble's blink/dent impact FX
+                              ## lasts (cosmetic only, like HitFlashTicks).
 
   ShoutMaxChars* = 10         ## a shout is at most this many characters.
   ShoutRange* = MapWidth div 5  ## audible within 20% of the screen width.
@@ -384,6 +389,16 @@ type
     playerIndex*: int          ## the struck player; players are only appended.
     tick*: int                 ## when the bullet connected.
 
+  BubbleImpactFx* = object
+    ## A cosmetic shield-bubble impact; never enters gameHash (replay-safe).
+    ## When a bullet lands on a carrier whose bubble is still up, the bubble
+    ## itself blinks and dents toward the shooter — replacing the struck-target
+    ## ring and body paint spark, so the hit reads as absorbed by the shield.
+    playerIndex*: int          ## the struck carrier; players are only appended.
+    tick*: int                 ## when the bullet connected.
+    angleBrads*: int           ## impact site: direction from the carrier's
+                               ## center toward the shooter, in aim brads.
+
   SplatterFx* = object
     ## A cosmetic death splatter mark; never enters gameHash (replay-safe). A
     ## `hit` mark is the smaller, shorter-lived paint spark left by a non-fatal
@@ -469,6 +484,7 @@ type
     tickCount*: int
     recentShots*: seq[ShotFx]  ## cosmetic shot tracers; excluded from gameHash.
     hitFlashes*: seq[HitFlashFx]  ## cosmetic struck-target flashes; excluded from gameHash.
+    bubbleImpacts*: seq[BubbleImpactFx]  ## cosmetic shield-bubble impact blinks; excluded from gameHash.
     splatters*: seq[SplatterFx]  ## cosmetic death splatters; excluded from gameHash.
     recentBlasts*: seq[BlastFx]  ## cosmetic grenade blasts; excluded from gameHash.
     damagePops*: seq[DamageFx]  ## cosmetic floating "-N" damage numbers; excluded from gameHash.
@@ -1987,6 +2003,15 @@ proc aimVector*(brads: int): tuple[x, y: float] =
   let angle = float(brads) * PI / float(AimBradsTurn div 2)
   (cos(angle), -sin(angle))
 
+proc bradsOfVector*(dx, dy: int): int =
+  ## Returns the aim-brads angle of a map-space vector — the inverse of
+  ## `aimVector` (screen y points down, so north is -y).
+  if dx == 0 and dy == 0:
+    return 0
+  let brads = int(round(
+    arctan2(-float(dy), float(dx)) * float(AimBradsTurn div 2) / PI))
+  ((brads mod AimBradsTurn) + AimBradsTurn) mod AimBradsTurn
+
 proc playerText(sim: SimServer, playerIndex: int): string =
   ## Returns the readable player color for one player index.
   if playerIndex < 0 or playerIndex >= sim.players.len:
@@ -2858,6 +2883,7 @@ proc startGame*(sim: var SimServer) =
   sim.logGameEvent("game started: players=" & $sim.players.len)
   sim.recentShots = @[]
   sim.hitFlashes = @[]
+  sim.bubbleImpacts = @[]
   sim.splatters = @[]
   sim.damagePops = @[]
   sim.recentShouts = @[]
@@ -3288,13 +3314,27 @@ proc applyFire(sim: var SimServer, shooterIndex, targetIndex: int) =
     hit: targetIndex >= 0
   )
   if targetIndex >= 0 and sim.players[targetIndex].alive:
+    # A carrier whose bubble is still up (hp >= ShieldBubbleMinHp at impact)
+    # absorbs the hit VISUALS on the bubble: it blinks and dents toward the
+    # shooter instead of showing the inner struck-target ring and body paint
+    # spark. The "-1" pop still reads the hp loss. (Cosmetic only — the damage
+    # itself is unchanged.)
+    let bubbleUp = sim.players[targetIndex].hasShield and
+      sim.players[targetIndex].hp >= ShieldBubbleMinHp
     dec sim.players[targetIndex].hp
-    # A spectator-view flash rings the struck target the moment the bullet
-    # connects, so hits read at a glance (cosmetic only, never in gameHash).
-    sim.hitFlashes.add HitFlashFx(
-      playerIndex: targetIndex,
-      tick: sim.tickCount
-    )
+    if bubbleUp:
+      sim.bubbleImpacts.add BubbleImpactFx(
+        playerIndex: targetIndex,
+        tick: sim.tickCount,
+        angleBrads: bradsOfVector(sx - ex, sy - ey)
+      )
+    else:
+      # A spectator-view flash rings the struck target the moment the bullet
+      # connects, so hits read at a glance (cosmetic only, never in gameHash).
+      sim.hitFlashes.add HitFlashFx(
+        playerIndex: targetIndex,
+        tick: sim.tickCount
+      )
     # A floating "-1" rises and fades from the victim so a lost health bar
     # reads at a glance (cosmetic only, never in gameHash).
     sim.damagePops.add DamageFx(
@@ -3308,15 +3348,16 @@ proc applyFire(sim: var SimServer, shooterIndex, targetIndex: int) =
       sim.killPlayer(targetIndex, shooterIndex)
       sim.recordKill(shooterIndex)
     else:
-      # A non-fatal hit leaves a small, short-lived paint spark in the
-      # shooter's color on the target (cosmetic only, never in gameHash).
-      sim.splatters.add SplatterFx(
-        x: sim.players[targetIndex].x,
-        y: sim.players[targetIndex].y,
-        tick: sim.tickCount,
-        color: shooter.color,
-        hit: true
-      )
+      if not bubbleUp:
+        # A non-fatal hit leaves a small, short-lived paint spark in the
+        # shooter's color on the target (cosmetic only, never in gameHash).
+        sim.splatters.add SplatterFx(
+          x: sim.players[targetIndex].x,
+          y: sim.players[targetIndex].y,
+          tick: sim.tickCount,
+          color: shooter.color,
+          hit: true
+        )
       sim.logGameEvent(
         playerColorText(sim.players[targetIndex].color) &
           " hit by " & sim.playerText(shooterIndex) &
@@ -4245,6 +4286,7 @@ proc resetToLobby*(sim: var SimServer) =
   sim.recentShouts = @[]
   sim.recentShots = @[]
   sim.hitFlashes = @[]
+  sim.bubbleImpacts = @[]
   sim.splatters = @[]
   sim.damagePops = @[]
   sim.nextJoinOrder = 0
@@ -4389,6 +4431,11 @@ proc step*(
     if sim.tickCount - flash.tick < HitFlashTicks:
       keptFlashes.add flash
   sim.hitFlashes = keptFlashes
+  var keptImpacts: seq[BubbleImpactFx] = @[]
+  for impact in sim.bubbleImpacts:
+    if sim.tickCount - impact.tick < BubbleImpactTicks:
+      keptImpacts.add impact
+  sim.bubbleImpacts = keptImpacts
   var keptBlasts: seq[BlastFx] = @[]
   for blast in sim.recentBlasts:
     if sim.tickCount - blast.tick < BlastFxTicks:
