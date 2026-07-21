@@ -7,7 +7,7 @@ import
 
 const
   GameName* = "ctf"
-  GameVersion* = "13"
+  GameVersion* = "15"
   ReplayFps* = 24
   DefaultMapPath* = "arena"
   DarkBgPath* = "data/darkbg.aseprite"
@@ -46,6 +46,11 @@ const
   MaxSpeed* = 704
   StopThreshold* = 8
   MovementSlideMaxScan = 3
+  PlayerSolidSpan* = 2 * PlayerHalf  ## centers this close (Chebyshev) means
+                                     ## two player footprints overlap.
+  PlayerBouncePct* = 40       ## restitution of player-player collisions, in
+                              ## percent: 0 = a dead-stop shove, 100 = a
+                              ## perfectly elastic billiard bounce.
   TargetFps* = 24
   SpaceColor* = 0'u8
   MapVoidColor* = 12'u8
@@ -116,18 +121,35 @@ const
 
   MedKitPickupRange* = 12     ## touch radius to pick a med kit up.
   MedKitRespawnTicks* = 30 * ReplayFps  ## a taken kit refills after 30s.
-  SwordSpawnInset* = GrenadeSpawnInset
-  SwordPickupRange* = 12
-  SwordRespawnTicks* = 30 * ReplayFps
-  SwordRange* = 26
-  SwordArcBrads* = 32
-  SwordFxTicks* = 8
+  PlasmaArcSpawnInset* = GrenadeSpawnInset
+  PlasmaArcPickupRange* = 12  ## touch radius to pick a plasma arc up.
+  PlasmaArcRespawnTicks* = 30 * ReplayFps
+  PlasmaArcSquare* = SoldierBodyPx  ## one "square": a cog body length.
+  PlasmaArcReach* = 4 * PlasmaArcSquare  ## forward cone reach: 4 squares.
+  PlasmaArcMaxWidth* = 2 * PlasmaArcSquare  ## cone width AT max reach:
+                              ## 2 squares. The cone widens linearly from the
+                              ## muzzle, so the half-angle is atan(1/4) ~ 14.0
+                              ## degrees everywhere along the reach.
+  PlasmaArcDamage* = 3        ## hit points removed by one cone touch:
+                              ## instantly lethal to a bare cog (3 hp), but a
+                              ## shield carrier (6 hp) survives the first one.
+  PlasmaArcActiveTicks* = 5   ## a fired cone stays on this many ticks,
+                              ## tracking the attacker's position and aim.
+  PlasmaArcResetTicks* = 20   ## recharge time after the cone shuts off; the
+                              ## refire cadence is ActiveTicks + ResetTicks.
+  PlasmaArcFxTicks* = 4       ## each per-tick cone snapshot fades this long
+                              ## (cosmetic only).
 
   ShieldPickupRange* = 12     ## touch radius to pick a shield up.
   ShieldRespawnTicks* = 30 * ReplayFps  ## a taken endzone shield refills after 30s.
   ShieldHitPoints* = 6        ## hit points a shield carrier has while carrying.
   ShieldFireSlowdown* = 3     ## a shield carrier's fire cooldown is this many
                               ## times longer (3x slower fire rate).
+  ShieldBubbleMinHp* = 4      ## the carrier's protective bubble shows at or
+                              ## above this hp — i.e. while the shield's bonus
+                              ## hp (over the base 3) is still holding.
+  BubbleImpactTicks* = 8      ## ~0.33s the bubble's blink/dent impact FX
+                              ## lasts (cosmetic only, like HitFlashTicks).
 
   ShoutMaxChars* = 10         ## a shout is at most this many characters.
   ShoutRange* = MapWidth div 5  ## audible within 20% of the screen width.
@@ -247,7 +269,7 @@ type
     ## One arena obstacle. Discs and diamonds are center + radius (L2 and L1
     ## norms); diagonals are a 45-degree wall segment of given perpendicular
     ## thickness between two endpoints. A `window` shape is glass: it blocks
-    ## movement, bullets, and sword line-of-sight exactly like stone, but
+    ## movement, bullets, and plasma-arc line-of-sight exactly like stone, but
     ## fog-of-war shadowcasting sees straight through it.
     window*: bool
     case kind*: ArenaShapeKind
@@ -304,6 +326,7 @@ type
     frictionDen*: int
     maxSpeed*: int
     stopThreshold*: int
+    playerBouncePct*: int
     seed*: int
     speed*: int
     lives*: int
@@ -347,7 +370,11 @@ type
     carryingFlag*: bool
     hasGrenade*: bool          ## each player carries at most one grenade.
     hasShield*: bool           ## carrying an endzone shield: 6 hp, 3x slower fire.
-    hasSword*: bool            ## each player carries at most one sword.
+    hasPlasmaArc*: bool        ## each player carries at most one plasma arc.
+    arcTicksLeft*: int         ## remaining active ticks of a fired plasma
+                               ## cone (0 = the cone is off).
+    arcHitMask*: uint32        ## players already damaged by the current
+                               ## activation: one hit per victim per firing.
     throwCharge*: int          ## ticks the throw button has been held.
     lastShoutTick*: int        ## tick of this player's latest shout, -1 = never.
     joinOrder*: int
@@ -387,6 +414,16 @@ type
     playerIndex*: int          ## the struck player; players are only appended.
     tick*: int                 ## when the bullet connected.
 
+  BubbleImpactFx* = object
+    ## A cosmetic shield-bubble impact; never enters gameHash (replay-safe).
+    ## When a bullet lands on a carrier whose bubble is still up, the bubble
+    ## itself blinks and dents toward the shooter — replacing the struck-target
+    ## ring and body paint spark, so the hit reads as absorbed by the shield.
+    playerIndex*: int          ## the struck carrier; players are only appended.
+    tick*: int                 ## when the bullet connected.
+    angleBrads*: int           ## impact site: direction from the carrier's
+                               ## center toward the shooter, in aim brads.
+
   SplatterFx* = object
     ## A cosmetic death splatter mark; never enters gameHash (replay-safe). A
     ## `hit` mark is the smaller, shorter-lived paint spark left by a non-fatal
@@ -404,8 +441,8 @@ type
     color*: uint8              ## the thrower's paint color, so the landing
                                ## splat reads as that team's paint-bomb.
 
-  SwordFx* = object
-    ## A cosmetic melee swipe; never enters gameHash (replay-safe).
+  PlasmaArcFx* = object
+    ## A cosmetic plasma-arc cone flash; never enters gameHash (replay-safe).
     x*, y*: int
     aimBrads*: int
     tick*: int
@@ -472,6 +509,7 @@ type
     tickCount*: int
     recentShots*: seq[ShotFx]  ## cosmetic shot tracers; excluded from gameHash.
     hitFlashes*: seq[HitFlashFx]  ## cosmetic struck-target flashes; excluded from gameHash.
+    bubbleImpacts*: seq[BubbleImpactFx]  ## cosmetic shield-bubble impact blinks; excluded from gameHash.
     splatters*: seq[SplatterFx]  ## cosmetic death splatters; excluded from gameHash.
     recentBlasts*: seq[BlastFx]  ## cosmetic grenade blasts; excluded from gameHash.
     damagePops*: seq[DamageFx]  ## cosmetic floating "-N" damage numbers; excluded from gameHash.
@@ -479,9 +517,9 @@ type
     grenadeSpawns*: array[4, PickupSpawn]
     medKitSpawns*: array[2, PickupSpawn]
     shieldSpawns*: array[2, PickupSpawn]  ## one shield per team endzone.
-    swordSpawns*: array[2, PickupSpawn]
+    plasmaArcSpawns*: array[2, PickupSpawn]
     airborneGrenades*: seq[AirborneGrenade]
-    swordSwipes*: seq[SwordFx]
+    plasmaArcFlashes*: seq[PlasmaArcFx]
     gameStartTick*: int
     startWaitTimer*: int
     phase*: GamePhase
@@ -853,7 +891,7 @@ const
   ArenaLeftObstacles = [
     # Column 1 (x=268..286): rect stubs, phase 0, border-attached ends. The
     # SECOND stub from the top and from the bottom are GLASS WINDOWS
-    # (GameVersion 13): solid to movement, bullets, and swords, transparent
+    # (GameVersion 15): solid to movement, bullets, and plasma arcs, transparent
     # to fog-of-war.
     ArenaShape(kind: shapeRect, rect: MapRect(x: 268, y: 10, w: 18, h: 62)),
     ArenaShape(kind: shapeRect, window: true,
@@ -1553,6 +1591,7 @@ proc defaultGameConfig*(): GameConfig =
     frictionDen: FrictionDen,
     maxSpeed: MaxSpeed,
     stopThreshold: StopThreshold,
+    playerBouncePct: PlayerBouncePct,
     seed: 0xA6019,
     speed: 1,
     lives: Lives,
@@ -1817,6 +1856,8 @@ proc validate(config: GameConfig) =
     raise newException(CtfError, "Config field fireWindupTicks must not be negative.")
   if config.carrierSpeedPct <= 0 or config.carrierSpeedPct > 100:
     raise newException(CtfError, "Config field carrierSpeedPct must be 1..100.")
+  if config.playerBouncePct < 0 or config.playerBouncePct > 100:
+    raise newException(CtfError, "Config field playerBouncePct must be 0..100.")
   if config.aimTurnRate < 1:
     raise newException(CtfError, "Config field aimTurnRate must be at least 1.")
   if config.visionConeDeg < 0 or config.visionConeDeg > 180:
@@ -1886,6 +1927,7 @@ proc update*(config: var GameConfig, jsonText: string) =
   node.readConfigInt("frictionDen", config.frictionDen)
   node.readConfigInt("maxSpeed", config.maxSpeed)
   node.readConfigInt("stopThreshold", config.stopThreshold)
+  node.readConfigInt("playerBouncePct", config.playerBouncePct)
   node.readConfigInt("seed", config.seed)
   node.readConfigInt("speed", config.speed)
   node.readConfigInt("lives", config.lives)
@@ -1956,6 +1998,7 @@ proc configJson*(config: GameConfig): string =
     "frictionDen": config.frictionDen,
     "maxSpeed": config.maxSpeed,
     "stopThreshold": config.stopThreshold,
+    "playerBouncePct": config.playerBouncePct,
     "seed": config.seed,
     "speed": config.speed,
     "lives": config.lives,
@@ -2043,6 +2086,15 @@ proc aimVector*(brads: int): tuple[x, y: float] =
   ## so 64 is north (-y in map coordinates), 128 west, and 192 south.
   let angle = float(brads) * PI / float(AimBradsTurn div 2)
   (cos(angle), -sin(angle))
+
+proc bradsOfVector*(dx, dy: int): int =
+  ## Returns the aim-brads angle of a map-space vector — the inverse of
+  ## `aimVector` (screen y points down, so north is -y).
+  if dx == 0 and dy == 0:
+    return 0
+  let brads = int(round(
+    arctan2(-float(dy), float(dx)) * float(AimBradsTurn div 2) / PI))
+  ((brads mod AimBradsTurn) + AimBradsTurn) mod AimBradsTurn
 
 proc playerText(sim: SimServer, playerIndex: int): string =
   ## Returns the readable player color for one player index.
@@ -2136,7 +2188,9 @@ proc gameHash*(sim: SimServer): uint64 =
     result.mixHashBool(player.carryingFlag)
     result.mixHashBool(player.hasGrenade)
     result.mixHashBool(player.hasShield)
-    result.mixHashBool(player.hasSword)
+    result.mixHashBool(player.hasPlasmaArc)
+    result.mixHashInt(player.arcTicksLeft)
+    result.mixHashInt(int(player.arcHitMask))
     result.mixHashInt(player.throwCharge)
     result.mixHashInt(player.lastShoutTick)
     result.mixHashInt(player.joinOrder)
@@ -2154,7 +2208,7 @@ proc gameHash*(sim: SimServer): uint64 =
   for spawn in sim.shieldSpawns:
     result.mixHashBool(spawn.present)
     result.mixHashInt(spawn.respawnAt)
-  for spawn in sim.swordSpawns:
+  for spawn in sim.plasmaArcSpawns:
     result.mixHashBool(spawn.present)
     result.mixHashInt(spawn.respawnAt)
   result.mixHashInt(sim.airborneGrenades.len)
@@ -2874,7 +2928,7 @@ proc resetMedKits*(sim: var SimServer) =
 proc resetShields*(sim: var SimServer) =
   ## Places one shield deep in each team's endzone, in the same back column
   ## as the corner grenade pickups but in the BOTTOM half (three quarters of
-  ## the map height down) — the swords hold the matching top-half spots —
+  ## the map height down) — the plasma arcs hold the matching top-half spots —
   ## nudged to the nearest walkable floor, and refills both.
   let
     inset = ArenaBorder + GrenadeSpawnInset
@@ -2890,31 +2944,34 @@ proc resetShields*(sim: var SimServer) =
     )
   for i in 0 ..< sim.players.len:
     sim.players[i].hasShield = false
-proc swordSpawnPoints*(): array[2, tuple[x, y: int]] =
-  ## The two sword spawn points, nudged to walkable floor: the same side
+proc plasmaArcSpawnPoints*(): array[2, tuple[x, y: int]] =
+  ## The two plasma arc spawn points, nudged to walkable floor: the same side
   ## back columns as the shields, but in the TOP half (a quarter of the map
   ## height down) so the two pickups no longer sit on top of each other —
-  ## swords high, shields low.
-  let inset = ArenaBorder + SwordSpawnInset
+  ## plasma arcs high, shields low.
+  let inset = ArenaBorder + PlasmaArcSpawnInset
   [(inset, MapHeight div 4),
     (MapWidth - inset, MapHeight div 4)]
 
-proc resetSwords*(sim: var SimServer) =
-  ## Refills both side-center sword pickups and clears carried swords.
-  let points = swordSpawnPoints()
-  for i in 0 ..< sim.swordSpawns.len:
+proc resetPlasmaArcs*(sim: var SimServer) =
+  ## Refills both side-center plasma arc pickups and clears carried arcs.
+  let points = plasmaArcSpawnPoints()
+  for i in 0 ..< sim.plasmaArcSpawns.len:
     let spot = sim.nearestWalkable(points[i].x, points[i].y)
-    sim.swordSpawns[i] = PickupSpawn(
+    sim.plasmaArcSpawns[i] = PickupSpawn(
       x: spot.x, y: spot.y, present: true, respawnAt: 0
     )
-  sim.swordSwipes = @[]
+  sim.plasmaArcFlashes = @[]
   for i in 0 ..< sim.players.len:
-    sim.players[i].hasSword = false
+    sim.players[i].hasPlasmaArc = false
+    sim.players[i].arcTicksLeft = 0
+    sim.players[i].arcHitMask = 0
 
 proc startGame*(sim: var SimServer) =
   sim.logGameEvent("game started: players=" & $sim.players.len)
   sim.recentShots = @[]
   sim.hitFlashes = @[]
+  sim.bubbleImpacts = @[]
   sim.splatters = @[]
   sim.damagePops = @[]
   sim.recentShouts = @[]
@@ -2942,7 +2999,7 @@ proc startGame*(sim: var SimServer) =
   sim.resetFlags()
   sim.resetGrenades()
   sim.resetShields()
-  sim.resetSwords()
+  sim.resetPlasmaArcs()
   sim.phase = Playing
   sim.gameStartTick = sim.tickCount
   sim.timeLimitReached = false
@@ -2968,55 +3025,90 @@ proc slideScanRadius(sim: SimServer, carry, velocity: int): int =
     ) div sim.config.motionScale
   clamp(max(1, max(pending, speed)), 1, MovementSlideMaxScan)
 
+proc playersOverlapAt(sim: SimServer, movingIndex, x, y: int): bool =
+  ## True when a player footprint centered at (x, y) would overlap another
+  ## live player's footprint.
+  for i in 0 ..< sim.players.len:
+    if i == movingIndex or not sim.players[i].alive:
+      continue
+    if max(abs(x - sim.players[i].x), abs(y - sim.players[i].y)) <=
+        PlayerSolidSpan:
+      return true
+  false
+
+proc blockingPlayerAt(
+  sim: SimServer,
+  movingIndex, fromX, fromY, toX, toY: int
+): int =
+  ## Returns the index of a live player whose body blocks this step, or -1.
+  ## A step is blocked when it lands overlapping another body without
+  ## increasing the separation — moving apart is always allowed, so bodies
+  ## that start overlapped (a respawn onto an occupied home) can escape.
+  for i in 0 ..< sim.players.len:
+    if i == movingIndex or not sim.players[i].alive:
+      continue
+    let toDist =
+      max(abs(toX - sim.players[i].x), abs(toY - sim.players[i].y))
+    if toDist > PlayerSolidSpan:
+      continue
+    let fromDist =
+      max(abs(fromX - sim.players[i].x), abs(fromY - sim.players[i].y))
+    if toDist <= fromDist:
+      return i
+  -1
+
 proc canSlideHorizontal(
   sim: SimServer,
-  x, y, step, offset: int
+  movingIndex, x, y, step, offset: int
 ): bool =
   ## Returns true when a horizontal step can slide by one offset.
   if offset == 0:
     return false
   let slideStep = signOf(offset)
   for i in 1 .. abs(offset):
-    if not sim.canOccupy(x, y + slideStep * i):
+    if not sim.canOccupy(x, y + slideStep * i) or
+        sim.playersOverlapAt(movingIndex, x, y + slideStep * i):
       return false
-  sim.canOccupy(x + step, y + offset)
+  sim.canOccupy(x + step, y + offset) and
+    not sim.playersOverlapAt(movingIndex, x + step, y + offset)
 
 proc canSlideVertical(
   sim: SimServer,
-  x, y, step, offset: int
+  movingIndex, x, y, step, offset: int
 ): bool =
   ## Returns true when a vertical step can slide by one offset.
   if offset == 0:
     return false
   let slideStep = signOf(offset)
   for i in 1 .. abs(offset):
-    if not sim.canOccupy(x + slideStep * i, y):
+    if not sim.canOccupy(x + slideStep * i, y) or
+        sim.playersOverlapAt(movingIndex, x + slideStep * i, y):
       return false
-  sim.canOccupy(x + offset, y + step)
+  sim.canOccupy(x + offset, y + step) and
+    not sim.playersOverlapAt(movingIndex, x + offset, y + step)
 
 proc trySlideOffset(
-  sim: SimServer,
-  player: var Player,
-  step, offset: int,
+  sim: var SimServer,
+  movingIndex, step, offset: int,
   horizontal: bool
 ): bool =
   ## Tries one candidate slide offset for a blocked movement step.
+  template player: untyped = sim.players[movingIndex]
   if horizontal:
-    if not sim.canSlideHorizontal(player.x, player.y, step, offset):
+    if not sim.canSlideHorizontal(movingIndex, player.x, player.y, step, offset):
       return false
     player.x += step
     player.y += offset
   else:
-    if not sim.canSlideVertical(player.x, player.y, step, offset):
+    if not sim.canSlideVertical(movingIndex, player.x, player.y, step, offset):
       return false
     player.x += offset
     player.y += step
   true
 
 proc trySlideMove(
-  sim: SimServer,
-  player: var Player,
-  step, radius, preferredSlide: int,
+  sim: var SimServer,
+  movingIndex, step, radius, preferredSlide: int,
   horizontal: bool
 ): bool =
   ## Tries nearby slide offsets for one blocked movement step.
@@ -3026,41 +3118,66 @@ proc trySlideMove(
   for distance in 1 .. radius:
     if preferred != 0:
       if sim.trySlideOffset(
-        player,
+        movingIndex,
         step,
         preferred * distance,
         horizontal
       ):
         return true
       if sim.trySlideOffset(
-        player,
+        movingIndex,
         step,
         -preferred * distance,
         horizontal
       ):
         return true
     else:
-      if sim.trySlideOffset(player, step, -distance, horizontal):
+      if sim.trySlideOffset(movingIndex, step, -distance, horizontal):
         return true
-      if sim.trySlideOffset(player, step, distance, horizontal):
+      if sim.trySlideOffset(movingIndex, step, distance, horizontal):
         return true
   false
 
+proc bouncePlayers(sim: var SimServer, a, b: int, horizontal: bool) =
+  ## Applies a slightly elastic equal-mass collision response along one axis
+  ## between two touching players: the axis velocities average out (the
+  ## shove) plus playerBouncePct percent of the closing speed rebounds (the
+  ## bounce). At 100 this is a billiard-ball velocity swap, at 0 a dead-stop
+  ## push.
+  let
+    pct = sim.config.playerBouncePct
+    v1 = if horizontal: sim.players[a].velX else: sim.players[a].velY
+    v2 = if horizontal: sim.players[b].velX else: sim.players[b].velY
+    total = v1 + v2
+    rebound = (v1 - v2) * pct div 100
+  if horizontal:
+    sim.players[a].velX = (total - rebound) div 2
+    sim.players[b].velX = (total + rebound) div 2
+  else:
+    sim.players[a].velY = (total - rebound) div 2
+    sim.players[b].velY = (total + rebound) div 2
+
 proc applyMomentumAxis(
-  sim: SimServer,
-  player: var Player,
-  carry: var int,
-  velocity, preferredSlide: int,
+  sim: var SimServer,
+  playerIndex, preferredSlide: int,
   horizontal: bool
 ) =
-  ## Applies one fixed-point movement axis with collision sliding.
-  carry += velocity
+  ## Applies one fixed-point movement axis with collision sliding. Walls
+  ## absorb blocked motion; another player's body blocks the same way but
+  ## answers with a slightly elastic shove (bouncePlayers).
+  template player: untyped = sim.players[playerIndex]
+  let velocity = if horizontal: player.velX else: player.velY
+  var carry =
+    (if horizontal: player.carryX else: player.carryY) + velocity
   while abs(carry) >= sim.config.motionScale:
     let step = if carry < 0: -1 else: 1
     let
       nx = if horizontal: player.x + step else: player.x
       ny = if horizontal: player.y else: player.y + step
+    var blocker = -1
     if sim.canOccupy(nx, ny):
+      blocker = sim.blockingPlayerAt(playerIndex, player.x, player.y, nx, ny)
+    if sim.canOccupy(nx, ny) and blocker < 0:
       if horizontal:
         player.x = nx
       else:
@@ -3069,7 +3186,7 @@ proc applyMomentumAxis(
     else:
       let radius = sim.slideScanRadius(carry, velocity)
       if sim.trySlideMove(
-        player,
+        playerIndex,
         step,
         radius,
         preferredSlide,
@@ -3077,8 +3194,14 @@ proc applyMomentumAxis(
       ):
         carry -= step * sim.config.motionScale
       else:
+        if blocker >= 0:
+          sim.bouncePlayers(playerIndex, blocker, horizontal)
         carry = 0
         break
+  if horizontal:
+    player.carryX = carry
+  else:
+    player.carryY = carry
 
 proc distSq*(ax, ay, bx, by: int): int =
   let
@@ -3131,7 +3254,8 @@ proc killPlayer*(sim: var SimServer, targetIndex, killerIndex: int) =
   sim.players[targetIndex].windupBrads = -1
   sim.players[targetIndex].hasGrenade = false
   sim.players[targetIndex].hasShield = false
-  sim.players[targetIndex].hasSword = false
+  sim.players[targetIndex].hasPlasmaArc = false
+  sim.players[targetIndex].arcTicksLeft = 0
   sim.players[targetIndex].throwCharge = 0
   for team in Team:
     if sim.flags[team].carrier == targetIndex:
@@ -3165,30 +3289,33 @@ proc canFire*(sim: SimServer, shooterIndex: int): bool =
   if shooterIndex < 0 or shooterIndex >= sim.players.len:
     return false
   let shooter = sim.players[shooterIndex]
-  shooter.alive and shooter.fireCooldown <= 0 and not shooter.hasSword
+  shooter.alive and shooter.fireCooldown <= 0 and not shooter.hasPlasmaArc
 
-proc canSwing*(sim: SimServer, attackerIndex: int): bool =
-  ## Returns whether one player can perform an immediate sword swing.
+proc canFireArc*(sim: SimServer, attackerIndex: int): bool =
+  ## Returns whether one player can fire an immediate plasma arc.
   if attackerIndex < 0 or attackerIndex >= sim.players.len:
     return false
   let attacker = sim.players[attackerIndex]
-  attacker.alive and attacker.hasSword and attacker.fireCooldown <= 0
+  attacker.alive and attacker.hasPlasmaArc and attacker.fireCooldown <= 0
 
-proc selectSwingVictims(
+proc selectArcVictims(
   sim: SimServer,
   attackerIndex: int
 ): seq[int] =
-  ## Returns every living player inside the attacker's forward sword arc.
-  if not sim.canSwing(attackerIndex):
+  ## Returns every living player inside the attacker's forward plasma cone,
+  ## computed from the attacker's CURRENT position and aim: a live cone
+  ## tracks its owner across the active window.
+  if attackerIndex < 0 or attackerIndex >= sim.players.len:
     return @[]
   let
     attacker = sim.players[attackerIndex]
     ax = attacker.x + CollisionW div 2
     ay = attacker.y + CollisionH div 2
     (ux, uy) = aimVector(attacker.aimBrads)
-    maxDistance = float(SwordRange)
-    arcTan = tan(float(SwordArcBrads) * 2.0 * PI /
-      float(AimBradsTurn))
+    reach = float(PlasmaArcReach)
+    # The cone's half-width grows linearly with forward distance, hitting
+    # PlasmaArcMaxWidth / 2 exactly at the reach cap.
+    halfWidthSlope = float(PlasmaArcMaxWidth) / (2.0 * reach)
   for i in 0 ..< sim.players.len:
     if i == attackerIndex or not sim.players[i].alive:
       continue
@@ -3197,12 +3324,11 @@ proc selectSwingVictims(
     let
       vx = float(sim.players[i].x + CollisionW div 2 - ax)
       vy = float(sim.players[i].y + CollisionH div 2 - ay)
-      distanceSq = vx * vx + vy * vy
       forward = vx * ux + vy * uy
       perpendicular = abs(vx * uy - vy * ux)
-    if distanceSq > maxDistance * maxDistance or forward <= 0:
+    if forward <= 0 or forward > reach:
       continue
-    if perpendicular > forward * arcTan:
+    if perpendicular > forward * halfWidthSlope:
       continue
     if not sim.lineOfSightClear(
       ax,
@@ -3213,38 +3339,77 @@ proc selectSwingVictims(
       continue
     result.add(i)
 
-proc applySwing(
-  sim: var SimServer,
-  attackerIndex: int,
-  victims: openArray[int]
-) =
-  ## Applies one immediate sword swing and records its cosmetic swipe.
-  if attackerIndex < 0 or attackerIndex >= sim.players.len:
+proc startArcFire*(sim: var SimServer, attackerIndex: int) =
+  ## Ignites one player's plasma cone: it stays on for PlasmaArcActiveTicks
+  ## and the weapon then needs PlasmaArcResetTicks to recharge before the
+  ## next firing. Damage is dealt by resolveActiveArcCones each active tick.
+  if not sim.canFireArc(attackerIndex):
     return
-  let attacker = sim.players[attackerIndex]
-  sim.players[attackerIndex].fireCooldown = sim.config.fireCooldownTicks
-  sim.swordSwipes.add SwordFx(
-    x: attacker.x + CollisionW div 2,
-    y: attacker.y + CollisionH div 2,
-    aimBrads: attacker.aimBrads,
-    tick: sim.tickCount,
-    color: teamColor(attacker.team)
+  sim.players[attackerIndex].fireCooldown =
+    PlasmaArcActiveTicks + PlasmaArcResetTicks
+  sim.players[attackerIndex].arcTicksLeft = PlasmaArcActiveTicks
+  sim.players[attackerIndex].arcHitMask = 0
+  sim.logGameEvent(
+    playerColorText(sim.players[attackerIndex].color) & " fired a plasma arc"
   )
-  sim.logGameEvent(playerColorText(attacker.color) & " swung a sword")
-  for victimIndex in victims:
-    if victimIndex < 0 or victimIndex >= sim.players.len:
-      continue
-    if sim.players[victimIndex].alive:
-      sim.killPlayer(victimIndex, attackerIndex)
-      if victimIndex != attackerIndex:
-        sim.recordKill(attackerIndex)
 
-proc trySwing*(sim: var SimServer, attackerIndex: int) =
-  ## Performs one sword swing immediately for direct callers and tests.
-  if not sim.canSwing(attackerIndex):
+proc resolveActiveArcCones*(sim: var SimServer) =
+  ## Advances every live plasma cone one tick: all cones are resolved
+  ## against the same snapshot (no processing-order advantage), each victim
+  ## is damaged at most once per activation, and every live cone leaves a
+  ## cosmetic flash at its owner's current position and aim. A touch removes
+  ## PlasmaArcDamage hit points — lethal to a bare cog, survivable once by a
+  ## shield carrier. A dead owner's cone shuts off.
+  var arcFires: seq[tuple[attacker: int, victims: seq[int]]] = @[]
+  for attackerIndex in 0 ..< sim.players.len:
+    if sim.players[attackerIndex].arcTicksLeft <= 0:
+      continue
+    if not sim.players[attackerIndex].alive:
+      sim.players[attackerIndex].arcTicksLeft = 0
+      continue
+    arcFires.add((attackerIndex, sim.selectArcVictims(attackerIndex)))
+  for arcFire in arcFires:
+    let attacker = sim.players[arcFire.attacker]
+    sim.plasmaArcFlashes.add PlasmaArcFx(
+      x: attacker.x + CollisionW div 2,
+      y: attacker.y + CollisionH div 2,
+      aimBrads: attacker.aimBrads,
+      tick: sim.tickCount,
+      color: teamColor(attacker.team)
+    )
+    for victimIndex in arcFire.victims:
+      if victimIndex < 0 or victimIndex >= sim.players.len:
+        continue
+      if not sim.players[victimIndex].alive:
+        continue
+      if victimIndex < 32:
+        let bit = 1'u32 shl victimIndex
+        if (sim.players[arcFire.attacker].arcHitMask and bit) != 0:
+          continue
+        sim.players[arcFire.attacker].arcHitMask =
+          sim.players[arcFire.attacker].arcHitMask or bit
+      sim.players[victimIndex].hp -= PlasmaArcDamage
+      # Floating damage number for the HP loss (cosmetic, not in gameHash).
+      sim.damagePops.add DamageFx(
+        x: sim.players[victimIndex].x + CollisionW div 2,
+        y: sim.players[victimIndex].y + CollisionH div 2,
+        tick: sim.tickCount,
+        amount: PlasmaArcDamage, color: sim.players[victimIndex].color
+      )
+      if sim.players[victimIndex].hp <= 0:
+        sim.killPlayer(victimIndex, arcFire.attacker)
+        if victimIndex != arcFire.attacker:
+          sim.recordKill(arcFire.attacker)
+    if sim.players[arcFire.attacker].arcTicksLeft > 0:
+      dec sim.players[arcFire.attacker].arcTicksLeft
+
+proc tryFireArc*(sim: var SimServer, attackerIndex: int) =
+  ## Fires one plasma arc immediately for direct callers and tests: ignites
+  ## the cone and resolves its first tick (other live cones also advance).
+  if not sim.canFireArc(attackerIndex):
     return
-  let victims = sim.selectSwingVictims(attackerIndex)
-  sim.applySwing(attackerIndex, victims)
+  sim.startArcFire(attackerIndex)
+  sim.resolveActiveArcCones()
 
 proc fireDirection(sim: SimServer, shooterIndex: int): tuple[x, y: float] =
   ## Returns the unit shot direction: the aim angle locked at the trigger
@@ -3345,13 +3510,27 @@ proc applyFire(sim: var SimServer, shooterIndex, targetIndex: int) =
     hit: targetIndex >= 0
   )
   if targetIndex >= 0 and sim.players[targetIndex].alive:
+    # A carrier whose bubble is still up (hp >= ShieldBubbleMinHp at impact)
+    # absorbs the hit VISUALS on the bubble: it blinks and dents toward the
+    # shooter instead of showing the inner struck-target ring and body paint
+    # spark. The "-1" pop still reads the hp loss. (Cosmetic only — the damage
+    # itself is unchanged.)
+    let bubbleUp = sim.players[targetIndex].hasShield and
+      sim.players[targetIndex].hp >= ShieldBubbleMinHp
     dec sim.players[targetIndex].hp
-    # A spectator-view flash rings the struck target the moment the bullet
-    # connects, so hits read at a glance (cosmetic only, never in gameHash).
-    sim.hitFlashes.add HitFlashFx(
-      playerIndex: targetIndex,
-      tick: sim.tickCount
-    )
+    if bubbleUp:
+      sim.bubbleImpacts.add BubbleImpactFx(
+        playerIndex: targetIndex,
+        tick: sim.tickCount,
+        angleBrads: bradsOfVector(sx - ex, sy - ey)
+      )
+    else:
+      # A spectator-view flash rings the struck target the moment the bullet
+      # connects, so hits read at a glance (cosmetic only, never in gameHash).
+      sim.hitFlashes.add HitFlashFx(
+        playerIndex: targetIndex,
+        tick: sim.tickCount
+      )
     # A floating "-1" rises and fades from the victim so a lost health bar
     # reads at a glance (cosmetic only, never in gameHash).
     sim.damagePops.add DamageFx(
@@ -3365,15 +3544,16 @@ proc applyFire(sim: var SimServer, shooterIndex, targetIndex: int) =
       sim.killPlayer(targetIndex, shooterIndex)
       sim.recordKill(shooterIndex)
     else:
-      # A non-fatal hit leaves a small, short-lived paint spark in the
-      # shooter's color on the target (cosmetic only, never in gameHash).
-      sim.splatters.add SplatterFx(
-        x: sim.players[targetIndex].x,
-        y: sim.players[targetIndex].y,
-        tick: sim.tickCount,
-        color: shooter.color,
-        hit: true
-      )
+      if not bubbleUp:
+        # A non-fatal hit leaves a small, short-lived paint spark in the
+        # shooter's color on the target (cosmetic only, never in gameHash).
+        sim.splatters.add SplatterFx(
+          x: sim.players[targetIndex].x,
+          y: sim.players[targetIndex].y,
+          tick: sim.tickCount,
+          color: shooter.color,
+          hit: true
+        )
       sim.logGameEvent(
         playerColorText(sim.players[targetIndex].color) &
           " hit by " & sim.playerText(shooterIndex) &
@@ -3556,9 +3736,9 @@ proc updateMedKits*(sim: var SimServer) =
     if not spawn.present and sim.tickCount >= spawn.respawnAt:
       spawn.present = true
 
-proc updateSwords*(sim: var SimServer) =
-  ## Refills side-center sword pickups whose respawn timer elapsed.
-  for spawn in sim.swordSpawns.mitems:
+proc updatePlasmaArcs*(sim: var SimServer) =
+  ## Refills side-center plasma arc pickups whose respawn timer elapsed.
+  for spawn in sim.plasmaArcSpawns.mitems:
     if not spawn.present and sim.tickCount >= spawn.respawnAt:
       spawn.present = true
 
@@ -3614,24 +3794,24 @@ proc tryPickupShields*(sim: var SimServer, playerIndex: int) =
       )
       return
 
-proc tryPickupSwords*(sim: var SimServer, playerIndex: int) =
-  ## Lets a living player pick up one side-center sword by touch.
-  if not sim.players[playerIndex].alive or sim.players[playerIndex].hasSword:
+proc tryPickupPlasmaArcs*(sim: var SimServer, playerIndex: int) =
+  ## Lets a living player pick up one side-center plasma arc by touch.
+  if not sim.players[playerIndex].alive or sim.players[playerIndex].hasPlasmaArc:
     return
   let
     px = sim.players[playerIndex].x + CollisionW div 2
     py = sim.players[playerIndex].y + CollisionH div 2
-    rangeSq = SwordPickupRange * SwordPickupRange
-  for spawn in sim.swordSpawns.mitems:
+    rangeSq = PlasmaArcPickupRange * PlasmaArcPickupRange
+  for spawn in sim.plasmaArcSpawns.mitems:
     if spawn.present and distSq(px, py, spawn.x, spawn.y) <= rangeSq:
       spawn.present = false
-      spawn.respawnAt = sim.tickCount + SwordRespawnTicks
-      sim.players[playerIndex].hasSword = true
+      spawn.respawnAt = sim.tickCount + PlasmaArcRespawnTicks
+      sim.players[playerIndex].hasPlasmaArc = true
       sim.players[playerIndex].fireWindup = 0
       sim.players[playerIndex].windupBrads = -1
       sim.logGameEvent(
         playerColorText(sim.players[playerIndex].color) &
-          " picked up a sword"
+          " picked up a plasma arc"
       )
       return
 
@@ -3703,19 +3883,6 @@ proc resolveSimultaneousFire*(sim: var SimServer, shooters: openArray[int]) =
       shots.add((shooterIndex, sim.selectFireTarget(shooterIndex)))
   for shot in shots:
     sim.applyFire(shot.shooter, shot.target)
-
-proc resolveSimultaneousSwings*(
-  sim: var SimServer,
-  attackers: openArray[int]
-) =
-  ## Resolves every sword swing this tick against the same post-movement
-  ## snapshot, so mutual melee kills have no input-order advantage.
-  var swings: seq[tuple[attacker: int, victims: seq[int]]] = @[]
-  for attackerIndex in attackers:
-    if sim.canSwing(attackerIndex):
-      swings.add((attackerIndex, sim.selectSwingVictims(attackerIndex)))
-  for swing in swings:
-    sim.applySwing(swing.attacker, swing.victims)
 
 proc tryPickupFlags*(sim: var SimServer, playerIndex: int) =
   ## Lets a living player steal the ENEMY team's flag off its pedestal by
@@ -3832,20 +3999,8 @@ proc applyInput*(
         inputX
       else:
         signOf(player.velX)
-  sim.applyMomentumAxis(
-    player,
-    player.carryX,
-    player.velX,
-    preferredSlideY,
-    true
-  )
-  sim.applyMomentumAxis(
-    player,
-    player.carryY,
-    player.velY,
-    preferredSlideX,
-    false
-  )
+  sim.applyMomentumAxis(playerIndex, preferredSlideY, true)
+  sim.applyMomentumAxis(playerIndex, preferredSlideX, false)
 
 proc fovCellIndex*(cx, cy: int): int {.inline.} =
   ## Returns the flat index of one fog-of-war grid cell.
@@ -4274,7 +4429,7 @@ proc initSimServer*(config: GameConfig): SimServer =
       result.wallMask[mapIndex(x, y)] = pixel.a > 0
 
   ## The fog occlusion grid builds from the OPAQUE walls only: glass window
-  ## pixels stay in wallMask (movement/bullets/swords) but drop out here, so
+  ## pixels stay in wallMask (movement/bullets/plasma arcs) but drop out here, so
   ## shadowcasting sees straight through every window.
   var opaqueMask = result.wallMask
   block:
@@ -4297,7 +4452,7 @@ proc initSimServer*(config: GameConfig): SimServer =
   result.resetGrenades()
   result.resetMedKits()
   result.resetShields()
-  result.resetSwords()
+  result.resetPlasmaArcs()
   result.lastLobbyPlayersLogged = -1
   result.lastLobbyNeededLogged = -1
   result.lastLobbySecondsLogged = -1
@@ -4309,12 +4464,13 @@ proc resetToLobby*(sim: var SimServer) =
   sim.resetGrenades()
   sim.resetMedKits()
   sim.resetShields()
-  sim.resetSwords()
+  sim.resetPlasmaArcs()
   sim.recentBlasts = @[]
-  sim.swordSwipes = @[]
+  sim.plasmaArcFlashes = @[]
   sim.recentShouts = @[]
   sim.recentShots = @[]
   sim.hitFlashes = @[]
+  sim.bubbleImpacts = @[]
   sim.splatters = @[]
   sim.damagePops = @[]
   sim.nextJoinOrder = 0
@@ -4402,7 +4558,7 @@ proc step*(
   # position, so a target that ducks back behind cover survives the shot.
   var
     firing: seq[int] = @[]
-    swinging: seq[int] = @[]
+    arcFiring: seq[int] = @[]
   for playerIndex in 0 ..< sim.players.len:
     if sim.players[playerIndex].fireCooldown > 0:
       dec sim.players[playerIndex].fireCooldown
@@ -4419,9 +4575,9 @@ proc step*(
     sim.applyInput(playerIndex, input)
     sim.applyGrenadeInput(playerIndex, input, prev)
     if input.attack and not prev.attack:
-      if sim.players[playerIndex].hasSword:
-        if sim.canSwing(playerIndex):
-          swinging.add(playerIndex)
+      if sim.players[playerIndex].hasPlasmaArc:
+        if sim.canFireArc(playerIndex):
+          arcFiring.add(playerIndex)
       else:
         if sim.config.fireWindupTicks <= 0:
           if sim.canFire(playerIndex) and sim.players[playerIndex].fireWindup == 0:
@@ -4429,18 +4585,20 @@ proc step*(
         else:
           sim.startFireWindup(playerIndex)
   sim.resolveSimultaneousFire(firing)
-  sim.resolveSimultaneousSwings(swinging)
+  for playerIndex in arcFiring:
+    sim.startArcFire(playerIndex)
+  sim.resolveActiveArcCones()
   sim.updateGrenades()
   sim.updateMedKits()
   sim.updateShields()
-  sim.updateSwords()
+  sim.updatePlasmaArcs()
 
   for playerIndex in 0 ..< sim.players.len:
     sim.tryPickupFlags(playerIndex)
     sim.tryPickupGrenades(playerIndex)
     sim.tryPickupMedKits(playerIndex)
     sim.tryPickupShields(playerIndex)
-    sim.tryPickupSwords(playerIndex)
+    sim.tryPickupPlasmaArcs(playerIndex)
   sim.updateFlags()
   sim.respawnPlayers()
 
@@ -4459,16 +4617,21 @@ proc step*(
     if sim.tickCount - flash.tick < HitFlashTicks:
       keptFlashes.add flash
   sim.hitFlashes = keptFlashes
+  var keptImpacts: seq[BubbleImpactFx] = @[]
+  for impact in sim.bubbleImpacts:
+    if sim.tickCount - impact.tick < BubbleImpactTicks:
+      keptImpacts.add impact
+  sim.bubbleImpacts = keptImpacts
   var keptBlasts: seq[BlastFx] = @[]
   for blast in sim.recentBlasts:
     if sim.tickCount - blast.tick < BlastFxTicks:
       keptBlasts.add blast
   sim.recentBlasts = keptBlasts
-  var keptSwordSwipes: seq[SwordFx] = @[]
-  for swipe in sim.swordSwipes:
-    if sim.tickCount - swipe.tick < SwordFxTicks:
-      keptSwordSwipes.add swipe
-  sim.swordSwipes = keptSwordSwipes
+  var keptArcFlashes: seq[PlasmaArcFx] = @[]
+  for flash in sim.plasmaArcFlashes:
+    if sim.tickCount - flash.tick < PlasmaArcFxTicks:
+      keptArcFlashes.add flash
+  sim.plasmaArcFlashes = keptArcFlashes
 
   # Expire old shouts. Unlike the cosmetic effects above, shouts are
   # observable gameplay state (bots hear them), so expiry is part of the

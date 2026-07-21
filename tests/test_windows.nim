@@ -38,7 +38,7 @@ proc fovAt(sim: SimServer, visible: seq[bool], x, y: int): bool =
 
 ## The second rect stub from the top and from the bottom of column 1
 ## (x=268..286, plus their x-mirrors) are glass windows: they stay walls for
-## movement, bullets, and sword line-of-sight, but fog-of-war shadowcasting
+## movement, bullets, and plasma-arc line-of-sight, but fog-of-war shadowcasting
 ## sees straight through them. The scene used throughout: a west-side spot at
 ## (240, 138), the top window stub at x 268..286, y 108..168, and an
 ## east-side spot at (310, 138) — the straight line between the spots

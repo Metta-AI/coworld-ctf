@@ -146,21 +146,40 @@ const
   ShieldCarryObjectBase = 19620  ## carried shield markers: one per player.
   ShieldBubbleSpriteId = 1422    ## the protective bubble drawn around a carrier.
   ShieldBubbleSize = 44          ## px bubble diameter (34px soldier body + margin).
+  ShieldBubbleLagPx = 6.0        ## px the bubble center trails BEHIND the aim:
+                                 ## the soldier canvas pivots on the body+gun
+                                 ## unit's center, but the visible team-colored
+                                 ## shell sits ~6px behind it (the dark gun
+                                 ## leads), so an un-lagged bubble reads
+                                 ## off-center around the agent.
   ShieldBubbleObjectBase = 19680 ## carrier bubbles: one per player, 19680..19695
-                                 ## (clear of sword swipes at 19700).
-  ShieldBubbleMinHp = 4          ## bubble pops once a carrier drops below this hp
-                                 ## (i.e. once the shield's bonus hp is spent).
-  SwordPickupSpriteId = 2000
-  SwordCarrySpriteId = 2001
-  SwordSwipeSpriteBase = 2002
-  SwordSwipeStages = 4
-  SwordPickupSize = 20
-  SwordCarrySize = 10
-  SwordSwipeSize = 2 * SwordRange
-  SwordPickupObjectBase = 19640
-  SwordCarryObjectBase = 19660
-  SwordSwipeObjectBase = 19700
-  SwordMaxSwipes = 16
+                                 ## (clear of plasma arc FX at 19700).
+  ## ShieldBubbleMinHp (the hp gate) lives in sim.nim, where the impact FX is
+  ## recorded with the same condition.
+  ShieldBubbleDeformBase = 1424  ## blink/dent impact variants keyed
+                                 ## bucket*stages+stage: 1424..1487 (clear of
+                                 ## tracer heads at 1300..1363 and plasma
+                                 ## sprites at 2000).
+  ShieldBubbleDeformBuckets = 16 ## impact-angle buckets (16 brads apart, like
+                                 ## the soldier rotations).
+  ShieldBubbleDeformStages = 4   ## blink/dent ease-back steps across
+                                 ## BubbleImpactTicks.
+  PlasmaArcPickupSpriteId = 2000
+  PlasmaArcCarrySpriteId = 2001
+  PlasmaArcFxSpriteBase = 2002   ## cone pulse discs, keyed colorIndex *
+                                 ## (stages * pulses) + stage * pulses +
+                                 ## pulse: 2002..2257, clear of the replay
+                                 ## UI sprites at 4002.
+  PlasmaArcFxStages = 4          ## fade stages across PlasmaArcFxTicks.
+  PlasmaArcFxPulses = 4          ## discs placed along the cone axis, sized
+                                 ## to the local cone width.
+  PlasmaArcPickupSize = 20
+  PlasmaArcCarrySize = 10
+  PlasmaArcPickupObjectBase = 19640
+  PlasmaArcCarryObjectBase = 19660
+  PlasmaArcFxObjectBase = 19700  ## 19700..19763 (16 flashes x 4 pulses),
+                                 ## clear of the map markers at 20000.
+  PlasmaArcMaxFlashes = 16
   RotDiamondSpriteBase = 1401    ## spinning diamond frames: 1401..1416;
                                  ## 850 collided with CorpseSpriteBase.
   RotDiamondObjectBase = 19610   ## spinning center diamonds: 19610..19617;
@@ -909,40 +928,81 @@ proc buildThrowTargetSprite(): seq[uint8] {.measure.} =
       if d <= c and d >= c - 2.0:                 # a 2px hollow rim
         result.putRawRgbaPixel(y * ThrowTargetSize + x, 255, 190, 70, 210)
 
-proc buildShieldBubbleSprite(): seq[uint8] {.measure.} =
+proc buildShieldBubblePixels(
+  dentBucket, stage: int
+): seq[uint8] {.measure.} =
   ## The shield carrier's protective bubble: a pale-cyan soap-bubble ring drawn
   ## AROUND the whole soldier — hollow with only a faint interior sheen, so the
   ## carrier stays fully visible inside it — plus a small specular glint on the
   ## upper-left rim so it reads as a bubble, not a range ring. Colorless-cool so
   ## it never leaks the carrier's team.
+  ##
+  ## dentBucket < 0 builds the idle bubble. Otherwise it builds one impact
+  ## variant: the whole ring blinks brighter and the rim presses in slightly
+  ## around the impact site (dentBucket in 16ths of a turn, toward the
+  ## shooter), both easing back to idle across the stages — the shield absorbs
+  ## the hit, so the impact reads on the bubble, never on the body inside.
   result = newRgbaPixels(ShieldBubbleSize, ShieldBubbleSize)
   let
     c = float(ShieldBubbleSize - 1) / 2
-    rim = c - 1.0
-    glintX = -0.7071 * rim
-    glintY = -0.7071 * rim
+    rimBase = c - 1.0
+    glintX = -0.7071 * rimBase
+    glintY = -0.7071 * rimBase
+    # 1.0 on the impact tick, easing to 0 as the FX ends.
+    ease =
+      if dentBucket < 0:
+        0.0
+      else:
+        1.0 - float(stage) / float(ShieldBubbleDeformStages)
+    impactAngle = float(dentBucket) * 2.0 * PI /
+      float(ShieldBubbleDeformBuckets)
+    dentDepth = 3.5 * ease       # a slight press, never a collapse
+    dentWidth = 0.7              # radians of rim the dent spreads across
+    blink = 55.0 * ease          # whole-ring brightness pulse
   for y in 0 ..< ShieldBubbleSize:
     for x in 0 ..< ShieldBubbleSize:
       let
         dx = float(x) - c
         dy = float(y) - c
         d = sqrt(dx * dx + dy * dy)
-      if d > rim + 1.6:
+      if d > rimBase + 1.6:
         continue
+      # Local rim radius: pressed inward around the impact site.
+      var rim = rimBase
+      var impact = 0.0
+      if dentBucket >= 0 and d > 0.5:
+        # Angular distance from the impact site (screen y is down, matching
+        # aim brads: angle = atan2(-dy, dx)).
+        var da = arctan2(-dy, dx) - impactAngle
+        while da < -PI: da += 2.0 * PI
+        while da >= PI: da -= 2.0 * PI
+        impact = exp(-(da * da) / (dentWidth * dentWidth))
+        rim = rimBase - dentDepth * impact
       # Anti-aliased hollow rim over a barely-there interior sheen.
-      var alpha = 175.0 * max(0.0, 1.0 - abs(d - rim) / 1.6)
+      var alpha = (175.0 + blink) * max(0.0, 1.0 - abs(d - rim) / 1.6)
+      # The impact site flashes hardest — a bright pressed patch on the rim.
+      alpha += 60.0 * ease * impact * max(0.0, 1.0 - abs(d - rim) / 2.2)
       if d < rim:
-        alpha = max(alpha, 20.0)
+        alpha = max(alpha, 20.0 + 14.0 * ease)
       # Specular glint where the upper-left rim catches the light.
       let glintD = sqrt((dx - glintX) * (dx - glintX) +
         (dy - glintY) * (dy - glintY))
       alpha = min(235.0, alpha + 120.0 * max(0.0, 1.0 - glintD / 4.5))
       result.putRawRgbaPixel(
-        y * ShieldBubbleSize + x, 175, 222, 255, uint8(alpha)
+        y * ShieldBubbleSize + x,
+        uint8(min(255.0, 175.0 + 60.0 * ease * impact)),
+        uint8(min(255.0, 222.0 + 25.0 * ease * impact)),
+        255,
+        uint8(alpha)
       )
 
-proc buildSwordIcon(size: int): seq[uint8] {.measure.} =
-  ## Builds a small, readable sword icon for pickups and carried markers.
+proc buildShieldBubbleSprite(): seq[uint8] =
+  ## The idle (no recent impact) carrier bubble.
+  buildShieldBubblePixels(-1, 0)
+
+proc buildPlasmaArcIcon(size: int): seq[uint8] {.measure.} =
+  ## Builds a small, readable plasma arc emitter icon for pickups and
+  ## carried markers: a dark grip on the left firing a widening cyan cone.
   result = newRgbaPixels(size, size)
   let center = float(size - 1) / 2
   for y in 0 ..< size:
@@ -950,52 +1010,64 @@ proc buildSwordIcon(size: int): seq[uint8] {.measure.} =
       let
         dx = float(x) - center
         dy = float(y) - center
-        blade = abs(dx + dy) < 1.5 and dx < center * 0.65
-        guard = abs(dx - dy) < 1.5 and abs(dx) < center * 0.45
-        handle = abs(dx + dy) < 1.6 and dx > center * 0.35
-      if blade:
+        coneHalf = (dx + center * 0.3) * 0.45
+        cone = dx > -center * 0.3 and abs(dy) <= coneHalf
+        core = cone and abs(dy) <= coneHalf / 3.0
+        grip = dx <= -center * 0.3 and dx >= -center and abs(dy) < 1.6
+      if core:
         result.putRawRgbaPixel(
-          y * size + x, 230, 238, 242, 235
+          y * size + x, 225, 250, 255, 250
         )
-      elif guard:
+      elif cone:
         result.putRawRgbaPixel(
-          y * size + x, 247, 190, 70, 245
+          y * size + x, 70, 200, 245, 220
         )
-      elif handle:
+      elif grip:
         result.putRawRgbaPixel(
-          y * size + x, 92, 56, 36, 245
+          y * size + x, 70, 76, 88, 245
         )
 
-proc loadSwordSprite(size: int): seq[uint8] =
-  ## Returns the sword icon at its requested protocol footprint.
-  buildSwordIcon(size)
+proc loadPlasmaArcSprite(size: int): seq[uint8] =
+  ## Returns the plasma arc icon at its requested protocol footprint.
+  buildPlasmaArcIcon(size)
 
-proc buildSwordSwipeSprite(colorIndex, stage: int): seq[uint8] {.measure.} =
-  ## Builds a team-colored crescent slash with a short fade.
-  result = newRgbaPixels(SwordSwipeSize, SwordSwipeSize)
+proc plasmaPulseForward(pulse: int): int =
+  ## The forward distance of one cone pulse disc's center, in map px.
+  PlasmaArcReach * (2 * pulse + 1) div (2 * PlasmaArcFxPulses)
+
+proc plasmaPulseDiameter(pulse: int): int =
+  ## One cone pulse disc's diameter: the cone width at the disc's center.
+  max(6, PlasmaArcMaxWidth * (2 * pulse + 1) div (2 * PlasmaArcFxPulses))
+
+proc buildPlasmaPulseSprite(
+  colorIndex, stage, pulse: int
+): seq[uint8] {.measure.} =
+  ## Builds one team-colored plasma pulse disc: a hot white core falling
+  ## off to the whitened team color, with a short stage fade.
   let
+    size = plasmaPulseDiameter(pulse)
     base = Palette[PlayerColors[colorIndex and 0x0f] and 0x0f]
-    center = float(SwordSwipeSize - 1) / 2
-    radius = float(SwordRange) * 0.82
+    center = float(size - 1) / 2
+    radius = max(center, 1.0)
     fade = 1.0 - 0.72 * (stage.float /
-      float(max(1, SwordSwipeStages - 1)))
-  for y in 0 ..< SwordSwipeSize:
-    for x in 0 ..< SwordSwipeSize:
+      float(max(1, PlasmaArcFxStages - 1)))
+  result = newRgbaPixels(size, size)
+  for y in 0 ..< size:
+    for x in 0 ..< size:
       let
         dx = float(x) - center
         dy = float(y) - center
         distance = sqrt(dx * dx + dy * dy)
-        angle = arctan2(-dy, dx)
-        inArc = angle >= -PI / 4 and angle <= PI / 4
-        onRim = abs(distance - radius) <= 1.8
-      if inArc and onRim:
-        result.putRawRgbaPixel(
-          y * SwordSwipeSize + x,
-          uint8((base.r.int + 255) div 2),
-          uint8((base.g.int + 255) div 2),
-          uint8((base.b.int + 255) div 2),
-          uint8(clamp(255.0 * fade, 0.0, 255.0))
-        )
+      if distance > radius:
+        continue
+      let core = 1.0 - distance / radius
+      result.putRawRgbaPixel(
+        y * size + x,
+        uint8(clamp(float((base.r.int + 255) div 2) + core * 60.0, 0, 255)),
+        uint8(clamp(float((base.g.int + 255) div 2) + core * 60.0, 0, 255)),
+        uint8(clamp(float((base.b.int + 255) div 2) + core * 60.0, 0, 255)),
+        uint8(clamp(255.0 * fade * (0.3 + 0.7 * core), 0.0, 255.0))
+      )
 
 proc buildBlastSprite(colorIndex, stage: int): seq[uint8] {.measure.} =
   ## The grenade landing: a BIG paint splat in the THROWER's team color — a
@@ -2853,113 +2925,116 @@ proc addRotatingDiamonds(
       spot.cy, MapLayerId, spriteId
     )
 
-proc addSwords(
+proc addPlasmaArcs(
   sim: SimServer,
   spriteDefs: var seq[SpriteDefinition],
   currentIds: var seq[int],
   packet: var seq[uint8],
   viewerIndex = -1
 ) {.measure.} =
-  ## Places side-center sword pickups and carried markers.
-  for i in 0 ..< sim.swordSpawns.len:
-    let spawn = sim.swordSpawns[i]
+  ## Places side-center plasma arc pickups and carried markers.
+  for i in 0 ..< sim.plasmaArcSpawns.len:
+    let spawn = sim.plasmaArcSpawns[i]
     if not spawn.present:
       continue
     if viewerIndex >= 0 and not sim.fovVisibleAt(viewerIndex, spawn.x, spawn.y):
       continue
-    if spriteDefs.spriteDefinitionIndex(SwordPickupSpriteId) < 0:
+    if spriteDefs.spriteDefinitionIndex(PlasmaArcPickupSpriteId) < 0:
       packet.addSpriteChanged(
         spriteDefs,
-        SwordPickupSpriteId,
-        SwordPickupSize,
-        SwordPickupSize,
-        loadSwordSprite(SwordPickupSize),
-        "sword"
+        PlasmaArcPickupSpriteId,
+        PlasmaArcPickupSize,
+        PlasmaArcPickupSize,
+        loadPlasmaArcSprite(PlasmaArcPickupSize),
+        "plasma arc"
       )
-    let objectId = SwordPickupObjectBase + i
+    let objectId = PlasmaArcPickupObjectBase + i
     currentIds.add(objectId)
     packet.addObject(
       objectId,
-      spawn.x - SwordPickupSize div 2,
-      spawn.y - SwordPickupSize div 2,
+      spawn.x - PlasmaArcPickupSize div 2,
+      spawn.y - PlasmaArcPickupSize div 2,
       spawn.y,
       MapLayerId,
-      SwordPickupSpriteId
+      PlasmaArcPickupSpriteId
     )
 
   for i in 0 ..< sim.players.len:
     let player = sim.players[i]
-    if not player.alive or not player.hasSword:
+    if not player.alive or not player.hasPlasmaArc:
       continue
     if viewerIndex >= 0 and i != viewerIndex and
         not sim.playerVisibleTo(viewerIndex, i):
       continue
-    if spriteDefs.spriteDefinitionIndex(SwordCarrySpriteId) < 0:
+    if spriteDefs.spriteDefinitionIndex(PlasmaArcCarrySpriteId) < 0:
       packet.addSpriteChanged(
         spriteDefs,
-        SwordCarrySpriteId,
-        SwordCarrySize,
-        SwordCarrySize,
-        loadSwordSprite(SwordCarrySize),
-        "sword carried"
+        PlasmaArcCarrySpriteId,
+        PlasmaArcCarrySize,
+        PlasmaArcCarrySize,
+        loadPlasmaArcSprite(PlasmaArcCarrySize),
+        "plasma arc carried"
       )
-    let objectId = SwordCarryObjectBase + i
+    let objectId = PlasmaArcCarryObjectBase + i
     currentIds.add(objectId)
     packet.addObject(
       objectId,
       player.x + CollisionW div 2 + HpBarWidth div 2 -
-        SwordCarrySize div 2,
-      player.overheadAnchorY() - OverheadYOffset - SwordCarrySize,
+        PlasmaArcCarrySize div 2,
+      player.overheadAnchorY() - OverheadYOffset - PlasmaArcCarrySize,
       30006,
       MapLayerId,
-      SwordCarrySpriteId
+      PlasmaArcCarrySpriteId
     )
 
-proc addSwordSwipes(
+proc addPlasmaArcFlashes(
   sim: SimServer,
   spriteDefs: var seq[SpriteDefinition],
   currentIds: var seq[int],
   packet: var seq[uint8],
   viewerIndex = -1
 ) {.measure.} =
-  ## Places fading sword swipe arcs in front of their attackers.
-  for i in 0 ..< min(sim.swordSwipes.len, SwordMaxSwipes):
-    let swipe = sim.swordSwipes[i]
+  ## Places each recent plasma arc's fading cone: a run of pulse discs
+  ## along the attacker's aim, each sized to the local cone width.
+  for i in 0 ..< min(sim.plasmaArcFlashes.len, PlasmaArcMaxFlashes):
+    let flash = sim.plasmaArcFlashes[i]
     if viewerIndex >= 0 and
-        not sim.fovVisibleAt(viewerIndex, swipe.x, swipe.y):
+        not sim.fovVisibleAt(viewerIndex, flash.x, flash.y):
       continue
     let
-      age = max(0, sim.tickCount - swipe.tick)
-      stage = clamp(age * SwordSwipeStages div SwordFxTicks,
-        0, SwordSwipeStages - 1)
-      colorIndex = playerColorIndex(swipe.color)
-      spriteId = SwordSwipeSpriteBase +
-        colorIndex * SwordSwipeStages + stage
-      sweepBrads = SwordArcBrads -
-        min(SwordArcBrads * 2, age * SwordArcBrads * 2 div
-          max(1, SwordFxTicks - 1))
-      (ux, uy) = aimVector(swipe.aimBrads + sweepBrads)
-      px = swipe.x + int(round(ux * float(SwordRange) / 2.0))
-      py = swipe.y + int(round(uy * float(SwordRange) / 2.0))
-    if spriteDefs.spriteDefinitionIndex(spriteId) < 0:
-      packet.addSpriteChanged(
-        spriteDefs,
-        spriteId,
-        SwordSwipeSize,
-        SwordSwipeSize,
-        buildSwordSwipeSprite(colorIndex, stage),
-        "sword swipe"
+      age = max(0, sim.tickCount - flash.tick)
+      stage = clamp(age * PlasmaArcFxStages div PlasmaArcFxTicks,
+        0, PlasmaArcFxStages - 1)
+      colorIndex = playerColorIndex(flash.color)
+      (ux, uy) = aimVector(flash.aimBrads)
+    for pulse in 0 ..< PlasmaArcFxPulses:
+      let
+        spriteId = PlasmaArcFxSpriteBase +
+          colorIndex * PlasmaArcFxStages * PlasmaArcFxPulses +
+          stage * PlasmaArcFxPulses + pulse
+        forward = float(plasmaPulseForward(pulse))
+        diameter = plasmaPulseDiameter(pulse)
+        px = flash.x + int(round(ux * forward))
+        py = flash.y + int(round(uy * forward))
+      if spriteDefs.spriteDefinitionIndex(spriteId) < 0:
+        packet.addSpriteChanged(
+          spriteDefs,
+          spriteId,
+          diameter,
+          diameter,
+          buildPlasmaPulseSprite(colorIndex, stage, pulse),
+          "plasma arc pulse"
+        )
+      let objectId = PlasmaArcFxObjectBase + i * PlasmaArcFxPulses + pulse
+      currentIds.add(objectId)
+      packet.addObject(
+        objectId,
+        px - diameter div 2,
+        py - diameter div 2,
+        30006,
+        MapLayerId,
+        spriteId
       )
-    let objectId = SwordSwipeObjectBase + i
-    currentIds.add(objectId)
-    packet.addObject(
-      objectId,
-      px - SwordSwipeSize div 2,
-      py - SwordSwipeSize div 2,
-      30006,
-      MapLayerId,
-      spriteId
-    )
 
 proc addMedKits(
   sim: SimServer,
@@ -3049,19 +3124,55 @@ proc addShields(
       30006, MapLayerId, ShieldCarrySpriteId
     )
     if player.hp >= ShieldBubbleMinHp:
-      if spriteDefs.spriteDefinitionIndex(ShieldBubbleSpriteId) < 0:
+      # A fresh impact swaps the idle bubble for a blink/dent variant keyed by
+      # the impact direction and age — the newest impact wins if several
+      # shooters connected within the FX window.
+      var
+        bubbleSpriteId = ShieldBubbleSpriteId
+        newestAge = BubbleImpactTicks
+        impactBrads = 0
+      for impact in sim.bubbleImpacts:
+        if impact.playerIndex != i:
+          continue
+        let age = sim.tickCount - impact.tick
+        if age >= 0 and age < newestAge:
+          newestAge = age
+          impactBrads = impact.angleBrads
+      if newestAge < BubbleImpactTicks:
+        let
+          bucket = (impactBrads * ShieldBubbleDeformBuckets div
+            AimBradsTurn + ShieldBubbleDeformBuckets) mod
+            ShieldBubbleDeformBuckets
+          stage = clamp(
+            newestAge * ShieldBubbleDeformStages div BubbleImpactTicks,
+            0, ShieldBubbleDeformStages - 1
+          )
+        bubbleSpriteId = ShieldBubbleDeformBase +
+          bucket * ShieldBubbleDeformStages + stage
+        if spriteDefs.spriteDefinitionIndex(bubbleSpriteId) < 0:
+          packet.addSpriteChanged(
+            spriteDefs, bubbleSpriteId,
+            ShieldBubbleSize, ShieldBubbleSize,
+            buildShieldBubblePixels(bucket, stage),
+            "shield bubble hit"
+          )
+      elif spriteDefs.spriteDefinitionIndex(ShieldBubbleSpriteId) < 0:
         packet.addSpriteChanged(
           spriteDefs, ShieldBubbleSpriteId,
           ShieldBubbleSize, ShieldBubbleSize,
           buildShieldBubbleSprite(), "shield bubble"
         )
-      let bubbleId = ShieldBubbleObjectBase + i
+      let
+        bubbleId = ShieldBubbleObjectBase + i
+        aim = aimVector(player.aimBrads)
       currentIds.add(bubbleId)
       packet.addObject(
         bubbleId,
-        player.x + CollisionW div 2 - ShieldBubbleSize div 2,
-        player.y + CollisionH div 2 - ShieldBubbleSize div 2,
-        30000, MapLayerId, ShieldBubbleSpriteId
+        player.x + CollisionW div 2 -
+          int(round(aim.x * ShieldBubbleLagPx)) - ShieldBubbleSize div 2,
+        player.y + CollisionH div 2 -
+          int(round(aim.y * ShieldBubbleLagPx)) - ShieldBubbleSize div 2,
+        30000, MapLayerId, bubbleSpriteId
       )
 
 proc addGrenades(
@@ -3632,13 +3743,13 @@ proc buildSpriteProtocolPlayerUpdates*(
       result,
       viewerIndex = playerIndex
     )
-    sim.addSwords(
+    sim.addPlasmaArcs(
       nextState.spriteDefs,
       currentIds,
       result,
       viewerIndex = playerIndex
     )
-    sim.addSwordSwipes(
+    sim.addPlasmaArcFlashes(
       nextState.spriteDefs,
       currentIds,
       result,
@@ -4187,8 +4298,8 @@ proc buildSpriteProtocolUpdates*(
   sim.addMedKits(nextState.spriteDefs, currentIds, result)
   sim.addShields(nextState.spriteDefs, currentIds, result)
   sim.addGrenades(nextState.spriteDefs, currentIds, result)
-  sim.addSwords(nextState.spriteDefs, currentIds, result)
-  sim.addSwordSwipes(nextState.spriteDefs, currentIds, result)
+  sim.addPlasmaArcs(nextState.spriteDefs, currentIds, result)
+  sim.addPlasmaArcFlashes(nextState.spriteDefs, currentIds, result)
   sim.addShouts(nextState.spriteDefs, currentIds, result)
   sim.addAimIndicators(nextState.spriteDefs, currentIds, result)
   sim.addHpPips(nextState.spriteDefs, currentIds, result)

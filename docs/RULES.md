@@ -25,8 +25,8 @@ tasks, voting) with teams, guns, hearts, and fog-of-war vision.
   neither team has a positional advantage): **no straight shot crosses the
   field**, so every approach is a series of corners.
 - In the outermost stub column of each half, the **second wall stub from the
-  top and from the bottom are glass windows** (GameVersion 13): they block
-  movement, bullets, and sword swings exactly like stone, but **vision passes
+  top and from the bottom are glass windows** (GameVersion 15): they block
+  movement, bullets, and plasma arcs exactly like stone, but **vision passes
   straight through them**. Glass draws as a pale pane with diagonal sheen —
   cover you can be seen behind is not cover.
 - A round ends when a team **captures the enemy heart** or is **wiped out**.
@@ -42,6 +42,12 @@ tasks, voting) with teams, guns, hearts, and fog-of-war vision.
 - Movement is **continuous** (acceleration, friction, max speed, wall-sliding) —
   the d-pad drives it.
 - Movement is **pure locomotion**: it never changes where you aim or look.
+- Player bodies are **solid**: you cannot drive over or through another live
+  player (friend or foe). Contact is a **slightly elastic collision** — equal
+  masses, `playerBouncePct` restitution (default 40%): ramming a standing
+  player shoves them forward and keeps a little of your speed; a head-on
+  meeting bounces both back at 40% of the closing speed. Glancing contact
+  slides around the body the same way wall-sliding works. Corpses never block.
 
 ## Aim
 
@@ -160,25 +166,32 @@ always drawn — but moving entities are fogged:
   above a carrier `grenade carried`, the charge marker `throw target`, the
   landing flash `blast stage N`.
 
-## Sword
+## Plasma arc
 
-- **Two sword pickups spawn high in the side back columns** — one on each
-  side, in the TOP half (a quarter of the map height down, between the top
-  corner grenade and the side midpoint), nudged to the nearest walkable
-  floor. The shields hold the matching bottom-half spots. Both swords are
-  present when the game starts, and a taken sword respawns after
+- **Two plasma arc pickups spawn high in the side back columns** — one on
+  each side, in the TOP half (a quarter of the map height down, between the
+  top corner grenade and the side midpoint), nudged to the nearest walkable
+  floor. The shields hold the matching bottom-half spots. Both plasma arcs
+  are present when the game starts, and a taken one respawns after
   **30 seconds**.
-- **Each player carries at most one sword**, independently of their grenade.
-  Dying loses the carried sword; nothing drops.
-- While carrying a sword, **A performs an immediate melee swipe instead of
-  firing the gun**. The swipe reaches **26 px** in front of the player and
-  covers a **±45° forward arc**. The gun is disabled while the sword is held;
-  C still throws a carried grenade normally.
-- The swipe is lethal to every other living player in its arc, including
-  teammates. It requires line of sight, and spawn protection blocks it.
-  Kills credit the sword attacker.
-- Observation labels: pickup `sword`, carrier marker `sword carried`, and
-  the fading slash `sword swipe`.
+- **Each player carries at most one plasma arc**, independently of their
+  grenade. Dying loses the carried arc; nothing drops.
+- While carrying a plasma arc, **A ignites a forward plasma cone instead of
+  firing the gun**. The cone reaches **4 squares** in front of the player
+  (136 px — one square is one 34 px cog body) and widens linearly to
+  **2 squares (68 px) at max reach**, a constant half-angle of
+  atan(1/4) ≈ 14°. The gun is disabled while the arc is held; C still
+  throws a carried grenade normally.
+- **The cone stays on for 5 ticks**, tracking the attacker's position and
+  aim across the window, then the weapon takes **20 ticks to reset**
+  (one firing every 25 ticks). The cone shuts off if its owner dies.
+- **A touch removes 3 hit points, once per victim per firing** — instantly
+  lethal to a bare 3 hp cog, while a 6 hp shield carrier survives the first
+  touch with 3 hp left. The cone affects teammates too, requires line of
+  sight, and spawn protection blocks it. Kills credit the attacker.
+- Observation labels: pickup `plasma arc`, carrier marker
+  `plasma arc carried`, and the fading cone `plasma arc pulse` (a run of
+  team-colored pulse discs along the attacker's aim each active tick).
 
 ## Shouts
 
@@ -217,7 +230,7 @@ always drawn — but moving entities are fogged:
 - **One shield sits deep in each team's endzone**, in the same back column
   as the corner grenade pickups but in the BOTTOM half (three quarters of
   the map height down, between the side midpoint and the bottom corner
-  grenade), nudged to the nearest walkable floor. The swords hold the
+  grenade), nudged to the nearest walkable floor. The plasma arcs hold the
   matching top-half spots.
 - **Touch a shield to pick it up** — either team may take either endzone's
   shield, and a player carries at most one.
@@ -278,7 +291,7 @@ points. This keeps the training objective tied purely to winning.
 | Button | Action |
 | --- | --- |
 | D-pad | Move (locomotion only — never changes your aim) |
-| A | Fire; while carrying a sword, perform a melee swipe |
+| A | Fire; while carrying a plasma arc, ignite the plasma cone |
 | B | Rotate aim counter-clockwise (browser client: X or K) |
 | Select | Rotate aim clockwise (browser client: Space or L) |
 | C | Hold to charge a grenade throw, release to throw (browser client: C) |
@@ -301,13 +314,17 @@ These are starting values, exposed in the game config and tuned in self-play.
 | Fire windup | ~0.2s | Trigger pull to bullet release; aim locks at the pull |
 | Fire cooldown | ~0.5s | Minimum time between shots |
 | Carrier speed | ~70% | Movement penalty while holding the heart |
+| Body bounce (`playerBouncePct`) | 40% | Restitution of player-player collisions; bodies are always solid |
 | Aim turn rate (`aimTurnRate`) | 5 brads/tick | Rotation speed while B/Select is held (~7°/tick; full turn ~2.1s) |
 | Vision cone (`visionConeDeg`) | ±60° | Fog-of-war forward vision half-angle; unlimited range, walls block |
 | Vision bubble (`visionBubble`) | 90px | Omnidirectional close-range vision regardless of aim |
-| Sword range (`SwordRange`) | 26px | Forward melee reach |
-| Sword arc (`SwordArcBrads`) | ±32 brads (±45°) | Forward swipe half-angle |
-| Sword respawn | 30s | Taken pickups refill after this interval |
-| Sword swipe lifetime (`SwordFxTicks`) | 8 ticks | Cosmetic slash lifetime |
+| Plasma arc reach (`PlasmaArcReach`) | 136px (4 squares) | Forward cone reach; one square = one 34px cog body |
+| Plasma arc max width (`PlasmaArcMaxWidth`) | 68px (2 squares) | Cone width at max reach; widens linearly (half-angle atan(1/4) ≈ 14°) |
+| Plasma arc damage (`PlasmaArcDamage`) | 3 hp | One touch per victim per firing; lethal to a bare cog, survivable by a shield carrier |
+| Plasma arc active window (`PlasmaArcActiveTicks`) | 5 ticks | The fired cone stays on, tracking its owner's position and aim |
+| Plasma arc reset (`PlasmaArcResetTicks`) | 20 ticks | Recharge after the cone shuts off (one firing per 25 ticks) |
+| Plasma arc respawn | 30s | Taken pickups refill after this interval |
+| Plasma pulse lifetime (`PlasmaArcFxTicks`) | 4 ticks | Cosmetic fade of each per-tick cone snapshot |
 | Heart auto-return | instant | A heart snaps back to its own pedestal the moment its carrier dies |
 | Time limit | (TBD) ticks | Round length cap before the scoreless draw |
 | Map size | 1235×659 | Inherited from Crewrift; may change |
@@ -334,8 +351,9 @@ are labeled `red heart` / `blue heart` (formerly `red flag` / `blue flag`).
 Grenades add the labels documented in the Grenades section, and the throw
 button is input mask bit 128.
 
-Swords add the labels documented in the Sword section; their pickup and
-carrier markers are fog-gated like other floor and overhead item markers.
+Plasma arcs add the labels documented in the Plasma arc section; their
+pickup and carrier markers are fog-gated like other floor and overhead item
+markers.
 
 **Since 0.7.5:** shouts (see the Shouts section) add the label
 `<team> shout <player>: <text>`; chat packets, previously ignored, are now
