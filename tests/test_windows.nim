@@ -71,7 +71,7 @@ suite "windows: glass blocks movement and shots but not vision":
     check sim.wallMask[mapIndex(WindowCx, RowY)]
     let (wcx, wcy) = fovCellAt(WindowCx, RowY)
     check not sim.fovBlocked[fovCellIndex(wcx, wcy)]
-    # The mirrored disc is glass too.
+    # The mirrored stub is glass too.
     check sim.wallMask[mapIndex(WindowMirrorCx, RowY)]
     let (mcx, mcy) = fovCellAt(WindowMirrorCx, RowY)
     check not sim.fovBlocked[fovCellIndex(mcx, mcy)]
@@ -81,7 +81,7 @@ suite "windows: glass blocks movement and shots but not vision":
 
   test "vision passes through a window":
     var visible: seq[bool]
-    # Viewer west of the disc aiming due east (0 brads): the spot behind the
+    # Viewer west of the stub aiming due east (0 brads): the spot behind the
     # glass is inside the forward cone and no longer fogged.
     let (vcx, vcy) = fovCellAt(WestX, RowY)
     sim.computeFovVisible(vcx, vcy, 0, visible)
