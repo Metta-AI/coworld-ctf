@@ -172,8 +172,20 @@ const
   FireSlackPx = 11.0          # fire when the aim error's perpendicular miss
                               # at the target's range is inside this (the
                               # corridor half-width is ~14px; keep margin)
-  ScanArc = 44                # scan sweeps this many brads each side of the
-                              # watch heading (cone half-angle is 32 brads)
+  ScanArc =                   # scan sweeps this many brads each side of the
+                              # watch heading. Live cone half-angle is now
+                              # ~42.67 brads (VisionConeDeg=60 => 60/360*256),
+                              # NOT the ±32 brads (45deg) this sweep was sized
+                              # for. -d:coneTuned recalibrates to the new cone:
+                              # ScanArc=32 (< cone_half 42.67) keeps the watch
+                              # center CONTINUOUSLY covered (no blind window at
+                              # the sweep extremes) and shrinks the sweep ~27%
+                              # for faster refixation, while the covered watch
+                              # arc 2*(32+42.67)=~210deg matches the original
+                              # design intent (the wide cone was over-covering
+                              # ~244deg with slack refixation).
+    when defined(coneTuned): 32
+    else: 44
   CounterPunchTick = 2500     # by here a 0-steal attack is not converting:
                               # fall back and win the attrition instead
   PushOutTicks = 360          # endgame push: no enemy seen for ~15s...
