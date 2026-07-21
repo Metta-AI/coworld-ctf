@@ -56,7 +56,7 @@ const
   ControlKickPath = "/control/kick"
   # The designed broadcast replay client, embedded at compile time. Served for
   # the replay routes in place of bitworld's generic global client; a single
-  # self-contained file (font + core JS inlined). Live/player/global paths are
+  # self-contained file (core JS inlined). Live/player/global paths are
   # untouched and keep serving the bitworld client (§14 live column).
   EmbeddedBroadcastReplayHtml = staticRead("../../client/replay_broadcast.html").replace(
     "<!-- BROADCAST_CORE -->",
@@ -72,9 +72,11 @@ const
   # Opaque stone, no alpha → JPEG (q82) keeps each well under any committed sprite.
   WallTextureHorizontal = staticRead("../../client/art/walls/wall_h.jpg")
   WallTextureVertical = staticRead("../../client/art/walls/wall_v.jpg")
+  BroadcastFont = staticRead("../../data/font.ttf")
   LeagueReplayerPath = "/client/league"
   WallTextureHorizontalPath = "/client/art/walls/wall_h.jpg"
   WallTextureVerticalPath = "/client/art/walls/wall_v.jpg"
+  BroadcastFontPath = "/client/font.ttf"
   # Hosted replay closes any WS frame larger than 1 MiB (sends 1009). We chunk
   # outbound sprite packets under a margin below that so no single frame trips it.
   MaxWsFrameBytes = 900_000
@@ -575,6 +577,11 @@ proc httpHandler(request: Request) =
       request.respond(200, texHeaders, WallTextureHorizontal)
     else:
       request.respond(200, texHeaders, WallTextureVertical)
+  elif request.path == BroadcastFontPath and request.httpMethod == "GET":
+    var fontHeaders: HttpHeaders
+    fontHeaders["Content-Type"] = "font/ttf"
+    fontHeaders["Cache-Control"] = "public, max-age=3600"
+    request.respond(200, fontHeaders, BroadcastFont)
   elif request.path in [
       bitworldClient.ReplayClientRoute,
       bitworldClient.CoworldReplayClientRoute,
@@ -849,11 +856,26 @@ proc runServerLoop*(
   appState.replayServerMode = replayLoaded
   appState.config = config
 
+  var
+    sim = initSimServer(config)
+    lastTick = getMonoTime()
+  block:
+    # Bake the supersampled spectator render caches (map, endzone fades,
+    # soldier rotations) BEFORE the listener opens: a viewer's first-message
+    # clock starts at its successful connect (the coworld certifier allows
+    # only seconds), so nothing may be accepted until every frame the loop
+    # will ever build can be assembled instantly.
+    let warmStart = getMonoTime()
+    sim.warmBoardRenderCaches()
+    echo "board render caches baked in ",
+      (getMonoTime() - warmStart).inMilliseconds, " ms"
+
   let httpServer = newServer(
     httpHandler,
     websocketHandler,
     workerThreads = 4
   )
+
   var
     serverThread: Thread[ServerThreadArgs]
     serverPtr = cast[ptr Server](unsafeAddr httpServer)
@@ -865,8 +887,6 @@ proc runServerLoop*(
   httpServer.waitUntilReady()
 
   var
-    sim = initSimServer(config)
-    lastTick = getMonoTime()
     prevInputs: seq[InputState]
     liveSpeedIndex = config.liveSpeedIndex()
     gamesPlayed = 0

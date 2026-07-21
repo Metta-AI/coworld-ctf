@@ -33,13 +33,14 @@ suite "fog-of-war vision":
     check not sim.fovAt(visible, cx, 550)      # behind, beyond the bubble.
     check not sim.fovAt(visible, 100, cy)      # 90 degrees off, beyond bubble.
 
-  test "the 45-degree cone edge follows the aim":
+  test "the 60-degree cone edge follows the aim":
     var visible: seq[bool]
-    # Aiming diagonally up-right (32 brads): cells up the open center corridor just
-    # inside the 45-degree edge stay visible, just outside it fog over.
-    sim.computeFovVisible(cx div FovCellSize, cy div FovCellSize, 32, visible)
-    check sim.fovAt(visible, 630, 100)         # ~43 degrees off the aim.
-    check not sim.fovAt(visible, 610, 100)     # ~47 degrees off the aim.
+    # Aiming up-right at 21 brads (~30 degrees above east): cells up the open
+    # center corridor just inside the 60-degree edge stay visible, just
+    # outside it fog over.
+    sim.computeFovVisible(cx div FovCellSize, cy div FovCellSize, 21, visible)
+    check sim.fovAt(visible, 636, 100)         # ~56 degrees off the aim.
+    check not sim.fovAt(visible, 604, 100)     # ~64 degrees off the aim.
 
   test "vision bubble: close cells are visible regardless of aim":
     var visible: seq[bool]

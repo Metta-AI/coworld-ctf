@@ -15,10 +15,13 @@ proc initCtfForTest(config: GameConfig): SimServer =
     setCurrentDir(previousDir)
 
 proc mapLabels(sim: var SimServer): seq[string] =
-  ## Builds one map-view sprite packet and returns its sprite labels.
+  ## Builds one map-view sprite packet and returns its sprite labels. The
+  ## initial state must come from initGlobalViewerState: a zeroed state has
+  ## selectedJoinOrder 0, which silently builds slot 0's POV instead of the
+  ## map view.
   var
-    state: GlobalViewerState
-    nextState = initGlobalViewerState()
+    state = initGlobalViewerState()
+    nextState: GlobalViewerState
   let messages = sim.buildSpriteProtocolUpdates(state, nextState)
     .parseSpritePacket()
   for message in messages:
@@ -52,10 +55,15 @@ suite "floating damage numbers":
     check game.players[target].hp == hpBefore - 1
     check game.damagePops.len == 1
     check game.damagePops[0].amount == 1
+    # The connect also rings the victim with a struck-target flash.
+    check game.hitFlashes.len == 1
+    check game.hitFlashes[0].playerIndex == target
 
-    # The pop renders as a blue "-1" sprite in the map view.
+    # The pop renders as a blue "-1" sprite in the map view, and the victim
+    # is ringed by the fresh hit flash.
     let labels = game.mapLabels()
     check labels.anyIt(it.startsWith("damage pop blue -1 stage 0"))
+    check "hit flash stage 0" in labels
 
   test "the pop is cosmetic: it never enters the game hash":
     var a = initCtfForTest(defaultGameConfig())
@@ -70,6 +78,10 @@ suite "floating damage numbers":
     a.damagePops.add DamageFx(
       x: 10, y: 10, tick: a.tickCount, amount: 2, color: a.players[0].color
     )
+    check a.gameHash() == hashBefore
+    check a.gameHash() == b.gameHash()
+    # Same for the cosmetic struck-target flash.
+    a.hitFlashes.add HitFlashFx(playerIndex: 0, tick: a.tickCount)
     check a.gameHash() == hashBefore
     check a.gameHash() == b.gameHash()
 
