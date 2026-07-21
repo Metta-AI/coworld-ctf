@@ -37,7 +37,7 @@ suite "shields":
     for spawn in sim.shieldSpawns:
       check spawn.present
       check sim.canOccupy(spawn.x, spawn.y)
-      # Shields live in the BOTTOM half (three-quarter height); the swords
+      # Shields live in the BOTTOM half (three-quarter height); the plasma arcs
       # hold the matching top-half spots.
       check abs(spawn.y - 3 * MapHeight div 4) < 120
       check spawn.y > MapHeight div 2

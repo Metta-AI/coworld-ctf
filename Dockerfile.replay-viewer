@@ -22,6 +22,7 @@ RUN nimby --global sync nimby.lock
 COPY . .
 RUN nim c -d:emscripten replay-viewer/ctf_replay.nim && \
   cp client/broadcast_core.js replay-viewer/dist/broadcast_core.js && \
+  cp data/font.ttf replay-viewer/dist/font.ttf && \
   cp replay-viewer/static_replay.js replay-viewer/dist/static_replay.js && \
   sed 's|<!-- BROADCAST_CORE -->|<script src="./broadcast_core.js"></script><script src="./static_replay.js"></script><script src="./ctf_replay.js"></script>|' \
     client/replay_broadcast.html > replay-viewer/dist/index.html && \
