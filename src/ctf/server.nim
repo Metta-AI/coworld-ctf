@@ -56,9 +56,12 @@ const
   ControlKickPath = "/control/kick"
   # The designed broadcast replay client, embedded at compile time. Served for
   # the replay routes in place of bitworld's generic global client; a single
-  # self-contained file (font + core JS inlined). Live/player/global paths are
+  # self-contained file (core JS inlined). Live/player/global paths are
   # untouched and keep serving the bitworld client (§14 live column).
-  EmbeddedBroadcastReplayHtml = staticRead("../../client/replay_broadcast.html")
+  EmbeddedBroadcastReplayHtml = staticRead("../../client/replay_broadcast.html").replace(
+    "<!-- BROADCAST_CORE -->",
+    "<script>" & staticRead("../../client/broadcast_core.js") & "</script>"
+  )
   # The League Replayer shell: a walled stone-pit viewer that EMBEDS the broadcast
   # client (via ?embed=1) as the lit pit floor and mounts the scorebug, KDA tables,
   # division standings and transport as flat panels over the dungeon walls. Served
@@ -69,9 +72,11 @@ const
   # Opaque stone, no alpha → JPEG (q82) keeps each well under any committed sprite.
   WallTextureHorizontal = staticRead("../../client/art/walls/wall_h.jpg")
   WallTextureVertical = staticRead("../../client/art/walls/wall_v.jpg")
+  BroadcastFont = staticRead("../../data/font.ttf")
   LeagueReplayerPath = "/client/league"
   WallTextureHorizontalPath = "/client/art/walls/wall_h.jpg"
   WallTextureVerticalPath = "/client/art/walls/wall_v.jpg"
+  BroadcastFontPath = "/client/font.ttf"
   # Hosted replay closes any WS frame larger than 1 MiB (sends 1009). We chunk
   # outbound sprite packets under a margin below that so no single frame trips it.
   MaxWsFrameBytes = 900_000
@@ -572,6 +577,11 @@ proc httpHandler(request: Request) =
       request.respond(200, texHeaders, WallTextureHorizontal)
     else:
       request.respond(200, texHeaders, WallTextureVertical)
+  elif request.path == BroadcastFontPath and request.httpMethod == "GET":
+    var fontHeaders: HttpHeaders
+    fontHeaders["Content-Type"] = "font/ttf"
+    fontHeaders["Cache-Control"] = "public, max-age=3600"
+    request.respond(200, fontHeaders, BroadcastFont)
   elif request.path in [
       bitworldClient.ReplayClientRoute,
       bitworldClient.CoworldReplayClientRoute,

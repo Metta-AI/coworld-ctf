@@ -1,9 +1,11 @@
 import
   std/[json, math, os, random, strutils],
-  bitworld/aseprite, bitworld/client as bitworldClient,
-  bitworld/pixelfonts, bitworld/profile, bitworld/spriteprotocol,
+  bitworld/aseprite, bitworld/pixelfonts, bitworld/profile, bitworld/spriteprotocol,
   bitworld/server,
   jsony, pixie
+
+when not defined(emscripten):
+  import bitworld/client as bitworldClient
 
 const
   GameName* = "ctf"
@@ -541,7 +543,10 @@ proc gameDir*(): string =
 
 proc clientDataDir*(): string =
   ## Returns the shared client data directory.
-  bitworldClient.clientDir() / "data"
+  when defined(emscripten):
+    gameDir() / "data"
+  else:
+    bitworldClient.clientDir() / "data"
 
 proc spriteSheetPath(): string =
   ## Returns the sprite sheet aseprite path.
@@ -2452,7 +2457,10 @@ proc gameHash*(sim: SimServer): uint64 =
     result.mixHashInt(player.throwCharge)
     result.mixHashInt(player.lastShoutTick)
     result.mixHashInt(player.joinOrder)
-    result.mixHashInt(int(player.color))
+    # Color is an unsigned packed RGBA value. Converting it through `int`
+    # overflows on wasm32 for colors with the high bit set; widening directly
+    # preserves the native replay hash on both 32- and 64-bit targets.
+    result.mixHash(uint64(player.color))
     result.mixHashInt(player.reward)
     result.mixHashInt(player.kills)
     result.mixHashInt(player.deaths)

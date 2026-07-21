@@ -7,6 +7,9 @@
   ],
   "game": {
     "name": "ctf",
+    "replay_viewer": {
+      "bundle": "static-replay-viewer"
+    },
     "description": "A two-team capture-the-heart shooter with fog-of-war vision. Red and Blue spawn on opposite edges, each guarding a heart on its home pedestal. Steal the enemy heart and carry it home - or wipe the enemy team. Two med kits on the center line heal the hurt back to full and respawn after 30 seconds. Grenade pickups wait in the corners: charged throws sail over walls and burst on landing, heard but not seen through the fog. Two plasma arcs spawn high in the side back columns: a carried arc disables your gun and turns the trigger into a forward plasma cone - 4 squares of reach, 2 squares wide at the tip - that stays lit for 5 ticks, takes 20 ticks to reset, and deals 3 damage per touch (lethal to a bare cog; a shield carrier survives one). One shield sits low in each endzone's back column, vertically opposite the plasma arcs: carrying it grants 6 hit points but makes your fire rate 3x slower. Both are lost on death and respawn 30 seconds after being taken (see docs/RULES.md, Plasma arc and Shields). Aim is decoupled from movement and carries your vision cone; guns are map-wide 3-hit-point hitscan with a trigger windup, teammates are fogged like enemies, and unseen gunfire is heard as a jittered sound ring - never pinpointed. Players can shout: 10-character messages heard within a fifth of the field, tagged by player and team at jittered coordinates and drawn as speech bubbles in replays. Rendered in painted high-resolution art: observation coordinates arrive at 3x map scale since 0.6.0 (see docs/RULES.md, Observation render scale).",
     "owner": "treeform@softmax.com",
     "runnable": {
@@ -158,13 +161,6 @@
           "maximum": 100,
           "default": 70
         },
-        "playerBouncePct": {
-          "description": "Restitution of player-player body collisions in percent: player bodies are solid and cannot pass through each other; 0 makes contact a dead-stop shove, 100 a perfectly elastic billiard bounce.",
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 100,
-          "default": 40
-        },
         "aimTurnRate": {
           "description": "Aim rotation speed in brads (256ths of a turn) per tick while a rotate button is held. B rotates counter-clockwise, Select clockwise; movement never changes the aim.",
           "type": "integer",
@@ -176,7 +172,7 @@
           "type": "integer",
           "minimum": 0,
           "maximum": 180,
-          "default": 60
+          "default": 45
         },
         "visionBubble": {
           "description": "Omnidirectional vision radius in pixels around each player, seen regardless of aim.",
@@ -475,9 +471,8 @@
         "gunRange": 1300,
         "fireCooldownTicks": 12,
         "carrierSpeedPct": 70,
-        "playerBouncePct": 40,
         "aimTurnRate": 5,
-        "visionConeDeg": 60,
+        "visionConeDeg": 45,
         "visionBubble": 90,
         "startWaitTicks": 120,
         "gameOverTicks": 360,
