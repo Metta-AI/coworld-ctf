@@ -1628,6 +1628,25 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         target = mateCarryPos + vec(homeSign(bot.team) * 40.0, -24.0)
       else:
         target = bot.chokeHold
+    when defined(exfilVanguard):
+      # Exfil vanguard (tempo-006 decode: on GV12 the champion's dead carriers
+      # fall overwhelmingly at the MID-crossing choke at 1 hp — Red 5/7, Blue
+      # 8/11 — NOT the spawn-protected pocket exit the escort's vertical bug-out
+      # already handles). The wide-lane top flanker stops gluing +46 to the
+      # carrier and instead PRE-EMPTS that choke: while the carrier is still
+      # short of mid, hold the center on the carrier's own lane, ahead of it, so
+      # the mid ambusher is drawn/suppressed BEFORE the 1-hp carrier arrives
+      # (the gun kills the NEAREST body in the cone, so a vanguard on the ray
+      # both eats the shot meant for the carrier and returns fire). Once the
+      # carrier crosses mid the flanker reverts to the close lead home. Only the
+      # FlankTop seat is repurposed — the close lead (MidTop) and the rear
+      # guards stay, so no lane-holding pair is thinned (counter-steal safe).
+      if bot.role == FlankTop:
+        let carrierPastMid =
+          homeSign(bot.team) * (mateCarryPos.x - float(CenterX)) > 0.0
+        if not carrierPastMid:
+          target = vec(float(CenterX) + homeSign(bot.team) * 24.0,
+                       clamp(mateCarryPos.y, LaneTop, LaneBottom))
   elif phalanxOn and not pushOut:
    when defined(zonePhalanx):
      # Zone phalanx: shield scout spots forward and relays sightings, three
