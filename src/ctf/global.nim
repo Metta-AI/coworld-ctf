@@ -2141,7 +2141,7 @@ proc buildSmoothShoutBubble(
   k: int
 ): tuple[width, height: int, pixels: seq[uint8]] =
   ## The comic speech bubble re-drawn as smooth vector art for the k×
-  ## supersampled board:真 rounded corners, an antialiased team outline, and
+  ## supersampled board: true rounded corners, an antialiased team outline, and
   ## the shout text set in the board face. Same silhouette and proportions as
   ## the pixel bubble; LOGICAL dims out, native k× pixels.
   let
