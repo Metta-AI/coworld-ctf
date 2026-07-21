@@ -7,6 +7,7 @@ import
   test_movement_slide,
   test_player_collision,
   test_replay,
+  test_replay_requests,
   test_replay_controls,
   test_ctf_game,
   test_grenades,
