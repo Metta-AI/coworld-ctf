@@ -653,23 +653,20 @@ html, body {
 }
 #endcard.on { display: flex; animation: cardfade 420ms ease-out; }
 @keyframes cardfade { from { opacity: 0; } to { opacity: 1; } }
-#endcard .verdict-badge {
-  font-family: var(--pixfont);
-  font-size: calc(13 * var(--u));
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  padding: calc(5 * var(--u)) calc(14 * var(--u));
-  color: var(--stage-lo);
-}
-#endcard .verdict-badge.red { background: var(--red); color: var(--paper); }
-#endcard .verdict-badge.blue { background: var(--blue); color: var(--paper); }
-#endcard .verdict-badge.draw { background: var(--ghost); color: var(--stage-lo); }
+#endcard .headline.red { color: var(--red); }
+#endcard .headline.blue { color: var(--blue); }
+#endcard .headline.draw { color: var(--ghost); }
 #endcard .headline {
   font-family: var(--pixfont);
   font-size: calc(30 * var(--u));
   line-height: 1.05;
   color: var(--paper);
   text-shadow: 0 calc(3 * var(--u)) 0 var(--ink);
+  /* headline now carries the (possibly long) policy name — never wrap/overflow */
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 #endcard .how {
   font-family: var(--finefont);
@@ -678,14 +675,47 @@ html, body {
   color: var(--paper-dim);
   max-width: calc(360 * var(--u));
 }
-#endcard .final-lives {
-  display: flex;
-  gap: calc(30 * var(--u));
-  align-items: baseline;
+/* win-condition chip — names HOW the match ended (flag / elimination / time) */
+#endcard .wincond {
   font-family: var(--pixfont);
+  font-size: calc(10 * var(--u));
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--amber);
+  padding: calc(3 * var(--u)) calc(10 * var(--u));
+  box-shadow: inset 0 0 0 1px rgba(232, 163, 61, 0.5);
 }
-#endcard .fl-team { display: flex; flex-direction: column; align-items: center; gap: calc(3 * var(--u)); }
-#endcard .fl-num { font-size: calc(26 * var(--u)); }
+#endcard .how {
+  margin-top: calc(-4 * var(--u));
+}
+/* match-stats scoreboard — one panel per team, winner ringed in amber */
+#endcard .ec-teams { display: flex; gap: calc(22 * var(--u)); align-items: stretch; }
+#endcard .ec-team {
+  width: calc(215 * var(--u));
+  padding: calc(9 * var(--u)) calc(12 * var(--u));
+  background: rgba(20, 14, 9, 0.55);
+  box-shadow: inset 0 0 0 1px rgba(242, 232, 216, 0.12);
+  display: flex;
+  flex-direction: column;
+  gap: calc(5 * var(--u));
+  text-align: left;
+}
+#endcard .ec-team.win {
+  box-shadow: inset 0 0 0 1px rgba(232, 163, 61, 0.65),
+    0 0 calc(14 * var(--u)) rgba(232, 163, 61, 0.18);
+}
+#endcard .ec-tname {
+  font-family: var(--pixfont);
+  font-size: calc(13 * var(--u));
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#endcard .ec-tname.red { color: var(--red); }
+#endcard .ec-tname.blue { color: var(--blue); }
+#endcard .ec-lives { display: flex; align-items: baseline; gap: calc(6 * var(--u)); font-family: var(--pixfont); }
+#endcard .fl-num { font-size: calc(22 * var(--u)); }
 #endcard .fl-num.red { color: var(--red); }
 #endcard .fl-num.blue { color: var(--blue); }
 #endcard .fl-cap {
@@ -695,6 +725,48 @@ html, body {
   text-transform: uppercase;
   color: var(--paper-dim);
 }
+#endcard .ec-thead,
+#endcard .ec-row {
+  display: grid;
+  grid-template-columns: 1fr calc(22 * var(--u)) calc(22 * var(--u)) calc(26 * var(--u));
+  gap: calc(5 * var(--u));
+  align-items: center;
+}
+#endcard .ec-thead {
+  font-family: var(--finefont);
+  font-size: calc(7.5 * var(--u));
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--paper-dim);
+  border-bottom: 1px solid rgba(242, 232, 216, 0.18);
+  padding-bottom: calc(3 * var(--u));
+}
+#endcard .ec-thead span:not(:first-child) { text-align: center; }
+#endcard .ec-row {
+  font-family: var(--pixfont);
+  font-size: calc(10.5 * var(--u));
+  color: var(--paper);
+  padding: calc(1.5 * var(--u)) 0;
+}
+#endcard .ec-row .n { text-align: center; font-variant-numeric: tabular-nums; }
+#endcard .ec-row .n.cap { color: var(--amber); }
+#endcard .ec-row .pname {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--paper-dim);
+}
+#endcard .ec-row.mvp .pname { color: var(--amber); }
+/* loop countdown — present only while the server holds the end segment */
+#endcard .ec-replay {
+  font-family: var(--finefont);
+  font-size: calc(9 * var(--u));
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--paper-dim);
+  min-height: calc(12 * var(--u));
+}
+#endcard .ec-replay b { color: var(--paper); font-variant-numeric: tabular-nums; }
 
 /* connection status — fine print, lower-left */
 #status {
@@ -831,19 +903,30 @@ body[data-embed] #board { top: 0; height: 100%; }
     </div>
 
     <div id="endcard">
-      <div class="verdict-badge" id="ec-badge">GAME OVER</div>
       <div class="headline" id="ec-headline">—</div>
+      <div class="wincond" id="ec-wincond"></div>
       <div class="how" id="ec-how"></div>
-      <div class="final-lives">
-        <div class="fl-team">
-          <div class="fl-num red" id="ec-red">0</div>
-          <div class="fl-cap">Red lives</div>
+      <div class="ec-teams">
+        <div class="ec-team" id="ec-team-red">
+          <div class="ec-tname red" id="ec-tname-red">RED</div>
+          <div class="ec-lives">
+            <span class="fl-num red" id="ec-red">0</span>
+            <span class="fl-cap">Lives left</span>
+          </div>
+          <div class="ec-thead"><span>Player</span><span>K</span><span>D</span><span>Cap</span></div>
+          <div id="ec-rows-red"></div>
         </div>
-        <div class="fl-team">
-          <div class="fl-num blue" id="ec-blue">0</div>
-          <div class="fl-cap">Blue lives</div>
+        <div class="ec-team" id="ec-team-blue">
+          <div class="ec-tname blue" id="ec-tname-blue">BLUE</div>
+          <div class="ec-lives">
+            <span class="fl-num blue" id="ec-blue">0</span>
+            <span class="fl-cap">Lives left</span>
+          </div>
+          <div class="ec-thead"><span>Player</span><span>K</span><span>D</span><span>Cap</span></div>
+          <div id="ec-rows-blue"></div>
         </div>
       </div>
+      <div class="ec-replay" id="ec-replay"></div>
     </div>
   </div>
 
@@ -1679,22 +1762,87 @@ body[data-embed] #board { top: 0; height: 100%; }
   }
 
   // ============================================================
-  //  End-card (§5/§8) — reads isDraw BEFORE winner (F4); names the key (F3)
+  //  End-card (§5/§8) — the END SEGMENT: verdict, win condition and match
+  //  stats, held on screen by the server for ~10s before a looping restart.
+  //  Reads isDraw BEFORE winner (F4); names the key (F3).
   // ============================================================
+  function endcardWinCondition(o) {
+    // The condition CHIP: how the match ended, in two or three words.
+    if (o.draw) return o.timeLimit ? 'TIME LIMIT — DRAW' : 'DRAW';
+    if (o.timeLimit) {
+      var winL = o.winner === 'red' ? o.redLives : o.blueLives;
+      var loseL = o.winner === 'red' ? o.blueLives : o.redLives;
+      return winL !== loseL ? 'TIME LIMIT — LIVES TIEBREAK' : 'TIME LIMIT — FLAG PROGRESS';
+    }
+    var loserLives = o.winner === 'red' ? o.blueLives : o.redLives;
+    return loserLives <= 0 ? 'ELIMINATION' : 'FLAG CAPTURE';
+  }
+
+  function renderEndcardRows(s, team, el, mvpSlot) {
+    // Final per-player stat lines, best row first. The MVP (winning team's
+    // top scorer) reads in amber with a star.
+    var rows = (s.roster || []).filter(function (p) { return p.team === team; })
+      .slice().sort(function (a, b) {
+        return (b.cap || 0) - (a.cap || 0) || (b.k || 0) - (a.k || 0) ||
+          (a.d || 0) - (b.d || 0) || a.s - b.s;
+      });
+    var html = '';
+    rows.forEach(function (p) {
+      var mvp = mvpSlot != null && p.s === mvpSlot;
+      html += '<div class="ec-row' + (mvp ? ' mvp' : '') + '">' +
+        '<span class="pname">' + (mvp ? '★ ' : '') + esc(shortName(rosterName(s, p.s))) + '</span>' +
+        '<span class="n">' + (p.k || 0) + '</span>' +
+        '<span class="n">' + (p.d || 0) + '</span>' +
+        '<span class="n cap">' + (p.cap || 0) + '</span>' +
+        '</div>';
+    });
+    el.innerHTML = html;
+  }
+
   function renderEndcard(s) {
     var card = $('endcard');
     if (!s.over) return;
     card.classList.add('on'); // own the frame at GameOver (§8) — before either verdict branch
     var o = s.over;
-    var badge = $('ec-badge'), head = $('ec-headline'), how = $('ec-how');
+
+    // The loop countdown ticks every second while everything else is frozen,
+    // so it renders unconditionally; the static content is keyed and only
+    // rebuilt when the verdict frame actually changes (24fps hold, no churn).
+    $('ec-replay').innerHTML = s.lp && s.hold > 0
+      ? 'Replaying in <b>' + s.hold + '</b>' : '';
+
+    var key = [s.mx, o.winner, o.draw, o.timeLimit, (s.roster || []).length].join('|');
+    if (card._key === key) return;
+    card._key = key;
+
+    var head = $('ec-headline'), how = $('ec-how');
     var redL = o.redLives, blueL = o.blueLives;
     $('ec-red').textContent = redL;
     $('ec-blue').textContent = blueL;
+    $('ec-wincond').textContent = endcardWinCondition(o);
+    $('ec-tname-red').textContent = teamName(s, 'red', 'RED');
+    $('ec-tname-blue').textContent = teamName(s, 'blue', 'BLUE');
+    $('ec-team-red').classList.toggle('win', !o.draw && o.winner === 'red');
+    $('ec-team-blue').classList.toggle('win', !o.draw && o.winner === 'blue');
+
+    // MVP: the winning team's best final line (capture > kill > fewer deaths).
+    // A draw crowns nobody — the fidelity rules never invent a distinction the
+    // sim didn't make (F4).
+    var mvpSlot = null;
+    if (!o.draw) {
+      var winners = (s.roster || []).filter(function (p) { return p.team === o.winner; })
+        .sort(function (a, b) {
+          return (b.cap || 0) - (a.cap || 0) || (b.k || 0) - (a.k || 0) ||
+            (a.d || 0) - (b.d || 0) || a.s - b.s;
+        });
+      if (winners.length) mvpSlot = winners[0].s;
+    }
+    renderEndcardRows(s, 'red', $('ec-rows-red'), mvpSlot);
+    renderEndcardRows(s, 'blue', $('ec-rows-blue'), mvpSlot);
 
     if (o.draw) {
-      badge.className = 'verdict-badge draw';
-      badge.textContent = 'DRAW';
-      head.textContent = 'NO SCORE';
+      head.className = 'headline draw';
+      head.textContent = 'DRAW — NO SCORE';
       how.textContent = o.timeLimit
         ? 'Time expired before a capture or a wipe — a scoreless draw, with no tiebreak on lives.'
         : 'The match ended with neither side scoring — no winner.';
@@ -1702,9 +1850,8 @@ body[data-embed] #board { top: 0; height: 100%; }
     }
 
     var winner = o.winner; // 'red' | 'blue'
-    var winName = winner === 'red' ? 'RED' : 'BLUE';
-    badge.className = 'verdict-badge ' + winner;
-    badge.textContent = winName + ' WINS';
+    var winName = teamName(s, winner, winner === 'red' ? 'RED' : 'BLUE');
+    head.className = 'headline ' + winner;
     head.textContent = winName + ' WINS';
 
     if (o.timeLimit) {
@@ -1719,7 +1866,7 @@ body[data-embed] #board { top: 0; height: 100%; }
     } else {
       var loserLives = winner === 'red' ? blueL : redL;
       if (loserLives <= 0) {
-        head.textContent = winName + ' WIPES OUT ' + (winner === 'red' ? 'BLUE' : 'RED');
+        head.textContent = winName + ' WIPES OUT ' + teamName(s, winner === 'red' ? 'blue' : 'red', winner === 'red' ? 'BLUE' : 'RED');
         how.textContent = winName + ' eliminated every opposing life.';
       } else {
         how.textContent = winName + ' captured the enemy flag.';

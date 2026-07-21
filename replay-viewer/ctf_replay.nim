@@ -46,7 +46,8 @@ proc renderCurrent(events = newJArray()) =
       replay.hashMismatchTick,
       nextViewer.selectedJoinOrder,
       if sendLead: replay.livesLeadSeries else: @[],
-      replay.replayStartTick()
+      replay.replayStartTick(),
+      replay.endHoldSecondsLeft()
     )
   )
   if sendLead:
@@ -107,17 +108,17 @@ proc ctfFrame(): cint {.exportc: "ctf_frame", cdecl.} =
         didSeek = true
     if didSeek:
       tracker.resync(game)
+      replay.cancelEndHold()
 
     var events = newJArray()
-    if replay.playing:
-      for _ in 0 ..< replay.replaySpeed():
-        if replay.playing:
-          replay.stepReplay(game)
-          game.stepEvents(tracker, events)
-      if replay.looping and not replay.playing:
-        replay.seekReplay(game, replay.replayStartTick())
-        replay.playing = true
-        tracker.resync(game)
+    # Shared playback advance (same as the native replay server): steps while
+    # playing, and holds the final game-over frame for ReplayEndHoldSeconds
+    # before a looping restart (the end segment).
+    replay.advanceReplayPlayback(
+      game,
+      proc () = game.stepEvents(tracker, events),
+      proc () = tracker.resync(game)
+    )
 
     renderCurrent(events)
     return 1
