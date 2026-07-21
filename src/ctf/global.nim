@@ -1,6 +1,7 @@
 import
-  std/[algorithm, math, os, strutils],
+  std/[algorithm, math, os, strutils, tables],
   bitworld/pixelfonts, bitworld/profile, bitworld/spriteprotocol, bitworld/server,
+  pixie,
   sim
 
 const
@@ -1601,6 +1602,129 @@ proc buildHitSparkSprite(colorIndex, stage: int): seq[uint8] {.measure.} =
         uint8(clamp(255.0 * fade, 0.0, 255.0))
       )
 
+## --- Smooth (vector) board text — spectator supersample only ---
+## Every 1× stream keeps the retro pixel fonts byte-for-byte (the player
+## observation stream and the POV lens are untouched); at boardScale > 1 the
+## board text sprites re-render with Rajdhani SemiBold (data/font.ttf, OFL —
+## the same face the DOM broadcast chrome uses) so names, damage pops and
+## shout bubbles resolve as smooth antialiased type instead of upscaled 6px
+## glyph blocks.
+var boardTypefaceCache: Typeface
+
+proc boardTypeface(): Typeface =
+  if boardTypefaceCache.isNil:
+    boardTypefaceCache = readTypeface(gameDir() / "data" / "font.ttf")
+  boardTypefaceCache
+
+var smoothTextCache: Table[string, tuple[
+  width, height: int, pixels: seq[uint8]]]
+
+proc imageToStraightRgba(image: Image): seq[uint8] =
+  ## Straight-alpha RGBA bytes for the Sprite v1 protocol (pixie stores
+  ## premultiplied).
+  result = newSeq[uint8](image.width * image.height * 4)
+  for i in 0 ..< image.width * image.height:
+    let c = image.data[i].rgba()
+    result[i * 4] = c.r
+    result[i * 4 + 1] = c.g
+    result[i * 4 + 2] = c.b
+    result[i * 4 + 3] = c.a
+
+proc smoothTextSprite(
+  lines: openArray[string],
+  r, g, b: uint8,
+  scale: int,
+  lineHeightPx: int,
+  struck = false
+): tuple[width, height: int, pixels: seq[uint8]] =
+  ## Rasterizes text with the board face at `scale`× resolution: LOGICAL dims
+  ## out (so 1×-space layout math keeps working), native scale× pixels. Each
+  ## line sits on the same lineHeightPx grid the pixel font used; a soft dark
+  ## drop shadow keeps thin vector strokes legible over the busy floor. Baked
+  ## once per (text, color, scale) — labels re-emit every frame.
+  var key = $r & "," & $g & "," & $b & "," & $scale & "," &
+    $lineHeightPx & "," & $struck
+  for line in lines:
+    key.add "\x1f"
+    key.add line
+  if smoothTextCache.hasKey(key):
+    return smoothTextCache[key]
+  let
+    face = boardTypeface()
+    font = newFont(face)
+    lineBox = float32(lineHeightPx * scale)
+  # The em box slightly under the line box: Rajdhani's ascent+descent overrun
+  # their em, and the descenders of p/g/y must stay inside the line grid.
+  font.size = lineBox / 1.2
+  font.lineHeight = lineBox
+  var textW = 1.0'f32
+  for line in lines:
+    textW = max(textW, font.layoutBounds(line).x)
+  let
+    pad = scale
+    outW = int(ceil(textW)) + pad * 2
+    logicalW = max(1, (outW + scale - 1) div scale)
+    # One extra logical row so the last line's descenders never clip.
+    logicalH = max(1, lines.len * lineHeightPx + 1)
+    canvasW = logicalW * scale
+    canvasH = logicalH * scale
+  var image = newImage(canvasW, canvasH)
+  for i, line in lines:
+    let
+      ty = float32(i * lineHeightPx * scale)
+      off = float32(scale) * 0.5
+    font.paint = newPaint(SolidPaint)
+    font.paint.color = color(0, 0, 0, 0.7)
+    image.fillText(font, line, translate(vec2(float32(pad) + off, ty + off)))
+    font.paint = newPaint(SolidPaint)
+    font.paint.color = color(
+      float32(r) / 255, float32(g) / 255, float32(b) / 255, 1)
+    image.fillText(font, line, translate(vec2(float32(pad), ty)))
+  # Names and pop numerals form a small bounded set, but don't let a churny
+  # key population (renames, odd statuses) grow the bake cache forever.
+  if smoothTextCache.len > 4096:
+    smoothTextCache.clear()
+  result.width = logicalW
+  result.height = logicalH
+  result.pixels = imageToStraightRgba(image)
+  if struck:
+    for i, line in lines:
+      let lineY = (i * lineHeightPx + 3) * scale
+      for y in lineY ..< min(lineY + scale, canvasH):
+        for x in 0 ..< canvasW:
+          let o = (y * canvasW + x) * 4
+          result.pixels[o] = 90
+          result.pixels[o + 1] = 90
+          result.pixels[o + 2] = 90
+          result.pixels[o + 3] = 255
+  smoothTextCache[key] = result
+
+proc blitRgbaBuffer(
+  dst: var seq[uint8],
+  dstW, dstH: int,
+  src: openArray[uint8],
+  srcW, srcH, atX, atY: int
+) =
+  ## Copies a straight-alpha RGBA buffer into a larger one (src wins where it
+  ## has any alpha; the buffers never meaningfully overlap).
+  for y in 0 ..< srcH:
+    let dy = atY + y
+    if dy < 0 or dy >= dstH:
+      continue
+    for x in 0 ..< srcW:
+      let dx = atX + x
+      if dx < 0 or dx >= dstW:
+        continue
+      let
+        s = (y * srcW + x) * 4
+        d = (dy * dstW + dx) * 4
+      if src[s + 3] == 0:
+        continue
+      dst[d] = src[s]
+      dst[d + 1] = src[s + 1]
+      dst[d + 2] = src[s + 2]
+      dst[d + 3] = src[s + 3]
+
 proc buildDamagePopSprite(
   game: SimServer, colorIndex, amount, stage: int
 ): tuple[width, height: int, pixels: seq[uint8]] {.measure.} =
@@ -1623,6 +1747,15 @@ proc buildDamagePopSprite(
     # Alpha-only fade: full at stage 0, nearly gone by the last stage.
     fade = 1.0 - 0.85 * (stage.float / float(max(1, DamagePopStages - 1)))
     alpha = uint8(clamp(255.0 * fade, 0.0, 255.0))
+  if boardScale > 1:
+    # Supersampled board: the numeral as smooth vector type (its drop shadow
+    # plays the old dark contour's role), the stage fade applied to the copy
+    # the cache hands back. LOGICAL dims, native pixels.
+    result = smoothTextSprite([text], inkR, inkG, inkB, boardScale, height)
+    if alpha != 255'u8:
+      for i in countup(3, result.pixels.len - 1, 4):
+        result.pixels[i] = uint8(result.pixels[i].int * alpha.int div 255)
+    return
   result.width = width
   result.height = height
   result.pixels = newRgbaPixels(width, height)
@@ -1954,9 +2087,16 @@ proc buildSpriteProtocolTextSprite(
   game: SimServer,
   lines: openArray[string],
   color: uint8,
-  struck = false
+  struck = false,
+  smooth = false
 ): tuple[width, height: int, pixels: seq[uint8]] {.measure.} =
-  ## Builds a transparent multi-line text sprite.
+  ## Builds a transparent multi-line text sprite. With `smooth` (and a
+  ## supersampled board), the vector face at boardScale× — LOGICAL dims,
+  ## native pixels; callers emit with native = boardScale.
+  if smooth and boardScale > 1:
+    let c = Palette[color and 0x0f]
+    return smoothTextSprite(lines, c.r, c.g, c.b, boardScale, TextLineHeight,
+      struck)
   result.width = 1
   for line in lines:
     result.width = max(result.width, game.asciiSprites.textWidth(line))
@@ -1994,6 +2134,68 @@ proc textLabel(lines: openArray[string]): string =
       result.add("\n")
     result.add(line)
 
+proc buildSmoothShoutBubble(
+  game: SimServer,
+  team: Team,
+  text: string,
+  k: int
+): tuple[width, height: int, pixels: seq[uint8]] =
+  ## The comic speech bubble re-drawn as smooth vector art for the k×
+  ## supersampled board:真 rounded corners, an antialiased team outline, and
+  ## the shout text set in the board face. Same silhouette and proportions as
+  ## the pixel bubble; LOGICAL dims out, native k× pixels.
+  let
+    face = boardTypeface()
+    font = newFont(face)
+    lineBox = float32(game.shoutFont.height * k)
+  font.size = lineBox / 1.1
+  font.lineHeight = lineBox
+  let
+    textW = font.layoutBounds(text).x
+    pillW = int(ceil(textW)) + 2 * ShoutPadX * k
+    pillH = game.shoutFont.height * k + 2 * ShoutPadY * k
+    outW = pillW
+    outH = pillH + ShoutTailH * k
+    logicalW = max(1, (outW + k - 1) div k)
+    logicalH = max(1, (outH + k - 1) div k)
+    canvasW = logicalW * k
+    canvasH = logicalH * k
+    edge = Palette[teamColor(team) and 0x0f]
+    edgeColor = color(
+      float32(edge.r) / 255, float32(edge.g) / 255, float32(edge.b) / 255, 1)
+    paperColor = color(1, 241 / 255, 232 / 255, 240 / 255)
+    stroke = float32(k)
+    radius = float32(2 * k)
+    tailCx = float32(pillW div 2)
+  var image = newImage(canvasW, canvasH)
+  let pill = rect(
+    stroke / 2, stroke / 2,
+    float32(pillW) - stroke, float32(pillH) - stroke)
+  # Tail first (a filled triangle with its own outline), pill drawn over it so
+  # the joint is seamless.
+  var tail = newPath()
+  let
+    tailTopY = float32(pillH) - stroke
+    tailTipY = float32(pillH + ShoutTailH * k) - stroke / 2
+    tailHalf = float32(ShoutTailH * k)
+  tail.moveTo(tailCx - tailHalf, tailTopY)
+  tail.lineTo(tailCx + tailHalf, tailTopY)
+  tail.lineTo(tailCx, tailTipY)
+  tail.closePath()
+  image.fillPath(tail, paperColor)
+  image.strokePath(tail, edgeColor, strokeWidth = stroke)
+  var pillPath = newPath()
+  pillPath.roundedRect(pill, radius, radius, radius, radius)
+  image.fillPath(pillPath, paperColor)
+  image.strokePath(pillPath, edgeColor, strokeWidth = stroke)
+  font.paint = newPaint(SolidPaint)
+  font.paint.color = color(30 / 255, 24 / 255, 20 / 255, 1)
+  image.fillText(font, text,
+    translate(vec2(float32(ShoutPadX * k), float32(ShoutPadY * k))))
+  result.width = logicalW
+  result.height = logicalH
+  result.pixels = imageToStraightRgba(image)
+
 proc buildShoutBubble(
   game: SimServer,
   team: Team,
@@ -2003,7 +2205,10 @@ proc buildShoutBubble(
   ## "paper" pill with rounded corners, a chunky team-colored outline, and a
   ## little tail pointing down at the shouter. Drawn with the chunky 9px shout
   ## font (not the 6px tiny5 HUD font) so it reads at full desktop size, and
-  ## in-world with the rest of the pixel art — never as an HD overlay.
+  ## in-world with the rest of the pixel art — never as an HD overlay. On the
+  ## supersampled board the vector variant replaces it (same silhouette).
+  if boardScale > 1:
+    return game.buildSmoothShoutBubble(team, text, boardScale)
   let
     font = game.shoutFont
     # Bold widens each glyph's advance by 1 and overdraws 1px past the last
@@ -2840,15 +3045,34 @@ proc blitNameFlag(
 proc buildCarrierNameSprite(
   sim: SimServer,
   player: Player,
-  flagTeamOrd: int
+  flagTeamOrd: int,
+  smooth = false
 ): tuple[width, height: int, pixels: seq[uint8]] {.measure.} =
   ## Builds a carrier's overhead label: the name in the normal color, then a
   ## small flag marker in the carried flag's team color set NEXT TO the name (so
   ## it's obvious who has the flag and whose flag it is), not overlapping it.
+  ## With `smooth` (supersampled board): vector name + the pixel-art flag chip
+  ## integer-upscaled beside it — LOGICAL dims, native boardScale× pixels.
   let
     name = playerLabelText(player)
-    nameW = sim.asciiSprites.textWidth(name)
     gap = 2
+  if smooth and boardScale > 1:
+    let
+      k = boardScale
+      c = Palette[PlayerNameColor and 0x0f]
+      nameSpr = smoothTextSprite([name], c.r, c.g, c.b, k, TextLineHeight)
+    result.width = nameSpr.width + gap + NameFlagW
+    result.height = nameSpr.height
+    result.pixels = newSeq[uint8](result.width * k * result.height * k * 4)
+    result.pixels.blitRgbaBuffer(result.width * k, result.height * k,
+      nameSpr.pixels, nameSpr.width * k, nameSpr.height * k, 0, 0)
+    var chip = newRgbaPixels(NameFlagW, TextLineHeight)
+    chip.blitNameFlag(NameFlagW, TextLineHeight, 0, 0, Team(flagTeamOrd))
+    result.pixels.blitRgbaBuffer(result.width * k, result.height * k,
+      scaleSpritePixels(chip, NameFlagW, TextLineHeight, k),
+      NameFlagW * k, TextLineHeight * k, (nameSpr.width + gap) * k, 0)
+    return
+  let nameW = sim.asciiSprites.textWidth(name)
   result.width = nameW + gap + NameFlagW
   result.height = TextLineHeight
   result.pixels = newRgbaPixels(result.width, result.height)
@@ -3601,7 +3825,8 @@ proc addShouts(
       bubble.width,
       bubble.height,
       bubble.pixels,
-      teamText(shout.team) & " shout " & shout.address & ": " & shout.text
+      teamText(shout.team) & " shout " & shout.address & ": " & shout.text,
+      native = boardScale
     )
     currentIds.add(objectId)
     packet.addBoardObject(
@@ -3757,7 +3982,8 @@ proc addDamagePops(
       sprite.height,
       sprite.pixels,
       "damage pop " & playerColorName(colorIndex) & " -" & $amount &
-        " stage " & $stage
+        " stage " & $stage,
+      native = boardScale
     )
     let objectId = DamagePopObjectBase + nextPop
     inc nextPop
@@ -4555,11 +4781,13 @@ proc buildSpriteProtocolUpdates*(
           if flagTeamOrd >= 0:
             # This player holds a flag: name + a team-colored flag marker beside
             # it, so it's obvious who is carrying and whose flag it is.
-            sim.buildCarrierNameSprite(player, flagTeamOrd)
+            sim.buildCarrierNameSprite(player, flagTeamOrd,
+              smooth = boardScale > 1)
           else:
             sim.buildSpriteProtocolTextSprite(
               playerLabelLines(sim, player, playerIndex),
-              PlayerNameColor
+              PlayerNameColor,
+              smooth = boardScale > 1
             )
         labelSpriteId = player.spritePlayerNameSpriteId()
         labelObjectId = player.spritePlayerNameObjectId()
@@ -4572,7 +4800,8 @@ proc buildSpriteProtocolUpdates*(
         labelSpriteId,
         label.width,
         label.height,
-        label.pixels
+        label.pixels,
+        native = boardScale
       )
       result.addBoardObject(
         labelObjectId,
