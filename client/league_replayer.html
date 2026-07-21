@@ -529,7 +529,11 @@
       capEl.textContent  = s.lob>0 ? 'Starting in' : 'Waiting for players';
       clk.classList.remove('tiebreak-warn');
     } else if (s.ph==='gameover'){
-      timeEl.textContent='FINAL'; capEl.textContent='Game over'; clk.classList.remove('tiebreak-warn');
+      timeEl.textContent='FINAL';
+      // During the server's end-segment hold the board end-card counts down to
+      // the loop restart; mirror it up here so the clock never reads stalled.
+      capEl.textContent = (s.lp && s.hold>0) ? ('Replaying in '+s.hold+'s') : 'Game over';
+      clk.classList.remove('tiebreak-warn');
     } else {
       // Honest countdown to the scheduled draw limit (st + mt = gameStartTick +
       // maxTicks), NOT to the replay's last tick. A game decided early by a

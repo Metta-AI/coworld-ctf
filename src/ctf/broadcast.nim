@@ -339,7 +339,8 @@ proc buildStateJson*(
   mismatchTick: int,
   povSlot: int,
   livesLeadSeries: seq[array[2, int]] = @[],
-  startTick: int = 0
+  startTick: int = 0,
+  endHoldSeconds: int = 0
 ): string =
   ## Assembles the broadcast chrome frame from the current board state plus the
   ## events accumulated across this playback frame. Board-derived STATE (lives,
@@ -405,5 +406,10 @@ proc buildStateJson*(
       "redProg": sim.teamFlagProgress(Red),
       "blueProg": sim.teamFlagProgress(Blue)
     }
+    # End-segment hold countdown: whole seconds until a looping replay
+    # restarts. Present only during the hold, so the end-card can show a
+    # "replaying in N" line without ever inventing a countdown after a seek.
+    if endHoldSeconds > 0:
+      state["hold"] = %endHoldSeconds
 
   $state
