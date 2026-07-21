@@ -31,9 +31,12 @@ proc renderFrame(sim: var SimServer): Image =
             raw[i * 4 + 0], raw[i * 4 + 1], raw[i * 4 + 2], raw[i * 4 + 3]
           )
       sprites.add((m.sprite.id, image))
+  # The spectator wire ships the board at RenderScale x the sim's map pixels
+  # (map bands are full-width crops), so the map sprites and the canvas use
+  # the scaled dimensions.
   var mapSprites: seq[int]
   for m in messages:
-    if m.kind == spkSprite and m.sprite.width == MapWidth:
+    if m.kind == spkSprite and m.sprite.width == MapWidth * RenderScale:
       mapSprites.add(m.sprite.id)
   var mapLayer = -1
   for m in messages:
@@ -44,7 +47,7 @@ proc renderFrame(sim: var SimServer): Image =
     if m.kind == spkObject and m.objectDef.layer == mapLayer:
       objects.add(m.objectDef)
   objects.sort(proc (a, b: SpritePacketObject): int = cmp(a.z, b.z))
-  result = newImage(MapWidth, MapHeight)
+  result = newImage(MapWidth * RenderScale, MapHeight * RenderScale)
   result.fill(rgba(20, 18, 16, 255))
   for obj in objects:
     let image = spriteImage(obj.spriteId)

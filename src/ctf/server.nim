@@ -865,6 +865,7 @@ proc runServerLoop*(
     websocketHandler,
     workerThreads = 4
   )
+
   var
     serverThread: Thread[ServerThreadArgs]
     serverPtr = cast[ptr Server](unsafeAddr httpServer)
