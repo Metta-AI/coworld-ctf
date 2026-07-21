@@ -205,6 +205,15 @@ const
   LaneMid = float(CenterY)
   LaneBottom = 619.0          # open corridor below the mirrored obstacles
 
+when defined(bodyBlock):
+  const
+    BodyBlockRange = 60.0     # once a hunter is within this of the thief
+                              # carrying OUR flag, wall the exfil cell instead
+                              # of chasing the extrapolated lead
+    BodyBlockLead = 14.0      # place our solid body one footprint (~13px)
+                              # ahead of the thief along its escape vector so
+                              # the body blocks the run (GV13+ solid bodies)
+
 type
   Team = enum
     Red, Blue
@@ -1577,6 +1586,18 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       var predicted = bot.carrierPos +
         bot.carrierVel * float(18 + bot.tick - bot.carrierSeen)
       predicted.x += -homeSign(bot.team) * 40.0
+      when defined(bodyBlock):
+        # Solid bodies (GV13+): once we are within a body-block of the thief,
+        # stop converging on the extrapolated lead (which can overshoot, or
+        # trail into a rear shove that pushes the carrier homeward) and WALL
+        # the exfil cell instead — step onto the cell one footprint ahead of
+        # the thief along its escape vector so our solid body blocks the run
+        # while a mate finishes. Falls back to the extrapolation when far.
+        if dist(me, bot.carrierPos) <= BodyBlockRange:
+          var esc = bot.carrierVel
+          if esc.len() < 0.3:            # near-stationary: escape is homeward
+            esc = vec(-homeSign(bot.team), 0.0)
+          predicted = bot.carrierPos + norm(esc) * BodyBlockLead
       target = vec(clamp(predicted.x, 20.0, float(MapW - 20)),
                    clamp(predicted.y, 20.0, float(MapH - 20)))
     else:
