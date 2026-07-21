@@ -864,6 +864,16 @@ proc runServerLoop*(
   var
     sim = initSimServer(config)
     lastTick = getMonoTime()
+  block:
+    # Bake the supersampled spectator render caches (map, endzone fades,
+    # soldier rotations) before the frame loop: the first global viewer's
+    # init packet must never wait on them (the coworld certifier times out
+    # a first message measured in seconds).
+    let warmStart = getMonoTime()
+    sim.warmBoardRenderCaches()
+    echo "board render caches baked in ",
+      (getMonoTime() - warmStart).inMilliseconds, " ms"
+  var
     prevInputs: seq[InputState]
     liveSpeedIndex = config.liveSpeedIndex()
     gamesPlayed = 0
