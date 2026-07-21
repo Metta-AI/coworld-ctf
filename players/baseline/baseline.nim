@@ -1537,6 +1537,25 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     bot.tick - bot.gameStart > LatePushTick
   )
 
+  # LANE-INTERCEPT (comms-011): while OUR flag is stolen and the carrier has
+  # FOGGED (thief fix stale), the base doctrine leaves the six phalanx
+  # lane-holders pushing their FORWARD front and only the lone HomeDefender
+  # dropping back to a single mid lane. A carrier that bugs out vertically and
+  # rides a TOP/BOTTOM border lane home then crosses BEHIND the front and
+  # AROUND the mid guard, uncaught — decoded as 550-630t exfils where the
+  # nearest defender never closes below ~108px (stern chase, never a cutoff).
+  # The forward front is worthless once our flag is out, so pull the six
+  # lane-holders back into a three-lane interception NET across the midline
+  # crossing (each seat holds its own duty lane, staggered lead/trail) so a
+  # border exfil is cut off. Strictly less forward than the phalanx front, and
+  # only while the flag is already gone -> adds no forward pressure/steal cost.
+  when defined(laneIntercept) and defined(zonePhalanx):
+    let laneNet = ownStolen and not iCarry and not mateCarry and
+      bot.tick - bot.carrierSeen > ThiefFixTtl and
+      bot.phalanxDuty in {pdTopA, pdTopB, pdMidA, pdMidB, pdBotA, pdBotB}
+  else:
+    let laneNet = false
+
   # Movement target from role and flag situation.
   var target: Vec
   if iCarry:
@@ -1563,7 +1582,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       if kit >= 0:
         target = bot.kitPos[kit]
   elif ownStolen and (bot.role == HomeDefender or
-      bot.tick - bot.carrierSeen <= ThiefFixTtl):
+      bot.tick - bot.carrierSeen <= ThiefFixTtl or laneNet):
     # An enemy is RUNNING OUR FLAG: with a fresh fix (own eyes or a mate's
     # "T" shout), EVERY role drops what it is doing and converges on the
     # thief's predicted route — an enemy capture ends the episode against
@@ -1579,6 +1598,17 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       predicted.x += -homeSign(bot.team) * 40.0
       target = vec(clamp(predicted.x, 20.0, float(MapW - 20)),
                    clamp(predicted.y, 20.0, float(MapH - 20)))
+    elif laneNet:
+      # Hold this seat's duty lane at the midline crossing, staggered so a
+      # lead guard sits just past center and a trail guard just short of it —
+      # a two-sided net across top/mid/bottom that a fogged border exfil hits.
+      when defined(zonePhalanx):
+        let lead = bot.phalanxDuty in {pdTopA, pdMidA, pdBotA}
+        let netX = if lead: float(CenterX) - homeSign(bot.team) * 40.0
+                   else: float(CenterX) + homeSign(bot.team) * 30.0
+        target = vec(netX, phalanxLaneY(bot.phalanxDuty))
+      else:
+        target = vec(float(CenterX) - homeSign(bot.team) * 60.0, LaneMid)
     else:
       var laneY = LaneMid
       if bot.carrierSeen > -100_000:
