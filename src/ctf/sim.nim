@@ -1507,11 +1507,26 @@ proc endzoneColorAt(base: ColorRGBA, x, redHi, blueLo, playLo, playHi: int):
   else:
     base
 
-proc renderArenaRgba*(
+proc shapeLogicalBounds(shape: ArenaShape): tuple[x0, y0, x1, y1: int] =
+  ## A conservative logical-pixel bounding box around one obstacle shape (the
+  ## scale× rasterizer only evaluates the float geometry inside it).
+  case shape.kind
+  of shapeRect:
+    (shape.rect.x - 1, shape.rect.y - 1,
+     shape.rect.x + shape.rect.w + 1, shape.rect.y + shape.rect.h + 1)
+  of shapeDisc, shapeDiamond:
+    (shape.cx - shape.radius - 1, shape.cy - shape.radius - 1,
+     shape.cx + shape.radius + 1, shape.cy + shape.radius + 1)
+  of shapeDiagonal:
+    (min(shape.x0, shape.x1) - shape.thickness - 1,
+     min(shape.y0, shape.y1) - shape.thickness - 1,
+     max(shape.x0, shape.x1) + shape.thickness + 1,
+     max(shape.y0, shape.y1) + shape.thickness + 1)
+
+proc renderArenaRgbaPair*(
   gameMap: CtfMap,
-  scale: int,
-  withEndzoneGlow = true
-): seq[uint8] =
+  scale: int
+): tuple[hot, cold: seq[uint8]] =
   ## The arena VISUAL rasterized natively at `scale`× map resolution for the
   ## spectator/replay renderer — real detail, not an upscale: wall shapes are
   ## re-evaluated from their float geometry per output pixel (crisp diagonal
@@ -1521,8 +1536,14 @@ proc renderArenaRgba*(
   ## endzone tint gates stay LOGICAL-column based, so the capture line and
   ## glow columns land exactly where the 1× map puts them. Collision masks are
   ## untouched — they come from loadMapLayers at 1× and stay byte-identical.
-  ## `withEndzoneGlow = false` renders the "cold" powered-down variant (same
-  ## layout, glow + line omitted, pedestals dimmed) for the glow-fade overlay.
+  ##
+  ## Renders BOTH variants in one pass — `hot` (baked endzone glow, lit
+  ## pedestals) and `cold` (glow + capture line omitted, pedestals dimmed, for
+  ## the glow-fade overlay) — because they share the two expensive stages: the
+  ## geometry mask (rasterized per obstacle bounding box, not by testing every
+  ## shape at every output pixel) and the bilinear floor bake. The certifier
+  ## boots this on a small CI runner, so the bake must stay a startup blip,
+  ## not a first-viewer stall.
   let
     w = gameMap.width
     h = gameMap.height
@@ -1536,74 +1557,145 @@ proc renderArenaRgba*(
     pedBlueSpr = readImage(dir / "data/ped_blue.png")
   # The art mask at output resolution: border + obstacle shapes from float
   # geometry, minus the spinning center diamonds (drawn live as objects).
-  # Window pixels (glass) get their own mask in the same pass: wall points
-  # inside a window shape draw as the pale pane, not carved stone.
+  # Window pixels (glass) get their own mask in the same per-shape pass: wall
+  # points inside a window shape draw as the pale pane, not carved stone.
   var
     artMask = newSeq[bool](ow * oh)
     windowMask = newSeq[bool](ow * oh)
+  let
+    bTop = ArenaBorder * scale
+    bBottom = (h - ArenaBorder) * scale
+    bLeft = ArenaBorder * scale
+    bRight = (w - ArenaBorder) * scale
   for y in 0 ..< oh:
-    for x in 0 ..< ow:
-      let
-        fx = (float(x) + 0.5) / float(scale)
-        fy = (float(y) + 0.5) / float(scale)
-        lx = int(fx)
-        ly = int(fy)
-        onBorder = lx < ArenaBorder or ly < ArenaBorder or
-          lx >= w - ArenaBorder or ly >= h - ArenaBorder
-      var wall = onBorder or obstacleWallAtF(fx, fy, cx, cy)
-      if wall and isAnimatedDiamondPixel(lx, ly):
-        wall = false
-      artMask[y * ow + x] = wall
-      if wall and not onBorder:
-        for shape in ArenaObstacles:
-          if shape.window and inShapeF(fx, fy, shape):
+    if y < bTop or y >= bBottom:
+      for x in 0 ..< ow:
+        artMask[y * ow + x] = true
+    else:
+      for x in 0 ..< bLeft:
+        artMask[y * ow + x] = true
+      for x in bRight ..< ow:
+        artMask[y * ow + x] = true
+  for shape in ArenaObstacles:
+    let
+      (sx0, sy0, sx1, sy1) = shapeLogicalBounds(shape)
+      ox0 = max(0, sx0 * scale)
+      oy0 = max(0, sy0 * scale)
+      ox1 = min(ow, sx1 * scale)
+      oy1 = min(oh, sy1 * scale)
+    for y in oy0 ..< oy1:
+      let fy = (float(y) + 0.5) / float(scale)
+      for x in ox0 ..< ox1:
+        let fx = (float(x) + 0.5) / float(scale)
+        if shapeWallAtF(fx, fy, shape, cx, cy):
+          artMask[y * ow + x] = true
+          if shape.window:
             windowMask[y * ow + x] = true
-            break
+  for spot in AnimatedDiamonds:
+    let
+      pad = spot.radius + 2
+      ox0 = max(0, (spot.cx - pad) * scale)
+      oy0 = max(0, (spot.cy - pad) * scale)
+      ox1 = min(ow, (spot.cx + pad) * scale)
+      oy1 = min(oh, (spot.cy + pad) * scale)
+    for y in oy0 ..< oy1:
+      for x in ox0 ..< ox1:
+        let i = y * ow + x
+        if artMask[i] and isAnimatedDiamondPixel(x div scale, y div scale):
+          artMask[i] = false
+  # The flagstone tiles the board with a period of exactly texW×texH LOGICAL
+  # pixels, so the bilinear floor repeats every texW·scale × texH·scale output
+  # pixels — bake ONE tile block and index it, instead of bilinear-sampling
+  # 3.3M board pixels (this bake runs at container boot on a small contended
+  # CI runner; every pass here is on the certifier's clock).
+  let
+    tileW = floorTex.width * scale
+    tileH = floorTex.height * scale
+  var tileBlock = newSeq[ColorRGBA](tileW * tileH)
+  for y in 0 ..< tileH:
+    let fy = (float(y) + 0.5) / float(scale)
+    for x in 0 ..< tileW:
+      tileBlock[y * tileW + x] =
+        tileSampleF(floorTex, (float(x) + 0.5) / float(scale), fy)
   let
     redHi = gameMap.teamHomeX(Red) + CaptureZoneWidth div 2
     blueLo = gameMap.teamHomeX(Blue) - CaptureZoneWidth div 2
     playLo = ArenaBorder
     playHi = w - 1 - ArenaBorder
-  var img = newImage(ow, oh)
+  # Paint straight into the output byte buffers — the pixie Image round trip
+  # (premultiply on write, un-premultiply on pack) was pure overhead for an
+  # opaque board.
+  result.hot = newSeq[uint8](ow * oh * 4)
+  result.cold = newSeq[uint8](ow * oh * 4)
+  template put(buf: seq[uint8], offset: int, c: ColorRGBA) =
+    buf[offset] = c.r
+    buf[offset + 1] = c.g
+    buf[offset + 2] = c.b
+    buf[offset + 3] = 255
   for y in 0 ..< oh:
+    let
+      ly = y div scale
+      rowBorder = ly < ArenaBorder or ly >= h - ArenaBorder
+      tileRow = (y mod tileH) * tileW
     for x in 0 ..< ow:
       let
-        fx = (float(x) + 0.5) / float(scale)
-        fy = (float(y) + 0.5) / float(scale)
-        lx = int(fx)
-        ly = int(fy)
-        onBorder = lx < ArenaBorder or ly < ArenaBorder or
-          lx >= w - ArenaBorder or ly >= h - ArenaBorder
-      var color =
-        if windowMask[y * ow + x]:
-          windowGlassColorAt(artMask, ow, oh, x, y, scale)
-        elif artMask[y * ow + x]:
-          carvedStoneColorAt(artMask, ow, oh, x, y, scale)
-        elif withEndzoneGlow:
-          endzoneColorAt(tileSampleF(floorTex, fx, fy), lx,
-            redHi, blueLo, playLo, playHi)
-        else:
-          tileSampleF(floorTex, fx, fy)
+        i = y * ow + x
+        lx = x div scale
+        onBorder = rowBorder or lx < ArenaBorder or lx >= w - ArenaBorder
+      var hotColor, coldColor: ColorRGBA
+      if artMask[i]:
+        hotColor =
+          if windowMask[i]:
+            windowGlassColorAt(artMask, ow, oh, x, y, scale)
+          else:
+            carvedStoneColorAt(artMask, ow, oh, x, y, scale)
+        coldColor = hotColor
+      else:
+        coldColor = tileBlock[tileRow + x mod tileW]
+        hotColor = endzoneColorAt(coldColor, lx, redHi, blueLo, playLo, playHi)
       if onBorder:
-        color = overTint(color, ArenaBorderColor)
-      img[x, y] = color
+        hotColor = overTint(hotColor, ArenaBorderColor)
+        coldColor = overTint(coldColor, ArenaBorderColor)
+      put(result.hot, i * 4, hotColor)
+      put(result.cold, i * 4, coldColor)
+  # Pedestals: pixie still resizes the painted masters, but the composite onto
+  # the board is a manual straight-alpha src-over into the byte buffers.
   for team in Team:
     let
       home = gameMap.flagHome(team)
       full = if team == Red: pedRedSpr else: pedBlueSpr
-      spr = if withEndzoneGlow: full else: full.pedestalDimmed()
-    blitCover(img, spr, home.x * scale, home.y * scale,
-      PedestalCoverSize * scale)
-  result = newSeq[uint8](ow * oh * 4)
-  for y in 0 ..< oh:
-    for x in 0 ..< ow:
-      let
-        pixel = img[x, y].rgba
-        offset = (y * ow + x) * 4
-      result[offset] = pixel.r
-      result[offset + 1] = pixel.g
-      result[offset + 2] = pixel.b
-      result[offset + 3] = 255
+      size = PedestalCoverSize * scale
+      scaled = full.resize(size, size)
+      dimmed = scaled.pedestalDimmed()
+      px0 = home.x * scale - size div 2
+      py0 = home.y * scale - size div 2
+    for sy in 0 ..< size:
+      let dy = py0 + sy
+      if dy < 0 or dy >= oh:
+        continue
+      for sx in 0 ..< size:
+        let dx = px0 + sx
+        if dx < 0 or dx >= ow:
+          continue
+        let
+          litPx = scaled.data[sy * size + sx].rgba
+          dimPx = dimmed.data[sy * size + sx].rgba
+          offset = (dy * ow + dx) * 4
+        template blend(buf: seq[uint8], src: ColorRGBA) =
+          if src.a == 255'u8:
+            buf[offset] = src.r
+            buf[offset + 1] = src.g
+            buf[offset + 2] = src.b
+          elif src.a > 0'u8:
+            let a = src.a.int
+            buf[offset] =
+              uint8((src.r.int * a + buf[offset].int * (255 - a)) div 255)
+            buf[offset + 1] =
+              uint8((src.g.int * a + buf[offset + 1].int * (255 - a)) div 255)
+            buf[offset + 2] =
+              uint8((src.b.int * a + buf[offset + 2].int * (255 - a)) div 255)
+        blend(result.hot, litPx)
+        blend(result.cold, dimPx)
 
 proc loadMapLayers*(gameMap: CtfMap, withEndzoneGlow = true):
     tuple[mapImage, walkImage, wallImage: Image] =

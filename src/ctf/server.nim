@@ -846,23 +846,25 @@ proc runServerLoop*(
   appState.replayServerMode = replayLoaded
   appState.config = config
 
+  var
+    sim = initSimServer(config)
+    lastTick = getMonoTime()
+  block:
+    # Bake the supersampled spectator render caches (map, endzone fades,
+    # soldier rotations) BEFORE the listener opens: a viewer's first-message
+    # clock starts at its successful connect (the coworld certifier allows
+    # only seconds), so nothing may be accepted until every frame the loop
+    # will ever build can be assembled instantly.
+    let warmStart = getMonoTime()
+    sim.warmBoardRenderCaches()
+    echo "board render caches baked in ",
+      (getMonoTime() - warmStart).inMilliseconds, " ms"
+
   let httpServer = newServer(
     httpHandler,
     websocketHandler,
     workerThreads = 4
   )
-
-  # The sim and every lazy spectator bake (RenderScale arena renders, vector
-  # text, sprite rasters) warm BEFORE the listener starts: /healthz turning
-  # ready is the hosted certifier's cue to connect a global viewer and allow
-  # it only ~10 seconds to produce a frame, so nothing multi-second may hide
-  # inside the first frame build.
-  var sim = initSimServer(config)
-  block:
-    let warmStart = getMonoTime()
-    sim.warmSpectatorCaches()
-    echo "spectator caches warmed in ",
-      (getMonoTime() - warmStart).inMilliseconds, " ms"
 
   var
     serverThread: Thread[ServerThreadArgs]
@@ -875,7 +877,6 @@ proc runServerLoop*(
   httpServer.waitUntilReady()
 
   var
-    lastTick = getMonoTime()
     prevInputs: seq[InputState]
     liveSpeedIndex = config.liveSpeedIndex()
     gamesPlayed = 0
