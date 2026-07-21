@@ -475,23 +475,26 @@ var
     ## arena is fixed per process, so one native bake serves every connection —
     ## same pattern as EndzoneStripCache.
 
-proc boardScaledMapPixels(sim: SimServer): seq[uint8] =
-  ## The NATIVE boardScale× hot arena RGBA (float wall geometry, bilinear
-  ## floor, high-res pedestals — see renderArenaRgba). boardScale > 1 only.
+proc ensureBoardMaps(sim: SimServer) =
+  ## Fills both native boardScale× arena bakes (hot + cold share one geometry
+  ## mask and floor pass — see renderArenaRgbaPair). boardScale > 1 only.
   let expected =
     sim.gameMap.width * boardScale * sim.gameMap.height * boardScale * 4
-  if boardMapCache.len != expected:
-    boardMapCache = renderArenaRgba(sim.gameMap, boardScale)
+  if boardMapCache.len != expected or boardColdMapCache.len != expected:
+    let pair = renderArenaRgbaPair(sim.gameMap, boardScale)
+    boardMapCache = pair.hot
+    boardColdMapCache = pair.cold
+
+proc boardScaledMapPixels(sim: SimServer): seq[uint8] =
+  ## The NATIVE boardScale× hot arena RGBA (float wall geometry, bilinear
+  ## floor, high-res pedestals). boardScale > 1 only.
+  sim.ensureBoardMaps()
   boardMapCache
 
 proc boardScaledColdMapPixels(sim: SimServer): seq[uint8] =
   ## The NATIVE boardScale× COLD arena RGBA (glow + capture line omitted,
   ## pedestals dimmed) for the endzone fade overlay. boardScale > 1 only.
-  let expected =
-    sim.gameMap.width * boardScale * sim.gameMap.height * boardScale * 4
-  if boardColdMapCache.len != expected:
-    boardColdMapCache =
-      renderArenaRgba(sim.gameMap, boardScale, withEndzoneGlow = false)
+  sim.ensureBoardMaps()
   boardColdMapCache
 
 proc endzoneStripRange(gameMap: CtfMap, team: Team): tuple[x0, x1: int] =
@@ -4958,3 +4961,22 @@ proc buildSpriteProtocolUpdates*(
     if objectId notin currentIds:
       result.addDeleteObject(objectId)
   nextState.objectIds = currentIds
+
+proc warmBoardRenderCaches*(sim: SimServer) =
+  ## Pre-bakes every process-wide spectator render cache at server startup so
+  ## the first global viewer's init packet is assembled instantly. Without
+  ## this the first connection paid the whole supersampled bake — ~8s on a
+  ## laptop, far longer on a small CI runner, which tripped the coworld
+  ## certifier's first-message timeout. No-op at RenderScale 1; every cache
+  ## here is idempotent so later ensure calls are free.
+  if RenderScale <= 1:
+    return
+  boardScale = RenderScale
+  defer: boardScale = 1
+  sim.ensureBoardMaps()
+  for team in Team:
+    for stage in 1 ..< GlowFadeStages:
+      discard sim.endzoneStripSprite(team, stage)
+    for rot in 0 ..< SoldierRotations:
+      discard soldierRotPixels(team, rot, RenderScale)
+  discard boardTypeface()
