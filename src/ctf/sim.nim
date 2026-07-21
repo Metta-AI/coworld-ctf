@@ -77,6 +77,8 @@ const
   HitFxTicks* = 34            ## ~1.4s a non-fatal hit's paint splat stays visible.
   DamageFxTicks* = 26         ## ~1.1s a floating "-1" damage pop rises and fades
                               ## after a hit (cosmetic only, never in gameHash).
+  KillFxTicks* = 44           ## ~1.8s a floating "KO" kill marker rises and fades
+                              ## after a death (cosmetic only, never in gameHash).
   CarrierSpeedPct* = 70       ## carrier moves at 70% speed.
   AimBradsTurn* = 256         ## aim angle units per full turn (binary radians).
   AimTurnRate* = 5            ## brads/tick a held rotate button turns the aim
@@ -456,6 +458,8 @@ type
     tick*: int                 ## when the hit landed.
     amount*: int               ## hit points lost (1 for a shot, GrenadeDamage).
     color*: uint8              ## the victim's team color, so it reads as their loss.
+    kill*: bool                ## a fatal hit: drawn as a "KO" kill marker that
+                               ## lives KillFxTicks instead of the "-N" number.
 
   Shout* = object
     ## One short player message, audible within ShoutRange of where it was
@@ -3506,6 +3510,17 @@ proc killPlayer*(sim: var SimServer, targetIndex, killerIndex: int) =
     color: sim.players[targetIndex].color,
     hit: false
   )
+  # A floating "KO" kill marker rises and fades from the death spot — the same
+  # mechanism as the "-1" damage pops, so a kill reads at a glance in the
+  # spectator/replay view (cosmetic only, never in gameHash).
+  sim.damagePops.add DamageFx(
+    x: sim.players[targetIndex].x + CollisionW div 2,
+    y: sim.players[targetIndex].y + CollisionH div 2,
+    tick: sim.tickCount,
+    amount: 0,
+    color: sim.players[targetIndex].color,
+    kill: true
+  )
   sim.players[targetIndex].alive = false
   sim.players[targetIndex].velX = 0
   sim.players[targetIndex].velY = 0
@@ -4885,6 +4900,7 @@ proc step*(
   sim.splatters = keptSplatters
   var keptPops: seq[DamageFx] = @[]
   for pop in sim.damagePops:
-    if sim.tickCount - pop.tick < DamageFxTicks:
+    let life = if pop.kill: KillFxTicks else: DamageFxTicks
+    if sim.tickCount - pop.tick < life:
       keptPops.add pop
   sim.damagePops = keptPops
