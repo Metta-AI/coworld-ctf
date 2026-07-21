@@ -1585,26 +1585,40 @@ proc renderArenaRgbaPair*(
         let i = y * ow + x
         if artMask[i] and isAnimatedDiamondPixel(x div scale, y div scale):
           artMask[i] = false
-  # Shared floor bake: one bilinear pass reused by both paint variants.
-  var floorBuf = newSeq[ColorRGBA](ow * oh)
-  for y in 0 ..< oh:
+  # The flagstone tiles the board with a period of exactly texW×texH LOGICAL
+  # pixels, so the bilinear floor repeats every texW·scale × texH·scale output
+  # pixels — bake ONE tile block and index it, instead of bilinear-sampling
+  # 3.3M board pixels (this bake runs at container boot on a small contended
+  # CI runner; every pass here is on the certifier's clock).
+  let
+    tileW = floorTex.width * scale
+    tileH = floorTex.height * scale
+  var tileBlock = newSeq[ColorRGBA](tileW * tileH)
+  for y in 0 ..< tileH:
     let fy = (float(y) + 0.5) / float(scale)
-    for x in 0 ..< ow:
-      let i = y * ow + x
-      if not artMask[i]:
-        floorBuf[i] = tileSampleF(floorTex, (float(x) + 0.5) / float(scale), fy)
+    for x in 0 ..< tileW:
+      tileBlock[y * tileW + x] =
+        tileSampleF(floorTex, (float(x) + 0.5) / float(scale), fy)
   let
     redHi = gameMap.teamHomeX(Red) + CaptureZoneWidth div 2
     blueLo = gameMap.teamHomeX(Blue) - CaptureZoneWidth div 2
     playLo = ArenaBorder
     playHi = w - 1 - ArenaBorder
-  var
-    hotImg = newImage(ow, oh)
-    coldImg = newImage(ow, oh)
+  # Paint straight into the output byte buffers — the pixie Image round trip
+  # (premultiply on write, un-premultiply on pack) was pure overhead for an
+  # opaque board.
+  result.hot = newSeq[uint8](ow * oh * 4)
+  result.cold = newSeq[uint8](ow * oh * 4)
+  template put(buf: seq[uint8], offset: int, c: ColorRGBA) =
+    buf[offset] = c.r
+    buf[offset + 1] = c.g
+    buf[offset + 2] = c.b
+    buf[offset + 3] = 255
   for y in 0 ..< oh:
     let
       ly = y div scale
       rowBorder = ly < ArenaBorder or ly >= h - ArenaBorder
+      tileRow = (y mod tileH) * tileW
     for x in 0 ..< ow:
       let
         i = y * ow + x
@@ -1615,33 +1629,51 @@ proc renderArenaRgbaPair*(
         hotColor = carvedStoneColorAt(artMask, ow, oh, x, y, scale)
         coldColor = hotColor
       else:
-        coldColor = floorBuf[i]
+        coldColor = tileBlock[tileRow + x mod tileW]
         hotColor = endzoneColorAt(coldColor, lx, redHi, blueLo, playLo, playHi)
       if onBorder:
         hotColor = overTint(hotColor, ArenaBorderColor)
         coldColor = overTint(coldColor, ArenaBorderColor)
-      hotImg[x, y] = hotColor
-      coldImg[x, y] = coldColor
+      put(result.hot, i * 4, hotColor)
+      put(result.cold, i * 4, coldColor)
+  # Pedestals: pixie still resizes the painted masters, but the composite onto
+  # the board is a manual straight-alpha src-over into the byte buffers.
   for team in Team:
     let
       home = gameMap.flagHome(team)
       full = if team == Red: pedRedSpr else: pedBlueSpr
-    blitCover(hotImg, full, home.x * scale, home.y * scale,
-      PedestalCoverSize * scale)
-    blitCover(coldImg, full.pedestalDimmed(), home.x * scale, home.y * scale,
-      PedestalCoverSize * scale)
-  proc pack(img: Image): seq[uint8] =
-    result = newSeq[uint8](ow * oh * 4)
-    for i in 0 ..< ow * oh:
-      let
-        pixel = img.data[i].rgba
-        offset = i * 4
-      result[offset] = pixel.r
-      result[offset + 1] = pixel.g
-      result[offset + 2] = pixel.b
-      result[offset + 3] = 255
-  result.hot = pack(hotImg)
-  result.cold = pack(coldImg)
+      size = PedestalCoverSize * scale
+      scaled = full.resize(size, size)
+      dimmed = scaled.pedestalDimmed()
+      px0 = home.x * scale - size div 2
+      py0 = home.y * scale - size div 2
+    for sy in 0 ..< size:
+      let dy = py0 + sy
+      if dy < 0 or dy >= oh:
+        continue
+      for sx in 0 ..< size:
+        let dx = px0 + sx
+        if dx < 0 or dx >= ow:
+          continue
+        let
+          litPx = scaled.data[sy * size + sx].rgba
+          dimPx = dimmed.data[sy * size + sx].rgba
+          offset = (dy * ow + dx) * 4
+        template blend(buf: seq[uint8], src: ColorRGBA) =
+          if src.a == 255'u8:
+            buf[offset] = src.r
+            buf[offset + 1] = src.g
+            buf[offset + 2] = src.b
+          elif src.a > 0'u8:
+            let a = src.a.int
+            buf[offset] =
+              uint8((src.r.int * a + buf[offset].int * (255 - a)) div 255)
+            buf[offset + 1] =
+              uint8((src.g.int * a + buf[offset + 1].int * (255 - a)) div 255)
+            buf[offset + 2] =
+              uint8((src.b.int * a + buf[offset + 2].int * (255 - a)) div 255)
+        blend(result.hot, litPx)
+        blend(result.cold, dimPx)
 
 proc loadMapLayers*(gameMap: CtfMap, withEndzoneGlow = true):
     tuple[mapImage, walkImage, wallImage: Image] =
