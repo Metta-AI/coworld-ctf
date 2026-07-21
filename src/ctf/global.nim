@@ -1096,23 +1096,29 @@ proc buildThrowTargetSprite(): seq[uint8] {.measure.} =
         result.putRawRgbaPixel(y * ThrowTargetSize + x, 255, 190, 70, 210)
 
 proc buildShieldBubblePixels(
-  dentBucket, stage: int
+  dentBucket, stage: int,
+  scale = 1
 ): seq[uint8] {.measure.} =
   ## The shield carrier's protective bubble: a pale-cyan soap-bubble ring drawn
   ## AROUND the whole soldier — hollow with only a faint interior sheen, so the
   ## carrier stays fully visible inside it — plus a small specular glint on the
   ## upper-left rim so it reads as a bubble, not a range ring. Colorless-cool so
-  ## it never leaks the carrier's team.
+  ## it never leaks the carrier's team. Analytic — rasterized at `scale`× the
+  ## logical footprint (pass boardScale) so the ring stays crisp on the
+  ## supersampled spectator board.
   ##
   ## dentBucket < 0 builds the idle bubble. Otherwise it builds one impact
   ## variant: the whole ring blinks brighter and the rim presses in slightly
   ## around the impact site (dentBucket in 16ths of a turn, toward the
   ## shooter), both easing back to idle across the stages — the shield absorbs
   ## the hit, so the impact reads on the bubble, never on the body inside.
-  result = newRgbaPixels(ShieldBubbleSize, ShieldBubbleSize)
   let
-    c = float(ShieldBubbleSize - 1) / 2
-    rimBase = c - 1.0
+    outSize = ShieldBubbleSize * scale
+    k = float(scale)
+  result = newRgbaPixels(outSize, outSize)
+  let
+    c = float(outSize - scale) / 2
+    rimBase = c - k
     glintX = -0.7071 * rimBase
     glintY = -0.7071 * rimBase
     # 1.0 on the impact tick, easing to 0 as the FX ends.
@@ -1123,16 +1129,16 @@ proc buildShieldBubblePixels(
         1.0 - float(stage) / float(ShieldBubbleDeformStages)
     impactAngle = float(dentBucket) * 2.0 * PI /
       float(ShieldBubbleDeformBuckets)
-    dentDepth = 3.5 * ease       # a slight press, never a collapse
+    dentDepth = 3.5 * k * ease   # a slight press, never a collapse
     dentWidth = 0.7              # radians of rim the dent spreads across
     blink = 55.0 * ease          # whole-ring brightness pulse
-  for y in 0 ..< ShieldBubbleSize:
-    for x in 0 ..< ShieldBubbleSize:
+  for y in 0 ..< outSize:
+    for x in 0 ..< outSize:
       let
         dx = float(x) - c
         dy = float(y) - c
         d = sqrt(dx * dx + dy * dy)
-      if d > rimBase + 1.6:
+      if d > rimBase + 1.6 * k:
         continue
       # Local rim radius: pressed inward around the impact site.
       var rim = rimBase
@@ -1146,26 +1152,26 @@ proc buildShieldBubblePixels(
         impact = exp(-(da * da) / (dentWidth * dentWidth))
         rim = rimBase - dentDepth * impact
       # Anti-aliased hollow rim over a barely-there interior sheen.
-      var alpha = (175.0 + blink) * max(0.0, 1.0 - abs(d - rim) / 1.6)
+      var alpha = (175.0 + blink) * max(0.0, 1.0 - abs(d - rim) / (1.6 * k))
       # The impact site flashes hardest — a bright pressed patch on the rim.
-      alpha += 60.0 * ease * impact * max(0.0, 1.0 - abs(d - rim) / 2.2)
+      alpha += 60.0 * ease * impact * max(0.0, 1.0 - abs(d - rim) / (2.2 * k))
       if d < rim:
         alpha = max(alpha, 20.0 + 14.0 * ease)
       # Specular glint where the upper-left rim catches the light.
       let glintD = sqrt((dx - glintX) * (dx - glintX) +
         (dy - glintY) * (dy - glintY))
-      alpha = min(235.0, alpha + 120.0 * max(0.0, 1.0 - glintD / 4.5))
+      alpha = min(235.0, alpha + 120.0 * max(0.0, 1.0 - glintD / (4.5 * k)))
       result.putRawRgbaPixel(
-        y * ShieldBubbleSize + x,
+        y * outSize + x,
         uint8(min(255.0, 175.0 + 60.0 * ease * impact)),
         uint8(min(255.0, 222.0 + 25.0 * ease * impact)),
         255,
         uint8(alpha)
       )
 
-proc buildShieldBubbleSprite(): seq[uint8] =
+proc buildShieldBubbleSprite(scale = 1): seq[uint8] =
   ## The idle (no recent impact) carrier bubble.
-  buildShieldBubblePixels(-1, 0)
+  buildShieldBubblePixels(-1, 0, scale)
 
 proc buildPlasmaArcIcon(size: int): seq[uint8] {.measure.} =
   ## Builds a small, readable plasma arc emitter icon for pickups and
@@ -3547,9 +3553,11 @@ proc addShields(
   viewerIndex = -1
 ) {.measure.} =
   ## Places the two endzone shield pickups (fog-gated by map position like the
-  ## med kits) plus a small "shield carried" marker over anyone holding one
-  ## (gated on seeing that player), plus a protective bubble drawn around a
-  ## carrier while the shield's bonus hp holds (it pops below ShieldBubbleMinHp).
+  ## med kits) plus the carrier visual for anyone holding one (gated on seeing
+  ## that player): a protective forcefield bubble drawn AROUND the cog while
+  ## the shield's bonus hp holds, falling back to the small overhead "shield
+  ## carried" marker once the bubble pops below ShieldBubbleMinHp (the fire
+  ## slowdown persists, so the state stays readable) — never both at once.
   ## The map/replay view passes no viewer and shows all. Sprites are defined
   ## lazily on first need per connection.
   for i in 0 ..< sim.shieldSpawns.len:
@@ -3582,22 +3590,26 @@ proc addShields(
       sim.playerVisibleTo(viewerIndex, i)
     if not seeMe:
       continue
-    if spriteDefs.spriteDefinitionIndex(ShieldCarrySpriteId) < 0:
-      packet.addBoardSpriteChanged(
-        spriteDefs, ShieldCarrySpriteId,
-        ShieldCarrySize, ShieldCarrySize,
-        loadShieldSprite(ShieldCarrySize * boardScale), "shield carried",
-        native = boardScale
+    if player.hp < ShieldBubbleMinHp:
+      # Bubble popped but the shield (and its fire slowdown) is still carried:
+      # the small overhead marker keeps that readable without re-drawing a
+      # forcefield the hp no longer backs.
+      if spriteDefs.spriteDefinitionIndex(ShieldCarrySpriteId) < 0:
+        packet.addBoardSpriteChanged(
+          spriteDefs, ShieldCarrySpriteId,
+          ShieldCarrySize, ShieldCarrySize,
+          loadShieldSprite(ShieldCarrySize * boardScale), "shield carried",
+          native = boardScale
+        )
+      let objectId = ShieldCarryObjectBase + i
+      currentIds.add(objectId)
+      packet.addBoardObject(
+        objectId,
+        player.x + CollisionW div 2 - HpBarWidth div 2 - ShieldCarrySize div 2,
+        player.overheadAnchorY() - OverheadYOffset - ShieldCarrySize,
+        30006, MapLayerId, ShieldCarrySpriteId
       )
-    let objectId = ShieldCarryObjectBase + i
-    currentIds.add(objectId)
-    packet.addBoardObject(
-      objectId,
-      player.x + CollisionW div 2 - HpBarWidth div 2 - ShieldCarrySize div 2,
-      player.overheadAnchorY() - OverheadYOffset - ShieldCarrySize,
-      30006, MapLayerId, ShieldCarrySpriteId
-    )
-    if player.hp >= ShieldBubbleMinHp:
+    else:
       # A fresh impact swaps the idle bubble for a blink/dent variant keyed by
       # the impact direction and age — the newest impact wins if several
       # shooters connected within the FX window.
@@ -3624,23 +3636,25 @@ proc addShields(
         bubbleSpriteId = ShieldBubbleDeformBase +
           bucket * ShieldBubbleDeformStages + stage
         if spriteDefs.spriteDefinitionIndex(bubbleSpriteId) < 0:
-          packet.addSpriteChanged(
+          packet.addBoardSpriteChanged(
             spriteDefs, bubbleSpriteId,
             ShieldBubbleSize, ShieldBubbleSize,
-            buildShieldBubblePixels(bucket, stage),
-            "shield bubble hit"
+            buildShieldBubblePixels(bucket, stage, boardScale),
+            "shield bubble hit",
+            native = boardScale
           )
       elif spriteDefs.spriteDefinitionIndex(ShieldBubbleSpriteId) < 0:
-        packet.addSpriteChanged(
+        packet.addBoardSpriteChanged(
           spriteDefs, ShieldBubbleSpriteId,
           ShieldBubbleSize, ShieldBubbleSize,
-          buildShieldBubbleSprite(), "shield bubble"
+          buildShieldBubbleSprite(boardScale), "shield bubble",
+          native = boardScale
         )
       let
         bubbleId = ShieldBubbleObjectBase + i
         aim = aimVector(player.aimBrads)
       currentIds.add(bubbleId)
-      packet.addObject(
+      packet.addBoardObject(
         bubbleId,
         player.x + CollisionW div 2 -
           int(round(aim.x * ShieldBubbleLagPx)) - ShieldBubbleSize div 2,
