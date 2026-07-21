@@ -205,6 +205,20 @@ const
   LaneMid = float(CenterY)
   LaneBottom = 619.0          # open corridor below the mirrored obstacles
 
+when defined(wipePush):
+  const
+    WipePushMinGame = 2400    # numbers-advantage wipe conversion: only deep in
+                              # the game, once the trade ledger has thinned out
+    WipeRemnantMax = 2        # break stations when the enemy is down to a small
+                              # camping remnant (few team-wide tracks late-game
+                              # implies we already out-killed them: an implicit
+                              # numbers-advantage guard — when behind we see MANY
+                              # enemies, so the trigger stays cold)
+    WipeRemnantTtl = 120      # a track counts as a live remnant this recently
+    WipeRemnantHold = 48      # debounce: the remnant must stay small ~2s before
+                              # we commit, so a transient one-track peek does not
+                              # pull the phalanx off its stations
+
 type
   Team = enum
     Red, Blue
@@ -288,6 +302,7 @@ type
     helpUntil: int            # tick the help retasking expires
     lastEShout: int           # scout sighting-broadcast rate limit
     lastHShout: int           # help-call rate limit
+    wipeRemnantSince: int     # first tick the enemy remnant dropped small; -1 idle
 
 proc roleForSeat(seat: int, team: Team): Role =
   ## Deterministic role spread over the 8 per-team seats. Seats 2 and 3 both
@@ -1048,6 +1063,8 @@ proc resetTransient(bot: Bot) =
   bot.carrierSeen = -100_000
   bot.lastEnemySeen = bot.tick
   bot.gameStart = bot.tick
+  when defined(wipePush):
+    bot.wipeRemnantSince = -1
   bot.firedLast = false
   bot.estAim = spawnAim(bot.team)
   bot.rotSign = 0
@@ -1527,7 +1544,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # the defensive seats, and holding their posts forever is a guaranteed
   # tiebreak stalemate — break the posts and go win by capture (the enemy
   # team pushes symmetrically, so somebody makes something happen).
-  let pushOut = not ownStolen and (
+  let basePushOut = not ownStolen and (
     (bot.tick - bot.gameStart > PushOutMinGame and
      bot.tick - bot.lastEnemySeen > PushOutTicks) or
     # Late all-in: a timeout is a scoreless draw, so deep into a game with no
@@ -1536,6 +1553,44 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # against a peek-duck opponent; this one is on the clock.
     bot.tick - bot.gameStart > LatePushTick
   )
+
+  # Numbers-advantage WIPE CONVERSION (comms-011). Loss decode (r845 + the
+  # 749320/528914 crux batteries) shows v35 reaching a 5-6-vs-1-2 alive edge and
+  # then FAILING to wipe: the phalanx holds its lane stations under standing
+  # contact, so the 1-2 full-HP campers reset the trade and pick off our
+  # attackers one at a time until WE cross the 24-death wipe line first. The
+  # existing pushOut only breaks stations on a QUIET field (never under standing
+  # contact) or on the LatePushTick clock (t>6800, long after these wipes at
+  # ~3-4k). This trigger breaks stations while the enemy is a small, still-seen
+  # remnant and converges the mass to finish the kill instead of trickling in.
+  var wipePushOn = false
+  var wipeCentroid = vec(0.0, 0.0)
+  when defined(wipePush):
+    var remnant = 0
+    var cx = 0.0
+    var cy = 0.0
+    for t in bot.enemies:
+      if bot.tick - t.lastSeen <= WipeRemnantTtl:
+        inc remnant
+        cx += t.pos.x
+        cy += t.pos.y
+    # Debounce: the remnant must persist small before we commit off-station.
+    if not ownStolen and remnant >= 1 and remnant <= WipeRemnantMax:
+      if bot.wipeRemnantSince < 0:
+        bot.wipeRemnantSince = bot.tick
+    else:
+      bot.wipeRemnantSince = -1
+    wipePushOn = not ownStolen and
+      bot.tick - bot.gameStart > WipePushMinGame and
+      remnant >= 1 and remnant <= WipeRemnantMax and
+      bot.wipeRemnantSince >= 0 and
+      bot.tick - bot.wipeRemnantSince >= WipeRemnantHold
+    if wipePushOn:
+      wipeCentroid = vec(cx / float(remnant), cy / float(remnant))
+
+  # A wipe-push releases every station (home defender + overwatch included:
+  # our flag is safe by construction) so the whole team can pile on the remnant.
+  let pushOut = basePushOut or wipePushOn
 
   # Movement target from role and flag situation.
   var target: Vec
@@ -1628,6 +1683,20 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         target = mateCarryPos + vec(homeSign(bot.team) * 40.0, -24.0)
       else:
         target = bot.chokeHold
+  elif wipePushOn:
+    # WIPE CONVERSION (comms-011): converge the whole team on the remnant's
+    # last-known cluster (own eyes + E-relayed sightings) to finish the kill
+    # TOGETHER, rather than holding lane stations and feeding the 1-2 campers
+    # 1v1. A small per-seat vertical offset spreads the approach so one enemy
+    # cone cannot hold the choke against all of us. Full gun range is kept (the
+    # default maxEngage below). If our flag is re-stolen ownStolen flips and
+    # this branch goes cold on the very next frame — defense always outranks it.
+    let off =
+      case bot.role
+      of FlankTop, MidTop: -34.0
+      of FlankBottom, MidBottom: 34.0
+      else: 0.0
+    target = wipeCentroid + vec(0.0, off)
   elif phalanxOn and not pushOut:
    when defined(zonePhalanx):
      # Zone phalanx: shield scout spots forward and relays sightings, three
@@ -1780,10 +1849,12 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     if bot.tick - t.lastSeen > 48:
       continue
     nearestMateToSteal = min(nearestMateToSteal, dist(t.pos, stealTarget))
-  let pocketRush = not iCarry and not mateCarry and
+  let pocketRush = not iCarry and not mateCarry and not wipePushOn and
     bot.role in {MidTop, MidBottom, MidGuard, FlankTop, FlankBottom} and
     dist(me, stealTarget) < PocketRushRange and
     dist(me, stealTarget) < nearestMateToSteal + 8.0
+    # (no-solo clause: a wipe-push never peels a lone runner off to grab the
+    #  flag — the mass finishes the kill first, then converts from strength.)
 
   # Combat: the nearest fresh track with a clear pixel ray AND a mate-free
   # fire cone is the engage target; the nearest fresh-but-wall-blocked track
