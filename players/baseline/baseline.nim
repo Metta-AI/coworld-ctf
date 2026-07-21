@@ -156,6 +156,17 @@ const
   SwordDetour = 70.0          # attacker detour budget for a sword pickup
   PlasmaReach = 136.0         # plasma cone reach: 4 squares (sim PlasmaArcReach)
   PlasmaHalfBrads = 10        # cone half-angle ~14deg in brads (PlasmaArcMaxWidth/Reach)
+  PlasmaConeSlope = 0.25      # cone half-width / forward dist (PlasmaArcMaxWidth
+                              # / (2*PlasmaArcReach) = 68/272). Used by the
+                              # friendly-fire veto to mirror sim.selectArcVictims.
+  PlasmaConePad = 17.0        # ~half a cog body: pads the FF-veto cone for the
+                              # mate footprint + our aim drift over the 5-tick
+                              # active window (better to hold than self-kill).
+  PlasmaSeekRange = 340.0     # -d:plasmaKill: a plasma carrier advances on the
+                              # enemy up to this range in a TEAM FIGHT, using the
+                              # cone as a primary kill weapon (else point-blank).
+  PlasmaSeekDetour = 120.0    # -d:plasmaKill: front-liners detour further to arm
+                              # up with the arc (vs the 70px pocket-topup detour).
   ShieldStealDetour = 330.0   # MidGuard's shield trip: the enemy endzone
                               # shield sits ~136px past their pedestal, so
                               # the round trip inherently costs ~270 path px
@@ -1150,6 +1161,32 @@ proc friendlyBlocked(bot: Bot, me, aim: Vec, enemyDist: float): bool =
       return true
   false
 
+proc plasmaMateInCone(bot: Bot, client: ProtocolClient, me: Vec,
+                      aimBrads: int): bool =
+  ## True when a live teammate sits inside the forward plasma cone we are about
+  ## to ignite. The sim's cone (selectArcVictims) has NO team filter: it damages
+  ## EVERY living player whose body-centre is forward within PlasmaReach and
+  ## inside the linearly-widening cone (perp <= forward*PlasmaConeSlope), with a
+  ## clear line of sight. So the ignite that kills an enemy also kills a mate
+  ## standing in front of us — a straight loss in the GV14 attrition war. Pads
+  ## the cone by PlasmaConePad for the mate footprint + our aim drift.
+  when defined(plasmaArc):
+    let dir = bradsDir(aimBrads)
+    for t in bot.mates:
+      if bot.tick - t.lastSeen > FreshShotTicks:
+        continue
+      let
+        rel = t.pos - me
+        forward = dot(rel, dir)
+        perp = abs(cross(rel, dir))
+      if forward <= 0.0 or forward > PlasmaReach + PlasmaConePad:
+        continue
+      if perp > forward * PlasmaConeSlope + PlasmaConePad:
+        continue
+      if client.pixelRayClear(me, t.pos):
+        return true                       # a wall would eat the cone: no veto
+  false
+
 proc decide(bot: Bot, client: ProtocolClient): uint8 =
   ## Core CTF policy for one frame.
   when defined(statue):
@@ -1805,11 +1842,28 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # but objective play caps the range: the carrier only fights point-blank,
   # rushers racing for the steal and escorts guarding a run only fight what
   # is actually in the way, instead of frag-chasing across the map.
+  # -d:plasmaKill AGGRESSIVE KILL DOCTRINE: on GV14 the game is a late attrition
+  # war (tempo-008 decode) and the plasma cone is the win-relevant weapon. A
+  # non-carrier front-liner holding the arc, in a TEAM FIGHT (>=2 fresh enemies
+  # within seek range), advances on the enemy cluster to bring the 136px cone to
+  # bear as a PRIMARY kill weapon instead of waiting point-blank. Gated off the
+  # flag runner (a carrier must run the heart home, not chase kills).
+  var plasmaSeek {.used.} = false
+  when defined(plasmaKill):
+    if hasSword and not iCarry and not pocketRush:
+      var nearEnemies = 0
+      for t in bot.enemies:
+        if bot.tick - t.lastSeen <= FreshShotTicks and
+            dist(t.pos, me) <= PlasmaSeekRange:
+          inc nearEnemies
+      plasmaSeek = nearEnemies >= 2
   let maxEngage =
     if bot.tripping: 0.0                 # sprinting an errand: no fights
     elif hasShield and not hasSword: 0.0 # no weapon at all: run and carry
     elif hasSword:                       # melee/cone: only close range matters
-      (when defined(plasmaArc): PlasmaReach else: SwordReach) + 6.0
+      when defined(plasmaArc):
+        (if plasmaSeek: PlasmaSeekRange else: PlasmaReach + 6.0)
+      else: SwordReach + 6.0
     elif pocketRush: 0.0
     elif iCarry: CarrierFireRange
     elif ownStolen and bot.tick - bot.carrierSeen <= ThiefFixTtl: FireRange
@@ -1966,10 +2020,14 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       not mateCarry and not pocketRush:
     # Sword top-up: swipe-armed pocket brawls win point-blank. Cheap when we
     # are already visiting the endzone column (shield chain) or passing by.
+    # -d:plasmaKill: the GV14 arc is a real team-fight kill weapon (not just a
+    # pocket top-up), so front-liners spend a larger detour to arm up with it.
+    const weaponDetour =
+      when defined(plasmaKill): PlasmaSeekDetour else: SwordDetour
     for i in 0 ..< bot.swordPos.len:
       if not pickupAvailable(bot.swordAbsentAt, i, bot.tick):
         continue
-      if dist(me, bot.swordPos[i]) <= SwordDetour:
+      if dist(me, bot.swordPos[i]) <= weaponDetour:
         target = bot.swordPos[i]
         break
 
@@ -2068,8 +2126,18 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     else:
       let inReach = engageD <= SwordReach and err <= SwordArcBrads - 4
     if inReach:
-      wantFire = true
-      holdStill = true
+      when defined(plasmaFFVeto):
+        # FRIENDLY-FIRE VETO: the plasma cone hits mates too. If a live mate is
+        # in the cone we would ignite along, DO NOT fire — hold station and keep
+        # the aim on the target so we ignite the instant the mate clears the arc.
+        if bot.plasmaMateInCone(client, me, desiredAim):
+          holdStill = true
+        else:
+          wantFire = true
+          holdStill = true
+      else:
+        wantFire = true
+        holdStill = true
     else:
       moveMask = octantBits(aim - me)    # charge in
     acted = true
