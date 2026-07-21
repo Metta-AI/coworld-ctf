@@ -1148,6 +1148,37 @@ proc friendlyBlocked(bot: Bot, me, aim: Vec, enemyDist: float): bool =
       return true
   false
 
+when defined(ffVeto):
+  const FfVetoLeadTicks = 6.0
+    ## Lead a mate ~one windup forward (FireWindupTicks=5, +1 tick margin): the
+    ## bullet leaves along the LOCKED aim this many ticks after the trigger pull.
+  proc mateShotBlocked(bot: Bot, me: Vec, aimBrads: int, enemyDist: float): bool =
+    ## Release-time friendly-fire gate for the bullet gun. friendlyBlocked only
+    ## vetoes at target SELECT along the enemy-LEAD line, but the shot releases
+    ## FireWindupTicks later along the LOCKED aim (~bot.estAim), so a mate that
+    ## crosses the true fire axis during the windup still eats the bullet
+    ## (sim.selectFireTarget kills the nearest footprint, friend or foe). Re-check
+    ## along the ACTUAL fire axis, leading each fresh mate to where it will be
+    ## when the bullet flies; the caller holds the shot and re-fires when the lane
+    ## clears. Holding costs ~0 enemy kills (a mate on the ray blocks the enemy
+    ## behind it anyway) but saves a self-kill in the razor-thin GV15 wipe race.
+    let dir = bradsDir(aimBrads)
+    for t in bot.mates:
+      let age = bot.tick - t.lastSeen
+      if age > 24:                          # only mates with a live-ish fix lead reliably
+        continue
+      let
+        matePos = t.pos + t.vel * (float(age) + FfVetoLeadTicks)
+        rel = matePos - me
+        along = dot(rel, dir)
+      if along <= 0.0:
+        continue
+      if along >= enemyDist + 14.0:         # beyond the target: the target dies first
+        continue
+      if abs(cross(rel, dir)) < CorridorHalfWidth:
+        return true
+    false
+
 proc decide(bot: Bot, client: ProtocolClient): uint8 =
   ## Core CTF policy for one frame.
   when defined(statue):
@@ -2062,6 +2093,12 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       err = abs(bradsErr(desiredAim, bot.estAim))
       perpMiss = engageD * sin(float(err) * PI / float(AimBrads div 2))
     wantFire = perpMiss <= FireSlackPx
+    when defined(ffVeto):
+      # Release-time FF gate: hold the shot if a mate will be on the LOCKED
+      # fire axis when the bullet flies (see mateShotBlocked). Re-fires next
+      # tick once the lane clears.
+      if wantFire and bot.mateShotBlocked(me, bot.estAim, engageD):
+        wantFire = false
     moveMask = octantBits(aim - me)
     acted = true
   elif not iCarry and not rushing and not pocketRush and not shotReady and
