@@ -1811,6 +1811,15 @@ proc boardMapPixels(sim: SimServer): seq[uint8] {.measure.} =
     return sim.buildMapSpritePixels()
   sim.boardScaledMapPixels()
 
+var
+  boardMapBandsCache: seq[uint8]
+  boardMapBandsDefs: seq[SpriteDefinition]
+    ## Process-wide cache of the boardScale× map band sprite+object wire
+    ## messages and the sprite defs they imply. The bands are byte-identical
+    ## for every viewer, and re-encoding them per connection (13 MB of band
+    ## copies + snappy at RenderScale 2) cost ~1 s of the hosted certifier's
+    ## 10-second first-frame budget.
+
 proc addMapBands(
   sim: SimServer,
   spriteDefs: var seq[SpriteDefinition],
@@ -1830,9 +1839,29 @@ proc addMapBands(
     h = sim.gameMap.height
     outW = sim.gameMap.width * boardScale
     logicalBandH = max(1, MapBandHeight div (boardScale * boardScale))
-    mapPixels = sim.boardMapPixels()
-  var band = 0
-  var y0 = 0
+  # Per-viewer dedup up front (the same check addSpriteChanged would do per
+  # band): once this viewer holds the first band at this scale it holds all
+  # of them, so repeat calls append nothing.
+  block:
+    let sentinel = spriteDefs.spriteDefinitionIndex(MapBandSpriteBase)
+    if sentinel >= 0 and spriteDefs[sentinel].width == outW:
+      return
+  if boardScale > 1 and boardMapBandsCache.len > 0:
+    # Cached wire bytes: register the defs for this viewer, splice the bytes.
+    for def in boardMapBandsDefs:
+      let index = spriteDefs.spriteDefinitionIndex(def.spriteId)
+      if index >= 0:
+        spriteDefs[index] = def
+      else:
+        spriteDefs.add def
+    packet.add boardMapBandsCache
+    return
+  let mapPixels = sim.boardMapPixels()
+  var
+    encoded: seq[uint8]
+    encodedDefs: seq[SpriteDefinition]
+    band = 0
+    y0 = 0
   while y0 < h:
     let
       bandH = min(logicalBandH, h - y0)
@@ -1844,11 +1873,21 @@ proc addMapBands(
     let
       spriteId = MapBandSpriteBase + band
       objectId = MapBandObjectBase + band
-    packet.addSpriteChanged(
-      spriteDefs, spriteId, outW, outBandH, bandPixels, "map band " & $band)
-    packet.addBoardObject(objectId, 0, y0, low(int16), MapLayerId, spriteId)
+    encoded.addSpriteChanged(
+      encodedDefs, spriteId, outW, outBandH, bandPixels, "map band " & $band)
+    encoded.addBoardObject(objectId, 0, y0, low(int16), MapLayerId, spriteId)
     inc band
     y0 += bandH
+  if boardScale > 1:
+    boardMapBandsCache = encoded
+    boardMapBandsDefs = encodedDefs
+  for def in encodedDefs:
+    let index = spriteDefs.spriteDefinitionIndex(def.spriteId)
+    if index >= 0:
+      spriteDefs[index] = def
+    else:
+      spriteDefs.add def
+  packet.add encoded
 
 proc chunkSpritePacket*(packet: seq[uint8], maxBytes: int): seq[seq[uint8]] =
   ## Splits one sprite-protocol packet into WS-frame-sized chunks at MESSAGE
@@ -4980,3 +5019,11 @@ proc warmBoardRenderCaches*(sim: SimServer) =
     for rot in 0 ..< SoldierRotations:
       discard soldierRotPixels(team, rot, RenderScale)
   discard boardTypeface()
+  block:
+    # Encode the map-band wire messages too: they are byte-identical for
+    # every viewer, and the 13 MB copy + snappy pass per connection was the
+    # other second on the certifier's first-message clock.
+    var
+      defs: seq[SpriteDefinition]
+      packet: seq[uint8]
+    sim.addMapBands(defs, packet)

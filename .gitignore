@@ -21,6 +21,8 @@ nimcache
 *.out
 out/
 tmp/
+build/
+replay-viewer/dist/
 __pycache__/
 *.pyc
 *.dylib
