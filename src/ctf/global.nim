@@ -130,8 +130,13 @@ const
   PaintBombPickupSize = 22       ## px footprint of a corner pickup orb.
   PaintBombAirSize = 16          ## px footprint of the airborne orb.
   PaintBombCarrySize = 10        ## px footprint of the carried marker.
-  ThrowTargetSize = 15           ## px diameter of the throw-target ring (blast-sized).
-  BlastSize = 84                 ## px footprint of the landing splat (~2x GrenadeBlastRadius).
+  ThrowTargetSize = GrenadeBlastRadius * 2
+    ## px diameter of the throw-target ring: EXACTLY the blast diameter, so
+    ## "everything in here gets hit" is literally true (GameVersion 17; the
+    ## old 15px ring under-sold the danger zone by ~7x).
+  BlastSize = GrenadeBlastRadius * 2 + 4
+    ## px footprint of the landing splat: the blast diameter plus a 2px
+    ## margin, so the painted burst covers the true damage circle.
   BlastStages = 4                ## landing-splat fade stages across BlastFxTicks.
   PaintBombPickupObjectBase = 19300  ## corner pickups: 19300..19303 (four corners).
   MedKitSpriteId = 1400          ## center med kit pickup (native size);
@@ -1263,12 +1268,15 @@ proc buildBlastSprite(colorIndex, stage: int): seq[uint8] {.measure.} =
     coreR = float(BlastSize) * 0.30            # main wet blob radius
     # Alpha-only fade: full at stage 0, thinning to a faint stain by the last.
     fade = 1.0 - 0.72 * (stage.float / float(max(1, BlastStages - 1)))
-  # Ten flung droplets ring the core (fixed offsets → deterministic sprite),
-  # scaled to the big canvas so the burst throws paint well past the blob.
+  # Ten flung droplets ring the core (fixed offsets → deterministic sprite).
+  # The offsets were hand-tuned on the original 84px canvas; `ds` rescales
+  # them to the current canvas so the outermost paint always reaches the
+  # true blast radius, whatever GrenadeBlastRadius is.
   const droplets = [(-30, -10, 7.0), (26, -22, 6.0), (33, 14, 7.5),
                     (-22, 26, 6.5), (8, 33, 5.5), (-33, 6, 5.0),
                     (18, 30, 5.0), (-14, -30, 5.5), (31, -3, 5.0),
                     (-4, -34, 4.5)]
+  let ds = float(BlastSize) / 84.0
   for y in 0 ..< BlastSize:
     for x in 0 ..< BlastSize:
       let
@@ -1286,11 +1294,12 @@ proc buildBlastSprite(colorIndex, stage: int): seq[uint8] {.measure.} =
       if not inShape:
         for (ox, oy, dr) in droplets:
           let
-            ddx = float(x) - (c + ox.float)
-            ddy = float(y) - (c + oy.float)
-          if ddx * ddx + ddy * ddy <= dr * dr:
+            ddx = float(x) - (c + ox.float * ds)
+            ddy = float(y) - (c + oy.float * ds)
+            sdr = dr * ds
+          if ddx * ddx + ddy * ddy <= sdr * sdr:
             inShape = true
-            onEdge = ddx * ddx + ddy * ddy > (dr - 2.0) * (dr - 2.0)
+            onEdge = ddx * ddx + ddy * ddy > (sdr - 2.0) * (sdr - 2.0)
             break
       if not inShape:
         continue
