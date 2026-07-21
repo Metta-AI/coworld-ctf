@@ -4874,15 +4874,18 @@ proc buildSpriteProtocolUpdates*(
       )
     currentIds.add(objectId)
     if flag.carrier >= 0:
-      # Carried: the heart rides BEHIND the carrier (z below the player), so the
-      # runner's body stays the readable figure and the heart peeks out around
-      # them instead of covering them. Centered on the carrier; the aura +
-      # nameplate still mark WHO runs it.
+      # Carried: the heart rides ON TOP of the carrier (z just above the body),
+      # so the cog reads as HOLDING it in its hands — the Cogs-vs-Clips carry
+      # pose. Centered on the carrier; the gun still pokes past the heart along
+      # the aim ray (a heart-carrier can still shoot in this game), so aim stays
+      # readable, and the aura + nameplate mark WHO runs it. BROADCAST ONLY: the
+      # POV/RL heart (buildSpriteProtocolPlayerUpdates) still rides behind so the
+      # observed carrier position is unchanged.
       result.addBoardObject(
         objectId,
         flag.x - FlagBannerW div 2,
         flag.y - FlagBannerH div 2,
-        flag.y - 1,
+        flag.y + 1,
         MapLayerId,
         FlagSpriteBase + ord(team)
       )
