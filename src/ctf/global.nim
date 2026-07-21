@@ -258,6 +258,9 @@ const
   DamagePopMaxAmount = 2       ## highest -N shown (a grenade removes GrenadeDamage=2).
   DamagePopRisePx = 11         ## px the number floats upward over its full life.
   DamagePopZ = 30006           ## drawn above players, HP bars and name tags.
+  KillPopSpriteBase = 31128    ## floating "KO" kill-marker sprites keyed
+                               ## color×stage: 31128..31191 (above damage pops).
+  KillPopRisePx = 16           ## px the kill marker floats upward over its life.
   AimDotSpriteBase = 780       ## per-color aim indicator dot sprites: 780..795.
   AimDotObjectBase = 18000     ## aim dot object-id pool: 18000..18063.
   AimDotSize = 2
@@ -1728,17 +1731,17 @@ proc blitRgbaBuffer(
       dst[d + 2] = src[s + 2]
       dst[d + 3] = src[s + 3]
 
-proc buildDamagePopSprite(
-  game: SimServer, colorIndex, amount, stage: int
+proc buildFloatingPopSprite(
+  game: SimServer, colorIndex: int, text: string, stage: int
 ): tuple[width, height: int, pixels: seq[uint8]] {.measure.} =
-  ## Builds one floating "-N" damage number: a bright team-tinted numeral with
-  ## a dark 1px contour so it pops off any floor, fading by ALPHA across the
-  ## pop's short life (the protocol has no per-object alpha). Cosmetic only,
-  ## never in gameHash. The tint uses the VICTIM's team color so it reads as
-  ## that player's loss, lightened toward white so the number stays legible.
+  ## Builds one floating pop label ("-N" damage number or "KO" kill marker):
+  ## bright team-tinted glyphs with a dark 1px contour so it pops off any
+  ## floor, fading by ALPHA across the pop's short life (the protocol has no
+  ## per-object alpha). Cosmetic only, never in gameHash. The tint uses the
+  ## VICTIM's team color so it reads as that player's loss, lightened toward
+  ## white so the glyphs stay legible.
   let
     font = game.asciiSprites
-    text = "-" & $amount
     textW = max(1, font.textWidth(text))
     glyphH = max(1, font.height)
     width = textW + 2          # 1px contour margin on each side
@@ -4005,25 +4008,34 @@ proc addDamagePops(
       continue
     let
       age = sim.tickCount - pop.tick
-      stage = clamp(age * DamagePopStages div DamageFxTicks, 0,
+      # A kill marker lives longer and floats higher than a "-N" number so a
+      # death reads bigger than a scratch.
+      life = if pop.kill: KillFxTicks else: DamageFxTicks
+      risePer = if pop.kill: KillPopRisePx else: DamagePopRisePx
+      stage = clamp(age * DamagePopStages div life, 0,
         DamagePopStages - 1)
       colorIndex = playerColorIndex(pop.color)
       amount = clamp(pop.amount, 1, DamagePopMaxAmount)
-      sprite = sim.buildDamagePopSprite(colorIndex, amount, stage)
-      # Rise a few pixels over the full life so the number lifts off the player.
-      rise = DamagePopRisePx * age div max(1, DamageFxTicks)
+      text = if pop.kill: "KO" else: "-" & $amount
+      sprite = sim.buildFloatingPopSprite(colorIndex, text, stage)
+      # Rise a few pixels over the full life so the label lifts off the player.
+      rise = risePer * age div max(1, life)
       px = pop.x - sprite.width div 2
       py = pop.y - sprite.height div 2 - rise
-      spriteId = DamagePopSpriteBase +
-        (colorIndex * DamagePopMaxAmount + (amount - 1)) * DamagePopStages +
-        stage
+      spriteId =
+        if pop.kill:
+          KillPopSpriteBase + colorIndex * DamagePopStages + stage
+        else:
+          DamagePopSpriteBase +
+            (colorIndex * DamagePopMaxAmount + (amount - 1)) * DamagePopStages +
+            stage
     packet.addBoardSpriteChanged(
       spriteDefs,
       spriteId,
       sprite.width,
       sprite.height,
       sprite.pixels,
-      "damage pop " & playerColorName(colorIndex) & " -" & $amount &
+      "damage pop " & playerColorName(colorIndex) & " " & text &
         " stage " & $stage,
       native = boardScale
     )
