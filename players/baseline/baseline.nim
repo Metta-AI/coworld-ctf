@@ -198,8 +198,21 @@ const
                               # under fog the exposure model (enemy sniper
                               # posts + fresh tracks) is the only warning of
                               # watched lanes, so routes respect it hard
-  FlankDepth = 260.0          # wide flankers cross this far past mid
+  FlankDepth = when defined(coneFlank): 330.0 else: 260.0
+                              # wide flankers cross this far past mid (coneFlank:
+                              # deeper so they approach the pocket from further
+                              # behind the guard's ±60° forward cone — GV12)
   WeaveBand = 280.0           # rushers serpentine within this x-band of mid
+  # coneFlank (tempo-005): GV12 widened the enemy vision cone half-angle 45°→60°
+  # (VisionConeDeg 60, total FOV 120°). The pushout attacker-pair perpendicular
+  # offsets below were tuned so a single ±45° enemy cone could not cover both
+  # bodies of a trailing pair on the final pocket approach; a ±60° cone is 33%
+  # wider (tan60/tan45 ≈ 1.73), so scale the perpendicular spacing (and FlankDepth
+  # above) to keep the pair/flankers outside one defender's cone again. OFF == v35.
+  PairTrailBotX = when defined(coneFlank): 44.0 else: 34.0
+  PairTrailBotY = when defined(coneFlank): 45.0 else: 26.0
+  PairTrailGuardX = when defined(coneFlank): 78.0 else: 60.0
+  PairTrailGuardY = when defined(coneFlank): 45.0 else: 26.0
 
   LaneTop = 40.0              # open corridor above the mirrored obstacles
   LaneMid = float(CenterY)
@@ -1750,10 +1763,10 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     case bot.role
     of MidBottom:
       if dist(me, stealTarget) > 90:
-        target = stealTarget + vec(homeSign(bot.team) * 34.0, 26.0)
+        target = stealTarget + vec(homeSign(bot.team) * PairTrailBotX, PairTrailBotY)
     of MidGuard:
       if dist(me, stealTarget) > 90:
-        target = stealTarget + vec(homeSign(bot.team) * 60.0, -26.0)
+        target = stealTarget + vec(homeSign(bot.team) * PairTrailGuardX, -PairTrailGuardY)
     of FlankTop, FlankBottom:
       # Run the wide lane deep, then turn straight in for the grab so the
       # flankers hit the pocket together with the mid trio instead of
