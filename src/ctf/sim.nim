@@ -9,7 +9,7 @@ when not defined(emscripten):
 
 const
   GameName* = "ctf"
-  GameVersion* = "16"
+  GameVersion* = "17"
   ReplayFps* = 24
   DefaultMapPath* = "arena"
   DarkBgPath* = "data/darkbg.aseprite"
@@ -119,7 +119,8 @@ const
                               ## weapon, not a mortar shell you can stroll
                               ## away from. (Was 6 px/tick of flight — a
                               ## full-range lob hung airborne ~41 ticks.)
-  GrenadeBlastRadius* = 40    ## everyone inside the blast takes damage.
+  GrenadeBlastRadius* = 52    ## everyone inside the blast takes damage
+                              ## (GameVersion 17: 40 -> 52, +30%).
   GrenadeDamage* = 2          ## hit points removed by one blast.
   BlastFxTicks* = 12          ## cosmetic blast flash duration in ticks.
 
