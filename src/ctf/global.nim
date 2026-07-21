@@ -494,6 +494,18 @@ proc boardScaledColdMapPixels(sim: SimServer): seq[uint8] =
       renderArenaRgba(sim.gameMap, boardScale, withEndzoneGlow = false)
   boardColdMapCache
 
+proc prewarmBoardRender*(sim: SimServer) =
+  ## Bakes the RenderScale× hot and cold arena maps into their module caches.
+  ## Call at startup BEFORE the websocket server binds: the caches otherwise
+  ## fill lazily on the first global viewer's init packet, and the Softmax
+  ## certifier allows only 10 seconds from connect to first global message —
+  ## the multi-second 2× bake alone can blow that budget on a slow CI runner.
+  when RenderScale > 1:
+    boardScale = RenderScale
+    defer: boardScale = 1
+    discard sim.boardScaledMapPixels()
+    discard sim.boardScaledColdMapPixels()
+
 proc endzoneStripRange(gameMap: CtfMap, team: Team): tuple[x0, x1: int] =
   ## The inclusive x span of one team's endzone column, full map height. It
   ## covers BOTH the crack-glow/capture-line column (captureZoneXRange) AND the

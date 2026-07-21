@@ -846,6 +846,13 @@ proc runServerLoop*(
   appState.replayServerMode = replayLoaded
   appState.config = config
 
+  var sim = initSimServer(config)
+  # Bake the RenderScale× board before the socket binds: a client that
+  # connects the instant the port opens must not pay the lazy first-connection
+  # arena bake inside its first-message wait (the Softmax certifier gives
+  # that wait only 10 seconds).
+  sim.prewarmBoardRender()
+
   let httpServer = newServer(
     httpHandler,
     websocketHandler,
@@ -862,7 +869,6 @@ proc runServerLoop*(
   httpServer.waitUntilReady()
 
   var
-    sim = initSimServer(config)
     lastTick = getMonoTime()
     prevInputs: seq[InputState]
     liveSpeedIndex = config.liveSpeedIndex()
