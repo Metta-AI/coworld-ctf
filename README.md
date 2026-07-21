@@ -30,7 +30,7 @@ logs or replay links, and the smallest repro.
   to rotate clockwise (~7°/tick). Spawns aim toward the enemy side. A short aim
   indicator line shows every visible player's aim.
 - **Vision is fog-of-war:** the map itself is always visible, but enemies (and an
-  enemy carrying a flag) only appear inside your **forward vision cone** (±45°
+  enemy carrying a flag) only appear inside your **forward vision cone** (±60°
   around your **aim**, unlimited range, walls block it) or your **~90px
   omnidirectional bubble**. Your aim carries your vision — you see where you
   point, not where you walk. Both pedestals, your own flag's state, and your

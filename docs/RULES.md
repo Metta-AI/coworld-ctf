@@ -37,6 +37,12 @@ tasks, voting) with teams, guns, hearts, and fog-of-war vision.
 - Movement is **continuous** (acceleration, friction, max speed, wall-sliding) —
   the d-pad drives it.
 - Movement is **pure locomotion**: it never changes where you aim or look.
+- Player bodies are **solid**: you cannot drive over or through another live
+  player (friend or foe). Contact is a **slightly elastic collision** — equal
+  masses, `playerBouncePct` restitution (default 40%): ramming a standing
+  player shoves them forward and keeps a little of your speed; a head-on
+  meeting bounces both back at 40% of the closing speed. Glancing contact
+  slides around the body the same way wall-sliding works. Corpses never block.
 
 ## Aim
 
@@ -65,7 +71,7 @@ Every player observes the **full map** — the terrain is static knowledge and i
 always drawn — but moving entities are fogged:
 
 - Your **vision** is a **forward cone** of half-angle `visionConeDeg` (default
-  ±45°) around your **aim angle**, with **unlimited range**, plus a small
+  ±60°) around your **aim angle**, with **unlimited range**, plus a small
   **omnidirectional bubble** of `visionBubble` (default ~90px) around you.
 - **Walls block vision** — the same walls that block bullets. A long open lane is
   visible (and lethal) end to end; anything behind cover is not.
@@ -300,8 +306,9 @@ These are starting values, exposed in the game config and tuned in self-play.
 | Fire windup | ~0.2s | Trigger pull to bullet release; aim locks at the pull |
 | Fire cooldown | ~0.5s | Minimum time between shots |
 | Carrier speed | ~70% | Movement penalty while holding the heart |
+| Body bounce (`playerBouncePct`) | 40% | Restitution of player-player collisions; bodies are always solid |
 | Aim turn rate (`aimTurnRate`) | 5 brads/tick | Rotation speed while B/Select is held (~7°/tick; full turn ~2.1s) |
-| Vision cone (`visionConeDeg`) | ±45° | Fog-of-war forward vision half-angle; unlimited range, walls block |
+| Vision cone (`visionConeDeg`) | ±60° | Fog-of-war forward vision half-angle; unlimited range, walls block |
 | Vision bubble (`visionBubble`) | 90px | Omnidirectional close-range vision regardless of aim |
 | Plasma arc reach (`PlasmaArcReach`) | 136px (4 squares) | Forward cone reach; one square = one 34px cog body |
 | Plasma arc max width (`PlasmaArcMaxWidth`) | 68px (2 squares) | Cone width at max reach; widens linearly (half-angle atan(1/4) ≈ 14°) |

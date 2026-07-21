@@ -7,7 +7,7 @@ import
 
 const
   GameName* = "ctf"
-  GameVersion* = "12"
+  GameVersion* = "14"
   ReplayFps* = 24
   DefaultMapPath* = "arena"
   DarkBgPath* = "data/darkbg.aseprite"
@@ -46,6 +46,11 @@ const
   MaxSpeed* = 704
   StopThreshold* = 8
   MovementSlideMaxScan = 3
+  PlayerSolidSpan* = 2 * PlayerHalf  ## centers this close (Chebyshev) means
+                                     ## two player footprints overlap.
+  PlayerBouncePct* = 40       ## restitution of player-player collisions, in
+                              ## percent: 0 = a dead-stop shove, 100 = a
+                              ## perfectly elastic billiard bounce.
   TargetFps* = 24
   SpaceColor* = 0'u8
   MapVoidColor* = 12'u8
@@ -76,7 +81,7 @@ const
   AimBradsTurn* = 256         ## aim angle units per full turn (binary radians).
   AimTurnRate* = 5            ## brads/tick a held rotate button turns the aim
                               ## (~7 deg/tick; a full turn takes ~2.1s).
-  VisionConeDeg* = 45         ## vision cone half-angle around the aim angle.
+  VisionConeDeg* = 60         ## vision cone half-angle around the aim angle.
   VisionBubble* = 90          ## omnidirectional vision radius in px.
 
   FovCellSize* = 8            ## fog-of-war visibility grid cell size in px.
@@ -140,6 +145,11 @@ const
   ShieldHitPoints* = 6        ## hit points a shield carrier has while carrying.
   ShieldFireSlowdown* = 3     ## a shield carrier's fire cooldown is this many
                               ## times longer (3x slower fire rate).
+  ShieldBubbleMinHp* = 4      ## the carrier's protective bubble shows at or
+                              ## above this hp — i.e. while the shield's bonus
+                              ## hp (over the base 3) is still holding.
+  BubbleImpactTicks* = 8      ## ~0.33s the bubble's blink/dent impact FX
+                              ## lasts (cosmetic only, like HitFlashTicks).
 
   ShoutMaxChars* = 10         ## a shout is at most this many characters.
   ShoutRange* = MapWidth div 5  ## audible within 20% of the screen width.
@@ -313,6 +323,7 @@ type
     frictionDen*: int
     maxSpeed*: int
     stopThreshold*: int
+    playerBouncePct*: int
     seed*: int
     speed*: int
     lives*: int
@@ -400,6 +411,16 @@ type
     playerIndex*: int          ## the struck player; players are only appended.
     tick*: int                 ## when the bullet connected.
 
+  BubbleImpactFx* = object
+    ## A cosmetic shield-bubble impact; never enters gameHash (replay-safe).
+    ## When a bullet lands on a carrier whose bubble is still up, the bubble
+    ## itself blinks and dents toward the shooter — replacing the struck-target
+    ## ring and body paint spark, so the hit reads as absorbed by the shield.
+    playerIndex*: int          ## the struck carrier; players are only appended.
+    tick*: int                 ## when the bullet connected.
+    angleBrads*: int           ## impact site: direction from the carrier's
+                               ## center toward the shooter, in aim brads.
+
   SplatterFx* = object
     ## A cosmetic death splatter mark; never enters gameHash (replay-safe). A
     ## `hit` mark is the smaller, shorter-lived paint spark left by a non-fatal
@@ -485,6 +506,7 @@ type
     tickCount*: int
     recentShots*: seq[ShotFx]  ## cosmetic shot tracers; excluded from gameHash.
     hitFlashes*: seq[HitFlashFx]  ## cosmetic struck-target flashes; excluded from gameHash.
+    bubbleImpacts*: seq[BubbleImpactFx]  ## cosmetic shield-bubble impact blinks; excluded from gameHash.
     splatters*: seq[SplatterFx]  ## cosmetic death splatters; excluded from gameHash.
     recentBlasts*: seq[BlastFx]  ## cosmetic grenade blasts; excluded from gameHash.
     damagePops*: seq[DamageFx]  ## cosmetic floating "-N" damage numbers; excluded from gameHash.
@@ -1512,6 +1534,7 @@ proc defaultGameConfig*(): GameConfig =
     frictionDen: FrictionDen,
     maxSpeed: MaxSpeed,
     stopThreshold: StopThreshold,
+    playerBouncePct: PlayerBouncePct,
     seed: 0xA6019,
     speed: 1,
     lives: Lives,
@@ -1776,6 +1799,8 @@ proc validate(config: GameConfig) =
     raise newException(CtfError, "Config field fireWindupTicks must not be negative.")
   if config.carrierSpeedPct <= 0 or config.carrierSpeedPct > 100:
     raise newException(CtfError, "Config field carrierSpeedPct must be 1..100.")
+  if config.playerBouncePct < 0 or config.playerBouncePct > 100:
+    raise newException(CtfError, "Config field playerBouncePct must be 0..100.")
   if config.aimTurnRate < 1:
     raise newException(CtfError, "Config field aimTurnRate must be at least 1.")
   if config.visionConeDeg < 0 or config.visionConeDeg > 180:
@@ -1845,6 +1870,7 @@ proc update*(config: var GameConfig, jsonText: string) =
   node.readConfigInt("frictionDen", config.frictionDen)
   node.readConfigInt("maxSpeed", config.maxSpeed)
   node.readConfigInt("stopThreshold", config.stopThreshold)
+  node.readConfigInt("playerBouncePct", config.playerBouncePct)
   node.readConfigInt("seed", config.seed)
   node.readConfigInt("speed", config.speed)
   node.readConfigInt("lives", config.lives)
@@ -1915,6 +1941,7 @@ proc configJson*(config: GameConfig): string =
     "frictionDen": config.frictionDen,
     "maxSpeed": config.maxSpeed,
     "stopThreshold": config.stopThreshold,
+    "playerBouncePct": config.playerBouncePct,
     "seed": config.seed,
     "speed": config.speed,
     "lives": config.lives,
@@ -2002,6 +2029,15 @@ proc aimVector*(brads: int): tuple[x, y: float] =
   ## so 64 is north (-y in map coordinates), 128 west, and 192 south.
   let angle = float(brads) * PI / float(AimBradsTurn div 2)
   (cos(angle), -sin(angle))
+
+proc bradsOfVector*(dx, dy: int): int =
+  ## Returns the aim-brads angle of a map-space vector — the inverse of
+  ## `aimVector` (screen y points down, so north is -y).
+  if dx == 0 and dy == 0:
+    return 0
+  let brads = int(round(
+    arctan2(-float(dy), float(dx)) * float(AimBradsTurn div 2) / PI))
+  ((brads mod AimBradsTurn) + AimBradsTurn) mod AimBradsTurn
 
 proc playerText(sim: SimServer, playerIndex: int): string =
   ## Returns the readable player color for one player index.
@@ -2878,6 +2914,7 @@ proc startGame*(sim: var SimServer) =
   sim.logGameEvent("game started: players=" & $sim.players.len)
   sim.recentShots = @[]
   sim.hitFlashes = @[]
+  sim.bubbleImpacts = @[]
   sim.splatters = @[]
   sim.damagePops = @[]
   sim.recentShouts = @[]
@@ -2931,55 +2968,90 @@ proc slideScanRadius(sim: SimServer, carry, velocity: int): int =
     ) div sim.config.motionScale
   clamp(max(1, max(pending, speed)), 1, MovementSlideMaxScan)
 
+proc playersOverlapAt(sim: SimServer, movingIndex, x, y: int): bool =
+  ## True when a player footprint centered at (x, y) would overlap another
+  ## live player's footprint.
+  for i in 0 ..< sim.players.len:
+    if i == movingIndex or not sim.players[i].alive:
+      continue
+    if max(abs(x - sim.players[i].x), abs(y - sim.players[i].y)) <=
+        PlayerSolidSpan:
+      return true
+  false
+
+proc blockingPlayerAt(
+  sim: SimServer,
+  movingIndex, fromX, fromY, toX, toY: int
+): int =
+  ## Returns the index of a live player whose body blocks this step, or -1.
+  ## A step is blocked when it lands overlapping another body without
+  ## increasing the separation — moving apart is always allowed, so bodies
+  ## that start overlapped (a respawn onto an occupied home) can escape.
+  for i in 0 ..< sim.players.len:
+    if i == movingIndex or not sim.players[i].alive:
+      continue
+    let toDist =
+      max(abs(toX - sim.players[i].x), abs(toY - sim.players[i].y))
+    if toDist > PlayerSolidSpan:
+      continue
+    let fromDist =
+      max(abs(fromX - sim.players[i].x), abs(fromY - sim.players[i].y))
+    if toDist <= fromDist:
+      return i
+  -1
+
 proc canSlideHorizontal(
   sim: SimServer,
-  x, y, step, offset: int
+  movingIndex, x, y, step, offset: int
 ): bool =
   ## Returns true when a horizontal step can slide by one offset.
   if offset == 0:
     return false
   let slideStep = signOf(offset)
   for i in 1 .. abs(offset):
-    if not sim.canOccupy(x, y + slideStep * i):
+    if not sim.canOccupy(x, y + slideStep * i) or
+        sim.playersOverlapAt(movingIndex, x, y + slideStep * i):
       return false
-  sim.canOccupy(x + step, y + offset)
+  sim.canOccupy(x + step, y + offset) and
+    not sim.playersOverlapAt(movingIndex, x + step, y + offset)
 
 proc canSlideVertical(
   sim: SimServer,
-  x, y, step, offset: int
+  movingIndex, x, y, step, offset: int
 ): bool =
   ## Returns true when a vertical step can slide by one offset.
   if offset == 0:
     return false
   let slideStep = signOf(offset)
   for i in 1 .. abs(offset):
-    if not sim.canOccupy(x + slideStep * i, y):
+    if not sim.canOccupy(x + slideStep * i, y) or
+        sim.playersOverlapAt(movingIndex, x + slideStep * i, y):
       return false
-  sim.canOccupy(x + offset, y + step)
+  sim.canOccupy(x + offset, y + step) and
+    not sim.playersOverlapAt(movingIndex, x + offset, y + step)
 
 proc trySlideOffset(
-  sim: SimServer,
-  player: var Player,
-  step, offset: int,
+  sim: var SimServer,
+  movingIndex, step, offset: int,
   horizontal: bool
 ): bool =
   ## Tries one candidate slide offset for a blocked movement step.
+  template player: untyped = sim.players[movingIndex]
   if horizontal:
-    if not sim.canSlideHorizontal(player.x, player.y, step, offset):
+    if not sim.canSlideHorizontal(movingIndex, player.x, player.y, step, offset):
       return false
     player.x += step
     player.y += offset
   else:
-    if not sim.canSlideVertical(player.x, player.y, step, offset):
+    if not sim.canSlideVertical(movingIndex, player.x, player.y, step, offset):
       return false
     player.x += offset
     player.y += step
   true
 
 proc trySlideMove(
-  sim: SimServer,
-  player: var Player,
-  step, radius, preferredSlide: int,
+  sim: var SimServer,
+  movingIndex, step, radius, preferredSlide: int,
   horizontal: bool
 ): bool =
   ## Tries nearby slide offsets for one blocked movement step.
@@ -2989,41 +3061,66 @@ proc trySlideMove(
   for distance in 1 .. radius:
     if preferred != 0:
       if sim.trySlideOffset(
-        player,
+        movingIndex,
         step,
         preferred * distance,
         horizontal
       ):
         return true
       if sim.trySlideOffset(
-        player,
+        movingIndex,
         step,
         -preferred * distance,
         horizontal
       ):
         return true
     else:
-      if sim.trySlideOffset(player, step, -distance, horizontal):
+      if sim.trySlideOffset(movingIndex, step, -distance, horizontal):
         return true
-      if sim.trySlideOffset(player, step, distance, horizontal):
+      if sim.trySlideOffset(movingIndex, step, distance, horizontal):
         return true
   false
 
+proc bouncePlayers(sim: var SimServer, a, b: int, horizontal: bool) =
+  ## Applies a slightly elastic equal-mass collision response along one axis
+  ## between two touching players: the axis velocities average out (the
+  ## shove) plus playerBouncePct percent of the closing speed rebounds (the
+  ## bounce). At 100 this is a billiard-ball velocity swap, at 0 a dead-stop
+  ## push.
+  let
+    pct = sim.config.playerBouncePct
+    v1 = if horizontal: sim.players[a].velX else: sim.players[a].velY
+    v2 = if horizontal: sim.players[b].velX else: sim.players[b].velY
+    total = v1 + v2
+    rebound = (v1 - v2) * pct div 100
+  if horizontal:
+    sim.players[a].velX = (total - rebound) div 2
+    sim.players[b].velX = (total + rebound) div 2
+  else:
+    sim.players[a].velY = (total - rebound) div 2
+    sim.players[b].velY = (total + rebound) div 2
+
 proc applyMomentumAxis(
-  sim: SimServer,
-  player: var Player,
-  carry: var int,
-  velocity, preferredSlide: int,
+  sim: var SimServer,
+  playerIndex, preferredSlide: int,
   horizontal: bool
 ) =
-  ## Applies one fixed-point movement axis with collision sliding.
-  carry += velocity
+  ## Applies one fixed-point movement axis with collision sliding. Walls
+  ## absorb blocked motion; another player's body blocks the same way but
+  ## answers with a slightly elastic shove (bouncePlayers).
+  template player: untyped = sim.players[playerIndex]
+  let velocity = if horizontal: player.velX else: player.velY
+  var carry =
+    (if horizontal: player.carryX else: player.carryY) + velocity
   while abs(carry) >= sim.config.motionScale:
     let step = if carry < 0: -1 else: 1
     let
       nx = if horizontal: player.x + step else: player.x
       ny = if horizontal: player.y else: player.y + step
+    var blocker = -1
     if sim.canOccupy(nx, ny):
+      blocker = sim.blockingPlayerAt(playerIndex, player.x, player.y, nx, ny)
+    if sim.canOccupy(nx, ny) and blocker < 0:
       if horizontal:
         player.x = nx
       else:
@@ -3032,7 +3129,7 @@ proc applyMomentumAxis(
     else:
       let radius = sim.slideScanRadius(carry, velocity)
       if sim.trySlideMove(
-        player,
+        playerIndex,
         step,
         radius,
         preferredSlide,
@@ -3040,8 +3137,14 @@ proc applyMomentumAxis(
       ):
         carry -= step * sim.config.motionScale
       else:
+        if blocker >= 0:
+          sim.bouncePlayers(playerIndex, blocker, horizontal)
         carry = 0
         break
+  if horizontal:
+    player.carryX = carry
+  else:
+    player.carryY = carry
 
 proc distSq*(ax, ay, bx, by: int): int =
   let
@@ -3350,13 +3453,27 @@ proc applyFire(sim: var SimServer, shooterIndex, targetIndex: int) =
     hit: targetIndex >= 0
   )
   if targetIndex >= 0 and sim.players[targetIndex].alive:
+    # A carrier whose bubble is still up (hp >= ShieldBubbleMinHp at impact)
+    # absorbs the hit VISUALS on the bubble: it blinks and dents toward the
+    # shooter instead of showing the inner struck-target ring and body paint
+    # spark. The "-1" pop still reads the hp loss. (Cosmetic only — the damage
+    # itself is unchanged.)
+    let bubbleUp = sim.players[targetIndex].hasShield and
+      sim.players[targetIndex].hp >= ShieldBubbleMinHp
     dec sim.players[targetIndex].hp
-    # A spectator-view flash rings the struck target the moment the bullet
-    # connects, so hits read at a glance (cosmetic only, never in gameHash).
-    sim.hitFlashes.add HitFlashFx(
-      playerIndex: targetIndex,
-      tick: sim.tickCount
-    )
+    if bubbleUp:
+      sim.bubbleImpacts.add BubbleImpactFx(
+        playerIndex: targetIndex,
+        tick: sim.tickCount,
+        angleBrads: bradsOfVector(sx - ex, sy - ey)
+      )
+    else:
+      # A spectator-view flash rings the struck target the moment the bullet
+      # connects, so hits read at a glance (cosmetic only, never in gameHash).
+      sim.hitFlashes.add HitFlashFx(
+        playerIndex: targetIndex,
+        tick: sim.tickCount
+      )
     # A floating "-1" rises and fades from the victim so a lost health bar
     # reads at a glance (cosmetic only, never in gameHash).
     sim.damagePops.add DamageFx(
@@ -3370,15 +3487,16 @@ proc applyFire(sim: var SimServer, shooterIndex, targetIndex: int) =
       sim.killPlayer(targetIndex, shooterIndex)
       sim.recordKill(shooterIndex)
     else:
-      # A non-fatal hit leaves a small, short-lived paint spark in the
-      # shooter's color on the target (cosmetic only, never in gameHash).
-      sim.splatters.add SplatterFx(
-        x: sim.players[targetIndex].x,
-        y: sim.players[targetIndex].y,
-        tick: sim.tickCount,
-        color: shooter.color,
-        hit: true
-      )
+      if not bubbleUp:
+        # A non-fatal hit leaves a small, short-lived paint spark in the
+        # shooter's color on the target (cosmetic only, never in gameHash).
+        sim.splatters.add SplatterFx(
+          x: sim.players[targetIndex].x,
+          y: sim.players[targetIndex].y,
+          tick: sim.tickCount,
+          color: shooter.color,
+          hit: true
+        )
       sim.logGameEvent(
         playerColorText(sim.players[targetIndex].color) &
           " hit by " & sim.playerText(shooterIndex) &
@@ -3824,20 +3942,8 @@ proc applyInput*(
         inputX
       else:
         signOf(player.velX)
-  sim.applyMomentumAxis(
-    player,
-    player.carryX,
-    player.velX,
-    preferredSlideY,
-    true
-  )
-  sim.applyMomentumAxis(
-    player,
-    player.carryY,
-    player.velY,
-    preferredSlideX,
-    false
-  )
+  sim.applyMomentumAxis(playerIndex, preferredSlideY, true)
+  sim.applyMomentumAxis(playerIndex, preferredSlideX, false)
 
 proc fovCellIndex*(cx, cy: int): int {.inline.} =
   ## Returns the flat index of one fog-of-war grid cell.
@@ -4294,6 +4400,7 @@ proc resetToLobby*(sim: var SimServer) =
   sim.recentShouts = @[]
   sim.recentShots = @[]
   sim.hitFlashes = @[]
+  sim.bubbleImpacts = @[]
   sim.splatters = @[]
   sim.damagePops = @[]
   sim.nextJoinOrder = 0
@@ -4440,6 +4547,11 @@ proc step*(
     if sim.tickCount - flash.tick < HitFlashTicks:
       keptFlashes.add flash
   sim.hitFlashes = keptFlashes
+  var keptImpacts: seq[BubbleImpactFx] = @[]
+  for impact in sim.bubbleImpacts:
+    if sim.tickCount - impact.tick < BubbleImpactTicks:
+      keptImpacts.add impact
+  sim.bubbleImpacts = keptImpacts
   var keptBlasts: seq[BlastFx] = @[]
   for blast in sim.recentBlasts:
     if sim.tickCount - blast.tick < BlastFxTicks:

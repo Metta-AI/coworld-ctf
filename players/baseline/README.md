@@ -18,7 +18,7 @@ The observation is the **full 1235×659 map in map coordinates**: the map
 object sits at `(0, 0)`, so object positions ARE map positions (no camera
 math). Entities are **fogged**: an enemy — including an enemy carrying our
 flag — is only streamed while inside OUR vision, which is a **forward cone**
-(half-angle `visionConeDeg` ≈ 45° around our AIM ANGLE, **unlimited range**,
+(half-angle `visionConeDeg` ≈ 60° around our AIM ANGLE, **unlimited range**,
 walls block it) plus an **omnidirectional bubble** (`visionBubble` ≈ 90px).
 **Aim carries vision**: the cone points where the turret points, never where
 we walk, so sweeping it is an explicit rotate-button act. Always visible
