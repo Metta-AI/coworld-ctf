@@ -127,7 +127,9 @@ suite "broadcast state channel":
       ))
       check state["ph"].getStr == "gameover"
       check state.hasKey("over")
-      # A capture win is not a draw and not a time-limit tiebreak.
+      # A capture win is not a draw and not a time-limit tiebreak. The winner
+      # is pinned to the current recording of the fixture (GameVersion 15,
+      # seed 7: Red captures).
       check state["over"]["draw"].getBool == false
       check state["over"]["timeLimit"].getBool == false
       check state["over"]["winner"].getStr == "red"

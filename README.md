@@ -31,8 +31,10 @@ logs or replay links, and the smallest repro.
   indicator line shows every visible player's aim.
 - **Vision is fog-of-war:** the map itself is always visible, but enemies (and an
   enemy carrying a flag) only appear inside your **forward vision cone** (±60°
-  around your **aim**, unlimited range, walls block it) or your **~90px
-  omnidirectional bubble**. Your aim carries your vision — you see where you
+  around your **aim**, unlimited range, stone walls block it) or your **~90px
+  omnidirectional bubble**. Four wall stubs are **glass windows** (the second
+  from the top and bottom of each half's outer stub column): they block
+  movement and bullets like any wall but are **transparent to vision**. Your aim carries your vision — you see where you
   point, not where you walk. Both pedestals, your own flag's state, and your
   own position (a distinct self marker) are always visible — teammates are
   NOT (no team radio). Shots are invisible to players and firing is

@@ -128,11 +128,18 @@ proc syncPlayers(
     events.addPlayerEvent(tick, PlayerJoined, sim, i)
 
 proc killerThisTick(sim: SimServer, track: TrackState): int =
-  ## Returns the player whose kill count just went up this tick.
+  ## Returns the single player whose kill count just went up this tick, or -1
+  ## when none or SEVERAL did — fidelity rule F7, matching broadcast's
+  ## killerThisStep: when two players score on the same tick the sim cannot
+  ## say who killed whom, so the timeline never guesses an attribution.
+  result = -1
+  var killerCount = 0
   for i, player in sim.players:
     if i < track.kills.len and player.kills > track.kills[i]:
-      return i
-  -1
+      inc killerCount
+      result = i
+  if killerCount > 1:
+    result = -1
 
 proc printKillsAndDeaths(
   sim: SimServer,
