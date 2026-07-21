@@ -36,18 +36,20 @@ proc fovAt(sim: SimServer, visible: seq[bool], x, y: int): bool =
   let (cx, cy) = fovCellAt(x, y)
   visible[fovCellIndex(cx, cy)]
 
-## The column-3 discs (x=421 and its x-mirror) are glass windows: they stay
-## walls for movement, bullets, and sword line-of-sight, but fog-of-war
-## shadowcasting sees straight through them. The scene used throughout:
-## a west-side spot at (375, 258), the window disc at (421, 258) r=28
-## (x 393..449), and an east-side spot at (500, 258) — the straight line
-## between the spots crosses only the window.
+## The second rect stub from the top and from the bottom of column 1
+## (x=268..286, plus their x-mirrors) are glass windows: they stay walls for
+## movement, bullets, and sword line-of-sight, but fog-of-war shadowcasting
+## sees straight through them. The scene used throughout: a west-side spot at
+## (240, 138), the top window stub at x 268..286, y 108..168, and an
+## east-side spot at (310, 138) — the straight line between the spots
+## crosses only the window.
 const
-  WestX = 375
-  EastX = 500
-  RowY = 258
-  WindowCx = 421
-  WindowMirrorCx = MapWidth - 1 - WindowCx
+  WestX = 240
+  EastX = 310
+  RowY = 138                  # center row of the top window stub (y 108..168).
+  WindowCx = 277              # column-1 stub center line.
+  WindowMirrorCx = MapWidth - 268 - 18 + 9  # mirrored stub's center line.
+  StoneRowY = 40              # center row of stub #1 (y 10..72): stays stone.
   StoneDiamondCx = 349        # column-2 diamond at (349, 282): stays opaque.
   StoneDiamondCy = 282
 
@@ -87,11 +89,13 @@ suite "windows: glass blocks movement and shots but not vision":
 
   test "stone still blocks vision from the same viewpoint":
     var visible: seq[bool]
-    # Same viewer aiming due west (128 brads): the lane behind the column-2
-    # stone diamond stays fogged.
-    let (vcx, vcy) = fovCellAt(WestX, RowY)
-    sim.computeFovVisible(vcx, vcy, 128, visible)
-    check not sim.fovAt(visible, 300, RowY)
+    # The same scene one stub up: stub #1 (y 10..72) stays stone, so a viewer
+    # west of it aiming due east cannot see the east-side spot behind it.
+    check sim.canOccupy(WestX, StoneRowY)
+    check sim.canOccupy(EastX, StoneRowY)
+    let (vcx, vcy) = fovCellAt(WestX, StoneRowY)
+    sim.computeFovVisible(vcx, vcy, 0, visible)
+    check not sim.fovAt(visible, EastX, StoneRowY)
 
   test "a player seen through glass cannot be shot through it":
     var game = initCtfForTest()
@@ -120,5 +124,5 @@ suite "windows: glass blocks movement and shots but not vision":
     # The tracer visibly ends at the window, not at the target.
     check game.recentShots.len > 0
     let tracer = game.recentShots[^1]
-    check tracer.x1 < WindowCx - 20             # stopped at the west face.
+    check tracer.x1 < 268                       # stopped at the west face.
     check tracer.x1 > WestX

@@ -851,13 +851,18 @@ const
   ## between the capture/spawn columns and the flag ring; isProtectedFloor
   ## carves them out of the ring, pockets, and capture columns.
   ArenaLeftObstacles = [
-    # Column 1 (x=268..286): rect stubs, phase 0, border-attached ends.
+    # Column 1 (x=268..286): rect stubs, phase 0, border-attached ends. The
+    # SECOND stub from the top and from the bottom are GLASS WINDOWS
+    # (GameVersion 13): solid to movement, bullets, and swords, transparent
+    # to fog-of-war.
     ArenaShape(kind: shapeRect, rect: MapRect(x: 268, y: 10, w: 18, h: 62)),
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 268, y: 108, w: 18, h: 60)),
+    ArenaShape(kind: shapeRect, window: true,
+      rect: MapRect(x: 268, y: 108, w: 18, h: 60)),
     ArenaShape(kind: shapeRect, rect: MapRect(x: 268, y: 204, w: 18, h: 60)),
     ArenaShape(kind: shapeRect, rect: MapRect(x: 268, y: 300, w: 18, h: 59)),
     ArenaShape(kind: shapeRect, rect: MapRect(x: 268, y: 395, w: 18, h: 60)),
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 268, y: 491, w: 18, h: 60)),
+    ArenaShape(kind: shapeRect, window: true,
+      rect: MapRect(x: 268, y: 491, w: 18, h: 60)),
     ArenaShape(kind: shapeRect, rect: MapRect(x: 268, y: 587, w: 18, h: 62)),
     # Column 2 (x=349): diamonds, phase +48 (half period) vs column 1.
     ArenaShape(kind: shapeDiamond, cx: 349, cy: 90, radius: 28),
@@ -866,14 +871,13 @@ const
     ArenaShape(kind: shapeDiamond, cx: 349, cy: 376, radius: 28),
     ArenaShape(kind: shapeDiamond, cx: 349, cy: 472, radius: 28),
     ArenaShape(kind: shapeDiamond, cx: 349, cy: 568, radius: 28),
-    # Column 3 (x=421): discs, phase +24 — GLASS WINDOWS (GameVersion 13):
-    # solid to movement, bullets, and swords, transparent to fog-of-war.
-    ArenaShape(kind: shapeDisc, cx: 421, cy: 66, radius: 28, window: true),
-    ArenaShape(kind: shapeDisc, cx: 421, cy: 162, radius: 28, window: true),
-    ArenaShape(kind: shapeDisc, cx: 421, cy: 258, radius: 28, window: true),
-    ArenaShape(kind: shapeDisc, cx: 421, cy: 400, radius: 28, window: true),
-    ArenaShape(kind: shapeDisc, cx: 421, cy: 496, radius: 28, window: true),
-    ArenaShape(kind: shapeDisc, cx: 421, cy: 592, radius: 28, window: true),
+    # Column 3 (x=421): discs, phase +24.
+    ArenaShape(kind: shapeDisc, cx: 421, cy: 66, radius: 28),
+    ArenaShape(kind: shapeDisc, cx: 421, cy: 162, radius: 28),
+    ArenaShape(kind: shapeDisc, cx: 421, cy: 258, radius: 28),
+    ArenaShape(kind: shapeDisc, cx: 421, cy: 400, radius: 28),
+    ArenaShape(kind: shapeDisc, cx: 421, cy: 496, radius: 28),
+    ArenaShape(kind: shapeDisc, cx: 421, cy: 592, radius: 28),
     # Column 4 (x=479..509): 45-degree chevron walls, phase +72; the pair
     # straddling the midline forms one continuous zigzag that closes the
     # old mid lane at mid range.

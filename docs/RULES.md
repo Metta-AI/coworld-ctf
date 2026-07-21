@@ -24,7 +24,8 @@ tasks, voting) with teams, guns, hearts, and fog-of-war vision.
   stubs, diamonds, discs, and diagonal chevron walls, mirrored symmetrically so
   neither team has a positional advantage): **no straight shot crosses the
   field**, so every approach is a series of corners.
-- The **mid-field discs are glass windows** (GameVersion 13): they block
+- In the outermost stub column of each half, the **second wall stub from the
+  top and from the bottom are glass windows** (GameVersion 13): they block
   movement, bullets, and sword swings exactly like stone, but **vision passes
   straight through them**. Glass draws as a pale pane with diagonal sheen —
   cover you can be seen behind is not cover.
@@ -72,9 +73,10 @@ always drawn — but moving entities are fogged:
   ±60°) around your **aim angle**, with **unlimited range**, plus a small
   **omnidirectional bubble** of `visionBubble` (default ~90px) around you.
 - **Stone walls block vision** — the same walls that block bullets — with one
-  exception: **glass windows** (the mid-field discs) block bullets but NOT
-  vision. A long open lane is visible (and lethal) end to end; anything behind
-  stone is not; anything behind glass is **seen but safe from direct fire**.
+  exception: **glass windows** (the second stub from the top and bottom of
+  each half's outer stub column) block bullets but NOT vision. A long open
+  lane is visible (and lethal) end to end; anything behind stone is not;
+  anything behind glass is **seen but safe from direct fire**.
 - **Your aim carries your vision.** You look where you aim, not where you walk,
   so watching a lane, sweeping an arc, and turning your back are deliberate
   rotation choices - and moving somewhere no longer reveals it.
