@@ -154,6 +154,8 @@ const
   SwordReach = 26.0           # melee swipe range (sim SwordReach)
   SwordArcBrads = 32          # +/-45 degree swipe arc in brads
   SwordDetour = 70.0          # attacker detour budget for a sword pickup
+  PlasmaReach = 136.0         # plasma cone reach: 4 squares (sim PlasmaArcReach)
+  PlasmaHalfBrads = 10        # cone half-angle ~14deg in brads (PlasmaArcMaxWidth/Reach)
   ShieldStealDetour = 330.0   # MidGuard's shield trip: the enemy endzone
                               # shield sits ~136px past their pedestal, so
                               # the round trip inherently costs ~270 path px
@@ -1185,8 +1187,19 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       bot.swordAbsentAt.add(-1)
       bot.shieldPos.add(vec(x, float(3 * MapH div 4)))
       bot.shieldAbsentAt.add(-1)
+  # GameVersion 14 replaced the melee sword with a plasma arc (a timed
+  # forward cone). The pickup shares the sword's endzone-column spots, but the
+  # observation labels changed ("sword"->"plasma arc"). -d:plasmaArc retargets
+  # the weapon-pickup gate + close-range engage/fire to the new labels and
+  # cone geometry; without it the (now-absent) sword labels are looked up and
+  # the champion simply never sees/carries the weapon (its GV14 behavior).
+  const
+    weaponLabel {.used.} =
+      when defined(plasmaArc): "plasma arc" else: "sword"
+    weaponCarriedLabel {.used.} =
+      when defined(plasmaArc): "plasma arc carried" else: "sword carried"
   var swordSeen, shieldSeen: seq[Vec]
-  for o in client.spriteObjectsWithLabel("sword"):
+  for o in client.spriteObjectsWithLabel(weaponLabel):
     swordSeen.add(client.mapPos(o))
   for o in client.spriteObjectsWithLabel("shield"):
     shieldSeen.add(client.mapPos(o))
@@ -1195,7 +1208,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # Own carry state: the carried markers float over their carrier, and a
   # shield carrier's HUD reads 6 hp (the marker is the fallback).
   var hasSword = false
-  for o in client.spriteObjectsWithLabel("sword carried"):
+  for o in client.spriteObjectsWithLabel(weaponCarriedLabel):
     if dist(client.mapPos(o), me) <= 30.0:
       hasSword = true
       break
@@ -1795,7 +1808,8 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   let maxEngage =
     if bot.tripping: 0.0                 # sprinting an errand: no fights
     elif hasShield and not hasSword: 0.0 # no weapon at all: run and carry
-    elif hasSword: SwordReach + 6.0      # melee: only point-blank matters
+    elif hasSword:                       # melee/cone: only close range matters
+      (when defined(plasmaArc): PlasmaReach else: SwordReach) + 6.0
     elif pocketRush: 0.0
     elif iCarry: CarrierFireRange
     elif ownStolen and bot.tick - bot.carrierSeen <= ThiefFixTtl: FireRange
@@ -2041,12 +2055,19 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     holdStill = true
     acted = true
   elif hasSword and engage >= 0:
-    # Sword melee: the swipe is INSTANT (no windup, no aim lock) and lethal
-    # in a +/-45 degree arc at 26 px — close the last step and press A the
-    # moment the victim is inside reach and roughly in front.
+    # Melee sword (pre-GV14) / plasma cone (-d:plasmaArc): ignition is INSTANT
+    # (no windup, no aim lock). Sword = +/-45deg arc at 26px; plasma = a
+    # ~14deg half-angle cone reaching 4 squares (136px) that stays lit 5 ticks
+    # and tracks our aim. Either way, press A the moment the victim is inside
+    # reach and roughly in front — ignite a little early on the angle since
+    # the ongoing traverse sweeps the (lingering) cone across the target.
     desiredAim = bradsOf(aim - me)
     let err = abs(bradsErr(desiredAim, bot.estAim))
-    if engageD <= SwordReach and err <= SwordArcBrads - 4:
+    when defined(plasmaArc):
+      let inReach = engageD <= PlasmaReach - 6.0 and err <= PlasmaHalfBrads + 3
+    else:
+      let inReach = engageD <= SwordReach and err <= SwordArcBrads - 4
+    if inReach:
       wantFire = true
       holdStill = true
     else:
