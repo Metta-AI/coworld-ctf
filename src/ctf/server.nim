@@ -1227,18 +1227,19 @@ proc runServerLoop*(
         if sim.tickCount != tickBeforeCommand:
           didSeek = true
       # A scrub/step/skip is a jump, not playback: resync so the tracker diffs
-      # the next real step against here and never fires phantom beats.
+      # the next real step against here and never fires phantom beats. It also
+      # takes the viewer off the end segment, so any hold is cancelled.
       if didSeek:
         broadcastTracker.resync(sim)
-      if replayPlayer.playing:
-        for _ in 0 ..< replayPlayer.replaySpeed():
-          if replayPlayer.playing:
-            replayPlayer.stepReplay(sim)
-            sim.stepEvents(broadcastTracker, frameEvents)
-        if replayPlayer.looping and not replayPlayer.playing:
-          replayPlayer.seekReplay(sim, replayPlayer.replayStartTick())
-          replayPlayer.playing = true
-          broadcastTracker.resync(sim)
+        replayPlayer.cancelEndHold()
+      # Shared playback advance (native server + static WASM viewer): steps
+      # while playing, and holds the final game-over frame for
+      # ReplayEndHoldSeconds before a looping restart (the end segment).
+      replayPlayer.advanceReplayPlayback(
+        sim,
+        proc () = sim.stepEvents(broadcastTracker, frameEvents),
+        proc () = broadcastTracker.resync(sim)
+      )
     else:
       for command in replayCommands:
         liveSpeedIndex.applySpeedCommand(command)
@@ -1354,7 +1355,8 @@ proc runServerLoop*(
             replayPlayer.hashMismatchTick,
             nextState.selectedJoinOrder,
             if sendLead: replayPlayer.livesLeadSeries else: @[],
-            replayPlayer.replayStartTick()
+            replayPlayer.replayStartTick(),
+            replayPlayer.endHoldSecondsLeft()
           )
           outPacket.addSprite(BroadcastChromeSpriteId, 1, 1, [0'u8, 0, 0, 0], stateJson)
           if sendLead:
