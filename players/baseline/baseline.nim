@@ -180,6 +180,11 @@ const
   PushOutMinGame = 2400       # ...this deep into the game breaks the posts
   LatePushTick = 6800         # all-in on the clock: past this tick a draw is
                               # the default outcome, so commit to the capture
+  ConvertMinGame = 1800       # convertLead: earliest game-tick a held front may
+                              # cash into an all-in push (front is established)
+  ConvertQuietTicks = 480     # ...if NO fresh enemy has pressured OUR half for
+                              # this long (~20s), a contained front is a won
+                              # front: convert the position edge to a capture
 
   CoverShieldDist = 42.0      # an obstacle this close blocks a threat direction
   PeekLineDist = 150.0        # floor for an overwatch peek firing line; post
@@ -250,6 +255,7 @@ type
     carrierPos, carrierVel: Vec   # last fix on the thief carrying OUR flag
     carrierSeen: int
     lastEnemySeen: int        # last tick ANY enemy was inside our vision
+    lastOwnHalfEnemy: int     # last tick a fresh enemy track sat on OUR half
     gameStart: int            # tick of the last lobby-to-playing transition
     firedLast: bool           # A was set on the previous sent mask
     estAim: int               # dead-reckoned own aim angle in brads
@@ -1047,6 +1053,7 @@ proc resetTransient(bot: Bot) =
   bot.tripping = false
   bot.carrierSeen = -100_000
   bot.lastEnemySeen = bot.tick
+  bot.lastOwnHalfEnemy = bot.tick
   bot.gameStart = bot.tick
   bot.firedLast = false
   bot.estAim = spawnAim(bot.team)
@@ -1215,6 +1222,21 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   bot.updateTracks(bot.mates, seenMates)
   if seenEnemies.len > 0:
     bot.lastEnemySeen = bot.tick
+  when defined(convertLead):
+    # convertLead: track the last tick a FRESH enemy sat on OUR defensive half
+    # (a live thief/attacker pressuring us). Unlike lastEnemySeen, distant
+    # peek-duck sightings across mid do NOT reset this — so a contained front
+    # (we hold; they cannot enter our half) reads as quiet and eligible to
+    # convert, while any real intrusion re-arms the timer and keeps us home.
+    for t in bot.enemies:
+      if bot.tick - t.lastSeen > 90:
+        continue
+      let onOurHalf =
+        if bot.team == Red: t.pos.x < float(CenterX) + 60.0
+        else: t.pos.x > float(CenterX) - 60.0
+      if onOurHalf:
+        bot.lastOwnHalfEnemy = bot.tick
+        break
 
   # Flag bookkeeping (two flags; a carried flag rides its carrier's exact
   # position). The enemy flag can only be carried by OUR team, so its sprite
@@ -1527,9 +1549,24 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # the defensive seats, and holding their posts forever is a guaranteed
   # tiebreak stalemate — break the posts and go win by capture (the enemy
   # team pushes symmetrically, so somebody makes something happen).
+  var convertPush = false
+  when defined(convertLead):
+    # Offensive conversion (micro-004): the whole-map quiet trigger above never
+    # fires against a peek-duck opponent (we keep glimpsing them across mid), so
+    # v35 holds a WINNING, contained front to the tick-6800 clock and converts
+    # zero steals — it out-frags the enemy but turtles to a conceded capture or
+    # a draw (R780-L1: +2 kills, 0 steals, lost by one leaked capture @t2645).
+    # Cash a contained front instead: once the front is established, if our OWN
+    # half has been uncontested for ~20s, the numbers/position edge is real and
+    # exfil is survivable (few enemies left to grind the carry home) — commit to
+    # the capture push. Any intrusion re-arms lastOwnHalfEnemy and cancels it.
+    convertPush =
+      bot.tick - bot.gameStart > ConvertMinGame and
+      bot.tick - bot.lastOwnHalfEnemy > ConvertQuietTicks
   let pushOut = not ownStolen and (
     (bot.tick - bot.gameStart > PushOutMinGame and
      bot.tick - bot.lastEnemySeen > PushOutTicks) or
+    convertPush or
     # Late all-in: a timeout is a scoreless draw, so deep into a game with no
     # capture the posts are worth nothing — break them and go win. Standoffs
     # keep enemies in sight, so the quiet-field trigger above never fires
