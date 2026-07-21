@@ -851,6 +851,19 @@ proc runServerLoop*(
     websocketHandler,
     workerThreads = 4
   )
+
+  # The sim and every lazy spectator bake (RenderScale arena renders, vector
+  # text, sprite rasters) warm BEFORE the listener starts: /healthz turning
+  # ready is the hosted certifier's cue to connect a global viewer and allow
+  # it only ~10 seconds to produce a frame, so nothing multi-second may hide
+  # inside the first frame build.
+  var sim = initSimServer(config)
+  block:
+    let warmStart = getMonoTime()
+    sim.warmSpectatorCaches()
+    echo "spectator caches warmed in ",
+      (getMonoTime() - warmStart).inMilliseconds, " ms"
+
   var
     serverThread: Thread[ServerThreadArgs]
     serverPtr = cast[ptr Server](unsafeAddr httpServer)
@@ -862,7 +875,6 @@ proc runServerLoop*(
   httpServer.waitUntilReady()
 
   var
-    sim = initSimServer(config)
     lastTick = getMonoTime()
     prevInputs: seq[InputState]
     liveSpeedIndex = config.liveSpeedIndex()

@@ -1350,30 +1350,42 @@ const
   GlassFace = rgba(198, 198, 196, 255)   ## flat pane; quantizes to palette 1.
   GlassSheen = rgba(240, 236, 226, 255)  ## diagonal streaks; quantizes to 2.
 
-proc windowGlassColor(wall: seq[bool], w, h, x, y: int): ColorRGBA =
-  ## Shades one glass window pixel: the same 1px ink carve line and a 1px stone
-  ## frame where the pane meets the floor (so windows sit in the wall language),
-  ## then a pale pane crossed by 45-degree sheen streaks running down-right,
-  ## perpendicular to the up-left light the stone bevels use.
-  let edge = min(
-    min(
-      floorDistDir(wall, w, h, x, y, 0, -1, 2),
-      floorDistDir(wall, w, h, x, y, 0, 1, 2)
-    ),
-    min(
-      floorDistDir(wall, w, h, x, y, -1, 0, 2),
-      floorDistDir(wall, w, h, x, y, 1, 0, 2)
+proc windowGlassColorAt(
+  wall: seq[bool], w, h, x, y, scale: int
+): ColorRGBA =
+  ## Shades one glass window pixel: the same ink carve line and a thin stone
+  ## frame where the pane meets the floor (so windows sit in the wall
+  ## language), then a pale pane crossed by 45-degree sheen streaks running
+  ## down-right, perpendicular to the up-left light the stone bevels use.
+  ## Like carvedStoneColorAt, every band widens by `scale` so the material
+  ## keeps its 1× screen proportions on the render-scale board.
+  let
+    frameCap = 2 * scale
+    edge = min(
+      min(
+        floorDistDir(wall, w, h, x, y, 0, -1, frameCap),
+        floorDistDir(wall, w, h, x, y, 0, 1, frameCap)
+      ),
+      min(
+        floorDistDir(wall, w, h, x, y, -1, 0, frameCap),
+        floorDistDir(wall, w, h, x, y, 1, 0, frameCap)
+      )
     )
-  )
-  if edge == 1:
+  if edge <= scale:
     return StoneInk                      ## touches the floor → carve outline.
-  if edge == 2:
-    return StoneFace                     ## 1px stone frame around the pane.
-  let phase = ((x - y) mod 24 + 24) mod 24
-  if phase < 3 or phase in 7 .. 8:
+  if edge <= frameCap:
+    return StoneFace                     ## thin stone frame around the pane.
+  let
+    period = 24 * scale
+    phase = ((x - y) mod period + period) mod period
+  if phase < 3 * scale or phase in 7 * scale .. 9 * scale - 1:
     GlassSheen
   else:
     GlassFace
+
+proc windowGlassColor(wall: seq[bool], w, h, x, y: int): ColorRGBA =
+  ## 1× glass (the baked collision-resolution map the players observe).
+  windowGlassColorAt(wall, w, h, x, y, 1)
 
 const
   DiamondSpinFrames* = 16      ## steps across 90° (a diamond is 4-fold symmetric).
@@ -1524,7 +1536,11 @@ proc renderArenaRgba*(
     pedBlueSpr = readImage(dir / "data/ped_blue.png")
   # The art mask at output resolution: border + obstacle shapes from float
   # geometry, minus the spinning center diamonds (drawn live as objects).
-  var artMask = newSeq[bool](ow * oh)
+  # Window pixels (glass) get their own mask in the same pass: wall points
+  # inside a window shape draw as the pale pane, not carved stone.
+  var
+    artMask = newSeq[bool](ow * oh)
+    windowMask = newSeq[bool](ow * oh)
   for y in 0 ..< oh:
     for x in 0 ..< ow:
       let
@@ -1538,6 +1554,11 @@ proc renderArenaRgba*(
       if wall and isAnimatedDiamondPixel(lx, ly):
         wall = false
       artMask[y * ow + x] = wall
+      if wall and not onBorder:
+        for shape in ArenaObstacles:
+          if shape.window and inShapeF(fx, fy, shape):
+            windowMask[y * ow + x] = true
+            break
   let
     redHi = gameMap.teamHomeX(Red) + CaptureZoneWidth div 2
     blueLo = gameMap.teamHomeX(Blue) - CaptureZoneWidth div 2
@@ -1554,7 +1575,9 @@ proc renderArenaRgba*(
         onBorder = lx < ArenaBorder or ly < ArenaBorder or
           lx >= w - ArenaBorder or ly >= h - ArenaBorder
       var color =
-        if artMask[y * ow + x]:
+        if windowMask[y * ow + x]:
+          windowGlassColorAt(artMask, ow, oh, x, y, scale)
+        elif artMask[y * ow + x]:
           carvedStoneColorAt(artMask, ow, oh, x, y, scale)
         elif withEndzoneGlow:
           endzoneColorAt(tileSampleF(floorTex, fx, fy), lx,
