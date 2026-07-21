@@ -694,7 +694,8 @@ var
   soldierPivotX, soldierPivotY: array[Team, float]
   soldierScale: array[Team, float]
   soldierLoaded: array[Team, bool]
-  soldierRotCache: array[Team, array[SoldierRotations, seq[uint8]]]
+  soldierRotCache: array[Team, array[SoldierRotations, seq[tuple[
+    scale: int, pixels: seq[uint8]]]]]
   gunMaster: Image
   gunScale: float
   gunLoaded: bool
@@ -742,25 +743,29 @@ proc ensureGunLoaded() =
   gunScale = float(GunLengthPx) / max(1.0, float(gunMaster.width))
   gunLoaded = true
 
-proc soldierRotPixels*(team: Team, rot: int): seq[uint8] =
-  ## One pre-rendered soldier sprite (SoldierCanvas square, straight-alpha
-  ## RGBA): body + gun as one rigid unit, rotated to aim step `rot`. The
-  ## master's FACE side (south) leads the aim with the gun held in front of
-  ## it — aiming south shows the master exactly as drawn.
+proc soldierRotPixels*(team: Team, rot: int, renderScale = 1): seq[uint8] =
+  ## One pre-rendered soldier sprite (SoldierCanvas·renderScale square,
+  ## straight-alpha RGBA): body + gun as one rigid unit, rotated to aim step
+  ## `rot`. The master's FACE side (south) leads the aim with the gun held in
+  ## front of it — aiming south shows the master exactly as drawn. The masters
+  ## are ~120px art rendered down to a 34px body at 1×, so a renderScale > 1
+  ## raster recovers genuine painted detail, not upscaled blocks.
   let r = ((rot mod SoldierRotations) + SoldierRotations) mod SoldierRotations
-  if soldierRotCache[team][r].len > 0:
-    return soldierRotCache[team][r]
+  for cached in soldierRotCache[team][r]:
+    if cached.scale == renderScale:
+      return cached.pixels
   ensureSoldierLoaded(team)
   ensureGunLoaded()
   let
     master = soldierMasters[team]
+    outCanvas = SoldierCanvas * renderScale
     # aim increases counter-clockwise on screen (0=east, 64=north); screen y is
     # down, so a positive brad step rotates the art clockwise in image space —
     # i.e. draw at angle -theta to match aimVector.
     angle = float(r) * 2.0 * PI / float(SoldierRotations)
-    s = soldierScale[team]
-    center = float32(SoldierCanvas) / 2
-  var canvas = newImage(SoldierCanvas, SoldierCanvas)
+    s = soldierScale[team] * float(renderScale)
+    center = float32(outCanvas) / 2
+  var canvas = newImage(outCanvas, outCanvas)
   let
     unitRot =
       translate(vec2(center, center)) *
@@ -779,20 +784,23 @@ proc soldierRotPixels*(team: Team, rot: int): seq[uint8] =
     # GunGripPx east of the body center and spins with the unit.
     gunMat =
       unitRot *
-      translate(vec2(float32(GunGripPx), 0)) *
-      scale(vec2(float32(gunScale), float32(gunScale))) *
+      translate(vec2(float32(GunGripPx * renderScale), 0)) *
+      scale(vec2(
+        float32(gunScale * float(renderScale)),
+        float32(gunScale * float(renderScale))
+      )) *
       translate(vec2(0, float32(-gunMaster.height) / 2))
   canvas.draw(master, bodyMat)
   canvas.draw(gunMaster, gunMat)
   # Straight-alpha RGBA for the Sprite v1 protocol (pixie stores premultiplied).
-  var pixels = newSeq[uint8](SoldierCanvas * SoldierCanvas * 4)
-  for i in 0 ..< SoldierCanvas * SoldierCanvas:
+  var pixels = newSeq[uint8](outCanvas * outCanvas * 4)
+  for i in 0 ..< outCanvas * outCanvas:
     let c = canvas.data[i].rgba()
     pixels[i * 4] = c.r
     pixels[i * 4 + 1] = c.g
     pixels[i * 4 + 2] = c.b
     pixels[i * 4 + 3] = c.a
-  soldierRotCache[team][r] = pixels
+  soldierRotCache[team][r].add((scale: renderScale, pixels: pixels))
   pixels
 
 proc soldierRotIndex*(aimBrads: int): int =
@@ -1181,6 +1189,36 @@ proc tileSample(tex: Image, x, y: int): ColorRGBA =
   ## Samples a seamless texture tiled across the arena (opaque source).
   tex.unsafe[x mod tex.width, y mod tex.height].rgba
 
+proc tileSampleF(tex: Image, fx, fy: float): ColorRGBA =
+  ## Bilinear tile sample at a fractional map-pixel coordinate (wrapping).
+  ## The texture still tiles 1:1 with LOGICAL map pixels — a scale× renderer
+  ## passes fractional coords, so the flagstone keeps its 1× world size but
+  ## resolves smoothly between texels. At integer-center coords this returns
+  ## exactly tileSample's nearest texel.
+  let
+    sx = fx - 0.5
+    sy = fy - 0.5
+    fx0 = floor(sx)
+    fy0 = floor(sy)
+    tx = sx - fx0
+    ty = sy - fy0
+    xa = ((int(fx0) mod tex.width) + tex.width) mod tex.width
+    xb = (xa + 1) mod tex.width
+    ya = ((int(fy0) mod tex.height) + tex.height) mod tex.height
+    yb = (ya + 1) mod tex.height
+    c00 = tex.unsafe[xa, ya].rgba
+    c10 = tex.unsafe[xb, ya].rgba
+    c01 = tex.unsafe[xa, yb].rgba
+    c11 = tex.unsafe[xb, yb].rgba
+  template lerp(a, b: uint8, t: float): float =
+    a.float + (b.float - a.float) * t
+  rgba(
+    uint8(lerp(c00.r, c10.r, tx) + (lerp(c01.r, c11.r, tx) - lerp(c00.r, c10.r, tx)) * ty),
+    uint8(lerp(c00.g, c10.g, tx) + (lerp(c01.g, c11.g, tx) - lerp(c00.g, c10.g, tx)) * ty),
+    uint8(lerp(c00.b, c10.b, tx) + (lerp(c01.b, c11.b, tx) - lerp(c00.b, c10.b, tx)) * ty),
+    255
+  )
+
 const PedestalDimFactor = 0.34
   ## How dark the powered-down (cold) pedestal disc goes: each lit pixel's RGB is
   ## scaled to this fraction so the disc reads as an unlit socket, not a bright
@@ -1247,74 +1285,92 @@ proc floorDistDir(wall: seq[bool], w, h, x, y, dx, dy, cap: int): int =
       return step
   cap + 1
 
-proc carvedStoneColor(wall: seq[bool], w, h, x, y: int): ColorRGBA =
-  ## Shades one wall pixel as raised carved stone: a 1px ink carve line where it
+proc carvedStoneColorAt(
+  wall: seq[bool], w, h, x, y, scale: int
+): ColorRGBA =
+  ## Shades one wall pixel as raised carved stone: an ink carve line where it
   ## meets the floor, a highlight on faces toward the up-left light, a shadow on
-  ## faces toward the down-right, and a flat face deep inside the block.
+  ## faces toward the down-right, and a flat face deep inside the block. The
+  ## mask may be a `scale`× render of the arena; every band (ink line, bevel)
+  ## widens by `scale` so the material keeps its 1× proportions on screen.
   let
-    up = floorDistDir(wall, w, h, x, y, 0, -1, WallBevel)
-    left = floorDistDir(wall, w, h, x, y, -1, 0, WallBevel)
-    down = floorDistDir(wall, w, h, x, y, 0, 1, WallBevel)
-    right = floorDistDir(wall, w, h, x, y, 1, 0, WallBevel)
-  if min(min(up, down), min(left, right)) == 1:
+    bevel = WallBevel * scale
+    up = floorDistDir(wall, w, h, x, y, 0, -1, bevel)
+    left = floorDistDir(wall, w, h, x, y, -1, 0, bevel)
+    down = floorDistDir(wall, w, h, x, y, 0, 1, bevel)
+    right = floorDistDir(wall, w, h, x, y, 1, 0, bevel)
+  if min(min(up, down), min(left, right)) <= scale:
     return StoneInk                      ## touches the floor → carve outline.
   let
     topDist = min(up, left)              ## nearer the up-left (lit) rim.
     botDist = min(down, right)           ## nearer the down-right (shaded) rim.
-  if topDist <= WallBevel and topDist <= botDist:
-    ## Graded lit bevel: brightest at the rim (topDist == 2, just inside the
-    ## ink line), easing back to the flat face by WallBevel so the block reads
+  if topDist <= bevel and topDist <= botDist:
+    ## Graded lit bevel: brightest at the rim (just inside the ink line),
+    ## easing back to the flat face by the bevel width so the block reads
     ## as a rounded raised edge, not a flat painted band.
-    let t = (topDist - 2).float / max(1, WallBevel - 2).float
+    let t = (topDist - 2 * scale).float / max(1, bevel - 2 * scale).float
     mix(StoneHi, StoneFace, clamp(t, 0.0, 1.0))
-  elif botDist <= WallBevel:
-    let t = (botDist - 2).float / max(1, WallBevel - 2).float
+  elif botDist <= bevel:
+    let t = (botDist - 2 * scale).float / max(1, bevel - 2 * scale).float
     mix(StoneLo, StoneFace, clamp(t, 0.0, 1.0))
   else:
     StoneFace
+
+proc carvedStoneColor(wall: seq[bool], w, h, x, y: int): ColorRGBA =
+  ## 1× carved stone (the baked collision-resolution map and spun diamonds).
+  carvedStoneColorAt(wall, w, h, x, y, 1)
 
 const
   DiamondSpinFrames* = 16      ## steps across 90° (a diamond is 4-fold symmetric).
   DiamondSpinTicksPerFrame* = 4  ## ~2.7s per quarter turn at 24 ticks/s.
 
-var diamondFrameCache: array[DiamondSpinFrames, seq[uint8]]
+var diamondFrameCache: array[DiamondSpinFrames, seq[tuple[
+  scale: int, pixels: seq[uint8]]]]
 
-proc rotatingDiamondPixels*(radius, frame: int): tuple[size: int, pixels: seq[uint8]] =
+proc rotatingDiamondPixels*(
+  radius, frame: int,
+  scale = 1
+): tuple[size: int, pixels: seq[uint8]] =
   ## One pre-rotated frame of a spinning center diamond, shaded with the same
   ## carved-stone material as the baked walls: the mask is rotated, then the
   ## bevel is re-derived from it, so the light stays up-left at every angle.
-  ## Cosmetic only — collision keeps the static diamond.
+  ## Cosmetic only — collision keeps the static diamond. `size` is the LOGICAL
+  ## (map-pixel) footprint; `pixels` are rasterized at scale× that footprint —
+  ## the analytic mask is evaluated per output pixel, so a scaled frame has
+  ## genuinely smoother edges, not upscaled blocks.
   let size = 2 * radius + 8
   let index = ((frame mod DiamondSpinFrames) + DiamondSpinFrames) mod
     DiamondSpinFrames
-  if diamondFrameCache[index].len > 0:
-    return (size, diamondFrameCache[index])
+  for cached in diamondFrameCache[index]:
+    if cached.scale == scale:
+      return (size, cached.pixels)
   let
+    outSize = size * scale
     angle = float(index) / float(DiamondSpinFrames) * PI / 2.0
     ca = cos(angle)
     sa = sin(angle)
     center = float(size) / 2.0
-  var mask = newSeq[bool](size * size)
-  for y in 0 ..< size:
-    for x in 0 ..< size:
+  var mask = newSeq[bool](outSize * outSize)
+  for y in 0 ..< outSize:
+    for x in 0 ..< outSize:
       let
-        dx = float(x) + 0.5 - center
-        dy = float(y) + 0.5 - center
+        dx = (float(x) + 0.5) / float(scale) - center
+        dy = (float(y) + 0.5) / float(scale) - center
         rx = dx * ca + dy * sa
         ry = -dx * sa + dy * ca
-      mask[y * size + x] = abs(rx) + abs(ry) <= float(radius)
-  var pixels = newSeq[uint8](size * size * 4)
-  for y in 0 ..< size:
-    for x in 0 ..< size:
-      if mask[y * size + x]:
+      mask[y * outSize + x] = abs(rx) + abs(ry) <= float(radius)
+  var pixels = newSeq[uint8](outSize * outSize * 4)
+  for y in 0 ..< outSize:
+    for x in 0 ..< outSize:
+      if mask[y * outSize + x]:
         let
-          color = carvedStoneColor(mask, size, size, x, y)
-          offset = (y * size + x) * 4
+          color = carvedStoneColorAt(mask, outSize, outSize, x, y, scale)
+          offset = (y * outSize + x) * 4
         pixels[offset] = color.r
         pixels[offset + 1] = color.g
         pixels[offset + 2] = color.b
         pixels[offset + 3] = 255
-  diamondFrameCache[index] = pixels
+  diamondFrameCache[index].add((scale: scale, pixels: pixels))
   (size, pixels)
 
 ## --- Capture endzones (the floor a carrier must reach to score) ---
@@ -1383,6 +1439,93 @@ proc endzoneColorAt(base: ColorRGBA, x, redHi, blueLo, playLo, playHi: int):
         EndzoneGlowFloor + (1.0 - EndzoneGlowFloor) * near)
   else:
     base
+
+proc renderArenaRgba*(
+  gameMap: CtfMap,
+  scale: int,
+  withEndzoneGlow = true
+): seq[uint8] =
+  ## The arena VISUAL rasterized natively at `scale`× map resolution for the
+  ## spectator/replay renderer — real detail, not an upscale: wall shapes are
+  ## re-evaluated from their float geometry per output pixel (crisp diagonal
+  ## chevron/diamond edges), the carved-stone bevel grades over scale× more
+  ## steps, the flagstone floor resolves bilinearly between texels, and the
+  ## pedestal art (600px masters) rasterizes at scale× its footprint. The
+  ## endzone tint gates stay LOGICAL-column based, so the capture line and
+  ## glow columns land exactly where the 1× map puts them. Collision masks are
+  ## untouched — they come from loadMapLayers at 1× and stay byte-identical.
+  ## `withEndzoneGlow = false` renders the "cold" powered-down variant (same
+  ## layout, glow + line omitted, pedestals dimmed) for the glow-fade overlay.
+  let
+    w = gameMap.width
+    h = gameMap.height
+    ow = w * scale
+    oh = h * scale
+    cx = gameMap.center.x
+    cy = gameMap.center.y
+    dir = gameDir()
+    floorTex = readImage(dir / "data/arena_floor.png")
+    pedRedSpr = readImage(dir / "data/ped_red.png")
+    pedBlueSpr = readImage(dir / "data/ped_blue.png")
+  # The art mask at output resolution: border + obstacle shapes from float
+  # geometry, minus the spinning center diamonds (drawn live as objects).
+  var artMask = newSeq[bool](ow * oh)
+  for y in 0 ..< oh:
+    for x in 0 ..< ow:
+      let
+        fx = (float(x) + 0.5) / float(scale)
+        fy = (float(y) + 0.5) / float(scale)
+        lx = int(fx)
+        ly = int(fy)
+        onBorder = lx < ArenaBorder or ly < ArenaBorder or
+          lx >= w - ArenaBorder or ly >= h - ArenaBorder
+      var wall = onBorder or obstacleWallAtF(fx, fy, cx, cy)
+      if wall and isAnimatedDiamondPixel(lx, ly):
+        wall = false
+      artMask[y * ow + x] = wall
+  let
+    redHi = gameMap.teamHomeX(Red) + CaptureZoneWidth div 2
+    blueLo = gameMap.teamHomeX(Blue) - CaptureZoneWidth div 2
+    playLo = ArenaBorder
+    playHi = w - 1 - ArenaBorder
+  var img = newImage(ow, oh)
+  for y in 0 ..< oh:
+    for x in 0 ..< ow:
+      let
+        fx = (float(x) + 0.5) / float(scale)
+        fy = (float(y) + 0.5) / float(scale)
+        lx = int(fx)
+        ly = int(fy)
+        onBorder = lx < ArenaBorder or ly < ArenaBorder or
+          lx >= w - ArenaBorder or ly >= h - ArenaBorder
+      var color =
+        if artMask[y * ow + x]:
+          carvedStoneColorAt(artMask, ow, oh, x, y, scale)
+        elif withEndzoneGlow:
+          endzoneColorAt(tileSampleF(floorTex, fx, fy), lx,
+            redHi, blueLo, playLo, playHi)
+        else:
+          tileSampleF(floorTex, fx, fy)
+      if onBorder:
+        color = overTint(color, ArenaBorderColor)
+      img[x, y] = color
+  for team in Team:
+    let
+      home = gameMap.flagHome(team)
+      full = if team == Red: pedRedSpr else: pedBlueSpr
+      spr = if withEndzoneGlow: full else: full.pedestalDimmed()
+    blitCover(img, spr, home.x * scale, home.y * scale,
+      PedestalCoverSize * scale)
+  result = newSeq[uint8](ow * oh * 4)
+  for y in 0 ..< oh:
+    for x in 0 ..< ow:
+      let
+        pixel = img[x, y].rgba
+        offset = (y * ow + x) * 4
+      result[offset] = pixel.r
+      result[offset + 1] = pixel.g
+      result[offset + 2] = pixel.b
+      result[offset + 3] = 255
 
 proc loadMapLayers*(gameMap: CtfMap, withEndzoneGlow = true):
     tuple[mapImage, walkImage, wallImage: Image] =
