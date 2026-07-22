@@ -9,7 +9,7 @@ when not defined(emscripten):
 
 const
   GameName* = "ctf"
-  GameVersion* = "17"
+  GameVersion* = "18"
   ReplayFps* = 24
   DefaultMapPath* = "arena"
   DarkBgPath* = "data/darkbg.aseprite"
@@ -153,7 +153,10 @@ const
 
   ShieldPickupRange* = 12     ## touch radius to pick a shield up.
   ShieldRespawnTicks* = 30 * ReplayFps  ## a taken endzone shield refills after 30s.
-  ShieldHitPoints* = 6        ## hit points a shield carrier has while carrying.
+  ShieldHitPoints* = 6        ## the hp ceiling for a shield carrier.
+  ShieldPickupHeal* = 3       ## hp a shield pickup adds, capped at
+                              ## ShieldHitPoints — a damaged carrier may take
+                              ## another shield to top back up.
   ShieldFireSlowdown* = 3     ## a shield carrier's fire cooldown is this many
                               ## times longer (3x slower fire rate).
   ShieldBubbleMinHp* = 4      ## the carrier's protective bubble shows at or
@@ -4390,11 +4393,16 @@ proc updateShields*(sim: var SimServer) =
       spawn.present = true
 
 proc tryPickupShields*(sim: var SimServer, playerIndex: int) =
-  ## Lets a living player pick up an endzone shield by touch (one carried
-  ## shield max; either team may take either endzone's shield). Carrying a
-  ## shield raises the player to ShieldHitPoints but slows their fire rate
+  ## Lets a living player pick up an endzone shield by touch (either team may
+  ## take either endzone's shield). A pickup grants the shield and heals
+  ## ShieldPickupHeal hp up to the ShieldHitPoints ceiling — a damaged carrier
+  ## may take another shield to top back up, while a full-health carrier
+  ## leaves the spawn untouched for a teammate. Carrying a shield slows fire
   ## ShieldFireSlowdown times; a taken shield refills after ShieldRespawnTicks.
-  if not sim.players[playerIndex].alive or sim.players[playerIndex].hasShield:
+  if not sim.players[playerIndex].alive:
+    return
+  if sim.players[playerIndex].hasShield and
+      sim.players[playerIndex].hp >= ShieldHitPoints:
     return
   let
     px = sim.players[playerIndex].x + CollisionW div 2
@@ -4405,7 +4413,8 @@ proc tryPickupShields*(sim: var SimServer, playerIndex: int) =
       spawn.present = false
       spawn.respawnAt = sim.tickCount + ShieldRespawnTicks
       sim.players[playerIndex].hasShield = true
-      sim.players[playerIndex].hp = ShieldHitPoints
+      sim.players[playerIndex].hp = min(
+        sim.players[playerIndex].hp + ShieldPickupHeal, ShieldHitPoints)
       sim.logGameEvent(
         playerColorText(sim.players[playerIndex].color) &
           " picked up a shield"
