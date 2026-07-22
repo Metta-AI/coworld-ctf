@@ -9,13 +9,15 @@ when not defined(emscripten):
 
 const
   GameName* = "ctf"
-  GameVersion* = "19"
+  GameVersion* = "19"  ## Multi-map support does NOT bump the version:
+                       ## default-map ("arena") gameplay is bit-identical, so
+                       ## every existing replay stays valid. arena-large
+                       ## replays carry mapPath in their config and need a
+                       ## multi-map sim to re-run.
   ReplayFps* = 24
   DefaultMapPath* = "arena"
   DarkBgPath* = "data/darkbg.aseprite"
   SpriteSheetAsepritePath = "data/spritesheet.aseprite"
-  MapWidth* = 1235
-  MapHeight* = 659
   SpriteSize* = 12
   CrewSpriteSize* = 16
   CrewSpriteVariants* = 8
@@ -65,7 +67,10 @@ const
   HitPoints* = 3              ## hits to kill: each shot removes one hit point.
   RespawnTicks* = 72          ## ~3s before respawning at home.
   SpawnProtectTicks* = 24     ## ~1s spawn invulnerability.
-  GunRange* = 1300            ## px, effectively map-wide; LOS and aim are the real limits.
+  GunRange* = 1300            ## px, effectively map-wide on the default
+                              ## arena; LOS and aim are the real limits.
+                              ## Each map def carries its own value — see
+                              ## CtfMap.gunRange.
   BulletHalfWidth* = 8.0      ## the bullet corridor half-width: a shot travels
                               ## along the facing ray and hits the FIRST player
                               ## whose footprint crosses it.
@@ -89,9 +94,6 @@ const
   VisionBubble* = 90          ## omnidirectional vision radius in px.
 
   FovCellSize* = 8            ## fog-of-war visibility grid cell size in px.
-  FovGridW* = (MapWidth + FovCellSize - 1) div FovCellSize
-  FovGridH* = (MapHeight + FovCellSize - 1) div FovCellSize
-  FovCellCount* = FovGridW * FovGridH
 
   StartWaitTicks* = 5 * TargetFps
   GameOverTicks* = 360
@@ -110,7 +112,6 @@ const
   GrenadeSpawnInset* = 40     ## corner grenade spawn inset from the border.
   GrenadePickupRange* = 12    ## touch radius to pick a grenade up.
   GrenadeRespawnTicks* = 5 * ReplayFps  ## a taken corner refills after 5s.
-  GrenadeMaxRange* = MapWidth div 5  ## max throw distance (full charge).
   GrenadeMinRange* = 30       ## a tap's distance: inside the blast radius,
                               ## so a panicked drop can hurt the thrower.
   GrenadeChargeTicks* = 24    ## hold this long for a full-strength throw.
@@ -157,7 +158,6 @@ const
                               ## lasts (cosmetic only, like HitFlashTicks).
 
   ShoutMaxChars* = 10         ## a shout is at most this many characters.
-  ShoutRange* = MapWidth div 5  ## audible within 20% of the screen width.
   ShoutTicks* = 3 * ReplayFps ## a shout stays observable this long.
   ShoutCooldownTicks* = ReplayFps  ## at most one shout per second.
 
@@ -245,6 +245,22 @@ const
   ReplayWebSocketPath* = "/replay"
   RewardWebSocketPath* = "/reward"
 
+## Runtime map state. The game supports multiple arenas ("arena" is the
+## default, "arena-large" the 30%-larger variant); one is selected per
+## process by loadCtfMap (driven by config.mapPath) BEFORE any sim, mask,
+## or render work happens, and never changes afterward — the render bakes
+## in global.nim rely on that per-process invariant. The values below are
+## initialized to the default arena so tools that never call loadCtfMap
+## keep working unchanged.
+var
+  MapWidth* = 1235
+  MapHeight* = 659
+  FovGridW* = (MapWidth + FovCellSize - 1) div FovCellSize
+  FovGridH* = (MapHeight + FovCellSize - 1) div FovCellSize
+  FovCellCount* = FovGridW * FovGridH
+  GrenadeMaxRange* = MapWidth div 5  ## max throw distance (full charge).
+  ShoutRange* = MapWidth div 5  ## audible within 20% of the screen width.
+
 type
   Team* = enum
     Red
@@ -295,6 +311,15 @@ type
     mapLayer*, walkLayer*, wallLayer*: int
     center*: MapPoint
     rooms*: seq[Room]
+    ## Arena layout: the open-space clearances, the map's default gun range,
+    ## and the LEFT-half obstacle set (mirrored across the vertical center
+    ## line on selection).
+    flagRing*: int             ## clear radius of the open center ring.
+    captureClear*: int         ## x-columns kept traversable for carriers.
+    spawnClearW*: int          ## half-width of the open spawn pockets.
+    spawnClearH*: int          ## half-height of the open spawn pockets.
+    gunRange*: int             ## default gun range on this map (px).
+    leftObstacles*: seq[ArenaShape]
 
   CrewSprite* = ref object
     width*, height*: int
@@ -866,11 +891,8 @@ proc validateMapPoint(name: string, point: MapPoint, width, height: int) =
 
 proc validateMap(gameMap: CtfMap) =
   ## Raises if a loaded map has invalid geometry.
-  if gameMap.width != MapWidth or gameMap.height != MapHeight:
-    raise newException(
-      CtfError,
-      "Map dimensions must be " & $MapWidth & "x" & $MapHeight & "."
-    )
+  if gameMap.width <= 0 or gameMap.height <= 0:
+    raise newException(CtfError, "Map dimensions must be positive.")
   validateMapPoint("center", gameMap.center, gameMap.width, gameMap.height)
   for i, room in gameMap.rooms:
     validateMapRect(
@@ -882,11 +904,8 @@ proc validateMap(gameMap: CtfMap) =
 
 const
   ArenaName = "arena"
+  ArenaLargeName = "arena-large"
   ArenaBorder* = 10            ## perimeter wall thickness in px.
-  ArenaFlagRing = 70           ## clear radius of the open center ring.
-  ArenaCaptureClear = 210      ## x-columns kept traversable for carriers.
-  ArenaSpawnClearW = 70        ## half-width of the open spawn pockets.
-  ArenaSpawnClearH = 130       ## half-height of the open spawn pockets.
 
   ## Warm CRT-phosphor arena (REPLAY_DESIGN §3 art-lock): warm-dark floor,
   ## warm-stone cover, the two team colors the only saturated channels — never
@@ -973,33 +992,130 @@ const
     ArenaShape(kind: shapeRect, rect: MapRect(x: 556, y: 569, w: 18, h: 66)),
   ]
 
+  ## The arena-large layout (1606x858, 30% bigger in both axes): every
+  ## shape keeps its `arena` SIZE while its CENTER (and the layout
+  ## clearances) scale by 1.3, so the same cover sits in a roomier field
+  ## with ~30% wider corridors — and some long sightlines the dense arena
+  ## deliberately closed now survive; the field plays roomier by design.
+  ## Five staggered columns at x-centers 360/454/547/641/735 plus their
+  ## x-mirrors; border-attached stubs stay attached and the column-5 border
+  ## gaps stay < 26px (impassable) rather than scaling into new lanes.
+  ArenaLargeLeftObstacles = [
+    # Column 1 (x=351..369): rect stubs, phase 0, border-attached ends. The
+    # SECOND stub from the top and from the bottom are GLASS WINDOWS
+    # (GameVersion 15): solid to movement, bullets, and plasma arcs, transparent
+    # to fog-of-war.
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 351, y: 10, w: 18, h: 62)),
+    ArenaShape(kind: shapeRect, window: true,
+      rect: MapRect(x: 351, y: 149, w: 18, h: 60)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 351, y: 274, w: 18, h: 60)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 351, y: 399, w: 18, h: 59)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 351, y: 524, w: 18, h: 60)),
+    ArenaShape(kind: shapeRect, window: true,
+      rect: MapRect(x: 351, y: 649, w: 18, h: 60)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 351, y: 786, w: 18, h: 62)),
+    # Column 2 (x=454): diamonds, phase +48 (half period) vs column 1.
+    ArenaShape(kind: shapeDiamond, cx: 454, cy: 117, radius: 28),
+    ArenaShape(kind: shapeDiamond, cx: 454, cy: 242, radius: 28),
+    ArenaShape(kind: shapeDiamond, cx: 454, cy: 367, radius: 28),
+    ArenaShape(kind: shapeDiamond, cx: 454, cy: 491, radius: 28),
+    ArenaShape(kind: shapeDiamond, cx: 454, cy: 616, radius: 28),
+    ArenaShape(kind: shapeDiamond, cx: 454, cy: 741, radius: 28),
+    # Column 3 (x=547): discs, phase +24. GameVersion 16 thinned the lane:
+    # every other disc removed, giving the column real gaps instead of a
+    # near-solid picket. Top/bottom mirror symmetry is intentionally traded
+    # for the lower density; team fairness only needs the x-mirror.
+    ArenaShape(kind: shapeDisc, cx: 547, cy: 86, radius: 28),
+    ArenaShape(kind: shapeDisc, cx: 547, cy: 335, radius: 28),
+    ArenaShape(kind: shapeDisc, cx: 547, cy: 645, radius: 28),
+    # Column 4 (x=627..655): 45-degree chevron walls, phase +72; the
+    # midline pair was replaced in GameVersion 16 by the windowed bracket
+    # below.
+    ArenaShape(kind: shapeDiagonal, x0: 627, y0: 120, x1: 655, y1: 148, thickness: 12),
+    ArenaShape(kind: shapeDiagonal, x0: 655, y0: 148, x1: 627, y1: 176, thickness: 12),
+    ArenaShape(kind: shapeDiagonal, x0: 655, y0: 245, x1: 627, y1: 273, thickness: 12),
+    ArenaShape(kind: shapeDiagonal, x0: 627, y0: 273, x1: 655, y1: 301, thickness: 12),
+    # GameVersion 16: the old midline chevron zigzag (the sideways "W" that
+    # closed the mid lane) is now a square bracket over the same footprint
+    # (x=627..655, y=375..482): a vertical bar on the outer side plus short
+    # arms reaching toward the flag ring — "[" here, "]" on the x-mirror.
+    # The middle of the bar, straddling the midline, is a GLASS WINDOW:
+    # the mid lane stays closed to movement, bullets, and plasma, but
+    # fog-of-war now sees straight down the center corridor through it.
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 627, y: 375, w: 28, h: 12)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 627, y: 387, w: 12, h: 24)),
+    ArenaShape(kind: shapeRect, window: true,
+      rect: MapRect(x: 627, y: 411, w: 12, h: 36)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 627, y: 447, w: 12, h: 23)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 627, y: 470, w: 28, h: 12)),
+    ArenaShape(kind: shapeDiagonal, x0: 655, y0: 557, x1: 627, y1: 585, thickness: 12),
+    ArenaShape(kind: shapeDiagonal, x0: 627, y0: 585, x1: 655, y1: 613, thickness: 12),
+    ArenaShape(kind: shapeDiagonal, x0: 627, y0: 682, x1: 655, y1: 710, thickness: 12),
+    ArenaShape(kind: shapeDiagonal, x0: 655, y0: 710, x1: 627, y1: 738, thickness: 12),
+    # Column 5 (x=726..744): rect stubs at the borders (their border gaps
+    # stay < 26px, i.e. impassable, rather than scaling into new lanes),
+    # diamonds flanking the flag ring.
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 726, y: 31, w: 18, h: 66)),
+    ArenaShape(kind: shapeDiamond, cx: 735, cy: 203, radius: 30),
+    ArenaShape(kind: shapeDiamond, cx: 735, cy: 328, radius: 30),
+    ArenaShape(kind: shapeDiamond, cx: 735, cy: 530, radius: 30),
+    ArenaShape(kind: shapeDiamond, cx: 735, cy: 655, radius: 30),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 726, y: 761, w: 18, h: 66)),
+  ]
+
 proc arenaCtfMap(): CtfMap =
-  ## Returns the procedurally-defined symmetric arena metadata.
+  ## The default arena: the procedurally-defined symmetric 1235x659 map.
   result.name = ArenaName
   result.path = ArenaName
-  result.width = MapWidth
-  result.height = MapHeight
+  result.width = 1235
+  result.height = 659
   result.mapLayer = 0
   result.walkLayer = 1
   result.wallLayer = 2
-  result.center = MapPoint(x: MapWidth div 2, y: MapHeight div 2)
+  result.center = MapPoint(x: result.width div 2, y: result.height div 2)
+  result.flagRing = 70
+  result.captureClear = 210
+  result.spawnClearW = 70
+  result.spawnClearH = 130
+  result.gunRange = 1300
+  result.leftObstacles = @ArenaLeftObstacles
   result.rooms = @[
-    Room(name: "Center", x: MapWidth div 2 - 80, y: MapHeight div 2 - 80,
-         w: 160, h: 160),
-    Room(name: "Red Base", x: 0, y: MapHeight div 2 - 130,
-         w: ArenaCaptureClear, h: 260),
-    Room(name: "Blue Base", x: MapWidth - ArenaCaptureClear,
-         y: MapHeight div 2 - 130, w: ArenaCaptureClear, h: 260),
+    Room(name: "Center", x: result.width div 2 - 80,
+         y: result.height div 2 - 80, w: 160, h: 160),
+    Room(name: "Red Base", x: 0, y: result.height div 2 - 130,
+         w: result.captureClear, h: 260),
+    Room(name: "Blue Base", x: result.width - result.captureClear,
+         y: result.height div 2 - 130, w: result.captureClear, h: 260),
   ]
   result.validateMap()
 
-proc loadCtfMap*(path = ""): CtfMap =
-  ## Returns the procedurally-generated symmetric CTF arena.
-  arenaCtfMap()
-
-proc loadCtfMapMetadata*(path = ""): CtfMap =
-  ## Returns arena metadata (same as loadCtfMap; nothing is read from disk).
-  arenaCtfMap()
+proc arenaLargeCtfMap(): CtfMap =
+  ## The arena-large map: 1606x858 (+30% both axes). Obstacles keep their
+  ## `arena` sizes but sit spread out; the layout clearances and the gun
+  ## range scale with the field.
+  result.name = ArenaLargeName
+  result.path = ArenaLargeName
+  result.width = 1606
+  result.height = 858
+  result.mapLayer = 0
+  result.walkLayer = 1
+  result.wallLayer = 2
+  result.center = MapPoint(x: result.width div 2, y: result.height div 2)
+  result.flagRing = 91
+  result.captureClear = 273
+  result.spawnClearW = 91
+  result.spawnClearH = 169
+  result.gunRange = 1690
+  result.leftObstacles = @ArenaLargeLeftObstacles
+  result.rooms = @[
+    Room(name: "Center", x: result.width div 2 - 80,
+         y: result.height div 2 - 80, w: 160, h: 160),
+    Room(name: "Red Base", x: 0, y: result.height div 2 - 169,
+         w: result.captureClear, h: 338),
+    Room(name: "Blue Base", x: result.width - result.captureClear,
+         y: result.height div 2 - 169, w: result.captureClear, h: 338),
+  ]
+  result.validateMap()
 
 proc teamHomeX*(gameMap: CtfMap, team: Team): int =
   ## Returns the home-edge x anchor for one team's spawn strip and pedestal.
@@ -1014,20 +1130,21 @@ proc flagHome*(gameMap: CtfMap, team: Team): MapPoint =
   ## team's protected spawn pocket.
   MapPoint(x: gameMap.teamHomeX(team), y: gameMap.center.y)
 
-proc mirrorX(rect: MapRect): MapRect =
-  ## Mirrors one rectangle across the vertical center line.
-  MapRect(x: MapWidth - rect.x - rect.w, y: rect.y, w: rect.w, h: rect.h)
+proc mirrorX(rect: MapRect, width: int): MapRect =
+  ## Mirrors one rectangle across the vertical center line of a width-px map.
+  MapRect(x: width - rect.x - rect.w, y: rect.y, w: rect.w, h: rect.h)
 
-proc mirrorX(shape: ArenaShape): ArenaShape =
-  ## Mirrors one arena shape across the vertical center line.
+proc mirrorX(shape: ArenaShape, width: int): ArenaShape =
+  ## Mirrors one arena shape across the vertical center line of a width-px map.
   case shape.kind
   of shapeRect:
-    ArenaShape(kind: shapeRect, window: shape.window, rect: shape.rect.mirrorX())
+    ArenaShape(kind: shapeRect, window: shape.window,
+      rect: shape.rect.mirrorX(width))
   of shapeDisc:
     ArenaShape(
       kind: shapeDisc,
       window: shape.window,
-      cx: MapWidth - 1 - shape.cx,
+      cx: width - 1 - shape.cx,
       cy: shape.cy,
       radius: shape.radius
     )
@@ -1035,7 +1152,7 @@ proc mirrorX(shape: ArenaShape): ArenaShape =
     ArenaShape(
       kind: shapeDiamond,
       window: shape.window,
-      cx: MapWidth - 1 - shape.cx,
+      cx: width - 1 - shape.cx,
       cy: shape.cy,
       radius: shape.radius
     )
@@ -1043,9 +1160,9 @@ proc mirrorX(shape: ArenaShape): ArenaShape =
     ArenaShape(
       kind: shapeDiagonal,
       window: shape.window,
-      x0: MapWidth - 1 - shape.x0,
+      x0: width - 1 - shape.x0,
       y0: shape.y0,
-      x1: MapWidth - 1 - shape.x1,
+      x1: width - 1 - shape.x1,
       y1: shape.y1,
       thickness: shape.thickness
     )
@@ -1093,26 +1210,76 @@ proc inShape(x, y: int, shape: ArenaShape): bool =
       dx * dx + dy * dy <=
         int64(shape.thickness) * int64(shape.thickness) * len2 * len2 div 4
 
-const ArenaObstacles* = block:
+proc buildArenaObstacles(gameMap: CtfMap): seq[ArenaShape] =
   ## The full obstacle set: every left-half shape plus its x-mirror,
-  ## precomputed once so the per-pixel wall test never re-mirrors.
-  var shapes: seq[ArenaShape]
-  for shape in ArenaLeftObstacles:
-    shapes.add shape
-    shapes.add shape.mirrorX()
-  shapes
+  ## precomputed once per map selection so the per-pixel wall test never
+  ## re-mirrors.
+  for shape in gameMap.leftObstacles:
+    result.add shape
+    result.add shape.mirrorX(gameMap.width)
 
-const AnimatedDiamonds* = block:
+proc buildAnimatedDiamonds(
+  gameMap: CtfMap, obstacles: seq[ArenaShape]
+): seq[tuple[cx, cy, radius: int]] =
   ## The eight diamonds flanking the center of the field (column 5 and its
   ## x-mirror): drawn as slowly rotating sprites instead of baked wall art.
   ## COLLISION, LOS, and the fog masks keep the exact static diamond — the
   ## spin is pure decoration and never enters gameHash.
-  var spots: seq[tuple[cx, cy, radius: int]]
-  for shape in ArenaObstacles:
+  for shape in obstacles:
     if shape.kind == shapeDiamond and
-        abs(shape.cx - MapWidth div 2) < 80:
-      spots.add((shape.cx, shape.cy, shape.radius))
-  spots
+        abs(shape.cx - gameMap.center.x) < 80:
+      result.add((shape.cx, shape.cy, shape.radius))
+
+## The SELECTED map's layout, installed once per process by loadCtfMap and
+## initialized to the default arena below so tooling that never selects a
+## map observes a complete default state, never an empty one.
+var
+  ArenaFlagRing = 70
+  ArenaCaptureClear = 210
+  ArenaSpawnClearW = 70
+  ArenaSpawnClearH = 130
+  ArenaRedHomeX = 186
+  ArenaBlueHomeX = 1049
+  ArenaObstacles*: seq[ArenaShape]
+  AnimatedDiamonds*: seq[tuple[cx, cy, radius: int]]
+
+proc selectCtfMap(gameMap: CtfMap) =
+  ## Installs one map as THE map for this process: dimensions, fog grid,
+  ## map-relative ranges, layout clearances, and the mirrored obstacle set.
+  ## Runs before any sim, mask, or render work; the render bakes in
+  ## global.nim assume the arena never changes afterward.
+  MapWidth = gameMap.width
+  MapHeight = gameMap.height
+  FovGridW = (MapWidth + FovCellSize - 1) div FovCellSize
+  FovGridH = (MapHeight + FovCellSize - 1) div FovCellSize
+  FovCellCount = FovGridW * FovGridH
+  GrenadeMaxRange = MapWidth div 5
+  ShoutRange = MapWidth div 5
+  ArenaFlagRing = gameMap.flagRing
+  ArenaCaptureClear = gameMap.captureClear
+  ArenaSpawnClearW = gameMap.spawnClearW
+  ArenaSpawnClearH = gameMap.spawnClearH
+  ArenaRedHomeX = gameMap.teamHomeX(Red)
+  ArenaBlueHomeX = gameMap.teamHomeX(Blue)
+  ArenaObstacles = buildArenaObstacles(gameMap)
+  AnimatedDiamonds = buildAnimatedDiamonds(gameMap, ArenaObstacles)
+
+selectCtfMap(arenaCtfMap())
+
+proc loadCtfMapMetadata*(path = ""): CtfMap =
+  ## Returns one map's metadata WITHOUT installing it as the process map.
+  let name = if path.len == 0: DefaultMapPath else: path
+  case name
+  of ArenaName: arenaCtfMap()
+  of ArenaLargeName: arenaLargeCtfMap()
+  else:
+    raise newException(CtfError, "Unknown map: " & name)
+
+proc loadCtfMap*(path = ""): CtfMap =
+  ## Returns the named map ("arena" is the default; "arena-large" is the
+  ## 30%-larger variant) and installs it as this process's arena.
+  result = loadCtfMapMetadata(path)
+  selectCtfMap(result)
 
 proc isAnimatedDiamondPixel*(x, y: int): bool =
   ## Returns true when (x, y) lies inside one of the rotating center
@@ -1162,7 +1329,7 @@ proc isProtectedFloor(x, y, cx, cy: int): bool =
     dy = y - cy
   if dx * dx + dy * dy <= ArenaFlagRing * ArenaFlagRing:
     return true
-  for homeX in [186, 1049]:
+  for homeX in [ArenaRedHomeX, ArenaBlueHomeX]:
     if abs(x - homeX) <= ArenaSpawnClearW and abs(y - cy) <= ArenaSpawnClearH:
       return true
   false
@@ -1200,7 +1367,7 @@ proc isProtectedFloorF(x, y: float, cx, cy: int): bool =
     dy = y - float(cy)
   if dx * dx + dy * dy <= float(ArenaFlagRing * ArenaFlagRing):
     return true
-  for homeX in [186.0, 1049.0]:
+  for homeX in [float(ArenaRedHomeX), float(ArenaBlueHomeX)]:
     if abs(x - homeX) <= float(ArenaSpawnClearW) and
         abs(y - float(cy)) <= float(ArenaSpawnClearH):
       return true
@@ -2233,6 +2400,10 @@ proc update*(config: var GameConfig, jsonText: string) =
   node.readConfigBool("showPlayerLabels", config.showPlayerLabels)
   node.readConfigString("map", config.mapPath)
   node.readConfigString("mapPath", config.mapPath)
+  ## The gun range follows the selected map unless the config sets it
+  ## explicitly: each map def carries its own map-wide default.
+  if not node.hasKey("gunRange"):
+    config.gunRange = loadCtfMapMetadata(config.mapPath).gunRange
   node.readConfigSlots(config.slots)
   node.readConfigBool("closedRoster", config.closedRoster)
   node.readConfigTokens(config.slots, config.closedRoster)

@@ -48,7 +48,9 @@ const
   EastX = 310
   RowY = 138                  # center row of the top window stub (y 108..168).
   WindowCx = 277              # column-1 stub center line.
+let
   WindowMirrorCx = MapWidth - 268 - 18 + 9  # mirrored stub's center line.
+const
   StoneRowY = 40              # center row of stub #1 (y 10..72): stays stone.
   StoneDiamondCx = 349        # column-2 diamond at (349, 282): stays opaque.
   StoneDiamondCy = 282

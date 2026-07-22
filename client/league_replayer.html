@@ -284,7 +284,17 @@
   'use strict';
   var $ = function(id){ return document.getElementById(id); };
   var RED='#e0523a', BLUE='#3f7cc4', AMBER='#e8a33d', PAPER='#f2e8d8';
+  // Pre-stream defaults only: each embedded replay posts its board's real
+  // native size on every frame (the game supports multiple map sizes), and
+  // the stage re-layouts when it changes.
   var BOARD_W=1235, BOARD_H=659, BOARD_ASPECT=BOARD_W/BOARD_H;
+  function syncBoardAspect(s){
+    if (!s || !(s.boardW > 1) || !(s.boardH > 1)) return;
+    var aspect = s.boardW / s.boardH;
+    if (Math.abs(aspect - BOARD_ASPECT) < 0.001) return;
+    BOARD_W = s.boardW; BOARD_H = s.boardH; BOARD_ASPECT = aspect;
+    layout();
+  }
   var SPEEDS=[1,2,3,4,8,16];
   var FPS=24;
   var MAXLIVES=3;   // per player (3 lives each); refined up if the stream disagrees
@@ -427,7 +437,7 @@
   var lastState=null, maxTick=1, lastTick=-1;
   window.addEventListener('message', function(ev){
     var m=ev.data; if(!m || m.src!=='ctf-replay') return;
-    if(m.type==='frame'){ onFrame(m.data); }
+    if(m.type==='frame'){ syncBoardAspect(m.data); onFrame(m.data); }
   });
 
   // ---- names (ported from the broadcast client, 1:1) -----------------------

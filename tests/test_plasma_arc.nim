@@ -37,7 +37,7 @@ proc stepNone(sim: var SimServer, ticks: int) =
 
 # The left capture column (x < 210) is protected floor — never walled — so
 # arc-fire tests anchor the attacker there for guaranteed line of sight.
-const
+let
   ClearX = 60
   ClearY = MapHeight div 2
 
