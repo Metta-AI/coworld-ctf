@@ -3499,6 +3499,12 @@ proc addPlasmaArcFlashes(
         diameter = plasmaPulseDiameter(pulse)
         px = flash.x + int(round(ux * forward))
         py = flash.y + int(round(uy * forward))
+      # The damage cone is blocked by walls (selectArcVictims runs a
+      # line-of-sight test per victim), so the animation must not sail
+      # through them either: stop placing pulse discs at the first wall
+      # along the aim ray.
+      if not sim.lineOfSightClear(flash.x, flash.y, px, py):
+        break
       if spriteDefs.spriteDefinitionIndex(spriteId) < 0:
         packet.addBoardSpriteChanged(
           spriteDefs,
