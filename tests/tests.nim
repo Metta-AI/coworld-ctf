@@ -21,5 +21,6 @@ import
   test_damage_pop,
   test_trade_pair,
   test_shot_accuracy,
+  test_extract_events,
   test_windows
 {.warning[UnusedImport]: on.}
