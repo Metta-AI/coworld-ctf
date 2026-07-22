@@ -3636,14 +3636,14 @@ proc addShields(
         bubbleSpriteId = ShieldBubbleDeformBase +
           bucket * ShieldBubbleDeformStages + stage
         if spriteDefs.spriteDefinitionIndex(bubbleSpriteId) < 0:
-          packet.addSpriteChanged(
+          packet.addBoardSpriteChanged(
             spriteDefs, bubbleSpriteId,
             ShieldBubbleSize, ShieldBubbleSize,
             buildShieldBubblePixels(bucket, stage),
             "shield bubble hit"
           )
       elif spriteDefs.spriteDefinitionIndex(ShieldBubbleSpriteId) < 0:
-        packet.addSpriteChanged(
+        packet.addBoardSpriteChanged(
           spriteDefs, ShieldBubbleSpriteId,
           ShieldBubbleSize, ShieldBubbleSize,
           buildShieldBubbleSprite(), "shield bubble"
@@ -3652,7 +3652,7 @@ proc addShields(
         bubbleId = ShieldBubbleObjectBase + i
         aim = aimVector(player.aimBrads)
       currentIds.add(bubbleId)
-      packet.addObject(
+      packet.addBoardObject(
         bubbleId,
         player.x + CollisionW div 2 -
           int(round(aim.x * ShieldBubbleLagPx)) - ShieldBubbleSize div 2,
