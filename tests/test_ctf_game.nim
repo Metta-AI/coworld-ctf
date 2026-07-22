@@ -569,7 +569,7 @@ suite "ctf game":
     sim.step(none, none)
     check sim.phase == Lobby
 
-  test "a time-limit game is a scoreless draw for both sides":
+  test "a time-limit game is a lose-lose draw for both sides":
     var sim = twoTeamGame()
     sim.config.maxTicks = 5
     let none = newSeq[InputState](sim.players.len)
@@ -577,5 +577,19 @@ suite "ctf game":
       sim.step(none, none)
     check sim.isDraw
     check sim.timeLimitReached
+    # GameVersion 21: running out the clock penalizes everyone, so stalling
+    # is never better than losing — no side can prefer the draw.
+    check sim.players[0].reward == TimeoutReward
+    check sim.players[1].reward == TimeoutReward
+    for account in sim.rewardAccounts:
+      check account.reward == TimeoutReward
+      check not account.won
+
+  test "a mutual-wipe draw stays scoreless":
+    var sim = twoTeamGame()
+    let none = newSeq[InputState](sim.players.len)
+    sim.finishGame(Red, isDraw = true)
+    check sim.isDraw
+    check not sim.timeLimitReached
     check sim.players[0].reward == 0
     check sim.players[1].reward == 0

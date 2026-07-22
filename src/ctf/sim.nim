@@ -9,7 +9,7 @@ when not defined(emscripten):
 
 const
   GameName* = "ctf"
-  GameVersion* = "20"
+  GameVersion* = "21"
   ReplayFps* = 24
   DefaultMapPath* = "arena"
   DarkBgPath* = "data/darkbg.aseprite"
@@ -97,13 +97,16 @@ const
 
   StartWaitTicks* = 5 * TargetFps
   GameOverTicks* = 360
-  MaxTicks* = 10_000  ## 0 = no limit.
+  MaxTicks* = 5_000  ## 0 = no limit.
   MaxGames* = 0  ## 0 = no limit.
   MaxPlayers* = 16
   MinPlayers* = 16
 
   WinReward* = 1              ## each winner scores +1 on capture or wipe.
   LossReward* = -1            ## each loser scores -1 on capture or wipe.
+  TimeoutReward* = -1         ## EVERY player scores -1 on a time-limit draw
+                              ## (GameVersion 21): stalling out the clock is
+                              ## never better than losing, for either side.
 
   FlagPickupRange* = 12       ## touch radius to steal the enemy flag.
   CaptureZoneWidth* = 40      ## width of each home-edge capture zone.
@@ -4571,6 +4574,24 @@ proc finishGame*(sim: var SimServer, winner: Team, isDraw = false, timeLimitReac
   sim.gameOverTimer = sim.config.gameOverTicks
   sim.timeLimitReached = timeLimitReached
   if isDraw:
+    if timeLimitReached:
+      # A time-limit draw is a lose-lose: every player on both teams takes
+      # TimeoutReward so running out the clock is never better than losing.
+      # A mutual-wipe draw stays 0/0 — both sides at least fought to the end.
+      var penalizedAccounts = newSeq[bool](sim.rewardAccounts.len)
+      for i in 0 ..< sim.players.len:
+        let accountIndex = sim.rewardAccountForPlayer(i)
+        if penalizedAccounts.len < sim.rewardAccounts.len:
+          penalizedAccounts.setLen(sim.rewardAccounts.len)
+        if accountIndex >= 0 and accountIndex < penalizedAccounts.len:
+          penalizedAccounts[accountIndex] = true
+        sim.addReward(i, TimeoutReward)
+      for i in 0 ..< sim.rewardAccounts.len:
+        if i < penalizedAccounts.len and penalizedAccounts[i]:
+          continue
+        if not sim.rewardAccounts[i].hasTeam:
+          continue
+        sim.rewardAccounts[i].reward += TimeoutReward
     return
   var awardedAccounts = newSeq[bool](sim.rewardAccounts.len)
   for i in 0 ..< sim.players.len:
