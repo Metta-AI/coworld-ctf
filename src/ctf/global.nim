@@ -165,8 +165,8 @@ const
                                  ## off-center around the agent.
   ShieldBubbleObjectBase = 19680 ## carrier bubbles: one per player, 19680..19695
                                  ## (clear of plasma arc FX at 19700).
-  ## ShieldBubbleMinHp (the hp gate) lives in sim.nim, where the impact FX is
-  ## recorded with the same condition.
+  ## The bubble shows while the carrier's shield layer (shieldHp) is intact;
+  ## sim.nim records the impact FX with the same condition.
   ShieldBubbleDeformBase = 1424  ## blink/dent impact variants keyed
                                  ## bucket*stages+stage: 1424..1487 (clear of
                                  ## tracer heads at 1300..1363 and plasma
@@ -188,6 +188,11 @@ const
   PlasmaArcCarrySize = 10
   PlasmaArcPickupObjectBase = 19640
   PlasmaArcCarryObjectBase = 19660
+  UnitTagSpriteBase = 5000       ## unit identity tags: 5000 + playerIndex*8 +
+                                 ## loadoutMask (shield|nade<<1|arc<<2) — the
+                                 ## mask varies the LABEL, pixels stay "u<seat>".
+  UnitTagObjectBase = 19770      ## unit tags: one per player, 19770..19785.
+  UnitTagZ = 30000               ## under the hp pips (30001), over the floor.
   PlasmaArcFxObjectBase = 19700  ## 19700..19763 (16 flashes x 4 pulses),
                                  ## clear of the map markers at 20000.
   PlasmaArcMaxFlashes = 16
@@ -3676,8 +3681,8 @@ proc addShields(
   ## Places the two endzone shield pickups (fog-gated by map position like the
   ## med kits) plus the carrier visual for anyone holding one (gated on seeing
   ## that player): a protective forcefield bubble drawn AROUND the cog while
-  ## the shield's bonus hp holds, falling back to the small overhead "shield
-  ## carried" marker once the bubble pops below ShieldBubbleMinHp (the fire
+  ## the shield's armor layer holds (shieldHp > 0), falling back to the small
+  ## overhead "shield carried" marker once the layer is spent (the fire
   ## slowdown persists, so the state stays readable) — never both at once.
   ## The map/replay view passes no viewer and shows all. Sprites are defined
   ## lazily on first need per connection.
@@ -3711,10 +3716,10 @@ proc addShields(
       sim.playerVisibleTo(viewerIndex, i)
     if not seeMe:
       continue
-    if player.hp < ShieldBubbleMinHp:
-      # Bubble popped but the shield (and its fire slowdown) is still carried:
-      # the small overhead marker keeps that readable without re-drawing a
-      # forcefield the hp no longer backs.
+    if player.shieldHp <= 0:
+      # Bubble popped (the armor layer is spent) but the shield — and its fire
+      # slowdown — is still carried: the small overhead marker keeps that
+      # readable without re-drawing a forcefield the layer no longer backs.
       if spriteDefs.spriteDefinitionIndex(ShieldCarrySpriteId) < 0:
         packet.addBoardSpriteChanged(
           spriteDefs, ShieldCarrySpriteId,
@@ -4038,8 +4043,9 @@ proc addHpPips(
     # Map remaining hit points onto 3 thirds (ceil, so any living player keeps
     # at least one lit segment). The bar's pixel size is constant regardless of
     # the hit-point config, so a 99-hp game reads the same 14px 3-chunk bar.
+    let effectiveHp = player.hp + player.shieldHp
     let litSegments = min(HpBarSegments,
-      max(1, (player.hp * HpBarSegments + maxHp - 1) div maxHp))
+      max(1, (effectiveHp * HpBarSegments + maxHp - 1) div maxHp))
     let spriteId = HpPipSpriteBase + litSegments
     packet.addBoardSpriteChanged(
       spriteDefs,
@@ -4116,6 +4122,59 @@ proc addSplatters(
       px,
       py,
       splatter.y - 100,
+      MapLayerId,
+      spriteId
+    )
+
+proc addUnitTags(
+  sim: SimServer,
+  spriteDefs: var seq[SpriteDefinition],
+  currentIds: var seq[int],
+  packet: var seq[uint8],
+  viewerIndex = -1
+) {.measure.} =
+  ## Places a small identity tag under each living player: the visual is the
+  ## player-tinted "u<seat>" glyph pair; the LABEL carries the machine-readable
+  ## loadout — "unit <seat>[ shield][ nade][ arc]" — so an observing agent can
+  ## tell individuals apart and read their weapon state at a glance. Additive
+  ## on purpose: existing labels (hp pips, carry markers) are untouched, so
+  ## label-scanning bots built before this tag keep seeing what they saw.
+  ## The map view shows every tag; a player view is fog-gated like hp pips.
+  for i in 0 ..< sim.players.len:
+    let player = sim.players[i]
+    if not player.alive:
+      continue
+    if viewerIndex >= 0 and i != viewerIndex and
+        not sim.playerVisibleTo(viewerIndex, i):
+      continue
+    let
+      seat = player.joinOrder
+      colorIndex = playerColorIndex(player.color)
+      mask = (if player.hasShield: 1 else: 0) or
+        (if player.hasGrenade: 2 else: 0) or
+        (if player.hasPlasmaArc: 4 else: 0)
+      sprite = sim.buildFloatingPopSprite(colorIndex, "u" & $seat, 0)
+      spriteId = UnitTagSpriteBase + i * 8 + mask
+    var label = "unit " & $seat
+    if player.hasShield: label.add " shield"
+    if player.hasGrenade: label.add " nade"
+    if player.hasPlasmaArc: label.add " arc"
+    packet.addBoardSpriteChanged(
+      spriteDefs,
+      spriteId,
+      sprite.width,
+      sprite.height,
+      sprite.pixels,
+      label,
+      native = boardScale
+    )
+    let objectId = UnitTagObjectBase + i
+    currentIds.add(objectId)
+    packet.addBoardObject(
+      objectId,
+      player.x + CollisionW div 2 - sprite.width div 2,
+      player.y + CollisionH div 2 + SoldierBodyPx div 2 + 2,
+      UnitTagZ,
       MapLayerId,
       spriteId
     )
@@ -4335,6 +4394,12 @@ proc buildSpriteProtocolPlayerUpdates*(
       result,
       viewerIndex = playerIndex
     )
+    sim.addUnitTags(
+      nextState.spriteDefs,
+      currentIds,
+      result,
+      viewerIndex = playerIndex
+    )
     sim.addSplatters(
       nextState.spriteDefs,
       currentIds,
@@ -4409,7 +4474,7 @@ proc buildSpriteProtocolPlayerUpdates*(
 
     # Lives counter on the top-right HUD layer.
     let
-      livesText = $player.hp & "hp x" & $player.lives
+      livesText = $(player.hp + player.shieldHp) & "hp x" & $player.lives
       lives = sim.buildSpriteProtocolTextSprite([livesText], 2'u8)
     currentIds.add(SelectedTextObjectId)
     result.addSpriteChanged(
@@ -4945,6 +5010,7 @@ proc buildSpriteProtocolUpdates*(
   sim.addShouts(nextState.spriteDefs, currentIds, result)
   sim.addAimIndicators(nextState.spriteDefs, currentIds, result)
   sim.addHpPips(nextState.spriteDefs, currentIds, result)
+  sim.addUnitTags(nextState.spriteDefs, currentIds, result)
 
   # Advance the segmented-base driving animation one frame per player. A single
   # forward tick integrates the steering; a non-sequential tick (scrub/seek or a
