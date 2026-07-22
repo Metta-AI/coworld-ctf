@@ -140,6 +140,11 @@ when defined(commsprobe):
   var csStack = 0     # local classifications: ScStack
   var csWipe = 0      # ...ScWipe
   var csPeel = 0      # ...ScPeel
+  var csLine = 0      # ...ScLine (standing enemy line to our front)
+  var csNadeLine = 0  # frames a grenade carrier picked a CLUSTER (line/pocket) target
+                      # — the multikill lob that breaks the line before the wave punches
+  var csLineArm = 0   # frames a HEARD line armed holdLine's rally without a local line
+                      # sighting (the cross-fog convergence the callout buys)
   var csWipeArm = 0   # frames a HEARD wipe armed regroupPush's rally without a
                       # local over-extend read (the coordination the bus buys —
                       # a trailing mid converges on a wipe it never saw itself)
@@ -364,10 +369,13 @@ const
                               # (bend hard: every brad of forced slew is a tick
                               # of its 5-brad turret we fight without return fire).
   ButtonC = 1'u8 shl 7        # grenade charge/throw (input mask bit 128)
-  NadeMaxRange = 240.0        # full-charge throw distance (~fifth of the field)
-  NadeMinRange = 60.0         # never lob inside this — the ~40px blast + drift
-                              # would clip us
-  NadeBlast = 40.0            # blast radius; a pair this close dies together
+  NadeMaxRange = 247.0        # full-charge throw distance = MapWidth div 5 (GV17
+                              # engine truth; was a stale 240 → slight over-charge)
+  NadeMinRange = 72.0         # never lob inside this — the 52px blast + drift would
+                              # clip us (keeps the old ~20px self-clearance vs blast)
+  NadeBlast = 52.0            # blast radius (GV17 GrenadeBlastRadius, was a stale 40
+                              # → cluster/pair targeting missed 40-52px spacings, the
+                              # exact line-cluster gap grenades exist to punish)
   NadeFullChargeTicks = 24    # ~1s of holding C reaches max range
   NadePickupDetour = 90.0     # grab a corner pickup within this detour range
   # --- v7 sword/shield (GameVersion 7) ---
@@ -656,6 +664,9 @@ const
                               # steal target = the pocket is STACKED (ScStack)
   CommsWipeMax = 0            # <= this many fresh enemies near us while our guns are
                               # up + we are deep = a local WIPE vacuum (ScWipe)
+  CommsLineGuns = 2           # >= this many fresh enemy guns clustered to our front
+                              # while we're deep but NOT at the pocket = a standing
+                              # defensive LINE (ScLine) — the h006 farm-our-push posture
   CommsPlayTtl = 90           # a heard/derived scenario play is held this many ticks
                               # (~3.75s — a play beat) then decays to the clock fallback
   CommsEmitCooldown = 40      # min ticks between our own codeword emits (own rate
@@ -770,13 +781,21 @@ type
                               # converge a second gun, gate the dive (feeds grabTiming/grabGate)
     ScWipe,                   # we just cleared the enemy in front of us (post-wipe vacuum):
                               # rally + push the respawn wave together (feeds regroupPush)
-    ScPeel                    # an exposed enemy is carrying OUR flag near us: peel to the
+    ScPeel,                   # an exposed enemy is carrying OUR flag near us: peel to the
                               # recapture race (feeds huntCarrier/StackDefense)
+    ScLine                    # ⭐ ANTI-h006: a STANDING ENEMY LINE to our front (>=2 fresh
+                              # guns clustered forward, NOT at the pedestal pocket) that
+                              # farms a lone push. The SEAL counter to a prepared line is
+                              # combined-arms, not a frontal charge: rally the wave (don't
+                              # trickle) + SATURATE the cluster with grenades (a line is a
+                              # cluster; area weapons punish clustering) then punch the gap.
+                              # Broadcasting it converges mates a lane away who can't see the
+                              # line (feeds holdLine's rally + the grenade cluster-target).
 
   ReactPlay = enum            # COMMS BUS: the adopted play a bot decodes from a heard
                               # codeword — the same set the classifier can trigger, so the
                               # heard play and the local read fold through one matrix.
-    RpNone, RpStack, RpWipe, RpPeel, RpFlipTop, RpFlipBottom
+    RpNone, RpStack, RpWipe, RpPeel, RpFlipTop, RpFlipBottom, RpLine
 
   ReactLevel = enum           # SHOUT-REACTION GATE: how far a heard callout may
                               # move this bot, keyed on its own task priority.
@@ -1423,6 +1442,7 @@ proc scenarioToPlay(sc: Scenario, flank: Play): ReactPlay =
   of ScStack: RpStack
   of ScWipe:  RpWipe
   of ScPeel:  RpPeel
+  of ScLine:  RpLine
 
 proc selectScenarioPlay(bot: Bot, elapsed: int, ownStolen: bool,
                         localSc: Scenario): Play =
@@ -1450,9 +1470,10 @@ proc selectScenarioPlay(bot: Bot, elapsed: int, ownStolen: bool,
   of RpFlipTop:    PushTop
   of RpFlipBottom: PushBottom
   of RpPeel:       StackDefense # peel to the recapture race (huntCarrier executes)
-  of RpStack, RpWipe, RpNone:
-    # STACK/WIPE don't change the flank posture (grabGate/regroupPush execute off
-    # their own local triggers); keep the shared flank so the wave still coheres.
+  of RpStack, RpWipe, RpLine, RpNone:
+    # STACK/WIPE/LINE don't change the flank posture (grabGate/regroupPush/holdLine +
+    # the grenade cluster-target execute off their own local triggers); keep the
+    # shared flank so the wave still coheres while those executors do the real work.
     clock
 
 proc defaultCombatTune(): CombatTune =
@@ -3207,10 +3228,18 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         localSc = ScStack                  # stacked pocket in front of us
       elif deep and freshEnemyNear <= CommsWipeMax and freshMateNear >= 1:
         localSc = ScWipe                    # we cleared the enemy half — rally the wave
+      elif deep and freshEnemyNear >= CommsLineGuns and
+          dist(me, stealTarget) > CommsScanRange:
+        # ⭐ ANTI-h006 LINE: we've over-extended into the enemy half (deep) and >=2
+        # fresh enemy guns are clustered to our front, but we are NOT at the steal
+        # pocket (that's ScStack) — a standing defensive line farming our push. Call
+        # it so mates a lane away converge + a grenade carrier saturates the cluster.
+        localSc = ScLine
     when defined(commsprobe):
       if localSc == ScStack: inc csStack
       elif localSc == ScWipe: inc csWipe
       elif localSc == ScPeel: inc csPeel
+      elif localSc == ScLine: inc csLine
 
   # Local force balance: an attacker that finds itself outnumbered by fresh
   # enemies inside RetreatRadius — more enemy guns than friendly guns, self
@@ -3707,6 +3736,14 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           dist(t.pos, me) <= HoldLineEnemyRange:
         inc freshEnemyNear
     let line = freshEnemyNear >= 1
+    # ⭐ COMMS COUPLING (anti-h006): a mate a lane away CALLED a line ("P<line>") that
+    # this bot can't see. A forward, strung-out, supported mid converges on the rally
+    # so the wave masses up instead of trickling its own push into the farm — the
+    # cross-fog convergence holdLine lacked (the WIPE coupling's sibling for a LINE).
+    # Bounded: fires only forward of the rally line, with support inbound, decaying
+    # after CommsPlayTtl — it never pulls a home-side mid up or holds on empty ground.
+    let heardLine = bot.tune.commsPlay and bot.heardPlay == RpLine and
+      bot.tick - bot.heardPlayTick <= CommsPlayTtl
     # Local fire-superiority: we release (and commit) once fresh mates near us match or
     # beat the fresh enemy guns to our front, OR a full pack has grouped up. ⚠️ superior
     # is gated on `line`: with no enemy to our front, (mates - 0) >= 0 is trivially true
@@ -3732,16 +3769,20 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       if armed and line and outgunned: inc hlOutgun
       if armed and line and outgunned and joinMates >= 1: inc hlLone
     # Hold ONLY in the full over-extend signature: over-extended, a fresh line to our
-    # front, outgunned locally, support inbound to actually wait for, and not inside a
-    # committed joint push. A lone last body (joinMates == 0) never holds — nobody is
-    # coming, so it presses the objective (identical carve-out to regroupPush).
-    if armed and line and outgunned and joinMates >= 1 and
+    # front (locally seen OR a fresh heard call), outgunned locally, support inbound to
+    # actually wait for, and not inside a committed joint push. A lone last body
+    # (joinMates == 0) never holds — nobody is coming, so it presses the objective
+    # (identical carve-out to regroupPush). The heardLine arm requires forward depth so
+    # a called line converges the wave without needing this bot's own line sighting.
+    if armed and (line or heardLine) and (outgunned or heardLine) and joinMates >= 1 and
         bot.tick > bot.holdLineReleaseUntil:
       bot.holdLineHoldUntil = bot.tick + HoldLineCommit
       # Rally line: a shallow point just inside the enemy half at our current height
       # (the lane we advanced up), so the strung-out wave converges before the line.
       let rallyX = float(CenterX) - homeSign(bot.team) * HoldLineRallyDepth
       target = vec(rallyX, me.y)
+      when defined(commsprobe):
+        if heardLine and not line: inc csLineArm  # cross-fog line convergence fired
       when defined(hlprobe):
         inc hlFireCount
 
@@ -4259,20 +4300,34 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       bot.orientPos = cp
       bot.orientUntil = bot.tick + ContactWatchTicks
 
-  # Grenades (0.7.0): a lobbed 2-hp blast that flies over every wall — the
-  # counter to cover-campers the hitscan gun can never reach. Carry one when a
-  # corner pickup is a short detour away; spend it on a wall-blocked fresh
-  # track (value the gun cannot collect) or on a tight enemy pair in range.
+  # Grenades (0.7.0): a lobbed blast that flies over every wall — the counter to
+  # cover-campers the hitscan gun can never reach AND the MULTIKILL answer to a
+  # clustered enemy line (a line is a cluster; the 52px blast punishes clustering).
+  # Carry one when a corner pickup is a short detour away; spend it on a wall-
+  # blocked fresh track (value the gun cannot collect) or on the DENSEST cluster in
+  # range. ⭐ ANTI-h006: when a standing line is classified or heard, we prioritize
+  # the fattest cluster (most fresh enemies inside one blast) over mere nearness —
+  # break the line BEFORE the wave punches the gap, instead of trading down its front.
   var carryingNade = false
   for o in client.spriteObjectsWithLabel("grenade carried"):
     # The marker floats above-right of its carrier (+8 x, ~-20 y from center).
     if dist(client.mapPos(o), me) <= 30.0:
       carryingNade = true
       break
+  # A line is live for us this frame if we classified one OR heard one called.
+  let lineLive = localSc == ScLine or
+    (bot.tune.commsPlay and bot.heardPlay == RpLine and
+     bot.tick - bot.heardPlayTick <= CommsPlayTtl)
   var
     nadeAim = -1
     nadeThrowD = 0.0
   if carryingNade and not iCarry:
+    # Score each candidate by CLUSTER SIZE (fresh enemies within one blast of the
+    # aim point), tie-broken by nearness. A wall-blocked lone target still qualifies
+    # (the gun can't reach it); an open target needs a cluster >=2 (a lone open
+    # enemy is the gun's job, not a spent grenade) UNLESS a line is live, where even
+    # thinning the front is worth the lob.
+    var bestScore = -1
     var bestD = 1e18
     for i in 0 ..< bot.enemies.len:
       let t = bot.enemies[i]
@@ -4280,20 +4335,25 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         continue
       let p = t.pos + t.vel * float(bot.tick - t.lastSeen)
       let d = dist(p, me)
-      if d < NadeMinRange or d > NadeMaxRange or d >= bestD:
+      if d < NadeMinRange or d > NadeMaxRange:
         continue
       let blocked = not client.pixelRayClear(me, p)
-      var paired = false
-      if not blocked:
-        for j in 0 ..< bot.enemies.len:
-          if j != i and bot.tick - bot.enemies[j].lastSeen <= FreshShotTicks and
-              dist(bot.enemies[j].pos, p) <= NadeBlast:
-            paired = true
-            break
-      if blocked or paired:
-        bestD = d
-        nadeAim = bradsOf(p - me)
-        nadeThrowD = d
+      var cluster = 1                    # the target itself
+      for j in 0 ..< bot.enemies.len:
+        if j != i and bot.tick - bot.enemies[j].lastSeen <= FreshShotTicks and
+            dist(bot.enemies[j].pos, p) <= NadeBlast:
+          inc cluster
+      # Worth a throw: wall-blocked (gun can't collect), OR a real cluster (>=2),
+      # OR a live line where even a single front body thins the wall we must cross.
+      if blocked or cluster >= 2 or lineLive:
+        # Prefer the fattest cluster; nearer breaks ties (flatter lob, less drift).
+        if cluster > bestScore or (cluster == bestScore and d < bestD):
+          bestScore = cluster
+          bestD = d
+          nadeAim = bradsOf(p - me)
+          nadeThrowD = d
+    when defined(commsprobe):
+      if nadeAim >= 0 and (lineLive or bestScore >= 2): inc csNadeLine
   elif not carryingNade and not iCarry and not mateCarry and not pocketRush:
     # Collect a pickup: anyone grabs one within a short detour, and the two
     # flankers own their lane's friendly-side corner spawn — it sits right on

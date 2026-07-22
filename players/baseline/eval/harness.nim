@@ -590,12 +590,14 @@ proc main() =
     echo &"  GG-PROBE funnel: want {ggWant} -> eligible {ggEligible} -> outgun {ggOutgun} -> FIRED {ggFireCount}"
     echo &"    (want>0 eligible=0 => grabGate off/pushOut/commit-ring; outgun=0 => pocket numbers even in mirror (field-only); FIRED>0 => gate live)"
   when defined(commsprobe):
-    echo &"  COMMS-PROBE: classify stack {csStack} wipe {csWipe} peel {csPeel} -> " &
-      &"EMIT {csEmit} -> HEARD {csHeard} -> ADOPT {csAdopt} -> WIPE-ARM {csWipeArm}"
-    echo &"    (classify>0 => the scenario read fires; EMIT>0 => codewords broadcast; HEARD>0 => " &
-      &"mates decode them; ADOPT>0 => a heard play drove a mate's flank; WIPE-ARM>0 => a HEARD wipe " &
-      &"armed a trailing mid's rally it never saw itself — the full bus is LIVE + COORDINATING. " &
-      &"Mirror = liveness+no-regression only; the win-credit is a hosted xreq (REF-comms).)"
+    echo &"  COMMS-PROBE: classify stack {csStack} wipe {csWipe} peel {csPeel} line {csLine} -> " &
+      &"EMIT {csEmit} -> HEARD {csHeard} -> ADOPT {csAdopt} -> WIPE-ARM {csWipeArm} " &
+      &"LINE-ARM {csLineArm} NADE-CLUSTER {csNadeLine}"
+    echo &"    (classify>0 => the scenario read fires (incl. LINE = standing enemy line); EMIT>0 => " &
+      &"codewords broadcast; HEARD>0 => mates decode them; ADOPT>0 => a heard play drove a mate's flank; " &
+      &"WIPE-ARM/LINE-ARM>0 => a HEARD wipe/line armed a mate's rally it never saw itself; " &
+      &"NADE-CLUSTER>0 => a grenade carrier lobbed at a multikill cluster — the full bus is LIVE + " &
+      &"COORDINATING combined-arms. Mirror = liveness+no-regression only; win-credit is a hosted xreq.)"
   when defined(mtprobe):
     echo &"  MT-PROBE funnel: on {mtOn} -> wounded {mtWounded} -> safe {mtSafe} -> " &
       &"free {mtFree} -> kitVisible {mtVisible} -> FIRED {mtFireCount}"
