@@ -180,7 +180,12 @@ const
   UiLayerFlag* = 2
   PlayerSpriteBase* = 100
   FlagSpriteBase* = 700       ## team flag sprites: 700 red flag, 701 blue flag.
-  SelectedPlayerSpriteBase* = 800
+  SelectedPlayerSpriteBase* = 6000  ## outlined selected-soldier pool:
+                              ## 6000..6031 (team x SoldierRotations). Moved
+                              ## from 800: that pool swallowed the hp pips
+                              ## (820..823) and the sound/impact rings
+                              ## (830/831) — same collision class as the
+                              ## 2026-07-22 unit-tag/fire-icon incident.
   SelectedTextSpriteId* = 4000
   SelectedViewportSpriteId* = 4001
   PlayerObjectBase* = 1000
