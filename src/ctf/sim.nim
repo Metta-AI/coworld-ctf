@@ -149,12 +149,15 @@ const
 
   ShieldPickupRange* = 12     ## touch radius to pick a shield up.
   ShieldRespawnTicks* = 30 * ReplayFps  ## a taken endzone shield refills after 30s.
-  ShieldLayerHp* = 3          ## hp in a full shield layer. Damage depletes
-                              ## the layer before base hp; a pickup refills it
-                              ## and never heals base damage.
+  ShieldHitPoints* = 6        ## the hp ceiling for a shield carrier.
+  ShieldPickupHeal* = 3       ## hp a shield pickup adds, capped at
+                              ## ShieldHitPoints — a damaged carrier may take
+                              ## another shield to top back up.
   ShieldFireSlowdown* = 3     ## a shield carrier's fire cooldown is this many
                               ## times longer (3x slower fire rate).
-
+  ShieldBubbleMinHp* = 4      ## the carrier's protective bubble shows at or
+                              ## above this hp — i.e. while the shield's bonus
+                              ## hp (over the base 3) is still holding.
   BubbleImpactTicks* = 8      ## ~0.33s the bubble's blink/dent impact FX
                               ## lasts (cosmetic only, like HitFlashTicks).
 
@@ -374,9 +377,7 @@ type
     windupBrads*: int          ## aim angle locked at the trigger pull, -1 = none.
     carryingFlag*: bool
     hasGrenade*: bool          ## each player carries at most one grenade.
-    hasShield*: bool           ## carrying an endzone shield: 3x slower fire.
-    shieldHp*: int             ## remaining shield-layer hp (0..ShieldLayerHp);
-                               ## damage depletes it before base hp.
+    hasShield*: bool           ## carrying an endzone shield: 6 hp, 3x slower fire.
     hasPlasmaArc*: bool        ## each player carries at most one plasma arc.
     arcTicksLeft*: int         ## remaining active ticks of a fired plasma
                                ## cone (0 = the cone is off).
@@ -2465,7 +2466,6 @@ proc gameHash*(sim: SimServer): uint64 =
     result.mixHashBool(player.carryingFlag)
     result.mixHashBool(player.hasGrenade)
     result.mixHashBool(player.hasShield)
-    result.mixHashInt(player.shieldHp)
     result.mixHashBool(player.hasPlasmaArc)
     result.mixHashInt(player.arcTicksLeft)
     result.mixHashInt(int(player.arcHitMask))
@@ -3225,7 +3225,6 @@ proc resetShields*(sim: var SimServer) =
     )
   for i in 0 ..< sim.players.len:
     sim.players[i].hasShield = false
-    sim.players[i].shieldHp = 0
 proc plasmaArcSpawnPoints*(): array[2, tuple[x, y: int]] =
   ## The two plasma arc spawn points, nudged to walkable floor: the same side
   ## back columns as the shields, but in the TOP half (a quarter of the map
@@ -3271,7 +3270,6 @@ proc startGame*(sim: var SimServer) =
     sim.players[i].flipH = sim.players[i].team == Blue
     sim.players[i].carryingFlag = false
     sim.players[i].hasShield = false
-    sim.players[i].shieldHp = 0
     sim.players[i].kills = 0
     sim.players[i].deaths = 0
     sim.players[i].captures = 0
@@ -3536,7 +3534,6 @@ proc killPlayer*(sim: var SimServer, targetIndex, killerIndex: int) =
   sim.players[targetIndex].windupBrads = -1
   sim.players[targetIndex].hasGrenade = false
   sim.players[targetIndex].hasShield = false
-  sim.players[targetIndex].shieldHp = 0
   sim.players[targetIndex].hasPlasmaArc = false
   sim.players[targetIndex].arcTicksLeft = 0
   sim.players[targetIndex].throwCharge = 0
@@ -3577,13 +3574,6 @@ proc killPlayer*(sim: var SimServer, targetIndex, killerIndex: int) =
       max(1, sim.config.respawnTicks)
     else:
       0
-
-proc absorbDamage*(sim: var SimServer, targetIndex: int, amount: int) =
-  ## Applies damage to a player: the shield layer soaks hits before base hp.
-  ## Callers keep their own death checks on the base hp that remains.
-  let fromShield = min(sim.players[targetIndex].shieldHp, amount)
-  sim.players[targetIndex].shieldHp -= fromShield
-  sim.players[targetIndex].hp -= amount - fromShield
 
 proc canFire*(sim: SimServer, shooterIndex: int): bool =
   ## Returns whether one player is able to fire a shot right now.
@@ -3687,7 +3677,7 @@ proc resolveActiveArcCones*(sim: var SimServer) =
           continue
         sim.players[arcFire.attacker].arcHitMask =
           sim.players[arcFire.attacker].arcHitMask or bit
-      sim.absorbDamage(victimIndex, PlasmaArcDamage)
+      sim.players[victimIndex].hp -= PlasmaArcDamage
       # Floating damage number for the HP loss (cosmetic, not in gameHash).
       sim.damagePops.add DamageFx(
         x: sim.players[victimIndex].x + CollisionW div 2,
@@ -3815,14 +3805,14 @@ proc applyFire(sim: var SimServer, shooterIndex, targetIndex: int) =
     hit: targetIndex >= 0
   )
   if targetIndex >= 0 and sim.players[targetIndex].alive:
-    # A carrier whose shield layer is still up at impact absorbs the hit
-    # VISUALS on the bubble: it blinks and dents toward the shooter instead of
-    # showing the inner struck-target ring and body paint spark. The "-1" pop
-    # still reads the hp loss. (Cosmetic only — the damage itself is
-    # unchanged.)
+    # A carrier whose bubble is still up (hp >= ShieldBubbleMinHp at impact)
+    # absorbs the hit VISUALS on the bubble: it blinks and dents toward the
+    # shooter instead of showing the inner struck-target ring and body paint
+    # spark. The "-1" pop still reads the hp loss. (Cosmetic only — the damage
+    # itself is unchanged.)
     let bubbleUp = sim.players[targetIndex].hasShield and
-      sim.players[targetIndex].shieldHp > 0
-    sim.absorbDamage(targetIndex, 1)
+      sim.players[targetIndex].hp >= ShieldBubbleMinHp
+    dec sim.players[targetIndex].hp
     if bubbleUp:
       sim.bubbleImpacts.add BubbleImpactFx(
         playerIndex: targetIndex,
@@ -3862,8 +3852,7 @@ proc applyFire(sim: var SimServer, shooterIndex, targetIndex: int) =
       sim.logGameEvent(
         playerColorText(sim.players[targetIndex].color) &
           " hit by " & sim.playerText(shooterIndex) &
-          " (" & $(sim.players[targetIndex].hp +
-            sim.players[targetIndex].shieldHp) & " hp left)"
+          " (" & $sim.players[targetIndex].hp & " hp left)"
       )
 
 proc tryFire*(sim: var SimServer, shooterIndex: int) =
@@ -3987,7 +3976,7 @@ proc explodeGrenade(sim: var SimServer, grenade: AirborneGrenade) =
       py = sim.players[i].y + CollisionH div 2
     if distSq(px, py, grenade.tx, grenade.ty) > radiusSq:
       continue
-    sim.absorbDamage(i, GrenadeDamage)
+    sim.players[i].hp -= GrenadeDamage
     # Floating damage number for the blast's HP loss (cosmetic, not in gameHash).
     sim.damagePops.add DamageFx(
       x: px, y: py, tick: sim.tickCount,
@@ -4078,16 +4067,15 @@ proc updateShields*(sim: var SimServer) =
 
 proc tryPickupShields*(sim: var SimServer, playerIndex: int) =
   ## Lets a living player pick up an endzone shield by touch (either team may
-  ## take either endzone's shield). A pickup grants the shield and refills the
-  ## ShieldLayerHp-strong shield layer that damage depletes before base hp —
-  ## it never heals base damage (that is the med kits' job), so a worn carrier
-  ## may take another shield to restore the layer, while a carrier whose layer
-  ## is intact leaves the spawn untouched for a teammate. Carrying a shield
-  ## slows fire ShieldFireSlowdown times; a taken shield refills after
-  ## ShieldRespawnTicks.
+  ## take either endzone's shield). A pickup grants the shield and heals
+  ## ShieldPickupHeal hp up to the ShieldHitPoints ceiling — a damaged carrier
+  ## may take another shield to top back up, while a full-health carrier
+  ## leaves the spawn untouched for a teammate. Carrying a shield slows fire
+  ## ShieldFireSlowdown times; a taken shield refills after ShieldRespawnTicks.
   if not sim.players[playerIndex].alive:
     return
-  if sim.players[playerIndex].shieldHp >= ShieldLayerHp:
+  if sim.players[playerIndex].hasShield and
+      sim.players[playerIndex].hp >= ShieldHitPoints:
     return
   let
     px = sim.players[playerIndex].x + CollisionW div 2
@@ -4098,7 +4086,8 @@ proc tryPickupShields*(sim: var SimServer, playerIndex: int) =
       spawn.present = false
       spawn.respawnAt = sim.tickCount + ShieldRespawnTicks
       sim.players[playerIndex].hasShield = true
-      sim.players[playerIndex].shieldHp = ShieldLayerHp
+      sim.players[playerIndex].hp = min(
+        sim.players[playerIndex].hp + ShieldPickupHeal, ShieldHitPoints)
       sim.logGameEvent(
         playerColorText(sim.players[playerIndex].color) &
           " picked up a shield"

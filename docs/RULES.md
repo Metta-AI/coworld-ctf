@@ -283,15 +283,13 @@ What that means in practice:
   grenade), nudged to the nearest walkable floor. The plasma arcs hold the
   matching top-half spots.
 - **Touch a shield to pick it up** — either team may take either endzone's
-  shield. A shield is a **3 hp armor layer on top of your base hit points**:
-  damage depletes the shield layer first, and only then your base hp. A
-  pickup refills the layer to 3 but **never heals base damage** (med kits
-  do that) — so a worn carrier can take another shield to restore the
-  layer, while a carrier whose layer is intact leaves the spawn untouched.
-- **While carrying a shield you fire 3x slower.** A fresh player with a
-  fresh shield has 6 effective hp (3 base + 3 shield). Each shot you fire
-  starts a cooldown three times the normal length until you lose the
-  shield. You can still move, carry the heart, and throw grenades.
+  shield. A pickup grants the shield and **heals 3 hit points, up to the
+  6 hp ceiling** — so a damaged shield carrier can take another shield to
+  top back up. A carrier already at 6 hp leaves the spawn untouched.
+- **While carrying a shield your hp ceiling is 6 but you fire 3x slower.**
+  Each shot you fire starts a cooldown three times the normal length until
+  you lose the shield. You can still move, carry the heart, and throw
+  grenades.
 - **A shield is lost when you die** and is not dropped on the ground; the
   taken endzone shield **respawns 30 seconds later** in the same spot.
 - Observation label: `shield`. Shields are fog-gated like the med kits and
