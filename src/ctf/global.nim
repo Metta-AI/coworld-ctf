@@ -160,8 +160,8 @@ const
                                  ## off-center around the agent.
   ShieldBubbleObjectBase = 19680 ## carrier bubbles: one per player, 19680..19695
                                  ## (clear of plasma arc FX at 19700).
-  ## The bubble shows while the carrier's shield layer (shieldHp) is intact;
-  ## sim.nim records the impact FX with the same condition.
+  ## ShieldBubbleMinHp (the hp gate) lives in sim.nim, where the impact FX is
+  ## recorded with the same condition.
   ShieldBubbleDeformBase = 1424  ## blink/dent impact variants keyed
                                  ## bucket*stages+stage: 1424..1487 (clear of
                                  ## tracer heads at 1300..1363 and plasma
@@ -183,11 +183,6 @@ const
   PlasmaArcCarrySize = 10
   PlasmaArcPickupObjectBase = 19640
   PlasmaArcCarryObjectBase = 19660
-  UnitTagSpriteBase = 5000       ## unit identity tags: 5000 + playerIndex*8 +
-                                 ## loadoutMask (shield|nade<<1|arc<<2) — the
-                                 ## mask varies the LABEL, pixels stay "u<seat>".
-  UnitTagObjectBase = 19770      ## unit tags: one per player, 19770..19785.
-  UnitTagZ = 30000               ## under the hp pips (30001), over the floor.
   PlasmaArcFxObjectBase = 19700  ## 19700..19763 (16 flashes x 4 pulses),
                                  ## clear of the map markers at 20000.
   PlasmaArcMaxFlashes = 16
@@ -738,8 +733,8 @@ proc selectedSoldierPlayerSpriteId(team: Team, rot: int): int =
   SelectedPlayerSpriteBase + ord(team) * SoldierRotations + rot
 
 proc corpseSoldierSpriteId(team: Team, rot: int): int =
-  ## Sprite id for a dead soldier (grey corpse) at rotation `rot`. Sits in the
-  ## free 850..881 window just above the selected-soldier pool (800..831).
+  ## Sprite id for a dead soldier (grey corpse) at rotation `rot` (the
+  ## selected-soldier pool lives at 6000..6031).
   CorpseSpriteBase + ord(team) * SoldierRotations + rot
 
 proc soldierFacingRight(rot: int): bool =
@@ -3570,7 +3565,7 @@ proc addShields(
   ## Places the two endzone shield pickups (fog-gated by map position like the
   ## med kits) plus a small "shield carried" marker over anyone holding one
   ## (gated on seeing that player), plus a protective bubble drawn around a
-  ## carrier while the shield layer holds (it pops when shieldHp hits 0).
+  ## carrier while the shield's bonus hp holds (it pops below ShieldBubbleMinHp).
   ## The map/replay view passes no viewer and shows all. Sprites are defined
   ## lazily on first need per connection.
   for i in 0 ..< sim.shieldSpawns.len:
@@ -3618,7 +3613,7 @@ proc addShields(
       player.overheadAnchorY() - OverheadYOffset - ShieldCarrySize,
       30006, MapLayerId, ShieldCarrySpriteId
     )
-    if player.shieldHp > 0:
+    if player.hp >= ShieldBubbleMinHp:
       # A fresh impact swaps the idle bubble for a blink/dent variant keyed by
       # the impact direction and age — the newest impact wins if several
       # shooters connected within the FX window.
@@ -3924,9 +3919,8 @@ proc addHpPips(
     # Map remaining hit points onto 3 thirds (ceil, so any living player keeps
     # at least one lit segment). The bar's pixel size is constant regardless of
     # the hit-point config, so a 99-hp game reads the same 14px 3-chunk bar.
-    let effectiveHp = player.hp + player.shieldHp
     let litSegments = min(HpBarSegments,
-      max(1, (effectiveHp * HpBarSegments + maxHp - 1) div maxHp))
+      max(1, (player.hp * HpBarSegments + maxHp - 1) div maxHp))
     let spriteId = HpPipSpriteBase + litSegments
     packet.addBoardSpriteChanged(
       spriteDefs,
@@ -4003,59 +3997,6 @@ proc addSplatters(
       px,
       py,
       splatter.y - 100,
-      MapLayerId,
-      spriteId
-    )
-
-proc addUnitTags(
-  sim: SimServer,
-  spriteDefs: var seq[SpriteDefinition],
-  currentIds: var seq[int],
-  packet: var seq[uint8],
-  viewerIndex = -1
-) {.measure.} =
-  ## Places a small identity tag under each living player: the visual is the
-  ## player-tinted "u<seat>" glyph pair; the LABEL carries the machine-readable
-  ## loadout — "unit <seat>[ shield][ nade][ arc]" — so an observing agent can
-  ## tell individuals apart and read their weapon state at a glance. Additive
-  ## on purpose: existing labels (hp pips, carry markers) are untouched, so
-  ## label-scanning bots built before this tag keep seeing what they saw.
-  ## The map view shows every tag; a player view is fog-gated like hp pips.
-  for i in 0 ..< sim.players.len:
-    let player = sim.players[i]
-    if not player.alive:
-      continue
-    if viewerIndex >= 0 and i != viewerIndex and
-        not sim.playerVisibleTo(viewerIndex, i):
-      continue
-    let
-      seat = player.joinOrder
-      colorIndex = playerColorIndex(player.color)
-      mask = (if player.hasShield: 1 else: 0) or
-        (if player.hasGrenade: 2 else: 0) or
-        (if player.hasPlasmaArc: 4 else: 0)
-      sprite = sim.buildFloatingPopSprite(colorIndex, "u" & $seat, 0)
-      spriteId = UnitTagSpriteBase + i * 8 + mask
-    var label = "unit " & $seat
-    if player.hasShield: label.add " shield"
-    if player.hasGrenade: label.add " nade"
-    if player.hasPlasmaArc: label.add " arc"
-    packet.addBoardSpriteChanged(
-      spriteDefs,
-      spriteId,
-      sprite.width,
-      sprite.height,
-      sprite.pixels,
-      label,
-      native = boardScale
-    )
-    let objectId = UnitTagObjectBase + i
-    currentIds.add(objectId)
-    packet.addBoardObject(
-      objectId,
-      player.x + CollisionW div 2 - sprite.width div 2,
-      player.y + CollisionH div 2 + SoldierBodyPx div 2 + 2,
-      UnitTagZ,
       MapLayerId,
       spriteId
     )
@@ -4275,12 +4216,6 @@ proc buildSpriteProtocolPlayerUpdates*(
       result,
       viewerIndex = playerIndex
     )
-    sim.addUnitTags(
-      nextState.spriteDefs,
-      currentIds,
-      result,
-      viewerIndex = playerIndex
-    )
     sim.addSplatters(
       nextState.spriteDefs,
       currentIds,
@@ -4355,7 +4290,7 @@ proc buildSpriteProtocolPlayerUpdates*(
 
     # Lives counter on the top-right HUD layer.
     let
-      livesText = $(player.hp + player.shieldHp) & "hp x" & $player.lives
+      livesText = $player.hp & "hp x" & $player.lives
       lives = sim.buildSpriteProtocolTextSprite([livesText], 2'u8)
     currentIds.add(SelectedTextObjectId)
     result.addSpriteChanged(
@@ -4891,7 +4826,6 @@ proc buildSpriteProtocolUpdates*(
   sim.addShouts(nextState.spriteDefs, currentIds, result)
   sim.addAimIndicators(nextState.spriteDefs, currentIds, result)
   sim.addHpPips(nextState.spriteDefs, currentIds, result)
-  sim.addUnitTags(nextState.spriteDefs, currentIds, result)
 
   for playerIndex in 0 ..< sim.players.len:
     let player = sim.players[playerIndex]

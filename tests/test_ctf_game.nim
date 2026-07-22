@@ -74,7 +74,6 @@ suite "ctf game":
     sim.players[0].fireCooldown = 0
     sim.players[1].x = cx + 6
     sim.players[1].y = cy
-    sim.players[1].spawnProtect = 0
     sim.players[1].hp = 1
     let livesBefore = sim.players[1].lives
 
@@ -94,7 +93,6 @@ suite "ctf game":
     sim.players[0].aimBrads = 0
     sim.players[1].x = cx + 60
     sim.players[1].y = cy
-    sim.players[1].spawnProtect = 0
     check sim.players[1].hp == sim.config.hitPoints
 
     for hit in 1 .. sim.config.hitPoints:
@@ -131,10 +129,8 @@ suite "ctf game":
     # Two enemies dead ahead on the same ray: near and far.
     sim.players[1].x = cx + 40
     sim.players[1].y = cy
-    sim.players[1].spawnProtect = 0
     sim.players[2].x = cx + 100
     sim.players[2].y = cy
-    sim.players[2].spawnProtect = 0
     sim.players[1].hp = 1
 
     sim.tryFire(0)
@@ -157,7 +153,6 @@ suite "ctf game":
     # the bullet corridor.
     sim.players[1].x = cx + 200
     sim.players[1].y = cy + 60
-    sim.players[1].spawnProtect = 0
 
     sim.tryFire(0)
 
@@ -174,7 +169,6 @@ suite "ctf game":
     sim.players[0].fireCooldown = 0
     sim.players[1].x = cx + 60
     sim.players[1].y = cy
-    sim.players[1].spawnProtect = 0
     sim.players[1].hp = 1
 
     sim.startFireWindup(0)
@@ -199,7 +193,6 @@ suite "ctf game":
     sim.players[0].fireCooldown = 0
     sim.players[1].x = cx + 60
     sim.players[1].y = cy
-    sim.players[1].spawnProtect = 0
 
     sim.startFireWindup(0)
     # The peeker steps back out of the bullet corridor before the release.
@@ -222,7 +215,6 @@ suite "ctf game":
     sim.players[0].fireCooldown = 0
     sim.players[1].x = cx + 60
     sim.players[1].y = cy
-    sim.players[1].spawnProtect = 0
     sim.players[1].hp = 1
 
     sim.startFireWindup(0)
@@ -277,7 +269,6 @@ suite "ctf game":
     # The target sits on the exact diagonal, inside the open flag ring.
     sim.players[1].x = cx + 40
     sim.players[1].y = cy - 40
-    sim.players[1].spawnProtect = 0
     sim.players[1].hp = 1
 
     sim.tryFire(0)
@@ -295,7 +286,6 @@ suite "ctf game":
     sim.players[0].fireCooldown = 0
     sim.players[1].x = cx + 6
     sim.players[1].y = cy
-    sim.players[1].spawnProtect = 0
 
     sim.tryFire(0)
 
@@ -366,7 +356,6 @@ suite "ctf game":
     sim.players[0].fireCooldown = 0
     sim.players[1].x = cx + 6
     sim.players[1].y = cy
-    sim.players[1].spawnProtect = 0
     sim.players[1].hp = 1
 
     sim.tryFire(0)
@@ -405,22 +394,6 @@ suite "ctf game":
     check sim.players[1].alive
     check sim.players[0].kills == 0
 
-  test "spawn-protected target cannot be shot":
-    var sim = twoTeamGame()
-    let cx = sim.gameMap.center.x
-    let cy = sim.gameMap.center.y
-    sim.players[0].x = cx
-    sim.players[0].y = cy
-    sim.players[0].aimBrads = 0
-    sim.players[0].fireCooldown = 0
-    sim.players[1].x = cx + 6
-    sim.players[1].y = cy
-    sim.players[1].spawnProtect = 10
-
-    sim.tryFire(0)
-
-    check sim.players[1].alive
-
   test "a same-tick mutual duel kills both shooters (no order advantage)":
     var sim = twoTeamGame()
     let cx = sim.gameMap.center.x
@@ -430,12 +403,10 @@ suite "ctf game":
     sim.players[0].y = cy
     sim.players[0].aimBrads = 0
     sim.players[0].fireCooldown = 0
-    sim.players[0].spawnProtect = 0
     sim.players[1].x = cx + 20
     sim.players[1].y = cy
     sim.players[1].aimBrads = 128
     sim.players[1].fireCooldown = 0
-    sim.players[1].spawnProtect = 0
 
     sim.players[0].hp = 1
     sim.players[1].hp = 1
@@ -461,7 +432,6 @@ suite "ctf game":
     sim.players[0].fireCooldown = 0
     sim.players[1].x = cx + 40
     sim.players[1].y = cy
-    sim.players[1].spawnProtect = 0
     # Blue player 1 is running the RED flag home.
     sim.flags[Red].carrier = 1
     sim.players[1].carryingFlag = true
@@ -599,7 +569,7 @@ suite "ctf game":
     sim.step(none, none)
     check sim.phase == Lobby
 
-  test "a time-limit game is a scoreless draw for both sides":
+  test "a time-limit game is a lose-lose draw for both sides":
     var sim = twoTeamGame()
     sim.config.maxTicks = 5
     let none = newSeq[InputState](sim.players.len)
@@ -607,5 +577,19 @@ suite "ctf game":
       sim.step(none, none)
     check sim.isDraw
     check sim.timeLimitReached
+    # GameVersion 21: running out the clock penalizes everyone, so stalling
+    # is never better than losing — no side can prefer the draw.
+    check sim.players[0].reward == TimeoutReward
+    check sim.players[1].reward == TimeoutReward
+    for account in sim.rewardAccounts:
+      check account.reward == TimeoutReward
+      check not account.won
+
+  test "a mutual-wipe draw stays scoreless":
+    var sim = twoTeamGame()
+    let none = newSeq[InputState](sim.players.len)
+    sim.finishGame(Red, isDraw = true)
+    check sim.isDraw
+    check not sim.timeLimitReached
     check sim.players[0].reward == 0
     check sim.players[1].reward == 0

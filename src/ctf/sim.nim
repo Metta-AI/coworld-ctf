@@ -9,11 +9,9 @@ when not defined(emscripten):
 
 const
   GameName* = "ctf"
-  GameVersion* = "19"  ## Multi-map support does NOT bump the version:
-                       ## default-map ("arena") gameplay is bit-identical, so
-                       ## every existing replay stays valid. arena-large
-                       ## replays carry mapPath in their config and need a
-                       ## multi-map sim to re-run.
+  GameVersion* = "21"  ## Multi-map support does not bump the version:
+                       ## default-map ("arena") gameplay is bit-identical;
+                       ## arena-large replays carry mapPath in their config.
   ReplayFps* = 24
   DefaultMapPath* = "arena"
   DarkBgPath* = "data/darkbg.aseprite"
@@ -66,11 +64,13 @@ const
   Lives* = 3
   HitPoints* = 3              ## hits to kill: each shot removes one hit point.
   RespawnTicks* = 72          ## ~3s before respawning at home.
-  SpawnProtectTicks* = 24     ## ~1s spawn invulnerability.
   GunRange* = 1300            ## px, effectively map-wide on the default
                               ## arena; LOS and aim are the real limits.
                               ## Each map def carries its own value — see
                               ## CtfMap.gunRange.
+  ExposureSampleStep* = 3     ## px between silhouette line-of-sight samples
+                              ## across a target's body (±PlayerHalf): only
+                              ## the exposed part of a body can be hit.
   BulletHalfWidth* = 8.0      ## the bullet corridor half-width: a shot travels
                               ## along the facing ray and hits the FIRST player
                               ## whose footprint crosses it.
@@ -97,13 +97,16 @@ const
 
   StartWaitTicks* = 5 * TargetFps
   GameOverTicks* = 360
-  MaxTicks* = 10_000  ## 0 = no limit.
+  MaxTicks* = 5_000  ## 0 = no limit.
   MaxGames* = 0  ## 0 = no limit.
   MaxPlayers* = 16
   MinPlayers* = 16
 
   WinReward* = 1              ## each winner scores +1 on capture or wipe.
   LossReward* = -1            ## each loser scores -1 on capture or wipe.
+  TimeoutReward* = -1         ## EVERY player scores -1 on a time-limit draw
+                              ## (GameVersion 21): stalling out the clock is
+                              ## never better than losing, for either side.
 
   FlagPickupRange* = 12       ## touch radius to steal the enemy flag.
   CaptureZoneWidth* = 40      ## width of each home-edge capture zone.
@@ -148,12 +151,15 @@ const
 
   ShieldPickupRange* = 12     ## touch radius to pick a shield up.
   ShieldRespawnTicks* = 30 * ReplayFps  ## a taken endzone shield refills after 30s.
-  ShieldLayerHp* = 3          ## hp in a full shield layer. Damage depletes
-                              ## the layer before base hp; a pickup refills it
-                              ## and never heals base damage.
+  ShieldHitPoints* = 6        ## the hp ceiling for a shield carrier.
+  ShieldPickupHeal* = 3       ## hp a shield pickup adds, capped at
+                              ## ShieldHitPoints — a damaged carrier may take
+                              ## another shield to top back up.
   ShieldFireSlowdown* = 3     ## a shield carrier's fire cooldown is this many
                               ## times longer (3x slower fire rate).
-
+  ShieldBubbleMinHp* = 4      ## the carrier's protective bubble shows at or
+                              ## above this hp — i.e. while the shield's bonus
+                              ## hp (over the base 3) is still holding.
   BubbleImpactTicks* = 8      ## ~0.33s the bubble's blink/dent impact FX
                               ## lasts (cosmetic only, like HitFlashTicks).
 
@@ -177,7 +183,12 @@ const
   UiLayerFlag* = 2
   PlayerSpriteBase* = 100
   FlagSpriteBase* = 700       ## team flag sprites: 700 red flag, 701 blue flag.
-  SelectedPlayerSpriteBase* = 800
+  SelectedPlayerSpriteBase* = 6000  ## outlined selected-soldier pool:
+                              ## 6000..6031 (team x SoldierRotations). Moved
+                              ## from 800: that pool swallowed the hp pips
+                              ## (820..823) and the sound/impact rings
+                              ## (830/831) — same collision class as the
+                              ## 2026-07-22 unit-tag/fire-icon incident.
   SelectedTextSpriteId* = 4000
   SelectedViewportSpriteId* = 4001
   PlayerObjectBase* = 1000
@@ -362,7 +373,6 @@ type
     lives*: int
     hitPoints*: int
     respawnTicks*: int
-    spawnProtectTicks*: int
     gunRange*: int
     fireCooldownTicks*: int
     fireWindupTicks*: int
@@ -396,12 +406,9 @@ type
     fireCooldown*: int
     fireWindup*: int           ## ticks until a pulled trigger releases its shot.
     windupBrads*: int          ## aim angle locked at the trigger pull, -1 = none.
-    spawnProtect*: int
     carryingFlag*: bool
     hasGrenade*: bool          ## each player carries at most one grenade.
-    hasShield*: bool           ## carrying an endzone shield: 3x slower fire.
-    shieldHp*: int             ## remaining shield-layer hp (0..ShieldLayerHp);
-                               ## damage depletes it before base hp.
+    hasShield*: bool           ## carrying an endzone shield: 6 hp, 3x slower fire.
     hasPlasmaArc*: bool        ## each player carries at most one plasma arc.
     arcTicksLeft*: int         ## remaining active ticks of a fired plasma
                                ## cone (0 = the cone is off).
@@ -420,6 +427,17 @@ type
                                ## excluded from gameHash (see gameHash).
     shotsHit*: int             ## released shots that connected with an enemy;
                                ## analysis-only, excluded from gameHash.
+    multiKills2*: int          ## grenade blasts / plasma activations that
+                               ## killed exactly 2; analysis-only, excluded
+                               ## from gameHash.
+    multiKills3*: int          ## grenade blasts / plasma activations that
+                               ## killed 3 or more; analysis-only, excluded
+                               ## from gameHash.
+    teamKills*: int            ## teammates this player killed (backstabs);
+                               ## analysis-only, excluded from gameHash.
+    arcKillsThisFire*: int     ## kills scored by the current plasma
+                               ## activation; transient multi-kill
+                               ## bookkeeping, excluded from gameHash.
 
   PlayerFov* = object
     ## One player's cached fog-of-war visibility grid (FovGridW x FovGridH
@@ -2046,7 +2064,6 @@ proc defaultGameConfig*(): GameConfig =
     lives: Lives,
     hitPoints: HitPoints,
     respawnTicks: RespawnTicks,
-    spawnProtectTicks: SpawnProtectTicks,
     gunRange: GunRange,
     fireCooldownTicks: FireCooldownTicks,
     fireWindupTicks: FireWindupTicks,
@@ -2320,8 +2337,7 @@ proc validate(config: GameConfig) =
     )
   if config.startWaitTicks < 0:
     raise newException(CtfError, "Config field startWaitTicks must be non-negative.")
-  if config.respawnTicks < 0 or config.spawnProtectTicks < 0 or
-      config.fireCooldownTicks < 0:
+  if config.respawnTicks < 0 or config.fireCooldownTicks < 0:
     raise newException(CtfError, "Timer config fields must not be negative.")
   if config.gameOverTicks < 0 or config.maxTicks < 0 or config.maxGames < 0:
     raise newException(CtfError, "Timer config fields must not be negative.")
@@ -2382,7 +2398,6 @@ proc update*(config: var GameConfig, jsonText: string) =
   node.readConfigInt("lives", config.lives)
   node.readConfigInt("hitPoints", config.hitPoints)
   node.readConfigInt("respawnTicks", config.respawnTicks)
-  node.readConfigInt("spawnProtectTicks", config.spawnProtectTicks)
   node.readConfigInt("gunRange", config.gunRange)
   node.readConfigInt("fireCooldownTicks", config.fireCooldownTicks)
   node.readConfigInt("fireWindupTicks", config.fireWindupTicks)
@@ -2457,7 +2472,6 @@ proc configJson*(config: GameConfig): string =
     "lives": config.lives,
     "hitPoints": config.hitPoints,
     "respawnTicks": config.respawnTicks,
-    "spawnProtectTicks": config.spawnProtectTicks,
     "gunRange": config.gunRange,
     "fireCooldownTicks": config.fireCooldownTicks,
     "fireWindupTicks": config.fireWindupTicks,
@@ -2637,11 +2651,9 @@ proc gameHash*(sim: SimServer): uint64 =
     result.mixHashInt(player.fireCooldown)
     result.mixHashInt(player.fireWindup)
     result.mixHashInt(player.windupBrads)
-    result.mixHashInt(player.spawnProtect)
     result.mixHashBool(player.carryingFlag)
     result.mixHashBool(player.hasGrenade)
     result.mixHashBool(player.hasShield)
-    result.mixHashInt(player.shieldHp)
     result.mixHashBool(player.hasPlasmaArc)
     result.mixHashInt(player.arcTicksLeft)
     result.mixHashInt(int(player.arcHitMask))
@@ -3262,6 +3274,18 @@ proc recordKill*(sim: var SimServer, playerIndex: int) =
     inc sim.rewardAccounts[index].kills
   inc sim.players[playerIndex].kills
 
+proc recordTeamKill*(sim: var SimServer, killerIndex, victimIndex: int) =
+  ## Counts a teammate kill (the endscreen "backstab" badge). Weapon-agnostic:
+  ## bullets, grenade blasts, and plasma cones all land here.
+  if killerIndex < 0 or killerIndex >= sim.players.len:
+    return
+  if victimIndex < 0 or victimIndex >= sim.players.len:
+    return
+  if killerIndex == victimIndex:
+    return
+  if sim.players[killerIndex].team == sim.players[victimIndex].team:
+    inc sim.players[killerIndex].teamKills
+
 proc recordDeath*(sim: var SimServer, playerIndex: int) =
   ## Increments the death counter for one player.
   let index = sim.rewardAccountForPlayer(playerIndex)
@@ -3401,7 +3425,6 @@ proc resetShields*(sim: var SimServer) =
     )
   for i in 0 ..< sim.players.len:
     sim.players[i].hasShield = false
-    sim.players[i].shieldHp = 0
 proc plasmaArcSpawnPoints*(): array[2, tuple[x, y: int]] =
   ## The two plasma arc spawn points, nudged to walkable floor: the same side
   ## back columns as the shields, but in the TOP half (a quarter of the map
@@ -3445,15 +3468,17 @@ proc startGame*(sim: var SimServer) =
     sim.players[i].windupBrads = -1
     sim.players[i].aimBrads = spawnAimBrads(sim.players[i].team)
     sim.players[i].flipH = sim.players[i].team == Blue
-    sim.players[i].spawnProtect = sim.config.spawnProtectTicks
     sim.players[i].carryingFlag = false
     sim.players[i].hasShield = false
-    sim.players[i].shieldHp = 0
     sim.players[i].kills = 0
     sim.players[i].deaths = 0
     sim.players[i].captures = 0
     sim.players[i].shotsFired = 0
     sim.players[i].shotsHit = 0
+    sim.players[i].multiKills2 = 0
+    sim.players[i].multiKills3 = 0
+    sim.players[i].teamKills = 0
+    sim.players[i].arcKillsThisFire = 0
     sim.recordGameTeamAssigned(i)
   sim.resetFlags()
   sim.resetGrenades()
@@ -3713,7 +3738,6 @@ proc killPlayer*(sim: var SimServer, targetIndex, killerIndex: int) =
   sim.players[targetIndex].windupBrads = -1
   sim.players[targetIndex].hasGrenade = false
   sim.players[targetIndex].hasShield = false
-  sim.players[targetIndex].shieldHp = 0
   sim.players[targetIndex].hasPlasmaArc = false
   sim.players[targetIndex].arcTicksLeft = 0
   sim.players[targetIndex].throwCharge = 0
@@ -3755,13 +3779,6 @@ proc killPlayer*(sim: var SimServer, targetIndex, killerIndex: int) =
     else:
       0
 
-proc absorbDamage*(sim: var SimServer, targetIndex: int, amount: int) =
-  ## Applies damage to a player: the shield layer soaks hits before base hp.
-  ## Callers keep their own death checks on the base hp that remains.
-  let fromShield = min(sim.players[targetIndex].shieldHp, amount)
-  sim.players[targetIndex].shieldHp -= fromShield
-  sim.players[targetIndex].hp -= amount - fromShield
-
 proc canFire*(sim: SimServer, shooterIndex: int): bool =
   ## Returns whether one player is able to fire a shot right now.
   if shooterIndex < 0 or shooterIndex >= sim.players.len:
@@ -3797,8 +3814,6 @@ proc selectArcVictims(
   for i in 0 ..< sim.players.len:
     if i == attackerIndex or not sim.players[i].alive:
       continue
-    if sim.players[i].spawnProtect > 0:
-      continue
     let
       vx = float(sim.players[i].x + CollisionW div 2 - ax)
       vy = float(sim.players[i].y + CollisionH div 2 - ay)
@@ -3827,6 +3842,7 @@ proc startArcFire*(sim: var SimServer, attackerIndex: int) =
     PlasmaArcActiveTicks + PlasmaArcResetTicks
   sim.players[attackerIndex].arcTicksLeft = PlasmaArcActiveTicks
   sim.players[attackerIndex].arcHitMask = 0
+  sim.players[attackerIndex].arcKillsThisFire = 0
   sim.logGameEvent(
     playerColorText(sim.players[attackerIndex].color) & " fired a plasma arc"
   )
@@ -3866,7 +3882,7 @@ proc resolveActiveArcCones*(sim: var SimServer) =
           continue
         sim.players[arcFire.attacker].arcHitMask =
           sim.players[arcFire.attacker].arcHitMask or bit
-      sim.absorbDamage(victimIndex, PlasmaArcDamage)
+      sim.players[victimIndex].hp -= PlasmaArcDamage
       # Floating damage number for the HP loss (cosmetic, not in gameHash).
       sim.damagePops.add DamageFx(
         x: sim.players[victimIndex].x + CollisionW div 2,
@@ -3878,6 +3894,16 @@ proc resolveActiveArcCones*(sim: var SimServer) =
         sim.killPlayer(victimIndex, arcFire.attacker)
         if victimIndex != arcFire.attacker:
           sim.recordKill(arcFire.attacker)
+          sim.recordTeamKill(arcFire.attacker, victimIndex)
+          # Multi-kill accounting per ACTIVATION (not per tick): the second
+          # kill of one firing mints a double, the third upgrades it to a
+          # triple; a fourth+ stays inside the already-counted triple.
+          inc sim.players[arcFire.attacker].arcKillsThisFire
+          if sim.players[arcFire.attacker].arcKillsThisFire == 2:
+            inc sim.players[arcFire.attacker].multiKills2
+          elif sim.players[arcFire.attacker].arcKillsThisFire == 3:
+            dec sim.players[arcFire.attacker].multiKills2
+            inc sim.players[arcFire.attacker].multiKills3
     if sim.players[arcFire.attacker].arcTicksLeft > 0:
       dec sim.players[arcFire.attacker].arcTicksLeft
 
@@ -3900,8 +3926,15 @@ proc fireDirection(sim: SimServer, shooterIndex: int): tuple[x, y: float] =
 
 proc selectFireTarget(sim: SimServer, shooterIndex: int): int =
   ## Returns the FIRST player along the shot ray — the bullet travels down
-  ## the locked aim direction and stops at the first footprint it crosses
+  ## the locked aim direction and stops at the first body it crosses
   ## (friendly fire on) or the first wall — or -1 for a miss.
+  ##
+  ## A target's body is sampled across its silhouette (perpendicular to the
+  ## ray, ±PlayerHalf): a sample connects only when the bullet corridor
+  ## covers it AND the shooter has line of sight TO THAT SAMPLE. Cover is
+  ## therefore partial, not binary — a corner-hugger can only be hit on the
+  ## sliver of body it actually shows, and a fully exposed body presents the
+  ## same effective width as the old center-only corridor check.
   result = -1
   let
     shooter = sim.players[shooterIndex]
@@ -3909,31 +3942,30 @@ proc selectFireTarget(sim: SimServer, shooterIndex: int): int =
     sx = shooter.x + CollisionW div 2
     sy = shooter.y + CollisionH div 2
     maxRange = float(sim.config.gunRange)
-    corridor = BulletHalfWidth + float(PlayerHalf)
   var bestT = maxRange + 1.0
   for i in 0 ..< sim.players.len:
     if i == shooterIndex or not sim.players[i].alive:
       continue
-    if sim.players[i].spawnProtect > 0:
-      continue
     let
-      vx = float(sim.players[i].x + CollisionW div 2 - sx)
-      vy = float(sim.players[i].y + CollisionH div 2 - sy)
-      t = vx * ux + vy * uy            # distance along the ray
-    if t <= 0 or t > maxRange:
-      continue
-    let perp = abs(vx * uy - vy * ux)  # distance off the ray
-    if perp > corridor:
-      continue
-    if not sim.lineOfSightClear(
-      sx, sy,
-      sim.players[i].x + CollisionW div 2,
-      sim.players[i].y + CollisionH div 2
-    ):
-      continue
-    if t < bestT:
-      bestT = t
-      result = i
+      tx = float(sim.players[i].x + CollisionW div 2)
+      ty = float(sim.players[i].y + CollisionH div 2)
+    for off in countup(-PlayerHalf, PlayerHalf, ExposureSampleStep):
+      let
+        px = tx - float(off) * uy      # silhouette sample: the body span
+        py = ty + float(off) * ux      # perpendicular to the shot ray
+        vx = px - float(sx)
+        vy = py - float(sy)
+        t = vx * ux + vy * uy          # distance along the ray
+      if t <= 0 or t > maxRange:
+        continue
+      if abs(vx * uy - vy * ux) > BulletHalfWidth:
+        continue
+      if not sim.lineOfSightClear(sx, sy, int(round(px)), int(round(py))):
+        continue
+      if t < bestT:
+        bestT = t
+        result = i
+      break
 
 proc applyFire(sim: var SimServer, shooterIndex, targetIndex: int) =
   ## Applies one selected shot: cooldown, tracer, and the kill. The target
@@ -3988,14 +4020,14 @@ proc applyFire(sim: var SimServer, shooterIndex, targetIndex: int) =
     hit: targetIndex >= 0
   )
   if targetIndex >= 0 and sim.players[targetIndex].alive:
-    # A carrier whose shield layer is still up at impact absorbs the hit
-    # VISUALS on the bubble: it blinks and dents toward the shooter instead of
-    # showing the inner struck-target ring and body paint spark. The "-1" pop
-    # still reads the hp loss. (Cosmetic only — the damage itself is
-    # unchanged.)
+    # A carrier whose bubble is still up (hp >= ShieldBubbleMinHp at impact)
+    # absorbs the hit VISUALS on the bubble: it blinks and dents toward the
+    # shooter instead of showing the inner struck-target ring and body paint
+    # spark. The "-1" pop still reads the hp loss. (Cosmetic only — the damage
+    # itself is unchanged.)
     let bubbleUp = sim.players[targetIndex].hasShield and
-      sim.players[targetIndex].shieldHp > 0
-    sim.absorbDamage(targetIndex, 1)
+      sim.players[targetIndex].hp >= ShieldBubbleMinHp
+    dec sim.players[targetIndex].hp
     if bubbleUp:
       sim.bubbleImpacts.add BubbleImpactFx(
         playerIndex: targetIndex,
@@ -4021,6 +4053,7 @@ proc applyFire(sim: var SimServer, shooterIndex, targetIndex: int) =
     if sim.players[targetIndex].hp <= 0:
       sim.killPlayer(targetIndex, shooterIndex)
       sim.recordKill(shooterIndex)
+      sim.recordTeamKill(shooterIndex, targetIndex)
     else:
       if not bubbleUp:
         # A non-fatal hit leaves a small, short-lived paint spark in the
@@ -4035,8 +4068,7 @@ proc applyFire(sim: var SimServer, shooterIndex, targetIndex: int) =
       sim.logGameEvent(
         playerColorText(sim.players[targetIndex].color) &
           " hit by " & sim.playerText(shooterIndex) &
-          " (" & $(sim.players[targetIndex].hp +
-            sim.players[targetIndex].shieldHp) & " hp left)"
+          " (" & $sim.players[targetIndex].hp & " hp left)"
       )
 
 proc tryFire*(sim: var SimServer, shooterIndex: int) =
@@ -4138,8 +4170,7 @@ proc applyGrenadeInput(
 proc explodeGrenade(sim: var SimServer, grenade: AirborneGrenade) =
   ## Applies one landing: a cosmetic blast flash (which views also use for
   ## the audible landing's sound ring) plus blast damage to EVERYONE inside
-  ## the radius — teammates and the thrower included; spawn protection
-  ## still shields.
+  ## the radius — teammates and the thrower included.
   # Color the splat by the thrower's TEAM (not their individual slot color), so
   # a landing reads as that team's paint-bomb — and the sprite id stays within
   # the two team-color slots, never colliding with the tracer pool.
@@ -4153,15 +4184,16 @@ proc explodeGrenade(sim: var SimServer, grenade: AirborneGrenade) =
   )
   sim.logGameEvent("grenade landed")
   let radiusSq = GrenadeBlastRadius * GrenadeBlastRadius
+  var blastKills = 0
   for i in 0 ..< sim.players.len:
-    if not sim.players[i].alive or sim.players[i].spawnProtect > 0:
+    if not sim.players[i].alive:
       continue
     let
       px = sim.players[i].x + CollisionW div 2
       py = sim.players[i].y + CollisionH div 2
     if distSq(px, py, grenade.tx, grenade.ty) > radiusSq:
       continue
-    sim.absorbDamage(i, GrenadeDamage)
+    sim.players[i].hp -= GrenadeDamage
     # Floating damage number for the blast's HP loss (cosmetic, not in gameHash).
     sim.damagePops.add DamageFx(
       x: px, y: py, tick: sim.tickCount,
@@ -4171,6 +4203,15 @@ proc explodeGrenade(sim: var SimServer, grenade: AirborneGrenade) =
       sim.killPlayer(i, grenade.thrower)
       if grenade.thrower != i:
         sim.recordKill(grenade.thrower)
+        sim.recordTeamKill(grenade.thrower, i)
+        inc blastKills
+  # Multi-kill accounting per BLAST: one landing that kills 2 mints a double,
+  # 3+ a triple (a self-kill in the blast never counts toward either).
+  if grenade.thrower >= 0 and grenade.thrower < sim.players.len:
+    if blastKills >= 3:
+      inc sim.players[grenade.thrower].multiKills3
+    elif blastKills == 2:
+      inc sim.players[grenade.thrower].multiKills2
 
 proc updateGrenades(sim: var SimServer) =
   ## Refills corner pickups whose timer elapsed and lands due grenades.
@@ -4252,16 +4293,15 @@ proc updateShields*(sim: var SimServer) =
 
 proc tryPickupShields*(sim: var SimServer, playerIndex: int) =
   ## Lets a living player pick up an endzone shield by touch (either team may
-  ## take either endzone's shield). A pickup grants the shield and refills the
-  ## ShieldLayerHp-strong shield layer that damage depletes before base hp —
-  ## it never heals base damage (that is the med kits' job), so a worn carrier
-  ## may take another shield to restore the layer, while a carrier whose layer
-  ## is intact leaves the spawn untouched for a teammate. Carrying a shield
-  ## slows fire ShieldFireSlowdown times; a taken shield refills after
-  ## ShieldRespawnTicks.
+  ## take either endzone's shield). A pickup grants the shield and heals
+  ## ShieldPickupHeal hp up to the ShieldHitPoints ceiling — a damaged carrier
+  ## may take another shield to top back up, while a full-health carrier
+  ## leaves the spawn untouched for a teammate. Carrying a shield slows fire
+  ## ShieldFireSlowdown times; a taken shield refills after ShieldRespawnTicks.
   if not sim.players[playerIndex].alive:
     return
-  if sim.players[playerIndex].shieldHp >= ShieldLayerHp:
+  if sim.players[playerIndex].hasShield and
+      sim.players[playerIndex].hp >= ShieldHitPoints:
     return
   let
     px = sim.players[playerIndex].x + CollisionW div 2
@@ -4272,7 +4312,8 @@ proc tryPickupShields*(sim: var SimServer, playerIndex: int) =
       spawn.present = false
       spawn.respawnAt = sim.tickCount + ShieldRespawnTicks
       sim.players[playerIndex].hasShield = true
-      sim.players[playerIndex].shieldHp = ShieldLayerHp
+      sim.players[playerIndex].hp = min(
+        sim.players[playerIndex].hp + ShieldPickupHeal, ShieldHitPoints)
       sim.logGameEvent(
         playerColorText(sim.players[playerIndex].color) &
           " picked up a shield"
@@ -4707,6 +4748,24 @@ proc finishGame*(sim: var SimServer, winner: Team, isDraw = false, timeLimitReac
   sim.gameOverTimer = sim.config.gameOverTicks
   sim.timeLimitReached = timeLimitReached
   if isDraw:
+    if timeLimitReached:
+      # A time-limit draw is a lose-lose: every player on both teams takes
+      # TimeoutReward so running out the clock is never better than losing.
+      # A mutual-wipe draw stays 0/0 — both sides at least fought to the end.
+      var penalizedAccounts = newSeq[bool](sim.rewardAccounts.len)
+      for i in 0 ..< sim.players.len:
+        let accountIndex = sim.rewardAccountForPlayer(i)
+        if penalizedAccounts.len < sim.rewardAccounts.len:
+          penalizedAccounts.setLen(sim.rewardAccounts.len)
+        if accountIndex >= 0 and accountIndex < penalizedAccounts.len:
+          penalizedAccounts[accountIndex] = true
+        sim.addReward(i, TimeoutReward)
+      for i in 0 ..< sim.rewardAccounts.len:
+        if i < penalizedAccounts.len and penalizedAccounts[i]:
+          continue
+        if not sim.rewardAccounts[i].hasTeam:
+          continue
+        sim.rewardAccounts[i].reward += TimeoutReward
     return
   var awardedAccounts = newSeq[bool](sim.rewardAccounts.len)
   for i in 0 ..< sim.players.len:
@@ -4995,8 +5054,6 @@ proc respawnPlayers(sim: var SimServer) =
   ## Ticks respawn timers and brings dead players back at home.
   for i in 0 ..< sim.players.len:
     if sim.players[i].alive:
-      if sim.players[i].spawnProtect > 0:
-        dec sim.players[i].spawnProtect
       continue
     if sim.players[i].lives <= 0:
       continue
@@ -5006,7 +5063,6 @@ proc respawnPlayers(sim: var SimServer) =
         sim.resetPlayerToHome(i)
         sim.players[i].alive = true
         sim.players[i].hp = sim.config.hitPoints
-        sim.players[i].spawnProtect = sim.config.spawnProtectTicks
         sim.players[i].aimBrads = spawnAimBrads(sim.players[i].team)
         sim.players[i].flipH = sim.players[i].team == Blue
 

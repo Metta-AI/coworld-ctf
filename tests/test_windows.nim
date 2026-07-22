@@ -17,7 +17,6 @@ proc armToFire(game: var SimServer, shooter: int) =
   ## Clears the gates so the shooter's next tryFire releases this tick.
   game.players[shooter].windupBrads = -1
   game.players[shooter].fireCooldown = 0
-  game.players[shooter].spawnProtect = 0
 
 proc segmentBlocked(sim: SimServer, ax, ay, bx, by: int): bool =
   ## Returns true when a wall pixel blocks the straight segment between two
@@ -112,7 +111,6 @@ suite "windows: glass blocks movement and shots but not vision":
     game.players[shooter].aimBrads = 0          # due east, straight at the glass.
     game.players[target].x = EastX
     game.players[target].y = RowY
-    game.players[target].spawnProtect = 0
     game.armToFire(shooter)
     # Seen: the enemy behind the window is visible through the glass.
     discard game.refreshPlayerFov(shooter)

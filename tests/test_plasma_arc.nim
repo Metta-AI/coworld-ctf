@@ -20,8 +20,6 @@ proc twoTeamGame(): SimServer =
   result.startGame()
   result.players[0].team = Red
   result.players[1].team = Blue
-  for i in 0 ..< result.players.len:
-    result.players[i].spawnProtect = 0
 
 proc none(sim: SimServer): seq[InputState] =
   newSeq[InputState](sim.players.len)
@@ -139,7 +137,6 @@ suite "plasma arcs":
     game.players[0].fireCooldown = 0
     game.players[1].respawnTimer = 0
     game.players[1].alive = true
-    game.players[1].spawnProtect = 0
     game.players[1].hp = game.config.hitPoints
     game.players[1].placeAtCenter(ax + 130, ay + 36)
     game.tryFireArc(0)
@@ -154,7 +151,7 @@ suite "plasma arcs":
     game.tryFireArc(0)
     check not game.players[1].alive
 
-  test "spawn protection shields a target but friendly fire does not":
+  test "friendly fire: the cone kills a teammate":
     var game = twoTeamGame()
     game.players[0].hasPlasmaArc = true
     game.players[0].aimBrads = 0
@@ -163,11 +160,6 @@ suite "plasma arcs":
       ax = game.players[0].x + CollisionW div 2
       ay = game.players[0].y + CollisionH div 2
     game.players[1].placeAtCenter(ax + PlasmaArcReach - 2, ay)
-    game.players[1].spawnProtect = 1
-    game.tryFireArc(0)
-    check game.players[1].alive
-    game.players[0].fireCooldown = 0
-    game.players[1].spawnProtect = 0
     game.players[1].team = game.players[0].team
     game.tryFireArc(0)
     check not game.players[1].alive
@@ -201,18 +193,16 @@ suite "plasma arcs":
       ax = game.players[0].x + CollisionW div 2
       ay = game.players[0].y + CollisionH div 2
     game.players[1].hasShield = true
-    game.players[1].shieldHp = ShieldLayerHp
+    game.players[1].hp = ShieldHitPoints
     game.players[1].placeAtCenter(ax + 60, ay)
     game.tryFireArc(0)
     check game.players[1].alive
-    # The shield layer soaks the arc touch before base hp.
-    check game.players[1].shieldHp == ShieldLayerHp - PlasmaArcDamage
-    check game.players[1].hp == game.config.hitPoints
+    check game.players[1].hp == ShieldHitPoints - PlasmaArcDamage
     check game.players[0].kills == 0
     # Staying inside the cone for the rest of the window adds no damage.
     for _ in 0 ..< PlasmaArcActiveTicks:
       game.resolveActiveArcCones()
-    check game.players[1].shieldHp == ShieldLayerHp - PlasmaArcDamage
+    check game.players[1].hp == ShieldHitPoints - PlasmaArcDamage
     # A second firing lands a second touch, which finishes the carrier.
     game.players[0].fireCooldown = 0
     game.tryFireArc(0)
@@ -242,7 +232,6 @@ suite "plasma arcs":
     check game.players[0].arcTicksLeft == 0
     game.players[1].respawnTimer = 0
     game.players[1].alive = true
-    game.players[1].spawnProtect = 0
     game.players[1].hp = game.config.hitPoints
     game.players[1].placeAtCenter(ax + 60, ay)
     game.resolveActiveArcCones()
