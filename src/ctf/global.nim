@@ -83,6 +83,11 @@ const
     (HpBarSegments - 1) * HpBarSegGap  ## 14px total — sized to the crew sprite.
   FlagBannerW = 20             ## px width of the carried heart-gem sprite (square).
   FlagBannerH = 20             ## px height of the carried heart-gem sprite (square).
+  CarryHeartFwdPx = 12         ## px the carried heart rides FORWARD along the
+                               ## carrier's aim, so it cradles in front of the
+                               ## head cube instead of hiding under it (the head
+                               ## is centered and drawn on top). Locked by the
+                               ## CvC carry-pose review; broadcast board only.
   PlantedFlagScale = 3         ## the HOME heart is drawn this many x bigger so it
                                ## reads as a real objective on the 96px pedestal.
   PlantedFlagW = FlagBannerW * PlantedFlagScale
@@ -314,6 +319,23 @@ const
   SpritePlayerFlagObjectBase = 5009  ## 5009 red flag, 5010 blue flag.
   SpritePlayerSelfSpriteBase = 5100  ## white-outlined self soldier, one per aim
                                      ## rotation: 5100..5115 (SoldierRotations).
+  ## Spectator-board tank split: the cog draws as a movement-facing BASE with an
+  ## aim-facing TURRET stacked on top (see soldierBasePixels/soldierTurretPixels
+  ## in sim.nim). Each needs SoldierRotations ids per team, plus a selected
+  ## (outlined) turret set for the map view. All in the free 2300..2600 window
+  ## above the plasma-arc FX (2002..2257) and below the replay UI (4002).
+  SoldierBaseSpriteBase = 2300       ## base body, one per team×rot: 2300..2331.
+  SoldierTurretSpriteBase = 2340     ## head+gun turret, per team×rot: 2340..2371.
+  SelectedTurretSpriteBase = 2380    ## outlined turret for the map view's
+                                     ## selected cog: 2380..2411.
+  SelectedBaseSpriteBase = 2420      ## outlined base for the same selected cog:
+                                     ## 2420..2451 — BOTH halves carry the white
+                                     ## outline, so the selection reads on the
+                                     ## whole silhouette like the old one-piece
+                                     ## outline did, not just on the head.
+  PlayerTurretObjectBase = 1100      ## board turret object per player, stacked
+                                     ## over the base at PlayerObjectBase
+                                     ## (1000..1015); 1100..1115, clear of both.
   CorpseSpriteBase = 1500      ## grey dead-soldier sprites, one per team×rot
                                ## (1500..1531): a corpse must never read as a
                                ## live soldier for a label-scanning ghost
@@ -407,6 +429,13 @@ type
                                  ## dark / heart taken); ramped ±1 per frame.
     endzonePrewarmFrames*: int   ## frames seen since connect, used to drip the
                                  ## endzone fade crops to this viewer up front.
+    cogDrive*: array[MaxPlayers, CogDriveState]  ## per-player segmented-base
+                                 ## driving animation (body heading, wheel toe,
+                                 ## reverse commitment); broadcast-only, evolved
+                                 ## once per frame from velocity. See stepCogDrive.
+    cogDriveTick*: int           ## sim.tickCount at the last cogDrive step; a
+                                 ## non-sequential jump (scrub/seek) snaps the
+                                 ## drive state instead of integrating the gap.
     spriteDefs: seq[SpriteDefinition]
 
   PlayerViewerState* = ref object
@@ -639,6 +668,7 @@ proc initGlobalViewerState*(): GlobalViewerState =
   result.replaySeekTick = -1
   result.replayCommands = @[]
   result.povSelectPending = -2   ## -2 = no request; -1 = clear; >=0 = slot.
+  result.cogDriveTick = low(int)  ## no drive step yet; first frame snaps.
 
 proc initPlayerViewerState*(): PlayerViewerState =
   ## Returns the default state for one sprite player viewer.
@@ -737,6 +767,22 @@ proc corpseSoldierSpriteId(team: Team, rot: int): int =
   ## Sprite id for a dead soldier (grey corpse) at rotation `rot`. Sits in the
   ## free 850..881 window just above the selected-soldier pool (800..831).
   CorpseSpriteBase + ord(team) * SoldierRotations + rot
+
+proc soldierBaseSpriteId(team: Team, rot: int): int =
+  ## Board tank BASE (full body, no gun) at movement rotation `rot`.
+  SoldierBaseSpriteBase + ord(team) * SoldierRotations + rot
+
+proc soldierTurretSpriteId(team: Team, rot: int): int =
+  ## Board tank TURRET (head cube + gun) at aim rotation `rot`.
+  SoldierTurretSpriteBase + ord(team) * SoldierRotations + rot
+
+proc selectedTurretSpriteId(team: Team, rot: int): int =
+  ## Selected (outlined) board turret at aim rotation `rot`.
+  SelectedTurretSpriteBase + ord(team) * SoldierRotations + rot
+
+proc selectedBaseSpriteId(team: Team, rot: int): int =
+  ## Selected (outlined) board base at movement rotation `rot`.
+  SelectedBaseSpriteBase + ord(team) * SoldierRotations + rot
 
 proc soldierFacingRight(rot: int): bool =
   ## Whether a soldier at rotation step `rot` faces right (east-ish) — the same
@@ -1109,23 +1155,29 @@ proc buildThrowTargetSprite(): seq[uint8] {.measure.} =
         result.putRawRgbaPixel(y * ThrowTargetSize + x, 255, 190, 70, 210)
 
 proc buildShieldBubblePixels(
-  dentBucket, stage: int
+  dentBucket, stage: int,
+  scale = 1
 ): seq[uint8] {.measure.} =
   ## The shield carrier's protective bubble: a pale-cyan soap-bubble ring drawn
   ## AROUND the whole soldier — hollow with only a faint interior sheen, so the
   ## carrier stays fully visible inside it — plus a small specular glint on the
   ## upper-left rim so it reads as a bubble, not a range ring. Colorless-cool so
-  ## it never leaks the carrier's team.
+  ## it never leaks the carrier's team. Analytic — rasterized at `scale`× the
+  ## logical footprint (pass boardScale) so the ring stays crisp on the
+  ## supersampled spectator board.
   ##
   ## dentBucket < 0 builds the idle bubble. Otherwise it builds one impact
   ## variant: the whole ring blinks brighter and the rim presses in slightly
   ## around the impact site (dentBucket in 16ths of a turn, toward the
   ## shooter), both easing back to idle across the stages — the shield absorbs
   ## the hit, so the impact reads on the bubble, never on the body inside.
-  result = newRgbaPixels(ShieldBubbleSize, ShieldBubbleSize)
   let
-    c = float(ShieldBubbleSize - 1) / 2
-    rimBase = c - 1.0
+    outSize = ShieldBubbleSize * scale
+    k = float(scale)
+  result = newRgbaPixels(outSize, outSize)
+  let
+    c = float(outSize - scale) / 2
+    rimBase = c - k
     glintX = -0.7071 * rimBase
     glintY = -0.7071 * rimBase
     # 1.0 on the impact tick, easing to 0 as the FX ends.
@@ -1136,16 +1188,16 @@ proc buildShieldBubblePixels(
         1.0 - float(stage) / float(ShieldBubbleDeformStages)
     impactAngle = float(dentBucket) * 2.0 * PI /
       float(ShieldBubbleDeformBuckets)
-    dentDepth = 3.5 * ease       # a slight press, never a collapse
+    dentDepth = 3.5 * k * ease   # a slight press, never a collapse
     dentWidth = 0.7              # radians of rim the dent spreads across
     blink = 55.0 * ease          # whole-ring brightness pulse
-  for y in 0 ..< ShieldBubbleSize:
-    for x in 0 ..< ShieldBubbleSize:
+  for y in 0 ..< outSize:
+    for x in 0 ..< outSize:
       let
         dx = float(x) - c
         dy = float(y) - c
         d = sqrt(dx * dx + dy * dy)
-      if d > rimBase + 1.6:
+      if d > rimBase + 1.6 * k:
         continue
       # Local rim radius: pressed inward around the impact site.
       var rim = rimBase
@@ -1159,26 +1211,26 @@ proc buildShieldBubblePixels(
         impact = exp(-(da * da) / (dentWidth * dentWidth))
         rim = rimBase - dentDepth * impact
       # Anti-aliased hollow rim over a barely-there interior sheen.
-      var alpha = (175.0 + blink) * max(0.0, 1.0 - abs(d - rim) / 1.6)
+      var alpha = (175.0 + blink) * max(0.0, 1.0 - abs(d - rim) / (1.6 * k))
       # The impact site flashes hardest — a bright pressed patch on the rim.
-      alpha += 60.0 * ease * impact * max(0.0, 1.0 - abs(d - rim) / 2.2)
+      alpha += 60.0 * ease * impact * max(0.0, 1.0 - abs(d - rim) / (2.2 * k))
       if d < rim:
         alpha = max(alpha, 20.0 + 14.0 * ease)
       # Specular glint where the upper-left rim catches the light.
       let glintD = sqrt((dx - glintX) * (dx - glintX) +
         (dy - glintY) * (dy - glintY))
-      alpha = min(235.0, alpha + 120.0 * max(0.0, 1.0 - glintD / 4.5))
+      alpha = min(235.0, alpha + 120.0 * max(0.0, 1.0 - glintD / (4.5 * k)))
       result.putRawRgbaPixel(
-        y * ShieldBubbleSize + x,
+        y * outSize + x,
         uint8(min(255.0, 175.0 + 60.0 * ease * impact)),
         uint8(min(255.0, 222.0 + 25.0 * ease * impact)),
         255,
         uint8(alpha)
       )
 
-proc buildShieldBubbleSprite(): seq[uint8] =
+proc buildShieldBubbleSprite(scale = 1): seq[uint8] =
   ## The idle (no recent impact) carrier bubble.
-  buildShieldBubblePixels(-1, 0)
+  buildShieldBubblePixels(-1, 0, scale)
 
 proc buildPlasmaArcIcon(size: int): seq[uint8] {.measure.} =
   ## Builds a small, readable plasma arc emitter icon for pickups and
@@ -2755,51 +2807,88 @@ proc addPlayerActorSprites(
   packet: var seq[uint8],
   selected: bool
 ) {.measure.} =
-  ## Adds the pre-rotated top-down soldier sprites used by both views: one
-  ## SoldierRotations-step set per team, plus a selected-outlined set for the
-  ## map view. Replaces the old flat 8-variant + horizontal-flip crew set — the
-  ## soldier's held paintball gun now sweeps with the aim angle instead.
+  ## Adds the pre-rotated top-down soldier sprites. The two views split here:
+  ##
+  ## - The BOARD (`selected` = true) draws each cog as a tank: a movement-facing
+  ##   BASE with an aim-facing TURRET stacked on top, plus a selected-outlined
+  ##   turret set. It never draws corpses (the board loop skips dead players)
+  ##   nor the one-piece sprite, so those are omitted to save wire bytes.
+  ## - The POV/RL view (`selected` = false) keeps the one-piece `player`/`corpse`
+  ##   sprites so the observed cog and its label are unchanged.
+  ##
+  ## Both keep the documented `player <color> <side>` / `corpse <color> <side>`
+  ## / `selected player <color> <side>` labels (RULES.md) so exact-match label
+  ## readers keep working; distinct rotation ids may share a side label — the
+  ## client keys sprites by id, not label, so that is harmless.
   for team in Team:
     let color = teamText(team)
     for rot in 0 ..< SoldierRotations:
-      let
-        # Raster natively at the emission scale: the ~120px painted masters
-        # carry real detail the 1× 34px body footprint throws away.
-        pixels = soldierRotPixels(team, rot, boardScale)
-        side = if soldierFacingRight(rot): " right" else: " left"
-      # The HD sprite keeps its full 16-step rotation for the VISUAL; the label
-      # stays the documented `player <color> <side>` (RULES.md) so exact-match
-      # label readers keep working. Distinct rotation ids may share a side label
-      # — the client keys sprites by id, not label, so that is harmless.
-      packet.addBoardSpriteChanged(
-        spriteDefs,
-        soldierPlayerSpriteId(team, rot),
-        SoldierCanvas,
-        SoldierCanvas,
-        pixels,
-        "player " & color & side,
-        native = boardScale
-      )
-      # A grey desaturated corpse per rotation: the ghost view shows fallen
-      # bodies, and the documented `corpse <color> <side>` label (RULES.md)
-      # keeps a label-scanning policy from mistaking a body for a live enemy.
-      packet.addBoardSpriteChanged(
-        spriteDefs,
-        corpseSoldierSpriteId(team, rot),
-        SoldierCanvas,
-        SoldierCanvas,
-        soldierCorpse(pixels),
-        "corpse " & color & side,
-        native = boardScale
-      )
+      let side = if soldierFacingRight(rot): " right" else: " left"
       if selected:
+        # Board tank base (movement) + turret (aim), each pre-rotated. Raster
+        # natively at the emission scale: the ~120px painted masters carry real
+        # detail the 1× 34px body footprint throws away.
+        let
+          basePixels = soldierBasePixels(team, rot, boardScale)
+          turretPixels = soldierTurretPixels(team, rot, boardScale)
         packet.addBoardSpriteChanged(
           spriteDefs,
-          selectedSoldierPlayerSpriteId(team, rot),
+          soldierBaseSpriteId(team, rot),
           SoldierCanvas,
           SoldierCanvas,
-          soldierOutlined(pixels, 8'u8, boardScale),
+          basePixels,
+          "player " & color & side,
+          native = boardScale
+        )
+        packet.addBoardSpriteChanged(
+          spriteDefs,
+          soldierTurretSpriteId(team, rot),
+          SoldierCanvas,
+          SoldierCanvas,
+          turretPixels,
+          "player " & color & side,
+          native = boardScale
+        )
+        packet.addBoardSpriteChanged(
+          spriteDefs,
+          selectedTurretSpriteId(team, rot),
+          SoldierCanvas,
+          SoldierCanvas,
+          soldierOutlined(turretPixels, 8'u8, boardScale),
           "selected player " & color & side,
+          native = boardScale
+        )
+        packet.addBoardSpriteChanged(
+          spriteDefs,
+          selectedBaseSpriteId(team, rot),
+          SoldierCanvas,
+          SoldierCanvas,
+          soldierOutlined(basePixels, 8'u8, boardScale),
+          "selected player " & color & side,
+          native = boardScale
+        )
+      else:
+        # POV/RL one-piece cog (body + gun aim together) + its grey corpse.
+        let pixels = soldierRotPixels(team, rot, boardScale)
+        packet.addBoardSpriteChanged(
+          spriteDefs,
+          soldierPlayerSpriteId(team, rot),
+          SoldierCanvas,
+          SoldierCanvas,
+          pixels,
+          "player " & color & side,
+          native = boardScale
+        )
+        # A grey desaturated corpse per rotation: the ghost view shows fallen
+        # bodies, and the documented `corpse <color> <side>` label keeps a
+        # label-scanning policy from mistaking a body for a live enemy.
+        packet.addBoardSpriteChanged(
+          spriteDefs,
+          corpseSoldierSpriteId(team, rot),
+          SoldierCanvas,
+          SoldierCanvas,
+          soldierCorpse(pixels),
+          "corpse " & color & side,
           native = boardScale
         )
 
@@ -3169,6 +3258,32 @@ proc spriteActorSpriteId(player: Player, selectedJoinOrder: int): int =
     selectedSoldierPlayerSpriteId(player.team, rot)
   else:
     soldierPlayerSpriteId(player.team, rot)
+
+proc spriteBaseSpriteId(
+    player: Player, drive: CogDriveState, selectedJoinOrder: int): int =
+  ## The board tank BASE sprite for a player: pre-rotated to the drive
+  ## controller's eased BODY HEADING (slow nose, reverse hysteresis — see
+  ## stepCogDrive), NOT the raw velocity direction, which would flip the
+  ## chassis 180 degrees the instant a cog backs up. Falls back to the raw
+  ## movement step only before the controller's first step. Outlined (like
+  ## the turret) when this is the map view's selected cog, so the selection
+  ## highlight wraps the whole silhouette.
+  let rot =
+    if drive.initialized: soldierRotIndex(drive.bodyHeading)
+    else: soldierMoveRotIndex(player.velX, player.velY, player.aimBrads)
+  if player.joinOrder == selectedJoinOrder:
+    selectedBaseSpriteId(player.team, rot)
+  else:
+    soldierBaseSpriteId(player.team, rot)
+
+proc spriteTurretSpriteId(player: Player, selectedJoinOrder: int): int =
+  ## The board tank TURRET sprite for a player: pre-rotated to its AIM angle,
+  ## outlined when it is the map view's selected cog.
+  let rot = soldierRotIndex(player.aimBrads)
+  if player.joinOrder == selectedJoinOrder:
+    selectedTurretSpriteId(player.team, rot)
+  else:
+    soldierTurretSpriteId(player.team, rot)
 
 proc selectSpritePlayer(
   sim: SimServer,
@@ -3564,9 +3679,11 @@ proc addShields(
   viewerIndex = -1
 ) {.measure.} =
   ## Places the two endzone shield pickups (fog-gated by map position like the
-  ## med kits) plus a small "shield carried" marker over anyone holding one
-  ## (gated on seeing that player), plus a protective bubble drawn around a
-  ## carrier while the shield layer holds (it pops when shieldHp hits 0).
+  ## med kits) plus the carrier visual for anyone holding one (gated on seeing
+  ## that player): a protective forcefield bubble drawn AROUND the cog while
+  ## the shield's armor layer holds (shieldHp > 0), falling back to the small
+  ## overhead "shield carried" marker once the layer is spent (the fire
+  ## slowdown persists, so the state stays readable) — never both at once.
   ## The map/replay view passes no viewer and shows all. Sprites are defined
   ## lazily on first need per connection.
   for i in 0 ..< sim.shieldSpawns.len:
@@ -3599,22 +3716,26 @@ proc addShields(
       sim.playerVisibleTo(viewerIndex, i)
     if not seeMe:
       continue
-    if spriteDefs.spriteDefinitionIndex(ShieldCarrySpriteId) < 0:
-      packet.addBoardSpriteChanged(
-        spriteDefs, ShieldCarrySpriteId,
-        ShieldCarrySize, ShieldCarrySize,
-        loadShieldSprite(ShieldCarrySize * boardScale), "shield carried",
-        native = boardScale
+    if player.shieldHp <= 0:
+      # Bubble popped (the armor layer is spent) but the shield — and its fire
+      # slowdown — is still carried: the small overhead marker keeps that
+      # readable without re-drawing a forcefield the layer no longer backs.
+      if spriteDefs.spriteDefinitionIndex(ShieldCarrySpriteId) < 0:
+        packet.addBoardSpriteChanged(
+          spriteDefs, ShieldCarrySpriteId,
+          ShieldCarrySize, ShieldCarrySize,
+          loadShieldSprite(ShieldCarrySize * boardScale), "shield carried",
+          native = boardScale
+        )
+      let objectId = ShieldCarryObjectBase + i
+      currentIds.add(objectId)
+      packet.addBoardObject(
+        objectId,
+        player.x + CollisionW div 2 - HpBarWidth div 2 - ShieldCarrySize div 2,
+        player.overheadAnchorY() - OverheadYOffset - ShieldCarrySize,
+        30006, MapLayerId, ShieldCarrySpriteId
       )
-    let objectId = ShieldCarryObjectBase + i
-    currentIds.add(objectId)
-    packet.addBoardObject(
-      objectId,
-      player.x + CollisionW div 2 - HpBarWidth div 2 - ShieldCarrySize div 2,
-      player.overheadAnchorY() - OverheadYOffset - ShieldCarrySize,
-      30006, MapLayerId, ShieldCarrySpriteId
-    )
-    if player.shieldHp > 0:
+    else:
       # A fresh impact swaps the idle bubble for a blink/dent variant keyed by
       # the impact direction and age — the newest impact wins if several
       # shooters connected within the FX window.
@@ -3644,14 +3765,16 @@ proc addShields(
           packet.addBoardSpriteChanged(
             spriteDefs, bubbleSpriteId,
             ShieldBubbleSize, ShieldBubbleSize,
-            buildShieldBubblePixels(bucket, stage),
-            "shield bubble hit"
+            buildShieldBubblePixels(bucket, stage, boardScale),
+            "shield bubble hit",
+            native = boardScale
           )
       elif spriteDefs.spriteDefinitionIndex(ShieldBubbleSpriteId) < 0:
         packet.addBoardSpriteChanged(
           spriteDefs, ShieldBubbleSpriteId,
           ShieldBubbleSize, ShieldBubbleSize,
-          buildShieldBubbleSprite(), "shield bubble"
+          buildShieldBubbleSprite(boardScale), "shield bubble",
+          native = boardScale
         )
       let
         bubbleId = ShieldBubbleObjectBase + i
@@ -4889,19 +5012,68 @@ proc buildSpriteProtocolUpdates*(
   sim.addHpPips(nextState.spriteDefs, currentIds, result)
   sim.addUnitTags(nextState.spriteDefs, currentIds, result)
 
+  # Advance the segmented-base driving animation one frame per player. A single
+  # forward tick integrates the steering; a non-sequential tick (scrub/seek or a
+  # fresh game) SNAPS each cog to face its current aim so playback never inherits
+  # a stale heading from before the jump. Broadcast-only: reads velX/velY/aimBrads
+  # (already in the recorded state), writes only viewer state, never the gameHash.
+  # The controller is FRAME-rate based, not tick based: at playback speeds > 1
+  # the sim advances several ticks per rendered frame, so any small forward
+  # jump (up to the 16x top speed) still counts as one animation step — the
+  # steering animates in real time at every speed instead of only at 1x. A
+  # tick that did not advance (pause / frame hold) keeps the pose untouched
+  # rather than snapping it back to the aim.
+  const MaxSmoothStepTicks = 16   ## = the top replay playback speed.
+  # cogDriveTick starts at low(int) ("never stepped"); guard the subtraction
+  # or the very first frame's delta overflows. A first frame always snaps.
+  let neverStepped = nextState.cogDriveTick == low(int)
+  let tickDelta =
+    if neverStepped: 0
+    else: sim.tickCount - nextState.cogDriveTick
+  if neverStepped or tickDelta != 0:
+    let sequential = not neverStepped and
+      tickDelta >= 1 and tickDelta <= MaxSmoothStepTicks
+    for i in 0 ..< sim.players.len:
+      let p = sim.players[i]
+      if not p.alive:
+        nextState.cogDrive[i] = initCogDriveState(p.aimBrads)
+      elif sequential and nextState.cogDrive[i].initialized:
+        nextState.cogDrive[i] = stepCogDrive(
+          nextState.cogDrive[i], p.velX, p.velY, p.aimBrads)
+      else:
+        nextState.cogDrive[i] = initCogDriveState(p.aimBrads)
+    nextState.cogDriveTick = sim.tickCount
+
   for playerIndex in 0 ..< sim.players.len:
     let player = sim.players[playerIndex]
     if not player.alive:
       continue
-    let objectId = player.spriteObjectId()
-    currentIds.add(objectId)
+    # The cog draws as a tank: a movement-facing BASE with an aim-facing TURRET
+    # stacked on top, each its own object so they can rotate independently. The
+    # base sits at z = player.y - 1 and the turret at z = player.y + 1, leaving
+    # player.y between them for a carried heart to be cradled (wheels < heart <
+    # head, the Cogs-vs-Clips carry pose; the heart rides at flag.y below).
+    let
+      baseObjectId = player.spriteObjectId()
+      turretObjectId = PlayerTurretObjectBase + player.joinOrder
+    currentIds.add(baseObjectId)
     result.addBoardObject(
-      objectId,
+      baseObjectId,
       player.spritePlayerX(),
       player.spritePlayerY(),
-      player.y,
+      player.y - 1,
       MapLayerId,
-      player.spriteActorSpriteId(nextState.selectedJoinOrder)
+      player.spriteBaseSpriteId(
+        nextState.cogDrive[playerIndex], nextState.selectedJoinOrder)
+    )
+    currentIds.add(turretObjectId)
+    result.addBoardObject(
+      turretObjectId,
+      player.spritePlayerX(),
+      player.spritePlayerY(),
+      player.y + 1,
+      MapLayerId,
+      player.spriteTurretSpriteId(nextState.selectedJoinOrder)
     )
     if sim.config.showPlayerLabels:
       let flagTeamOrd = sim.carriedFlagTeam(playerIndex)
@@ -4961,15 +5133,23 @@ proc buildSpriteProtocolUpdates*(
       )
     currentIds.add(objectId)
     if flag.carrier >= 0:
-      # Carried: the heart rides BEHIND the carrier (z below the player), so the
-      # runner's body stays the readable figure and the heart peeks out around
-      # them instead of covering them. Centered on the carrier; the aura +
-      # nameplate still mark WHO runs it.
+      # Carried: the heart is CRADLED between the cog's two halves — z above the
+      # movement base (flag.y - 1) but below the aim turret (flag.y + 1), so the
+      # head cube's chin reads OVER the heart while the wheels sit behind it (the
+      # Cogs-vs-Clips carry pose). flag.y == the carrier's center, so this z sits
+      # exactly between the base and turret objects emitted above. The head cube
+      # is centered and on top, so the heart also rides CarryHeartFwdPx FORWARD
+      # along the carrier's aim to peek out ahead of the head instead of hiding
+      # under it; the turret gun still pokes past along the aim ray (a
+      # heart-carrier can still shoot), and the aura + nameplate mark WHO runs
+      # it. BROADCAST ONLY: the POV/RL heart (buildSpriteProtocolPlayerUpdates)
+      # still rides behind so the observed carrier position is unchanged.
+      let aim = aimVector(sim.players[flag.carrier].aimBrads)
       result.addBoardObject(
         objectId,
-        flag.x - FlagBannerW div 2,
-        flag.y - FlagBannerH div 2,
-        flag.y - 1,
+        flag.x + int(round(aim.x * float(CarryHeartFwdPx))) - FlagBannerW div 2,
+        flag.y + int(round(aim.y * float(CarryHeartFwdPx))) - FlagBannerH div 2,
+        flag.y,
         MapLayerId,
         FlagSpriteBase + ord(team)
       )
@@ -5105,6 +5285,11 @@ proc warmBoardRenderCaches*(sim: SimServer) =
       discard sim.endzoneStripSprite(team, stage)
     for rot in 0 ..< SoldierRotations:
       discard soldierRotPixels(team, rot, RenderScale)
+      # The board's split cog: the base/turret bakes are what a global viewer
+      # actually requests, so warm them too or the first spectator connection
+      # re-pays the whole supersampled bake (the certifier-timeout trap).
+      discard soldierBasePixels(team, rot, RenderScale)
+      discard soldierTurretPixels(team, rot, RenderScale)
   discard boardTypeface()
   block:
     # Encode the map-band wire messages too: they are byte-identical for

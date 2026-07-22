@@ -1,0 +1,35 @@
+{
+  "_comment": "Authoritative cog rig from the 2D sprite rigger 'copy export'. VALIDATED: my compositor (tools/rig_preview.py) reproduces the rigger's own headless composite pixel-faithfully. Reference frame = rigger ORIGINAL layer, 866x848. Per part: pivotRef = where its bone sits in the ref frame at rest; scale = part-art-px -> ref-px; restRot deg (CSS/CW positive); boneArt = rotation center in the part's OWN art px. The legset is CUT into 3 legs, each hinging about ITS OWN hip (user placed only the rear hip; front hips = that relationship rotated about the hub, NOT the same coord reused). All 3 wheels are the SAME tire, castering about their axle (47,132); only the mount differs.",
+  "referenceFrame": { "w": 866, "h": 848 },
+  "hubRef": [433, 475],
+  "parts": {
+    "legset": { "scale": 1.191, "restRot": 0, "boneArt": [520, 569],
+                "srcLayer": "cog_layers:legset", "srcFrameW": 1031 },
+    "head":   { "scale": 0.430, "restRot": 0, "pivotRef": [437, 323], "boneArt": [217, 257],
+                "srcLayer": "cog_layers:head" }
+  },
+  "wheel": { "scale": 0.444, "scaleRear": 0.451, "boneArt": [47, 132],
+             "srcLayer": "rig_layers:wheel", "rollAxis": "long/+y",
+             "_note": "reused x3; casters 360 about axle (47,132)." },
+  "wheelMountsRef": {
+    "front_right": { "pivot": [788, 73],  "restRot": -133 },
+    "front_left":  { "pivot": [81, 75],   "restRot": 131 },
+    "rear":        { "pivot": [534, 275],  "restRot": 1 }
+  },
+  "legMountDegFromHub": { "front_right": 48.6, "front_left": 131.3, "rear": 63.2 },
+  "validated": "tools/rig_preview.py matches /tmp/rig_truth.png (rigger headless composite)",
+  "provisional": false,
+  "nativeScale": { "legset": 0.6016, "head": 0.6006, "wheel": 0.6202,
+    "_note": "art-native-px -> common-frame factor; multiply by the size dial. NOT the raw export scale." },
+  "wheelAxle": [42, 124],
+  "forkCenters": {
+    "_note": "wheel mount = the U-fork opening center per leg, in legset 1031-art px (foot point).",
+    "front_right": [904.4, 130.6], "front_left": [136.5, 125.8], "rear": [520.4, 853.1]
+  },
+  "TUNED": {
+    "_note": "Maxwell-approved feel (2026-07-22). These are the numbers to port to sim.nim.",
+    "rigSize": 0.55, "bodyTurnRate": 2, "splayAmountDeg": 86, "restTuckDeg": 45,
+    "casterRate": 32, "WFULL_degPerFrame": 3.0,
+    "model": "splay = one-sided; rest = both front legs tucked restTuck inward; steering-side leg swings OUT up to splayAmount, scaled by |turn velocity| = |heading angular velocity|/WFULL (decoupled from bodyTurnRate); wheels caster to per-foot velocity; arms gated on carryingFlag; plasma gated on hasPlasmaArc"
+  }
+}

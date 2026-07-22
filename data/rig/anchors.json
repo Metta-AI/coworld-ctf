@@ -1,0 +1,83 @@
+{
+  "canvas": [
+    1046,
+    1024
+  ],
+  "pivot": {
+    "x": 523.0,
+    "y": 412.0
+  },
+  "leg_wedge_deg": [
+    330.0,
+    90.0
+  ],
+  "teams": {
+    "blue": {
+      "rgb": [
+        74,
+        102,
+        144
+      ],
+      "wheel_mounts": [
+        {
+          "leg": "front_right",
+          "x": 983.9,
+          "y": 84.9,
+          "angle_deg": 35.4,
+          "radius": 565.2
+        },
+        {
+          "leg": "front_left",
+          "x": 58.9,
+          "y": 84.6,
+          "angle_deg": 144.8,
+          "radius": 568.0
+        },
+        {
+          "leg": "rear",
+          "x": 526.3,
+          "y": 939.3,
+          "angle_deg": 270.4,
+          "radius": 527.3
+        }
+      ]
+    },
+    "red": {
+      "rgb": [
+        166,
+        66,
+        45
+      ],
+      "wheel_mounts": [
+        {
+          "leg": "front_right",
+          "x": 983.9,
+          "y": 84.9,
+          "angle_deg": 35.4,
+          "radius": 565.2
+        },
+        {
+          "leg": "front_left",
+          "x": 58.9,
+          "y": 84.6,
+          "angle_deg": 144.8,
+          "radius": 568.0
+        },
+        {
+          "leg": "rear",
+          "x": 526.3,
+          "y": 939.3,
+          "angle_deg": 270.4,
+          "radius": 527.3
+        }
+      ]
+    }
+  },
+  "wheel": {
+    "w": 84,
+    "h": 250,
+    "axle_x": 43.6,
+    "axle_y": 121.2,
+    "roll_axis": "long/+y"
+  }
+}

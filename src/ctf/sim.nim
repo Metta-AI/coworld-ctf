@@ -31,6 +31,12 @@ const
   SoldierRotations* = 16      ## pre-rendered aim steps (16 brads apart).
   SoldierCanvas* = 72         ## px square sprite canvas (fits the swinging gun).
   SoldierBodyPx* = 34         ## cog body target size on the map (full-body unit).
+  SoldierTurretCutRow* = 61   ## master row splitting the swiveling TURRET (head
+                              ## cube + smile visor, rows above) from the moving
+                              ## BASE (chassis + wheels, rows below). Geometric,
+                              ## so it is identical for both teams (their masters
+                              ## share byte-identical alpha, only the tint
+                              ## differs). See the base/turret split above.
   GunLengthPx* = 26           ## gun master length on the map, grip to muzzle.
   GunGripPx* = 8              ## gun grip offset from the body center, along aim.
   CollisionW* = 1
@@ -695,21 +701,42 @@ proc loadPaintBombSprite*(size: int): seq[uint8] =
   ## pickup, the carried icon, and the in-flight projectile.
   loadRgbaSprite("data/paintbomb.png", size)
 
-## --- HD top-down soldier: CvC cog + gun, rotated as one rigid unit ---
+## --- HD top-down soldier: CvC cog as a tank BASE + TURRET ---
 ## Each team's master (soldier_red/blue.png) is the canonical Cogs-vs-Clips cog
 ## facing SOUTH, smile visor visible, used exactly as drawn. It is measured for
 ## its body pivot (solid-pixel centroid) and scaled so the body fills
 ## SoldierBodyPx. The shared gun master (paintgun.png: muzzle east, barrel
 ## centerline at image mid-height) mounts GunGripPx east of the body center
-## with its barrel on the aim ray, and body + gun pre-rotate TOGETHER around
-## the body center — the cog spins with its gun, so east aim (rot 0) shows the
-## master exactly as drawn and tracers always line up with the muzzle.
+## with its barrel on the aim ray.
+##
+## The cog splits like a tank: the BASE (the full body — wheels, legs, chassis)
+## faces the MOVEMENT direction, and the TURRET (the head cube + smile visor +
+## the held gun, cropped from the master's top rows) swivels to face the AIM
+## direction, drawn on top of the base. Both halves rotate about the SAME body
+## pivot — a true turret ring — so when aim == movement (always true standing
+## still) the composite is pixel-identical to the old one-piece sprite; it only
+## visually diverges when strafing/backpedaling, exactly when the split reads
+## best. The base is the FULL body (not just wheels) so the silhouette is
+## always complete under the swiveling turret — no seam gap.
+##
+## BROADCAST/SPECTATOR ONLY: the base/turret split is a render convenience on
+## the zoomable board. The RL-observed POV path keeps the unified one-piece
+## sprite, so player observations (and the gameHash) are unchanged.
 var
   soldierMasters: array[Team, Image]
   soldierPivotX, soldierPivotY: array[Team, float]
   soldierScale: array[Team, float]
+  ## The turret gun's mount in unit space (+x = aim, +y = the cog's RIGHT hand),
+  ## measured from the head box so the gun rides the head's right FACE, off the
+  ## aim ray — it doesn't cover a carried heart (which rides forward on the aim
+  ## ray). Approved by the CvC carry-pose review; see soldierGunMat.
+  soldierGunFwd, soldierGunSide: array[Team, float]
   soldierLoaded: array[Team, bool]
   soldierRotCache: array[Team, array[SoldierRotations, seq[tuple[
+    scale: int, pixels: seq[uint8]]]]]
+  soldierBaseCache: array[Team, array[SoldierRotations, seq[tuple[
+    scale: int, pixels: seq[uint8]]]]]
+  soldierTurretCache: array[Team, array[SoldierRotations, seq[tuple[
     scale: int, pixels: seq[uint8]]]]]
   gunMaster: Image
   gunScale: float
@@ -743,6 +770,31 @@ proc measureSoldierBody(team: Team, master: Image) =
     soldierPivotY[team] = sumY / float(n)
     soldierScale[team] = float(SoldierBodyPx) / max(1.0, float(bot - top + 1))
 
+  # Measure the HEAD box (solid pixels above the turret cut) for the gun mount:
+  # its center along the aim axis and its left (= the cog's RIGHT hand) face.
+  # The master faces SOUTH, so master +y = aim (unit +x) and the cog's right
+  # hand is master -x (image left). The gun rides the RIGHT FACE, off the aim
+  # ray, so it never covers a heart carried forward on the aim ray.
+  var
+    headMinX = master.width
+    headSumY = 0.0
+    headN = 0
+  for y in 0 ..< min(SoldierTurretCutRow, master.height):
+    for x in 0 ..< master.width:
+      if master.data[y * master.width + x].a >= 200:
+        headMinX = min(headMinX, x)
+        headSumY += float(y)
+        inc headN
+  let
+    headCy = headSumY / float(max(1, headN))
+    bodyScale = soldierScale[team]
+  # Unit-space mount, in map px. The +3px outboard delta and −2px inward tuck
+  # are the CvC carry-pose review's locked deltas — do NOT retune without a
+  # fresh review (see cvc-carry-pose-final-spec).
+  soldierGunFwd[team] = (headCy - soldierPivotY[team]) * bodyScale
+  soldierGunSide[team] = (soldierPivotX[team] - float(headMinX)) * bodyScale -
+    2.0 + 3.0
+
 proc ensureSoldierLoaded(team: Team) =
   if soldierLoaded[team]:
     return
@@ -758,13 +810,93 @@ proc ensureGunLoaded() =
   gunScale = float(GunLengthPx) / max(1.0, float(gunMaster.width))
   gunLoaded = true
 
+proc soldierBodyMat(team: Team, angle: float, renderScale: int): Mat3 =
+  ## The master->canvas transform for one rotation step: unit space +x = aim,
+  ## and the extra -90° turns the SOUTH-facing master so its smile visor points
+  ## along +x. The body pivot lands on the canvas center, so both the base and
+  ## the turret share this same ring — they rotate about the one body pivot.
+  let
+    outCanvas = SoldierCanvas * renderScale
+    s = soldierScale[team] * float(renderScale)
+    center = float32(outCanvas) / 2
+  translate(vec2(center, center)) *
+    rotate(float32(-angle)) *
+    rotate(float32(-PI / 2)) *
+    scale(vec2(float32(s), float32(s))) *
+    translate(vec2(float32(-soldierPivotX[team]), float32(-soldierPivotY[team])))
+
+proc soldierGunMat(angle: float, renderScale: int): Mat3 =
+  ## The POV/unified gun transform: the grip end of the barrel centerline mounts
+  ## GunGripPx east of the body center ALONG the aim ray and swings with the
+  ## unit. Used only by the one-piece POV/RL sprite, where the gun leads the aim.
+  let
+    outCanvas = SoldierCanvas * renderScale
+    center = float32(outCanvas) / 2
+  translate(vec2(center, center)) *
+    rotate(float32(-angle)) *
+    translate(vec2(float32(GunGripPx * renderScale), 0)) *
+    scale(vec2(
+      float32(gunScale * float(renderScale)),
+      float32(gunScale * float(renderScale))
+    )) *
+    translate(vec2(0, float32(-gunMaster.height) / 2))
+
+proc soldierTurretGunMat(team: Team, angle: float, renderScale: int): Mat3 =
+  ## The TURRET gun transform (broadcast board): the gun is anchored by its
+  ## MID-LENGTH (the handle, image center) at (soldierGunFwd, soldierGunSide) in
+  ## unit space — the head's RIGHT FACE, OFF the aim ray — and vertically
+  ## flipped (mirrored across the barrel midline, y' = h - y) so the hopper
+  ## faces outboard while the muzzle still points along +aim (tracers keep
+  ## lining up). Riding the right face, it never covers a heart carried forward
+  ## on the aim ray. Numbers locked by the CvC carry-pose review.
+  let
+    outCanvas = SoldierCanvas * renderScale
+    center = float32(outCanvas) / 2
+    k = float(renderScale)
+  translate(vec2(center, center)) *
+    rotate(float32(-angle)) *
+    translate(vec2(
+      float32(soldierGunFwd[team] * k), float32(soldierGunSide[team] * k))) *
+    scale(vec2(
+      float32(gunScale * k), float32(gunScale * k))) *
+    translate(vec2(
+      float32(-gunMaster.width) / 2, float32(-gunMaster.height) / 2)) *
+    translate(vec2(0, float32(gunMaster.height))) *
+    scale(vec2(1, -1))
+
+proc soldierCanvasToPixels(canvas: Image): seq[uint8] =
+  ## Straight-alpha RGBA for the Sprite v1 protocol (pixie stores premultiplied).
+  let n = canvas.width * canvas.height
+  result = newSeq[uint8](n * 4)
+  for i in 0 ..< n:
+    let c = canvas.data[i].rgba()
+    result[i * 4] = c.r
+    result[i * 4 + 1] = c.g
+    result[i * 4 + 2] = c.b
+    result[i * 4 + 3] = c.a
+
+proc soldierMasterCropped(team: Team, keepTop: bool): Image =
+  ## A copy of the team master with only the TURRET rows (rows < the cut row,
+  ## when keepTop) or only the BASE rows (rows >= the cut, otherwise) kept; the
+  ## other rows go fully transparent. The cut is measured in master pixels, so
+  ## it tracks the art, not the down-scaled body size.
+  let master = soldierMasters[team]
+  result = newImage(master.width, master.height)
+  for y in 0 ..< master.height:
+    let inHalf = (y < SoldierTurretCutRow) == keepTop
+    if not inHalf:
+      continue
+    for x in 0 ..< master.width:
+      result.data[y * master.width + x] = master.data[y * master.width + x]
+
 proc soldierRotPixels*(team: Team, rot: int, renderScale = 1): seq[uint8] =
-  ## One pre-rendered soldier sprite (SoldierCanvas·renderScale square,
+  ## One pre-rendered UNIFIED soldier sprite (SoldierCanvas·renderScale square,
   ## straight-alpha RGBA): body + gun as one rigid unit, rotated to aim step
   ## `rot`. The master's FACE side (south) leads the aim with the gun held in
   ## front of it — aiming south shows the master exactly as drawn. The masters
   ## are ~120px art rendered down to a 34px body at 1×, so a renderScale > 1
-  ## raster recovers genuine painted detail, not upscaled blocks.
+  ## raster recovers genuine painted detail, not upscaled blocks. Used by the
+  ## POV/RL view and anywhere the whole cog aims as one piece (corpses, icons).
   let r = ((rot mod SoldierRotations) + SoldierRotations) mod SoldierRotations
   for cached in soldierRotCache[team][r]:
     if cached.scale == renderScale:
@@ -772,56 +904,257 @@ proc soldierRotPixels*(team: Team, rot: int, renderScale = 1): seq[uint8] =
   ensureSoldierLoaded(team)
   ensureGunLoaded()
   let
-    master = soldierMasters[team]
     outCanvas = SoldierCanvas * renderScale
     # aim increases counter-clockwise on screen (0=east, 64=north); screen y is
     # down, so a positive brad step rotates the art clockwise in image space —
     # i.e. draw at angle -theta to match aimVector.
     angle = float(r) * 2.0 * PI / float(SoldierRotations)
-    s = soldierScale[team] * float(renderScale)
-    center = float32(outCanvas) / 2
   var canvas = newImage(outCanvas, outCanvas)
-  let
-    unitRot =
-      translate(vec2(center, center)) *
-      rotate(float32(-angle))
-    # Unit space: +x = aim. The extra -90° turns the master so its SOUTH side
-    # (the smile visor) points along +x — the face leads the aim, right behind
-    # the gun.
-    bodyMat =
-      unitRot *
-      rotate(float32(-PI / 2)) *
-      scale(vec2(float32(s), float32(s))) *
-      translate(
-        vec2(float32(-soldierPivotX[team]), float32(-soldierPivotY[team]))
-      )
-    # Gun-local (0, height/2) — the grip end of the barrel centerline — mounts
-    # GunGripPx east of the body center and spins with the unit.
-    gunMat =
-      unitRot *
-      translate(vec2(float32(GunGripPx * renderScale), 0)) *
-      scale(vec2(
-        float32(gunScale * float(renderScale)),
-        float32(gunScale * float(renderScale))
-      )) *
-      translate(vec2(0, float32(-gunMaster.height) / 2))
-  canvas.draw(master, bodyMat)
-  canvas.draw(gunMaster, gunMat)
-  # Straight-alpha RGBA for the Sprite v1 protocol (pixie stores premultiplied).
-  var pixels = newSeq[uint8](outCanvas * outCanvas * 4)
-  for i in 0 ..< outCanvas * outCanvas:
-    let c = canvas.data[i].rgba()
-    pixels[i * 4] = c.r
-    pixels[i * 4 + 1] = c.g
-    pixels[i * 4 + 2] = c.b
-    pixels[i * 4 + 3] = c.a
+  canvas.draw(soldierMasters[team], soldierBodyMat(team, angle, renderScale))
+  canvas.draw(gunMaster, soldierGunMat(angle, renderScale))
+  let pixels = soldierCanvasToPixels(canvas)
   soldierRotCache[team][r].add((scale: renderScale, pixels: pixels))
+  pixels
+
+proc soldierBasePixels*(team: Team, rot: int, renderScale = 1): seq[uint8] =
+  ## The tank BASE at movement step `rot`: the cog's LOWER body only — chassis,
+  ## legs, wheels (master rows at/below SoldierTurretCutRow), NO head cube and
+  ## NO face — rotated to the MOVEMENT direction and drawn UNDER the turret. The
+  ## head + face live ONLY on the turret, so a cog whose aim and movement
+  ## diverge shows exactly one head, not two. Same pivot/ring as the turret, so
+  ## base+turret at rot==aim reassembles the whole cog.
+  let r = ((rot mod SoldierRotations) + SoldierRotations) mod SoldierRotations
+  for cached in soldierBaseCache[team][r]:
+    if cached.scale == renderScale:
+      return cached.pixels
+  ensureSoldierLoaded(team)
+  let
+    outCanvas = SoldierCanvas * renderScale
+    angle = float(r) * 2.0 * PI / float(SoldierRotations)
+  var canvas = newImage(outCanvas, outCanvas)
+  canvas.draw(soldierMasterCropped(team, keepTop = false),
+    soldierBodyMat(team, angle, renderScale))
+  let pixels = soldierCanvasToPixels(canvas)
+  soldierBaseCache[team][r].add((scale: renderScale, pixels: pixels))
+  pixels
+
+proc soldierTurretPixels*(team: Team, rot: int, renderScale = 1): seq[uint8] =
+  ## The tank TURRET at aim step `rot`: the head cube + smile visor (master rows
+  ## above SoldierTurretCutRow) plus the held gun, rotated to the aim direction
+  ## and drawn OVER the base. Same pivot/ring as the base, so it swivels about
+  ## the one body center like a turret on a hull.
+  let r = ((rot mod SoldierRotations) + SoldierRotations) mod SoldierRotations
+  for cached in soldierTurretCache[team][r]:
+    if cached.scale == renderScale:
+      return cached.pixels
+  ensureSoldierLoaded(team)
+  ensureGunLoaded()
+  let
+    outCanvas = SoldierCanvas * renderScale
+    angle = float(r) * 2.0 * PI / float(SoldierRotations)
+  var canvas = newImage(outCanvas, outCanvas)
+  canvas.draw(soldierMasterCropped(team, keepTop = true),
+    soldierBodyMat(team, angle, renderScale))
+  canvas.draw(gunMaster, soldierTurretGunMat(team, angle, renderScale))
+  let pixels = soldierCanvasToPixels(canvas)
+  soldierTurretCache[team][r].add((scale: renderScale, pixels: pixels))
   pixels
 
 proc soldierRotIndex*(aimBrads: int): int =
   ## Quantizes an aim angle to the nearest pre-rotated sprite step.
   ((aimBrads + AimBradsTurn div (SoldierRotations * 2)) *
     SoldierRotations div AimBradsTurn) mod SoldierRotations
+
+proc bradsOfVector*(dx, dy: int): int =
+  ## Returns the aim-brads angle of a map-space vector — the inverse of
+  ## `aimVector` (screen y points down, so north is -y).
+  if dx == 0 and dy == 0:
+    return 0
+  let brads = int(round(
+    arctan2(-float(dy), float(dx)) * float(AimBradsTurn div 2) / PI))
+  ((brads mod AimBradsTurn) + AimBradsTurn) mod AimBradsTurn
+
+proc soldierMoveRotIndex*(velX, velY, lastAimBrads: int): int =
+  ## The movement-direction sprite step for the tank base. Below the stop
+  ## threshold the velocity direction is meaningless (a still cog would jitter),
+  ## so the base falls back to the aim step — a standing cog faces where it
+  ## looks, reproducing the one-piece pose. `bradsOfVector` inverts `aimVector`.
+  if abs(velX) < StopThreshold and abs(velY) < StopThreshold:
+    return soldierRotIndex(lastAimBrads)
+  soldierRotIndex(bradsOfVector(velX, velY))
+
+## --- Cog driving physics: how the segmented base steers/turns (broadcast-only) ---
+## The base is a 3-wheeled cog (2 front legs, 1 rear). Rigidly rotating the whole
+## base to the velocity vector is wrong: it flips 180° on reverse and scrapes the
+## tyres sideways on a strafe. Instead we model a real vehicle:
+##  - Each WHEEL casters (turns about its own vertical axis) toward the travel
+##    direction almost instantly, so a wheel always rolls the way it points and
+##    never scrapes — even on a hard strafe.
+##  - The BODY HEADING (where the chassis faces) changes SLOWLY by driving. When
+##    the travel direction is behind the body it must choose: back up briefly, or
+##    commit and turn around. That choice is a COMMITMENT timer with hysteresis.
+## Everything derives from the already-known velocity, so it stays broadcast-only
+## (no sim state, no gameHash, replay-deterministic given the recorded velocities).
+
+const
+  CogBodyTurnRate* = 10       ## max brads/frame the BODY heading eases around
+                              ## (~14°/frame at full tilt; scaled down by speed).
+  CogWheelTurnRate* = 40      ## brads/frame a WHEEL casters toward travel — fast,
+                              ## so wheels never scrape (near-instant re-point).
+  CogReverseMaxBrads* = 96    ## |heading-travel| <= this (135°): stay facing and
+                              ## drive/back rather than turn — travel is "ahead
+                              ## enough". Beyond it the cog is going backwards.
+  CogReverseCommitFrames* = 12  ## ~0.5s of sustained backward travel before the
+                              ## body commits to turning around instead of just
+                              ## backing up (hysteresis against dithering).
+  CogMoveMinSpeed* = StopThreshold  ## below this |vel| the cog is parked: hold
+                                    ## heading, coast the wheels straight.
+  # --- Articulated differential-steer tuning (Maxwell-approved; see rig_def.json
+  # "TUNED"). Broadcast-only. Degrees converted to brads at AimBradsTurn=256. ---
+  CogSplayMaxBrads* = 61      ## 86° — how far the STEERING-side front leg swings
+                              ## OUT at full turn (the "splay amount").
+  CogRestTuckBrads* = 32      ## 45° — how far BOTH front legs tuck inward at rest
+                              ## (narrow stance, wheels forward).
+  CogTurnFullBrads* = 2       ## heading angular velocity (brads/frame) that maps to
+                              ## FULL splay. Splay ∝ |turn velocity| / this, so a
+                              ## slow body-turn still splays (decoupled). ~WFULL 3°.
+  CogTurnAmtEase* = 120       ## turnAmt eases toward its smoothed target this many
+                              ## milli/frame (0.12).
+
+type
+  CogDriveState* = object
+    ## Per-player broadcast animation state for the segmented base. NOT in the
+    ## sim / gameHash — lives in the viewer state, evolved once per frame.
+    initialized*: bool
+    bodyHeading*: int          ## brads the chassis currently faces.
+    wheelToe*: int             ## brads the wheels currently point (shared: the
+                               ## per-wheel splay is baked into each wheel's art;
+                               ## the toe is the common steer they all caster to).
+    reverseFrames*: int        ## consecutive frames spent travelling backward
+                               ## relative to the body heading (commit counter).
+    turnAmt*: int              ## signed differential-steer signal, −1000..1000
+                               ## (fixed-point ×1000). + = turning LEFT/CCW.
+                               ## Smoothed |heading angular velocity| / CogTurnFull,
+                               ## so it PERSISTS through a curve and is decoupled
+                               ## from the body turn rate. Drives the leg splay.
+    casterFR*, casterFL*, casterRear*: int
+                               ## brads each wheel currently points (eased toward
+                               ## that foot's actual travel direction, so a spin
+                               ## points them tangent, not sideways).
+
+proc bradDiff*(a, b: int): int =
+  ## Shortest signed difference a-b wrapped to (-128, 128] brads.
+  var d = ((a - b) mod AimBradsTurn + AimBradsTurn) mod AimBradsTurn
+  if d > AimBradsTurn div 2:
+    d -= AimBradsTurn
+  d
+
+proc easeBrads*(cur, target, maxStep: int): int =
+  ## Steps `cur` toward `target` by at most `maxStep` brads along the shortest
+  ## arc, wrapping into 0..AimBradsTurn-1.
+  let d = bradDiff(target, cur)
+  let step = clamp(d, -maxStep, maxStep)
+  ((cur + step) mod AimBradsTurn + AimBradsTurn) mod AimBradsTurn
+
+proc initCogDriveState*(aimBrads: int): CogDriveState =
+  ## A freshly-spawned cog faces where it aims, wheels aligned, not reversing,
+  ## legs at rest (turnAmt 0), each caster pointing along the body heading.
+  ## ALL animated fields reset here so a scrub/respawn never inherits a stale
+  ## limb pose (the caller snaps to this on any non-sequential tick).
+  CogDriveState(initialized: true, bodyHeading: aimBrads,
+    wheelToe: aimBrads, reverseFrames: 0, turnAmt: 0,
+    casterFR: aimBrads, casterFL: aimBrads, casterRear: aimBrads)
+
+proc stepCogArticulation(result: var CogDriveState, prev: CogDriveState,
+  velX, velY, speed: int)   ## fwd decl — defined just below stepCogDrive.
+
+proc stepCogDrive*(state: CogDriveState, velX, velY, aimBrads: int):
+    CogDriveState =
+  ## Advances the base's driving animation ONE frame from the current velocity.
+  ## Deterministic: same (state, vel, aim) always yields the same next state, so
+  ## replays reproduce it exactly. Callers snap to initCogDriveState on a scrub
+  ## (a non-sequential tick) rather than integrating across the jump.
+  if not state.initialized:
+    return initCogDriveState(aimBrads)
+
+  result = state
+  let speed = abs(velX) + abs(velY)          ## cheap L1 speed proxy.
+  if speed < CogMoveMinSpeed:
+    # Parked: hold the body heading, let the wheels coast straight ahead (ease
+    # the toe back to the body heading), decay the reverse commitment, relax the
+    # legs to rest (turnAmt→0) and coast every caster to the body heading.
+    result.wheelToe = easeBrads(state.wheelToe, state.bodyHeading,
+      CogWheelTurnRate)
+    result.reverseFrames = max(0, state.reverseFrames - 1)
+    result.turnAmt = state.turnAmt -
+      clamp(state.turnAmt, -CogTurnAmtEase, CogTurnAmtEase)
+    result.casterFR = easeBrads(state.casterFR, state.bodyHeading, CogWheelTurnRate)
+    result.casterFL = easeBrads(state.casterFL, state.bodyHeading, CogWheelTurnRate)
+    result.casterRear = easeBrads(state.casterRear, state.bodyHeading, CogWheelTurnRate)
+    return
+
+  let
+    travel = bradsOfVector(velX, velY)       ## direction of actual motion.
+    offBody = bradDiff(travel, state.bodyHeading).abs  ## |travel - heading|.
+    goingBackward = offBody > CogReverseMaxBrads
+
+  # Commitment counter: rack up while travelling backward, bleed off otherwise.
+  if goingBackward:
+    result.reverseFrames = min(state.reverseFrames + 1,
+      CogReverseCommitFrames * 2)
+  else:
+    result.reverseFrames = max(0, state.reverseFrames - 2)
+
+  # Body heading target:
+  #  - Travel ahead-ish: ease the nose toward travel (forward driving/steering).
+  #  - Travel behind AND not yet committed: HOLD heading (back up in place).
+  #  - Travel behind AND committed (timer expired): commit to turning around —
+  #    ease the nose all the way to travel (a U-turn / K-turn arc).
+  let committed = result.reverseFrames >= CogReverseCommitFrames
+  let headingTarget =
+    if goingBackward and not committed: state.bodyHeading
+    else: travel
+
+  # Steer rate falls with speed so fast runs arc wide and tight turns are slow;
+  # keep at least half-rate so the nose still tracks.
+  let turnRate = max(CogBodyTurnRate div 2,
+    CogBodyTurnRate * CogMoveMinSpeed * 4 div max(speed, CogMoveMinSpeed * 4))
+  result.bodyHeading = easeBrads(state.bodyHeading, headingTarget, turnRate)
+
+  # Wheels always caster toward the actual travel direction (fast), so they roll,
+  # never scrape — whichever way the body faces.
+  result.wheelToe = easeBrads(state.wheelToe, travel, CogWheelTurnRate)
+  stepCogArticulation(result, state, velX, velY, speed)
+
+proc stepCogArticulation(result: var CogDriveState, prev: CogDriveState,
+    velX, velY, speed: int) =
+  ## The differential-steer overlay on top of the body/wheel model above.
+  ## Ports the validated preview math (tools/build_live_html.py stepDrive/render):
+  ##  - turnAmt = EMA-smoothed signed heading angular velocity / CogTurnFull, so
+  ##    the leg splay PERSISTS through a steady curve and is decoupled from the
+  ##    body turn rate; straight => 0 (narrow), sharp curve => ±1000 (equilateral).
+  ##  - each wheel casters toward the direction ITS foot actually travels
+  ##    (body translation + the tangential ω×r of the turn), so a spin points the
+  ##    wheels tangent, not sideways.
+  # w = signed heading change this frame (brads/frame), + = LEFT/CCW.
+  let w = bradDiff(result.bodyHeading, prev.bodyHeading)
+  # instantaneous turn amount, fixed-point ×1000, clamped to ±1000.
+  let tInst = clamp(w * 1000 div max(1, CogTurnFullBrads), -1000, 1000)
+  # EMA: turnAmt = 0.7*prev + 0.3*tInst, then ease toward it (holds in a curve).
+  let smoothed = (prev.turnAmt * 7 + tInst * 3) div 10
+  result.turnAmt = prev.turnAmt +
+    clamp(smoothed - prev.turnAmt, -CogTurnAmtEase, CogTurnAmtEase)
+  # Per-wheel caster: each foot's velocity = body vel + ω×r about the hub. r is the
+  # foot's offset from the body center; ω (per frame) ≈ w. In brads, the tangential
+  # component rotates each foot's velocity toward the turn; for the broadcast look we
+  # ease each caster toward (travel ± a turn lean) so the wheels visibly lead the arc.
+  let travel = bradsOfVector(velX, velY)
+  let lean = clamp(result.turnAmt * (AimBradsTurn div 8) div 1000,
+    -(AimBradsTurn div 8), AimBradsTurn div 8)
+  # front wheels lean into the turn; the rear casters opposite (pivot foot).
+  result.casterFL = easeBrads(prev.casterFL, travel + lean, CogWheelTurnRate)
+  result.casterFR = easeBrads(prev.casterFR, travel + lean, CogWheelTurnRate)
+  result.casterRear = easeBrads(prev.casterRear, travel - lean, CogWheelTurnRate)
 
 proc soldierIconPixels*(team: Team, sizePx: int): seq[uint8] =
   ## A compact roster chip: the face-on cog scaled so the body fills the icon
@@ -2368,15 +2701,6 @@ proc aimVector*(brads: int): tuple[x, y: float] =
   ## so 64 is north (-y in map coordinates), 128 west, and 192 south.
   let angle = float(brads) * PI / float(AimBradsTurn div 2)
   (cos(angle), -sin(angle))
-
-proc bradsOfVector*(dx, dy: int): int =
-  ## Returns the aim-brads angle of a map-space vector — the inverse of
-  ## `aimVector` (screen y points down, so north is -y).
-  if dx == 0 and dy == 0:
-    return 0
-  let brads = int(round(
-    arctan2(-float(dy), float(dx)) * float(AimBradsTurn div 2) / PI))
-  ((brads mod AimBradsTurn) + AimBradsTurn) mod AimBradsTurn
 
 proc playerText(sim: SimServer, playerIndex: int): string =
   ## Returns the readable player color for one player index.
