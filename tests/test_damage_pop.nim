@@ -38,16 +38,14 @@ suite "floating damage numbers":
     game.players[shooter].team = Red
     game.players[target].team = Blue
     # Shooter aims due east (brads 0) at a target a short distance right, with
-    # spawn protection and cooldown cleared so the shot lands this tick.
+    # cooldown cleared so the shot lands this tick.
     game.players[shooter].x = game.gameMap.center.x
     game.players[shooter].y = game.gameMap.center.y
     game.players[shooter].aimBrads = 0
     game.players[shooter].windupBrads = -1
     game.players[shooter].fireCooldown = 0
-    game.players[shooter].spawnProtect = 0
     game.players[target].x = game.gameMap.center.x + 40
     game.players[target].y = game.gameMap.center.y
-    game.players[target].spawnProtect = 0
 
     let hpBefore = game.players[target].hp
     check hpBefore >= 2                     # needs a non-fatal hit to survive.
@@ -82,10 +80,8 @@ suite "floating damage numbers":
     game.players[shooter].aimBrads = 0
     game.players[shooter].windupBrads = -1
     game.players[shooter].fireCooldown = 0
-    game.players[shooter].spawnProtect = 0
     game.players[target].x = game.gameMap.center.x + 40
     game.players[target].y = game.gameMap.center.y
-    game.players[target].spawnProtect = 0
     game.players[target].hp = 1
     game.players[bystander].x = game.gameMap.center.x - 40
     game.players[bystander].y = game.gameMap.center.y

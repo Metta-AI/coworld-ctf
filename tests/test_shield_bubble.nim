@@ -93,8 +93,6 @@ suite "shield carrier bubble":
     game.startGame()
     game.players[red].team = Red
     game.players[blue].team = Blue
-    for i in 0 ..< game.players.len:
-      game.players[i].spawnProtect = 0
     # Blue shoots the bubbled carrier from the east (like test_shields).
     game.players[red].x = 300
     game.players[red].y = 300
@@ -141,8 +139,6 @@ suite "shield carrier bubble":
     game.startGame()
     game.players[red].team = Red
     game.players[blue].team = Blue
-    for i in 0 ..< game.players.len:
-      game.players[i].spawnProtect = 0
     # The carrier is already worn below the bubble threshold: no bubble, so
     # the ordinary struck-target flash and paint spark show as always.
     game.players[red].x = 300
