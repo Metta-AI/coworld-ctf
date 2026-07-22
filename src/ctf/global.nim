@@ -3236,11 +3236,16 @@ proc spriteActorSpriteId(player: Player, selectedJoinOrder: int): int =
   else:
     soldierPlayerSpriteId(player.team, rot)
 
-proc spriteBaseSpriteId(player: Player): int =
-  ## The board tank BASE sprite for a player: pre-rotated to its MOVEMENT
-  ## direction (velocity), falling back to the aim step while standing still.
-  soldierBaseSpriteId(
-    player.team, soldierMoveRotIndex(player.velX, player.velY, player.aimBrads))
+proc spriteBaseSpriteId(player: Player, drive: CogDriveState): int =
+  ## The board tank BASE sprite for a player: pre-rotated to the drive
+  ## controller's eased BODY HEADING (slow nose, reverse hysteresis — see
+  ## stepCogDrive), NOT the raw velocity direction, which would flip the
+  ## chassis 180 degrees the instant a cog backs up. Falls back to the raw
+  ## movement step only before the controller's first step.
+  let rot =
+    if drive.initialized: soldierRotIndex(drive.bodyHeading)
+    else: soldierMoveRotIndex(player.velX, player.velY, player.aimBrads)
+  soldierBaseSpriteId(player.team, rot)
 
 proc spriteTurretSpriteId(player: Player, selectedJoinOrder: int): int =
   ## The board tank TURRET sprite for a player: pre-rotated to its AIM angle,
@@ -4922,17 +4927,32 @@ proc buildSpriteProtocolUpdates*(
   # fresh game) SNAPS each cog to face its current aim so playback never inherits
   # a stale heading from before the jump. Broadcast-only: reads velX/velY/aimBrads
   # (already in the recorded state), writes only viewer state, never the gameHash.
-  let sequential = sim.tickCount == nextState.cogDriveTick + 1
-  for i in 0 ..< sim.players.len:
-    let p = sim.players[i]
-    if not p.alive:
-      nextState.cogDrive[i] = initCogDriveState(p.aimBrads)
-    elif sequential and nextState.cogDrive[i].initialized:
-      nextState.cogDrive[i] = stepCogDrive(
-        nextState.cogDrive[i], p.velX, p.velY, p.aimBrads)
-    else:
-      nextState.cogDrive[i] = initCogDriveState(p.aimBrads)
-  nextState.cogDriveTick = sim.tickCount
+  # The controller is FRAME-rate based, not tick based: at playback speeds > 1
+  # the sim advances several ticks per rendered frame, so any small forward
+  # jump (up to the 16x top speed) still counts as one animation step — the
+  # steering animates in real time at every speed instead of only at 1x. A
+  # tick that did not advance (pause / frame hold) keeps the pose untouched
+  # rather than snapping it back to the aim.
+  const MaxSmoothStepTicks = 16   ## = the top replay playback speed.
+  # cogDriveTick starts at low(int) ("never stepped"); guard the subtraction
+  # or the very first frame's delta overflows. A first frame always snaps.
+  let neverStepped = nextState.cogDriveTick == low(int)
+  let tickDelta =
+    if neverStepped: 0
+    else: sim.tickCount - nextState.cogDriveTick
+  if neverStepped or tickDelta != 0:
+    let sequential = not neverStepped and
+      tickDelta >= 1 and tickDelta <= MaxSmoothStepTicks
+    for i in 0 ..< sim.players.len:
+      let p = sim.players[i]
+      if not p.alive:
+        nextState.cogDrive[i] = initCogDriveState(p.aimBrads)
+      elif sequential and nextState.cogDrive[i].initialized:
+        nextState.cogDrive[i] = stepCogDrive(
+          nextState.cogDrive[i], p.velX, p.velY, p.aimBrads)
+      else:
+        nextState.cogDrive[i] = initCogDriveState(p.aimBrads)
+    nextState.cogDriveTick = sim.tickCount
 
   for playerIndex in 0 ..< sim.players.len:
     let player = sim.players[playerIndex]
@@ -4953,7 +4973,7 @@ proc buildSpriteProtocolUpdates*(
       player.spritePlayerY(),
       player.y - 1,
       MapLayerId,
-      player.spriteBaseSpriteId()
+      player.spriteBaseSpriteId(nextState.cogDrive[playerIndex])
     )
     currentIds.add(turretObjectId)
     result.addBoardObject(
@@ -5174,6 +5194,11 @@ proc warmBoardRenderCaches*(sim: SimServer) =
       discard sim.endzoneStripSprite(team, stage)
     for rot in 0 ..< SoldierRotations:
       discard soldierRotPixels(team, rot, RenderScale)
+      # The board's split cog: the base/turret bakes are what a global viewer
+      # actually requests, so warm them too or the first spectator connection
+      # re-pays the whole supersampled bake (the certifier-timeout trap).
+      discard soldierBasePixels(team, rot, RenderScale)
+      discard soldierTurretPixels(team, rot, RenderScale)
   discard boardTypeface()
   block:
     # Encode the map-band wire messages too: they are byte-identical for
