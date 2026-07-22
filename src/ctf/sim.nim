@@ -467,6 +467,34 @@ type
     kill*: bool                ## a fatal hit: drawn as a "KO" kill marker that
                                ## lives KillFxTicks instead of the "-N" number.
 
+  SimEventKind* = enum
+    ## Tier-2 analysis event channel (the Logs substrate). Every kind is
+    ## emitted at the exact in-sim site where the fact is known first-hand
+    ## (weapon, positions, attacker), so downstream never has to guess by
+    ## counter-diffing. Analysis-only: never enters gameHash.
+    Shot        ## a gun shot released (source = shooter).
+    Hit         ## a released shot connected with an enemy on its ray.
+    Damage      ## hit points removed (gun/plasma/grenade), amount = hp lost.
+    Kill        ## a CREDITED kill (mirrors recordKill; self-kills by own
+                ## grenade are a Death without a Kill).
+    Death       ## a player died (source = victim, target = killer).
+    FlagSteal   ## a flag left its pedestal on an enemy's back.
+    FlagReturn  ## a flag went home for any reason other than capture.
+    Capture     ## a carrier scored the enemy flag.
+    Respawn     ## a dead player came back at home.
+    Heal        ## hit points restored (med kit or shield pickup).
+
+  SimEvent* = object
+    ## One tier-2 analysis event; never enters gameHash (replay-safe).
+    ## Collected only while collectEvents is on, so live servers pay nothing.
+    tick*: int
+    kind*: SimEventKind
+    source*: int               ## acting player's stable join slot, -1 = n/a.
+    target*: int               ## affected player's stable join slot, -1 = n/a.
+    weapon*: string            ## "gun" / "plasma" / "grenade", "" = n/a.
+    amount*: int               ## hp delta for Damage/Kill/Heal, else 0.
+    x*, y*: float              ## map position where the event happened.
+
   Shout* = object
     ## One short player message, audible within ShoutRange of where it was
     ## made. Bots observe shouts, so they are gameplay state (in gameHash)
@@ -541,6 +569,10 @@ type
     isDraw*: bool
     needsReregister*: bool
     gameEventLoggingEnabled*: bool
+    collectEvents*: bool       ## tier-2 event sink switch; default off so
+                               ## live servers pay nothing (see SimEvent).
+    events*: seq[SimEvent]     ## collected tier-2 events; the extractor
+                               ## drains this every tick. Never in gameHash.
     lastLobbyPlayersLogged*: int
     lastLobbyNeededLogged*: int
     lastLobbySecondsLogged*: int
@@ -2594,8 +2626,51 @@ proc arrangeHomePositions*(sim: var SimServer) =
     sim.players[i].homeY = spawn.y
     sim.resetPlayerToHome(i)
 
+proc eventSlot(sim: SimServer, playerIndex: int): int {.inline.} =
+  ## Returns a player's stable join slot for the tier-2 event stream, so an
+  ## event survives roster changes; -1 for no/invalid player.
+  if playerIndex >= 0 and playerIndex < sim.players.len:
+    return sim.players[playerIndex].joinOrder
+  -1
+
+proc emitEvent(
+  sim: var SimServer,
+  kind: SimEventKind,
+  source = -1,
+  target = -1,
+  weapon = "",
+  amount = 0,
+  x = 0.0,
+  y = 0.0
+) {.inline.} =
+  ## Appends one tier-2 analysis event (see SimEvent); a no-op unless
+  ## collectEvents is on, so live servers pay nothing. `source` and `target`
+  ## are PLAYER INDICES here; they are recorded as stable join slots.
+  if not sim.collectEvents:
+    return
+  sim.events.add SimEvent(
+    tick: sim.tickCount,
+    kind: kind,
+    source: sim.eventSlot(source),
+    target: sim.eventSlot(target),
+    weapon: weapon,
+    amount: amount,
+    x: x,
+    y: y
+  )
+
 proc resetFlag*(sim: var SimServer, team: Team) =
   ## Returns one team's flag to its home pedestal.
+  # A flag leaving an enemy's back mid-game (death, disconnect — any reason
+  # other than capture) is a FlagReturn analysis event; the pedestal resets
+  # at game boundaries are not (phase guard).
+  if sim.collectEvents and sim.phase == Playing and sim.flags[team].carrier >= 0:
+    sim.emitEvent(
+      FlagReturn,
+      source = sim.flags[team].carrier,
+      x = float(sim.flags[team].x),
+      y = float(sim.flags[team].y)
+    )
   let home = sim.gameMap.flagHome(team)
   sim.flags[team] = FlagState(x: home.x, y: home.y, carrier: -1)
 
@@ -3585,6 +3660,14 @@ proc killPlayer*(sim: var SimServer, targetIndex, killerIndex: int) =
   sim.players[targetIndex].carryX = 0
   sim.players[targetIndex].carryY = 0
   sim.recordDeath(targetIndex)
+  # Death is the victim-side record (source = victim, target = killer); the
+  # weapon-attributed Kill is emitted by each weapon's own damage site, where
+  # the weapon is known first-hand.
+  sim.emitEvent(
+    Death, source = targetIndex, target = killerIndex,
+    x = float(sim.players[targetIndex].x + CollisionW div 2),
+    y = float(sim.players[targetIndex].y + CollisionH div 2)
+  )
   if sim.players[targetIndex].lives > 0:
     dec sim.players[targetIndex].lives
   sim.players[targetIndex].respawnTimer =
@@ -3698,6 +3781,13 @@ proc resolveActiveArcCones*(sim: var SimServer) =
         sim.players[arcFire.attacker].arcHitMask =
           sim.players[arcFire.attacker].arcHitMask or bit
       sim.players[victimIndex].hp -= PlasmaArcDamage
+      let
+        vx = float(sim.players[victimIndex].x + CollisionW div 2)
+        vy = float(sim.players[victimIndex].y + CollisionH div 2)
+      sim.emitEvent(
+        Damage, source = arcFire.attacker, target = victimIndex,
+        weapon = "plasma", amount = PlasmaArcDamage, x = vx, y = vy
+      )
       # Floating damage number for the HP loss (cosmetic, not in gameHash).
       sim.damagePops.add DamageFx(
         x: sim.players[victimIndex].x + CollisionW div 2,
@@ -3709,6 +3799,10 @@ proc resolveActiveArcCones*(sim: var SimServer) =
         sim.killPlayer(victimIndex, arcFire.attacker)
         if victimIndex != arcFire.attacker:
           sim.recordKill(arcFire.attacker)
+          sim.emitEvent(
+            Kill, source = arcFire.attacker, target = victimIndex,
+            weapon = "plasma", amount = PlasmaArcDamage, x = vx, y = vy
+          )
     if sim.players[arcFire.attacker].arcTicksLeft > 0:
       dec sim.players[arcFire.attacker].arcTicksLeft
 
@@ -3786,6 +3880,9 @@ proc applyFire(sim: var SimServer, shooterIndex, targetIndex: int) =
   # (targetIndex >= 0) is on-target, so it counts as a hit even in the rare
   # tick where the victim already died to a simultaneous shot.
   inc sim.players[shooterIndex].shotsFired
+  sim.emitEvent(
+    Shot, source = shooterIndex, weapon = "gun", x = float(sx), y = float(sy)
+  )
   # Record a cosmetic tracer for the shot (never enters gameHash). It ends at
   # the victim, so a bullet visibly never travels past its first hit.
   var
@@ -3795,6 +3892,10 @@ proc applyFire(sim: var SimServer, shooterIndex, targetIndex: int) =
     inc sim.players[shooterIndex].shotsHit
     ex = sim.players[targetIndex].x + CollisionW div 2
     ey = sim.players[targetIndex].y + CollisionH div 2
+    sim.emitEvent(
+      Hit, source = shooterIndex, target = targetIndex, weapon = "gun",
+      x = float(ex), y = float(ey)
+    )
   else:
     # March along the unit aim to the last wall-free pixel or max range
     # (checking each sampled pixel keeps this O(range) at 1300px).
@@ -3827,6 +3928,12 @@ proc applyFire(sim: var SimServer, shooterIndex, targetIndex: int) =
     let bubbleUp = sim.players[targetIndex].hasShield and
       sim.players[targetIndex].hp >= ShieldBubbleMinHp
     dec sim.players[targetIndex].hp
+    sim.emitEvent(
+      Damage, source = shooterIndex, target = targetIndex, weapon = "gun",
+      amount = 1,
+      x = float(sim.players[targetIndex].x + CollisionW div 2),
+      y = float(sim.players[targetIndex].y + CollisionH div 2)
+    )
     if bubbleUp:
       sim.bubbleImpacts.add BubbleImpactFx(
         playerIndex: targetIndex,
@@ -3852,6 +3959,12 @@ proc applyFire(sim: var SimServer, shooterIndex, targetIndex: int) =
     if sim.players[targetIndex].hp <= 0:
       sim.killPlayer(targetIndex, shooterIndex)
       sim.recordKill(shooterIndex)
+      sim.emitEvent(
+        Kill, source = shooterIndex, target = targetIndex, weapon = "gun",
+        amount = 1,
+        x = float(sim.players[targetIndex].x + CollisionW div 2),
+        y = float(sim.players[targetIndex].y + CollisionH div 2)
+      )
     else:
       if not bubbleUp:
         # A non-fatal hit leaves a small, short-lived paint spark in the
@@ -3992,6 +4105,10 @@ proc explodeGrenade(sim: var SimServer, grenade: AirborneGrenade) =
     if distSq(px, py, grenade.tx, grenade.ty) > radiusSq:
       continue
     sim.players[i].hp -= GrenadeDamage
+    sim.emitEvent(
+      Damage, source = grenade.thrower, target = i, weapon = "grenade",
+      amount = GrenadeDamage, x = float(px), y = float(py)
+    )
     # Floating damage number for the blast's HP loss (cosmetic, not in gameHash).
     sim.damagePops.add DamageFx(
       x: px, y: py, tick: sim.tickCount,
@@ -4001,6 +4118,10 @@ proc explodeGrenade(sim: var SimServer, grenade: AirborneGrenade) =
       sim.killPlayer(i, grenade.thrower)
       if grenade.thrower != i:
         sim.recordKill(grenade.thrower)
+        sim.emitEvent(
+          Kill, source = grenade.thrower, target = i, weapon = "grenade",
+          amount = GrenadeDamage, x = float(px), y = float(py)
+        )
 
 proc updateGrenades(sim: var SimServer) =
   ## Refills corner pickups whose timer elapsed and lands due grenades.
@@ -4067,7 +4188,12 @@ proc tryPickupMedKits*(sim: var SimServer, playerIndex: int) =
     if spawn.present and distSq(px, py, spawn.x, spawn.y) <= rangeSq:
       spawn.present = false
       spawn.respawnAt = sim.tickCount + MedKitRespawnTicks
+      let healed = sim.config.hitPoints - sim.players[playerIndex].hp
       sim.players[playerIndex].hp = sim.config.hitPoints
+      sim.emitEvent(
+        Heal, source = playerIndex, amount = healed,
+        x = float(px), y = float(py)
+      )
       sim.logGameEvent(
         playerColorText(sim.players[playerIndex].color) &
           " picked up a med kit"
@@ -4101,8 +4227,16 @@ proc tryPickupShields*(sim: var SimServer, playerIndex: int) =
       spawn.present = false
       spawn.respawnAt = sim.tickCount + ShieldRespawnTicks
       sim.players[playerIndex].hasShield = true
+      let healed = min(
+        sim.players[playerIndex].hp + ShieldPickupHeal, ShieldHitPoints
+      ) - sim.players[playerIndex].hp
       sim.players[playerIndex].hp = min(
         sim.players[playerIndex].hp + ShieldPickupHeal, ShieldHitPoints)
+      if healed > 0:
+        sim.emitEvent(
+          Heal, source = playerIndex, amount = healed,
+          x = float(px), y = float(py)
+        )
       sim.logGameEvent(
         playerColorText(sim.players[playerIndex].color) &
           " picked up a shield"
@@ -4214,6 +4348,10 @@ proc tryPickupFlags*(sim: var SimServer, playerIndex: int) =
   if distSq(px, py, sim.flags[flagTeam].x, sim.flags[flagTeam].y) <= rangeSq:
     sim.flags[flagTeam].carrier = playerIndex
     sim.players[playerIndex].carryingFlag = true
+    sim.emitEvent(
+      FlagSteal, source = playerIndex,
+      x = float(sim.flags[flagTeam].x), y = float(sim.flags[flagTeam].y)
+    )
     sim.logGameEvent(
       teamText(sim.players[playerIndex].team) & " stole the " &
         teamText(flagTeam) & " heart"
@@ -4632,6 +4770,10 @@ proc checkWinCondition*(sim: var SimServer) {.measure.} =
       cx = carrier.x + CollisionW div 2
     if cx >= zone.lo and cx <= zone.hi:
       sim.recordCapture(carrierIndex)
+      sim.emitEvent(
+        Capture, source = carrierIndex,
+        x = float(cx), y = float(carrier.y + CollisionH div 2)
+      )
       sim.logGameEvent(
         teamText(carrier.team) & " captured the " & teamText(flagTeam) & " heart"
       )
@@ -4839,6 +4981,11 @@ proc respawnPlayers(sim: var SimServer) =
         sim.players[i].spawnProtect = sim.config.spawnProtectTicks
         sim.players[i].aimBrads = spawnAimBrads(sim.players[i].team)
         sim.players[i].flipH = sim.players[i].team == Blue
+        sim.emitEvent(
+          Respawn, source = i,
+          x = float(sim.players[i].x + CollisionW div 2),
+          y = float(sim.players[i].y + CollisionH div 2)
+        )
 
 proc step*(
   sim: var SimServer,
