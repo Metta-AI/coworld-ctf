@@ -3510,7 +3510,7 @@ proc isWall*(sim: SimServer, mx, my: int): bool =
     return true
   sim.wallMask[mapIndex(mx, my)]
 
-proc lineOfSightClear*(sim: SimServer, ax, ay, bx, by: int): bool =
+proc lineOfSightClear(sim: SimServer, ax, ay, bx, by: int): bool =
   ## Returns true when no wall blocks the segment between two map points.
   let
     dx = bx - ax
