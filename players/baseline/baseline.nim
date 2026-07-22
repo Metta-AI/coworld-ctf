@@ -180,8 +180,10 @@ const
   PushOutMinGame = 2400       # ...this deep into the game breaks the posts
   LatePushTick = 6800         # all-in on the clock: past this tick a draw is
                               # the default outcome, so commit to the capture
-  HoldFrontCap = 340.0        # -d:holdFront: ceiling on the phalanx creep, a
-                              # prepared line ~275px inside our half of MapW
+  HoldFrontCap = 220.0        # -d:holdFront: ceiling on the phalanx creep — a
+                              # castle line near our wall: fights there recur on
+                              # ground where our respawn walk is ~100px and the
+                              # attacker re-crosses ~400px of watched open ground
 
   CoverShieldDist = 42.0      # an obstacle this close blocks a threat direction
   PeekLineDist = 150.0        # floor for an overwatch peek firing line; post
