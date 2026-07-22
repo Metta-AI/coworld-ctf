@@ -9,9 +9,13 @@ const
   # Fixtures are recorded against the CURRENT gameplay rules and must be
   # re-recorded on every GameVersion bump (tools/record_fixture.sh):
   #   capture-seed7:  record_fixture.sh <out> 7
-  #   wipe-lives1:    record_fixture.sh <out> 7 10000 '{"lives":1}'
+  #   wipe-lives1:    record_fixture.sh <out> 7 10000 \
+  #                     '{"lives":1,"hitPoints":1,"carrierSpeedPct":1}'
   #   draw-nokill:    record_fixture.sh <out> 7 1500 \
   #                     '{"hitPoints":1000,"carrierSpeedPct":1}'
+  # (carrierSpeedPct 1 pins the flag so the wipe/draw endings cannot be
+  # preempted by a capture; record on an otherwise idle machine — a
+  # CPU-starved server at speed 16 drops its bots and ends degenerate.)
   # Then re-pin the capture winner asserted below to the new recording.
   CaptureFixture = FixtureDir / "capture-seed7.bitreplay"
   WipeFixture = FixtureDir / "wipe-lives1.bitreplay"
@@ -136,10 +140,10 @@ suite "broadcast state channel":
       check state.hasKey("over")
       # A capture win is not a draw and not a time-limit tiebreak. The winner
       # is pinned to the current recording of the fixture (GameVersion 20,
-      # seed 7: Blue captures).
+      # seed 7: Red captures).
       check state["over"]["draw"].getBool == false
       check state["over"]["timeLimit"].getBool == false
-      check state["over"]["winner"].getStr == "blue"
+      check state["over"]["winner"].getStr == "red"
       # The scorebug axis is lives + flag state, never a kill score.
       check state["teams"]["red"].hasKey("lives")
       check state["teams"]["blue"]["flag"].getStr in ["home", "taken"]
