@@ -70,7 +70,6 @@ proc fullFeatureGame(): SimServer =
   result.startGame()
   for i in 0 ..< result.players.len:
     result.players[i].team = (if i mod 2 == 0: Red else: Blue)
-    result.players[i].spawnProtect = 0
   let
     cx = result.gameMap.center.x
     cy = result.gameMap.center.y
