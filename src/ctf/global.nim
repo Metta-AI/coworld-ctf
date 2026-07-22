@@ -1101,7 +1101,7 @@ proc buildIdentityBadgeSprite(
   let
     gx0 = (IdentityBadgeSize - IdentityGlyphW) div 2
     gy0 = (IdentityBadgeSize - IdentityGlyphH) div 2
-    glyph = IdentityGlyphs[identityIndex and 7]
+    glyph = IdentityGlyphs[identityIndex]
   for gy in 0 ..< IdentityGlyphH:
     for gx in 0 ..< IdentityGlyphW:
       if (glyph[gy] shr (IdentityGlyphW - 1 - gx) and 1) == 0:

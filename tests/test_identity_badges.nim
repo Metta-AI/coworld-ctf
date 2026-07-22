@@ -1,5 +1,5 @@
 import
-  std/[os, strutils, tables, unittest],
+  std/[os, tables, unittest],
   bitworld/spriteprotocol,
   ctf/[global, sim]
 
@@ -36,12 +36,10 @@ proc presentLabels(messages: openArray[SpritePacketMessage]): seq[string] =
 
 suite "identity badges":
   test "identities assign alpha..theta by slot order within each team":
-    var game = initCtfForTest(defaultGameConfig())
-    for i in 0 ..< 4:
-      discard game.addPlayer("player" & $i)
-    game.startGame()
+    # Identity derives from the slot config alone — no players needed.
     # Default slots alternate red/blue: 0=red alpha, 1=blue alpha,
     # 2=red beta, 3=blue beta.
+    var game = initCtfForTest(defaultGameConfig())
     check game.slotIdentityIndex(0) == 0
     check game.slotIdentityIndex(1) == 0
     check game.slotIdentityIndex(2) == 1

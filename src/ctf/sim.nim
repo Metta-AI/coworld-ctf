@@ -2642,7 +2642,6 @@ proc slotIdentityIndex*(sim: SimServer, order: int): int =
   ## across matches, reconnects, and replays. Wraps past theta in the
   ## degenerate case of more than IdentityNames.len slots on one team.
   let team = sim.teamForSlot(order)
-  result = 0
   for i in 0 ..< order:
     if sim.teamForSlot(i) == team:
       inc result
