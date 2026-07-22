@@ -160,8 +160,8 @@ const
                                  ## off-center around the agent.
   ShieldBubbleObjectBase = 19680 ## carrier bubbles: one per player, 19680..19695
                                  ## (clear of plasma arc FX at 19700).
-  ## ShieldBubbleMinHp (the hp gate) lives in sim.nim, where the impact FX is
-  ## recorded with the same condition.
+  ## The bubble shows while the carrier's shield layer (shieldHp) is intact;
+  ## sim.nim records the impact FX with the same condition.
   ShieldBubbleDeformBase = 1424  ## blink/dent impact variants keyed
                                  ## bucket*stages+stage: 1424..1487 (clear of
                                  ## tracer heads at 1300..1363 and plasma
@@ -3561,7 +3561,7 @@ proc addShields(
   ## Places the two endzone shield pickups (fog-gated by map position like the
   ## med kits) plus a small "shield carried" marker over anyone holding one
   ## (gated on seeing that player), plus a protective bubble drawn around a
-  ## carrier while the shield's bonus hp holds (it pops below ShieldBubbleMinHp).
+  ## carrier while the shield layer holds (it pops when shieldHp hits 0).
   ## The map/replay view passes no viewer and shows all. Sprites are defined
   ## lazily on first need per connection.
   for i in 0 ..< sim.shieldSpawns.len:
@@ -3609,7 +3609,7 @@ proc addShields(
       player.overheadAnchorY() - OverheadYOffset - ShieldCarrySize,
       30006, MapLayerId, ShieldCarrySpriteId
     )
-    if player.hp >= ShieldBubbleMinHp:
+    if player.shieldHp > 0:
       # A fresh impact swaps the idle bubble for a blink/dent variant keyed by
       # the impact direction and age — the newest impact wins if several
       # shooters connected within the FX window.
@@ -3915,8 +3915,9 @@ proc addHpPips(
     # Map remaining hit points onto 3 thirds (ceil, so any living player keeps
     # at least one lit segment). The bar's pixel size is constant regardless of
     # the hit-point config, so a 99-hp game reads the same 14px 3-chunk bar.
+    let effectiveHp = player.hp + player.shieldHp
     let litSegments = min(HpBarSegments,
-      max(1, (player.hp * HpBarSegments + maxHp - 1) div maxHp))
+      max(1, (effectiveHp * HpBarSegments + maxHp - 1) div maxHp))
     let spriteId = HpPipSpriteBase + litSegments
     packet.addBoardSpriteChanged(
       spriteDefs,
@@ -4286,7 +4287,7 @@ proc buildSpriteProtocolPlayerUpdates*(
 
     # Lives counter on the top-right HUD layer.
     let
-      livesText = $player.hp & "hp x" & $player.lives
+      livesText = $(player.hp + player.shieldHp) & "hp x" & $player.lives
       lives = sim.buildSpriteProtocolTextSprite([livesText], 2'u8)
     currentIds.add(SelectedTextObjectId)
     result.addSpriteChanged(
