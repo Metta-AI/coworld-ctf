@@ -469,7 +469,7 @@
         "visionBubble": 90,
         "startWaitTicks": 120,
         "gameOverTicks": 360,
-        "maxTicks": 10000,
+        "maxTicks": 5000,
         "maxGames": 1,
         "mapPath": "arena",
         "showPlayerLabels": true

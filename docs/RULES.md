@@ -323,8 +323,8 @@ A round ends immediately when either condition is met:
 1. **Capture** — carry the **enemy heart** into **your own home capture zone**.
 2. **Wipe** — the entire **enemy team is out of lives**.
 
-If neither happens before the **time limit**, the round is a **scoreless
-draw** — there is no tiebreak.
+If neither happens before the **time limit**, the round is a **lose-lose
+draw** — there is no tiebreak, and both sides are penalized.
 
 ## Scoring
 
@@ -332,7 +332,10 @@ Scoring is **sparse and win-only**:
 
 - **Decisive round** (capture or wipe): every winner scores **+1**, every
   loser scores **-1**.
-- **Time-limit draw: 0 for both sides.**
+- **Time-limit draw: -1 for both sides** (GameVersion 21). Running out the
+  clock is never better than losing, so stalling has no upside for anyone.
+- **Mutual-wipe draw** (both teams eliminated on the same tick): 0 for both
+  sides — both at least fought to a decision.
 
 Kills, deaths, heart pickups, carry time, and captures are still **recorded** in
 the episode results for leaderboards and analysis — they just do not award
@@ -377,7 +380,7 @@ These are starting values, exposed in the game config and tuned in self-play.
 | Plasma arc respawn | 30s | Taken pickups refill after this interval |
 | Plasma pulse lifetime (`PlasmaArcFxTicks`) | 4 ticks | Cosmetic fade of each per-tick cone snapshot |
 | Heart auto-return | instant | A heart snaps back to its own pedestal the moment its carrier dies |
-| Time limit | (TBD) ticks | Round length cap before the scoreless draw |
+| Time limit (`MaxTicks`) | 5000 ticks (~3.5 min) | Round length cap before the lose-lose draw |
 | Map size | 1235×659 | Inherited from Crewrift; may change |
 
 Engine tick rate is **24 ticks/sec** (inherited from Crewrift); all
