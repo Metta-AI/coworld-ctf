@@ -275,6 +275,7 @@ type
     corpseCount: int          # visible enemy corpses last frame (kill signal)
     killMoodUntil: int        # taunt window opened by a fresh kill
     nextPeaceTick: int        # slot-staggered cadence for the audible persona
+    lastTeamShoutSeen: int    # any teammate bubble; peace lines keep clear of it
     lastEnemyShout: string    # last enemy shout label already responded to
     lastComebackReq: int      # rate limit on comeback generation requests
     wasMateCarry: bool        # edge detector: a fresh steal opens a taunt window
@@ -1311,6 +1312,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     for o in client.spriteObjects():
       if not o.label.startsWith(myColor & " shout "):
         continue
+      bot.lastTeamShoutSeen = bot.tick      # spacing signal for peace lines
       let sep = o.label.rfind(": ")
       if sep < 0:
         continue
@@ -1525,28 +1527,30 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # mid-game periodic pulse was REFUTED (v39: -0.35 vs h006 on paired
     # seeds — fights happen inside earshot, and each pulse is a through-fog
     # position ping plus a 26-tick delay on the next gameplay shout).
+    # Spread-out persona (user spec): lines are staggered across the WHOLE
+    # game — first lines land one bot at a time (~19s apart), each bot then
+    # speaks at most every ~2.5min, never while a teammate bubble is up, and
+    # only from QUIET ground (no live enemy track near — v39 showed mid-duel
+    # speech is a through-fog position ping the RL rival converts, -0.35 on
+    # paired seeds). Net effect: one peace line somewhere every ~20-30s.
     if bot.nextPeaceTick == 0:
-      bot.nextPeaceTick = 40 + bot.slot * 17
+      bot.nextPeaceTick = 200 + bot.slot * 450
     if bot.shoutWant.len == 0 and not iCarry and
-        bot.tick - bot.lastShoutTick >= 26 and bot.tick >= bot.nextPeaceTick:
-      # Speak only from QUIET moments: in the opening (everyone out of
-      # earshot by geometry) or when no live enemy track is anywhere near —
-      # v39 showed mid-duel speech is a through-fog position ping the RL
-      # rival converts (-0.35 on paired seeds). Occasional lines from safe
-      # ground carry none of that: nobody hostile is inside the bubble.
+        bot.tick - bot.lastShoutTick >= 26 and bot.tick >= bot.nextPeaceTick and
+        bot.tick - bot.lastTeamShoutSeen > 120:
       var quiet = true
       for t in bot.enemies:
         if not t.synthetic and bot.tick - t.lastSeen <= 120 and
             dist(t.pos, me) < 400.0:
           quiet = false
           break
-      if bot.tick - bot.gameStart < 300 or quiet:
+      if quiet:
         if bot.tauntBank.len > 0:
           bot.shoutWant = bot.tauntBank[0]
           bot.tauntBank.delete(0)
         else:
           bot.shoutWant = sample(CannedTaunts)
-        bot.nextPeaceTick = bot.tick + 1800 + (bot.slot mod 4) * 90
+        bot.nextPeaceTick = bot.tick + 3600 + (bot.slot mod 4) * 210
         bot.lastShoutTick = bot.tick
 
   # Flank progress: sticky so lane-runners do not oscillate at the boundary.
