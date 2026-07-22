@@ -308,13 +308,19 @@
   // client, which strips "/client/replay" the same way to build its ws path.
   var ROUTE_BASE = location.pathname.replace(/\/client\/[^/]*$/, "");
 
-  // dungeon-wall textures (nanobanana generations, served as static assets so
-  // the shell stays small and editable). Wide tex for top/bottom, tall for sides.
-  var WALL_H = ROUTE_BASE + "/client/art/walls/wall_h.jpg";
-  var WALL_V = ROUTE_BASE + "/client/art/walls/wall_v.jpg";
-
   // ---- URL params: replay uri + Observatory-injected standings -------------
+  // Two delivery modes share this shell:
+  //  - NATIVE (a live replay server): served at /client/league, `uri` carries
+  //    the replay source and the embedded board is /client/replay on the same
+  //    (possibly session-proxied) prefix, talking over its own websocket.
+  //  - STATIC (the browser-only WASM bundle): served as league.html NEXT TO
+  //    the bundle's index.html, `replay` carries the replay URL (the same
+  //    param the bundle's board reads) and the embedded board is
+  //    ./index.html — no server, the sim runs in WASM inside the iframe. The
+  //    postMessage bridge (frames up, transport commands down) is identical.
   var params = new URLSearchParams(location.search);
+  var staticReplayUri = params.get('replay') || '';
+  var STATIC_BUNDLE = staticReplayUri !== '';
   var replayUri = params.get('uri') || '';
   // standings: base64/JSON of {division, competitors:{red,blue}, ladder:[{name,rank,score,you}]}
   var standings = null;
@@ -323,12 +329,26 @@
     if (st0) standings = JSON.parse(decodeURIComponent(escape(atob(st0))));
   } catch(e){ standings = null; }
 
+  // dungeon-wall textures (nanobanana generations, served as static assets so
+  // the shell stays small and editable). Wide tex for top/bottom, tall for
+  // sides. The static bundle ships them beside the shell; the native server
+  // serves them under /client/art on the shell's own route prefix.
+  var ART_BASE = STATIC_BUNDLE ? "./art/walls" : ROUTE_BASE + "/client/art/walls";
+  var WALL_H = ART_BASE + "/wall_h.jpg";
+  var WALL_V = ART_BASE + "/wall_v.jpg";
+
   // ---- build the embedded replay src (board-only embed mode) ---------------
-  // Same-prefix as the shell so the board's own websocket (derived from its
-  // location.pathname) stays inside the session proxy.
+  // Native: same-prefix as the shell so the board's own websocket (derived
+  // from its location.pathname) stays inside the session proxy. Static: the
+  // sibling index.html with the bundle's own `replay` param.
   (function(){
-    var src = ROUTE_BASE + '/client/replay?embed=1';
-    if (replayUri) src += '&uri=' + encodeURIComponent(replayUri);
+    var src;
+    if (STATIC_BUNDLE) {
+      src = './index.html?embed=1&replay=' + encodeURIComponent(staticReplayUri);
+    } else {
+      src = ROUTE_BASE + '/client/replay?embed=1';
+      if (replayUri) src += '&uri=' + encodeURIComponent(replayUri);
+    }
     $('game').src = src;
   })();
 
