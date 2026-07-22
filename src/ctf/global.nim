@@ -729,8 +729,8 @@ proc selectedSoldierPlayerSpriteId(team: Team, rot: int): int =
   SelectedPlayerSpriteBase + ord(team) * SoldierRotations + rot
 
 proc corpseSoldierSpriteId(team: Team, rot: int): int =
-  ## Sprite id for a dead soldier (grey corpse) at rotation `rot`. Sits in the
-  ## free 850..881 window just above the selected-soldier pool (800..831).
+  ## Sprite id for a dead soldier (grey corpse) at rotation `rot` (the
+  ## selected-soldier pool lives at 6000..6031).
   CorpseSpriteBase + ord(team) * SoldierRotations + rot
 
 proc soldierFacingRight(rot: int): bool =
