@@ -323,6 +323,11 @@ const
   SoldierTurretSpriteBase = 2340     ## head+gun turret, per team×rot: 2340..2371.
   SelectedTurretSpriteBase = 2380    ## outlined turret for the map view's
                                      ## selected cog: 2380..2411.
+  SelectedBaseSpriteBase = 2420      ## outlined base for the same selected cog:
+                                     ## 2420..2451 — BOTH halves carry the white
+                                     ## outline, so the selection reads on the
+                                     ## whole silhouette like the old one-piece
+                                     ## outline did, not just on the head.
   PlayerTurretObjectBase = 1100      ## board turret object per player, stacked
                                      ## over the base at PlayerObjectBase
                                      ## (1000..1015); 1100..1115, clear of both.
@@ -769,6 +774,10 @@ proc soldierTurretSpriteId(team: Team, rot: int): int =
 proc selectedTurretSpriteId(team: Team, rot: int): int =
   ## Selected (outlined) board turret at aim rotation `rot`.
   SelectedTurretSpriteBase + ord(team) * SoldierRotations + rot
+
+proc selectedBaseSpriteId(team: Team, rot: int): int =
+  ## Selected (outlined) board base at movement rotation `rot`.
+  SelectedBaseSpriteBase + ord(team) * SoldierRotations + rot
 
 proc soldierFacingRight(rot: int): bool =
   ## Whether a soldier at rotation step `rot` faces right (east-ish) — the same
@@ -2844,6 +2853,15 @@ proc addPlayerActorSprites(
           "selected player " & color & side,
           native = boardScale
         )
+        packet.addBoardSpriteChanged(
+          spriteDefs,
+          selectedBaseSpriteId(team, rot),
+          SoldierCanvas,
+          SoldierCanvas,
+          soldierOutlined(basePixels, 8'u8, boardScale),
+          "selected player " & color & side,
+          native = boardScale
+        )
       else:
         # POV/RL one-piece cog (body + gun aim together) + its grey corpse.
         let pixels = soldierRotPixels(team, rot, boardScale)
@@ -3236,16 +3254,22 @@ proc spriteActorSpriteId(player: Player, selectedJoinOrder: int): int =
   else:
     soldierPlayerSpriteId(player.team, rot)
 
-proc spriteBaseSpriteId(player: Player, drive: CogDriveState): int =
+proc spriteBaseSpriteId(
+    player: Player, drive: CogDriveState, selectedJoinOrder: int): int =
   ## The board tank BASE sprite for a player: pre-rotated to the drive
   ## controller's eased BODY HEADING (slow nose, reverse hysteresis — see
   ## stepCogDrive), NOT the raw velocity direction, which would flip the
   ## chassis 180 degrees the instant a cog backs up. Falls back to the raw
-  ## movement step only before the controller's first step.
+  ## movement step only before the controller's first step. Outlined (like
+  ## the turret) when this is the map view's selected cog, so the selection
+  ## highlight wraps the whole silhouette.
   let rot =
     if drive.initialized: soldierRotIndex(drive.bodyHeading)
     else: soldierMoveRotIndex(player.velX, player.velY, player.aimBrads)
-  soldierBaseSpriteId(player.team, rot)
+  if player.joinOrder == selectedJoinOrder:
+    selectedBaseSpriteId(player.team, rot)
+  else:
+    soldierBaseSpriteId(player.team, rot)
 
 proc spriteTurretSpriteId(player: Player, selectedJoinOrder: int): int =
   ## The board tank TURRET sprite for a player: pre-rotated to its AIM angle,
@@ -4973,7 +4997,8 @@ proc buildSpriteProtocolUpdates*(
       player.spritePlayerY(),
       player.y - 1,
       MapLayerId,
-      player.spriteBaseSpriteId(nextState.cogDrive[playerIndex])
+      player.spriteBaseSpriteId(
+        nextState.cogDrive[playerIndex], nextState.selectedJoinOrder)
     )
     currentIds.add(turretObjectId)
     result.addBoardObject(
