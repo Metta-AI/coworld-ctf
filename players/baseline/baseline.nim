@@ -1518,21 +1518,24 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           bot.shoutWant = sample(CannedTaunts)
         bot.killMoodUntil = 0              # one taunt per window
       bot.lastShoutTick = bot.tick
-    # Peace pulse: the persona should be AUDIBLE, not only kill-gated. The
-    # kill window rarely coincides with a free shout slot under permanent-
-    # contact doctrines, so each bot also yells its line on a slot-staggered
-    # ~20s cadence — strictly leftover budget: every gameplay shout (C/T/H/E)
-    # has already claimed shoutWant above, and carriers stay silent.
+    # Opening greeting: the persona speaks in the first ~12s, one staggered
+    # line per bot. Enemies are 800+px away then — far outside the ~247px
+    # shout-audible radius — so the greeting leaks nothing (spawns are public
+    # knowledge), while spectators and replays get the full peace wave. A
+    # mid-game periodic pulse was REFUTED (v39: -0.35 vs h006 on paired
+    # seeds — fights happen inside earshot, and each pulse is a through-fog
+    # position ping plus a 26-tick delay on the next gameplay shout).
     if bot.nextPeaceTick == 0:
-      bot.nextPeaceTick = 400 + bot.slot * 61
+      bot.nextPeaceTick = 40 + bot.slot * 17
     if bot.shoutWant.len == 0 and not iCarry and
+        bot.tick - bot.gameStart < 300 and
         bot.tick - bot.lastShoutTick >= 26 and bot.tick >= bot.nextPeaceTick:
       if bot.tauntBank.len > 0:
         bot.shoutWant = bot.tauntBank[0]
         bot.tauntBank.delete(0)
       else:
         bot.shoutWant = sample(CannedTaunts)
-      bot.nextPeaceTick = bot.tick + 480
+      bot.nextPeaceTick = high(int)         # one greeting per game
       bot.lastShoutTick = bot.tick
 
   # Flank progress: sticky so lane-runners do not oscillate at the boundary.
