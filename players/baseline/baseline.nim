@@ -1528,15 +1528,26 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     if bot.nextPeaceTick == 0:
       bot.nextPeaceTick = 40 + bot.slot * 17
     if bot.shoutWant.len == 0 and not iCarry and
-        bot.tick - bot.gameStart < 300 and
         bot.tick - bot.lastShoutTick >= 26 and bot.tick >= bot.nextPeaceTick:
-      if bot.tauntBank.len > 0:
-        bot.shoutWant = bot.tauntBank[0]
-        bot.tauntBank.delete(0)
-      else:
-        bot.shoutWant = sample(CannedTaunts)
-      bot.nextPeaceTick = high(int)         # one greeting per game
-      bot.lastShoutTick = bot.tick
+      # Speak only from QUIET moments: in the opening (everyone out of
+      # earshot by geometry) or when no live enemy track is anywhere near —
+      # v39 showed mid-duel speech is a through-fog position ping the RL
+      # rival converts (-0.35 on paired seeds). Occasional lines from safe
+      # ground carry none of that: nobody hostile is inside the bubble.
+      var quiet = true
+      for t in bot.enemies:
+        if not t.synthetic and bot.tick - t.lastSeen <= 120 and
+            dist(t.pos, me) < 400.0:
+          quiet = false
+          break
+      if bot.tick - bot.gameStart < 300 or quiet:
+        if bot.tauntBank.len > 0:
+          bot.shoutWant = bot.tauntBank[0]
+          bot.tauntBank.delete(0)
+        else:
+          bot.shoutWant = sample(CannedTaunts)
+        bot.nextPeaceTick = bot.tick + 1800 + (bot.slot mod 4) * 90
+        bot.lastShoutTick = bot.tick
 
   # Flank progress: sticky so lane-runners do not oscillate at the boundary.
   if bot.role in {FlankTop, FlankBottom}:
