@@ -395,6 +395,17 @@ type
                                ## excluded from gameHash (see gameHash).
     shotsHit*: int             ## released shots that connected with an enemy;
                                ## analysis-only, excluded from gameHash.
+    multiKills2*: int          ## grenade blasts / plasma activations that
+                               ## killed exactly 2; analysis-only, excluded
+                               ## from gameHash.
+    multiKills3*: int          ## grenade blasts / plasma activations that
+                               ## killed 3 or more; analysis-only, excluded
+                               ## from gameHash.
+    teamKills*: int            ## teammates this player killed (backstabs);
+                               ## analysis-only, excluded from gameHash.
+    arcKillsThisFire*: int     ## kills scored by the current plasma
+                               ## activation; transient multi-kill
+                               ## bookkeeping, excluded from gameHash.
 
   PlayerFov* = object
     ## One player's cached fog-of-war visibility grid (FovGridW x FovGridH
@@ -3091,6 +3102,18 @@ proc recordKill*(sim: var SimServer, playerIndex: int) =
     inc sim.rewardAccounts[index].kills
   inc sim.players[playerIndex].kills
 
+proc recordTeamKill*(sim: var SimServer, killerIndex, victimIndex: int) =
+  ## Counts a teammate kill (the endscreen "backstab" badge). Weapon-agnostic:
+  ## bullets, grenade blasts, and plasma cones all land here.
+  if killerIndex < 0 or killerIndex >= sim.players.len:
+    return
+  if victimIndex < 0 or victimIndex >= sim.players.len:
+    return
+  if killerIndex == victimIndex:
+    return
+  if sim.players[killerIndex].team == sim.players[victimIndex].team:
+    inc sim.players[killerIndex].teamKills
+
 proc recordDeath*(sim: var SimServer, playerIndex: int) =
   ## Increments the death counter for one player.
   let index = sim.rewardAccountForPlayer(playerIndex)
@@ -3283,6 +3306,10 @@ proc startGame*(sim: var SimServer) =
     sim.players[i].captures = 0
     sim.players[i].shotsFired = 0
     sim.players[i].shotsHit = 0
+    sim.players[i].multiKills2 = 0
+    sim.players[i].multiKills3 = 0
+    sim.players[i].teamKills = 0
+    sim.players[i].arcKillsThisFire = 0
     sim.recordGameTeamAssigned(i)
   sim.resetFlags()
   sim.resetGrenades()
@@ -3656,6 +3683,7 @@ proc startArcFire*(sim: var SimServer, attackerIndex: int) =
     PlasmaArcActiveTicks + PlasmaArcResetTicks
   sim.players[attackerIndex].arcTicksLeft = PlasmaArcActiveTicks
   sim.players[attackerIndex].arcHitMask = 0
+  sim.players[attackerIndex].arcKillsThisFire = 0
   sim.logGameEvent(
     playerColorText(sim.players[attackerIndex].color) & " fired a plasma arc"
   )
@@ -3707,6 +3735,16 @@ proc resolveActiveArcCones*(sim: var SimServer) =
         sim.killPlayer(victimIndex, arcFire.attacker)
         if victimIndex != arcFire.attacker:
           sim.recordKill(arcFire.attacker)
+          sim.recordTeamKill(arcFire.attacker, victimIndex)
+          # Multi-kill accounting per ACTIVATION (not per tick): the second
+          # kill of one firing mints a double, the third upgrades it to a
+          # triple; a fourth+ stays inside the already-counted triple.
+          inc sim.players[arcFire.attacker].arcKillsThisFire
+          if sim.players[arcFire.attacker].arcKillsThisFire == 2:
+            inc sim.players[arcFire.attacker].multiKills2
+          elif sim.players[arcFire.attacker].arcKillsThisFire == 3:
+            dec sim.players[arcFire.attacker].multiKills2
+            inc sim.players[arcFire.attacker].multiKills3
     if sim.players[arcFire.attacker].arcTicksLeft > 0:
       dec sim.players[arcFire.attacker].arcTicksLeft
 
@@ -3850,6 +3888,7 @@ proc applyFire(sim: var SimServer, shooterIndex, targetIndex: int) =
     if sim.players[targetIndex].hp <= 0:
       sim.killPlayer(targetIndex, shooterIndex)
       sim.recordKill(shooterIndex)
+      sim.recordTeamKill(shooterIndex, targetIndex)
     else:
       if not bubbleUp:
         # A non-fatal hit leaves a small, short-lived paint spark in the
@@ -3982,6 +4021,7 @@ proc explodeGrenade(sim: var SimServer, grenade: AirborneGrenade) =
   )
   sim.logGameEvent("grenade landed")
   let radiusSq = GrenadeBlastRadius * GrenadeBlastRadius
+  var blastKills = 0
   for i in 0 ..< sim.players.len:
     if not sim.players[i].alive or sim.players[i].spawnProtect > 0:
       continue
@@ -4000,6 +4040,15 @@ proc explodeGrenade(sim: var SimServer, grenade: AirborneGrenade) =
       sim.killPlayer(i, grenade.thrower)
       if grenade.thrower != i:
         sim.recordKill(grenade.thrower)
+        sim.recordTeamKill(grenade.thrower, i)
+        inc blastKills
+  # Multi-kill accounting per BLAST: one landing that kills 2 mints a double,
+  # 3+ a triple (a self-kill in the blast never counts toward either).
+  if grenade.thrower >= 0 and grenade.thrower < sim.players.len:
+    if blastKills >= 3:
+      inc sim.players[grenade.thrower].multiKills3
+    elif blastKills == 2:
+      inc sim.players[grenade.thrower].multiKills2
 
 proc updateGrenades(sim: var SimServer) =
   ## Refills corner pickups whose timer elapsed and lands due grenades.

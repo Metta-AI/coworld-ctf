@@ -206,7 +206,10 @@ proc rosterJson(sim: SimServer): JsonNode =
       "carry": p.carryingFlag,
       "k": p.kills,
       "d": p.deaths,
-      "cap": p.captures
+      "cap": p.captures,
+      "mk2": p.multiKills2,
+      "mk3": p.multiKills3,
+      "tk": p.teamKills
     })
 
 const
