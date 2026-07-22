@@ -51,7 +51,8 @@ proc modelId(): string =
 proc sanitizeTaunt*(raw: string): string =
   ## One shout-safe taunt from a model line: strip quotes/whitespace, cap at
   ## TauntMaxChars, and refuse anything that parses like our "C.. .." /
-  ## "T.. .." coordinate wire format so a taunt can never spoof a mate fix.
+  ## "T.. .." / "E.. .." / "G.. .." coordinate wire formats so a taunt can
+  ## never spoof a mate fix, a relay sighting, or a cluster call.
   result = raw.strip().replace("\"", "").replace("'", "")
   if result.len > TauntMaxChars:
     result.setLen(TauntMaxChars)
@@ -59,7 +60,7 @@ proc sanitizeTaunt*(raw: string): string =
   for c in result:
     if c < ' ':
       return ""
-  if result.len >= 4 and result[0] in {'C', 'T'}:
+  if result.len >= 4 and result[0] in {'C', 'T', 'E', 'G'}:
     let parts = result[1 .. ^1].split(' ')
     if parts.len == 2:
       try:

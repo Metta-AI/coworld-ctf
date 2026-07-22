@@ -153,6 +153,16 @@ const
                               # empty (bubble vision), not just fogged
   SwordReach = 26.0           # melee swipe range (sim SwordReach)
   SwordArcBrads = 32          # +/-45 degree swipe arc in brads
+  ArcReach = 136.0            # plasma cone forward reach (sim: 4 body squares)
+  ArcAimSlack = 8             # brads of aim error that still lands the cone
+                              # (cone half-width is reach/4 -> ~10 brads)
+  ArcPursuit = 210.0          # max chase distance to bring the cone to bear —
+                              # beyond this, hold the errand and save the cone
+  ClusterMinCount = 3         # own-seen enemies packed together = a cluster
+  ClusterRadius = 90.0        # cluster membership radius around one member
+  ClusterFreshTicks = 240     # a G-fix stays actionable ~10s
+  ClusterShoutGap = 96        # per-bot G-shout rate limit (~4s)
+  ClusterPursuit = 420.0      # carriers run at most this far to answer a call
   SwordDetour = 70.0          # attacker detour budget for a sword pickup
   ShieldStealDetour = 330.0   # MidGuard's shield trip: the enemy endzone
                               # shield sits ~136px past their pedestal, so
@@ -289,6 +299,10 @@ type
     everLostOurs: bool        # our flag has been stolen at least once
     phalanxHold: float        # frozen advance front while our lane has contact
     helpLane: int             # 1=top 2=mid 3=bottom, from an H-shout
+    clusterPos: Vec           # freshest enemy-cluster fix (own eyes or G-shout)
+    clusterTick: int          # tick of that fix (0 = never)
+    clusterSeenTick: int      # tick WE saw a cluster ourselves (emit gate)
+    lastGShout: int           # cluster-call rate limit
     helpUntil: int            # tick the help retasking expires
     lastEShout: int           # scout sighting-broadcast rate limit
     lastHShout: int           # help-call rate limit
@@ -1209,6 +1223,21 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       if dist(client.mapPos(o), me) <= 30.0:
         hasShield = true
         break
+  # Carrying a plasma arc REPLACES the gun (the sim reroutes the A button to
+  # the 4-square cone and bars normal fire until death), so gun discipline
+  # with an arc in hand blasts empty space at ranged targets. The carried
+  # marker floats over our own head like the sword/shield ones.
+  var hasArc = false
+  for o in client.spriteObjectsWithLabel("plasma arc carried"):
+    if dist(client.mapPos(o), me) <= 30.0:
+      hasArc = true
+      break
+  var carryingNade = false
+  for o in client.spriteObjectsWithLabel("grenade carried"):
+    # The marker floats above-right of its carrier (+8 x, ~-20 y from center).
+    if dist(client.mapPos(o), me) <= 30.0:
+      carryingNade = true
+      break
 
   let
     shotReady = client.spriteObjectsWithLabel("fire icon").len > 0 and
@@ -1219,6 +1248,32 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   bot.updateTracks(bot.mates, seenMates)
   if seenEnemies.len > 0:
     bot.lastEnemySeen = bot.tick
+  # Cluster sighting, OWN EYES ONLY (synthetic relay tracks never count —
+  # the E-relay echo scar): ClusterMinCount+ enemies packed within
+  # ClusterRadius of one of them. The densest pack wins; its centroid is the
+  # fix arc/grenade carriers charge.
+  if seenEnemies.len >= ClusterMinCount:
+    var bestCnt = 0
+    var bestPos = vec(0.0, 0.0)
+    for i in 0 ..< seenEnemies.len:
+      var cnt = 0
+      var cx = 0.0
+      var cy = 0.0
+      for j in 0 ..< seenEnemies.len:
+        if dist(seenEnemies[j].pos, seenEnemies[i].pos) <= ClusterRadius:
+          inc cnt
+          cx += seenEnemies[j].pos.x
+          cy += seenEnemies[j].pos.y
+      if cnt > bestCnt:
+        bestCnt = cnt
+        bestPos = vec(cx / float(cnt), cy / float(cnt))
+    if bestCnt >= ClusterMinCount:
+      bot.clusterPos = bestPos
+      bot.clusterTick = bot.tick
+      bot.clusterSeenTick = bot.tick
+      when defined(clusterDebug):
+        echo "G-SEEN tick=", bot.tick, " n=", bestCnt, " at ",
+          bestPos.x, ",", bestPos.y
 
   # Flag bookkeeping (two flags; a carried flag rides its carrier's exact
   # position). The enemy flag can only be carried by OUR team, so its sprite
@@ -1320,7 +1375,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           bot.helpLane = ord(text[1]) - ord('0')
           bot.helpUntil = bot.tick + 320
           continue
-      if text.len < 4 or text[0] notin {'C', 'T', 'E'}:
+      if text.len < 4 or text[0] notin {'C', 'T', 'E', 'G'}:
         continue
       let parts = text[1 .. ^1].split(' ')
       if parts.len != 2:
@@ -1356,6 +1411,14 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
             if not dup:
               bot.enemies.add(Track(pos: p, lastSeen: bot.tick - 6,
                 synthetic: true, facingRight: p.x < float(CenterX), hp: MaxHp))
+        continue
+      if text[0] == 'G':
+        # Cluster call: a mate sees a packed enemy group. Arc/grenade
+        # carriers answer; a heard fix is never re-shouted (echo scar).
+        bot.clusterPos = p
+        bot.clusterTick = bot.tick
+        when defined(clusterDebug):
+          echo "G-HEARD tick=", bot.tick, " at ", p.x, ",", p.y
         continue
       if text[0] == 'C':
         # Fresher than any dead-reckoned estimate: pin the escort fix here.
@@ -1493,6 +1556,17 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
               $(int(t.pos.y) div 8)
             bot.lastEShout = bot.tick
             break
+  # Cluster call rides leftover budget under C/T/H/E: own-seen this tick,
+  # never a re-broadcast of a heard fix (echo scar), per-bot rate-limited.
+  if bot.shoutWant.len == 0 and not iCarry and
+      bot.clusterSeenTick == bot.tick and
+      bot.tick - bot.lastGShout > ClusterShoutGap:
+    bot.shoutWant = "G" & $(int(bot.clusterPos.x) div 8) & " " &
+      $(int(bot.clusterPos.y) div 8)
+    bot.lastGShout = bot.tick
+    when defined(clusterDebug):
+      echo "G-SHOUT tick=", bot.tick, " ", bot.shoutWant
+
   when defined(taunt):
     # Taunts spend only LEFTOVER shout budget: never while carrying and never
     # over a gameplay shout (the carrier heartbeat always wins the 1/s slot).
@@ -1632,6 +1706,19 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         target = mateCarryPos + vec(homeSign(bot.team) * 40.0, -24.0)
       else:
         target = bot.chokeHold
+  elif (hasArc or carryingNade) and not pushOut and
+      bot.clusterTick > 0 and
+      bot.tick - bot.clusterTick <= ClusterFreshTicks and
+      dist(bot.clusterPos, me) <= ClusterPursuit and
+      (hasArc or dist(bot.clusterPos, me) > NadeMaxRange - 20.0):
+    # Answer a cluster call: the arc charges INTO the pack (one cone touch
+    # hits everyone), the grenadier closes to lob range and lets the nade
+    # state machine take the throw. Only carriers answer — the rest of the
+    # castle holds its stations.
+    target = bot.clusterPos
+    when defined(clusterDebug):
+      echo "RESPOND tick=", bot.tick, (if hasArc: " arc" else: " nade"),
+        " d=", dist(bot.clusterPos, me)
   elif phalanxOn and not pushOut:
    when defined(zonePhalanx):
      # Zone phalanx: shield scout spots forward and relays sightings, three
@@ -1900,12 +1987,6 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # counter to cover-campers the hitscan gun can never reach. Carry one when a
   # corner pickup is a short detour away; spend it on a wall-blocked fresh
   # track (value the gun cannot collect) or on a tight enemy pair in range.
-  var carryingNade = false
-  for o in client.spriteObjectsWithLabel("grenade carried"):
-    # The marker floats above-right of its carrier (+8 x, ~-20 y from center).
-    if dist(client.mapPos(o), me) <= 30.0:
-      carryingNade = true
-      break
   var
     nadeAim = -1
     nadeThrowD = 0.0
@@ -1931,6 +2012,16 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         bestD = d
         nadeAim = bradsOf(p - me)
         nadeThrowD = d
+    if nadeAim < 0 and bot.clusterTick > 0 and
+        bot.tick - bot.clusterTick <= ClusterFreshTicks:
+      # No seen lob target, but a fresh cluster fix in throw range: the
+      # grenade flies over walls, so the fix needs no line of sight.
+      let d = dist(bot.clusterPos, me)
+      if d >= NadeMinRange and d <= NadeMaxRange:
+        nadeAim = bradsOf(bot.clusterPos - me)
+        nadeThrowD = d
+        when defined(clusterDebug):
+          echo "NADE-AT-CLUSTER tick=", bot.tick, " d=", d
 
   # Weapon pickups. SHIELD-THEN-STEAL: the enemy endzone shield sits just
   # behind their pedestal — a rusher near the pocket grabs 6 hp first and
@@ -2062,7 +2153,21 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     else:
       moveMask = octantBits(aim - me)    # charge in
     acted = true
-  elif engage >= 0 and shotReady:
+  elif hasArc and engage >= 0 and engageD <= ArcPursuit:
+    # Plasma-arc mode: the cone reaches 4 squares, so ranged gun discipline
+    # is worthless — close the gap and press A only when the target sits
+    # inside the reach with the aim roughly on line. Targets beyond the
+    # pursuit budget are ignored (fall through to the errand) rather than
+    # chased across the map.
+    desiredAim = bradsOf(aim - me)
+    let err = abs(bradsErr(desiredAim, bot.estAim))
+    if engageD <= ArcReach - 10.0 and err <= ArcAimSlack:
+      wantFire = true
+      holdStill = true
+    else:
+      moveMask = octantBits(aim - me)    # close in
+    acted = true
+  elif engage >= 0 and shotReady and not hasArc:
     # Traverse onto the target and fire once the corridor covers it: the
     # perpendicular miss of the current aim error at the target's range must
     # sit inside the ~14px bullet corridor. Advancing scales that miss down
@@ -2075,7 +2180,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     moveMask = octantBits(aim - me)
     acted = true
   elif not iCarry and not rushing and not pocketRush and not shotReady and
-      nearThreat >= 0:
+      not hasArc and nearThreat >= 0:
     # Cooldown: duck behind the nearest cover that breaks the threat's line
     # and hold there until the gun is back up, keeping the aim (and the
     # vision cone) on the arc the threat would push through.
@@ -2087,7 +2192,8 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       else:
         moveMask = octantBits(cellCenter(duck) - me)
       acted = true
-  elif not iCarry and not rushing and shotReady and haveBlocked:
+  elif not iCarry and not rushing and shotReady and not hasArc and
+      haveBlocked:
     # Peek: PRE-LAY the aim on the blocked target while stepping sideways to
     # the nearest cell that opens the firing line — the engage branch fires
     # the moment the ray clears, with the traverse already done.
