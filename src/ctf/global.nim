@@ -183,6 +183,11 @@ const
   PlasmaArcCarrySize = 10
   PlasmaArcPickupObjectBase = 19640
   PlasmaArcCarryObjectBase = 19660
+  UnitTagSpriteBase = 5000       ## unit identity tags: 5000 + playerIndex*8 +
+                                 ## loadoutMask (shield|nade<<1|arc<<2) — the
+                                 ## mask varies the LABEL, pixels stay "u<seat>".
+  UnitTagObjectBase = 19770      ## unit tags: one per player, 19770..19785.
+  UnitTagZ = 30000               ## under the hp pips (30001), over the floor.
   PlasmaArcFxObjectBase = 19700  ## 19700..19763 (16 flashes x 4 pulses),
                                  ## clear of the map markers at 20000.
   PlasmaArcMaxFlashes = 16
@@ -3997,6 +4002,59 @@ proc addSplatters(
       spriteId
     )
 
+proc addUnitTags(
+  sim: SimServer,
+  spriteDefs: var seq[SpriteDefinition],
+  currentIds: var seq[int],
+  packet: var seq[uint8],
+  viewerIndex = -1
+) {.measure.} =
+  ## Places a small identity tag under each living player: the visual is the
+  ## player-tinted "u<seat>" glyph pair; the LABEL carries the machine-readable
+  ## loadout — "unit <seat>[ shield][ nade][ arc]" — so an observing agent can
+  ## tell individuals apart and read their weapon state at a glance. Additive
+  ## on purpose: existing labels (hp pips, carry markers) are untouched, so
+  ## label-scanning bots built before this tag keep seeing what they saw.
+  ## The map view shows every tag; a player view is fog-gated like hp pips.
+  for i in 0 ..< sim.players.len:
+    let player = sim.players[i]
+    if not player.alive:
+      continue
+    if viewerIndex >= 0 and i != viewerIndex and
+        not sim.playerVisibleTo(viewerIndex, i):
+      continue
+    let
+      seat = player.joinOrder
+      colorIndex = playerColorIndex(player.color)
+      mask = (if player.hasShield: 1 else: 0) or
+        (if player.hasGrenade: 2 else: 0) or
+        (if player.hasPlasmaArc: 4 else: 0)
+      sprite = sim.buildFloatingPopSprite(colorIndex, "u" & $seat, 0)
+      spriteId = UnitTagSpriteBase + i * 8 + mask
+    var label = "unit " & $seat
+    if player.hasShield: label.add " shield"
+    if player.hasGrenade: label.add " nade"
+    if player.hasPlasmaArc: label.add " arc"
+    packet.addBoardSpriteChanged(
+      spriteDefs,
+      spriteId,
+      sprite.width,
+      sprite.height,
+      sprite.pixels,
+      label,
+      native = boardScale
+    )
+    let objectId = UnitTagObjectBase + i
+    currentIds.add(objectId)
+    packet.addBoardObject(
+      objectId,
+      player.x + CollisionW div 2 - sprite.width div 2,
+      player.y + CollisionH div 2 + SoldierBodyPx div 2 + 2,
+      UnitTagZ,
+      MapLayerId,
+      spriteId
+    )
+
 proc addDamagePops(
   sim: SimServer,
   spriteDefs: var seq[SpriteDefinition],
@@ -4207,6 +4265,12 @@ proc buildSpriteProtocolPlayerUpdates*(
       viewerIndex = playerIndex
     )
     sim.addHpPips(
+      nextState.spriteDefs,
+      currentIds,
+      result,
+      viewerIndex = playerIndex
+    )
+    sim.addUnitTags(
       nextState.spriteDefs,
       currentIds,
       result,
@@ -4822,6 +4886,7 @@ proc buildSpriteProtocolUpdates*(
   sim.addShouts(nextState.spriteDefs, currentIds, result)
   sim.addAimIndicators(nextState.spriteDefs, currentIds, result)
   sim.addHpPips(nextState.spriteDefs, currentIds, result)
+  sim.addUnitTags(nextState.spriteDefs, currentIds, result)
 
   for playerIndex in 0 ..< sim.players.len:
     let player = sim.players[playerIndex]
