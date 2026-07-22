@@ -180,6 +180,8 @@ const
   PushOutMinGame = 2400       # ...this deep into the game breaks the posts
   LatePushTick = 6800         # all-in on the clock: past this tick a draw is
                               # the default outcome, so commit to the capture
+  HoldFrontCap = 340.0        # -d:holdFront: ceiling on the phalanx creep, a
+                              # prepared line ~275px inside our half of MapW
 
   CoverShieldDist = 42.0      # an obstacle this close blocks a threat direction
   PeekLineDist = 150.0        # floor for an overwatch peek firing line; post
@@ -1641,6 +1643,12 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
        dirX = (if bot.team == Red: 1.0 else: -1.0)
        pd = bot.phalanxDuty
      var front = min(180.0 + 0.11 * float(gameTick), float(MapW) - 300.0)
+     when defined(holdFront):
+       # Against midline-holding attrition bots the creep walks the pairs into
+       # a standing midfield duel fought at the enemy's chosen range; cap the
+       # front at a prepared line inside our half and make them cross open
+       # ground to reach it. Conversion still comes from the late push.
+       front = min(front, HoldFrontCap)
      case pd
      of pdScout:
        let scHasShield = bot.hp > MaxHp
