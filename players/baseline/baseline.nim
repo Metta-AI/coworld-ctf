@@ -141,9 +141,9 @@ const
                               # mate's aim ray counts as mate-targeted
   ButtonC = 1'u8 shl 7        # grenade charge/throw (input mask bit 128)
   NadeMaxRange = 240.0        # full-charge throw distance (~fifth of the field)
-  NadeMinRange = 60.0         # never lob inside this — the ~40px blast + drift
-                              # would clip us
-  NadeBlast = 40.0            # blast radius; a pair this close dies together
+  NadeMinRange = 72.0         # never lob inside this — the 52px blast + drift
+                              # would clip us (GV17: blast 40 -> 52)
+  NadeBlast = 52.0            # blast radius; a pair this close dies together
   NadeFullChargeTicks = 24    # ~1s of holding C reaches max range
   NadePickupDetour = 90.0     # grab a corner pickup within this detour range
   MedKitDetour = 80.0         # heal-detour budget when merely wounded

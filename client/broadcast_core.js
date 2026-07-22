@@ -191,6 +191,8 @@
     const onText = config.onText || (() => {});
     const onStatus = config.onStatus || (() => {});
     const onFirstFrame = config.onFirstFrame || (() => {});
+    const websocketEnabled = config.websocket !== false;
+    const onSendPacket = config.onSendPacket || null;
     const ctx = canvas.getContext('2d');
     ctx.imageSmoothingEnabled = false;
 
@@ -702,6 +704,10 @@
     }
 
     function sendPacket(bytes) {
+      if (onSendPacket) {
+        onSendPacket(bytes);
+        return;
+      }
       if (!socket || socket.readyState !== WebSocket.OPEN) return;
       socket.send(bytes);
     }
@@ -767,8 +773,14 @@
     function start() {
       updateNativeSize();
       computeFit();
-      connect();
+      if (websocketEnabled) connect();
+      else onStatus('open');
       scheduleDraw();
+    }
+
+    function ingest(bytes) {
+      parse(bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes));
+      if (onFrame) onFrame();
     }
 
     function stop() {
@@ -803,6 +815,7 @@
 
     return {
       start,
+      ingest,
       sendCommand,
       clickMap,
       getTransform,

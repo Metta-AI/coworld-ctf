@@ -20,15 +20,22 @@ tasks, voting) with teams, guns, hearts, and fog-of-war vision.
   **right edge**.
 - **Two team hearts**, one on each team's **home pedestal** inside its spawn
   pocket (classic two-object CTF, with hearts for flags).
-- The arena is filled with **dense staggered cover** (a slalom of offset wall
+- The arena is filled with **staggered cover** (a slalom of offset wall
   stubs, diamonds, discs, and diagonal chevron walls, mirrored symmetrically so
   neither team has a positional advantage): **no straight shot crosses the
-  field**, so every approach is a series of corners.
+  field**, so every approach is a series of corners. GameVersion 16 thinned
+  the disc column to every other disc, opening real gaps in the mid-field
+  slalom.
 - In the outermost stub column of each half, the **second wall stub from the
   top and from the bottom are glass windows** (GameVersion 15): they block
   movement, bullets, and plasma arcs exactly like stone, but **vision passes
   straight through them**. Glass draws as a pale pane with diagonal sheen —
   cover you can be seen behind is not cover.
+- The old midline chevron zigzag is now a **square-bracket wall pair framing
+  the flag ring** (`[ … ]`, GameVersion 16), and the middle of each bracket's
+  bar — dead on the center row — is a **glass window**: the mid lane stays
+  closed to movement and fire, but both teams can watch the center corridor
+  through the glass.
 - A round ends when a team **captures the enemy heart** or is **wiped out**.
 
 ## Teams & spawns
@@ -156,8 +163,11 @@ always drawn — but moving entities are fogged:
   windups (~0.4s) after release, near or far** — long throws just travel
   faster. A grenade is a snap weapon: the reaction window is the same as
   eating two aimed shots, not a mortar shell you can stroll away from.
-- **The blast hurts everyone inside its radius (~40 px): enemies, teammates,
-  and the thrower alike**, removing 2 hit points each. Spawn protection
+- **The blast hurts everyone inside its radius (~52 px): enemies, teammates,
+  and the thrower alike**, removing 2 hit points each. The landing splat and
+  the charge-time throw-target ring are drawn at the TRUE blast diameter —
+  what looks painted is exactly what got hit, and everything inside the ring
+  will be. Spawn protection
   still shields. Kills credit the thrower (except suicides).
 - **Throwing is silent; landing is loud.** A landing you could not see
   leaves a large jittered sound ring (label `grenade sound`) — landing-only

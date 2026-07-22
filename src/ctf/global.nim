@@ -135,8 +135,13 @@ const
   PaintBombPickupSize = 22       ## px footprint of a corner pickup orb.
   PaintBombAirSize = 16          ## px footprint of the airborne orb.
   PaintBombCarrySize = 10        ## px footprint of the carried marker.
-  ThrowTargetSize = 15           ## px diameter of the throw-target ring (blast-sized).
-  BlastSize = 84                 ## px footprint of the landing splat (~2x GrenadeBlastRadius).
+  ThrowTargetSize = GrenadeBlastRadius * 2
+    ## px diameter of the throw-target ring: EXACTLY the blast diameter, so
+    ## "everything in here gets hit" is literally true (GameVersion 17; the
+    ## old 15px ring under-sold the danger zone by ~7x).
+  BlastSize = GrenadeBlastRadius * 2 + 4
+    ## px footprint of the landing splat: the blast diameter plus a 2px
+    ## margin, so the painted burst covers the true damage circle.
   BlastStages = 4                ## landing-splat fade stages across BlastFxTicks.
   PaintBombPickupObjectBase = 19300  ## corner pickups: 19300..19303 (four corners).
   MedKitSpriteId = 1400          ## center med kit pickup (native size);
@@ -263,6 +268,9 @@ const
   DamagePopMaxAmount = 2       ## highest -N shown (a grenade removes GrenadeDamage=2).
   DamagePopRisePx = 11         ## px the number floats upward over its full life.
   DamagePopZ = 30006           ## drawn above players, HP bars and name tags.
+  KillPopSpriteBase = 31128    ## floating "KO" kill-marker sprites keyed
+                               ## color×stage: 31128..31191 (above damage pops).
+  KillPopRisePx = 16           ## px the kill marker floats upward over its life.
   AimDotSpriteBase = 780       ## per-color aim indicator dot sprites: 780..795.
   AimDotObjectBase = 18000     ## aim dot object-id pool: 18000..18063.
   AimDotSize = 2
@@ -1303,12 +1311,15 @@ proc buildBlastSprite(colorIndex, stage: int): seq[uint8] {.measure.} =
     coreR = float(BlastSize) * 0.30            # main wet blob radius
     # Alpha-only fade: full at stage 0, thinning to a faint stain by the last.
     fade = 1.0 - 0.72 * (stage.float / float(max(1, BlastStages - 1)))
-  # Ten flung droplets ring the core (fixed offsets → deterministic sprite),
-  # scaled to the big canvas so the burst throws paint well past the blob.
+  # Ten flung droplets ring the core (fixed offsets → deterministic sprite).
+  # The offsets were hand-tuned on the original 84px canvas; `ds` rescales
+  # them to the current canvas so the outermost paint always reaches the
+  # true blast radius, whatever GrenadeBlastRadius is.
   const droplets = [(-30, -10, 7.0), (26, -22, 6.0), (33, 14, 7.5),
                     (-22, 26, 6.5), (8, 33, 5.5), (-33, 6, 5.0),
                     (18, 30, 5.0), (-14, -30, 5.5), (31, -3, 5.0),
                     (-4, -34, 4.5)]
+  let ds = float(BlastSize) / 84.0
   for y in 0 ..< BlastSize:
     for x in 0 ..< BlastSize:
       let
@@ -1326,11 +1337,12 @@ proc buildBlastSprite(colorIndex, stage: int): seq[uint8] {.measure.} =
       if not inShape:
         for (ox, oy, dr) in droplets:
           let
-            ddx = float(x) - (c + ox.float)
-            ddy = float(y) - (c + oy.float)
-          if ddx * ddx + ddy * ddy <= dr * dr:
+            ddx = float(x) - (c + ox.float * ds)
+            ddy = float(y) - (c + oy.float * ds)
+            sdr = dr * ds
+          if ddx * ddx + ddy * ddy <= sdr * sdr:
             inShape = true
-            onEdge = ddx * ddx + ddy * ddy > (dr - 2.0) * (dr - 2.0)
+            onEdge = ddx * ddx + ddy * ddy > (sdr - 2.0) * (sdr - 2.0)
             break
       if not inShape:
         continue
@@ -1771,17 +1783,17 @@ proc blitRgbaBuffer(
       dst[d + 2] = src[s + 2]
       dst[d + 3] = src[s + 3]
 
-proc buildDamagePopSprite(
-  game: SimServer, colorIndex, amount, stage: int
+proc buildFloatingPopSprite(
+  game: SimServer, colorIndex: int, text: string, stage: int
 ): tuple[width, height: int, pixels: seq[uint8]] {.measure.} =
-  ## Builds one floating "-N" damage number: a bright team-tinted numeral with
-  ## a dark 1px contour so it pops off any floor, fading by ALPHA across the
-  ## pop's short life (the protocol has no per-object alpha). Cosmetic only,
-  ## never in gameHash. The tint uses the VICTIM's team color so it reads as
-  ## that player's loss, lightened toward white so the number stays legible.
+  ## Builds one floating pop label ("-N" damage number or "KO" kill marker):
+  ## bright team-tinted glyphs with a dark 1px contour so it pops off any
+  ## floor, fading by ALPHA across the pop's short life (the protocol has no
+  ## per-object alpha). Cosmetic only, never in gameHash. The tint uses the
+  ## VICTIM's team color so it reads as that player's loss, lightened toward
+  ## white so the glyphs stay legible.
   let
     font = game.asciiSprites
-    text = "-" & $amount
     textW = max(1, font.textWidth(text))
     glyphH = max(1, font.height)
     width = textW + 2          # 1px contour margin on each side
@@ -4099,25 +4111,34 @@ proc addDamagePops(
       continue
     let
       age = sim.tickCount - pop.tick
-      stage = clamp(age * DamagePopStages div DamageFxTicks, 0,
+      # A kill marker lives longer and floats higher than a "-N" number so a
+      # death reads bigger than a scratch.
+      life = if pop.kill: KillFxTicks else: DamageFxTicks
+      risePer = if pop.kill: KillPopRisePx else: DamagePopRisePx
+      stage = clamp(age * DamagePopStages div life, 0,
         DamagePopStages - 1)
       colorIndex = playerColorIndex(pop.color)
       amount = clamp(pop.amount, 1, DamagePopMaxAmount)
-      sprite = sim.buildDamagePopSprite(colorIndex, amount, stage)
-      # Rise a few pixels over the full life so the number lifts off the player.
-      rise = DamagePopRisePx * age div max(1, DamageFxTicks)
+      text = if pop.kill: "KO" else: "-" & $amount
+      sprite = sim.buildFloatingPopSprite(colorIndex, text, stage)
+      # Rise a few pixels over the full life so the label lifts off the player.
+      rise = risePer * age div max(1, life)
       px = pop.x - sprite.width div 2
       py = pop.y - sprite.height div 2 - rise
-      spriteId = DamagePopSpriteBase +
-        (colorIndex * DamagePopMaxAmount + (amount - 1)) * DamagePopStages +
-        stage
+      spriteId =
+        if pop.kill:
+          KillPopSpriteBase + colorIndex * DamagePopStages + stage
+        else:
+          DamagePopSpriteBase +
+            (colorIndex * DamagePopMaxAmount + (amount - 1)) * DamagePopStages +
+            stage
     packet.addBoardSpriteChanged(
       spriteDefs,
       spriteId,
       sprite.width,
       sprite.height,
       sprite.pixels,
-      "damage pop " & playerColorName(colorIndex) & " -" & $amount &
+      "damage pop " & playerColorName(colorIndex) & " " & text &
         " stage " & $stage,
       native = boardScale
     )

@@ -1,13 +1,15 @@
 import
   std/[json, math, os, random, strutils],
-  bitworld/aseprite, bitworld/client as bitworldClient,
-  bitworld/pixelfonts, bitworld/profile, bitworld/spriteprotocol,
+  bitworld/aseprite, bitworld/pixelfonts, bitworld/profile, bitworld/spriteprotocol,
   bitworld/server,
   jsony, pixie
 
+when not defined(emscripten):
+  import bitworld/client as bitworldClient
+
 const
   GameName* = "ctf"
-  GameVersion* = "15"
+  GameVersion* = "17"
   ReplayFps* = 24
   DefaultMapPath* = "arena"
   DarkBgPath* = "data/darkbg.aseprite"
@@ -83,6 +85,8 @@ const
   HitFxTicks* = 34            ## ~1.4s a non-fatal hit's paint splat stays visible.
   DamageFxTicks* = 26         ## ~1.1s a floating "-1" damage pop rises and fades
                               ## after a hit (cosmetic only, never in gameHash).
+  KillFxTicks* = 44           ## ~1.8s a floating "KO" kill marker rises and fades
+                              ## after a death (cosmetic only, never in gameHash).
   CarrierSpeedPct* = 70       ## carrier moves at 70% speed.
   AimBradsTurn* = 256         ## aim angle units per full turn (binary radians).
   AimTurnRate* = 5            ## brads/tick a held rotate button turns the aim
@@ -121,7 +125,8 @@ const
                               ## weapon, not a mortar shell you can stroll
                               ## away from. (Was 6 px/tick of flight — a
                               ## full-range lob hung airborne ~41 ticks.)
-  GrenadeBlastRadius* = 40    ## everyone inside the blast takes damage.
+  GrenadeBlastRadius* = 52    ## everyone inside the blast takes damage
+                              ## (GameVersion 17: 40 -> 52, +30%).
   GrenadeDamage* = 2          ## hit points removed by one blast.
   BlastFxTicks* = 12          ## cosmetic blast flash duration in ticks.
 
@@ -462,6 +467,8 @@ type
     tick*: int                 ## when the hit landed.
     amount*: int               ## hit points lost (1 for a shot, GrenadeDamage).
     color*: uint8              ## the victim's team color, so it reads as their loss.
+    kill*: bool                ## a fatal hit: drawn as a "KO" kill marker that
+                               ## lives KillFxTicks instead of the "-N" number.
 
   Shout* = object
     ## One short player message, audible within ShoutRange of where it was
@@ -547,7 +554,10 @@ proc gameDir*(): string =
 
 proc clientDataDir*(): string =
   ## Returns the shared client data directory.
-  bitworldClient.clientDir() / "data"
+  when defined(emscripten):
+    gameDir() / "data"
+  else:
+    bitworldClient.clientDir() / "data"
 
 proc spriteSheetPath(): string =
   ## Returns the sprite sheet aseprite path.
@@ -1224,8 +1234,10 @@ const
   ## while every corridor stays >= 26px for the 13px player footprint. The
   ## columns vary the shape per lane: border-attached rect stubs, diamonds,
   ## discs, 45-degree chevron walls angling across the old corridors, and
-  ## rect/diamond stubs flanking the flag ring. The chevron pair straddling
-  ## the horizontal midline closes the mid lane outside the flag ring; the
+  ## rect/diamond stubs flanking the flag ring. A windowed square bracket
+  ## straddling the horizontal midline closes the mid lane outside the flag
+  ## ring to movement and fire, while its glass center pane gives both teams
+  ## a fogless sightline down the center corridor (GameVersion 16); the
   ## ring itself stays an open disc for close flag fights. Shapes sit
   ## between the capture/spawn columns and the flag ring; isProtectedFloor
   ## carves them out of the ring, pockets, and capture columns.
@@ -1250,24 +1262,34 @@ const
     ArenaShape(kind: shapeDiamond, cx: 349, cy: 376, radius: 28),
     ArenaShape(kind: shapeDiamond, cx: 349, cy: 472, radius: 28),
     ArenaShape(kind: shapeDiamond, cx: 349, cy: 568, radius: 28),
-    # Column 3 (x=421): discs, phase +24.
+    # Column 3 (x=421): discs, phase +24. GameVersion 16 thinned the lane:
+    # every other disc removed (was 66/162/258/400/496/592), giving the
+    # column real gaps instead of a near-solid picket. Top/bottom mirror
+    # symmetry is intentionally traded for the lower density; team fairness
+    # only needs the x-mirror.
     ArenaShape(kind: shapeDisc, cx: 421, cy: 66, radius: 28),
-    ArenaShape(kind: shapeDisc, cx: 421, cy: 162, radius: 28),
     ArenaShape(kind: shapeDisc, cx: 421, cy: 258, radius: 28),
-    ArenaShape(kind: shapeDisc, cx: 421, cy: 400, radius: 28),
     ArenaShape(kind: shapeDisc, cx: 421, cy: 496, radius: 28),
-    ArenaShape(kind: shapeDisc, cx: 421, cy: 592, radius: 28),
-    # Column 4 (x=479..509): 45-degree chevron walls, phase +72; the pair
-    # straddling the midline forms one continuous zigzag that closes the
-    # old mid lane at mid range.
+    # Column 4 (x=479..509): 45-degree chevron walls, phase +72; the
+    # midline pair was replaced in GameVersion 16 by the windowed bracket
+    # below.
     ArenaShape(kind: shapeDiagonal, x0: 479, y0: 86, x1: 507, y1: 114, thickness: 12),
     ArenaShape(kind: shapeDiagonal, x0: 507, y0: 114, x1: 479, y1: 142, thickness: 12),
     ArenaShape(kind: shapeDiagonal, x0: 507, y0: 182, x1: 479, y1: 210, thickness: 12),
     ArenaShape(kind: shapeDiagonal, x0: 479, y0: 210, x1: 507, y1: 238, thickness: 12),
-    ArenaShape(kind: shapeDiagonal, x0: 479, y0: 276, x1: 506, y1: 303, thickness: 12),
-    ArenaShape(kind: shapeDiagonal, x0: 506, y0: 303, x1: 479, y1: 330, thickness: 12),
-    ArenaShape(kind: shapeDiagonal, x0: 479, y0: 329, x1: 506, y1: 356, thickness: 12),
-    ArenaShape(kind: shapeDiagonal, x0: 506, y0: 356, x1: 479, y1: 383, thickness: 12),
+    # GameVersion 16: the old midline chevron zigzag (the sideways "W" that
+    # closed the mid lane) is now a square bracket over the same footprint
+    # (x=479..507, y=276..383): a vertical bar on the outer side plus short
+    # arms reaching toward the flag ring — "[" here, "]" on the x-mirror.
+    # The middle of the bar, straddling the midline, is a GLASS WINDOW:
+    # the mid lane stays closed to movement, bullets, and plasma, but
+    # fog-of-war now sees straight down the center corridor through it.
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 479, y: 276, w: 28, h: 12)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 479, y: 288, w: 12, h: 24)),
+    ArenaShape(kind: shapeRect, window: true,
+      rect: MapRect(x: 479, y: 312, w: 12, h: 36)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 479, y: 348, w: 12, h: 23)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 479, y: 371, w: 28, h: 12)),
     ArenaShape(kind: shapeDiagonal, x0: 507, y0: 421, x1: 479, y1: 449, thickness: 12),
     ArenaShape(kind: shapeDiagonal, x0: 479, y0: 449, x1: 507, y1: 477, thickness: 12),
     ArenaShape(kind: shapeDiagonal, x0: 479, y0: 517, x1: 507, y1: 545, thickness: 12),
@@ -2776,7 +2798,10 @@ proc gameHash*(sim: SimServer): uint64 =
     result.mixHashInt(player.throwCharge)
     result.mixHashInt(player.lastShoutTick)
     result.mixHashInt(player.joinOrder)
-    result.mixHashInt(int(player.color))
+    # Color is an unsigned packed RGBA value. Converting it through `int`
+    # overflows on wasm32 for colors with the high bit set; widening directly
+    # preserves the native replay hash on both 32- and 64-bit targets.
+    result.mixHash(uint64(player.color))
     result.mixHashInt(player.reward)
     result.mixHashInt(player.kills)
     result.mixHashInt(player.deaths)
@@ -3851,6 +3876,17 @@ proc killPlayer*(sim: var SimServer, targetIndex, killerIndex: int) =
     tick: sim.tickCount,
     color: sim.players[targetIndex].color,
     hit: false
+  )
+  # A floating "KO" kill marker rises and fades from the death spot — the same
+  # mechanism as the "-1" damage pops, so a kill reads at a glance in the
+  # spectator/replay view (cosmetic only, never in gameHash).
+  sim.damagePops.add DamageFx(
+    x: sim.players[targetIndex].x + CollisionW div 2,
+    y: sim.players[targetIndex].y + CollisionH div 2,
+    tick: sim.tickCount,
+    amount: 0,
+    color: sim.players[targetIndex].color,
+    kill: true
   )
   sim.players[targetIndex].alive = false
   sim.players[targetIndex].velX = 0
@@ -5231,6 +5267,7 @@ proc step*(
   sim.splatters = keptSplatters
   var keptPops: seq[DamageFx] = @[]
   for pop in sim.damagePops:
-    if sim.tickCount - pop.tick < DamageFxTicks:
+    let life = if pop.kill: KillFxTicks else: DamageFxTicks
+    if sim.tickCount - pop.tick < life:
       keptPops.add pop
   sim.damagePops = keptPops

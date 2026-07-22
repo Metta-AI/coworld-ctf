@@ -65,6 +65,40 @@ suite "floating damage numbers":
     check labels.anyIt(it.startsWith("damage pop blue -1 stage 0"))
     check "hit flash stage 0" in labels
 
+  test "a fatal shot adds a KO kill marker beside the -1 pop":
+    var game = initCtfForTest(defaultGameConfig())
+    let
+      shooter = game.addPlayer("red0")
+      target = game.addPlayer("blue0")
+      bystander = game.addPlayer("blue1")
+    game.startGame()
+    game.players[shooter].team = Red
+    game.players[target].team = Blue
+    game.players[bystander].team = Blue
+    # Shooter aims due east at a one-hp target; the second blue player stands
+    # behind the shooter so the death is not a team wipe (no GameOver phase).
+    game.players[shooter].x = game.gameMap.center.x
+    game.players[shooter].y = game.gameMap.center.y
+    game.players[shooter].aimBrads = 0
+    game.players[shooter].windupBrads = -1
+    game.players[shooter].fireCooldown = 0
+    game.players[shooter].spawnProtect = 0
+    game.players[target].x = game.gameMap.center.x + 40
+    game.players[target].y = game.gameMap.center.y
+    game.players[target].spawnProtect = 0
+    game.players[target].hp = 1
+    game.players[bystander].x = game.gameMap.center.x - 40
+    game.players[bystander].y = game.gameMap.center.y
+
+    game.tryFire(shooter)
+    check not game.players[target].alive
+    # The fatal hit leaves both the "-1" pop and the "KO" kill marker.
+    check game.damagePops.len == 2
+    check game.damagePops.anyIt(it.kill)
+    let labels = game.mapLabels()
+    check labels.anyIt(it.startsWith("damage pop blue -1 stage 0"))
+    check labels.anyIt(it.startsWith("damage pop blue KO stage 0"))
+
   test "the pop is cosmetic: it never enters the game hash":
     var a = initCtfForTest(defaultGameConfig())
     var b = initCtfForTest(defaultGameConfig())
@@ -100,5 +134,26 @@ suite "floating damage numbers":
     check game.damagePops.len == 1
     let noInput = newSeq[InputState](game.players.len)
     for _ in 0 ..< DamageFxTicks + 2:
+      game.step(noInput, noInput)
+    check game.damagePops.len == 0
+
+  test "kill markers outlive -1 pops, then expire":
+    var game = initCtfForTest(defaultGameConfig())
+    let a = game.addPlayer("red0")
+    let b = game.addPlayer("blue0")
+    game.startGame()
+    game.players[a].team = Red
+    game.players[b].team = Blue
+    game.damagePops.add DamageFx(
+      x: 10, y: 10, tick: game.tickCount, amount: 1,
+      color: game.players[a].color, kill: true
+    )
+    let noInput = newSeq[InputState](game.players.len)
+    # Past a plain pop's lifetime the kill marker is still up...
+    for _ in 0 ..< DamageFxTicks + 2:
+      game.step(noInput, noInput)
+    check game.damagePops.len == 1
+    # ...and past its own longer lifetime it is gone.
+    for _ in 0 ..< KillFxTicks:
       game.step(noInput, noInput)
     check game.damagePops.len == 0
