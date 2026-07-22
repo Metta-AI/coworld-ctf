@@ -88,7 +88,6 @@ suite "med kits":
     sim.players[0].fireCooldown = 0
     sim.players[1].x = kit.x + 24
     sim.players[1].y = kit.y
-    sim.players[1].spawnProtect = 0
     sim.players[1].hp = 1
     sim.tryFire(0)
     check not sim.players[1].alive

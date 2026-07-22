@@ -9,7 +9,7 @@ when not defined(emscripten):
 
 const
   GameName* = "ctf"
-  GameVersion* = "18"
+  GameVersion* = "20"
   ReplayFps* = 24
   DefaultMapPath* = "arena"
   DarkBgPath* = "data/darkbg.aseprite"
@@ -64,8 +64,10 @@ const
   Lives* = 3
   HitPoints* = 3              ## hits to kill: each shot removes one hit point.
   RespawnTicks* = 72          ## ~3s before respawning at home.
-  SpawnProtectTicks* = 24     ## ~1s spawn invulnerability.
   GunRange* = 1300            ## px, effectively map-wide; LOS and aim are the real limits.
+  ExposureSampleStep* = 3     ## px between silhouette line-of-sight samples
+                              ## across a target's body (±PlayerHalf): only
+                              ## the exposed part of a body can be hit.
   BulletHalfWidth* = 8.0      ## the bullet corridor half-width: a shot travels
                               ## along the facing ray and hits the FIRST player
                               ## whose footprint crosses it.
@@ -345,7 +347,6 @@ type
     lives*: int
     hitPoints*: int
     respawnTicks*: int
-    spawnProtectTicks*: int
     gunRange*: int
     fireCooldownTicks*: int
     fireWindupTicks*: int
@@ -379,7 +380,6 @@ type
     fireCooldown*: int
     fireWindup*: int           ## ticks until a pulled trigger releases its shot.
     windupBrads*: int          ## aim angle locked at the trigger pull, -1 = none.
-    spawnProtect*: int
     carryingFlag*: bool
     hasGrenade*: bool          ## each player carries at most one grenade.
     hasShield*: bool           ## carrying an endzone shield: 6 hp, 3x slower fire.
@@ -401,6 +401,17 @@ type
                                ## excluded from gameHash (see gameHash).
     shotsHit*: int             ## released shots that connected with an enemy;
                                ## analysis-only, excluded from gameHash.
+    multiKills2*: int          ## grenade blasts / plasma activations that
+                               ## killed exactly 2; analysis-only, excluded
+                               ## from gameHash.
+    multiKills3*: int          ## grenade blasts / plasma activations that
+                               ## killed 3 or more; analysis-only, excluded
+                               ## from gameHash.
+    teamKills*: int            ## teammates this player killed (backstabs);
+                               ## analysis-only, excluded from gameHash.
+    arcKillsThisFire*: int     ## kills scored by the current plasma
+                               ## activation; transient multi-kill
+                               ## bookkeeping, excluded from gameHash.
 
   PlayerFov* = object
     ## One player's cached fog-of-war visibility grid (FovGridW x FovGridH
@@ -1885,7 +1896,6 @@ proc defaultGameConfig*(): GameConfig =
     lives: Lives,
     hitPoints: HitPoints,
     respawnTicks: RespawnTicks,
-    spawnProtectTicks: SpawnProtectTicks,
     gunRange: GunRange,
     fireCooldownTicks: FireCooldownTicks,
     fireWindupTicks: FireWindupTicks,
@@ -2159,8 +2169,7 @@ proc validate(config: GameConfig) =
     )
   if config.startWaitTicks < 0:
     raise newException(CtfError, "Config field startWaitTicks must be non-negative.")
-  if config.respawnTicks < 0 or config.spawnProtectTicks < 0 or
-      config.fireCooldownTicks < 0:
+  if config.respawnTicks < 0 or config.fireCooldownTicks < 0:
     raise newException(CtfError, "Timer config fields must not be negative.")
   if config.gameOverTicks < 0 or config.maxTicks < 0 or config.maxGames < 0:
     raise newException(CtfError, "Timer config fields must not be negative.")
@@ -2221,7 +2230,6 @@ proc update*(config: var GameConfig, jsonText: string) =
   node.readConfigInt("lives", config.lives)
   node.readConfigInt("hitPoints", config.hitPoints)
   node.readConfigInt("respawnTicks", config.respawnTicks)
-  node.readConfigInt("spawnProtectTicks", config.spawnProtectTicks)
   node.readConfigInt("gunRange", config.gunRange)
   node.readConfigInt("fireCooldownTicks", config.fireCooldownTicks)
   node.readConfigInt("fireWindupTicks", config.fireWindupTicks)
@@ -2292,7 +2300,6 @@ proc configJson*(config: GameConfig): string =
     "lives": config.lives,
     "hitPoints": config.hitPoints,
     "respawnTicks": config.respawnTicks,
-    "spawnProtectTicks": config.spawnProtectTicks,
     "gunRange": config.gunRange,
     "fireCooldownTicks": config.fireCooldownTicks,
     "fireWindupTicks": config.fireWindupTicks,
@@ -2472,7 +2479,6 @@ proc gameHash*(sim: SimServer): uint64 =
     result.mixHashInt(player.fireCooldown)
     result.mixHashInt(player.fireWindup)
     result.mixHashInt(player.windupBrads)
-    result.mixHashInt(player.spawnProtect)
     result.mixHashBool(player.carryingFlag)
     result.mixHashBool(player.hasGrenade)
     result.mixHashBool(player.hasShield)
@@ -3096,6 +3102,18 @@ proc recordKill*(sim: var SimServer, playerIndex: int) =
     inc sim.rewardAccounts[index].kills
   inc sim.players[playerIndex].kills
 
+proc recordTeamKill*(sim: var SimServer, killerIndex, victimIndex: int) =
+  ## Counts a teammate kill (the endscreen "backstab" badge). Weapon-agnostic:
+  ## bullets, grenade blasts, and plasma cones all land here.
+  if killerIndex < 0 or killerIndex >= sim.players.len:
+    return
+  if victimIndex < 0 or victimIndex >= sim.players.len:
+    return
+  if killerIndex == victimIndex:
+    return
+  if sim.players[killerIndex].team == sim.players[victimIndex].team:
+    inc sim.players[killerIndex].teamKills
+
 proc recordDeath*(sim: var SimServer, playerIndex: int) =
   ## Increments the death counter for one player.
   let index = sim.rewardAccountForPlayer(playerIndex)
@@ -3278,7 +3296,6 @@ proc startGame*(sim: var SimServer) =
     sim.players[i].windupBrads = -1
     sim.players[i].aimBrads = spawnAimBrads(sim.players[i].team)
     sim.players[i].flipH = sim.players[i].team == Blue
-    sim.players[i].spawnProtect = sim.config.spawnProtectTicks
     sim.players[i].carryingFlag = false
     sim.players[i].hasShield = false
     sim.players[i].kills = 0
@@ -3286,6 +3303,10 @@ proc startGame*(sim: var SimServer) =
     sim.players[i].captures = 0
     sim.players[i].shotsFired = 0
     sim.players[i].shotsHit = 0
+    sim.players[i].multiKills2 = 0
+    sim.players[i].multiKills3 = 0
+    sim.players[i].teamKills = 0
+    sim.players[i].arcKillsThisFire = 0
     sim.recordGameTeamAssigned(i)
   sim.resetFlags()
   sim.resetGrenades()
@@ -3621,8 +3642,6 @@ proc selectArcVictims(
   for i in 0 ..< sim.players.len:
     if i == attackerIndex or not sim.players[i].alive:
       continue
-    if sim.players[i].spawnProtect > 0:
-      continue
     let
       vx = float(sim.players[i].x + CollisionW div 2 - ax)
       vy = float(sim.players[i].y + CollisionH div 2 - ay)
@@ -3651,6 +3670,7 @@ proc startArcFire*(sim: var SimServer, attackerIndex: int) =
     PlasmaArcActiveTicks + PlasmaArcResetTicks
   sim.players[attackerIndex].arcTicksLeft = PlasmaArcActiveTicks
   sim.players[attackerIndex].arcHitMask = 0
+  sim.players[attackerIndex].arcKillsThisFire = 0
   sim.logGameEvent(
     playerColorText(sim.players[attackerIndex].color) & " fired a plasma arc"
   )
@@ -3702,6 +3722,16 @@ proc resolveActiveArcCones*(sim: var SimServer) =
         sim.killPlayer(victimIndex, arcFire.attacker)
         if victimIndex != arcFire.attacker:
           sim.recordKill(arcFire.attacker)
+          sim.recordTeamKill(arcFire.attacker, victimIndex)
+          # Multi-kill accounting per ACTIVATION (not per tick): the second
+          # kill of one firing mints a double, the third upgrades it to a
+          # triple; a fourth+ stays inside the already-counted triple.
+          inc sim.players[arcFire.attacker].arcKillsThisFire
+          if sim.players[arcFire.attacker].arcKillsThisFire == 2:
+            inc sim.players[arcFire.attacker].multiKills2
+          elif sim.players[arcFire.attacker].arcKillsThisFire == 3:
+            dec sim.players[arcFire.attacker].multiKills2
+            inc sim.players[arcFire.attacker].multiKills3
     if sim.players[arcFire.attacker].arcTicksLeft > 0:
       dec sim.players[arcFire.attacker].arcTicksLeft
 
@@ -3724,8 +3754,15 @@ proc fireDirection(sim: SimServer, shooterIndex: int): tuple[x, y: float] =
 
 proc selectFireTarget(sim: SimServer, shooterIndex: int): int =
   ## Returns the FIRST player along the shot ray — the bullet travels down
-  ## the locked aim direction and stops at the first footprint it crosses
+  ## the locked aim direction and stops at the first body it crosses
   ## (friendly fire on) or the first wall — or -1 for a miss.
+  ##
+  ## A target's body is sampled across its silhouette (perpendicular to the
+  ## ray, ±PlayerHalf): a sample connects only when the bullet corridor
+  ## covers it AND the shooter has line of sight TO THAT SAMPLE. Cover is
+  ## therefore partial, not binary — a corner-hugger can only be hit on the
+  ## sliver of body it actually shows, and a fully exposed body presents the
+  ## same effective width as the old center-only corridor check.
   result = -1
   let
     shooter = sim.players[shooterIndex]
@@ -3733,31 +3770,30 @@ proc selectFireTarget(sim: SimServer, shooterIndex: int): int =
     sx = shooter.x + CollisionW div 2
     sy = shooter.y + CollisionH div 2
     maxRange = float(sim.config.gunRange)
-    corridor = BulletHalfWidth + float(PlayerHalf)
   var bestT = maxRange + 1.0
   for i in 0 ..< sim.players.len:
     if i == shooterIndex or not sim.players[i].alive:
       continue
-    if sim.players[i].spawnProtect > 0:
-      continue
     let
-      vx = float(sim.players[i].x + CollisionW div 2 - sx)
-      vy = float(sim.players[i].y + CollisionH div 2 - sy)
-      t = vx * ux + vy * uy            # distance along the ray
-    if t <= 0 or t > maxRange:
-      continue
-    let perp = abs(vx * uy - vy * ux)  # distance off the ray
-    if perp > corridor:
-      continue
-    if not sim.lineOfSightClear(
-      sx, sy,
-      sim.players[i].x + CollisionW div 2,
-      sim.players[i].y + CollisionH div 2
-    ):
-      continue
-    if t < bestT:
-      bestT = t
-      result = i
+      tx = float(sim.players[i].x + CollisionW div 2)
+      ty = float(sim.players[i].y + CollisionH div 2)
+    for off in countup(-PlayerHalf, PlayerHalf, ExposureSampleStep):
+      let
+        px = tx - float(off) * uy      # silhouette sample: the body span
+        py = ty + float(off) * ux      # perpendicular to the shot ray
+        vx = px - float(sx)
+        vy = py - float(sy)
+        t = vx * ux + vy * uy          # distance along the ray
+      if t <= 0 or t > maxRange:
+        continue
+      if abs(vx * uy - vy * ux) > BulletHalfWidth:
+        continue
+      if not sim.lineOfSightClear(sx, sy, int(round(px)), int(round(py))):
+        continue
+      if t < bestT:
+        bestT = t
+        result = i
+      break
 
 proc applyFire(sim: var SimServer, shooterIndex, targetIndex: int) =
   ## Applies one selected shot: cooldown, tracer, and the kill. The target
@@ -3845,6 +3881,7 @@ proc applyFire(sim: var SimServer, shooterIndex, targetIndex: int) =
     if sim.players[targetIndex].hp <= 0:
       sim.killPlayer(targetIndex, shooterIndex)
       sim.recordKill(shooterIndex)
+      sim.recordTeamKill(shooterIndex, targetIndex)
     else:
       if not bubbleUp:
         # A non-fatal hit leaves a small, short-lived paint spark in the
@@ -3961,8 +3998,7 @@ proc applyGrenadeInput(
 proc explodeGrenade(sim: var SimServer, grenade: AirborneGrenade) =
   ## Applies one landing: a cosmetic blast flash (which views also use for
   ## the audible landing's sound ring) plus blast damage to EVERYONE inside
-  ## the radius — teammates and the thrower included; spawn protection
-  ## still shields.
+  ## the radius — teammates and the thrower included.
   # Color the splat by the thrower's TEAM (not their individual slot color), so
   # a landing reads as that team's paint-bomb — and the sprite id stays within
   # the two team-color slots, never colliding with the tracer pool.
@@ -3976,8 +4012,9 @@ proc explodeGrenade(sim: var SimServer, grenade: AirborneGrenade) =
   )
   sim.logGameEvent("grenade landed")
   let radiusSq = GrenadeBlastRadius * GrenadeBlastRadius
+  var blastKills = 0
   for i in 0 ..< sim.players.len:
-    if not sim.players[i].alive or sim.players[i].spawnProtect > 0:
+    if not sim.players[i].alive:
       continue
     let
       px = sim.players[i].x + CollisionW div 2
@@ -3994,6 +4031,15 @@ proc explodeGrenade(sim: var SimServer, grenade: AirborneGrenade) =
       sim.killPlayer(i, grenade.thrower)
       if grenade.thrower != i:
         sim.recordKill(grenade.thrower)
+        sim.recordTeamKill(grenade.thrower, i)
+        inc blastKills
+  # Multi-kill accounting per BLAST: one landing that kills 2 mints a double,
+  # 3+ a triple (a self-kill in the blast never counts toward either).
+  if grenade.thrower >= 0 and grenade.thrower < sim.players.len:
+    if blastKills >= 3:
+      inc sim.players[grenade.thrower].multiKills3
+    elif blastKills == 2:
+      inc sim.players[grenade.thrower].multiKills2
 
 proc updateGrenades(sim: var SimServer) =
   ## Refills corner pickups whose timer elapsed and lands due grenades.
@@ -4818,8 +4864,6 @@ proc respawnPlayers(sim: var SimServer) =
   ## Ticks respawn timers and brings dead players back at home.
   for i in 0 ..< sim.players.len:
     if sim.players[i].alive:
-      if sim.players[i].spawnProtect > 0:
-        dec sim.players[i].spawnProtect
       continue
     if sim.players[i].lives <= 0:
       continue
@@ -4829,7 +4873,6 @@ proc respawnPlayers(sim: var SimServer) =
         sim.resetPlayerToHome(i)
         sim.players[i].alive = true
         sim.players[i].hp = sim.config.hitPoints
-        sim.players[i].spawnProtect = sim.config.spawnProtectTicks
         sim.players[i].aimBrads = spawnAimBrads(sim.players[i].team)
         sim.players[i].flipH = sim.players[i].team == Blue
 

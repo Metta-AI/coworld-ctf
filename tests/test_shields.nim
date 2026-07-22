@@ -22,8 +22,6 @@ proc twoTeamGame(): SimServer =
   result.startGame()
   result.players[0].team = Red
   result.players[1].team = Blue
-  for i in 0 ..< result.players.len:
-    result.players[i].spawnProtect = 0
 
 proc standOn(sim: var SimServer, playerIndex, spawnIndex: int) =
   ## Puts one player exactly on a shield spawn point.

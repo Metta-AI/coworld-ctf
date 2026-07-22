@@ -654,7 +654,7 @@ proc findEnemyPosts(bot: Bot, client: ProtocolClient) =
   ## Precomputes the standing virtual threats every carrier run has to
   ## respect, fed into exposure costing and lane choice: the mirrored ENEMY
   ## overwatch post (a stationary, hidden killer) and the ENEMY spawn
-  ## pocket — every kill respawns an armed, spawn-protected enemy at the
+  ## pocket — every kill respawns an armed enemy at the
   ## pedestal aiming our way, so the pocket mouth (and its mid lane) is
   ## permanently watched ground even when no track remembers anyone there.
   bot.enemyPosts.setLen(0)
@@ -1440,7 +1440,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       laneY = bot.safestLaneY(me)
     if abs(me.x - pocket.x) < 60.0 and abs(me.y - laneY) > 70.0:
       # Bug out of the pocket VERTICALLY first: every kill respawns an
-      # armed, spawn-protected enemy at this pedestal whose spawn aim points
+      # armed enemy at this pedestal whose spawn aim points
       # along the east-west axis — pure-vertical movement exits that cone
       # fastest, then the border lane runs home outside it.
       target = vec(pocket.x, laneY)
@@ -1583,7 +1583,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   let rushing = not iCarry and not mateCarry and
     bot.role in {MidTop, MidBottom, MidGuard}
   # The pocket endgame: duelling at the pocket edge is an infinite respawn
-  # grinder (respawners appear spawn-protected AT the pedestal), so the
+  # grinder (respawners reappear armed AT the pedestal), so the
   # attacker CLOSEST to the pedestal commits to the touch, unarmed and
   # undistracted, while the rest of the wave keeps its guns up to cover the
   # grab — even a suicide grab forces the enemy back onto defense, and a

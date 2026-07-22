@@ -49,8 +49,7 @@ logs or replay links, and the smallest repro.
   forward plasma cone — 4 squares of reach, 2 squares wide at the tip — that
   stays on for 5 ticks and takes 20 ticks to reset. A touch deals 3 damage
   (lethal to a bare cog; a shield carrier survives one), hits teammates too,
-  respects spawn protection, credits kills to the attacker, and the arc is
-  lost on death.
+  credits kills to the attacker, and the arc is lost on death.
 - **Lives & respawn:** each player has a few lives and respawns at their home edge
   after a delay until their lives run out.
 - **The flags:** touch the **enemy** pedestal flag to steal it; you carry it
