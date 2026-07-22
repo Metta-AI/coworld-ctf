@@ -41,6 +41,13 @@ tasks, voting) with teams, guns, hearts, and fog-of-war vision.
 ## Teams & spawns
 
 - Players are assigned to **Red** or **Blue** by slot (8 each).
+- Each team's players get a fixed **identity**, `alpha` through `theta`, by
+  slot order within the team — deterministic across matches and replays. A
+  small Greek-letter badge (Α Β Γ Δ Ε Ζ Η Θ) rides each living player's
+  sprite, and the badge object is labeled `identity <color> <name>` (e.g.
+  `identity red alpha`). Badges are fog-gated with their player: seeing a
+  player means seeing who it is. Existing `player <color> <side>` labels are
+  unchanged.
 - Each team has a **home edge**: Red = left, Blue = right.
 - Players spawn just inside their home edge and respawn there when killed.
 
@@ -422,6 +429,12 @@ high-definition soldier is a pure visual upgrade — living players are still
 `aim dot <color>` indicator has been **retired**; facing is read from the
 sprite's swept gun and the vision cone, so a label-scanning policy sees the
 same vocabulary it always has.
+
+**Identity badges:** every living player carries a separate badge object
+labeled `identity <color> <name>` (`alpha`..`theta` — see Teams & spawns).
+Like the `hp <n>/3` bar, the badge is a distinct object near its player:
+attach it by proximity. It is fog-gated with its player and disappears on
+death.
 
 ---
 

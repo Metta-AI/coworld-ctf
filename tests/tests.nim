@@ -18,6 +18,7 @@ import
   test_first_person_pip,
   test_board_click_select,
   test_corpse_label,
+  test_identity_badges,
   test_damage_pop,
   test_trade_pair,
   test_shot_accuracy,
