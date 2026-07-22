@@ -274,6 +274,7 @@ type
     comebackWant: string      # pending reply to a heard enemy shout
     corpseCount: int          # visible enemy corpses last frame (kill signal)
     killMoodUntil: int        # taunt window opened by a fresh kill
+    nextPeaceTick: int        # slot-staggered cadence for the audible persona
     lastEnemyShout: string    # last enemy shout label already responded to
     lastComebackReq: int      # rate limit on comeback generation requests
     wasMateCarry: bool        # edge detector: a fresh steal opens a taunt window
@@ -1516,6 +1517,22 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         else:
           bot.shoutWant = sample(CannedTaunts)
         bot.killMoodUntil = 0              # one taunt per window
+      bot.lastShoutTick = bot.tick
+    # Peace pulse: the persona should be AUDIBLE, not only kill-gated. The
+    # kill window rarely coincides with a free shout slot under permanent-
+    # contact doctrines, so each bot also yells its line on a slot-staggered
+    # ~20s cadence — strictly leftover budget: every gameplay shout (C/T/H/E)
+    # has already claimed shoutWant above, and carriers stay silent.
+    if bot.nextPeaceTick == 0:
+      bot.nextPeaceTick = 400 + bot.slot * 61
+    if bot.shoutWant.len == 0 and not iCarry and
+        bot.tick - bot.lastShoutTick >= 26 and bot.tick >= bot.nextPeaceTick:
+      if bot.tauntBank.len > 0:
+        bot.shoutWant = bot.tauntBank[0]
+        bot.tauntBank.delete(0)
+      else:
+        bot.shoutWant = sample(CannedTaunts)
+      bot.nextPeaceTick = bot.tick + 480
       bot.lastShoutTick = bot.tick
 
   # Flank progress: sticky so lane-runners do not oscillate at the boundary.
