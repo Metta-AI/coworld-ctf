@@ -325,6 +325,10 @@ proc hunterTune(): CombatTune =
   # keeps the champion unless COUNTERARC=1. Needs dangerScore (sharpens it).
   # A/B: SHIPBASE=1 COUNTERARC=1 vs CONTROL_SHIPPED=1 (full v16), seat-rotated.
   result.counterArc     = envInt("COUNTERARC", (if result.counterArc: 1 else: 0)) != 0
+  # arcBreach (2026-07-22, anti-line OFFENSE): on a called line the fixed breacher
+  # seat grabs the plasma arc and cones the cluster. Default = shipped value so
+  # SHIPBASE=1 keeps it unless ARCBREACH moves it. Needs commsPlay (the line read).
+  result.arcBreach      = envInt("ARCBREACH", (if result.arcBreach: 1 else: 0)) != 0
   # v7 sword/shield adaptation (2026-07-19). avoidDisarm is the pure-downside fix
   # (mirror-measurable via SS-PROBE pickup count → ~0); shieldTank/swordAmbush are
   # coordination/positional levers, validate hosted. Knobs reach only HUNTER_SLOTS.
@@ -592,7 +596,7 @@ proc main() =
   when defined(commsprobe):
     echo &"  COMMS-PROBE: classify stack {csStack} wipe {csWipe} peel {csPeel} line {csLine} -> " &
       &"EMIT {csEmit} -> HEARD {csHeard} -> ADOPT {csAdopt} -> WIPE-ARM {csWipeArm} " &
-      &"LINE-ARM {csLineArm} NADE-CLUSTER {csNadeLine}"
+      &"LINE-ARM {csLineArm} NADE-CLUSTER {csNadeLine} ARC-SEEK {csArcSeek} ARC-FIRE {csArcFire}"
     echo &"    (classify>0 => the scenario read fires (incl. LINE = standing enemy line); EMIT>0 => " &
       &"codewords broadcast; HEARD>0 => mates decode them; ADOPT>0 => a heard play drove a mate's flank; " &
       &"WIPE-ARM/LINE-ARM>0 => a HEARD wipe/line armed a mate's rally it never saw itself; " &

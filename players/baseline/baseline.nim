@@ -145,6 +145,8 @@ when defined(commsprobe):
                       # — the multikill lob that breaks the line before the wave punches
   var csLineArm = 0   # frames a HEARD line armed holdLine's rally without a local line
                       # sighting (the cross-fog convergence the callout buys)
+  var csArcSeek = 0   # frames the breacher seat detoured to grab a plasma arc on a line
+  var csArcFire = 0   # frames the breacher pressed the cone at a cluster (the multikill)
   var csWipeArm = 0   # frames a HEARD wipe armed regroupPush's rally without a
                       # local over-extend read (the coordination the bus buys —
                       # a trailing mid converges on a wipe it never saw itself)
@@ -322,6 +324,10 @@ const
                               # to swing the turret across the map
   FocusFireBonus = 45.0       # px of credit when a visible mate's aim line
                               # already covers the target (finish together)
+  ShieldGunWeight = 1.5       # a shielded enemy (6-hp tank) counts as this many
+                              # guns in the fire-superiority break math — more than
+                              # a bare cog: it outlasts a normal exchange, so don't
+                              # commit a duel we can't finish (shieldTank awareness)
   SatCapPenalty = 220.0       # satCap: px of priority DEBIT on an enemy already
                               # saturated (enough mate guns lined to finish it) so
                               # a further free gun spreads to an uncovered live
@@ -458,6 +464,17 @@ const
                               # carrier as "safely disarmed" — covers the 5-tick cone
                               # sweep + our closing speed so we don't mis-classify a
                               # carrier about to be in reach.
+  # --- arcBreach (anti-line OFFENSE, GameVersion 17 plasma arc) ---
+  ArcBreachSeat = 1           # the FIXED team-seat (0..7) that plays breacher when a
+                              # line is called — a deterministic seat, NOT lowest-alive
+                              # (teammates are fogged, so no bot can see who else is up).
+                              # Seat 1 = the MidGuard (trailing mid) so a front rusher
+                              # never trades its gun; the breacher arms up from behind.
+  ArcBreachSeek = 260.0       # grab an arc pickup within this detour when a line is live
+  ArcBreachFireReach = 128.0  # fire the cone when a fresh enemy sits within this (just
+                              # inside the engine's 136px reach, a margin for our aim/step)
+  ArcBreachConeBrads = 12     # press attack when the target is within this of our aim
+                              # (the ~14° half-cone; be on-bearing so the cone lands)
   ArcCarryRadius = 48.0       # attribute the "plasma arc carried" marker (floats
                               # ABOVE the head, higher than the hp pip) to the nearest
                               # actor within this — bigger than HpPipRadius(22) for the
@@ -816,6 +833,11 @@ type
     aimBrads: int             # gun bearing read from the aim-dot line; -1 unknown
     hasArc: bool              # carrying a plasma arc ("plasma arc carried" over
                               # the head) => gun DISABLED, a 136px cone specialist
+    hasShield: bool           # carrying a shield ("shield carried" over the head)
+                              # => 6 HP (a 4+-hp bubble) + fires 3x SLOWER. The hp
+                              # pip CANNOT show this (it renders 3/3, capped at the
+                              # 3-seg bar), so this marker is the only tell — without
+                              # it we fight a 6-hp tank as a 3-hp cog and undershoot.
 
   Track = object              # a remembered player
     pos, vel: Vec
@@ -824,6 +846,7 @@ type
     hp: int                   # last observed hit points; 0 = never read
     aimBrads: int             # last observed gun bearing (aim dots); -1 unknown
     hasArc: bool              # last observed plasma-arc possession (disarmed)
+    hasShield: bool           # last observed shield possession (6-hp tank, slow fire)
 
   CombatTune = object
     ## The fire/engage decision knobs, made per-bot so a forked policy can
@@ -1275,6 +1298,18 @@ type
                               # ONLY — no movement/back-off branch (that's a separate future
                               # arcStandoff lever, kept clear of REF-force). Mirror-measurable
                               # (symmetric readable object, asymmetric kill value, no comms).
+    arcBreach: bool           # ⭐ ARC BREACHER (2026-07-22, the anti-line OFFENSE): the
+                              # plasma arc is a MULTIKILL cone (136px reach, dmg 3, hits
+                              # everyone in the ~14° arc at once, instant/no-windup). A
+                              # line is a CLUSTER — the perfect cone target. When a line
+                              # is classified/heard, ONE designated breacher seat (fixed,
+                              # not lowest-alive — teammates are fogged) grabs the arc,
+                              # charges the seam, and fires the cone across the cluster
+                              # while the rest are base-of-fire. Trades the breacher's gun
+                              # for its life (canFire=false while held) — a deliberate
+                              # specialist swap, so gated to the breacher seat + a live
+                              # line only. Movement+attack-intent; requires commsPlay (the
+                              # line read). Field-only (no line forms in the mirror).
 
   Bot = ref object
     slot: int
@@ -1543,6 +1578,7 @@ proc defaultCombatTune(): CombatTune =
     offCone: false,           # control: an attacker beelines straight down the enemy's gun axis.
     fatalFunnel: false,       # control: an idle sentry two-speed-sweeps, never pre-lays the chokepoint.
     aimRotRead: false,        # control: aim intel comes only from the dead "aim dot" labels (none on v9).
+    arcBreach: false,         # control: no bot ever grabs the plasma arc offensively to cone a line.
   )
 
 proc shippedCombatTune(): CombatTune =
@@ -1772,6 +1808,16 @@ proc shippedCombatTune(): CombatTune =
   result.commsPlay = true
   result.commsCrypto = true
   result.playbook = true  # commsPlay adopts flank plays through the playbook matrix
+  # ── ⭐ ARC BREACHER (anti-line offense) + enemy-shield awareness. The plasma arc
+  # is a MULTIKILL cone and a line is a cluster: when a line is called, the fixed
+  # breacher seat (MidGuard) grabs the arc and cones the seam while the wave is base-
+  # of-fire. Trades that one bot's gun for its life (a deliberate specialist swap),
+  # gated to the breacher seat + a live line only, so it can't misfire team-wide.
+  # Enemy-shield awareness ships unconditionally in the reader (Actor/Track.hasShield
+  # from the "shield carried" marker) — the fire model now knows a shielded enemy is
+  # a 6-HP tank (the pip bar lies 3/3), needs more guns (satNeed), and weighs more in
+  # the break math (ShieldGunWeight); no flag, it's a straight correctness repair.
+  result.arcBreach = true
 
 proc vec(x, y: float): Vec =
   Vec(x: x, y: y)
@@ -1989,6 +2035,22 @@ proc actorsFor(client: ProtocolClient, color: string,
     if best >= 0:
       result[best].hasArc = true
       when defined(caprobe): inc caArcAttrib
+  # Shield possession: a carrier renders a "shield carried" marker over its head
+  # (same attribution as the arc — the label carries no color, this proc runs per
+  # color so the nearest same-color actor owns it). A shielded player has 6 HP (vs
+  # the 3-hp cog the pip bar always shows) and fires 3x slower — a tank we must put
+  # more guns on but whose slow fire is a free-shot window.
+  for o in client.spriteObjectsWithLabel("shield carried"):
+    let p = client.mapPos(o)
+    var best = -1
+    var bestD = ArcCarryRadius
+    for i in 0 ..< result.len:
+      let d = dist(result[i].pos, p)
+      if d < bestD:
+        bestD = d
+        best = i
+    if best >= 0:
+      result[best].hasShield = true
   # Aim bearing: each living player renders a short "aim dot <color>" line from
   # its center along its gun angle. Attribute each dot to the nearest actor and
   # keep the FARTHEST attributed dot per actor — its bearing from the actor is
@@ -2664,11 +2726,14 @@ proc updateTracks(bot: Bot, tracks: var seq[Track], seen: seq[Actor]) =
         tracks[best].hp = a.hp
       tracks[best].aimBrads = a.aimBrads   # -1 when this frame's dots unreadable
       if a.hasArc: tracks[best].hasArc = true  # arc is permanent-for-life: sticky
+      # Shield tracks the live marker (a carrier can burn it down / it drops on
+      # death); refresh both ways so a track that lost its shield stops reading tank.
+      tracks[best].hasShield = a.hasShield
       claimed[best] = true
     else:
       tracks.add(Track(
         pos: a.pos, lastSeen: bot.tick, facingRight: a.facingRight, hp: a.hp,
-        aimBrads: a.aimBrads, hasArc: a.hasArc))
+        aimBrads: a.aimBrads, hasArc: a.hasArc, hasShield: a.hasShield))
       claimed.add(true)
   var kept: seq[Track]
   for t in tracks:
@@ -3270,7 +3335,12 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       for t in bot.enemies:
         if bot.tick - t.lastSeen <= LocalFreshTicks and
             dist(t.pos, me) <= RetreatRadius:
-          enemyGuns += (if t.hp in 1 ..< MaxHp: t.hp.float / MaxHp.float else: 1.0)
+          # A shielded enemy is a 6-hp tank that outlasts a normal exchange — count
+          # it as more than one gun so we don't press a duel we can't finish. Else
+          # weight by hp fraction (a 1-hp enemy is a trigger-pull from gone).
+          enemyGuns += (if t.hasShield: ShieldGunWeight
+                        elif t.hp in 1 ..< MaxHp: t.hp.float / MaxHp.float
+                        else: 1.0)
       for t in bot.mates:
         if bot.tick - t.lastSeen <= LocalFreshTicks and
             dist(t.pos, me) <= RetreatRadius:
@@ -3989,12 +4059,14 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       float(abs(bradsErr(bradsOf(predicted - me), bot.estAim))) * TraversePxPerBrad
     # satCap DISTRIBUTED FIRE: enough guns to kill is sufficient. A 1-hp enemy
     # needs one lined mate gun, anything else two (a pair of 1-damage hitscan
-    # guns finishes a 3-hp target across their cycles). Past that threshold this
-    # enemy is SATURATED: a further free gun flips its focus credit into a debit
-    # so it spreads to an uncovered live enemy — the priority form keeps it a
-    # nudge (a lone saturated target in range is still engaged), and CommitBonus
-    # (400 > 220) still holds a gun that is already part of the kill.
-    let satNeed = (if t.hp == 1: 1 else: 2)
+    # guns finishes a 3-hp target across their cycles). ⭐ A SHIELDED enemy is a
+    # 6-hp tank (the pip bar lies "3/3"), so it takes far more sustained fire —
+    # never call it saturated at two guns or a free gun peels off and leaves the
+    # tank alive. Past the threshold this enemy is SATURATED: a further free gun
+    # flips its focus credit into a debit so it spreads to an uncovered live enemy
+    # — the priority form keeps it a nudge (a lone saturated target in range is
+    # still engaged), and CommitBonus (400 > 220) still holds a gun in the kill.
+    let satNeed = (if t.hasShield: 4 elif t.hp == 1: 1 else: 2)
     let saturated = bot.tune.satCap and mateGuns[i] >= satNeed
     when defined(scprobe):
       if bot.tune.satCap:
@@ -4481,6 +4553,30 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         when defined(ssprobe):
           if seekingPickup: inc ssAmbushSeek
 
+  # ── ⭐ ARC BREACHER SEEK (anti-line OFFENSE). When a line is live (classified or
+  # heard) and we are the designated breacher seat, grab a plasma-arc pickup so we
+  # can cone the clustered line. Deliberately trades our gun (canFire=false while
+  # holding) — a specialist swap, so ONLY the fixed breacher seat, ONLY on a live
+  # line, ONLY when not carrying/escorting/defending. The FIRE half is in the mask
+  # block below (a sibling of the sword-melee swing). The pickup scan is its own so
+  # it doesn't depend on avoidDisarm populating plasmaPickups.
+  let teamSeat = clamp(bot.slot div 2, 0, 7)
+  let iAmBreacher = bot.tune.arcBreach and teamSeat == ArcBreachSeat
+  if iAmBreacher and not iHavePlasma and not iCarry and not mateCarry and
+      not ownStolen and lineLive and not seekingPickup:
+    var best = ArcBreachSeek
+    for o in client.spriteObjectsWithLabel("plasma arc"):
+      let p = client.mapPos(o)
+      if p.x < 40.0 or p.y < 40.0 or p.x > float(MapW - 40) or p.y > float(MapH - 40):
+        continue                                  # HUD indicator shares the label
+      let d = dist(p, me)
+      if d < best:
+        best = d
+        target = p
+        seekingPickup = true
+    when defined(commsprobe):
+      if seekingPickup: inc csArcSeek
+
   # ── v9 MED-KIT TOP-OFF (GameVersion 9). A wounded, out-of-contact bot detours
   # to the nearest VISIBLE center med kit to heal to FULL on a 12px touch (sim
   # tryPickupMedKits; a healthy bot never consumes one, so a kit is never wasted).
@@ -4583,6 +4679,50 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       wantFire = err <= AimBrads div 4        # within the ~forward half-arc
       when defined(ssprobe):
         if wantFire: inc ssAmbushSwing
+    acted = true
+  elif iHavePlasma:
+    # ⭐ ARC BREACHER FIRE: holding the arc, canFire=false — the attack button now
+    # fires a 136px forward CONE (dmg 3, hits everyone in the ~14° arc at once).
+    # Aim at the FATTEST cluster of fresh enemies in reach (a line is a cluster; the
+    # cone is a multikill), close to reach, and press attack when on-bearing so the
+    # cone lands. Same edge-triggered attack the sim reads for the cone (input.attack
+    # and not prev.attack); firedLast gating below keeps it a clean press, not a hold.
+    var bestCluster = 0
+    var bestAim = -1
+    var bestTgt: Vec
+    for i in 0 ..< bot.enemies.len:
+      if bot.tick - bot.enemies[i].lastSeen > bot.tune.freshShotTicks:
+        continue
+      let tp = bot.enemies[i].pos
+      if dist(tp, me) > ArcBreachFireReach:
+        continue
+      if not client.pixelRayClear(me, tp):     # the cone needs clear LOS (sim gates it)
+        continue
+      var cluster = 1
+      for j in 0 ..< bot.enemies.len:
+        if j != i and bot.tick - bot.enemies[j].lastSeen <= bot.tune.freshShotTicks and
+            dist(bot.enemies[j].pos, tp) <= PlasmaArcReachPx:
+          inc cluster
+      if cluster > bestCluster:
+        bestCluster = cluster
+        bestTgt = tp
+        bestAim = bradsOf(tp - me)
+    if bestAim >= 0:
+      desiredAim = bestAim
+      moveMask = octantBits(bestTgt - me)      # close to keep the cluster in the cone
+      let err = abs(bradsErr(desiredAim, bot.estAim))
+      wantFire = err <= ArcBreachConeBrads     # on-bearing so the cone covers them
+      when defined(commsprobe):
+        if wantFire: inc csArcFire
+    else:
+      # Armed but no target in reach yet: advance toward the called line/nearest foe.
+      var nd = 1e18
+      for i in 0 ..< bot.enemies.len:
+        if bot.tick - bot.enemies[i].lastSeen > bot.tune.freshShotTicks: continue
+        let dd = dist(bot.enemies[i].pos, me)
+        if dd < nd:
+          nd = dd
+          moveMask = octantBits(bot.enemies[i].pos - me)
     acted = true
   elif engage >= 0 and shotReady:
     # Traverse onto the target and fire once the corridor covers it: the
