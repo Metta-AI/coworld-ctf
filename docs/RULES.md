@@ -243,11 +243,13 @@ always drawn — but moving entities are fogged:
   grenade), nudged to the nearest walkable floor. The plasma arcs hold the
   matching top-half spots.
 - **Touch a shield to pick it up** — either team may take either endzone's
-  shield, and a player carries at most one.
-- **While carrying a shield you have 6 hit points but fire 3x slower.**
-  Picking one up sets your hit points to 6; each shot you fire starts a
-  cooldown three times the normal length until you lose the shield. You
-  can still move, carry the heart, and throw grenades.
+  shield. A pickup grants the shield and **heals 3 hit points, up to the
+  6 hp ceiling** — so a damaged shield carrier can take another shield to
+  top back up. A carrier already at 6 hp leaves the spawn untouched.
+- **While carrying a shield your hp ceiling is 6 but you fire 3x slower.**
+  Each shot you fire starts a cooldown three times the normal length until
+  you lose the shield. You can still move, carry the heart, and throw
+  grenades.
 - **A shield is lost when you die** and is not dropped on the ground; the
   taken endzone shield **respawns 30 seconds later** in the same spot.
 - Observation label: `shield`. Shields are fog-gated like the med kits and
