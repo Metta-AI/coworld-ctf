@@ -276,6 +276,10 @@ type
     killMoodUntil: int        # taunt window opened by a fresh kill
     nextPeaceTick: int        # slot-staggered cadence for the audible persona
     lastTeamShoutSeen: int    # any teammate bubble; peace lines keep clear of it
+    nadeSpotPos: seq[Vec]     # -d:nadeRelay: learned grenade spawn spots
+    nadeSpotEta: seq[int]     # 0 = believed stocked; else respawn-ready tick
+    wasNade: bool             # last tick's carried-grenade state (edge detect)
+    nadeShoutWant: string     # pending "G<cx> <cy>" pickup announcement
     lastEnemyShout: string    # last enemy shout label already responded to
     lastComebackReq: int      # rate limit on comeback generation requests
     wasMateCarry: bool        # edge detector: a fresh steal opens a taunt window
@@ -1323,7 +1327,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           bot.helpLane = ord(text[1]) - ord('0')
           bot.helpUntil = bot.tick + 320
           continue
-      if text.len < 4 or text[0] notin {'C', 'T', 'E'}:
+      if text.len < 4 or text[0] notin {'C', 'T', 'E', 'G'}:
         continue
       let parts = text[1 .. ^1].split(' ')
       if parts.len != 2:
@@ -1335,6 +1339,21 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       except ValueError:
         continue
       let p = vec(float(cx * 8 + 4), float(cy * 8 + 4))
+      when defined(nadeRelay):
+        if text[0] == 'G':
+          # A mate took the grenade at spot p: the sim refills a taken corner
+          # after 5s (GrenadeRespawnTicks), so start the shared respawn clock.
+          # Also teaches spots this bot has never had eyes on (fog).
+          var known = false
+          for i in 0 ..< bot.nadeSpotPos.len:
+            if dist(bot.nadeSpotPos[i], p) < 24.0:
+              bot.nadeSpotEta[i] = bot.tick + 126
+              known = true
+              break
+          if not known:
+            bot.nadeSpotPos.add p
+            bot.nadeSpotEta.add bot.tick + 126
+          continue
       if text[0] == 'E':
         when defined(zonePhalanx):
           # Scout sighting: feed shared vision into the track table so the
@@ -1471,6 +1490,12 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         bot.shoutWant = "T" & $(int(bot.carrierPos.x) div 8) & " " &
           $(int(bot.carrierPos.y) div 8)
         bot.lastShoutTick = bot.tick
+      else:
+        when defined(nadeRelay):
+          if bot.nadeShoutWant.len > 0:
+            bot.shoutWant = bot.nadeShoutWant
+            bot.nadeShoutWant = ""
+            bot.lastShoutTick = bot.tick
 
   when defined(zonePhalanx):
     # Phalanx comms ride the leftover budget under C/T: help calls first
@@ -1941,6 +1966,26 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     if dist(client.mapPos(o), me) <= 30.0:
       carryingNade = true
       break
+  when defined(nadeRelay):
+    if carryingNade and not bot.wasNade:
+      # Fresh pickup: announce WHICH spot so the team shares the 5s respawn
+      # clock. Nearest known spot wins; a grab at a never-seen spot teaches
+      # a new one at our own position.
+      var si = -1
+      var bestD = 60.0
+      for i in 0 ..< bot.nadeSpotPos.len:
+        let d = dist(bot.nadeSpotPos[i], me)
+        if d < bestD:
+          bestD = d
+          si = i
+      if si < 0:
+        bot.nadeSpotPos.add me
+        bot.nadeSpotEta.add 0
+        si = bot.nadeSpotPos.len - 1
+      bot.nadeSpotEta[si] = bot.tick + 126
+      bot.nadeShoutWant = "G" & $(int(bot.nadeSpotPos[si].x) div 8) & " " &
+        $(int(bot.nadeSpotPos[si].y) div 8)
+    bot.wasNade = carryingNade
   var
     nadeAim = -1
     nadeThrowD = 0.0
@@ -2024,11 +2069,23 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # Collect a pickup: anyone grabs one within a short detour, and the two
     # flankers own their lane's friendly-side corner spawn — it sits right on
     # their border route, so they arm up on the way out every respawn cycle.
+    var pickupSet = false
     for o in client.spriteObjectsWithLabel("grenade"):
       let p = client.mapPos(o)
       if p.x < 40.0 or p.y < 40.0 or p.x > float(MapW - 40) or
           p.y > float(MapH - 40):
         continue                     # HUD indicator shares the label
+      when defined(nadeRelay):
+        # Seeing a stocked spot teaches it and clears any respawn clock.
+        var known = false
+        for i in 0 ..< bot.nadeSpotPos.len:
+          if dist(bot.nadeSpotPos[i], p) < 24.0:
+            bot.nadeSpotEta[i] = 0
+            known = true
+            break
+        if not known:
+          bot.nadeSpotPos.add p
+          bot.nadeSpotEta.add 0
       let laneMatch =
         (bot.role == FlankTop and p.y < float(CenterY) and
          homeSign(bot.team) * (p.x - float(CenterX)) > 0) or
@@ -2039,7 +2096,26 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         when defined(nadeDebug):
           echo "DETOUR to pickup at ", p.x, ",", p.y, " role ", bot.role
         target = p
+        pickupSet = true
         break
+    when defined(nadeRelay):
+      # Relayed respawn clock: a spot that just refilled is worth the same
+      # detour as a visible one even through fog — arrive right on time.
+      if not pickupSet:
+        for i in 0 ..< bot.nadeSpotPos.len:
+          let eta = bot.nadeSpotEta[i]
+          if eta == 0 or bot.tick < eta or bot.tick > eta + 360:
+            continue
+          let p = bot.nadeSpotPos[i]
+          let laneMatch =
+            (bot.role == FlankTop and p.y < float(CenterY) and
+             homeSign(bot.team) * (p.x - float(CenterX)) > 0) or
+            (bot.role == FlankBottom and p.y > float(CenterY) and
+             homeSign(bot.team) * (p.x - float(CenterX)) > 0)
+          let reach = if laneMatch: 1e9 else: NadePickupDetour
+          if dist(p, me) <= reach:
+            target = p
+            break
 
   # Grenade danger: a visible throw-target ring marks where an enemy's lob
   # will land, and an airborne grenade is seconds from bursting — anything
