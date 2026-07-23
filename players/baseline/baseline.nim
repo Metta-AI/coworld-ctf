@@ -174,11 +174,14 @@ const
                               # corridor half-width is ~14px; keep margin)
   ScanArc = 44                # scan sweeps this many brads each side of the
                               # watch heading (cone half-angle is 32 brads)
-  CounterPunchTick = 2500     # by here a 0-steal attack is not converting:
+  CounterPunchTick = 1400     # by here a 0-steal attack is not converting:
                               # fall back and win the attrition instead
   PushOutTicks = 360          # endgame push: no enemy seen for ~15s...
-  PushOutMinGame = 2400       # ...this deep into the game breaks the posts
-  LatePushTick = 6800         # all-in on the clock: past this tick a draw is
+  PushOutMinGame = 1400       # ...this deep into the game breaks the posts
+  LatePushTick = 3400         # all-in on the clock: past this tick a draw is
+                              # A LOSS FOR BOTH (GV21 lose-lose timeouts) and
+                              # games cap at 5000 ticks — the all-in must land
+                              # with time to convert. Scaled from 6800/10000.
                               # the default outcome, so commit to the capture
   HoldFrontCap = 220.0        # -d:holdFront: ceiling on the phalanx creep — a
                               # castle line near our wall: fights there recur on
