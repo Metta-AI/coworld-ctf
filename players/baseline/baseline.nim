@@ -180,7 +180,7 @@ const
   PushOutMinGame = 1400       # ...this deep into the game breaks the posts
   StalemateTick = 2000        # nobody has MOVED a flag by here: the game is
                               # heading for a lose-lose timeout — go convert.
-  LatePushTick = 2400         # all-in on the clock: past this tick a draw is
+  LatePushTick = 3400         # all-in on the clock: past this tick a draw is
                               # A LOSS FOR BOTH (GV21 lose-lose timeouts) and
                               # games cap at 5000 ticks — the all-in must land
                               # with time to convert. Scaled from 6800/10000.
