@@ -31,12 +31,20 @@ suite "tier-2 event extraction (tools/extract_events)":
       check event.tick >= lastTick
       lastTick = event.tick
 
-    # Every Kill is weapon-attributed, first-hand.
+    # Every Kill is weapon-attributed, first-hand. Damage/Heal events carry
+    # the affected player's post-event HP, and each victim's HP trace is
+    # self-consistent: it steps down by exactly the damage dealt and up by
+    # exactly the heal amount, resetting at each respawn.
     var
       killsBySlot = newSeq[int](slotCount)
       shotsBySlot = newSeq[int](slotCount)
       hitsBySlot = newSeq[int](slotCount)
+      lastHp = newSeq[int](slotCount)  # -1 = unknown (start / just respawned)
       sawKill = false
+      sawPlayingPhase = false
+      sawGameOverPhase = false
+    for slot in 0 ..< slotCount:
+      lastHp[slot] = -1
     for event in extraction.events:
       case event.kind
       of Kill:
@@ -51,9 +59,40 @@ suite "tier-2 event extraction (tools/extract_events)":
       of Hit:
         check event.source >= 0 and event.source < slotCount
         inc hitsBySlot[event.source]
+      of Damage:
+        check event.target >= 0 and event.target < slotCount
+        check event.hp >= 0
+        if lastHp[event.target] >= 0:
+          check event.hp == max(0, lastHp[event.target] - event.amount)
+        lastHp[event.target] = event.hp
+      of Heal:
+        check event.source >= 0 and event.source < slotCount
+        check event.hp >= 0
+        check event.amount > 0
+        if lastHp[event.source] >= 0:
+          check event.hp == lastHp[event.source] + event.amount
+        lastHp[event.source] = event.hp
+      of Respawn:
+        check event.source >= 0 and event.source < slotCount
+        lastHp[event.source] = -1  # back at full; trace restarts.
+      of PhaseChange:
+        check event.weapon in ["lobby", "playing", "gameover"]
+        check event.hp == -1
+        if event.weapon == "playing":
+          sawPlayingPhase = true
+          check event.amount == ord(Playing)
+        elif event.weapon == "gameover":
+          sawGameOverPhase = true
+          check event.amount == ord(GameOver)
+        # A phase boundary resets every hp (new game / lobby): restart traces.
+        for slot in 0 ..< slotCount:
+          lastHp[slot] = -1
       else:
-        discard
+        check event.hp == -1
     check sawKill
+    # The fixture plays a full match: it enters Playing and ends at GameOver.
+    check sawPlayingPhase
+    check sawGameOverPhase
 
     # The event stream is the counters, itemized: per-slot Kill events sum to
     # the final results.json kills array, and Shot/Hit events sum to the new
@@ -92,7 +131,7 @@ suite "tier-2 event extraction (tools/extract_events)":
     # Every non-summary row carries the full event shape.
     for row in rows[0 ..< ^1]:
       for field in ["tick", "kind", "source", "target", "weapon", "amount",
-          "x", "y"]:
+          "hp", "x", "y"]:
         check row.hasKey(field)
 
   test "collectEvents defaults off: a live sim collects nothing":

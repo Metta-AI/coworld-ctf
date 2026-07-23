@@ -71,6 +71,7 @@ proc key*(kind: SimEventKind): string =
   of Capture: "capture"
   of Respawn: "respawn"
   of Heal: "heal"
+  of PhaseChange: "phase"
 
 proc jsonRow*(event: SimEvent): JsonNode =
   ## Returns one JSON-lines row for a tier-2 sim event.
@@ -81,6 +82,7 @@ proc jsonRow*(event: SimEvent): JsonNode =
   result["target"] = %event.target
   result["weapon"] = %event.weapon
   result["amount"] = %event.amount
+  result["hp"] = %event.hp
   result["x"] = %event.x
   result["y"] = %event.y
 
