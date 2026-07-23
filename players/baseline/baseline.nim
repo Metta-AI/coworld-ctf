@@ -3818,12 +3818,13 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
 
   # ⭐⭐ CONTINGENCY STATE MACHINE (planLayer). Layers the shared-plan PHASE posture
   # on top of the flank bias above. The phase is a pure fn of shared signals so all 8
-  # bots agree and flow branch→branch unanimously. Movement-intent only (never the
-  # turret / fire gate); attackers only (carry/defense states own their own posture).
-  if bot.tune.planLayer and not iCarry:
+  # bots agree and flow branch→branch unanimously. Drives movement HERE and the
+  # engage/combat aggression BELOW (botPhase is hoisted so the combat block reads it).
+  var botPhase = PhProbe        # function-scope so the combat block can key maxEngage on it
+  if bot.tune.planLayer:
     # Enemy heart state — globally legible. Only OUR team can carry it, so it is either
-    # on its pedestal or being carried by us (iCarry excluded above → mateCarry here).
-    let efState = (if mateCarry: EfCarried else: EfPedestal)
+    # on its pedestal or being carried by us (iCarry => we carry).
+    let efState = (if iCarry or mateCarry: EfCarried else: EfPedestal)
     # pickEdge: a LOCAL man-advantage (more fresh mates than fresh enemies near me) — the
     # non-load-bearing accelerator; the machine flows on shared signals without it.
     var freshM = 0
@@ -3833,7 +3834,9 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     for t in bot.enemies:
       if bot.tick - t.lastSeen <= LocalFreshTicks and dist(t.pos, me) <= PickEdgeRange: inc freshE
     let pickEdge = freshM > freshE and freshM >= 1
-    let phase = teamPhase(bot.tick - bot.gameStart, ownStolen, efState, pickEdge)
+    botPhase = teamPhase(bot.tick - bot.gameStart, ownStolen, efState, pickEdge)
+  if bot.tune.planLayer and not iCarry:
+    let phase = botPhase
     let attacker = bot.role in {MidTop, MidBottom, MidGuard, FlankTop, FlankBottom}
     case phase
     of PhOpen:
@@ -4173,7 +4176,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # but objective play caps the range: the carrier only fights point-blank,
   # rushers racing for the steal and escorts guarding a run only fight what
   # is actually in the way, instead of frag-chasing across the map.
-  let maxEngage =
+  var maxEngage =
     if pocketRush: 0.0
     elif iCarry and bot.tune.carrierSprint: 0.0  # ⭐⭐ carrier never fights:
       # the diagnosis showed carriers survive ~110t but travel ~4% of the run —
@@ -4184,6 +4187,22 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     elif rushing: bot.tune.rushEngageRange
     elif mateCarry: bot.tune.escortEngageRange
     else: bot.tune.fireRange
+  # ⭐⭐ PLAN-LAYER COMBAT TEETH: the phase drives ENGAGEMENT, not just movement, so a
+  # called play actually WINS its fight instead of gently repositioning. PhOpen/PhPress
+  # widen the attacker's engage range so the grouped opening clash + the man-advantage
+  # window are fought to a kill (we lose the opening 14-6 by NOT committing the fire);
+  # PhEscort lets a free gun near the carrier hunt the carrier's chasers to the fireRange
+  # (kill the threat — body-block is void), instead of only sliding to its lane. Never
+  # overrides the pocketRush/carrier gun-discipline above (those stay 0).
+  if bot.tune.planLayer and maxEngage > 0.0 and not iCarry:
+    case botPhase
+    of PhOpen, PhPress:
+      if rushing or bot.role in {FlankTop, FlankBottom}:
+        maxEngage = max(maxEngage, bot.tune.fireRange)   # commit the clash to a kill
+    of PhEscort:
+      if mateCarry and dist(me, mateCarryPos) <= EscortCollapseRange:
+        maxEngage = max(maxEngage, bot.tune.fireRange)   # hunt the carrier's chasers
+    else: discard
   # Focus-fire intel: which remembered enemies sit on a visible mate's aim
   # line right now. A mate's rendered aim dots are an absolute readback of
   # where it is about to shoot; piling our shot onto the same target converts
