@@ -982,8 +982,9 @@ const
   # art — so there is no separate hub disc.
   RigFrameW = 1046
   RigFrameH = 1024
-  RigHubX = 523.0             ## shared hub in the 1046 frame — legs pivot about
-  RigHubY = 412.0             ## their hips (on the hub ring), head about the hub.
+  RigHubX = 522.0             ## the head-cube CENTER in the 1046 frame — the whole
+  RigHubY = 387.0             ## cog rotates about this; leg shoulders + head are
+                              ## all measured from it.
   RigLegSteps* = 64           ## baked leg hip-angle steps around the full circle.
   RigTuckDeg = 0.0            ## the hi-res legs already sit at their rest splay in
                               ## the art, so rest adds no tuck — swing is a pure
@@ -1005,13 +1006,14 @@ type
     rigFrontRight, rigFrontLeft, rigRear
 
 const
-  ## Per-leg HIP (shoulder on the hub ring) in the 1046 frame — measured from the
-  ## cut hi-res legs. Each leg's art is pinned here and rotated about it, so the
-  ## leg (with its wheel) arcs out for the differential turn.
+  ## Per-leg SHOULDER in the 1046 frame — where each leg attaches to the HEAD's
+  ## SIDE edge (measured from the cut legs), NOT a central hub. The legs mount
+  ## on the head's left, right and bottom faces like tank-tread pivots; each
+  ## leg's art is pinned at its shoulder and swings about it.
   RigLegHip: array[RigLeg, tuple[x, y: float]] = [
-    (600.0, 363.0),   # front_right
-    (447.0, 363.0),   # front_left
-    (524.0, 501.0)]   # rear
+    (744.0, 257.0),   # front_right — head's right edge
+    (295.0, 253.0),   # front_left  — head's left edge
+    (522.0, 649.0)]   # rear        — head's bottom edge
   RigHeadBoneX = RigHubX      ## head pivots about the hub (its cube centers there).
   RigHeadBoneY = RigHubY
   RigArmsBoneX = 191.5        ## arms sprite (384x628) bone.
@@ -1067,14 +1069,18 @@ proc rigPin(img: Image, boneX, boneY, pivotX, pivotY, scale, rotDeg: float,
     translate(vec2(float32(-boneX), float32(-boneY)))
 
 proc rigLegSwingDeg*(leg: RigLeg, turnAmt: int): float =
-  ## One-sided differential swing (deg) from turnAmt (fixed-point x1000, + =
-  ## LEFT/CCW). Rest: both front legs tucked RigTuckDeg inward; a turn swings only
-  ## the steering-side leg OUT up to RigSplayDeg. Rear does not swing.
-  let t = float(turnAmt) / 1000.0
+  ## Differential leg swing (deg) about each leg's shoulder, from turnAmt
+  ## (fixed-point x1000, + = LEFT/CCW). Turning SPREADS the front legs: the
+  ## outer (turn-direction) leg swings back/out and the inner leg swings
+  ## forward, so a left turn plants the left leg and reaches the right — the
+  ## stance opens into the turn. Straight travel = 0 = the art's rest pose
+  ## (legs angled forward as drawn). The rear leg counter-steers slightly to
+  ## pivot the tail. Positive swing rotates the leg CCW about its shoulder.
+  let t = clamp(float(turnAmt) / 1000.0, -1.0, 1.0)
   case leg
-  of rigFrontLeft:  -RigTuckDeg + max(0.0, t) * RigSplayDeg
-  of rigFrontRight: RigTuckDeg - max(0.0, -t) * RigSplayDeg
-  of rigRear: 0.0
+  of rigFrontLeft:  t * RigSplayDeg          # left turn (+t) swings FL back/out
+  of rigFrontRight: t * RigSplayDeg          # and FR forward — a coordinated spread
+  of rigRear: -t * (RigSplayDeg * 0.5)       # tail counter-steers into the turn
 
 proc rigLegPixels*(team: Team, leg: RigLeg, step: int, renderScale = 1): seq[uint8] =
   ## One hi-res leg (strut + treaded wheel, cut from cog_base) baked at ABSOLUTE
