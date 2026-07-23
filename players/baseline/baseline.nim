@@ -389,13 +389,14 @@ const
                               # pickup we're NOT deliberately collecting (a body is
                               # ~24px; a shell of margin clears the 12px touch grab).
   ShieldGrabDetour = 120.0    # shieldTank: an escort grabs a shield within this detour.
-  ShieldRushDetour = 400.0    # shieldRush: the rusher will detour up to this far to grab
-                              # OUR OWN endzone shield before the steal — generous because
-                              # the shield is home-side (toward our start), not into enemy
-                              # ground, so it costs little net progress toward the pocket.
-  ShieldRushMaxDepth = 0.30   # only grab the shield while still in our OWN 30% of the field
-                              # (fraction of half-width from home) — past that, commit to the
-                              # steal; don't backtrack for a shield once we're forward.
+  ShieldRushSeat = 3          # the designated shield-rusher team-seat: seat 3 is the
+                              # closest-spawn rusher (roleForSeat) — the bot most likely to
+                              # reach the pocket first and become the carrier. Only this seat
+                              # detours for the shield, so the rest of the wave rushes on time.
+  ShieldRushWindow = 240      # only shield-detour in the first ~10s of a life (from gameStart)
+                              # — a quick opening grab, never mid-game backtracking.
+  ShieldOnSpotPx = 20.0       # "on the spawn spot": if we're this close and no shield is
+                              # visible here, it's already taken → give up and rush.
   SwordGrabDetour = 90.0      # swordAmbush: grab a sword within this detour when boxed.
   SwordReach = 26.0           # sword melee arc range (mirrors SwordRange in sim.nim).
   SwordCloseRange = 70.0      # swordAmbush only engages an enemy within this (charge-in).
@@ -1398,6 +1399,8 @@ type
     aimLockPos: Vec           # TARGET-LOCK: the enemy the turret is pinned on,
     aimLockUntil: int         # held (aim stays on its bearing) until this tick
     retreatUntil: int         # force-balance withdrawal committed until this tick
+    shieldRushDone: bool      # shieldRush: latched once we grabbed the opening shield OR
+                              # gave up (mate took it) — stops re-detouring mid-run
     assaultUntil: int         # assaultThrough: near-ambush charge committed until
                               # this tick (Battle Drill 4 — never turn your back
                               # at knife range once the charge is on)
@@ -2270,6 +2273,15 @@ proc chokeSpot(team: Team): Vec =
   ## exactly across the x = 617 center line.
   if team == Red: vec(390, 340) else: vec(float(MapW - 1) - 390.0, 340)
 
+proc ownShieldSpawn(team: Team): Vec =
+  ## Our team's endzone shield spawn — a STATIC known point (sim resetShields:
+  ## inset x = ArenaBorder(10)+GrenadeSpawnInset(40) = 50, y = 3/4 map height),
+  ## mirrored across center. Known like the pedestals, so a rusher navigates to
+  ## it WITHOUT needing line-of-sight (VisionBubble is only 90px — the shield sits
+  ## behind the spawn cone and is never "seen"; that's why the see-it scan fired 0).
+  let y = float(3 * MapH div 4)
+  if team == Red: vec(50, y) else: vec(float(MapW - 50), y)
+
 proc nearestOpenCell(bot: Bot, cell: int): int =
   ## The nearest walkable nav cell, searched in expanding rings.
   if bot.cellWalkable[cell]:
@@ -2826,6 +2838,7 @@ proc resetTransient(bot: Bot) =
   bot.lockUntil = -100_000
   bot.aimLockUntil = -100_000
   bot.retreatUntil = -100_000
+  bot.shieldRushDone = false
   bot.assaultUntil = -100_000
   bot.ownHp = 0
   bot.surpriseShoutTick = -100_000
@@ -4581,24 +4594,24 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # the rusher seats, only while still home-side (ShieldRushMaxDepth) and not already
   # carrying/shielded/seeking — a cheap detour toward home, never a backtrack once
   # forward. The shield sits at our endzone (¾ height), so it's on the way out.
-  if bot.tune.shieldRush and not seekingPickup and not iHaveShield and
-      not iCarry and not mateCarry and not ownStolen and
-      bot.role in {MidTop, MidBottom, MidGuard, FlankTop, FlankBottom}:
-    # Fraction from our deep-home x toward center (0 = at home, 1 = at center). Only
-    # grab the shield while still in our own third — past that, commit to the steal.
-    let homeSideFrac = abs(me.x - homeDeepX(bot.team)) / abs(float(CenterX) - homeDeepX(bot.team))
-    if homeSideFrac <= ShieldRushMaxDepth:
-      var best = ShieldRushDetour
-      for p in shieldPickups:
-        # only OUR side's shield (home-side of center) — never chase the enemy one
-        if homeSign(bot.team) * (p.x - float(CenterX)) > 0: continue
-        let d = dist(p, me)
-        if d < best:
-          best = d
-          target = p
-          seekingPickup = true
-      when defined(commsprobe):
-        if seekingPickup: inc csArcSeek  # reuse a probe slot for shield-rush seek
+  if bot.tune.shieldRush and not bot.shieldRushDone and not seekingPickup and
+      not iHaveShield and not iCarry and not mateCarry and not ownStolen and
+      bot.role == roleForSeat(ShieldRushSeat, bot.team) and
+      bot.tick - bot.gameStart <= ShieldRushWindow:
+    # Navigate to the STATIC known shield spawn (no LOS needed — VisionBubble is 90px
+    # and the shield sits behind the spawn cone, so the see-it scan fired 0). One
+    # designated seat grabs it; a give-up latch stops re-detouring if a mate took it.
+    let sp = ownShieldSpawn(bot.team)
+    if iHaveShield:
+      bot.shieldRushDone = true              # got it — carry on to the steal
+    elif dist(me, sp) <= ShieldOnSpotPx and shieldPickups.len == 0:
+      bot.shieldRushDone = true              # on the spot but no shield here = taken; give up
+    else:
+      target = sp
+      seekingPickup = true
+      when defined(commsprobe): inc csArcSeek  # reuse a probe slot for shield-rush seek
+  elif iHaveShield:
+    bot.shieldRushDone = true
   # swordAmbush: a bot with no clear ranged shot, boxed in close to an enemy,
   # with a sword within reach, grabs it to melee. Only when a fresh enemy is
   # inside SwordCloseRange (a pocket scrum the windup gun loses) and we're not
