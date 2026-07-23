@@ -178,8 +178,12 @@ const
                               # fall back and win the attrition instead
   PushOutTicks = 360          # endgame push: no enemy seen for ~15s...
   PushOutMinGame = 2400       # ...this deep into the game breaks the posts
-  LatePushTick = 6800         # all-in on the clock: past this tick a draw is
-                              # the default outcome, so commit to the capture
+  LatePushTick = when defined(tempoClose): 3000 else: 6800
+    # all-in on the clock: past this tick a draw is the default outcome, so
+    # commit to the capture. -d:tempoClose (GV21 tempo-011): MaxTicks was halved
+    # 10000 -> 5000, so the stale 6800 trigger NEVER fires -> the castle holds to
+    # a 100% lose-lose timeout draw vs h006 (0 captures decoded); scale the
+    # all-in to the new clock so the tied-endgame capture commit fires before t5000.
   HoldFrontCap = 220.0        # -d:holdFront: ceiling on the phalanx creep — a
                               # castle line near our wall: fights there recur on
                               # ground where our respawn walk is ~100px and the
