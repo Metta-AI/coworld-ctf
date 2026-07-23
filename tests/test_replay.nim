@@ -6,13 +6,10 @@ import
 const
   GameDir = currentSourcePath.parentDir.parentDir
   # A fresh, drama-complete fixture recorded against the CURRENT gameplay rules
-  # (Phase-1 set, tools/record_fixture.sh). The legacy cert fixture
-  # tests/replays/ctf.bitreplay predates the "3 hit points per life" change
-  # (commit 0c34ade) and stores no hitPoints in its config, so replaying it
-  # under today's defaultGameConfig() (HitPoints = 3) deterministically diverges
-  # the instant combat starts (hash mismatch at tick 71) — it is stale, not a
-  # bug in the replay engine. This capture-ending fixture exceeds every tick
-  # target below and hash-verifies clean end to end.
+  # (Phase-1 set, tools/record_fixture.sh). This capture-ending fixture
+  # exceeds every tick target below and hash-verifies clean end to end.
+  # (tests/replays/ctf.bitreplay is the event-substrate fixture, re-recorded
+  # on the current GameVersion — see test_extract_events.)
   CtfReplayPath = GameDir / "tests" / "fixtures" / "capture-seed7.bitreplay"
 
 proc initReplaySim(data: ReplayData): SimServer =

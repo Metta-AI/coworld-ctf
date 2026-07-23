@@ -24,6 +24,7 @@ import
   test_trade_pair,
   test_shot_accuracy,
   test_shot_exposure,
+  test_extract_events,
   test_windows,
   test_sprite_collisions
 {.warning[UnusedImport]: on.}
