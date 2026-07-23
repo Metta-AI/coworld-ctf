@@ -5173,24 +5173,27 @@ proc buildSpriteProtocolUpdates*(
     # wheels caster to true roll direction. Z spread is tiny (z = map-Y painter
     # depth): wheels < legs < chassis < heart(player.y) < head. All poses come
     # from the scrub-snapped CogDriveState, so playback is replay-exact.
+    # ALL coordinates here are 1x MAP px — addBoardObject applies the single
+    # boardScale multiply. (A prior version pre-multiplied foot/hip offsets AND
+    # rigOff by boardScale, so addBoardObject scaled them AGAIN — the wheels flew
+    # ~4x their offset off the sockets. Never pre-scale here.)
     let
       drive = nextState.cogDrive[playerIndex]
       chassisObjectId = player.spriteObjectId()
       turretObjectId = PlayerTurretObjectBase + player.joinOrder
-      cx = player.spritePlayerX()   # rig canvas top-left = player-centered
-      cy = player.spritePlayerY()
-      # The rig canvases (RigCanvas) are wider than the soldier canvas
-      # (SoldierDrawOff), so recentre: shift by half the size difference.
-      rigOff = (RigCanvas - SoldierCanvas) div 2 * boardScale
-      rigX = cx - rigOff
-      rigY = cy - rigOff
+      # Rig part canvases are RigCanvas wide; the soldier canvas is SoldierCanvas.
+      # spritePlayerX/Y put the SoldierCanvas top-left at the player; shift by half
+      # the canvas-size difference (1x) so the wider rig canvas stays centered.
+      rigOff = (RigCanvas - SoldierCanvas) div 2
+      rigX = player.spritePlayerX() - rigOff   # rig canvas top-left, 1x map px
+      rigY = player.spritePlayerY() - rigOff
       chassisRot = if drive.initialized: soldierRotIndex(drive.bodyHeading)
                    else: soldierMoveRotIndex(player.velX, player.velY, player.aimBrads)
       bodyHeading = if drive.initialized: drive.bodyHeading else: player.aimBrads
     # Wheels (bottom): each at its leg's live foot, caster from that foot's yaw.
     for leg in RigLeg:
       let
-        foot = rigLegFootScreen(leg, bodyHeading, drive.turnAmt)
+        foot = rigLegFootScreen(leg, bodyHeading, drive.turnAmt)   # 1x offset
         wheelYaw = case leg
           of rigFrontRight: drive.casterFR
           of rigFrontLeft: drive.casterFL
@@ -5199,8 +5202,8 @@ proc buildSpriteProtocolUpdates*(
       currentIds.add(wheelObjId)
       result.addBoardObject(
         wheelObjId,
-        rigX + foot.dx * boardScale,
-        rigY + foot.dy * boardScale,
+        rigX + foot.dx,
+        rigY + foot.dy,
         player.y - 3,
         MapLayerId,
         rigWheelSpriteId(rigWheelStepFor(wheelYaw))
@@ -5208,13 +5211,13 @@ proc buildSpriteProtocolUpdates*(
     # Legs: each at its hip's live screen offset, hip-pivoted by heading+swing.
     for leg in RigLeg:
       let
-        hip = rigLegHipScreen(leg, bodyHeading)
+        hip = rigLegHipScreen(leg, bodyHeading)   # 1x offset
         legObjId = RigLegObjectBase + player.joinOrder * 3 + ord(leg)
       currentIds.add(legObjId)
       result.addBoardObject(
         legObjId,
-        rigX + hip.dx * boardScale,
-        rigY + hip.dy * boardScale,
+        rigX + hip.dx,
+        rigY + hip.dy,
         player.y - 2,
         MapLayerId,
         rigLegSpriteId(player.team, leg, rigLegStepFor(leg, bodyHeading, drive.turnAmt))
