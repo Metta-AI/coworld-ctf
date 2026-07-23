@@ -178,7 +178,13 @@ const
                               # fall back and win the attrition instead
   PushOutTicks = 360          # endgame push: no enemy seen for ~15s...
   PushOutMinGame = 2400       # ...this deep into the game breaks the posts
-  LatePushTick = 6800         # all-in on the clock: past this tick a draw is
+  # GV21 adaptation (-d:gv21clock): MaxTicks was halved 10000->5000 and a
+  # timeout is now a -1 LOSE-LOSE (TimeoutReward=-1), so the old 6800 all-in
+  # NEVER fired (the game ends at 5000) and the holdFront champion stalled
+  # every game into a losing timeout. Commit the capture push at ~60% (tick
+  # 3000) with ~2000 ticks left to convert; the pre-GV21 clock keeps 6800.
+  LatePushTick = (when defined(gv21clock): 3000 else: 6800)
+                              # all-in on the clock: past this tick a draw is
                               # the default outcome, so commit to the capture
   HoldFrontCap = 220.0        # -d:holdFront: ceiling on the phalanx creep — a
                               # castle line near our wall: fights there recur on
