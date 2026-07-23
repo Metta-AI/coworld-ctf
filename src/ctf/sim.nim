@@ -986,11 +986,13 @@ const
   RigHubY = 387.0             ## cog rotates about this; leg shoulders + head are
                               ## all measured from it.
   RigLegSteps* = 64           ## baked leg hip-angle steps around the full circle.
-  RigTuckDeg = 0.0            ## the hi-res legs already sit at their rest splay in
-                              ## the art, so rest adds no tuck — swing is a pure
-                              ## delta about the hip.
-  RigSplayDeg = 30.0          ## steering-side leg swings OUT this far on a full
-                              ## turn (Maxwell: "rotate 30 or so degrees").
+  RigRestTuckDeg = 85.0       ## the cut cog_base legs splay UP-and-out in a wide Y;
+                              ## at rest we tuck the front legs inward ~85° so they
+                              ## run DOWN alongside the body (wheels beside/behind
+                              ## it) — the "tank with side treads" read Maxwell
+                              ## wants, not a spider/starfish splay.
+  RigSplayDeg = 30.0          ## turning swings a front leg OUT this far from the
+                              ## tucked rest (Maxwell: "rotate 30 or so degrees").
   # One scale dial: the head cube (~517px tall in the art) renders at RigBodyPx
   # on the map so the cog matches the board footprint. Legs/head share it (they
   # were cut from the same 1046 frame at the same scale).
@@ -1069,18 +1071,16 @@ proc rigPin(img: Image, boneX, boneY, pivotX, pivotY, scale, rotDeg: float,
     translate(vec2(float32(-boneX), float32(-boneY)))
 
 proc rigLegSwingDeg*(leg: RigLeg, turnAmt: int): float =
-  ## Differential leg swing (deg) about each leg's shoulder, from turnAmt
-  ## (fixed-point x1000, + = LEFT/CCW). Turning SPREADS the front legs: the
-  ## outer (turn-direction) leg swings back/out and the inner leg swings
-  ## forward, so a left turn plants the left leg and reaches the right — the
-  ## stance opens into the turn. Straight travel = 0 = the art's rest pose
-  ## (legs angled forward as drawn). The rear leg counter-steers slightly to
-  ## pivot the tail. Positive swing rotates the leg CCW about its shoulder.
+  ## Total leg rotation (deg) about each leg's shoulder = REST TUCK + turn swing.
+  ## Rest tuck rotates the front legs inward so they run down the body sides like
+  ## treads (front_left −tuck, front_right +tuck). Turning (turnAmt x1000, + =
+  ## LEFT/CCW) then SPREADS the stance into the turn on top of the tuck. The rear
+  ## leg has no tuck; it counter-steers slightly to pivot the tail.
   let t = clamp(float(turnAmt) / 1000.0, -1.0, 1.0)
   case leg
-  of rigFrontLeft:  t * RigSplayDeg          # left turn (+t) swings FL back/out
-  of rigFrontRight: t * RigSplayDeg          # and FR forward — a coordinated spread
-  of rigRear: -t * (RigSplayDeg * 0.5)       # tail counter-steers into the turn
+  of rigFrontLeft:  -RigRestTuckDeg + t * RigSplayDeg
+  of rigFrontRight:  RigRestTuckDeg + t * RigSplayDeg
+  of rigRear:       -t * (RigSplayDeg * 0.5)
 
 proc rigLegPixels*(team: Team, leg: RigLeg, step: int, renderScale = 1): seq[uint8] =
   ## One hi-res leg (strut + treaded wheel, cut from cog_base) baked at ABSOLUTE
