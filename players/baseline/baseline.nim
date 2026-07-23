@@ -1853,10 +1853,42 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     if bot.tick - t.lastSeen > 48:
       continue
     nearestMateToSteal = min(nearestMateToSteal, dist(t.pos, stealTarget))
-  let pocketRush = not iCarry and not mateCarry and
-    bot.role in {MidTop, MidBottom, MidGuard, FlankTop, FlankBottom} and
-    dist(me, stealTarget) < PocketRushRange and
-    dist(me, stealTarget) < nearestMateToSteal + 8.0
+  when defined(exfilSurvive):
+    # GV21 exfil-survival (5000-tick clock, lose-lose timeout). A decode of the
+    # live v44 losses (R923/R924, both v44 rounds) shows the closest attacker
+    # suicide-grabs UNARMED into a pocket still held by fresh armed respawners,
+    # dies at the pedestal 12-51t after the touch (flag returned, 0 capture),
+    # and the game then scores -1/-1. Under the old 10000-tick SCORELESS-draw
+    # clock a wasted grab was ~free ("force the enemy onto defense"); under GV21
+    # it is strictly negative (a timeout is lose-lose and awards the rival 0, a
+    # dec-loss awards it +1). So only commit the unarmed touch when the pocket is
+    # WINNABLE — we are not outnumbered by fresh defenders at the pedestal.
+    # Otherwise stay an ARMED rusher (RushEngageRange below) and thin the pocket
+    # first, then grab. When we are already ahead the pocket is thin so this
+    # passes through unchanged; the guard only suppresses doomed suicide grabs.
+    var pocketDefenders = 0
+    var pocketFriends = 0
+    for t in bot.enemies:
+      if bot.tick - t.lastSeen <= 90 and
+          dist(t.pos, stealTarget) < PocketRushRange:
+        inc pocketDefenders
+    for t in bot.mates:
+      if bot.tick - t.lastSeen <= 90 and
+          dist(t.pos, stealTarget) < PocketRushRange:
+        inc pocketFriends
+    let pocketWinnable = pocketDefenders <= pocketFriends + 1
+  let pocketRush =
+    when defined(exfilSurvive):
+      not iCarry and not mateCarry and
+      bot.role in {MidTop, MidBottom, MidGuard, FlankTop, FlankBottom} and
+      dist(me, stealTarget) < PocketRushRange and
+      dist(me, stealTarget) < nearestMateToSteal + 8.0 and
+      pocketWinnable
+    else:
+      not iCarry and not mateCarry and
+      bot.role in {MidTop, MidBottom, MidGuard, FlankTop, FlankBottom} and
+      dist(me, stealTarget) < PocketRushRange and
+      dist(me, stealTarget) < nearestMateToSteal + 8.0
 
   # Combat: the nearest fresh track with a clear pixel ray AND a mate-free
   # fire cone is the engage target; the nearest fresh-but-wall-blocked track
