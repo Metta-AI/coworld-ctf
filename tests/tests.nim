@@ -11,7 +11,7 @@ import
   test_replay_controls,
   test_ctf_game,
   test_grenades,
-  test_swords,
+  test_plasma_arc,
   test_shouts,
   test_medkits,
   test_shields,
@@ -21,5 +21,8 @@ import
   test_corpse_label,
   test_damage_pop,
   test_trade_pair,
-  test_shot_accuracy
+  test_shot_accuracy,
+  test_shot_exposure,
+  test_windows,
+  test_sprite_collisions
 {.warning[UnusedImport]: on.}

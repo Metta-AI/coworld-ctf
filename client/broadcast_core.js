@@ -191,6 +191,8 @@
     const onText = config.onText || (() => {});
     const onStatus = config.onStatus || (() => {});
     const onFirstFrame = config.onFirstFrame || (() => {});
+    const websocketEnabled = config.websocket !== false;
+    const onSendPacket = config.onSendPacket || null;
     const ctx = canvas.getContext('2d');
     ctx.imageSmoothingEnabled = false;
 
@@ -290,6 +292,45 @@
       offsetY = (cssH - drawH) / 2;
     }
 
+    // Static map-band cache. The full-board map bands (object ids 40..67 on
+    // layer 0, z pinned at -32768 so they underlie everything) are emitted
+    // once at init and never change, yet re-blitting them dominates composite
+    // cost at full board size. Bake them into a per-layer base buffer and
+    // start each composite from a copy of that base, re-blitting only the
+    // dynamic objects above them (the endzone fade overlay at z = -32767 DOES
+    // change every frame and must stay dynamic).
+    const STATIC_BAND_MIN_ID = 40;
+    const STATIC_BAND_MAX_ID = 67;
+    const STATIC_BAND_Z = -32768;
+    let staticBandsDirty = true;
+
+    function isStaticBand(obj) {
+      return obj.layer === 0 &&
+        obj.id >= STATIC_BAND_MIN_ID && obj.id <= STATIC_BAND_MAX_ID &&
+        obj.z === STATIC_BAND_Z;
+    }
+
+    function blitObject(layer, obj) {
+      const sprite = sprites.get(obj.spriteId);
+      if (!sprite) return;
+      const startX = Math.max(0, -obj.x);
+      const startY = Math.max(0, -obj.y);
+      const endX = Math.min(sprite.width, layer.width - obj.x);
+      const endY = Math.min(sprite.height, layer.height - obj.y);
+      if (startX >= endX || startY >= endY) return;
+      for (let y = startY; y < endY; y++) {
+        for (let x = startX; x < endX; x++) {
+          putSpritePixel(
+            layer,
+            obj.x + x,
+            obj.y + y,
+            sprite,
+            (y * sprite.width + x) * 4
+          );
+        }
+      }
+    }
+
     function composite() {
       const orderedLayers = [...layers.values()]
         .filter(layer => (layer.flags & ZoomableFlag) !== 0 || layer.type === MapLayerType)
@@ -303,30 +344,38 @@
           .filter(obj => obj.layer === layer.id)
           .sort((a, b) => a.z - b.z || a.y - b.y || a.id - b.id);
         if (ordered.length === 0) continue;
-        layer.image.data.fill(0);
-        for (const obj of ordered) {
-          const sprite = sprites.get(obj.spriteId);
-          if (!sprite) continue;
-          const startX = Math.max(0, -obj.x);
-          const startY = Math.max(0, -obj.y);
-          const endX = Math.min(sprite.width, layer.width - obj.x);
-          const endY = Math.min(sprite.height, layer.height - obj.y);
-          if (startX >= endX || startY >= endY) continue;
-          for (let y = startY; y < endY; y++) {
-            for (let x = startX; x < endX; x++) {
-              putSpritePixel(
-                layer,
-                obj.x + x,
-                obj.y + y,
-                sprite,
-                (y * sprite.width + x) * 4
-              );
-            }
+        // The cache is only sound if the static bands form the sorted prefix
+        // and every dynamic object sorts strictly after them (i.e. nothing
+        // dynamic shares z = -32768). Otherwise fall back to a full re-blit.
+        let staticCount = 0;
+        while (staticCount < ordered.length && isStaticBand(ordered[staticCount])) {
+          staticCount++;
+        }
+        let cacheable = staticCount > 0;
+        for (let i = staticCount; cacheable && i < ordered.length; i++) {
+          if (ordered[i].z <= STATIC_BAND_Z) cacheable = false;
+        }
+        if (cacheable) {
+          if (staticBandsDirty || !layer.staticBase ||
+              layer.staticBase.length !== layer.image.data.length) {
+            layer.image.data.fill(0);
+            for (let i = 0; i < staticCount; i++) blitObject(layer, ordered[i]);
+            layer.staticBase = layer.image.data.slice();
+          } else {
+            layer.image.data.set(layer.staticBase);
           }
+          for (let i = staticCount; i < ordered.length; i++) {
+            blitObject(layer, ordered[i]);
+          }
+        } else {
+          layer.staticBase = null;
+          layer.image.data.fill(0);
+          for (const obj of ordered) blitObject(layer, obj);
         }
         layer.ctx.putImageData(layer.image, 0, 0);
         offscreenCtx.drawImage(layer.canvas, 0, 0);
       }
+      staticBandsDirty = false;
       dirty = false;
     }
 
@@ -406,6 +455,15 @@
             if (label) onText(label);
           } else {
             sprites.set(id, { width, height, pixels, label });
+            // Only a redefinition of a sprite some static band currently
+            // references can change the baked base; other sprite traffic
+            // (agents, fade stages, decals) must not thrash the cache.
+            for (const obj of objects.values()) {
+              if (isStaticBand(obj) && obj.spriteId === id) {
+                staticBandsDirty = true;
+                break;
+              }
+            }
           }
           changed = true;
         } else if (type === 0x02) {
@@ -416,20 +474,29 @@
           const layer = bytes[offset + 8];
           const spriteId = readU16(bytes, offset + 9);
           objects.set(id, { id, x, y, z, layer, spriteId });
+          if (id >= STATIC_BAND_MIN_ID && id <= STATIC_BAND_MAX_ID) {
+            staticBandsDirty = true;
+          }
           offset += 11;
           changed = true;
         } else if (type === 0x03) {
-          objects.delete(readU16(bytes, offset));
+          const id = readU16(bytes, offset);
+          objects.delete(id);
+          if (id >= STATIC_BAND_MIN_ID && id <= STATIC_BAND_MAX_ID) {
+            staticBandsDirty = true;
+          }
           offset += 2;
           changed = true;
         } else if (type === 0x04) {
           objects.clear();
+          staticBandsDirty = true;
           changed = true;
         } else if (type === 0x05) {
           setViewport(layers, bytes[offset], readU16(bytes, offset + 1), readU16(bytes, offset + 3), () => {
             updateNativeSize();
             computeFit();
           });
+          staticBandsDirty = true;
           offset += 5;
           changed = true;
         } else if (type === 0x06) {
@@ -637,6 +704,10 @@
     }
 
     function sendPacket(bytes) {
+      if (onSendPacket) {
+        onSendPacket(bytes);
+        return;
+      }
       if (!socket || socket.readyState !== WebSocket.OPEN) return;
       socket.send(bytes);
     }
@@ -702,8 +773,14 @@
     function start() {
       updateNativeSize();
       computeFit();
-      connect();
+      if (websocketEnabled) connect();
+      else onStatus('open');
       scheduleDraw();
+    }
+
+    function ingest(bytes) {
+      parse(bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes));
+      if (onFrame) onFrame();
     }
 
     function stop() {
@@ -738,6 +815,7 @@
 
     return {
       start,
+      ingest,
       sendCommand,
       clickMap,
       getTransform,

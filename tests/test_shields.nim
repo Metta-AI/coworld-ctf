@@ -22,8 +22,6 @@ proc twoTeamGame(): SimServer =
   result.startGame()
   result.players[0].team = Red
   result.players[1].team = Blue
-  for i in 0 ..< result.players.len:
-    result.players[i].spawnProtect = 0
 
 proc standOn(sim: var SimServer, playerIndex, spawnIndex: int) =
   ## Puts one player exactly on a shield spawn point.
@@ -37,7 +35,7 @@ suite "shields":
     for spawn in sim.shieldSpawns:
       check spawn.present
       check sim.canOccupy(spawn.x, spawn.y)
-      # Shields live in the BOTTOM half (three-quarter height); the swords
+      # Shields live in the BOTTOM half (three-quarter height); the plasma arcs
       # hold the matching top-half spots.
       check abs(spawn.y - 3 * MapHeight div 4) < 120
       check spawn.y > MapHeight div 2
@@ -45,15 +43,48 @@ suite "shields":
     check sim.shieldSpawns[0].x < MapWidth div 2
     check sim.shieldSpawns[1].x > MapWidth div 2
 
-  test "picking up a shield grants 6 hit points":
+  test "picking up a shield from full health grants 6 hit points":
     var sim = twoTeamGame()
     check sim.config.hitPoints < ShieldHitPoints
+    check sim.players[0].hp == sim.config.hitPoints
     sim.standOn(0, 0)
     sim.tryPickupShields(0)
     check sim.players[0].hasShield
     check sim.players[0].hp == ShieldHitPoints
     check not sim.shieldSpawns[0].present
     check sim.shieldSpawns[1].present
+
+  test "a shield pickup heals ShieldPickupHeal, not to full":
+    # A hurt shieldless player gains the shield plus 3 hp — it does not jump
+    # straight to 6.
+    var sim = twoTeamGame()
+    check ShieldPickupHeal == 3
+    sim.players[0].hp = 1
+    sim.standOn(0, 0)
+    sim.tryPickupShields(0)
+    check sim.players[0].hasShield
+    check sim.players[0].hp == 1 + ShieldPickupHeal
+    check not sim.shieldSpawns[0].present
+
+  test "a damaged shield carrier can take another shield to top up":
+    var sim = twoTeamGame()
+    sim.players[0].hasShield = true
+    sim.players[0].hp = 2
+    sim.standOn(0, 0)
+    sim.tryPickupShields(0)
+    check sim.players[0].hasShield
+    check sim.players[0].hp == 2 + ShieldPickupHeal
+    check not sim.shieldSpawns[0].present
+    check sim.shieldSpawns[0].respawnAt == sim.tickCount + ShieldRespawnTicks
+
+  test "a shield top-up caps at ShieldHitPoints":
+    var sim = twoTeamGame()
+    sim.players[0].hasShield = true
+    sim.players[0].hp = ShieldHitPoints - 1
+    sim.standOn(0, 0)
+    sim.tryPickupShields(0)
+    check sim.players[0].hp == ShieldHitPoints
+    check not sim.shieldSpawns[0].present
 
   test "a shield carrier can still shoot and kill":
     var sim = twoTeamGame()
@@ -84,12 +115,14 @@ suite "shields":
     check sim.players[0].fireCooldown ==
       sim.config.fireCooldownTicks * ShieldFireSlowdown
 
-  test "a player carries at most one shield":
+  test "a full-health shield carrier does not waste a spawn":
     var sim = twoTeamGame()
     sim.standOn(0, 0)
     sim.tryPickupShields(0)
     check sim.players[0].hasShield
-    # Standing on the second shield with one in hand takes nothing.
+    check sim.players[0].hp == ShieldHitPoints
+    # Standing on the second shield at full 6 hp takes nothing — a pickup
+    # that would heal 0 leaves the spawn for a teammate.
     sim.standOn(0, 1)
     sim.tryPickupShields(0)
     check sim.shieldSpawns[1].present

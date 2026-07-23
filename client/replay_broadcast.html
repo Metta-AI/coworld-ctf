@@ -18,6 +18,12 @@
   font-display: block;
 }
 
+@font-face {
+  font-family: 'rajdhani';
+  src: url('./font.ttf') format('truetype');
+  font-display: block;
+}
+
 :root {
   --stage-lo: #16110d;
   --stage-hi: #241a12;
@@ -32,7 +38,7 @@
   --hudscale: 1;
   /* chrome measures derive off the CONTAINER via --hudscale, not the viewport */
   --u: calc(1px * var(--hudscale));
-  --pixfont: 'nes-pixel', 'Courier New', monospace;
+  --pixfont: 'rajdhani', 'Segoe UI', system-ui, sans-serif;
   --finefont: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
 }
 
@@ -647,23 +653,20 @@ html, body {
 }
 #endcard.on { display: flex; animation: cardfade 420ms ease-out; }
 @keyframes cardfade { from { opacity: 0; } to { opacity: 1; } }
-#endcard .verdict-badge {
-  font-family: var(--pixfont);
-  font-size: calc(13 * var(--u));
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  padding: calc(5 * var(--u)) calc(14 * var(--u));
-  color: var(--stage-lo);
-}
-#endcard .verdict-badge.red { background: var(--red); color: var(--paper); }
-#endcard .verdict-badge.blue { background: var(--blue); color: var(--paper); }
-#endcard .verdict-badge.draw { background: var(--ghost); color: var(--stage-lo); }
+#endcard .headline.red { color: var(--red); }
+#endcard .headline.blue { color: var(--blue); }
+#endcard .headline.draw { color: var(--ghost); }
 #endcard .headline {
   font-family: var(--pixfont);
   font-size: calc(30 * var(--u));
   line-height: 1.05;
   color: var(--paper);
   text-shadow: 0 calc(3 * var(--u)) 0 var(--ink);
+  /* headline now carries the (possibly long) policy name — never wrap/overflow */
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 #endcard .how {
   font-family: var(--finefont);
@@ -672,14 +675,47 @@ html, body {
   color: var(--paper-dim);
   max-width: calc(360 * var(--u));
 }
-#endcard .final-lives {
-  display: flex;
-  gap: calc(30 * var(--u));
-  align-items: baseline;
+/* win-condition chip — names HOW the match ended (flag / elimination / time) */
+#endcard .wincond {
   font-family: var(--pixfont);
+  font-size: calc(10 * var(--u));
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--amber);
+  padding: calc(3 * var(--u)) calc(10 * var(--u));
+  box-shadow: inset 0 0 0 1px rgba(232, 163, 61, 0.5);
 }
-#endcard .fl-team { display: flex; flex-direction: column; align-items: center; gap: calc(3 * var(--u)); }
-#endcard .fl-num { font-size: calc(26 * var(--u)); }
+#endcard .how {
+  margin-top: calc(-4 * var(--u));
+}
+/* match-stats scoreboard — one panel per team, winner ringed in amber */
+#endcard .ec-teams { display: flex; gap: calc(22 * var(--u)); align-items: stretch; }
+#endcard .ec-team {
+  width: calc(215 * var(--u));
+  padding: calc(9 * var(--u)) calc(12 * var(--u));
+  background: rgba(20, 14, 9, 0.55);
+  box-shadow: inset 0 0 0 1px rgba(242, 232, 216, 0.12);
+  display: flex;
+  flex-direction: column;
+  gap: calc(5 * var(--u));
+  text-align: left;
+}
+#endcard .ec-team.win {
+  box-shadow: inset 0 0 0 1px rgba(232, 163, 61, 0.65),
+    0 0 calc(14 * var(--u)) rgba(232, 163, 61, 0.18);
+}
+#endcard .ec-tname {
+  font-family: var(--pixfont);
+  font-size: calc(13 * var(--u));
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#endcard .ec-tname.red { color: var(--red); }
+#endcard .ec-tname.blue { color: var(--blue); }
+#endcard .ec-lives { display: flex; align-items: baseline; gap: calc(6 * var(--u)); font-family: var(--pixfont); }
+#endcard .fl-num { font-size: calc(22 * var(--u)); }
 #endcard .fl-num.red { color: var(--red); }
 #endcard .fl-num.blue { color: var(--blue); }
 #endcard .fl-cap {
@@ -689,6 +725,92 @@ html, body {
   text-transform: uppercase;
   color: var(--paper-dim);
 }
+#endcard .ec-thead,
+#endcard .ec-row {
+  display: grid;
+  grid-template-columns: 1fr calc(22 * var(--u)) calc(22 * var(--u)) calc(26 * var(--u)) calc(26 * var(--u));
+  gap: calc(5 * var(--u));
+  align-items: center;
+}
+#endcard .ec-thead {
+  font-family: var(--finefont);
+  font-size: calc(7.5 * var(--u));
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--paper-dim);
+  border-bottom: 1px solid rgba(242, 232, 216, 0.18);
+  padding-bottom: calc(3 * var(--u));
+}
+#endcard .ec-thead span:not(:first-child) { text-align: center; }
+#endcard .ec-row {
+  font-family: var(--pixfont);
+  font-size: calc(10.5 * var(--u));
+  color: var(--paper);
+  padding: calc(1.5 * var(--u)) 0;
+}
+#endcard .ec-row .n { text-align: center; font-variant-numeric: tabular-nums; }
+#endcard .ec-row .n.cap { color: var(--amber); }
+#endcard .ec-row .pname {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--paper-dim);
+}
+#endcard .ec-row.mvp .pname { color: var(--amber); }
+/* name cell: name ellipsizes (but keeps a readable floor), the capture flag
+   + honor badges ride after it; a pathological pileup clips inside the cell
+   rather than bleeding into the K column */
+#endcard .ec-row .pcell {
+  display: flex;
+  align-items: center;
+  gap: calc(3 * var(--u));
+  min-width: 0;
+  overflow: hidden;
+}
+#endcard .ec-row .pcell .pname { flex: 0 1 auto; min-width: 7ch; }
+/* honor badges: baked 2x pixel-art icons (nano-banana), luminance-keyed to
+   transparency; a repeat count rides after the icon as fine print */
+#endcard .ec-badge {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: calc(1 * var(--u));
+  font-family: var(--finefont);
+  font-size: calc(7.5 * var(--u));
+  color: var(--paper-dim);
+  font-variant-numeric: tabular-nums;
+}
+#endcard .ec-badge::before {
+  content: '';
+  display: block;
+  height: calc(14 * var(--u));
+  background-size: contain;
+  background-repeat: no-repeat;
+  image-rendering: pixelated;
+}
+#endcard .ec-badge.bs::before { width: calc(10.5 * var(--u)); background-image: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABUAAAAcCAYAAACOGPReAAAFD0lEQVR42qWWX2wc1RXGf2dmZ2d3/TfO2qzjOEkdOxGhEJGIFhIodVqME2goBAfVRFUFUlS1D62qVv2jisXiCb9VraiIxEOlthKOKrV9AARSTR8qEAIKliCghpAG0drGya4d7+7s3N39+rBZY7VNGujVHc2VRufTOd/5znfH+JRLYAbSHffeT6Z8N/uvu56lxDGbnj7l8X8s5fMe9UYNmUddORYW9gDYpwITZob02NggFg7wUqLC+cWbKV/8tc3NlbyrKVMTE74uJbD2fnxfB6IHnwwHqwv28l+etLm5EsD/BDWQnTxZN1AL0AyxEvbgeyN4Jj7yVpTHa31PXL5EmZlJE4dypL1jtHU+Zb/8bUFgyo/1EHp9JJJFSvFrNvVcudW4K2f66KNNvtusA8e1/L10nw4d2moghr0aXjCIGhds6rkV5fFagJ+oURo/ciPEN9DQKjn7G/1Lvj3+0l/XZ3jVoAIjnzdef30rVYZR6jT9lZ9y4NZnef/Mi9B/AaawKRqfCNRAOjI+zUW/Sh9vUV9N8/Vjt/DMC/P285lH/j3mit3XxIRvID0w/iVqFoK3CrXvc8/YD7lp+zKL1T/p8OEf6NjBb68Nw5VA1/T44Hgnjpup+RU2RHsZ7G1n3x6PSu139vQfXiT038X8wvrYxHoJNTVoTdLzebOpqbqOju/EedtI+kt4tW184fP9pMJp6zvwsjSbMBv94zoJNi7L6RqPk3cNUeY41WCZztX9bLtmJw9N+OzYvxuyq2Ctrf/gVJIvaXukaIfOnUsDpttvT1Cr30VVISz3sbE9xzeODNPd8YRZ78VmUQgpKWm4UqkMS/IBEpcO28ANhM6DbLYKnCOXGaIY76C3d5lsx2GGNneT7TlDsfC0lP+4F2V6yZBLpVItGs8mgF0OlwFqQRDA2bPzBpJjjIgVfvTQKBszwySVprTyiI3c+4E0mwDqAGT4J7gBCDznXE8QBGnPOdeFI8RRda7sopGRAX153yZkuzDVeeH5LnLb03QN/J5i8RfNho7WzUySPGCXc3hAFASEzrnORBwHp9uCuG/+1Kn3crWa9MYrQ2Q6HyayC/R5tzHQ00vhLDSSP7EbHixIk00vLZU2Ab04OoMgeBOI4zjY4RyLifZ2m9fs7FL/6GgNQPeMPUA5WSUo55g8+FnGvpitz5/P+++8e0avvhrEcXytpLRzTgEsEXAKqJtZXdJbYWj1psAn8O0kdX3t7lv4KLqfRhW+c98kd96W48N/fO/80Fee2kjUR9WShKErU65kyMybWW1VyrXBAPC2mVUkmWlmxrejR+sandyKv/gtBjK7OXrHXu68NcuHhcfYMjpNFGWdr61BkK4TUyTJe8sspzIuMxQQBGXHB5kMC5cybk6RDuz9HJb6JuM37eHhr+7GD//Mavk3bDrwK4gGIRUTx72YpQmCxUqlEqfTaQE+sAqsmFl1zaX0xI8nGew/QXZDG1typ+lof4fG0Hfp6jsDJAFXonRNG8nPAH6VxlJIeBpoNIePLUDFzBZat4Xp/ed/Rld7mnT7HKnrn+TECTh+fAuustlBHRI0gsaFMLYkyaQAhyNDQMo5Z1JQSiZ5ozX3V7iCFRSLxQ2SuiR1lMvlQUmDhUKhO4q0U1K7pK4o0s5CodD9XwBmfM3OJqQZX8Kkj01GUqokba6qeqOkNECkaCSKol2FQqG75WxX+bMgu/Rsqkq7JYXr7bFS0VBVuu5y8f8CyPZwOPj4umUAAAAASUVORK5CYII="); }
+#endcard .ec-row .n.clstr { color: var(--amber); }
+#endcard .ec-heart {
+  display: inline-block;
+  height: calc(14 * var(--u));
+  vertical-align: middle;
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+  image-rendering: pixelated;
+}
+#endcard .ec-heart.red { width: calc(14.5 * var(--u)); background-image: url("data:image/png;base64,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"); }
+#endcard .ec-heart.blue { width: calc(15 * var(--u)); background-image: url("data:image/png;base64,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"); }
+/* loop countdown — present only while the server holds the end segment */
+#endcard .ec-replay {
+  font-family: var(--finefont);
+  font-size: calc(9 * var(--u));
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--paper-dim);
+  min-height: calc(12 * var(--u));
+}
+#endcard .ec-replay b { color: var(--paper); font-variant-numeric: tabular-nums; }
 
 /* connection status — fine print, lower-left */
 #status {
@@ -825,19 +947,30 @@ body[data-embed] #board { top: 0; height: 100%; }
     </div>
 
     <div id="endcard">
-      <div class="verdict-badge" id="ec-badge">GAME OVER</div>
       <div class="headline" id="ec-headline">—</div>
+      <div class="wincond" id="ec-wincond"></div>
       <div class="how" id="ec-how"></div>
-      <div class="final-lives">
-        <div class="fl-team">
-          <div class="fl-num red" id="ec-red">0</div>
-          <div class="fl-cap">Red lives</div>
+      <div class="ec-teams">
+        <div class="ec-team" id="ec-team-red">
+          <div class="ec-tname red" id="ec-tname-red">RED</div>
+          <div class="ec-lives">
+            <span class="fl-num red" id="ec-red">0</span>
+            <span class="fl-cap">Lives left</span>
+          </div>
+          <div class="ec-thead"><span>Player</span><span>K</span><span>D</span><span>Clstr</span><span>Cap</span></div>
+          <div id="ec-rows-red"></div>
         </div>
-        <div class="fl-team">
-          <div class="fl-num blue" id="ec-blue">0</div>
-          <div class="fl-cap">Blue lives</div>
+        <div class="ec-team" id="ec-team-blue">
+          <div class="ec-tname blue" id="ec-tname-blue">BLUE</div>
+          <div class="ec-lives">
+            <span class="fl-num blue" id="ec-blue">0</span>
+            <span class="fl-cap">Lives left</span>
+          </div>
+          <div class="ec-thead"><span>Player</span><span>K</span><span>D</span><span>Clstr</span><span>Cap</span></div>
+          <div id="ec-rows-blue"></div>
         </div>
       </div>
+      <div class="ec-replay" id="ec-replay"></div>
     </div>
   </div>
 
@@ -845,775 +978,7 @@ body[data-embed] #board { top: 0; height: 100%; }
 </div>
 </div>
 
-<script>
-// broadcast_core.js — Bitworld sprite protocol v1 client core
-// Dependency-free IIFE module for inlining into standalone HTML
-
-(function() {
-  'use strict';
-
-  // ========== Vendored SnappyJS (MIT) ==========
-  // @license MIT (http://opensource.org/licenses/MIT)
-  // author: Zhipeng Jia
-  // version: 0.7.0
-  (function(r,e,n){function t(i,f){if(!e[i]){if(!r[i]){var c="function"==typeof require&&require;if(!f&&c)return c(i,!0);if(o)return o(i,!0);var a=new Error("Cannot find module '"+i+"'");throw a.code="MODULE_NOT_FOUND",a}var p=e[i]={exports:{}};r[i][0].call(p.exports,function(e){var n=r[i][1][e];return t(n||e)},p,p.exports,r,e,n)}return e[i].exports}for(var o="function"==typeof require&&require,i=0;i<n.length;i++)t(n[i]);return t})({1:[function(require,module,exports){var SnappyJS={};SnappyJS.uncompress=require("./index").uncompress,SnappyJS.compress=require("./index").compress,window.SnappyJS=SnappyJS;},{"./index":2}],2:[function(require,module,exports){"use strict";function isNode(){return"object"==typeof process&&"object"==typeof process.versions&&void 0!==process.versions.node}function isUint8Array(r){return r instanceof Uint8Array&&(!isNode()||!Buffer.isBuffer(r))}function isArrayBuffer(r){return r instanceof ArrayBuffer}function isBuffer(r){return!!isNode()&&Buffer.isBuffer(r)}var SnappyDecompressor=require("./snappy_decompressor").SnappyDecompressor,SnappyCompressor=require("./snappy_compressor").SnappyCompressor,TYPE_ERROR_MSG="Argument compressed must be type of ArrayBuffer, Buffer, or Uint8Array";function uncompress(r,e){if(!isUint8Array(r)&&!isArrayBuffer(r)&&!isBuffer(r))throw new TypeError(TYPE_ERROR_MSG);var s=!1,n=!1;isUint8Array(r)?s=!0:isArrayBuffer(r)&&(n=!0,r=new Uint8Array(r));var o,f,i=new SnappyDecompressor(r),t=i.readUncompressedLength();if(-1===t)throw new Error("Invalid Snappy bitstream");if(t>e)throw new Error("The uncompressed length of "+t+" is too big, expect at most "+e);if(s){if(o=new Uint8Array(t),!i.uncompressToBuffer(o))throw new Error("Invalid Snappy bitstream")}else if(n){if(o=new ArrayBuffer(t),f=new Uint8Array(o),!i.uncompressToBuffer(f))throw new Error("Invalid Snappy bitstream")}else if(o=Buffer.alloc(t),!i.uncompressToBuffer(o))throw new Error("Invalid Snappy bitstream");return o}function compress(r){if(!isUint8Array(r)&&!isArrayBuffer(r)&&!isBuffer(r))throw new TypeError(TYPE_ERROR_MSG);var e=!1,s=!1;isUint8Array(r)?e=!0:isArrayBuffer(r)&&(s=!0,r=new Uint8Array(r));var n,o,f,i=new SnappyCompressor(r),t=i.maxCompressedLength();if(e?(n=new Uint8Array(t),f=i.compressToBuffer(n)):s?(n=new ArrayBuffer(t),o=new Uint8Array(n),f=i.compressToBuffer(o)):(n=Buffer.alloc(t),f=i.compressToBuffer(n)),!n.slice){var p=new Uint8Array(Array.prototype.slice.call(n,0,f));if(e)return p;if(s)return p.buffer;throw new Error("Not implemented")}return n.slice(0,f)}exports.uncompress=uncompress,exports.compress=compress;},{"./snappy_compressor":3,"./snappy_decompressor":4}],3:[function(require,module,exports){"use strict";var BLOCK_LOG=16,BLOCK_SIZE=1<<BLOCK_LOG,MAX_HASH_TABLE_BITS=14,globalHashTables=new Array(MAX_HASH_TABLE_BITS+1);function hashFunc(r,a){return 506832829*r>>>a}function load32(r,a){return r[a]+(r[a+1]<<8)+(r[a+2]<<16)+(r[a+3]<<24)}function equals32(r,a,e){return r[a]===r[e]&&r[a+1]===r[e+1]&&r[a+2]===r[e+2]&&r[a+3]===r[e+3]}function copyBytes(r,a,e,o,n){var t;for(t=0;t<n;t++)e[o+t]=r[a+t]}function emitLiteral(r,a,e,o,n){return e<=60?(o[n]=e-1<<2,n+=1):e<256?(o[n]=240,o[n+1]=e-1,n+=2):(o[n]=244,o[n+1]=e-1&255,o[n+2]=e-1>>>8,n+=3),copyBytes(r,a,o,n,e),n+e}function emitCopyLessThan64(r,a,e,o){return o<12&&e<2048?(r[a]=1+(o-4<<2)+(e>>>8<<5),r[a+1]=255&e,a+2):(r[a]=2+(o-1<<2),r[a+1]=255&e,r[a+2]=e>>>8,a+3)}function emitCopy(r,a,e,o){for(;o>=68;)a=emitCopyLessThan64(r,a,e,64),o-=64;return o>64&&(a=emitCopyLessThan64(r,a,e,60),o-=60),emitCopyLessThan64(r,a,e,o)}function compressFragment(r,a,e,o,n){for(var t=1;1<<t<=e&&t<=MAX_HASH_TABLE_BITS;)t+=1;var s=32-(t-=1);void 0===globalHashTables[t]&&(globalHashTables[t]=new Uint16Array(1<<t));var i,u,p,h,l,f,c,m,y,L,C=a+e,T=a,S=a,_=!0;if(e>=15)for(i=C-15,p=hashFunc(load32(r,a+=1),s);_;){f=32,h=a;do{if(u=p,c=f>>>5,f+=1,h=(a=h)+c,a>i){_=!1;break}p=hashFunc(load32(r,h),s),l=T+globalHashTables[u],globalHashTables[u]=a-T}while(!equals32(r,a,l));if(!_)break;n=emitLiteral(r,S,a-S,o,n);do{for(m=a,y=4;a+y<C&&r[a+y]===r[l+y];)y+=1;if(a+=y,n=emitCopy(o,n,m-l,y),S=a,a>=i){_=!1;break}globalHashTables[hashFunc(load32(r,a-1),s)]=a-1-T,l=T+globalHashTables[L=hashFunc(load32(r,a),s)],globalHashTables[L]=a-T}while(equals32(r,a,l));if(!_)break;p=hashFunc(load32(r,a+=1),s)}return S<C&&(n=emitLiteral(r,S,C-S,o,n)),n}function putVarint(r,a,e){do{a[e]=127&r,(r>>>=7)>0&&(a[e]+=128),e+=1}while(r>0);return e}function SnappyCompressor(r){this.array=r}SnappyCompressor.prototype.maxCompressedLength=function(){var r=this.array.length;return 32+r+Math.floor(r/6)},SnappyCompressor.prototype.compressToBuffer=function(r){var a,e=this.array,o=e.length,n=0,t=0;for(t=putVarint(o,r,t);n<o;)t=compressFragment(e,n,a=Math.min(o-n,BLOCK_SIZE),r,t),n+=a;return t},exports.SnappyCompressor=SnappyCompressor;},{}],4:[function(require,module,exports){"use strict";var WORD_MASK=[0,255,65535,16777215,4294967295];function copyBytes(r,e,s,t,o){var p;for(p=0;p<o;p++)s[t+p]=r[e+p]}function selfCopyBytes(r,e,s,t){var o;for(o=0;o<t;o++)r[e+o]=r[e-s+o]}function SnappyDecompressor(r){this.array=r,this.pos=0}SnappyDecompressor.prototype.readUncompressedLength=function(){for(var r,e,s=0,t=0;t<32&&this.pos<this.array.length;){if(r=this.array[this.pos],this.pos+=1,(e=127&r)<<t>>>t!==e)return-1;if(s|=e<<t,r<128)return s;t+=7}return-1},SnappyDecompressor.prototype.uncompressToBuffer=function(r){for(var e,s,t,o,p=this.array,n=p.length,i=this.pos,a=0;i<p.length;)if(e=p[i],i+=1,0==(3&e)){if((s=1+(e>>>2))>60){if(i+3>=n)return!1;t=s-60,s=1+((s=p[i]+(p[i+1]<<8)+(p[i+2]<<16)+(p[i+3]<<24))&WORD_MASK[t]),i+=t}if(i+s>n)return!1;copyBytes(p,i,r,a,s),i+=s,a+=s}else{switch(3&e){case 1:s=4+(e>>>2&7),o=p[i]+(e>>>5<<8),i+=1;break;case 2:if(i+1>=n)return!1;s=1+(e>>>2),o=p[i]+(p[i+1]<<8),i+=2;break;case 3:if(i+3>=n)return!1;s=1+(e>>>2),o=p[i]+(p[i+1]<<8)+(p[i+2]<<16)+(p[i+3]<<24),i+=4}if(0===o||o>a)return!1;selfCopyBytes(r,a,o,s),a+=s}return!0},exports.SnappyDecompressor=SnappyDecompressor;},{}]},{},[1]);
-  // ========== End vendored SnappyJS ==========
-
-  const textDecoder = new TextDecoder('utf-8');
-
-  const ZoomableFlag = 1;
-  const MapLayerType = 0;
-  // Reserved sprite id whose LABEL carries the broadcast chrome JSON on the
-  // binary channel (see server: BroadcastChromeSpriteId). Kept off the drawable
-  // sprite map and fed straight to onText — the ONLY channel that survives a
-  // hosted replay (the interactive TextMessage opt-in never routes through it).
-  const CHROME_SPRITE_ID = 4090;
-
-  function readU16(bytes, offset) {
-    return bytes[offset] | (bytes[offset + 1] << 8);
-  }
-
-  function readU32(bytes, offset) {
-    return (bytes[offset] |
-      (bytes[offset + 1] << 8) |
-      (bytes[offset + 2] << 16) |
-      (bytes[offset + 3] * 0x1000000)) >>> 0;
-  }
-
-  function readI16(bytes, offset) {
-    const value = readU16(bytes, offset);
-    return value & 0x8000 ? value - 0x10000 : value;
-  }
-
-  function writeI16(bytes, offset, value) {
-    value = Math.max(-32768, Math.min(32767, value)) & 0xffff;
-    bytes[offset] = value & 255;
-    bytes[offset + 1] = value >> 8;
-  }
-
-  function writeU16(bytes, offset, value) {
-    value = Math.max(0, Math.min(65535, value)) & 0xffff;
-    bytes[offset] = value & 255;
-    bytes[offset + 1] = value >> 8;
-  }
-
-  function decodeSpritePixelsSnappy(compressed, width, height) {
-    if (!window.SnappyJS) {
-      throw new Error('SnappyJS is not loaded');
-    }
-    const expected = width * height * 4;
-    const pixels = window.SnappyJS.uncompress(compressed, expected);
-    const rgba = pixels instanceof Uint8Array ? pixels : new Uint8Array(pixels);
-    if (rgba.length !== expected) {
-      throw new Error('Bad sprite pixel length');
-    }
-    return rgba;
-  }
-
-  function tryDecodeSpritePixelsSnappy(bytes, offset, remaining, width, height) {
-    const expected = width * height * 4;
-    if (remaining < 6) return null;
-    const compressedLength = readU32(bytes, offset);
-    if (compressedLength > remaining - 6) return null;
-    const labelOffset = offset + 4 + compressedLength;
-    const labelLength = readU16(bytes, labelOffset);
-    if (labelLength > remaining - 4 - compressedLength - 2) return null;
-    const compressed = bytes.slice(offset + 4, labelOffset);
-    let pixels;
-    try {
-      pixels = decodeSpritePixelsSnappy(compressed, width, height);
-    } catch (e) {
-      return null;
-    }
-    const labelStart = labelOffset + 2;
-    const labelEnd = labelStart + labelLength;
-    return {
-      pixels,
-      label: textDecoder.decode(bytes.slice(labelStart, labelEnd)),
-      offset: labelEnd
-    };
-  }
-
-  function ensureLayer(layers, id) {
-    if (!layers.has(id)) {
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
-      ctx.imageSmoothingEnabled = false;
-      layers.set(id, {
-        id,
-        type: MapLayerType,
-        flags: ZoomableFlag,
-        width: 1,
-        height: 1,
-        canvas,
-        ctx,
-        image: null
-      });
-    }
-    return layers.get(id);
-  }
-
-  function defineLayer(layers, id, type, flags) {
-    const layer = ensureLayer(layers, id);
-    layer.type = type;
-    layer.flags = flags;
-  }
-
-  function setViewport(layers, layerId, width, height, onResize) {
-    const layer = ensureLayer(layers, layerId);
-    layer.width = width;
-    layer.height = height;
-    layer.canvas.width = width;
-    layer.canvas.height = height;
-    layer.image = layer.ctx.createImageData(width, height);
-    if (onResize) onResize();
-  }
-
-  function putSpritePixel(layer, x, y, sprite, srcOffset) {
-    if (x < 0 || y < 0 || x >= layer.width || y >= layer.height) return;
-    const srcA = sprite.pixels[srcOffset + 3];
-    if (srcA === 0) return;
-    const offset = (y * layer.width + x) * 4;
-    if (srcA === 255 || layer.image.data[offset + 3] === 0) {
-      layer.image.data[offset] = sprite.pixels[srcOffset];
-      layer.image.data[offset + 1] = sprite.pixels[srcOffset + 1];
-      layer.image.data[offset + 2] = sprite.pixels[srcOffset + 2];
-      layer.image.data[offset + 3] = srcA;
-      return;
-    }
-    const dstA = layer.image.data[offset + 3];
-    const srcAlpha = srcA / 255, dstAlpha = dstA / 255;
-    const outAlpha = srcAlpha + dstAlpha * (1 - srcAlpha);
-    const dstWeight = dstAlpha * (1 - srcAlpha);
-    layer.image.data[offset] = Math.round(
-      (sprite.pixels[srcOffset] * srcAlpha +
-        layer.image.data[offset] * dstWeight) / outAlpha
-    );
-    layer.image.data[offset + 1] = Math.round(
-      (sprite.pixels[srcOffset + 1] * srcAlpha +
-        layer.image.data[offset + 1] * dstWeight) / outAlpha
-    );
-    layer.image.data[offset + 2] = Math.round(
-      (sprite.pixels[srcOffset + 2] * srcAlpha +
-        layer.image.data[offset + 2] * dstWeight) / outAlpha
-    );
-    layer.image.data[offset + 3] = Math.round(outAlpha * 255);
-  }
-
-  function websocketPathForClientPage(path) {
-    const mappings = [
-      ['/client/global', '/global'],
-      ['/client/replay', '/replay'],
-      ['/client/player', '/player'],
-      ['/client/rewards', '/reward'],
-      ['/client/admin', '/admin'],
-      ['/clients/replay', '/replay']
-    ];
-    for (const [clientPath, websocketPath] of mappings) {
-      if (path === clientPath) {
-        return websocketPath;
-      }
-      if (path.endsWith(clientPath)) {
-        return path.slice(0, path.length - clientPath.length) + websocketPath;
-      }
-    }
-    return path;
-  }
-
-  function websocketAddress(pageUrl) {
-    const url = new URL(pageUrl);
-    const protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
-    const host = url.host || 'localhost:8080';
-    const wsPath = websocketPathForClientPage(url.pathname);
-    const wsUrl = new URL(protocol + '//' + host + wsPath);
-    for (const key of ['name', 'slot', 'token', 'uri']) {
-      const value = url.searchParams.get(key);
-      if (value !== null) {
-        wsUrl.searchParams.set(key, value);
-      }
-    }
-    return wsUrl.toString();
-  }
-
-  function BroadcastCore(config) {
-    const canvas = config.canvas;
-    const onText = config.onText || (() => {});
-    const onStatus = config.onStatus || (() => {});
-    const onFirstFrame = config.onFirstFrame || (() => {});
-    const ctx = canvas.getContext('2d');
-    ctx.imageSmoothingEnabled = false;
-
-    const layers = new Map();
-    const sprites = new Map();
-    const objects = new Map();
-
-    let socket = null;
-    let rafHandle = null;
-    let dirty = false;
-    let firstFrameFired = false;
-    let offscreenCanvas = null;
-    let offscreenCtx = null;
-    let nativeW = 1, nativeH = 1;
-    let scale = 1, offsetX = 0, offsetY = 0;
-    // Vertical placement of the letterboxed board inside the frame: 0.5 centers
-    // it (wide/featured), a smaller value tucks it up under the scorebug band so
-    // a tall portrait column reads as a stacked scorebug→board→transport layout
-    // instead of a strip floating in dead-space (§2 reflow).
-    let verticalBias = 0.5;
-    let reconnectDelay = 1000;
-    const maxReconnectDelay = 8000;
-    let reconnecting = false;
-    let stopped = false;
-
-    // ---- Playout buffer (jitter absorption) ----
-    // The stream leaves the server at a clean source cadence (~24fps), but the
-    // delivery chain (container → kube proxy → backend → nginx) is bursty:
-    // gaps >100ms followed by catch-up bursts. Drawing on arrival turns that
-    // into freeze-then-jump. Instead, queue incoming messages and present them
-    // on a fixed cadence inferred from the arrival rate, cushioned by a couple
-    // of frame intervals. Messages are stateful deltas (sprite defs, object
-    // moves), so backlog control must fast-forward — apply everything, draw
-    // once — never discard, or sprite/object state corrupts.
-    const paceEnabled = config.playoutBuffer !== false;
-    const onFrame = config.onFrame || null;
-    // 12 frames ≈ 500ms at 24fps: replay playback has no latency budget, so a
-    // deep cushion that rides out measured WAN delivery stalls (p99 ≈ 400-500ms
-    // against production, July 2026) beats the responsiveness a live viewer
-    // would want. Live surfaces pass their own paceTargetDepth.
-    const PACE_TARGET_DEPTH = config.paceTargetDepth || 12;
-    const PACE_MAX_DEPTH = PACE_TARGET_DEPTH + 7;
-    const PACE_HARD_QUEUE = 240;
-    const PACE_MIN_INTERVAL = 1000 / 60;
-    const PACE_MAX_INTERVAL = 1000 / 10;
-    const PACE_WINDOW = 48;
-    const PACE_PRIME_TIMEOUT = 300;
-    let paceQueue = [];
-    let paceBinaryCount = 0;
-    let paceArrivals = [];
-    let paceInterval = 1000 / 24;
-    let paceNextDue = 0;
-    let pacePrimed = false;
-    let paceFirstArrival = 0;
-    let pacePresented = 0;
-    let paceRaf = null;
-    let paceTimer = null;
-
-    function mapLayer() {
-      for (const layer of layers.values()) {
-        if ((layer.flags & ZoomableFlag) !== 0 || layer.type === MapLayerType) {
-          return layer;
-        }
-      }
-      return null;
-    }
-
-    function computeNativeSize() {
-      let maxW = 1, maxH = 1;
-      for (const layer of layers.values()) {
-        if ((layer.flags & ZoomableFlag) !== 0 || layer.type === MapLayerType) {
-          maxW = Math.max(maxW, layer.width);
-          maxH = Math.max(maxH, layer.height);
-        }
-      }
-      return { w: maxW, h: maxH };
-    }
-
-    function updateNativeSize() {
-      const size = computeNativeSize();
-      nativeW = size.w;
-      nativeH = size.h;
-      if (!offscreenCanvas) {
-        offscreenCanvas = document.createElement('canvas');
-        offscreenCtx = offscreenCanvas.getContext('2d');
-        offscreenCtx.imageSmoothingEnabled = false;
-      }
-      if (offscreenCanvas.width !== nativeW) offscreenCanvas.width = nativeW;
-      if (offscreenCanvas.height !== nativeH) offscreenCanvas.height = nativeH;
-    }
-
-    function computeFit() {
-      const dpr = window.devicePixelRatio || 1;
-      const cssW = canvas.clientWidth || canvas.width / dpr;
-      const cssH = canvas.clientHeight || canvas.height / dpr;
-      const scaleX = cssW / nativeW;
-      const scaleY = cssH / nativeH;
-      scale = Math.min(scaleX, scaleY);
-      const drawW = nativeW * scale;
-      const drawH = nativeH * scale;
-      offsetX = (cssW - drawW) / 2;
-      offsetY = (cssH - drawH) * verticalBias;
-    }
-
-    function composite() {
-      const orderedLayers = [...layers.values()]
-        .filter(layer => (layer.flags & ZoomableFlag) !== 0 || layer.type === MapLayerType)
-        .sort((a, b) => a.id - b.id);
-
-      offscreenCtx.clearRect(0, 0, nativeW, nativeH);
-
-      for (const layer of orderedLayers) {
-        if (!layer.image) continue;
-        const ordered = [...objects.values()]
-          .filter(obj => obj.layer === layer.id)
-          .sort((a, b) => a.z - b.z || a.y - b.y || a.id - b.id);
-        if (ordered.length === 0) continue;
-        layer.image.data.fill(0);
-        for (const obj of ordered) {
-          const sprite = sprites.get(obj.spriteId);
-          if (!sprite) continue;
-          const startX = Math.max(0, -obj.x);
-          const startY = Math.max(0, -obj.y);
-          const endX = Math.min(sprite.width, layer.width - obj.x);
-          const endY = Math.min(sprite.height, layer.height - obj.y);
-          if (startX >= endX || startY >= endY) continue;
-          for (let y = startY; y < endY; y++) {
-            for (let x = startX; x < endX; x++) {
-              putSpritePixel(
-                layer,
-                obj.x + x,
-                obj.y + y,
-                sprite,
-                (y * sprite.width + x) * 4
-              );
-            }
-          }
-        }
-        layer.ctx.putImageData(layer.image, 0, 0);
-        offscreenCtx.drawImage(layer.canvas, 0, 0);
-      }
-      dirty = false;
-    }
-
-    function draw() {
-      const dpr = window.devicePixelRatio || 1;
-      const cssW = canvas.clientWidth || canvas.width / dpr;
-      const cssH = canvas.clientHeight || canvas.height / dpr;
-      if (canvas.width !== cssW * dpr) canvas.width = cssW * dpr;
-      if (canvas.height !== cssH * dpr) canvas.height = cssH * dpr;
-
-      computeFit();
-
-      // Clear to transparent (NOT opaque #000): the board letterboxes to a
-      // strip in narrow/portrait frames, and hard black bars over the warm
-      // stage read as an AI-default void. A transparent clear lets #stage's
-      // warm radial gradient own the letterbox bands (house style: never pure
-      // #000). The board itself is fully opaque, so it composites cleanly.
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-      if (dirty) {
-        composite();
-      }
-
-      if (offscreenCanvas && nativeW > 0 && nativeH > 0) {
-        ctx.save();
-        ctx.scale(dpr, dpr);
-        ctx.translate(offsetX, offsetY);
-        // Nearest-neighbor at ALL scales (matches #board's image-rendering:
-        // pixelated). The old code force-enabled smoothing whenever the board
-        // had to shrink (scale < 1, e.g. small windows or side panels eating
-        // width), which softened the ENTIRE board — floor, cracks, sprites —
-        // into a uniform blur. Retro pixel art wants crisp pixels, never a
-        // bilinear wash, so keep smoothing off in every regime.
-        ctx.imageSmoothingEnabled = false;
-        ctx.drawImage(offscreenCanvas, 0, 0, nativeW * scale, nativeH * scale);
-        ctx.restore();
-      }
-    }
-
-    function scheduleDraw() {
-      if (rafHandle) return;
-      rafHandle = requestAnimationFrame(() => {
-        rafHandle = null;
-        draw();
-      });
-    }
-
-    function parse(bytes) {
-      let offset = 0;
-      let changed = false;
-      while (offset < bytes.length) {
-        const type = bytes[offset++];
-        if (type === 0x01) {
-          const id = readU16(bytes, offset);
-          const width = readU16(bytes, offset + 2);
-          const height = readU16(bytes, offset + 4);
-          offset += 6;
-          const remaining = bytes.length - offset;
-          const snappySprite = tryDecodeSpritePixelsSnappy(
-            bytes,
-            offset,
-            remaining,
-            width,
-            height
-          );
-          let pixels, label = '';
-          if (snappySprite) {
-            pixels = snappySprite.pixels;
-            label = snappySprite.label;
-            offset = snappySprite.offset;
-          } else {
-            offset += width * height;
-          }
-          // Broadcast chrome (scorebug/clock/scrubber/roster/events) is smuggled
-          // as the label of a reserved 1×1 sprite (id 4090). Route it to onText
-          // exactly like the legacy TextMessage chrome — this binary path is the
-          // only one that survives a hosted replay. Never register it drawable.
-          if (id === CHROME_SPRITE_ID) {
-            if (label) onText(label);
-          } else {
-            sprites.set(id, { width, height, pixels, label });
-          }
-          changed = true;
-        } else if (type === 0x02) {
-          const id = readU16(bytes, offset);
-          const x = readI16(bytes, offset + 2);
-          const y = readI16(bytes, offset + 4);
-          const z = readI16(bytes, offset + 6);
-          const layer = bytes[offset + 8];
-          const spriteId = readU16(bytes, offset + 9);
-          objects.set(id, { id, x, y, z, layer, spriteId });
-          offset += 11;
-          changed = true;
-        } else if (type === 0x03) {
-          objects.delete(readU16(bytes, offset));
-          offset += 2;
-          changed = true;
-        } else if (type === 0x04) {
-          objects.clear();
-          changed = true;
-        } else if (type === 0x05) {
-          setViewport(layers, bytes[offset], readU16(bytes, offset + 1), readU16(bytes, offset + 3), () => {
-            updateNativeSize();
-            computeFit();
-          });
-          offset += 5;
-          changed = true;
-        } else if (type === 0x06) {
-          defineLayer(layers, bytes[offset], bytes[offset + 1], bytes[offset + 2]);
-          offset += 3;
-        } else if (type === 0x07) {
-          offset += 2;
-        } else {
-          console.warn('Unknown sprite protocol message type:', type);
-          if (socket) socket.close();
-          break;
-        }
-      }
-      if (changed) {
-        dirty = true;
-        scheduleDraw();
-        if (!firstFrameFired && objects.size > 0) {
-          firstFrameFired = true;
-          onFirstFrame();
-        }
-      }
-    }
-
-    function pacePresentOne() {
-      // Pop entries up to and including the next binary frame; text messages
-      // ride along in arrival order without consuming a cadence slot.
-      while (paceQueue.length) {
-        const entry = paceQueue.shift();
-        if (entry.text !== undefined) {
-          onText(entry.text);
-          continue;
-        }
-        paceBinaryCount--;
-        parse(entry.bytes);
-        pacePresented++;
-        if (onFrame) onFrame();
-        return true;
-      }
-      return false;
-    }
-
-    function paceFastForward(keepDepth) {
-      while (paceBinaryCount > keepDepth) pacePresentOne();
-    }
-
-    function paceReset() {
-      // Drain anything still pending (in order — they're valid deltas), then
-      // start priming from scratch. Used on (re)connect.
-      paceFastForward(0);
-      while (paceQueue.length) {
-        const entry = paceQueue.shift();
-        if (entry.text !== undefined) onText(entry.text);
-      }
-      paceArrivals = [];
-      paceFirstArrival = 0;
-      pacePrimed = false;
-    }
-
-    function paceSchedule() {
-      // rAF gives paint-aligned pacing when the page is visible, but it
-      // throttles or fully stops in hidden/occluded tabs — the timer backstop
-      // keeps presentation and backlog control running there. Whichever fires
-      // first cancels the other.
-      if (!paceRaf) paceRaf = requestAnimationFrame(pacePumpRaf);
-      if (!paceTimer) {
-        paceTimer = setTimeout(pacePumpTimer, Math.max(25, paceInterval * 1.5));
-      }
-    }
-
-    function pacePumpRaf(now) {
-      paceRaf = null;
-      if (paceTimer) {
-        clearTimeout(paceTimer);
-        paceTimer = null;
-      }
-      pacePump(now);
-    }
-
-    function pacePumpTimer() {
-      paceTimer = null;
-      if (paceRaf) {
-        cancelAnimationFrame(paceRaf);
-        paceRaf = null;
-      }
-      pacePump(performance.now());
-    }
-
-    function pacePump(now) {
-      if (stopped) return;
-      if (paceBinaryCount > PACE_MAX_DEPTH) {
-        // Fell behind the live stream (delivery burst or stalled tab): apply
-        // the backlog immediately so latency stays bounded at the cushion.
-        paceFastForward(PACE_TARGET_DEPTH);
-        pacePrimed = true;
-        paceNextDue = now;
-      }
-      if (!pacePrimed &&
-          (paceBinaryCount > PACE_TARGET_DEPTH ||
-            (paceFirstArrival && now - paceFirstArrival >= PACE_PRIME_TIMEOUT))) {
-        pacePrimed = true;
-        paceNextDue = now;
-      }
-      // Text messages at the head arrived before every queued binary frame and
-      // their preceding frame is already presented — deliver them now.
-      while (paceQueue.length && paceQueue[0].text !== undefined) {
-        onText(paceQueue.shift().text);
-      }
-      if (pacePrimed && paceBinaryCount > 0) {
-        if (now - paceNextDue > 2 * paceInterval) {
-          // Re-anchor after a long stall instead of machine-gunning the
-          // backlog through the cadence (fast-forward bounds the depth).
-          paceNextDue = now;
-        }
-        // Present every due frame, capped per invocation: a throttled driver
-        // (1Hz setTimeout in a hidden tab) must still keep up, but a
-        // recovering stall shouldn't machine-gun the backlog.
-        let budget = 3;
-        while (budget > 0 && paceBinaryCount > 0 && now >= paceNextDue) {
-          budget--;
-          pacePresentOne();
-          // Nudge the cadence a few percent to hold the cushion at target
-          // depth — imperceptible, but stops underruns from permanently
-          // ratcheting latency upward (and overruns from accumulating).
-          const drift = Math.max(-2, Math.min(2, paceBinaryCount - PACE_TARGET_DEPTH));
-          paceNextDue += paceInterval * (1 - 0.02 * drift);
-        }
-      }
-      if (paceQueue.length) paceSchedule();
-    }
-
-    function paceEnqueue(event) {
-      const isText = typeof event.data === 'string';
-      if (isText) {
-        if (paceQueue.length === 0) {
-          // Nothing buffered ahead of it — no ordering to preserve.
-          onText(event.data);
-          return;
-        }
-        paceQueue.push({ text: event.data });
-      } else {
-        const now = performance.now();
-        if (!paceFirstArrival) paceFirstArrival = now;
-        paceArrivals.push(now);
-        if (paceArrivals.length > PACE_WINDOW) paceArrivals.shift();
-        if (paceArrivals.length >= 8) {
-          const span = paceArrivals[paceArrivals.length - 1] - paceArrivals[0];
-          const mean = span / (paceArrivals.length - 1);
-          paceInterval = Math.min(PACE_MAX_INTERVAL, Math.max(PACE_MIN_INTERVAL, mean));
-        }
-        paceQueue.push({ bytes: new Uint8Array(event.data) });
-        paceBinaryCount++;
-        if (paceBinaryCount > PACE_HARD_QUEUE) {
-          // rAF isn't firing (hidden tab): drain inline to cap memory.
-          paceFastForward(PACE_TARGET_DEPTH);
-        }
-      }
-      paceSchedule();
-    }
-
-    function connect() {
-      if (stopped) return;
-      if (paceEnabled) paceReset();
-      const ws = new WebSocket(websocketAddress(window.location.href));
-      socket = ws;
-      ws.binaryType = 'arraybuffer';
-      onStatus('connecting');
-
-      ws.onmessage = event => {
-        if (socket !== ws) return;
-        if (paceEnabled) {
-          paceEnqueue(event);
-        } else if (typeof event.data === 'string') {
-          onText(event.data);
-        } else {
-          parse(new Uint8Array(event.data));
-          if (onFrame) onFrame();
-        }
-      };
-
-      ws.onopen = () => {
-        if (socket !== ws) return;
-        onStatus('open');
-        reconnectDelay = 1000;
-        reconnecting = false;
-      };
-
-      ws.onclose = () => {
-        if (socket !== ws) return;
-        socket = null;
-        onStatus('closed');
-        if (!stopped && !reconnecting) {
-          reconnecting = true;
-          setTimeout(() => {
-            reconnecting = false;
-            reconnectDelay = Math.min(reconnectDelay * 2, maxReconnectDelay);
-            connect();
-          }, reconnectDelay);
-        }
-      };
-
-      ws.onerror = () => {
-        if (socket !== ws) return;
-        try { ws.close(); } catch (e) {}
-      };
-    }
-
-    function sendPacket(bytes) {
-      if (!socket || socket.readyState !== WebSocket.OPEN) return;
-      socket.send(bytes);
-    }
-
-    function sendCommand(text) {
-      const asciiBytes = [];
-      for (let i = 0; i < text.length; i++) {
-        const code = text.charCodeAt(i);
-        if (code >= 32 && code < 127) asciiBytes.push(code);
-      }
-      if (asciiBytes.length === 0) return;
-      const packet = new Uint8Array(asciiBytes.length + 3);
-      packet[0] = 0x81;
-      writeU16(packet, 1, asciiBytes.length);
-      packet.set(asciiBytes, 3);
-      sendPacket(packet);
-    }
-
-    function clickMap(mapX, mapY) {
-      const ml = mapLayer();
-      const layerId = ml ? ml.id : 0;
-      const move = new Uint8Array(6);
-      move[0] = 0x82;
-      writeI16(move, 1, mapX);
-      writeI16(move, 3, mapY);
-      move[5] = layerId & 255;
-      const down = new Uint8Array(9);
-      down[0] = 0x82;
-      writeI16(down, 1, mapX);
-      writeI16(down, 3, mapY);
-      down[5] = layerId & 255;
-      down[6] = 0x83;
-      down[7] = 0x01;
-      down[8] = 1;
-      sendPacket(down);
-      const up = new Uint8Array(9);
-      up[0] = 0x82;
-      writeI16(up, 1, mapX);
-      writeI16(up, 3, mapY);
-      up[5] = layerId & 255;
-      up[6] = 0x83;
-      up[7] = 0x01;
-      up[8] = 0;
-      sendPacket(up);
-    }
-
-    function getTransform() {
-      return {
-        scale,
-        offsetX,
-        offsetY,
-        nativeW,
-        nativeH
-      };
-    }
-
-    function setViewportFit() {
-      updateNativeSize();
-      computeFit();
-      scheduleDraw();
-    }
-
-    function setVerticalBias(bias) {
-      verticalBias = bias;
-      computeFit();
-      scheduleDraw();
-    }
-
-    function start() {
-      updateNativeSize();
-      computeFit();
-      connect();
-      scheduleDraw();
-    }
-
-    function stop() {
-      stopped = true;
-      if (socket) {
-        socket.close();
-        socket = null;
-      }
-      if (rafHandle) {
-        cancelAnimationFrame(rafHandle);
-        rafHandle = null;
-      }
-      if (paceRaf) {
-        cancelAnimationFrame(paceRaf);
-        paceRaf = null;
-      }
-      if (paceTimer) {
-        clearTimeout(paceTimer);
-        paceTimer = null;
-      }
-    }
-
-    function getPaceStats() {
-      return {
-        enabled: paceEnabled,
-        queued: paceBinaryCount,
-        presented: pacePresented,
-        interval: paceInterval,
-        primed: pacePrimed
-      };
-    }
-
-    return {
-      start,
-      sendCommand,
-      clickMap,
-      getTransform,
-      setViewportFit,
-      setVerticalBias,
-      getPaceStats,
-      stop
-    };
-  }
-
-  window.BroadcastCore = { create: BroadcastCore };
-})();
-
-</script>
+<!-- BROADCAST_CORE -->
 
 <script>
 (function () {
@@ -1715,12 +1080,18 @@ body[data-embed] #board { top: 0; height: 100%; }
 
   // ---- core (board renderer + WS) ----
   var lastState = null;
+  var replayAdapter = window.CtfStaticReplay || null;
   var core = window.BroadcastCore.create({
     canvas: canvas,
     onText: function (txt) { onFrame(txt); },
     onStatus: function (st) { onStatus(st); },
-    onFirstFrame: function () { core.setViewportFit(); }
+    onFirstFrame: function () { core.setViewportFit(); },
+    websocket: !replayAdapter,
+    onSendPacket: replayAdapter ? function (bytes) {
+      replayAdapter.sendPacket(bytes);
+    } : null
   });
+  if (replayAdapter) replayAdapter.attachCore(core);
 
   function send(cmd) { core.sendCommand(cmd); }
 
@@ -2435,22 +1806,107 @@ body[data-embed] #board { top: 0; height: 100%; }
   }
 
   // ============================================================
-  //  End-card (§5/§8) — reads isDraw BEFORE winner (F4); names the key (F3)
+  //  End-card (§5/§8) — the END SEGMENT: verdict, win condition and match
+  //  stats, held on screen by the server for ~10s before a looping restart.
+  //  Reads isDraw BEFORE winner (F4); names the key (F3).
   // ============================================================
+  function endcardWinCondition(o) {
+    // The condition CHIP: how the match ended, in two or three words.
+    if (o.draw) return o.timeLimit ? 'TIME LIMIT — DRAW' : 'DRAW';
+    if (o.timeLimit) {
+      var winL = o.winner === 'red' ? o.redLives : o.blueLives;
+      var loseL = o.winner === 'red' ? o.blueLives : o.redLives;
+      return winL !== loseL ? 'TIME LIMIT — LIVES TIEBREAK' : 'TIME LIMIT — FLAG PROGRESS';
+    }
+    var loserLives = o.winner === 'red' ? o.blueLives : o.redLives;
+    return loserLives <= 0 ? 'ELIMINATION' : 'FLAG CAPTURE';
+  }
+
+  function endcardOrder(a, b) {
+    // Kills lead the board; fewer deaths, then captures, break ties.
+    return (b.k || 0) - (a.k || 0) || (a.d || 0) - (b.d || 0) ||
+      (b.cap || 0) - (a.cap || 0) || a.s - b.s;
+  }
+
+  function endcardBadge(cls, count, title) {
+    // One honor icon; repeat events fold into a ·N suffix instead of stacking.
+    if (!count) return '';
+    return '<span class="ec-badge ' + cls + '" title="' + title + '">' +
+      (count > 1 ? '·' + count : '') + '</span>';
+  }
+
+  function renderEndcardRows(s, team, el, mvpSlot) {
+    // Final per-player stat lines, top killer first. The MVP (winning team's
+    // best line) reads in amber — no star prefix, it would break the name
+    // column's alignment. Clstr counts grenade/plasma multi-kill events; the
+    // Cap column renders the captured enemy heart itself; a dagger icon marks
+    // teammate kills.
+    var rows = (s.roster || []).filter(function (p) { return p.team === team; })
+      .slice().sort(endcardOrder);
+    var enemyHeart = team === 'red' ? 'blue' : 'red';
+    var html = '';
+    rows.forEach(function (p) {
+      var mvp = mvpSlot != null && p.s === mvpSlot;
+      var marks = endcardBadge('bs', p.tk, 'Backstab — killed a teammate');
+      var cluster = (p.mk2 || 0) + (p.mk3 || 0);
+      html += '<div class="ec-row' + (mvp ? ' mvp' : '') + '">' +
+        '<span class="pcell">' +
+        '<span class="pname">' + esc(shortName(rosterName(s, p.s))) + '</span>' +
+        marks +
+        '</span>' +
+        '<span class="n">' + (p.k || 0) + '</span>' +
+        '<span class="n">' + (p.d || 0) + '</span>' +
+        '<span class="n clstr">' + (cluster > 0 ? cluster : '') + '</span>' +
+        '<span class="n cap">' + (p.cap > 0
+          ? '<span class="ec-heart ' + enemyHeart + '" title="Captured the enemy heart"></span>'
+          : '') + '</span>' +
+        '</div>';
+    });
+    el.innerHTML = html;
+  }
+
   function renderEndcard(s) {
     var card = $('endcard');
     if (!s.over) return;
     card.classList.add('on'); // own the frame at GameOver (§8) — before either verdict branch
     var o = s.over;
-    var badge = $('ec-badge'), head = $('ec-headline'), how = $('ec-how');
+
+    // The loop countdown ticks every second while everything else is frozen,
+    // so it renders unconditionally; the static content is keyed and only
+    // rebuilt when the verdict frame actually changes (24fps hold, no churn).
+    $('ec-replay').innerHTML = s.lp && s.hold > 0
+      ? 'Replaying in <b>' + s.hold + '</b>' : '';
+
+    var key = [s.mx, o.winner, o.draw, o.timeLimit, (s.roster || []).length].join('|');
+    if (card._key === key) return;
+    card._key = key;
+
+    var head = $('ec-headline'), how = $('ec-how');
     var redL = o.redLives, blueL = o.blueLives;
     $('ec-red').textContent = redL;
     $('ec-blue').textContent = blueL;
+    $('ec-wincond').textContent = endcardWinCondition(o);
+    $('ec-tname-red').textContent = teamName(s, 'red', 'RED');
+    $('ec-tname-blue').textContent = teamName(s, 'blue', 'BLUE');
+    $('ec-team-red').classList.toggle('win', !o.draw && o.winner === 'red');
+    $('ec-team-blue').classList.toggle('win', !o.draw && o.winner === 'blue');
+
+    // MVP: the winning team's best final line (kills > fewer deaths >
+    // captures — the capturer keeps their ⚑ mark, the star follows the guns).
+    // A draw crowns nobody — the fidelity rules never invent a distinction the
+    // sim didn't make (F4).
+    var mvpSlot = null;
+    if (!o.draw) {
+      var winners = (s.roster || []).filter(function (p) { return p.team === o.winner; })
+        .sort(endcardOrder);
+      if (winners.length) mvpSlot = winners[0].s;
+    }
+    renderEndcardRows(s, 'red', $('ec-rows-red'), mvpSlot);
+    renderEndcardRows(s, 'blue', $('ec-rows-blue'), mvpSlot);
 
     if (o.draw) {
-      badge.className = 'verdict-badge draw';
-      badge.textContent = 'DRAW';
-      head.textContent = 'NO SCORE';
+      head.className = 'headline draw';
+      head.textContent = 'DRAW — NO SCORE';
       how.textContent = o.timeLimit
         ? 'Time expired before a capture or a wipe — a scoreless draw, with no tiebreak on lives.'
         : 'The match ended with neither side scoring — no winner.';
@@ -2458,9 +1914,8 @@ body[data-embed] #board { top: 0; height: 100%; }
     }
 
     var winner = o.winner; // 'red' | 'blue'
-    var winName = winner === 'red' ? 'RED' : 'BLUE';
-    badge.className = 'verdict-badge ' + winner;
-    badge.textContent = winName + ' WINS';
+    var winName = teamName(s, winner, winner === 'red' ? 'RED' : 'BLUE');
+    head.className = 'headline ' + winner;
     head.textContent = winName + ' WINS';
 
     if (o.timeLimit) {
@@ -2475,7 +1930,7 @@ body[data-embed] #board { top: 0; height: 100%; }
     } else {
       var loserLives = winner === 'red' ? blueL : redL;
       if (loserLives <= 0) {
-        head.textContent = winName + ' WIPES OUT ' + (winner === 'red' ? 'BLUE' : 'RED');
+        head.textContent = winName + ' WIPES OUT ' + teamName(s, winner === 'red' ? 'blue' : 'red', winner === 'red' ? 'BLUE' : 'RED');
         how.textContent = winName + ' eliminated every opposing life.';
       } else {
         how.textContent = winName + ' captured the enemy flag.';

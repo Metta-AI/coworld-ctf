@@ -141,9 +141,9 @@ const
                               # mate's aim ray counts as mate-targeted
   ButtonC = 1'u8 shl 7        # grenade charge/throw (input mask bit 128)
   NadeMaxRange = 240.0        # full-charge throw distance (~fifth of the field)
-  NadeMinRange = 60.0         # never lob inside this — the ~40px blast + drift
-                              # would clip us
-  NadeBlast = 40.0            # blast radius; a pair this close dies together
+  NadeMinRange = 72.0         # never lob inside this — the 52px blast + drift
+                              # would clip us (GV17: blast 40 -> 52)
+  NadeBlast = 52.0            # blast radius; a pair this close dies together
   NadeFullChargeTicks = 24    # ~1s of holding C reaches max range
   NadePickupDetour = 90.0     # grab a corner pickup within this detour range
   MedKitDetour = 80.0         # heal-detour budget when merely wounded
@@ -151,14 +151,17 @@ const
   MedKitRespawn = 30 * 24     # a taken kit refills after 30s (sim constant)
   MedKitSeenClear = 55.0      # inside this range an empty spot is truly
                               # empty (bubble vision), not just fogged
-  SwordReach = 26.0           # melee swipe range (sim SwordReach)
-  SwordArcBrads = 32          # +/-45 degree swipe arc in brads
-  SwordDetour = 70.0          # attacker detour budget for a sword pickup
+  PlasmaReach = 136.0         # plasma cone reach: 4 squares (sim
+                              # PlasmaArcReach)
+  PlasmaHalfBrads = 10        # cone half-angle in brads: the cone is 2
+                              # squares wide at max reach, atan(1/4) ~ 14
+                              # degrees (sim PlasmaArcMaxWidth / Reach)
+  PlasmaDetour = 70.0         # attacker detour budget for a plasma arc pickup
   ShieldStealDetour = 480.0   # MidGuard's shield trip: the enemy endzone
                               # shield sits low in their back column
                               # (~215px from the pedestal since the game-v7
                               # split), so the round trip costs ~430 path px
-  PickupRespawn = 30 * 24     # sword/shield respawn timer (sim constant)
+  PickupRespawn = 30 * 24     # plasma arc/shield respawn timer (sim constant)
   MedKitCarrierBudget = 90.0  # extra path px a hurt CARRIER spends to heal:
                               # a full-heal carrier survives pocket exits
                               # that kill a 1 hp one
@@ -274,8 +277,8 @@ type
     hp: int                   # own hit points, read from the HUD lives label
     kitPos: seq[Vec]          # discovered med kit spots (two, center line)
     kitAbsentAt: seq[int]     # tick a spot was last seen empty; -1 = present
-    swordPos: seq[Vec]        # discovered sword spots (side midpoints)
-    swordAbsentAt: seq[int]
+    plasmaPos: seq[Vec]       # discovered plasma arc spots (side midpoints)
+    plasmaAbsentAt: seq[int]
     shieldPos: seq[Vec]       # discovered shield spots (endzone back columns)
     shieldAbsentAt: seq[int]
 
@@ -651,7 +654,7 @@ proc findEnemyPosts(bot: Bot, client: ProtocolClient) =
   ## Precomputes the standing virtual threats every carrier run has to
   ## respect, fed into exposure costing and lane choice: the mirrored ENEMY
   ## overwatch post (a stationary, hidden killer) and the ENEMY spawn
-  ## pocket — every kill respawns an armed, spawn-protected enemy at the
+  ## pocket — every kill respawns an armed enemy at the
   ## pedestal aiming our way, so the pocket mouth (and its mid lane) is
   ## permanently watched ground even when no track remembers anyone there.
   bot.enemyPosts.setLen(0)
@@ -993,8 +996,8 @@ proc resetTransient(bot: Bot) =
   bot.hp = MaxHp
   for i in 0 ..< bot.kitAbsentAt.len:
     bot.kitAbsentAt[i] = -1              # both kits restock at game start
-  for i in 0 ..< bot.swordAbsentAt.len:
-    bot.swordAbsentAt[i] = -1
+  for i in 0 ..< bot.plasmaAbsentAt.len:
+    bot.plasmaAbsentAt[i] = -1
   for i in 0 ..< bot.shieldAbsentAt.len:
     bot.shieldAbsentAt[i] = -1
   bot.shoutWant = ""
@@ -1133,34 +1136,34 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     let seen = client.observedAim(me, myColor)
     if seen >= 0 and abs(bradsErr(seen, bot.estAim)) > AimResyncBrads:
       bot.estAim = seen
-  # Swords and shields (game v7) share the endzone back columns (inset 50)
-  # but are vertically SEPARATED: swords in the top half (quarter height),
+  # Plasma arcs and shields share the endzone back columns (inset 50)
+  # but are vertically SEPARATED: plasma arcs in the top half (quarter height),
   # shields in the bottom half (three-quarter height). Seed the spots up
   # front (they are deterministic; the fog would otherwise hide them until
   # we are already on top of them), then let sightings refine the nudged
   # positions.
-  if bot.swordPos.len == 0:
+  if bot.plasmaPos.len == 0:
     for spot in [vec(50.0, float(MapH div 4)),
                  vec(float(MapW) - 50.0, float(MapH div 4))]:
-      bot.swordPos.add(spot)
-      bot.swordAbsentAt.add(-1)
+      bot.plasmaPos.add(spot)
+      bot.plasmaAbsentAt.add(-1)
     for spot in [vec(50.0, float(3 * MapH div 4)),
                  vec(float(MapW) - 50.0, float(3 * MapH div 4))]:
       bot.shieldPos.add(spot)
       bot.shieldAbsentAt.add(-1)
-  var swordSeen, shieldSeen: seq[Vec]
-  for o in client.spriteObjectsWithLabel("sword"):
-    swordSeen.add(client.mapPos(o))
+  var plasmaSeen, shieldSeen: seq[Vec]
+  for o in client.spriteObjectsWithLabel("plasma arc"):
+    plasmaSeen.add(client.mapPos(o))
   for o in client.spriteObjectsWithLabel("shield"):
     shieldSeen.add(client.mapPos(o))
-  trackPickups(bot.swordPos, bot.swordAbsentAt, swordSeen, me, bot.tick)
+  trackPickups(bot.plasmaPos, bot.plasmaAbsentAt, plasmaSeen, me, bot.tick)
   trackPickups(bot.shieldPos, bot.shieldAbsentAt, shieldSeen, me, bot.tick)
   # Own carry state: the carried markers float over their carrier, and a
   # shield carrier's HUD reads 6 hp (the marker is the fallback).
-  var hasSword = false
-  for o in client.spriteObjectsWithLabel("sword carried"):
+  var hasPlasma = false
+  for o in client.spriteObjectsWithLabel("plasma arc carried"):
     if dist(client.mapPos(o), me) <= 30.0:
-      hasSword = true
+      hasPlasma = true
       break
   var hasShield = bot.hp > MaxHp
   if not hasShield:
@@ -1171,7 +1174,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
 
   let
     shotReady = client.spriteObjectsWithLabel("fire icon").len > 0 and
-      not hasSword                       # sword replaces the gun; a shield
+      not hasPlasma                      # the plasma arc replaces the gun; a shield
                                          # only slows it (3x cooldown)
     seenEnemies = client.actorsFor(enemyColor)
     seenMates = client.actorsFor(myColor)
@@ -1437,7 +1440,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       laneY = bot.safestLaneY(me)
     if abs(me.x - pocket.x) < 60.0 and abs(me.y - laneY) > 70.0:
       # Bug out of the pocket VERTICALLY first: every kill respawns an
-      # armed, spawn-protected enemy at this pedestal whose spawn aim points
+      # armed enemy at this pedestal whose spawn aim points
       # along the east-west axis — pure-vertical movement exits that cone
       # fastest, then the border lane runs home outside it.
       target = vec(pocket.x, laneY)
@@ -1580,7 +1583,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   let rushing = not iCarry and not mateCarry and
     bot.role in {MidTop, MidBottom, MidGuard}
   # The pocket endgame: duelling at the pocket edge is an infinite respawn
-  # grinder (respawners appear spawn-protected AT the pedestal), so the
+  # grinder (respawners reappear armed AT the pedestal), so the
   # attacker CLOSEST to the pedestal commits to the touch, unarmed and
   # undistracted, while the rest of the wave keeps its guns up to cover the
   # grab — even a suicide grab forces the enemy back onto defense, and a
@@ -1603,9 +1606,9 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # rushers racing for the steal and escorts guarding a run only fight what
   # is actually in the way, instead of frag-chasing across the map.
   let maxEngage =
-    if hasShield and not hasSword:       # slow gun (3x cooldown): only fight
+    if hasShield and not hasPlasma:      # slow gun (3x cooldown): only fight
       CarrierFireRange                   # what is point-blank in the way
-    elif hasSword: SwordReach + 6.0      # melee: only point-blank matters
+    elif hasPlasma: PlasmaReach + 6.0    # cone weapon: only close range matters
     elif pocketRush: 0.0
     elif iCarry: CarrierFireRange
     elif ownStolen and bot.tick - bot.carrierSeen <= ThiefFixTtl: FireRange
@@ -1735,9 +1738,9 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # Weapon pickups. SHIELD-THEN-STEAL: the enemy endzone shield sits just
   # behind their pedestal — a rusher near the pocket grabs 6 hp first and
   # steals second (the run home is what kills 3 hp carriers). Defensive
-  # roles never take a shield (it slows the gun 3x). SWORDS arm the pocket
-  # brawlers: attackers detour a little for one on the way in — the pocket
-  # duel is point-blank, where an instant lethal swipe beats any gun.
+  # roles never take a shield (it slows the gun 3x). PLASMA ARCS arm the
+  # pocket brawlers: attackers detour a little for one on the way in — the
+  # pocket duel is close-range, where an instant lethal cone beats any gun.
   if not iCarry and not hasShield and bot.role == MidGuard and
       not (ownStolen and bot.tick - bot.carrierSeen <= ThiefFixTtl):
     # ONE designated shield-runner (MidGuard, the trailing mid): the shield
@@ -1771,16 +1774,16 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           echo "SHIELDTRIP-NONE slot=", bot.slot, " t=", bot.tick,
             " spots=", bot.shieldPos.len
           flushFile(stdout)
-  elif not iCarry and not hasSword and
+  elif not iCarry and not hasPlasma and
       bot.role in {MidTop, MidBottom, MidGuard, FlankTop, FlankBottom} and
       not mateCarry and not pocketRush:
-    # Sword top-up: swipe-armed pocket brawls win point-blank. Cheap when we
+    # Plasma top-up: cone-armed pocket brawls win close range. Cheap when we
     # are already visiting the endzone column (shield chain) or passing by.
-    for i in 0 ..< bot.swordPos.len:
-      if not pickupAvailable(bot.swordAbsentAt, i, bot.tick):
+    for i in 0 ..< bot.plasmaPos.len:
+      if not pickupAvailable(bot.plasmaAbsentAt, i, bot.tick):
         continue
-      if dist(me, bot.swordPos[i]) <= SwordDetour:
-        target = bot.swordPos[i]
+      if dist(me, bot.plasmaPos[i]) <= PlasmaDetour:
+        target = bot.plasmaPos[i]
         break
 
   # Med kit heal detour (hurt bots only; the carrier handles its own detour
@@ -1864,13 +1867,16 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         bot.nadeCharge = 0           # release this tick = the throw
     holdStill = true
     acted = true
-  elif hasSword and engage >= 0:
-    # Sword melee: the swipe is INSTANT (no windup, no aim lock) and lethal
-    # in a +/-45 degree arc at 26 px — close the last step and press A the
-    # moment the victim is inside reach and roughly in front.
+  elif hasPlasma and engage >= 0:
+    # Plasma cone: ignition is INSTANT (no windup, no aim lock), reaches 4
+    # squares in a ~14-degree half-angle cone, stays on 5 ticks, and deals
+    # 3 hp (lethal to bare cogs) — press A the moment the victim is inside
+    # reach and roughly in front.
     desiredAim = bradsOf(aim - me)
     let err = abs(bradsErr(desiredAim, bot.estAim))
-    if engageD <= SwordReach and err <= SwordArcBrads - 4:
+    # Ignite a little early on the angle: the cone stays on 5 ticks and
+    # tracks our aim, so the ongoing traverse sweeps it across the target.
+    if engageD <= PlasmaReach - 6.0 and err <= PlasmaHalfBrads + 3:
       wantFire = true
       holdStill = true
     else:

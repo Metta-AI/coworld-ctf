@@ -20,10 +20,12 @@ proc clickBoard(
   x, y: int
 ) =
   ## Queues one board (map-layer) click, exactly as the browser client's canvas
-  ## click listener does: map-space coords on the zoomable map layer.
+  ## click listener does: coords in the RenderScale× wire space the spectator
+  ## map layer is served at (the client inverse-transforms into the viewport
+  ## it was announced, so a scaled board sends scaled coordinates).
   state.mouseLayer = MapLayerId
-  state.mouseX = x
-  state.mouseY = y
+  state.mouseX = x * RenderScale
+  state.mouseY = y * RenderScale
   state.mouseDown = false
   state.clickPending = true
 
