@@ -5232,7 +5232,9 @@ proc buildSpriteProtocolUpdates*(
       MapLayerId,
       rigChassisSpriteId(player.team, chassisRot)
     )
-    # Carry arms (only while carrying a heart), under the head, aim-facing.
+    # Carry arms (only while carrying a heart), aim-facing, reaching out ABOVE
+    # the head (z player.y+2) so they cradle the forward heart (z player.y+3)
+    # instead of the head occluding it.
     if sim.carriedFlagTeam(playerIndex) >= 0:
       let armsObjId = RigArmsObjectBase + player.joinOrder
       currentIds.add(armsObjId)
@@ -5240,7 +5242,7 @@ proc buildSpriteProtocolUpdates*(
         armsObjId,
         rigX,
         rigY,
-        player.y,
+        player.y + 2,
         MapLayerId,
         rigArmsSpriteId(player.team, soldierRotIndex(player.aimBrads))
       )
@@ -5313,23 +5315,19 @@ proc buildSpriteProtocolUpdates*(
       )
     currentIds.add(objectId)
     if flag.carrier >= 0:
-      # Carried: the heart is CRADLED between the cog's two halves — z above the
-      # movement base (flag.y - 1) but below the aim turret (flag.y + 1), so the
-      # head cube's chin reads OVER the heart while the wheels sit behind it (the
-      # Cogs-vs-Clips carry pose). flag.y == the carrier's center, so this z sits
-      # exactly between the base and turret objects emitted above. The head cube
-      # is centered and on top, so the heart also rides CarryHeartFwdPx FORWARD
-      # along the carrier's aim to peek out ahead of the head instead of hiding
-      # under it; the turret gun still pokes past along the aim ray (a
-      # heart-carrier can still shoot), and the aura + nameplate mark WHO runs
-      # it. BROADCAST ONLY: the POV/RL heart (buildSpriteProtocolPlayerUpdates)
-      # still rides behind so the observed carrier position is unchanged.
+      # Carried: the heart is CRADLED IN THE ARMS out in front of the cog. The
+      # arms + heart sit ABOVE the head (z player.y+2/+3) so the head never
+      # occludes the heart — the whole point of the carry pose. The heart rides
+      # CarryHeartFwdPx forward along the carrier's aim so it reads as held out
+      # ahead, and the aura + nameplate mark WHO runs it. BROADCAST ONLY: the
+      # POV/RL heart (buildSpriteProtocolPlayerUpdates) still rides behind so the
+      # observed carrier position is unchanged.
       let aim = aimVector(sim.players[flag.carrier].aimBrads)
       result.addBoardObject(
         objectId,
         flag.x + int(round(aim.x * float(CarryHeartFwdPx))) - FlagBannerW div 2,
         flag.y + int(round(aim.y * float(CarryHeartFwdPx))) - FlagBannerH div 2,
-        flag.y,
+        flag.y + 3,
         MapLayerId,
         FlagSpriteBase + ord(team)
       )
