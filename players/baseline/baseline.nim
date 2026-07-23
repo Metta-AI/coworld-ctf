@@ -178,7 +178,9 @@ const
                               # fall back and win the attrition instead
   PushOutTicks = 360          # endgame push: no enemy seen for ~15s...
   PushOutMinGame = 1400       # ...this deep into the game breaks the posts
-  LatePushTick = 3400         # all-in on the clock: past this tick a draw is
+  StalemateTick = 2000        # nobody has MOVED a flag by here: the game is
+                              # heading for a lose-lose timeout — go convert.
+  LatePushTick = 2400         # all-in on the clock: past this tick a draw is
                               # A LOSS FOR BOTH (GV21 lose-lose timeouts) and
                               # games cap at 5000 ticks — the all-in must land
                               # with time to convert. Scaled from 6800/10000.
@@ -1601,7 +1603,13 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # capture the posts are worth nothing — break them and go win. Standoffs
     # keep enemies in sight, so the quiet-field trigger above never fires
     # against a peek-duck opponent; this one is on the clock.
-    bot.tick - bot.gameStart > LatePushTick
+    bot.tick - bot.gameStart > LatePushTick or
+    # Stalemate breaker (GV21): a timeout scores -1 to BOTH sides, so a game
+    # where neither flag has ever moved is a mutual loss in the making. The
+    # castle's whole value was winning the wait — there is nothing to win
+    # anymore; break the posts early and go create a flag race.
+    (bot.tick - bot.gameStart > StalemateTick and
+     not bot.everStoleTheirs and not bot.everLostOurs)
   )
 
   # Movement target from role and flag situation.
