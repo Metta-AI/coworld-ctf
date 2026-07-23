@@ -88,6 +88,26 @@ suite "identity badges":
     let labels = game.playerMessages(viewer).presentLabels()
     check "identity blue alpha" notin labels
 
+  test "badge label carries the wearer's loadout as suffixes":
+    var game = initCtfForTest(defaultGameConfig())
+    let viewer = game.addPlayer("red0")
+    discard game.addPlayer("blue0")
+    game.startGame()
+    game.players[viewer].team = Red
+    var labels = game.playerMessages(viewer).presentLabels()
+    check "identity red alpha" in labels
+    game.players[viewer].hasShield = true
+    game.players[viewer].hasGrenade = true
+    labels = game.playerMessages(viewer).presentLabels()
+    # Prefix-preserving: the bare label is REPLACED by the suffixed one.
+    check "identity red alpha shield nade" in labels
+    check "identity red alpha" notin labels
+    game.players[viewer].hasShield = false
+    game.players[viewer].hasGrenade = false
+    game.players[viewer].hasPlasmaArc = true
+    labels = game.playerMessages(viewer).presentLabels()
+    check "identity red alpha arc" in labels
+
   test "a dead player's identity badge disappears":
     var game = initCtfForTest(defaultGameConfig())
     let
