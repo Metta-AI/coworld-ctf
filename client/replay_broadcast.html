@@ -1045,12 +1045,25 @@ body[data-embed] #board { top: 0; height: 100%; }
   }
 
   // The whole replay is ONE fixed-aspect composition locked to the board's
-  // native size (sim.nim MapWidth×MapHeight = 1235×659). The stage is sized to
-  // this aspect inside the embed box and every overlay scales with it, so the
-  // chrome can never drift off the graphics regardless of the Observatory
-  // container's shape (§2 real-container-target, L82 bounded-embed).
+  // native size. The stage is sized to this aspect inside the embed box and
+  // every overlay scales with it, so the chrome can never drift off the
+  // graphics regardless of the Observatory container's shape (§2
+  // real-container-target, L82 bounded-embed). The game supports multiple
+  // maps ("arena" 1235×659 is the default, "arena-large" is 30% bigger), so
+  // the values below are only the pre-stream default: syncBoardAspect()
+  // re-derives them from the board layer's real viewport once frames flow.
   var BOARD_W = 1235, BOARD_H = 659;
   var BOARD_ASPECT = BOARD_W / BOARD_H;
+  function syncBoardAspect() {
+    if (typeof core === 'undefined' || !core || !core.getTransform) return;
+    var t = core.getTransform();
+    if (!t || t.nativeW <= 1 || t.nativeH <= 1) return;
+    var aspect = t.nativeW / t.nativeH;
+    if (Math.abs(aspect - BOARD_ASPECT) < 0.001) return;
+    BOARD_W = t.nativeW; BOARD_H = t.nativeH;
+    BOARD_ASPECT = aspect;
+    relayout();
+  }
 
   // ---- flag icon svg (HOME/TAKEN are the only two states — F2) ----
   function buildFlag(el, color) {
@@ -1085,7 +1098,7 @@ body[data-embed] #board { top: 0; height: 100%; }
     canvas: canvas,
     onText: function (txt) { onFrame(txt); },
     onStatus: function (st) { onStatus(st); },
-    onFirstFrame: function () { core.setViewportFit(); },
+    onFirstFrame: function () { syncBoardAspect(); core.setViewportFit(); },
     websocket: !replayAdapter,
     onSendPacket: replayAdapter ? function (bytes) {
       replayAdapter.sendPacket(bytes);
@@ -1132,7 +1145,12 @@ body[data-embed] #board { top: 0; height: 100%; }
 
     // Stream the parsed frame to the League Replayer shell (embed mode). The
     // shell reads roster/KDA, clock, lives, flags and pov straight off this to
-    // paint the wall-mounted scorebug + KDA tables in lockstep with the board.
+    // paint the wall-mounted scorebug + KDA tables in lockstep with the board —
+    // and the board's native size, so its stage tracks whichever map the
+    // replay was played on.
+    syncBoardAspect();
+    s.boardW = BOARD_W;
+    s.boardH = BOARD_H;
     postToShell('frame', s);
 
     // Detect a jump (seek/loop): clear transient beats so nothing phantoms.

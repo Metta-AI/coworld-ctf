@@ -541,7 +541,11 @@ proc endzoneDiffBox(sim: SimServer, team: Team): tuple[x0, y0, x1, y1: int] =
   if EndzoneDiffBoxReady[team]:
     return EndzoneDiffBox[team]
   if EndzoneColdRgba.len != MapWidth * MapHeight * 4:
+    ## Map (re)selected since the last bake: rebuild the cold map and drop
+    ## every strip/box derived from the old geometry.
     EndzoneColdRgba = coldEndzoneMapRgba(sim.gameMap)
+    EndzoneStripCache = default(typeof(EndzoneStripCache))
+    EndzoneDiffBoxReady = default(typeof(EndzoneDiffBoxReady))
   let (sx0, sx1) = sim.gameMap.endzoneStripRange(team)
   result = (x0: sx1 + 1, y0: MapHeight, x1: sx0 - 1, y1: -1)
   for y in 0 ..< MapHeight:

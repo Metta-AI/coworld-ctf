@@ -1,12 +1,14 @@
 ## Dumps the generated arena wall mask to a PNG for visual inspection when
 ## iterating on the obstacle layout. Stone = dark brown, glass windows =
-## cyan, floor = warm tan. Usage: nim c -r tools/dump_map_mask.nim out.png
+## cyan, floor = warm tan.
+## Usage: nim c -r tools/dump_map_mask.nim out.png [mapName]
+## (mapName: "arena" default, or "arena-large".)
 ## Demo/audit tooling; not part of the server.
 import std/os, pixie, ../src/ctf/sim
 
 when isMainModule:
   let
-    gameMap = loadCtfMap()
+    gameMap = loadCtfMap(if paramCount() >= 2: paramStr(2) else: "")
     cx = gameMap.center.x
     cy = gameMap.center.y
   var img = newImage(MapWidth, MapHeight)
