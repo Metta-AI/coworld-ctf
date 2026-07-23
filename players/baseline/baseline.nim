@@ -782,6 +782,24 @@ const
   PlayFlankPull = 150.0       # how hard an off-role attacker is pulled toward the favored
                               # lane when its play says PUSH there (px of Y bias toward the
                               # strong flank; the two feint holders keep the other lane).
+  # ── CONTINGENCY STATE MACHINE (teamPhase) timing. GV21 games are 5000 ticks
+  # (MaxTicks halved from 10000) and a timeout draw is −1 for BOTH sides, so the
+  # plan must force a decisive attempt WELL before the clock and win the opening.
+  OpenPhaseTicks = 600        # the OPENING window (~25s): contest mid TOGETHER to win
+                              # the first clash grouped (we currently lose it 14-6 by
+                              # trickling to lane roles). After this, fall to PROBE.
+  ForceClockTick = 3800       # past this elapsed tick (~76% of the 5000 clock) with no
+                              # decisive edge, commit a grouped all-in flag attempt — a
+                              # "good enough" hit beats stalling into the −1 timeout draw.
+  OpenGroupPull = 200.0       # PhOpen: px of Y bias pulling the attack wave toward the
+                              # shared mid lane so the opening clash lands as a GROUP,
+                              # not eight bots trickling up their own lanes to be picked.
+  EscortCollapseRange = 900.0 # PhEscort: a free gun within this of the carrier collapses
+                              # onto its home lane to suppress chasers (body-block is void
+                              # on this engine — CollisionW=1 — so escort value = kill the
+                              # chaser, per the cqc-video-game-lens focus-fire principle).
+  PickEdgeRange = 300.0       # PhPress: a fresh enemy corpse / our recent kill within this
+                              # of us = a local man-advantage window worth pressing.
 
 type
   Team = enum
@@ -798,6 +816,32 @@ type
     StackDefense              # own flag stolen: converge on the thief / recapture
                               # (posture already handled by the ownStolen branches;
                               # this is the label the play layer reports for it)
+
+  EnemyFlagState = enum       # ⭐ PLAN LAYER: the enemy heart's state — GLOBALLY LEGIBLE
+                              # (the "<enemy> heart" sprite is always visible, bot header
+                              # L27-29), so every bot reads it identically with NO comms.
+    EfPedestal,               # enemy heart sits on its pedestal — nobody has stolen it
+    EfCarried,                # WE are carrying it (on me or a mate) — the escort window
+    EfDropped                 # off-pedestal but uncarried (a dropped/contested steal)
+
+  TeamPhase = enum            # ⭐⭐ CONTINGENCY STATE MACHINE (2026-07-23, "chess not
+                              # checkers"): the team's shared plan PHASE, a pure function
+                              # of the three shared signals (elapsed clock, ownStolen,
+                              # enemyFlagState) so all 8 bots compute the SAME phase on the
+                              # SAME tick and flow branch→branch with no thrash. Each phase
+                              # is a default posture PLUS pre-briefed transitions — the plan
+                              # is planned AHEAD (see docs/designs/contingency-plan-arch.md).
+    PhOpen,                   # opening: contest mid TOGETHER (win the first clash grouped,
+                              # not trickle to lane roles and get picked off individually)
+    PhProbe,                  # mid-game default: pressure the read, hold the finish
+    PhPress,                  # up a body (local pick): group + hit the up-side FAST before
+                              # the downed enemy respawns (the man-advantage window)
+    PhEscort,                 # WE carry the heart: everyone collapses to the carrier lane,
+                              # suppress its chasers, trade for the capture
+    PhDefend,                 # own flag stolen: full-team collapse to recapture (never a
+                              # half hedge — "never split-decide")
+    PhForce                   # clock late + no decisive edge: commit a grouped all-in flag
+                              # attempt (a "good enough" hit beats stalling into the −1 draw)
 
   Scenario = enum             # ⭐ COMMS BUS C1: the live team-event a bot classifies from
                               # its own fresh local reads (the event-driven layer above the
@@ -1198,6 +1242,14 @@ type
                               # whole way. Mirror-MEASURABLE (per-team HP edge → grab→cap), unlike
                               # the coordination levers. GV21 makes it stronger (no spawn-protect
                               # → carriers more exposed). Gated to the rusher seat.
+    planLayer: bool           # ⭐⭐ CONTINGENCY STATE MACHINE (2026-07-23, "chess not
+                              # checkers"): drives movement posture from teamPhase (OPEN/
+                              # PROBE/PRESS/ESCORT/DEFEND/FORCE) instead of the flat one-
+                              # scenario-one-play matrix. OPEN groups the opening clash;
+                              # ESCORT full-collapses the free guns onto the carrier lane;
+                              # FORCE commits a grouped all-in before the −1 timeout. All
+                              # phases are a pure fn of shared signals so the team flows
+                              # branch→branch unanimously (no thrash / no split-decide).
     swordAmbush: bool         # ⭐ SWORD AMBUSH (v7, 2026-07-19): a sword is a 26px forward-
                               # arc GUARANTEED kill (instant, no windup, ignores the 3-hit
                               # gun) but canFire=false while held. A back-line/pocket bot
@@ -1472,6 +1524,35 @@ proc selectPlay(elapsed: int, ownStolen: bool): Play =
   else:
     PushBottom
 
+proc teamPhase(elapsed: int, ownStolen: bool, efState: EnemyFlagState,
+               pickEdge: bool): TeamPhase =
+  ## ⭐⭐ THE CONTINGENCY STATE MACHINE. A PURE function of shared signals so all 8
+  ## bots pick the SAME phase independently (the "backstop the caller" design — no
+  ## unit must survive to hold the plan). Priority order IS the branch tree: the
+  ## higher-priority trigger always wins, so a phase transition is unanimous and
+  ## instant across the team (no thrash, no split-decide). Order:
+  ##   1. ownStolen        (globally legible)      → DEFEND  — flag safety first, always
+  ##   2. we carry the heart (globally legible)    → ESCORT  — the capture window, collapse
+  ##   3. clock late + no edge (shared clock)      → FORCE   — beat the −1 timeout draw
+  ##   4. local pick edge (comms-accelerated hint) → PRESS   — spend the man-advantage
+  ##   5. opening window (shared clock)            → OPEN    — win the first clash grouped
+  ##   6. otherwise                                → PROBE   — pressure the read, hold finish
+  ## pickEdge is the ONE local-approximated input (a fresh local kill-advantage); it is a
+  ## convergence ACCELERATOR, not load-bearing — with pickEdge always false the machine
+  ## still flows OPEN→PROBE→(ESCORT/DEFEND/FORCE) purely on shared signals.
+  if ownStolen:
+    PhDefend
+  elif efState == EfCarried:
+    PhEscort
+  elif elapsed >= ForceClockTick:
+    PhForce
+  elif pickEdge:
+    PhPress
+  elif elapsed < OpenPhaseTicks:
+    PhOpen
+  else:
+    PhProbe
+
 # ── COMMS BUS core (C1/C2, 2026-07-22) ────────────────────────────────────────
 proc roundSalt(gameStart: int, team: Team, crypto: bool): int =
   ## The per-round rotation offset for the codeword table. With commsCrypto ON
@@ -1606,6 +1687,7 @@ proc defaultCombatTune(): CombatTune =
     avoidDisarm: false,       # control: pathing walks over v7 sword/shield pickups and self-disarms.
     shieldTank: false,        # control: an escort never grabs a shield to body-block as a tank.
     shieldRush: false,        # control: the rusher never pre-grabs a shield to carry home at 6 HP.
+    planLayer: false,         # control: flat scenario→play matrix, no contingency phase machine.
     swordAmbush: false,       # control: a boxed-in bot never grabs a sword for a melee kill.
     medTopOff: false,         # control: a wounded bot never detours to a center med kit.
     satCap: false,            # control: a free gun dogpiles the nearest enemy, no saturation cap.
@@ -1845,6 +1927,15 @@ proc shippedCombatTune(): CombatTune =
   result.commsPlay = true
   result.commsCrypto = true
   result.playbook = true  # commsPlay adopts flank plays through the playbook matrix
+  # ── ⭐⭐ CONTINGENCY STATE MACHINE (planLayer, v20 candidate, 2026-07-23). The
+  # architectural fix for "chess not checkers": teamPhase drives a shared-state plan
+  # (OPEN→PROBE→PRESS→ESCORT→DEFEND→FORCE) so the team flows branch→branch unanimously
+  # instead of the flat reactive matrix that bleeds lives when countered. Directly
+  # attacks the measured deficit — we lose the opening clash 14-6 (PhOpen groups it),
+  # trickle carriers to their death (PhEscort full-collapses), and stall into the −1
+  # timeout (PhForce commits before the clock). Movement-intent only; pure fn of shared
+  # signals (the backstop-the-caller design — no unit must survive to hold the plan).
+  result.planLayer = true
   # ── ⭐ ARC BREACHER (anti-line offense) + enemy-shield awareness. The plasma arc
   # is a MULTIKILL cone and a line is a cluster: when a line is called, the fixed
   # breacher seat (MidGuard) grabs the arc and cones the seam while the wave is base-
@@ -3724,6 +3815,51 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         target = vec(target.x, max(LaneTop, target.y - PlayFlankPull))
       elif play == PushBottom and not feintHolder:
         target = vec(target.x, min(LaneBottom, target.y + PlayFlankPull))
+
+  # ⭐⭐ CONTINGENCY STATE MACHINE (planLayer). Layers the shared-plan PHASE posture
+  # on top of the flank bias above. The phase is a pure fn of shared signals so all 8
+  # bots agree and flow branch→branch unanimously. Movement-intent only (never the
+  # turret / fire gate); attackers only (carry/defense states own their own posture).
+  if bot.tune.planLayer and not iCarry:
+    # Enemy heart state — globally legible. Only OUR team can carry it, so it is either
+    # on its pedestal or being carried by us (iCarry excluded above → mateCarry here).
+    let efState = (if mateCarry: EfCarried else: EfPedestal)
+    # pickEdge: a LOCAL man-advantage (more fresh mates than fresh enemies near me) — the
+    # non-load-bearing accelerator; the machine flows on shared signals without it.
+    var freshM = 0
+    var freshE = 0
+    for t in bot.mates:
+      if bot.tick - t.lastSeen <= LocalFreshTicks and dist(t.pos, me) <= PickEdgeRange: inc freshM
+    for t in bot.enemies:
+      if bot.tick - t.lastSeen <= LocalFreshTicks and dist(t.pos, me) <= PickEdgeRange: inc freshE
+    let pickEdge = freshM > freshE and freshM >= 1
+    let phase = teamPhase(bot.tick - bot.gameStart, ownStolen, efState, pickEdge)
+    let attacker = bot.role in {MidTop, MidBottom, MidGuard, FlankTop, FlankBottom}
+    case phase
+    of PhOpen:
+      # Win the opening clash as a GROUP: pull attackers toward the shared mid lane so
+      # the first contact lands together, not eight bots trickling up separate lanes.
+      if attacker and dist(me, stealTarget) > PocketRushRange:
+        let midPull = clamp(float(CenterY) - me.y, -OpenGroupPull, OpenGroupPull)
+        target = vec(target.x, clamp(me.y + midPull, LaneTop, LaneBottom))
+    of PhPress:
+      # Up a body locally: press the objective — bias deeper toward the pocket to spend
+      # the man-advantage before the downed enemy respawns (regroupPush executes the rally).
+      if attacker and dist(me, stealTarget) > PocketRushRange:
+        target = vec(target.x + homeSign(bot.team) * -PlayFlankPull * 0.5, target.y)
+    of PhEscort:
+      # WE carry: every free gun collapses onto the carrier's home lane to suppress its
+      # chasers (body-block is void — CollisionW=1 — so escort = KILL the chaser). Move
+      # toward the carrier's Y so the wave shields the run home; combat handles the kill.
+      if attacker and dist(me, mateCarryPos) <= EscortCollapseRange:
+        target = vec(target.x, clamp(mateCarryPos.y, LaneTop, LaneBottom))
+    of PhForce:
+      # Clock late, no decisive edge: commit a grouped all-in on the pedestal — a
+      # "good enough" hit beats stalling into the −1 timeout draw.
+      if attacker:
+        target = stealTarget
+    of PhProbe, PhDefend:
+      discard   # PROBE = the flank default above; DEFEND is owned by the ownStolen branches
 
   # SENTRY DISPLACE: a sentry (overwatch / home defender) settled on its post
   # with no live target and no fresh intruder has been standing scanning. SEAL

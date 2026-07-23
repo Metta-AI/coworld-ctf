@@ -336,6 +336,10 @@ proc hunterTune(): CombatTune =
   # at 6 HP (the grab→cap conversion fix). Mirror-measurable via grab->cap. SHIELDRUSH
   # moves it; default = shipped value. Reaches only HUNTER_SLOTS seats (per-team A/B).
   result.shieldRush     = envInt("SHIELDRUSH", (if result.shieldRush: 1 else: 0)) != 0
+  # planLayer (2026-07-23): the contingency state machine (teamPhase). PLANLAYER moves
+  # it; default = shipped value. A/B: SHIPBASE=1 CONTROL_SHIPPED=1 PLANLAYER=0 (hunters
+  # strip the plan) vs shipped-on control → a NEGATIVE hunter delta means the plan helps.
+  result.planLayer      = envInt("PLANLAYER", (if result.planLayer: 1 else: 0)) != 0
   # v7 sword/shield adaptation (2026-07-19). avoidDisarm is the pure-downside fix
   # (mirror-measurable via SS-PROBE pickup count → ~0); shieldTank/swordAmbush are
   # coordination/positional levers, validate hosted. Knobs reach only HUNTER_SLOTS.
