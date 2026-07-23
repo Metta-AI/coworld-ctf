@@ -1232,6 +1232,11 @@ proc rigLegStepFor*(leg: RigLeg, bodyHeading, turnAmt: int): int =
     step = int(round(absDeg / 360.0 * float(RigLegSteps)))
   ((step mod RigLegSteps) + RigLegSteps) mod RigLegSteps
 
+proc rigWheelStepFor*(casterBrads: int): int =
+  ## Nearest baked caster-yaw step for a wheel pointing along `casterBrads`.
+  let step = int(round(rigDeg(casterBrads) / 360.0 * float(RigWheelSteps)))
+  ((step mod RigWheelSteps) + RigWheelSteps) mod RigWheelSteps
+
 proc rigLegHipScreen*(leg: RigLeg, bodyHeading: int): tuple[dx, dy: int] =
   ## Map-px offset (from the cog center) of a leg's HIP, carried by body
   ## rotation about the hub. The leg OBJECT is placed here.

@@ -336,6 +336,20 @@ const
   PlayerTurretObjectBase = 1100      ## board turret object per player, stacked
                                      ## over the base at PlayerObjectBase
                                      ## (1000..1015); 1100..1115, clear of both.
+  ## Articulated rig sprite defs (broadcast board only), off the free 2460+
+  ## window. Baked once at init, picked live by CogDriveState. See sim.nim.
+  RigChassisSpriteBase = 2460        ## hub disc per team×facing: 2460..2491.
+  RigLegSpriteBase = 2500            ## leg per team×role×hipStep: needs
+                                     ## 2 teams × 3 legs × RigLegSteps(48) = 288
+                                     ## ids: 2500..2787.
+  RigWheelSpriteBase = 2800          ## caster tire per yaw step (team-neutral):
+                                     ## 2800..2831 (RigWheelSteps=32).
+  RigArmsSpriteBase = 2840           ## carry arms per team×aim: 2840..2871.
+  ## Articulated rig board objects per player (joinOrder added). The turret sits
+  ## at 1100..1115; legs/wheels/arms take the next clear windows.
+  RigLegObjectBase = 1120            ## 3 legs × 16 players: 1120..1167.
+  RigWheelObjectBase = 1200          ## 3 wheels × 16 players: 1200..1247.
+  RigArmsObjectBase = 1280           ## carry arms, one per player: 1280..1295.
   CorpseSpriteBase = 1500      ## grey dead-soldier sprites, one per team×rot
                                ## (1500..1531): a corpse must never read as a
                                ## live soldier for a label-scanning ghost
@@ -771,6 +785,23 @@ proc corpseSoldierSpriteId(team: Team, rot: int): int =
 proc soldierBaseSpriteId(team: Team, rot: int): int =
   ## Board tank BASE (full body, no gun) at movement rotation `rot`.
   SoldierBaseSpriteBase + ord(team) * SoldierRotations + rot
+
+proc rigChassisSpriteId(team: Team, rot: int): int =
+  ## Articulated hub-disc sprite at body facing step `rot`.
+  RigChassisSpriteBase + ord(team) * SoldierRotations + rot
+
+proc rigLegSpriteId(team: Team, leg: RigLeg, step: int): int =
+  ## Articulated leg sprite at absolute hip step `step` (of RigLegSteps).
+  RigLegSpriteBase +
+    (ord(team) * 3 + ord(leg)) * RigLegSteps + step
+
+proc rigWheelSpriteId(step: int): int =
+  ## Team-neutral caster tire at yaw step `step` (of RigWheelSteps).
+  RigWheelSpriteBase + step
+
+proc rigArmsSpriteId(team: Team, rot: int): int =
+  ## Carry-arms sprite at aim step `rot`.
+  RigArmsSpriteBase + ord(team) * SoldierRotations + rot
 
 proc soldierTurretSpriteId(team: Team, rot: int): int =
   ## Board tank TURRET (head cube + gun) at aim rotation `rot`.
@@ -2867,6 +2898,28 @@ proc addPlayerActorSprites(
           "selected player " & color & side,
           native = boardScale
         )
+        # Articulated rig defs (broadcast board): hub disc + arms per facing.
+        # The legs (per role×hipStep) and wheels (per yaw) are registered in
+        # their own loops below since their step count differs from the aim
+        # rotations. All init-only, keyed by id.
+        packet.addBoardSpriteChanged(
+          spriteDefs,
+          rigChassisSpriteId(team, rot),
+          RigCanvas,
+          RigCanvas,
+          rigChassisPixels(team, rot, boardScale),
+          "player " & color & side,
+          native = boardScale
+        )
+        packet.addBoardSpriteChanged(
+          spriteDefs,
+          rigArmsSpriteId(team, rot),
+          RigCanvas,
+          RigCanvas,
+          rigArmsPixels(team, rot, boardScale),
+          "player " & color & side,
+          native = boardScale
+        )
       else:
         # POV/RL one-piece cog (body + gun aim together) + its grey corpse.
         let pixels = soldierRotPixels(team, rot, boardScale)
@@ -2891,6 +2944,34 @@ proc addPlayerActorSprites(
           "corpse " & color & side,
           native = boardScale
         )
+
+  # Articulated leg + wheel defs (board only). Legs are baked per team×role at
+  # RigLegSteps absolute hip angles; wheels are team-neutral, baked per yaw step.
+  # Registered once at init; the per-frame emission just references these ids.
+  if selected:
+    for team in Team:
+      let color = teamText(team)
+      for leg in RigLeg:
+        for step in 0 ..< RigLegSteps:
+          packet.addBoardSpriteChanged(
+            spriteDefs,
+            rigLegSpriteId(team, leg, step),
+            RigCanvas,
+            RigCanvas,
+            rigLegPixels(team, leg, step, boardScale),
+            "player " & color,
+            native = boardScale
+          )
+    for step in 0 ..< RigWheelSteps:
+      packet.addBoardSpriteChanged(
+        spriteDefs,
+        rigWheelSpriteId(step),
+        RigCanvas,
+        RigCanvas,
+        rigWheelPixels(step, boardScale),
+        "player wheel",
+        native = boardScale
+      )
 
 proc buildSpriteProtocolInit(
   sim: SimServer,
@@ -5053,19 +5134,81 @@ proc buildSpriteProtocolUpdates*(
     # base sits at z = player.y - 1 and the turret at z = player.y + 1, leaving
     # player.y between them for a carried heart to be cradled (wheels < heart <
     # head, the Cogs-vs-Clips carry pose; the heart rides at flag.y below).
+    # The cog draws as an articulated differential-steer trike: a hub disc, three
+    # legs whose feet are caster wheels, and an aim-facing head/turret — each its
+    # own board object so movement (base) and aim (turret) stay decoupled and the
+    # wheels caster to true roll direction. Z spread is tiny (z = map-Y painter
+    # depth): wheels < legs < chassis < heart(player.y) < head. All poses come
+    # from the scrub-snapped CogDriveState, so playback is replay-exact.
     let
-      baseObjectId = player.spriteObjectId()
+      drive = nextState.cogDrive[playerIndex]
+      chassisObjectId = player.spriteObjectId()
       turretObjectId = PlayerTurretObjectBase + player.joinOrder
-    currentIds.add(baseObjectId)
+      cx = player.spritePlayerX()   # rig canvas top-left = player-centered
+      cy = player.spritePlayerY()
+      # The rig canvases (RigCanvas) are wider than the soldier canvas
+      # (SoldierDrawOff), so recentre: shift by half the size difference.
+      rigOff = (RigCanvas - SoldierCanvas) div 2 * boardScale
+      rigX = cx - rigOff
+      rigY = cy - rigOff
+      chassisRot = if drive.initialized: soldierRotIndex(drive.bodyHeading)
+                   else: soldierMoveRotIndex(player.velX, player.velY, player.aimBrads)
+      bodyHeading = if drive.initialized: drive.bodyHeading else: player.aimBrads
+    # Wheels (bottom): each at its leg's live foot, caster from that foot's yaw.
+    for leg in RigLeg:
+      let
+        foot = rigLegFootScreen(leg, bodyHeading, drive.turnAmt)
+        wheelYaw = case leg
+          of rigFrontRight: drive.casterFR
+          of rigFrontLeft: drive.casterFL
+          of rigRear: drive.casterRear
+        wheelObjId = RigWheelObjectBase + player.joinOrder * 3 + ord(leg)
+      currentIds.add(wheelObjId)
+      result.addBoardObject(
+        wheelObjId,
+        rigX + foot.dx * boardScale,
+        rigY + foot.dy * boardScale,
+        player.y - 3,
+        MapLayerId,
+        rigWheelSpriteId(rigWheelStepFor(wheelYaw))
+      )
+    # Legs: each at its hip's live screen offset, hip-pivoted by heading+swing.
+    for leg in RigLeg:
+      let
+        hip = rigLegHipScreen(leg, bodyHeading)
+        legObjId = RigLegObjectBase + player.joinOrder * 3 + ord(leg)
+      currentIds.add(legObjId)
+      result.addBoardObject(
+        legObjId,
+        rigX + hip.dx * boardScale,
+        rigY + hip.dy * boardScale,
+        player.y - 2,
+        MapLayerId,
+        rigLegSpriteId(player.team, leg, rigLegStepFor(leg, bodyHeading, drive.turnAmt))
+      )
+    # Chassis/hub disc (covers the leg roots), centered on the cog.
+    currentIds.add(chassisObjectId)
     result.addBoardObject(
-      baseObjectId,
-      player.spritePlayerX(),
-      player.spritePlayerY(),
+      chassisObjectId,
+      rigX,
+      rigY,
       player.y - 1,
       MapLayerId,
-      player.spriteBaseSpriteId(
-        nextState.cogDrive[playerIndex], nextState.selectedJoinOrder)
+      rigChassisSpriteId(player.team, chassisRot)
     )
+    # Carry arms (only while carrying a heart), under the head, aim-facing.
+    if sim.carriedFlagTeam(playerIndex) >= 0:
+      let armsObjId = RigArmsObjectBase + player.joinOrder
+      currentIds.add(armsObjId)
+      result.addBoardObject(
+        armsObjId,
+        rigX,
+        rigY,
+        player.y,
+        MapLayerId,
+        rigArmsSpriteId(player.team, soldierRotIndex(player.aimBrads))
+      )
+    # Head/turret (top), aim-facing — the existing, tested turret path.
     currentIds.add(turretObjectId)
     result.addBoardObject(
       turretObjectId,
@@ -5290,6 +5433,14 @@ proc warmBoardRenderCaches*(sim: SimServer) =
       # re-pays the whole supersampled bake (the certifier-timeout trap).
       discard soldierBasePixels(team, rot, RenderScale)
       discard soldierTurretPixels(team, rot, RenderScale)
+      # Articulated rig: hub disc + arms per facing, and the leg table per role.
+      discard rigChassisPixels(team, rot, RenderScale)
+      discard rigArmsPixels(team, rot, RenderScale)
+    for leg in RigLeg:
+      for step in 0 ..< RigLegSteps:
+        discard rigLegPixels(team, leg, step, RenderScale)
+  for step in 0 ..< RigWheelSteps:
+    discard rigWheelPixels(step, RenderScale)
   discard boardTypeface()
   block:
     # Encode the map-band wire messages too: they are byte-identical for
