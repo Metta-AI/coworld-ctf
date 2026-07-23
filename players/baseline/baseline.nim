@@ -178,14 +178,24 @@ const
                               # fall back and win the attrition instead
   PushOutTicks = 360          # endgame push: no enemy seen for ~15s...
   PushOutMinGame = 2400       # ...this deep into the game breaks the posts
-  # GV21 adaptation (-d:gv21clock): MaxTicks was halved 10000->5000 and a
-  # timeout is now a -1 LOSE-LOSE (TimeoutReward=-1), so the old 6800 all-in
-  # NEVER fired (the game ends at 5000) and the holdFront champion stalled
-  # every game into a losing timeout. Commit the capture push at ~60% (tick
-  # 3000) with ~2000 ticks left to convert; the pre-GV21 clock keeps 6800.
-  LatePushTick = (when defined(gv21clock): 3000 else: 6800)
+  # GV21 adaptation (-d:gv21clock / -d:gv21clock2): MaxTicks was halved
+  # 10000->5000 and a timeout is now a -1 LOSE-LOSE (TimeoutReward=-1), so the
+  # old 6800 all-in NEVER fired (the game ends at 5000) and the holdFront
+  # champion stalled every game into a losing timeout. Commit the capture push
+  # at ~60% (tick 3000) with ~2000 ticks left to convert; the pre-GV21 clock
+  # keeps 6800.
+  LatePushTick = (when defined(gv21clock) or defined(gv21clock2): 3000 else: 6800)
                               # all-in on the clock: past this tick a draw is
                               # the default outcome, so commit to the capture
+  # -d:gv21clock2 GUARDED all-in: the blanket t3000 push (-d:gv21clock) sends
+  # ALL EIGHT seats at the enemy pedestal — vs a strong castle defense that
+  # gets the wave repelled and wiped (a DECISIVE loss, worse than a timeout) or
+  # leaves our own capture column open to a free counter-steal. gv21clock2
+  # keeps the DESIGNED back line (one lane sniper + the choke guard) home
+  # during the push: it converts with the natural six-strong wave, so a failed
+  # assault is at worst a timeout (never a wipe) and no aggressor cashes a free
+  # capture while our six push.
+  GuardHomeOnPush = defined(gv21clock2)
   HoldFrontCap = 220.0        # -d:holdFront: ceiling on the phalanx creep — a
                               # castle line near our wall: fights there recur on
                               # ground where our respawn walk is ~100px and the
@@ -1748,9 +1758,13 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
        target = bot.snapToCover(vec(
          ownEdgeX + dirX * (if lead: front else: front - 44.0),
          laneY + (if lead: -32.0 else: 32.0)))
-  elif bot.role == HomeDefender and not pushOut:
+  elif bot.role == HomeDefender and (not pushOut or GuardHomeOnPush):
     # Hold the choke on our pedestal approach; break off to chase the nearest
-    # intruder on our half (every steal has to come through here).
+    # intruder on our half (every steal has to come through here). Under
+    # -d:gv21clock2 this anchor STAYS on the late push (GuardHomeOnPush): the
+    # base is never left open to a counter-steal while our six-strong wave
+    # commits, and a repelled assault falls back to a defended timeout instead
+    # of a wipe.
     var intruder = -1
     var intruderD = 1e18
     for i in 0 ..< bot.enemies.len:
@@ -1767,7 +1781,11 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       target = bot.enemies[intruder].pos + bot.enemies[intruder].vel * 6.0
     else:
       target = bot.chokeHold
-  elif bot.role == Overwatch and not pushOut:
+  elif bot.role == Overwatch and (not pushOut or GuardHomeOnPush):
+    # Under -d:gv21clock2 (GuardHomeOnPush) the lane sniper also holds its post
+    # through the late push — the designed back line (sniper + choke guard)
+    # covers the six-strong wave's flag and its retreat instead of joining an
+    # all-in that a strong castle defense repels.
     if bot.postReady:
       # Peek-and-shoot cycle: hold behind the post; with the gun up and a
       # remembered enemy in reach, sidestep to the peek cell to open the
