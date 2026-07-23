@@ -19,6 +19,8 @@ type
     replayServerMode: bool
     replayLoaded: bool
     pendingReplayUri: string
+    loadingReplayUri: string
+    currentReplayUri: string
     resetRequested: bool
     kickRequests: seq[string]
     kickedIdentities: Table[string, bool]
@@ -143,6 +145,8 @@ proc initAppState() =
   appState.replayServerMode = false
   appState.replayLoaded = false
   appState.pendingReplayUri = ""
+  appState.loadingReplayUri = ""
+  appState.currentReplayUri = ""
   appState.resetRequested = false
   appState.kickRequests = @[]
   appState.kickedIdentities = initTable[string, bool]()
@@ -447,6 +451,28 @@ proc replayRequestUri(request: Request): string =
   ## Returns the replay artifact URI requested by a Coworld replay client.
   request.queryParams.getOrDefault("uri", "").strip()
 
+proc replayUriKnown(uri: string): bool =
+  ## Returns true when this URI is queued, loading, or already active.
+  if uri.len == 0:
+    return false
+  {.gcsafe.}:
+    withLock appState.lock:
+      result =
+        uri == appState.pendingReplayUri or
+        uri == appState.loadingReplayUri or
+        uri == appState.currentReplayUri
+
+proc queueReplayUri(uri: string) =
+  ## Queues a replay switch once, even when HTML and websocket requests repeat it.
+  if uri.len == 0:
+    return
+  {.gcsafe.}:
+    withLock appState.lock:
+      if uri != appState.pendingReplayUri and
+          uri != appState.loadingReplayUri and
+          uri != appState.currentReplayUri:
+        appState.pendingReplayUri = uri
+
 proc replayRequestUriOrPending(request: Request): tuple[uri: string, loaded: bool] =
   ## Returns the websocket URI, falling back to the URI captured when serving
   ## /client/replay. Kubernetes service-proxy websocket upgrades do not
@@ -457,7 +483,12 @@ proc replayRequestUriOrPending(request: Request): tuple[uri: string, loaded: boo
     withLock appState.lock:
       result.loaded = appState.replayLoaded
       if result.uri.len == 0:
-        result.uri = appState.pendingReplayUri
+        if appState.pendingReplayUri.len > 0:
+          result.uri = appState.pendingReplayUri
+        elif appState.loadingReplayUri.len > 0:
+          result.uri = appState.loadingReplayUri
+        else:
+          result.uri = appState.currentReplayUri
 
 proc httpHandler(request: Request) =
   if request.path == HealthPath and request.httpMethod == "GET":
@@ -517,14 +548,19 @@ proc httpHandler(request: Request) =
       if replayRequest.uri.len == 0 and not replayRequest.loaded:
         request.respondReplayRequestError(400, "missing replay uri\n")
         return
-      if replayRequest.uri.len > 0 and not replayRequest.uri.readableReplayUri():
+      if replayRequest.uri.len > 0 and
+          not replayRequest.uri.replayUriKnown() and
+          not replayRequest.uri.readableReplayUri():
         request.respondReplayRequestError(404, "replay uri is not readable\n")
         return
     let websocket = request.upgradeToWebSocket()
     {.gcsafe.}:
       withLock appState.lock:
         websocket.registerGlobalWebSocket()
-        if replayServerMode and replayRequest.uri.len > 0:
+        if replayServerMode and replayRequest.uri.len > 0 and
+            replayRequest.uri != appState.pendingReplayUri and
+            replayRequest.uri != appState.loadingReplayUri and
+            replayRequest.uri != appState.currentReplayUri:
           appState.pendingReplayUri = replayRequest.uri
   elif request.path == AdminWebSocketPath and request.httpMethod == "GET" and
       request.isWebSocketUpgrade():
@@ -592,13 +628,13 @@ proc httpHandler(request: Request) =
       if replayRequest.uri.len == 0 and not replayRequest.loaded:
         request.respondReplayRequestError(400, "missing replay uri\n")
         return
-      if replayRequest.uri.len > 0 and not replayRequest.uri.readableReplayUri():
+      if replayRequest.uri.len > 0 and
+          not replayRequest.uri.replayUriKnown() and
+          not replayRequest.uri.readableReplayUri():
         request.respondReplayRequestError(404, "replay uri is not readable\n")
         return
       if replayRequest.uri.len > 0:
-        {.gcsafe.}:
-          withLock appState.lock:
-            appState.pendingReplayUri = replayRequest.uri
+        replayRequest.uri.queueReplayUri()
     # The regular replay routes serve the plain designed broadcast client (the
     # board) exactly as before. /client/league is an ADD-ON that serves the
     # walled-pit League Replayer SHELL, which itself embeds the board in an
@@ -920,6 +956,8 @@ proc runServerLoop*(
       withLock appState.lock:
         pendingReplayUri = appState.pendingReplayUri
         appState.pendingReplayUri = ""
+        if pendingReplayUri.len > 0:
+          appState.loadingReplayUri = pendingReplayUri
     if pendingReplayUri.len > 0:
       var
         pendingData: ReplayData
@@ -932,6 +970,10 @@ proc runServerLoop*(
         # log why the switch was refused.
         echo "replay switch failed (keeping current state): ", e.msg
         pendingOk = false
+        {.gcsafe.}:
+          withLock appState.lock:
+            if appState.loadingReplayUri == pendingReplayUri:
+              appState.loadingReplayUri = ""
       if pendingOk:
         replayData = pendingData
         var replayConfig = defaultGameConfig()
@@ -950,6 +992,9 @@ proc runServerLoop*(
           withLock appState.lock:
             appState.replayLoaded = true
             appState.config = config
+            appState.currentReplayUri = pendingReplayUri
+            if appState.loadingReplayUri == pendingReplayUri:
+              appState.loadingReplayUri = ""
 
     {.gcsafe.}:
       withLock appState.lock:
