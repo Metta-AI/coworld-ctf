@@ -81,6 +81,16 @@ const
   HpBarH = 2                   ## px height of the health bar.
   HpBarWidth = HpBarSegments * HpBarSegW +
     (HpBarSegments - 1) * HpBarSegGap  ## 14px total — sized to the crew sprite.
+  IdentityBadgeSpriteBase = 4200 ## Greek identity badges keyed
+                                 ## ord(team)*IdentityNames.len + identity:
+                                 ## 4200..4215 (clear of the endzone fade crops
+                                 ## at 4100..4115).
+  IdentityBadgeObjectBase = 19040  ## identity badge object pool: one per
+                                   ## player, 19040..19055 (clear of the hp
+                                   ## pips at 19000 and impact rings at 19120).
+  IdentityBadgeSize = 11         ## px badge disc diameter.
+  IdentityGlyphW = 5             ## px width of one hand-drawn Greek glyph.
+  IdentityGlyphH = 7             ## px height of one hand-drawn Greek glyph.
   FlagBannerW = 20             ## px width of the carried heart-gem sprite (square).
   FlagBannerH = 20             ## px height of the carried heart-gem sprite (square).
   PlantedFlagScale = 3         ## the HOME heart is drawn this many x bigger so it
@@ -292,13 +302,14 @@ const
   ## Sprite/object id pools (sprites and objects are separate namespaces).
   ## Sprites: team flags 700..701 (FlagSpriteBase), hp pips 820+, tracer
   ## dots 900..963 (color×fade-stage), muzzle blooms 964..967 (stage), tracer
-  ## heads 968..1031 (color×stage), aim dots 780..795, self markers 5100..5101,
-  ## team score text 12100..12101, splatters 16000..16063, fog runs 21000..21155
+  ## heads 968..1031 (color×stage), aim dots 780..795, identity badges
+  ## 4200..4215 (team×identity), self markers 5100..5101, team score text
+  ## 12100..12101, splatters 16000..16063, fog runs 21000..21155
   ## (one per run width in cells), map markers 20000. Objects: flags 6500..6501
   ## (map view) / 5009..5010 (player view), team score text 9600..9601,
   ## muzzle blooms 16800..16815, tracer heads 16820..16835, splatters
-  ## 17000..17031, aim dots 18000..18063, map markers 20000, fog runs
-  ## 21000..23047, tracer dots 24000..29263.
+  ## 17000..17031, aim dots 18000..18063, identity badges 19040..19055,
+  ## map markers 20000, fog runs 21000..23047, tracer dots 24000..29263.
   SpritePlayerFireSpriteId = 5000
   SpritePlayerFireShadowSpriteId = 5001
   SpritePlayerRemainingSpriteId = 5003
@@ -1050,6 +1061,58 @@ proc buildHpBarSprite(litSegments: int): seq[uint8] {.measure.} =
           result.putRawRgbaPixel(i, 122, 176, 96, 235)
         else:
           result.putRawRgbaPixel(i, 44, 40, 34, 170)
+
+const IdentityGlyphs: array[8, array[IdentityGlyphH, uint8]] = [
+  ## Uppercase Greek Α Β Γ Δ Ε Ζ Η Θ as 5×7 row bitmasks (bit 4 = leftmost
+  ## pixel). Hand-drawn because neither bundled font has Greek coverage
+  ## (Rajdhani carries only Μ Π Σ).
+  [0b01110'u8, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001], # Α
+  [0b11110'u8, 0b10001, 0b10001, 0b11110, 0b10001, 0b10001, 0b11110], # Β
+  [0b11111'u8, 0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b10000], # Γ
+  [0b00100'u8, 0b00100, 0b01010, 0b01010, 0b10001, 0b10001, 0b11111], # Δ
+  [0b11111'u8, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b11111], # Ε
+  [0b11111'u8, 0b00001, 0b00010, 0b00100, 0b01000, 0b10000, 0b11111], # Ζ
+  [0b10001'u8, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001], # Η
+  [0b01110'u8, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b01110], # Θ
+]
+
+proc buildIdentityBadgeSprite(
+  team: Team,
+  identityIndex: int
+): seq[uint8] {.measure.} =
+  ## Builds one identity badge: a dark ink disc with a team-tinted rim and the
+  ## identity's Greek glyph in the team color mixed toward white (the aim-dot
+  ## treatment), so the letter reads over the disc at board scale.
+  result = newRgbaPixels(IdentityBadgeSize, IdentityBadgeSize)
+  let
+    base = Palette[teamColor(team) and 0x0f]
+    c = float(IdentityBadgeSize - 1) / 2
+  for y in 0 ..< IdentityBadgeSize:
+    for x in 0 ..< IdentityBadgeSize:
+      let d = sqrt((float(x) - c) * (float(x) - c) +
+        (float(y) - c) * (float(y) - c))
+      if d > c:
+        continue
+      let i = y * IdentityBadgeSize + x
+      if d >= c - 1.2:
+        result.putRawRgbaPixel(i, base.r, base.g, base.b, 220)
+      else:
+        result.putRawRgbaPixel(i, 24, 22, 20, 215)
+  let
+    gx0 = (IdentityBadgeSize - IdentityGlyphW) div 2
+    gy0 = (IdentityBadgeSize - IdentityGlyphH) div 2
+    glyph = IdentityGlyphs[identityIndex]
+  for gy in 0 ..< IdentityGlyphH:
+    for gx in 0 ..< IdentityGlyphW:
+      if (glyph[gy] shr (IdentityGlyphW - 1 - gx) and 1) == 0:
+        continue
+      result.putRawRgbaPixel(
+        (gy0 + gy) * IdentityBadgeSize + gx0 + gx,
+        uint8((base.r.int + 255) div 2),
+        uint8((base.g.int + 255) div 2),
+        uint8((base.b.int + 255) div 2),
+        255
+      )
 
 proc buildSoundRingSprite(): seq[uint8] {.measure.} =
   ## Builds the semi-transparent white "sound" ring: a faint filled circle
@@ -3937,6 +4000,50 @@ proc addHpPips(
       spriteId
     )
 
+proc addIdentityBadges(
+  sim: SimServer,
+  spriteDefs: var seq[SpriteDefinition],
+  currentIds: var seq[int],
+  packet: var seq[uint8],
+  viewerIndex = -1
+) {.measure.} =
+  ## Places each living player's identity badge (a Greek letter, alpha..theta
+  ## by slot order within the team — label `identity <color> <name>`) on the
+  ## soldier body's bottom-right corner. The map view passes no viewer and
+  ## shows every badge; a player view passes its viewer index and only
+  ## receives the badges of players it can see (identity is intel, like the
+  ## hp bar). Object ids are a fixed pool keyed by player index; stale badges
+  ## fall to the delete sweep.
+  for i in 0 ..< sim.players.len:
+    let player = sim.players[i]
+    if not player.alive:
+      continue
+    if viewerIndex >= 0 and i != viewerIndex and
+        not sim.playerVisibleTo(viewerIndex, i):
+      continue
+    let
+      identityIndex = sim.slotIdentityIndex(player.joinOrder)
+      spriteId = IdentityBadgeSpriteBase +
+        ord(player.team) * IdentityNames.len + identityIndex
+    packet.addBoardSpriteChanged(
+      spriteDefs,
+      spriteId,
+      IdentityBadgeSize,
+      IdentityBadgeSize,
+      buildIdentityBadgeSprite(player.team, identityIndex),
+      "identity " & teamText(player.team) & " " & IdentityNames[identityIndex]
+    )
+    let objectId = IdentityBadgeObjectBase + i
+    currentIds.add(objectId)
+    packet.addBoardObject(
+      objectId,
+      player.overheadAnchorX() + SoldierBodyPx - IdentityBadgeSize div 2,
+      player.overheadAnchorY() + SoldierBodyPx - IdentityBadgeSize div 2,
+      player.y + 1,
+      MapLayerId,
+      spriteId
+    )
+
 proc splatterSpriteId(colorIndex, stage: int, hit: bool): int =
   ## Returns the sprite id for one splatter/hit-spark color and fade stage.
   ## Hit sparks live in a separate pool so a small tag never reuses a death
@@ -4207,6 +4314,12 @@ proc buildSpriteProtocolPlayerUpdates*(
       viewerIndex = playerIndex
     )
     sim.addHpPips(
+      nextState.spriteDefs,
+      currentIds,
+      result,
+      viewerIndex = playerIndex
+    )
+    sim.addIdentityBadges(
       nextState.spriteDefs,
       currentIds,
       result,
@@ -4822,6 +4935,7 @@ proc buildSpriteProtocolUpdates*(
   sim.addShouts(nextState.spriteDefs, currentIds, result)
   sim.addAimIndicators(nextState.spriteDefs, currentIds, result)
   sim.addHpPips(nextState.spriteDefs, currentIds, result)
+  sim.addIdentityBadges(nextState.spriteDefs, currentIds, result)
 
   for playerIndex in 0 ..< sim.players.len:
     let player = sim.players[playerIndex]

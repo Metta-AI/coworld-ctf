@@ -2632,6 +2632,21 @@ proc teamForSlot(sim: SimServer, order: int): Team =
   else:
     Blue
 
+const IdentityNames* = [
+  "alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta"]
+  ## Per-team player identities, assigned by slot order within the team.
+
+proc slotIdentityIndex*(sim: SimServer, order: int): int =
+  ## Returns one slot's identity index (into IdentityNames): its rank among
+  ## same-team slots. Derived from the config, not stored, so it is stable
+  ## across matches, reconnects, and replays. Wraps past theta in the
+  ## degenerate case of more than IdentityNames.len slots on one team.
+  let team = sim.teamForSlot(order)
+  for i in 0 ..< order:
+    if sim.teamForSlot(i) == team:
+      inc result
+  result = result mod IdentityNames.len
+
 proc findSpawn*(sim: SimServer): tuple[x, y: int] =
   ## Returns the next lobby spawn position.
   let order = sim.players.len
