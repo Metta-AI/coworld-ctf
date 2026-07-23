@@ -979,8 +979,10 @@ const
   RigHubY = 385.7828355155483 ## rotates about this; feet/hips measured from it.
   RigLegSteps* = 64           ## baked leg hip-angle steps around the full circle.
   RigWheelSteps* = 32         ## baked caster-yaw steps around the full circle.
-  RigTuckDeg = 45.0           ## rest: both front legs tucked this far inward.
-  RigSplayDeg = 86.0          ## steering-side leg swings OUT up to this far.
+  RigTuckDeg = 45.0           ## rest: both front legs tucked this far inward
+                              ## (tool TUNE.tuck = 45).
+  RigSplayDeg = 120.0         ## steering-side leg swings OUT up to this far
+                              ## (tool TUNE.sw = 120 — the value Maxwell set).
   # Native part-scale RATIOS (validated): the head/legset/wheel keep these
   # relative sizes; one SIZE dial sets the absolute map footprint. SIZE is tuned
   # so the head reads ~28px (head art h=514 * SIZE * 0.6006), matching the cog
@@ -1038,47 +1040,23 @@ var
   rigHeadCache: array[Team, array[SoldierRotations, seq[tuple[
     scale: int, pixels: seq[uint8]]]]]
 
-proc rigRetint(img: Image, team: Team): Image =
-  ## Desaturate the yellow paint to luminance, remultiply toward the team hue —
-  ## the exact tint the validated compositor used (paint pixels only; the black
-  ## tire, grey joints and dark outline are left untouched). Non-paint = alpha<40
-  ## or low-saturation/low-value pixels.
-  let
-    rgb = if team == Red: (166.0, 66.0, 45.0) else: (74.0, 102.0, 144.0)
-  result = newImage(img.width, img.height)
-  for i in 0 ..< img.width * img.height:
-    let c = img.data[i].rgba()
-    if c.a < 40:
-      result.data[i] = img.data[i]
-      continue
-    let
-      mx = max(max(c.r, c.g), c.b).float
-      mn = min(min(c.r, c.g), c.b).float
-    if (mx - mn) > 35.0 and mx > 70.0:
-      let
-        lum = 0.299 * c.r.float + 0.587 * c.g.float + 0.114 * c.b.float
-        k = clamp(lum / 175.0, 0.0, 1.35)
-      result.data[i] = rgba(
-        uint8(clamp(k * rgb[0], 0.0, 255.0)),
-        uint8(clamp(k * rgb[1], 0.0, 255.0)),
-        uint8(clamp(k * rgb[2], 0.0, 255.0)),
-        c.a).rgbx()
-    else:
-      result.data[i] = img.data[i]
-
 proc ensureRigLoaded(team: Team) =
   if rigLoaded[team]:
     return
-  let dir = gameDir() / "data/rig/validated"
+  # The parts are PRE-TINTED offline (data/rig/validated/{red,blue}/) using the
+  # exact tool tint (paint luminance x team hue), so the painted panel/rivet/
+  # weather detail survives — a runtime retint in pixie's premultiplied space
+  # washed it out. Just load the right-colored PNGs.
+  let dir = gameDir() / "data/rig/validated" / (if team == Red: "red" else: "blue")
   for leg in RigLeg:
     let name = case leg
       of rigFrontRight: "front_right"
       of rigFrontLeft: "front_left"
       of rigRear: "rear"
-    rigLegImg[team][leg] = rigRetint(readImage(dir / name & ".png"), team)
-  rigHubImg[team] = rigRetint(readImage(dir / "hub_disc.png"), team)
-  rigHeadImg[team] = rigRetint(readImage(dir / "head.png"), team)
-  rigArmsImg[team] = rigRetint(readImage(dir / "arms.png"), team)
+    rigLegImg[team][leg] = readImage(dir / name & ".png")
+  rigHubImg[team] = readImage(dir / "hub_disc.png")
+  rigHeadImg[team] = readImage(dir / "head.png")
+  rigArmsImg[team] = readImage(dir / "arms.png")
   rigLoaded[team] = true
 
 proc ensureRigWheel() =
