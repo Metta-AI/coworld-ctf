@@ -338,14 +338,21 @@ const
                                      ## (1000..1015); 1100..1115, clear of both.
   ## Articulated rig sprite defs (broadcast board only), off the free 2460+
   ## window. Baked once at init, picked live by CogDriveState. See sim.nim.
-  RigChassisSpriteBase = 2460        ## hub disc per team×facing: 2460..2491.
-  RigLegSpriteBase = 2500            ## leg per team×role×hipStep: needs
-                                     ## 2 teams × 3 legs × RigLegSteps(48) = 288
-                                     ## ids: 2500..2787.
-  RigWheelSpriteBase = 2800          ## caster tire per yaw step (team-neutral):
-                                     ## 2800..2831 (RigWheelSteps=32).
-  RigArmsSpriteBase = 2840           ## carry arms per team×aim: 2840..2871.
-  RigHeadSpriteBase = 2880           ## rig head+gun per team×aim: 2880..2911.
+  ## NON-OVERLAPPING windows in the free 2460..3999 span (replay UI starts at
+  ## 4002). The leg table is the big one (2 teams × 3 legs × RigLegSteps(64) =
+  ## 384 ids) so it goes LAST with room to grow; the small per-team×16-aim tables
+  ## sit below it. A prior layout put legs at 2500 and they grew into the wheel/
+  ## arms/head bases when RigLegSteps went 48→64 — a red leg then resolved to a
+  ## blue leg or a wheel sprite. Keep these strictly disjoint.
+  RigChassisSpriteBase = 2460        ## hub disc per team×facing: 2460..2491 (32).
+  RigWheelSpriteBase = 2540          ## caster tire per yaw step: 2540..2571 (32).
+  RigArmsSpriteBase = 2580           ## carry arms per team×aim: 2580..2611 (32).
+  RigHeadSpriteBase = 2620           ## rig head+gun per team×aim: 2620..2651 (32).
+  RigLegSpriteBase = 2700            ## leg per team×role×hipStep:
+                                     ## 2 × 3 × 64 = 384 ids: 2700..3083.
+  ## Compile-time guard: the leg table (the only one that grows with RigLegSteps)
+  ## must not run into the replay UI sprites at 4002. Fails the build if it does.
+  RigLegSpriteTop = RigLegSpriteBase + 2 * 3 * RigLegSteps - 1
   ## Articulated rig board objects per player (joinOrder added). The turret sits
   ## at 1100..1115; legs/wheels/arms take the next clear windows.
   RigLegObjectBase = 1120            ## 3 legs × 16 players: 1120..1167.
@@ -413,6 +420,17 @@ const
     "dark navy",
     "black"
   ]
+
+# The articulated-rig sprite windows must stay disjoint and below the replay UI
+# sprites (4002). This is exactly the invariant that broke when RigLegSteps went
+# 48->64 and the leg table grew into the wheel/arms/head bases — guard it here so
+# any future step-count or base change fails the build instead of the render.
+static:
+  doAssert RigChassisSpriteBase + 2 * SoldierRotations <= RigWheelSpriteBase
+  doAssert RigWheelSpriteBase + RigWheelSteps <= RigArmsSpriteBase
+  doAssert RigArmsSpriteBase + 2 * SoldierRotations <= RigHeadSpriteBase
+  doAssert RigHeadSpriteBase + 2 * SoldierRotations <= RigLegSpriteBase
+  doAssert RigLegSpriteTop < ReplayTickSpriteId
 
 type
   SpriteDefinition = ref object
