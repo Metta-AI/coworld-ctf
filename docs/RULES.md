@@ -41,6 +41,11 @@ tasks, voting) with teams, guns, hearts, and fog-of-war vision.
 ## Teams & spawns
 
 - Players are assigned to **Red** or **Blue** by slot (8 each).
+- A slot may configure a cosmetic **skin** (`slots[i].skin` in the game
+  config; currently `default` or `crown`) that restyles that player's body
+  art. Skins are cosmetic only: no gameplay effect, and the player, corpse,
+  and selected-player observation labels are unchanged, so policies cannot
+  (and need not) distinguish them.
 - Each team's players get a fixed **identity**, `alpha` through `theta`, by
   slot order within the team — deterministic across matches and replays. A
   small Greek-letter badge (Α Β Γ Δ Ε Ζ Η Θ) rides each living player's

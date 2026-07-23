@@ -25,5 +25,6 @@ import
   test_shot_accuracy,
   test_shot_exposure,
   test_windows,
+  test_agent_skins,
   test_sprite_collisions
 {.warning[UnusedImport]: on.}

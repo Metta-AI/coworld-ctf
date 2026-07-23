@@ -303,7 +303,7 @@ const
   ## Sprites: team flags 700..701 (FlagSpriteBase), hp pips 820+, tracer
   ## dots 900..963 (color×fade-stage), muzzle blooms 964..967 (stage), tracer
   ## heads 968..1031 (color×stage), aim dots 780..795, identity badges
-  ## 4200..4215 (team×identity), self markers 5100..5101, team score text
+  ## 4200..4215 (team×identity), self markers 5100..5131, team score text
   ## 12100..12101, splatters 16000..16063, fog runs 21000..21155
   ## (one per run width in cells), map markers 20000. Objects: flags 6500..6501
   ## (map view) / 5009..5010 (player view), team score text 9600..9601,
@@ -318,10 +318,12 @@ const
   SpritePlayerInterstitialObjectId = 5006
   SpritePlayerRemainingObjectId = 5008
   SpritePlayerFlagObjectBase = 5009  ## 5009 red flag, 5010 blue flag.
-  SpritePlayerSelfSpriteBase = 5100  ## white-outlined self soldier, one per aim
-                                     ## rotation: 5100..5115 (SoldierRotations).
+  SpritePlayerSelfSpriteBase = 5100  ## white-outlined self soldiers, keyed by
+                                     ## skin×rotation: default 5100..5115,
+                                     ## crown 5116..5131.
   CorpseSpriteBase = 1500      ## grey dead-soldier sprites, one per team×rot
-                               ## (1500..1531): a corpse must never read as a
+                               ## per skin: default 1500..1531, crown 1532..1563.
+                               ## A corpse must never read as a
                                ## live soldier for a label-scanning ghost
                                ## viewer. Moved off 850: that range overlapped
                                ## the blue paint-blast sprites (868..871).
@@ -733,20 +735,29 @@ proc crewSpriteForSlot(sim: SimServer, slotId: int): CrewSprite =
   ## Returns the crew sprite assigned to one player slot.
   sim.crewSprites[crewVariantIndex(slotId)]
 
-proc soldierPlayerSpriteId(team: Team, rot: int): int =
+const SoldierSkinSpriteStride = 2 * SoldierRotations
+
+proc soldierPlayerSpriteId(team: Team, skin: Skin, rot: int): int =
   ## Sprite id for one living soldier at aim rotation `rot`. The two team
-  ## masters need SoldierRotations ids each; they sit in the existing player
-  ## sprite pool (PlayerSpriteBase..), which reserved 16 ids per palette color.
-  PlayerSpriteBase + ord(team) * SoldierRotations + rot
+  ## masters need SoldierRotations ids per skin; they sit in the existing
+  ## player sprite pool (PlayerSpriteBase..), which reserved 16 ids per color.
+  PlayerSpriteBase + ord(skin) * SoldierSkinSpriteStride +
+    ord(team) * SoldierRotations + rot
 
-proc selectedSoldierPlayerSpriteId(team: Team, rot: int): int =
+proc selectedSoldierPlayerSpriteId(team: Team, skin: Skin, rot: int): int =
   ## Selected (outlined) soldier sprite id at aim rotation `rot`.
-  SelectedPlayerSpriteBase + ord(team) * SoldierRotations + rot
+  SelectedPlayerSpriteBase + ord(skin) * SoldierSkinSpriteStride +
+    ord(team) * SoldierRotations + rot
 
-proc corpseSoldierSpriteId(team: Team, rot: int): int =
+proc corpseSoldierSpriteId(team: Team, skin: Skin, rot: int): int =
   ## Sprite id for a dead soldier (grey corpse) at rotation `rot` (the
-  ## selected-soldier pool lives at 6000..6031).
-  CorpseSpriteBase + ord(team) * SoldierRotations + rot
+  ## selected-soldier pools start at 6000).
+  CorpseSpriteBase + ord(skin) * SoldierSkinSpriteStride +
+    ord(team) * SoldierRotations + rot
+
+proc selfSoldierSpriteId(skin: Skin, rot: int): int =
+  ## Sprite id for the outlined POV self soldier at rotation `rot`.
+  SpritePlayerSelfSpriteBase + ord(skin) * SoldierRotations + rot
 
 proc soldierFacingRight(rot: int): bool =
   ## Whether a soldier at rotation step `rot` faces right (east-ish) — the same
@@ -2817,53 +2828,53 @@ proc addPlayerActorSprites(
   packet: var seq[uint8],
   selected: bool
 ) {.measure.} =
-  ## Adds the pre-rotated top-down soldier sprites used by both views: one
-  ## SoldierRotations-step set per team, plus a selected-outlined set for the
-  ## map view. Replaces the old flat 8-variant + horizontal-flip crew set — the
-  ## soldier's held paintball gun now sweeps with the aim angle instead.
-  for team in Team:
-    let color = teamText(team)
-    for rot in 0 ..< SoldierRotations:
-      let
-        # Raster natively at the emission scale: the ~120px painted masters
-        # carry real detail the 1× 34px body footprint throws away.
-        pixels = soldierRotPixels(team, rot, boardScale)
-        side = if soldierFacingRight(rot): " right" else: " left"
-      # The HD sprite keeps its full 16-step rotation for the VISUAL; the label
-      # stays the documented `player <color> <side>` (RULES.md) so exact-match
-      # label readers keep working. Distinct rotation ids may share a side label
-      # — the client keys sprites by id, not label, so that is harmless.
-      packet.addBoardSpriteChanged(
-        spriteDefs,
-        soldierPlayerSpriteId(team, rot),
-        SoldierCanvas,
-        SoldierCanvas,
-        pixels,
-        "player " & color & side,
-        native = boardScale
-      )
-      # A grey desaturated corpse per rotation: the ghost view shows fallen
-      # bodies, and the documented `corpse <color> <side>` label (RULES.md)
-      # keeps a label-scanning policy from mistaking a body for a live enemy.
-      packet.addBoardSpriteChanged(
-        spriteDefs,
-        corpseSoldierSpriteId(team, rot),
-        SoldierCanvas,
-        SoldierCanvas,
-        soldierCorpse(pixels),
-        "corpse " & color & side,
-        native = boardScale
-      )
-      if selected:
+  ## Adds pre-rotated top-down soldier sprites for every configured skin: one
+  ## SoldierRotations-step set per team, plus selected outlines for the map.
+  let usedSkins = sim.config.usedSkins()
+  for skin in Skin:
+    if skin notin usedSkins:
+      continue
+    for team in Team:
+      let color = teamText(team)
+      for rot in 0 ..< SoldierRotations:
+        let
+          # Raster natively at the emission scale: the ~120px painted masters
+          # carry real detail the 1× 34px body footprint throws away.
+          pixels = soldierRotPixels(team, skin, rot, boardScale)
+          side = if soldierFacingRight(rot): " right" else: " left"
+        # The HD sprite keeps its full 16-step rotation for the VISUAL; the label
+        # stays the documented `player <color> <side>` (RULES.md) so exact-match
+        # label readers keep working. Distinct sprite ids may share a side label
+        # — the client keys sprites by id, not label, so that is harmless.
         packet.addBoardSpriteChanged(
           spriteDefs,
-          selectedSoldierPlayerSpriteId(team, rot),
+          soldierPlayerSpriteId(team, skin, rot),
           SoldierCanvas,
           SoldierCanvas,
-          soldierOutlined(pixels, 8'u8, boardScale),
-          "selected player " & color & side,
+          pixels,
+          "player " & color & side,
           native = boardScale
         )
+        # Corpse and selection variants derive from the same rendered pixels.
+        packet.addBoardSpriteChanged(
+          spriteDefs,
+          corpseSoldierSpriteId(team, skin, rot),
+          SoldierCanvas,
+          SoldierCanvas,
+          soldierCorpse(pixels),
+          "corpse " & color & side,
+          native = boardScale
+        )
+        if selected:
+          packet.addBoardSpriteChanged(
+            spriteDefs,
+            selectedSoldierPlayerSpriteId(team, skin, rot),
+            SoldierCanvas,
+            SoldierCanvas,
+            soldierOutlined(pixels, 8'u8, boardScale),
+            "selected player " & color & side,
+            native = boardScale
+          )
 
 proc buildSpriteProtocolInit(
   sim: SimServer,
@@ -3228,9 +3239,9 @@ proc spriteActorSpriteId(player: Player, selectedJoinOrder: int): int =
     rot = soldierRotIndex(player.aimBrads)
     selected = player.joinOrder == selectedJoinOrder
   if selected:
-    selectedSoldierPlayerSpriteId(player.team, rot)
+    selectedSoldierPlayerSpriteId(player.team, player.skin, rot)
   else:
-    soldierPlayerSpriteId(player.team, rot)
+    soldierPlayerSpriteId(player.team, player.skin, rot)
 
 proc selectSpritePlayer(
   sim: SimServer,
@@ -4289,18 +4300,22 @@ proc buildSpriteProtocolPlayerUpdates*(
       if not other.alive:
         # A body (ghost view only): grey corpse sprite + `corpse <color> <side>`
         # so it never reads as a live soldier to a label-scanning policy.
-        spriteId = corpseSoldierSpriteId(other.team, soldierRotIndex(other.aimBrads))
+        spriteId = corpseSoldierSpriteId(
+          other.team,
+          other.skin,
+          soldierRotIndex(other.aimBrads)
+        )
       elif i == playerIndex and not viewerIsGhost:
         # Yourself reads as a distinct white-outlined soldier, pre-rotated to
         # your aim so the gun points where you're looking.
         let rot = soldierRotIndex(other.aimBrads)
-        spriteId = SpritePlayerSelfSpriteBase + rot
+        spriteId = selfSoldierSpriteId(other.skin, rot)
         result.addSpriteChanged(
           nextState.spriteDefs,
           spriteId,
           SoldierCanvas,
           SoldierCanvas,
-          soldierOutlined(soldierRotPixels(other.team, rot), 2'u8),
+          soldierOutlined(soldierRotPixels(other.team, other.skin, rot), 2'u8),
           # Documented self marker (RULES.md): `self <color> <side>`, only drawn
           # while alive. Side follows the aim exactly as the sim's flipH does.
           "self " & teamText(other.team) &
@@ -5161,8 +5176,13 @@ proc warmBoardRenderCaches*(sim: SimServer) =
   for team in Team:
     for stage in 1 ..< GlowFadeStages:
       discard sim.endzoneStripSprite(team, stage)
-    for rot in 0 ..< SoldierRotations:
-      discard soldierRotPixels(team, rot, RenderScale)
+  let usedSkins = sim.config.usedSkins()
+  for skin in Skin:
+    if skin notin usedSkins:
+      continue
+    for team in Team:
+      for rot in 0 ..< SoldierRotations:
+        discard soldierRotPixels(team, skin, rot, RenderScale)
   discard boardTypeface()
   block:
     # Encode the map-band wire messages too: they are byte-identical for
