@@ -156,6 +156,15 @@ const
   SwordDetour = 70.0          # attacker detour budget for a sword pickup
   PlasmaReach = 136.0         # plasma cone reach: 4 squares (sim PlasmaArcReach)
   PlasmaHalfBrads = 10        # cone half-angle ~14deg in brads (PlasmaArcMaxWidth/Reach)
+  PlasmaExfilDetour = 170.0   # -d:plasmaExfil: the MidGuard escort's budget to
+                              # grab a plasma arc during a mate's carry-home. A
+                              # 136px cone one-shots (3 dmg vs 3 hp) the single
+                              # chaser that catches the 70%-speed carrier, so a
+                              # stolen-not-captured flag (a GV21 -1 LOSE-LOSE
+                              # timeout) converts into a capture. Wider than the
+                              # inbound SwordDetour because the conversion is
+                              # worth a full win, but capped so only a nearby
+                              # arc is worth leaving the screen for.
   ShieldStealDetour = 330.0   # MidGuard's shield trip: the enemy endzone
                               # shield sits ~136px past their pedestal, so
                               # the round trip inherently costs ~270 path px
@@ -2030,17 +2039,34 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           dist(me, stealTarget) < ShieldStealDetour:
         target = bot.shieldPos[i]
         break
-  elif not iCarry and not hasSword and
+  elif not iCarry and not hasSword and not pocketRush and
       bot.role in {MidTop, MidBottom, MidGuard, FlankTop, FlankBottom} and
-      not mateCarry and not pocketRush:
-    # Sword top-up: swipe-armed pocket brawls win point-blank. Cheap when we
-    # are already visiting the endzone column (shield chain) or passing by.
+      (not mateCarry or
+        (when defined(plasmaExfil): bot.role == MidGuard else: false)):
+    # Sword/plasma top-up: cone-armed pocket brawls win close range. Cheap when
+    # we are already visiting the endzone column (shield chain) or passing by.
+    # -d:plasmaExfil ALSO arms the MidGuard escort during a mate's carry-home:
+    # MidGuard is the designated carrier screen (it already sits between the
+    # runner and the nearest threat), so a plasma arc turns that screen LETHAL —
+    # it one-shots the single chaser that catches the 70%-speed carrier. On GV21
+    # a stolen-not-captured flag is a -1 timeout, so converting the steal is
+    # worth a full capture. Exactly ONE seat detours (no counter-steal exposure)
+    # and only for a nearby arc (PlasmaExfilDetour cap).
+    let detour =
+      when defined(plasmaExfil):
+        (if mateCarry: PlasmaExfilDetour else: SwordDetour)
+      else: SwordDetour
+    var best = -1
+    var bestD = detour
     for i in 0 ..< bot.swordPos.len:
       if not pickupAvailable(bot.swordAbsentAt, i, bot.tick):
         continue
-      if dist(me, bot.swordPos[i]) <= SwordDetour:
-        target = bot.swordPos[i]
-        break
+      let d = dist(me, bot.swordPos[i])
+      if d <= bestD:
+        bestD = d
+        best = i
+    if best >= 0:
+      target = bot.swordPos[best]
 
   # Med kit heal detour (hurt bots only; the carrier handles its own detour
   # in the carry branch). Wounded: a short opportunistic detour. Critical
