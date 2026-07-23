@@ -22,8 +22,6 @@ proc twoTeamGame(): SimServer =
   result.startGame()
   result.players[0].team = Red
   result.players[1].team = Blue
-  for i in 0 ..< result.players.len:
-    result.players[i].spawnProtect = 0
 
 proc stepWith(sim: var SimServer, inputs, prev: seq[InputState]) =
   sim.step(inputs, prev)
@@ -153,7 +151,6 @@ suite "grenades":
     game.players[1].team = Red
     game.players[2].team = Blue
     for i in 0 ..< 3:
-      game.players[i].spawnProtect = 0
       game.players[i].x = 300
       game.players[i].y = 300 + i * 4    # all inside the blast radius
       game.players[i].hp = GrenadeDamage + 1

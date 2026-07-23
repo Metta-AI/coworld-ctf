@@ -6,7 +6,7 @@ import
 const
   GameDir = currentSourcePath.parentDir.parentDir
   # The event-substrate fixture: a full 16-bot match recorded against the
-  # CURRENT gameplay rules (GameVersion 18, seed 281, lives 9,
+  # CURRENT gameplay rules (current GameVersion, seed 181, lives 7,
   # tools/record_fixture.sh) whose kill mix exercises all three weapons
   # (gun, grenade, plasma) plus steals, returns, heals, and a capture.
   EventsFixture = GameDir / "tests" / "replays" / "ctf.bitreplay"
@@ -112,10 +112,8 @@ suite "tier-2 event extraction (tools/extract_events)":
       game.players[shooter].aimBrads = 0
       game.players[shooter].windupBrads = -1
       game.players[shooter].fireCooldown = 0
-      game.players[shooter].spawnProtect = 0
       game.players[target].x = game.gameMap.center.x + 40
       game.players[target].y = game.gameMap.center.y
-      game.players[target].spawnProtect = 0
       game.tryFire(shooter)
       check game.players[shooter].shotsFired == 1
       check game.events.len == 0

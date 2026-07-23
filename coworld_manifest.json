@@ -136,12 +136,6 @@
           "minimum": 0,
           "default": 72
         },
-        "spawnProtectTicks": {
-          "description": "Ticks of spawn invulnerability after respawning (~1s).",
-          "type": "integer",
-          "minimum": 0,
-          "default": 24
-        },
         "gunRange": {
           "description": "Maximum hitscan gun range in pixels.",
           "type": "integer",
@@ -467,7 +461,6 @@
         "lives": 3,
         "hitPoints": 3,
         "respawnTicks": 72,
-        "spawnProtectTicks": 24,
         "gunRange": 1300,
         "fireCooldownTicks": 12,
         "carrierSpeedPct": 70,
@@ -476,7 +469,7 @@
         "visionBubble": 90,
         "startWaitTicks": 120,
         "gameOverTicks": 360,
-        "maxTicks": 10000,
+        "maxTicks": 5000,
         "maxGames": 1,
         "mapPath": "arena",
         "showPlayerLabels": true
