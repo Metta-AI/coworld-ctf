@@ -178,7 +178,11 @@ const
                               # fall back and win the attrition instead
   PushOutTicks = 360          # endgame push: no enemy seen for ~15s...
   PushOutMinGame = 2400       # ...this deep into the game breaks the posts
-  LatePushTick = 6800         # all-in on the clock: past this tick a draw is
+  LatePushTick =
+    when defined(clockPush): 2600  # GV21 5000-tick clock: fire the all-in with
+                                   # ~2400t runway to convert a capture/wipe
+                                   # before the buzzer (a timeout is now -1/-1)
+    else: 6800                     # all-in on the clock: past this tick a draw is
                               # the default outcome, so commit to the capture
   HoldFrontCap = 220.0        # -d:holdFront: ceiling on the phalanx creep — a
                               # castle line near our wall: fights there recur on
