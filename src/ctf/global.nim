@@ -183,7 +183,7 @@ const
   PlasmaArcCarrySize = 10
   PlasmaArcPickupObjectBase = 19640
   PlasmaArcCarryObjectBase = 19660
-  UnitTagSpriteBase = 5000       ## unit identity tags: 5000 + playerIndex*8 +
+  UnitTagSpriteBase = 5800       ## unit identity tags: 5800 + playerIndex*8 +
                                  ## loadoutMask (shield|nade<<1|arc<<2) — the
                                  ## mask varies the LABEL, pixels stay "u<seat>".
   UnitTagObjectBase = 19770      ## unit tags: one per player, 19770..19785.
