@@ -345,6 +345,7 @@ const
   RigWheelSpriteBase = 2800          ## caster tire per yaw step (team-neutral):
                                      ## 2800..2831 (RigWheelSteps=32).
   RigArmsSpriteBase = 2840           ## carry arms per team×aim: 2840..2871.
+  RigHeadSpriteBase = 2880           ## rig head+gun per team×aim: 2880..2911.
   ## Articulated rig board objects per player (joinOrder added). The turret sits
   ## at 1100..1115; legs/wheels/arms take the next clear windows.
   RigLegObjectBase = 1120            ## 3 legs × 16 players: 1120..1167.
@@ -802,6 +803,11 @@ proc rigWheelSpriteId(step: int): int =
 proc rigArmsSpriteId(team: Team, rot: int): int =
   ## Carry-arms sprite at aim step `rot`.
   RigArmsSpriteBase + ord(team) * SoldierRotations + rot
+
+proc rigHeadSpriteId(team: Team, rot: int): int =
+  ## Rig head cube + gun sprite at aim step `rot` (the trike's own head, so the
+  ## whole cog is one coherent vehicle rather than a soldier cube on trike legs).
+  RigHeadSpriteBase + ord(team) * SoldierRotations + rot
 
 proc soldierTurretSpriteId(team: Team, rot: int): int =
   ## Board tank TURRET (head cube + gun) at aim rotation `rot`.
@@ -2917,6 +2923,15 @@ proc addPlayerActorSprites(
           RigCanvas,
           RigCanvas,
           rigArmsPixels(team, rot, boardScale),
+          "player " & color & side,
+          native = boardScale
+        )
+        packet.addBoardSpriteChanged(
+          spriteDefs,
+          rigHeadSpriteId(team, rot),
+          RigCanvas,
+          RigCanvas,
+          rigHeadPixels(team, rot, boardScale),
           "player " & color & side,
           native = boardScale
         )
@@ -5208,15 +5223,16 @@ proc buildSpriteProtocolUpdates*(
         MapLayerId,
         rigArmsSpriteId(player.team, soldierRotIndex(player.aimBrads))
       )
-    # Head/turret (top), aim-facing — the existing, tested turret path.
+    # Head/turret (top), aim-facing — the rig's OWN head cube + gun, rotated on
+    # the same hub ring as the legs so the whole cog reads as one vehicle.
     currentIds.add(turretObjectId)
     result.addBoardObject(
       turretObjectId,
-      player.spritePlayerX(),
-      player.spritePlayerY(),
+      rigX,
+      rigY,
       player.y + 1,
       MapLayerId,
-      player.spriteTurretSpriteId(nextState.selectedJoinOrder)
+      rigHeadSpriteId(player.team, soldierRotIndex(player.aimBrads))
     )
     if sim.config.showPlayerLabels:
       let flagTeamOrd = sim.carriedFlagTeam(playerIndex)
@@ -5433,8 +5449,9 @@ proc warmBoardRenderCaches*(sim: SimServer) =
       # re-pays the whole supersampled bake (the certifier-timeout trap).
       discard soldierBasePixels(team, rot, RenderScale)
       discard soldierTurretPixels(team, rot, RenderScale)
-      # Articulated rig: hub disc + arms per facing, and the leg table per role.
+      # Articulated rig: hub disc + head + arms per facing, and the leg table.
       discard rigChassisPixels(team, rot, RenderScale)
+      discard rigHeadPixels(team, rot, RenderScale)
       discard rigArmsPixels(team, rot, RenderScale)
     for leg in RigLeg:
       for step in 0 ..< RigLegSteps:

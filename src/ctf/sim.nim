@@ -983,11 +983,24 @@ const
   RigWheelSteps* = 32         ## baked caster-yaw steps around the full circle.
   RigTuckDeg = 45.0           ## rest: both front legs tucked this far inward.
   RigSplayDeg = 86.0          ## steering-side leg swings OUT up to this far.
-  # Rig body scale: the hub-master body (head cube ~741px tall in the 1046 art)
-  # renders so the assembled cog matches the existing one-piece footprint. The
-  # legset foot radius is ~654px; at this scale the splayed span stays inside
-  # RigCanvas. Tuned to ~SoldierBodyPx body like the soldier masters.
-  RigBodyPx = 44.0            ## assembled cog body target on the map.
+  # Rig scale: match the rig HEAD CUBE (~741px tall solid in the 1046 art) to the
+  # existing cog's head footprint so the articulated cog reads the same size as
+  # the one-piece one. The full 1024px master is mostly empty margin + leg reach,
+  # so scaling by the head cube (not master height) keeps the body ~SoldierBodyPx
+  # and the foot radius (~654px * scale ≈ 24px) well inside RigCanvas.
+  RigHeadCubePx = 741.0       ## head-cube solid height in the rig-master art.
+  RigHeadTargetPx = 30.0      ## head cube renders this tall on the map — sized
+                              ## so it sits ON the hub as a turret, not swamping
+                              ## the legs. The trike still reads bigger than the
+                              ## old one-piece cog, which the articulation earns.
+  RigScale* = RigHeadTargetPx / RigHeadCubePx  ## rig-master art px -> map px.
+  RigHeadCubeCX = 524.0       ## head-cube solid centroid in the rig-master art:
+  RigHeadCubeCY = 371.0       ## the head pivots here so it rides ON the hub.
+  # The wheel art (84x250) at RigScale alone renders ~3px wide — invisible. Give
+  # the tire its own larger scale so a caster actually reads at the foot.
+  RigWheelTargetPx = 13.0     ## caster tire long-axis length on the map.
+  RigWheelArtLen = 250.0      ## wheel.png long-axis (height) in art px.
+  RigWheelScale* = RigWheelTargetPx / RigWheelArtLen
 
 type
   RigLeg* = enum
@@ -1013,7 +1026,6 @@ var
   rigArmsMaster: array[Team, Image]
   rigWheelMaster: Image                  ## team-neutral tire
   rigWheelLoaded: bool
-  rigScale: array[Team, float]           ## rig-master art px -> map px
   # Per-part masters cut from the chassis once per team: hub disc, and one leg
   # wedge (front-right shape; front-left is its mirror; rear reuses it rotated).
   rigHubDisc: array[Team, Image]
@@ -1029,6 +1041,8 @@ var
     scale: int, pixels: seq[uint8]]]]
   rigArmsCache: array[Team, array[SoldierRotations, seq[tuple[
     scale: int, pixels: seq[uint8]]]]]
+  rigHeadCache: array[Team, array[SoldierRotations, seq[tuple[
+    scale: int, pixels: seq[uint8]]]]]
 
 proc rigMasterPath(team: Team, part: string): string =
   let c = if team == Red: "red" else: "blue"
@@ -1040,10 +1054,6 @@ proc ensureRigLoaded(team: Team) =
   rigChassisMaster[team] = readImage(gameDir() / rigMasterPath(team, "chassis"))
   rigHeadMaster[team] = readImage(gameDir() / rigMasterPath(team, "head"))
   rigArmsMaster[team] = readImage(gameDir() / rigMasterPath(team, "arms"))
-  # Body scale: the chassis master is 1046 wide with the body sized so the
-  # assembled cog fills ~RigBodyPx. The soldier masters solve the same problem
-  # via measureSoldierBody; here we use a fixed factor from the art geometry.
-  rigScale[team] = RigBodyPx / float(RigMasterH)
   rigMastersLoaded[team] = true
 
 proc ensureRigWheel() =
@@ -1099,7 +1109,7 @@ proc rigPartMat(pivotX, pivotY, rotDeg: float, renderScale: int): Mat3 =
   ## points down, so the canvas rotates by -rotDeg to match aimVector.
   let
     outCanvas = RigCanvas * renderScale
-    s = rigScale[Red] * float(renderScale)   # both teams share one body scale
+    s = RigScale * float(renderScale)   # both teams share one body scale
     center = float32(outCanvas) / 2
   translate(vec2(center, center)) *
     rotate(float32(-rotDeg * PI / 180.0)) *
@@ -1167,7 +1177,7 @@ proc rigWheelPixels*(step: int, renderScale = 1): seq[uint8] =
   let
     outCanvas = RigCanvas * renderScale
     yawDeg = float(s) * 360.0 / float(RigWheelSteps)
-    sc = (RigBodyPx / float(RigMasterH)) * float(renderScale)
+    sc = RigWheelScale * float(renderScale)   # tire has its own readable scale
     center = float32(outCanvas) / 2
     # Wheel art: 84x250, axle at (44,121), long axis vertical (rolls +y).
     mat = translate(vec2(center, center)) *
@@ -1191,7 +1201,7 @@ proc rigArmsPixels*(team: Team, rot: int, renderScale = 1): seq[uint8] =
   let
     outCanvas = RigCanvas * renderScale
     aimDeg = float(r) * 360.0 / float(SoldierRotations)
-    sc = (RigBodyPx / float(RigMasterH)) * float(renderScale)
+    sc = (RigScale) * float(renderScale)
     center = float32(outCanvas) / 2
     mat = translate(vec2(center, center)) *
       rotate(float32(-(aimDeg - 90.0) * PI / 180.0)) *
@@ -1201,6 +1211,56 @@ proc rigArmsPixels*(team: Team, rot: int, renderScale = 1): seq[uint8] =
   canvas.draw(rigArmsMaster[team], mat)
   let pixels = soldierCanvasToPixels(canvas)
   rigArmsCache[team][r].add((scale: renderScale, pixels: pixels))
+  pixels
+
+proc rigHeadPixels*(team: Team, rot: int, renderScale = 1): seq[uint8] =
+  ## The rig's OWN head cube + smile visor at aim step `rot`, with the held gun
+  ## mounted on its right face (off the aim ray, like the soldier turret) so aim
+  ## and fire stay readable. Rotated about the shared hub so the head swivels on
+  ## the same ring as the legs — one coherent vehicle, matching the approved rig
+  ## prototype (which used this head, not the soldier cube).
+  let r = ((rot mod SoldierRotations) + SoldierRotations) mod SoldierRotations
+  for cached in rigHeadCache[team][r]:
+    if cached.scale == renderScale:
+      return cached.pixels
+  ensureRigLoaded(team)
+  ensureGunLoaded()
+  let
+    outCanvas = RigCanvas * renderScale
+    aimDeg = float(r) * 360.0 / float(SoldierRotations)
+    rotDeg = aimDeg - 90.0
+    sc = RigScale * float(renderScale)
+    center = float32(outCanvas) / 2
+    # Gun mount: on the head's right face, off the aim ray. The rig head cube
+    # spans ~334px half-width in the master; mount the gun a bit outboard (+x in
+    # unit space = aim, +y = the cog's right) so it reads as held, not covering
+    # a forward-carried heart. Tuned to the rig head scale.
+    gunFwdArt = 40.0     # px along aim from the hub, in rig-master art px
+    gunSideArt = 150.0   # px to the cog's right, in rig-master art px
+    gunSc = gunScale * float(renderScale)   # gun art px -> map px (GunLengthPx)
+    # Pivot about the shared HUB so the head swivels on the same ring as the
+    # legs and stays anatomically forward of center (the head cube sits ~41px
+    # ahead of the hub in the art — correct top-down cog anatomy).
+    headMat = translate(vec2(center, center)) *
+      rotate(float32(-rotDeg * PI / 180.0)) *
+      scale(vec2(float32(sc), float32(sc))) *
+      translate(vec2(float32(-RigHubX), float32(-RigHubY)))
+  var canvas = newImage(outCanvas, outCanvas)
+  # Gun first (under the head cube so the hopper tucks behind the visor), mounted
+  # in unit space then rotated with the aim, vertically flipped so the hopper
+  # faces outboard while the muzzle stays on the aim ray.
+  let gunMat = translate(vec2(center, center)) *
+    rotate(float32(-rotDeg * PI / 180.0)) *
+    translate(vec2(
+      float32(gunFwdArt * sc), float32(gunSideArt * sc))) *
+    scale(vec2(float32(gunSc), float32(gunSc))) *
+    translate(vec2(float32(-gunMaster.width) / 2, float32(-gunMaster.height) / 2)) *
+    translate(vec2(0, float32(gunMaster.height))) *
+    scale(vec2(1, -1))
+  canvas.draw(gunMaster, gunMat)
+  canvas.draw(rigHeadMaster[team], headMat)
+  let pixels = soldierCanvasToPixels(canvas)
+  rigHeadCache[team][r].add((scale: renderScale, pixels: pixels))
   pixels
 
 proc rigLegSwingDeg*(leg: RigLeg, turnAmt: int): float =
@@ -1248,7 +1308,7 @@ proc rigLegHipScreen*(leg: RigLeg, bodyHeading: int): tuple[dx, dy: int] =
     a = -dHead
     sx = rx * cos(a) - ry * sin(a)
     sy = rx * sin(a) + ry * cos(a)
-    sc = RigBodyPx / float(RigMasterH)
+    sc = RigScale
   (int(round(sx * sc)), int(round(sy * sc)))
 
 proc rigLegFootScreen*(leg: RigLeg, bodyHeading, turnAmt: int): tuple[dx, dy: int] =
@@ -1268,7 +1328,7 @@ proc rigLegFootScreen*(leg: RigLeg, bodyHeading, turnAmt: int): tuple[dx, dy: in
     a = -(dHead + swing) * PI / 180.0
     fx = relx * cos(a) - rely * sin(a)
     fy = relx * sin(a) + rely * cos(a)
-    sc = RigBodyPx / float(RigMasterH)
+    sc = RigScale
   (hipOff.dx + int(round(fx * sc)), hipOff.dy + int(round(fy * sc)))
 
 proc soldierRotIndex*(aimBrads: int): int =
