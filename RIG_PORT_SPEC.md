@@ -60,3 +60,35 @@ chassis_{team}.png (1046x1024, hub 523,412) = FULL legset. Wedge-cut:
   hub_disc = r<=175 & a>=40. (Verified: 3 clean legs ~40k px, disc covers roots.)
 leg_{team}.png = single front_right leg alt source. head_{team}.png turret. arms 384x628 bone(191.5,613).
 wheel.png 84x250 axle (44,121) roll +y.
+
+## ARCHITECTURE DECISION (2026-07-23) — separate objects, not a fat composite
+Per-wheel caster fidelity (strafe/spin/rapid-turn) REQUIRES wheels as their own board
+objects picked live by foot velocity — a composite baked by (moveRot×turnBucket) can't
+show wheels pointing off the body during a decoupled strafe. So port the spec's 8-object
+design:
+- chassis/hub-disc: 1 obj, 16 facings by bodyHeading. ids off a new base.
+- 3 legs: each 1 obj at cog center, baked hub-centered at ~48 ABSOLUTE-angle steps =
+  nearest(bodyHeading + legMount + swing). splay animates across steps (turnAmt continuous).
+  ONE leg shape; front_left is the mirror; rear is the same leg. team-tinted.
+- 3 wheels: each 1 obj FK-positioned at its live foot; spriteId from ~32 caster-yaw steps
+  by the foot's actual velocity dir (analytic: travel + omega×r + swing rate). team-neutral.
+- head: 1 obj, 16 aim (existing turret path). arms: 1 gated obj (carryingFlag), under head.
+Baked != frozen: same mechanism as the existing 16-step rotation; index varies per frame.
+Determinism: all indices are pure funcs of cogDrive (scrub-snapped) — replay-exact.
+Analytic foot velocity (no last-frame across scrubs): v_foot = v_body + omega × r_hip→foot
+  + d(swing)/dt tangential; ease caster toward angleOf(v_foot), max step casterRate=32.
+
+## RESOLVED: legs are HIP-PIVOT, not hub-pivot (2026-07-23)
+Gotcha #1 is authoritative and the prototype confirms it. A standalone hub-centered leg
+bake rotated by an absolute angle is a HUB rotation — it misplaces the foot by ~40px in the
+1046 frame (~2px on map) and, worse, the differential washes out. Correct bake:
+- LEG SPRITE: bake each leg on a canvas centered on ITS OWN HIP (translate hip->canvas
+  center), so rotating the sprite = rotating the leg about its hip. One canvas per
+  (team, leg-role, swingStep) OR per (team, absoluteHipAngleStep) where the emission also
+  positions the hip. Simplest faithful port: bake per (team, role, absAngleStep) where
+  absAngle = dHead + legMount + swing, sprite centered on hip; emit the leg OBJECT at the
+  hip's SCREEN position (hip rides the hub by dHead: hipScreen = center + rot(hipArt-hub,dHead)*S).
+- Because the leg object is placed at the hip (not the cog center), legs are FK-positioned
+  objects like the wheels — not centered like the chassis/head. This matches prototype render().
+- front_left = front_right leg MIRRORED (both share the hip-pivot mechanic, mirrored hip/foot).
+Net: chassis+head centered at cog; legs at their hip screen pos; wheels at their foot screen pos.

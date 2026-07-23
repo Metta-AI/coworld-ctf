@@ -960,6 +960,312 @@ proc soldierTurretPixels*(team: Team, rot: int, renderScale = 1): seq[uint8] =
   soldierTurretCache[team][r].add((scale: renderScale, pixels: pixels))
   pixels
 
+## --- Articulated cog rig (broadcast board only) ---
+## The zoomable board draws the cog as a differential-steer trike: a hub disc,
+## three independent legs whose feet are top-down caster wheels, a head/turret,
+## and heart-carry arms. Every part is a PRE-BAKED sprite chosen live by the
+## already-tested CogDriveState (bodyHeading / turnAmt / per-wheel casters), so
+## the pose animates without any client-side rotation and stays replay-exact.
+## The whole rig is composited from the committed, already-team-tinted rig
+## masters in data/rig/ (chassis wedge-cut into hub disc + one leg shape; head;
+## arms; a team-neutral wheel). Geometry + feel were validated offline in
+## tools/rig_port_proto.py; the numbers here transcribe RIG_PORT_SPEC.md.
+const
+  RigCanvas* = 96             ## px square rig part canvas at 1x. The splayed
+                              ## trike is wider than the 72px soldier canvas, so
+                              ## the chassis/leg canvases get extra margin; the
+                              ## body still renders at ~SoldierBodyPx.
+  RigHubX = 523.0             ## shared hub/pivot in the 1046x1024 rig-master art.
+  RigHubY = 412.0
+  RigMasterW = 1046
+  RigMasterH = 1024
+  RigLegSteps* = 48           ## baked leg hip-angle steps around the full circle.
+  RigWheelSteps* = 32         ## baked caster-yaw steps around the full circle.
+  RigTuckDeg = 45.0           ## rest: both front legs tucked this far inward.
+  RigSplayDeg = 86.0          ## steering-side leg swings OUT up to this far.
+  # Rig body scale: the hub-master body (head cube ~741px tall in the 1046 art)
+  # renders so the assembled cog matches the existing one-piece footprint. The
+  # legset foot radius is ~654px; at this scale the splayed span stays inside
+  # RigCanvas. Tuned to ~SoldierBodyPx body like the soldier masters.
+  RigBodyPx = 44.0            ## assembled cog body target on the map.
+
+type
+  RigLeg* = enum
+    rigFrontRight, rigFrontLeft, rigRear
+
+const
+  ## Leg hip + fork-tip (foot) in the 1046x1024 committed-art frame, and each
+  ## leg's rest mount angle relative to forward (north = up). Mapped from the
+  ## validated 1031-art points; see RIG_PORT_SPEC.md.
+  RigLegHip: array[RigLeg, tuple[x, y: float]] = [
+    (591.4, 353.7),   # front_right
+    (449.1, 363.5),   # front_left
+    (539.7, 481.0)]   # rear
+  RigLegFoot: array[RigLeg, tuple[x, y: float]] = [
+    (1027.2, 73.4),   # front_right
+    (9.0, 67.3),      # front_left
+    (518.1, 1031.6)]  # rear
+
+var
+  rigMastersLoaded: array[Team, bool]
+  rigChassisMaster: array[Team, Image]   ## full team-tinted legset (hub + 3 legs)
+  rigHeadMaster: array[Team, Image]
+  rigArmsMaster: array[Team, Image]
+  rigWheelMaster: Image                  ## team-neutral tire
+  rigWheelLoaded: bool
+  rigScale: array[Team, float]           ## rig-master art px -> map px
+  # Per-part masters cut from the chassis once per team: hub disc, and one leg
+  # wedge (front-right shape; front-left is its mirror; rear reuses it rotated).
+  rigHubDisc: array[Team, Image]
+  rigLegShape: array[Team, Image]        ## front-right leg, hub-centered
+  rigLegShapeMirror: array[Team, Image]  ## front-left = mirrored front-right
+  rigCut: array[Team, bool]
+  # Bake caches, keyed by step and renderScale (mirrors soldierBaseCache).
+  rigChassisCache: array[Team, array[SoldierRotations, seq[tuple[
+    scale: int, pixels: seq[uint8]]]]]
+  rigLegCache: array[Team, array[RigLeg, array[RigLegSteps, seq[tuple[
+    scale: int, pixels: seq[uint8]]]]]]
+  rigWheelCache: array[RigWheelSteps, seq[tuple[
+    scale: int, pixels: seq[uint8]]]]
+  rigArmsCache: array[Team, array[SoldierRotations, seq[tuple[
+    scale: int, pixels: seq[uint8]]]]]
+
+proc rigMasterPath(team: Team, part: string): string =
+  let c = if team == Red: "red" else: "blue"
+  "data/rig/" & part & "_" & c & ".png"
+
+proc ensureRigLoaded(team: Team) =
+  if rigMastersLoaded[team]:
+    return
+  rigChassisMaster[team] = readImage(gameDir() / rigMasterPath(team, "chassis"))
+  rigHeadMaster[team] = readImage(gameDir() / rigMasterPath(team, "head"))
+  rigArmsMaster[team] = readImage(gameDir() / rigMasterPath(team, "arms"))
+  # Body scale: the chassis master is 1046 wide with the body sized so the
+  # assembled cog fills ~RigBodyPx. The soldier masters solve the same problem
+  # via measureSoldierBody; here we use a fixed factor from the art geometry.
+  rigScale[team] = RigBodyPx / float(RigMasterH)
+  rigMastersLoaded[team] = true
+
+proc ensureRigWheel() =
+  if rigWheelLoaded:
+    return
+  rigWheelMaster = readImage(gameDir() / "data/rig/wheel.png")
+  rigWheelLoaded = true
+
+proc cutRigParts(team: Team) =
+  ## Splits the chassis master into a hub disc (r <= 175 from the hub) and one
+  ## leg shape (the front-right angular wedge, r > 70), plus a horizontally
+  ## mirrored copy for the front-left leg. Done once per team; the rear reuses
+  ## the front-right shape rotated into place at bake time.
+  if rigCut[team]:
+    return
+  ensureRigLoaded(team)
+  let master = rigChassisMaster[team]
+  var
+    disc = newImage(RigMasterW, RigMasterH)
+    leg = newImage(RigMasterW, RigMasterH)
+  for y in 0 ..< RigMasterH:
+    for x in 0 ..< RigMasterW:
+      let
+        px = master[x, y]
+        dx = float(x) - RigHubX
+        dy = float(y) - RigHubY
+        r = sqrt(dx * dx + dy * dy)
+      if px.a == 0:
+        continue
+      if r <= 175.0:
+        disc[x, y] = px
+      if r > 70.0:
+        # front-right wedge: art angle in [330,360) or [0,82) (0=east, CCW,
+        # screen y down so negate dy). The gaps between the three legs cross
+        # empty material, so the wedge isolates exactly one leg.
+        let ang = (arctan2(-dy, dx) * 180.0 / PI + 360.0) mod 360.0
+        if ang >= 330.0 or ang < 82.0:
+          leg[x, y] = px
+  rigHubDisc[team] = disc
+  rigLegShape[team] = leg
+  var mirror = leg.copy()
+  mirror.flipHorizontal()
+  rigLegShapeMirror[team] = mirror
+  rigCut[team] = true
+
+proc rigDeg(brads: int): float =
+  ## Screen degrees (0 = east, CCW) for an aim/heading in brads.
+  float(brads) * 360.0 / float(AimBradsTurn)
+
+proc rigPartMat(pivotX, pivotY, rotDeg: float, renderScale: int): Mat3 =
+  ## Pin the rig-master art pixel (pivotX, pivotY) at the canvas center, scaled
+  ## to the map and rotated by rotDeg. rotDeg is screen-CCW positive; screen y
+  ## points down, so the canvas rotates by -rotDeg to match aimVector.
+  let
+    outCanvas = RigCanvas * renderScale
+    s = rigScale[Red] * float(renderScale)   # both teams share one body scale
+    center = float32(outCanvas) / 2
+  translate(vec2(center, center)) *
+    rotate(float32(-rotDeg * PI / 180.0)) *
+    scale(vec2(float32(s), float32(s))) *
+    translate(vec2(float32(-pivotX), float32(-pivotY)))
+
+proc rigChassisPixels*(team: Team, rot: int, renderScale = 1): seq[uint8] =
+  ## The hub disc (covers the leg roots) at body facing step `rot`. Its own
+  ## object, centered on the cog; the legs and wheels are placed around it.
+  let r = ((rot mod SoldierRotations) + SoldierRotations) mod SoldierRotations
+  for cached in rigChassisCache[team][r]:
+    if cached.scale == renderScale:
+      return cached.pixels
+  cutRigParts(team)
+  let
+    outCanvas = RigCanvas * renderScale
+    facingDeg = float(r) * 360.0 / float(SoldierRotations)
+    # Forward = north (90 deg); rot 0 faces east, so the extra -90 turns the
+    # north-drawn master to the facing.
+    rotDeg = facingDeg - 90.0
+  var canvas = newImage(outCanvas, outCanvas)
+  canvas.draw(rigHubDisc[team], rigPartMat(RigHubX, RigHubY, rotDeg, renderScale))
+  let pixels = soldierCanvasToPixels(canvas)
+  rigChassisCache[team][r].add((scale: renderScale, pixels: pixels))
+  pixels
+
+proc rigLegPixels*(team: Team, leg: RigLeg, step: int, renderScale = 1): seq[uint8] =
+  ## One leg baked at ABSOLUTE hip-angle `step` (of RigLegSteps around the full
+  ## circle). The leg art is pinned at its HIP and rotated about the hip, so the
+  ## foot arcs — the visible steer (RIG_PORT_SPEC gotcha #1). The front-left leg
+  ## uses the mirrored shape; the rear reuses the front-right shape. The caller
+  ## picks `step` from bodyHeading + legMount + differential swing and positions
+  ## the object at the hip's screen point.
+  let s = ((step mod RigLegSteps) + RigLegSteps) mod RigLegSteps
+  for cached in rigLegCache[team][leg][s]:
+    if cached.scale == renderScale:
+      return cached.pixels
+  cutRigParts(team)
+  let
+    outCanvas = RigCanvas * renderScale
+    hip = RigLegHip[leg]
+    # The leg ART already carries its rest mount direction (the front-right
+    # wedge points NE, the rear south), so `step` encodes ONLY the body rotation
+    # + differential swing about the hip (dHead + swing) — never the mount, or
+    # the leg would double-rotate and its foot would drift off its wheel.
+    absDeg = float(s) * 360.0 / float(RigLegSteps)
+    shape = if leg == rigFrontLeft: rigLegShapeMirror[team] else: rigLegShape[team]
+    # The mirrored shape's hip x flips about the master center.
+    hipX = if leg == rigFrontLeft: float(RigMasterW) - hip.x else: hip.x
+  var canvas = newImage(outCanvas, outCanvas)
+  canvas.draw(shape, rigPartMat(hipX, hip.y, absDeg, renderScale))
+  let pixels = soldierCanvasToPixels(canvas)
+  rigLegCache[team][leg][s].add((scale: renderScale, pixels: pixels))
+  pixels
+
+proc rigWheelPixels*(step: int, renderScale = 1): seq[uint8] =
+  ## The team-neutral caster tire baked at yaw `step` (of RigWheelSteps). The
+  ## tire rolls along its long (+y) axis; at step 0 it points north. Placed by
+  ## the caller at each foot's screen point, yaw picked from the foot velocity.
+  let s = ((step mod RigWheelSteps) + RigWheelSteps) mod RigWheelSteps
+  for cached in rigWheelCache[s]:
+    if cached.scale == renderScale:
+      return cached.pixels
+  ensureRigWheel()
+  let
+    outCanvas = RigCanvas * renderScale
+    yawDeg = float(s) * 360.0 / float(RigWheelSteps)
+    sc = (RigBodyPx / float(RigMasterH)) * float(renderScale)
+    center = float32(outCanvas) / 2
+    # Wheel art: 84x250, axle at (44,121), long axis vertical (rolls +y).
+    mat = translate(vec2(center, center)) *
+      rotate(float32(-(yawDeg - 90.0) * PI / 180.0)) *
+      scale(vec2(float32(sc), float32(sc))) *
+      translate(vec2(float32(-44.0), float32(-121.2)))
+  var canvas = newImage(outCanvas, outCanvas)
+  canvas.draw(rigWheelMaster, mat)
+  let pixels = soldierCanvasToPixels(canvas)
+  rigWheelCache[s].add((scale: renderScale, pixels: pixels))
+  pixels
+
+proc rigArmsPixels*(team: Team, rot: int, renderScale = 1): seq[uint8] =
+  ## The heart-carry arms at aim step `rot`, drawn under the head. Emitted only
+  ## while carrying (gated by the caller). Bone (191.5, 613) in the 384x628 art.
+  let r = ((rot mod SoldierRotations) + SoldierRotations) mod SoldierRotations
+  for cached in rigArmsCache[team][r]:
+    if cached.scale == renderScale:
+      return cached.pixels
+  ensureRigLoaded(team)
+  let
+    outCanvas = RigCanvas * renderScale
+    aimDeg = float(r) * 360.0 / float(SoldierRotations)
+    sc = (RigBodyPx / float(RigMasterH)) * float(renderScale)
+    center = float32(outCanvas) / 2
+    mat = translate(vec2(center, center)) *
+      rotate(float32(-(aimDeg - 90.0) * PI / 180.0)) *
+      scale(vec2(float32(sc), float32(sc))) *
+      translate(vec2(float32(-191.5), float32(-613.0)))
+  var canvas = newImage(outCanvas, outCanvas)
+  canvas.draw(rigArmsMaster[team], mat)
+  let pixels = soldierCanvasToPixels(canvas)
+  rigArmsCache[team][r].add((scale: renderScale, pixels: pixels))
+  pixels
+
+proc rigLegSwingDeg*(leg: RigLeg, turnAmt: int): float =
+  ## The one-sided differential swing (degrees) for a leg from the controller's
+  ## turnAmt (fixed-point x1000, + = LEFT/CCW). Rest: both front legs tucked
+  ## RigTuckDeg inward; a turn swings only the steering-side leg OUT up to
+  ## RigSplayDeg. Rear does not swing (its wheel casters instead).
+  let t = float(turnAmt) / 1000.0
+  case leg
+  of rigFrontLeft:  -RigTuckDeg + max(0.0, t) * RigSplayDeg
+  of rigFrontRight: RigTuckDeg - max(0.0, -t) * RigSplayDeg
+  of rigRear: 0.0
+
+proc rigLegMountDeg*(leg: RigLeg): float =
+  ## Each leg's rest mount angle about the hub, screen degrees (0=E, CCW), in the
+  ## art's forward-is-north frame. Front pair flank the nose; rear trails south.
+  case leg
+  of rigFrontRight: 35.0
+  of rigFrontLeft: 145.0
+  of rigRear: 270.0
+
+proc rigLegStepFor*(leg: RigLeg, bodyHeading, turnAmt: int): int =
+  ## Nearest baked leg step: the body rotation about the hub plus the leg's
+  ## differential swing about its own hip. The rest mount direction is already
+  ## in the leg ART, so it is NOT added here (see rigLegPixels).
+  let
+    dHead = rigDeg(bodyHeading) - 90.0
+    absDeg = dHead + rigLegSwingDeg(leg, turnAmt)
+    step = int(round(absDeg / 360.0 * float(RigLegSteps)))
+  ((step mod RigLegSteps) + RigLegSteps) mod RigLegSteps
+
+proc rigLegHipScreen*(leg: RigLeg, bodyHeading: int): tuple[dx, dy: int] =
+  ## Map-px offset (from the cog center) of a leg's HIP, carried by body
+  ## rotation about the hub. The leg OBJECT is placed here.
+  let
+    dHead = (rigDeg(bodyHeading) - 90.0) * PI / 180.0
+    hip = RigLegHip[leg]
+    rx = hip.x - RigHubX
+    ry = hip.y - RigHubY
+    a = -dHead
+    sx = rx * cos(a) - ry * sin(a)
+    sy = rx * sin(a) + ry * cos(a)
+    sc = RigBodyPx / float(RigMasterH)
+  (int(round(sx * sc)), int(round(sy * sc)))
+
+proc rigLegFootScreen*(leg: RigLeg, bodyHeading, turnAmt: int): tuple[dx, dy: int] =
+  ## Map-px offset (from the cog center) of a leg's FOOT: hip offset plus the
+  ## (foot-hip) art vector rotated by the leg's absolute angle. The WHEEL object
+  ## is placed here.
+  # foot = hip + rotate(foot-hip, dHead+swing): the (foot-hip) art vector turns
+  # with the leg's live swing about the hip, matching the baked leg sprite.
+  let
+    hipOff = rigLegHipScreen(leg, bodyHeading)
+    hip = RigLegHip[leg]
+    foot = RigLegFoot[leg]
+    dHead = rigDeg(bodyHeading) - 90.0
+    swing = rigLegSwingDeg(leg, turnAmt)
+    relx = foot.x - hip.x
+    rely = foot.y - hip.y
+    a = -(dHead + swing) * PI / 180.0
+    fx = relx * cos(a) - rely * sin(a)
+    fy = relx * sin(a) + rely * cos(a)
+    sc = RigBodyPx / float(RigMasterH)
+  (hipOff.dx + int(round(fx * sc)), hipOff.dy + int(round(fy * sc)))
+
 proc soldierRotIndex*(aimBrads: int): int =
   ## Quantizes an aim angle to the nearest pre-rotated sprite step.
   ((aimBrads + AimBradsTurn div (SoldierRotations * 2)) *
