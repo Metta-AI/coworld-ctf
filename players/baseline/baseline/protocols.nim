@@ -34,6 +34,9 @@ type
     y*: int
     width*: int
     height*: int
+    spriteId*: int            # the sprite DEFINITION id this object points at —
+                              # rotation-pooled sprites (v9 soldiers) bake the aim
+                              # step into the id while sharing one side label
 
   ProtocolClient* = ref object
     sprite: SpriteState
@@ -213,7 +216,8 @@ proc spriteObjectsWithLabel*(
       x: objectState.x,
       y: objectState.y,
       width: sprite.width,
-      height: sprite.height
+      height: sprite.height,
+      spriteId: objectState.spriteId
     ))
 
 iterator spriteObjects*(
@@ -514,6 +518,26 @@ proc receiveLatestFrame*(
 ): bool =
   ## Receives wire data and updates the latest client-owned frame buffers.
   client.receiveLatestFrameInto(ws, gui, client.packed, client.unpacked)
+
+proc feedInProcessPacket*(
+  client: ProtocolClient,
+  packet: string
+): bool {.discardable.} =
+  ## Applies one in-process sprite packet (no websocket), mirroring the
+  ## single-frame bookkeeping receiveLatestFrame performs: the retained scene
+  ## is advanced via applySpritePacket and frameAdvance is set to 1 so the
+  ## eval driver sees exactly one fresh frame this tick. decodePixels is false
+  ## to match the headless (gui = false) path — the bot reads sprite objects
+  ## and labels, never the rendered framebuffer.
+  client.frameAdvance = 0
+  if not client.applySpritePacket(packet, false):
+    return false
+  client.frameAdvance = 1
+  client.framesDropped = 0
+  client.frameBufferLen = 0
+  client.skippedFrames = 0
+  client.spritePending = 0
+  true
 
 proc copyLatestFrame*(
   client: ProtocolClient,
