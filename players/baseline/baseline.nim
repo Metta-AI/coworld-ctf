@@ -2281,6 +2281,37 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           if (bot.tick div 8 + bot.slot div 2) mod 2 == 0:
             side = side * -1.0
           steer = norm(steer) + side * 0.6
+      when defined(carrierJuke):
+        if iCarry:
+          # GV21 carry survival ("windup-juke dodge", micro lane). The carrier
+          # normally runs STRAIGHT home — "speed beats evasion", a rule tuned for
+          # the OLD 10000t scoreless-draw clock where a lost carry cost ~nothing.
+          # Under the GV21 5000t LOSE-LOSE clock the live v44 decode (R923/R924,
+          # 14 negatives) shows the carrier killed in transit / exiting the pocket
+          # (flag returned, 0 capture) is the DOMINANT loss mode. Bias the home
+          # steer laterally OUT of the nearest muzzle line (an enemy aiming at us
+          # with a clear pixel ray) while keeping most of the forward run home —
+          # dodge the shot without abandoning the exfil ("speed beats evasion" is
+          # false when a timeout is -1/-1). OFF -> byte-identical to v44.
+          var cThreat = -1
+          var cThreatD = ThreatRange
+          for i in 0 ..< seenEnemies.len:
+            let a = seenEnemies[i]
+            let facingMe =
+              (a.facingRight and a.pos.x < me.x) or
+              (not a.facingRight and a.pos.x > me.x)
+            let d = dist(a.pos, me)
+            if facingMe and d < cThreatD and client.pixelRayClear(a.pos, me):
+              cThreatD = d
+              cThreat = i
+          if cThreat >= 0:
+            let away = norm(me - seenEnemies[cThreat].pos)
+            var side = vec(-away.y, away.x)
+            if (bot.tick div 10 + bot.slot div 2) mod 2 == 0:
+              side = side * -1.0
+            if not bot.gridRayClear(me, me + side * 24.0):
+              side = side * -1.0
+            steer = norm(steer) + side * 0.85
       steer = steer + vec(rand(-0.12 .. 0.12), rand(-0.12 .. 0.12))
       moveMask = octantBits(steer)
       if bot.tick < bot.jinkUntil:
