@@ -1662,7 +1662,27 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           if abs(bot.carrierPos.y - lane) < bestD:
             bestD = abs(bot.carrierPos.y - lane)
             laneY = lane
-      target = vec(float(CenterX) - homeSign(bot.team) * 60.0, laneY)
+      when defined(reacquireSweep):
+        # comms-012: a stale fix (carrier fogged > ThiefFixTtl) is where the
+        # >=4-body-FOGGED concedes live — the carrier bugs out down a top/bottom
+        # border lane while we still hold 4-5 bodies, but the defender passively
+        # holds mid-center and never re-sights it, so the fix never refreshes and
+        # the team converge never re-fires. Instead of holding, actively PURSUE:
+        # extrapolate the last fix along the thief's homeward run (it heads to
+        # ITS edge at ~CarrierEstSpeed px/tick) and chase down the border lane it
+        # was last on so our vision cone RAKES the exfil corridor. The instant we
+        # regain LOS the fix refreshes -> the fresh-fix branch re-fires the
+        # whole-team intercept. One seat only (only the HomeDefender reaches this
+        # stale branch); the forward front is untouched (strict superset).
+        var estX = float(CenterX) - homeSign(bot.team) * 60.0
+        if bot.carrierSeen > -100_000:
+          let elapsed = float(bot.tick - bot.carrierSeen)
+          estX = bot.carrierPos.x + (-homeSign(bot.team)) * CarrierEstSpeed * elapsed
+          # chase up to just short of the enemy capture edge, never into it
+          estX = clamp(estX, float(CenterX) - 430.0, float(CenterX) + 430.0)
+        target = vec(clamp(estX, 20.0, float(MapW - 20)), laneY)
+      else:
+        target = vec(float(CenterX) - homeSign(bot.team) * 60.0, laneY)
   elif mateCarry:
     case bot.role
     of MidTop, FlankTop:
