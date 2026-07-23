@@ -46,10 +46,17 @@ type
       ## can draw its full-timeline shape immediately (not accumulate as it
       ## plays). Only points where the lead CHANGES are stored (compact step
       ## series); the client holds each value to the next point and to maxTick.
+    endHoldFrames*: int
+      ## Real-time frames left to HOLD on the final game-over frame before a
+      ## looping replay restarts, so the end segment (winner, win condition,
+      ## stats) is readable instead of flashing for one frame. 0 = not holding.
 
 const
   PlaybackSpeeds* = [1, 2, 3, 4, 8, 16]
   ReplayKeyframeTicks* = 100
+  ReplayEndHoldSeconds* = 10
+    ## How long a looping replay holds on its final game-over frame (real
+    ## seconds) before restarting.
   CtfReplayMagic = "COWLDCTF"
   CtfReplayFormatVersion = 1'u16
   CtfReplaySpec = ReplaySpec(
@@ -406,6 +413,56 @@ proc applyReplayCommand*(
     replay.seekReplay(sim, sim.tickCount + ReplayFps * 5)
   else:
     discard
+
+proc cancelEndHold*(replay: var ReplayPlayer) =
+  ## Cancels the end-of-replay hold. Callers cancel after any manual
+  ## seek/jump — a scrub off the final frame leaves the end segment.
+  replay.endHoldFrames = 0
+
+proc endHoldSecondsLeft*(replay: ReplayPlayer): int =
+  ## Whole seconds left in the end-of-replay hold (0 when not holding), for
+  ## the broadcast chrome's "replaying in N" countdown.
+  if replay.endHoldFrames <= 0:
+    0
+  else:
+    (replay.endHoldFrames + ReplayFps - 1) div ReplayFps
+
+proc advanceReplayPlayback*(
+  replay: var ReplayPlayer,
+  sim: var SimServer,
+  onStep: proc () {.closure.},
+  onJump: proc () {.closure.}
+) =
+  ## Advances one real-time playback frame (call once per TargetFps frame,
+  ## after replay seeks/commands have been applied). Steps the sim
+  ## `replaySpeed` ticks while playing; `onStep` runs after every sim tick
+  ## (beat-event derivation), `onJump` after any playback jump (tracker
+  ## resync). Shared by the native replay server and the static WASM viewer
+  ## so both tell the same story at the end of a match: a LOOPING replay does
+  ## NOT restart the moment playback stops — the final game-over frame (the
+  ## end segment: winner, win condition, stats) holds for
+  ## ReplayEndHoldSeconds of real time first. A play command during the hold
+  ## skips the wait and loops immediately.
+  if replay.playing and replay.endHoldFrames > 0:
+    # Play pressed during the end hold: skip the wait and loop now.
+    replay.endHoldFrames = 0
+    replay.seekReplay(sim, replay.replayStartTick())
+    onJump()
+  if replay.playing:
+    replay.endHoldFrames = 0
+    for _ in 0 ..< replay.replaySpeed():
+      if replay.playing:
+        replay.stepReplay(sim)
+        onStep()
+    if replay.looping and not replay.playing:
+      # Playback just reached the end: begin the end-segment hold.
+      replay.endHoldFrames = ReplayEndHoldSeconds * ReplayFps
+  elif replay.endHoldFrames > 0:
+    dec replay.endHoldFrames
+    if replay.endHoldFrames == 0 and replay.looping:
+      replay.seekReplay(sim, replay.replayStartTick())
+      replay.playing = true
+      onJump()
 
 proc applySpeedCommand*(speedIndex: var int, command: char) =
   ## Applies one live playback speed command.

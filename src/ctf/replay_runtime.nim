@@ -47,17 +47,18 @@ proc advanceReplayFrame*(
       didSeek = true
   if didSeek:
     tracker.resync(sim)
+    replay.cancelEndHold()
 
-  result = newJArray()
-  if replay.playing:
-    for _ in 0 ..< replay.replaySpeed():
-      if replay.playing:
-        replay.stepReplay(sim)
-        sim.stepEvents(tracker, result)
-    if replay.looping and not replay.playing:
-      replay.seekReplay(sim, replay.replayStartTick())
-      replay.playing = true
-      tracker.resync(sim)
+  let events = newJArray()
+  let
+    simPtr = sim.addr
+    trackerPtr = tracker.addr
+  replay.advanceReplayPlayback(
+    sim,
+    proc () = simPtr[].stepEvents(trackerPtr[], events),
+    proc () = trackerPtr[].resync(simPtr[])
+  )
+  result = events
 
 proc buildReplayViewerPacket*(
   sim: var SimServer,
@@ -97,7 +98,8 @@ proc buildReplayViewerPacket*(
       replay.hashMismatchTick,
       nextState.selectedJoinOrder,
       if sendLead: replay.livesLeadSeries else: @[],
-      replay.replayStartTick()
+      replay.replayStartTick(),
+      replay.endHoldSecondsLeft()
     )
   )
   if sendLead:

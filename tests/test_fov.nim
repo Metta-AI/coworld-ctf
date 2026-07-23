@@ -49,13 +49,16 @@ suite "fog-of-war vision":
     check sim.fovAt(visible, cx - 60, cy)      # sideways, inside the bubble.
     check sim.fovAt(visible, cx, cy)           # own cell.
 
-  test "walls block the cone":
-    # The chevron wall pair straddles the midline near x=479..506; aiming
-    # west from the center, the lane past it is occluded.
+  test "walls block the cone, glass does not":
+    # The midline bracket (GameVersion 16) straddles the center row near
+    # x=479..507 with a GLASS pane at the middle of its bar: aiming west
+    # from the center the lane stays visible through the glass, and fog
+    # only lands behind the solid column-1 stub (x=268..286, y=300..359).
     var visible: seq[bool]
     sim.computeFovVisible(cx div FovCellSize, cy div FovCellSize, 128, visible)
-    check sim.fovAt(visible, 540, cy)          # before the wall: clear.
-    check not sim.fovAt(visible, 440, cy)      # behind the wall: fogged.
+    check sim.fovAt(visible, 540, cy)          # before the bracket: clear.
+    check sim.fovAt(visible, 440, cy)          # behind the glass: visible.
+    check not sim.fovAt(visible, 250, cy)      # behind the stone stub: fogged.
 
   test "unlimited range down an open lane":
     var visible: seq[bool]

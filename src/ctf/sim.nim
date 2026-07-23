@@ -9,13 +9,13 @@ when not defined(emscripten):
 
 const
   GameName* = "ctf"
-  GameVersion* = "15"
+  GameVersion* = "21"  ## Multi-map support does not bump the version:
+                       ## default-map ("arena") gameplay is bit-identical;
+                       ## arena-large replays carry mapPath in their config.
   ReplayFps* = 24
   DefaultMapPath* = "arena"
   DarkBgPath* = "data/darkbg.aseprite"
   SpriteSheetAsepritePath = "data/spritesheet.aseprite"
-  MapWidth* = 1235
-  MapHeight* = 659
   SpriteSize* = 12
   CrewSpriteSize* = 16
   CrewSpriteVariants* = 8
@@ -64,8 +64,13 @@ const
   Lives* = 3
   HitPoints* = 3              ## hits to kill: each shot removes one hit point.
   RespawnTicks* = 72          ## ~3s before respawning at home.
-  SpawnProtectTicks* = 24     ## ~1s spawn invulnerability.
-  GunRange* = 1300            ## px, effectively map-wide; LOS and aim are the real limits.
+  GunRange* = 1300            ## px, effectively map-wide on the default
+                              ## arena; LOS and aim are the real limits.
+                              ## Each map def carries its own value — see
+                              ## CtfMap.gunRange.
+  ExposureSampleStep* = 3     ## px between silhouette line-of-sight samples
+                              ## across a target's body (±PlayerHalf): only
+                              ## the exposed part of a body can be hit.
   BulletHalfWidth* = 8.0      ## the bullet corridor half-width: a shot travels
                               ## along the facing ray and hits the FIRST player
                               ## whose footprint crosses it.
@@ -79,6 +84,8 @@ const
   HitFxTicks* = 34            ## ~1.4s a non-fatal hit's paint splat stays visible.
   DamageFxTicks* = 26         ## ~1.1s a floating "-1" damage pop rises and fades
                               ## after a hit (cosmetic only, never in gameHash).
+  KillFxTicks* = 44           ## ~1.8s a floating "KO" kill marker rises and fades
+                              ## after a death (cosmetic only, never in gameHash).
   CarrierSpeedPct* = 70       ## carrier moves at 70% speed.
   AimBradsTurn* = 256         ## aim angle units per full turn (binary radians).
   AimTurnRate* = 5            ## brads/tick a held rotate button turns the aim
@@ -87,19 +94,19 @@ const
   VisionBubble* = 90          ## omnidirectional vision radius in px.
 
   FovCellSize* = 8            ## fog-of-war visibility grid cell size in px.
-  FovGridW* = (MapWidth + FovCellSize - 1) div FovCellSize
-  FovGridH* = (MapHeight + FovCellSize - 1) div FovCellSize
-  FovCellCount* = FovGridW * FovGridH
 
   StartWaitTicks* = 5 * TargetFps
   GameOverTicks* = 360
-  MaxTicks* = 10_000  ## 0 = no limit.
+  MaxTicks* = 5_000  ## 0 = no limit.
   MaxGames* = 0  ## 0 = no limit.
   MaxPlayers* = 16
   MinPlayers* = 16
 
   WinReward* = 1              ## each winner scores +1 on capture or wipe.
   LossReward* = -1            ## each loser scores -1 on capture or wipe.
+  TimeoutReward* = -1         ## EVERY player scores -1 on a time-limit draw
+                              ## (GameVersion 21): stalling out the clock is
+                              ## never better than losing, for either side.
 
   FlagPickupRange* = 12       ## touch radius to steal the enemy flag.
   CaptureZoneWidth* = 40      ## width of each home-edge capture zone.
@@ -108,7 +115,6 @@ const
   GrenadeSpawnInset* = 40     ## corner grenade spawn inset from the border.
   GrenadePickupRange* = 12    ## touch radius to pick a grenade up.
   GrenadeRespawnTicks* = 5 * ReplayFps  ## a taken corner refills after 5s.
-  GrenadeMaxRange* = MapWidth div 5  ## max throw distance (full charge).
   GrenadeMinRange* = 30       ## a tap's distance: inside the blast radius,
                               ## so a panicked drop can hurt the thrower.
   GrenadeChargeTicks* = 24    ## hold this long for a full-strength throw.
@@ -117,7 +123,8 @@ const
                               ## weapon, not a mortar shell you can stroll
                               ## away from. (Was 6 px/tick of flight — a
                               ## full-range lob hung airborne ~41 ticks.)
-  GrenadeBlastRadius* = 40    ## everyone inside the blast takes damage.
+  GrenadeBlastRadius* = 52    ## everyone inside the blast takes damage
+                              ## (GameVersion 17: 40 -> 52, +30%).
   GrenadeDamage* = 2          ## hit points removed by one blast.
   BlastFxTicks* = 12          ## cosmetic blast flash duration in ticks.
 
@@ -144,7 +151,10 @@ const
 
   ShieldPickupRange* = 12     ## touch radius to pick a shield up.
   ShieldRespawnTicks* = 30 * ReplayFps  ## a taken endzone shield refills after 30s.
-  ShieldHitPoints* = 6        ## hit points a shield carrier has while carrying.
+  ShieldHitPoints* = 6        ## the hp ceiling for a shield carrier.
+  ShieldPickupHeal* = 3       ## hp a shield pickup adds, capped at
+                              ## ShieldHitPoints — a damaged carrier may take
+                              ## another shield to top back up.
   ShieldFireSlowdown* = 3     ## a shield carrier's fire cooldown is this many
                               ## times longer (3x slower fire rate).
   ShieldBubbleMinHp* = 4      ## the carrier's protective bubble shows at or
@@ -154,7 +164,6 @@ const
                               ## lasts (cosmetic only, like HitFlashTicks).
 
   ShoutMaxChars* = 10         ## a shout is at most this many characters.
-  ShoutRange* = MapWidth div 5  ## audible within 20% of the screen width.
   ShoutTicks* = 3 * ReplayFps ## a shout stays observable this long.
   ShoutCooldownTicks* = ReplayFps  ## at most one shout per second.
 
@@ -174,7 +183,12 @@ const
   UiLayerFlag* = 2
   PlayerSpriteBase* = 100
   FlagSpriteBase* = 700       ## team flag sprites: 700 red flag, 701 blue flag.
-  SelectedPlayerSpriteBase* = 800
+  SelectedPlayerSpriteBase* = 6000  ## outlined selected-soldier pool:
+                              ## 6000..6031 (team x SoldierRotations). Moved
+                              ## from 800: that pool swallowed the hp pips
+                              ## (820..823) and the sound/impact rings
+                              ## (830/831) — same collision class as the
+                              ## 2026-07-22 unit-tag/fire-icon incident.
   SelectedTextSpriteId* = 4000
   SelectedViewportSpriteId* = 4001
   PlayerObjectBase* = 1000
@@ -242,6 +256,22 @@ const
   ReplayWebSocketPath* = "/replay"
   RewardWebSocketPath* = "/reward"
 
+## Runtime map state. The game supports multiple arenas ("arena" is the
+## default, "arena-large" the 30%-larger variant); one is selected per
+## process by loadCtfMap (driven by config.mapPath) BEFORE any sim, mask,
+## or render work happens, and never changes afterward — the render bakes
+## in global.nim rely on that per-process invariant. The values below are
+## initialized to the default arena so tools that never call loadCtfMap
+## keep working unchanged.
+var
+  MapWidth* = 1235
+  MapHeight* = 659
+  FovGridW* = (MapWidth + FovCellSize - 1) div FovCellSize
+  FovGridH* = (MapHeight + FovCellSize - 1) div FovCellSize
+  FovCellCount* = FovGridW * FovGridH
+  GrenadeMaxRange* = MapWidth div 5  ## max throw distance (full charge).
+  ShoutRange* = MapWidth div 5  ## audible within 20% of the screen width.
+
 type
   Team* = enum
     Red
@@ -292,6 +322,15 @@ type
     mapLayer*, walkLayer*, wallLayer*: int
     center*: MapPoint
     rooms*: seq[Room]
+    ## Arena layout: the open-space clearances, the map's default gun range,
+    ## and the LEFT-half obstacle set (mirrored across the vertical center
+    ## line on selection).
+    flagRing*: int             ## clear radius of the open center ring.
+    captureClear*: int         ## x-columns kept traversable for carriers.
+    spawnClearW*: int          ## half-width of the open spawn pockets.
+    spawnClearH*: int          ## half-height of the open spawn pockets.
+    gunRange*: int             ## default gun range on this map (px).
+    leftObstacles*: seq[ArenaShape]
 
   CrewSprite* = ref object
     width*, height*: int
@@ -334,7 +373,6 @@ type
     lives*: int
     hitPoints*: int
     respawnTicks*: int
-    spawnProtectTicks*: int
     gunRange*: int
     fireCooldownTicks*: int
     fireWindupTicks*: int
@@ -368,7 +406,6 @@ type
     fireCooldown*: int
     fireWindup*: int           ## ticks until a pulled trigger releases its shot.
     windupBrads*: int          ## aim angle locked at the trigger pull, -1 = none.
-    spawnProtect*: int
     carryingFlag*: bool
     hasGrenade*: bool          ## each player carries at most one grenade.
     hasShield*: bool           ## carrying an endzone shield: 6 hp, 3x slower fire.
@@ -390,6 +427,17 @@ type
                                ## excluded from gameHash (see gameHash).
     shotsHit*: int             ## released shots that connected with an enemy;
                                ## analysis-only, excluded from gameHash.
+    multiKills2*: int          ## grenade blasts / plasma activations that
+                               ## killed exactly 2; analysis-only, excluded
+                               ## from gameHash.
+    multiKills3*: int          ## grenade blasts / plasma activations that
+                               ## killed 3 or more; analysis-only, excluded
+                               ## from gameHash.
+    teamKills*: int            ## teammates this player killed (backstabs);
+                               ## analysis-only, excluded from gameHash.
+    arcKillsThisFire*: int     ## kills scored by the current plasma
+                               ## activation; transient multi-kill
+                               ## bookkeeping, excluded from gameHash.
 
   PlayerFov* = object
     ## One player's cached fog-of-war visibility grid (FovGridW x FovGridH
@@ -458,6 +506,8 @@ type
     tick*: int                 ## when the hit landed.
     amount*: int               ## hit points lost (1 for a shot, GrenadeDamage).
     color*: uint8              ## the victim's team color, so it reads as their loss.
+    kill*: bool                ## a fatal hit: drawn as a "KO" kill marker that
+                               ## lives KillFxTicks instead of the "-N" number.
 
   Shout* = object
     ## One short player message, audible within ShoutRange of where it was
@@ -859,11 +909,8 @@ proc validateMapPoint(name: string, point: MapPoint, width, height: int) =
 
 proc validateMap(gameMap: CtfMap) =
   ## Raises if a loaded map has invalid geometry.
-  if gameMap.width != MapWidth or gameMap.height != MapHeight:
-    raise newException(
-      CtfError,
-      "Map dimensions must be " & $MapWidth & "x" & $MapHeight & "."
-    )
+  if gameMap.width <= 0 or gameMap.height <= 0:
+    raise newException(CtfError, "Map dimensions must be positive.")
   validateMapPoint("center", gameMap.center, gameMap.width, gameMap.height)
   for i, room in gameMap.rooms:
     validateMapRect(
@@ -875,11 +922,8 @@ proc validateMap(gameMap: CtfMap) =
 
 const
   ArenaName = "arena"
+  ArenaLargeName = "arena-large"
   ArenaBorder* = 10            ## perimeter wall thickness in px.
-  ArenaFlagRing = 70           ## clear radius of the open center ring.
-  ArenaCaptureClear = 210      ## x-columns kept traversable for carriers.
-  ArenaSpawnClearW = 70        ## half-width of the open spawn pockets.
-  ArenaSpawnClearH = 130       ## half-height of the open spawn pockets.
 
   ## Warm CRT-phosphor arena (REPLAY_DESIGN §3 art-lock): warm-dark floor,
   ## warm-stone cover, the two team colors the only saturated channels — never
@@ -896,8 +940,10 @@ const
   ## while every corridor stays >= 26px for the 13px player footprint. The
   ## columns vary the shape per lane: border-attached rect stubs, diamonds,
   ## discs, 45-degree chevron walls angling across the old corridors, and
-  ## rect/diamond stubs flanking the flag ring. The chevron pair straddling
-  ## the horizontal midline closes the mid lane outside the flag ring; the
+  ## rect/diamond stubs flanking the flag ring. A windowed square bracket
+  ## straddling the horizontal midline closes the mid lane outside the flag
+  ## ring to movement and fire, while its glass center pane gives both teams
+  ## a fogless sightline down the center corridor (GameVersion 16); the
   ## ring itself stays an open disc for close flag fights. Shapes sit
   ## between the capture/spawn columns and the flag ring; isProtectedFloor
   ## carves them out of the ring, pockets, and capture columns.
@@ -922,24 +968,34 @@ const
     ArenaShape(kind: shapeDiamond, cx: 349, cy: 376, radius: 28),
     ArenaShape(kind: shapeDiamond, cx: 349, cy: 472, radius: 28),
     ArenaShape(kind: shapeDiamond, cx: 349, cy: 568, radius: 28),
-    # Column 3 (x=421): discs, phase +24.
+    # Column 3 (x=421): discs, phase +24. GameVersion 16 thinned the lane:
+    # every other disc removed (was 66/162/258/400/496/592), giving the
+    # column real gaps instead of a near-solid picket. Top/bottom mirror
+    # symmetry is intentionally traded for the lower density; team fairness
+    # only needs the x-mirror.
     ArenaShape(kind: shapeDisc, cx: 421, cy: 66, radius: 28),
-    ArenaShape(kind: shapeDisc, cx: 421, cy: 162, radius: 28),
     ArenaShape(kind: shapeDisc, cx: 421, cy: 258, radius: 28),
-    ArenaShape(kind: shapeDisc, cx: 421, cy: 400, radius: 28),
     ArenaShape(kind: shapeDisc, cx: 421, cy: 496, radius: 28),
-    ArenaShape(kind: shapeDisc, cx: 421, cy: 592, radius: 28),
-    # Column 4 (x=479..509): 45-degree chevron walls, phase +72; the pair
-    # straddling the midline forms one continuous zigzag that closes the
-    # old mid lane at mid range.
+    # Column 4 (x=479..509): 45-degree chevron walls, phase +72; the
+    # midline pair was replaced in GameVersion 16 by the windowed bracket
+    # below.
     ArenaShape(kind: shapeDiagonal, x0: 479, y0: 86, x1: 507, y1: 114, thickness: 12),
     ArenaShape(kind: shapeDiagonal, x0: 507, y0: 114, x1: 479, y1: 142, thickness: 12),
     ArenaShape(kind: shapeDiagonal, x0: 507, y0: 182, x1: 479, y1: 210, thickness: 12),
     ArenaShape(kind: shapeDiagonal, x0: 479, y0: 210, x1: 507, y1: 238, thickness: 12),
-    ArenaShape(kind: shapeDiagonal, x0: 479, y0: 276, x1: 506, y1: 303, thickness: 12),
-    ArenaShape(kind: shapeDiagonal, x0: 506, y0: 303, x1: 479, y1: 330, thickness: 12),
-    ArenaShape(kind: shapeDiagonal, x0: 479, y0: 329, x1: 506, y1: 356, thickness: 12),
-    ArenaShape(kind: shapeDiagonal, x0: 506, y0: 356, x1: 479, y1: 383, thickness: 12),
+    # GameVersion 16: the old midline chevron zigzag (the sideways "W" that
+    # closed the mid lane) is now a square bracket over the same footprint
+    # (x=479..507, y=276..383): a vertical bar on the outer side plus short
+    # arms reaching toward the flag ring — "[" here, "]" on the x-mirror.
+    # The middle of the bar, straddling the midline, is a GLASS WINDOW:
+    # the mid lane stays closed to movement, bullets, and plasma, but
+    # fog-of-war now sees straight down the center corridor through it.
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 479, y: 276, w: 28, h: 12)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 479, y: 288, w: 12, h: 24)),
+    ArenaShape(kind: shapeRect, window: true,
+      rect: MapRect(x: 479, y: 312, w: 12, h: 36)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 479, y: 348, w: 12, h: 23)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 479, y: 371, w: 28, h: 12)),
     ArenaShape(kind: shapeDiagonal, x0: 507, y0: 421, x1: 479, y1: 449, thickness: 12),
     ArenaShape(kind: shapeDiagonal, x0: 479, y0: 449, x1: 507, y1: 477, thickness: 12),
     ArenaShape(kind: shapeDiagonal, x0: 479, y0: 517, x1: 507, y1: 545, thickness: 12),
@@ -954,33 +1010,130 @@ const
     ArenaShape(kind: shapeRect, rect: MapRect(x: 556, y: 569, w: 18, h: 66)),
   ]
 
+  ## The arena-large layout (1606x858, 30% bigger in both axes): every
+  ## shape keeps its `arena` SIZE while its CENTER (and the layout
+  ## clearances) scale by 1.3, so the same cover sits in a roomier field
+  ## with ~30% wider corridors — and some long sightlines the dense arena
+  ## deliberately closed now survive; the field plays roomier by design.
+  ## Five staggered columns at x-centers 360/454/547/641/735 plus their
+  ## x-mirrors; border-attached stubs stay attached and the column-5 border
+  ## gaps stay < 26px (impassable) rather than scaling into new lanes.
+  ArenaLargeLeftObstacles = [
+    # Column 1 (x=351..369): rect stubs, phase 0, border-attached ends. The
+    # SECOND stub from the top and from the bottom are GLASS WINDOWS
+    # (GameVersion 15): solid to movement, bullets, and plasma arcs, transparent
+    # to fog-of-war.
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 351, y: 10, w: 18, h: 62)),
+    ArenaShape(kind: shapeRect, window: true,
+      rect: MapRect(x: 351, y: 149, w: 18, h: 60)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 351, y: 274, w: 18, h: 60)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 351, y: 399, w: 18, h: 59)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 351, y: 524, w: 18, h: 60)),
+    ArenaShape(kind: shapeRect, window: true,
+      rect: MapRect(x: 351, y: 649, w: 18, h: 60)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 351, y: 786, w: 18, h: 62)),
+    # Column 2 (x=454): diamonds, phase +48 (half period) vs column 1.
+    ArenaShape(kind: shapeDiamond, cx: 454, cy: 117, radius: 28),
+    ArenaShape(kind: shapeDiamond, cx: 454, cy: 242, radius: 28),
+    ArenaShape(kind: shapeDiamond, cx: 454, cy: 367, radius: 28),
+    ArenaShape(kind: shapeDiamond, cx: 454, cy: 491, radius: 28),
+    ArenaShape(kind: shapeDiamond, cx: 454, cy: 616, radius: 28),
+    ArenaShape(kind: shapeDiamond, cx: 454, cy: 741, radius: 28),
+    # Column 3 (x=547): discs, phase +24. GameVersion 16 thinned the lane:
+    # every other disc removed, giving the column real gaps instead of a
+    # near-solid picket. Top/bottom mirror symmetry is intentionally traded
+    # for the lower density; team fairness only needs the x-mirror.
+    ArenaShape(kind: shapeDisc, cx: 547, cy: 86, radius: 28),
+    ArenaShape(kind: shapeDisc, cx: 547, cy: 335, radius: 28),
+    ArenaShape(kind: shapeDisc, cx: 547, cy: 645, radius: 28),
+    # Column 4 (x=627..655): 45-degree chevron walls, phase +72; the
+    # midline pair was replaced in GameVersion 16 by the windowed bracket
+    # below.
+    ArenaShape(kind: shapeDiagonal, x0: 627, y0: 120, x1: 655, y1: 148, thickness: 12),
+    ArenaShape(kind: shapeDiagonal, x0: 655, y0: 148, x1: 627, y1: 176, thickness: 12),
+    ArenaShape(kind: shapeDiagonal, x0: 655, y0: 245, x1: 627, y1: 273, thickness: 12),
+    ArenaShape(kind: shapeDiagonal, x0: 627, y0: 273, x1: 655, y1: 301, thickness: 12),
+    # GameVersion 16: the old midline chevron zigzag (the sideways "W" that
+    # closed the mid lane) is now a square bracket over the same footprint
+    # (x=627..655, y=375..482): a vertical bar on the outer side plus short
+    # arms reaching toward the flag ring — "[" here, "]" on the x-mirror.
+    # The middle of the bar, straddling the midline, is a GLASS WINDOW:
+    # the mid lane stays closed to movement, bullets, and plasma, but
+    # fog-of-war now sees straight down the center corridor through it.
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 627, y: 375, w: 28, h: 12)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 627, y: 387, w: 12, h: 24)),
+    ArenaShape(kind: shapeRect, window: true,
+      rect: MapRect(x: 627, y: 411, w: 12, h: 36)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 627, y: 447, w: 12, h: 23)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 627, y: 470, w: 28, h: 12)),
+    ArenaShape(kind: shapeDiagonal, x0: 655, y0: 557, x1: 627, y1: 585, thickness: 12),
+    ArenaShape(kind: shapeDiagonal, x0: 627, y0: 585, x1: 655, y1: 613, thickness: 12),
+    ArenaShape(kind: shapeDiagonal, x0: 627, y0: 682, x1: 655, y1: 710, thickness: 12),
+    ArenaShape(kind: shapeDiagonal, x0: 655, y0: 710, x1: 627, y1: 738, thickness: 12),
+    # Column 5 (x=726..744): rect stubs at the borders (their border gaps
+    # stay < 26px, i.e. impassable, rather than scaling into new lanes),
+    # diamonds flanking the flag ring.
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 726, y: 31, w: 18, h: 66)),
+    ArenaShape(kind: shapeDiamond, cx: 735, cy: 203, radius: 30),
+    ArenaShape(kind: shapeDiamond, cx: 735, cy: 328, radius: 30),
+    ArenaShape(kind: shapeDiamond, cx: 735, cy: 530, radius: 30),
+    ArenaShape(kind: shapeDiamond, cx: 735, cy: 655, radius: 30),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 726, y: 761, w: 18, h: 66)),
+  ]
+
 proc arenaCtfMap(): CtfMap =
-  ## Returns the procedurally-defined symmetric arena metadata.
+  ## The default arena: the procedurally-defined symmetric 1235x659 map.
   result.name = ArenaName
   result.path = ArenaName
-  result.width = MapWidth
-  result.height = MapHeight
+  result.width = 1235
+  result.height = 659
   result.mapLayer = 0
   result.walkLayer = 1
   result.wallLayer = 2
-  result.center = MapPoint(x: MapWidth div 2, y: MapHeight div 2)
+  result.center = MapPoint(x: result.width div 2, y: result.height div 2)
+  result.flagRing = 70
+  result.captureClear = 210
+  result.spawnClearW = 70
+  result.spawnClearH = 130
+  result.gunRange = 1300
+  result.leftObstacles = @ArenaLeftObstacles
   result.rooms = @[
-    Room(name: "Center", x: MapWidth div 2 - 80, y: MapHeight div 2 - 80,
-         w: 160, h: 160),
-    Room(name: "Red Base", x: 0, y: MapHeight div 2 - 130,
-         w: ArenaCaptureClear, h: 260),
-    Room(name: "Blue Base", x: MapWidth - ArenaCaptureClear,
-         y: MapHeight div 2 - 130, w: ArenaCaptureClear, h: 260),
+    Room(name: "Center", x: result.width div 2 - 80,
+         y: result.height div 2 - 80, w: 160, h: 160),
+    Room(name: "Red Base", x: 0, y: result.height div 2 - 130,
+         w: result.captureClear, h: 260),
+    Room(name: "Blue Base", x: result.width - result.captureClear,
+         y: result.height div 2 - 130, w: result.captureClear, h: 260),
   ]
   result.validateMap()
 
-proc loadCtfMap*(path = ""): CtfMap =
-  ## Returns the procedurally-generated symmetric CTF arena.
-  arenaCtfMap()
-
-proc loadCtfMapMetadata*(path = ""): CtfMap =
-  ## Returns arena metadata (same as loadCtfMap; nothing is read from disk).
-  arenaCtfMap()
+proc arenaLargeCtfMap(): CtfMap =
+  ## The arena-large map: 1606x858 (+30% both axes). Obstacles keep their
+  ## `arena` sizes but sit spread out; the layout clearances and the gun
+  ## range scale with the field.
+  result.name = ArenaLargeName
+  result.path = ArenaLargeName
+  result.width = 1606
+  result.height = 858
+  result.mapLayer = 0
+  result.walkLayer = 1
+  result.wallLayer = 2
+  result.center = MapPoint(x: result.width div 2, y: result.height div 2)
+  result.flagRing = 91
+  result.captureClear = 273
+  result.spawnClearW = 91
+  result.spawnClearH = 169
+  result.gunRange = 1690
+  result.leftObstacles = @ArenaLargeLeftObstacles
+  result.rooms = @[
+    Room(name: "Center", x: result.width div 2 - 80,
+         y: result.height div 2 - 80, w: 160, h: 160),
+    Room(name: "Red Base", x: 0, y: result.height div 2 - 169,
+         w: result.captureClear, h: 338),
+    Room(name: "Blue Base", x: result.width - result.captureClear,
+         y: result.height div 2 - 169, w: result.captureClear, h: 338),
+  ]
+  result.validateMap()
 
 proc teamHomeX*(gameMap: CtfMap, team: Team): int =
   ## Returns the home-edge x anchor for one team's spawn strip and pedestal.
@@ -995,20 +1148,21 @@ proc flagHome*(gameMap: CtfMap, team: Team): MapPoint =
   ## team's protected spawn pocket.
   MapPoint(x: gameMap.teamHomeX(team), y: gameMap.center.y)
 
-proc mirrorX(rect: MapRect): MapRect =
-  ## Mirrors one rectangle across the vertical center line.
-  MapRect(x: MapWidth - rect.x - rect.w, y: rect.y, w: rect.w, h: rect.h)
+proc mirrorX(rect: MapRect, width: int): MapRect =
+  ## Mirrors one rectangle across the vertical center line of a width-px map.
+  MapRect(x: width - rect.x - rect.w, y: rect.y, w: rect.w, h: rect.h)
 
-proc mirrorX(shape: ArenaShape): ArenaShape =
-  ## Mirrors one arena shape across the vertical center line.
+proc mirrorX(shape: ArenaShape, width: int): ArenaShape =
+  ## Mirrors one arena shape across the vertical center line of a width-px map.
   case shape.kind
   of shapeRect:
-    ArenaShape(kind: shapeRect, window: shape.window, rect: shape.rect.mirrorX())
+    ArenaShape(kind: shapeRect, window: shape.window,
+      rect: shape.rect.mirrorX(width))
   of shapeDisc:
     ArenaShape(
       kind: shapeDisc,
       window: shape.window,
-      cx: MapWidth - 1 - shape.cx,
+      cx: width - 1 - shape.cx,
       cy: shape.cy,
       radius: shape.radius
     )
@@ -1016,7 +1170,7 @@ proc mirrorX(shape: ArenaShape): ArenaShape =
     ArenaShape(
       kind: shapeDiamond,
       window: shape.window,
-      cx: MapWidth - 1 - shape.cx,
+      cx: width - 1 - shape.cx,
       cy: shape.cy,
       radius: shape.radius
     )
@@ -1024,9 +1178,9 @@ proc mirrorX(shape: ArenaShape): ArenaShape =
     ArenaShape(
       kind: shapeDiagonal,
       window: shape.window,
-      x0: MapWidth - 1 - shape.x0,
+      x0: width - 1 - shape.x0,
       y0: shape.y0,
-      x1: MapWidth - 1 - shape.x1,
+      x1: width - 1 - shape.x1,
       y1: shape.y1,
       thickness: shape.thickness
     )
@@ -1074,26 +1228,76 @@ proc inShape(x, y: int, shape: ArenaShape): bool =
       dx * dx + dy * dy <=
         int64(shape.thickness) * int64(shape.thickness) * len2 * len2 div 4
 
-const ArenaObstacles* = block:
+proc buildArenaObstacles(gameMap: CtfMap): seq[ArenaShape] =
   ## The full obstacle set: every left-half shape plus its x-mirror,
-  ## precomputed once so the per-pixel wall test never re-mirrors.
-  var shapes: seq[ArenaShape]
-  for shape in ArenaLeftObstacles:
-    shapes.add shape
-    shapes.add shape.mirrorX()
-  shapes
+  ## precomputed once per map selection so the per-pixel wall test never
+  ## re-mirrors.
+  for shape in gameMap.leftObstacles:
+    result.add shape
+    result.add shape.mirrorX(gameMap.width)
 
-const AnimatedDiamonds* = block:
+proc buildAnimatedDiamonds(
+  gameMap: CtfMap, obstacles: seq[ArenaShape]
+): seq[tuple[cx, cy, radius: int]] =
   ## The eight diamonds flanking the center of the field (column 5 and its
   ## x-mirror): drawn as slowly rotating sprites instead of baked wall art.
   ## COLLISION, LOS, and the fog masks keep the exact static diamond — the
   ## spin is pure decoration and never enters gameHash.
-  var spots: seq[tuple[cx, cy, radius: int]]
-  for shape in ArenaObstacles:
+  for shape in obstacles:
     if shape.kind == shapeDiamond and
-        abs(shape.cx - MapWidth div 2) < 80:
-      spots.add((shape.cx, shape.cy, shape.radius))
-  spots
+        abs(shape.cx - gameMap.center.x) < 80:
+      result.add((shape.cx, shape.cy, shape.radius))
+
+## The SELECTED map's layout, installed once per process by loadCtfMap and
+## initialized to the default arena below so tooling that never selects a
+## map observes a complete default state, never an empty one.
+var
+  ArenaFlagRing = 70
+  ArenaCaptureClear = 210
+  ArenaSpawnClearW = 70
+  ArenaSpawnClearH = 130
+  ArenaRedHomeX = 186
+  ArenaBlueHomeX = 1049
+  ArenaObstacles*: seq[ArenaShape]
+  AnimatedDiamonds*: seq[tuple[cx, cy, radius: int]]
+
+proc selectCtfMap(gameMap: CtfMap) =
+  ## Installs one map as THE map for this process: dimensions, fog grid,
+  ## map-relative ranges, layout clearances, and the mirrored obstacle set.
+  ## Runs before any sim, mask, or render work; the render bakes in
+  ## global.nim assume the arena never changes afterward.
+  MapWidth = gameMap.width
+  MapHeight = gameMap.height
+  FovGridW = (MapWidth + FovCellSize - 1) div FovCellSize
+  FovGridH = (MapHeight + FovCellSize - 1) div FovCellSize
+  FovCellCount = FovGridW * FovGridH
+  GrenadeMaxRange = MapWidth div 5
+  ShoutRange = MapWidth div 5
+  ArenaFlagRing = gameMap.flagRing
+  ArenaCaptureClear = gameMap.captureClear
+  ArenaSpawnClearW = gameMap.spawnClearW
+  ArenaSpawnClearH = gameMap.spawnClearH
+  ArenaRedHomeX = gameMap.teamHomeX(Red)
+  ArenaBlueHomeX = gameMap.teamHomeX(Blue)
+  ArenaObstacles = buildArenaObstacles(gameMap)
+  AnimatedDiamonds = buildAnimatedDiamonds(gameMap, ArenaObstacles)
+
+selectCtfMap(arenaCtfMap())
+
+proc loadCtfMapMetadata*(path = ""): CtfMap =
+  ## Returns one map's metadata WITHOUT installing it as the process map.
+  let name = if path.len == 0: DefaultMapPath else: path
+  case name
+  of ArenaName: arenaCtfMap()
+  of ArenaLargeName: arenaLargeCtfMap()
+  else:
+    raise newException(CtfError, "Unknown map: " & name)
+
+proc loadCtfMap*(path = ""): CtfMap =
+  ## Returns the named map ("arena" is the default; "arena-large" is the
+  ## 30%-larger variant) and installs it as this process's arena.
+  result = loadCtfMapMetadata(path)
+  selectCtfMap(result)
 
 proc isAnimatedDiamondPixel*(x, y: int): bool =
   ## Returns true when (x, y) lies inside one of the rotating center
@@ -1143,7 +1347,7 @@ proc isProtectedFloor(x, y, cx, cy: int): bool =
     dy = y - cy
   if dx * dx + dy * dy <= ArenaFlagRing * ArenaFlagRing:
     return true
-  for homeX in [186, 1049]:
+  for homeX in [ArenaRedHomeX, ArenaBlueHomeX]:
     if abs(x - homeX) <= ArenaSpawnClearW and abs(y - cy) <= ArenaSpawnClearH:
       return true
   false
@@ -1181,7 +1385,7 @@ proc isProtectedFloorF(x, y: float, cx, cy: int): bool =
     dy = y - float(cy)
   if dx * dx + dy * dy <= float(ArenaFlagRing * ArenaFlagRing):
     return true
-  for homeX in [186.0, 1049.0]:
+  for homeX in [float(ArenaRedHomeX), float(ArenaBlueHomeX)]:
     if abs(x - homeX) <= float(ArenaSpawnClearW) and
         abs(y - float(cy)) <= float(ArenaSpawnClearH):
       return true
@@ -1860,7 +2064,6 @@ proc defaultGameConfig*(): GameConfig =
     lives: Lives,
     hitPoints: HitPoints,
     respawnTicks: RespawnTicks,
-    spawnProtectTicks: SpawnProtectTicks,
     gunRange: GunRange,
     fireCooldownTicks: FireCooldownTicks,
     fireWindupTicks: FireWindupTicks,
@@ -2134,8 +2337,7 @@ proc validate(config: GameConfig) =
     )
   if config.startWaitTicks < 0:
     raise newException(CtfError, "Config field startWaitTicks must be non-negative.")
-  if config.respawnTicks < 0 or config.spawnProtectTicks < 0 or
-      config.fireCooldownTicks < 0:
+  if config.respawnTicks < 0 or config.fireCooldownTicks < 0:
     raise newException(CtfError, "Timer config fields must not be negative.")
   if config.gameOverTicks < 0 or config.maxTicks < 0 or config.maxGames < 0:
     raise newException(CtfError, "Timer config fields must not be negative.")
@@ -2196,7 +2398,6 @@ proc update*(config: var GameConfig, jsonText: string) =
   node.readConfigInt("lives", config.lives)
   node.readConfigInt("hitPoints", config.hitPoints)
   node.readConfigInt("respawnTicks", config.respawnTicks)
-  node.readConfigInt("spawnProtectTicks", config.spawnProtectTicks)
   node.readConfigInt("gunRange", config.gunRange)
   node.readConfigInt("fireCooldownTicks", config.fireCooldownTicks)
   node.readConfigInt("fireWindupTicks", config.fireWindupTicks)
@@ -2214,6 +2415,10 @@ proc update*(config: var GameConfig, jsonText: string) =
   node.readConfigBool("showPlayerLabels", config.showPlayerLabels)
   node.readConfigString("map", config.mapPath)
   node.readConfigString("mapPath", config.mapPath)
+  ## The gun range follows the selected map unless the config sets it
+  ## explicitly: each map def carries its own map-wide default.
+  if not node.hasKey("gunRange"):
+    config.gunRange = loadCtfMapMetadata(config.mapPath).gunRange
   node.readConfigSlots(config.slots)
   node.readConfigBool("closedRoster", config.closedRoster)
   node.readConfigTokens(config.slots, config.closedRoster)
@@ -2267,7 +2472,6 @@ proc configJson*(config: GameConfig): string =
     "lives": config.lives,
     "hitPoints": config.hitPoints,
     "respawnTicks": config.respawnTicks,
-    "spawnProtectTicks": config.spawnProtectTicks,
     "gunRange": config.gunRange,
     "fireCooldownTicks": config.fireCooldownTicks,
     "fireWindupTicks": config.fireWindupTicks,
@@ -2447,7 +2651,6 @@ proc gameHash*(sim: SimServer): uint64 =
     result.mixHashInt(player.fireCooldown)
     result.mixHashInt(player.fireWindup)
     result.mixHashInt(player.windupBrads)
-    result.mixHashInt(player.spawnProtect)
     result.mixHashBool(player.carryingFlag)
     result.mixHashBool(player.hasGrenade)
     result.mixHashBool(player.hasShield)
@@ -2597,6 +2800,21 @@ proc teamForSlot(sim: SimServer, order: int): Team =
     Red
   else:
     Blue
+
+const IdentityNames* = [
+  "alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta"]
+  ## Per-team player identities, assigned by slot order within the team.
+
+proc slotIdentityIndex*(sim: SimServer, order: int): int =
+  ## Returns one slot's identity index (into IdentityNames): its rank among
+  ## same-team slots. Derived from the config, not stored, so it is stable
+  ## across matches, reconnects, and replays. Wraps past theta in the
+  ## degenerate case of more than IdentityNames.len slots on one team.
+  let team = sim.teamForSlot(order)
+  for i in 0 ..< order:
+    if sim.teamForSlot(i) == team:
+      inc result
+  result = result mod IdentityNames.len
 
 proc findSpawn*(sim: SimServer): tuple[x, y: int] =
   ## Returns the next lobby spawn position.
@@ -3071,6 +3289,18 @@ proc recordKill*(sim: var SimServer, playerIndex: int) =
     inc sim.rewardAccounts[index].kills
   inc sim.players[playerIndex].kills
 
+proc recordTeamKill*(sim: var SimServer, killerIndex, victimIndex: int) =
+  ## Counts a teammate kill (the endscreen "backstab" badge). Weapon-agnostic:
+  ## bullets, grenade blasts, and plasma cones all land here.
+  if killerIndex < 0 or killerIndex >= sim.players.len:
+    return
+  if victimIndex < 0 or victimIndex >= sim.players.len:
+    return
+  if killerIndex == victimIndex:
+    return
+  if sim.players[killerIndex].team == sim.players[victimIndex].team:
+    inc sim.players[killerIndex].teamKills
+
 proc recordDeath*(sim: var SimServer, playerIndex: int) =
   ## Increments the death counter for one player.
   let index = sim.rewardAccountForPlayer(playerIndex)
@@ -3253,7 +3483,6 @@ proc startGame*(sim: var SimServer) =
     sim.players[i].windupBrads = -1
     sim.players[i].aimBrads = spawnAimBrads(sim.players[i].team)
     sim.players[i].flipH = sim.players[i].team == Blue
-    sim.players[i].spawnProtect = sim.config.spawnProtectTicks
     sim.players[i].carryingFlag = false
     sim.players[i].hasShield = false
     sim.players[i].kills = 0
@@ -3261,6 +3490,10 @@ proc startGame*(sim: var SimServer) =
     sim.players[i].captures = 0
     sim.players[i].shotsFired = 0
     sim.players[i].shotsHit = 0
+    sim.players[i].multiKills2 = 0
+    sim.players[i].multiKills3 = 0
+    sim.players[i].teamKills = 0
+    sim.players[i].arcKillsThisFire = 0
     sim.recordGameTeamAssigned(i)
   sim.resetFlags()
   sim.resetGrenades()
@@ -3536,6 +3769,17 @@ proc killPlayer*(sim: var SimServer, targetIndex, killerIndex: int) =
     color: sim.players[targetIndex].color,
     hit: false
   )
+  # A floating "KO" kill marker rises and fades from the death spot — the same
+  # mechanism as the "-1" damage pops, so a kill reads at a glance in the
+  # spectator/replay view (cosmetic only, never in gameHash).
+  sim.damagePops.add DamageFx(
+    x: sim.players[targetIndex].x + CollisionW div 2,
+    y: sim.players[targetIndex].y + CollisionH div 2,
+    tick: sim.tickCount,
+    amount: 0,
+    color: sim.players[targetIndex].color,
+    kill: true
+  )
   sim.players[targetIndex].alive = false
   sim.players[targetIndex].velX = 0
   sim.players[targetIndex].velY = 0
@@ -3585,8 +3829,6 @@ proc selectArcVictims(
   for i in 0 ..< sim.players.len:
     if i == attackerIndex or not sim.players[i].alive:
       continue
-    if sim.players[i].spawnProtect > 0:
-      continue
     let
       vx = float(sim.players[i].x + CollisionW div 2 - ax)
       vy = float(sim.players[i].y + CollisionH div 2 - ay)
@@ -3615,6 +3857,7 @@ proc startArcFire*(sim: var SimServer, attackerIndex: int) =
     PlasmaArcActiveTicks + PlasmaArcResetTicks
   sim.players[attackerIndex].arcTicksLeft = PlasmaArcActiveTicks
   sim.players[attackerIndex].arcHitMask = 0
+  sim.players[attackerIndex].arcKillsThisFire = 0
   sim.logGameEvent(
     playerColorText(sim.players[attackerIndex].color) & " fired a plasma arc"
   )
@@ -3666,6 +3909,16 @@ proc resolveActiveArcCones*(sim: var SimServer) =
         sim.killPlayer(victimIndex, arcFire.attacker)
         if victimIndex != arcFire.attacker:
           sim.recordKill(arcFire.attacker)
+          sim.recordTeamKill(arcFire.attacker, victimIndex)
+          # Multi-kill accounting per ACTIVATION (not per tick): the second
+          # kill of one firing mints a double, the third upgrades it to a
+          # triple; a fourth+ stays inside the already-counted triple.
+          inc sim.players[arcFire.attacker].arcKillsThisFire
+          if sim.players[arcFire.attacker].arcKillsThisFire == 2:
+            inc sim.players[arcFire.attacker].multiKills2
+          elif sim.players[arcFire.attacker].arcKillsThisFire == 3:
+            dec sim.players[arcFire.attacker].multiKills2
+            inc sim.players[arcFire.attacker].multiKills3
     if sim.players[arcFire.attacker].arcTicksLeft > 0:
       dec sim.players[arcFire.attacker].arcTicksLeft
 
@@ -3688,8 +3941,15 @@ proc fireDirection(sim: SimServer, shooterIndex: int): tuple[x, y: float] =
 
 proc selectFireTarget(sim: SimServer, shooterIndex: int): int =
   ## Returns the FIRST player along the shot ray — the bullet travels down
-  ## the locked aim direction and stops at the first footprint it crosses
+  ## the locked aim direction and stops at the first body it crosses
   ## (friendly fire on) or the first wall — or -1 for a miss.
+  ##
+  ## A target's body is sampled across its silhouette (perpendicular to the
+  ## ray, ±PlayerHalf): a sample connects only when the bullet corridor
+  ## covers it AND the shooter has line of sight TO THAT SAMPLE. Cover is
+  ## therefore partial, not binary — a corner-hugger can only be hit on the
+  ## sliver of body it actually shows, and a fully exposed body presents the
+  ## same effective width as the old center-only corridor check.
   result = -1
   let
     shooter = sim.players[shooterIndex]
@@ -3697,31 +3957,30 @@ proc selectFireTarget(sim: SimServer, shooterIndex: int): int =
     sx = shooter.x + CollisionW div 2
     sy = shooter.y + CollisionH div 2
     maxRange = float(sim.config.gunRange)
-    corridor = BulletHalfWidth + float(PlayerHalf)
   var bestT = maxRange + 1.0
   for i in 0 ..< sim.players.len:
     if i == shooterIndex or not sim.players[i].alive:
       continue
-    if sim.players[i].spawnProtect > 0:
-      continue
     let
-      vx = float(sim.players[i].x + CollisionW div 2 - sx)
-      vy = float(sim.players[i].y + CollisionH div 2 - sy)
-      t = vx * ux + vy * uy            # distance along the ray
-    if t <= 0 or t > maxRange:
-      continue
-    let perp = abs(vx * uy - vy * ux)  # distance off the ray
-    if perp > corridor:
-      continue
-    if not sim.lineOfSightClear(
-      sx, sy,
-      sim.players[i].x + CollisionW div 2,
-      sim.players[i].y + CollisionH div 2
-    ):
-      continue
-    if t < bestT:
-      bestT = t
-      result = i
+      tx = float(sim.players[i].x + CollisionW div 2)
+      ty = float(sim.players[i].y + CollisionH div 2)
+    for off in countup(-PlayerHalf, PlayerHalf, ExposureSampleStep):
+      let
+        px = tx - float(off) * uy      # silhouette sample: the body span
+        py = ty + float(off) * ux      # perpendicular to the shot ray
+        vx = px - float(sx)
+        vy = py - float(sy)
+        t = vx * ux + vy * uy          # distance along the ray
+      if t <= 0 or t > maxRange:
+        continue
+      if abs(vx * uy - vy * ux) > BulletHalfWidth:
+        continue
+      if not sim.lineOfSightClear(sx, sy, int(round(px)), int(round(py))):
+        continue
+      if t < bestT:
+        bestT = t
+        result = i
+      break
 
 proc applyFire(sim: var SimServer, shooterIndex, targetIndex: int) =
   ## Applies one selected shot: cooldown, tracer, and the kill. The target
@@ -3809,6 +4068,7 @@ proc applyFire(sim: var SimServer, shooterIndex, targetIndex: int) =
     if sim.players[targetIndex].hp <= 0:
       sim.killPlayer(targetIndex, shooterIndex)
       sim.recordKill(shooterIndex)
+      sim.recordTeamKill(shooterIndex, targetIndex)
     else:
       if not bubbleUp:
         # A non-fatal hit leaves a small, short-lived paint spark in the
@@ -3925,8 +4185,7 @@ proc applyGrenadeInput(
 proc explodeGrenade(sim: var SimServer, grenade: AirborneGrenade) =
   ## Applies one landing: a cosmetic blast flash (which views also use for
   ## the audible landing's sound ring) plus blast damage to EVERYONE inside
-  ## the radius — teammates and the thrower included; spawn protection
-  ## still shields.
+  ## the radius — teammates and the thrower included.
   # Color the splat by the thrower's TEAM (not their individual slot color), so
   # a landing reads as that team's paint-bomb — and the sprite id stays within
   # the two team-color slots, never colliding with the tracer pool.
@@ -3940,8 +4199,9 @@ proc explodeGrenade(sim: var SimServer, grenade: AirborneGrenade) =
   )
   sim.logGameEvent("grenade landed")
   let radiusSq = GrenadeBlastRadius * GrenadeBlastRadius
+  var blastKills = 0
   for i in 0 ..< sim.players.len:
-    if not sim.players[i].alive or sim.players[i].spawnProtect > 0:
+    if not sim.players[i].alive:
       continue
     let
       px = sim.players[i].x + CollisionW div 2
@@ -3958,6 +4218,15 @@ proc explodeGrenade(sim: var SimServer, grenade: AirborneGrenade) =
       sim.killPlayer(i, grenade.thrower)
       if grenade.thrower != i:
         sim.recordKill(grenade.thrower)
+        sim.recordTeamKill(grenade.thrower, i)
+        inc blastKills
+  # Multi-kill accounting per BLAST: one landing that kills 2 mints a double,
+  # 3+ a triple (a self-kill in the blast never counts toward either).
+  if grenade.thrower >= 0 and grenade.thrower < sim.players.len:
+    if blastKills >= 3:
+      inc sim.players[grenade.thrower].multiKills3
+    elif blastKills == 2:
+      inc sim.players[grenade.thrower].multiKills2
 
 proc updateGrenades(sim: var SimServer) =
   ## Refills corner pickups whose timer elapsed and lands due grenades.
@@ -4038,11 +4307,16 @@ proc updateShields*(sim: var SimServer) =
       spawn.present = true
 
 proc tryPickupShields*(sim: var SimServer, playerIndex: int) =
-  ## Lets a living player pick up an endzone shield by touch (one carried
-  ## shield max; either team may take either endzone's shield). Carrying a
-  ## shield raises the player to ShieldHitPoints but slows their fire rate
+  ## Lets a living player pick up an endzone shield by touch (either team may
+  ## take either endzone's shield). A pickup grants the shield and heals
+  ## ShieldPickupHeal hp up to the ShieldHitPoints ceiling — a damaged carrier
+  ## may take another shield to top back up, while a full-health carrier
+  ## leaves the spawn untouched for a teammate. Carrying a shield slows fire
   ## ShieldFireSlowdown times; a taken shield refills after ShieldRespawnTicks.
-  if not sim.players[playerIndex].alive or sim.players[playerIndex].hasShield:
+  if not sim.players[playerIndex].alive:
+    return
+  if sim.players[playerIndex].hasShield and
+      sim.players[playerIndex].hp >= ShieldHitPoints:
     return
   let
     px = sim.players[playerIndex].x + CollisionW div 2
@@ -4053,7 +4327,8 @@ proc tryPickupShields*(sim: var SimServer, playerIndex: int) =
       spawn.present = false
       spawn.respawnAt = sim.tickCount + ShieldRespawnTicks
       sim.players[playerIndex].hasShield = true
-      sim.players[playerIndex].hp = ShieldHitPoints
+      sim.players[playerIndex].hp = min(
+        sim.players[playerIndex].hp + ShieldPickupHeal, ShieldHitPoints)
       sim.logGameEvent(
         playerColorText(sim.players[playerIndex].color) &
           " picked up a shield"
@@ -4488,6 +4763,24 @@ proc finishGame*(sim: var SimServer, winner: Team, isDraw = false, timeLimitReac
   sim.gameOverTimer = sim.config.gameOverTicks
   sim.timeLimitReached = timeLimitReached
   if isDraw:
+    if timeLimitReached:
+      # A time-limit draw is a lose-lose: every player on both teams takes
+      # TimeoutReward so running out the clock is never better than losing.
+      # A mutual-wipe draw stays 0/0 — both sides at least fought to the end.
+      var penalizedAccounts = newSeq[bool](sim.rewardAccounts.len)
+      for i in 0 ..< sim.players.len:
+        let accountIndex = sim.rewardAccountForPlayer(i)
+        if penalizedAccounts.len < sim.rewardAccounts.len:
+          penalizedAccounts.setLen(sim.rewardAccounts.len)
+        if accountIndex >= 0 and accountIndex < penalizedAccounts.len:
+          penalizedAccounts[accountIndex] = true
+        sim.addReward(i, TimeoutReward)
+      for i in 0 ..< sim.rewardAccounts.len:
+        if i < penalizedAccounts.len and penalizedAccounts[i]:
+          continue
+        if not sim.rewardAccounts[i].hasTeam:
+          continue
+        sim.rewardAccounts[i].reward += TimeoutReward
     return
   var awardedAccounts = newSeq[bool](sim.rewardAccounts.len)
   for i in 0 ..< sim.players.len:
@@ -4776,8 +5069,6 @@ proc respawnPlayers(sim: var SimServer) =
   ## Ticks respawn timers and brings dead players back at home.
   for i in 0 ..< sim.players.len:
     if sim.players[i].alive:
-      if sim.players[i].spawnProtect > 0:
-        dec sim.players[i].spawnProtect
       continue
     if sim.players[i].lives <= 0:
       continue
@@ -4787,7 +5078,6 @@ proc respawnPlayers(sim: var SimServer) =
         sim.resetPlayerToHome(i)
         sim.players[i].alive = true
         sim.players[i].hp = sim.config.hitPoints
-        sim.players[i].spawnProtect = sim.config.spawnProtectTicks
         sim.players[i].aimBrads = spawnAimBrads(sim.players[i].team)
         sim.players[i].flipH = sim.players[i].team == Blue
 
@@ -4915,6 +5205,7 @@ proc step*(
   sim.splatters = keptSplatters
   var keptPops: seq[DamageFx] = @[]
   for pop in sim.damagePops:
-    if sim.tickCount - pop.tick < DamageFxTicks:
+    let life = if pop.kill: KillFxTicks else: DamageFxTicks
+    if sim.tickCount - pop.tick < life:
       keptPops.add pop
   sim.damagePops = keptPops

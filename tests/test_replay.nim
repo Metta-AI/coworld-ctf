@@ -11,8 +11,8 @@ const
   # (commit 0c34ade) and stores no hitPoints in its config, so replaying it
   # under today's defaultGameConfig() (HitPoints = 3) deterministically diverges
   # the instant combat starts (hash mismatch at tick 71) — it is stale, not a
-  # bug in the replay engine. This capture-ending fixture (2465 ticks) exceeds
-  # every tick target below and hash-verifies clean end to end.
+  # bug in the replay engine. This capture-ending fixture exceeds every tick
+  # target below and hash-verifies clean end to end.
   CtfReplayPath = GameDir / "tests" / "fixtures" / "capture-seed7.bitreplay"
 
 proc initReplaySim(data: ReplayData): SimServer =
@@ -77,6 +77,23 @@ suite "ctf replay":
     check chrome["en"].getBool()
     check nextViewer.momentumSent
 
+    runtime.player.seekReplay(runtime.sim, runtime.player.replayMaxTick())
+    runtime.player.endHoldFrames = ReplayFps * 2
+    var holdViewer: GlobalViewerState
+    let holdPacket = runtime.sim.buildReplayViewerPacket(
+      runtime.player,
+      nextViewer,
+      holdViewer,
+      newJArray()
+    )
+    var holdChrome: JsonNode
+    for message in holdPacket.parseSpritePacket():
+      if message.kind == spkSprite and
+          message.sprite.id == BroadcastChromeSpriteId:
+        holdChrome = message.sprite.label.parseJson()
+    check not holdChrome.isNil
+    check holdChrome["hold"].getInt() == 2
+
     let seekTick = runtime.player.replayStartTick() + 20
     discard runtime.player.advanceReplayFrame(
       runtime.sim,
@@ -86,6 +103,7 @@ suite "ctf replay":
     )
     check runtime.sim.tickCount == seekTick
     check not runtime.player.playing
+    check runtime.player.endHoldFrames == 0
 
   test "sim serializes with flatty":
     let data = loadReplay(CtfReplayPath)

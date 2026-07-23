@@ -20,20 +20,34 @@ tasks, voting) with teams, guns, hearts, and fog-of-war vision.
   **right edge**.
 - **Two team hearts**, one on each team's **home pedestal** inside its spawn
   pocket (classic two-object CTF, with hearts for flags).
-- The arena is filled with **dense staggered cover** (a slalom of offset wall
+- The arena is filled with **staggered cover** (a slalom of offset wall
   stubs, diamonds, discs, and diagonal chevron walls, mirrored symmetrically so
   neither team has a positional advantage): **no straight shot crosses the
-  field**, so every approach is a series of corners.
+  field**, so every approach is a series of corners. GameVersion 16 thinned
+  the disc column to every other disc, opening real gaps in the mid-field
+  slalom.
 - In the outermost stub column of each half, the **second wall stub from the
   top and from the bottom are glass windows** (GameVersion 15): they block
   movement, bullets, and plasma arcs exactly like stone, but **vision passes
   straight through them**. Glass draws as a pale pane with diagonal sheen —
   cover you can be seen behind is not cover.
+- The old midline chevron zigzag is now a **square-bracket wall pair framing
+  the flag ring** (`[ … ]`, GameVersion 16), and the middle of each bracket's
+  bar — dead on the center row — is a **glass window**: the mid lane stays
+  closed to movement and fire, but both teams can watch the center corridor
+  through the glass.
 - A round ends when a team **captures the enemy heart** or is **wiped out**.
 
 ## Teams & spawns
 
 - Players are assigned to **Red** or **Blue** by slot (8 each).
+- Each team's players get a fixed **identity**, `alpha` through `theta`, by
+  slot order within the team — deterministic across matches and replays. A
+  small Greek-letter badge (Α Β Γ Δ Ε Ζ Η Θ) rides each living player's
+  sprite, and the badge object is labeled `identity <color> <name>` (e.g.
+  `identity red alpha`). Badges are fog-gated with their player: seeing a
+  player means seeing who it is. Existing `player <color> <side>` labels are
+  unchanged.
 - Each team has a **home edge**: Red = left, Blue = right.
 - Players spawn just inside their home edge and respawn there when killed.
 
@@ -126,16 +140,57 @@ always drawn — but moving entities are fogged:
 - The bullet is **hitscan along your aim ray**: it travels down the locked
   aim direction and hits the **first player whose footprint crosses its
   narrow corridor** — it never passes through a body to hit someone behind,
-  and **walls stop it** (clear line of sight required). Range is effectively
-  map-wide, so cover and angles matter more than distance.
+  and **walls stop it**. Range is effectively map-wide, so cover and angles
+  matter more than distance.
+- **Cover is partial, not binary.** A target's body is sampled across its
+  silhouette: only the part of the body that is both inside the bullet
+  corridor AND visible from the shooter can be hit. A corner-hugger showing
+  a sliver is exactly as hittable as that sliver — no more (fully hidden
+  body parts cannot be tagged through the wall), and no less (the poking
+  shoulder is fair game even when the body's center is safely covered).
+  More exposure means more aim angles connect.
 - **Friendly fire is ON.** A shot hits the first valid target regardless of team,
   so firing into a cluster of teammates can kill your own escort.
 - **Same-tick shots resolve simultaneously.** Every trigger pulled on the same
   tick picks its target against the same snapshot before any kill applies: a
   mutual face-off duel kills both shooters, and neither team gains an
   input-processing-order advantage.
-- On respawn you have brief **spawn protection** (temporary invulnerability) to
-  prevent spawn-camping.
+
+### Shot micro (frame data)
+
+The full life of one shot, at 24 ticks/second:
+
+1. **Trigger pull (tick 0).** Fire is edge-triggered: a shot arms on the
+   tick the button goes down — holding it does nothing, and a second pull
+   during a pending windup is ignored. The pull is refused entirely while
+   the cooldown is still running.
+2. **Windup (5 ticks, ~0.2s).** Your **aim angle locks at the pull**;
+   turning during the windup does not bend the pending shot (it only
+   re-aims the next one). Your **position stays live**: movement is
+   full-speed and unrestricted during the windup.
+3. **Release (tick 5).** The bullet resolves instantly (hitscan) **from
+   your position at release, along the angle locked at the pull**. All
+   movement for the tick happens first; every shot releasing that tick then
+   resolves at once against the post-movement snapshot.
+4. **Cooldown (12 ticks, ~0.5s; 3x that for a shield carrier).** The
+   cooldown starts at release, so the sustained rate is one shot per
+   cooldown — the windup does not slow your cadence.
+
+What that means in practice:
+
+- **Strafe-firing works.** The shot line translates with your movement
+  (new position, old angle), so lead your own strafe when you pull.
+- **Fire-and-duck can waste your own shot.** Line of sight is checked from
+  your release position: step behind a wall during your windup and the
+  wall eats your bullet.
+- **Targets can dodge the windup.** Anyone who breaks line of sight during
+  your ~0.2s windup survives; the aim lock is the price of the shot.
+- **The corridor is forgiving.** The bullet is a ray with an 8px half-width
+  corridor sampled against the target's ~12px-wide silhouette — near-misses
+  connect; precision beyond the corridor width buys nothing.
+- **Respawners are live immediately.** There is no spawn protection: a
+  freshly respawned player can shoot and be shot (and blocks bullets) from
+  their first tick.
 
 ## Grenades
 
@@ -156,9 +211,11 @@ always drawn — but moving entities are fogged:
   windups (~0.4s) after release, near or far** — long throws just travel
   faster. A grenade is a snap weapon: the reaction window is the same as
   eating two aimed shots, not a mortar shell you can stroll away from.
-- **The blast hurts everyone inside its radius (~40 px): enemies, teammates,
-  and the thrower alike**, removing 2 hit points each. Spawn protection
-  still shields. Kills credit the thrower (except suicides).
+- **The blast hurts everyone inside its radius (~52 px): enemies, teammates,
+  and the thrower alike**, removing 2 hit points each. The landing splat and
+  the charge-time throw-target ring are drawn at the TRUE blast diameter —
+  what looks painted is exactly what got hit, and everything inside the ring
+  will be. Kills credit the thrower (except suicides).
 - **Throwing is silent; landing is loud.** A landing you could not see
   leaves a large jittered sound ring (label `grenade sound`) — landing-only
   audio, exactly like gunshot impact rings. The throw itself leaves nothing.
@@ -187,8 +244,8 @@ always drawn — but moving entities are fogged:
   (one firing every 25 ticks). The cone shuts off if its owner dies.
 - **A touch removes 3 hit points, once per victim per firing** — instantly
   lethal to a bare 3 hp cog, while a 6 hp shield carrier survives the first
-  touch with 3 hp left. The cone affects teammates too, requires line of
-  sight, and spawn protection blocks it. Kills credit the attacker.
+  touch with 3 hp left. The cone affects teammates too and requires line
+  of sight. Kills credit the attacker.
 - Observation labels: pickup `plasma arc`, carrier marker
   `plasma arc carried`, and the fading cone `plasma arc pulse` (a run of
   team-colored pulse discs along the attacker's aim each active tick).
@@ -233,11 +290,13 @@ always drawn — but moving entities are fogged:
   grenade), nudged to the nearest walkable floor. The plasma arcs hold the
   matching top-half spots.
 - **Touch a shield to pick it up** — either team may take either endzone's
-  shield, and a player carries at most one.
-- **While carrying a shield you have 6 hit points but fire 3x slower.**
-  Picking one up sets your hit points to 6; each shot you fire starts a
-  cooldown three times the normal length until you lose the shield. You
-  can still move, carry the heart, and throw grenades.
+  shield. A pickup grants the shield and **heals 3 hit points, up to the
+  6 hp ceiling** — so a damaged shield carrier can take another shield to
+  top back up. A carrier already at 6 hp leaves the spawn untouched.
+- **While carrying a shield your hp ceiling is 6 but you fire 3x slower.**
+  Each shot you fire starts a cooldown three times the normal length until
+  you lose the shield. You can still move, carry the heart, and throw
+  grenades.
 - **A shield is lost when you die** and is not dropped on the ground; the
   taken endzone shield **respawns 30 seconds later** in the same spot.
 - Observation label: `shield`. Shields are fog-gated like the med kits and
@@ -271,8 +330,8 @@ A round ends immediately when either condition is met:
 1. **Capture** — carry the **enemy heart** into **your own home capture zone**.
 2. **Wipe** — the entire **enemy team is out of lives**.
 
-If neither happens before the **time limit**, the round is a **scoreless
-draw** — there is no tiebreak.
+If neither happens before the **time limit**, the round is a **lose-lose
+draw** — there is no tiebreak, and both sides are penalized.
 
 ## Scoring
 
@@ -280,7 +339,10 @@ Scoring is **sparse and win-only**:
 
 - **Decisive round** (capture or wipe): every winner scores **+1**, every
   loser scores **-1**.
-- **Time-limit draw: 0 for both sides.**
+- **Time-limit draw: -1 for both sides** (GameVersion 21). Running out the
+  clock is never better than losing, so stalling has no upside for anyone.
+- **Mutual-wipe draw** (both teams eliminated on the same tick): 0 for both
+  sides — both at least fought to a decision.
 
 Kills, deaths, heart pickups, carry time, and captures are still **recorded** in
 the episode results for leaderboards and analysis — they just do not award
@@ -309,7 +371,6 @@ These are starting values, exposed in the game config and tuned in self-play.
 | Lives per player | 3 | Out of lives = out for the round |
 | Hit points per life (`hitPoints`) | 3 | Shots to kill; reset to full on respawn |
 | Respawn delay | ~3s | Time dead before respawning at home |
-| Spawn protection | ~1s | Invulnerability after respawn |
 | Gun range | 1300px | Effectively map-wide; aim precision and line of sight are the real limits |
 | Fire windup | ~0.2s | Trigger pull to bullet release; aim locks at the pull |
 | Fire cooldown | ~0.5s | Minimum time between shots |
@@ -326,7 +387,7 @@ These are starting values, exposed in the game config and tuned in self-play.
 | Plasma arc respawn | 30s | Taken pickups refill after this interval |
 | Plasma pulse lifetime (`PlasmaArcFxTicks`) | 4 ticks | Cosmetic fade of each per-tick cone snapshot |
 | Heart auto-return | instant | A heart snaps back to its own pedestal the moment its carrier dies |
-| Time limit | (TBD) ticks | Round length cap before the scoreless draw |
+| Time limit (`MaxTicks`) | 5000 ticks (~3.5 min) | Round length cap before the lose-lose draw |
 | Map size | 1235×659 | Inherited from Crewrift; may change |
 
 Engine tick rate is **24 ticks/sec** (inherited from Crewrift); all
@@ -369,6 +430,12 @@ high-definition soldier is a pure visual upgrade — living players are still
 sprite's swept gun and the vision cone, so a label-scanning policy sees the
 same vocabulary it always has.
 
+**Identity badges:** every living player carries a separate badge object
+labeled `identity <color> <name>` (`alpha`..`theta` — see Teams & spawns).
+Like the `hp <n>/3` bar, the badge is a distinct object near its player:
+attach it by proximity. It is fog-gated with its player and disappears on
+death.
+
 ---
 
 ## Implementation notes
@@ -396,7 +463,7 @@ This section is a build plan, not player-facing rules.
   **Lobby → Playing → GameOver** phase machine (drop RoleReveal/Voting/VoteResult).
 - Player struct: keep `x,y,velX,velY,carryX,carryY,alive,color,reward`; drop
   task/vent/vote fields; add `team`, `lives`, `respawnTimer`, `fireCooldown`,
-  `aimBrads`, `carryingFlag`, `spawnProtect`.
+  `aimBrads`, `carryingFlag`.
 - `global.nim` observation building: team-colored player sprites, the heart
   sprites, a **carrier indicator**, the per-viewer **fog overlay** and
   fog-culled entity stream (there are deliberately **no heart arrows** — fog of

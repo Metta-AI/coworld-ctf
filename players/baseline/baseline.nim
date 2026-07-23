@@ -85,18 +85,11 @@ const
                               # multiplied by this; sprites stay centered on
                               # the same map points, so dividing the object
                               # center recovers exact legacy map coordinates.
-  MapW = 1235
-  MapH = 659
-  CenterX = MapW div 2
-  CenterY = MapH div 2
   PlayerHalf = 6              # solid footprint half-extent, matches the sim
   NavCell = 8                 # nav grid cell size in px
-  GridW = (MapW + NavCell - 1) div NavCell
-  GridH = (MapH + NavCell - 1) div NavCell
   RepathTicks = 10            # refresh the cost field at least this often
   LookaheadCells = 6          # how far ahead on the path we aim the waypoint
 
-  FireRange = 1250.0          # engage distance (the 1300px gun is map-wide)
   CarrierFireRange = 110.0    # while carrying, only shoot enemies this close
   RushEngageRange = 230.0     # racing for the steal: only fight what blocks it
   EscortEngageRange = 320.0   # escorting a run: only fight near threats
@@ -141,9 +134,9 @@ const
                               # mate's aim ray counts as mate-targeted
   ButtonC = 1'u8 shl 7        # grenade charge/throw (input mask bit 128)
   NadeMaxRange = 240.0        # full-charge throw distance (~fifth of the field)
-  NadeMinRange = 60.0         # never lob inside this — the ~40px blast + drift
-                              # would clip us
-  NadeBlast = 40.0            # blast radius; a pair this close dies together
+  NadeMinRange = 72.0         # never lob inside this — the 52px blast + drift
+                              # would clip us (GV17: blast 40 -> 52)
+  NadeBlast = 52.0            # blast radius; a pair this close dies together
   NadeFullChargeTicks = 24    # ~1s of holding C reaches max range
   NadePickupDetour = 90.0     # grab a corner pickup within this detour range
   MedKitDetour = 80.0         # heal-detour budget when merely wounded
@@ -204,8 +197,26 @@ const
   WeaveBand = 280.0           # rushers serpentine within this x-band of mid
 
   LaneTop = 40.0              # open corridor above the mirrored obstacles
+
+## Map dimensions, adopted at nav-grid build from the walkability sprite
+## (which spans the whole arena). The game supports multiple maps —
+## "arena" (1235x659, the default) and "arena-large" (1606x858) — and this
+## bot plays either; everything position-shaped below derives from these.
+## Initialized to the default arena.
+var
+  MapW = 1235
+  MapH = 659
+  CenterX = MapW div 2
+  CenterY = MapH div 2
+  GridW = (MapW + NavCell - 1) div NavCell
+  GridH = (MapH + NavCell - 1) div NavCell
   LaneMid = float(CenterY)
-  LaneBottom = 619.0          # open corridor below the mirrored obstacles
+  LaneBottom = float(MapH) - LaneTop  # open corridor below the obstacles
+  FireRange = float(MapW) + 15.0
+    # engage distance: every map's gun range is comfortably over its own
+    # width (1300 on the 1235px arena, 1690 on the 1606px arena-large), so
+    # a hair past a map-width is always inside it. 1250.0 on the default
+    # arena — the value this bot always used.
 
 type
   Team = enum
@@ -530,9 +541,11 @@ proc homeSign(team: Team): float =
   if team == Red: -1.0 else: 1.0
 
 proc homeDeepX(team: Team): float =
-  ## A point well inside our capture zone (Red x <= ~206, Blue x >= ~1029).
-  ## Blue mirrors Red exactly across the x = 617 center line.
-  if team == Red: 150.0 else: float(MapW - 1) - 150.0
+  ## A point well inside our capture zone, mirrored across the map's
+  ## vertical center line (150 on the default 1235px arena, scaled with
+  ## the map).
+  let deep = float(MapW * 150 div 1235)
+  if team == Red: deep else: float(MapW - 1) - deep
 
 proc enemy(team: Team): Team =
   ## The opposing team.
@@ -540,13 +553,23 @@ proc enemy(team: Team): Team =
 
 proc flagHome(team: Team): Vec =
   ## The STATIC pedestal position of one team's flag: the center of the
-  ## team's protected spawn pocket (matches flagHome in src/ctf/sim.nim).
-  if team == Red: vec(186, 329) else: vec(1049, 329)
+  ## team's protected spawn pocket (matches flagHome in src/ctf/sim.nim,
+  ## computed from the map size instead of the old hardcoded 186/1049).
+  if team == Red:
+    vec(float(CenterX - CenterX * 7 div 10), float(CenterY))
+  else:
+    vec(float(CenterX + (MapW - CenterX) * 7 div 10), float(CenterY))
 
 proc chokeSpot(team: Team): Vec =
   ## Defender hold point between the flag and our home edge, mirrored
-  ## exactly across the x = 617 center line.
-  if team == Red: vec(390, 340) else: vec(float(MapW - 1) - 390.0, 340)
+  ## exactly across the map's vertical center line. (390, 340) on the
+  ## default 1235x659 arena — the gap between the diamond and disc
+  ## columns — scaled proportionally so it lands in the same tactical
+  ## pocket on every map.
+  let
+    x = float(MapW * 390 div 1235)
+    y = float(MapH * 340 div 659)
+  if team == Red: vec(x, y) else: vec(float(MapW - 1) - x, y)
 
 proc nearestOpenCell(bot: Bot, cell: int): int =
   ## The nearest walkable nav cell, searched in expanding rings.
@@ -654,7 +677,7 @@ proc findEnemyPosts(bot: Bot, client: ProtocolClient) =
   ## Precomputes the standing virtual threats every carrier run has to
   ## respect, fed into exposure costing and lane choice: the mirrored ENEMY
   ## overwatch post (a stationary, hidden killer) and the ENEMY spawn
-  ## pocket — every kill respawns an armed, spawn-protected enemy at the
+  ## pocket — every kill respawns an armed enemy at the
   ## pedestal aiming our way, so the pocket mouth (and its mid lane) is
   ## permanently watched ground even when no track remembers anyone there.
   bot.enemyPosts.setLen(0)
@@ -663,9 +686,25 @@ proc findEnemyPosts(bot: Bot, client: ProtocolClient) =
     bot.enemyPosts.add(post.peek)
   bot.enemyPosts.add(flagHome(enemy(bot.team)))
 
+proc adoptMapSize(client: ProtocolClient) =
+  ## The walkability sprite spans the whole arena: adopt its dimensions as
+  ## THE map size and rederive everything position-shaped. The game selects
+  ## its map per episode (config mapPath: "arena" or "arena-large"), so the
+  ## bot must read the size off the wire instead of assuming it.
+  MapW = client.walkabilityWidth
+  MapH = client.walkabilityHeight
+  CenterX = MapW div 2
+  CenterY = MapH div 2
+  GridW = (MapW + NavCell - 1) div NavCell
+  GridH = (MapH + NavCell - 1) div NavCell
+  LaneMid = float(CenterY)
+  LaneBottom = float(MapH) - LaneTop
+  FireRange = float(MapW) + 15.0
+
 proc buildNavGrid(bot: Bot, client: ProtocolClient) =
   ## Erodes the pixel walkability mask into a footprint-safe nav grid, then
   ## derives the cover model (cover cells, overwatch post, defender choke).
+  adoptMapSize(client)
   bot.cellWalkable = newSeq[bool](GridW * GridH)
   for cy in 0 ..< GridH:
     for cx in 0 ..< GridW:
@@ -1440,7 +1479,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       laneY = bot.safestLaneY(me)
     if abs(me.x - pocket.x) < 60.0 and abs(me.y - laneY) > 70.0:
       # Bug out of the pocket VERTICALLY first: every kill respawns an
-      # armed, spawn-protected enemy at this pedestal whose spawn aim points
+      # armed enemy at this pedestal whose spawn aim points
       # along the east-west axis — pure-vertical movement exits that cone
       # fastest, then the border lane runs home outside it.
       target = vec(pocket.x, laneY)
@@ -1583,7 +1622,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   let rushing = not iCarry and not mateCarry and
     bot.role in {MidTop, MidBottom, MidGuard}
   # The pocket endgame: duelling at the pocket edge is an infinite respawn
-  # grinder (respawners appear spawn-protected AT the pedestal), so the
+  # grinder (respawners reappear armed AT the pedestal), so the
   # attacker CLOSEST to the pedestal commits to the touch, unarmed and
   # undistracted, while the rest of the wave keeps its guns up to cover the
   # grab — even a suicide grab forces the enemy back onto defense, and a

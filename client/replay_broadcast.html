@@ -653,23 +653,20 @@ html, body {
 }
 #endcard.on { display: flex; animation: cardfade 420ms ease-out; }
 @keyframes cardfade { from { opacity: 0; } to { opacity: 1; } }
-#endcard .verdict-badge {
-  font-family: var(--pixfont);
-  font-size: calc(13 * var(--u));
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  padding: calc(5 * var(--u)) calc(14 * var(--u));
-  color: var(--stage-lo);
-}
-#endcard .verdict-badge.red { background: var(--red); color: var(--paper); }
-#endcard .verdict-badge.blue { background: var(--blue); color: var(--paper); }
-#endcard .verdict-badge.draw { background: var(--ghost); color: var(--stage-lo); }
+#endcard .headline.red { color: var(--red); }
+#endcard .headline.blue { color: var(--blue); }
+#endcard .headline.draw { color: var(--ghost); }
 #endcard .headline {
   font-family: var(--pixfont);
   font-size: calc(30 * var(--u));
   line-height: 1.05;
   color: var(--paper);
   text-shadow: 0 calc(3 * var(--u)) 0 var(--ink);
+  /* headline now carries the (possibly long) policy name — never wrap/overflow */
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 #endcard .how {
   font-family: var(--finefont);
@@ -678,14 +675,47 @@ html, body {
   color: var(--paper-dim);
   max-width: calc(360 * var(--u));
 }
-#endcard .final-lives {
-  display: flex;
-  gap: calc(30 * var(--u));
-  align-items: baseline;
+/* win-condition chip — names HOW the match ended (flag / elimination / time) */
+#endcard .wincond {
   font-family: var(--pixfont);
+  font-size: calc(10 * var(--u));
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--amber);
+  padding: calc(3 * var(--u)) calc(10 * var(--u));
+  box-shadow: inset 0 0 0 1px rgba(232, 163, 61, 0.5);
 }
-#endcard .fl-team { display: flex; flex-direction: column; align-items: center; gap: calc(3 * var(--u)); }
-#endcard .fl-num { font-size: calc(26 * var(--u)); }
+#endcard .how {
+  margin-top: calc(-4 * var(--u));
+}
+/* match-stats scoreboard — one panel per team, winner ringed in amber */
+#endcard .ec-teams { display: flex; gap: calc(22 * var(--u)); align-items: stretch; }
+#endcard .ec-team {
+  width: calc(215 * var(--u));
+  padding: calc(9 * var(--u)) calc(12 * var(--u));
+  background: rgba(20, 14, 9, 0.55);
+  box-shadow: inset 0 0 0 1px rgba(242, 232, 216, 0.12);
+  display: flex;
+  flex-direction: column;
+  gap: calc(5 * var(--u));
+  text-align: left;
+}
+#endcard .ec-team.win {
+  box-shadow: inset 0 0 0 1px rgba(232, 163, 61, 0.65),
+    0 0 calc(14 * var(--u)) rgba(232, 163, 61, 0.18);
+}
+#endcard .ec-tname {
+  font-family: var(--pixfont);
+  font-size: calc(13 * var(--u));
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#endcard .ec-tname.red { color: var(--red); }
+#endcard .ec-tname.blue { color: var(--blue); }
+#endcard .ec-lives { display: flex; align-items: baseline; gap: calc(6 * var(--u)); font-family: var(--pixfont); }
+#endcard .fl-num { font-size: calc(22 * var(--u)); }
 #endcard .fl-num.red { color: var(--red); }
 #endcard .fl-num.blue { color: var(--blue); }
 #endcard .fl-cap {
@@ -695,6 +725,92 @@ html, body {
   text-transform: uppercase;
   color: var(--paper-dim);
 }
+#endcard .ec-thead,
+#endcard .ec-row {
+  display: grid;
+  grid-template-columns: 1fr calc(22 * var(--u)) calc(22 * var(--u)) calc(26 * var(--u)) calc(26 * var(--u));
+  gap: calc(5 * var(--u));
+  align-items: center;
+}
+#endcard .ec-thead {
+  font-family: var(--finefont);
+  font-size: calc(7.5 * var(--u));
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--paper-dim);
+  border-bottom: 1px solid rgba(242, 232, 216, 0.18);
+  padding-bottom: calc(3 * var(--u));
+}
+#endcard .ec-thead span:not(:first-child) { text-align: center; }
+#endcard .ec-row {
+  font-family: var(--pixfont);
+  font-size: calc(10.5 * var(--u));
+  color: var(--paper);
+  padding: calc(1.5 * var(--u)) 0;
+}
+#endcard .ec-row .n { text-align: center; font-variant-numeric: tabular-nums; }
+#endcard .ec-row .n.cap { color: var(--amber); }
+#endcard .ec-row .pname {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--paper-dim);
+}
+#endcard .ec-row.mvp .pname { color: var(--amber); }
+/* name cell: name ellipsizes (but keeps a readable floor), the capture flag
+   + honor badges ride after it; a pathological pileup clips inside the cell
+   rather than bleeding into the K column */
+#endcard .ec-row .pcell {
+  display: flex;
+  align-items: center;
+  gap: calc(3 * var(--u));
+  min-width: 0;
+  overflow: hidden;
+}
+#endcard .ec-row .pcell .pname { flex: 0 1 auto; min-width: 7ch; }
+/* honor badges: baked 2x pixel-art icons (nano-banana), luminance-keyed to
+   transparency; a repeat count rides after the icon as fine print */
+#endcard .ec-badge {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: calc(1 * var(--u));
+  font-family: var(--finefont);
+  font-size: calc(7.5 * var(--u));
+  color: var(--paper-dim);
+  font-variant-numeric: tabular-nums;
+}
+#endcard .ec-badge::before {
+  content: '';
+  display: block;
+  height: calc(14 * var(--u));
+  background-size: contain;
+  background-repeat: no-repeat;
+  image-rendering: pixelated;
+}
+#endcard .ec-badge.bs::before { width: calc(10.5 * var(--u)); background-image: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABUAAAAcCAYAAACOGPReAAAFD0lEQVR42qWWX2wc1RXGf2dmZ2d3/TfO2qzjOEkdOxGhEJGIFhIodVqME2goBAfVRFUFUlS1D62qVv2jisXiCb9VraiIxEOlthKOKrV9AARSTR8qEAIKliCghpAG0drGya4d7+7s3N39+rBZY7VNGujVHc2VRufTOd/5znfH+JRLYAbSHffeT6Z8N/uvu56lxDGbnj7l8X8s5fMe9UYNmUddORYW9gDYpwITZob02NggFg7wUqLC+cWbKV/8tc3NlbyrKVMTE74uJbD2fnxfB6IHnwwHqwv28l+etLm5EsD/BDWQnTxZN1AL0AyxEvbgeyN4Jj7yVpTHa31PXL5EmZlJE4dypL1jtHU+Zb/8bUFgyo/1EHp9JJJFSvFrNvVcudW4K2f66KNNvtusA8e1/L10nw4d2moghr0aXjCIGhds6rkV5fFagJ+oURo/ciPEN9DQKjn7G/1Lvj3+0l/XZ3jVoAIjnzdef30rVYZR6jT9lZ9y4NZnef/Mi9B/AaawKRqfCNRAOjI+zUW/Sh9vUV9N8/Vjt/DMC/P285lH/j3mit3XxIRvID0w/iVqFoK3CrXvc8/YD7lp+zKL1T/p8OEf6NjBb68Nw5VA1/T44Hgnjpup+RU2RHsZ7G1n3x6PSu139vQfXiT038X8wvrYxHoJNTVoTdLzebOpqbqOju/EedtI+kt4tW184fP9pMJp6zvwsjSbMBv94zoJNi7L6RqPk3cNUeY41WCZztX9bLtmJw9N+OzYvxuyq2Ctrf/gVJIvaXukaIfOnUsDpttvT1Cr30VVISz3sbE9xzeODNPd8YRZ78VmUQgpKWm4UqkMS/IBEpcO28ANhM6DbLYKnCOXGaIY76C3d5lsx2GGNneT7TlDsfC0lP+4F2V6yZBLpVItGs8mgF0OlwFqQRDA2bPzBpJjjIgVfvTQKBszwySVprTyiI3c+4E0mwDqAGT4J7gBCDznXE8QBGnPOdeFI8RRda7sopGRAX153yZkuzDVeeH5LnLb03QN/J5i8RfNho7WzUySPGCXc3hAFASEzrnORBwHp9uCuG/+1Kn3crWa9MYrQ2Q6HyayC/R5tzHQ00vhLDSSP7EbHixIk00vLZU2Ab04OoMgeBOI4zjY4RyLifZ2m9fs7FL/6GgNQPeMPUA5WSUo55g8+FnGvpitz5/P+++8e0avvhrEcXytpLRzTgEsEXAKqJtZXdJbYWj1psAn8O0kdX3t7lv4KLqfRhW+c98kd96W48N/fO/80Fee2kjUR9WShKErU65kyMybWW1VyrXBAPC2mVUkmWlmxrejR+sandyKv/gtBjK7OXrHXu68NcuHhcfYMjpNFGWdr61BkK4TUyTJe8sspzIuMxQQBGXHB5kMC5cybk6RDuz9HJb6JuM37eHhr+7GD//Mavk3bDrwK4gGIRUTx72YpQmCxUqlEqfTaQE+sAqsmFl1zaX0xI8nGew/QXZDG1typ+lof4fG0Hfp6jsDJAFXonRNG8nPAH6VxlJIeBpoNIePLUDFzBZat4Xp/ed/Rld7mnT7HKnrn+TECTh+fAuustlBHRI0gsaFMLYkyaQAhyNDQMo5Z1JQSiZ5ozX3V7iCFRSLxQ2SuiR1lMvlQUmDhUKhO4q0U1K7pK4o0s5CodD9XwBmfM3OJqQZX8Kkj01GUqokba6qeqOkNECkaCSKol2FQqG75WxX+bMgu/Rsqkq7JYXr7bFS0VBVuu5y8f8CyPZwOPj4umUAAAAASUVORK5CYII="); }
+#endcard .ec-row .n.clstr { color: var(--amber); }
+#endcard .ec-heart {
+  display: inline-block;
+  height: calc(14 * var(--u));
+  vertical-align: middle;
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+  image-rendering: pixelated;
+}
+#endcard .ec-heart.red { width: calc(14.5 * var(--u)); background-image: url("data:image/png;base64,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"); }
+#endcard .ec-heart.blue { width: calc(15 * var(--u)); background-image: url("data:image/png;base64,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"); }
+/* loop countdown — present only while the server holds the end segment */
+#endcard .ec-replay {
+  font-family: var(--finefont);
+  font-size: calc(9 * var(--u));
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--paper-dim);
+  min-height: calc(12 * var(--u));
+}
+#endcard .ec-replay b { color: var(--paper); font-variant-numeric: tabular-nums; }
 
 /* connection status — fine print, lower-left */
 #status {
@@ -831,19 +947,30 @@ body[data-embed] #board { top: 0; height: 100%; }
     </div>
 
     <div id="endcard">
-      <div class="verdict-badge" id="ec-badge">GAME OVER</div>
       <div class="headline" id="ec-headline">—</div>
+      <div class="wincond" id="ec-wincond"></div>
       <div class="how" id="ec-how"></div>
-      <div class="final-lives">
-        <div class="fl-team">
-          <div class="fl-num red" id="ec-red">0</div>
-          <div class="fl-cap">Red lives</div>
+      <div class="ec-teams">
+        <div class="ec-team" id="ec-team-red">
+          <div class="ec-tname red" id="ec-tname-red">RED</div>
+          <div class="ec-lives">
+            <span class="fl-num red" id="ec-red">0</span>
+            <span class="fl-cap">Lives left</span>
+          </div>
+          <div class="ec-thead"><span>Player</span><span>K</span><span>D</span><span>Clstr</span><span>Cap</span></div>
+          <div id="ec-rows-red"></div>
         </div>
-        <div class="fl-team">
-          <div class="fl-num blue" id="ec-blue">0</div>
-          <div class="fl-cap">Blue lives</div>
+        <div class="ec-team" id="ec-team-blue">
+          <div class="ec-tname blue" id="ec-tname-blue">BLUE</div>
+          <div class="ec-lives">
+            <span class="fl-num blue" id="ec-blue">0</span>
+            <span class="fl-cap">Lives left</span>
+          </div>
+          <div class="ec-thead"><span>Player</span><span>K</span><span>D</span><span>Clstr</span><span>Cap</span></div>
+          <div id="ec-rows-blue"></div>
         </div>
       </div>
+      <div class="ec-replay" id="ec-replay"></div>
     </div>
   </div>
 
@@ -918,12 +1045,25 @@ body[data-embed] #board { top: 0; height: 100%; }
   }
 
   // The whole replay is ONE fixed-aspect composition locked to the board's
-  // native size (sim.nim MapWidth×MapHeight = 1235×659). The stage is sized to
-  // this aspect inside the embed box and every overlay scales with it, so the
-  // chrome can never drift off the graphics regardless of the Observatory
-  // container's shape (§2 real-container-target, L82 bounded-embed).
+  // native size. The stage is sized to this aspect inside the embed box and
+  // every overlay scales with it, so the chrome can never drift off the
+  // graphics regardless of the Observatory container's shape (§2
+  // real-container-target, L82 bounded-embed). The game supports multiple
+  // maps ("arena" 1235×659 is the default, "arena-large" is 30% bigger), so
+  // the values below are only the pre-stream default: syncBoardAspect()
+  // re-derives them from the board layer's real viewport once frames flow.
   var BOARD_W = 1235, BOARD_H = 659;
   var BOARD_ASPECT = BOARD_W / BOARD_H;
+  function syncBoardAspect() {
+    if (typeof core === 'undefined' || !core || !core.getTransform) return;
+    var t = core.getTransform();
+    if (!t || t.nativeW <= 1 || t.nativeH <= 1) return;
+    var aspect = t.nativeW / t.nativeH;
+    if (Math.abs(aspect - BOARD_ASPECT) < 0.001) return;
+    BOARD_W = t.nativeW; BOARD_H = t.nativeH;
+    BOARD_ASPECT = aspect;
+    relayout();
+  }
 
   // ---- flag icon svg (HOME/TAKEN are the only two states — F2) ----
   function buildFlag(el, color) {
@@ -958,7 +1098,7 @@ body[data-embed] #board { top: 0; height: 100%; }
     canvas: canvas,
     onText: function (txt) { onFrame(txt); },
     onStatus: function (st) { onStatus(st); },
-    onFirstFrame: function () { core.setViewportFit(); },
+    onFirstFrame: function () { syncBoardAspect(); core.setViewportFit(); },
     websocket: !replayAdapter,
     onSendPacket: replayAdapter ? function (bytes) {
       replayAdapter.sendPacket(bytes);
@@ -1005,7 +1145,12 @@ body[data-embed] #board { top: 0; height: 100%; }
 
     // Stream the parsed frame to the League Replayer shell (embed mode). The
     // shell reads roster/KDA, clock, lives, flags and pov straight off this to
-    // paint the wall-mounted scorebug + KDA tables in lockstep with the board.
+    // paint the wall-mounted scorebug + KDA tables in lockstep with the board —
+    // and the board's native size, so its stage tracks whichever map the
+    // replay was played on.
+    syncBoardAspect();
+    s.boardW = BOARD_W;
+    s.boardH = BOARD_H;
     postToShell('frame', s);
 
     // Detect a jump (seek/loop): clear transient beats so nothing phantoms.
@@ -1679,22 +1824,107 @@ body[data-embed] #board { top: 0; height: 100%; }
   }
 
   // ============================================================
-  //  End-card (§5/§8) — reads isDraw BEFORE winner (F4); names the key (F3)
+  //  End-card (§5/§8) — the END SEGMENT: verdict, win condition and match
+  //  stats, held on screen by the server for ~10s before a looping restart.
+  //  Reads isDraw BEFORE winner (F4); names the key (F3).
   // ============================================================
+  function endcardWinCondition(o) {
+    // The condition CHIP: how the match ended, in two or three words.
+    if (o.draw) return o.timeLimit ? 'TIME LIMIT — DRAW' : 'DRAW';
+    if (o.timeLimit) {
+      var winL = o.winner === 'red' ? o.redLives : o.blueLives;
+      var loseL = o.winner === 'red' ? o.blueLives : o.redLives;
+      return winL !== loseL ? 'TIME LIMIT — LIVES TIEBREAK' : 'TIME LIMIT — FLAG PROGRESS';
+    }
+    var loserLives = o.winner === 'red' ? o.blueLives : o.redLives;
+    return loserLives <= 0 ? 'ELIMINATION' : 'FLAG CAPTURE';
+  }
+
+  function endcardOrder(a, b) {
+    // Kills lead the board; fewer deaths, then captures, break ties.
+    return (b.k || 0) - (a.k || 0) || (a.d || 0) - (b.d || 0) ||
+      (b.cap || 0) - (a.cap || 0) || a.s - b.s;
+  }
+
+  function endcardBadge(cls, count, title) {
+    // One honor icon; repeat events fold into a ·N suffix instead of stacking.
+    if (!count) return '';
+    return '<span class="ec-badge ' + cls + '" title="' + title + '">' +
+      (count > 1 ? '·' + count : '') + '</span>';
+  }
+
+  function renderEndcardRows(s, team, el, mvpSlot) {
+    // Final per-player stat lines, top killer first. The MVP (winning team's
+    // best line) reads in amber — no star prefix, it would break the name
+    // column's alignment. Clstr counts grenade/plasma multi-kill events; the
+    // Cap column renders the captured enemy heart itself; a dagger icon marks
+    // teammate kills.
+    var rows = (s.roster || []).filter(function (p) { return p.team === team; })
+      .slice().sort(endcardOrder);
+    var enemyHeart = team === 'red' ? 'blue' : 'red';
+    var html = '';
+    rows.forEach(function (p) {
+      var mvp = mvpSlot != null && p.s === mvpSlot;
+      var marks = endcardBadge('bs', p.tk, 'Backstab — killed a teammate');
+      var cluster = (p.mk2 || 0) + (p.mk3 || 0);
+      html += '<div class="ec-row' + (mvp ? ' mvp' : '') + '">' +
+        '<span class="pcell">' +
+        '<span class="pname">' + esc(shortName(rosterName(s, p.s))) + '</span>' +
+        marks +
+        '</span>' +
+        '<span class="n">' + (p.k || 0) + '</span>' +
+        '<span class="n">' + (p.d || 0) + '</span>' +
+        '<span class="n clstr">' + (cluster > 0 ? cluster : '') + '</span>' +
+        '<span class="n cap">' + (p.cap > 0
+          ? '<span class="ec-heart ' + enemyHeart + '" title="Captured the enemy heart"></span>'
+          : '') + '</span>' +
+        '</div>';
+    });
+    el.innerHTML = html;
+  }
+
   function renderEndcard(s) {
     var card = $('endcard');
     if (!s.over) return;
     card.classList.add('on'); // own the frame at GameOver (§8) — before either verdict branch
     var o = s.over;
-    var badge = $('ec-badge'), head = $('ec-headline'), how = $('ec-how');
+
+    // The loop countdown ticks every second while everything else is frozen,
+    // so it renders unconditionally; the static content is keyed and only
+    // rebuilt when the verdict frame actually changes (24fps hold, no churn).
+    $('ec-replay').innerHTML = s.lp && s.hold > 0
+      ? 'Replaying in <b>' + s.hold + '</b>' : '';
+
+    var key = [s.mx, o.winner, o.draw, o.timeLimit, (s.roster || []).length].join('|');
+    if (card._key === key) return;
+    card._key = key;
+
+    var head = $('ec-headline'), how = $('ec-how');
     var redL = o.redLives, blueL = o.blueLives;
     $('ec-red').textContent = redL;
     $('ec-blue').textContent = blueL;
+    $('ec-wincond').textContent = endcardWinCondition(o);
+    $('ec-tname-red').textContent = teamName(s, 'red', 'RED');
+    $('ec-tname-blue').textContent = teamName(s, 'blue', 'BLUE');
+    $('ec-team-red').classList.toggle('win', !o.draw && o.winner === 'red');
+    $('ec-team-blue').classList.toggle('win', !o.draw && o.winner === 'blue');
+
+    // MVP: the winning team's best final line (kills > fewer deaths >
+    // captures — the capturer keeps their ⚑ mark, the star follows the guns).
+    // A draw crowns nobody — the fidelity rules never invent a distinction the
+    // sim didn't make (F4).
+    var mvpSlot = null;
+    if (!o.draw) {
+      var winners = (s.roster || []).filter(function (p) { return p.team === o.winner; })
+        .sort(endcardOrder);
+      if (winners.length) mvpSlot = winners[0].s;
+    }
+    renderEndcardRows(s, 'red', $('ec-rows-red'), mvpSlot);
+    renderEndcardRows(s, 'blue', $('ec-rows-blue'), mvpSlot);
 
     if (o.draw) {
-      badge.className = 'verdict-badge draw';
-      badge.textContent = 'DRAW';
-      head.textContent = 'NO SCORE';
+      head.className = 'headline draw';
+      head.textContent = 'DRAW — NO SCORE';
       how.textContent = o.timeLimit
         ? 'Time expired before a capture or a wipe — a scoreless draw, with no tiebreak on lives.'
         : 'The match ended with neither side scoring — no winner.';
@@ -1702,9 +1932,8 @@ body[data-embed] #board { top: 0; height: 100%; }
     }
 
     var winner = o.winner; // 'red' | 'blue'
-    var winName = winner === 'red' ? 'RED' : 'BLUE';
-    badge.className = 'verdict-badge ' + winner;
-    badge.textContent = winName + ' WINS';
+    var winName = teamName(s, winner, winner === 'red' ? 'RED' : 'BLUE');
+    head.className = 'headline ' + winner;
     head.textContent = winName + ' WINS';
 
     if (o.timeLimit) {
@@ -1719,7 +1948,7 @@ body[data-embed] #board { top: 0; height: 100%; }
     } else {
       var loserLives = winner === 'red' ? blueL : redL;
       if (loserLives <= 0) {
-        head.textContent = winName + ' WIPES OUT ' + (winner === 'red' ? 'BLUE' : 'RED');
+        head.textContent = winName + ' WIPES OUT ' + teamName(s, winner === 'red' ? 'blue' : 'red', winner === 'red' ? 'BLUE' : 'RED');
         how.textContent = winName + ' eliminated every opposing life.';
       } else {
         how.textContent = winName + ' captured the enemy flag.';

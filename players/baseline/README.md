@@ -165,8 +165,8 @@ the run home and charges stretches with no cover cell nearby — under map-wide
 guns an open lane is a shooting gallery even when it looks empty) and paths
 deep into the capture zone; the exposure cost keeps the run hugging cover
 past remembered enemies. The **enemy spawn pocket is a standing virtual
-threat** (fed into `enemyPosts`): every kill respawns an armed,
-spawn-protected enemy at the pedestal whose spawn aim points along the
+threat** (fed into `enemyPosts`): every kill respawns an armed
+enemy at the pedestal whose spawn aim points along the
 east-west axis, so a fresh carrier first **bugs out of the pocket
 vertically** (pure-vertical movement exits that cone fastest) and runs home
 along a border lane. Carriers never peek, duck, or jink and only engage
