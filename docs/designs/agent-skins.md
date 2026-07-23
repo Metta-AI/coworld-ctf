@@ -34,9 +34,10 @@ rendered pixels. A skin is therefore just an alternate pair of masters:
 
 - `default` → the existing `soldier_red/blue.png`.
 - `crown` → new `data/soldier_red_crown.png` / `data/soldier_blue_crown.png`:
-  the existing masters with a crown composited on top (authored once via a
-  throwaway pixie script; the resulting PNGs are checked in). The runtime art
-  path stays "load a master PNG" for every skin.
+  the existing masters with a gold outlined crown composited over the helmet,
+  generated deterministically by `tools/generate_crown_skins.nim` (checked in
+  alongside the PNGs, so the art can be regenerated). The runtime art path
+  stays "load a master PNG" for every skin.
 
 Everything downstream — rotations, corpses, selected outlines, the POV self
 sprite — comes free through the existing pipeline.
@@ -52,9 +53,10 @@ loading/caching vars gain a skin dimension.
 
 `soldierPlayerSpriteId`, `corpseSoldierSpriteId`,
 `selectedSoldierPlayerSpriteId`, and the POV self-sprite pool gain a skin
-offset into new contiguous sprite-id ranges (chosen clear of existing pools;
-the sprite-id collision audit in CI guards overlaps). Everywhere a soldier
-sprite id is computed from `(team, rot)` it becomes `(team, skin, rot)`.
+offset that extends each existing pool contiguously (live 100..163, corpse
+1500..1563, selected 6000..6063, self 5100..5131; the sprite-id collision
+audit in CI guards overlaps). Everywhere a soldier sprite id is computed from
+`(team, rot)` it becomes `(team, skin, rot)`.
 
 Skin sprite pools are only registered in the init snapshot when some
 configured slot actually uses that skin, so skinless games pay nothing.
@@ -79,11 +81,15 @@ spectator-facing decoration only, by design.
 
 - `src/ctf/sim.nim`: `Skin` enum + registry (skin → master paths), tolerant
   `slots[i].skin` parsing, `PlayerSlotConfig.skin`, `Player.skin`,
-  skin-dimensioned soldier master loading + `soldierRotPixels`.
+  skin-dimensioned soldier master loading + `soldierRotPixels`, and
+  `configJson` round-tripping non-default skins into replay configs (default
+  skins are omitted so existing replay JSON keeps its shape).
 - `src/ctf/global.nim`: skin offset in the soldier sprite-id helpers,
   `(team, skin, rot)` at every soldier-sprite call site, used-skins-only
-  registration in `addPlayerActorSprites` and the POV init.
-- `data/soldier_red_crown.png`, `data/soldier_blue_crown.png`: new art.
+  registration in `addPlayerActorSprites` and the render-cache prewarm.
+- `data/soldier_red_crown.png`, `data/soldier_blue_crown.png`: new art;
+  `tools/generate_crown_skins.nim` generates them;
+  `tools/dump_soldier_preview.nim` previews all skins.
 - `docs/RULES.md`: one-liner — skins are cosmetic, label vocabulary unchanged.
 - Tests: config parsing (missing / valid / invalid skin), sprite-id collision
   audit covers the new pools, label-contract canary stays green.

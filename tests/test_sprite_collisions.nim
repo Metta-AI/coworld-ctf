@@ -60,11 +60,17 @@ proc buildGlobalMessages(
     setCurrentDir(previousDir)
   state = nextState
 
-proc fullFeatureGame(): SimServer =
+proc fullFeatureGame(withCrown = true, crownOnly = false): SimServer =
   ## A game exercising every sprite family at once: a viewer, a visible
   ## enemy, teammates carrying shield / grenade / plasma arc, floor pickups
   ## untouched, and combat FX.
-  result = initCtfForTest(defaultGameConfig())
+  var config = defaultGameConfig()
+  if withCrown:
+    config.slots.setLen(if crownOnly: MaxPlayers else: 6)
+    for i in 0 ..< config.slots.len:
+      config.slots[i].skin =
+        if crownOnly or i mod 2 != 0: CrownSkin else: DefaultSkin
+  result = initCtfForTest(config)
   for i in 0 ..< 6:
     discard result.addPlayer("p" & $i)
   result.startGame()
@@ -112,7 +118,41 @@ proc applyDefs(
     if message.kind == spkSprite:
       table[message.sprite.id] = message.sprite.label
 
+proc actorDefinitionIds(
+  messages: openArray[SpritePacketMessage]
+): HashSet[int] =
+  ## Soldier definition ids, including live, corpse, and selected variants.
+  for message in messages:
+    if message.kind != spkSprite:
+      continue
+    let label = message.sprite.label
+    if label.startsWith("player ") or label.startsWith("corpse ") or
+        label.startsWith("selected player "):
+      result.incl(message.sprite.id)
+
 suite "sprite id collisions":
+  test "only configured skin sprite pools are registered":
+    var
+      defaultGame = fullFeatureGame(withCrown = false)
+      mixedGame = fullFeatureGame()
+      crownGame = fullFeatureGame(crownOnly = true)
+      defaultState = initGlobalViewerState()
+      mixedState = initGlobalViewerState()
+      crownState = initGlobalViewerState()
+    let
+      defaultIds = defaultGame.buildGlobalMessages(defaultState)
+        .actorDefinitionIds()
+      mixedIds = mixedGame.buildGlobalMessages(mixedState)
+        .actorDefinitionIds()
+      crownIds = crownGame.buildGlobalMessages(crownState)
+        .actorDefinitionIds()
+    check defaultIds.len == 3 * 2 * SoldierRotations
+    check mixedIds.len == 2 * defaultIds.len
+    check crownIds.len == defaultIds.len
+    for id in defaultIds:
+      check id in mixedIds
+      check id notin crownIds
+
   test "no two render sites claim one sprite id in a packet":
     var game = fullFeatureGame()
     # Exercise the collision-prone extras: a spectator-selected Blue player
