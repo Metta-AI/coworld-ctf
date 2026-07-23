@@ -4306,7 +4306,15 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       if t.hp in 1 ..< MaxHp:
         prio -= float(MaxHp - t.hp) * HpFocusBonus
       if mateTargeted[i]:
-        prio -= FocusFireBonus
+        # ⭐⭐ PLAN-LAYER FOCUS FIRE: in the opening clash / man-advantage window, the
+        # wave must CONCENTRATE fire to remove enemy guns fast and win the trade (the
+        # cqc-lens "focus-fire removes a gun" — we lose the opening 14-6 by spreading).
+        # Amplify the pile-on bonus during PhOpen/PhPress so mates share a target on
+        # the same beat; normal tiebreak otherwise. satCap still caps over-saturation.
+        let focus =
+          if bot.tune.planLayer and botPhase in {PhOpen, PhPress}: FocusFireBonus * 3.0
+          else: FocusFireBonus
+        prio -= focus
     # Greatest-threat-first: an enemy FACING us can shoot this instant, so it
     # is more dangerous than an equidistant one looking away (gated OFF).
     let facingMe =
