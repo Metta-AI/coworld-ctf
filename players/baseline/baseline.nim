@@ -389,6 +389,13 @@ const
                               # pickup we're NOT deliberately collecting (a body is
                               # ~24px; a shell of margin clears the 12px touch grab).
   ShieldGrabDetour = 120.0    # shieldTank: an escort grabs a shield within this detour.
+  ShieldRushDetour = 400.0    # shieldRush: the rusher will detour up to this far to grab
+                              # OUR OWN endzone shield before the steal — generous because
+                              # the shield is home-side (toward our start), not into enemy
+                              # ground, so it costs little net progress toward the pocket.
+  ShieldRushMaxDepth = 0.30   # only grab the shield while still in our OWN 30% of the field
+                              # (fraction of half-width from home) — past that, commit to the
+                              # steal; don't backtrack for a shield once we're forward.
   SwordGrabDetour = 90.0      # swordAmbush: grab a sword within this detour when boxed.
   SwordReach = 26.0           # sword melee arc range (mirrors SwordRange in sim.nim).
   SwordCloseRange = 70.0      # swordAmbush only engages an enemy within this (charge-in).
@@ -1178,6 +1185,18 @@ type
                               # shield. ⚠️ COORDINATION lever — the mirror gives both teams
                               # the tank and its trigger (mate carrying past our shield) is
                               # rare in self-play. Validate hosted, gated OFF.
+    shieldRush: bool          # ⭐⭐ SHIELD-RUSH CARRIER (2026-07-23, the grab→cap fix): the
+                              # A/B + n=37 teardown proved we LOSE ON THE RUN HOME — 34 steals /
+                              # 4 caps (12%) vs h006, carriers die at MIDFIELD crossing back. A
+                              # shield = 6 HP (survive 6 hits vs 3) and a carrier can hold BOTH
+                              # flag + shield and still CAPTURE (tryPickupFlags/checkWin don't
+                              # exclude it). The prior "grab a shield AFTER stealing" variants
+                              # were geometry-void (enemy shield is DEEPER in). This grabs OUR
+                              # OWN endzone shield PRE-steal (home-side ¾-height, near spawn — a
+                              # cheap detour TOWARD home), so the rusher carries home at 6 HP the
+                              # whole way. Mirror-MEASURABLE (per-team HP edge → grab→cap), unlike
+                              # the coordination levers. GV21 makes it stronger (no spawn-protect
+                              # → carriers more exposed). Gated to the rusher seat.
     swordAmbush: bool         # ⭐ SWORD AMBUSH (v7, 2026-07-19): a sword is a 26px forward-
                               # arc GUARANTEED kill (instant, no windup, ignores the 3-hit
                               # gun) but canFire=false while held. A back-line/pocket bot
@@ -1583,6 +1602,7 @@ proc defaultCombatTune(): CombatTune =
     grabGate: false,          # control: a rusher opens the unarmed dive without a local numbers edge.
     avoidDisarm: false,       # control: pathing walks over v7 sword/shield pickups and self-disarms.
     shieldTank: false,        # control: an escort never grabs a shield to body-block as a tank.
+    shieldRush: false,        # control: the rusher never pre-grabs a shield to carry home at 6 HP.
     swordAmbush: false,       # control: a boxed-in bot never grabs a sword for a melee kill.
     medTopOff: false,         # control: a wounded bot never detours to a center med kit.
     satCap: false,            # control: a free gun dogpiles the nearest enemy, no saturation cap.
@@ -1841,14 +1861,19 @@ proc shippedCombatTune(): CombatTune =
   # "Code it right" > "ship it on": kept behind the ARCBREACH knob for a dedicated
   # hosted A/B, NOT baked. Re-enable only after a hosted xreq shows a positive delta.
   # result.arcBreach = true   # deliberately not enabled — see above
-  # ── ⭐ GV21 AGGRESSION (v18 candidate, 2026-07-23). The hosted A/B proved v17 LOSES
-  # to h006 (30-50) by getting out-killed −6 in open combat, and the engine moved to
-  # GV21 (spawn-protection DELETED → fresh respawners killable; draws −1; 5000-tick
-  # clock) — the win economy now demands decisive KILLS/wipes and punishes our patient
-  # doctrine. gv21Press widens the fire-superiority break threshold so a lone gun keeps
-  # trading through a 1-gun deficit instead of ceding the firefight the clock forces us
-  # to win. Being A/B'd vs h006 (+daveey) seat-rotated as the v18 candidate.
-  result.gv21Press = true
+  # ── gv21Press (v18) — FALSIFIED 2026-07-23. Hosted A/B vs h006: v18 24-55, WORSE than
+  # v17's 30-50. Pressing harder just extended the grind (endTick 2600→3400) and fed
+  # deaths without raising our kills — the problem is not caution, it's that we LOSE the
+  # duels and (the real lever) never CONVERT steals to captures (34 steals / 4 caps =
+  # 12% vs h006). Reverted; kept behind the GV21PRESS knob only. See JOURNAL 07-23 PM3/PM4.
+  # result.gv21Press = true
+  # ── ⭐⭐ SHIELD-RUSH (v19 candidate, 2026-07-23) — attacks the REAL deficit: grab→cap
+  # conversion (34 steals / 4 caps = 12% vs h006; carriers die at midfield on the run
+  # home). The rusher pre-grabs OUR OWN endzone shield (home-side, cheap detour) and
+  # carries the heart home at 6 HP — survives 6 hits vs 3. Co-carry + capture-while-
+  # shielded both confirmed legal on GV21; first-mover mechanic (h006 doesn't use it).
+  # Mirror-MEASURABLE (per-team HP → grab→cap), so lab-screened before the hosted A/B.
+  result.shieldRush = true
 
 proc vec(x, y: float): Vec =
   Vec(x: x, y: y)
@@ -4529,7 +4554,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       if p.x < 40.0 or p.y < 40.0 or p.x > float(MapW - 40) or p.y > float(MapH - 40):
         continue
       plasmaPickups.add(p)
-  if bot.tune.shieldTank:             # shield still = 6-HP wall (no longer a disarm)
+  if bot.tune.shieldTank or bot.tune.shieldRush:  # shield = 6 HP (no longer a disarm)
     for o in client.spriteObjectsWithLabel("shield"):
       let p = client.mapPos(o)
       if p.x < 40.0 or p.y < 40.0 or p.x > float(MapW - 40) or p.y > float(MapH - 40):
@@ -4551,6 +4576,29 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         seekingPickup = true
     when defined(ssprobe):
       if seekingPickup: inc ssTankSeek
+  # ⭐⭐ shieldRush: the rusher grabs OUR OWN endzone shield BEFORE the steal so it
+  # carries the heart home at 6 HP (survive 6 hits vs 3 = the grab→cap fix). Gated to
+  # the rusher seats, only while still home-side (ShieldRushMaxDepth) and not already
+  # carrying/shielded/seeking — a cheap detour toward home, never a backtrack once
+  # forward. The shield sits at our endzone (¾ height), so it's on the way out.
+  if bot.tune.shieldRush and not seekingPickup and not iHaveShield and
+      not iCarry and not mateCarry and not ownStolen and
+      bot.role in {MidTop, MidBottom, MidGuard, FlankTop, FlankBottom}:
+    # Fraction from our deep-home x toward center (0 = at home, 1 = at center). Only
+    # grab the shield while still in our own third — past that, commit to the steal.
+    let homeSideFrac = abs(me.x - homeDeepX(bot.team)) / abs(float(CenterX) - homeDeepX(bot.team))
+    if homeSideFrac <= ShieldRushMaxDepth:
+      var best = ShieldRushDetour
+      for p in shieldPickups:
+        # only OUR side's shield (home-side of center) — never chase the enemy one
+        if homeSign(bot.team) * (p.x - float(CenterX)) > 0: continue
+        let d = dist(p, me)
+        if d < best:
+          best = d
+          target = p
+          seekingPickup = true
+      when defined(commsprobe):
+        if seekingPickup: inc csArcSeek  # reuse a probe slot for shield-rush seek
   # swordAmbush: a bot with no clear ranged shot, boxed in close to an enemy,
   # with a sword within reach, grabs it to melee. Only when a fresh enemy is
   # inside SwordCloseRange (a pocket scrum the windup gun loses) and we're not

@@ -332,6 +332,10 @@ proc hunterTune(): CombatTune =
   # gv21Press (2026-07-23): widen the fire-superiority break threshold (press through a
   # 1-gun deficit) for the GV21 kill-economy. Default = shipped value; GV21PRESS moves it.
   result.gv21Press      = envInt("GV21PRESS", (if result.gv21Press: 1 else: 0)) != 0
+  # shieldRush (2026-07-23): the rusher pre-grabs our own endzone shield → carries home
+  # at 6 HP (the grab→cap conversion fix). Mirror-measurable via grab->cap. SHIELDRUSH
+  # moves it; default = shipped value. Reaches only HUNTER_SLOTS seats (per-team A/B).
+  result.shieldRush     = envInt("SHIELDRUSH", (if result.shieldRush: 1 else: 0)) != 0
   # v7 sword/shield adaptation (2026-07-19). avoidDisarm is the pure-downside fix
   # (mirror-measurable via SS-PROBE pickup count → ~0); shieldTank/swordAmbush are
   # coordination/positional levers, validate hosted. Knobs reach only HUNTER_SLOTS.

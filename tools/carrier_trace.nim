@@ -4,7 +4,7 @@ import std/[os, strformat], ../src/ctf/replays, ../src/ctf/sim
 # each flag (if any) with its position — plus that carrier's position stream
 # so a stalled run home is visible at a glance.
 
-const SampleEvery = 250
+const SampleEvery = 60
 
 let path = commandLineParams()[0]
 let gameDir = currentSourcePath().parentDir().parentDir()
