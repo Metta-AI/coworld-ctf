@@ -17,7 +17,7 @@ from coworld.api_client import CoworldApiClient
 SERVER = "https://softmax.com/api"
 LEAGUE = "league_3243d905-d32d-4ec6-978b-fa94751d4a37"
 
-CAND = "27078392-921d-4d80-97ab-ba7f6e15d5bf"   # Picasso:v26  planlayer (candidate)
+CAND = "4875e53d-464f-4cb1-bed6-0bfa71c2cf52"   # Picasso:v27  pickEdge broadcast (candidate)
 BASE = "785a2d0e-2c9f-4124-8863-a3ef77d150bb"   # Picasso:v25  FULL upgrade (base=placed champion)
 
 # Live Ctf field champions (distinct, excl. our Picasso) — re-resolved 2026-07-24 just before launch.
