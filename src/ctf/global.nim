@@ -4030,12 +4030,16 @@ proc addIdentityBadges(
   viewerIndex = -1
 ) {.measure.} =
   ## Places each living player's identity badge (a Greek letter, alpha..theta
-  ## by slot order within the team — label `identity <color> <name>`) on the
-  ## soldier body's bottom-right corner. The map view passes no viewer and
-  ## shows every badge; a player view passes its viewer index and only
-  ## receives the badges of players it can see (identity is intel, like the
-  ## hp bar). Object ids are a fixed pool keyed by player index; stale badges
-  ## fall to the delete sweep.
+  ## by slot order within the team) on the soldier body's bottom-right corner.
+  ## The label is `identity <color> <name>[ shield][ nade][ arc]` — the
+  ## suffixes carry the wearer's current loadout so an observing agent can
+  ## read weapon state at a glance (the surviving half of the reverted #77
+  ## unit tags). Scan identity labels by PREFIX (`identity <color> <name>`),
+  ## never exact match: the tail changes with pickups. The map view passes no
+  ## viewer and shows every badge; a player view passes its viewer index and
+  ## only receives the badges of players it can see (identity is intel, like
+  ## the hp bar). Object ids are a fixed pool keyed by player index; stale
+  ## badges fall to the delete sweep.
   for i in 0 ..< sim.players.len:
     let player = sim.players[i]
     if not player.alive:
@@ -4047,13 +4051,18 @@ proc addIdentityBadges(
       identityIndex = sim.slotIdentityIndex(player.joinOrder)
       spriteId = IdentityBadgeSpriteBase +
         ord(player.team) * IdentityNames.len + identityIndex
+    var label = "identity " & teamText(player.team) & " " &
+      IdentityNames[identityIndex]
+    if player.hasShield: label.add " shield"
+    if player.hasGrenade: label.add " nade"
+    if player.hasPlasmaArc: label.add " arc"
     packet.addBoardSpriteChanged(
       spriteDefs,
       spriteId,
       IdentityBadgeSize,
       IdentityBadgeSize,
       buildIdentityBadgeSprite(player.team, identityIndex),
-      "identity " & teamText(player.team) & " " & IdentityNames[identityIndex]
+      label
     )
     let objectId = IdentityBadgeObjectBase + i
     currentIds.add(objectId)
