@@ -1231,10 +1231,19 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # hits nothing. Detect the carried marker and switch combat modes.
   var hasArc = false
   when defined(plasmaUse):
-    for o in client.spriteObjectsWithLabel("plasma arc carried"):
-      if dist(client.mapPos(o), me) <= 30.0:
-        hasArc = true
-        break
+    when defined(weaponLabel):
+      # Deterministic own-weapon readout (canonical >=0.7.74/GV22): the sim
+      # emits "weapon arc"|"weapon gun" under the lives counter every tick, a
+      # machine contract that can't mis-read the way the floating carried
+      # marker + 30px proximity test does when the marker is late/fogged.
+      hasArc = client.spriteObjectsWithLabel("weapon arc").len > 0
+    if not hasArc:
+      # Fallback (pre-0.7.74 canonical, or the HUD readout absent): the carried
+      # marker within 30px. Byte-identical to v49 when weaponLabel is off.
+      for o in client.spriteObjectsWithLabel("plasma arc carried"):
+        if dist(client.mapPos(o), me) <= 30.0:
+          hasArc = true
+          break
 
   let
     shotReady = client.spriteObjectsWithLabel("fire icon").len > 0 and
