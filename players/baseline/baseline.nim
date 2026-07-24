@@ -507,6 +507,18 @@ const
                               # deep at the seam (~x 707) must path BACK to the arc corner
                               # (x 50) then out again = ~1314px / 2.75px·t⁻¹ ≈ 478t; 520
                               # covers it (the old 170 covered only one leg → aborted runs).
+  ArcLineMemoryTicks = 900    # PROACTIVE ARM opponent-adaptivity: pre-arm off a Captain
+                              # pressure phase ONLY if a real line was seen within this window
+                              # (~37s). So the breacher wakes up vs a line-playing opponent
+                              # (h006) and stays a dormant full gun vs an aggressive no-line
+                              # field — it never trades its gun for a line that never comes.
+  ArcArmMaxDepth = 40.0       # PROACTIVE ARM (the geometry fix): only START an arc run while
+                              # the breacher is SHALLOW — at most this far past center into the
+                              # enemy half (so it's near/behind mid, a cheap ~one-leg detour to
+                              # the own-corner arcSpawn). A breacher already DEEP forward would
+                              # face the ~478t round trip the audit killed, so it never arms
+                              # there; it arms off-spawn / while trailing, on a Captain line-prone
+                              # read, THEN carries the armed cone forward to the called cluster.
   ArcConeMinCluster = 2       # MIN fresh enemies inside one cone before we FIRE it. The arc
                               # trades our gun for LIFE, so coning a SINGLETON (cluster 1) is
                               # a net DPS loss vs just shooting it (25t recharge, disarmed for
@@ -1532,6 +1544,20 @@ type
                               # hold the commit until this tick so a FLICKERING line read
                               # (localSc/heardPlay decay frame-to-frame) can't abort the
                               # ~200px trek to the back-corner spawn mid-run. Movement-only.
+    arcLinePos: Vec           # ARC BREACHER convergence: last-known location of the called
+                              # line (own cluster centroid when we classify ScLine, or a
+                              # heard caller's bubble when we adopt RpLine). A disarmed dry
+                              # breacher charges HERE, not a blind me.y seam (the audit's
+                              # "cones an empty lane" fix) — so the armed cone converges on
+                              # the REAL cluster across fog. (-1,-1) = no line located yet.
+    arcLineTick: int          # tick arcLinePos was set; decays with CommsPlayTtl so a stale
+                              # location doesn't pull the breacher onto a line that's gone.
+    sawLineTick: int          # ARC BREACHER opponent-adaptivity: last tick ANY line was seen
+                              # (classified locally OR heard). The proactive pre-arm requires
+                              # this to be recent — so the breacher only trades its gun for the
+                              # arc vs opponents that ACTUALLY play defensive lines (h006-style).
+                              # vs an aggressive no-line field it stays a full gun (dormant),
+                              # never paying the disarm cost for a line that never comes.
 
 proc roleForSeat(seat: int, team: Team): Role =
   ## Deterministic role spread over the 8 per-team seats. Seats 2 and 3 both
@@ -3002,6 +3028,9 @@ proc resetTransient(bot: Bot) =
   bot.shieldRushDone = false
   bot.assaultUntil = -100_000
   bot.arcBreachUntil = -100_000
+  bot.arcLinePos = vec(-1, -1)
+  bot.arcLineTick = -100_000
+  bot.sawLineTick = -100_000
   bot.ownHp = 0
   bot.surpriseShoutTick = -100_000
   bot.dieShoutTick = -100_000
@@ -3340,6 +3369,13 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         if rp != RpNone:
           bot.heardPlay = rp
           bot.heardPlayTick = bot.tick
+          # ⭐ A heard LINE call carries the caller's rough (jittered) bubble position —
+          # the caller is AT/just-behind the line it's classifying, so its bubble is a
+          # good proxy for where the enemy cluster is. The arc breacher converges here
+          # instead of a blind seam, so its cone lands on the REAL line across fog.
+          if rp == RpLine:
+            bot.arcLinePos = bubblePos
+            bot.arcLineTick = bot.tick
           when defined(commsprobe):
             inc csHeard
       elif text[0] == 'C':
@@ -3507,14 +3543,18 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     if sawThief and ownStolen:
       localSc = ScPeel                     # an exposed thief has our flag — peel
     else:
-      # Count fresh enemy guns + fresh mates near the contested pocket / us.
+      # Count fresh enemy guns + fresh mates near the contested pocket / us, and sum
+      # the fresh-enemy positions so a called line carries its CENTROID (the breacher
+      # converges on the real cluster, not a blind seam).
       var freshEnemyNear = 0
       var freshMateNear = 0
+      var enemySum = vec(0, 0)
       for t in bot.enemies:
         if bot.tick - t.lastSeen <= LocalFreshTicks and
             (dist(t.pos, stealTarget) <= CommsScanRange or
              dist(t.pos, me) <= CommsScanRange):
           inc freshEnemyNear
+          enemySum = enemySum + t.pos
       for t in bot.mates:
         if bot.tick - t.lastSeen <= LocalFreshTicks and dist(t.pos, me) <= CommsScanRange:
           inc freshMateNear
@@ -3531,6 +3571,9 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         # pocket (that's ScStack) — a standing defensive line farming our push. Call
         # it so mates a lane away converge + a grenade carrier saturates the cluster.
         localSc = ScLine
+        # Record the line's CENTROID for the arc breacher's convergence (own eyes here).
+        bot.arcLinePos = enemySum * (1.0 / float(freshEnemyNear))
+        bot.arcLineTick = bot.tick
     when defined(commsprobe):
       if localSc == ScStack: inc csStack
       elif localSc == ScWipe: inc csWipe
@@ -4888,21 +4931,40 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # live line (or a committed run), ONLY when not carrying/escorting/defending. The
   # FIRE half is in the mask block below (a sibling of the sword-melee swing).
   #
-  # FIX (Stage 2, 2026-07-24): the old scan homed on a VISIBLE "plasma arc" sprite,
-  # but the arc spawns in our own BACK CORNER (arcSpawn) ~200px behind a forward
-  # breacher and far outside the 90px vision bubble — so it saw nothing and fired 0
-  # (ARC-SEEK 15 / ARC-FIRE 0 over 8 turtle-line games). The seek now navigates to
-  # the STATIC arcSpawn coordinate (no LOS, exactly like the pedestal/spawn targets)
-  # and a commit window (arcBreachUntil) holds the run so a flickering line read can't
-  # abort the trek mid-way. Once armed the FIRE block owns the bot (iHavePlasma).
+  # ⭐ CAPTAIN-COORDINATED ARM (2026-07-24, the reframe). The lone-wolf breacher failed
+  # the audit on GEOMETRY: grabbing REACTIVELY after a line forms means the breacher is
+  # already deep forward, so the round trip back to the own-corner arcSpawn and out again
+  # is ~478t — longer than the line lives. The fix is to arm PROACTIVELY while SHALLOW:
+  # the arc sits in our own back corner NEXT to spawn, so a breacher that's near/behind
+  # mid grabs it on a cheap ~one-leg detour, THEN carries the armed cone forward to the
+  # called cluster. The Captain-mind (teamPhase) supplies the proactive trigger — an
+  # ATTACKING phase (Open/Probe/Press) is exactly when the enemy answers with a standing
+  # line, so a shallow breacher pre-arms for it; a live/heard line (lineLive) also arms.
+  # The seek navigates to the STATIC arcSpawn (no LOS — the fires-0 fix), and the commit
+  # window (arcBreachUntil) holds the run through line-read flicker. Once armed the FIRE
+  # block owns the bot (iHavePlasma) and carries the cone to the cluster regardless of depth.
   let teamSeat = clamp(bot.slot div 2, 0, 7)
   let iAmBreacher = bot.tune.arcBreach and teamSeat == ArcBreachSeat
+  let breachDepth = -homeSign(bot.team) * (me.x - float(CenterX))   # + = into enemy half
+  # Remember that a line was seen (this bot's own classification OR a heard call) — the
+  # proof this OPPONENT plays defensive lines. Opponent-adaptivity hinges on this memory.
+  if iAmBreacher and lineLive:
+    bot.sawLineTick = bot.tick
+  # A line is likely when it's actually called (lineLive) OR the Captain has us in a mid-game
+  # PRESSURE phase (Probe/Press) AND this opponent has shown a line recently (ArcLineMemory).
+  # NOT PhOpen (the opening needs every gun grouped). The line-memory gate is what keeps the
+  # breacher DORMANT (a full gun) vs an aggressive no-line field — it only pre-commits its gun
+  # to the arc against opponents that actually stand lines, so we never pay disarm for nothing.
+  let sawLineRecently = bot.tick - bot.sawLineTick <= ArcLineMemoryTicks
+  let linePendingPhase = bot.tune.planLayer and botPhase in {PhProbe, PhPress} and sawLineRecently
+  let armProactive = lineLive or linePendingPhase
   when defined(arcprobe):
     if iAmBreacher: inc apBreacher
     if iAmBreacher and lineLive: inc apLineLive
-  # A live line ARMS the commit window; the window keeps the run alive through the
-  # line-read flicker until we actually hold the arc.
-  if iAmBreacher and lineLive and not iHavePlasma:
+  # ARM the commit window only while SHALLOW (a cheap grab); a deep breacher must NOT
+  # start the ~478t retreat the audit killed — it stays a gun on the line until it falls
+  # back naturally, then arms shallow. Once armed (iHavePlasma) the window is irrelevant.
+  if iAmBreacher and armProactive and not iHavePlasma and breachDepth <= ArcArmMaxDepth:
     bot.arcBreachUntil = bot.tick + ArcBreachCommit
   let arcRunLive = iAmBreacher and bot.tick <= bot.arcBreachUntil
   if iAmBreacher and not iHavePlasma and not iCarry and not mateCarry and
@@ -5087,12 +5149,24 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       when defined(arcprobe): inc apCharge
       moveMask = octantBits(approachTgt - me)
       desiredAim = bradsOf(approachTgt - me)
+    elif bot.arcLinePos.x >= 0 and bot.tick - bot.arcLineTick <= CommsPlayTtl and
+        dist(bot.arcLinePos, me) > ArcBreachFireReach:
+      # ⭐ CONVERGE on the CALLED line (Captain-coordinated). We can't SEE the cluster yet
+      # (no fresh tracks), but we KNOW where it was called — our own centroid or a heard
+      # caller's bubble. Walk toward it so the line comes into vision + cone reach, then the
+      # cluster scan above takes over. This is the fog-crossing convergence the callout buys:
+      # a breacher a lane away brings its sustained cone to the real line, not a blind seam.
+      # Stop short of overrunning (the cone reach margin), and keep the vision cone on it.
+      when defined(arcprobe): inc apCharge
+      moveMask = octantBits(bot.navSteer(client, me, bot.arcLinePos))
+      desiredAim = bradsOf(bot.arcLinePos - me)
     else:
-      # DRY: no fat cluster anywhere (a singleton or nothing). We hold a disarmed gun for
-      # the rest of this life, so the worst thing we can do is charge that gunless body
-      # INTO the line to be focus-fired for free. Ease to a SHALLOW threat depth and hold —
-      # a live cone shapes the line (enemies space to dodge AoE) even unfired, and we stay
-      # poised to close the instant a real cluster forms. A disarmed unit has no gun to trade.
+      # DRY: no fat cluster anywhere and no fresh line location (a singleton or nothing). We
+      # hold a disarmed gun for the rest of this life, so the worst thing we can do is charge
+      # that gunless body INTO the line to be focus-fired for free. Ease to a SHALLOW threat
+      # depth and hold — a live cone shapes the line (enemies space to dodge AoE) even unfired,
+      # and we stay poised to close the instant a real cluster forms or a line is called. A
+      # disarmed unit has no gun to trade.
       when defined(arcprobe): inc apCharge
       if depth < ArcSeamHoldDepth:
         let seam = vec(float(CenterX) - homeSign(bot.team) * ArcSeamHoldDepth, me.y)
