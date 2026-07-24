@@ -184,6 +184,10 @@ const
   PushOutMinGame = 1400       # ...this deep into the game breaks the posts
   StalemateTick = 2000        # nobody has MOVED a flag by here: the game is
                               # heading for a lose-lose timeout — go convert.
+  StaleClusterTtl = 600       # -d:nadeCluster: campers hold ground — a track
+                              # this old is still a target if it CLUSTERED
+  ClusterPairPx = 90.0        # two remembered enemies this close = one blast
+  SalvoWindow = 70            # ticks after the charge order to force the lob
   SiegeBarrageTicks = 100     # -d:siege: bombardment window per cycle
   SiegeAdvanceTicks = 90     # -d:siege: advance-and-settle window per cycle
   SiegeStep = 170.0           # -d:siege: ground taken per advance order
@@ -303,6 +307,8 @@ type
     siegePhase: int           # -d:siege: 0 idle, 1 bombard, 2 advance
     siegePhaseUntil: int      # tick the current siege phase expires
     siegeFront: float         # captured ground line during a siege
+    wasPushOut: bool          # -d:nadeCluster: charge-start edge detector
+    salvoUntil: int           # force-lob window after the charge order
     sweepFlip: bool           # -d:centerScan: which vertical arc is swept
     lastEnemyShout: string    # last enemy shout label already responded to
     lastComebackReq: int      # rate limit on comeback generation requests
@@ -1701,6 +1707,11 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
        bot.tick - bot.lastEnemySeen > QuietForBreak))
   )
 
+  when defined(nadeCluster):
+    if pushOut and not bot.wasPushOut:
+      bot.salvoUntil = bot.tick + SalvoWindow
+    bot.wasPushOut = pushOut
+
   # Movement target from role and flag situation.
   var target: Vec
   if iCarry:
@@ -2154,6 +2165,52 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         nadeAim = bradsOf(pk - me)
         nadeThrowD = dk
         break
+  when defined(nadeCluster):
+    if carryingNade and not iCarry and nadeAim < 0:
+      # Cluster strike: campers do not move, so freshness is the wrong
+      # filter — any REMEMBERED pair of enemies within one blast of each
+      # other is a target, as long as the midpoint is wall-blocked (the gun
+      # owns visible ground) and in lob range. This is where a clustered
+      # cover-camper dies.
+      var bestScore = -1.0
+      for a in 0 ..< bot.enemies.len:
+        let ta = bot.enemies[a]
+        if ta.synthetic or bot.tick - ta.lastSeen > StaleClusterTtl:
+          continue
+        for b in (a + 1) ..< bot.enemies.len:
+          let tb = bot.enemies[b]
+          if tb.synthetic or bot.tick - tb.lastSeen > StaleClusterTtl:
+            continue
+          if dist(ta.pos, tb.pos) > ClusterPairPx:
+            continue
+          let mid = vec((ta.pos.x + tb.pos.x) * 0.5, (ta.pos.y + tb.pos.y) * 0.5)
+          let d = dist(mid, me)
+          if d < NadeMinRange or d > NadeMaxRange:
+            continue
+          if bot.gridRayClear(me, mid):
+            continue                       # visible: the gun covers it
+          # prefer the freshest, tightest cluster
+          let score = 2000.0 - float(bot.tick - max(ta.lastSeen, tb.lastSeen)) -
+            dist(ta.pos, tb.pos)
+          if score > bestScore:
+            bestScore = score
+            nadeAim = bradsOf(mid - me)
+            nadeThrowD = d
+      # Charge salvo: the wave is about to cross — put every held grenade
+      # onto remembered ground FIRST so the blasts land as we close. In the
+      # salvo window a stale SINGLE behind cover is worth the lob too.
+      if nadeAim < 0 and bot.tick < bot.salvoUntil:
+        for t in bot.enemies:
+          if t.synthetic or bot.tick - t.lastSeen > StaleClusterTtl:
+            continue
+          let d = dist(t.pos, me)
+          if d < NadeMinRange or d > NadeMaxRange:
+            continue
+          if bot.gridRayClear(me, t.pos):
+            continue
+          nadeAim = bradsOf(t.pos - me)
+          nadeThrowD = d
+          break
 
   # Weapon pickups. SHIELD-THEN-STEAL: the enemy endzone shield sits just
   # behind their pedestal — a rusher near the pocket grabs 6 hp first and
