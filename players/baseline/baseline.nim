@@ -500,18 +500,34 @@ const
                               # forward breacher and far outside the 90px vision bubble, so
                               # a see-it scan fired ~0 (the shipped-OFF bug). The seek now
                               # navigates to the STATIC arcSpawn coordinate, no LOS needed.
-  ArcBreachCommit = 170       # once the breacher commits to the arc run (a line was live
+  ArcBreachCommit = 520       # once the breacher commits to the arc run (a line was live
                               # and it broke off), hold the run this many ticks past the
                               # last live-line frame so a FLICKERING line read can't abort
-                              # the ~200px trek to the corner. Movement ~2.75px/t, so this
-                              # covers the round-trip out to arcSpawn and back to the seam.
+                              # the trek. Sized to the WORST-CASE round-trip: a breacher
+                              # deep at the seam (~x 707) must path BACK to the arc corner
+                              # (x 50) then out again = ~1314px / 2.75px·t⁻¹ ≈ 478t; 520
+                              # covers it (the old 170 covered only one leg → aborted runs).
+  ArcConeMinCluster = 2       # MIN fresh enemies inside one cone before we FIRE it. The arc
+                              # trades our gun for LIFE, so coning a SINGLETON (cluster 1) is
+                              # a net DPS loss vs just shooting it (25t recharge, disarmed for
+                              # life). Field-measured: without this gate the cone averaged 1.33
+                              # hits (mostly singletons). Only spend the cone on a real cluster.
   ArcBreachFireReach = 128.0  # fire the cone when a fresh enemy sits within this (just
                               # inside the engine's 136px reach, a margin for our aim/step)
   ArcBreachConeBrads = 12     # press attack when the target is within this of our aim
                               # (the ~14° half-cone; be on-bearing so the cone lands)
-  ArcSeamDepth = 90.0         # armed-but-no-target charge: push this far into the ENEMY
-                              # half (past center, toward the called line) so the cluster
-                              # comes into vision + cone reach, then the cluster-scan fires.
+  ArcApproachRadius = 300.0   # a DISARMED breacher CLOSES on a fat cluster (>= ArcConeMinCluster
+                              # fresh enemies within one PlasmaArcReach of each other) detected
+                              # within this radius — wider than the 128px fire reach, because to
+                              # cone a DEEP line the gunless body must first close the gap. This
+                              # approach is the +EV act the weapon exists for (area-denial vs a
+                              # cluster; doctrine "numbers are the currency"), NOT feeding: it is
+                              # gated on a REAL cluster, never a singleton (that's the dry case).
+  ArcSeamHoldDepth = 55.0     # a DISARMED breacher with NO cluster anywhere (the dry case) must
+                              # NOT charge its gunless body INTO the line to be focus-fired for
+                              # free. Hold at this shallow depth just past center — a live cone is
+                              # a THREAT that shapes the line (enemies space to dodge AoE) even
+                              # unfired, and we stay poised to close the instant a cluster forms.
   ArcCarryRadius = 48.0       # attribute the "plasma arc carried" marker (floats
                               # ABOVE the head, higher than the hp pip) to the nearest
                               # actor within this — bigger than HpPipRadius(22) for the
@@ -1980,19 +1996,23 @@ proc shippedCombatTune(): CombatTune =
   # a 6-HP tank (the pip bar lies 3/3), needs more guns (satNeed), and weighs more in
   # the break math (ShieldGunWeight); no flag, it's a straight correctness repair.
   #
-  # ⚠️ arcBreach STAYS OFF in the shipped tune (Stage 2 built the OFFENSE 2026-07-24).
-  # Unlike every other lever here it has a real DOWNSIDE if it misfires — the breacher
-  # trades its gun for its life, so an arc grabbed with no line to cone is a dead-weight
-  # disarmed body. The offensive half is now BUILT and VERIFIED firing (it used to fire
-  # 0): the seek was LOS-gated on a VISIBLE arc sprite, but the arc spawns in our own
-  # back corner (arcSpawn) far outside the 90px vision bubble — so it saw nothing. The
-  # seek now navigates to the STATIC arcSpawn (LOS-free), a commit window rides the
-  # line-read flicker, and an armed breacher charges the seam until a cluster comes into
-  # cone reach. arcprobe/TURTLE (GV17): SEEK 15->1385, ARMED ~0->1392, FIRE 0->154, mean
-  # cone cluster 2.64 (fattest 5). But the mirror/turtle only proves it FIRES a multikill
-  # — the win-credit (does coning a real line beat the disarm cost?) is a hosted xreq vs
-  # an asymmetric line opponent, NOT a mirror A/B. "Code it right" > "ship it on": kept
-  # behind the ARCBREACH knob for that dedicated A/B. Baked only on a +delta.
+  # ⚠️ arcBreach STAYS OFF — and after a pre-A/B audit (2026-07-24) it should probably be
+  # RETIRED, not A/B'd. The seek/fire were made to fire (static arcSpawn nav + min-cluster
+  # gate + 3-tier approach/hold), and vs a rigged TURTLE it cones a real line. But three
+  # independent problems sink it as a LEAGUE lever, and no tuning fixes them:
+  #   1. GEOMETRY: the arc spawns in our own back corner; a forward breacher's round trip
+  #      to grab it and return to the line is ~485t (~20s) — it dwarfs both the commit
+  #      window and the line's lifetime, so the run usually aborts or arrives after the
+  #      line is gone. As an anti-line ANSWER it is too slow to matter.
+  #   2. DISARM: grabbing the arc kills the gun FOR THE REST OF THAT LIFE (no voluntary
+  #      drop; firing doesn't consume it). A scattered line strands a gunless body — field
+  #      mirror: the breacher held the arc with NO cluster in reach ~82% of the time.
+  #   3. DOCTRINE + REDUNDANCY: it removes one of OUR guns for a negative-EV cone, and the
+  #      shipped GRENADE-on-fattest-cluster path (see the grenade block below) ALREADY does
+  #      the anti-line multikill WITHOUT the gun trade. The arc breacher is a strictly-worse
+  #      duplicate. "Numbers are the currency" (cqc lens) — don't subtract your own gun.
+  # Kept behind the ARCBREACH knob for the record + probe; do NOT bake, do NOT spend a
+  # hosted A/B on it — invest that budget in the grenade cluster path instead.
   # result.arcBreach = true   # deliberately not enabled — see above
   # ── gv21Press (v18) — FALSIFIED 2026-07-23. Hosted A/B vs h006: v18 24-55, WORSE than
   # v17's 30-50. Pressing harder just extended the grind (endTick 2600→3400) and fed
@@ -5007,30 +5027,49 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # cone lands. Same edge-triggered attack the sim reads for the cone (input.attack
     # and not prev.attack); firedLast gating below keeps it a clean press, not a hold.
     when defined(arcprobe): inc apArmed
-    var bestCluster = 0
-    var bestAim = -1
-    var bestTgt: Vec
+    # The cone only earns its disarmed-for-life cost against a real CLUSTER (>=
+    # ArcConeMinCluster fresh enemies inside one PlasmaArcReach): coning a SINGLETON is a
+    # net DPS loss (a 25t-recharge weapon vs one cog we'd have shot anyway; field-measured
+    # 1.33 mean hits WITHOUT this gate). Doctrine: the arc is AREA-DENIAL — its value is
+    # >=2-at-once; good opponents space to dodge AoE, so a lone target is not its job.
+    # Compute, for every fresh enemy, the cluster size around it (peers within one arc
+    # reach). Track the fattest cluster that is (a) inside FIRE reach + clear LOS, and
+    # (b) the fattest within the wider APPROACH radius (to close a deep line before firing).
+    var fireCluster = 0
+    var fireAim = -1
+    var fireTgt: Vec
+    var approachCluster = 0
+    var approachTgt: Vec
+    var nearFoe = -1
+    var nearD = 1e18
     for i in 0 ..< bot.enemies.len:
       if bot.tick - bot.enemies[i].lastSeen > bot.tune.freshShotTicks:
         continue
       let tp = bot.enemies[i].pos
-      if dist(tp, me) > ArcBreachFireReach:
-        continue
-      if not client.pixelRayClear(me, tp):     # the cone needs clear LOS (sim gates it)
-        continue
+      let dme = dist(tp, me)
+      if dme < nearD:
+        nearD = dme
+        nearFoe = i
       var cluster = 1
       for j in 0 ..< bot.enemies.len:
         if j != i and bot.tick - bot.enemies[j].lastSeen <= bot.tune.freshShotTicks and
             dist(bot.enemies[j].pos, tp) <= PlasmaArcReachPx:
           inc cluster
-      if cluster > bestCluster:
-        bestCluster = cluster
-        bestTgt = tp
-        bestAim = bradsOf(tp - me)
-    if bestAim >= 0:
+      # Approach candidate: the fattest cluster within the (wider) approach radius.
+      if dme <= ArcApproachRadius and cluster > approachCluster:
+        approachCluster = cluster
+        approachTgt = tp
+      # Fire candidate: must be inside cone reach with clear LOS (the sim gates the cone).
+      if dme <= ArcBreachFireReach and client.pixelRayClear(me, tp) and cluster > fireCluster:
+        fireCluster = cluster
+        fireTgt = tp
+        fireAim = bradsOf(tp - me)
+    let depth = -homeSign(bot.team) * (me.x - float(CenterX))   # how deep we are (+ = enemy half)
+    if fireAim >= 0 and fireCluster >= ArcConeMinCluster:
+      # A real cluster IN REACH: close onto it and CONE it (the multikill this weapon is for).
       when defined(arcprobe): inc apInReach
-      desiredAim = bestAim
-      moveMask = octantBits(bestTgt - me)      # close to keep the cluster in the cone
+      desiredAim = fireAim
+      moveMask = octantBits(fireTgt - me)      # close to keep the cluster in the cone
       let err = abs(bradsErr(desiredAim, bot.estAim))
       wantFire = err <= ArcBreachConeBrads     # on-bearing so the cone covers them
       when defined(commsprobe):
@@ -5038,34 +5077,32 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       when defined(arcprobe):
         if wantFire:
           inc apFire
-          apClusterSum += bestCluster
-          if bestCluster > apMaxCluster: apMaxCluster = bestCluster
-    else:
-      # Armed but no cluster in reach yet: CHARGE THE SEAM. We usually arm in the
-      # empty back corner (no enemy tracked at all), so a nearest-tracked-foe fallback
-      # left us standing still holding a disarmed gun — the second half of the fires-0
-      # bug. Prefer a tracked foe if we have one; otherwise drive into the enemy half
-      # toward the called line so the cluster comes into vision + cone reach, then the
-      # scan above fires. Keep the vision cone pointed the way we push so we acquire.
+          apClusterSum += fireCluster
+          if fireCluster > apMaxCluster: apMaxCluster = fireCluster
+    elif approachCluster >= ArcConeMinCluster:
+      # A real cluster is in view but OUT of cone reach: CLOSE the gap onto its centroid.
+      # This is the sanctioned approach (we're closing to land a multikill — +EV per the
+      # numbers doctrine), NOT feeding: it is gated on a genuine cluster, and we keep the
+      # cone trained on it the whole way so it lands the instant we're in reach.
       when defined(arcprobe): inc apCharge
-      var nd = 1e18
-      var toward: Vec
-      for i in 0 ..< bot.enemies.len:
-        if bot.tick - bot.enemies[i].lastSeen > bot.tune.freshShotTicks: continue
-        let dd = dist(bot.enemies[i].pos, me)
-        if dd < nd:
-          nd = dd
-          toward = bot.enemies[i].pos - me
-      if nd < 1e17:
-        moveMask = octantBits(toward)
-        desiredAim = bradsOf(toward)
-      else:
-        # No live track: aim the run at the enemy-half seam (past center toward the
-        # called line's lane). heardPlay/localSc don't carry a point, so use the seam
-        # at our own lane height — the line the classifier keys on is our front.
-        let seam = vec(float(CenterX) - homeSign(bot.team) * ArcSeamDepth, me.y)
+      moveMask = octantBits(approachTgt - me)
+      desiredAim = bradsOf(approachTgt - me)
+    else:
+      # DRY: no fat cluster anywhere (a singleton or nothing). We hold a disarmed gun for
+      # the rest of this life, so the worst thing we can do is charge that gunless body
+      # INTO the line to be focus-fired for free. Ease to a SHALLOW threat depth and hold —
+      # a live cone shapes the line (enemies space to dodge AoE) even unfired, and we stay
+      # poised to close the instant a real cluster forms. A disarmed unit has no gun to trade.
+      when defined(arcprobe): inc apCharge
+      if depth < ArcSeamHoldDepth:
+        let seam = vec(float(CenterX) - homeSign(bot.team) * ArcSeamHoldDepth, me.y)
         moveMask = octantBits(bot.navSteer(client, me, seam))
         desiredAim = bradsOf(seam - me)
+      elif nearFoe >= 0:
+        # At the threat line: hold depth, keep the cone on the nearest foe (poised to cone).
+        desiredAim = bradsOf(bot.enemies[nearFoe].pos - me)
+      else:
+        desiredAim = bradsOf(vec(-homeSign(bot.team), 0.0))  # face the enemy half
     acted = true
   elif engage >= 0 and shotReady:
     # Traverse onto the target and fire once the corridor covers it: the
