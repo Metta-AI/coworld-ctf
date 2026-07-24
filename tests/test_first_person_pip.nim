@@ -43,9 +43,18 @@ suite "first-person picture-in-picture":
     let fp = game.fpFrame(game.players[red].joinOrder)
     check fp.kind == JObject
     check fp["cols"].len == 96
-    # Every column is either a wall hit distance (>=0) or a clean miss (-1).
+    # The strip carries its cone half-angle (brads) for correct client projection.
+    check fp.hasKey("hfov")
+    check fp["hfov"].getFloat() > 0
+    # A column is either a scalar wall hit (>=-1) or a [stoneHit, glassDist] pair
+    # (glass is see-through, so both distances ride along).
     for c in fp["cols"]:
-      check c.getInt() >= -1
+      if c.kind == JArray:
+        check c.len == 2
+        check c[0].getInt() >= -1     # stone behind the glass (or -1 miss)
+        check c[1].getInt() >= 0      # a recorded glass pane is a real distance
+      else:
+        check c.getInt() >= -1
 
   test "walls near the player yield shorter distances than an open lane":
     # A player pressed against the left border wall, aiming into the wall (west),
@@ -63,8 +72,10 @@ suite "first-person picture-in-picture":
     let intoArena = game.fpFrame(game.players[red].joinOrder)
 
     proc centerHit(fp: JsonNode): int =
-      # The central column: the axis the player looks straight down.
-      fp["cols"][fp["cols"].len div 2].getInt()
+      # The central column: the axis the player looks straight down. A column is
+      # either a scalar stone hit or a [stoneHit, glassDist] pair.
+      let c = fp["cols"][fp["cols"].len div 2]
+      if c.kind == JArray: c[0].getInt() else: c.getInt()
 
     let wallHit = intoWall.centerHit()
     # Aiming into the border wall must return a finite, short wall hit.
@@ -125,3 +136,105 @@ suite "first-person picture-in-picture":
     for e in fp["ents"]:
       check e["k"].getStr() != "enemy"         # no moving entities for the dead
       check e["k"].getStr() != "mate"
+
+  test "glass windows are see-through: a column reads BOTH the pane and the wall behind":
+    # Column-1 has GLASS window stubs (x 268..286). A player standing just EAST of
+    # the top glass stub (y ~138) and aiming WEST must ray THROUGH the glass to the
+    # border wall behind it — so its center column is a [stoneHit, glassDist] pair,
+    # never a dead stone face. This is the see-through-not-shoot-through contract.
+    var game = initCtfForTest(defaultGameConfig())
+    let red = game.addPlayer("red0")
+    game.startGame()
+    game.players[red].team = Red
+    game.players[red].x = 340            # east of the x=268..286 glass stub
+    game.players[red].y = 138            # inside the top glass stub's y-span
+    game.players[red].aimBrads = AimBradsTurn div 2   # due west, through the glass
+    let fp = game.fpFrame(game.players[red].joinOrder)
+    var sawGlass = false
+    for c in fp["cols"]:
+      if c.kind == JArray:
+        sawGlass = true
+        check c[1].getInt() >= 0          # a real glass distance
+    check sawGlass
+
+  test "fp frame carries the seat's own status HUD":
+    var game = initCtfForTest(defaultGameConfig())
+    let red = game.addPlayer("red0")
+    game.startGame()
+    game.players[red].team = Red
+    game.players[red].hp = 2
+    game.players[red].hasShield = true
+    let fp = game.fpFrame(game.players[red].joinOrder)
+    check fp.kind == JObject
+    check fp.hasKey("self")
+    let self = fp["self"]
+    check self["hp"].getInt() == 2
+    check self["alive"].getBool() == true
+    check self["team"].getStr() == "red"
+    var carriesShield = false
+    for it in self["items"]:
+      if it.getStr() == "shield": carriesShield = true
+    check carriesShield
+
+  test "fp frame carries an un-fogged tactical map of ALL players and both hearts":
+    # The minimap is deliberately omniscient: it lists every live player and both
+    # hearts in world coords regardless of the POV seat's fog, plus the seat's own
+    # position, aim and cone geometry.
+    var game = initCtfForTest(defaultGameConfig())
+    let
+      red = game.addPlayer("red0")
+      blue = game.addPlayer("blue0")
+    game.startGame()
+    game.players[red].team = Red
+    game.players[blue].team = Blue
+    let
+      cx = game.gameMap.center.x
+      cy = game.gameMap.center.y
+    game.players[red].x = cx
+    game.players[red].y = cy
+    game.players[red].aimBrads = 0
+    # Blue is placed far away and NOT refreshed into red's fov — the fog-honest
+    # ents list would omit it, but the omniscient map must still include it.
+    game.players[blue].x = 40
+    game.players[blue].y = 40
+
+    let fp = game.fpFrame(game.players[red].joinOrder)
+    check fp.kind == JObject
+    check fp.hasKey("map")
+    let m = fp["map"]
+    check m["w"].getInt() == MapWidth
+    check m["h"].getInt() == MapHeight
+    check m["players"].len == 2                 # BOTH players, no fog
+    check m["hearts"].len == 2                  # both team hearts
+    var sawSelf = false
+    for p in m["players"]:
+      if p["self"].getBool(): sawSelf = true
+    check sawSelf
+    let here = m["here"]
+    check here["x"].getInt() == cx
+    check here["coneDeg"].getInt() == game.config.visionConeDeg
+    check here["bubble"].getInt() == game.config.visionBubble
+
+  test "static minimap wall silhouette encodes floor/stone/glass":
+    var game = initCtfForTest(defaultGameConfig())
+    discard game.addPlayer("red0")
+    game.startGame()
+    let walls = game.fpMapWallsJson()
+    check walls["w"].getInt() == MapWidth
+    check walls["h"].getInt() == MapHeight
+    # RLE is a flat [state, count, …] list; states are 0/1/2 and reconstruct to
+    # exactly gw*gh cells.
+    let
+      gw = walls["gw"].getInt()
+      gh = walls["gh"].getInt()
+      rle = walls["rle"]
+    check rle.len mod 2 == 0
+    var total = 0
+    var sawStone = false
+    for k in countup(0, rle.len - 2, 2):
+      let st = rle[k].getInt()
+      check st in 0 .. 2
+      if st == 1: sawStone = true
+      total += rle[k + 1].getInt()
+    check total == gw * gh
+    check sawStone                              # the arena has stone walls

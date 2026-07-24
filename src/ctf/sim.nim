@@ -521,6 +521,15 @@ type
                                ## overkill still reads 0): the victim on
                                ## Damage, the healed player on Heal.
                                ## -1 on every other kind (n/a).
+    blocked*: int              ## on a Damage event, how many of `amount`'s hit
+                               ## points the victim's SHIELD absorbed — i.e.
+                               ## damage prevented from touching the base cog.
+                               ## A shield carrier holds bonus hp above the base
+                               ## HitPoints ceiling (only a shield pickup lifts a
+                               ## cog there), so any of this hit that lands while
+                               ## the victim is above base is shield-soaked. 0
+                               ## when the victim held no shield hp, and on every
+                               ## non-Damage kind (n/a).
     x*, y*: float              ## map position where the event happened.
 
   Shout* = object
@@ -884,6 +893,214 @@ proc soldierRotIndex*(aimBrads: int): int =
   ((aimBrads + AimBradsTurn div (SoldierRotations * 2)) *
     SoldierRotations div AimBradsTurn) mod SoldierRotations
 
+## --- Articulated TURRET rig: the REAL CvC cog, segmented (broadcast board only) ---
+## The SAME real master art as soldierRotPixels, SLICED (scripts/art/build_cvc_rig.py)
+## into 9 pieces that recompose to the south master at rest but articulate like a
+## tank trike when moving:
+##   head  - cube + cyan visor + center pistons + the held GUN. Faces AIM. Drawn
+##           LAST so it covers the hub/leg-joins (no head-hole).
+##   armL/R- the two shoulder assemblies. Face AIM. TUCKED at rest; reach FORWARD
+##           to cradle the carried heart only while carrying (carry-gated caller).
+##   legFL/FR/Rear - the three leg struts (tire removed). Face the MOVEMENT heading
+##           (CogDriveState.bodyHeading), each hinged about its own hip with a
+##           differential turn swing; the INNER leg SHORTENS into a turn.
+##   wheelL/R/Rear - the three tires, cut out of the legs, each CASTERING (rotating
+##           about its axle) toward the roll direction, capped so a tall top-down
+##           tire only tilts to hint the turn (never swings fully broadside).
+## The head/arms track AIM while the legs/wheels track MOVEMENT — a true turret
+## swivel. All broadcast-only (no sim state, no GameVersion bump); POV keeps the
+## unified soldierRotPixels sprite.
+##
+## Every segment is baked in the SAME 192px master frame space through ONE code
+## path (rigSegPixels): rotate the segment about its ANCHOR by a base angle (aim
+## for head/arms, bodyHeading for legs/wheels) plus an articulation, then place the
+## HUB on the player. At rest everything rotates by the same aim delta about anchors
+## that ARE its master pixels, so the composite == the south master.
+type
+  RigSeg* = enum
+    rsHead, rsArmL, rsArmR, rsLegFL, rsLegFR, rsLegRear,
+    rsWheelL, rsWheelR, rsWheelRear
+
+const
+  RigSegCount* = 9
+  RigCanvas* = 96             ## px square rig segment canvas at 1x (fits the
+                              ## swung legs + castered wheels + reaching arms).
+  # Anchors in 192px master-frame space (scripts/art/build_cvc_rig.py anchors.json).
+  RigHub: tuple[x, y: float] = (96.0, 88.0)   ## cog rotation center (head-cube
+                              ## center); head, arms and leg-hips all measured here.
+  RigAnchor: array[RigSeg, tuple[x, y: float]] = [
+    (96.0, 88.0),     # rsHead      (== hub; head rotates about the hub to aim)
+    (70.0, 84.0),     # rsArmL      left shoulder attach
+    (120.0, 84.0),    # rsArmR      right shoulder attach
+    (72.0, 100.0),    # rsLegFL     left front hip
+    (120.0, 100.0),   # rsLegFR     right front hip
+    (96.0, 80.0),     # rsLegRear   rear hip — flipped 180° about hub to the BACK
+    # Wheels caster about their TIRE CENTROID (measured), not the axle at the top —
+    # pivoting mid-tire spins the wheel in place, not swinging the tire body out.
+    (73.5, 134.0),    # rsWheelL    left front tire centroid
+    (117.3, 132.7),   # rsWheelR    right front tire centroid
+    (94.7, 48.3)]     # rsWheelRear rear tire centroid — flipped 180° to the BACK
+  # Articulation feel (degrees). Legs differential-steer: rest tuck ± splay on the
+  # turn signal; the INNER leg shortens instead of splaying wide.
+  RigRestTuckDeg = 2.0
+  RigSplayDeg = 5.0           ## outer leg barely swings — the inner-leg SHORTEN +
+                              ## wheel caster carry the turn read; a big swing on
+                              ## the far leg reads as a splayed spider strut.
+  RigRearCounterFrac = 0.3    ## rear leg counter-swings this fraction of splay.
+  RigInnerShorten = 0.34      ## inner leg shrinks up to this fraction on a turn.
+  RigArmReachDeg = 22.0       ## arms swing forward this far to cradle a carried
+                              ## heart (art step 1); 0 at rest (tucked shoulders).
+  RigShortenSteps* = 4        ## baked leg-length steps (0 = full .. this = shortest).
+  RigSteps* = 16              ## baked steps per rotating quantity (aim / heading).
+  RigLegSwingSteps* = 16      ## baked leg swing steps across the full turn range.
+  # Wheel caster: capped TIGHT so a tall top-down tire only tilts to hint the roll
+  # direction. Expressed in brads (AimBradsTurn=256): 16 brads ≈ 22°.
+  RigCasterMaxBrads* = 16
+  RigCasterSteps* = 8         ## baked caster tilt steps across ±RigCasterMaxBrads.
+
+var
+  rigLoaded: array[Team, bool]
+  rigSegImg: array[Team, array[RigSeg, Image]]
+  rigScale: array[Team, float]   ## master-frame px -> map px (body fills body px).
+  # Bake cache keyed by (baseStep, artStep, shortenStep, scale). baseStep is the
+  # aim step (head/arms) or heading step (legs/wheels); artStep is the leg swing or
+  # wheel caster; shortenStep is the leg-length index (0 for non-legs).
+  rigSegCache: array[Team, array[RigSeg, seq[tuple[
+    baseStep, artStep, shortenStep, scale: int, pixels: seq[uint8]]]]]
+
+proc rigSegPath(seg: RigSeg): string =
+  case seg
+  of rsHead: "head"
+  of rsArmL: "arm_l"
+  of rsArmR: "arm_r"
+  of rsLegFL: "leg_fl"
+  of rsLegFR: "leg_fr"
+  of rsLegRear: "leg_rear"
+  of rsWheelL: "wheel_l"
+  of rsWheelR: "wheel_r"
+  of rsWheelRear: "wheel_rear"
+
+proc rigSegIsLeg(seg: RigSeg): bool =
+  seg in {rsLegFL, rsLegFR, rsLegRear}
+
+proc rigSegIsWheel(seg: RigSeg): bool =
+  seg in {rsWheelL, rsWheelR, rsWheelRear}
+
+proc ensureRigLoaded(team: Team) =
+  if rigLoaded[team]:
+    return
+  let dir = gameDir() / "data/rig_real" / (if team == Red: "red" else: "blue")
+  for seg in RigSeg:
+    rigSegImg[team][seg] = readImage(dir / rigSegPath(seg) & ".png")
+  # Scale the rig so its body matches the unified soldier footprint. The solid
+  # body spans ~99px in the 192px frame (y56..154); map that to SoldierBodyPx.
+  ensureSoldierLoaded(team)
+  rigScale[team] = float(SoldierBodyPx) / 99.0
+  rigLoaded[team] = true
+
+proc soldierCanvasToPixels(canvas: Image): seq[uint8] =
+  ## Straight-alpha RGBA (Sprite v1 protocol) from a pixie canvas.
+  result = newSeq[uint8](canvas.width * canvas.height * 4)
+  for i in 0 ..< canvas.width * canvas.height:
+    let c = canvas.data[i].rgba()
+    result[i * 4] = c.r
+    result[i * 4 + 1] = c.g
+    result[i * 4 + 2] = c.b
+    result[i * 4 + 3] = c.a
+
+proc rigSegPixels*(team: Team, seg: RigSeg, baseStep, artStep: int,
+    shortenStep = 0, renderScale = 1): seq[uint8] =
+  ## One rig segment baked into a RigCanvas sprite, HUB-centered.
+  ##  - baseStep: the segment's base rotation step (RigSteps) — the AIM step for
+  ##    the head/arms, the movement-HEADING step for legs/wheels. This IS the
+  ##    turret swivel: head/arms and legs get DIFFERENT baseSteps.
+  ##  - artStep: leg differential swing (signed, RigLegSwingSteps) or wheel caster
+  ##    tilt (signed, RigCasterSteps); ignored for the head.
+  ##  - shortenStep: leg-length index 0..RigShortenSteps (legs only; inner-leg
+  ##    shorten). 0 for everything else.
+  ## Each segment rotates about its ANCHOR by baseDeg + articulation, then the HUB
+  ## lands at canvas center — so at rest (all baseSteps equal, art 0) the segments
+  ## recompose to the south master exactly.
+  let
+    b = ((baseStep mod RigSteps) + RigSteps) mod RigSteps
+    art = artStep
+    sh = clamp(shortenStep, 0, RigShortenSteps)
+  for cached in rigSegCache[team][seg]:
+    if cached.baseStep == b and cached.artStep == art and
+        cached.shortenStep == sh and cached.scale == renderScale:
+      return cached.pixels
+  ensureRigLoaded(team)
+  let
+    outCanvas = RigCanvas * renderScale
+    img = rigSegImg[team][seg]
+    s = rigScale[team] * float(renderScale)
+    center = float32(outCanvas) / 2
+    anchor = RigAnchor[seg]
+    hub = RigHub
+    # base delta: rot 0 = east; the master faces SOUTH so the −90° turn makes the
+    # face lead the base direction. Angle increases CCW; screen y down → rotate −.
+    baseAngle = float(b) * 2.0 * PI / float(RigSteps)
+    baseDeg = -baseAngle - PI / 2.0
+    # The gun mounts in PURE aim space (no −90° — the master-south turn is only for
+    # the body art), like soldierRotPixels: unitRot = rotate(−aimAngle).
+    unitDeg = -baseAngle
+  # Articulation about the segment's own anchor (radians, screen CCW+).
+  var artDeg = 0.0
+  if rigSegIsLeg(seg):
+    let sw = float(art) / float(RigLegSwingSteps) * RigSplayDeg  # signed swing
+    case seg
+    of rsLegFL:  artDeg = (-RigRestTuckDeg + sw) * PI / 180.0
+    of rsLegFR:  artDeg = ( RigRestTuckDeg + sw) * PI / 180.0
+    of rsLegRear: artDeg = (sw * RigRearCounterFrac) * PI / 180.0
+    else: discard
+  elif rigSegIsWheel(seg):
+    # caster tilt: art is the signed caster step; convert to a small angle.
+    let tilt = float(art) / float(RigCasterSteps) *
+      (float(RigCasterMaxBrads) * 2.0 * PI / float(AimBradsTurn))
+    artDeg = -tilt
+  elif seg in {rsArmL, rsArmR}:
+    # Arms: art 0 = tucked (rest); art 1 = REACHING forward to cradle a carried
+    # heart. The reach swings each shoulder inward-and-forward about its attach so
+    # the two arms close in front of the aim (where the heart rides).
+    if art != 0:
+      artDeg = (if seg == rsArmL: RigArmReachDeg else: -RigArmReachDeg) *
+        PI / 180.0
+  # Leg-length shorten: scale the leg toward its hip along the hip→foot (down)
+  # axis. The leg art hangs below its hip anchor, so scaling y about the anchor
+  # pulls the foot (and its wheel, placed separately) up toward the hip.
+  let shortenF = 1.0 - float(sh) / float(RigShortenSteps) * RigInnerShorten
+  var canvas = newImage(outCanvas, outCanvas)
+  let
+    toCenter = translate(vec2(center, center))
+    baseRot = rotate(float32(baseDeg))
+    scl = scale(vec2(float32(s), float32(s)))
+    hubToOrigin = translate(vec2(float32(-hub.x), float32(-hub.y)))
+    artMat =
+      translate(vec2(float32(anchor.x), float32(anchor.y))) *
+      rotate(float32(artDeg)) *
+      scale(vec2(1.0'f32, float32(shortenF))) *
+      translate(vec2(float32(-anchor.x), float32(-anchor.y)))
+    mat = toCenter * baseRot * scl * hubToOrigin * artMat
+  # The head carries the held GUN in front of the face, on the aim ray — exactly
+  # like the unified soldierRotPixels mount (grip GunGripPx forward of the hub,
+  # gun-local (0,h/2) = the barrel-centerline grip end), so the muzzle sits on
+  # +aim and tracers line up. The head is drawn OVER the gun's grip.
+  if seg == rsHead:
+    ensureGunLoaded()
+    let gunMat =
+      toCenter * rotate(float32(unitDeg)) *
+      translate(vec2(float32(GunGripPx * renderScale), 0'f32)) *
+      scale(vec2(float32(gunScale * float(renderScale)),
+                 float32(gunScale * float(renderScale)))) *
+      translate(vec2(0'f32, float32(-gunMaster.height) / 2))
+    canvas.draw(gunMaster, gunMat)
+  canvas.draw(img, mat)
+  let pixels = soldierCanvasToPixels(canvas)
+  rigSegCache[team][seg].add(
+    (baseStep: b, artStep: art, shortenStep: sh, scale: renderScale,
+     pixels: pixels))
+  pixels
+
 proc soldierIconPixels*(team: Team, sizePx: int): seq[uint8] =
   ## A compact roster chip: the face-on cog scaled so the body fills the icon
   ## (no gun — the smile visor IS the identity). Used by the game-over list.
@@ -904,6 +1121,151 @@ proc soldierIconPixels*(team: Team, sizePx: int): seq[uint8] =
     result[i * 4 + 1] = c.g
     result[i * 4 + 2] = c.b
     result[i * 4 + 3] = c.a
+
+proc bradsOfVector*(dx, dy: int): int   ## fwd decl (defined near aimVector below).
+
+## --- Cog driving physics: how the segmented trike steers/turns (broadcast-only) ---
+## Ports the Maxwell-approved CogDriveState model (from maxwell/cog-base-turret-
+## split): the body heading eases slowly toward travel; each wheel casters toward
+## its foot's travel direction near-instantly (so tyres never scrape); the leg
+## splay follows a smoothed turn signal. Everything derives from the already-known
+## velocity, so it stays broadcast-only and replay-deterministic.
+const
+  CogBodyTurnRate* = 28       ## max brads/frame the body heading eases toward the
+                              ## travel direction — the base is a TRUE TANK track
+                              ## that snaps to where it rolls (fast + accurate),
+                              ## fully independent of the head/aim.
+  CogWheelTurnRate* = 48      ## brads/frame a wheel casters toward travel (even
+                              ## faster than the base, so tyres never scrape).
+  CogReverseMaxBrads* = 112   ## |heading-travel| beyond this (~158°) = reversing;
+                              ## below it the base just turns to face travel.
+  CogReverseCommitFrames* = 8   ## backward frames before committing to a U-turn.
+  CogMoveMinSpeed* = StopThreshold
+  CogTurnFullBrads* = 6       ## heading angular velocity mapped to full splay.
+  CogTurnAmtEase* = 200       ## turnAmt eases toward target this many milli/frame.
+
+type
+  CogDriveState* = object
+    ## Per-player broadcast animation state for the segmented trike. NOT in the
+    ## sim / gameHash — lives in the viewer state, evolved once per frame.
+    initialized*: bool
+    bodyHeading*: int          ## brads the chassis currently faces.
+    reverseFrames*: int        ## consecutive backward frames (commit counter).
+    turnAmt*: int              ## signed steer signal, -1000..1000 (x1000). + = left.
+    casterFL*, casterFR*, casterRear*: int  ## brads each wheel points.
+
+proc bradDiff*(a, b: int): int =
+  ## Shortest signed difference a-b wrapped to (-128, 128] brads.
+  var d = ((a - b) mod AimBradsTurn + AimBradsTurn) mod AimBradsTurn
+  if d > AimBradsTurn div 2:
+    d -= AimBradsTurn
+  d
+
+proc easeBrads*(cur, target, maxStep: int): int =
+  ## Steps `cur` toward `target` by at most `maxStep` brads along the shortest
+  ## arc, wrapping into 0..AimBradsTurn-1.
+  let d = bradDiff(target, cur)
+  let step = clamp(d, -maxStep, maxStep)
+  ((cur + step) mod AimBradsTurn + AimBradsTurn) mod AimBradsTurn
+
+proc initCogDriveState*(aimBrads: int): CogDriveState =
+  ## A freshly-spawned cog faces where it aims, wheels aligned, not reversing,
+  ## legs at rest. Reset on any scrub/respawn so a jump never inherits a stale pose.
+  CogDriveState(initialized: true, bodyHeading: aimBrads, reverseFrames: 0,
+    turnAmt: 0, casterFL: aimBrads, casterFR: aimBrads, casterRear: aimBrads)
+
+proc stepCogDrive*(state: CogDriveState, velX, velY, aimBrads: int):
+    CogDriveState =
+  ## Advances the trike's driving animation ONE frame from the current velocity.
+  ## Deterministic: same (state, vel, aim) always yields the same next state.
+  if not state.initialized:
+    return initCogDriveState(aimBrads)
+  result = state
+  let speed = abs(velX) + abs(velY)
+  if speed < CogMoveMinSpeed:
+    # Parked: hold heading, coast every caster back to the heading, relax legs.
+    result.reverseFrames = max(0, state.reverseFrames - 1)
+    result.turnAmt = state.turnAmt -
+      clamp(state.turnAmt, -CogTurnAmtEase, CogTurnAmtEase)
+    result.casterFL = easeBrads(state.casterFL, state.bodyHeading, CogWheelTurnRate)
+    result.casterFR = easeBrads(state.casterFR, state.bodyHeading, CogWheelTurnRate)
+    result.casterRear = easeBrads(state.casterRear, state.bodyHeading, CogWheelTurnRate)
+    return
+  let
+    travel = bradsOfVector(velX, velY)
+    offBody = bradDiff(travel, state.bodyHeading).abs
+    goingBackward = offBody > CogReverseMaxBrads
+  if goingBackward:
+    result.reverseFrames = min(state.reverseFrames + 1, CogReverseCommitFrames * 2)
+  else:
+    result.reverseFrames = max(0, state.reverseFrames - 2)
+  let committed = result.reverseFrames >= CogReverseCommitFrames
+  let headingTarget =
+    if goingBackward and not committed: state.bodyHeading
+    else: travel
+  # The base snaps toward travel at a FLAT fast rate (a tank track grips and
+  # turns hard) — no speed penalty, so a direction change is tracked promptly and
+  # accurately instead of lagging a quarter-second behind.
+  result.bodyHeading = easeBrads(state.bodyHeading, headingTarget, CogBodyTurnRate)
+  # turnAmt: smoothed signed heading angular velocity / CogTurnFull, ×1000.
+  let w = bradDiff(result.bodyHeading, state.bodyHeading)
+  let tInst = clamp(w * 1000 div max(1, CogTurnFullBrads), -1000, 1000)
+  let smoothed = (state.turnAmt * 7 + tInst * 3) div 10
+  result.turnAmt = state.turnAmt +
+    clamp(smoothed - state.turnAmt, -CogTurnAmtEase, CogTurnAmtEase)
+  # Each wheel casters toward the travel direction (with a small turn lean so the
+  # wheels visibly lead the arc). Rear leans opposite (pivot foot).
+  let lean = clamp(result.turnAmt * (AimBradsTurn div 8) div 1000,
+    -(AimBradsTurn div 8), AimBradsTurn div 8)
+  result.casterFL = easeBrads(state.casterFL, travel + lean, CogWheelTurnRate)
+  result.casterFR = easeBrads(state.casterFR, travel + lean, CogWheelTurnRate)
+  result.casterRear = easeBrads(state.casterRear, travel - lean, CogWheelTurnRate)
+
+proc rigHeadingStep*(headingBrads: int): int =
+  ## The base rotation step for the movement-facing legs/wheels (quantized to
+  ## RigSteps). Same quantization as soldierRotIndex, on the body heading.
+  soldierRotIndex(headingBrads)
+
+proc rigLegSwingStep*(seg: RigSeg, turnAmt: int): int =
+  ## SIGNED leg swing step (−RigLegSwingSteps..RigLegSwingSteps) from the turn
+  ## signal (turnAmt ×1000, + = LEFT/CCW). Both front legs swing together with the
+  ## turn (the outer leg widens, the inner one is SHORTENED separately); the rear
+  ## counter-swings. Non-leg segments return 0.
+  let t = clamp(turnAmt, -1000, 1000)
+  if rigSegIsLeg(seg):
+    int(round(float(t) / 1000.0 * float(RigLegSwingSteps)))
+  else: 0
+
+proc rigLegShortenStep*(seg: RigSeg, turnAmt: int): int =
+  ## Leg-length shorten step (0..RigShortenSteps) for the INNER leg of the turn.
+  ## +turnAmt = LEFT/CCW ⇒ the LEFT (inner) front leg shortens; −turnAmt ⇒ RIGHT.
+  let t = clamp(turnAmt, -1000, 1000)
+  case seg
+  of rsLegFL:  int(round(float(max(0, t)) / 1000.0 * float(RigShortenSteps)))
+  of rsLegFR:  int(round(float(max(0, -t)) / 1000.0 * float(RigShortenSteps)))
+  else: 0
+
+proc rigCasterStep*(casterBrads, headingBrads: int): int =
+  ## SIGNED wheel caster tilt step (−RigCasterSteps..RigCasterSteps): the caster
+  ## direction relative to the base HEADING (the wheel is baked rotated by the
+  ## heading, so its extra tilt is caster − heading), clamped to ±RigCasterMaxBrads
+  ## so a tall top-down tire only tilts to hint the turn.
+  let capped = clamp(bradDiff(casterBrads, headingBrads),
+    -RigCasterMaxBrads, RigCasterMaxBrads)
+  int(round(float(capped) / float(RigCasterMaxBrads) * float(RigCasterSteps)))
+
+const RigBaseMaxDivergeBrads* = 14  ## ~20°: the leg base only LEANS a little toward
+                                    ## the movement heading — it never swings far
+                                    ## sideways (the spidery look). The HEAD still
+                                    ## aims freely for the full turret swivel.
+
+proc clampBaseHeading*(headingBrads, aimBrads: int): int =
+  ## Clamps the leg-base heading to within ±RigBaseMaxDivergeBrads of the aim, so
+  ## the base only LEANS into a strafe/turn while the head swivels freely. Returns
+  ## a wrapped 0..AimBradsTurn-1 heading.
+  let d = clamp(bradDiff(headingBrads, aimBrads),
+    -RigBaseMaxDivergeBrads, RigBaseMaxDivergeBrads)
+  ((aimBrads + d) mod AimBradsTurn + AimBradsTurn) mod AimBradsTurn
 
 proc crewVariantIndex*(slotId: int): int =
   ## Returns the crew sprite variant for one player slot.
@@ -2664,6 +3026,7 @@ proc emitEvent(
   weapon = "",
   amount = 0,
   hp = -1,
+  blocked = 0,
   x = 0.0,
   y = 0.0
 ) {.inline.} =
@@ -2680,6 +3043,7 @@ proc emitEvent(
     weapon: weapon,
     amount: amount,
     hp: hp,
+    blocked: blocked,
     x: x,
     y: y
   )
@@ -2695,6 +3059,22 @@ proc emitPhaseChange(sim: var SimServer, newPhase: GamePhase) {.inline.} =
     weapon = ($newPhase).toLowerAscii,
     amount = ord(newPhase)
   )
+
+proc shieldBlocked(sim: SimServer, targetIndex, amount: int): int {.inline.} =
+  ## How many of an `amount`-hp hit on `targetIndex` the victim's SHIELD soaked:
+  ## the portion of the hit that landed while the carrier still held hp ABOVE the
+  ## base cog ceiling. A shield pickup is the only thing that lifts a cog past
+  ## `config.hitPoints`, so any bonus hp at impact is shield hp, and the damage
+  ## that eats into it is "prevented" from touching the base cog. Call AFTER hp
+  ## has been decremented (`preHp = hp + amount`); returns 0 for a non-carrier or
+  ## a hit that began at/below base hp.
+  if not sim.players[targetIndex].hasShield:
+    return 0
+  let
+    base = sim.config.hitPoints
+    preHp = sim.players[targetIndex].hp + amount  # hp the instant before the hit
+    bonusBefore = max(0, preHp - base)            # shield-bonus hp at impact
+  min(amount, bonusBefore)
 
 proc resetFlag*(sim: var SimServer, team: Team) =
   ## Returns one team's flag to its home pedestal.
@@ -3839,7 +4219,8 @@ proc resolveActiveArcCones*(sim: var SimServer) =
       sim.emitEvent(
         Damage, source = arcFire.attacker, target = victimIndex,
         weapon = "plasma", amount = PlasmaArcDamage,
-        hp = max(0, sim.players[victimIndex].hp), x = vx, y = vy
+        hp = max(0, sim.players[victimIndex].hp),
+        blocked = sim.shieldBlocked(victimIndex, PlasmaArcDamage), x = vx, y = vy
       )
       # Floating damage number for the HP loss (cosmetic, not in gameHash).
       sim.damagePops.add DamageFx(
@@ -4000,6 +4381,7 @@ proc applyFire(sim: var SimServer, shooterIndex, targetIndex: int) =
     sim.emitEvent(
       Damage, source = shooterIndex, target = targetIndex, weapon = "gun",
       amount = 1, hp = max(0, sim.players[targetIndex].hp),
+      blocked = sim.shieldBlocked(targetIndex, 1),
       x = float(sim.players[targetIndex].x + CollisionW div 2),
       y = float(sim.players[targetIndex].y + CollisionH div 2)
     )
@@ -4178,6 +4560,7 @@ proc explodeGrenade(sim: var SimServer, grenade: AirborneGrenade) =
     sim.emitEvent(
       Damage, source = grenade.thrower, target = i, weapon = "grenade",
       amount = GrenadeDamage, hp = max(0, sim.players[i].hp),
+      blocked = sim.shieldBlocked(i, GrenadeDamage),
       x = float(px), y = float(py)
     )
     # Floating damage number for the blast's HP loss (cosmetic, not in gameHash).

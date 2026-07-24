@@ -1345,6 +1345,7 @@ proc runServerLoop*(
           # Ship the full-timeline lives-lead series ONCE (first frame), then the
           # client caches it; later frames omit it to keep the label compact.
           let sendLead = not globalStates[i].momentumSent
+          let sendFpMap = not globalStates[i].fpMapSent
           let stateJson = sim.buildStateJson(
             frameEvents,
             replayPlayer.playing,
@@ -1356,11 +1357,14 @@ proc runServerLoop*(
             nextState.selectedJoinOrder,
             if sendLead: replayPlayer.livesLeadSeries else: @[],
             replayPlayer.replayStartTick(),
-            replayPlayer.endHoldSecondsLeft()
+            replayPlayer.endHoldSecondsLeft(),
+            sendFpMap
           )
           outPacket.addSprite(BroadcastChromeSpriteId, 1, 1, [0'u8, 0, 0, 0], stateJson)
           if sendLead:
             nextState.momentumSent = true
+          if sendFpMap:
+            nextState.fpMapSent = true
         # Ship in WS-frame-sized chunks at message boundaries: the hosted replay
         # viewer closes any frame over 1 MiB (1009 "message too big"). The client
         # accumulates sprite/object state across binary messages, so N chunks are
