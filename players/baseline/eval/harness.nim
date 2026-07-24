@@ -249,6 +249,9 @@ proc hunterTune(): CombatTune =
   result.dangerScore       = envInt("DANGER",   (if seal4 or result.dangerScore: 1 else: 0)) != 0
   result.twoSpeedScan      = envInt("TWOSCAN",  (if seal4 or result.twoSpeedScan: 1 else: 0)) != 0
   result.boundingOverwatch = envInt("BOUND",    (if seal4 or result.boundingOverwatch: 1 else: 0)) != 0
+  # HOLDVSGUN (2026-07-24 focus-fire audit): the solo never-turn-your-back guard. Default
+  # to its shipped value so SHIPBASE keeps it unless HOLDVSGUN moves it; the A/B turns it on.
+  result.holdVsGun         = envInt("HOLDVSGUN", (if result.holdVsGun: 1 else: 0)) != 0
   result.pointOfDomination = envInt("DOMINATE", (if seal4 or result.pointOfDomination: 1 else: 0)) != 0
   result.tempoPress        = envInt("TEMPO",    (if seal4 or result.tempoPress: 1 else: 0)) != 0
   result.fireSuperiority   = envInt("FIRESUP",  (if seal4 or result.fireSuperiority: 1 else: 0)) != 0
@@ -623,6 +626,11 @@ proc main() =
       &"ARMED>0 => the pickup landed (arc held); charge>0 => armed & driving the seam for a cluster; " &
       &"inReach>0 => a cluster sat in cone reach; FIRE>0 => it pressed the multikill cone. " &
       &"A stage that zeroes names the gate. TURTLE=1 makes the control team stand a line to breach.)"
+  when defined(fsprobe):
+    echo &"  FS-PROBE (focus-fire audit): holdVsGun-catches {fsHold}"
+    echo &"    (fsHold = frames a SOLO gun-down bot faced a fresh dead-on gun past DuckRange " &
+      &"inside HoldVsGunRange and the guard held it instead of turning its back. >0 with HOLDVSGUN=1 " &
+      &"=> the back-turn bug is REAL + frequent; run with HOLDVSGUN=1 -d:fsprobe on the hunter slots.)"
   when defined(mtprobe):
     echo &"  MT-PROBE funnel: on {mtOn} -> wounded {mtWounded} -> safe {mtSafe} -> " &
       &"free {mtFree} -> kitVisible {mtVisible} -> FIRED {mtFireCount}"

@@ -208,6 +208,16 @@ when defined(caprobe):
   var caSeen = 0      # enemy tracks scanned in dangerScore with counterArc on
   var caBump = 0      # tracks that got the disarmed-carrier priority credit
 
+when defined(fsprobe):
+  # -d:fsprobe ONLY (2026-07-24, the focus-fire audit): quantify the two reported
+  # SEALs-violating behaviors. Never compiled into the shipped player.
+  var fsSwitch = 0    # frames the engage target CHANGED while the PRIOR locked target was
+                      # still alive + fresh + within engage range (target-switch mid-kill)
+  var fsSwitchLive = 0# ...and that abandoned prior target had its gun ON us (the lethal case)
+  var fsBackTurn = 0  # frames a gun-DOWN bot set moveMask AWAY from a fresh enemy whose gun
+                      # is on us within HoldVsGunRange, with NO cover-mate (turning the back)
+  var fsHold = 0      # ...frames the new holdVsGun guard actually caught + held that case
+
 when defined(arcprobe):
   # -d:arcprobe ONLY (Stage 2, 2026-07-24): the OFFENSIVE arc-breacher funnel.
   # Each counter = decide()-frames of the designated breacher seat surviving one
@@ -300,6 +310,14 @@ const
   BoundMateTtl = 30           # #6: the covering mate must be this freshly seen
   BoundMateDepth = 60.0       # #6: the covering mate is not deeper into the enemy
                               # jaws than us by more than this (it covers from behind)
+  HoldVsGunRange = 900.0      # holdVsGun: a SOLO gun-down bot never turns its back on a
+                              # fresh enemy whose gun is ON us within this range (past
+                              # DuckRange, where the close-duck already covers). Short of
+                              # the map-wide fireRange(1250) on purpose — a gun at ~1000px+
+                              # is a rumor we can cross while reloading; a dead-on gun
+                              # inside 900 will punish a turned back before our gun returns.
+  HoldVsGunTtl = 20           # holdVsGun: only hold for a threat seen this recently (a
+                              # fresh, gun-on-us read — not a stale fix)
   DominateGuardBand = 300.0   # #7: search the domination post within this x-band
                               # inside our half of the center line (toward home)
   MateSpacing = 40.0          # soft repulsion radius between teammates
@@ -1089,6 +1107,15 @@ type
                               # cooldown and a covering mate is up — duck to cover
                               # for the reload, then bound forward when the gun is
                               # live. Keeps at least one team gun always up.
+    holdVsGun: bool           # ⭐ NEVER TURN YOUR BACK ON A LIVE GUN (2026-07-24, the
+                              # focus-fire audit fix). boundingOverwatch only guards a
+                              # gun-down bot that has a covering MATE within 720px — a
+                              # SOLO bot with its gun on cooldown and a fresh enemy whose
+                              # gun is ON us out to fireRange falls through to objective
+                              # movement and strolls away, dying to the map-wide gun in
+                              # the back. This guard catches that SOLO case: face the
+                              # threat + break its line (duck) instead of turning away.
+                              # SEALs: never present your back to an unsuppressed gun.
     pointOfDomination: bool   # #7 POINT OF DOMINATION: score overwatch posts by
                               # clear-LOS coverage of the cells where enemies
                               # ACTUALLY travel (baked from the occupancy heatmap),
@@ -1743,6 +1770,7 @@ proc defaultCombatTune(): CombatTune =
     dangerScore: false,       # control: flat facing tiebreak only (threatFacingBonus).
     twoSpeedScan: false,      # control: sentry sweep rakes past the hot bearing.
     boundingOverwatch: false, # control: advance across open ground even on cooldown.
+    holdVsGun: false,         # control: a solo gun-down bot strolls away from a live gun.
     pointOfDomination: false, # control: overwatch posts scored by raw line length.
     tempoPress: false,        # control: always duck on cooldown, never press dead time.
     fireSuperiority: false,   # control: no press-vs-break judgement.
@@ -5321,6 +5349,44 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     else:
       holdStill = true
     acted = true
+  elif bot.tune.holdVsGun and not shotReady and not iCarry and not pocketRush and
+      not retreating:
+    # ⭐ NEVER TURN YOUR BACK ON A LIVE GUN (focus-fire audit fix). boundHold above only
+    # holds a gun-down bot that has a covering MATE; a SOLO bot (no wingman) with its gun
+    # on cooldown and a fresh enemy whose gun is ON us past DuckRange but inside
+    # HoldVsGunRange would otherwise fall through to the objective-movement branches and
+    # STROLL AWAY — the map-wide gun kills it in the back. Find that dead-on threat and,
+    # if there is one, break its line the same way boundHold does (duck to cover / hold),
+    # aim held on it. Requires the aim-dot read (aimThreat) to know the gun is truly on us;
+    # with no readback it does nothing (falls through), so it never fires blindly. Skips
+    # when retreating (that branch already keeps the gun on the trade while moving to rally)
+    # and when a clear engage exists (the engage branch owns that — this is a no-shot tier).
+    var gunThreat = -1
+    var gunThreatD = HoldVsGunRange
+    if bot.tune.aimThreat:
+      for i in 0 ..< bot.enemies.len:
+        let t = bot.enemies[i]
+        if bot.tick - t.lastSeen > HoldVsGunTtl or t.aimBrads < 0:
+          continue
+        let d = dist(t.pos, me)
+        if d <= DuckRange or d >= gunThreatD:
+          continue                         # close-duck owns <=DuckRange; ignore far
+        if abs(bradsErr(t.aimBrads, bradsOf(me - t.pos))) > AimOnConeBrads:
+          continue                         # its gun is NOT on us — not a back-turn danger
+        if not client.pixelRayClear(me, t.pos):
+          continue                         # no clear line: it can't shoot our back anyway
+        gunThreatD = d
+        gunThreat = i
+    if gunThreat >= 0:
+      when defined(fsprobe): inc fsHold
+      let tp = bot.enemies[gunThreat]
+      desiredAim = bradsOf(tp.pos - me)      # keep the gun/cone ON the threat
+      let duck = bot.findDuckCell(client, me, tp.pos)
+      if duck >= 0 and dist(cellCenter(duck), me) >= 5.0:
+        moveMask = octantBits(cellCenter(duck) - me)  # break its line to cover
+      else:
+        holdStill = true                     # no cover: at least don't present the back
+      acted = true
   elif not iCarry and not rushing and shotReady and haveBlocked:
     # Peek: PRE-LAY the aim on the blocked target while stepping sideways to
     # the nearest cell that opens the firing line — the engage branch fires
