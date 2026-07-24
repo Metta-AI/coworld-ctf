@@ -1995,6 +1995,11 @@ body[data-embed] #board { top: 0; height: 100%; }
   window.addEventListener('keydown', function (ev) {
     if (ev.metaKey || ev.ctrlKey || ev.altKey) return;
     var k = ev.key;
+    // Esc closes the Observatory theater overlay two frames up. keydown never
+    // crosses an iframe boundary, so once this board is focused (a canvas POV
+    // click) the host's document listener never sees Escape — forward it up the
+    // same postMessage bridge the transport rides. No-ops when not embedded.
+    if (k === 'Escape') { postToShell('esc'); return; }
     if (k === ' ') { ev.preventDefault(); togglePlay(); }
     else if (k === ',' || k === '<') send(',');
     else if (k === '.' || k === '>') send('.');

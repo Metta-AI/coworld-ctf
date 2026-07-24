@@ -26,7 +26,13 @@ RUN nim c -d:emscripten replay-viewer/ctf_replay.nim && \
   cp replay-viewer/static_replay.js replay-viewer/dist/static_replay.js && \
   sed 's|<!-- BROADCAST_CORE -->|<script src="./broadcast_core.js"></script><script src="./static_replay.js"></script><script src="./ctf_replay.js"></script>|' \
     client/replay_broadcast.html > replay-viewer/dist/index.html && \
+  cp client/league_replayer.html replay-viewer/dist/league.html && \
+  mkdir -p replay-viewer/dist/art/walls && \
+  cp client/art/walls/wall_h.jpg client/art/walls/wall_v.jpg \
+    replay-viewer/dist/art/walls/ && \
   rm -rf replay-viewer/dist/nimcache && \
   test -f replay-viewer/dist/ctf_replay.wasm && \
   test -f replay-viewer/dist/ctf_replay.data && \
-  test -f replay-viewer/dist/index.html
+  test -f replay-viewer/dist/index.html && \
+  test -f replay-viewer/dist/league.html && \
+  test -f replay-viewer/dist/art/walls/wall_h.jpg
