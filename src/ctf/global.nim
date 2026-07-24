@@ -654,6 +654,18 @@ proc initGlobalViewerState*(): GlobalViewerState =
   result.replayCommands = @[]
   result.povSelectPending = -2   ## -2 = no request; -1 = clear; >=0 = slot.
 
+proc preserveConcurrentBroadcastHud*(
+  renderedState: var GlobalViewerState,
+  liveState: GlobalViewerState
+) =
+  ## Preserves HUD subscription changes received while a frame was rendering.
+  ## The render loop works on a snapshot, so replacing the live state without
+  ## this merge can discard the client's initial `hud:on` message.
+  renderedState.momentumSent =
+    liveState.broadcastHud and
+    (renderedState.momentumSent or liveState.momentumSent)
+  renderedState.broadcastHud = liveState.broadcastHud
+
 proc initPlayerViewerState*(): PlayerViewerState =
   ## Returns the default state for one sprite player viewer.
   new(result)

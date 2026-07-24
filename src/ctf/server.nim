@@ -1382,6 +1382,9 @@ proc runServerLoop*(
         {.gcsafe.}:
           withLock appState.lock:
             if globalViewers[i] in appState.globalViewers:
+              nextState.preserveConcurrentBroadcastHud(
+                appState.globalViewers[globalViewers[i]]
+              )
               appState.globalViewers[globalViewers[i]] = nextState
       except:
         {.gcsafe.}:
