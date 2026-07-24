@@ -521,6 +521,15 @@ type
                                ## overkill still reads 0): the victim on
                                ## Damage, the healed player on Heal.
                                ## -1 on every other kind (n/a).
+    blocked*: int              ## on a Damage event, how many of `amount`'s hit
+                               ## points the victim's SHIELD absorbed — i.e.
+                               ## damage prevented from touching the base cog.
+                               ## A shield carrier holds bonus hp above the base
+                               ## HitPoints ceiling (only a shield pickup lifts a
+                               ## cog there), so any of this hit that lands while
+                               ## the victim is above base is shield-soaked. 0
+                               ## when the victim held no shield hp, and on every
+                               ## non-Damage kind (n/a).
     x*, y*: float              ## map position where the event happened.
 
   Shout* = object
@@ -2664,6 +2673,7 @@ proc emitEvent(
   weapon = "",
   amount = 0,
   hp = -1,
+  blocked = 0,
   x = 0.0,
   y = 0.0
 ) {.inline.} =
@@ -2680,6 +2690,7 @@ proc emitEvent(
     weapon: weapon,
     amount: amount,
     hp: hp,
+    blocked: blocked,
     x: x,
     y: y
   )
@@ -2695,6 +2706,22 @@ proc emitPhaseChange(sim: var SimServer, newPhase: GamePhase) {.inline.} =
     weapon = ($newPhase).toLowerAscii,
     amount = ord(newPhase)
   )
+
+proc shieldBlocked(sim: SimServer, targetIndex, amount: int): int {.inline.} =
+  ## How many of an `amount`-hp hit on `targetIndex` the victim's SHIELD soaked:
+  ## the portion of the hit that landed while the carrier still held hp ABOVE the
+  ## base cog ceiling. A shield pickup is the only thing that lifts a cog past
+  ## `config.hitPoints`, so any bonus hp at impact is shield hp, and the damage
+  ## that eats into it is "prevented" from touching the base cog. Call AFTER hp
+  ## has been decremented (`preHp = hp + amount`); returns 0 for a non-carrier or
+  ## a hit that began at/below base hp.
+  if not sim.players[targetIndex].hasShield:
+    return 0
+  let
+    base = sim.config.hitPoints
+    preHp = sim.players[targetIndex].hp + amount  # hp the instant before the hit
+    bonusBefore = max(0, preHp - base)            # shield-bonus hp at impact
+  min(amount, bonusBefore)
 
 proc resetFlag*(sim: var SimServer, team: Team) =
   ## Returns one team's flag to its home pedestal.
@@ -3839,7 +3866,8 @@ proc resolveActiveArcCones*(sim: var SimServer) =
       sim.emitEvent(
         Damage, source = arcFire.attacker, target = victimIndex,
         weapon = "plasma", amount = PlasmaArcDamage,
-        hp = max(0, sim.players[victimIndex].hp), x = vx, y = vy
+        hp = max(0, sim.players[victimIndex].hp),
+        blocked = sim.shieldBlocked(victimIndex, PlasmaArcDamage), x = vx, y = vy
       )
       # Floating damage number for the HP loss (cosmetic, not in gameHash).
       sim.damagePops.add DamageFx(
@@ -4000,6 +4028,7 @@ proc applyFire(sim: var SimServer, shooterIndex, targetIndex: int) =
     sim.emitEvent(
       Damage, source = shooterIndex, target = targetIndex, weapon = "gun",
       amount = 1, hp = max(0, sim.players[targetIndex].hp),
+      blocked = sim.shieldBlocked(targetIndex, 1),
       x = float(sim.players[targetIndex].x + CollisionW div 2),
       y = float(sim.players[targetIndex].y + CollisionH div 2)
     )
@@ -4178,6 +4207,7 @@ proc explodeGrenade(sim: var SimServer, grenade: AirborneGrenade) =
     sim.emitEvent(
       Damage, source = grenade.thrower, target = i, weapon = "grenade",
       amount = GrenadeDamage, hp = max(0, sim.players[i].hp),
+      blocked = sim.shieldBlocked(i, GrenadeDamage),
       x = float(px), y = float(py)
     )
     # Floating damage number for the blast's HP loss (cosmetic, not in gameHash).

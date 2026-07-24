@@ -62,6 +62,9 @@ suite "tier-2 event extraction (tools/extract_events)":
       of Damage:
         check event.target >= 0 and event.target < slotCount
         check event.hp >= 0
+        # Shield-absorbed hp is a subset of the hit: 0 <= blocked <= amount.
+        check event.blocked >= 0
+        check event.blocked <= event.amount
         if lastHp[event.target] >= 0:
           check event.hp == max(0, lastHp[event.target] - event.amount)
         lastHp[event.target] = event.hp
@@ -89,6 +92,8 @@ suite "tier-2 event extraction (tools/extract_events)":
           lastHp[slot] = -1
       else:
         check event.hp == -1
+        # `blocked` is Damage-only; every other kind carries 0.
+        check event.blocked == 0
     check sawKill
     # The fixture plays a full match: it enters Playing and ends at GameOver.
     check sawPlayingPhase
@@ -123,6 +128,11 @@ suite "tier-2 event extraction (tools/extract_events)":
           rows.add(parseJson(output[lineStart ..< i]))
         lineStart = i + 1
     check rows.len >= 2
+    # Every event row carries the additive `blocked` field (0 unless a shield
+    # soaked the hit), so downstream (the Healing tab's "blocks") can read it.
+    for row in rows[0 ..< rows.high]:
+      check row.hasKey("blocked")
+      check row["blocked"].getInt >= 0
     let summary = rows[^1]
     check summary["type"].getStr == "summary"
     check summary["events"].getInt == rows.len - 1
