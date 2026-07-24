@@ -83,6 +83,7 @@ proc jsonRow*(event: SimEvent): JsonNode =
   result["weapon"] = %event.weapon
   result["amount"] = %event.amount
   result["hp"] = %event.hp
+  result["blocked"] = %event.blocked
   result["x"] = %event.x
   result["y"] = %event.y
 
