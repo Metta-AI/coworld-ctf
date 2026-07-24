@@ -39,3 +39,14 @@ players/modulabot/test/parity
 # it catches only /art/gen — the League Replayer's shipped dungeon-wall textures
 # under client/art/walls/ ARE part of the build (staticRead into the server).
 /art/
+# nanobanana rig-art generation scratch (candidate images, not shipped). The
+# SHIPPED rig segments live under data/rig_real/ (readImage at runtime).
+/nanobanana-output/
+# data/rig_real holds the SHIPPED rig segments under red/ and blue/ (+ anchors.json,
+# the generator interface). Loose PNGs at its root are art-exploration scratch — the
+# subdir segments are still tracked because this only matches the top level.
+/data/rig_real/*.png
+
+# Local coworld package build output. CI builds the real package to build/ from
+# the tracked coworld_manifest.json; dist/ is a local convenience artifact.
+/dist/
