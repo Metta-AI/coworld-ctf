@@ -613,6 +613,16 @@ proc main() =
       &"WIPE-ARM/LINE-ARM>0 => a HEARD wipe/line armed a mate's rally it never saw itself; " &
       &"NADE-CLUSTER>0 => a grenade carrier lobbed at a multikill cluster — the full bus is LIVE + " &
       &"COORDINATING combined-arms. Mirror = liveness+no-regression only; win-credit is a hosted xreq.)"
+  when defined(arcprobe):
+    let meanCl = (if apFire > 0: apClusterSum.float / apFire.float else: 0.0)
+    echo &"  ARC-PROBE funnel: breacher {apBreacher} -> lineLive {apLineLive} -> " &
+      &"eligible {apEligible} -> SEEK {apSeek} -> ARMED {apArmed} -> " &
+      &"(charge {apCharge} | inReach {apInReach}) -> FIRE {apFire}"
+    echo &"    multikill: mean cluster/fire {meanCl:.2f}  fattest {apMaxCluster}  (>=2 => a real cone multikill)"
+    echo &"    (SEEK>0 => the breacher navigates to the STATIC arcSpawn (LOS-free, the fires-0 fix); " &
+      &"ARMED>0 => the pickup landed (arc held); charge>0 => armed & driving the seam for a cluster; " &
+      &"inReach>0 => a cluster sat in cone reach; FIRE>0 => it pressed the multikill cone. " &
+      &"A stage that zeroes names the gate. TURTLE=1 makes the control team stand a line to breach.)"
   when defined(mtprobe):
     echo &"  MT-PROBE funnel: on {mtOn} -> wounded {mtWounded} -> safe {mtSafe} -> " &
       &"free {mtFree} -> kitVisible {mtVisible} -> FIRED {mtFireCount}"

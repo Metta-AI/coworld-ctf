@@ -208,6 +208,23 @@ when defined(caprobe):
   var caSeen = 0      # enemy tracks scanned in dangerScore with counterArc on
   var caBump = 0      # tracks that got the disarmed-carrier priority credit
 
+when defined(arcprobe):
+  # -d:arcprobe ONLY (Stage 2, 2026-07-24): the OFFENSIVE arc-breacher funnel.
+  # Each counter = decide()-frames of the designated breacher seat surviving one
+  # more sub-condition, so a stage that zeroes the count NAMES the gating condition
+  # (the diagnostic the audit lacked when it shipped the lever OFF). Never compiled
+  # into the shipped player.
+  var apBreacher = 0   # frames the fixed breacher seat is alive with arcBreach on (population)
+  var apLineLive = 0   # ...and a line is live for us (classified OR heard)
+  var apEligible = 0   # ...and free to break off (no arc yet, not carry/escort/stolen)
+  var apSeek = 0       # ...=> steered toward the STATIC own-side arc spawn (the run)
+  var apArmed = 0      # frames the breacher actually HOLDS the arc (pickup landed)
+  var apCharge = 0     # ...and charged the seam with no cluster in cone yet (advancing)
+  var apInReach = 0    # ...and a fresh enemy sat inside the cone reach (a shot exists)
+  var apFire = 0       # ...=> pressed the cone on-bearing (the multikill press)
+  var apClusterSum = 0 # sum of cluster sizes at each fire (mean multikill = sum/apFire)
+  var apMaxCluster = 0 # the fattest cluster ever coned (a true multikill proof)
+
 when defined(nmprobe):
   # -d:nmprobe ONLY (v9): instrument the noMask mover-side repel as a FUNNEL so
   # a null A/B is diagnosable (no live support ray ever forms vs rays form but
@@ -478,11 +495,23 @@ const
                               # (teammates are fogged, so no bot can see who else is up).
                               # Seat 1 = the MidGuard (trailing mid) so a front rusher
                               # never trades its gun; the breacher arms up from behind.
-  ArcBreachSeek = 260.0       # grab an arc pickup within this detour when a line is live
+  ArcBreachSeek = 260.0       # (legacy) see-radius of the OLD LOS-gated seek. The arc
+                              # spawns in our own BACK CORNER (arcSpawn), ~200px behind a
+                              # forward breacher and far outside the 90px vision bubble, so
+                              # a see-it scan fired ~0 (the shipped-OFF bug). The seek now
+                              # navigates to the STATIC arcSpawn coordinate, no LOS needed.
+  ArcBreachCommit = 170       # once the breacher commits to the arc run (a line was live
+                              # and it broke off), hold the run this many ticks past the
+                              # last live-line frame so a FLICKERING line read can't abort
+                              # the ~200px trek to the corner. Movement ~2.75px/t, so this
+                              # covers the round-trip out to arcSpawn and back to the seam.
   ArcBreachFireReach = 128.0  # fire the cone when a fresh enemy sits within this (just
                               # inside the engine's 136px reach, a margin for our aim/step)
   ArcBreachConeBrads = 12     # press attack when the target is within this of our aim
                               # (the ~14° half-cone; be on-bearing so the cone lands)
+  ArcSeamDepth = 90.0         # armed-but-no-target charge: push this far into the ENEMY
+                              # half (past center, toward the called line) so the cluster
+                              # comes into vision + cone reach, then the cluster-scan fires.
   ArcCarryRadius = 48.0       # attribute the "plasma arc carried" marker (floats
                               # ABOVE the head, higher than the hp pip) to the nearest
                               # actor within this — bigger than HpPipRadius(22) for the
@@ -1482,6 +1511,11 @@ type
                               # target triggers a lateral shift to the next vantage.
     sentryShift: float        # current lateral offset (± along the watch face) the
                               # sentry adds to its post; flips sign each displacement.
+    arcBreachUntil: int       # ARC BREACHER: once the designated seat commits to the
+                              # arc run (a line was live and we broke off for the pickup),
+                              # hold the commit until this tick so a FLICKERING line read
+                              # (localSc/heardPlay decay frame-to-frame) can't abort the
+                              # ~200px trek to the back-corner spawn mid-run. Movement-only.
 
 proc roleForSeat(seat: int, team: Team): Role =
   ## Deterministic role spread over the 8 per-team seats. Seats 2 and 3 both
@@ -1946,14 +1980,19 @@ proc shippedCombatTune(): CombatTune =
   # a 6-HP tank (the pip bar lies 3/3), needs more guns (satNeed), and weighs more in
   # the break math (ShieldGunWeight); no flag, it's a straight correctness repair.
   #
-  # ⚠️ arcBreach STAYS OFF in the shipped tune (2026-07-22). Unlike every other lever
-  # here it has a real DOWNSIDE if it misfires — the breacher trades its gun for its
-  # life, so an arc grabbed with no line to cone is a dead-weight disarmed body. It
-  # fired 0 in the TURTLE line test (arc spawns sit at the far map x-edges, y=1/4
-  # height; the trailing MidGuard breacher rarely reaches the 260px seek while a line
-  # is live AND in earshot), so there is NO evidence it helps and a clear way it hurts.
-  # "Code it right" > "ship it on": kept behind the ARCBREACH knob for a dedicated
-  # hosted A/B, NOT baked. Re-enable only after a hosted xreq shows a positive delta.
+  # ⚠️ arcBreach STAYS OFF in the shipped tune (Stage 2 built the OFFENSE 2026-07-24).
+  # Unlike every other lever here it has a real DOWNSIDE if it misfires — the breacher
+  # trades its gun for its life, so an arc grabbed with no line to cone is a dead-weight
+  # disarmed body. The offensive half is now BUILT and VERIFIED firing (it used to fire
+  # 0): the seek was LOS-gated on a VISIBLE arc sprite, but the arc spawns in our own
+  # back corner (arcSpawn) far outside the 90px vision bubble — so it saw nothing. The
+  # seek now navigates to the STATIC arcSpawn (LOS-free), a commit window rides the
+  # line-read flicker, and an armed breacher charges the seam until a cluster comes into
+  # cone reach. arcprobe/TURTLE (GV17): SEEK 15->1385, ARMED ~0->1392, FIRE 0->154, mean
+  # cone cluster 2.64 (fattest 5). But the mirror/turtle only proves it FIRES a multikill
+  # — the win-credit (does coning a real line beat the disarm cost?) is a hosted xreq vs
+  # an asymmetric line opponent, NOT a mirror A/B. "Code it right" > "ship it on": kept
+  # behind the ARCBREACH knob for that dedicated A/B. Baked only on a +delta.
   # result.arcBreach = true   # deliberately not enabled — see above
   # ── gv21Press (v18) — FALSIFIED 2026-07-23. Hosted A/B vs h006: v18 24-55, WORSE than
   # v17's 30-50. Pressing harder just extended the grind (endTick 2600→3400) and fed
@@ -2371,6 +2410,17 @@ proc ownShieldSpawn(team: Team): Vec =
   ## it WITHOUT needing line-of-sight (VisionBubble is only 90px — the shield sits
   ## behind the spawn cone and is never "seen"; that's why the see-it scan fired 0).
   let y = float(3 * MapH div 4)
+  if team == Red: vec(50, y) else: vec(float(MapW - 50), y)
+
+proc arcSpawn(team: Team): Vec =
+  ## Our team's plasma-arc spawn — the STATIC point vertically OPPOSITE the shield
+  ## (sim plasmaArcSpawnPoints: same inset x=50 back column, but y=1/4 map height —
+  ## arcs high, shields low). Deep in our OWN back corner, so a SAFE grab route on
+  ## our side, but it sits ~200px behind a forward breacher and WAY outside the 90px
+  ## vision bubble: the breacher must navigate to the known coordinate, it can never
+  ## SEE the sprite to home on it (the fires-0 bug the LOS-gated seek had). The pickup
+  ## respawns 30s after a grab, so a fresh one is essentially always waiting here.
+  let y = float(MapH div 4)
   if team == Red: vec(50, y) else: vec(float(MapW - 50), y)
 
 proc nearestOpenCell(bot: Bot, cell: int): int =
@@ -2931,6 +2981,7 @@ proc resetTransient(bot: Bot) =
   bot.retreatUntil = -100_000
   bot.shieldRushDone = false
   bot.assaultUntil = -100_000
+  bot.arcBreachUntil = -100_000
   bot.ownHp = 0
   bot.surpriseShoutTick = -100_000
   bot.dieShoutTick = -100_000
@@ -4811,28 +4862,39 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           if seekingPickup: inc ssAmbushSeek
 
   # ── ⭐ ARC BREACHER SEEK (anti-line OFFENSE). When a line is live (classified or
-  # heard) and we are the designated breacher seat, grab a plasma-arc pickup so we
-  # can cone the clustered line. Deliberately trades our gun (canFire=false while
-  # holding) — a specialist swap, so ONLY the fixed breacher seat, ONLY on a live
-  # line, ONLY when not carrying/escorting/defending. The FIRE half is in the mask
-  # block below (a sibling of the sword-melee swing). The pickup scan is its own so
-  # it doesn't depend on avoidDisarm populating plasmaPickups.
+  # heard) and we are the designated breacher seat, break off and grab the plasma
+  # arc so we can cone the clustered line. Deliberately trades our gun (canFire=false
+  # while holding) — a specialist swap, so ONLY the fixed breacher seat, ONLY on a
+  # live line (or a committed run), ONLY when not carrying/escorting/defending. The
+  # FIRE half is in the mask block below (a sibling of the sword-melee swing).
+  #
+  # FIX (Stage 2, 2026-07-24): the old scan homed on a VISIBLE "plasma arc" sprite,
+  # but the arc spawns in our own BACK CORNER (arcSpawn) ~200px behind a forward
+  # breacher and far outside the 90px vision bubble — so it saw nothing and fired 0
+  # (ARC-SEEK 15 / ARC-FIRE 0 over 8 turtle-line games). The seek now navigates to
+  # the STATIC arcSpawn coordinate (no LOS, exactly like the pedestal/spawn targets)
+  # and a commit window (arcBreachUntil) holds the run so a flickering line read can't
+  # abort the trek mid-way. Once armed the FIRE block owns the bot (iHavePlasma).
   let teamSeat = clamp(bot.slot div 2, 0, 7)
   let iAmBreacher = bot.tune.arcBreach and teamSeat == ArcBreachSeat
+  when defined(arcprobe):
+    if iAmBreacher: inc apBreacher
+    if iAmBreacher and lineLive: inc apLineLive
+  # A live line ARMS the commit window; the window keeps the run alive through the
+  # line-read flicker until we actually hold the arc.
+  if iAmBreacher and lineLive and not iHavePlasma:
+    bot.arcBreachUntil = bot.tick + ArcBreachCommit
+  let arcRunLive = iAmBreacher and bot.tick <= bot.arcBreachUntil
   if iAmBreacher and not iHavePlasma and not iCarry and not mateCarry and
-      not ownStolen and lineLive and not seekingPickup:
-    var best = ArcBreachSeek
-    for o in client.spriteObjectsWithLabel("plasma arc"):
-      let p = client.mapPos(o)
-      if p.x < 40.0 or p.y < 40.0 or p.x > float(MapW - 40) or p.y > float(MapH - 40):
-        continue                                  # HUD indicator shares the label
-      let d = dist(p, me)
-      if d < best:
-        best = d
-        target = p
-        seekingPickup = true
-    when defined(commsprobe):
-      if seekingPickup: inc csArcSeek
+      not ownStolen and arcRunLive and not seekingPickup:
+    when defined(arcprobe): inc apEligible
+    # Navigate to the KNOWN own-side arc spawn — it's on our half (safe route) and a
+    # fresh pickup is essentially always waiting there (30s respawn), so no sighting
+    # is needed. Auto-pickup on a 12px touch arms us; the FIRE block takes over.
+    target = arcSpawn(bot.team)
+    seekingPickup = true
+    when defined(arcprobe): inc apSeek
+    when defined(commsprobe): inc csArcSeek
 
   # ── v9 MED-KIT TOP-OFF (GameVersion 9). A wounded, out-of-contact bot detours
   # to the nearest VISIBLE center med kit to heal to FULL on a 12px touch (sim
@@ -4944,6 +5006,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # cone is a multikill), close to reach, and press attack when on-bearing so the
     # cone lands. Same edge-triggered attack the sim reads for the cone (input.attack
     # and not prev.attack); firedLast gating below keeps it a clean press, not a hold.
+    when defined(arcprobe): inc apArmed
     var bestCluster = 0
     var bestAim = -1
     var bestTgt: Vec
@@ -4965,21 +5028,44 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         bestTgt = tp
         bestAim = bradsOf(tp - me)
     if bestAim >= 0:
+      when defined(arcprobe): inc apInReach
       desiredAim = bestAim
       moveMask = octantBits(bestTgt - me)      # close to keep the cluster in the cone
       let err = abs(bradsErr(desiredAim, bot.estAim))
       wantFire = err <= ArcBreachConeBrads     # on-bearing so the cone covers them
       when defined(commsprobe):
         if wantFire: inc csArcFire
+      when defined(arcprobe):
+        if wantFire:
+          inc apFire
+          apClusterSum += bestCluster
+          if bestCluster > apMaxCluster: apMaxCluster = bestCluster
     else:
-      # Armed but no target in reach yet: advance toward the called line/nearest foe.
+      # Armed but no cluster in reach yet: CHARGE THE SEAM. We usually arm in the
+      # empty back corner (no enemy tracked at all), so a nearest-tracked-foe fallback
+      # left us standing still holding a disarmed gun — the second half of the fires-0
+      # bug. Prefer a tracked foe if we have one; otherwise drive into the enemy half
+      # toward the called line so the cluster comes into vision + cone reach, then the
+      # scan above fires. Keep the vision cone pointed the way we push so we acquire.
+      when defined(arcprobe): inc apCharge
       var nd = 1e18
+      var toward: Vec
       for i in 0 ..< bot.enemies.len:
         if bot.tick - bot.enemies[i].lastSeen > bot.tune.freshShotTicks: continue
         let dd = dist(bot.enemies[i].pos, me)
         if dd < nd:
           nd = dd
-          moveMask = octantBits(bot.enemies[i].pos - me)
+          toward = bot.enemies[i].pos - me
+      if nd < 1e17:
+        moveMask = octantBits(toward)
+        desiredAim = bradsOf(toward)
+      else:
+        # No live track: aim the run at the enemy-half seam (past center toward the
+        # called line's lane). heardPlay/localSc don't carry a point, so use the seam
+        # at our own lane height — the line the classifier keys on is our front.
+        let seam = vec(float(CenterX) - homeSign(bot.team) * ArcSeamDepth, me.y)
+        moveMask = octantBits(bot.navSteer(client, me, seam))
+        desiredAim = bradsOf(seam - me)
     acted = true
   elif engage >= 0 and shotReady:
     # Traverse onto the target and fire once the corridor covers it: the
