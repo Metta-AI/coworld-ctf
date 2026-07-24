@@ -1076,6 +1076,13 @@ type
                               # firing band (pedestal height ±72px, where fresh
                               # invulnerable respawners spawn aimed E-W) before the
                               # home run — never pick the mid lane that IS the cone.
+    carrierSerpentine: bool   # ⭐ CARRIER-RUN SURVIVAL (2026-07-24): the carrier WEAVES while
+                              # crossing watched ground on the run home. Carriers were EXEMPT
+                              # from the serpentine (speed-beats-evasion) — wrong for the SLOWEST
+                              # (70% speed), highest-value unit vs a map-wide hitscan gun with no
+                              # back-armor: a straight predictable line is a free shot in transit.
+                              # A shallow weave (small amplitude, net homeward progress preserved)
+                              # forces the gun to re-slew each beat. Movement-only.
     carrierSprint: bool       # ⭐⭐ CAPTURE CONVERSION (survive=110t/drop@home=4%
                               # diagnosis): a carrier NEVER enters the combat branch
                               # (engage range 0, like pocketRush). It was burning
@@ -1804,6 +1811,7 @@ proc defaultCombatTune(): CombatTune =
     damageAware: false,       # control: no orient-to-shooter reaction.
     carrierFlee: false,       # control: carrier advances toward a point-blank enemy.
     carrierClearBand: false,  # control: carrier lane may sit in the respawn cone.
+    carrierSerpentine: false, # control: carrier runs a straight predictable line home.
     carrierSprint: false,     # control: carrier fights (engage 110px) instead of running.
     carrierScreen: false,     # control: escort screens remembered threats, not the cone.
     carrierGrabDetect: false, # control: self-carry only when heart >16px off pedestal.
@@ -1898,6 +1906,25 @@ proc shippedCombatTune(): CombatTune =
   # measure them.
   result.carrierHomeStretch = true
   result.chaseThief = true
+  # ⭐⭐ CARRIER-RUN SURVIVAL (2026-07-24, the grab->cap conversion leak). The audit found
+  # the dive fix moved deaths downfield: carriers now die MID-RUN because every mid-run
+  # survival lever was left at its OFF control value while only the FINISH fix
+  # (carrierHomeStretch) + the LOS-limited KILL escort (planLayer/PhEscort) shipped. Given
+  # CarrierSpeedPct=70 (a full-speed chaser always closes) + map-wide hitscan + no back-armor,
+  # "run home in a straight line, alone" is a death sentence — grab->cap (~THE win lever) leaks.
+  #   carrierFlee  — the carrier keeps NAV-ing home while taking the free on-line trade, instead
+  #                  of the else-branch that WALKS INTO a point-blank chaser (the biggest leak).
+  #   carrierSerpentine — the slowest, highest-value unit finally WEAVES across watched ground so
+  #                  the map-wide hitscan must re-slew each beat (carriers were exempt from weave).
+  #   escortRun    — a free escort interposes a body on the chaser->carrier RAY (friendly-fire ON
+  #                  → the bullet is EATEN; movement body-block is void but bullet-eat is real).
+  #   carrierScreen— screen the pocket-exit respawn cone as the carrier breaks contact.
+  # carrierFlee is asymmetric (converts a would-be carrier death into a capture) so the mirror
+  # measures it; the escort levers are coordination (mirror-cancels) → validate on the field.
+  result.carrierFlee = true
+  result.carrierSerpentine = true
+  result.escortRun = true
+  result.carrierScreen = true
   # ── CORNER PRE-AIM (2026-07-16). Replay-reported miss ("we shoot the WALL our
   # enemy hides behind, they step out, we miss by aiming at the wall, they kill
   # us — daveey's shots land on the body"). Root cause: the peek/blocked branch
@@ -5603,7 +5630,11 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       # intel — the snipers watching their lane are exactly the enemies they
       # cannot see. Close threats are the jink/duck branches' job; carriers
       # and the pocket grab skip it — for them speed beats evasion.
-      if not iCarry and not pocketRush:
+      # A CARRIER now weaves too (carrierSerpentine): the slowest (70%), highest-value unit
+      # is the one that most needs to break a map-wide hitscan's firing solution — but with a
+      # SHALLOWER amplitude so net homeward progress is preserved (it must still reach home).
+      let carrierWeaves = iCarry and bot.tune.carrierSerpentine
+      if (not iCarry and not pocketRush) or carrierWeaves:
         var weave = false
         if rushing:
           weave = abs(me.x - float(CenterX)) < WeaveBand
@@ -5620,7 +5651,8 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           var side = vec(-steer.y, steer.x)
           if (bot.tick div 8 + bot.slot div 2) mod 2 == 0:
             side = side * -1.0
-          steer = norm(steer) + side * 0.6
+          # Shallower weave for the carrier (0.35 vs 0.6) — dodge without stalling the run.
+          steer = norm(steer) + side * (if carrierWeaves: 0.35 else: 0.6)
       steer = steer + vec(rand(-0.12 .. 0.12), rand(-0.12 .. 0.12))
       moveMask = octantBits(steer)
       if bot.tick < bot.jinkUntil:

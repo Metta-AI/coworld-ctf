@@ -259,6 +259,15 @@ proc hunterTune(): CombatTune =
   if envInt("DIVEFIX", 0) != 0:
     result.smartGrab = true; result.armedRush = true
     result.holdVsGun = true; result.stickyCommit = true
+  # CARRIER-RUN survival levers (2026-07-24 grab->cap conversion leak). Individual knobs + a
+  # CARRIERFIX bundle so the A/B can isolate the carrier fixes from the dive fixes.
+  result.carrierFlee       = envInt("CARRIERFLEE", (if result.carrierFlee: 1 else: 0)) != 0
+  result.carrierSerpentine = envInt("CARRIERSERP", (if result.carrierSerpentine: 1 else: 0)) != 0
+  result.escortRun         = envInt("ESCORTRUN", (if result.escortRun: 1 else: 0)) != 0
+  result.carrierScreen     = envInt("CARRIERSCREEN", (if result.carrierScreen: 1 else: 0)) != 0
+  if envInt("CARRIERFIX", 0) != 0:
+    result.carrierFlee = true; result.carrierSerpentine = true
+    result.escortRun = true; result.carrierScreen = true
   result.pointOfDomination = envInt("DOMINATE", (if seal4 or result.pointOfDomination: 1 else: 0)) != 0
   result.tempoPress        = envInt("TEMPO",    (if seal4 or result.tempoPress: 1 else: 0)) != 0
   result.fireSuperiority   = envInt("FIRESUP",  (if seal4 or result.fireSuperiority: 1 else: 0)) != 0
