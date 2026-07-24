@@ -458,6 +458,10 @@ const
   FireSlackPx = 11.0          # fire when the aim error's perpendicular miss
                               # at the target's range is inside this (the
                               # corridor half-width is ~14px; keep margin)
+  StickyDangerCap = 60.0      # stickyCommit: a NON-committed target's danger credit is
+                              # capped at commitBonus - this, so a fresh dead-on threat stays
+                              # at least this far below a committed kill in priority (switch
+                              # hysteresis — kills the single-frame target flip off a kill).
   CommitBonus = 400.0         # px of priority credit for the committed target,
                               # so we finish the enemy we are already killing
                               # instead of switching to a marginally closer one
@@ -1000,6 +1004,14 @@ type
                               # already wounded until it dies/fogs, instead of
                               # re-picking the nearest each frame. Off => shipped.
     commitBonus: float        # px of priority credit for the committed target
+    stickyCommit: bool        # ⭐ FINISH THE KILL (2026-07-24 focus-fire audit, Bug 1):
+                              # the commit lock must SURVIVE satCap's spread-debit and the
+                              # dangerScore pull-off when the LOCKED target is one-hit-from-
+                              # death OR has its gun on us. Without it, a half-killed enemy
+                              # that our mates also shoot (saturated, +220) or a fresh nearer
+                              # dead-on threat (-320 danger) out-scores the lock and our gun
+                              # SWITCHES off the enemy we'd already wounded — it recovers and
+                              # kills us. SEALs: commit to a target and FINISH it.
     forceBalance: bool        # local numbers awareness (FALSIFIED 2026-07-14 as
                               # a win lever; kept behind this flag, OFF).
     outnumberMargin: int      # fall back when localEnemies - localFriends >= this
@@ -1746,6 +1758,7 @@ proc defaultCombatTune(): CombatTune =
     pocketRushRange: PocketRushRange,
     commit: false,            # the pure-baseline control: re-pick nearest each frame.
     commitBonus: CommitBonus,
+    stickyCommit: false,      # control: satCap/dangerScore can pull the gun off a committed kill.
     forceBalance: false,      # control: always press, no numbers awareness.
     outnumberMargin: OutnumberMargin,
     unstuckEngaged: false,    # control: shipped disables the jink when engaged.
@@ -4434,7 +4447,14 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # — the priority form keeps it a nudge (a lone saturated target in range is
     # still engaged), and CommitBonus (400 > 220) still holds a gun in the kill.
     let satNeed = (if t.hasShield: 4 elif t.hp == 1: 1 else: 2)
-    let saturated = bot.tune.satCap and mateGuns[i] >= satNeed
+    # ⭐ FINISH THE KILL (Bug 1): is THIS candidate the target we're already committed to?
+    # A committed target that we're one hit from killing (or whose gun is on us) must NOT be
+    # abandoned by satCap's spread-debit — satCap redirects a FREE gun, never the one closing
+    # a kill. Compute the lock match here so the satCap + danger terms below can protect it.
+    let isLocked = bot.tune.commit and bot.tick <= bot.lockUntil and
+      dist(t.pos, bot.lockPos) <= LockMatchDist
+    let stick = bot.tune.stickyCommit and isLocked
+    let saturated = bot.tune.satCap and mateGuns[i] >= satNeed and not stick
     when defined(scprobe):
       if bot.tune.satCap:
         if mateGuns[i] >= 1: inc scCov1
@@ -4489,9 +4509,17 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       # so it stays a strong PRIORITY nudge, never a reason to fire past cover.
       if aimScale > 0.0:
         let closeFrac = clamp(1.0 - d / DangerFalloff, 0.0, 1.0)
-        prio -= (AimThreatBonus + DangerCloseBonus * closeFrac) * aimScale
+        var danger = (AimThreatBonus + DangerCloseBonus * closeFrac) * aimScale
         if t.hp in 1 ..< MaxHp:
-          prio -= DangerWoundedBonus * aimScale
+          danger += DangerWoundedBonus * aimScale
+        # ⭐ FINISH THE KILL (Bug 1): cap a NON-committed target's danger credit below
+        # commitBonus, so a fresh dead-on threat can never out-pull the enemy we're already
+        # closing a kill on. Without the cap, danger (~410 uncapped) > commit (400) and the
+        # gun switches off a half-killed target onto a new one, which then recovers + kills
+        # us. The committed target keeps its FULL danger credit (it's the one we're finishing).
+        if bot.tune.stickyCommit and not isLocked:
+          danger = min(danger, bot.tune.commitBonus - StickyDangerCap)
+        prio -= danger
     elif bot.tune.threatFacingBonus:
       if facingMe:
         prio -= AimThreatBonus
@@ -4512,8 +4540,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # Target commitment: heavily favour the enemy we are already engaged with
     # (matched by its last-known position) so three shots land on ONE target
     # and kill it, rather than one shot each spread across many wounded ones.
-    if bot.tune.commit and bot.tick <= bot.lockUntil and
-        dist(t.pos, bot.lockPos) <= LockMatchDist:
+    if isLocked:
       prio -= bot.tune.commitBonus
     if client.pixelRayClear(me, predicted):
       if bot.friendlyBlocked(me, predicted, d):

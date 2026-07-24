@@ -249,9 +249,10 @@ proc hunterTune(): CombatTune =
   result.dangerScore       = envInt("DANGER",   (if seal4 or result.dangerScore: 1 else: 0)) != 0
   result.twoSpeedScan      = envInt("TWOSCAN",  (if seal4 or result.twoSpeedScan: 1 else: 0)) != 0
   result.boundingOverwatch = envInt("BOUND",    (if seal4 or result.boundingOverwatch: 1 else: 0)) != 0
-  # HOLDVSGUN (2026-07-24 focus-fire audit): the solo never-turn-your-back guard. Default
-  # to its shipped value so SHIPBASE keeps it unless HOLDVSGUN moves it; the A/B turns it on.
+  # HOLDVSGUN / STICKYCOMMIT (2026-07-24 focus-fire audit): the two combat-regression fixes.
+  # Default to shipped value so SHIPBASE keeps them unless the knob moves it; the A/B turns on.
   result.holdVsGun         = envInt("HOLDVSGUN", (if result.holdVsGun: 1 else: 0)) != 0
+  result.stickyCommit      = envInt("STICKYCOMMIT", (if result.stickyCommit: 1 else: 0)) != 0
   result.pointOfDomination = envInt("DOMINATE", (if seal4 or result.pointOfDomination: 1 else: 0)) != 0
   result.tempoPress        = envInt("TEMPO",    (if seal4 or result.tempoPress: 1 else: 0)) != 0
   result.fireSuperiority   = envInt("FIRESUP",  (if seal4 or result.fireSuperiority: 1 else: 0)) != 0
