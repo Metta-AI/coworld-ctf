@@ -172,6 +172,10 @@ const
   FireSlackPx = 11.0          # fire when the aim error's perpendicular miss
                               # at the target's range is inside this (the
                               # corridor half-width is ~14px; keep margin)
+  ArcReach = 130.0            # plasma cone: sim reach 136px, small margin
+  ArcConeBrads = 9            # cone half-width ~14deg at max reach
+  CenterScanHalf = 280.0      # |x - CenterX| under this counts as the corridor
+  TargetCallCooldown = 48     # min ticks between one bot's engage callouts
   ScanArc = 44                # scan sweeps this many brads each side of the
                               # watch heading (cone half-angle is 32 brads)
   CounterPunchTick = 1400     # by here a 0-steal attack is not converting:
@@ -285,6 +289,8 @@ type
     nadeSpotEta: seq[int]     # 0 = believed stocked; else respawn-ready tick
     wasNade: bool             # last tick's carried-grenade state (edge detect)
     nadeShoutWant: string     # pending "G<cx> <cy>" pickup announcement
+    lastTargetCall: int       # -d:targetCall: engage-callout rate limit
+    sweepFlip: bool           # -d:centerScan: which vertical arc is swept
     lastEnemyShout: string    # last enemy shout label already responded to
     lastComebackReq: int      # rate limit on comeback generation requests
     wasMateCarry: bool        # edge detector: a fresh steal opens a taunt window
@@ -1220,6 +1226,15 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       if dist(client.mapPos(o), me) <= 30.0:
         hasShield = true
         break
+  # Carrying a plasma arc REPLACES the gun (sim canFire requires no arc):
+  # a carrier that keeps gun habits fires 136px cones at 300px targets and
+  # hits nothing. Detect the carried marker and switch combat modes.
+  var hasArc = false
+  when defined(plasmaUse):
+    for o in client.spriteObjectsWithLabel("plasma arc carried"):
+      if dist(client.mapPos(o), me) <= 30.0:
+        hasArc = true
+        break
 
   let
     shotReady = client.spriteObjectsWithLabel("fire icon").len > 0 and
@@ -1501,6 +1516,22 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
             bot.shoutWant = bot.nadeShoutWant
             bot.nadeShoutWant = ""
             bot.lastShoutTick = bot.tick
+        when defined(targetCall):
+          # Engage callout: any bot with a live close target broadcasts the
+          # fix so nearby mates converge or lob a grenade at it. Rides the
+          # existing E wire format — every receiver already ingests E fixes
+          # into its track table. Position leak is moot mid-fight: our own
+          # gunfire already rings map-wide.
+          if bot.shoutWant.len == 0 and
+              bot.tick - bot.lastTargetCall > TargetCallCooldown:
+            for t in bot.enemies:
+              if not t.synthetic and bot.tick - t.lastSeen <= 15 and
+                  dist(t.pos, me) < 500.0:
+                bot.shoutWant = "E" & $(int(t.pos.x) div 8) & " " &
+                  $(int(t.pos.y) div 8)
+                bot.lastTargetCall = bot.tick
+                bot.lastShoutTick = bot.tick
+                break
 
   when defined(zonePhalanx):
     # Phalanx comms ride the leftover budget under C/T: help calls first
@@ -1876,6 +1907,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   let maxEngage =
     if bot.tripping: 0.0                 # sprinting an errand: no fights
     elif hasShield and not hasSword: 0.0 # no weapon at all: run and carry
+    elif hasArc: ArcReach + 30.0         # cone weapon: close-range only
     elif hasSword: SwordReach + 6.0      # melee: only point-blank matters
     elif pocketRush: 0.0
     elif iCarry: CarrierFireRange
@@ -2059,6 +2091,19 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       if dist(me, bot.swordPos[i]) <= SwordDetour:
         target = bot.swordPos[i]
         break
+    when defined(plasmaUse):
+      # Plasma top-up for the pocket rusher: the cone one-shots the pocket
+      # defense cluster. Same cheap-detour budget as swords; visible spawns
+      # only (fog-honest).
+      if not hasArc and bot.role == MidTop:
+        for o in client.spriteObjectsWithLabel("plasma arc"):
+          let pp = client.mapPos(o)
+          if pp.x < 40.0 or pp.y < 40.0 or pp.x > float(MapW - 40) or
+              pp.y > float(MapH - 40):
+            continue                 # HUD icon shares the label
+          if dist(me, pp) <= SwordDetour:
+            target = pp
+            break
 
   # Med kit heal detour (hurt bots only; the carrier handles its own detour
   # in the carry branch). Wounded: a short opportunistic detour. Critical
@@ -2172,6 +2217,18 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         bot.nadeCharge = 0           # release this tick = the throw
     holdStill = true
     acted = true
+  elif hasArc and engage >= 0:
+    # Plasma cone: instant multi-hit 3-damage burst, reach ~136px. Close the
+    # gap and release inside the cone — one touch is a kill, and a pair
+    # standing together dies together.
+    desiredAim = bradsOf(aim - me)
+    let err = abs(bradsErr(desiredAim, bot.estAim))
+    if engageD <= ArcReach and err <= ArcConeBrads and shotReady:
+      wantFire = true
+      holdStill = true
+    else:
+      moveMask = octantBits(aim - me)    # charge into cone range
+    acted = true
   elif hasSword and engage >= 0:
     # Sword melee: the swipe is INSTANT (no windup, no aim lock) and lethal
     # in a +/-45 degree arc at 26 px — close the last step and press A the
@@ -2256,6 +2313,18 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         desiredAim = bot.scanAim(watch)
       holdStill = true
     else:
+      when defined(centerScan):
+        # Center-corridor vision sweep: crossing mid-map with a forward-glued
+        # aim walks blind past enemies passing a lane above or below. With no
+        # live contact, rake the cone across the vertical arcs while moving —
+        # alternating the upper and lower sweep so both flanks get eyes.
+        if desiredAim < 0 and not iCarry and
+            abs(me.x - float(CenterX)) < CenterScanHalf and
+            bot.tick - bot.lastEnemySeen > 40:
+          if (bot.tick div 180) mod 2 == 0:
+            desiredAim = bot.scanAim(vec(0.0, -1.0))
+          else:
+            desiredAim = bot.scanAim(vec(0.0, 1.0))
       # Navigate: cover-aware path steering plus soft repulsion from nearby
       # teammates so one burst (or our own shot) cannot hit two of us.
       var steer = norm(bot.navSteer(client, me, target))
