@@ -308,6 +308,8 @@ type
     siegePhaseUntil: int      # tick the current siege phase expires
     siegeFront: float         # captured ground line during a siege
     wasPushOut: bool          # -d:nadeCluster: charge-start edge detector
+    campPos: seq[Vec]         # long-memory enemy sighting spots (campers)
+    campSeen: seq[int]        # last tick each camp spot was refreshed
     salvoUntil: int           # force-lob window after the charge order
     sweepFlip: bool           # -d:centerScan: which vertical arc is swept
     lastEnemyShout: string    # last enemy shout label already responded to
@@ -1711,6 +1713,29 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     if pushOut and not bot.wasPushOut:
       bot.salvoUntil = bot.tick + SalvoWindow
     bot.wasPushOut = pushOut
+    # Camp memory: the combat track table forgets in ~5s (TrackTtl), which
+    # is exactly wrong for cover-campers. Keep a separate long-lived store
+    # of real sighting spots, deduped to ~50px, so a lob can target ground
+    # an enemy held half a minute ago.
+    for t in bot.enemies:
+      if t.synthetic or t.lastSeen != bot.tick:
+        continue
+      var found = false
+      for i in 0 ..< bot.campPos.len:
+        if dist(bot.campPos[i], t.pos) < 50.0:
+          bot.campPos[i] = t.pos
+          bot.campSeen[i] = bot.tick
+          found = true
+          break
+      if not found:
+        if bot.campPos.len >= 16:
+          var oldest = 0
+          for i in 1 ..< bot.campPos.len:
+            if bot.campSeen[i] < bot.campSeen[oldest]: oldest = i
+          bot.campPos.delete(oldest)
+          bot.campSeen.delete(oldest)
+        bot.campPos.add t.pos
+        bot.campSeen.add bot.tick
 
   # Movement target from role and flag situation.
   var target: Vec
@@ -2173,25 +2198,25 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       # owns visible ground) and in lob range. This is where a clustered
       # cover-camper dies.
       var bestScore = -1.0
-      for a in 0 ..< bot.enemies.len:
-        let ta = bot.enemies[a]
-        if ta.synthetic or bot.tick - ta.lastSeen > StaleClusterTtl:
+      for a in 0 ..< bot.campPos.len:
+        if bot.tick - bot.campSeen[a] > StaleClusterTtl:
           continue
-        for b in (a + 1) ..< bot.enemies.len:
-          let tb = bot.enemies[b]
-          if tb.synthetic or bot.tick - tb.lastSeen > StaleClusterTtl:
+        for b in (a + 1) ..< bot.campPos.len:
+          if bot.tick - bot.campSeen[b] > StaleClusterTtl:
             continue
-          if dist(ta.pos, tb.pos) > ClusterPairPx:
+          if dist(bot.campPos[a], bot.campPos[b]) > ClusterPairPx:
             continue
-          let mid = vec((ta.pos.x + tb.pos.x) * 0.5, (ta.pos.y + tb.pos.y) * 0.5)
+          let mid = vec((bot.campPos[a].x + bot.campPos[b].x) * 0.5,
+                        (bot.campPos[a].y + bot.campPos[b].y) * 0.5)
           let d = dist(mid, me)
           if d < NadeMinRange or d > NadeMaxRange:
             continue
           if bot.gridRayClear(me, mid):
             continue                       # visible: the gun covers it
           # prefer the freshest, tightest cluster
-          let score = 2000.0 - float(bot.tick - max(ta.lastSeen, tb.lastSeen)) -
-            dist(ta.pos, tb.pos)
+          let score = 2000.0 -
+            float(bot.tick - max(bot.campSeen[a], bot.campSeen[b])) -
+            dist(bot.campPos[a], bot.campPos[b])
           if score > bestScore:
             bestScore = score
             nadeAim = bradsOf(mid - me)
@@ -2200,15 +2225,15 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       # onto remembered ground FIRST so the blasts land as we close. In the
       # salvo window a stale SINGLE behind cover is worth the lob too.
       if nadeAim < 0 and bot.tick < bot.salvoUntil:
-        for t in bot.enemies:
-          if t.synthetic or bot.tick - t.lastSeen > StaleClusterTtl:
+        for i in 0 ..< bot.campPos.len:
+          if bot.tick - bot.campSeen[i] > StaleClusterTtl:
             continue
-          let d = dist(t.pos, me)
+          let d = dist(bot.campPos[i], me)
           if d < NadeMinRange or d > NadeMaxRange:
             continue
-          if bot.gridRayClear(me, t.pos):
+          if bot.gridRayClear(me, bot.campPos[i]):
             continue
-          nadeAim = bradsOf(t.pos - me)
+          nadeAim = bradsOf(bot.campPos[i] - me)
           nadeThrowD = d
           break
 
