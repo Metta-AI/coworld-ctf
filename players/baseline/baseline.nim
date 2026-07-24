@@ -4512,12 +4512,20 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         if mateGuns[i] >= 1: inc scCov1
         if mateGuns[i] >= 2: inc scCov2
         if t.hp == 1: inc scHp1
+    # ⭐ FINISH THE KILL (Bug 1, v2): accumulate every DISCRETIONARY pull (hpFocus, focus-
+    # fire, danger, counterArc) into `pull` rather than subtracting each straight into prio.
+    # For a NON-committed challenger the TOTAL pull is then capped below commitBonus, so no
+    # stack of credits (danger 340 + hpFocus 120 + focus×3 135 = 595 uncapped!) can ever
+    # out-pull the enemy we're already closing a kill on. The committed target keeps its full
+    # uncapped pull (it IS the finish). Fixes the audit's mid-fight switch when the locked
+    # target's gun momentarily slews off us (danger→0) and a fresh challenger's hp+focus wins.
+    var pull = 0.0
     if saturated:
       anySaturated = true
       prio += SatCapPenalty
     else:
       if t.hp in 1 ..< MaxHp:
-        prio -= float(MaxHp - t.hp) * HpFocusBonus
+        pull += float(MaxHp - t.hp) * HpFocusBonus
       if mateTargeted[i]:
         # ⭐⭐ PLAN-LAYER FOCUS FIRE: in the opening clash / man-advantage window, the
         # wave must CONCENTRATE fire to remove enemy guns fast and win the trade (the
@@ -4527,7 +4535,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         let focus =
           if bot.tune.planLayer and botPhase in {PhOpen, PhPress}: FocusFireBonus * 3.0
           else: FocusFireBonus
-        prio -= focus
+        pull += focus
     # Greatest-threat-first: an enemy FACING us can shoot this instant, so it
     # is more dangerous than an equidistant one looking away (gated OFF).
     let facingMe =
@@ -4564,17 +4572,10 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         var danger = (AimThreatBonus + DangerCloseBonus * closeFrac) * aimScale
         if t.hp in 1 ..< MaxHp:
           danger += DangerWoundedBonus * aimScale
-        # ⭐ FINISH THE KILL (Bug 1): cap a NON-committed target's danger credit below
-        # commitBonus, so a fresh dead-on threat can never out-pull the enemy we're already
-        # closing a kill on. Without the cap, danger (~410 uncapped) > commit (400) and the
-        # gun switches off a half-killed target onto a new one, which then recovers + kills
-        # us. The committed target keeps its FULL danger credit (it's the one we're finishing).
-        if bot.tune.stickyCommit and not isLocked:
-          danger = min(danger, bot.tune.commitBonus - StickyDangerCap)
-        prio -= danger
+        pull += danger                     # capped as part of the TOTAL pull below
     elif bot.tune.threatFacingBonus:
       if facingMe:
-        prio -= AimThreatBonus
+        pull += AimThreatBonus
     # counterArc (Play C): an enemy holding a plasma arc has NO gun for the rest
     # of its life and a cone that only reaches 136px. Beyond PlasmaArcReachPx +
     # buffer it is a defenseless high-value target — kill it to delete the enemy's
@@ -4587,8 +4588,15 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       if bot.tune.counterArc: inc caSeen
     if bot.tune.counterArc and t.hasArc and
         d > PlasmaArcReachPx + CounterArcReachBuffer:
-      prio -= CounterArcBonus
+      pull += CounterArcBonus
       when defined(caprobe): inc caBump
+    # ⭐ FINISH THE KILL: cap the TOTAL discretionary pull of a NON-committed challenger below
+    # commitBonus (by the StickyDangerCap margin), so no stack of hp+focus+danger+arc credit can
+    # out-pull the kill we're committed to. The committed target's pull is uncapped (it's the one
+    # we finish). Off (stickyCommit false) => behaves exactly as before (no cap), shipped-identical.
+    if bot.tune.stickyCommit and not isLocked:
+      pull = min(pull, bot.tune.commitBonus - StickyDangerCap)
+    prio -= pull
     # Target commitment: heavily favour the enemy we are already engaged with
     # (matched by its last-known position) so three shots land on ONE target
     # and kill it, rather than one shot each spread across many wounded ones.
