@@ -1558,9 +1558,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           elif bot.shoutWant.len == 0 and clamp(bot.slot div 2, 0, 7) == 1 and
               not iCarry and bot.tick - bot.lastShoutTick >= 26 and
               bot.tick - bot.gameStart > StalemateTick and
-              bot.tick >= bot.siegePhaseUntil and
-              (bot.siegePhase != 0 or
-               bot.tick - bot.lastEnemySeen > QuietForBreak):
+              bot.tick >= bot.siegePhaseUntil:
             if bot.siegePhase == 1:
               bot.shoutWant = "A" & $bot.siegeLane
             else:
