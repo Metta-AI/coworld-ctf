@@ -1,5 +1,5 @@
 import
-  std/[os, tables, unittest],
+  std/[os, sequtils, strutils, tables, unittest],
   bitworld/spriteprotocol,
   ctf/[global, sim]
 
@@ -64,8 +64,8 @@ suite "identity badges":
     game.players[foe].y = cy - 40
 
     let labels = game.playerMessages(viewer).presentLabels()
-    check "identity blue alpha" in labels
-    check "identity red alpha" in labels  # yourself: always visible
+    check "identity blue alpha gun" in labels
+    check "identity red alpha gun" in labels  # yourself: always visible
 
   test "a fogged enemy's identity badge is not in the observation":
     var game = initCtfForTest(defaultGameConfig())
@@ -86,7 +86,27 @@ suite "identity badges":
     game.players[foe].y = cy + 300      # deep south
 
     let labels = game.playerMessages(viewer).presentLabels()
-    check "identity blue alpha" notin labels
+    check labels.allIt(not it.startsWith("identity blue alpha"))
+
+  test "badge label carries the wearer's loadout as suffixes":
+    var game = initCtfForTest(defaultGameConfig())
+    let viewer = game.addPlayer("red0")
+    discard game.addPlayer("blue0")
+    game.startGame()
+    game.players[viewer].team = Red
+    var labels = game.playerMessages(viewer).presentLabels()
+    check "identity red alpha gun" in labels
+    game.players[viewer].hasShield = true
+    game.players[viewer].hasGrenade = true
+    labels = game.playerMessages(viewer).presentLabels()
+    # Prefix-preserving: the bare label is REPLACED by the suffixed one.
+    check "identity red alpha shield nade gun" in labels
+    check "identity red alpha gun" notin labels
+    game.players[viewer].hasShield = false
+    game.players[viewer].hasGrenade = false
+    game.players[viewer].hasPlasmaArc = true
+    labels = game.playerMessages(viewer).presentLabels()
+    check "identity red alpha arc" in labels
 
   test "a dead player's identity badge disappears":
     var game = initCtfForTest(defaultGameConfig())
@@ -102,4 +122,4 @@ suite "identity badges":
     game.players[viewer].hp = 0
 
     let labels = game.playerMessages(viewer).presentLabels()
-    check "identity blue alpha" notin labels
+    check labels.allIt(not it.startsWith("identity blue alpha"))

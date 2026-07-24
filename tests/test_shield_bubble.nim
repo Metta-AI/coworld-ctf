@@ -52,7 +52,7 @@ const
   ShieldBubbleDeformCount = 16 * 4
 
 suite "shield carrier bubble":
-  test "bubble appears on pickup and pops below 4 hp":
+  test "bubble appears on pickup and pops when the shield layer is spent":
     var game = initCtfForTest(defaultGameConfig())
     let red = game.addPlayer("red0")
     discard game.addPlayer("blue0")
@@ -63,24 +63,24 @@ suite "shield carrier bubble":
     var messages = game.buildGlobalMessages(state)
     check not messages.hasObject(ShieldBubbleObjectBase + red)
 
-    # A fresh carrier (ShieldHitPoints = 6) shows the bubble.
+    # A fresh carrier (full shield layer) shows the bubble.
     game.players[red].hasShield = true
-    game.players[red].hp = 6
+    game.players[red].shieldHp = ShieldLayerHp
     messages = game.buildGlobalMessages(state)
     check messages.hasObject(ShieldBubbleObjectBase + red)
 
-    # Worn down but still holding bonus hp: the bubble stays at exactly 4.
-    game.players[red].hp = 4
+    # Worn down but still holding shield hp: the bubble stays at exactly 1.
+    game.players[red].shieldHp = 1
     messages = game.buildGlobalMessages(state)
     check messages.hasObject(ShieldBubbleObjectBase + red)
 
-    # Below 4 hp the bubble pops (the small carry marker may remain).
-    game.players[red].hp = 3
+    # A spent layer pops the bubble (the small carry marker may remain).
+    game.players[red].shieldHp = 0
     messages = game.buildGlobalMessages(state)
     check not messages.hasObject(ShieldBubbleObjectBase + red)
 
     # Dead carriers never show a bubble.
-    game.players[red].hp = 6
+    game.players[red].shieldHp = ShieldLayerHp
     game.players[red].alive = false
     messages = game.buildGlobalMessages(state)
     check not messages.hasObject(ShieldBubbleObjectBase + red)
@@ -97,17 +97,19 @@ suite "shield carrier bubble":
     game.players[red].x = 300
     game.players[red].y = 300
     game.players[red].hasShield = true
-    game.players[red].hp = 6
+    game.players[red].shieldHp = ShieldLayerHp
     game.players[blue].x = 300 + 30
     game.players[blue].y = 300
     game.players[blue].aimBrads = 128
     game.players[blue].fireCooldown = 0
     game.tryFire(blue)
 
-    # The hit lands (hp 6 -> 5) but the body FX are absorbed by the bubble:
-    # no struck-target flash, no body paint spark — a bubble impact instead
-    # (the "-1" pop still reports the damage).
-    check game.players[red].hp == 5
+    # The hit lands on the shield layer (3 -> 2, base hp untouched) but the
+    # body FX are absorbed by the bubble: no struck-target flash, no body
+    # paint spark — a bubble impact instead (the "-1" pop still reports the
+    # damage).
+    check game.players[red].shieldHp == ShieldLayerHp - 1
+    check game.players[red].hp == game.config.hitPoints
     check game.bubbleImpacts.len == 1
     check game.bubbleImpacts[0].playerIndex == red
     check game.hitFlashes.len == 0

@@ -7,6 +7,7 @@ import
   test_movement_slide,
   test_player_collision,
   test_replay,
+  test_replay_requests,
   test_replay_controls,
   test_ctf_game,
   test_grenades,
@@ -24,5 +25,6 @@ import
   test_shot_accuracy,
   test_shot_exposure,
   test_windows,
+  test_agent_skins,
   test_sprite_collisions
 {.warning[UnusedImport]: on.}

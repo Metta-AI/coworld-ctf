@@ -170,8 +170,8 @@ const
                                  ## off-center around the agent.
   ShieldBubbleObjectBase = 19680 ## carrier bubbles: one per player, 19680..19695
                                  ## (clear of plasma arc FX at 19700).
-  ## ShieldBubbleMinHp (the hp gate) lives in sim.nim, where the impact FX is
-  ## recorded with the same condition.
+  ## The bubble shows while the carrier's shield layer (shieldHp) is intact;
+  ## sim.nim records the impact FX with the same condition.
   ShieldBubbleDeformBase = 1424  ## blink/dent impact variants keyed
                                  ## bucket*stages+stage: 1424..1487 (clear of
                                  ## tracer heads at 1300..1363 and plasma
@@ -303,7 +303,7 @@ const
   ## Sprites: team flags 700..701 (FlagSpriteBase), hp pips 820+, tracer
   ## dots 900..963 (color×fade-stage), muzzle blooms 964..967 (stage), tracer
   ## heads 968..1031 (color×stage), aim dots 780..795, identity badges
-  ## 4200..4215 (team×identity), self markers 5100..5101, team score text
+  ## 4200..4215 (team×identity), self markers 5100..5131, team score text
   ## 12100..12101, splatters 16000..16063, fog runs 21000..21155
   ## (one per run width in cells), map markers 20000. Objects: flags 6500..6501
   ## (map view) / 5009..5010 (player view), team score text 9600..9601,
@@ -318,10 +318,14 @@ const
   SpritePlayerInterstitialObjectId = 5006
   SpritePlayerRemainingObjectId = 5008
   SpritePlayerFlagObjectBase = 5009  ## 5009 red flag, 5010 blue flag.
-  SpritePlayerSelfSpriteBase = 5100  ## white-outlined self soldier, one per aim
-                                     ## rotation: 5100..5115 (SoldierRotations).
+  SpritePlayerWeaponSpriteId = 5020  ## own-weapon HUD text ("weapon gun|arc").
+  SpritePlayerWeaponObjectId = 5021
+  SpritePlayerSelfSpriteBase = 5100  ## white-outlined self soldiers, keyed by
+                                     ## skin×rotation: default 5100..5115,
+                                     ## crown 5116..5131.
   CorpseSpriteBase = 1500      ## grey dead-soldier sprites, one per team×rot
-                               ## (1500..1531): a corpse must never read as a
+                               ## per skin: default 1500..1531, crown 1532..1563.
+                               ## A corpse must never read as a
                                ## live soldier for a label-scanning ghost
                                ## viewer. Moved off 850: that range overlapped
                                ## the blue paint-blast sprites (868..871).
@@ -733,20 +737,29 @@ proc crewSpriteForSlot(sim: SimServer, slotId: int): CrewSprite =
   ## Returns the crew sprite assigned to one player slot.
   sim.crewSprites[crewVariantIndex(slotId)]
 
-proc soldierPlayerSpriteId(team: Team, rot: int): int =
+const SoldierSkinSpriteStride = 2 * SoldierRotations
+
+proc soldierPlayerSpriteId(team: Team, skin: Skin, rot: int): int =
   ## Sprite id for one living soldier at aim rotation `rot`. The two team
-  ## masters need SoldierRotations ids each; they sit in the existing player
-  ## sprite pool (PlayerSpriteBase..), which reserved 16 ids per palette color.
-  PlayerSpriteBase + ord(team) * SoldierRotations + rot
+  ## masters need SoldierRotations ids per skin; they sit in the existing
+  ## player sprite pool (PlayerSpriteBase..), which reserved 16 ids per color.
+  PlayerSpriteBase + ord(skin) * SoldierSkinSpriteStride +
+    ord(team) * SoldierRotations + rot
 
-proc selectedSoldierPlayerSpriteId(team: Team, rot: int): int =
+proc selectedSoldierPlayerSpriteId(team: Team, skin: Skin, rot: int): int =
   ## Selected (outlined) soldier sprite id at aim rotation `rot`.
-  SelectedPlayerSpriteBase + ord(team) * SoldierRotations + rot
+  SelectedPlayerSpriteBase + ord(skin) * SoldierSkinSpriteStride +
+    ord(team) * SoldierRotations + rot
 
-proc corpseSoldierSpriteId(team: Team, rot: int): int =
+proc corpseSoldierSpriteId(team: Team, skin: Skin, rot: int): int =
   ## Sprite id for a dead soldier (grey corpse) at rotation `rot` (the
-  ## selected-soldier pool lives at 6000..6031).
-  CorpseSpriteBase + ord(team) * SoldierRotations + rot
+  ## selected-soldier pools start at 6000).
+  CorpseSpriteBase + ord(skin) * SoldierSkinSpriteStride +
+    ord(team) * SoldierRotations + rot
+
+proc selfSoldierSpriteId(skin: Skin, rot: int): int =
+  ## Sprite id for the outlined POV self soldier at rotation `rot`.
+  SpritePlayerSelfSpriteBase + ord(skin) * SoldierRotations + rot
 
 proc soldierFacingRight(rot: int): bool =
   ## Whether a soldier at rotation step `rot` faces right (east-ish) — the same
@@ -2817,53 +2830,53 @@ proc addPlayerActorSprites(
   packet: var seq[uint8],
   selected: bool
 ) {.measure.} =
-  ## Adds the pre-rotated top-down soldier sprites used by both views: one
-  ## SoldierRotations-step set per team, plus a selected-outlined set for the
-  ## map view. Replaces the old flat 8-variant + horizontal-flip crew set — the
-  ## soldier's held paintball gun now sweeps with the aim angle instead.
-  for team in Team:
-    let color = teamText(team)
-    for rot in 0 ..< SoldierRotations:
-      let
-        # Raster natively at the emission scale: the ~120px painted masters
-        # carry real detail the 1× 34px body footprint throws away.
-        pixels = soldierRotPixels(team, rot, boardScale)
-        side = if soldierFacingRight(rot): " right" else: " left"
-      # The HD sprite keeps its full 16-step rotation for the VISUAL; the label
-      # stays the documented `player <color> <side>` (RULES.md) so exact-match
-      # label readers keep working. Distinct rotation ids may share a side label
-      # — the client keys sprites by id, not label, so that is harmless.
-      packet.addBoardSpriteChanged(
-        spriteDefs,
-        soldierPlayerSpriteId(team, rot),
-        SoldierCanvas,
-        SoldierCanvas,
-        pixels,
-        "player " & color & side,
-        native = boardScale
-      )
-      # A grey desaturated corpse per rotation: the ghost view shows fallen
-      # bodies, and the documented `corpse <color> <side>` label (RULES.md)
-      # keeps a label-scanning policy from mistaking a body for a live enemy.
-      packet.addBoardSpriteChanged(
-        spriteDefs,
-        corpseSoldierSpriteId(team, rot),
-        SoldierCanvas,
-        SoldierCanvas,
-        soldierCorpse(pixels),
-        "corpse " & color & side,
-        native = boardScale
-      )
-      if selected:
+  ## Adds pre-rotated top-down soldier sprites for every configured skin: one
+  ## SoldierRotations-step set per team, plus selected outlines for the map.
+  let usedSkins = sim.config.usedSkins()
+  for skin in Skin:
+    if skin notin usedSkins:
+      continue
+    for team in Team:
+      let color = teamText(team)
+      for rot in 0 ..< SoldierRotations:
+        let
+          # Raster natively at the emission scale: the ~120px painted masters
+          # carry real detail the 1× 34px body footprint throws away.
+          pixels = soldierRotPixels(team, skin, rot, boardScale)
+          side = if soldierFacingRight(rot): " right" else: " left"
+        # The HD sprite keeps its full 16-step rotation for the VISUAL; the label
+        # stays the documented `player <color> <side>` (RULES.md) so exact-match
+        # label readers keep working. Distinct sprite ids may share a side label
+        # — the client keys sprites by id, not label, so that is harmless.
         packet.addBoardSpriteChanged(
           spriteDefs,
-          selectedSoldierPlayerSpriteId(team, rot),
+          soldierPlayerSpriteId(team, skin, rot),
           SoldierCanvas,
           SoldierCanvas,
-          soldierOutlined(pixels, 8'u8, boardScale),
-          "selected player " & color & side,
+          pixels,
+          "player " & color & side,
           native = boardScale
         )
+        # Corpse and selection variants derive from the same rendered pixels.
+        packet.addBoardSpriteChanged(
+          spriteDefs,
+          corpseSoldierSpriteId(team, skin, rot),
+          SoldierCanvas,
+          SoldierCanvas,
+          soldierCorpse(pixels),
+          "corpse " & color & side,
+          native = boardScale
+        )
+        if selected:
+          packet.addBoardSpriteChanged(
+            spriteDefs,
+            selectedSoldierPlayerSpriteId(team, skin, rot),
+            SoldierCanvas,
+            SoldierCanvas,
+            soldierOutlined(pixels, 8'u8, boardScale),
+            "selected player " & color & side,
+            native = boardScale
+          )
 
 proc buildSpriteProtocolInit(
   sim: SimServer,
@@ -3228,9 +3241,9 @@ proc spriteActorSpriteId(player: Player, selectedJoinOrder: int): int =
     rot = soldierRotIndex(player.aimBrads)
     selected = player.joinOrder == selectedJoinOrder
   if selected:
-    selectedSoldierPlayerSpriteId(player.team, rot)
+    selectedSoldierPlayerSpriteId(player.team, player.skin, rot)
   else:
-    soldierPlayerSpriteId(player.team, rot)
+    soldierPlayerSpriteId(player.team, player.skin, rot)
 
 proc selectSpritePlayer(
   sim: SimServer,
@@ -3566,6 +3579,12 @@ proc addPlasmaArcFlashes(
         diameter = plasmaPulseDiameter(pulse)
         px = flash.x + int(round(ux * forward))
         py = flash.y + int(round(uy * forward))
+      # The damage cone is blocked by walls (selectArcVictims runs a
+      # line-of-sight test per victim), so the animation must not sail
+      # through them either: stop placing pulse discs at the first wall
+      # along the aim ray.
+      if not sim.lineOfSightClear(flash.x, flash.y, px, py):
+        break
       if spriteDefs.spriteDefinitionIndex(spriteId) < 0:
         packet.addBoardSpriteChanged(
           spriteDefs,
@@ -3628,7 +3647,7 @@ proc addShields(
   ## Places the two endzone shield pickups (fog-gated by map position like the
   ## med kits) plus a small "shield carried" marker over anyone holding one
   ## (gated on seeing that player), plus a protective bubble drawn around a
-  ## carrier while the shield's bonus hp holds (it pops below ShieldBubbleMinHp).
+  ## carrier while the shield layer holds (it pops when shieldHp hits 0).
   ## The map/replay view passes no viewer and shows all. Sprites are defined
   ## lazily on first need per connection.
   for i in 0 ..< sim.shieldSpawns.len:
@@ -3676,7 +3695,7 @@ proc addShields(
       player.overheadAnchorY() - OverheadYOffset - ShieldCarrySize,
       30006, MapLayerId, ShieldCarrySpriteId
     )
-    if player.hp >= ShieldBubbleMinHp:
+    if player.shieldHp > 0:
       # A fresh impact swaps the idle bubble for a blink/dent variant keyed by
       # the impact direction and age — the newest impact wins if several
       # shooters connected within the FX window.
@@ -3982,8 +4001,9 @@ proc addHpPips(
     # Map remaining hit points onto 3 thirds (ceil, so any living player keeps
     # at least one lit segment). The bar's pixel size is constant regardless of
     # the hit-point config, so a 99-hp game reads the same 14px 3-chunk bar.
+    let effectiveHp = player.hp + player.shieldHp
     let litSegments = min(HpBarSegments,
-      max(1, (player.hp * HpBarSegments + maxHp - 1) div maxHp))
+      max(1, (effectiveHp * HpBarSegments + maxHp - 1) div maxHp))
     let spriteId = HpPipSpriteBase + litSegments
     packet.addBoardSpriteChanged(
       spriteDefs,
@@ -4012,12 +4032,18 @@ proc addIdentityBadges(
   viewerIndex = -1
 ) {.measure.} =
   ## Places each living player's identity badge (a Greek letter, alpha..theta
-  ## by slot order within the team — label `identity <color> <name>`) on the
-  ## soldier body's bottom-right corner. The map view passes no viewer and
-  ## shows every badge; a player view passes its viewer index and only
-  ## receives the badges of players it can see (identity is intel, like the
-  ## hp bar). Object ids are a fixed pool keyed by player index; stale badges
-  ## fall to the delete sweep.
+  ## by slot order within the team) centered on the soldier body. The body
+  ## rotates with the aim, so the center — its rotation pivot — is the only
+  ## spot that stays on the cog at every heading.
+  ## The label is `identity <color> <name>[ shield][ nade][ arc]` — the
+  ## suffixes carry the wearer's current loadout so an observing agent can
+  ## read weapon state at a glance (the surviving half of the reverted #77
+  ## unit tags). Scan identity labels by PREFIX (`identity <color> <name>`),
+  ## never exact match: the tail changes with pickups. The map view passes no
+  ## viewer and shows every badge; a player view passes its viewer index and
+  ## only receives the badges of players it can see (identity is intel, like
+  ## the hp bar). Object ids are a fixed pool keyed by player index; stale
+  ## badges fall to the delete sweep.
   for i in 0 ..< sim.players.len:
     let player = sim.players[i]
     if not player.alive:
@@ -4029,20 +4055,29 @@ proc addIdentityBadges(
       identityIndex = sim.slotIdentityIndex(player.joinOrder)
       spriteId = IdentityBadgeSpriteBase +
         ord(player.team) * IdentityNames.len + identityIndex
+    var label = "identity " & teamText(player.team) & " " &
+      IdentityNames[identityIndex]
+    if player.hasShield: label.add " shield"
+    if player.hasGrenade: label.add " nade"
+    # The weapon token is always LAST and always present: " arc" keeps its
+    # exact historical text for existing parsers; the default gun becomes
+    # explicit as " gun" so observers never infer a weapon from absence.
+    if player.hasPlasmaArc: label.add " arc"
+    else: label.add " gun"
     packet.addBoardSpriteChanged(
       spriteDefs,
       spriteId,
       IdentityBadgeSize,
       IdentityBadgeSize,
       buildIdentityBadgeSprite(player.team, identityIndex),
-      "identity " & teamText(player.team) & " " & IdentityNames[identityIndex]
+      label
     )
     let objectId = IdentityBadgeObjectBase + i
     currentIds.add(objectId)
     packet.addBoardObject(
       objectId,
-      player.overheadAnchorX() + SoldierBodyPx - IdentityBadgeSize div 2,
-      player.overheadAnchorY() + SoldierBodyPx - IdentityBadgeSize div 2,
+      player.overheadAnchorX() + (SoldierBodyPx - IdentityBadgeSize) div 2,
+      player.overheadAnchorY() + (SoldierBodyPx - IdentityBadgeSize) div 2,
       player.y + 1,
       MapLayerId,
       spriteId
@@ -4283,18 +4318,22 @@ proc buildSpriteProtocolPlayerUpdates*(
       if not other.alive:
         # A body (ghost view only): grey corpse sprite + `corpse <color> <side>`
         # so it never reads as a live soldier to a label-scanning policy.
-        spriteId = corpseSoldierSpriteId(other.team, soldierRotIndex(other.aimBrads))
+        spriteId = corpseSoldierSpriteId(
+          other.team,
+          other.skin,
+          soldierRotIndex(other.aimBrads)
+        )
       elif i == playerIndex and not viewerIsGhost:
         # Yourself reads as a distinct white-outlined soldier, pre-rotated to
         # your aim so the gun points where you're looking.
         let rot = soldierRotIndex(other.aimBrads)
-        spriteId = SpritePlayerSelfSpriteBase + rot
+        spriteId = selfSoldierSpriteId(other.skin, rot)
         result.addSpriteChanged(
           nextState.spriteDefs,
           spriteId,
           SoldierCanvas,
           SoldierCanvas,
-          soldierOutlined(soldierRotPixels(other.team, rot), 2'u8),
+          soldierOutlined(soldierRotPixels(other.team, other.skin, rot), 2'u8),
           # Documented self marker (RULES.md): `self <color> <side>`, only drawn
           # while alive. Side follows the aim exactly as the sim's flipH does.
           "self " & teamText(other.team) &
@@ -4403,7 +4442,7 @@ proc buildSpriteProtocolPlayerUpdates*(
 
     # Lives counter on the top-right HUD layer.
     let
-      livesText = $player.hp & "hp x" & $player.lives
+      livesText = $(player.hp + player.shieldHp) & "hp x" & $player.lives
       lives = sim.buildSpriteProtocolTextSprite([livesText], 2'u8)
     currentIds.add(SelectedTextObjectId)
     result.addSpriteChanged(
@@ -4422,6 +4461,32 @@ proc buildSpriteProtocolPlayerUpdates*(
       0,
       HudTopRightLayerId,
       SpritePlayerRemainingSpriteId
+    )
+
+    # Own-weapon readout under the lives counter: the sim swaps the gun out
+    # whenever a plasma arc is carried, and a bot that has to infer its own
+    # weapon from floating markers gets it wrong at the worst moments. The
+    # label is the machine contract ("weapon gun" | "weapon arc").
+    let
+      weaponText = if player.hasPlasmaArc: "arc" else: "gun"
+      weapon = sim.buildSpriteProtocolTextSprite([weaponText], 2'u8)
+    currentIds.add(SpritePlayerWeaponObjectId)
+    result.addSpriteChanged(
+      nextState.spriteDefs,
+      SpritePlayerWeaponSpriteId,
+      weapon.width,
+      weapon.height,
+      weapon.pixels,
+      "weapon " & weaponText,
+      changed = true
+    )
+    result.addBoardObject(
+      SpritePlayerWeaponObjectId,
+      23 - weapon.width,
+      8,
+      0,
+      HudTopRightLayerId,
+      SpritePlayerWeaponSpriteId
     )
 
   sim.addTeamScoreboard(nextState.spriteDefs, currentIds, result)
@@ -5155,8 +5220,13 @@ proc warmBoardRenderCaches*(sim: SimServer) =
   for team in Team:
     for stage in 1 ..< GlowFadeStages:
       discard sim.endzoneStripSprite(team, stage)
-    for rot in 0 ..< SoldierRotations:
-      discard soldierRotPixels(team, rot, RenderScale)
+  let usedSkins = sim.config.usedSkins()
+  for skin in Skin:
+    if skin notin usedSkins:
+      continue
+    for team in Team:
+      for rot in 0 ..< SoldierRotations:
+        discard soldierRotPixels(team, skin, rot, RenderScale)
   discard boardTypeface()
   block:
     # Encode the map-band wire messages too: they are byte-identical for

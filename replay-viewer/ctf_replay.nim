@@ -99,5 +99,17 @@ proc ctfErrorPointer(): ptr uint8 {.exportc: "ctf_error_ptr", cdecl.} =
 proc ctfErrorLength(): cint {.exportc: "ctf_error_len", cdecl.} =
   cint(lastError.len)
 
-when isMainModule:
-  discard
+when defined(emscripten):
+  proc emscriptenExitWithLiveRuntime() {.
+    importc: "emscripten_exit_with_live_runtime", cdecl.}
+
+when isMainModule and defined(emscripten):
+  # Nim's generated main runs every module-global destructor when it returns,
+  # freeing ArenaObstacles, render caches, fonts — everything — while the wasm
+  # module stays alive and JS keeps calling ctf_load_replay/ctf_frame. The
+  # whole session then runs on freed globals: replay hashes get overwritten by
+  # later allocations (spurious "REPLAY HASH MISMATCH — SHOWING RECORDED
+  # INPUTS" + frozen-at-spawn playback) and seeks crash out of bounds.
+  # Unwinding main through emscripten's live-runtime exit skips the destructor
+  # epilogue entirely, so globals stay valid for the life of the page.
+  emscriptenExitWithLiveRuntime()

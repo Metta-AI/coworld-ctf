@@ -9,9 +9,7 @@ when not defined(emscripten):
 
 const
   GameName* = "ctf"
-  GameVersion* = "21"  ## Multi-map support does not bump the version:
-                       ## default-map ("arena") gameplay is bit-identical;
-                       ## arena-large replays carry mapPath in their config.
+  GameVersion* = "22"  ## GV22: shield armor layer (re-land of #76).
   ReplayFps* = 24
   DefaultMapPath* = "arena"
   DarkBgPath* = "data/darkbg.aseprite"
@@ -151,15 +149,12 @@ const
 
   ShieldPickupRange* = 12     ## touch radius to pick a shield up.
   ShieldRespawnTicks* = 30 * ReplayFps  ## a taken endzone shield refills after 30s.
-  ShieldHitPoints* = 6        ## the hp ceiling for a shield carrier.
-  ShieldPickupHeal* = 3       ## hp a shield pickup adds, capped at
-                              ## ShieldHitPoints — a damaged carrier may take
-                              ## another shield to top back up.
+  ShieldLayerHp* = 3          ## hp in a full shield layer. Damage depletes
+                              ## the layer before base hp; a pickup refills it
+                              ## and never heals base damage.
   ShieldFireSlowdown* = 3     ## a shield carrier's fire cooldown is this many
                               ## times longer (3x slower fire rate).
-  ShieldBubbleMinHp* = 4      ## the carrier's protective bubble shows at or
-                              ## above this hp — i.e. while the shield's bonus
-                              ## hp (over the base 3) is still holding.
+
   BubbleImpactTicks* = 8      ## ~0.33s the bubble's blink/dent impact FX
                               ## lasts (cosmetic only, like HitFlashTicks).
 
@@ -184,7 +179,7 @@ const
   PlayerSpriteBase* = 100
   FlagSpriteBase* = 700       ## team flag sprites: 700 red flag, 701 blue flag.
   SelectedPlayerSpriteBase* = 6000  ## outlined selected-soldier pool:
-                              ## 6000..6031 (team x SoldierRotations). Moved
+                              ## default 6000..6031, crown 6032..6063. Moved
                               ## from 800: that pool swallowed the hp pips
                               ## (820..823) and the sound/impact rings
                               ## (830/831) — same collision class as the
@@ -277,6 +272,10 @@ type
     Red
     Blue
 
+  Skin* = enum
+    DefaultSkin
+    CrownSkin
+
   CtfError* = object of ValueError
 
   GamePhase* = enum
@@ -357,6 +356,7 @@ type
     token*: string
     team*: Team
     color*: uint8
+    skin*: Skin
     hasTeam*: bool
     hasColor*: bool
 
@@ -408,7 +408,9 @@ type
     windupBrads*: int          ## aim angle locked at the trigger pull, -1 = none.
     carryingFlag*: bool
     hasGrenade*: bool          ## each player carries at most one grenade.
-    hasShield*: bool           ## carrying an endzone shield: 6 hp, 3x slower fire.
+    hasShield*: bool           ## carrying an endzone shield: 3x slower fire.
+    shieldHp*: int             ## remaining shield-layer hp (0..ShieldLayerHp);
+                               ## damage depletes it before base hp.
     hasPlasmaArc*: bool        ## each player carries at most one plasma arc.
     arcTicksLeft*: int         ## remaining active ticks of a fired plasma
                                ## cone (0 = the cone is off).
@@ -419,6 +421,7 @@ type
     joinOrder*: int
     address*: string
     color*: uint8
+    skin*: Skin               ## cosmetic only; excluded from gameHash.
     reward*: int
     kills*: int
     deaths*: int
@@ -747,21 +750,33 @@ proc loadPaintBombSprite*(size: int): seq[uint8] =
 ## with its barrel on the aim ray, and body + gun pre-rotate TOGETHER around
 ## the body center — the cog spins with its gun, so east aim (rot 0) shows the
 ## master exactly as drawn and tracers always line up with the muzzle.
+const SoldierMasterPaths: array[Skin, array[Team, string]] = [
+  DefaultSkin: [
+    Red: "data/soldier_red.png",
+    Blue: "data/soldier_blue.png"
+  ],
+  CrownSkin: [
+    Red: "data/soldier_red_crown.png",
+    Blue: "data/soldier_blue_crown.png"
+  ]
+]
+
 var
-  soldierMasters: array[Team, Image]
-  soldierPivotX, soldierPivotY: array[Team, float]
-  soldierScale: array[Team, float]
-  soldierLoaded: array[Team, bool]
-  soldierRotCache: array[Team, array[SoldierRotations, seq[tuple[
-    scale: int, pixels: seq[uint8]]]]]
+  soldierMasters: array[Skin, array[Team, Image]]
+  soldierPivotX, soldierPivotY: array[Skin, array[Team, float]]
+  soldierScale: array[Skin, array[Team, float]]
+  soldierLoaded: array[Skin, array[Team, bool]]
+  soldierRotCache: array[
+    Skin,
+    array[Team, array[SoldierRotations, seq[tuple[
+      scale: int, pixels: seq[uint8]
+    ]]]]
+  ]
   gunMaster: Image
   gunScale: float
   gunLoaded: bool
 
-proc soldierMasterPath(team: Team): string =
-  if team == Red: "data/soldier_red.png" else: "data/soldier_blue.png"
-
-proc measureSoldierBody(team: Team, master: Image) =
+proc measureSoldierBody(skin: Skin, team: Team, master: Image) =
   ## Finds the body pivot and the master->canvas scale: the centroid and
   ## vertical span of the SOLID pixels (alpha >= 200 — the cog shell; the
   ## baked-in soft drop shadow sits below that and is excluded, so the cog
@@ -778,21 +793,23 @@ proc measureSoldierBody(team: Team, master: Image) =
         sumX += float(x); sumY += float(y); inc n
         top = min(top, y); bot = max(bot, y)
   if n == 0:
-    soldierPivotX[team] = float(master.width) / 2
-    soldierPivotY[team] = float(master.height) / 2
-    soldierScale[team] = float(SoldierBodyPx) / max(1.0, float(master.height))
+    soldierPivotX[skin][team] = float(master.width) / 2
+    soldierPivotY[skin][team] = float(master.height) / 2
+    soldierScale[skin][team] =
+      float(SoldierBodyPx) / max(1.0, float(master.height))
   else:
-    soldierPivotX[team] = sumX / float(n)
-    soldierPivotY[team] = sumY / float(n)
-    soldierScale[team] = float(SoldierBodyPx) / max(1.0, float(bot - top + 1))
+    soldierPivotX[skin][team] = sumX / float(n)
+    soldierPivotY[skin][team] = sumY / float(n)
+    soldierScale[skin][team] =
+      float(SoldierBodyPx) / max(1.0, float(bot - top + 1))
 
-proc ensureSoldierLoaded(team: Team) =
-  if soldierLoaded[team]:
+proc ensureSoldierLoaded(skin: Skin, team: Team) =
+  if soldierLoaded[skin][team]:
     return
-  let master = readImage(gameDir() / soldierMasterPath(team))
-  soldierMasters[team] = master
-  measureSoldierBody(team, master)
-  soldierLoaded[team] = true
+  let master = readImage(gameDir() / SoldierMasterPaths[skin][team])
+  soldierMasters[skin][team] = master
+  measureSoldierBody(skin, team, master)
+  soldierLoaded[skin][team] = true
 
 proc ensureGunLoaded() =
   if gunLoaded:
@@ -801,7 +818,12 @@ proc ensureGunLoaded() =
   gunScale = float(GunLengthPx) / max(1.0, float(gunMaster.width))
   gunLoaded = true
 
-proc soldierRotPixels*(team: Team, rot: int, renderScale = 1): seq[uint8] =
+proc soldierRotPixels*(
+  team: Team,
+  skin: Skin,
+  rot: int,
+  renderScale = 1
+): seq[uint8] =
   ## One pre-rendered soldier sprite (SoldierCanvas·renderScale square,
   ## straight-alpha RGBA): body + gun as one rigid unit, rotated to aim step
   ## `rot`. The master's FACE side (south) leads the aim with the gun held in
@@ -809,19 +831,19 @@ proc soldierRotPixels*(team: Team, rot: int, renderScale = 1): seq[uint8] =
   ## are ~120px art rendered down to a 34px body at 1×, so a renderScale > 1
   ## raster recovers genuine painted detail, not upscaled blocks.
   let r = ((rot mod SoldierRotations) + SoldierRotations) mod SoldierRotations
-  for cached in soldierRotCache[team][r]:
+  for cached in soldierRotCache[skin][team][r]:
     if cached.scale == renderScale:
       return cached.pixels
-  ensureSoldierLoaded(team)
+  ensureSoldierLoaded(skin, team)
   ensureGunLoaded()
   let
-    master = soldierMasters[team]
+    master = soldierMasters[skin][team]
     outCanvas = SoldierCanvas * renderScale
     # aim increases counter-clockwise on screen (0=east, 64=north); screen y is
     # down, so a positive brad step rotates the art clockwise in image space —
     # i.e. draw at angle -theta to match aimVector.
     angle = float(r) * 2.0 * PI / float(SoldierRotations)
-    s = soldierScale[team] * float(renderScale)
+    s = soldierScale[skin][team] * float(renderScale)
     center = float32(outCanvas) / 2
   var canvas = newImage(outCanvas, outCanvas)
   let
@@ -836,7 +858,10 @@ proc soldierRotPixels*(team: Team, rot: int, renderScale = 1): seq[uint8] =
       rotate(float32(-PI / 2)) *
       scale(vec2(float32(s), float32(s))) *
       translate(
-        vec2(float32(-soldierPivotX[team]), float32(-soldierPivotY[team]))
+        vec2(
+          float32(-soldierPivotX[skin][team]),
+          float32(-soldierPivotY[skin][team])
+        )
       )
     # Gun-local (0, height/2) — the grip end of the barrel centerline — mounts
     # GunGripPx east of the body center and spins with the unit.
@@ -858,7 +883,7 @@ proc soldierRotPixels*(team: Team, rot: int, renderScale = 1): seq[uint8] =
     pixels[i * 4 + 1] = c.g
     pixels[i * 4 + 2] = c.b
     pixels[i * 4 + 3] = c.a
-  soldierRotCache[team][r].add((scale: renderScale, pixels: pixels))
+  soldierRotCache[skin][team][r].add((scale: renderScale, pixels: pixels))
   pixels
 
 proc soldierRotIndex*(aimBrads: int): int =
@@ -869,15 +894,20 @@ proc soldierRotIndex*(aimBrads: int): int =
 proc soldierIconPixels*(team: Team, sizePx: int): seq[uint8] =
   ## A compact roster chip: the face-on cog scaled so the body fills the icon
   ## (no gun — the smile visor IS the identity). Used by the game-over list.
-  ensureSoldierLoaded(team)
+  ensureSoldierLoaded(DefaultSkin, team)
   let
-    master = soldierMasters[team]
-    s = float(sizePx) / float(SoldierBodyPx) * soldierScale[team]
+    master = soldierMasters[DefaultSkin][team]
+    s =
+      float(sizePx) / float(SoldierBodyPx) *
+        soldierScale[DefaultSkin][team]
   var canvas = newImage(sizePx, sizePx)
   let mat =
     translate(vec2(float32(sizePx) / 2, float32(sizePx) / 2)) *
     scale(vec2(float32(s), float32(s))) *
-    translate(vec2(float32(-soldierPivotX[team]), float32(-soldierPivotY[team])))
+    translate(vec2(
+      float32(-soldierPivotX[DefaultSkin][team]),
+      float32(-soldierPivotY[DefaultSkin][team])
+    ))
   canvas.draw(master, mat)
   result = newSeq[uint8](sizePx * sizePx * 4)
   for i in 0 ..< sizePx * sizePx:
@@ -2177,6 +2207,22 @@ proc readSlotColor(text: string, slotIndex: int): uint8 =
       "Config field slots[" & $slotIndex & "].color is unknown."
     )
 
+proc readSlotSkin(node: JsonNode, slotIndex: int): Skin =
+  ## Reads one tolerant cosmetic skin value.
+  if node.kind == JString:
+    case node.getStr()
+    of "default":
+      return DefaultSkin
+    of "crown":
+      return CrownSkin
+    else:
+      discard
+  stderr.writeLine(
+    "Warning: config slots[" & $slotIndex & "].skin value " & $node &
+      " is unrecognized; using default."
+  )
+  DefaultSkin
+
 proc readConfigSlots(node: JsonNode, slots: var seq[PlayerSlotConfig]) =
   ## Reads optional fixed player slot config entries.
   if not node.hasKey("slots"):
@@ -2217,6 +2263,8 @@ proc readConfigSlots(node: JsonNode, slots: var seq[PlayerSlotConfig]) =
         )
       slot.color = readSlotColor(color.getStr(), i)
       slot.hasColor = true
+    if item.hasKey("skin"):
+      slot.skin = readSlotSkin(item["skin"], i)
     slots.add(slot)
 
 proc readConfigPlayers(node: JsonNode, slots: var seq[PlayerSlotConfig]) =
@@ -2441,6 +2489,14 @@ proc slotColorText(slot: PlayerSlotConfig): string =
     return ""
   playerColorText(slot.color)
 
+proc skinText(skin: Skin): string =
+  ## Returns a JSON skin string.
+  case skin
+  of DefaultSkin:
+    "default"
+  of CrownSkin:
+    "crown"
+
 proc configJson*(config: GameConfig): string =
   ## Returns the complete replay JSON for a gameplay config.
   var
@@ -2458,6 +2514,8 @@ proc configJson*(config: GameConfig): string =
       item["team"] = %slot.slotTeamText()
     if slot.hasColor:
       item["color"] = %slot.slotColorText()
+    if slot.skin != DefaultSkin:
+      item["skin"] = %slot.skin.skinText()
     slots.add(item)
   var node = %*{
     "motionScale": config.motionScale,
@@ -2654,6 +2712,7 @@ proc gameHash*(sim: SimServer): uint64 =
     result.mixHashBool(player.carryingFlag)
     result.mixHashBool(player.hasGrenade)
     result.mixHashBool(player.hasShield)
+    result.mixHashInt(player.shieldHp)
     result.mixHashBool(player.hasPlasmaArc)
     result.mixHashInt(player.arcTicksLeft)
     result.mixHashInt(int(player.arcHitMask))
@@ -2824,6 +2883,13 @@ proc findSpawn*(sim: SimServer): tuple[x, y: int] =
 proc playerSlotLimit(config: GameConfig): int =
   ## Returns the number of slots players may occupy.
   if config.closedRoster: config.slots.len else: MaxPlayers
+
+proc usedSkins*(config: GameConfig): set[Skin] =
+  ## Returns the skins needed by slots that can join this game.
+  if config.slots.len < config.playerSlotLimit():
+    result.incl(DefaultSkin)
+  for slot in config.slots:
+    result.incl(slot.skin)
 
 proc canAddPlayer*(sim: SimServer): bool =
   ## Returns whether the game has room for another player.
@@ -3215,6 +3281,7 @@ proc addPlayer*(
     joinOrder: order,
     address: address,
     color: color,
+    skin: slot.skin,
     lastShoutTick: -1,
     reward: sim.rewardAccounts[accountIndex].reward
   )
@@ -3440,6 +3507,7 @@ proc resetShields*(sim: var SimServer) =
     )
   for i in 0 ..< sim.players.len:
     sim.players[i].hasShield = false
+    sim.players[i].shieldHp = 0
 proc plasmaArcSpawnPoints*(): array[2, tuple[x, y: int]] =
   ## The two plasma arc spawn points, nudged to walkable floor: the same side
   ## back columns as the shields, but in the TOP half (a quarter of the map
@@ -3485,6 +3553,7 @@ proc startGame*(sim: var SimServer) =
     sim.players[i].flipH = sim.players[i].team == Blue
     sim.players[i].carryingFlag = false
     sim.players[i].hasShield = false
+    sim.players[i].shieldHp = 0
     sim.players[i].kills = 0
     sim.players[i].deaths = 0
     sim.players[i].captures = 0
@@ -3721,7 +3790,7 @@ proc isWall*(sim: SimServer, mx, my: int): bool =
     return true
   sim.wallMask[mapIndex(mx, my)]
 
-proc lineOfSightClear(sim: SimServer, ax, ay, bx, by: int): bool =
+proc lineOfSightClear*(sim: SimServer, ax, ay, bx, by: int): bool =
   ## Returns true when no wall blocks the segment between two map points.
   let
     dx = bx - ax
@@ -3753,6 +3822,7 @@ proc killPlayer*(sim: var SimServer, targetIndex, killerIndex: int) =
   sim.players[targetIndex].windupBrads = -1
   sim.players[targetIndex].hasGrenade = false
   sim.players[targetIndex].hasShield = false
+  sim.players[targetIndex].shieldHp = 0
   sim.players[targetIndex].hasPlasmaArc = false
   sim.players[targetIndex].arcTicksLeft = 0
   sim.players[targetIndex].throwCharge = 0
@@ -3793,6 +3863,13 @@ proc killPlayer*(sim: var SimServer, targetIndex, killerIndex: int) =
       max(1, sim.config.respawnTicks)
     else:
       0
+
+proc absorbDamage*(sim: var SimServer, targetIndex: int, amount: int) =
+  ## Applies damage to a player: the shield layer soaks hits before base hp.
+  ## Callers keep their own death checks on the base hp that remains.
+  let fromShield = min(sim.players[targetIndex].shieldHp, amount)
+  sim.players[targetIndex].shieldHp -= fromShield
+  sim.players[targetIndex].hp -= amount - fromShield
 
 proc canFire*(sim: SimServer, shooterIndex: int): bool =
   ## Returns whether one player is able to fire a shot right now.
@@ -3897,7 +3974,7 @@ proc resolveActiveArcCones*(sim: var SimServer) =
           continue
         sim.players[arcFire.attacker].arcHitMask =
           sim.players[arcFire.attacker].arcHitMask or bit
-      sim.players[victimIndex].hp -= PlasmaArcDamage
+      sim.absorbDamage(victimIndex, PlasmaArcDamage)
       # Floating damage number for the HP loss (cosmetic, not in gameHash).
       sim.damagePops.add DamageFx(
         x: sim.players[victimIndex].x + CollisionW div 2,
@@ -4035,14 +4112,14 @@ proc applyFire(sim: var SimServer, shooterIndex, targetIndex: int) =
     hit: targetIndex >= 0
   )
   if targetIndex >= 0 and sim.players[targetIndex].alive:
-    # A carrier whose bubble is still up (hp >= ShieldBubbleMinHp at impact)
-    # absorbs the hit VISUALS on the bubble: it blinks and dents toward the
-    # shooter instead of showing the inner struck-target ring and body paint
-    # spark. The "-1" pop still reads the hp loss. (Cosmetic only — the damage
-    # itself is unchanged.)
+    # A carrier whose shield layer is still up at impact absorbs the hit
+    # VISUALS on the bubble: it blinks and dents toward the shooter instead of
+    # showing the inner struck-target ring and body paint spark. The "-1" pop
+    # still reads the hp loss. (Cosmetic only — the damage itself is
+    # unchanged.)
     let bubbleUp = sim.players[targetIndex].hasShield and
-      sim.players[targetIndex].hp >= ShieldBubbleMinHp
-    dec sim.players[targetIndex].hp
+      sim.players[targetIndex].shieldHp > 0
+    sim.absorbDamage(targetIndex, 1)
     if bubbleUp:
       sim.bubbleImpacts.add BubbleImpactFx(
         playerIndex: targetIndex,
@@ -4083,7 +4160,8 @@ proc applyFire(sim: var SimServer, shooterIndex, targetIndex: int) =
       sim.logGameEvent(
         playerColorText(sim.players[targetIndex].color) &
           " hit by " & sim.playerText(shooterIndex) &
-          " (" & $sim.players[targetIndex].hp & " hp left)"
+          " (" & $(sim.players[targetIndex].hp +
+            sim.players[targetIndex].shieldHp) & " hp left)"
       )
 
 proc tryFire*(sim: var SimServer, shooterIndex: int) =
@@ -4208,7 +4286,7 @@ proc explodeGrenade(sim: var SimServer, grenade: AirborneGrenade) =
       py = sim.players[i].y + CollisionH div 2
     if distSq(px, py, grenade.tx, grenade.ty) > radiusSq:
       continue
-    sim.players[i].hp -= GrenadeDamage
+    sim.absorbDamage(i, GrenadeDamage)
     # Floating damage number for the blast's HP loss (cosmetic, not in gameHash).
     sim.damagePops.add DamageFx(
       x: px, y: py, tick: sim.tickCount,
@@ -4308,15 +4386,16 @@ proc updateShields*(sim: var SimServer) =
 
 proc tryPickupShields*(sim: var SimServer, playerIndex: int) =
   ## Lets a living player pick up an endzone shield by touch (either team may
-  ## take either endzone's shield). A pickup grants the shield and heals
-  ## ShieldPickupHeal hp up to the ShieldHitPoints ceiling — a damaged carrier
-  ## may take another shield to top back up, while a full-health carrier
-  ## leaves the spawn untouched for a teammate. Carrying a shield slows fire
-  ## ShieldFireSlowdown times; a taken shield refills after ShieldRespawnTicks.
+  ## take either endzone's shield). A pickup grants the shield and refills the
+  ## ShieldLayerHp-strong shield layer that damage depletes before base hp —
+  ## it never heals base damage (that is the med kits' job), so a worn carrier
+  ## may take another shield to restore the layer, while a carrier whose layer
+  ## is intact leaves the spawn untouched for a teammate. Carrying a shield
+  ## slows fire ShieldFireSlowdown times; a taken shield refills after
+  ## ShieldRespawnTicks.
   if not sim.players[playerIndex].alive:
     return
-  if sim.players[playerIndex].hasShield and
-      sim.players[playerIndex].hp >= ShieldHitPoints:
+  if sim.players[playerIndex].shieldHp >= ShieldLayerHp:
     return
   let
     px = sim.players[playerIndex].x + CollisionW div 2
@@ -4327,8 +4406,7 @@ proc tryPickupShields*(sim: var SimServer, playerIndex: int) =
       spawn.present = false
       spawn.respawnAt = sim.tickCount + ShieldRespawnTicks
       sim.players[playerIndex].hasShield = true
-      sim.players[playerIndex].hp = min(
-        sim.players[playerIndex].hp + ShieldPickupHeal, ShieldHitPoints)
+      sim.players[playerIndex].shieldHp = ShieldLayerHp
       sim.logGameEvent(
         playerColorText(sim.players[playerIndex].color) &
           " picked up a shield"
