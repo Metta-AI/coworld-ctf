@@ -208,6 +208,13 @@ when defined(caprobe):
   var caSeen = 0      # enemy tracks scanned in dangerScore with counterArc on
   var caBump = 0      # tracks that got the disarmed-carrier priority credit
 
+when defined(sgprobe):
+  # -d:sgprobe ONLY (2026-07-24 dive-death fix): the adaptive pocket-commit funnel. Never shipped.
+  var sgWant = 0      # frames a bot wanted the pocket rush (frontmost body inside PocketRushRange)
+  var sgDefended = 0  # ...and the pocket was DEFENDED (>=GrabStackDefenders fresh guns on it)
+  var sgHold = 0      # ...and we HELD at standoff (no Captain advantage) — the suicide dive PREVENTED
+  var sgCommit = 0    # ...and we COMMITTED the touch WITH advantage (pickEdge/PhForce/cover) — team push
+
 when defined(fsprobe):
   # -d:fsprobe ONLY (2026-07-24, the focus-fire audit): quantify the two reported
   # SEALs-violating behaviors. Never compiled into the shipped player.
@@ -1278,6 +1285,26 @@ type
                               # protected respawners are unkillable but shoot). Asymmetric
                               # (turns a wasted grab into a covered one) so mirror-measurable
                               # on grab->cap; the "vs a real stacked defense" edge is field.
+    smartGrab: bool           # ⭐⭐ ADAPTIVE POCKET COMMIT (2026-07-24, THE dive-death fix). Replaces
+                              # grabTiming+grabGate's hard thresholds + suicide carve-out with a
+                              # Captain-brain gate: commit the disarmed pocket touch ONLY on a real
+                              # advantage read (pickEdge local numbers edge / PhForce grouped all-in /
+                              # a mate covering in place); otherwise HOLD at a firing standoff and
+                              # suppress the clustered pocket from range as a team. No lone suicide dive.
+    armedRush: bool           # ⭐ NEVER DISARM INTO A STACK (2026-07-24, THE dive-death fix).
+                              # pocketRush's maxEngage=0 (gun OFF, no duck/dodge) rests on an
+                              # OBSOLETE premise — that pedestal respawners are spawn-protected
+                              # (unkillable), so shooting them is wasted. GV20+ REMOVED spawn
+                              # protection (0 refs in GV22 sim.nim): those defenders are KILLABLE
+                              # now. So a rusher that disarms and dives a defended pocket dies
+                              # doing nothing — >half our deaths, pure waste. armedRush: when
+                              # ANY fresh defender guards the pocket, keep the gun UP (engage a
+                              # close band + re-enable the duck/dodge/aim branches) and SHOOT the
+                              # way in / dodge, instead of a blind unarmed dive. Only a genuinely
+                              # UNCONTESTED touch (no fresh defender) still rushes disarmed for
+                              # speed. Offensive by construction: arrive shooting, never as a
+                              # free kill. Asymmetric (turns a wasted death into fire on the
+                              # pocket) so mirror-measurable on grab->cap + K/D.
     holdLine: bool            # ⭐ ANTI-OVER-EXTEND (2026-07-22, the h006 line-defense
                               # finding): the new #1 (h006) forms a LINE in its own half and
                               # lets us over-push into a converging kill (loss diag: 39% of
@@ -2021,9 +2048,19 @@ proc shippedCombatTune(): CombatTune =
   # ship precedent, same class as counterArc/shieldTank). Verified: shipped champion
   # builds clean + grabprobe not-blind on GV17 (19 grabs / 3 caps / 58% acc, seed 100).
   result.holdLine = true
-  result.grabGate = true
-  result.grabTiming = true
   result.regroupPush = true
+  # ⭐⭐ SMART GRAB (2026-07-24, THE dive-death fix) REPLACES grabGate+grabTiming. Those were
+  # hard-threshold gates with a lone-body-dives-NOW carve-out that IS the pointless suicide
+  # dive (>half our deaths, 0 damage). smartGrab is the adaptive Captain-brain commit: hold at
+  # a firing standoff + suppress the pocket from range UNLESS we have a real advantage (pickEdge
+  # local numbers edge / PhForce grouped all-in / a mate covering in place); armedRush keeps the
+  # gun UP on any defended touch so we never disarm into fire; holdVsGun stops a solo gun-down
+  # bot presenting its back to a live gun; stickyCommit keeps the gun finishing a committed kill.
+  # grabGate/grabTiming left OFF (code kept for the record + their harness knobs).
+  result.smartGrab = true
+  result.armedRush = true
+  result.holdVsGun = true
+  result.stickyCommit = true
   # ── COMMS BUS (C1/C2 + the WIPE coupling). Event-driven team plays over the one
   # shout channel: a bot classifies a LIVE scenario from its own fresh local reads
   # and broadcasts an opaque rotating 2-char codeword; teammates in earshot adopt it
@@ -3975,6 +4012,8 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # bots agree and flow branch→branch unanimously. Drives movement HERE and the
   # engage/combat aggression BELOW (botPhase is hoisted so the combat block reads it).
   var botPhase = PhProbe        # function-scope so the combat block can key maxEngage on it
+  var pickEdge = false          # function-scope: the Captain's LOCAL man-advantage read, reused
+                                # by the pocket-commit gate (commit the dive only WITH advantage)
   if bot.tune.planLayer:
     # Enemy heart state — globally legible. Only OUR team can carry it, so it is either
     # on its pedestal or being carried by us (iCarry => we carry).
@@ -3987,7 +4026,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       if bot.tick - t.lastSeen <= LocalFreshTicks and dist(t.pos, me) <= PickEdgeRange: inc freshM
     for t in bot.enemies:
       if bot.tick - t.lastSeen <= LocalFreshTicks and dist(t.pos, me) <= PickEdgeRange: inc freshE
-    let pickEdge = freshM > freshE and freshM >= 1
+    pickEdge = freshM > freshE and freshM >= 1
     botPhase = teamPhase(bot.tick - bot.gameStart, ownStolen, efState, pickEdge)
   if bot.tune.planLayer and not iCarry:
     let phase = botPhase
@@ -4240,88 +4279,73 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     bot.role in {MidTop, MidBottom, MidGuard, FlankTop, FlankBottom} and
     dist(me, stealTarget) < PocketRushRange and
     dist(me, stealTarget) < nearestMateToSteal + 8.0
-  # ⭐ grabTiming (2026-07-20, the dive-death finding): a solo unarmed dive into a
-  # STACKED pocket is shot on the touch (96% of our carrier deaths are here, 0%
-  # cap in every loss). When the pocket is stacked, no mate is covering us in
-  # place, and a mate is genuinely inbound, HOLD short: pocketRush goes false so
-  # we revert to the normal rusher combat path (gun UP — every aim/duck/lock
-  # branch gates on `not pocketRush` — suppressing the KILLABLE defenders) and we
-  # pin the move target at a standoff ring off the pedestal until cover arrives.
-  # Self-limiting and anti-timidity by construction: a lone last body (no inbound
-  # mate) still dives NOW, cover-in-place releases the dive, pushOut/late all-in
-  # suicide-grabs as today, and inside GrabCommitRing we're committed and dive
-  # through. DELAYS/SEQUENCES the dive, never abandons the objective.
+  # ⭐⭐ SMART GRAB (2026-07-24, THE dive-death fix — Maxwell's adaptive-Captain directive).
+  # The OLD grabTiming/grabGate were HARD-THRESHOLD gates with a fatal carve-out: a solo,
+  # outgunned body with no inbound mate "dives NOW" (theory: a suicide grab forces the enemy
+  # onto defense). FALSIFIED in play — >half our deaths are that dive doing ZERO damage; a
+  # dead body forces nothing. And "outgunned unless >=1 inbound mate" is wrong anyway — one
+  # mate can't beat a full defending team. The fix is ADAPTIVE via the Captain brain: commit
+  # the disarmed touch ONLY when we genuinely have the advantage the Captain already reads;
+  # otherwise HOLD at a firing standoff, gun UP, and SUPPRESS the clustered pocket from range
+  # (the map-wide gun; a cluster is a focus-fire gift) as a TEAM, until we're up. No lone
+  # suicide dive, ever. OFFENSIVE by construction: we arrive shooting + commit the kill.
   var holdGrab = false
-  if bot.tune.grabTiming and wantPocketRush and not pushOut and
+  if bot.tune.smartGrab and wantPocketRush and not pushOut and
       dist(me, stealTarget) > GrabCommitRing:
-    var defenders = 0        # fresh enemy guns clustered on the pedestal
+    # The pocket defense: fresh enemy guns clustered on the pedestal.
+    var defenders = 0
     for t in bot.enemies:
       if bot.tick - t.lastSeen <= LocalFreshTicks and
           dist(t.pos, stealTarget) <= GrabStackRange:
         inc defenders
-    var coverMates = 0       # a fresh mate at the pocket with us = cover in place
-    var inboundMates = 0     # a fresh mate homeward of us = genuinely inbound support
+    # Cover in place: a fresh mate AT the pocket with us (already trading, so the touch is
+    # covered) releases the hold — that's a genuine team push, not a solo dive.
+    var coverMates = 0
     for t in bot.mates:
-      # GrabMateFreshTicks, not LocalFreshTicks: mates approach from BEHIND the
-      # diver's pocket-welded vision cone, so their tracks are stale-but-real.
       if bot.tick - t.lastSeen > GrabMateFreshTicks: continue
       if dist(t.pos, me) <= GrabCoverRange: inc coverMates
-      if homeSign(bot.team) * (t.pos.x - me.x) > GrabInboundGap: inc inboundMates
-    holdGrab = defenders >= GrabStackDefenders and coverMates < 1 and inboundMates >= 1
-    when defined(gtprobe):
-      inc gtEligible
-      if defenders >= GrabStackDefenders: inc gtStacked
-      if defenders >= GrabStackDefenders and coverMates < 1: inc gtNoCover
-      if holdGrab: inc gtFireCount
-  when defined(gtprobe):
-    if wantPocketRush: inc gtWant
-
-  # ⭐ grabGate (2026-07-22, the h006 grab-discipline finding): h006 commits to the
-  # heart almost only when up bodies (steal->cap 46-64%); Picasso grabs even/behind
-  # and 72-82% of our carriers die at the enemy pedestal — the diagnosed suicide-grab.
-  # Distinct from grabTiming (which holds on an ABSOLUTE stack >=2 with a mate inbound):
-  # grabGate is a RELATIVE numbers gate — it opens the dive when OUR local force (me +
-  # inbound support) can beat the defense, and holds only when genuinely OUTGUNNED at
-  # the touch. So grabGate is LESS timid than grabTiming when support is present (it
-  # dives into a stack we have the bodies to convert = the h006 "grab when +bodies"
-  # doctrine) and gates a single defender we can't beat. Teammates are fogged, so the
-  # rusher (frontmost body by construction: dist<nearestMate+8) counts INBOUND support
-  # homeward of it — NOT mates "at the pedestal" (structurally ~0, the falsified-proxy
-  # trap that made the first cut FIRE 0), and NEVER a global headcount (forceBalance).
-  # Carve-outs mirror grabTiming: a lone last body (no inbound support) dives NOW,
-  # pushOut / inside-GrabCommitRing dive through. DELAYS the open on numbers; never abandons.
-  if bot.tune.grabGate and wantPocketRush and not pushOut and
-      dist(me, stealTarget) > GrabCommitRing and not holdGrab:
-    var pocketEnemies = 0    # fresh enemy guns clustered on the pedestal = the defense
-    for t in bot.enemies:
-      if bot.tick - t.lastSeen <= LocalFreshTicks and
-          dist(t.pos, stealTarget) <= GrabGateEnemyRange:
-        inc pocketEnemies
-    var inboundMates = 0     # fresh mates homeward of me within support range = the wave
-    for t in bot.mates:      # coming to convert the grab (GrabMateFreshTicks: they close
-      if bot.tick - t.lastSeen > GrabMateFreshTicks: continue   # from behind our cone)
-      if homeSign(bot.team) * (t.pos.x - me.x) > GrabInboundGap and
-          dist(t.pos, me) <= GrabGateMateRange: inc inboundMates
-    # Our local force at the touch = me + the inbound support wave. Outgunned when the
-    # defense beats it by the deficit margin — the exact suicide-grab state.
-    let ourForce = 1 + inboundMates
-    let outgunned = (pocketEnemies - ourForce) >= GrabGateDeficit
-    # Lone-last-body carve-out: no inbound support => nobody is coming to convert, so a
-    # solo dive NOW still forces the enemy onto defense (identical to grabTiming's rule).
-    if outgunned and inboundMates >= 1:
-      holdGrab = true
-    when defined(ggprobe):
-      inc ggEligible
-      if outgunned: inc ggOutgun
-      if outgunned and inboundMates >= 1: inc ggFireCount
-  when defined(ggprobe):
-    if wantPocketRush: inc ggWant
+    # ADVANTAGE to commit the touch = the Captain's shared read, NOT a fixed mate count:
+    #   • pickEdge      — a real LOCAL numbers edge near us (freshM>freshE) — we're up, push.
+    #   • PhForce       — the Captain's deliberate grouped all-in before the -1 timeout.
+    #   • cover in place — a mate is already at the pocket trading (the push has arrived).
+    # ownStolen is handled by its own recapture branches; a defended pocket with NONE of
+    # these = HOLD and suppress from standoff. An UNDEFENDED pocket always commits (fast
+    # uncontested touch). This is the chess-not-checkers pocket: the Captain calls the push.
+    let haveAdvantage = pickEdge or (bot.tune.planLayer and botPhase == PhForce) or
+      coverMates >= 1
+    holdGrab = defenders >= GrabStackDefenders and not haveAdvantage
+    when defined(sgprobe):
+      inc sgWant
+      if defenders >= GrabStackDefenders: inc sgDefended
+      if defenders >= GrabStackDefenders and not haveAdvantage: inc sgHold
+      if defenders >= GrabStackDefenders and haveAdvantage: inc sgCommit
 
   if holdGrab:
     # Hold the gun up at a standoff ring off the pedestal (outside the defenders'
     # tightest cover) and suppress from there instead of diving unarmed.
     target = stealTarget + norm(me - stealTarget) * GrabHoldStandoff
   let pocketRush = wantPocketRush and not holdGrab
+  # ⭐ ARMED RUSH (the dive-death fix): is the pocket DEFENDED by a fresh, killable gun?
+  # pocketRush's disarm (maxEngage=0) assumed pedestal respawners were spawn-protected
+  # (unkillable) — GV20+ removed that, so a defended dive is a free death. When defended,
+  # keep the gun UP (below) so we shoot the way in + the duck/dodge branches re-enable.
+  var pocketDefended = false
+  if bot.tune.armedRush and pocketRush:
+    for t in bot.enemies:
+      if bot.tick - t.lastSeen <= FreshShotTicks and
+          dist(t.pos, stealTarget) <= GrabStackRange:
+        pocketDefended = true
+        break
+  # A pocketRush stays DISARMED (fast unopposed touch) only when NOT defended; a defended
+  # pocket keeps the gun up (armedPocket) so every `not pocketRush` combat branch re-enables.
+  let armedPocket = pocketRush and pocketDefended
+  # disarmedRush = the ONLY state that suppresses combat (gun off, no duck/dodge): a pocket
+  # rush that is NOT armed (uncontested touch). An armedPocket rush fights its way in, so the
+  # combat branches below key on disarmedRush, not raw pocketRush.
+  let disarmedRush = pocketRush and not armedPocket
+  when defined(prprobe):
+    if pocketRush: inc prRush
+    if armedPocket: inc prArmed
 
   # Combat: the nearest fresh track with a clear pixel ray AND a mate-free
   # fire cone is the engage target; the nearest fresh-but-wall-blocked track
@@ -4331,7 +4355,8 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # rushers racing for the steal and escorts guarding a run only fight what
   # is actually in the way, instead of frag-chasing across the map.
   var maxEngage =
-    if pocketRush: 0.0
+    if disarmedRush: 0.0         # ONLY an uncontested pocket touch disarms; a DEFENDED
+                                 # pocket keeps the gun up (armedPocket) and fights its way in
     elif iCarry and bot.tune.carrierSprint: 0.0  # ⭐⭐ carrier never fights:
       # the diagnosis showed carriers survive ~110t but travel ~4% of the run —
       # PINNED firing at the invulnerable spawn-protected respawner (wasted) while
@@ -5309,7 +5334,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       # every frame. The gun still fires on-line.
       moveMask = bot.jinkBits
     acted = true
-  elif not iCarry and not rushing and not pocketRush and not shotReady and
+  elif not iCarry and not rushing and not disarmedRush and not shotReady and
       nearThreat >= 0:
     # Cooldown: our gun is down and a threat is near. Default = duck behind the
     # nearest cover that breaks its line and hold there until the gun is back
@@ -5460,7 +5485,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # clean corridor. This overrides the generic sidestep (which was making a
     # defender who spotted the runner flee) but keeps the free-trade shot.
     if bot.tune.chaseThief and ownStolen and threat >= 0 and
-        not iCarry and not pocketRush:
+        not iCarry and not disarmedRush:
       let toward = norm(seenEnemies[threat].pos - me)
       var side = vec(-toward.y, toward.x)
       if (bot.tick div 10 + bot.slot div 2) mod 2 == 0:
@@ -5469,7 +5494,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         side = side * -1.0
       moveMask = octantBits(toward + side * 0.4)
       desiredAim = bradsOf(seenEnemies[threat].pos - me)
-    elif threat >= 0 and not iCarry and not pocketRush:
+    elif threat >= 0 and not iCarry and not disarmedRush:
       let away = norm(me - seenEnemies[threat].pos)
       var side = vec(-away.y, away.x)
       if (bot.tick div 12 + bot.slot div 2) mod 2 == 0:
@@ -5602,7 +5627,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         moveMask = bot.jinkBits            # unsticking burst
       # Carriers and the pocket-grab rusher keep the cone down their escape
       # lane — for them speed beats gunfighting, so the lock/hunt overrides skip.
-      let mayHunt = not iCarry and not pocketRush
+      let mayHunt = not iCarry and not disarmedRush
       if desiredAim < 0 and mayHunt and bot.tune.aimLock and
           bot.tick <= bot.aimLockUntil:
         # ⭐ TARGET-LOCK: we hold a fresh enemy but have no clear shot THIS

@@ -249,10 +249,16 @@ proc hunterTune(): CombatTune =
   result.dangerScore       = envInt("DANGER",   (if seal4 or result.dangerScore: 1 else: 0)) != 0
   result.twoSpeedScan      = envInt("TWOSCAN",  (if seal4 or result.twoSpeedScan: 1 else: 0)) != 0
   result.boundingOverwatch = envInt("BOUND",    (if seal4 or result.boundingOverwatch: 1 else: 0)) != 0
-  # HOLDVSGUN / STICKYCOMMIT (2026-07-24 focus-fire audit): the two combat-regression fixes.
-  # Default to shipped value so SHIPBASE keeps them unless the knob moves it; the A/B turns on.
+  # HOLDVSGUN / STICKYCOMMIT / SMARTGRAB / ARMEDRUSH (2026-07-24 dive-death + focus-fire fixes).
+  # Default to shipped value so SHIPBASE keeps them unless the knob moves it; the A/B toggles them.
   result.holdVsGun         = envInt("HOLDVSGUN", (if result.holdVsGun: 1 else: 0)) != 0
   result.stickyCommit      = envInt("STICKYCOMMIT", (if result.stickyCommit: 1 else: 0)) != 0
+  result.smartGrab         = envInt("SMARTGRAB", (if result.smartGrab: 1 else: 0)) != 0
+  result.armedRush         = envInt("ARMEDRUSH", (if result.armedRush: 1 else: 0)) != 0
+  # DIVEFIX=1 turns on the whole dive-death bundle at once (the shipped fix set) for a clean A/B.
+  if envInt("DIVEFIX", 0) != 0:
+    result.smartGrab = true; result.armedRush = true
+    result.holdVsGun = true; result.stickyCommit = true
   result.pointOfDomination = envInt("DOMINATE", (if seal4 or result.pointOfDomination: 1 else: 0)) != 0
   result.tempoPress        = envInt("TEMPO",    (if seal4 or result.tempoPress: 1 else: 0)) != 0
   result.fireSuperiority   = envInt("FIRESUP",  (if seal4 or result.fireSuperiority: 1 else: 0)) != 0
@@ -627,6 +633,13 @@ proc main() =
       &"ARMED>0 => the pickup landed (arc held); charge>0 => armed & driving the seam for a cluster; " &
       &"inReach>0 => a cluster sat in cone reach; FIRE>0 => it pressed the multikill cone. " &
       &"A stage that zeroes names the gate. TURTLE=1 makes the control team stand a line to breach.)"
+  when defined(sgprobe):
+    let held = (if sgDefended > 0: 100.0 * sgHold.float / sgDefended.float else: 0.0)
+    echo &"  SG-PROBE (dive-death fix): want {sgWant} -> defended {sgDefended} -> " &
+      &"HOLD-at-standoff {sgHold} | COMMIT-with-advantage {sgCommit}  ({held:.0f}% of defended pockets HELD)"
+    echo &"    (defended = a stacked pocket; HOLD = the suicide dive PREVENTED (suppress from range); " &
+      &"COMMIT = a real Captain advantage (pickEdge/PhForce/cover) opened the touch. HOLD+COMMIT should " &
+      &"cover ~all defended-pocket frames; a defended pocket that neither holds nor commits = a leak.)"
   when defined(fsprobe):
     echo &"  FS-PROBE (focus-fire audit): holdVsGun-catches {fsHold}"
     echo &"    (fsHold = frames a SOLO gun-down bot faced a fresh dead-on gun past DuckRange " &
