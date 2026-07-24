@@ -3,7 +3,7 @@ import
   bitworld/client as bitworldClient, bitworld/profile, bitworld/spriteprotocol,
   bitworld/runtime,
   curly, mummy,
-  sim, global, replays, broadcast
+  sim, global, replays, broadcast, replay_runtime
 
 when defined(posix):
   from std/posix import SHUT_RDWR, shutdown
@@ -869,21 +869,21 @@ proc runServerLoop*(
         ReplayData()
     else:
       ReplayData()
-  var config =
+  var initializedReplay =
     if replayLoaded:
-      var replayConfig = defaultGameConfig()
-      replayConfig.update(replayData.configJson)
-      replayConfig
+      initReplayRuntime(replayData, runtimeConfig.mismatchQuit)
     else:
-      initialConfig
+      InitializedReplay()
+  var config =
+    if replayLoaded: move(initializedReplay.config)
+    else: initialConfig
   var
     replayWriter = openReplayWriter(saveReplayPath, config.configJson())
     replayPlayer =
       if replayLoaded:
-        initReplayPlayer(replayData)
+        move(initializedReplay.player)
       else:
         ReplayPlayer()
-  replayPlayer.mismatchQuit = runtimeConfig.mismatchQuit
   startProfileTrace()
   defer:
     finishProfileTrace()
@@ -893,7 +893,9 @@ proc runServerLoop*(
   appState.config = config
 
   var
-    sim = initSimServer(config)
+    sim =
+      if replayLoaded: move(initializedReplay.sim)
+      else: initSimServer(config)
     lastTick = getMonoTime()
   block:
     # Bake the supersampled spectator render caches (map, endzone fades,
@@ -926,12 +928,9 @@ proc runServerLoop*(
     prevInputs: seq[InputState]
     liveSpeedIndex = config.liveSpeedIndex()
     gamesPlayed = 0
-    broadcastTracker = initBroadcastTracker()
-  if replayLoaded:
-    replayPlayer.buildReplayKeyframes(sim)
-    # Start playback at first action, not in the dead lobby (WAITING FOR PLAYERS).
-    replayPlayer.seekReplay(sim, replayPlayer.replayStartTick())
-    replayPlayer.playing = true
+    broadcastTracker =
+      if replayLoaded: move(initializedReplay.tracker)
+      else: initBroadcastTracker()
 
   while true:
     var
@@ -976,17 +975,14 @@ proc runServerLoop*(
               appState.loadingReplayUri = ""
       if pendingOk:
         replayData = pendingData
-        var replayConfig = defaultGameConfig()
-        replayConfig.update(replayData.configJson)
-        config = replayConfig
-        sim = initSimServer(config)
-        replayPlayer = initReplayPlayer(replayData)
-        replayPlayer.mismatchQuit = runtimeConfig.mismatchQuit
-        replayPlayer.buildReplayKeyframes(sim)
-        # Start playback at first action, not in the dead lobby.
-        replayPlayer.seekReplay(sim, replayPlayer.replayStartTick())
-        replayPlayer.playing = true
-        broadcastTracker = initBroadcastTracker()
+        initializedReplay = initReplayRuntime(
+          replayData,
+          runtimeConfig.mismatchQuit
+        )
+        config = move(initializedReplay.config)
+        sim = move(initializedReplay.sim)
+        replayPlayer = move(initializedReplay.player)
+        broadcastTracker = move(initializedReplay.tracker)
         replayLoaded = true
         {.gcsafe.}:
           withLock appState.lock:
@@ -1262,28 +1258,11 @@ proc runServerLoop*(
 
     var frameEvents = newJArray()
     if replayLoaded:
-      var didSeek = false
-      for seekTick in replaySeekTicks:
-        replayPlayer.applyReplaySeek(sim, seekTick)
-        didSeek = true
-      for command in replayCommands:
-        let tickBeforeCommand = sim.tickCount
-        replayPlayer.applyReplayCommand(sim, command)
-        if sim.tickCount != tickBeforeCommand:
-          didSeek = true
-      # A scrub/step/skip is a jump, not playback: resync so the tracker diffs
-      # the next real step against here and never fires phantom beats. It also
-      # takes the viewer off the end segment, so any hold is cancelled.
-      if didSeek:
-        broadcastTracker.resync(sim)
-        replayPlayer.cancelEndHold()
-      # Shared playback advance (native server + static WASM viewer): steps
-      # while playing, and holds the final game-over frame for
-      # ReplayEndHoldSeconds before a looping restart (the end segment).
-      replayPlayer.advanceReplayPlayback(
+      frameEvents = replayPlayer.advanceReplayFrame(
         sim,
-        proc () = sim.stepEvents(broadcastTracker, frameEvents),
-        proc () = broadcastTracker.resync(sim)
+        broadcastTracker,
+        replaySeekTicks,
+        replayCommands
       )
     else:
       for command in replayCommands:
@@ -1360,19 +1339,26 @@ proc runServerLoop*(
 
     for i in 0 ..< globalViewers.len:
       var nextState: GlobalViewerState
-      let packet = sim.buildSpriteProtocolUpdates(
-        globalStates[i],
-        nextState,
-        sim.tickCount,
-        replayPlayer.playing,
-        if replayLoaded: replayPlayer.replaySpeed()
-        else: playbackSpeed(liveSpeedIndex),
-        if replayLoaded: replayPlayer.replayMaxTick()
-        else: liveProgressMaxTick(config),
-        replayPlayer.looping,
-        replayLoaded,
-        if replayLoaded: replayPlayer.hashMismatchTick else: -1
-      )
+      let packet =
+        if replayLoaded:
+          sim.buildReplayViewerPacket(
+            replayPlayer,
+            globalStates[i],
+            nextState,
+            frameEvents
+          )
+        else:
+          sim.buildSpriteProtocolUpdates(
+            globalStates[i],
+            nextState,
+            sim.tickCount,
+            replayPlayer.playing,
+            playbackSpeed(liveSpeedIndex),
+            liveProgressMaxTick(config),
+            replayPlayer.looping,
+            false,
+            -1
+          )
       if packet.len == 0:
         continue
       try:
@@ -1385,34 +1371,13 @@ proc runServerLoop*(
         # Piggybacking on the binary channel makes the chrome survive every
         # playback path (live serve, generic client, hosted replay), with no
         # opt-in. The generic bitworld client simply ignores an unknown sprite id.
-        var outPacket = packet
-        if replayLoaded:
-          # Ship the full-timeline lives-lead series ONCE (first frame), then the
-          # client caches it; later frames omit it to keep the label compact.
-          let sendLead = not globalStates[i].momentumSent
-          let stateJson = sim.buildStateJson(
-            frameEvents,
-            replayPlayer.playing,
-            replayPlayer.replaySpeed(),
-            replayPlayer.replayMaxTick(),
-            replayPlayer.looping,
-            replayLoaded,
-            replayPlayer.hashMismatchTick,
-            nextState.selectedJoinOrder,
-            if sendLead: replayPlayer.livesLeadSeries else: @[],
-            replayPlayer.replayStartTick(),
-            replayPlayer.endHoldSecondsLeft()
-          )
-          outPacket.addSprite(BroadcastChromeSpriteId, 1, 1, [0'u8, 0, 0, 0], stateJson)
-          if sendLead:
-            nextState.momentumSent = true
         # Ship in WS-frame-sized chunks at message boundaries: the hosted replay
         # viewer closes any frame over 1 MiB (1009 "message too big"). The client
         # accumulates sprite/object state across binary messages, so N chunks are
         # equivalent to one packet. The init frame (banded map + atlas + chrome)
         # is the only one that ever exceeds the cap; steady-state frames pass
         # through as a single chunk.
-        for chunk in global.chunkSpritePacket(outPacket, MaxWsFrameBytes):
+        for chunk in global.chunkSpritePacket(packet, MaxWsFrameBytes):
           globalViewers[i].send(blobFromBytes(chunk), BinaryMessage)
         {.gcsafe.}:
           withLock appState.lock:
