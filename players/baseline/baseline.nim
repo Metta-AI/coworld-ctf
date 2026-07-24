@@ -945,7 +945,7 @@ type
                               # rally + push the respawn wave together (feeds regroupPush)
     ScPeel,                   # an exposed enemy is carrying OUR flag near us: peel to the
                               # recapture race (feeds huntCarrier/StackDefense)
-    ScLine                    # ⭐ ANTI-h006: a STANDING ENEMY LINE to our front (>=2 fresh
+    ScLine,                   # ⭐ ANTI-h006: a STANDING ENEMY LINE to our front (>=2 fresh
                               # guns clustered forward, NOT at the pedestal pocket) that
                               # farms a lone push. The SEAL counter to a prepared line is
                               # combined-arms, not a frontal charge: rally the wave (don't
@@ -953,11 +953,19 @@ type
                               # cluster; area weapons punish clustering) then punch the gap.
                               # Broadcasting it converges mates a lane away who can't see the
                               # line (feeds holdLine's rally + the grenade cluster-target).
+    ScPick                    # ⭐⭐ MAN-ADVANTAGE (v27): a LOCAL kill-edge — more fresh mates
+                              # than fresh enemies near me (pickEdge). It gates PhPress + the
+                              # smartGrab pocket commit, but it's per-bot-LOCAL, so one bot
+                              # presses/commits while distant mates stay in PhProbe (non-
+                              # unanimous — the audit's #1 team-coord + tempo cap). Broadcasting
+                              # it makes the edge TEAM-WIDE: a mate a lane away who can't see our
+                              # advantage adopts it and presses/commits on the SAME beat, so the
+                              # man-advantage is spent together before the downed enemy respawns.
 
   ReactPlay = enum            # COMMS BUS: the adopted play a bot decodes from a heard
                               # codeword — the same set the classifier can trigger, so the
                               # heard play and the local read fold through one matrix.
-    RpNone, RpStack, RpWipe, RpPeel, RpFlipTop, RpFlipBottom, RpLine
+    RpNone, RpStack, RpWipe, RpPeel, RpFlipTop, RpFlipBottom, RpLine, RpPick
 
   ReactLevel = enum           # SHOUT-REACTION GATE: how far a heard callout may
                               # move this bot, keyed on its own task priority.
@@ -1577,6 +1585,9 @@ type
     lastShoutTick: int        # rate limit: server allows one shout per second
     heardPlay: ReactPlay      # COMMS BUS: play decoded from the last heard codeword
     heardPlayTick: int        # tick that codeword was heard (decays after CommsPlayTtl)
+    heardPickTick: int        # ⭐⭐ (v27) tick a mate's RpPick man-advantage codeword was heard;
+                              # within CommsPlayTtl it makes pickEdge TEAM-WIDE (a mate a lane
+                              # away presses/commits on our advantage it can't see). 0 = never.
     lastCommsTick: int        # own rate limit for emitting a scenario codeword
     lockPos: Vec              # committed target's last-known position, matched
     lockUntil: int            # frame-to-frame; commit holds it until this tick
@@ -1746,6 +1757,7 @@ proc scenarioToPlay(sc: Scenario, flank: Play): ReactPlay =
   of ScWipe:  RpWipe
   of ScPeel:  RpPeel
   of ScLine:  RpLine
+  of ScPick:  RpPick
 
 proc selectScenarioPlay(bot: Bot, elapsed: int, ownStolen: bool,
                         localSc: Scenario): Play =
@@ -1773,10 +1785,10 @@ proc selectScenarioPlay(bot: Bot, elapsed: int, ownStolen: bool,
   of RpFlipTop:    PushTop
   of RpFlipBottom: PushBottom
   of RpPeel:       StackDefense # peel to the recapture race (huntCarrier executes)
-  of RpStack, RpWipe, RpLine, RpNone:
-    # STACK/WIPE/LINE don't change the flank posture (grabGate/regroupPush/holdLine +
-    # the grenade cluster-target execute off their own local triggers); keep the
-    # shared flank so the wave still coheres while those executors do the real work.
+  of RpStack, RpWipe, RpLine, RpPick, RpNone:
+    # STACK/WIPE/LINE/PICK don't change the flank posture (grabGate/regroupPush/holdLine +
+    # the pickEdge press/commit execute off their own triggers); keep the shared flank so
+    # the wave still coheres while those executors do the real work.
     clock
 
 proc defaultCombatTune(): CombatTune =
@@ -3124,6 +3136,7 @@ proc resetTransient(bot: Bot) =
   bot.lastShoutTick = 0
   bot.heardPlay = RpNone
   bot.heardPlayTick = 0
+  bot.heardPickTick = 0
   bot.lastCommsTick = 0
   bot.carrierSeen = -100_000
   bot.lastEnemySeen = bot.tick
@@ -3491,6 +3504,11 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           if rp == RpLine:
             bot.arcLinePos = bubblePos
             bot.arcLineTick = bot.tick
+          # ⭐⭐ (v27) a heard man-advantage: a mate near a local kill-edge called it. Bank the
+          # tick so OUR pickEdge reads team-wide — we press/commit on the advantage we can't
+          # see. Only within CommsPlayTtl; heard-pick is an ACCELERATOR (never load-bearing).
+          if rp == RpPick:
+            bot.heardPickTick = bot.tick
           when defined(commsprobe):
             inc csHeard
       elif text[0] == 'C':
@@ -4050,8 +4068,10 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # bots agree and flow branch→branch unanimously. Drives movement HERE and the
   # engage/combat aggression BELOW (botPhase is hoisted so the combat block reads it).
   var botPhase = PhProbe        # function-scope so the combat block can key maxEngage on it
-  var pickEdge = false          # function-scope: the Captain's LOCAL man-advantage read, reused
-                                # by the pocket-commit gate (commit the dive only WITH advantage)
+  var pickEdge = false          # function-scope: the Captain's man-advantage read (local OR heard),
+                                # reused by the pocket-commit gate (commit the dive only WITH advantage)
+  var localPickEdge = false     # OUR OWN local read only — this is what we BROADCAST (ScPick), so a
+                                # heard edge never re-broadcasts (no echo storm; heard is adopt-only)
   if bot.tune.planLayer:
     # Enemy heart state — globally legible. Only OUR team can carry it, so it is either
     # on its pedestal or being carried by us (iCarry => we carry).
@@ -4064,7 +4084,13 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       if bot.tick - t.lastSeen <= LocalFreshTicks and dist(t.pos, me) <= PickEdgeRange: inc freshM
     for t in bot.enemies:
       if bot.tick - t.lastSeen <= LocalFreshTicks and dist(t.pos, me) <= PickEdgeRange: inc freshE
-    pickEdge = freshM > freshE and freshM >= 1
+    localPickEdge = freshM > freshE and freshM >= 1
+    # ⭐⭐ (v27) TEAM-WIDE man-advantage: pickEdge is our own edge OR a mate's freshly-heard ScPick
+    # (commsPlay). So a bot a lane away that can't SEE our numbers edge still presses/commits on it —
+    # the audit's #1 fix (pickEdge was per-bot-local → PhPress/commit non-unanimous). Heard is an
+    # accelerator within CommsPlayTtl; with comms off / no call it degrades to the pure local read.
+    let heardPick = bot.tune.commsPlay and bot.tick - bot.heardPickTick <= CommsPlayTtl
+    pickEdge = localPickEdge or heardPick
     botPhase = teamPhase(bot.tick - bot.gameStart, ownStolen, efState, pickEdge)
   if bot.tune.planLayer and not iCarry:
     let phase = botPhase
@@ -5812,12 +5838,18 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # finalized, exactly like the vanity shouts — proven not to perturb aim/move).
   # Consumes the shared shout slot (updates lastShoutTick) so it wins over vanity
   # this frame. Own CommsEmitCooldown keeps it to a play-beat, not per-frame spam.
-  if bot.tune.commsBus and localSc != ScNone and
+  # ⭐⭐ (v27) A local man-advantage (localPickEdge) with no higher-priority scenario broadcasts
+  # ScPick so mates press/commit team-wide. It's the LOWEST-priority scenario (a real STACK/WIPE/
+  # PEEL/LINE always wins the one shout slot), and only OUR OWN read emits (heardPick never re-broadcasts).
+  let emitSc = (if localSc != ScNone: localSc
+                elif localPickEdge: ScPick
+                else: ScNone)
+  if bot.tune.commsBus and emitSc != ScNone and
       bot.tick - bot.lastShoutTick >= ShoutGapTicks and
       bot.tick - bot.lastCommsTick >= CommsEmitCooldown:
     let salt = roundSalt(bot.gameStart, bot.team, bot.tune.commsCrypto)
     let clockFlank = selectPlay(bot.tick - bot.gameStart, ownStolen)
-    let rp = scenarioToPlay(localSc, clockFlank)
+    let rp = scenarioToPlay(emitSc, clockFlank)
     if rp != RpNone:
       bot.shoutWant = "P" & $commsToken(rp, salt)
       bot.lastShoutTick = bot.tick
