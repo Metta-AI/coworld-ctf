@@ -184,6 +184,12 @@ const
   PushOutMinGame = 1400       # ...this deep into the game breaks the posts
   StalemateTick = 2000        # nobody has MOVED a flag by here: the game is
                               # heading for a lose-lose timeout — go convert.
+  QuietForBreak = 240         # ...but only when the field is actually DEAD:
+                              # no enemy contact this long. A duel-heavy rival
+                              # (h006) keeps flags parked while trading kills —
+                              # that game resolves by wipe, not timeout, and
+                              # breaking the castle early just donates our
+                              # respawn-logistics ground to its midfield gun.
   LatePushTick = 3400         # all-in on the clock: past this tick a draw is
                               # A LOSS FOR BOTH (GV21 lose-lose timeouts) and
                               # games cap at 5000 ticks — the all-in must land
@@ -1640,7 +1646,8 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # castle's whole value was winning the wait — there is nothing to win
     # anymore; break the posts early and go create a flag race.
     (bot.tick - bot.gameStart > StalemateTick and
-     not bot.everStoleTheirs and not bot.everLostOurs)
+     not bot.everStoleTheirs and not bot.everLostOurs and
+     bot.tick - bot.lastEnemySeen > QuietForBreak)
   )
 
   # Movement target from role and flag situation.
