@@ -184,9 +184,9 @@ const
   PushOutMinGame = 1400       # ...this deep into the game breaks the posts
   StalemateTick = 2000        # nobody has MOVED a flag by here: the game is
                               # heading for a lose-lose timeout — go convert.
-  SiegeBarrageTicks = 220     # -d:siege: bombardment window per cycle
-  SiegeAdvanceTicks = 200     # -d:siege: advance-and-settle window per cycle
-  SiegeStep = 110.0           # -d:siege: ground taken per advance order
+  SiegeBarrageTicks = 100     # -d:siege: bombardment window per cycle
+  SiegeAdvanceTicks = 90     # -d:siege: advance-and-settle window per cycle
+  SiegeStep = 170.0           # -d:siege: ground taken per advance order
   QuietForBreak = 240         # ...but only when the field is actually DEAD:
                               # no enemy contact this long. A duel-heavy rival
                               # (h006) keeps flags parked while trading kills —
