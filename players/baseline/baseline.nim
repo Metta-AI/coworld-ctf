@@ -184,6 +184,9 @@ const
   PushOutMinGame = 1400       # ...this deep into the game breaks the posts
   StalemateTick = 2000        # nobody has MOVED a flag by here: the game is
                               # heading for a lose-lose timeout — go convert.
+  SiegeBarrageTicks = 220     # -d:siege: bombardment window per cycle
+  SiegeAdvanceTicks = 200     # -d:siege: advance-and-settle window per cycle
+  SiegeStep = 110.0           # -d:siege: ground taken per advance order
   QuietForBreak = 240         # ...but only when the field is actually DEAD:
                               # no enemy contact this long. A duel-heavy rival
                               # (h006) keeps flags parked while trading kills —
@@ -296,6 +299,10 @@ type
     wasNade: bool             # last tick's carried-grenade state (edge detect)
     nadeShoutWant: string     # pending "G<cx> <cy>" pickup announcement
     lastTargetCall: int       # -d:targetCall: engage-callout rate limit
+    siegeLane: int            # -d:siege: vertical under assault (1/2/3), 0 none
+    siegePhase: int           # -d:siege: 0 idle, 1 bombard, 2 advance
+    siegePhaseUntil: int      # tick the current siege phase expires
+    siegeFront: float         # captured ground line during a siege
     sweepFlip: bool           # -d:centerScan: which vertical arc is swept
     lastEnemyShout: string    # last enemy shout label already responded to
     lastComebackReq: int      # rate limit on comeback generation requests
@@ -1353,6 +1360,24 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           bot.helpLane = ord(text[1]) - ord('0')
           bot.helpUntil = bot.tick + 320
           continue
+      when defined(siege):
+        # Captain's siege orders: "B<lane>" = bombard the vertical (grenadiers
+        # blast the hidden pockets behind cover), "A<lane>" = advance and take
+        # it. Everyone syncs off the same shout — including the captain, whose
+        # own bubble drives its phase machine.
+        if text.len >= 2 and text[0] in {'B', 'A'} and text[1] in {'1', '2', '3'}:
+          bot.siegeLane = ord(text[1]) - ord('0')
+          if text[0] == 'B':
+            bot.siegePhase = 1
+            bot.siegePhaseUntil = bot.tick + SiegeBarrageTicks
+            if bot.siegeFront <= 0.0:
+              bot.siegeFront = HoldFrontCap
+          else:
+            bot.siegePhase = 2
+            bot.siegePhaseUntil = bot.tick + SiegeAdvanceTicks
+            bot.siegeFront = min(max(bot.siegeFront, HoldFrontCap) + SiegeStep,
+              float(MapW) - 300.0)
+          continue
       if text.len < 4 or text[0] notin {'C', 'T', 'E', 'G'}:
         continue
       let parts = text[1 .. ^1].split(' ')
@@ -1522,6 +1547,33 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
             bot.shoutWant = bot.nadeShoutWant
             bot.nadeShoutWant = ""
             bot.lastShoutTick = bot.tick
+        when defined(siege):
+          # The captain (scout seat — the comms hub) runs the siege cycle
+          # against a turtled field: a quiet stalemate STARTS a siege;
+          # thereafter bombard/advance alternate on their own clock even
+          # through assault contact. Any flag movement ends the siege.
+          if bot.everStoleTheirs or bot.everLostOurs:
+            bot.siegePhase = 0
+            bot.siegeFront = 0.0
+          elif bot.shoutWant.len == 0 and clamp(bot.slot div 2, 0, 7) == 1 and
+              not iCarry and bot.tick - bot.lastShoutTick >= 26 and
+              bot.tick - bot.gameStart > StalemateTick and
+              bot.tick >= bot.siegePhaseUntil and
+              (bot.siegePhase != 0 or
+               bot.tick - bot.lastEnemySeen > QuietForBreak):
+            if bot.siegePhase == 1:
+              bot.shoutWant = "A" & $bot.siegeLane
+            else:
+              var lane = 3           # their runners favor the bottom ground
+              var freshest = -100_000
+              for t in bot.enemies:
+                if not t.synthetic and t.lastSeen > freshest:
+                  freshest = t.lastSeen
+                  lane = (if t.pos.y < float(CenterY) - 100.0: 1
+                          elif t.pos.y > float(CenterY) + 100.0: 3
+                          else: 2)
+              bot.shoutWant = "B" & $lane
+            bot.lastShoutTick = bot.tick
         when defined(targetCall):
           # Engage callout: any bot with a live close target broadcasts the
           # fix so nearby mates converge or lob a grenade at it. Rides the
@@ -1645,9 +1697,10 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # where neither flag has ever moved is a mutual loss in the making. The
     # castle's whole value was winning the wait — there is nothing to win
     # anymore; break the posts early and go create a flag race.
-    (bot.tick - bot.gameStart > StalemateTick and
-     not bot.everStoleTheirs and not bot.everLostOurs and
-     bot.tick - bot.lastEnemySeen > QuietForBreak)
+    (when defined(siege): false else:
+      (bot.tick - bot.gameStart > StalemateTick and
+       not bot.everStoleTheirs and not bot.everLostOurs and
+       bot.tick - bot.lastEnemySeen > QuietForBreak))
   )
 
   # Movement target from role and flag situation.
@@ -1812,10 +1865,27 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
          front = min(front, bot.phalanxHold)
        else:
          bot.phalanxHold = 0.0
+       var laneY2 = laneY
+       when defined(siege):
+         if bot.siegePhase != 0 and phalanxLaneNo(pd) == bot.siegeLane:
+           # The siege owns this vertical: the captured line is a FLOOR on
+           # the front, and an advance order pushes THROUGH contact (the
+           # barrage already softened it) — the freeze must not stall it.
+           front = max(front, bot.siegeFront)
+           bot.phalanxHold = 0.0
+         if bot.siegePhase == 1 and pd in {pdTopA, pdBotA}:
+           # Grenadiers converge on the assault vertical for the barrage,
+           # standing just behind the captured line inside lob range of the
+           # pockets beyond it.
+           laneY2 = (case bot.siegeLane
+             of 1: LaneTop + 60.0
+             of 3: LaneBottom - 60.0
+             else: LaneMid)
+           front = max(bot.siegeFront, HoldFrontCap) - 20.0
        let lead = pd in {pdTopA, pdMidA, pdBotA}
        target = bot.snapToCover(vec(
          ownEdgeX + dirX * (if lead: front else: front - 44.0),
-         laneY + (if lead: -32.0 else: 32.0)))
+         laneY2 + (if lead: -32.0 else: 32.0)))
   elif bot.role == HomeDefender and not pushOut:
     # Hold the choke on our pedestal approach; break off to chase the nearest
     # intruder on our half (every steal has to come through here).
@@ -2061,6 +2131,31 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         bestD = d
         nadeAim = bradsOf(p - me)
         nadeThrowD = d
+  when defined(siege):
+    if carryingNade and not iCarry and nadeAim < 0 and bot.siegePhase == 1 and
+        bot.siegeLane != 0:
+      # Blind barrage: no live track, but the captain called this vertical —
+      # lob at the first pocket beyond the captured line that my own gun
+      # cannot see. Behind-cover ground is exactly where a turtler waits.
+      let
+        laneYb = (case bot.siegeLane
+          of 1: LaneTop + 50.0
+          of 3: LaneBottom - 50.0
+          else: LaneMid)
+        ownEdgeXb = (if bot.team == Red: 0.0 else: float(MapW))
+        dirXb = (if bot.team == Red: 1.0 else: -1.0)
+        baseb = max(bot.siegeFront, HoldFrontCap)
+      for k in 0 ..< 4:
+        let pk = vec(ownEdgeXb + dirXb * (baseb + 70.0 + 45.0 * float(k)),
+                     laneYb + (if (k and 1) == 1: 34.0 else: -34.0))
+        let dk = dist(pk, me)
+        if dk < NadeMinRange or dk > NadeMaxRange:
+          continue
+        if bot.gridRayClear(me, pk):
+          continue
+        nadeAim = bradsOf(pk - me)
+        nadeThrowD = dk
+        break
 
   # Weapon pickups. SHIELD-THEN-STEAL: the enemy endzone shield sits just
   # behind their pedestal — a rusher near the pocket grabs 6 hp first and
