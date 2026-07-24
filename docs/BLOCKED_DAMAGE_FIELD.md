@@ -52,3 +52,28 @@ read 0.
 Real episodes light this up automatically once the EVENTS artifact carries
 `blocked` (the extractor emits it now). The seed fixture models shieldless 3-HP
 cogs, so seeded episodes correctly show the honest "no damage blocked" state.
+
+## ⚠️ Rebase-onto-main note (the shield model moved)
+
+This landed on the `maxwell/logs-event-substrate` branch (PR #83), which predates
+`main`'s shield refactor. `main` now models the shield as a **separate `shieldHp`
+layer** (`0..ShieldLayerHp`, depleted before base hp) and routes all damage
+through:
+
+```nim
+proc absorbDamage*(sim, targetIndex, amount) =
+  let fromShield = min(sim.players[targetIndex].shieldHp, amount)
+  sim.players[targetIndex].shieldHp -= fromShield
+  sim.players[targetIndex].hp -= amount - fromShield
+```
+
+That `fromShield` **is** `blocked` — exact and first-hand, better than the
+`hp-above-base` derivation above (which was correct for the branch's older
+shared-hp model). On rebase:
+
+1. Drop `shieldBlocked()` (superseded by `absorbDamage`'s shield arithmetic).
+2. Surface `fromShield` from `absorbDamage` (return value or out-param) and pass
+   it as `blocked = …` on the three Damage `emitEvent` calls.
+3. `SimEvent.blocked`, the `emitEvent` param, the extractor serialization, and
+   `test_blocked_damage.nim` stay as-is — the tests assert behavior, not the
+   helper, so they pin the correct result across the reimplementation.
