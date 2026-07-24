@@ -2022,24 +2022,23 @@ proc shippedCombatTune(): CombatTune =
   # a 6-HP tank (the pip bar lies 3/3), needs more guns (satNeed), and weighs more in
   # the break math (ShieldGunWeight); no flag, it's a straight correctness repair.
   #
-  # ⚠️ arcBreach STAYS OFF — and after a pre-A/B audit (2026-07-24) it should probably be
-  # RETIRED, not A/B'd. The seek/fire were made to fire (static arcSpawn nav + min-cluster
-  # gate + 3-tier approach/hold), and vs a rigged TURTLE it cones a real line. But three
-  # independent problems sink it as a LEAGUE lever, and no tuning fixes them:
-  #   1. GEOMETRY: the arc spawns in our own back corner; a forward breacher's round trip
-  #      to grab it and return to the line is ~485t (~20s) — it dwarfs both the commit
-  #      window and the line's lifetime, so the run usually aborts or arrives after the
-  #      line is gone. As an anti-line ANSWER it is too slow to matter.
-  #   2. DISARM: grabbing the arc kills the gun FOR THE REST OF THAT LIFE (no voluntary
-  #      drop; firing doesn't consume it). A scattered line strands a gunless body — field
-  #      mirror: the breacher held the arc with NO cluster in reach ~82% of the time.
-  #   3. DOCTRINE + REDUNDANCY: it removes one of OUR guns for a negative-EV cone, and the
-  #      shipped GRENADE-on-fattest-cluster path (see the grenade block below) ALREADY does
-  #      the anti-line multikill WITHOUT the gun trade. The arc breacher is a strictly-worse
-  #      duplicate. "Numbers are the currency" (cqc lens) — don't subtract your own gun.
-  # Kept behind the ARCBREACH knob for the record + probe; do NOT bake, do NOT spend a
-  # hosted A/B on it — invest that budget in the grenade cluster path instead.
-  # result.arcBreach = true   # deliberately not enabled — see above
+  # ⚠️ arcBreach: OFF in the default shipped tune, but the pre-A/B audit's 3 kill-shots were
+  # all against the REACTIVE LONE-WOLF breacher — and the 2026-07-24 reframe turned each into
+  # a Captain-coordinated design that the arcprobe funnel confirms fixes it:
+  #   1. GEOMETRY (was ~485t reactive round trip): PROACTIVE ARM while shallow (ArcArmMaxDepth)
+  #      off a Captain PhProbe/PhPress read — the own-corner arc is a cheap one-leg grab, then
+  #      the armed cone is carried forward. A deep breacher never starts the retreat.
+  #   2. DISARM (was gunless 82% of the time): OPPONENT-ADAPTIVE (sawLineTick/ArcLineMemoryTicks)
+  #      — pre-arm only if a real line was seen this game, so the breacher WAKES vs a line-player
+  #      and stays a DORMANT full gun vs an aggressive no-line field; min-cluster gate never cones
+  #      a singleton; when dry it holds the seam as a threat, never feeds the gunless body in.
+  #   3. DOCTRINE/REDUNDANCY: LINE-LOCATION relay converges it on the real cluster (mean cone
+  #      2.98 / fattest 5 vs a line); it's COMBINED ARMS with the grenade (one-shot lob over
+  #      walls) not a duplicate — the arc is the SUSTAINED repeatable follow-up cone.
+  # -d:arcOn bakes it ON for the hosted-A/B CANDIDATE image (base image = this flag off = the
+  # v21 champion on GV22). The mirror can't score the win-credit; the A/B decides bake-vs-gate.
+  when defined(arcOn):
+    result.arcBreach = true
   # ── gv21Press (v18) — FALSIFIED 2026-07-23. Hosted A/B vs h006: v18 24-55, WORSE than
   # v17's 30-50. Pressing harder just extended the grind (endTick 2600→3400) and fed
   # deaths without raising our kills — the problem is not caution, it's that we LOSE the
