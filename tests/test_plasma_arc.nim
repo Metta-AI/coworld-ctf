@@ -193,16 +193,18 @@ suite "plasma arcs":
       ax = game.players[0].x + CollisionW div 2
       ay = game.players[0].y + CollisionH div 2
     game.players[1].hasShield = true
-    game.players[1].hp = ShieldHitPoints
+    game.players[1].shieldHp = ShieldLayerHp
     game.players[1].placeAtCenter(ax + 60, ay)
     game.tryFireArc(0)
     check game.players[1].alive
-    check game.players[1].hp == ShieldHitPoints - PlasmaArcDamage
+    # The shield layer soaks the arc touch before base hp.
+    check game.players[1].shieldHp == ShieldLayerHp - PlasmaArcDamage
+    check game.players[1].hp == game.config.hitPoints
     check game.players[0].kills == 0
     # Staying inside the cone for the rest of the window adds no damage.
     for _ in 0 ..< PlasmaArcActiveTicks:
       game.resolveActiveArcCones()
-    check game.players[1].hp == ShieldHitPoints - PlasmaArcDamage
+    check game.players[1].shieldHp == ShieldLayerHp - PlasmaArcDamage
     # A second firing lands a second touch, which finishes the carrier.
     game.players[0].fireCooldown = 0
     game.tryFireArc(0)
