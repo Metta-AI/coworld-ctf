@@ -4,6 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Ctf — Broadcast Replay</title>
+<!-- Inline data-URI favicon: an amber heart (the captured flag) on warm-dark,
+     matching the Ink & Print palette. Inlined so neither the server-served
+     client nor the static WASM bundle triggers a /favicon.ico 404 on load. -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2032%2032'%3E%3Crect%20width='32'%20height='32'%20rx='6'%20fill='%2316110d'/%3E%3Cpath%20d='M16%2025S6%2018.4%206%2012.1C6%208.7%208.7%206%2012%206c2%200%203.3%201%204%202.2C16.7%207%2018%206%2020%206c3.3%200%206%202.7%206%206.1C26%2018.4%2016%2025%2016%2025Z'%20fill='%23e8a33d'/%3E%3C/svg%3E">
+<link rel="mask-icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2032%2032'%3E%3Cpath%20d='M16%2025S6%2018.4%206%2012.1C6%208.7%208.7%206%2012%206c2%200%203.3%201%204%202.2C16.7%207%2018%206%2020%206c3.3%200%206%202.7%206%206.1C26%2018.4%2016%2025%2016%2025Z'/%3E%3C/svg%3E" color="%23e8a33d">
 <style>
 /* ============================================================
    Ink & Print — warm CRT-phosphor arena broadcast.
@@ -640,7 +645,13 @@ html, body {
 /* ---------- 6. END-CARD ---------- */
 #endcard {
   position: absolute;
-  inset: 0;
+  /* Cover the board (and top scorebug) but STOP at the top of the reserved
+     transport band, so the playback controls stay visible AND clickable during
+     the game-over hold — the end-card is chrome and, like every other overlay,
+     never sits over the transport band. In embed mode the shell owns the
+     transport (#transport is hidden → --band collapses to 0), so the card
+     still covers the full board there. */
+  inset: 0 0 var(--band, 0px) 0;
   display: none;
   flex-direction: column;
   align-items: center;
@@ -1370,7 +1381,11 @@ body[data-embed] #board { top: 0; height: 100%; }
     var frac = Math.min(1, Math.max(0, (s.t - st) / span));
     $('scrub-fill').style.width = (frac * 100) + '%';
     $('scrub-head').style.left = (frac * 100) + '%';
-    $('tick-clock').textContent = Math.max(0, s.t - st) + ' / ' + span;
+    // Clamp the shown current tick to the span. At the loop boundary the sim can
+    // report one tick past maxTick for a single frame before it wraps; without
+    // the clamp the counter flashes "1114 / 1113". The fill/head are already
+    // clamped via `frac`, so this just keeps the numerals consistent with them.
+    $('tick-clock').textContent = Math.min(span, Math.max(0, s.t - st)) + ' / ' + span;
 
     renderBeatMarkers(st, mx);
     renderMomentum();
@@ -1994,6 +2009,13 @@ body[data-embed] #board { top: 0; height: 100%; }
   // keyboard shortcuts mirror the transport
   window.addEventListener('keydown', function (ev) {
     if (ev.metaKey || ev.ctrlKey || ev.altKey) return;
+    // A focused transport control (button/chip) already activates on Space/Enter
+    // through its own click handler (native button activation). The global
+    // shortcut must NOT also fire, or the command double-triggers — e.g. Space
+    // on a focused play button toggles play/pause twice. Let the control own the
+    // key; the global shortcuts are for when nothing is focused.
+    var ae = document.activeElement;
+    if (ae && ae.tagName === 'BUTTON' && (ev.key === ' ' || ev.key === 'Enter')) return;
     var k = ev.key;
     if (k === ' ') { ev.preventDefault(); togglePlay(); }
     else if (k === ',' || k === '<') send(',');
