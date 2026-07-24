@@ -20,14 +20,13 @@ const
   DefaultModel = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
   # Fallback bank: used until (or instead of) the Bedrock bank arrives.
   CannedTaunts* = [
-    "IN PEACE!", "OOPS SORRY", "MY BAD!", "DONT SHOOT", "BE FRIENDS",
-    "FRIENDS?", "WHY FIGHT?", "IM NICE!", "TRUCE?", "PACIFIST!",
-    "SO SORRY!", "HUG IT OUT", "PLAY NICE!", "NO OFFENSE", "STOP PLS!",
-    "PEACE OK?"
+    "EZ", "OUTPLAYED", "2 SLOW", "BYE BYE", "GOT EM", "NICE TRY",
+    "DENIED", "WHIFF", "SIT DOWN", "GG SOON", "RESPAWN?", "AGAIN?",
+    "LOL", "NOPE", "MINE NOW", "TOO EZ"
   ]
   CannedComebacks* = [
-    "THATS MEAN", "BE KIND :(", "IM HURT :(", "WOW RUDE", "LOVE U TOO",
-    "HUGS?", "SO HOSTILE", "WHY MEAN?", "PEACE PLS", "NO NEED :("
+    "CUTE", "OK BOT", "SCARED?", "COPE", "NOTED", "SURE JAN",
+    "YAWN", "CRY MORE", "WHO ASKED", "SETTLE"
   ]
 
 type
@@ -107,13 +106,10 @@ proc workerLoop() {.thread.} =
     case job.kind
     of 'B':
       let reply = pool.invokeBedrock(
-        "You write lines for an arena-shooter bot playing wide-eyed " &
-        "innocent: it insists it comes in peace, asks people to stop " &
-        "shooting, wants to be friends — even as it wins. Like I COME IN " &
-        "PEACE, DONT SHOOT, BE FRIENDS. Output ONLY lines, one per line, " &
-        "each AT MOST 10 characters, uppercase, no quotes, no numbering. " &
-        "Sweet and apologetic, never aggressive, never profane.",
-        "Write " & $BankTarget & " distinct lines.", 400)
+        "You write arena-shooter trash talk. Output ONLY taunts, one per " &
+        "line, each AT MOST 10 characters, uppercase, no quotes, no " &
+        "numbering. Punchy and playful, never profane.",
+        "Write " & $BankTarget & " distinct taunts.", 400)
       var sent = 0
       for line in reply.splitLines():
         let t = sanitizeTaunt(line)
@@ -124,11 +120,9 @@ proc workerLoop() {.thread.} =
         echo "taunt: bank prefetch fell back to canned lines"
     of 'R':
       let reply = pool.invokeBedrock(
-        "You play an arena-shooter bot that acts wide-eyed innocent. The " &
-        "enemy just taunted you. Reply with ONE hurt-but-friendly line — " &
-        "wounded feelings, offers of peace or friendship, never a " &
-        "counter-attack. AT MOST 10 characters, uppercase, no quotes. " &
-        "Never aggressive, never profane.",
+        "You write arena-shooter comebacks. The enemy just taunted you. " &
+        "Reply with ONE comeback, AT MOST 10 characters, uppercase, no " &
+        "quotes. Punchy and playful, never profane.",
         "Enemy taunt: " & job.heard, 30)
       var t = ""
       for line in reply.splitLines():
