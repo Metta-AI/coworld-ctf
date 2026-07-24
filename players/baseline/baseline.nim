@@ -602,8 +602,11 @@ const
   ScanDwellTtl = 40           # #3: dwell only on a threat remembered this recently
   PushOutTicks = 360          # endgame push: no enemy seen for ~15s...
   PushOutMinGame = 2400       # ...this deep into the game breaks the posts
-  LatePushTick = 6800         # all-in on the clock: past this tick a draw is
-                              # the default outcome, so commit to the capture
+  LatePushTick = 4200         # all-in on the clock: past this tick a draw is
+                              # the default outcome, so commit to the capture. Was 6800 —
+                              # DEAD on the 5000-tick clock (MaxTicks 5000), so post-break
+                              # never fired and defenders camped posts into a timeout=−1 draw.
+                              # 4200 aligns with ForceClockTick(3800): break posts + go win late.
 
   # --- post-wipe consolidation (regroupPush) ----------------------------------
   # The v14 loss cause (2026-07-18 replay study): after we clear the enemy nest
@@ -1925,6 +1928,14 @@ proc shippedCombatTune(): CombatTune =
   result.carrierSerpentine = true
   result.escortRun = true
   result.carrierScreen = true
+  # v26: the two "⭐⭐ CAPTURE CONVERSION" levers the first carrier flip MISSED — the whole-
+  # policy audit (carrier-play 72) found carrierFlee fixes the walk-into-the-nest MOVEMENT but
+  # the carrier still (a) EXPENDS fire pinning the respawner (engage stays carrierFireRange 110,
+  # not 0) and (b) keeps its y ON the respawner's E-W firing line. carrierSprint drops the combat
+  # branch entirely (engage 0 = pure nav home, mirror-A/B-measurable); carrierClearBand routes it
+  # vertically out of the pedestal-height respawn band before the home run.
+  result.carrierSprint = true
+  result.carrierClearBand = true
   # ── CORNER PRE-AIM (2026-07-16). Replay-reported miss ("we shoot the WALL our
   # enemy hides behind, they step out, we miss by aiming at the wall, they kill
   # us — daveey's shots land on the body"). Root cause: the peek/blocked branch
@@ -4078,11 +4089,26 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         target = vec(target.x, clamp(mateCarryPos.y, LaneTop, LaneBottom))
     of PhForce:
       # Clock late, no decisive edge: commit a grouped all-in on the pedestal — a
-      # "good enough" hit beats stalling into the −1 timeout draw.
+      # "good enough" hit beats stalling into the −1 timeout draw. v26: the two DEFENSIVE
+      # seats (Overwatch/HomeDefender) join the all-in too — camping a post into a −1
+      # timeout draw is the worst outcome, so EVERY seat commits to the enemy pedestal.
+      target = stealTarget
+    of PhDefend:
+      # v26 (defense-recapture 62 → the marquee phase was an inert `discard`): a real
+      # FULL-TEAM recapture collapse. Our heart is stolen; the thief runs it toward the
+      # ENEMY half, so free ATTACKER seats (the 6 that would otherwise keep pressing the
+      # enemy pedestal) turn around and converge on the intercept lane between the thief's
+      # last-known spot and the enemy capture edge — body-block is void, so this is to KILL
+      # the carrier (combat teeth below raise their engage). The home defenders already hold
+      # the pedestal (ownStolen branches); this adds the 6 hunters the phase always promised.
       if attacker:
-        target = stealTarget
-    of PhProbe, PhDefend:
-      discard   # PROBE = the flank default above; DEFEND is owned by the ownStolen branches
+        let interceptY = (if mateCarryPos.y > 0.5: clamp(mateCarryPos.y, LaneTop, LaneBottom)
+                          else: me.y)
+        # Cut toward our own half's crossing (where the thief must run THROUGH), not the
+        # enemy pedestal — reverse the attacker's default outbound bias.
+        target = vec(float(CenterX) + homeSign(bot.team) * 60.0, interceptY)
+    of PhProbe:
+      discard   # PROBE = the flank default above
 
   # SENTRY DISPLACE: a sentry (overwatch / home defender) settled on its post
   # with no live target and no fresh intruder has been standing scanning. SEAL
@@ -4408,6 +4434,15 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     of PhEscort:
       if mateCarry and dist(me, mateCarryPos) <= EscortCollapseRange:
         maxEngage = max(maxEngage, bot.tune.fireRange)   # hunt the carrier's chasers
+    of PhDefend:
+      # v26: RECAPTURE has teeth — every seat presses the kill to delete the thief/escort
+      # (body-block is void, so recapture = KILL). The marquee "full-team collapse" phase
+      # was toothless (engage unchanged); now the hunters widen to map-wide to finish it.
+      maxEngage = max(maxEngage, bot.tune.fireRange)
+    of PhForce:
+      # v26: the late all-in FIGHTS to a kill — on a wipe-economy engine the force window
+      # must remove enemy guns, not gently reposition. Every seat widens to fireRange.
+      maxEngage = max(maxEngage, bot.tune.fireRange)
     else: discard
   # Focus-fire intel: which remembered enemies sit on a visible mate's aim
   # line right now. A mate's rendered aim dots are an absolute readback of
