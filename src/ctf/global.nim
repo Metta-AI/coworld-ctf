@@ -4030,7 +4030,9 @@ proc addIdentityBadges(
   viewerIndex = -1
 ) {.measure.} =
   ## Places each living player's identity badge (a Greek letter, alpha..theta
-  ## by slot order within the team) on the soldier body's bottom-right corner.
+  ## by slot order within the team) centered on the soldier body. The body
+  ## rotates with the aim, so the center — its rotation pivot — is the only
+  ## spot that stays on the cog at every heading.
   ## The label is `identity <color> <name>[ shield][ nade][ arc]` — the
   ## suffixes carry the wearer's current loadout so an observing agent can
   ## read weapon state at a glance (the surviving half of the reverted #77
@@ -4068,8 +4070,8 @@ proc addIdentityBadges(
     currentIds.add(objectId)
     packet.addBoardObject(
       objectId,
-      player.overheadAnchorX() + SoldierBodyPx - IdentityBadgeSize div 2,
-      player.overheadAnchorY() + SoldierBodyPx - IdentityBadgeSize div 2,
+      player.overheadAnchorX() + (SoldierBodyPx - IdentityBadgeSize) div 2,
+      player.overheadAnchorY() + (SoldierBodyPx - IdentityBadgeSize) div 2,
       player.y + 1,
       MapLayerId,
       spriteId

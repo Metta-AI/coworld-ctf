@@ -439,8 +439,8 @@ same vocabulary it always has.
 
 **Identity badges:** every living player carries a separate badge object
 labeled `identity <color> <name>` (`alpha`..`theta` — see Teams & spawns).
-Like the `hp <n>/3` bar, the badge is a distinct object near its player:
-attach it by proximity. It is fog-gated with its player and disappears on
+Like the `hp <n>/3` bar, the badge is a distinct object centered on its
+player's body: attach it by proximity. It is fog-gated with its player and disappears on
 death.
 
 ---

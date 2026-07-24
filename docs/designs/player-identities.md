@@ -29,8 +29,10 @@ the same attach-by-proximity pattern the overhead HP pip bar uses:
   additive vocabulary — existing `player <color> <side>` labels are untouched,
   so exact-match label readers (the baseline bot) keep working. Policies
   attach a badge to a player by proximity, exactly as they do `hp <n>/3` bars.
-- **Placement:** centered on the soldier body's bottom-right corner, clear of
-  the overhead HP-bar/name stack; z just above its own body in the y-sort.
+- **Placement:** centered on the soldier body (the aim-rotation pivot, so the
+  badge stays on the cog at every heading rather than floating beside it),
+  clear of the overhead HP-bar/name stack; z just above its own body in the
+  y-sort.
 - **Visibility:** fog-gated with its player in POV views (visible player ⇒
   visible identity — it is intel, like HP); always shown in the global
   viewer/replays; living players only, drops with death like the HP bar.
