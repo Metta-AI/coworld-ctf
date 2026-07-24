@@ -318,6 +318,8 @@ const
   SpritePlayerInterstitialObjectId = 5006
   SpritePlayerRemainingObjectId = 5008
   SpritePlayerFlagObjectBase = 5009  ## 5009 red flag, 5010 blue flag.
+  SpritePlayerWeaponSpriteId = 5020  ## own-weapon HUD text ("weapon gun|arc").
+  SpritePlayerWeaponObjectId = 5021
   SpritePlayerSelfSpriteBase = 5100  ## white-outlined self soldiers, keyed by
                                      ## skin×rotation: default 5100..5115,
                                      ## crown 5116..5131.
@@ -4055,7 +4057,11 @@ proc addIdentityBadges(
       IdentityNames[identityIndex]
     if player.hasShield: label.add " shield"
     if player.hasGrenade: label.add " nade"
+    # The weapon token is always LAST and always present: " arc" keeps its
+    # exact historical text for existing parsers; the default gun becomes
+    # explicit as " gun" so observers never infer a weapon from absence.
     if player.hasPlasmaArc: label.add " arc"
+    else: label.add " gun"
     packet.addBoardSpriteChanged(
       spriteDefs,
       spriteId,
@@ -4453,6 +4459,32 @@ proc buildSpriteProtocolPlayerUpdates*(
       0,
       HudTopRightLayerId,
       SpritePlayerRemainingSpriteId
+    )
+
+    # Own-weapon readout under the lives counter: the sim swaps the gun out
+    # whenever a plasma arc is carried, and a bot that has to infer its own
+    # weapon from floating markers gets it wrong at the worst moments. The
+    # label is the machine contract ("weapon gun" | "weapon arc").
+    let
+      weaponText = if player.hasPlasmaArc: "arc" else: "gun"
+      weapon = sim.buildSpriteProtocolTextSprite([weaponText], 2'u8)
+    currentIds.add(SpritePlayerWeaponObjectId)
+    result.addSpriteChanged(
+      nextState.spriteDefs,
+      SpritePlayerWeaponSpriteId,
+      weapon.width,
+      weapon.height,
+      weapon.pixels,
+      "weapon " & weaponText,
+      changed = true
+    )
+    result.addBoardObject(
+      SpritePlayerWeaponObjectId,
+      23 - weapon.width,
+      8,
+      0,
+      HudTopRightLayerId,
+      SpritePlayerWeaponSpriteId
     )
 
   sim.addTeamScoreboard(nextState.spriteDefs, currentIds, result)
