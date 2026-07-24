@@ -20,6 +20,13 @@ switch("threads", "off")
 --exceptions:goto
 --define:noSignalHandler
 --define:release
+# Route every allocation through emscripten's malloc (the standard Nim
+# emscripten setup). With Nim's bundled allocator a bad free silently poisons
+# the freelists; dlmalloc traps loudly instead, which is how the
+# use-after-free fixed in ctf_replay.nim (emscripten_exit_with_live_runtime)
+# was found. Keep this so any future stale free crashes at the fault instead
+# of corrupting replay playback at a distance.
+--define:useMalloc
 
 switch(
   "passL",
