@@ -375,6 +375,9 @@ html, body {
   width: calc(228 * var(--u));
   min-height: calc(4 * 22 * var(--u)); /* fixed 4-row reserve */
   z-index: 11;
+  /* Rows are display-only (no click handlers) — never let the feed intercept a
+     drag meant for the PiP or the board beneath it. */
+  pointer-events: none;
 }
 .feed-row {
   display: flex;
@@ -439,12 +442,13 @@ html, body {
 }
 #povBadge.on { display: flex; }
 
-/* First-person PiP inset: pinned bottom-right, responsive width (§2 — sized off
-   the stage so it scales with the composition). Hidden until a seat is in POV.
-   One quiet hairline frames it as a genuine window, not a decorative card. */
+/* First-person PiP inset: pinned bottom-LEFT (the killfeed owns bottom-right, so
+   they never overlap), responsive width (§2 — sized off the stage so it scales
+   with the composition). Hidden until a seat is in POV. One quiet hairline
+   frames it as a genuine window, not a decorative card. */
 #fpv {
   position: absolute;
-  right: calc(12 * var(--u));
+  left: calc(12 * var(--u));
   bottom: calc(64 * var(--u));
   /* Sized/positioned in px once dragged or resized; these are the defaults. */
   width: 30%;
@@ -468,8 +472,8 @@ html, body {
 #fpv.dragging, #fpv.resizing { cursor: grabbing; opacity: 0.99; }
 #fpv.resizing { cursor: nwse-resize; }
 /* Once dragged/resized we pin via left/top + explicit width and drop the
-   right/bottom + aspect-ratio anchors so nothing fights. */
-#fpv.moved { right: auto; bottom: auto; }
+   left/bottom + aspect-ratio anchors so nothing fights. */
+#fpv.moved { left: auto; bottom: auto; }
 #fpv.sized { aspect-ratio: auto; max-width: none; min-width: 0; }
 #fpv-canvas {
   position: absolute;
@@ -480,17 +484,18 @@ html, body {
   image-rendering: pixelated;
   pointer-events: none;   /* clicks fall through to the frame for dragging */
 }
-/* Resize grip: bottom-left corner (bottom-right is the screen edge when pinned).
-   The ONLY child that takes pointer events, so drag-to-move works everywhere else. */
+/* Resize grip: bottom-right corner (bottom-left is the screen edge when pinned
+   bottom-left). The ONLY child that takes pointer events, so drag-to-move works
+   everywhere else. */
 .fpv-grip {
   position: absolute;
-  left: 0; bottom: 0;
+  right: 0; bottom: 0;
   width: calc(16 * var(--u));
   height: calc(16 * var(--u));
-  cursor: nesw-resize;
+  cursor: nwse-resize;
   z-index: 5;
   background:
-    linear-gradient(45deg, transparent 40%, rgba(232, 163, 61, 0.55) 42%,
+    linear-gradient(-45deg, transparent 40%, rgba(232, 163, 61, 0.55) 42%,
       rgba(232, 163, 61, 0.55) 46%, transparent 48%,
       transparent 58%, rgba(232, 163, 61, 0.55) 60%,
       rgba(232, 163, 61, 0.55) 64%, transparent 66%);
@@ -1030,7 +1035,8 @@ body[data-embed] #board { top: 0; height: 100%; }
         <canvas id="fpv-map-canvas"></canvas>
       </div>
       <div class="fpv-cap" id="fpv-cap">EYES</div>
-      <!-- corner grip: drag to resize (bottom-left so it clears the screen edge) -->
+      <!-- corner grip: drag to resize (bottom-right so it clears the screen edge
+           when the PiP is pinned bottom-left) -->
       <div class="fpv-grip" id="fpv-grip" title="Drag to resize"></div>
     </div>
     <div id="bannerlane"></div>
@@ -1102,6 +1108,28 @@ body[data-embed] #board { top: 0; height: 100%; }
 
   // ---- palette (mirrors board tints so chrome matches the arena) ----
   var RED = '#e0523a', BLUE = '#3f7cc4', AMBER = '#e8a33d', PAPER = '#f2e8d8';
+
+  // ---- front-facing cog art for the EYES PiP billboards ----
+  // The real cog sprites (body + legs + wheels + cyan visor, team-tinted),
+  // served as static PNGs by the server. Loaded once; drawFpvEntity blits the
+  // matching team image scaled to the projected figure so distant cogs shrink
+  // like everything else. Falls back to the procedural chassis until loaded.
+  var COG_ART = { red: new Image(), blue: new Image() };
+  COG_ART.red.src = '/client/soldier_red.png';
+  COG_ART.blue.src = '/client/soldier_blue.png';
+  function cogArtReady(img) { return img && img.complete && img.naturalWidth > 0; }
+  // The source PNG bakes a soft drop-SHADOW into its right third (the opaque cog
+  // is only the left/upper box below). Blitting the whole image would center the
+  // shadow+cog together, shoving the cog off-center-left so it reads as leaning
+  // and hovering beside a shadow blob. So we blit ONLY the opaque content box
+  // (measured from the art, as fractions of its natural size) — centered and
+  // standing upright — and draw our own contact shadow beneath it.
+  var COG_TRIM = { x: 6 / 127, y: 6 / 116, w: 73 / 127, h: 99 / 116 };
+  var COG_ASPECT = COG_TRIM.w * 127 / (COG_TRIM.h * 116);   // ≈0.74, w/h of the cog
+  // Offscreen scratch for depth-dimming the cog sprite: draw the art in, then
+  // darken with a source-atop ink wash so ONLY the sprite pixels dim (never the
+  // floor/walls already painted behind it). Reused across draws.
+  var cogScratch = document.createElement('canvas'), cogScratchCtx = null;
   var SPEEDS = [1, 2, 3, 4, 8, 16];
   var FPS = 24;
 
@@ -1580,18 +1608,17 @@ body[data-embed] #board { top: 0; height: 100%; }
         fpvEl.style.left = nx + 'px';
         fpvEl.style.top = ny + 'px';
       } else {
-        // Grip is bottom-LEFT: dragging left/down grows it, keeping the top-right
-        // corner fixed. Clamp to the host and a sane min/max.
-        var topRight = baseLeft + baseW;
-        var nw = baseW - (ev.clientX - startX);
-        nw = Math.max(MINW, Math.min(nw, topRight, host.width * 0.9));
+        // Grip is bottom-RIGHT: dragging right/down grows it, keeping the
+        // top-LEFT corner (baseLeft, baseTop) fixed. Clamp to the host and a
+        // sane min/max.
+        var nw = baseW + (ev.clientX - startX);
+        nw = Math.max(MINW, Math.min(nw, host.width - baseLeft, host.width * 0.9));
         var nh = nw / FPV_ASPECT;
         var maxH = host.height * 0.9;
         if (nh > maxH) { nh = maxH; nw = nh * FPV_ASPECT; }
         fpvEl.style.width = nw + 'px';
         fpvEl.style.height = nh + 'px';
-        fpvEl.style.left = (topRight - nw) + 'px';
-        // keep top fixed (baseTop)
+        // left/top stay fixed (baseLeft, baseTop)
       }
     }
     function endAll(ev) {
@@ -1621,8 +1648,51 @@ body[data-embed] #board { top: 0; height: 100%; }
   // walls shrink smoothly — real depth, not a clamp. WALL_H is the corridor wall
   // height in world px; tuned so a wall ~one corridor away fills the frame.
   var FPV_WALL_H = 150;      // world px: conceptual corridor wall height
-  var FPV_COG_H = 30;        // world px: a cog is ~0.6x a corridor wall tall
+  // The camera eye sits at half a wall's height (walls are drawn centered on the
+  // horizon), so the visible FLOOR at distance d is horizon + projH(FPV_EYE, d).
+  // Every figure plants its feet on THAT line — no more floating at eye level.
+  var FPV_EYE = FPV_WALL_H / 2;
+  var FPV_COG_H = 90;        // world px: a cog stands ~0.6x a corridor wall tall
   var FPV_FOG = 900;         // px at which depth shading bottoms out to ink
+
+  // --- paint-splatter-on-hit state ---
+  // Tracks the POV seat's last hp so a drop fires a splat; the splat itself is a
+  // set of blobs in [0..1] canvas-space with a fire TICK, faded over SPLAT_TICKS
+  // so it decays as the replay plays (scrub-safe, wall-clock independent).
+  var fpvPrev = { pov: -1, hp: -1, tick: -1 };
+  var fpvSplat = null;
+  var SPLAT_TICKS = 30;      // ~1.25s at 24fps: splat lingers then clears
+  // Build ONE cohesive, cartoony paint splat: a single main gob with a few small
+  // lobes hugging it (an organic outline, not a shotgun-scatter) plus a couple of
+  // drips. Anchored OFF-CENTER — one of a handful of side/corner spots — so the
+  // view center stays clear. Placed DETERMINISTICALLY off the fire tick (no RNG),
+  // so re-scrubbing to the same tick paints the identical splat.
+  function makeSplat(tick, color) {
+    function rnd(i) { var x = Math.sin((tick * 13.13 + i * 7.77)) * 43758.5453; return x - Math.floor(x); }
+    // Off-center anchors: four corners + two side-mids. Never the center, so the
+    // action stays readable through the splash.
+    var anchors = [
+      { x: 0.26, y: 0.30 }, { x: 0.74, y: 0.30 },
+      { x: 0.26, y: 0.70 }, { x: 0.74, y: 0.70 },
+      { x: 0.20, y: 0.50 }, { x: 0.80, y: 0.50 }
+    ];
+    var a = anchors[Math.floor(rnd(0) * anchors.length) % anchors.length];
+    var mainR = 0.15 + rnd(1) * 0.04;
+    var blobs = [{ x: a.x, y: a.y, r: mainR, drip: 0.8 + rnd(2) * 0.5 }];
+    // 3–4 satellite lobes hugging the main gob so the silhouette reads as ONE
+    // torn splat, not many separate hits.
+    var count = 3 + Math.floor(rnd(3) * 2);
+    for (var i = 0; i < count; i++) {
+      var ang = rnd(i * 3 + 4) * Math.PI * 2;
+      blobs.push({
+        x: a.x + Math.cos(ang) * mainR * (0.7 + rnd(i * 3 + 5) * 0.5),
+        y: a.y + Math.sin(ang) * mainR * (0.6 + rnd(i * 3 + 6) * 0.5),
+        r: mainR * (0.32 + rnd(i * 3 + 7) * 0.34),
+        drip: rnd(i * 5 + 8) * 0.7
+      });
+    }
+    return { tick: tick, color: color, blobs: blobs, cx: a.x, cy: a.y, mainR: mainR };
+  }
 
   function renderFpv(s) {
     var show = s.pov >= 0 && s.fp && s.fp.cols;
@@ -1631,6 +1701,26 @@ body[data-embed] #board { top: 0; height: 100%; }
     if (!fpvCtx) fpvCtx = fpvCanvas.getContext('2d');
 
     var fp = s.fp;
+
+    // Paint-splatter-on-hit: when the POV cog loses hp, splash the enemy team's
+    // paint across the "visor". Keyed + faded by TICK (not wall-clock) so it is
+    // replay-deterministic and scrub-safe. A new hit replaces any fading splat.
+    var self = fp.self;
+    if (self) {
+      var jump = fpvPrev.tick < 0 || s.t < fpvPrev.tick || (s.t - fpvPrev.tick) > 6;
+      if (s.pov !== fpvPrev.pov || jump) {
+        // POV change or scrub/loop: resync baseline, don't fire, drop stale splat.
+        fpvSplat = null;
+      } else if (typeof self.hp === 'number' && fpvPrev.hp >= 0 && self.hp < fpvPrev.hp) {
+        // Hit by the enemy → their paint hits the screen.
+        var enemyCol = self.team === 'red' ? BLUE : RED;
+        fpvSplat = makeSplat(s.t, enemyCol);
+      }
+      fpvPrev.pov = s.pov;
+      fpvPrev.hp = (typeof self.hp === 'number') ? self.hp : -1;
+      fpvPrev.tick = s.t;
+    }
+
     var cols = fp.cols, n = cols.length;
     var dpr = window.devicePixelRatio || 1;
     var cssW = fpvCanvas.clientWidth || 200, cssH = fpvCanvas.clientHeight || 133;
@@ -1717,25 +1807,34 @@ body[data-embed] #board { top: 0; height: 100%; }
     for (var j = 0; j < ents.length; j++) {
       var e = ents[j];
       var ed = Math.max(4, e.d);
-      var worldH = (e.k === 'item' || e.k === 'heart') ? FPV_COG_H * 0.7 : FPV_COG_H;
+      var worldH = (e.k === 'item' || e.k === 'heart') ? FPV_COG_H * 0.55 : FPV_COG_H;
       var figH = projH(worldH, ed);
       // Screen-x from the true view angle: o∈[-1,1] maps across ±halfFov, and the
       // horizontal position is PROJ*tan(angle) — matched to the wall projection.
       var ang = (e.o || 0) * halfFov;
       var ex = W / 2 + PROJ * Math.tan(ang);
-      var figW = figH * ((e.k === 'item' || e.k === 'heart') ? 0.8 : 0.92);
+      var figW = figH * ((e.k === 'item' || e.k === 'heart') ? 0.85 : 0.9);
+      // Plant the figure on the visible FLOOR: the floor at this depth projects to
+      // horizon + projH(FPV_EYE, d). Feet sit there; the body rises figH above it.
+      // (Previously feet were pinned near the horizon, so cogs floated at eye level.)
+      var feetY = horizon + projH(FPV_EYE, ed);
+      // Occlusion is a DEPTH test, so compare like-for-like: zbuf holds fisheye-
+      // corrected PERPENDICULAR wall distance, while e.d is the RADIAL range to the
+      // entity. Convert the entity to perpendicular depth (radial·cos(angle)) before
+      // testing, or edge sprites leak through nearer walls.
+      var edPerp = ed * Math.cos(ang);
       // Occlusion: clip the sprite to the sub-range of its columns that are NOT
       // blocked by a nearer wall. Draw into a clip rect spanning visible columns.
       var xL = ex - figW / 2, xR = ex + figW / 2;
       var ci0 = Math.max(0, Math.floor(xL / colW));
       var ci1 = Math.min(n - 1, Math.ceil(xR / colW));
-      // Build visible x-spans where zbuf (wall dist) is farther than the sprite.
+      // Build visible x-spans where zbuf (wall depth) is farther than the sprite.
       var spanStart = -1;
       for (var ci = ci0; ci <= ci1 + 1; ci++) {
-        var visible = ci <= ci1 && zbuf[ci] > ed - 2;   // wall behind sprite → show
+        var visible = ci <= ci1 && zbuf[ci] > edPerp - 2;   // wall behind sprite → show
         if (visible && spanStart < 0) spanStart = ci;
         else if (!visible && spanStart >= 0) {
-          drawFpvEntityClipped(ctx, e, ex, horizon, figH, figW,
+          drawFpvEntityClipped(ctx, e, ex, feetY, figH, figW,
             Math.max(xL, spanStart * colW), Math.min(xR, ci * colW));
           spanStart = -1;
         }
@@ -1755,8 +1854,71 @@ body[data-embed] #board { top: 0; height: 100%; }
     ctx.stroke();
     ctx.restore();
 
+    // Paint-splatter overlay: enemy paint splashed across the camera on a hit,
+    // fading out over SPLAT_TICKS as the replay advances. Drawn LAST so it sits
+    // in front of the world like paint on a visor.
+    if (fpvSplat) {
+      var age = s.t - fpvSplat.tick;
+      if (age < 0 || age > SPLAT_TICKS) { fpvSplat = null; }
+      else { drawSplat(ctx, W, H, fpvSplat, 1 - age / SPLAT_TICKS); }
+    }
+
     renderFpvHud(fp.self);
     renderFpvMap(fp);
+  }
+
+  // Draw the paint splatter: gooey team-colored blobs with soft edges + drips,
+  // faded by `life` (1 → fresh, 0 → gone). A quick white rim on the freshest
+  // frames reads as a wet impact flash.
+  function drawSplat(ctx, W, H, splat, life) {
+    if (life <= 0) return;
+    ctx.save();
+    // ease-out: near-opaque at impact, then fall off. Capped well below 1 so the
+    // action still reads through the paint (a splash on the lens, not a
+    // blackout) — and since the splat sits off-center, the view center stays clear.
+    var a = Math.min(0.7, life * 1.05);
+    ctx.globalAlpha = a;
+    var col = splat.color;
+    for (var i = 0; i < splat.blobs.length; i++) {
+      var b = splat.blobs[i];
+      var bx = b.x * W, by = b.y * H, br = b.r * Math.min(W, H);
+      // soft radial body so edges feather like wet paint
+      var g = ctx.createRadialGradient(bx, by, br * 0.15, bx, by, br);
+      g.addColorStop(0, col); g.addColorStop(0.7, col);
+      g.addColorStop(1, hexA(col, 0));
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(bx, by, br, 0, Math.PI * 2); ctx.fill();
+      // a drip running down from the blob
+      if (b.drip > 0.35) {
+        var dl = br * (0.8 + b.drip * 1.6);
+        var dw = br * 0.32;
+        var dg = ctx.createLinearGradient(bx, by, bx, by + dl);
+        dg.addColorStop(0, col); dg.addColorStop(1, hexA(col, 0));
+        ctx.fillStyle = dg;
+        ctx.beginPath();
+        ctx.moveTo(bx - dw, by);
+        ctx.quadraticCurveTo(bx - dw * 0.4, by + dl * 0.6, bx, by + dl);
+        ctx.quadraticCurveTo(bx + dw * 0.4, by + dl * 0.6, bx + dw, by);
+        ctx.closePath(); ctx.fill();
+        ctx.beginPath(); ctx.arc(bx, by + dl, dw * 0.5, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+    // wet-impact rim flash on the freshest frames, hugging the main gob
+    if (life > 0.72) {
+      ctx.globalAlpha = (life - 0.72) / 0.28 * 0.5;
+      ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+      ctx.lineWidth = Math.max(1, Math.min(W, H) * 0.006);
+      ctx.beginPath();
+      ctx.arc(splat.cx * W, splat.cy * H, splat.mainR * Math.min(W, H) * 1.08, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+  // #rrggbb → rgba() with alpha a (0..1). Used for feathered paint edges.
+  function hexA(hex, a) {
+    var m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
+    if (!m) return hex;
+    return 'rgba(' + parseInt(m[1], 16) + ',' + parseInt(m[2], 16) + ',' + parseInt(m[3], 16) + ',' + a + ')';
   }
 
   // A four-lobed heart glyph (two arcs + a point) — the flag/heart icon, matched
@@ -1820,16 +1982,18 @@ body[data-embed] #board { top: 0; height: 100%; }
 
   // Draw one billboard entity, CLIPPED to [clipL, clipR] so walls occlude it
   // per-column (real raycaster sprite clipping). figH/figW are the projected
-  // size; (cx, horizon) is the sprite's center on the horizon line.
-  function drawFpvEntityClipped(ctx, e, cx, horizon, figH, figW, clipL, clipR) {
+  // size; (cx, feetY) is the sprite's ground contact on the floor.
+  function drawFpvEntityClipped(ctx, e, cx, feetY, figH, figW, clipL, clipR) {
     if (clipR <= clipL) return;
     ctx.save();
     ctx.beginPath();
-    ctx.rect(clipL, horizon - figH * 1.4, clipR - clipL, figH * 2.2);
+    // Clip band spans the whole standing figure (feetY up figH) plus headroom for
+    // hp pips / a carried heart above, and a little below for the contact shadow.
+    ctx.rect(clipL, feetY - figH * 2.0, clipR - clipL, figH * 2.4);
     ctx.clip();
     // Depth dim: distant billboards sink toward ink like the walls do.
     var dim = Math.max(0.35, 1 - (e.d || 0) / FPV_FOG);
-    drawFpvEntity(ctx, e, cx, horizon, figH, figW, dim);
+    drawFpvEntity(ctx, e, cx, feetY, figH, figW, dim);
     ctx.restore();
   }
 
@@ -1837,82 +2001,80 @@ body[data-embed] #board { top: 0; height: 100%; }
   // visor band carrying TWO glowing cyan eyes (the cog's signature), a pair of
   // side wheels, and a bottom shadow. Enemies get red hp pips; carriers an amber
   // heart above; mates a paper outline ring. `dim` (0..1) applies depth shading.
-  function drawFpvEntity(ctx, e, cx, horizon, figH, figW, dim) {
+  function drawFpvEntity(ctx, e, cx, feetY, figH, figW, dim) {
     dim = dim == null ? 1 : dim;
     var baseCol = e.team === 'red' ? RED : (e.team === 'blue' ? BLUE : AMBER);
     var col = shade(baseCol, dim);
     if (e.k === 'item') {
-      var ir = figH * 0.55;
-      drawItemGlyph(ctx, e.item, cx, horizon - ir * 0.35, ir, dim);
+      // Items rest on the floor: center the glyph a little above the contact point.
+      var ir = figH * 0.7;
+      drawItemGlyph(ctx, e.item, cx, feetY - ir * 0.5, ir, dim);
       return;
     }
     if (e.k === 'heart') {
-      var hs = figH * 0.6;
+      // A heart pedestal sits on the floor; lift the glyph so it rests, not floats.
+      var hs = figH * 0.9;
       ctx.save();
       ctx.lineJoin = 'round';
       ctx.fillStyle = col;
       ctx.strokeStyle = 'rgba(12,8,5,0.85)';
       ctx.lineWidth = Math.max(1, figH * 0.05);
-      heartPath(ctx, cx, horizon - hs * 0.25, hs);
+      heartPath(ctx, cx, feetY - hs * 0.5, hs);
       ctx.fill(); ctx.stroke();
       ctx.restore();
       return;
     }
     var enemy = e.k === 'enemy';
-    var feet = horizon + figH * 0.5;
-    var top = horizon - figH * 0.5;
-    var bodyW = figW * 0.78;
-    var bodyH = figH * 0.72;
-    var bodyTop = feet - bodyH;
-    var lw = Math.max(1, figH * 0.05);
+    var feet = feetY;
+    var top = feet - figH;
+    // Size the blit off the projected figure so distant cogs shrink like the
+    // walls. The cog's true aspect (opaque box, shadow excluded) is ~0.74 w/h;
+    // its HEIGHT tracks figH so it stands the right size on the floor.
+    var artImg = COG_ART[e.team];
+    var drawH = figH * 1.02;
+    var drawW = drawH * COG_ASPECT;
+    var bodyW = drawW;         // for the mate ring + shadow width
     ctx.save();
     ctx.lineJoin = 'round';
 
-    // contact shadow on the floor
-    ctx.fillStyle = 'rgba(0,0,0,0.32)';
+    // contact shadow ON the floor, right under the wheels — grounds the figure.
+    ctx.fillStyle = 'rgba(0,0,0,0.34)';
     ctx.beginPath();
-    ctx.ellipse(cx, feet, bodyW * 0.55, figH * 0.08, 0, 0, Math.PI * 2);
+    ctx.ellipse(cx, feet, bodyW * 0.5, figH * 0.07, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    // side wheels (dark, behind the chassis edges)
-    ctx.fillStyle = shade('#2a211a', dim);
-    ctx.strokeStyle = 'rgba(10,7,4,0.9)'; ctx.lineWidth = lw;
-    var wheelW = bodyW * 0.2, wheelH = bodyH * 0.62;
-    roundRect(ctx, cx - bodyW / 2 - wheelW * 0.5, bodyTop + bodyH * 0.28, wheelW, wheelH, wheelW * 0.4);
-    ctx.fill(); ctx.stroke();
-    roundRect(ctx, cx + bodyW / 2 - wheelW * 0.5, bodyTop + bodyH * 0.28, wheelW, wheelH, wheelW * 0.4);
-    ctx.fill(); ctx.stroke();
-
-    // chassis body (rounded, team-tinted) with a top highlight + bottom shade band
-    ctx.fillStyle = col;
-    ctx.strokeStyle = 'rgba(10,7,4,0.92)'; ctx.lineWidth = lw;
-    roundRect(ctx, cx - bodyW / 2, bodyTop, bodyW, bodyH, bodyW * 0.22);
-    ctx.fill(); ctx.stroke();
-    ctx.fillStyle = 'rgba(255,240,210,' + (0.14 * dim).toFixed(3) + ')';
-    roundRect(ctx, cx - bodyW / 2, bodyTop, bodyW, bodyH * 0.34, bodyW * 0.22);
-    ctx.fill();
-    ctx.fillStyle = 'rgba(0,0,0,0.22)';
-    roundRect(ctx, cx - bodyW / 2, bodyTop + bodyH * 0.62, bodyW, bodyH * 0.38, bodyW * 0.22);
-    ctx.fill();
-
-    // dark visor band across the upper chassis with two glowing cyan eyes
-    var visorY = bodyTop + bodyH * 0.26;
-    var visorH = bodyH * 0.3;
-    ctx.fillStyle = shade('#141b1e', dim);
-    roundRect(ctx, cx - bodyW * 0.4, visorY, bodyW * 0.8, visorH, visorH * 0.45);
-    ctx.fill();
-    var eyeR = Math.max(1, visorH * 0.32);
-    var eyeDx = bodyW * 0.18, eyeCy = visorY + visorH * 0.5;
-    var eyeCol = 'rgba(120,236,246,' + (0.65 + 0.35 * dim).toFixed(3) + ')';
-    for (var s = -1; s <= 1; s += 2) {
-      // glow
-      var g = ctx.createRadialGradient(cx + s * eyeDx, eyeCy, 0, cx + s * eyeDx, eyeCy, eyeR * 2.4);
-      g.addColorStop(0, eyeCol); g.addColorStop(1, 'rgba(120,236,246,0)');
-      ctx.fillStyle = g;
-      ctx.beginPath(); ctx.arc(cx + s * eyeDx, eyeCy, eyeR * 2.4, 0, Math.PI * 2); ctx.fill();
-      // core
-      ctx.fillStyle = '#d6fbff';
-      ctx.beginPath(); ctx.arc(cx + s * eyeDx, eyeCy, eyeR, 0, Math.PI * 2); ctx.fill();
+    if (cogArtReady(artImg)) {
+      // Blit ONLY the opaque cog box from the source PNG (dropping the baked
+      // right-side shadow), centered on cx and standing with its feet on `feet`.
+      var iw = artImg.naturalWidth, ih = artImg.naturalHeight;
+      var sxp = COG_TRIM.x * iw, syp = COG_TRIM.y * ih;
+      var swp = COG_TRIM.w * iw, shp = COG_TRIM.h * ih;
+      var dx = cx - drawW / 2, dy = feet - drawH;
+      if (dim >= 0.995) {
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(artImg, sxp, syp, swp, shp, dx, dy, drawW, drawH);
+      } else {
+        // Depth-dim via an offscreen scratch so only sprite pixels darken.
+        var sw = Math.max(1, Math.ceil(drawW)), sh = Math.max(1, Math.ceil(drawH));
+        if (cogScratch.width !== sw) cogScratch.width = sw;
+        if (cogScratch.height !== sh) cogScratch.height = sh;
+        if (!cogScratchCtx) cogScratchCtx = cogScratch.getContext('2d');
+        var sc = cogScratchCtx;
+        sc.clearRect(0, 0, sw, sh);
+        sc.imageSmoothingEnabled = false;
+        sc.globalCompositeOperation = 'source-over';
+        sc.drawImage(artImg, sxp, syp, swp, shp, 0, 0, sw, sh);
+        // ink wash clipped to the sprite silhouette (source-atop)
+        sc.globalCompositeOperation = 'source-atop';
+        sc.fillStyle = 'rgba(10,7,4,' + (1 - dim).toFixed(3) + ')';
+        sc.fillRect(0, 0, sw, sh);
+        sc.globalCompositeOperation = 'source-over';
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(cogScratch, dx, dy, drawW, drawH);
+      }
+    } else {
+      // Fallback: procedural chassis until the art loads.
+      drawFpvChassis(ctx, cx, feet, figW, figH, col, dim);
     }
 
     // mate ring: a paper hoop under the chassis so allies read at a glance
@@ -1946,6 +2108,56 @@ body[data-embed] #board { top: 0; height: 100%; }
       ctx.fill(); ctx.stroke();
     }
     ctx.restore();
+  }
+
+  // Procedural cog chassis — the fallback billboard drawn only until the real
+  // front-facing art (COG_ART) has loaded. Chunky team-tinted body, side wheels,
+  // dark visor band with two glowing cyan eyes. (cx, feet) is the sprite's
+  // ground contact; figW/figH the projected size; col the depth-shaded team tint.
+  function drawFpvChassis(ctx, cx, feet, figW, figH, col, dim) {
+    var bodyW = figW * 0.78;
+    var bodyH = figH * 0.72;
+    var bodyTop = feet - bodyH;
+    var lw = Math.max(1, figH * 0.05);
+
+    // side wheels (dark, behind the chassis edges)
+    ctx.fillStyle = shade('#2a211a', dim);
+    ctx.strokeStyle = 'rgba(10,7,4,0.9)'; ctx.lineWidth = lw;
+    var wheelW = bodyW * 0.2, wheelH = bodyH * 0.62;
+    roundRect(ctx, cx - bodyW / 2 - wheelW * 0.5, bodyTop + bodyH * 0.28, wheelW, wheelH, wheelW * 0.4);
+    ctx.fill(); ctx.stroke();
+    roundRect(ctx, cx + bodyW / 2 - wheelW * 0.5, bodyTop + bodyH * 0.28, wheelW, wheelH, wheelW * 0.4);
+    ctx.fill(); ctx.stroke();
+
+    // chassis body (rounded, team-tinted) with a top highlight + bottom shade band
+    ctx.fillStyle = col;
+    ctx.strokeStyle = 'rgba(10,7,4,0.92)'; ctx.lineWidth = lw;
+    roundRect(ctx, cx - bodyW / 2, bodyTop, bodyW, bodyH, bodyW * 0.22);
+    ctx.fill(); ctx.stroke();
+    ctx.fillStyle = 'rgba(255,240,210,' + (0.14 * dim).toFixed(3) + ')';
+    roundRect(ctx, cx - bodyW / 2, bodyTop, bodyW, bodyH * 0.34, bodyW * 0.22);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(0,0,0,0.22)';
+    roundRect(ctx, cx - bodyW / 2, bodyTop + bodyH * 0.62, bodyW, bodyH * 0.38, bodyW * 0.22);
+    ctx.fill();
+
+    // dark visor band across the upper chassis with two glowing cyan eyes
+    var visorY = bodyTop + bodyH * 0.26;
+    var visorH = bodyH * 0.3;
+    ctx.fillStyle = shade('#141b1e', dim);
+    roundRect(ctx, cx - bodyW * 0.4, visorY, bodyW * 0.8, visorH, visorH * 0.45);
+    ctx.fill();
+    var eyeR = Math.max(1, visorH * 0.32);
+    var eyeDx = bodyW * 0.18, eyeCy = visorY + visorH * 0.5;
+    var eyeCol = 'rgba(120,236,246,' + (0.65 + 0.35 * dim).toFixed(3) + ')';
+    for (var s = -1; s <= 1; s += 2) {
+      var g = ctx.createRadialGradient(cx + s * eyeDx, eyeCy, 0, cx + s * eyeDx, eyeCy, eyeR * 2.4);
+      g.addColorStop(0, eyeCol); g.addColorStop(1, 'rgba(120,236,246,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(cx + s * eyeDx, eyeCy, eyeR * 2.4, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#d6fbff';
+      ctx.beginPath(); ctx.arc(cx + s * eyeDx, eyeCy, eyeR, 0, Math.PI * 2); ctx.fill();
+    }
   }
 
   // rounded-rect helper (older canvases lack ctx.roundRect)
