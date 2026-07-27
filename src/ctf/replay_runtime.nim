@@ -83,6 +83,9 @@ proc buildReplayViewerPacket*(
     return
 
   let sendLead = not state.momentumSent
+  # Ship the static minimap wall silhouette ONCE (first frame) for the EYES PiP
+  # tactical map; the client caches it, so later frames omit it.
+  let sendFpMap = not state.fpMapSent
   result.addSprite(
     BroadcastChromeSpriteId,
     1,
@@ -99,8 +102,11 @@ proc buildReplayViewerPacket*(
       nextState.selectedJoinOrder,
       if sendLead: replay.livesLeadSeries else: @[],
       replay.replayStartTick(),
-      replay.endHoldSecondsLeft()
+      replay.endHoldSecondsLeft(),
+      sendFpMap
     )
   )
   if sendLead:
     nextState.momentumSent = true
+  if sendFpMap:
+    nextState.fpMapSent = true

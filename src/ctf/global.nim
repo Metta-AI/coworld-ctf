@@ -411,6 +411,7 @@ type
     replayCommands*: seq[char]
     broadcastHud*: bool          ## viewer opted into the JSON chrome channel.
     momentumSent*: bool          ## full lives-lead series already sent to this viewer.
+    fpMapSent*: bool             ## static minimap wall silhouette already sent (EYES PiP tactical map).
     povSelectPending*: int       ## POV slot requested by a `v:<slot>` command.
     endzoneFade*: array[Team, int]  ## per-team endzone glow crossfade stage (0
                                  ## = full glow / heart home, GlowFadeStages-1 =
@@ -899,6 +900,7 @@ proc applyGlobalViewerMessage*(
       elif item.text == "hud:off":
         state.broadcastHud = false
         state.momentumSent = false
+        state.fpMapSent = false
       elif item.text.startsWith("s:"):
         let tick = try: parseInt(item.text[2 .. ^1]) except ValueError: -1
         if tick >= 0:

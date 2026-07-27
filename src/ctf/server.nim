@@ -75,10 +75,17 @@ const
   WallTextureHorizontal = staticRead("../../client/art/walls/wall_h.jpg")
   WallTextureVertical = staticRead("../../client/art/walls/wall_v.jpg")
   BroadcastFont = staticRead("../../data/font.ttf")
+  # Front-facing cog art for the first-person EYES PiP billboards (real body +
+  # legs + wheels + cyan visor, team-tinted). Served as static PNGs so the
+  # raycast view can blit the true cog instead of a procedural chassis.
+  SoldierArtRed = staticRead("../../data/soldier_red.png")
+  SoldierArtBlue = staticRead("../../data/soldier_blue.png")
   LeagueReplayerPath = "/client/league"
   WallTextureHorizontalPath = "/client/art/walls/wall_h.jpg"
   WallTextureVerticalPath = "/client/art/walls/wall_v.jpg"
   BroadcastFontPath = "/client/font.ttf"
+  SoldierArtRedPath = "/client/soldier_red.png"
+  SoldierArtBluePath = "/client/soldier_blue.png"
   # Hosted replay closes any WS frame larger than 1 MiB (sends 1009). We chunk
   # outbound sprite packets under a margin below that so no single frame trips it.
   MaxWsFrameBytes = 900_000
@@ -613,6 +620,16 @@ proc httpHandler(request: Request) =
       request.respond(200, texHeaders, WallTextureHorizontal)
     else:
       request.respond(200, texHeaders, WallTextureVertical)
+  elif request.path in [SoldierArtRedPath, SoldierArtBluePath] and
+      request.httpMethod == "GET":
+    # Front-facing cog art for the EYES PiP billboards (static PNG assets).
+    var artHeaders: HttpHeaders
+    artHeaders["Content-Type"] = "image/png"
+    artHeaders["Cache-Control"] = "public, max-age=3600"
+    if request.path == SoldierArtRedPath:
+      request.respond(200, artHeaders, SoldierArtRed)
+    else:
+      request.respond(200, artHeaders, SoldierArtBlue)
   elif request.path == BroadcastFontPath and request.httpMethod == "GET":
     var fontHeaders: HttpHeaders
     fontHeaders["Content-Type"] = "font/ttf"
