@@ -1,6 +1,8 @@
 # baseline — Coworld CTF bot (8v8, fog-of-war)
 
 A capture-the-flag reference bot that speaks the Bitworld Sprite v1 protocol.
+Its WebSocket disables Nagle buffering so separate input and chat messages
+arrive within the simulation tick that produced them.
 It keeps a persistent world model on top of the fog-of-war full-map view and
 plays a coordinated 8v8 team game on the dense-cover arena: cover-aware
 pathfinding, a six-strong attack wave (mid quad plus wide flankers), an

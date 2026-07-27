@@ -71,7 +71,7 @@
 ## a short windup), so we stop rotating on the tick we pull.
 
 import
-  std/[algorithm, heapqueue, math, os, random, strutils],
+  std/[algorithm, heapqueue, math, net, os, random, strutils],
   bitworld/spriteprotocol,
   whisky,
   baseline/protocols
@@ -2117,6 +2117,7 @@ proc runBot(url: string) =
   while true:
     try:
       let ws = newWebSocket(endpoint)
+      ws.socket.setSockOpt(OptNoDelay, true)
       echo "connected ", endpoint
       everConnected = true
       client.reset()
