@@ -238,3 +238,57 @@ suite "first-person picture-in-picture":
       total += rle[k + 1].getInt()
     check total == gw * gh
     check sawStone                              # the arena has stone walls
+
+  test "self.paintTick advances on a PAINT hit (gun) but NOT on a plasma touch":
+    # The EYES-PiP visor splat keys off self.paintTick, which the sim stamps only
+    # for paintball / grenade paint — never the paintless plasma sword. A gun hit
+    # must advance it; a plasma-arc touch must leave it untouched.
+    proc placeAtCenter(p: var Player, x, y: int) =
+      p.x = x - CollisionW div 2
+      p.y = y - CollisionH div 2
+    let clearX = 60
+    let clearY = MapHeight div 2
+
+    var game = initCtfForTest(defaultGameConfig())
+    let
+      red = game.addPlayer("red0")
+      blue = game.addPlayer("blue0")
+    game.startGame()
+    game.players[red].team = Red
+    game.players[blue].team = Blue
+    # Fresh seat: never hit → paintTick is the -1 sentinel in the frame.
+    game.players[blue].hp = 3
+    block:
+      let fp0 = game.fpFrame(game.players[blue].joinOrder)
+      check fp0["self"]["paintTick"].getInt() == -1
+
+    # A point-blank GUN shot from red paints blue → paintTick stamps to now.
+    game.players[red].placeAtCenter(clearX, clearY)
+    game.players[red].aimBrads = 0                       # east
+    game.players[red].fireCooldown = 0
+    game.players[blue].placeAtCenter(clearX + 30, clearY)
+    game.tryFire(red)
+    check game.players[blue].paintHitTick == game.tickCount
+    let paintedAt = game.players[blue].paintHitTick
+    block:
+      let fpHit = game.fpFrame(game.players[blue].joinOrder)
+      check fpHit["self"]["paintTick"].getInt() == paintedAt
+      check paintedAt >= 0
+
+    # A PLASMA-ARC touch drains hp but leaves NO paint → paintTick must not move.
+    game.players[red].hasPlasmaArc = true
+    game.players[red].aimBrads = 0
+    game.players[red].fireCooldown = 0                   # clear the gun-shot cooldown
+    game.players[red].placeAtCenter(clearX, clearY)
+    let
+      ax = game.players[red].x + CollisionW div 2
+      ay = game.players[red].y + CollisionH div 2
+    game.players[blue].hp = 3                            # top up so the touch isn't fatal
+    game.players[blue].placeAtCenter(ax + 60, ay)
+    let hpBeforeArc = game.players[blue].hp
+    game.tryFireArc(red)
+    check game.players[blue].hp < hpBeforeArc            # the plasma touch DID hurt
+    check game.players[blue].paintHitTick == paintedAt      # …but painted NOTHING new
+    block:
+      let fpArc = game.fpFrame(game.players[blue].joinOrder)
+      check fpArc["self"]["paintTick"].getInt() == paintedAt

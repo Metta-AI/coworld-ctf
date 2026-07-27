@@ -1656,10 +1656,13 @@ body[data-embed] #board { top: 0; height: 100%; }
   var FPV_FOG = 900;         // px at which depth shading bottoms out to ink
 
   // --- paint-splatter-on-hit state ---
-  // Tracks the POV seat's last hp so a drop fires a splat; the splat itself is a
-  // set of blobs in [0..1] canvas-space with a fire TICK, faded over SPLAT_TICKS
-  // so it decays as the replay plays (scrub-safe, wall-clock independent).
-  var fpvPrev = { pov: -1, hp: -1, tick: -1 };
+  // Tracks the POV seat's last PAINT-hit tick (server-sent self.paintTick) so a
+  // fresh paint hit fires a splat; the splat itself is a set of blobs in [0..1]
+  // canvas-space with a fire TICK, faded over SPLAT_TICKS so it decays as the
+  // replay plays (scrub-safe, wall-clock independent). Keyed on paintTick — NOT
+  // raw hp — so only paintball/grenade paint splashes the visor; the plasma
+  // sword drains hp with no paint and must never trigger it.
+  var fpvPrev = { pov: -1, paint: -1, tick: -1 };
   var fpvSplat = null;
   var SPLAT_TICKS = 30;      // ~1.25s at 24fps: splat lingers then clears
   // Build ONE cohesive, cartoony paint splat: a single main gob with a few small
@@ -1702,22 +1705,25 @@ body[data-embed] #board { top: 0; height: 100%; }
 
     var fp = s.fp;
 
-    // Paint-splatter-on-hit: when the POV cog loses hp, splash the enemy team's
-    // paint across the "visor". Keyed + faded by TICK (not wall-clock) so it is
-    // replay-deterministic and scrub-safe. A new hit replaces any fading splat.
+    // Paint-splatter-on-hit: when the POV cog takes a PAINT hit (paintball gun or
+    // grenade — server stamps self.paintTick; the plasma sword leaves no paint,
+    // so it never advances), splash the enemy team's paint across the "visor".
+    // Keyed + faded by TICK (not wall-clock) so it is replay-deterministic and
+    // scrub-safe. A new paint hit replaces any fading splat.
     var self = fp.self;
     if (self) {
       var jump = fpvPrev.tick < 0 || s.t < fpvPrev.tick || (s.t - fpvPrev.tick) > 6;
+      var paint = (typeof self.paintTick === 'number') ? self.paintTick : -1;
       if (s.pov !== fpvPrev.pov || jump) {
         // POV change or scrub/loop: resync baseline, don't fire, drop stale splat.
         fpvSplat = null;
-      } else if (typeof self.hp === 'number' && fpvPrev.hp >= 0 && self.hp < fpvPrev.hp) {
-        // Hit by the enemy → their paint hits the screen.
+      } else if (paint >= 0 && paint !== fpvPrev.paint && paint <= s.t) {
+        // A fresh paint hit landed on the POV seat → enemy paint hits the screen.
         var enemyCol = self.team === 'red' ? BLUE : RED;
-        fpvSplat = makeSplat(s.t, enemyCol);
+        fpvSplat = makeSplat(paint, enemyCol);
       }
       fpvPrev.pov = s.pov;
-      fpvPrev.hp = (typeof self.hp === 'number') ? self.hp : -1;
+      fpvPrev.paint = paint;
       fpvPrev.tick = s.t;
     }
 

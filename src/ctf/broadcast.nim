@@ -413,7 +413,11 @@ proc firstPersonJson(sim: SimServer, playerIndex: int): JsonNode =
     "alive": selfAlive,
     "team": teamText(self.team),
     "carry": self.carryingFlag,
-    "items": carriedItems
+    "items": carriedItems,
+    # Tick of the seat's latest PAINT hit (paintball gun / grenade only — the
+    # plasma arc draws no paint). The client fires the visor paint splat when
+    # this advances, so a bloodless plasma-sword touch never splashes paint.
+    "paintTick": self.paintHitTick
   }
 
   # Un-fogged tactical map: EVERY player, both hearts, and all present pickups in

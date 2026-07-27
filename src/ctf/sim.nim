@@ -418,6 +418,10 @@ type
                                ## activation: one hit per victim per firing.
     throwCharge*: int          ## ticks the throw button has been held.
     lastShoutTick*: int        ## tick of this player's latest shout, -1 = never.
+    paintHitTick*: int         ## tick of the latest PAINT hit taken (paintball
+                               ## gun or grenade only — NOT the plasma arc, which
+                               ## draws no paint). Cosmetic: drives the EYES-PiP
+                               ## paint splat; -1 = never, never enters gameHash.
     joinOrder*: int
     address*: string
     color*: uint8
@@ -3392,6 +3396,7 @@ proc addPlayer*(
     color: color,
     skin: slot.skin,
     lastShoutTick: -1,
+    paintHitTick: -1,
     reward: sim.rewardAccounts[accountIndex].reward
   )
   sim.fovCaches.add PlayerFov(
@@ -4276,6 +4281,11 @@ proc applyFire(sim: var SimServer, shooterIndex, targetIndex: int) =
     let bubbleUp = sim.players[targetIndex].hasShield and
       sim.players[targetIndex].shieldHp > 0
     let blocked = sim.absorbDamage(targetIndex, 1)
+    # Paintball paint marks the body only when the shield bubble ISN'T eating it
+    # (a bubble dent draws no body paint). Stamp so the EYES-PiP visor splat
+    # fires for THIS paint hit — and only for paint (gun/grenade), never plasma.
+    if not bubbleUp:
+      sim.players[targetIndex].paintHitTick = sim.tickCount
     sim.emitEvent(
       Damage, source = shooterIndex, target = targetIndex, weapon = "gun",
       amount = 1, hp = max(0, sim.players[targetIndex].hp),
@@ -4456,6 +4466,9 @@ proc explodeGrenade(sim: var SimServer, grenade: AirborneGrenade) =
     if distSq(px, py, grenade.tx, grenade.ty) > radiusSq:
       continue
     let blocked = sim.absorbDamage(i, GrenadeDamage)
+    # A paint-bomb blast marks everyone caught in it — stamp so the EYES-PiP
+    # visor splat fires for this paint hit (paint only: gun/grenade, not plasma).
+    sim.players[i].paintHitTick = sim.tickCount
     sim.emitEvent(
       Damage, source = grenade.thrower, target = i, weapon = "grenade",
       amount = GrenadeDamage, hp = max(0, sim.players[i].hp),
