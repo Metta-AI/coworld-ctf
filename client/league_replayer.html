@@ -211,6 +211,15 @@
     font-family:var(--finefont); font-size:13px; color:var(--paper-dim); background:var(--ink-soft);
     padding:8px 16px; border-radius:20px; display:none}
   #status.show{display:block}
+  /* escalated load-failure card: the embedded board never sent a frame. Wider,
+     readable, with a direct top-level link that sidesteps an embedding block. */
+  #status.err{max-width:min(64%,520px); padding:15px 20px; border-radius:12px;
+    font-size:14px; line-height:1.5; color:var(--paper); text-align:center;
+    box-shadow:0 0 0 1px rgba(242,232,216,.08)}
+  #status.err .st-sub{display:block; margin-top:5px; font-size:12px; color:var(--paper-dim)}
+  #status.err a{display:inline-block; margin-top:11px; color:var(--amber); text-decoration:none;
+    font-family:var(--pixfont); font-weight:600; letter-spacing:.02em}
+  #status.err a:hover{text-decoration:underline}
 </style>
 </head>
 <body>
@@ -819,11 +828,34 @@
     });
   });
 
-  var statusTimer=null;
-  function hideStatus(){ $('status').classList.remove('show'); if(statusTimer){clearTimeout(statusTimer);statusTimer=null;} }
-  function showStatus(t){ $('status').textContent=t; $('status').classList.add('show'); }
+  var statusTimer=null, failTimer=null;
+  function hideStatus(){
+    var el=$('status'); el.classList.remove('show'); el.classList.remove('err');
+    if(statusTimer){clearTimeout(statusTimer);statusTimer=null;}
+    if(failTimer){clearTimeout(failTimer);failTimer=null;}
+  }
+  function showStatus(t){ var el=$('status'); el.classList.remove('err'); el.textContent=t; el.classList.add('show'); }
+  // Escalation: the shell learns of the replay ONLY via a `frame` postMessage
+  // from the embedded board iframe. If the iframe is refused from embedding
+  // (the proxy/CDN denies framing → Chrome's "This content is blocked" box) or
+  // its socket never connects, no frame ever arrives and the toast would hang
+  // on "waiting for replay frames…" forever. Surface a real error with a direct
+  // TOP-LEVEL link to the board — opening it un-framed sidesteps an embed block.
+  function showLoadFailure(){
+    if(lastState) return; // frames arrived after all — nothing to escalate
+    var el=$('status'); el.classList.add('show','err');
+    var direct=(ROUTE_BASE||'')+'/client/replay'+location.search;
+    el.innerHTML='';
+    var head=document.createElement('div'); head.textContent='Replay didn’t load';
+    var sub=document.createElement('span'); sub.className='st-sub';
+    sub.textContent='The embedded board sent no frames — it may be blocked from embedding here.';
+    var link=document.createElement('a'); link.textContent='Open the board directly →';
+    link.href=direct; link.target='_top'; link.rel='noopener';
+    el.appendChild(head); el.appendChild(sub); el.appendChild(link);
+  }
   showStatus('loading replay…');
   statusTimer=setTimeout(function(){ if(!lastState) showStatus('waiting for replay frames…'); }, 4000);
+  failTimer=setTimeout(showLoadFailure, 12000);
 
   layout();
 })();
