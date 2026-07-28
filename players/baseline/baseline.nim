@@ -1343,8 +1343,12 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       bot.shieldPos.add(spot)
       bot.shieldAbsentAt.add(-1)
   var plasmaSeen, shieldSeen: seq[Vec]
-  for o in client.spriteObjectsWithLabel("plasma arc"):
-    plasmaSeen.add(client.mapPos(o))
+  # GV23 PR #130 renamed "plasma arc" -> "spray can"; accept both so the
+  # build works on either side of the canonical boundary (label contract,
+  # DEPLOYS.md 2026-07-28T22:50Z / task 1216980917605149).
+  for lbl in ["plasma arc", "spray can"]:
+    for o in client.spriteObjectsWithLabel(lbl):
+      plasmaSeen.add(client.mapPos(o))
   for o in client.spriteObjectsWithLabel("shield"):
     shieldSeen.add(client.mapPos(o))
   trackPickups(bot.plasmaPos, bot.plasmaAbsentAt, plasmaSeen, me, bot.tick)
@@ -1352,10 +1356,14 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # Own carry state: the carried markers float over their carrier, and a
   # shield carrier's HUD reads 6 hp (the marker is the fallback).
   var hasPlasma = false
-  for o in client.spriteObjectsWithLabel("plasma arc carried"):
-    if dist(client.mapPos(o), me) <= 30.0:
-      hasPlasma = true
-      break
+  block carryScan:
+    # GV23 PR #130 renamed "plasma arc carried" -> "spray can carried";
+    # accept both (label contract, task 1216980917605149).
+    for lbl in ["plasma arc carried", "spray can carried"]:
+      for o in client.spriteObjectsWithLabel(lbl):
+        if dist(client.mapPos(o), me) <= 30.0:
+          hasPlasma = true
+          break carryScan
   var hasShield = bot.hp > MaxHp
   if not hasShield:
     for o in client.spriteObjectsWithLabel("shield carried"):
