@@ -384,6 +384,14 @@ when defined(zonePhalanx):
     of pdMidA, pdMidB: 2
     else: 3
 
+  when defined(flagSafeRelease):
+    const
+      ReleaseMinGame = 600     # sit out the opening scramble before releasing
+      PedGuardR = 150.0        # a remembered enemy this close to our pedestal
+                               # is an imminent steal threat: hold stations
+      PedThreatTtl = 150       # ...if the sighting is this fresh
+      ReleaseTrackTtl = 90     # fight locator freshness (matches the freeze)
+
 proc vec(x, y: float): Vec =
   Vec(x: x, y: y)
 
@@ -1920,6 +1928,49 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
        target = bot.snapToCover(vec(
          ownEdgeX + dirX * (if lead: front else: front - 44.0),
          laneY2 + (if lead: -32.0 else: 32.0)))
+       when defined(flagSafeRelease):
+         # Flag-safe cross-lane reinforcement: the three lane pairs are
+         # static, so a massed attack on one lane fights 2-3 of us while the
+         # quiet lanes hold empty ground (measured: vs flag-passive rivals
+         # ~44-51% of home alive-ticks pass with no enemy within 300px, and
+         # most of our deaths happen with idle mates a lane away). While our
+         # flag is provably safe — never stolen this game, nothing remembered
+         # near the pedestal — a pair whose OWN lane is quiet converges on
+         # the freshest remembered enemy in OUR half instead of holding its
+         # station. Allocation only: pushOut timing, the front cap and the
+         # steal wave are untouched, the redeploy point stays home-side of
+         # the contact inside our half, and any pedestal approach or steal
+         # flips the gate back to the stock stations on the next tick (a
+         # stolen flag re-routes everyone upstream via ownStolen).
+         if not contact and gameTick > ReleaseMinGame and
+             not ownStolen and not bot.everLostOurs:
+           let ped = flagHome(bot.team)
+           var pedThreat = false
+           for t in bot.enemies:
+             if bot.tick - t.lastSeen <= PedThreatTtl and
+                 dist(t.pos, ped) < PedGuardR:
+               pedThreat = true
+               break
+           if not pedThreat:
+             var fight = -1
+             for i in 0 ..< bot.enemies.len:
+               let t = bot.enemies[i]
+               if bot.tick - t.lastSeen > ReleaseTrackTtl:
+                 continue
+               if dirX * (t.pos.x - float(CenterX)) > 40.0:
+                 continue          # our half only: this is not an invasion
+               if fight < 0 or t.lastSeen > bot.enemies[fight].lastSeen or
+                   (t.lastSeen == bot.enemies[fight].lastSeen and
+                    dist(t.pos, me) < dist(bot.enemies[fight].pos, me)):
+                 fight = i
+             if fight >= 0:
+               let fp = bot.enemies[fight].pos
+               var rx = fp.x - dirX * (if lead: 60.0 else: 110.0)
+               rx = (if dirX > 0.0: clamp(rx, 30.0, float(CenterX) - 20.0)
+                     else: clamp(rx, float(CenterX) + 20.0, float(MapW) - 30.0))
+               target = bot.snapToCover(vec(rx,
+                 clamp(fp.y + (if lead: -34.0 else: 34.0),
+                       20.0, float(MapH) - 20.0)))
   elif bot.role == HomeDefender and not pushOut:
     # Hold the choke on our pedestal approach; break off to chase the nearest
     # intruder on our half (every steal has to come through here).
