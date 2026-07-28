@@ -13,4 +13,8 @@ so agent sandboxes can decode replays without installing the nim toolchain.
 - Consumers: `cogames/ctf/team/bin/fetch-decoder.sh` in daveey/cogamer, pinned to
   an immutable commit sha of this branch via raw.githubusercontent.com.
 
-Current build: GV22, source 3da0c06e111b2b688fc521051e9116ae11b17a76.
+Current build: GV23, source 493793bc8cdf94aeadddcb44c6e4ee9d2f982c96 (includes PR #130
+spray-can label renames; replay-compatible with GV23 replays recorded at 11c1317).
+Historical GV22 build: pinned at branch commit 96951473b858672698d3da96ac5f95580ae0acc1
+(source 3da0c06e111b2b688fc521051e9116ae11b17a76) — fetch that commit's raw URL to
+decode the GV22 replay corpus.
