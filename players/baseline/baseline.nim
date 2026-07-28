@@ -217,6 +217,45 @@ const
   HuntIntruderR = 280.0       # -d:huntWipe: an enemy seen this close to OUR
                               # pedestal has attack intent: never hunt-to-wipe
                               # against it (turtle-detector latch)
+  WipeLedgerBase = 24         # -d:wipeClosure: enemy stock at spawn (8 seats x
+                              # 3 lives). The witnessed-kill ledger counts up
+                              # toward it; it can only ever UNDERCOUNT, so the
+                              # trigger below fires late, never early.
+  WipeLedgerG = 4             # trigger when ledger >= Base - G, i.e. estimated
+                              # enemy stock <= G (leg-0: crossing measured at
+                              # G=4 in 15/20 qualifying MUTs with ~800 ticks
+                              # left; corrected true closure gap mean 3.76)
+  WipeSelfLives = 2           # symmetric-fragility gate: a seat joins the
+                              # close-in only with own lives >= this — the body
+                              # whose loss converts the draw into a loss never
+                              # presses (prePos/windupDedup MUT->LOSS scar)
+  KoFreshStageMax = 1         # accept enemy KO pops at stage <= this (age <=
+                              # ~21 of 44 ticks) and splatters at stage 0 (age
+                              # <= ~29 of 120): bounds detection lag so the
+                              # ledger id's tick quantum is honest
+  KoClusterR = 20.0           # px radius folding co-located markers (a KO pop
+                              # and its splatter, repeat frames) into ONE death
+  KoClusterTtl = 170          # ticks a cluster keeps absorbing markers; longer
+                              # than the longest marker life (120), so a fading
+                              # splatter can never re-create its own event
+  KoIdTolQ = 5                # id-match tolerance in 8-tick quanta: witnesses
+                              # stamp the same death a few ticks apart (marker
+                              # age at first sight), so ids within this many
+                              # quanta AND 2 x-quanta are the SAME death
+  WipeSearchDwell = 110       # -d:wipeClosure: ticks a hunting seat holds one
+                              # search waypoint before sweeping to the next
+  KGossipEvery = 78           # -d:wipeClosure: rotating ledger re-gossip rate
+                              # (fresh events are not rate-limited beyond the
+                              # shared 26-tick shout spacing). Smoke-measured:
+                              # single-shot relay leaves per-seat sets at
+                              # 8-15/21 witnessed — repetition is what closes
+                              # the late 35%-zero-fanout propagation gap.
+  KGossipFrom = 2600          # start re-gossip well before LatePushTick so
+                              # per-seat sets converge on the team union by
+                              # the time the trigger can arm; earlier chatter
+                              # would displace the taunt/peace persona all game
+  KGossipEarlyLedger = 16     # ...or from any ledger this high (a bloodbath
+                              # can cross the trigger line before gt2600)
   HoldFrontCap = 220.0        # -d:holdFront: ceiling on the phalanx creep — a
                               # castle line near our wall: fights there recur on
                               # ground where our respawn walk is ~100px and the
@@ -361,6 +400,20 @@ type
     when defined(huntWipe):
       enemyDeepSeen: bool     # a live enemy was seen near OUR pedestal this
                               # game: attack intent — disarms hunt-to-wipe
+    when defined(wipeClosure):
+      koIdT: seq[int]         # witnessed-kill ledger: dedup'd enemy-death ids,
+      koIdX: seq[int]         #   quantized (tick div 8, x div 8) per the leg-0
+                              #   design note; own eyes + heard K-shouts
+      koClPos: seq[Vec]       # active own-eyes marker clusters (death spots)
+      koClFirst: seq[int]     # first-seen tick per cluster
+      kShoutQ: seq[string]    # own-eyes ids not yet relayed to mates
+      koGossipIdx: int        # rotating re-gossip cursor over the id set
+      lastKTick: int          # re-gossip rate limit (fresh sends also stamp)
+      selfLives: int          # own remaining lives, from the HUD lives label
+      wipeWasOn: bool         # trigger edge detector (telemetry)
+      searchIdx: int          # wipe-search sweep waypoint cursor
+      searchNext: int         # tick the current search waypoint expires
+      searchSeeded: bool      # cursor staggered by slot on first use
     phalanxHold: float        # frozen advance front while our lane has contact
     helpLane: int             # 1=top 2=mid 3=bottom, from an H-shout
     helpUntil: int            # tick the help retasking expires
@@ -1369,7 +1422,71 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           bot.hp = clamp(parseInt(text[0 ..< cut]), 1, 9)
         except ValueError:
           discard
+      when defined(wipeClosure):
+        # Own remaining lives from the same HUD sprite ("x<lives>" tail):
+        # exactly observable per seat (leg-0 A5) — the no-comms input to the
+        # symmetric-fragility gate.
+        let xcut = text.rfind('x')
+        if xcut > 0 and xcut < text.len - 1:
+          try:
+            bot.selfLives = clamp(parseInt(text[xcut + 1 .. ^1]), 0, 9)
+          except ValueError:
+            discard
       break
+
+  when defined(wipeClosure):
+    # Witnessed-kill ledger (wipe-closure leg-0 design note, BINDING): every
+    # death drops fog-honest markers at the death spot in the VICTIM's color
+    # — "damage pop <color> KO" (44 ticks) and "splatter <color>" (120
+    # ticks), both already broadcast on the label channel and unread until
+    # now. A FRESH enemy-colored marker at a spot with no active cluster is
+    # a NEW witnessed enemy death. Stage filters bound the marker's age so
+    # the id's tick quantum is honest; position clustering folds the KO pop,
+    # its co-located splatter and repeat frames into one event. The ledger
+    # can only UNDERCOUNT (unwitnessed deaths are simply missing), so any
+    # trigger keyed on it fires late, never early.
+    var koSeen: seq[Vec]
+    for stg in 0 .. KoFreshStageMax:
+      for o in client.spriteObjectsWithLabel(
+          "damage pop " & enemyColor & " KO stage " & $stg):
+        koSeen.add(client.mapPos(o))
+    for o in client.spriteObjectsWithLabel(
+        "splatter " & enemyColor & " stage 0"):
+      koSeen.add(client.mapPos(o))
+    for p in koSeen:
+      var clustered = false
+      for i in 0 ..< bot.koClPos.len:
+        if bot.tick - bot.koClFirst[i] <= KoClusterTtl and
+            dist(bot.koClPos[i], p) < KoClusterR:
+          clustered = true
+          break
+      if clustered:
+        continue
+      bot.koClPos.add p
+      bot.koClFirst.add bot.tick
+      let qt = bot.tick div 8
+      let qx = int(p.x) div 8
+      var dup = false
+      for i in 0 ..< bot.koIdT.len:
+        if abs(bot.koIdT[i] - qt) <= KoIdTolQ and abs(bot.koIdX[i] - qx) <= 2:
+          dup = true
+          break
+      if not dup:
+        bot.koIdT.add qt
+        bot.koIdX.add qx
+        # Relay own-eyes events only at detection; the send block below also
+        # re-gossips the whole set late-game (anti-entropy).
+        bot.kShoutQ.add("K" & $qt & " " & $qx)
+        artEvent(bot.tick, "wipe_ko_seen",
+          %*{"n": bot.koIdT.len, "x": int(p.x), "y": int(p.y)})
+        when defined(wipeDebug):
+          echo "WIPE ko slot=", bot.slot, " tick=", bot.tick,
+            " ledger=", bot.koIdT.len, " at=", int(p.x), ",", int(p.y)
+    when defined(wipeDebug):
+      if bot.tick mod 400 == 0:
+        echo "WIPE st slot=", bot.slot, " tick=", bot.tick,
+          " ledger=", bot.koIdT.len, " lives=", bot.selfLives,
+          " q=", bot.kShoutQ.len
 
   # Med kits: learn the two center-line spots on sight; presence is
   # fog-gated, so an empty spot only counts as TAKEN when we pass close
@@ -1455,6 +1572,34 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
             bot.siegePhaseUntil = bot.tick + SiegeAdvanceTicks
             bot.siegeFront = min(max(bot.siegeFront, HoldFrontCap) + SiegeStep,
               float(MapW) - 300.0)
+          continue
+      when defined(wipeClosure):
+        # "K<qt> <qx>": a mate relays a witnessed enemy-death id (quantized
+        # tick and x of the death spot). Merge into the ledger with
+        # tolerance — different witnesses stamp the same death a few ticks
+        # and pixels apart (marker age at first sight). Own bubbles parse
+        # too, but their ids already sit in the ledger exactly, so the dedup
+        # makes them a no-op.
+        if text.len >= 4 and text[0] == 'K':
+          let kparts = text[1 .. ^1].split(' ')
+          if kparts.len == 2:
+            try:
+              let kt = parseInt(kparts[0])
+              let kx = parseInt(kparts[1])
+              var kdup = false
+              for i in 0 ..< bot.koIdT.len:
+                if abs(bot.koIdT[i] - kt) <= KoIdTolQ and
+                    abs(bot.koIdX[i] - kx) <= 2:
+                  kdup = true
+                  break
+              if not kdup:
+                bot.koIdT.add kt
+                bot.koIdX.add kx
+                when defined(wipeDebug):
+                  echo "WIPE k-rx slot=", bot.slot, " tick=", bot.tick,
+                    " ledger=", bot.koIdT.len
+            except ValueError:
+              discard
           continue
       if text.len < 4 or text[0] notin {'C', 'T', 'E', 'G'}:
         continue
@@ -1715,6 +1860,34 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
               $(int(t.pos.y) div 8)
             bot.lastEShout = bot.tick
             break
+  when defined(wipeClosure):
+    # K-relay spends leftover shout budget under every gameplay shout (and
+    # above taunts). Two sends share the budget: fresh own-eyes death ids
+    # (queued at detection), then a rotating re-gossip over the whole
+    # dedup'd set — smoke-measured, a single shout per event strands the
+    # per-seat sets at 8-15 of a 21-event team union (the leg-0 D3
+    # zero-fanout gap); repetition converges them. Re-gossip of HEARD ids
+    # is deliberate anti-entropy — dedup makes echo harmless, unlike the
+    # E-track relay. It only starts late (or on a high ledger) so the
+    # taunt/peace persona keeps the early-game budget. Position leak is
+    # moot: a witnessed kill means guns just fired, and gunfire already
+    # rings map-wide.
+    if bot.shoutWant.len == 0 and not iCarry and
+        bot.tick - bot.lastShoutTick >= 26:
+      if bot.kShoutQ.len > 0:
+        bot.shoutWant = bot.kShoutQ[0]
+        bot.kShoutQ.delete(0)
+        bot.lastKTick = bot.tick
+        bot.lastShoutTick = bot.tick
+      elif bot.koIdT.len > 0 and bot.tick - bot.lastKTick >= KGossipEvery and
+          (bot.tick - bot.gameStart > KGossipFrom or
+           bot.koIdT.len >= KGossipEarlyLedger):
+        let gi = bot.koGossipIdx mod bot.koIdT.len
+        bot.shoutWant = "K" & $bot.koIdT[gi] & " " & $bot.koIdX[gi]
+        inc bot.koGossipIdx
+        bot.lastKTick = bot.tick
+        bot.lastShoutTick = bot.tick
+
   when defined(taunt):
     # Taunts spend only LEFTOVER shout budget: never while carrying and never
     # over a gameplay shout (the carrier heartbeat always wins the 1/s slot).
@@ -1837,6 +2010,30 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       not bot.everLostOurs and not bot.enemyDeepSeen
   else:
     let huntWipe = false
+  # Wipe-closure trigger (task 1216955843331704; leg-0 design note BINDING).
+  # The non-beacon mutual losses are clock expiries where we already WON the
+  # shooting war (median enemy stock 2 at the buzzer, 0 captures in 33/33
+  # both sides) — the only realistic closure is the wipe, and the blocking
+  # question was observability. Three conjunctive terms, all observable per
+  # seat: the existing late-press clock, the witnessed-kill ledger crossing
+  # "they are nearly out" (undercounts by construction — fires late, never
+  # early), and own lives >= 2 (the last body never presses; the structural
+  # answer to the MUT->LOSS converter scar). Unlike huntWipe this is NOT
+  # turtle-gated: the attrition signal itself certifies the moment.
+  when defined(wipeClosure):
+    let wipeClose = pushOut and
+      bot.tick - bot.gameStart > LatePushTick and
+      bot.koIdT.len >= WipeLedgerBase - WipeLedgerG and
+      bot.selfLives >= WipeSelfLives
+    if wipeClose and not bot.wipeWasOn:
+      artEvent(bot.tick, "wipe_trigger",
+        %*{"ledger": bot.koIdT.len, "lives": bot.selfLives})
+      when defined(wipeDebug):
+        echo "WIPE trigger slot=", bot.slot, " tick=", bot.tick,
+          " ledger=", bot.koIdT.len, " lives=", bot.selfLives
+    bot.wipeWasOn = wipeClose
+  else:
+    let wipeClose = false
 
   when defined(nadeCluster):
     if pushOut and not bot.wasPushOut:
@@ -2113,13 +2310,15 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # mid, then hit the pedestal pocket from behind.
     target = stealTarget
     var hunting = false
-    if huntWipe:
+    if huntWipe or wipeClose:
       # Hunt-to-wipe: the press targets enemy PLAYERS, not the flag. Chase
       # the nearest remembered body (guns stay up at full FireRange — the
-      # unarmed pocket touch below is disabled while hunting); with no live
-      # track, hold a spread arc center-side of the enemy pocket so the
-      # vision cones re-acquire the remaining defenders instead of feeding
-      # the pedestal.
+      # unarmed pocket touch below is disabled while hunting). With no live
+      # track: the ledger-triggered close-in SEARCHES (leg-0 D4: findability
+      # is cell-split — richard/relh last bodies sit near their own
+      # pedestal, h050's roam OUR half, and at the buzzer only ~10% are
+      # visible from a standing formation — while the validated beacon
+      # turtle path keeps its v1 spread arc unchanged.
       hunting = true
       var hi = -1
       var hd = 1e18
@@ -2132,19 +2331,56 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           hd = d
           hi = i
       if hi >= 0:
+        objMode = "hunt_wipe"
         target = bot.enemies[hi].pos + bot.enemies[hi].vel * 6.0
       else:
-        let spreadY = (case bot.role
-          of FlankTop: -130.0
-          of MidTop: -65.0
-          of MidGuard: 0.0
-          of MidBottom: 65.0
-          of FlankBottom: 130.0
-          of Overwatch: -190.0
-          of HomeDefender: 190.0)
-        target = vec(
-          stealTarget.x + homeSign(bot.team) * HuntStandoffX,
-          clamp(stealTarget.y + spreadY, 30.0, float(MapH) - 30.0))
+        var searched = false
+        when defined(wipeClosure):
+          if wipeClose:
+            # Slot-staggered waypoint sweep: their pedestal pocket, their
+            # two gear columns (the deep hides), their-half lane mouths,
+            # plus two our-half stations for home-contact cells. Advance on
+            # arrival or dwell expiry; any sighting turns into a track and
+            # the chase above takes over.
+            searched = true
+            objMode = "wipe_search"
+            let
+              ecolX = (if enemy(bot.team) == Red: 50.0
+                       else: float(MapW) - 50.0)
+              midTheirX = (float(CenterX) + stealTarget.x) * 0.5
+              midOursX = (float(CenterX) + ownHome.x) * 0.5
+              sweep = [
+                stealTarget,
+                vec(midTheirX, LaneTop),
+                vec(ecolX, float(MapH div 4)),
+                vec(midTheirX, LaneBottom),
+                vec(ecolX, float(3 * MapH div 4)),
+                vec(midTheirX, LaneMid),
+                vec(midOursX, LaneTop),
+                vec(midOursX, LaneBottom),
+              ]
+            if not bot.searchSeeded:
+              bot.searchSeeded = true
+              bot.searchIdx = bot.slot
+              bot.searchNext = bot.tick + WipeSearchDwell
+            if bot.tick >= bot.searchNext or
+                dist(me, sweep[bot.searchIdx mod sweep.len]) < 60.0:
+              inc bot.searchIdx
+              bot.searchNext = bot.tick + WipeSearchDwell
+            target = sweep[bot.searchIdx mod sweep.len]
+        if not searched:
+          objMode = "hunt_arc"
+          let spreadY = (case bot.role
+            of FlankTop: -130.0
+            of MidTop: -65.0
+            of MidGuard: 0.0
+            of MidBottom: 65.0
+            of FlankBottom: 130.0
+            of Overwatch: -190.0
+            of HomeDefender: 190.0)
+          target = vec(
+            stealTarget.x + homeSign(bot.team) * HuntStandoffX,
+            clamp(stealTarget.y + spreadY, 30.0, float(MapH) - 30.0))
     if not hunting:
       case bot.role
       of MidBottom:
@@ -2179,7 +2415,8 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     if bot.tick - t.lastSeen > 48:
       continue
     nearestMateToSteal = min(nearestMateToSteal, dist(t.pos, stealTarget))
-  let pocketRush = not huntWipe and not iCarry and not mateCarry and
+  let pocketRush = not huntWipe and not wipeClose and
+    not iCarry and not mateCarry and
     bot.role in {MidTop, MidBottom, MidGuard, FlankTop, FlankBottom} and
     dist(me, stealTarget) < PocketRushRange and
     dist(me, stealTarget) < nearestMateToSteal + 8.0
