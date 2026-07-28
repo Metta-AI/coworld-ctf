@@ -159,8 +159,13 @@ const
   # enemy-side only, in throw range, no ally in blast, opponent-gate the
   # low-stability turtle-signature cells (need a live enemy corroboration),
   # scout-confirm boost, per-bot cooldown + weight-scaled probabilistic stagger.
-  NadePriorBaseProb = 0.020   # per-tick throw prob at the score-norm cell
-  NadePriorMaxProb = 0.12     # cap so even the hottest cell staggers
+  NadePriorBaseProb = 0.25    # per-tick throw prob at the score-norm cell
+                              # (iteration 2: dose ceiling — the corrected-base
+                              # decode showed armed+idle+in-range co-occurs
+                              # ~52 bot-ticks/ep, so the 0.020 stagger yielded
+                              # ~0.1 marginal throws/ep = inert; this probes the
+                              # design's max expressible rate, cooldown intact)
+  NadePriorMaxProb = 0.50     # cap so even the hottest cell staggers
   NadePriorScoreNorm = 30.0   # weight that maps to the base probability
   NadePriorScoutBoost = 3.0   # a fresh enemy near the cell multiplies the prob
   NadePriorScoutTtl = 50      # ticks a sighting counts as "scouted"
