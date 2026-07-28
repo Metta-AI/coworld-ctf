@@ -219,6 +219,25 @@ const
   HuntIntruderR = 280.0       # -d:huntWipe: an enemy seen this close to OUR
                               # pedestal has attack intent: never hunt-to-wipe
                               # against it (turtle-detector latch)
+  HuntOnsetTick = 2000        # -d:huntWipeV2: the hunt arms once pushOut
+                              # first opens past this game tick (v1 rode the
+                              # 3400 all-in) and LATCHES — the quiet-field
+                              # push clauses open ~gc2000 vs a pure turtle
+                              # but self-extinguish on first sighting; the
+                              # latch keeps the press committed. Revoked by
+                              # the turtle detector (everLostOurs /
+                              # enemyDeepSeen), so conduct vs anything that
+                              # ever attacks is unchanged.
+  HuntArcDwell = 360          # -d:huntWipeV2: max trackless ticks ON the
+                              # standoff arc before forcing the close-in —
+                              # the arc re-acquires, but camping it is the
+                              # decoded loss signature (15/23 losses never
+                              # closed inside 210px; 20/20 wins did)
+  HuntCloseX = 120.0          # -d:huntWipeV2: forced close-in offset from
+                              # the enemy pedestal — inside the ~210px band
+                              # where our 45° cone + 90px bubble acquire
+                              # (GunRange 1300 is map-wide, so the arc has no
+                              # safety to trade for)
   HoldFrontCap = 220.0        # -d:holdFront: ceiling on the phalanx creep — a
                               # castle line near our wall: fights there recur on
                               # ground where our respawn walk is ~100px and the
@@ -363,11 +382,19 @@ type
     when defined(huntWipe):
       enemyDeepSeen: bool     # a live enemy was seen near OUR pedestal this
                               # game: attack intent — disarms hunt-to-wipe
+    when defined(huntWipeV2):
+      huntLatched: bool       # hunt press committed (survives pushOut
+                              # flicker); revoked by the turtle detector
+      huntArcAt: int          # tick this seat arrived on the arc with no
+                              # live track; 0 = chasing / not yet on station
     phalanxHold: float        # frozen advance front while our lane has contact
     helpLane: int             # 1=top 2=mid 3=bottom, from an H-shout
     helpUntil: int            # tick the help retasking expires
     lastEShout: int           # scout sighting-broadcast rate limit
     lastHShout: int           # help-call rate limit
+
+when defined(huntWipeV2) and not defined(huntWipe):
+  {.error: "-d:huntWipeV2 extends the v1 hunt: build with -d:huntWipe too.".}
 
 proc roleForSeat(seat: int, team: Team): Role =
   ## Deterministic role spread over the 8 per-team seats. Seats 2 and 3 both
@@ -1896,7 +1923,21 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # Redirect the SAME late press (no timing change — the push-timing axis is
   # refuted 5 ways) from the flag onto the enemy's remaining bodies. The
   # detector latch keeps behavior vs any enemy that ever attacks unchanged.
-  when defined(huntWipe):
+  when defined(huntWipeV2):
+    # v2 (force the close-in): earlier onset + commitment. v1 rode the 3400
+    # all-in, but the decoded counterfactual (bp2 leg-1) shows the quiet-field
+    # push clauses already open ~gc2000 vs a pure turtle and self-extinguish
+    # on first sighting (advance -> sight -> shut -> return), which is why the
+    # effective press waited for 3400 while the clock ate the near-wipes.
+    # Latch the hunt the first time it fires; the turtle-detector latches
+    # below revoke it, so behavior vs any enemy that ever attacks (steals or
+    # comes deep) recalls exactly as v1 does.
+    if bot.everLostOurs or bot.enemyDeepSeen:
+      bot.huntLatched = false
+    elif pushOut and bot.tick - bot.gameStart > HuntOnsetTick:
+      bot.huntLatched = true
+    let huntWipe = bot.huntLatched
+  elif defined(huntWipe):
     let huntWipe = pushOut and
       bot.tick - bot.gameStart > LatePushTick and
       not bot.everLostOurs and not bot.enemyDeepSeen
@@ -2033,7 +2074,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         target = mateCarryPos + vec(homeSign(bot.team) * 40.0, -24.0)
       else:
         target = bot.chokeHold
-  elif phalanxOn and not pushOut:
+  elif phalanxOn and not pushOut and not huntWipe:
    when defined(zonePhalanx):
      # Zone phalanx: shield scout spots forward and relays sightings, three
      # staggered pairs hold the lanes at a slowly advancing front (freeze on
@@ -2125,7 +2166,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
        target = bot.snapToCover(vec(
          ownEdgeX + dirX * (if lead: front else: front - 44.0),
          laneY2 + (if lead: -32.0 else: 32.0)))
-  elif bot.role == HomeDefender and not pushOut:
+  elif bot.role == HomeDefender and not pushOut and not huntWipe:
     # Hold the choke on our pedestal approach; break off to chase the nearest
     # intruder on our half (every steal has to come through here).
     objMode = "defend"
@@ -2145,7 +2186,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       target = bot.enemies[intruder].pos + bot.enemies[intruder].vel * 6.0
     else:
       target = bot.chokeHold
-  elif bot.role == Overwatch and not pushOut:
+  elif bot.role == Overwatch and not pushOut and not huntWipe:
     objMode = "overwatch"
     if bot.postReady:
       # Peek-and-shoot cycle: hold behind the post; with the gun up and a
@@ -2160,7 +2201,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
             break
     else:
       target = vec(float(CenterX) + homeSign(bot.team) * 70.0, float(CenterY))
-  elif counterPunch and not pushOut:
+  elif counterPunch and not pushOut and not huntWipe:
     # Home-side stations: one gun per lane on our half, second choke on the
     # pedestal approach. Combat below runs at full FireRange (not rushing).
     let sx = float(CenterX) + homeSign(bot.team) * 200.0
@@ -2198,6 +2239,8 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           hi = i
       if hi >= 0:
         target = bot.enemies[hi].pos + bot.enemies[hi].vel * 6.0
+        when defined(huntWipeV2):
+          bot.huntArcAt = 0
       else:
         let spreadY = (case bot.role
           of FlankTop: -130.0
@@ -2210,6 +2253,21 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         target = vec(
           stealTarget.x + homeSign(bot.team) * HuntStandoffX,
           clamp(stealTarget.y + spreadY, 30.0, float(MapH) - 30.0))
+        when defined(huntWipeV2):
+          # Bounded dwell, then force the close-in. The arc sits at gun range
+          # of 8 pre-aimed stationary defenders while OUTSIDE our own cone
+          # acquisition; dwell buys re-acquisition but an open-ended camp is
+          # the decoded loss signature. After HuntArcDwell trackless ticks on
+          # station, collapse to the pocket edge inside the acquisition band
+          # (spread compressed, guns stay up — the unarmed touch stays off).
+          # A fresh track flips back to the chase above and resets the clock.
+          if bot.huntArcAt == 0:
+            if dist(me, target) < 90.0:
+              bot.huntArcAt = bot.tick  # on station: the dwell clock starts
+          elif bot.tick - bot.huntArcAt > HuntArcDwell:
+            target = vec(
+              stealTarget.x + homeSign(bot.team) * HuntCloseX,
+              clamp(stealTarget.y + spreadY * 0.5, 30.0, float(MapH) - 30.0))
     if not hunting:
       case bot.role
       of MidBottom:
