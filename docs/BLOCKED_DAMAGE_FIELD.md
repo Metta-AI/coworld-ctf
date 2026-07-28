@@ -24,7 +24,7 @@ proc absorbDamage*(sim, targetIndex, amount): int =   # returns fromShield
 ```
 
 That `fromShield` **is** `blocked` — no heuristic. The three `Damage` emit sites
-(gun, plasma, grenade) capture `absorbDamage`'s return value and pass it as
+(gun, spray, grenade) capture `absorbDamage`'s return value and pass it as
 `blocked = …`. Rides the analysis-only event sink — NOT in `gameHash` (a test
 asserts this), so replays stay deterministic and live servers pay nothing
 (`collectEvents` still gates it).

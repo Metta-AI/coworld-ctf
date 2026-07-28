@@ -1745,8 +1745,8 @@ body[data-embed] #board { top: 0; height: 100%; }
   // fresh paint hit fires a splat; the splat itself is a set of blobs in [0..1]
   // canvas-space with a fire TICK, faded over SPLAT_TICKS so it decays as the
   // replay plays (scrub-safe, wall-clock independent). Keyed on paintTick — NOT
-  // raw hp — so only paintball/grenade paint splashes the visor; the plasma
-  // sword drains hp with no paint and must never trigger it.
+  // raw hp — so the splat tracks PAINT landing on this seat (gun, grenade, and
+  // spray can all stamp it) and never fires on a shield bubble eating the hit.
   var fpvPrev = { pov: -1, paint: -1, tick: -1 };
   var fpvSplat = null;
   var SPLAT_TICKS = 30;      // ~1.25s at 24fps: splat lingers then clears
@@ -1790,9 +1790,9 @@ body[data-embed] #board { top: 0; height: 100%; }
 
     var fp = s.fp;
 
-    // Paint-splatter-on-hit: when the POV cog takes a PAINT hit (paintball gun or
-    // grenade — server stamps self.paintTick; the plasma sword leaves no paint,
-    // so it never advances), splash the enemy team's paint across the "visor".
+    // Paint-splatter-on-hit: when the POV cog takes a PAINT hit — paintball gun,
+    // grenade, or a spray can in the face; the server stamps self.paintTick for
+    // all three — splash the enemy team's paint across the "visor".
     // Keyed + faded by TICK (not wall-clock) so it is replay-deterministic and
     // scrub-safe. A new paint hit replaces any fading splat.
     var self = fp.self;
@@ -2052,18 +2052,24 @@ body[data-embed] #board { top: 0; height: 100%; }
       ctx.lineTo(cx - r * 0.42, cy + r * 0.55);
       ctx.lineTo(cx - r * 0.6, cy - r * 0.4);
       ctx.closePath(); ctx.fill(); ctx.stroke();
-    } else if (kind === 'plasma') {
-      ctx.fillStyle = '#c77bd6';
-      ctx.beginPath(); ctx.arc(cx, cy, r * 0.5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-      ctx.strokeStyle = 'rgba(242,232,216,0.85)';
-      ctx.lineWidth = Math.max(1, r * 0.1);
-      for (var a = 0; a < 4; a++) {
-        var ang = a * Math.PI / 2 + Math.PI / 4;
-        ctx.beginPath();
-        ctx.moveTo(cx + Math.cos(ang) * r * 0.5, cy + Math.sin(ang) * r * 0.5);
-        ctx.lineTo(cx + Math.cos(ang) * r * 0.85, cy + Math.sin(ang) * r * 0.85);
-        ctx.stroke();
-      }
+    } else if (kind === 'spray') {
+      // Aerosol can: a chunky rounded body with a cream label band, a cap, and a
+      // puff of mist at the nozzle — the billboard read of data/spraycan.png.
+      // Sized to the same visual weight as the grenade / med kit / shield.
+      ctx.fillStyle = '#c8503f';
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(cx - r * 0.44, cy - r * 0.42, r * 0.88, r * 1.06, r * 0.22);
+      else ctx.rect(cx - r * 0.44, cy - r * 0.42, r * 0.88, r * 1.06);
+      ctx.fill(); ctx.stroke();
+      ctx.fillStyle = PAPER;
+      ctx.fillRect(cx - r * 0.44, cy - r * 0.04, r * 0.88, r * 0.32);
+      ctx.strokeRect(cx - r * 0.44, cy - r * 0.04, r * 0.88, r * 0.32);
+      ctx.fillStyle = '#7fc4d6';
+      ctx.beginPath(); ctx.rect(cx - r * 0.2, cy - r * 0.68, r * 0.4, r * 0.26);
+      ctx.fill(); ctx.stroke();
+      ctx.fillStyle = 'rgba(242,232,216,0.85)';
+      ctx.beginPath(); ctx.arc(cx + r * 0.4, cy - r * 0.72, r * 0.17, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(cx + r * 0.66, cy - r * 0.58, r * 0.1, 0, Math.PI * 2); ctx.fill();
     } else {
       ctx.fillStyle = AMBER;
       ctx.beginPath(); ctx.arc(cx, cy, r * 0.5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
@@ -2272,7 +2278,7 @@ body[data-embed] #board { top: 0; height: 100%; }
   }
 
   // Self-status HUD: name (team-tinted), hp pips, carried gear + flag flag.
-  var ITEM_LABEL = { grenade: 'GRENADE', medkit: 'MEDKIT', shield: 'SHIELD', plasma: 'PLASMA' };
+  var ITEM_LABEL = { grenade: 'GRENADE', medkit: 'MEDKIT', shield: 'SHIELD', spray: 'SPRAY CAN' };
   function renderFpvHud(self) {
     var hud = $('fpv-hud');
     if (!self) { hud.style.display = 'none'; return; }
@@ -2380,7 +2386,7 @@ body[data-embed] #board { top: 0; height: 100%; }
 
     // pickups as small dots
     (m.items || []).forEach(function (it) {
-      var c = { grenade: '#7fae55', medkit: '#f2e8d8', shield: '#6fa8d6', plasma: '#c77bd6' }[it.item] || AMBER;
+      var c = { grenade: '#7fae55', medkit: '#f2e8d8', shield: '#6fa8d6', spray: '#c8503f' }[it.item] || AMBER;
       ctx.fillStyle = c;
       ctx.beginPath();
       ctx.arc(px(it.x), py(it.y), Math.max(1.4, H * 0.022), 0, Math.PI * 2);
@@ -2713,7 +2719,7 @@ body[data-embed] #board { top: 0; height: 100%; }
   function renderEndcardRows(s, team, el, mvpSlot) {
     // Final per-player stat lines, top killer first. The MVP (winning team's
     // best line) reads in amber — no star prefix, it would break the name
-    // column's alignment. Clstr counts grenade/plasma multi-kill events; the
+    // column's alignment. Clstr counts grenade/spray multi-kill events; the
     // Cap column renders the captured enemy heart itself; a dagger icon marks
     // teammate kills.
     var rows = (s.roster || []).filter(function (p) { return p.team === team; })

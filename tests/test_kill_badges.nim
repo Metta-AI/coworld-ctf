@@ -95,7 +95,7 @@ suite "kill badges":
     check game.players[0].multiKills2 == 0   # the triple is not also a double
     check game.players[0].teamKills == 1     # red1 was in the blast
 
-  test "one plasma activation killing two enemies mints one double":
+  test "one spray burst killing two enemies mints one double":
     var game = badgeGame(1, 2)
     game.players[0].hasPlasmaArc = true
     game.players[0].aimBrads = 0
@@ -113,7 +113,7 @@ suite "kill badges":
     check game.players[0].multiKills2 == 1
     check game.players[0].multiKills3 == 0
 
-  test "one plasma activation killing three upgrades the double to a triple":
+  test "one spray burst killing three upgrades the double to a triple":
     var game = badgeGame(1, 3)
     game.players[0].hasPlasmaArc = true
     game.players[0].aimBrads = 0

@@ -39,8 +39,8 @@ let
   ClearX = 60
   ClearY = MapHeight div 2
 
-suite "plasma arcs":
-  test "two plasma arcs spawn walkable in the top half of the side columns":
+suite "spray cans":
+  test "two spray cans spawn walkable in the top half of the side columns":
     let game = twoTeamGame()
     for i in 0 ..< game.plasmaArcSpawns.len:
       check game.plasmaArcSpawns[i].present
@@ -71,13 +71,13 @@ suite "plasma arcs":
     game.stepNone(PlasmaArcRespawnTicks)
     check game.plasmaArcSpawns[0].present
 
-  test "a carried plasma arc is lost on death":
+  test "a carried spray can is lost on death":
     var game = twoTeamGame()
     game.players[0].hasPlasmaArc = true
     game.killPlayer(0, 1)
     check not game.players[0].hasPlasmaArc
 
-  test "a plasma arc carrier cannot fire the gun":
+  test "a spray can carrier cannot fire the gun":
     var game = twoTeamGame()
     game.players[0].hasPlasmaArc = true
     game.players[1].placeAtCenter(game.players[0].x + 100, game.players[0].y)
@@ -184,7 +184,7 @@ suite "plasma arcs":
     check game.players[0].kills == 1
     check game.players[1].kills == 1
 
-  test "a shield carrier survives one plasma touch, and only one per firing":
+  test "a shield carrier survives one spray touch, and only one per burst":
     var game = twoTeamGame()
     game.players[0].hasPlasmaArc = true
     game.players[0].aimBrads = 0
@@ -248,7 +248,7 @@ suite "plasma arcs":
       PlasmaArcActiveTicks + PlasmaArcResetTicks
     check not game.canFireArc(0)
 
-  test "plasma arc state is in the game hash":
+  test "spray can state is in the game hash":
     var game = twoTeamGame()
     let initial = game.gameHash()
     game.players[0].hasPlasmaArc = true
@@ -262,8 +262,6 @@ suite "plasma arcs":
     check game.gameHash() != toggled
 
 import bitworld/spriteprotocol, ctf/global
-
-const PlasmaArcFxObjectBase = 19700
 
 proc buildGlobalMessagesFx(
   game: var SimServer,
@@ -283,7 +281,7 @@ proc hasFxObject(messages: openArray[SpritePacketMessage], objectId: int): bool 
     if message.kind == spkObject and message.objectDef.id == objectId:
       return true
 
-suite "plasma arc fx wall clipping":
+suite "spray cone fx wall clipping":
   test "cone pulse discs stop at the first wall along the aim ray":
     # Find a spot where the aim ray is clear to the first pulse disc but a
     # wall blocks the ray before the last one — the damage cone cannot cross
@@ -291,15 +289,18 @@ suite "plasma arc fx wall clipping":
     var game = twoTeamGame()
     let (ux, uy) = (1.0, 0.0)   # aim east (brads 0)
     var fx, fy = -1
+    # Ask the renderer where the nearest and farthest puffs of a FRESH burst
+    # (stage 0) actually sit, rather than restating the fan geometry here — the
+    # puff count and the jet's growth curve are the renderer's business.
+    let
+      lastPulse = PlasmaArcFxPulses - 1
+      nearD = float(plasmaPulseForward(0, 0))
+      farD = float(plasmaPulseForward(lastPulse, 0))
     block search:
       for y in countup(40, MapHeight - 40, 8):
         for x in countup(40, MapWidth - 200, 8):
           if not game.canOccupy(x, y):
             continue
-          # Pulse disc centers sit at reach*(2k+1)/8 — test against the
-          # first (k=0) and last (k=3) disc centers, not the full reach.
-          let nearD = float(PlasmaArcReach) / 8.0
-          let farD = float(PlasmaArcReach) * 7.0 / 8.0
           let nx = x + int(ux * nearD)
           let ny = y + int(uy * nearD)
           let fxp = x + int(ux * farD)
@@ -321,7 +322,7 @@ suite "plasma arc fx wall clipping":
     # The first pulse (clear ray) draws; the last pulse (behind the wall)
     # must not.
     check messages.hasFxObject(PlasmaArcFxObjectBase + 0)
-    check not messages.hasFxObject(PlasmaArcFxObjectBase + 3)
+    check not messages.hasFxObject(PlasmaArcFxObjectBase + lastPulse)
 
   test "an unobstructed cone still draws every pulse disc":
     var game = twoTeamGame()
@@ -332,5 +333,5 @@ suite "plasma arc fx wall clipping":
     game.tryFireArc(0)
     var state = initGlobalViewerState()
     let messages = game.buildGlobalMessagesFx(state)
-    for pulse in 0 ..< 4:
+    for pulse in 0 ..< PlasmaArcFxPulses:
       check messages.hasFxObject(PlasmaArcFxObjectBase + pulse)

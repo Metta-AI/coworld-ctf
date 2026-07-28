@@ -395,18 +395,18 @@ proc firstPersonJson(sim: SimServer, playerIndex: int): JsonNode =
       addEnt("heart", teamText(team), float(f.x), float(f.y), -1, false)
 
     # Battlefield pickups the seat can see: corner grenades, center med kits,
-    # endzone shields, plasma arcs. Each renders as a labelled item billboard.
+    # endzone shields, spray cans. Each renders as a labelled item billboard.
     for sp in sim.grenadeSpawns: addPickup("grenade", sp)
     for sp in sim.medKitSpawns: addPickup("medkit", sp)
     for sp in sim.shieldSpawns: addPickup("shield", sp)
-    for sp in sim.plasmaArcSpawns: addPickup("plasma", sp)
+    for sp in sim.plasmaArcSpawns: addPickup("spray", sp)
 
   # The seat's own status, so the inset reads as a real HUD (hp / lives / what
   # this soldier is carrying / whether they hold the enemy heart).
   var carriedItems = newJArray()
   if self.hasGrenade: carriedItems.add(%"grenade")
   if self.hasShield: carriedItems.add(%"shield")
-  if self.hasPlasmaArc: carriedItems.add(%"plasma")
+  if self.hasPlasmaArc: carriedItems.add(%"spray")
   let selfJson = %*{
     "hp": self.hp,
     "lives": self.lives,
@@ -414,9 +414,9 @@ proc firstPersonJson(sim: SimServer, playerIndex: int): JsonNode =
     "team": teamText(self.team),
     "carry": self.carryingFlag,
     "items": carriedItems,
-    # Tick of the seat's latest PAINT hit (paintball gun / grenade only — the
-    # plasma arc draws no paint). The client fires the visor paint splat when
-    # this advances, so a bloodless plasma-sword touch never splashes paint.
+    # Tick of the seat's latest PAINT hit — every weapon in the game throws
+    # paint (gun, grenade, spray can), so all three stamp it. The client fires
+    # the visor paint splat when this advances.
     "paintTick": self.paintHitTick
   }
 
@@ -452,7 +452,7 @@ proc firstPersonJson(sim: SimServer, playerIndex: int): JsonNode =
   for sp in sim.grenadeSpawns: addMapItem("grenade", sp)
   for sp in sim.medKitSpawns: addMapItem("medkit", sp)
   for sp in sim.shieldSpawns: addMapItem("shield", sp)
-  for sp in sim.plasmaArcSpawns: addMapItem("plasma", sp)
+  for sp in sim.plasmaArcSpawns: addMapItem("spray", sp)
 
   let mapJson = %*{
     "w": MapWidth,

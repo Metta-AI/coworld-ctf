@@ -8,7 +8,7 @@ const
   # The event-substrate fixture: a full 16-bot match recorded against the
   # CURRENT gameplay rules (GameVersion 18, seed 281, lives 9,
   # tools/record_fixture.sh) whose kill mix exercises all three weapons
-  # (gun, grenade, plasma) plus steals, returns, heals, and a capture.
+  # (gun, grenade, spray) plus steals, returns, heals, and a capture.
   EventsFixture = GameDir / "tests" / "replays" / "ctf.bitreplay"
 
 suite "tier-2 event extraction (tools/extract_events)":
@@ -49,7 +49,7 @@ suite "tier-2 event extraction (tools/extract_events)":
       case event.kind
       of Kill:
         sawKill = true
-        check event.weapon in ["gun", "plasma", "grenade"]
+        check event.weapon in ["gun", "spray", "grenade"]
         check event.source >= 0 and event.source < slotCount
         check event.target >= 0 and event.target < slotCount
         inc killsBySlot[event.source]

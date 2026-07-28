@@ -44,6 +44,13 @@ const
   GunGlowSpread* = 1.0        ## px the silhouette expands before blurring — this is
                               ## the outline WIDTH that sticks out past the gun edge.
   GunGlowAlpha* = 95'u8       ## faint warm outline (0..255), reads as a subtle stroke.
+  SprayHeldLengthPx* = 22     ## the held spray can's length on the map, along the
+                              ## aim ray. Shorter than the marker (GunLengthPx):
+                              ## a can is a fistful, and the silhouette difference
+                              ## is what tells a viewer WHICH weapon a cog holds.
+  SprayHeldGripPx* = -6       ## can tail offset from the body center along aim.
+                              ## Less negative than GunGripPx so the short can
+                              ## sits IN the fist rather than straddling the hub.
   CollisionW* = 1
   CollisionH* = 1
   PlayerHalf* = 6             ## half-extent of the solid player footprint, in px.
@@ -313,7 +320,7 @@ type
     ## One arena obstacle. Discs and diamonds are center + radius (L2 and L1
     ## norms); diagonals are a 45-degree wall segment of given perpendicular
     ## thickness between two endpoints. A `window` shape is glass: it blocks
-    ## movement, bullets, and plasma-arc line-of-sight exactly like stone, but
+    ## movement, bullets, and spray-cone line-of-sight exactly like stone, but
     ## fog-of-war shadowcasting sees straight through it.
     window*: bool
     case kind*: ArenaShapeKind
@@ -428,16 +435,17 @@ type
     shieldHp*: int             ## remaining shield-layer hp (0..ShieldLayerHp);
                                ## damage depletes it before base hp.
     hasPlasmaArc*: bool        ## each player carries at most one plasma arc.
-    arcTicksLeft*: int         ## remaining active ticks of a fired plasma
+    arcTicksLeft*: int         ## remaining active ticks of a fired spray
                                ## cone (0 = the cone is off).
     arcHitMask*: uint32        ## players already damaged by the current
                                ## activation: one hit per victim per firing.
     throwCharge*: int          ## ticks the throw button has been held.
     lastShoutTick*: int        ## tick of this player's latest shout, -1 = never.
-    paintHitTick*: int         ## tick of the latest PAINT hit taken (paintball
-                               ## gun or grenade only — NOT the plasma arc, which
-                               ## draws no paint). Cosmetic: drives the EYES-PiP
-                               ## paint splat; -1 = never, never enters gameHash.
+    paintHitTick*: int         ## tick of the latest PAINT hit taken. Every
+                               ## weapon throws paint — gun, grenade, and the
+                               ## spray can — so all three stamp it. Cosmetic:
+                               ## drives the EYES-PiP visor paint splat; -1 =
+                               ## never, never enters gameHash.
     joinOrder*: int
     address*: string
     color*: uint8
@@ -450,15 +458,15 @@ type
                                ## excluded from gameHash (see gameHash).
     shotsHit*: int             ## released shots that connected with an enemy;
                                ## analysis-only, excluded from gameHash.
-    multiKills2*: int          ## grenade blasts / plasma activations that
+    multiKills2*: int          ## grenade blasts / spray bursts that
                                ## killed exactly 2; analysis-only, excluded
                                ## from gameHash.
-    multiKills3*: int          ## grenade blasts / plasma activations that
+    multiKills3*: int          ## grenade blasts / spray bursts that
                                ## killed 3 or more; analysis-only, excluded
                                ## from gameHash.
     teamKills*: int            ## teammates this player killed (backstabs);
                                ## analysis-only, excluded from gameHash.
-    arcKillsThisFire*: int     ## kills scored by the current plasma
+    arcKillsThisFire*: int     ## kills scored by the current spray
                                ## activation; transient multi-kill
                                ## bookkeeping, excluded from gameHash.
 
@@ -515,7 +523,7 @@ type
                                ## splat reads as that team's paint-bomb.
 
   PlasmaArcFx* = object
-    ## A cosmetic plasma-arc cone flash; never enters gameHash (replay-safe).
+    ## A cosmetic spray-cone paint flash; never enters gameHash (replay-safe).
     x*, y*: int
     aimBrads*: int
     tick*: int
@@ -539,7 +547,7 @@ type
     ## counter-diffing. Analysis-only: never enters gameHash.
     Shot        ## a gun shot released (source = shooter).
     Hit         ## a released shot connected with an enemy on its ray.
-    Damage      ## hit points removed (gun/plasma/grenade), amount = hp lost.
+    Damage      ## hit points removed (gun/spray/grenade), amount = hp lost.
     Kill        ## a CREDITED kill (mirrors recordKill; self-kills by own
                 ## grenade are a Death without a Kill).
     Death       ## a player died (source = victim, target = killer).
@@ -558,7 +566,7 @@ type
     kind*: SimEventKind
     source*: int               ## acting player's stable join slot, -1 = n/a.
     target*: int               ## affected player's stable join slot, -1 = n/a.
-    weapon*: string            ## "gun" / "plasma" / "grenade", the new phase
+    weapon*: string            ## "gun" / "spray" / "grenade", the new phase
                                ## name for PhaseChange, "" = n/a.
     amount*: int               ## hp delta for Damage/Kill/Heal, the new
                                ## phase ordinal for PhaseChange, else 0.
@@ -811,6 +819,14 @@ proc loadPaintBombSprite*(size: int): seq[uint8] =
   ## pickup, the carried icon, and the in-flight projectile.
   loadRgbaSprite("data/paintbomb.png", size)
 
+proc loadSprayCanSprite*(size: int): seq[uint8] =
+  ## The side-column cone weapon: a chunky aerosol spray-paint can, in the same
+  ## bold-outline painted style as the med kit, shield, and paint bomb (this is
+  ## paintball — the short-range weapon sprays paint, it does not fire plasma).
+  ## Used for the floor pickup and the carried marker. Hard alpha edge keeps the
+  ## ink outline crisp on the floor instead of feathering into a halo.
+  loadRgbaSprite("data/spraycan.png", size, alphaCutoff = 128'u8)
+
 ## --- HD top-down soldier: CvC cog + gun, rotated as one rigid unit ---
 ## Each team's master (soldier_red/blue.png) is the canonical Cogs-vs-Clips cog
 ## facing SOUTH, smile visor visible, used exactly as drawn. It is measured for
@@ -845,6 +861,9 @@ var
   gunMaster: Image
   gunScale: float
   gunLoaded: bool
+  sprayMaster: Image
+  sprayScale: float
+  sprayLoaded: bool
 
 proc measureSoldierBody(skin: Skin, team: Team, master: Image) =
   ## Finds the body pivot and the master->canvas scale: the centroid and
@@ -889,6 +908,16 @@ proc ensureGunLoaded() =
   gunMaster = readImage(gameDir() / "data/paintgun_topdown.png")
   gunScale = float(GunLengthPx) / max(1.0, float(gunMaster.width))
   gunLoaded = true
+
+proc ensureSprayLoaded() =
+  if sprayLoaded:
+    return
+  # The held spray can: same convention as the gun master (nozzle EAST, body on
+  # the image mid-line) so the identical grip math mounts it. Scaled to
+  # SprayHeldLengthPx — a can is a short fistful, not a long marker.
+  sprayMaster = readImage(gameDir() / "data/spraycan_held.png")
+  sprayScale = float(SprayHeldLengthPx) / max(1.0, float(sprayMaster.width))
+  sprayLoaded = true
 
 proc soldierRotPixels*(
   team: Team,
@@ -1207,6 +1236,50 @@ proc rigGunPixels*(team: Team, aimStep: int, renderScale = 1): seq[uint8] =
   rigGunCache[team].add((aimStep: a, scale: renderScale, pixels: pixels))
   pixels
 
+var rigSprayCache: array[Team, seq[tuple[aimStep, scale: int, pixels: seq[uint8]]]]
+
+proc rigSprayCanPixels*(team: Team, aimStep: int, renderScale = 1): seq[uint8] =
+  ## The held SPRAY CAN, the swap-in for rigGunPixels while a cog carries one:
+  ## same grip (the cog's RIGHT, GunRightPx off the aim ray) and the same nozzle-on
+  ## -+aim convention, so the spray cone leaves the nozzle exactly where the
+  ## tracers used to leave the muzzle. Mounted SprayHeldGripPx along aim and
+  ## scaled to SprayHeldLengthPx: a can is a short fistful, so its silhouette
+  ## reads clearly different from the long marker — that difference is how a
+  ## viewer tells which weapon a cog is holding.
+  let a = ((aimStep mod RigSteps) + RigSteps) mod RigSteps
+  for cached in rigSprayCache[team]:
+    if cached.aimStep == a and cached.scale == renderScale:
+      return cached.pixels
+  ensureSprayLoaded()
+  let
+    outCanvas = RigCanvas * renderScale
+    center = float32(outCanvas) / 2
+    baseAngle = float(a) * 2.0 * PI / float(RigSteps)
+    unitDeg = -baseAngle                 # pure aim space (nozzle on +aim)
+    ss = sprayScale * float(renderScale)
+    canMat =
+      translate(vec2(center, center)) * rotate(float32(unitDeg)) *
+      translate(vec2(
+        float32(SprayHeldGripPx * renderScale),
+        float32(GunRightPx * renderScale))) *
+      scale(vec2(float32(ss), float32(ss))) *
+      translate(vec2(0'f32, float32(-sprayMaster.height) / 2))
+  # Same three-step composite as the marker: can, warm backlight from its
+  # silhouette, then glow-under-can — so it pops off the dark floor identically.
+  var canLayer = newImage(outCanvas, outCanvas)
+  canLayer.draw(sprayMaster, canMat)
+  let glow = canLayer.shadow(
+    offset = vec2(0, 0),
+    spread = float32(GunGlowSpread * float(renderScale)),
+    blur = float32(GunGlowRadius * float(renderScale)),
+    color = rgba(255, 214, 138, GunGlowAlpha).color)
+  var canvas = newImage(outCanvas, outCanvas)
+  canvas.draw(glow)
+  canvas.draw(canLayer)
+  let pixels = soldierCanvasToPixels(canvas)
+  rigSprayCache[team].add((aimStep: a, scale: renderScale, pixels: pixels))
+  pixels
+
 proc soldierIconPixels*(team: Team, sizePx: int): seq[uint8] =
   ## A compact roster chip: the face-on cog scaled so the body fills the icon
   ## (no gun — the smile visor IS the identity). Used by the game-over list.
@@ -1441,7 +1514,7 @@ const
   ArenaLeftObstacles = [
     # Column 1 (x=268..286): rect stubs, phase 0, border-attached ends. The
     # SECOND stub from the top and from the bottom are GLASS WINDOWS
-    # (GameVersion 15): solid to movement, bullets, and plasma arcs, transparent
+    # (GameVersion 15): solid to movement, bullets, and spray cones, transparent
     # to fog-of-war.
     ArenaShape(kind: shapeRect, rect: MapRect(x: 268, y: 10, w: 18, h: 62)),
     ArenaShape(kind: shapeRect, window: true,
@@ -1479,7 +1552,7 @@ const
     # (x=479..507, y=276..383): a vertical bar on the outer side plus short
     # arms reaching toward the flag ring — "[" here, "]" on the x-mirror.
     # The middle of the bar, straddling the midline, is a GLASS WINDOW:
-    # the mid lane stays closed to movement, bullets, and plasma, but
+    # the mid lane stays closed to movement, bullets, and spray, but
     # fog-of-war now sees straight down the center corridor through it.
     ArenaShape(kind: shapeRect, rect: MapRect(x: 479, y: 276, w: 28, h: 12)),
     ArenaShape(kind: shapeRect, rect: MapRect(x: 479, y: 288, w: 12, h: 24)),
@@ -1512,7 +1585,7 @@ const
   ArenaLargeLeftObstacles = [
     # Column 1 (x=351..369): rect stubs, phase 0, border-attached ends. The
     # SECOND stub from the top and from the bottom are GLASS WINDOWS
-    # (GameVersion 15): solid to movement, bullets, and plasma arcs, transparent
+    # (GameVersion 15): solid to movement, bullets, and spray cones, transparent
     # to fog-of-war.
     ArenaShape(kind: shapeRect, rect: MapRect(x: 351, y: 10, w: 18, h: 62)),
     ArenaShape(kind: shapeRect, window: true,
@@ -1549,7 +1622,7 @@ const
     # (x=627..655, y=375..482): a vertical bar on the outer side plus short
     # arms reaching toward the flag ring — "[" here, "]" on the x-mirror.
     # The middle of the bar, straddling the midline, is a GLASS WINDOW:
-    # the mid lane stays closed to movement, bullets, and plasma, but
+    # the mid lane stays closed to movement, bullets, and spray, but
     # fog-of-war now sees straight down the center corridor through it.
     ArenaShape(kind: shapeRect, rect: MapRect(x: 627, y: 375, w: 28, h: 12)),
     ArenaShape(kind: shapeRect, rect: MapRect(x: 627, y: 387, w: 12, h: 24)),
@@ -3882,7 +3955,7 @@ proc recordKill*(sim: var SimServer, playerIndex: int) =
 
 proc recordTeamKill*(sim: var SimServer, killerIndex, victimIndex: int) =
   ## Counts a teammate kill (the endscreen "backstab" badge). Weapon-agnostic:
-  ## bullets, grenade blasts, and plasma cones all land here.
+  ## bullets, grenade blasts, and spray cones all land here.
   if killerIndex < 0 or killerIndex >= sim.players.len:
     return
   if victimIndex < 0 or victimIndex >= sim.players.len:
@@ -4030,7 +4103,7 @@ proc resetMedKits*(sim: var SimServer) =
 proc resetShields*(sim: var SimServer) =
   ## Places one shield deep in each team's endzone, in the same back column
   ## as the corner grenade pickups but in the BOTTOM half (three quarters of
-  ## the map height down) — the plasma arcs hold the matching top-half spots —
+  ## the map height down) — the spray cans hold the matching top-half spots —
   ## nudged to the nearest walkable floor, and refills both.
   let
     inset = ArenaBorder + GrenadeSpawnInset
@@ -4048,16 +4121,16 @@ proc resetShields*(sim: var SimServer) =
     sim.players[i].hasShield = false
     sim.players[i].shieldHp = 0
 proc plasmaArcSpawnPoints*(): array[2, tuple[x, y: int]] =
-  ## The two plasma arc spawn points, nudged to walkable floor: the same side
+  ## The two spray can spawn points, nudged to walkable floor: the same side
   ## back columns as the shields, but in the TOP half (a quarter of the map
   ## height down) so the two pickups no longer sit on top of each other —
-  ## plasma arcs high, shields low.
+  ## spray cans high, shields low.
   let inset = ArenaBorder + PlasmaArcSpawnInset
   [(inset, MapHeight div 4),
     (MapWidth - inset, MapHeight div 4)]
 
 proc resetPlasmaArcs*(sim: var SimServer) =
-  ## Refills both side-center plasma arc pickups and clears carried arcs.
+  ## Refills both side-center spray can pickups and clears carried cans.
   let points = plasmaArcSpawnPoints()
   for i in 0 ..< sim.plasmaArcSpawns.len:
     let spot = sim.nearestWalkable(points[i].x, points[i].y)
@@ -4430,7 +4503,7 @@ proc canFire*(sim: SimServer, shooterIndex: int): bool =
   shooter.alive and shooter.fireCooldown <= 0 and not shooter.hasPlasmaArc
 
 proc canFireArc*(sim: SimServer, attackerIndex: int): bool =
-  ## Returns whether one player can fire an immediate plasma arc.
+  ## Returns whether one player can fire an immediate spray burst.
   if attackerIndex < 0 or attackerIndex >= sim.players.len:
     return false
   let attacker = sim.players[attackerIndex]
@@ -4440,7 +4513,7 @@ proc selectArcVictims(
   sim: SimServer,
   attackerIndex: int
 ): seq[int] =
-  ## Returns every living player inside the attacker's forward plasma cone,
+  ## Returns every living player inside the attacker's forward spray cone,
   ## computed from the attacker's CURRENT position and aim: a live cone
   ## tracks its owner across the active window.
   if attackerIndex < 0 or attackerIndex >= sim.players.len:
@@ -4487,11 +4560,11 @@ proc startArcFire*(sim: var SimServer, attackerIndex: int) =
   sim.players[attackerIndex].arcHitMask = 0
   sim.players[attackerIndex].arcKillsThisFire = 0
   sim.logGameEvent(
-    playerColorText(sim.players[attackerIndex].color) & " fired a plasma arc"
+    playerColorText(sim.players[attackerIndex].color) & " sprayed paint"
   )
 
 proc resolveActiveArcCones*(sim: var SimServer) =
-  ## Advances every live plasma cone one tick: all cones are resolved
+  ## Advances every live spray cone one tick: all cones are resolved
   ## against the same snapshot (no processing-order advantage), each victim
   ## is damaged at most once per activation, and every live cone leaves a
   ## cosmetic flash at its owner's current position and aim. A touch removes
@@ -4525,13 +4598,21 @@ proc resolveActiveArcCones*(sim: var SimServer) =
           continue
         sim.players[arcFire.attacker].arcHitMask =
           sim.players[arcFire.attacker].arcHitMask or bit
+      # A bubble that eats the burst keeps the body clean, exactly as with a
+      # paintball (see the gun's damage site).
+      let bubbleUp = sim.players[victimIndex].hasShield and
+        sim.players[victimIndex].shieldHp > 0
       let blocked = sim.absorbDamage(victimIndex, PlasmaArcDamage)
+      # A can of paint sprayed in the face paints: stamp the visor splat, like
+      # the gun and the grenade.
+      if not bubbleUp:
+        sim.players[victimIndex].paintHitTick = sim.tickCount
       let
         vx = float(sim.players[victimIndex].x + CollisionW div 2)
         vy = float(sim.players[victimIndex].y + CollisionH div 2)
       sim.emitEvent(
         Damage, source = arcFire.attacker, target = victimIndex,
-        weapon = "plasma", amount = PlasmaArcDamage,
+        weapon = "spray", amount = PlasmaArcDamage,
         hp = max(0, sim.players[victimIndex].hp),
         blocked = blocked, x = vx, y = vy
       )
@@ -4549,7 +4630,7 @@ proc resolveActiveArcCones*(sim: var SimServer) =
           sim.recordTeamKill(arcFire.attacker, victimIndex)
           sim.emitEvent(
             Kill, source = arcFire.attacker, target = victimIndex,
-            weapon = "plasma", amount = PlasmaArcDamage, x = vx, y = vy
+            weapon = "spray", amount = PlasmaArcDamage, x = vx, y = vy
           )
           # Multi-kill accounting per ACTIVATION (not per tick): the second
           # kill of one firing mints a double, the third upgrades it to a
@@ -4564,7 +4645,7 @@ proc resolveActiveArcCones*(sim: var SimServer) =
       dec sim.players[arcFire.attacker].arcTicksLeft
 
 proc tryFireArc*(sim: var SimServer, attackerIndex: int) =
-  ## Fires one plasma arc immediately for direct callers and tests: ignites
+  ## Fires one spray burst immediately for direct callers and tests: ignites
   ## the cone and resolves its first tick (other live cones also advance).
   if not sim.canFireArc(attackerIndex):
     return
@@ -4693,7 +4774,8 @@ proc applyFire(sim: var SimServer, shooterIndex, targetIndex: int) =
     let blocked = sim.absorbDamage(targetIndex, 1)
     # Paintball paint marks the body only when the shield bubble ISN'T eating it
     # (a bubble dent draws no body paint). Stamp so the EYES-PiP visor splat
-    # fires for THIS paint hit — and only for paint (gun/grenade), never plasma.
+    # fires for THIS paint hit — and only for a PAINT hit (gun/grenade). The
+    # spray cone is bloodless-by-design here: see paintHitTick.
     if not bubbleUp:
       sim.players[targetIndex].paintHitTick = sim.tickCount
     sim.emitEvent(
@@ -4877,7 +4959,7 @@ proc explodeGrenade(sim: var SimServer, grenade: AirborneGrenade) =
       continue
     let blocked = sim.absorbDamage(i, GrenadeDamage)
     # A paint-bomb blast marks everyone caught in it — stamp so the EYES-PiP
-    # visor splat fires for this paint hit (paint only: gun/grenade, not plasma).
+    # visor splat fires for this paint hit (gun/grenade only, not the spray).
     sim.players[i].paintHitTick = sim.tickCount
     sim.emitEvent(
       Damage, source = grenade.thrower, target = i, weapon = "grenade",
@@ -4952,7 +5034,7 @@ proc updateMedKits*(sim: var SimServer) =
       spawn.present = true
 
 proc updatePlasmaArcs*(sim: var SimServer) =
-  ## Refills side-center plasma arc pickups whose respawn timer elapsed.
+  ## Refills side-center spray can pickups whose respawn timer elapsed.
   for spawn in sim.plasmaArcSpawns.mitems:
     if not spawn.present and sim.tickCount >= spawn.respawnAt:
       spawn.present = true
@@ -5021,7 +5103,7 @@ proc tryPickupShields*(sim: var SimServer, playerIndex: int) =
       return
 
 proc tryPickupPlasmaArcs*(sim: var SimServer, playerIndex: int) =
-  ## Lets a living player pick up one side-center plasma arc by touch.
+  ## Lets a living player pick up one side-center spray can by touch.
   if not sim.players[playerIndex].alive or sim.players[playerIndex].hasPlasmaArc:
     return
   let
@@ -5037,7 +5119,7 @@ proc tryPickupPlasmaArcs*(sim: var SimServer, playerIndex: int) =
       sim.players[playerIndex].windupBrads = -1
       sim.logGameEvent(
         playerColorText(sim.players[playerIndex].color) &
-          " picked up a plasma arc"
+          " picked up a spray can"
       )
       return
 
@@ -5682,7 +5764,7 @@ proc initSimServer*(config: GameConfig): SimServer =
       result.wallMask[mapIndex(x, y)] = pixel.a > 0
 
   ## The fog occlusion grid builds from the OPAQUE walls only: glass window
-  ## pixels stay in wallMask (movement/bullets/plasma arcs) but drop out here, so
+  ## pixels stay in wallMask (movement/bullets/spray cones) but drop out here, so
   ## shadowcasting sees straight through every window.
   var opaqueMask = result.wallMask
   block:

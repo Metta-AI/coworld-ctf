@@ -212,7 +212,7 @@ suite "sprite id collisions":
       "shield carried",       # own/enemy carry state
       "grenade",              # corner pickup
       "grenade carried",      # own carry state (nade state machine)
-      "plasma arc carried",   # own carry state (arc discipline)
+      "spray can carried",    # own carry state (spray discipline)
     ]:
       check needed in labels
     # Actor and HUD families the bot parses by prefix.
