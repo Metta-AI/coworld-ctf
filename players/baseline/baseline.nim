@@ -139,6 +139,10 @@ const
   MateAimRayLen = 700.0       # trust a mate's aim line out to this range
   MateAimHitSlack = 22.0      # enemy within this perpendicular distance of a
                               # mate's aim ray counts as mate-targeted
+  DedupHoldTicks {.intdefine.} = 6
+                              # -d:windupDedup: ticks to withhold our own pull
+                              # on a 1-hp target a mate is already lined up on
+                              # (one 5-tick gun windup + 1 tick obs staleness)
   ButtonC = 1'u8 shl 7        # grenade charge/throw (input mask bit 128)
   NadeMaxRange = 240.0        # full-charge throw distance (~fifth of the field)
   NadeMinRange = 60.0         # never lob inside this — the ~40px blast + drift
@@ -253,6 +257,10 @@ type
     synthetic: bool           # injected from an E-shout, not own eyes
     facingRight: bool
     hp: int                   # last observed hit points; 0 = never read
+    when defined(windupDedup):
+      dedupUntil: int         # withhold our pull at this track until this
+                              # tick (0 = no hold active)
+      dedupDone: bool         # this 1-hp wound window already spent its hold
 
   Bot = ref object
     slot: int
@@ -2062,6 +2070,34 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     let t = bot.enemies[i]
     if bot.tick - t.lastSeen > FreshShotTicks:
       continue
+    when defined(windupDedup):
+      # Terminal-shot de-duplication: a 1-hp target a visible mate is already
+      # lined up on dies to the mate's shot within one windup — piling our own
+      # 5-tick windup onto it shoots a corpse (we double-commit on 15.6% of
+      # pulls vs the top rival's 8.6%; 13% of the accuracy gap is targets dead
+      # by release). Withhold our pull for ~one windup length, ONCE per wound
+      # window: if the target still lives when the hold expires, the mate has
+      # demonstrably missed (or never pulled) and the shot is ours again.
+      # State rides on the track so it survives the freshest-first re-sort.
+      # Deliberately narrow — only the terminal (1-hp) case; FocusFireBonus's
+      # intentional fire concentration is untouched for 2-3 hp targets.
+      # EXEMPT the enemy running OUR flag (the ThiefFocusBonus case): a
+      # duplicated kill shot on the thief is cheap insurance — the instant
+      # flag return is worth far more than one wasted windup.
+      let thiefFix = ownStolen and bot.tick - bot.carrierSeen <= ThiefFixTtl and
+        dist(t.pos, bot.carrierPos) <= 48.0
+      if t.hp == 1 and mateTargeted[i] and not thiefFix:
+        if bot.enemies[i].dedupUntil == 0 and not bot.enemies[i].dedupDone:
+          bot.enemies[i].dedupUntil = bot.tick + DedupHoldTicks
+      elif t.hp != 1 or thiefFix:
+        bot.enemies[i].dedupUntil = 0    # healed/reset/turned thief: no hold
+        bot.enemies[i].dedupDone = false
+      if bot.enemies[i].dedupUntil != 0:
+        if bot.tick >= bot.enemies[i].dedupUntil:
+          bot.enemies[i].dedupUntil = 0
+          bot.enemies[i].dedupDone = true
+        else:
+          continue                       # spend this pull on another target
     let predicted = t.pos + t.vel * (float(bot.tick - t.lastSeen) + LeadTicks)
     let d = dist(predicted, me)
     if d >= maxEngage:
