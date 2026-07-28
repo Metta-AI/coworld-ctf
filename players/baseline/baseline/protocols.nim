@@ -34,6 +34,10 @@ type
     y*: int
     width*: int
     height*: int
+    spriteId*: int              ## the sprite the object currently shows; ids
+                                ## encode baked variants (e.g. a soldier's 16
+                                ## aim-rotation steps), so label readers can
+                                ## recover state the label omits
 
   ProtocolClient* = ref object
     sprite: SpriteState
@@ -219,7 +223,8 @@ proc spriteObjectsWithLabel*(
       x: objectState.x,
       y: objectState.y,
       width: sprite.width,
-      height: sprite.height
+      height: sprite.height,
+      spriteId: objectState.spriteId
     ))
 
 iterator spriteObjects*(
