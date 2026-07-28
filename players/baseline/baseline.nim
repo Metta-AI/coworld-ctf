@@ -107,6 +107,8 @@ const
   CorridorHalfWidth = 15.0    # friendly-fire corridor half width along the ray
   LeadTicks = 6.0             # aim this many ticks ahead of a moving enemy:
                               # the 5-tick windup releases the bullet late
+  WindupHoldTicks = 5         # -d:windupHold: ticks to freeze after our own
+                              # trigger pull — matches sim FireWindupTicks
   TrackMatchDist = 40.0       # a sighting matches a track within this distance
   TrackTtl = 120              # forget a player not seen for ~5s
   TrackCap = 8                # eight real opponents / teammates per side
@@ -265,6 +267,8 @@ type
     lastEnemySeen: int        # last tick ANY enemy was inside our vision
     gameStart: int            # tick of the last lobby-to-playing transition
     firedLast: bool           # A was set on the previous sent mask
+    windupUntil: int          # -d:windupHold: hold position while
+                              # bot.tick <= this (our own shot in windup)
     estAim: int               # dead-reckoned own aim angle in brads
     rotSign: int              # rotation of the last sent mask: +1 B, -1 Select
     wasDead: bool             # respawn resets the aim to the spawn heading
@@ -1070,6 +1074,7 @@ proc resetTransient(bot: Bot) =
   bot.lastEnemySeen = bot.tick
   bot.gameStart = bot.tick
   bot.firedLast = false
+  bot.windupUntil = 0
   bot.estAim = spawnAim(bot.team)
   bot.rotSign = 0
   bot.wasDead = false
@@ -2199,6 +2204,8 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     acted = false
     holdStill = false
     nadeC = false
+  when defined(windupHold):
+    var gunPull = false        # this tick's wantFire is a GUN pull (windup)
   if bot.nadeCharge > 0 or nadeAim >= 0:
     # Charge-throw: lay the turret on the lob line, then hold C for the ticks
     # the planned distance needs and release — the grenade leaves along the
@@ -2252,6 +2259,8 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       perpMiss = engageD * sin(float(err) * PI / float(AimBrads div 2))
     wantFire = perpMiss <= FireSlackPx
     moveMask = octantBits(aim - me)
+    when defined(windupHold):
+      gunPull = wantFire       # sword/arc/nade pulls have no windup
     acted = true
   elif not iCarry and not rushing and not pocketRush and not shotReady and
       nearThreat >= 0:
@@ -2407,6 +2416,17 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     )
     holdStill = false
 
+  when defined(windupHold):
+    # Hold still through our OWN gun windup: startFireWindup locks only the
+    # aim ANGLE — the ray originates at the RELEASE position 5 ticks later,
+    # so drifting during the windup displaces our own shot (decoded: we move
+    # on 90.6% of shots, median 3.6px of the +/-14px corridor; the top rival
+    # holds far stiller). Carriers keep running (the flag outranks one shot)
+    # and the blast-zone sprint above outranks the hold.
+    if not iCarry and not nadeDanger and bot.tick <= bot.windupUntil:
+      moveMask = 0
+      holdStill = true
+
   if moveMask == 0 and not holdStill:
     moveMask = octantBits(vec(rand(-1.0 .. 1.0), rand(-1.0 .. 1.0)))
 
@@ -2424,6 +2444,13 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # tick — never rotate on the pull tick so the lock takes the settled aim.
   var mask = moveMask or rotBits
   if wantFire and not bot.firedLast:
+    when defined(windupHold):
+      # The sent mask persists server-side until changed, so the pull mask
+      # itself must carry no d-pad bits or we strafe through the whole
+      # windup before the next frame can correct it.
+      if gunPull and not iCarry and not nadeDanger:
+        moveMask = 0
+        bot.windupUntil = bot.tick + WindupHoldTicks
     mask = moveMask or ButtonA
   if nadeC:
     mask = mask or ButtonC
