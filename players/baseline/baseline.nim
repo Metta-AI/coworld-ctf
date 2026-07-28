@@ -143,6 +143,10 @@ const
                               # -d:windupDedup: ticks to withhold our own pull
                               # on a 1-hp target a mate is already lined up on
                               # (one 5-tick gun windup + 1 tick obs staleness)
+  DedupCloserMargin = 24.0    # -d:windupDedup: a mate must be at least this
+                              # much closer to the dying target than we are
+                              # before we yield the finisher shot; ties within
+                              # the margin mean BOTH shoot (status quo)
   ButtonC = 1'u8 shl 7        # grenade charge/throw (input mask bit 128)
   NadeMaxRange = 240.0        # full-charge throw distance (~fifth of the field)
   NadeMinRange = 60.0         # never lob inside this — the ~40px blast + drift
@@ -2071,22 +2075,44 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     if bot.tick - t.lastSeen > FreshShotTicks:
       continue
     when defined(windupDedup):
-      # Terminal-shot de-duplication: a 1-hp target a visible mate is already
-      # lined up on dies to the mate's shot within one windup — piling our own
-      # 5-tick windup onto it shoots a corpse (we double-commit on 15.6% of
-      # pulls vs the top rival's 8.6%; 13% of the accuracy gap is targets dead
-      # by release). Withhold our pull for ~one windup length, ONCE per wound
-      # window: if the target still lives when the hold expires, the mate has
-      # demonstrably missed (or never pulled) and the shot is ours again.
+      # Terminal-shot de-duplication: a 1-hp target a better-placed mate will
+      # finish dies within one windup — piling our own 5-tick windup onto it
+      # shoots a corpse (we double-commit on 15.6% of pulls vs the top rival's
+      # 8.6%; 13% of the accuracy gap is targets dead by release). Withhold our
+      # pull for ~one windup length, ONCE per wound window: if the target still
+      # lives when the hold expires, the mate has demonstrably missed (or never
+      # pulled) and the shot is ours again.
+      # v2 MATE-COMMIT SIGNAL: the v1 gate (mateTargeted via mateAimBrads) is
+      # DEAD CODE — the "aim dot" sprites it reads were retired from the
+      # protocol on 2026-07-16 (addAimIndicators is a no-op), so mateAimBrads
+      # always returns -1 and v1 never fired. Since every seat runs this same
+      # policy, the observable proxy is the policy itself: a live mate that is
+      # meaningfully CLOSER to the dying target (and has a clear pixel ray to
+      # it) will pick it too (HpFocusBonus), so the finisher is the mate's and
+      # we yield. The strict closer-by-margin ordering is anti-symmetric —
+      # exactly one of us can ever defer, so mutual-hold deadlock is impossible
+      # by construction; ties within the margin mean both shoot (status quo).
       # State rides on the track so it survives the freshest-first re-sort.
-      # Deliberately narrow — only the terminal (1-hp) case; FocusFireBonus's
-      # intentional fire concentration is untouched for 2-3 hp targets.
+      # Deliberately narrow — only the terminal (1-hp) case; fire concentration
+      # on 2-3 hp targets is untouched.
       # EXEMPT the enemy running OUR flag (the ThiefFocusBonus case): a
       # duplicated kill shot on the thief is cheap insurance — the instant
       # flag return is worth far more than one wasted windup.
       let thiefFix = ownStolen and bot.tick - bot.carrierSeen <= ThiefFixTtl and
         dist(t.pos, bot.carrierPos) <= 48.0
-      if t.hp == 1 and mateTargeted[i] and not thiefFix:
+      var dedupMateCommit = false
+      if t.hp == 1 and not thiefFix:
+        let predT = t.pos + t.vel * (float(bot.tick - t.lastSeen) + LeadTicks)
+        let myD = dist(predT, me)
+        for m in bot.mates:
+          if bot.tick - m.lastSeen > 2:
+            continue                    # only mates seen alive this instant
+          let mD = dist(m.pos, predT)
+          if mD + DedupCloserMargin <= myD and mD <= FireRange and
+              client.pixelRayClear(m.pos, predT):
+            dedupMateCommit = true
+            break
+      if t.hp == 1 and dedupMateCommit and not thiefFix:
         if bot.enemies[i].dedupUntil == 0 and not bot.enemies[i].dedupDone:
           bot.enemies[i].dedupUntil = bot.tick + DedupHoldTicks
       elif t.hp != 1 or thiefFix:
