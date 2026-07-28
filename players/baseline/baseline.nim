@@ -1849,14 +1849,32 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
        front = min(front, HoldFrontCap)
      case pd
      of pdScout:
-       let scHasShield = bot.hp > MaxHp
+       when defined(scoutPadMemory):
+         # The shield errand's precondition was known-false two ways: it
+         # walked to a pad its own pickup memory (shieldAbsentAt) had seen
+         # empty, and it re-fetched for a spent layer even though the
+         # life-scoped shield marker already bars the gun until death. One
+         # gate fixes both: only path to a spot believed stocked
+         # (pickupAvailable, like every other errand), and only for a first
+         # pickup this life (the marker, not the layer).
+         let scFetch = not hasShield
+       else:
+         let scHasShield = bot.hp > MaxHp
+         let scFetch = not scHasShield
        var shieldSpot = vec(-1.0, -1.0)
-       if not scHasShield:
-         for sp in bot.shieldPos:
-           if dirX * (sp.x - float(CenterX)) < 0.0:  # our own back column
-             shieldSpot = sp
-             break
-       if not scHasShield and shieldSpot.x >= 0.0 and gameTick < 2200:
+       if scFetch:
+         when defined(scoutPadMemory):
+           for i in 0 ..< bot.shieldPos.len:
+             if dirX * (bot.shieldPos[i].x - float(CenterX)) < 0.0 and
+                 pickupAvailable(bot.shieldAbsentAt, i, bot.tick):
+               shieldSpot = bot.shieldPos[i]  # our own back column, believed stocked
+               break
+         else:
+           for sp in bot.shieldPos:
+             if dirX * (sp.x - float(CenterX)) < 0.0:  # our own back column
+               shieldSpot = sp
+               break
+       if scFetch and shieldSpot.x >= 0.0 and gameTick < 2200:
          target = shieldSpot
        else:
          # Forward patrol beyond the front: bottom-biased weave (their
