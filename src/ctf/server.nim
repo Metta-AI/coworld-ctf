@@ -91,6 +91,11 @@ const
   SoldierArtBlue = staticRead("../../data/soldier_blue.png")
   SoldierArtRedFront = staticRead("../../data/soldier_red_front.png")
   SoldierArtBlueFront = staticRead("../../data/soldier_blue_front.png")
+  # ...and the same cogs holding their paintball marker forward at the camera.
+  # A live cog always carries its gun, so this is the pose the PiP shows for any
+  # armed cog; the empty-handed masters above cover the unarmed read.
+  SoldierArtRedFrontGun = staticRead("../../data/soldier_red_front_gun.png")
+  SoldierArtBlueFrontGun = staticRead("../../data/soldier_blue_front_gun.png")
   LeagueReplayerPath = "/client/league"
   WallTextureHorizontalPath = "/client/art/walls/wall_h.jpg"
   WallTextureVerticalPath = "/client/art/walls/wall_v.jpg"
@@ -99,6 +104,8 @@ const
   SoldierArtBluePath = "/client/soldier_blue.png"
   SoldierArtRedFrontPath = "/client/soldier_red_front.png"
   SoldierArtBlueFrontPath = "/client/soldier_blue_front.png"
+  SoldierArtRedFrontGunPath = "/client/soldier_red_front_gun.png"
+  SoldierArtBlueFrontGunPath = "/client/soldier_blue_front_gun.png"
   # Hosted replay closes any WS frame larger than 1 MiB (sends 1009). We chunk
   # outbound sprite packets under a margin below that so no single frame trips it.
   MaxWsFrameBytes = 900_000
@@ -645,7 +652,8 @@ proc httpHandler(request: Request) =
     else:
       request.respond(200, texHeaders, WallTextureVertical)
   elif request.path in [SoldierArtRedPath, SoldierArtBluePath,
-      SoldierArtRedFrontPath, SoldierArtBlueFrontPath] and
+      SoldierArtRedFrontPath, SoldierArtBlueFrontPath,
+      SoldierArtRedFrontGunPath, SoldierArtBlueFrontGunPath] and
       request.httpMethod == "GET":
     # Cog art for the EYES PiP billboards (static PNG assets): the _front
     # eye-level masters the billboard blits, plus the top-down board masters
@@ -659,8 +667,12 @@ proc httpHandler(request: Request) =
       request.respond(200, artHeaders, SoldierArtBlue)
     elif request.path == SoldierArtRedFrontPath:
       request.respond(200, artHeaders, SoldierArtRedFront)
-    else:
+    elif request.path == SoldierArtBlueFrontPath:
       request.respond(200, artHeaders, SoldierArtBlueFront)
+    elif request.path == SoldierArtRedFrontGunPath:
+      request.respond(200, artHeaders, SoldierArtRedFrontGun)
+    else:
+      request.respond(200, artHeaders, SoldierArtBlueFrontGun)
   elif request.path == BroadcastFontPath and request.httpMethod == "GET":
     var fontHeaders: HttpHeaders
     fontHeaders["Content-Type"] = "font/ttf"

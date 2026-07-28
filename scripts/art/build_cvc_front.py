@@ -11,11 +11,16 @@ So the PiP gets its OWN master, drawn from a HORIZONTAL camera with the face
 tilted up toward the viewer: data/soldier_{red,blue}_front.png. The board keeps
 the top-down master (build_cvc_masters.py) — the two are independent.
 
-Source: src_cvc/agent_front.png — the cog redrawn front-on (generated from the
-real top-down master so the character/style match, then hand-picked). Nanobanana
-paints "transparent background" as a literal white/grey CHECKERBOARD with no
-alpha, so we knock that out here (same rule as knockout-bg.py: keep saturated
-OR dark-ink pixels) before tinting.
+Sources (both front-on, generated from the real top-down master so the character
+and style match, then hand-picked):
+  src_cvc/agent_front.png      — the cog standing, empty-handed.
+  src_cvc/agent_front_gun.png  — the same cog holding its paintball marker
+                                 forward at the camera (hopper, barrel, grip),
+                                 the barrel foreshortened nearly end-on, face
+                                 still clear above it.
+Nanobanana paints "transparent background" as a literal white/grey CHECKERBOARD
+with no alpha, so we knock that out here (same rule as knockout-bg.py: keep
+saturated OR dark-ink pixels) before tinting.
 
 Team tint mirrors build_cvc_masters.py: a multiplicative push of the near-neutral
 shell toward the team colour at STRENGTH, leaving the cyan smile visor, the dark
@@ -24,7 +29,8 @@ is NO baked drop shadow to soften — the billboard draws its own contact shadow
 so alpha stays binary and the whole opaque box is the cog (COG_TRIM_FRONT in
 client/replay_broadcast.html is measured from the output printed below).
 
-Outputs: data/soldier_red_front.png, data/soldier_blue_front.png
+Outputs: data/soldier_{red,blue}_front.png       (standing, unarmed)
+         data/soldier_{red,blue}_front_gun.png   (holding the paintball marker)
 Preview: /tmp/cvc_front_preview.png
 """
 from pathlib import Path
@@ -146,8 +152,8 @@ def trim(rgba):
     return rgba[ys.min():ys.max() + 1, xs.min():xs.max() + 1]
 
 
-def build(team):
-    raw = np.asarray(Image.open(SRC / "agent_front.png").convert("RGBA")).copy()
+def build(team, src):
+    raw = np.asarray(Image.open(SRC / src).convert("RGBA")).copy()
     rgba = keep_largest_component(knockout(raw))
     rgba = trim(tint(rgba, team))
     im = Image.fromarray(rgba)
@@ -158,20 +164,30 @@ def build(team):
 
 
 def main():
-    red, blue = build(RED), build(BLUE)
-    red.save(DATA / "soldier_red_front.png")
-    blue.save(DATA / "soldier_blue_front.png")
-    print("red", red.size, "blue", blue.size)
-    print(f"aspect (w/h) = {red.width / red.height:.4f}"
-          "   <- COG_ASPECT_FRONT in client/replay_broadcast.html")
+    # Two poses per team: the plain standing cog, and the same cog holding its
+    # paintball marker forward at the camera (what an ARMED cog shows in the
+    # PiP — every live cog carries the gun, so this is the default billboard;
+    # the plain pose stays for downed/unarmed reads).
+    out = {}
+    for label, src in (("", "agent_front.png"), ("_gun", "agent_front_gun.png")):
+        for team, colour in (("red", RED), ("blue", BLUE)):
+            im = build(colour, src)
+            im.save(DATA / f"soldier_{team}_front{label}.png")
+            out[f"{team}{label}"] = im
+            print(f"soldier_{team}_front{label}.png {im.size}"
+                  f"  aspect {im.width / im.height:.4f}")
+    print("   ^ aspects -> COG_ASPECT / COG_GUN_ASPECT in"
+          " client/replay_broadcast.html")
 
     # Preview on a mid-grey card (checker would hide alpha bugs).
     pad = 16
-    card = Image.new(
-        "RGBA", (red.width + blue.width + pad * 3, TARGET_H + pad * 2),
-        (110, 108, 104, 255))
-    card.alpha_composite(red, (pad, pad))
-    card.alpha_composite(blue, (pad * 2 + red.width, pad))
+    order = [out["red"], out["blue"], out["red_gun"], out["blue_gun"]]
+    w = sum(i.width for i in order) + pad * (len(order) + 1)
+    card = Image.new("RGBA", (w, TARGET_H + pad * 2), (110, 108, 104, 255))
+    x = pad
+    for i in order:
+        card.alpha_composite(i, (x, pad))
+        x += i.width + pad
     card.save("/tmp/cvc_front_preview.png")
     print("preview /tmp/cvc_front_preview.png")
 
