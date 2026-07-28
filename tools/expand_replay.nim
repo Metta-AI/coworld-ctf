@@ -19,6 +19,7 @@ type
     ScoreChanged
     ItemPickup
     ItemUse
+    ItemRespawn
     GameOver
 
   ReplayEvent* = object
@@ -34,6 +35,8 @@ type
     winner*: Team
     isDraw*: bool
     item*: string
+    livesLeft*: int            ## Victim lives remaining after a Kill.
+    endReason*: string         ## GameOver: capture, wipe, time_limit, mutual_wipe.
 
   ReplayTimeline* = object
     events*: seq[ReplayEvent]
@@ -103,6 +106,14 @@ proc addPlayerEvent(
   )
 
 type
+  ItemSpawnTrack = object
+    ## Last-seen present flags for floor pickups.
+    ready: bool
+    grenades: array[4, bool]
+    medKits: array[2, bool]
+    shields: array[2, bool]
+    plasmas: array[2, bool]
+
   TrackState = object
     alive: seq[bool]
     kills: seq[int]
@@ -116,6 +127,7 @@ type
     hasGrenade: seq[bool]
     hasPlasma: seq[bool]
     arcTicksLeft: seq[int]
+    itemSpawns: ItemSpawnTrack
 
 proc syncPlayers(
   sim: SimServer,
@@ -154,6 +166,22 @@ proc killerThisTick(sim: SimServer, track: TrackState): int =
   if killerCount > 1:
     result = -1
 
+proc teamHasCapture(sim: SimServer, team: Team): bool =
+  ## Returns true when any player on the team has a recorded capture.
+  for player in sim.players:
+    if player.team == team and player.captures > 0:
+      return true
+
+proc gameEndReason(sim: SimServer): string =
+  ## Returns why the match ended: capture, wipe, time limit, or mutual wipe.
+  if sim.timeLimitReached:
+    return "time_limit"
+  if sim.isDraw:
+    return "mutual_wipe"
+  if sim.teamHasCapture(sim.winner):
+    return "capture"
+  "wipe"
+
 proc printKillsAndDeaths(
   sim: SimServer,
   tick: int,
@@ -171,10 +199,19 @@ proc printKillsAndDeaths(
         actorLabel: if killer >= 0: sim.player(killer) else: "unknown",
         secondarySlot: sim.playerSlot(i),
         secondaryLabel: sim.player(i),
-        phase: sim.phase
+        phase: sim.phase,
+        livesLeft: p.lives
       )
     elif p.alive and not track.alive[i]:
-      events.addPlayerEvent(tick, Respawn, sim, i)
+      events.add ReplayEvent(
+        tick: tick,
+        kind: Respawn,
+        actorSlot: sim.playerSlot(i),
+        actorLabel: sim.player(i),
+        secondarySlot: -1,
+        phase: sim.phase,
+        livesLeft: p.lives
+      )
     track.alive[i] = p.alive
     track.kills[i] = p.kills
     track.deaths[i] = p.deaths
@@ -280,6 +317,57 @@ proc printItems(
     track.hasGrenade[i] = p.hasGrenade
     track.hasPlasma[i] = p.hasPlasmaArc
     track.arcTicksLeft[i] = p.arcTicksLeft
+
+proc addItemRespawn(
+  events: var seq[ReplayEvent],
+  tick: int,
+  phase: GamePhase,
+  item: string
+) =
+  ## Records one floor pickup becoming available again.
+  events.add ReplayEvent(
+    tick: tick,
+    kind: ItemRespawn,
+    actorSlot: -1,
+    secondarySlot: -1,
+    phase: phase,
+    item: item
+  )
+
+proc printItemSpawns(
+  sim: SimServer,
+  tick: int,
+  events: var seq[ReplayEvent],
+  track: var TrackState
+) =
+  ## Adds item respawn events when a floor pickup refills.
+  if not track.itemSpawns.ready:
+    for i, spawn in sim.grenadeSpawns:
+      track.itemSpawns.grenades[i] = spawn.present
+    for i, spawn in sim.medKitSpawns:
+      track.itemSpawns.medKits[i] = spawn.present
+    for i, spawn in sim.shieldSpawns:
+      track.itemSpawns.shields[i] = spawn.present
+    for i, spawn in sim.plasmaArcSpawns:
+      track.itemSpawns.plasmas[i] = spawn.present
+    track.itemSpawns.ready = true
+    return
+  for i, spawn in sim.grenadeSpawns:
+    if spawn.present and not track.itemSpawns.grenades[i]:
+      events.addItemRespawn(tick, sim.phase, "grenade")
+    track.itemSpawns.grenades[i] = spawn.present
+  for i, spawn in sim.medKitSpawns:
+    if spawn.present and not track.itemSpawns.medKits[i]:
+      events.addItemRespawn(tick, sim.phase, "med kit")
+    track.itemSpawns.medKits[i] = spawn.present
+  for i, spawn in sim.shieldSpawns:
+    if spawn.present and not track.itemSpawns.shields[i]:
+      events.addItemRespawn(tick, sim.phase, "shield")
+    track.itemSpawns.shields[i] = spawn.present
+  for i, spawn in sim.plasmaArcSpawns:
+    if spawn.present and not track.itemSpawns.plasmas[i]:
+      events.addItemRespawn(tick, sim.phase, "plasma arc")
+    track.itemSpawns.plasmas[i] = spawn.present
 
 proc printCaptures(
   sim: SimServer,
@@ -392,6 +480,8 @@ proc key*(event: ReplayEvent): string =
     "item_pickup"
   of ItemUse:
     "item_use"
+  of ItemRespawn:
+    "item_respawn"
   of GameOver:
     "game_over"
 
@@ -407,7 +497,13 @@ proc text*(event: ReplayEvent): string =
   of Hit:
     "  player " & event.actorLabel & " landed a shot"
   of Kill:
-    "  player " & event.actorLabel & " killed " & event.secondaryLabel
+    "  player " & event.actorLabel & " killed " & event.secondaryLabel &
+      " (" & $event.livesLeft & (
+        if event.livesLeft == 1:
+          " life left"
+        else:
+          " lives left"
+      ) & ")"
   of FlagSteal:
     "  player " & event.actorLabel & " stole the " &
       teamText(event.flagTeam) & " flag"
@@ -417,7 +513,13 @@ proc text*(event: ReplayEvent): string =
     "  player " & event.actorLabel & " captured the " &
       teamText(event.flagTeam) & " flag"
   of Respawn:
-    "  player " & event.actorLabel & " respawned"
+    "  player " & event.actorLabel & " respawned (" &
+      $event.livesLeft & (
+        if event.livesLeft == 1:
+          " life left"
+        else:
+          " lives left"
+      ) & ")"
   of ScoreChanged:
     "  score player " & event.actorLabel & " " & scoreAmountText(event.scoreAmount)
   of ItemPickup:
@@ -432,11 +534,23 @@ proc text*(event: ReplayEvent): string =
       "  player " & event.actorLabel & " fired a plasma arc"
     else:
       "  player " & event.actorLabel & " used a " & event.item
+  of ItemRespawn:
+    "  a " & event.item & " respawned"
   of GameOver:
-    if event.isDraw:
-      "  game over: draw"
+    case event.endReason
+    of "capture":
+      "  game over: " & teamText(event.winner) & " wins by capture"
+    of "wipe":
+      "  game over: " & teamText(event.winner) & " wins by wipe"
+    of "time_limit":
+      "  game over: time-limit draw"
+    of "mutual_wipe":
+      "  game over: mutual wipe"
     else:
-      "  game over: " & teamText(event.winner) & " wins"
+      if event.isDraw:
+        "  game over: draw"
+      else:
+        "  game over: " & teamText(event.winner) & " wins"
 
 proc jsonRow*(event: ReplayEvent): JsonNode =
   ## Returns one event-log JSON row for a replay event.
@@ -449,11 +563,15 @@ proc jsonRow*(event: ReplayEvent): JsonNode =
   of Kill:
     value["victim_slot"] = %event.secondarySlot
     value["victim_label"] = %event.secondaryLabel
+    value["lives_left"] = %event.livesLeft
   of FlagSteal, Capture:
     value["label"] = %event.actorLabel
     value["flag"] = %teamText(event.flagTeam)
-  of Shot, Hit, Respawn:
+  of Shot, Hit:
     value["label"] = %event.actorLabel
+  of Respawn:
+    value["label"] = %event.actorLabel
+    value["lives_left"] = %event.livesLeft
   of FlagReturnHome:
     value["flag"] = %teamText(event.flagTeam)
   of ScoreChanged:
@@ -463,8 +581,11 @@ proc jsonRow*(event: ReplayEvent): JsonNode =
     value["item"] = %event.item
     if event.kind == ItemUse and event.scoreAmount != 0:
       value["amount"] = %event.scoreAmount
+  of ItemRespawn:
+    value["item"] = %event.item
   of GameOver:
     value["draw"] = %event.isDraw
+    value["end_reason"] = %event.endReason
     if not event.isDraw:
       value["winner"] = %teamText(event.winner)
 
@@ -508,33 +629,41 @@ proc expandReplayTimeline*(data: ReplayData): ReplayTimeline =
         result.failTick = tick
         return
 
-      if phase != sim.phase:
+      let
+        phaseChanged = phase != sim.phase
+        newPhase = sim.phase
+
+      sim.syncPlayers(tick, result.events, track)
+      sim.printShots(tick, result.events, track)
+      sim.printItems(tick, result.events, track)
+      sim.printItemSpawns(tick, result.events, track)
+      sim.printKillsAndDeaths(tick, result.events, track)
+      sim.printFlagChanges(tick, result.events, prevCarriers)
+      sim.printCaptures(tick, result.events, track)
+      sim.printScoreChanges(tick, result.events, track)
+
+      ## Emit phase / game-over after same-tick kills and captures so the
+      ## finishing blow reads before the match result.
+      if phaseChanged:
         result.events.add ReplayEvent(
           tick: tick,
           kind: PhaseChanged,
           actorSlot: -1,
           secondarySlot: -1,
-          phase: sim.phase
+          phase: newPhase
         )
-        if sim.phase == GameOver:
+        if newPhase == GameOver:
           result.events.add ReplayEvent(
             tick: tick,
             kind: GameOver,
             actorSlot: -1,
             secondarySlot: -1,
-            phase: sim.phase,
+            phase: newPhase,
             winner: sim.winner,
-            isDraw: sim.isDraw
+            isDraw: sim.isDraw,
+            endReason: sim.gameEndReason()
           )
-        phase = sim.phase
-
-      sim.syncPlayers(tick, result.events, track)
-      sim.printShots(tick, result.events, track)
-      sim.printItems(tick, result.events, track)
-      sim.printKillsAndDeaths(tick, result.events, track)
-      sim.printFlagChanges(tick, result.events, prevCarriers)
-      sim.printCaptures(tick, result.events, track)
-      sim.printScoreChanges(tick, result.events, track)
+        phase = newPhase
   finally:
     setCurrentDir(previousDir)
 
