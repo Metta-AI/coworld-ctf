@@ -114,6 +114,13 @@ const
                               # turret needs traverse time, so chases keep
                               # shooting a bit after the target fogs out
   ThiefFixTtl = 40            # a thief position fix guides the chase this long
+  ThiefWindowTtl {.intdefine.} = 120 # -d:thiefWindowFire: how long after the
+                              # last carrier fix the ownStolen suppression-fire
+                              # window stays open (-d:ThiefWindowTtl=240 for
+                              # the long dose); track age itself still caps at
+                              # TrackTtl
+  ThiefWindowPathPx = 150.0   # escort band around the remembered carrier path
+  ThiefWindowPenalty = 100_000.0 # window tracks never outrank a fresh target
 
   AimBrads = 256              # aim angle units per full turn
   AimRate = 5                 # brads/tick a held rotate button turns the aim
@@ -2060,9 +2067,44 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     blockedD = maxEngage
   for i in 0 ..< bot.enemies.len:
     let t = bot.enemies[i]
+    when defined(thiefWindowFire):
+      var windowTrack = false
     if bot.tick - t.lastSeen > FreshShotTicks:
-      continue
-    let predicted = t.pos + t.vel * (float(bot.tick - t.lastSeen) + LeadTicks)
+      when defined(thiefWindowFire):
+        # Thief-window suppression fire: while OUR flag is out and the carrier
+        # fix is live enough, stale memories on/near the thief's remembered
+        # path stay fire-eligible. The blind-shot gate rejection measured this
+        # class of fire as load-bearing (suppressing it: enemy steal->capture
+        # conversion +5.8pp, carry duration +30t, both paired-SIG), and ~89%
+        # of gun-eligible defender carry ticks hold nothing fresh to shoot.
+        # Fallback only: ThiefWindowPenalty keeps any fresh target ahead.
+        let fixAge = bot.tick - bot.carrierSeen
+        if not (ownStolen and fixAge <= ThiefWindowTtl and
+            bot.tick - t.lastSeen <= ThiefWindowTtl):
+          continue
+        let hunt = vec(
+          clamp(bot.carrierPos.x + bot.carrierVel.x * float(18 + fixAge),
+                20.0, float(MapW - 20)),
+          clamp(bot.carrierPos.y + bot.carrierVel.y * float(18 + fixAge),
+                20.0, float(MapH - 20)))
+        # distance from the track to the fix->hunt segment (remembered path):
+        # the carrier's own shadow, and escorts riding the run, both qualify
+        let seg = hunt - bot.carrierPos
+        let segLen2 = dot(seg, seg)
+        var along = 0.0
+        if segLen2 > 1.0:
+          along = clamp(dot(t.pos - bot.carrierPos, seg) / segLen2, 0.0, 1.0)
+        if dist(t.pos, bot.carrierPos + seg * along) > ThiefWindowPathPx:
+          continue
+        windowTrack = true
+      else:
+        continue
+    var predicted = t.pos + t.vel * (float(bot.tick - t.lastSeen) + LeadTicks)
+    when defined(thiefWindowFire):
+      if windowTrack:
+        # a long dead-reckoned lead can leave the arena: clamp like the hunt
+        predicted.x = clamp(predicted.x, 20.0, float(MapW - 20))
+        predicted.y = clamp(predicted.y, 20.0, float(MapH - 20))
     let d = dist(predicted, me)
     if d >= maxEngage:
       continue
@@ -2084,6 +2126,9 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       # This track IS (or shadows) the enemy running our flag: shoot it
       # before anything else — a dead carrier returns the flag instantly.
       prio -= ThiefFocusBonus
+    when defined(thiefWindowFire):
+      if windowTrack:
+        prio += ThiefWindowPenalty  # suppression fire is strictly a fallback
     if client.pixelRayClear(me, predicted):
       if bot.friendlyBlocked(me, predicted, d):
         continue                        # prefer a target with an empty corridor
