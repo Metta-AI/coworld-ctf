@@ -231,6 +231,14 @@ const
   LaneMid = float(CenterY)
   LaneBottom = 619.0          # open corridor below the mirrored obstacles
 
+when defined(respawnRally):
+  const
+    RallyGroupRadius = 120.0  # a fresh mate track this close = wave formed
+    RallyFreshTicks = 36      # mate-track freshness for the grouping test
+    RallyMaxHold = 240        # ~10s cap: a lone straggler re-enters anyway
+                              # (respawnTicks=72, so in an active grinder a
+                              # wave partner lands well inside the cap)
+
 type
   Team = enum
     Red, Blue
@@ -330,6 +338,10 @@ type
     helpUntil: int            # tick the help retasking expires
     lastEShout: int           # scout sighting-broadcast rate limit
     lastHShout: int           # help-call rate limit
+    when defined(respawnRally):
+      rallyUntil: int         # hold-at-rally deadline after a respawn; 0 = off
+      rallyHold: Vec          # cover-snapped pocket rally point (own strong
+                              # ground: ~100px respawn walk, watched approach)
 
 proc roleForSeat(seat: int, team: Team): Role =
   ## Deterministic role spread over the 8 per-team seats. Seats 2 and 3 both
@@ -773,6 +785,15 @@ proc buildNavGrid(bot: Bot, client: ProtocolClient) =
   bot.pickPost(client)
   bot.findEnemyPosts(client)
   bot.chokeHold = bot.snapToCover(chokeSpot(bot.team))
+  when defined(respawnRally):
+    # Rally point: cover just DEEP of our own pedestal (between the flag and
+    # our home edge, off the east-west spawn-aim axis) — the ground where our
+    # respawn walk is shortest and every enemy approach is watched. NOT the
+    # choke: regrouping forward of the pocket would walk fresh spawns through
+    # the exact grinder the hold is meant to beat.
+    bot.rallyHold = bot.snapToCover(vec(
+      homeDeepX(bot.team) + -homeSign(bot.team) * 30.0,
+      flagHome(bot.team).y + 50.0))
   bot.navBuilt = true
 
 const NavNeighbors = [
@@ -1099,6 +1120,8 @@ proc resetTransient(bot: Bot) =
   bot.jinkUntil = 0
   bot.behindLines = false
   bot.navGoal = -1
+  when defined(respawnRally):
+    bot.rallyUntil = 0
 
 proc scanAim(bot: Bot, watch: Vec): int =
   ## The scan-sweep aim while holding a position: rake the vision cone back
@@ -1209,6 +1232,10 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # Respawned: the server points the aim back at the enemy side.
     bot.wasDead = false
     bot.estAim = spawnAim(bot.team)
+    when defined(respawnRally):
+      # Fresh respawn: open a rally-hold window (released below by a formed
+      # wave, a flag emergency, or the deadline).
+      bot.rallyUntil = bot.tick + RallyMaxHold
   # Absolute turret fix: our own rendered aim-indicator dots show the actual
   # aim every frame, capping any dead-reckoning drift (mask-apply races).
   block resync:
@@ -1987,6 +2014,32 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     else:
       discard
 
+  when defined(respawnRally):
+    # Respawn-wave regrouping (daveey): wipes happen because respawns re-enter
+    # the fight one at a time — each solo walk out of the pocket feeds the
+    # grinder one body per respawn cycle. A fresh respawner holds at the rally
+    # cover deep of our pedestal (gun up, full engage range — the map-wide gun
+    # still fights from there) until a wave partner is with it, then re-enters
+    # together. Flag emergencies keep their usual priority: our own carry, an
+    # escort, or our flag off its pedestal cancels the hold instantly, and the
+    # deadline caps the time-dead tradeoff for an isolated straggler.
+    var rallyHolding = false
+    if bot.rallyUntil > bot.tick:
+      if iCarry or mateCarry or ownStolen:
+        bot.rallyUntil = 0
+      else:
+        var grouped = false
+        for t in bot.mates:
+          if bot.tick - t.lastSeen <= RallyFreshTicks and
+              dist(t.pos, me) < RallyGroupRadius:
+            grouped = true
+            break
+        if grouped:
+          bot.rallyUntil = 0             # wave formed: move out together
+        else:
+          rallyHolding = true
+          target = bot.rallyHold
+
   # The mid trio plays for the flag, not for position: pickup races and
   # carrier chases are lost to peek/duck detours, so mids keep moving and
   # shoot on the move whenever a mate is not already carrying.
@@ -2482,10 +2535,13 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       moveMask = octantBits(side + away * 0.4)
       if desiredAim < 0:
         desiredAim = bradsOf(seenEnemies[threat].pos - me)
-    elif bot.role in {Overwatch, HomeDefender} and
+    elif (bot.role in {Overwatch, HomeDefender} or
+        (when defined(respawnRally): rallyHolding else: false)) and
         dist(me, target) < 6.0:
       # Holding a watch position: the aim carries the vision cone, so sweep
       # it back and forth across the arc threats cross while standing still.
+      # A rallying respawner holds the same way — the sweep is also how it
+      # SEES the wave partner that releases the hold (mates are fogged too).
       # While our flag is stolen the thief comes from our own half;
       # otherwise intruders come from the enemy half.
       let watch =
