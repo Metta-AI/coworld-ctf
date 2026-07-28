@@ -76,17 +76,29 @@ const
   WallTextureHorizontal = staticRead("../../client/art/walls/wall_h.jpg")
   WallTextureVertical = staticRead("../../client/art/walls/wall_v.jpg")
   BroadcastFont = staticRead("../../data/font.ttf")
-  # Front-facing cog art for the first-person EYES PiP billboards (real body +
-  # legs + wheels + cyan visor, team-tinted). Served as static PNGs so the
-  # raycast view can blit the true cog instead of a procedural chassis.
+  # Cog art for the first-person EYES PiP billboards (real body + legs + wheels
+  # + cyan visor, team-tinted). Served as static PNGs so the raycast view can
+  # blit the true cog instead of a procedural chassis.
+  #
+  # The _front masters are drawn from a HORIZONTAL, eye-level camera with the
+  # smile visor tilted up toward the viewer (scripts/art/build_cvc_front.py) —
+  # that is what the PiP blits. The plain soldier_{red,blue} masters are the
+  # TOP-DOWN board sprites (the cog seen from ABOVE): they stay served as the
+  # PiP's fallback, but an overhead projection in an eye-level view reads as a
+  # flat plate with the face squashed onto its lower lip, so the front masters
+  # are what the billboard actually wants.
   SoldierArtRed = staticRead("../../data/soldier_red.png")
   SoldierArtBlue = staticRead("../../data/soldier_blue.png")
+  SoldierArtRedFront = staticRead("../../data/soldier_red_front.png")
+  SoldierArtBlueFront = staticRead("../../data/soldier_blue_front.png")
   LeagueReplayerPath = "/client/league"
   WallTextureHorizontalPath = "/client/art/walls/wall_h.jpg"
   WallTextureVerticalPath = "/client/art/walls/wall_v.jpg"
   BroadcastFontPath = "/client/font.ttf"
   SoldierArtRedPath = "/client/soldier_red.png"
   SoldierArtBluePath = "/client/soldier_blue.png"
+  SoldierArtRedFrontPath = "/client/soldier_red_front.png"
+  SoldierArtBlueFrontPath = "/client/soldier_blue_front.png"
   # Hosted replay closes any WS frame larger than 1 MiB (sends 1009). We chunk
   # outbound sprite packets under a margin below that so no single frame trips it.
   MaxWsFrameBytes = 900_000
@@ -632,16 +644,23 @@ proc httpHandler(request: Request) =
       request.respond(200, texHeaders, WallTextureHorizontal)
     else:
       request.respond(200, texHeaders, WallTextureVertical)
-  elif request.path in [SoldierArtRedPath, SoldierArtBluePath] and
+  elif request.path in [SoldierArtRedPath, SoldierArtBluePath,
+      SoldierArtRedFrontPath, SoldierArtBlueFrontPath] and
       request.httpMethod == "GET":
-    # Front-facing cog art for the EYES PiP billboards (static PNG assets).
+    # Cog art for the EYES PiP billboards (static PNG assets): the _front
+    # eye-level masters the billboard blits, plus the top-down board masters
+    # kept as its fallback.
     var artHeaders: HttpHeaders
     artHeaders["Content-Type"] = "image/png"
     artHeaders["Cache-Control"] = "public, max-age=3600"
     if request.path == SoldierArtRedPath:
       request.respond(200, artHeaders, SoldierArtRed)
-    else:
+    elif request.path == SoldierArtBluePath:
       request.respond(200, artHeaders, SoldierArtBlue)
+    elif request.path == SoldierArtRedFrontPath:
+      request.respond(200, artHeaders, SoldierArtRedFront)
+    else:
+      request.respond(200, artHeaders, SoldierArtBlueFront)
   elif request.path == BroadcastFontPath and request.httpMethod == "GET":
     var fontHeaders: HttpHeaders
     fontHeaders["Content-Type"] = "font/ttf"

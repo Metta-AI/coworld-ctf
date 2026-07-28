@@ -1147,23 +1147,30 @@ body[data-embed] #board { top: 0; height: 100%; }
   // ---- palette (mirrors board tints so chrome matches the arena) ----
   var RED = '#e0523a', BLUE = '#3f7cc4', AMBER = '#e8a33d', PAPER = '#f2e8d8';
 
-  // ---- front-facing cog art for the EYES PiP billboards ----
-  // The real cog sprites (body + legs + wheels + cyan visor, team-tinted),
-  // served as static PNGs by the server. Loaded once; drawFpvEntity blits the
-  // matching team image scaled to the projected figure so distant cogs shrink
-  // like everything else. Falls back to the procedural chassis until loaded.
+  // ---- eye-level cog art for the EYES PiP billboards ----
+  // The PiP is an eye-level raycaster, so its billboards need art drawn from a
+  // HORIZONTAL camera: soldier_{red,blue}_front.png is the real cog standing on
+  // its wheels, square to the viewer, with the cyan smile visor tilted up toward
+  // the camera (built by scripts/art/build_cvc_front.py, served as a static PNG).
+  //
+  // The plain soldier_{red,blue}.png masters are the TOP-DOWN BOARD sprites (the
+  // cog as seen from ABOVE). Blitting those here is what made a near cog read as
+  // a flat team-coloured plate with the smile squashed onto its bottom edge —
+  // "a head on the ground". No trim or pose math fixes that; it is the wrong
+  // camera. They stay only as the pre-load fallback, ranked behind the front art.
+  //
+  // Loaded once; drawFpvEntity blits the matching team image scaled to the
+  // projected figure so distant cogs shrink like everything else.
   var COG_ART = { red: new Image(), blue: new Image() };
-  COG_ART.red.src = '/client/soldier_red.png';
-  COG_ART.blue.src = '/client/soldier_blue.png';
+  COG_ART.red.src = '/client/soldier_red_front.png';
+  COG_ART.blue.src = '/client/soldier_blue_front.png';
   function cogArtReady(img) { return img && img.complete && img.naturalWidth > 0; }
-  // The source PNG bakes a soft drop-SHADOW into its right third (the opaque cog
-  // is only the left/upper box below). Blitting the whole image would center the
-  // shadow+cog together, shoving the cog off-center-left so it reads as leaning
-  // and hovering beside a shadow blob. So we blit ONLY the opaque content box
-  // (measured from the art, as fractions of its natural size) — centered and
-  // standing upright — and draw our own contact shadow beneath it.
-  var COG_TRIM = { x: 6 / 127, y: 6 / 116, w: 73 / 127, h: 99 / 116 };
-  var COG_ASPECT = COG_TRIM.w * 127 / (COG_TRIM.h * 116);   // ≈0.74, w/h of the cog
+  // The front masters are trimmed to their opaque box at build time and carry NO
+  // baked drop shadow (the billboard draws its own contact shadow), so the whole
+  // image IS the cog — a full-frame trim, unlike the top-down master which bakes
+  // a soft shadow into its right third and needs the box cut out.
+  var COG_TRIM = { x: 0, y: 0, w: 1, h: 1 };
+  var COG_ASPECT = 180 / 192;   // 0.9375 — w/h of the front master (build script prints it)
   // Offscreen scratch for depth-dimming the cog sprite: draw the art in, then
   // darken with a source-atop ink wash so ONLY the sprite pixels dim (never the
   // floor/walls already painted behind it). Reused across draws.
@@ -2112,8 +2119,8 @@ body[data-embed] #board { top: 0; height: 100%; }
     var feet = feetY;
     var top = feet - figH;
     // Size the blit off the projected figure so distant cogs shrink like the
-    // walls. The cog's true aspect (opaque box, shadow excluded) is ~0.74 w/h;
-    // its HEIGHT tracks figH so it stands the right size on the floor.
+    // walls. The front master's aspect is ~0.94 w/h; its HEIGHT tracks figH so
+    // the cog stands the right size on the floor.
     var artImg = COG_ART[e.team];
     var drawH = figH * 1.02;
     var drawW = drawH * COG_ASPECT;
@@ -2128,8 +2135,9 @@ body[data-embed] #board { top: 0; height: 100%; }
     ctx.fill();
 
     if (cogArtReady(artImg)) {
-      // Blit ONLY the opaque cog box from the source PNG (dropping the baked
-      // right-side shadow), centered on cx and standing with its feet on `feet`.
+      // Blit the cog box (COG_TRIM as fractions of natural size — full-frame for
+      // the pre-trimmed front master, a cut-out box for the top-down fallback),
+      // centered on cx and standing with its feet on `feet`.
       var iw = artImg.naturalWidth, ih = artImg.naturalHeight;
       var sxp = COG_TRIM.x * iw, syp = COG_TRIM.y * ih;
       var swp = COG_TRIM.w * iw, shp = COG_TRIM.h * ih;
