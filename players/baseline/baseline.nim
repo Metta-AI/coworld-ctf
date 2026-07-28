@@ -151,7 +151,6 @@ const
   MedKitRespawn = 30 * 24     # a taken kit refills after 30s (sim constant)
   MedKitSeenClear = 55.0      # inside this range an empty spot is truly
                               # empty (bubble vision), not just fogged
-  PlasmaDetour = 70.0         # attacker detour budget for a plasma pickup
   ShieldStealDetour = 330.0   # MidGuard's shield trip: the enemy endzone
                               # shield sits ~136px past their pedestal, so
                               # the round trip inherently costs ~270 path px
@@ -2241,23 +2240,6 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           dist(me, stealTarget) < ShieldStealDetour:
         target = bot.shieldPos[i]
         break
-  elif not iCarry and bot.role == MidTop and not mateCarry and
-      not pocketRush:
-    when defined(plasmaUse):
-      # Plasma top-up for the pocket rusher: the cone one-shots the pocket
-      # defense cluster. Cheap-detour budget; visible spawns only
-      # (fog-honest).
-      if not hasArc:
-        for o in client.spriteObjectsWithLabel("plasma arc"):
-          let pp = client.mapPos(o)
-          if pp.x < 40.0 or pp.y < 40.0 or pp.x > float(MapW - 40) or
-              pp.y > float(MapH - 40):
-            continue                 # HUD icon shares the label
-          if dist(me, pp) <= PlasmaDetour:
-            target = pp
-            break
-    else:
-      discard
 
   # Med kit heal detour (hurt bots only; the carrier handles its own detour
   # in the carry branch). Wounded: a short opportunistic detour. Critical
