@@ -309,6 +309,12 @@ type
     estAim: int               # dead-reckoned own aim angle in brads
     rotSign: int              # rotation of the last sent mask: +1 B, -1 Select
     wasDead: bool             # respawn resets the aim to the spawn heading
+    when defined(aimEdgeLatch):
+      prevObsRot: int         # self-sprite rotation bucket seen last frame
+                              # (-1 = none: dead, fresh spawn, or frame gap)
+      prevObsTick: int        # bot.tick of that observation
+      rotSignPrev: int        # rotSign one decide earlier (the mask that drove
+                              # the stale frame BEFORE the one now rendered)
     scanHigh: bool            # scan sweep currently heading to the high end
     lastPos: Vec
     stuckTicks: int
@@ -506,6 +512,9 @@ proc findSelf(
     for o in client.spriteObjectsWithLabel(label):
       return (alive: true, pos: client.mapPos(o))
 
+when defined(aimEdgeLatch) and not defined(aimSpriteResync):
+  {.error: "-d:aimEdgeLatch refines the sprite readback; build with -d:aimSpriteResync too".}
+
 when defined(aimSpriteResync):
   const
     SelfSoldierSpriteBase = 5100 # src/ctf/global.nim SpritePlayerSelfSpriteBase:
@@ -517,6 +526,11 @@ when defined(aimSpriteResync):
                                  # to half a step from the observed bucket
                                  # center, so only a larger disagreement
                                  # proves the dead reckoning drifted
+    AimEdgeTolBrads = 3          # -d:aimEdgeLatch: a boundary-crossing fix is
+                                 # itself only good to ~±2 brads (crossing
+                                 # window ±AimRate/2), so leave estAim alone
+                                 # when it already agrees this closely — never
+                                 # disturb a perfect dead reckoning
 
   proc observedAim(client: ProtocolClient, me: Vec, color: string): int =
     ## Absolute aim readback from our own rendered self marker: the POV self
@@ -1191,6 +1205,10 @@ proc resetTransient(bot: Bot) =
   bot.estAim = spawnAim(bot.team)
   bot.rotSign = 0
   bot.wasDead = false
+  when defined(aimEdgeLatch):
+    bot.prevObsRot = -1
+    bot.prevObsTick = 0
+    bot.rotSignPrev = 0
   bot.scanHigh = false
   bot.stuckTicks = 0
   bot.jinkUntil = 0
@@ -1300,6 +1318,9 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # are ignored, so skip perception entirely.
     bot.firedLast = false
     bot.rotSign = 0
+    when defined(aimEdgeLatch):
+      bot.rotSignPrev = 0
+      bot.prevObsRot = -1
     bot.wasDead = true
     artFrame(FrameSnap(tick: bot.tick, alive: false,
       x: int(bot.lastPos.x), y: int(bot.lastPos.y), hp: 0,
@@ -1313,7 +1334,58 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # avatar every frame, capping any dead-reckoning drift (mask-apply races).
   block resync:
     let seen = client.observedAim(me, myColor)
-    when defined(aimSpriteResync):
+    when defined(aimSpriteResync) and defined(aimEdgeLatch):
+      # Sub-bucket refinement (task 1216964996167407): the tick the observed
+      # 16-step rotation bucket FLIPS to the adjacent step while WE are the
+      # ones turning it, the true aim is pinned to the crossed bucket
+      # BOUNDARY to within the crossing window (±AimRate/2) — a ~±2-brad
+      # absolute fix vs the ±8 of a bucket-center snap. The sprite is one
+      # frame stale (measured: uncompensated snap error max 13 = 8 + one
+      # AimRate step), so project one AimRate step forward on top.
+      if seen < 0:
+        bot.prevObsRot = -1
+      else:
+        let obsRot = seen div SelfRotBrads
+        var edgeDone = false
+        if bot.prevObsRot >= 0 and bot.tick == bot.prevObsTick + 1:
+          let d =
+            if obsRot == floorMod(bot.prevObsRot + 1, SoldierRotSteps): 1
+            elif obsRot == floorMod(bot.prevObsRot - 1, SoldierRotSteps): -1
+            else: 0
+          # Only a flip CONSISTENT with our own commanded rotation pins the
+          # boundary: rotSignPrev drove the crossing on the (stale) rendered
+          # frame, rotSign the one step since. A flip while NOT rotating is
+          # pure desync at unknown speed — no boundary constraint; fall
+          # through to the center snap.
+          if d != 0 and bot.rotSign == d and bot.rotSignPrev == d:
+            let
+              boundary = floorMod(
+                bot.prevObsRot * SelfRotBrads + d * AimSnapBrads, AimBrads)
+              edgeEst = floorMod(
+                boundary + d * (AimRate + AimRate div 2), AimBrads)
+              err = bradsErr(edgeEst, bot.estAim)
+            if abs(err) > AimEdgeTolBrads:
+              artEvent(bot.tick, "aim_edge",
+                %*{"err": err, "edge": edgeEst, "est": bot.estAim,
+                   "rot": obsRot, "d": d})
+              bot.estAim = edgeEst
+            edgeDone = true # the boundary fix supersedes the center reading
+        if not edgeDone:
+          # Center-snap fallback, staleness-compensated: the bucket reflects
+          # the aim of one frame ago, so while rotating the aim has already
+          # moved one more AimRate step — snap to the projected center, not
+          # the stale one (kills the benign one-frame-stale snap class).
+          let
+            target = floorMod(seen + bot.rotSign * AimRate, AimBrads)
+            err = bradsErr(target, bot.estAim)
+          if abs(err) > AimSnapBrads:
+            artEvent(bot.tick, "aim_resync",
+              %*{"err": err, "seen": seen, "est": bot.estAim,
+                 "target": target})
+            bot.estAim = target
+        bot.prevObsRot = obsRot
+        bot.prevObsTick = bot.tick
+    elif defined(aimSpriteResync):
       # 16-step sprite readback: a disagreement past half a rotation bucket
       # proves the dead reckoning drifted; snap to the bucket center, leaving
       # at most 8 brads of residual (within the fire gate's tolerance at
@@ -2784,6 +2856,8 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   if nadeC:
     mask = mask or ButtonC
   bot.firedLast = (mask and ButtonA) != 0
+  when defined(aimEdgeLatch):
+    bot.rotSignPrev = bot.rotSign
   bot.rotSign =
     if (mask and ButtonB) != 0: 1
     elif (mask and ButtonSelect) != 0: -1
