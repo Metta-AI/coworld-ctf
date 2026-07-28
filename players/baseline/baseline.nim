@@ -79,6 +79,9 @@ import
 when defined(taunt):
   import baseline/taunts
 
+when defined(nadePrior):
+  import baseline/nade_prior   # comms-018 enemy-gathering heatmap (static const)
+
 const
   WebSocketPath = "/player"
                               # Object coordinates and sprite sizes arrive
@@ -146,6 +149,25 @@ const
   NadeBlast = 40.0            # blast radius; a pair this close dies together
   NadeFullChargeTicks = 24    # ~1s of holding C reaches max range
   NadePickupDetour = 90.0     # grab a corner pickup within this detour range
+  # -d:nadePrior: predictive lobbing at the comms-018 enemy-gathering hot
+  # cells. An ARMED carrier with NO live lob target throws a held grenade
+  # (a free over-wall option) at a mapped attrition spot — NO pickup detour,
+  # so it only cashes grenades the champion already picks up (zero tempo cost;
+  # gear-057 part A pickup-greed was refuted at ~19pt). Fires only while the
+  # carrier is otherwise idle (no engage/threat, not rushing), so the ~1s
+  # charge windup lands in dead time. Gates: phase (opening cells unreachable),
+  # enemy-side only, in throw range, no ally in blast, opponent-gate the
+  # low-stability turtle-signature cells (need a live enemy corroboration),
+  # scout-confirm boost, per-bot cooldown + weight-scaled probabilistic stagger.
+  NadePriorBaseProb = 0.020   # per-tick throw prob at the score-norm cell
+  NadePriorMaxProb = 0.12     # cap so even the hottest cell staggers
+  NadePriorScoreNorm = 30.0   # weight that maps to the base probability
+  NadePriorScoutBoost = 3.0   # a fresh enemy near the cell multiplies the prob
+  NadePriorScoutTtl = 50      # ticks a sighting counts as "scouted"
+  NadePriorScoutRadius = 60.0 # px from the cell that counts as a sighting
+  NadePriorStabFloor = 40     # stab < this = opponent-specific; needs a sighting
+  NadePriorAllySlack = 20.0   # extra px beyond blast to spare an ally
+  NadePriorCooldown = 96      # ticks (~4s) between a bot's own prior throws
   MedKitDetour = 80.0         # heal-detour budget when merely wounded
   MedKitCriticalReach = 180.0 # at 1 hp a heal outranks the current errand
   MedKitRespawn = 30 * 24     # a taken kit refills after 30s (sim constant)
@@ -287,6 +309,9 @@ type
     jinkUntil: int
     jinkBits: uint8
     nadeCharge: int           # ticks the C button has been held; 0 = idle
+    nadePriorCd: int          # -d:nadePrior: tick of this bot's last prior throw
+    nadePriorAim: int         # -d:nadePrior: committed prior-throw aim (-1 none)
+    nadePriorD: float         # -d:nadePrior: committed prior-throw distance
     mateFixPos: Vec           # last SEEN position of a mate-carried enemy heart
     mateFixTick: int          # tick of that sighting; 0 = never seen this game
     nadeNeed: int             # charge ticks required for the planned throw
@@ -1070,6 +1095,8 @@ proc resetTransient(bot: Bot) =
   bot.enemies.setLen(0)
   bot.mates.setLen(0)
   bot.nadeCharge = 0
+  when defined(nadePrior):
+    bot.nadePriorAim = -1
   bot.mateFixTick = 0
   bot.hp = MaxHp
   for i in 0 ..< bot.kitAbsentAt.len:
@@ -2236,6 +2263,87 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           nadeAim = bradsOf(bot.campPos[i] - me)
           nadeThrowD = d
           break
+
+  when defined(nadePrior):
+    # Predictive lobbing (comms-018 heatmap): an armed carrier with NO live lob
+    # target throws its held grenade at a mapped enemy-gathering hot cell. No
+    # pickup detour (part A pickup-greed was refuted at ~19pt) — this only cashes
+    # grenades the champion already carries, and only while the carrier is idle
+    # (no engage/threat, not rushing) so the ~1s charge windup lands in dead time.
+    # A live blocked/paired target (nadeAim >= 0 above) always wins.
+    if bot.nadePriorAim >= 0:
+      # Committed throw in progress: re-aim each tick until the grenade leaves
+      # (carryingNade drops) or we lose it, so alignment never stalls the charge.
+      if carryingNade and not iCarry and not pocketRush:
+        if nadeAim < 0:
+          nadeAim = bot.nadePriorAim
+          nadeThrowD = bot.nadePriorD
+      else:
+        bot.nadePriorAim = -1
+        bot.nadePriorCd = bot.tick
+    elif carryingNade and not iCarry and nadeAim < 0 and engage < 0 and
+        nearThreat < 0 and not rushing and not pocketRush and
+        bot.tick - bot.nadePriorCd >= NadePriorCooldown:
+      let gameTick = bot.tick - bot.gameStart
+      let phase = if gameTick < 1400: 0 elif gameTick < 3400: 1 else: 2
+      if phase >= 1:                    # opening hot cells are unreachable (INTEL)
+        var
+          bestScore = 0.0
+          bestAim = -1
+          bestThrowD = 0.0
+          bestScouted = false
+        for k in 0 ..< NadePrior.len:
+          let c = NadePrior[k]
+          if c.phase != phase or not c.serviceable:
+            continue
+          # Canonical heatmap frame is OUR=Red (left); mirror x when we are Blue.
+          let cx = if bot.team == Red: float(c.x) else: float(MapW - 1 - c.x)
+          let cell = vec(cx, float(c.y))
+          if homeSign(bot.team) * (cell.x - float(CenterX)) >= 0.0:
+            continue                      # keep throws on the ENEMY half (FF guard)
+          let d = dist(cell, me)
+          if d < NadeMinRange or d > NadeMaxRange:
+            continue
+          # No ally inside the blast (teammates are fogged; best-effort).
+          var allyNear = false
+          for t in bot.mates:
+            if bot.tick - t.lastSeen <= 30 and
+                dist(t.pos, cell) <= NadeBlast + NadePriorAllySlack:
+              allyNear = true
+              break
+          if allyNear:
+            continue
+          # Scout-confirm: a fresh enemy sighting near the cell corroborates it.
+          var scouted = false
+          for t in bot.enemies:
+            if not t.synthetic and bot.tick - t.lastSeen <= NadePriorScoutTtl and
+                dist(t.pos, cell) <= NadePriorScoutRadius:
+              scouted = true
+              break
+          # Opponent-gate: low-stability (turtle-signature) cells only fire on a
+          # live sighting; high-stability all-rival cells fire blind.
+          if c.stab < NadePriorStabFloor and not scouted:
+            continue
+          let score = float(c.weight) * (if scouted: NadePriorScoutBoost else: 1.0)
+          if score > bestScore:
+            bestScore = score
+            bestAim = bradsOf(cell - me)
+            bestThrowD = d
+            bestScouted = scouted
+        if bestAim >= 0:
+          # Weight-scaled probabilistic stagger: hotter cells commit sooner, but
+          # no cell dumps every armed bot on the same spot at once.
+          let prob = min(NadePriorMaxProb,
+            NadePriorBaseProb * bestScore / NadePriorScoreNorm)
+          if rand(1.0) < prob:
+            when defined(nadeDebug):
+              echo "PRIOR nade throw phase ", phase, " aim ", bestAim,
+                " d ", bestThrowD, " score ", bestScore,
+                (if bestScouted: " scouted" else: " blind")
+            bot.nadePriorAim = bestAim
+            bot.nadePriorD = bestThrowD
+            nadeAim = bestAim
+            nadeThrowD = bestThrowD
 
   # Weapon pickups. SHIELD-THEN-STEAL: the enemy endzone shield sits just
   # behind their pedestal — a rusher near the pocket grabs 6 hp first and
