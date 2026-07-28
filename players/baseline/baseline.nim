@@ -202,10 +202,14 @@ const
                               # games cap at 5000 ticks — the all-in must land
                               # with time to convert. Scaled from 6800/10000.
                               # the default outcome, so commit to the capture
-  HoldFrontCap = 220.0        # -d:holdFront: ceiling on the phalanx creep — a
+  HoldFrontCapPx {.intdefine.} = 220
+  HoldFrontCap = float(HoldFrontCapPx)
+                              # -d:holdFront: ceiling on the phalanx creep — a
                               # castle line near our wall: fights there recur on
                               # ground where our respawn walk is ~100px and the
-                              # attacker re-crosses ~400px of watched open ground
+                              # attacker re-crosses ~400px of watched open ground.
+                              # -d:HoldFrontCapPx=N sweeps the cap (GV22 re-tune,
+                              # Asana 1216946335196075); default 220 == v38/v56.
 
   CoverShieldDist = 42.0      # an obstacle this close blocks a threat direction
   PeekLineDist = 150.0        # floor for an overwatch peek firing line; post
