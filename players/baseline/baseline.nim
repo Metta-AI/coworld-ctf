@@ -384,9 +384,13 @@ when defined(zonePhalanx):
     of pdMidA, pdMidB: 2
     else: 3
 
-  when defined(flagSafeRelease):
+  const
+    ReleaseMinGame {.intdefine.} = 600 # sit out the opening scramble before
+                                       # releasing (unconditional so a dead
+                                       # -d:leadRelease surfaces as an
+                                       # unused-symbol hint)
+  when defined(leadRelease):
     const
-      ReleaseMinGame = 600     # sit out the opening scramble before releasing
       PedGuardR = 150.0        # a remembered enemy this close to our pedestal
                                # is an imminent steal threat: hold stations
       PedThreatTtl = 150       # ...if the sighting is this fresh
@@ -1928,21 +1932,24 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
        target = bot.snapToCover(vec(
          ownEdgeX + dirX * (if lead: front else: front - 44.0),
          laneY2 + (if lead: -32.0 else: 32.0)))
-       when defined(flagSafeRelease):
-         # Flag-safe cross-lane reinforcement: the three lane pairs are
-         # static, so a massed attack on one lane fights 2-3 of us while the
-         # quiet lanes hold empty ground (measured: vs flag-passive rivals
-         # ~44-51% of home alive-ticks pass with no enemy within 300px, and
-         # most of our deaths happen with idle mates a lane away). While our
-         # flag is provably safe — never stolen this game, nothing remembered
-         # near the pedestal — a pair whose OWN lane is quiet converges on
-         # the freshest remembered enemy in OUR half instead of holding its
-         # station. Allocation only: pushOut timing, the front cap and the
-         # steal wave are untouched, the redeploy point stays home-side of
-         # the contact inside our half, and any pedestal approach or steal
-         # flips the gate back to the stock stations on the next tick (a
-         # stolen flag re-routes everyone upstream via ownStolen).
-         if not contact and gameTick > ReleaseMinGame and
+       when defined(leadRelease):
+         # LEAD-ONLY flag-safe cross-lane reinforcement (narrowed re-test of
+         # the refuted whole-pair flagSafeRelease). The 288-ep audit of that
+         # lever localized ALL the measured harm in the seats this variant
+         # now HOLDS: excess deaths sat on the TRAIL seats (TopB +0.148,
+         # MidB +0.084, BotB +0.128 deaths/ep; A-seats ~0.00) and the
+         # displacement sat in the TOP pair (TopB 119px off station vs 60
+         # control; the Mid pair barely moved). So: ONLY the lead seats of
+         # the Mid and Bottom lanes (pdMidA, pdBotA) may converge on the
+         # freshest remembered enemy in OUR half when their own lane is
+         # quiet and our flag is provably safe; the trail seats and the
+         # whole Top pair hold their prepared stations unconditionally.
+         # Gate, constants and redeploy geometry are byte-identical to the
+         # refuted lever — the seat subset is the ONLY variable under test.
+         # Recall unchanged: any pedestal approach or steal flips the gate
+         # back to stock stations next tick (ownStolen re-routes upstream).
+         if pd in {pdMidA, pdBotA} and
+             not contact and gameTick > ReleaseMinGame and
              not ownStolen and not bot.everLostOurs:
            let ped = flagHome(bot.team)
            var pedThreat = false
