@@ -184,11 +184,19 @@ const
   PushOutMinGame = 1400       # ...this deep into the game breaks the posts
   StalemateTick = 2000        # nobody has MOVED a flag by here: the game is
                               # heading for a lose-lose timeout — go convert.
-  LatePushTick = 3400         # all-in on the clock: past this tick a draw is
+  LatePushTick =              # all-in on the clock: past this tick a draw is
+    when defined(lateTie): 2400 else: 3400
                               # A LOSS FOR BOTH (GV21 lose-lose timeouts) and
                               # games cap at 5000 ticks — the all-in must land
                               # with time to convert. Scaled from 6800/10000.
-                              # the default outcome, so commit to the capture
+                              # the default outcome, so commit to the capture.
+                              # -d:lateTie (task 1216952158017590): widen the
+                              # late-tie offense window 3400->2400 so the all-in
+                              # fires ~1000t earlier (2600t to convert vs 1600),
+                              # re-tuning the GV21 breaker for GV22 + beacon:v28
+                              # + the shield layer to convert the mutual-loss
+                              # draw tail (score is 0-0 until the capture that
+                              # ends the episode, so "tied" == the whole game).
   HoldFrontCap = 220.0        # -d:holdFront: ceiling on the phalanx creep — a
                               # castle line near our wall: fights there recur on
                               # ground where our respawn walk is ~100px and the
