@@ -2642,9 +2642,7 @@ proc runBot(url: string) =
             ws.send(chatBlob(bot.shoutWant), BinaryMessage)
             artEvent(bot.tick, "shout_tx", %*{"text": bot.shoutWant})
             bot.shoutWant = ""
-        # Done thinking: a fastMode server advances the tick as soon as
-        # every player has sent this; older servers ignore the packet.
-        ws.send(readyBlob(), BinaryMessage)
+        # readyBlob send removed: aim-desync isolate (task 1216940574461149)
     except Exception as e:
       if everConnected:
         # The game ended and the server went away: exit so the episode
