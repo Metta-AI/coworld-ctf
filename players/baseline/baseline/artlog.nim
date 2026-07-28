@@ -117,6 +117,8 @@ proc artInit*(slot: int, team, role: string) =
   when defined(shoutThief): defines.add("shoutThief")
   when defined(swarm): defines.add("swarm")
   when defined(rushAll): defines.add("rushAll")
+  when defined(aimSpriteResync): defines.add("aimSpriteResync")
+  when defined(aimStressSend): defines.add("aimStressSend")
   art.meta = %*{
     "schema": 1,
     "slot": slot,

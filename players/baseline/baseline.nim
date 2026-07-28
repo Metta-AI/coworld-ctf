@@ -45,7 +45,9 @@
 ##   — captures are instant wins both ways, so the race stays on.
 ## - **Turret controller**: the bot dead-reckons its own aim (spawn aim is
 ##   toward the enemy side; each held rotate button turns it 5 brads/tick)
-##   and resyncs it every frame from its own rendered aim-indicator dots.
+##   and (with -d:aimSpriteResync) resyncs it every frame from its own
+##   rendered self-soldier sprite, whose id encodes the true aim in 16 baked
+##   rotation steps (the old aim-indicator dots were retired server-side).
 ##   Each tick it outputs the rotate button that traverses toward the desired
 ##   aim by the shortest arc, and fires only when the bullet corridor
 ##   (~14px half-width) covers the target at its range.
@@ -504,21 +506,53 @@ proc findSelf(
     for o in client.spriteObjectsWithLabel(label):
       return (alive: true, pos: client.mapPos(o))
 
-proc observedAim(client: ProtocolClient, me: Vec, color: string): int =
-  ## Our actual aim read back from our own rendered aim-indicator dots: the
-  ## farthest "aim dot <color>" object within the indicator radius points
-  ## along the aim. Returns -1 when no dot is close enough (teammate dots
-  ## share our color but hug their own player). Resolution is ~2 brads —
-  ## an absolute fix that caps dead-reckoning drift.
-  result = -1
-  var bestD = 0.0
-  for o in client.spriteObjectsWithLabel("aim dot " & color):
-    let
-      p = client.mapPos(o)
-      d = dist(p, me)
-    if d <= AimDotRadius and d > bestD:
-      bestD = d
-      result = bradsOf(p - me)
+when defined(aimSpriteResync):
+  const
+    SelfSoldierSpriteBase = 5100 # src/ctf/global.nim SpritePlayerSelfSpriteBase:
+                                 # the outlined POV self-soldier sprite pool,
+                                 # 16 aim-rotation ids per skin
+    SoldierRotSteps = 16         # src/ctf/global.nim SoldierRotations
+    SelfRotBrads = AimBrads div SoldierRotSteps # brads per baked rotation step
+    AimSnapBrads = SelfRotBrads div 2 # a perfectly tracked estAim can read up
+                                 # to half a step from the observed bucket
+                                 # center, so only a larger disagreement
+                                 # proves the dead reckoning drifted
+
+  proc observedAim(client: ProtocolClient, me: Vec, color: string): int =
+    ## Absolute aim readback from our own rendered self marker: the POV self
+    ## soldier is pre-rotated to our TRUE aim in 16 baked steps and its sprite
+    ## id encodes the step (selfSoldierSpriteId = base + skin*16 + rot, see
+    ## src/ctf/global.nim; soldierRotIndex rounds aim to the nearest step, so
+    ## the true aim sits within +-8 brads of rot*16). Returns the observed
+    ## bucket's center angle, or -1 while dead (the self marker only renders
+    ## alive). Replaces the retired aim-dot readback: the dots were removed
+    ## server-side on 2026-07-16 (addAimIndicators is a no-op), which left
+    ## estAim pure open-loop dead reckoning — task 1216949818460910.
+    result = -1
+    for facingRight in [true, false]:
+      let label = "self " & color & (if facingRight: " right" else: " left")
+      for o in client.spriteObjectsWithLabel(label):
+        let rot = floorMod(o.spriteId - SelfSoldierSpriteBase, SoldierRotSteps)
+        return rot * SelfRotBrads
+else:
+  proc observedAim(client: ProtocolClient, me: Vec, color: string): int =
+    ## Our actual aim read back from our own rendered aim-indicator dots: the
+    ## farthest "aim dot <color>" object within the indicator radius points
+    ## along the aim. Returns -1 when no dot is close enough (teammate dots
+    ## share our color but hug their own player). Resolution is ~2 brads —
+    ## an absolute fix that caps dead-reckoning drift.
+    ## DEAD SINCE 2026-07-16: the aim-dot sprites were retired server-side
+    ## (addAimIndicators is a no-op), so this always returns -1 and estAim
+    ## runs open-loop. -d:aimSpriteResync restores a real readback above.
+    result = -1
+    var bestD = 0.0
+    for o in client.spriteObjectsWithLabel("aim dot " & color):
+      let
+        p = client.mapPos(o)
+        d = dist(p, me)
+      if d <= AimDotRadius and d > bestD:
+        bestD = d
+        result = bradsOf(p - me)
 
 proc actorsFor(client: ProtocolClient, color: string): seq[Actor] =
   ## Visible players of one color in map coordinates plus horizontal facing
@@ -1275,12 +1309,24 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # Respawned: the server points the aim back at the enemy side.
     bot.wasDead = false
     bot.estAim = spawnAim(bot.team)
-  # Absolute turret fix: our own rendered aim-indicator dots show the actual
-  # aim every frame, capping any dead-reckoning drift (mask-apply races).
+  # Absolute turret fix: read our actual aim back from our own rendered
+  # avatar every frame, capping any dead-reckoning drift (mask-apply races).
   block resync:
     let seen = client.observedAim(me, myColor)
-    if seen >= 0 and abs(bradsErr(seen, bot.estAim)) > AimResyncBrads:
-      bot.estAim = seen
+    when defined(aimSpriteResync):
+      # 16-step sprite readback: a disagreement past half a rotation bucket
+      # proves the dead reckoning drifted; snap to the bucket center, leaving
+      # at most 8 brads of residual (within the fire gate's tolerance at
+      # typical ranges). The event makes the lever's firing telemetry-visible.
+      if seen >= 0:
+        let err = bradsErr(seen, bot.estAim)
+        if abs(err) > AimSnapBrads:
+          artEvent(bot.tick, "aim_resync",
+            %*{"err": err, "seen": seen, "est": bot.estAim})
+          bot.estAim = seen
+    else:
+      if seen >= 0 and abs(bradsErr(seen, bot.estAim)) > AimResyncBrads:
+        bot.estAim = seen
   # Plasma arcs and shields share the endzone back columns (inset 50)
   # but are vertically SEPARATED: plasma arcs in the top half (quarter height),
   # shields in the bottom half (three-quarter height). Seed the spots up
@@ -2781,7 +2827,12 @@ proc runBot(url: string) =
     # 1216940574461149: removing this send flipped the same tree from
     # 0W-23L-1M to 8W-10L-6M vs the champion, p=0.0039). League/xreq runners
     # never set this env, so competitive builds do not send ready at all.
-    fastReadyEnabled = getEnv("CTF_BOT_FAST_READY").len > 0
+    # -d:aimStressSend (task 1216949818460910, adversarial arm ONLY): force
+    # the per-frame ready send back on to reproduce the v58-class input-timing
+    # perturbation and prove the aim readback holds the gun together under it.
+    # Never set this define on a league candidate build.
+    fastReadyEnabled = defined(aimStressSend) or
+      getEnv("CTF_BOT_FAST_READY").len > 0
   bot.resetTransient()
   echo "baseline slot=", slot, " team=", team, " role=", role, " -> ", endpoint
   artInit(slot, $team, $role)
