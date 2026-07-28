@@ -173,6 +173,19 @@ when defined(mtprobe):
   var mtVisible = 0   # ...and a med-kit pickup is visible at all this frame
   var mtFireCount = 0 # ...and one sits within MedKitDetour => the detour actually fired
 
+when defined(meprobe):
+  # -d:meprobe ONLY (2026-07-28): instrument the medEcon gate as a FUNNEL, the same
+  # way mtprobe does for medTopOff, so "did the fix actually open the gate?" is a
+  # measurement and not a guess. The whole point of medEcon is that medTopOff's
+  # funnel collapsed at mtSafe/mtVisible; compare meSafe/meFireCount against those.
+  # Never compiled into the shipped player.
+  var meOn = 0         # alive frames with medEcon on and read hp (the population)
+  var meWounded = 0    # ...and wounded (ownHp in 1..<MaxHp)
+  var meFree = 0       # ...and not carrier/grabber/escort/stolen-flag/pickup-seeker
+  var meLightBreak = 0 # ...and IN contact but at 1 hp with no gun on us (the new case)
+  var meSafe = 0       # ...and cleared the contact rule (out of contact or light-break)
+  var meFireCount = 0  # ...and a known kit sits within MedKitEconDetour => fired
+
 when defined(scprobe):
   # -d:scprobe ONLY (v9): instrument the satCap redistribution as a FUNNEL so a
   # null A/B is diagnosable (pair-saturation never occurs in range vs occurs but
@@ -449,6 +462,32 @@ const
                               # (a full heal is worth more than a grenade) but capped so the
                               # bot never abandons its lane to chase a far kit; fog reveals a
                               # kit only near center, so this rarely binds anyway.
+  # --- medEcon (2026-07-28): the med kits are a STATIC, renewable HP economy ---
+  # League measurement over 20 real episodes: the field took 42 heals to our 11
+  # (3.8x). With 3 hp per life and 3 lives, a full heal is worth a whole life's
+  # damage, so that gap alone explains a chunk of our -63 K-D. Root cause was the
+  # old gate: it needed the kit VISIBLE in the fog cone within MedKitDetour AND no
+  # contact whatsoever, a conjunction almost never true in the tick-1000..3000
+  # mass-engagement window where 81% of our kill deficit is booked.
+  #
+  # Both kits sit at DETERMINISTIC coords the engine recomputes every reset:
+  # (MapWidth div 2, MapHeight div 3) and (MapWidth div 2, 2*MapHeight div 3),
+  # each nudged to the nearest walkable floor (sim.resetMedKits). Verified against
+  # 53 real league heal events, which cluster at (617,219) and (617,439). So the
+  # position needs NO fog read at all - like the pedestals, it is static knowledge.
+  MedKitAX = float(MapW div 2)      # kit A: center column, upper third.
+  MedKitAY = float(MapH div 3)
+  MedKitBX = float(MapW div 2)      # kit B: center column, lower third.
+  MedKitBY = float(2 * MapH div 3)
+  MedKitEconDetour = 320.0    # medEcon: how far a WOUNDED bot will divert to a known
+                              # kit. Wider than MedKitDetour because the target no
+                              # longer has to be visible - the walk is the whole cost,
+                              # and a 1-hp bot is worth less than the detour.
+  MedKitOnSpotPx = 26.0       # "we are standing on the spot": if this close and the
+                              # kit sprite is NOT visible, it is taken - stop going.
+  MedKitLightContactHp = 1    # medEcon: at or below this hp a bot breaks LIGHT contact
+                              # (a threat that is not aiming at us) to go heal. At 1 hp
+                              # the next bullet is death, so healing outranks the duel.
   CarrySelfRadius = 26.0      # a carried heart rides CarriedFlagLift (~10 map
                               # px) above its carrier's center, so our own
                               # carry shows as the enemy heart floating just
@@ -1409,6 +1448,30 @@ type
                               # sides get chipped near mid, so the healthier survivor wins
                               # the next contact — an asymmetric survival edge the self-play
                               # mirror can score (carrier-survival / K-D / deaths).
+    medEcon: bool             # ⭐⭐ MED-KIT ECONOMY (2026-07-28, from the live-league Elo
+                              # assessment: the field took 42 heals to our 11 over 20 real
+                              # episodes). medTopOff had the right doctrine but a gate that
+                              # almost never opens mid-game. medEcon keeps the doctrine and
+                              # fixes the three things that closed the gate:
+                              #   1. STATIC POSITION — the kits are at fixed engine coords
+                              #      (verified vs 53 league heal events), so stop requiring
+                              #      the sprite to be VISIBLE in the fog cone. A wounded bot
+                              #      walks to a remembered kit the way it walks to a pedestal.
+                              #      This is the big one: the old visibility requirement is
+                              #      why a 320px-away kit was invisible and thus ignored.
+                              #   2. WIDER DETOUR — MedKitEconDetour(320) over MedKitDetour(150),
+                              #      because the walk is now the only cost.
+                              #   3. LIGHT CONTACT — at MedKitLightContactHp a bot breaks
+                              #      contact with a threat that is NOT aiming at it to heal.
+                              #      At 1 hp the next bullet kills, so the heal outranks the
+                              #      duel; a threat actually pointing at us still wins (we
+                              #      never turn our back on a live gun — the holdVsGun rule).
+                              # Still a pure MOVEMENT lever (never touches the trigger) and
+                              # still yields to every real objective (carrier / escort /
+                              # committed grabber / stolen-flag defender / pickup seeker).
+                              # Mirror-measurable for the same reason medTopOff was: it is a
+                              # resource RACE, not a coordination lever, so self-play scores
+                              # it (heals, deaths, K-D) — unlike comms.
     satCap: bool              # ⭐ DISTRIBUTED FIRE (2026-07-20, backlog #2, FM 3-90
                               # fire-distribution): "destroy the greatest threat first,
                               # THEN distribute fires — avoid target overkill." Enough
@@ -1845,6 +1908,7 @@ proc defaultCombatTune(): CombatTune =
     planLayer: false,         # control: flat scenario→play matrix, no contingency phase machine.
     swordAmbush: false,       # control: a boxed-in bot never grabs a sword for a melee kill.
     medTopOff: false,         # control: a wounded bot never detours to a center med kit.
+    medEcon: false,           # control: no static-coord kit routing (fog-visible kits only).
     satCap: false,            # control: a free gun dogpiles the nearest enemy, no saturation cap.
     noMask: false,            # control: a mover walks through a mate's live gun-line.
     assaultThrough: false,    # control: a surprise at knife range triggers the retreat/duck jink.
@@ -5168,6 +5232,89 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     if haveKit:
       target = chosen
       when defined(mtprobe): inc mtFireCount
+
+  # ── ⭐⭐ medEcon: THE MED KITS ARE A STATIC, RENEWABLE HP ECONOMY (2026-07-28).
+  # Measured on 20 real league episodes: the field took 42 heals to our 11 (3.8x),
+  # while 81% of our kill deficit books in ticks 1000-3000 and 8 of 13 losses were
+  # full WIPES. With 3 hp per life a free full heal is worth a life's damage, so
+  # this is the single largest resource asymmetry we could find.
+  #
+  # medTopOff above has the right DOCTRINE but a gate that almost never opens: it
+  # requires the kit sprite to be VISIBLE in the fog cone within 150px AND zero
+  # contact. In a mid-game where contact is ~constant that conjunction is dead.
+  # medEcon fixes exactly the three closed conditions and changes nothing else:
+  #   1. the kits sit at STATIC engine coords (sim.resetMedKits; verified against
+  #      53 league heal events clustering at (617,219)/(617,439)), so we route to
+  #      remembered positions like a pedestal — no fog read needed at all;
+  #   2. MedKitEconDetour(320) instead of 150, since the walk is now the only cost;
+  #   3. at MedKitLightContactHp a bot breaks LIGHT contact (a threat NOT aiming at
+  #      us) to heal — at 1 hp the next bullet is death, so the heal outranks the
+  #      duel. A threat whose gun IS on us still wins: we never turn our back on a
+  #      live gun (the holdVsGun rule), so that case falls through to combat.
+  # Still a pure MOVEMENT override (never touches the trigger), and it still yields
+  # to every genuine objective. A kit we are standing on but cannot see is TAKEN
+  # (its sprite would be in our bubble), so give up rather than orbit an empty spot.
+  block medKitEcon:
+    if not bot.tune.medEcon: break medKitEcon
+    when defined(meprobe):
+      if bot.ownHp > 0: inc meOn
+    if bot.ownHp notin 1 ..< MaxHp: break medKitEcon    # unread(0) or full: no detour
+    when defined(meprobe): inc meWounded
+    if iCarry or mateCarry or pocketRush or ownStolen or
+        seekingPickup or iHaveShield or iHaveSword or iHavePlasma:
+      break medKitEcon                                 # a higher objective owns this bot
+    when defined(meprobe): inc meFree
+
+    # Contact rule. Out of contact: always free to top off (the medTopOff intent).
+    # In contact: only a bot at MedKitLightContactHp may disengage, and only from a
+    # threat that is NOT pointing at it. Anything else keeps fighting.
+    if engage >= 0 or nearThreat >= 0:
+      if bot.ownHp > MedKitLightContactHp: break medKitEcon
+      var aimedAtUs = false
+      for i in 0 ..< bot.enemies.len:
+        let t = bot.enemies[i]
+        if bot.tick - t.lastSeen > HoldVsGunTtl or t.aimBrads < 0:
+          continue
+        if abs(bradsErr(t.aimBrads, bradsOf(me - t.pos))) > AimOnConeBrads:
+          continue                                     # its gun is not on us
+        if not client.pixelRayClear(me, t.pos):
+          continue                                     # no line: it cannot punish the walk
+        aimedAtUs = true
+        break
+      if aimedAtUs: break medKitEcon                   # a live gun on us: hold, don't flee
+      when defined(meprobe): inc meLightBreak
+    when defined(meprobe): inc meSafe
+
+    # Route to the nearest kit whose spot is not known-empty. The position is
+    # static knowledge; only the PRESENCE needs a sight check, and only once we
+    # are close enough that an absent sprite proves the kit is gone.
+    var bestEcon = MedKitEconDetour
+    var haveEconKit = false
+    var chosenEcon: Vec
+    for spot in [vec(MedKitAX, MedKitAY), vec(MedKitBX, MedKitBY)]:
+      let d = dist(spot, me)
+      if d >= bestEcon:
+        continue
+      if d <= MedKitOnSpotPx:
+        # Standing on it: if no kit sprite is here it has been taken — a kit in
+        # our own bubble is never fogged, so absence is proof, not ignorance.
+        var present = false
+        for o in client.spriteObjectsWithLabel("med kit"):
+          let p = client.mapPos(o)
+          if p.x < 40.0 or p.y < 40.0 or p.x > float(MapW - 40) or
+              p.y > float(MapH - 40):
+            continue                                   # HUD indicator shares the label
+          if dist(p, spot) <= MedKitOnSpotPx:
+            present = true
+            break
+        if not present:
+          continue
+      bestEcon = d
+      chosenEcon = spot
+      haveEconKit = true
+    if haveEconKit:
+      target = chosenEcon
+      when defined(meprobe): inc meFireCount
 
   # Grenade danger: a visible throw-target ring marks where an enemy's lob
   # will land, and an airborne grenade is seconds from bursting — anything
