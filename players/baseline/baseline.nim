@@ -239,6 +239,21 @@ const
 
   LaneTop = 40.0              # open corridor above the mirrored obstacles
 
+when defined(oppClass):
+  const
+    OppClassK {.intdefine.} = 25        # own-sighted enemy seat-ticks in our
+                                        # half that latch INVADER; leg-1 decode
+                                        # (156 league eps): weakest invader
+                                        # S(800)=534, noisiest turtle 37 — the
+                                        # threshold sits in a ~20x empty gap
+    OppClassWindow {.intdefine.} = 800  # game ticks; TURTLE latches when the
+                                        # window closes (invaders are seen by
+                                        # gc185-389, median 214 — 2x slack)
+    OppClassDeadBand {.intdefine.} = 30 # px past the midline before an enemy
+                                        # counts: the two med-kit pads sit ON
+                                        # x=617, and pad campers (1-9 px deep)
+                                        # were the only false-positive class
+
 ## Map dimensions, adopted at nav-grid build from the walkability sprite
 ## (which spans the whole arena). The game supports multiple maps —
 ## "arena" (1235x659, the default) and "arena-large" (1606x858) — and this
@@ -362,6 +377,11 @@ type
     helpUntil: int            # tick the help retasking expires
     lastEShout: int           # scout sighting-broadcast rate limit
     lastHShout: int           # help-call rate limit
+    oppSeen: int              # -d:oppClass: cumulative own-sighted enemy
+                              # seat-ticks strictly inside our half
+    oppSeenTick: int          # last tick the accumulator advanced
+    oppInvader: bool          # -d:oppClass: one-way INVADER latch
+    oppClassCalled: bool      # -d:oppClass: latch event emitted (either class)
 
 proc roleForSeat(seat: int, team: Team): Role =
   ## Deterministic role spread over the 8 per-team seats. Seats 2 and 3 both
@@ -1212,6 +1232,11 @@ proc resetTransient(bot: Bot) =
   bot.carrierSeen = -100_000
   bot.lastEnemySeen = bot.tick
   bot.gameStart = bot.tick
+  when defined(oppClass):
+    bot.oppSeen = 0
+    bot.oppSeenTick = bot.tick
+    bot.oppInvader = false
+    bot.oppClassCalled = false
   bot.firedLast = false
   bot.estAim = spawnAim(bot.team)
   bot.rotSign = 0
@@ -1445,6 +1470,36 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   bot.updateTracks(bot.mates, seenMates)
   if seenEnemies.len > 0:
     bot.lastEnemySeen = bot.tick
+
+  when defined(oppClass):
+    # Opponent-class latch (telemetry-only; consumers gate on bot.oppInvader).
+    # Cumulative count of own-sighted enemies strictly inside our half, with
+    # a dead-band past the midline so the med-kit-pad campers that sit ON the
+    # line never count. One-way latch: INVADER at S >= K inside the early
+    # window, else TURTLE when the window closes. Dead frames never get here,
+    # so accumulation is alive-perceiver-gated by construction.
+    if not bot.oppClassCalled:
+      let gameTicks = bot.tick - bot.gameStart
+      if gameTicks <= OppClassWindow:
+        var inOurHalf = 0
+        for a in seenEnemies:
+          if (bot.team == Red and
+              a.pos.x < float(CenterX - OppClassDeadBand)) or
+              (bot.team == Blue and
+              a.pos.x > float(CenterX + OppClassDeadBand)):
+            inc inOurHalf
+        # Weight by elapsed ticks (clamped) so skipped frames don't dilute S.
+        bot.oppSeen += inOurHalf * clamp(bot.tick - bot.oppSeenTick, 1, 4)
+        bot.oppSeenTick = bot.tick
+        if bot.oppSeen >= OppClassK:
+          bot.oppInvader = true
+          bot.oppClassCalled = true
+          artEvent(bot.tick, "opp_class_invader",
+            %*{"gc": gameTicks, "s": bot.oppSeen})
+      else:
+        bot.oppClassCalled = true
+        artEvent(bot.tick, "opp_class_turtle",
+          %*{"gc": gameTicks, "s": bot.oppSeen})
 
   # Flag bookkeeping (two flags; a carried flag rides its carrier's exact
   # position). The enemy flag can only be carried by OUR team, so its sprite
