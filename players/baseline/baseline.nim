@@ -1891,7 +1891,25 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
                LaneBottom - 40.0 - (LaneBottom - 40.0 - LaneMid) * (ph / 200.0)
              else:
                LaneMid + (LaneBottom - 40.0 - LaneMid) * ((ph - 200.0) / 200.0))
-         target = vec(ownEdgeX + dirX * (front + 130.0), py)
+         var scDepth = front + 130.0
+         when defined(scoutPadSafe):
+           # Decoded 2026-07-28 (worker-b redside leg): the ticks the
+           # scoutPadMemory gate frees from the empty-pad camp die at the
+           # +130 post — it is the most forward body on the team, parked in
+           # the modal enemy band (hazard 4.4x the castle line), unshielded
+           # and engaging. On exactly the ticks control would have spent
+           # camping (unshielded, a back-column pad remembered but believed
+           # empty, before the errand deadline), hold the trailing lane-pair
+           # depth instead. Same weave; every other tick unchanged.
+           if scFetch and gameTick < 2200 and shieldSpot.x < 0.0:
+             var padRemembered = false
+             for sp in bot.shieldPos:
+               if dirX * (sp.x - float(CenterX)) < 0.0:
+                 padRemembered = true
+                 break
+             if padRemembered:
+               scDepth = front - 44.0
+         target = vec(ownEdgeX + dirX * scDepth, py)
      of pdFloat:
        if bot.helpUntil > bot.tick:
          target = bot.snapToCover(vec(ownEdgeX + dirX * (front - 60.0),
