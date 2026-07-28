@@ -2025,7 +2025,12 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # deadline caps the time-dead tradeoff for an isolated straggler.
     var rallyHolding = false
     if bot.rallyUntil > bot.tick:
-      if iCarry or mateCarry or ownStolen:
+      if iCarry or mateCarry or ownStolen or pushOut:
+        # pushOut gate (iteration 2): once the team is in break-posts /
+        # all-in mode every body belongs in the press — the A/B showed
+        # late-game rally holds convert decisive games into mutual-loss
+        # timeouts (beacon cell 42/48 MUT; mirror 19/48). Rally is an
+        # EARLY/MID-game anti-trickle tool only.
         bot.rallyUntil = 0
       else:
         var grouped = false
