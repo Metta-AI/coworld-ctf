@@ -114,6 +114,11 @@ const
                               # turret needs traverse time, so chases keep
                               # shooting a bit after the target fogs out
   ThiefFixTtl = 40            # a thief position fix guides the chase this long
+  BlindFreshTicks {.intdefine.} = 6
+                              # -d:blindGate: only engage a track this fresh
+                              # (and ray-clear to its CURRENT estimate) — a
+                              # 15,388-shot decode found 37.8% of our shots
+                              # have no line of sight to the target at pull
 
   AimBrads = 256              # aim angle units per full turn
   AimRate = 5                 # brads/tick a held rotate button turns the aim
@@ -2066,6 +2071,26 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     let d = dist(predicted, me)
     if d >= maxEngage:
       continue
+    when defined(blindGate):
+      # Blind-shot gate: only ENGAGE a target we can plausibly still see —
+      # the track must be fresh AND the ray to its CURRENT extrapolated
+      # position (not just the lead point) must be clear. Ghost tracks fall
+      # through to the peek path (reposition to re-acquire) instead of
+      # eating a 5-tick windup + 12-tick cooldown on a 0.306-conversion
+      # blind shot. Exempt the thief chase: blind suppression fire at the
+      # enemy running our flag still buys the return.
+      let thiefChase = ownStolen and
+        bot.tick - bot.carrierSeen <= ThiefFixTtl and
+        dist(t.pos, bot.carrierPos) <= 48.0
+      if not thiefChase:
+        let cur = t.pos + t.vel * float(bot.tick - t.lastSeen)
+        if bot.tick - t.lastSeen > BlindFreshTicks or
+            not client.pixelRayClear(me, cur):
+          if d < blockedD:
+            blockedD = d
+            blockedAim = predicted
+            haveBlocked = true
+          continue
     # Target priority: distance plus the turret swing needed to lay on the
     # target (the traverse is slow, so a target near the current aim line
     # dies sooner than a nearer one behind us), discounted for wounded
