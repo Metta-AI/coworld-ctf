@@ -254,3 +254,47 @@ COWORLD_PLAYER_WS_URL="ws://localhost:8080/player?slot=0&token=0xBADA55_0" \
 ```
 
 Container build uses `players/baseline/Dockerfile` (produces `/bin/baseline`).
+
+## Artifact telemetry (always on)
+
+`baseline/artlog.nim` records structured decision telemetry every episode
+and uploads it as the platform's per-seat **player artifact** (one zip per
+slot per episode, PUT to the presigned `COWORLD_PLAYER_ARTIFACT_UPLOAD_URL`
+the runner injects; `file://` URLs on local runs; silently skipped when the
+variable is absent; a failed upload never fails the episode). It exists so
+post-hoc analysis over large episode sets — "what was seat 3 doing between
+the steal and the death" — reads a few JSON files instead of re-simulating
+replays.
+
+Zip contents:
+
+- `meta.json` — slot, team, role, active compile defines, sample cadence.
+- `events.jsonl` — tick-stamped edges: `steal`/`carry_end`,
+  `mate_carry`/`mate_carry_end`, `death`/`respawn`,
+  `own_flag_stolen`/`own_flag_returned`, `thief_fix`,
+  `pickup_shield`/`shield_lost`, `pickup_plasma`/`plasma_spent`,
+  `pickup_nade`/`nade_thrown`, `damage`/`heal`, `shot` (with aim + engage
+  range), `objective` (movement-branch switches), `push_out`, `stuck_jink`,
+  `nade_flee`, `shout_tx`, `game_start`/`game_end`.
+- `ticks.jsonl` — a state row every 12 ticks (~0.5 s): position, hp, aim,
+  objective + action branch, movement target, visible enemies, engage
+  distance, input mask, and status flags (carry/shield/plasma/nade/pushOut).
+- `summary.json` — event counters plus per-objective and per-action tick
+  histograms; the first internal telemetry error, if any, is recorded here
+  (telemetry disables itself rather than ever touching gameplay).
+
+The `objective` tag names the movement-target branch in `decide` (`carry`,
+`thief_hunt`, `thief_guard`, `escort`, `defend`, `overwatch`, `attack`,
+`pocket_rush`, `shield_trip`, `plasma_grab`, `heal_detour`, `nade_grab`);
+the `action` tag names the turret/act branch (`nade`, `plasma`, `fire`,
+`duck`, `peek`, `evade`, `scan`, `navigate`, `nade_flee`).
+
+Fetching after a league/xreq episode:
+
+```bash
+uv run coworld episode-logs <ereq_id> --agent <slot> --artifact --download-dir logs/
+```
+
+Local runs: set `CTF_ARTLOG_PATH=/tmp/artifact.zip` to write the bundle to
+disk without a runner. Test builds can drop the libcurl dependency with
+`-d:artlogNoCurl` (file delivery keeps working).

@@ -74,7 +74,8 @@ import
   std/[algorithm, heapqueue, math, os, random, strutils],
   bitworld/spriteprotocol,
   whisky,
-  baseline/protocols
+  baseline/protocols,
+  baseline/artlog
 
 when defined(taunt):
   import baseline/taunts
@@ -1204,6 +1205,9 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     bot.firedLast = false
     bot.rotSign = 0
     bot.wasDead = true
+    artFrame(FrameSnap(tick: bot.tick, alive: false,
+      x: int(bot.lastPos.x), y: int(bot.lastPos.y), hp: 0,
+      objective: "dead", action: "dead", engageDist: -1))
     return 0
   if bot.wasDead:
     # Respawned: the server points the aim back at the enemy side.
@@ -1737,9 +1741,12 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         bot.campPos.add t.pos
         bot.campSeen.add bot.tick
 
-  # Movement target from role and flag situation.
+  # Movement target from role and flag situation. `objMode` names the branch
+  # for the artifact telemetry (see baseline/artlog.nim).
   var target: Vec
+  var objMode = "attack"
   if iCarry:
+    objMode = "carry"
     # Run the stolen enemy flag home along the emptiest lane; the exposure
     # cost in the path field keeps the route hugging cover past remembered
     # enemies.
@@ -1774,12 +1781,14 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # takes eyes, not magic.
     if bot.tick - bot.carrierSeen <= ThiefFixTtl:
       # Converge on the thief's predicted path toward the enemy capture edge.
+      objMode = "thief_hunt"
       var predicted = bot.carrierPos +
         bot.carrierVel * float(18 + bot.tick - bot.carrierSeen)
       predicted.x += -homeSign(bot.team) * 40.0
       target = vec(clamp(predicted.x, 20.0, float(MapW - 20)),
                    clamp(predicted.y, 20.0, float(MapH - 20)))
     else:
+      objMode = "thief_guard"
       var laneY = LaneMid
       if bot.carrierSeen > -100_000:
         var bestD = 1e18
@@ -1789,6 +1798,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
             laneY = lane
       target = vec(float(CenterX) - homeSign(bot.team) * 60.0, laneY)
   elif mateCarry:
+    objMode = "escort"
     case bot.role
     of MidTop, FlankTop:
       target = mateCarryPos + vec(homeSign(bot.team) * 46.0, -30.0)
@@ -1923,6 +1933,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   elif bot.role == HomeDefender and not pushOut:
     # Hold the choke on our pedestal approach; break off to chase the nearest
     # intruder on our half (every steal has to come through here).
+    objMode = "defend"
     var intruder = -1
     var intruderD = 1e18
     for i in 0 ..< bot.enemies.len:
@@ -1940,6 +1951,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     else:
       target = bot.chokeHold
   elif bot.role == Overwatch and not pushOut:
+    objMode = "overwatch"
     if bot.postReady:
       # Peek-and-shoot cycle: hold behind the post; with the gun up and a
       # remembered enemy in reach, sidestep to the peek cell to open the
@@ -2007,6 +2019,8 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     bot.role in {MidTop, MidBottom, MidGuard, FlankTop, FlankBottom} and
     dist(me, stealTarget) < PocketRushRange and
     dist(me, stealTarget) < nearestMateToSteal + 8.0
+  if pocketRush:
+    objMode = "pocket_rush"
 
   # Combat: the nearest fresh track with a clear pixel ray AND a mate-free
   # fire cone is the engage target; the nearest fresh-but-wall-blocked track
@@ -2261,6 +2275,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       if dist(me, bot.shieldPos[i]) + dist(bot.shieldPos[i], stealTarget) -
           dist(me, stealTarget) < ShieldStealDetour:
         target = bot.shieldPos[i]
+        objMode = "shield_trip"
         break
   elif not iCarry and not hasSword and
       bot.role in {MidTop, MidBottom, MidGuard, FlankTop, FlankBottom} and
@@ -2272,6 +2287,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         continue
       if dist(me, bot.swordPos[i]) <= SwordDetour:
         target = bot.swordPos[i]
+        objMode = "plasma_grab"
         break
     when defined(plasmaUse):
       # Plasma top-up for the pocket rusher: the cone one-shots the pocket
@@ -2302,6 +2318,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     if kit >= 0 and not (mateCarry and
         dist(mateCarryPos, bot.kitPos[kit]) < dist(me, bot.kitPos[kit]) + 100.0):
       target = bot.kitPos[kit]
+      objMode = "heal_detour"
 
   if not carryingNade and not iCarry and not mateCarry and not pocketRush:
     # Collect a pickup: anyone grabs one within a short detour, and the two
@@ -2335,6 +2352,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           echo "DETOUR to pickup at ", p.x, ",", p.y, " role ", bot.role
         target = p
         pickupSet = true
+        objMode = "nade_grab"
         break
     when defined(nadeRelay):
       # Relayed respawn clock: a spot that just refilled is worth the same
@@ -2381,7 +2399,9 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     acted = false
     holdStill = false
     nadeC = false
+    actMode = "navigate"      # telemetry: which turret/act branch ran
   if bot.nadeCharge > 0 or nadeAim >= 0:
+    actMode = "nade"
     # Charge-throw: lay the turret on the lob line, then hold C for the ticks
     # the planned distance needs and release — the grenade leaves along the
     # CURRENT aim on release, so the turret keeps correcting while charging.
@@ -2400,6 +2420,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     holdStill = true
     acted = true
   elif hasArc and engage >= 0:
+    actMode = "plasma"
     # Plasma cone: instant multi-hit 3-damage burst, reach ~136px. Close the
     # gap and release inside the cone — one touch is a kill, and a pair
     # standing together dies together.
@@ -2424,6 +2445,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       moveMask = octantBits(aim - me)    # charge in
     acted = true
   elif engage >= 0 and shotReady:
+    actMode = "fire"
     # Traverse onto the target and fire once the corridor covers it: the
     # perpendicular miss of the current aim error at the target's range must
     # sit inside the ~14px bullet corridor. Advancing scales that miss down
@@ -2442,6 +2464,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # vision cone) on the arc the threat would push through.
     let duck = bot.findDuckCell(client, me, bot.enemies[nearThreat].pos)
     if duck >= 0:
+      actMode = "duck"
       desiredAim = bradsOf(bot.enemies[nearThreat].pos - me)
       if dist(cellCenter(duck), me) < 5.0:
         holdStill = true
@@ -2455,6 +2478,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     desiredAim = bradsOf(blockedAim - me)
     let peek = bot.findPeekCell(client, me, blockedAim)
     if peek >= 0 and dist(cellCenter(peek), me) > 4.0:
+      actMode = "peek"
       moveMask = octantBits(cellCenter(peek) - me)
       acted = true
 
@@ -2473,6 +2497,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         threatD = d
         threat = i
     if threat >= 0 and not iCarry and not pocketRush:
+      actMode = "evade"
       let away = norm(me - seenEnemies[threat].pos)
       var side = vec(-away.y, away.x)
       if (bot.tick div 12 + bot.slot div 2) mod 2 == 0:
@@ -2488,6 +2513,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       # it back and forth across the arc threats cross while standing still.
       # While our flag is stolen the thief comes from our own half;
       # otherwise intruders come from the enemy half.
+      actMode = "scan"
       let watch =
         if ownStolen: vec(homeSign(bot.team), 0.0)
         else: vec(-homeSign(bot.team), 0.0)
@@ -2572,6 +2598,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   bot.lastPos = me
   if holdStill:
     bot.stuckTicks = 0
+  var jinked = false
   if bot.stuckTicks > 20 and engage < 0:
     bot.stuckTicks = 0
     bot.jinkUntil = bot.tick + 10
@@ -2580,9 +2607,11 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     if bot.jinkBits == 0:
       bot.jinkBits = ButtonUp
     moveMask = bot.jinkBits
+    jinked = true
 
   if nadeDanger:
     # Sprint straight out of the marked blast zone; drop any hold/duck.
+    actMode = "nade_flee"
     let away = me - nadeDangerFrom
     moveMask = octantBits(
       if len(away) < 1.0: vec(homeSign(bot.team), 0.3) else: away
@@ -2614,6 +2643,18 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     if (mask and ButtonB) != 0: 1
     elif (mask and ButtonSelect) != 0: -1
     else: 0
+  artFrame(FrameSnap(
+    tick: bot.tick, alive: true,
+    x: int(me.x), y: int(me.y), hp: bot.hp, aim: bot.estAim,
+    objective: objMode, action: actMode,
+    targetX: int(target.x), targetY: int(target.y),
+    iCarry: iCarry, mateCarry: mateCarry, ownStolen: ownStolen,
+    sawThief: sawThief, pushOut: pushOut,
+    hasShield: hasShield, hasPlasma: hasArc, carryNade: carryingNade,
+    nadeCharge: bot.nadeCharge, jinked: jinked, nadeDanger: nadeDanger,
+    enemiesVisible: seenEnemies.len,
+    engageDist: (if engage >= 0: int(engageD) else: -1),
+    mask: mask, fired: (mask and ButtonA) != 0))
   mask
 
 const ShoutVocab = [
@@ -2636,10 +2677,12 @@ proc runBot(url: string) =
     shoutEnabled = getEnv("CTF_BOT_SHOUT").len > 0
   bot.resetTransient()
   echo "baseline slot=", slot, " team=", team, " role=", role, " -> ", endpoint
+  artInit(slot, $team, $role)
   let client = initProtocolClient()
   when defined(taunt):
     startTaunts()                        # worker thread + bank prefetch
   var everConnected = false
+  var playing = false
   while true:
     try:
       let ws = newWebSocket(endpoint)
@@ -2659,8 +2702,14 @@ proc runBot(url: string) =
         bot.estAim = floorMod(
           bot.estAim + bot.rotSign * AimRate * advance, AimBrads)
         if not client.mapCameraReady:
+          if playing:
+            playing = false
+            artEvent(bot.tick, "game_end")
           bot.resetTransient()             # lobby / game-over interstitial
           continue
+        if not playing:
+          playing = true
+          artEvent(bot.tick, "game_start")
         if not bot.navBuilt and client.walkabilityReady:
           bot.buildNavGrid(client)
         let mask = bot.decide(client)
@@ -2678,12 +2727,16 @@ proc runBot(url: string) =
         when defined(shoutCoord) or defined(taunt):
           if bot.shoutWant.len > 0:
             ws.send(chatBlob(bot.shoutWant), BinaryMessage)
+            artEvent(bot.tick, "shout_tx", %*{"text": bot.shoutWant})
             bot.shoutWant = ""
     except Exception as e:
       if everConnected:
         # The game ended and the server went away: exit so the episode
-        # runner sees a clean player shutdown.
+        # runner sees a clean player shutdown. The socket closing is this
+        # bot's final game message — ship the telemetry artifact now,
+        # before the runner tears the container down.
         echo "game over, exiting: ", e.msg
+        artFlush()
         quit(0)
       echo "connect retry: ", e.msg
       sleep(250)
