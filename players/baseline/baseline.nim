@@ -576,21 +576,59 @@ proc actorsFor(client: ProtocolClient, color: string): seq[Actor] =
       if best >= 0:
         result[best].hp = hp
 
-proc mateAimBrads(client: ProtocolClient, mate, me: Vec, color: string): int =
-  ## A visible mate's aim angle read from ITS rendered aim-indicator dots
-  ## (the same absolute readback observedAim does for our own turret).
-  ## Returns -1 when the mate is too close to us to attribute dots safely.
-  if dist(mate, me) <= 2.0 * AimDotRadius:
-    return -1
-  result = -1
-  var bestD = 0.0
-  for o in client.spriteObjectsWithLabel("aim dot " & color):
-    let
-      p = client.mapPos(o)
-      d = dist(p, mate)
-    if d <= AimDotRadius and d > bestD and dist(p, me) > AimDotRadius:
-      bestD = d
-      result = bradsOf(p - mate)
+when defined(mateAimSpriteRead):
+  const
+    MateSoldierSpriteBase = 100  # src/ctf/sim.nim PlayerSpriteBase: the plain
+                                 # soldier sprite pool every OTHER visible
+                                 # player renders from in the POV packet,
+                                 # 2 teams x 16 aim-rotation ids per skin
+    MateRotSteps = 16            # src/ctf/global.nim SoldierRotations
+    MateRotBrads = AimBrads div MateRotSteps # brads per baked rotation step
+    MateSpriteMatchRadius = 16.0 # attribute a rendered soldier to a mate only
+                                 # within this radius (bodies are ~34px solid
+                                 # boxes, so two mates never overlap this close)
+
+  proc mateAimBrads(client: ProtocolClient, mate, me: Vec, color: string): int =
+    ## A visible mate's aim read from its rendered soldier sprite: the POV
+    ## packet draws every visible player pre-rotated to its TRUE aim in 16
+    ## baked steps, and the sprite id encodes the step (soldierPlayerSpriteId
+    ## = base + skin*32 + team*16 + rot, see src/ctf/global.nim; strides are
+    ## multiples of 16, so id mod 16 isolates rot; soldierRotIndex rounds aim
+    ## to the nearest step, so the true aim sits within +-8 brads of rot*16).
+    ## Returns the bucket's center angle, or -1 when no soldier sprite sits at
+    ## the mate's position this frame (mate out of vision). Restores the
+    ## readback the retired aim dots provided, at 16-step resolution — task
+    ## 1216960771024767.
+    result = -1
+    var bestD = MateSpriteMatchRadius
+    for facingRight in [true, false]:
+      let label = "player " & color & (if facingRight: " right" else: " left")
+      for o in client.spriteObjectsWithLabel(label):
+        let d = dist(client.mapPos(o), mate)
+        if d < bestD:
+          bestD = d
+          result = floorMod(o.spriteId - MateSoldierSpriteBase,
+            MateRotSteps) * MateRotBrads
+else:
+  proc mateAimBrads(client: ProtocolClient, mate, me: Vec, color: string): int =
+    ## A visible mate's aim angle read from ITS rendered aim-indicator dots
+    ## (the same absolute readback observedAim does for our own turret).
+    ## Returns -1 when the mate is too close to us to attribute dots safely.
+    ## DEAD SINCE 2026-07-16: the aim-dot sprites were retired server-side
+    ## (addAimIndicators is a no-op), so this always returns -1, mateTargeted
+    ## is always all-false and FocusFireBonus never fires. -d:mateAimSpriteRead
+    ## restores a real readback above (task 1216960771024767).
+    if dist(mate, me) <= 2.0 * AimDotRadius:
+      return -1
+    result = -1
+    var bestD = 0.0
+    for o in client.spriteObjectsWithLabel("aim dot " & color):
+      let
+        p = client.mapPos(o)
+        d = dist(p, mate)
+      if d <= AimDotRadius and d > bestD and dist(p, me) > AimDotRadius:
+        bestD = d
+        result = bradsOf(p - mate)
 
 proc walkableAt(client: ProtocolClient, x, y: int): bool =
   if x < 0 or y < 0 or x >= client.walkabilityWidth or
@@ -2182,13 +2220,15 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     elif mateCarry: EscortEngageRange
     else: FireRange
   # Focus-fire intel: which remembered enemies sit on a visible mate's aim
-  # line right now. A mate's rendered aim dots are an absolute readback of
-  # where it is about to shoot; piling our shot onto the same target converts
-  # two 1-damage hits into a kill instead of two wounded runners.
+  # line right now (with -d:mateAimSpriteRead the aim is read back from the
+  # mate's rendered soldier sprite rotation, +-8 brads; without it the source
+  # is the retired aim dots and this whole block is dead). Piling our shot
+  # onto the same target converts two 1-damage hits into a kill instead of
+  # two wounded runners.
   var mateTargeted = newSeq[bool](bot.enemies.len)
   for m in bot.mates:
     if bot.tick - m.lastSeen > 2:
-      continue                          # dots exist only while the mate is visible
+      continue                # the sprite exists only while the mate is visible
     let mAim = client.mateAimBrads(m.pos, me, myColor)
     if mAim < 0:
       continue
@@ -2202,6 +2242,16 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         continue
       if abs(cross(rel, dir)) <= MateAimHitSlack:
         mateTargeted[i] = true
+  when defined(mateAimSpriteRead):
+    # Mechanism telemetry: how often the restored mate-aim intel actually
+    # marks a target (the FocusFireBonus prio discount only matters on ticks
+    # where this fires) — decode-side liveness check for A/B arms.
+    block mateFocusTelemetry:
+      var marked = 0
+      for hit in mateTargeted:
+        if hit: inc marked
+      if marked > 0:
+        artEvent(bot.tick, "mate_focus", %*{"n": marked})
 
   var
     engage = -1
