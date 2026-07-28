@@ -2179,6 +2179,16 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   for t in bot.mates:
     if bot.tick - t.lastSeen > 48:
       continue
+    when defined(cleanGrab):
+      # v2 fix (smoke-decode defect): a mate PARKED inside the pocket ring
+      # is deferring or covering, not grabbing — anything inside pickup
+      # range grabs instantly, so a mate sitting at 25-90px is by
+      # definition not committing. Letting it win this closest-committer
+      # tiebreak froze the whole wave (clean-approach conversion 35% vs
+      # the twin's 82% in the 16-ep smoke). Ignore ring-mates here so a
+      # clean attacker still commits past a deferring one.
+      if dist(t.pos, stealTarget) < 90.0:
+        continue
     nearestMateToSteal = min(nearestMateToSteal, dist(t.pos, stealTarget))
   when defined(cleanGrab):
     # cleanGrab: the GRAB-TIME COMBAT STATE gates the pedestal touch. A
@@ -2197,12 +2207,17 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       CleanGrabStandoff = 56.0     # hold-ring radius (pickup range is 12)
       CleanGrabZone = 120.0        # standoff override engages this close
       CleanGrabDefendRange = 400.0 # defender-near-pedestal valve radius
-      CleanGrabDefendFresh = 120   # track freshness for the defended check
+      CleanGrabDefendFresh = 90    # track freshness for the defended check
+                                   # (v2: was 120 — the valve lagged an
+                                   # emptying pedestal by 59-70t in the smoke)
       CleanGrabLateGc = 4300       # delivery-budget cutoff (game clock)
       CleanGrabMaxHold = 360       # anti-park cap on one continuous deferral
     var deferGrab = false
+    # v2: no role restriction — exempt seats (Overwatch/HomeDefender) took
+    # 5/18 smoke grabs via the same auto-touch; the state gate applies to
+    # ANY would-be grabber in the pocket. (pocketRush keeps its own role
+    # set; this only governs deferral + the standoff override below.)
     if not iCarry and not mateCarry and
-        bot.role in {MidTop, MidBottom, MidGuard, FlankTop, FlankBottom} and
         dist(me, stealTarget) < PocketRushRange:
       let hurt = bot.tick - bot.lastHurtTick <= CleanGrabFreshTicks or
         bot.hp == 1
