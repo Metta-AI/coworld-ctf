@@ -113,6 +113,10 @@ const
   FreshShotTicks = 24         # only fire at tracks seen this recently; the
                               # turret needs traverse time, so chases keep
                               # shooting a bit after the target fogs out
+  ShieldShotFreshTicks = 2    # -d:shieldShotFresh: a shield holder's slow gun
+                              # only fires on a live sighting this fresh —
+                              # extrapolated stale tracks carried 3 of 4
+                              # friendly kills in the shieldShot cell-B decode
   ThiefFixTtl = 40            # a thief position fix guides the chase this long
 
   AimBrads = 256              # aim angle units per full turn
@@ -2074,6 +2078,16 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     let t = bot.enemies[i]
     if bot.tick - t.lastSeen > FreshShotTicks:
       continue
+    when defined(shieldShotFresh):
+      # shieldShot v2 tightening: while shielded, engage only tracks seen
+      # within ShieldShotFreshTicks. The 110 px cap (maxEngage =
+      # CarrierFireRange) tests the EXTRAPOLATED position; a stale track can
+      # pass it while the real enemy is 600+ px away — that stale-shot class
+      # was 32% of shielded shots vs swarm and carried 3 of the 4 friendly
+      # kills and the 13% FF band beyond 160 px.
+      if hasShield and not hasSword and
+          bot.tick - t.lastSeen > ShieldShotFreshTicks:
+        continue
     let predicted = t.pos + t.vel * (float(bot.tick - t.lastSeen) + LeadTicks)
     let d = dist(predicted, me)
     if d >= maxEngage:
