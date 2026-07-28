@@ -206,6 +206,9 @@ const
                               # castle line near our wall: fights there recur on
                               # ground where our respawn walk is ~100px and the
                               # attacker re-crosses ~400px of watched open ground
+  AnchorRegainSlack = 12.0    # -d:anchorFight: a station bot that drifted
+                              # farther than this from its anchor walks back
+                              # to it (gun up) instead of chasing the target
 
   CoverShieldDist = 42.0      # an obstacle this close blocks a threat direction
   PeekLineDist = 150.0        # floor for an overwatch peek firing line; post
@@ -1739,6 +1742,10 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
 
   # Movement target from role and flag situation.
   var target: Vec
+  # -d:anchorFight: true while `target` is a prepared defensive station
+  # (phalanx lane pair / floater choke / hold posts) — the combat block then
+  # fights FROM the anchor instead of advancing into open ground.
+  var anchorStation = false
   if iCarry:
     # Run the stolen enemy flag home along the emptiest lane; the exposure
     # cost in the path field keeps the route hugging cover past remembered
@@ -1875,6 +1882,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
                LaneMid + (LaneBottom - 40.0 - LaneMid) * ((ph - 200.0) / 200.0))
          target = vec(ownEdgeX + dirX * (front + 130.0), py)
      of pdFloat:
+       anchorStation = true
        if bot.helpUntil > bot.tick:
          target = bot.snapToCover(vec(ownEdgeX + dirX * (front - 60.0),
            (case bot.helpLane
@@ -1917,6 +1925,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
              else: LaneMid)
            front = max(bot.siegeFront, HoldFrontCap) - 20.0
        let lead = pd in {pdTopA, pdMidA, pdBotA}
+       anchorStation = true
        target = bot.snapToCover(vec(
          ownEdgeX + dirX * (if lead: front else: front - 44.0),
          laneY2 + (if lead: -32.0 else: 32.0)))
@@ -1938,9 +1947,11 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     if intruder >= 0:
       target = bot.enemies[intruder].pos + bot.enemies[intruder].vel * 6.0
     else:
+      anchorStation = true
       target = bot.chokeHold
   elif bot.role == Overwatch and not pushOut:
     if bot.postReady:
+      anchorStation = true
       # Peek-and-shoot cycle: hold behind the post; with the gun up and a
       # remembered enemy in reach, sidestep to the peek cell to open the
       # line (the combat block below takes the shot and ducks us back).
@@ -1957,6 +1968,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # Home-side stations: one gun per lane on our half, second choke on the
     # pedestal approach. Combat below runs at full FireRange (not rushing).
     let sx = float(CenterX) + homeSign(bot.team) * 200.0
+    anchorStation = true
     case bot.role
     of FlankTop: target = bot.snapToCover(vec(sx, LaneTop))
     of FlankBottom: target = bot.snapToCover(vec(sx, LaneBottom))
@@ -2302,6 +2314,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     if kit >= 0 and not (mateCarry and
         dist(mateCarryPos, bot.kitPos[kit]) < dist(me, bot.kitPos[kit]) + 100.0):
       target = bot.kitPos[kit]
+      anchorStation = false
 
   if not carryingNade and not iCarry and not mateCarry and not pocketRush:
     # Collect a pickup: anyone grabs one within a short detour, and the two
@@ -2335,6 +2348,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           echo "DETOUR to pickup at ", p.x, ",", p.y, " role ", bot.role
         target = p
         pickupSet = true
+        anchorStation = false
         break
     when defined(nadeRelay):
       # Relayed respawn clock: a spot that just refilled is worth the same
@@ -2353,6 +2367,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           let reach = if laneMatch: 1e9 else: NadePickupDetour
           if dist(p, me) <= reach:
             target = p
+            anchorStation = false
             break
 
   # Grenade danger: a visible throw-target ring marks where an enemy's lob
@@ -2433,7 +2448,21 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       err = abs(bradsErr(desiredAim, bot.estAim))
       perpMiss = engageD * sin(float(err) * PI / float(AimBrads div 2))
     wantFire = perpMiss <= FireSlackPx
-    moveMask = octantBits(aim - me)
+    when defined(anchorFight):
+      # Fight FROM the prepared anchor. The default advance-while-firing
+      # walks the defensive line off its cover-snapped station into the open
+      # lane mouth — exactly where the wipe-race losses die. A station bot
+      # holds the anchor (duck cover stays one step away) or walks BACK to
+      # it with the gun up; the attacker is the one crossing open ground.
+      if anchorStation:
+        if dist(me, target) > AnchorRegainSlack:
+          moveMask = octantBits(target - me)
+        else:
+          holdStill = true
+      else:
+        moveMask = octantBits(aim - me)
+    else:
+      moveMask = octantBits(aim - me)
     acted = true
   elif not iCarry and not rushing and not pocketRush and not shotReady and
       nearThreat >= 0:
