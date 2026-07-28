@@ -2048,17 +2048,12 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       CleanGrabStandoff = 56.0     # hold-ring radius (pickup range is 12)
       CleanGrabZone = 120.0        # standoff override engages this close
       CleanGrabDefendRange = 400.0 # defender-near-pedestal valve radius
-      CleanGrabDefendFresh = 90    # track freshness for the defended check
-                                   # (v2: was 120 — the valve lagged an
-                                   # emptying pedestal by 59-70t in the smoke)
+      CleanGrabDefendFresh = 120   # track freshness for the defended check
       CleanGrabLateGc = 4300       # delivery-budget cutoff (game clock)
       CleanGrabMaxHold = 360       # anti-park cap on one continuous deferral
     var deferGrab = false
-    # v2: no role restriction — exempt seats (Overwatch/HomeDefender) took
-    # 5/18 smoke grabs via the same auto-touch; the state gate applies to
-    # ANY would-be grabber in the pocket. (pocketRush keeps its own role
-    # set; this only governs deferral + the standoff override below.)
     if not iCarry and not mateCarry and
+        bot.role in {MidTop, MidBottom, MidGuard, FlankTop, FlankBottom} and
         dist(me, stealTarget) < PocketRushRange:
       let hurt = bot.tick - bot.lastHurtTick <= CleanGrabFreshTicks or
         bot.hp == 1
