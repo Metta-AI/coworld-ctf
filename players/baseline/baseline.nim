@@ -110,6 +110,12 @@ const
   TrackMatchDist = 40.0       # a sighting matches a track within this distance
   TrackTtl = 120              # forget a player not seen for ~5s
   TrackCap = 8                # eight real opponents / teammates per side
+  WindupHoldTicks = 5         # -d:stillShot / -d:railShot: input frames after
+                              # a gun pull during which lateral d-pad motion
+                              # is suppressed — only the ANGLE locks at the
+                              # pull; the ray originates at our RELEASE
+                              # position FireWindupTicks later, so strafing
+                              # through our own windup displaces our own shot
   FreshShotTicks = 24         # only fire at tracks seen this recently; the
                               # turret needs traverse time, so chases keep
                               # shooting a bit after the target fogs out
@@ -329,6 +335,8 @@ type
     helpLane: int             # 1=top 2=mid 3=bottom, from an H-shout
     helpUntil: int            # tick the help retasking expires
     lastEShout: int           # scout sighting-broadcast rate limit
+    gunPullTick: int          # tick of the last fresh GUN trigger pull
+    gunPullBrads: int         # aim angle locked at that pull
     lastHShout: int           # help-call rate limit
 
 proc roleForSeat(seat: int, team: Team): Role =
@@ -1097,6 +1105,7 @@ proc resetTransient(bot: Bot) =
   bot.scanHigh = false
   bot.stuckTicks = 0
   bot.jinkUntil = 0
+  bot.gunPullTick = 0
   bot.behindLines = false
   bot.navGoal = -1
 
@@ -2580,6 +2589,52 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     if bot.jinkBits == 0:
       bot.jinkBits = ButtonUp
     moveMask = bot.jinkBits
+
+  when defined(stillShot) or defined(railShot):
+    # Hold-still through our own windup: only the aim ANGLE locks at the
+    # pull — the bullet leaves FireWindupTicks later from wherever we have
+    # moved to, so d-pad input during the windup displaces our own shot
+    # (decoded live: median 3.6px perpendicular parallax against the ±14px
+    # corridor, moving on 90.6% of shots). Suppress lateral motion for the
+    # WindupHoldTicks input frames AFTER the pull frame (the pull frame's
+    # own move lands before the sim locks the angle, so it stays free), and
+    # send NO counter-input: friction (144/256 per tick) brakes faster than
+    # accel (76) can. Carriers are exempt — on a run speed beats accuracy —
+    # and the grenade-danger sprint below still overrides the hold.
+    let gunPullNow = wantFire and not bot.firedLast and
+      not hasArc and not hasSword and not iCarry
+    if gunPullNow:
+      bot.gunPullTick = bot.tick
+      bot.gunPullBrads = bot.estAim
+    elif not iCarry and bot.gunPullTick > 0 and
+        bot.tick - bot.gunPullTick <= WindupHoldTicks:
+      when defined(stillShot):
+        # Full hold: zero displacement beyond the friction glide.
+        moveMask = 0
+        holdStill = true
+      when defined(railShot):
+        # Rail motion: keep only the movement component along the locked
+        # fire axis — advancing or backing down the ray leaves the shot's
+        # perpendicular geometry untouched (octant quantization residual
+        # ≤ sin 22.5°) while we stay a moving target.
+        if moveMask != 0:
+          var d = vec(0.0, 0.0)
+          if (moveMask and ButtonRight) != 0: d.x += 1.0
+          if (moveMask and ButtonLeft) != 0: d.x -= 1.0
+          if (moveMask and ButtonDown) != 0: d.y += 1.0
+          if (moveMask and ButtonUp) != 0: d.y -= 1.0
+          let
+            rail = bradsDir(bot.gunPullBrads)
+            along = dot(norm(d), rail)
+          if along >= 0.35:
+            moveMask = octantBits(rail)
+          elif along <= -0.35:
+            moveMask = octantBits(rail * -1.0)
+          else:
+            moveMask = 0
+            holdStill = true
+        else:
+          holdStill = true
 
   if nadeDanger:
     # Sprint straight out of the marked blast zone; drop any hold/duck.
