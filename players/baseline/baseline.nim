@@ -202,12 +202,21 @@ const
                               # games cap at 5000 ticks — the all-in must land
                               # with time to convert. Scaled from 6800/10000.
                               # the default outcome, so commit to the capture
-  TurtleGrabDeadline = 4400   # -d:turtleConvert: past this game tick a grab
-                              # cannot be delivered any more (fastest measured
-                              # delivery is 483 ticks over the 863px pedestal
-                              # separation; 4400 leaves margin for one contest).
-                              # Vs a pure turtle every such grab is a wasted
-                              # body: keep the gun in the attrition race instead.
+  TurtleTripPx = 843.0        # -d:turtleConvert: grab point -> capture line
+                              # (863px pedestal separation minus the 20px
+                              # capture-zone reach on our side)
+  TurtleCarrierPxT = 1.925    # -d:turtleConvert: carrier speed px/tick
+                              # (70% of maxSpeed 2.75)
+  TurtleSlackPx = 130.0       # -d:turtleConvert: delivery margin for one
+                              # contest / imperfect route (~68 ticks)
+  TurtleMatchTicks = 5000     # -d:turtleConvert: game cap, from gameStart
+                              # A grab is DELIVERABLE iff the remaining clock,
+                              # converted to carrier-px, covers the seat's
+                              # distance to the flag plus the trip plus slack.
+                              # v1 used a fixed tick deadline (4400) and the
+                              # ring x deadline interaction timed the winning
+                              # grab class out of existence (decoded 2026-07-28:
+                              # quiet windows median 26t, ring round trip ~70t).
   TurtleHotR = 260.0          # -d:turtleConvert: a fresh enemy track this close
                               # to the enemy pedestal means the pocket is
                               # DEFENDED — decoded vs beacon:v28, 33/72 grabs
@@ -218,7 +227,11 @@ const
                               # grab is gated — pickup is automatic at 12px, so
                               # the ring must hold the attackers well clear of
                               # an accidental doomed carry
+  TurtleSearchTtl = 3000      # -d:turtleConvert: terminal sweep may chase a
+                              # remembered fix this old (turtle remnants sit
+                              # position-locked for thousands of ticks)
   HoldFrontCap = 220.0        # -d:holdFront: ceiling on the phalanx creep — a
+                              # castle line near our wall: fights there recur on
                               # castle line near our wall: fights there recur on
                               # ground where our respawn walk is ~100px and the
                               # attacker re-crosses ~400px of watched open ground
@@ -341,6 +354,9 @@ type
     shieldAbsentAt: seq[int]
     everStoleTheirs: bool     # any own/mate carry of the enemy flag this game
     everLostOurs: bool        # our flag has been stolen at least once
+    when defined(turtleConvert):
+      tcFix: Vec              # freshest enemy fix this game (terminal sweep)
+      tcFixTick: int          # tick of that fix; <=0 = none / searched-empty
     phalanxHold: float        # frozen advance front while our lane has contact
     helpLane: int             # 1=top 2=mid 3=bottom, from an H-shout
     helpUntil: int            # tick the help retasking expires
@@ -1759,18 +1775,33 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # the defended pocket (33 died within 30px of the pedestal, 28 launched
   # after the point of no delivery), while every one of our wins in that
   # cell is an attrition wipe. Gate the GRAB, not the press: a grab is
-  # allowed only while it is still deliverable (before TurtleGrabDeadline)
-  # AND the pocket is quiet (no fresh enemy track near the pedestal — the
-  # observable for "the defenders are dead or hiding", which is exactly when
-  # the flag closes out a near-wipe). While gated, would-be grabbers hold a
-  # siege ring at gun range instead of entering the auto-pickup zone, so
-  # their guns stay in the attrition race. Vs any opponent that ever steals
-  # (h050, alphashot, mirror) everLostOurs flips true and behavior is
-  # UNCHANGED by construction.
+  # allowed only while it is still DELIVERABLE (remaining clock in carrier-px
+  # covers this seat's run to the flag plus the trip home plus slack) AND the
+  # pocket is quiet (no fresh enemy track near the pedestal — the observable
+  # for "the defenders are dead or hiding", which is exactly when the flag
+  # closes out a near-wipe). While gated, would-be grabbers hold a siege ring
+  # at gun range instead of entering the auto-pickup zone, so their guns stay
+  # in the attrition race. Once delivery is infeasible from ANYWHERE
+  # (turtleTerminal) the only remaining win is the WIPE, and an empty ring is
+  # worthless: seats with nothing visible at the pocket go find the last
+  # bodies (freshest remembered fix, else sweep the hide strip behind the
+  # pedestal — decoded remnants sit at the map edge behind their flag).
+  # Vs any opponent that ever steals (h050, alphashot-with-steals, mirror)
+  # everLostOurs flips true and behavior is UNCHANGED by construction.
   when defined(turtleConvert):
     var grabGated = false
+    var turtleTerminal = false
     if not bot.everLostOurs:
-      if bot.tick - bot.gameStart > TurtleGrabDeadline:
+      # Remember the freshest enemy fix (own eyes or shout-ingested) for the
+      # terminal sweep; the combat track table forgets in TrackTtl=120.
+      for t in bot.enemies:
+        if not t.synthetic and t.lastSeen > bot.tcFixTick:
+          bot.tcFix = t.pos
+          bot.tcFixTick = t.lastSeen
+      let budget =
+        float(TurtleMatchTicks - (bot.tick - bot.gameStart)) * TurtleCarrierPxT
+      turtleTerminal = budget < TurtleTripPx + TurtleSlackPx
+      if budget < TurtleTripPx + TurtleSlackPx + dist(me, stealTarget):
         grabGated = true
       else:
         for t in bot.enemies:
@@ -2031,15 +2062,46 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     else:
       discard
     when defined(turtleConvert):
-      if grabGated and dist(target, stealTarget) < TurtleStandoff and
-          dist(me, stealTarget) < TurtleStandoff + 90.0:
-        # Grab gated: hold a firing ring around the pocket instead of walking
-        # into the 12px auto-pickup zone — the gun keeps grinding the wipe.
-        let away = me - stealTarget
-        let dir =
-          if dist(me, stealTarget) > 1.0: norm(away)
-          else: vec(homeSign(bot.team), 0.0)
-        target = stealTarget + dir * TurtleStandoff
+      if grabGated and dist(target, stealTarget) < TurtleStandoff:
+        var hotSeen = false
+        for t in bot.enemies:
+          if not t.synthetic and bot.tick - t.lastSeen <= TurtleHotTtl and
+              dist(t.pos, stealTarget) < TurtleHotR:
+            hotSeen = true
+            break
+        if turtleTerminal and not hotSeen:
+          # Terminal wipe endgame: delivery is timed out and nothing is
+          # visible at the pocket — orbiting an empty pedestal is a decoded
+          # MUT machine (two buzzers ONE kill short with the last body 150px
+          # away, unseen). Go find the remnants: chase the freshest
+          # remembered fix; if we already searched it cold, sweep the hide
+          # strip behind the enemy pedestal (map-edge side).
+          let fixCold = bot.tcFixTick <= 0 or
+            bot.tick - bot.tcFixTick > TurtleSearchTtl or
+            (dist(me, bot.tcFix) < 40.0 and bot.tick - bot.tcFixTick > 90)
+          if not fixCold:
+            target = bot.tcFix
+          else:
+            let behind = -homeSign(bot.team)
+            let spot = ((bot.slot div 2) +
+              (bot.tick - bot.gameStart) div 400) mod 3
+            let sy = (case spot
+              of 0: stealTarget.y - 165.0
+              of 1: stealTarget.y + 165.0
+              else: stealTarget.y)
+            let sx = stealTarget.x + behind * (if spot == 2: 140.0 else: 115.0)
+            target = vec(
+              clamp(sx, 30.0, float(MapW) - 30.0),
+              clamp(sy, 30.0, float(MapH) - 30.0))
+        elif dist(me, stealTarget) < TurtleStandoff + 90.0:
+          # Grab gated: hold a firing ring around the pocket instead of
+          # walking into the 12px auto-pickup zone — the gun keeps grinding
+          # the wipe.
+          let away = me - stealTarget
+          let dir =
+            if dist(me, stealTarget) > 1.0: norm(away)
+            else: vec(homeSign(bot.team), 0.0)
+          target = stealTarget + dir * TurtleStandoff
 
   # The mid trio plays for the flag, not for position: pickup races and
   # carrier chases are lost to peek/duck detours, so mids keep moving and
