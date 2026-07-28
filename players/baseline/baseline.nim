@@ -1252,10 +1252,14 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # hits nothing. Detect the carried marker and switch combat modes.
   var hasArc = false
   when defined(plasmaUse):
-    for o in client.spriteObjectsWithLabel("plasma arc carried"):
-      if dist(client.mapPos(o), me) <= 30.0:
-        hasArc = true
-        break
+    block carryScan:
+      # GV23 PR #130 renamed "plasma arc carried" -> "spray can carried";
+      # accept both so the build works on either side of the boundary.
+      for lbl in ["plasma arc carried", "spray can carried"]:
+        for o in client.spriteObjectsWithLabel(lbl):
+          if dist(client.mapPos(o), me) <= 30.0:
+            hasArc = true
+            break carryScan
 
   let
     shotReady = client.spriteObjectsWithLabel("fire icon").len > 0 and
@@ -2278,14 +2282,17 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       # defense cluster. Same cheap-detour budget as swords; visible spawns
       # only (fog-honest).
       if not hasArc and bot.role == MidTop:
-        for o in client.spriteObjectsWithLabel("plasma arc"):
-          let pp = client.mapPos(o)
-          if pp.x < 40.0 or pp.y < 40.0 or pp.x > float(MapW - 40) or
-              pp.y > float(MapH - 40):
-            continue                 # HUD icon shares the label
-          if dist(me, pp) <= SwordDetour:
-            target = pp
-            break
+        block arcScan:
+          # GV23 PR #130 renamed "plasma arc" -> "spray can"; accept both.
+          for lbl in ["plasma arc", "spray can"]:
+            for o in client.spriteObjectsWithLabel(lbl):
+              let pp = client.mapPos(o)
+              if pp.x < 40.0 or pp.y < 40.0 or pp.x > float(MapW - 40) or
+                  pp.y > float(MapH - 40):
+                continue                 # HUD icon shares the label
+              if dist(me, pp) <= SwordDetour:
+                target = pp
+                break arcScan
 
   # Med kit heal detour (hurt bots only; the carrier handles its own detour
   # in the carry branch). Wounded: a short opportunistic detour. Critical
