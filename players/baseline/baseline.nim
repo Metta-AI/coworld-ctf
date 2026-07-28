@@ -244,11 +244,12 @@ const
                               # quanta AND 2 x-quanta are the SAME death
   WipeSearchDwell = 110       # -d:wipeClosure: ticks a hunting seat holds one
                               # search waypoint before sweeping to the next
-  KGossipEvery = 78           # -d:wipeClosure: rotating ledger re-gossip rate
+  KGossipEvery = 40           # -d:wipeClosure: rotating ledger re-gossip rate
                               # (fresh events are not rate-limited beyond the
                               # shared 26-tick shout spacing). Smoke-measured:
                               # single-shot relay leaves per-seat sets at
-                              # 8-15/21 witnessed — repetition is what closes
+                              # 8-15/21 witnessed, and 78-tick rotation still
+                              # lagged the union by 2-3 — repetition closes
                               # the late 35%-zero-fanout propagation gap.
   KGossipFrom = 2600          # start re-gossip well before LatePushTick so
                               # per-seat sets converge on the team union by
@@ -1595,6 +1596,11 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
               if not kdup:
                 bot.koIdT.add kt
                 bot.koIdX.add kx
+                # Flood-once: a NEW heard id is re-shouted one time, so an
+                # event crosses the map at detection speed instead of
+                # waiting on the rotation (each seat re-shouts a given id
+                # at most once — bounded, no echo storm).
+                bot.kShoutQ.add("K" & $kt & " " & $kx)
                 when defined(wipeDebug):
                   echo "WIPE k-rx slot=", bot.slot, " tick=", bot.tick,
                     " ledger=", bot.koIdT.len
