@@ -17,7 +17,7 @@
 ## checks a draw before a winner (F3/F4).
 
 import
-  std/[json, math, strutils],
+  std/[algorithm, json, math, strutils],
   sim
 
 type
@@ -217,6 +217,12 @@ const
   FpMarchStep = 2.0           ## px per wall-march step (fine enough at 1235px).
   FpEntFovMarginBrads = 8.0   ## let a sprite straddling the cone edge still show.
   FpMapCell = 7               ## px per minimap wall-silhouette cell (~176x94 grid).
+  FpShotSamples = 14          ## points sampled along a beam. The client draws the
+                              ## comet through these, so there must be enough to
+                              ## curve a full-range (1300px) beam under
+                              ## perspective without bloating the frame.
+  FpShotMaxCount = 10         ## most beams per frame (nearest kept), so a chaotic
+                              ## firefight cannot balloon the payload.
 
 proc fpMapWallsJson*(sim: SimServer): JsonNode =
   ## Static wall silhouette for the EYES minimap, sent ONCE per viewer. A coarse
@@ -326,6 +332,9 @@ proc firstPersonJson(sim: SimServer, playerIndex: int): JsonNode =
       cols.add(%hit)
 
   var ents = newJArray()
+  # Paintball beams the seat can see (filled below, only while alive — a ghost's
+  # inset is walls-only). Declared here so the frame assembly can read it.
+  var shots = newJArray()
   proc addEnt(
     kind, team: string,
     wx, wy: float,
@@ -401,6 +410,83 @@ proc firstPersonJson(sim: SimServer, playerIndex: int): JsonNode =
     for sp in sim.shieldSpawns: addPickup("shield", sp)
     for sp in sim.plasmaArcSpawns: addPickup("plasma", sp)
 
+    # --- paintball beams in flight (sim.recentShots; cosmetic, never hashed) ---
+    # A hitscan shot has no travelling body, so the board draws it as a COMET: a
+    # bright paint head at the impact end with a thin trail fading back to the
+    # muzzle (global.nim TracerStages/TrailFalloff/MissStagePenalty). The PiP
+    # rebuilds that same comet in 3D, which needs the beam's GEOMETRY in view
+    # space — so each shot ships as a POLYLINE of FpShotSamples points, each
+    # carrying its bearing offset `o` and radial range `d` exactly like an
+    # entity. Perspective then falls out for free: the muzzle end may be far and
+    # the impact end near (someone shooting past you) or the reverse (someone
+    # shooting at you), and the client just projects each point.
+    #
+    # Fog-honest, per the inset's contract: a sample is emitted only where this
+    # seat can actually SEE that point, and an unseen sample becomes a null hole
+    # so the client BREAKS the trail rather than drawing a straight line through
+    # fog. A shot fired entirely out of view never appears.
+    #
+    # Age rides as ticks since firedTick (not wall-clock), so the fade is
+    # scrub-safe and replay-deterministic like every other PiP effect.
+    for shot in sim.recentShots:
+      let
+        sx0 = float(shot.x0)
+        sy0 = float(shot.y0)
+        sx1 = float(shot.x1)
+        sy1 = float(shot.y1)
+      var
+        pts = newJArray()
+        anyVisible = false
+        nearest = high(int)
+      for s in 0 ..< FpShotSamples:
+        let
+          f = float(s) / float(FpShotSamples - 1)
+          wx = sx0 + (sx1 - sx0) * f
+          wy = sy0 + (sy1 - sy0) * f
+        if not sim.fovVisibleAt(playerIndex, int(wx), int(wy)):
+          pts.add(newJNull())
+          continue
+        let
+          dx = wx - px
+          dy = wy - py
+          dist = hypot(dx, dy)
+          entBrad = arctan2(-dy, dx) / radPerBrad
+          off = bradOffset(entBrad, aim)
+        if abs(off) > halfFov + FpEntFovMarginBrads:
+          pts.add(newJNull())
+          continue
+        anyVisible = true
+        nearest = min(nearest, int(dist))
+        pts.add(%*{"o": -off / halfFov, "d": int(max(dist, 1.0))})
+      if not anyVisible:
+        continue
+      shots.add(%*{
+        "pts": pts,
+        "age": sim.tickCount - shot.firedTick,
+        # Shooter's TEAM, so the client paints the beam from the same team
+        # palette it already uses for cogs and hearts (the board resolves paint
+        # through the sprite Palette, which isn't in this module's graph — team
+        # is the stable contract and reads identically).
+        "team": (if shot.color == teamColor(Red): "red"
+                 elif shot.color == teamColor(Blue): "blue"
+                 else: ""),
+        # Hits draw bright, misses pre-faded — matching the board.
+        "hit": shot.hit,
+        # Nearest range, for the payload triage below.
+        "near": nearest
+      })
+    # Cap the payload by keeping the NEAREST beams — those are the ones that read
+    # at all; distant ones are a pixel of trail. Never a silent truncation of
+    # something visible up close.
+    if shots.len > FpShotMaxCount:
+      var ordered = shots.getElems()
+      ordered.sort(proc (a, b: JsonNode): int =
+        cmp(a["near"].getInt, b["near"].getInt))
+      var trimmed = newJArray()
+      for i in 0 ..< FpShotMaxCount:
+        trimmed.add(ordered[i])
+      shots = trimmed
+
   # The seat's own status, so the inset reads as a real HUD (hp / lives / what
   # this soldier is carrying / whether they hold the enemy heart).
   var carriedItems = newJArray()
@@ -475,6 +561,7 @@ proc firstPersonJson(sim: SimServer, playerIndex: int): JsonNode =
     "hfov": halfFov,            ## cone half-angle in brads — the strip's angular half-width.
     "cols": cols,
     "ents": ents,
+    "shots": shots,
     "self": selfJson,
     "map": mapJson
   }

@@ -1161,10 +1161,24 @@ body[data-embed] #board { top: 0; height: 100%; }
   //
   // Loaded once; drawFpvEntity blits the matching team image scaled to the
   // projected figure so distant cogs shrink like everything else.
+  // Two poses per team: _gun (the cog holding its paintball marker forward at the
+  // camera) is what a LIVE cog shows, since every live cog carries its gun; the
+  // empty-handed master rides as the fallback until that one loads.
   var COG_ART = { red: new Image(), blue: new Image() };
   COG_ART.red.src = '/client/soldier_red_front.png';
   COG_ART.blue.src = '/client/soldier_blue_front.png';
+  var COG_ART_GUN = { red: new Image(), blue: new Image() };
+  COG_ART_GUN.red.src = '/client/soldier_red_front_gun.png';
+  COG_ART_GUN.blue.src = '/client/soldier_blue_front_gun.png';
   function cogArtReady(img) { return img && img.complete && img.naturalWidth > 0; }
+  // Pick the armed pose when it's ready, else the plain one, else null (the
+  // caller falls back to the procedural chassis).
+  function cogArtFor(team, armed) {
+    var gun = COG_ART_GUN[team], plain = COG_ART[team];
+    if (armed && cogArtReady(gun)) return gun;
+    if (cogArtReady(plain)) return plain;
+    return cogArtReady(gun) ? gun : null;
+  }
   // The front masters are trimmed to their opaque box at build time and carry NO
   // baked drop shadow (the billboard draws its own contact shadow), so the whole
   // image IS the cog — a full-frame trim, unlike the top-down master which bakes
@@ -1740,6 +1754,31 @@ body[data-embed] #board { top: 0; height: 100%; }
   var FPV_COG_H = 90;        // world px: a cog stands ~0.6x a corridor wall tall
   var FPV_FOG = 900;         // px at which depth shading bottoms out to ink
 
+  // --- paintball comet tracers (the board's design, rebuilt in 3D) ---
+  // A shot is hitscan: the whole beam exists at once, so it can't literally
+  // travel. The board solves this with a COMET (global.nim) and the PiP uses the
+  // same visual language so the two views tell one story: a bright paintball
+  // HEAD at the impact end, a thin trail fading back toward the muzzle, a muzzle
+  // flash marking who fired, and a paint splat where it lands. Hits read bright;
+  // misses are pre-faded.
+  //
+  // Here it's genuinely 3D: the server sends the beam as a polyline of
+  // (bearing, range) samples, so the trail is projected point-by-point and
+  // narrows with depth like everything else in the raycaster.
+  var SHOT_FX_TICKS = 12;    // matches sim.nim ShotFxTicks — the beam's lifetime
+  var SHOT_MISS_AGE = 4;     // a miss draws this many ticks "older" (dimmer)
+  var SHOT_TRAIL_FALLOFF = 1.6;   // trail alpha = t^this (0 muzzle -> 1 impact)
+  var SHOT_HEAD_WORLD = 11;  // world px across the leading paintball
+  var SHOT_TRAIL_WORLD = 5;  // world px thick at the impact end (tapers to muzzle)
+  // Beams fly at roughly chest height, a little below the eye line.
+  var SHOT_EYE_DROP = 10;    // world px below eye level the beam travels
+  // Perspective divides by depth, so anything at point-blank range projects
+  // arbitrarily large. These cap the paint against the inset's HEIGHT so a shot
+  // ending at the camera reads as a fat ball / thick streak rather than a
+  // full-frame wash of colour (the visor splat is what sells a hit on YOU).
+  var SHOT_MAX_HEAD_H = 0.10;    // ball radius ≤ 10% of inset height
+  var SHOT_MAX_TRAIL_H = 0.06;   // trail width ≤ 6% of inset height
+
   // --- paint-splatter-on-hit state ---
   // Tracks the POV seat's last PAINT-hit tick (server-sent self.paintTick) so a
   // fresh paint hit fires a splat; the splat itself is a set of blobs in [0..1]
@@ -1932,6 +1971,10 @@ body[data-embed] #board { top: 0; height: 100%; }
       }
     }
 
+    // Paintball comets: drawn AFTER the sprites (paint flies in front of the
+    // cogs that fired it) but before the reticle/HUD, which stay on top.
+    drawFpvShots(ctx, fp, W, H, horizon, halfFov, PROJ, colW, n, zbuf, projH);
+
     // Aim reticle at view center.
     ctx.save();
     ctx.strokeStyle = 'rgba(242,232,216,0.55)';
@@ -2088,6 +2131,243 @@ body[data-embed] #board { top: 0; height: 100%; }
     ctx.restore();
   }
 
+  // ---- paintball comets in 3D ----
+  // The server sends each in-flight beam as a polyline of (bearing o, range d)
+  // samples, with nulls where the beam leaves this seat's vision. We project
+  // every sample the same way the walls and cogs are projected, so a beam
+  // genuinely recedes: the far end converges toward the horizon and thins, the
+  // near end is fat and low. That's what makes it read as a shot flying through
+  // the room rather than a line drawn on the glass.
+  //
+  // Shape (matching the board's comet, global.nim): a bright paintball HEAD at
+  // the impact end, a trail behind it whose alpha rises as t^SHOT_TRAIL_FALLOFF
+  // toward that head, a muzzle flash at the shooter's end, and a wet splat where
+  // it lands. Age fades the whole comet over SHOT_FX_TICKS; a miss starts
+  // SHOT_MISS_AGE ticks "older" so hits are the ones that pop.
+  function drawFpvShots(ctx, fp, W, H, horizon, halfFov, PROJ, colW, n, zbuf,
+                        projH) {
+    var shots = fp.shots;
+    if (!shots || !shots.length) return;
+
+    // Project one sample to screen space. The beam rides SHOT_EYE_DROP below the
+    // eye line, so it sits at chest height like a real muzzle.
+    function project(p) {
+      var d = Math.max(4, p.d);
+      var ang = (p.o || 0) * halfFov;
+      return {
+        x: W / 2 + PROJ * Math.tan(ang),
+        y: horizon + projH(SHOT_EYE_DROP, d),
+        d: d,
+        perp: d * Math.cos(ang)      // for the wall z-test, like the sprites
+      };
+    }
+    // A sample is hidden when a nearer wall covers its column.
+    function occluded(pt) {
+      var ci = Math.floor(pt.x / colW);
+      if (ci < 0 || ci >= n) return true;
+      return zbuf[ci] <= pt.perp - 2;
+    }
+
+    for (var s = 0; s < shots.length; s++) {
+      var sh = shots[s];
+      var pts = sh.pts || [];
+      if (pts.length < 2) continue;
+      var team = sh.team === 'red' ? 'red' : (sh.team === 'blue' ? 'blue' : null);
+      var paint = team === 'red' ? RED : (team === 'blue' ? BLUE : AMBER);
+      // Age fade, with misses pre-aged so hits read brighter.
+      var age = (sh.age || 0) + (sh.hit ? 0 : SHOT_MISS_AGE);
+      var life = Math.max(0, 1 - age / SHOT_FX_TICKS);
+      if (life <= 0.02) continue;
+
+      // Project every visible sample; nulls (fog) and wall-occluded samples
+      // break the polyline into separate runs so the trail never draws through
+      // something it shouldn't.
+      var runs = [], run = null;
+      for (var i = 0; i < pts.length; i++) {
+        var p = pts[i];
+        var ok = false, pr = null;
+        if (p) {
+          pr = project(p);
+          ok = !occluded(pr);
+        }
+        if (ok) {
+          pr.t = pts.length > 1 ? i / (pts.length - 1) : 1;   // 0 muzzle → 1 impact
+          if (!run) { run = []; runs.push(run); }
+          run.push(pr);
+        } else {
+          run = null;
+        }
+      }
+      if (!runs.length) continue;
+
+      ctx.save();
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+
+      // INCOMING shots are a special visual case. A beam fired toward the camera
+      // projects almost to a POINT (every sample shares a bearing), so the
+      // generic trail degenerates into a vertical smear — geometrically right,
+      // but it reads as a blob, not as paint coming at your face. Detect it from
+      // the projected spread vs the depth it covers, and draw it as a paintball
+      // rushing the lens instead: one hot ball with a tight halo, scaled by how
+      // close the nearest sample is.
+      var flatSpan = 0, dSpan = 0;
+      var allPts = [];
+      for (var q = 0; q < runs.length; q++) allPts = allPts.concat(runs[q]);
+      if (allPts.length) {
+        var xs = allPts.map(function (p) { return p.x; });
+        var ds = allPts.map(function (p) { return p.d; });
+        flatSpan = Math.max.apply(null, xs) - Math.min.apply(null, xs);
+        dSpan = Math.max.apply(null, ds) - Math.min.apply(null, ds);
+      }
+      // Lots of depth travelled but almost no screen movement = head-on.
+      var incoming = dSpan > 60 && flatSpan < W * 0.10;
+      if (incoming) {
+        var nearest = allPts[0];
+        for (var w2 = 1; w2 < allPts.length; w2++) {
+          if (allPts[w2].d < nearest.d) nearest = allPts[w2];
+        }
+        // Cap the ball: a beam that ENDS at the camera has d≈4, and projH blows
+        // up as d→0, so an uncapped radius swallows the whole inset. A paintball
+        // about to hit your visor should read as a fat ball, not a red curtain —
+        // the visor paint-splat is what sells the actual impact.
+        var br = Math.min(H * SHOT_MAX_HEAD_H,
+                          Math.max(1.5, projH(SHOT_HEAD_WORLD * 1.35, nearest.d) * 0.5));
+        var bDim = Math.max(0.45, 1 - nearest.d / FPV_FOG);
+        var bg = ctx.createRadialGradient(nearest.x, nearest.y, 0,
+                                          nearest.x, nearest.y, br * 3.0);
+        bg.addColorStop(0, withAlpha(paint, 0.62 * life * bDim));
+        bg.addColorStop(1, withAlpha(paint, 0));
+        ctx.fillStyle = bg;
+        ctx.beginPath();
+        ctx.arc(nearest.x, nearest.y, br * 3.0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = withAlpha(paint, Math.min(1, 0.95 * life * bDim + 0.1));
+        ctx.beginPath(); ctx.arc(nearest.x, nearest.y, br, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = 'rgba(255,248,236,' + (0.72 * life * bDim).toFixed(3) + ')';
+        ctx.beginPath();
+        ctx.arc(nearest.x - br * 0.28, nearest.y - br * 0.28, br * 0.34,
+                0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+        continue;
+      }
+
+      // Fog often clips a beam to a SHORT visible run (the shooter is in another
+      // room, we only glimpse the paint crossing a doorway). Lift the along-beam
+      // fade for those so a 1-3 sample glimpse still reads as paint in flight
+      // instead of an invisible sliver: `lift` rescales t across what we can
+      // actually see. A fully visible beam (t spanning ~0..1) is unaffected.
+      var tSeen = 0;
+      for (var r0 = 0; r0 < runs.length; r0++) {
+        var sg = runs[r0];
+        tSeen = Math.max(tSeen, sg[sg.length - 1].t - sg[0].t);
+      }
+      var lift = tSeen < 0.35 ? 0.55 : 0;   // floor on the along-beam brightness
+
+      // --- trail: segment-by-segment, so width AND alpha track depth ---
+      for (var r = 0; r < runs.length; r++) {
+        var seg = runs[r];
+        // A run of ONE visible sample has no segment to stroke, so give it a
+        // short stub along the beam's local direction — otherwise a glimpsed
+        // shot renders as nothing at all.
+        if (seg.length === 1) {
+          var only = seg[0];
+          var stub = Math.min(H * SHOT_MAX_TRAIL_H * 3,
+                              Math.max(1.5, projH(SHOT_TRAIL_WORLD * 2.2, only.d)));
+          var sDim = Math.max(0.35, 1 - only.d / FPV_FOG);
+          ctx.strokeStyle = withAlpha(paint, 0.8 * life * sDim);
+          ctx.lineWidth = Math.min(H * SHOT_MAX_TRAIL_H,
+                                   Math.max(0.8, projH(SHOT_TRAIL_WORLD, only.d) * 0.9));
+          ctx.beginPath();
+          ctx.moveTo(only.x - stub / 2, only.y);
+          ctx.lineTo(only.x + stub / 2, only.y);
+          ctx.stroke();
+          continue;
+        }
+        for (var k = 0; k + 1 < seg.length; k++) {
+          var a = seg[k], b = seg[k + 1];
+          // Along-beam brightness: faint at the muzzle, bright behind the head.
+          var t = (a.t + b.t) / 2;
+          var beam = lift + (1 - lift) * Math.pow(t, SHOT_TRAIL_FALLOFF);
+          // Depth: nearer trail is thicker, and distance dims it like the walls.
+          var wide = projH(SHOT_TRAIL_WORLD, Math.min(a.d, b.d));
+          var depthDim = Math.max(0.35, 1 - Math.min(a.d, b.d) / FPV_FOG);
+          var alpha = 0.9 * life * beam * depthDim;
+          if (alpha < 0.04) continue;
+          ctx.strokeStyle = withAlpha(paint, alpha);
+          ctx.lineWidth = Math.min(H * SHOT_MAX_TRAIL_H,
+                                   Math.max(0.6, wide * (0.45 + 0.55 * t)));
+          ctx.beginPath();
+          ctx.moveTo(a.x, a.y);
+          ctx.lineTo(b.x, b.y);
+          ctx.stroke();
+        }
+      }
+
+      // --- leading paintball head at the impact end ---
+      var last = runs[runs.length - 1];
+      var head = last[last.length - 1];
+      // Only crown the head when the beam's impact end is genuinely the one we
+      // can see (a beam clipped by fog shouldn't sprout a head mid-air).
+      var headIsImpact = head.t > 0.92;
+      if (headIsImpact) {
+        // Capped like the incoming ball: projH diverges as depth → 0, and a
+        // point-blank impact must not paint over the whole inset.
+        var hr = Math.min(H * SHOT_MAX_HEAD_H,
+                          Math.max(1.2, projH(SHOT_HEAD_WORLD, head.d) * 0.5));
+        var hDim = Math.max(0.4, 1 - head.d / FPV_FOG);
+        // wet glow, then the solid ball, then a bright wet highlight
+        var g = ctx.createRadialGradient(head.x, head.y, 0, head.x, head.y, hr * 2.6);
+        g.addColorStop(0, withAlpha(paint, 0.55 * life * hDim));
+        g.addColorStop(1, withAlpha(paint, 0));
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.arc(head.x, head.y, hr * 2.6, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = withAlpha(paint, Math.min(1, 0.95 * life * hDim + 0.1));
+        ctx.beginPath(); ctx.arc(head.x, head.y, hr, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = 'rgba(255,248,236,' + (0.7 * life * hDim).toFixed(3) + ')';
+        ctx.beginPath();
+        ctx.arc(head.x - hr * 0.3, head.y - hr * 0.3, hr * 0.36, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Impact burst: a few short paint flecks kicking off the surface, only
+        // while the shot is fresh — it marks WHERE the paint landed.
+        if (sh.hit && life > 0.55) {
+          ctx.strokeStyle = withAlpha(paint, 0.75 * life);
+          ctx.lineWidth = Math.max(0.6, hr * 0.28);
+          for (var f = 0; f < 5; f++) {
+            var fa = (f / 5) * Math.PI * 2 + head.d;   // deterministic off depth
+            var fl = hr * (1.5 + 0.9 * ((f % 3) / 2));
+            ctx.beginPath();
+            ctx.moveTo(head.x + Math.cos(fa) * hr * 0.9,
+                       head.y + Math.sin(fa) * hr * 0.9);
+            ctx.lineTo(head.x + Math.cos(fa) * fl, head.y + Math.sin(fa) * fl);
+            ctx.stroke();
+          }
+        }
+      }
+
+      // --- muzzle flash at the shooter's end, brightest on the freshest shot ---
+      var first = runs[0][0];
+      if (first.t < 0.12 && life > 0.5) {
+        var mr = Math.min(H * SHOT_MAX_HEAD_H,
+                          Math.max(1, projH(SHOT_HEAD_WORLD * 1.5, first.d) * 0.5));
+        var mg = ctx.createRadialGradient(first.x, first.y, 0,
+                                          first.x, first.y, mr * 2.2);
+        var flash = (life - 0.5) / 0.5;          // only the first ticks flash
+        mg.addColorStop(0, 'rgba(255,242,214,' + (0.7 * flash).toFixed(3) + ')');
+        mg.addColorStop(0.45, withAlpha(paint, 0.42 * flash));
+        mg.addColorStop(1, withAlpha(paint, 0));
+        ctx.fillStyle = mg;
+        ctx.beginPath();
+        ctx.arc(first.x, first.y, mr * 2.2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      ctx.restore();
+    }
+  }
+
   // A cog seen head-on in first person: a chunky team-tinted chassis with a dark
   // visor band carrying TWO glowing cyan eyes (the cog's signature), a pair of
   // side wheels, and a bottom shadow. Enemies get red hp pips; carriers an amber
@@ -2121,7 +2401,9 @@ body[data-embed] #board { top: 0; height: 100%; }
     // Size the blit off the projected figure so distant cogs shrink like the
     // walls. The front master's aspect is ~0.94 w/h; its HEIGHT tracks figH so
     // the cog stands the right size on the floor.
-    var artImg = COG_ART[e.team];
+    // Live cogs carry their paintball marker, so they get the armed pose; both
+    // poses share the same aspect and trim, so the geometry is unchanged.
+    var artImg = cogArtFor(e.team, true);
     var drawH = figH * 1.02;
     var drawW = drawH * COG_ASPECT;
     var bodyW = drawW;         // for the mate ring + shadow width
@@ -2269,6 +2551,15 @@ body[data-embed] #board { top: 0; height: 100%; }
     if (!m) return hex;
     function c(i) { return Math.max(0, Math.min(255, Math.round(parseInt(m[i], 16) * f))); }
     return 'rgb(' + c(1) + ',' + c(2) + ',' + c(3) + ')';
+  }
+
+  // Same hex, given alpha — for the paint tracers, which fade by age and depth.
+  function withAlpha(hex, a) {
+    var m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
+    var al = Math.max(0, Math.min(1, a)).toFixed(3);
+    if (!m) return hex;
+    return 'rgba(' + parseInt(m[1], 16) + ',' + parseInt(m[2], 16) + ',' +
+      parseInt(m[3], 16) + ',' + al + ')';
   }
 
   // Self-status HUD: name (team-tinted), hp pips, carried gear + flag flag.
