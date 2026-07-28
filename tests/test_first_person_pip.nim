@@ -239,10 +239,11 @@ suite "first-person picture-in-picture":
     check total == gw * gh
     check sawStone                              # the arena has stone walls
 
-  test "self.paintTick advances on a PAINT hit (gun) but NOT on a plasma touch":
-    # The EYES-PiP visor splat keys off self.paintTick, which the sim stamps only
-    # for paintball / grenade paint — never the paintless plasma sword. A gun hit
-    # must advance it; a plasma-arc touch must leave it untouched.
+  test "self.paintTick advances on a PAINT hit — gun AND spray can":
+    # The EYES-PiP visor splat keys off self.paintTick. EVERY weapon in this game
+    # throws paint, so all of them stamp it: a gun hit must advance it, and so
+    # must a spray-can burst (an aerosol of paint in the face paints the visor —
+    # the earlier "plasma arc" reskin was the bloodless one that did not).
     proc placeAtCenter(p: var Player, x, y: int) =
       p.x = x - CollisionW div 2
       p.y = y - CollisionH div 2
@@ -275,7 +276,8 @@ suite "first-person picture-in-picture":
       check fpHit["self"]["paintTick"].getInt() == paintedAt
       check paintedAt >= 0
 
-    # A PLASMA-ARC touch drains hp but leaves NO paint → paintTick must not move.
+    # A SPRAY-CAN burst hurts AND paints → paintTick stamps forward again.
+    inc game.tickCount                                   # so "now" differs from paintedAt
     game.players[red].hasPlasmaArc = true
     game.players[red].aimBrads = 0
     game.players[red].fireCooldown = 0                   # clear the gun-shot cooldown
@@ -287,8 +289,9 @@ suite "first-person picture-in-picture":
     game.players[blue].placeAtCenter(ax + 60, ay)
     let hpBeforeArc = game.players[blue].hp
     game.tryFireArc(red)
-    check game.players[blue].hp < hpBeforeArc            # the plasma touch DID hurt
-    check game.players[blue].paintHitTick == paintedAt      # …but painted NOTHING new
+    check game.players[blue].hp < hpBeforeArc             # the spray DID hurt
+    check game.players[blue].paintHitTick > paintedAt     # …and painted the visor
+    let sprayedAt = game.players[blue].paintHitTick
     block:
       let fpArc = game.fpFrame(game.players[blue].joinOrder)
-      check fpArc["self"]["paintTick"].getInt() == paintedAt
+      check fpArc["self"]["paintTick"].getInt() == sprayedAt

@@ -155,17 +155,17 @@ const
   MedKitRespawn = 30 * 24     # a taken kit refills after 30s (sim constant)
   MedKitSeenClear = 55.0      # inside this range an empty spot is truly
                               # empty (bubble vision), not just fogged
-  PlasmaReach = 136.0         # plasma cone reach: 4 squares (sim
+  PlasmaReach = 136.0         # spray cone reach: 4 squares (sim
                               # PlasmaArcReach)
   PlasmaHalfBrads = 10        # cone half-angle in brads: the cone is 2
                               # squares wide at max reach, atan(1/4) ~ 14
                               # degrees (sim PlasmaArcMaxWidth / Reach)
-  PlasmaDetour = 70.0         # attacker detour budget for a plasma arc pickup
+  PlasmaDetour = 70.0         # attacker detour budget for a spray can pickup
   ShieldStealDetour = 480.0   # MidGuard's shield trip: the enemy endzone
                               # shield sits low in their back column
                               # (~215px from the pedestal since the game-v7
                               # split), so the round trip costs ~430 path px
-  PickupRespawn = 30 * 24     # plasma arc/shield respawn timer (sim constant)
+  PickupRespawn = 30 * 24     # spray can/shield respawn timer (sim constant)
   MedKitCarrierBudget = 90.0  # extra path px a hurt CARRIER spends to heal:
                               # a full-heal carrier survives pocket exits
                               # that kill a 1 hp one
@@ -180,7 +180,7 @@ const
   FireSlackPx = 11.0          # fire when the aim error's perpendicular miss
                               # at the target's range is inside this (the
                               # corridor half-width is ~14px; keep margin)
-  ArcReach = 130.0            # plasma cone: sim reach 136px, small margin
+  ArcReach = 130.0            # spray cone: sim reach 136px, small margin
   ArcConeBrads = 9            # cone half-width ~14deg at max reach
   CenterScanHalf = 280.0      # |x - CenterX| under this counts as the corridor
   TargetCallCooldown = 48     # min ticks between one bot's engage callouts
@@ -324,7 +324,7 @@ type
     hp: int                   # own hit points, read from the HUD lives label
     kitPos: seq[Vec]          # discovered med kit spots (two, center line)
     kitAbsentAt: seq[int]     # tick a spot was last seen empty; -1 = present
-    plasmaPos: seq[Vec]       # discovered plasma arc spots (side midpoints)
+    plasmaPos: seq[Vec]       # discovered spray can spots (side midpoints)
     plasmaAbsentAt: seq[int]
     shieldPos: seq[Vec]       # discovered shield spots (endzone back columns)
     shieldAbsentAt: seq[int]
@@ -1261,7 +1261,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     if seen >= 0 and abs(bradsErr(seen, bot.estAim)) > AimResyncBrads:
       bot.estAim = seen
   # Plasma arcs and shields share the endzone back columns (inset 50)
-  # but are vertically SEPARATED: plasma arcs in the top half (quarter height),
+  # but are vertically SEPARATED: spray cans in the top half (quarter height),
   # shields in the bottom half (three-quarter height). Seed the spots up
   # front (they are deterministic; the fog would otherwise hide them until
   # we are already on top of them), then let sightings refine the nudged
@@ -1276,7 +1276,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       bot.shieldPos.add(spot)
       bot.shieldAbsentAt.add(-1)
   var plasmaSeen, shieldSeen: seq[Vec]
-  for o in client.spriteObjectsWithLabel("plasma arc"):
+  for o in client.spriteObjectsWithLabel("spray can"):
     plasmaSeen.add(client.mapPos(o))
   for o in client.spriteObjectsWithLabel("shield"):
     shieldSeen.add(client.mapPos(o))
@@ -1285,7 +1285,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # Own carry state: the carried markers float over their carrier, and a
   # shield carrier's HUD reads 6 hp (the marker is the fallback).
   var hasPlasma = false
-  for o in client.spriteObjectsWithLabel("plasma arc carried"):
+  for o in client.spriteObjectsWithLabel("spray can carried"):
     if dist(client.mapPos(o), me) <= 30.0:
       hasPlasma = true
       break
@@ -1297,7 +1297,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         break
   let
     shotReady = client.spriteObjectsWithLabel("fire icon").len > 0 and
-      not hasPlasma                      # the plasma arc replaces the gun; a shield
+      not hasPlasma                      # the spray can replaces the gun; a shield
                                          # only slows it (3x cooldown)
     seenEnemies = client.actorsFor(enemyColor)
     seenMates = client.actorsFor(myColor)

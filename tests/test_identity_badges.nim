@@ -106,7 +106,7 @@ suite "identity badges":
     game.players[viewer].hasGrenade = false
     game.players[viewer].hasPlasmaArc = true
     labels = game.playerMessages(viewer).presentLabels()
-    check "identity red alpha arc" in labels
+    check "identity red alpha spray" in labels
 
   test "a dead player's identity badge disappears":
     var game = initCtfForTest(defaultGameConfig())
