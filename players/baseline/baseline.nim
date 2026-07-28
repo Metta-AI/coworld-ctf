@@ -79,6 +79,9 @@ import
 when defined(taunt):
   import baseline/taunts
 
+when defined(prePos):
+  include baseline/prepos_cells
+
 const
   WebSocketPath = "/player"
                               # Object coordinates and sprite sizes arrive
@@ -207,6 +210,14 @@ const
                               # ground where our respawn walk is ~100px and the
                               # attacker re-crosses ~400px of watched open ground
 
+  PrePosLatchScore = 25       # -d:prePos: cumulative fresh enemy-track ticks
+                              # deep in our half before the opponent is latched
+                              # an INVADER (replay-measured: invaders score
+                              # hundreds by mid-game, turtles ~0 — binary)
+  PrePosDepthPx = 64.0        # the med-kit pads sit exactly ON the midline, so
+                              # a pad-camping turtle reads 1-9px inside our
+                              # half; only tracks deeper than this count
+
   CoverShieldDist = 42.0      # an obstacle this close blocks a threat direction
   PeekLineDist = 150.0        # floor for an overwatch peek firing line; post
                               # scoring strongly prefers the longest line
@@ -328,6 +339,8 @@ type
     phalanxHold: float        # frozen advance front while our lane has contact
     helpLane: int             # 1=top 2=mid 3=bottom, from an H-shout
     helpUntil: int            # tick the help retasking expires
+    prePosScore: int          # -d:prePos: fresh enemy-track ticks deep in our half
+    prePosLatch: bool         # -d:prePos: sticky invader-opponent latch
     lastEShout: int           # scout sighting-broadcast rate limit
     lastHShout: int           # help-call rate limit
 
@@ -1267,6 +1280,23 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   if seenEnemies.len > 0:
     bot.lastEnemySeen = bot.tick
 
+  when defined(prePos):
+    # Invader-style latch: replay mining shows "enemy bodies deep in our half"
+    # is a BINARY opponent signal (invading lineages accumulate hundreds of
+    # track-ticks by mid-game; turtles stay at ~0, and the only false-positive
+    # mechanism is a pad camper 1-9px over the midline — hence the depth
+    # guard). Synthetic E-shout tracks count too: team radio latches faster
+    # and every seat converges on the same verdict within ~5 ticks anyway.
+    # Sticky by design — opponent style does not change mid-game.
+    if not bot.prePosLatch:
+      for t in bot.enemies:
+        if t.lastSeen == bot.tick and
+            (if bot.team == Red: t.pos.x < float(CenterX) - PrePosDepthPx
+             else: t.pos.x > float(CenterX) + PrePosDepthPx):
+          inc bot.prePosScore
+      if bot.prePosScore >= PrePosLatchScore:
+        bot.prePosLatch = true
+
   # Flag bookkeeping (two flags; a carried flag rides its carrier's exact
   # position). The enemy flag can only be carried by OUR team, so its sprite
   # is never fogged and fully describes our attack (pedestal / on me / on a
@@ -1916,6 +1946,21 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
              of 3: LaneBottom - 60.0
              else: LaneMid)
            front = max(bot.siegeFront, HoldFrontCap) - 20.0
+       when defined(prePos):
+         # Defensive pre-positioning (comms-018 consumer): once the opponent
+         # is latched an INVADER, an idle pair (no contact near its station)
+         # holds a lane-y shaded toward the replay-mined approach corridors
+         # of the current rival champions instead of the fixed doctrine
+         # lanes. y-only: the capped front (castle doctrine) is untouched.
+         # The shaded lane set is PRECOMPUTED offline from the mined heatmap
+         # with an order-preserving min-gap so pairs never stack
+         # (anchorFight friendly-fire scar); see baseline/prepos_cells.nim
+         # for the derivation provenance.
+         if bot.prePosLatch and not contact:
+           let ppGt = bot.tick - bot.gameStart
+           let ppPhase = (if ppGt < 1400: 0 elif ppGt < 3400: 1 else: 2)
+           if PrePosActive[ppPhase]:
+             laneY2 = PrePosLaneY[ppPhase][phalanxLaneNo(pd) - 1]
        let lead = pd in {pdTopA, pdMidA, pdBotA}
        target = bot.snapToCover(vec(
          ownEdgeX + dirX * (if lead: front else: front - 44.0),
