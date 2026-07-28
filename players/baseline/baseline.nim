@@ -2103,6 +2103,30 @@ proc shippedCombatTune(): CombatTune =
   # Each keeps its harness knob (AIMROT/MEDKIT/SATCAP/NOMASK/ASSAULT) for bisection.
   result.aimRotRead = true
   result.medTopOff = true
+  # ⭐⭐ medEcon BAKED ON (2026-07-28, Maxwell greenlit "upload and submit"). This is
+  # the first lever in this lineage whose PREMISE was measured on the real field
+  # rather than guessed in the lab: 20 live league episodes re-simulated with
+  # tools/extract_events showed the field consuming 42 med kits to our 11 (3.8x),
+  # while 8 of 13 losses were full WIPES and 81% of our kill deficit booked in ticks
+  # 1000-3000. medTopOff above already had the right doctrine but a gate that almost
+  # never opens mid-game (kit VISIBLE in the fog cone within 150px AND zero contact);
+  # medEcon routes to the kits' STATIC engine coords instead, widens the detour to
+  # 320, and lets a 1-hp bot break contact with a threat that is not aiming at it.
+  # GATES (all four, details in ~/.ctf/knowledge/experiments/successful.md):
+  #   funnel  -d:meprobe vs -d:mtprobe: the detour FIRES 284 -> 4261 frames (15x);
+  #           the old gate died at kitVisible 871, medEcon has no visibility stage.
+  #   heals   117 vs 41 pooled over both candidate arms (2.85x) vs a symmetric
+  #           0.89x null — the mechanism metric, and the one the field measured.
+  #   A/B     seat-rotated 30g/seating vs this champion: RED +6 wins/+12 K-D,
+  #           BLUE +6/+41, seat-adjusted +6.0/+26.5, POSITIVE ON BOTH SEATINGS
+  #           (null correctly specified as SHIPBASE=1 CONTROL_SHIPPED=1 = ~0).
+  #   gate    MEDECON=1 grabprobe @ the live 5000t cap: 3/3 decisive, 0 draws,
+  #           grabs 5 (vs 3), accuracy 59.6% unchanged — no kit-orbiting draw
+  #           machine, and it never touches the trigger.
+  # The +6 win delta alone sits UNDER the 60g noise floor (sigma ~7.7), so the case
+  # rests on the funnel + heal ratio + both-seatings K-D, per the null-calibration
+  # rule. Keeps its MEDECON knob for bisection.
+  result.medEcon = true
   result.satCap = true
   result.noMask = true
   result.assaultThrough = true
