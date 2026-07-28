@@ -202,6 +202,22 @@ const
                               # games cap at 5000 ticks — the all-in must land
                               # with time to convert. Scaled from 6800/10000.
                               # the default outcome, so commit to the capture
+  TurtleGrabDeadline = 4400   # -d:turtleConvert: past this game tick a grab
+                              # cannot be delivered any more (fastest measured
+                              # delivery is 483 ticks over the 863px pedestal
+                              # separation; 4400 leaves margin for one contest).
+                              # Vs a pure turtle every such grab is a wasted
+                              # body: keep the gun in the attrition race instead.
+  TurtleHotR = 260.0          # -d:turtleConvert: a fresh enemy track this close
+                              # to the enemy pedestal means the pocket is
+                              # DEFENDED — decoded vs beacon:v28, 33/72 grabs
+                              # died within 30px of the pedestal under its guns.
+                              # Besiege at gun range and touch only when quiet.
+  TurtleHotTtl = 60           # -d:turtleConvert: track freshness for "hot"
+  TurtleStandoff = 150.0      # -d:turtleConvert: siege-ring radius while the
+                              # grab is gated — pickup is automatic at 12px, so
+                              # the ring must hold the attackers well clear of
+                              # an accidental doomed carry
   HoldFrontCap = 220.0        # -d:holdFront: ceiling on the phalanx creep — a
                               # castle line near our wall: fights there recur on
                               # ground where our respawn walk is ~100px and the
@@ -1737,6 +1753,34 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         bot.campPos.add t.pos
         bot.campSeen.add bot.tick
 
+  # Turtle-conditioned conversion window (beacon draw-sink task): against an
+  # enemy that has NEVER stolen our flag (a pure turtle — beacon:v28 class),
+  # the pedestal grab itself is the leak: 72 decoded grabs in 38 games fed
+  # the defended pocket (33 died within 30px of the pedestal, 28 launched
+  # after the point of no delivery), while every one of our wins in that
+  # cell is an attrition wipe. Gate the GRAB, not the press: a grab is
+  # allowed only while it is still deliverable (before TurtleGrabDeadline)
+  # AND the pocket is quiet (no fresh enemy track near the pedestal — the
+  # observable for "the defenders are dead or hiding", which is exactly when
+  # the flag closes out a near-wipe). While gated, would-be grabbers hold a
+  # siege ring at gun range instead of entering the auto-pickup zone, so
+  # their guns stay in the attrition race. Vs any opponent that ever steals
+  # (h050, alphashot, mirror) everLostOurs flips true and behavior is
+  # UNCHANGED by construction.
+  when defined(turtleConvert):
+    var grabGated = false
+    if not bot.everLostOurs:
+      if bot.tick - bot.gameStart > TurtleGrabDeadline:
+        grabGated = true
+      else:
+        for t in bot.enemies:
+          if not t.synthetic and bot.tick - t.lastSeen <= TurtleHotTtl and
+              dist(t.pos, stealTarget) < TurtleHotR:
+            grabGated = true
+            break
+  else:
+    let grabGated = false
+
   # Movement target from role and flag situation.
   var target: Vec
   if iCarry:
@@ -1986,6 +2030,16 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         target = vec(float(CenterX) - homeSign(bot.team) * FlankDepth, laneY)
     else:
       discard
+    when defined(turtleConvert):
+      if grabGated and dist(target, stealTarget) < TurtleStandoff and
+          dist(me, stealTarget) < TurtleStandoff + 90.0:
+        # Grab gated: hold a firing ring around the pocket instead of walking
+        # into the 12px auto-pickup zone — the gun keeps grinding the wipe.
+        let away = me - stealTarget
+        let dir =
+          if dist(me, stealTarget) > 1.0: norm(away)
+          else: vec(homeSign(bot.team), 0.0)
+        target = stealTarget + dir * TurtleStandoff
 
   # The mid trio plays for the flag, not for position: pickup races and
   # carrier chases are lost to peek/duck detours, so mids keep moving and
@@ -2003,7 +2057,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     if bot.tick - t.lastSeen > 48:
       continue
     nearestMateToSteal = min(nearestMateToSteal, dist(t.pos, stealTarget))
-  let pocketRush = not iCarry and not mateCarry and
+  let pocketRush = not grabGated and not iCarry and not mateCarry and
     bot.role in {MidTop, MidBottom, MidGuard, FlankTop, FlankBottom} and
     dist(me, stealTarget) < PocketRushRange and
     dist(me, stealTarget) < nearestMateToSteal + 8.0
