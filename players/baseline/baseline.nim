@@ -146,6 +146,13 @@ const
   NadeBlast = 40.0            # blast radius; a pair this close dies together
   NadeFullChargeTicks = 24    # ~1s of holding C reaches max range
   NadePickupDetour = 90.0     # grab a corner pickup within this detour range
+  NadeGreedBudget = 150.0     # -d:nadeGreed: extra path px a NON-carrier near
+                              # our endzone spends to top up on a stocked
+                              # grenade even with no live lob target — a held
+                              # grenade is a free over-wall option. On-the-way
+                              # detour cost, so it fires for respawned/returning
+                              # bots whose path passes a home-side corner and
+                              # stays quiet for anyone it would drag off task.
   MedKitDetour = 80.0         # heal-detour budget when merely wounded
   MedKitCriticalReach = 180.0 # at 1 hp a heal outranks the current errand
   MedKitRespawn = 30 * 24     # a taken kit refills after 30s (sim constant)
@@ -296,6 +303,8 @@ type
     wasMateCarry: bool        # edge detector: a fresh steal opens a taunt window
     tripping: bool            # mid-errand to a gear spot: sprint, no fights
     hp: int                   # own hit points, read from the HUD lives label
+    lives: int                # -d:nadeGreed: remaining lives from the HUD
+                              # "x<lives>" suffix; 1 = last life (0 = unknown)
     kitPos: seq[Vec]          # discovered med kit spots (two, center line)
     kitAbsentAt: seq[int]     # tick a spot was last seen empty; -1 = present
     swordPos: seq[Vec]        # discovered sword spots (side midpoints)
@@ -1278,6 +1287,15 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           bot.hp = clamp(parseInt(text[0 ..< cut]), 1, 9)
         except ValueError:
           discard
+      when defined(nadeGreed):
+        # "<hp>hp x<lives>" — parse the lives count after the 'x' so the
+        # greedy grenade top-up can spare a last-life body (gear-007 scar).
+        let xcut = text.rfind('x')
+        if xcut >= 0 and xcut + 1 < text.len:
+          try:
+            bot.lives = parseInt(text[xcut + 1 .. ^1].strip())
+          except ValueError:
+            discard
       break
 
   # Med kits: learn the two center-line spots on sight; presence is
@@ -2142,6 +2160,25 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         if not known:
           bot.nadeSpotPos.add p
           bot.nadeSpotEta.add 0
+      when defined(nadeGreed):
+        # Endzone grenade greed: a non-carrier on our own half tops up on a
+        # stocked grenade sitting on our home side even with no live lob
+        # target — a held grenade is a free over-wall option. Gated to an
+        # on-the-way detour cost, so it fires for respawned/returning bots
+        # whose path already passes a home-side corner and stays quiet for
+        # anyone it would drag off task. Last-life bodies are spared
+        # (gear-007 scar); carriers/pocket-rush already excluded above.
+        if bot.lives != 1 and
+            homeSign(bot.team) * (me.x - float(CenterX)) > 0.0 and
+            homeSign(bot.team) * (p.x - float(CenterX)) > 0.0:
+          let detour = dist(me, p) + dist(p, target) - dist(me, target)
+          if detour <= NadeGreedBudget:
+            when defined(nadeDebug):
+              echo "GREED nade top-up at ", p.x, ",", p.y, " role ", bot.role,
+                " detour ", detour
+            target = p
+            pickupSet = true
+            break
       let laneMatch =
         (bot.role == FlankTop and p.y < float(CenterY) and
          homeSign(bot.team) * (p.x - float(CenterX)) > 0) or
