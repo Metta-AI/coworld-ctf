@@ -228,6 +228,18 @@ const
                               # where our 45° cone + 90px bubble acquire
                               # (GunRange 1300 is map-wide, so the arc has no
                               # safety to trade for)
+  HuntRingR = 340.0           # -d:huntWipeV2: pocket-approach radius that
+                              # starts a seat's dwell clock (chase or station
+                              # alike — the v51 forensics showed the chase
+                              # branch owned 84% of hunt ticks and reset the
+                              # clock, leaving the close-in inert in 80/96 eps)
+  HuntQuietWin = 900          # -d:huntWipeV2: the latch arms only after this
+                              # many ticks with NO fresh own-eye track on OUR
+                              # half — midline pickets (h050) contest the
+                              # field without stealing early, so the v51
+                              # steal/deep revocations arrived ~1400t AFTER
+                              # the gc2000 onset and the latch stripped our
+                              # garrison in 45/48 h050 episodes
   HoldFrontCap = 220.0        # -d:holdFront: ceiling on the phalanx creep — a
                               # castle line near our wall: fights there recur on
                               # ground where our respawn walk is ~100px and the
@@ -357,8 +369,11 @@ type
     when defined(huntWipeV2):
       huntLatched: bool       # hunt press committed (survives pushOut
                               # flicker); revoked by the turtle detector
-      huntArcAt: int          # tick this seat arrived on the arc with no
-                              # live track; 0 = chasing / not yet on station
+      huntArcAt: int          # tick this seat first approached the enemy
+                              # pocket (<= HuntRingR) while latched; 0 = not
+                              # yet there. Never reset by the chase.
+      huntQuietAt: int        # last tick a fresh non-synthetic track sat on
+                              # OUR half (contested-field detector)
     phalanxHold: float        # frozen advance front while our lane has contact
     helpLane: int             # 1=top 2=mid 3=bottom, from an H-shout
     helpUntil: int            # tick the help retasking expires
@@ -1775,10 +1790,28 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # Latch the hunt the first time it fires; the turtle-detector latches
     # below revoke it, so behavior vs any enemy that ever attacks (steals or
     # comes deep) recalls exactly as v1 does.
-    if bot.everLostOurs or bot.enemyDeepSeen:
+    # Contested-field detector (v51 forensics, 384-ep battery): h050 neither
+    # steals early (median first steal gt3514) nor trips enemyDeepSeen before
+    # ~gt2412, so the two v1 revocations arrived AFTER the gc2000 onset and
+    # the latch fired in 45/48 h050 episodes, stripping the home garrison
+    # (-1.03 bodies gt3000-3400, deaths +1.31/ep). A midline picket contests
+    # the field with its BODY POSITION long before it ever steals: any fresh
+    # own-eye track on our half inside the last HuntQuietWin ticks keeps the
+    # latch down. A pure turtle (beacon) never crosses, so its onset is
+    # unchanged at gc2000.
+    for t in bot.enemies:
+      if not t.synthetic and t.lastSeen == bot.tick and
+          ((bot.team == Red and t.pos.x < float(CenterX)) or
+           (bot.team == Blue and t.pos.x > float(CenterX))):
+        bot.huntQuietAt = bot.tick
+        break
+    if bot.everLostOurs or bot.enemyDeepSeen or
+        bot.tick - bot.huntQuietAt < HuntQuietWin:
       bot.huntLatched = false
     elif pushOut and bot.tick - bot.gameStart > HuntOnsetTick:
       bot.huntLatched = true
+    if not bot.huntLatched:
+      bot.huntArcAt = 0
     let huntWipe = bot.huntLatched
   elif defined(huntWipe):
     let huntWipe = pushOut and
@@ -2069,8 +2102,6 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           hi = i
       if hi >= 0:
         target = bot.enemies[hi].pos + bot.enemies[hi].vel * 6.0
-        when defined(huntWipeV2):
-          bot.huntArcAt = 0
       else:
         let spreadY = (case bot.role
           of FlankTop: -130.0
@@ -2083,21 +2114,24 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         target = vec(
           stealTarget.x + homeSign(bot.team) * HuntStandoffX,
           clamp(stealTarget.y + spreadY, 30.0, float(MapH) - 30.0))
-        when defined(huntWipeV2):
-          # Bounded dwell, then force the close-in. The arc sits at gun range
-          # of 8 pre-aimed stationary defenders while OUTSIDE our own cone
-          # acquisition; dwell buys re-acquisition but an open-ended camp is
-          # the decoded loss signature. After HuntArcDwell trackless ticks on
-          # station, collapse to the pocket edge inside the acquisition band
-          # (spread compressed, guns stay up — the unarmed touch stays off).
-          # A fresh track flips back to the chase above and resets the clock.
-          if bot.huntArcAt == 0:
-            if dist(me, target) < 90.0:
-              bot.huntArcAt = bot.tick  # on station: the dwell clock starts
-          elif bot.tick - bot.huntArcAt > HuntArcDwell:
-            target = vec(
-              stealTarget.x + homeSign(bot.team) * HuntCloseX,
-              clamp(stealTarget.y + spreadY * 0.5, 30.0, float(MapH) - 30.0))
+      when defined(huntWipeV2):
+        # Timed collapse. The v51 build started this clock only on a
+        # TRACKLESS station and reset it on every chase tick, so the
+        # close-in commanded ~25 seat-ticks/ep in 16/96 beacon episodes —
+        # inert — while deaths piled up in the 160-450px orbit (+2.08/ep in
+        # the ring, 4/4 seeds). Wins in BOTH arms were made by 2-3 bodies
+        # inside 160px. Now: the clock starts at this seat's first pocket
+        # approach (<= HuntRingR) while latched and never resets on a
+        # track; on expiry EVERY hunt target — chase or station — is
+        # clamped inside HuntCloseX of the pedestal so the press enters
+        # the acquisition band instead of orbiting at gun range (guns stay
+        # up; the unarmed touch stays off; per-seat clocks stagger entry).
+        if bot.huntArcAt == 0:
+          if dist(me, stealTarget) < HuntRingR:
+            bot.huntArcAt = bot.tick
+        elif bot.tick - bot.huntArcAt > HuntArcDwell:
+          if dist(target, stealTarget) > HuntCloseX:
+            target = stealTarget + norm(target - stealTarget) * HuntCloseX
     if not hunting:
       case bot.role
       of MidBottom:
