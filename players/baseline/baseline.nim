@@ -212,6 +212,13 @@ const
                               # games cap at 5000 ticks — the all-in must land
                               # with time to convert. Scaled from 6800/10000.
                               # the default outcome, so commit to the capture
+  HuntTrackTtl = 240          # -d:huntWipe: chase remembered enemy bodies on
+                              # tracks at most this stale (~10s)
+  HuntStandoffX = 240.0       # -d:huntWipe: no live track — hold an arc this
+                              # far center-side of the enemy pedestal, guns up
+  HuntIntruderR = 280.0       # -d:huntWipe: an enemy seen this close to OUR
+                              # pedestal has attack intent: never hunt-to-wipe
+                              # against it (turtle-detector latch)
   HoldFrontCap = 220.0        # -d:holdFront: ceiling on the phalanx creep — a
                               # castle line near our wall: fights there recur on
                               # ground where our respawn walk is ~100px and the
@@ -353,6 +360,9 @@ type
     shieldAbsentAt: seq[int]
     everStoleTheirs: bool     # any own/mate carry of the enemy flag this game
     everLostOurs: bool        # our flag has been stolen at least once
+    when defined(huntWipe):
+      enemyDeepSeen: bool     # a live enemy was seen near OUR pedestal this
+                              # game: attack intent — disarms hunt-to-wipe
     phalanxHold: float        # frozen advance front while our lane has contact
     helpLane: int             # 1=top 2=mid 3=bottom, from an H-shout
     helpUntil: int            # tick the help retasking expires
@@ -1650,6 +1660,17 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     bot.everStoleTheirs = true
   if ownStolen:
     bot.everLostOurs = true
+  when defined(huntWipe):
+    # Turtle-detector latch: an enemy body with a fresh own-eyes fix near OUR
+    # pedestal is attacking (or scouting an undefended steal) — that enemy is
+    # not a pure turtle, so the hunt-to-wipe redirect must never fire on it.
+    if not bot.enemyDeepSeen:
+      let ownPed = flagHome(bot.team)
+      for t in bot.enemies:
+        if not t.synthetic and bot.tick - t.lastSeen <= 8 and
+            dist(t.pos, ownPed) < HuntIntruderR:
+          bot.enemyDeepSeen = true
+          break
   when defined(counterPunch):
     let counterPunch = bot.tick - bot.gameStart > CounterPunchTick and
       bot.everLostOurs and not bot.everStoleTheirs
@@ -1865,6 +1886,22 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       echo "V57 stickyBreak slot=", bot.slot, " tick=", bot.tick,
         " posts stay broken (stole=", bot.everStoleTheirs,
         " lost=", bot.everLostOurs, ")"
+  # Hunt-to-wipe (gear-147 follow-up): vs a DETECTED pure turtle — an enemy
+  # that has never stolen our flag and never put a body near our pedestal —
+  # the late-all-in pedestal steal is a proven dead end (0/44 exfil
+  # conversions vs beacon:v28) and every unarmed touch FEEDS its 8-defender
+  # pocket. A timeout is -1/-1 with NO tiebreak (sim: checkMaxTicks), so the
+  # only win paths are capture or WIPE; our only wins in that cell are wipes
+  # and 6/15 timeouts were near-wipes (enemy <=3 lives) the clock ate.
+  # Redirect the SAME late press (no timing change — the push-timing axis is
+  # refuted 5 ways) from the flag onto the enemy's remaining bodies. The
+  # detector latch keeps behavior vs any enemy that ever attacks unchanged.
+  when defined(huntWipe):
+    let huntWipe = pushOut and
+      bot.tick - bot.gameStart > LatePushTick and
+      not bot.everLostOurs and not bot.enemyDeepSeen
+  else:
+    let huntWipe = false
 
   when defined(nadeCluster):
     if pushOut and not bot.wasPushOut:
@@ -2140,22 +2177,56 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # cone cannot kill the pair; flankers run the extreme lanes deep past
     # mid, then hit the pedestal pocket from behind.
     target = stealTarget
-    case bot.role
-    of MidBottom:
-      if dist(me, stealTarget) > 90:
-        target = stealTarget + vec(homeSign(bot.team) * 34.0, 26.0)
-    of MidGuard:
-      if dist(me, stealTarget) > 90:
-        target = stealTarget + vec(homeSign(bot.team) * 60.0, -26.0)
-    of FlankTop, FlankBottom:
-      # Run the wide lane deep, then turn straight in for the grab so the
-      # flankers hit the pocket together with the mid trio instead of
-      # trickling in.
-      let laneY = (if bot.role == FlankTop: LaneTop else: LaneBottom)
-      if not bot.behindLines and dist(me, stealTarget) > 170.0:
-        target = vec(float(CenterX) - homeSign(bot.team) * FlankDepth, laneY)
-    else:
-      discard
+    var hunting = false
+    if huntWipe:
+      # Hunt-to-wipe: the press targets enemy PLAYERS, not the flag. Chase
+      # the nearest remembered body (guns stay up at full FireRange — the
+      # unarmed pocket touch below is disabled while hunting); with no live
+      # track, hold a spread arc center-side of the enemy pocket so the
+      # vision cones re-acquire the remaining defenders instead of feeding
+      # the pedestal.
+      hunting = true
+      var hi = -1
+      var hd = 1e18
+      for i in 0 ..< bot.enemies.len:
+        if bot.enemies[i].synthetic or
+            bot.tick - bot.enemies[i].lastSeen > HuntTrackTtl:
+          continue
+        let d = dist(bot.enemies[i].pos, me)
+        if d < hd:
+          hd = d
+          hi = i
+      if hi >= 0:
+        target = bot.enemies[hi].pos + bot.enemies[hi].vel * 6.0
+      else:
+        let spreadY = (case bot.role
+          of FlankTop: -130.0
+          of MidTop: -65.0
+          of MidGuard: 0.0
+          of MidBottom: 65.0
+          of FlankBottom: 130.0
+          of Overwatch: -190.0
+          of HomeDefender: 190.0)
+        target = vec(
+          stealTarget.x + homeSign(bot.team) * HuntStandoffX,
+          clamp(stealTarget.y + spreadY, 30.0, float(MapH) - 30.0))
+    if not hunting:
+      case bot.role
+      of MidBottom:
+        if dist(me, stealTarget) > 90:
+          target = stealTarget + vec(homeSign(bot.team) * 34.0, 26.0)
+      of MidGuard:
+        if dist(me, stealTarget) > 90:
+          target = stealTarget + vec(homeSign(bot.team) * 60.0, -26.0)
+      of FlankTop, FlankBottom:
+        # Run the wide lane deep, then turn straight in for the grab so the
+        # flankers hit the pocket together with the mid trio instead of
+        # trickling in.
+        let laneY = (if bot.role == FlankTop: LaneTop else: LaneBottom)
+        if not bot.behindLines and dist(me, stealTarget) > 170.0:
+          target = vec(float(CenterX) - homeSign(bot.team) * FlankDepth, laneY)
+      else:
+        discard
 
   # The mid trio plays for the flag, not for position: pickup races and
   # carrier chases are lost to peek/duck detours, so mids keep moving and
@@ -2173,7 +2244,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     if bot.tick - t.lastSeen > 48:
       continue
     nearestMateToSteal = min(nearestMateToSteal, dist(t.pos, stealTarget))
-  let pocketRush = not iCarry and not mateCarry and
+  let pocketRush = not huntWipe and not iCarry and not mateCarry and
     bot.role in {MidTop, MidBottom, MidGuard, FlankTop, FlankBottom} and
     dist(me, stealTarget) < PocketRushRange and
     dist(me, stealTarget) < nearestMateToSteal + 8.0
