@@ -1257,9 +1257,15 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         hasArc = true
         break
 
+  # -d:shieldShot — GV8+ shield-fire port: the sim only slows a shield
+  # carrier's gun (ShieldFireSlowdown=3), it never bars it. Without the
+  # define the old self-veto stands ("shield bars the gun" — stale doctrine
+  # from GameVersion 7) and this build is byte-equivalent to the champion.
+  const shieldBarsGun = not defined(shieldShot)
   let
     shotReady = client.spriteObjectsWithLabel("fire icon").len > 0 and
-      not hasShield and not hasSword     # shield bars the gun; sword replaces it
+      not (shieldBarsGun and hasShield) and not hasSword
+      # shieldShot: a shield only slows the gun; sword still replaces it
     seenEnemies = client.actorsFor(enemyColor)
     seenMates = client.actorsFor(myColor)
   bot.updateTracks(bot.enemies, seenEnemies)
@@ -2017,7 +2023,13 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # is actually in the way, instead of frag-chasing across the map.
   let maxEngage =
     if bot.tripping: 0.0                 # sprinting an errand: no fights
-    elif hasShield and not hasSword: 0.0 # no weapon at all: run and carry
+    elif hasShield and not hasSword:
+      when defined(shieldShot):
+        # Slow gun (3x cooldown): fight only what is point-blank in the
+        # way (mirrors the upstream GV8 port on main); an arc still wins.
+        (if hasArc: ArcReach + 30.0 else: CarrierFireRange)
+      else:
+        0.0                              # no weapon at all: run and carry
     elif hasArc: ArcReach + 30.0         # cone weapon: close-range only
     elif hasSword: SwordReach + 6.0      # melee: only point-blank matters
     elif pocketRush: 0.0
