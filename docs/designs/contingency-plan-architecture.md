@@ -120,3 +120,27 @@ Game length: **mean 2410 ticks, min 1541, max 4004** — only 1 of 12 games reac
 inside them cannot move the win column much on its own — judge it on its mechanism sub-metrics
 (recapture-steer funnel counts, grab→cap, K−D) as well as the score. And always verify occupancy
 BEFORE tuning a phase constant: a phase at 0% frames is a spec, not a behavior.
+
+### DEFEND mechanism result (defendTeeth, 2026-07-29)
+
+The win column cannot resolve a DEFEND lever in a mirror (see the rig note in the v29 commit),
+so `recapture.sh` runs the lever on BOTH teams and reads the DEFENDING side's numbers — the
+fate of the runs made against us. 10 games, GV23, champion base, same seeds:
+
+| metric (runs made against the defense) | teeth OFF | teeth ON | direction |
+|---|---|---|---|
+| steals allowed          | 10    | 8     | −2 ✓ |
+| mean thief survival     | 160t  | 155t  | −5t ✓ |
+| drop@home (how far it got) | 16% | 15%   | −1pp ✓ |
+| **grab→cap conceded**   | 20.0% | 12.5% | **−7.5pp** ✓ |
+
+All four move the right way — the picket denies steals, kills thieves marginally sooner, and
+concedes a smaller share of the steals it does allow. But n is 8-10 steals per arm, so this is
+a directionally-consistent signal, NOT a proven win: the effect sits inside the noise a 10-game
+sample can carry. The phase-occupancy numbers explain why it can't be bigger in a mirror —
+DEFEND is ~2% of frames and our mirror opponent barely steals.
+
+**Verdict: keep `defendTeeth` gated OFF.** It is built, verified firing (695 steer frames), and
+mechanism-positive on all four defender metrics; what it lacks is a rig that can exercise it.
+The next step is a hosted FIELD A/B, where the opponent steals from us far more than our mirror
+self does — the same reason the medEcon premise only became visible in field episodes.
