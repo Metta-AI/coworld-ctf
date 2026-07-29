@@ -2933,7 +2933,7 @@ proc runBot(url: string) =
             ShoutVocab.len]
           ws.send(chatBlob(phrase), BinaryMessage)
         # Competitive coordination / taunt shouts (compile-gated).
-        when defined(shoutCoord) or defined(taunt):
+        when defined(shoutCoord) or defined(taunt) or defined(killLedger):
           if bot.shoutWant.len > 0:
             ws.send(chatBlob(bot.shoutWant), BinaryMessage)
             artEvent(bot.tick, "shout_tx", %*{"text": bot.shoutWant})
