@@ -239,6 +239,19 @@ const
 
   LaneTop = 40.0              # open corridor above the mirrored obstacles
 
+when defined(lastLifeBank):
+  const
+    LlbFrontCap = 130.0       # -d:lastLifeBank: pdMidA lane station on the
+                              # last life pre-window — 90px behind the castle
+                              # line, so beacon-class pokers must cross deeper
+                              # into our half to restart the poke war
+    LlbChokePull = 80.0       # pdFloat choke fallback toward our pedestal on
+                              # the last life (gun stays map-wide FireRange;
+                              # steals still come through the choke)
+    LlbResumeTick = 3200      # bank ends here: normal stations resume 200
+                              # ticks before the LatePush 3400 all-in, so the
+                              # banked life fuels the wipe-win engine
+
 ## Map dimensions, adopted at nav-grid build from the walkability sprite
 ## (which spans the whole arena). The game supports multiple maps —
 ## "arena" (1235x659, the default) and "arena-large" (1606x858) — and this
@@ -345,6 +358,10 @@ type
     wasMateCarry: bool        # edge detector: a fresh steal opens a taunt window
     tripping: bool            # mid-errand to a gear spot: sprint, no fights
     hp: int                   # own hit points, read from the HUD lives label
+    when defined(lastLifeBank):
+      lives: int              # own remaining lives, read from the same HUD
+                              # label; 1 == the last life (0 only after parse
+                              # failure or dead-out, both leave the lever off)
     kitPos: seq[Vec]          # discovered med kit spots (two, center line)
     kitAbsentAt: seq[int]     # tick a spot was last seen empty; -1 = present
     plasmaPos: seq[Vec]       # discovered plasma arc spots (side midpoints)
@@ -1413,6 +1430,16 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           bot.hp = clamp(parseInt(text[0 ..< cut]), 1, 9)
         except ValueError:
           discard
+      when defined(lastLifeBank):
+        # Same label carries "x<lives>" after the hp figure (sim: "lives
+        # <hp+shield>hp x<lives>"). A failed parse leaves lives at 0, which
+        # keeps the lever OFF (it keys on lives == 1 exactly).
+        let xi = text.rfind('x')
+        if xi >= 0 and xi + 1 < text.len:
+          try:
+            bot.lives = clamp(parseInt(text[xi + 1 .. ^1]), 0, 9)
+          except ValueError:
+            discard
       break
 
   # Med kits: learn the two center-line spots on sight; presence is
@@ -2015,6 +2042,17 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
        # front at a prepared line inside our half and make them cross open
        # ground to reach it. Conversion still comes from the late push.
        front = min(front, HoldFrontCap)
+     when defined(lastLifeBank):
+       # Last-life banking (beacon-cell decode, task 1216987666843717): the
+       # back line loses a FAIR long-range attrition war too early — all
+       # three lives spent >1100 gt before the late window. On the last life
+       # only, and only until LlbResumeTick, the two back seats stand DEEPER
+       # (stations move; the map-wide gun and all combat are untouched, per
+       # the micro-006 refutation of range caps / duel refusal). Intruders
+       # still have to come through these stations to steal, so the ~1:1
+       # intruder screen is preserved; the banked life then fuels the
+       # LatePush all-in, which is the measured wipe-win engine.
+       let llBanking = bot.lives == 1 and gameTick < LlbResumeTick
      case pd
      of pdScout:
        let scHasShield = bot.hp > MaxHp
@@ -2043,14 +2081,33 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
                LaneMid + (LaneBottom - 40.0 - LaneMid) * ((ph - 200.0) / 200.0))
          target = vec(ownEdgeX + dirX * (front + 130.0), py)
      of pdFloat:
-       if bot.helpUntil > bot.tick:
-         target = bot.snapToCover(vec(ownEdgeX + dirX * (front - 60.0),
-           (case bot.helpLane
-             of 1: LaneTop + 26.0
-             of 2: LaneMid
-             else: LaneBottom - 26.0)))
+       when defined(lastLifeBank):
+         if llBanking:
+           # Bank the last life: fall back a cover cell behind the choke and
+           # decline the forward help-run. The gun is map-wide, so anything
+           # that comes for the flag is engaged the same — the poke war just
+           # starts a station deeper, on ground our respawn-free crossfire
+           # covers.
+           objMode = "llbank"
+           target = bot.snapToCover(
+             bot.chokeHold + vec(homeSign(bot.team) * LlbChokePull, 0.0))
+         elif bot.helpUntil > bot.tick:
+           target = bot.snapToCover(vec(ownEdgeX + dirX * (front - 60.0),
+             (case bot.helpLane
+               of 1: LaneTop + 26.0
+               of 2: LaneMid
+               else: LaneBottom - 26.0)))
+         else:
+           target = bot.chokeHold
        else:
-         target = bot.chokeHold
+         if bot.helpUntil > bot.tick:
+           target = bot.snapToCover(vec(ownEdgeX + dirX * (front - 60.0),
+             (case bot.helpLane
+               of 1: LaneTop + 26.0
+               of 2: LaneMid
+               else: LaneBottom - 26.0)))
+         else:
+           target = bot.chokeHold
      else:
        let laneY = phalanxLaneY(pd)
        # Contact freeze: while a fresh track sits near our lane station,
@@ -2084,6 +2141,13 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
              of 3: LaneBottom - 60.0
              else: LaneMid)
            front = max(bot.siegeFront, HoldFrontCap) - 20.0
+       when defined(lastLifeBank):
+         if llBanking and pd == pdMidA:
+           # The lane sniper's last life stands 90px behind the castle line
+           # (after the freeze/siege arithmetic so the cap always binds).
+           # Its pdMidB trail partner is untouched and now holds the lead.
+           objMode = "llbank"
+           front = min(front, LlbFrontCap)
        let lead = pd in {pdTopA, pdMidA, pdBotA}
        target = bot.snapToCover(vec(
          ownEdgeX + dirX * (if lead: front else: front - 44.0),
