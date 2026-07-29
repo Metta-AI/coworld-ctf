@@ -124,6 +124,15 @@ const
   MaxHp = 3                   # hitPoints per life (config default); pip labels
                               # read "hp <n>/<MaxHp>"
   HpPipRadius = 22.0          # a player's overhead hp bar sits within this
+  HpPipDy = 22.0              # -d:hpPipFix: EXACT y offset of a player's own
+                              # overhead pip bar above its body centre (x dead
+                              # level), straight from the sim's addHpPips
+                              # geometry; the legacy strict `d < HpPipRadius`
+                              # test can never accept it, so Actor.hp is 0
+                              # always without the fix
+  HpPipReadR = 12.0           # -d:hpPipFix: match tolerance around the
+                              # predicted pip point; a SECOND pip inside it
+                              # means stacked bodies and the read is refused
   HpFocusBonus = 60.0         # px of effective-distance credit per missing
                               # enemy hit point — a tiebreak between
                               # comparably-engageable targets, never a reason
@@ -358,6 +367,10 @@ type
     helpUntil: int            # tick the help retasking expires
     lastEShout: int           # scout sighting-broadcast rate limit
     lastHShout: int           # help-call rate limit
+    when defined(hpPipFix):
+      hpFlipPrev: bool        # edge detector: the hp discount was DECISIVE
+                              # (engage differs from the no-hp counterfactual)
+      hpPickPrev: bool        # edge detector: the engaged target is wounded
 
 proc roleForSeat(seat: int, team: Team): Role =
   ## Deterministic role spread over the 8 per-team seats. Seats 2 and 3 both
@@ -554,6 +567,11 @@ else:
         bestD = d
         result = bradsOf(p - me)
 
+when defined(hpPipFix) and defined(hpPipDebug):
+  # Smoke-only tally of the exactly-one guard: misses (no pip in frame for that
+  # body), unambiguous accepts, and ambiguous REFUSALS (>=2 pips in radius).
+  var hpPipMiss, hpPipOne, hpPipAmbig: int
+
 proc actorsFor(client: ProtocolClient, color: string): seq[Actor] =
   ## Visible players of one color in map coordinates plus horizontal facing
   ## and hit points. The overhead "hp <n>/<max>" pip bar is fog-culled with
@@ -563,18 +581,51 @@ proc actorsFor(client: ProtocolClient, color: string): seq[Actor] =
     let label = "player " & color & (if facingRight: " right" else: " left")
     for o in client.spriteObjectsWithLabel(label):
       result.add(Actor(pos: client.mapPos(o), facingRight: facingRight))
-  for hp in 1 .. MaxHp:
-    for o in client.spriteObjectsWithLabel("hp " & $hp & "/" & $MaxHp):
-      let p = client.mapPos(o)
-      var best = -1
-      var bestD = HpPipRadius
-      for i in 0 ..< result.len:
-        let d = dist(result[i].pos, p)
-        if d < bestD:
-          bestD = d
-          best = i
-      if best >= 0:
-        result[best].hp = hp
+  when defined(hpPipFix):
+    # EXACT-GEOMETRY READ. The legacy loop below attaches each pip to its
+    # NEAREST player under a strict `d < HpPipRadius (22.0)` test, but the sim
+    # places every pip at exactly (0, -22) from its own player, so 22.0 < 22.0
+    # is false and Actor.hp (hence Track.hp, and hence the wounded-enemy focus
+    # bonus at the engage loop) is 0 for every player ALWAYS — measured, 57 987
+    # pip samples at minDist exactly 22.0, and the only nonzero readings (~1.4%)
+    # are pips MIS-ATTRIBUTED to a neighbouring player. So invert the
+    # association: predict where each player's OWN pip must be and read it
+    # there, accepting only an UNAMBIGUOUS match (a second pip inside
+    # HpPipReadR means two bodies are stacked and we cannot say whose bar we
+    # are reading — that is the mis-attribution class, refuse it and leave hp 0
+    # = unknown).
+    var pips: seq[(Vec, int)]
+    for hp in 1 .. MaxHp:
+      for o in client.spriteObjectsWithLabel("hp " & $hp & "/" & $MaxHp):
+        pips.add((client.mapPos(o), hp))
+    for i in 0 ..< result.len:
+      let pipAt = result[i].pos + vec(0.0, -HpPipDy)
+      var
+        hits = 0
+        hp = 0
+      for (p, h) in pips:
+        if dist(p, pipAt) < HpPipReadR:
+          inc hits
+          hp = h
+      when defined(hpPipDebug):
+        if hits == 0: inc hpPipMiss
+        elif hits == 1: inc hpPipOne
+        else: inc hpPipAmbig
+      if hits == 1:
+        result[i].hp = hp
+  else:
+    for hp in 1 .. MaxHp:
+      for o in client.spriteObjectsWithLabel("hp " & $hp & "/" & $MaxHp):
+        let p = client.mapPos(o)
+        var best = -1
+        var bestD = HpPipRadius
+        for i in 0 ..< result.len:
+          let d = dist(result[i].pos, p)
+          if d < bestD:
+            bestD = d
+            best = i
+        if best >= 0:
+          result[best].hp = hp
 
 proc mateAimBrads(client: ProtocolClient, mate, me: Vec, color: string): int =
   ## A visible mate's aim angle read from ITS rendered aim-indicator dots
@@ -1196,6 +1247,9 @@ proc resetTransient(bot: Bot) =
   bot.jinkUntil = 0
   bot.behindLines = false
   bot.navGoal = -1
+  when defined(hpPipFix):
+    bot.hpFlipPrev = false
+    bot.hpPickPrev = false
 
 proc scanAim(bot: Bot, watch: Vec): int =
   ## The scan-sweep aim while holding a position: rake the vision cone back
@@ -1301,6 +1355,11 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     bot.firedLast = false
     bot.rotSign = 0
     bot.wasDead = true
+    when defined(hpPipFix):
+      # The engage loop does not run while dead, so a latch left set here would
+      # swallow the first onset after respawn.
+      bot.hpFlipPrev = false
+      bot.hpPickPrev = false
     artFrame(FrameSnap(tick: bot.tick, alive: false,
       x: int(bot.lastPos.x), y: int(bot.lastPos.y), hp: 0,
       objective: "dead", action: "dead", engageDist: -1))
@@ -2230,6 +2289,13 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     blockedAim: Vec
     haveBlocked = false
     blockedD = maxEngage
+  when defined(hpPipFix):
+    # Counterfactual argmin over the SAME eligible set with the wounded-enemy hp
+    # discount omitted. Frames where the two selections differ are exactly the
+    # frames the repaired hp read changed the target — the decoder's exact count.
+    var
+      engageNoHp = -1
+      engageNoHpPrio = maxEngage
   for i in 0 ..< bot.enemies.len:
     let t = bot.enemies[i]
     if bot.tick - t.lastSeen > FreshShotTicks:
@@ -2247,8 +2313,12 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # targets, deliberately smaller than a real positional difference.
     var prio = d +
       float(abs(bradsErr(bradsOf(predicted - me), bot.estAim))) * TraversePxPerBrad
+    when defined(hpPipFix):
+      var hpDisc = 0.0            # the hp credit this target received, to undo
     if t.hp in 1 ..< MaxHp:
       prio -= float(MaxHp - t.hp) * HpFocusBonus
+      when defined(hpPipFix):
+        hpDisc = float(MaxHp - t.hp) * HpFocusBonus
     if mateTargeted[i]:
       prio -= FocusFireBonus
     block thiefPrio:
@@ -2269,6 +2339,11 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     if client.pixelRayClear(me, predicted):
       if bot.friendlyBlocked(me, predicted, d):
         continue                        # prefer a target with an empty corridor
+      when defined(hpPipFix):
+        let prioNoHp = prio + hpDisc
+        if engageNoHp < 0 or prioNoHp < engageNoHpPrio:
+          engageNoHpPrio = prioNoHp
+          engageNoHp = i
       if engage < 0 or prio < engagePrio:
         engagePrio = prio
         engageD = d
@@ -2278,6 +2353,29 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       blockedD = d
       blockedAim = predicted
       haveBlocked = true
+  when defined(hpPipFix):
+    # RISING EDGES only: one event per onset, so the decoder counts episodes of
+    # hp-credit influence rather than ticks of it. The control (no -d:hpPipFix)
+    # is structurally zero on both — its Track.hp is always 0.
+    let hpFlipNow = engage >= 0 and engageNoHp >= 0 and engage != engageNoHp
+    if hpFlipNow and not bot.hpFlipPrev:
+      artEvent(bot.tick, "hpfocus_flip",
+        %*{"hp": bot.enemies[engage].hp, "d": int(engageD)})
+    bot.hpFlipPrev = hpFlipNow
+    let hpPickNow = engage >= 0 and bot.enemies[engage].hp in 1 ..< MaxHp
+    if hpPickNow and not bot.hpPickPrev:
+      artEvent(bot.tick, "hpfocus_pick",
+        %*{"hp": bot.enemies[engage].hp, "d": int(engageD)})
+    bot.hpPickPrev = hpPickNow
+    when defined(hpPipDebug):
+      if engage >= 0:
+        var nz = 0
+        for t in bot.enemies:
+          if t.hp > 0: inc nz
+        echo "HP t=", bot.tick, " slot=", bot.slot, " eng=", engage,
+          " hp=", bot.enemies[engage].hp, " noHp=", engageNoHp,
+          " flip=", hpFlipNow, " nz=", nz, "/", bot.enemies.len,
+          " pip1=", hpPipOne, " pip0=", hpPipMiss, " pipAmb=", hpPipAmbig
 
   # The nearest remembered enemy that could be threatening us right now,
   # used to pick which line to break when ducking through cooldown.
