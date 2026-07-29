@@ -144,3 +144,36 @@ DEFEND is ~2% of frames and our mirror opponent barely steals.
 mechanism-positive on all four defender metrics; what it lacks is a rig that can exercise it.
 The next step is a hosted FIELD A/B, where the opponent steals from us far more than our mirror
 self does — the same reason the medEcon premise only became visible in field episodes.
+
+### PhForce timing SWEEP result (forceTiming, 2026-07-29) — FORCE is not a win lever
+
+Seat-rotated, champion-vs-champion, 16 games/side, GV23, same seeds. Read PAIRED against the
+null arm (identical tunes both sides), because at 16 games/side the null itself reads +8/−4:
+mirror seed bias is larger than a single lever's effect, so an absolute score is meaningless
+here and only the delta-vs-null is interpretable.
+
+| FORCE trigger | fires? (phprobe) | wins vs null (red / blue) |
+|---|---|---|
+| 3800 (shipped) | **no** — 0 frames of 266,279 | — (this IS the null) |
+| 3200 | **no** — 0 frames | +0 / +0 (a true no-op) |
+| 2800 | **no** — 0 frames | +0 / +0 (a true no-op) |
+| 2000 | yes — 885 frames | **−2 / −2** |
+
+The two middle rows are the control that makes this readable: they score EXACTLY the null on
+both seatings *because the lever never armed*, which confirms the rig is paired correctly and
+that a +0 means "absent" rather than "neutral". The only setting that actually fires is 2000 —
+and it is negative on BOTH seatings.
+
+**Verdict: keep `forceTiming` gated OFF; leave `ForceClockTick` at 3800.** The monotone pattern
+(the more FORCE fires, the worse we do) says the problem was never the constant. FORCE commits
+every seat — including the two defensive seats — to the enemy pedestal and widens engage to
+fireRange. On a wipe-economy engine where games are already decided by attrition at ~2410t,
+arming that inside a live game converts a balanced attrition fight into an over-commit. This is
+the same failure mode as v27's team-wide `pickEdge` push (−20pp): **unanimous aggression levers
+over-commit and get punished.**
+
+So the honest conclusion for this loop is a *negative result with a named mechanism*: PhForce as
+designed is dead code that should STAY dead at its current trigger, because the only way to wake
+it up makes the policy worse. If FORCE is ever to earn its place it needs a different trigger
+predicate than the clock — e.g. "clock late AND we are behind on the wipe count", so the all-in
+fires only when the balanced fight is already lost — not merely an earlier tick.
