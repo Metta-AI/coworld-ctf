@@ -115,3 +115,36 @@ countdown, and players could Vote Skip (majority skips to the next map in
 rotation; can't skip twice in a row). Adaptation here: per-episode rotation
 through the pack, with the map name announced on the pre-game/intro banner
 ("MAP: RUST" splash flavor) in the replay viewer.
+
+## League wiring
+
+Decision: **rotation, not agent-voting.** The league runs the pack via a
+rotation alias — mapPath `"mw2"`, resolved by the server at startup to
+`Mw2Rotation[abs(seed) mod 6]`. Each league episode is a fresh process with a
+distinct seed, so the alias rotates per episode; the replay header records the
+resolved concrete map, never the alias. Exposed as the `mw2-rotation` manifest
+variant (identical 8v8 rules, `"mapPath": "mw2"`).
+
+Why not let agents vote on the map:
+
+- **Bloc voting degenerates.** 8v8 head-to-head means 8 copies of each policy
+  per side: any per-agent vote collapses into a 2-party bloc and every
+  contested vote is an 8-8 tie needing an arbitrary tiebreak — the "vote" is
+  theater.
+- **Protocol break.** A vote phase needs new inputs/observations, i.e. a
+  protocol/GameVersion break that invalidates every existing league policy for
+  a feature with no gameplay depth.
+- **Determinism.** Seed-keyed resolution keeps episodes fully deterministic
+  and replay re-simulation exact — the map is a pure function of the recorded
+  config.
+- **Authenticity.** MW2 (2009) itself ran playlist rotation with a majority
+  Vote Skip; pick-between-maps voting was Black Ops 1. Rotation IS the
+  authentic flavor.
+- **No platform changes.** Strict one-map-per-round cycling would need a
+  platform-provided episode index; seed-keying gives the same long-run
+  coverage distribution (seeds are effectively uniform mod 6) with zero
+  platform changes.
+
+Optional future spectacle: a cosmetic viewer-side **"Vote Skip" splash** on
+the pre-game banner (announce the rotation's next map, flash a mock skip
+tally) — pure replay-viewer theater, no protocol surface.
