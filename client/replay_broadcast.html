@@ -318,6 +318,12 @@ html, body {
 }
 .clock.tiebreak-warn .time { color: var(--amber); }
 
+/* Persistent map label — the caption's quiet typography one shade dimmer, so a
+   mid-game joiner can always read which map this is. Collapses entirely when
+   empty (default arena, or an old replay whose frames carry no map field). */
+.clock .map-label { color: var(--ghost); }
+.clock .map-label:empty { display: none; }
+
 /* Center column holds just the clock now — the capture-chase gauge was retired
    in favor of the two bottom carry indicators. */
 .clock-col {
@@ -367,6 +373,7 @@ html, body {
 }
 .banner-chip.steal { border-bottom-color: var(--amber); }
 .banner-chip.returned { border-bottom-color: var(--paper-dim); }
+.banner-chip.map { border-bottom-color: var(--paper-dim); }
 .banner-chip.wipe { border-bottom-color: var(--red); font-size: calc(15 * var(--u)); }
 .banner-chip.red-accent { box-shadow: inset calc(4 * var(--u)) 0 0 var(--red); }
 .banner-chip.blue-accent { box-shadow: inset calc(4 * var(--u)) 0 0 var(--blue); }
@@ -1077,6 +1084,9 @@ body[data-embed] #board { top: 0; height: 100%; }
           <div class="time" id="clock-time">0:00</div>
           <span class="ffwd-mini" id="ffwd-mini">▸▸</span>
           <div class="caption" id="clock-caption">Warming up</div>
+          <!-- persistent map name ("RUST") for mid-game joiners; empty (and
+               hidden) on the default arena and on replays without a map field -->
+          <div class="caption map-label" id="map-label"></div>
         </div>
       </div>
 
@@ -1446,6 +1456,7 @@ body[data-embed] #board { top: 0; height: 100%; }
     ingestFpMap(s);
     ingestLullSpans(s);
     ingestBeats(s);
+    ingestMap(s);
     recordMomentum(s);
 
     if (s.ph === 'gameover') { renderEndcard(s); if (s.over) setVerdict(s.over); }
@@ -1489,6 +1500,40 @@ body[data-embed] #board { top: 0; height: 100%; }
       else if (b.k === 'capture') markBeat(b.t, 'capture', otherTeam(b.flag));
       else if (b.k === 'gameover') setVerdict(b);
     }
+  }
+
+  // ---------- map identity (named MW2-flavored maps) ----------
+  // The frame's `map` field carries the replay's mapPath (shipped by the
+  // server from the recorded config). Display names are the only literals
+  // here; internal names stay mapPath strings. The default "arena" predates
+  // map naming and shows nothing; an unknown/absent value also shows nothing,
+  // so old replays and older servers render unchanged.
+  var MAP_NAMES = {
+    'rust': 'RUST',
+    'terminal': 'TERMINAL',
+    'highrise': 'HIGHRISE',
+    'favela': 'FAVELA',
+    'afghan': 'AFGHAN',
+    'scrapyard': 'SCRAPYARD',
+    'arena-large': 'ARENA XL'
+  };
+  var mapAnnounced = false;
+  function mapDisplayName(m) {
+    // Own-property lookup only: an arbitrary string must never reach up the
+    // prototype chain ("constructor" etc.) and render as junk.
+    return (typeof m === 'string' &&
+      Object.prototype.hasOwnProperty.call(MAP_NAMES, m)) ? MAP_NAMES[m] : '';
+  }
+  function ingestMap(s) {
+    var label = s ? mapDisplayName(s.map) : '';
+    // Persistent: the quiet label under the clock caption (empty → hidden).
+    var el = $('map-label');
+    if (el && el.textContent !== label) el.textContent = label;
+    if (!label || mapAnnounced) return;
+    // Intro moment: one lobby-splash chip through the existing banner lane,
+    // announced once per page load and auto-fading like every other chip.
+    mapAnnounced = true;
+    banner('MAP: ' + label, 'map');
   }
 
   // Winner cap + "RED WINS" chip. Fed by the up-front beat timeline, and as a

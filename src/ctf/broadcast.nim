@@ -608,6 +608,10 @@ proc buildStateJson*(
     "en": transportEnabled,
     "mm": mismatchTick,
     "pov": povSlot,
+    # Which named map this match is on (config.mapPath, e.g. "rust"). The
+    # client maps known names to display literals for the lobby-splash banner
+    # chip and the persistent clock label; unknown/default values show nothing.
+    "map": sim.config.mapPath,
     "teams": teams,
     "roster": sim.rosterJson(),
     "events": (if events.isNil: newJArray() else: events)

@@ -64,6 +64,98 @@ suite "mw2 paintball map pack":
       check sim.isWalkable(blueHome.x, blueHome.y)
       check sim.reaches(redHome.x, redHome.y, blueHome.x, blueHome.y)
 
+  test "no map leaves a fully-open cross-field firing row":
+    ## The guns are effectively map-wide, so the default arena guarantees every
+    ## horizontal row hits cover (tests/test_map_los.nim). A pack map that
+    ## leaves a row clear from one capture column to the other lets a defender
+    ## shoot an attacker at spawn with no counterplay, so every map owes the
+    ## same invariant. All six failed this when the layouts first landed; the
+    ## per-map "sightline picket" shapes in sim.nim exist to hold it.
+    for name in Mw2Rotation:
+      let
+        sim = initCtfForMap(name)
+        lo = sim.gameMap.captureClear + 5
+        hi = MapWidth - sim.gameMap.captureClear - 5
+      var openRows: seq[int]
+      var y = 10
+      while y < MapHeight - 10:
+        if sim.isWalkable(lo, y) or sim.isWalkable(hi, y):
+          var blocked = false
+          for s in 1 .. hi - lo:
+            if sim.isWall(lo + s, y):
+              blocked = true
+              break
+          if not blocked:
+            openRows.add y
+        inc y
+      if openRows.len > 0:
+        echo "  ", name, ": open rows ", openRows[0], "..", openRows[^1]
+      check openRows.len == 0
+
+  test "no map strands occupiable floor in a sealed pocket":
+    ## Every cell a player can stand on must be reachable from the red
+    ## pedestal with the REAL 13px footprint. A sealed pocket can swallow a
+    ## nudged pickup (nearestWalkable is purely local and does not check
+    ## connectivity) or trap a spawning player.
+    ##
+    ## Walked at 1px over a PRECOMPUTED occupancy mask: a strided flood is not
+    ## sound here, because a hop wider than a corridor reports live floor on
+    ## the far side as sealed (stride 3 flagged 3 phantom cells on Rust).
+    ## Building the mask once keeps the exact version cheap — one canOccupy per
+    ## cell instead of one per flood step.
+    for name in Mw2Rotation:
+      let
+        sim = initCtfForMap(name)
+        home = sim.gameMap.flagHome(Red)
+      var occupiable = newSeq[bool](MapWidth * MapHeight)
+      for y in 0 ..< MapHeight:
+        for x in 0 ..< MapWidth:
+          occupiable[mapIndex(x, y)] = sim.canOccupy(x, y)
+      check occupiable[mapIndex(home.x, home.y)]
+      var
+        seen = newSeq[bool](MapWidth * MapHeight)
+        queue = initDeque[(int, int)]()
+      seen[mapIndex(home.x, home.y)] = true
+      queue.addLast((home.x, home.y))
+      while queue.len > 0:
+        let (cx, cy) = queue.popFirst()
+        for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
+          let
+            nx = cx + dx
+            ny = cy + dy
+          if nx < 0 or ny < 0 or nx >= MapWidth or ny >= MapHeight:
+            continue
+          if seen[mapIndex(nx, ny)] or not occupiable[mapIndex(nx, ny)]:
+            continue
+          seen[mapIndex(nx, ny)] = true
+          queue.addLast((nx, ny))
+      var stranded = 0
+      for i in 0 ..< occupiable.len:
+        if occupiable[i] and not seen[i]:
+          inc stranded
+      if stranded > 0:
+        echo "  ", name, ": ", stranded, " stranded cells"
+      check stranded == 0
+
+  test "every pickup and spawn seat lands on occupiable floor":
+    ## Pickups and spawns are placed by nudging a target to nearestWalkable,
+    ## which is purely local — on a new layout the nudge can land somewhere a
+    ## player cannot actually stand. Assert every one fits the real footprint.
+    for name in Mw2Rotation:
+      let sim = initCtfForMap(name)
+      for sp in sim.grenadeSpawns:
+        check sim.canOccupy(sp.x, sp.y)
+      for sp in sim.medKitSpawns:
+        check sim.canOccupy(sp.x, sp.y)
+      for sp in sim.shieldSpawns:
+        check sim.canOccupy(sp.x, sp.y)
+      for sp in sim.plasmaArcSpawns:
+        check sim.canOccupy(sp.x, sp.y)
+      for team in Team:
+        for order in 0 ..< 8:
+          let seat = sim.spawnPosition(team, order)
+          check sim.canOccupy(seat.x, seat.y)
+
   test "mw2 alias resolves deterministically and covers the whole pack":
     var covered: array[6, bool]
     for seed in 0 ..< 6:
