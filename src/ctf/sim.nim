@@ -1495,6 +1495,27 @@ proc validateMap(gameMap: CtfMap) =
 const
   ArenaName = "arena"
   ArenaLargeName = "arena-large"
+
+  ## The MW2 paintball map pack: six top-down recreations of crowd-favorite
+  ## Call of Duty: Modern Warfare 2 (2009) multiplayer maps, re-themed as
+  ## paintball fields (docs/designs/mw2-paintball-maps.md holds the layouts,
+  ## lane plans, and landmark rationale). Registered names below; the "mw2"
+  ## ROTATION ALIAS is resolved in updateGameConfig, never in the registry.
+  RustName = "rust"
+  TerminalName = "terminal"
+  HighriseName = "highrise"
+  FavelaName = "favela"
+  AfghanName = "afghan"
+  ScrapyardName = "scrapyard"
+
+  ## Per-episode rotation for mapPath "mw2": the league runs one fresh server
+  ## process per episode with a distinct seed, so resolving the alias from
+  ## the seed at config time rotates the pack across a round's episodes. The
+  ## replay header records the RESOLVED name (a pure function of the recorded
+  ## config), keeping replay re-simulation exact.
+  Mw2Rotation* = [RustName, TerminalName, HighriseName, FavelaName,
+                  AfghanName, ScrapyardName]
+
   ArenaBorder* = 10            ## perimeter wall thickness in px.
 
   ## Warm CRT-phosphor arena (REPLAY_DESIGN §3 art-lock): warm-dark floor,
@@ -1653,6 +1674,193 @@ const
     ArenaShape(kind: shapeRect, rect: MapRect(x: 726, y: 761, w: 18, h: 66)),
   ]
 
+  ## Rust: the oil-yard speedball field. Derrick tower dead center,
+  ## pipe run, fuel tank, barrel bunkers.
+  RustLeftObstacles = [
+    # shack, shifted right out of the x<210 capture-column carve
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 214, y: 62, w: 89, h: 75)),
+    # big fuel tank, cx shifted clear of the carve
+    ArenaShape(kind: shapeDisc, cx: 278, cy: 522, radius: 62),
+    # pipe run west of the gap (gap widened to 29px for the player footprint)
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 247, y: 385, w: 109, h: 25)),
+    # pipe run east of the gap
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 385, y: 385, w: 109, h: 25)),
+    # container
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 420, y: 62, w: 99, h: 50)),
+    # dumpster
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 445, y: 547, w: 61, h: 37)),
+    # barrels scattered along the approaches
+    ArenaShape(kind: shapeDisc, cx: 321, cy: 162, radius: 19),
+    ArenaShape(kind: shapeDisc, cx: 352, cy: 193, radius: 19),
+    ArenaShape(kind: shapeDisc, cx: 408, cy: 497, radius: 19),
+    ArenaShape(kind: shapeDisc, cx: 531, cy: 448, radius: 19),
+    # tower approach ramp
+    ArenaShape(kind: shapeDiagonal, x0: 506, y0: 224, x1: 568, y1: 286, thickness: 12),
+    # THE derrick tower, as a derrick is top-down: four fat leg pylons
+    # around an open middle. The protected r70 center disc stays floor, so
+    # the flag fight happens UNDER the tower; the mirror gives the east legs.
+    ArenaShape(kind: shapeDiamond, cx: 552, cy: 264, radius: 26),
+    ArenaShape(kind: shapeDiamond, cx: 552, cy: 394, radius: 26),
+  ]
+
+  ## Terminal: the airport concourse. Inflatable 747 IS the north
+  ## lane; glass duty-free + scanner comb mid; Burger Town south.
+  TerminalLeftObstacles = [
+    # lounge seating, shifted+shortened out of the carve
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 214, y: 162, w: 70, h: 25)),
+    # Burger Town
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 222, y: 472, w: 124, h: 100)),
+    # duty-free island (glass)
+    ArenaShape(kind: shapeRect, window: true, rect: MapRect(x: 296, y: 199, w: 99, h: 75)),
+    # pillar
+    ArenaShape(kind: shapeDisc, cx: 272, cy: 323, radius: 12),
+    # pillar
+    ArenaShape(kind: shapeDisc, cx: 370, cy: 385, radius: 12),
+    # scanner comb (slits widened to 30px)
+    ArenaShape(kind: shapeRect, window: true, rect: MapRect(x: 420, y: 255, w: 25, h: 31)),
+    # scanner comb
+    ArenaShape(kind: shapeRect, window: true, rect: MapRect(x: 420, y: 317, w: 25, h: 31)),
+    # scanner comb
+    ArenaShape(kind: shapeRect, window: true, rect: MapRect(x: 420, y: 379, w: 25, h: 31)),
+    # luggage cart
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 469, y: 535, w: 37, h: 25)),
+    # luggage cart
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 531, y: 497, w: 37, h: 25)),
+    # jet bridge
+    ArenaShape(kind: shapeDiagonal, x0: 469, y0: 174, x1: 537, y1: 106, thickness: 12),
+    # 747 fuselage west of fwd door (door widened to 30px)
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 494, y: 75, w: 47, h: 87)),
+    # 747 fuselage centre piece; mirror closes the east half
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 571, y: 75, w: 47, h: 87)),
+    # 747 west wing
+    ArenaShape(kind: shapeDiagonal, x0: 568, y0: 162, x1: 482, y1: 248, thickness: 12),
+    # wing engine
+    ArenaShape(kind: shapeDisc, cx: 531, cy: 211, radius: 25),
+  ]
+
+  ## Highrise: the rooftop court. Glass office core per half, duct
+  ## trench mid, crane center-north; the helipad south stays open floor.
+  HighriseLeftObstacles = [
+    # office core seg 1 (shifted clear of pocket carve)
+    ArenaShape(kind: shapeRect, window: true, rect: MapRect(x: 257, y: 174, w: 80, h: 37)),
+    # office core seg 2 (exit gaps between segs)
+    ArenaShape(kind: shapeRect, window: true, rect: MapRect(x: 257, y: 249, w: 80, h: 62)),
+    # office core seg 3
+    ArenaShape(kind: shapeRect, window: true, rect: MapRect(x: 257, y: 348, w: 80, h: 75)),
+    # office core seg 4
+    ArenaShape(kind: shapeRect, window: true, rect: MapRect(x: 257, y: 460, w: 80, h: 25)),
+    # AC unit north
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 222, y: 124, w: 50, h: 38)),
+    # AC unit south
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 272, y: 497, w: 49, h: 38)),
+    # duct trench west
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 321, y: 311, w: 61, h: 37)),
+    # duct trench east (gap widened to 30px)
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 411, y: 311, w: 58, h: 37)),
+    # crate north
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 370, y: 87, w: 38, h: 37)),
+    # crate south
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 408, y: 547, w: 37, h: 37)),
+    # scaffold stair
+    ArenaShape(kind: shapeDiagonal, x0: 494, y0: 211, x1: 556, y1: 149, thickness: 12),
+    # crane base (center, mirror-exact)
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 593, y: 25, w: 49, h: 62)),
+    # crane arm reaching mid (center, mirror-exact)
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 605, y: 87, w: 25, h: 87)),
+  ]
+
+  ## Favela: shantytown streetball. Staggered shanty blocks, water
+  ## tanks, and the EMPTY center courtyard as the landmark.
+  FavelaLeftObstacles = [
+    # shanty B (widened left, absorbs carved block A)
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 214, y: 75, w: 119, h: 99)),
+    # shanty C (alley to B widened to 31px)
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 364, y: 99, w: 93, h: 112)),
+    # shanty E (widened left, absorbs carved block D)
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 214, y: 472, w: 156, h: 100)),
+    # shanty F (alley to E widened to 31px)
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 401, y: 385, w: 93, h: 100)),
+    # rooftop water tank on B
+    ArenaShape(kind: shapeDisc, cx: 284, cy: 124, radius: 19),
+    # rooftop water tank on F
+    ArenaShape(kind: shapeDisc, cx: 420, cy: 435, radius: 19),
+    # rooftop water tank on E (moved from carved block D)
+    ArenaShape(kind: shapeDisc, cx: 241, cy: 522, radius: 19),
+    # stair alley
+    ArenaShape(kind: shapeDiagonal, x0: 469, y0: 286, x1: 531, y1: 224, thickness: 12),
+    # construction scaffold centre-north (center, mirror-exact)
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 568, y: 50, w: 99, h: 74)),
+    # kiosk centre-south; courtyard between stays EMPTY (center, mirror-exact)
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 580, y: 522, w: 75, h: 50)),
+  ]
+
+  ## Afghan: the desert crash site. C-130 wreck dead center, north
+  ## ridge with a cave mouth, burnt tank, sandbag lines.
+  AfghanLeftObstacles = [
+    # bunker as a C open toward the field; shifted clear of the pocket carve
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 257, y: 261, w: 25, h: 137)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 282, y: 261, w: 74, h: 25)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 282, y: 373, w: 74, h: 25)),
+    # north ridge (the west stub is absorbed by the capture column; the ridge
+    # face itself is the cave-mouth cover line)
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 222, y: 0, w: 297, h: 62)),
+    # rocks
+    ArenaShape(kind: shapeDisc, cx: 272, cy: 174, radius: 31),
+    ArenaShape(kind: shapeDisc, cx: 371, cy: 435, radius: 37),
+    ArenaShape(kind: shapeDisc, cx: 321, cy: 560, radius: 25),
+    # burnt tank hulk
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 395, y: 249, w: 74, h: 37)),
+    # sandbag lines
+    ArenaShape(kind: shapeDiagonal, x0: 247, y0: 373, x1: 297, y1: 423, thickness: 12),
+    ArenaShape(kind: shapeDiagonal, x0: 445, y0: 472, x1: 495, y1: 522, thickness: 12),
+    # THE crashed C-130, as a broken airframe: the forward fuselage west of
+    # the protected r70 center disc (the mirror supplies the aft half), the
+    # open ring between them reading as the burned-out midsection crater.
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 484, y: 292, w: 68, h: 74)),
+    # nose cone ahead of the body
+    ArenaShape(kind: shapeDisc, cx: 458, cy: 329, radius: 28),
+    # port wing swept back from the body, engine on the wing line
+    ArenaShape(kind: shapeDiagonal, x0: 500, y0: 292, x1: 430, y1: 222, thickness: 12),
+    ArenaShape(kind: shapeDisc, cx: 455, cy: 247, radius: 20),
+    # broken tail chunk fallen south-west (the mirror drops a matching piece
+    # south-east; together they flank the crater)
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 505, y: 404, w: 56, h: 40)),
+  ]
+
+  ## Scrapyard: the aircraft boneyard. A broken fuselage spine down
+  ## the midline between two brick streets.
+  ScrapyardLeftObstacles = [
+    # brick office (shifted right out of the carve)
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 214, y: 87, w: 92, h: 124)),
+    # warehouse (shifted right out of the carve)
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 214, y: 448, w: 98, h: 124)),
+    # west fuselage fore (body gap widened to 30px)
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 296, y: 298, w: 60, h: 63)),
+    # west fuselage aft
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 385, y: 298, w: 60, h: 63)),
+    # west fuselage nose cone (ring carves its west face)
+    ArenaShape(kind: shapeDisc, cx: 272, cy: 330, radius: 31),
+    # engine stack north (moved off the shifted office)
+    ArenaShape(kind: shapeDisc, cx: 333, cy: 62, radius: 25),
+    # engine stack south
+    ArenaShape(kind: shapeDisc, cx: 469, cy: 560, radius: 25),
+    # crate north
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 370, y: 112, w: 38, h: 37)),
+    # crate south
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 408, y: 485, w: 37, h: 37)),
+    # wing leaning on the fuselage
+    ArenaShape(kind: shapeDiagonal, x0: 445, y0: 274, x1: 507, y1: 212, thickness: 12),
+    # scrap-wall dressing north
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 198, y: 0, w: 172, h: 25)),
+    # scrap-wall dressing south
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 247, y: 634, w: 173, h: 25)),
+    # center fuselage: the spine's third airframe FLANKS the protected ring
+    # (the mirror supplies its aft half across the ring gap)
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 470, y: 298, w: 75, h: 63)),
+    # tail fin south of the ring (animates: within 80px of center.x)
+    ArenaShape(kind: shapeDiamond, cx: 617, cy: 412, radius: 30),
+  ]
+
 proc arenaCtfMap(): CtfMap =
   ## The default arena: the procedurally-defined symmetric 1235x659 map.
   result.name = ArenaName
@@ -1704,6 +1912,162 @@ proc arenaLargeCtfMap(): CtfMap =
          w: result.captureClear, h: 338),
     Room(name: "Blue Base", x: result.width - result.captureClear,
          y: result.height div 2 - 169, w: result.captureClear, h: 338),
+  ]
+  result.validateMap()
+
+proc rustCtfMap(): CtfMap =
+  ## MW2 Rust as a paintball field: the derrick tower decides every fight.
+  result.name = RustName
+  result.path = RustName
+  result.width = 1235
+  result.height = 659
+  result.mapLayer = 0
+  result.walkLayer = 1
+  result.wallLayer = 2
+  result.center = MapPoint(x: result.width div 2, y: result.height div 2)
+  result.flagRing = 70
+  result.captureClear = 210
+  result.spawnClearW = 70
+  result.spawnClearH = 130
+  result.gunRange = 1300
+  result.leftObstacles = @RustLeftObstacles
+  result.rooms = @[
+    Room(name: "Center", x: result.width div 2 - 80,
+         y: result.height div 2 - 80, w: 160, h: 160),
+    Room(name: "Red Base", x: 0, y: result.height div 2 - 130,
+         w: result.captureClear, h: 260),
+    Room(name: "Blue Base", x: result.width - result.captureClear,
+         y: result.height div 2 - 130, w: result.captureClear, h: 260),
+  ]
+  result.validateMap()
+
+proc terminalCtfMap(): CtfMap =
+  ## MW2 Terminal as a paintball field: fight through the 747 or the scanners.
+  result.name = TerminalName
+  result.path = TerminalName
+  result.width = 1235
+  result.height = 659
+  result.mapLayer = 0
+  result.walkLayer = 1
+  result.wallLayer = 2
+  result.center = MapPoint(x: result.width div 2, y: result.height div 2)
+  result.flagRing = 70
+  result.captureClear = 210
+  result.spawnClearW = 70
+  result.spawnClearH = 130
+  result.gunRange = 1300
+  result.leftObstacles = @TerminalLeftObstacles
+  result.rooms = @[
+    Room(name: "Center", x: result.width div 2 - 80,
+         y: result.height div 2 - 80, w: 160, h: 160),
+    Room(name: "Red Base", x: 0, y: result.height div 2 - 130,
+         w: result.captureClear, h: 260),
+    Room(name: "Blue Base", x: result.width - result.captureClear,
+         y: result.height div 2 - 130, w: result.captureClear, h: 260),
+  ]
+  result.validateMap()
+
+proc highriseCtfMap(): CtfMap =
+  ## MW2 Highrise as a paintball field: core exits, duct trench, open helipad.
+  result.name = HighriseName
+  result.path = HighriseName
+  result.width = 1235
+  result.height = 659
+  result.mapLayer = 0
+  result.walkLayer = 1
+  result.wallLayer = 2
+  result.center = MapPoint(x: result.width div 2, y: result.height div 2)
+  result.flagRing = 70
+  result.captureClear = 210
+  result.spawnClearW = 70
+  result.spawnClearH = 130
+  result.gunRange = 1300
+  result.leftObstacles = @HighriseLeftObstacles
+  result.rooms = @[
+    Room(name: "Center", x: result.width div 2 - 80,
+         y: result.height div 2 - 80, w: 160, h: 160),
+    Room(name: "Red Base", x: 0, y: result.height div 2 - 130,
+         w: result.captureClear, h: 260),
+    Room(name: "Blue Base", x: result.width - result.captureClear,
+         y: result.height div 2 - 130, w: result.captureClear, h: 260),
+  ]
+  result.validateMap()
+
+proc favelaCtfMap(): CtfMap =
+  ## MW2 Favela as a paintball field: alley maze around an open courtyard.
+  result.name = FavelaName
+  result.path = FavelaName
+  result.width = 1235
+  result.height = 659
+  result.mapLayer = 0
+  result.walkLayer = 1
+  result.wallLayer = 2
+  result.center = MapPoint(x: result.width div 2, y: result.height div 2)
+  result.flagRing = 70
+  result.captureClear = 210
+  result.spawnClearW = 70
+  result.spawnClearH = 130
+  result.gunRange = 1300
+  result.leftObstacles = @FavelaLeftObstacles
+  result.rooms = @[
+    Room(name: "Center", x: result.width div 2 - 80,
+         y: result.height div 2 - 80, w: 160, h: 160),
+    Room(name: "Red Base", x: 0, y: result.height div 2 - 130,
+         w: result.captureClear, h: 260),
+    Room(name: "Blue Base", x: result.width - result.captureClear,
+         y: result.height div 2 - 130, w: result.captureClear, h: 260),
+  ]
+  result.validateMap()
+
+proc afghanCtfMap(): CtfMap =
+  ## MW2 Afghan as a paintball field: the C-130 wreck owns the midfield.
+  result.name = AfghanName
+  result.path = AfghanName
+  result.width = 1235
+  result.height = 659
+  result.mapLayer = 0
+  result.walkLayer = 1
+  result.wallLayer = 2
+  result.center = MapPoint(x: result.width div 2, y: result.height div 2)
+  result.flagRing = 70
+  result.captureClear = 210
+  result.spawnClearW = 70
+  result.spawnClearH = 130
+  result.gunRange = 1300
+  result.leftObstacles = @AfghanLeftObstacles
+  result.rooms = @[
+    Room(name: "Center", x: result.width div 2 - 80,
+         y: result.height div 2 - 80, w: 160, h: 160),
+    Room(name: "Red Base", x: 0, y: result.height div 2 - 130,
+         w: result.captureClear, h: 260),
+    Room(name: "Blue Base", x: result.width - result.captureClear,
+         y: result.height div 2 - 130, w: result.captureClear, h: 260),
+  ]
+  result.validateMap()
+
+proc scrapyardCtfMap(): CtfMap =
+  ## MW2 Scrapyard as a paintball field: two streets and a fuselage spine.
+  result.name = ScrapyardName
+  result.path = ScrapyardName
+  result.width = 1235
+  result.height = 659
+  result.mapLayer = 0
+  result.walkLayer = 1
+  result.wallLayer = 2
+  result.center = MapPoint(x: result.width div 2, y: result.height div 2)
+  result.flagRing = 70
+  result.captureClear = 210
+  result.spawnClearW = 70
+  result.spawnClearH = 130
+  result.gunRange = 1300
+  result.leftObstacles = @ScrapyardLeftObstacles
+  result.rooms = @[
+    Room(name: "Center", x: result.width div 2 - 80,
+         y: result.height div 2 - 80, w: 160, h: 160),
+    Room(name: "Red Base", x: 0, y: result.height div 2 - 130,
+         w: result.captureClear, h: 260),
+    Room(name: "Blue Base", x: result.width - result.captureClear,
+         y: result.height div 2 - 130, w: result.captureClear, h: 260),
   ]
   result.validateMap()
 
@@ -1862,6 +2226,12 @@ proc loadCtfMapMetadata*(path = ""): CtfMap =
   case name
   of ArenaName: arenaCtfMap()
   of ArenaLargeName: arenaLargeCtfMap()
+  of RustName: rustCtfMap()
+  of TerminalName: terminalCtfMap()
+  of HighriseName: highriseCtfMap()
+  of FavelaName: favelaCtfMap()
+  of AfghanName: afghanCtfMap()
+  of ScrapyardName: scrapyardCtfMap()
   else:
     raise newException(CtfError, "Unknown map: " & name)
 
@@ -3007,6 +3377,12 @@ proc update*(config: var GameConfig, jsonText: string) =
   node.readConfigBool("fastMode", config.fastMode)
   node.readConfigString("map", config.mapPath)
   node.readConfigString("mapPath", config.mapPath)
+  ## "mw2" is a rotation alias, not a map: resolve it to a concrete pack map
+  ## keyed by the episode seed (read above) so each fresh league process —
+  ## one per episode, distinct seeds — lands on a rotating map, and the
+  ## replay header records the resolved name.
+  if config.mapPath == "mw2":
+    config.mapPath = Mw2Rotation[abs(config.seed) mod Mw2Rotation.len]
   ## The gun range follows the selected map unless the config sets it
   ## explicitly: each map def carries its own map-wide default.
   if not node.hasKey("gunRange"):

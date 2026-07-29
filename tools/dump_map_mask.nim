@@ -2,7 +2,8 @@
 ## iterating on the obstacle layout. Stone = dark brown, glass windows =
 ## cyan, floor = warm tan.
 ## Usage: nim c -r tools/dump_map_mask.nim out.png [mapName]
-## (mapName: "arena" default, or "arena-large".)
+## (mapName: "arena" default, "arena-large", or the MW2 pack: rust,
+## terminal, highrise, favela, afghan, scrapyard.)
 ## Demo/audit tooling; not part of the server.
 import std/os, pixie, ../src/ctf/sim
 

@@ -26,6 +26,7 @@ import
   test_shot_exposure,
   test_extract_events,
   test_windows,
+  test_mw2_maps,
   test_agent_skins,
   test_sprite_collisions,
   test_label_contract,
