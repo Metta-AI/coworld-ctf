@@ -2074,13 +2074,31 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
        front = min(front, HoldFrontCap)
      case pd
      of pdScout:
-       let scHasShield = bot.hp > MaxHp
+       when defined(scoutPadMemory):
+         # The shield errand's precondition was known-false two ways: it
+         # walked to a pad its own pickup memory (shieldAbsentAt) had seen
+         # empty, and it re-fetched for a spent layer even though the
+         # life-scoped shield marker already bars the gun until death. One
+         # gate fixes both: only path to a spot believed stocked
+         # (pickupAvailable, like every other errand), and only for a first
+         # pickup this life (the marker, not the layer).
+         let scFetch = not hasShield
+       else:
+         let scHasShield = bot.hp > MaxHp
+         let scFetch = not scHasShield
        var shieldSpot = vec(-1.0, -1.0)
-       if not scHasShield:
-         for sp in bot.shieldPos:
-           if dirX * (sp.x - float(CenterX)) < 0.0:  # our own back column
-             shieldSpot = sp
-             break
+       if scFetch:
+         when defined(scoutPadMemory):
+           for i in 0 ..< bot.shieldPos.len:
+             if dirX * (bot.shieldPos[i].x - float(CenterX)) < 0.0 and
+                 pickupAvailable(bot.shieldAbsentAt, i, bot.tick):
+               shieldSpot = bot.shieldPos[i]  # our own back column, believed stocked
+               break
+         else:
+           for sp in bot.shieldPos:
+             if dirX * (sp.x - float(CenterX)) < 0.0:  # our own back column
+               shieldSpot = sp
+               break
        # HOME-PAD RACE DECONFLICT (-d:padDefer): at the whistle this trip
        # and MidTop's home kit-up (the shield-then-steal block below) race
        # for the SINGLE home pad; on Red the scout/flank win the photo
@@ -2088,12 +2106,15 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
        # 0/30 — the walkable field is not mirror-symmetric). The pad is
        # worth more on the stealer: defer the scout's trip past the
        # opening window; it still takes the 720t-respawned pad afterwards.
+       # Composes with -d:scoutPadMemory (padport): padDefer owns the
+       # STOCKED-pad opening race (gameTick < PadRaceDeferTicks), the
+       # believed-stock gate owns ALREADY-EMPTY-pad parking afterwards.
        let padRaceDefer =
          when defined(padDefer):
            gameTick < PadRaceDeferTicks
          else:
            false
-       if not scHasShield and shieldSpot.x >= 0.0 and gameTick < 2200 and
+       if scFetch and shieldSpot.x >= 0.0 and gameTick < 2200 and
            not padRaceDefer:
          target = shieldSpot
        else:
@@ -2111,7 +2132,25 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
                LaneBottom - 40.0 - (LaneBottom - 40.0 - LaneMid) * (ph / 200.0)
              else:
                LaneMid + (LaneBottom - 40.0 - LaneMid) * ((ph - 200.0) / 200.0))
-         target = vec(ownEdgeX + dirX * (front + 130.0), py)
+         var scDepth = front + 130.0
+         when defined(scoutPadSafe):
+           # Decoded 2026-07-28 (worker-b redside leg): the ticks the
+           # scoutPadMemory gate frees from the empty-pad camp die at the
+           # +130 post — it is the most forward body on the team, parked in
+           # the modal enemy band (hazard 4.4x the castle line), unshielded
+           # and engaging. On exactly the ticks control would have spent
+           # camping (unshielded, a back-column pad remembered but believed
+           # empty, before the errand deadline), hold the trailing lane-pair
+           # depth instead. Same weave; every other tick unchanged.
+           if scFetch and gameTick < 2200 and shieldSpot.x < 0.0:
+             var padRemembered = false
+             for sp in bot.shieldPos:
+               if dirX * (sp.x - float(CenterX)) < 0.0:
+                 padRemembered = true
+                 break
+             if padRemembered:
+               scDepth = front - 44.0
+         target = vec(ownEdgeX + dirX * scDepth, py)
      of pdFloat:
        if bot.helpUntil > bot.tick:
          target = bot.snapToCover(vec(ownEdgeX + dirX * (front - 60.0),
