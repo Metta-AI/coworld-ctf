@@ -2990,7 +2990,21 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
             " shots=", bot.ckShots, " hp=", bot.ckVictimHp,
             " since=", bot.ckShots - bot.ckVictimHpShots
           flushFile(stdout)
-      elif fresh < 0 and bot.tick - bot.ckFireStart > CkExecTtl:
+      elif fresh < 0 and bot.tick - bot.ckFireStart > CkExecTtl and
+          bot.tick - bot.ckVictimSeen >= CkGoneTicks:
+        # THE GIVE-UP MAY NOT PRE-EMPT A PENDING CONFIRMATION. The TTL is
+        # measured from ckFireStart but the confirm is measured from the last
+        # sighting, so without this conjunct there is, for ANY finite CkExecTtl,
+        # a band of kills whose confirm window straddles the threshold: measured
+        # at 96 a charge fired ONE tick before the real kill, and at 140 a charge
+        # fired SEVEN ticks before one, with the carrier's own victim dead 7.8 px
+        # from the fix. Requiring the disappearance window to have fully elapsed
+        # hands the latch above its full CkGoneTicks before the attempt can be
+        # abandoned; if the latch still refuses (hp ineligible, not enough shots
+        # since the reading, too far, blocked ray) this branch fires and charges
+        # as before. The execution stays bounded — expiry lands at most
+        # CkGoneTicks late — and while the victim is FRESH this branch never
+        # fired anyway, so every other case is unchanged.
         bot.ckFiring = false             # lost the victim: re-select
         if bot.ckShots > 0:
           # Shots went out and we cannot tell whether they killed. Charge the
