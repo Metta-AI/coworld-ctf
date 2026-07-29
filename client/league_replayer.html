@@ -81,6 +81,10 @@
     text-shadow:0 calc(2*var(--u)) 0 var(--ink), 0 0 calc(10*var(--u)) rgba(0,0,0,.7); font-variant-numeric:tabular-nums}
   .clock .caption{font-family:var(--finefont); font-size:calc(9*var(--u)); letter-spacing:.18em;
     text-transform:uppercase; color:var(--paper-dim); white-space:nowrap; text-shadow:0 calc(1*var(--u)) 0 #000}
+  /* persistent map name under the clock caption — quiet typography only, one
+     shade dimmer; collapses when empty (default arena / old replays). */
+  .clock .map-label{color:var(--ghost)}
+  .clock .map-label:empty{display:none}
   .clock.tiebreak-warn .time{color:var(--amber)}
   .ffwd-mini{display:none; position:absolute; left:calc(100% + 5*var(--u)); top:calc(6*var(--u));
     font-family:var(--pixfont); font-size:calc(13*var(--u)); color:var(--amber);
@@ -272,6 +276,9 @@
       <div class="time" id="clock-time">0:00</div>
       <span class="ffwd-mini" id="ffwd-mini">▸▸</span>
       <div class="caption" id="clock-caption">Warming up</div>
+      <!-- persistent map name ("RUST") for mid-game joiners; empty (and
+           hidden) on the default arena and on replays without a map field -->
+      <div class="caption map-label" id="map-label"></div>
     </div>
     <div class="wallname blue" id="name-blue">BLUE</div>
   </div>
@@ -648,6 +655,30 @@
     }
   }
 
+  // ---- map identity (named MW2-flavored maps) -------------------------------
+  // Mirrors replay_broadcast.html: the frame's `map` field carries the replay's
+  // mapPath. Display literals only; default "arena" (predates map naming),
+  // unknown, or absent values show nothing so old replays render unchanged.
+  // The intro banner chip rides the embedded board's own banner lane (visible
+  // in embed mode) — the shell shows just the quiet persistent label.
+  var MAP_NAMES = {
+    'rust': 'RUST',
+    'terminal': 'TERMINAL',
+    'highrise': 'HIGHRISE',
+    'favela': 'FAVELA',
+    'afghan': 'AFGHAN',
+    'scrapyard': 'SCRAPYARD',
+    'arena-large': 'ARENA XL'
+  };
+  function renderMapLabel(s){
+    // Own-property lookup only: an arbitrary string must never reach up the
+    // prototype chain ("constructor" etc.) and render as junk.
+    var label = (s && typeof s.map === 'string' &&
+      Object.prototype.hasOwnProperty.call(MAP_NAMES, s.map)) ? MAP_NAMES[s.map] : '';
+    var el = $('map-label');
+    if (el && el.textContent !== label) el.textContent = label;
+  }
+
   // ---- KDA plaques (league-specific) ---------------------------------------
   // Rows are built as PERSISTENT DOM keyed by seat slot and only re-created when
   // the roster set changes; every other frame updates text/classes IN PLACE. The
@@ -921,6 +952,7 @@
 
     renderScorebug(s);
     renderClock(s);
+    renderMapLabel(s);
     renderTransport(s);
 
     // KDA rosters (league-specific); team name/lives ride the header above them
