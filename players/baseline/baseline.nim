@@ -216,6 +216,12 @@ const
                               # castle line near our wall: fights there recur on
                               # ground where our respawn walk is ~100px and the
                               # attacker re-crosses ~400px of watched open ground
+  FrontPicketX = 450.0        # -d:frontPicket: FIXED phalanx front (base==cap,
+                              # no creep) from tick 0 — the opening midline
+                              # picket vs the alphashot:v67 8-seat rush (task
+                              # 1216992420760034). Team-mean depth ~190px
+                              # behind midline (lead rank 157-165, trail
+                              # 213-229 after cover snap; h050 measured -157).
 
   CoverShieldDist = 42.0      # an obstacle this close blocks a threat direction
   PeekLineDist = 150.0        # floor for an overwatch peek firing line; post
@@ -2015,6 +2021,19 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
        # front at a prepared line inside our half and make them cross open
        # ground to reach it. Conversion still comes from the late push.
        front = min(front, HoldFrontCap)
+     when defined(frontPicket):
+       # Opening-window forward front (task 1216992420760034): stand the six
+       # lane seats on a FIXED forward line from tick 0 so the v67 8-seat rush
+       # cannot assemble unopposed (h050 holds 5.54 bodies in the 250px
+       # own-side midline band @gt500 vs our 0.08; the >=6-simultaneous
+       # assembly predicate fires 24/24 vs our castle, 4/24 vs h050's picket).
+       # Fixed, not windowed: base==cap means the contact freeze latches
+       # phalanxHold at this same value and can never claw the line back —
+       # the windowed variant is freeze-trapped by a pre-window contact latch.
+       # PRECEDENCE NOTE: if a lastLifeBank-style lives==1 front override
+       # (ctf-exp:v101 pdMidA front->130) is ever co-present, that override
+       # takes precedence over this picket — apply it AFTER this assignment.
+       front = FrontPicketX
      case pd
      of pdScout:
        let scHasShield = bot.hp > MaxHp
@@ -2041,7 +2060,17 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
                LaneBottom - 40.0 - (LaneBottom - 40.0 - LaneMid) * (ph / 200.0)
              else:
                LaneMid + (LaneBottom - 40.0 - LaneMid) * ((ph - 200.0) / 200.0))
-         target = vec(ownEdgeX + dirX * (front + 130.0), py)
+         when defined(frontPicket):
+           # The scout does NOT move with the picket: front+130 at 450 would
+           # station it raw (this branch never snapToCover's) at x=580, 37px
+           # off the midline — the REFUTED forward-patrol regime (scoutpad-v52:
+           # first scout death gt1287->641, all three lives burned 21/48->40/48).
+           # Freeze the castle-era station: the control front law + 130.
+           let scoutFront = min(min(180.0 + 0.11 * float(gameTick),
+             float(MapW) - 300.0), HoldFrontCap)
+           target = vec(ownEdgeX + dirX * (scoutFront + 130.0), py)
+         else:
+           target = vec(ownEdgeX + dirX * (front + 130.0), py)
      of pdFloat:
        if bot.helpUntil > bot.tick:
          target = bot.snapToCover(vec(ownEdgeX + dirX * (front - 60.0),
