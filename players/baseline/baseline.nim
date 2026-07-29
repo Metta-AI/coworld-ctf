@@ -358,6 +358,8 @@ type
     helpUntil: int            # tick the help retasking expires
     lastEShout: int           # scout sighting-broadcast rate limit
     lastHShout: int           # help-call rate limit
+    when defined(plasmaAmbush):
+      ambushIdx: int          # -d:plasmaAmbush: sticky station choice, -1 none
 
 proc roleForSeat(seat: int, team: Team): Role =
   ## Deterministic role spread over the 8 per-team seats. Seats 2 and 3 both
@@ -665,6 +667,36 @@ proc openLineLen(client: ProtocolClient, a, dir: Vec, maxLen, step: float): floa
 proc homeSign(team: Team): float =
   ## -1 toward Red's home edge (left), +1 toward Blue's (right).
   if team == Red: -1.0 else: 1.0
+
+when defined(plasmaAmbush):
+  const
+    AmbushStationFracs = [
+      (0.2421, 0.5918),   # S1 E face of the enemy outer column, mouth y359-394
+      (0.2421, 0.4143),   # S2 E face enemy outer column, mouth y264-299
+      (0.4211, 0.5918),   # S3 E face of the enemy-side chevron band, y383-414
+      (0.4842, 0.6707),   # S4 enemy-side ring-flank band, ring bottom y437-471
+      (0.6842, 0.8088)    # S5 own-side lower ring-flank mouth, y525-568
+    ]
+      ## -d:plasmaAmbush: the five cone-ambush stations, as MAP-PROPORTIONAL
+      ## fractions in the BLUE frame (census artifact
+      ## analysis/2026-07-29-plasma-ambush-gates/). Fractions, never pixels:
+      ## the bot plays several map sizes and the champion already carries one
+      ## hardcoded-pixel scar (chokeSpot).
+    AmbushSwitchGain = 150.0  # px a rival station must beat the held one by
+    AmbushAtStation = 10.0    # inside this we are ON station: stop and watch
+    AmbushWedgeMin = 2        # enemies inside cone reach = commit to the 1-for-2
+    AmbushHoldReach = PlasmaReach * 1.5
+                              # enemies this close keep us on station even
+                              # when none is engageable yet
+
+  proc ambushStation(team: Team, idx: int): Vec =
+    ## Station idx in OUR frame: fractions are stored blue-side, so Red mirrors
+    ## the x axis about the map's vertical center line.
+    let
+      f = AmbushStationFracs[clamp(idx, 0, AmbushStationFracs.len - 1)]
+      px = f[0] * float(MapW)
+      py = f[1] * float(MapH)
+    if team == Blue: vec(px, py) else: vec(float(MapW - 1) - px, py)
 
 proc homeDeepX(team: Team): float =
   ## A point well inside our capture zone, mirrored across the map's
@@ -1185,6 +1217,8 @@ proc resetTransient(bot: Bot) =
   bot.wasMateCarry = false
   bot.tripping = false
   bot.carrierSeen = -100_000
+  when defined(plasmaAmbush):
+    bot.ambushIdx = -1                     # no station held without a cone
   bot.lastEnemySeen = bot.tick
   bot.gameStart = bot.tick
   bot.firedLast = false
@@ -2476,6 +2510,35 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         target = bot.plasmaPos[i]
         objMode = "plasma_grab"
         break
+  when defined(plasmaAmbush):
+    # PLASMA AMBUSH: a cone is a 3 hp instant kill inside 4 squares and worth
+    # nothing outside it, so a holder that walks its cone down an open lane
+    # trades a lethal weapon for a gunfight it cannot win. Park it instead on a
+    # censused lane mouth the enemy must walk through — 2+ bodies stand inside
+    # one cone in 78% of the wedge windows, so the holder buys a 1-for-2 by
+    # standing still. Carry/escort/thief/pocket errands outrank this; the heal
+    # and grenade detours below still override it (short detours stay allowed).
+    if not hasPlasma:
+      bot.ambushIdx = -1
+    elif not iCarry and not pocketRush and
+        objMode in ["attack", "defend", "overwatch"]:
+      var
+        best = -1
+        bestD = 1e18
+        curD = 1e18
+      for i in 0 ..< AmbushStationFracs.len:
+        let d = dist(me, ambushStation(bot.team, i))
+        if i == bot.ambushIdx:
+          curD = d
+        if d < bestD:
+          bestD = d
+          best = i
+      # Stickiness: churning between two comparable mouths spends the whole
+      # game walking. Only a station a clear AmbushSwitchGain closer wins.
+      if bot.ambushIdx < 0 or bestD < curD - AmbushSwitchGain:
+        bot.ambushIdx = best
+      target = ambushStation(bot.team, bot.ambushIdx)
+      objMode = "ambush_station"
   # Med kit heal detour (hurt bots only; the carrier handles its own detour
   # in the carry branch). Wounded: a short opportunistic detour. Critical
   # (1 hp): a heal outranks the current errand at much longer reach — a
@@ -2562,6 +2625,25 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           nadeDangerFrom = p
           break nadeDangerScan
 
+  when defined(plasmaAmbush):
+    # Wedge count: bodies already inside cone reach. Two of them is the whole
+    # point of the doctrine — from there the holder is COMMITTED and stops
+    # protecting itself (a 1-for-2 that dodges is a 0-for-0).
+    var
+      wedgeCount = 0
+      ambushCommit = false
+      ambushNear = -1
+    if hasPlasma:
+      var nearD = AmbushHoldReach
+      for i in 0 ..< seenEnemies.len:
+        let d = dist(seenEnemies[i].pos, me)
+        if d <= PlasmaReach:
+          inc wedgeCount
+        if d <= nearD:
+          nearD = d
+          ambushNear = i
+      ambushCommit = wedgeCount >= AmbushWedgeMin
+
   # Turret + locomotion, decided together but on separate buttons: moveMask
   # is the d-pad, desiredAim feeds the rotate buttons, wantFire pulls A.
   var
@@ -2606,7 +2688,21 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       wantFire = true
       holdStill = true
     else:
-      moveMask = octantBits(aim - me)    # charge in
+      when defined(plasmaAmbush):
+        # An ambusher NEVER charges: the target is out of reach, so closing
+        # means crossing his firing line to bring a knife. Hold the mouth (or
+        # finish walking to it) with the cone laid on him and let him come.
+        if objMode == "ambush_station":
+          let st = ambushStation(bot.team, bot.ambushIdx)
+          actMode = "plasma_hold"
+          if dist(me, st) <= AmbushAtStation:
+            holdStill = true
+          else:
+            moveMask = octantBits(st - me)
+        else:
+          moveMask = octantBits(aim - me)  # charge in
+      else:
+        moveMask = octantBits(aim - me)    # charge in
     acted = true
   elif engage >= 0 and shotReady:
     actMode = "fire"
@@ -2645,6 +2741,34 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       actMode = "peek"
       moveMask = octantBits(cellCenter(peek) - me)
       acted = true
+
+  when defined(plasmaAmbush):
+    # Hold the station. With no engageable target the stock chain would duck to
+    # cover, peek for a firing line, evade a facing enemy or drift on the nav
+    # steer — every one of those walks the cone off the mouth just as the wedge
+    # arrives. Claiming the act here (and preempting duck/peek) is what makes
+    # the ambush an ambush; holdStill also keeps the stuck-jink from firing.
+    if hasPlasma and objMode == "ambush_station" and
+        (not acted or actMode == "duck" or actMode == "peek"):
+      let
+        st = ambushStation(bot.team, bot.ambushIdx)
+        atStation = dist(me, st) <= AmbushAtStation
+      if ambushNear >= 0:
+        actMode = "plasma_hold"
+        desiredAim = bradsOf(seenEnemies[ambushNear].pos - me)
+        if atStation:
+          holdStill = true
+        else:
+          moveMask = octantBits(st - me)
+        acted = true
+      elif atStation:
+        # Watch posture: nobody in sight, so the cone faces the way they come
+        # (their half of the map) and the sloppy deadband keeps the turret quiet.
+        actMode = "plasma_hold"
+        desiredAim = bradsOf(vec(-homeSign(bot.team), 0.0))
+        deadband = CruiseDeadband
+        holdStill = true
+        acted = true
 
   if not acted:
     # Threat jink: sidestep a visible enemy that is aiming our way while our
@@ -2773,7 +2897,9 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     moveMask = bot.jinkBits
     jinked = true
 
-  if nadeDanger:
+  # A COMMITTED ambusher eats the blast: two bodies are already inside the cone,
+  # so the trade is on and sidestepping the grenade forfeits it.
+  if nadeDanger and not (when defined(plasmaAmbush): ambushCommit else: false):
     # Sprint straight out of the marked blast zone; drop any hold/duck.
     actMode = "nade_flee"
     let away = me - nadeDangerFrom
