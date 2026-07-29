@@ -356,6 +356,9 @@ type
     helpUntil: int            # tick the help retasking expires
     lastEShout: int           # scout sighting-broadcast rate limit
     lastHShout: int           # help-call rate limit
+    killIdT: seq[int]         # -d:killLedger: witnessed enemy-death ids —
+    killIdX: seq[int]         #   estimated death tick + death-spot x (paired)
+    killShoutQ: seq[string]   #   pending K-shouts, one per NEW own-eyes id
 
 proc roleForSeat(seat: int, team: Team): Role =
   ## Deterministic role spread over the 8 per-team seats. Seats 2 and 3 both
@@ -1162,6 +1165,10 @@ proc resetTransient(bot: Bot) =
   bot.jinkUntil = 0
   bot.behindLines = false
   bot.navGoal = -1
+  when defined(killLedger):
+    bot.killIdT.setLen(0)                # the ledger is per-game attrition
+    bot.killIdX.setLen(0)
+    bot.killShoutQ.setLen(0)
 
 proc scanAim(bot: Bot, watch: Vec): int =
   ## The scan-sweep aim while holding a position: rake the vision cone back
@@ -1252,6 +1259,24 @@ proc friendlyBlocked(bot: Bot, me, aim: Vec, enemyDist: float): bool =
     if abs(cross(rel, dir)) < CorridorHalfWidth + age * 0.35:
       return true
   false
+
+when defined(killLedger):
+  proc ledgerAdd(bot: Bot, t, x: int): bool =
+    ## Insert a witnessed-kill id into the ledger unless a neighbor already
+    ## covers it. Ids are (estimated death tick, death-spot x); the same kill
+    ## re-observed (a later marker stage, the KO pop vs the splatter, another
+    ## frame, or a mate's quantized K-shout) always lands within the +-48
+    ## tick / +-16 px neighborhood, so neighborhood-dedup can only MERGE,
+    ## never double-count. Two distinct kills inside one neighborhood merge
+    ## too — an undercount, which is the safe direction: the ledger must
+    ## never OVERCOUNT (a consumer trigger keyed on it must fire late,
+    ## never early).
+    for i in 0 ..< bot.killIdT.len:
+      if abs(bot.killIdT[i] - t) <= 48 and abs(bot.killIdX[i] - x) <= 16:
+        return false
+    bot.killIdT.add t
+    bot.killIdX.add x
+    true
 
 proc decide(bot: Bot, client: ProtocolClient): uint8 =
   ## Core CTF policy for one frame.
@@ -1408,6 +1433,68 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     if corpses > bot.corpseCount and bot.firedLast:
       bot.killMoodUntil = bot.tick + 72
     bot.corpseCount = corpses
+
+  when defined(killLedger):
+    # Witnessed-kill ledger: every death drops two fog-honest markers in the
+    # VICTIM's color at the death spot — "damage pop <color> KO stage <s>"
+    # (44 ticks, 4 stages) and "splatter <color> stage <s>" (120 ticks,
+    # 4 stages) — that no consumer reads today. Count DISTINCT enemy ones
+    # (id = estimated death tick from the stage's age quartile + spot x;
+    # ledgerAdd merges neighbors) and relay each NEW own-eyes id to mates as
+    # a K-shout ("K<t8> <x8>", quantized div 8, fits the 10-char budget).
+    # Heard K-shouts from mates feed the same dedup'd set; a heard id is
+    # NEVER re-shouted (an echo would relay around the map forever). The
+    # set size is the team's running enemy-attrition estimate; this build
+    # only counts and logs it (kill_ledger telemetry events) — no behavior
+    # reads it yet.
+    for o in client.spriteObjects():
+      var est = -1
+      var srcTag = ""
+      if o.label.startsWith("damage pop " & enemyColor & " KO"):
+        srcTag = "ko"
+      elif o.label.startsWith("splatter " & enemyColor & " "):
+        srcTag = "sp"
+      if srcTag.len > 0:
+        let sp = o.label.rfind(" stage ")
+        if sp > 0:
+          var stage = -1
+          try:
+            stage = parseInt(o.label[sp + 7 .. ^1])
+          except ValueError:
+            discard
+          if stage in 0 .. 3:
+            # Marker age is stage quartiles of its life; estimate the death
+            # tick at mid-quartile (KO: 11-tick quartiles, splatter: 30).
+            est = bot.tick - (if srcTag == "ko": stage * 11 + 5
+                              else: stage * 30 + 15)
+        if est >= 0:
+          # Screen-to-map like the shout-origin fix above: the marker sprite
+          # is centered on the death spot.
+          let kx = o.x + o.width div 2 + client.mapCameraX
+          if bot.ledgerAdd(est, kx):
+            if bot.killShoutQ.len < 6:
+              bot.killShoutQ.add "K" & $(est div 8) & " " & $(kx div 8)
+            artEvent(bot.tick, "kill_ledger", %*{"src": srcTag, "kt": est,
+              "kx": kx, "n": bot.killIdT.len})
+      elif o.label.startsWith(myColor & " shout "):
+        let sep = o.label.rfind(": ")
+        if sep > 0:
+          let text = o.label[sep + 2 .. ^1]
+          if text.len >= 4 and text[0] == 'K':
+            let parts = text[1 .. ^1].split(' ')
+            if parts.len == 2:
+              var kt, kx: int
+              var ok = true
+              try:
+                kt = parseInt(parts[0])
+                kx = parseInt(parts[1])
+              except ValueError:
+                ok = false
+              # Own bubble echoes back as a team shout: ledgerAdd dedups it
+              # (the id is already ours), so no address check is needed.
+              if ok and bot.ledgerAdd(kt * 8, kx * 8 + 4):
+                artEvent(bot.tick, "kill_ledger", %*{"src": "heard",
+                  "kt": kt * 8, "kx": kx * 8 + 4, "n": bot.killIdT.len})
 
   when defined(shoutCoord):
     # Shout intel (0.7.5): teammates broadcast quantized fixes as 10-char
@@ -1694,6 +1781,17 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
               $(int(t.pos.y) div 8)
             bot.lastEShout = bot.tick
             break
+  when defined(killLedger):
+    # K-shouts spend only LEFTOVER budget: below every gameplay shout
+    # (C/T/G/siege/E/H) so nothing is displaced, above taunts and peace
+    # lines. The carrier never spends its slot here — its 1/s budget is the
+    # C heartbeat. Volume is naturally low (one shout per NEW witnessed
+    # kill, ~21 enemy deaths a game spread over 8 witnesses).
+    if bot.shoutWant.len == 0 and not iCarry and
+        bot.tick - bot.lastShoutTick >= 26 and bot.killShoutQ.len > 0:
+      bot.shoutWant = bot.killShoutQ[0]
+      bot.killShoutQ.delete(0)
+      bot.lastShoutTick = bot.tick
   when defined(taunt):
     # Taunts spend only LEFTOVER shout budget: never while carrying and never
     # over a gameplay shout (the carrier heartbeat always wins the 1/s slot).
