@@ -73,7 +73,7 @@
 ## a short windup), so we stop rotating on the tick we pull.
 
 import
-  std/[algorithm, heapqueue, math, os, random, strutils],
+  std/[algorithm, heapqueue, math, net, os, random, strutils],
   bitworld/spriteprotocol,
   whisky,
   baseline/protocols,
@@ -1502,6 +1502,12 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           continue
       if text.len < 4 or text[0] notin {'C', 'T', 'E', 'G'}:
         continue
+      when not defined(nadeRelay):
+        # No G handler is compiled in: drop G shouts here so they cannot fall
+        # through into the thief-fix else-branch below (an ally policy speaking
+        # our vocabulary would yank the team's flag hunt to a grenade corner).
+        if text[0] == 'G':
+          continue
       let parts = text[1 .. ^1].split(' ')
       if parts.len != 2:
         continue
@@ -1510,6 +1516,11 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         cx = parseInt(parts[0])
         cy = parseInt(parts[1])
       except ValueError:
+        continue
+      # Clamp to the map: parseInt accepts a sign, so a malformed/hostile shout
+      # can otherwise inject a phantom sighting at any coordinate (negative x
+      # passes the onOurHalf test and drags the home defender off the map).
+      if cx notin 0 .. (MapW div 8) or cy notin 0 .. (MapH div 8):
         continue
       let p = vec(float(cx * 8 + 4), float(cy * 8 + 4))
       when defined(nadeRelay):
@@ -2852,6 +2863,10 @@ proc runBot(url: string) =
   while true:
     try:
       let ws = newWebSocket(endpoint)
+      # TCP_NODELAY lives at IPPROTO_TCP, not the default SOL_SOCKET (where
+      # optname 1 is SO_DEBUG: EACCES without CAP_NET_ADMIN, and a silent
+      # no-op for Nagle even when privileged).
+      ws.socket.setSockOpt(OptNoDelay, true, level = IPPROTO_TCP.cint)
       echo "connected ", endpoint
       everConnected = true
       client.reset()
