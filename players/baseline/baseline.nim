@@ -1467,7 +1467,16 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         continue
       bot.koClPos.add p
       bot.koClFirst.add bot.tick
-      let qt = bot.tick div 8
+      # GAME-relative tick, NOT bot.tick: each seat's frame counter starts
+      # at ITS OWN connect, and platform seats connect with median ~193
+      # (p90 ~9000) ticks of spread — connect-relative ids never merge
+      # across seats, every relay hop mints a phantom, and the ledger
+      # OVERCOUNTS (wave-1 decode: mean +3.67, max +22, trigger edges at
+      # true enemy stock median 8). gameStart anchors all seats to the
+      # same lobby->playing transition, restoring the shared clock the
+      # dedup tolerance was designed around. (Local smokes cannot see
+      # this defect: locally launched bots connect within a tick.)
+      let qt = (bot.tick - bot.gameStart) div 8
       let qx = int(p.x) div 8
       var dup = false
       for i in 0 ..< bot.koIdT.len:
