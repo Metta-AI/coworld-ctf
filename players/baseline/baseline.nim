@@ -2764,6 +2764,16 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         if d < bestD and client.pixelRayClear(me, bot.mates[i].pos):
           bestD = d
           best = i
+      when defined(ckDebug):
+        if bot.tick mod 12 == 0:
+          var nearestMate = 1e9
+          for t in bot.mates:
+            if bot.tick - t.lastSeen <= 4:
+              nearestMate = min(nearestMate, dist(t.pos, me))
+          echo "CK gate t=", bot.tick, " slot=", bot.slot, " rem=", ckRemaining,
+            " engage=", engage, " nearestFreshMate=", int(nearestMate),
+            " pick=", best, " mates=", bot.mates.len
+          flushFile(stdout)
       if best >= 0:
         if not bot.ckFiring:
           bot.ckFireStart = bot.tick
