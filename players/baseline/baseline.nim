@@ -186,6 +186,22 @@ when defined(meprobe):
   var meSafe = 0       # ...and cleared the contact rule (out of contact or light-break)
   var meFireCount = 0  # ...and a known kit sits within MedKitEconDetour => fired
 
+when defined(ndprobe):
+  # -d:ndprobe ONLY (2026-07-29): instrument the GRENADE PICKUP gate as a funnel.
+  # The field out-throws us 3.4:1 on hosted GV23 replays and the funnel's own
+  # measurement puts the whole collapse at stage 1 (picked 50 vs 170) while our
+  # downstream quality is BETTER than theirs — so the question is precisely
+  # "why does the pickup detour not fire?", and ndVisible vs ndStaticInReach
+  # separates a perception loss from a genuine no-corner-nearby.
+  # Never compiled into the shipped player.
+  var ndFree = 0           # decide frames free to collect (not carrying/escorting)
+  var ndVisible = 0        # ...and a grenade pickup sprite was VISIBLE at all
+  var ndStaticInReach = 0  # ...and a corner was within NadePickupDetour by STATIC coords
+  var ndFireCount = 0      # ...and the FOG-VISIBLE detour fired (target = pickup)
+  var ndEconFire = 0       # ...and the nadeEcon STATIC-coord detour fired instead
+  var ndHeldFrames = 0     # frames a bot was actually CARRYING a grenade
+  var ndThrowRelease = 0   # charge releases = throws (the end of the funnel)
+
 when defined(scprobe):
   # -d:scprobe ONLY (v9): instrument the satCap redistribution as a FUNNEL so a
   # null A/B is diagnosable (pair-saturation never occurs in range vs occurs but
@@ -439,6 +455,23 @@ const
                               # exact line-cluster gap grenades exist to punish)
   NadeFullChargeTicks = 24    # ~1s of holding C reaches max range
   NadePickupDetour = 90.0     # grab a corner pickup within this detour range
+                              # (the fog-visible path; nadeEcon widens it below).
+  # --- nadeEcon (2026-07-29): the corners are a STATIC, renewable AMMO economy ---
+  # The four grenade spawns sit at fixed engine coords (sim.grenadeSpawnPoints:
+  # inset = ArenaBorder(10) + GrenadeSpawnInset(40) = 50 in from each edge), and a
+  # taken one refills in 5s — so a corner is ARMED 96% of the time (measured over
+  # 61 hosted episodes). The position needs NO fog read at all, exactly like the
+  # pedestals, the med kits, and the shield/arc spawns.
+  NadeEconDetour = 320.0      # nadeEcon: how far a FREE bot will divert to a known
+                              # corner. Sized off the measured distance histogram
+                              # (tools/nade_dist over 61 league episodes): at 320px
+                              # 34% of early and 14% of mid unarmed bot-frames are in
+                              # reach, vs 0.3%/0.1% at the shipped 90. 450 was
+                              # rejected — 63%/43% in reach pulls the squad off the
+                              # objective to fetch ammunition.
+  NadeOnSpotPx = 26.0         # "we are standing on the corner": if this close and no
+                              # grenade sprite is here it has been taken — a pickup in
+                              # our own bubble is never fogged, so absence is proof.
   # --- v7 sword/shield (GameVersion 7) ---
   DisarmAvoidRadius = 34.0    # avoidDisarm: steer this far around a sword/shield
                               # pickup we're NOT deliberately collecting (a body is
@@ -1472,6 +1505,43 @@ type
                               # Mirror-measurable for the same reason medTopOff was: it is a
                               # resource RACE, not a coordination lever, so self-play scores
                               # it (heals, deaths, K-D) — unlike comms.
+    nadeEcon: bool            # ⭐⭐ GRENADE ECONOMY (2026-07-29, from the live-league Elo
+                              # assessment: the field lands 24 grenade kills to our 9 over 20
+                              # real episodes, and 81% of our kill deficit books in ticks
+                              # 1000-3000 — the cover grind the lob is the specific answer to).
+                              # A 61-episode hosted funnel (tools/nade_funnel) shows the loop
+                              # collapses at exactly ONE stage and that every stage AFTER it is
+                              # already better than the field's:
+                              #   picked   50 vs 170  (3.4x — the whole gap lives here)
+                              #   thrown   39 vs 134  (same 3.4x: pick->throw is 78% BOTH sides)
+                              #   hit rate 64% vs 47% land->hit, 0.59 vs 0.35 kills/landing
+                              # So this is a SUPPLY problem, not an aim or timing problem: we
+                              # simply never go and get the ammunition. tools/nade_reach proves
+                              # it is not perception-at-the-spot either — inside the 90px detour
+                              # we convert 50/50 = 100% of approaches, they convert 84%. We just
+                              # approach 4x less often (0.82 vs 3.30 per episode).
+                              # nadeEcon is the medEcon fix applied to the corners, and changes
+                              # only how a FREE bot picks its walk:
+                              #   1. STATIC POSITION — the four corners are fixed engine coords
+                              #      (sim.grenadeSpawnPoints, inset 50 from each edge), so route
+                              #      to a remembered corner like a pedestal instead of requiring
+                              #      the sprite to be VISIBLE. The old fog gate is why this died:
+                              #      the corner sits far outside the 90px vision bubble, so the
+                              #      sprite is only ever seen once we are already on top of it
+                              #      (-d:ndprobe: sprite visible on 18.9% of free frames but a
+                              #      corner within the shipped detour on only 1.89%).
+                              #   2. WIDER DETOUR — NadeEconDetour(320) over NadePickupDetour(90),
+                              #      because the walk is now the only cost. Sized off the measured
+                              #      position histogram (tools/nade_dist), not a guess: 320px
+                              #      covers 34% of early and 14% of mid unarmed bot-frames, where
+                              #      90px covers 0.3%/0.1%. 450+ was rejected — it pulls half the
+                              #      squad off the objective.
+                              #   3. OWN-SIDE ONLY + free-bot only — take the two corners on OUR
+                              #      half (the safe resupply the flanker route already intends),
+                              #      never walk into the enemy half for ammunition.
+                              # Pure MOVEMENT lever (never touches the trigger), yields to every
+                              # real objective, and mirror-measurable for the same reason medEcon
+                              # was: a resource RACE, not coordination.
     satCap: bool              # ⭐ DISTRIBUTED FIRE (2026-07-20, backlog #2, FM 3-90
                               # fire-distribution): "destroy the greatest threat first,
                               # THEN distribute fires — avoid target overkill." Enough
@@ -1909,6 +1979,7 @@ proc defaultCombatTune(): CombatTune =
     swordAmbush: false,       # control: a boxed-in bot never grabs a sword for a melee kill.
     medTopOff: false,         # control: a wounded bot never detours to a center med kit.
     medEcon: false,           # control: no static-coord kit routing (fog-visible kits only).
+    nadeEcon: false,          # control: no static-coord corner routing (fog-visible nades only).
     satCap: false,            # control: a free gun dogpiles the nearest enemy, no saturation cap.
     noMask: false,            # control: a mover walks through a mate's live gun-line.
     assaultThrough: false,    # control: a surprise at knife range triggers the retreat/duck jink.
@@ -2671,6 +2742,20 @@ proc arcSpawn(team: Team): Vec =
   ## respawns 30s after a grab, so a fresh one is essentially always waiting here.
   let y = float(MapH div 4)
   if team == Red: vec(50, y) else: vec(float(MapW - 50), y)
+
+proc nadeCornerSpots(): array[4, Vec] =
+  ## The FOUR grenade corner spawns — STATIC engine coords, exactly like the
+  ## pedestals, the shield spawn, and the med kits (sim.grenadeSpawnPoints:
+  ## inset = ArenaBorder(10) + GrenadeSpawnInset(40) = 50 from each edge, two on
+  ## each team's side). Known knowledge, so a bot can ROUTE to one without ever
+  ## seeing its sprite — which matters because the pickup sits deep in a back
+  ## corner, far outside the 90px vision bubble and behind the spawn cone. This
+  ## is the same fix medEcon applied to the med kits and arcSpawn to the arc.
+  const
+    inset = 50.0
+    farX = float(MapW) - inset
+    farY = float(MapH) - inset
+  [vec(inset, inset), vec(inset, farY), vec(farX, inset), vec(farX, farY)]
 
 proc nearestOpenCell(bot: Bot, cell: int): int =
   ## The nearest walkable nav cell, searched in expanding rings.
@@ -4971,6 +5056,8 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     if dist(client.mapPos(o), me) <= 30.0:
       carryingNade = true
       break
+  when defined(ndprobe):
+    if carryingNade: inc ndHeldFrames
   # A line is live for us this frame if we classified one OR heard one called.
   let lineLive = localSc == ScLine or
     (bot.tune.commsPlay and bot.heardPlay == RpLine and
@@ -5015,11 +5102,15 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # Collect a pickup: anyone grabs one within a short detour, and the two
     # flankers own their lane's friendly-side corner spawn — it sits right on
     # their border route, so they arm up on the way out every respawn cycle.
+    when defined(ndprobe): inc ndFree
+    var ndSawSprite = false
+    var gotNade = false          # a VISIBLE pickup won; nadeEcon stands down
     for o in client.spriteObjectsWithLabel("grenade"):
       let p = client.mapPos(o)
       if p.x < 40.0 or p.y < 40.0 or p.x > float(MapW - 40) or
           p.y > float(MapH - 40):
         continue                     # HUD indicator shares the label
+      ndSawSprite = true
       let laneMatch =
         (bot.role == FlankTop and p.y < float(CenterY) and
          homeSign(bot.team) * (p.x - float(CenterX)) > 0) or
@@ -5029,8 +5120,89 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       if dist(p, me) <= reach:
         when defined(nadeDebug):
           echo "DETOUR to pickup at ", p.x, ",", p.y, " role ", bot.role
+        when defined(ndprobe): inc ndFireCount
+        gotNade = true
         target = p
         break
+    when defined(ndprobe):
+      if ndSawSprite: inc ndVisible
+      # How often is a corner within the SAME detour we allow, measured off the
+      # static engine coords instead of the fog read? The gap between this and
+      # ndVisible is exactly the perception loss.
+      for c in nadeCornerSpots():
+        if dist(c, me) <= NadePickupDetour:
+          inc ndStaticInReach
+          break
+
+    # ── ⭐⭐ nadeEcon: THE CORNERS ARE A STATIC, RENEWABLE AMMO ECONOMY (2026-07-29).
+    #
+    # The fog-visible scan above has the right doctrine but a gate that almost never
+    # opens: it needs the pickup SPRITE inside the 90px detour, and the corner sits
+    # deep in a back corner far outside the 90px vision bubble — so the sprite is
+    # only ever seen once we are already standing on it. Measured over 61 hosted
+    # league episodes: a corner is armed 96% of the time, yet we pick up 50 grenades
+    # to the field's 170 (3.4x), and every stage downstream of the pickup is already
+    # BETTER than theirs (64% vs 47% land->hit, 0.59 vs 0.35 kills/landing). Inside
+    # 90px we convert 100% of approaches — we just approach 4x less often. The ammo
+    # is there and free; we never walk to it.
+    #
+    # nadeEcon routes to the corners' STATIC coords instead (the medEcon fix, the
+    # arcSpawn fix, the ownShieldSpawn fix — the same class), widens the detour to
+    # NadeEconDetour, and restricts the walk to OUR OWN HALF so fetching ammunition
+    # never marches a bot into the enemy half. Movement only: it never touches the
+    # trigger, and it is the LAST word on `target` in this block only when the
+    # fog scan found nothing, so a visible pickup still wins.
+    if bot.tune.nadeEcon and not gotNade:
+      # Only a genuinely free bot fetches ammo. The enclosing `elif` already
+      # excluded a carrier, an escort of a mate carrier, and a pocket rush; add
+      # the stolen-flag defense (our own heart is out, so bodies go home, not to
+      # a corner). The shield/sword/arc and other-pickup exclusions cannot be
+      # tested here — those flags are computed BELOW this block — but they don't
+      # need to be: their own seek paths set `target` after us and therefore win.
+      # A wounded bot heals first: medEcon owns hp 1..<MaxHp and runs later, so
+      # requiring full hp here keeps the two economies from fighting over target.
+      # ROLE-RESTRICTED, and this is load-bearing. An unrestricted 320px ammo
+      # detour sends the whole squad corner-fetching at the opening: measured on
+      # the mirror, shots/episode collapsed 26 -> 1 and the game stopped happening.
+      # The shipped comment already names the right seats — "the two flankers own
+      # their lane's friendly-side corner spawn — it sits right on their border
+      # route" — so give the errand to them plus the back line (Overwatch and the
+      # HomeDefender already hold station on our own half, within a short walk of
+      # the same corners). The mid attack quad NEVER diverts: numbers on the
+      # objective are the currency, and four guns is the wave.
+      if not ownStolen and bot.ownHp >= MaxHp and
+          bot.role in {FlankTop, FlankBottom, Overwatch, HomeDefender}:
+        var bestNade = NadeEconDetour
+        var chosenNade: Vec
+        var haveNade = false
+        for spot in nadeCornerSpots():
+          # Own half only: fetching ammunition is a safe-side errand.
+          if homeSign(bot.team) * (spot.x - float(CenterX)) < 0.0:
+            continue
+          let d = dist(spot, me)
+          if d >= bestNade:
+            continue
+          if d <= NadeOnSpotPx:
+            # Standing on it: no sprite here means it has been taken. A pickup in
+            # our own bubble is never fogged, so absence is proof, not ignorance —
+            # give up rather than orbit an empty corner.
+            var present = false
+            for o in client.spriteObjectsWithLabel("grenade"):
+              let p = client.mapPos(o)
+              if p.x < 40.0 or p.y < 40.0 or p.x > float(MapW - 40) or
+                  p.y > float(MapH - 40):
+                continue                 # HUD indicator shares the label
+              if dist(p, spot) <= NadeOnSpotPx:
+                present = true
+                break
+            if not present:
+              continue
+          bestNade = d
+          chosenNade = spot
+          haveNade = true
+        if haveNade:
+          target = chosenNade
+          when defined(ndprobe): inc ndEconFire
 
   # ── SWORD / SHIELD / PLASMA-ARC pickups. The disarm object MOVED with the
   # engine: on GameVersion 15 the SWORD IS GONE (replaced by the plasma arc) and
@@ -5382,6 +5554,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         inc bot.nadeCharge
       else:
         bot.nadeCharge = 0           # release this tick = the throw
+        when defined(ndprobe): inc ndThrowRelease
     holdStill = true
     acted = true
   elif bot.tune.swordAmbush and iHaveSword and swordTarget >= 0:

@@ -77,6 +77,13 @@ proc newDriver(slot, team, episodeSeed: int): Driver =
   # games before any upload. Applies to BOTH teams (a mirror liveness check).
   if getEnv("GRABTIMING") == "1":
     tune.grabTiming = true
+  # NADEECON=1/0 flips the static-coord grenade-corner routing for BOTH teams (a
+  # mirror liveness check): it proves the ndprobe funnel opens and that the wider
+  # ammo detour has not turned the policy into a corner-orbiting draw machine.
+  if getEnv("NADEECON") == "1":
+    tune.nadeEcon = true
+  elif getEnv("NADEECON") == "0":
+    tune.nadeEcon = false
   result.bot = Bot(slot: slot, team: t, role: role, tune: tune)
   result.bot.resetTransient()
   result.client = initProtocolClient()
@@ -119,7 +126,7 @@ proc main() =
 
   var
     totRedGrab, totBlueGrab, totRedCap, totBlueCap: int
-    totRedShot, totBlueShot, totRedHit, totBlueHit: int
+    totRedShot, totBlueShot, totRedKill, totBlueKill: int
     redWins, blueWins, draws: int
   let numPlayers = 16
   for g in 0 ..< games:
@@ -142,7 +149,7 @@ proc main() =
     totRedGrab += r.redGrabs; totBlueGrab += r.blueGrabs
     totRedCap += r.redCaptures; totBlueCap += r.blueCaptures
     totRedShot += r.redShots; totBlueShot += r.blueShots
-    totRedHit += r.redHits; totBlueHit += r.blueHits
+    totRedKill += r.redKills; totBlueKill += r.blueKills
     if r.isDraw or r.winnerTeam < 0: inc draws
     elif r.winnerTeam == 0: inc redWins
     else: inc blueWins
@@ -156,13 +163,22 @@ proc main() =
     &"{totRedGrab/games:.1f}/{totBlueGrab/games:.1f})"
   echo &"CAPS  total  Red {totRedCap}  Blue {totBlueCap}  (per game " &
     &"{totRedCap/games:.2f}/{totBlueCap/games:.2f})"
-  let
-    redAcc = (if totRedShot > 0: 100.0 * totRedHit.float / totRedShot.float else: 0.0)
-    blueAcc = (if totBlueShot > 0: 100.0 * totBlueHit.float / totBlueShot.float else: 0.0)
   echo &"SHOTS total  Red {totRedShot}  Blue {totBlueShot}"
-  echo &"HITS  total  Red {totRedHit}  Blue {totBlueHit}"
-  echo &"ACCURACY     Red {redAcc:.1f}%  Blue {blueAcc:.1f}%  " &
-    &"(hits/shots — the wall-vs-body aim metric)"
+  echo &"KILLS total  Red {totRedKill}  Blue {totBlueKill}"
+  when defined(ndprobe):
+    echo "--- NADE PICKUP GATE FUNNEL (-d:ndprobe) ---"
+    echo &"ndFree          {ndFree}   (frames free to collect a grenade)"
+    echo &"ndVisible       {ndVisible}   (...a pickup sprite was VISIBLE: the fog read)"
+    echo &"ndStaticInReach {ndStaticInReach}   (...a corner within detour by STATIC coords)"
+    echo &"ndFireCount     {ndFireCount}   (...the FOG-visible detour FIRED)"
+    echo &"ndEconFire      {ndEconFire}   (...the nadeEcon STATIC detour FIRED)"
+    echo &"ndHeldFrames    {ndHeldFrames}   (frames actually CARRYING a grenade)"
+    echo &"ndThrowRelease  {ndThrowRelease}   (⭐ THROWS — the end of the funnel)"
+    let
+      visPct = (if ndFree > 0: 100.0 * ndVisible.float / ndFree.float else: 0.0)
+      staPct = (if ndFree > 0: 100.0 * ndStaticInReach.float / ndFree.float else: 0.0)
+    echo &"visible {visPct:.2f}% of free frames vs static-in-reach {staPct:.2f}%" &
+      "   <- the gap is the perception loss"
 
 when isMainModule:
   main()

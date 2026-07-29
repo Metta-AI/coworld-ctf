@@ -238,6 +238,10 @@ proc hunterTune(): CombatTune =
   result.pointOfDomination = envInt("DOMINATE", (if seal4 or result.pointOfDomination: 1 else: 0)) != 0
   result.tempoPress        = envInt("TEMPO",    (if seal4 or result.tempoPress: 1 else: 0)) != 0
   result.fireSuperiority   = envInt("FIRESUP",  (if seal4 or result.fireSuperiority: 1 else: 0)) != 0
+  # nadeEcon (2026-07-29): the static-coord grenade-corner routing. Defaults to its
+  # SHIPPED value so SHIPBASE=1 neither strips nor injects it — NADEECON=1 adds the
+  # lever to a candidate, NADEECON=0 strips it for an isolation run.
+  result.nadeEcon = envInt("NADEECON", (if result.nadeEcon: 1 else: 0)) != 0
 
 when defined(ohshitprobe):
   var ohshitTotal = 0
