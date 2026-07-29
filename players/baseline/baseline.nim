@@ -179,10 +179,21 @@ const
                               # radius is 12px (sim ShieldPickupRange), plus
                               # a body-width of walk jitter
   NadePadDodgePx = 40.0       # -d:nadePadDodge: the dogleg waypoint sits
-                              # this far toward midfield of the pad, level
-                              # with it; from there the leg to the corner
-                              # grenade clears the pad by ~38px, so the
-                              # steer self-releases once past
+                              # this far toward midfield of the pad; from
+                              # there the leg to the corner grenade clears
+                              # the pad, so the steer self-releases once past
+  NadePadDropPx = 66.0        # -d:nadePadDodge v4: the waypoint also sits
+                              # this far BELOW the pad row (toward the corner
+                              # grenade, 115px below), i.e. Red (90,560) /
+                              # Blue (1145,560) — 77px from the pad, 49px
+                              # above the grenade. A waypoint ON the pad row
+                              # (v1) parks the released bot AT pad latitude,
+                              # and the pathfinder's walked route to the
+                              # grenade then runs along the row past the pad
+                              # (v3 census: 33px straight-leg clearance but
+                              # 9.8px walked minimum). Off-row, the release
+                              # point is already south of the row and the
+                              # remaining route never re-approaches it.
   PickupRespawn = 30 * 24     # plasma arc/shield respawn timer (sim constant)
   MedKitCarrierBudget = 90.0  # extra path px a hurt CARRIER spends to heal:
                               # a full-heal carrier survives pocket exits
@@ -2583,10 +2594,11 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       # Steer the approach around the pad's 12px touch radius during the
       # opening window instead of cancelling the errand: while the straight
       # leg to the grenade passes within NadePadClearPx of the pad, aim at
-      # a waypoint level with the pad but NadePadDodgePx toward midfield —
-      # from there the leg to the grenade clears the pad and the steer
-      # releases itself. Costs ~10 path px; the grenade pickup timing is
-      # essentially unchanged.
+      # a waypoint NadePadDodgePx toward midfield and NadePadDropPx BELOW
+      # the pad row (off-row, part 3: a pad-row waypoint let the walked
+      # route hug the row past the pad after release) — from there the leg
+      # to the grenade clears the pad and the steer releases itself. Costs
+      # ~10 path px; the grenade pickup timing is essentially unchanged.
       if objMode == "nade_grab" and
           bot.tick - bot.gameStart < PadRaceDeferTicks:
         let npDirX = (if bot.team == Red: 1.0 else: -1.0)
@@ -2606,7 +2618,8 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
                                    (homePad.y - me.y) * vy) / legLen2))
             near = vec(me.x + t * vx, me.y + t * vy)
           if dist(near, homePad) < NadePadClearPx:
-            target = vec(homePad.x + npDirX * NadePadDodgePx, homePad.y)
+            target = vec(homePad.x + npDirX * NadePadDodgePx,
+                         homePad.y + NadePadDropPx)
 
   # Grenade danger: a visible throw-target ring marks where an enemy's lob
   # will land, and an airborne grenade is seconds from bursting — anything
