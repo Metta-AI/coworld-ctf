@@ -97,6 +97,18 @@ const
   RushEngageRange = 230.0     # racing for the steal: only fight what blocks it
   EscortEngageRange = 320.0   # escorting a run: only fight near threats
   PocketRushRange = 210.0     # this close to the enemy pedestal, just GRAB
+  # -d:pocketClear: their live builds camp 4-6 bodies on their own pedestal,
+  # and a grab made with an enemy still in the pocket dies almost every time.
+  # While the pocket is HELD we neither disarm the deepest attacker nor walk
+  # the wave onto the pedestal; once it clears we behave exactly like stock.
+  # TODO(upstream): port these to the params.nim tunable registry when this
+  # lineage rebases past feb2ef1 — this tree has no registry yet.
+  tunePocketGateRadius {.intdefine.} = 600  # px around the ENEMY pedestal
+  tunePocketGateBodies {.intdefine.} = 2    # fresh enemy tracks => HELD
+  tunePocketGateTtl {.intdefine.} = 90      # track freshness, ticks (memory)
+  tunePocketStandoff {.intdefine.} = 170    # hold this far off while held
+  PocketGateRadius = float(tunePocketGateRadius)
+  PocketStandoff = float(tunePocketStandoff)
   ThreatRange = 200.0         # react to a visible enemy this close facing us
   DuckRange = 340.0           # duck from remembered threats this close on cooldown
   MateSpacing = 40.0          # soft repulsion radius between teammates
@@ -1287,6 +1299,11 @@ proc friendlyBlocked(bot: Bot, me, aim: Vec, enemyDist: float): bool =
       return true
   false
 
+when defined(pocketClear) and defined(pocketClearDebug):
+  var pcGateEvals = 0                    # decision ticks the gate was evaluated
+  var pcHeldTicks = 0                    # ...of those, ticks the pocket was HELD
+  var pcClamps = 0                       # touch deferrals actually applied
+
 proc decide(bot: Bot, client: ProtocolClient): uint8 =
   ## Core CTF policy for one frame.
   when defined(statue):
@@ -1894,6 +1911,23 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         bot.campPos.add t.pos
         bot.campSeen.add bot.tick
 
+  when defined(pocketClear):
+    # Is the enemy pocket HELD? Count REMEMBERED enemy tracks inside
+    # PocketGateRadius of their pedestal: a simultaneous-FOV predicate is dead
+    # in a melee, so this is memory-based with its own freshness window.
+    # Synthetic (shout-relayed) tracks count — they are inferred enemies and
+    # what we need here is the pocket read, not our own eyes.
+    var pocketBodies = 0
+    for t in bot.enemies:
+      if bot.tick - t.lastSeen <= tunePocketGateTtl and
+          dist(t.pos, stealTarget) < PocketGateRadius:
+        inc pocketBodies
+    let pocketHeld = pocketBodies >= tunePocketGateBodies
+    when defined(pocketClearDebug):
+      inc pcGateEvals
+      if pocketHeld:
+        inc pcHeldTicks
+
   # Movement target from role and flag situation. `objMode` names the branch
   # for the artifact telemetry (see baseline/artlog.nim).
   var target: Vec
@@ -2156,6 +2190,25 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         target = vec(float(CenterX) - homeSign(bot.team) * FlankDepth, laneY)
     else:
       discard
+    when defined(pocketClear):
+      # Touch deferral: while their pocket is held, do not walk the wave onto
+      # the pedestal. Any target inside PocketStandoff of it is clamped out to
+      # the standoff ring, on the line from the pedestal toward US — a stable
+      # point (no oscillation) that the mover can actually stand on. Pickup is
+      # a ~12px pedestal touch, so the ring defers the grab while keeping the
+      # camped defenders well inside our own engage band.
+      if pocketHeld and not iCarry and not mateCarry and
+          bot.role in {MidTop, MidBottom, MidGuard, FlankTop, FlankBottom} and
+          dist(target, stealTarget) < PocketStandoff:
+        let dMe = dist(me, stealTarget)
+        target =
+          if dMe > 1.0:
+            stealTarget + (me - stealTarget) * (PocketStandoff / dMe)
+          else:
+            stealTarget + vec(homeSign(bot.team) * PocketStandoff, 0.0)
+        objMode = "pocket_gate"
+        when defined(pocketClearDebug):
+          inc pcClamps
 
   # The mid trio plays for the flag, not for position: pickup races and
   # carrier chases are lost to peek/duck detours, so mids keep moving and
@@ -2173,12 +2226,30 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     if bot.tick - t.lastSeen > 48:
       continue
     nearestMateToSteal = min(nearestMateToSteal, dist(t.pos, stealTarget))
-  let pocketRush = not iCarry and not mateCarry and
-    bot.role in {MidTop, MidBottom, MidGuard, FlankTop, FlankBottom} and
-    dist(me, stealTarget) < PocketRushRange and
-    dist(me, stealTarget) < nearestMateToSteal + 8.0
+  when defined(pocketClear):
+    # While the pocket is HELD the deepest attacker keeps its gun: committing
+    # unarmed (maxEngage 0) into 4-6 camped bodies is how these grabs die.
+    let pocketRushRaw = not iCarry and not mateCarry and
+      bot.role in {MidTop, MidBottom, MidGuard, FlankTop, FlankBottom} and
+      dist(me, stealTarget) < PocketRushRange and
+      dist(me, stealTarget) < nearestMateToSteal + 8.0
+    let pocketRush = pocketRushRaw and not pocketHeld
+    let pocketGated = pocketRushRaw and pocketHeld
+  else:
+    let pocketRush = not iCarry and not mateCarry and
+      bot.role in {MidTop, MidBottom, MidGuard, FlankTop, FlankBottom} and
+      dist(me, stealTarget) < PocketRushRange and
+      dist(me, stealTarget) < nearestMateToSteal + 8.0
   if pocketRush:
     objMode = "pocket_rush"
+  when defined(pocketClear):
+    if pocketGated:
+      objMode = "pocket_gate"          # the suppression really changed behaviour
+    when defined(pocketClearDebug):
+      if bot.tick mod 240 == 0:
+        echo "PCLEAR slot=", bot.slot, " t=", bot.tick,
+          " evals=", pcGateEvals, " held=", pcHeldTicks,
+          " clamps=", pcClamps, " bodies=", pocketBodies
 
   # Combat: the nearest fresh track with a clear pixel ray AND a mate-free
   # fire cone is the engage target; the nearest fresh-but-wall-blocked track
