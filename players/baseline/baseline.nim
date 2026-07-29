@@ -2587,14 +2587,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       # from there the leg to the grenade clears the pad and the steer
       # releases itself. Costs ~10 path px; the grenade pickup timing is
       # essentially unchanged.
-      # Gate on ROLE, not on objMode: the objective flickers
-      # nade_grab<->attack every 1-2 ticks near the pad (fog/sprite
-      # sampling), and a steer that only holds on the nade_grab ticks
-      # walks an ~11px lane — inside the pickup radius (measured: the
-      # v88 residual steals were 11.2/11.4px boundary touches). The two
-      # flankers are the only opening-window pad thieves left, and any
-      # leg they walk during the window deserves the same berth.
-      if bot.role in {FlankTop, FlankBottom} and
+      if objMode == "nade_grab" and
           bot.tick - bot.gameStart < PadRaceDeferTicks:
         let npDirX = (if bot.team == Red: 1.0 else: -1.0)
         var homePad = vec(-1.0, -1.0)
