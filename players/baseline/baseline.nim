@@ -82,43 +82,8 @@ import
 when defined(taunt):
   import baseline/taunts
 
-# ---- Tunable constants (hyperparameter-tuning lane, team/briefs/tuner.md) ----
-# Each tune* int define overrides one gameplay constant at compile time
-# (-d:tuneX=<int>). Floats are deci-scaled: constant = tuneX / 10. Defaults
-# reproduce the champion values exactly, so a build with no -d:tune* flags
-# behaves identically to the champion. Keep defaults in lockstep with the
-# values documented at each constant's use site below.
-const
-  tuneCarrierFireRange {.intdefine.} = 1100
-  tuneCounterPunchTick {.intdefine.} = 1400
-  tuneDuckRange {.intdefine.} = 3400
-  tuneEscortEngageRange {.intdefine.} = 3200
-  tuneExposedCost {.intdefine.} = 14
-  tuneExposureRange {.intdefine.} = 3800
-  tuneFlankDepth {.intdefine.} = 2600
-  tuneFocusFireBonus {.intdefine.} = 450
-  tuneHoldFrontCap {.intdefine.} = 2200
-  tuneHpFocusBonus {.intdefine.} = 600
-  tuneLatePushTick {.intdefine.} = 3400
-  tuneMateSpacing {.intdefine.} = 400
-  tuneMedKitCarrierBudget {.intdefine.} = 900
-  tuneMedKitCriticalReach {.intdefine.} = 1800
-  tuneMedKitDetour {.intdefine.} = 800
-  tunePlasmaDetour {.intdefine.} = 700
-  tunePocketRushRange {.intdefine.} = 2100
-  tunePushOutMinGame {.intdefine.} = 1400
-  tunePushOutTicks {.intdefine.} = 360
-  tuneQuietForBreak {.intdefine.} = 240
-  tuneRushEngageRange {.intdefine.} = 2300
-  tuneSerpentineFar {.intdefine.} = 4000
-  tuneSerpentineNear {.intdefine.} = 1000
-  tuneShieldStealDetour {.intdefine.} = 4800
-  tuneStalemateTick {.intdefine.} = 2000
-  tuneThiefCommitTtl {.intdefine.} = 240
-  tuneThiefFocusBonus {.intdefine.} = 4000
-  tuneThreatRange {.intdefine.} = 2000
-  tuneTraversePxPerBrad {.intdefine.} = 16
-  tuneWeaveBand {.intdefine.} = 2800
+import baseline/params   # all tunable gameplay constants (-d:tune* overridable,
+                          # range-guarded, discoverable via dump_tunables)
 
 const
   WebSocketPath = "/player"
@@ -127,154 +92,24 @@ const
                               # the same map points, so dividing the object
                               # center recovers exact legacy map coordinates.
   PlayerHalf = 6              # solid footprint half-extent, matches the sim
-  NavCell = 8                 # nav grid cell size in px
-  RepathTicks = 10            # refresh the cost field at least this often
-  LookaheadCells = 6          # how far ahead on the path we aim the waypoint
-
-  CarrierFireRange = tuneCarrierFireRange.float / 10.0    # while carrying, only shoot enemies this close
-  RushEngageRange = tuneRushEngageRange.float / 10.0     # racing for the steal: only fight what blocks it
-  EscortEngageRange = tuneEscortEngageRange.float / 10.0   # escorting a run: only fight near threats
-  PocketRushRange = tunePocketRushRange.float / 10.0     # this close to the enemy pedestal, just GRAB
-  ThreatRange = tuneThreatRange.float / 10.0         # react to a visible enemy this close facing us
-  DuckRange = tuneDuckRange.float / 10.0           # duck from remembered threats this close on cooldown
-  MateSpacing = tuneMateSpacing.float / 10.0          # soft repulsion radius between teammates
-  CorridorHalfWidth = 15.0    # friendly-fire corridor half width along the ray
-  LeadTicks = 6.0             # aim this many ticks ahead of a moving enemy:
-                              # the 5-tick windup releases the bullet late
-  TrackMatchDist = 40.0       # a sighting matches a track within this distance
-  TrackTtl = 120              # forget a player not seen for ~5s
+  NavCell = 8                 # nav grid cell size in px (STRUCTURAL: erosion
+                              # and search radii assume it; not a tunable)
   TrackCap = 8                # eight real opponents / teammates per side
-  FreshShotTicks = 24         # only fire at tracks seen this recently; the
-                              # turret needs traverse time, so chases keep
-                              # shooting a bit after the target fogs out
-  ThiefFixTtl = 40            # a thief position fix guides the chase this long
-  ThiefCommitTtl = tuneThiefCommitTtl        # -d:thiefCommit: how long a dead-reckoned fix
-                              # keeps EVERY free role committed to the chase —
-                              # a thief who ducks into fog is still running our
-                              # flag; abandoning the hunt after ~1.7s is how
-                              # campers walk flags home (daveey, R1693 review)
-
   AimBrads = 256              # aim angle units per full turn
   AimRate = 5                 # brads/tick a held rotate button turns the aim
                               # (matches the server's aimTurnRate default)
   AimDotRadius = 16.0         # own aim-indicator dots sit within this radius
-  AimResyncBrads = 4          # trust dead reckoning inside this error
   MaxHp = 3                   # hitPoints per life (config default); pip labels
                               # read "hp <n>/<MaxHp>"
   HpPipRadius = 22.0          # a player's overhead hp bar sits within this
-  HpFocusBonus = tuneHpFocusBonus.float / 10.0         # px of effective-distance credit per missing
-                              # enemy hit point — a tiebreak between
-                              # comparably-engageable targets, never a reason
-                              # to swing the turret across the map
-  ThiefFocusBonus = tuneThiefFocusBonus.float / 10.0     # px of credit for the enemy RUNNING OUR FLAG:
-                              # dominates every positional tiebreak — killing
-                              # the thief returns the flag instantly
-  FocusFireBonus = tuneFocusFireBonus.float / 10.0       # px of credit when a visible mate's aim line
-                              # already covers the target (finish together)
-  TraversePxPerBrad = tuneTraversePxPerBrad.float / 10.0     # px of effective distance per brad of turret
-                              # swing needed to lay on the target: err/AimRate
-                              # ticks of traverse at ~8px of enemy closing
-                              # motion per tick = 8/5 px per brad
-  MateAimRayLen = 700.0       # trust a mate's aim line out to this range
-  MateAimHitSlack = 22.0      # enemy within this perpendicular distance of a
-                              # mate's aim ray counts as mate-targeted
   ButtonC = 1'u8 shl 7        # grenade charge/throw (input mask bit 128)
-  NadeMaxRange = 240.0        # full-charge throw distance (~fifth of the field)
-  NadeMinRange = 72.0         # never lob inside this — the 52px blast + drift
-                              # would clip us (GV17: blast 40 -> 52)
-  NadeBlast = 52.0            # blast radius; a pair this close dies together
-  NadeFullChargeTicks = 24    # ~1s of holding C reaches max range
-  NadePickupDetour = 90.0     # grab a corner pickup within this detour range
-  NadeCampTicks = 360         # -d:campNade: a STATIONARY remembered enemy stays
-                              # lob-eligible this long after fogging out — a
-                              # camper's position is durable knowledge, and the
-                              # lob over his cover is the counter the gun lacks
-  NadeCampSpeed = 0.3         # px/tick: tracks slower than this count as camped
-  MedKitDetour = tuneMedKitDetour.float / 10.0         # heal-detour budget when merely wounded
-  MedKitCriticalReach = tuneMedKitCriticalReach.float / 10.0 # at 1 hp a heal outranks the current errand
+  NadeMaxRange = 240.0        # full-charge throw distance (sim: ~fifth of field)
+  NadeBlast = 52.0            # blast radius (sim; GV17: blast 40 -> 52)
+  NadeFullChargeTicks = 24    # ~1s of holding C reaches max range (sim)
   MedKitRespawn = 30 * 24     # a taken kit refills after 30s (sim constant)
-  MedKitSeenClear = 55.0      # inside this range an empty spot is truly
-                              # empty (bubble vision), not just fogged
-  PlasmaReach = 136.0         # plasma cone reach: 4 squares (sim
-                              # PlasmaArcReach)
-  PlasmaHalfBrads = 10        # cone half-angle in brads: the cone is 2
-                              # squares wide at max reach, atan(1/4) ~ 14
-                              # degrees (sim PlasmaArcMaxWidth / Reach)
-  PlasmaDetour = tunePlasmaDetour.float / 10.0         # attacker detour budget for a plasma arc pickup
-  ShieldStealDetour = tuneShieldStealDetour.float / 10.0   # MidGuard's shield trip: the enemy endzone
-                              # shield sits low in their back column
-                              # (~215px from the pedestal since the game-v7
-                              # split), so the round trip costs ~430 path px
+  PlasmaReach = 136.0         # plasma cone reach: 4 squares (sim PlasmaArcReach)
+  PlasmaHalfBrads = 10        # cone half-angle in brads (sim PlasmaArcMaxWidth)
   PickupRespawn = 30 * 24     # plasma arc/shield respawn timer (sim constant)
-  MedKitCarrierBudget = tuneMedKitCarrierBudget.float / 10.0  # extra path px a hurt CARRIER spends to heal:
-                              # a full-heal carrier survives pocket exits
-                              # that kill a 1 hp one
-  CarrySelfRadius = 26.0      # the carried flag banner is centered on its
-                              # carrier: anything inside this slack that no
-                              # visible mate sits closer to is OUR carry
-  CarrierEstSpeed = 1.0       # px/tick a fogged mate-carrier is assumed to
-                              # advance homeward (carrier moves at ~70% speed)
-  CombatDeadband = 2          # stop the traverse within this error (brads);
-                              # AimRate 5 cannot settle tighter than +-2
-  CruiseDeadband = 8          # sloppier deadband for non-combat aim
-  FireSlackPx = 11.0          # fire when the aim error's perpendicular miss
-                              # at the target's range is inside this (the
-                              # corridor half-width is ~14px; keep margin)
-  ArcReach = 130.0            # plasma cone: sim reach 136px, small margin
-  ArcConeBrads = 9            # cone half-width ~14deg at max reach
-  CenterScanHalf = 280.0      # |x - CenterX| under this counts as the corridor
-  TargetCallCooldown = 48     # min ticks between one bot's engage callouts
-  ScanArc = 44                # scan sweeps this many brads each side of the
-                              # watch heading (cone half-angle is 32 brads)
-  CounterPunchTick = tuneCounterPunchTick     # by here a 0-steal attack is not converting:
-                              # fall back and win the attrition instead
-  PushOutTicks = tunePushOutTicks          # endgame push: no enemy seen for ~15s...
-  PushOutMinGame = tunePushOutMinGame       # ...this deep into the game breaks the posts
-  StalemateTick = tuneStalemateTick        # nobody has MOVED a flag by here: the game is
-                              # heading for a lose-lose timeout — go convert.
-  StaleClusterTtl = 600       # -d:nadeCluster: campers hold ground — a track
-                              # this old is still a target if it CLUSTERED
-  ClusterPairPx = 90.0        # two remembered enemies this close = one blast
-  SalvoWindow = 70            # ticks after the charge order to force the lob
-  SiegeBarrageTicks = 100     # -d:siege: bombardment window per cycle
-  SiegeAdvanceTicks = 90     # -d:siege: advance-and-settle window per cycle
-  SiegeStep = 170.0           # -d:siege: ground taken per advance order
-  QuietForBreak = tuneQuietForBreak         # ...but only when the field is actually DEAD:
-                              # no enemy contact this long. A duel-heavy rival
-                              # (h006) keeps flags parked while trading kills —
-                              # that game resolves by wipe, not timeout, and
-                              # breaking the castle early just donates our
-                              # respawn-logistics ground to its midfield gun.
-  LatePushTick = tuneLatePushTick         # all-in on the clock: past this tick a draw is
-                              # A LOSS FOR BOTH (GV21 lose-lose timeouts) and
-                              # games cap at 5000 ticks — the all-in must land
-                              # with time to convert. Scaled from 6800/10000.
-                              # the default outcome, so commit to the capture
-  HoldFrontCap = tuneHoldFrontCap.float / 10.0        # -d:holdFront: ceiling on the phalanx creep — a
-                              # castle line near our wall: fights there recur on
-                              # ground where our respawn walk is ~100px and the
-                              # attacker re-crosses ~400px of watched open ground
-
-  CoverShieldDist = 42.0      # an obstacle this close blocks a threat direction
-  PeekLineDist = 150.0        # floor for an overwatch peek firing line; post
-                              # scoring strongly prefers the longest line
-  DuckSearchCells = 3         # duck-cell search radius in nav cells
-  PeekSearchCells = 3         # peek-cell search radius in nav cells
-  ExposureRange = tuneExposureRange.float / 10.0       # enemy threat radius used for exposure costing
-  ExposureThreats = 3         # cost only the freshest few remembered threats
-  ExposureTrackTtl = 60       # only cost threats remembered this recently
-  UnderFireTrackTtl = 16      # tracks this fresh can pin us on open ground
-  SerpentineNear = tuneSerpentineNear.float / 10.0      # serpentine band: closer threats are jink/duck
-  SerpentineFar = tuneSerpentineFar.float / 10.0       # ... and farther tracks cannot really aim at us
-  StepCost = 5'i32            # orthogonal move cost in the nav field
-  DiagCost = 7'i32            # ~sqrt(2) * StepCost
-  ExposedCost = tuneExposedCost.int32        # extra cost to enter a threat-exposed cell:
-                              # under fog the exposure model (enemy sniper
-                              # posts + fresh tracks) is the only warning of
-                              # watched lanes, so routes respect it hard
-  FlankDepth = tuneFlankDepth.float / 10.0          # wide flankers cross this far past mid
-  WeaveBand = tuneWeaveBand.float / 10.0           # rushers serpentine within this x-band of mid
-
   LaneTop = 40.0              # open corridor above the mirrored obstacles
 
 ## Map dimensions, adopted at nav-grid build from the walkability sprite
@@ -1189,7 +1024,7 @@ proc trackPickups(
   for p in seen:
     var known = false
     for i in 0 ..< positions.len:
-      if dist(positions[i], p) < 24.0:
+      if dist(positions[i], p) < SpotDedupRadius:
         known = true
         absentAt[i] = -1
     if not known:
@@ -1199,7 +1034,7 @@ proc trackPickups(
     if dist(positions[i], me) <= MedKitSeenClear and absentAt[i] < 0:
       var present = false
       for p in seen:
-        if dist(positions[i], p) < 24.0:
+        if dist(positions[i], p) < SpotDedupRadius:
           present = true
       if not present:
         absentAt[i] = tick
@@ -1527,7 +1362,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   for p in kitSeen:
     var known = false
     for i in 0 ..< bot.kitPos.len:
-      if dist(bot.kitPos[i], p) < 24.0:
+      if dist(bot.kitPos[i], p) < SpotDedupRadius:
         known = true
         bot.kitAbsentAt[i] = -1
     if not known:
@@ -1537,7 +1372,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     if dist(bot.kitPos[i], me) <= MedKitSeenClear and bot.kitAbsentAt[i] < 0:
       var present = false
       for p in kitSeen:
-        if dist(bot.kitPos[i], p) < 24.0:
+        if dist(bot.kitPos[i], p) < SpotDedupRadius:
           present = true
       if not present:
         bot.kitAbsentAt[i] = bot.tick
@@ -1552,7 +1387,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       if o.label.startsWith(enemyColor & " shout "):
         if o.label != bot.lastEnemyShout:
           bot.lastEnemyShout = o.label
-          if bot.tick - bot.lastComebackReq >= 240:
+          if bot.tick - bot.lastComebackReq >= ComebackReqCooldown:
             bot.lastComebackReq = bot.tick
             let sep = o.label.rfind(": ")
             if sep > 0:
@@ -1633,7 +1468,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           # Also teaches spots this bot has never had eyes on (fog).
           var known = false
           for i in 0 ..< bot.nadeSpotPos.len:
-            if dist(bot.nadeSpotPos[i], p) < 24.0:
+            if dist(bot.nadeSpotPos[i], p) < SpotDedupRadius:
               bot.nadeSpotEta[i] = bot.tick + 126
               known = true
               break
@@ -1739,7 +1574,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     when defined(thiefCommit): ThiefCommitTtl else: ThiefFixTtl
   let raceExempt =
     when defined(thiefCommit):
-      mateCarry and dist(me, mateCarryPos) < 250.0
+      mateCarry and dist(me, mateCarryPos) < MateCarryNearRange
     else:
       false
   # Counter-punch: loss telemetry says lost games are 0-steal games — the
@@ -1782,7 +1617,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # within ~247px too, but a carrier is already hunted and a defender's
     # post is no secret). Carrier heartbeat beats thief fix; own eyes only —
     # re-broadcasting a heard fix would echo it around the map forever.
-    if bot.tick - bot.lastShoutTick >= 26:
+    if bot.tick - bot.lastShoutTick >= ShoutCooldown:
       if iCarry:
         bot.shoutWant = "C" & $(int(me.x) div 8) & " " & $(int(me.y) div 8)
         bot.lastShoutTick = bot.tick
@@ -1805,7 +1640,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
             bot.siegePhase = 0
             bot.siegeFront = 0.0
           elif bot.shoutWant.len == 0 and clamp(bot.slot div 2, 0, 7) == 1 and
-              not iCarry and bot.tick - bot.lastShoutTick >= 26 and
+              not iCarry and bot.tick - bot.lastShoutTick >= ShoutCooldown and
               bot.tick - bot.gameStart > StalemateTick and
               bot.tick >= bot.siegePhaseUntil:
             if bot.siegePhase == 1:
@@ -1830,8 +1665,8 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           if bot.shoutWant.len == 0 and
               bot.tick - bot.lastTargetCall > TargetCallCooldown:
             for t in bot.enemies:
-              if not t.synthetic and bot.tick - t.lastSeen <= 15 and
-                  dist(t.pos, me) < 500.0:
+              if not t.synthetic and bot.tick - t.lastSeen <= TargetCallFreshTicks and
+                  dist(t.pos, me) < TargetCallRange:
                 bot.shoutWant = "E" & $(int(t.pos.x) div 8) & " " &
                   $(int(t.pos.y) div 8)
                 bot.lastTargetCall = bot.tick
@@ -1845,19 +1680,19 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     if bot.shoutWant.len == 0 and not iCarry:
       let pd = bot.phalanxDuty
       if pd in {pdTopA, pdTopB, pdMidA, pdMidB, pdBotA, pdBotB} and
-          bot.tick - bot.lastHShout > 400:
+          bot.tick - bot.lastHShout > HelpShoutCooldown:
         var near = 0
         for t in bot.enemies:
-          if not t.synthetic and bot.tick - t.lastSeen <= 50 and
-              dist(t.pos, me) < 420.0:
+          if not t.synthetic and bot.tick - t.lastSeen <= HelpTrackAge and
+              dist(t.pos, me) < HelpNearRange:
             inc near
-        if near >= 3:
+        if near >= HelpNearCount:
           bot.shoutWant = "H" & $phalanxLaneNo(pd)
           bot.lastHShout = bot.tick
       if bot.shoutWant.len == 0 and pd == pdScout and
-          bot.tick - bot.lastEShout > 30:
+          bot.tick - bot.lastEShout > EShoutCooldown:
         for t in bot.enemies:
-          if not t.synthetic and bot.tick - t.lastSeen <= 20:
+          if not t.synthetic and bot.tick - t.lastSeen <= EShoutTrackAge:
             bot.shoutWant = "E" & $(int(t.pos.x) div 8) & " " &
               $(int(t.pos.y) div 8)
             bot.lastEShout = bot.tick
@@ -1873,7 +1708,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       bot.killMoodUntil = bot.tick + 72    # a mate just lifted their heart
     bot.wasMateCarry = mateCarry
     if bot.shoutWant.len == 0 and not iCarry and
-        bot.tick - bot.lastShoutTick >= 26 and
+        bot.tick - bot.lastShoutTick >= ShoutCooldown and
         (bot.comebackWant.len > 0 or bot.tick < bot.killMoodUntil):
       if bot.comebackWant.len > 0:
         bot.shoutWant = bot.comebackWant
@@ -1902,7 +1737,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     if bot.nextPeaceTick == 0:
       bot.nextPeaceTick = 200 + bot.slot * 450
     if bot.shoutWant.len == 0 and not iCarry and
-        bot.tick - bot.lastShoutTick >= 26 and bot.tick >= bot.nextPeaceTick and
+        bot.tick - bot.lastShoutTick >= ShoutCooldown and bot.tick >= bot.nextPeaceTick and
         bot.tick - bot.lastTeamShoutSeen > 120:
       var quiet = true
       for t in bot.enemies:
@@ -1982,7 +1817,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         continue
       var found = false
       for i in 0 ..< bot.campPos.len:
-        if dist(bot.campPos[i], t.pos) < 50.0:
+        if dist(bot.campPos[i], t.pos) < CampMemRadius:
           bot.campPos[i] = t.pos
           bot.campSeen[i] = bot.tick
           found = true
@@ -2610,7 +2445,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         # Seeing a stocked spot teaches it and clears any respawn clock.
         var known = false
         for i in 0 ..< bot.nadeSpotPos.len:
-          if dist(bot.nadeSpotPos[i], p) < 24.0:
+          if dist(bot.nadeSpotPos[i], p) < SpotDedupRadius:
             bot.nadeSpotEta[i] = 0
             known = true
             break
@@ -2866,7 +2701,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   if holdStill:
     bot.stuckTicks = 0
   var jinked = false
-  if bot.stuckTicks > 20 and engage < 0:
+  if bot.stuckTicks > StuckJinkTicks and engage < 0:
     bot.stuckTicks = 0
     bot.jinkUntil = bot.tick + 10
     bot.jinkBits = octantBits(vec(rand(-1.0 .. 1.0), rand(-1.0 .. 1.0)))
