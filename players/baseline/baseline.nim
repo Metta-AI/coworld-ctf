@@ -308,6 +308,10 @@ type
     firedLast: bool           # A was set on the previous sent mask
     estAim: int               # dead-reckoned own aim angle in brads
     rotSign: int              # rotation of the last sent mask: +1 B, -1 Select
+    aimSamp: seq[int]         # -d:aimDeltaResync: settled (seen - estAim)
+                              # samples, one per fuzz window (>=12 ticks apart)
+    aimSampTick: int          # tick of the newest aimSamp sample
+    lastRotTick: int          # newest tick the last sent mask was rotating
     wasDead: bool             # respawn resets the aim to the spawn heading
     scanHigh: bool            # scan sweep currently heading to the high end
     lastPos: Vec
@@ -517,6 +521,27 @@ when defined(aimSpriteResync):
                                  # to half a step from the observed bucket
                                  # center, so only a larger disagreement
                                  # proves the dead reckoning drifted
+    AimFuzzSnapBrads = 26        # -d:aimFuzzGate coarse snap gate (GV24): the
+                                 # sprite renders true aim + a +-14-brad fuzz
+                                 # offset re-rolled every 12 ticks, then 16-step
+                                 # quantization adds +-8, so a CORRECT belief
+                                 # reads back within 22 brads — never past it.
+                                 # A gate above 22 cannot fire on fuzz alone;
+                                 # 26 keeps a 4-brad margin for transient input
+                                 # lag while a real 42-brad stuck aim still
+                                 # clears it in about one fuzz window
+    AimSampSettleTicks = 2       # -d:aimDeltaResync: ticks without a rotate
+                                 # command before a readback sample is clean
+                                 # (render lag while turning contaminates it)
+    AimSampGapTicks = 12         # min tick gap between samples = one full fuzz
+                                 # window, guaranteeing independent offsets
+    AimSampWindow = 6            # samples averaged per correction decision;
+                                 # fuzz+quantization sd ~9.6 brads per sample
+                                 # -> se of the mean ~3.9 brads
+    AimAvgCorrBrads = 10         # correct estAim when |mean| clears ~2.6 se:
+                                 # false corrections <1% per buffer, while a
+                                 # persistent 8-brad residue is caught within
+                                 # ~4 buffers (~5 s of settled turret)
 
   proc observedAim(client: ProtocolClient, me: Vec, color: string): int =
     ## Absolute aim readback from our own rendered self marker: the POV self
@@ -1309,6 +1334,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # Respawned: the server points the aim back at the enemy side.
     bot.wasDead = false
     bot.estAim = spawnAim(bot.team)
+    bot.aimSamp.setLen(0)
   # Absolute turret fix: read our actual aim back from our own rendered
   # avatar every frame, capping any dead-reckoning drift (mask-apply races).
   block resync:
@@ -1320,10 +1346,49 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       # typical ranges). The event makes the lever's firing telemetry-visible.
       if seen >= 0:
         let err = bradsErr(seen, bot.estAim)
-        if abs(err) > AimSnapBrads:
-          artEvent(bot.tick, "aim_resync",
-            %*{"err": err, "seen": seen, "est": bot.estAim})
-          bot.estAim = seen
+        when defined(aimFuzzGate):
+          # GV24 (fuzzedAimBrads): the self marker renders true aim + a
+          # +-14-brad offset held 12 ticks, so trusting the fine 8-brad gate
+          # would overwrite a CORRECT belief with fuzz ~2 windows in 5. The
+          # coarse gate keeps only the catches fuzz cannot fake (>22 brads
+          # structural bound): real stuck-aim drift still snaps within about
+          # one window, at a bounded (<=22, mean ~8 brad) fuzzed residual.
+          if bot.rotSign != 0:
+            bot.lastRotTick = bot.tick
+          if abs(err) > AimFuzzSnapBrads:
+            artEvent(bot.tick, "aim_resync",
+              %*{"err": err, "seen": seen, "est": bot.estAim})
+            bot.estAim = seen
+            bot.aimSamp.setLen(0)
+          else:
+            when defined(aimDeltaResync):
+              # Fine corrector on the channel the fuzz cannot reach: offsets
+              # re-roll independently per 12-tick window with zero mean, so
+              # the mean of (seen - estAim) over samples taken >=12 ticks
+              # apart estimates the persistent belief error to ~se 3.9 brads
+              # at 6 samples. Sample only with the turret settled (a rotate
+              # command within 2 ticks leaves render lag in the readback);
+              # any correction, snap or respawn restarts the buffer.
+              if bot.tick - bot.lastRotTick >= AimSampSettleTicks and
+                  bot.tick - bot.aimSampTick >= AimSampGapTicks:
+                bot.aimSamp.add(err)
+                bot.aimSampTick = bot.tick
+                if bot.aimSamp.len >= AimSampWindow:
+                  var tot = 0
+                  for v in bot.aimSamp: tot += v
+                  let corr = (if tot >= 0: tot + AimSampWindow div 2
+                              else: tot - AimSampWindow div 2) div
+                             AimSampWindow
+                  if abs(corr) >= AimAvgCorrBrads:
+                    artEvent(bot.tick, "aim_avgcorr",
+                      %*{"corr": corr, "est": bot.estAim})
+                    bot.estAim = floorMod(bot.estAim + corr, AimBrads)
+                  bot.aimSamp.setLen(0)
+        else:
+          if abs(err) > AimSnapBrads:
+            artEvent(bot.tick, "aim_resync",
+              %*{"err": err, "seen": seen, "est": bot.estAim})
+            bot.estAim = seen
     else:
       if seen >= 0 and abs(bradsErr(seen, bot.estAim)) > AimResyncBrads:
         bot.estAim = seen
