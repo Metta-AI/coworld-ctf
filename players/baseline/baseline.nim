@@ -358,6 +358,9 @@ type
     helpUntil: int            # tick the help retasking expires
     lastEShout: int           # scout sighting-broadcast rate limit
     lastHShout: int           # help-call rate limit
+    prevHudHp: int            # -d:cleanGrab: last HUD hp reading (0 = unset)
+    lastHurtTick: int         # -d:cleanGrab: tick our hp last dropped, this life
+    grabDeferSince: int       # -d:cleanGrab: tick the touch-deferral began; 0 idle
 
 proc roleForSeat(seat: int, team: Team): Role =
   ## Deterministic role spread over the 8 per-team seats. Seats 2 and 3 both
@@ -1196,6 +1199,9 @@ proc resetTransient(bot: Bot) =
   bot.jinkUntil = 0
   bot.behindLines = false
   bot.navGoal = -1
+  bot.prevHudHp = 0
+  bot.lastHurtTick = -100_000
+  bot.grabDeferSince = 0
 
 proc scanAim(bot: Bot, watch: Vec): int =
   ## The scan-sweep aim while holding a position: rake the vision cone back
@@ -1304,6 +1310,11 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     artFrame(FrameSnap(tick: bot.tick, alive: false,
       x: int(bot.lastPos.x), y: int(bot.lastPos.y), hp: 0,
       objective: "dead", action: "dead", engageDist: -1))
+    when defined(cleanGrab):
+      # Damage freshness is a per-LIFE state: the next spawn starts clean.
+      bot.prevHudHp = 0
+      bot.lastHurtTick = -100_000
+      bot.grabDeferSince = 0
     return 0
   if bot.wasDead:
     # Respawned: the server points the aim back at the enemy side.
@@ -1414,6 +1425,13 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         except ValueError:
           discard
       break
+  when defined(cleanGrab):
+    # Own-damage edge detector off the HUD hp reading: any drop within a
+    # life marks us combat-fresh (a stripped shield counts — losing it means
+    # we are being shot right now). Respawns reset in the dead branch above.
+    if bot.prevHudHp > 0 and bot.hp < bot.prevHudHp:
+      bot.lastHurtTick = bot.tick
+    bot.prevHudHp = bot.hp
 
   # Med kits: learn the two center-line spots on sight; presence is
   # fog-gated, so an empty spot only counts as TAKEN when we pass close
@@ -2172,8 +2190,63 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   for t in bot.mates:
     if bot.tick - t.lastSeen > 48:
       continue
+    when defined(cleanGrab):
+      # v2 fix (smoke-decode defect): a mate PARKED inside the pocket ring
+      # is deferring or covering, not grabbing — anything inside pickup
+      # range grabs instantly, so a mate sitting at 25-90px is by
+      # definition not committing. Letting it win this closest-committer
+      # tiebreak froze the whole wave (clean-approach conversion 35% vs
+      # the twin's 82% in the 16-ep smoke). Ignore ring-mates here so a
+      # clean attacker still commits past a deferring one.
+      if dist(t.pos, stealTarget) < 90.0:
+        continue
     nearestMateToSteal = min(nearestMateToSteal, dist(t.pos, stealTarget))
-  let pocketRush = not iCarry and not mateCarry and
+  when defined(cleanGrab):
+    # cleanGrab: the GRAB-TIME COMBAT STATE gates the pedestal touch. A
+    # carrier that grabs within 150t of taking fire escapes our half 12.7%
+    # of the time; a clean grab (full hp, no fresh damage) escapes 43.9%
+    # (1210-carry decomposition, replicated 3/3 corpora). So a would-be
+    # grabber that is fresh-damaged or at 1 hp defers the touch — it holds
+    # just outside pickup range with its gun up (covering) while a clean
+    # mate takes the grab — instead of feeding a doomed carry. Escape
+    # valves: an UNDEFENDED pedestal is safe at any hp (grab it); past
+    # game-clock ~4300 no later grab can still be delivered (grab now or
+    # never); and a hold is capped so a lone hurt attacker cannot park at
+    # the pocket edge forever.
+    const
+      CleanGrabFreshTicks = 150    # "fresh damage" window (the measured cell)
+      CleanGrabStandoff = 56.0     # hold-ring radius (pickup range is 12)
+      CleanGrabZone = 120.0        # standoff override engages this close
+      CleanGrabDefendRange = 400.0 # defender-near-pedestal valve radius
+      CleanGrabDefendFresh = 120   # track freshness for the defended check
+      CleanGrabLateGc = 4300       # delivery-budget cutoff (game clock)
+      CleanGrabMaxHold = 360       # anti-park cap on one continuous deferral
+    var deferGrab = false
+    if not iCarry and not mateCarry and
+        bot.role in {MidTop, MidBottom, MidGuard, FlankTop, FlankBottom} and
+        dist(me, stealTarget) < PocketRushRange:
+      let hurt = bot.tick - bot.lastHurtTick <= CleanGrabFreshTicks or
+        bot.hp == 1
+      var wantDefer = false
+      if hurt and bot.tick - bot.gameStart <= CleanGrabLateGc:
+        # Only defer a CONTESTED grab: any fresh enemy track remembered
+        # near the pedestal means the run home starts under guns.
+        for t in bot.enemies:
+          if bot.tick - t.lastSeen <= CleanGrabDefendFresh and
+              dist(t.pos, stealTarget) <= CleanGrabDefendRange:
+            wantDefer = true
+            break
+      if wantDefer:
+        if bot.grabDeferSince == 0:
+          bot.grabDeferSince = bot.tick
+        # Past the cap the hold expires (no oscillation: grabDeferSince is
+        # kept while the condition persists) and the grab proceeds.
+        deferGrab = bot.tick - bot.grabDeferSince <= CleanGrabMaxHold
+      else:
+        bot.grabDeferSince = 0
+  else:
+    let deferGrab = false
+  let pocketRush = not iCarry and not mateCarry and not deferGrab and
     bot.role in {MidTop, MidBottom, MidGuard, FlankTop, FlankBottom} and
     dist(me, stealTarget) < PocketRushRange and
     dist(me, stealTarget) < nearestMateToSteal + 8.0
@@ -2492,6 +2565,19 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         dist(mateCarryPos, bot.kitPos[kit]) < dist(me, bot.kitPos[kit]) + 100.0):
       target = bot.kitPos[kit]
       objMode = "heal_detour"
+
+  when defined(cleanGrab):
+    # Deferring the touch: never let the walk goal drag us into pickup
+    # range — hold the ring just outside it, gun up, covering the grab. A
+    # kit detour set above (possible now that a deferring bot is never
+    # pocketRush-committed) is kept: healing IS the fastest way back to a
+    # clean grab.
+    if deferGrab and dist(me, stealTarget) < CleanGrabZone and
+        dist(target, stealTarget) < CleanGrabStandoff:
+      var away = me - stealTarget
+      if away.len() < 1.0:
+        away = vec(homeSign(bot.team), 0.0)  # degenerate: back toward our side
+      target = stealTarget + norm(away) * CleanGrabStandoff
 
   if not carryingNade and not iCarry and not mateCarry and not pocketRush:
     # Collect a pickup: anyone grabs one within a short detour, and the two
