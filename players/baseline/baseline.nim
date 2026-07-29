@@ -140,6 +140,31 @@ const
   MateAimRayLen = 700.0       # trust a mate's aim line out to this range
   MateAimHitSlack = 22.0      # enemy within this perpendicular distance of a
                               # mate's aim ray counts as mate-targeted
+  WalkinRange {.intdefine.} = 300   # -d:walkinDodge: only an enemy this close
+                              # (px) can walk us into its corridor — 79% of the
+                              # decoded avoidable walk-in deaths happen inside
+                              # 240px (130-episode study, task 1216965955084427)
+  WalkinMinTicks {.intdefine.} = 6  # consecutive covered-and-closing ticks
+                              # before the dodge arms: a single frame of
+                              # coverage is the ±8 brad quantization talking
+  WalkinDodgeTicks {.intdefine.} = 12  # ticks the lateral bias lasts
+  WalkinClosePx {.intdefine.} = 6   # net px we must have CLOSED on the enemy
+                              # across the arming window — the lever is aimed
+                              # at the approach decision (53% of walk-in
+                              # victims were actively closing), never at a
+                              # standing firefight
+  WalkinHitHalfPx = 14.0      # the sim's real hit half-width: BulletHalfWidth
+                              # 8 + PlayerHalf 6 (selectFireTarget samples the
+                              # silhouette at ±6px and connects within 8px)
+  WalkinQuantBrads = 8.0      # sprite readback resolution: the decoded bucket
+                              # center is the true aim ±8 brads
+  WalkinFoeMatchPx = 60.0     # a candidate this close to last tick's candidate
+                              # is the SAME enemy (track indices are rebuilt
+                              # every frame, so identity is positional)
+  WalkinLateral = 1.0         # lateral gain added to the unit steer: a 45°
+                              # deflection out of the covered corridor
+  WalkinProbePx = 24.0        # clearance probe before committing to an exit
+                              # side (same trick the evade branch uses)
   ButtonC = 1'u8 shl 7        # grenade charge/throw (input mask bit 128)
   NadeMaxRange = 240.0        # full-charge throw distance (~fifth of the field)
   NadeMinRange = 72.0         # never lob inside this — the 52px blast + drift
@@ -358,6 +383,15 @@ type
     helpUntil: int            # tick the help retasking expires
     lastEShout: int           # scout sighting-broadcast rate limit
     lastHShout: int           # help-call rate limit
+    when defined(walkinDodge):
+      walkinTicks: int        # consecutive ticks one enemy has held us inside
+                              # its decoded aim corridor while we closed
+      walkinFoe: Vec          # that enemy's position last tick (identity is
+                              # positional: track indices are rebuilt per frame)
+      walkinStartDist: float  # distance to it when the streak started
+      walkinUntil: int        # tick the lateral dodge window expires
+      walkinSide: Vec         # unit exit direction, frozen at trigger onset
+      walkinApplied: int      # ticks of the window the bias actually steered
 
 proc roleForSeat(seat: int, team: Team): Role =
   ## Deterministic role spread over the 8 per-team seats. Seats 2 and 3 both
@@ -450,6 +484,34 @@ proc octantBits(d: Vec): uint8 =
   of 5: ButtonLeft or ButtonUp
   of 6: ButtonUp
   else: ButtonUp or ButtonRight
+
+when defined(walkinDodgeV2) and not defined(walkinDodge):
+  {.error: "-d:walkinDodgeV2 is a dose knob for the walk-in dodge and does " &
+    "nothing on its own: compile it together with -d:walkinDodge.".}
+
+when defined(walkinDodge):
+  const
+    WalkinNoEngageGate = defined(walkinDodgeV2)
+                              # -d:walkinDodgeV2 (dose raise, task
+                              # 1216986009898488): the 1821-onset event study
+                              # found the per-firing survival benefit real but
+                              # the `engage < 0` clause + pacing pruned ~80% of
+                              # the addressable population, so V2 drops that
+                              # one clause from the arming condition. Range,
+                              # cover math, the 6-tick hold, the closing test,
+                              # pixel LOS, not-carrying and the whole response
+                              # priority chain are untouched.
+
+  proc bitsDir(bits: uint8): Vec =
+    ## The unit direction a d-pad octant mask walks in (the inverse of
+    ## octantBits), so a late movement modifier can bend an already-decided
+    ## step instead of replacing it.
+    var d = vec(0, 0)
+    if (bits and ButtonRight) != 0: d.x = d.x + 1.0
+    if (bits and ButtonLeft) != 0: d.x = d.x - 1.0
+    if (bits and ButtonDown) != 0: d.y = d.y + 1.0
+    if (bits and ButtonUp) != 0: d.y = d.y - 1.0
+    norm(d)
 
 proc bradsOf(d: Vec): int =
   ## The aim angle in brads pointing along `d`: 0 = east (+x), increasing
@@ -576,21 +638,73 @@ proc actorsFor(client: ProtocolClient, color: string): seq[Actor] =
       if best >= 0:
         result[best].hp = hp
 
-proc mateAimBrads(client: ProtocolClient, mate, me: Vec, color: string): int =
-  ## A visible mate's aim angle read from ITS rendered aim-indicator dots
-  ## (the same absolute readback observedAim does for our own turret).
-  ## Returns -1 when the mate is too close to us to attribute dots safely.
-  if dist(mate, me) <= 2.0 * AimDotRadius:
-    return -1
-  result = -1
-  var bestD = 0.0
-  for o in client.spriteObjectsWithLabel("aim dot " & color):
-    let
-      p = client.mapPos(o)
-      d = dist(p, mate)
-    if d <= AimDotRadius and d > bestD and dist(p, me) > AimDotRadius:
-      bestD = d
-      result = bradsOf(p - mate)
+when defined(mateAimSpriteRead) or defined(walkinDodge):
+  const
+    SoldierSpriteBase = 100   # src/ctf/sim.nim PlayerSpriteBase: the plain
+                              # soldier pool every OTHER visible player renders
+                              # from in the POV packet (2 teams x 16 aim
+                              # rotations per skin, skin stride 32)
+    SoldierSpriteRotSteps = 16 # src/ctf/sim.nim SoldierRotations (named apart
+                              # from the aimSpriteResync block's SoldierRotSteps,
+                              # which is the same 16 for the SELF sprite pool:
+                              # `when` is not a scope, so both blocks compile
+                              # into one module scope when both defines are set)
+    SoldierSpriteRotBrads = AimBrads div SoldierSpriteRotSteps # per baked step
+    SoldierSpriteMatchPx = 16.0  # attribute a rendered soldier to a remembered
+                              # player only within this radius; the sprite
+                              # center IS the body center (0.00px offset over
+                              # 276k samples), and bodies are ~34px solid
+                              # boxes, so two players never collide this close
+
+  proc spriteAimBrads(client: ProtocolClient, at: Vec, color: string): int =
+    ## The TRUE aim of any visible player of `color` standing at `at`, read
+    ## back from its rendered soldier sprite: the POV packet draws every
+    ## visible player pre-rotated to its aim in 16 baked steps and the sprite
+    ## id encodes the step (soldierPlayerSpriteId = PlayerSpriteBase +
+    ## skin*32 + team*16 + rot, src/ctf/global.nim; every stride is a multiple
+    ## of 16, so `id mod 16` isolates rot, and soldierRotIndex ROUNDS the aim
+    ## to the nearest step). Returns the bucket's center angle — the true aim
+    ## within ±8 brads — or -1 when no live soldier sprite of that color sits
+    ## at `at` this frame (fogged, or dead: corpses/self/selected carry
+    ## different labels and different sprite pools).
+    result = -1
+    var bestD = SoldierSpriteMatchPx
+    for facingRight in [true, false]:
+      let label = "player " & color & (if facingRight: " right" else: " left")
+      for o in client.spriteObjectsWithLabel(label):
+        let d = dist(client.mapPos(o), at)
+        if d < bestD:
+          bestD = d
+          result = floorMod(o.spriteId - SoldierSpriteBase,
+            SoldierSpriteRotSteps) * SoldierSpriteRotBrads
+
+when defined(mateAimSpriteRead):
+  proc mateAimBrads(client: ProtocolClient, mate, me: Vec, color: string): int =
+    ## A visible mate's aim, read from its rendered soldier sprite rotation
+    ## (task 1216960771024767): restores at 16-step resolution the absolute
+    ## readback the retired aim dots used to provide.
+    client.spriteAimBrads(mate, color)
+else:
+  proc mateAimBrads(client: ProtocolClient, mate, me: Vec, color: string): int =
+    ## A visible mate's aim angle read from ITS rendered aim-indicator dots
+    ## (the same absolute readback observedAim does for our own turret).
+    ## Returns -1 when the mate is too close to us to attribute dots safely.
+    ## DEAD SINCE 2026-07-16: the aim-dot sprites were retired server-side
+    ## (addAimIndicators is a no-op), so this always returns -1, mateTargeted
+    ## stays all-false and FocusFireBonus never fires. -d:mateAimSpriteRead
+    ## restores a real readback above; -d:walkinDodge deliberately does NOT
+    ## (it consumes ENEMY aim only, leaving mate focus-fire dead).
+    if dist(mate, me) <= 2.0 * AimDotRadius:
+      return -1
+    result = -1
+    var bestD = 0.0
+    for o in client.spriteObjectsWithLabel("aim dot " & color):
+      let
+        p = client.mapPos(o)
+        d = dist(p, mate)
+      if d <= AimDotRadius and d > bestD and dist(p, me) > AimDotRadius:
+        bestD = d
+        result = bradsOf(p - mate)
 
 proc walkableAt(client: ProtocolClient, x, y: int): bool =
   if x < 0 or y < 0 or x >= client.walkabilityWidth or
@@ -2292,6 +2406,100 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       nearThreatD = d
       nearThreat = i
 
+  when defined(walkinDodge):
+    # WALK-IN DODGE (task 1216965955084427), movement only.
+    #
+    # A visible enemy's TRUE aim is readable from its rendered soldier sprite
+    # rotation (spriteAimBrads, +-8 brads). A 130-episode decode of live
+    # replays found 5.3 avoidable walk-in deaths per episode: our seat keeps
+    # WALKING at an enemy whose gun already covers it, for a median 1.4s of
+    # warning. The readback's marginal information over plain "an enemy can
+    # see me" is only x1.38, so this consumer is deliberately narrow — it
+    # fires only on the APPROACH decision the study localized (<=300px, us
+    # closing, no duel of our own), never as firefight triage:
+    #   (a) the enemy is close enough for its shot to matter,
+    #   (b) its DECODED bucket center covers us: the angular miss is inside
+    #       the quantization (+-8 brads) plus the sim's real hit half-width
+    #       asin(14/d) — 14px = BulletHalfWidth 8 + PlayerHalf 6, the cone
+    #       selectFireTarget actually connects,
+    #   (c) that held for WalkinMinTicks consecutive ticks (one frame of
+    #       coverage is the quantization talking),
+    #   (d) we CLOSED WalkinClosePx over that window (walking in, not held),
+    #   (e) we are not carrying and our gun has no engage target at all —
+    #       `engage < 0` is the cheapest state the bot already computes for
+    #       "we are approaching, not mid-duel", and it is strictly stronger
+    #       than "not trained on THIS enemy". WalkinNoEngageGate
+    #       (-d:walkinDodgeV2) drops this clause and keeps everything else,
+    #       admitting the covered-and-closing ticks we spend with a target of
+    #       our own; the onset payload carries "eng" so the two populations
+    #       stay separable in the decode,
+    # and it only biases the d-pad: no desiredAim, fire, or target-selection
+    # branch is touched anywhere in this lever.
+    if bot.tick >= bot.walkinUntil:
+      # Not dodging: the arming clock only runs outside the response window,
+      # so a retrigger needs a fresh WalkinMinTicks of evidence.
+      if bot.walkinApplied > 0:
+        artEvent(bot.tick, "walkin_dodge_end", %*{
+          "gt": bot.tick - bot.gameStart, "n": bot.walkinApplied})
+        bot.walkinApplied = 0
+      var
+        foe = -1
+        foeAim = -1
+        foeD = float(WalkinRange)
+      if not iCarry and (WalkinNoEngageGate or engage < 0):
+        for i in 0 ..< bot.enemies.len:
+          let t = bot.enemies[i]
+          if t.lastSeen != bot.tick or t.synthetic:
+            continue                  # own-eye sighting only: no sprite, no aim
+          let d = dist(t.pos, me)
+          if d >= foeD or d < 1.0:
+            continue
+          let eAim = client.spriteAimBrads(t.pos, enemyColor)
+          if eAim < 0:
+            continue
+          let cover = WalkinQuantBrads +
+            arcsin(min(1.0, WalkinHitHalfPx / d)) * float(AimBrads div 2) / PI
+          if float(abs(bradsErr(bradsOf(me - t.pos), eAim))) > cover:
+            continue
+          if not client.pixelRayClear(me, t.pos):
+            continue                  # a wall in the corridor: no walk-in
+          foeD = d
+          foeAim = eAim
+          foe = i
+      if foe < 0:
+        bot.walkinTicks = 0
+      else:
+        let p = bot.enemies[foe].pos
+        if bot.walkinTicks > 0 and dist(p, bot.walkinFoe) <= WalkinFoeMatchPx:
+          inc bot.walkinTicks
+        else:
+          bot.walkinTicks = 1         # a different enemy: fresh evidence
+          bot.walkinStartDist = foeD
+        bot.walkinFoe = p
+        let closed = bot.walkinStartDist - foeD
+        if bot.walkinTicks >= WalkinMinTicks and closed >= float(WalkinClosePx):
+          # Exit side: the corridor runs along the enemy's aim, so step
+          # perpendicular to it, toward the side we are ALREADY off-center on
+          # (that edge is nearest) and away from a wall we would hug.
+          let
+            dirE = bradsDir(foeAim)
+            rel = me - p
+          var side =
+            if cross(dirE, rel) >= 0.0: vec(-dirE.y, dirE.x)
+            else: vec(dirE.y, -dirE.x)
+          if not bot.gridRayClear(me, me + side * WalkinProbePx):
+            side = side * -1.0
+          bot.walkinSide = side
+          bot.walkinUntil = bot.tick + WalkinDodgeTicks
+          bot.walkinApplied = 0
+          artEvent(bot.tick, "walkin_dodge", %*{
+            "gt": bot.tick - bot.gameStart,
+            "ti": foe, "ex": int(p.x), "ey": int(p.y),
+            "d": int(foeD),
+            "vr": closed / float(bot.walkinTicks),
+            "eng": (if engage >= 0: 1 else: 0)})
+          bot.walkinTicks = 0
+
   # Grenades (0.7.0): a lobbed 2-hp blast that flies over every wall — the
   # counter to cover-campers the hitscan gun can never reach. Carry one when a
   # corner pickup is a short detour away; spend it on a wall-blocked fresh
@@ -2752,6 +2960,20 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         # no longer leaks our vision, so this is a choice, not a side effect.
         desiredAim = bradsOf(steer)
         deadband = CruiseDeadband
+
+  when defined(walkinDodge):
+    # The walk-in response: for WalkinDodgeTicks after the trigger, bend the
+    # step already chosen by the branch above sideways out of the enemy's
+    # covered corridor instead of continuing straight into it. Movement only,
+    # and last in the priority chain: a carry, a deliberate hold-still (nade
+    # charge, plasma ignition, watch post), the stuck-jink burst and the
+    # grenade flee all keep their own step.
+    if bot.tick < bot.walkinUntil and not iCarry and not mateCarry and
+        not holdStill and moveMask != 0:
+      let base = bitsDir(moveMask)
+      if base.len() > 1e-6:
+        moveMask = octantBits(base + bot.walkinSide * WalkinLateral)
+        inc bot.walkinApplied
 
   # Stuck detection: if we have not moved for a second (and are not holding
   # behind cover on purpose), burst in a random direction and force a repath.
