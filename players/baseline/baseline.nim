@@ -1457,6 +1457,20 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         cy = parseInt(parts[1])
       except ValueError:
         continue
+      when defined(shoutHarden):
+        # Doubles hardening: an ally policy we do not control shares our
+        # shout channel. Drop payloads no teammate of ours can emit —
+        # off-map/negative coordinates (parseInt accepts a sign, and an
+        # injected fix would steer the engage loop, duck selection, and the
+        # HomeDefender chase toward a phantom), and G pickups when the G
+        # handler is compiled out (otherwise G falls through into the
+        # thief-fix branch below and yanks the hunt to a grenade corner).
+        # Both are no-ops in singles: our own mates never emit either.
+        if cx notin 0 .. (MapW div 8) or cy notin 0 .. (MapH div 8):
+          continue
+        when not defined(nadeRelay):
+          if text[0] == 'G':
+            continue
       let p = vec(float(cx * 8 + 4), float(cy * 8 + 4))
       when defined(nadeRelay):
         if text[0] == 'G':
