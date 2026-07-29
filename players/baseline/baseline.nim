@@ -260,22 +260,49 @@ var
     # a hair past a map-width is always inside it. 1250.0 on the default
     # arena — the value this bot always used.
 
-when defined(dangerMem):
+when defined(dangerMem) or defined(dangerDefer):
   const
-    # Teammate-death danger memory: a survivor that SEES a teammate go down
-    # (fog-honest victim-color KO pop / splatter markers) stamps the spot as
-    # recently-lethal ground and the path field routes around it while the
-    # memory decays. Pure route shaping: goals never change, so the bot still
-    # goes everywhere it went — just not through the lane that just killed a
-    # mate (the shooter that owns it rarely leaves within a respawn walk).
+    # Team-death danger memory, SENSING layer (shared by both danger levers):
+    # a survivor that SEES a teammate go down (fog-honest victim-color KO
+    # pop / splatter markers) stamps the spot as recently-lethal ground, and
+    # every bot stamps its OWN death spot on the first dead frame (fog-free
+    # self-knowledge; 32.8% of the measured corner repeat-deaths are the
+    # SAME seat dying twice on the same ground — librarian recut 2026-07-29).
     DangerMergePx = 24.0      # markers of ONE death (pop + splatter + later
                               # stages) merge within this radius
+    DangerTtl = 720           # forget a spot 3 half-lives after last marker
+
+when defined(dangerMem):
+  const
+    # Route-cost response (-d:dangerMem, REFUTED for the addressable
+    # population — kept for the A/B lineage): the path field routes around
+    # stamped ground while the memory decays. Pure route shaping: goals
+    # never change.
     DangerRadius = 64.0       # ground around a death spot that costs extra
     DangerHalfLife = 240      # ticks (~10 s): danger weight halves per this
-    DangerTtl = 720           # forget a spot 3 half-lives after last marker
     DangerCostBase = 24'i32   # path cost at a fresh spot (StepCost=5, so a
                               # fresh kill zone reads ~5 steps of detour)
     DangerCostCap = 48'i32    # per-cell cap when several deaths overlap
+
+when defined(dangerDefer):
+  const
+    # Destination-TIMING response (-d:dangerDefer): when the errand
+    # DESTINATION (grenade corner / shield pad) sits on freshly-lethal
+    # ground, DON'T take the errand this tick — the fallthrough is the
+    # role's pre-existing movement target (station/objective), never idling
+    # (the pdScout fallthrough lesson). The errand re-arms by itself once
+    # the stamp ages out, so the trip is delayed, not dropped.
+    # Both are -d:...=N overridable for the tuner.
+    DangerDeferTicks {.intdefine.} = 480
+                              # defer while the freshest stamp within reach
+                              # is younger than this. 240 covers 39% of the
+                              # measured repeat-death gaps, 480 covers 71%,
+                              # 720 covers 95% but is 30s of suppression
+                              # (starvation hazard) — librarian gap curve.
+    DangerDeferRadiusPx {.intdefine.} = 120
+                              # a stamp within this range of the errand
+                              # destination marks its ground/lane mouth hot
+    DangerDeferRadius = float(DangerDeferRadiusPx)
 
 type
   Team = enum
@@ -376,11 +403,15 @@ type
     helpUntil: int            # tick the help retasking expires
     lastEShout: int           # scout sighting-broadcast rate limit
     lastHShout: int           # help-call rate limit
-    when defined(dangerMem):
-      dangerPos: seq[Vec]     # recent teammate-death spots (marker-observed)
+    when defined(dangerMem) or defined(dangerDefer):
+      dangerPos: seq[Vec]     # recent team-death spots (marker-observed
+                              # teammate deaths + own deaths, fog-honest)
       dangerSeen: seq[int]    # tick each spot's marker was last visible
+    when defined(dangerMem):
       dangerCost: seq[int32]  # per-nav-cell extra path cost, rebuilt with
                               # the cost field from the decayed spots
+    when defined(dangerDefer):
+      deferLogAt: int         # errand_defer telemetry rate limit
 
 proc roleForSeat(seat: int, team: Team): Role =
   ## Deterministic role spread over the 8 per-team seats. Seats 2 and 3 both
@@ -1216,6 +1247,27 @@ proc bestKitDetour(bot: Bot, me, dest: Vec, budget: float): int =
       best = cost
       result = i
 
+when defined(dangerDefer):
+  proc dangerHot(bot: Bot, p: Vec): bool =
+    ## Is the errand destination (or its lane mouth) on freshly-lethal
+    ## ground? True while any danger stamp younger than DangerDeferTicks
+    ## sits within DangerDeferRadius of p.
+    for i in 0 ..< bot.dangerPos.len:
+      if bot.tick - bot.dangerSeen[i] <= DangerDeferTicks and
+          dist(bot.dangerPos[i], p) <= DangerDeferRadius:
+        return true
+    false
+
+  proc logDefer(bot: Bot, p: Vec, kind: string) =
+    ## errand_defer telemetry, rate-limited: the gate holds for whole
+    ## windows (up to DangerDeferTicks), so per-tick events would flood
+    ## events.jsonl without adding information.
+    if bot.tick - bot.deferLogAt >= 48:
+      bot.deferLogAt = bot.tick
+      artEvent(bot.tick, "errand_defer",
+        %*{"x": int(p.x), "y": int(p.y), "kind": kind,
+           "spots": bot.dangerPos.len})
+
 proc resetTransient(bot: Bot) =
   ## Drops per-game memory between rounds (lobby / game-over interstitials).
   bot.enemies.setLen(0)
@@ -1238,6 +1290,11 @@ proc resetTransient(bot: Bot) =
   bot.lastComebackReq = 0
   bot.wasMateCarry = false
   bot.tripping = false
+  when defined(dangerMem) or defined(dangerDefer):
+    bot.dangerPos.setLen(0)
+    bot.dangerSeen.setLen(0)
+  when defined(dangerDefer):
+    bot.deferLogAt = 0
   bot.carrierSeen = -100_000
   bot.lastEnemySeen = bot.tick
   bot.gameStart = bot.tick
@@ -1354,6 +1411,24 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # are ignored, so skip perception entirely.
     bot.firedLast = false
     bot.rotSign = 0
+    when defined(dangerMem) or defined(dangerDefer):
+      if not bot.wasDead:
+        # First dead frame: stamp our OWN death spot. Fog-free
+        # self-knowledge — the bot always knows where it just died, and the
+        # same ground kills the same seat again on the respawn walk-back
+        # (32.8% of the measured corner repeat-deaths are same-seat).
+        var known = false
+        for i in 0 ..< bot.dangerPos.len:
+          if dist(bot.dangerPos[i], bot.lastPos) < DangerMergePx:
+            bot.dangerSeen[i] = bot.tick
+            known = true
+            break
+        if not known:
+          bot.dangerPos.add(bot.lastPos)
+          bot.dangerSeen.add(bot.tick)
+          artEvent(bot.tick, "danger_stamp",
+            %*{"x": int(bot.lastPos.x), "y": int(bot.lastPos.y),
+               "own": 1, "spots": bot.dangerPos.len})
     bot.wasDead = true
     artFrame(FrameSnap(tick: bot.tick, alive: false,
       x: int(bot.lastPos.x), y: int(bot.lastPos.y), hp: 0,
@@ -1493,13 +1568,14 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       if not present:
         bot.kitAbsentAt[i] = bot.tick
 
-  when defined(dangerMem):
+  when defined(dangerMem) or defined(dangerDefer):
     # Teammate-death danger memory. Every death drops two fog-honest markers
     # at the death spot in the VICTIM's color — "damage pop <color> KO
     # stage <s>" (44 ticks) and "splatter <color> stage <s>" (120 ticks) —
     # so a surviving bot that can see a TEAMMATE go down learns, first-hand,
-    # that this ground is currently lethal. Stamp it; the cost field in
-    # computeField then steers routes around it while the memory decays.
+    # that this ground is currently lethal. Stamp it; -d:dangerMem steers
+    # routes around it (computeField cost layer), -d:dangerDefer delays
+    # errands whose destination sits on it.
     # (Non-fatal "hit splat" is the SHOOTER's color and never matches here;
     # our own-color markers from enemy deaths cannot exist — a marker in my
     # color is a teammate's death, or my own, which is equally good ground
@@ -2556,6 +2632,14 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         continue                         # enemy endzone: refuted suicide run
       if dist(me, bot.shieldPos[i]) + dist(bot.shieldPos[i], stealTarget) -
           dist(me, stealTarget) < ShieldStealDetour:
+        when defined(dangerDefer):
+          if bot.dangerHot(bot.shieldPos[i]):
+            # A teammate (or this seat) just died on this pad's ground:
+            # delay the trip. Fallthrough = the role target already in
+            # `target` — the bot keeps playing, the pad re-arms when the
+            # stamp ages out.
+            bot.logDefer(bot.shieldPos[i], "shield")
+            continue
         target = bot.shieldPos[i]
         objMode = "shield_trip"
         break
@@ -2616,6 +2700,14 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
          homeSign(bot.team) * (p.x - float(CenterX)) > 0)
       let reach = if laneMatch: 1e9 else: NadePickupDetour
       if dist(p, me) <= reach:
+        when defined(dangerDefer):
+          if bot.dangerHot(p):
+            # The corner's ground is freshly-lethal: delay the pickup trip.
+            # Fallthrough = the role target already in `target`; the
+            # grenade stays learnable/visible and the trip resumes when
+            # the stamp ages out.
+            bot.logDefer(p, "nade")
+            continue
         when defined(nadeDebug):
           echo "DETOUR to pickup at ", p.x, ",", p.y, " role ", bot.role
         target = p
@@ -2638,6 +2730,10 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
              homeSign(bot.team) * (p.x - float(CenterX)) > 0)
           let reach = if laneMatch: 1e9 else: NadePickupDetour
           if dist(p, me) <= reach:
+            when defined(dangerDefer):
+              if bot.dangerHot(p):
+                bot.logDefer(p, "nade_clock")
+                continue
             target = p
             break
 
