@@ -266,7 +266,18 @@ const
                               # leaves on the clock. Overridable ONLY so local
                               # smoke can reach the fire band inside a short
                               # mirror; league builds never set it.
-  CkStageBand = 250           # estRemaining under this: the victim stages.
+  CkStageBand {.intdefine.} = 450
+                              # estRemaining under this: the victim stages.
+                              # STAGING ONLY — moving into escort position is
+                              # free, so it needs LEAD TIME, not a wider fire
+                              # window. At 250 (== CkFireBand) 6 of 7 wave-1b
+                              # doom instances that reached the fire band had NO
+                              # live mate within CkFFRange at any band tick
+                              # (nearest 142-429 px) and the one staged escort
+                              # that did commit closed 695 -> 212 px and ran out
+                              # of clock. 450 opens the approach ~200 ticks
+                              # earlier, which at the measured 1.0-1.8 px/tick
+                              # is 200-360 px of closing.
   CkFireBand {.intdefine.} = 250
                               # estRemaining under this: the carrier executes.
                               # Fire LATE — the top-up is 500 - remaining, so a
@@ -274,10 +285,11 @@ const
                               # 100 was too late to finish: a SHIELDED carrier
                               # fires at a 42-tick cadence and needs ~126 ticks
                               # for the 3-hit kill plus up to ~23 ticks of
-                              # turret traverse. 250 = CkStageBand, so the
-                              # staging and execution windows align. The cost
-                              # stays priced: floorGameClock re-floors from the
-                              # KILL tick, so an earlier kill buys less clock.
+                              # turret traverse. The cost stays priced:
+                              # floorGameClock re-floors from the KILL tick, so
+                              # an earlier kill buys less clock. Deliberately
+                              # NARROWER than CkStageBand: the escort approaches
+                              # early, the carrier still shoots late.
   CkMaxSuicides = 2           # per-episode cap on confirmed deliberate FF kills
   CkFFRange = 120.0           # victim must be this close to the carrier
   CkVictimStandoff = 34.0     # victim parks this far off the carrier, abeam of
@@ -288,11 +300,40 @@ const
                               # fix IS the victim (well inside the sim's 90px
                               # omnidirectional vision bubble)
   CkGoneTicks = 10            # the victim track missing this long, after we
-                              # have actually pulled the trigger, is the kill
+                              # have landed enough hits to kill, is the kill
+  CkKillShots {.intdefine.} = 3
+                              # trigger pulls a bare gun needs to kill (3 hp,
+                              # 1 hp per hit). The disappearance confirm is
+                              # gated on this, not on ckShots > 0: 3 of the 5
+                              # wave-1b latches were PHANTOM — a LIVE victim
+                              # (hp 1-3, one of them shielded with every hit
+                              # blocked) merely drifted out of the carrier's
+                              # FOV for CkGoneTicks after 1-2 hits. A phantom
+                              # latch is expensive: it floors the clock estimate
+                              # (ckDoomed goes false) and ABANDONS the rescue
+                              # mid-execution.
+  CkPickFresh {.intdefine.} = 2
+                              # victim-track staleness the START selector
+                              # accepts. MUST match the confirm chain's
+                              # freshness test: at 4 the selector re-picked the
+                              # CORPSE of a just-killed mate (3 wave-1b
+                              # occurrences, one of which then shot a SECOND
+                              # live mate) because the confirm treats a 3-tick
+                              # old track as gone while the selector still
+                              # called it a body.
   CkFreshMate = 48            # a mate track this recent counts as a live body
   CkNoFloor = -1_000_000      # ckFloorTick sentinel: no floor event witnessed
-  CkExecTtl = 96              # give up on a victim that never dies and
-                              # re-select rather than aiming at a ghost
+  CkExecTtl {.intdefine.} = 96
+                              # give up on a victim that never dies and
+                              # re-select rather than aiming at a ghost. The
+                              # give-up COUNTS AGAINST CkMaxSuicides whenever
+                              # the trigger was pulled: 9 of 11 real wave-1b FF
+                              # kills landed after this TTL had already elapsed,
+                              # so the confirm never fired, ckSuicides stayed 0
+                              # and two episodes spent 3 and 4 own bodies
+                              # against a cap of 2. An uncertain kill must cost
+                              # a slot; it must NOT floor the clock estimate
+                              # (that would abandon a rescue on a guess).
 
   LaneTop = 40.0              # open corridor above the mirrored obstacles
 
@@ -2750,14 +2791,15 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       # refreshing is GONE — it cannot merely have left our aim cone.
       var fresh = -1
       for i in 0 ..< bot.mates.len:
-        if bot.tick - bot.mates[i].lastSeen <= 2 and
+        if bot.tick - bot.mates[i].lastSeen <= CkPickFresh and
             dist(bot.mates[i].pos, bot.ckVictimPos) < CkVictimR:
           fresh = i
           break
       if fresh >= 0:
         bot.ckVictimPos = bot.mates[fresh].pos     # keep the fix current
         bot.ckVictimSeen = bot.tick
-      elif bot.ckShots > 0 and bot.tick - bot.ckVictimSeen >= CkGoneTicks:
+      elif bot.ckShots >= CkKillShots and
+          bot.tick - bot.ckVictimSeen >= CkGoneTicks:
         bot.ckFiring = false
         bot.ckFloorTick = bot.tick       # the kill re-armed the game clock
         inc bot.ckSuicides
@@ -2772,6 +2814,22 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           flushFile(stdout)
       elif bot.tick - bot.ckFireStart > CkExecTtl:
         bot.ckFiring = false             # lost the victim: re-select
+        if bot.ckShots > 0:
+          # Shots went out and we cannot tell whether they killed. Charge the
+          # attempt to the cap so the episode cannot spend unlimited bodies,
+          # but do NOT floor the clock estimate: an unconfirmed kill that
+          # ratcheted nothing must leave the carry still doomed and still
+          # rescuable.
+          inc bot.ckSuicides
+          artEvent(bot.tick, "ck_ttl", %*{
+            "n": bot.ckSuicides, "waited": bot.tick - bot.ckFireStart,
+            "shots": bot.ckShots,
+            "x": int(bot.ckVictimPos.x), "y": int(bot.ckVictimPos.y)})
+          when defined(ckDebug):
+            echo "CK ttl t=", bot.tick, " slot=", bot.slot,
+              " n=", bot.ckSuicides, " waited=", bot.tick - bot.ckFireStart,
+              " shots=", bot.ckShots
+            flushFile(stdout)
     # Start (or continue) an execution. An ENEMY kill floors the clock just as
     # well and costs us nothing, so only spend a mate when the gun has no enemy
     # target at all — this branch is the last resort, not the first.
@@ -2781,8 +2839,11 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         best = -1
         bestD = CkFFRange
       for i in 0 ..< bot.mates.len:
-        if bot.tick - bot.mates[i].lastSeen > 4:
-          continue                       # only a body we can see right now
+        if bot.tick - bot.mates[i].lastSeen > CkPickFresh:
+          continue                       # only a body we can see right now,
+                                         # on the confirm chain's own freshness
+                                         # test — a track the confirm would
+                                         # call gone is not a victim
         let d = dist(bot.mates[i].pos, me)
         if d < bestD and client.pixelRayClear(me, bot.mates[i].pos):
           bestD = d
@@ -2791,7 +2852,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         if bot.tick mod 12 == 0:
           var nearestMate = 1e9
           for t in bot.mates:
-            if bot.tick - t.lastSeen <= 4:
+            if bot.tick - t.lastSeen <= CkPickFresh:
               nearestMate = min(nearestMate, dist(t.pos, me))
           echo "CK gate t=", bot.tick, " slot=", bot.slot, " rem=", ckRemaining,
             " engage=", engage, " nearestFreshMate=", int(nearestMate),
