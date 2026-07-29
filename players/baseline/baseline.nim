@@ -837,6 +837,66 @@ proc buildNavGrid(bot: Bot, client: ProtocolClient) =
       bot.cellWalkable[cy * GridW + cx] = client.footprintFits(
         cx * NavCell + NavCell div 2, cy * NavCell + NavCell div 2)
   bot.coverCell = newSeq[bool](GridW * GridH)
+  when defined(wallCoverFix):
+    # The flat arena frame is NOT cover: no enemy ever stands beyond the map
+    # edge, so a frame wall pixel shields nothing — yet the old rule marked
+    # every border-hugging cell as cover (the whole frame ring), and
+    # snapToCover parked stations flush against it, staring at fog (pdTopA
+    # blind at (220,20) for 1000+ ticks; pdBotB mirrored at the bottom).
+    # Frame band thickness per edge = the smallest wall run from that edge
+    # over all pixel scan lines; walls ATTACHED to the frame (the castle
+    # door walls) run deeper than the band and stay interior = real cover.
+    var
+      bandT = int.high
+      bandB = int.high
+      bandL = int.high
+      bandR = int.high
+    for x in 0 ..< MapW:
+      var run = 0
+      while run < MapH and not client.walkableAt(x, run):
+        inc run
+      if run < MapH:
+        bandT = min(bandT, run)
+      run = 0
+      while run < MapH and not client.walkableAt(x, MapH - 1 - run):
+        inc run
+      if run < MapH:
+        bandB = min(bandB, run)
+    for y in 0 ..< MapH:
+      var run = 0
+      while run < MapW and not client.walkableAt(run, y):
+        inc run
+      if run < MapW:
+        bandL = min(bandL, run)
+      run = 0
+      while run < MapW and not client.walkableAt(MapW - 1 - run, y):
+        inc run
+      if run < MapW:
+        bandR = min(bandR, run)
+    if bandT == int.high: bandT = 0
+    if bandB == int.high: bandB = 0
+    if bandL == int.high: bandL = 0
+    if bandR == int.high: bandR = 0
+    # A blocked nav cell grants cover only when its footprint box holds an
+    # interior (non-frame) wall pixel — the box is exactly why footprintFits
+    # rejected the cell, so this classifies the blockage, not the geometry
+    # around it.
+    var interiorObs = newSeq[bool](GridW * GridH)
+    for cy in 0 ..< GridH:
+      for cx in 0 ..< GridW:
+        let c = cy * GridW + cx
+        if bot.cellWalkable[c]:
+          continue
+        let
+          px = cx * NavCell + NavCell div 2
+          py = cy * NavCell + NavCell div 2
+        block scanBox:
+          for yy in max(0, py - PlayerHalf) .. min(MapH - 1, py + PlayerHalf):
+            for xx in max(0, px - PlayerHalf) .. min(MapW - 1, px + PlayerHalf):
+              if not client.walkableAt(xx, yy) and yy >= bandT and
+                  yy < MapH - bandB and xx >= bandL and xx < MapW - bandR:
+                interiorObs[c] = true
+                break scanBox
   for cy in 0 ..< GridH:
     for cx in 0 ..< GridW:
       let c = cy * GridW + cx
@@ -853,6 +913,9 @@ proc buildNavGrid(bot: Bot, client: ProtocolClient) =
             if nx < 0 or ny < 0 or nx >= GridW or ny >= GridH:
               continue
             if not bot.cellWalkable[ny * GridW + nx]:
+              when defined(wallCoverFix):
+                if not interiorObs[ny * GridW + nx]:
+                  continue
               bot.coverCell[c] = true
               break adjacency
   bot.exposure = newSeq[bool](GridW * GridH)
@@ -2085,9 +2148,27 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
              else: LaneMid)
            front = max(bot.siegeFront, HoldFrontCap) - 20.0
        let lead = pd in {pdTopA, pdMidA, pdBotA}
-       target = bot.snapToCover(vec(
-         ownEdgeX + dirX * (if lead: front else: front - 44.0),
-         laneY2 + (if lead: -32.0 else: 32.0)))
+       when defined(wallCoverFix):
+         # Flank-aware stagger: the outer lanes stagger BOTH seats toward
+         # mid. The old lead-up/trail-down rule put pdTopA's pre-snap point
+         # 14 px from the top frame (and pdBotB's near the bottom), where
+         # the frame-as-cover snap parked it blind at the wall (operator
+         # bug, R1867 E.42). The cover fix alone is not enough: measured
+         # offline, the -32 lead still lands in the sightless top band
+         # (station (260,36), zero view of the castle door), while +32
+         # stations it at the door mouth (260,100) watching the only
+         # top-lane entry.
+         let stag = (case phalanxLaneNo(pd)
+           of 1: 32.0
+           of 3: -32.0
+           else: (if lead: -32.0 else: 32.0))
+         target = bot.snapToCover(vec(
+           ownEdgeX + dirX * (if lead: front else: front - 44.0),
+           laneY2 + stag))
+       else:
+         target = bot.snapToCover(vec(
+           ownEdgeX + dirX * (if lead: front else: front - 44.0),
+           laneY2 + (if lead: -32.0 else: 32.0)))
   elif bot.role == HomeDefender and not pushOut:
     # Hold the choke on our pedestal approach; break off to chase the nearest
     # intruder on our half (every steal has to come through here).
