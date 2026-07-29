@@ -1265,6 +1265,12 @@ proc friendlyBlocked(bot: Bot, me, aim: Vec, enemyDist: float): bool =
   false
 
 when defined(killLedger):
+  const KillLedgerNSyncFrom {.intdefine.} = 3000
+    ## Game-relative tick the periodic N-sync estimate broadcast starts.
+    ## Default well before the 3400 late window the trigger consumer cares
+    ## about; local smokes override it (-d:KillLedgerNSyncFrom=600) to
+    ## exercise the mechanism in short games.
+
   proc ledgerAdd(bot: Bot, t, x: int): bool =
     ## Insert a witnessed-kill id into the ledger unless a neighbor already
     ## covers it. Ids are (estimated death tick, death-spot x); the same kill
@@ -1832,7 +1838,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           bot.shoutWant = bot.killShoutQ[0]
           bot.killShoutQ.delete(0)
           bot.lastShoutTick = bot.tick
-        elif bot.tick - bot.gameStart >= 3000 and
+        elif bot.tick - bot.gameStart >= KillLedgerNSyncFrom and
             bot.tick - bot.lastNShout >= 240 and bot.killEstimate() > 0:
           # Late-game N-sync: periodically re-broadcast the running estimate
           # so seats that were dead (or out of every relay bubble) during a
