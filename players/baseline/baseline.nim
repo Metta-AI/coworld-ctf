@@ -273,6 +273,25 @@ var
     # a hair past a map-width is always inside it. 1250.0 on the default
     # arena — the value this bot always used.
 
+when defined(hudRushRelease):
+  const
+    HrrDeaths {.intdefine.} = 9   # -d:hudRushRelease: OWN-team cumulative
+                                  # deaths on the team-score HUD ledger that
+                                  # marks an 8-seat home rush in progress
+                                  # (G0: fires in 9/10 rush losses, 0/2 rush
+                                  # wins, 0/88 controls inside the window).
+    HrrWindow {.intdefine.} = 1000  # ...and only while this early: a normal
+                                  # game reaches this body count much later
+                                  # (first control fire gt1050), so the early
+                                  # deadline is what makes the trigger
+                                  # rush-specific. Latches for the episode.
+    HrrRunnerSeat {.intdefine.} = 6 # ...the ONE seat released: seat 6 is
+                                  # FlankTop on both sides (roleForSeat), the
+                                  # wide top lane runner. Every other seat
+                                  # keeps normal behavior, so the release
+                                  # needs no comms — each bot reads the same
+                                  # un-fogged HUD.
+
 type
   Team = enum
     Red, Blue
@@ -374,6 +393,10 @@ type
     lastHShout: int           # help-call rate limit
     ledgerAhead: bool         # -d:ledgerHold: latched "clearly ahead on the
                               # body ledger" state, from the team-score HUD
+    when defined(hudRushRelease):
+      rushRelease: bool       # -d:hudRushRelease: latched "our own deaths hit
+                              # HrrDeaths before HrrWindow" state, from the
+                              # same team-score HUD ledger
 
 proc roleForSeat(seat: int, team: Team): Role =
   ## Deterministic role spread over the 8 per-team seats. Seats 2 and 3 both
@@ -1213,6 +1236,8 @@ proc resetTransient(bot: Bot) =
   bot.behindLines = false
   bot.navGoal = -1
   bot.ledgerAhead = false
+  when defined(hudRushRelease):
+    bot.rushRelease = false
 
 proc scanAim(bot: Bot, watch: Vec): int =
   ## The scan-sweep aim while holding a position: rake the vision cone back
@@ -1432,7 +1457,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           discard
       break
 
-  when defined(ledgerHold):
+  when defined(ledgerHold) or defined(hudRushRelease):
     # Body ledger from the top-center "team score RED <kills>/<deaths>" /
     # "team score BLUE <kills>/<deaths>" HUD sprites: exact, un-fogged,
     # cumulative for BOTH teams (deaths count every cause, so the deaths
@@ -1456,17 +1481,30 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
                 theirDeaths = deaths
             except ValueError:
               discard
-      if ourDeaths >= 0 and theirDeaths >= 0:
-        let bodyNet = theirDeaths - ourDeaths
-        if bodyNet >= LedgerHoldLead:
-          bot.ledgerAhead = true
-        elif bodyNet <= LedgerReleaseLead:
-          bot.ledgerAhead = false
-        when defined(ledgerDebug):
-          if bot.tick mod 96 == 0:
-            echo "LEDGER slot=", bot.slot, " tick=", bot.tick,
-              " ourDeaths=", ourDeaths, " theirDeaths=", theirDeaths,
-              " net=", theirDeaths - ourDeaths, " latch=", bot.ledgerAhead
+      when defined(ledgerHold):
+        if ourDeaths >= 0 and theirDeaths >= 0:
+          let bodyNet = theirDeaths - ourDeaths
+          if bodyNet >= LedgerHoldLead:
+            bot.ledgerAhead = true
+          elif bodyNet <= LedgerReleaseLead:
+            bot.ledgerAhead = false
+          when defined(ledgerDebug):
+            if bot.tick mod 96 == 0:
+              echo "LEDGER slot=", bot.slot, " tick=", bot.tick,
+                " ourDeaths=", ourDeaths, " theirDeaths=", theirDeaths,
+                " net=", theirDeaths - ourDeaths, " latch=", bot.ledgerAhead
+      when defined(hudRushRelease):
+        # Rush tell: OUR OWN cumulative deaths hitting HrrDeaths this early is
+        # an 8-seat rush wiping us at home, not normal attrition. Latch for the
+        # rest of the episode (a wipe cannot be un-happened) and release the
+        # runner seat below. Only our own half of the ledger is needed, so a
+        # missing enemy sprite does not block the trigger.
+        if not bot.rushRelease and ourDeaths >= HrrDeaths and
+            bot.tick - bot.gameStart <= HrrWindow:
+          bot.rushRelease = true
+          if clamp(bot.slot div 2, 0, 7) == HrrRunnerSeat:
+            artEvent(bot.tick, "hud_rush_release",
+              %*{"deaths": ourDeaths, "gt": bot.tick - bot.gameStart})
 
   # Med kits: learn the two center-line spots on sight; presence is
   # fog-gated, so an empty spot only counts as TAKEN when we pass close
@@ -1934,6 +1972,18 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       if ledgerHeld and bot.tick mod 96 == 0:
         echo "LEDGERHOLD slot=", bot.slot, " tick=", bot.tick,
           " holding post (latch on, gt=", bot.tick - bot.gameStart, ")"
+  when defined(hudRushRelease):
+    # HUD rush release (mirror of the ledgerHold gate, inverted: that one HELD
+    # seats back, this RELEASES one). The rush wipes the whole team at home, so
+    # the seat that survives it is the one that is not there: from the latch on,
+    # the runner seat plays the late-push presser for the rest of the episode —
+    # cross, steal, exfil on the existing carry logic, no new pathing. The
+    # enemy flag is unguarded while his 8 seats are in our pocket. Every other
+    # seat is untouched, and the release still yields to our own flag being out
+    # (pushOut's own precondition), so flag recovery is unchanged.
+    if bot.rushRelease and not pushOut and not ownStolen and
+        clamp(bot.slot div 2, 0, 7) == HrrRunnerSeat:
+      pushOut = true
   when defined(v57Debug):
     if pushOut and (bot.everStoleTheirs or bot.everLostOurs) and
         bot.tick - bot.gameStart in StalemateTick .. LatePushTick and
