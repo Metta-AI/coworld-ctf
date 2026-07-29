@@ -237,6 +237,7 @@ const
   FlankDepth = 260.0          # wide flankers cross this far past mid
   WeaveBand = 280.0           # rushers serpentine within this x-band of mid
 
+
   LaneTop = 40.0              # open corridor above the mirrored obstacles
 
 ## Map dimensions, adopted at nav-grid build from the walkability sprite
@@ -258,6 +259,23 @@ var
     # width (1300 on the 1235px arena, 1690 on the 1606px arena-large), so
     # a hair past a map-width is always inside it. 1250.0 on the default
     # arena — the value this bot always used.
+
+when defined(dangerMem):
+  const
+    # Teammate-death danger memory: a survivor that SEES a teammate go down
+    # (fog-honest victim-color KO pop / splatter markers) stamps the spot as
+    # recently-lethal ground and the path field routes around it while the
+    # memory decays. Pure route shaping: goals never change, so the bot still
+    # goes everywhere it went — just not through the lane that just killed a
+    # mate (the shooter that owns it rarely leaves within a respawn walk).
+    DangerMergePx = 24.0      # markers of ONE death (pop + splatter + later
+                              # stages) merge within this radius
+    DangerRadius = 64.0       # ground around a death spot that costs extra
+    DangerHalfLife = 240      # ticks (~10 s): danger weight halves per this
+    DangerTtl = 720           # forget a spot 3 half-lives after last marker
+    DangerCostBase = 24'i32   # path cost at a fresh spot (StepCost=5, so a
+                              # fresh kill zone reads ~5 steps of detour)
+    DangerCostCap = 48'i32    # per-cell cap when several deaths overlap
 
 type
   Team = enum
@@ -358,6 +376,11 @@ type
     helpUntil: int            # tick the help retasking expires
     lastEShout: int           # scout sighting-broadcast rate limit
     lastHShout: int           # help-call rate limit
+    when defined(dangerMem):
+      dangerPos: seq[Vec]     # recent teammate-death spots (marker-observed)
+      dangerSeen: seq[int]    # tick each spot's marker was last visible
+      dangerCost: seq[int32]  # per-nav-cell extra path cost, rebuilt with
+                              # the cost field from the decayed spots
 
 proc roleForSeat(seat: int, team: Team): Role =
   ## Deterministic role spread over the 8 per-team seats. Seats 2 and 3 both
@@ -857,6 +880,8 @@ proc buildNavGrid(bot: Bot, client: ProtocolClient) =
               break adjacency
   bot.exposure = newSeq[bool](GridW * GridH)
   bot.navDist = newSeq[int32](GridW * GridH)
+  when defined(dangerMem):
+    bot.dangerCost = newSeq[int32](GridW * GridH)
   bot.navGoal = -1
   bot.pickPost(client)
   bot.findEnemyPosts(client)
@@ -904,6 +929,33 @@ proc computeField(bot: Bot, client: ProtocolClient, goal: int) =
   ## paths prefer segments that keep obstacles between us and known enemies.
   ## Diagonal steps require both orthogonal neighbors open (no corner cuts).
   bot.rebuildExposure(client)
+  when defined(dangerMem):
+    # Repaint the danger layer from the decayed teammate-death spots. The
+    # weight halves per DangerHalfLife since the marker was last seen, so a
+    # fresh kill zone costs a real detour and a stale one fades back to free
+    # ground instead of permanently walling off part of the map.
+    for i in 0 ..< bot.dangerCost.len:
+      bot.dangerCost[i] = 0
+    for s in 0 ..< bot.dangerPos.len:
+      let age = bot.tick - bot.dangerSeen[s]
+      if age > DangerTtl:
+        continue
+      let w = DangerCostBase shr int32(age div DangerHalfLife)
+      if w <= 0:
+        continue
+      let
+        spot = bot.dangerPos[s]
+        x0 = max(0, int(spot.x - DangerRadius) div NavCell)
+        x1 = min(GridW - 1, int(spot.x + DangerRadius) div NavCell)
+        y0 = max(0, int(spot.y - DangerRadius) div NavCell)
+        y1 = min(GridH - 1, int(spot.y + DangerRadius) div NavCell)
+      for cy in y0 .. y1:
+        for cx in x0 .. x1:
+          let c = cy * GridW + cx
+          if not bot.cellWalkable[c]:
+            continue
+          if dist(cellCenter(c), spot) <= DangerRadius:
+            bot.dangerCost[c] = min(DangerCostCap, bot.dangerCost[c] + w)
   for i in 0 ..< bot.navDist.len:
     bot.navDist[i] = -1
   var heap = initHeapQueue[(int32, int32)]()
@@ -934,6 +986,8 @@ proc computeField(bot: Bot, client: ProtocolClient, goal: int) =
       var step = (if dx != 0 and dy != 0: DiagCost else: StepCost)
       if bot.exposure[nc]:
         step += ExposedCost
+      when defined(dangerMem):
+        step += bot.dangerCost[nc]
       let nd = bot.navDist[cur] + step
       if bot.navDist[nc] < 0 or nd < bot.navDist[nc]:
         bot.navDist[nc] = nd
@@ -1438,6 +1492,47 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           present = true
       if not present:
         bot.kitAbsentAt[i] = bot.tick
+
+  when defined(dangerMem):
+    # Teammate-death danger memory. Every death drops two fog-honest markers
+    # at the death spot in the VICTIM's color — "damage pop <color> KO
+    # stage <s>" (44 ticks) and "splatter <color> stage <s>" (120 ticks) —
+    # so a surviving bot that can see a TEAMMATE go down learns, first-hand,
+    # that this ground is currently lethal. Stamp it; the cost field in
+    # computeField then steers routes around it while the memory decays.
+    # (Non-fatal "hit splat" is the SHOOTER's color and never matches here;
+    # our own-color markers from enemy deaths cannot exist — a marker in my
+    # color is a teammate's death, or my own, which is equally good ground
+    # to avoid on the respawn walk-back.)
+    var deathSeen: seq[Vec]
+    for o in client.spriteObjects():
+      if o.label.startsWith("damage pop " & myColor & " KO") or
+          o.label.startsWith("splatter " & myColor):
+        # spriteObjects() yields plain tuples; center them the same way
+        # mapPos does for SpriteObjectInfo.
+        deathSeen.add(vec(
+          float(o.x + o.width div 2 + client.mapCameraX),
+          float(o.y + o.height div 2 + client.mapCameraY)))
+    for p in deathSeen:
+      var known = false
+      for i in 0 ..< bot.dangerPos.len:
+        if dist(bot.dangerPos[i], p) < DangerMergePx:
+          bot.dangerSeen[i] = bot.tick   # marker still visible: hold decay
+          known = true
+          break
+      if not known:
+        bot.dangerPos.add(p)
+        bot.dangerSeen.add(bot.tick)
+        artEvent(bot.tick, "danger_stamp",
+          %*{"x": int(p.x), "y": int(p.y), "spots": bot.dangerPos.len})
+    # Forget spots past the sweep window so the list stays a handful.
+    var di = 0
+    while di < bot.dangerPos.len:
+      if bot.tick - bot.dangerSeen[di] > DangerTtl:
+        bot.dangerPos.delete(di)
+        bot.dangerSeen.delete(di)
+      else:
+        inc di
 
   when defined(taunt):
     # Taunt pipeline, all non-blocking: drain whatever the Bedrock worker
