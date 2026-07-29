@@ -237,6 +237,45 @@ const
   FlankDepth = 260.0          # wide flankers cross this far past mid
   WeaveBand = 280.0           # rushers serpentine within this x-band of mid
 
+  # -d:carryClockKeep — GV23 buzzer-short rescue. sim.nim floorGameClock()
+  # (called from killPlayer AND tryPickupFlags) guarantees >=500 ticks remain
+  # after ANY death or ANY heart steal, so a kill re-arms the clock on demand.
+  # When our carry is doomed — the remaining clock cannot fund the run to the
+  # capture strip — the whole team stops treating the buzzer as fixed: escorts
+  # drop their engage cap (any enemy kill floors the clock for free) and, as a
+  # last resort, the CARRIER shoots a non-carrying escort. Killing our own
+  # carrier is illegal (the flag resets home), so the victim is always a mate.
+  CkNaiveCap {.intdefine.} = 5000
+                              # naive buzzer: config maxTicks. Overridden ONLY
+                              # for local smoke (-d:ckNaiveCap=1500), where
+                              # league-paced mirrors end by capture at
+                              # t~2000-2700 and the real 5000 window never
+                              # occurs.
+  CkMinGt = CkNaiveCap - 1000 # hard outer fence: the lever can never touch
+                              # normal play, only the last ~1000 ticks of the
+                              # naive cap (4000 at the shipped cap).
+  CkCarrySpeedDeci = 21       # doom predicate carry speed, 2.1 px/tick
+                              # (deci-px per tick; optimistic = conservative:
+                              # an over-estimated speed under-calls doom).
+  CkFloorTicks = 500          # sim ActionClockFloorTicks: what a kill/steal
+                              # leaves on the clock.
+  CkStageBand = 250           # estRemaining under this: the victim stages.
+  CkFireBand = 100            # estRemaining under this: the carrier executes.
+                              # Fire LATE — the top-up is 500 - remaining, so a
+                              # kill while >500t remain is a pure no-op.
+  CkMaxSuicides = 2           # per-episode cap on confirmed deliberate FF kills
+  CkFFRange = 120.0           # victim must be this close to the carrier
+  CkVictimStandoff = 34.0     # victim parks this far off the carrier, abeam of
+                              # the run line (never in the carrier's path)
+  CkCaptureHalf = 20.0        # sim CaptureZoneWidth div 2: the capture strip
+                              # reaches this far in front of the home x anchor
+  CkKoRadius = 44.0           # a KO pop / splatter this close to the victim's
+                              # last fix confirms the FF kill
+  CkFreshMate = 48            # a mate track this recent counts as a live body
+  CkNoFloor = -1_000_000      # ckFloorTick sentinel: no floor event witnessed
+  CkExecTtl = 96              # give up on a victim that never dies and
+                              # re-select rather than aiming at a ghost
+
   LaneTop = 40.0              # open corridor above the mirrored obstacles
 
 ## Map dimensions, adopted at nav-grid build from the walkability sprite
@@ -358,6 +397,16 @@ type
     helpUntil: int            # tick the help retasking expires
     lastEShout: int           # scout sighting-broadcast rate limit
     lastHShout: int           # help-call rate limit
+    when defined(carryClockKeep):
+      ckFloorTick: int        # tick of the last WITNESSED clock-floor event
+                              # (our steal, their steal, our confirmed FF kill);
+                              # CkNoFloor = none seen yet
+      ckSuicides: int         # confirmed deliberate FF kills this episode
+      ckWasCarry: bool        # rising-edge detector for (iCarry or mateCarry)
+      ckWasStolen: bool       # rising-edge detector for ownStolen
+      ckFiring: bool          # an execution is in flight, awaiting confirmation
+      ckVictimPos: Vec        # last fix on the victim being executed
+      ckFireStart: int        # tick the current execution started
 
 proc roleForSeat(seat: int, team: Team): Role =
   ## Deterministic role spread over the 8 per-team seats. Seats 2 and 3 both
@@ -1196,6 +1245,13 @@ proc resetTransient(bot: Bot) =
   bot.jinkUntil = 0
   bot.behindLines = false
   bot.navGoal = -1
+  when defined(carryClockKeep):
+    bot.ckFloorTick = CkNoFloor
+    bot.ckSuicides = 0
+    bot.ckWasCarry = false
+    bot.ckWasStolen = false
+    bot.ckFiring = false
+    bot.ckFireStart = 0
 
 proc scanAim(bot: Bot, watch: Vec): int =
   ## The scan-sweep aim while holding a position: rake the vision cone back
@@ -1263,6 +1319,26 @@ proc safestLaneY(bot: Bot, me: Vec): float =
       bestScore = score
       bestLane = lane
   bestLane
+
+when defined(carryClockKeep):
+  proc ckCaptureLineX(team: Team): float =
+    ## The far edge of our home capture strip: the x a carrier must reach for
+    ## the capture to register. The sim's capture zone is CaptureZoneWidth wide,
+    ## centred on the team's home x anchor — which is exactly flagHome().x here
+    ## (both derive from center.x +- center.x * 7 div 10).
+    flagHome(team).x - homeSign(team) * CkCaptureHalf
+
+  proc ckEstRemaining(bot: Bot): int =
+    ## Ticks of clock we believe are left. The TRUE remaining is unreadable
+    ## once overtime accrues (the sim keeps ratcheting effectiveMaxTicks with
+    ## every kill and steal, and none of that reaches the player view), so the
+    ## estimate is the max of the naive buzzer and whatever the last WITNESSED
+    ## floor event guaranteed. Both terms are per-seat observables. Missing an
+    ## unwitnessed enemy kill only makes the estimate pessimistic, which costs
+    ## at most one redundant friendly kill (bounded by CkMaxSuicides).
+    result = CkNaiveCap - (bot.tick - bot.gameStart)
+    if bot.ckFloorTick != CkNoFloor:
+      result = max(result, CkFloorTicks - (bot.tick - bot.ckFloorTick))
 
 proc friendlyBlocked(bot: Bot, me, aim: Vec, enemyDist: float): bool =
   ## True when a remembered teammate could eat the shot: the bullet is a
@@ -1659,6 +1735,59 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     let phalanxOn = true
   else:
     let phalanxOn = false
+  # -d:carryClockKeep: is this carry DOOMED? GV23's floorGameClock() runs on
+  # every death and every heart steal and guarantees >=CkFloorTicks remain, so
+  # a kill is a clock top-up we can trigger on demand. Track the floor events a
+  # seat can actually witness, estimate the clock from them, and compare what
+  # is left against the run still owed to the capture strip.
+  when defined(carryClockKeep):
+    let ckCarrying = iCarry or mateCarry
+    if ckCarrying and not bot.ckWasCarry:
+      bot.ckFloorTick = bot.tick         # our steal floored the clock
+    if ownStolen and not bot.ckWasStolen:
+      bot.ckFloorTick = bot.tick         # so did theirs
+    bot.ckWasCarry = ckCarrying
+    bot.ckWasStolen = ownStolen
+    let
+      ckRemaining = bot.ckEstRemaining()
+      ckCarrierPos = (if iCarry: me else: mateCarryPos)
+      ckToLine = max(0.0, homeSign(bot.team) *
+        (ckCaptureLineX(bot.team) - ckCarrierPos.x))
+    # Bodies: the carrier plus at least one other live body, or there is no
+    # legal friendly-fire pairing at all (killing our own carrier resets the
+    # flag home). A non-carrier seat counts itself; the carrier counts fresh
+    # mate tracks that are not the carry marker itself.
+    var ckBodies = (if iCarry: 0 else: 1)
+    for t in bot.mates:
+      if bot.tick - t.lastSeen <= CkFreshMate and
+          dist(t.pos, ckCarrierPos) > CarrySelfRadius:
+        inc ckBodies
+    let ckDoomed = ckCarrying and ckBodies >= 1 and
+      bot.tick - bot.gameStart > CkMinGt and
+      ckRemaining * CkCarrySpeedDeci < int(ckToLine * 10.0)
+    # Victim staging: exactly one non-carrier — the one that believes itself
+    # nearest the carrier — walks in. Everyone else keeps escorting.
+    var ckVictim = false
+    if ckDoomed and not iCarry and ckRemaining < CkStageBand:
+      let dMe = dist(me, ckCarrierPos)
+      var nearest = true
+      for t in bot.mates:
+        if bot.tick - t.lastSeen > CkFreshMate:
+          continue
+        if dist(t.pos, ckCarrierPos) <= CarrySelfRadius:
+          continue                       # that track IS the carrier
+        if dist(t.pos, ckCarrierPos) < dMe:
+          nearest = false
+          break
+      ckVictim = nearest
+    when defined(ckDebug):
+      if ckCarrying and bot.tick mod 24 == 0:
+        echo "CK t=", bot.tick, " slot=", bot.slot, " iCarry=", iCarry,
+          " gt=", bot.tick - bot.gameStart, " rem=", ckRemaining,
+          " toLine=", int(ckToLine), " bodies=", ckBodies,
+          " doomed=", ckDoomed, " victim=", ckVictim,
+          " sui=", bot.ckSuicides
+        flushFile(stdout)
   var sawThief = false
   if ownPlanted.len > 0:
     bot.carrierSeen = -100_000           # our flag is safely home
@@ -1996,6 +2125,18 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         target = mateCarryPos + vec(homeSign(bot.team) * 40.0, -24.0)
       else:
         target = bot.chokeHold
+    when defined(carryClockKeep):
+      if ckVictim:
+        # Stage as the clock-ratchet victim: park abeam of the carrier's run
+        # line, CkVictimStandoff off it. Inside the sim's 90px omnidirectional
+        # vision bubble the carrier sees us whatever its aim is doing, and
+        # abeam means we are never in the carrier's path and never overlapping.
+        objMode = "ck_victim"
+        let side = (if me.y >= ckCarrierPos.y: 1.0 else: -1.0)
+        target = vec(
+          clamp(ckCarrierPos.x, 20.0, float(MapW - 20)),
+          clamp(ckCarrierPos.y + side * CkVictimStandoff, 20.0,
+                float(MapH - 20)))
   elif phalanxOn and not pushOut:
    when defined(zonePhalanx):
      # Zone phalanx: shield scout spots forward and relays sightings, three
@@ -2198,7 +2339,15 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       # A live fix on the enemy running our flag lifts every role's range
       # cap: the map-wide gun is the fastest flag return there is.
     elif rushing: RushEngageRange
-    elif mateCarry: EscortEngageRange
+    elif mateCarry:
+      when defined(carryClockKeep):
+        # A doomed carry inverts the escort's engage discipline: an enemy kill
+        # anywhere floors the game clock exactly like a friendly one, at zero
+        # cost, so take every shot the map-wide gun offers before the carrier
+        # has to spend one of us.
+        (if ckDoomed: FireRange else: EscortEngageRange)
+      else:
+        EscortEngageRange
     else: FireRange
   # Focus-fire intel: which remembered enemies sit on a visible mate's aim
   # line right now. A mate's rendered aim dots are an absolute readback of
@@ -2562,6 +2711,71 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           nadeDangerFrom = p
           break nadeDangerScan
 
+  # -d:carryClockKeep: the carrier's last-resort clock top-up. Confirm any
+  # execution already in flight first, then decide whether to start one.
+  when defined(carryClockKeep):
+    var
+      ckExecute = false
+      ckVictimD = 0.0
+    if bot.ckFiring:
+      # Kill confirmation: killPlayer drops a fog-honest KO pop and splatter
+      # at the death spot in the VICTIM's colour (ours here). A marker on the
+      # victim's last fix with no live mate track left there is the kill.
+      var mateStillThere = false
+      for t in bot.mates:
+        if bot.tick - t.lastSeen <= 4 and
+            dist(t.pos, bot.ckVictimPos) < CkKoRadius:
+          mateStillThere = true
+          break
+      var koSeen = false
+      block koScan:
+        for lbl in ["damage pop " & myColor & " KO stage 0",
+                    "damage pop " & myColor & " KO stage 1",
+                    "splatter " & myColor & " stage 0"]:
+          for o in client.spriteObjectsWithLabel(lbl):
+            if dist(client.mapPos(o), bot.ckVictimPos) <= CkKoRadius:
+              koSeen = true
+              break koScan
+      if koSeen and not mateStillThere:
+        bot.ckFiring = false
+        bot.ckFloorTick = bot.tick       # the kill re-armed the game clock
+        inc bot.ckSuicides
+        artEvent(bot.tick, "ck_kill", %*{
+          "n": bot.ckSuicides, "waited": bot.tick - bot.ckFireStart,
+          "x": int(bot.ckVictimPos.x), "y": int(bot.ckVictimPos.y)})
+        when defined(ckDebug):
+          echo "CK kill t=", bot.tick, " slot=", bot.slot,
+            " n=", bot.ckSuicides, " waited=", bot.tick - bot.ckFireStart
+          flushFile(stdout)
+      elif bot.tick - bot.ckFireStart > CkExecTtl:
+        bot.ckFiring = false             # lost the victim: re-select
+    # Start (or continue) an execution. An ENEMY kill floors the clock just as
+    # well and costs us nothing, so only spend a mate when the gun has no enemy
+    # target at all — this branch is the last resort, not the first.
+    if iCarry and ckDoomed and ckRemaining < CkFireBand and
+        bot.ckSuicides < CkMaxSuicides and engage < 0:
+      var
+        best = -1
+        bestD = CkFFRange
+      for i in 0 ..< bot.mates.len:
+        if bot.tick - bot.mates[i].lastSeen > 4:
+          continue                       # only a body we can see right now
+        let d = dist(bot.mates[i].pos, me)
+        if d < bestD and client.pixelRayClear(me, bot.mates[i].pos):
+          bestD = d
+          best = i
+      if best >= 0:
+        if not bot.ckFiring:
+          bot.ckFireStart = bot.tick
+          artEvent(bot.tick, "ck_execute", %*{
+            "rem": ckRemaining, "toLine": int(ckToLine), "d": int(bestD)})
+        bot.ckFiring = true
+        bot.ckVictimPos = bot.mates[best].pos
+        ckVictimD = bestD
+        ckExecute = true
+  else:
+    const ckExecute = false
+
   # Turret + locomotion, decided together but on separate buttons: moveMask
   # is the d-pad, desiredAim feeds the rotate buttons, wantFire pulls A.
   var
@@ -2592,6 +2806,36 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         bot.nadeCharge = 0           # release this tick = the throw
     holdStill = true
     acted = true
+  elif ckExecute:
+    when defined(carryClockKeep):
+      # Deliberate friendly fire on a NON-CARRYING escort. There is no lives
+      # tiebreak and a timeout draw already scores -1 for everyone, so an
+      # escort life at the buzzer is worth nothing — trading it for
+      # CkFloorTicks of fresh clock is the only way a doomed carry converts.
+      # Bypasses friendlyBlocked by design (that gate exists to protect mates
+      # from accidental hits; here the mate IS the target) and needs no enemy
+      # engage target. Keep running the carry route while the turret works.
+      actMode = "ck_execute"
+      objMode = "ck_execute"
+      desiredAim = bradsOf(bot.ckVictimPos - me)
+      let err = abs(bradsErr(desiredAim, bot.estAim))
+      if hasPlasma:
+        if ckVictimD <= PlasmaReach - 6.0 and err <= PlasmaHalfBrads + 3:
+          wantFire = true
+      elif shotReady:
+        let perpMiss = ckVictimD * sin(float(err) * PI / float(AimBrads div 2))
+        wantFire = perpMiss <= FireSlackPx
+      # else: a shielded carrier has no gun icon for the whole life. Telemetry
+      # shows ck_execute with no shot rather than us fighting the shield rule.
+      moveMask = octantBits(bot.navSteer(client, me, target))
+      acted = true
+      when defined(ckDebug):
+        echo "CK exec t=", bot.tick, " slot=", bot.slot, " rem=", ckRemaining,
+          " d=", int(ckVictimD), " err=", err, " fire=", wantFire,
+          " plasma=", hasPlasma, " ready=", shotReady
+        flushFile(stdout)
+    else:
+      discard
   elif hasPlasma and engage >= 0:
     actMode = "plasma"
     # Plasma cone: ignition is INSTANT (no windup, no aim lock), reaches 4
