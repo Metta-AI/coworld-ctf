@@ -1287,6 +1287,18 @@ proc friendlyBlocked(bot: Bot, me, aim: Vec, enemyDist: float): bool =
       return true
   false
 
+when defined(ringProbe):
+  # TEST-ONLY instrumentation (Gate A, Asana 1216993943787794): count and log
+  # every "shot impact" sound-ring object present in this bot's OWN sprite
+  # stream each alive tick. Read-only observation; no behavior change. The
+  # define must never ship.
+  import std/times
+  var
+    rpScanTicks = 0        # alive ticks scanned
+    rpRingTicks = 0        # alive ticks with >=1 ring present
+    rpRingsTotal = 0       # ring-observations (ring x tick)
+    rpScanSecs = 0.0       # cumulative wall time of the label scans
+
 proc decide(bot: Bot, client: ProtocolClient): uint8 =
   ## Core CTF policy for one frame.
   when defined(statue):
@@ -1309,6 +1321,26 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # Respawned: the server points the aim back at the enemy side.
     bot.wasDead = false
     bot.estAim = spawnAim(bot.team)
+  when defined(ringProbe):
+    block ringProbe:
+      let rpT0 = epochTime()
+      let rings = client.spriteObjectsWithLabel("shot impact")
+      rpScanSecs += epochTime() - rpT0
+      inc rpScanTicks
+      if rings.len > 0:
+        inc rpRingTicks
+        rpRingsTotal += rings.len
+        var line = "RINGP t=" & $bot.tick &
+          " me=" & $int(me.x) & "," & $int(me.y) & " n=" & $rings.len
+        for o in rings:
+          let c = client.mapPos(o)
+          line.add(" r=" & $(o.objectId) & ":" & $int(c.x) & ":" & $int(c.y))
+        stderr.writeLine(line)
+      if rpScanTicks mod 500 == 0:
+        stderr.writeLine("RINGC t=" & $bot.tick &
+          " scans=" & $rpScanTicks & " ringTicks=" & $rpRingTicks &
+          " rings=" & $rpRingsTotal &
+          " scanSecs=" & rpScanSecs.formatFloat(ffDecimal, 6))
   # Absolute turret fix: read our actual aim back from our own rendered
   # avatar every frame, capping any dead-reckoning drift (mask-apply races).
   block resync:
