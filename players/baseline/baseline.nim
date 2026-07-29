@@ -1273,7 +1273,9 @@ when defined(killLedger):
 
   proc ledgerAdd(bot: Bot, t, x: int): bool =
     ## Insert a witnessed-kill id into the ledger unless a neighbor already
-    ## covers it. Ids are (estimated death tick, death-spot x); the same kill
+    ## covers it. Ids are (estimated GAME-RELATIVE death tick, death-spot x)
+    ## — tick since gameStart, NEVER bot.tick: only the game clock is shared
+    ## across seats, so only it makes mates' relayed ids mergeable; the same kill
     ## re-observed (a later marker stage, the KO pop vs the splatter, another
     ## frame, or a mate's quantized K-shout) always lands within the +-48
     ## tick / +-16 px neighborhood, so neighborhood-dedup can only MERGE,
@@ -1456,7 +1458,8 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # VICTIM's color at the death spot — "damage pop <color> KO stage <s>"
     # (44 ticks, 4 stages) and "splatter <color> stage <s>" (120 ticks,
     # 4 stages) — that no consumer reads today. Count DISTINCT enemy ones
-    # (id = estimated death tick from the stage's age quartile + spot x;
+    # (id = estimated game-relative death tick from the stage's age quartile
+    # + spot x;
     # ledgerAdd merges neighbors) and relay each NEW own-eyes id to mates as
     # a K-shout ("K<t8> <x8>", quantized div 8, fits the 10-char budget).
     # Heard K-shouts from mates feed the same dedup'd set; a heard id is
@@ -1482,8 +1485,18 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           if stage in 0 .. 3:
             # Marker age is stage quartiles of its life; estimate the death
             # tick at mid-quartile (KO: 11-tick quartiles, splatter: 30).
-            est = bot.tick - (if srcTag == "ko": stage * 11 + 5
-                              else: stage * 30 + 15)
+            # GAME-RELATIVE clock: bot.tick counts frames since THIS seat's
+            # connect, and on the platform seats connect minutes apart
+            # (measured spread at game start: median 193 ticks, p90 8997,
+            # max 348668 over 96 live episodes). An id keyed on bot.tick
+            # never merges across seats, so every relay hop mints a phantom
+            # death — the wipeClosure v59 audit measured mean +3.67 / max
+            # +22 overcount from exactly this. gameStart anchors all seats
+            # to the same lobby->playing transition, restoring the shared
+            # clock the +-48-tick dedup neighborhood assumes.
+            est = (bot.tick - bot.gameStart) -
+                  (if srcTag == "ko": stage * 11 + 5
+                   else: stage * 30 + 15)
         if est >= 0:
           # Screen-to-map like the shout-origin fix above: the marker sprite
           # is centered on the death spot.
