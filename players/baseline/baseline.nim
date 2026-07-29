@@ -397,6 +397,8 @@ type
       rushRelease: bool       # -d:hudRushRelease: latched "our own deaths hit
                               # HrrDeaths before HrrWindow" state, from the
                               # same team-score HUD ledger
+      rushEngaged: bool       # ...and whether the runner seat has already
+                              # reported acting on that latch (one event)
 
 proc roleForSeat(seat: int, team: Team): Role =
   ## Deterministic role spread over the 8 per-team seats. Seats 2 and 3 both
@@ -1238,6 +1240,7 @@ proc resetTransient(bot: Bot) =
   bot.ledgerAhead = false
   when defined(hudRushRelease):
     bot.rushRelease = false
+    bot.rushEngaged = false
 
 proc scanAim(bot: Bot, watch: Vec): int =
   ## The scan-sweep aim while holding a position: rake the vision cone back
@@ -1337,6 +1340,63 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     myColor = (if bot.team == Red: "red" else: "blue")
     enemyColor = (if bot.team == Red: "blue" else: "red")
     (alive, me) = client.findSelf(myColor)
+  when defined(ledgerHold) or defined(hudRushRelease):
+    # Body ledger from the top-center "team score RED <kills>/<deaths>" /
+    # "team score BLUE <kills>/<deaths>" HUD sprites: exact, un-fogged,
+    # cumulative for BOTH teams (deaths count every cause, so the deaths
+    # differential IS the lives differential on equal rosters). Latch with
+    # hysteresis; a missing sprite (interstitial frames) keeps the previous
+    # latch and the gate degrades to stock behavior when it never appears.
+    # This read sits ABOVE the dead early-out on purpose: the scoreboard is
+    # HUD chrome (global.nim addTeamScoreboard runs outside the per-viewer
+    # alive branch), so a corpse still receives it — and a seat that only
+    # evaluates the ledger while alive misses any threshold crossed while it
+    # was dead. That defect lost the whole latch in 1 of 4 smoke episodes
+    # (91280c9e: our 9th death WAS the runner, respawn landed past HrrWindow).
+    block ledgerScan:
+      var ourDeaths = -1
+      var theirDeaths = -1
+      for o in client.spriteObjects():
+        if o.label.startsWith("team score "):
+          let rest = o.label[11 .. ^1]          # "RED 12/9"
+          let slash = rest.rfind('/')
+          if slash > 0:
+            try:
+              let deaths = parseInt(rest[slash + 1 .. ^1])
+              let isRed = rest.startsWith("RED")
+              if (bot.team == Red) == isRed:
+                ourDeaths = deaths
+              else:
+                theirDeaths = deaths
+            except ValueError:
+              discard
+      when defined(ledgerHold):
+        if ourDeaths >= 0 and theirDeaths >= 0:
+          let bodyNet = theirDeaths - ourDeaths
+          if bodyNet >= LedgerHoldLead:
+            bot.ledgerAhead = true
+          elif bodyNet <= LedgerReleaseLead:
+            bot.ledgerAhead = false
+          when defined(ledgerDebug):
+            if bot.tick mod 96 == 0:
+              echo "LEDGER slot=", bot.slot, " tick=", bot.tick,
+                " ourDeaths=", ourDeaths, " theirDeaths=", theirDeaths,
+                " net=", theirDeaths - ourDeaths, " latch=", bot.ledgerAhead
+      when defined(hudRushRelease):
+        # Rush tell: OUR OWN cumulative deaths hitting HrrDeaths this early is
+        # an 8-seat rush wiping us at home, not normal attrition. The CONDITION
+        # must become true inside the window; the latch is then sticky for the
+        # episode and the runner acts on it whenever it is next alive (possibly
+        # after HrrWindow, e.g. at respawn). Only our own half of the ledger is
+        # needed, so a missing enemy sprite does not block the trigger. Every
+        # seat evaluates this in its own process, so every seat's artifact
+        # carries the latch tick — the event is no longer runner-gated, which
+        # is what makes the firing visible when the runner is the 9th body.
+        if not bot.rushRelease and ourDeaths >= HrrDeaths and
+            bot.tick - bot.gameStart <= HrrWindow:
+          bot.rushRelease = true
+          artEvent(bot.tick, "hud_rush_release",
+            %*{"deaths": ourDeaths, "gt": bot.tick - bot.gameStart})
   if not alive:
     # Dead: the view is fully fogged (only our corpse renders) and inputs
     # are ignored, so skip perception entirely.
@@ -1456,55 +1516,6 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         except ValueError:
           discard
       break
-
-  when defined(ledgerHold) or defined(hudRushRelease):
-    # Body ledger from the top-center "team score RED <kills>/<deaths>" /
-    # "team score BLUE <kills>/<deaths>" HUD sprites: exact, un-fogged,
-    # cumulative for BOTH teams (deaths count every cause, so the deaths
-    # differential IS the lives differential on equal rosters). Latch with
-    # hysteresis; a missing sprite (interstitial frames) keeps the previous
-    # latch and the gate degrades to stock behavior when it never appears.
-    block ledgerScan:
-      var ourDeaths = -1
-      var theirDeaths = -1
-      for o in client.spriteObjects():
-        if o.label.startsWith("team score "):
-          let rest = o.label[11 .. ^1]          # "RED 12/9"
-          let slash = rest.rfind('/')
-          if slash > 0:
-            try:
-              let deaths = parseInt(rest[slash + 1 .. ^1])
-              let isRed = rest.startsWith("RED")
-              if (bot.team == Red) == isRed:
-                ourDeaths = deaths
-              else:
-                theirDeaths = deaths
-            except ValueError:
-              discard
-      when defined(ledgerHold):
-        if ourDeaths >= 0 and theirDeaths >= 0:
-          let bodyNet = theirDeaths - ourDeaths
-          if bodyNet >= LedgerHoldLead:
-            bot.ledgerAhead = true
-          elif bodyNet <= LedgerReleaseLead:
-            bot.ledgerAhead = false
-          when defined(ledgerDebug):
-            if bot.tick mod 96 == 0:
-              echo "LEDGER slot=", bot.slot, " tick=", bot.tick,
-                " ourDeaths=", ourDeaths, " theirDeaths=", theirDeaths,
-                " net=", theirDeaths - ourDeaths, " latch=", bot.ledgerAhead
-      when defined(hudRushRelease):
-        # Rush tell: OUR OWN cumulative deaths hitting HrrDeaths this early is
-        # an 8-seat rush wiping us at home, not normal attrition. Latch for the
-        # rest of the episode (a wipe cannot be un-happened) and release the
-        # runner seat below. Only our own half of the ledger is needed, so a
-        # missing enemy sprite does not block the trigger.
-        if not bot.rushRelease and ourDeaths >= HrrDeaths and
-            bot.tick - bot.gameStart <= HrrWindow:
-          bot.rushRelease = true
-          if clamp(bot.slot div 2, 0, 7) == HrrRunnerSeat:
-            artEvent(bot.tick, "hud_rush_release",
-              %*{"deaths": ourDeaths, "gt": bot.tick - bot.gameStart})
 
   # Med kits: learn the two center-line spots on sight; presence is
   # fog-gated, so an empty spot only counts as TAKEN when we pass close
@@ -1980,10 +1991,18 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # cross, steal, exfil on the existing carry logic, no new pathing. The
     # enemy flag is unguarded while his 8 seats are in our pocket. Every other
     # seat is untouched, and the release still yields to our own flag being out
-    # (pushOut's own precondition), so flag recovery is unchanged.
+    # (pushOut's own precondition), so flag recovery is unchanged. This site is
+    # below the dead early-out, so it is reached on the runner's first LIVE tick
+    # after the latch — which is exactly when the release starts, and what the
+    # hud_rush_engage event timestamps (the latch tick and the engage tick are
+    # different events whenever the runner was dead at the trigger).
     if bot.rushRelease and not pushOut and not ownStolen and
         clamp(bot.slot div 2, 0, 7) == HrrRunnerSeat:
       pushOut = true
+      if not bot.rushEngaged:
+        bot.rushEngaged = true
+        artEvent(bot.tick, "hud_rush_engage",
+          %*{"gt": bot.tick - bot.gameStart})
   when defined(v57Debug):
     if pushOut and (bot.everStoleTheirs or bot.everLostOurs) and
         bot.tick - bot.gameStart in StalemateTick .. LatePushTick and
