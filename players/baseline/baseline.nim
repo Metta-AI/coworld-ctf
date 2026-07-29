@@ -201,10 +201,13 @@ when defined(arprobe):
   var arResync = 0    # frames the rot readback actually corrected estAim
 
 when defined(caprobe):
-  # -d:caprobe ONLY: counterArc (Play C) funnel — verify the "plasma arc carried"
-  # attribution fires and the priority bump reaches a real engage. Also the place
-  # to empirically tune ArcCarryRadius (attrib should track actual enemy carriers).
-  var caArcAttrib = 0 # actors tagged hasArc via the carried-marker attribution
+  # -d:caprobe ONLY: counterArc (Play C) funnel — verify the loadout attribution
+  # fires and the priority bump reaches a real engage. Also the place to verify the
+  # GV22 label adoption empirically: caIdBadge counts BADGE attributions (the new
+  # machine-readable path) while caArcAttrib counts armed reads from either path,
+  # so caIdBadge > 0 proves the badges are actually landing on actors.
+  var caArcAttrib = 0 # actors tagged hasArc (badge weapon token, or legacy marker)
+  var caIdBadge = 0   # actors an `identity` badge was attributed to
   var caSeen = 0      # enemy tracks scanned in dangerScore with counterArc on
   var caBump = 0      # tracks that got the disarmed-carrier priority credit
 
@@ -278,6 +281,33 @@ when defined(ffprobe):
   var ffPreLay = 0    # ...where the turret actually pre-laid on the throat
 
 const
+  # ── LABEL CONTRACT (the engine's machine-readable observation schema). GV22
+  # added two labels that state outright what the policy previously had to INFER
+  # from floating carry markers, and the engine comment says why: "a bot that has
+  # to infer its own weapon from floating markers gets it wrong at the worst
+  # moments; the label is the machine contract".
+  #
+  #   LabelPrefixWeapon   — our OWN weapon, `weapon gun` | `weapon <armed>`. A
+  #     top-right HUD readout, so it is OURS by construction: no proximity
+  #     attribution, no fog, no radius const to tune. Authoritative.
+  #   LabelPrefixIdentity — one badge per LIVING player we can see,
+  #     `identity <color> <name>[ shield][ nade] <weapon>`. The badge object is
+  #     centered on its wearer's body, and the loadout rides in the TAIL, so a
+  #     single prefix scan yields per-enemy shield/nade/weapon with the wearer's
+  #     own position attached — replacing the nearest-actor-within-ArcCarryRadius
+  #     guesswork that the separate carry markers force.
+  # Both MUST be read by PREFIX: the tails interpolate, so an exact match breaks
+  # the moment a loadout changes. See spriteObjectsWithLabelPrefix.
+  LabelPrefixWeapon = "weapon "
+  LabelPrefixIdentity = "identity "
+  # The ARMED weapon token. GV22 emits "arc"; the 0.7.x spray-can reskin renamed
+  # the SAME mechanic's wire token to "spray" (internal hasPlasmaArc kept its
+  # name, the label did not). We accept BOTH so one policy binary reads either
+  # engine — the whole point of moving to the labels is to stop being silently
+  # blind, and hard-coding one spelling would just relocate the blindness.
+  WeaponTokenGun = "gun"
+  ArmedWeaponTokens = ["arc", "spray"]
+
   WebSocketPath = "/player"
   RenderScale = 1             # 0.7.8 renderer restore: the wire is back to 1x
                               # Object coordinates and sprite sizes arrive
@@ -569,10 +599,18 @@ const
                               # free. Hold at this shallow depth just past center — a live cone is
                               # a THREAT that shapes the line (enemies space to dodge AoE) even
                               # unfired, and we stay poised to close the instant a cluster forms.
-  ArcCarryRadius = 48.0       # attribute the "plasma arc carried" marker (floats
-                              # ABOVE the head, higher than the hp pip) to the nearest
-                              # actor within this — bigger than HpPipRadius(22) for the
-                              # extra vertical offset. Verify empirically via cAprobe.
+  ArcCarryRadius = 48.0       # LEGACY (pre-GV22 fallback only): attribute a colorless
+                              # "<weapon> carried" marker (floats ABOVE the head, higher
+                              # than the hp pip) to the nearest actor within this —
+                              # bigger than HpPipRadius(22) for the extra vertical
+                              # offset. Superseded by IdentityBadgeRadius.
+  IdentityBadgeRadius = 12.0  # attribute an `identity` badge to its wearer. The badge
+                              # is CENTERED on the body (same overhead anchor, offset by
+                              # (SoldierBodyPx-IdentityBadgeSize) div 2 = (34-11) div 2),
+                              # so it lands within a pixel of the actor position and
+                              # needs no vertical fudge — a TIGHT radius, unlike the
+                              # floating markers. Kept a few px wide only for the
+                              # integer-division rounding in the two anchors.
   AimOnConeBrads = 32         # aimThreat: gun bearing within this many brads of the
                               # line to us counts as "aimed at us" (~45°, generous
                               # since the enemy is still turning toward us). Beyond
@@ -984,13 +1022,21 @@ type
     facingRight: bool
     hp: int                   # from the overhead pip bar; 0 = not read
     aimBrads: int             # gun bearing read from the aim-dot line; -1 unknown
-    hasArc: bool              # carrying a plasma arc ("plasma arc carried" over
-                              # the head) => gun DISABLED, a 136px cone specialist
-    hasShield: bool           # carrying a shield ("shield carried" over the head)
-                              # => 6 HP (a 4+-hp bubble) + fires 3x SLOWER. The hp
-                              # pip CANNOT show this (it renders 3/3, capped at the
-                              # 3-seg bar), so this marker is the only tell — without
-                              # it we fight a 6-hp tank as a 3-hp cog and undershoot.
+    hasArc: bool              # holding the arc/spray can => gun DISABLED, a 136px
+                              # cone specialist. Read from the `identity` badge's
+                              # weapon token (was: nearest carry marker).
+    hasShield: bool           # carrying a shield => 6 HP (a 4+-hp bubble) + fires
+                              # 3x SLOWER. The hp pip CANNOT show this (it renders
+                              # 3/3, capped at the 3-seg bar), so the loadout label
+                              # is the only tell — without it we fight a 6-hp tank
+                              # as a 3-hp cog and undershoot.
+    hasNade: bool             # carrying a grenade (badge `nade` token): a 52px
+                              # blast that reaches us OVER cover, so clustering
+                              # near this body is worse than near a plain gun.
+    idLabel: string           # the wearer's `identity <color> <name>` head, empty
+                              # when no badge was attributed. A STABLE per-player
+                              # name (slot-derived, constant for the match) — the
+                              # first identity the policy has ever had.
 
   Track = object              # a remembered player
     pos, vel: Vec
@@ -998,8 +1044,10 @@ type
     facingRight: bool
     hp: int                   # last observed hit points; 0 = never read
     aimBrads: int             # last observed gun bearing (aim dots); -1 unknown
-    hasArc: bool              # last observed plasma-arc possession (disarmed)
+    hasArc: bool              # last observed arc/spray possession (disarmed)
     hasShield: bool           # last observed shield possession (6-hp tank, slow fire)
+    hasNade: bool             # last observed grenade possession (52px blast over cover)
+    idLabel: string           # `identity <color> <name>` of the wearer; "" if never read
 
   CombatTune = object
     ## The fire/engage decision knobs, made per-bot so a forked policy can
@@ -2145,10 +2193,11 @@ proc shippedCombatTune(): CombatTune =
   # breacher seat (MidGuard) grabs the arc and cones the seam while the wave is base-
   # of-fire. Trades that one bot's gun for its life (a deliberate specialist swap),
   # gated to the breacher seat + a live line only, so it can't misfire team-wide.
-  # Enemy-shield awareness ships unconditionally in the reader (Actor/Track.hasShield
-  # from the "shield carried" marker) — the fire model now knows a shielded enemy is
-  # a 6-HP tank (the pip bar lies 3/3), needs more guns (satNeed), and weighs more in
-  # the break math (ShieldGunWeight); no flag, it's a straight correctness repair.
+  # Enemy-shield awareness ships unconditionally in the reader (Actor/Track.hasShield,
+  # now off the GV22 `identity` badge's loadout tail instead of the colorless carried
+  # marker) — the fire model knows a shielded enemy is a 6-HP tank (the pip bar lies
+  # 3/3), needs more guns (satNeed), and weighs more in the break math
+  # (ShieldGunWeight); no flag, it's a straight correctness repair.
   #
   # ⚠️ arcBreach: OFF in the default shipped tune, but the pre-A/B audit's 3 kill-shots were
   # all against the REACTIVE LONE-WOLF breacher — and the 2026-07-24 reframe turned each into
@@ -2350,6 +2399,47 @@ proc observedAim(client: ProtocolClient, me: Vec, color: string): int =
       bestD = d
       result = bradsOf(p - me)
 
+proc parseIdentityLabel*(label, color: string):
+    tuple[matched: bool, id: string, shield, nade, arc: bool] =
+  ## Decodes one `identity <color> <name>[ shield][ nade] <weapon>` badge label
+  ## for a scan of ONE team's color. `matched` is false for another team's badge
+  ## or a non-identity label, so a caller can skip without a second check.
+  ##
+  ## Pure string→loadout, deliberately separated from the object scan so the
+  ## contract parse is testable against literal wire strings (see labelprobe's
+  ## parse suite): the attribution needs a live engine to exercise, the PARSE
+  ## does not, and the parse is where a rename or a token-order change bites.
+  if not label.startsWith(LabelPrefixIdentity):
+    return
+  let tail = label[LabelPrefixIdentity.len .. ^1]
+  if not tail.startsWith(color & " "):
+    return
+  result.matched = true
+  # Tail tokens are `<color> <name> [shield] [nade] <weapon>`. Read the LOADOUT
+  # from index 2 on: the first two are the wearer's stable identity, and scanning
+  # them too would let a future identity name that happens to spell a loadout
+  # token silently arm a phantom shield. The contract fixes this ordering.
+  let tokens = tail.split(' ')
+  if tokens.len >= 2:
+    result.id = tokens[0] & " " & tokens[1]
+  for k in 2 ..< tokens.len:
+    let t = tokens[k]
+    if t == "shield": result.shield = true
+    elif t == "nade": result.nade = true
+    elif t in ArmedWeaponTokens: result.arc = true
+
+proc parseWeaponLabel*(label: string): tuple[seen, armed: bool] =
+  ## Decodes the own-weapon HUD label `weapon <token>`. `seen` distinguishes "the
+  ## engine says we hold a gun" from "no weapon label reached us at all" — the
+  ## caller needs that difference to decide whether to fall back to the legacy
+  ## marker scan, and collapsing them would make a pre-GV22 engine look like a
+  ## permanent gun.
+  if not label.startsWith(LabelPrefixWeapon):
+    return
+  let token = label[LabelPrefixWeapon.len .. ^1]
+  result.seen = true
+  result.armed = token != WeaponTokenGun and token in ArmedWeaponTokens
+
 proc actorsFor(client: ProtocolClient, color: string,
     rotRead = false): seq[Actor] =
   ## Visible players of one color in map coordinates plus horizontal facing
@@ -2380,33 +2470,73 @@ proc actorsFor(client: ProtocolClient, color: string,
           best = i
       if best >= 0:
         result[best].hp = hp
-  # Plasma-arc possession: a carrier renders a "plasma arc carried" marker ABOVE
-  # its head (higher than the hp pip). The label carries NO color, so — like the
-  # hp pip — attribute it to the nearest actor of THIS color (this proc is called
-  # per color; our own marker hugs us, an enemy's hugs the enemy). A carrier's
-  # 1300px gun is disabled for life, so this flags a disarmed high-value target.
-  for o in client.spriteObjectsWithLabel("plasma arc carried"):
+  # ⭐ LOADOUT from the `identity` BADGE, one machine-readable label per living
+  # visible player: `identity <color> <name>[ shield][ nade] <weapon>`. This
+  # REPLACES three separate colorless carry-marker scans, and it is strictly
+  # better on all three counts that made those fragile:
+  #   COLOR — the badge names its team, so a marker can no longer be mis-attributed
+  #     across colors (the old scans ran per-color and trusted "nearest", which is
+  #     wrong exactly when a duel puts an enemy nearer our mate's marker than our
+  #     mate is).
+  #   GEOMETRY — the badge object is CENTERED on the wearer's body (the engine
+  #     offsets it by (SoldierBodyPx - IdentityBadgeSize) div 2 from the same
+  #     overhead anchor the body uses), so its map center coincides with the actor
+  #     position to within a pixel. The carry markers float ABOVE the head, which
+  #     is why they needed a fudged 48px ArcCarryRadius that also swallowed
+  #     neighbours.
+  #   COMPLETENESS — shield, nade and weapon arrive TOGETHER in one tail. Absence
+  #     of a token is now meaningful (the weapon token is always present), instead
+  #     of being indistinguishable from a fog-culled or renamed marker.
+  # Filter by color and attribute to the nearest actor within the tight
+  # IdentityBadgeRadius. `nade` is new intel the carry-marker path never gave us
+  # per-enemy.
+  for (o, label) in client.spriteObjectsWithLabelPrefix(LabelPrefixIdentity):
+    let badge = parseIdentityLabel(label, color)
+    if not badge.matched:
+      continue                         # another team's badge; this proc is per color
     let p = client.mapPos(o)
     var best = -1
-    var bestD = ArcCarryRadius
+    var bestD = IdentityBadgeRadius
     for i in 0 ..< result.len:
       let d = dist(result[i].pos, p)
       if d < bestD:
         bestD = d
         best = i
     if best >= 0:
-      result[best].hasArc = true
-      when defined(caprobe): inc caArcAttrib
-  # Shield possession: a carrier renders a "shield carried" marker over its head
-  # (same attribution as the arc — the label carries no color, this proc runs per
-  # color so the nearest same-color actor owns it). A shielded player has 6 HP (vs
-  # the 3-hp cog the pip bar always shows) and fires 3x slower — a tank we must put
-  # more guns on but whose slow fire is a free-shot window.
+      result[best].idLabel = badge.id
+      if badge.shield: result[best].hasShield = true
+      if badge.nade: result[best].hasNade = true
+      if badge.arc: result[best].hasArc = true
+      when defined(caprobe):
+        inc caIdBadge
+        if result[best].hasArc: inc caArcAttrib
+  # LEGACY FALLBACK: a pre-GV22 engine emits no identity badges, so keep the
+  # colorless carry-marker attribution for any actor no badge reached. Gated on
+  # "no badge was attributed to this actor" rather than on a version check, so a
+  # partially-visible frame degrades per actor instead of all-or-nothing. Both arc
+  # spellings, same reason as ArmedWeaponTokens.
+  for markerLabel in ["plasma arc carried", "spray can carried"]:
+    for o in client.spriteObjectsWithLabel(markerLabel):
+      let p = client.mapPos(o)
+      var best = -1
+      var bestD = ArcCarryRadius
+      for i in 0 ..< result.len:
+        if result[i].idLabel.len > 0:
+          continue                     # badge already spoke for this actor
+        let d = dist(result[i].pos, p)
+        if d < bestD:
+          bestD = d
+          best = i
+      if best >= 0:
+        result[best].hasArc = true
+        when defined(caprobe): inc caArcAttrib
   for o in client.spriteObjectsWithLabel("shield carried"):
     let p = client.mapPos(o)
     var best = -1
     var bestD = ArcCarryRadius
     for i in 0 ..< result.len:
+      if result[i].idLabel.len > 0:
+        continue
       let d = dist(result[i].pos, p)
       if d < bestD:
         bestD = d
@@ -3108,14 +3238,20 @@ proc updateTracks(bot: Bot, tracks: var seq[Track], seen: seq[Actor]) =
         tracks[best].hp = a.hp
       tracks[best].aimBrads = a.aimBrads   # -1 when this frame's dots unreadable
       if a.hasArc: tracks[best].hasArc = true  # arc is permanent-for-life: sticky
-      # Shield tracks the live marker (a carrier can burn it down / it drops on
+      # Shield tracks the live label (a carrier can burn it down / it drops on
       # death); refresh both ways so a track that lost its shield stops reading tank.
+      # Same for the nade: it is SPENT on throw, so a stale "armed" read would keep
+      # us spacing against a threat that no longer exists.
       tracks[best].hasShield = a.hasShield
+      tracks[best].hasNade = a.hasNade
+      if a.idLabel.len > 0:
+        tracks[best].idLabel = a.idLabel   # stable for the match; keep the last read
       claimed[best] = true
     else:
       tracks.add(Track(
         pos: a.pos, lastSeen: bot.tick, facingRight: a.facingRight, hp: a.hp,
-        aimBrads: a.aimBrads, hasArc: a.hasArc, hasShield: a.hasShield))
+        aimBrads: a.aimBrads, hasArc: a.hasArc, hasShield: a.hasShield,
+        hasNade: a.hasNade, idLabel: a.idLabel))
       claimed.add(true)
   var kept: seq[Track]
   for t in tracks:
@@ -4981,14 +5117,29 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   #   shieldTank  — an escort grabs a shield to body-block the carrier (still a
   #     6-HP wall; the premise survives — shield still tanks + blocks bodies).
   #   swordAmbush — INERT on v15 (no sword to grab); code kept, gated, never fires.
-  # Detect our own possession from the "shield carried"/"plasma arc carried"
-  # markers that float over our head (the "grenade carried" pattern). iHaveSword
-  # stays wired for the inert swordAmbush path but never trips ("sword carried"
-  # no longer emitted).
+  # Detect our own possession. iHaveSword stays wired for the inert swordAmbush
+  # path but never trips ("sword carried" no longer emitted).
+  #
+  # ⭐ OWN WEAPON comes from the `weapon <token>` HUD LABEL, not a marker scan.
+  # The old read was "is there a carried marker within 30px of me" — three ways
+  # to be wrong, all at the worst moment: the marker floats ABOVE the head so the
+  # radius is a guess; a teammate brushing past us puts THEIR marker inside our
+  # radius (we then believe we are disarmed and refuse to shoot); and the engine
+  # is free to rename the marker, which it DID (GV22 "plasma arc carried" became
+  # "spray can carried"), silently zeroing the scan. The HUD readout has none of
+  # those failure modes: it is our own top-right chrome, so it is unambiguously
+  # OURS, always present while alive, and it states the weapon the sim will
+  # actually let us fire (the sim's own canFire is `not hasPlasmaArc`).
   var
     iHaveShield = false
     iHaveSword = false
     iHavePlasma = false
+    weaponLabelSeen = false     # did the contract label reach us at all this frame
+  for (_, label) in client.spriteObjectsWithLabelPrefix(LabelPrefixWeapon):
+    let weapon = parseWeaponLabel(label)
+    weaponLabelSeen = weapon.seen
+    iHavePlasma = weapon.armed
+    break
   for o in client.spriteObjectsWithLabel("shield carried"):
     if dist(client.mapPos(o), me) <= 30.0:
       iHaveShield = true
@@ -4997,10 +5148,18 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     if dist(client.mapPos(o), me) <= 30.0:
       iHaveSword = true
       break
-  for o in client.spriteObjectsWithLabel("plasma arc carried"):
-    if dist(client.mapPos(o), me) <= 30.0:
-      iHavePlasma = true
-      break
+  if not weaponLabelSeen:
+    # FALLBACK for a pre-GV22 engine that emits no weapon HUD label: the legacy
+    # carried-marker scan, kept verbatim so an older server still reads correctly
+    # rather than leaving us permanently convinced we hold a gun. Accepts both
+    # spellings for the same reason ArmedWeaponTokens does.
+    for markerLabel in ["plasma arc carried", "spray can carried"]:
+      for o in client.spriteObjectsWithLabel(markerLabel):
+        if dist(client.mapPos(o), me) <= 30.0:
+          iHavePlasma = true
+          break
+      if iHavePlasma:
+        break
   # Pickup points in view (each filtered against the HUD indicator that shares
   # the label, exactly like the grenade pickup scan).
   var

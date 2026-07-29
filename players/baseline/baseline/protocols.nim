@@ -220,6 +220,40 @@ proc spriteObjectsWithLabel*(
       spriteId: objectState.spriteId
     ))
 
+proc spriteObjectsWithLabelPrefix*(
+  client: ProtocolClient,
+  prefix: string
+): seq[tuple[obj: SpriteObjectInfo, label: string]] =
+  ## Returns present sprite objects whose sprite label STARTS WITH `prefix`,
+  ## paired with the FULL label so the caller can read the interpolated tail.
+  ##
+  ## Prefix matching is the engine's stated contract for every label whose tail
+  ## varies with state — `weapon <token>` and
+  ## `identity <color> <name> [shield][nade] <weapon>`. An exact-match reader
+  ## silently returns an empty seq the moment a loadout changes (pick up a
+  ## shield and your own badge stops matching), which is precisely the failure
+  ## this API exists to prevent. Same object filtering as
+  ## `spriteObjectsWithLabel`, so a caller can hand the `obj` to `mapPos`.
+  if client.sprite.isNil:
+    return
+  for objectId, objectState in client.sprite.objects:
+    if not objectState.present:
+      continue
+    let sprite = client.sprite.spriteInfo(objectState.spriteId)
+    if sprite.isNil or not sprite.defined or not sprite.label.startsWith(prefix):
+      continue
+    result.add((
+      obj: SpriteObjectInfo(
+        objectId: objectId,
+        x: objectState.x,
+        y: objectState.y,
+        width: sprite.width,
+        height: sprite.height,
+        spriteId: objectState.spriteId
+      ),
+      label: sprite.label
+    ))
+
 iterator spriteObjects*(
   client: ProtocolClient
 ): tuple[

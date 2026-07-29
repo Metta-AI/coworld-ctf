@@ -149,6 +149,45 @@ when defined(ssprobe):
     let p = engine.sim.players[slot]
     (sword: p.hasSword, shield: p.hasShield, alive: p.alive)
 
+when defined(labelprobe):
+  # GV22 label adoption (`weapon <token>` + `identity <color> <name> ...`): the
+  # GROUND TRUTH the policy's label reads are scored against. The whole risk of
+  # switching a perception path is that it silently reads NOTHING — an exact-match
+  # scan on a renamed label returns an empty seq, with no crash and no log line —
+  # so a probe that merely counts "how often did we think an enemy held a shield"
+  # cannot tell a correct reader from a dead one. Comparing against the sim's own
+  # fields can, which is the only check that actually retires the risk.
+  proc loadoutOf*(engine: EvalEngine, slot: int):
+      tuple[alive: bool, x, y: int, team: int, arc, shield, nade: bool] =
+    let p = engine.sim.players[slot]
+    (
+      alive: p.alive,
+      x: p.x,
+      y: p.y,
+      team: ord(p.team),
+      arc: p.hasPlasmaArc,
+      shield: p.hasShield,
+      nade: p.hasGrenade
+    )
+
+  proc visibleTo*(engine: EvalEngine, viewer, target: int): bool =
+    ## The SAME fog gate the frame builder uses to decide whether `target`'s
+    ## sprites (and therefore its identity badge) reach `viewer`. Scoring a
+    ## label read against ground truth is only meaningful behind this gate: an
+    ## enemy we cannot see emits no badge, so an unread loadout there is correct,
+    ## not a miss.
+    engine.sim.playerVisibleTo(viewer, target)
+
+  proc grantLoadout*(
+    engine: EvalEngine, slot: int, arc, shield, nade: bool
+  ) =
+    ## Forces a loadout into one slot's hands so BOTH branches of every read get
+    ## scored, instead of waiting for a bot to happen to walk onto a corner
+    ## pickup (which in a 4000-tick episode it mostly does not).
+    if arc: engine.sim.players[slot].hasPlasmaArc = true
+    if shield: engine.sim.players[slot].hasShield = true
+    if nade: engine.sim.players[slot].hasGrenade = true
+
 proc frameFor*(engine: EvalEngine, slot: int): string =
   ## The exact sprite packet blob the live server would send this slot this
   ## tick: real fogged view, delta-encoded against the slot's retained viewer.
