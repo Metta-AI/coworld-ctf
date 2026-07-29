@@ -928,6 +928,24 @@ const
                               # chaser, per the cqc-video-game-lens focus-fire principle).
   PickEdgeRange = 300.0       # PhPress: a fresh enemy corpse / our recent kill within this
                               # of us = a local man-advantage window worth pressing.
+  # ── v29 (2026-07-29) MEASURED phase timing + recapture geometry. The phase-occupancy
+  # probe (-d:phprobe, 12 games GV23) read PhForce at 0 frames of 266,279: games end by
+  # WIPE at mean 2410 ticks (min 1541, max 4004) so a 3800 trigger never armed. GV23's
+  # action-clock floor (ActionClockFloorTicks 500 banked into overtimeTicks on every kill
+  # or steal) only extends games that are still ACTIVE, which does not rescue the trigger.
+  ForceClockTickTuned = 2000   # forceTiming: arm the late all-in at ~40% of the nominal
+                               # clock — past the opening + a probe window, but inside the
+                               # mean 2410-tick life of a real game, so FORCE actually fires.
+  DefendInterceptPush = 40.0   # defendTeeth: px past the thief fix, toward ITS capture edge —
+                               # cut the thief off ahead rather than trailing the fix (the same
+                               # lead the HomeDefender intercept already applies).
+  DefendCrossGuard = 60.0      # defendTeeth: with a STALE fix the thief is fogged but MUST
+                               # cross mid toward its own edge; hold this far onto our side of
+                               # center and guard the crossing instead of chasing a phantom.
+  DefendPicketSpread = 90.0    # defendTeeth: px of Y separation between recapture seats at the
+                               # crossing. Six bots on ONE pixel is grenade bait (the cluster
+                               # lesson from the anti-line work) and covers a single row; a
+                               # 3-wide picket spans the lane the fogged thief may drift into.
 
 type
   Team = enum
@@ -1422,6 +1440,26 @@ type
                               # FORCE commits a grouped all-in before the −1 timeout. All
                               # phases are a pure fn of shared signals so the team flows
                               # branch→branch unanimously (no thrash / no split-decide).
+    defendTeeth: bool         # ⭐ PhDefend RECAPTURE TEETH (v29, 2026-07-29). v26 gave DEFEND
+                              # an intercept target, but it aimed at `mateCarryPos` — the
+                              # position of OUR mate carrying the ENEMY heart, NOT the thief
+                              # holding ours. Wrong entity, and it is (0,0) whenever no mate
+                              # carries, so the `> 0.5` guard fell through to `me.y` and the
+                              # "converge on the thief's lane" collapse never converged. This
+                              # routes the 6 attacker seats at the REAL thief fix (bot.carrierPos
+                              # / carrierSeen — the same globally-legible read huntCarrier uses),
+                              # predicting the intercept toward the thief's own capture edge and
+                              # guarding the mid crossing it MUST pass when the fix is stale.
+                              # Recapture = KILL (body-block is void), so the engage teeth stay.
+    forceClockTick: int       # forceTiming's actual trigger tick (sweepable by the eval
+                              # harness via FORCE_TICK so the timing constant gets a real
+                              # sweep instead of a second guess). Ignored unless forceTiming.
+    forceTiming: bool         # ⭐ PhForce TIMING (v29, 2026-07-29). ForceClockTick=3800 was a
+                              # first-guess constant ("~76% of the 5000 clock") and MEASURED at
+                              # 0 firing frames out of 266k: GV23 games end by WIPE at mean 2410
+                              # ticks (min 1541 max 4004), so the late all-in never armed. Moves
+                              # the trigger to ForceClockTickTuned (sweepable via the harness) so
+                              # the force window lands inside a real game's lifetime.
     swordAmbush: bool         # ⭐ SWORD AMBUSH (v7, 2026-07-19): a sword is a 26px forward-
                               # arc GUARANTEED kill (instant, no windup, ignores the 3-hit
                               # gun) but canFire=false while held. A back-line/pocket bot
@@ -1739,8 +1777,25 @@ proc selectPlay(elapsed: int, ownStolen: bool): Play =
   else:
     PushBottom
 
+when defined(phprobe):
+  # -d:phprobe ONLY (2026-07-29): the contingency phase machine's OCCUPANCY. Answers the
+  # two questions the v21 design doc left as guesses: which phases the team actually
+  # occupies, and how late the GV23 clock (MaxTicks 5000 + banked overtimeTicks) runs.
+  # Never compiled into the shipped player.
+  var phFrames*: array[TeamPhase, int]   # decide() frames spent in each phase
+  var phMaxElapsed* = 0                  # the latest elapsed round-tick any bot observed
+  # defendTeeth funnel: which freshness tier the recapture intercept resolved to. A tier
+  # that stays 0 NAMES the gating condition (the diagnostic the v26 fix never had).
+  var dtFresh* = 0                       # frames steered at a FRESH predicted thief fix
+  var dtStale* = 0                       # ...at the crossing guard on the last fix's lane
+  var dtBlind* = 0                       # ...no usable fix at all (the v26 fallback)
+  var dtPhase* = 0                       # frames in PhDefend at all (the population)
+  var dtNotCarry* = 0                    # ...and not carrying (the movement block's gate)
+  var dtAttacker* = 0                    # ...and holding an ATTACKER seat (the 6 hunters)
+  var dtOn* = 0                          # ...and defendTeeth is actually ON in the tune
+
 proc teamPhase(elapsed: int, ownStolen: bool, efState: EnemyFlagState,
-               pickEdge: bool): TeamPhase =
+               pickEdge: bool, forceTick: int = ForceClockTick): TeamPhase =
   ## ⭐⭐ THE CONTINGENCY STATE MACHINE. A PURE function of shared signals so all 8
   ## bots pick the SAME phase independently (the "backstop the caller" design — no
   ## unit must survive to hold the plan). Priority order IS the branch tree: the
@@ -1755,11 +1810,15 @@ proc teamPhase(elapsed: int, ownStolen: bool, efState: EnemyFlagState,
   ## pickEdge is the ONE local-approximated input (a fresh local kill-advantage); it is a
   ## convergence ACCELERATOR, not load-bearing — with pickEdge always false the machine
   ## still flows OPEN→PROBE→(ESCORT/DEFEND/FORCE) purely on shared signals.
+  ## `forceTick` is the FORCE trigger (default = the untuned ForceClockTick constant so an
+  ## unflagged caller is byte-identical); forceTiming passes the measured ForceClockTickTuned.
+  ## It stays a parameter rather than a tune read so the machine remains a pure function of
+  ## its inputs — every bot passes the same compiled-in value, so the phase stays unanimous.
   if ownStolen:
     PhDefend
   elif efState == EfCarried:
     PhEscort
-  elif elapsed >= ForceClockTick:
+  elif elapsed >= forceTick:
     PhForce
   elif pickEdge:
     PhPress
@@ -1906,6 +1965,9 @@ proc defaultCombatTune(): CombatTune =
     shieldTank: false,        # control: an escort never grabs a shield to body-block as a tank.
     shieldRush: false,        # control: the rusher never pre-grabs a shield to carry home at 6 HP.
     planLayer: false,         # control: flat scenario→play matrix, no contingency phase machine.
+    defendTeeth: false,       # control: PhDefend intercepts the WRONG entity (mateCarryPos).
+    forceClockTick: ForceClockTickTuned,  # only consulted when forceTiming is on.
+    forceTiming: false,       # control: PhForce stays at 3800 — measured 0 firing frames.
     swordAmbush: false,       # control: a boxed-in bot never grabs a sword for a melee kill.
     medTopOff: false,         # control: a wounded bot never detours to a center med kit.
     medEcon: false,           # control: no static-coord kit routing (fog-visible kits only).
@@ -4153,7 +4215,18 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     for t in bot.enemies:
       if bot.tick - t.lastSeen <= LocalFreshTicks and dist(t.pos, me) <= PickEdgeRange: inc freshE
     pickEdge = freshM > freshE and freshM >= 1
-    botPhase = teamPhase(bot.tick - bot.gameStart, ownStolen, efState, pickEdge)
+    botPhase = teamPhase(bot.tick - bot.gameStart, ownStolen, efState, pickEdge,
+      (if bot.tune.forceTiming: bot.tune.forceClockTick else: ForceClockTick))
+    when defined(phprobe):
+      # -d:phprobe ONLY (2026-07-29): phase OCCUPANCY — how many decide() frames the
+      # team actually spends in each phase, and how late the clock actually runs. This
+      # is the empirical premise the v21 design doc guessed at ("games end ~2500t so
+      # PhForce at 3800 rarely fires"); GV23's action-clock floor (overtimeTicks) makes
+      # the guess even more suspect, so MEASURE before tuning the constant.
+      inc phFrames[botPhase]
+      if botPhase == PhDefend: inc dtPhase
+      let el = bot.tick - bot.gameStart
+      if el > phMaxElapsed: phMaxElapsed = el
   if bot.tune.planLayer and not iCarry:
     let phase = botPhase
     let attacker = bot.role in {MidTop, MidBottom, MidGuard, FlankTop, FlankBottom}
@@ -4189,12 +4262,62 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       # last-known spot and the enemy capture edge — body-block is void, so this is to KILL
       # the carrier (combat teeth below raise their engage). The home defenders already hold
       # the pedestal (ownStolen branches); this adds the 6 hunters the phase always promised.
+      when defined(phprobe):
+        inc dtNotCarry
+        if attacker: inc dtAttacker
+        if attacker and bot.tune.defendTeeth: inc dtOn
       if attacker:
-        let interceptY = (if mateCarryPos.y > 0.5: clamp(mateCarryPos.y, LaneTop, LaneBottom)
-                          else: me.y)
-        # Cut toward our own half's crossing (where the thief must run THROUGH), not the
-        # enemy pedestal — reverse the attacker's default outbound bias.
-        target = vec(float(CenterX) + homeSign(bot.team) * 60.0, interceptY)
+        if bot.tune.defendTeeth:
+          # ⭐ v29 RECAPTURE TEETH — the fix v26 got WRONG. v26 aimed the collapse at
+          # `mateCarryPos`, which is where OUR mate carries the ENEMY heart: the wrong
+          # entity entirely, and (0,0) whenever no mate carries, so the `> 0.5` guard fell
+          # through to `me.y` and the "converge on the thief's lane" collapse resolved to
+          # "walk to mid at whatever height I already am" — a mid rally, not a recapture.
+          # The thief's real position is `bot.carrierPos` @ `carrierSeen` (the own-flag
+          # banner is centered on its carrier), the same read the HomeDefender intercept
+          # and huntCarrier already trust. Three tiers by fix freshness:
+          if bot.tick - bot.carrierSeen <= ThiefFixTtl:
+            when defined(phprobe): inc dtFresh
+            # FRESH fix: lead the thief toward ITS capture edge and cut it off ahead.
+            var predicted = bot.carrierPos +
+              bot.carrierVel * float(18 + bot.tick - bot.carrierSeen)
+            predicted.x += -homeSign(bot.team) * DefendInterceptPush
+            target = vec(clamp(predicted.x, 20.0, float(MapW - 20)),
+                         clamp(predicted.y, 20.0, float(MapH - 20)))
+          elif bot.carrierSeen > -100_000 and
+              bot.tick - bot.carrierSeen <= HuntCarrierStaleTtl:
+            when defined(phprobe): inc dtStale
+            # STALE but still out there: do not extrapolate a dead velocity into an
+            # off-map phantom (huntCarrier's lesson). Race to the crossing the thief MUST
+            # pass, on the lane of the last fix — reacquisition takes eyes, not magic.
+            target = vec(float(CenterX) + homeSign(bot.team) * DefendCrossGuard,
+                         clamp(bot.carrierPos.y, LaneTop, LaneBottom))
+          else:
+            when defined(phprobe): inc dtBlind
+            # NO usable fix — and MEASURED to be the dominant tier: 1215 of 1263 recapture
+            # frames (96%). Of course it is: the 6 attacker seats are deep in enemy ground
+            # when the steal lands, so the thief is never in their fog cone. v26 answered
+            # this by standing at mid at the bot's own height, which is where an attacker
+            # already was — the reason the "collapse" was invisible.
+            # But the thief's ROUTE is STATIC GEOMETRY, no fog read needed: it must run from
+            # OUR pedestal (flagHome, a known constant) to ITS OWN capture edge. Cut that
+            # line at the mid crossing instead of loitering at our own height — the same
+            # move that made medEcon work (route to known coords, don't wait to see it).
+            # Both pedestals sit at the same height (flagHome y=329 either side), so the
+            # route IS the pedestal lane — guard the crossing at THAT height, not ours.
+            # Spread the seats into a PICKET across the crossing rather than stacking all
+            # six on one pixel: a cluster is what area weapons farm (the grenade lesson
+            # from the anti-line work), and a picket covers the lane the thief may drift to.
+            let lane = flagHome(bot.team).y
+            let spread = float((ord(bot.role) mod 3) - 1) * DefendPicketSpread
+            target = vec(float(CenterX) + homeSign(bot.team) * DefendCrossGuard,
+                         clamp(lane + spread, LaneTop, LaneBottom))
+        else:
+          let interceptY = (if mateCarryPos.y > 0.5: clamp(mateCarryPos.y, LaneTop, LaneBottom)
+                            else: me.y)
+          # Cut toward our own half's crossing (where the thief must run THROUGH), not the
+          # enemy pedestal — reverse the attacker's default outbound bias.
+          target = vec(float(CenterX) + homeSign(bot.team) * 60.0, interceptY)
     of PhProbe:
       discard   # PROBE = the flank default above
 

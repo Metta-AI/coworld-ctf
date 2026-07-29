@@ -380,6 +380,17 @@ proc hunterTune(): CombatTune =
   result.sentryDisplace     = envInt("SENTRYDISP",  (if result.sentryDisplace: 1 else: 0)) != 0
   result.topBias            = envInt("TOPBIAS",     (if result.topBias: 1 else: 0)) != 0
   result.playbook           = envInt("PLAYBOOK",    (if result.playbook: 1 else: 0)) != 0
+  # ── v29 CONTINGENCY-MACHINE DEEPENING (2026-07-29). Two loose ends the v21 design doc
+  # flagged and v26 only half-closed. Each is isolated so a seat-rotated A/B measures ONE.
+  # DEFTEETH=1: PhDefend's recapture collapse aims at the REAL thief fix (bot.carrierPos)
+  # instead of v26's mateCarryPos — which is our own mate carrying the ENEMY heart, and
+  # (0,0) when nobody carries, so the collapse degenerated to "walk to mid at my height".
+  result.defendTeeth = envInt("DEFTEETH", 0) != 0
+  # FORCETIME=1: move the PhForce trigger off the never-firing 3800 (MEASURED 0 frames of
+  # 266k — GV23 games end by wipe at mean 2410t). FORCE_TICK sweeps the replacement so the
+  # constant gets an actual sweep rather than a second guess.
+  result.forceTiming = envInt("FORCETIME", 0) != 0
+  result.forceClockTick = envInt("FORCE_TICK", ForceClockTickTuned)
 
 when defined(ohshitprobe):
   var ohshitTotal = 0
@@ -524,6 +535,11 @@ proc main() =
     totRedDropN, totBlueDropN: int
     totRedSurv, totBlueSurv: int
     totRedSurvN, totBlueSurvN: int
+  when defined(phprobe):
+    var gameTickSum = 0
+    var gameTickMin = high(int)
+    var gameTickMax = 0
+    var gamesPastForce = 0
   for g in 0 ..< games:
     let seed = baseSeed + g
     let r = runEpisode(seed, maxTicks, numPlayers, hunterSlots)
@@ -552,6 +568,11 @@ proc main() =
     totRedDropN += r.redDropCount; totBlueDropN += r.blueDropCount
     totRedSurv += r.redSurvivalSum; totBlueSurv += r.blueSurvivalSum
     totRedSurvN += r.redSurvivalCount; totBlueSurvN += r.blueSurvivalCount
+    when defined(phprobe):
+      gameTickSum += r.ticks
+      gameTickMin = min(gameTickMin, r.ticks)
+      gameTickMax = max(gameTickMax, r.ticks)
+      if r.ticks >= ForceClockTick: inc gamesPastForce
 
   let
     tRedHit = (if totRedS > 0: 100.0 * totRedK.float / totRedS.float else: 0.0)
@@ -707,6 +728,27 @@ proc main() =
     echo &"  SS-PROBE levers: avoid-repel-frames {ssAvoidActive}  tank-seek {ssTankSeek}  " &
       &"ambush-seek {ssAmbushSeek}  ambush-swing {ssAmbushSwing}"
     echo &"    (proves the gated v7 levers are LIVE code: >0 => firing even when grabs are ~0)"
+  when defined(phprobe):
+    # ⭐ v29 PHASE OCCUPANCY — the empirical premise for PhForce timing + PhDefend teeth.
+    # Answers what the v21 design doc could only guess: which phases the team actually
+    # OCCUPIES, and how late the GV23 clock (MaxTicks 5000 + banked overtimeTicks) runs.
+    # Verify occupancy BEFORE tuning any phase constant: a phase at 0% frames is a spec,
+    # not a behavior, and its constant is not the bug.
+    var phTot = 0
+    for p in TeamPhase: phTot += phFrames[p]
+    echo ""
+    echo &"  PHASE-PROBE: {phTot} plan-layer decide() frames; latest elapsed tick seen {phMaxElapsed}"
+    for p in TeamPhase:
+      let pct = (if phTot > 0: 100.0 * phFrames[p].float / phTot.float else: 0.0)
+      echo &"    {($p)[2..^1]:<7} {phFrames[p]:>9} frames  {pct:>5.1f}%"
+    echo &"  game ticks: mean {gameTickSum.float / max(1, games).float:.0f}  " &
+      &"min {gameTickMin}  max {gameTickMax}  " &
+      &"(>= ForceClockTick {ForceClockTick}: {gamesPastForce}/{games} games)"
+    let dtTot = dtFresh + dtStale + dtBlind
+    echo &"  DEFTEETH gate funnel: inDefend {dtPhase} -> notCarry {dtNotCarry} -> " &
+      &"attacker {dtAttacker} -> teethOn {dtOn}  (the tier that zeroes NAMES the gate)"
+    echo &"  DEFTEETH steer: {dtTot} frames  fresh-fix {dtFresh}  " &
+      &"stale-crossing {dtStale}  blind-mid {dtBlind}"
 
 when isMainModule and not defined(tuneCheck):
   main()

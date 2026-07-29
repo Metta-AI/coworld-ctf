@@ -74,3 +74,49 @@ FORCE (clock<T)  commit a grouped flag     — terminal push; the clock punishes
    but the shared-signal branches work with zero comms.
 ```
 ```
+
+---
+
+## ⭐ MEASURED phase occupancy (v29, 2026-07-29, GV23) — the guesses, checked
+
+Everything above about *timing* was a first guess. The `-d:phprobe` phase-occupancy probe
+(12 mirror games on the GV23 engine, champion-vs-champion, 266,279 plan-layer `decide()`
+frames) measured what the machine actually does:
+
+| phase  | frames  | share |
+|--------|---------|-------|
+| OPEN   |  44,123 | 16.6% |
+| PROBE  |  80,123 | 30.1% |
+| PRESS  | 131,024 | 49.2% |
+| ESCORT |   6,551 |  2.5% |
+| DEFEND |   4,458 |  1.7% |
+| FORCE  |       0 |  0.0% |
+
+Game length: **mean 2410 ticks, min 1541, max 4004** — only 1 of 12 games reached tick 3800.
+
+**Two conclusions that change the design:**
+
+- **FORCE never armed.** `ForceClockTick = 3800` ("~76% of the 5000 clock") is *past the end of
+  a typical game*: on the wipe economy games are decided by attrition around tick ~2400, not by
+  the clock. The FORCE branch — and the `haveAdvantage` pocket-commit it feeds — has been dead
+  code in every shipped version since v21. GV23's action-clock floor (`ActionClockFloorTicks`
+  500, banked into `overtimeTicks` on each kill/steal) does not rescue it: the floor only extends
+  games that are still *active*, so it lengthens the tail without moving the mass.
+  → `forceTiming` moves the trigger to a measured `ForceClockTickTuned = 2000` (~40% of nominal),
+  sweepable via `FORCE_TICK` so the constant finally gets a real sweep.
+
+- **DEFEND was aiming at the wrong entity.** v26 replaced the inert `discard` with an intercept,
+  but pointed it at `mateCarryPos` — the position of **our own mate carrying the ENEMY heart**,
+  which has nothing to do with the thief holding *ours*, and is `(0,0)` whenever no mate carries.
+  The `> 0.5` guard therefore fell through to `me.y`, so the advertised "full-team collapse on the
+  thief's intercept lane" resolved to *"walk to mid at whatever height I already am"* — a mid
+  rally, not a recapture. The real thief fix is `bot.carrierPos` @ `bot.carrierSeen` (the own-flag
+  banner is centered on its carrier), the read `huntCarrier` and the HomeDefender intercept already
+  trust. → `defendTeeth` routes the 6 attacker seats at that fix in three freshness tiers
+  (fresh → lead the predicted path; stale → guard the mid crossing on the last fix's lane; blind →
+  the old mid-hold, which is only correct in that tier).
+
+**Method note for the next loop:** DEFEND+ESCORT together are only ~4% of frames, so a lever
+inside them cannot move the win column much on its own — judge it on its mechanism sub-metrics
+(recapture-steer funnel counts, grab→cap, K−D) as well as the score. And always verify occupancy
+BEFORE tuning a phase constant: a phase at 0% frames is a spec, not a behavior.
