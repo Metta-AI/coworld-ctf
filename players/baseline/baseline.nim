@@ -254,18 +254,30 @@ const
   CkMinGt = CkNaiveCap - 1000 # hard outer fence: the lever can never touch
                               # normal play, only the last ~1000 ticks of the
                               # naive cap (4000 at the shipped cap).
-  CkCarrySpeedDeci = 21       # doom predicate carry speed, 2.1 px/tick
-                              # (deci-px per tick; optimistic = conservative:
-                              # an over-estimated speed under-calls doom).
+  CkCarrySpeedDeci {.intdefine.} = 14
+                              # doom predicate carry speed, 1.4 px/tick
+                              # (deci-px per tick). 2.1 was unreachable: 146
+                              # measured carry runs give mean 0.99 / median 1.13
+                              # / max 1.82 px/tick, 0 of 146 at 2.1, so the old
+                              # value systematically under-flagged truly doomed
+                              # carries. 1.4 is the realized ceiling.
   CkFloorTicks {.intdefine.} = 500
                               # sim ActionClockFloorTicks: what a kill/steal
                               # leaves on the clock. Overridable ONLY so local
                               # smoke can reach the fire band inside a short
                               # mirror; league builds never set it.
   CkStageBand = 250           # estRemaining under this: the victim stages.
-  CkFireBand = 100            # estRemaining under this: the carrier executes.
+  CkFireBand {.intdefine.} = 250
+                              # estRemaining under this: the carrier executes.
                               # Fire LATE — the top-up is 500 - remaining, so a
-                              # kill while >500t remain is a pure no-op.
+                              # kill while >500t remain is a pure no-op — but
+                              # 100 was too late to finish: a SHIELDED carrier
+                              # fires at a 42-tick cadence and needs ~126 ticks
+                              # for the 3-hit kill plus up to ~23 ticks of
+                              # turret traverse. 250 = CkStageBand, so the
+                              # staging and execution windows align. The cost
+                              # stays priced: floorGameClock re-floors from the
+                              # KILL tick, so an earlier kill buys less clock.
   CkMaxSuicides = 2           # per-episode cap on confirmed deliberate FF kills
   CkFFRange = 120.0           # victim must be this close to the carrier
   CkVictimStandoff = 34.0     # victim parks this far off the carrier, abeam of
