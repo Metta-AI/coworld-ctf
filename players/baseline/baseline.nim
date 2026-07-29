@@ -358,7 +358,9 @@ type
     lastHShout: int           # help-call rate limit
     killIdT: seq[int]         # -d:killLedger: witnessed enemy-death ids —
     killIdX: seq[int]         #   estimated death tick + death-spot x (paired)
-    killShoutQ: seq[string]   #   pending K-shouts, one per NEW own-eyes id
+    killShoutQ: seq[string]   #   pending K-shouts (own sightings + gossip relays)
+    killHeardMax: int         #   best team estimate heard via N-sync shouts
+    lastNShout: int           #   N-sync cadence limiter
 
 proc roleForSeat(seat: int, team: Team): Role =
   ## Deterministic role spread over the 8 per-team seats. Seats 2 and 3 both
@@ -1169,6 +1171,8 @@ proc resetTransient(bot: Bot) =
     bot.killIdT.setLen(0)                # the ledger is per-game attrition
     bot.killIdX.setLen(0)
     bot.killShoutQ.setLen(0)
+    bot.killHeardMax = 0
+    bot.lastNShout = 0
 
 proc scanAim(bot: Bot, watch: Vec): int =
   ## The scan-sweep aim while holding a position: rake the vision cone back
@@ -1277,6 +1281,13 @@ when defined(killLedger):
     bot.killIdT.add t
     bot.killIdX.add x
     true
+
+  proc killEstimate(bot: Bot): int =
+    ## The seat's enemy-attrition estimate: its own dedup'd id set, lifted
+    ## by the best teammate estimate heard via N-sync. Max of undercounts
+    ## is still an undercount, so the estimate keeps the never-overcount
+    ## property by induction.
+    max(bot.killIdT.len, bot.killHeardMax)
 
 proc decide(bot: Bot, client: ProtocolClient): uint8 =
   ## Core CTF policy for one frame.
@@ -1472,15 +1483,26 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           # is centered on the death spot.
           let kx = o.x + o.width div 2 + client.mapCameraX
           if bot.ledgerAdd(est, kx):
-            if bot.killShoutQ.len < 6:
+            if bot.killShoutQ.len < 8:
               bot.killShoutQ.add "K" & $(est div 8) & " " & $(kx div 8)
             artEvent(bot.tick, "kill_ledger", %*{"src": srcTag, "kt": est,
-              "kx": kx, "n": bot.killIdT.len})
+              "kx": kx, "n": bot.killEstimate()})
       elif o.label.startsWith(myColor & " shout "):
         let sep = o.label.rfind(": ")
         if sep > 0:
           let text = o.label[sep + 2 .. ^1]
-          if text.len >= 4 and text[0] == 'K':
+          if text.len >= 2 and text[0] == 'N':
+            # N-sync: a mate broadcast its own estimate; adopt the max.
+            var cnt = -1
+            try:
+              cnt = parseInt(text[1 .. ^1])
+            except ValueError:
+              discard
+            if cnt > bot.killHeardMax and cnt <= 48:
+              bot.killHeardMax = cnt
+              artEvent(bot.tick, "kill_ledger", %*{"src": "nsync",
+                "cnt": cnt, "n": bot.killEstimate()})
+          elif text.len >= 4 and text[0] == 'K':
             let parts = text[1 .. ^1].split(' ')
             if parts.len == 2:
               var kt, kx: int
@@ -1493,8 +1515,13 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
               # Own bubble echoes back as a team shout: ledgerAdd dedups it
               # (the id is already ours), so no address check is needed.
               if ok and bot.ledgerAdd(kt * 8, kx * 8 + 4):
+                # Gossip: relay a heard-NEW id exactly once (the dedup makes
+                # the flood bounded — each seat re-shouts each id at most
+                # once), so ids hop beyond the witness's 247px bubble.
+                if bot.killShoutQ.len < 8:
+                  bot.killShoutQ.add text
                 artEvent(bot.tick, "kill_ledger", %*{"src": "heard",
-                  "kt": kt * 8, "kx": kx * 8 + 4, "n": bot.killIdT.len})
+                  "kt": kt * 8, "kx": kx * 8 + 4, "n": bot.killEstimate()})
 
   when defined(shoutCoord):
     # Shout intel (0.7.5): teammates broadcast quantized fixes as 10-char
@@ -1782,16 +1809,38 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
             bot.lastEShout = bot.tick
             break
   when defined(killLedger):
-    # K-shouts spend only LEFTOVER budget: below every gameplay shout
+    # K/N shouts spend only LEFTOVER budget: below every gameplay shout
     # (C/T/G/siege/E/H) so nothing is displaced, above taunts and peace
     # lines. The carrier never spends its slot here — its 1/s budget is the
-    # C heartbeat. Volume is naturally low (one shout per NEW witnessed
-    # kill, ~21 enemy deaths a game spread over 8 witnesses).
+    # C heartbeat. Emission is QUIET-GROUND gated (same predicate as the
+    # peace lines): a shout bubble is a through-fog position ping to enemies
+    # within ~247px, and v39 measured the RL rival converting mid-duel
+    # speech — so hold the queue while a live enemy track is near and drain
+    # it when the ground is quiet.
     if bot.shoutWant.len == 0 and not iCarry and
-        bot.tick - bot.lastShoutTick >= 26 and bot.killShoutQ.len > 0:
-      bot.shoutWant = bot.killShoutQ[0]
-      bot.killShoutQ.delete(0)
-      bot.lastShoutTick = bot.tick
+        bot.tick - bot.lastShoutTick >= 26 and
+        (bot.killShoutQ.len > 0 or bot.killIdT.len > 0 or
+         bot.killHeardMax > 0):
+      var quietK = true
+      for t in bot.enemies:
+        if not t.synthetic and bot.tick - t.lastSeen <= 120 and
+            dist(t.pos, me) < 400.0:
+          quietK = false
+          break
+      if quietK:
+        if bot.killShoutQ.len > 0:
+          bot.shoutWant = bot.killShoutQ[0]
+          bot.killShoutQ.delete(0)
+          bot.lastShoutTick = bot.tick
+        elif bot.tick - bot.gameStart >= 3000 and
+            bot.tick - bot.lastNShout >= 240 and bot.killEstimate() > 0:
+          # Late-game N-sync: periodically re-broadcast the running estimate
+          # so seats that were dead (or out of every relay bubble) during a
+          # kill burst still converge on the team's best count — the K wire
+          # never repeats an id, so this is the only late repair channel.
+          bot.shoutWant = "N" & $bot.killEstimate()
+          bot.lastNShout = bot.tick
+          bot.lastShoutTick = bot.tick
   when defined(taunt):
     # Taunts spend only LEFTOVER shout budget: never while carrying and never
     # over a gameplay shout (the carrier heartbeat always wins the 1/s slot).
