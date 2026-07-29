@@ -167,6 +167,22 @@ const
                               # shield sits low in their back column
                               # (~215px from the pedestal since the game-v7
                               # split), so the round trip costs ~430 path px
+  PadRaceDeferTicks = 240     # -d:padDefer: the scout duty (MidGuard seat)
+                              # leaves the single home shield pad to MidTop's
+                              # opening kit-up for this many game ticks —
+                              # Red's photo finish is g84-99 (Blue g66), so
+                              # 240 covers the slowest winning trip with
+                              # margin; after it, the scout trips as before
+  NadePadClearPx = 26.0       # -d:nadePadDodge: the opening grenade leg is
+                              # "blocked" when its straight line passes this
+                              # close to the home shield pad — pickup touch
+                              # radius is 12px (sim ShieldPickupRange), plus
+                              # a body-width of walk jitter
+  NadePadDodgePx = 40.0       # -d:nadePadDodge: the dogleg waypoint sits
+                              # this far toward midfield of the pad, level
+                              # with it; from there the leg to the corner
+                              # grenade clears the pad by ~38px, so the
+                              # steer self-releases once past
   PickupRespawn = 30 * 24     # plasma arc/shield respawn timer (sim constant)
   MedKitCarrierBudget = 90.0  # extra path px a hurt CARRIER spends to heal:
                               # a full-heal carrier survives pocket exits
@@ -2024,7 +2040,20 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
            if dirX * (sp.x - float(CenterX)) < 0.0:  # our own back column
              shieldSpot = sp
              break
-       if not scHasShield and shieldSpot.x >= 0.0 and gameTick < 2200:
+       # HOME-PAD RACE DECONFLICT (-d:padDefer): at the whistle this trip
+       # and MidTop's home kit-up (the shield-then-steal block below) race
+       # for the SINGLE home pad; on Red the scout/flank win the photo
+       # finish 11/30 and the stealer crosses the map shieldless (Blue
+       # 0/30 — the walkable field is not mirror-symmetric). The pad is
+       # worth more on the stealer: defer the scout's trip past the
+       # opening window; it still takes the 720t-respawned pad afterwards.
+       let padRaceDefer =
+         when defined(padDefer):
+           gameTick < PadRaceDeferTicks
+         else:
+           false
+       if not scHasShield and shieldSpot.x >= 0.0 and gameTick < 2200 and
+           not padRaceDefer:
          target = shieldSpot
        else:
          # Forward patrol beyond the front: bottom-biased weave (their
@@ -2545,6 +2574,39 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           if dist(p, me) <= reach:
             target = p
             break
+    when defined(nadePadDodge):
+      # HOME-PAD WALK-OVER (padDefer family, part 2): FlankBottom's opening
+      # grenade errand descends the back column and crosses the single home
+      # shield pad on the way to the corner spawn 115px below it, grabbing
+      # the shield incidentally and leaving MidTop's kit-up empty-handed
+      # (~1 Red game in 6 after -d:padDefer closed the guard channel).
+      # Steer the approach around the pad's 12px touch radius during the
+      # opening window instead of cancelling the errand: while the straight
+      # leg to the grenade passes within NadePadClearPx of the pad, aim at
+      # a waypoint level with the pad but NadePadDodgePx toward midfield —
+      # from there the leg to the grenade clears the pad and the steer
+      # releases itself. Costs ~10 path px; the grenade pickup timing is
+      # essentially unchanged.
+      if objMode == "nade_grab" and
+          bot.tick - bot.gameStart < PadRaceDeferTicks:
+        let npDirX = (if bot.team == Red: 1.0 else: -1.0)
+        var homePad = vec(-1.0, -1.0)
+        for sp in bot.shieldPos:
+          if npDirX * (sp.x - float(CenterX)) < 0.0:  # our own back column
+            homePad = sp
+            break
+        let
+          vx = target.x - me.x
+          vy = target.y - me.y
+          legLen2 = vx * vx + vy * vy
+        if homePad.x >= 0.0 and legLen2 > 1.0:
+          # closest approach of the straight leg me -> grenade to the pad
+          let
+            t = max(0.0, min(1.0, ((homePad.x - me.x) * vx +
+                                   (homePad.y - me.y) * vy) / legLen2))
+            near = vec(me.x + t * vx, me.y + t * vy)
+          if dist(near, homePad) < NadePadClearPx:
+            target = vec(homePad.x + npDirX * NadePadDodgePx, homePad.y)
 
   # Grenade danger: a visible throw-target ring marks where an enemy's lob
   # will land, and an airborne grenade is seconds from bursting — anything
