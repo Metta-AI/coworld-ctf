@@ -2155,11 +2155,17 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
          # the frame-as-cover snap parked it blind at the wall (operator
          # bug, R1867 E.42). The cover fix alone is not enough: measured
          # offline, the -32 lead still lands in the sightless top band
-         # (station (260,36), zero view of the castle door), while +32
-         # stations it at the door mouth (260,100) watching the only
-         # top-lane entry.
+         # (station (260,36), zero view of the castle door).
+         # Iteration 2: the top lead's stagger is +58, not +32 — the +32
+         # station (260,100) sits ON the castle-door axis, visible to the
+         # whole eastern corridor through the opening, and fed 2.96
+         # deaths/ep (v62 baseline 1.71) in the iteration-1 A/B. +58 snaps
+         # to (260,124), hugging the wall segment SOUTH of the door: deep-
+         # corridor exposure 0.00 (was 0.25) with the door plane still
+         # covered at close range, while pdTopB keeps its long watch of the
+         # full door from (164,85).
          let stag = (case phalanxLaneNo(pd)
-           of 1: 32.0
+           of 1: (if lead: 58.0 else: 32.0)
            of 3: -32.0
            else: (if lead: -32.0 else: 32.0))
          target = bot.snapToCover(vec(
