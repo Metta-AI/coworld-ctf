@@ -173,11 +173,18 @@ const
                               # Red's photo finish is g84-99 (Blue g66), so
                               # 240 covers the slowest winning trip with
                               # margin; after it, the scout trips as before
-  NadePadClearPx = 26.0       # -d:nadePadDodge: the opening grenade leg is
+  NadePadClearPx = 34.0       # -d:nadePadDodge: the opening grenade leg is
                               # "blocked" when its straight line passes this
                               # close to the home shield pad — pickup touch
                               # radius is 12px (sim ShieldPickupRange), plus
-                              # a body-width of walk jitter
+                              # margin for the nade_grab<->attack objective
+                              # flicker: the steer only holds on the
+                              # nade_grab ticks (the attack ticks' eastward
+                              # pull is what keeps the errand alive — v92
+                              # taught us not to touch it), which dilutes
+                              # the berth to ~0.43x. 26px yielded an 11px
+                              # flicker-diluted lane (inside the radius,
+                              # 2/30 boundary steals); 34px targets ~15px
   NadePadDodgePx = 40.0       # -d:nadePadDodge: the dogleg waypoint sits
                               # this far toward midfield of the pad, level
                               # with it; from there the leg to the corner
