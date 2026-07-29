@@ -54,7 +54,12 @@ tasks, voting) with teams, guns, hearts, and fog-of-war vision.
   player means seeing who it is. Existing `player <color> <side>` labels are
   unchanged.
 - Each team has a **home edge**: Red = left, Blue = right.
-- Players spawn just inside their home edge and respawn there when killed.
+- Players spawn just inside their home edge at game start. **Respawns scatter
+  (since GameVersion 25):** a killed player returns at a pseudo-random walkable
+  spot anywhere inside its team's endzone (the home capture-zone strip), never
+  at a fixed, pre-aimable point — camping "the spawn spot" no longer works,
+  though the endzone itself can still be contested. The scatter is drawn
+  deterministically from the episode seed, so replays reproduce it exactly.
 
 ## Movement
 

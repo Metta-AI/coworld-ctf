@@ -9,7 +9,11 @@ when not defined(emscripten):
 
 const
   GameName* = "ctf"
-  GameVersion* = "24"  ## GV24: soldier sprites in PLAYER views render with
+  GameVersion* = "25"  ## GV25: respawns land at a pseudo-random spot inside
+                       ## the team ENDZONE (seed-deterministic, replay-safe)
+                       ## instead of the fixed home point — spawn camping
+                       ## loses its pre-aim; the episode seed is CAUSAL now.
+                       ## GV24: soldier sprites in PLAYER views render with
                        ## FUZZED gun rotation (±~20°, deterministic, both
                        ## sides, self included) — exact aim is never readable
                        ## off a sprite; broadcast board unaffected.
@@ -3364,6 +3368,31 @@ proc captureZoneXRange(sim: SimServer, team: Team): tuple[lo, hi: int] =
     let lo = sim.teamHomeX(Blue) - CaptureZoneWidth div 2
     (lo, MapWidth - 1)
 
+proc respawnPosition*(sim: SimServer, playerIndex: int): tuple[x, y: int] =
+  ## A deterministic pseudo-random respawn spot inside the player's team
+  ## ENDZONE (the home capture zone strip), drawn from (game seed, tick,
+  ## player) — replays reproduce it exactly, but a camper can no longer
+  ## pre-aim a fixed respawn point (GV25; the counterweight to GV20's
+  ## no-spawn-protection, which made spawn camping bloodier). The game-START
+  ## formation (arrangeHomePositions) stays fixed: only respawns scatter.
+  ## NOTE this makes the episode seed CAUSAL for the first time — two games
+  ## of the same pairing on different seeds now diverge at the first respawn.
+  let
+    team = sim.players[playerIndex].team
+    zone = sim.captureZoneXRange(team)
+    lo = max(zone.lo, ArenaBorder + CollisionW)
+    hi = min(zone.hi, MapWidth - 1 - ArenaBorder - CollisionW)
+    yLo = ArenaBorder + CollisionH
+    yHi = MapHeight - 1 - ArenaBorder - CollisionH
+  var h = 0x9E3779B9'u32 xor uint32(sim.config.seed)
+  h = (h xor uint32(sim.tickCount)) * 0x85EBCA6B'u32
+  h = (h xor uint32(playerIndex)) * 0xC2B2AE35'u32
+  h = h xor (h shr 15)
+  let
+    x = lo + int(h mod uint32(max(1, hi - lo + 1)))
+    y = yLo + int((h shr 12) mod uint32(max(1, yHi - yLo + 1)))
+  sim.nearestWalkable(x, y)
+
 proc resetPlayerToHome*(sim: var SimServer, playerIndex: int) =
   ## Moves one player back to its team home spawn position.
   if playerIndex < 0 or playerIndex >= sim.players.len:
@@ -5897,7 +5926,15 @@ proc respawnPlayers(sim: var SimServer) =
     if sim.players[i].respawnTimer > 0:
       dec sim.players[i].respawnTimer
       if sim.players[i].respawnTimer <= 0:
-        sim.resetPlayerToHome(i)
+        # GV25: respawn at a pseudo-random endzone spot (respawnPosition),
+        # never the fixed home point — spawn camping loses its pre-aim.
+        let spot = sim.respawnPosition(i)
+        sim.players[i].x = spot.x
+        sim.players[i].y = spot.y
+        sim.players[i].velX = 0
+        sim.players[i].velY = 0
+        sim.players[i].carryX = 0
+        sim.players[i].carryY = 0
         sim.players[i].alive = true
         sim.players[i].hp = sim.config.hitPoints
         sim.players[i].aimBrads = spawnAimBrads(sim.players[i].team)
