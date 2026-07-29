@@ -1381,11 +1381,52 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           hasPlasma = true
           break carryScan
   var hasShield = bot.hp > MaxHp
-  if not hasShield:
-    for o in client.spriteObjectsWithLabel("shield carried"):
-      if dist(client.mapPos(o), me) <= 30.0:
-        hasShield = true
-        break
+  when defined(ownShieldSprite):
+    # The carried-shield marker is drawn at a FIXED offset from its carrier:
+    # (-7, -27) px from the carrier's sprite center (global.nim addShields:
+    # x = player.x - HpBarWidth/2 - ShieldCarrySize/2, y = overheadAnchorY -
+    # OverheadYOffset - ShieldCarrySize; CollisionW/H=1, SoldierBodyPx=34,
+    # HpBarWidth=14, ShieldCarrySize=12 => marker center = carrier + (-7,-27),
+    # 27.9px away — nearly the whole legacy 30px believe-radius). The bare
+    # proximity fallback therefore believed a shielded TEAMMATE's marker
+    # (41/111 phantom pickups on v61 R1858-60; worst case a 740-tick 1-hp pad
+    # jitter, task 1216987518245825), and plain nearest-actor attribution is
+    # no better: the true carrier is itself 27.9px from its own marker, so
+    # anyone standing up-left of the carrier out-scores it (measured: 632 vs
+    # 665 phantoms, i.e. a no-op). Instead, undo the offset: a marker is OURS
+    # iff it sits within a few px of OUR anchor point (me + (-7,-27)) and no
+    # other visible player's anchor point is closer. The true carrier's
+    # residual is ~0; anyone else's is >= the ~12px collision spacing, so the
+    # test is sharp. A spent-shield carrier (shieldHp 0, hp<=3) has ONLY this
+    # fallback (HUD hp = hp + shieldHp), so the fallback must stay. If a
+    # renderer change moves the overhead stack, this degrades to never-true
+    # (conservative: hp>MaxHp still catches undamaged carriers).
+    if not hasShield:
+      let markerOff = vec(-7.0, -27.0)
+      const markerEps = 6.0
+      var others: seq[Vec]
+      for a in client.actorsFor(myColor): others.add(a.pos)
+      for a in client.actorsFor(enemyColor): others.add(a.pos)
+      block shieldCarryScan:
+        for o in client.spriteObjectsWithLabel("shield carried"):
+          let p = client.mapPos(o)
+          let rMe = dist(p, me + markerOff)
+          if rMe > markerEps:
+            continue
+          var mine = true
+          for q in others:
+            if dist(p, q + markerOff) < rMe:
+              mine = false
+              break
+          if mine:
+            hasShield = true
+            break shieldCarryScan
+  else:
+    if not hasShield:
+      for o in client.spriteObjectsWithLabel("shield carried"):
+        if dist(client.mapPos(o), me) <= 30.0:
+          hasShield = true
+          break
   let
     shotReady = client.spriteObjectsWithLabel("fire icon").len > 0 and
       not hasPlasma                      # the plasma arc replaces the gun; a shield
