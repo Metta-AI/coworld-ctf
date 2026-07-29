@@ -3,7 +3,7 @@ import
   bitworld/client as bitworldClient, bitworld/profile, bitworld/spriteprotocol,
   bitworld/runtime,
   curly, mummy,
-  sim, global, replays, broadcast, replay_runtime
+  sim, global, replays, broadcast, replay_runtime, events
 
 when defined(posix):
   from std/posix import SHUT_RDWR, shutdown
@@ -1004,6 +1004,17 @@ proc runServerLoop*(
       if replayLoaded: move(initializedReplay.sim)
       else: initSimServer(config)
     lastTick = getMonoTime()
+    # Tier-2 events artifact. Collected ONLY when the runtime named a
+    # destination (COGAME_EVENTS_URI), and never while serving a loaded replay
+    # — a replay server is a viewer, and the episode that recorded it already
+    # wrote its own artifact. Events never enter gameHash, so collecting them
+    # cannot change what the sim does or what the replay verifies against.
+    eventsUri =
+      if replayLoaded: ""
+      else: getEnv(CogameEventsUriEnv)
+    collectedEvents: seq[SimEvent] = @[]
+    eventsTruncated = false
+  sim.collectEvents = eventsUri.len > 0
   block:
     # Bake the supersampled spectator render caches (map, endzone fades,
     # soldier rotations) BEFORE the listener opens: a viewer's first-message
@@ -1091,6 +1102,14 @@ proc runServerLoop*(
         replayPlayer = move(initializedReplay.player)
         broadcastTracker = move(initializedReplay.tracker)
         replayLoaded = true
+        # Switching to a replay makes this process a viewer, so it must stop
+        # collecting AND stop intending to write: otherwise the quit path would
+        # publish the events of a half-episode — or an empty artifact that
+        # clobbers the real one — under the URI meant for the episode this
+        # process was originally playing.
+        sim.collectEvents = false
+        collectedEvents.setLen(0)
+        eventsUri = ""
         {.gcsafe.}:
           withLock appState.lock:
             appState.replayLoaded = true
@@ -1281,6 +1300,14 @@ proc runServerLoop*(
       inc config.seed
       sim = initSimServer(config)
       sim.rewardAccounts = rewardAccounts
+      # A reset builds a fresh sim, which defaults the sink OFF. Carry the
+      # switch across so a multi-game episode keeps recording after game 1;
+      # already-collected events live in collectedEvents, not in the old sim.
+      # NOTE: a fresh sim restarts tickCount, so across a reset the stream's
+      # ticks restart too — readers segment on the `phase` events rather than
+      # assuming one monotonic clock. A platform episode runs maxGames=1 and
+      # never resets, which is the case verify_events_producer.sh pins.
+      sim.collectEvents = eventsUri.len > 0 and not eventsTruncated
       prevInputs = @[]
       replayWriter.lastMasks = @[]
       sockets.setLen(0)
@@ -1410,6 +1437,20 @@ proc runServerLoop*(
           break
       prevInputs = lastStepInputs
 
+    # Drain the tier-2 sink every frame so it never holds more than one
+    # frame's worth: the episode-long stream accumulates here instead, where
+    # it survives the mid-run sim swap a multi-game reset does.
+    if sim.collectEvents and sim.events.len > 0:
+      if collectedEvents.len + sim.events.len <= MaxCollectedEvents:
+        collectedEvents.add(sim.events)
+      elif not eventsTruncated:
+        # Runaway guard (see MaxCollectedEvents): stop growing, say so in the
+        # summary, and let the episode finish normally.
+        eventsTruncated = true
+        sim.collectEvents = false
+        echo "events artifact truncated at ", collectedEvents.len, " events"
+      sim.events.setLen(0)
+
     let rewardPacket = sim.buildRewardPacket()
 
     if not replayLoaded and sim.needsReregister:
@@ -1521,6 +1562,31 @@ proc runServerLoop*(
         writeFile(saveScoresPath, sim.playerResultsJson() & "\n")
         echo "Scores written: ", saveScoresPath,
           " (", getFileSize(saveScoresPath), " bytes)"
+      if eventsUri.len > 0:
+        # The tier-2 events artifact is an ENRICHMENT, never the episode's
+        # platform contract: results and the replay are already written above.
+        # So a failure here (unwritable path, S3 PUT rejected) is reported and
+        # swallowed — losing analytics must not fail an episode that played
+        # fine, which would cost the league a real result.
+        let drained = sim.events.len
+        if sim.collectEvents and drained > 0 and
+            collectedEvents.len + drained <= MaxCollectedEvents:
+          # Final partial frame: the loop breaks out of the step loop on the
+          # last game, so those events are still sitting in the sink.
+          collectedEvents.add(sim.events)
+          sim.events.setLen(0)
+        try:
+          let artifact = eventsJsonl(
+            collectedEvents, sim.tickCount, eventsTruncated
+          )
+          writeCogameUri(
+            eventsUri, artifact, "application/json", CogameEventsUriEnv
+          )
+          echo "Events written: ", collectedEvents.len, " events, ",
+            artifact.len, " bytes",
+            (if eventsTruncated: " (TRUNCATED)" else: "")
+        except CatchableError as e:
+          echo "events artifact write failed (episode unaffected): ", e.msg
       httpServer.close()
       joinThread(serverThread)
       break

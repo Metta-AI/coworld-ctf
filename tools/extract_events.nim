@@ -8,8 +8,11 @@
 
 import
   std/[json, os, strutils],
+  ../src/ctf/events,
   ../src/ctf/replays,
   ../src/ctf/sim
+
+export events.key, events.jsonRow
 
 type
   ExtractEventsError = object of CatchableError
@@ -58,35 +61,6 @@ proc replayConfig(data: ReplayData): GameConfig =
   result = defaultGameConfig()
   result.update(data.configJson)
 
-proc key*(kind: SimEventKind): string =
-  ## Returns the JSON event key for one tier-2 event kind.
-  case kind
-  of Shot: "shot"
-  of Hit: "hit"
-  of Damage: "damage"
-  of Kill: "kill"
-  of Death: "death"
-  of FlagSteal: "flag_steal"
-  of FlagReturn: "flag_return"
-  of Capture: "capture"
-  of Respawn: "respawn"
-  of Heal: "heal"
-  of PhaseChange: "phase"
-
-proc jsonRow*(event: SimEvent): JsonNode =
-  ## Returns one JSON-lines row for a tier-2 sim event.
-  result = newJObject()
-  result["tick"] = %event.tick
-  result["kind"] = %event.kind.key()
-  result["source"] = %event.source
-  result["target"] = %event.target
-  result["weapon"] = %event.weapon
-  result["amount"] = %event.amount
-  result["hp"] = %event.hp
-  result["blocked"] = %event.blocked
-  result["x"] = %event.x
-  result["y"] = %event.y
-
 type
   ExtractResult* = object
     ## One replay's full tier-2 extraction plus the final tier-1 snapshot,
@@ -116,7 +90,13 @@ proc extractEvents*(data: ReplayData): ExtractResult =
       for event in sim.events:
         result.events.add(event)
       sim.events.setLen(0)
-      result.ticks = sim.tickCount
+      # Count only ticks the RECORDING actually covers. The player detects the
+      # end by stepping once past the last recorded hash, so on the final
+      # iteration sim.tickCount is one beyond what was played; taking it would
+      # make a resim's summary disagree with the live emitter's on the very
+      # same episode (verified byte-for-byte by verify_events_producer.sh).
+      if replay.playing:
+        result.ticks = sim.tickCount
     result.resultsJson = sim.playerResultsJson()
     let resultSlotCount = parseJson(result.resultsJson)["names"].len
     result.slotShotsFired = newSeq[int](resultSlotCount)
@@ -130,18 +110,10 @@ proc extractEvents*(data: ReplayData): ExtractResult =
 
 proc extractEventsJsonl*(data: ReplayData): string =
   ## Returns the full JSON-lines extraction: one row per event plus a final
-  ## summary object.
+  ## summary object. Shares `eventsJsonl` with the live emitter, so resimming a
+  ## replay reproduces the bytes the live game would have written.
   let extraction = extractEvents(data)
-  var lines = newSeqOfCap[string](extraction.events.len + 1)
-  for event in extraction.events:
-    lines.add($event.jsonRow())
-  var summary = newJObject()
-  summary["type"] = %"summary"
-  summary["ticks"] = %extraction.ticks
-  summary["events"] = %extraction.events.len
-  summary["gameVersion"] = %GameVersion
-  lines.add($summary)
-  lines.join("\n") & "\n"
+  eventsJsonl(extraction.events, extraction.ticks)
 
 proc runExtract(replayPath, outPath: string) {.used.} =
   ## Extracts one replay's event stream to stdout or --out.
