@@ -100,6 +100,12 @@ const
   ThreatRange = 200.0         # react to a visible enemy this close facing us
   DuckRange = 340.0           # duck from remembered threats this close on cooldown
   MateSpacing = 40.0          # soft repulsion radius between teammates
+  CarrierYieldNear = 40.0     # carrier right-of-way: a mate within this
+                              # Chebyshev range of our flag carrier must
+                              # clear its lane (bodies block at <=12 px)
+  CarrierYieldSide = 30.0     # perpendicular sidestep off the carrier's
+                              # lane axis (lane clearance is ~13 px)
+  CarrierYieldTrail = 46.0    # trailing offset behind the carrier once clear
   CorridorHalfWidth = 15.0    # friendly-fire corridor half width along the ray
   LeadTicks = 6.0             # aim this many ticks ahead of a moving enemy:
                               # the 5-tick windup releases the bullet late
@@ -2545,6 +2551,32 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           if dist(p, me) <= reach:
             target = p
             break
+
+  when defined(carrierYield):
+    # Carrier right-of-way: bodies block at Chebyshev <= 12 px and shove with
+    # 40% restitution, and our exfil lane has ~13 px of clearance — a mate
+    # converging on the carrier is a wedge that re-zeroes the carrier's
+    # momentum (R1892: a mutual flag race lost by 50 px with 14 wedged
+    # ticks). Any teammate this close to the carrying mate gives way: if it
+    # stands in the carrier's path ahead of it, it sidesteps PERPENDICULAR
+    # toward open ground where it stands (crossing back through the carrier
+    # to trail would cause the very wedge this prevents); otherwise it falls
+    # in trailing the carrier, off the lane axis toward map center — never
+    # occupying the carrier's next step. This outranks escort formation and
+    # errands; grenade-danger flight below still outranks it.
+    if mateCarry and not iCarry:
+      let yieldCheb = max(abs(me.x - mateCarryPos.x),
+                          abs(me.y - mateCarryPos.y))
+      if yieldCheb <= CarrierYieldNear:
+        let perpSign = (if mateCarryPos.y < float(CenterY): 1.0 else: -1.0)
+        let aheadOfCarrier = homeSign(bot.team) * (me.x - mateCarryPos.x) > 0.0
+        if aheadOfCarrier and abs(me.y - mateCarryPos.y) < CarrierYieldSide:
+          target = vec(me.x, mateCarryPos.y + perpSign * CarrierYieldSide)
+        else:
+          target = mateCarryPos + vec(
+            -homeSign(bot.team) * CarrierYieldTrail,
+            perpSign * CarrierYieldSide)
+        objMode = "carrier_yield"
 
   # Grenade danger: a visible throw-target ring marks where an enemy's lob
   # will land, and an airborne grenade is seconds from bursting — anything
