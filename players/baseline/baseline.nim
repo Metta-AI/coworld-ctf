@@ -407,6 +407,9 @@ type
       dangerPos: seq[Vec]     # recent team-death spots (marker-observed
                               # teammate deaths + own deaths, fog-honest)
       dangerSeen: seq[int]    # tick each spot's marker was last visible
+      dangerBorn: seq[int]    # tick each spot was first stamped (iter-2:
+                              # the stationShift window runs from CREATION,
+                              # not from the marker-refreshed lastSeen)
     when defined(dangerMem):
       dangerCost: seq[int32]  # per-nav-cell extra path cost, rebuilt with
                               # the cost field from the decayed spots
@@ -415,6 +418,9 @@ type
     when defined(stationShift):
       shiftLogAt: int         # station_shift telemetry rate limit
       shiftTicks: int         # ticks spent shifted this game (dwell guardrail)
+      tucking: bool           # currently holding the cover anchor
+      tuckStarted: int        # tick the current tuck began
+      tuckCooldownUntil: int  # no new tuck before this tick
 
 proc roleForSeat(seat: int, team: Team): Role =
   ## Deterministic role spread over the 8 per-team seats. Seats 2 and 3 both
@@ -463,12 +469,26 @@ when defined(stationShift):
                               # of measured repeat-death gaps, 480 covers
                               # 71%, 720 covers 95% (30s of tuck; DangerTtl
                               # caps usable values at 720).
-    StationShiftRadiusPx {.intdefine.} = 96
+    StationShiftRadiusPx {.intdefine.} = 48
                               # a stamp within this range of the seat's
-                              # station target marks the ground hot (deaths
-                              # pair to stations well inside this at the
-                              # 64px/840t census rule)
+                              # station target marks the ground hot. Iter-2:
+                              # 96 -> 48 — at 96 the anchor itself (60px from
+                              # the lead station) was inside the trigger
+                              # ring, so anchor deaths re-armed the tuck
+                              # forever (battery 1: dwell 1374 t/ep, a
+                              # permanent relocation, deaths moved to the
+                              # anchor instead of being saved).
     StationShiftRadius = float(StationShiftRadiusPx)
+    StationShiftCooldown {.intdefine.} = 480
+                              # after a tuck ends, the guard re-stands its
+                              # station at least this long before it may
+                              # tuck again — hard-caps the duty cycle at
+                              # window/(window+cooldown) = 50% even under a
+                              # permanently hot trigger.
+    StationShiftAnchorExcl = 56.0
+                              # anti-loop: stamps this close to the anchor
+                              # are deaths AT the tuck spot; they never
+                              # re-trigger the tuck.
     ShiftAnchorX = 260.0      # RED canon frame; Blue mirrors to 974
     ShiftAnchorTopY = 50.0    # top-corner anchor (260,50)
     ShiftAnchorBotY = 636.0   # bottom-corner anchor (260,636)
@@ -1328,11 +1348,15 @@ proc resetTransient(bot: Bot) =
   when defined(dangerMem) or defined(dangerDefer) or defined(stationShift):
     bot.dangerPos.setLen(0)
     bot.dangerSeen.setLen(0)
+    bot.dangerBorn.setLen(0)
   when defined(dangerDefer):
     bot.deferLogAt = 0
   when defined(stationShift):
     bot.shiftLogAt = 0
     bot.shiftTicks = 0
+    bot.tucking = false
+    bot.tuckStarted = 0
+    bot.tuckCooldownUntil = 0
   bot.carrierSeen = -100_000
   bot.lastEnemySeen = bot.tick
   bot.gameStart = bot.tick
@@ -1464,6 +1488,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         if not known:
           bot.dangerPos.add(bot.lastPos)
           bot.dangerSeen.add(bot.tick)
+          bot.dangerBorn.add(bot.tick)
           artEvent(bot.tick, "danger_stamp",
             %*{"x": int(bot.lastPos.x), "y": int(bot.lastPos.y),
                "own": 1, "spots": bot.dangerPos.len})
@@ -1637,6 +1662,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       if not known:
         bot.dangerPos.add(p)
         bot.dangerSeen.add(bot.tick)
+        bot.dangerBorn.add(bot.tick)
         artEvent(bot.tick, "danger_stamp",
           %*{"x": int(p.x), "y": int(p.y), "spots": bot.dangerPos.len})
     # Forget spots past the sweep window so the list stays a handful.
@@ -1645,6 +1671,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       if bot.tick - bot.dangerSeen[di] > DangerTtl:
         bot.dangerPos.delete(di)
         bot.dangerSeen.delete(di)
+        bot.dangerBorn.delete(di)
       else:
         inc di
 
@@ -2299,24 +2326,40 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
          laneY2 + (if lead: -32.0 else: 32.0)))
        when defined(stationShift):
          if pd in {pdTopA, pdTopB, pdBotA, pdBotB}:
-           # Danger-window tuck: if the station ground carries a fresh
-           # team/own-death stamp, hold the corner cover anchor instead of
-           # re-standing the lethal spot. Combat below is untouched — the
-           # guard still engages anything it sees (incl. the station patch,
-           # which stays in LOS from the anchor).
+           # Danger-window tuck, iter-2 duty-cycled form: if the station
+           # ground carries a stamp YOUNGER (from creation) than the window,
+           # hold the corner cover anchor instead of re-standing the lethal
+           # spot — but a tuck runs at most one window, then the guard
+           # re-stands the station for a full cooldown before it may tuck
+           # again, and deaths AT the anchor never re-trigger (battery-1
+           # scar: without these, the tuck degenerated into a permanent
+           # relocation and the anchor became the new death spot). Combat
+           # below is untouched — the guard still engages anything it sees
+           # (incl. the station patch, which stays in LOS from the anchor).
+           let anchor = vec(
+             (if bot.team == Red: ShiftAnchorX
+              else: float(MapW) - 1.0 - ShiftAnchorX),
+             (if pd in {pdTopA, pdTopB}: ShiftAnchorTopY
+              else: ShiftAnchorBotY))
            var hotAge = -1
            for i in 0 ..< bot.dangerPos.len:
-             let age = bot.tick - bot.dangerSeen[i]
+             let age = bot.tick - bot.dangerBorn[i]
              if age < StationShiftWindow and
-                 dist(bot.dangerPos[i], target) < StationShiftRadius:
+                 dist(bot.dangerPos[i], target) < StationShiftRadius and
+                 dist(bot.dangerPos[i], anchor) > StationShiftAnchorExcl:
                if hotAge < 0 or age < hotAge:
                  hotAge = age
-           if hotAge >= 0:
-             target = vec(
-               (if bot.team == Red: ShiftAnchorX
-                else: float(MapW) - 1.0 - ShiftAnchorX),
-               (if pd in {pdTopA, pdTopB}: ShiftAnchorTopY
-                else: ShiftAnchorBotY))
+           if bot.tucking:
+             # End the tuck when the trigger goes quiet or the window is
+             # spent; either way the cooldown starts.
+             if hotAge < 0 or bot.tick - bot.tuckStarted >= StationShiftWindow:
+               bot.tucking = false
+               bot.tuckCooldownUntil = bot.tick + StationShiftCooldown
+           elif hotAge >= 0 and bot.tick >= bot.tuckCooldownUntil:
+             bot.tucking = true
+             bot.tuckStarted = bot.tick
+           if bot.tucking:
+             target = anchor
              inc bot.shiftTicks
              if bot.tick - bot.shiftLogAt >= 120:
                bot.shiftLogAt = bot.tick
