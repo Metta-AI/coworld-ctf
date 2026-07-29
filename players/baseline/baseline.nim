@@ -1366,29 +1366,40 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           break carryScan
   var hasShield = bot.hp > MaxHp
   when defined(ownShieldSprite):
-    # The carried-shield marker floats a fixed ~20px over ITS carrier, so
-    # the carrier is always the nearest visible player to the marker — but
-    # the bare 30px proximity fallback also believed a shielded TEAMMATE's
-    # marker (41/111 phantom pickups on v61 R1858-60; worst case a 740-tick
-    # 1-hp pad jitter, task 1216987518245825). Attribute each marker to the
-    # nearest candidate carrier (us vs every visible player) and take it
-    # only when that carrier is us. Marker-visible implies carrier-visible
-    # (the sim gates the marker on seeing the carrier), and the self avatar
-    # is not in actorsFor, so `me` plus both actor scans cover every
-    # candidate.
+    # The carried-shield marker is drawn at a FIXED offset from its carrier:
+    # (-7, -27) px from the carrier's sprite center (global.nim addShields:
+    # x = player.x - HpBarWidth/2 - ShieldCarrySize/2, y = overheadAnchorY -
+    # OverheadYOffset - ShieldCarrySize; CollisionW/H=1, SoldierBodyPx=34,
+    # HpBarWidth=14, ShieldCarrySize=12 => marker center = carrier + (-7,-27),
+    # 27.9px away — nearly the whole legacy 30px believe-radius). The bare
+    # proximity fallback therefore believed a shielded TEAMMATE's marker
+    # (41/111 phantom pickups on v61 R1858-60; worst case a 740-tick 1-hp pad
+    # jitter, task 1216987518245825), and plain nearest-actor attribution is
+    # no better: the true carrier is itself 27.9px from its own marker, so
+    # anyone standing up-left of the carrier out-scores it (measured: 632 vs
+    # 665 phantoms, i.e. a no-op). Instead, undo the offset: a marker is OURS
+    # iff it sits within a few px of OUR anchor point (me + (-7,-27)) and no
+    # other visible player's anchor point is closer. The true carrier's
+    # residual is ~0; anyone else's is >= the ~12px collision spacing, so the
+    # test is sharp. A spent-shield carrier (shieldHp 0, hp<=3) has ONLY this
+    # fallback (HUD hp = hp + shieldHp), so the fallback must stay. If a
+    # renderer change moves the overhead stack, this degrades to never-true
+    # (conservative: hp>MaxHp still catches undamaged carriers).
     if not hasShield:
+      let markerOff = vec(-7.0, -27.0)
+      const markerEps = 6.0
       var others: seq[Vec]
       for a in client.actorsFor(myColor): others.add(a.pos)
       for a in client.actorsFor(enemyColor): others.add(a.pos)
       block shieldCarryScan:
         for o in client.spriteObjectsWithLabel("shield carried"):
           let p = client.mapPos(o)
-          let dMe = dist(p, me)
-          if dMe > 30.0:
+          let rMe = dist(p, me + markerOff)
+          if rMe > markerEps:
             continue
           var mine = true
           for q in others:
-            if dist(p, q) < dMe:
+            if dist(p, q + markerOff) < rMe:
               mine = false
               break
           if mine:
