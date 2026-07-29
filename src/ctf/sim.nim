@@ -373,6 +373,13 @@ type
     symMirror
     symRot180
 
+  ArenaMaterial* = object
+    ## One arena's cover material for the carved-bevel shader: the flat top
+    ## face, the up-left lit bevel, the down-right shaded bevel, and the carve
+    ## outline where a block meets the floor. A zero-alpha `face` means "use
+    ## the default warm carved stone".
+    face*, hi*, lo*, ink*: ColorRGBA
+
   CtfMap* = object
     name*: string
     path*: string
@@ -385,6 +392,7 @@ type
     ## line on selection).
     flagRing*: int             ## clear radius of the open center ring.
     captureClear*: int         ## x-columns kept traversable for carriers.
+    carveClear*: int           ## always-floor home column; 0 = captureClear.
     spawnClearW*: int          ## half-width of the open spawn pockets.
     spawnClearH*: int          ## half-height of the open spawn pockets.
     gunRange*: int             ## default gun range on this map (px).
@@ -395,6 +403,15 @@ type
                                      ## generated maps; equals the active
                                      ## pair on hand-authored maps).
     leftObstacles*: seq[ArenaShape]
+    ## An ASYMMETRIC layout, used verbatim (no x-mirror) when non-empty. Set
+    ## this instead of leftObstacles for maps recreating real-world geometry.
+    fullObstacles*: seq[ArenaShape]
+    ## Per-map ART: the tiled floor texture under data/, and the cover
+    ## material the carved-bevel shader paints obstacles with. Both are
+    ## installed process-wide by selectCtfMap. An empty floorTex means the
+    ## default arena_floor.png.
+    floorTex*: string
+    material*: ArenaMaterial
 
   CrewSprite* = ref object
     width*, height*: int
@@ -1597,6 +1614,7 @@ const
                   AfghanName, ScrapyardName]
 
   ArenaBorder* = 10            ## perimeter wall thickness in px.
+  DefaultFloorTex = "data/arena_floor.png"
 
   ## Warm CRT-phosphor arena (REPLAY_DESIGN §3 art-lock): warm-dark floor,
   ## warm-stone cover, the two team colors the only saturated channels — never
@@ -1784,6 +1802,17 @@ const
     # the flag fight happens UNDER the tower; the mirror gives the east legs.
     ArenaShape(kind: shapeDiamond, cx: 552, cy: 264, radius: 26),
     ArenaShape(kind: shapeDiamond, cx: 552, cy: 394, radius: 26),
+    # Sightline pickets (see the no-cross-field-ray invariant below): the rows
+    # the props above leave fully open, closed with oil-yard furniture. Two
+    # border-attached pipe stacks take the north and south margin strips, a
+    # riser tees off the horizontal pipe run to close the mid lane, and three
+    # barrels plug the thin seams between the other shapes.
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 330, y: 10, w: 22, h: 62)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 330, y: 580, w: 22, h: 79)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 300, y: 291, w: 24, h: 94)),
+    ArenaShape(kind: shapeDisc, cx: 372, cy: 140, radius: 20),
+    ArenaShape(kind: shapeDisc, cx: 300, cy: 215, radius: 20),
+    ArenaShape(kind: shapeDisc, cx: 408, cy: 428, radius: 20),
   ]
 
   ## Terminal: the airport concourse. Inflatable 747 IS the north
@@ -1819,6 +1848,15 @@ const
     ArenaShape(kind: shapeDiagonal, x0: 568, y0: 162, x1: 482, y1: 248, thickness: 12),
     # wing engine
     ArenaShape(kind: shapeDisc, cx: 531, cy: 211, radius: 25),
+    # Sightline pickets (no-cross-field-ray invariant): concourse furniture on
+    # the rows the set pieces leave open. A check-in desk run takes the north
+    # margin, a baggage carousel arc and a cart the south, and two departure-
+    # board pylons flank the scanner comb to close the mid-lane seams.
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 330, y: 10, w: 24, h: 65)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 366, y: 566, w: 24, h: 93)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 300, y: 410, w: 24, h: 62)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 469, y: 286, w: 22, h: 25)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 469, y: 348, w: 22, h: 25)),
   ]
 
   ## Highrise: the rooftop court. Glass office core per half, duct
@@ -1850,6 +1888,15 @@ const
     ArenaShape(kind: shapeRect, rect: MapRect(x: 593, y: 25, w: 49, h: 62)),
     # crane arm reaching mid (center, mirror-exact)
     ArenaShape(kind: shapeRect, rect: MapRect(x: 605, y: 87, w: 25, h: 87)),
+    # Sightline pickets (no-cross-field-ray invariant): rooftop plant on the
+    # rows the cores and trench leave open — a parapet stub at the north edge,
+    # a stair bulkhead and vent bank across the south deck, and two more AC
+    # units closing the seams above and below the duct trench.
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 370, y: 10, w: 24, h: 40)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 370, y: 580, w: 24, h: 79)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 411, y: 218, w: 24, h: 46)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 349, y: 423, w: 24, h: 46)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 460, y: 480, w: 24, h: 70)),
   ]
 
   ## Favela: shantytown streetball. Staggered shanty blocks, water
@@ -1875,6 +1922,15 @@ const
     ArenaShape(kind: shapeRect, rect: MapRect(x: 568, y: 50, w: 99, h: 74)),
     # kiosk centre-south; courtyard between stays EMPTY (center, mirror-exact)
     ArenaShape(kind: shapeRect, rect: MapRect(x: 580, y: 522, w: 75, h: 50)),
+    # Sightline pickets (no-cross-field-ray invariant): more of the same
+    # shantytown grain on the rows the blocks leave open — a roofline block at
+    # the north wall, a stacked-crate pile at the south, and a market-stall row
+    # breaking the long plaza approach WITHOUT touching the center courtyard
+    # (that emptiness is the landmark).
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 364, y: 10, w: 62, h: 52)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 401, y: 566, w: 62, h: 93)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 296, y: 293, w: 25, h: 92)),
+    ArenaShape(kind: shapeDisc, cx: 345, cy: 214, radius: 20),
   ]
 
   ## Afghan: the desert crash site. C-130 wreck dead center, north
@@ -1908,6 +1964,14 @@ const
     # broken tail chunk fallen south-west (the mirror drops a matching piece
     # south-east; together they flank the crater)
     ArenaShape(kind: shapeRect, rect: MapRect(x: 505, y: 404, w: 56, h: 40)),
+    # Sightline pickets (no-cross-field-ray invariant): desert-field cover on
+    # the rows the ridge and wreck leave open — a rock spur below the ridge
+    # line, a dune-and-boulder pair across the south riverbed, and one more
+    # boulder closing the seam above the bunker.
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 404, y: 62, w: 26, h: 81)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 396, y: 586, w: 26, h: 73)),
+    ArenaShape(kind: shapeDisc, cx: 466, cy: 531, radius: 22),
+    ArenaShape(kind: shapeDisc, cx: 300, cy: 210, radius: 20),
   ]
 
   ## Scrapyard: the aircraft boneyard. A broken fuselage spine down
@@ -1942,6 +2006,17 @@ const
     ArenaShape(kind: shapeRect, rect: MapRect(x: 470, y: 298, w: 75, h: 63)),
     # tail fin south of the ring (animates: within 80px of center.x)
     ArenaShape(kind: shapeDiamond, cx: 617, cy: 412, radius: 30),
+    # Sightline pickets (no-cross-field-ray invariant): more boneyard scrap on
+    # the rows the spine and streets leave open — a stripped wing panel below
+    # the north scrap wall, a crushed-hulk stack above the south one, and two
+    # engine cowlings closing the seams fore and aft of the fuselage spine.
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 400, y: 25, w: 24, h: 45)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 445, y: 586, w: 24, h: 60)),
+    # (kept x-clear of the fuselage body gap at x 356..385 — plugging both its
+    # ends would seal the passage through the spine into a dead pocket)
+    ArenaShape(kind: shapeDisc, cx: 326, cy: 289, radius: 22),
+    ArenaShape(kind: shapeDisc, cx: 326, cy: 379, radius: 22),
+    ArenaShape(kind: shapeDisc, cx: 300, cy: 445, radius: 20),
   ]
 
 proc defaultCtfRooms(gameMap: CtfMap): seq[Room] =
@@ -2025,6 +2100,14 @@ proc rustCtfMap(): CtfMap =
   result.spawnClearH = 130
   result.gunRange = 1300
   result.leftObstacles = @RustLeftObstacles
+  ## Art: rusted sheet metal and iron scaffold.
+  result.floorTex = "data/rust_floor.png"
+  result.material = ArenaMaterial(
+    face: rgba(126, 82, 52, 255),
+    hi: rgba(198, 138, 88, 255),
+    lo: rgba(64, 38, 22, 255),
+    ink: rgba(36, 20, 12, 255)
+  )
   ## Med kits ride the classic center-line thirds, like the hand-authored
   ## arenas (the generated maps draw their own pair).
   result.medKitSpawns = @[
@@ -2051,6 +2134,14 @@ proc terminalCtfMap(): CtfMap =
   result.spawnClearH = 130
   result.gunRange = 1300
   result.leftObstacles = @TerminalLeftObstacles
+  ## Art: white terminal panel and brushed trim.
+  result.floorTex = "data/terminal_floor.png"
+  result.material = ArenaMaterial(
+    face: rgba(176, 174, 168, 255),
+    hi: rgba(232, 230, 224, 255),
+    lo: rgba(96, 95, 92, 255),
+    ink: rgba(44, 44, 42, 255)
+  )
   ## Med kits ride the classic center-line thirds, like the hand-authored
   ## arenas (the generated maps draw their own pair).
   result.medKitSpawns = @[
@@ -2077,6 +2168,14 @@ proc highriseCtfMap(): CtfMap =
   result.spawnClearH = 130
   result.gunRange = 1300
   result.leftObstacles = @HighriseLeftObstacles
+  ## Art: poured grey concrete plant.
+  result.floorTex = "data/highrise_floor.png"
+  result.material = ArenaMaterial(
+    face: rgba(142, 141, 136, 255),
+    hi: rgba(196, 195, 189, 255),
+    lo: rgba(78, 78, 76, 255),
+    ink: rgba(38, 38, 37, 255)
+  )
   ## Med kits ride the classic center-line thirds, like the hand-authored
   ## arenas (the generated maps draw their own pair).
   result.medKitSpawns = @[
@@ -2103,6 +2202,14 @@ proc favelaCtfMap(): CtfMap =
   result.spawnClearH = 130
   result.gunRange = 1300
   result.leftObstacles = @FavelaLeftObstacles
+  ## Art: painted plywood and cinder block.
+  result.floorTex = "data/favela_floor.png"
+  result.material = ArenaMaterial(
+    face: rgba(150, 106, 78, 255),
+    hi: rgba(210, 160, 124, 255),
+    lo: rgba(78, 52, 36, 255),
+    ink: rgba(40, 26, 18, 255)
+  )
   ## Med kits ride the classic center-line thirds, like the hand-authored
   ## arenas (the generated maps draw their own pair).
   result.medKitSpawns = @[
@@ -2129,6 +2236,14 @@ proc afghanCtfMap(): CtfMap =
   result.spawnClearH = 130
   result.gunRange = 1300
   result.leftObstacles = @AfghanLeftObstacles
+  ## Art: sandbagged rock and dust-caked hull.
+  result.floorTex = "data/afghan_floor.png"
+  result.material = ArenaMaterial(
+    face: rgba(152, 128, 92, 255),
+    hi: rgba(208, 184, 142, 255),
+    lo: rgba(82, 66, 44, 255),
+    ink: rgba(42, 34, 22, 255)
+  )
   ## Med kits ride the classic center-line thirds, like the hand-authored
   ## arenas (the generated maps draw their own pair).
   result.medKitSpawns = @[
@@ -2155,6 +2270,14 @@ proc scrapyardCtfMap(): CtfMap =
   result.spawnClearH = 130
   result.gunRange = 1300
   result.leftObstacles = @ScrapyardLeftObstacles
+  ## Art: bare riveted aluminium and brick.
+  result.floorTex = "data/scrapyard_floor.png"
+  result.material = ArenaMaterial(
+    face: rgba(140, 136, 130, 255),
+    hi: rgba(198, 196, 190, 255),
+    lo: rgba(74, 71, 68, 255),
+    ink: rgba(36, 35, 33, 255)
+  )
   ## Med kits ride the classic center-line thirds, like the hand-authored
   ## arenas (the generated maps draw their own pair).
   result.medKitSpawns = @[
@@ -2315,9 +2438,20 @@ proc inShape*(x, y: int, shape: ArenaShape): bool =
         int64(shape.thickness) * int64(shape.thickness) * len2 * len2 div 4
 
 proc buildArenaObstacles*(gameMap: CtfMap): seq[ArenaShape] =
-  ## The full obstacle set: every left-half shape plus its image under the
-  ## map's symmetry (x-mirror or 180° rotation), precomputed once per map
-  ## selection so the per-pixel wall test never re-mirrors.
+  ## The full obstacle set, precomputed once per map selection so the
+  ## per-pixel wall test never re-mirrors.
+  ##
+  ## Two authoring modes. A map that fills `leftObstacles` is COMPLETED BY ITS
+  ## SYMMETRY (each left-half shape plus its image under x-mirror or 180°
+  ## rotation) — the fairness-by-construction default the abstract arenas and
+  ## every generated map use. A map that fills `fullObstacles` instead is taken
+  ## VERBATIM: real-world layouts (the MW2 recreations) are asymmetric by
+  ## nature — Terminal's 747 sits at one end of the concourse, Burger Town in
+  ## one corner — and mirroring them would destroy the very geometry that makes
+  ## the map recognizable. Such maps buy fidelity by giving up automatic
+  ## symmetry, so they must balance the two approaches by hand instead.
+  if gameMap.fullObstacles.len > 0:
+    return gameMap.fullObstacles
   for shape in gameMap.leftObstacles:
     result.add shape
     case gameMap.symmetry
@@ -2937,6 +3071,18 @@ proc resolveCtfMapMetadata*(config: GameConfig): CtfMap =
   else:
     raise newException(CtfError, "Unknown map: " & name)
 
+## The COVER MATERIAL is per-map (installed by selectCtfMap from the selected
+## map's `material`), so an arena's props read as its own scenery — rusted
+## sheet metal on the oil yard, white terminal panel, poured concrete on the
+## rooftop, painted plywood in the favela, sandbagged rock in the desert,
+## bare aluminium in the boneyard. The default arena keeps the original warm
+## carved-stone values exactly, so its art is byte-identical to before.
+var
+  StoneFace = rgba(120, 100, 78, 255)    ## flat top face of a raised block.
+  StoneHi = rgba(190, 167, 137, 255)     ## up-left lit bevel (catches the light).
+  StoneLo = rgba(68, 54, 41, 255)        ## down-right shaded bevel (falls to dark).
+  StoneInk = rgba(34, 26, 19, 255)       ## warm near-black carve line (never #000).
+
 ## The SELECTED map's layout, installed once per process by loadCtfMap and
 ## initialized to the default arena below so tooling that never selects a
 ## map observes a complete default state, never an empty one.
@@ -2949,6 +3095,8 @@ var
   ArenaBlueHomeX = 1049
   ArenaObstacles*: seq[ArenaShape]
   AnimatedDiamonds*: seq[tuple[cx, cy, radius: int]]
+  ArenaFloorTex* = DefaultFloorTex  ## data/ path of the selected map's floor.
+  ArenaCarveClear = 210  ## width of the always-floor home column (px).
 
 proc selectCtfMap(gameMap: CtfMap) =
   ## Installs one map as THE map for this process: dimensions, fog grid,
@@ -2964,12 +3112,29 @@ proc selectCtfMap(gameMap: CtfMap) =
   ShoutRange = MapWidth div 5
   ArenaFlagRing = gameMap.flagRing
   ArenaCaptureClear = gameMap.captureClear
+  ArenaCarveClear =
+    if gameMap.carveClear > 0: gameMap.carveClear else: gameMap.captureClear
   ArenaSpawnClearW = gameMap.spawnClearW
   ArenaSpawnClearH = gameMap.spawnClearH
   ArenaRedHomeX = gameMap.teamHomeX(Red)
   ArenaBlueHomeX = gameMap.teamHomeX(Blue)
   ArenaObstacles = buildArenaObstacles(gameMap)
   AnimatedDiamonds = buildAnimatedDiamonds(gameMap, ArenaObstacles)
+  ## Per-map ART. A map that declares no material keeps the default arena's
+  ## warm carved stone, so the original arena renders byte-identically.
+  ArenaFloorTex =
+    if gameMap.floorTex.len > 0: gameMap.floorTex
+    else: DefaultFloorTex
+  if gameMap.material.face.a > 0:
+    StoneFace = gameMap.material.face
+    StoneHi = gameMap.material.hi
+    StoneLo = gameMap.material.lo
+    StoneInk = gameMap.material.ink
+  else:
+    StoneFace = rgba(120, 100, 78, 255)
+    StoneHi = rgba(190, 167, 137, 255)
+    StoneLo = rgba(68, 54, 41, 255)
+    StoneInk = rgba(34, 26, 19, 255)
 
 selectCtfMap(arenaCtfMap())
 
@@ -3064,7 +3229,13 @@ proc inShapeF*(x, y: float, shape: ArenaShape): bool =
 proc isProtectedFloor(x, y, cx, cy: int): bool =
   ## Regions that MUST stay walkable: the flag ring, both spawn pockets,
   ## and the two home capture columns. Walls are never carved here.
-  if x < ArenaCaptureClear or x >= MapWidth - ArenaCaptureClear:
+  ##
+  ## ArenaCarveClear is the width of the always-floor home column. The
+  ## abstract arenas keep it equal to the full capture zone, which forbids any
+  ## cover in the outer sixth of the map; the recreated maps shrink it to just
+  ## the pedestal apron so real building footprints can sit where they really
+  ## do, and instead keep their spawn lanes open by hand.
+  if x < ArenaCarveClear or x >= MapWidth - ArenaCarveClear:
     return true
   let
     dx = x - cx
@@ -3101,8 +3272,8 @@ proc isArenaWindowPixel*(x, y, cx, cy: int): bool =
 
 proc isProtectedFloorF(x, y: float, cx, cy: int): bool =
   ## Float-coordinate isProtectedFloor for the render-scale rasterizer.
-  if x < float(ArenaCaptureClear) or
-      x >= float(MapWidth - ArenaCaptureClear):
+  if x < float(ArenaCarveClear) or
+      x >= float(MapWidth - ArenaCarveClear):
     return true
   let
     dx = x - float(cx)
@@ -3221,10 +3392,7 @@ proc blitCover(dst, spr: Image, cx, cy, size: int) =
 ## fall into shadow — the Gungeon/Nuclear-Throne top-down convention (L98).
 const
   WallBevel = 3                          ## px width of the lit/shadow bevel band.
-  StoneFace = rgba(120, 100, 78, 255)    ## flat top face of a raised stone block.
-  StoneHi = rgba(190, 167, 137, 255)     ## up-left lit bevel (catches the light).
-  StoneLo = rgba(68, 54, 41, 255)        ## down-right shaded bevel (falls to dark).
-  StoneInk = rgba(34, 26, 19, 255)       ## warm near-black carve line (never #000).
+
 
 proc floorDistDir(wall: seq[bool], w, h, x, y, dx, dy, cap: int): int =
   ## Steps from (x, y) along (dx, dy) until the first floor (non-wall) pixel,
@@ -3485,7 +3653,7 @@ proc renderArenaRgbaPair*(
     cx = gameMap.center.x
     cy = gameMap.center.y
     dir = gameDir()
-    floorTex = readImage(dir / "data/arena_floor.png")
+    floorTex = readImage(dir / ArenaFloorTex)
     pedRedSpr = readImage(dir / "data/ped_red.png")
     pedBlueSpr = readImage(dir / "data/ped_blue.png")
   # The art mask at output resolution: border + obstacle shapes from float
@@ -3655,7 +3823,7 @@ proc loadMapLayers*(gameMap: CtfMap, withEndzoneGlow = true):
     clear = rgba(0, 0, 0, 0)
     opaque = rgba(255, 255, 255, 255)
     dir = gameDir()
-    floorTex = readImage(dir / "data/arena_floor.png")
+    floorTex = readImage(dir / ArenaFloorTex)
     pedRedSpr = readImage(dir / "data/ped_red.png")
     pedBlueSpr = readImage(dir / "data/ped_blue.png")
   ## Pass 1: the boolean wall mask (border + obstacles), shared by the shading
