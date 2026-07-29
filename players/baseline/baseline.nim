@@ -266,18 +266,15 @@ const
                               # leaves on the clock. Overridable ONLY so local
                               # smoke can reach the fire band inside a short
                               # mirror; league builds never set it.
-  CkStageBand {.intdefine.} = 450
-                              # estRemaining under this: the victim stages.
-                              # STAGING ONLY — moving into escort position is
-                              # free, so it needs LEAD TIME, not a wider fire
-                              # window. At 250 (== CkFireBand) 6 of 7 wave-1b
-                              # doom instances that reached the fire band had NO
-                              # live mate within CkFFRange at any band tick
-                              # (nearest 142-429 px) and the one staged escort
-                              # that did commit closed 695 -> 212 px and ran out
-                              # of clock. 450 opens the approach ~200 ticks
-                              # earlier, which at the measured 1.0-1.8 px/tick
-                              # is 200-360 px of closing.
+  # NO STAGE BAND ANY MORE. Iteration 3's CkStageBand (250 -> 450) is deleted:
+  # a band cannot fix a BODY SHORTAGE. Across the v95 wave the dominant
+  # act-miss was that the only surviving mate sat 313-799 px from the carrier
+  # on EVERY band tick, so a wider band bought approach ticks that never
+  # converted (17 staged / 7 executed, execute ticks actually FELL 763 -> 492).
+  # Routing now starts on the doom predicate's own rising edge — see ckRoute —
+  # because only earlier MOVEMENT can close 300-800 px inside a doomed carry.
+  # The late fire band is kept: the top-up is CkFloorTicks - remaining, so an
+  # early kill is worth less clock.
   CkFireBand {.intdefine.} = 250
                               # estRemaining under this: the carrier executes.
                               # Fire LATE — the top-up is 500 - remaining, so a
@@ -296,22 +293,91 @@ const
                               # the run line (never in the carrier's path)
   CkCaptureHalf = 20.0        # sim CaptureZoneWidth div 2: the capture strip
                               # reaches this far in front of the home x anchor
-  CkVictimR = 44.0            # a mate track this close to the victim's last
-                              # fix IS the victim (well inside the sim's 90px
-                              # omnidirectional vision bubble)
+  CkTrackR = 10.0             # how close a mate track must be to the victim's
+                              # last fix to BE the victim when the confirm chain
+                              # re-acquires it tick by tick. Iteration 3 used
+                              # CkVictimR (44 px, now deleted), which is a
+                              # SEARCH radius and not an identity: a SECOND mate
+                              # that wanders inside it inherits the victim's fix
+                              # and, with the hp-aware latch, its pip reading
+                              # too. Measured in smoke — that produced a false
+                              # confirmation 74 ticks after the real victim had
+                              # already died to an enemy, and neither the hp
+                              # test nor the vanish test can catch it because
+                              # both readings genuinely belong to a live body.
+                              # A genuine re-acquisition of the SAME body cannot
+                              # be further than this: track velocity is clamped
+                              # to 3 px/tick and the confirm accepts at most
+                              # CkPickFresh (2) ticks of staleness, so ~9 px
+                              # bounds one body's movement between fixes.
+  CkVanishR = 44.0            # a victim whose last fix is THIS close, with a
+                              # clear pixel ray to it, cannot merely have gone
+                              # out of sight: the sim's vision bubble is
+                              # omnidirectional at 90 px (config visionBubble),
+                              # so at 44 px facing is irrelevant and the only
+                              # two ways to stop being seen are a wall (the ray
+                              # test) or death. This is the disappearance
+                              # conjunct that refuses the three i1 phantoms:
+                              # all three victims had drifted to 44-55 px AND
+                              # lost pixel LOS at the latch tick (the third was
+                              # also an hp-3 shielded mate, ineligible anyway).
   CkGoneTicks = 10            # the victim track missing this long, after we
                               # have landed enough hits to kill, is the kill
-  CkKillShots {.intdefine.} = 3
-                              # trigger pulls a bare gun needs to kill (3 hp,
-                              # 1 hp per hit). The disappearance confirm is
-                              # gated on this, not on ckShots > 0: 3 of the 5
-                              # wave-1b latches were PHANTOM — a LIVE victim
-                              # (hp 1-3, one of them shielded with every hit
-                              # blocked) merely drifted out of the carrier's
-                              # FOV for CkGoneTicks after 1-2 hits. A phantom
-                              # latch is expensive: it floors the clock estimate
-                              # (ckDoomed goes false) and ABANDONS the rescue
-                              # mid-execution.
+  CkPipDy = 22.0              # the victim's overhead pip bar sits EXACTLY this
+                              # far above its body centre, and dead level with
+                              # it in x. Straight from the sim: addHpPips places
+                              # the bar object at
+                              # (x + CollisionW div 2 - HpBarWidth div 2,
+                              #  overheadAnchorY - OverheadYOffset - HpBarH)
+                              # with HpBarWidth 14, HpBarH 2, OverheadYOffset 4
+                              # and overheadAnchorY = y + CollisionH div 2 -
+                              # SoldierBodyPx div 2 (= y - 17); mapPos then adds
+                              # (7, 1). Net (0, -22).
+  CkPipR = 12.0               # tolerance for that read. The lever CANNOT use
+                              # Actor.hp / Track.hp: `actorsFor` associates a
+                              # pip with a STRICT `d < HpPipRadius (22.0)` test
+                              # and the true owner is at exactly 22.0, so on
+                              # this lineage Actor.hp is 0 for every player
+                              # ALWAYS — measured, 57 987 pip samples at
+                              # minDist exactly 22.0 over one 16-seat mirror,
+                              # and the only nonzero readings (~1.4%) are pips
+                              # MIS-ATTRIBUTED to a neighbouring player. 12.0
+                              # covers the <=2-tick staleness of the victim fix
+                              # (track velocity is clamped to 3 px/tick) while
+                              # staying far inside the 22 px that separates one
+                              # player's pip from the next body.
+  CkKillHpMax {.intdefine.} = 2
+                              # HP-AWARE KILL LATCH. The latch needs enough
+                              # trigger pulls to kill the victim FROM THE HP WE
+                              # ACTUALLY READ OFF IT, and only for a victim
+                              # whose pip reading is unambiguous:
+                              #   shotsSinceHpRead >= observedHp,
+                              #   1 <= observedHp <= CkKillHpMax,
+                              #   pip associated on the victim's LAST seen tick.
+                              # Three source facts force exactly this shape.
+                              # (1) Actor.hp is 0 for EVERY player on this
+                              #     lineage — see CkPipR — so the pip must be
+                              #     read locally, and 0 still has to mean
+                              #     UNKNOWN rather than dead.
+                              # (2) Track.hp is last-SEEN stale and is never
+                              #     decayed, so even a working association could
+                              #     not feed this latch.
+                              # (3) hp 3/3 is AMBIGUOUS: sim global.nim clamps
+                              #     the overhead bar to
+                              #     min(3, ceil((hp+shieldHp)*3/maxHp)), so a
+                              #     SHIELDED mate (up to 6 ehp, every hit
+                              #     blocked) shows the same 3/3 as a healthy
+                              #     bare one. hp3 victims are latch-INELIGIBLE;
+                              #     once our fire drops one to 2 it becomes
+                              #     eligible on its own reading.
+                              # Shots fired BEFORE the reading are already
+                              # priced into it, so only shots AFTER it count —
+                              # that is what refuses the v91/i1 phantoms (a live
+                              # hp2 victim, 1 of 3 shots landed, drifting out of
+                              # FOV: 0 shots since the reading) while accepting
+                              # the real 1-2-hit kills of wounded victims that
+                              # i3's flat "shots >= 3" refused (ck_kill read
+                              # 0/56 in v95 while 4 real FF kills landed).
   CkPickFresh {.intdefine.} = 2
                               # victim-track staleness the START selector
                               # accepts. MUST match the confirm chain's
@@ -322,6 +388,15 @@ const
                               # old track as gone while the selector still
                               # called it a body.
   CkFreshMate = 48            # a mate track this recent counts as a live body
+  CkHoldPx = 6.0              # a routed body this close to its standoff fix
+                              # STANDS STILL. Without this it random-walks:
+                              # navSteer returns ~0 at the destination, decide's
+                              # tail turns an empty moveMask into a RANDOM
+                              # octant, and a jittering victim 30-40 px away
+                              # swings its own bearing by ~8 brads per px of
+                              # lateral drift — far faster than the turret's
+                              # AimRate 5 brads/tick can track. Standing still
+                              # is what makes the victim shootable at all.
   CkNoFloor = -1_000_000      # ckFloorTick sentinel: no floor event witnessed
   CkExecTtl {.intdefine.} = 96
                               # give up on a victim that never dies and
@@ -466,8 +541,15 @@ type
       ckFiring: bool          # an execution is in flight, awaiting confirmation
       ckVictimPos: Vec        # last fix on the victim being executed
       ckVictimSeen: int       # tick that fix was last refreshed
+      ckVictimHp: int         # the victim's OWN pip reading, from the current
+                              # frame's actors; 0 = never associated
+      ckVictimHpSeen: int     # tick that pip reading was taken
+      ckVictimHpShots: int    # ckShots at the moment of that pip reading, so
+                              # the latch can count only the shots that reading
+                              # does not already account for
       ckShots: int            # trigger pulls spent on the current victim
       ckFireStart: int        # tick the current execution started
+      ckWasRouting: bool      # rising-edge detector for the body routing
 
 proc roleForSeat(seat: int, team: Team): Role =
   ## Deterministic role spread over the 8 per-team seats. Seats 2 and 3 both
@@ -1315,6 +1397,10 @@ proc resetTransient(bot: Bot) =
     bot.ckFireStart = 0
     bot.ckShots = 0
     bot.ckVictimSeen = 0
+    bot.ckVictimHp = 0
+    bot.ckVictimHpSeen = 0
+    bot.ckVictimHpShots = 0
+    bot.ckWasRouting = false
 
 proc scanAim(bot: Bot, watch: Vec): int =
   ## The scan-sweep aim while holding a position: rake the vision cone back
@@ -1828,10 +1914,16 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     let ckDoomed = ckCarrying and ckBodies >= 1 and
       bot.tick - bot.gameStart > CkMinGt and
       ckRemaining * CkCarrySpeedDeci < int(ckToLine * 10.0)
-    # Victim staging: exactly one non-carrier — the one that believes itself
-    # nearest the carrier — walks in. Everyone else keeps escorting.
-    var ckVictim = false
-    if ckDoomed and not iCarry and ckRemaining < CkStageBand:
+    # BODY ROUTING AT DOOM ONSET. Exactly one non-carrier — the one that
+    # believes itself nearest the carrier — is routed onto the carrier's run
+    # line the moment the carry reads DOOMED, at any distance and at any
+    # remaining clock. Everyone else keeps escorting. This replaces the old
+    # `ckRemaining < CkStageBand` staging gate: a band only decides WHEN to
+    # start walking, and in v95 the one live mate was 313-799 px away on every
+    # band tick, so no band value could produce a body in time. Routing off the
+    # doom predicate's rising edge is the only thing that can.
+    var ckRoute = false
+    if ckDoomed and not iCarry:
       let dMe = dist(me, ckCarrierPos)
       var nearest = true
       for t in bot.mates:
@@ -1842,13 +1934,32 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         if dist(t.pos, ckCarrierPos) < dMe:
           nearest = false
           break
-      ckVictim = nearest
+      ckRoute = nearest
+    # Where the routed body goes: abeam of the carrier's run line,
+    # CkVictimStandoff off it. Inside the sim's 90 px omnidirectional vision
+    # bubble the carrier sees us whatever its aim is doing, and abeam means we
+    # are never in the carrier's path and never overlapping it.
+    let ckStageTarget =
+      if ckRoute:
+        let side = (if me.y >= ckCarrierPos.y: 1.0 else: -1.0)
+        vec(clamp(ckCarrierPos.x, 20.0, float(MapW - 20)),
+            clamp(ckCarrierPos.y + side * CkVictimStandoff, 20.0,
+                  float(MapH - 20)))
+      else:
+        me
+    if ckRoute and not bot.ckWasRouting:
+      artEvent(bot.tick, "ck_route", %*{
+        "gt": bot.tick - bot.gameStart, "rem": ckRemaining,
+        "x": int(me.x), "y": int(me.y),
+        "d": int(dist(me, ckCarrierPos))})
+    bot.ckWasRouting = ckRoute
     when defined(ckDebug):
       if ckCarrying and bot.tick mod 24 == 0:
         echo "CK t=", bot.tick, " slot=", bot.slot, " iCarry=", iCarry,
           " gt=", bot.tick - bot.gameStart, " rem=", ckRemaining,
           " toLine=", int(ckToLine), " bodies=", ckBodies,
-          " doomed=", ckDoomed, " victim=", ckVictim,
+          " doomed=", ckDoomed, " route=", ckRoute,
+          " dCarrier=", int(dist(me, ckCarrierPos)),
           " sui=", bot.ckSuicides
         flushFile(stdout)
   var sawThief = false
@@ -2189,17 +2300,11 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       else:
         target = bot.chokeHold
     when defined(carryClockKeep):
-      if ckVictim:
-        # Stage as the clock-ratchet victim: park abeam of the carrier's run
-        # line, CkVictimStandoff off it. Inside the sim's 90px omnidirectional
-        # vision bubble the carrier sees us whatever its aim is doing, and
-        # abeam means we are never in the carrier's path and never overlapping.
+      if ckRoute:
+        # Routed as the clock-ratchet body: the escort offsets for this role are
+        # replaced by the standoff fix computed at doom onset.
         objMode = "ck_victim"
-        let side = (if me.y >= ckCarrierPos.y: 1.0 else: -1.0)
-        target = vec(
-          clamp(ckCarrierPos.x, 20.0, float(MapW - 20)),
-          clamp(ckCarrierPos.y + side * CkVictimStandoff, 20.0,
-                float(MapH - 20)))
+        target = ckStageTarget
   elif phalanxOn and not pushOut:
    when defined(zonePhalanx):
      # Zone phalanx: shield scout spots forward and relays sightings, three
@@ -2758,6 +2863,16 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
             target = p
             break
 
+  when defined(carryClockKeep):
+    # The routing override outranks every errand. Only the med-kit heal detour
+    # is actually live during a mate's carry (shield/plasma/nade pickups all
+    # require `not mateCarry`), and a wounded body wandering off to a kit is
+    # exactly the body shortage this iteration exists to fix — an escort life at
+    # the buzzer is worth nothing, so healing it is worth nothing either.
+    if ckRoute:
+      objMode = "ck_victim"
+      target = ckStageTarget
+
   # Grenade danger: a visible throw-target ring marks where an enemy's lob
   # will land, and an airborne grenade is seconds from bursting — anything
   # inside the blast radius eats 2 of 3 hit points. Fleeing the marked spot
@@ -2778,41 +2893,91 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # execution already in flight first, then decide whether to start one.
   when defined(carryClockKeep):
     var
-      ckExecute = false
+      ckAct = false            # this seat's ck branch owns the act this tick
+      ckExecuting = false      # ... as the carrier shooting its chosen victim
       ckVictimD = 0.0
     if bot.ckFiring:
-      # Kill confirmation. The death FX the sim drops at the death spot
-      # ("splatter <colour>", "damage pop <colour> KO") are emitted to living
-      # player views and WOULD be the crisp signal, but they are absent from
-      # the generated label manifest (upstream's vocabulary fixture never kills
-      # anybody), so scanning them hard-fails our label-contract guard. Use the
-      # channel the guard already knows instead: the victim is inside the sim's
-      # 90 px omnidirectional vision bubble, so a track there that stops
-      # refreshing is GONE — it cannot merely have left our aim cone.
+      # Kill confirmation, HP-AWARE. The death FX the sim drops at the death
+      # spot ("splatter <colour>", "damage pop <colour> KO") are emitted to
+      # living player views and WOULD be the crisp signal, but they are absent
+      # from the generated label manifest (upstream's vocabulary fixture never
+      # kills anybody), so scanning them hard-fails our label-contract guard.
+      # What is left is the victim's body and its own overhead pip bar, both
+      # inside the sim's 90 px omnidirectional vision bubble.
       var fresh = -1
       for i in 0 ..< bot.mates.len:
         if bot.tick - bot.mates[i].lastSeen <= CkPickFresh and
-            dist(bot.mates[i].pos, bot.ckVictimPos) < CkVictimR:
+            dist(bot.mates[i].pos, bot.ckVictimPos) < CkTrackR:
           fresh = i
           break
       if fresh >= 0:
         bot.ckVictimPos = bot.mates[fresh].pos     # keep the fix current
         bot.ckVictimSeen = bot.tick
-      elif bot.ckShots >= CkKillShots and
-          bot.tick - bot.ckVictimSeen >= CkGoneTicks:
+      # Read the victim's OWN pip bar off the current frame, against the fix we
+      # just refreshed. This does NOT go through Actor.hp: `actorsFor` associates
+      # a pip with a strict `d < HpPipRadius (22.0)` test and every pip sits at
+      # exactly 22.0 from its owner, so Actor.hp (and therefore Track.hp) is 0
+      # for every player on this lineage — see CkPipR. Require the match to be
+      # UNAMBIGUOUS: a second pip inside CkPipR means two bodies are stacked and
+      # we cannot say whose bar we are reading, which is exactly the
+      # mis-attribution that makes the Actor.hp channel dangerous rather than
+      # merely dead.
+      let pipAt = bot.ckVictimPos + vec(0.0, -CkPipDy)
+      var
+        pipHp = 0
+        pipHits = 0
+      for hp in 1 .. MaxHp:
+        for o in client.spriteObjectsWithLabel("hp " & $hp & "/" & $MaxHp):
+          if dist(client.mapPos(o), pipAt) < CkPipR:
+            inc pipHits
+            pipHp = hp
+      if pipHits == 1:
+        if pipHp != bot.ckVictimHp:
+          # A NEW hp value: this is the tick that reading first appeared, so
+          # this is the shot count the "enough shots to kill from here" test
+          # must measure from. Re-reading the SAME value must not move the
+          # baseline — the sim resolves a hit several ticks after the trigger
+          # pull (fireWindupTicks plus travel), so a per-tick baseline reset
+          # would credit the fatal shot to the reading it produced and the
+          # latch could never fire.
+          bot.ckVictimHp = pipHp
+          bot.ckVictimHpShots = bot.ckShots
+        bot.ckVictimHpSeen = bot.tick
+      when defined(ckDebug):
+        echo "CK pip t=", bot.tick, " slot=", bot.slot, " hits=", pipHits,
+          " hp=", pipHp, " held=", bot.ckVictimHp,
+          " heldAge=", bot.tick - bot.ckVictimHpSeen, " shots=", bot.ckShots,
+          " base=", bot.ckVictimHpShots
+        flushFile(stdout)
+      if fresh < 0 and bot.ckVictimHp >= 1 and
+          bot.ckVictimHp <= CkKillHpMax and
+          bot.ckVictimSeen - bot.ckVictimHpSeen <= CkPickFresh and
+          bot.ckShots - bot.ckVictimHpShots >= bot.ckVictimHp and
+          bot.tick - bot.ckVictimSeen >= CkGoneTicks and
+          dist(bot.ckVictimPos, me) <= CkVanishR and
+          client.pixelRayClear(me, bot.ckVictimPos):
+        # Enough trigger pulls to kill it went out AFTER we FIRST read this hp
+        # value (shots before that reading are already priced into it), the
+        # reading itself was unambiguous (1 .. CkKillHpMax — a 3/3 bar may be a
+        # shielded 6 ehp mate) and contemporaneous with the last sighting, the
+        # body has been gone for CkGoneTicks, and its last fix is close enough
+        # with a clear ray that it cannot merely have left our sight. That is a
+        # kill, and flooring the clock estimate on it is sound.
         bot.ckFiring = false
         bot.ckFloorTick = bot.tick       # the kill re-armed the game clock
         inc bot.ckSuicides
         artEvent(bot.tick, "ck_kill", %*{
           "n": bot.ckSuicides, "waited": bot.tick - bot.ckFireStart,
-          "shots": bot.ckShots,
+          "shots": bot.ckShots, "hp": bot.ckVictimHp,
+          "since": bot.ckShots - bot.ckVictimHpShots,
           "x": int(bot.ckVictimPos.x), "y": int(bot.ckVictimPos.y)})
         when defined(ckDebug):
           echo "CK kill t=", bot.tick, " slot=", bot.slot,
             " n=", bot.ckSuicides, " waited=", bot.tick - bot.ckFireStart,
-            " shots=", bot.ckShots
+            " shots=", bot.ckShots, " hp=", bot.ckVictimHp,
+            " since=", bot.ckShots - bot.ckVictimHpShots
           flushFile(stdout)
-      elif bot.tick - bot.ckFireStart > CkExecTtl:
+      elif fresh < 0 and bot.tick - bot.ckFireStart > CkExecTtl:
         bot.ckFiring = false             # lost the victim: re-select
         if bot.ckShots > 0:
           # Shots went out and we cannot tell whether they killed. Charge the
@@ -2823,21 +2988,41 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           inc bot.ckSuicides
           artEvent(bot.tick, "ck_ttl", %*{
             "n": bot.ckSuicides, "waited": bot.tick - bot.ckFireStart,
-            "shots": bot.ckShots,
+            "shots": bot.ckShots, "hp": bot.ckVictimHp,
+            "since": bot.ckShots - bot.ckVictimHpShots,
             "x": int(bot.ckVictimPos.x), "y": int(bot.ckVictimPos.y)})
           when defined(ckDebug):
             echo "CK ttl t=", bot.tick, " slot=", bot.slot,
               " n=", bot.ckSuicides, " waited=", bot.tick - bot.ckFireStart,
-              " shots=", bot.ckShots
+              " shots=", bot.ckShots, " hp=", bot.ckVictimHp
             flushFile(stdout)
     # Start (or continue) an execution. An ENEMY kill floors the clock just as
     # well and costs us nothing, so only spend a mate when the gun has no enemy
     # target at all — this branch is the last resort, not the first.
+    # FEASIBILITY, part (i): a PLASMA-armed carrier has no gun at all. shotReady
+    # is `"fire icon" present and not hasPlasma`, and the arc replaces the whole
+    # firing branch, so a plasma seat can never execute a gun mechanism. In v95
+    # ep aadf783e the carrier held an arc for its entire 80-tick execution, had a
+    # legal victim at 76-97 px on 44 of those ticks and fired 0 shots. Refuse to
+    # enter at all rather than burn the window: with no shot fired the TTL
+    # charges nothing, so an infeasible instance never costs a suicide slot.
     if iCarry and ckDoomed and ckRemaining < CkFireBand and
-        bot.ckSuicides < CkMaxSuicides and engage < 0:
+        bot.ckSuicides < CkMaxSuicides and engage < 0 and not hasPlasma:
+      # FEASIBILITY, part (ii): the turret must be able to reach the victim's
+      # bearing inside what is left of the window. One rotate button is held per
+      # tick and it turns the aim AimRate brads (5), and the fire tick itself
+      # carries no rotate bits, so the traverse cost of a bearing error is
+      # ceil(err / AimRate) ticks. The window is bounded by the execution TTL
+      # (a fresh attempt gets all of it, a continuing one only the remainder)
+      # and by the clock, since the kill must land before the buzzer. The 3
+      # no-kill executes in v95 were all turret-aim bound.
+      let ckWindowLeft = min(
+        CkExecTtl - (if bot.ckFiring: bot.tick - bot.ckFireStart else: 0),
+        max(0, ckRemaining))
       var
         best = -1
         bestD = CkFFRange
+        bestErr = 0
       for i in 0 ..< bot.mates.len:
         if bot.tick - bot.mates[i].lastSeen > CkPickFresh:
           continue                       # only a body we can see right now,
@@ -2845,8 +3030,15 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
                                          # test — a track the confirm would
                                          # call gone is not a victim
         let d = dist(bot.mates[i].pos, me)
-        if d < bestD and client.pixelRayClear(me, bot.mates[i].pos):
+        if d >= bestD:
+          continue
+        let err = abs(bradsErr(bradsOf(bot.mates[i].pos - me), bot.estAim))
+        if (err + AimRate - 1) div AimRate > ckWindowLeft:
+          continue                       # unreachable bearing: prefer a mate we
+                                         # can actually bring the turret onto
+        if client.pixelRayClear(me, bot.mates[i].pos):
           bestD = d
+          bestErr = err
           best = i
       when defined(ckDebug):
         if bot.tick mod 12 == 0:
@@ -2856,21 +3048,33 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
               nearestMate = min(nearestMate, dist(t.pos, me))
           echo "CK gate t=", bot.tick, " slot=", bot.slot, " rem=", ckRemaining,
             " engage=", engage, " nearestFreshMate=", int(nearestMate),
-            " pick=", best, " mates=", bot.mates.len
+            " pick=", best, " mates=", bot.mates.len,
+            " window=", ckWindowLeft, " bErr=", bestErr
           flushFile(stdout)
       if best >= 0:
         if not bot.ckFiring:
           bot.ckFireStart = bot.tick
           bot.ckShots = 0
+          bot.ckVictimHp = 0
+          bot.ckVictimHpSeen = 0
+          bot.ckVictimHpShots = 0
           artEvent(bot.tick, "ck_execute", %*{
-            "rem": ckRemaining, "toLine": int(ckToLine), "d": int(bestD)})
+            "rem": ckRemaining, "toLine": int(ckToLine), "d": int(bestD),
+            "err": bestErr, "window": ckWindowLeft})
         bot.ckFiring = true
         bot.ckVictimPos = bot.mates[best].pos
         bot.ckVictimSeen = bot.tick
         ckVictimD = bestD
-        ckExecute = true
+        ckExecuting = true
+    when defined(ckDebug):
+      if iCarry and ckDoomed and hasPlasma and bot.tick mod 12 == 0:
+        echo "CK plasmaGate t=", bot.tick, " slot=", bot.slot,
+          " rem=", ckRemaining, " shots=", bot.ckShots,
+          " firing=", bot.ckFiring
+        flushFile(stdout)
+    ckAct = ckExecuting or ckRoute
   else:
-    const ckExecute = false
+    const ckAct = false
 
   # Turret + locomotion, decided together but on separate buttons: moveMask
   # is the d-pad, desiredAim feeds the rotate buttons, wantFire pulls A.
@@ -2902,36 +3106,56 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         bot.nadeCharge = 0           # release this tick = the throw
     holdStill = true
     acted = true
-  elif ckExecute:
+  elif ckAct:
     when defined(carryClockKeep):
-      # Deliberate friendly fire on a NON-CARRYING escort. There is no lives
-      # tiebreak and a timeout draw already scores -1 for everyone, so an
-      # escort life at the buzzer is worth nothing — trading it for
-      # CkFloorTicks of fresh clock is the only way a doomed carry converts.
-      # Bypasses friendlyBlocked by design (that gate exists to protect mates
-      # from accidental hits; here the mate IS the target) and needs no enemy
-      # engage target. Keep running the carry route while the turret works.
-      actMode = "ck_execute"
-      objMode = "ck_execute"
-      desiredAim = bradsOf(bot.ckVictimPos - me)
-      let err = abs(bradsErr(desiredAim, bot.estAim))
-      if hasPlasma:
-        if ckVictimD <= PlasmaReach - 6.0 and err <= PlasmaHalfBrads + 3:
-          wantFire = true
-      elif shotReady:
-        let perpMiss = ckVictimD * sin(float(err) * PI / float(AimBrads div 2))
-        wantFire = perpMiss <= FireSlackPx
-      # else: a shielded carrier has no gun icon for the whole life. Telemetry
-      # shows ck_execute with no shot rather than us fighting the shield rule.
-      if wantFire and not bot.firedLast:
-        inc bot.ckShots                  # a real trigger pull goes out below
-      moveMask = octantBits(bot.navSteer(client, me, target))
-      acted = true
-      when defined(ckDebug):
-        echo "CK exec t=", bot.tick, " slot=", bot.slot, " rem=", ckRemaining,
-          " d=", int(ckVictimD), " err=", err, " fire=", wantFire,
-          " plasma=", hasPlasma, " ready=", shotReady
-        flushFile(stdout)
+      if ckExecuting:
+        # Deliberate friendly fire on a NON-CARRYING escort. There is no lives
+        # tiebreak and a timeout draw already scores -1 for everyone, so an
+        # escort life at the buzzer is worth nothing — trading it for
+        # CkFloorTicks of fresh clock is the only way a doomed carry converts.
+        # Bypasses friendlyBlocked by design (that gate exists to protect mates
+        # from accidental hits; here the mate IS the target) and needs no enemy
+        # engage target. Keep running the carry route while the turret works.
+        # The start gate has already refused a plasma-armed carrier, so this is
+        # always the gun path.
+        actMode = "ck_execute"
+        objMode = "ck_execute"
+        desiredAim = bradsOf(bot.ckVictimPos - me)
+        let err = abs(bradsErr(desiredAim, bot.estAim))
+        if shotReady:
+          let perpMiss = ckVictimD * sin(float(err) * PI / float(AimBrads div 2))
+          wantFire = perpMiss <= FireSlackPx
+        # else: the gun is on cooldown this tick (a shield triples it). Telemetry
+        # shows ck_execute with no shot rather than us dropping the execution.
+        if wantFire and not bot.firedLast:
+          inc bot.ckShots                # a real trigger pull goes out below
+        moveMask = octantBits(bot.navSteer(client, me, target))
+        acted = true
+        when defined(ckDebug):
+          echo "CK exec t=", bot.tick, " slot=", bot.slot, " rem=", ckRemaining,
+            " d=", int(ckVictimD), " err=", err, " fire=", wantFire,
+            " ready=", shotReady
+          flushFile(stdout)
+      else:
+        # ROUTED BODY. Walking to the standoff fix outranks every fight: this
+        # seat's only remaining job is to BE a body next to the carrier before
+        # the clock runs out. Skipping the engage/duck/peek/evade branches is
+        # the whole point — under a doomed carry the escort's engage cap is
+        # lifted to FireRange, which is exactly what used to drag the last live
+        # mate 300-800 px away from the carrier it was supposed to feed.
+        actMode = "ck_route"
+        desiredAim = bradsOf(ckCarrierPos - me)
+        if dist(me, target) <= CkHoldPx:
+          holdStill = true                 # arrived: be a STATIONARY target
+        else:
+          moveMask = octantBits(bot.navSteer(client, me, target))
+        acted = true
+        when defined(ckDebug):
+          if bot.tick mod 12 == 0:
+            echo "CK route t=", bot.tick, " slot=", bot.slot,
+              " rem=", ckRemaining, " dCarrier=", int(dist(me, ckCarrierPos)),
+              " tx=", int(target.x), " ty=", int(target.y)
+            flushFile(stdout)
     else:
       discard
   elif hasPlasma and engage >= 0:
