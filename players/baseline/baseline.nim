@@ -167,6 +167,22 @@ const
                               # shield sits low in their back column
                               # (~215px from the pedestal since the game-v7
                               # split), so the round trip costs ~430 path px
+  PadRaceDeferTicks = 240     # -d:padDefer: the scout duty (MidGuard seat)
+                              # leaves the single home shield pad to MidTop's
+                              # opening kit-up for this many game ticks —
+                              # Red's photo finish is g84-99 (Blue g66), so
+                              # 240 covers the slowest winning trip with
+                              # margin; after it, the scout trips as before
+  NadePadClearPx = 26.0       # -d:nadePadDodge: the opening grenade leg is
+                              # "blocked" when its straight line passes this
+                              # close to the home shield pad — pickup touch
+                              # radius is 12px (sim ShieldPickupRange), plus
+                              # a body-width of walk jitter
+  NadePadDodgePx = 40.0       # -d:nadePadDodge: the dogleg waypoint sits
+                              # this far toward midfield of the pad, level
+                              # with it; from there the leg to the corner
+                              # grenade clears the pad by ~38px, so the
+                              # steer self-releases once past
   PickupRespawn = 30 * 24     # plasma arc/shield respawn timer (sim constant)
   MedKitCarrierBudget = 90.0  # extra path px a hurt CARRIER spends to heal:
                               # a full-heal carrier survives pocket exits
@@ -1430,11 +1446,52 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           hasPlasma = true
           break carryScan
   var hasShield = bot.hp > MaxHp
-  if not hasShield:
-    for o in client.spriteObjectsWithLabel("shield carried"):
-      if dist(client.mapPos(o), me) <= 30.0:
-        hasShield = true
-        break
+  when defined(ownShieldSprite):
+    # The carried-shield marker is drawn at a FIXED offset from its carrier:
+    # (-7, -27) px from the carrier's sprite center (global.nim addShields:
+    # x = player.x - HpBarWidth/2 - ShieldCarrySize/2, y = overheadAnchorY -
+    # OverheadYOffset - ShieldCarrySize; CollisionW/H=1, SoldierBodyPx=34,
+    # HpBarWidth=14, ShieldCarrySize=12 => marker center = carrier + (-7,-27),
+    # 27.9px away — nearly the whole legacy 30px believe-radius). The bare
+    # proximity fallback therefore believed a shielded TEAMMATE's marker
+    # (41/111 phantom pickups on v61 R1858-60; worst case a 740-tick 1-hp pad
+    # jitter, task 1216987518245825), and plain nearest-actor attribution is
+    # no better: the true carrier is itself 27.9px from its own marker, so
+    # anyone standing up-left of the carrier out-scores it (measured: 632 vs
+    # 665 phantoms, i.e. a no-op). Instead, undo the offset: a marker is OURS
+    # iff it sits within a few px of OUR anchor point (me + (-7,-27)) and no
+    # other visible player's anchor point is closer. The true carrier's
+    # residual is ~0; anyone else's is >= the ~12px collision spacing, so the
+    # test is sharp. A spent-shield carrier (shieldHp 0, hp<=3) has ONLY this
+    # fallback (HUD hp = hp + shieldHp), so the fallback must stay. If a
+    # renderer change moves the overhead stack, this degrades to never-true
+    # (conservative: hp>MaxHp still catches undamaged carriers).
+    if not hasShield:
+      let markerOff = vec(-7.0, -27.0)
+      const markerEps = 6.0
+      var others: seq[Vec]
+      for a in client.actorsFor(myColor): others.add(a.pos)
+      for a in client.actorsFor(enemyColor): others.add(a.pos)
+      block shieldCarryScan:
+        for o in client.spriteObjectsWithLabel("shield carried"):
+          let p = client.mapPos(o)
+          let rMe = dist(p, me + markerOff)
+          if rMe > markerEps:
+            continue
+          var mine = true
+          for q in others:
+            if dist(p, q + markerOff) < rMe:
+              mine = false
+              break
+          if mine:
+            hasShield = true
+            break shieldCarryScan
+  else:
+    if not hasShield:
+      for o in client.spriteObjectsWithLabel("shield carried"):
+        if dist(client.mapPos(o), me) <= 30.0:
+          hasShield = true
+          break
   let
     shotReady = client.spriteObjectsWithLabel("fire icon").len > 0 and
       not hasPlasma                      # the plasma arc replaces the gun; a shield
@@ -2082,14 +2139,48 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
        front = min(front, HoldFrontCap)
      case pd
      of pdScout:
-       let scHasShield = bot.hp > MaxHp
+       when defined(scoutPadMemory):
+         # The shield errand's precondition was known-false two ways: it
+         # walked to a pad its own pickup memory (shieldAbsentAt) had seen
+         # empty, and it re-fetched for a spent layer even though the
+         # life-scoped shield marker already bars the gun until death. One
+         # gate fixes both: only path to a spot believed stocked
+         # (pickupAvailable, like every other errand), and only for a first
+         # pickup this life (the marker, not the layer).
+         let scFetch = not hasShield
+       else:
+         let scHasShield = bot.hp > MaxHp
+         let scFetch = not scHasShield
        var shieldSpot = vec(-1.0, -1.0)
-       if not scHasShield:
-         for sp in bot.shieldPos:
-           if dirX * (sp.x - float(CenterX)) < 0.0:  # our own back column
-             shieldSpot = sp
-             break
-       if not scHasShield and shieldSpot.x >= 0.0 and gameTick < 2200:
+       if scFetch:
+         when defined(scoutPadMemory):
+           for i in 0 ..< bot.shieldPos.len:
+             if dirX * (bot.shieldPos[i].x - float(CenterX)) < 0.0 and
+                 pickupAvailable(bot.shieldAbsentAt, i, bot.tick):
+               shieldSpot = bot.shieldPos[i]  # our own back column, believed stocked
+               break
+         else:
+           for sp in bot.shieldPos:
+             if dirX * (sp.x - float(CenterX)) < 0.0:  # our own back column
+               shieldSpot = sp
+               break
+       # HOME-PAD RACE DECONFLICT (-d:padDefer): at the whistle this trip
+       # and MidTop's home kit-up (the shield-then-steal block below) race
+       # for the SINGLE home pad; on Red the scout/flank win the photo
+       # finish 11/30 and the stealer crosses the map shieldless (Blue
+       # 0/30 — the walkable field is not mirror-symmetric). The pad is
+       # worth more on the stealer: defer the scout's trip past the
+       # opening window; it still takes the 720t-respawned pad afterwards.
+       # Composes with -d:scoutPadMemory (padport): padDefer owns the
+       # STOCKED-pad opening race (gameTick < PadRaceDeferTicks), the
+       # believed-stock gate owns ALREADY-EMPTY-pad parking afterwards.
+       let padRaceDefer =
+         when defined(padDefer):
+           gameTick < PadRaceDeferTicks
+         else:
+           false
+       if scFetch and shieldSpot.x >= 0.0 and gameTick < 2200 and
+           not padRaceDefer:
          target = shieldSpot
        else:
          # Forward patrol beyond the front: bottom-biased weave (their
@@ -2106,7 +2197,25 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
                LaneBottom - 40.0 - (LaneBottom - 40.0 - LaneMid) * (ph / 200.0)
              else:
                LaneMid + (LaneBottom - 40.0 - LaneMid) * ((ph - 200.0) / 200.0))
-         target = vec(ownEdgeX + dirX * (front + 130.0), py)
+         var scDepth = front + 130.0
+         when defined(scoutPadSafe):
+           # Decoded 2026-07-28 (worker-b redside leg): the ticks the
+           # scoutPadMemory gate frees from the empty-pad camp die at the
+           # +130 post — it is the most forward body on the team, parked in
+           # the modal enemy band (hazard 4.4x the castle line), unshielded
+           # and engaging. On exactly the ticks control would have spent
+           # camping (unshielded, a back-column pad remembered but believed
+           # empty, before the errand deadline), hold the trailing lane-pair
+           # depth instead. Same weave; every other tick unchanged.
+           if scFetch and gameTick < 2200 and shieldSpot.x < 0.0:
+             var padRemembered = false
+             for sp in bot.shieldPos:
+               if dirX * (sp.x - float(CenterX)) < 0.0:
+                 padRemembered = true
+                 break
+             if padRemembered:
+               scDepth = front - 44.0
+         target = vec(ownEdgeX + dirX * scDepth, py)
      of pdFloat:
        if bot.helpUntil > bot.tick:
          target = bot.snapToCover(vec(ownEdgeX + dirX * (front - 60.0),
@@ -2256,7 +2365,8 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     if bot.tripping: 0.0                 # sprinting an errand: no fights
     elif hasShield and not hasPlasma:    # slow gun (3x cooldown): only fight
       CarrierFireRange                   # what is point-blank in the way
-    elif hasPlasma: PlasmaReach + 6.0    # cone weapon: only close range matters
+    elif hasPlasma and not (defined(plasmaCarryGuard) and iCarry):
+      PlasmaReach + 6.0                  # cone weapon: only close range matters
     elif pocketRush: 0.0
     elif iCarry: CarrierFireRange
     elif ownStolen and bot.tick - bot.carrierSeen <= thiefChaseTtl: FireRange
@@ -2610,6 +2720,39 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           if dist(p, me) <= reach:
             target = p
             break
+    when defined(nadePadDodge):
+      # HOME-PAD WALK-OVER (padDefer family, part 2): FlankBottom's opening
+      # grenade errand descends the back column and crosses the single home
+      # shield pad on the way to the corner spawn 115px below it, grabbing
+      # the shield incidentally and leaving MidTop's kit-up empty-handed
+      # (~1 Red game in 6 after -d:padDefer closed the guard channel).
+      # Steer the approach around the pad's 12px touch radius during the
+      # opening window instead of cancelling the errand: while the straight
+      # leg to the grenade passes within NadePadClearPx of the pad, aim at
+      # a waypoint level with the pad but NadePadDodgePx toward midfield —
+      # from there the leg to the grenade clears the pad and the steer
+      # releases itself. Costs ~10 path px; the grenade pickup timing is
+      # essentially unchanged.
+      if objMode == "nade_grab" and
+          bot.tick - bot.gameStart < PadRaceDeferTicks:
+        let npDirX = (if bot.team == Red: 1.0 else: -1.0)
+        var homePad = vec(-1.0, -1.0)
+        for sp in bot.shieldPos:
+          if npDirX * (sp.x - float(CenterX)) < 0.0:  # our own back column
+            homePad = sp
+            break
+        let
+          vx = target.x - me.x
+          vy = target.y - me.y
+          legLen2 = vx * vx + vy * vy
+        if homePad.x >= 0.0 and legLen2 > 1.0:
+          # closest approach of the straight leg me -> grenade to the pad
+          let
+            t = max(0.0, min(1.0, ((homePad.x - me.x) * vx +
+                                   (homePad.y - me.y) * vy) / legLen2))
+            near = vec(me.x + t * vx, me.y + t * vy)
+          if dist(near, homePad) < NadePadClearPx:
+            target = vec(homePad.x + npDirX * NadePadDodgePx, homePad.y)
 
   # Grenade danger: a visible throw-target ring marks where an enemy's lob
   # will land, and an airborne grenade is seconds from bursting — anything
@@ -2657,7 +2800,13 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         bot.nadeCharge = 0           # release this tick = the throw
     holdStill = true
     acted = true
-  elif hasPlasma and engage >= 0:
+  elif hasPlasma and engage >= 0 and
+      not (defined(plasmaCarryGuard) and iCarry):
+    # -d:plasmaCarryGuard: a flag CARRIER never stops to work the spray can —
+    # the fire branch below sets holdStill for the whole 25-tick cooldown,
+    # which froze carriers mid-exfil (and the else leg charges off-route).
+    # With the guard a carrying can-holder has no combat act at all (the can
+    # replaces the gun) and just keeps running its route.
     actMode = "plasma"
     # Plasma cone: ignition is INSTANT (no windup, no aim lock), reaches 4
     # squares in a ~14-degree half-angle cone, stays on 5 ticks, and deals
