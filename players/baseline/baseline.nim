@@ -82,6 +82,44 @@ import
 when defined(taunt):
   import baseline/taunts
 
+# ---- Tunable constants (hyperparameter-tuning lane, team/briefs/tuner.md) ----
+# Each tune* int define overrides one gameplay constant at compile time
+# (-d:tuneX=<int>). Floats are deci-scaled: constant = tuneX / 10. Defaults
+# reproduce the champion values exactly, so a build with no -d:tune* flags
+# behaves identically to the champion. Keep defaults in lockstep with the
+# values documented at each constant's use site below.
+const
+  tuneCarrierFireRange {.intdefine.} = 1100
+  tuneCounterPunchTick {.intdefine.} = 1400
+  tuneDuckRange {.intdefine.} = 3400
+  tuneEscortEngageRange {.intdefine.} = 3200
+  tuneExposedCost {.intdefine.} = 14
+  tuneExposureRange {.intdefine.} = 3800
+  tuneFlankDepth {.intdefine.} = 2600
+  tuneFocusFireBonus {.intdefine.} = 450
+  tuneHoldFrontCap {.intdefine.} = 2200
+  tuneHpFocusBonus {.intdefine.} = 600
+  tuneLatePushTick {.intdefine.} = 3400
+  tuneMateSpacing {.intdefine.} = 400
+  tuneMedKitCarrierBudget {.intdefine.} = 900
+  tuneMedKitCriticalReach {.intdefine.} = 1800
+  tuneMedKitDetour {.intdefine.} = 800
+  tunePlasmaDetour {.intdefine.} = 700
+  tunePocketRushRange {.intdefine.} = 2100
+  tunePushOutMinGame {.intdefine.} = 1400
+  tunePushOutTicks {.intdefine.} = 360
+  tuneQuietForBreak {.intdefine.} = 240
+  tuneRushEngageRange {.intdefine.} = 2300
+  tuneSerpentineFar {.intdefine.} = 4000
+  tuneSerpentineNear {.intdefine.} = 1000
+  tuneShieldStealDetour {.intdefine.} = 4800
+  tuneStalemateTick {.intdefine.} = 2000
+  tuneThiefCommitTtl {.intdefine.} = 240
+  tuneThiefFocusBonus {.intdefine.} = 4000
+  tuneThreatRange {.intdefine.} = 2000
+  tuneTraversePxPerBrad {.intdefine.} = 16
+  tuneWeaveBand {.intdefine.} = 2800
+
 const
   WebSocketPath = "/player"
                               # Object coordinates and sprite sizes arrive
@@ -93,13 +131,13 @@ const
   RepathTicks = 10            # refresh the cost field at least this often
   LookaheadCells = 6          # how far ahead on the path we aim the waypoint
 
-  CarrierFireRange = 110.0    # while carrying, only shoot enemies this close
-  RushEngageRange = 230.0     # racing for the steal: only fight what blocks it
-  EscortEngageRange = 320.0   # escorting a run: only fight near threats
-  PocketRushRange = 210.0     # this close to the enemy pedestal, just GRAB
-  ThreatRange = 200.0         # react to a visible enemy this close facing us
-  DuckRange = 340.0           # duck from remembered threats this close on cooldown
-  MateSpacing = 40.0          # soft repulsion radius between teammates
+  CarrierFireRange = tuneCarrierFireRange.float / 10.0    # while carrying, only shoot enemies this close
+  RushEngageRange = tuneRushEngageRange.float / 10.0     # racing for the steal: only fight what blocks it
+  EscortEngageRange = tuneEscortEngageRange.float / 10.0   # escorting a run: only fight near threats
+  PocketRushRange = tunePocketRushRange.float / 10.0     # this close to the enemy pedestal, just GRAB
+  ThreatRange = tuneThreatRange.float / 10.0         # react to a visible enemy this close facing us
+  DuckRange = tuneDuckRange.float / 10.0           # duck from remembered threats this close on cooldown
+  MateSpacing = tuneMateSpacing.float / 10.0          # soft repulsion radius between teammates
   CorridorHalfWidth = 15.0    # friendly-fire corridor half width along the ray
   LeadTicks = 6.0             # aim this many ticks ahead of a moving enemy:
                               # the 5-tick windup releases the bullet late
@@ -110,7 +148,7 @@ const
                               # turret needs traverse time, so chases keep
                               # shooting a bit after the target fogs out
   ThiefFixTtl = 40            # a thief position fix guides the chase this long
-  ThiefCommitTtl = 240        # -d:thiefCommit: how long a dead-reckoned fix
+  ThiefCommitTtl = tuneThiefCommitTtl        # -d:thiefCommit: how long a dead-reckoned fix
                               # keeps EVERY free role committed to the chase —
                               # a thief who ducks into fog is still running our
                               # flag; abandoning the hunt after ~1.7s is how
@@ -124,16 +162,16 @@ const
   MaxHp = 3                   # hitPoints per life (config default); pip labels
                               # read "hp <n>/<MaxHp>"
   HpPipRadius = 22.0          # a player's overhead hp bar sits within this
-  HpFocusBonus = 60.0         # px of effective-distance credit per missing
+  HpFocusBonus = tuneHpFocusBonus.float / 10.0         # px of effective-distance credit per missing
                               # enemy hit point — a tiebreak between
                               # comparably-engageable targets, never a reason
                               # to swing the turret across the map
-  ThiefFocusBonus = 400.0     # px of credit for the enemy RUNNING OUR FLAG:
+  ThiefFocusBonus = tuneThiefFocusBonus.float / 10.0     # px of credit for the enemy RUNNING OUR FLAG:
                               # dominates every positional tiebreak — killing
                               # the thief returns the flag instantly
-  FocusFireBonus = 45.0       # px of credit when a visible mate's aim line
+  FocusFireBonus = tuneFocusFireBonus.float / 10.0       # px of credit when a visible mate's aim line
                               # already covers the target (finish together)
-  TraversePxPerBrad = 1.6     # px of effective distance per brad of turret
+  TraversePxPerBrad = tuneTraversePxPerBrad.float / 10.0     # px of effective distance per brad of turret
                               # swing needed to lay on the target: err/AimRate
                               # ticks of traverse at ~8px of enemy closing
                               # motion per tick = 8/5 px per brad
@@ -152,8 +190,8 @@ const
                               # camper's position is durable knowledge, and the
                               # lob over his cover is the counter the gun lacks
   NadeCampSpeed = 0.3         # px/tick: tracks slower than this count as camped
-  MedKitDetour = 80.0         # heal-detour budget when merely wounded
-  MedKitCriticalReach = 180.0 # at 1 hp a heal outranks the current errand
+  MedKitDetour = tuneMedKitDetour.float / 10.0         # heal-detour budget when merely wounded
+  MedKitCriticalReach = tuneMedKitCriticalReach.float / 10.0 # at 1 hp a heal outranks the current errand
   MedKitRespawn = 30 * 24     # a taken kit refills after 30s (sim constant)
   MedKitSeenClear = 55.0      # inside this range an empty spot is truly
                               # empty (bubble vision), not just fogged
@@ -162,8 +200,8 @@ const
   PlasmaHalfBrads = 10        # cone half-angle in brads: the cone is 2
                               # squares wide at max reach, atan(1/4) ~ 14
                               # degrees (sim PlasmaArcMaxWidth / Reach)
-  PlasmaDetour = 70.0         # attacker detour budget for a plasma arc pickup
-  ShieldStealDetour = 480.0   # MidGuard's shield trip: the enemy endzone
+  PlasmaDetour = tunePlasmaDetour.float / 10.0         # attacker detour budget for a plasma arc pickup
+  ShieldStealDetour = tuneShieldStealDetour.float / 10.0   # MidGuard's shield trip: the enemy endzone
                               # shield sits low in their back column
                               # (~215px from the pedestal since the game-v7
                               # split), so the round trip costs ~430 path px
@@ -184,7 +222,7 @@ const
                               # grenade clears the pad by ~38px, so the
                               # steer self-releases once past
   PickupRespawn = 30 * 24     # plasma arc/shield respawn timer (sim constant)
-  MedKitCarrierBudget = 90.0  # extra path px a hurt CARRIER spends to heal:
+  MedKitCarrierBudget = tuneMedKitCarrierBudget.float / 10.0  # extra path px a hurt CARRIER spends to heal:
                               # a full-heal carrier survives pocket exits
                               # that kill a 1 hp one
   CarrySelfRadius = 26.0      # the carried flag banner is centered on its
@@ -204,11 +242,11 @@ const
   TargetCallCooldown = 48     # min ticks between one bot's engage callouts
   ScanArc = 44                # scan sweeps this many brads each side of the
                               # watch heading (cone half-angle is 32 brads)
-  CounterPunchTick = 1400     # by here a 0-steal attack is not converting:
+  CounterPunchTick = tuneCounterPunchTick     # by here a 0-steal attack is not converting:
                               # fall back and win the attrition instead
-  PushOutTicks = 360          # endgame push: no enemy seen for ~15s...
-  PushOutMinGame = 1400       # ...this deep into the game breaks the posts
-  StalemateTick = 2000        # nobody has MOVED a flag by here: the game is
+  PushOutTicks = tunePushOutTicks          # endgame push: no enemy seen for ~15s...
+  PushOutMinGame = tunePushOutMinGame       # ...this deep into the game breaks the posts
+  StalemateTick = tuneStalemateTick        # nobody has MOVED a flag by here: the game is
                               # heading for a lose-lose timeout — go convert.
   StaleClusterTtl = 600       # -d:nadeCluster: campers hold ground — a track
                               # this old is still a target if it CLUSTERED
@@ -217,18 +255,18 @@ const
   SiegeBarrageTicks = 100     # -d:siege: bombardment window per cycle
   SiegeAdvanceTicks = 90     # -d:siege: advance-and-settle window per cycle
   SiegeStep = 170.0           # -d:siege: ground taken per advance order
-  QuietForBreak = 240         # ...but only when the field is actually DEAD:
+  QuietForBreak = tuneQuietForBreak         # ...but only when the field is actually DEAD:
                               # no enemy contact this long. A duel-heavy rival
                               # (h006) keeps flags parked while trading kills —
                               # that game resolves by wipe, not timeout, and
                               # breaking the castle early just donates our
                               # respawn-logistics ground to its midfield gun.
-  LatePushTick = 3400         # all-in on the clock: past this tick a draw is
+  LatePushTick = tuneLatePushTick         # all-in on the clock: past this tick a draw is
                               # A LOSS FOR BOTH (GV21 lose-lose timeouts) and
                               # games cap at 5000 ticks — the all-in must land
                               # with time to convert. Scaled from 6800/10000.
                               # the default outcome, so commit to the capture
-  HoldFrontCap = 220.0        # -d:holdFront: ceiling on the phalanx creep — a
+  HoldFrontCap = tuneHoldFrontCap.float / 10.0        # -d:holdFront: ceiling on the phalanx creep — a
                               # castle line near our wall: fights there recur on
                               # ground where our respawn walk is ~100px and the
                               # attacker re-crosses ~400px of watched open ground
@@ -238,20 +276,20 @@ const
                               # scoring strongly prefers the longest line
   DuckSearchCells = 3         # duck-cell search radius in nav cells
   PeekSearchCells = 3         # peek-cell search radius in nav cells
-  ExposureRange = 380.0       # enemy threat radius used for exposure costing
+  ExposureRange = tuneExposureRange.float / 10.0       # enemy threat radius used for exposure costing
   ExposureThreats = 3         # cost only the freshest few remembered threats
   ExposureTrackTtl = 60       # only cost threats remembered this recently
   UnderFireTrackTtl = 16      # tracks this fresh can pin us on open ground
-  SerpentineNear = 100.0      # serpentine band: closer threats are jink/duck
-  SerpentineFar = 400.0       # ... and farther tracks cannot really aim at us
+  SerpentineNear = tuneSerpentineNear.float / 10.0      # serpentine band: closer threats are jink/duck
+  SerpentineFar = tuneSerpentineFar.float / 10.0       # ... and farther tracks cannot really aim at us
   StepCost = 5'i32            # orthogonal move cost in the nav field
   DiagCost = 7'i32            # ~sqrt(2) * StepCost
-  ExposedCost = 14'i32        # extra cost to enter a threat-exposed cell:
+  ExposedCost = tuneExposedCost.int32        # extra cost to enter a threat-exposed cell:
                               # under fog the exposure model (enemy sniper
                               # posts + fresh tracks) is the only warning of
                               # watched lanes, so routes respect it hard
-  FlankDepth = 260.0          # wide flankers cross this far past mid
-  WeaveBand = 280.0           # rushers serpentine within this x-band of mid
+  FlankDepth = tuneFlankDepth.float / 10.0          # wide flankers cross this far past mid
+  WeaveBand = tuneWeaveBand.float / 10.0           # rushers serpentine within this x-band of mid
 
   LaneTop = 40.0              # open corridor above the mirrored obstacles
 
