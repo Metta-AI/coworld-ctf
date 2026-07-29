@@ -260,7 +260,7 @@ var
     # a hair past a map-width is always inside it. 1250.0 on the default
     # arena — the value this bot always used.
 
-when defined(dangerMem) or defined(dangerDefer):
+when defined(dangerMem) or defined(dangerDefer) or defined(stationShift):
   const
     # Team-death danger memory, SENSING layer (shared by both danger levers):
     # a survivor that SEES a teammate go down (fog-honest victim-color KO
@@ -403,7 +403,7 @@ type
     helpUntil: int            # tick the help retasking expires
     lastEShout: int           # scout sighting-broadcast rate limit
     lastHShout: int           # help-call rate limit
-    when defined(dangerMem) or defined(dangerDefer):
+    when defined(dangerMem) or defined(dangerDefer) or defined(stationShift):
       dangerPos: seq[Vec]     # recent team-death spots (marker-observed
                               # teammate deaths + own deaths, fog-honest)
       dangerSeen: seq[int]    # tick each spot's marker was last visible
@@ -412,6 +412,9 @@ type
                               # the cost field from the decayed spots
     when defined(dangerDefer):
       deferLogAt: int         # errand_defer telemetry rate limit
+    when defined(stationShift):
+      shiftLogAt: int         # station_shift telemetry rate limit
+      shiftTicks: int         # ticks spent shifted this game (dwell guardrail)
 
 proc roleForSeat(seat: int, team: Team): Role =
   ## Deterministic role spread over the 8 per-team seats. Seats 2 and 3 both
@@ -437,6 +440,38 @@ proc roleForSeat(seat: int, team: Team): Role =
     of 5: Overwatch        # cover post flanking the ring: the lane sniper
     of 6: FlankTop         # wide top lane, get behind the contest
     else: HomeDefender     # choke guard before our capture column
+
+when defined(stationShift):
+  const
+    # Station-dwell timing on hot ground (-d:stationShift, task
+    # 1216987692041684): when a corner-lane pair's station ground carries a
+    # fresh team-death stamp, the guard tucks into the measured cover anchor
+    # for the danger window instead of re-standing the exact lethal spot.
+    # LATERAL offset only — the anchor x (260) is not deeper than the lead
+    # station (front 220 + snap; measured dominant target x 264), so this is
+    # not a depth change (posture-family fence). The anchor keeps line of
+    # sight to BOTH of the pair's stations (measured: 51-103px, LOS open),
+    # so an enemy stepping onto the station patch is still seen and engaged
+    # — the fallthrough is a covered overwatch of the same ground, never
+    # idling and never a vacated corridor.
+    # Geometry (leg 0(b), 113 corner deaths decoded): killers bear E/NE/SE
+    # (zero from the west half); a body tucked at the anchor is fully hidden
+    # from 92% (bottom) / 76% (top) of the measured killer positions.
+    StationShiftWindow {.intdefine.} = 480
+                              # shift while the freshest stamp near the
+                              # station is younger than this: 240 covers 39%
+                              # of measured repeat-death gaps, 480 covers
+                              # 71%, 720 covers 95% (30s of tuck; DangerTtl
+                              # caps usable values at 720).
+    StationShiftRadiusPx {.intdefine.} = 96
+                              # a stamp within this range of the seat's
+                              # station target marks the ground hot (deaths
+                              # pair to stations well inside this at the
+                              # 64px/840t census rule)
+    StationShiftRadius = float(StationShiftRadiusPx)
+    ShiftAnchorX = 260.0      # RED canon frame; Blue mirrors to 974
+    ShiftAnchorTopY = 50.0    # top-corner anchor (260,50)
+    ShiftAnchorBotY = 636.0   # bottom-corner anchor (260,636)
 
 when defined(zonePhalanx):
   type PhalanxDuty = enum
@@ -1290,11 +1325,14 @@ proc resetTransient(bot: Bot) =
   bot.lastComebackReq = 0
   bot.wasMateCarry = false
   bot.tripping = false
-  when defined(dangerMem) or defined(dangerDefer):
+  when defined(dangerMem) or defined(dangerDefer) or defined(stationShift):
     bot.dangerPos.setLen(0)
     bot.dangerSeen.setLen(0)
   when defined(dangerDefer):
     bot.deferLogAt = 0
+  when defined(stationShift):
+    bot.shiftLogAt = 0
+    bot.shiftTicks = 0
   bot.carrierSeen = -100_000
   bot.lastEnemySeen = bot.tick
   bot.gameStart = bot.tick
@@ -1411,7 +1449,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # are ignored, so skip perception entirely.
     bot.firedLast = false
     bot.rotSign = 0
-    when defined(dangerMem) or defined(dangerDefer):
+    when defined(dangerMem) or defined(dangerDefer) or defined(stationShift):
       if not bot.wasDead:
         # First dead frame: stamp our OWN death spot. Fog-free
         # self-knowledge — the bot always knows where it just died, and the
@@ -1568,7 +1606,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       if not present:
         bot.kitAbsentAt[i] = bot.tick
 
-  when defined(dangerMem) or defined(dangerDefer):
+  when defined(dangerMem) or defined(dangerDefer) or defined(stationShift):
     # Teammate-death danger memory. Every death drops two fog-honest markers
     # at the death spot in the VICTIM's color — "damage pop <color> KO
     # stage <s>" (44 ticks) and "splatter <color> stage <s>" (120 ticks) —
@@ -2259,6 +2297,32 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
        target = bot.snapToCover(vec(
          ownEdgeX + dirX * (if lead: front else: front - 44.0),
          laneY2 + (if lead: -32.0 else: 32.0)))
+       when defined(stationShift):
+         if pd in {pdTopA, pdTopB, pdBotA, pdBotB}:
+           # Danger-window tuck: if the station ground carries a fresh
+           # team/own-death stamp, hold the corner cover anchor instead of
+           # re-standing the lethal spot. Combat below is untouched — the
+           # guard still engages anything it sees (incl. the station patch,
+           # which stays in LOS from the anchor).
+           var hotAge = -1
+           for i in 0 ..< bot.dangerPos.len:
+             let age = bot.tick - bot.dangerSeen[i]
+             if age < StationShiftWindow and
+                 dist(bot.dangerPos[i], target) < StationShiftRadius:
+               if hotAge < 0 or age < hotAge:
+                 hotAge = age
+           if hotAge >= 0:
+             target = vec(
+               (if bot.team == Red: ShiftAnchorX
+                else: float(MapW) - 1.0 - ShiftAnchorX),
+               (if pd in {pdTopA, pdTopB}: ShiftAnchorTopY
+                else: ShiftAnchorBotY))
+             inc bot.shiftTicks
+             if bot.tick - bot.shiftLogAt >= 120:
+               bot.shiftLogAt = bot.tick
+               artEvent(bot.tick, "station_shift",
+                 %*{"x": int(target.x), "y": int(target.y),
+                    "age": hotAge, "dwell": bot.shiftTicks})
   elif bot.role == HomeDefender and not pushOut:
     # Hold the choke on our pedestal approach; break off to chase the nearest
     # intruder on our half (every steal has to come through here).
