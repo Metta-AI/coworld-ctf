@@ -2120,6 +2120,11 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         target = bot.chokeHold
   elif phalanxOn and not pushOut:
    when defined(zonePhalanx):
+     # Telemetry only: name station duty so it stops falling through to the
+     # "attack" initialiser (objMode's sole consumer is the artlog frame).
+     # Errand branches below may still overwrite this within a tick, so the
+     # tag is a lower bound on held frames.
+     objMode = "station_hold"
      # Zone phalanx: shield scout spots forward and relays sightings, three
      # staggered pairs hold the lanes at a slowly advancing front (freeze on
      # contact — never trade cover for ground while a runner is tracked),
