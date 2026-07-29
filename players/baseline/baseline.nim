@@ -103,9 +103,14 @@ const
   CarrierYieldNear = 40.0     # carrier right-of-way: a mate within this
                               # Chebyshev range of our flag carrier must
                               # clear its lane (bodies block at <=12 px)
+  CarrierYieldFar = 56.0      # hysteresis release: once yielding, keep
+                              # yielding until this far out (v1 chattered on
+                              # the bare 40 px ring: median run 4 ticks)
   CarrierYieldSide = 30.0     # perpendicular sidestep off the carrier's
                               # lane axis (lane clearance is ~13 px)
   CarrierYieldTrail = 46.0    # trailing offset behind the carrier once clear
+  CarrierYieldPress = 20.0    # deadlock guard range: this close, never walk
+                              # a clear-point that lies through the carrier
   CorridorHalfWidth = 15.0    # friendly-fire corridor half width along the ray
   LeadTicks = 6.0             # aim this many ticks ahead of a moving enemy:
                               # the 5-tick windup releases the bullet late
@@ -349,6 +354,8 @@ type
     lastEnemyShout: string    # last enemy shout label already responded to
     lastComebackReq: int      # rate limit on comeback generation requests
     wasMateCarry: bool        # edge detector: a fresh steal opens a taunt window
+    cyYielding: bool          # -d:carrierYield: hysteresis latch — engaged at
+                              # CarrierYieldNear, released at CarrierYieldFar
     tripping: bool            # mid-errand to a gear spot: sprint, no fights
     hp: int                   # own hit points, read from the HUD lives label
     kitPos: seq[Vec]          # discovered med kit spots (two, center line)
@@ -2567,7 +2574,13 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     if mateCarry and not iCarry:
       let yieldCheb = max(abs(me.x - mateCarryPos.x),
                           abs(me.y - mateCarryPos.y))
-      if yieldCheb <= CarrierYieldNear:
+      # v2 hysteresis: engage at <= Near (40), stay engaged until >= Far
+      # (56). v1 toggled on the bare 40 px ring every few ticks (78% of
+      # yield runs under 12 ticks); the trail point sits at Chebyshev 46,
+      # inside the band, so an engaged mate settles there stably.
+      if yieldCheb <= CarrierYieldNear or
+          (bot.cyYielding and yieldCheb < CarrierYieldFar):
+        bot.cyYielding = true
         let perpSign = (if mateCarryPos.y < float(CenterY): 1.0 else: -1.0)
         let aheadOfCarrier = homeSign(bot.team) * (me.x - mateCarryPos.x) > 0.0
         if aheadOfCarrier and abs(me.y - mateCarryPos.y) < CarrierYieldSide:
@@ -2576,7 +2589,27 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           target = mateCarryPos + vec(
             -homeSign(bot.team) * CarrierYieldTrail,
             perpSign * CarrierYieldSide)
+        # v2 deadlock guard: within press range the plotted clear-point can
+        # lie on the FAR side of the carrier's body (e.g. mate directly
+        # north of a climbing carrier told to sidestep toward map center =
+        # straight down into it) — walking it opposes the carrier's own
+        # push and the two block each other until one relents. If the walk
+        # direction points back toward the carrier, clear directly AWAY
+        # from it instead: an escort runs ~30% faster than a carrier
+        # (CarrierSpeedPct 70), so opening the gap always succeeds and the
+        # carrier's path unblocks immediately.
+        if yieldCheb <= CarrierYieldPress:
+          let toT = vec(target.x - me.x, target.y - me.y)
+          let away = vec(me.x - mateCarryPos.x, me.y - mateCarryPos.y)
+          if toT.x * away.x + toT.y * away.y < 0.0:
+            let n = max(yieldCheb, 1.0)
+            target = vec(me.x + away.x / n * CarrierYieldTrail,
+                         me.y + away.y / n * CarrierYieldTrail)
         objMode = "carrier_yield"
+      else:
+        bot.cyYielding = false
+    else:
+      bot.cyYielding = false
 
   # Grenade danger: a visible throw-target ring marks where an enemy's lob
   # will land, and an airborne grenade is seconds from bursting — anything
