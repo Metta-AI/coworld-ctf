@@ -319,6 +319,19 @@ proc hunterTune(): CombatTune =
   # turns it on. Asymmetric survival edge (the healthier survivor wins the next
   # contact) so the mirror measures it. A/B: SHIPBASE=1 MEDKIT=1 vs CONTROL_SHIPPED=1.
   result.medTopOff    = envInt("MEDKIT",      (if result.medTopOff: 1 else: 0)) != 0
+  # medEcon (2026-07-28, the v28 champion lever): static-coord med-kit routing. SHIPPED
+  # ON, so this defaults to its shipped value — SHIPBASE=1 keeps the champion unless
+  # MEDECON explicitly moves it.
+  result.medEcon      = envInt("MEDECON",     (if result.medEcon: 1 else: 0)) != 0
+  # ⭐⭐ nadeCluster (retro-gated 2026-07-29): the anti-line grenade multikill. SHIPPED
+  # ON since 4ceec16 (the v17 lineage) and NEVER isolated, so it defaults to its SHIPPED
+  # value and the A/B STRIPS it: candidate = SHIPBASE=1 CONTROL_SHIPPED=1 NADECLUSTER=0
+  # (champion MINUS cluster ranking = naive-nearest) vs control = CONTROL_SHIPPED=1 (full
+  # champion). If the minus-lever side LOSES on BOTH seatings, the lever earns its place.
+  # Pair with TURTLE=1 so the control team actually stands a LINE worth punishing — the
+  # plain mirror never forms one (both teams attack), which is exactly why the anti-line
+  # claim was untestable in self-play.
+  result.nadeCluster  = envInt("NADECLUSTER", (if result.nadeCluster: 1 else: 0)) != 0
   # ── SEAL-lens v9 bundle (2026-07-20, the unabsorbed-doctrine backlog top tier).
   # Each defaults OFF (not in shippedCombatTune) so SHIPBASE=1 keeps the champion
   # unless the knob turns it on. A/B: SHIPBASE=1 <KNOB>=1 vs CONTROL_SHIPPED=1.
@@ -524,6 +537,7 @@ proc main() =
     totRedDropN, totBlueDropN: int
     totRedSurv, totBlueSurv: int
     totRedSurvN, totBlueSurvN: int
+    totRedMk2, totBlueMk2, totRedMk3, totBlueMk3: int
   for g in 0 ..< games:
     let seed = baseSeed + g
     let r = runEpisode(seed, maxTicks, numPlayers, hunterSlots)
@@ -552,6 +566,8 @@ proc main() =
     totRedDropN += r.redDropCount; totBlueDropN += r.blueDropCount
     totRedSurv += r.redSurvivalSum; totBlueSurv += r.blueSurvivalSum
     totRedSurvN += r.redSurvivalCount; totBlueSurvN += r.blueSurvivalCount
+    totRedMk2 += r.redMk2; totBlueMk2 += r.blueMk2
+    totRedMk3 += r.redMk3; totBlueMk3 += r.blueMk3
 
   let
     tRedHit = (if totRedS > 0: 100.0 * totRedK.float / totRedS.float else: 0.0)
@@ -598,6 +614,16 @@ proc main() =
   echo &"  shots:    RED {totRedS}  BLUE {totBlueS}"
   echo &"  hit rate: RED {tRedHit:.2f}%  BLUE {tBlueHit:.2f}%"
   echo &"  camp-ticks (frozen w/ live target): RED {campTicksRed}  BLUE {campTicksBlue}"
+  # ⭐ CLUSTER KILLS — the nadeCluster mechanism metric, straight off the sim's per-BLAST
+  # multi-kill counters. A double counts the 2 bodies it took, a triple 3+, so
+  # "bodies via multikill" is the currency the anti-line doctrine claims to win.
+  let
+    redMkBodies = 2 * totRedMk2 + 3 * totRedMk3
+    blueMkBodies = 2 * totBlueMk2 + 3 * totBlueMk3
+  echo &"  clusterkil:RED x2 {totRedMk2} x3+ {totRedMk3} (>={redMkBodies} bodies)  " &
+    &"BLUE x2 {totBlueMk2} x3+ {totBlueMk3} (>={blueMkBodies} bodies)"
+  echo "             (area blasts/cones that killed 2 / 3+ in ONE landing — the multikill " &
+    "the anti-line grenade exists to buy. Per-blast, from sim.multiKills2/3.)"
   when defined(ohshitprobe):
     let mis = (if ohshitTotal > 0: 100.0 * ohshitMateCloser.float / ohshitTotal.float else: 0.0)
     let good = (if ohshitTotal > 0: 100.0 * ohshitEnemyClose.float / ohshitTotal.float else: 0.0)
@@ -632,6 +658,32 @@ proc main() =
       &"WIPE-ARM/LINE-ARM>0 => a HEARD wipe/line armed a mate's rally it never saw itself; " &
       &"NADE-CLUSTER>0 => a grenade carrier lobbed at a multikill cluster — the full bus is LIVE + " &
       &"COORDINATING combined-arms. Mirror = liveness+no-regression only; win-credit is a hosted xreq.)"
+  when defined(ncprobe):
+    let
+      ncMean = (if ncClusterAim > 0: ncClusterSum.float / ncClusterAim.float else: 0.0)
+      ncClPct = (if ncAim > 0: 100.0 * ncClusterAim.float / ncAim.float else: 0.0)
+      ncLinePct = (if ncLineAim > 0: 100.0 * ncLineClusterAim.float / ncLineAim.float else: 0.0)
+    echo &"  NC-PROBE selector: carry {ncCarry} (lineLive {ncLineLive}) -> AIM {ncAim} " &
+      &"(while line live {ncLineAim}) -> CLUSTER-AIM {ncClusterAim} ({ncClPct:.0f}% of aims)"
+    echo &"    chosen cluster: mean {ncMean:.2f}  fattest {ncMaxCluster}  " &
+      &"anti-line cluster lobs {ncLineClusterAim} ({ncLinePct:.0f}% of line-live aims)"
+    echo "    (Both arms carry+throw identically — the claim is WHICH body gets the lob. " &
+      "CLUSTER-AIM% and mean-cluster are the lever's mechanism; compare NADECLUSTER=1 vs 0. " &
+      "Win-credit is the seat-rotated A/B + the hosted field, not this probe.)"
+  when defined(ncdiff):
+    let
+      ndActed = ndDiffAim + ndOnlyCluster
+      ndActPct = (if ndEitherThrow > 0: 100.0 * ndActed.float / ndEitherThrow.float else: 0.0)
+      ndSamePct = (if ndEitherThrow > 0: 100.0 * ndSameAim.float / ndEitherThrow.float else: 0.0)
+      ndGain = (if ndFatter > 0: ndFatterGain.float / ndFatter.float else: 0.0)
+    echo &"  NC-DIFF: carrier frames {ndFrames} (line live {ndLineFrames}) -> " &
+      &"either-throw {ndEitherThrow}"
+    echo &"    SAME pick {ndSameAim} ({ndSamePct:.1f}%)  |  CHANGED {ndActed} ({ndActPct:.1f}%) = " &
+      &"diff-aim {ndDiffAim} + lever-only throws {ndOnlyCluster}  (control-only {ndOnlyNaive})"
+    echo &"    of the diff-aims: FATTER cluster {ndFatter} (mean +{ndGain:.2f} bodies in blast)  " &
+      &"| while a LINE was live: diff-aim {ndDiffAimLine} lever-only {ndOnlyClusterLine}"
+    echo "    (⭐ THE BOUND: CHANGED% is the lever's entire causal footprint. Both selectors " &
+      "run on the SAME frames, so ~0% CHANGED means no episode budget can produce a win delta.)"
   when defined(arcprobe):
     let meanCl = (if apFire > 0: apClusterSum.float / apFire.float else: 0.0)
     echo &"  ARC-PROBE funnel: breacher {apBreacher} -> lineLive {apLineLive} -> " &

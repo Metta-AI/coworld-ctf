@@ -88,6 +88,12 @@ type
     blueSurvivalSum*: int            ## before a non-scoring death (mean = how
     redSurvivalCount*: int           ## fast the grab is a death sentence; a
     blueSurvivalCount*: int          ## few ticks = dies IN the nest, not en route).
+    redMk2*: int                     ## ⭐ CLUSTER KILLS (2026-07-29): blasts/cones that
+    blueMk2*: int                    ## killed EXACTLY 2, straight off sim.multiKills2 —
+    redMk3*: int                     ## and 3+ off multiKills3. This is the MECHANISM
+    blueMk3*: int                    ## metric for nadeCluster: the whole claim is that
+                                     ## ranking by cluster size converts a 1-kill lob into
+                                     ## a 2-or-3-kill lob, and the sim counts that per BLAST.
     slots*: seq[SlotStat]
 
 proc newEvalEngine*(numPlayers: int, seed: int, maxTicks: int): EvalEngine =
@@ -268,8 +274,12 @@ proc result*(engine: EvalEngine): EpisodeResult =
       result.redDeaths += p.deaths
       result.redLives += livesNow
       result.redCaptures += p.captures
+      result.redMk2 += p.multiKills2
+      result.redMk3 += p.multiKills3
     else:
       result.blueKills += p.kills
       result.blueDeaths += p.deaths
       result.blueLives += livesNow
       result.blueCaptures += p.captures
+      result.blueMk2 += p.multiKills2
+      result.blueMk3 += p.multiKills3

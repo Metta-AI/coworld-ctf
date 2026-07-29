@@ -186,6 +186,39 @@ when defined(meprobe):
   var meSafe = 0       # ...and cleared the contact rule (out of contact or light-break)
   var meFireCount = 0  # ...and a known kit sits within MedKitEconDetour => fired
 
+when defined(ncprobe):
+  # -d:ncprobe ONLY (2026-07-29): instrument the nadeCluster SELECTOR so the A/B can
+  # separate "the lever fires" from "the lever picks a BETTER target". Both arms carry
+  # and throw grenades at the same rate — the whole claim is about WHICH body gets the
+  # lob — so the metric that matters is the mean/max cluster size of the CHOSEN aim
+  # point, and how much of that lands while a line is live. Never in the shipped player.
+  var ncCarry = 0            # decide-frames holding a grenade and free to throw
+  var ncLineLive = 0         # ...of those, frames with a line classified or heard
+  var ncAim = 0              # ...frames a throw target was actually selected
+  var ncLineAim = 0          # ...selected WHILE a line was live
+  var ncClusterAim = 0       # ...and the chosen aim point held a real cluster (>=2)
+  var ncLineClusterAim = 0   # ...a cluster lob WHILE a line was live (the anti-line case)
+  var ncClusterSum = 0       # Σ chosen cluster size over cluster lobs (mean = sum/ncClusterAim)
+  var ncMaxCluster = 0       # the fattest cluster ever aimed at (a true multikill proof)
+
+when defined(ncdiff):
+  # -d:ncdiff ONLY (2026-07-29): the DIFFERENTIAL probe for nadeCluster. Computes both
+  # the cluster selector and the naive-nearest control on every carrier frame and counts
+  # DISAGREEMENTS. This is the cheap decisive bound on the whole A/B: a lever that picks
+  # the same body the control would pick cannot change an episode outcome, no matter how
+  # many episodes you buy. Observation only — never writes the aim.
+  var ndFrames = 0           # carrier-with-grenade frames examined
+  var ndLineFrames = 0       # ...of those, frames with a line live (the anti-line case)
+  var ndEitherThrow = 0      # frames where at least one selector wanted a throw
+  var ndSameAim = 0          # both wanted a throw, at the SAME body (lever = no-op)
+  var ndDiffAim = 0          # both wanted a throw, at DIFFERENT bodies (lever changed it)
+  var ndDiffAimLine = 0      # ...while a line was live
+  var ndOnlyCluster = 0      # only the lever threw (it CREATES throws the control skips)
+  var ndOnlyClusterLine = 0  # ...while a line was live
+  var ndOnlyNaive = 0        # only the control threw (expected ~0; looser gate on cluster)
+  var ndFatter = 0           # lever's differing pick held a FATTER cluster than control's
+  var ndFatterGain = 0       # Σ extra bodies in the blast on those frames
+
 when defined(scprobe):
   # -d:scprobe ONLY (v9): instrument the satCap redistribution as a FUNNEL so a
   # null A/B is diagnosable (pair-saturation never occurs in range vs occurs but
@@ -1472,6 +1505,20 @@ type
                               # Mirror-measurable for the same reason medTopOff was: it is a
                               # resource RACE, not a coordination lever, so self-play scores
                               # it (heals, deaths, K-D) — unlike comms.
+    nadeCluster: bool         # ⭐⭐ ANTI-LINE GRENADE MULTIKILL (shipped 2026-07-22 in
+                              # 4ceec16, retro-gated 2026-07-29 so its win-credit can be
+                              # ISOLATED). A grenade carrier ranks candidates by CLUSTER
+                              # SIZE (fresh enemies inside one 52px blast) instead of mere
+                              # nearness, and when a line is classified (ScLine) or heard
+                              # (RpLine) it prioritises the FATTEST cluster — break the line
+                              # before the wave has to punch its gap. This is the
+                              # doctrine-legal area-denial answer to a standing line, and
+                              # the reason the arc breacher was RETIRED as a strictly-worse
+                              # duplicate: the nade throws WITHOUT disarming (keep the gun),
+                              # the arc traded the gun for the cone.
+                              # false = the pre-4ceec16 naive-NEAREST selector (the A/B
+                              # control). ON in shippedCombatTune; knob NADECLUSTER,
+                              # mechanism probe -d:ncprobe.
     satCap: bool              # ⭐ DISTRIBUTED FIRE (2026-07-20, backlog #2, FM 3-90
                               # fire-distribution): "destroy the greatest threat first,
                               # THEN distribute fires — avoid target overkill." Enough
@@ -1909,6 +1956,8 @@ proc defaultCombatTune(): CombatTune =
     swordAmbush: false,       # control: a boxed-in bot never grabs a sword for a melee kill.
     medTopOff: false,         # control: a wounded bot never detours to a center med kit.
     medEcon: false,           # control: no static-coord kit routing (fog-visible kits only).
+    nadeCluster: false,       # control: naive-NEAREST grenade target (pre-4ceec16), no
+                              # cluster ranking and no live-line priority.
     satCap: false,            # control: a free gun dogpiles the nearest enemy, no saturation cap.
     noMask: false,            # control: a mover walks through a mate's live gun-line.
     assaultThrough: false,    # control: a surprise at knife range triggers the retreat/duck jink.
@@ -2127,6 +2176,15 @@ proc shippedCombatTune(): CombatTune =
   # rests on the funnel + heal ratio + both-seatings K-D, per the null-calibration
   # rule. Keeps its MEDECON knob for bisection.
   result.medEcon = true
+  # ⭐⭐ nadeCluster: ALREADY SHIPPED since 4ceec16 (2026-07-22) as inline, ungated
+  # code — this line is a RETRO-GATE, not a new lever. It exists so the anti-line
+  # multikill's win-credit can finally be isolated (NADECLUSTER=0 = the naive-nearest
+  # control). Setting it true here keeps the shipped path logically identical to every
+  # champion from v17 through v28; the ONLY change is that a knob can now strip it.
+  # -d:noNadeCluster builds the HOSTED control arm (the env knob reaches only the
+  # harness's HUNTER_SLOTS seats, so an uploaded control image needs a compile strip).
+  when not defined(noNadeCluster):
+    result.nadeCluster = true
   result.satCap = true
   result.noMask = true
   result.assaultThrough = true
@@ -4979,11 +5037,23 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     nadeAim = -1
     nadeThrowD = 0.0
   if carryingNade and not iCarry:
+    # ⭐⭐ nadeCluster (gated 2026-07-29 for the anti-line A/B). This is the SHIPPED
+    # doctrine-legal anti-line multikill: "numbers are the currency", so a lob that
+    # kills two costs the enemy twice what a lob that kills one does, and unlike the
+    # (retired) arc breacher it NEVER disarms — throw the nade, keep the gun.
+    #
     # Score each candidate by CLUSTER SIZE (fresh enemies within one blast of the
     # aim point), tie-broken by nearness. A wall-blocked lone target still qualifies
     # (the gun can't reach it); an open target needs a cluster >=2 (a lone open
     # enemy is the gun's job, not a spent grenade) UNLESS a line is live, where even
     # thinning the front is worth the lob.
+    #
+    # nadeCluster=false is the A/B CONTROL: the exact pre-4ceec16 naive-NEAREST
+    # selector (first fresh in-range target that is wall-blocked or merely PAIRED,
+    # scanned nearest-first and never re-ranked by density, with no live-line case).
+    # It is byte-faithful to the behaviour this lever replaced, so the delta between
+    # the arms is cluster-PRIORITISATION alone — same carry rules, same throw rules,
+    # same ranges, same blast radius.
     var bestScore = -1
     var bestD = 1e18
     for i in 0 ..< bot.enemies.len:
@@ -4994,23 +5064,104 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       let d = dist(p, me)
       if d < NadeMinRange or d > NadeMaxRange:
         continue
+      # Control arm scans nearest-first and stops improving (the old `d >= bestD`
+      # skip); the cluster arm must see EVERY candidate to find the fattest.
+      if not bot.tune.nadeCluster and d >= bestD:
+        continue
       let blocked = not client.pixelRayClear(me, p)
       var cluster = 1                    # the target itself
       for j in 0 ..< bot.enemies.len:
         if j != i and bot.tick - bot.enemies[j].lastSeen <= FreshShotTicks and
             dist(bot.enemies[j].pos, p) <= NadeBlast:
           inc cluster
-      # Worth a throw: wall-blocked (gun can't collect), OR a real cluster (>=2),
-      # OR a live line where even a single front body thins the wall we must cross.
-      if blocked or cluster >= 2 or lineLive:
-        # Prefer the fattest cluster; nearer breaks ties (flatter lob, less drift).
-        if cluster > bestScore or (cluster == bestScore and d < bestD):
+      if bot.tune.nadeCluster:
+        # Worth a throw: wall-blocked (gun can't collect), OR a real cluster (>=2),
+        # OR a live line where even a single front body thins the wall we must cross.
+        if blocked or cluster >= 2 or lineLive:
+          # Prefer the fattest cluster; nearer breaks ties (flatter lob, less drift).
+          if cluster > bestScore or (cluster == bestScore and d < bestD):
+            bestScore = cluster
+            bestD = d
+            nadeAim = bradsOf(p - me)
+            nadeThrowD = d
+      else:
+        # CONTROL: nearest wall-blocked-or-paired body wins. Note the old code only
+        # looked for a pair when NOT blocked, and ignored lineLive entirely.
+        let paired = (if blocked: false else: cluster >= 2)
+        if blocked or paired:
           bestScore = cluster
           bestD = d
           nadeAim = bradsOf(p - me)
           nadeThrowD = d
     when defined(commsprobe):
       if nadeAim >= 0 and (lineLive or bestScore >= 2): inc csNadeLine
+    when defined(ncprobe):
+      # The MECHANISM funnel: how often a carrier had a throw at all, how often that
+      # throw was aimed at a real cluster, and how FAT the chosen cluster was — the
+      # numbers that separate "the lever fires" from "the lever picks better".
+      inc ncCarry
+      if lineLive: inc ncLineLive
+      if nadeAim >= 0:
+        inc ncAim
+        if bestScore >= 2:
+          inc ncClusterAim
+          ncClusterSum += bestScore
+          if bestScore > ncMaxCluster: ncMaxCluster = bestScore
+          if lineLive: inc ncLineClusterAim
+        if lineLive: inc ncLineAim
+    when defined(ncdiff):
+      # ⭐ DIFFERENTIAL PROBE (2026-07-29): the decisive cheap measurement. Run BOTH
+      # selectors over the SAME frame state and count where they actually DISAGREE.
+      # A lever that never changes the chosen aim point cannot possibly change a win,
+      # so this bounds the whole A/B: if divergence ~0, no episode budget can rescue
+      # it. Pure observation — it never writes nadeAim, so play is unaffected.
+      var
+        clAim = -1        # what the CLUSTER selector would pick
+        clScore = -1
+        clBestD = 1e18
+        nnAim = -1        # what the NAIVE-NEAREST control would pick
+        nnScore = -1
+        nnBestD = 1e18
+      for i in 0 ..< bot.enemies.len:
+        let t = bot.enemies[i]
+        if bot.tick - t.lastSeen > FreshShotTicks: continue
+        let p = t.pos + t.vel * float(bot.tick - t.lastSeen)
+        let d = dist(p, me)
+        if d < NadeMinRange or d > NadeMaxRange: continue
+        let blocked = not client.pixelRayClear(me, p)
+        var cluster = 1
+        for j in 0 ..< bot.enemies.len:
+          if j != i and bot.tick - bot.enemies[j].lastSeen <= FreshShotTicks and
+              dist(bot.enemies[j].pos, p) <= NadeBlast:
+            inc cluster
+        # cluster arm (the shipped lever)
+        if blocked or cluster >= 2 or lineLive:
+          if cluster > clScore or (cluster == clScore and d < clBestD):
+            clScore = cluster; clBestD = d; clAim = bradsOf(p - me)
+        # naive-nearest arm (the pre-4ceec16 control), incl. its early `d >= bestD` skip
+        if d < nnBestD:
+          let paired = (if blocked: false else: cluster >= 2)
+          if blocked or paired:
+            nnScore = cluster; nnBestD = d; nnAim = bradsOf(p - me)
+      inc ndFrames
+      if lineLive: inc ndLineFrames
+      let clHas = clAim >= 0
+      let nnHas = nnAim >= 0
+      if clHas or nnHas:
+        inc ndEitherThrow
+        if clHas and not nnHas:
+          inc ndOnlyCluster            # the lever CREATES a throw the control never takes
+          if lineLive: inc ndOnlyClusterLine
+        elif nnHas and not clHas:
+          inc ndOnlyNaive              # should be ~0: cluster's gate is strictly looser
+        elif clAim != nnAim:
+          inc ndDiffAim                # both throw, but at DIFFERENT bodies
+          if lineLive: inc ndDiffAimLine
+          if clScore > nnScore:
+            inc ndFatter               # ...and the lever's pick is a FATTER cluster
+            ndFatterGain += clScore - nnScore
+        else:
+          inc ndSameAim                # identical choice — the lever was a no-op here
   elif not carryingNade and not iCarry and not mateCarry and not pocketRush:
     # Collect a pickup: anyone grabs one within a short detour, and the two
     # flankers own their lane's friendly-side corner spawn — it sits right on
