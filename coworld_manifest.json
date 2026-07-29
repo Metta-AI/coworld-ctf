@@ -217,7 +217,7 @@
           "default": true
         },
         "mapPath": {
-          "description": "Arena map identifier (procedurally generated).",
+          "description": "Arena map identifier (procedurally generated). Valid values: \"arena\" (default), \"arena-large\", the six MW2 paintball arenas \"rust\", \"terminal\", \"highrise\", \"favela\", \"afghan\", \"scrapyard\", and \"mw2\" (per-episode rotation across the six MW2 arenas, keyed by the seed; the replay header records the resolved concrete map).",
           "type": "string",
           "default": "arena"
         },
@@ -493,6 +493,131 @@
         "maxTicks": 5000,
         "maxGames": 1,
         "mapPath": "arena",
+        "showPlayerLabels": true
+      }
+    },
+    {
+      "id": "mw2-rotation",
+      "name": "MW2 Paintball Rotation",
+      "description": "Sixteen-player 8v8 CTF with identical rules to the default variant, but each episode is played on one of six paintball recreations of crowd-favorite Call of Duty: Modern Warfare 2 maps (Rust, Terminal, Highrise, Favela, Afghan, Scrapyard). The map rotates per episode, keyed by the episode seed; the replay header records the resolved concrete map.",
+      "game_config": {
+        "players": [
+          {
+            "name": "Player1"
+          },
+          {
+            "name": "Player2"
+          },
+          {
+            "name": "Player3"
+          },
+          {
+            "name": "Player4"
+          },
+          {
+            "name": "Player5"
+          },
+          {
+            "name": "Player6"
+          },
+          {
+            "name": "Player7"
+          },
+          {
+            "name": "Player8"
+          },
+          {
+            "name": "Player9"
+          },
+          {
+            "name": "Player10"
+          },
+          {
+            "name": "Player11"
+          },
+          {
+            "name": "Player12"
+          },
+          {
+            "name": "Player13"
+          },
+          {
+            "name": "Player14"
+          },
+          {
+            "name": "Player15"
+          },
+          {
+            "name": "Player16"
+          }
+        ],
+        "slots": [
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          }
+        ],
+        "seed": 679961,
+        "num_agents": 16,
+        "minPlayers": 16,
+        "lives": 3,
+        "hitPoints": 3,
+        "respawnTicks": 72,
+        "gunRange": 1300,
+        "fireCooldownTicks": 12,
+        "carrierSpeedPct": 70,
+        "aimTurnRate": 5,
+        "visionConeDeg": 45,
+        "visionBubble": 90,
+        "startWaitTicks": 120,
+        "gameOverTicks": 360,
+        "maxTicks": 5000,
+        "maxGames": 1,
+        "mapPath": "mw2",
         "showPlayerLabels": true
       }
     }

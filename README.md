@@ -59,6 +59,13 @@ logs or replay links, and the smallest repro.
 - **Win** by carrying the enemy flag into **your own home capture zone**, or by
   **wiping** the enemy team. Scoring is **win-only** (+100 to the winning team).
 
+Matches default to the classic symmetric arena, but the `mapPath` game-config
+value selects others: `arena-large`, the six-map **MW2 paintball pack**
+(`rust`, `terminal`, `highrise`, `favela`, `afghan`, `scrapyard` — paintball
+recreations of the Modern Warfare 2 classics), or the `mw2` alias that rotates
+across the pack per episode, keyed by the seed. See the **Maps** section of
+[`docs/RULES.md`](docs/RULES.md).
+
 See [`docs/RULES.md`](docs/RULES.md) for exact mechanics and tuning defaults.
 
 ## Run the game locally (without Docker)

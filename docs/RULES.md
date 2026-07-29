@@ -50,6 +50,31 @@ tasks, voting) with teams, guns, hearts, and fog-of-war vision.
   above; leagues opt in through their own config.
 - A round ends when a team **captures the enemy heart** or is **wiped out**.
 
+## Maps
+
+The arena is selected by the `mapPath` game-config value. Every map keeps the
+same rules, left/right symmetry, and three-lane grammar — only the cover
+layout changes. The replay header records the map each episode was played on.
+
+- **`arena`** (default) — the classic staggered-cover slalom described above.
+- **`arena-large`** — the same layout grammar on a bigger field.
+- **The MW2 paintball pack** — six paintball recreations of crowd-favorite
+  Call of Duty: Modern Warfare 2 maps, re-themed as scenario paintball fields:
+  - **`rust`** — a rusty oil-yard speedball field around the central scaffold
+    tower.
+  - **`terminal`** — an airport concourse with an inflatable 747 owning the
+    north lane.
+  - **`highrise`** — a rooftop court between twin office cores, helipad south
+    and crane north.
+  - **`favela`** — shantytown alleys staggered around an open dirt courtyard.
+  - **`afghan`** — a desert crash-site with the C-130 wreck dead center.
+  - **`scrapyard`** — an aircraft boneyard threading a broken fuselage row
+    down the midline.
+- **`mw2`** — per-episode rotation across the six: at startup the server
+  resolves the alias to one concrete pack map, keyed by the episode seed, so
+  a league round spreads across the whole pack. The replay header records
+  the resolved concrete map, never the alias.
+
 ## Teams & spawns
 
 - Players are assigned to **Red** or **Blue** by slot (8 each).
