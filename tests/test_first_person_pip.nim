@@ -1,5 +1,5 @@
 import
-  std/[json, os, unittest],
+  std/[json, os, sequtils, strutils, unittest],
   ctf/[broadcast, sim]
 
 const GameDir = currentSourcePath.parentDir.parentDir
@@ -27,6 +27,58 @@ proc fpFrame(sim: SimServer, povSlot: int): JsonNode =
   )
   let parsed = parseJson(frame)
   if parsed.hasKey("fp"): parsed["fp"] else: newJNull()
+
+suite "bundle asset paths":
+  # The FPV cog art shipped twice (#119, #121) without ever reaching the screen,
+  # because the loader used ROOT-ABSOLUTE srcs ('/client/soldier_*_front.png').
+  # A leading slash resolves against the ORIGIN ROOT, so from the static bundle
+  # at /v2/coworlds/replays/static/<coworld>/<hash>/ it fetched
+  # <api-origin>/client/... — nothing serves that — and from the Kubernetes
+  # service proxy it dropped the route prefix. Both 404.
+  #
+  # Nothing caught it for two releases because the failure is SILENT in both
+  # directions: drawFpvEntity guards the blit with cogArtReady(), so a missing
+  # sprite just falls back to the procedural chassis (which looks plausible),
+  # and locally /client/* IS served, so it looked correct on every dev machine.
+  # #131 fixed it by deriving the paths from the document (COG_BASE/ART_BASE).
+  #
+  # The Dockerfile's `test -f` guards prove the PNGs SHIP; they say nothing
+  # about how the page ASKS for them. This is the other half: a static scan
+  # asserting no asset reference in either bundle page is root-absolute. Kept as
+  # a text scan on purpose — the paths live in inline JS inside the HTML, so
+  # there is no Nim symbol to type-check and no cheap way to run the page here.
+  const BundlePages = ["client/replay_broadcast.html", "client/league_replayer.html"]
+
+  test "no bundle page requests an asset from the origin root":
+    # Every offender is collected so a failure names them all at once, rather
+    # than dying on the first and hiding the rest.
+    var offenders: seq[string] = @[]
+    for page in BundlePages:
+      for lineNo, line in toSeq(readFile(GameDir / page).splitLines).pairs:
+        # The shapes that load an asset: a JS Image().src assignment, an HTML
+        # src=/href= attribute, and a CSS url(). "//host" is a protocol-relative
+        # absolute URL — equally wrong here — and is caught by the same prefixes.
+        for pattern in [".src = '/", ".src = \"/", "src='/", "src=\"/",
+                        "href='/", "href=\"/", "url('/", "url(\"/"]:
+          if line.contains(pattern):
+            offenders.add(page & ":" & $(lineNo + 1) & "  " & line.strip())
+    if offenders.len > 0:
+      checkpoint("root-absolute asset references resolve to the API origin " &
+                 "root from the static bundle and 404. Derive them from the " &
+                 "document instead (see COG_BASE / ART_BASE):\n  " &
+                 offenders.join("\n  "))
+    check offenders.len == 0
+
+  test "the cog art loads through COG_BASE, relative in the static bundle":
+    let html = readFile(GameDir / "client/replay_broadcast.html")
+    # All four masters (both teams x plain/gun) must go through COG_BASE, and
+    # COG_BASE must collapse to "." when the WASM adapter marks a static bundle.
+    for sprite in ["soldier_red_front.png", "soldier_blue_front.png",
+                   "soldier_red_front_gun.png", "soldier_blue_front_gun.png"]:
+      checkpoint(sprite & " must load through COG_BASE")
+      check html.contains("COG_BASE + '/" & sprite & "'")
+    checkpoint("COG_BASE must still detect the static bundle")
+    check html.contains("window.CtfStaticReplay")
 
 suite "first-person picture-in-picture":
   test "no POV selected → no fp frame":
