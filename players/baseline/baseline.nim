@@ -251,12 +251,14 @@ const
                               # 8-15/21 witnessed, and 78-tick rotation still
                               # lagged the union by 2-3 — repetition closes
                               # the late 35%-zero-fanout propagation gap.
-  KGossipFrom = 2600          # start re-gossip well before LatePushTick so
-                              # per-seat sets converge on the team union by
-                              # the time the trigger can arm; earlier chatter
-                              # would displace the taunt/peace persona all game
-  KGossipEarlyLedger = 16     # ...or from any ledger this high (a bloodbath
-                              # can cross the trigger line before gt2600)
+  KGossipFrom = 2400          # NO K sends at all before this game tick: the
+                              # ledger only has to be accurate by LatePushTick,
+                              # and all-game chatter measured as a -0.36
+                              # winshare position leak (wave-1 A/B, v39 scar)
+  KQuietRadius = 280.0        # ...and only from locally quiet ground: a shout
+                              # bubble is enemy-visible ~247px through fog, so
+                              # never speak with a fresh enemy track inside a
+                              # bubble-and-change radius
   HoldFrontCap = 220.0        # -d:holdFront: ceiling on the phalanx creep — a
                               # castle line near our wall: fights there recur on
                               # ground where our respawn walk is ~100px and the
@@ -1869,30 +1871,43 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   when defined(wipeClosure):
     # K-relay spends leftover shout budget under every gameplay shout (and
     # above taunts). Two sends share the budget: fresh own-eyes death ids
-    # (queued at detection), then a rotating re-gossip over the whole
-    # dedup'd set — smoke-measured, a single shout per event strands the
-    # per-seat sets at 8-15 of a 21-event team union (the leg-0 D3
+    # (queued at detection, sent later), then a rotating re-gossip over the
+    # whole dedup'd set — smoke-measured, a single shout per event strands
+    # the per-seat sets at 8-15 of a 21-event team union (the leg-0 D3
     # zero-fanout gap); repetition converges them. Re-gossip of HEARD ids
     # is deliberate anti-entropy — dedup makes echo harmless, unlike the
-    # E-track relay. It only starts late (or on a high ledger) so the
-    # taunt/peace persona keeps the early-game budget. Position leak is
-    # moot: a witnessed kill means guns just fired, and gunfire already
-    # rings map-wide.
+    # E-track relay.
+    # LEAK GUARD (iteration 2 — the A/B scar): a shout bubble is visible
+    # ~247px THROUGH FOG AND WALLS, and the wave-1 A/B read all-game
+    # K-chatter as a position beacon the RL rivals converted (winshare
+    # 0.344 vs 0.708 — the v39 peace-speech scar, amplified). So K sends
+    # are (a) held until the game is old enough for the ledger to matter
+    # (the trigger cannot open before LatePushTick anyway) and (b) gated
+    # on locally QUIET ground — no fresh enemy track inside a bubble-and-
+    # change radius. Mates inside 247px still hear everything; the queue
+    # accumulates silently until it is safe to speak.
     if bot.shoutWant.len == 0 and not iCarry and
-        bot.tick - bot.lastShoutTick >= 26:
-      if bot.kShoutQ.len > 0:
-        bot.shoutWant = bot.kShoutQ[0]
-        bot.kShoutQ.delete(0)
-        bot.lastKTick = bot.tick
-        bot.lastShoutTick = bot.tick
-      elif bot.koIdT.len > 0 and bot.tick - bot.lastKTick >= KGossipEvery and
-          (bot.tick - bot.gameStart > KGossipFrom or
-           bot.koIdT.len >= KGossipEarlyLedger):
-        let gi = bot.koGossipIdx mod bot.koIdT.len
-        bot.shoutWant = "K" & $bot.koIdT[gi] & " " & $bot.koIdX[gi]
-        inc bot.koGossipIdx
-        bot.lastKTick = bot.tick
-        bot.lastShoutTick = bot.tick
+        bot.tick - bot.lastShoutTick >= 26 and
+        bot.tick - bot.gameStart > KGossipFrom:
+      var kQuiet = true
+      for t in bot.enemies:
+        if not t.synthetic and bot.tick - t.lastSeen <= 90 and
+            dist(t.pos, me) < KQuietRadius:
+          kQuiet = false
+          break
+      if kQuiet:
+        if bot.kShoutQ.len > 0:
+          bot.shoutWant = bot.kShoutQ[0]
+          bot.kShoutQ.delete(0)
+          bot.lastKTick = bot.tick
+          bot.lastShoutTick = bot.tick
+        elif bot.koIdT.len > 0 and
+            bot.tick - bot.lastKTick >= KGossipEvery:
+          let gi = bot.koGossipIdx mod bot.koIdT.len
+          bot.shoutWant = "K" & $bot.koIdT[gi] & " " & $bot.koIdX[gi]
+          inc bot.koGossipIdx
+          bot.lastKTick = bot.tick
+          bot.lastShoutTick = bot.tick
 
   when defined(taunt):
     # Taunts spend only LEFTOVER shout budget: never while carrying and never
