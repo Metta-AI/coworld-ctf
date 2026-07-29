@@ -257,8 +257,11 @@ const
   CkCarrySpeedDeci = 21       # doom predicate carry speed, 2.1 px/tick
                               # (deci-px per tick; optimistic = conservative:
                               # an over-estimated speed under-calls doom).
-  CkFloorTicks = 500          # sim ActionClockFloorTicks: what a kill/steal
-                              # leaves on the clock.
+  CkFloorTicks {.intdefine.} = 500
+                              # sim ActionClockFloorTicks: what a kill/steal
+                              # leaves on the clock. Overridable ONLY so local
+                              # smoke can reach the fire band inside a short
+                              # mirror; league builds never set it.
   CkStageBand = 250           # estRemaining under this: the victim stages.
   CkFireBand = 100            # estRemaining under this: the carrier executes.
                               # Fire LATE — the top-up is 500 - remaining, so a
@@ -269,8 +272,11 @@ const
                               # the run line (never in the carrier's path)
   CkCaptureHalf = 20.0        # sim CaptureZoneWidth div 2: the capture strip
                               # reaches this far in front of the home x anchor
-  CkKoRadius = 44.0           # a KO pop / splatter this close to the victim's
-                              # last fix confirms the FF kill
+  CkVictimR = 44.0            # a mate track this close to the victim's last
+                              # fix IS the victim (well inside the sim's 90px
+                              # omnidirectional vision bubble)
+  CkGoneTicks = 10            # the victim track missing this long, after we
+                              # have actually pulled the trigger, is the kill
   CkFreshMate = 48            # a mate track this recent counts as a live body
   CkNoFloor = -1_000_000      # ckFloorTick sentinel: no floor event witnessed
   CkExecTtl = 96              # give up on a victim that never dies and
@@ -406,6 +412,8 @@ type
       ckWasStolen: bool       # rising-edge detector for ownStolen
       ckFiring: bool          # an execution is in flight, awaiting confirmation
       ckVictimPos: Vec        # last fix on the victim being executed
+      ckVictimSeen: int       # tick that fix was last refreshed
+      ckShots: int            # trigger pulls spent on the current victim
       ckFireStart: int        # tick the current execution started
 
 proc roleForSeat(seat: int, team: Team): Role =
@@ -1252,6 +1260,8 @@ proc resetTransient(bot: Bot) =
     bot.ckWasStolen = false
     bot.ckFiring = false
     bot.ckFireStart = 0
+    bot.ckShots = 0
+    bot.ckVictimSeen = 0
 
 proc scanAim(bot: Bot, watch: Vec): int =
   ## The scan-sweep aim while holding a position: rake the vision cone back
@@ -2718,34 +2728,35 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       ckExecute = false
       ckVictimD = 0.0
     if bot.ckFiring:
-      # Kill confirmation: killPlayer drops a fog-honest KO pop and splatter
-      # at the death spot in the VICTIM's colour (ours here). A marker on the
-      # victim's last fix with no live mate track left there is the kill.
-      var mateStillThere = false
-      for t in bot.mates:
-        if bot.tick - t.lastSeen <= 4 and
-            dist(t.pos, bot.ckVictimPos) < CkKoRadius:
-          mateStillThere = true
+      # Kill confirmation. The death FX the sim drops at the death spot
+      # ("splatter <colour>", "damage pop <colour> KO") are emitted to living
+      # player views and WOULD be the crisp signal, but they are absent from
+      # the generated label manifest (upstream's vocabulary fixture never kills
+      # anybody), so scanning them hard-fails our label-contract guard. Use the
+      # channel the guard already knows instead: the victim is inside the sim's
+      # 90 px omnidirectional vision bubble, so a track there that stops
+      # refreshing is GONE — it cannot merely have left our aim cone.
+      var fresh = -1
+      for i in 0 ..< bot.mates.len:
+        if bot.tick - bot.mates[i].lastSeen <= 2 and
+            dist(bot.mates[i].pos, bot.ckVictimPos) < CkVictimR:
+          fresh = i
           break
-      var koSeen = false
-      block koScan:
-        for lbl in ["damage pop " & myColor & " KO stage 0",
-                    "damage pop " & myColor & " KO stage 1",
-                    "splatter " & myColor & " stage 0"]:
-          for o in client.spriteObjectsWithLabel(lbl):
-            if dist(client.mapPos(o), bot.ckVictimPos) <= CkKoRadius:
-              koSeen = true
-              break koScan
-      if koSeen and not mateStillThere:
+      if fresh >= 0:
+        bot.ckVictimPos = bot.mates[fresh].pos     # keep the fix current
+        bot.ckVictimSeen = bot.tick
+      elif bot.ckShots > 0 and bot.tick - bot.ckVictimSeen >= CkGoneTicks:
         bot.ckFiring = false
         bot.ckFloorTick = bot.tick       # the kill re-armed the game clock
         inc bot.ckSuicides
         artEvent(bot.tick, "ck_kill", %*{
           "n": bot.ckSuicides, "waited": bot.tick - bot.ckFireStart,
+          "shots": bot.ckShots,
           "x": int(bot.ckVictimPos.x), "y": int(bot.ckVictimPos.y)})
         when defined(ckDebug):
           echo "CK kill t=", bot.tick, " slot=", bot.slot,
-            " n=", bot.ckSuicides, " waited=", bot.tick - bot.ckFireStart
+            " n=", bot.ckSuicides, " waited=", bot.tick - bot.ckFireStart,
+            " shots=", bot.ckShots
           flushFile(stdout)
       elif bot.tick - bot.ckFireStart > CkExecTtl:
         bot.ckFiring = false             # lost the victim: re-select
@@ -2777,10 +2788,12 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       if best >= 0:
         if not bot.ckFiring:
           bot.ckFireStart = bot.tick
+          bot.ckShots = 0
           artEvent(bot.tick, "ck_execute", %*{
             "rem": ckRemaining, "toLine": int(ckToLine), "d": int(bestD)})
         bot.ckFiring = true
         bot.ckVictimPos = bot.mates[best].pos
+        bot.ckVictimSeen = bot.tick
         ckVictimD = bestD
         ckExecute = true
   else:
@@ -2837,6 +2850,8 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         wantFire = perpMiss <= FireSlackPx
       # else: a shielded carrier has no gun icon for the whole life. Telemetry
       # shows ck_execute with no shot rather than us fighting the shield rule.
+      if wantFire and not bot.firedLast:
+        inc bot.ckShots                  # a real trigger pull goes out below
       moveMask = octantBits(bot.navSteer(client, me, target))
       acted = true
       when defined(ckDebug):
