@@ -398,7 +398,20 @@ const
                               # AimRate 5 brads/tick can track. Standing still
                               # is what makes the victim shootable at all.
   CkNoFloor = -1_000_000      # ckFloorTick sentinel: no floor event witnessed
-  CkExecTtl {.intdefine.} = 96
+  CkExecTtl {.intdefine.} = 140
+                              # RAISED from 96: at 96 the give-up structurally
+                              # beat this lever's own CkGoneTicks confirmation.
+                              # Observed kill latencies from the first
+                              # ck_execute tick are 97-108 ticks, and the
+                              # confirm then needs CkGoneTicks (10) more, so 96
+                              # could not fit a real kill plus its confirmation
+                              # — measured, a ck_ttl charge fired ONE TICK
+                              # before the real same-team kill it was waiting
+                              # for. An unlatched real kill is not merely a
+                              # telemetry miss: the estimate never learns the
+                              # clock was re-armed, so the carrier re-executes
+                              # on a floored clock and puts non-fatal wounds
+                              # into live escorts (8 measured in v95 wave-1c).
                               # give up on a victim that never dies and
                               # re-select rather than aiming at a ghost. The
                               # give-up COUNTS AGAINST CkMaxSuicides whenever
