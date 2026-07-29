@@ -65,6 +65,15 @@ type
     nadeFalseNeg: int
     nadeFalsePos: int
     idNamed: int           # visible enemies that came with a stable identity name
+    # HEAD-TO-HEAD: the OLD marker-scan path, scored on the same visible enemies
+    # in the same frames. This is what makes a behaviour divergence between the
+    # two builds interpretable — if the old path's error count is nonzero and the
+    # new one's is zero, the divergence is the OLD path being WRONG and now
+    # corrected, which is the claim this change actually rests on.
+    oldArcFalseNeg: int
+    oldArcFalsePos: int
+    oldShieldFalseNeg: int
+    oldShieldFalsePos: int
 
 proc newDriver(slot, team, episodeSeed: int): Driver =
   let t = (if team == 0: Red else: Blue)
@@ -168,6 +177,22 @@ proc scoreEnemyLoadout(
     if a.hasShield and not truth.shield: inc score.shieldFalsePos
     if truth.nade and not a.hasNade: inc score.nadeFalseNeg
     if a.hasNade and not truth.nade: inc score.nadeFalsePos
+    # The OLD path, on the SAME actor: nearest colorless carry marker within
+    # ArcCarryRadius. Reproduced here rather than measured on the parent build so
+    # both paths see byte-identical frames and the comparison is exact.
+    var oldArc = false
+    var oldShield = false
+    for markerLabel in ["plasma arc carried", "spray can carried"]:
+      for o in client.spriteObjectsWithLabel(markerLabel):
+        if dist(client.mapPos(o), a.pos) < ArcCarryRadius:
+          oldArc = true
+    for o in client.spriteObjectsWithLabel("shield carried"):
+      if dist(client.mapPos(o), a.pos) < ArcCarryRadius:
+        oldShield = true
+    if truth.arc and not oldArc: inc score.oldArcFalseNeg
+    if oldArc and not truth.arc: inc score.oldArcFalsePos
+    if truth.shield and not oldShield: inc score.oldShieldFalseNeg
+    if oldShield and not truth.shield: inc score.oldShieldFalsePos
 
 proc parseSuite(): int =
   ## Scores the SHIPPED parse procs against literal wire strings — the exact
@@ -317,6 +342,11 @@ proc main() =
   echo &"  arc     falseNeg {score.arcFalseNeg}  falsePos {score.arcFalsePos}"
   echo &"  shield  falseNeg {score.shieldFalseNeg}  falsePos {score.shieldFalsePos}"
   echo &"  nade    falseNeg {score.nadeFalseNeg}  falsePos {score.nadeFalsePos}"
+  echo "--- HEAD-TO-HEAD: the OLD carry-marker path on the SAME frames ---"
+  echo &"  OLD arc     falseNeg {score.oldArcFalseNeg}  falsePos {score.oldArcFalsePos}"
+  echo &"  OLD shield  falseNeg {score.oldShieldFalseNeg}  falsePos {score.oldShieldFalsePos}"
+  echo "  (nonzero here + zero above = the divergence vs the parent build is the"
+  echo "   OLD path's error, now corrected. The old path had no nade read at all.)"
   let ok =
     parseFails == 0 and
     score.selfWrong == 0 and score.selfChecks > 0 and
