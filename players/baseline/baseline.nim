@@ -313,8 +313,6 @@ type
       prevObsRot: int         # self-sprite rotation bucket seen last frame
                               # (-1 = none: dead, fresh spawn, or frame gap)
       prevObsTick: int        # bot.tick of that observation
-      rotSignPrev: int        # rotSign one decide earlier (the mask that drove
-                              # the stale frame BEFORE the one now rendered)
     scanHigh: bool            # scan sweep currently heading to the high end
     lastPos: Vec
     stuckTicks: int
@@ -1208,7 +1206,6 @@ proc resetTransient(bot: Bot) =
   when defined(aimEdgeLatch):
     bot.prevObsRot = -1
     bot.prevObsTick = 0
-    bot.rotSignPrev = 0
   bot.scanHigh = false
   bot.stuckTicks = 0
   bot.jinkUntil = 0
@@ -1319,7 +1316,6 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     bot.firedLast = false
     bot.rotSign = 0
     when defined(aimEdgeLatch):
-      bot.rotSignPrev = 0
       bot.prevObsRot = -1
     bot.wasDead = true
     artFrame(FrameSnap(tick: bot.tick, alive: false,
@@ -1337,11 +1333,15 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     when defined(aimSpriteResync) and defined(aimEdgeLatch):
       # Sub-bucket refinement (task 1216964996167407): the tick the observed
       # 16-step rotation bucket FLIPS to the adjacent step while WE are the
-      # ones turning it, the true aim is pinned to the crossed bucket
-      # BOUNDARY to within the crossing window (±AimRate/2) — a ~±2-brad
-      # absolute fix vs the ±8 of a bucket-center snap. The sprite is one
-      # frame stale (measured: uncompensated snap error max 13 = 8 + one
-      # AimRate step), so project one AimRate step forward on top.
+      # ones turning it, the true aim just crossed the bucket BOUNDARY — it
+      # sits within one tick of AimRate slew past it (measured mean 2.60,
+      # range 0..5), a ~±2-brad absolute fix vs the ±8 of a bucket-center
+      # snap. The sprite readback is NOT stale: observed bucket == true-aim
+      # bucket at lag 0 on 468,883/468,883 decoded snap events (2026-07-28
+      # battery), so the only forward bias is the crossing-window center,
+      # AimRate/2. (Iteration 1 shipped +7 assuming a one-frame-stale sprite
+      # and lost every episode: the tolerance gate locked a +4.4-brad
+      # rotation-direction bias into estAim on all 16,755 latch writes.)
       if seen < 0:
         bot.prevObsRot = -1
       else:
@@ -1353,16 +1353,15 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
             elif obsRot == floorMod(bot.prevObsRot - 1, SoldierRotSteps): -1
             else: 0
           # Only a flip CONSISTENT with our own commanded rotation pins the
-          # boundary: rotSignPrev drove the crossing on the (stale) rendered
-          # frame, rotSign the one step since. A flip while NOT rotating is
-          # pure desync at unknown speed — no boundary constraint; fall
-          # through to the center snap.
-          if d != 0 and bot.rotSign == d and bot.rotSignPrev == d:
+          # boundary (rotSign held since the last decide drove this tick's
+          # slew — lag 0). A flip while NOT rotating is pure desync at
+          # unknown speed — no boundary constraint; fall through to the
+          # center snap.
+          if d != 0 and bot.rotSign == d:
             let
               boundary = floorMod(
                 bot.prevObsRot * SelfRotBrads + d * AimSnapBrads, AimBrads)
-              edgeEst = floorMod(
-                boundary + d * (AimRate + AimRate div 2), AimBrads)
+              edgeEst = floorMod(boundary + d * (AimRate div 2), AimBrads)
               err = bradsErr(edgeEst, bot.estAim)
             if abs(err) > AimEdgeTolBrads:
               artEvent(bot.tick, "aim_edge",
@@ -1371,18 +1370,16 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
               bot.estAim = edgeEst
             edgeDone = true # the boundary fix supersedes the center reading
         if not edgeDone:
-          # Center-snap fallback, staleness-compensated: the bucket reflects
-          # the aim of one frame ago, so while rotating the aim has already
-          # moved one more AimRate step — snap to the projected center, not
-          # the stale one (kills the benign one-frame-stale snap class).
-          let
-            target = floorMod(seen + bot.rotSign * AimRate, AimBrads)
-            err = bradsErr(target, bot.estAim)
+          # Center-snap fallback: identical to plain -d:aimSpriteResync (the
+          # sensor is lag-0, so the parent's uncompensated bucket-center snap
+          # is already the right estimator; iteration 1's +rotSign*AimRate
+          # "staleness compensation" made a perfect estAim disagree with its
+          # own sensor by up to 13 and quadrupled the snap rate).
+          let err = bradsErr(seen, bot.estAim)
           if abs(err) > AimSnapBrads:
             artEvent(bot.tick, "aim_resync",
-              %*{"err": err, "seen": seen, "est": bot.estAim,
-                 "target": target})
-            bot.estAim = target
+              %*{"err": err, "seen": seen, "est": bot.estAim})
+            bot.estAim = seen
         bot.prevObsRot = obsRot
         bot.prevObsTick = bot.tick
     elif defined(aimSpriteResync):
@@ -2856,8 +2853,6 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   if nadeC:
     mask = mask or ButtonC
   bot.firedLast = (mask and ButtonA) != 0
-  when defined(aimEdgeLatch):
-    bot.rotSignPrev = bot.rotSign
   bot.rotSign =
     if (mask and ButtonB) != 0: 1
     elif (mask and ButtonSelect) != 0: -1
