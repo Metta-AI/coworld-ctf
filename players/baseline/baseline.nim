@@ -150,6 +150,14 @@ when defined(commsprobe):
   var csWipeArm = 0   # frames a HEARD wipe armed regroupPush's rally without a
                       # local over-extend read (the coordination the bus buys —
                       # a trailing mid converges on a wipe it never saw itself)
+  # ⭐⭐ (v27) the ScPick man-advantage funnel. The broadcast shipped WITHOUT probe coverage, so
+  # these three prove it end-to-end. csPickArm is the one that matters: it counts frames where
+  # pickEdge was TRUE ONLY because a mate called it (no local numbers edge of our own) — i.e.
+  # the fog-crossing coordination the codeword actually buys. 0 there with csPickEmit > 0 would
+  # mean we broadcast into the void. Same funnel shape as WIPE-ARM, the coupling it's modeled on.
+  var csPick = 0      # local classifications: localPickEdge (our OWN man-advantage read)
+  var csPickEmit = 0  # ...that won the one shout slot and actually broadcast ScPick
+  var csPickArm = 0   # frames pickEdge came ONLY from a HEARD call (no local edge) — the payoff
 
 when defined(ssprobe):
   # -d:ssprobe ONLY (v7): count how often the avoidDisarm repulsion is ACTIVE
@@ -207,6 +215,21 @@ when defined(caprobe):
   var caArcAttrib = 0 # actors tagged hasArc via the carried-marker attribution
   var caSeen = 0      # enemy tracks scanned in dangerScore with counterArc on
   var caBump = 0      # tracks that got the disarmed-carrier priority credit
+
+when defined(asoprobe):
+  # -d:asoprobe ONLY (2026-07-29): the arcStandoff funnel. counterArc's caprobe proves the
+  # arc-carrier SPRITE READ is live; this proves the MOVEMENT reacts. Read it as a funnel —
+  # each counter narrows the one before, so a 0 tells you exactly which stage is blind:
+  #   asoNear  == 0 => no arc-carrier ever came within ArcStandoffRing+hold (nothing to do:
+  #                    expected in the mirror, where carriers only meet us inside 136px)
+  #   asoBack  == 0 with asoNear > 0 => detection fires but the back-off branch never wins
+  #                    the movement chain (a higher-priority branch owns those frames)
+  #   asoInCone > 0 => we were caught INSIDE 136px (the exact death arcStandoff exists to
+  #                    prevent) — with the lever ON this should trend toward 0 vs OFF.
+  var asoNear = 0     # frames a fresh disarmed arc-carrier sat inside the standoff ring band
+  var asoBack = 0     # ...and the back-off actually drove our feet (branch won the chain)
+  var asoHold = 0     # ...and we sat in the dead band instead (neither closing nor fleeing)
+  var asoInCone = 0   # frames we were caught INSIDE PlasmaArcReachPx of a carrier (the kill zone)
 
 when defined(sgprobe):
   # -d:sgprobe ONLY (2026-07-24 dive-death fix): the adaptive pocket-commit funnel. Never shipped.
@@ -518,6 +541,29 @@ const
                               # carrier as "safely disarmed" — covers the 5-tick cone
                               # sweep + our closing speed so we don't mis-classify a
                               # carrier about to be in reach.
+  # --- arcStandoff (the MOVEMENT companion to counterArc) ---
+  ArcStandoffBuffer = 60.0    # px past PlasmaArcReachPx(136) that we hold off a DISARMED
+                              # enemy arc-carrier. Sized off the sim: a cog closes at
+                              # MaxSpeed/MotionScale = 704/256 = 2.75px/tick, so 60px is
+                              # ~22 ticks of approach — well past the 5-tick cone sweep
+                              # (PlasmaArcActiveTicks) plus our one-frame reaction. Bigger
+                              # than CounterArcReachBuffer(24) on purpose: that one only has
+                              # to CLASSIFY a carrier, this one has to out-FOOT it.
+  ArcStandoffRing = PlasmaArcReachPx + ArcStandoffBuffer  # 196px: inside this we back off.
+  ArcStandoffSlipMix = 1.0    # sideways:backward ratio of the break-contact step. 1.0 = a 45°
+                              # diagonal, which is exactly an octant on the 8-way d-pad (so
+                              # octantBits quantizes it with ZERO error). Sideways is what
+                              # actually escapes a 28°-wide cone; backward is what buys range.
+                              # 45° takes both at full value and needs no tuning sweep.
+  ArcStandoffLatch = 12       # ticks the back-off stays latched once it fires (hysteresis).
+                              # ~33px of travel at 2.75px/tick: enough to clear the ring and
+                              # commit to the dead band rather than flip-flopping on 196px.
+  ArcStandoffHold = 40.0      # dead band past the ring (196..236px) where we neither close
+                              # nor retreat — kills the boundary chatter of advance-then-
+                              # back-off, and 236px is deep inside our 1300px gun range, so
+                              # holding here is a FREE kill, not a stalemate. Equal top
+                              # speeds (we and it both move 2.75px/tick) mean a carrier can
+                              # NEVER close this gap on a bot that keeps backing up.
   # --- arcBreach (anti-line OFFENSE, GameVersion 17 plasma arc) ---
   ArcBreachSeat = 1           # the FIXED team-seat (0..7) that plays breacher when a
                               # line is called — a deterministic seat, NOT lowest-alive
@@ -1515,6 +1561,38 @@ type
                               # ONLY — no movement/back-off branch (that's a separate future
                               # arcStandoff lever, kept clear of REF-force). Mirror-measurable
                               # (symmetric readable object, asymmetric kill value, no comms).
+    arcStandoff: bool         # ⭐ ARC STANDOFF (2026-07-29, the MOVEMENT companion counterArc
+                              # deliberately left out): counterArc only RETARGETS a disarmed
+                              # enemy arc-carrier — our feet still walk straight into its cone.
+                              # The sim numbers make that walk fatal: PlasmaArcDamage(3) ==
+                              # MaxHp(3), so ONE cone touch inside 136px is an instant kill, the
+                              # cone is REPEATABLE (25t recharge, not single-use), and it tracks
+                              # its owner's live aim for 5 active ticks — while the carrier's own
+                              # 1300px gun is dead for the rest of its life (canFire=false, no
+                              # drop). So the carrier's ONLY win condition is closing to 136px,
+                              # and the correct answer is purely geometric: never be there. Back
+                              # off to ArcStandoffRing(196px) and keep shooting — the gun reaches
+                              # 1300px, and equal top speeds mean it can never close. Movement-
+                              # intent ONLY (never touches desiredAim/wantFire — the turret keeps
+                              # whatever counterArc/engage chose, so we retreat still firing).
+                              # Requires counterArc (same fog-gated sprite read).
+                              # MEASURED (asoprobe + the ARCFOE rig, which forces the control team
+                              # to field an armed carrier since no mirror opponent grabs one).
+                              # In-cone exposure as a share of frames a carrier was within 236px —
+                              # i.e. how often we sat in the instant-death band, OFF -> ON:
+                              #   seed 100  52.1% -> 39.1%   seed 200  99.4% -> 40.0%
+                              #   seed 300  76.5% -> 32.8%   (3/3 seeds better, backOff 0 -> fires)
+                              # Seed 200 OFF is the pathology in one number: 160 of 161 frames
+                              # GLUED inside the cone. With NO arc foe present the A/B is
+                              # BYTE-IDENTICAL (same kills/shots/hit%/result), so the lever is
+                              # provably zero-cost when the trigger is absent — the same field-only
+                              # ship precedent counterArc/shieldTank used.
+    arcAlways: bool           # DIAGNOSTIC ONLY (2026-07-29): arm the arcBreach seat with no
+                              # line-memory gate, so a self-play team reliably fields an armed
+                              # arc-carrier. Exists solely to give arcStandoff a real cone to
+                              # test against in the mirror (ARCFOE=1 on the control side).
+                              # NEVER shipped — the unconditional gun-trade is exactly the
+                              # lone-wolf breacher the 2026-07-24 audit killed.
     arcBreach: bool           # ⭐ ARC BREACHER (2026-07-22, the anti-line OFFENSE): the
                               # plasma arc is a MULTIKILL cone (136px reach, dmg 3, hits
                               # everyone in the ~14° arc at once, instant/no-windup). A
@@ -1588,6 +1666,11 @@ type
     heardPickTick: int        # ⭐⭐ (v27) tick a mate's RpPick man-advantage codeword was heard;
                               # within CommsPlayTtl it makes pickEdge TEAM-WIDE (a mate a lane
                               # away presses/commits on our advantage it can't see). 0 = never.
+    arcBackTick: int          # ⭐ arcStandoff: last tick the back-off actually drove our feet.
+                              # Gives the ring HYSTERESIS: once we start backing off we keep
+                              # backing off through the dead band (196..236px) for
+                              # ArcStandoffLatch ticks instead of re-closing the instant we
+                              # clear 196px, which would oscillate on the boundary forever.
     lastCommsTick: int        # own rate limit for emitting a scenario codeword
     lockPos: Vec              # committed target's last-known position, matched
     lockUntil: int            # frame-to-frame; commit holds it until this tick
@@ -1863,6 +1946,8 @@ proc defaultCombatTune(): CombatTune =
     offCone: false,           # control: an attacker beelines straight down the enemy's gun axis.
     fatalFunnel: false,       # control: an idle sentry two-speed-sweeps, never pre-lays the chokepoint.
     aimRotRead: false,        # control: aim intel comes only from the dead "aim dot" labels (none on v9).
+    arcStandoff: false,       # control: feet walk into a disarmed arc-carrier's 136px kill cone.
+    arcAlways: false,         # control (and shipped): the breacher only arms on a real line read.
     arcBreach: false,         # control: no bot ever grabs the plasma arc offensively to cone a line.
     gv21Press: false,         # control: fire-superiority break uses the standard outnumberMargin.
   )
@@ -3138,6 +3223,7 @@ proc resetTransient(bot: Bot) =
   bot.heardPlayTick = 0
   bot.heardPickTick = 0
   bot.lastCommsTick = 0
+  bot.arcBackTick = -100_000   # arcStandoff: no back-off latched on a fresh life
   bot.carrierSeen = -100_000
   bot.lastEnemySeen = bot.tick
   bot.gameStart = bot.tick
@@ -4091,6 +4177,10 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # accelerator within CommsPlayTtl; with comms off / no call it degrades to the pure local read.
     let heardPick = bot.tune.commsPlay and bot.tick - bot.heardPickTick <= CommsPlayTtl
     pickEdge = localPickEdge or heardPick
+    when defined(commsprobe):
+      if localPickEdge: inc csPick
+      # The payoff case: we press/commit on a man-advantage we CANNOT SEE ourselves.
+      if heardPick and not localPickEdge: inc csPickArm
     botPhase = teamPhase(bot.tick - bot.gameStart, ownStolen, efState, pickEdge)
   if bot.tune.planLayer and not iCarry:
     let phase = botPhase
@@ -5132,7 +5222,12 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # to the arc against opponents that actually stand lines, so we never pay disarm for nothing.
   let sawLineRecently = bot.tick - bot.sawLineTick <= ArcLineMemoryTicks
   let linePendingPhase = bot.tune.planLayer and botPhase in {PhProbe, PhPress} and sawLineRecently
-  let armProactive = lineLive or linePendingPhase
+  # arcAlways (-d:arcprobe-class DIAGNOSTIC, 2026-07-29): arm the breacher UNCONDITIONALLY,
+  # ignoring the line-memory gate. Sole purpose is the arcStandoff test rig — the mirror can
+  # produce no enemy arc-carrier at all (no opponent grabs one), so ARCFOE=1 puts the control
+  # team's breacher seat on a permanent arc run and gives the hunter team a REAL cone to back
+  # off from. Never shipped (defaults false, not in shippedCombatTune).
+  let armProactive = lineLive or linePendingPhase or bot.tune.arcAlways
   when defined(arcprobe):
     if iAmBreacher: inc apBreacher
     if iAmBreacher and lineLive: inc apLineLive
@@ -5788,6 +5883,101 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       bot.jinkBits = ButtonUp
     moveMask = bot.jinkBits
 
+  # ⭐ ARC STANDOFF (2026-07-29): the MOVEMENT half of counterArc. counterArc bumps a disarmed
+  # enemy arc-carrier's engage PRIORITY but deliberately left the feet alone — so we happily shoot
+  # it while strolling into the one place it can kill us. The sim numbers say never do that:
+  # PlasmaArcDamage(3) == MaxHp(3), so ONE cone touch inside PlasmaArcReachPx(136) is an INSTANT
+  # kill; the cone is repeatable (25t recharge) and tracks its owner's live aim for 5 ticks. Yet
+  # the carrier's own 1300px gun is dead for the rest of its life and the arc never drops. So the
+  # geometry is a pure free lunch: hold at ArcStandoffRing(196px), keep shooting, and it has NO
+  # win condition — equal top speeds (2.75px/tick) mean it can never close the gap on a bot that
+  # keeps backing up. This is deliberately a MOVEMENT-ONLY override (feet only: moveMask/holdStill,
+  # never desiredAim/wantFire/rotBits), so we back off STILL FIRING with whatever aim the engage/
+  # counterArc block already laid on — the retreat is a fighting withdrawal, not a disengage.
+  #
+  # Placed as a post-chain override rather than another `elif` for a specific reason: a cone
+  # closing on us must beat whatever branch happened to win (engage/press/duck all walk forward),
+  # and the arcBreach lesson was that a lone reactive branch buried in the chain never fires.
+  # It still yields to nadeDanger below — a grenade blast out-ranges and out-damages a cone.
+  #
+  # Skips: iCarry (the carrier's flee line is the objective and carrierFlee owns it — a heart at
+  # our edge outscores dodging a cone) and iHavePlasma (we hold a cone too, that's a cone duel the
+  # breacher block owns). Requires counterArc for the same fog-gated sprite read.
+  # NOTE the gating split: the SCAN + probe counters run whenever counterArc is on, but only the
+  # ACTION is gated on arcStandoff. That is deliberate — a funnel gated behind its own lever can
+  # only ever report 0 on the OFF arm, which makes the A/B unreadable (you cannot tell "no
+  # stimulus" from "lever inert"). This way asoNear/asoInCone measure the SAME world in both arms
+  # and caughtInCone is a true before/after of the instant-death exposure.
+  if bot.tune.counterArc and not iCarry and not iHavePlasma:
+    var arcFoe = -1
+    var arcFoeD = 1e18
+    for i in 0 ..< bot.enemies.len:
+      let t = bot.enemies[i]
+      # FRESH only: hasArc is sticky-for-life on a track, so a STALE arc track would pin us at
+      # 196px off a remembered ghost that may be dead. freshShotTicks is the same window that
+      # gates firing — if it isn't fresh enough to shoot, it isn't fresh enough to retreat from.
+      if not t.hasArc or bot.tick - t.lastSeen > bot.tune.freshShotTicks:
+        continue
+      let d = dist(t.pos, me)
+      if d < arcFoeD:
+        arcFoeD = d
+        arcFoe = i
+    when defined(asoprobe):
+      if arcFoe >= 0:
+        if arcFoeD <= ArcStandoffRing + ArcStandoffHold: inc asoNear
+        if arcFoeD <= PlasmaArcReachPx: inc asoInCone
+    if arcFoe >= 0 and bot.tune.arcStandoff:
+      let latched = bot.tick - bot.arcBackTick <= ArcStandoffLatch
+      # Back off when inside the ring, or while the latch holds us through the dead band.
+      if arcFoeD < ArcStandoffRing or (latched and arcFoeD < ArcStandoffRing + ArcStandoffHold):
+        let tp = bot.enemies[arcFoe].pos
+        var away = me - tp
+        if away.len() < 1.0:
+          away = vec(homeSign(bot.team), 0.0)   # degenerate overlap: fall back toward home
+        away = norm(away)
+        # ⭐ Retreat DIAGONALLY (back + sideways), never straight back. Two sim facts force this:
+        #   (1) The cone is NARROW, not radial: halfWidthSlope = PlasmaArcMaxWidth(68)/(2*136) =
+        #       0.25, so the lethal half-width is just 34px even at full reach (~28° total). You
+        #       leave a cone that thin far faster SIDEWAYS than by outrunning its 136px length.
+        #   (2) Top speeds are EQUAL (2.75px/tick both sides), so a purely radial retreat from a
+        #       chasing carrier holds the gap CONSTANT — it can never break contact. Sideways
+        #       motion has no such symmetry: it forces the carrier to slew its aim to track us,
+        #       and angular demand grows as range shrinks, so the closer it gets the harder its
+        #       tracking problem becomes. Measured: radial-only left in-cone exposure flat.
+        # Same principle as offCone (never walk down an oriented gun's axis), applied to the cone.
+        let tangent = norm(vec(away.y, -away.x))
+        # Break the tangent tie DETERMINISTICALLY per seat, so two mates backing off the same
+        # carrier peel to opposite sides instead of stacking into one shared cone.
+        let side = (if (bot.slot and 1) == 0: tangent else: tangent * -1.0)
+        var step = norm(away + side * ArcStandoffSlipMix)
+        # Wall handling, in falling-back order: the diagonal, the other diagonal, then pure
+        # sideways, then straight back. A bot pinned against cover must still leave the cone, and
+        # the stuck-burst above would otherwise jink us RANDOMLY — possibly straight into it.
+        if not bot.gridRayClear(me, me + step * 32.0):
+          for alt in [norm(away - side * ArcStandoffSlipMix), side, side * -1.0, away]:
+            if bot.gridRayClear(me, me + alt * 32.0):
+              step = alt
+              break
+        moveMask = octantBits(step)
+        holdStill = false
+        bot.arcBackTick = bot.tick
+        when defined(asoprobe): inc asoBack
+      elif arcFoeD < ArcStandoffRing + ArcStandoffHold:
+        # DEAD BAND (196..236px): don't close, don't flee — we are already outside the cone and
+        # deep inside our own gun range, so standing here IS the winning trade. Only stop the
+        # feet if the winning branch wanted to walk us TOWARD the carrier; a move that already
+        # opens the range (or is lateral) is fine and stays untouched.
+        let towardBits = octantBits(bot.enemies[arcFoe].pos - me)
+        if moveMask != 0 and (towardBits and moveMask) != 0:
+          moveMask = 0
+          holdStill = true
+          # This override runs AFTER the stuck check (the chain's own holds run before it), so
+          # clear the counter ourselves exactly as the `if holdStill` block up there does —
+          # otherwise a deliberate 20-tick standoff hold reads as a corner-grind and the
+          # stuck-burst jinks us in a RANDOM direction, i.e. possibly into the cone.
+          bot.stuckTicks = 0
+          when defined(asoprobe): inc asoHold
+
   if nadeDanger:
     # Sprint straight out of the marked blast zone; drop any hold/duck.
     let away = me - nadeDangerFrom
@@ -5856,6 +6046,10 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       bot.lastCommsTick = bot.tick
       when defined(commsprobe):
         inc csEmit
+        # Split out the man-advantage broadcast: ScPick is the LOWEST-priority scenario, so a
+        # separate counter shows whether it ever actually wins the one shout slot or is always
+        # crowded out by a live STACK/WIPE/PEEL/LINE.
+        if emitSc == ScPick: inc csPickEmit
 
   # ── Team shout emit (one channel, server-capped ~1/s): pick the single
   # highest-value message this frame and stage it in shoutWant for the caller
