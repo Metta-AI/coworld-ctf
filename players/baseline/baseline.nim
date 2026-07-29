@@ -167,6 +167,12 @@ const
                               # shield sits low in their back column
                               # (~215px from the pedestal since the game-v7
                               # split), so the round trip costs ~430 path px
+  PadRaceDeferTicks = 240     # -d:padDefer: the scout duty (MidGuard seat)
+                              # leaves the single home shield pad to MidTop's
+                              # opening kit-up for this many game ticks —
+                              # Red's photo finish is g84-99 (Blue g66), so
+                              # 240 covers the slowest winning trip with
+                              # margin; after it, the scout trips as before
   PickupRespawn = 30 * 24     # plasma arc/shield respawn timer (sim constant)
   MedKitCarrierBudget = 90.0  # extra path px a hurt CARRIER spends to heal:
                               # a full-heal carrier survives pocket exits
@@ -2024,7 +2030,20 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
            if dirX * (sp.x - float(CenterX)) < 0.0:  # our own back column
              shieldSpot = sp
              break
-       if not scHasShield and shieldSpot.x >= 0.0 and gameTick < 2200:
+       # HOME-PAD RACE DECONFLICT (-d:padDefer): at the whistle this trip
+       # and MidTop's home kit-up (the shield-then-steal block below) race
+       # for the SINGLE home pad; on Red the scout/flank win the photo
+       # finish 11/30 and the stealer crosses the map shieldless (Blue
+       # 0/30 — the walkable field is not mirror-symmetric). The pad is
+       # worth more on the stealer: defer the scout's trip past the
+       # opening window; it still takes the 720t-respawned pad afterwards.
+       let padRaceDefer =
+         when defined(padDefer):
+           gameTick < PadRaceDeferTicks
+         else:
+           false
+       if not scHasShield and shieldSpot.x >= 0.0 and gameTick < 2200 and
+           not padRaceDefer:
          target = shieldSpot
        else:
          # Forward patrol beyond the front: bottom-biased weave (their
