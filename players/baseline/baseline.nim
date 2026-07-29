@@ -2694,7 +2694,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     let err = abs(bradsErr(desiredAim, bot.estAim))
     # Ignite a little early on the angle: the cone stays on 5 ticks and
     # tracks our aim, so the ongoing traverse sweeps it across the target.
-    if engageD <= PlasmaReach - 6.0 and err <= PlasmaHalfBrads + 3:
+    if engageD <= ArcReach and err <= ArcConeBrads:
       wantFire = true
       holdStill = true
     else:

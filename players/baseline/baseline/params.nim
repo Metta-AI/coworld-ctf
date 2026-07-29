@@ -166,8 +166,8 @@ tunableF CenterScanHalf, 2800, 1500, 4500, 10,
 # ---- plasma arc usage (bot-side margins over sim geometry) ----
 tunableF ArcReach, 1300, 1100, 1360, 10,
   "plasma cone engage reach: sim reach is 136px, keep a safety margin (px)"
-tunableI ArcConeBrads, 9, 6, 12,
-  "plasma cone half-width used for aiming (~14deg at max reach)"
+tunableI ArcConeBrads, 13, 6, 18,
+  "cone ignition angle tolerance (brads): sim half-width 10 + 3 margin (the burning cone tracks our traverse)"
 
 # ---- endgame / tempo ----
 tunableI CounterPunchTick, 1400, 900, 2200,
