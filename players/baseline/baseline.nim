@@ -2191,7 +2191,8 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     if bot.tripping: 0.0                 # sprinting an errand: no fights
     elif hasShield and not hasPlasma:    # slow gun (3x cooldown): only fight
       CarrierFireRange                   # what is point-blank in the way
-    elif hasPlasma: PlasmaReach + 6.0    # cone weapon: only close range matters
+    elif hasPlasma and not (defined(plasmaCarryGuard) and iCarry):
+      PlasmaReach + 6.0                  # cone weapon: only close range matters
     elif pocketRush: 0.0
     elif iCarry: CarrierFireRange
     elif ownStolen and bot.tick - bot.carrierSeen <= thiefChaseTtl: FireRange
@@ -2592,7 +2593,13 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         bot.nadeCharge = 0           # release this tick = the throw
     holdStill = true
     acted = true
-  elif hasPlasma and engage >= 0:
+  elif hasPlasma and engage >= 0 and
+      not (defined(plasmaCarryGuard) and iCarry):
+    # -d:plasmaCarryGuard: a flag CARRIER never stops to work the spray can —
+    # the fire branch below sets holdStill for the whole 25-tick cooldown,
+    # which froze carriers mid-exfil (and the else leg charges off-route).
+    # With the guard a carrying can-holder has no combat act at all (the can
+    # replaces the gun) and just keeps running its route.
     actMode = "plasma"
     # Plasma cone: ignition is INSTANT (no windup, no aim lock), reaches 4
     # squares in a ~14-degree half-angle cone, stays on 5 ticks, and deals
