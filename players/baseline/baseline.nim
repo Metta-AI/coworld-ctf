@@ -1365,11 +1365,41 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           hasPlasma = true
           break carryScan
   var hasShield = bot.hp > MaxHp
-  if not hasShield:
-    for o in client.spriteObjectsWithLabel("shield carried"):
-      if dist(client.mapPos(o), me) <= 30.0:
-        hasShield = true
-        break
+  when defined(ownShieldSprite):
+    # The carried-shield marker floats a fixed ~20px over ITS carrier, so
+    # the carrier is always the nearest visible player to the marker — but
+    # the bare 30px proximity fallback also believed a shielded TEAMMATE's
+    # marker (41/111 phantom pickups on v61 R1858-60; worst case a 740-tick
+    # 1-hp pad jitter, task 1216987518245825). Attribute each marker to the
+    # nearest candidate carrier (us vs every visible player) and take it
+    # only when that carrier is us. Marker-visible implies carrier-visible
+    # (the sim gates the marker on seeing the carrier), and the self avatar
+    # is not in actorsFor, so `me` plus both actor scans cover every
+    # candidate.
+    if not hasShield:
+      var others: seq[Vec]
+      for a in client.actorsFor(myColor): others.add(a.pos)
+      for a in client.actorsFor(enemyColor): others.add(a.pos)
+      block shieldCarryScan:
+        for o in client.spriteObjectsWithLabel("shield carried"):
+          let p = client.mapPos(o)
+          let dMe = dist(p, me)
+          if dMe > 30.0:
+            continue
+          var mine = true
+          for q in others:
+            if dist(p, q) < dMe:
+              mine = false
+              break
+          if mine:
+            hasShield = true
+            break shieldCarryScan
+  else:
+    if not hasShield:
+      for o in client.spriteObjectsWithLabel("shield carried"):
+        if dist(client.mapPos(o), me) <= 30.0:
+          hasShield = true
+          break
   let
     shotReady = client.spriteObjectsWithLabel("fire icon").len > 0 and
       not hasPlasma                      # the plasma arc replaces the gun; a shield
