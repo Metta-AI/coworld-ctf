@@ -216,6 +216,20 @@ const
                               # castle line near our wall: fights there recur on
                               # ground where our respawn walk is ~100px and the
                               # attacker re-crosses ~400px of watched open ground
+  LedgerHoldLead = 3          # -d:ledgerHold: from a clear body-count lead the
+                              # 3400 all-in DONATES the game (R1855 ereq
+                              # 66780768: ahead +4, post-3400 exchange 14:7
+                              # against, every death re-floors the enemy's
+                              # clock). While ahead by this many bodies on the
+                              # HUD team-score ledger the back line keeps its
+                              # posts and only the B-line trio presses.
+  LedgerReleaseLead = 1       # ...hysteresis: the full all-in re-arms once the
+                              # lead erodes to this, so the latch cannot flap
+                              # on a single trade.
+  LedgerFinalTick = 4600      # ...and the hold always releases here: a timeout
+                              # is a -1/-1 mutual loss, so a still-undecided
+                              # game must spend the banked lives cushion on the
+                              # full wave while there is clock left to convert.
 
   CoverShieldDist = 42.0      # an obstacle this close blocks a threat direction
   PeekLineDist = 150.0        # floor for an overwatch peek firing line; post
@@ -358,6 +372,8 @@ type
     helpUntil: int            # tick the help retasking expires
     lastEShout: int           # scout sighting-broadcast rate limit
     lastHShout: int           # help-call rate limit
+    ledgerAhead: bool         # -d:ledgerHold: latched "clearly ahead on the
+                              # body ledger" state, from the team-score HUD
 
 proc roleForSeat(seat: int, team: Team): Role =
   ## Deterministic role spread over the 8 per-team seats. Seats 2 and 3 both
@@ -1196,6 +1212,7 @@ proc resetTransient(bot: Bot) =
   bot.jinkUntil = 0
   bot.behindLines = false
   bot.navGoal = -1
+  bot.ledgerAhead = false
 
 proc scanAim(bot: Bot, watch: Vec): int =
   ## The scan-sweep aim while holding a position: rake the vision cone back
@@ -1414,6 +1431,42 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         except ValueError:
           discard
       break
+
+  when defined(ledgerHold):
+    # Body ledger from the top-center "team score RED <kills>/<deaths>" /
+    # "team score BLUE <kills>/<deaths>" HUD sprites: exact, un-fogged,
+    # cumulative for BOTH teams (deaths count every cause, so the deaths
+    # differential IS the lives differential on equal rosters). Latch with
+    # hysteresis; a missing sprite (interstitial frames) keeps the previous
+    # latch and the gate degrades to stock behavior when it never appears.
+    block ledgerScan:
+      var ourDeaths = -1
+      var theirDeaths = -1
+      for o in client.spriteObjects():
+        if o.label.startsWith("team score "):
+          let rest = o.label[11 .. ^1]          # "RED 12/9"
+          let slash = rest.rfind('/')
+          if slash > 0:
+            try:
+              let deaths = parseInt(rest[slash + 1 .. ^1])
+              let isRed = rest.startsWith("RED")
+              if (bot.team == Red) == isRed:
+                ourDeaths = deaths
+              else:
+                theirDeaths = deaths
+            except ValueError:
+              discard
+      if ourDeaths >= 0 and theirDeaths >= 0:
+        let bodyNet = theirDeaths - ourDeaths
+        if bodyNet >= LedgerHoldLead:
+          bot.ledgerAhead = true
+        elif bodyNet <= LedgerReleaseLead:
+          bot.ledgerAhead = false
+        when defined(ledgerDebug):
+          if bot.tick mod 96 == 0:
+            echo "LEDGER slot=", bot.slot, " tick=", bot.tick,
+              " ourDeaths=", ourDeaths, " theirDeaths=", theirDeaths,
+              " net=", theirDeaths - ourDeaths, " latch=", bot.ledgerAhead
 
   # Med kits: learn the two center-line spots on sight; presence is
   # fog-gated, so an empty spot only counts as TAKEN when we pass close
@@ -1829,7 +1882,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # the defensive seats, and holding their posts forever is a guaranteed
   # tiebreak stalemate — break the posts and go win by capture (the enemy
   # team pushes symmetrically, so somebody makes something happen).
-  let pushOut = not ownStolen and (
+  var pushOut = not ownStolen and (
     (bot.tick - bot.gameStart > PushOutMinGame and
      bot.tick - bot.lastEnemySeen > PushOutTicks) or
     # Late all-in: a timeout is a scoreless draw, so deep into a game with no
@@ -1858,6 +1911,29 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           not bot.everStoleTheirs and not bot.everLostOurs and
           bot.tick - bot.lastEnemySeen > QuietForBreak)))
   )
+  when defined(ledgerHold):
+    # Ledger gate on the late all-in: past LatePushTick with a latched body
+    # lead, breaking EVERY post donates the lead into the enemy's pocket guns
+    # (and each of our deaths re-floors the GV23 action clock for them). The
+    # A-line keeps its posts — one gun per lane, the scout's forward eyes and
+    # the floater's choke — while the B-line trio (seats 2/3/4: the flag-height
+    # rusher pair plus the trailing mid) still presses, so the capture engine
+    # that manufactures ALL our late flag offense never stops. Full push
+    # resumes the moment the lead erodes (hysteresis in the latch) and
+    # unconditionally at LedgerFinalTick — a timeout is a -1/-1 mutual loss,
+    # so a hold is never allowed to ride into the buzzer. Everything earlier
+    # than LatePushTick (quiet-field push, stalemate breaker) is untouched.
+    var ledgerHeld = false
+    if pushOut and bot.ledgerAhead and
+        clamp(bot.slot div 2, 0, 7) in {0, 1, 5, 6, 7} and
+        bot.tick - bot.gameStart > LatePushTick and
+        bot.tick - bot.gameStart < LedgerFinalTick:
+      ledgerHeld = true
+      pushOut = false
+    when defined(ledgerDebug):
+      if ledgerHeld and bot.tick mod 96 == 0:
+        echo "LEDGERHOLD slot=", bot.slot, " tick=", bot.tick,
+          " holding post (latch on, gt=", bot.tick - bot.gameStart, ")"
   when defined(v57Debug):
     if pushOut and (bot.everStoleTheirs or bot.everLostOurs) and
         bot.tick - bot.gameStart in StalemateTick .. LatePushTick and
@@ -2003,6 +2079,9 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
      # contact — never trade cover for ground while a runner is tracked),
      # the floater answers H-shouts. Steal conversion comes from the late
      # push, which overrides this whole branch via pushOut.
+     when defined(ledgerHold):
+       if ledgerHeld:
+         objMode = "ledger_hold"          # telemetry tell: post kept on latch
      let
        gameTick = bot.tick - bot.gameStart
        ownEdgeX = (if bot.team == Red: 0.0 else: float(MapW))
