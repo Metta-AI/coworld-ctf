@@ -254,6 +254,26 @@ when defined(oppClass):
                                         # x=617, and pad campers (1-9 px deep)
                                         # were the only false-positive class
 
+when defined(lateRingAnchor):
+  when not defined(oppClass):
+    {.error: "-d:lateRingAnchor requires -d:oppClass (gates on the INVADER latch)".}
+  const
+    RingAnchorStart {.intdefine.} = 2600
+      # Game tick at which the HomeDefender's late ring anchor may latch.
+      # Grounded (task 1217011763531820, 70-ep decode + 6 league losses on
+      # 0.7.118): vs the early-invader-with-late-flag-clock class every
+      # conceded capture came with ZERO of our bodies within 150px of our
+      # pedestal at the steal (ring empty 35 steals/7 caps, ring held 23/0,
+      # Fisher p=0.035); earliest observed steal gt2740, first ring entry
+      # gt2680 median — 2600 sits ahead of the whole channel.
+    RingAnchorDist {.intdefine.} = 100
+      # px from our pedestal toward mid where the anchor stands: inside the
+      # measured 150px conversion-gating ring, on the approach axis, with
+      # ~50px of slack for cover-snap and combat micro.
+    RingAnchorSnapCap {.intdefine.} = 140
+      # max px from the pedestal a cover-snapped anchor spot may sit; a snap
+      # beyond this would leave the ring, so the raw spot wins instead.
+
 ## Map dimensions, adopted at nav-grid build from the walkability sprite
 ## (which spans the whole arena). The game supports multiple maps —
 ## "arena" (1235x659, the default) and "arena-large" (1606x858) — and this
@@ -382,6 +402,7 @@ type
     oppSeenTick: int          # last tick the accumulator advanced
     oppInvader: bool          # -d:oppClass: one-way INVADER latch
     oppClassCalled: bool      # -d:oppClass: latch event emitted (either class)
+    ringAnchored: bool        # -d:lateRingAnchor: one-way late home-ring latch
 
 proc roleForSeat(seat: int, team: Team): Role =
   ## Deterministic role spread over the 8 per-team seats. Seats 2 and 3 both
@@ -1237,6 +1258,8 @@ proc resetTransient(bot: Bot) =
     bot.oppSeenTick = bot.tick
     bot.oppInvader = false
     bot.oppClassCalled = false
+  when defined(lateRingAnchor):
+    bot.ringAnchored = false
   bot.firedLast = false
   bot.estAim = spawnAim(bot.team)
   bot.rotSign = 0
@@ -2014,6 +2037,27 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         bot.campPos.add t.pos
         bot.campSeen.add bot.tick
 
+  when defined(lateRingAnchor):
+    # Late ring anchor (task 1217011763531820): vs the early-invader-with-
+    # late-flag-clock class (invades early, first steal on a late clock),
+    # every conceded capture in the decoded corpus came at a moment our
+    # pedestal ring was empty — and 0 of 23 steals lifted with even one of
+    # our bodies inside 150px ever converted. One-way latch: the HomeDefender
+    # holds inside the ring from RingAnchorStart IF the opponent latched
+    # INVADER early and our flag is still untouched at latch time (an
+    # early-flag opponent has everLostOurs set well before 2600, so those
+    # cells keep today's behavior — the class key is behavioral, never the
+    # rival's wave clock). Thief chase/carry still outrank via branch order.
+    if not bot.ringAnchored and bot.role == HomeDefender and
+        bot.oppInvader and not bot.everLostOurs and
+        bot.tick - bot.gameStart >= RingAnchorStart:
+      bot.ringAnchored = true
+      artEvent(bot.tick, "ring_anchor_on",
+        %*{"gc": bot.tick - bot.gameStart})
+  let ringAnchorHold =
+    when defined(lateRingAnchor): bot.ringAnchored
+    else: false
+
   # Movement target from role and flag situation. `objMode` names the branch
   # for the artifact telemetry (see baseline/artlog.nim).
   var target: Vec
@@ -2075,6 +2119,24 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
             bestD = abs(bot.carrierPos.y - lane)
             laneY = lane
       target = vec(float(CenterX) - homeSign(bot.team) * 60.0, laneY)
+  elif ringAnchorHold:
+    # Hold INSIDE the 150px conversion-gating ring on the pedestal's
+    # approach axis. Placed above escort/phalanx/defend-chase and without a
+    # pushOut test on purpose: escort runs, H-shout reinforcement and the
+    # late all-in are exactly the pulls that emptied the ring in the decoded
+    # losses; the intercept branches above still outrank when our flag is
+    # actually in flight. Combat below runs at full FireRange.
+    when defined(lateRingAnchor):
+      objMode = "ring_anchor"
+      let
+        ped = flagHome(bot.team)
+        raw = ped + vec(-homeSign(bot.team) * float(RingAnchorDist), 0.0)
+        snapped = bot.snapToCover(raw)
+      target =
+        if dist(snapped, ped) <= float(RingAnchorSnapCap): snapped
+        else: raw
+    else:
+      discard
   elif mateCarry:
     objMode = "escort"
     case bot.role
