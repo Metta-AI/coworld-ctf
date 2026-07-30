@@ -101,6 +101,17 @@ const
   DuckRange = 340.0           # duck from remembered threats this close on cooldown
   MateSpacing = 40.0          # soft repulsion radius between teammates
   CorridorHalfWidth = 15.0    # friendly-fire corridor half width along the ray
+  PocketSpreadZone = 460.0    # -d:pocketSpread: de-bunch while this close to
+                              # the enemy pedestal (covers the 300px entry
+                              # ring plus approach runway)
+  PocketSpreadPx = 250.0      # a fresh mate closer than this triggers the
+                              # spread (the measured bunching scale: entries
+                              # with a mate inside 250px trade 0.44-0.52 k/d
+                              # vs 0.878 spread, matched defender density)
+  PocketSpreadFresh = 30      # only mates SEEN this recently trigger — a fog
+                              # miss leaves baseline behavior (trigger
+                              # precision 97.3% on the GV26 percept recut)
+  PocketSpreadPush = 120.0    # lateral route offset applied away from the mate
   LeadTicks = 6.0             # aim this many ticks ahead of a moving enemy:
                               # the 5-tick windup releases the bullet late
   TrackMatchDist = 40.0       # a sighting matches a track within this distance
@@ -2358,6 +2369,48 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     dist(me, stealTarget) < nearestMateToSteal + 8.0
   if pocketRush:
     objMode = "pocket_rush"
+
+  # -d:pocketSpread (task 1217014357383172): de-bunch the pocket approach.
+  # Measured on the 28-ep attrition corpus (GV26): entries into the enemy
+  # pedestal pocket trade 0.878 kills/death with no mate inside 250px vs
+  # 0.44-0.52 bunched, at MATCHED local defender density — and the proximate
+  # mechanism is friendlyBlocked above: a mate in the fire corridor vetoes
+  # our shot, so a bunched pair masks its own guns exactly where the garrison
+  # shoots back. The wave already co-times its arrival (flankers turn in to
+  # hit the pocket with the mid trio); this keeps the timing and spreads the
+  # BODIES: on the attack route inside the approach zone, a FRESH visible
+  # mate within PocketSpreadPx pushes our route target laterally — the
+  # perpendicular component (relative to the pedestal axis) of away-from-mate
+  # — so forward progress toward the flag is preserved by construction and
+  # press cannot drop. The committed grabber (pocket_rush) never detours; a
+  # fogged mate simply fails to trigger (baseline behavior).
+  when defined(pocketSpread):
+    if objMode == "attack" and not counterPunch and not phalanxOn and
+        dist(me, stealTarget) < PocketSpreadZone:
+      var mNear = -1
+      var mNearD = PocketSpreadPx
+      for i in 0 ..< bot.mates.len:
+        if bot.tick - bot.mates[i].lastSeen > PocketSpreadFresh:
+          continue
+        let d = dist(bot.mates[i].pos, me)
+        if d < mNearD:
+          mNearD = d
+          mNear = i
+      if mNear >= 0:
+        let axis = norm(stealTarget - me)
+        var lat = me - bot.mates[mNear].pos
+        lat = lat - axis * dot(lat, axis)
+        let latN =
+          if len(lat) < 1.0:
+            # Dead astern/ahead of the mate: no lateral component — break the
+            # tie deterministically by slot parity so the pair still forks.
+            vec(-axis.y, axis.x) * (if bot.slot mod 2 == 0: 1.0 else: -1.0)
+          else:
+            norm(lat)
+        target = vec(
+          clamp(target.x + latN.x * PocketSpreadPush, 20.0, float(MapW - 20)),
+          clamp(target.y + latN.y * PocketSpreadPush, 20.0, float(MapH - 20)))
+        objMode = "attack_spread"
 
   # Combat: the nearest fresh track with a clear pixel ray AND a mate-free
   # fire cone is the engage target; the nearest fresh-but-wall-blocked track
