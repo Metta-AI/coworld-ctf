@@ -362,6 +362,17 @@ type
     helpUntil: int            # tick the help retasking expires
     lastEShout: int           # scout sighting-broadcast rate limit
     lastHShout: int           # help-call rate limit
+    # -d:oppStanceLatch (read-only telemetry, task 1217011048654345): the
+    # 3-way opponent-stance read validated desk-side on the midline-band
+    # feasibility corpus (analysis/2026-07-30-worker-k-midlineband-feasibility).
+    # NOTHING consumes these fields; they only feed artlog events.
+    stanceClass: int          # 0 = unlatched; 1 PRESS, 2 PICKET, 3 DEEP-PARK
+    stanceLatchGt: int        # gt the class latched (PICKET: 40th band hit)
+    stanceNextCkpt: int       # next checkpoint gt to evaluate (0,25,..,1200)
+    stanceCkptIdx: int        # checkpoints evaluated so far (0..49)
+    stanceBandHits: int       # checkpoints with >=1 enemy SEEN in the band
+    stanceHalfRun: int        # consecutive ckpts with >=2 enemies SEEN in our half
+    stancePicketGt: int       # gt the 40th band-hit checkpoint landed
 
 proc roleForSeat(seat: int, team: Team): Role =
   ## Deterministic role spread over the 8 per-team seats. Seats 2 and 3 both
@@ -1138,6 +1149,80 @@ proc updateTracks(bot: Bot, tracks: var seq[Track], seen: seq[Actor]) =
     kept.setLen(TrackCap)
   tracks = kept
 
+when defined(oppStanceLatch):
+  const
+    StanceCkptStep = 25         # desk rule samples gt 0,25,...,1200
+    StanceDeadlineGt = 1200     # latch deadline (49 checkpoints)
+    StancePicketNeed = 40       # band-seen checkpoints for PICKET
+    StancePressNeed = 2         # enemies seen in our half ...
+    StancePressRun = 2          # ... at this many consecutive checkpoints
+    StanceBandHalfBase = 250.0  # band half-width on the 1235px arena;
+                                # scaled by the ADOPTED map width below, and
+                                # the midline is CenterX (adopted from the
+                                # walkability sprite), so the geometry is
+                                # map-derived, never a fixed-arena constant.
+
+  proc stanceUpdate(bot: Bot, seen: seq[Actor]) =
+    ## READ-ONLY opponent-stance latch (task 1217011048654345). Per-seat,
+    ## own-eyes-only re-implementation of the desk rule validated on the
+    ## midline-band feasibility corpus:
+    ##   PRESS     >=2 enemies SEEN in our half at 2 consecutive checkpoints
+    ##   PICKET    not PRESS, and >=1 enemy SEEN in the symmetric midline
+    ##             band (|x-CenterX| < 250px scaled) on >=40 of 49 checkpoints
+    ##   DEEP-PARK neither, resolved at the gt1200 deadline (default state)
+    ## PRESS latches final the moment it fires (desk precedence: PRESS wins
+    ## the whole window); PICKET is provisional at its 40th hit and both
+    ## PICKET and DEEP-PARK finalize at the deadline. Uses THIS FRAME's
+    ## sightings only (a dead seat sees nothing — matches the desk FOV
+    ## convention). Emits artlog events; consumes nothing, doses nothing.
+    if bot.stanceClass != 0:
+      return
+    let gt = bot.tick - bot.gameStart
+    let bandHalf = StanceBandHalfBase * float(MapW) / 1235.0
+    while bot.stanceNextCkpt <= gt and bot.stanceNextCkpt <= StanceDeadlineGt:
+      let ckptGt = bot.stanceNextCkpt
+      bot.stanceNextCkpt += StanceCkptStep
+      inc bot.stanceCkptIdx
+      var inHalf, inBand = 0
+      for a in seen:
+        if (bot.team == Red and a.pos.x < float(CenterX)) or
+            (bot.team == Blue and a.pos.x > float(CenterX)):
+          inc inHalf
+        if abs(a.pos.x - float(CenterX)) < bandHalf:
+          inc inBand
+      if inHalf > 0 or inBand > 0:        # sparse checkpoint telemetry
+        artEvent(bot.tick, "stance_ckpt",
+          %*{"gt": ckptGt, "half_seen": inHalf, "band_seen": inBand})
+      if inHalf >= StancePressNeed:
+        inc bot.stanceHalfRun
+        if bot.stanceHalfRun >= StancePressRun:
+          bot.stanceClass = 1
+          bot.stanceLatchGt = ckptGt
+          artEvent(bot.tick, "stance_latch", %*{
+            "cls": "PRESS", "gt": ckptGt, "ckpts": bot.stanceCkptIdx,
+            "band_hits": bot.stanceBandHits, "mapw": MapW,
+            "centerx": CenterX, "bandhalf": int(bandHalf)})
+          return
+      else:
+        bot.stanceHalfRun = 0
+      if inBand >= 1:
+        inc bot.stanceBandHits
+        if bot.stanceBandHits == StancePicketNeed:
+          bot.stancePicketGt = ckptGt
+    if bot.stanceNextCkpt > StanceDeadlineGt:
+      # window complete without a PRESS latch: finalize PICKET / DEEP-PARK
+      if bot.stanceBandHits >= StancePicketNeed:
+        bot.stanceClass = 2
+        bot.stanceLatchGt = bot.stancePicketGt
+      else:
+        bot.stanceClass = 3
+        bot.stanceLatchGt = StanceDeadlineGt
+      artEvent(bot.tick, "stance_latch", %*{
+        "cls": (if bot.stanceClass == 2: "PICKET" else: "DEEPPARK"),
+        "gt": bot.stanceLatchGt, "ckpts": bot.stanceCkptIdx,
+        "band_hits": bot.stanceBandHits, "mapw": MapW,
+        "centerx": CenterX, "bandhalf": int(bandHalf)})
+
 proc trackPickups(
   positions: var seq[Vec],
   absentAt: var seq[int],
@@ -1191,6 +1276,13 @@ proc resetTransient(bot: Bot) =
   ## Drops per-game memory between rounds (lobby / game-over interstitials).
   bot.enemies.setLen(0)
   bot.mates.setLen(0)
+  bot.stanceClass = 0
+  bot.stanceLatchGt = 0
+  bot.stanceNextCkpt = 0
+  bot.stanceCkptIdx = 0
+  bot.stanceBandHits = 0
+  bot.stanceHalfRun = 0
+  bot.stancePicketGt = 0
   bot.nadeCharge = 0
   bot.mateFixTick = 0
   bot.hp = MaxHp
@@ -1326,6 +1418,8 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     bot.firedLast = false
     bot.rotSign = 0
     bot.wasDead = true
+    when defined(oppStanceLatch):
+      bot.stanceUpdate(@[])              # a dead seat sees nothing
     artFrame(FrameSnap(tick: bot.tick, alive: false,
       x: int(bot.lastPos.x), y: int(bot.lastPos.y), hp: 0,
       objective: "dead", action: "dead", engageDist: -1))
@@ -1443,6 +1537,8 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     seenMates = client.actorsFor(myColor)
   bot.updateTracks(bot.enemies, seenEnemies)
   bot.updateTracks(bot.mates, seenMates)
+  when defined(oppStanceLatch):
+    bot.stanceUpdate(seenEnemies)
   if seenEnemies.len > 0:
     bot.lastEnemySeen = bot.tick
 
