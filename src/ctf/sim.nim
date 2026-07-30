@@ -2526,22 +2526,6 @@ const
     # cargo drum
     ArenaShape(kind: shapeDisc, cx: 334, cy: 330, radius: 16),
     ArenaShape(kind: shapeDisc, cx: 368, cy: 338, radius: 14),
-    # cave ridge ramp
-    ArenaShape(kind: shapeDiagonal, x0: 300, y0: 152, x1: 368, y1: 84, thickness: 20),
-    # cave wall
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 352, y: 62, w: 110, h: 26)),
-    # cave rock
-    ArenaShape(kind: shapeDisc, cx: 526, cy: 80, radius: 28),
-    # cave wall
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 552, y: 56, w: 120, h: 26)),
-    # cave rock
-    ArenaShape(kind: shapeDiamond, cx: 736, cy: 86, radius: 28),
-    # cave ridge ramp
-    ArenaShape(kind: shapeDiagonal, x0: 762, y0: 84, x1: 830, y1: 152, thickness: 20),
-    # cave pillar
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 596, y: 10, w: 34, h: 50)),
-    # cave rock nw
-    ArenaShape(kind: shapeDisc, cx: 296, cy: 28, radius: 24),
     # bunker
     ArenaShape(kind: shapeRect, rect: MapRect(x: 856, y: 408, w: 36, h: 16)),
     ArenaShape(kind: shapeRect, rect: MapRect(x: 928, y: 408, w: 40, h: 16)),
@@ -2551,33 +2535,8 @@ const
     ArenaShape(kind: shapeRect, window: true, rect: MapRect(x: 856, y: 424, w: 16, h: 56)),
     # bunker sandbags
     ArenaShape(kind: shapeDiagonal, x0: 784, y0: 428, x1: 814, y1: 458, thickness: 12),
-    # bunker rock
-    ArenaShape(kind: shapeDisc, cx: 852, cy: 504, radius: 20),
-    # rocks sw
-    ArenaShape(kind: shapeDisc, cx: 424, cy: 472, radius: 30),
-    ArenaShape(kind: shapeDiamond, cx: 454, cy: 494, radius: 26),
-    ArenaShape(kind: shapeDisc, cx: 404, cy: 504, radius: 16),
-    # rocks mid
-    ArenaShape(kind: shapeDiamond, cx: 784, cy: 300, radius: 26),
-    ArenaShape(kind: shapeDisc, cx: 812, cy: 282, radius: 26),
-    # rocks ne
-    ArenaShape(kind: shapeDisc, cx: 902, cy: 148, radius: 28),
-    ArenaShape(kind: shapeDiamond, cx: 930, cy: 178, radius: 22),
-    # rocks wadi
-    ArenaShape(kind: shapeDisc, cx: 708, cy: 484, radius: 26),
-    ArenaShape(kind: shapeDiamond, cx: 736, cy: 502, radius: 22),
-    # rock nw
-    ArenaShape(kind: shapeDisc, cx: 356, cy: 190, radius: 20),
-    # rock n
-    ArenaShape(kind: shapeDiamond, cx: 712, cy: 196, radius: 18),
-    ArenaShape(kind: shapeDiamond, cx: 792, cy: 186, radius: 20),
-    # rocks se
-    ArenaShape(kind: shapeDisc, cx: 952, cy: 548, radius: 20),
-    ArenaShape(kind: shapeDiamond, cx: 944, cy: 634, radius: 16),
     # wadi boulder
     ArenaShape(kind: shapeDisc, cx: 540, cy: 538, radius: 18),
-    # wadi rock
-    ArenaShape(kind: shapeDisc, cx: 612, cy: 520, radius: 20),
     # boulder sw
     ArenaShape(kind: shapeDisc, cx: 272, cy: 636, radius: 16),
     # supply crates
@@ -2599,11 +2558,180 @@ const
     # tank hulk
     ArenaShape(kind: shapeRect, rect: MapRect(x: 840, y: 560, w: 70, h: 30)),
     ArenaShape(kind: shapeDisc, cx: 872, cy: 574, radius: 18),
-    # cliff rocks
-    ArenaShape(kind: shapeDiagonal, x0: 280, y0: 560, x1: 324, y1: 604, thickness: 16),
-    ArenaShape(kind: shapeDiagonal, x0: 348, y0: 644, x1: 392, y1: 600, thickness: 14),
     # wadi spur
     ArenaShape(kind: shapeDiagonal, x0: 664, y0: 648, x1: 716, y1: 596, thickness: 20),
+    # cave system: the north rock wall along the ridge
+    ArenaShape(kind: shapeDisc, cx: 95, cy: 23, radius: 32),
+    ArenaShape(kind: shapeDisc, cx: 122, cy: 23, radius: 22),
+    ArenaShape(kind: shapeDisc, cx: 150, cy: 23, radius: 22),
+    ArenaShape(kind: shapeDisc, cx: 169, cy: 13, radius: 32),
+    ArenaShape(kind: shapeDisc, cx: 205, cy: 22, radius: 26),
+    ArenaShape(kind: shapeDisc, cx: 236, cy: 21, radius: 22),
+    ArenaShape(kind: shapeDisc, cx: 267, cy: 11, radius: 20),
+    ArenaShape(kind: shapeDisc, cx: 279, cy: 10, radius: 27),
+    ArenaShape(kind: shapeDisc, cx: 309, cy: 13, radius: 23),
+    ArenaShape(kind: shapeDisc, cx: 335, cy: 22, radius: 27),
+    ArenaShape(kind: shapeDisc, cx: 361, cy: 21, radius: 21),
+    ArenaShape(kind: shapeDisc, cx: 388, cy: 16, radius: 24),
+    ArenaShape(kind: shapeDisc, cx: 413, cy: 14, radius: 21),
+    ArenaShape(kind: shapeDisc, cx: 440, cy: 31, radius: 30),
+    ArenaShape(kind: shapeDisc, cx: 457, cy: 30, radius: 27),
+    ArenaShape(kind: shapeDisc, cx: 491, cy: 22, radius: 29),
+    ArenaShape(kind: shapeDisc, cx: 519, cy: 20, radius: 21),
+    ArenaShape(kind: shapeDisc, cx: 530, cy: 24, radius: 21),
+    ArenaShape(kind: shapeDisc, cx: 564, cy: 17, radius: 27),
+    ArenaShape(kind: shapeDisc, cx: 584, cy: 26, radius: 27),
+    ArenaShape(kind: shapeDisc, cx: 624, cy: 29, radius: 26),
+    ArenaShape(kind: shapeDisc, cx: 636, cy: 21, radius: 23),
+    ArenaShape(kind: shapeDisc, cx: 671, cy: 31, radius: 29),
+    ArenaShape(kind: shapeDisc, cx: 695, cy: 16, radius: 26),
+    ArenaShape(kind: shapeDisc, cx: 721, cy: 21, radius: 20),
+    ArenaShape(kind: shapeDisc, cx: 745, cy: 14, radius: 32),
+    ArenaShape(kind: shapeDisc, cx: 783, cy: 16, radius: 21),
+    ArenaShape(kind: shapeDisc, cx: 800, cy: 12, radius: 29),
+    ArenaShape(kind: shapeDisc, cx: 826, cy: 9, radius: 29),
+    ArenaShape(kind: shapeDisc, cx: 851, cy: 23, radius: 22),
+    ArenaShape(kind: shapeDisc, cx: 873, cy: 13, radius: 29),
+    ArenaShape(kind: shapeDisc, cx: 895, cy: 22, radius: 28),
+    ArenaShape(kind: shapeDisc, cx: 931, cy: 25, radius: 29),
+    ArenaShape(kind: shapeDisc, cx: 936, cy: 12, radius: 28),
+    ArenaShape(kind: shapeDisc, cx: 971, cy: 24, radius: 24),
+    ArenaShape(kind: shapeDisc, cx: 1008, cy: 20, radius: 28),
+    ArenaShape(kind: shapeDisc, cx: 1027, cy: 13, radius: 23),
+    ArenaShape(kind: shapeDisc, cx: 1052, cy: 24, radius: 21),
+    ArenaShape(kind: shapeDisc, cx: 1080, cy: 17, radius: 20),
+    ArenaShape(kind: shapeDisc, cx: 1093, cy: 18, radius: 20),
+    ArenaShape(kind: shapeDisc, cx: 1114, cy: 25, radius: 22),
+    ArenaShape(kind: shapeDisc, cx: 1132, cy: 23, radius: 25),
+    # cave system: south wall 1 of 4 (the gaps between these are the cave mouths)
+    ArenaShape(kind: shapeDisc, cx: 150, cy: 143, radius: 27),
+    ArenaShape(kind: shapeDisc, cx: 163, cy: 139, radius: 26),
+    ArenaShape(kind: shapeDisc, cx: 199, cy: 149, radius: 25),
+    ArenaShape(kind: shapeDisc, cx: 229, cy: 137, radius: 29),
+    ArenaShape(kind: shapeDisc, cx: 248, cy: 139, radius: 25),
+    ArenaShape(kind: shapeDisc, cx: 276, cy: 142, radius: 28),
+    # cave system: south wall 2 of 4 (the gaps between these are the cave mouths)
+    ArenaShape(kind: shapeDisc, cx: 426, cy: 141, radius: 24),
+    ArenaShape(kind: shapeDisc, cx: 461, cy: 146, radius: 24),
+    ArenaShape(kind: shapeDisc, cx: 480, cy: 135, radius: 26),
+    ArenaShape(kind: shapeDisc, cx: 494, cy: 145, radius: 22),
+    ArenaShape(kind: shapeDisc, cx: 538, cy: 135, radius: 26),
+    # cave system: south wall 3 of 4 (the gaps between these are the cave mouths)
+    ArenaShape(kind: shapeDisc, cx: 693, cy: 144, radius: 30),
+    ArenaShape(kind: shapeDisc, cx: 726, cy: 137, radius: 23),
+    ArenaShape(kind: shapeDisc, cx: 755, cy: 146, radius: 28),
+    ArenaShape(kind: shapeDisc, cx: 790, cy: 139, radius: 27),
+    ArenaShape(kind: shapeDisc, cx: 803, cy: 150, radius: 30),
+    ArenaShape(kind: shapeDisc, cx: 831, cy: 149, radius: 24),
+    # cave system: south wall 4 of 4 (the gaps between these are the cave mouths)
+    ArenaShape(kind: shapeDisc, cx: 988, cy: 133, radius: 22),
+    ArenaShape(kind: shapeDisc, cx: 1011, cy: 132, radius: 24),
+    ArenaShape(kind: shapeDisc, cx: 1041, cy: 135, radius: 27),
+    ArenaShape(kind: shapeDisc, cx: 1055, cy: 137, radius: 27),
+    ArenaShape(kind: shapeDisc, cx: 1087, cy: 145, radius: 27),
+    # cave fingers: the weave that stops it being a firing row
+    ArenaShape(kind: shapeDisc, cx: 230, cy: 60, radius: 26),
+    ArenaShape(kind: shapeDisc, cx: 230, cy: 42, radius: 20),
+    ArenaShape(kind: shapeDisc, cx: 348, cy: 100, radius: 26),
+    ArenaShape(kind: shapeDisc, cx: 354, cy: 118, radius: 16),
+    ArenaShape(kind: shapeDisc, cx: 466, cy: 60, radius: 26),
+    ArenaShape(kind: shapeDisc, cx: 472, cy: 42, radius: 16),
+    ArenaShape(kind: shapeDisc, cx: 584, cy: 100, radius: 26),
+    ArenaShape(kind: shapeDisc, cx: 582, cy: 118, radius: 20),
+    ArenaShape(kind: shapeDisc, cx: 702, cy: 60, radius: 26),
+    ArenaShape(kind: shapeDisc, cx: 695, cy: 42, radius: 19),
+    ArenaShape(kind: shapeDisc, cx: 820, cy: 100, radius: 26),
+    ArenaShape(kind: shapeDisc, cx: 812, cy: 118, radius: 17),
+    ArenaShape(kind: shapeDisc, cx: 938, cy: 60, radius: 26),
+    ArenaShape(kind: shapeDisc, cx: 942, cy: 42, radius: 19),
+    # central massif, north face
+    ArenaShape(kind: shapeDisc, cx: 445, cy: 218, radius: 32),
+    ArenaShape(kind: shapeDisc, cx: 484, cy: 219, radius: 29),
+    ArenaShape(kind: shapeDisc, cx: 508, cy: 204, radius: 25),
+    ArenaShape(kind: shapeDisc, cx: 529, cy: 208, radius: 28),
+    ArenaShape(kind: shapeDisc, cx: 568, cy: 191, radius: 25),
+    ArenaShape(kind: shapeDisc, cx: 591, cy: 208, radius: 34),
+    ArenaShape(kind: shapeDisc, cx: 626, cy: 190, radius: 27),
+    ArenaShape(kind: shapeDisc, cx: 656, cy: 204, radius: 27),
+    ArenaShape(kind: shapeDisc, cx: 680, cy: 195, radius: 34),
+    ArenaShape(kind: shapeDisc, cx: 706, cy: 210, radius: 27),
+    ArenaShape(kind: shapeDisc, cx: 727, cy: 217, radius: 29),
+    ArenaShape(kind: shapeDisc, cx: 760, cy: 224, radius: 25),
+    # central massif, south face
+    ArenaShape(kind: shapeDisc, cx: 479, cy: 445, radius: 22),
+    ArenaShape(kind: shapeDisc, cx: 498, cy: 461, radius: 33),
+    ArenaShape(kind: shapeDisc, cx: 525, cy: 469, radius: 25),
+    ArenaShape(kind: shapeDisc, cx: 544, cy: 475, radius: 24),
+    ArenaShape(kind: shapeDisc, cx: 589, cy: 478, radius: 33),
+    ArenaShape(kind: shapeDisc, cx: 620, cy: 459, radius: 26),
+    ArenaShape(kind: shapeDisc, cx: 638, cy: 474, radius: 31),
+    ArenaShape(kind: shapeDisc, cx: 677, cy: 475, radius: 31),
+    ArenaShape(kind: shapeDisc, cx: 692, cy: 461, radius: 24),
+    ArenaShape(kind: shapeDisc, cx: 724, cy: 464, radius: 32),
+    ArenaShape(kind: shapeDisc, cx: 751, cy: 448, radius: 33),
+    ArenaShape(kind: shapeDisc, cx: 770, cy: 449, radius: 22),
+    # south valley wall, west
+    ArenaShape(kind: shapeDisc, cx: 139, cy: 557, radius: 30),
+    ArenaShape(kind: shapeDisc, cx: 165, cy: 573, radius: 32),
+    ArenaShape(kind: shapeDisc, cx: 208, cy: 553, radius: 35),
+    ArenaShape(kind: shapeDisc, cx: 217, cy: 552, radius: 35),
+    ArenaShape(kind: shapeDisc, cx: 254, cy: 566, radius: 25),
+    ArenaShape(kind: shapeDisc, cx: 287, cy: 561, radius: 29),
+    ArenaShape(kind: shapeDisc, cx: 303, cy: 549, radius: 27),
+    ArenaShape(kind: shapeDisc, cx: 327, cy: 559, radius: 32),
+    ArenaShape(kind: shapeDisc, cx: 347, cy: 556, radius: 26),
+    ArenaShape(kind: shapeDisc, cx: 390, cy: 579, radius: 24),
+    # south valley wall, east
+    ArenaShape(kind: shapeDisc, cx: 821, cy: 560, radius: 28),
+    ArenaShape(kind: shapeDisc, cx: 856, cy: 551, radius: 24),
+    ArenaShape(kind: shapeDisc, cx: 887, cy: 566, radius: 32),
+    ArenaShape(kind: shapeDisc, cx: 930, cy: 553, radius: 33),
+    ArenaShape(kind: shapeDisc, cx: 948, cy: 542, radius: 24),
+    ArenaShape(kind: shapeDisc, cx: 978, cy: 544, radius: 28),
+    ArenaShape(kind: shapeDisc, cx: 1001, cy: 547, radius: 25),
+    ArenaShape(kind: shapeDisc, cx: 1032, cy: 566, radius: 31),
+    ArenaShape(kind: shapeDisc, cx: 1045, cy: 555, radius: 29),
+    ArenaShape(kind: shapeDisc, cx: 1081, cy: 575, radius: 31),
+    # pockets the terrain left too small to stand in, filled
+    ArenaShape(kind: shapeDisc, cx: 499, cy: 156, radius: 18),
+    ArenaShape(kind: shapeDisc, cx: 521, cy: 156, radius: 18),
+    ArenaShape(kind: shapeDisc, cx: 543, cy: 156, radius: 18),
+    ArenaShape(kind: shapeDisc, cx: 565, cy: 156, radius: 18),
+    ArenaShape(kind: shapeDisc, cx: 499, cy: 178, radius: 18),
+    ArenaShape(kind: shapeDisc, cx: 521, cy: 178, radius: 18),
+    ArenaShape(kind: shapeDisc, cx: 543, cy: 178, radius: 18),
+    ArenaShape(kind: shapeDisc, cx: 565, cy: 178, radius: 18),
+    ArenaShape(kind: shapeDisc, cx: 499, cy: 200, radius: 18),
+    ArenaShape(kind: shapeDisc, cx: 521, cy: 200, radius: 18),
+    ArenaShape(kind: shapeDisc, cx: 543, cy: 200, radius: 18),
+    ArenaShape(kind: shapeDisc, cx: 565, cy: 200, radius: 18),
+    ArenaShape(kind: shapeDisc, cx: 161, cy: 163, radius: 18),
+    ArenaShape(kind: shapeDisc, cx: 183, cy: 163, radius: 18),
+    ArenaShape(kind: shapeDisc, cx: 205, cy: 163, radius: 18),
+    ArenaShape(kind: shapeDisc, cx: 161, cy: 185, radius: 18),
+    ArenaShape(kind: shapeDisc, cx: 183, cy: 185, radius: 18),
+    ArenaShape(kind: shapeDisc, cx: 205, cy: 185, radius: 18),
+    ArenaShape(kind: shapeDisc, cx: 215, cy: 163, radius: 18),
+    ArenaShape(kind: shapeDisc, cx: 237, cy: 163, radius: 18),
+    ArenaShape(kind: shapeDisc, cx: 259, cy: 163, radius: 18),
+    ArenaShape(kind: shapeDisc, cx: 281, cy: 163, radius: 18),
+    ArenaShape(kind: shapeDisc, cx: 215, cy: 185, radius: 18),
+    ArenaShape(kind: shapeDisc, cx: 237, cy: 185, radius: 18),
+    ArenaShape(kind: shapeDisc, cx: 259, cy: 185, radius: 18),
+    ArenaShape(kind: shapeDisc, cx: 281, cy: 185, radius: 18),
+    ArenaShape(kind: shapeDisc, cx: 466, cy: 164, radius: 18),
+    ArenaShape(kind: shapeDisc, cx: 488, cy: 164, radius: 18),
+    ArenaShape(kind: shapeDisc, cx: 510, cy: 164, radius: 18),
+    ArenaShape(kind: shapeDisc, cx: 466, cy: 186, radius: 18),
+    ArenaShape(kind: shapeDisc, cx: 488, cy: 186, radius: 18),
+    ArenaShape(kind: shapeDisc, cx: 510, cy: 186, radius: 18),
+    ArenaShape(kind: shapeDisc, cx: 466, cy: 208, radius: 18),
+    ArenaShape(kind: shapeDisc, cx: 488, cy: 208, radius: 18),
+    ArenaShape(kind: shapeDisc, cx: 510, cy: 208, radius: 18),
+    ArenaShape(kind: shapeDisc, cx: 493, cy: 165, radius: 18),
+    ArenaShape(kind: shapeDisc, cx: 515, cy: 165, radius: 18),
+    ArenaShape(kind: shapeDisc, cx: 493, cy: 187, radius: 18),
+    ArenaShape(kind: shapeDisc, cx: 515, cy: 187, radius: 18),
     # --- The two qalats: mud-brick farm compounds around the flag stands ---
     # Afghan's ends are walled compounds, and ours left both stands sitting in
     # bare desert: 6-7% cover within 200px against 10-25% on every other map,
@@ -3320,14 +3448,17 @@ proc afghanCtfMap(): CtfMap =
     MapRect(x: 324, y: 480, w: 56, h: 80),    # spur toward the bunker
     MapRect(x: 636, y: 324, w: 56, h: 56),    # forward foxhole at the wreck
   ]
-  ## Art: sun-bleached rock and dust.
+  ## Art: weathered valley rock over pale dust. Pitched cooler and darker
+  ## than the sun-bleached tone it had, because the massifs and the floor sat
+  ## within a shade of each other and the terrain read as dunes rather than as
+  ## the rock walls of a valley.
   result.floorTex = "data/afghan_floor.png"
   result.wallTex = "data/afghan_wall.png"
   result.material = ArenaMaterial(
-    face: rgba(156, 130, 96, 255),
-    hi: rgba(216, 190, 150, 255),
-    lo: rgba(88, 72, 52, 255),
-    ink: rgba(42, 34, 24, 255)
+    face: rgba(126, 108, 86, 255),
+    hi: rgba(176, 156, 128, 255),
+    lo: rgba(60, 50, 40, 255),
+    ink: rgba(30, 25, 19, 255)
   )
   result.medKitSpawns = @[
     MapPoint(x: result.width div 2, y: result.height div 3),
