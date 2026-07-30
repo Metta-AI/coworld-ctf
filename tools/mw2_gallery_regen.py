@@ -91,6 +91,30 @@ def page(status):
                 f'<span class="chip {"ok" if good else "bad"}">'
                 f'{label} <b>{val}</b></span>'
                 for label, val, good in checks)
+            pl = e.get("play")
+            playblock = ""
+            if pl:
+                pchips = "".join(
+                    f'<span class="chip {"ok" if good else "bad"}">'
+                    f'{lab} <b>{val}</b></span>' for lab, val, good in [
+                        ("midfield lanes",
+                         f'{pl["lanes"]} ({pl["lanesUsed"]} used)',
+                         pl["lanes"] >= 2),
+                        ("floor never walked", f'{pl["deadPct"]:.0%}',
+                         pl["deadPct"] <= 0.35),
+                        ("median sightline", f'{pl["medianSight"]:.0f}px',
+                         pl["medianSight"] <= 255),
+                    ])
+                notes = "".join(f"<li>{f}</li>" for f in pl["flags"])
+                playblock = f"""
+      <div class="play">
+        <div class="lbl">how it actually played &mdash;
+          {pl.get("episodes", 1)} re-simulated episode(s), warm where players
+          spent time, pale where nobody went, rings where they died</div>
+        <img src="heat-{name}.png" alt="{title} heatmap">
+        <div class="chips">{pchips}</div>
+        {f'<ul class="gaps">{notes}</ul>' if notes else ''}
+      </div>"""
             body = f"""
       <div class="pair">
         <div class="side">
@@ -106,7 +130,7 @@ def page(status):
       <p class="facts">{authored}{s.get("shapes", "?")} emitted shapes &middot;
         {s.get("coverage", 0):.1%} of the field is cover &middot; walk to
         midfield {s.get("midRed", "?")}px red / {s.get("midBlue", "?")}px
-        blue</p>"""
+        blue</p>{playblock}"""
         rows.append(f"""    <figure>
       <div class="head">
         <span class="num">{i:02d}</span>
@@ -172,6 +196,10 @@ def page(status):
   .chip b {{ font-weight: 600; }}
   .chip.ok b {{ color: var(--green); }}
   .chip.bad, .chip.bad b {{ color: var(--red); }}
+  .play {{ margin-top: 26px; }}
+  .play img {{ max-width: 760px; }}
+  .gaps {{ margin: 10px 0 0; padding-left: 18px; color: var(--red);
+          font-size: 14px; }}
   .facts {{ margin: 8px 0 0;
            font: 12px/1.7 ui-monospace, Menlo, monospace; color: var(--ghost); }}
   .pending {{
@@ -215,6 +243,8 @@ def main():
         status["buildError"] = err
         print("BUILD FAILED:\n" + err)
 
+    play_path = GALLERY / "playtest.json"
+    play = json.loads(play_path.read_text()) if play_path.exists() else {}
     stats_path = Path("/tmp/mw2trace_stats.json")
     trace_stats = (json.loads(stats_path.read_text())
                    if stats_path.exists() else {})
@@ -234,7 +264,8 @@ def main():
                     subprocess.run(["sips", "-Z", "1100", str(plate), "--out",
                                     str(GALLERY / f"ref-{name}.png")],
                                    capture_output=True)
-                entry = {"landed": True, "stats": trace_stats.get(name, {})}
+                entry = {"landed": True, "stats": trace_stats.get(name, {}),
+                         "play": play.get(name)}
             else:
                 entry["error"] = (r.stderr or r.stdout).strip()[-300:]
         status["maps"][name] = entry

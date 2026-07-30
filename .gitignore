@@ -57,3 +57,8 @@ trench-demo.bitreplay
 # `PORT=21050 tools/record_fixture.sh mw2-<map>-fixture.bitreplay 7 3000 '{"mapPath":"<map>"}'`
 # and serve with run-mw2-preview.sh; not worth versioning at ~100KB each.
 /mw2-*-fixture.bitreplay
+/arena-ctl.bitreplay
+/rust-s*.bitreplay
+/afghan-s*.bitreplay
+/favela-s*.bitreplay
+/scrap-s*.bitreplay

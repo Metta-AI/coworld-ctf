@@ -10,7 +10,7 @@
 ## Usage: nim r tools/mw2_playtest.nim <replay.bitreplay> [--out <path.json>]
 ## Demo/audit tooling; not part of the server.
 import
-  std/[json, os, strutils],
+  std/[json, os],
   ../src/ctf/replays,
   ../src/ctf/sim
 
