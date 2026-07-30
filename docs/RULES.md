@@ -53,23 +53,37 @@ tasks, voting) with teams, guns, hearts, and fog-of-war vision.
 ## Maps
 
 The arena is selected by the `mapPath` game-config value. Every map keeps the
-same rules, left/right symmetry, and three-lane grammar — only the cover
+same rules and the same open-center, protected-spawn grammar — only the cover
 layout changes. The replay header records the map each episode was played on.
+
+Maps come in two flavours. The abstract arenas and every generated map are
+**symmetric**: only the left half is authored and the right half is its image
+under mirror or 180° rotation, so both teams face identical ground by
+construction. The MW2 recreations are **asymmetric**: they are traced from the
+real 2009 maps and used verbatim, because Terminal's 747 sits at one end of the
+concourse and mirroring it would destroy the very geometry that makes the map
+recognizable. Those maps buy fidelity by giving up automatic fairness, so they
+owe explicit parity tests instead — comparable occupiable area, cover density,
+and walk to midfield per side (`tests/test_mw2_maps.nim`).
 
 - **`arena`** (default) — the classic staggered-cover slalom described above.
 - **`arena-large`** — the same layout grammar on a bigger field.
 - **The MW2 paintball pack** — six paintball recreations of crowd-favorite
-  Call of Duty: Modern Warfare 2 maps, re-themed as scenario paintball fields:
-  - **`rust`** — a rusty oil-yard speedball field around the central scaffold
-    tower.
-  - **`terminal`** — an airport concourse with an inflatable 747 owning the
-    north lane.
-  - **`highrise`** — a rooftop court between twin office cores, helipad south
-    and crane north.
-  - **`favela`** — shantytown alleys staggered around an open dirt courtyard.
-  - **`afghan`** — a desert crash-site with the C-130 wreck dead center.
-  - **`scrapyard`** — an aircraft boneyard threading a broken fuselage row
-    down the midline.
+  Call of Duty: Modern Warfare 2 maps, re-themed as scenario paintball fields.
+  Each is traced from that map's official 2009 overhead minimap, so the real
+  building footprints, chokepoints, and callouts survive:
+  - **`rust`** — the oil-yard speedball field around the central derrick
+    tower, oil tanks in one corner and pipe runs across midfield.
+  - **`terminal`** — the airport concourse, with the 747 parked at ONE end of
+    the hall past the scanners and Burger Town.
+  - **`highrise`** — the rooftop court between twin office cores with one
+    bridge between them, helipads at either end and the crane base.
+  - **`favela`** — the hillside shanty blocks and their alley grid, around the
+    market square.
+  - **`afghan`** — the desert crash site, the C-130 wreck forming the map's
+    spine, cave arc to one side and bunker overlook to the other.
+  - **`scrapyard`** — the aircraft boneyard, fuselage rows threaded between a
+    hangar at each end.
 - **`mw2`** — per-episode rotation across the six: at startup the server
   resolves the alias to one concrete pack map, keyed by the episode seed, so
   a league round spreads across the whole pack. The replay header records
