@@ -1430,11 +1430,47 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           hasPlasma = true
           break carryScan
   var hasShield = bot.hp > MaxHp
-  if not hasShield:
-    for o in client.spriteObjectsWithLabel("shield carried"):
-      if dist(client.mapPos(o), me) <= 30.0:
-        hasShield = true
-        break
+  when defined(bubbleShieldSense):
+    # GV26 repair (task 1217006582150956): the "shield carried" icon read
+    # below is DEAD CODE at coworld 0.7.105+ — its emission condition
+    # (hasShield && shieldHp<=0) is unsatisfiable since GV23 clears hasShield
+    # on layer break — so the HUD-blind wounded-carrier window (hasShield
+    # while hp+shieldHp <= MaxHp, 3x fire slowdown live) was invisible. Read
+    # the shield BUBBLE instead: drawn exactly while our layer is alive,
+    # centered ~6 px behind our aim (ShieldBubbleLagPx). Distance alone
+    # cannot discriminate ours from a neighbour's (his bubble can also sit
+    # 6 px from us), so a bubble counts as OURS only when no OTHER visible
+    # body is strictly nearer to it than we are (closest-actor test;
+    # measured 0 phantoms / 274,367 unshielded and 0 misses / 25,336
+    # shielded seat-ticks on a 12-ep GV26 mirror battery, seeds 101-112).
+    if not hasShield:
+      var nearBubbles: seq[Vec]
+      for lbl in ["shield bubble", "shield bubble hit"]:
+        for o in client.spriteObjectsWithLabel(lbl):
+          let bp = client.mapPos(o)
+          if dist(bp, me) <= 18.0:
+            nearBubbles.add bp
+      if nearBubbles.len > 0:
+        var others: seq[Vec]
+        for color in [myColor, enemyColor]:
+          for a in client.actorsFor(color):
+            if dist(a.pos, me) > 2.0:   # a body at <=2 px IS our own sprite
+              others.add a.pos
+        for bp in nearBubbles:
+          var mine = true
+          for p in others:
+            if dist(bp, p) < dist(bp, me):
+              mine = false
+              break
+          if mine:
+            hasShield = true
+            break
+  else:
+    if not hasShield:
+      for o in client.spriteObjectsWithLabel("shield carried"):
+        if dist(client.mapPos(o), me) <= 30.0:
+          hasShield = true
+          break
   let
     shotReady = client.spriteObjectsWithLabel("fire icon").len > 0 and
       not hasPlasma                      # the plasma arc replaces the gun; a shield
