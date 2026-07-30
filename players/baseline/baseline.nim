@@ -152,8 +152,10 @@ const
                               # camper's position is durable knowledge, and the
                               # lob over his cover is the counter the gun lacks
   NadeCampSpeed = 0.3         # px/tick: tracks slower than this count as camped
-  MedKitDetour = 80.0         # heal-detour budget when merely wounded
-  MedKitCriticalReach = 180.0 # at 1 hp a heal outranks the current errand
+  tuneMedKitDetour {.intdefine.} = 80 # heal-detour budget when merely wounded
+  MedKitDetour = float(tuneMedKitDetour)
+  tuneMedKitCriticalReach {.intdefine.} = 180 # at 1 hp a heal outranks the current errand
+  MedKitCriticalReach = float(tuneMedKitCriticalReach)
   MedKitRespawn = 30 * 24     # a taken kit refills after 30s (sim constant)
   MedKitSeenClear = 55.0      # inside this range an empty spot is truly
                               # empty (bubble vision), not just fogged
@@ -184,9 +186,10 @@ const
                               # grenade clears the pad by ~38px, so the
                               # steer self-releases once past
   PickupRespawn = 30 * 24     # plasma arc/shield respawn timer (sim constant)
-  MedKitCarrierBudget = 90.0  # extra path px a hurt CARRIER spends to heal:
+  tuneMedKitCarrierBudget {.intdefine.} = 90 # extra path px a hurt CARRIER spends to heal:
                               # a full-heal carrier survives pocket exits
                               # that kill a 1 hp one
+  MedKitCarrierBudget = float(tuneMedKitCarrierBudget)
   CarrySelfRadius = 26.0      # the carried flag banner is centered on its
                               # carrier: anything inside this slack that no
                               # visible mate sits closer to is OUR carry
