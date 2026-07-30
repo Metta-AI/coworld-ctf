@@ -245,6 +245,33 @@ const
                               # settles; his reinforcement lands ~gt1615 and his
                               # first steal comes ~gt2800-3600, so breaking at
                               # ~gt1500-2400 is early for him, on time for us
+  ShellDeepPx = 25.0          # -d:siegeShell[Watch]: an enemy this far past mid
+                              # on OUR half counts toward the siege. Decoded
+                              # envelope (counter-design corpus, 24 eps): at
+                              # P=25/K=2/sustain 240 the class latch arms in
+                              # 22/24 episodes, median gt825; a non-siege
+                              # presser (us, alphashot:v329) NEVER arms it
+                              # before gt4100 — the arm-window cap below makes
+                              # that a structural zero
+  ShellBodies = 2             # -d:siegeShell[Watch]: simultaneous fresh deep
+                              # tracks that make a standing siege
+  ShellSustainTicks = 240     # -d:siegeShell[Watch]: sustained presence
+                              # (lapses decay 2:1) before the class is called
+  ShellMinGame = 600          # -d:siegeShell[Watch]: never latch before the
+                              # opening settles
+  ShellArmMaxTick = 2600      # -d:siegeShell[Watch]: the siege signature is
+                              # EARLY (his press crosses at gt189-303); any
+                              # deep presence first sustained after this tick
+                              # is an endgame breakout, not a siege — never
+                              # latch on it
+  ShellDepthX = 40.0          # -d:siegeShell: x of the latched back-wall line,
+                              # px from our own edge. Copied from the
+                              # alphashot:v329 template that beats this class
+                              # .913: all 8 of its seats hold x 20-22 (165-175
+                              # px BEHIND its own pedestal), evenly spread in
+                              # y. Time-averaged exposure counterfactual on
+                              # our own corpus: team exposed-tick share to his
+                              # press falls 9.2% -> 3.3% at depth +120
   HoldFrontCap = 220.0        # -d:holdFront: ceiling on the phalanx creep — a
                               # castle line near our wall: fights there recur on
                               # ground where our respawn walk is ~100px and the
@@ -392,6 +419,8 @@ type
     everLostOurs: bool        # our flag has been stolen at least once
     pressTicks: int           # -d:pressBreak: sustained deep-press accumulator
     pressBroke: bool          # -d:pressBreak: latched — posts stay broken
+    shellTicks: int           # -d:siegeShell[Watch]: sustained-siege accumulator
+    shellLatched: bool        # -d:siegeShell[Watch]: latched for the episode
     phalanxHold: float        # frozen advance front while our lane has contact
     helpLane: int             # 1=top 2=mid 3=bottom, from an H-shout
     helpUntil: int            # tick the help retasking expires
@@ -450,6 +479,21 @@ when defined(zonePhalanx):
     of pdTopA, pdTopB: 1
     of pdMidA, pdMidB: 2
     else: 3
+
+  when defined(siegeShell):
+    proc shellLineY(d: PhalanxDuty): float =
+      ## The latched back-wall line, copied from the alphashot:v329 template
+      ## (8 seats at x 20-22, even ~73px y-spacing symmetric about LaneMid).
+      ## Seven stationed duties spread across the full height at MapH/8
+      ## steps; the floater takes the pedestal row itself.
+      case d
+      of pdTopA: float(MapH) * 1.0 / 8.0
+      of pdTopB: float(MapH) * 2.0 / 8.0
+      of pdMidA: float(MapH) * 3.0 / 8.0
+      of pdMidB: float(MapH) * 5.0 / 8.0
+      of pdBotA: float(MapH) * 6.0 / 8.0
+      of pdBotB: float(MapH) * 7.0 / 8.0
+      else: LaneMid
 
 proc vec(x, y: float): Vec =
   Vec(x: x, y: y)
@@ -1820,6 +1864,37 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           bot.pressTicks >= PressSustainTicks and
           not bot.everStoleTheirs and not bot.everLostOurs:
         bot.pressBroke = true
+  when defined(siegeShell) or defined(siegeShellWatch):
+    # Siege-shell class latch (counter to the arisk tick3400 family), the
+    # DEFENSIVE dual of pressBreak: the class grinds our castle with a
+    # standing midline press from the opening (crosses at gt189-303, parks
+    # 0-100px past mid) and picks our standing stations off from 300-450px
+    # standoff — we bleed -4 bodies by gt3500 while its flag commit is
+    # clock-locked at ~gt3500. Once the class is unmistakable — a SUSTAINED
+    # deep presence on our half, EARLY, with no flag moved either way — the
+    # posts rebase to a back-wall line (see the phalanx branch): the arena
+    # is a corridor lattice where only ~3-6% of 250-450px pairs hold a clear
+    # sightline, so a deep, evenly-spread line starves his standoff gun of
+    # the aligned geometry it needs, keeps our life budget intact, and makes
+    # his clock-locked walk-in at gt3500 land on a full-strength garrison.
+    # The latch never fires on a non-siege opponent inside the arm window
+    # (measured structural zero before gt2600 for every home-holding rival
+    # in the corpus); one-way for the episode.
+    if not bot.shellLatched and
+        bot.tick - bot.gameStart <= ShellArmMaxTick:
+      var shellDeep = 0
+      for t in bot.enemies:
+        if not t.synthetic and bot.tick - t.lastSeen <= 90 and
+            homeSign(bot.team) * (t.pos.x - float(CenterX)) > ShellDeepPx:
+          inc shellDeep
+      if shellDeep >= ShellBodies:
+        inc bot.shellTicks
+      elif shellDeep == 0 and bot.shellTicks > 0:
+        bot.shellTicks = max(bot.shellTicks - 2, 0)
+      if bot.tick - bot.gameStart > ShellMinGame and
+          bot.shellTicks >= ShellSustainTicks and
+          not bot.everStoleTheirs and not bot.everLostOurs:
+        bot.shellLatched = true
   when defined(counterPunch):
     let counterPunch = bot.tick - bot.gameStart > CounterPunchTick and
       bot.everLostOurs and not bot.everStoleTheirs
@@ -1999,9 +2074,20 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # the defensive seats, and holding their posts forever is a guaranteed
   # tiebreak stalemate — break the posts and go win by capture (the enemy
   # team pushes symmetrically, so somebody makes something happen).
+  # -d:siegeShell: a latched shell is deliberately DARK (the deep line holds
+  # almost no sightlines, so lastEnemySeen goes stale team-wide while the
+  # siege is very much alive). The quiet-field and stalemate push-out legs
+  # would dissolve the shell into exactly the walk-out the class farms —
+  # suppress those two legs while latched. The LatePushTick all-in and the
+  # ownStolen thief-defense pull are untouched: conversion still comes from
+  # the normal late push, and a lifted flag still collapses everyone onto
+  # the carrier.
+  let shellHold =
+    when defined(siegeShell): bot.shellLatched
+    else: false
   let pushOut = not ownStolen and (
     (bot.tick - bot.gameStart > PushOutMinGame and
-     bot.tick - bot.lastEnemySeen > PushOutTicks) or
+     bot.tick - bot.lastEnemySeen > PushOutTicks and not shellHold) or
     # Late all-in: a timeout is a scoreless draw, so deep into a game with no
     # capture the posts are worth nothing — break them and go win. Standoffs
     # keep enemies in sight, so the quiet-field trigger above never fires
@@ -2032,7 +2118,8 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           # QuietForBreak ticks. Duel-heavy rivals resolve by wipe, not
           # timeout; breaking the castle early just donates ground.
           not bot.everStoleTheirs and not bot.everLostOurs and
-          bot.tick - bot.lastEnemySeen > QuietForBreak)))
+          bot.tick - bot.lastEnemySeen > QuietForBreak and
+          not shellHold)))
   )
   when defined(v57Debug):
     if pushOut and (bot.everStoleTheirs or bot.everLostOurs) and
@@ -2193,6 +2280,13 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
      # Errand branches below may still overwrite this within a tick, so the
      # tag is a lower bound on held frames.
      objMode = "station_hold"
+     when defined(siegeShellWatch):
+       # Latch-observing placebo: computes the identical class latch, tags
+       # the telemetry frame, changes NOTHING about behaviour. Exists so the
+       # fired-vs-inert outcome split in an A/B stops being confounded by
+       # episode difficulty (the latch fires in games with a real siege).
+       if bot.shellLatched:
+         objMode = "shell_watch"
      # Zone phalanx: shield scout spots forward and relays sightings, three
      # staggered pairs hold the lanes at a slowly advancing front (freeze on
      # contact — never trade cover for ground while a runner is tracked),
@@ -2298,6 +2392,16 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
              else: LaneBottom - 26.0)))
        else:
          target = bot.chokeHold
+       when defined(siegeShell):
+         if bot.shellLatched:
+           # Latched: the floater takes the pedestal row of the back-wall
+           # line (the choke spot it replaces sits ON the open corridor his
+           # standoff gun owns). Help calls are moot — the whole line is the
+           # help. Intruder chase below (HomeDefender role logic) and the
+           # ownStolen collapse are untouched.
+           objMode = "siege_shell"
+           target = bot.snapToCover(vec(
+             ownEdgeX + dirX * ShellDepthX, shellLineY(pd)))
      else:
        let laneY = phalanxLaneY(pd)
        # Contact freeze: while a fresh track sits near our lane station,
@@ -2335,6 +2439,15 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
        target = bot.snapToCover(vec(
          ownEdgeX + dirX * (if lead: front else: front - 44.0),
          laneY2 + (if lead: -32.0 else: 32.0)))
+       when defined(siegeShell):
+         if bot.shellLatched:
+           # Latched: rebase the six lane posts to the back-wall line. The
+           # advancing-front / contact-freeze machinery above still runs but
+           # its target is discarded while the shell holds; carry, errand
+           # and thief-defense branches still override per-seat as usual.
+           objMode = "siege_shell"
+           target = bot.snapToCover(vec(
+             ownEdgeX + dirX * ShellDepthX, shellLineY(pd)))
   elif bot.role == HomeDefender and not pushOut:
     # Hold the choke on our pedestal approach; break off to chase the nearest
     # intruder on our half (every steal has to come through here).
