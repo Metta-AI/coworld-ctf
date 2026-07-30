@@ -2591,6 +2591,44 @@ const
     ArenaShape(kind: shapeDiagonal, x0: 348, y0: 644, x1: 392, y1: 600, thickness: 14),
     # wadi spur
     ArenaShape(kind: shapeDiagonal, x0: 664, y0: 648, x1: 716, y1: 596, thickness: 20),
+    # --- The two qalats: mud-brick farm compounds around the flag stands ---
+    # Afghan's ends are walled compounds, and ours left both stands sitting in
+    # bare desert: 6-7% cover within 200px against 10-25% on every other map,
+    # which is the measured reason no thief on this map has ever got away with
+    # a flag (0 of 21, then 0 of 17, while every other map converts). Walls
+    # give a carrier something to break line of sight against in the first
+    # second and move the fight to the gates, the way a compound does.
+    #
+    # Every segment sits OUTSIDE the engine's forced-floor spawn pocket
+    # (|x - homeX| <= 70 and |y - homeY| <= 130, around 186,329 and 1049,329)
+    # or isProtectedFloor would carve it straight back to floor.
+    # west qalat: three walls, three gates, open toward the wreck
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 96, y: 180, w: 92, h: 18)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 228, y: 180, w: 50, h: 18)),
+    # The east gate opens SOUTH of the wreck. The C-130's aft fuselage and
+    # tail sit at y 280-320 directly outside this wall, so a gate level with
+    # the stand exits into the hull and red's walk to midfield went 591 steps
+    # against blue's 442 -- an unfairness the compound created, not the map.
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 260, y: 198, w: 18, h: 104)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 260, y: 396, w: 18, h: 68)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 96, y: 464, w: 92, h: 18)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 228, y: 464, w: 50, h: 18)),
+    # west qalat outbuildings: the first thing a carrier can get behind
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 296, y: 236, w: 46, h: 40)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 296, y: 386, w: 46, h: 40)),
+    # east qalat: one long spine wall, gates offset from the west's
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 958, y: 194, w: 18, h: 108)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 958, y: 358, w: 18, h: 108)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 976, y: 176, w: 84, h: 18)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 1100, y: 176, w: 40, h: 18)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 976, y: 466, w: 84, h: 18)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 1100, y: 466, w: 40, h: 18)),
+    # east qalat outbuildings. The southern one sits well clear of the bunker:
+    # at y 386 it covered x 892-938, which is exactly the gap between the
+    # bunker's two north wall segments -- its only doorway -- and sealed 2876
+    # cells of interior into a pocket.
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 892, y: 236, w: 46, h: 40)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 892, y: 512, w: 46, h: 40)),
   ]
 
   ## Scrapyard — MW2's aircraft boneyard as a paintball field, authored

@@ -57,6 +57,19 @@ def structures(wall):
         return np.array([]), []
     sizes = np.bincount(lab.ravel())[1:]
     border = int(sizes.argmax())          # the map's own border frame
+
+    # Footprints are reported from RAW components, with the caveat that a
+    # shell pierced by doorways reads as several arcs — Favela's yellow
+    # building (walls on four sides around a real room) scores as 46x40,
+    # 58x61 and 164x53 rather than one 138x125 structure.
+    #
+    # Morphological closing to bridge the doors was tried and is worse: at the
+    # 40px needed to span a doorway it also merges the abstract arena's picket
+    # columns, which sit ~48px apart, into one 328x620 slab. That reported the
+    # CONTROL as the most architectural map in the set, which is the usual
+    # sign the metric has stopped measuring the thing. Doorway width and
+    # picket spacing are too close to separate by morphology, so footprints
+    # are a rough guide here and `interior` below is the number to trust.
     extents = []
     for i, sl in enumerate(ndimage.find_objects(lab)):
         if i == border or sl is None:
@@ -146,18 +159,9 @@ def main():
         print("  The arena is scatter by design — pickets in an open field. A "
               "recreation with less enclosure than that has nothing to fight "
               "from.")
-    # Cover is not the same as architecture: a map can be full of cover and
-    # still be an obstacle course. Judged on the longest footprint any single
-    # structure spans, against the arena, whose biggest picket is ~107px.
-    small = [r for r in out if r["name"] != "arena"
-             and r["span"] < 2 * ctrl["span"]]
-    if small:
-        print("\nNOTHING MUCH BIGGER THAN AN ARENA PICKET (arena "
-              f"{ctrl['span']}px): " +
-              ", ".join(f"{r['name']} {r['span']}px" for r in small))
-        print("  A player is 13px. These are assembled from objects a few "
-              "player-widths across rather than from buildings with "
-              "footprints, interiors and doorways.")
+    print(f"\ninterior is the number to trust: the arena scores "
+          f"{ctrl['interior']:.0%} and is deliberately scatter, so a "
+          "recreation should sit clearly above it.")
 
 
 if __name__ == "__main__":
