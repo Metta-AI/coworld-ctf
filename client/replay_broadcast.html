@@ -33,6 +33,8 @@
   --ink-soft: rgba(20, 14, 9, 0.62);
   --red: #e0523a;
   --blue: #3f7cc4;
+  --green: #45a85e;
+  --yellow: #ddc531;
   --amber: #e8a33d;
   --ghost: #8a7f72;
   --hudscale: 1;
@@ -131,6 +133,15 @@ html, body {
 }
 #chrome > * { pointer-events: auto; }
 
+/* Team color utility: any chrome element carrying a team-name class exposes
+   that team's tint as --tc, and every team-colored rule below reads
+   var(--tc, <neutral fallback>). Supporting a new team = one line here plus
+   its art — no per-team selector pairs anywhere else. */
+.red { --tc: var(--red); }
+.blue { --tc: var(--blue); }
+.green { --tc: var(--green); }
+.yellow { --tc: var(--yellow); }
+
 /* ---------- 1. TOP-BAND SCOREBUG ---------- */
 #scorebug {
   position: absolute;
@@ -158,13 +169,25 @@ html, body {
   box-shadow: inset 0 calc(-1 * var(--u)) 0 rgba(242, 232, 216, 0.06);
 }
 
+/* One side of the scorebug: 1-2 plates stacked vertically (2-team play keeps
+   one plate per side, exactly the old layout; 3-4 teams stack a second plate
+   under the first on each side, flanking the same center clock). */
+.plates {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: calc(5 * var(--u));
+  min-width: 0;
+}
 .plate {
   display: flex;
   align-items: center;
   gap: calc(9 * var(--u));
   min-width: 0;
 }
-.plate.blue { flex-direction: row-reverse; text-align: right; }
+/* Orientation is a SIDE property, not a color property: right-side plates
+   mirror so both team names stay innermost, flanking the clock. */
+.plate.side-r { flex-direction: row-reverse; text-align: right; }
 
 .plate .team-id { min-width: 0; }
 .plate .team-name {
@@ -185,18 +208,17 @@ html, body {
   min-width: 0;
   text-shadow: 0 calc(2 * var(--u)) 0 var(--ink);
 }
-.plate.red .team-name { color: var(--red); }
-.plate.blue .team-name { color: var(--blue); }
+.plate .team-name { color: var(--tc, var(--paper)); }
 
-/* One baseline row with the COLOR NAME innermost (toward the center clock):
-   left plate reads "32 LIVES RED", right plate reads "BLUE LIVES 32", so both
-   names flank the clock. Red reverses; blue keeps DOM order (name → label → num). */
+/* One baseline row with the TEAM NAME innermost (toward the center clock):
+   a left plate reads "32 LIVES RED", a right plate reads "BLUE LIVES 32", so
+   names flank the clock. Left reverses; right keeps DOM order (name → label → num). */
 .plate .lives-line {
   display: flex;
   align-items: baseline;
   gap: calc(6 * var(--u));
 }
-.plate.red .lives-line { flex-direction: row-reverse; }
+.plate.side-l .lives-line { flex-direction: row-reverse; }
 .lives-num {
   font-family: var(--pixfont);
   font-size: calc(20 * var(--u));
@@ -220,7 +242,7 @@ html, body {
   gap: calc(3 * var(--u));
   margin-top: calc(3 * var(--u));
 }
-.plate.blue .squad { justify-content: flex-end; }
+.plate.side-r .squad { justify-content: flex-end; }
 .squad-pip {
   width: calc(9 * var(--u));
   height: calc(9 * var(--u));
@@ -244,8 +266,7 @@ html, body {
 .squad-pip.pov {                                             /* POV lens active */
   box-shadow: 0 0 0 calc(1.5 * var(--u)) var(--paper);
 }
-.plate.red .squad { color: var(--red); }
-.plate.blue .squad { color: var(--blue); }
+.plate .squad { color: var(--tc, var(--paper)); }
 
 /* flag-state icon — HOME (on pedestal) / TAKEN (riding a carrier). F2: two states only. */
 .flagicon {
@@ -374,9 +395,9 @@ html, body {
 .banner-chip.steal { border-bottom-color: var(--amber); }
 .banner-chip.returned { border-bottom-color: var(--paper-dim); }
 .banner-chip.map { border-bottom-color: var(--paper-dim); }
-.banner-chip.wipe { border-bottom-color: var(--red); font-size: calc(15 * var(--u)); }
-.banner-chip.red-accent { box-shadow: inset calc(4 * var(--u)) 0 0 var(--red); }
-.banner-chip.blue-accent { box-shadow: inset calc(4 * var(--u)) 0 0 var(--blue); }
+.banner-chip.wipe { border-bottom-color: var(--tc, var(--red)); font-size: calc(15 * var(--u)); }
+/* the acting team's tint rides as a left accent bar (any team color) */
+.banner-chip.accent { box-shadow: inset calc(4 * var(--u)) 0 0 var(--tc, var(--amber)); }
 .banner-chip.leaving { animation: chipfade 260ms ease-in forwards; }
 @keyframes chippop { from { transform: translateY(calc(-8 * var(--u))) scale(0.9); opacity: 0; } to { transform: none; opacity: 1; } }
 @keyframes chipfade { to { opacity: 0; transform: translateY(calc(-4 * var(--u))); } }
@@ -422,8 +443,7 @@ html, body {
 @keyframes feedin { from { transform: translateX(calc(30 * var(--u))); opacity: 0; } to { transform: none; opacity: 1; } }
 @keyframes feedout { to { opacity: 0; transform: translateX(calc(14 * var(--u))); } }
 .feed-row .who { white-space: nowrap; }  /* names are pre-bounded to 10 chars by shortName(); show in full, never ellipsize */
-.feed-row .who.red { color: var(--red); }
-.feed-row .who.blue { color: var(--blue); }
+.feed-row .who { color: var(--tc, var(--paper)); }
 .feed-row .glyph { color: var(--paper); font-size: calc(9 * var(--u)); }
 .feed-row .badge {
   font-family: var(--finefont);
@@ -565,8 +585,7 @@ html, body {
   text-overflow: ellipsis;
   max-width: 45%;
 }
-.fpv-name.red { color: var(--red); }
-.fpv-name.blue { color: var(--blue); }
+.fpv-name { color: var(--tc, var(--paper)); }
 .fpv-hp {
   display: inline-flex;
   gap: calc(2 * var(--u));
@@ -702,16 +721,12 @@ html, body {
 }
 /* kill ticks are short and colored by the KILLER's team (a red tick = red
    scored a kill); team-kills and unattributable pileups stay neutral. */
-.beat-marker.kill { background: var(--paper-dim); height: calc(6 * var(--u)); }
-.beat-marker.kill.red { background: var(--red); }
-.beat-marker.kill.blue { background: var(--blue); }
+.beat-marker.kill { background: var(--tc, var(--paper-dim)); height: calc(6 * var(--u)); }
 /* flag beats are colored by the FLAG's team, matching the banners ("RED
    HEART TAKEN"): steal = full tick with a flag head, return = same tick
    dimmed (the heart snapped home), capture = the chunky match point in the
    CAPTURING team's color. */
-.beat-marker.steal { background: var(--amber); }
-.beat-marker.steal.red { background: var(--red); }
-.beat-marker.steal.blue { background: var(--blue); }
+.beat-marker.steal { background: var(--tc, var(--amber)); }
 .beat-marker.steal::after {
   content: '';
   position: absolute;
@@ -720,11 +735,8 @@ html, body {
   height: calc(3 * var(--u));
   background: inherit;
 }
-.beat-marker.return { background: var(--paper-dim); opacity: 0.45; }
-.beat-marker.return.red { background: var(--red); }
-.beat-marker.return.blue { background: var(--blue); }
-.beat-marker.capture { background: var(--red); width: calc(3 * var(--u)); height: calc(12 * var(--u)); }
-.beat-marker.capture.blue { background: var(--blue); }
+.beat-marker.return { background: var(--tc, var(--paper-dim)); opacity: 0.45; }
+.beat-marker.capture { background: var(--tc, var(--amber)); width: calc(3 * var(--u)); height: calc(12 * var(--u)); }
 /* winner cap: a flat block just past the track's right end, colored by the
    verdict (split for a draw), so the scrubber itself says how this ends. */
 .scrub-win {
@@ -736,9 +748,7 @@ html, body {
   height: calc(12 * var(--u));
   z-index: 3;
 }
-.scrub-win.red { display: block; background: var(--red); }
-.scrub-win.blue { display: block; background: var(--blue); }
-.scrub-win.draw { display: block; background: linear-gradient(180deg, var(--red) 50%, var(--blue) 50%); }
+.scrub-win.show { display: block; background: var(--tc, var(--paper-dim)); }
 /* verdict chip in the transport bar: "RED WINS" next to the tick clock. */
 .win-chip {
   display: none;
@@ -748,9 +758,7 @@ html, body {
   white-space: nowrap;
 }
 .win-chip.show { display: inline; }
-.win-chip.red { color: var(--red); }
-.win-chip.blue { color: var(--blue); }
-.win-chip.draw { color: var(--paper-dim); }
+.win-chip.show { color: var(--tc, var(--paper-dim)); }
 
 .tbar {
   display: flex;
@@ -845,9 +853,7 @@ html, body {
 }
 #endcard.on { display: flex; animation: cardfade 420ms ease-out; }
 @keyframes cardfade { from { opacity: 0; } to { opacity: 1; } }
-#endcard .headline.red { color: var(--red); }
-#endcard .headline.blue { color: var(--blue); }
-#endcard .headline.draw { color: var(--ghost); }
+#endcard .headline { color: var(--tc, var(--ghost)); }
 #endcard .headline {
   font-family: var(--pixfont);
   font-size: calc(30 * var(--u));
@@ -880,8 +886,15 @@ html, body {
 #endcard .how {
   margin-top: calc(-4 * var(--u));
 }
-/* match-stats scoreboard — one panel per team, winner ringed in amber */
-#endcard .ec-teams { display: flex; gap: calc(22 * var(--u)); align-items: stretch; }
+/* match-stats scoreboard — one panel per team, winner ringed in amber.
+   Wraps + centers so a 3rd/4th team panel folds to a second row. */
+#endcard .ec-teams {
+  display: flex;
+  gap: calc(22 * var(--u));
+  align-items: stretch;
+  flex-wrap: wrap;
+  justify-content: center;
+}
 #endcard .ec-team {
   width: calc(215 * var(--u));
   padding: calc(9 * var(--u)) calc(12 * var(--u));
@@ -904,12 +917,22 @@ html, body {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-#endcard .ec-tname.red { color: var(--red); }
-#endcard .ec-tname.blue { color: var(--blue); }
+#endcard .ec-tname { color: var(--tc, var(--paper)); }
 #endcard .ec-lives { display: flex; align-items: baseline; gap: calc(6 * var(--u)); font-family: var(--pixfont); }
-#endcard .fl-num { font-size: calc(22 * var(--u)); }
-#endcard .fl-num.red { color: var(--red); }
-#endcard .fl-num.blue { color: var(--blue); }
+#endcard .fl-num { font-size: calc(22 * var(--u)); color: var(--tc, var(--paper)); }
+/* mixed-team policy subheader: groups a team panel's rows by policy when a
+   team seats more than one (CTF-Doubles: two policies per side) */
+#endcard .ec-pol {
+  font-family: var(--finefont);
+  font-size: calc(7.5 * var(--u));
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--paper-dim);
+  margin-top: calc(3 * var(--u));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 #endcard .fl-cap {
   font-family: var(--finefont);
   font-size: calc(8 * var(--u));
@@ -993,6 +1016,12 @@ html, body {
 }
 #endcard .ec-heart.red { width: calc(14.5 * var(--u)); background-image: url("data:image/png;base64,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"); }
 #endcard .ec-heart.blue { width: calc(15 * var(--u)); background-image: url("data:image/png;base64,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"); }
+/* teams with no baked heart art (green/yellow) get a tinted glyph instead */
+#endcard .ec-heart-glyph {
+  color: var(--tc, var(--amber));
+  font-size: calc(12 * var(--u));
+  line-height: 1;
+}
 /* loop countdown — present only while the server holds the end segment */
 #endcard .ec-replay {
   font-family: var(--finefont);
@@ -1063,21 +1092,14 @@ body[data-embed] #board { top: 0; height: 100%; }
   <div id="grain" class="amb"></div>
 
   <div id="chrome">
+    <!-- Plates are generated per active team (2-4) by ensureScorebug(): one
+         per side for classic red/blue, two stacked per side for 3-4 teams.
+         Each plate holds a flag icon, one inline NAME · Lives · count row
+         (mirrored on the right so names flank the clock), and the squad pip
+         strip (one pip per player: alive / down / eliminated; clickable →
+         POV lens). -->
     <div id="scorebug">
-      <div class="plate red" data-team="red">
-        <div class="flagicon" id="flag-red"></div>
-        <div class="team-id">
-          <!-- One inline row: NAME · Lives · count (e.g. "RED Lives 32"). -->
-          <div class="lives-line">
-            <span class="team-name" id="name-red">RED</span>
-            <span class="lives-label">Lives</span>
-            <span class="lives-num" id="lives-red">—</span>
-          </div>
-          <!-- one pip per player (8): alive / down / eliminated. The roster IS
-               the counter (Valorant/R6/Apex). Clickable → POV lens. -->
-          <div class="squad" id="squad-red"></div>
-        </div>
-      </div>
+      <div class="plates" id="plates-l"></div>
 
       <div class="clock-col">
         <div class="clock amb" id="clock">
@@ -1090,18 +1112,7 @@ body[data-embed] #board { top: 0; height: 100%; }
         </div>
       </div>
 
-      <div class="plate blue" data-team="blue">
-        <div class="flagicon" id="flag-blue"></div>
-        <div class="team-id">
-          <!-- One inline row, mirrored: count · Lives · NAME ("32 Lives BLUE"). -->
-          <div class="lives-line">
-            <span class="team-name" id="name-blue">BLUE</span>
-            <span class="lives-label">Lives</span>
-            <span class="lives-num" id="lives-blue">—</span>
-          </div>
-          <div class="squad" id="squad-blue"></div>
-        </div>
-      </div>
+      <div class="plates" id="plates-r"></div>
     </div>
 
     <div id="mmwarn">Replay hash mismatch — showing recorded inputs</div>
@@ -1170,26 +1181,8 @@ body[data-embed] #board { top: 0; height: 100%; }
       <div class="headline" id="ec-headline">—</div>
       <div class="wincond" id="ec-wincond"></div>
       <div class="how" id="ec-how"></div>
-      <div class="ec-teams">
-        <div class="ec-team" id="ec-team-red">
-          <div class="ec-tname red" id="ec-tname-red">RED</div>
-          <div class="ec-lives">
-            <span class="fl-num red" id="ec-red">0</span>
-            <span class="fl-cap">Lives left</span>
-          </div>
-          <div class="ec-thead"><span>Player</span><span>K</span><span>D</span><span>Clstr</span><span>Cap</span></div>
-          <div id="ec-rows-red"></div>
-        </div>
-        <div class="ec-team" id="ec-team-blue">
-          <div class="ec-tname blue" id="ec-tname-blue">BLUE</div>
-          <div class="ec-lives">
-            <span class="fl-num blue" id="ec-blue">0</span>
-            <span class="fl-cap">Lives left</span>
-          </div>
-          <div class="ec-thead"><span>Player</span><span>K</span><span>D</span><span>Clstr</span><span>Cap</span></div>
-          <div id="ec-rows-blue"></div>
-        </div>
-      </div>
+      <!-- One stats panel per active team, generated by ensureEndcardTeams(). -->
+      <div class="ec-teams" id="ec-teams"></div>
       <div class="ec-replay" id="ec-replay"></div>
     </div>
   </div>
@@ -1206,6 +1199,28 @@ body[data-embed] #board { top: 0; height: 100%; }
 
   // ---- palette (mirrors board tints so chrome matches the arena) ----
   var RED = '#e0523a', BLUE = '#3f7cc4', AMBER = '#e8a33d', PAPER = '#f2e8d8';
+  var GREEN = '#45a85e', YELLOW = '#ddc531';
+
+  // ---- teams (2-4, data-driven) --------------------------------------------
+  // The chrome renders whatever teams the state frame carries, in this
+  // canonical display order: index 0/2 seat on the LEFT of the clock, 1/3 on
+  // the RIGHT — so classic red/blue keeps its exact old layout and a 4-team
+  // game reads red+green vs blue+yellow. Colors must stay in sync with the
+  // CSS --red/--blue/--green/--yellow team utility classes.
+  var TEAM_ORDER = ['red', 'blue', 'green', 'yellow'];
+  var TEAM_COLOR = { red: RED, blue: BLUE, green: GREEN, yellow: YELLOW };
+  function teamCol(team) { return TEAM_COLOR[team] || null; }
+  function activeTeams(s) {
+    var keys = (s && s.teams) ? Object.keys(s.teams) : [];
+    if (!keys.length) return ['red', 'blue'];
+    keys.sort(function (a, b) {
+      var ia = TEAM_ORDER.indexOf(a), ib = TEAM_ORDER.indexOf(b);
+      ia = ia < 0 ? TEAM_ORDER.length : ia;
+      ib = ib < 0 ? TEAM_ORDER.length : ib;
+      return ia - ib || (a < b ? -1 : a > b ? 1 : 0);
+    });
+    return keys;
+  }
 
   // ---- eye-level cog art for the EYES PiP billboards ----
   // The PiP is an eye-level raycaster, so its billboards need art drawn from a
@@ -1352,8 +1367,6 @@ body[data-embed] #board { top: 0; height: 100%; }
       '</svg>' +
       '<div class="carrier-tag"></div>';
   }
-  buildFlag($('flag-red'), RED);
-  buildFlag($('flag-blue'), BLUE);
 
   // ---- speed chips ----
   var speedChipsEl = $('speedchips');
@@ -1471,7 +1484,23 @@ body[data-embed] #board { top: 0; height: 100%; }
   // there — a broadcast win-probability graph, not a line that grows as it plays.
   function ingestLeadSeries(s) {
     if (!s.lead || fullLeadSeries) return;
-    fullLeadSeries = s.lead.map(function (p) { return { t: p[0], diff: p[1] }; });
+    if (Array.isArray(s.lead)) {
+      // Legacy shape: [[tick, redLives - blueLives], …] — a two-team diff.
+      fullLeadSeries = {
+        teams: ['red', 'blue'],
+        isDiff: true,
+        pts: s.lead.map(function (p) { return { t: p[0], vals: [p[1]] }; })
+      };
+    } else {
+      // Team-keyed shape: {teams: [name…], pts: [[tick, lives…], …]}.
+      fullLeadSeries = {
+        teams: s.lead.teams || ['red', 'blue'],
+        isDiff: false,
+        pts: (s.lead.pts || []).map(function (p) {
+          return { t: p[0], vals: p.slice(1) };
+        })
+      };
+    }
     momentumDirty = true;
   }
 
@@ -1491,13 +1520,19 @@ body[data-embed] #board { top: 0; height: 100%; }
   // events re-firing over these is harmless.
   var beatTimeline = null;
   function otherTeam(t) { return t === 'red' ? 'blue' : t === 'blue' ? 'red' : ''; }
+  function captureTeam(s, e) {
+    // The CAPTURING team: the capturer's own team when the roster can name it,
+    // else (two-team frames without a `by` slot) the flag's opponent.
+    var byTeam = e.by != null ? teamOf(s, e.by) : null;
+    return byTeam || otherTeam(e.flag);
+  }
   function ingestBeats(s) {
     if (!s.beats || beatTimeline) return;
     beatTimeline = s.beats;
     for (var i = 0; i < beatTimeline.length; i++) {
       var b = beatTimeline[i];
       if (b.k === 'steal' || b.k === 'return') markBeat(b.t, b.k, b.flag);
-      else if (b.k === 'capture') markBeat(b.t, 'capture', otherTeam(b.flag));
+      else if (b.k === 'capture') markBeat(b.t, 'capture', captureTeam(s, b));
       else if (b.k === 'gameover') setVerdict(b);
     }
   }
@@ -1540,11 +1575,11 @@ body[data-embed] #board { top: 0; height: 100%; }
   // fallback by the game-over state (older servers that ship no beats still
   // get the verdict once playback reaches the end). Idempotent.
   function setVerdict(v) {
-    var cls = v.draw ? 'draw' : (v.winner === 'red' || v.winner === 'blue' ? v.winner : '');
+    var cls = v.draw ? 'draw' : (v.winner || '');
     if (!cls) return;
     var label = v.draw ? 'DRAW' : v.winner.toUpperCase() + ' WINS';
     var cap = $('scrub-win');
-    cap.className = 'scrub-win ' + cls;
+    cap.className = 'scrub-win show ' + cls;
     cap.title = label;
     var chip = $('win-chip');
     chip.textContent = label;
@@ -1615,61 +1650,114 @@ body[data-embed] #board { top: 0; height: 100%; }
     });
   }
 
+  // Rebuild the scorebug plates when the active team set changes (once per
+  // match in practice). Plates alternate sides in TEAM_ORDER — index 0/2 left,
+  // 1/3 right — so both team names stay innermost, flanking the clock.
+  var sbTeams = null;
+  function ensureScorebug(teams) {
+    var key = teams.join(',');
+    if (sbTeams === key) return;
+    sbTeams = key;
+    var sides = [$('plates-l'), $('plates-r')];
+    sides[0].innerHTML = '';
+    sides[1].innerHTML = '';
+    teams.forEach(function (team, i) {
+      var plate = document.createElement('div');
+      plate.className = 'plate ' + team + ' ' + (i % 2 === 0 ? 'side-l' : 'side-r');
+      plate.setAttribute('data-team', team);
+      plate.innerHTML =
+        '<div class="flagicon" id="flag-' + team + '"></div>' +
+        '<div class="team-id">' +
+        '<div class="lives-line">' +
+        '<span class="team-name" id="name-' + team + '">' + team.toUpperCase() + '</span>' +
+        '<span class="lives-label">Lives</span>' +
+        '<span class="lives-num" id="lives-' + team + '">—</span>' +
+        '</div>' +
+        '<div class="squad" id="squad-' + team + '"></div>' +
+        '</div>';
+      sides[i % 2].appendChild(plate);
+      buildFlag($('flag-' + team), teamCol(team) || AMBER);
+    });
+  }
+
   function renderScorebug(s) {
+    var teams = activeTeams(s);
+    ensureScorebug(teams);
     var tr = s.teams || {};
-    var red = tr.red || {}, blue = tr.blue || {};
-    var rl = red.lives || 0, bl = blue.lives || 0;
-
-    setName('name-red', teamName(s, 'red', 'RED'));
-    setName('name-blue', teamName(s, 'blue', 'BLUE'));
-
-    $('lives-red').textContent = rl;
-    $('lives-blue').textContent = bl;
+    var lives = {};
+    teams.forEach(function (team) {
+      lives[team] = (tr[team] && tr[team].lives) || 0;
+    });
 
     // squad pips per team (one per player), sorted by stable join slot
-    var reds = [], blues = [];
-    (s.roster || []).forEach(function (p) { (p.team === 'red' ? reds : blues).push(p); });
-    reds.sort(function (a, b) { return a.s - b.s; });
-    blues.sort(function (a, b) { return a.s - b.s; });
-    renderSquad($('squad-red'), reds, s.pov);
-    renderSquad($('squad-blue'), blues, s.pov);
+    var byTeam = {};
+    teams.forEach(function (team) { byTeam[team] = []; });
+    (s.roster || []).forEach(function (p) {
+      if (byTeam[p.team]) byTeam[p.team].push(p);
+    });
 
-    updateFlag('flag-red', 'red', red, s);
-    updateFlag('flag-blue', 'blue', blue, s);
+    teams.forEach(function (team) {
+      setName('name-' + team, teamName(s, team, team.toUpperCase()));
+      $('lives-' + team).textContent = lives[team];
+      var players = byTeam[team].sort(function (a, b) { return a.s - b.s; });
+      renderSquad($('squad-' + team), players, s.pov);
+      updateFlag('flag-' + team, team, tr[team] || {}, s);
+      // leader pulse when this team leads EVERY rival by >= 3
+      var bestRival = -Infinity;
+      teams.forEach(function (o) {
+        if (o !== team) bestRival = Math.max(bestRival, lives[o]);
+      });
+      var plate = document.querySelector('.plate[data-team="' + team + '"]');
+      if (plate) {
+        plate.classList.toggle(
+          'leader',
+          lives[team] - bestRival >= 3 && s.ph === 'playing'
+        );
+      }
+    });
+  }
 
-    // leader pulse when lead >= 3
-    var rp = document.querySelector('.plate.red');
-    var bp = document.querySelector('.plate.blue');
-    rp.classList.toggle('leader', rl - bl >= 3 && s.ph === 'playing');
-    bp.classList.toggle('leader', bl - rl >= 3 && s.ph === 'playing');
+  function stripSeatSuffix(name) {
+    // Strip the per-seat " (N)" suffix the hosted runtime appends to the SAME
+    // policy's multiple connections ("softmaxwell (2)", "softmaxwell (7)"…) so
+    // every seat of one policy collapses to a single shared identity. The join
+    // path converts spaces to underscores, so the separator usually reads
+    // "_(N)" by the time it is a player address. The killfeed shows the full
+    // per-seat name (it colors names per event and never compares them).
+    // Distinct local self-play names (Player1, Player2) carry no such suffix,
+    // so they stay distinct.
+    return String(name || '').replace(/[\s_]*\(\d+\)\s*$/, '');
+  }
+
+  function teamPolicies(s, team) {
+    // The distinct policy identities seated on a team, in join-slot order.
+    // Prefer the server's own list (state.teams[team].policies); derive from
+    // the roster's per-seat policy (p.pol, falling back to a name strip) when
+    // a frame predates it.
+    var tr = s.teams && s.teams[team];
+    if (tr && tr.policies && tr.policies.length) return tr.policies;
+    var seen = [];
+    (s.roster || []).forEach(function (p) {
+      if (p.team !== team) return;
+      var pol = p.pol != null ? p.pol : stripSeatSuffix(p.name);
+      if (pol && seen.indexOf(pol) < 0) seen.push(pol);
+    });
+    return seen;
   }
 
   function teamName(s, team, fallback) {
     // The scorebug headline is the POLICY name, not the color (the plate color +
-    // board already say which side is which). In a hosted league every player on
-    // a side is the SAME policy, so the whole team shares one name — show it.
-    // In local self-play each baseline bot has a distinct generated name
-    // (Player1, Player2, …) with no shared identity, so fall back to the color
-    // label rather than pinning the whole team to one arbitrary bot.
-    if (!s.roster) return fallback;
-    var name = null, mixed = false;
-    for (var i = 0; i < s.roster.length; i++) {
-      var p = s.roster[i];
-      if (p.team !== team) continue;
-      // Strip the per-seat " (N)" suffix the hosted runtime appends to the SAME
-      // policy's multiple connections ("softmaxwell (2)", "softmaxwell (7)"…) so
-      // every seat of one policy collapses to a single shared name here. The
-      // killfeed shows the full per-seat name (it colors names per event and
-      // never compares them); the headline needs one shared identity, and this
-      // suffix was tripping the "mixed" check and pinning the header to RED/BLUE.
-      // Distinct local self-play names (Player1, Player2) carry no such suffix,
-      // so they still differ and correctly fall back to the color.
-      var nm = String(p.name || '').replace(/\s*\(\d+\)\s*$/, '');
-      if (name === null) name = nm;
-      else if (nm !== name) { mixed = true; break; }
+    // board already say which side is which). In a hosted league a side seats
+    // one policy — show it — or, in CTF-Doubles, exactly two: headline BOTH
+    // ("A + B"). Local self-play seats a distinct bot per seat (3+ "policies"),
+    // which carries no shared identity, so fall back to the color label rather
+    // than pinning the team to one arbitrary bot.
+    var pols = teamPolicies(s, team);
+    if (pols.length === 1 && pols[0]) return teamHeadline(pols[0]);
+    if (pols.length === 2) {
+      return teamHeadline(pols[0]) + ' + ' + teamHeadline(pols[1]);
     }
-    if (name === null || mixed || name === '') return fallback;
-    return teamHeadline(name);
+    return fallback;
   }
   function teamHeadline(n) {
     // Format a policy identity for the scorebug headline: drop any host:port
@@ -2001,8 +2089,11 @@ body[data-embed] #board { top: 0; height: 100%; }
         // POV change or scrub/loop: resync baseline, don't fire, drop stale splat.
         fpvSplat = null;
       } else if (paint >= 0 && paint !== fpvPrev.paint && paint <= s.t) {
-        // A fresh paint hit landed on the POV seat → enemy paint hits the screen.
-        var enemyCol = self.team === 'red' ? BLUE : RED;
+        // A fresh paint hit landed on the POV seat → enemy paint hits the
+        // screen. With one rival team the paint is theirs; with 2-3 rivals the
+        // shooter is unknowable from this frame, so neutral amber stands in.
+        var rivals = activeTeams(s).filter(function (t) { return t !== self.team; });
+        var enemyCol = rivals.length === 1 ? (teamCol(rivals[0]) || AMBER) : AMBER;
         fpvSplat = makeSplat(paint, enemyCol);
       }
       fpvPrev.pov = s.pov;
@@ -2337,8 +2428,7 @@ body[data-embed] #board { top: 0; height: 100%; }
       var sh = shots[s];
       var pts = sh.pts || [];
       if (pts.length < 2) continue;
-      var team = sh.team === 'red' ? 'red' : (sh.team === 'blue' ? 'blue' : null);
-      var paint = team === 'red' ? RED : (team === 'blue' ? BLUE : AMBER);
+      var paint = teamCol(sh.team) || AMBER;
       // Age fade, with misses pre-aged so hits read brighter.
       var age = (sh.age || 0) + (sh.hit ? 0 : SHOT_MISS_AGE);
       var life = Math.max(0, 1 - age / SHOT_FX_TICKS);
@@ -2539,7 +2629,7 @@ body[data-embed] #board { top: 0; height: 100%; }
   // heart above; mates a paper outline ring. `dim` (0..1) applies depth shading.
   function drawFpvEntity(ctx, e, cx, feetY, figH, figW, dim) {
     dim = dim == null ? 1 : dim;
-    var baseCol = e.team === 'red' ? RED : (e.team === 'blue' ? BLUE : AMBER);
+    var baseCol = teamCol(e.team) || AMBER;
     var col = shade(baseCol, dim);
     if (e.k === 'item') {
       // Items rest on the floor: center the glyph a little above the contact point.
@@ -2823,7 +2913,7 @@ body[data-embed] #board { top: 0; height: 100%; }
 
     // hearts (behind players)
     (m.hearts || []).forEach(function (ht) {
-      var col = ht.team === 'red' ? RED : BLUE;
+      var col = teamCol(ht.team) || AMBER;
       var hx = px(ht.x), hy = py(ht.y);
       ctx.save();
       ctx.fillStyle = col;
@@ -2845,7 +2935,7 @@ body[data-embed] #board { top: 0; height: 100%; }
 
     // players: team-tinted dots; the POV seat gets an amber ring; carriers a pip
     (m.players || []).forEach(function (p) {
-      var col = p.team === 'red' ? RED : BLUE;
+      var col = teamCol(p.team) || PAPER;
       var x = px(p.x), y = py(p.y);
       var r = Math.max(2, H * (p.self ? 0.045 : 0.035));
       ctx.beginPath();
@@ -2883,7 +2973,7 @@ body[data-embed] #board { top: 0; height: 100%; }
       case 'kill': onKill(e, s); markBeat(e.t, 'kill', killMarkerTeam(e, s)); beatPulse(); break;
       case 'steal': onSteal(e, s); markBeat(e.t, 'steal', e.flag); beatPulse(); break;
       case 'return': onReturn(e, s); markBeat(e.t, 'return', e.flag); beatPulse(); break;
-      case 'capture': onCapture(e, s); markBeat(e.t, 'capture', otherTeam(e.flag)); beatPulse(); break;
+      case 'capture': onCapture(e, s); markBeat(e.t, 'capture', captureTeam(s, e)); beatPulse(); break;
       case 'respawn': /* board rematerialize handles this visually */ break;
       case 'gameover': /* end-card is state-driven */ break;
       case 'phase': /* clock caption handles phase */ break;
@@ -2935,16 +3025,15 @@ body[data-embed] #board { top: 0; height: 100%; }
 
   function onSteal(e, s) {
     var heartTeam = e.flag; // the team whose heart was TAKEN (e.flag is the legacy event field)
-    var thief = shortName(rosterName(s, e.by));
-    banner((heartTeam === 'red' ? 'RED' : 'BLUE') + ' HEART TAKEN', 'steal ' + (heartTeam + '-accent'));
+    banner(String(heartTeam).toUpperCase() + ' HEART TAKEN', 'steal accent ' + heartTeam);
   }
   function onReturn(e, s) {
     var heartTeam = e.flag;
-    banner((heartTeam === 'red' ? 'RED' : 'BLUE') + ' HEART RETURNED', 'returned ' + (heartTeam + '-accent'));
+    banner(String(heartTeam).toUpperCase() + ' HEART RETURNED', 'returned accent ' + heartTeam);
   }
   function onCapture(e, s) {
-    var byTeam = teamOf(s, e.by);
-    banner((byTeam === 'red' ? 'RED' : 'BLUE') + ' CAPTURES', 'wipe ' + (byTeam + '-accent'));
+    var byTeam = captureTeam(s, e);
+    banner(String(byTeam).toUpperCase() + ' CAPTURES', 'wipe accent ' + byTeam);
   }
 
   function teamOf(s, slot) {
@@ -3043,22 +3132,31 @@ body[data-embed] #board { top: 0; height: 100%; }
   var MOM_SVGNS = 'http://www.w3.org/2000/svg';
   var momentumSeen = {};            // tick -> true (dedup)
   var momentumDirty = true;         // rebuild the path only when a new tick lands
-  var fullLeadSeries = null;        // full-match [{t,diff}] shipped once by the server
+  var fullLeadSeries = null;        // full-match {teams, pts} shipped once by the server
+  var momentumTeams = null;         // team list backing the accumulated samples
   function recordMomentum(s) {
     if (fullLeadSeries) return;     // full curve already known; nothing to accumulate
     if (s.ph !== 'playing' && s.ph !== 'gameover') return;
-    if (momentumSeen[s.t]) return;  // deterministic replay: a tick's diff is fixed
+    if (momentumSeen[s.t]) return;  // deterministic replay: a tick's lives are fixed
     momentumSeen[s.t] = true;
+    var teams = activeTeams(s);
     var tr = s.teams || {};
-    var diff = ((tr.red && tr.red.lives) || 0) - ((tr.blue && tr.blue.lives) || 0);
-    momentumSamples.push({ t: s.t, diff: diff });
+    momentumTeams = teams;
+    momentumSamples.push({
+      t: s.t,
+      vals: teams.map(function (team) {
+        return (tr[team] && tr[team].lives) || 0;
+      })
+    });
     momentumDirty = true;
   }
   function renderMomentum() {
     var el = $('momentum');
     // Prefer the full precomputed series (spans the WHOLE timeline from frame 1);
     // fall back to accumulate-as-you-play only if the server didn't ship it.
-    var samples = fullLeadSeries || momentumSamples;
+    var norm = fullLeadSeries ||
+      { teams: momentumTeams || ['red', 'blue'], isDiff: false, pts: momentumSamples };
+    var samples = norm.pts;
     if (!lastState || !samples.length) { if (!samples.length) el.innerHTML = ''; return; }
     if (!momentumDirty && el.childNodes.length) return; // nothing new to draw
     momentumDirty = false;
@@ -3067,79 +3165,113 @@ body[data-embed] #board { top: 0; height: 100%; }
     // carries no signal, so dropping it just removes dead leading space).
     var st = Math.max(0, lastState.st || 0);
     var mx = Math.max(st + 1, lastState.mx || 1);
-
-    // Auto-scale to the match's ACTUAL peak lead so the swings fill the band
-    // (a fixed ±24 scale squashed every real game — a 5-life lead barely lifted
-    // off the midline). Each side of the even-lives midline scales on its OWN
-    // extreme, so the biggest Red lead touches the top edge and the deepest Blue
-    // lead touches the bottom — while 0 stays pinned at MID, keeping the red/blue
-    // shading split honest. Floor at 1 so a dead-even match never divides by zero.
-    var maxPos = 1, maxNeg = 1;
-    samples.forEach(function (m) {
-      if (m.diff > maxPos) maxPos = m.diff;
-      if (-m.diff > maxNeg) maxNeg = -m.diff;
-    });
-
-    // Sort by tick and build a STEP series across the full [0, mx] axis.
-    var pts = samples.slice().sort(function (a, b) { return a.t - b.t; });
     function xOf(t) { return Math.min(1, Math.max(0, (t - st) / (mx - st))) * VBW; }
-    function yOf(d) { // 0 → MID; peak Red → top, peak Blue → bottom (2px inset)
-      return d >= 0
-        ? MID - (d / maxPos) * (MID - 2)
-        : MID + (-d / maxNeg) * (MID - 2);
-    }
-    var line = '', k;
-    for (k = 0; k < pts.length; k++) {
-      var x = xOf(pts[k].t), y = yOf(pts[k].diff);
-      if (k === 0) line += 'M ' + x.toFixed(1) + ' ' + y.toFixed(1);
-      else line += ' H ' + x.toFixed(1) + ' V ' + y.toFixed(1); // step: hold then step
-    }
-    // Shaded area drops from the line to the midline and closes back.
-    var lastX = xOf(pts[pts.length - 1].t);
-    var area = line + ' L ' + lastX.toFixed(1) + ' ' + MID + ' L ' + xOf(pts[0].t).toFixed(1) + ' ' + MID + ' Z';
+    var pts = samples.slice().sort(function (a, b) { return a.t - b.t; });
 
     el.setAttribute('viewBox', '0 0 ' + VBW + ' ' + VBH);
     el.innerHTML = '';
-    var defs = document.createElementNS(MOM_SVGNS, 'defs');
-    // Split fill: red above the midline, blue below — one gradient, hard stop.
-    // userSpaceOnUse so the hard 50/50 split lands exactly on the midline
-    // (y=MID) — red fills the region above it, blue below, wherever the curve is.
-    defs.innerHTML =
-      '<linearGradient id="momfill" gradientUnits="userSpaceOnUse" ' +
-        'x1="0" y1="0" x2="0" y2="' + VBH + '">' +
-      '<stop offset="0%" stop-color="' + RED + '" stop-opacity="0.8"/>' +
-      '<stop offset="50%" stop-color="' + RED + '" stop-opacity="0.28"/>' +
-      '<stop offset="50%" stop-color="' + BLUE + '" stop-opacity="0.28"/>' +
-      '<stop offset="100%" stop-color="' + BLUE + '" stop-opacity="0.8"/>' +
-      '</linearGradient>';
-    el.appendChild(defs);
-    // dark backing so the shading reads against a consistent ground, not the
+    // dark backing so the graph reads against a consistent ground, not the
     // flagstone floor showing through the transport gradient.
     var bg = document.createElementNS(MOM_SVGNS, 'rect');
     bg.setAttribute('x', 0); bg.setAttribute('y', 0);
     bg.setAttribute('width', VBW); bg.setAttribute('height', VBH);
     bg.setAttribute('fill', 'rgba(11,7,4,0.55)');
     el.appendChild(bg);
-    // even-lives midline
-    var mid = document.createElementNS(MOM_SVGNS, 'line');
-    mid.setAttribute('x1', 0); mid.setAttribute('y1', MID);
-    mid.setAttribute('x2', VBW); mid.setAttribute('y2', MID);
-    mid.setAttribute('stroke', 'rgba(242,232,216,0.22)');
-    mid.setAttribute('stroke-width', '0.8');
-    el.appendChild(mid);
-    var areaEl = document.createElementNS(MOM_SVGNS, 'path');
-    areaEl.setAttribute('d', area);
-    areaEl.setAttribute('fill', 'url(#momfill)');
-    areaEl.setAttribute('stroke', 'none');
-    el.appendChild(areaEl);
-    var lineEl = document.createElementNS(MOM_SVGNS, 'path');
-    lineEl.setAttribute('d', line);
-    lineEl.setAttribute('fill', 'none');
-    lineEl.setAttribute('stroke', PAPER);
-    lineEl.setAttribute('stroke-width', '1.5');
-    lineEl.setAttribute('stroke-opacity', '0.95');
-    lineEl.setAttribute('vector-effect', 'non-scaling-stroke');
-    el.appendChild(lineEl);
+
+    function stepPath(valueOf) {
+      // A step series across the full [0, mx] axis: hold, then step.
+      var d = '';
+      for (var k = 0; k < pts.length; k++) {
+        var x = xOf(pts[k].t), y = valueOf(pts[k]);
+        if (k === 0) d += 'M ' + x.toFixed(1) + ' ' + y.toFixed(1);
+        else d += ' H ' + x.toFixed(1) + ' V ' + y.toFixed(1);
+      }
+      return d;
+    }
+    function addPath(d, stroke, width, opacity, fill) {
+      var p = document.createElementNS(MOM_SVGNS, 'path');
+      p.setAttribute('d', d);
+      p.setAttribute('fill', fill || 'none');
+      if (stroke) {
+        p.setAttribute('stroke', stroke);
+        p.setAttribute('stroke-width', width);
+        p.setAttribute('stroke-opacity', opacity);
+        p.setAttribute('vector-effect', 'non-scaling-stroke');
+      } else {
+        p.setAttribute('stroke', 'none');
+      }
+      el.appendChild(p);
+    }
+
+    if (norm.teams.length === 2) {
+      // TWO teams: the classic lead diff — a single step line around an
+      // even-lives midline, shaded in the leading team's color above/below.
+      var colTop = teamCol(norm.teams[0]) || RED;
+      var colBot = teamCol(norm.teams[1]) || BLUE;
+      function diffOf(m) { return norm.isDiff ? m.vals[0] : m.vals[0] - m.vals[1]; }
+      // Auto-scale each side of the midline on its OWN extreme so the biggest
+      // lead touches the band edge while 0 stays pinned at MID, keeping the
+      // shading split honest. Floor at 1 so a dead-even match never divides
+      // by zero.
+      var maxPos = 1, maxNeg = 1;
+      pts.forEach(function (m) {
+        var d = diffOf(m);
+        if (d > maxPos) maxPos = d;
+        if (-d > maxNeg) maxNeg = -d;
+      });
+      function yOf(m) {
+        var d = diffOf(m);
+        return d >= 0
+          ? MID - (d / maxPos) * (MID - 2)
+          : MID + (-d / maxNeg) * (MID - 2);
+      }
+      var defs = document.createElementNS(MOM_SVGNS, 'defs');
+      // Split fill: first team above the midline, second below — one gradient,
+      // hard stop. userSpaceOnUse so the 50/50 split lands exactly on y=MID.
+      defs.innerHTML =
+        '<linearGradient id="momfill" gradientUnits="userSpaceOnUse" ' +
+          'x1="0" y1="0" x2="0" y2="' + VBH + '">' +
+        '<stop offset="0%" stop-color="' + colTop + '" stop-opacity="0.8"/>' +
+        '<stop offset="50%" stop-color="' + colTop + '" stop-opacity="0.28"/>' +
+        '<stop offset="50%" stop-color="' + colBot + '" stop-opacity="0.28"/>' +
+        '<stop offset="100%" stop-color="' + colBot + '" stop-opacity="0.8"/>' +
+        '</linearGradient>';
+      el.appendChild(defs);
+      // even-lives midline
+      var mid = document.createElementNS(MOM_SVGNS, 'line');
+      mid.setAttribute('x1', 0); mid.setAttribute('y1', MID);
+      mid.setAttribute('x2', VBW); mid.setAttribute('y2', MID);
+      mid.setAttribute('stroke', 'rgba(242,232,216,0.22)');
+      mid.setAttribute('stroke-width', '0.8');
+      el.appendChild(mid);
+      var line = stepPath(yOf);
+      // Shaded area drops from the line to the midline and closes back.
+      var lastX = xOf(pts[pts.length - 1].t);
+      var area = line + ' L ' + lastX.toFixed(1) + ' ' + MID +
+        ' L ' + xOf(pts[0].t).toFixed(1) + ' ' + MID + ' Z';
+      addPath(area, null, 0, 0, 'url(#momfill)');
+      addPath(line, PAPER, '1.5', '0.95');
+    } else {
+      // THREE-FOUR teams: no scalar lead exists, so draw one team-colored
+      // lives line per team on a shared 0..peak scale — the graph reads as
+      // "who still has an army" instead of a two-sided tug of war.
+      var peak = 1;
+      pts.forEach(function (m) {
+        m.vals.forEach(function (v) { if (v > peak) peak = v; });
+      });
+      var base = document.createElementNS(MOM_SVGNS, 'line');
+      base.setAttribute('x1', 0); base.setAttribute('y1', VBH - 2);
+      base.setAttribute('x2', VBW); base.setAttribute('y2', VBH - 2);
+      base.setAttribute('stroke', 'rgba(242,232,216,0.22)');
+      base.setAttribute('stroke-width', '0.8');
+      el.appendChild(base);
+      norm.teams.forEach(function (team, ti) {
+        var line = stepPath(function (m) {
+          return (VBH - 2) - ((m.vals[ti] || 0) / peak) * (VBH - 4);
+        });
+        addPath(line, teamCol(team) || PAPER, '1.5', '0.9');
+      });
+    }
   }
 
   // ============================================================
@@ -3147,16 +3279,24 @@ body[data-embed] #board { top: 0; height: 100%; }
   //  stats, held on screen by the server for ~10s before a looping restart.
   //  Reads isDraw BEFORE winner (F4); names the key (F3).
   // ============================================================
-  function endcardWinCondition(o) {
+  function overLives(o, team) {
+    // A team's final lives from the verdict frame: the team-keyed map when
+    // present, else the legacy red/blue scalars.
+    if (o.teams && o.teams[team]) return o.teams[team].lives || 0;
+    return team === 'red' ? (o.redLives || 0) : team === 'blue' ? (o.blueLives || 0) : 0;
+  }
+
+  function endcardWinCondition(o, teams) {
     // The condition CHIP: how the match ended, in two or three words.
     if (o.draw) return o.timeLimit ? 'TIME LIMIT — DRAW' : 'DRAW';
+    var losers = teams.filter(function (t) { return t !== o.winner; });
+    var winL = overLives(o, o.winner);
+    var bestLoser = 0;
+    losers.forEach(function (t) { bestLoser = Math.max(bestLoser, overLives(o, t)); });
     if (o.timeLimit) {
-      var winL = o.winner === 'red' ? o.redLives : o.blueLives;
-      var loseL = o.winner === 'red' ? o.blueLives : o.redLives;
-      return winL !== loseL ? 'TIME LIMIT — LIVES TIEBREAK' : 'TIME LIMIT — HEART PROGRESS';
+      return winL !== bestLoser ? 'TIME LIMIT — LIVES TIEBREAK' : 'TIME LIMIT — HEART PROGRESS';
     }
-    var loserLives = o.winner === 'red' ? o.blueLives : o.redLives;
-    return loserLives <= 0 ? 'ELIMINATION' : 'HEART CAPTURE';
+    return bestLoser <= 0 ? 'ELIMINATION' : 'HEART CAPTURE';
   }
 
   function endcardOrder(a, b) {
@@ -3172,21 +3312,37 @@ body[data-embed] #board { top: 0; height: 100%; }
       (count > 1 ? '·' + count : '') + '</span>';
   }
 
+  function capturedHeartHtml(s, team) {
+    // The Cap column renders the captured heart itself. With two teams that is
+    // THE enemy heart (its baked pixel art); with more, no single enemy exists,
+    // so a neutral tinted glyph stands in.
+    var teams = activeTeams(s);
+    if (teams.length === 2) {
+      var enemyHeart = teams[0] === team ? teams[1] : teams[0];
+      if (enemyHeart === 'red' || enemyHeart === 'blue') {
+        return '<span class="ec-heart ' + enemyHeart + '" title="Captured the enemy heart"></span>';
+      }
+    }
+    return '<span class="ec-heart-glyph" title="Captured an enemy heart">♥</span>';
+  }
+
   function renderEndcardRows(s, team, el, mvpSlot) {
     // Final per-player stat lines, top killer first. The MVP (winning team's
     // best line) reads in amber — no star prefix, it would break the name
     // column's alignment. Clstr counts grenade/spray multi-kill events; the
     // Cap column renders the captured enemy heart itself; a dagger icon marks
-    // teammate kills.
+    // teammate kills. A mixed team (2+ policies) groups its rows under policy
+    // subheaders so each policy's contribution reads separately.
     var rows = (s.roster || []).filter(function (p) { return p.team === team; })
       .slice().sort(endcardOrder);
-    var enemyHeart = team === 'red' ? 'blue' : 'red';
+    var pols = teamPolicies(s, team);
+    var grouped = pols.length > 1 && pols.length <= 4;
     var html = '';
-    rows.forEach(function (p) {
+    function rowHtml(p) {
       var mvp = mvpSlot != null && p.s === mvpSlot;
       var marks = endcardBadge('bs', p.tk, 'Backstab — killed a teammate');
       var cluster = (p.mk2 || 0) + (p.mk3 || 0);
-      html += '<div class="ec-row' + (mvp ? ' mvp' : '') + '">' +
+      return '<div class="ec-row' + (mvp ? ' mvp' : '') + '">' +
         '<span class="pcell">' +
         '<span class="pname">' + esc(shortName(rosterName(s, p.s))) + '</span>' +
         marks +
@@ -3194,12 +3350,46 @@ body[data-embed] #board { top: 0; height: 100%; }
         '<span class="n">' + (p.k || 0) + '</span>' +
         '<span class="n">' + (p.d || 0) + '</span>' +
         '<span class="n clstr">' + (cluster > 0 ? cluster : '') + '</span>' +
-        '<span class="n cap">' + (p.cap > 0
-          ? '<span class="ec-heart ' + enemyHeart + '" title="Captured the enemy heart"></span>'
-          : '') + '</span>' +
+        '<span class="n cap">' + (p.cap > 0 ? capturedHeartHtml(s, team) : '') + '</span>' +
         '</div>';
-    });
+    }
+    if (grouped) {
+      pols.forEach(function (pol) {
+        html += '<div class="ec-pol">' + esc(teamHeadline(pol)) + '</div>';
+        rows.forEach(function (p) {
+          var pp = p.pol != null ? p.pol : stripSeatSuffix(p.name);
+          if (pp === pol) html += rowHtml(p);
+        });
+      });
+    } else {
+      rows.forEach(function (p) { html += rowHtml(p); });
+    }
     el.innerHTML = html;
+  }
+
+  // Rebuild the endcard's per-team stat panels when the active team set
+  // changes (once per match in practice): one panel per team, in display order.
+  var ecTeams = null;
+  function ensureEndcardTeams(teams) {
+    var key = teams.join(',');
+    if (ecTeams === key) return;
+    ecTeams = key;
+    var wrap = $('ec-teams');
+    wrap.innerHTML = '';
+    teams.forEach(function (team) {
+      var el = document.createElement('div');
+      el.className = 'ec-team';
+      el.id = 'ec-team-' + team;
+      el.innerHTML =
+        '<div class="ec-tname ' + team + '" id="ec-tname-' + team + '">' + team.toUpperCase() + '</div>' +
+        '<div class="ec-lives">' +
+        '<span class="fl-num ' + team + '" id="ec-' + team + '">0</span>' +
+        '<span class="fl-cap">Lives left</span>' +
+        '</div>' +
+        '<div class="ec-thead"><span>Player</span><span>K</span><span>D</span><span>Clstr</span><span>Cap</span></div>' +
+        '<div id="ec-rows-' + team + '"></div>';
+      wrap.appendChild(el);
+    });
   }
 
   function renderEndcard(s) {
@@ -3207,6 +3397,8 @@ body[data-embed] #board { top: 0; height: 100%; }
     if (!s.over) return;
     card.classList.add('on'); // own the frame at GameOver (§8) — before either verdict branch
     var o = s.over;
+    var teams = activeTeams(s);
+    ensureEndcardTeams(teams);
 
     // The loop countdown ticks every second while everything else is frozen,
     // so it renders unconditionally; the static content is keyed and only
@@ -3219,14 +3411,7 @@ body[data-embed] #board { top: 0; height: 100%; }
     card._key = key;
 
     var head = $('ec-headline'), how = $('ec-how');
-    var redL = o.redLives, blueL = o.blueLives;
-    $('ec-red').textContent = redL;
-    $('ec-blue').textContent = blueL;
-    $('ec-wincond').textContent = endcardWinCondition(o);
-    $('ec-tname-red').textContent = teamName(s, 'red', 'RED');
-    $('ec-tname-blue').textContent = teamName(s, 'blue', 'BLUE');
-    $('ec-team-red').classList.toggle('win', !o.draw && o.winner === 'red');
-    $('ec-team-blue').classList.toggle('win', !o.draw && o.winner === 'blue');
+    $('ec-wincond').textContent = endcardWinCondition(o, teams);
 
     // MVP: the winning team's best final line (kills > fewer deaths >
     // captures — the capturer keeps their ⚑ mark, the star follows the guns).
@@ -3238,8 +3423,12 @@ body[data-embed] #board { top: 0; height: 100%; }
         .sort(endcardOrder);
       if (winners.length) mvpSlot = winners[0].s;
     }
-    renderEndcardRows(s, 'red', $('ec-rows-red'), mvpSlot);
-    renderEndcardRows(s, 'blue', $('ec-rows-blue'), mvpSlot);
+    teams.forEach(function (team) {
+      $('ec-' + team).textContent = overLives(o, team);
+      $('ec-tname-' + team).textContent = teamName(s, team, team.toUpperCase());
+      $('ec-team-' + team).classList.toggle('win', !o.draw && o.winner === team);
+      renderEndcardRows(s, team, $('ec-rows-' + team), mvpSlot);
+    });
 
     if (o.draw) {
       head.className = 'headline draw';
@@ -3250,24 +3439,29 @@ body[data-embed] #board { top: 0; height: 100%; }
       return;
     }
 
-    var winner = o.winner; // 'red' | 'blue'
-    var winName = teamName(s, winner, winner === 'red' ? 'RED' : 'BLUE');
+    var winner = o.winner;
+    var winName = teamName(s, winner, String(winner).toUpperCase());
     head.className = 'headline ' + winner;
     head.textContent = winName + ' WINS';
 
+    var losers = teams.filter(function (t) { return t !== winner; });
+    var winL = overLives(o, winner);
+    var bestLoser = 0;
+    losers.forEach(function (t) { bestLoser = Math.max(bestLoser, overLives(o, t)); });
+
     if (o.timeLimit) {
       // Time-limit resolution — name the key and the values (F3).
-      var winL = winner === 'red' ? redL : blueL;
-      var loseL = winner === 'red' ? blueL : redL;
-      if (winL !== loseL) {
-        how.textContent = 'Time expired — ' + winName + ' held more lives (' + winL + ' vs ' + loseL + ').';
+      if (winL !== bestLoser) {
+        how.textContent = 'Time expired — ' + winName + ' held more lives (' + winL + ' vs ' + bestLoser + ').';
       } else {
         how.textContent = 'Time expired — lives tied; ' + winName + ' won on heart progress.';
       }
     } else {
-      var loserLives = winner === 'red' ? blueL : redL;
-      if (loserLives <= 0) {
-        head.textContent = winName + ' WIPES OUT ' + teamName(s, winner === 'red' ? 'blue' : 'red', winner === 'red' ? 'BLUE' : 'RED');
+      if (bestLoser <= 0) {
+        head.textContent = losers.length === 1
+          ? winName + ' WIPES OUT ' +
+            teamName(s, losers[0], String(losers[0]).toUpperCase())
+          : winName + ' WIPES THE FIELD';
         how.textContent = winName + ' eliminated every opposing life.';
       } else {
         how.textContent = winName + ' captured the enemy heart.';

@@ -71,6 +71,7 @@ proc buildReplayViewerPacket*(
   result = sim.buildSpriteProtocolUpdates(
     state,
     nextState,
+    replay.overlays,
     sim.tickCount,
     replay.playing,
     replay.replaySpeed(),
@@ -99,7 +100,7 @@ proc buildReplayViewerPacket*(
       true,
       replay.hashMismatchTick,
       nextState.selectedJoinOrder,
-      if sendLead: replay.livesLeadSeries else: @[],
+      if sendLead: replay.livesSeries else: @[],
       replay.replayStartTick(),
       replay.endHoldSecondsLeft(),
       sendFpMap,

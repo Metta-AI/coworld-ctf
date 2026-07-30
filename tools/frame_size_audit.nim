@@ -48,10 +48,10 @@ var state = initGlobalViewerState()
 var next: GlobalViewerState
 let firstPacket = game.buildSpriteProtocolUpdates(
   state, next, replayTick = 0, replayEnabled = true, replayMaxTick = 2432)
-# Simulate a long-match lead series (change point per tick worst case).
-var lead: seq[array[2, int]]
+# Simulate a long-match lives series (change point per tick worst case).
+var lead: seq[seq[int]]
 for t in 0 ..< 2432:
-  lead.add([t, (t mod 7) - 3])
+  lead.add(@[t, 24 - (t mod 7), 21 + (t mod 4)])
 let firstChrome = game.buildStateJson(newJArray(), true, 1, 2432, false, true, -1,
   -1, lead, 0)
 report("FRAME 1 (map + atlas + full lead series)", firstPacket, firstChrome)

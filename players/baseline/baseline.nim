@@ -24,11 +24,14 @@
 ##   keeps obstacles between us and known threats.
 ## - **Flag model** (two flags): pedestals are STATIC known positions and
 ##   pedestal flags are never fogged. Only OUR team can carry the enemy flag,
-##   so the "<enemy color> heart" sprite is always visible and fully describes
-##   our attack (pedestal / on me / on a mate). Only the enemy can carry OUR
-##   heart: the "<my color> heart" sprite on its pedestal means safe, visible
-##   off-pedestal is a live thief fix, and ABSENT means stolen by a fogged
-##   carrier somewhere between our pedestal and its home edge.
+##   but a carried heart is only as visible as its carrier and mates fog like
+##   enemies, so the "<enemy color> heart" sprite describes our attack fully
+##   only on its pedestal or on ME; a MATE's carry is visible just while that
+##   mate is, and an absent enemy heart means a fogged mate has it. Only the
+##   enemy can carry OUR heart: the "<my color> heart" sprite on its pedestal
+##   means safe, visible off-pedestal is a live thief fix, and ABSENT means
+##   stolen by a fogged carrier somewhere between our pedestal and its home
+##   edge.
 ## - **Memory**: visible players are matched to tracks (position, velocity,
 ##   last-seen tick) that persist through fog, and the last thief fix guides
 ##   the hunt after the carrier fogs out.
@@ -1309,11 +1312,13 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     bot.lastEnemySeen = bot.tick
 
   # Flag bookkeeping (two flags; a carried flag rides its carrier's exact
-  # position). The enemy flag can only be carried by OUR team, so its sprite
-  # is never fogged and fully describes our attack (pedestal / on me / on a
-  # mate). Our own flag can only be carried by the enemy: on its pedestal it
-  # is safe, visible off-pedestal is a live thief fix, and ABSENT means a
-  # fogged thief is running it toward its home edge.
+  # position, and is only as visible as that carrier). The enemy flag can only
+  # be carried by OUR team, but mates fog like enemies, so its sprite fully
+  # describes our attack only on its pedestal or on ME — a mate's carry shows
+  # just while that mate is in our cone, and an absent enemy flag means a
+  # fogged mate is running it home. Our own flag can only be carried by the
+  # enemy: on its pedestal it is safe, visible off-pedestal is a live thief
+  # fix, and ABSENT means a fogged thief is running it toward its home edge.
   var
     iCarry = false
     mateCarry = false

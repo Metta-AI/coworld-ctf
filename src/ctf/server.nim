@@ -1,5 +1,6 @@
 import
   std/[algorithm, json, locks, monotimes, nativesockets, os, strutils, tables, times],
+  supersnappy,
   bitworld/client as bitworldClient, bitworld/profile, bitworld/spriteprotocol,
   bitworld/runtime,
   curly, mummy,
@@ -57,6 +58,8 @@ const
   AdminWebSocketPath = "/admin"
   ControlRestartPath = "/control/restart"
   ControlKickPath = "/control/kick"
+  ## Cap on player debug-sprite bytes accepted per player per tick.
+  MaxDebugSpriteBytesPerTick* = 32 * 1024
   # The designed broadcast replay client, embedded at compile time. Served for
   # the replay routes in place of bitworld's generic global client; a single
   # self-contained file (core JS inlined). Live/player/global paths are
@@ -109,10 +112,9 @@ const
   # Hosted replay closes any WS frame larger than 1 MiB (sends 1009). We chunk
   # outbound sprite packets under a margin below that so no single frame trips it.
   MaxWsFrameBytes = 900_000
-  # The Sprite v1 player-ready packet id (0x85). The pinned bitworld predates
-  # it (newer bitworld drops ButtonC, which the grenade input bit needs), so
-  # the id is declared here rather than imported.
-  SpriteClientReady = 0x85'u8
+  # SpriteClientReady (0x85) and SpriteClientDebugSprite (0x86) now come from
+  # bitworld/spriteprotocol: the pin carries both, and still keeps ButtonC,
+  # which the grenade input bit needs.
 
 proc liveProgressMaxTick(config: GameConfig): int =
   ## Returns the live viewer tick-bar budget.
@@ -887,6 +889,31 @@ proc writeInputFrameMasks(
     )
   replayWriter.writeInputMaskChange(time, playerIndex, appliedMask)
 
+proc drainPlayerDebugSprites*(
+  state: PlayerViewerState,
+  time: uint32,
+  playerIndex: int,
+  replayWriter: var ReplayWriter,
+  overlay: var DebugOverlay
+) =
+  ## Drains, caps, records, and folds one player's pending debug packets.
+  let packets = state.pendingDebugSprites
+  state.pendingDebugSprites = @[]
+  var usedBytes = 0
+  for packet in packets:
+    if packet.len > MaxDebugSpriteBytesPerTick - usedBytes:
+      if not state.debugSpriteLimitWarned:
+        echo "debug sprite byte limit exceeded for player ", playerIndex
+        state.debugSpriteLimitWarned = true
+      continue
+    usedBytes += packet.len
+    try:
+      packet.validateDebugSpritePacket()
+      overlay.applyDebugSpritePacket(packet)
+    except SpriteProtocolError, SnappyError:
+      continue
+    replayWriter.writeDebugSprite(time, playerIndex, packet)
+
 proc clearPressedInputMask(input: var InputState, mask: uint8) =
   ## Clears previous input bits that were pressed this frame.
   if (mask and ButtonUp) != 0:
@@ -1032,6 +1059,7 @@ proc runServerLoop*(
   httpServer.waitUntilReady()
 
   var
+    liveOverlays: seq[DebugOverlay] = @[]
     prevInputs: seq[InputState]
     liveSpeedIndex = config.liveSpeedIndex()
     gamesPlayed = 0
@@ -1115,6 +1143,8 @@ proc runServerLoop*(
                 replayWriter.lastMasks.delete(playerIndex)
               if playerIndex < prevInputs.len:
                 prevInputs.delete(playerIndex)
+              if playerIndex < liveOverlays.len:
+                liveOverlays.delete(playerIndex)
           sim.removePlayer(websocket)
         appState.closedSockets.setLen(0)
         if not replayLoaded and appState.kickRequests.len > 0:
@@ -1139,6 +1169,8 @@ proc runServerLoop*(
                   replayWriter.lastMasks.delete(playerIndex)
                 if playerIndex < prevInputs.len:
                   prevInputs.delete(playerIndex)
+                if playerIndex < liveOverlays.len:
+                  liveOverlays.delete(playerIndex)
             sim.removePlayer(websocket)
             socketsToClose.add(websocket)
         if not replayLoaded and sim.shouldAbortFiniteMatch():
@@ -1213,6 +1245,8 @@ proc runServerLoop*(
               )
               while replayWriter.lastMasks.len < sim.players.len:
                 replayWriter.lastMasks.add(0)
+              while liveOverlays.len < sim.players.len:
+                liveOverlays.add(DebugOverlay())
               progressed = true
 
         if not replayLoaded:
@@ -1234,7 +1268,16 @@ proc runServerLoop*(
           )
           appState.inputPressedMasks[websocket] = 0
           if playerIndex < 0 or playerIndex >= inputs.len:
+            appState.playerViewers[websocket].pendingDebugSprites = @[]
             continue
+          while liveOverlays.len < sim.players.len:
+            liveOverlays.add(DebugOverlay())
+          appState.playerViewers[websocket].drainPlayerDebugSprites(
+            tickTime(sim.tickCount),
+            playerIndex,
+            replayWriter,
+            liveOverlays[playerIndex]
+          )
           let currentMask = appState.inputMasks.getOrDefault(websocket, 0)
           let appliedMask = currentMask or pressedMask
           inputs[playerIndex] = decodeInputMask(appliedMask)
@@ -1280,6 +1323,7 @@ proc runServerLoop*(
       let rewardAccounts = sim.rewardAccounts
       inc config.seed
       sim = initSimServer(config)
+      liveOverlays = @[]
       sim.rewardAccounts = rewardAccounts
       prevInputs = @[]
       replayWriter.lastMasks = @[]
@@ -1340,6 +1384,8 @@ proc runServerLoop*(
               appState.playerViewers[join.websocket] =
                 initPlayerViewerState()
               playerViewerStates.add(appState.playerViewers[join.websocket])
+              while liveOverlays.len < sim.players.len:
+                liveOverlays.add(DebugOverlay())
               progressed = true
           replayWriter.lastMasks.setLen(sim.players.len)
           for websocket in appState.rewardViewers.keys:
@@ -1414,6 +1460,7 @@ proc runServerLoop*(
 
     if not replayLoaded and sim.needsReregister:
       sim.needsReregister = false
+      liveOverlays = @[]
       {.gcsafe.}:
         withLock appState.lock:
           for websocket in appState.playerIndices.keys:
@@ -1466,6 +1513,7 @@ proc runServerLoop*(
           sim.buildSpriteProtocolUpdates(
             globalStates[i],
             nextState,
+            liveOverlays,
             sim.tickCount,
             replayPlayer.playing,
             playbackSpeed(liveSpeedIndex),

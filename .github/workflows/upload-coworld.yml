@@ -2,9 +2,9 @@ name: Upload Coworld
 
 # Builds the game, baseline-bot, and commissioner images via compose.yaml and
 # uploads a new ctf version to Softmax (https://softmax.com/api) on every push
-# to main, then re-uploads the same build as ctf-doubles so that league tracks
-# the latest game version-for-version. The version is the latest uploaded ctf
-# version with the patch bumped, unless an explicit version is passed via
+# to main. (Paintbot — the doubles variant — has its own lockstep upload in
+# upload-coworld-paintbot.yml.) The version is the latest uploaded ctf version
+# with the patch bumped, unless an explicit version is passed via
 # workflow_dispatch.
 #
 # Auth: the SOFTMAX_TOKEN repo secret — the non-expiring "coworld-ctf-ci"
@@ -72,37 +72,6 @@ jobs:
             --timeout-seconds 900 \
             --wait-hosted-smoke \
             --hosted-smoke-timeout-seconds 1800
-      # ctf-doubles is this exact build seated 4 policies per episode (2 per
-      # team, split by the same red/blue seat parity) — no separate game code.
-      # Re-upload the hydrated package under the ctf-doubles identity at the
-      # same version so the Ctf Doubles league always runs the latest ctf game.
-      - name: Upload as ctf-doubles
-        working-directory: coworld-ctf
-        run: |
-          python3 - <<'EOF'
-          import json
-          path = "build/coworld-package/coworld_manifest.json"
-          manifest = json.load(open(path))
-          game = manifest["game"]
-          game["name"] = "ctf-doubles"
-          game["description"] = (
-              "CTF-Doubles: the standard 16-seat 8v8 CTF game, but each team is split in half "
-              "between two entrant policies - 4 policies per episode, 4 agents each, allies you "
-              "don't control. Coordination (shouts) matters double. Game rules are identical to "
-              "ctf. " + game["description"]
-          )
-          manifest["tags"] = sorted(set(manifest.get("tags", []) + ["doubles"]))
-          for commissioner in manifest.get("commissioner", []):
-              if commissioner["id"] == "ctf-commissioner":
-                  commissioner["id"] = "ctf-doubles-commissioner"
-                  commissioner["name"] = "CTF Doubles Commissioner"
-          json.dump(manifest, open(path, "w"), indent=2)
-          EOF
-          uvx --from "coworld[auth]==0.1.34" coworld upload-coworld \
-            build/coworld-package/coworld_manifest.json \
-            --timeout-seconds 900 \
-            --wait-hosted-smoke \
-            --hosted-smoke-timeout-seconds 1800
       - name: Verify upload
         run: |
           set -euo pipefail
@@ -111,7 +80,7 @@ jobs:
           import json, sys
           expected = sys.argv[1]
           rows = json.load(open("/tmp/coworlds-after.json"))
-          for name in ("ctf", "ctf-doubles"):
+          for name in ("ctf",):
               match = [r for r in rows if r.get("name") == name and r.get("version") == expected]
               if not match:
                   raise SystemExit(f"uploaded {name} version {expected} not found on server")

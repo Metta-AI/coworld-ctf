@@ -26,18 +26,19 @@ Recognized values: `"default"` and `"crown"`.
 
 ### Skin = alternate master PNGs
 
-Each team's soldier is a single master PNG (`data/soldier_red.png` /
+Each team's player-view soldier is a single master PNG (`data/soldier_red.png` /
 `data/soldier_blue.png`) that `soldierRotPixels` (src/ctf/sim.nim) measures,
 gun-mounts, and pre-rotates into all `SoldierRotations` steps; the corpse
 (grey desaturation) and selected-outline variants are *derived* from those
-rendered pixels. A skin is therefore just an alternate pair of masters:
+rendered pixels. The global spectator board uses an articulated rig whose head
+is independently skin-aware while its limbs and weapon remain shared.
 
 - `default` → the existing `soldier_red/blue.png`.
 - `crown` → new `data/soldier_red_crown.png` / `data/soldier_blue_crown.png`:
   the existing masters with a gold outlined crown composited over the helmet,
   generated deterministically by `tools/generate_crown_skins.nim` (checked in
-  alongside the PNGs, so the art can be regenerated). The runtime art path
-  stays "load a master PNG" for every skin.
+  alongside the PNGs, so the art can be regenerated). The same generator emits
+  `data/rig_real/{red,blue}/head_crown.png` for the spectator rig.
 
 Everything downstream — rotations, corpses, selected outlines, the POV self
 sprite — comes free through the existing pipeline.
@@ -52,11 +53,11 @@ loading/caching vars gain a skin dimension.
 ### Rendering and sprite ids
 
 `soldierPlayerSpriteId`, `corpseSoldierSpriteId`,
-`selectedSoldierPlayerSpriteId`, and the POV self-sprite pool gain a skin
-offset that extends each existing pool contiguously (live 100..163, corpse
-1500..1563, selected 6000..6063, self 5100..5131; the sprite-id collision
-audit in CI guards overlaps). Everywhere a soldier sprite id is computed from
-`(team, rot)` it becomes `(team, skin, rot)`.
+`selectedSoldierPlayerSpriteId`, the POV self-sprite pool, and the articulated
+rig-head pool gain a skin offset (live 100..163, corpse 1500..1563, selected
+6000..6063, self 5100..5131, rig head 40000..40063; the sprite-id collision
+audit in CI guards overlaps). Everywhere a visible player head sprite id is
+computed from `(team, rot)` it becomes `(team, skin, rot)`.
 
 Skin sprite pools are only registered in the init snapshot when some
 configured slot actually uses that skin, so skinless games pay nothing.
@@ -84,15 +85,17 @@ spectator-facing decoration only, by design.
   skin-dimensioned soldier master loading + `soldierRotPixels`, and
   `configJson` round-tripping non-default skins into replay configs (default
   skins are omitted so existing replay JSON keeps its shape).
-- `src/ctf/global.nim`: skin offset in the soldier sprite-id helpers,
-  `(team, skin, rot)` at every soldier-sprite call site, used-skins-only
-  registration in `addPlayerActorSprites` and the render-cache prewarm.
-- `data/soldier_red_crown.png`, `data/soldier_blue_crown.png`: new art;
+- `src/ctf/global.nim`: skin offsets in the soldier and articulated rig-head
+  sprite-id helpers, `(team, skin, rot)` at every visible head call site, and
+  used-skins-only registration and render-cache prewarming.
+- `data/soldier_red_crown.png`, `data/soldier_blue_crown.png`, and
+  `data/rig_real/{red,blue}/head_crown.png`: new art;
   `tools/generate_crown_skins.nim` generates them;
   `tools/dump_soldier_preview.nim` previews all skins.
 - `docs/RULES.md`: one-liner — skins are cosmetic, label vocabulary unchanged.
-- Tests: config parsing (missing / valid / invalid skin), sprite-id collision
-  audit covers the new pools, label-contract canary stays green.
+- Tests: config parsing (missing / valid / invalid skin), the referenced global
+  rig head differs for crown and default players, the sprite-id collision audit
+  covers the new pools, and the label-contract canary stays green.
 
 ## Validation
 
@@ -104,7 +107,8 @@ to confirm no regression.
 
 ## Trade-offs
 
-Each *used* skin adds ~96 rasterized sprite defs (2 teams × 16 rotations ×
-live/corpse/selected) to the init snapshot — the same order as the existing
-soldier set, fine for one skin. The used-skins-only registration rule keeps
-this from compounding if skins proliferate.
+Each *used* skin adds 96 rasterized soldier sprite definitions (2 teams × 16
+rotations × live/corpse/selected) to the init snapshot. The articulated
+renderer lazily adds up to 32 skin-specific head definitions (2 teams × 16 aim
+directions) when that skin is referenced; the rest of the rig stays shared.
+The used-skins-only registration rule keeps this bounded if skins proliferate.

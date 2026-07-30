@@ -1,5 +1,6 @@
 import
-  std/[os, posix, strutils, unittest],
+  std/[os, posix, strutils, tables, unittest],
+  bitworld/spriteprotocol,
   ctf/[global, sim]
 
 const GameDir = currentSourcePath.parentDir.parentDir
@@ -62,6 +63,27 @@ proc firstGlobalPacket(config: GameConfig): seq[uint8] =
     result = sim.buildSpriteProtocolUpdates(state, nextState)
   finally:
     setCurrentDir(previousDir)
+
+proc referencedRigHead(packet: seq[uint8]): tuple[
+  id: int,
+  pixels: seq[uint8]
+] =
+  ## Returns the rig-head sprite definition referenced by the live player object.
+  let messages = packet.parseSpritePacket()
+  var definitions: Table[int, SpritePacketSpriteDef]
+  for message in messages:
+    if message.kind == spkSprite:
+      definitions[message.sprite.id] = message.sprite
+  for message in messages:
+    if message.kind != spkObject:
+      continue
+    let spriteId = message.objectDef.spriteId
+    if spriteId in definitions and definitions[spriteId].label == "player red":
+      return (
+        id: spriteId,
+        pixels: definitions[spriteId].compressedPixels
+      )
+  raise newException(ValueError, "global packet has no referenced red rig head")
 
 suite "agent skins":
   test "missing and explicit default skins parse silently":
@@ -141,3 +163,12 @@ suite "agent skins":
       )
     check missing.firstPlayerPacket() == explicitDefault.firstPlayerPacket()
     check missing.firstGlobalPacket() == explicitDefault.firstGlobalPacket()
+
+  test "crown skin changes the rig head referenced by the global viewer":
+    let
+      defaultHead = parseConfig("""{"slots":[{}]}""")
+        .firstGlobalPacket().referencedRigHead()
+      crownHead = parseConfig("""{"slots":[{"skin":"crown"}]}""")
+        .firstGlobalPacket().referencedRigHead()
+    check crownHead.id != defaultHead.id
+    check crownHead.pixels != defaultHead.pixels

@@ -1,5 +1,5 @@
 import
-  std/[json, math, os, random, strutils],
+  std/[algorithm, json, math, os, random, strutils],
   bitworld/aseprite, bitworld/pixelfonts, bitworld/profile, bitworld/spriteprotocol,
   bitworld/server,
   jsony, pixie
@@ -11,10 +11,35 @@ import map_pool
 
 const
   GameName* = "ctf"
-  GameVersion* = "26"  ## Procedural terrain (mapPath "gen"/"pool", curated
-                       ## pool in map_pool.nim) is CONFIG-GATED and ships
-                       ## without a version bump: the default arena and its
-                       ## rules are unchanged, and a league that enables it
+  GameVersion* = "27"  ## GV27 (operator rule): the default arena's
+                       ## column-1 glass windows alternate from both ends
+                       ## (stone, glass, stone, glass) — stubs 2, 4, and 6
+                       ## of 7 (y=108, 300, 491), a top/bottom-symmetric
+                       ## set replacing GV26's stubs 2, 5, 6; x-mirrored
+                       ## like every column-1 shape.
+                       ## TRENCHES are CONFIG-GATED and ship without a
+                       ## version bump, exactly like procedural terrain:
+                       ## the default arena has none, so its rules are
+                       ## byte-identical, and a league opts in through its
+                       ## own config (generated maps place pits per seed;
+                       ## mapPits/mapPitDensity steer them). A trench is a
+                       ## walkable dug-pit square — never a wall to
+                       ## movement, bullets, or vision. Dropping in and
+                       ## moving around inside are full speed; CLIMBING OUT
+                       ## (motion away from the pit's center while inside)
+                       ## is 1/5 speed (TrenchSpeedDivisor). Occupants fire
+                       ## at 1/3 rate (TrenchFireSlowdown,
+                       ## max-composed with the shield/carrier multiplier),
+                       ## and TrenchMissPct percent of gun shots that would
+                       ## hit an occupant fly straight over instead — the
+                       ## bullet continues down the ray and can hit a body
+                       ## behind (shots from inside the same trench are
+                       ## exempt). Replays pin the exact trench set via
+                       ## mapSpec, so playback is exact either way.
+                       ## Procedural terrain itself (mapPath "gen"/"pool",
+                       ## curated pool in map_pool.nim) is CONFIG-GATED and
+                       ## shipped without a version bump: the default arena
+                       ## layout is unchanged, and a league that enables it
                        ## does so through its own config. Replays carry the
                        ## exact geometry (mapSpec) either way.
                        ## GV26 (three operator rules): (a) the SELF marker
@@ -206,6 +231,25 @@ const
                               ## (GV26): carriers can shoot, at a third the
                               ## rate. Shield+heart do not stack (max, not
                               ## product).
+
+  TrenchSize* = 56            ## side length of the walkable trench square
+                              ## open flag ring (corner reach ~40px < the
+                              ## 70px ring), so it never touches a wall.
+  TrenchSpeedDivisor* = 5     ## CLIMBING OUT is 1/5 speed: while the center
+                              ## is inside a pit, any axis motion pointing
+                              ## AWAY from the pit's center has its cap and
+                              ## accel divided by this, and outward momentum
+                              ## sheds to the cap. Dropping in, crossing,
+                              ## and moving around the pit are full speed.
+  TrenchFireSlowdown* = 3     ## an occupant's gun fire cooldown multiplier
+                              ## (1/3 fire rate). Max-composed with the
+                              ## shield/carrier slowdown, never the product —
+                              ## same rule as shield+heart (GV26).
+  TrenchMissPct* = 70         ## percent of gun shots that would hit a trench
+                              ## occupant that fly straight over instead
+                              ## (deterministic sim RNG); the bullet carries
+                              ## on down the ray. Shots fired from inside the
+                              ## same trench never miss this way.
 
   BubbleImpactTicks* = 8      ## ~0.33s the bubble's blink/dent impact FX
                               ## lasts (cosmetic only, like HitFlashTicks).
@@ -412,6 +456,9 @@ type
     ## default arena_floor.png.
     floorTex*: string
     material*: ArenaMaterial
+    trenches*: seq[MapRect]    ## walkable dug-pit squares (config-gated trenches): standing
+                               ## inside slows movement and fire, and most
+                               ## incoming gun shots fly straight over.
 
   CrewSprite* = ref object
     width*, height*: int
@@ -451,6 +498,18 @@ type
     columns*: int          ## obstacle column count per half, 3..8
     windows*: int          ## glass-window count per half, 0..6; -1 = draw
     centerFeature*: string ## "bracket" | "ring" | "walls"
+    pits*: int             ## requested TOTAL trench count, 0..64; -1 =
+                           ## density draw. Best-effort: when the candidate
+                           ## spots can't host the full request, the map
+                           ## places as many as fit. Even counts place
+                           ## symmetric pairs; an odd count anchors its
+                           ## extra pit dead center (self-symmetric under
+                           ## mirror AND rot180), so both parities stay
+                           ## exactly team-fair.
+    pitDensity*: int       ## percent multiplier on the default per-class
+                           ## pit chances (100 = default feel, 0 = none,
+                           ## 200 = twice as digging-happy); -1 = default.
+                           ## Ignored when `pits` locks an exact count.
 
   GameConfig* = object
     motionScale*: int
@@ -1167,12 +1226,15 @@ const
 var
   rigLoaded: array[Team, bool]
   rigSegImg: array[Team, array[RigSeg, Image]]
+  rigHeadImg: array[Skin, array[Team, Image]]
   rigScale: array[Team, float]   ## master-frame px -> map px (body fills body px).
-  # Bake cache keyed by (baseStep, artStep, shortenStep, scale). baseStep is the
-  # aim step (head/arms) or heading step (legs/wheels); artStep is the leg swing or
-  # wheel caster; shortenStep is the leg-length index (0 for non-legs).
-  rigSegCache: array[Team, array[RigSeg, seq[tuple[
-    baseStep, artStep, shortenStep, scale: int, pixels: seq[uint8]]]]]
+  # The head asset is skin-specific; all other rig segments are shared.
+  # Bake cache keyed by skin and (baseStep, artStep, shortenStep, scale).
+  # baseStep is the aim step (head/arms) or heading step (legs/wheels); artStep
+  # is the leg swing or wheel caster; shortenStep is the leg-length index
+  # (0 for non-legs).
+  rigSegCache: array[Skin, array[Team, array[RigSeg, seq[tuple[
+    baseStep, artStep, shortenStep, scale: int, pixels: seq[uint8]]]]]]
 
 proc rigSegPath(seg: RigSeg): string =
   case seg
@@ -1198,6 +1260,8 @@ proc ensureRigLoaded(team: Team) =
   let dir = gameDir() / "data/rig_real" / (if team == Red: "red" else: "blue")
   for seg in RigSeg:
     rigSegImg[team][seg] = readImage(dir / rigSegPath(seg) & ".png")
+  rigHeadImg[DefaultSkin][team] = rigSegImg[team][rsHead]
+  rigHeadImg[CrownSkin][team] = readImage(dir / "head_crown.png")
   # Scale the rig so its body matches the unified soldier footprint. The solid
   # body spans ~99px in the 192px frame (y56..154); map that to SoldierBodyPx.
   ensureSoldierLoaded(DefaultSkin, team)
@@ -1215,7 +1279,7 @@ proc soldierCanvasToPixels(canvas: Image): seq[uint8] =
     result[i * 4 + 3] = c.a
 
 proc rigSegPixels*(team: Team, seg: RigSeg, baseStep, artStep: int,
-    shortenStep = 0, renderScale = 1): seq[uint8] =
+    shortenStep = 0, renderScale = 1, skin = DefaultSkin): seq[uint8] =
   ## One rig segment baked into a RigCanvas sprite, HUB-centered.
   ##  - baseStep: the segment's base rotation step (RigSteps) — the AIM step for
   ##    the head/arms, the movement-HEADING step for legs/wheels. This IS the
@@ -1231,14 +1295,19 @@ proc rigSegPixels*(team: Team, seg: RigSeg, baseStep, artStep: int,
     b = ((baseStep mod RigSteps) + RigSteps) mod RigSteps
     art = artStep
     sh = clamp(shortenStep, 0, RigShortenSteps)
-  for cached in rigSegCache[team][seg]:
+    effectiveSkin = if seg == rsHead: skin else: DefaultSkin
+  for cached in rigSegCache[effectiveSkin][team][seg]:
     if cached.baseStep == b and cached.artStep == art and
         cached.shortenStep == sh and cached.scale == renderScale:
       return cached.pixels
   ensureRigLoaded(team)
   let
     outCanvas = RigCanvas * renderScale
-    img = rigSegImg[team][seg]
+    img =
+      if seg == rsHead:
+        rigHeadImg[effectiveSkin][team]
+      else:
+        rigSegImg[team][seg]
     s = rigScale[team] * float(renderScale)
     center = float32(outCanvas) / 2
     anchor = RigAnchor[seg]
@@ -1292,7 +1361,7 @@ proc rigSegPixels*(team: Team, seg: RigSeg, baseStep, artStep: int,
   # and can be gated off if a cog is ever disarmed. The head is a clean turret.
   canvas.draw(img, mat)
   let pixels = soldierCanvasToPixels(canvas)
-  rigSegCache[team][seg].add(
+  rigSegCache[effectiveSkin][team][seg].add(
     (baseStep: b, artStep: art, shortenStep: sh, scale: renderScale,
      pixels: pixels))
   pixels
@@ -1587,6 +1656,8 @@ proc validateMap(gameMap: CtfMap) =
       gameMap.width,
       gameMap.height
     )
+  for i, trench in gameMap.trenches:
+    validateMapRect("trench " & $i, trench, gameMap.width, gameMap.height)
 
 const
   ArenaName = "arena"
@@ -1639,19 +1710,19 @@ const
   ## between the capture/spawn columns and the flag ring; isProtectedFloor
   ## carves them out of the ring, pockets, and capture columns.
   ArenaLeftObstacles = [
-    # Column 1 (x=268..286): rect stubs, phase 0, border-attached ends. The
-    # SECOND stub from the top and from the bottom are GLASS WINDOWS
-    # (GameVersion 15): solid to movement, bullets, and spray cones, transparent
-    # to fog-of-war.
+    # Column 1 (x=268..286): rect stubs, phase 0, border-attached ends.
+    # GV27 (operator rule): the GLASS WINDOWS alternate from both ends —
+    # stone, glass, stone, glass — landing on stubs 2, 4 (the middle), and
+    # 6 of 7, a top/bottom-symmetric set. Glass is solid to movement,
+    # bullets, and spray cones, transparent to fog-of-war; x-mirrored like
+    # every column-1 shape.
     ArenaShape(kind: shapeRect, rect: MapRect(x: 268, y: 10, w: 18, h: 62)),
     ArenaShape(kind: shapeRect, window: true,
       rect: MapRect(x: 268, y: 108, w: 18, h: 60)),
     ArenaShape(kind: shapeRect, rect: MapRect(x: 268, y: 204, w: 18, h: 60)),
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 268, y: 300, w: 18, h: 59)),
-    # GV26: the FIFTH stub from the top is a GLASS WINDOW too (operator rule)
-    # — windows at stubs 2, 5, and 6; x-mirrored like every column-1 shape.
     ArenaShape(kind: shapeRect, window: true,
-      rect: MapRect(x: 268, y: 395, w: 18, h: 60)),
+      rect: MapRect(x: 268, y: 300, w: 18, h: 59)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 268, y: 395, w: 18, h: 60)),
     ArenaShape(kind: shapeRect, window: true,
       rect: MapRect(x: 268, y: 491, w: 18, h: 60)),
     ArenaShape(kind: shapeRect, rect: MapRect(x: 268, y: 587, w: 18, h: 62)),
@@ -2227,6 +2298,20 @@ const
     ArenaShape(kind: shapeRect, rect: MapRect(x: 601, y: 624, w: 32, h: 40)),
     ArenaShape(kind: shapeRect, rect: MapRect(x: 601, y: 592, w: 32, h: 40)),
   ]
+proc trenchSquareAt(cx, cy: int): MapRect =
+  ## A TrenchSize×TrenchSize dug pit centered on (cx, cy). Like obstacle
+  ## sizes, the pit never scales with the map's size class.
+  MapRect(
+    x: cx - TrenchSize div 2,
+    y: cy - TrenchSize div 2,
+    w: TrenchSize,
+    h: TrenchSize
+  )
+
+proc rectsIntersect(a, b: MapRect): bool =
+  ## Returns true when the two rectangles overlap by at least one pixel.
+  a.x < b.x + b.w and b.x < a.x + a.w and
+    a.y < b.y + b.h and b.y < a.y + a.h
 
 proc defaultCtfRooms(gameMap: CtfMap): seq[Room] =
   ## The three-room annotation set every map shares: an informal center zone
@@ -2837,6 +2922,30 @@ proc mapWallAt*(gameMap: CtfMap, obstacles: seq[ArenaShape], x, y: int): bool =
       return true
   false
 
+proc rectOnOpenFloor(
+  gameMap: CtfMap, obstacles: seq[ArenaShape], rect: MapRect
+): bool =
+  ## Returns true when every pixel of the rectangle is walkable floor on an
+  ## uninstalled candidate map. Sampled on a 3px grid — finer than the
+  ## thinnest wall feature (12px) — with the far edge column and row always
+  ## included, so no wall can slip past the samples on any side.
+  var xs, ys: seq[int]
+  var x = rect.x
+  while x < rect.x + rect.w - 1:
+    xs.add x
+    x += 3
+  xs.add rect.x + rect.w - 1
+  var y = rect.y
+  while y < rect.y + rect.h - 1:
+    ys.add y
+    y += 3
+  ys.add rect.y + rect.h - 1
+  for sy in ys:
+    for sx in xs:
+      if mapWallAt(gameMap, obstacles, sx, sy):
+        return false
+  true
+
 proc generateMapAttempt*(seed: int, overrides: MapGenOverrides): CtfMap =
   ## One UNVALIDATED draw. Every top-level parameter is drawn unconditionally
   ## and THEN overridden if locked, so locking one knob never shifts the
@@ -2881,6 +2990,14 @@ proc generateMapAttempt*(seed: int, overrides: MapGenOverrides): CtfMap =
     xMax = result.center.x - 52
   ## Window-eligible shapes: (obstacle index, column, slot y).
   var eligible: seq[tuple[idx, col, y: int]]
+  ## Trench pit candidates, resolved into actual digs after the columns
+  ## exist: `instead` swaps its obstacle for a pit, `gap` sits in a
+  ## cleared slot's corridor, `endzone` hugs the pedestal.
+  const
+    pitInstead = 0
+    pitGap = 1
+    pitEndzone = 2
+  var pitCandidates: seq[tuple[kind, obstacleIdx, x, y: int]]
 
   for col in 0 ..< columns:
     let
@@ -2924,7 +3041,15 @@ proc generateMapAttempt*(seed: int, overrides: MapGenOverrides): CtfMap =
     var zig = rng.coin()
     for i, sy in slotYs:
       if cleared[i]:
+        ## A cleared gap can hold a dug pit BETWEEN the column's obstacles
+        ## — the corridor stays open to movement and fire.
+        pitCandidates.add (pitGap, -1, colX, sy)
         continue
+      ## Every kept slot can dig a trench INSTEAD of raising its obstacle
+      ## — cover you stand in rather than behind. Selection below decides;
+      ## the sightline repair and the validators judge the thinner wall
+      ## set exactly as usual.
+      pitCandidates.add (pitInstead, result.leftObstacles.len, colX, sy)
       case family
       of colStubs:
         ## Stub ends whose border gap would drop under the corridor minimum
@@ -2953,6 +3078,79 @@ proc generateMapAttempt*(seed: int, overrides: MapGenOverrides): CtfMap =
         result.leftObstacles.add ArenaShape(kind: shapeDiagonal,
           x0: colX - 14, y0: ya, x1: colX + 14, y1: yb, thickness: 12)
         zig = not zig
+
+  ## Endzone trench pit candidates, authored on the RED side (the symmetry
+  ## image gives Blue the exact counterpart): BEHIND the pedestal toward
+  ## the home edge, and ABOVE and BELOW it — each clear of the pedestal
+  ## art. Endzone floor is protected (never walled), so endzone digs
+  ## always survive the open-floor prune below.
+  let
+    redHomeX = result.teamHomeX(Red)
+    pedestalClear = PedestalCoverSize div 2 + TrenchSize div 2
+  pitCandidates.add (pitEndzone, -1, redHomeX - pedestalClear - 12, cy)
+  pitCandidates.add (pitEndzone, -1, redHomeX, cy - pedestalClear - 20)
+  pitCandidates.add (pitEndzone, -1, redHomeX, cy + pedestalClear + 20)
+
+  ## Pit selection. DENSITY mode (default) rolls every candidate at its
+  ## class chance scaled by pitDensity percent. COUNT mode (pits locked)
+  ## shuffles the candidates and takes symmetric pairs until the requested
+  ## total is met — an ODD total anchors its extra pit at the exact map
+  ## center, the one spot that is its own image under mirror AND rot180,
+  ## so both parities stay exactly team-fair.
+  if overrides.pits < -1 or overrides.pits > 64:
+    raise newException(CtfError, "Config field mapPits must be 0..64.")
+  if overrides.pitDensity < -1 or overrides.pitDensity > 1000:
+    raise newException(
+      CtfError, "Config field mapPitDensity must be 0..1000.")
+  let
+    pitDensity = if overrides.pitDensity >= 0: overrides.pitDensity else: 100
+    centerPit = trenchSquareAt(result.center.x, result.center.y)
+    oddCenterPit = overrides.pits >= 0 and overrides.pits mod 2 == 1
+    pitPairsWanted = if overrides.pits >= 0: overrides.pits div 2 else: -1
+  var obstacleRemoved = newSeq[bool](result.leftObstacles.len)
+  if pitPairsWanted >= 0:
+    rng.shuffle(pitCandidates)
+  for cand in pitCandidates:
+    if pitPairsWanted >= 0:
+      if result.trenches.len >= pitPairsWanted:
+        break
+    else:
+      let baseChance =
+        case cand.kind
+        of pitInstead: 17
+        of pitGap: 25
+        else: 50
+      if rng.pick(100) >= clamp(baseChance * pitDensity div 100, 0, 100):
+        continue
+    let pit = trenchSquareAt(cand.x, cand.y)
+    var blocked = oddCenterPit and rectsIntersect(pit, centerPit)
+    for accepted in result.trenches:
+      if rectsIntersect(accepted, pit):
+        blocked = true
+        break
+    if blocked:
+      continue
+    result.trenches.add pit
+    if cand.kind == pitInstead:
+      obstacleRemoved[cand.obstacleIdx] = true
+
+  ## Swap the chosen `instead` obstacles out of the wall set. Window
+  ## eligibility indexes leftObstacles, so compact both together.
+  block removeSwappedObstacles:
+    var remap = newSeq[int](result.leftObstacles.len)
+    var compacted: seq[ArenaShape]
+    for i, shape in result.leftObstacles:
+      if obstacleRemoved[i]:
+        remap[i] = -1
+      else:
+        remap[i] = compacted.len
+        compacted.add shape
+    result.leftObstacles = compacted
+    var remappedEligible: seq[tuple[idx, col, y: int]]
+    for entry in eligible:
+      if remap[entry.idx] >= 0:
+        remappedEligible.add (remap[entry.idx], entry.col, entry.y)
+    eligible = remappedEligible
 
   ## Center feature, straddling the horizontal midline just outside the
   ## flag ring ("[" here; its symmetry image closes the right side).
@@ -3057,6 +3255,55 @@ proc generateMapAttempt*(seed: int, overrides: MapGenOverrides): CtfMap =
       @[result.medKitCandidates[0], result.medKitCandidates[1]]
     else:
       @[result.medKitCandidates[2], result.medKitCandidates[3]]
+
+  ## Finalize the trenches. Every left-half dig gets its image under
+  ## the map's symmetry so neither team has a private pit; a dig that ended
+  ## up under a wall (a sightline-repair plug can land on its slot) or on
+  ## top of an already-accepted dig is dropped — and a dig whose image is
+  ## blocked drops WITH it, fairness before density.
+  block finalizeTrenches:
+    let obstacles = buildArenaObstacles(result)
+    var digs: seq[MapRect]
+    if oddCenterPit:
+      ## The odd pit sits dead center, inside the always-open flag ring.
+      digs.add centerPit
+    proc addPair(
+      gameMap: CtfMap, digs: var seq[MapRect], trench: MapRect
+    ): bool =
+      ## Accepts one left-half dig plus its symmetry image when both sit
+      ## on open floor clear of every accepted dig. Count-mode parity
+      ## rests on every candidate being distinct from its own image —
+      ## true because column candidates cap at center.x - 52 and endzone
+      ## candidates hug the red home; a future center-adjacent candidate
+      ## class would break the exact-count accounting here.
+      let image =
+        case gameMap.symmetry
+        of symMirror: trench.mirrorX(gameMap.width)
+        of symRot180: trench.rot180(gameMap.width, gameMap.height)
+      if not rectOnOpenFloor(gameMap, obstacles, trench) or
+          not rectOnOpenFloor(gameMap, obstacles, image):
+        return false
+      for accepted in digs:
+        if rectsIntersect(accepted, trench) or
+            rectsIntersect(accepted, image):
+          return false
+      digs.add trench
+      if image != trench:
+        digs.add image
+      true
+    for trench in result.trenches:
+      discard result.addPair(digs, trench)
+    ## COUNT mode: pairs lost to sightline-repair walls are topped back up
+    ## from the unused candidates that cannot change the wall set (gap and
+    ## endzone spots; a late `instead` swap would dodge the repair pass).
+    if pitPairsWanted >= 0:
+      for cand in pitCandidates:
+        if digs.len >= overrides.pits:
+          break
+        if cand.kind == pitInstead:
+          continue
+        discard result.addPair(digs, trenchSquareAt(cand.x, cand.y))
+    result.trenches = digs
   result.validateMap()
 
 proc validateGeneratedMap*(gameMap: CtfMap): string =
@@ -3165,7 +3412,7 @@ proc validateGeneratedMap*(gameMap: CtfMap): string =
   ""
 
 proc generateCtfMap*(
-  seed: int, overrides = MapGenOverrides(windows: -1)
+  seed: int, overrides = MapGenOverrides(windows: -1, pits: -1, pitDensity: -1)
 ): CtfMap =
   ## Generates a VALIDATED map: attempts seeds seed, seed+1, ... until one
   ## passes every validator. A locked-parameter combination that can never
@@ -3181,7 +3428,7 @@ proc generateCtfMap*(
   )
 
 proc poolCtfMap*(
-  index: int, overrides = MapGenOverrides(windows: -1)
+  index: int, overrides = MapGenOverrides(windows: -1, pits: -1, pitDensity: -1)
 ): CtfMap =
   ## One curated-pool map; the index wraps around the pool.
   let n = MapPoolSeeds.len
@@ -3246,6 +3493,20 @@ proc pointsFromNode(node: JsonNode): seq[MapPoint] =
   for item in node:
     result.add MapPoint(x: item[0].getInt(), y: item[1].getInt())
 
+proc rectsNode(rects: seq[MapRect]): JsonNode =
+  result = newJArray()
+  for r in rects:
+    result.add %*[r.x, r.y, r.w, r.h]
+
+proc rectsFromNode(node: JsonNode): seq[MapRect] =
+  if node.isNil or node.kind != JArray:
+    return
+  for item in node:
+    result.add MapRect(
+      x: item[0].getInt(), y: item[1].getInt(),
+      w: item[2].getInt(), h: item[3].getInt()
+    )
+
 proc mapSpecJson*(gameMap: CtfMap): string =
   ## The FULL expanded geometry of one map as JSON. Replays pin this, so
   ## playback rebuilds the exact map even if the generator changes later.
@@ -3266,6 +3527,9 @@ proc mapSpecJson*(gameMap: CtfMap): string =
       if gameMap.symmetry == symMirror: "mirror" else: "rot180"),
     "medKitSpawns": pointsNode(gameMap.medKitSpawns),
     "medKitCandidates": pointsNode(gameMap.medKitCandidates),
+    # Trenches are FULL-map (both halves), already symmetrized — playback
+    # re-reads them verbatim, no re-mirroring.
+    "trenches": rectsNode(gameMap.trenches),
     "leftObstacles": shapes,
   })
 
@@ -3296,6 +3560,9 @@ proc mapFromSpecJson*(text: string): CtfMap =
     else: symMirror
   result.medKitSpawns = pointsFromNode(node["medKitSpawns"])
   result.medKitCandidates = pointsFromNode(node["medKitCandidates"])
+  ## Optional: specs pinned before trenches existed carry none and replay
+  ## without them, exactly as recorded.
+  result.trenches = rectsFromNode(node{"trenches"})
   for item in node["leftObstacles"]:
     result.leftObstacles.add item.shapeFromSpecNode()
   result.rooms = result.defaultCtfRooms()
@@ -3354,6 +3621,7 @@ var
   AnimatedDiamonds*: seq[tuple[cx, cy, radius: int]]
   ArenaFloorTex* = DefaultFloorTex  ## data/ path of the selected map's floor.
   ArenaCarveClear = 210  ## width of the always-floor home column (px).
+  ArenaTrenches*: seq[MapRect]
 
 proc selectCtfMap(gameMap: CtfMap) =
   ## Installs one map as THE map for this process: dimensions, fog grid,
@@ -3392,6 +3660,7 @@ proc selectCtfMap(gameMap: CtfMap) =
     StoneHi = rgba(190, 167, 137, 255)
     StoneLo = rgba(68, 54, 41, 255)
     StoneInk = rgba(34, 26, 19, 255)
+  ArenaTrenches = gameMap.trenches
 
 selectCtfMap(arenaCtfMap())
 
@@ -3444,6 +3713,23 @@ proc loadCtfMap*(config: GameConfig): CtfMap =
   ## arena.
   result = resolveCtfMapMetadata(config)
   selectCtfMap(result)
+
+proc trenchIndexAt*(x, y: int): int =
+  ## Returns the index of the trench containing map pixel (x, y), or -1 when
+  ## the point is in the open field.
+  for i, trench in ArenaTrenches:
+    if inRect(x, y, trench):
+      return i
+  -1
+
+proc playerTrench*(sim: SimServer, playerIndex: int): int =
+  ## Returns the index of the trench the player's center is standing in,
+  ## or -1 in the open field. Occupancy is instantaneous: the slowdowns and
+  ## the fly-over shot misses apply exactly while the center is inside.
+  trenchIndexAt(
+    sim.players[playerIndex].x + CollisionW div 2,
+    sim.players[playerIndex].y + CollisionH div 2
+  )
 
 proc isAnimatedDiamondPixel*(x, y: int): bool =
   ## Returns true when (x, y) lies inside one of the rotating center
@@ -3567,6 +3853,40 @@ proc overTint(base, tint: ColorRGBA): ColorRGBA =
     uint8((base.b.int * (255 - a) + tint.b.int * a) div 255),
     255
   )
+
+const
+  TrenchBevelPx = 8                          ## width of the pit's inner
+                                             ## shadow bevel, px.
+  TrenchLipColor = rgba(30, 22, 12, 255)     ## crisp dark cut line around
+                                             ## the pit lip.
+  TrenchLipAlpha = 185                       ## shadow strength at the lip...
+  TrenchFloorAlpha = 95                      ## ...easing to this over the
+                                             ## bevel and holding on the pit
+                                             ## floor.
+
+proc trenchArtColorAt(base: ColorRGBA, x, y: int): ColorRGBA =
+  ## Returns the floor color with the trench art applied at logical (x, y):
+  ## a dug pit — a crisp dark lip line on the square's edge, an inner shadow
+  ## bevel easing down from the lip, and a uniformly darkened sunken floor,
+  ## so the recess reads at a glance. Cosmetic only — the collision masks
+  ## never see trenches, and the art is axis-aligned so it upscales crisply
+  ## at any render scale.
+  let t = trenchIndexAt(x, y)
+  if t < 0:
+    return base
+  let
+    trench = ArenaTrenches[t]
+    edge = min(
+      min(x - trench.x, trench.x + trench.w - 1 - x),
+      min(y - trench.y, trench.y + trench.h - 1 - y)
+    )
+  if edge == 0:
+    return TrenchLipColor
+  let
+    depth = min(edge, TrenchBevelPx)
+    alpha = TrenchLipAlpha -
+      (TrenchLipAlpha - TrenchFloorAlpha) * depth div TrenchBevelPx
+  overTint(base, rgba(12, 9, 5, uint8(alpha)))
 
 proc tileSample(tex: Image, x, y: int): ColorRGBA =
   ## Samples a seamless texture tiled across the arena (opaque source).
@@ -4011,6 +4331,10 @@ proc renderArenaRgbaPair*(
       else:
         coldColor = tileBlock[tileRow + x mod tileW]
         hotColor = endzoneColorAt(coldColor, lx, redHi, blueLo, playLo, playHi)
+        # The trench pit (config-gated trenches) paints over the finished floor on both
+        # variants; it sits at the center, well clear of the endzone glow.
+        coldColor = trenchArtColorAt(coldColor, lx, ly)
+        hotColor = trenchArtColorAt(hotColor, lx, ly)
       if onBorder:
         hotColor = overTint(hotColor, ArenaBorderColor)
         coldColor = overTint(coldColor, ArenaBorderColor)
@@ -4124,6 +4448,10 @@ proc loadMapLayers*(gameMap: CtfMap, withEndzoneGlow = true):
         elif withEndzoneGlow: endzoneColorAt(tileSample(floorTex, x, y), x,
           redHi, blueLo, playLo, playHi)
         else: tileSample(floorTex, x, y)
+      if not wall:
+        # The trench pit (config-gated trenches) paints over the finished floor; it never
+        # overlaps a wall (it sits inside the open center ring).
+        color = trenchArtColorAt(color, x, y)
       if onBorder:
         color = overTint(color, ArenaBorderColor)
       result.mapImage[x, y] = color
@@ -4230,7 +4558,7 @@ proc defaultGameConfig*(): GameConfig =
     mapPath: DefaultMapPath,
     mapSeed: -1,
     mapPoolIndex: -1,
-    mapGen: MapGenOverrides(windows: -1),
+    mapGen: MapGenOverrides(windows: -1, pits: -1, pitDensity: -1),
     mapSpec: "",
     closedRoster: false,
     slots: @[]
@@ -4601,6 +4929,8 @@ proc update*(config: var GameConfig, jsonText: string) =
   node.readConfigString("mapSymmetry", config.mapGen.symmetry)
   node.readConfigInt("mapColumns", config.mapGen.columns)
   node.readConfigInt("mapWindows", config.mapGen.windows)
+  node.readConfigInt("mapPits", config.mapGen.pits)
+  node.readConfigInt("mapPitDensity", config.mapGen.pitDensity)
   node.readConfigString("mapCenterFeature", config.mapGen.centerFeature)
   if node.hasKey("mapSpec"):
     if node["mapSpec"].kind != JObject:
@@ -4699,6 +5029,8 @@ proc configJson*(config: GameConfig): string =
     "mapSymmetry": config.mapGen.symmetry,
     "mapColumns": config.mapGen.columns,
     "mapWindows": config.mapGen.windows,
+    "mapPits": config.mapGen.pits,
+    "mapPitDensity": config.mapGen.pitDensity,
     "mapCenterFeature": config.mapGen.centerFeature,
     "closedRoster": config.closedRoster,
     "showPlayerLabels": config.showPlayerLabels,
@@ -6468,10 +6800,15 @@ proc fireDirection(sim: SimServer, shooterIndex: int): tuple[x, y: float] =
   else:
     aimVector(shooter.aimBrads)
 
-proc selectFireTarget(sim: SimServer, shooterIndex: int): int =
-  ## Returns the FIRST player along the shot ray — the bullet travels down
-  ## the locked aim direction and stops at the first body it crosses
-  ## (friendly fire on) or the first wall — or -1 for a miss.
+proc selectFireTarget(sim: var SimServer, shooterIndex: int): int =
+  ## Returns the player the shot lands on: the bullet travels down the
+  ## locked aim direction toward the FIRST body it crosses (friendly fire
+  ## on), stopping at walls — or -1 for a miss. A trench occupant crossed
+  ## by the ray ducks under TrenchMissPct of the shots fired from outside
+  ## their trench (config-gated trenches): the bullet flies straight over them and carries
+  ## on down the ray to the next exposed body, exactly as if the occupant
+  ## were not there. The duck is rolled per occupant on the deterministic
+  ## sim RNG at shot release.
   ##
   ## A target's body is sampled across its silhouette (perpendicular to the
   ## ray, ±PlayerHalf): a sample connects only when the bullet corridor
@@ -6486,7 +6823,9 @@ proc selectFireTarget(sim: SimServer, shooterIndex: int): int =
     sx = shooter.x + CollisionW div 2
     sy = shooter.y + CollisionH div 2
     maxRange = float(sim.config.gunRange)
-  var bestT = maxRange + 1.0
+    shooterTrench = sim.playerTrench(shooterIndex)
+  # Every body the bullet corridor crosses, at its distance along the ray.
+  var crossed: seq[tuple[t: float, index: int]] = @[]
   for i in 0 ..< sim.players.len:
     if i == shooterIndex or not sim.players[i].alive:
       continue
@@ -6506,21 +6845,31 @@ proc selectFireTarget(sim: SimServer, shooterIndex: int): int =
         continue
       if not sim.lineOfSightClear(sx, sy, int(round(px)), int(round(py))):
         continue
-      if t < bestT:
-        bestT = t
-        result = i
+      crossed.add((t, i))
       break
+  # Walk the crossed bodies in ray order (index breaks exact ties, so the
+  # walk is deterministic); the first body that does not duck is the hit.
+  crossed.sort()
+  for candidate in crossed:
+    let targetTrench = sim.playerTrench(candidate.index)
+    if targetTrench >= 0 and targetTrench != shooterTrench and
+        sim.rng.rand(99) < TrenchMissPct:
+      continue
+    return candidate.index
 
-proc applyFire(sim: var SimServer, shooterIndex, targetIndex: int) =
-  ## Applies one selected shot: cooldown, tracer, and the kill. The target
-  ## may already have died to another shot this tick; the shot still lands
-  ## (tracer and all) but only an alive target yields a kill.
+type PendingGunShot = object
+  shooterIndex: int
+  targetIndex: int
+  headingBrads: int
+  actionId: int64
+
+proc selectGunShot(sim: var SimServer, shooterIndex: int): PendingGunShot =
+  ## Selects a target and snapshots the trigger metadata before any
+  ## simultaneous shot can kill and reset another shooter. (`var` because
+  ## target selection rolls the trench duck on the sim RNG.)
   let
     shooter = sim.players[shooterIndex]
-    (ux, uy) = sim.fireDirection(shooterIndex)
-    sx = shooter.x + CollisionW div 2
-    sy = shooter.y + CollisionH div 2
-    shotHeading =
+    headingBrads =
       if shooter.windupBrads >= 0: shooter.windupBrads
       else: shooter.aimBrads
     triggerTick =
@@ -6528,14 +6877,34 @@ proc applyFire(sim: var SimServer, shooterIndex, targetIndex: int) =
         sim.tickCount - sim.config.fireWindupTicks
       else:
         sim.tickCount
-    actionId = sim.eventActionId(shooterIndex, GunAction, triggerTick)
+  PendingGunShot(
+    shooterIndex: shooterIndex,
+    targetIndex: sim.selectFireTarget(shooterIndex),
+    headingBrads: headingBrads,
+    actionId: sim.eventActionId(shooterIndex, GunAction, triggerTick)
+  )
+
+proc applyFire(sim: var SimServer, shot: PendingGunShot) =
+  ## Applies one selected shot: cooldown, tracer, and the kill. The target
+  ## may already have died to another shot this tick; the shot still lands
+  ## (tracer and all) but only an alive target yields a kill.
+  let
+    shooterIndex = shot.shooterIndex
+    targetIndex = shot.targetIndex
+    shooter = sim.players[shooterIndex]
+    (ux, uy) = aimVector(shot.headingBrads)
+    sx = shooter.x + CollisionW div 2
+    sy = shooter.y + CollisionH div 2
+  # GV26: heart carriers fire at CarrierFireSlowdown (same 3x as shields);
+  # Trench occupants fire at TrenchFireSlowdown (config-gated). Every slowdown
+  # composes by MAX, never the product.
+  var cooldownScale = 1
+  if shooter.hasShield or shooter.carryingFlag:
+    cooldownScale = max(ShieldFireSlowdown, CarrierFireSlowdown)
+  if sim.playerTrench(shooterIndex) >= 0:
+    cooldownScale = max(cooldownScale, TrenchFireSlowdown)
   sim.players[shooterIndex].fireCooldown =
-    if shooter.hasShield or shooter.carryingFlag:
-      # GV26: heart carriers fire at CarrierFireSlowdown (same 3x as shields);
-      # shield+heart takes the max multiplier, never the product.
-      sim.config.fireCooldownTicks * max(ShieldFireSlowdown, CarrierFireSlowdown)
-    else:
-      sim.config.fireCooldownTicks
+    sim.config.fireCooldownTicks * cooldownScale
   sim.players[shooterIndex].windupBrads = -1
   # Accuracy bookkeeping (analysis-only, excluded from gameHash): every call
   # here is one released shot; a shot that locked onto a live enemy on the ray
@@ -6548,8 +6917,8 @@ proc applyFire(sim: var SimServer, shooterIndex, targetIndex: int) =
     weapon = "gun",
     x = float(sx),
     y = float(sy),
-    actionId = actionId,
-    headingBrads = shotHeading
+    actionId = shot.actionId,
+    headingBrads = shot.headingBrads
   )
   # Record a cosmetic tracer for the shot (never enters gameHash). It ends at
   # the victim, so a bullet visibly never travels past its first hit.
@@ -6618,8 +6987,8 @@ proc applyFire(sim: var SimServer, shooterIndex, targetIndex: int) =
         weapon = "gun",
         x = float(ex),
         y = float(ey),
-        actionId = actionId,
-        headingBrads = shotHeading,
+        actionId = shot.actionId,
+        headingBrads = shot.headingBrads,
         distance = hypot(float(ex - sx), float(ey - sy)),
         damages = @[
           sim.eventDamage(
@@ -6688,8 +7057,8 @@ proc applyFire(sim: var SimServer, shooterIndex, targetIndex: int) =
       weapon = "gun",
       x = float(ex),
       y = float(ey),
-      actionId = actionId,
-      headingBrads = shotHeading,
+      actionId = shot.actionId,
+      headingBrads = shot.headingBrads,
       distance = hypot(float(ex - sx), float(ey - sy))
     )
 
@@ -6697,7 +7066,7 @@ proc tryFire*(sim: var SimServer, shooterIndex: int) =
   ## Fires one shot immediately (the single-shooter path).
   if not sim.canFire(shooterIndex):
     return
-  sim.applyFire(shooterIndex, sim.selectFireTarget(shooterIndex))
+  sim.applyFire(sim.selectGunShot(shooterIndex))
 
 proc startFireWindup*(sim: var SimServer, shooterIndex: int) =
   ## Starts a shot: locks the current aim angle and arms the windup.
@@ -7122,12 +7491,12 @@ proc resolveSimultaneousFire*(sim: var SimServer, shooters: openArray[int]) =
   ## against the same snapshot before any kill is applied, so a mutual duel
   ## kills both shooters and neither team gains an input-processing-order
   ## advantage.
-  var shots: seq[tuple[shooter, target: int]] = @[]
+  var shots: seq[PendingGunShot] = @[]
   for shooterIndex in shooters:
     if sim.canFire(shooterIndex):
-      shots.add((shooterIndex, sim.selectFireTarget(shooterIndex)))
+      shots.add(sim.selectGunShot(shooterIndex))
   for shot in shots:
-    sim.applyFire(shot.shooter, shot.target)
+    sim.applyFire(shot)
 
 proc tryPickupFlags*(sim: var SimServer, playerIndex: int) =
   ## Lets a living player steal the ENEMY team's flag off its pedestal by
@@ -7214,12 +7583,43 @@ proc applyInput*(
       if player.carryingFlag: sim.config.carrierSpeedPct else: 100
     maxSpeed = sim.config.maxSpeed * speedScale div 100
     accel = sim.config.accel * speedScale div 100
+    # CLIMBING OUT of a trench is slow; dropping in and moving around it
+    # are not. While the center is inside a pit, each axis whose motion
+    # points AWAY from the pit's center — up that wall — is capped at 1/5
+    # speed and accel, and outward momentum is shed to the cap. Motion
+    # into, across, and around the pit runs at full speed.
+    trench = sim.playerTrench(playerIndex)
+    slowSpeed = maxSpeed div TrenchSpeedDivisor
+    slowAccel = max(1, accel div TrenchSpeedDivisor)
+  var
+    posBoundX = maxSpeed
+    negBoundX = -maxSpeed
+    posBoundY = maxSpeed
+    negBoundY = -maxSpeed
+  if trench >= 0:
+    let
+      pit = ArenaTrenches[trench]
+      relX = (player.x + CollisionW div 2) - (pit.x + pit.w div 2)
+      relY = (player.y + CollisionH div 2) - (pit.y + pit.h div 2)
+    if relX > 0: posBoundX = slowSpeed
+    elif relX < 0: negBoundX = -slowSpeed
+    if relY > 0: posBoundY = slowSpeed
+    elif relY < 0: negBoundY = -slowSpeed
+    player.velX = clamp(player.velX, negBoundX, posBoundX)
+    player.velY = clamp(player.velY, negBoundY, posBoundY)
 
   if inputX != 0:
+    let accelX =
+      if trench >= 0 and
+          ((inputX > 0 and posBoundX == slowSpeed) or
+           (inputX < 0 and negBoundX == -slowSpeed)):
+        slowAccel
+      else:
+        accel
     player.velX = clamp(
-      player.velX + inputX * accel,
-      -maxSpeed,
-      maxSpeed
+      player.velX + inputX * accelX,
+      negBoundX,
+      posBoundX
     )
   else:
     player.velX =
@@ -7228,10 +7628,17 @@ proc applyInput*(
       player.velX = 0
 
   if inputY != 0:
+    let accelY =
+      if trench >= 0 and
+          ((inputY > 0 and posBoundY == slowSpeed) or
+           (inputY < 0 and negBoundY == -slowSpeed)):
+        slowAccel
+      else:
+        accel
     player.velY = clamp(
-      player.velY + inputY * accel,
-      -maxSpeed,
-      maxSpeed
+      player.velY + inputY * accelY,
+      negBoundY,
+      posBoundY
     )
   else:
     player.velY =

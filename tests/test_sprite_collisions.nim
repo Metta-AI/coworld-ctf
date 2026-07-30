@@ -123,9 +123,9 @@ proc actorDefinitionIds(
 ): HashSet[int] =
   ## Skin-master definition ids, including live, corpse, and selected variants.
   ## Scoped to the per-skin soldier pools (all < RigHeadSpriteBase): the board
-  ## turret-rig HEAD segment also carries the "player <color>" contract label, but
-  ## it is skin-INDEPENDENT (it slices the DefaultSkin master) and lives in its own
-  ## pool at RigHeadSpriteBase+, so it must not count toward the per-skin arithmetic.
+  ## turret-rig HEAD segment also carries the "player <color>" contract label and
+  ## lives in its own pool at RigHeadSpriteBase+, so it must not count toward the
+  ## unified-soldier pool arithmetic.
   for message in messages:
     if message.kind != spkSprite:
       continue

@@ -35,7 +35,7 @@ for m in manifest:
     <span class="seed">seed {m['seed']}</span>
     <span class="chip chip-{size}">{size} {m['width']}&times;{m['height']}</span>
     <span class="chip chip-sym">{m['symmetry']}</span>
-    <span class="meta">{m['obstacles']} left-half shapes &middot; kits {kits}</span>
+    <span class="meta">{m['obstacles']} left-half shapes &middot; {m.get('trenches', 0)} trenches &middot; kits {kits}</span>
   </header>
   <div class="viewer" tabindex="0">
     <img src="data:image/png;base64,{b64}" alt="pool map {m['index']} seed {m['seed']}" draggable="false">

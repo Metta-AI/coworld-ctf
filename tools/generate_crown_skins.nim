@@ -1,4 +1,5 @@
-## Generates the crown skin masters from the canonical team soldier art.
+## Generates the crown skin masters from the canonical team soldier art and
+## the articulated crown heads from the canonical team rig art.
 ##
 ## Run from the repository root:
 ##   nim r tools/generate_crown_skins.nim
@@ -6,25 +7,30 @@
 ## The crown is drawn in the masters' painted style: a shaded gold band that
 ## hugs the helmet dome (centered on the measured helmet center, x~43), three
 ## ball-tipped points, a team-colored jewel, and a thin warm outline. Geometry
-## is in master pixels (127x116); the helmet crest spans roughly x 22..65 with
-## its top at y~8.
+## uses each asset's master-pixel coordinate system.
 
 import pixie
 
 type TeamArt = object
   sourcePath: string
   outputPath: string
+  rigHeadPath: string
+  rigCrownHeadPath: string
   jewel: Color
 
 const SoldierSkins = [
   TeamArt(
     sourcePath: "data/soldier_red.png",
     outputPath: "data/soldier_red_crown.png",
+    rigHeadPath: "data/rig_real/red/head.png",
+    rigCrownHeadPath: "data/rig_real/red/head_crown.png",
     jewel: color(0.90, 0.28, 0.30, 1)
   ),
   TeamArt(
     sourcePath: "data/soldier_blue.png",
     outputPath: "data/soldier_blue_crown.png",
+    rigHeadPath: "data/rig_real/blue/head.png",
+    rigCrownHeadPath: "data/rig_real/blue/head_crown.png",
     jewel: color(0.30, 0.55, 0.91, 1)
   )
 ]
@@ -39,34 +45,42 @@ const
   MidPointTipY = 0.5
   TipBallR = 2.6
   Outline = 2.2
+  RigCrownCx = 96.0
+  RigCrownYOffset = 30.0
 
-proc crownBody(): Path =
+proc crownBody(cx, yOffset: float): Path =
   ## One closed path: base band with a sagging bottom arc, three points
   ## rising off the band top. Left/right points lean slightly outward.
   let
-    l = CrownCx - CrownHalfW
-    r = CrownCx + CrownHalfW
+    l = cx - CrownHalfW
+    r = cx + CrownHalfW
   result = newPath()
   # Bottom edge, left to right, bowed down mid-dome.
-  result.moveTo(l, BandBotY)
-  result.quadraticCurveTo(CrownCx, BandBotY + BandSag * 2, r, BandBotY)
+  result.moveTo(l, BandBotY + yOffset)
+  result.quadraticCurveTo(
+    cx, BandBotY + BandSag * 2 + yOffset, r, BandBotY + yOffset)
   # Right side up to the right point tip (leaning slightly outward).
-  result.lineTo(r, BandTopY)
-  result.lineTo(r + 1.0, SidePointTipY)
+  result.lineTo(r, BandTopY + yOffset)
+  result.lineTo(r + 1.0, SidePointTipY + yOffset)
   # Valley, then the taller middle point.
-  result.lineTo(CrownCx + 6.5, BandTopY + 1.5)
-  result.lineTo(CrownCx, MidPointTipY)
-  result.lineTo(CrownCx - 6.5, BandTopY + 1.5)
+  result.lineTo(cx + 6.5, BandTopY + 1.5 + yOffset)
+  result.lineTo(cx, MidPointTipY + yOffset)
+  result.lineTo(cx - 6.5, BandTopY + 1.5 + yOffset)
   # Left point, mirroring the right.
-  result.lineTo(l - 1.0, SidePointTipY)
-  result.lineTo(l, BandTopY)
+  result.lineTo(l - 1.0, SidePointTipY + yOffset)
+  result.lineTo(l, BandTopY + yOffset)
   result.closePath()
 
 proc tipBall(cx, cy: float): Path =
   result = newPath()
   result.circle(cx, cy, TipBallR)
 
-proc addCrown(master: Image, jewel: Color): Image =
+proc addCrown(
+  master: Image,
+  jewel: Color,
+  cx = CrownCx,
+  yOffset = 0.0
+): Image =
   ## Composites the crown over the cog's helmet in the painted house style.
   result = newImage(master.width, master.height)
   result.draw(master)
@@ -77,24 +91,24 @@ proc addCrown(master: Image, jewel: Color): Image =
   # Vertical gold gradient: sunlit top, brassy base — matches the soft
   # shading of the painted masters better than a flat fill.
   goldPaint.gradientHandlePositions = @[
-    vec2(CrownCx, MidPointTipY),
-    vec2(CrownCx, BandBotY + BandSag * 2)
+    vec2(cx, MidPointTipY + yOffset),
+    vec2(cx, BandBotY + BandSag * 2 + yOffset)
   ]
   goldPaint.gradientStops = @[
     ColorStop(color: color(0.99, 0.90, 0.55, 1), position: 0),
     ColorStop(color: color(0.87, 0.66, 0.22, 1), position: 1)
   ]
 
-  let body = crownBody()
+  let body = crownBody(cx, yOffset)
   result.fillPath(body, goldPaint)
   result.strokePath(body, outlineColor, strokeWidth = Outline)
 
   # Ball tips: a slightly lighter gold so they read as separate knobs.
   let ballGold = color(0.98, 0.86, 0.45, 1)
   for (cx, cy) in [
-    (CrownCx - CrownHalfW - 1.0, SidePointTipY),
-    (CrownCx, MidPointTipY),
-    (CrownCx + CrownHalfW + 1.0, SidePointTipY)
+    (cx - CrownHalfW - 1.0, SidePointTipY + yOffset),
+    (cx, MidPointTipY + yOffset),
+    (cx + CrownHalfW + 1.0, SidePointTipY + yOffset)
   ]:
     let ball = tipBall(cx, cy - 1.0)
     result.fillPath(ball, ballGold)
@@ -102,11 +116,11 @@ proc addCrown(master: Image, jewel: Color): Image =
 
   # Team-colored jewel centered on the band, with a small white glint.
   var gem = newPath()
-  gem.ellipse(CrownCx, BandTopY + 4.5, 3.2, 3.8)
+  gem.ellipse(cx, BandTopY + 4.5 + yOffset, 3.2, 3.8)
   result.fillPath(gem, jewel)
   result.strokePath(gem, outlineColor, strokeWidth = 1.4)
   var glint = newPath()
-  glint.circle(CrownCx - 1.0, BandTopY + 3.2, 0.9)
+  glint.circle(cx - 1.0, BandTopY + 3.2 + yOffset, 0.9)
   result.fillPath(glint, color(1, 1, 1, 0.85))
 
 when isMainModule:
@@ -114,3 +128,10 @@ when isMainModule:
     let master = readImage(art.sourcePath)
     master.addCrown(art.jewel).writeFile(art.outputPath)
     echo "wrote ", art.outputPath
+    let rigHead = readImage(art.rigHeadPath)
+    rigHead.addCrown(
+      art.jewel,
+      cx = RigCrownCx,
+      yOffset = RigCrownYOffset
+    ).writeFile(art.rigCrownHeadPath)
+    echo "wrote ", art.rigCrownHeadPath

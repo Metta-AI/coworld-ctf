@@ -75,6 +75,47 @@ suite "rich analysis events":
       check impacts[0].damages[0].slot == 1
       check impacts[0].damages[0].amount == 1
 
+  test "simultaneous lethal shots retain each trigger id and locked heading":
+    var game = twoTeamGame()
+    game.players[0].placeAtCenter(60, MapHeight div 2)
+    game.players[0].aimBrads = 0
+    game.players[0].hp = 1
+    game.players[1].placeAtCenter(100, MapHeight div 2)
+    game.players[1].aimBrads = 128
+    game.players[1].hp = 1
+
+    game.startFireWindup(0)
+    game.startFireWindup(1)
+    let triggers = game.eventsOf(GunTrigger)
+    check triggers.len == 2
+
+    # Killing a shooter resets their pending windup. Both released shots must
+    # still use the trigger metadata captured before either kill is applied.
+    game.players[0].aimBrads = 64
+    game.players[1].aimBrads = 192
+    for _ in 0 ..< game.config.fireWindupTicks:
+      game.step(game.none(), game.none())
+
+    let
+      shots = game.eventsOf(Shot)
+      impacts = game.eventsOf(ShotImpact)
+    check shots.len == 2
+    check impacts.len == 2
+    for source, heading in [0, 128]:
+      let
+        trigger = triggers.filterIt(it.source == source)
+        shot = shots.filterIt(it.source == source)
+        impact = impacts.filterIt(it.source == source)
+      check trigger.len == 1
+      check shot.len == 1
+      check impact.len == 1
+      if trigger.len == 1 and shot.len == 1 and impact.len == 1:
+        check shot[0].actionId == trigger[0].actionId
+        check impact[0].actionId == trigger[0].actionId
+        check shot[0].headingBrads == heading
+        check impact[0].headingBrads == heading
+        check impact[0].damages.len == 1
+
   test "a missed shot still reports its wall or range impact":
     var game = twoTeamGame()
     game.players[0].x = game.gameMap.center.x

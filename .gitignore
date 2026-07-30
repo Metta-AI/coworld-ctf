@@ -51,6 +51,8 @@ players/modulabot/test/parity
 # the tracked coworld_manifest.json; dist/ is a local convenience artifact.
 /dist/
 
+trench-demo.bitreplay
+
 # Locally recorded MW2 review fixtures. Regenerate with
 # `PORT=21050 tools/record_fixture.sh mw2-<map>-fixture.bitreplay 7 3000 '{"mapPath":"<map>"}'`
 # and serve with run-mw2-preview.sh; not worth versioning at ~100KB each.

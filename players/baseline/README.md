@@ -18,15 +18,17 @@ All decision logic lives in `decide` in `baseline.nim`.
 
 The observation is the **full 1235×659 map in map coordinates**: the map
 object sits at `(0, 0)`, so object positions ARE map positions (no camera
-math). Entities are **fogged**: an enemy — including an enemy carrying our
-flag — is only streamed while inside OUR vision, which is a **forward cone**
-(half-angle `visionConeDeg` ≈ 60° around our AIM ANGLE, **unlimited range**,
-walls block it) plus an **omnidirectional bubble** (`visionBubble` ≈ 90px).
+math). Entities are **fogged**: every other player — **teammates included**,
+and an enemy carrying our flag — is only streamed while inside OUR vision,
+which is a **forward cone** (half-angle `visionConeDeg` ≈ 60° around our AIM
+ANGLE, **unlimited range**, walls block it) plus an **omnidirectional bubble**
+(`visionBubble` ≈ 90px).
 **Aim carries vision**: the cone points where the turret points, never where
 we walk, so sweeping it is an explicit rotate-button act. Always visible
-regardless of fog: the map, our **teammates** (team radio), **both flag
-pedestals**, our **own flag's state**, and **ourselves** via the distinct
-self marker.
+regardless of fog: the map, **both flag pedestals**, and **ourselves** via the
+distinct self marker. There is **no team radio** — a mate outside our cone and
+bubble is as invisible to us as an enemy, so any notion of where our team is
+has to be tracked and predicted, not read off the frame.
 **Aim is decoupled from movement** (a per-player angle in brads, 0 = east,
 counter-clockwise; B rotates CCW, Select CW at `AimRate` = 5 brads/tick) and
 only a **fresh A press** fires — the pull locks the aim angle and the bullet
@@ -36,19 +38,22 @@ leaves after a ~5-tick windup. Labels we read:
   present exactly while we are alive, and how we locate ourselves in map
   coordinates. The suffix is the horizontal sprite flip (aim left/right-ish).
 - `"player <color> right|left"` — another player; the suffix is the
-  horizontal sprite flip. Teammates are always streamed; enemies only while
-  inside our vision cone/bubble with line of sight.
+  horizontal sprite flip. Teammates and enemies fog identically: another
+  player is streamed only while inside our vision cone/bubble with line of
+  sight, so a mate who steps out of the cone simply disappears from the frame.
 - No label carries anyone's **aim angle**. The old `"aim dot <color>"` line was
   retired engine-side (see RULES.md label changes), so our own aim is pure dead
   reckoning and a mate's or enemy's facing is only the coarse left/right sprite
   flip above.
 - `"<team> flag"` (`"red flag"` / `"blue flag"`) — a flag, on its pedestal or
   riding its carrier's exact position. Pedestal flags are never fogged; a
-  carried flag is exactly as visible as its carrier. Consequences: the ENEMY
-  flag (only our team can carry it) is always visible — on its pedestal, on
-  me, or on a mate; our OWN flag on its pedestal means it is safe, visibly
-  off-pedestal is a live thief fix, and ABSENT from the frame means a fogged
-  thief is running it home.
+  carried flag is exactly as visible as its carrier — and since mates fog too,
+  that includes a mate's carry. Consequences: the ENEMY flag (only our team can
+  carry it) is visible on its pedestal and while *we* carry it, but once a MATE
+  picks it up it is only visible while that mate is inside our vision, so the
+  flag going ABSENT can equally mean a fogged mate is running it home. Our OWN
+  flag on its pedestal means it is safe, visibly off-pedestal is a live thief
+  fix, and ABSENT from the frame means a fogged enemy thief has it.
 - `"walkability map"` — the full static walkability mask, sent once at init.
 - `"fire icon"` / `"fire icon cooldown"` — whether our shot is ready (HUD).
 - `"fog"` — the viewer-side fog overlay runs (cosmetic; we ignore them — the
@@ -110,9 +115,11 @@ to an obstacle (`coverCell`). They feed three behaviors:
   after `TrackTtl` (~5s) and are capped at the **8** real opponents/teammates
   (`TrackCap`). Tracks are what persists through fog: an enemy that walks
   behind cover or out of the cone stays remembered until the TTL runs out.
-- **Flag state needs no memory**: the enemy flag is always visible somewhere
-  (pedestal / me / a mate), and our own flag's stolen-ness is observable
-  every frame from its pedestal.
+- **Our own flag's state needs no memory**: its pedestal is never fogged, so
+  stolen-ness is observable every frame. The enemy flag is *not* equally free —
+  it is certain only on its pedestal or in our own hands; a mate's carry fogs
+  with the mate, so an absent enemy flag is ambiguous (a mate is running it home
+  vs. we simply cannot see the carry) and does need remembering.
 - **Thief fix**: seeing our own flag off-pedestal is a live fix on the thief
   (position, plus velocity from the matching track). The fix guides pursuit
   for `ThiefFixTtl` (~1.7s); after that the hunt falls back to guarding the

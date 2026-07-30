@@ -26,7 +26,7 @@ when isMainModule:
     seed = start
     scanned, rejected = 0
   while seeds.len < PoolSize:
-    let gameMap = generateMapAttempt(seed, MapGenOverrides(windows: -1))
+    let gameMap = generateMapAttempt(seed, MapGenOverrides(windows: -1, pits: -1, pitDensity: -1))
     inc scanned
     let reason = validateGeneratedMap(gameMap)
     if reason.len > 0:

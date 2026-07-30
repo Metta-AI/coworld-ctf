@@ -35,7 +35,27 @@ type
 proc initBroadcastTracker*(): BroadcastTracker =
   ## Returns a fresh, unsynced broadcast tracker.
   result.prevPhase = Lobby
-  result.carriers = [Red: -1, Blue: -1]
+  for team in Team:
+    result.carriers[team] = -1
+
+proc policyName*(address: string): string =
+  ## The policy identity behind one seat's connection name: the hosted runtime
+  ## appends a per-connection " (N)" suffix to the SAME policy's multiple seats
+  ## ("softmaxwell (2)", "softmaxwell (7)"…), so stripping it collapses every
+  ## seat of one policy to a single shared name. The join path converts spaces
+  ## to underscores (server.nim cleanPlayerName), so by the time the name is a
+  ## player address the separator reads "_(N)" — accept either. Names without
+  ## the suffix (local self-play "Player1"…) pass through unchanged.
+  result = address
+  if result.len >= 4 and result[^1] == ')':
+    var i = result.len - 2
+    while i >= 0 and result[i] in {'0' .. '9'}:
+      dec i
+    if i >= 1 and i < result.len - 2 and result[i] == '(' and
+        result[i - 1] in {' ', '_'}:
+      result = result[0 ..< i - 1]
+      while result.len > 0 and result[^1] in {' ', '_'}:
+        result.setLen(result.len - 1)
 
 proc slotOf(sim: SimServer, index: int): int =
   ## Returns the stable join slot for a player index, or -1.
@@ -179,6 +199,21 @@ proc stepEvents*(
 
   tracker.snapshot(sim)
 
+proc teamPoliciesJson(sim: SimServer, team: Team): JsonNode =
+  ## The distinct policy identities seated on one team, in join-slot order.
+  ## One entry per policy — a mixed team (CTF-Doubles: two policies per side)
+  ## lists both, so the client can headline and group the roster by policy
+  ## instead of collapsing a mixed team to its color.
+  result = newJArray()
+  var seen: seq[string]
+  for p in sim.players:
+    if p.team != team:
+      continue
+    let pol = policyName(p.address)
+    if pol notin seen:
+      seen.add(pol)
+      result.add(%pol)
+
 proc teamStateJson(sim: SimServer, team: Team): JsonNode =
   ## Returns one team's scorebug state: lives, flag state, carrier, progress.
   let
@@ -188,7 +223,8 @@ proc teamStateJson(sim: SimServer, team: Team): JsonNode =
     "lives": sim.teamLivesRemaining(team),
     "flag": (if taken: "taken" else: "home"),
     "carrier": (if taken: sim.slotOf(flag.carrier) else: -1),
-    "prog": sim.teamFlagProgress(enemy(team))
+    "prog": sim.teamFlagProgress(enemy(team)),
+    "policies": sim.teamPoliciesJson(team)
   }
 
 proc rosterJson(sim: SimServer): JsonNode =
@@ -199,6 +235,7 @@ proc rosterJson(sim: SimServer): JsonNode =
       "s": p.joinOrder,
       "team": teamText(p.team),
       "name": p.address,
+      "pol": policyName(p.address),
       "col": int(p.color),
       "alive": p.alive,
       "lives": p.lives,
@@ -467,9 +504,13 @@ proc firstPersonJson(sim: SimServer, playerIndex: int): JsonNode =
         # palette it already uses for cogs and hearts (the board resolves paint
         # through the sprite Palette, which isn't in this module's graph — team
         # is the stable contract and reads identically).
-        "team": (if shot.color == teamColor(Red): "red"
-                 elif shot.color == teamColor(Blue): "blue"
-                 else: ""),
+        "team": (block:
+          var shotTeam = ""
+          for team in Team:
+            if shot.color == teamColor(team):
+              shotTeam = teamText(team)
+              break
+          shotTeam),
         # Hits draw bright, misses pre-faded — matching the board.
         "hit": shot.hit,
         # Nearest range, for the payload triage below.
@@ -576,7 +617,7 @@ proc buildStateJson*(
   transportEnabled: bool,
   mismatchTick: int,
   povSlot: int,
-  livesLeadSeries: seq[array[2, int]] = @[],
+  livesSeries: seq[seq[int]] = @[],
   startTick: int = 0,
   endHoldSeconds: int = 0,
   includeFpMap: bool = false,
@@ -631,15 +672,23 @@ proc buildStateJson*(
       if fp.kind != JNull:
         state["fp"] = fp
 
-  # Full-timeline lives-lead series (sent ONCE per HUD viewer): [[tick, diff], …]
-  # change-points across the WHOLE match so the momentum graph draws its full
-  # width immediately instead of accumulating to the playhead. Absent on every
-  # later frame — the client caches it.
-  if livesLeadSeries.len > 0:
-    var series = newJArray()
-    for point in livesLeadSeries:
-      series.add(%*[point[0], point[1]])
-    state["lead"] = series
+  # Full-timeline lives series (sent ONCE per HUD viewer): change-points across
+  # the WHOLE match so the momentum graph draws its full width immediately
+  # instead of accumulating to the playhead. Team-keyed so any number of teams
+  # graphs: {"teams": [name, …], "pts": [[tick, lives, …], …]} — each point is
+  # the tick followed by one lives count per team, in `teams` order. Absent on
+  # every later frame — the client caches it.
+  if livesSeries.len > 0:
+    var teamNames = newJArray()
+    for team in Team:
+      teamNames.add(%teamText(team))
+    var pts = newJArray()
+    for point in livesSeries:
+      var row = newJArray()
+      for value in point:
+        row.add(%value)
+      pts.add(row)
+    state["lead"] = %*{"teams": teamNames, "pts": pts}
 
   # Static minimap wall silhouette for the EYES tactical inset, sent ONCE per
   # viewer (like the lead series). Absent on every later frame — the client
@@ -668,10 +717,20 @@ proc buildStateJson*(
   # before winner (F4); the tiebreak keys let the card name how it ended (F3),
   # and distinguish a mutual wipe from a dead-even limit (F10).
   if sim.phase == GameOver:
+    # Per-team verdict facts, keyed by team name so the end-card generalises
+    # to any team count. The legacy redLives/blueLives scalars stay for
+    # anything external still reading them.
+    var overTeams = newJObject()
+    for team in Team:
+      overTeams[teamText(team)] = %*{
+        "lives": sim.teamLivesRemaining(team),
+        "prog": sim.teamFlagProgress(team)
+      }
     state["over"] = %*{
       "winner": teamText(sim.winner),
       "draw": sim.isDraw,
       "timeLimit": sim.timeLimitReached,
+      "teams": overTeams,
       "redLives": sim.teamLivesRemaining(Red),
       "blueLives": sim.teamLivesRemaining(Blue),
       "redProg": sim.teamFlagProgress(Red),

@@ -1,5 +1,6 @@
 import
   std/[algorithm, math, os, strutils, tables],
+  supersnappy,
   bitworld/pixelfonts, bitworld/profile, bitworld/spriteprotocol, bitworld/server,
   pixie,
   labels, sim
@@ -297,10 +298,10 @@ const
   ## every family above (highest was kill pops ~31191). Bake dims: head = team×16
   ## aim; arms = team×16 aim; legs = team×16 heading×(2·swing+1)×(shorten+1);
   ## wheels = team×16 heading×(2·caster+1).
-  RigHeadSpriteBase* = 40000   ## 40000..40031 (team×16 aim). Exported so the
+  RigHeadSpriteBase* = 40000   ## 40000..40063 (skin×team×16 aim). Exported so the
                                ## sprite-collision audit can scope skin-pool checks
-                               ## below the (skin-independent) rig pool.
-  RigArmSpriteBase = 40040     ## 40040 + team×2arms×16 aim → 40040..40103.
+                               ## below the rig pool.
+  RigArmSpriteBase = 40080     ## 40080 + team×2arms×16 aim → 40080..40143.
   RigLegSpriteBase = 40200     ## team×3legs×16head×33swing×5shorten ≈ 15840 ids
                                ## → 40200..56039.
   RigWheelSpriteBase = 56100   ## team×3wheels×16head×17caster ≈ 1632 ids
@@ -316,12 +317,8 @@ const
   RigLegObjectBase = 32060     ## 3 leg objects per player: 32060..32107.
   RigWheelObjectBase = 32120   ## 3 wheel objects per player: 32120..32167.
   RigGunObjectBase = 32168     ## 1 gun object per player: 32168..32183.
-  AimDotSpriteBase = 780       ## per-color aim indicator dot sprites: 780..795.
-  AimDotObjectBase = 18000     ## aim dot object-id pool: 18000..18063.
-  AimDotSize = 2
-  AimDotsPerPlayer = 4         ## dots along each player's aim line.
-  AimDotStart = 5              ## px from the player center to the first dot.
-  AimDotSpacing = 3            ## px between aim dots (line reaches ~14px out).
+  ## The retired aim-dot indicator left sprites 780..795 and objects
+  ## 18000..18063 unallocated; both ranges are free to reuse.
   PlayerNameSpriteBase = 7000
   PlayerNameObjectBase = 7000
   PlayerNameZ = 30002
@@ -348,8 +345,9 @@ const
   ## (one per run width in cells), map markers 20000. Objects: flags 6500..6501
   ## (map view) / 5009..5010 (player view), team score text 9600..9601,
   ## muzzle blooms 16800..16815, tracer heads 16820..16835, splatters
-  ## 17000..17031, aim dots 18000..18063, identity badges 19040..19055,
+  ## 17000..17031, identity badges 19040..19055,
   ## map markers 20000, fog runs 21000..23047, tracer dots 24000..29263.
+  ## Player debug sprites and objects use per-player pools in 40000..56383.
   SpritePlayerFireSpriteId = 5000
   SpritePlayerFireShadowSpriteId = 5001
   SpritePlayerRemainingSpriteId = 5003
@@ -406,6 +404,11 @@ const
   ProtocolTextSpriteBase = 9000
   ProtocolTextObjectBase = 9000
   ProtocolTextZ = 30010
+  DebugSpriteBase* = 40000     ## 1024 sprite ids per player for debug overlays.
+  DebugObjectBase* = 40000     ## 1024 object ids per player for debug overlays.
+  DebugPlayerIdStride* = 1024  ## Payload sprite/object ids must stay in
+                               ## 0..1023; larger ids alias via modulo.
+  DebugOverlayZ* = 29000       ## Above gameplay, below protocol text.
   ProtocolTextColor = 2'u8
   ProtocolGameOverIconObjectBase = 9700
   PlayerColorNames = [
@@ -433,6 +436,11 @@ type
     width: int
     height: int
     label: string
+    compressedPixels: seq[uint8]
+
+  DebugOverlay* = object
+    sprites*: Table[int, SpritePacketSpriteDef]
+    objects*: Table[int, SpritePacketObject]
 
   GlobalViewerState* = object
     initialized*: bool
@@ -470,6 +478,8 @@ type
   PlayerViewerState* = ref object
     initialized*: bool
     objectIds*: seq[int]
+    pendingDebugSprites*: seq[seq[uint8]]
+    debugSpriteLimitWarned*: bool
     spriteDefs: seq[SpriteDefinition]
 
   ProtocolTextItem = ref object
@@ -707,6 +717,49 @@ proc initPlayerViewerState*(): PlayerViewerState =
   ## Returns the default state for one sprite player viewer.
   new(result)
 
+proc debugSpritePixels(sprite: SpritePacketSpriteDef): seq[uint8] =
+  ## Decodes one sprite and rejects pixel counts that do not match its shape.
+  result = uncompress(sprite.compressedPixels)
+  if result.len != sprite.width * sprite.height * 4:
+    raise newException(
+      SpriteProtocolError,
+      "debug sprite pixel count does not match its dimensions"
+    )
+
+proc validateDebugSpritePacket*(packet: openArray[uint8]) =
+  ## Validates pixels before they reach replay storage; rendering decodes them.
+  for message in packet.parseSpritePacket():
+    if message.kind == spkSprite:
+      discard message.sprite.debugSpritePixels()
+
+proc applyDebugSpritePacket*(
+  overlay: var DebugOverlay,
+  packet: openArray[uint8]
+) =
+  ## Folds one player-authored sprite packet into an overlay.
+  for message in packet.parseSpritePacket():
+    case message.kind
+    of spkSprite:
+      overlay.sprites[message.sprite.id] = message.sprite
+    of spkObject:
+      overlay.objects[message.objectDef.id] = message.objectDef
+    of spkDeleteObject:
+      overlay.objects.del(message.objectId)
+    of spkClearObjects:
+      overlay.objects.clear()
+    of spkViewport, spkLayer:
+      discard
+
+proc debugSpriteId*(playerIndex, payloadId: int): int =
+  ## Returns the viewer sprite id for one player's payload sprite id.
+  DebugSpriteBase + playerIndex * DebugPlayerIdStride +
+    payloadId mod DebugPlayerIdStride
+
+proc debugObjectId*(playerIndex, payloadId: int): int =
+  ## Returns the viewer object id for one player's payload object id.
+  DebugObjectBase + playerIndex * DebugPlayerIdStride +
+    payloadId mod DebugPlayerIdStride
+
 proc putRgbaPixel(pixels: var seq[uint8], pixelIndex: int, color: uint8) =
   ## Writes one palette color as a global protocol RGBA pixel.
   let
@@ -804,8 +857,11 @@ proc selectedSoldierPlayerSpriteId(team: Team, skin: Skin, rot: int): int =
 # Each family packs its dimensions into a dense range. Signed articulation steps
 # (leg swing, wheel caster) are offset to a non-negative index. ord(seg) within a
 # family: arms armL/armR = 0/1; legs FL/FR/Rear = 0/1/2; wheels L/R/Rear = 0/1/2.
-proc rigHeadSpriteId(team: Team, aimStep: int): int =
-  RigHeadSpriteBase + ord(team) * RigSteps + aimStep
+proc rigHeadSpriteId(team: Team, skin: Skin, aimStep: int): int =
+  RigHeadSpriteBase +
+    ord(skin) * 2 * RigSteps +
+    ord(team) * RigSteps +
+    aimStep
 
 proc rigGunSpriteId(team: Team, aimStep: int): int =
   RigGunSpriteBase + ord(team) * RigSteps + aimStep
@@ -901,6 +957,7 @@ proc addSpriteChanged(
     defs[index].width = width
     defs[index].height = height
     defs[index].label = label
+    defs[index].compressedPixels = @[]
   else:
     defs.add SpriteDefinition(
       spriteId: spriteId,
@@ -954,6 +1011,84 @@ proc addBoardSpriteChanged(
       defs, spriteId, outW, outH,
       scaleSpritePixels(pixels, width, height, boardScale), label, changed)
 
+proc addDebugOverlay(
+  packet: var seq[uint8],
+  spriteDefs: var seq[SpriteDefinition],
+  currentIds: var seq[int],
+  overlay: DebugOverlay,
+  playerIndex: int
+) =
+  ## Adds one selected player's debug overlay to a global viewer packet.
+  var payloadSpriteIds: seq[int] = @[]
+  for payloadId in overlay.sprites.keys:
+    payloadSpriteIds.add(payloadId)
+  payloadSpriteIds.sort()
+  var validSpriteIds: seq[int] = @[]
+  for payloadId in payloadSpriteIds:
+    let
+      sprite = overlay.sprites[payloadId]
+      spriteId = debugSpriteId(playerIndex, payloadId)
+      index = spriteDefs.spriteDefinitionIndex(spriteId)
+    var pixels: seq[uint8]
+    try:
+      pixels = sprite.debugSpritePixels()
+    except SpriteProtocolError, SnappyError:
+      continue
+    validSpriteIds.add(payloadId)
+    let
+      changed = index < 0 or
+        spriteDefs[index].width != sprite.width or
+        spriteDefs[index].height != sprite.height or
+        spriteDefs[index].label != sprite.label or
+        spriteDefs[index].compressedPixels != sprite.compressedPixels
+    if not changed:
+      continue
+    if index >= 0:
+      spriteDefs[index].width = sprite.width
+      spriteDefs[index].height = sprite.height
+      spriteDefs[index].label = sprite.label
+      spriteDefs[index].compressedPixels = sprite.compressedPixels
+    else:
+      spriteDefs.add SpriteDefinition(
+        spriteId: spriteId,
+        width: sprite.width,
+        height: sprite.height,
+        label: sprite.label,
+        compressedPixels: sprite.compressedPixels
+      )
+    # A debug sprite's declared dims are LOGICAL map pixels, like every other
+    # board sprite: the wire sprite ships at boardScale× those dims so an
+    # annotation keeps its map-relative size at any render scale, matching the
+    # addBoardObject placement below. Emitted through addSprite rather than
+    # addBoardSpriteChanged because the latter asserts a non-empty label, and a
+    # player's label is untrusted input that must never abort the server.
+    packet.addSprite(
+      spriteId,
+      sprite.width * boardScale,
+      sprite.height * boardScale,
+      scaleSpritePixels(pixels, sprite.width, sprite.height, boardScale),
+      sprite.label
+    )
+
+  var payloadObjectIds: seq[int] = @[]
+  for payloadId in overlay.objects.keys:
+    payloadObjectIds.add(payloadId)
+  payloadObjectIds.sort()
+  for payloadId in payloadObjectIds:
+    let objectDef = overlay.objects[payloadId]
+    if objectDef.spriteId notin validSpriteIds:
+      continue
+    let objectId = debugObjectId(playerIndex, payloadId)
+    currentIds.add(objectId)
+    packet.addBoardObject(
+      objectId,
+      objectDef.x,
+      objectDef.y,
+      DebugOverlayZ,
+      MapLayerId,
+      debugSpriteId(playerIndex, objectDef.spriteId)
+    )
+
 proc applyGlobalViewerMessage*(
   state: var GlobalViewerState,
   message: string
@@ -997,6 +1132,8 @@ proc applyGlobalViewerMessage*(
         state.replayCommands.add(item.text)
     of SpriteClientInputMessage:
       discard
+    of SpriteClientReadyMessage, SpriteClientDebugSpriteMessage:
+      discard
 
 proc applyPlayerViewerMessage*(
   state: var PlayerViewerState,
@@ -1013,7 +1150,10 @@ proc applyPlayerViewerMessage*(
     of SpriteClientInputMessage:
       pressedMask = pressedMask or (item.mask and not inputMask)
       inputMask = item.mask
-    of SpriteClientMouseMoveMessage, SpriteClientMouseButtonMessage:
+    of SpriteClientDebugSpriteMessage:
+      state.pendingDebugSprites.add(item.debugSprites)
+    of SpriteClientMouseMoveMessage, SpriteClientMouseButtonMessage,
+        SpriteClientReadyMessage:
       discard
 
 proc isSolid(sprite: Sprite, x, y: int, flipH: bool): bool =
@@ -1742,20 +1882,6 @@ proc buildTracerHeadSprite(colorIndex, stage: int): seq[uint8] {.measure.} =
         uint8(clamp(bb, 0, 255)),
         alpha
       )
-
-proc buildAimDotSprite(colorIndex: int): seq[uint8] {.measure.} =
-  ## Builds one aim-indicator dot sprite: the player's palette color mixed
-  ## halfway toward white, matching the tracer-dot styling.
-  result = newRgbaPixels(AimDotSize, AimDotSize)
-  let base = Palette[PlayerColors[colorIndex and 0x0f] and 0x0f]
-  for i in 0 ..< AimDotSize * AimDotSize:
-    result.putRawRgbaPixel(
-      i,
-      uint8((base.r.int + 255) div 2),
-      uint8((base.g.int + 255) div 2),
-      uint8((base.b.int + 255) div 2),
-      255
-    )
 
 proc buildSplatterSprite(colorIndex, stage: int): seq[uint8] {.measure.} =
   ## Builds one death-splatter blob: a dense irregular blob of the victim's
@@ -5091,7 +5217,16 @@ proc addCogRigObjects(
   # Baked-art selector for each segment (so define-on-demand rebakes the exact pose).
   proc bakePixels(seg: RigSeg): seq[uint8] =
     case seg
-    of rsHead: rigSegPixels(player.team, rsHead, aimStep, 0, 0, boardScale)
+    of rsHead:
+      rigSegPixels(
+        player.team,
+        rsHead,
+        aimStep,
+        0,
+        0,
+        renderScale = boardScale,
+        skin = player.skin
+      )
     of rsArmL, rsArmR: rigSegPixels(player.team, seg, aimStep, 0, 0, boardScale)
     of rsLegFL, rsLegFR, rsLegRear:
       rigSegPixels(player.team, seg, headStep,
@@ -5117,7 +5252,8 @@ proc addCogRigObjects(
       wheelSprite(rsWheelR, drive.casterFR), player.y - 2),
     (rsLegFL, RigLegObjectBase + base*3 + 0, legSprite(rsLegFL), player.y - 1),
     (rsLegFR, RigLegObjectBase + base*3 + 1, legSprite(rsLegFR), player.y - 1),
-    (rsHead, RigHeadObjectBase + base, rigHeadSpriteId(player.team, aimStep),
+    (rsHead, RigHeadObjectBase + base,
+      rigHeadSpriteId(player.team, player.skin, aimStep),
       player.y)]
   # Arms = the cog's SHOULDER pads. They're part of the cog's fixed silhouette:
   # always drawn, always in their natural tucked pose, rotating with the HEAD/aim
@@ -5167,6 +5303,7 @@ proc buildSpriteProtocolUpdates*(
   sim: var SimServer,
   state: GlobalViewerState,
   nextState: var GlobalViewerState,
+  overlays: openArray[DebugOverlay] = [],
   replayTick = -1,
   replayPlaying = false,
   replaySpeed = 1,
@@ -5276,6 +5413,14 @@ proc buildSpriteProtocolUpdates*(
       result,
       nextState.selectedJoinOrder
     )
+    if playerIndex < overlays.len:
+      result.addDebugOverlay(
+        nextState.spriteDefs,
+        currentIds,
+        overlays[playerIndex],
+        playerIndex
+      )
+
     sim.addReplayMismatchWarning(
       nextState.spriteDefs,
       currentIds,
@@ -5614,14 +5759,21 @@ proc warmBoardRenderCaches*(sim: SimServer) =
     for team in Team:
       for rot in 0 ..< SoldierRotations:
         discard soldierRotPixels(team, skin, rot, RenderScale)
-  # The board turret-rig segments (skin-independent: they slice the DefaultSkin
-  # master). Prebake the REST pose (swing/caster/shorten 0) at every aim/heading
-  # step so a standing/straight-driving cog is hot on the first frame; maneuvering
-  # poses bake lazily.
+  # The board turret-rig head follows the configured skin; the remaining segments
+  # are shared. Prebake the REST pose at every aim/heading step so a
+  # standing/straight-driving cog is hot on the first frame; maneuvering poses
+  # bake lazily.
+  for skin in usedSkins:
+    for team in Team:
+      for rot in 0 ..< SoldierRotations:
+        discard rigSegPixels(
+          team, rsHead, rot, 0, 0,
+          renderScale = RenderScale, skin = skin)
   for team in Team:
     for rot in 0 ..< SoldierRotations:
       for seg in RigSeg:
-        discard rigSegPixels(team, seg, rot, 0, 0, RenderScale)
+        if seg != rsHead:
+          discard rigSegPixels(team, seg, rot, 0, 0, RenderScale)
       discard rigGunPixels(team, rot, RenderScale)
       discard rigSprayCanPixels(team, rot, RenderScale)
   discard boardTypeface()

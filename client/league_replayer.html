@@ -22,11 +22,17 @@
     --stage-lo:#16110d; --stage-hi:#241a12; --surround:#0b0805;
     --paper:#f2e8d8; --paper-dim:#b8ac98;
     --ink:#2a1f16; --ink-soft:rgba(20,14,9,.72);
-    --red:#e0523a; --blue:#3f7cc4; --amber:#e8a33d; --ghost:#8a7f72;
+    --red:#e0523a; --blue:#3f7cc4; --green:#45a85e; --yellow:#ddc531;
+    --amber:#e8a33d; --ghost:#8a7f72;
     --pixfont:'rajdhani','Segoe UI',system-ui,sans-serif;
     --finefont:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
     --u:1px;              /* HUD unit; scaled by layout() from board width */
   }
+  /* Team color utility: an element carrying a team-name class exposes that
+     team's tint as --tc; team-colored rules read var(--tc, <fallback>).
+     Mirrors replay_broadcast.html. */
+  .red{--tc:var(--red)} .blue{--tc:var(--blue)}
+  .green{--tc:var(--green)} .yellow{--tc:var(--yellow)}
   *{box-sizing:border-box;margin:0;padding:0}
   html,body{height:100%}
   body{background:var(--surround); color:var(--paper); font-family:var(--finefont); overflow:hidden}
@@ -70,11 +76,18 @@
   #scorebug{display:flex; align-items:center; justify-content:center;
     padding:calc(6*var(--u)) calc(14*var(--u)); gap:calc(16*var(--u)); pointer-events:none}
   #scorebug > *{pointer-events:auto}
-  .wallname{flex:1 1 0; min-width:0; font-family:var(--pixfont); font-size:calc(26*var(--u));
+  /* one names column per side of the clock: 1 name for classic 2-team play,
+     2 stacked for a 3-4 team game (matching the stacked side plaques below) */
+  .wallnames{flex:1 1 0; min-width:0; display:flex; flex-direction:column;
+    justify-content:center; gap:calc(2*var(--u))}
+  .wallname{min-width:0; font-family:var(--pixfont); font-size:calc(26*var(--u));
     letter-spacing:.5px; line-height:1.05; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    color:var(--tc, var(--paper));
     text-shadow:0 calc(2*var(--u)) 0 var(--ink), 0 0 calc(11*var(--u)) rgba(0,0,0,.72)}
-  .wallname.red{text-align:left; color:var(--red)}
-  .wallname.blue{text-align:right; color:var(--blue)}
+  .wallnames.side-l .wallname{text-align:left}
+  .wallnames.side-r .wallname{text-align:right}
+  /* two stacked names shrink so both corners still read */
+  .wallnames.stacked .wallname{font-size:calc(19*var(--u))}
   .clock{flex:none; position:relative; display:flex; flex-direction:column; align-items:center;
     justify-content:center; gap:calc(3*var(--u))}
   .clock .time{font-family:var(--pixfont); font-size:calc(34*var(--u)); line-height:1; color:var(--paper);
@@ -97,7 +110,12 @@
      KDA PLAQUES (side walls) — team header (flag + NAME inline with
      LIVES) atop the league roster + standings footer.
      ============================================================ */
-  .plaque{display:flex; flex-direction:column; padding:calc(6*var(--u)) calc(10*var(--u)); pointer-events:auto}
+  /* one side column holds 1-2 team plaques stacked (2-team play keeps one per
+     side; 3-4 teams stack a second below the first) */
+  .plaque-col{display:flex; flex-direction:column; justify-content:flex-start;
+    gap:calc(10*var(--u)); pointer-events:none}
+  .plaque{display:flex; flex-direction:column; padding:calc(6*var(--u)) calc(10*var(--u));
+    pointer-events:auto; min-height:0; overflow:hidden}
 
   /* team header block: flag icon + LIVES counter. (Team NAME lives up in
      the top-wall corners — see .wallname — so long names never truncate.) */
@@ -150,7 +168,7 @@
   .krow .k{color:var(--paper)} .krow .d{color:var(--paper-dim)} .krow .c{color:var(--amber)}
   .lives{display:flex; gap:calc(2*var(--u)); justify-content:center; flex-wrap:wrap}
   .lp{width:calc(5*var(--u)); height:calc(5*var(--u)); border-radius:1px}
-  .plaque.left .lp.on{background:var(--red)} .plaque.right .lp.on{background:var(--blue)}
+  .plaque .lp.on{background:var(--tc, var(--paper))}
   .lp.off{background:rgba(242,232,216,.16)}
 
   /* standing footer — sits directly under the roster rows (NOT pinned to the
@@ -163,8 +181,7 @@
   .plaque.right .pfoot{text-align:right}
   .standline{display:flex; align-items:baseline; gap:calc(7*var(--u)); margin-top:calc(3*var(--u))}
   .plaque.right .standline{justify-content:flex-end}
-  .standline .rk{font-family:var(--pixfont); font-size:calc(24*var(--u))}
-  .plaque.left .rk{color:var(--red)} .plaque.right .rk{color:var(--blue)}
+  .standline .rk{font-family:var(--pixfont); font-size:calc(24*var(--u)); color:var(--tc, var(--paper))}
   .standline .sc{font-family:var(--pixfont); font-size:calc(13*var(--u)); color:var(--paper)}
   .standline .of{font-family:var(--finefont); font-size:calc(8*var(--u)); color:var(--paper-dim)}
 
@@ -222,31 +239,19 @@
      neutral). Flag beats: colored by the flag's team — steal = full tick with
      a flag head, return = dimmed (heart snapped home), capture = chunky match
      point in the capturing team's color. */
-  .beat-marker.kill{background:var(--paper-dim); height:calc(8*var(--u))}
-  .beat-marker.kill.red{background:var(--red)}
-  .beat-marker.kill.blue{background:var(--blue)}
-  .beat-marker.steal{background:var(--amber)}
-  .beat-marker.steal.red{background:var(--red)}
-  .beat-marker.steal.blue{background:var(--blue)}
+  .beat-marker.kill{background:var(--tc, var(--paper-dim)); height:calc(8*var(--u))}
+  .beat-marker.steal{background:var(--tc, var(--amber))}
   .beat-marker.steal::after{content:''; position:absolute; left:0; top:0;
     width:calc(6*var(--u)); height:calc(4*var(--u)); background:inherit}
-  .beat-marker.return{background:var(--paper-dim); opacity:.45}
-  .beat-marker.return.red{background:var(--red)}
-  .beat-marker.return.blue{background:var(--blue)}
-  .beat-marker.capture{background:var(--red); width:calc(3*var(--u)); height:calc(16*var(--u))}
-  .beat-marker.capture.blue{background:var(--blue)}
+  .beat-marker.return{background:var(--tc, var(--paper-dim)); opacity:.45}
+  .beat-marker.capture{background:var(--tc, var(--amber)); width:calc(3*var(--u)); height:calc(16*var(--u))}
   /* winner cap past the track's right end + "RED WINS" chip in the tbar. */
   .scrub-win{display:none; position:absolute; right:calc(-6*var(--u)); top:calc(4*var(--u));
     width:calc(8*var(--u)); height:calc(14*var(--u)); z-index:3; border-radius:calc(2*var(--u))}
-  .scrub-win.red{display:block; background:var(--red)}
-  .scrub-win.blue{display:block; background:var(--blue)}
-  .scrub-win.draw{display:block; background:linear-gradient(180deg, var(--red) 50%, var(--blue) 50%)}
+  .scrub-win.show{display:block; background:var(--tc, var(--paper-dim))}
   .win-chip{display:none; font-family:var(--pixfont); font-size:calc(10*var(--u));
     padding:0 calc(6*var(--u)); white-space:nowrap}
-  .win-chip.show{display:inline}
-  .win-chip.red{color:var(--red)}
-  .win-chip.blue{color:var(--blue)}
-  .win-chip.draw{color:var(--paper-dim)}
+  .win-chip.show{display:inline; color:var(--tc, var(--paper-dim))}
 
   /* connection status toast */
   #status{position:absolute; z-index:9; left:50%; top:calc(50% - 10px); transform:translate(-50%,-50%);
@@ -269,9 +274,10 @@
   <div id="walls"></div>
   <div id="floor"><iframe id="game" title="CTF replay"></iframe></div>
 
-  <!-- top wall: just the match clock, centered -->
+  <!-- top wall: match clock centered, team names (1-2 per side) in the corners.
+       Names and side plaques are generated per active team by ensureShellTeams(). -->
   <div id="scorebug" class="hud">
-    <div class="wallname red" id="name-red">RED</div>
+    <div class="wallnames side-l" id="names-l"></div>
     <div class="clock amb" id="clock">
       <div class="time" id="clock-time">0:00</div>
       <span class="ffwd-mini" id="ffwd-mini">▸▸</span>
@@ -280,34 +286,11 @@
            hidden) on the default arena and on replays without a map field -->
       <div class="caption map-label" id="map-label"></div>
     </div>
-    <div class="wallname blue" id="name-blue">BLUE</div>
+    <div class="wallnames side-r" id="names-r"></div>
   </div>
 
-  <div class="plaque left hud" id="kda-red">
-    <div class="team-head red" data-team="red">
-      <div class="flagicon" id="flag-red"></div>
-      <div class="lives-line">
-        <span class="lives-label">Lives</span>
-        <span class="lives-num" id="lives-red">—</span>
-      </div>
-    </div>
-    <div class="khead"><span>Name</span><span>K</span><span>D</span><span>Lives</span></div>
-    <div id="rows-red"></div>
-    <div class="pfoot" id="foot-red"></div>
-  </div>
-
-  <div class="plaque right hud" id="kda-blue">
-    <div class="team-head blue" data-team="blue">
-      <div class="flagicon" id="flag-blue"></div>
-      <div class="lives-line">
-        <span class="lives-label">Lives</span>
-        <span class="lives-num" id="lives-blue">—</span>
-      </div>
-    </div>
-    <div class="khead"><span>Name</span><span>K</span><span>D</span><span>Lives</span></div>
-    <div id="rows-blue"></div>
-    <div class="pfoot" id="foot-blue"></div>
-  </div>
+  <div class="plaque-col hud" id="kda-l"></div>
+  <div class="plaque-col hud" id="kda-r"></div>
 
   <div id="transport" class="hud">
     <div class="tbar">
@@ -344,6 +327,24 @@
   'use strict';
   var $ = function(id){ return document.getElementById(id); };
   var RED='#e0523a', BLUE='#3f7cc4', AMBER='#e8a33d', PAPER='#f2e8d8';
+  var GREEN='#45a85e', YELLOW='#ddc531';
+
+  // ---- teams (2-4, data-driven; mirrors replay_broadcast.html) -------------
+  // Index 0/2 seat on the LEFT of the pit, 1/3 on the RIGHT — classic red/blue
+  // keeps its old layout; a 4-team game reads red+green vs blue+yellow.
+  var TEAM_ORDER=['red','blue','green','yellow'];
+  var TEAM_COLOR={red:RED, blue:BLUE, green:GREEN, yellow:YELLOW};
+  function teamCol(team){ return TEAM_COLOR[team] || null; }
+  function activeTeams(s){
+    var keys=(s && s.teams)?Object.keys(s.teams):[];
+    if(!keys.length) return ['red','blue'];
+    keys.sort(function(a,b){
+      var ia=TEAM_ORDER.indexOf(a), ib=TEAM_ORDER.indexOf(b);
+      ia=ia<0?TEAM_ORDER.length:ia; ib=ib<0?TEAM_ORDER.length:ib;
+      return ia-ib || (a<b?-1:a>b?1:0);
+    });
+    return keys;
+  }
   // Pre-stream defaults only: each embedded replay posts its board's real
   // native size on every frame (the game supports multiple map sizes), and
   // the stage re-layouts when it changes.
@@ -503,8 +504,8 @@
     // below (red↔left table, blue↔right table). Its horizontal padding matches
     // the tables' (10u) so the plates line up with the table columns.
     var sb=$('scorebug'); sb.style.left='0px'; sb.style.width=vw+'px'; sb.style.top='0px'; sb.style.height=by+'px';
-    var kr=$('kda-red');  kr.style.left='0px';  kr.style.width=bx+'px';       kr.style.top=by+'px'; kr.style.height=bh+'px';
-    var kb=$('kda-blue'); kb.style.right='0px'; kb.style.width=(vw-bR)+'px';  kb.style.top=by+'px'; kb.style.height=bh+'px';
+    var kr=$('kda-l'); kr.style.left='0px';  kr.style.width=bx+'px';       kr.style.top=by+'px'; kr.style.height=bh+'px';
+    var kb=$('kda-r'); kb.style.right='0px'; kb.style.width=(vw-bR)+'px';  kb.style.top=by+'px'; kb.style.height=bh+'px';
     var tp=$('transport'); tp.style.left=bx+'px'; tp.style.width=bw+'px'; tp.style.top=bB+'px'; tp.style.height=(vh-bB)+'px';
 
     lastLayout = {vw:vw,vh:vh,bx:bx,by:by,bw:bw,bh:bh};
@@ -537,30 +538,37 @@
   });
 
   // ---- names (ported from the broadcast client, 1:1) -----------------------
+  function stripSeatSuffix(name){
+    // Strip the per-seat " (N)" suffix the hosted runtime appends to the SAME
+    // policy's multiple connections ("softmaxwell (2)", "softmaxwell (7)"…) so
+    // every seat of one policy collapses to one shared identity. The join path
+    // converts spaces to underscores, so the separator usually reads "_(N)".
+    // Distinct local self-play names (Player1, Player2) carry no such suffix.
+    return String(name||'').replace(/[\s_]*\(\d+\)\s*$/, '');
+  }
+  function teamPolicies(s, team){
+    // The distinct policy identities seated on a team, in join-slot order.
+    // Prefer the server's own list; derive from the roster's per-seat policy
+    // (p.pol, falling back to a name strip) when a frame predates it.
+    var tr=s.teams && s.teams[team];
+    if (tr && tr.policies && tr.policies.length) return tr.policies;
+    var seen=[];
+    (s.roster||[]).forEach(function(p){
+      if (p.team!==team) return;
+      var pol = p.pol!=null ? p.pol : stripSeatSuffix(p.name);
+      if (pol && seen.indexOf(pol)<0) seen.push(pol);
+    });
+    return seen;
+  }
   function teamName(s, team, fallback){
-    // The headline is the POLICY name, not the color. In a hosted league every
-    // player on a side is the SAME policy → show it. In local self-play each bot
-    // has a distinct generated name (no shared identity) → fall back to color.
-    if (!s.roster) return fallback;
-    var name=null, mixed=false;
-    for (var i=0;i<s.roster.length;i++){
-      var p=s.roster[i];
-      if (p.team!==team) continue;
-      // Strip the per-seat " (N)" suffix the hosted runtime appends to
-      // disambiguate the SAME policy's multiple connections ("softmaxwell (2)",
-      // "softmaxwell (7)"…), so all seats of one policy collapse to a single
-      // shared name for the headline. The killfeed shows the full per-seat name
-      // because it colors names per event and never needs them to match; the
-      // headline needs one shared identity, so this suffix was tripping the
-      // "mixed" check and pinning the header to the color. Distinct local
-      // self-play names (Player1, Player2) have no such suffix, so they still
-      // differ and correctly fall back to the color.
-      var nm=String(p.name||'').replace(/\s*\(\d+\)\s*$/, '');
-      if (name===null) name=nm;
-      else if (nm!==name){ mixed=true; break; }
-    }
-    if (name===null || mixed || name==='') return fallback;
-    return teamHeadline(name);
+    // The headline is the POLICY name, not the color. A hosted league seats
+    // one policy per side → show it — or, in CTF-Doubles, exactly two:
+    // headline BOTH ("A + B"). Local self-play seats a distinct bot per seat
+    // (3+ "policies", no shared identity) → fall back to the color.
+    var pols=teamPolicies(s, team);
+    if (pols.length===1 && pols[0]) return teamHeadline(pols[0]);
+    if (pols.length===2) return teamHeadline(pols[0])+' + '+teamHeadline(pols[1]);
+    return fallback;
   }
   function teamHeadline(n){
     n=String(n||'');
@@ -596,9 +604,6 @@
       '<rect x="1" y="26" width="10" height="3" fill="#8a7f72"/>' +
       '</svg>';
   }
-  buildFlag($('flag-red'), RED);
-  buildFlag($('flag-blue'), BLUE);
-
   function updateFlag(id, team, tstate, s){
     var el=$(id);
     var taken = tstate.flag==='taken';
@@ -607,23 +612,67 @@
     if (was!==taken){ el.classList.remove('flip'); void el.offsetWidth; el.classList.add('flip'); }
   }
 
+  // Rebuild the wall-corner names + side plaques when the active team set
+  // changes (once per match in practice). Teams alternate sides in TEAM_ORDER —
+  // index 0/2 left, 1/3 right — matching the board's plate layout.
+  var shellTeams=null;
+  function ensureShellTeams(teams){
+    var key=teams.join(',');
+    if (shellTeams===key) return;
+    shellTeams=key;
+    var names=[$('names-l'), $('names-r')];
+    var cols=[$('kda-l'), $('kda-r')];
+    names[0].innerHTML=''; names[1].innerHTML='';
+    cols[0].innerHTML=''; cols[1].innerHTML='';
+    names[0].classList.toggle('stacked', teams.length>2);
+    names[1].classList.toggle('stacked', teams.length>2);
+    teams.forEach(function(team, i){
+      var side=i%2;
+      var nm=document.createElement('div');
+      nm.className='wallname '+team;
+      nm.id='name-'+team;
+      nm.textContent=team.toUpperCase();
+      names[side].appendChild(nm);
+      var pl=document.createElement('div');
+      pl.className='plaque '+(side===0?'left':'right')+' '+team;
+      pl.id='kda-'+team;
+      pl.innerHTML=
+        '<div class="team-head '+team+'" data-team="'+team+'">'+
+        '<div class="flagicon" id="flag-'+team+'"></div>'+
+        '<div class="lives-line">'+
+        '<span class="lives-label">Lives</span>'+
+        '<span class="lives-num" id="lives-'+team+'">—</span>'+
+        '</div>'+
+        '</div>'+
+        '<div class="khead"><span>Name</span><span>K</span><span>D</span><span>Lives</span></div>'+
+        '<div id="rows-'+team+'"></div>'+
+        '<div class="pfoot" id="foot-'+team+'"></div>';
+      cols[side].appendChild(pl);
+      buildFlag($('flag-'+team), teamCol(team) || AMBER);
+      // clicking a KDA row → POV lens on that player (toggles)
+      $('rows-'+team).addEventListener('click', function(ev){
+        var row=ev.target.closest('.krow'); if(!row) return;
+        togglePov(parseInt(row.getAttribute('data-slot'),10));
+      });
+    });
+  }
+
   function renderScorebug(s){
+    var teams=activeTeams(s);
+    ensureShellTeams(teams);
     var tr=s.teams||{};
-    var red=tr.red||{}, blue=tr.blue||{};
-    var rl=red.lives||0, bl=blue.lives||0;
-
-    setName('name-red',  teamName(s,'red','RED'));
-    setName('name-blue', teamName(s,'blue','BLUE'));
-    $('lives-red').textContent  = (s.teams&&s.teams.red)?rl:'—';
-    $('lives-blue').textContent = (s.teams&&s.teams.blue)?bl:'—';
-
-    updateFlag('flag-red',  'red',  red,  s);
-    updateFlag('flag-blue', 'blue', blue, s);
-
-    var rp=document.querySelector('.team-head.red');
-    var bp=document.querySelector('.team-head.blue');
-    if(rp) rp.classList.toggle('leader', rl-bl>=3 && s.ph==='playing');
-    if(bp) bp.classList.toggle('leader', bl-rl>=3 && s.ph==='playing');
+    var lives={};
+    teams.forEach(function(team){ lives[team]=(tr[team]&&tr[team].lives)||0; });
+    teams.forEach(function(team){
+      setName('name-'+team, teamName(s, team, team.toUpperCase()));
+      $('lives-'+team).textContent = tr[team] ? lives[team] : '—';
+      updateFlag('flag-'+team, team, tr[team]||{}, s);
+      // leader pulse when this team leads EVERY rival by >= 3
+      var bestRival=-Infinity;
+      teams.forEach(function(o){ if(o!==team) bestRival=Math.max(bestRival, lives[o]); });
+      var headEl=document.querySelector('.team-head[data-team="'+team+'"]');
+      if(headEl) headEl.classList.toggle('leader', lives[team]-bestRival>=3 && s.ph==='playing');
+    });
   }
 
   // ---- clock ---------------------------------------------------------------
@@ -741,9 +790,13 @@
     });
   }
 
-  function renderStandings(){
-    function foot(team, elId){
-      var el=$(elId);
+  function renderStandings(teams){
+    // Observatory injects standings as {competitors:{<team>:name}, ladder:[…]}
+    // — keyed by team name, historically just red/blue. Render whatever teams
+    // the frame carries; a team with no competitor entry gets an empty footer.
+    (teams||['red','blue']).forEach(function(team){
+      var el=$('foot-'+team);
+      if(!el) return;
       if(!standings || !standings.competitors){ el.innerHTML=''; return; }
       var name = standings.competitors[team];
       var row = (standings.ladder||[]).filter(function(r){return r.name===name;})[0];
@@ -753,9 +806,7 @@
         '<div class="standline"><span class="rk">#'+row.rank+'</span>'+
         '<span class="sc">'+(row.score!=null? Number(row.score).toFixed(2):'—')+'</span>'+
         '<span class="of">of '+tot+' · EWMA</span></div>';
-    }
-    foot('red','foot-red');
-    foot('blue','foot-blue');
+    });
   }
 
   // ---- transport (buttons + speed chips + scrubber) ------------------------
@@ -825,6 +876,12 @@
     return teamOf(s, e.killer)||'';
   }
   function otherTeam(t){ return t==='red'?'blue':t==='blue'?'red':''; }
+  function captureTeam(s, e){
+    // The CAPTURING team: the capturer's own team when the roster names it,
+    // else (two-team frames without a `by` slot) the flag's opponent.
+    var byTeam = e.by!=null ? teamOf(s, e.by) : null;
+    return byTeam || otherTeam(e.flag);
+  }
   function renderBeatMarkers(st, mx){
     if (!pendingMarkers.length) return;
     var span=Math.max(1, mx-st);
@@ -849,30 +906,40 @@
     for (var i=0;i<beatTimeline.length;i++){
       var b=beatTimeline[i];
       if (b.k==='steal' || b.k==='return') markBeat(b.t, b.k, b.flag);
-      else if (b.k==='capture') markBeat(b.t, 'capture', otherTeam(b.flag));
+      else if (b.k==='capture') markBeat(b.t, 'capture', captureTeam(s, b));
       else if (b.k==='gameover') setVerdict(b);
     }
   }
   // Winner cap + "RED WINS" chip; fed by the beat timeline, with the
   // game-over state as a fallback for servers that ship no beats. Idempotent.
   function setVerdict(v){
-    var cls = v.draw ? 'draw' : (v.winner==='red'||v.winner==='blue' ? v.winner : '');
+    var cls = v.draw ? 'draw' : (v.winner || '');
     if (!cls) return;
     var label = v.draw ? 'DRAW' : v.winner.toUpperCase()+' WINS';
     var cap=$('scrub-win');
-    cap.className='scrub-win '+cls;
+    cap.className='scrub-win show '+cls;
     cap.title=label;
     var chip=$('win-chip');
     chip.textContent=label;
     chip.className='win-chip show '+cls;
   }
 
-  // ---- momentum graph (lives-lead over the WHOLE timeline) -----------------
+  // ---- momentum graph (per-team lives over the WHOLE timeline) -------------
+  // Two teams: the classic lead-diff step line with split shading. Three-four:
+  // one team-colored lives line per team. Mirrors replay_broadcast.html.
   var VBW=1000, VBH=100, MID=50, MOM_SVGNS='http://www.w3.org/2000/svg';
-  var momentumSeen={}, momentumDirty=true, fullLeadSeries=null, momentumSamples=[];
+  var momentumSeen={}, momentumDirty=true, fullLeadSeries=null, momentumSamples=[], momentumTeams=null;
   function ingestLeadSeries(s){
     if (!s.lead || fullLeadSeries) return;
-    fullLeadSeries = s.lead.map(function(p){ return {t:p[0], diff:p[1]}; });
+    if (Array.isArray(s.lead)){
+      // Legacy shape: [[tick, redLives - blueLives], …] — a two-team diff.
+      fullLeadSeries = { teams:['red','blue'], isDiff:true,
+        pts: s.lead.map(function(p){ return {t:p[0], vals:[p[1]]}; }) };
+    } else {
+      // Team-keyed shape: {teams:[name…], pts:[[tick, lives…], …]}.
+      fullLeadSeries = { teams: s.lead.teams||['red','blue'], isDiff:false,
+        pts: (s.lead.pts||[]).map(function(p){ return {t:p[0], vals:p.slice(1)}; }) };
+    }
     momentumDirty=true;
   }
   function recordMomentum(s){
@@ -880,59 +947,93 @@
     if (s.ph!=='playing' && s.ph!=='gameover') return;
     if (momentumSeen[s.t]) return;
     momentumSeen[s.t]=true;
-    var tr=s.teams||{};
-    var diff = ((tr.red&&tr.red.lives)||0) - ((tr.blue&&tr.blue.lives)||0);
-    momentumSamples.push({t:s.t, diff:diff});
+    var teams=activeTeams(s), tr=s.teams||{};
+    momentumTeams=teams;
+    momentumSamples.push({t:s.t, vals:teams.map(function(team){
+      return (tr[team]&&tr[team].lives)||0;
+    })});
     momentumDirty=true;
   }
   function renderMomentum(){
     var el=$('momentum');
-    var samples = fullLeadSeries || momentumSamples;
+    var norm = fullLeadSeries ||
+      { teams: momentumTeams||['red','blue'], isDiff:false, pts: momentumSamples };
+    var samples = norm.pts;
     if (!lastState || !samples.length){ if(!samples.length) el.innerHTML=''; return; }
     if (!momentumDirty && el.childNodes.length) return;
     momentumDirty=false;
     var st = Math.max(0, lastState.st||0);
     var mx = Math.max(st+1, lastState.mx||1);
-    var maxPos=1, maxNeg=1;
-    samples.forEach(function(m){ if(m.diff>maxPos)maxPos=m.diff; if(-m.diff>maxNeg)maxNeg=-m.diff; });
-    var pts = samples.slice().sort(function(a,b){return a.t-b.t;});
     function xOf(t){ return Math.min(1,Math.max(0,(t-st)/(mx-st)))*VBW; }
-    function yOf(d){ return d>=0 ? MID-(d/maxPos)*(MID-2) : MID+(-d/maxNeg)*(MID-2); }
-    var line='', k;
-    for (k=0;k<pts.length;k++){
-      var x=xOf(pts[k].t), y=yOf(pts[k].diff);
-      if (k===0) line+='M '+x.toFixed(1)+' '+y.toFixed(1);
-      else line+=' H '+x.toFixed(1)+' V '+y.toFixed(1);
-    }
-    var lastX=xOf(pts[pts.length-1].t);
-    var area = line+' L '+lastX.toFixed(1)+' '+MID+' L '+xOf(pts[0].t).toFixed(1)+' '+MID+' Z';
+    var pts = samples.slice().sort(function(a,b){return a.t-b.t;});
+
     el.setAttribute('viewBox','0 0 '+VBW+' '+VBH);
     el.innerHTML='';
-    var defs=document.createElementNS(MOM_SVGNS,'defs');
-    defs.innerHTML =
-      '<linearGradient id="momfill" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="'+VBH+'">'+
-      '<stop offset="0%" stop-color="'+RED+'" stop-opacity="0.8"/>'+
-      '<stop offset="50%" stop-color="'+RED+'" stop-opacity="0.28"/>'+
-      '<stop offset="50%" stop-color="'+BLUE+'" stop-opacity="0.28"/>'+
-      '<stop offset="100%" stop-color="'+BLUE+'" stop-opacity="0.8"/>'+
-      '</linearGradient>';
-    el.appendChild(defs);
     var bg=document.createElementNS(MOM_SVGNS,'rect');
     bg.setAttribute('x',0); bg.setAttribute('y',0); bg.setAttribute('width',VBW); bg.setAttribute('height',VBH);
     bg.setAttribute('fill','rgba(11,7,4,0.55)');
     el.appendChild(bg);
-    var midln=document.createElementNS(MOM_SVGNS,'line');
-    midln.setAttribute('x1',0); midln.setAttribute('y1',MID); midln.setAttribute('x2',VBW); midln.setAttribute('y2',MID);
-    midln.setAttribute('stroke','rgba(242,232,216,0.22)'); midln.setAttribute('stroke-width','0.8');
-    el.appendChild(midln);
-    var areaEl=document.createElementNS(MOM_SVGNS,'path');
-    areaEl.setAttribute('d',area); areaEl.setAttribute('fill','url(#momfill)'); areaEl.setAttribute('stroke','none');
-    el.appendChild(areaEl);
-    var lineEl=document.createElementNS(MOM_SVGNS,'path');
-    lineEl.setAttribute('d',line); lineEl.setAttribute('fill','none'); lineEl.setAttribute('stroke',PAPER);
-    lineEl.setAttribute('stroke-width','1.5'); lineEl.setAttribute('stroke-opacity','0.95');
-    lineEl.setAttribute('vector-effect','non-scaling-stroke');
-    el.appendChild(lineEl);
+
+    function stepPath(valueOf){
+      var d='';
+      for (var k=0;k<pts.length;k++){
+        var x=xOf(pts[k].t), y=valueOf(pts[k]);
+        if (k===0) d+='M '+x.toFixed(1)+' '+y.toFixed(1);
+        else d+=' H '+x.toFixed(1)+' V '+y.toFixed(1);
+      }
+      return d;
+    }
+    function addPath(d, stroke, width, opacity, fill){
+      var p=document.createElementNS(MOM_SVGNS,'path');
+      p.setAttribute('d',d);
+      p.setAttribute('fill', fill||'none');
+      if (stroke){
+        p.setAttribute('stroke',stroke); p.setAttribute('stroke-width',width);
+        p.setAttribute('stroke-opacity',opacity);
+        p.setAttribute('vector-effect','non-scaling-stroke');
+      } else p.setAttribute('stroke','none');
+      el.appendChild(p);
+    }
+
+    if (norm.teams.length===2){
+      var colTop=teamCol(norm.teams[0])||RED, colBot=teamCol(norm.teams[1])||BLUE;
+      var diffOf=function(m){ return norm.isDiff ? m.vals[0] : m.vals[0]-m.vals[1]; };
+      var maxPos=1, maxNeg=1;
+      pts.forEach(function(m){ var d=diffOf(m); if(d>maxPos)maxPos=d; if(-d>maxNeg)maxNeg=-d; });
+      var yOf=function(m){ var d=diffOf(m);
+        return d>=0 ? MID-(d/maxPos)*(MID-2) : MID+(-d/maxNeg)*(MID-2); };
+      var defs=document.createElementNS(MOM_SVGNS,'defs');
+      defs.innerHTML =
+        '<linearGradient id="momfill" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="'+VBH+'">'+
+        '<stop offset="0%" stop-color="'+colTop+'" stop-opacity="0.8"/>'+
+        '<stop offset="50%" stop-color="'+colTop+'" stop-opacity="0.28"/>'+
+        '<stop offset="50%" stop-color="'+colBot+'" stop-opacity="0.28"/>'+
+        '<stop offset="100%" stop-color="'+colBot+'" stop-opacity="0.8"/>'+
+        '</linearGradient>';
+      el.appendChild(defs);
+      var midln=document.createElementNS(MOM_SVGNS,'line');
+      midln.setAttribute('x1',0); midln.setAttribute('y1',MID); midln.setAttribute('x2',VBW); midln.setAttribute('y2',MID);
+      midln.setAttribute('stroke','rgba(242,232,216,0.22)'); midln.setAttribute('stroke-width','0.8');
+      el.appendChild(midln);
+      var line=stepPath(yOf);
+      var lastX=xOf(pts[pts.length-1].t);
+      var area = line+' L '+lastX.toFixed(1)+' '+MID+' L '+xOf(pts[0].t).toFixed(1)+' '+MID+' Z';
+      addPath(area, null, 0, 0, 'url(#momfill)');
+      addPath(line, PAPER, '1.5', '0.95');
+    } else {
+      // 3-4 teams: one lives line per team on a shared 0..peak scale.
+      var peak=1;
+      pts.forEach(function(m){ m.vals.forEach(function(v){ if(v>peak)peak=v; }); });
+      var base=document.createElementNS(MOM_SVGNS,'line');
+      base.setAttribute('x1',0); base.setAttribute('y1',VBH-2); base.setAttribute('x2',VBW); base.setAttribute('y2',VBH-2);
+      base.setAttribute('stroke','rgba(242,232,216,0.22)'); base.setAttribute('stroke-width','0.8');
+      el.appendChild(base);
+      norm.teams.forEach(function(team, ti){
+        addPath(stepPath(function(m){
+          return (VBH-2)-((m.vals[ti]||0)/peak)*(VBH-4);
+        }), teamCol(team)||PAPER, '1.5', '0.9');
+      });
+    }
   }
 
   // ==========================================================================
@@ -956,9 +1057,12 @@
     renderTransport(s);
 
     // KDA rosters (league-specific); team name/lives ride the header above them
-    renderRows(s,'red',  $('rows-red'));
-    renderRows(s,'blue', $('rows-blue'));
-    renderStandings();
+    var teams=activeTeams(s);
+    teams.forEach(function(team){
+      var rowsEl=$('rows-'+team);
+      if (rowsEl) renderRows(s, team, rowsEl);
+    });
+    renderStandings(teams);
 
     // beat markers from events; momentum from lead series
     if (s.events && s.events.length && !jumped){
@@ -967,7 +1071,7 @@
         if (e.k==='kill') markBeat(e.t,'kill', killMarkerTeam(e, s));
         else if (e.k==='steal') markBeat(e.t,'steal', e.flag);
         else if (e.k==='return') markBeat(e.t,'return', e.flag);
-        else if (e.k==='capture') markBeat(e.t,'capture', otherTeam(e.flag));
+        else if (e.k==='capture') markBeat(e.t,'capture', captureTeam(s, e));
       }
     }
     ingestLeadSeries(s);
@@ -1019,13 +1123,8 @@
     sendSeek(st + Math.round(frac*(mx-st)));
   });
 
-  // clicking a KDA row → POV lens on that player (toggles)
-  ['rows-red','rows-blue'].forEach(function(id){
-    $(id).addEventListener('click', function(ev){
-      var row=ev.target.closest('.krow'); if(!row) return;
-      togglePov(parseInt(row.getAttribute('data-slot'),10));
-    });
-  });
+  // (KDA row → POV click handlers are attached per generated roster table in
+  // ensureShellTeams.)
 
   var statusTimer=null, failTimer=null;
   function hideStatus(){

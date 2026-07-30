@@ -15,6 +15,8 @@ const
   BlueColor = rgba(60, 110, 220, 255)
   KitColor = rgba(200, 30, 30, 255)
   KitIdleColor = rgba(120, 100, 80, 255)
+  TrenchColor = rgba(120, 96, 62, 255)   ## dug pits (config-gated): walkable, dark.
+  TrenchRimColor = rgba(88, 66, 38, 255)
 
 proc fillDisc(img: Image, cx, cy, r: int, color: ColorRGBA) =
   for y in max(0, cy - r) .. min(img.height - 1, cy + r):
@@ -51,6 +53,12 @@ proc renderPoolMap(gameMap: CtfMap): Image =
       elif mapProtectedFloorAt(gameMap, x, y):
         c = ZoneColor
       result.unsafe[x, y] = c
+  for trench in gameMap.trenches:
+    for y in trench.y ..< trench.y + trench.h:
+      for x in trench.x ..< trench.x + trench.w:
+        let rim = x - trench.x < 3 or trench.x + trench.w - 1 - x < 3 or
+          y - trench.y < 3 or trench.y + trench.h - 1 - y < 3
+        result.unsafe[x, y] = if rim: TrenchRimColor else: TrenchColor
   result.fillDisc(gameMap.flagHome(Red).x, gameMap.flagHome(Red).y, 7, RedColor)
   result.fillDisc(gameMap.flagHome(Blue).x, gameMap.flagHome(Blue).y, 7, BlueColor)
   for p in gameMap.medKitCandidates:
@@ -83,6 +91,7 @@ when isMainModule:
       "symmetry": (
         if gameMap.symmetry == symMirror: "mirror" else: "rot180"),
       "obstacles": gameMap.leftObstacles.len,
+      "trenches": gameMap.trenches.len,
       "medKitSpawns": kits,
       "medKitCandidates": candidates,
     }

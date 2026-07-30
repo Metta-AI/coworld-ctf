@@ -26,9 +26,10 @@ tasks, voting) with teams, guns, hearts, and fog-of-war vision.
   field**, so every approach is a series of corners. GameVersion 16 thinned
   the disc column to every other disc, opening real gaps in the mid-field
   slalom.
-- In the outermost stub column of each half, the **second wall stub from the
-  top, the second from the bottom (GameVersion 15), and the fifth from the top
-  (GameVersion 26) are glass windows**: they block movement, bullets, and
+- In the outermost stub column of each half, the glass alternates in from
+  both ends: the **second stub from the top, the middle stub, and the second
+  from the bottom (GameVersion 27) are glass windows**: they block movement,
+  bullets, and
   spray cones exactly like stone, but **vision passes straight through them**.
   Glass draws as a pale pane with diagonal sheen — cover you can be seen
   behind is not cover.
@@ -37,6 +38,10 @@ tasks, voting) with teams, guns, hearts, and fog-of-war vision.
   bar — dead on the center row — is a **glass window**: the mid lane stays
   closed to movement and fire, but both teams can watch the center corridor
   through the glass.
+- **Trenches** — walkable dug-pit squares — are a **config-gated terrain
+  feature**: the default arena has none; generated maps (below) place them
+  procedurally, steered by `mapPits` / `mapPitDensity`. See the Trenches
+  section for their rules.
 - **Procedurally generated terrain is available as a config option**
   (`mapPath: "pool"` draws from a curated 20-map pool, `"gen"` + `mapSeed`
   generates directly; `mapSize` / `mapSymmetry` / `mapColumns` /
@@ -59,10 +64,10 @@ layout changes. The replay header records the map each episode was played on.
 Maps come in two flavours. The abstract arenas and every generated map are
 **symmetric**: only the left half is authored and the right half is its image
 under mirror or 180° rotation, so both teams face identical ground by
-construction. The MW2 recreations are **asymmetric**: they are traced from the
-real 2009 maps and used verbatim, because Terminal's 747 sits at one end of the
-concourse and mirroring it would destroy the very geometry that makes the map
-recognizable. Those maps buy fidelity by giving up automatic fairness, so they
+construction. The MW2 recreations are **asymmetric**: every structure is
+measured off that map's real 2009 overhead minimap and the layout is used
+verbatim, because Terminal's 747 sits at one end of the concourse and mirroring
+it would destroy the very geometry that makes the map recognizable. Those maps buy fidelity by giving up automatic fairness, so they
 owe explicit parity tests instead — comparable occupiable area, cover density,
 and walk to midfield per side (`tests/test_mw2_maps.nim`).
 
@@ -70,14 +75,16 @@ and walk to midfield per side (`tests/test_mw2_maps.nim`).
 - **`arena-large`** — the same layout grammar on a bigger field.
 - **The MW2 paintball pack** — six paintball recreations of crowd-favorite
   Call of Duty: Modern Warfare 2 maps, re-themed as scenario paintball fields.
-  Each is traced from that map's official 2009 overhead minimap, so the real
-  building footprints, chokepoints, and callouts survive:
+  Each structure is measured off that map's official 2009 overhead minimap and
+  named for its real callout, so the true building footprints and chokepoints
+  survive:
   - **`rust`** — the oil-yard speedball field around the central derrick
     tower, oil tanks in one corner and pipe runs across midfield.
   - **`terminal`** — the airport concourse, with the 747 parked at ONE end of
     the hall past the scanners and Burger Town.
-  - **`highrise`** — the rooftop court between twin office cores with one
-    bridge between them, helipads at either end and the crane base.
+  - **`highrise`** — the rooftop court, twin office cores side by side across
+    the middle with the bridge between them, differently-laid-out roof wings at
+    each end, and the crane over the north edge.
   - **`favela`** — the hillside shanty blocks and their alley grid, around the
     market square.
   - **`afghan`** — the desert crash site, the C-130 wreck forming the map's
@@ -151,8 +158,9 @@ always drawn — but moving entities are fogged:
   ±60°) around your **aim angle**, with **unlimited range**, plus a small
   **omnidirectional bubble** of `visionBubble` (default ~90px) around you.
 - **Stone walls block vision** — the same walls that block bullets — with one
-  exception: **glass windows** (the second stub from the top and bottom of
-  each half's outer stub column) block bullets but NOT vision. A long open
+  exception: **glass windows** (the second-from-top, middle, and
+  second-from-bottom stubs of each half's outer stub column) block bullets
+  but NOT vision. A long open
   lane is visible (and lethal) end to end; anything behind stone is not;
   anything behind glass is **seen but safe from direct fire**.
 - **Your aim carries your vision.** You look where you aim, not where you walk,
@@ -350,6 +358,58 @@ What that means in practice:
   same-tick action — you move, aim, and fire exactly as if you had said
   nothing; its only limit is its own one-per-second cooldown.
 
+## Trenches
+
+- A **trench is a 56×56 px walkable dug-pit square** that draws as a
+  recessed dark pit in the floor. It is **not a wall**: it never blocks
+  movement, bullets, or vision. Trenches are **config-gated** and ship
+  without a game-version bump, exactly like procedural terrain: **the
+  default arena has none**, and a league opts in through its own config
+  (generated maps dig them per seed; a `mapPits: 1` lock reproduces the
+  classic single center pit).
+- **Generated maps dig additional trenches procedurally**, drawn per seed
+  in three placement classes: **instead of an obstacle** (a slot that would
+  raise cover digs a pit — cover you stand in rather than behind), **in the
+  gaps between a column's obstacles** (the corridor stays open; crossing it
+  the slow way is a choice), and **in each endzone around the flag** —
+  behind the pedestal toward the home edge, and above and/or below it.
+  Every dig is mirrored under the map's team symmetry, so neither team gets
+  a private pit, and the exact trench set is pinned in the replay's
+  `mapSpec` like the rest of the geometry.
+- **Two runtime knobs steer the digging** (game config, generated maps
+  only): `mapPits` locks the exact TOTAL pit count (0..64) — even counts
+  place symmetric pairs; an **odd count anchors its extra pit at the exact
+  map center**, the one spot that is its own image under both mirror and
+  rot180 symmetry, so odd and even counts are equally team-fair. When the
+  candidate spots can't host the full request the map places as many as
+  fit. `mapPitDensity` (0..1000, default 100) scales the per-class draw
+  chances instead when no exact count is locked — 0 digs nothing, 200 digs
+  roughly twice as much. `mapPits` wins over `mapPitDensity`.
+- You are "in" the trench exactly while your body center is inside the
+  square; every effect below applies instantly on entry and ends instantly
+  on exit.
+- **Getting in is fast; climbing out is slow.** Dropping into a pit and
+  moving around inside it run at full speed — momentum carried in is kept.
+  But while your center is inside, any movement **away from the pit's
+  center** — climbing a wall to leave — has its speed cap and acceleration
+  divided by five, and outward momentum sheds to that cap. A pit is easy
+  to take and costly to abandon.
+- **Occupants fire their gun at 1/3 rate** (each shot's cooldown is three
+  times the normal length). This composes with the shield/heart-carrier
+  slowdown by taking the maximum, never the product.
+- **70% of gun shots that would hit an occupant fly straight over
+  instead**: the occupant is below grade, so the bullet misses, deals no
+  damage, counts as a miss for the shooter, and **carries on down the ray**
+  — it can land on an exposed body behind the trench, or on the far wall.
+  The duck is rolled per crossed occupant on the deterministic sim RNG.
+- **Shots fired from inside the same trench are never ducked** — the
+  protection is against fire from outside; two players inside the same
+  trench duel normally.
+- The fly-over protection applies to **gun shots only**. Grenade blasts,
+  spray cones, and every other damage source are unaffected by the trench.
+- Occupants are still subject to normal fog-of-war visibility — the trench
+  itself grants no concealment.
+
 ## Med kits
 
 - **Two med kits sit on the center line** — at one third and two thirds of
@@ -480,22 +540,31 @@ These are starting values, exposed in the game config and tuned in self-play.
 | Spray can respawn | 30s | Taken pickups refill after this interval |
 | Paint puff lifetime (`PlasmaArcFxTicks`) | 4 ticks | Cosmetic fade of each per-tick cone snapshot |
 | Heart auto-return | instant | A heart snaps back to its own pedestal the moment its carrier dies |
+| Trench size (`TrenchSize`) | 56px | Side of the walkable center trench pit |
+| Trench speed divisor (`TrenchSpeedDivisor`) | 5 | Climbing out (motion away from the pit center while inside) is 1/5 speed; entering and crossing are full speed |
+| Trench fire slowdown (`TrenchFireSlowdown`) | 3 | Occupant gun cooldown multiplier; max-composed with shield/carrier |
+| Trench miss chance (`TrenchMissPct`) | 70% | Incoming gun shots that fly over an occupant and carry on (same-trench shots exempt) |
+| Pit count (`mapPits`) | -1 (unset) | Generated maps: exact total pits (0..64); odd counts anchor one at map center |
+| Pit density (`mapPitDensity`) | 100 | Generated maps: percent multiplier on per-class dig chances; used when `mapPits` is unset |
 | Time limit (`MaxTicks`) | 5000 ticks (~3.5 min) | Round length cap before the lose-lose draw |
 | Map size | 1235×659 | Inherited from Crewrift; may change |
 
 Engine tick rate is **24 ticks/sec** (inherited from Crewrift); all
 second-based values above convert at that rate.
 
-**Observation render scale (since 0.6.0):** the sprite-protocol wire carries
-the zoomable map/fog layers at **3x map resolution** -- object coordinates and
-sprite pixel sizes are all multiplied by 3, and every entity sprite is
-centered on its scaled map point. To recover exact legacy map coordinates,
-compute the object center and divide by 3:
-`map_x = (object.x + sprite.width / 2) / 3` (same for y). Everything above
-(map size 1235x659, ranges, speeds) stays in map pixels; only the wire
-representation scaled. The invisible `walkability map` sprite is unscaled and
-still 1235x659. Labels, sprite/object ids, layers, and the input protocol are
-unchanged, with one exception: while you are dead your own body is the only
+**Observation render scale:** the PLAYER observation stream (what bots parse)
+is **1x map resolution** -- object coordinates and sprite pixel sizes are map
+pixels directly, so an object's center IS its map point:
+`map_x = object.x + sprite.width / 2` (same for y), no divisor. Only the
+SPECTATOR/replay stream supersamples its zoomable board layers (2x,
+`RenderScale`); the sim, the gameHash, and everything above (map size
+1235x659, ranges, speeds) stay in map pixels. A 0.6.0-era build shipped the
+wire at 3x -- any advice about dividing coordinates by 3 is stale. The
+invisible `walkability map` sprite is 1235x659 in every stream. The full wire
+contract, including the CTF input-protocol extensions, is in
+[`PROTOCOL.md`](PROTOCOL.md). Labels, sprite/object ids, and layers are
+unchanged between streams, with one exception: while you are dead your own
+body is the only
 player sprite in frame, labeled `corpse <color> <side>` instead of
 `player <color> <side>`, so a policy scanning for `player` labels never
 mistakes a body for a live enemy.
