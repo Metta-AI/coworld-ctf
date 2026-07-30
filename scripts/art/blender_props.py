@@ -384,11 +384,74 @@ def prop_helipad_parapet():
     render("helipad_parapet", 96, 26)
 
 
+def prop_qalat_wall():
+    """Mud-brick compound wall, 92x18 (Afghan's two qalats).
+
+    Rendered as a horizontal run and reused rotated for the north-south
+    segments, so one sprite covers every wall on both compounds.
+    """
+    reset(); camera(92, 18)
+    # Deliberately much darker than Afghan's sand floor. The first version
+    # used a true mud colour (0.46, 0.35, 0.22) which rendered within a shade
+    # of the ground, and full-width joint ribs standing proud of the coping —
+    # from above the wall vanished into the floor and the ribs read as the
+    # rungs of a ladder rather than as brickwork.
+    mud = mat("mud", (0.33, 0.24, 0.145), rough=0.92)
+    cap = mat("mud_cap", (0.40, 0.30, 0.18), rough=0.9)
+    joint = mat("mud_joint", (0.22, 0.155, 0.09), rough=0.95)
+    box(0, 0, 7, 90, 16, 14, mud, bevel=1.2)
+    box(0, 0, 15, 91, 17, 2.4, cap, bevel=1.2)      # weathered coping
+    # Courses: inset, shallow, and sparse, so they read as texture on a solid
+    # wall rather than as separate objects.
+    x = -34
+    while x <= 34:
+        box(x, 0, 16.0, 0.9, 12.0, 0.5, joint)
+        x += 22.5
+    render("qalat_wall", 92, 18)
+
+
+def prop_qalat_hut():
+    """Flat-roofed mud outbuilding, 46x40 (Afghan qalat outbuildings)."""
+    reset(); camera(46, 40)
+    # Same contrast rule as the wall: Afghan's floor is pale sand, so a
+    # true mud tone disappears into it from directly above.
+    mud = mat("hut", (0.35, 0.26, 0.16), rough=0.92)
+    roof = mat("hut_roof", (0.30, 0.22, 0.135), rough=0.95)
+    beam = mat("hut_beam", (0.19, 0.135, 0.08), rough=0.95)
+    box(0, 0, 9, 44, 38, 18, mud, bevel=1.0)
+    box(0, 0, 19, 45, 39, 2.6, roof, bevel=1.0)
+    # roof beams poking past the parapet, the giveaway of a mud roof.
+    for y in (-12, 0, 12):
+        box(24, y, 19.4, 8, 2.4, 2.2, beam)
+    render("qalat_hut", 46, 40)
+
+
+def prop_hull_section():
+    """Cut fuselage section stood on edge, 24x100 (Scrapyard stand shelters).
+
+    A boneyard shelters behind sawn airframe, not masonry, so this is a hull
+    slice: skin panel with frame ribs and a torn edge.
+    """
+    reset(); camera(24, 100)
+    skin = mat("hull", (0.62, 0.62, 0.64), rough=0.45, metal=0.6)
+    rib = mat("hull_rib", (0.44, 0.45, 0.47), rough=0.55, metal=0.5)
+    grime = mat("hull_grime", (0.30, 0.29, 0.28), rough=0.8, metal=0.2)
+    box(0, 0, 11, 22, 98, 22, skin, bevel=0.7)
+    y = -42
+    while y <= 42:                                  # frame ribs across it
+        box(0, y, 22.6, 23, 2.6, 1.8, rib)
+        y += 12
+    box(0, -49, 11, 23.5, 3.0, 23, grime)           # torn cut ends
+    box(0, 49, 11, 23.5, 3.0, 23, grime)
+    render("hull_section", 24, 100)
+
+
 if __name__ == "__main__":
     os.makedirs(OUTDIR, exist_ok=True)
     for fn in (prop_container, prop_fuel_tank, prop_barrel, prop_crate,
                prop_duct, prop_shanty_roof, prop_fuselage, prop_nose,
                prop_wing, prop_engine, prop_tower_leg, prop_tail_fin,
-               prop_helipad_parapet):
+               prop_helipad_parapet, prop_qalat_wall, prop_qalat_hut,
+               prop_hull_section):
         fn()
     print("prop library complete:", sorted(FAMILIES))

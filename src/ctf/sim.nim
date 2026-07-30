@@ -2798,6 +2798,26 @@ const
     # leaning scrap sheet
     ArenaShape(kind: shapeDiagonal, x0: 486, y0: 648, x1: 530, y1: 604, thickness: 14),
     ArenaShape(kind: shapeDiagonal, x0: 716, y0: 648, x1: 760, y1: 604, thickness: 14),
+    # --- Hull sections shelved around the flag stands ---
+    # Both stands sat in open yard: 9% and 12% of the ground within 200px was
+    # cover, against 10-25% on every map that converts, and the rings around
+    # them were 98% and 92% open -- the most exposed in the pack. Scrapyard
+    # steals fine (10 in three episodes) and then converts none of them, which
+    # is the shape Afghan had before its compounds went in.
+    #
+    # In a boneyard the shelter is cut airframe, not masonry: a hull section
+    # stood on edge either side of each stand with a gap to run through, and a
+    # wing panel laid flat north and south. Every piece sits outside the
+    # engine's forced-floor spawn pocket (|x - homeX| <= 70, |y - homeY| <= 130
+    # around 172,420 and 1064,250) or isProtectedFloor carves it back to floor.
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 252, y: 300, w: 24, h: 100)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 252, y: 456, w: 24, h: 94)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 110, y: 252, w: 120, h: 20)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 110, y: 560, w: 120, h: 20)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 956, y: 130, w: 24, h: 100)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 956, y: 286, w: 24, h: 94)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 1000, y: 82, w: 120, h: 20)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 1000, y: 390, w: 120, h: 20)),
   ]
 proc trenchSquareAt(cx, cy: int): MapRect =
   ## A TrenchSize×TrenchSize dug pit centered on (cx, cy). Like obstacle
@@ -3305,6 +3325,30 @@ proc afghanCtfMap(): CtfMap =
     PropSprite(file: "data/props/crate.png", x: 904, y: 20, w: 60, h: 24),
     PropSprite(file: "data/props/crate.png", x: 934, y: 78, w: 36, h: 36),
     PropSprite(file: "data/props/crate.png", x: 884, y: 44, w: 52, h: 52),
+    # The two qalats. The wall family is modeled as a 92x18 horizontal run, so
+    # the north-south segments reuse it at rot 90: w/h are given in the
+    # SPRITE's own frame and blitPropSprites resizes before it rotates, which
+    # is why a 18x104 footprint is written w: 104, h: 18.
+    PropSprite(file: "data/props/qalat_wall.png", x: 142, y: 189, w: 92, h: 18),
+    PropSprite(file: "data/props/qalat_wall.png", x: 253, y: 189, w: 50, h: 18),
+    PropSprite(file: "data/props/qalat_wall.png", x: 269, y: 250, w: 104, h: 18,
+               rot: 90),
+    PropSprite(file: "data/props/qalat_wall.png", x: 269, y: 430, w: 68, h: 18,
+               rot: 90),
+    PropSprite(file: "data/props/qalat_wall.png", x: 142, y: 473, w: 92, h: 18),
+    PropSprite(file: "data/props/qalat_wall.png", x: 253, y: 473, w: 50, h: 18),
+    PropSprite(file: "data/props/qalat_hut.png", x: 319, y: 256, w: 46, h: 40),
+    PropSprite(file: "data/props/qalat_hut.png", x: 319, y: 406, w: 46, h: 40),
+    PropSprite(file: "data/props/qalat_wall.png", x: 967, y: 248, w: 108, h: 18,
+               rot: 90),
+    PropSprite(file: "data/props/qalat_wall.png", x: 967, y: 412, w: 108, h: 18,
+               rot: 90),
+    PropSprite(file: "data/props/qalat_wall.png", x: 1018, y: 185, w: 84, h: 18),
+    PropSprite(file: "data/props/qalat_wall.png", x: 1120, y: 185, w: 40, h: 18),
+    PropSprite(file: "data/props/qalat_wall.png", x: 1018, y: 475, w: 84, h: 18),
+    PropSprite(file: "data/props/qalat_wall.png", x: 1120, y: 475, w: 40, h: 18),
+    PropSprite(file: "data/props/qalat_hut.png", x: 915, y: 256, w: 46, h: 40),
+    PropSprite(file: "data/props/qalat_hut.png", x: 915, y: 532, w: 46, h: 40),
   ]
   result.validateMap()
 
@@ -3403,6 +3447,25 @@ proc scrapyardCtfMap(): CtfMap =
     PropSprite(file: "data/props/fuselage.png", x: 909, y: 133, w: 58, h: 26),
     PropSprite(file: "data/props/container.png", x: 498, y: 550, w: 64, h: 24),
     PropSprite(file: "data/props/container.png", x: 916, y: 490, w: 60, h: 24),
+    # Hull sections shelving the flag stands. The family is modeled standing
+    # on edge at 24x100, so the upright pieces sit at rot 0 and the panels
+    # laid flat north and south of each stand take rot 90.
+    PropSprite(file: "data/props/hull_section.png", x: 264, y: 350,
+               w: 24, h: 100),
+    PropSprite(file: "data/props/hull_section.png", x: 264, y: 503,
+               w: 24, h: 94),
+    PropSprite(file: "data/props/hull_section.png", x: 170, y: 262,
+               w: 20, h: 120, rot: 90),
+    PropSprite(file: "data/props/hull_section.png", x: 170, y: 570,
+               w: 20, h: 120, rot: 90),
+    PropSprite(file: "data/props/hull_section.png", x: 968, y: 180,
+               w: 24, h: 100),
+    PropSprite(file: "data/props/hull_section.png", x: 968, y: 333,
+               w: 24, h: 94),
+    PropSprite(file: "data/props/hull_section.png", x: 1060, y: 92,
+               w: 20, h: 120, rot: 90),
+    PropSprite(file: "data/props/hull_section.png", x: 1060, y: 400,
+               w: 20, h: 120, rot: 90),
   ]
   result.validateMap()
 

@@ -92,9 +92,13 @@ def lanes(wall, occ=None):
     the default arena, which is a known-good map. When a metric flags your
     control, the metric is wrong.
 
-    Returns (lane_count, used_lane_count) — the second counts only lanes players
-    actually walked through, which is what separates a real route from a gap
-    that merely exists.
+    Returns (lane_count, used_lane_count, open_fraction). The count ALONE is
+    degenerate in exactly the way the stand-ring metric was: one enormous
+    opening scores the same "1" as one narrow doorway. Favela reads as "1 lane
+    crosses midfield — a corridor" when its midfield is 486px of continuous
+    open ground, which is the opposite problem. Read the count against the
+    fraction: low count plus low fraction is a corridor, low count plus high
+    fraction is a field.
     """
     gh, gw = wall.shape
     col = gw // 2
@@ -119,7 +123,7 @@ def lanes(wall, occ=None):
         if occ is not None and any(occ[r, max(0, col - 2):col + 3].sum() > 0
                                    for r in run_rows):
             used += 1
-    return out, used
+    return out, used, float((~band).mean())
 
 
 def stand_exposure(wall, home, radius, cell):
@@ -345,7 +349,7 @@ def report(paths, ref_ticks=0):
     sizes = np.bincount(lab.ravel())[1:] if n else np.array([0])
     biggest_dead = int(sizes.max()) if len(sizes) else 0
 
-    lane_count, lanes_used = lanes(wall, occ)
+    lane_count, lanes_used, mid_open = lanes(wall, occ)
 
     # The objective model, as it is now: capture at the stand, not at the edge.
     rad = data.get("captureRadius", 0)
@@ -372,9 +376,16 @@ def report(paths, ref_ticks=0):
     if long_pct > 0.18:
         flags.append(f"{long_pct:.0%} of open runs exceed 600px — too many "
                      "gallery shots")
+    # Deliberately NOT flagged on an absolute midfield-openness threshold.
+    # The default arena — the layout this engine was tuned on — is itself 73%
+    # open across midfield, so any fixed bar that means anything also fires on
+    # the control. What is comparable is how many DISTINCT ways across that
+    # openness is divided into: the arena splits its into 5, and a map with
+    # one broad opening plays as a sprint rather than as lanes.
     if lane_count < 2:
-        flags.append(f"only {lane_count} lane crosses midfield — a corridor, "
-                     "not a multi-lane map")
+        flags.append(f"midfield is {mid_open:.0%} open but arrives as ONE "
+                     f"span — the arena divides a near-identical 73% into 5 "
+                     "distinct ways across")
     elif lanes_used < 2:
         flags.append(f"{lane_count} midfield lanes exist but only "
                      f"{lanes_used} saw traffic — the others are decoration")
@@ -409,7 +420,8 @@ def report(paths, ref_ticks=0):
           f"{data['ticks']} ticks)")
     print(f"    sightline median {median_sight:.0f}px, "
           f"{long_pct:.0%} over 600px")
-    print(f"    midfield lanes: {lane_count} ({lanes_used} actually used)")
+    print(f"    midfield lanes: {lane_count} ({lanes_used} actually "
+          f"used), {mid_open:.0%} of midfield open")
     print(f"    dead space {dead_pct:.0%} of open floor "
           f"(largest unvisited region {biggest_dead * cell * cell:,}px²)")
     print(f"    {len(deaths)} deaths, spread {spread:.0f}px")
@@ -433,6 +445,7 @@ def report(paths, ref_ticks=0):
         print("    no gameplay flags")
     return dict(map=name, medianSight=median_sight, longPct=long_pct,
                 lanes=lane_count, lanesUsed=lanes_used,
+                midOpen=mid_open,
                 deadPct=dead_pct, biggestDead=biggest_dead,
                 deaths=len(deaths), spread=spread,
                 captureRadius=rad,
