@@ -853,7 +853,6 @@ proc runOnce(bot: var Bot, url: string) =
       mask = 0
       bot.lastRotDir = 0
     ws.send(inputBlob(mask), BinaryMessage)
-    ws.send(readyBlob(), BinaryMessage)
 
 proc resolveUrl(): string =
   ## The launch contracts a player must honour: league/canary runners pass a
