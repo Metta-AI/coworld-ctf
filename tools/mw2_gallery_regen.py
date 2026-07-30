@@ -100,6 +100,16 @@ def page(status):
                         ("midfield lanes",
                          f'{pl["lanes"]} ({pl["lanesUsed"]} used)',
                          pl["lanes"] >= 2),
+                        # The objective, which is what a CTF map is FOR. Shown
+                        # as the ratio rather than a rate: at ~15 steals an
+                        # episode set, a bare percentage reads as more precise
+                        # than the sample can support.
+                        ("steals converted",
+                         f'{pl.get("captures", 0)}/{pl.get("steals", 0)}',
+                         pl.get("captures", 0) > 0),
+                        ("lanes the flag used",
+                         f'{pl.get("carryLanes", 0)} of {pl["lanes"]}',
+                         pl.get("carryLanes", 0) >= 2),
                         ("floor never walked", f'{pl["deadPct"]:.0%}',
                          pl["deadPct"] <= 0.35),
                         ("median sightline", f'{pl["medianSight"]:.0f}px',
