@@ -856,10 +856,10 @@ proc runOnce(bot: var Bot, url: string) =
     ws.send(readyBlob(), BinaryMessage)
 
 proc resolveUrl(): string =
-  ## The two launch contracts a player must honour: the certification/ECS
-  ## path passes a complete URL in COGAMES_ENGINE_WS_URL; the quick-run/
-  ## harness path passes bitworld player CLI args
-  ## (--address --port --name --slot --token --url). Unknown args are
+  ## The launch contracts a player must honour: league/canary runners pass a
+  ## complete URL in COWORLD_PLAYER_WS_URL; the certification/ECS path uses
+  ## COGAMES_ENGINE_WS_URL; the quick-run tooling passes bitworld player CLI
+  ## args (--address --port --name --slot --token --url). Unknown args are
   ## ignored rather than fatal.
   var
     address = ""
@@ -890,7 +890,9 @@ proc resolveUrl(): string =
     var base = "ws://" & address & ":" & $port
     base = base.ensureWsPath("/player")
     return playerConnectUrl(base, name, token, slot)
-  result = getEnv("COGAMES_ENGINE_WS_URL")
+  result = getEnv("COWORLD_PLAYER_WS_URL")
+  if result.len == 0:
+    result = getEnv("COGAMES_ENGINE_WS_URL")
   if result.len == 0:
     result = getEnv("ENGINE_WS_URL")
   if result.len == 0:
