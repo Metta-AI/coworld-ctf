@@ -1,5 +1,5 @@
 import
-  std/[deques, os, unittest],
+  std/[deques, os, strutils, unittest],
   ctf/sim
 
 const GameDir = currentSourcePath.parentDir.parentDir
@@ -155,6 +155,152 @@ suite "mw2 paintball map pack":
         for order in 0 ..< 8:
           let seat = sim.spawnPosition(team, order)
           check sim.canOccupy(seat.x, seat.y)
+
+  test "each pack map is fair to both halves":
+    ## THE test the asymmetric layouts owe. Every other invariant here is
+    ## side-agnostic: it would pass just as happily on a map that gives Red a
+    ## fortress and Blue a parking lot.
+    ##
+    ## `arena` and every generated map get fairness for free by construction —
+    ## the right half IS the left half under mirror or 180 rotation, so the two
+    ## sides are identical by definition. A CtfMap that fills `fullObstacles`
+    ## deliberately gives that up: Terminal's 747 sits at one end of the
+    ## concourse and mirroring it would destroy the geometry that makes the map
+    ## recognizable. Fidelity is bought with symmetry, so from that moment
+    ## nothing else in the suite asserts the halves are even comparable.
+    ##
+    ## Three ratios, each min/max so the direction of the imbalance never
+    ## matters:
+    ##
+    ## - OCCUPIABLE AREA. Space a 13px player can actually stand in, per half.
+    ##   The tightest bound, because a real recreation's halves differ in
+    ##   character but not in how much field a team gets to fight over.
+    ## - COVER. Wall pixels per half. Loosest bound: cover naturally clusters
+    ##   asymmetrically on a real map (Terminal's plane end IS denser than its
+    ##   concourse end), and unlike area, more cover is not simply better —
+    ##   it is both protection and obstruction.
+    ## - WALK TO MIDFIELD. Steps from each pedestal to the contested center.
+    ##   This is the one that catches the defect the others cannot see: a
+    ##   single traced building edge that walls one spawn off from the middle,
+    ##   forcing a lap of the map while the other team strolls in. Note that
+    ##   red-spawn-to-blue-pedestal is deliberately NOT measured — BFS is
+    ##   undirected and each pedestal sits at its own spawn center, so that
+    ##   ratio is 1.0 on every possible layout and proves nothing.
+    ##
+    ## The bounds are the loosest that still fail an unfair map, not the
+    ## tightest the current six happen to pass: they are stated per-quantity
+    ## from what the quantity means, and a map landing just inside one is
+    ## reported so the slack is visible rather than silently consumed.
+    const
+      AreaTol = 0.80
+      CoverTol = 0.55
+      MidTol = 0.70
+    for name in Mw2Rotation:
+      let sim = initCtfForMap(name)
+      var occupiable = newSeq[bool](MapWidth * MapHeight)
+      for y in 0 ..< MapHeight:
+        for x in 0 ..< MapWidth:
+          occupiable[mapIndex(x, y)] = sim.canOccupy(x, y)
+
+      # 1 + 2. Area and cover, per half of the field.
+      var areaLeft, areaRight, coverLeft, coverRight: int
+      for y in 0 ..< MapHeight:
+        for x in 0 ..< MapWidth:
+          let left = x < MapWidth div 2
+          if occupiable[mapIndex(x, y)]:
+            if left: inc areaLeft else: inc areaRight
+          if sim.isWall(x, y):
+            if left: inc coverLeft else: inc coverRight
+      let
+        areaRatio = min(areaLeft, areaRight) / max(areaLeft, areaRight)
+        coverRatio = min(coverLeft, coverRight) / max(coverLeft, coverRight)
+
+      # 3. Walk to the contested middle, per team. 1px BFS over the same
+      #    precomputed occupancy mask the sealed-pocket test uses — a strided
+      #    walk would understate a narrow corridor and manufacture a
+      #    difference that is not there.
+      proc stepsToCenter(sim: SimServer, occupiable: seq[bool],
+                         start: MapPoint): int =
+        var
+          dist = newSeq[int](MapWidth * MapHeight)
+          queue = initDeque[(int, int)]()
+        for i in 0 ..< dist.len:
+          dist[i] = -1
+        dist[mapIndex(start.x, start.y)] = 0
+        queue.addLast((start.x, start.y))
+        while queue.len > 0:
+          let (cx, cy) = queue.popFirst()
+          if cx == sim.gameMap.center.x and cy == sim.gameMap.center.y:
+            return dist[mapIndex(cx, cy)]
+          for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
+            let
+              nx = cx + dx
+              ny = cy + dy
+            if nx < 0 or ny < 0 or nx >= MapWidth or ny >= MapHeight:
+              continue
+            if dist[mapIndex(nx, ny)] >= 0 or not occupiable[mapIndex(nx, ny)]:
+              continue
+            dist[mapIndex(nx, ny)] = dist[mapIndex(cx, cy)] + 1
+            queue.addLast((nx, ny))
+        -1
+
+      let
+        redSteps = sim.stepsToCenter(occupiable, sim.gameMap.flagHome(Red))
+        blueSteps = sim.stepsToCenter(occupiable, sim.gameMap.flagHome(Blue))
+      # A -1 means a pedestal cannot reach the center at all, which is a
+      # broken map rather than an unfair one; assert it before the ratio so
+      # the failure names the real problem.
+      check redSteps > 0
+      check blueSteps > 0
+      let midRatio = min(redSteps, blueSteps) / max(redSteps, blueSteps)
+
+      if areaRatio < AreaTol or coverRatio < CoverTol or midRatio < MidTol:
+        echo "  ", name, " UNFAIR: area ", areaRatio.formatFloat(ffDecimal, 3),
+          " cover ", coverRatio.formatFloat(ffDecimal, 3),
+          " mid ", midRatio.formatFloat(ffDecimal, 3),
+          " (", redSteps, " vs ", blueSteps, " steps)"
+      elif areaRatio < AreaTol + 0.04 or coverRatio < CoverTol + 0.05 or
+          midRatio < MidTol + 0.05:
+        # Near the bound: report so the remaining slack stays visible instead
+        # of being silently spent by the next layout change.
+        echo "  ", name, " tight: area ",
+          areaRatio.formatFloat(ffDecimal, 3), " cover ",
+          coverRatio.formatFloat(ffDecimal, 3), " mid ",
+          midRatio.formatFloat(ffDecimal, 3)
+      check areaRatio >= AreaTol
+      check coverRatio >= CoverTol
+      check midRatio >= MidTol
+
+  test "the pack layouts are genuinely asymmetric":
+    ## Guards the OTHER direction: the fairness test above is satisfied
+    ## trivially by an x-mirrored layout, which is exactly what the first pass
+    ## shipped and what review rejected. A recreation of a real map must NOT be
+    ## its own mirror image, so assert the wall masks actually differ across
+    ## the center line by a real margin.
+    for name in Mw2Rotation:
+      let
+        sim = initCtfForMap(name)
+        gameMap = sim.gameMap
+      # These maps declare their layout verbatim rather than deriving the right
+      # half from the left, which is what buys the real geometry.
+      check gameMap.fullObstacles.len > 0
+      check gameMap.leftObstacles.len == 0
+      var differing, considered: int
+      for y in 0 ..< MapHeight:
+        for x in ArenaBorder ..< MapWidth div 2:
+          # Skip the engine-carved regions: they are floor on both sides by
+          # fiat, so counting them would dilute the measure toward "mirrored".
+          if gameMap.mapProtectedFloorAt(x, y) or
+              gameMap.mapProtectedFloorAt(MapWidth - 1 - x, y):
+            continue
+          inc considered
+          if sim.isWall(x, y) != sim.isWall(MapWidth - 1 - x, y):
+            inc differing
+      let asymmetry = differing / max(considered, 1)
+      echo "  ", name, ": ", (asymmetry * 100).formatFloat(ffDecimal, 1),
+        "% of comparable cells differ across the center line"
+      # A mirrored layout scores 0. Real geometry differs substantially.
+      check asymmetry > 0.10
 
   test "mw2 alias resolves deterministically and covers the whole pack":
     var covered: array[6, bool]

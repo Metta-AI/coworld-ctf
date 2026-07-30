@@ -694,15 +694,20 @@ BLURB = {
 }
 
 
-def emit(name, rects, stats):
+def emit(name, rects, stats, callouts=None):
     cap = name.capitalize()
     tex, face, hi, lo, ink, matdesc = MATERIALS[name]
-    blurb, callouts = BLURB[name]
+    blurb, default_callouts = BLURB[name]
+    callouts = callouts or default_callouts
     L = []
     A = L.append
-    A(f"  ## {cap} — traced from docs/designs/mw2-reference/{name}.png by")
-    A(f"  ## tools/mw2_trace.py ({stats['shapes']} shapes, "
-      f"{stats['coverage']:.1%} cover). Callouts the geometry carries:")
+    src = ("authored from" if stats.get("authored") else
+           "traced from")
+    tool = ("tools/mw2_author.py" if stats.get("authored")
+            else "tools/mw2_trace.py")
+    A(f"  ## {cap} — {src} docs/designs/mw2-reference/{name}.png by")
+    A(f"  ## {tool} ({stats['shapes']} shapes, "
+      f"{stats['coverage']:.1%} cover). Structures the geometry carries:")
     for c in callouts:
         A(f"  ##   - {c}")
     A(f"  {cap}Obstacles = [")
