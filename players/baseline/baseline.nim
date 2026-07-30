@@ -2903,10 +2903,16 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     moveMask = octantBits(aim - me)
     acted = true
   elif not iCarry and not rushing and not pocketRush and not shotReady and
+      (when defined(plasmaDuckFix): not hasPlasma else: true) and
       nearThreat >= 0:
     # Cooldown: duck behind the nearest cover that breaks the threat's line
     # and hold there until the gun is back up, keeping the aim (and the
     # vision cone) on the arc the threat would push through.
+    # plasmaDuckFix: holding the plasma arc makes shotReady permanently false
+    # (the can replaces the gun), so without the hasPlasma exclusion this
+    # branch degenerates to "duck forever while any remembered enemy is in
+    # DuckRange" — the duck-loop pin (task 1217008650622494). A plasma
+    # carrier falls through to threat-jink + navigate instead.
     let duck = bot.findDuckCell(client, me, bot.enemies[nearThreat].pos)
     if duck >= 0:
       actMode = "duck"
