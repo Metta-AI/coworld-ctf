@@ -51,9 +51,20 @@ when isMainModule:
     wasAlive: array[16, bool]
     lastPos: array[16, (int, int)]
     ticks = 0
+    ## The objective's own track. Where players walk says how the map is
+    ## traversed; where the FLAG travels says how it is won, and the two are
+    ## not the same picture — a map can be busy everywhere and still have one
+    ## viable carry route.
+    carries: seq[JsonNode]
+    captureAt: seq[JsonNode]
+    steals = 0
+    captures = 0
+    wasCarrier: array[Team, int]
 
   for i in 0 ..< 16:
     wasAlive[i] = true
+  for t in Team:
+    wasCarrier[t] = -1
 
   while replay.playing:
     replay.stepReplay(game)
@@ -75,6 +86,37 @@ when isMainModule:
                       "team": (if p.team == Red: "red" else: "blue")})
       wasAlive[i] = p.alive
 
+    # Flag tracks. A flag is provably either home (carrier -1) or on an
+    # enemy's back, so a -1 -> k edge is a steal.
+    #
+    # A capture cannot be read the same way, off a k -> -1 edge: scoring calls
+    # finishGame, so the episode ENDS on the capture tick and the following
+    # observation never happens -- which is why an earlier pass of this tool
+    # reported 0 captures on every map INCLUDING the default arena, a
+    # known-good control. Evaluate the engine's own predicate instead, on the
+    # same state and with the same player-centre offset it uses.
+    for t in Team:
+      let f = game.flags[t]
+      if f.carrier >= 0:
+        # Sampled, not per-tick: a carry lasts hundreds of ticks and the
+        # route is what matters, not the pixel-by-pixel walk.
+        if ticks mod 4 == 0:
+          carries.add(%*{"x": f.x, "y": f.y,
+                         "flag": (if t == Red: "red" else: "blue")})
+        if wasCarrier[t] < 0:
+          inc steals
+        let carrier = game.players[f.carrier]
+        if carrier.alive:
+          let
+            cx = carrier.x + CollisionW div 2
+            cy = carrier.y + CollisionH div 2
+          if game.inCaptureZone(carrier.team, cx, cy):
+            inc captures
+            captureAt.add(%*{"x": cx, "y": cy, "tick": game.tickCount,
+                             "team": (if carrier.team == Red: "red"
+                                      else: "blue")})
+      wasCarrier[t] = f.carrier
+
   # The static geometry the heatmap is read against.
   var wallCells = newSeq[bool](gw * gh)
   for cy in 0 ..< gh:
@@ -82,6 +124,10 @@ when isMainModule:
       # A cell is "wall" when a player cannot stand at its center.
       wallCells[cy * gw + cx] =
         not game.canOccupy(cx * Cell + Cell div 2, cy * Cell + Cell div 2)
+
+  proc pt(p: MapPoint): JsonNode = %*{"x": p.x, "y": p.y}
+  proc rc(r: MapRect): JsonNode =
+    %*{"x": r.x, "y": r.y, "w": r.w, "h": r.h}
 
   let result = %*{
     "map": game.gameMap.name,
@@ -93,6 +139,22 @@ when isMainModule:
     "occBlue": occBlue,
     "wall": wallCells,
     "deaths": deaths,
+    # The objective model, so the analysis measures the game as it is now
+    # rather than the home-edge column it used to be. captureRadius 0 means
+    # the map kept the legacy column.
+    "carries": carries,
+    "captureAt": captureAt,
+    "steals": steals,
+    "captures": captures,
+    "redHome": pt(game.gameMap.teamHome(Red)),
+    "blueHome": pt(game.gameMap.teamHome(Blue)),
+    "captureRadius": game.gameMap.captureRadius,
+    "redSpawn": rc(game.gameMap.redSpawn),
+    "blueSpawn": rc(game.gameMap.blueSpawn),
+    "trenches": block:
+      var t: seq[JsonNode]
+      for r in game.gameMap.trenches: t.add rc(r)
+      t,
   }
   if outPath.len > 0:
     writeFile(outPath, $result)

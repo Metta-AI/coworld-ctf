@@ -3085,7 +3085,25 @@ proc scaledGenShell(sizeName: string): CtfMap =
 proc mapProtectedFloorAt*(gameMap: CtfMap, x, y: int): bool =
   ## isProtectedFloor for a map that is NOT installed as the process map:
   ## the generator and validators run on candidates before any selection.
-  if x < gameMap.captureClear or x >= gameMap.width - gameMap.captureClear:
+  ##
+  ## This MUST stay identical to isProtectedFloor, because everything the
+  ## invariant tests and the pool validators promise about a map is promised
+  ## about whichever mask they compute. The two drifted apart as soon as the
+  ## recreations began setting fields the abstract arenas leave at their
+  ## defaults, and both halves of the drift are load-bearing:
+  ##   * the always-floor home column is carveClear, not captureClear. A
+  ##     recreation shrinks it to the pedestal apron so real building
+  ##     footprints can sit where they really do; reading captureClear here
+  ##     declared the outer 210px floor where the game walls it.
+  ##   * the spawn pocket follows the team's home POINT, not the map centre
+  ##     line, so a map whose bases sit off the mid row carves its pockets
+  ##     where its pedestals actually are.
+  ## Both are no-ops for the abstract arenas and the generated pool, which
+  ## leave carveClear at 0 and their homes on the centre line.
+  ## tools/mw2_maskcheck.nim asserts the agreement per map.
+  let carve = (if gameMap.carveClear > 0: gameMap.carveClear
+               else: gameMap.captureClear)
+  if x < carve or x >= gameMap.width - carve:
     return true
   let
     dx = x - gameMap.center.x
@@ -3093,8 +3111,9 @@ proc mapProtectedFloorAt*(gameMap: CtfMap, x, y: int): bool =
   if dx * dx + dy * dy <= gameMap.flagRing * gameMap.flagRing:
     return true
   for team in Team:
-    if abs(x - gameMap.teamHomeX(team)) <= gameMap.spawnClearW and
-        abs(y - gameMap.center.y) <= gameMap.spawnClearH:
+    let home = gameMap.teamHome(team)
+    if abs(x - home.x) <= gameMap.spawnClearW and
+        abs(y - home.y) <= gameMap.spawnClearH:
       return true
   false
 

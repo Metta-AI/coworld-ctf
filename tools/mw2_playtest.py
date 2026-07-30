@@ -122,6 +122,75 @@ def lanes(wall, occ=None):
     return out, used
 
 
+def approaches(wall, home, radius, cell):
+    """How many distinct ways lead INTO a team's capture zone.
+
+    The engine now scores a carrier within `captureRadius` of their own home
+    point (the CoD model, capture at the flag stand) rather than by crossing a
+    full-height home column. That makes the ground immediately around the stand
+    the decisive real estate, and a stand reachable from one direction is a
+    turkey shoot no matter how good the rest of the map is.
+
+    Counted as contiguous open arcs on a ring just outside the zone. Returns
+    None for a map still on the legacy column, where the question is meaningless.
+    """
+    if not radius:
+        return None
+    gh, gw = wall.shape
+    r = (radius + 30) / cell
+    open_arc, runs, run = [], 0, 0
+    steps = 180
+    for i in range(steps):
+        th = 2 * np.pi * i / steps
+        x = int(round(home["x"] / cell + r * np.cos(th)))
+        y = int(round(home["y"] / cell + r * np.sin(th)))
+        inside = 0 <= x < gw and 0 <= y < gh
+        open_arc.append(bool(inside and not wall[y, x]))
+    # Rotate so a run never straddles the seam, then count runs wide enough to
+    # walk through (a player is 13px; ~25px of arc is a real doorway).
+    if all(open_arc):
+        return 1        # fully exposed stand: one continuous approach
+    if not any(open_arc):
+        return 0
+    start = open_arc.index(False)
+    rot = open_arc[start:] + open_arc[:start]
+    min_cells = max(2, int(25 / (2 * np.pi * r * cell / steps)))
+    for v in rot:
+        if v:
+            run += 1
+        else:
+            if run >= min_cells:
+                runs += 1
+            run = 0
+    if run >= min_cells:
+        runs += 1
+    return runs
+
+
+def carry_lanes(carries, gw, gh, cell):
+    """Which midfield lanes the FLAG actually travelled through.
+
+    Distinct from the lane count: a map can offer three ways across and still
+    have every successful carry take the same one, which plays as a one-lane
+    map even though the geometry says otherwise. Buckets each midfield crossing
+    by its y and counts clusters more than a player-width apart.
+    """
+    mid = gw * cell / 2
+    band = 40
+    ys = sorted(c["y"] for c in carries if abs(c["x"] - mid) < band)
+    if not ys:
+        return 0, []
+    clusters, cur = [], [ys[0]]
+    for y in ys[1:]:
+        if y - cur[-1] > 60:        # a separate way through, not the same one
+            clusters.append(cur)
+            cur = [y]
+        else:
+            cur.append(y)
+    clusters.append(cur)
+    return len(clusters), [int(np.mean(c)) for c in clusters]
+
+
 def bfs(free, start):
     dist = np.full(free.shape, -1, np.int32)
     if not free[start]:
@@ -173,9 +242,37 @@ def heatmap(data, name):
 
     out = Image.fromarray(np.clip(img * 255, 0, 255).astype(np.uint8))
     out = out.resize((gw * 10, gh * 10), Image.NEAREST)
-    # Deaths as rings: where the fights actually resolved.
     from PIL import ImageDraw
     d = ImageDraw.Draw(out, "RGBA")
+
+    # The carry routes first, underneath everything: how the game was WON.
+    for c in data.get("carries", []):
+        col = (176, 60, 40, 90) if c["flag"] == "red" else (40, 96, 176, 90)
+        d.ellipse([c["x"] - 3, c["y"] - 3, c["x"] + 3, c["y"] + 3], fill=col)
+
+    # The objective model, drawn so the evidence is read against the rules
+    # actually in force: capture zone at the stand, and the real spawn areas.
+    rad = data.get("captureRadius", 0)
+    for team, key in (("red", "redHome"), ("blue", "blueHome")):
+        home = data.get(key)
+        if not home:
+            continue
+        col = (176, 60, 40, 190) if team == "red" else (40, 96, 176, 190)
+        if rad:
+            d.ellipse([home["x"] - rad, home["y"] - rad,
+                       home["x"] + rad, home["y"] + rad], outline=col, width=2)
+        d.line([home["x"] - 7, home["y"], home["x"] + 7, home["y"]], fill=col,
+               width=3)
+        d.line([home["x"], home["y"] - 7, home["x"], home["y"] + 7], fill=col,
+               width=3)
+    for team, key in (("red", "redSpawn"), ("blue", "blueSpawn")):
+        z = data.get(key) or {}
+        if z.get("w"):
+            col = (176, 60, 40, 110) if team == "red" else (40, 96, 176, 110)
+            d.rectangle([z["x"], z["y"], z["x"] + z["w"], z["y"] + z["h"]],
+                        outline=col, width=2)
+
+    # Deaths as rings: where the fights actually resolved.
     for dth in data["deaths"]:
         x, y = dth["x"], dth["y"]
         col = (176, 60, 40, 210) if dth["team"] == "red" else (40, 96, 176, 210)
@@ -201,6 +298,9 @@ def merge(paths):
         for key in ("occupancy", "occRed", "occBlue"):
             base[key] = [a + b for a, b in zip(base[key], d[key])]
         base["deaths"] = base["deaths"] + d["deaths"]
+        base["carries"] = base.get("carries", []) + d.get("carries", [])
+        base["steals"] = base.get("steals", 0) + d.get("steals", 0)
+        base["captures"] = base.get("captures", 0) + d.get("captures", 0)
         base["ticks"] += d["ticks"]
     base["episodes"] = len(datas)
     return base
@@ -234,6 +334,14 @@ def report(paths):
 
     lane_count, lanes_used = lanes(wall, occ)
 
+    # The objective model, as it is now: capture at the stand, not at the edge.
+    rad = data.get("captureRadius", 0)
+    app_red = approaches(wall, data.get("redHome", {"x": 0, "y": 0}), rad, cell)
+    app_blue = approaches(wall, data.get("blueHome", {"x": 0, "y": 0}), rad,
+                          cell)
+    carries = data.get("carries", [])
+    carry_lane_n, carry_ys = carry_lanes(carries, gw, gh, cell)
+
     deaths = data["deaths"]
     if deaths:
         dx = np.array([d["x"] for d in deaths], float)
@@ -262,6 +370,13 @@ def report(paths):
     if biggest_dead * cell * cell > 60000:
         flags.append(f"one unvisited region of ~{biggest_dead * cell * cell:,}"
                      "px² — a whole wing nobody played")
+    for side, n in (("red", app_red), ("blue", app_blue)):
+        if n is not None and n < 2:
+            flags.append(f"{side}'s flag stand has {n} approach(es) — with "
+                         "capture AT the stand, one way in is a turkey shoot")
+    if carry_lane_n == 1 and len(carries) > 20:
+        flags.append("every flag carry crossed midfield in the same lane — "
+                     "the alternates exist but do not carry the objective")
 
     print(f"\n=== {name}  ({data.get('episodes', 1)} episode(s), "
           f"{data['ticks']} ticks)")
@@ -271,6 +386,13 @@ def report(paths):
     print(f"    dead space {dead_pct:.0%} of open floor "
           f"(largest unvisited region {biggest_dead * cell * cell:,}px²)")
     print(f"    {len(deaths)} deaths, spread {spread:.0f}px")
+    model = (f"capture r{rad} at the stand" if rad else "legacy home column")
+    print(f"    objective: {model}; {data.get('steals', 0)} steals -> "
+          f"{data.get('captures', 0)} captures")
+    if rad:
+        print(f"    approaches into the stand: red {app_red}, blue {app_blue}")
+    print(f"    carry routes crossed midfield in {carry_lane_n} lane(s) "
+          f"{carry_ys}")
     for f in flags:
         print(f"    FLAG: {f}")
     if not flags:
@@ -278,7 +400,12 @@ def report(paths):
     return dict(map=name, medianSight=median_sight, longPct=long_pct,
                 lanes=lane_count, lanesUsed=lanes_used,
                 deadPct=dead_pct, biggestDead=biggest_dead,
-                deaths=len(deaths), spread=spread, flags=flags)
+                deaths=len(deaths), spread=spread,
+                captureRadius=rad, approachRed=app_red, approachBlue=app_blue,
+                steals=data.get("steals", 0),
+                captures=data.get("captures", 0),
+                carryLanes=carry_lane_n, carryYs=carry_ys,
+                flags=flags)
 
 
 def main():

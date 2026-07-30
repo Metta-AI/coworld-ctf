@@ -51,6 +51,38 @@ proc reaches(sim: SimServer, ax, ay, bx, by: int): bool =
   false
 
 suite "mw2 paintball map pack":
+  test "the validators see the same mask the game plays on":
+    # Two definitions of the same rule exist: isProtectedFloor, used once a map
+    # is installed as the process map (i.e. in play), and mapProtectedFloorAt,
+    # used by the generator, the pool validators and the asymmetry test below
+    # on a map that is not installed. Everything those consumers PROMISE about
+    # a map -- no sealed pockets, no open firing row, comparable halves -- is
+    # promised about whichever mask they compute, so a divergence makes the
+    # guarantees describe a layout nobody plays.
+    #
+    # They did diverge, on all six maps, the moment the recreations started
+    # setting fields the abstract arenas leave at their defaults: 9k-14k px
+    # from reading captureClear where the game reads carveClear, plus a
+    # further 2.4k on Terminal from pinning the spawn pocket to the centre
+    # line instead of the declared home point. Both are fixed; this keeps it
+    # that way, and it is the pack maps that exercise it -- the arenas leave
+    # both fields at defaults and would pass either way.
+    for name in Mw2Rotation:
+      let
+        sim = initCtfForMap(name)
+        gameMap = sim.gameMap
+        obstacles = (if gameMap.fullObstacles.len > 0: gameMap.fullObstacles
+                     else: gameMap.leftObstacles)
+      var diffs = 0
+      for y in 0 ..< MapHeight:
+        for x in 0 ..< MapWidth:
+          if mapWallAt(gameMap, obstacles, x, y) !=
+              sim.wallMask[mapIndex(x, y)]:
+            inc diffs
+      if diffs != 0:
+        echo name, ": validator and game masks differ on ", diffs, " px"
+      check diffs == 0
+
   test "all six maps load and connect red spawn to blue flag":
     for name in Mw2Rotation:
       let sim = initCtfForMap(name)
