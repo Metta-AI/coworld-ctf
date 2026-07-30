@@ -21,7 +21,8 @@
 ##   fw = fireWindup; wb = windupBrads, meaningful only where fw > 0 (a full
 ##   0..255 brad value, so there is no free sentinel for "not armed").
 ## Seats are written by joinOrder, so column `s` is the same seat for the whole
-## episode even though players join during the lobby.
+## episode even though players join during the lobby. `carrier` is a SEAT in
+## that same space (-1 when the flag is home), not a sim player index.
 ##
 ## Usage: nim r tools/extract_events.nim [replay-path] [--out <path>]
 ##                                       [--frames <path>]
@@ -156,6 +157,11 @@ type
     fireWindup*: int
     windupBrads*: int          ## meaningful only where fireWindup > 0.
 
+  FrameFlag* = object
+    ## One team's flag on one tick, decoded from an ExtractResult's frames.
+    x*, y*: int
+    carrier*: int              ## SEAT carrying it, -1 when home.
+
 const FramesHeaderBytes* = 16   ## magic + slots + width + height + teams.
 
 proc frameRecordBytes*(slotCount, teamCount: int): int =
@@ -179,7 +185,26 @@ proc addI16(buffer: var string, value: int) =
 proc addByte(buffer: var string, value: int) =
   buffer.addLe(uint8(clamp(value, 0, 255)))
 
-proc appendFrame(buffer: var string, sim: SimServer, slotCount: int) =
+proc framesHeader*(slotCount, teamCount: int): string =
+  ## The frame stream's fixed 16-byte preamble. One definition, so the writer
+  ## and anything decoding it cannot drift.
+  result = FramesMagic
+  result.addLe(uint16(slotCount))
+  result.addLe(uint16(MapWidth))
+  result.addLe(uint16(MapHeight))
+  result.addLe(uint16(teamCount))
+
+proc seatOfPlayer(sim: SimServer, playerIndex, slotCount: int): int =
+  ## The joinOrder seat of one sim player index, or -1 for "none". Player
+  ## INDICES shift when someone leaves (removePlayerAt renumbers the array and
+  ## every index stored in it); seats do not. Anything index-shaped that
+  ## reaches the frame stream has to come through here.
+  if playerIndex < 0 or playerIndex >= sim.players.len:
+    return -1
+  let seat = sim.players[playerIndex].joinOrder
+  if seat < 0 or seat >= slotCount: -1 else: seat
+
+proc appendFrame*(buffer: var string, sim: SimServer, slotCount: int) =
   ## Appends one fixed-width per-tick record. Seats are written by joinOrder,
   ## not by array index: players join during the lobby, so `sim.players` grows
   ## mid-episode and an index-ordered dump would shift columns under the
@@ -191,8 +216,12 @@ proc appendFrame(buffer: var string, sim: SimServer, slotCount: int) =
   for seat in 0 ..< slotCount:
     seatOf[seat] = -1
   for index, player in sim.players:
-    if player.joinOrder >= 0 and player.joinOrder < slotCount:
-      seatOf[player.joinOrder] = index
+    if player.joinOrder < 0 or player.joinOrder >= slotCount:
+      # Dropping a live seat would be silent data loss in the one output that
+      # exists to be read by a machine: refuse the extraction instead.
+      fail("player " & $index & " has joinOrder " & $player.joinOrder &
+        ", outside the " & $slotCount & " seats this frame stream sizes for.")
+    seatOf[player.joinOrder] = index
   for seat in 0 ..< slotCount:
     if seatOf[seat] < 0:
       for _ in 0 ..< SeatRecordBytes:
@@ -221,7 +250,7 @@ proc appendFrame(buffer: var string, sim: SimServer, slotCount: int) =
     let flag = sim.flags[team]
     buffer.addI16(flag.x)
     buffer.addI16(flag.y)
-    buffer.addLe(cast[uint8](int8(clamp(flag.carrier, -1, 127))))
+    buffer.addLe(cast[uint8](int8(sim.seatOfPlayer(flag.carrier, slotCount))))
 
 proc u8At(frames: string, offset: int): int =
   int(uint8(frames[offset]))
@@ -243,6 +272,17 @@ proc frameTick*(extraction: ExtractResult, index: int): int =
 
 proc framePhase*(extraction: ExtractResult, index: int): int =
   extraction.frames.u8At(extraction.frameOffset(index) + 4)
+
+proc frameFlag*(extraction: ExtractResult, index, team: int): FrameFlag =
+  ## One team's flag on frame `index`. `carrier` is a SEAT (joinOrder), the
+  ## same space the seat columns use, or -1 when the flag is home.
+  let base = extraction.frameOffset(index) + 6 +
+    extraction.frameSlots * SeatRecordBytes + team * 5
+  FrameFlag(
+    x: extraction.frames.i16At(base),
+    y: extraction.frames.i16At(base + 2),
+    carrier: int(cast[int8](uint8(extraction.frames.u8At(base + 4))))
+  )
 
 proc frameSeat*(extraction: ExtractResult, index, seat: int): FrameSeat =
   ## One seat's state on frame `index`. Seats are in joinOrder.
@@ -273,16 +313,14 @@ proc extractEvents*(data: ReplayData, captureFrames = false): ExtractResult =
     replay.looping = false
     replay.mismatchQuit = true
     # Seats join during the lobby, so the roster size comes from the config
-    # rather than from the (initially empty) player list.
-    let slotCount = max(data.replayConfig().slots.len, sim.config.minPlayers)
+    # rather than from the (initially empty) player list. An open roster can
+    # seat anyone up to MaxPlayers regardless of how many slots the config
+    # lists, so the slot list is a floor on the width, never the bound.
+    let slotCount = max(sim.config.playerSlotLimit(), sim.config.slots.len)
     result.frameSlots = slotCount
     result.frameTeams = sim.config.teams
     if captureFrames:
-      result.frames.add(FramesMagic)
-      result.frames.addLe(uint16(slotCount))
-      result.frames.addLe(uint16(MapWidth))
-      result.frames.addLe(uint16(MapHeight))
-      result.frames.addLe(uint16(sim.config.teams))
+      result.frames.add(framesHeader(slotCount, sim.config.teams))
     while replay.playing:
       replay.stepReplay(sim)
       # Drain the sink every tick so it never grows past one tick's worth.

@@ -5355,7 +5355,7 @@ proc findSpawn*(sim: SimServer): tuple[x, y: int] =
   let order = sim.players.len
   sim.spawnPosition(sim.teamForSlot(order), order div sim.gameMap.teamCount())
 
-proc playerSlotLimit(config: GameConfig): int =
+proc playerSlotLimit*(config: GameConfig): int =
   ## Returns the number of slots players may occupy.
   if config.closedRoster: config.slots.len else: MaxPlayers
 

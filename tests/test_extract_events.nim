@@ -25,6 +25,10 @@ suite "tier-2 event extraction (tools/extract_events)":
     check extraction.ticks > 0
     check extraction.events.len > 0
 
+    # Asking for frames is the only thing that produces them. (Piggy-backed on
+    # this walk: a dedicated one costs a full re-simulation to assert a zero.)
+    check extraction.frames.len == 0
+
     # Event ticks never go backwards.
     var lastTick = 0
     for event in extraction.events:
@@ -197,8 +201,26 @@ suite "tier-2 event extraction (tools/extract_events)":
     check extraction.frameTick(0) == 1
     check extraction.frameTick(extraction.frameCount - 1) == extraction.ticks
 
-    # Asking for frames is the only thing that produces them.
-    check extractEvents(data).frames.len == 0
+    # The header is what a downstream reader parses to find the records at
+    # all, so decode it from the BYTES rather than trusting the in-memory
+    # fields the accessors above already use.
+    proc headerU16(offset: int): int =
+      int(uint8(extraction.frames[offset])) or
+        (int(uint8(extraction.frames[offset + 1])) shl 8)
+    check headerU16(8) == extraction.frameSlots
+    check headerU16(10) == MapWidth
+    check headerU16(12) == MapHeight
+    check headerU16(14) == extraction.frameTeams
+
+    # Seats are the roster the results report, not a config guess: a seat the
+    # results name but the frames omit is silent data loss.
+    check extraction.frameSlots ==
+      parseJson(extraction.resultsJson)["names"].len
+
+    # One record per tick, contiguous — the accessors index frames by
+    # `tick - 1`, which only holds if no tick is skipped or repeated.
+    for index in 0 ..< extraction.frameCount:
+      check extraction.frameTick(index) == index + 1
 
     var released: seq[(int, int)]
     for index in 1 ..< extraction.frameCount:
@@ -224,3 +246,48 @@ suite "tier-2 event extraction (tools/extract_events)":
           extraction.frameSeat(event.tick - 1, event.source)
         check abs(float(seatState.x) - event.x) <= 1.0
         check abs(float(seatState.y) - event.y) <= 1.0
+
+    # A flag is either home or on the back of a seat that says it is carrying.
+    var carriedFrames = 0
+    for index in 0 ..< extraction.frameCount:
+      for team in 0 ..< extraction.frameTeams:
+        let carrier = extraction.frameFlag(index, team).carrier
+        if carrier < 0:
+          continue
+        inc carriedFrames
+        check carrier < extraction.frameSlots
+        check (extraction.frameSeat(index, carrier).flags and 2) != 0
+    check carriedFrames > 0
+
+  test "a flag carrier is named by seat, so a disconnect cannot shift it":
+    ## `FlagState.carrier` is a PLAYER INDEX, and removePlayerAt renumbers
+    ## those indices when someone leaves mid-episode — which replay playback
+    ## does. Every other column in a frame record is joinOrder-keyed, so the
+    ## carrier has to be converted or a reader silently follows the wrong
+    ## seat for the rest of the episode.
+    let previousDir = getCurrentDir()
+    setCurrentDir(GameDir)
+    try:
+      var sim = initSimServer(defaultGameConfig())
+      for i in 0 ..< 4:
+        discard sim.addPlayer("bot" & $i, -1, "", true)
+      check sim.players[3].joinOrder == 3
+
+      # Seat 3 grabs a flag, then the seat-0 player disconnects. The sim
+      # decrements the stored carrier index to 2 to track the array; the seat
+      # it names is still 3.
+      sim.flags[Blue].carrier = 3
+      sim.removePlayerAt(0)
+      check sim.flags[Blue].carrier == 2
+      check sim.players[2].joinOrder == 3
+
+      var frames = framesHeader(MaxPlayers, sim.config.teams)
+      frames.appendFrame(sim, MaxPlayers)
+      let decoded = ExtractResult(
+        frames: frames, frameCount: 1,
+        frameSlots: MaxPlayers, frameTeams: sim.config.teams)
+      check decoded.frameFlag(0, ord(Blue)).carrier == 3
+      # The vacated seat reads as never-joined, not as somebody else.
+      check decoded.frameSeat(0, 0).flags == 0
+    finally:
+      setCurrentDir(previousDir)

@@ -6,8 +6,16 @@
 ## offline analysis that needs the terrain the sim actually collides against
 ## rather than a picture of it:
 ##
-##   --raw <path>    MapWidth*MapHeight bytes, row-major, one per pixel:
-##                   0 = floor, 1 = stone, 2 = glass window.
+##   --raw <path>    width*height bytes, row-major, one per pixel:
+##                   0 = floor, 1 = stone, 2 = glass window. Headerless, so
+##                   it loads as a flat array — take its shape from --geom's
+##                   width/height (also echoed on stdout); map size varies by
+##                   draw, so do NOT assume the default arena's dimensions.
+##                   Classified from the sim's INTEGER collision predicate,
+##                   not from the PNG's float rasterizer, so the bytes are the
+##                   terrain a bullet meets. (The two agree everywhere today;
+##                   sub-pixel disagreement along shape edges is allowed by
+##                   design — see inShapeF.)
 ##   --geom <path>   JSON: pedestals, capture zones, pickup spawn points,
 ##                   trenches, and the tuning constants the geometry depends
 ##                   on.
@@ -52,7 +60,29 @@ proc point(p: MapPoint): JsonNode =
 proc point(x, y: int): JsonNode =
   %*{"x": x, "y": y}
 
-proc geometryJson(gameMap: CtfMap): JsonNode =
+proc rawMask*(gameMap: CtfMap): string =
+  ## The wall mask as one byte per pixel: 0 floor, 1 stone, 2 glass window.
+  ## Built from mapWallAt — the INTEGER predicate the sim's wallMask comes
+  ## from — so a consumer modelling collision reads the terrain the sim
+  ## collides against. (The PNG keeps the float rasterizer: it is a picture.)
+  ## Pure in `gameMap`, like geometryJson: it reads no installed-map globals,
+  ## so gen:<seed> / pool:<idx> export without becoming the process map.
+  ## Glass is a strict SUBSET of stone (a window pixel is a wall pixel), so
+  ## the three classes are disjoint and the ordering below is total.
+  let obstacles = buildArenaObstacles(gameMap)
+  result = newString(gameMap.width * gameMap.height)
+  for y in 0 ..< gameMap.height:
+    for x in 0 ..< gameMap.width:
+      var cls = 0'u8
+      if mapWallAt(gameMap, obstacles, x, y):
+        cls = 1
+        for shape in obstacles:
+          if shape.window and inShape(x, y, shape):
+            cls = 2
+            break
+      result[y * gameMap.width + x] = char(cls)
+
+proc geometryJson*(gameMap: CtfMap): JsonNode =
   ## The map's landmarks and the constants a geometric model of it needs.
   ## Everything here reads off CtfMap or a pure accessor, so no SimServer is
   ## built and generated maps export exactly like hand-authored ones.
@@ -60,8 +90,8 @@ proc geometryJson(gameMap: CtfMap): JsonNode =
   result["gameVersion"] = %GameVersion
   result["name"] = %gameMap.name
   result["path"] = %gameMap.path
-  result["width"] = %MapWidth
-  result["height"] = %MapHeight
+  result["width"] = %gameMap.width
+  result["height"] = %gameMap.height
   result["center"] = point(gameMap.center)
   result["border"] = %ArenaBorder
   result["symmetry"] = %($gameMap.symmetry)
@@ -123,9 +153,7 @@ when isMainModule:
     gameMap = loadCtfMap(args.mapName)
     cx = gameMap.center.x
     cy = gameMap.center.y
-  var
-    img = newImage(MapWidth, MapHeight)
-    raw = if args.rawPath.len > 0: newString(MapWidth * MapHeight) else: ""
+  var img = newImage(MapWidth, MapHeight)
   for y in 0 ..< MapHeight:
     for x in 0 ..< MapWidth:
       var c = rgba(214, 189, 150, 255)
@@ -140,14 +168,10 @@ when isMainModule:
       elif wall:
         c = rgba(64, 48, 34, 255)
       img.unsafe[x, y] = c.rgbx()
-      if raw.len > 0:
-        # A window pixel is a wall pixel by definition (isArenaWindowPixel
-        # gates on isArenaWall), so the classes are disjoint and ordered.
-        raw[y * MapWidth + x] = char(if not wall: 0'u8 elif window: 2'u8 else: 1'u8)
   img.writeFile(args.pngPath)
   echo "wrote ", args.pngPath
   if args.rawPath.len > 0:
-    writeFile(args.rawPath, raw)
+    writeFile(args.rawPath, rawMask(gameMap))
     echo "wrote ", args.rawPath, " (", MapWidth, "x", MapHeight, " bytes)"
   if args.geomPath.len > 0:
     writeFile(args.geomPath, geometryJson(gameMap).pretty() & "\n")
