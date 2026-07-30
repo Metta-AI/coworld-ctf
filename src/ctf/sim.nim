@@ -4195,6 +4195,8 @@ var
   ArenaFloorTex* = DefaultFloorTex  ## data/ path of the selected map's floor.
   ArenaWallTex* = ""                ## data/ path of the selected map's cover
                                     ## surface; empty = plain carved stone.
+  ArenaCaptureRadius = 0            ## selected map's capture radius; 0 = the
+                                    ## legacy home-edge column model.
   ArenaCarveClear = 210  ## width of the always-floor home column (px).
   ArenaTrenches*: seq[MapRect]
 
@@ -4228,6 +4230,7 @@ proc selectCtfMap(gameMap: CtfMap) =
     if gameMap.floorTex.len > 0: gameMap.floorTex
     else: DefaultFloorTex
   ArenaWallTex = gameMap.wallTex
+  ArenaCaptureRadius = gameMap.captureRadius
   if gameMap.material.face.a > 0:
     StoneFace = gameMap.material.face
     StoneHi = gameMap.material.hi
@@ -4794,6 +4797,27 @@ proc endzoneColorAt(base: ColorRGBA, x, redHi, blueLo, playLo, playHi: int):
   else:
     base
 
+proc capturePadColorAt(base: ColorRGBA, x, y: int): ColorRGBA =
+  ## Zone-map replacement for the endzone COLUMN glow: the scoring area is a
+  ## disc around each flag stand, so the paint matches the mechanic — team
+  ## ember inside the radius, brightest at the pedestal, and a crisp ring at
+  ## the exact scoring boundary. Everything outside both pads is untouched.
+  for (hx, hy, col) in [(ArenaRedHomeX, ArenaRedHomeY, RedEndzoneColor),
+                        (ArenaBlueHomeX, ArenaBlueHomeY, BlueEndzoneColor)]:
+    let
+      dx = x - hx
+      dy = y - hy
+      d2 = dx * dx + dy * dy
+      rOut = ArenaCaptureRadius
+      rIn = rOut - EndzoneLineW
+    if d2 <= rOut * rOut:
+      if d2 >= rIn * rIn:
+        return overTint(base, rgba(col.r, col.g, col.b, EndzoneLineAlpha))
+      let near = 1.0 - sqrt(d2.float) / max(1, rOut).float
+      return emberThroughCracks(base, col,
+        EndzoneGlowFloor + (1.0 - EndzoneGlowFloor) * near)
+  base
+
 proc shapeLogicalBounds(shape: ArenaShape): tuple[x0, y0, x1, y1: int] =
   ## A conservative logical-pixel bounding box around one obstacle shape (the
   ## scale× rasterizer only evaluates the float geometry inside it).
@@ -4943,7 +4967,11 @@ proc renderArenaRgbaPair*(
         coldColor = hotColor
       else:
         coldColor = tileBlock[tileRow + x mod tileW]
-        hotColor = endzoneColorAt(coldColor, lx, redHi, blueLo, playLo, playHi)
+        hotColor =
+          if ArenaCaptureRadius > 0:
+            capturePadColorAt(coldColor, lx, ly)
+          else:
+            endzoneColorAt(coldColor, lx, redHi, blueLo, playLo, playHi)
         # The trench pit (config-gated trenches) paints over the finished floor on both
         # variants; it sits at the center, well clear of the endzone glow.
         coldColor = trenchArtColorAt(coldColor, lx, ly)
@@ -5062,6 +5090,8 @@ proc loadMapLayers*(gameMap: CtfMap, withEndzoneGlow = true):
         if windowPixel: windowGlassColor(artMask, w, h, x, y)
         elif artWall:
           texturedStone(carvedStoneColor(artMask, w, h, x, y), wallTex, x, y, 1)
+        elif withEndzoneGlow and ArenaCaptureRadius > 0:
+          capturePadColorAt(tileSample(floorTex, x, y), x, y)
         elif withEndzoneGlow: endzoneColorAt(tileSample(floorTex, x, y), x,
           redHi, blueLo, playLo, playHi)
         else: tileSample(floorTex, x, y)
