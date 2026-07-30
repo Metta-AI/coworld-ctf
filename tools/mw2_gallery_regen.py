@@ -234,7 +234,7 @@ def page(status):
   <p class="status">
     <span class="live">{done} / 6 rendered</span>
     <span><b>engine</b> live src/ctf/sim.nim</span>
-    <span><b>field</b> 1235 &times; 659</span>
+    <span><b>field</b> per-map (base 1235 &times; 659)</span>
     <span>page refreshes every 30s</span>
   </p>
   {banner}
