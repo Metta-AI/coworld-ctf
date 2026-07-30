@@ -2023,10 +2023,23 @@ const
   ##   - baggage cart
   ##   - service truck
   TerminalObstacles = [
-    # 747 fuselage
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 300, y: 100, w: 410, h: 46)),
-    # 747 nose
-    ArenaShape(kind: shapeDisc, cx: 300, cy: 123, radius: 23),
+    # --- The 747, as a CABIN you fight through rather than a solid block ---
+    # The hero airframe was one filled rect, so the plane was a wall and the
+    # whole north-west apron around it was the pack's largest never-entered
+    # region (57,100px²). It is now a hull: two flank walls with a 30px cabin
+    # aisle between them, sealed forward by the nose and aft by the fin, with
+    # three doors -- two port, one starboard onto the apron. A player fits in
+    # 13px, so the aisle is a genuine corridor to move down or hide in, and
+    # the doors are the fight.
+    # port flank (y 96-108), doors at x 372-406 and 612-646
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 300, y: 96, w: 72, h: 12)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 406, y: 96, w: 206, h: 12)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 646, y: 96, w: 64, h: 12)),
+    # starboard flank (y 138-150), door at x 556-590 facing the jet bridge
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 300, y: 138, w: 256, h: 12)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 590, y: 138, w: 120, h: 12)),
+    # 747 nose: widened to close the cabin's forward end against the new hull
+    ArenaShape(kind: shapeDisc, cx: 300, cy: 123, radius: 27),
     # 747 port wing
     ArenaShape(kind: shapeDiagonal, x0: 500, y0: 100, x1: 588, y1: 12, thickness: 20),
     # 747 stbd wing
@@ -3067,8 +3080,19 @@ proc terminalCtfMap(): CtfMap =
   ## TerminalObstacles above; wing/tailplane rotations follow the diagonal
   ## segments (sprite +X root->tip, positive rot = clockwise on screen).
   result.props = @[
-    PropSprite(file: "data/props/fuselage.png", x: 505, y: 123, w: 410, h: 46),
-    PropSprite(file: "data/props/nose.png", x: 300, y: 123, w: 46, h: 46),
+    # The 747's two flanks, one sprite per hull segment, so the cabin aisle
+    # between them stays visibly open floor rather than being painted over.
+    PropSprite(file: "data/props/airliner_flank.png", x: 336, y: 102,
+               w: 72, h: 12),
+    PropSprite(file: "data/props/airliner_flank.png", x: 509, y: 102,
+               w: 206, h: 12),
+    PropSprite(file: "data/props/airliner_flank.png", x: 678, y: 102,
+               w: 64, h: 12),
+    PropSprite(file: "data/props/airliner_flank.png", x: 428, y: 144,
+               w: 256, h: 12),
+    PropSprite(file: "data/props/airliner_flank.png", x: 650, y: 144,
+               w: 120, h: 12),
+    PropSprite(file: "data/props/nose.png", x: 300, y: 123, w: 54, h: 54),
     PropSprite(file: "data/props/wing.png", x: 544, y: 56, w: 146, h: 20,
                rot: -45),
     PropSprite(file: "data/props/wing.png", x: 544, y: 190, w: 146, h: 20,

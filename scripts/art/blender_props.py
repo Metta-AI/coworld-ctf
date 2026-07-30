@@ -384,6 +384,29 @@ def prop_helipad_parapet():
     render("helipad_parapet", 96, 26)
 
 
+def prop_airliner_flank():
+    """One side of a 747 cabin, 200x12 (Terminal's walkable hero plane).
+
+    The plane used to be a solid rect wearing one tube sprite. It is now a
+    hull with a cabin aisle you walk down, so each flank needs its own art:
+    seen from above a flank is the curved crown of the fuselage, its window
+    row, and the cheatline below it.
+    """
+    reset(); camera(200, 12)
+    skin = mat("skin", (0.90, 0.90, 0.92), rough=0.35, metal=0.15)
+    crown = mat("crown", (0.97, 0.97, 0.98), rough=0.3, metal=0.15)
+    line = mat("cheat", (0.11, 0.24, 0.52), rough=0.5)
+    glass = mat("cabin_glass", (0.07, 0.09, 0.13), rough=0.2, metal=0.4)
+    box(0, 0, 8, 198, 11, 16, skin, bevel=1.4)
+    box(0, -2.4, 16.4, 198, 4.2, 1.6, crown, bevel=1.0)   # curved crown
+    box(0, 3.6, 16.2, 198, 2.0, 1.4, line)                # cheatline
+    x = -92                                               # cabin windows
+    while x <= 92:
+        box(x, 1.0, 16.6, 2.6, 2.0, 1.0, glass)
+        x += 9.5
+    render("airliner_flank", 200, 12)
+
+
 def prop_qalat_wall():
     """Mud-brick compound wall, 92x18 (Afghan's two qalats).
 
@@ -452,6 +475,7 @@ if __name__ == "__main__":
                prop_duct, prop_shanty_roof, prop_fuselage, prop_nose,
                prop_wing, prop_engine, prop_tower_leg, prop_tail_fin,
                prop_helipad_parapet, prop_qalat_wall, prop_qalat_hut,
+               prop_airliner_flank,
                prop_hull_section):
         fn()
     print("prop library complete:", sorted(FAMILIES))
