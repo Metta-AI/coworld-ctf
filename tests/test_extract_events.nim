@@ -176,3 +176,51 @@ suite "tier-2 event extraction (tools/extract_events)":
       check game.gameHash() == hashBefore
     finally:
       setCurrentDir(previousDir)
+
+  test "--frames captures per-tick seat state that agrees with the events":
+    ## The frame stream and the event stream come out of the SAME walk, so
+    ## they have to agree. The sharpest cross-check is shots: a release is the
+    ## tick a seat's fireWindup counts down 1 -> 0, and the engine stamps its
+    ## own Shot event at the shooter's position. Rebuilding the shots from the
+    ## frames alone and matching them against those events exercises the tick
+    ## alignment, the seat ordering and the field packing all at once.
+    let
+      data = loadReplay(EventsFixture)
+      extraction = extractEvents(data, captureFrames = true)
+
+    check extraction.frameCount == extraction.ticks
+    check extraction.frameSlots > 0
+    check extraction.frames.len == FramesHeaderBytes +
+      extraction.frameCount *
+        frameRecordBytes(extraction.frameSlots, extraction.frameTeams)
+    check extraction.frames[0 ..< 8] == "CTFFRM01"
+    check extraction.frameTick(0) == 1
+    check extraction.frameTick(extraction.frameCount - 1) == extraction.ticks
+
+    # Asking for frames is the only thing that produces them.
+    check extractEvents(data).frames.len == 0
+
+    var released: seq[(int, int)]
+    for index in 1 ..< extraction.frameCount:
+      for seat in 0 ..< extraction.frameSlots:
+        if extraction.frameSeat(index - 1, seat).fireWindup == 1 and
+            extraction.frameSeat(index, seat).fireWindup == 0:
+          released.add((extraction.frameTick(index), seat))
+
+    var shots: seq[(int, int)]
+    for event in extraction.events:
+      if event.kind == Shot:
+        shots.add((event.tick, event.source))
+
+    check released.len > 0
+    check released.len == shots.len
+    for pair in shots:
+      check pair in released
+
+    # And each shot leaves from where the frames say the shooter stood.
+    for event in extraction.events:
+      if event.kind == Shot:
+        let seatState =
+          extraction.frameSeat(event.tick - 1, event.source)
+        check abs(float(seatState.x) - event.x) <= 1.0
+        check abs(float(seatState.y) - event.y) <= 1.0

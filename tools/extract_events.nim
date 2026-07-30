@@ -4,7 +4,27 @@
 ## Replay hashes are still validated every step (mismatchQuit), so a clean run
 ## also proves the recording re-simulates deterministically.
 ##
+## `--frames <path>` additionally captures the per-tick, per-seat STATE the
+## same walk passes through: positions, aim, health and carry flags. Events say
+## what happened and where; frames say where everyone was in between, which is
+## what spatial analysis needs and what no other output carries. It rides the
+## existing re-simulation, so it costs no extra walk.
+##
+## frames layout, little-endian:
+##   header: "CTFFRM01" | u16 slots | u16 mapW | u16 mapH | u16 teams
+##   then one fixed-width record per simulated tick:
+##     u32 tick | u8 phase | u8 pad
+##     slots x { i16 x, i16 y, u8 aim, u8 hp, u8 lives, u8 flags, u8 fw, u8 wb }
+##     teams x { i16 x, i16 y, i8 carrier }
+##   flags bits: 1 alive, 2 carryingFlag, 4 hasShield, 8 hasGrenade,
+##               16 hasPlasmaArc, 32 shieldHp>0, 64 spray cone active
+##   fw = fireWindup; wb = windupBrads, meaningful only where fw > 0 (a full
+##   0..255 brad value, so there is no free sentinel for "not armed").
+## Seats are written by joinOrder, so column `s` is the same seat for the whole
+## episode even though players join during the lobby.
+##
 ## Usage: nim r tools/extract_events.nim [replay-path] [--out <path>]
+##                                       [--frames <path>]
 
 import
   std/[json, os, strutils],
@@ -16,7 +36,10 @@ type
 
 const
   UsageText =
-    "Usage: nim r tools/extract_events.nim [replay-path] [--out <path>]"
+    "Usage: nim r tools/extract_events.nim [replay-path] [--out <path>] " &
+      "[--frames <path>]"
+  FramesMagic = "CTFFRM01"
+  SeatRecordBytes = 10
   GameDir = currentSourcePath().parentDir().parentDir()
   DefaultReplayPath = GameDir / "tests" / "replays" / "ctf.bitreplay"
 
@@ -24,9 +47,10 @@ proc fail(message: string) =
   ## Raises one extraction failure.
   raise newException(ExtractEventsError, message)
 
-proc parseArgs(): tuple[replayPath, outPath: string] {.used.} =
-  ## Returns the replay path and --out path passed on the command line.
+proc parseArgs(): tuple[replayPath, outPath, framesPath: string] {.used.} =
+  ## Returns the replay path and the --out / --frames paths.
   result.outPath = ""
+  result.framesPath = ""
   var
     paths: seq[string]
     params = commandLineParams()
@@ -38,11 +62,15 @@ proc parseArgs(): tuple[replayPath, outPath: string] {.used.} =
     elif arg in ["--help", "-h"]:
       echo UsageText
       quit(0)
-    elif arg == "--out":
+    elif arg in ["--out", "--frames"]:
       if i + 1 >= params.len:
-        fail("--out requires a path.\n" & UsageText)
+        fail(arg & " requires a path.\n" & UsageText)
+      let flag = arg
       inc i
-      result.outPath = params[i].absolutePath()
+      if flag == "--out":
+        result.outPath = params[i].absolutePath()
+      else:
+        result.framesPath = params[i].absolutePath()
     elif arg.startsWith("--"):
       fail("Unknown option: " & arg & "\n" & UsageText)
     else:
@@ -116,10 +144,124 @@ type
     resultsJson*: string       ## playerResultsJson at the final tick.
     slotShotsFired*: seq[int]  ## final in-sim accuracy counters by slot.
     slotShotsHit*: seq[int]
+    frames*: string            ## per-tick seat state; empty unless requested.
+    frameCount*: int           ## records in `frames`.
+    frameSlots*: int           ## seats per frame record.
+    frameTeams*: int           ## flags per frame record.
 
-proc extractEvents*(data: ReplayData): ExtractResult =
+  FrameSeat* = object
+    ## One seat's state on one tick, decoded from an ExtractResult's frames.
+    x*, y*: int
+    aimBrads*, hp*, lives*, flags*: int
+    fireWindup*: int
+    windupBrads*: int          ## meaningful only where fireWindup > 0.
+
+const FramesHeaderBytes* = 16   ## magic + slots + width + height + teams.
+
+proc frameRecordBytes*(slotCount, teamCount: int): int =
+  ## Bytes per per-tick record: tick + phase + pad, then seats, then flags.
+  6 + slotCount * SeatRecordBytes + teamCount * 5
+
+proc addLe(buffer: var string, value: uint8) =
+  buffer.add(char(value))
+
+proc addLe(buffer: var string, value: uint16) =
+  buffer.add(char(value and 0xff'u16))
+  buffer.add(char((value shr 8) and 0xff'u16))
+
+proc addLe(buffer: var string, value: uint32) =
+  for shift in [0, 8, 16, 24]:
+    buffer.add(char((value shr shift) and 0xff'u32))
+
+proc addI16(buffer: var string, value: int) =
+  buffer.addLe(cast[uint16](int16(clamp(value, int(low(int16)), int(high(int16))))))
+
+proc addByte(buffer: var string, value: int) =
+  buffer.addLe(uint8(clamp(value, 0, 255)))
+
+proc appendFrame(buffer: var string, sim: SimServer, slotCount: int) =
+  ## Appends one fixed-width per-tick record. Seats are written by joinOrder,
+  ## not by array index: players join during the lobby, so `sim.players` grows
+  ## mid-episode and an index-ordered dump would shift columns under the
+  ## reader. A seat that has not joined yet writes a zeroed record.
+  buffer.addLe(uint32(sim.tickCount))
+  buffer.addByte(ord(sim.phase))
+  buffer.addLe(0'u8)
+  var seatOf = newSeq[int](slotCount)
+  for seat in 0 ..< slotCount:
+    seatOf[seat] = -1
+  for index, player in sim.players:
+    if player.joinOrder >= 0 and player.joinOrder < slotCount:
+      seatOf[player.joinOrder] = index
+  for seat in 0 ..< slotCount:
+    if seatOf[seat] < 0:
+      for _ in 0 ..< SeatRecordBytes:
+        buffer.addLe(0'u8)
+      continue
+    let player = sim.players[seatOf[seat]]
+    var flags = 0'u8
+    if player.alive: flags = flags or 1
+    if player.carryingFlag: flags = flags or 2
+    if player.hasShield: flags = flags or 4
+    if player.hasGrenade: flags = flags or 8
+    if player.hasPlasmaArc: flags = flags or 16
+    if player.shieldHp > 0: flags = flags or 32
+    if player.arcTicksLeft > 0: flags = flags or 64
+    buffer.addI16(player.x)
+    buffer.addI16(player.y)
+    buffer.addByte(player.aimBrads)
+    buffer.addByte(player.hp)
+    buffer.addByte(player.lives)
+    buffer.addLe(flags)
+    buffer.addByte(player.fireWindup)
+    # windupBrads spans the full 0..255 brad range, so "not armed" has no
+    # spare value to claim; fireWindup > 0 is what makes it meaningful.
+    buffer.addByte(if player.windupBrads < 0: 0 else: player.windupBrads)
+  for team in activeTeams(sim.config.teams):
+    let flag = sim.flags[team]
+    buffer.addI16(flag.x)
+    buffer.addI16(flag.y)
+    buffer.addLe(cast[uint8](int8(clamp(flag.carrier, -1, 127))))
+
+proc u8At(frames: string, offset: int): int =
+  int(uint8(frames[offset]))
+
+proc u16At(frames: string, offset: int): int =
+  frames.u8At(offset) or (frames.u8At(offset + 1) shl 8)
+
+proc i16At(frames: string, offset: int): int =
+  int(cast[int16](uint16(frames.u16At(offset))))
+
+proc frameOffset(extraction: ExtractResult, index: int): int =
+  FramesHeaderBytes +
+    index * frameRecordBytes(extraction.frameSlots, extraction.frameTeams)
+
+proc frameTick*(extraction: ExtractResult, index: int): int =
+  ## The sim tick of frame `index`.
+  let base = extraction.frameOffset(index)
+  extraction.frames.u16At(base) or (extraction.frames.u16At(base + 2) shl 16)
+
+proc framePhase*(extraction: ExtractResult, index: int): int =
+  extraction.frames.u8At(extraction.frameOffset(index) + 4)
+
+proc frameSeat*(extraction: ExtractResult, index, seat: int): FrameSeat =
+  ## One seat's state on frame `index`. Seats are in joinOrder.
+  let base = extraction.frameOffset(index) + 6 + seat * SeatRecordBytes
+  FrameSeat(
+    x: extraction.frames.i16At(base),
+    y: extraction.frames.i16At(base + 2),
+    aimBrads: extraction.frames.u8At(base + 4),
+    hp: extraction.frames.u8At(base + 5),
+    lives: extraction.frames.u8At(base + 6),
+    flags: extraction.frames.u8At(base + 7),
+    fireWindup: extraction.frames.u8At(base + 8),
+    windupBrads: extraction.frames.u8At(base + 9)
+  )
+
+proc extractEvents*(data: ReplayData, captureFrames = false): ExtractResult =
   ## Re-simulates one replay with the tier-2 sink on and returns every event
   ## in emission order. Raises ReplayError on any recorded-hash mismatch.
+  ## With `captureFrames`, the same walk also records per-tick seat state.
   let previousDir = getCurrentDir()
   setCurrentDir(GameDir)
   try:
@@ -130,12 +272,26 @@ proc extractEvents*(data: ReplayData): ExtractResult =
     sim.collectEvents = true
     replay.looping = false
     replay.mismatchQuit = true
+    # Seats join during the lobby, so the roster size comes from the config
+    # rather than from the (initially empty) player list.
+    let slotCount = max(data.replayConfig().slots.len, sim.config.minPlayers)
+    result.frameSlots = slotCount
+    result.frameTeams = sim.config.teams
+    if captureFrames:
+      result.frames.add(FramesMagic)
+      result.frames.addLe(uint16(slotCount))
+      result.frames.addLe(uint16(MapWidth))
+      result.frames.addLe(uint16(MapHeight))
+      result.frames.addLe(uint16(sim.config.teams))
     while replay.playing:
       replay.stepReplay(sim)
       # Drain the sink every tick so it never grows past one tick's worth.
       for event in sim.events:
         result.events.add(event)
       sim.events.setLen(0)
+      if captureFrames:
+        result.frames.appendFrame(sim, slotCount)
+        inc result.frameCount
       result.ticks = sim.tickCount
     result.resultsJson = sim.playerResultsJson()
     let resultSlotCount = parseJson(result.resultsJson)["names"].len
@@ -148,10 +304,13 @@ proc extractEvents*(data: ReplayData): ExtractResult =
   finally:
     setCurrentDir(previousDir)
 
-proc extractEventsJsonl*(data: ReplayData): string =
+proc extractEventsJsonl*(
+    data: ReplayData, framesOut: var string, captureFrames = false
+): string =
   ## Returns the full JSON-lines extraction: one row per event plus a final
-  ## summary object.
-  let extraction = extractEvents(data)
+  ## summary object. Captured frames, if any, come back through `framesOut`.
+  let extraction = extractEvents(data, captureFrames)
+  framesOut = extraction.frames
   var lines = newSeqOfCap[string](extraction.events.len + 1)
   for event in extraction.events:
     lines.add($event.jsonRow())
@@ -163,20 +322,30 @@ proc extractEventsJsonl*(data: ReplayData): string =
   lines.add($summary)
   lines.join("\n") & "\n"
 
-proc runExtract(replayPath, outPath: string) {.used.} =
-  ## Extracts one replay's event stream to stdout or --out.
+proc extractEventsJsonl*(data: ReplayData): string =
+  ## Event-stream-only overload: the shape every existing caller uses.
+  var discarded: string
+  extractEventsJsonl(data, discarded)
+
+proc runExtract(replayPath, outPath, framesPath: string) {.used.} =
+  ## Extracts one replay's event stream to stdout or --out, and its per-tick
+  ## seat state to --frames when asked.
   if not fileExists(replayPath):
     fail("Replay file does not exist: " & replayPath)
-  let output = extractEventsJsonl(loadReplay(replayPath))
+  var frames: string
+  let output =
+    extractEventsJsonl(loadReplay(replayPath), frames, framesPath.len > 0)
   if outPath.len > 0:
     writeFile(outPath, output)
   else:
     stdout.write(output)
+  if framesPath.len > 0:
+    writeFile(framesPath, frames)
 
 when isMainModule:
   try:
-    let (replayPath, outPath) = parseArgs()
-    runExtract(replayPath, outPath)
+    let (replayPath, outPath, framesPath) = parseArgs()
+    runExtract(replayPath, outPath, framesPath)
   except ExtractEventsError as e:
     stderr.writeLine("extract_events failed: " & e.msg)
     quit(1)
