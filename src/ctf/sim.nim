@@ -2850,12 +2850,13 @@ proc rustCtfMap(): CtfMap =
   result.redSpawn = MapRect(x: 120, y: 380, w: 130, h: 180)
   result.blueSpawn = MapRect(x: 985, y: 100, w: 130, h: 180)
   result.trenches = @[
-    MapRect(x: 589, y: 168, w: 56, h: 56),
-    MapRect(x: 589, y: 434, w: 56, h: 56),
-    MapRect(x: 364, y: 301, w: 56, h: 56),
-    MapRect(x: 814, y: 301, w: 56, h: 56),
-    MapRect(x: 122, y: 442, w: 56, h: 56),
-    MapRect(x: 1056, y: 160, w: 56, h: 56),
+    ## Dug runs on the tower's north and south faces (the only clear
+    ## strips in the prop-crowded yard — fitted against the real occupancy
+    ## mask), plus a foxhole on each team's approach.
+    MapRect(x: 540, y: 158, w: 160, h: 56),   # north face run
+    MapRect(x: 540, y: 456, w: 120, h: 56),   # south face run
+    MapRect(x: 346, y: 319, w: 56, h: 56),    # red approach foxhole
+    MapRect(x: 814, y: 283, w: 56, h: 56),    # blue approach foxhole
   ]
   ## Art: rusted sheet metal and iron scaffold.
   result.floorTex = "data/rust_floor.png"
@@ -2917,11 +2918,14 @@ proc terminalCtfMap(): CtfMap =
   ## than sprinted, and one on each pedestal approach as a holding spot that
   ## is hard to shoot out of but slow to leave.
   result.trenches = @[
-    MapRect(x: 589, y: 168, w: 56, h: 56),    # apron crossing, under the wing
-    MapRect(x: 500, y: 300, w: 56, h: 56),    # west of the scanner comb
-    MapRect(x: 700, y: 340, w: 56, h: 56),    # east of the scanner comb
-    MapRect(x: 300, y: 180, w: 56, h: 56),    # red-side gate approach
-    MapRect(x: 880, y: 460, w: 56, h: 56),    # blue-side shops approach
+    ## The service duct under the apron: one long dug line crossing the
+    ## exposed north tarmac (survivable route past the 747), a spur toward
+    ## the jet bridge, and a pit either side of the scanner comb.
+    MapRect(x: 270, y: 36, w: 170, h: 56),   # apron service duct (west leg)
+    MapRect(x: 724, y: 84, w: 130, h: 56),   # apron service duct (east leg)
+    MapRect(x: 594, y: 272, w: 56, h: 90),    # spur down to the bridge gate
+    MapRect(x: 548, y: 348, w: 56, h: 56),    # west of the scanners
+    MapRect(x: 670, y: 370, w: 56, h: 56),    # east of the scanners
   ]
   ## Art: polished concourse tile and glass.
   result.floorTex = "data/terminal_floor.png"
@@ -2973,11 +2977,11 @@ proc highriseCtfMap(): CtfMap =
   result.redSpawn = MapRect(x: 120, y: 200, w: 150, h: 190)
   result.blueSpawn = MapRect(x: 965, y: 270, w: 150, h: 190)
   result.trenches = @[
-    MapRect(x: 612, y: 77, w: 56, h: 56),
-    MapRect(x: 591, y: 254, w: 56, h: 56),
-    MapRect(x: 324, y: 204, w: 56, h: 56),
-    MapRect(x: 864, y: 394, w: 56, h: 56),
-    MapRect(x: 612, y: 556, w: 56, h: 56),
+    ## The deck expansion joint: a dug line across the open mid roof (the
+    ## exposed helipad-side crossing), plus a foxhole at each core mouth.
+    MapRect(x: 392, y: 338, w: 300, h: 56),   # expansion joint across the deck
+    MapRect(x: 344, y: 214, w: 56, h: 56),    # red core mouth
+    MapRect(x: 806, y: 362, w: 56, h: 56),    # blue core mouth
   ]
   ## Art: poured rooftop concrete.
   result.floorTex = "data/highrise_floor.png"
@@ -3026,11 +3030,12 @@ proc favelaCtfMap(): CtfMap =
   result.redSpawn = MapRect(x: 100, y: 240, w: 140, h: 180)
   result.blueSpawn = MapRect(x: 995, y: 240, w: 140, h: 180)
   result.trenches = @[
-    MapRect(x: 772, y: 332, w: 56, h: 56),
-    MapRect(x: 622, y: 572, w: 56, h: 56),
-    MapRect(x: 252, y: 368, w: 56, h: 56),
-    MapRect(x: 672, y: 117, w: 56, h: 56),
-    MapRect(x: 912, y: 222, w: 56, h: 56),
+    ## The drainage gully: an open storm channel running down the main
+    ## street into the courtyard — the alley fight happens IN it — plus a
+    ## soakaway pit at the courtyard mouth.
+    MapRect(x: 226, y: 366, w: 56, h: 180),   # gully down the side street
+    MapRect(x: 456, y: 364, w: 170, h: 56),   # ...turning into the courtyard
+    MapRect(x: 664, y: 336, w: 56, h: 56),    # soakaway at the far mouth
   ]
   ## Art: painted brick and stucco.
   result.floorTex = "data/favela_floor.png"
@@ -3079,12 +3084,14 @@ proc afghanCtfMap(): CtfMap =
   result.redSpawn = MapRect(x: 136, y: 310, w: 150, h: 150)
   result.blueSpawn = MapRect(x: 947, y: 204, w: 150, h: 150)
   result.trenches = @[
-    MapRect(x: 572, y: 552, w: 56, h: 56),
-    MapRect(x: 672, y: 332, w: 56, h: 56),
-    MapRect(x: 406, y: 206, w: 56, h: 56),
-    MapRect(x: 720, y: 118, w: 56, h: 56),
-    MapRect(x: 272, y: 452, w: 56, h: 56),
-    MapRect(x: 912, y: 222, w: 56, h: 56),
+    ## The wadi: a long dry watercourse along the exposed south riverbed —
+    ## THE way across the open flank — with a communication spur up to the
+    ## bunker and a forward foxhole at the wreck.
+    MapRect(x: 220, y: 480, w: 140, h: 56),   # the wadi, west reach
+    MapRect(x: 520, y: 568, w: 140, h: 56),   # the wadi, mid reach
+    MapRect(x: 980, y: 480, w: 140, h: 56),   # the wadi, east reach
+    MapRect(x: 324, y: 480, w: 56, h: 80),    # spur toward the bunker
+    MapRect(x: 636, y: 324, w: 56, h: 56),    # forward foxhole at the wreck
   ]
   ## Art: sun-bleached rock and dust.
   result.floorTex = "data/afghan_floor.png"
@@ -3147,11 +3154,11 @@ proc scrapyardCtfMap(): CtfMap =
   ## rather than sprinted, one in the mid-spine courtyard between the
   ## airframe gaps, and one holding spot on each pedestal approach.
   result.trenches = @[
-    MapRect(x: 624, y: 112, w: 56, h: 56),  # north street, under the tower
-    MapRect(x: 532, y: 518, w: 56, h: 56),  # south street crossing
-    MapRect(x: 589, y: 272, w: 56, h: 56),  # mid-spine courtyard
-    MapRect(x: 268, y: 448, w: 56, h: 56),  # red pedestal approach
-    MapRect(x: 884, y: 320, w: 56, h: 56),  # blue pedestal approach
+    ## Slit trenches between the airframes (dug to pull engines): one in
+    ## each street where the spine gaps expose the crossing.
+    MapRect(x: 462, y: 308, w: 200, h: 56),   # north street slit
+    MapRect(x: 506, y: 346, w: 200, h: 56),   # south street slit
+    MapRect(x: 336, y: 371, w: 56, h: 56),    # office-side foxhole
   ]
   ## Art: scrap aluminium and cut steel.
   result.floorTex = "data/scrapyard_floor.png"
