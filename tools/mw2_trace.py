@@ -65,21 +65,27 @@ CELL = 8                 # decomposition grid. Coarse enough that shapes read
 # needs open ground to fight over, so each map's threshold is auto-tuned to
 # land inside the band rather than hand-guessed.
 TUNE = {
-    "rust":      dict(target=0.22, blur=2, min_area=900, close=6, open=4,
-                      floor_pct=58, envelope=14),
-    "terminal":  dict(target=0.24, blur=2, min_area=900, close=7, open=4,
-                      floor_pct=50, envelope=16),
-    "highrise":  dict(target=0.24, blur=2, min_area=900, close=7, open=4,
-                      floor_pct=48, envelope=16),
+    "rust":      dict(target=0.13, blur=2, min_area=900, close=6, open=4,
+                      floor_pct=58, envelope=14,
+                      stroke_pct=90, stroke_w=5, stroke_min=260),
+    "terminal":  dict(target=0.14, blur=2, min_area=900, close=7, open=4,
+                      floor_pct=50, envelope=16,
+                      stroke_pct=91, stroke_w=5, stroke_min=240),
+    "highrise":  dict(target=0.15, blur=2, min_area=900, close=7, open=4,
+                      floor_pct=48, envelope=16,
+                      stroke_pct=90, stroke_w=5, stroke_min=240),
     # Favela's shanty blocks sit shoulder to shoulder: a wide closing radius
     # would merge the whole hillside into one mass and erase the alley grid
     # that IS the map.
-    "favela":    dict(target=0.26, blur=2, min_area=700, close=4, open=3,
-                      floor_pct=46, envelope=12),
-    "afghan":    dict(target=0.22, blur=3, min_area=1100, close=8, open=5,
-                      floor_pct=56, envelope=18),
-    "scrapyard": dict(target=0.24, blur=2, min_area=900, close=7, open=4,
-                      floor_pct=52, envelope=16),
+    "favela":    dict(target=0.16, blur=2, min_area=700, close=4, open=3,
+                      floor_pct=46, envelope=12,
+                      stroke_pct=92, stroke_w=4, stroke_min=200),
+    "afghan":    dict(target=0.13, blur=3, min_area=1100, close=8, open=5,
+                      floor_pct=56, envelope=18,
+                      stroke_pct=93, stroke_w=5, stroke_min=320),
+    "scrapyard": dict(target=0.14, blur=2, min_area=900, close=7, open=4,
+                      floor_pct=52, envelope=16,
+                      stroke_pct=91, stroke_w=5, stroke_min=260),
 }
 MAPS = list(TUNE)
 
@@ -226,9 +232,23 @@ def trace(name):
             hi = mid
     cover = (sm >= (lo + hi) / 2) & envelope
 
-    # 3. Fuse each structure's bright outline to its roof, then drop the
-    #    leftover dither. Closing must come first: opening would erase the thin
-    #    outline before it could join the roof it belongs to.
+    # 3. WALL STROKES. This is the step that yields architecture. The bright
+    #    white lines on a 2009 minimap are the walls, drawn with gaps where the
+    #    doorways are, so tracing them directly gives a concourse with rooms off
+    #    it rather than one solid block. Thin strokes are thickened to a wall a
+    #    player can take cover behind.
+    strokes = (sm >= np.percentile(sm[envelope], spec["stroke_pct"])) & envelope
+    strokes = ndimage.binary_closing(strokes, structure=disc(2))
+    # Drop stroke speckle before thickening, or dither becomes a field of studs.
+    slab, ssize = label_components(strokes)
+    keep = np.array([s >= spec["stroke_min"] for s in ssize])
+    keep[0] = False
+    strokes = keep[slab]
+    strokes = ndimage.binary_dilation(strokes, structure=disc(spec["stroke_w"]))
+
+    # 4. SOLID COVER. Fuse each filled structure's bright outline to its roof,
+    #    then drop the leftover dither. Closing must come first: opening would
+    #    erase the thin outline before it could join the roof it belongs to.
     if spec["close"]:
         cover = ndimage.binary_closing(cover, structure=disc(spec["close"]))
     if spec["open"]:
@@ -239,11 +259,8 @@ def trace(name):
     # playable frame, so treating every non-envelope pixel as wall would bury
     # the field under a slab wherever the interior shadow is patchy.
     outside = ndimage.binary_erosion(~envelope, structure=disc(6))
-    return (cover & envelope) | outside
+    return ((cover & envelope) | strokes | outside)
 
-
-# --------------------------------------------------------------------------
-# 2. repair
 
 def drop_specks(wall, min_area):
     """Removes trace noise: cover too small to matter, holes too small to use."""
