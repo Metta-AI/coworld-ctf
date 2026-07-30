@@ -2385,8 +2385,17 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # press cannot drop. The committed grabber (pocket_rush) never detours; a
   # fogged mate simply fails to trigger (baseline behavior).
   when defined(pocketSpread):
-    if objMode == "attack" and not counterPunch and not phalanxOn and
-        dist(me, stealTarget) < PocketSpreadZone:
+    # Gate on the TARGET, not on posture flags: `phalanxOn` is a compile-time
+    # TRUE in the champion build (zonePhalanx), so a `not phalanxOn` conjunct
+    # makes this block statically unreachable (measured: attack_spread 0/192
+    # candidate seats, ctf-exp:v128). Attack-route targets point at the
+    # pedestal (role offsets <= 68px); phalanx/counterPunch stations and the
+    # flanker's far-lane waypoint all sit far from it, so target proximity
+    # excludes them for free — and during the late push (pushOut) every seat
+    # falls into the attack branch, which is exactly the co-timed wave this
+    # lever de-bunches.
+    if objMode == "attack" and dist(me, stealTarget) < PocketSpreadZone and
+        dist(target, stealTarget) < 100.0:
       var mNear = -1
       var mNearD = PocketSpreadPx
       for i in 0 ..< bot.mates.len:
