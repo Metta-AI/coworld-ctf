@@ -455,6 +455,11 @@ type
     ## installed process-wide by selectCtfMap. An empty floorTex means the
     ## default arena_floor.png.
     floorTex*: string
+    ## Tiled surface sampled INTO the wall pixels (brick, corrugated metal,
+    ## rock, concrete), modulated by the carved bevel so cover keeps its
+    ## depth while reading as real material instead of flat colour. Empty
+    ## means the default arena's plain carved stone.
+    wallTex*: string
     material*: ArenaMaterial
     trenches*: seq[MapRect]    ## walkable dug-pit squares (config-gated trenches): standing
                                ## inside slows movement and fire, and most
@@ -2459,6 +2464,7 @@ proc rustCtfMap(): CtfMap =
   result.fullObstacles = @RustObstacles
   ## Art: rusted sheet metal and iron scaffold.
   result.floorTex = "data/rust_floor.png"
+  result.wallTex = "data/rust_wall.png"
   result.material = ArenaMaterial(
     face: rgba(126, 82, 52, 255),
     hi: rgba(198, 138, 88, 255),
@@ -2513,6 +2519,7 @@ proc terminalCtfMap(): CtfMap =
   ]
   ## Art: polished concourse tile and glass.
   result.floorTex = "data/terminal_floor.png"
+  result.wallTex = "data/terminal_wall.png"
   result.material = ArenaMaterial(
     face: rgba(168, 166, 172, 255),
     hi: rgba(222, 221, 226, 255),
@@ -2555,6 +2562,7 @@ proc highriseCtfMap(): CtfMap =
   result.fullObstacles = @HighriseObstacles
   ## Art: poured rooftop concrete.
   result.floorTex = "data/highrise_floor.png"
+  result.wallTex = "data/highrise_wall.png"
   result.material = ArenaMaterial(
     face: rgba(142, 140, 134, 255),
     hi: rgba(204, 203, 197, 255),
@@ -2597,6 +2605,7 @@ proc favelaCtfMap(): CtfMap =
   result.fullObstacles = @FavelaObstacles
   ## Art: painted brick and stucco.
   result.floorTex = "data/favela_floor.png"
+  result.wallTex = "data/favela_wall.png"
   result.material = ArenaMaterial(
     face: rgba(150, 108, 82, 255),
     hi: rgba(214, 168, 132, 255),
@@ -2639,6 +2648,7 @@ proc afghanCtfMap(): CtfMap =
   result.fullObstacles = @AfghanObstacles
   ## Art: sun-bleached rock and dust.
   result.floorTex = "data/afghan_floor.png"
+  result.wallTex = "data/afghan_wall.png"
   result.material = ArenaMaterial(
     face: rgba(156, 130, 96, 255),
     hi: rgba(216, 190, 150, 255),
@@ -2681,6 +2691,7 @@ proc scrapyardCtfMap(): CtfMap =
   result.fullObstacles = @ScrapyardObstacles
   ## Art: scrap aluminium and cut steel.
   result.floorTex = "data/scrapyard_floor.png"
+  result.wallTex = "data/scrapyard_wall.png"
   result.material = ArenaMaterial(
     face: rgba(118, 116, 110, 255),
     hi: rgba(180, 178, 170, 255),
@@ -3685,6 +3696,8 @@ var
   ArenaObstacles*: seq[ArenaShape]
   AnimatedDiamonds*: seq[tuple[cx, cy, radius: int]]
   ArenaFloorTex* = DefaultFloorTex  ## data/ path of the selected map's floor.
+  ArenaWallTex* = ""                ## data/ path of the selected map's cover
+                                    ## surface; empty = plain carved stone.
   ArenaCarveClear = 210  ## width of the always-floor home column (px).
   ArenaTrenches*: seq[MapRect]
 
@@ -3715,6 +3728,7 @@ proc selectCtfMap(gameMap: CtfMap) =
   ArenaFloorTex =
     if gameMap.floorTex.len > 0: gameMap.floorTex
     else: DefaultFloorTex
+  ArenaWallTex = gameMap.wallTex
   if gameMap.material.face.a > 0:
     StoneFace = gameMap.material.face
     StoneHi = gameMap.material.hi
@@ -4081,6 +4095,28 @@ proc carvedStoneColorAt(
   else:
     StoneFace
 
+proc texturedStone(base: ColorRGBA, tex: Image, x, y, scale: int): ColorRGBA =
+  ## Modulates a carved-bevel colour by a tiled surface texture. The bevel
+  ## supplies the FORM (which face is lit, where the carve line runs) and the
+  ## texture supplies the MATERIAL, so cover reads as brick or corrugated
+  ## metal without losing the raised-block shading that makes it legible.
+  if tex.width == 0:
+    return base
+  let
+    sx = (x div max(scale, 1)) mod tex.width
+    sy = (y div max(scale, 1)) mod tex.height
+    t = tex.unsafe[sx, sy].rgba
+    lum = (t.r.int * 30 + t.g.int * 59 + t.b.int * 11) div 100
+    # Centre the modulation on mid-grey: a light spot lifts the face, a dark
+    # one (a mortar line, a rivet seam) darkens it, and the bevel is preserved.
+    f = 128 + (lum - 128) * 3 div 4
+  rgba(
+    uint8(clamp(base.r.int * f div 128, 0, 255)),
+    uint8(clamp(base.g.int * f div 128, 0, 255)),
+    uint8(clamp(base.b.int * f div 128, 0, 255)),
+    255
+  )
+
 proc carvedStoneColor(wall: seq[bool], w, h, x, y: int): ColorRGBA =
   ## 1× carved stone (the baked collision-resolution map and spun diamonds).
   carvedStoneColorAt(wall, w, h, x, y, 1)
@@ -4296,6 +4332,9 @@ proc renderArenaRgbaPair*(
     cy = gameMap.center.y
     dir = gameDir()
     floorTex = readImage(dir / ArenaFloorTex)
+    wallTex =
+      if ArenaWallTex.len > 0: readImage(dir / ArenaWallTex)
+      else: newImage(1, 1)
     pedRedSpr = readImage(dir / "data/ped_red.png")
     pedBlueSpr = readImage(dir / "data/ped_blue.png")
   # The art mask at output resolution: border + obstacle shapes from float
@@ -4391,7 +4430,8 @@ proc renderArenaRgbaPair*(
           if windowMask[i]:
             windowGlassColorAt(artMask, ow, oh, x, y, scale)
           else:
-            carvedStoneColorAt(artMask, ow, oh, x, y, scale)
+            texturedStone(carvedStoneColorAt(artMask, ow, oh, x, y, scale),
+                          wallTex, x, y, scale)
         coldColor = hotColor
       else:
         coldColor = tileBlock[tileRow + x mod tileW]
@@ -4470,6 +4510,9 @@ proc loadMapLayers*(gameMap: CtfMap, withEndzoneGlow = true):
     opaque = rgba(255, 255, 255, 255)
     dir = gameDir()
     floorTex = readImage(dir / ArenaFloorTex)
+    wallTex =
+      if ArenaWallTex.len > 0: readImage(dir / ArenaWallTex)
+      else: newImage(1, 1)
     pedRedSpr = readImage(dir / "data/ped_red.png")
     pedBlueSpr = readImage(dir / "data/ped_blue.png")
   ## Pass 1: the boolean wall mask (border + obstacles), shared by the shading
@@ -4509,7 +4552,8 @@ proc loadMapLayers*(gameMap: CtfMap, withEndzoneGlow = true):
         windowPixel = wall and isArenaWindowPixel(x, y, cx, cy)
       var color =
         if windowPixel: windowGlassColor(artMask, w, h, x, y)
-        elif artWall: carvedStoneColor(artMask, w, h, x, y)
+        elif artWall:
+          texturedStone(carvedStoneColor(artMask, w, h, x, y), wallTex, x, y, 1)
         elif withEndzoneGlow: endzoneColorAt(tileSample(floorTex, x, y), x,
           redHi, blueLo, playLo, playHi)
         else: tileSample(floorTex, x, y)
