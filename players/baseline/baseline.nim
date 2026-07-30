@@ -228,6 +228,16 @@ when defined(sgprobe):
   var sgHold = 0      # ...and we HELD at standoff (no Captain advantage) — the suicide dive PREVENTED
   var sgCommit = 0    # ...and we COMMITTED the touch WITH advantage (pickEdge/PhForce/cover) — team push
 
+when defined(tcprobe):
+  # -d:tcprobe ONLY (2026-07-29 touch latch): does the latch arm, and what did it PREEMPT?
+  # The point is not just "did we grab" but "which branch would otherwise have stolen the
+  # tick" — the four counters below are the measured preemption census. Never shipped.
+  var tcLatch = 0     # frames the touch latch was armed (a body inside GrabCommitRing)
+  var tcNade = 0      # ...where the grenade charge/throw would have frozen us
+  var tcEngage = 0    # ...where the engage branch would have advanced on the ENEMY instead
+  var tcDuck = 0      # ...where the cooldown duck would have crawled to cover
+  var tcPeek = 0      # ...where the peek sidestep would have opened a firing line
+
 when defined(fsprobe):
   # -d:fsprobe ONLY (2026-07-24, the focus-fire audit): quantify the two reported
   # SEALs-violating behaviors. Never compiled into the shipped player.
@@ -1358,6 +1368,26 @@ type
                               # advantage read (pickEdge local numbers edge / PhForce grouped all-in /
                               # a mate covering in place); otherwise HOLD at a firing standoff and
                               # suppress the clustered pocket from range as a team. No lone suicide dive.
+    touchCommit: bool         # ⭐⭐ THE TOUCH LATCH (2026-07-29, THE grab-conversion fix). FIELD-
+                              # MEASURED on 123 GV26 league episodes: a steal is THE deciding
+                              # axis (steal once -> we win 66.7%; never steal -> 26.4%), and we
+                              # never steal at all in 58.5% of episodes. The gap is NOT approach
+                              # and NOT conversion: we reach within 40px of the enemy heart as
+                              # often as the field does (71 vs 79 episodes) but convert that
+                              # approach to a steal only 71.8% vs THEIR 94.9%. In 20 episodes a
+                              # bot sat 5-39px from the heart — pickup range is 12px — and never
+                              # took it. Cause: GrabCommitRing existed but only ever DISABLED
+                              # holdGrab; it set no flag, so once inside the ring four LIVE
+                              # branches still outrank the 12px touch — the grenade charge
+                              # (holdStill, gated on iCarry but NOT pocketRush), the engage
+                              # branch (an armedPocket advances on the ENEMY, not the heart),
+                              # and duck/peek (guarded on `rushing`, which is Mid-only, while
+                              # wantPocketRush includes the FLANKERS — that is the 5-39px
+                              # cohort). touchCommit latches a bot inside GrabCommitRing onto
+                              # the heart: nothing preempts a touch that is one step away.
+                              # Deliberately NOT a return to the suicide dive smartGrab fixed —
+                              # the latch arms only INSIDE the ring, where the body is already
+                              # committed and the cheapest way out is forward onto the heart.
     armedRush: bool           # ⭐ NEVER DISARM INTO A STACK (2026-07-24, THE dive-death fix).
                               # pocketRush's maxEngage=0 (gun OFF, no duck/dodge) rests on an
                               # OBSOLETE premise — that pedestal respawners are spawn-protected
@@ -1979,6 +2009,8 @@ proc defaultCombatTune(): CombatTune =
     aimRotRead: false,        # control: aim intel comes only from the dead "aim dot" labels (none on v9).
     arcBreach: false,         # control: no bot ever grabs the plasma arc offensively to cone a line.
     gv21Press: false,         # control: fire-superiority break uses the standard outnumberMargin.
+    touchCommit: false,       # control: inside GrabCommitRing the grenade/engage/duck/peek branches
+                              # still outrank the 12px touch (the 71.8%-vs-94.9% conversion gap).
   )
 
 proc shippedCombatTune(): CombatTune =
@@ -2012,7 +2044,15 @@ proc shippedCombatTune(): CombatTune =
   result.twoSpeedScan = true
   result.boundingOverwatch = true
   result.pointOfDomination = true
-  result.tempoPress = true
+  # ⭐ tempoPress RETIRED (2026-07-29 audit), TEMPO=1 restores it for the A/B. Its stated
+  # premise is UNOBSERVABLE on this engine: "their reload is dead time too" needs to know an
+  # enemy is mid-cooldown, but firing is SILENT (RULES.md: the muzzle emits no signal), bullets
+  # are invisible, and the muzzle bloom is spectator-only. So the branch cannot test what it
+  # claims. What it ACTUALLY tests is "wounded OR turned away", where turned-away is the coarse
+  # facingRight half-plane — which GV24+ derives from the FUZZED sprite rotation. Result: it
+  # abandons cover to cross 150px (~55 ticks at 2.75px/tick) into a gun on a 12-tick cooldown,
+  # i.e. ~4 free trigger pulls, and it fires on a full-hp enemy whenever the flip mislabels it.
+  result.tempoPress = getEnv("TEMPO").len > 0
   result.fireSuperiority = true
   # ── AIM-DOT THREAT (2026-07-16, task #19). Shipped on Maxwell's EXPLICIT
   # go-ahead ("we can swap champion to revert ... but let's upload") BEFORE the
@@ -2249,6 +2289,18 @@ proc shippedCombatTune(): CombatTune =
   result.armedRush = true
   result.holdVsGun = true
   result.stickyCommit = true
+  # ⭐⭐ THE TOUCH LATCH (2026-07-29) — the COMPANION to smartGrab, not a rollback of it.
+  # smartGrab fixed the APPROACH (no lone suicide dive into a stacked pocket) and it works.
+  # It left the LAST 60px unfixed: GrabCommitRing marked "we are committed" but set no flag,
+  # so four LIVE branches still beat the 12px touch once a bot was already there. Field
+  # ground truth, 123 GV26 episodes: we reach <40px of the enemy heart as often as the field
+  # (71 vs 79 eps) but convert to a steal 71.8% vs THEIR 94.9%; 20 episodes had a bot sitting
+  # 5-39px from it, never taking it. Since a steal swings the episode from 26.4% to 66.7%,
+  # that unconverted approach is the single largest recoverable loss in the policy.
+  # TOUCHOFF=1 turns the latch back off so the eval rig can A/B candidate vs control from ONE
+  # binary — a separate control build is a second variable, and the null-calibration lesson is
+  # that a 60-game win delta is already at the noise floor without adding one.
+  result.touchCommit = getEnv("TOUCHOFF").len == 0
   # ── COMMS BUS (C1/C2 + the WIPE coupling). Event-driven team plays over the one
   # shout channel: a bot classifies a LIVE scenario from its own fresh local reads
   # and broadcasts an opaque rotating 2-char codeword; teammates in earshot adopt it
@@ -4593,8 +4645,17 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # pocketRush's disarm (maxEngage=0) assumed pedestal respawners were spawn-protected
   # (unkillable) — GV20+ removed that, so a defended dive is a free death. When defended,
   # keep the gun UP (below) so we shoot the way in + the duck/dodge branches re-enable.
+  # ⭐⭐ RANGE FLOOR (2026-07-29, the grab-conversion fix): armedRush had NO distance floor
+  # while its sibling holdGrab is floored at `> GrabCommitRing` (4435). So holdGrab correctly
+  # refuses to ENTER a stacked pocket, but once a body was already inside the ring armedRush
+  # re-armed it — gun up, duck/dodge branches back on — at 5-39px from a heart whose pickup
+  # radius is 12px. That is the measured close-range failure: 20 GV26 episodes with a bot
+  # beside the heart never taking it, and only 41 of our shots (0.3%) fired inside 60px of it.
+  # Arming to shoot is right on the APPROACH and wrong at arm's length: two steps from the
+  # heart the touch ends the episode, and no amount of covering fire does.
   var pocketDefended = false
-  if bot.tune.armedRush and pocketRush:
+  if bot.tune.armedRush and pocketRush and
+      not (bot.tune.touchCommit and dist(me, stealTarget) <= GrabCommitRing):
     for t in bot.enemies:
       if bot.tick - t.lastSeen <= FreshShotTicks and
           dist(t.pos, stealTarget) <= GrabStackRange:
@@ -4607,6 +4668,22 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # rush that is NOT armed (uncontested touch). An armedPocket rush fights its way in, so the
   # combat branches below key on disarmedRush, not raw pocketRush.
   let disarmedRush = pocketRush and not armedPocket
+  # ⭐⭐ THE TOUCH LATCH: inside GrabCommitRing the heart is ~2 steps away and the body is
+  # already inside the defenders' fire. Every alternative from here is strictly worse than
+  # closing: a grenade lob, a duel, or a duck all leave us in the same fire WITHOUT the heart,
+  # and a steal is worth the episode (26.4% -> 66.7%). So once inside the ring, the touch
+  # OUTRANKS everything. Note this deliberately ignores holdGrab/pocketDefended: holdGrab
+  # already declines to ENTER the ring when the pocket is stacked and we have no advantage —
+  # that is the approach decision and it stays. This is only about a body that is already
+  # there, where retreating costs the same exposure as finishing.
+  let touchLatch = bot.tune.touchCommit and not iCarry and not mateCarry and
+    bot.role in {MidTop, MidBottom, MidGuard, FlankTop, FlankBottom} and
+    dist(me, stealTarget) <= GrabCommitRing
+  when defined(tcprobe):
+    if touchLatch: inc tcLatch
+  if touchLatch:
+    # Drive straight onto the pedestal and let the act-chain guards below stand down.
+    target = stealTarget
   when defined(prprobe):
     if pocketRush: inc prRush
     if armedPocket: inc prArmed
@@ -5489,7 +5566,22 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     acted = false
     holdStill = false
     nadeC = false
-  if bot.nadeCharge > 0 or nadeAim >= 0:
+  if touchLatch and bot.nadeCharge == 0:
+    # ⭐⭐ TOUCH LATCH wins the act-priority race. It is placed FIRST deliberately: the
+    # grenade branch below used to own this slot and sets holdStill, so a bot 15px from the
+    # heart with a charge available would stop and lob (a defended pocket is exactly the
+    # cluster>=2 the lob wants, and NadeMinRange=72 still fires from inside grab range).
+    # Move onto the pedestal and keep the turret where the nav is going; do not fire, do not
+    # hold still. An already-charging throw (nadeCharge > 0) is allowed to release rather than
+    # be abandoned mid-charge — dropping a live charge wastes the grenade for nothing.
+    moveMask = octantBits(stealTarget - me)
+    acted = true
+    when defined(tcprobe):
+      if nadeAim >= 0: inc tcNade
+      if engage >= 0 and shotReady: inc tcEngage
+      if not shotReady and nearThreat >= 0: inc tcDuck
+      if shotReady and haveBlocked: inc tcPeek
+  elif bot.nadeCharge > 0 or nadeAim >= 0:
     # Charge-throw: lay the turret on the lob line, then hold C for the ticks
     # the planned distance needs and release — the grenade leaves along the
     # CURRENT aim on release, so the turret keeps correcting while charging.
