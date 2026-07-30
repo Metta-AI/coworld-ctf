@@ -65,15 +65,21 @@ CELL = 8                 # decomposition grid. Coarse enough that shapes read
 # needs open ground to fight over, so each map's threshold is auto-tuned to
 # land inside the band rather than hand-guessed.
 TUNE = {
-    "rust":      dict(target=0.26, blur=2, min_area=900, close=7, open=4),
-    "terminal":  dict(target=0.30, blur=2, min_area=900, close=8, open=5),
-    "highrise":  dict(target=0.30, blur=2, min_area=900, close=8, open=5),
+    "rust":      dict(target=0.22, blur=2, min_area=900, close=6, open=4,
+                      floor_pct=58, envelope=14),
+    "terminal":  dict(target=0.24, blur=2, min_area=900, close=7, open=4,
+                      floor_pct=50, envelope=16),
+    "highrise":  dict(target=0.24, blur=2, min_area=900, close=7, open=4,
+                      floor_pct=48, envelope=16),
     # Favela's shanty blocks sit shoulder to shoulder: a wide closing radius
     # would merge the whole hillside into one mass and erase the alley grid
     # that IS the map.
-    "favela":    dict(target=0.32, blur=2, min_area=700, close=5, open=3),
-    "afghan":    dict(target=0.24, blur=3, min_area=1100, close=9, open=5),
-    "scrapyard": dict(target=0.28, blur=2, min_area=900, close=8, open=5),
+    "favela":    dict(target=0.26, blur=2, min_area=700, close=4, open=3,
+                      floor_pct=46, envelope=12),
+    "afghan":    dict(target=0.22, blur=3, min_area=1100, close=8, open=5,
+                      floor_pct=56, envelope=18),
+    "scrapyard": dict(target=0.24, blur=2, min_area=900, close=7, open=4,
+                      floor_pct=52, envelope=16),
 }
 MAPS = list(TUNE)
 
@@ -159,35 +165,81 @@ def occupiable(wall):
 # 1. trace
 
 def trace(name):
-    """Threshold the plate into a wall mask, auto-tuned to a coverage target."""
+    """Segments the plate into a wall mask.
+
+    A 2009 MW2 minimap has THREE regions, not two, and conflating any of them
+    is what made the first attempt render as amoeba speckle:
+
+      - the PLAYABLE GROUND is drawn dark (it sits in the building's shadow),
+      - the STRUCTURES standing on it are drawn brighter (lit roofs, white
+        outlines),
+      - and everything OUT OF BOUNDS is brighter still (sunlit terrain,
+        neighbouring rooftops, water).
+
+    A single brightness threshold therefore cannot separate cover from
+    out-of-bounds: both are "bright". So this first recovers the playable
+    ENVELOPE — the dark region, hole-filled, which is the building footprint
+    including the structures inside it — and only then thresholds WITHIN the
+    envelope to find cover. Outside the envelope is solid wall, which is
+    correct: on Terminal you cannot walk out onto the apron.
+    """
     plate = PREPPED / f"{name}.png"
     if not plate.exists():
         raise SystemExit(f"{name}: no plate at {plate} — run mw2_ref_prep.py")
     g = np.asarray(Image.open(plate).convert("L"), dtype=np.float32)
     spec = TUNE[name]
     sm = box_blur(g, spec["blur"])
-    # Bisect the threshold so the traced coverage hits the target. Tuning the
-    # THRESHOLD (not the geometry) keeps the layout faithful while making
-    # density comparable across six differently-exposed references.
-    lo, hi = sm.min(), sm.max()
+
+    # 1. The playable envelope. Seed on the darkest ground, then close and
+    #    hole-fill so the structures standing on that ground are enclosed too.
+    floor_level = np.percentile(sm, spec["floor_pct"])
+    dark = sm <= floor_level
+    dark = ndimage.binary_opening(dark, structure=disc(3))
+    labels, sizes = label_components(dark)
+    if len(sizes) > 1:
+        # The playable ground is the largest dark region; stray dark patches in
+        # the out-of-bounds terrain are not it.
+        biggest = int(np.argmax(sizes[1:])) + 1
+        dark = labels == biggest
+    envelope = ndimage.binary_fill_holes(
+        ndimage.binary_closing(dark, structure=disc(spec["envelope"])))
+    # The engine's protected regions are floor by fiat, so they are playable
+    # whatever the reference shows — this keeps the envelope from excluding a
+    # spawn pocket the plate happens to crop tight.
+    envelope |= protected_mask()
+    envelope = ndimage.binary_fill_holes(envelope)
+
+    # 2. Cover WITHIN the envelope: brighter than the floor it stands on. The
+    #    threshold is bisected to hit a coverage target so density is
+    #    comparable across six differently-exposed references.
+    # Bisect against the WHOLE field, not against the envelope: the target is
+    # the fraction of the arena a player finds covered, and a small envelope
+    # would otherwise let 30% read as 70%.
+    lo, hi = float(sm.min()), float(sm.max())
+    want = spec["target"]
     for _ in range(40):
         mid = (lo + hi) / 2
-        cov = float((sm >= mid).mean())
-        if cov > spec["target"]:
+        cov = float(((sm >= mid) & envelope).mean())
+        if cov > want:
             lo = mid
         else:
             hi = mid
-    wall = sm >= (lo + hi) / 2
+    cover = (sm >= (lo + hi) / 2) & envelope
 
-    # Fuse each building's bright outline to its roof, then drop the leftover
-    # dither. Order matters: closing first, or opening would erase the thin
-    # outline before it had a chance to join the roof it belongs to.
-    close_r, open_r = spec["close"], spec["open"]
-    if close_r:
-        wall = ndimage.binary_closing(wall, structure=disc(close_r))
-    if open_r:
-        wall = ndimage.binary_opening(wall, structure=disc(open_r))
-    return wall
+    # 3. Fuse each structure's bright outline to its roof, then drop the
+    #    leftover dither. Closing must come first: opening would erase the thin
+    #    outline before it could join the roof it belongs to.
+    if spec["close"]:
+        cover = ndimage.binary_closing(cover, structure=disc(spec["close"]))
+    if spec["open"]:
+        cover = ndimage.binary_opening(cover, structure=disc(spec["open"]))
+
+    # Out-of-bounds is wall only where it is genuinely OUTSIDE the traced
+    # footprint by a real margin. The plates are already cropped to each map's
+    # playable frame, so treating every non-envelope pixel as wall would bury
+    # the field under a slab wherever the interior shadow is patchy.
+    outside = ndimage.binary_erosion(~envelope, structure=disc(6))
+    return (cover & envelope) | outside
 
 
 # --------------------------------------------------------------------------
@@ -285,7 +337,7 @@ def punch_doors(wall, report):
     return wall
 
 
-def balance_mid(wall, report, tol=0.82):
+def balance_mid(wall, report, tol=0.82, keep_clear=None):
     """Punches doorways until both teams reach midfield in comparable steps.
 
     On an asymmetric layout a single traced building edge can wall one spawn off
@@ -321,6 +373,8 @@ def balance_mid(wall, report, tol=0.82):
                 # Cut through this whole wall run, then keep going.
                 while (x - CX) * step < 0 and wall[CY, x]:
                     wall[max(0, CY - half):CY + half + 1, x] = False
+                    if keep_clear is not None:
+                        keep_clear[max(0, CY - half):CY + half + 1, x] = True
                     x += step
                 cut += 1
             else:
@@ -332,16 +386,26 @@ def balance_mid(wall, report, tol=0.82):
     return wall
 
 
-def close_open_rows(wall, report):
-    """Plants cover in any row that is a clear shot from one apron to the other.
+def pickets_for(final, report, keep_clear=None):
+    """Returns picket RECTS closing every open cross-field firing row.
 
     Guns are effectively map-wide, so the default arena guarantees every
     horizontal row meets cover (tests/test_map_los.nim). A traced map can leave
-    open bands; each gets one picket, placed at the widest gap in that band so
-    it reads as a prop rather than a wall.
+    open bands; each gets one in-theme picket prop, placed at the widest legal
+    gap in that band so it reads as scenery rather than as a wall.
+
+    Returns rects (rather than mutating a mask) because these must survive into
+    the emitted shape list: a picket that only exists in the pre-decompose mask
+    can be rounded or dropped away, reopening the row it was meant to close.
     """
+    wall = final.copy()
+    out = []
     x0, x1 = CARVE_CLEAR + 4, MAP_W - CARVE_CLEAR - 4
     prot = protected_mask()
+    # Corridors an earlier pass cut on purpose. Planting a picket in one would
+    # re-seal it, undoing the connectivity or fairness repair that cut it.
+    if keep_clear is not None:
+        prot = prot | keep_clear
     planted = 0
     for _ in range(60):
         open_rows = [y for y in range(BORDER + 2, MAP_H - BORDER - 2)
@@ -379,13 +443,16 @@ def close_open_rows(wall, report):
             wall[y, x0 + 1] = True
             continue
         px = x0 + (best[0] + best[1]) // 2
-        w, h = 26, max(30, min(64, len(band) + 16))
-        wall[max(0, y - h // 2):y + h // 2, max(0, px - w // 2):px + w // 2] = True
+        # Sized to be real cover for a 13px player, and tall enough to close the
+        # whole open band at once rather than one row at a time.
+        w, h = 32, max(40, min(96, len(band) + 24))
+        rx, ry = max(0, px - w // 2), max(0, y - h // 2)
+        wall[ry:ry + h, rx:rx + w] = True
         wall &= ~prot
-        planted += 1
-    if planted:
-        report.append(f"planted {planted} sightline pickets")
-    return wall
+        out.append((rx, ry, w, h))
+    if out:
+        report.append(f"planted {len(out)} sightline pickets")
+    return out
 
 
 def repair(name, wall, report):
@@ -406,11 +473,15 @@ def repair(name, wall, report):
     wall = punch_doors(wall, report)
     wall &= ~prot
     wall &= ~lanes
-    wall = balance_mid(wall, report)
+    keep_clear = np.zeros_like(wall)
+    wall = balance_mid(wall, report, keep_clear=keep_clear)
     wall &= ~prot
     wall &= ~lanes
-    wall = close_open_rows(wall, report)
-    return wall
+    # NOTE: sightline pickets are NOT planted here. decompose() drops
+    # sub-min_cells components and rounds to CELL, so a picket added to this
+    # mask can vanish from the emitted shape list and leave the row open again.
+    # They are emitted as rects instead — see pickets_for().
+    return wall, keep_clear
 
 
 # --------------------------------------------------------------------------
@@ -444,27 +515,22 @@ def largest_rect(grid):
     return best
 
 
-def decompose(wall, cover=0.90, max_rects=90):
-    """Covers the wall mask with a FEW LARGE axis-aligned rectangles.
+def fit_component(sub, cover=0.93, max_rects=10):
+    """Fits one traced structure with a few clean rectangles.
 
-    Repeatedly takes the largest rectangle that still fits inside the mask.
-    This is what makes the output read as architecture: a real MW2 building is
-    rectilinear, so the biggest rectangle inside a traced footprint IS that
-    building, and the next few are its wings. A boundary-following
-    decomposition instead reproduces the trace's ragged edge and renders as
-    amoeba-shaped speckle.
+    Called per connected component, which is the unit that matters: one
+    component IS one building, container, or rock, and a real MW2 building is
+    rectilinear. Fitting it with its two or three biggest inscribed rectangles
+    reproduces the footprint as ARCHITECTURE.
 
-    Stops at `cover` of the mask so the long tail of single-cell slivers is
-    dropped rather than emitted as hundreds of 5px shapes. Small isolated props
-    are kept by falling back to each leftover component's bounding box.
+    Fitting the whole mask at once instead makes the decomposition chase the
+    ragged trace boundary across unrelated structures, which is what rendered
+    as amoeba-shaped speckle.
     """
-    gh, gw = MAP_H // CELL, MAP_W // CELL
-    cells = wall[:gh * CELL, :gw * CELL].reshape(gh, CELL, gw, CELL)
-    grid = cells.mean(axis=(1, 3)) >= 0.42
-    total = int(grid.sum())
+    total = int(sub.sum())
     if total == 0:
         return []
-    todo = grid.copy()
+    todo = sub.copy()
     rects = []
     covered = 0
     while covered < cover * total and len(rects) < max_rects:
@@ -473,18 +539,42 @@ def decompose(wall, cover=0.90, max_rects=90):
             break
         todo[y:y + h, x:x + w] = False
         covered += area
-        rects.append((x * CELL, y * CELL, w * CELL, h * CELL))
-    # Whatever is left: one bounding box per remaining component, so isolated
-    # props survive as single clean rects instead of vanishing.
-    if todo.any():
-        labels, sizes = label_components(todo)
-        for i in range(1, len(sizes)):
-            if sizes[i] <= 0:
-                continue
-            ys, xs = np.nonzero(labels == i)
-            rects.append((int(xs.min()) * CELL, int(ys.min()) * CELL,
-                          int(xs.max() - xs.min() + 1) * CELL,
-                          int(ys.max() - ys.min() + 1) * CELL))
+        rects.append((x, y, w, h))
+    if not rects:
+        ys, xs = np.nonzero(sub)
+        return [(int(xs.min()), int(ys.min()),
+                 int(xs.max() - xs.min() + 1), int(ys.max() - ys.min() + 1))]
+    return rects
+
+
+def decompose(wall, min_cells=2):
+    """Turns the repaired mask into a clean rectilinear ArenaShape layout.
+
+    Per structure, not per mask: each connected component is fitted on its own
+    (fit_component), so every emitted rect belongs to one real building and the
+    result reads as built geometry rather than as a traced outline.
+    """
+    gh, gw = MAP_H // CELL, MAP_W // CELL
+    cells = wall[:gh * CELL, :gw * CELL].reshape(gh, CELL, gw, CELL)
+    grid = cells.mean(axis=(1, 3)) >= 0.42
+    labels, sizes = label_components(grid)
+    rects = []
+    for i in range(1, len(sizes)):
+        if sizes[i] < min_cells:
+            continue          # trace speck, not a structure
+        comp = labels == i
+        ys, xs = np.nonzero(comp)
+        y0, x0 = int(ys.min()), int(xs.min())
+        sub = comp[y0:int(ys.max()) + 1, x0:int(xs.max()) + 1]
+        # A nearly-solid footprint is one building: emit its bounding box so it
+        # renders with square corners instead of a stepped edge.
+        if sub.mean() >= 0.90:
+            parts = [(0, 0, sub.shape[1], sub.shape[0])]
+        else:
+            parts = fit_component(sub)
+        for x, y, w, h in parts:
+            rects.append(((x0 + x) * CELL, (y0 + y) * CELL,
+                          w * CELL, h * CELL))
     return rects
 
 
@@ -751,15 +841,36 @@ def verify(final):
     return occ, pockets, open_rows, blue_ok, mid
 
 
-def build(name):
-    report = []
-    wall = repair(name, trace(name), report)
+def emit_pass(name, mask, report):
+    """One full mask -> shape-list pass, pickets included."""
+    wall, keep_clear = repair(name, mask, report)
     rects = merge_rects(decompose(wall))
     final = rasterize(rects)
+    picks = pickets_for(final, report, keep_clear=keep_clear)
+    if picks:
+        rects = rects + picks
+        final = rasterize(rects)
+    return rects, final
+
+
+def build(name):
+    report = []
+    rects, final = emit_pass(name, trace(name), report)
 
     # Converge on the RASTER. Rounding in decompose can narrow a door below the
     # 13px player box, and the picket pass adds wall after the doors are cut, so
     # one pass is not enough to guarantee the emitted list is playable.
+    def score(f):
+        """Lexicographic quality of a candidate raster, higher is better.
+
+        Hard invariants dominate: a layout with a sealed pocket is worse than
+        any layout without one, whatever its parity. Within equal invariants,
+        better midfield parity wins.
+        """
+        _, pk, orow, bok, m = verify(f)
+        return (bok, pk == 0, orow == 0, round(m, 3))
+
+    best, best_score, best_rects = final, score(final), rects
     for round_no in range(8):
         occ, pockets, open_rows, blue_ok, mid = verify(final)
         if pockets == 0 and open_rows == 0 and blue_ok and mid >= MID_TOL:
@@ -767,9 +878,15 @@ def build(name):
         report.append(f"raster round {round_no + 1}: {pockets} pockets, "
                       f"{open_rows} open rows, blueOk {blue_ok}, "
                       f"mid {mid} — repairing")
-        wall = repair(name, final.copy(), report)
-        rects = merge_rects(decompose(wall))
-        final = rasterize(rects)
+        rects, final = emit_pass(name, final.copy(), report)
+        # Repair passes are heuristics and can trade one defect for another, so
+        # keep the best candidate rather than trusting the newest.
+        s = score(final)
+        if s > best_score:
+            best, best_score, best_rects = final, s, rects
+    if best_score > score(final):
+        report.append(f"kept best raster from an earlier round {best_score}")
+        final, rects = best, best_rects
 
     # Terminator: anything still sealed after the door rounds gets filled.
     # Filling only ADDS wall, so it cannot open a firing row or seal a new
