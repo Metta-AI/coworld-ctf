@@ -421,6 +421,7 @@ type
     pressBroke: bool          # -d:pressBreak: latched — posts stay broken
     shellTicks: int           # -d:siegeShell[Watch]: sustained-siege accumulator
     shellLatched: bool        # -d:siegeShell[Watch]: latched for the episode
+    lastShellShout: int       # -d:siegeShell[Watch]: "S1" latch-relay rate limit
     phalanxHold: float        # frozen advance front while our lane has contact
     helpLane: int             # 1=top 2=mid 3=bottom, from an H-shout
     helpUntil: int            # tick the help retasking expires
@@ -1667,6 +1668,18 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           bot.helpLane = ord(text[1]) - ord('0')
           bot.helpUntil = bot.tick + 320
           continue
+      when defined(siegeShell) or defined(siegeShellWatch):
+        # "S1": a mate called the siege class. The latch predicate is
+        # seat-LOCAL (each bot counts only its own fresh tracks), so without
+        # a relay only the 1-3 seats personally holding two deep tracks ever
+        # latch and the back-wall line never forms (iteration-1 A/B: median
+        # 2 of 7 duty seats latched; the seats that did rebase landed a
+        # median 18px from post). Adoption is execution of an already-called
+        # class, not a fresh arming — the gt2600 arm-window cap binds the
+        # ORIGIN latch only, and only our own team's shouts parse here.
+        if text.len >= 2 and text[0] == 'S' and text[1] == '1':
+          bot.shellLatched = true
+          continue
       when defined(siege):
         # Captain's siege orders: "B<lane>" = bombard the vertical (grenadiers
         # blast the hidden pockets behind cover), "A<lane>" = advance and take
@@ -1996,6 +2009,17 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         if near >= 3:
           bot.shoutWant = "H" & $phalanxLaneNo(pd)
           bot.lastHShout = bot.tick
+      when defined(siegeShell) or defined(siegeShellWatch):
+        # Latch relay: a latched seat announces the siege class every ~240t
+        # (re-broadcast covers respawners and missed 72t bubbles) so the
+        # whole line rebases, not just the seats with personal contact
+        # (iteration-1 A/B: seat-local latch left the line at median 2 of 7
+        # seats). Help calls keep the shout slot; the relay takes the next
+        # free second.
+        if bot.shoutWant.len == 0 and bot.shellLatched and
+            bot.tick - bot.lastShellShout > 240:
+          bot.shoutWant = "S1"
+          bot.lastShellShout = bot.tick
       if bot.shoutWant.len == 0 and pd == pdScout and
           bot.tick - bot.lastEShout > 30:
         for t in bot.enemies:
