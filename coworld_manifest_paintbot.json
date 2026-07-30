@@ -76,8 +76,11 @@
                 "type": "string",
                 "enum": [
                   "red",
-                  "blue"
-                ]
+                  "blue",
+                  "green",
+                  "yellow"
+                ],
+                "description": "Fixed team for this seat. Green and yellow are only valid when teams is 4; with no team the seat is dealt slot mod teams."
               },
               "skin": {
                 "description": "Cosmetic body-art skin for this slot's player. Rendering only: no gameplay effect and no observation-label change.",
@@ -584,6 +587,56 @@
           },
           {
             "name": "Player16"
+          }
+        ],
+        "slots": [
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "green"
+          },
+          {
+            "team": "yellow"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "green"
+          },
+          {
+            "team": "yellow"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "green"
+          },
+          {
+            "team": "yellow"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "green"
+          },
+          {
+            "team": "yellow"
           }
         ],
         "seed": 679961,
