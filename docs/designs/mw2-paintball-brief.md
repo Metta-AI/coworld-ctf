@@ -130,3 +130,43 @@ only. For discs/diamonds/diagonals, emit the shape lines directly; see
 
 Then **LOOK at the render** (`sips -Z 900 ... --out /tmp/x.jpg`, then Read it)
 and judge it as both a fan and a paintball player. Iterate until it passes.
+
+## Trenches — use them
+
+`origin/main` added a terrain feature that is perfect for these fields, and
+every map should place a few BY HAND (generated maps dig them procedurally;
+ours are authored):
+
+    result.trenches = @[
+      MapRect(x: cx - 28, y: cy - 28, w: 56, h: 56),   # one 56x56 dug pit
+      ...
+    ]
+
+A trench is a **56x56 walkable dug pit**. It is NOT a wall: it never blocks
+movement, bullets, or vision. Its rules:
+
+- **Fast in, slow out.** Dropping in and moving inside run at full speed, but
+  moving AWAY from the pit center has speed and acceleration divided by 5.
+  Easy to take, costly to abandon.
+- **Occupants fire at 1/3 rate** (gun cooldown x3).
+- **70% of gun shots that would hit an occupant fly over** — and carry on down
+  the ray, so they can hit someone standing behind the pit. Shots between two
+  players in the SAME trench are never ducked.
+- Gun only: grenades and spray cones are unaffected. No concealment — fog
+  visibility is normal.
+
+So a trench is **cover you stand IN**: strong protection from ranged fire, at
+the cost of your own rate of fire and your mobility. Design with that:
+
+- Put one in the middle of an **exposed crossing** so the fast lane has a
+  survivable waypoint (a foxhole halfway across the open).
+- Put them at **chokepoints** you want contested slowly rather than sprinted.
+- Put one or two **near a pedestal approach** so a defender has a holding spot
+  that is hard to shoot but slow to leave — an interesting trade, not a
+  free turret.
+- Do NOT line a whole lane with them; they are punctuation, not paving.
+- **3-8 per map** is the right budget. Place them in team-comparable positions
+  (the fairness parity test still applies) without mirroring the layout.
+
+Trench squares must sit on floor the player can actually reach, and they do not
+count as cover for the coverage budget (they are walkable).
