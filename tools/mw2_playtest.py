@@ -122,49 +122,56 @@ def lanes(wall, occ=None):
     return out, used
 
 
-def approaches(wall, home, radius, cell):
-    """How many distinct ways lead INTO a team's capture zone.
+def stand_exposure(wall, home, radius, cell):
+    """How open the ground immediately around a flag stand is.
 
     The engine now scores a carrier within `captureRadius` of their own home
-    point (the CoD model, capture at the flag stand) rather than by crossing a
-    full-height home column. That makes the ground immediately around the stand
-    the decisive real estate, and a stand reachable from one direction is a
-    turkey shoot no matter how good the rest of the map is.
+    point (the CoD model, capture AT the flag stand) rather than by crossing a
+    full-height home column, so the ring around the stand is the decisive real
+    estate: too sealed and an attacker cannot contest it, too open and a
+    defender cannot hold it. Returns (open_fraction, distinct_arcs).
 
-    Counted as contiguous open arcs on a ring just outside the zone. Returns
-    None for a map still on the legacy column, where the question is meaningless.
+    Counting arcs ALONE is degenerate and briefly had me reporting the exact
+    opposite of the truth: a stand sitting in open ground has one enormous
+    unbroken open arc, which scored the same "1" as a stand behind a single
+    doorway. Rust's red stand read as "1 approach, a turkey shoot" when its
+    ring is in fact 81% open. The fraction is the honest primary number; the
+    arc count only means something next to it.
+
+    Measured for every map, including the ones still on the legacy column, so
+    the default arena can serve as a control here too — the earlier version
+    skipped legacy maps and therefore never scored the control, which is how
+    the inverted reading survived.
     """
-    if not radius:
-        return None
     gh, gw = wall.shape
-    r = (radius + 30) / cell
-    open_arc, runs, run = [], 0, 0
+    r = (radius or 64) / cell + 3.0
+    ring = []
     steps = 180
     for i in range(steps):
         th = 2 * np.pi * i / steps
         x = int(round(home["x"] / cell + r * np.cos(th)))
         y = int(round(home["y"] / cell + r * np.sin(th)))
         inside = 0 <= x < gw and 0 <= y < gh
-        open_arc.append(bool(inside and not wall[y, x]))
-    # Rotate so a run never straddles the seam, then count runs wide enough to
-    # walk through (a player is 13px; ~25px of arc is a real doorway).
-    if all(open_arc):
-        return 1        # fully exposed stand: one continuous approach
-    if not any(open_arc):
-        return 0
-    start = open_arc.index(False)
-    rot = open_arc[start:] + open_arc[:start]
-    min_cells = max(2, int(25 / (2 * np.pi * r * cell / steps)))
+        ring.append(bool(inside and not wall[y, x]))
+    frac = sum(ring) / steps
+    if all(ring) or not any(ring):
+        return frac, (1 if all(ring) else 0)
+    # Rotate so an arc never straddles the seam, then count arcs wide enough
+    # to walk through (a player is 13px; ~25px of arc is a real doorway).
+    start = ring.index(False)
+    rot = ring[start:] + ring[:start]
+    min_steps = max(2, int(25 / (2 * np.pi * r * cell / steps)))
+    arcs, run = 0, 0
     for v in rot:
         if v:
             run += 1
         else:
-            if run >= min_cells:
-                runs += 1
+            if run >= min_steps:
+                arcs += 1
             run = 0
-    if run >= min_cells:
-        runs += 1
-    return runs
+    if run >= min_steps:
+        arcs += 1
+    return frac, arcs
 
 
 def carry_lanes(carries, gw, gh, cell):
@@ -292,6 +299,12 @@ def merge(paths):
     """
     datas = [json.loads(Path(p).read_text()) for p in paths]
     base = datas[0]
+    # Keep each episode's length and result. A capture calls finishGame, so an
+    # episode that ENDS is itself the outcome signal, and dead space is not
+    # comparable between a map whose games run to the tick limit and one whose
+    # games are decided at half that.
+    base["episodeTicks"] = [d["ticks"] for d in datas]
+    base["episodeCaptures"] = [d.get("captures", 0) for d in datas]
     for d in datas[1:]:
         if d["map"] != base["map"]:
             raise SystemExit(f"merge: {d['map']} != {base['map']}")
@@ -306,7 +319,7 @@ def merge(paths):
     return base
 
 
-def report(paths):
+def report(paths, ref_ticks=0):
     data = merge(paths if isinstance(paths, list) else [paths])
     name = data["map"]
     wall, occ = heatmap(data, name)
@@ -336,9 +349,10 @@ def report(paths):
 
     # The objective model, as it is now: capture at the stand, not at the edge.
     rad = data.get("captureRadius", 0)
-    app_red = approaches(wall, data.get("redHome", {"x": 0, "y": 0}), rad, cell)
-    app_blue = approaches(wall, data.get("blueHome", {"x": 0, "y": 0}), rad,
-                          cell)
+    exp_red, arcs_red = stand_exposure(
+        wall, data.get("redHome", {"x": 0, "y": 0}), rad, cell)
+    exp_blue, arcs_blue = stand_exposure(
+        wall, data.get("blueHome", {"x": 0, "y": 0}), rad, cell)
     carries = data.get("carries", [])
     carry_lane_n, carry_ys = carry_lanes(carries, gw, gh, cell)
 
@@ -364,16 +378,29 @@ def report(paths):
     elif lanes_used < 2:
         flags.append(f"{lane_count} midfield lanes exist but only "
                      f"{lanes_used} saw traffic — the others are decoration")
-    if dead_pct > 0.35:
+    # Dead space is only comparable between maps whose games ran about as
+    # long. A capture ends the episode, so a map that converts fast leaves
+    # more floor unvisited for a reason that is the opposite of a defect.
+    short = ref_ticks and data["ticks"] < 0.6 * ref_ticks
+    if dead_pct > 0.35 and not short:
         flags.append(f"{dead_pct:.0%} of open floor never visited — most of "
                      "the geometry is decoration")
+    elif dead_pct > 0.35:
+        flags.append(f"{dead_pct:.0%} unvisited, but these games ran "
+                     f"{data['ticks']}t against {ref_ticks}t elsewhere — too "
+                     "short a sample to call it decoration")
     if biggest_dead * cell * cell > 60000:
         flags.append(f"one unvisited region of ~{biggest_dead * cell * cell:,}"
                      "px² — a whole wing nobody played")
-    for side, n in (("red", app_red), ("blue", app_blue)):
-        if n is not None and n < 2:
-            flags.append(f"{side}'s flag stand has {n} approach(es) — with "
-                         "capture AT the stand, one way in is a turkey shoot")
+    for side, frac, arcs in (("red", exp_red, arcs_red),
+                             ("blue", exp_blue, arcs_blue)):
+        if frac < 0.25:
+            flags.append(f"{side}'s flag stand ring is only {frac:.0%} open "
+                         f"({arcs} way(s) in) — an attacker cannot contest it")
+    if rad and abs(exp_red - exp_blue) > 0.25:
+        flags.append(f"the two stands are not equally defensible: red ring "
+                     f"{exp_red:.0%} open, blue {exp_blue:.0%} — with capture "
+                     "AT the stand that is an objective-fairness gap")
     if carry_lane_n == 1 and len(carries) > 20:
         flags.append("every flag carry crossed midfield in the same lane — "
                      "the alternates exist but do not carry the objective")
@@ -389,8 +416,15 @@ def report(paths):
     model = (f"capture r{rad} at the stand" if rad else "legacy home column")
     print(f"    objective: {model}; {data.get('steals', 0)} steals -> "
           f"{data.get('captures', 0)} captures")
-    if rad:
-        print(f"    approaches into the stand: red {app_red}, blue {app_blue}")
+    ep_ticks = data.get("episodeTicks", [])
+    ep_caps = data.get("episodeCaptures", [])
+    if ep_ticks:
+        outcomes = ", ".join(
+            f"{t}t {'capture' if c else 'no capture'}"
+            for t, c in zip(ep_ticks, ep_caps or [0] * len(ep_ticks)))
+        print(f"    episodes: {outcomes}")
+    print(f"    stand ring: red {exp_red:.0%} open ({arcs_red} arc(s)), "
+          f"blue {exp_blue:.0%} ({arcs_blue})")
     print(f"    carry routes crossed midfield in {carry_lane_n} lane(s) "
           f"{carry_ys}")
     for f in flags:
@@ -401,7 +435,9 @@ def report(paths):
                 lanes=lane_count, lanesUsed=lanes_used,
                 deadPct=dead_pct, biggestDead=biggest_dead,
                 deaths=len(deaths), spread=spread,
-                captureRadius=rad, approachRed=app_red, approachBlue=app_blue,
+                captureRadius=rad,
+                standOpenRed=exp_red, standOpenBlue=exp_blue,
+                standArcsRed=arcs_red, standArcsBlue=arcs_blue,
                 steals=data.get("steals", 0),
                 captures=data.get("captures", 0),
                 carryLanes=carry_lane_n, carryYs=carry_ys,
@@ -414,9 +450,15 @@ def main():
     for p in sys.argv[1:]:
         m = json.loads(Path(p).read_text())["map"]
         groups.setdefault(m, []).append(p)
+    # The longest-running map sets the yardstick for whether another map's
+    # sample is long enough to judge its dead space against.
+    ref = 0
+    for paths in groups.values():
+        ref = max(ref, sum(json.loads(Path(p).read_text())["ticks"]
+                           for p in paths))
     out = {}
     for m, paths in groups.items():
-        r = report(paths)
+        r = report(paths, ref_ticks=ref)
         r["episodes"] = len(paths)
         out[m] = r
     (GALLERY / "playtest.json").write_text(json.dumps(out, indent=1))
