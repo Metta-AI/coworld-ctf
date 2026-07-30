@@ -310,6 +310,13 @@ type
     navDist: seq[int32]       # cost field toward navGoal
     navGoal: int              # goal cell of the current field, -1 = stale
     navStamp: int             # tick the field was computed
+    when defined(exfilMirrorCanon):
+      mirrorCanonOk: bool       # Red + walkability mask exactly x-mirror-symmetric
+      enemyPostsCanon: seq[Vec] # the static threats a BLUE bot computes for itself
+      exposureCanon: seq[bool]  # exposure evaluated in the canonical (Blue) frame
+      navDistCanon: seq[int32]  # cost field toward navGoalCanon (canonical frame)
+      navGoalCanon: int         # goal cell of the canonical field, -1 = stale
+      navStampCanon: int        # tick the canonical field was computed
     postHold, postPeek: Vec   # overwatch cover post and its peek cell
     postReady: bool
     enemyPosts: seq[Vec]      # the mirrored ENEMY sniper peek cells
@@ -868,6 +875,47 @@ proc adoptMapSize(client: ProtocolClient) =
   LaneBottom = float(MapH) - LaneTop
   FireRange = float(MapW) + 15.0
 
+when defined(exfilMirrorCanon):
+  proc mirrorXV(p: Vec): Vec =
+    ## Pixel mirror across the map's vertical center line.
+    vec(float(MapW - 1) - p.x, p.y)
+
+  proc maskMirrorSymmetric(client: ProtocolClient): bool =
+    ## True when the pixel walkability mask is EXACTLY symmetric under
+    ## x -> MapW-1-x (true on the arena: 0 of 813865 pixels differ). The
+    ## canonical-frame carry nav is only sound when the world and its
+    ## mirror share the same walls, so any map that is not exactly
+    ## x-mirrored (e.g. rot180 procedural terrain) auto-disables the
+    ## repair instead of steering against walls that do not exist.
+    for y in 0 ..< MapH:
+      for x in 0 ..< (MapW div 2 + 1):
+        if client.walkableAt(x, y) != client.walkableAt(MapW - 1 - x, y):
+          return false
+    true
+
+  proc setupMirrorCanon(bot: Bot, client: ProtocolClient) =
+    ## Precomputes the canonical (Blue) frame inputs for the carry-route
+    ## mirror repair. A Red carrier's run home is priced by the exposure
+    ## discs around the ENEMY pedestal and the modelled enemy overwatch
+    ## post; the sim's pedestals are 1 px off-mirror (teamHomeX is not
+    ## mirror-derived) and the post scan lattice is 6 px off-mirror, and
+    ## the pocket-exit route hangs on cost margins of 2 of ~660 — so the
+    ## only inputs that provably reproduce Blue's fast, homeward pocket
+    ## exit are the EXACT static spots a Blue bot computes for itself,
+    ## not pixel mirrors of Red's own spots.
+    bot.exposureCanon = newSeq[bool](GridW * GridH)
+    bot.navDistCanon = newSeq[int32](GridW * GridH)
+    bot.navGoalCanon = -1
+    bot.navStampCanon = 0
+    bot.enemyPostsCanon.setLen(0)
+    bot.mirrorCanonOk = bot.team == Red and client.maskMirrorSymmetric()
+    if not bot.mirrorCanonOk:
+      return
+    let post = bot.scanPost(client, homeSign(Blue), float(CenterY) + 60.0)
+    if post.ready:
+      bot.enemyPostsCanon.add(post.peek)
+    bot.enemyPostsCanon.add(flagHome(enemy(Blue)))
+
 proc buildNavGrid(bot: Bot, client: ProtocolClient) =
   ## Erodes the pixel walkability mask into a footprint-safe nav grid, then
   ## derives the cover model (cover cells, overwatch post, defender choke).
@@ -902,6 +950,8 @@ proc buildNavGrid(bot: Bot, client: ProtocolClient) =
   bot.pickPost(client)
   bot.findEnemyPosts(client)
   bot.chokeHold = bot.snapToCover(chokeSpot(bot.team))
+  when defined(exfilMirrorCanon):
+    bot.setupMirrorCanon(client)
   bot.navBuilt = true
 
 const NavNeighbors = [
@@ -990,6 +1040,138 @@ proc gridRayClear(bot: Bot, a, b: Vec): bool =
     if not bot.cellWalkable[cellOf(p)]:
       return false
   true
+
+when defined(exfilMirrorCanon):
+  proc rebuildExposureCanon(bot: Bot, client: ProtocolClient) =
+    ## rebuildExposure evaluated in the canonical (Blue) frame: the static
+    ## threats a Blue bot computes for itself plus the pixel-mirrored
+    ## remembered enemies. Writes exposureCanon; never touches exposure.
+    for i in 0 ..< bot.exposureCanon.len:
+      bot.exposureCanon[i] = false
+    var
+      threatSpots: seq[Vec] = bot.enemyPostsCanon
+      threats = 0
+    for t in bot.enemies:                  # already sorted freshest-first
+      if threats >= ExposureThreats or bot.tick - t.lastSeen > ExposureTrackTtl:
+        break
+      inc threats
+      threatSpots.add(mirrorXV(t.pos))
+    for spot in threatSpots:
+      let
+        x0 = max(0, int(spot.x - ExposureRange) div NavCell)
+        x1 = min(GridW - 1, int(spot.x + ExposureRange) div NavCell)
+        y0 = max(0, int(spot.y - ExposureRange) div NavCell)
+        y1 = min(GridH - 1, int(spot.y + ExposureRange) div NavCell)
+      for cy in y0 .. y1:
+        for cx in x0 .. x1:
+          let c = cy * GridW + cx
+          if bot.exposureCanon[c] or not bot.cellWalkable[c]:
+            continue
+          let p = cellCenter(c)
+          if dist(p, spot) <= ExposureRange and
+              rayClearCoarse(client, spot, p, 8.0):
+            bot.exposureCanon[c] = true
+
+  proc computeFieldCanon(bot: Bot, client: ProtocolClient, goal: int) =
+    ## computeField writing the canonical-frame buffers (navDistCanon /
+    ## exposureCanon); identical costs, same shared nav grid.
+    bot.rebuildExposureCanon(client)
+    for i in 0 ..< bot.navDistCanon.len:
+      bot.navDistCanon[i] = -1
+    var heap = initHeapQueue[(int32, int32)]()
+    bot.navDistCanon[goal] = 0
+    heap.push((0'i32, int32(goal)))
+    while heap.len > 0:
+      let
+        (dcur, cur32) = heap.pop()
+        cur = int(cur32)
+      if dcur > bot.navDistCanon[cur]:
+        continue
+      let
+        cx = cur mod GridW
+        cy = cur div GridW
+      for (dx, dy) in NavNeighbors:
+        let
+          nx = cx + dx
+          ny = cy + dy
+        if nx < 0 or ny < 0 or nx >= GridW or ny >= GridH:
+          continue
+        let nc = ny * GridW + nx
+        if not bot.cellWalkable[nc]:
+          continue
+        if dx != 0 and dy != 0 and
+            not (bot.cellWalkable[cy * GridW + nx] and
+                 bot.cellWalkable[ny * GridW + cx]):
+          continue
+        var step = (if dx != 0 and dy != 0: DiagCost else: StepCost)
+        if bot.exposureCanon[nc]:
+          step += ExposedCost
+        let nd = bot.navDistCanon[cur] + step
+        if bot.navDistCanon[nc] < 0 or nd < bot.navDistCanon[nc]:
+          bot.navDistCanon[nc] = nd
+          heap.push((nd, int32(nc)))
+
+  proc navSteerMirrorCanon(bot: Bot, client: ProtocolClient,
+                           me, target: Vec): Vec =
+    ## navSteer for a RED flag carrier, evaluated in the canonical (Blue)
+    ## frame and mirrored back. The walkability mask is exactly x-mirror
+    ## symmetric (guarded by mirrorCanonOk), so every canonical waypoint's
+    ## mirror image is footprint-safe in the real world; the route Red
+    ## follows is exactly the mirror of the route a Blue carrier would
+    ## take in the mirrored situation — mirror-equivariant by construction,
+    ## and Blue's own code path is untouched.
+    if not bot.navBuilt:
+      return target - me
+    let
+      meC = mirrorXV(me)
+      targetC = mirrorXV(target)
+    let goal = bot.nearestOpenCell(cellOf(targetC))
+    if goal != bot.navGoalCanon or bot.tick - bot.navStampCanon >= RepathTicks:
+      bot.computeFieldCanon(client, goal)
+      bot.navGoalCanon = goal
+      bot.navStampCanon = bot.tick
+    let start = bot.nearestOpenCell(cellOf(meC))
+    if bot.navDistCanon[start] < 0:
+      return target - me
+    if bot.navDistCanon[start] == 0:
+      return target - me
+    var
+      node = start
+      waypoint = cellCenter(start)
+      haveClear = false
+    for _ in 0 ..< LookaheadCells:
+      var next = -1
+      var bestD = bot.navDistCanon[node]
+      let
+        cx = node mod GridW
+        cy = node div GridW
+      for (dx, dy) in NavNeighbors:
+        let
+          nx = cx + dx
+          ny = cy + dy
+        if nx < 0 or ny < 0 or nx >= GridW or ny >= GridH:
+          continue
+        let nc = ny * GridW + nx
+        if bot.navDistCanon[nc] < 0 or bot.navDistCanon[nc] >= bestD:
+          continue
+        if dx != 0 and dy != 0 and
+            not (bot.cellWalkable[cy * GridW + nx] and
+                 bot.cellWalkable[ny * GridW + cx]):
+          continue
+        bestD = bot.navDistCanon[nc]
+        next = nc
+      if next < 0:
+        break
+      node = next
+      if bot.gridRayClear(meC, cellCenter(node)):
+        waypoint = cellCenter(node)
+        haveClear = true
+      else:
+        break
+    if not haveClear:
+      waypoint = cellCenter(node)
+    let steerC = waypoint - meC
+    vec(-steerC.x, steerC.y)
 
 proc navSteer(bot: Bot, client: ProtocolClient, me, target: Vec): Vec =
   ## Direction along the cost-field path toward `target`, with waypoint
@@ -2044,6 +2226,14 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       let kit = bot.bestKitDetour(me, target, MedKitCarrierBudget)
       if kit >= 0:
         target = bot.kitPos[kit]
+    when defined(exfilProbe2):
+      # Mechanism-census probe (test builds only): one parseable line per
+      # carrying tick — enough to recover release mode/latency, homeward
+      # progress and step-direction shares per side.
+      echo "XP2 ", bot.tick, " ", bot.slot, " ", bot.team, " ",
+        me.x, " ", me.y, " ",
+        (if abs(me.x - pocket.x) < 60.0 and abs(me.y - laneY) > 70.0: 1
+         else: 0), " ", target.x, " ", target.y
   elif ownStolen and not raceExempt and (bot.role == HomeDefender or
       bot.tick - bot.carrierSeen <= thiefChaseTtl):
     # An enemy is RUNNING OUR FLAG: with a fresh fix (own eyes or a mate's
@@ -2918,7 +3108,21 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
             desiredAim = bot.scanAim(vec(0.0, 1.0))
       # Navigate: cover-aware path steering plus soft repulsion from nearby
       # teammates so one burst (or our own shot) cannot hit two of us.
-      var steer = norm(bot.navSteer(client, me, target))
+      when defined(exfilMirrorCanon):
+        # Carry-route mirror repair: a RED carrier prices its run home in
+        # the canonical (Blue) frame and mirrors the steer back, so both
+        # sides pay the same exfil clock (the Red-side pocket self-lock —
+        # +64 ticks and +101 px per delivery — came from 1-px-off-mirror
+        # exposure inputs, not from the route search; see
+        # navSteerMirrorCanon). Blue carriers and every non-carry mode
+        # keep the exact original code path.
+        var steer =
+          if iCarry and bot.mirrorCanonOk:
+            norm(bot.navSteerMirrorCanon(client, me, target))
+          else:
+            norm(bot.navSteer(client, me, target))
+      else:
+        var steer = norm(bot.navSteer(client, me, target))
       for t in bot.mates:
         if bot.tick - t.lastSeen > 12:
           continue
