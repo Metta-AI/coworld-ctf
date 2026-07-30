@@ -2261,17 +2261,26 @@ proc shippedCombatTune(): CombatTune =
   # after 72 ticks. Spreading damage across enemies who then reset is exactly the measured
   # tick-1000..3000 deficit. MateAimRayLen is now honest (90px), which also shrinks satCap's
   # input to almost nothing — retiring it is the same decision stated once.
-  result.satCap = getEnv("SATCAP").len > 0
+  # satCap: the audit's case against it is strong on paper (it abandons a WOUNDED target — a
+  # ~415px priority swing — at the moment finishing is cheapest, and a fled 1-hp enemy respawns
+  # at full 3/3 in 72 ticks), but I did NOT get a clean isolated measurement of it, and the one
+  # bundle it rode in was a null. Shipping it OFF would be shipping an UNMEASURED change.
+  # Stays ON (= v28 behaviour) so v30 is a genuine single-variable delta; NOSATCAP=1 turns it
+  # off for the isolation run that has to happen before it can ship either way.
+  result.satCap = getEnv("NOSATCAP").len == 0
   result.noMask = true
   result.assaultThrough = true
-  # ⭐ fireOnRealBody ENABLED (2026-07-29 audit), NOREALBODY=1 restores the old gate. The aim
-  # LEADS by leadTicks(6) on a HITSCAN gun whose bearing locks at the trigger pull, so against
-  # a juking target the lead phantom can sit outside the 11px fire slack while the target's
-  # real body is dead on our line — the trigger stays shut on a shot that would connect. This
-  # only ever OPENS the trigger (aim still leads, and the corridor + friendly-fire checks are
-  # re-run on the real body), so it cannot create a friendly-fire kill or a wall shot. It is
-  # the built-in escape hatch for the lead error and it has been sitting switched off.
-  result.fireOnRealBody = getEnv("NOREALBODY").len == 0
+  # ⭐ fireOnRealBody MEASURED AND REJECTED (2026-07-29). The audit ranked it a top fix — the
+  # aim leads 6 ticks on a HITSCAN gun whose bearing locks at the pull, so in theory the lead
+  # phantom falls outside the 11px slack while the real body is dead on our line, and this
+  # opens the trigger on a shot that would land. The reasoning was sound and the measurement
+  # refuted it: 24g seed 100 paired off ONE binary, enabling it took 460 MORE shots
+  # (5334 -> 5794, +8.6%) for ELEVEN FEWER hits — the marginal accuracy of the extra shots is
+  # ~0.0, and accuracy fell 62.6% -> 57.4%. Each wasted shot also books a 12-tick cooldown, so
+  # this is worse than neutral. The real-body gate re-checks the corridor but NOT the 5-tick
+  # windup: by the time the bullet leaves, the juking body it was aimed at has moved on.
+  # REALBODY=1 re-enables it for anyone who wants to re-measure; it ships OFF.
+  result.fireOnRealBody = getEnv("REALBODY").len > 0
   # counterArc (Play C, GameVersion 15 plasma arc): prioritize a DISARMED enemy
   # arc-carrier (gun off for life while holding) beyond its 136px cone — a free
   # kill that deletes the enemy's whole AoE play. Ships on the SAME field-only
@@ -2340,7 +2349,17 @@ proc shippedCombatTune(): CombatTune =
   # TOUCHOFF=1 turns the latch back off so the eval rig can A/B candidate vs control from ONE
   # binary — a separate control build is a second variable, and the null-calibration lesson is
   # that a 60-game win delta is already at the noise floor without adding one.
-  result.touchCommit = getEnv("TOUCHOFF").len == 0
+  # ⭐ THE TOUCH LATCH ships GATED OFF in v30, on purpose. The FIELD premise is the strongest
+  # in the lineage (123 GV26 episodes: we reach <40px of the enemy heart as often as the field,
+  # 71 vs 79 eps, but convert to a steal 71.8% vs THEIR 94.9%; 20 episodes had a bot 5-39px
+  # from a 12px pickup radius; 445-vs-90 deaths in the 60-260px standoff ring), and the latch
+  # verifiably ARMS (310-514 frames/24g) and removes the preemptions it targets (engage 4 -> 0
+  # once armedRush got its range floor). But a MIRROR cannot score it: the change is symmetric,
+  # so both sides get the same latch and the marginal advantage cancels — measured as a null
+  # that flips sign across seatings. Same category as medEcon/shieldTank/avoidDisarm, whose
+  # upside was field-only. TOUCH=1 arms it for the hosted ASYMMETRIC A/B that is the correct
+  # gate. Do not flip this default without that field result.
+  result.touchCommit = getEnv("TOUCH").len > 0
   # ── COMMS BUS (C1/C2 + the WIPE coupling). Event-driven team plays over the one
   # shout channel: a bot classifies a LIVE scenario from its own fresh local reads
   # and broadcasts an opaque rotating 2-char codeword; teammates in earshot adopt it
