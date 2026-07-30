@@ -137,6 +137,16 @@ const
                               # enemy hit point — a tiebreak between
                               # comparably-engageable targets, never a reason
                               # to swing the turret across the map
+  HpSeenTtl = 6               # -d:hpSeenGate: ticks a pip read stays trusted
+                              # for the wounded-enemy credit. The sim emits no
+                              # hp bar for a dead player (addHpPips skips
+                              # non-alive), so a corpse's remembered hp goes
+                              # stale within one tick of the kill and the
+                              # credit stops steering aim onto bodies that
+                              # cannot shoot back; a live wounded enemy in
+                              # view re-reads nearly every tick (parent decode:
+                              # median read age 0 ticks, p90 3), so real
+                              # focus-fire picks keep their credit
   ThiefFocusBonus = 400.0     # px of credit for the enemy RUNNING OUR FLAG:
                               # dominates every positional tiebreak — killing
                               # the thief returns the flag instantly
@@ -290,6 +300,10 @@ type
     synthetic: bool           # injected from an E-shout, not own eyes
     facingRight: bool
     hp: int                   # last observed hit points; 0 = never read
+    when defined(hpSeenGate):
+      hpSeenTick: int         # tick the hp was last actually read off the
+                              # pip bar; the wounded-enemy credit only trusts
+                              # a read at most HpSeenTtl ticks old
 
   Bot = ref object
     slot: int
@@ -375,6 +389,10 @@ type
       hpFlipPrev: bool        # edge detector: the hp discount was DECISIVE
                               # (engage differs from the no-hp counterfactual)
       hpPickPrev: bool        # edge detector: the engaged target is wounded
+    when defined(hpSeenGate):
+      hpStalePrev: bool       # edge detector: the engaged target carries
+                              # wounded remembered hp whose read is stale, so
+                              # the gate withheld the credit this frame
 
 proc roleForSeat(seat: int, team: Team): Role =
   ## Deterministic role spread over the 8 per-team seats. Seats 2 and 3 both
@@ -1166,10 +1184,16 @@ proc updateTracks(bot: Bot, tracks: var seq[Track], seen: seq[Actor]) =
       tracks[best].synthetic = false
       if a.hp > 0:
         tracks[best].hp = a.hp
+        when defined(hpSeenGate):
+          tracks[best].hpSeenTick = bot.tick
       claimed[best] = true
     else:
-      tracks.add(Track(
-        pos: a.pos, lastSeen: bot.tick, facingRight: a.facingRight, hp: a.hp))
+      var nt = Track(
+        pos: a.pos, lastSeen: bot.tick, facingRight: a.facingRight, hp: a.hp)
+      when defined(hpSeenGate):
+        if a.hp > 0:
+          nt.hpSeenTick = bot.tick
+      tracks.add(nt)
       claimed.add(true)
   var kept: seq[Track]
   for t in tracks:
@@ -1275,6 +1299,8 @@ proc resetTransient(bot: Bot) =
   when defined(hpPipFix):
     bot.hpFlipPrev = false
     bot.hpPickPrev = false
+  when defined(hpSeenGate):
+    bot.hpStalePrev = false
 
 proc scanAim(bot: Bot, watch: Vec): int =
   ## The scan-sweep aim while holding a position: rake the vision cone back
@@ -1385,6 +1411,8 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       # swallow the first onset after respawn.
       bot.hpFlipPrev = false
       bot.hpPickPrev = false
+    when defined(hpSeenGate):
+      bot.hpStalePrev = false
     artFrame(FrameSnap(tick: bot.tick, alive: false,
       x: int(bot.lastPos.x), y: int(bot.lastPos.y), hp: 0,
       objective: "dead", action: "dead", engageDist: -1))
@@ -2380,7 +2408,16 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       float(abs(bradsErr(bradsOf(predicted - me), bot.estAim))) * TraversePxPerBrad
     when defined(hpPipFix):
       var hpDisc = 0.0            # the hp credit this target received, to undo
-    if t.hp in 1 ..< MaxHp:
+    var hpTrusted = t.hp in 1 ..< MaxHp
+    when defined(hpSeenGate):
+      # i2 of the pip repair (corpse-ghost credit): only trust remembered
+      # health that was actually read off a pip bar within HpSeenTtl ticks.
+      # A dead player renders no bar, so a corpse's remembered hp is stale by
+      # construction and gets no credit; a stale read on a living track (the
+      # never-decayed Track.hp class) is refused the same way.
+      if bot.tick - t.hpSeenTick > HpSeenTtl:
+        hpTrusted = false
+    if hpTrusted:
       prio -= float(MaxHp - t.hp) * HpFocusBonus
       when defined(hpPipFix):
         hpDisc = float(MaxHp - t.hp) * HpFocusBonus
@@ -2427,7 +2464,21 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       artEvent(bot.tick, "hpfocus_flip",
         %*{"hp": bot.enemies[engage].hp, "d": int(engageD)})
     bot.hpFlipPrev = hpFlipNow
-    let hpPickNow = engage >= 0 and bot.enemies[engage].hp in 1 ..< MaxHp
+    var hpPickNow = engage >= 0 and bot.enemies[engage].hp in 1 ..< MaxHp
+    when defined(hpSeenGate):
+      # A "pick" means the credit was actually APPLIED: a wounded-remembered
+      # target whose read is stale got no credit, so it is not a pick. The
+      # withheld case gets its own rising edge below so the decoder can count
+      # gate trips directly.
+      let hpStaleNow = hpPickNow and
+        bot.tick - bot.enemies[engage].hpSeenTick > HpSeenTtl
+      if hpStaleNow:
+        hpPickNow = false
+      if hpStaleNow and not bot.hpStalePrev:
+        artEvent(bot.tick, "hpgate_stale",
+          %*{"hp": bot.enemies[engage].hp, "d": int(engageD),
+             "age": bot.tick - bot.enemies[engage].hpSeenTick})
+      bot.hpStalePrev = hpStaleNow
     if hpPickNow and not bot.hpPickPrev:
       artEvent(bot.tick, "hpfocus_pick",
         %*{"hp": bot.enemies[engage].hp, "d": int(engageD)})
