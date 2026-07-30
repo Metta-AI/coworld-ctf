@@ -228,6 +228,21 @@ const
                               # games cap at 5000 ticks — the all-in must land
                               # with time to convert. Scaled from 6800/10000.
                               # the default outcome, so commit to the capture
+  PressDeepPx = 220.0         # -d:pressBreak: an enemy this deep past mid on
+                              # OUR half is siege ground (his press engages our
+                              # 220px castle line), not a midfield duel — h050/
+                              # h006-class duellists hover near the centerline
+                              # and never sit this deep for long
+  PressBodies = 2             # -d:pressBreak: this many simultaneous fresh deep
+                              # tracks = a standing press (the latepush family
+                              # keeps ~2.2 seats in our half all game)
+  PressSustainTicks = 300     # -d:pressBreak: the deep presence must persist
+                              # this long (lapses decay 2:1) before we call the
+                              # class — one runner passing through never arms it
+  PressBreakMinGame = 1200    # -d:pressBreak: never break before the opening
+                              # settles; his reinforcement lands ~gt1615 and his
+                              # first steal comes ~gt2800-3600, so breaking at
+                              # ~gt1500-2000 is early for him, on time for us
   HoldFrontCap = 220.0        # -d:holdFront: ceiling on the phalanx creep — a
                               # castle line near our wall: fights there recur on
                               # ground where our respawn walk is ~100px and the
@@ -373,6 +388,8 @@ type
     shieldAbsentAt: seq[int]
     everStoleTheirs: bool     # any own/mate carry of the enemy flag this game
     everLostOurs: bool        # our flag has been stolen at least once
+    pressTicks: int           # -d:pressBreak: sustained deep-press accumulator
+    pressBroke: bool          # -d:pressBreak: latched — posts stay broken
     phalanxHold: float        # frozen advance front while our lane has contact
     helpLane: int             # 1=top 2=mid 3=bottom, from an H-shout
     helpUntil: int            # tick the help retasking expires
@@ -1772,6 +1789,35 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     bot.everStoleTheirs = true
   if ownStolen:
     bot.everLostOurs = true
+  when defined(pressBreak):
+    # Siege-press breaker (counter to the arisk latepush/tick3400 family):
+    # that class grinds our castle with a standing press from the opening and
+    # converts on a late clock — its stealer seats release only at a fitted
+    # tick (~gt3470), timed to arrive after our pedestal ring has died of
+    # attrition. Holding the posts to LatePushTick plays into exactly that
+    # curve: we bleed the gt<1500 exchange at our own stations and are down
+    # to ~2.5 of 8 alive when its lift lands. Its home ring, meanwhile, is
+    # the thinnest on the field (<1 body inside 150px) because 6 seats sit
+    # forward. So once the class is unmistakable — a SUSTAINED deep presence
+    # on our half while NO flag has moved either way — break the posts early
+    # and take the game to its empty ring: its conversion is clock-locked,
+    # ours is not. Early-stealing rivals (beacon, h050 runs) never arm this
+    # (any flag movement disarms the trigger), and midfield duellists never
+    # hold ground this deep for this long.
+    if not bot.pressBroke:
+      var pressDeep = 0
+      for t in bot.enemies:
+        if not t.synthetic and bot.tick - t.lastSeen <= 90 and
+            homeSign(bot.team) * (t.pos.x - float(CenterX)) > PressDeepPx:
+          inc pressDeep
+      if pressDeep >= PressBodies:
+        inc bot.pressTicks
+      elif pressDeep == 0 and bot.pressTicks > 0:
+        bot.pressTicks = max(bot.pressTicks - 2, 0)
+      if bot.tick - bot.gameStart > PressBreakMinGame and
+          bot.pressTicks >= PressSustainTicks and
+          not bot.everStoleTheirs and not bot.everLostOurs:
+        bot.pressBroke = true
   when defined(counterPunch):
     let counterPunch = bot.tick - bot.gameStart > CounterPunchTick and
       bot.everLostOurs and not bot.everStoleTheirs
@@ -1959,6 +2005,12 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # keep enemies in sight, so the quiet-field trigger above never fires
     # against a peek-duck opponent; this one is on the clock.
     bot.tick - bot.gameStart > LatePushTick or
+    # Siege-press breaker: the class predicate latched above — a standing
+    # deep press with no flag moved either way. Sticky by construction
+    # (pressBroke never clears), so a dead first carrier does not send the
+    # team back to posts while the press keeps grinding; ownStolen still
+    # pulls everyone into thief defense via the clause at the top.
+    (when defined(pressBreak): bot.pressBroke else: false) or
     # Stalemate breaker (GV21): a timeout scores -1 to BOTH sides, so a game
     # where neither flag has ever moved is a mutual loss in the making. The
     # castle's whole value was winning the wait — there is nothing to win
@@ -3026,6 +3078,15 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     if (mask and ButtonB) != 0: 1
     elif (mask and ButtonSelect) != 0: -1
     else: 0
+  when defined(pressBreak):
+    # Telemetry only (artlog frame is objMode's sole consumer): name the
+    # frames where the attack posture exists BECAUSE the press breaker fired
+    # — i.e. before the LatePushTick clock would have broken the posts
+    # anyway. Makes the lever's firing rate and onset readable from the
+    # per-seat mode histograms without a replay decode.
+    if bot.pressBroke and objMode == "attack" and
+        bot.tick - bot.gameStart <= LatePushTick:
+      objMode = "press_break"
   artFrame(FrameSnap(
     tick: bot.tick, alive: true,
     x: int(me.x), y: int(me.y), hp: bot.hp, aim: bot.estAim,
