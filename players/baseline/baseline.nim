@@ -312,6 +312,13 @@ type
                               # samples, one per fuzz window (>=12 ticks apart)
     aimSampTick: int          # tick of the newest aimSamp sample
     lastRotTick: int          # newest tick the last sent mask was rotating
+    when defined(slipHypoResync):
+      slipHyp: seq[int]       # candidate estAim-lead offsets (est - true) on
+                              # the 5-brad slip lattice; single element 0 =
+                              # belief exact; empty = lattice parked until the
+                              # next respawn makes the belief exact again
+      slipPend: int           # slip quantum of the newest rotation
+                              # transition, consumed on the next frame
     wasDead: bool             # respawn resets the aim to the spawn heading
     scanHigh: bool            # scan sweep currently heading to the high end
     lastPos: Vec
@@ -510,6 +517,10 @@ proc findSelf(
     for o in client.spriteObjectsWithLabel(label):
       return (alive: true, pos: client.mapPos(o))
 
+when defined(slipHypoResync) and not defined(aimSpriteResync):
+  {.error: "slipHypoResync consumes the sprite readback: " &
+    "compile with -d:aimSpriteResync".}
+
 when defined(aimSpriteResync):
   const
     SelfSoldierSpriteBase = 5100 # src/ctf/global.nim SpritePlayerSelfSpriteBase:
@@ -542,6 +553,17 @@ when defined(aimSpriteResync):
                                  # false corrections <1% per buffer, while a
                                  # persistent 8-brad residue is caught within
                                  # ~4 buffers (~5 s of settled turret)
+
+  when defined(slipHypoResync):
+    const SlipHypMax = 15        # 3 turn quanta of stacked slip; anything
+                                 # wider is the coarse snap gate's job
+
+    proc aimBucket(a: int): int =
+      ## The 16-step bucket center the self readback would report for a true
+      ## aim of `a` — must match src/ctf/global.nim soldierRotIndex exactly
+      ## (round to nearest step, bucket-center value).
+      ((a + SelfRotBrads div 2) * SoldierRotSteps div AimBrads mod
+        SoldierRotSteps) * SelfRotBrads
 
   proc observedAim(client: ProtocolClient, me: Vec, color: string): int =
     ## Absolute aim readback from our own rendered self marker: the POV self
@@ -1215,6 +1237,9 @@ proc resetTransient(bot: Bot) =
   bot.firedLast = false
   bot.estAim = spawnAim(bot.team)
   bot.rotSign = 0
+  when defined(slipHypoResync):
+    bot.slipHyp = @[0]
+    bot.slipPend = 0
   bot.wasDead = false
   bot.scanHigh = false
   bot.stuckTicks = 0
@@ -1335,6 +1360,11 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     bot.wasDead = false
     bot.estAim = spawnAim(bot.team)
     bot.aimSamp.setLen(0)
+    when defined(slipHypoResync):
+      # The spawn aim is exact, so the lattice restarts trusted (this is
+      # also what un-parks it after a coarse snap).
+      bot.slipHyp = @[0]
+      bot.slipPend = 0
   # Absolute turret fix: read our actual aim back from our own rendered
   # avatar every frame, capping any dead-reckoning drift (mask-apply races).
   block resync:
@@ -1360,6 +1390,12 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
               %*{"err": err, "seen": seen, "est": bot.estAim})
             bot.estAim = seen
             bot.aimSamp.setLen(0)
+            when defined(slipHypoResync):
+              # A coarse snap leaves a quantization residual (<=8 brads, not
+              # a 5-brad lattice member), so the lattice cannot represent the
+              # belief error any more: park it until the next respawn.
+              bot.slipHyp.setLen(0)
+              bot.slipPend = 0
           else:
             when defined(aimDeltaResync):
               # Fine corrector on the channel the fuzz cannot reach: offsets
@@ -1389,6 +1425,47 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
             artEvent(bot.tick, "aim_resync",
               %*{"err": err, "seen": seen, "est": bot.estAim})
             bot.estAim = seen
+        when defined(slipHypoResync):
+          # Slip-hypothesis elimination (task 1217009509159881). The only
+          # sub-gate way the dead reckoning goes wrong on GV26 rules is a
+          # changed rotate mask applying one sim tick later than credited
+          # (measured: 96% of 500 corpus slips; 0.32% of rotation
+          # transitions), which shifts the belief by exactly
+          # AimRate*(newRot-oldRot). Every rotation transition therefore
+          # BRANCHES a candidate-offset set on the 5-brad lattice, and the
+          # deterministic 16-step self readback ELIMINATES candidates as the
+          # turret sweeps bucket edges; a set collapsing to a single
+          # non-zero offset is an exact correction. No averaging and no
+          # threshold — this is hypothesis testing against an exact sensor,
+          # not the closed estimator family (task 1217004961374989).
+          if bot.slipHyp.len > 0:
+            if bot.slipPend != 0:
+              # The tick just credited was disputed: branch every candidate.
+              for i in 0 ..< bot.slipHyp.len:
+                let hh = bot.slipHyp[i] + bot.slipPend
+                if abs(hh) <= SlipHypMax and hh notin bot.slipHyp:
+                  bot.slipHyp.add(hh)
+              bot.slipPend = 0
+            var kept: seq[int]
+            for h in bot.slipHyp:
+              if aimBucket(floorMod(bot.estAim - h, AimBrads)) == seen:
+                kept.add(h)
+            if kept.len == 0:
+              # Unmodeled event (early apply / merged sends, ~4% of slips):
+              # reseed with every lattice offset the readback allows and
+              # re-converge. n = 0 leaves the lattice parked (off-lattice
+              # belief error; the coarse gate owns anything that large).
+              for h in countup(-SlipHypMax, SlipHypMax, AimRate):
+                if aimBucket(floorMod(bot.estAim - h, AimBrads)) == seen:
+                  kept.add(h)
+              artEvent(bot.tick, "slip_reseed",
+                %*{"est": bot.estAim, "seen": seen, "n": kept.len})
+            if kept.len == 1 and kept[0] != 0:
+              artEvent(bot.tick, "slip_fix",
+                %*{"d": kept[0], "est": bot.estAim, "seen": seen})
+              bot.estAim = floorMod(bot.estAim - kept[0], AimBrads)
+              kept[0] = 0
+            bot.slipHyp = kept
     else:
       if seen >= 0 and abs(bradsErr(seen, bot.estAim)) > AimResyncBrads:
         bot.estAim = seen
@@ -2868,10 +2945,22 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   if nadeC:
     mask = mask or ButtonC
   bot.firedLast = (mask and ButtonA) != 0
-  bot.rotSign =
-    if (mask and ButtonB) != 0: 1
-    elif (mask and ButtonSelect) != 0: -1
-    else: 0
+  when defined(slipHypoResync):
+    let newRotSign =
+      if (mask and ButtonB) != 0: 1
+      elif (mask and ButtonSelect) != 0: -1
+      else: 0
+    if newRotSign != bot.rotSign:
+      # The next credited tick is disputed: if this changed mask applies one
+      # sim tick late, the belief will lead the server by exactly this
+      # quantum. Consumed by the slip lattice on the next frame.
+      bot.slipPend = AimRate * (newRotSign - bot.rotSign)
+    bot.rotSign = newRotSign
+  else:
+    bot.rotSign =
+      if (mask and ButtonB) != 0: 1
+      elif (mask and ButtonSelect) != 0: -1
+      else: 0
   artFrame(FrameSnap(
     tick: bot.tick, alive: true,
     x: int(me.x), y: int(me.y), hp: bot.hp, aim: bot.estAim,
