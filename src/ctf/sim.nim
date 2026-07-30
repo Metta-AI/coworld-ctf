@@ -1922,60 +1922,86 @@ const
   ]
 
   ## Highrise — authored from docs/designs/mw2-reference/highrise.png by
-  ## tools/mw2_author.py (41 shapes, 15.9% cover). Structures the geometry carries:
-  ##   - office core
-  ##   - office desk
-  ##   - crane base
-  ##   - crane jib
-  ##   - crane counterweight
-  ##   - helipad parapet
+  ## tools/mw2_author.py (57 shapes, 18.1% cover). Structures the geometry carries:
+  ##   - office core west
+  ##   - office core east
+  ##   - core skylight
+  ##   - connecting bridge
+  ##   - west plant room
+  ##   - west parapet
+  ##   - water tank
   ##   - ac unit
-  ##   - duct run
+  ##   - east office suite
+  ##   - east stairwell
+  ##   - east partition
+  ##   - server rack
+  ##   - crane base
+  ##   - crane counterweight
+  ##   - crane jib
   ##   - scaffold
+  ##   - helipad parapet
+  ##   - helipad marker
+  ##   - duct run
   ##   - satellite dish
-  ##   - parapet
+  ##   - skylight
   HighriseObstacles = [
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 568, y: 40, w: 96, h: 80)),
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 600, y: 120, w: 32, h: 136)),
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 536, y: 56, w: 32, h: 48)),
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 152, y: 88, w: 200, h: 16)),
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 296, y: 104, w: 56, h: 40)),
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 880, y: 88, w: 56, h: 56)),
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 416, y: 128, w: 96, h: 64)),
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 696, y: 128, w: 96, h: 64)),
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 296, y: 168, w: 64, h: 24)),
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 344, y: 192, w: 16, h: 16)),
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 880, y: 168, w: 64, h: 24)),
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 872, y: 176, w: 8, h: 24)),
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 880, y: 192, w: 16, h: 8)),
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 376, y: 216, w: 184, h: 24)),
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 688, y: 216, w: 184, h: 24)),
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 344, y: 248, w: 16, h: 120)),
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 872, y: 248, w: 24, h: 120)),
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 432, y: 296, w: 120, h: 24)),
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 680, y: 296, w: 120, h: 24)),
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 416, y: 400, w: 80, h: 56)),
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 736, y: 400, w: 80, h: 56)),
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 344, y: 416, w: 16, h: 72)),
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 288, y: 472, w: 56, h: 16)),
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 872, y: 416, w: 24, h: 72)),
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 896, y: 472, w: 48, h: 16)),
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 472, y: 496, w: 112, h: 24)),
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 392, y: 536, w: 112, h: 24)),
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 656, y: 496, w: 112, h: 24)),
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 744, y: 536, w: 112, h: 24)),
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 752, y: 520, w: 16, h: 16)),
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 248, y: 536, w: 24, h: 80)),
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 944, y: 592, w: 144, h: 24)),
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 976, y: 544, w: 24, h: 48)),
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 472, y: 616, w: 112, h: 24)),
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 472, y: 584, w: 16, h: 32)),
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 656, y: 616, w: 112, h: 24)),
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 752, y: 584, w: 16, h: 32)),
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 804, y: 356, w: 32, h: 56)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 536, y: 40, w: 112, h: 72)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 496, y: 240, w: 248, h: 16)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 616, y: 112, w: 32, h: 120)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 392, y: 88, w: 112, h: 24)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 488, y: 56, w: 48, h: 32)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 936, y: 120, w: 200, h: 16)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 888, y: 64, w: 56, h: 56)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 936, y: 136, w: 24, h: 24)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 1120, y: 136, w: 16, h: 24)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 104, y: 96, w: 192, h: 16)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 104, y: 112, w: 24, h: 48)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 280, y: 112, w: 16, h: 24)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 696, y: 96, w: 136, h: 24)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 320, y: 128, w: 72, h: 56)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 368, y: 184, w: 24, h: 56)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 312, y: 136, w: 8, h: 48)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 848, y: 152, w: 64, h: 96)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 656, y: 168, w: 136, h: 16)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 288, y: 184, w: 8, h: 40)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 936, y: 216, w: 8, h: 48)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 288, y: 248, w: 32, h: 24)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 328, y: 288, w: 56, h: 16)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 328, y: 304, w: 16, h: 24)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 320, y: 392, w: 64, h: 48)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 464, y: 288, w: 16, h: 128)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 384, y: 400, w: 80, h: 16)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 424, y: 288, w: 40, h: 16)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 752, y: 288, w: 24, h: 128)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 776, y: 400, w: 128, h: 16)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 776, y: 288, w: 32, h: 16)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 888, y: 368, w: 16, h: 32)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 880, y: 320, w: 64, h: 16)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 856, y: 288, w: 48, h: 16)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 888, y: 304, w: 16, h: 16)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 368, y: 320, w: 64, h: 56)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 800, y: 320, w: 64, h: 56)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 848, y: 432, w: 64, h: 80)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 496, y: 440, w: 248, h: 24)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 288, y: 472, w: 16, h: 48)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 280, y: 496, w: 8, h: 24)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 432, y: 472, w: 16, h: 96)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 448, y: 552, w: 80, h: 16)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 120, y: 496, w: 72, h: 80)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 536, y: 496, w: 48, h: 32)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 960, y: 512, w: 128, h: 16)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 960, y: 496, w: 24, h: 16)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 1064, y: 496, w: 24, h: 16)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 208, y: 512, w: 56, h: 56)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 584, y: 552, w: 104, h: 16)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 800, y: 560, w: 152, h: 16)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 304, y: 592, w: 112, h: 24)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 280, y: 568, w: 24, h: 32)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 704, y: 592, w: 64, h: 24)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 448, y: 600, w: 88, h: 24)),
     ArenaShape(kind: shapeRect, rect: MapRect(x: 601, y: 0, w: 32, h: 54)),
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 601, y: 624, w: 32, h: 40)),
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 601, y: 472, w: 32, h: 40)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 601, y: 612, w: 32, h: 49)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 807, y: 260, w: 32, h: 40)),
   ]
 
   ## Favela — authored from docs/designs/mw2-reference/favela.png by

@@ -264,37 +264,62 @@ def _rust():
 
 
 def _highrise():
-    """Rooftop of a tower under construction. Two glass office cores, the
-    helipad deck south, the crane north."""
+    """Rooftop of two office towers under construction.
+
+    Corrected against the plate after the asymmetry test failed this map at
+    6.6%: the twin cores are NOT at the two ends of the field. On the real map
+    they sit SIDE BY SIDE in the middle, and the map's two ends are outer roof
+    wings with genuinely different room layouts — which is both the true
+    geometry and the source of the asymmetry the first authoring pass lost by
+    building each end as the other's mirror.
+    """
     s = []
-    # --- the two office cores, one per end: real rooms with three exits ---
-    s += room("office core", 120, 170, 240, 320, 18,
-              doors=(("E", 34, 46), ("E", 200, 46), ("N", 90, 44)))
-    s += room("office core", 876, 170, 240, 320, 18,
-              doors=(("W", 34, 46), ("W", 200, 46), ("N", 90, 44)))
-    s += blocks("office desk", [(180, 250, 90, 22), (180, 380, 90, 22),
-                                (960, 250, 90, 22), (960, 380, 90, 22)])
-    # --- the crane: base block and the jib reaching over midfield ---
-    s += blocks("crane base", [(566, 40, 104, 76)])
-    s += blocks("crane jib", [(600, 116, 30, 150)])
-    s += blocks("crane counterweight", [(534, 54, 32, 48)])
-    # --- helipad: an open deck ringed by a low parapet, south of center ---
-    s += hbar("helipad parapet", 470, 770, 500, 16, gaps=((586, 654),))
-    s += hbar("helipad parapet", 470, 770, 620, 16, gaps=((586, 654),))
-    s += vbar("helipad parapet", 500, 636, 470, 16, gaps=((540, 580),))
-    s += vbar("helipad parapet", 500, 636, 754, 16, gaps=((540, 580),))
-    # --- AC plant and the duct runs across the mid roof ---
-    s += blocks("ac unit", [(420, 130, 90, 62), (700, 130, 90, 62),
-                            (420, 400, 76, 56), (740, 400, 76, 56)])
-    s += hbar("duct run", 430, 800, 300, 20, gaps=((586, 640),))
-    s += hbar("duct run", 380, 560, 220, 18)
-    s += hbar("duct run", 690, 870, 220, 18)
-    # --- scaffolding and plank bridges ---
-    s += blocks("scaffold", [(390, 540, 120, 20), (740, 540, 120, 20),
-                             (250, 540, 20, 76), (980, 540, 20, 76)])
-    s += blocks("satellite dish", [(880, 90, 54, 54), (300, 90, 54, 54)])
-    # --- parapet stubs at the roof edge ---
-    s += blocks("parapet", [(150, 90, 150, 16), (940, 596, 150, 16)])
+    # --- twin office cores, side by side across the middle ---
+    # The flag ring (617, 329) r70 is force-carved, so the cores straddle it:
+    # the open center IS the gap between them, which is where the real map's
+    # connecting bridge runs.
+    s += room("office core west", 330, 286, 150, 132, 16,
+              doors=(("N", 54, 40), ("W", 46, 40)))
+    s += room("office core east", 756, 286, 150, 132, 16,
+              doors=(("N", 56, 40), ("E", 44, 40)))
+    s += blocks("core skylight", [(372, 322, 62, 56), (800, 322, 62, 56)])
+    # The bridge decking between the cores, north and south of the open ring.
+    s += blocks("connecting bridge", [(496, 240, 244, 18),
+                                      (496, 442, 244, 18)])
+
+    # --- WEST roof wing (red end): open plant deck, few walls ---
+    s += room("west plant room", 108, 96, 186, 128, 16,
+              doors=(("S", 66, 44), ("E", 40, 44)))
+    s += hbar("west parapet", 96, 300, 470, 16, gaps=((150, 196),))
+    s += vbar("west parapet", 470, 600, 284, 16, gaps=((520, 566),))
+    s += blocks("water tank", [(120, 500, 74, 74), (208, 512, 52, 52)])
+    s += blocks("ac unit", [(316, 130, 78, 54), (318, 392, 66, 50)])
+
+    # --- EAST roof wing (blue end): a partitioned office floor, not a mirror ---
+    s += room("east office suite", 940, 120, 200, 150, 16,
+              doors=(("S", 60, 42), ("W", 52, 42)))
+    s += room("east stairwell", 964, 400, 120, 130, 16,
+              doors=(("N", 40, 40),))
+    s += hbar("east partition", 880, 1140, 320, 16, gaps=((980, 1026),))
+    s += blocks("server rack", [(852, 150, 56, 100), (852, 430, 56, 84)])
+
+    # --- construction: crane on the NORTH side only, its jib over midfield ---
+    s += blocks("crane base", [(540, 40, 104, 74)])
+    s += blocks("crane counterweight", [(492, 54, 40, 46)])
+    s += blocks("crane jib", [(618, 114, 26, 122)])
+    s += blocks("scaffold", [(390, 88, 118, 20), (700, 96, 132, 20),
+                             (368, 176, 20, 68)])
+
+    # --- helipad: an open deck with a low parapet, SOUTH-WEST of the cores ---
+    s += hbar("helipad parapet", 430, 690, 552, 16, gaps=((530, 588),))
+    s += vbar("helipad parapet", 470, 552, 430, 16)
+    s += blocks("helipad marker", [(536, 496, 48, 34)])
+
+    # --- loose roof clutter, deliberately unpaired between the two halves ---
+    s += blocks("duct run", [(224, 250, 96, 18), (660, 168, 130, 18),
+                             (800, 560, 150, 18), (300, 596, 120, 18)])
+    s += blocks("satellite dish", [(886, 62, 58, 58)])
+    s += blocks("skylight", [(452, 604, 84, 20), (704, 596, 66, 22)])
     return s
 
 

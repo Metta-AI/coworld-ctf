@@ -85,6 +85,8 @@ def page(status):
                 ("midfield parity", f'{s.get("midRatio", 0):.3f}',
                  s.get("midRatio", 0) >= 0.70),
             ]
+            authored = (f'{s["authored"]} named structures &rarr; '
+                        if s.get("authored") else "")
             chips = "".join(
                 f'<span class="chip {"ok" if good else "bad"}">'
                 f'{label} <b>{val}</b></span>'
@@ -92,16 +94,16 @@ def page(status):
             body = f"""
       <div class="pair">
         <div class="side">
-          <div class="lbl">2009 reference — official minimap, oriented</div>
+          <div class="lbl">2009 reference — official minimap, oriented to the field</div>
           <img src="ref-{name}.png" alt="{title} reference">
         </div>
         <div class="side">
-          <div class="lbl">traced result — as the spectator sees it</div>
+          <div class="lbl">result — as the spectator sees it</div>
           <img src="{name}.png" alt="{title} rendered">
         </div>
       </div>
       <div class="chips">{chips}</div>
-      <p class="facts">{s.get("shapes", "?")} shapes &middot;
+      <p class="facts">{authored}{s.get("shapes", "?")} emitted shapes &middot;
         {s.get("coverage", 0):.1%} of the field is cover &middot; walk to
         midfield {s.get("midRed", "?")}px red / {s.get("midBlue", "?")}px
         blue</p>"""
@@ -185,10 +187,11 @@ def page(status):
   <h1>MW2 Paintball Map Pack</h1>
   <p class="sub">
     Six <i>Call of Duty: Modern Warfare 2</i> (2009) maps recreated as top-down
-    paintball capture-the-heart arenas. Each layout is <b>traced from the
-    official 2009 minimap</b> rather than drawn from memory, and used
-    asymmetrically — mirroring would destroy the geometry that makes a map
-    recognizable. Fairness is therefore asserted by test, not by construction.
+    paintball capture-the-heart arenas. Every structure is <b>measured off that
+    map's official 2009 minimap</b> rather than drawn from memory, and each
+    layout is used asymmetrically — mirroring would destroy the very geometry
+    that makes a map recognizable. Fairness is therefore asserted by test
+    rather than bought by construction.
   </p>
   <p class="status">
     <span class="live">{done} / 6 rendered</span>
