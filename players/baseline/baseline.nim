@@ -406,9 +406,19 @@ const
                               # swing needed to lay on the target: err/AimRate
                               # ticks of traverse at ~8px of enemy closing
                               # motion per tick = 8/5 px per brad
-  MateAimRayLen = 700.0       # trust a mate's aim line out to this range
   MateAimHitSlack = 22.0      # enemy within this perpendicular distance of a
                               # mate's aim ray counts as mate-targeted
+  MateAimRayLen = 90.0        # ⭐ trust a mate's aim line only this far (2026-07-29). WAS 700,
+                              # which GV24 turned into noise: a mate's rendered gun rotation is
+                              # fuzzed by up to ±AimFuzzBrads(14), and at 700px that displaces
+                              # the ray by 700·sin(19.7°) ≈ 236px — TEN TIMES the 22px slack
+                              # this test allows, so "which enemy is my mate shooting at" was
+                              # a coin flip past ~65px. The honest trust radius is where the
+                              # fuzz displacement stays inside the slack:
+                              # 22 / sin(19.7°) ≈ 65px, plus a small margin. Beyond that we
+                              # simply do not know, and pretending otherwise fed satCap/noMask
+                              # random bearings. Shortening this is a LOSS of intel we never
+                              # actually had — the alternative is acting on noise.
   NoMaskAvoid = 30.0          # noMask: soft-repel this far off a mate's live
                               # gun-line (support ray). CorridorHalfWidth(15) +
                               # PlayerHalf(6) + a step of margin, so the mover
@@ -626,6 +636,18 @@ const
                               # line to us counts as "aimed at us" (~45°, generous
                               # since the enemy is still turning toward us). Beyond
                               # this the gun points elsewhere = a lesser threat.
+  AimFuzzBrads = 14           # ⭐ GV24: every OTHER soldier's rendered gun rotation is the
+                              # true aim plus a deterministic offset of up to ±14 brads
+                              # (~±20°), re-rolled every 12 ticks — so an enemy's aim read
+                              # off the sprite is NEVER exact and cannot be averaged out
+                              # (the window outlives the 5-tick windup, by design). Mirrors
+                              # the engine's AimRenderFuzzBrads. Our OWN aim is exempt again
+                              # (GV26), so this applies ONLY to enemies and mates.
+  AimFuzzFloor = 0.25         # ⭐ never HARD-ZERO a threat on a fuzzed read: a gun measured
+                              # "off cone" may really be dead on us. This is the residual
+                              # danger credit such a target keeps — small enough that a
+                              # genuinely-aside gun still loses the tiebreak, large enough
+                              # that it is not invisible.
   AimDeadOnBrads = 8          # aimThreat: gun within this of dead-on = maximal
                               # danger scale (lethal THIS tick); credit tapers
                               # linearly from full at 0 to the on-cone floor here.
@@ -2229,9 +2251,27 @@ proc shippedCombatTune(): CombatTune =
   # rests on the funnel + heal ratio + both-seatings K-D, per the null-calibration
   # rule. Keeps its MEDECON knob for bisection.
   result.medEcon = true
-  result.satCap = true
+  # ⭐ satCap RETIRED (2026-07-29 audit), SATCAP=1 restores it. Past "enough guns are already
+  # on this target" it re-assigns a free gun to the highest-danger UNCOVERED enemy — but the
+  # saturation read is GEOMETRIC (is a mate's aim ray near the target), and that ray is now
+  # fuzzed: at the old 700px trust radius the displacement was ~236px against a 22px slack, so
+  # "covered" was noise. Worse, it fires against the win condition: it abandons a WOUNDED
+  # target (forfeiting the hp-focus and focus-fire credit, a ~415px priority swing) at the one
+  # moment finishing is cheapest, and on this engine a fled 1-hp enemy respawns at FULL 3/3
+  # after 72 ticks. Spreading damage across enemies who then reset is exactly the measured
+  # tick-1000..3000 deficit. MateAimRayLen is now honest (90px), which also shrinks satCap's
+  # input to almost nothing — retiring it is the same decision stated once.
+  result.satCap = getEnv("SATCAP").len > 0
   result.noMask = true
   result.assaultThrough = true
+  # ⭐ fireOnRealBody ENABLED (2026-07-29 audit), NOREALBODY=1 restores the old gate. The aim
+  # LEADS by leadTicks(6) on a HITSCAN gun whose bearing locks at the trigger pull, so against
+  # a juking target the lead phantom can sit outside the 11px fire slack while the target's
+  # real body is dead on our line — the trigger stays shut on a shot that would connect. This
+  # only ever OPENS the trigger (aim still leads, and the corridor + friendly-fire checks are
+  # re-run on the real body), so it cannot create a friendly-fire kill or a wall shot. It is
+  # the built-in escape hatch for the lead error and it has been sitting switched off.
+  result.fireOnRealBody = getEnv("NOREALBODY").len == 0
   # counterArc (Play C, GameVersion 15 plasma arc): prioritize a DISARMED enemy
   # arc-carrier (gun off for life while holding) beyond its 136px cone — a free
   # kill that deletes the enemy's whole AoE play. Ships on the SAME field-only
@@ -3564,9 +3604,13 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       # assaultThrough: is the surpriser's gun ON us at the moment of contact?
       # Full cone via the rotation-id bearing when readable, else the coarse
       # facingRight half-plane (same fallback ladder as aimThreat).
+      # Widened by AimFuzzBrads (GV24): a point-blank ambusher whose gun reads "aside" on a
+      # fuzzed sample is exactly the case where being wrong is fatal — at knife range its
+      # next shot cannot miss, so assume the gun is on us unless it is clearly not.
       if a.aimBrads >= 0:
         surpriseGunOnMe =
-          abs(bradsErr(a.aimBrads, bradsOf(me - a.pos))) <= AimOnConeBrads
+          abs(bradsErr(a.aimBrads, bradsOf(me - a.pos))) <=
+            AimOnConeBrads + AimFuzzBrads
       else:
         surpriseGunOnMe =
           (a.facingRight and a.pos.x < me.x) or
@@ -4874,13 +4918,26 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     var aimScale = (if facingMe: 1.0 else: 0.0)
     if bot.tune.aimThreat and t.aimBrads >= 0:
       let aimErr = abs(bradsErr(t.aimBrads, bradsOf(me - t.pos)))
-      if aimErr <= AimOnConeBrads:
+      # ⭐⭐ FUZZ-TOLERANT THREAT READ (2026-07-29). GV24 made every enemy's rendered gun
+      # rotation wrong by up to ±AimFuzzBrads, so this measurement has a known error bar and
+      # must be treated as evidence, not fact. Two changes, both about the ERROR BAR:
+      #   • widen the cone by the fuzz, so a gun that is truly on us is not read as aside
+      #     (the miss direction: we ignore a lethal threat — measured 1.1% of reads, but its
+      #     cost is a death);
+      #   • replace the HARD ZERO with AimFuzzFloor. "Off cone" now means "probably aside",
+      #     not "harmless" — the old 0.0 dismissed a dead-on gun outright whenever the roll
+      #     went against us. The false-alarm direction (~13.5% of reads) is self-limiting
+      #     because the taper already scales it down; the hard zero was not.
+      # Deliberately NOT tightened instead: the read cannot be made exact by any label (the
+      # side bit is 1 bit and is itself fuzz-flipped), so the only honest response is to stop
+      # gating hard on it. Our OWN aim is exact again (GV26) and is untouched by this.
+      if aimErr <= AimOnConeBrads + AimFuzzBrads:
         let tight = clamp(
-          float(AimOnConeBrads - aimErr) /
-            float(AimOnConeBrads - AimDeadOnBrads), 0.0, 1.0)
-        aimScale = 0.4 + 0.6 * tight     # 0.4 on-cone floor → 1.0 dead-on
+          float(AimOnConeBrads + AimFuzzBrads - aimErr) /
+            float(AimOnConeBrads + AimFuzzBrads - AimDeadOnBrads), 0.0, 1.0)
+        aimScale = max(AimFuzzFloor, 0.4 + 0.6 * tight)
       else:
-        aimScale = 0.0                   # gun points elsewhere: no threat now
+        aimScale = AimFuzzFloor          # probably aside — but a fuzzed read is not proof
     if bot.tune.dangerScore:
       # #1 GREATEST-THREAT-FIRST (richer danger score, supersedes the flat
       # facing tiebreak): a gun that is BOTH pointed at us AND close can kill us
@@ -5499,7 +5556,11 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         let t = bot.enemies[i]
         if bot.tick - t.lastSeen > HoldVsGunTtl or t.aimBrads < 0:
           continue
-        if abs(bradsErr(t.aimBrads, bradsOf(me - t.pos))) > AimOnConeBrads:
+        # Widened by AimFuzzBrads (GV24): this gate decides whether a WOUNDED bot turns its
+        # back and walks to a kit. A fuzzed read that says "not on us" when the gun really is
+        # buys a free shot in the back, so the error bar belongs on the SAFE side here.
+        if abs(bradsErr(t.aimBrads, bradsOf(me - t.pos))) >
+            AimOnConeBrads + AimFuzzBrads:
           continue                                     # its gun is not on us
         if not client.pixelRayClear(me, t.pos):
           continue                                     # no line: it cannot punish the walk
@@ -5879,7 +5940,11 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         let d = dist(t.pos, me)
         if d <= DuckRange or d >= gunThreatD:
           continue                         # close-duck owns <=DuckRange; ignore far
-        if abs(bradsErr(t.aimBrads, bradsOf(me - t.pos))) > AimOnConeBrads:
+        # Widened by AimFuzzBrads (GV24), same reasoning as the medEcon disengage gate: the
+        # whole point of this branch is "never turn your back on a live gun", so a fuzzed
+        # read must not be allowed to declare a gun harmless.
+        if abs(bradsErr(t.aimBrads, bradsOf(me - t.pos))) >
+            AimOnConeBrads + AimFuzzBrads:
           continue                         # its gun is NOT on us — not a back-turn danger
         if not client.pixelRayClear(me, t.pos):
           continue                         # no clear line: it can't shoot our back anyway
