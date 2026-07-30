@@ -273,6 +273,16 @@ when defined(lateRingAnchor):
     RingAnchorSnapCap {.intdefine.} = 140
       # max px from the pedestal a cover-snapped anchor spot may sit; a snap
       # beyond this would leave the ring, so the raw spot wins instead.
+    RingAnchorRing {.intdefine.} = 150
+      # the measured conversion-gating ring radius: 0/40 candidate-cell and
+      # 1/81 pooled steals lifted with >=1 of our bodies inside this radius
+      # ever converted (Wave-1 GV27 decode, Fisher p=8.0e-6).
+    RingAnchorPullRadius {.intdefine.} = 400
+      # v2 (iteration 2): only seats within this distance of our pedestal
+      # participate in the alive-seat anchor election — forward attackers
+      # are never pulled home. Wave-1 decode: at conceded-capture steals the
+      # nearest alive our-body sat at median 331px (A) / 298px (B), and a
+      # respawner always re-enters inside this radius (spawn is at our edge).
 
 ## Map dimensions, adopted at nav-grid build from the walkability sprite
 ## (which spans the whole arena). The game supports multiple maps —
@@ -402,7 +412,12 @@ type
     oppSeenTick: int          # last tick the accumulator advanced
     oppInvader: bool          # -d:oppClass: one-way INVADER latch
     oppClassCalled: bool      # -d:oppClass: latch event emitted (either class)
-    ringAnchored: bool        # -d:lateRingAnchor: one-way late home-ring latch
+    ringAnchored: bool        # -d:lateRingAnchor: engaged anchor hold (per
+                              # life: cleared on respawn so the duty re-elects)
+    ringArmed: bool           # -d:lateRingAnchor v2: episode-level arming —
+                              # opponent classed INVADER and our flag untouched
+                              # at the RingAnchorStart clock
+    ringArmChecked: bool      # the one-shot arming sample was taken
 
 proc roleForSeat(seat: int, team: Team): Role =
   ## Deterministic role spread over the 8 per-team seats. Seats 2 and 3 both
@@ -1260,6 +1275,8 @@ proc resetTransient(bot: Bot) =
     bot.oppClassCalled = false
   when defined(lateRingAnchor):
     bot.ringAnchored = false
+    bot.ringArmed = false
+    bot.ringArmChecked = false
   bot.firedLast = false
   bot.estAim = spawnAim(bot.team)
   bot.rotSign = 0
@@ -1383,6 +1400,12 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     bot.wasDead = false
     bot.estAim = spawnAim(bot.team)
     bot.aimSamp.setLen(0)
+    when defined(lateRingAnchor):
+      # The engaged hold is per LIFE: a respawner re-runs the election on
+      # its new position (our spawn edge is inside RingAnchorPullRadius, so
+      # a respawned seat naturally re-garrisons an empty ring). Episode
+      # arming (ringArmed) survives death.
+      bot.ringAnchored = false
   # Absolute turret fix: read our actual aim back from our own rendered
   # avatar every frame, capping any dead-reckoning drift (mask-apply races).
   block resync:
@@ -2038,22 +2061,47 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         bot.campSeen.add bot.tick
 
   when defined(lateRingAnchor):
-    # Late ring anchor (task 1217011763531820): vs the early-invader-with-
-    # late-flag-clock class (invades early, first steal on a late clock),
-    # every conceded capture in the decoded corpus came at a moment our
-    # pedestal ring was empty — and 0 of 23 steals lifted with even one of
-    # our bodies inside 150px ever converted. One-way latch: the HomeDefender
-    # holds inside the ring from RingAnchorStart IF the opponent latched
-    # INVADER early and our flag is still untouched at latch time (an
-    # early-flag opponent has everLostOurs set well before 2600, so those
-    # cells keep today's behavior — the class key is behavioral, never the
-    # rival's wave clock). Thief chase/carry still outrank via branch order.
-    if not bot.ringAnchored and bot.role == HomeDefender and
-        bot.oppInvader and not bot.everLostOurs and
+    # Late ring anchor v2 (task 1217011763531820, iteration 2): vs the
+    # early-invader-with-late-flag-clock class, conceded captures are gated
+    # on an empty own-pedestal ring (Wave-1 GV27 decode: empty-ring steals
+    # converted 39/197, >=1-body steals 1/81, Fisher p=8.0e-6). Iteration 1
+    # scoped the hold to the HomeDefender ROLE and no-fired 44/48: that seat
+    # is out of lives before gt2600 (final death gc median 1472), while a
+    # median 6.0 OTHER seats were alive at the clock and 18/20 conceded
+    # captures had an alive seat merely elsewhere. v2 is an ALIVE-SCOPED
+    # election, no role key:
+    #   ARM (once per episode, at the RingAnchorStart clock): opponent
+    #   latched INVADER early AND our flag still untouched — an early-flag
+    #   opponent (Andre class) has everLostOurs set well before 2600, so
+    #   those cells keep today's behavior; the key is behavioral, never the
+    #   rival's wave clock.
+    #   ENGAGE (per life, any tick after the clock): I am alive, within
+    #   RingAnchorPullRadius of our pedestal (forward attackers are never
+    #   pulled), and no fresh mate track (TrackTtl ~5s) already holds the
+    #   ring. Sticky per life; cleared on respawn so the duty re-elects.
+    # Over-anchoring (two back-half seats engaging on the same tick) is
+    # accepted: extra ring bodies strengthen the measured gate, and both
+    # were back-half by construction. Thief chase/carry still outrank via
+    # branch order.
+    if not bot.ringArmChecked and
         bot.tick - bot.gameStart >= RingAnchorStart:
-      bot.ringAnchored = true
-      artEvent(bot.tick, "ring_anchor_on",
-        %*{"gc": bot.tick - bot.gameStart})
+      bot.ringArmChecked = true
+      bot.ringArmed = bot.oppInvader and not bot.everLostOurs
+      if bot.ringArmed:
+        artEvent(bot.tick, "ring_anchor_armed",
+          %*{"gc": bot.tick - bot.gameStart, "s": bot.oppSeen})
+    if bot.ringArmed and not bot.ringAnchored:
+      let ped = flagHome(bot.team)
+      if dist(me, ped) <= float(RingAnchorPullRadius):
+        var mateHolds = false
+        for t in bot.mates:
+          if dist(t.pos, ped) <= float(RingAnchorRing):
+            mateHolds = true
+            break
+        if not mateHolds:
+          bot.ringAnchored = true
+          artEvent(bot.tick, "ring_anchor_on",
+            %*{"gc": bot.tick - bot.gameStart, "d": int(dist(me, ped))})
   let ringAnchorHold =
     when defined(lateRingAnchor): bot.ringAnchored
     else: false

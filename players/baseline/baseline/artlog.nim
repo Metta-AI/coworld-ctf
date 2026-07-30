@@ -121,6 +121,8 @@ proc artInit*(slot: int, team, role: string) =
   when defined(aimStressSend): defines.add("aimStressSend")
   when defined(aimFuzzGate): defines.add("aimFuzzGate")
   when defined(aimDeltaResync): defines.add("aimDeltaResync")
+  when defined(oppClass): defines.add("oppClass")
+  when defined(lateRingAnchor): defines.add("lateRingAnchor")
   art.meta = %*{
     "schema": 1,
     "slot": slot,
