@@ -1990,6 +1990,17 @@ const
     ArenaShape(kind: shapeRect, rect: MapRect(x: 418, y: 244, w: 264, h: 22)),
     ArenaShape(kind: shapeRect, rect: MapRect(x: 732, y: 244, w: 250, h: 22)),
     ArenaShape(kind: shapeRect, rect: MapRect(x: 1032, y: 244, w: 104, h: 22)),
+    # floor scrubber parked against the south wall: the last open band
+    # (y~638..648) hugs the border below the racks
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 560, y: 632, w: 30, h: 17)),
+    # shop shelving + a stray luggage crate: plug the remaining two
+    # cross-field bands (y~488 between shopfronts and counters, y~616
+    # between the snake run and the south racks)
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 700, y: 478, w: 22, h: 44)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 498, y: 606, w: 26, h: 26)),
+    # info kiosk (plugs the y=338..350 firing band between the pillar row
+    # and the scanner comb -- every row must hit cover somewhere)
+    ArenaShape(kind: shapeDisc, cx: 520, cy: 346, radius: 18),
     # concourse pillar
     ArenaShape(kind: shapeDisc, cx: 250, cy: 320, radius: 17),
     ArenaShape(kind: shapeDisc, cx: 338, cy: 320, radius: 17),
