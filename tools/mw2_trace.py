@@ -54,6 +54,12 @@ FLAG_RING = 70
 RED_HOME_X, BLUE_HOME_X = 186, 1049
 SPAWN_W, SPAWN_H = 70, 130
 CARVE_CLEAR = 96         # shrunk from 210 so real footprints reach the ends.
+# The open-firing-row invariant is defined over captureClear, NOT carveClear:
+# tests/test_mw2_maps.nim scans captureClear+5 .. width-captureClear-5. Checking
+# the wider carveClear span here let a row whose only cover sat in the outer
+# bands pass locally and fail the suite.
+CAPTURE_CLEAR = 210
+ROW_X0, ROW_X1 = CAPTURE_CLEAR + 5, MAP_W - CAPTURE_CLEAR - 5
 PLAYER = 13              # player box; a pocket smaller than this is unusable.
 
 CELL = 8                 # decomposition grid. Coarse enough that shapes read
@@ -417,7 +423,7 @@ def pickets_for(final, report, keep_clear=None):
     """
     wall = final.copy()
     out = []
-    x0, x1 = CARVE_CLEAR + 4, MAP_W - CARVE_CLEAR - 4
+    x0, x1 = ROW_X0, ROW_X1
     prot = protected_mask()
     # Corridors an earlier pass cut on purpose. Planting a picket in one would
     # re-seal it, undoing the connectivity or fairness repair that cut it.
@@ -855,9 +861,8 @@ def verify(final):
     labels, sizes = label_components(occ)
     main = labels[CY, RED_HOME_X]
     pockets = sum(1 for i in range(1, len(sizes)) if i != main and sizes[i] > 0)
-    x0, x1 = CARVE_CLEAR + 4, MAP_W - CARVE_CLEAR - 4
     open_rows = sum(1 for y in range(BORDER + 2, MAP_H - BORDER - 2)
-                    if not final[y, x0:x1].any())
+                    if not final[y, ROW_X0:ROW_X1].any())
     blue_ok = bool(main > 0 and labels[CY, BLUE_HOME_X] == main)
     mid = parity(final, occ).get("midRatio", 0.0)
     return occ, pockets, open_rows, blue_ok, mid
