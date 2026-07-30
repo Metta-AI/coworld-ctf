@@ -1119,6 +1119,17 @@ proc runServerLoop*(
         replayPlayer = move(initializedReplay.player)
         broadcastTracker = move(initializedReplay.tracker)
         replayLoaded = true
+        # A swapped-in replay may be on a DIFFERENT map (the dev map picker
+        # does exactly this). initSimServer above re-selected the map, but
+        # the supersampled spectator caches were baked for the old one at
+        # startup — without a re-warm the board keeps drawing the previous
+        # arena under the new sim. The bake stalls the serve loop for a
+        # moment, which a replay switch can afford.
+        invalidateBoardRenderCaches()
+        invalidateBoardBandsCache()
+        sim.warmBoardRenderCaches()
+        echo "replay swapped: mapPath=", config.mapPath,
+          " arena=", sim.gameMap.name, " ", MapWidth, "x", MapHeight
         {.gcsafe.}:
           withLock appState.lock:
             appState.replayLoaded = true
@@ -1126,6 +1137,12 @@ proc runServerLoop*(
             appState.currentReplayUri = pendingReplayUri
             if appState.loadingReplayUri == pendingReplayUri:
               appState.loadingReplayUri = ""
+            # Force a FULL re-snapshot for every connected viewer: the sprite
+            # wire is a delta protocol, so a viewer that connected before the
+            # swap still holds the previous arena's board sprite and would
+            # keep drawing the old map under the new sim.
+            for viewerSocket in appState.globalViewers.keys:
+              appState.globalViewers[viewerSocket] = initGlobalViewerState()
 
     {.gcsafe.}:
       withLock appState.lock:

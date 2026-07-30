@@ -556,6 +556,20 @@ var
     ## arena is fixed per process, so one native bake serves every connection —
     ## same pattern as EndzoneStripCache.
 
+proc invalidateBoardRenderCaches*() =
+  ## Drops every process-wide render cache derived from the arena geometry.
+  ## The caches below guard on PIXEL COUNT ("the arena is fixed per process"),
+  ## so swapping between two same-sized maps — every pack map is 1235x659 —
+  ## silently reuses the previous arena's bakes: the board keeps drawing the
+  ## old map under the new sim. A replay hot-swap must call this before
+  ## re-warming.
+  boardMapCache = @[]
+  boardColdMapCache = @[]
+  EndzoneColdRgba = @[]
+  EndzoneStripCache = default(typeof(EndzoneStripCache))
+  EndzoneDiffBox = default(typeof(EndzoneDiffBox))
+  EndzoneDiffBoxReady = default(typeof(EndzoneDiffBoxReady))
+
 proc ensureBoardMaps(sim: SimServer) =
   ## Fills both native boardScale× arena bakes (hot + cold share one geometry
   ## mask and floor pass — see renderArenaRgbaPair). boardScale > 1 only.
@@ -2193,11 +2207,18 @@ proc boardMapPixels(sim: SimServer): seq[uint8] {.measure.} =
 var
   boardMapBandsCache: seq[uint8]
   boardMapBandsDefs: seq[SpriteDefinition]
+
     ## Process-wide cache of the boardScale× map band sprite+object wire
     ## messages and the sprite defs they imply. The bands are byte-identical
     ## for every viewer, and re-encoding them per connection (13 MB of band
     ## copies + snappy at RenderScale 2) cost ~1 s of the hosted certifier's
     ## 10-second first-frame budget.
+
+proc invalidateBoardBandsCache*() =
+  ## Companion to invalidateBoardRenderCaches for the encoded band packet
+  ## (declared here, after the encoder types it needs).
+  boardMapBandsCache = @[]
+  boardMapBandsDefs = @[]
 
 proc addMapBands(
   sim: SimServer,

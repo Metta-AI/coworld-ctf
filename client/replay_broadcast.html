@@ -343,6 +343,19 @@ html, body {
    mid-game joiner can always read which map this is. Collapses entirely when
    empty (default arena, or an old replay whose frames carry no map field). */
 .clock .map-label { color: var(--ghost); }
+/* Dev map picker (renders ONLY when the page URL carries ?fixtures=<base>):
+   a quiet row of map names in the transport band; the active map takes the
+   ink. Prod pages never pass the param, so this costs nothing there. */
+#map-picker { display: none; position: absolute;
+  right: calc(16 * var(--u)); bottom: calc(9 * var(--u));
+  gap: calc(10 * var(--u)); z-index: 40; }
+#map-picker.on { display: flex; }
+#map-picker button { background: none; border: none; cursor: pointer;
+  font: inherit; font-size: calc(10 * var(--u)); letter-spacing: 0.08em;
+  color: var(--ghost); padding: calc(2 * var(--u)) 0; }
+#map-picker button:hover { color: var(--paper); }
+#map-picker button.active { color: var(--paper);
+  border-bottom: calc(1.5 * var(--u)) solid var(--paper-dim); }
 .clock .map-label:empty { display: none; }
 
 /* Center column holds just the clock now — the capture-chase gauge was retired
@@ -1145,6 +1158,7 @@ body[data-embed] #board { top: 0; height: 100%; }
     <div id="killfeed"></div>
 
     <div id="transport">
+      <div id="map-picker"></div>
       <!-- Buttons on top, scrubber/timeline below (the transport sits in its own
            reserved band under the board, so nothing here overlaps play). -->
       <div class="tbar">
@@ -1552,6 +1566,41 @@ body[data-embed] #board { top: 0; height: 100%; }
     'scrapyard': 'SCRAPYARD',
     'arena-large': 'ARENA XL'
   };
+  // ---------- dev map picker (?fixtures=<base uri>) ----------
+  var PICKER_MAPS = ['rust', 'terminal', 'highrise', 'favela', 'afghan',
+                     'scrapyard'];
+  var pickerBase = new URLSearchParams(location.search).get('fixtures');
+  var currentMap = '';
+  function buildPicker() {
+    if (!pickerBase) return;
+    var el = $('map-picker');
+    if (!el) return;
+    el.classList.add('on');
+    PICKER_MAPS.forEach(function (m) {
+      var b = document.createElement('button');
+      b.textContent = MAP_NAMES[m] || m;
+      b.dataset.map = m;
+      b.onclick = function () {
+        var q = new URLSearchParams(location.search);
+        q.set('fixtures', pickerBase);
+        q.set('uri', pickerBase.replace(/\/$/, '') +
+          '/mw2-' + m + '-play.bitreplay');
+        location.search = q.toString();
+      };
+      el.appendChild(b);
+    });
+  }
+  buildPicker();
+  function pickerSync(m) {
+    if (!pickerBase || m === currentMap) return;
+    currentMap = m;
+    var el = $('map-picker');
+    if (!el) return;
+    for (var i = 0; i < el.children.length; i++)
+      el.children[i].classList.toggle('active',
+        el.children[i].dataset.map === m);
+  }
+
   var mapAnnounced = false;
   function mapDisplayName(m) {
     // Own-property lookup only: an arbitrary string must never reach up the
@@ -1564,6 +1613,7 @@ body[data-embed] #board { top: 0; height: 100%; }
     // Persistent: the quiet label under the clock caption (empty → hidden).
     var el = $('map-label');
     if (el && el.textContent !== label) el.textContent = label;
+    if (s && s.map) pickerSync(s.map);
     if (!label || mapAnnounced) return;
     // Intro moment: one lobby-splash chip through the existing banner lane,
     // announced once per page load and auto-fading like every other chip.

@@ -292,6 +292,12 @@ type
     hp: int                   # last observed hit points; 0 = never read
 
   Bot = ref object
+    ## Learned pedestal positions: pack maps declare their flag stands
+    ## per-map (off-edge, off-centerline), so the derived formula is wrong
+    ## there. The "flag planted" pedestal banner is never fogged and both
+    ## flags start planted, so tick one teaches us both true homes.
+    homeSeen: array[Team, bool]
+    homeCache: array[Team, Vec]
     slot: int
     team: Team
     role: Role
@@ -628,6 +634,15 @@ proc enemy(team: Team): Team =
   ## The opposing team.
   if team == Red: Blue else: Red
 
+proc flagHome(team: Team): Vec {.gcsafe.}
+
+proc flagHomeOf(bot: Bot, team: Team): Vec =
+  ## The team's pedestal: the position LEARNED from its planted banner when
+  ## we have seen one (pack maps place stands per-map), else the derived
+  ## default-arena formula.
+  if bot.homeSeen[team]: bot.homeCache[team]
+  else: flagHome(team)
+
 proc flagHome(team: Team): Vec =
   ## The STATIC pedestal position of one team's flag: the center of the
   ## team's protected spawn pocket (matches flagHome in src/ctf/sim.nim,
@@ -761,7 +776,7 @@ proc findEnemyPosts(bot: Bot, client: ProtocolClient) =
   let post = bot.scanPost(client, homeSign(bot.team), float(CenterY) + 60.0)
   if post.ready:
     bot.enemyPosts.add(post.peek)
-  bot.enemyPosts.add(flagHome(enemy(bot.team)))
+  bot.enemyPosts.add(bot.flagHomeOf(enemy(bot.team)))
 
 proc adoptMapSize(client: ProtocolClient) =
   ## The walkability sprite spans the whole arena: adopt its dimensions as
@@ -1324,8 +1339,8 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     mateCarry = false
     mateCarryPos: Vec
   let
-    stealTarget = flagHome(enemy(bot.team))  # the enemy pedestal is static
-    ownHome = flagHome(bot.team)
+    stealTarget = bot.flagHomeOf(enemy(bot.team))  # learned from its banner
+    ownHome = bot.flagHomeOf(bot.team)
     # Since the 0.7.8 renderer restore the objective is labeled a FLAG again,
     # split into distinct pedestal/carried sprites: "<color> flag planted" is
     # the always-visible pedestal banner, "<color> flag" the carried banner
@@ -1334,6 +1349,13 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     enemyFlags = client.spriteObjectsWithLabel(labelFlag(enemyColor))
     ownPlanted = client.spriteObjectsWithLabel(labelFlagPlanted(myColor))
     ownFlags = client.spriteObjectsWithLabel(labelFlag(myColor))
+  # Learn the true pedestal positions from the planted banners.
+  if enemyPlanted.len > 0:
+    bot.homeCache[enemy(bot.team)] = client.mapPos(enemyPlanted[0])
+    bot.homeSeen[enemy(bot.team)] = true
+  if ownPlanted.len > 0:
+    bot.homeCache[bot.team] = client.mapPos(ownPlanted[0])
+    bot.homeSeen[bot.team] = true
   # Own hit points from the HUD "lives <hp>hp x<lives>" text sprite.
   for o in client.spriteObjects():
     if o.label.startsWith(LabelPrefixLives):
@@ -1829,7 +1851,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # cost in the path field keeps the route hugging cover past remembered
     # enemies.
     let
-      pocket = flagHome(enemy(bot.team))
+      pocket = bot.flagHomeOf(enemy(bot.team))
       laneY = bot.safestLaneY(me)
     if abs(me.x - pocket.x) < 60.0 and abs(me.y - laneY) > 70.0:
       # Bug out of the pocket VERTICALLY first: every kill respawns an
