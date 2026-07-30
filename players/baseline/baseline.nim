@@ -228,6 +228,21 @@ const
                               # games cap at 5000 ticks — the all-in must land
                               # with time to convert. Scaled from 6800/10000.
                               # the default outcome, so commit to the capture
+  LocalOddsRadius = 250.0     # -d:localOddsGate: px radius the local force
+                              # count uses. Forensics vs alphashot v329: at our
+                              # deaths in LOSSES there are 3.34 enemies vs 2.11
+                              # mates inside 250px; in WINS 2.91 vs 2.02 — the
+                              # ENEMY term is what moves, so count at 250px.
+  LocalOddsLo = 3200          # -d:localOddsGate: game-tick window start. Every
+  LocalOddsHi = 4200          # loss in that cell is decided in the gt3400-3800
+                              # midline collision; the band brackets it.
+  LocalOddsMargin = 1         # -d:localOddsGate: gate fires when fresh TRACKED
+                              # foes minus fresh visible mates reaches this —
+                              # being outnumbered by one is enough to lose the
+                              # exchange we would otherwise close into.
+  MateRallyMax = 600.0        # -d:localOddsGate: only fall back TOWARD a mate
+                              # cluster this close; a mate half a map away is
+                              # not a rally point, so give ground plainly.
   HoldFrontCap = 220.0        # -d:holdFront: ceiling on the phalanx creep — a
                               # castle line near our wall: fights there recur on
                               # ground where our respawn walk is ~100px and the
@@ -2775,6 +2790,29 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           nadeDangerFrom = p
           break nadeDangerScan
 
+  when defined(localOddsGate):
+    # LOCAL ODDS GATE: in the decisive midline window, a bot that is locally
+    # outnumbered should not close into the exchange. Count only POSITIVELY
+    # TRACKED foes (never absence-of-mates: a missing mate track is fog, and
+    # gating on it inherits the fog miss rate) and use the gun's own
+    # FreshShotTicks TTL, which is tight enough that the phantom track split
+    # on stale tracks cannot inflate the count. Carriers and the pocket grab
+    # are exempt: their errand outranks the exchange.
+    var
+      localFoes = 0
+      localMates = 0
+    for t in bot.enemies:
+      if bot.tick - t.lastSeen <= FreshShotTicks and dist(t.pos, me) <= LocalOddsRadius:
+        inc localFoes
+    for t in bot.mates:
+      if bot.tick - t.lastSeen <= 12 and dist(t.pos, me) <= LocalOddsRadius:
+        inc localMates
+    let oddsGateOn =
+      bot.tick - bot.gameStart >= LocalOddsLo and
+      bot.tick - bot.gameStart <= LocalOddsHi and
+      localFoes - localMates >= LocalOddsMargin and
+      not iCarry and not pocketRush
+
   # Turret + locomotion, decided together but on separate buttons: moveMask
   # is the d-pad, desiredAim feeds the rotate buttons, wantFire pulls A.
   var
@@ -2839,6 +2877,28 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       perpMiss = engageD * sin(float(err) * PI / float(AimBrads div 2))
     wantFire = perpMiss <= FireSlackPx
     moveMask = octantBits(aim - me)
+    when defined(localOddsGate):
+      if oddsGateOn:
+        # Locally outnumbered: keep the turret and the trigger exactly as they
+        # are — the gun is map-wide, so we lose nothing by shooting from where
+        # we stand — but give ground instead of closing. Fall back toward the
+        # centroid of nearby mates when there is one to rally on, else straight
+        # away from the target, and always blend in the away component so the
+        # rally never walks us through the enemy.
+        var
+          mateSum = vec(0.0, 0.0)
+          mateN = 0
+        for t in bot.mates:
+          if bot.tick - t.lastSeen <= 12 and dist(t.pos, me) <= MateRallyMax:
+            mateSum = mateSum + t.pos
+            inc mateN
+        let awayDir = norm(me - aim)
+        var fallDir = awayDir
+        if mateN > 0:
+          fallDir = norm(vec(mateSum.x / float(mateN),
+                             mateSum.y / float(mateN)) - me)
+        moveMask = octantBits(norm(fallDir) + awayDir * 0.5)
+        actMode = "fire_gg"
     acted = true
   elif not iCarry and not rushing and not pocketRush and not shotReady and
       nearThreat >= 0:
