@@ -396,131 +396,6 @@
   ],
   "variants": [
     {
-      "id": "default",
-      "name": "Default",
-      "description": "Sixteen-player 8v8 CTF episode using the default balanced game settings.",
-      "game_config": {
-        "players": [
-          {
-            "name": "Player1"
-          },
-          {
-            "name": "Player2"
-          },
-          {
-            "name": "Player3"
-          },
-          {
-            "name": "Player4"
-          },
-          {
-            "name": "Player5"
-          },
-          {
-            "name": "Player6"
-          },
-          {
-            "name": "Player7"
-          },
-          {
-            "name": "Player8"
-          },
-          {
-            "name": "Player9"
-          },
-          {
-            "name": "Player10"
-          },
-          {
-            "name": "Player11"
-          },
-          {
-            "name": "Player12"
-          },
-          {
-            "name": "Player13"
-          },
-          {
-            "name": "Player14"
-          },
-          {
-            "name": "Player15"
-          },
-          {
-            "name": "Player16"
-          }
-        ],
-        "slots": [
-          {
-            "team": "red"
-          },
-          {
-            "team": "blue"
-          },
-          {
-            "team": "red"
-          },
-          {
-            "team": "blue"
-          },
-          {
-            "team": "red"
-          },
-          {
-            "team": "blue"
-          },
-          {
-            "team": "red"
-          },
-          {
-            "team": "blue"
-          },
-          {
-            "team": "red"
-          },
-          {
-            "team": "blue"
-          },
-          {
-            "team": "red"
-          },
-          {
-            "team": "blue"
-          },
-          {
-            "team": "red"
-          },
-          {
-            "team": "blue"
-          },
-          {
-            "team": "red"
-          },
-          {
-            "team": "blue"
-          }
-        ],
-        "seed": 679961,
-        "num_agents": 16,
-        "minPlayers": 16,
-        "lives": 3,
-        "hitPoints": 3,
-        "respawnTicks": 72,
-        "gunRange": 1300,
-        "fireCooldownTicks": 12,
-        "carrierSpeedPct": 70,
-        "aimTurnRate": 5,
-        "visionConeDeg": 45,
-        "visionBubble": 90,
-        "startWaitTicks": 120,
-        "gameOverTicks": 360,
-        "maxTicks": 5000,
-        "maxGames": 1,
-        "mapPath": "arena",
-        "showPlayerLabels": true
-      }
-    },
-    {
       "id": "2v2",
       "name": "2v2",
       "description": "Classic two-sided play on RANDOM GENERATED terrain: 16 seats, each parity team split between two entrant policies (4 policies per episode, 4 agents each). The map seed derives from the per-episode game seed; replays pin the exact geometry.",
@@ -701,6 +576,82 @@
             "name": "Player16"
           }
         ],
+        "seed": 679961,
+        "num_agents": 16,
+        "minPlayers": 16,
+        "lives": 3,
+        "hitPoints": 3,
+        "respawnTicks": 72,
+        "gunRange": 1300,
+        "fireCooldownTicks": 12,
+        "carrierSpeedPct": 70,
+        "aimTurnRate": 5,
+        "visionConeDeg": 45,
+        "visionBubble": 90,
+        "startWaitTicks": 120,
+        "gameOverTicks": 360,
+        "maxTicks": 5000,
+        "maxGames": 1,
+        "mapPath": "gen",
+        "showPlayerLabels": true,
+        "teams": 4
+      }
+    },
+    {
+      "id": "default",
+      "name": "Default",
+      "description": "Sixteen-player 8v8 CTF episode using the default balanced game settings.",
+      "game_config": {
+        "players": [
+          {
+            "name": "Player1"
+          },
+          {
+            "name": "Player2"
+          },
+          {
+            "name": "Player3"
+          },
+          {
+            "name": "Player4"
+          },
+          {
+            "name": "Player5"
+          },
+          {
+            "name": "Player6"
+          },
+          {
+            "name": "Player7"
+          },
+          {
+            "name": "Player8"
+          },
+          {
+            "name": "Player9"
+          },
+          {
+            "name": "Player10"
+          },
+          {
+            "name": "Player11"
+          },
+          {
+            "name": "Player12"
+          },
+          {
+            "name": "Player13"
+          },
+          {
+            "name": "Player14"
+          },
+          {
+            "name": "Player15"
+          },
+          {
+            "name": "Player16"
+          }
+        ],
         "slots": [
           {
             "team": "red"
@@ -767,9 +718,8 @@
         "gameOverTicks": 360,
         "maxTicks": 5000,
         "maxGames": 1,
-        "mapPath": "gen",
-        "showPlayerLabels": true,
-        "teams": 4
+        "mapPath": "arena",
+        "showPlayerLabels": true
       }
     }
   ],
