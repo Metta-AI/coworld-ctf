@@ -101,7 +101,8 @@ square map:
 - **Scoring is zero-sum by construction**: the winning team scores **+1 per
   losing team**, each losing team scores **-1**. Classic 2-team play stays
   +1/-1; a 4-team win pays **+3** to the winner and **-1** to each loser.
-  Time-limit draws still pay -1 to everyone.
+  Time-limit draws still pay -1 to everyone. (Under `scoring: "pot"` the
+  4-team win pays **+4** instead — see "Scoring".)
 - **Labels are unchanged in shape**: the same `player <color> <side>`,
   `<color> flag [planted]`, shout, and identity vocabulary — `green` and
   `yellow` simply appear as team color tokens alongside `red` and `blue`.
@@ -487,6 +488,12 @@ Scoring is **sparse and win-only**:
 - **Decisive round** (capture or wipe): every winner scores **+1**, every
   loser scores **-1**. (Four-team free-for-all generalizes this zero-sum:
   the winning team scores +1 per losing team — see "Four-team mode".)
+- **`scoring: "pot"`** (config-gated; the default `"classic"` is the rule
+  above) replaces the payout with an ante: **every team contributes one
+  point and the winning team takes the whole pot**, the losing teams
+  splitting the forfeit evenly. Two teams pay **+2 / -2**; four teams pay
+  **+4** to the winner and **-1** to each of the three losers. Draws are
+  unchanged.
 - **Time-limit draw: -1 for both sides** (GameVersion 21). Running out the
   clock is never better than losing, so stalling has no upside for anyone.
 - **Mutual-wipe draw** (both teams eliminated on the same tick): 0 for both

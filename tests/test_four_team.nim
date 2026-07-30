@@ -187,3 +187,75 @@ suite "four team ctf":
     config.slots = @[PlayerSlotConfig(team: Green, hasTeam: true)]
     expect CtfError:
       config.update("""{"teams": 2}""")
+
+suite "pot scoring":
+  ## Every team antes one point; the winning team takes the whole pot and the
+  ## losing teams split the forfeit. 2 teams: +2/-2. 4 teams: +4/-1/-1/-1.
+
+  proc twoTeamPotGame(): SimServer =
+    var config = defaultGameConfig()
+    config.scoring = PotScoring
+    result = initCtfForTest(config)
+    for i in 0 ..< 2:
+      discard result.addPlayer("p" & $i)
+    result.startGame()
+
+  proc fourTeamPotGame(): SimServer =
+    var config = fourTeamConfig("corners")
+    config.scoring = PotScoring
+    result = initCtfForTest(config)
+    for i in 0 ..< 4:
+      discard result.addPlayer("p" & $i)
+    result.startGame()
+
+  test "classic scoring is the default and is untouched":
+    check defaultGameConfig().scoring == ClassicScoring
+    var sim = fourTeamGame()
+    sim.players[1].alive = false
+    sim.players[1].lives = 0
+    for i in [2, 3]:
+      sim.players[i].alive = false
+      sim.players[i].lives = 0
+    sim.checkWinCondition()
+    check sim.winner == Red
+    check sim.players[0].reward == 3
+    for i in 1 ..< 4:
+      check sim.players[i].reward == -1
+
+  test "two teams pay the winner +2 and the loser -2":
+    var sim = twoTeamPotGame()
+    sim.players[1].alive = false
+    sim.players[1].lives = 0
+    sim.checkWinCondition()
+    check sim.phase == GameOver
+    check sim.winner == Red
+    check sim.players[0].reward == 2
+    check sim.players[1].reward == -2
+
+  test "four teams pay the winner +4 and each loser -1":
+    var sim = fourTeamPotGame()
+    for i in 1 ..< 4:
+      sim.players[i].alive = false
+      sim.players[i].lives = 0
+    sim.checkWinCondition()
+    check sim.phase == GameOver
+    check sim.winner == Red
+    check sim.players[0].reward == 4
+    for i in 1 ..< 4:
+      check sim.players[i].reward == -1
+
+  test "a time-limit draw still costs every player one point":
+    var sim = fourTeamPotGame()
+    sim.finishGame(Red, isDraw = true, timeLimitReached = true)
+    check sim.isDraw
+    for i in 0 ..< 4:
+      check sim.players[i].reward == TimeoutReward
+
+  test "scoring round-trips through replay JSON and rejects unknown rules":
+    let sim = fourTeamPotGame()
+    var config = defaultGameConfig()
+    config.update(sim.config.configJson())
+    check config.scoring == PotScoring
+    var bad = defaultGameConfig()
+    expect CtfError:
+      bad.update("""{"scoring": "winner-take-all"}""")

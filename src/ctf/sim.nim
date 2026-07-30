@@ -190,6 +190,10 @@ const
 
   WinReward* = 1              ## each winner scores +1 on capture or wipe.
   LossReward* = -1            ## each loser scores -1 on capture or wipe.
+  ClassicScoring* = "classic" ## winner +1 per losing team, each loser -1.
+  PotScoring* = "pot"         ## every team antes one point; the winning team
+                              ## takes the whole pot and the losing teams
+                              ## split the forfeit (see potScoring below).
   TimeoutReward* = -1         ## EVERY player scores -1 on a time-limit draw
                               ## (GameVersion 21): stalling out the clock is
                               ## never better than losing, for either side.
@@ -576,6 +580,8 @@ type
                               ## team fights for itself; "2v2" is two
                               ## policies splitting one classic team's
                               ## seats, not a game mode.
+    scoring*: string          ## end-of-game reward rule: ClassicScoring
+                              ## (default, unchanged) or PotScoring.
     mapPath*: string
     mapSeed*: int             ## terrain seed for "gen"/"pool"; -1 = derive
                               ## from the game seed.
@@ -4403,6 +4409,7 @@ proc defaultGameConfig*(): GameConfig =
     showPlayerLabels: true,
     fastMode: true,
     teams: 2,
+    scoring: ClassicScoring,
     mapPath: DefaultMapPath,
     mapSeed: -1,
     mapPoolIndex: -1,
@@ -4665,6 +4672,12 @@ proc validate(config: GameConfig) =
     raise newException(CtfError, "Config field minPlayers must be at least 1.")
   if config.teams notin [2, 4]:
     raise newException(CtfError, "Config field teams must be 2 or 4.")
+  if config.scoring notin [ClassicScoring, PotScoring]:
+    raise newException(
+      CtfError,
+      "Config field scoring must be " & ClassicScoring & " or " & PotScoring &
+        "; got " & config.scoring & "."
+    )
   for i, slot in config.slots:
     if slot.hasTeam and ord(slot.team) >= config.teams:
       raise newException(
@@ -4777,6 +4790,7 @@ proc update*(config: var GameConfig, jsonText: string) =
   node.readConfigBool("showPlayerLabels", config.showPlayerLabels)
   node.readConfigBool("fastMode", config.fastMode)
   node.readConfigInt("teams", config.teams)
+  node.readConfigString("scoring", config.scoring)
   node.readConfigString("map", config.mapPath)
   node.readConfigString("mapPath", config.mapPath)
   node.readConfigInt("mapSeed", config.mapSeed)
@@ -4890,6 +4904,7 @@ proc configJson*(config: GameConfig): string =
     "showPlayerLabels": config.showPlayerLabels,
     "fastMode": config.fastMode,
     "teams": config.teams,
+    "scoring": config.scoring,
     "tokens": tokens,
     "slots": slots
   }
@@ -8002,10 +8017,24 @@ proc finishGame*(sim: var SimServer, winner: Team, isDraw = false, timeLimitReac
           continue
         sim.rewardAccounts[i].reward += TimeoutReward
     return
-  # Zero-sum by construction: the winning team scores +1 per losing team,
-  # each losing team -1. Classic 2-team play stays +1/-1; a 4-team ffa win
+  # classic: zero-sum by construction — the winning team scores +1 per losing
+  # team, each losing team -1. Classic 2-team play is +1/-1; a 4-team ffa win
   # pays the winner +3 and each loser -1.
+  # pot: every team antes one point, so the pot is the team count and the
+  # winning team takes all of it; the losing teams split the forfeit evenly
+  # (integer division, so a 4-team pot of 4 costs each of the three losers 1).
+  # 2 teams pay +2/-2, 4 teams pay +4/-1/-1/-1.
   let loserTeams = sim.gameMap.teamCount() - 1
+  let winReward =
+    if sim.config.scoring == PotScoring:
+      sim.gameMap.teamCount()
+    else:
+      WinReward * loserTeams
+  let lossReward =
+    if sim.config.scoring == PotScoring:
+      -(sim.gameMap.teamCount() div loserTeams)
+    else:
+      LossReward
   var awardedAccounts = newSeq[bool](sim.rewardAccounts.len)
   for i in 0 ..< sim.players.len:
     let accountIndex = sim.rewardAccountForPlayer(i)
@@ -8014,21 +8043,21 @@ proc finishGame*(sim: var SimServer, winner: Team, isDraw = false, timeLimitReac
     if accountIndex >= 0 and accountIndex < awardedAccounts.len:
       awardedAccounts[accountIndex] = true
     if sim.players[i].team == winner:
-      sim.addReward(i, WinReward * loserTeams)
+      sim.addReward(i, winReward)
       sim.recordGameWin(i)
     else:
-      sim.addReward(i, LossReward)
+      sim.addReward(i, lossReward)
   for i in 0 ..< sim.rewardAccounts.len:
     if i < awardedAccounts.len and awardedAccounts[i]:
       continue
     if not sim.rewardAccounts[i].hasTeam:
       continue
     if sim.rewardAccounts[i].team == winner:
-      sim.rewardAccounts[i].reward += WinReward * loserTeams
+      sim.rewardAccounts[i].reward += winReward
       sim.rewardAccounts[i].won = true
       inc sim.rewardAccounts[i].wins[sim.rewardAccounts[i].team]
     else:
-      sim.rewardAccounts[i].reward += LossReward
+      sim.rewardAccounts[i].reward += lossReward
 
 proc maxTicksReached(sim: SimServer): bool =
   sim.config.maxTicks > 0 and sim.phase == Playing and
