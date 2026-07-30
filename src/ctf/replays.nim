@@ -58,7 +58,9 @@ type
       ## looping replay restarts, so the end segment (winner, win condition,
       ## stats) is readable instead of flashing for one frame. 0 = not holding.
     skipLulls*: bool
-      ## When on, playback fast-forwards through the lull spans below.
+      ## When on, playback fast-forwards through the lull spans below. ON for
+      ## every replay `initReplayPlayer` builds: a spectator's default watch
+      ## should not sit through the quiet stretches. 'f' turns it off.
     lullSpans*: seq[array[2, int]]
       ## Inclusive [firstTick, lastTick] spans where nothing beat-worthy
       ## happens (no kill/steal/return/capture/phase change within
@@ -135,6 +137,7 @@ proc initReplayPlayer*(data: ReplayData): ReplayPlayer =
   result.playing = true
   result.looping = true
   result.speedIndex = 0
+  result.skipLulls = true
   result.hashMismatchTick = -1
 
 proc replaySpeed*(replay: ReplayPlayer): int =

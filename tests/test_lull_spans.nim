@@ -22,6 +22,12 @@ block:
   doAssert spans.len == 1
   doAssert spans[0] == [LullLeadTicks + 1, 2000]
 
+echo "Testing skip-lulls default"
+block:
+  # Every replay starts fast-forwarding the quiet stretches; 'f' opts out.
+  var replay = initReplayPlayer(ReplayData())
+  doAssert replay.skipLulls, "skip-lulls must be on by default"
+
 echo "Testing lull tick lookup and step budget"
 block:
   var replay: ReplayPlayer
