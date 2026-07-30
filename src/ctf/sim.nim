@@ -1895,6 +1895,10 @@ const
   ##   - barrels
   ##   - yard fence
   RustObstacles = [
+    # scrap infill (rot180 pair): the beam corners strand two floor
+    # slivers at (225,108) and its rotation image; pile scrap over both
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 210, y: 94, w: 32, h: 32)),
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 993, y: 533, w: 32, h: 32)),
     # tower leg
     ArenaShape(kind: shapeRect, rect: MapRect(x: 539, y: 251, w: 28, h: 28)),
     ArenaShape(kind: shapeRect, rect: MapRect(x: 695, y: 251, w: 28, h: 28)),
@@ -2603,6 +2607,9 @@ const
   ## landing-gear clusters, containers and perimeter scrap-fence stubs
   ## fill the yards.
   ScrapyardObstacles = [
+    # scrap infill: a one-cell sliver pocket at (401,89) between the north
+    # props strands floor the flood fill cannot reach; pile scrap over it
+    ArenaShape(kind: shapeRect, rect: MapRect(x: 384, y: 72, w: 36, h: 36)),
     # brick office
     ArenaShape(kind: shapeRect, rect: MapRect(x: 96, y: 60, w: 190, h: 18)),
     ArenaShape(kind: shapeRect, rect: MapRect(x: 96, y: 248, w: 80, h: 18)),
@@ -3097,6 +3104,34 @@ proc highriseCtfMap(): CtfMap =
   ]
   result.medKitCandidates = result.medKitSpawns
   result.rooms = result.defaultCtfRooms()
+  result.props = @[
+    PropSprite(file: "data/props/helipad_parapet.png", x: 640, y: 13, w: 96, h: 26),
+    PropSprite(file: "data/props/helipad_parapet.png", x: 640, y: 191, w: 96, h: 14),
+    PropSprite(file: "data/props/duct.png", x: 526, y: 252, w: 120, h: 18),
+    PropSprite(file: "data/props/duct.png", x: 712, y: 252, w: 120, h: 18),
+    PropSprite(file: "data/props/duct.png", x: 454, y: 264, w: 48, h: 26, rot: -45),
+    PropSprite(file: "data/props/duct.png", x: 784, y: 264, w: 48, h: 26, rot: 45),
+    PropSprite(file: "data/props/duct.png", x: 535, y: 412, w: 110, h: 18),
+    PropSprite(file: "data/props/duct.png", x: 720, y: 412, w: 120, h: 18),
+    PropSprite(file: "data/props/duct.png", x: 496, y: 314, w: 52, h: 36),
+    PropSprite(file: "data/props/duct.png", x: 750, y: 412, w: 52, h: 36),
+    PropSprite(file: "data/props/barrel.png", x: 782, y: 340, w: 48, h: 48),
+    PropSprite(file: "data/props/helipad_parapet.png", x: 365, y: 12, w: 70, h: 24),
+    PropSprite(file: "data/props/helipad_parapet.png", x: 1000, y: 12, w: 80, h: 24),
+    PropSprite(file: "data/props/helipad_parapet.png", x: 365, y: 646, w: 70, h: 25),
+    PropSprite(file: "data/props/helipad_parapet.png", x: 995, y: 646, w: 70, h: 25),
+    PropSprite(file: "data/props/container.png", x: 790, y: 635, w: 56, h: 26),
+    PropSprite(file: "data/props/barrel.png", x: 850, y: 495, w: 68, h: 68),
+    PropSprite(file: "data/props/barrel.png", x: 830, y: 462, w: 36, h: 36),
+    PropSprite(file: "data/props/barrel.png", x: 272, y: 48, w: 36, h: 36),
+    PropSprite(file: "data/props/barrel.png", x: 264, y: 530, w: 36, h: 36),
+    PropSprite(file: "data/props/barrel.png", x: 1000, y: 120, w: 36, h: 36),
+    PropSprite(file: "data/props/barrel.png", x: 884, y: 330, w: 32, h: 32),
+    PropSprite(file: "data/props/barrel.png", x: 836, y: 576, w: 36, h: 36),
+    PropSprite(file: "data/props/barrel.png", x: 862, y: 598, w: 36, h: 36),
+    PropSprite(file: "data/props/barrel.png", x: 556, y: 470, w: 32, h: 32),
+    PropSprite(file: "data/props/barrel.png", x: 580, y: 484, w: 32, h: 32),
+  ]
   result.validateMap()
 
 proc favelaCtfMap(): CtfMap =
@@ -3151,6 +3186,17 @@ proc favelaCtfMap(): CtfMap =
   ]
   result.medKitCandidates = result.medKitSpawns
   result.rooms = result.defaultCtfRooms()
+  result.props = @[
+    PropSprite(file: "data/props/barrel.png", x: 420, y: 252, w: 26, h: 26),
+    PropSprite(file: "data/props/barrel.png", x: 500, y: 250, w: 24, h: 24),
+    PropSprite(file: "data/props/barrel.png", x: 704, y: 18, w: 22, h: 22),
+    PropSprite(file: "data/props/barrel.png", x: 1098, y: 86, w: 24, h: 24),
+    PropSprite(file: "data/props/crate.png", x: 712, y: 246, w: 18, h: 18),
+    PropSprite(file: "data/props/barrel.png", x: 884, y: 248, w: 26, h: 26),
+    PropSprite(file: "data/props/barrel.png", x: 434, y: 430, w: 26, h: 26),
+    PropSprite(file: "data/props/barrel.png", x: 700, y: 486, w: 24, h: 24),
+    PropSprite(file: "data/props/barrel.png", x: 1098, y: 382, w: 26, h: 26),
+  ]
   result.validateMap()
 
 proc afghanCtfMap(): CtfMap =
@@ -3207,6 +3253,21 @@ proc afghanCtfMap(): CtfMap =
   ]
   result.medKitCandidates = result.medKitSpawns
   result.rooms = result.defaultCtfRooms()
+  result.props = @[
+    PropSprite(file: "data/props/nose.png", x: 696, y: 290, w: 52, h: 52),
+    PropSprite(file: "data/props/fuselage.png", x: 572, y: 290, w: 240, h: 48),
+    PropSprite(file: "data/props/fuselage.png", x: 362, y: 300, w: 124, h: 40),
+    PropSprite(file: "data/props/engine.png", x: 641, y: 158, w: 28, h: 28),
+    PropSprite(file: "data/props/engine.png", x: 641, y: 206, w: 32, h: 32),
+    PropSprite(file: "data/props/engine.png", x: 641, y: 354, w: 32, h: 32),
+    PropSprite(file: "data/props/engine.png", x: 641, y: 402, w: 28, h: 28),
+    PropSprite(file: "data/props/tail_fin.png", x: 289, y: 300, w: 50, h: 14),
+    PropSprite(file: "data/props/crate.png", x: 561, y: 213, w: 42, h: 26),
+    PropSprite(file: "data/props/crate.png", x: 562, y: 232, w: 28, h: 28),
+    PropSprite(file: "data/props/crate.png", x: 904, y: 20, w: 60, h: 24),
+    PropSprite(file: "data/props/crate.png", x: 934, y: 78, w: 36, h: 36),
+    PropSprite(file: "data/props/crate.png", x: 884, y: 44, w: 52, h: 52),
+  ]
   result.validateMap()
 
 proc scrapyardCtfMap(): CtfMap =
@@ -3274,6 +3335,37 @@ proc scrapyardCtfMap(): CtfMap =
   ]
   result.medKitCandidates = result.medKitSpawns
   result.rooms = result.defaultCtfRooms()
+  result.props = @[
+    PropSprite(file: "data/props/nose.png", x: 362, y: 232, w: 40, h: 40),
+    PropSprite(file: "data/props/fuselage.png", x: 422, y: 232, w: 92, h: 40),
+    PropSprite(file: "data/props/fuselage.png", x: 524, y: 232, w: 52, h: 34),
+    PropSprite(file: "data/props/engine.png", x: 474, y: 188, w: 26, h: 26),
+    PropSprite(file: "data/props/engine.png", x: 514, y: 286, w: 24, h: 24),
+    PropSprite(file: "data/props/tail_fin.png", x: 544, y: 231, w: 20, h: 42),
+    PropSprite(file: "data/props/nose.png", x: 848, y: 452, w: 38, h: 38),
+    PropSprite(file: "data/props/fuselage.png", x: 794, y: 452, w: 92, h: 40),
+    PropSprite(file: "data/props/fuselage.png", x: 692, y: 452, w: 52, h: 34),
+    PropSprite(file: "data/props/engine.png", x: 752, y: 406, w: 26, h: 26),
+    PropSprite(file: "data/props/engine.png", x: 710, y: 510, w: 24, h: 24),
+    PropSprite(file: "data/props/tail_fin.png", x: 662, y: 450, w: 20, h: 44),
+    PropSprite(file: "data/props/nose.png", x: 862, y: 240, w: 36, h: 36),
+    PropSprite(file: "data/props/fuselage.png", x: 907, y: 240, w: 66, h: 36),
+    PropSprite(file: "data/props/fuselage.png", x: 976, y: 240, w: 28, h: 32),
+    PropSprite(file: "data/props/engine.png", x: 938, y: 290, w: 24, h: 24),
+    PropSprite(file: "data/props/tail_fin.png", x: 940, y: 178, w: 30, h: 30),
+    PropSprite(file: "data/props/container.png", x: 592, y: 108, w: 64, h: 24),
+    PropSprite(file: "data/props/container.png", x: 772, y: 130, w: 60, h: 24),
+    PropSprite(file: "data/props/engine.png", x: 452, y: 114, w: 28, h: 28),
+    PropSprite(file: "data/props/engine.png", x: 470, y: 121, w: 22, h: 22),
+    PropSprite(file: "data/props/fuselage.png", x: 351, y: 165, w: 58, h: 26),
+    PropSprite(file: "data/props/engine.png", x: 334, y: 242, w: 30, h: 30),
+    PropSprite(file: "data/props/engine.png", x: 348, y: 250, w: 22, h: 22),
+    PropSprite(file: "data/props/container.png", x: 1032, y: 70, w: 64, h: 24),
+    PropSprite(file: "data/props/container.png", x: 1106, y: 70, w: 60, h: 24),
+    PropSprite(file: "data/props/fuselage.png", x: 909, y: 133, w: 58, h: 26),
+    PropSprite(file: "data/props/container.png", x: 498, y: 550, w: 64, h: 24),
+    PropSprite(file: "data/props/container.png", x: 916, y: 490, w: 60, h: 24),
+  ]
   result.validateMap()
 
 proc teamHome*(gameMap: CtfMap, team: Team): MapPoint =
