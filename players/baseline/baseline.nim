@@ -228,21 +228,23 @@ const
                               # games cap at 5000 ticks — the all-in must land
                               # with time to convert. Scaled from 6800/10000.
                               # the default outcome, so commit to the capture
-  PressDeepPx = 220.0         # -d:pressBreak: an enemy this deep past mid on
-                              # OUR half is siege ground (his press engages our
-                              # 220px castle line), not a midfield duel — h050/
-                              # h006-class duellists hover near the centerline
-                              # and never sit this deep for long
+  PressDeepPx = 35.0          # -d:pressBreak: an enemy this far past mid on
+                              # OUR half counts toward the press. Decoded
+                              # (worker-d counter-design corpus, 24 eps): the
+                              # latepush/tick3400 press parks 0-100px past the
+                              # midline and kills our stations from 300-450px
+                              # standoff — it is NEVER 200px+ deep (0/24 at
+                              # 220). At 25-50px the trigger arms in 15-19 of
+                              # 24 episodes, median ~gt2000
   PressBodies = 2             # -d:pressBreak: this many simultaneous fresh deep
-                              # tracks = a standing press (the latepush family
-                              # keeps ~2.2 seats in our half all game)
-  PressSustainTicks = 300     # -d:pressBreak: the deep presence must persist
+                              # tracks = a standing press
+  PressSustainTicks = 240     # -d:pressBreak: the deep presence must persist
                               # this long (lapses decay 2:1) before we call the
                               # class — one runner passing through never arms it
   PressBreakMinGame = 1200    # -d:pressBreak: never break before the opening
                               # settles; his reinforcement lands ~gt1615 and his
                               # first steal comes ~gt2800-3600, so breaking at
-                              # ~gt1500-2000 is early for him, on time for us
+                              # ~gt1500-2400 is early for him, on time for us
   HoldFrontCap = 220.0        # -d:holdFront: ceiling on the phalanx creep — a
                               # castle line near our wall: fights there recur on
                               # ground where our respawn walk is ~100px and the
@@ -2072,6 +2074,20 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # for the artifact telemetry (see baseline/artlog.nim).
   var target: Vec
   var objMode = "attack"
+  # -d:pressHoldMid rider on the press breaker: the mid-lane pair keeps its
+  # stations through a pressBroke-driven early break (until the normal
+  # LatePushTick all-in). The tick3400-family stealer seats release on their
+  # clock regardless of our posture and its press does NOT recall on a steal,
+  # so an early break otherwise leaves our pedestal ring empty for exactly
+  # the lift it is fitted to — two live bodies at the choke keep the decoded
+  # conversion gate manned (ring >=1 body: his carries convert 6.3% vs 15.1%)
+  # while six seats take the game to his thin ring.
+  when defined(pressHoldMid):
+    let pressHoldHome = bot.pressBroke and
+      bot.phalanxDuty in {pdMidA, pdMidB} and
+      bot.tick - bot.gameStart <= LatePushTick
+  else:
+    let pressHoldHome = false
   if iCarry:
     objMode = "carry"
     # Run the stolen enemy flag home along the emptiest lane; the exposure
@@ -2170,7 +2186,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         target = mateCarryPos + vec(homeSign(bot.team) * 40.0, -24.0)
       else:
         target = bot.chokeHold
-  elif phalanxOn and not pushOut:
+  elif phalanxOn and (pressHoldHome or not pushOut):
    when defined(zonePhalanx):
      # Telemetry only: name station duty so it stops falling through to the
      # "attack" initialiser (objMode's sole consumer is the artlog frame).
