@@ -14,7 +14,7 @@
 ## same Dockerfile, same entry point.
 
 import
-  std/[math, os, strutils, tables],
+  std/[math, os, parseopt, strutils, tables],
   bitworld/spriteprotocol,
   whisky,
   ctf/labels,
@@ -855,13 +855,50 @@ proc runOnce(bot: var Bot, url: string) =
     ws.send(inputBlob(mask), BinaryMessage)
     ws.send(readyBlob(), BinaryMessage)
 
+proc resolveUrl(): string =
+  ## The two launch contracts a player must honour: the certification/ECS
+  ## path passes a complete URL in COGAMES_ENGINE_WS_URL; the quick-run/
+  ## harness path passes bitworld player CLI args
+  ## (--address --port --name --slot --token --url). Unknown args are
+  ## ignored rather than fatal.
+  var
+    address = ""
+    port = 0
+    name = ""
+    slot = -1
+    token = ""
+    url = ""
+  for kind, key, val in getopt():
+    if kind notin {cmdLongOption, cmdShortOption}: continue
+    case key
+    of "url": url = val
+    of "address": address = val
+    of "port":
+      try: port = parseInt(val)
+      except ValueError: discard
+    of "name": name = val
+    of "slot":
+      try: slot = parseInt(val)
+      except ValueError: discard
+    of "token": token = val
+    else: discard
+  if url.len > 0:
+    return url.ensureWsPath("/player")
+  if address.len > 0 or port > 0:
+    if address.len == 0: address = "localhost"
+    if port <= 0: port = 8080
+    var base = "ws://" & address & ":" & $port
+    base = base.ensureWsPath("/player")
+    return playerConnectUrl(base, name, token, slot)
+  result = getEnv("COGAMES_ENGINE_WS_URL")
+  if result.len == 0:
+    result = getEnv("ENGINE_WS_URL")
+  if result.len == 0:
+    result = "ws://localhost:8080"
+  result = result.ensureWsPath("/player")
+
 proc main() =
-  var url = getEnv("COGAMES_ENGINE_WS_URL")
-  if url.len == 0:
-    url = getEnv("ENGINE_WS_URL")
-  if url.len == 0:
-    url = "ws://localhost:8080"
-  url = url.ensureWsPath("/player")
+  let url = resolveUrl()
   var bot = Bot(client: initProtocolClient(), seat: -1)
   bot.role = roleIntTop            # neutral default until the badge resolves.
   var attempt = 0
