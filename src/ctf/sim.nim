@@ -460,6 +460,10 @@ type
     ## depth while reading as real material instead of flat colour. Empty
     ## means the default arena's plain carved stone.
     wallTex*: string
+    ## Per-map team home POINTS (pedestal + spawn anchor). A recreation puts
+    ## each team where the real map's spawn is, which is rarely mid-edge. A
+    ## zero point falls back to the derived 70%-to-the-edge default.
+    redHome*, blueHome*: MapPoint
     material*: ArenaMaterial
     trenches*: seq[MapRect]    ## walkable dug-pit squares (config-gated trenches): standing
                                ## inside slows movement and fire, and most
@@ -2505,6 +2509,11 @@ proc terminalCtfMap(): CtfMap =
   result.spawnClearH = 130
   result.gunRange = 1300
   result.fullObstacles = @TerminalObstacles
+  ## Real Terminal spawns are NOT mid-edge: one team holds the concourse's
+  ## west end by the escalators, the other the east end past the carousel,
+  ## and both sit off the hall's centre line rather than on it.
+  result.redHome = MapPoint(x: 190, y: 396)
+  result.blueHome = MapPoint(x: 1046, y: 262)
   ## Hand-dug trenches (main's config-gated pit terrain): cover you stand IN.
   ## One mid-apron so the exposed north crossing has a survivable waypoint,
   ## one either side of the security pinch so mid is contested slowly rather
@@ -2706,18 +2715,30 @@ proc scrapyardCtfMap(): CtfMap =
   result.rooms = result.defaultCtfRooms()
   result.validateMap()
 
-proc teamHomeX*(gameMap: CtfMap, team: Team): int =
-  ## Returns the home-edge x anchor for one team's spawn strip and pedestal.
+proc teamHome*(gameMap: CtfMap, team: Team): MapPoint =
+  ## The team's home point: the map's own if it declares one, else the
+  ## derived 70%-to-the-edge default the abstract arenas use.
+  let declared = (case team
+                  of Red: gameMap.redHome
+                  of Blue: gameMap.blueHome)
+  if declared.x != 0 or declared.y != 0:
+    return declared
   case team
   of Red:
-    gameMap.center.x - (gameMap.center.x * 7 div 10)
+    MapPoint(x: gameMap.center.x - (gameMap.center.x * 7 div 10),
+             y: gameMap.center.y)
   of Blue:
-    gameMap.center.x + ((gameMap.width - gameMap.center.x) * 7 div 10)
+    MapPoint(x: gameMap.center.x + ((gameMap.width - gameMap.center.x) * 7 div 10),
+             y: gameMap.center.y)
+
+proc teamHomeX*(gameMap: CtfMap, team: Team): int =
+  ## Returns the home x anchor for one team's spawn strip and pedestal.
+  gameMap.teamHome(team).x
 
 proc flagHome*(gameMap: CtfMap, team: Team): MapPoint =
   ## Returns the pedestal position for one team's flag, at the center of the
   ## team's protected spawn pocket.
-  MapPoint(x: gameMap.teamHomeX(team), y: gameMap.center.y)
+  gameMap.teamHome(team)
 
 proc mirrorX(rect: MapRect, width: int): MapRect =
   ## Mirrors one rectangle across the vertical center line of a width-px map.
@@ -3693,6 +3714,8 @@ var
   ArenaSpawnClearH = 130
   ArenaRedHomeX = 186
   ArenaBlueHomeX = 1049
+  ArenaRedHomeY = 329
+  ArenaBlueHomeY = 329
   ArenaObstacles*: seq[ArenaShape]
   AnimatedDiamonds*: seq[tuple[cx, cy, radius: int]]
   ArenaFloorTex* = DefaultFloorTex  ## data/ path of the selected map's floor.
@@ -3719,8 +3742,10 @@ proc selectCtfMap(gameMap: CtfMap) =
     if gameMap.carveClear > 0: gameMap.carveClear else: gameMap.captureClear
   ArenaSpawnClearW = gameMap.spawnClearW
   ArenaSpawnClearH = gameMap.spawnClearH
-  ArenaRedHomeX = gameMap.teamHomeX(Red)
-  ArenaBlueHomeX = gameMap.teamHomeX(Blue)
+  ArenaRedHomeX = gameMap.teamHome(Red).x
+  ArenaBlueHomeX = gameMap.teamHome(Blue).x
+  ArenaRedHomeY = gameMap.teamHome(Red).y
+  ArenaBlueHomeY = gameMap.teamHome(Blue).y
   ArenaObstacles = buildArenaObstacles(gameMap)
   AnimatedDiamonds = buildAnimatedDiamonds(gameMap, ArenaObstacles)
   ## Per-map ART. A map that declares no material keeps the default arena's
@@ -3864,8 +3889,9 @@ proc isProtectedFloor(x, y, cx, cy: int): bool =
     dy = y - cy
   if dx * dx + dy * dy <= ArenaFlagRing * ArenaFlagRing:
     return true
-  for homeX in [ArenaRedHomeX, ArenaBlueHomeX]:
-    if abs(x - homeX) <= ArenaSpawnClearW and abs(y - cy) <= ArenaSpawnClearH:
+  for (homeX, homeY) in [(ArenaRedHomeX, ArenaRedHomeY),
+                         (ArenaBlueHomeX, ArenaBlueHomeY)]:
+    if abs(x - homeX) <= ArenaSpawnClearW and abs(y - homeY) <= ArenaSpawnClearH:
       return true
   false
 
@@ -3902,9 +3928,10 @@ proc isProtectedFloorF(x, y: float, cx, cy: int): bool =
     dy = y - float(cy)
   if dx * dx + dy * dy <= float(ArenaFlagRing * ArenaFlagRing):
     return true
-  for homeX in [float(ArenaRedHomeX), float(ArenaBlueHomeX)]:
+  for (homeX, homeY) in [(float(ArenaRedHomeX), float(ArenaRedHomeY)),
+                         (float(ArenaBlueHomeX), float(ArenaBlueHomeY))]:
     if abs(x - homeX) <= float(ArenaSpawnClearW) and
-        abs(y - float(cy)) <= float(ArenaSpawnClearH):
+        abs(y - homeY) <= float(ArenaSpawnClearH):
       return true
   false
 
