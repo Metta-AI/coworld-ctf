@@ -1,5 +1,5 @@
 import
-  std/[algorithm, json, math, os, random, strutils],
+  std/[algorithm, json, math, os, random, strutils, tables],
   bitworld/aseprite, bitworld/pixelfonts, bitworld/profile, bitworld/spriteprotocol,
   bitworld/server,
   jsony, pixie
@@ -424,6 +424,19 @@ type
     ## the default warm carved stone".
     face*, hi*, lo*, ink*: ColorRGBA
 
+  PropSprite* = object
+    ## One MODELED top-down prop (a Blender render from
+    ## scripts/art/blender_props.py, ortho camera, upper-left sun matching
+    ## the carved-bevel light) composited over its collision footprint so
+    ## cover reads as a real object — a container, a fuel tank, the 747 —
+    ## instead of a procedural shape. Art only: collision masks never
+    ## change, and the textured-stone wall material stays underneath as
+    ## the base wherever the sprite is transparent.
+    file*: string              ## data/props/<family>.png (transparent bg).
+    x*, y*: int                ## footprint CENTER in map pixels.
+    w*, h*: int                ## footprint size in map px, pre-rotation.
+    rot*: float32              ## clockwise degrees (screen coords, y-down).
+
   CtfMap* = object
     name*: string
     path*: string
@@ -476,6 +489,10 @@ type
     trenches*: seq[MapRect]    ## walkable dug-pit squares (config-gated trenches): standing
                                ## inside slows movement and fire, and most
                                ## incoming gun shots fly straight over.
+    ## Modeled top-down prop renders composited over their collision
+    ## footprints, drawn AFTER the wall material in both map render passes
+    ## (loadMapLayers 1x and renderArenaRgbaPair scale-x). Cosmetic only.
+    props*: seq[PropSprite]
 
   CrewSprite* = ref object
     width*, height*: int
@@ -2867,6 +2884,47 @@ proc rustCtfMap(): CtfMap =
     lo: rgba(64, 38, 22, 255),
     ink: rgba(36, 20, 12, 255)
   )
+  ## Modeled prop renders over the RustObstacles footprints: the derrick's
+  ## four lattice legs, both fuel tanks (the sprite's center vent covers the
+  ## concentric vent collider), the four yard containers, and every barrel
+  ## disc. Coordinates are the shape centers from RustObstacles above.
+  result.props = @[
+    PropSprite(file: "data/props/tower_leg.png", x: 553, y: 265, w: 28, h: 28),
+    PropSprite(file: "data/props/tower_leg.png", x: 709, y: 265, w: 28, h: 28),
+    PropSprite(file: "data/props/tower_leg.png", x: 553, y: 421, w: 28, h: 28),
+    PropSprite(file: "data/props/tower_leg.png", x: 709, y: 421, w: 28, h: 28),
+    PropSprite(file: "data/props/fuel_tank.png", x: 268, y: 158, w: 116, h: 116),
+    PropSprite(file: "data/props/fuel_tank.png", x: 966, y: 500, w: 116, h: 116,
+               rot: 180),
+    PropSprite(file: "data/props/container.png", x: 370, y: 289, w: 140, h: 42),
+    PropSprite(file: "data/props/container.png", x: 864, y: 369, w: 140, h: 42,
+               rot: 180),
+    PropSprite(file: "data/props/container.png", x: 235, y: 418, w: 132, h: 42,
+               rot: 90),
+    PropSprite(file: "data/props/container.png", x: 999, y: 240, w: 132, h: 42,
+               rot: 270),
+    PropSprite(file: "data/props/barrel.png", x: 470, y: 196, w: 40, h: 40),
+    PropSprite(file: "data/props/barrel.png", x: 506, y: 232, w: 40, h: 40,
+               rot: 70),
+    PropSprite(file: "data/props/barrel.png", x: 432, y: 232, w: 40, h: 40,
+               rot: 150),
+    PropSprite(file: "data/props/barrel.png", x: 766, y: 462, w: 40, h: 40,
+               rot: 40),
+    PropSprite(file: "data/props/barrel.png", x: 730, y: 426, w: 40, h: 40,
+               rot: 110),
+    PropSprite(file: "data/props/barrel.png", x: 802, y: 426, w: 40, h: 40,
+               rot: 200),
+    PropSprite(file: "data/props/barrel.png", x: 330, y: 596, w: 40, h: 40,
+               rot: 25),
+    PropSprite(file: "data/props/barrel.png", x: 902, y: 62, w: 40, h: 40,
+               rot: 130),
+    PropSprite(file: "data/props/barrel.png", x: 596, y: 120, w: 40, h: 40,
+               rot: 85),
+    PropSprite(file: "data/props/barrel.png", x: 638, y: 538, w: 40, h: 40,
+               rot: 250),
+    PropSprite(file: "data/props/barrel.png", x: 560, y: 392, w: 40, h: 40,
+               rot: 315),
+  ]
   result.medKitSpawns = @[
     MapPoint(x: result.width div 2, y: result.height div 3),
     MapPoint(x: result.width div 2, y: 2 * result.height div 3),
@@ -2936,6 +2994,47 @@ proc terminalCtfMap(): CtfMap =
     lo: rgba(96, 95, 102, 255),
     ink: rgba(46, 46, 52, 255)
   )
+  ## Modeled prop renders over the TerminalObstacles footprints: the hero
+  ## 747 (fuselage / radome nose / both wings / four nacelles / tailplanes /
+  ## tail cone+fin), the jet bridge and security scanners (duct family), the
+  ## apron baggage carts (container family), a stray luggage crate, and the
+  ## fuel bowser (tank family). Coordinates are the shape centers from
+  ## TerminalObstacles above; wing/tailplane rotations follow the diagonal
+  ## segments (sprite +X root->tip, positive rot = clockwise on screen).
+  result.props = @[
+    PropSprite(file: "data/props/fuselage.png", x: 505, y: 123, w: 410, h: 46),
+    PropSprite(file: "data/props/nose.png", x: 300, y: 123, w: 46, h: 46),
+    PropSprite(file: "data/props/wing.png", x: 544, y: 56, w: 146, h: 20,
+               rot: -45),
+    PropSprite(file: "data/props/wing.png", x: 544, y: 190, w: 146, h: 20,
+               rot: 45),
+    PropSprite(file: "data/props/engine.png", x: 534, y: 74, w: 30, h: 30),
+    PropSprite(file: "data/props/engine.png", x: 572, y: 40, w: 26, h: 26),
+    PropSprite(file: "data/props/engine.png", x: 534, y: 172, w: 30, h: 30),
+    PropSprite(file: "data/props/engine.png", x: 572, y: 206, w: 26, h: 26),
+    PropSprite(file: "data/props/wing.png", x: 696, y: 84, w: 70, h: 14,
+               rot: -45),
+    PropSprite(file: "data/props/wing.png", x: 696, y: 162, w: 70, h: 14,
+               rot: 45),
+    PropSprite(file: "data/props/tail_fin.png", x: 701, y: 123, w: 26, h: 38),
+    PropSprite(file: "data/props/duct.png", x: 573, y: 272, w: 60, h: 26,
+               rot: 90),
+    PropSprite(file: "data/props/container.png", x: 236, y: 71, w: 52, h: 22),
+    PropSprite(file: "data/props/container.png", x: 856, y: 161, w: 52, h: 22,
+               rot: 180),
+    PropSprite(file: "data/props/crate.png", x: 511, y: 619, w: 26, h: 26),
+    PropSprite(file: "data/props/duct.png", x: 599, y: 288, w: 44, h: 18,
+               rot: 90),
+    PropSprite(file: "data/props/duct.png", x: 599, y: 372, w: 44, h: 18,
+               rot: 90),
+    PropSprite(file: "data/props/duct.png", x: 599, y: 441, w: 34, h: 18,
+               rot: 90),
+    PropSprite(file: "data/props/duct.png", x: 655, y: 322, w: 44, h: 18,
+               rot: 90),
+    PropSprite(file: "data/props/duct.png", x: 655, y: 406, w: 44, h: 18,
+               rot: 90),
+    PropSprite(file: "data/props/fuel_tank.png", x: 980, y: 150, w: 52, h: 52),
+  ]
   result.medKitSpawns = @[
     MapPoint(x: result.width div 2, y: result.height div 3),
     MapPoint(x: result.width div 2, y: 2 * result.height div 3),
@@ -4545,6 +4644,33 @@ proc blitCover(dst, spr: Image, cx, cy, size: int) =
   dst.draw(scaled, translate(vec2((cx - size div 2).float32,
                                   (cy - size div 2).float32)))
 
+proc blitPropSprites(dst: Image, props: seq[PropSprite], scale: int) =
+  ## Composites a map's MODELED top-down props (Blender renders — ortho
+  ## camera, upper-left sun keyed to the carved-bevel light) over their
+  ## collision footprints. Drawn AFTER the wall material so each render
+  ## overlays its exact collision shape; the textured stone stays underneath
+  ## as the base for every transparent pixel, so a sprite can never lie
+  ## about where the wall is. Each sprite is resized to `scale`x its map
+  ## footprint and rotated about its center (screen coords, y-down, so a
+  ## positive `rot` turns clockwise on screen).
+  var cache: Table[string, Image]
+  for prop in props:
+    let
+      w = prop.w * scale
+      h = prop.h * scale
+    if w <= 0 or h <= 0 or prop.file.len == 0:
+      continue
+    if prop.file notin cache:
+      cache[prop.file] = readImage(gameDir() / prop.file)
+    let spr = cache[prop.file]
+    if spr.width == 0:
+      continue
+    dst.draw(
+      spr.resize(w, h),
+      translate(vec2(float32(prop.x * scale), float32(prop.y * scale))) *
+        rotate(prop.rot * float32(PI) / 180f) *
+        translate(vec2(-w.float32 / 2, -h.float32 / 2)))
+
 ## --- Carved-stone wall material (top-down bevel from the collision mask) ---
 ## Every wall pixel — border frame, rect stub, diamond, disc, or chevron — is
 ## rendered as one coherent RAISED-STONE block whose shading comes from its
@@ -4988,6 +5114,36 @@ proc renderArenaRgbaPair*(
         coldColor = overTint(coldColor, ArenaBorderColor)
       put(result.hot, i * 4, hotColor)
       put(result.cold, i * 4, coldColor)
+  # Modeled prop renders over their collision footprints, drawn after the
+  # wall material and under the pedestals. Rendered once into a transparent
+  # overlay, then straight-alpha src-over into BOTH variants (props are
+  # architecture, not glow: hot and cold share the same pixels, like walls).
+  if gameMap.props.len > 0:
+    var overlay = newImage(ow, oh)
+    blitPropSprites(overlay, gameMap.props, scale)
+    for i in 0 ..< ow * oh:
+      let src = overlay.data[i].rgba
+      if src.a == 0'u8:
+        continue
+      let offset = i * 4
+      if src.a == 255'u8:
+        result.hot[offset] = src.r
+        result.hot[offset + 1] = src.g
+        result.hot[offset + 2] = src.b
+        result.cold[offset] = src.r
+        result.cold[offset + 1] = src.g
+        result.cold[offset + 2] = src.b
+      else:
+        let a = src.a.int
+        template blend(buf: seq[uint8]) =
+          buf[offset] =
+            uint8((src.r.int * a + buf[offset].int * (255 - a)) div 255)
+          buf[offset + 1] =
+            uint8((src.g.int * a + buf[offset + 1].int * (255 - a)) div 255)
+          buf[offset + 2] =
+            uint8((src.b.int * a + buf[offset + 2].int * (255 - a)) div 255)
+        blend(result.hot)
+        blend(result.cold)
   # Pedestals: pixie still resizes the painted masters, but the composite onto
   # the board is a manual straight-alpha src-over into the byte buffers.
   for team in Team:
@@ -5111,6 +5267,10 @@ proc loadMapLayers*(gameMap: CtfMap, withEndzoneGlow = true):
       result.mapImage[x, y] = color
       result.walkImage[x, y] = if wall: clear else: opaque
       result.wallImage[x, y] = if wall: opaque else: clear
+  ## Modeled prop renders over their collision footprints (art only — the
+  ## walk/wall COLLISION masks above are built from the unmodified wallMask
+  ## and stay byte-identical whether or not a map declares props).
+  blitPropSprites(result.mapImage, gameMap.props, 1)
   ## Carved team pedestal under each flag home (walkable — sits inside the
   ## protected spawn pocket; cosmetic only, collision masks untouched). With the
   ## glow OFF this is the "cold" map: the pedestal art is dimmed to a powered-down
