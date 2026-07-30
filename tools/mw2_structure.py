@@ -44,12 +44,27 @@ def load(name):
 
 
 def structures(wall):
-    """Connected wall components, 8-connected so a diagonal corner is one wall."""
+    """Connected wall components, 8-connected so a diagonal corner is one wall.
+
+    Returns (areas, extents) with the map's border frame dropped. Both are
+    needed: AREA alone badly misjudges architecture, because a building is
+    often a thin shell. Terminal's concourse wall is 268x22 — unmistakably
+    building-scale, and only 5.9k px², which ranked it below a solid 80px
+    blob. Judge footprint by bounding box and mass by area.
+    """
     lab, n = ndimage.label(wall, structure=np.ones((3, 3), bool))
     if not n:
-        return np.array([]), lab
+        return np.array([]), []
     sizes = np.bincount(lab.ravel())[1:]
-    return sizes, lab
+    border = int(sizes.argmax())          # the map's own border frame
+    extents = []
+    for i, sl in enumerate(ndimage.find_objects(lab)):
+        if i == border or sl is None:
+            continue
+        extents.append((sl[1].stop - sl[1].start, sl[0].stop - sl[0].start,
+                        int(sizes[i])))
+    extents.sort(key=lambda e: max(e[0], e[1]), reverse=True)
+    return np.delete(sizes, border), extents
 
 
 def enclosure(wall, reach=120):
@@ -92,11 +107,8 @@ def enclosure(wall, reach=120):
 
 def report(name):
     wall = load(name)
-    h, w = wall.shape
-    sizes, _ = structures(wall)
-    # Ignore the map border frame, which is one huge component on every map.
-    border = max(sizes) if len(sizes) else 0
-    body = np.sort(sizes[sizes != border])[::-1] if len(sizes) else np.array([])
+    body, extents = structures(wall)
+    body = np.sort(body)[::-1]
     score, open_ = enclosure(wall)
     floor = int(open_.sum())
     interior = float((score[open_] >= 6).mean())
@@ -104,14 +116,15 @@ def report(name):
     exposed = float((score[open_] <= 1).mean())
     total_wall = int(body.sum())
     top5 = float(body[:5].sum() / total_wall) if total_wall else 0.0
-    biggest = int(body[0]) if len(body) else 0
+    top3 = " ".join(f"{e[0]}x{e[1]}" for e in extents[:3]) or "-"
+    span = max((max(e[0], e[1]) for e in extents), default=0)
     print(f"{name:<11} structures {len(body):>3}  median "
-          f"{int(np.median(body)) if len(body) else 0:>6}px²  biggest "
-          f"{biggest:>6}px² ({int(biggest ** 0.5):>3}px square)"
-          f"  |  interior {interior:>5.1%}   wide open {exposed:>5.1%}")
+          f"{int(np.median(body)) if len(body) else 0:>5}px²  "
+          f"biggest footprints {top3:<24}"
+          f"|  interior {interior:>5.1%}   wide open {exposed:>5.1%}")
     return dict(name=name, structures=len(body),
                 median=int(np.median(body)) if len(body) else 0,
-                biggest=biggest, top5=top5, interior=interior,
+                span=span, top5=top5, interior=interior,
                 covered=covered, exposed=exposed, floor=floor)
 
 
@@ -133,19 +146,18 @@ def main():
         print("  The arena is scatter by design — pickets in an open field. A "
               "recreation with less enclosure than that has nothing to fight "
               "from.")
-    # Cover is not the same as architecture. A map can be full of cover and
-    # still be an obstacle course, which is what "gray shapes scattered on a
-    # field" actually describes.
-    small = [r for r in out if r["name"] != "arena" and r["biggest"] < 40000]
+    # Cover is not the same as architecture: a map can be full of cover and
+    # still be an obstacle course. Judged on the longest footprint any single
+    # structure spans, against the arena, whose biggest picket is ~107px.
+    small = [r for r in out if r["name"] != "arena"
+             and r["span"] < 2 * ctrl["span"]]
     if small:
-        print("\nNO BUILDING-SCALE STRUCTURE (largest under 200x200px): " +
-              ", ".join(f"{r['name']} {int(r['biggest'] ** 0.5)}px"
-                        for r in small))
-        print("  A player is 13px. These maps have plenty of COVER — most beat "
-              "the arena on enclosure — but it is assembled from many objects "
-              "a few player-widths across rather than from buildings with "
-              "footprints, interiors and doorways. That is the difference "
-              "between an obstacle course and Terminal.")
+        print("\nNOTHING MUCH BIGGER THAN AN ARENA PICKET (arena "
+              f"{ctrl['span']}px): " +
+              ", ".join(f"{r['name']} {r['span']}px" for r in small))
+        print("  A player is 13px. These are assembled from objects a few "
+              "player-widths across rather than from buildings with "
+              "footprints, interiors and doorways.")
 
 
 if __name__ == "__main__":
