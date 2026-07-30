@@ -324,3 +324,36 @@ suite "mw2 paintball map pack":
       discard loadCtfMapMetadata("mw2")
     expect CtfError:
       discard loadCtfMapMetadata("shipment")
+
+  test "declared homes, capture zones, and spawn zones drive the sim":
+    ## Terminal declares the full MW2 model: off-edge home points, a capture
+    ## RADIUS around the flag stand instead of the legacy edge column, and
+    ## real spawn zones. Deterministic checks, no bot behaviour involved.
+    let sim = initCtfForMap("terminal")
+    # Homes are the declared points, not the derived mid-edge anchors.
+    check sim.gameMap.teamHome(Red) == MapPoint(x: 190, y: 396)
+    check sim.gameMap.teamHome(Blue) == MapPoint(x: 1046, y: 262)
+    check sim.gameMap.flagHome(Red) == sim.gameMap.teamHome(Red)
+    # Capture fires AT the flag stand...
+    check sim.inCaptureZone(Red, 190 + 40, 396)
+    check sim.inCaptureZone(Blue, 1046, 262 + 40)
+    # ...and the legacy home-edge column no longer captures anywhere.
+    check not sim.inCaptureZone(Red, 30, 60)
+    check not sim.inCaptureZone(Red, 30, 596)
+    check not sim.inCaptureZone(Blue, MapWidth - 30, 60)
+    # Every seat lands inside (or nudged marginally off) its declared zone.
+    for team in Team:
+      let z = (if team == Red: sim.gameMap.redSpawn
+               else: sim.gameMap.blueSpawn)
+      for order in 0 ..< 8:
+        let seat = sim.spawnPosition(team, order)
+        check seat.x >= z.x - 20 and seat.x <= z.x + z.w + 20
+        check seat.y >= z.y - 20 and seat.y <= z.y + z.h + 20
+        check sim.canOccupy(seat.x, seat.y)
+
+  test "legacy maps keep the derived homes and edge-column capture":
+    ## The abstract arena declares nothing and must behave exactly as before.
+    let sim = initCtfForMap("arena")
+    check sim.gameMap.teamHome(Red) == MapPoint(x: 186, y: 329)
+    check sim.inCaptureZone(Red, 30, 60)
+    check not sim.inCaptureZone(Red, 400, 329)

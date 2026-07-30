@@ -464,6 +464,14 @@ type
     ## each team where the real map's spawn is, which is rarely mid-edge. A
     ## zero point falls back to the derived 70%-to-the-edge default.
     redHome*, blueHome*: MapPoint
+    ## Capture ZONE: with a nonzero radius, a carrier scores within this
+    ## distance of their own home point (the MW2 model: capture AT the flag
+    ## stand). Zero keeps the legacy full-height home-edge column.
+    captureRadius*: int
+    ## Spawn ZONES: where each team actually respawns. A zero rect keeps the
+    ## legacy behaviour (a strip at the home anchor / anywhere in the
+    ## edge column).
+    redSpawn*, blueSpawn*: MapRect
     material*: ArenaMaterial
     trenches*: seq[MapRect]    ## walkable dug-pit squares (config-gated trenches): standing
                                ## inside slows movement and fire, and most
@@ -2514,6 +2522,12 @@ proc terminalCtfMap(): CtfMap =
   ## and both sit off the hall's centre line rather than on it.
   result.redHome = MapPoint(x: 190, y: 396)
   result.blueHome = MapPoint(x: 1046, y: 262)
+  ## MW2-model capture: score AT the flag stand, not by crossing a column.
+  result.captureRadius = 64
+  ## Spawn zones at the real Terminal spawn areas: red behind the west
+  ## escalators, blue past the east carousel — clear of both flag stands.
+  result.redSpawn = MapRect(x: 96, y: 470, w: 150, h: 150)
+  result.blueSpawn = MapRect(x: 990, y: 60, w: 150, h: 150)
   ## Hand-dug trenches (main's config-gated pit terrain): cover you stand IN.
   ## One mid-apron so the exposed north crossing has a survivable waypoint,
   ## one either side of the security pinch so mid is contested slowly rather
@@ -4137,10 +4151,17 @@ proc texturedStone(base: ColorRGBA, tex: Image, x, y, scale: int): ColorRGBA =
     # Centre the modulation on mid-grey: a light spot lifts the face, a dark
     # one (a mortar line, a rivet seam) darkens it, and the bevel is preserved.
     f = 128 + (lum - 128) * 3 div 4
+    # Luminance modulation keeps the bevel form; a 35% chroma blend lets the
+    # material's own colour variation (brick courses, oxide mottling) show
+    # instead of being flattened to the face colour.
+    lumSafe = max(lum, 1)
   rgba(
-    uint8(clamp(base.r.int * f div 128, 0, 255)),
-    uint8(clamp(base.g.int * f div 128, 0, 255)),
-    uint8(clamp(base.b.int * f div 128, 0, 255)),
+    uint8(clamp((base.r.int * f div 128 * 65 +
+                 base.r.int * t.r.int div lumSafe * 35) div 100, 0, 255)),
+    uint8(clamp((base.g.int * f div 128 * 65 +
+                 base.g.int * t.g.int div lumSafe * 35) div 100, 0, 255)),
+    uint8(clamp((base.b.int * f div 128 * 65 +
+                 base.b.int * t.b.int div lumSafe * 35) div 100, 0, 255)),
     255
   )
 
@@ -5428,7 +5449,20 @@ proc teamHomeX(sim: SimServer, team: Team): int =
   sim.gameMap.teamHomeX(team)
 
 proc spawnPosition*(sim: SimServer, team: Team, order: int): tuple[x, y: int] =
-  ## Returns a deterministic spawn position just inside a team's home edge.
+  ## Returns a deterministic spawn position for one seat. A map with a
+  ## declared spawn zone lays its seats out in a 2-column grid inside that
+  ## zone (the real map's spawn area); legacy maps keep the home-edge strip.
+  let declared = (case team
+    of Red: sim.gameMap.redSpawn
+    of Blue: sim.gameMap.blueSpawn)
+  if declared.w > 0:
+    let
+      col = order mod 2
+      row = order div 2
+      seatX = declared.x + (declared.w * (1 + 2 * col)) div 4
+      rows = max(1, 4)
+      seatY = declared.y + (declared.h * (1 + 2 * (row mod rows))) div (2 * rows)
+    return sim.nearestWalkable(seatX, seatY)
   let
     baseX = sim.teamHomeX(team)
     strip = order div 2          ## stagger players down the edge.
@@ -5437,6 +5471,29 @@ proc spawnPosition*(sim: SimServer, team: Team, order: int): tuple[x, y: int] =
     targetY = cy + (strip - 1) * spread
     targetX = baseX + (if order mod 2 == 0: -6 else: 6)
   sim.nearestWalkable(targetX, targetY)
+
+proc teamSpawnRect(sim: SimServer, team: Team): MapRect =
+  ## The team's declared spawn zone, or a zero rect when the map keeps the
+  ## legacy edge-column spawning.
+  case team
+  of Red: sim.gameMap.redSpawn
+  of Blue: sim.gameMap.blueSpawn
+
+proc inCaptureZone*(sim: SimServer, team: Team, x, y: int): bool =
+  ## True when (x, y) lies inside `team`'s capture zone. A map with a
+  ## captureRadius scores around its declared home point — the MW2 model,
+  ## capture AT the flag stand. Legacy maps keep the home-edge column.
+  if sim.gameMap.captureRadius > 0:
+    let
+      home = sim.gameMap.teamHome(team)
+      dx = x - home.x
+      dy = y - home.y
+    return dx * dx + dy * dy <=
+      sim.gameMap.captureRadius * sim.gameMap.captureRadius
+  let zone = (case team
+    of Red: (0, sim.teamHomeX(Red) + CaptureZoneWidth div 2)
+    of Blue: (sim.teamHomeX(Blue) - CaptureZoneWidth div 2, MapWidth - 1))
+  x >= zone[0] and x <= zone[1]
 
 proc captureZoneXRange(sim: SimServer, team: Team): tuple[lo, hi: int] =
   ## Returns the inclusive x range of one team's home capture zone.
@@ -5453,8 +5510,16 @@ proc randomEndzonePosition*(sim: var SimServer, team: Team):
   ## Returns a random walkable position inside a team's endzone (the home
   ## capture column, full map height), drawn from the deterministic sim RNG.
   let
-    zone = sim.captureZoneXRange(team)
     inset = ArenaBorder + PlayerHalf
+    declared = sim.teamSpawnRect(team)
+  var xLo, xHi, yLo, yHi: int
+  if declared.w > 0:
+    xLo = max(declared.x, inset)
+    xHi = min(declared.x + declared.w - 1, MapWidth - 1 - inset)
+    yLo = max(declared.y, inset)
+    yHi = min(declared.y + declared.h - 1, MapHeight - 1 - inset)
+  else:
+    let zone = sim.captureZoneXRange(team)
     xLo = max(zone.lo, inset)
     xHi = min(zone.hi, MapWidth - 1 - inset)
     yLo = inset
@@ -8120,9 +8185,9 @@ proc checkWinCondition*(sim: var SimServer) {.measure.} =
       continue
     let
       carrier = sim.players[carrierIndex]
-      zone = sim.captureZoneXRange(carrier.team)
       cx = carrier.x + CollisionW div 2
-    if cx >= zone.lo and cx <= zone.hi:
+      cy = carrier.y + CollisionH div 2
+    if sim.inCaptureZone(carrier.team, cx, cy):
       sim.recordCapture(carrierIndex)
       sim.emitEvent(
         Capture, source = carrierIndex,
