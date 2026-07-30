@@ -83,30 +83,55 @@ arc, scoring the same "1" as a stand behind a single doorway. It now reports the
 open fraction as the primary number, and runs on every map so the control always
 scores.
 
+## The degenerate-count trap, which caught me four times
+
+Three of the metrics here started as a COUNT of openings, and a count alone
+cannot tell "one narrow doorway" from "one enormous gap" — they both score 1.
+Every time, the wrong reading was confident and plausible:
+
+- the flag-stand ring called Rust "1 approach, a turkey shoot" for a ring that
+  is 81% **open**;
+- the midfield lane count called Favela "a corridor" for a midfield that is
+  73% open in one 486px span;
+- and when I replaced that with an absolute openness threshold, it fired on
+  the arena, which is itself 73% open.
+
+Report a fraction beside every count, and pick thresholds against the control
+rather than out of the air. A fourth variant is worth naming separately: the
+architecture audit tried to bridge doorways with a morphological closing so a
+building's pierced shell would read as one structure, and at the ~40px needed
+to span a door it also merged the arena's ~48px-spaced pickets into a single
+328x620 slab — reporting the CONTROL as the most architectural map in the set.
+
 ## Where the layouts stand
 
-Measured on HEAD 1399459, three episodes each, arena as control.
+Measured after the audit-and-fix pass, three episodes each, arena as control.
 
-| map | midfield lanes | carry lanes | steals→caps | stand ring (R/B) | dead floor | median sightline |
+| map | midfield lanes | mid open | steals→caps | stand ring (R/B) | interior | dead floor |
 |---|---|---|---|---|---|---|
-| *arena (control)* | *5 (5 used)* | *2* | *17→4* | *86% / 88%* | *6%* | *70px* |
-| rust | 3 (3 used) | 2 | 15→2 | 81% / 91% | 10% | 100px |
-| terminal | 4 (3 used) | **1** | 9→4 | 77% / 89% | 19% | 80px |
-| highrise | 3 (3 used) | 2 | 15→4 | 100% / 100% | 12% | 90px |
-| afghan | 3 (3 used) | 2 | **21→0** | 100% / 100% | 5% | 120px |
-| **favela** | **1 (1 used)** | **1** | 17→4 | 100% / 100% | 16% | 90px |
-| **scrapyard** | **1 (1 used)** | 2 | 16→4 | 96% / 100% | 11% | 110px |
+| *arena (control)* | *5* | *73%* | *7→6* | *86% / 88%* | *33%* | *20%* |
+| rust | 3 | 71% | 14→4 | 81% / 91% | 45% | 9% |
+| terminal | 4 (3 used) | 56% | 10→2 | 77% / 89% | 53% | 22% |
+| highrise | 3 | 79% | 9→4 | 70% / 70% | 61% | 11% |
+| **afghan** | 3 | 38% | **16→2** | **76% / 85%** | **41%** | 11% |
+| favela | **1** | 73% | 20→2 | 89% / 97% | 39% | 6% |
+| **scrapyard** | 3 | 62% | **9→4** | **85% / 85%** | 40% | 20% |
 
-Open, with tasks filed:
+Afghan and Scrapyard are the two this pass fixed, and both were the same
+defect: a flag stand standing in the open. Afghan had 6-7% of the ground
+within 200px of a pedestal as cover and Scrapyard 9-12%, against 10-25% on
+every map that converted, and neither had ever scored — Afghan 0 of 21 then 0
+of 17, Scrapyard 0 of 10. Afghan now has the walled qalats the real map has
+and Scrapyard has hull sections shelved around its stands, and both convert.
 
-- **favela and scrapyard cross midfield through a single gap** where the arena
-  has five. Unchanged since the first pass.
-- **afghan converts nothing.** 0 of 21 steals, where every other map converts.
-  Thieves die at the pedestal they lifted from, and Afghan has 6-7% cover within
-  200px of a stand against 10-25% everywhere else. Home-stretch cover and route
-  length were both checked and are NOT the cause.
-- **terminal's alternates do not carry the objective.** Four midfield lanes, three
-  see traffic, and every flag carry crossed in the same one.
+Still open, with tasks filed:
+
+- **favela crosses midfield in one 486px span** where the arena divides a
+  near-identical 73% openness into five ways across. Not a corridor — the
+  opposite — and not a lack of buildings either; its blocks simply stop short
+  of the centre.
+- **terminal leaves 57,100px² of floor unentered**, the pack's largest, while
+  measuring well on everything else.
 
 Not problems, so they do not need re-litigating: dead space (5-19% against the
 arena's 6%), sightlines (80-120px against 70px), and stand exposure — no stand
