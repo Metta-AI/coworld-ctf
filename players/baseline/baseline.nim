@@ -1155,7 +1155,9 @@ when defined(oppStanceLatch):
     StanceDeadlineGt = 1200     # latch deadline (49 checkpoints)
     StancePicketNeed = 40       # band-seen checkpoints for PICKET
     StancePressNeed = 2         # enemies seen in our half ...
-    StancePressRun = 2          # ... at this many consecutive checkpoints
+    StancePressRun = 1          # ... at this many consecutive checkpoints
+                                # (run-1: single checkpoint, desk-certified
+                                # 2026-07-31 leg (b))
     StanceBandHalfBase = 250.0  # band half-width on the 1235px arena;
                                 # scaled by the ADOPTED map width below, and
                                 # the midline is CenterX (adopted from the
