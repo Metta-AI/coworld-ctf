@@ -210,7 +210,11 @@ const
   CombatDeadband = 2          # stop the traverse within this error (brads);
                               # AimRate 5 cannot settle tighter than +-2
   CruiseDeadband = 8          # sloppier deadband for non-combat aim
-  FireSlackPx = 11.0          # fire when the aim error's perpendicular miss
+  tuneFireSlackPx {.intdefine.} = 11 # trigger admission: fire when the aim error's
+                              # perpendicular miss at the target's range is
+                              # inside this many px (default 11 = shipped
+                              # champion behaviour; corridor half-width ~14)
+  FireSlackPx = float(tuneFireSlackPx) # fire when the aim error's perpendicular miss
                               # at the target's range is inside this (the
                               # corridor half-width is ~14px; keep margin)
   ArcReach = 130.0            # plasma cone: sim reach 136px, small margin
@@ -252,7 +256,18 @@ const
   PeekLineDist = 150.0        # floor for an overwatch peek firing line; post
                               # scoring strongly prefers the longest line
   DuckSearchCells = 3         # duck-cell search radius in nav cells
-  PeekSearchCells = 3         # peek-cell search radius in nav cells
+  tunePeekSearchCells {.intdefine.} = 3 # peek-cell search radius in nav cells
+                              # (8px each; 3 = a ±24px sidestep space around
+                              # the post — the peek solution surface)
+  PeekSearchCells = tunePeekSearchCells
+  tunePeekFreshTicks {.intdefine.} = 72 # -d:peekStaleLines: a wall-blocked track
+                              # this stale is still worth a PEEK (not a shot):
+                              # step to the line-opening cell and re-sight it.
+                              # Aimed at parked lattices (beacon v56 parks
+                              # 400-1600t, so a 72t-stale post position is
+                              # still exact); fire admission is untouched at
+                              # FreshShotTicks.
+  PeekFreshTicks = tunePeekFreshTicks
   ExposureRange = 380.0       # enemy threat radius used for exposure costing
   ExposureThreats = 3         # cost only the freshest few remembered threats
   ExposureTrackTtl = 60       # only cost threats remembered this recently
@@ -2449,6 +2464,24 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   for i in 0 ..< bot.enemies.len:
     let t = bot.enemies[i]
     if bot.tick - t.lastSeen > FreshShotTicks:
+      when defined(peekStaleLines):
+        # beacon-lineage counter v3 (task 1217037302855756): the win/loss
+        # separator vs the v56 lattice is engaged TIME, and its only
+        # our-side handle is the peek branch (clustered +163.6 peek
+        # ticks/ep in wins). A track too stale to SHOOT can still be worth
+        # PEEKING at: if its last position is wall-blocked, offer it as the
+        # blocked candidate so the peek branch steps to the line-opening
+        # cell — re-sighting refreshes the track and the engage branch
+        # takes over with the aim pre-laid. Raw t.pos, no dead reckoning:
+        # this is a parked-target instrument (extrapolating stale velocity
+        # 72t invites garbage); fire admission stays at FreshShotTicks.
+        if bot.tick - t.lastSeen <= PeekFreshTicks:
+          let dStale = dist(t.pos, me)
+          if dStale < blockedD and dStale < maxEngage and
+              not client.pixelRayClear(me, t.pos):
+            blockedD = dStale
+            blockedAim = t.pos
+            haveBlocked = true
       continue
     let predicted = t.pos + t.vel * (float(bot.tick - t.lastSeen) + LeadTicks)
     let d = dist(predicted, me)
