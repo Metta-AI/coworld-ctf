@@ -232,6 +232,36 @@ const
                               # castle line near our wall: fights there recur on
                               # ground where our respawn walk is ~100px and the
                               # attacker re-crosses ~400px of watched open ground
+  CreepSlopePerK {.intdefine.} = 97
+                              # -d:creepFront[Watch]: forward creep of the front
+                              # CEILING in px per 1000 game ticks. Decoded off
+                              # nancy-ctf:v4, the only bot that beats seated
+                              # arisk-ctf-tick3400 (15-10-0 = .600 where we go
+                              # 4-17-4 = .190 in the SAME rounds, with NO gun
+                              # edge — hit rates indistinguishable from ours in
+                              # 4 of 5 range bands). Her actuator is a
+                              # whole-team MONOTONE forward creep: mean own_x
+                              # (px from own back wall; own pedestal 186,
+                              # midline 617) ramps 171 -> 295 (gt1000) -> 334
+                              # (gt2000) -> 580 (gt3000), global slope ~0.097
+                              # px/tick, ALL 8 seats creeping, crossing the
+                              # midline by gt3018 in 96% of episodes — i.e. she
+                              # arrives in force just BEFORE his tightened
+                              # flag-commit window (gt3472-3526). Her own deaths
+                              # are UNCHANGED vs ours; HIS deaths before gt1500
+                              # are 6.44/ep against her vs 3.16 against us, so
+                              # his 24-life budget is spent before his own
+                              # gt3500 clock (his lives at gt3400: 3.70 vs
+                              # 13.64; his steals 0.36/ep vs 2.52).
+  CreepStartTick {.intdefine.} = 300
+                              # -d:creepFront[Watch]: tick the ramp is measured
+                              # from — own_x_target(gt) = clamp(186 + slope *
+                              # (gt - CreepStartTick), HoldFrontCap, CreepCapMax)
+  CreepCapMax = 600.0         # -d:creepFront[Watch]: ramp ceiling, just short of
+                              # the midline (617). The LatePushTick all-in takes
+                              # the team past it from gt3400 and is untouched.
+  CreepWatchStepPx = 25.0     # -d:creepFrontWatch: telemetry cadence — one
+                              # `creep_watch` event per this much ramp travel
 
   CoverShieldDist = 42.0      # an obstacle this close blocks a threat direction
   PeekLineDist = 150.0        # floor for an overwatch peek firing line; post
@@ -374,6 +404,8 @@ type
     everStoleTheirs: bool     # any own/mate carry of the enemy flag this game
     everLostOurs: bool        # our flag has been stolen at least once
     phalanxHold: float        # frozen advance front while our lane has contact
+    when defined(creepFrontWatch):
+      creepWatchStep: int     # -d:creepFrontWatch: highest ramp step reported
     helpLane: int             # 1=top 2=mid 3=bottom, from an H-shout
     helpUntil: int            # tick the help retasking expires
     lastEShout: int           # scout sighting-broadcast rate limit
@@ -493,6 +525,18 @@ proc bradsErr(desired, current: int): int =
 proc spawnAim(team: Team): int =
   ## The spawn/respawn aim angle: toward the enemy side.
   if team == Red: 0 else: AimBrads div 2
+
+when defined(creepFront) or defined(creepFrontWatch):
+  proc creepFrontCap(gameTick: int): float =
+    ## The nancy-recipe forward-creep ceiling in px from our own back wall
+    ## (`front` is measured from the own map edge, so this is exactly her
+    ## own_x). Shared by the lever and its placebo so the two arms compute
+    ## the identical law and only the APPLICATION differs.
+    ## Floored at HoldFrontCap so the opening is byte-identical to the
+    ## champion (the ramp does not clear 220 until gt ~650) and capped just
+    ## short of the midline.
+    clamp(186.0 + float(CreepSlopePerK) * 0.001 * float(gameTick - CreepStartTick),
+      HoldFrontCap, CreepCapMax)
 
 proc slotFromUrl(url: string): int =
   ## Reads the `slot` query parameter from the websocket URL.
@@ -1772,6 +1816,26 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     bot.everStoleTheirs = true
   if ownStolen:
     bot.everLostOurs = true
+  when defined(creepFrontWatch):
+    # Lever-inert placebo for the -d:creepFront A/B: computes the identical
+    # forward-creep ceiling every tick, for every seat, and applies NOTHING.
+    # Liveness rides on a DEDICATED artlog event kind rather than an objMode
+    # tag: objMode is re-assigned by the errand branches within the same
+    # tick, so a tag there flickers, reads as a lower bound, and manufactures
+    # ~9 extra `objective` events per seat-episode (measured). `creep_watch`
+    # has no other writer in the tree, so its count and its rows are exact.
+    # One event per CreepWatchStepPx of ramp travel (monotone, so ~12-17 per
+    # seat-episode) — enough to recover the whole law (origin, slope, both
+    # clamps) from events.jsonl, and the summary counter alone certifies
+    # "this build, not the champion" per seat with no replay decode.
+    let creepGt = bot.tick - bot.gameStart
+    if creepGt >= 0:
+      let creepCap = creepFrontCap(creepGt)
+      let creepStep = int(creepCap / CreepWatchStepPx)
+      if creepStep > bot.creepWatchStep:
+        bot.creepWatchStep = creepStep
+        artEvent(bot.tick, "creep_watch",
+          %*{"gt": creepGt, "cap": int(creepCap)})
   when defined(counterPunch):
     let counterPunch = bot.tick - bot.gameStart > CounterPunchTick and
       bot.everLostOurs and not bot.everStoleTheirs
@@ -2137,11 +2201,21 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
        pd = bot.phalanxDuty
      var front = min(180.0 + 0.11 * float(gameTick), float(MapW) - 300.0)
      when defined(holdFront):
-       # Against midline-holding attrition bots the creep walks the pairs into
-       # a standing midfield duel fought at the enemy's chosen range; cap the
-       # front at a prepared line inside our half and make them cross open
-       # ground to reach it. Conversion still comes from the late push.
-       front = min(front, HoldFrontCap)
+       when defined(creepFront):
+         # -d:creepFront: the flat castle ceiling becomes nancy's forward
+         # RAMP. The natural creep above is 180 + 0.11*gt and the ramp is
+         # 156.9 + 0.097*gt, so the natural front sits 23 + 0.013*gt px
+         # ABOVE the ramp at every tick — the `min` therefore binds and the
+         # front IS the ramp for the whole game (220 flat until gt ~650,
+         # then rising at 0.097 px/tick to 600). Raising this ceiling really
+         # does move the line; it is not a slack cap.
+         front = min(front, creepFrontCap(gameTick))
+       else:
+         # Against midline-holding attrition bots the creep walks the pairs into
+         # a standing midfield duel fought at the enemy's chosen range; cap the
+         # front at a prepared line inside our half and make them cross open
+         # ground to reach it. Conversion still comes from the late push.
+         front = min(front, HoldFrontCap)
      case pd
      of pdScout:
        when defined(scoutPadMemory):
@@ -2241,9 +2315,23 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
            contact = true
            break
        if contact:
-         if bot.phalanxHold <= 0.0:
-           bot.phalanxHold = front
-         front = min(front, bot.phalanxHold)
+         when defined(creepFront):
+           # The decoded actuator is MONOTONE: nancy's front never gives
+           # ground to contact — all 8 of her seats ramp straight through it
+           # and cross the midline in 96% of episodes, and the arrival in
+           # force just before his flag-commit window is the whole
+           # mechanism. The castle's contact freeze pins the front at
+           # whatever it was when a track first came within 420px of the
+           # lane station, which would stall the ramp exactly where it
+           # starts to matter and make the lever unmeasurable. Suspend it
+           # under the ramp: the per-seat snapToCover station search below
+           # still picks the actual post, so cover is chosen at each new
+           # line rather than traded away wholesale.
+           bot.phalanxHold = 0.0
+         else:
+           if bot.phalanxHold <= 0.0:
+             bot.phalanxHold = front
+           front = min(front, bot.phalanxHold)
        else:
          bot.phalanxHold = 0.0
        var laneY2 = laneY
