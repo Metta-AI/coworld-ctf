@@ -297,7 +297,18 @@ def ship_verify(spec, discs, rect_structs, disc_structs, landmarks,
             np.zeros_like(fits)
         ok = True
         for name, (x, y) in landmarks.items():
-            reached = bool(main[y, x])
+            # Snap to the nearest 13px-fit cell within 20px: plan anchors
+            # are room centers, not guaranteed-clear points -- three
+            # Scrapyard probes sat within 6px of furniture and read FAIL in
+            # rooms that were fully connected. Only a probe with NO fit
+            # cell in reach marks a genuinely unenterable room.
+            y0, y1 = max(0, y - 20), min(spec.h, y + 21)
+            x0, x1 = max(0, x - 20), min(spec.w, x + 21)
+            win = main[y0:y1, x0:x1]
+            reached = bool(win.any())
+            fit_win = fits[y0:y1, x0:x1]
+            if not reached and fit_win.any():
+                reached = False   # fit cells exist but in another region
             print(f"  reach {name:<18} {'ok' if reached else 'FAIL'}")
             ok &= reached
         stray = fits & ~main

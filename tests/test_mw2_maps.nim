@@ -429,12 +429,15 @@ suite "mw2 paintball map pack":
     ## real spawn zones. Deterministic checks, no bot behaviour involved.
     let sim = initCtfForMap("terminal")
     # Homes are the declared points, not the derived mid-edge anchors.
-    check sim.gameMap.teamHome(Red) == MapPoint(x: 190, y: 396)
-    check sim.gameMap.teamHome(Blue) == MapPoint(x: 1046, y: 262)
+    # (Terminal v2's measured homes: west hall by the gates, and the office
+    # antechamber behind security -- symmetric about center-x by
+    # construction, 131 + 1180 = width + 1.)
+    check sim.gameMap.teamHome(Red) == MapPoint(x: 131, y: 430)
+    check sim.gameMap.teamHome(Blue) == MapPoint(x: 1180, y: 430)
     check sim.gameMap.flagHome(Red) == sim.gameMap.teamHome(Red)
     # Capture fires AT the flag stand...
-    check sim.inCaptureZone(Red, 190 + 40, 396)
-    check sim.inCaptureZone(Blue, 1046, 262 + 40)
+    check sim.inCaptureZone(Red, 131 + 40, 430)
+    check sim.inCaptureZone(Blue, 1180, 430 + 40)
     # ...and the legacy home-edge column no longer captures anywhere.
     check not sim.inCaptureZone(Red, 30, 60)
     check not sim.inCaptureZone(Red, 30, 596)
