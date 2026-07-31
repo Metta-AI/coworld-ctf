@@ -416,9 +416,15 @@ What that means in practice:
   through walls and fog, like gunfire. Outside that radius the shout does
   not appear in your frame at all.
 - A heard shout appears as a speech bubble labeled
-  `<team> shout <player>: <text>` pinned at **deterministically jittered
+  `<team> shout <name>: <text>` pinned at **deterministically jittered
   coordinates** (~±20 px, like gunshot impact rings): you learn roughly where
   the shouter is, never exactly.
+- `<name>` is the shouter's **anonymous slot letter** (`alpha`..`theta`, ranked
+  within its own team — the same identity the `identity` badges use), never the
+  connecting player's name. Listeners on both teams read these labels, so the
+  label deliberately carries no clue about **whose policy** is talking. Split
+  the label on the first `": "` and treat the rest as payload; `?` in the name
+  position means the shouter left while the bubble was still up.
 - **Rate limit: one shout per second per player**, and each player has at
   most one live bubble (a new shout replaces the old). Bubbles fade after
   **3 seconds**. Dead players cannot shout and hear nothing.
@@ -708,9 +714,16 @@ name and player, and `shout` with the sanitized content and player. The older
 flat `hit` and `damage` rows remain for compatibility.
 
 **Since 0.7.5:** shouts (see the Shouts section) add the label
-`<team> shout <player>: <text>`; chat packets, previously ignored, are now
+`<team> shout <name>: <text>`; chat packets, previously ignored, are now
 applied as shouts and recorded in replays (GameVersion 3 — older replays are
 rejected at load).
+
+**Anonymous shouters:** that label's name field is now the shouter's anonymous
+slot letter. It used to be the connecting player's name, which told everyone in
+earshot whose policy was talking. The label's SHAPE did not change, so a policy
+that reads the payload after `": "` needs no update. Replays are unaffected:
+labels are rendered, never recorded, so the GameVersion is unchanged and an old
+replay replays identically — under the new label.
 
 **Player-sprite labels are stable across the HD art change:** the rotating
 high-definition soldier is a pure visual upgrade — living players are still

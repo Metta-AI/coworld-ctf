@@ -197,14 +197,21 @@ proc normalizeLabel(label: string): string =
   ##   team/player color token -> <color>
   ##   Greek slot name         -> <name>
   ##   " right" / " left"      -> " <side>"
-  ##   shout tail after ": "   -> dropped (arbitrary player text)
+  ##   shout payload after ": " -> dropped (arbitrary player text)
   ## Everything else is preserved verbatim — a real rename must survive.
   var text = label
-  # Shouts: keep the addressing prefix, drop the payload. `<player>` is the
-  # connection address, which is fixture-specific.
+  # Shouts: drop the arbitrary payload, KEEP the shouter token so the Greek-name
+  # pass below can normalize it to `<name>`. That token used to be the shouter's
+  # connection address — i.e. the policy's own name, broadcast to every listener
+  # in earshot — and this normalizer erased the whole tail, so the manifest could
+  # not tell an address from a slot letter and a regression back to leaking one
+  # would diff clean. Cutting at the FIRST ": " is exact: a slot letter never
+  # contains one, so anything after it is payload.
   let shoutCut = text.find(" shout ")
   if shoutCut >= 0:
-    text = text[0 ..< shoutCut] & " shout <player>"
+    let payloadCut = text.find(": ", start = shoutCut)
+    if payloadCut >= 0:
+      text = text[0 ..< payloadCut]
   # Numbers before words, so a color like "light blue" is not chopped up by a
   # stray digit substitution.
   #

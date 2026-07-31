@@ -1,7 +1,7 @@
 import
-  std/[os, unittest],
+  std/[algorithm, os, sequtils, strutils, unittest],
   bitworld/spriteprotocol,
-  ctf/sim
+  ctf/[global, labels, sim]
 
 const GameDir = currentSourcePath.parentDir.parentDir
 
@@ -35,6 +35,31 @@ proc openGround(sim: var SimServer) =
     sim.players[index].velY = 0
     sim.players[index].carryX = 0
     sim.players[index].carryY = 0
+
+proc shoutLabels(sim: var SimServer, viewerIndex: int): seq[string] =
+  ## Every shout-bubble label one viewer receives: a seat index for the player
+  ## stream a bot reads, -1 for the board/broadcast stream. Built from the game
+  ## directory so data/ art resolves, like initCtfForTest.
+  let previousDir = getCurrentDir()
+  setCurrentDir(GameDir)
+  var packet: seq[uint8]
+  try:
+    if viewerIndex >= 0:
+      var
+        state: PlayerViewerState
+        nextState: PlayerViewerState
+      packet = sim.buildSpriteProtocolPlayerUpdates(
+        viewerIndex, state, nextState)
+    else:
+      var
+        state = initGlobalViewerState()
+        nextState: GlobalViewerState
+      packet = sim.buildSpriteProtocolUpdates(state, nextState)
+  finally:
+    setCurrentDir(previousDir)
+  for message in packet.parseSpritePacket():
+    if message.kind == spkSprite and " shout " in message.sprite.label:
+      result.add message.sprite.label
 
 proc sansShoutTick(player: Player, matching: Player): Player =
   ## The player with lastShoutTick copied over, so everything else can be
@@ -162,3 +187,74 @@ suite "shouts":
     check sim1.gameHash != sim2.gameHash
     sim2.applyShout(0, "flank left")
     check sim1.gameHash == sim2.gameHash
+
+suite "shout labels name a slot letter, never the shouter's address":
+  # A bubble's label is read off the wire by EVERY listener in earshot, so
+  # whatever it names the shouter is public to the other side. It used to name
+  # the connection address — for a league bot, the policy's own name — so a team
+  # talking to itself ("red shout daveey: H2") handed rivals a free roster and
+  # told them exactly whose build they were playing. These tests pin the
+  # anonymous per-team slot letter in BOTH streams.
+
+  proc namedGame(seats: int): SimServer =
+    ## `seats` players whose addresses are unmistakable inside a label and share
+    ## no substring with the team colors or the slot letters. Seats alternate
+    ## Red, Blue, Red, Blue... by slot order, as teamForSlot assigns them.
+    result = initCtfForTest(defaultGameConfig())
+    for i in 0 ..< seats:
+      discard result.addPlayer("policy" & $i)
+    result.startGame()
+
+  proc standOn(sim: var SimServer, viewer, target: int) =
+    ## Puts `viewer` on top of `target`, well inside ShoutRange.
+    sim.players[viewer].x = sim.players[target].x
+    sim.players[viewer].y = sim.players[target].y
+
+  test "a player view labels a heard shout with the shouter's slot letter":
+    var sim = namedGame(2)
+    check sim.applyShout(0, "H2")
+    sim.standOn(viewer = 1, target = 0)
+    let heard = sim.shoutLabels(viewerIndex = 1)
+    check heard == @[labelShout("red", "alpha", "H2")]
+    check not heard.anyIt("policy" in it)
+
+  test "the board view labels shouts the same way":
+    # The broadcast stream is anonymized too: one label shape everywhere, and a
+    # human watching still reads the address off the `name` label over the
+    # shouter's head.
+    var sim = namedGame(2)
+    check sim.applyShout(0, "H2")
+    let shown = sim.shoutLabels(viewerIndex = -1)
+    check shown == @[labelShout("red", "alpha", "H2")]
+    check not shown.anyIt("policy" in it)
+
+  test "slot letters rank within the team, not across the roster":
+    # Seat 2 is Red's SECOND seat, so it is beta even though it is the third
+    # player to join. Getting this from the roster index instead would make two
+    # teammates share a letter and the enemy's letters mirror our own.
+    var sim = namedGame(4)
+    # A shout is heard at the coordinates it was MADE at, so gather the seats
+    # before either of them talks.
+    sim.standOn(viewer = 3, target = 2)
+    sim.standOn(viewer = 0, target = 2)
+    check sim.applyShout(2, "H2")        # red beta
+    check sim.applyShout(3, "H3")        # blue beta
+    check sim.shoutLabels(viewerIndex = 0).sorted == @[
+      labelShout("blue", "beta", "H3"),
+      labelShout("red", "beta", "H2"),
+    ]
+
+  test "a departed shouter's bubble falls back to the unknown slot name":
+    # A bubble outlives its author: it displays for ShoutTicks and the shouter
+    # can disconnect inside that window, which drops its player row and with it
+    # the only route from address to slot. The bubble is observable state, so it
+    # stays — under a name that still leaks nothing.
+    var sim = namedGame(2)
+    check sim.applyShout(0, "H2")
+    sim.standOn(viewer = 1, target = 0)
+    sim.removePlayerAt(0)
+    check sim.players.len == 1
+    check sim.recentShouts.len == 1
+    let heard = sim.shoutLabels(viewerIndex = 0)
+    check heard == @[labelShout("red", IdentityNameUnknown, "H2")]
+    check not heard.anyIt("policy" in it)

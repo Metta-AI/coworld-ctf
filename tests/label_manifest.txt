@@ -7,7 +7,7 @@
 <color> flag carried
 <color> flag carrier glow
 <color> flag planted
-<color> shout <player>
+<color> shout <name>
 Room Blue Base
 Room Center
 Room Green Base

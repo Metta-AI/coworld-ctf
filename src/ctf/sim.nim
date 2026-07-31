@@ -6201,6 +6201,34 @@ proc slotIdentityIndex*(sim: SimServer, order: int): int =
       inc result
   result = result mod IdentityNames.len
 
+const IdentityNameUnknown* = "?"
+  ## Stands in for a slot name that cannot be resolved; see `shoutIdentityName`.
+
+proc shoutIdentityName*(sim: SimServer, shout: Shout): string =
+  ## One shout author's anonymous slot name (an `IdentityNames` entry), for the
+  ## speech-bubble label.
+  ##
+  ## Deliberately NOT `shout.address`. The address is the connecting policy's
+  ## own name, and EVERY player in earshot reads shout labels off the wire — so
+  ## labeling a bubble with the address hands rivals a free roster of who is in
+  ## the match, and hands them our own name every time our bots talk to each
+  ## other. The slot letter carries the same signal a listener can actually use
+  ## ("which teammate called this") with no identity attached.
+  ##
+  ## Resolved at render time rather than stored on `Shout`, which is
+  ## flatty-serialized into `SimServer` and therefore into replays: an extra
+  ## field there would be a GameVersion break for a string that only ever
+  ## exists in a rendered label.
+  ##
+  ## A bubble OUTLIVES its author — it displays for ShoutTicks, and the shouter
+  ## can disconnect inside that window (`removePlayerAt` drops the row) — so an
+  ## unresolvable author falls back to IdentityNameUnknown rather than dropping
+  ## the bubble, which is observable state.
+  for player in sim.players:
+    if player.address == shout.address:
+      return IdentityNames[sim.slotIdentityIndex(player.joinOrder)]
+  IdentityNameUnknown
+
 proc findSpawn*(sim: SimServer): tuple[x, y: int] =
   ## Returns the next lobby spawn position.
   let order = sim.players.len

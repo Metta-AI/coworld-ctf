@@ -4576,6 +4576,12 @@ proc addShouts(
   ## a player view hears only shouts within ShoutRange and pins the bubble at
   ## deterministically jittered coordinates, like the shot sound rings — so a
   ## bot learns the neighborhood a shout came from, never the exact spot.
+  ##
+  ## Both views label the bubble with the shouter's anonymous slot letter, never
+  ## its address: listeners read these labels, and the address is the connecting
+  ## policy's name. See `shoutIdentityName`. The broadcast view is anonymized
+  ## too — a human watching still gets the address from the `name` label over
+  ## the shouter's head, so nothing is lost by keeping one label shape.
   for i in 0 ..< min(sim.recentShouts.len, ShoutMaxCount):
     let shout = sim.recentShouts[i]
     var
@@ -4607,7 +4613,8 @@ proc addShouts(
       bubble.width,
       bubble.height,
       bubble.pixels,
-      teamText(shout.team) & " shout " & shout.address & ": " & shout.text,
+      labelShout(
+        teamText(shout.team), sim.shoutIdentityName(shout), shout.text),
       native = boardScale
     )
     currentIds.add(objectId)

@@ -26,6 +26,7 @@ import
   test_board_click_select,
   test_corpse_label,
   test_identity_badges,
+  test_identity_privacy,
   test_damage_pop,
   test_trade_pair,
   test_shot_accuracy,

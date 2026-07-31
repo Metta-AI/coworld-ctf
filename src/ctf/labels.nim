@@ -218,11 +218,20 @@ proc labelShoutPrefix*(color: string): string =
   ## `<color> shout `. Own-team and enemy shouts differ only by this prefix.
   color & " shout "
 
-proc labelShout*(color, address, text: string): string =
-  ## A speech bubble, `<color> shout <player>: <text>`. The tail is arbitrary
-  ## player-authored text, so consumers split on the LAST `": "` and treat
-  ## everything after it as payload — never exact-match a whole shout label.
-  labelShoutPrefix(color) & address & ": " & text
+proc labelShout*(color, name, text: string): string =
+  ## A speech bubble, `<color> shout <name>: <text>`, where `<name>` is the
+  ## shouter's anonymous Greek slot letter (alpha..theta) — the same identity
+  ## `labelIdentity` uses, NOT the shouter's connection address. Every player in
+  ## earshot reads this label, so the address would broadcast the connecting
+  ## policy's own name to its rivals; see `shoutIdentityName`.
+  ##
+  ## The tail is arbitrary player-authored text, so consumers split on `": "`
+  ## and treat everything after it as payload — never exact-match a whole shout
+  ## label. A slot letter can never contain `": "`, so the FIRST separator is
+  ## always the real one; shipped consumers (`players/baseline/`, and the league
+  ## champions built from it) split on the last, which differs only for a payload
+  ## that contains a `": "` of its own.
+  labelShoutPrefix(color) & name & ": " & text
 
 proc labelIdentity*(
   color, name: string;
