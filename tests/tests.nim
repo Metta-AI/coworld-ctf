@@ -33,7 +33,6 @@ import
   test_live_event_emission,
   test_map_export,
   test_rich_events,
-  test_live_event_emission,
   test_windows,
   test_agent_skins,
   test_sprite_collisions,
