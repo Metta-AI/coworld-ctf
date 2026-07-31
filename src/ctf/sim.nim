@@ -2005,9 +2005,10 @@ const
   ArenaLargeName = "arena-large"
   ArenaBorder* = 10            ## perimeter wall thickness in px.
 
-  ## Warm CRT-phosphor arena (REPLAY_DESIGN §3 art-lock): warm-dark floor,
-  ## warm-stone cover, the two team colors the only saturated channels — never
-  ## the cold blue-slate default the house style forbids.
+  ## Warm CRT-phosphor arena (REPLAY_DESIGN §3 art-lock): neutral-warm grey
+  ## polished-concrete floor, warm-stone cover, the two team colors the only
+  ## saturated channels — never the cold blue-slate default the house style
+  ## forbids.
   ArenaBorderColor = rgba(44, 34, 25, 255)
 
   ## Interior obstacle shapes for the LEFT half only. Each is mirrored
@@ -4430,7 +4431,7 @@ proc tileSample(tex: Image, x, y: int): ColorRGBA =
 proc tileSampleF(tex: Image, fx, fy: float): ColorRGBA =
   ## Bilinear tile sample at a fractional map-pixel coordinate (wrapping).
   ## The texture still tiles 1:1 with LOGICAL map pixels — a scale× renderer
-  ## passes fractional coords, so the flagstone keeps its 1× world size but
+  ## passes fractional coords, so the floor texture keeps its 1× world size but
   ## resolves smoothly between texels. At integer-center coords this returns
   ## exactly tileSample's nearest texel.
   let
@@ -4490,24 +4491,32 @@ proc blitCover(dst, spr: Image, cx, cy, size: int) =
   dst.draw(scaled, translate(vec2((cx - size div 2).float32,
                                   (cy - size div 2).float32)))
 
-## --- Carved-stone wall material (top-down bevel from the collision mask) ---
+## --- Rooftop wall material (top-down building look from the collision mask) ---
 ## Every wall pixel — border frame, rect stub, diamond, disc, or chevron — is
-## rendered as one coherent RAISED-STONE block whose shading comes from its
-## distance to the nearest floor pixel. This replaces the old approach of
-## tiling a SIDE-VIEW brick photo into the mask (which sliced the brick course
-## mid-pattern → the "torn ribbon" chevrons) and blitting three clashing prop
-## sprites (wood crate / steampunk pipe / barrel) scaled to a square that never
-## matched the diamond/disc/diagonal footprints. Because the shading is derived
-## from the mask, the art matches every collider EXACTLY and is identical on
-## both halves by construction (the mask is mirror-symmetric). Light comes from
-## the up-left, so the up-left faces catch a highlight and the down-right faces
-## fall into shadow — the Gungeon/Nuclear-Throne top-down convention (L98).
+## rendered as one coherent LOW-DETAIL BUILDING seen from above: a light
+## parapet rim around the perimeter, a shadow line where the parapet drops to
+## the roof, and a dark flat roof membrane crossed by subtle diagonal seams.
+## The shading comes from each pixel's distance to the nearest floor pixel, so
+## — like the carved-stone material it replaces — the art matches every
+## collider EXACTLY and is identical on both halves by construction (the mask
+## is mirror-symmetric; the world-space roof seams are the one deliberate
+## exception, same as the glass sheen). Light comes from the up-left, so the
+## up-left parapet run catches a highlight and the down-right run falls into
+## shadow — the Gungeon/Nuclear-Throne top-down convention (L98). The
+## buildings keep the cover's warm-tan family (REPLAY_DESIGN §3 warm-stone
+## cover) so they pop off the neutral-grey concrete floor, and the team
+## colors stay the only saturated channels.
 const
-  WallBevel = 3                          ## px width of the lit/shadow bevel band.
-  StoneFace = rgba(120, 100, 78, 255)    ## flat top face of a raised stone block.
-  StoneHi = rgba(190, 167, 137, 255)     ## up-left lit bevel (catches the light).
-  StoneLo = rgba(68, 54, 41, 255)        ## down-right shaded bevel (falls to dark).
-  StoneInk = rgba(34, 26, 19, 255)       ## warm near-black carve line (never #000).
+  WallBevel = 3                          ## px width of the parapet rim band.
+  RoofFace = rgba(110, 92, 72, 255)      ## flat warm roof (the old cover tan,
+                                         ## a step darker so the rim pops).
+  RoofSeam = rgba(97, 80, 62, 255)       ## diagonal membrane seam lines.
+  RoofLip = rgba(56, 45, 35, 255)        ## shadow line where parapet meets roof.
+  ParapetFace = rgba(152, 130, 104, 255) ## flat parapet top.
+  ParapetHi = rgba(192, 169, 139, 255)   ## up-left lit parapet (catches light).
+  ParapetLo = rgba(88, 72, 56, 255)      ## down-right shaded parapet.
+  StoneInk = rgba(32, 27, 22, 255)       ## warm near-black ground line (never #000).
+  RoofSeamPeriod = 16                    ## px between diagonal roof seams.
 
 proc floorDistDir(wall: seq[bool], w, h, x, y, dx, dy, cap: int): int =
   ## Steps from (x, y) along (dx, dy) until the first floor (non-wall) pixel,
@@ -4523,44 +4532,57 @@ proc floorDistDir(wall: seq[bool], w, h, x, y, dx, dy, cap: int): int =
       return step
   cap + 1
 
-proc carvedStoneColorAt(
+proc rooftopColorAt(
   wall: seq[bool], w, h, x, y, scale: int
 ): ColorRGBA =
-  ## Shades one wall pixel as raised carved stone: an ink carve line where it
-  ## meets the floor, a highlight on faces toward the up-left light, a shadow on
-  ## faces toward the down-right, and a flat face deep inside the block. The
-  ## mask may be a `scale`× render of the arena; every band (ink line, bevel)
-  ## widens by `scale` so the material keeps its 1× proportions on screen.
+  ## Shades one wall pixel as a low-detail rooftop: an ink ground line where
+  ## the building meets the floor, a parapet rim lit toward the up-left light
+  ## and shaded toward the down-right, a shadow line where the parapet drops
+  ## inside, and a dark seamed roof membrane deep in the interior. The mask
+  ## may be a `scale`× render of the arena; every band (ink line, parapet,
+  ## lip) widens by `scale` so the material keeps its 1× proportions.
   let
     bevel = WallBevel * scale
-    up = floorDistDir(wall, w, h, x, y, 0, -1, bevel)
-    left = floorDistDir(wall, w, h, x, y, -1, 0, bevel)
-    down = floorDistDir(wall, w, h, x, y, 0, 1, bevel)
-    right = floorDistDir(wall, w, h, x, y, 1, 0, bevel)
-  if min(min(up, down), min(left, right)) <= scale:
-    return StoneInk                      ## touches the floor → carve outline.
+    cap = bevel + scale                  ## parapet + the inner lip line.
+    up = floorDistDir(wall, w, h, x, y, 0, -1, cap)
+    left = floorDistDir(wall, w, h, x, y, -1, 0, cap)
+    down = floorDistDir(wall, w, h, x, y, 0, 1, cap)
+    right = floorDistDir(wall, w, h, x, y, 1, 0, cap)
+    edge = min(min(up, down), min(left, right))
+  if edge <= scale:
+    return StoneInk                      ## touches the floor → ground outline.
   let
     topDist = min(up, left)              ## nearer the up-left (lit) rim.
     botDist = min(down, right)           ## nearer the down-right (shaded) rim.
-  if topDist <= bevel and topDist <= botDist:
-    ## Graded lit bevel: brightest at the rim (just inside the ink line),
-    ## easing back to the flat face by the bevel width so the block reads
-    ## as a rounded raised edge, not a flat painted band.
-    let t = (topDist - 2 * scale).float / max(1, bevel - 2 * scale).float
-    mix(StoneHi, StoneFace, clamp(t, 0.0, 1.0))
-  elif botDist <= bevel:
-    let t = (botDist - 2 * scale).float / max(1, bevel - 2 * scale).float
-    mix(StoneLo, StoneFace, clamp(t, 0.0, 1.0))
+  if edge <= bevel:
+    ## Graded parapet rim: brightest at the outer edge (just inside the ink
+    ## line), easing toward the flat parapet top by the rim width so the
+    ## building edge reads raised, not painted.
+    if topDist <= botDist:
+      let t = (topDist - 2 * scale).float / max(1, bevel - 2 * scale).float
+      mix(ParapetHi, ParapetFace, clamp(t, 0.0, 1.0))
+    else:
+      let t = (botDist - 2 * scale).float / max(1, bevel - 2 * scale).float
+      mix(ParapetLo, ParapetFace, clamp(t, 0.0, 1.0))
+  elif edge <= bevel + scale:
+    RoofLip                              ## parapet drops to the roof.
   else:
-    StoneFace
+    ## Roof membrane: flat dark field with subtle diagonal seams running
+    ## down-left (perpendicular to the glass sheen streaks, so the two
+    ## materials never read as one pattern).
+    let
+      period = RoofSeamPeriod * scale
+      phase = ((x + y) mod period + period) mod period
+    if phase < scale: RoofSeam else: RoofFace
 
-proc carvedStoneColor(wall: seq[bool], w, h, x, y: int): ColorRGBA =
-  ## 1× carved stone (the baked collision-resolution map and spun diamonds).
-  carvedStoneColorAt(wall, w, h, x, y, 1)
+proc rooftopColor(wall: seq[bool], w, h, x, y: int): ColorRGBA =
+  ## 1× rooftop material (the baked collision-resolution map and spun diamonds).
+  rooftopColorAt(wall, w, h, x, y, 1)
 
 const
-  ## Glass window material: a pale pane set in the same stone frame language as
-  ## the carved walls. The face targets palette index 1 (light gray) and the
+  ## Glass window material: a pale pane set in the same parapet frame language
+  ## as the rooftop walls — a skylight in the building's face. The face targets
+  ## palette index 1 (light gray) and the
   ## sheen streaks index 2 (near-white), so windows stay legible after the
   ## player-view palette quantization — glass must READ as see-through cover.
   GlassFace = rgba(198, 198, 196, 255)   ## flat pane; quantizes to palette 1.
@@ -4569,11 +4591,12 @@ const
 proc windowGlassColorAt(
   wall: seq[bool], w, h, x, y, scale: int
 ): ColorRGBA =
-  ## Shades one glass window pixel: the same ink carve line and a thin stone
-  ## frame where the pane meets the floor (so windows sit in the wall
-  ## language), then a pale pane crossed by 45-degree sheen streaks running
-  ## down-right, perpendicular to the up-left light the stone bevels use.
-  ## Like carvedStoneColorAt, every band widens by `scale` so the material
+  ## Shades one glass window pixel: the same ink ground line and a thin
+  ## parapet frame where the pane meets the floor (so windows sit in the
+  ## rooftop wall language), then a pale pane crossed by 45-degree sheen
+  ## streaks running down-right, perpendicular to the up-left light the
+  ## parapet bevels use.
+  ## Like rooftopColorAt, every band widens by `scale` so the material
   ## keeps its 1× screen proportions on the render-scale board.
   let
     frameCap = 2 * scale
@@ -4590,7 +4613,7 @@ proc windowGlassColorAt(
   if edge <= scale:
     return StoneInk                      ## touches the floor → carve outline.
   if edge <= frameCap:
-    return StoneFace                     ## thin stone frame around the pane.
+    return ParapetFace                   ## thin parapet frame around the pane.
   let
     period = 24 * scale
     phase = ((x - y) mod period + period) mod period
@@ -4641,8 +4664,9 @@ proc rotatingDiamondPixels*(
   scale = 1
 ): tuple[size: int, pixels: seq[uint8]] =
   ## One pre-rotated frame of a spinning center diamond, shaded with the same
-  ## carved-stone material as the baked walls: the mask is rotated, then the
-  ## bevel is re-derived from it, so the light stays up-left at every angle.
+  ## rooftop material as the baked walls: the mask is rotated, then the
+  ## parapet bevel is re-derived from it, so the light stays up-left at every
+  ## angle.
   ## The mask comes from rotatedDiamondCovers — the SAME predicate the
   ## collision, bullet, and vision masks stamp — so what a player sees is
   ## exactly what blocks them. `size` is the LOGICAL (map-pixel) footprint;
@@ -4672,7 +4696,7 @@ proc rotatingDiamondPixels*(
     for x in 0 ..< outSize:
       if mask[y * outSize + x]:
         let
-          color = carvedStoneColorAt(mask, outSize, outSize, x, y, scale)
+          color = rooftopColorAt(mask, outSize, outSize, x, y, scale)
           offset = (y * outSize + x) * 4
         pixels[offset] = color.r
         pixels[offset + 1] = color.g
@@ -4692,17 +4716,18 @@ proc rotatingDiamondPixels*(
 ## the narrow scoring column only, anchored by a crisp bright threshold line at
 ## the exact x a carrier must cross. Cosmetic over mapImage → hash-safe.
 const
-  EndzoneCrackGlow = 165         ## ember alpha on the darkest grout pixels (kept
+  EndzoneCrackGlow = 165         ## ember alpha on the darkest crack pixels (kept
                                  ## below the pedestal glow so the flag home
                                  ## stays the brightest thing in the endzone).
   EndzoneLineAlpha = 220         ## solid threshold line at the exact score-x.
   EndzoneLineW = 3               ## px width of that threshold line.
-  # The flagstone texture runs dark (lum ~26..117, faces ~73+, grout ~<46), so
-  # a single "below X" gate lit the whole floor. These two points bracket the
-  # real split: at/above FaceLevel a pixel is a lit face → NO glow; at/below
-  # CrackLevel it's grout → full glow; linear between.
-  EndzoneFaceLevel = 66          ## lit stone face floor luminance (glow = 0).
-  EndzoneCrackLevel = 34         ## grout/seam luminance (glow = full).
+  # The concrete floor texture (scripts/art/build_floor.py) is baked to a
+  # luminance CONTRACT with these gates: the polished surface — including its
+  # light panel-seam bevels — stays at lum 72..112 (at/above FaceLevel → NO
+  # glow); only the hairline crack bottoms dip to ~32..34 (at/below CrackLevel
+  # → full glow), with the crack tapers crossing the band and glowing partially.
+  EndzoneFaceLevel = 66          ## polished-surface floor luminance (glow = 0).
+  EndzoneCrackLevel = 34         ## joint/crack-bottom luminance (glow = full).
   EndzoneGlowFloor = 0.82        ## min home-falloff so the far end still glows.
   RedEndzoneColor* = rgba(224, 82, 58, 255)    ## team vermillion (§4).
   BlueEndzoneColor* = rgba(63, 124, 196, 255)  ## team cerulean (§4).
@@ -4716,14 +4741,14 @@ const
     ## so it matches what a viewer sees on the board.
 
 proc emberThroughCracks(base, ember: ColorRGBA, strength: float): ColorRGBA =
-  ## Lets a team ember glow seep UP ONLY through the DARK crack/grout pixels of
-  ## the flagstone TEXTURE — the lit stone faces stay completely clean (no base
+  ## Lets a team ember glow seep UP ONLY through the DARK joint/crack pixels of
+  ## the concrete TEXTURE — the polished faces stay completely clean (no base
   ## wash), so team color is confined to the actual fissures/seams, not a flat
   ## tint over the tiles (L98 #4). Distinct from the solid capture LINE, which is
   ## a painted stripe. A two-point luminance gate anchored to the measured floor
   ## split does the confining; `strength` is a gentle pedestal-side falloff.
   let l = (base.r.int * 30 + base.g.int * 59 + base.b.int * 11) div 100
-  # 0 at/above a lit face, 1 at/below grout — cracks only, faces untouched.
+  # 0 at/above a polished face, 1 at/below a crack bottom — cracks only.
   let crack = clamp((EndzoneFaceLevel - l).float /
     (EndzoneFaceLevel - EndzoneCrackLevel).float, 0.0, 1.0)
   let a = strength * crack * crack * EndzoneCrackGlow.float
@@ -4849,8 +4874,8 @@ proc renderArenaRgbaPair*(
   ## The arena VISUAL rasterized natively at `scale`× map resolution for the
   ## spectator/replay renderer — real detail, not an upscale: wall shapes are
   ## re-evaluated from their float geometry per output pixel (crisp diagonal
-  ## chevron/diamond edges), the carved-stone bevel grades over scale× more
-  ## steps, the flagstone floor resolves bilinearly between texels, and the
+  ## chevron/diamond edges), the rooftop parapet bevel grades over scale× more
+  ## steps, the concrete floor resolves bilinearly between texels, and the
   ## pedestal art (600px masters) rasterizes at scale× its footprint. The
   ## endzone tint gates stay LOGICAL-column based, so the capture line and
   ## glow columns land exactly where the 1× map puts them. Collision masks are
@@ -4878,7 +4903,8 @@ proc renderArenaRgbaPair*(
   # The art mask at output resolution: border + obstacle shapes from float
   # geometry, minus the spinning center diamonds (drawn live as objects).
   # Window pixels (glass) get their own mask in the same per-shape pass: wall
-  # points inside a window shape draw as the pale pane, not carved stone.
+  # points inside a window shape draw as the pale pane, not the rooftop
+  # material.
   var
     artMask = newSeq[bool](ow * oh)
     windowMask = newSeq[bool](ow * oh)
@@ -4913,7 +4939,7 @@ proc renderArenaRgbaPair*(
           artMask[y * ow + x] = true
           if shape.window:
             windowMask[y * ow + x] = true
-  # The flagstone tiles the board with a period of exactly texW×texH LOGICAL
+  # The floor texture tiles the board with a period of exactly texW×texH LOGICAL
   # pixels, so the bilinear floor repeats every texW·scale × texH·scale output
   # pixels — bake ONE tile block and index it, instead of bilinear-sampling
   # 3.3M board pixels (this bake runs at container boot on a small contended
@@ -4959,7 +4985,7 @@ proc renderArenaRgbaPair*(
           if windowMask[i]:
             windowGlassColorAt(artMask, ow, oh, x, y, scale)
           else:
-            carvedStoneColorAt(artMask, ow, oh, x, y, scale)
+            rooftopColorAt(artMask, ow, oh, x, y, scale)
         coldColor = hotColor
       else:
         coldColor = tileBlock[tileRow + x mod tileW]
@@ -5016,10 +5042,11 @@ proc renderArenaRgbaPair*(
 proc loadMapLayers*(gameMap: CtfMap, withEndzoneGlow = true):
     tuple[mapImage, walkImage, wallImage: Image] =
   ## Builds the visual map plus the walk and wall masks for the arena. The
-  ## visuals: a tiled top-down flagstone floor, and ONE coherent carved-stone
-  ## material for every wall pixel — border frame, rect stub, diamond, disc, and
-  ## chevron alike — beveled from the collision mask itself so the art matches
-  ## each collider EXACTLY and is identical on both halves by construction. The
+  ## visuals: a tiled top-down polished-concrete floor, and ONE coherent
+  ## rooftop material for every wall pixel — border frame, rect stub, diamond,
+  ## disc, and chevron alike — beveled from the collision mask itself so the
+  ## art matches each collider EXACTLY and is identical on both halves by
+  ## construction. The
   ## old side-view brick texture (sliced mid-course into the shapes → "torn
   ## ribbon" chevrons) and the three clashing prop sprites (wood crate /
   ## steampunk pipe / barrel scaled to a square over diamond/disc footprints)
@@ -5065,9 +5092,10 @@ proc loadMapLayers*(gameMap: CtfMap, withEndzoneGlow = true):
     playHi = w - 1 - ArenaBorder             # anchors home, fades to the line.
     playLoY = ArenaBorder
     playHiY = h - 1 - ArenaBorder
-  ## Pass 2: paint. Floor pixels sample the flagstone tile; wall pixels are the
-  ## carved-stone material shaded from the mask. The perimeter frame is the same
-  ## stone darkened so the play space reads as a lit pit. Floor pixels inside a
+  ## Pass 2: paint. Floor pixels sample the concrete tile; wall pixels are the
+  ## rooftop material shaded from the mask. The perimeter frame is overlaid
+  ## with the solid border color so the play space reads as a lit pit. Floor
+  ## pixels inside a
   ## capture column get a CONFINED team endzone tint + a bright threshold line
   ## (endzoneColorAt) — not the removed broad half-board wash (L98 #4).
   for y in 0 ..< h:
@@ -5080,7 +5108,7 @@ proc loadMapLayers*(gameMap: CtfMap, withEndzoneGlow = true):
         windowPixel = wall and isArenaWindowPixel(x, y, cx, cy)
       var color =
         if windowPixel: windowGlassColor(artMask, w, h, x, y)
-        elif artWall: carvedStoneColor(artMask, w, h, x, y)
+        elif artWall: rooftopColor(artMask, w, h, x, y)
         elif withEndzoneGlow: endzoneColorAt(tints,
           tileSample(floorTex, x, y), x, y, playLo, playHi, playLoY, playHiY)
         else: tileSample(floorTex, x, y)

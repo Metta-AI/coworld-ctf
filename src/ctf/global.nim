@@ -2115,7 +2115,7 @@ proc buildPaintStainSprite(
   let
     base = teamPaintRgba(PlayerColors[colorIndex and 0x0f])
     # Keep the hue saturated and let ALPHA do all the subtlety. The stain has to
-    # stay translucent enough that the floor's stonework — grout lines, cracks,
+    # stay translucent enough that the floor's concrete — control joints, cracks,
     # grain — reads straight through it, which is the whole difference between
     # "paint soaked into terrain" and "a colored blob dropped on top of it".
     paintR = uint8(min(255, base.r.int * 92 div 100))
@@ -4094,7 +4094,7 @@ proc addRotatingDiamonds(
   currentIds: var seq[int],
   packet: var seq[uint8]
 ) {.measure.} =
-  ## Draws the center diamonds as slowly spinning carved-stone sprites over
+  ## Draws the center diamonds as slowly spinning rooftop-material sprites over
   ## the floor the art bake left under them. Map geometry is always visible
   ## (never fog-gated), and the halves spin in mirrored directions. The spin
   ## angle derives from tickCount, so replays and every viewer agree — and
