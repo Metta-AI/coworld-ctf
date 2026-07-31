@@ -116,6 +116,53 @@ const
                               # flag; abandoning the hunt after ~1.7s is how
                               # campers walk flags home (daveey, R1693 review)
 
+  # -d:carrierCommit (nancy counter lane): a FOV-free late-window intercept of
+  # the enemy running our flag. Decoded from the nancy-ctf:v4 loss census
+  # (n=165 era-pure, 43/62 of our losses are HER captures at gc>=4044): her
+  # converted carries draw 0.17 shots per 100 carry-ticks vs 2.11 when we stop
+  # one, 20/43 draw ZERO shots across a ~560-tick walk, and the perception limb
+  # measured ZERO sightings of the carrier over 10 consecutive windows. So the
+  # champion's whole thief apparatus (thief_hunt, the FireRange lift, the
+  # ThiefFocusBonus) is dead against her: every clause of it needs a fresh FOV
+  # fix (carrierSeen), which never happens. These constants drive the
+  # ROUTE-PREDICTED replacement, which needs no sighting at all.
+  CarrierCommitTick {.intdefine.} = 2500
+                              # late-window onset in game ticks: all of her
+                              # converting steals land gc>=3000 and the fork
+                              # window is gc3000-4000, so nothing before this
+                              # is touched — no new early-game exposure
+  CarrierCommitSpeedDeci {.intdefine.} = 16
+                              # px/tick, x10, of REALIZED carrier progress
+                              # along the pedestal-to-pedestal route: nominal
+                              # 2.00 (CarrierSpeedPct 70), measured 1.45-1.85
+                              # median 1.62 over 21 decoded long carries
+  CarrierCommitOurSpeed = 2.70
+                              # px/tick of our own free move. MaxSpeed 704 /
+                              # MotionScale 256 = 2.75 and it is a PER-AXIS
+                              # cap, so travel time is CHEBYSHEV/2.75; shaded
+                              # down slightly to pay for cover-aware routing
+  CarrierCommitStepPx = 20.0  # resolution of the intercept-point search along
+                              # her route
+  CarrierCommitSpreadPx = 80.0
+                              # per-seat lateral stagger of the intercept
+                              # point: converging seats form a picket ACROSS
+                              # the corridor instead of piling onto one pixel,
+                              # which also covers her actual path deviating
+                              # from the pedestal-to-pedestal straight line
+  CarrierCommitGiveUpPx = 170.0
+                              # release the commit once the predicted carrier
+                              # is this close to her own pedestal: at 0.75
+                              # px/tick of closing speed she cannot be caught
+                              # from behind any more, and dying inside her
+                              # pocket spends lives the attrition close-outs
+                              # (19/62 of our losses) cannot afford
+  CarrierCommitSlackPx = 120.0
+                              # a fresh track this close to the dead-reckoned
+                              # carrier IS (or shadows) her: give it the
+                              # ThiefFocusBonus. Wider than the 48px
+                              # fresh-fix slack because a route reckon is a
+                              # coarser estimate than a real position fix.
+
   AimBrads = 256              # aim angle units per full turn
   AimRate = 5                 # brads/tick a held rotate button turns the aim
                               # (matches the server's aimTurnRate default)
@@ -319,6 +366,9 @@ type
     mates: seq[Track]
     carrierPos, carrierVel: Vec   # last fix on the thief carrying OUR flag
     carrierSeen: int
+    ccStoleTick: int          # -d:carrierCommit: tick the GLOBAL own-flag-
+                              # stolen signal last went true; -100_000 = our
+                              # flag is home
     lastEnemySeen: int        # last tick ANY enemy was inside our vision
     gameStart: int            # tick of the last lobby-to-playing transition
     firedLast: bool           # A was set on the previous sent mask
@@ -1226,6 +1276,7 @@ proc resetTransient(bot: Bot) =
   bot.wasMateCarry = false
   bot.tripping = false
   bot.carrierSeen = -100_000
+  bot.ccStoleTick = -100_000
   bot.lastEnemySeen = bot.tick
   bot.gameStart = bot.tick
   bot.firedLast = false
@@ -1796,6 +1847,71 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         break
     bot.carrierSeen = bot.tick
 
+  # CARRIER-COMMIT (-d:carrierCommit): every clause of the champion's thief
+  # apparatus is gated on `bot.carrierSeen`, i.e. on somebody having the thief
+  # in their vision cone. Against a rival whose carries are never sighted that
+  # whole apparatus is a measured zero, and the flag walks home unshot. This
+  # rebuilds the chase on the ONE channel that is not FOV-gated: `ownStolen`
+  # is read off the always-drawn planted-banner sprite (absent banner <=> an
+  # enemy is carrying, since a flag is never loose), so the STEAL EDGE is
+  # global. From that edge the route is fully determined — she must walk our
+  # pedestal -> her own pedestal — so her position is dead-reckonable with no
+  # perception at all.
+  when defined(carrierCommit):
+    if not ownStolen:
+      bot.ccStoleTick = -100_000
+    elif bot.ccStoleTick < -50_000:
+      # First live tick on which we observe the steal. A seat that was DEAD at
+      # the true edge arms up to a respawn (72t) late and so under-estimates
+      # her progress; that biases its aim point BEHIND her, which degrades to
+      # a stern chase rather than to nothing — and those seats respawn in our
+      # own pocket, behind her anyway.
+      bot.ccStoleTick = bot.tick
+  when defined(carrierCommit):
+    let
+      ccRouteVec = stealTarget - ownHome   # her walk home, pedestal->pedestal
+      ccRouteLen = ccRouteVec.len()
+      ccDir = norm(ccRouteVec)
+      ccStop = max(0.0, ccRouteLen - CarrierCommitGiveUpPx)
+      ccProgress = min(
+        float(max(0, bot.tick - bot.ccStoleTick)) *
+          float(CarrierCommitSpeedDeci) / 10.0,
+        ccRouteLen)
+      ccRef = ownHome + ccDir * ccProgress  # dead-reckoned carrier position
+      # Never strip our OWN live conversion of its escort: trading our capture
+      # for the chase is the v16/v17 scar, and the seats around our runner are
+      # the ones already doing the highest-value thing on the map.
+      ccRaceExempt = mateCarry and dist(me, mateCarryPos) < 250.0
+      ccCommit = ownStolen and not iCarry and not ccRaceExempt and
+        bot.ccStoleTick > -50_000 and
+        bot.tick - bot.gameStart >= CarrierCommitTick and
+        ccProgress <= ccStop
+      ccSpeed = max(0.1, float(CarrierCommitSpeedDeci) / 10.0)
+    # Intercept point: the EARLIEST point on her route we can be standing on
+    # before she walks through it. Our budget is Chebyshev/2.70, hers is
+    # along-route/1.6, so the SAME rule makes a seat behind her cut forward and
+    # a seat already deep in her half cut BACK to meet her head-on — which is
+    # the common case, since her route runs toward the half our attack wave is
+    # already in. Walking the route in 20px steps and taking the first
+    # reachable point is monotone in our own position, so the aim point slides
+    # as we move instead of flipping between two rings; there is no threshold
+    # to chatter on and so no hysteresis latch to get stuck in.
+    var ccAim = ccRef
+    if ccCommit:
+      var ccS = ccStop
+      var ccProbe = ccProgress
+      while ccProbe <= ccStop:
+        let q = ownHome + ccDir * ccProbe
+        if max(abs(me.x - q.x), abs(me.y - q.y)) / CarrierCommitOurSpeed <=
+            (ccProbe - ccProgress) / ccSpeed:
+          ccS = ccProbe
+          break
+        ccProbe += CarrierCommitStepPx
+      ccAim = ownHome + ccDir * ccS
+      ccAim.y += float((bot.slot div 2) mod 3 - 1) * CarrierCommitSpreadPx
+  else:
+    const ccCommit = false
+
   when defined(shoutCoord):
     # Broadcast intel worth its position leak (shouts are heard by enemies
     # within ~247px too, but a carrier is already hunted and a defender's
@@ -2045,7 +2161,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       if kit >= 0:
         target = bot.kitPos[kit]
   elif ownStolen and not raceExempt and (bot.role == HomeDefender or
-      bot.tick - bot.carrierSeen <= thiefChaseTtl):
+      bot.tick - bot.carrierSeen <= thiefChaseTtl or ccCommit):
     # An enemy is RUNNING OUR FLAG: with a fresh fix (own eyes or a mate's
     # "T" shout), EVERY role drops what it is doing and converges on the
     # thief's predicted route — an enemy capture ends the episode against
@@ -2077,6 +2193,14 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
             bestD = abs(bot.carrierPos.y - lane)
             laneY = lane
       target = vec(float(CenterX) - homeSign(bot.team) * 60.0, laneY)
+      when defined(carrierCommit):
+        if ccCommit:
+          # No fix and never will be one: stop holding a midline lane on the
+          # chance she walks into it and go CUT her known route instead. Every
+          # free live seat converges, because a completed enemy capture ends
+          # the episode as a loss and nothing else on the board outranks that.
+          objMode = "carrier_cut"
+          target = ccAim
   elif mateCarry:
     objMode = "escort"
     case bot.role
@@ -2374,9 +2498,14 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       PlasmaReach + 6.0                  # cone weapon: only close range matters
     elif pocketRush: 0.0
     elif iCarry: CarrierFireRange
-    elif ownStolen and bot.tick - bot.carrierSeen <= thiefChaseTtl: FireRange
+    elif ownStolen and (bot.tick - bot.carrierSeen <= thiefChaseTtl or
+        ccCommit): FireRange
       # A live fix on the enemy running our flag lifts every role's range
       # cap: the map-wide gun is the fastest flag return there is.
+      # -d:carrierCommit extends the same lift to the committed intercept,
+      # where the "fix" is the dead-reckoned route position instead of a
+      # sighting — the GV27 centre row is transparent end to end, so a seat
+      # on her route has a long clear line at her without closing at all.
     elif rushing: RushEngageRange
     elif mateCarry: EscortEngageRange
     else: FireRange
@@ -2445,6 +2574,12 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         if dist(t.pos, carrierRef) <= slack:
           # This track IS (or shadows) the enemy running our flag: shoot it
           # before anything else — a dead carrier returns the flag instantly.
+          prio -= ThiefFocusBonus
+      when defined(carrierCommit):
+        # Same priority, sourced from the route reckon instead of a fix, so it
+        # is available in exactly the window where no fix ever exists.
+        if ccCommit and fixAge > thiefChaseTtl and
+            dist(t.pos, ccRef) <= CarrierCommitSlackPx:
           prio -= ThiefFocusBonus
     if client.pixelRayClear(me, predicted):
       if bot.friendlyBlocked(me, predicted, d):
@@ -2626,7 +2761,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # pocket duel is close-range, where an instant lethal cone beats any gun.
   bot.tripping = false
   if not iCarry and not hasShield and bot.role == MidTop and
-      enemyPlanted.len > 0 and
+      enemyPlanted.len > 0 and not ccCommit and
       not (ownStolen and bot.tick - bot.carrierSeen <= ThiefFixTtl):
     # HOME KIT-UP: either team may take either endzone's shield, and OURS
     # sits ~50px from our own spawn — so the LEAD RUSHER gears up at home
@@ -2646,7 +2781,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         break
   elif not iCarry and not hasPlasma and
       bot.role in {MidTop, MidBottom, MidGuard, FlankTop, FlankBottom} and
-      not mateCarry and not pocketRush:
+      not mateCarry and not pocketRush and not ccCommit:
     # Plasma top-up: cone-armed pocket brawls win close range. Cheap when we
     # are already visiting the endzone column (shield chain) or passing by.
     for i in 0 ..< bot.plasmaPos.len:
@@ -2665,6 +2800,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # leave it — kits are hurt-only pickups, so deferring costs nothing when
   # the carrier turns out healthy.
   if bot.hp < MaxHp and not iCarry and not pocketRush and
+      not (ccCommit and bot.hp > 1) and
       not (ownStolen and bot.tick - bot.carrierSeen <= ThiefFixTtl):
     let reach = if bot.hp <= 1: MedKitCriticalReach else: MedKitDetour
     let kit = bot.bestKitDetour(me, target, reach)
@@ -2953,6 +3089,13 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       moveMask = octantBits(steer)
       if bot.tick < bot.jinkUntil:
         moveMask = bot.jinkBits            # unsticking burst
+      when defined(carrierCommit):
+        # The aim carries the vision cone, and aim is decoupled from movement:
+        # while committed, point it at the dead-reckoned carrier. That is what
+        # converts the route reckon into an actual SIGHTING (and pre-lays the
+        # slow turret, so the first shot lands sooner once she is a track).
+        if desiredAim < 0 and ccCommit:
+          desiredAim = bradsOf(ccRef - me)
       if desiredAim < 0 and ownStolen and
           bot.role in {FlankTop, FlankBottom} and
           bot.tick - bot.carrierSeen > ThiefFixTtl:
