@@ -789,6 +789,24 @@ proc snapToCover(bot: Bot, p: Vec): Vec =
         bestD = d
         result = cellCenter(nc)
 
+when defined(exfilMirrorCanon) or defined(postMirrorCanon):
+  proc mirrorXV(p: Vec): Vec =
+    ## Pixel mirror across the map's vertical center line.
+    vec(float(MapW - 1) - p.x, p.y)
+
+  proc maskMirrorSymmetric(client: ProtocolClient): bool =
+    ## True when the pixel walkability mask is EXACTLY symmetric under
+    ## x -> MapW-1-x (true on the arena: 0 of 813865 pixels differ). The
+    ## canonical-frame mirror repairs are only sound when the world and its
+    ## mirror share the same walls, so any map that is not exactly
+    ## x-mirrored (e.g. rot180 procedural terrain) auto-disables the
+    ## repair instead of steering against walls that do not exist.
+    for y in 0 ..< MapH:
+      for x in 0 ..< (MapW div 2 + 1):
+        if client.walkableAt(x, y) != client.walkableAt(MapW - 1 - x, y):
+          return false
+    true
+
 proc scanPost(
     bot: Bot, client: ProtocolClient, eSign, wantY: float
 ): tuple[hold, peek: Vec, ready: bool] =
@@ -841,11 +859,45 @@ proc pickPost(bot: Bot, client: ProtocolClient) =
   let
     eSign = -homeSign(bot.team)
     wantY = float(CenterY) + 60.0
+  when defined(postMirrorCanon):
+    # Own-post mirror repair (task 1217030408804521): scanPost scores its
+    # candidates at NavCell-8 cell centres 8c+4, which mirror to 1230-8c
+    # while the mirror-partner centre sits at 1236-8c — a constant 6 px
+    # lattice offset that handicaps every Blue candidate by +7.0..+8.4
+    # score units (|fwd+90|*0.7 and -peekLine*0.7 both lose), and the
+    # coverCell candidate SET itself is asymmetric (1770 of 12865 cells;
+    # Blue's winning cell has no Red mirror partner). Net effect: Red's
+    # overwatch holds a post 101 px deep with a 210 px firing line while
+    # Blue's holds 91 px deep with a 198 px line — a permanent side bias.
+    # Repair: a BLUE overwatch runs the exact scan a Red bot runs for
+    # itself and pixel-mirrors hold and peek back. The walkability mask
+    # must be exactly x-mirror-symmetric for the mirrored spot to keep
+    # every pixel property (footprint fit, front shield, firing-line
+    # length), so the repair self-disables on any map that is not
+    # (procedural-terrain safety) and falls back to the original scan.
+    # Red keeps the original code path: the canonical frame is Red's
+    # because Red's post wins under BOTH sides' scoring at true pixel
+    # coordinates (margin 1.4 score units) — the better post, mirrored.
+    if bot.team == Blue and client.maskMirrorSymmetric():
+      let postC = bot.scanPost(client, -homeSign(Red), wantY)
+      if postC.ready:
+        bot.postHold = mirrorXV(postC.hold)
+        bot.postPeek = mirrorXV(postC.peek)
+        bot.postReady = true
+        when defined(postProbe):
+          echo "PP ", bot.tick, " ", bot.slot, " ", bot.team, " canon ",
+            bot.postHold.x, " ", bot.postHold.y, " ",
+            bot.postPeek.x, " ", bot.postPeek.y
+        return
   let post = bot.scanPost(client, eSign, wantY)
   if post.ready:
     bot.postHold = post.hold
     bot.postPeek = post.peek
     bot.postReady = true
+    when defined(postProbe):
+      echo "PP ", bot.tick, " ", bot.slot, " ", bot.team, " native ",
+        bot.postHold.x, " ", bot.postHold.y, " ",
+        bot.postPeek.x, " ", bot.postPeek.y
 
 proc findEnemyPosts(bot: Bot, client: ProtocolClient) =
   ## Precomputes the standing virtual threats every carrier run has to
@@ -876,23 +928,6 @@ proc adoptMapSize(client: ProtocolClient) =
   FireRange = float(MapW) + 15.0
 
 when defined(exfilMirrorCanon):
-  proc mirrorXV(p: Vec): Vec =
-    ## Pixel mirror across the map's vertical center line.
-    vec(float(MapW - 1) - p.x, p.y)
-
-  proc maskMirrorSymmetric(client: ProtocolClient): bool =
-    ## True when the pixel walkability mask is EXACTLY symmetric under
-    ## x -> MapW-1-x (true on the arena: 0 of 813865 pixels differ). The
-    ## canonical-frame carry nav is only sound when the world and its
-    ## mirror share the same walls, so any map that is not exactly
-    ## x-mirrored (e.g. rot180 procedural terrain) auto-disables the
-    ## repair instead of steering against walls that do not exist.
-    for y in 0 ..< MapH:
-      for x in 0 ..< (MapW div 2 + 1):
-        if client.walkableAt(x, y) != client.walkableAt(MapW - 1 - x, y):
-          return false
-    true
-
   proc setupMirrorCanon(bot: Bot, client: ProtocolClient) =
     ## Precomputes the canonical (Blue) frame inputs for the carry-route
     ## mirror repair. A Red carrier's run home is priced by the exposure
