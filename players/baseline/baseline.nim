@@ -144,9 +144,13 @@ const
                               # motion per tick = 8/5 px per brad
   ButtonC = 1'u8 shl 7        # grenade charge/throw (input mask bit 128)
   NadeMaxRange = 240.0        # full-charge throw distance (~fifth of the field)
-  NadeMinRange = 72.0         # never lob inside this — the 52px blast + drift
-                              # would clip us (GV17: blast 40 -> 52)
-  NadeBlast = 52.0            # blast radius; a pair this close dies together
+  NadeMinRange = 78.0         # never lob inside this — the 58px blast + drift
+                              # would clip us (GV17: blast 40 -> 52; GV31: the
+                              # blast tests BODIES, so its reach is 52 + 6)
+  NadeBlast = 58.0            # effective blast reach against a BODY, not the
+                              # 52px circle: GV31 catches a cog whose solid
+                              # footprint (PlayerHalf) touches it, so on-axis
+                              # reach is GrenadeBlastRadius + PlayerHalf
   NadeFullChargeTicks = 24    # ~1s of holding C reaches max range
   NadePickupDetour = 90.0     # grab a corner pickup within this detour range
   NadeCampTicks = 360         # -d:campNade: a STATIONARY remembered enemy stays
@@ -206,7 +210,10 @@ const
                               # heading for a lose-lose timeout — go convert.
   StaleClusterTtl = 600       # -d:nadeCluster: campers hold ground — a track
                               # this old is still a target if it CLUSTERED
-  ClusterPairPx = 90.0        # two remembered enemies this close = one blast
+  ClusterPairPx = 100.0       # two remembered enemies this close = one blast.
+                              # Two bodies fit one blast iff they are within
+                              # 2*NadeBlast (116) of each other; keep the same
+                              # ~86% safety margin the 52px reach used (90).
   SalvoWindow = 70            # ticks after the charge order to force the lob
   SiegeBarrageTicks = 100     # -d:siege: bombardment window per cycle
   SiegeAdvanceTicks = 90     # -d:siege: advance-and-settle window per cycle

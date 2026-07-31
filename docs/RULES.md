@@ -334,12 +334,15 @@ What that means in practice:
   windups (~0.4s) after release, near or far** — long throws just travel
   faster. A grenade is a snap weapon: the reaction window is the same as
   eating two aimed shots, not a mortar shell you can stroll away from.
-- **The blast hurts everyone inside its radius (~52 px): enemies, teammates,
-  and the thrower alike**, removing 2 hit points each — **unless a trench is
-  involved, which changes the amount**; see the Trenches section. The landing
-  splat and the charge-time throw-target ring are drawn at the TRUE blast
-  diameter — what looks painted is exactly what got hit, and everything
-  inside the ring will be. Kills credit the thrower (except suicides).
+- **The blast hurts everyone whose body touches its radius (~52 px): enemies,
+  teammates, and the thrower alike**, removing 2 hit points each — **unless a
+  trench is involved, which changes the amount**; see the Trenches section. It
+  is your BODY that must reach the circle, not the point you stand on — the
+  same rule the gun's bullet corridor uses — so a cog centred up to ~58 px away
+  is still caught. The landing splat and the charge-time throw-target ring are
+  drawn at the blast diameter, so anything painted was hit, but a cog clipping
+  the rim from just outside it is hit too. Kills credit the thrower (except
+  suicides).
 - **Throwing is silent; landing is loud.** A landing you could not see
   leaves a large jittered sound ring (label `grenade sound`) — landing-only
   audio, exactly like gunshot impact rings. The throw itself leaves nothing.

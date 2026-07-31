@@ -256,6 +256,27 @@ suite "spray cans":
     check not game.players[1].alive
     check game.players[0].kills == 1
 
+  test "a spray touch absorbed by a bubble blinks the bubble and spares the body":
+    var game = twoTeamGame()
+    game.players[0].hasPlasmaArc = true
+    game.players[0].aimBrads = 0
+    game.players[0].placeAtCenter(ClearX, ClearY)
+    let
+      ax = game.players[0].x + CollisionW div 2
+      ay = game.players[0].y + CollisionH div 2
+    game.players[1].hasShield = true
+    game.players[1].shieldHp = ShieldLayerHp
+    game.players[1].paintHitTick = -1
+    game.players[1].placeAtCenter(ax + 60, ay)
+    game.tryFireArc(0)
+    check game.players[1].shieldHp == ShieldLayerHp - PlasmaArcDamage
+    check game.bubbleImpacts.len == 1
+    check game.bubbleImpacts[0].playerIndex == 1
+    # The dent points back at the sprayer, due west of the carrier.
+    check game.bubbleImpacts[0].angleBrads == 128
+    # A bubble that eats the burst keeps the body clean: no visor splat.
+    check game.players[1].paintHitTick == -1
+
   test "the cone stays live for 5 ticks and catches late entrants":
     var game = twoTeamGame()
     game.players[0].hasPlasmaArc = true

@@ -144,10 +144,10 @@ suite "broadcast state channel":
       check state.hasKey("over")
       # A capture win is not a draw and not a time-limit tiebreak. The winner
       # is pinned to the current recording of the fixture (GameVersion 31,
-      # seed 1: Blue captures).
+      # seed 1: Red captures).
       check state["over"]["draw"].getBool == false
       check state["over"]["timeLimit"].getBool == false
-      check state["over"]["winner"].getStr == "blue"
+      check state["over"]["winner"].getStr == "red"
       # The scorebug axis is lives + flag state, never a kill score.
       check state["teams"]["red"].hasKey("lives")
       check state["teams"]["blue"]["flag"].getStr in ["home", "taken"]
@@ -236,7 +236,7 @@ suite "broadcast state channel":
       let verdicts = replay.beatEvents.elems.filterIt(it["k"].getStr == "gameover")
       check verdicts.len == 1
       check verdicts[0]["draw"].getBool == false
-      check verdicts[0]["winner"].getStr == "blue"
+      check verdicts[0]["winner"].getStr == "red"
       # The chrome frame ships the timeline when (and only when) asked.
       let withBeats = parseJson(sim.buildStateJson(
         newJArray(), false, 1, replay.replayMaxTick(), false, true, -1, -1,

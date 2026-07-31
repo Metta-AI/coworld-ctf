@@ -11,9 +11,9 @@ import map_pool
 
 const
   GameName* = "ctf"
-  GameVersion* = "31"  ## GV31 (operator rule): SPRAYED PAINT HURTS. Two
-                       ## changes, both closing the same gap — paint visibly
-                       ## covering a cog that walked away clean.
+  GameVersion* = "31"  ## GV31 (operator rule): WEAPONS HIT BODIES, NOT
+                       ## POINTS. Three changes, all closing the same gap —
+                       ## paint visibly covering a cog that walked away clean.
                        ## 1. The cone hits BODIES, not center points: a victim
                        ## is tested as a disc of PlasmaArcBodyRadius (half a
                        ## cog), where it used to be the bare point its 1px
@@ -30,6 +30,27 @@ const
                        ## without damage (the overlap makes the mist ~15px
                        ## wider than the cone); closing that too would need a
                        ## 31-degree cone, which is a different weapon.
+                       ## 3. The GRENADE BLAST catches a cog whose SOLID BODY
+                       ## BOX (±PlayerHalf) touches the blast circle, not
+                       ## merely one whose position point falls inside it —
+                       ## the same point-vs-body gap as (1), in the last
+                       ## weapon that still had it. The gun already sampled
+                       ## its bullet corridor across ±PlayerHalf, so once the
+                       ## cone hits bodies the blast is the lone hold-out, and
+                       ## a cog visibly standing in the splat could take
+                       ## nothing. On-axis reach is now GrenadeBlastRadius +
+                       ## PlayerHalf (58px); the radius constant and the splat
+                       ## art are unchanged, so the splat now slightly
+                       ## UNDER-sells its reach (the mirror of the plume's
+                       ## overhang in (2)).
+                       ## NOTE "body" is deliberately two sizes here: the cone
+                       ## uses the DRAWN body (PlasmaArcBodyRadius, 17px)
+                       ## because its whole point is covering visible paint,
+                       ## while the gun and the blast use the SOLID footprint
+                       ## (PlayerHalf, 6px) they have always used. Widening
+                       ## the blast to the drawn body would take it from +31%
+                       ## to +76% effective area, which is a balance change,
+                       ## not a consistency fix.
                        ## GV30 (operator rule): every team's shield and spray
                        ## can is RED's spot carried over by the map's OWN
                        ## symmetry, not by a mirror. Mirroring a pickup on a
@@ -279,8 +300,11 @@ const
                               ## weapon, not a mortar shell you can stroll
                               ## away from. (Was 6 px/tick of flight — a
                               ## full-range lob hung airborne ~41 ticks.)
-  GrenadeBlastRadius* = 52    ## everyone inside the blast takes damage
-                              ## (GameVersion 17: 40 -> 52, +30%).
+  GrenadeBlastRadius* = 52    ## everyone whose SOLID BODY BOX (±PlayerHalf)
+                              ## touches this circle takes damage — a body
+                              ## test, not a position-point test (GV31), so
+                              ## on-axis reach is 52 + PlayerHalf = 58 px.
+                              ## (GameVersion 17: 40 -> 52, +30%.)
   GrenadeDamage* = 2          ## hit points removed by one blast, for a
                               ## victim standing outside any trench.
   GrenadeTrenchDamage* = 6    ## a blast that lands in the SAME trench as its
@@ -7595,9 +7619,20 @@ proc resolveActiveArcCones*(sim: var SimServer) =
       let bubbleUp = sim.players[victimIndex].hasShield and
         sim.players[victimIndex].shieldHp > 0
       let blocked = sim.absorbDamage(victimIndex, PlasmaArcDamage)
-      # A can of paint sprayed in the face paints: stamp the visor splat, like
-      # the gun and the grenade.
-      if not bubbleUp:
+      if bubbleUp:
+        # Blink the bubble toward the sprayer, as the gun's damage site does —
+        # otherwise a fully-absorbed burst shows no feedback anywhere.
+        sim.bubbleImpacts.add BubbleImpactFx(
+          playerIndex: victimIndex,
+          tick: sim.tickCount,
+          angleBrads: bradsOfVector(
+            sim.players[arcFire.attacker].x - sim.players[victimIndex].x,
+            sim.players[arcFire.attacker].y - sim.players[victimIndex].y
+          )
+        )
+      else:
+        # A can of paint sprayed in the face paints: stamp the visor splat,
+        # like the gun and the grenade.
         sim.players[victimIndex].paintHitTick = sim.tickCount
       let
         vx = float(sim.players[victimIndex].x + CollisionW div 2)
@@ -8124,7 +8159,15 @@ proc explodeGrenade(sim: var SimServer, grenade: AirborneGrenade) =
     let
       px = sim.players[i].x + CollisionW div 2
       py = sim.players[i].y + CollisionH div 2
-    if distSq(px, py, grenade.tx, grenade.ty) > radiusSq:
+      # GV30: the blast tests the SOLID BODY BOX (±PlayerHalf), not the bare
+      # position point — a cog whose footprint touches the circle is caught,
+      # the same rule the gun's bullet corridor already uses (BulletHalfWidth
+      # sampled across ±PlayerHalf). Circle-vs-box is the distance from the
+      # burst to the NEAREST point of the box, so on-axis reach becomes
+      # GrenadeBlastRadius + PlayerHalf.
+      nearX = max(0, abs(px - grenade.tx) - PlayerHalf)
+      nearY = max(0, abs(py - grenade.ty) - PlayerHalf)
+    if nearX * nearX + nearY * nearY > radiusSq:
       continue
     # A trench traps or shields a blast: a victim caught in the SAME trench
     # the grenade landed in takes amplified damage (nowhere to duck), a
@@ -8136,10 +8179,23 @@ proc explodeGrenade(sim: var SimServer, grenade: AirborneGrenade) =
         if victimTrench < 0: GrenadeDamage
         elif victimTrench == landingTrench: GrenadeTrenchDamage
         else: GrenadeTrenchSplashDamage
+      # Read the bubble BEFORE absorbDamage drains shieldHp: a bubble that eats
+      # the blast keeps the body clean, exactly as with a paintball (see the
+      # gun's damage site).
+      bubbleUp = sim.players[i].hasShield and sim.players[i].shieldHp > 0
       blocked = sim.absorbDamage(i, dmg)
-    # A paint-bomb blast marks everyone caught in it — stamp so the EYES-PiP
-    # visor splat fires for this paint hit (gun/grenade; spray stamps its own).
-    sim.players[i].paintHitTick = sim.tickCount
+    if bubbleUp:
+      # The bubble itself blinks and dents toward the burst, so an absorbed
+      # blast reads as absorbed instead of leaving no feedback at all.
+      sim.bubbleImpacts.add BubbleImpactFx(
+        playerIndex: i,
+        tick: sim.tickCount,
+        angleBrads: bradsOfVector(grenade.tx - px, grenade.ty - py)
+      )
+    else:
+      # A paint-bomb blast marks everyone caught in it — stamp so the EYES-PiP
+      # visor splat fires for this paint hit (gun/grenade; spray stamps its own).
+      sim.players[i].paintHitTick = sim.tickCount
     sim.emitEvent(
       Damage, source = throwerIndex, target = i, weapon = "grenade",
       amount = dmg, hp = max(0, sim.players[i].hp),

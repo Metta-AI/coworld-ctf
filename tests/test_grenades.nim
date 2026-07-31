@@ -29,6 +29,19 @@ proc stepWith(sim: var SimServer, inputs, prev: seq[InputState]) =
 proc none(sim: SimServer): seq[InputState] =
   newSeq[InputState](sim.players.len)
 
+proc landGrenadeAt(sim: var SimServer, throwerIndex, tx, ty: int) =
+  ## Bursts one grenade on an exact map point, bypassing aim and charge so a
+  ## test can place the blast center to the pixel.
+  sim.airborneGrenades.add AirborneGrenade(
+    sx: tx, sy: ty, tx: tx, ty: ty,
+    launchTick: sim.tickCount, flightTicks: 1,
+    thrower: throwerIndex,
+    throwerSlot: sim.players[throwerIndex].joinOrder,
+    throwerAccount: -1
+  )
+  let prev = sim.none()
+  sim.stepWith(sim.none(), prev)
+
 proc chargeAndThrow(sim: var SimServer, playerIndex, holdTicks: int) =
   ## Holds C for holdTicks then releases.
   var held = sim.none()
@@ -164,6 +177,55 @@ suite "grenades":
     for i in 0 ..< 3:
       check game.players[i].hp == 1
     check game.recentBlasts.len == 1
+
+  test "the blast catches a body whose footprint overlaps the circle":
+    # A blast tests the 12px body box, not the position point — the same rule
+    # the gun's bullet corridor already uses. On-axis that puts the last
+    # damaging center exactly GrenadeBlastRadius + PlayerHalf away.
+    for (offset, expectHit) in [
+      (GrenadeBlastRadius, true),
+      (GrenadeBlastRadius + PlayerHalf, true),
+      (GrenadeBlastRadius + PlayerHalf + 1, false)
+    ]:
+      var game = twoTeamGame()
+      game.players[0].x = 300          # thrower parked well clear of the burst
+      game.players[0].y = 500
+      game.players[1].x = 300 + offset
+      game.players[1].y = 300
+      game.players[1].hp = GrenadeDamage + 1
+      game.landGrenadeAt(0, 300, 300)
+      check (game.players[1].hp < GrenadeDamage + 1) == expectHit
+
+  test "a blast absorbed by a bubble blinks the bubble and leaves the body clean":
+    var game = twoTeamGame()
+    game.players[0].x = 300
+    game.players[0].y = 500
+    game.players[1].x = 300
+    game.players[1].y = 300
+    game.players[1].hp = HitPoints
+    game.players[1].hasShield = true
+    game.players[1].shieldHp = ShieldLayerHp
+    game.players[1].paintHitTick = -1
+    game.landGrenadeAt(0, 300, 300)
+    check game.players[1].hp == HitPoints
+    check game.players[1].shieldHp == ShieldLayerHp - GrenadeDamage
+    check game.bubbleImpacts.len == 1
+    check game.bubbleImpacts[0].playerIndex == 1
+    # A bubble that eats the blast keeps the body clean, exactly as with a
+    # paintball — so no visor splat fires for an absorbed hit.
+    check game.players[1].paintHitTick == -1
+
+  test "a blast on a bare cog paints it and blinks no bubble":
+    var game = twoTeamGame()
+    game.players[0].x = 300
+    game.players[0].y = 500
+    game.players[1].x = 300
+    game.players[1].y = 300
+    game.players[1].hp = GrenadeDamage + 1
+    game.players[1].paintHitTick = -1
+    game.landGrenadeAt(0, 300, 300)
+    check game.bubbleImpacts.len == 0
+    check game.players[1].paintHitTick == game.tickCount
 
   test "dying drops nothing: the carried grenade is simply lost":
     var game = twoTeamGame()

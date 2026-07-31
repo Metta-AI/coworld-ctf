@@ -6,10 +6,13 @@ import
 const
   GameDir = currentSourcePath.parentDir.parentDir
   # The event-substrate fixture: a full 16-bot match recorded against the
-  # CURRENT gameplay rules (GameVersion 31, seed 61, lives 9:
-  #   record_fixture.sh tests/replays/ctf.bitreplay 61 10000 '{"lives":9}')
-  # — 108 kills across ALL THREE weapons (55 gun / 51 spray / 2 grenade), 11
-  # steals, 10 returns, 13 heals, ending on a capture.
+  # CURRENT gameplay rules (GameVersion 31, seed 900, lives 9:
+  #   record_fixture.sh tests/replays/ctf.bitreplay 900 10000 '{"lives":9}')
+  # — 108 kills across ALL THREE weapons (90 gun / 15 spray / 3 grenade), 23
+  # steals, 22 returns, 13 heals, ending on a capture.
+  # (Seed 61 held the coverage until the blast became body-aware in GV31;
+  # re-recorded under that rule it came back gun+spray only, so the scan
+  # moved to 900. Expect the seed to move again on the next rules change.)
   #
   # Two things make this fixture easy to weaken by accident, both learned the
   # hard way:
