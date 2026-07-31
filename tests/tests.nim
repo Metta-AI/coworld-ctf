@@ -13,6 +13,7 @@ import
   test_grenades,
   test_plasma_arc,
   test_shouts,
+  test_release_forecast,
   test_medkits,
   test_shields,
   test_shield_bubble,

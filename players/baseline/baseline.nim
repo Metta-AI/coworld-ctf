@@ -288,6 +288,30 @@ var
     # a hair past a map-width is always inside it. 1250.0 on the default
     # arena — the value this bot always used.
 
+when defined(releaseForecast):
+  const
+    ReleaseWindupTicks = 5      # trigger event to release
+    ReleaseForecastTicks = ReleaseWindupTicks + 1
+                                # current observation to release includes the
+                                # movement step that processes the trigger
+    ReleaseMateFreshTicks = 12  # only recently observed teammates are projected
+    ReleaseAimUncertainty = 8   # exact half-width of the 16-step self bucket
+    ReleaseBulletHalfWidth = 8.0
+    ReleaseBodyHalfWidth = 6
+    ReleaseSampleStep = 3
+    ReleasePlayerSolidSpan = 2 * PlayerHalf
+    ReleaseCollisionGuard = 46.0
+                                # 12px solid span + two six-step reaches
+    ReleaseSlideTravelPerTick = 12
+                                # 3 axis steps, each with a <=3px wall slide
+    ReleaseDiamondPushMax = 2   # measured GV31 nearest-floor displacement
+    ReleaseHiddenColliderRadius = 84
+                                # six worst-case 12px wall-slide ticks plus
+                                # the 12px player solid span
+    ReleaseCaptureHalfWidth = 20 # sim CaptureZoneWidth / 2
+    ReleaseSettleFrames = 9     # eight completed neutral steps drain every
+                                # legal fixed-point velocity before trigger
+
 type
   Team = enum
     Red, Blue
@@ -344,6 +368,9 @@ type
     wasDead: bool             # respawn resets the aim to the spawn heading
     scanHigh: bool            # scan sweep currently heading to the high end
     lastPos: Vec
+    when defined(releaseForecast):
+      releaseNeutralUntil: int # neutral d-pad through the pending shot release
+      releaseSettleFrames: int # consecutive near-stationary trigger attempts
     stuckTicks: int
     jinkUntil: int
     jinkBits: uint8
@@ -539,7 +566,7 @@ proc findSelf(
     for o in client.spriteObjectsWithLabel(label):
       return (alive: true, pos: client.mapPos(o))
 
-when defined(aimSpriteResync):
+when defined(aimSpriteResync) or defined(releaseForecast):
   const
     SelfSoldierSpriteBase = 5100 # src/ctf/global.nim SpritePlayerSelfSpriteBase:
                                  # the outlined POV self-soldier sprite pool,
@@ -792,6 +819,45 @@ when defined(phaseTrueWalk):
       return (if diaCovers(t, t.frame, x, y): 1 else: 0)
     -1
 
+  proc diaFrameAhead(t: DiaTrack, ticksAhead: int): int {.inline.} =
+    ## Exact future frame after the observed single-tick phase lock.
+    if not diaPhase.locked or t.dir == 0:
+      return -1
+    let advances =
+      (diaPhase.now + ticksAhead - diaPhase.phase4) div 4 -
+      (t.seenTick - diaPhase.phase4) div 4
+    diaFrameIndex(t.frame + t.dir * advances)
+
+  proc diaVerdictAhead(x, y, ticksAhead: int): int {.inline.} =
+    ## -2 = inside a live diamond's sweep but its future frame is unknown;
+    ## otherwise the same verdicts as diaVerdict.
+    var
+      insideSweep = false
+      phaseUnknown = false
+    for t in diaPhase.tracks:
+      if diaPhase.now - t.seenTick > DiaStaleTicks:
+        continue
+      let dx = x - t.cx
+      if dx < -t.radius or dx > t.radius:
+        continue
+      let dy = y - t.cy
+      if dy < -t.radius or dy > t.radius:
+        continue
+      if dx * dx + dy * dy > t.radius * t.radius:
+        continue
+      insideSweep = true
+      let frame = diaFrameAhead(t, ticksAhead)
+      if frame < 0:
+        if diaEverStone(t, x, y):
+          phaseUnknown = true
+      elif diaCovers(t, frame, x, y):
+        # Overlapping diamonds are stone if any future silhouette covers the
+        # pixel, matching the sim's OR-stamped wall mask.
+        return 1
+    if phaseUnknown:
+      return -2
+    if insideSweep: 0 else: -1
+
   proc diaCellShell(c: int): bool {.inline.} =
     ## True for nav cells excluded from post/duck candidacy: their cover
     ## toggles with the spin (D5 rider — the sim displaces a body parked in
@@ -851,6 +917,47 @@ proc pixelRayClear(client: ProtocolClient, a, b: Vec): bool =
                              ay + (by - ay) * s div steps):
       return false
   true
+
+when defined(releaseForecast):
+  proc releaseWalkability(
+      client: ProtocolClient, x, y, ticksAhead: int
+  ): int {.inline.} =
+    ## 1 = floor, 0 = known stone/out of bounds, -1 = phase unavailable.
+    if x < 0 or y < 0 or x >= client.walkabilityWidth or
+        y >= client.walkabilityHeight:
+      return 0
+    when defined(phaseTrueWalk):
+      let verdict = diaVerdictAhead(x, y, ticksAhead)
+      if verdict >= 0:
+        return (if verdict == 0: 1 else: 0)
+      if verdict == -2:
+        return -1
+    if client.walkabilityMask[y * client.walkabilityWidth + x]: 1 else: 0
+
+  proc releasePixelRayVerdict(
+      client: ProtocolClient, a, b: Vec, ticksAhead: int
+  ): int =
+    ## 1 = clear, 0 = definitely blocked, -1 = diamond phase unavailable.
+    ## Mirrors lineOfSightClear against the exact future diamond frame.
+    let
+      ax = int(a.x)
+      ay = int(a.y)
+      bx = int(b.x)
+      by = int(b.y)
+      steps = max(abs(bx - ax), abs(by - ay))
+    if steps == 0:
+      return 1
+    var phaseUnknown = false
+    for s in 1 .. steps:
+      let verdict = client.releaseWalkability(
+          ax + (bx - ax) * s div steps,
+          ay + (by - ay) * s div steps,
+          ticksAhead)
+      if verdict == 0:
+        return 0
+      if verdict < 0:
+        phaseUnknown = true
+    if phaseUnknown: -1 else: 1
 
 proc rayClearCoarse(client: ProtocolClient, a, b: Vec, step: float): bool =
   ## Coarsely-sampled walkability raycast for cover scoring and exposure
@@ -1601,6 +1708,9 @@ proc resetTransient(bot: Bot) =
   bot.rotSign = 0
   bot.wasDead = false
   bot.scanHigh = false
+  when defined(releaseForecast):
+    bot.releaseNeutralUntil = 0
+    bot.releaseSettleFrames = 0
   bot.stuckTicks = 0
   bot.jinkUntil = 0
   bot.behindLines = false
@@ -1696,6 +1806,426 @@ proc friendlyBlocked(bot: Bot, me, aim: Vec, enemyDist: float): bool =
       return true
   false
 
+when defined(releaseForecast):
+  type
+    ReleaseForecastMate = object
+      pos: Vec
+      age: int
+      uncertainty: float
+      losOverride: int         # -1 = use pixel LOS, 0/1 = deterministic test
+
+    ReleaseForecastResult = object
+      veto: bool
+      reason: string
+      shooter, target, mate: Vec
+      targetAlong, targetPerp: float
+      mateAlong, matePerp: float
+      lockedBrads, mateAge: int
+      targetValid, targetSynthetic: bool
+
+    ReleaseBodyHit = object
+      geometry, hit, phaseUnavailable: bool
+      along, perp: float
+
+  proc forecastShooterRelease(
+      me, observedVel: Vec,
+      moveMask: uint8,
+      carrying: bool,
+      steps = ReleaseForecastTicks
+  ): Vec =
+    ## The current frame precedes the server step that processes the trigger,
+    ## so release is one movement step plus the five-tick windup away.
+    let speedScale = if carrying: 0.7 else: 1.0
+    let
+      accel = 76.0 / 256.0 * speedScale
+      maxSpeed = 704.0 / 256.0 * speedScale
+      friction = 144.0 / 256.0
+      stopThreshold = 8.0 / 256.0
+      inputX =
+        (if (moveMask and ButtonRight) != 0: 1 else: 0) -
+        (if (moveMask and ButtonLeft) != 0: 1 else: 0)
+      inputY =
+        (if (moveMask and ButtonDown) != 0: 1 else: 0) -
+        (if (moveMask and ButtonUp) != 0: 1 else: 0)
+    var
+      pos = me
+      vel = vec(
+        clamp(observedVel.x, -maxSpeed, maxSpeed),
+        clamp(observedVel.y, -maxSpeed, maxSpeed))
+    for _ in 0 ..< steps:
+      if inputX != 0:
+        vel.x = clamp(vel.x + float(inputX) * accel, -maxSpeed, maxSpeed)
+      else:
+        vel.x *= friction
+        if abs(vel.x) < stopThreshold:
+          vel.x = 0.0
+      if inputY != 0:
+        vel.y = clamp(vel.y + float(inputY) * accel, -maxSpeed, maxSpeed)
+      else:
+        vel.y *= friction
+        if abs(vel.y) < stopThreshold:
+          vel.y = 0.0
+      pos = pos + vel
+    pos
+
+  proc forecastTrackRelease(track: Track, tick: int): Vec =
+    ## Age a track to the current observation, then through the trigger step
+    ## and five pending windup steps.
+    track.pos + track.vel *
+      float(max(0, tick - track.lastSeen) + ReleaseForecastTicks)
+
+  proc releaseSampleLosVerdict(
+      client: ProtocolClient,
+      shooter, sample: Vec,
+      losOverride: int
+  ): int =
+    if losOverride >= 0:
+      return (if losOverride != 0: 1 else: 0)
+    let
+      shooterPixel = vec(
+        float(int(round(shooter.x))),
+        float(int(round(shooter.y))))
+      samplePixel = vec(
+        float(int(round(sample.x))),
+        float(int(round(sample.y))))
+    client.releasePixelRayVerdict(
+      shooterPixel, samplePixel, ReleaseForecastTicks)
+
+  proc releaseBodyHit(
+      client: ProtocolClient,
+      shooter, body, dir: Vec,
+      losOverride: int
+  ): ReleaseBodyHit =
+    ## Match GV31 selectFireTarget: sample the body silhouette at
+    ## -6,-3,0,3,6, require the 8px bullet corridor, and raycast to the
+    ## individual sample rather than to the body center.
+    let centerRel = body - shooter
+    result.along = dot(centerRel, dir)
+    result.perp = abs(cross(centerRel, dir))
+    for off in countup(
+        -ReleaseBodyHalfWidth, ReleaseBodyHalfWidth, ReleaseSampleStep):
+      let
+        sample = body + vec(-dir.y * float(off), dir.x * float(off))
+        rel = sample - shooter
+        along = dot(rel, dir)
+        perp = abs(cross(rel, dir))
+      if along <= 0.0 or perp > ReleaseBulletHalfWidth:
+        continue
+      result.geometry = true
+      let los = client.releaseSampleLosVerdict(
+        shooter, sample, losOverride)
+      if los > 0:
+        result.hit = true
+        result.along = along
+        result.perp = perp
+        return
+      if los < 0:
+        result.phaseUnavailable = true
+
+  proc releaseMateHit(
+      client: ProtocolClient,
+      shooter: Vec,
+      mate: ReleaseForecastMate,
+      dir: Vec
+  ): ReleaseBodyHit =
+    result = client.releaseBodyHit(
+      shooter, mate.pos, dir, mate.losOverride)
+    if mate.uncertainty <= 0.0:
+      return
+    # Future controls are unknown. Expand the projected center by a bounded
+    # envelope and ignore current LOS inside that envelope: a teammate near a
+    # corner can step into the release ray during the windup.
+    let
+      rel = mate.pos - shooter
+      along = dot(rel, dir)
+      perp = abs(cross(rel, dir))
+      projectedRadius = mate.uncertainty * (abs(dir.x) + abs(dir.y))
+      effectiveHalf = ReleaseBulletHalfWidth +
+        float(ReleaseBodyHalfWidth) + projectedRadius
+    if along + projectedRadius <= 0.0 or perp > effectiveHalf:
+      return
+    let
+      nearestAlong = max(0.001, along - projectedRadius)
+      nearestPerp = max(0.0, perp - projectedRadius)
+    result.geometry = true
+    result.hit = true
+    if result.along <= 0.0 or nearestAlong < result.along:
+      result.along = nearestAlong
+      result.perp = nearestPerp
+
+  proc releaseOriginDiamondStable(
+      client: ProtocolClient,
+      me, observedVel: Vec,
+      carrying: bool
+  ): bool =
+    ## A rotating diamond must not touch the neutral shooter's footprint on
+    ## any step before release. Unknown future diamond phase fails closed.
+    when defined(phaseTrueWalk):
+      if diaPhase.tracks.len == 0:
+        return true
+      for step in 1 .. ReleaseForecastTicks:
+        let p = forecastShooterRelease(
+          me, observedVel, 0, carrying, step)
+        for dy in -PlayerHalf .. PlayerHalf:
+          for dx in -PlayerHalf .. PlayerHalf:
+            if client.releaseWalkability(
+                int(round(p.x)) + dx,
+                int(round(p.y)) + dy,
+                step) != 1:
+              return false
+    true
+
+  proc releaseOriginActorStable(bot: Bot, me: Vec): bool =
+    ## Every body close enough to collide inside six ticks is inside the
+    ## omnidirectional vision bubble. Keep the full neutral-settle history so
+    ## a collider killed just before trigger cannot leave hidden momentum.
+    for track in bot.mates:
+      if track.lastSeen >= bot.tick - ReleaseSettleFrames and
+          max(abs(track.pos.x - me.x), abs(track.pos.y - me.y)) <=
+            ReleaseCollisionGuard:
+        return false
+    for track in bot.enemies:
+      if track.lastSeen >= bot.tick - ReleaseSettleFrames and
+          max(abs(track.pos.x - me.x), abs(track.pos.y - me.y)) <=
+            ReleaseCollisionGuard:
+        return false
+    true
+
+  proc releaseMateReach(age: int): float =
+    ## Per-axis reachable box through the release tick. Wall sliding can
+    ## displace 12px/tick; each four-tick diamond update can push another 2px.
+    let
+      steps = max(0, age) + ReleaseForecastTicks
+      diamondUpdates = (steps + 3) div 4
+    float(ReleaseSlideTravelPerTick * steps +
+      ReleaseDiamondPushMax * diamondUpdates)
+
+  proc releaseOriginRespawnStable(me: Vec): bool =
+    ## A player may respawn anywhere in either full-height capture column.
+    ## Outside both columns plus the solid span, a new body cannot overlap the
+    ## stationary shooter before it becomes observable.
+    let
+      redEdge = flagHome(Red).x + float(
+        ReleaseCaptureHalfWidth + ReleasePlayerSolidSpan)
+      blueEdge = flagHome(Blue).x - float(
+        ReleaseCaptureHalfWidth + ReleasePlayerSolidSpan)
+    me.x > redEdge and me.x < blueEdge
+
+  proc releaseTargetRespawnStable(team: Team, target: Vec): bool =
+    ## A target inside our own respawn column can be preceded by a teammate
+    ## born during windup. Beyond the inner boundary, the target is reached
+    ## before every possible own-team respawn point.
+    if team == Red:
+      target.x > flagHome(Red).x + float(ReleaseCaptureHalfWidth)
+    else:
+      target.x < flagHome(Blue).x - float(ReleaseCaptureHalfWidth)
+
+  proc releaseOriginTerrainStable(
+      client: ProtocolClient,
+      me: Vec
+  ): bool =
+    ## The vision bubble is wall-occluded. A hidden actor can exploit the
+    ## engine's bounded 3px slide scan to travel at most 12px per axis per
+    ## tick, so require the whole six-tick collider reach to be open floor.
+    ## In this open disc every actor close enough to collide is visible and
+    ## the tighter fresh-track guard above is complete.
+    let
+      ox = int(round(me.x))
+      oy = int(round(me.y))
+      radiusSq = ReleaseHiddenColliderRadius *
+        ReleaseHiddenColliderRadius
+    for dy in -ReleaseHiddenColliderRadius ..
+        ReleaseHiddenColliderRadius:
+      for dx in -ReleaseHiddenColliderRadius ..
+          ReleaseHiddenColliderRadius:
+        if dx * dx + dy * dy > radiusSq:
+          continue
+        if not client.walkableAt(ox + dx, oy + dy):
+          return false
+    true
+
+  proc assessReleaseForecast(
+      client: ProtocolClient,
+      gunAction: bool,
+      targetValid, targetSynthetic: bool,
+      shooter, target: Vec,
+      estimatedAim: int,
+      aimBucket: int,
+      targetLosOverride: int,
+      mates: openArray[ReleaseForecastMate],
+      aimUncertainty = ReleaseAimUncertainty
+  ): ReleaseForecastResult =
+    ## The exact self sprite bucket represents bucket-8 .. bucket+7. Every
+    ## possible heading must hit the target and avoid a friendly-first result.
+    result.shooter = shooter
+    result.target = target
+    result.lockedBrads = estimatedAim
+    result.mateAge = -1
+    result.targetValid = targetValid
+    result.targetSynthetic = targetSynthetic
+    if not gunAction:
+      return
+    if not targetValid:
+      result.veto = true
+      result.reason = "target_invalid"
+      return
+    if targetSynthetic:
+      # E-call tracks remain useful steering/aim intel, but own vision never
+      # verified a body or line of fire, so they cannot authorize ButtonA.
+      result.veto = true
+      result.reason = "target_synthetic"
+      return
+    if aimBucket < 0:
+      result.veto = true
+      result.reason = "aim_unavailable"
+      return
+    let estimateError = bradsErr(estimatedAim, aimBucket)
+    if estimatedAim < 0 or
+        (aimUncertainty > 0 and
+          (estimateError < -aimUncertainty or
+           estimateError >= aimUncertainty)):
+      result.veto = true
+      result.reason = "aim_unavailable"
+      return
+
+    let nominalTarget = client.releaseBodyHit(
+      shooter, target, bradsDir(estimatedAim), targetLosOverride)
+    result.targetAlong = nominalTarget.along
+    result.targetPerp = nominalTarget.perp
+
+    let
+      deltaLow = -aimUncertainty
+      deltaHigh = if aimUncertainty > 0: aimUncertainty - 1 else: 0
+    var
+      targetCorridorMissing = false
+      targetLosMissing = false
+      targetPhaseUnavailable = false
+    for delta in deltaLow .. deltaHigh:
+      let
+        locked = floorMod(aimBucket + delta, AimBrads)
+        dir = bradsDir(locked)
+        targetHit = client.releaseBodyHit(
+          shooter, target, dir, targetLosOverride)
+      for mate in mates:
+        let mateHit = client.releaseMateHit(shooter, mate, dir)
+        if not mateHit.hit:
+          continue
+        if targetHit.hit and mateHit.along > targetHit.along:
+          continue
+        result.veto = true
+        result.reason = "friendly_first"
+        result.mate = mate.pos
+        result.mateAlong = mateHit.along
+        result.matePerp = mateHit.perp
+        result.lockedBrads = locked
+        result.mateAge = mate.age
+        return
+      if not targetHit.geometry:
+        targetCorridorMissing = true
+      elif targetHit.phaseUnavailable:
+        targetPhaseUnavailable = true
+      elif not targetHit.hit:
+        targetLosMissing = true
+    if targetCorridorMissing:
+      result.veto = true
+      result.reason = "target_corridor"
+    elif targetPhaseUnavailable:
+      result.veto = true
+      result.reason = "phase_unavailable"
+    elif targetLosMissing:
+      result.veto = true
+      result.reason = "target_los"
+
+  proc releaseForecast(
+      bot: Bot,
+      client: ProtocolClient,
+      me, observedVel: Vec,
+      moveMask: uint8,
+      carrying: bool,
+      engage: int,
+      gunAction: bool,
+      aimBucket: int
+  ): ReleaseForecastResult =
+    if not gunAction or engage < 0 or engage >= bot.enemies.len:
+      return
+    if not releaseOriginRespawnStable(me) or
+        not client.releaseOriginTerrainStable(me) or
+        not bot.releaseOriginActorStable(me) or
+        not client.releaseOriginDiamondStable(
+          me, observedVel, carrying):
+      result.veto = true
+      result.reason = "origin_unstable"
+      result.shooter = me
+      result.targetValid = true
+      result.mateAge = -1
+      return
+    let
+      targetTrack = bot.enemies[engage]
+      shooter = forecastShooterRelease(
+        me, observedVel, moveMask, carrying)
+      target = forecastTrackRelease(targetTrack, bot.tick)
+    if not releaseTargetRespawnStable(bot.team, target):
+      result.veto = true
+      result.reason = "friendly_first"
+      result.shooter = shooter
+      result.target = target
+      result.mate = flagHome(bot.team)
+      result.lockedBrads = bot.estAim
+      result.mateAge = -1
+      result.targetValid = targetTrack.lastSeen == bot.tick
+      result.targetSynthetic = targetTrack.synthetic
+      return
+    var mates: seq[ReleaseForecastMate]
+    for track in bot.mates:
+      let age = bot.tick - track.lastSeen
+      if age < 0 or age > ReleaseMateFreshTicks:
+        continue
+      let reach = releaseMateReach(age)
+      mates.add(ReleaseForecastMate(
+        pos: track.pos,
+        age: age,
+        uncertainty: reach,
+        losOverride: -1))
+    assessReleaseForecast(
+      client,
+      gunAction,
+      targetTrack.lastSeen == bot.tick,
+      targetTrack.synthetic,
+      shooter,
+      target,
+      bot.estAim,
+      aimBucket,
+      -1,
+      mates)
+
+  proc logReleaseForecastVeto(
+      bot: Bot,
+      forecast: ReleaseForecastResult,
+      moveMask: uint8,
+      action: string
+  ) =
+    artEvent(bot.tick, "shot_veto", %*{
+      "reason": forecast.reason,
+      "act": action,
+      "aim_est": bot.estAim,
+      "aim_test": forecast.lockedBrads,
+      "aim_uncertainty": ReleaseAimUncertainty,
+      "target_valid": forecast.targetValid,
+      "target_synthetic": forecast.targetSynthetic,
+      "move": int(moveMask),
+      "sx": forecast.shooter.x,
+      "sy": forecast.shooter.y,
+      "tx": forecast.target.x,
+      "ty": forecast.target.y,
+      "target_along": forecast.targetAlong,
+      "target_perp": forecast.targetPerp,
+      "mx": forecast.mate.x,
+      "my": forecast.mate.y,
+      "mate_along": forecast.mateAlong,
+      "mate_perp": forecast.matePerp,
+      "mate_age": forecast.mateAge
+    })
+
 proc decide(bot: Bot, client: ProtocolClient): uint8 =
   ## Core CTF policy for one frame.
   when defined(statue):
@@ -1704,6 +2234,8 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     myColor = (if bot.team == Red: "red" else: "blue")
     enemyColor = (if bot.team == Red: "blue" else: "red")
     (alive, me) = client.findSelf(myColor)
+  when defined(releaseForecast):
+    var releaseAimBucket = -1
   if not alive:
     # Dead: the view is fully fogged (only our corpse renders) and inputs
     # are ignored, so skip perception entirely.
@@ -1723,6 +2255,8 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # avatar every frame, capping any dead-reckoning drift (mask-apply races).
   block resync:
     let seen = client.observedAim(me, myColor)
+    when defined(releaseForecast):
+      releaseAimBucket = seen
     when defined(aimSpriteResync):
       # 16-step sprite readback: a disagreement past half a rotation bucket
       # proves the dead reckoning drifted; snap to the bucket center, leaving
@@ -3212,6 +3746,8 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     holdStill = false
     nadeC = false
     actMode = "navigate"      # telemetry: which turret/act branch ran
+  when defined(releaseForecast):
+    var gunAction = false
   if bot.nadeCharge > 0 or nadeAim >= 0:
     actMode = "nade"
     # Charge-throw: lay the turret on the lob line, then hold C for the ticks
@@ -3255,6 +3791,8 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     acted = true
   elif engage >= 0 and shotReady:
     actMode = "fire"
+    when defined(releaseForecast):
+      gunAction = true
     # Traverse onto the target and fire once the corridor covers it: the
     # perpendicular miss of the current aim error at the target's range must
     # sit inside the ~14px bullet corridor. Advancing scales that miss down
@@ -3446,6 +3984,37 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     elif err < -deadband:
       rotBits = ButtonSelect
 
+  when defined(releaseForecast):
+    # A pulled shot is only predictable if the shooter controls its own
+    # release position. Eight completed neutral simulation steps drain every
+    # legal hidden fixed-point velocity; the ninth frame can trigger from the
+    # now-exact observed origin. Keep the d-pad neutral through release.
+    let releaseNeutralLatched = bot.tick < bot.releaseNeutralUntil
+    if releaseNeutralLatched:
+      moveMask = 0
+      bot.releaseSettleFrames = 0
+
+    # This remains gun-only: grenade and spray branches never set gunAction.
+    if gunAction and wantFire and not bot.firedLast and
+        not releaseNeutralLatched:
+      moveMask = 0
+      inc bot.releaseSettleFrames
+      if bot.releaseSettleFrames < ReleaseSettleFrames:
+        wantFire = false
+        actMode = "fire_settle"
+      else:
+        let forecast = bot.releaseForecast(
+          client, me, vec(0.0, 0.0), 0, iCarry, engage, gunAction,
+          releaseAimBucket)
+        bot.releaseSettleFrames = 0
+        if forecast.veto:
+          wantFire = false
+          bot.logReleaseForecastVeto(forecast, 0, actMode)
+        else:
+          bot.releaseNeutralUntil = bot.tick + ReleaseForecastTicks
+    elif not releaseNeutralLatched:
+      bot.releaseSettleFrames = 0
+
   # Only a FRESH A press fires, and the pull locks the aim angle on the same
   # tick — never rotate on the pull tick so the lock takes the settled aim.
   var mask = moveMask or rotBits
@@ -3584,5 +4153,205 @@ proc runBot(url: string) =
 when isMainModule:
   let url = getEnv("COWORLD_PLAYER_WS_URL", getEnv("COGAMES_ENGINE_WS_URL"))
   if url.len == 0:
-    raise newException(ValueError, "COWORLD_PLAYER_WS_URL is required.")
+    when defined(releaseForecast):
+      raise newException(ValueError, "COWORLD_PLAYER_WS_URL is required.")
+    else:
+      # Preserve v10's stack-trace location for a byte-identical off build.
+      {.line: (currentSourcePath(), 3587).}:
+        raise newException(ValueError, "COWORLD_PLAYER_WS_URL is required.")
   runBot(url)
+when defined(releaseForecastTest) and defined(releaseForecast):
+  proc testReleaseForecast*(
+      gunAction: bool,
+      shooterX, shooterY, targetX, targetY: float,
+      estAim: int,
+      targetLosClear: bool,
+      mates: seq[tuple[x, y: float, age: int, losClear: bool]],
+      emitTelemetry = false,
+      targetValid = true,
+      targetSynthetic = false,
+      aimUncertainty = ReleaseAimUncertainty,
+      aimBucket = -1
+  ): tuple[
+      veto: bool,
+      reason: string,
+      targetAlong, targetPerp, mateAlong, matePerp: float,
+      lockedBrads: int
+  ] =
+    var projectedMates: seq[ReleaseForecastMate]
+    for mate in mates:
+      projectedMates.add(ReleaseForecastMate(
+        pos: vec(mate.x, mate.y),
+        age: mate.age,
+        uncertainty: 0.0,
+        losOverride: (if mate.losClear: 1 else: 0)))
+    let bucket = if aimBucket >= 0: aimBucket else: estAim
+    let forecast = assessReleaseForecast(
+      nil,
+      gunAction,
+      targetValid,
+      targetSynthetic,
+      vec(shooterX, shooterY),
+      vec(targetX, targetY),
+      estAim,
+      bucket,
+      (if targetLosClear: 1 else: 0),
+      projectedMates,
+      aimUncertainty)
+    if emitTelemetry and forecast.veto:
+      let bot = Bot(tick: 42, estAim: estAim)
+      bot.logReleaseForecastVeto(forecast, 0, "fire")
+    result = (
+      forecast.veto,
+      forecast.reason,
+      forecast.targetAlong,
+      forecast.targetPerp,
+      forecast.mateAlong,
+      forecast.matePerp,
+      forecast.lockedBrads)
+
+  proc testForecastTrackRelease*(
+      x, y, vx, vy: float, age: int
+  ): tuple[x, y: float] =
+    let track = Track(
+      pos: vec(x, y),
+      vel: vec(vx, vy),
+      lastSeen: 100 - age)
+    let projected = forecastTrackRelease(track, 100)
+    (projected.x, projected.y)
+
+  proc testForecastShooterRelease*(
+      x, y, vx, vy: float,
+      moveMask: uint8,
+      carrying = false
+  ): tuple[x, y: float] =
+    let projected = forecastShooterRelease(
+      vec(x, y), vec(vx, vy), moveMask, carrying)
+    (projected.x, projected.y)
+
+  proc testReleaseAimHeadings*(
+      bucket: int,
+      uncertainty = ReleaseAimUncertainty
+  ): seq[int] =
+    let high = if uncertainty > 0: uncertainty - 1 else: 0
+    for delta in -uncertainty .. high:
+      result.add(floorMod(bucket + delta, AimBrads))
+
+  proc testReleaseActorStable*(
+      chebyshevDistance: float,
+      age = 0
+  ): bool =
+    let bot = Bot(tick: 100)
+    bot.mates.add(Track(
+      pos: vec(100.0 + chebyshevDistance, 100.0),
+      lastSeen: 100 - age))
+    bot.releaseOriginActorStable(vec(100.0, 100.0))
+
+  proc testReleaseMateEnvelope*(
+      centerAlong, centerPerp, uncertainty: float,
+      brads = 0,
+      losClear = false
+  ): tuple[hit: bool, along, perp: float] =
+    let
+      origin = vec(100.0, 100.0)
+      dir = bradsDir(brads)
+    let hit = releaseMateHit(
+      nil,
+      origin,
+      ReleaseForecastMate(
+        pos: origin + dir * centerAlong +
+          vec(dir.y, -dir.x) * centerPerp,
+        age: 0,
+        uncertainty: uncertainty,
+        losOverride: (if losClear: 1 else: 0)),
+      dir)
+    (hit.hit, hit.along, hit.perp)
+
+  proc testReleaseTerrainStable*(
+      wallDistance: int
+  ): bool =
+    let client = initProtocolClient()
+    client.walkabilityWidth = 201
+    client.walkabilityHeight = 201
+    client.walkabilityMask = newSeq[bool](201 * 201)
+    for i in 0 ..< client.walkabilityMask.len:
+      client.walkabilityMask[i] = true
+    if wallDistance >= 0 and 100 + wallDistance < 201:
+      client.walkabilityMask[
+        100 * client.walkabilityWidth + 100 + wallDistance] = false
+    client.releaseOriginTerrainStable(vec(100.0, 100.0))
+
+  proc testReleasePartialBodyLos*(
+      oneSampleClear: bool
+  ): tuple[geometry, hit: bool] =
+    let client = initProtocolClient()
+    client.walkabilityWidth = 121
+    client.walkabilityHeight = 81
+    client.walkabilityMask = newSeq[bool](121 * 81)
+    for i in 0 ..< client.walkabilityMask.len:
+      client.walkabilityMask[i] = true
+    for y in 0 ..< client.walkabilityHeight:
+      client.walkabilityMask[y * client.walkabilityWidth + 50] = false
+    if oneSampleClear:
+      # The +6 silhouette sample from (20,20) to (80,26) crosses x=50,y=23.
+      client.walkabilityMask[23 * client.walkabilityWidth + 50] = true
+    let verdict = client.releaseBodyHit(
+      vec(20.0, 20.0),
+      vec(80.0, 20.0),
+      bradsDir(0),
+      -1)
+    (verdict.geometry, verdict.hit)
+
+  proc testReleaseSettleFrames*(): int =
+    ReleaseSettleFrames
+
+  proc testReleaseMateReach*(age: int): float =
+    releaseMateReach(age)
+
+  proc testReleaseRespawnOriginStable*(x: float): bool =
+    releaseOriginRespawnStable(vec(x, float(CenterY)))
+
+  proc testReleaseRespawnTargetStable*(
+      redTeam: bool,
+      x: float
+  ): bool =
+    releaseTargetRespawnStable(
+      (if redTeam: Red else: Blue),
+      vec(x, float(CenterY)))
+
+  when defined(phaseTrueWalk):
+    proc testReleaseDiaFrameAhead*(
+        phaseOffset, frame, dir: int,
+        ticksAhead = ReleaseForecastTicks
+    ): int =
+      let saved = diaPhase
+      defer:
+        diaPhase = saved
+      diaPhase = DiaPhase(
+        now: 100 + phaseOffset,
+        locked: true,
+        phase4: 0)
+      let track = DiaTrack(
+        frame: frame,
+        dir: dir,
+        seenTick: diaPhase.now)
+      diaFrameAhead(track, ticksAhead)
+
+    proc testReleaseDiaVerdictPrelock*(
+        radius, x, y: int
+    ): int =
+      let saved = diaPhase
+      defer:
+        diaPhase = saved
+      diaPhase = DiaPhase(
+        tracks: @[DiaTrack(
+          objectId: 1,
+          cx: 0,
+          cy: 0,
+          radius: radius,
+          frame: 0,
+          dir: 0,
+          seenTick: 100)],
+        now: 100,
+        locked: false)
+      diaVerdictAhead(x, y, ReleaseForecastTicks)

@@ -55,6 +55,59 @@ block artifact_round_trip:
   doAssert meta["slot"].getInt == 3
   doAssert meta["team"].getStr == "Blue"
   doAssert meta["role"].getStr == "MidTop"
+  let defineMeta = meta["defines"]
+  when defined(releaseForecast):
+    when defined(zonePhalanx):
+      doAssert defineMeta.contains(%"zonePhalanx")
+    when defined(holdFront):
+      doAssert defineMeta.contains(%"holdFront")
+    when defined(plasmaUse):
+      doAssert defineMeta.contains(%"plasmaUse")
+    when defined(padDefer):
+      doAssert defineMeta.contains(%"padDefer")
+    when defined(nadePadDodge):
+      doAssert defineMeta.contains(%"nadePadDodge")
+    when defined(scoutPadMemory):
+      doAssert defineMeta.contains(%"scoutPadMemory")
+    when defined(scoutPadSafe):
+      doAssert defineMeta.contains(%"scoutPadSafe")
+    when defined(plasmaCarryGuard):
+      doAssert defineMeta.contains(%"plasmaCarryGuard")
+    when defined(pocketSpread):
+      doAssert defineMeta.contains(%"pocketSpread")
+    when defined(plasmaDuckFix):
+      doAssert defineMeta.contains(%"plasmaDuckFix")
+    when defined(phaseTrueWalk):
+      doAssert defineMeta.contains(%"phaseTrueWalk")
+    doAssert defineMeta.contains(%"releaseForecast")
+  else:
+    for name in [
+        "zonePhalanx", "holdFront", "plasmaUse", "padDefer",
+        "nadePadDodge", "scoutPadMemory", "scoutPadSafe",
+        "plasmaCarryGuard", "pocketSpread", "plasmaDuckFix",
+        "phaseTrueWalk", "releaseForecast"]:
+      doAssert not defineMeta.contains(%name)
+  when defined(swarm) and defined(shoutCoord) and defined(shoutThief) and
+      defined(taunt) and defined(zonePhalanx) and defined(holdFront) and
+      defined(plasmaUse) and defined(aimSpriteResync) and
+      defined(aimFuzzGate) and defined(aimDeltaResync) and
+      defined(padDefer) and defined(nadePadDodge) and
+      defined(scoutPadMemory) and defined(scoutPadSafe) and
+      defined(plasmaCarryGuard) and defined(pocketSpread) and
+      defined(plasmaDuckFix) and defined(phaseTrueWalk) and
+      defined(medCloseGate):
+    when defined(releaseForecast):
+      doAssert defineMeta == %*[
+        "taunt", "shoutCoord", "shoutThief", "swarm",
+        "aimSpriteResync", "aimFuzzGate", "aimDeltaResync", "medCloseGate",
+        "zonePhalanx", "holdFront", "plasmaUse", "padDefer",
+        "nadePadDodge", "scoutPadMemory", "scoutPadSafe",
+        "plasmaCarryGuard", "pocketSpread", "plasmaDuckFix",
+        "phaseTrueWalk", "releaseForecast"]
+    else:
+      doAssert defineMeta == %*[
+        "taunt", "shoutCoord", "shoutThief", "swarm",
+        "aimSpriteResync", "aimFuzzGate", "aimDeltaResync", "medCloseGate"]
 
   var kinds: CountTable[string]
   for line in files["events.jsonl"].splitLines:

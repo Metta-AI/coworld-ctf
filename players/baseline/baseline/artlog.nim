@@ -122,6 +122,19 @@ proc artInit*(slot: int, team, role: string) =
   when defined(aimFuzzGate): defines.add("aimFuzzGate")
   when defined(aimDeltaResync): defines.add("aimDeltaResync")
   when defined(medCloseGate): defines.add("medCloseGate")
+  when defined(releaseForecast):
+    when defined(zonePhalanx): defines.add("zonePhalanx")
+    when defined(holdFront): defines.add("holdFront")
+    when defined(plasmaUse): defines.add("plasmaUse")
+    when defined(padDefer): defines.add("padDefer")
+    when defined(nadePadDodge): defines.add("nadePadDodge")
+    when defined(scoutPadMemory): defines.add("scoutPadMemory")
+    when defined(scoutPadSafe): defines.add("scoutPadSafe")
+    when defined(plasmaCarryGuard): defines.add("plasmaCarryGuard")
+    when defined(pocketSpread): defines.add("pocketSpread")
+    when defined(plasmaDuckFix): defines.add("plasmaDuckFix")
+    when defined(phaseTrueWalk): defines.add("phaseTrueWalk")
+    defines.add("releaseForecast")
   art.meta = %*{
     "schema": 1,
     "slot": slot,
@@ -285,8 +298,14 @@ proc deliver(payload: string): string =
   let response = curl.put(
     url, @[("Content-Type", "application/zip")], payload, UploadTimeout)
   if response.code != 200:
-    raise newException(CatchableError,
-      "artifact PUT failed: HTTP " & $response.code)
+    when defined(releaseForecast):
+      raise newException(CatchableError,
+        "artifact PUT failed: HTTP " & $response.code)
+    else:
+      # Preserve v10's stack-trace location for a byte-identical off build.
+      {.line: (currentSourcePath(), 288).}:
+        raise newException(CatchableError,
+          "artifact PUT failed: HTTP " & $response.code)
   "hosted artifact store"
 
 proc artFlush*() =
