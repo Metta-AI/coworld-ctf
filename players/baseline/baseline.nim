@@ -165,6 +165,8 @@ const
   NadeCampSpeed = 0.3         # px/tick: tracks slower than this count as camped
   MedKitDetour = 80.0         # heal-detour budget when merely wounded
   MedKitCriticalReach = 180.0 # at 1 hp a heal outranks the current errand
+  MedKitCriticalDirect = 80.0 # -d:medCloseGate: a critical non-carrier only
+                              # diverts when the stocked kit is physically near
   MedKitRespawn = 30 * 24     # a taken kit refills after 30s (sim constant)
   MedKitSeenClear = 55.0      # inside this range an empty spot is truly
                               # empty (bubble vision), not just fogged
@@ -1549,15 +1551,20 @@ proc kitAvailable(bot: Bot, i: int): bool =
   ## seen empty, or its 30s respawn has elapsed since we saw it taken.
   bot.kitAbsentAt[i] < 0 or bot.tick - bot.kitAbsentAt[i] > MedKitRespawn + 48
 
-proc bestKitDetour(bot: Bot, me, dest: Vec, budget: float): int =
+proc bestKitDetour(bot: Bot, me, dest: Vec, budget: float,
+    directCap = 1e18): int =
   ## The stocked kit spot whose me->kit->dest detour costs the fewest extra
-  ## path px over going straight to dest; -1 when none fits the budget.
+  ## path px over going straight to dest; -1 when none fits both the route
+  ## budget and optional direct-distance cap.
   result = -1
   var best = budget
   for i in 0 ..< bot.kitPos.len:
     if not bot.kitAvailable(i):
       continue
-    let cost = dist(me, bot.kitPos[i]) + dist(bot.kitPos[i], dest) - dist(me, dest)
+    let direct = dist(me, bot.kitPos[i])
+    if direct > directCap:
+      continue
+    let cost = direct + dist(bot.kitPos[i], dest) - dist(me, dest)
     if cost < best:
       best = cost
       result = i
@@ -3079,7 +3086,14 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   if bot.hp < MaxHp and not iCarry and not pocketRush and
       not (ownStolen and bot.tick - bot.carrierSeen <= ThiefFixTtl):
     let reach = if bot.hp <= 1: MedKitCriticalReach else: MedKitDetour
-    let kit = bot.bestKitDetour(me, target, reach)
+    let kit =
+      when defined(medCloseGate):
+        if bot.hp <= 1:
+          bot.bestKitDetour(me, target, reach, MedKitCriticalDirect)
+        else:
+          bot.bestKitDetour(me, target, reach)
+      else:
+        bot.bestKitDetour(me, target, reach)
     if kit >= 0 and not (mateCarry and
         dist(mateCarryPos, bot.kitPos[kit]) < dist(me, bot.kitPos[kit]) + 100.0):
       target = bot.kitPos[kit]
