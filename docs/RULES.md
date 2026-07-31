@@ -731,8 +731,8 @@ This section is a build plan, not player-facing rules.
 - A **baseline bot** (Crewrift's `notsus` equivalent) speaking Sprite v1.
 - A **CTF grader** scoring episodes from wins.
 
-**Open follow-up:**
-
-- Crewrift reuses the **among_them social-deduction commissioner** for seating and
-  ranking. CTF is team-based, so it needs a **team commissioner** (fixed Red/Blue
-  seating, win/loss ranking) — to be written or adapted.
+**Resolved:** CTF needed team-based seating and win/loss ranking rather than
+Crewrift's social-deduction scheme. This is no longer a per-game concern — both
+the Ctf and Paintbot leagues run on the platform ladder service
+(`commissioner_key=platform`), which owns seating and ranking. This repo ships
+the game and baseline player only; it declares no commissioner runnable.

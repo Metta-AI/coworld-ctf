@@ -227,7 +227,7 @@
           "default": "arena"
         },
         "num_agents": {
-          "description": "Number of agent seats; must equal the player slot count. Used by the team commissioner for block seating.",
+          "description": "Number of agent seats; must equal the player slot count. Used by the platform ladder service for block seating.",
           "type": "integer",
           "minimum": 1,
           "maximum": 16,
@@ -394,16 +394,6 @@
           "cpu": "2"
         }
       }
-    }
-  ],
-  "commissioner": [
-    {
-      "id": "ctf-doubles-commissioner",
-      "name": "Paintbot Commissioner",
-      "type": "commissioner",
-      "description": "Config-driven ruleset-strategy commissioner for CTF-Doubles: team_interleaved seating with team_count 2 and policies_per_team 2 (each 8-seat parity team split between two policies, 4 policies per episode), win-based EWMA leaderboard. Defined by configs/ctf_doubles.yaml (RULESET_STRATEGY_CONFIG_NAME=ctf_doubles, baked into the image). Requires num_agents:16 in the variant game_config.",
-      "source_url": "https://github.com/Metta-AI/coworld-tools/tree/main/commissioners/commissioners/ruleset_strategy_commissioner",
-      "image": "{{COMMISSIONER_IMAGE}}"
     }
   ],
   "variants": [
