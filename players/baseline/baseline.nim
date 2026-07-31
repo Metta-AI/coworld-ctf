@@ -679,8 +679,6 @@ when defined(phaseTrueWalk):
       36410'i64, 30893'i64, 25080'i64, 19024'i64, 12785'i64,
       6424'i64, 0'i64
     ]
-    DiaSpriteBase = 1401      # global.nim RotDiamondSpriteBase
-    DiaPaintSpriteBase = 35300 # global.nim DiamondPaintSpriteBase
     DiaStaleTicks = 8         # a track not refreshed this recently is
                               # ignored (interstitials carry no diamonds)
 
@@ -1160,15 +1158,14 @@ when defined(phaseTrueWalk):
     var
       advanced = false
       newSeen = false
-    for o in client.spriteObjectsLabelPrefix("diamond"):
+    for o in client.diamondSpriteObjects():
       var frame = -1
-      if o.spriteId >= DiaPaintSpriteBase:
-        frame = (o.spriteId - DiaPaintSpriteBase) mod DiaSpinFrames
-      elif o.spriteId >= DiaSpriteBase and
-          o.spriteId < DiaSpriteBase + DiaSpinFrames:
-        frame = o.spriteId - DiaSpriteBase
-      if frame < 0:
-        continue                         # not a spin-frame sprite id
+      if o.spriteId >= DiamondPaintSpriteLo and
+          o.spriteId <= DiamondPaintSpriteHi:
+        frame = (o.spriteId - DiamondPaintSpriteLo) mod DiaSpinFrames
+      elif o.spriteId >= RotDiamondSpriteLo and
+          o.spriteId <= RotDiamondSpriteHi:
+        frame = o.spriteId - RotDiamondSpriteLo
       let radius = (o.width - 8) div 2   # sim sprite size = 2r + 8
       if radius < 4 or radius > 400:
         continue
@@ -1181,11 +1178,28 @@ when defined(phaseTrueWalk):
           idx = i
           break
       if idx < 0:
+        if frame < 0:
+          continue                       # never create a track without a
+                                         # decodable spin frame
         diaPhase.tracks.add(DiaTrack(objectId: o.objectId, cx: cx, cy: cy,
           radius: radius, frame: frame, seenTick: bot.tick))
         newSeen = true
         advanced = true
         continue
+      if frame < 0:
+        # Sprite id outside the known pools (e.g. a future tree moved the
+        # paint base): FREE-RUN the locked 16-entry table instead of going
+        # phase-blind — frame advances by dir once per 4 absolute ticks
+        # (audit proof §3c: 0 errors over 44.1M px checks after the lock).
+        if diaPhase.locked and diaPhase.tracks[idx].dir != 0:
+          let steps =
+            (bot.tick - diaPhase.phase4) div 4 -
+            (diaPhase.tracks[idx].seenTick - diaPhase.phase4) div 4
+          if steps > 0:
+            frame = diaFrameIndex(
+              diaPhase.tracks[idx].frame + diaPhase.tracks[idx].dir * steps)
+        if frame < 0:
+          frame = diaPhase.tracks[idx].frame   # hold the last known frame
       if frame != diaPhase.tracks[idx].frame:
         advanced = true
         if bot.tick - diaPhase.tracks[idx].seenTick == 1:

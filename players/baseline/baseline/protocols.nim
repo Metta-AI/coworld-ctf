@@ -228,16 +228,23 @@ proc spriteObjectsWithLabel*(
     ))
 
 when defined(phaseTrueWalk):
-  proc spriteObjectsLabelPrefix*(
-    client: ProtocolClient,
-    prefix: string
+  const
+    RotDiamondSpriteLo* = 1401     # global.nim RotDiamondSpriteBase
+    RotDiamondSpriteHi* = 1401 + 15
+    DiamondPaintSpriteLo* = 35300  # global.nim DiamondPaintSpriteBase
+    DiamondPaintSpriteHi* = 35300 + 8 * 16 - 1
+
+  proc diamondSpriteObjects*(
+    client: ProtocolClient
   ): seq[SpriteObjectInfo] =
-    ## Present sprite objects whose label is exactly `prefix` or starts with
-    ## `prefix & " "` — for label FAMILIES whose members carry state in the
-    ## suffix (the spinning diamonds read "diamond" unpainted and
-    ## "diamond <i> paint <n>" once stained, src/ctf/global.nim
-    ## addRotatingDiamonds). Returns the spriteId, which is where the spin
-    ## frame lives; the label itself is zero-information about the frame.
+    ## Present spinning-diamond board objects. Selection is belt-and-braces:
+    ## the exact label "diamond" (the unpainted family — rename-robust and
+    ## label-guard-visible) OR a sprite id inside the two diamond pools.
+    ## The painted family ("diamond <i> paint <n>") carries its state in
+    ## the SPRITE ID — the label is zero-information about the spin frame
+    ## (audit 1217043199015195 leg 2), so the id range is the semantic key
+    ## there and keeps working however the label suffix evolves. Callers
+    ## must still validate the decoded frame/size before trusting a row.
     if client.sprite.isNil:
       return
     for objectId, objectState in client.sprite.objects:
@@ -246,7 +253,14 @@ when defined(phaseTrueWalk):
       let sprite = client.sprite.spriteInfo(objectState.spriteId)
       if sprite.isNil or not sprite.defined:
         continue
-      if sprite.label != prefix and not sprite.label.startsWith(prefix & " "):
+      let
+        labelIsDiamond = sprite.label == "diamond"
+        idInDiamondPool =
+          (objectState.spriteId >= RotDiamondSpriteLo and
+            objectState.spriteId <= RotDiamondSpriteHi) or
+          (objectState.spriteId >= DiamondPaintSpriteLo and
+            objectState.spriteId <= DiamondPaintSpriteHi)
+      if not labelIsDiamond and not idInDiamondPool:
         continue
       result.add(SpriteObjectInfo(
         objectId: objectId,
