@@ -190,6 +190,18 @@ const
                               # a full-heal carrier survives pocket exits
                               # that kill a 1 hp one
   MedKitCarrierBudget = float(tuneMedKitCarrierBudget)
+  tunePadStationFront {.intdefine.} = 520 # -d:padLaneStation: fixed forward depth (px from
+                              # the OWN MAP EDGE, same convention as `front`)
+                              # of the mid pair's pad-lane stations; 520
+                              # stands ~100px on OUR side of the centre
+                              # med-kit pads at (617,219)/(617,439)
+  PadStationFront = float(tunePadStationFront)
+  tunePadStationBoth {.intdefine.} = 1 # -d:padLaneStation: 1 = retask both mid seats
+                              # (pdMidA→top pad lane, pdMidB→bottom pad
+                              # lane); 0 = lead seat only, trail keeps its
+                              # LaneMid station
+  PadTopLaneY = 219.0         # sim resetMedKits: MapH div 3, walkable-nudged
+  PadBotLaneY = 439.0         # sim resetMedKits: 2 * MapH div 3
   CarrySelfRadius = 26.0      # the carried flag banner is centered on its
                               # carrier: anything inside this slack that no
                               # visible mate sits closer to is OUR carry
@@ -2234,42 +2246,63 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
        else:
          target = bot.chokeHold
      else:
-       let laneY = phalanxLaneY(pd)
-       # Contact freeze: while a fresh track sits near our lane station,
-       # hold the front we had — advance only through quiet ground.
-       var contact = false
-       let probe = vec(ownEdgeX + dirX * front, laneY)
-       for t in bot.enemies:
-         if bot.tick - t.lastSeen <= 90 and dist(t.pos, probe) < 420.0:
-           contact = true
-           break
-       if contact:
-         if bot.phalanxHold <= 0.0:
-           bot.phalanxHold = front
-         front = min(front, bot.phalanxHold)
-       else:
-         bot.phalanxHold = 0.0
-       var laneY2 = laneY
-       when defined(siege):
-         if bot.siegePhase != 0 and phalanxLaneNo(pd) == bot.siegeLane:
-           # The siege owns this vertical: the captured line is a FLOOR on
-           # the front, and an advance order pushes THROUGH contact (the
-           # barrage already softened it) — the freeze must not stall it.
-           front = max(front, bot.siegeFront)
+       var padSeat = false
+       when defined(padLaneStation):
+         # beacon-lineage counter (task 1217037302855756): the two centre
+         # med-kit pads (617,219)/(617,439) sit BETWEEN our lane stations
+         # (lanes hold y 66/329.5/593) — nobody patrols the pad y-lanes,
+         # pad discovery is sprite-gated (a seat that never sees a pad can
+         # never heal-detour to it: W1 verdict), and the beacon lattice
+         # monopolises the refills (57/58 pickups, +13.2 hp/ep). Retask the
+         # mid pair — the two home-hugger seats, NOT the steal-engine lane
+         # seats — to FIXED stations in the pad neighbourhoods: pad in FOV
+         # (stock state tracked), refills on-route for wounded seats, and
+         # wounded enemy pad-steppers engaged at a known point
+         # (HpFocusBonus already prioritises them). Depth is a fixed px
+         # from the own edge: no creep, no HoldFrontCap, and the contact
+         # freeze is moot for a station that never advances.
+         padSeat = pd == pdMidA or (pd == pdMidB and tunePadStationBoth == 1)
+         if padSeat:
+           target = bot.snapToCover(vec(
+             ownEdgeX + dirX * PadStationFront,
+             (if pd == pdMidA: PadTopLaneY else: PadBotLaneY)))
+       if not padSeat:
+         let laneY = phalanxLaneY(pd)
+         # Contact freeze: while a fresh track sits near our lane station,
+         # hold the front we had — advance only through quiet ground.
+         var contact = false
+         let probe = vec(ownEdgeX + dirX * front, laneY)
+         for t in bot.enemies:
+           if bot.tick - t.lastSeen <= 90 and dist(t.pos, probe) < 420.0:
+             contact = true
+             break
+         if contact:
+           if bot.phalanxHold <= 0.0:
+             bot.phalanxHold = front
+           front = min(front, bot.phalanxHold)
+         else:
            bot.phalanxHold = 0.0
-         if bot.siegePhase == 1 and pd in {pdTopA, pdBotA}:
-           # Grenadiers converge on the assault vertical for the barrage,
-           # standing just behind the captured line inside lob range of the
-           # pockets beyond it.
-           laneY2 = (case bot.siegeLane
-             of 1: LaneTop + 60.0
-             of 3: LaneBottom - 60.0
-             else: LaneMid)
-           front = max(bot.siegeFront, HoldFrontCap) - 20.0
-       let lead = pd in {pdTopA, pdMidA, pdBotA}
-       target = bot.snapToCover(vec(
-         ownEdgeX + dirX * (if lead: front else: front - 44.0),
-         laneY2 + (if lead: -32.0 else: 32.0)))
+         var laneY2 = laneY
+         when defined(siege):
+           if bot.siegePhase != 0 and phalanxLaneNo(pd) == bot.siegeLane:
+             # The siege owns this vertical: the captured line is a FLOOR on
+             # the front, and an advance order pushes THROUGH contact (the
+             # barrage already softened it) — the freeze must not stall it.
+             front = max(front, bot.siegeFront)
+             bot.phalanxHold = 0.0
+           if bot.siegePhase == 1 and pd in {pdTopA, pdBotA}:
+             # Grenadiers converge on the assault vertical for the barrage,
+             # standing just behind the captured line inside lob range of the
+             # pockets beyond it.
+             laneY2 = (case bot.siegeLane
+               of 1: LaneTop + 60.0
+               of 3: LaneBottom - 60.0
+               else: LaneMid)
+             front = max(bot.siegeFront, HoldFrontCap) - 20.0
+         let lead = pd in {pdTopA, pdMidA, pdBotA}
+         target = bot.snapToCover(vec(
+           ownEdgeX + dirX * (if lead: front else: front - 44.0),
+           laneY2 + (if lead: -32.0 else: 32.0)))
   elif bot.role == HomeDefender and not pushOut:
     # Hold the choke on our pedestal approach; break off to chase the nearest
     # intruder on our half (every steal has to come through here).
