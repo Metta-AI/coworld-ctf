@@ -227,6 +227,36 @@ proc spriteObjectsWithLabel*(
       spriteId: objectState.spriteId
     ))
 
+when defined(phaseTrueWalk):
+  proc spriteObjectsLabelPrefix*(
+    client: ProtocolClient,
+    prefix: string
+  ): seq[SpriteObjectInfo] =
+    ## Present sprite objects whose label is exactly `prefix` or starts with
+    ## `prefix & " "` — for label FAMILIES whose members carry state in the
+    ## suffix (the spinning diamonds read "diamond" unpainted and
+    ## "diamond <i> paint <n>" once stained, src/ctf/global.nim
+    ## addRotatingDiamonds). Returns the spriteId, which is where the spin
+    ## frame lives; the label itself is zero-information about the frame.
+    if client.sprite.isNil:
+      return
+    for objectId, objectState in client.sprite.objects:
+      if not objectState.present:
+        continue
+      let sprite = client.sprite.spriteInfo(objectState.spriteId)
+      if sprite.isNil or not sprite.defined:
+        continue
+      if sprite.label != prefix and not sprite.label.startsWith(prefix & " "):
+        continue
+      result.add(SpriteObjectInfo(
+        objectId: objectId,
+        x: objectState.x,
+        y: objectState.y,
+        width: sprite.width,
+        height: sprite.height,
+        spriteId: objectState.spriteId
+      ))
+
 iterator spriteObjects*(
   client: ProtocolClient
 ): tuple[

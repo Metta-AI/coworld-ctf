@@ -644,11 +644,175 @@ proc mateAimBrads(client: ProtocolClient, mate, me: Vec, color: string): int =
       bestD = d
       result = bradsOf(p - mate)
 
+when defined(phaseTrueWalk):
+  # --------------------------------------------------------------------
+  # -d:phaseTrueWalk — phase-true walkability under GV28+ spinning center
+  # diamonds (repair card 1217043245712125; desk audit 1217043199015195).
+  #
+  # Since GV28 the 8 center diamonds are REAL tick-clocked geometry: the
+  # sim re-stamps their silhouette into the collision/bullet/vision masks
+  # every 4 ticks (quarter turn per 64). The walkability mask this bot
+  # receives is built ONCE at init, so in the diamond bands every static
+  # verdict is wrong for up to 60 of every 64 ticks. The live spin frame
+  # IS bot-visible: the 8 diamond board objects ride the per-tick player
+  # packet and their sprite id encodes the frame exactly (proof: the
+  # audit's PHASE-OBSERVABILITY-PROOF.md — 26,912/26,912 frame matches,
+  # 0/44.1M pixel mismatches after a frame-transition phase lock).
+  #
+  # Design (packet-derived, map-generic — GV29 spins diamonds on GENERATED
+  # maps too, so nothing here hard-codes the arena's 8 positions):
+  # - Each playing tick we read every "diamond"-labelled object: center
+  #   from the object coords, radius from the sprite size (size = 2r + 8,
+  #   src/ctf/sim.nim rotatingDiamondPixels), frame from the sprite id
+  #   (base 1401 unpainted / 35300 + d*16 painted, low 4 bits = frame).
+  # - Verdicts inside a live diamond's swept disc come from the EXACT
+  #   integer predicate the sim stamps with (rotatedDiamondCovers replica
+  #   below) at the frame read THIS tick — per-tick reads need no offset
+  #   recovery and are exact at every tick by the proof's presence result.
+  #   The frame-transition lock (absolute tick ≡ 0 mod 4 at an observed
+  #   single-tick frame step) is still recorded: it timestamps the phase
+  #   for telemetry and enables lookahead consumers later.
+  # - Outside every swept disc nothing changes, structurally: the static
+  #   mask is returned untouched (zero collateral by construction).
+  # - Inside a swept disc the diamond OWNS the verdict: on the arena the
+  #   non-diamond stone inside the swept bands is 0 px (audit leg 2 bonus
+  #   finding), so no base-mask term is needed. Re-verify that on
+  #   generated maps when the ladder goes procedural.
+  const
+    DiaSpinFrames = 16        # sim.nim DiamondSpinFrames
+    DiaRotShift = 16          # sim.nim DiamondRotShift
+    DiaRotOne = 1'i64 shl DiaRotShift
+    ## cos(frame * 5.625 deg) scaled by 2^16 — VERBATIM sim.nim DiamondCos
+    ## (tree 33acbe0). sin is the same table read from the other end.
+    DiaCos: array[DiaSpinFrames + 1, int64] = [
+      65536'i64, 65220'i64, 64277'i64, 62714'i64, 60547'i64,
+      57798'i64, 54491'i64, 50660'i64, 46341'i64, 41576'i64,
+      36410'i64, 30893'i64, 25080'i64, 19024'i64, 12785'i64,
+      6424'i64, 0'i64
+    ]
+    DiaSpriteBase = 1401      # global.nim RotDiamondSpriteBase
+    DiaPaintSpriteBase = 35300 # global.nim DiamondPaintSpriteBase
+    DiaStaleTicks = 8         # a track not refreshed this recently is
+                              # ignored (interstitials carry no diamonds)
+
+  type
+    DiaTrack = object
+      objectId: int
+      cx, cy, radius: int     # map px; radius from sprite size (2r + 8)
+      frame: int              # spin frame observed on the newest packet
+      dir: int                # +1/-1 once observed from a single-tick step
+      seenTick: int           # bot.tick of the newest observation
+    DiaPhase = object
+      tracks: seq[DiaTrack]
+      now: int                # bot.tick mirror for client-only callers
+      locked: bool            # a single-tick frame transition was observed
+      phase4: int             # bot.tick mod 4 at frame-advance ticks
+      navStamped: bool        # in-band nav cells re-stamped at least once
+      shellDone: bool         # swept-shell cells computed, posts re-derived
+      divCount: int           # in-band verdicts that differed from the
+                              # static mask (the live channel, cumulative)
+
+  var
+    diaPhase = DiaPhase()
+    diaShell: seq[bool]       # nav cells whose cover toggles with the spin
+
+  proc diaReset() =
+    diaPhase = DiaPhase()
+    diaShell.setLen(0)
+
+  proc diaFrameIndex(frame: int): int {.inline.} =
+    ## sim.nim diamondFrameIndex replica.
+    ((frame mod DiaSpinFrames) + DiaSpinFrames) mod DiaSpinFrames
+
+  proc diaRotatedCovers(radius, frame, dxNum, dyNum: int): bool {.inline.} =
+    ## VERBATIM integer replica of sim.nim rotatedDiamondCovers at denom=2:
+    ## is the offset (dxNum/2, dyNum/2) map px from a diamond's center
+    ## inside it at `frame`? Same fixed-point table, no host libm — the
+    ## bot's belief and the sim's stamp cannot drift apart.
+    let
+      index = diaFrameIndex(frame)
+      ca = DiaCos[index]
+      sa = DiaCos[DiaSpinFrames - index]
+      rx = int64(dxNum) * ca + int64(dyNum) * sa
+      ry = -int64(dxNum) * sa + int64(dyNum) * ca
+    abs(rx) + abs(ry) <= int64(radius) * 2'i64 * DiaRotOne
+
+  proc diaCovers(t: DiaTrack, frame, x, y: int): bool {.inline.} =
+    ## sim.nim animatedDiamondCovers replica.
+    diaRotatedCovers(t.radius, frame, 2 * (x - t.cx), 2 * (y - t.cy))
+
+  proc diaEverStone(t: DiaTrack, x, y: int): bool =
+    ## Union of the 16 frames. A rotated-L1 ball of radius r always sits
+    ## inside the Euclidean disc r and always contains the disc r/sqrt(2),
+    ## so those bounds skip the frame loop for most pixels.
+    let
+      dx = x - t.cx
+      dy = y - t.cy
+      d2 = dx * dx + dy * dy
+      r2 = t.radius * t.radius
+    if d2 > r2:
+      return false
+    if 2 * d2 <= r2:
+      return true
+    for f in 0 ..< DiaSpinFrames:
+      if diaCovers(t, f, x, y):
+        return true
+    false
+
+  proc diaAlwaysStone(t: DiaTrack, x, y: int): bool =
+    ## Intersection of the 16 frames (same bounds as diaEverStone).
+    let
+      dx = x - t.cx
+      dy = y - t.cy
+      d2 = dx * dx + dy * dy
+      r2 = t.radius * t.radius
+    if d2 > r2:
+      return false
+    if 2 * d2 <= r2:
+      return true
+    for f in 0 ..< DiaSpinFrames:
+      if not diaCovers(t, f, x, y):
+        return false
+    true
+
+  proc diaVerdict(x, y: int): int {.inline.} =
+    ## -1 = outside every live diamond's swept disc (static mask decides);
+    ## 0 = live floor; 1 = live stone.
+    for t in diaPhase.tracks:
+      if diaPhase.now - t.seenTick > DiaStaleTicks:
+        continue
+      let dx = x - t.cx
+      if dx < -t.radius or dx > t.radius:
+        continue
+      let dy = y - t.cy
+      if dy < -t.radius or dy > t.radius:
+        continue
+      if dx * dx + dy * dy > t.radius * t.radius:
+        continue
+      return (if diaCovers(t, t.frame, x, y): 1 else: 0)
+    -1
+
+  proc diaCellShell(c: int): bool {.inline.} =
+    ## True for nav cells excluded from post/duck candidacy: their cover
+    ## toggles with the spin (D5 rider — the sim displaces a body parked in
+    ## the swept shell every 4 ticks and its shield value flips with the
+    ## phase).
+    diaShell.len > 0 and c >= 0 and c < diaShell.len and diaShell[c]
+
 proc walkableAt(client: ProtocolClient, x, y: int): bool =
   if x < 0 or y < 0 or x >= client.walkabilityWidth or
       y >= client.walkabilityHeight:
     return false
-  client.walkabilityMask[y * client.walkabilityWidth + x]
+  let base = client.walkabilityMask[y * client.walkabilityWidth + x]
+  when defined(phaseTrueWalk):
+    if diaPhase.tracks.len > 0:
+      let v = diaVerdict(x, y)
+      if v >= 0:
+        let live = v == 0
+        if live != base:
+          inc diaPhase.divCount
+        return live
+  base
 
 proc footprintFits(client: ProtocolClient, x, y: int): bool =
   ## True when the player's solid box centered at (x, y) is all walkable,
@@ -806,6 +970,10 @@ proc scanPost(
       let c = cy * GridW + cx
       if not bot.coverCell[c]:
         continue
+      when defined(phaseTrueWalk):
+        if diaCellShell(c):
+          continue                       # swept-shell cover toggles with the
+                                         # spin — no post seat there (D5)
       let
         p = cellCenter(c)
         fwd = eSign * (p.x - float(CenterX))
@@ -820,6 +988,9 @@ proc scanPost(
         let ny = cy + dyc
         if ny < 0 or ny >= GridH or not bot.cellWalkable[ny * GridW + cx]:
           continue
+        when defined(phaseTrueWalk):
+          if diaCellShell(ny * GridW + cx):
+            continue                     # peek seat in the swept shell (D5)
         let q = cellCenter(ny * GridW + cx)
         let line = openLineLen(client, q, vec(eSign, 0.0), FireRange, 6.0)
         if line > peekLine:
@@ -914,6 +1085,165 @@ proc buildNavGrid(bot: Bot, client: ProtocolClient) =
   bot.findEnemyPosts(client)
   bot.chokeHold = bot.snapToCover(chokeSpot(bot.team))
   bot.navBuilt = true
+
+when defined(phaseTrueWalk):
+  proc diaRestampCells(bot: Bot, client: ProtocolClient): int =
+    ## Re-erodes nav-grid walkability and cover for every cell whose
+    ## footprint can touch a diamond's swept disc, against the LIVE frame
+    ## (footprintFits routes through the phase-true walkableAt). The rest
+    ## of the grid is untouched. Returns how many cells flipped.
+    if not bot.navBuilt:
+      return 0
+    for t in diaPhase.tracks:
+      let
+        reach = t.radius + PlayerHalf + NavCell
+        x0 = max(0, (t.cx - reach) div NavCell)
+        x1 = min(GridW - 1, (t.cx + reach) div NavCell)
+        y0 = max(0, (t.cy - reach) div NavCell)
+        y1 = min(GridH - 1, (t.cy + reach) div NavCell)
+      for cy in y0 .. y1:
+        for cx in x0 .. x1:
+          let
+            c = cy * GridW + cx
+            w = client.footprintFits(
+              cx * NavCell + NavCell div 2, cy * NavCell + NavCell div 2)
+          if w != bot.cellWalkable[c]:
+            inc result
+            bot.cellWalkable[c] = w
+      # Cover follows walkability: recompute it one cell wider, with the
+      # exact adjacency rule buildNavGrid uses.
+      for cy in max(0, y0 - 1) .. min(GridH - 1, y1 + 1):
+        for cx in max(0, x0 - 1) .. min(GridW - 1, x1 + 1):
+          let c = cy * GridW + cx
+          if not bot.cellWalkable[c]:
+            bot.coverCell[c] = false
+            continue
+          var cov = false
+          block adjacency:
+            for dy in -1 .. 1:
+              for dx in -1 .. 1:
+                if dx == 0 and dy == 0:
+                  continue
+                let
+                  nx = cx + dx
+                  ny = cy + dy
+                if nx < 0 or ny < 0 or nx >= GridW or ny >= GridH:
+                  continue
+                if not bot.cellWalkable[ny * GridW + nx]:
+                  cov = true
+                  break adjacency
+          bot.coverCell[c] = cov
+
+  proc diaComputeShell(bot: Bot) =
+    ## Marks nav cells whose footprint touches TOGGLING stone (ever-stone
+    ## minus always-stone): candidacy exclusion for post/duck seats.
+    diaShell = newSeq[bool](GridW * GridH)
+    for t in diaPhase.tracks:
+      let
+        reach = t.radius + PlayerHalf + NavCell
+        x0 = max(0, (t.cx - reach) div NavCell)
+        x1 = min(GridW - 1, (t.cx + reach) div NavCell)
+        y0 = max(0, (t.cy - reach) div NavCell)
+        y1 = min(GridH - 1, (t.cy + reach) div NavCell)
+      for cy in y0 .. y1:
+        for cx in x0 .. x1:
+          let c = cy * GridW + cx
+          if diaShell[c]:
+            continue
+          let
+            px = cx * NavCell + NavCell div 2
+            py = cy * NavCell + NavCell div 2
+          block scan:
+            for dy in -PlayerHalf .. PlayerHalf:
+              for dx in -PlayerHalf .. PlayerHalf:
+                if diaEverStone(t, px + dx, py + dy) and
+                    not diaAlwaysStone(t, px + dx, py + dy):
+                  diaShell[c] = true
+                  break scan
+
+  proc updateDiamonds(bot: Bot, client: ProtocolClient) =
+    ## Per playing frame: refresh the diamond tracks from the player packet,
+    ## take the phase lock on the first observed single-tick frame step,
+    ## and re-stamp the in-band nav cells whenever a frame advanced. Runs
+    ## after buildNavGrid in the frame loop; does nothing until diamond
+    ## objects actually appear (GV27 fixed maps never emit them).
+    diaPhase.now = bot.tick
+    var
+      advanced = false
+      newSeen = false
+    for o in client.spriteObjectsLabelPrefix("diamond"):
+      var frame = -1
+      if o.spriteId >= DiaPaintSpriteBase:
+        frame = (o.spriteId - DiaPaintSpriteBase) mod DiaSpinFrames
+      elif o.spriteId >= DiaSpriteBase and
+          o.spriteId < DiaSpriteBase + DiaSpinFrames:
+        frame = o.spriteId - DiaSpriteBase
+      if frame < 0:
+        continue                         # not a spin-frame sprite id
+      let radius = (o.width - 8) div 2   # sim sprite size = 2r + 8
+      if radius < 4 or radius > 400:
+        continue
+      let
+        cx = o.x + o.width div 2 + client.mapCameraX
+        cy = o.y + o.height div 2 + client.mapCameraY
+      var idx = -1
+      for i in 0 ..< diaPhase.tracks.len:
+        if diaPhase.tracks[i].objectId == o.objectId:
+          idx = i
+          break
+      if idx < 0:
+        diaPhase.tracks.add(DiaTrack(objectId: o.objectId, cx: cx, cy: cy,
+          radius: radius, frame: frame, seenTick: bot.tick))
+        newSeen = true
+        advanced = true
+        continue
+      if frame != diaPhase.tracks[idx].frame:
+        advanced = true
+        if bot.tick - diaPhase.tracks[idx].seenTick == 1:
+          # A single-tick frame step: the absolute sim tick is ≡ 0 mod 4
+          # HERE (audit proof §3b), and the step sign is the spin
+          # direction. One observation pins the phase for the episode.
+          let delta = diaFrameIndex(frame - diaPhase.tracks[idx].frame)
+          if delta == 1:
+            diaPhase.tracks[idx].dir = 1
+          elif delta == DiaSpinFrames - 1:
+            diaPhase.tracks[idx].dir = -1
+          if not diaPhase.locked:
+            diaPhase.locked = true
+            diaPhase.phase4 = bot.tick mod 4
+            artEvent(bot.tick, "dia_lock", %*{"phase4": diaPhase.phase4})
+      diaPhase.tracks[idx].cx = cx
+      diaPhase.tracks[idx].cy = cy
+      diaPhase.tracks[idx].radius = radius
+      diaPhase.tracks[idx].frame = frame
+      diaPhase.tracks[idx].seenTick = bot.tick
+    if newSeen:
+      var ds = newJArray()
+      for t in diaPhase.tracks:
+        ds.add(%*[t.objectId, t.cx, t.cy, t.radius])
+      artEvent(bot.tick, "dia_seen", %*{"n": diaPhase.tracks.len, "d": ds})
+    if diaPhase.tracks.len == 0 or not bot.navBuilt:
+      return
+    if not diaPhase.shellDone:
+      bot.diaComputeShell()
+      diaPhase.shellDone = true
+      # The posts were derived on the baked mask before the diamonds were
+      # visible: re-derive them once with the shell exclusion live.
+      bot.pickPost(client)
+      bot.findEnemyPosts(client)
+      var shellCells = 0
+      for s in diaShell:
+        if s:
+          inc shellCells
+      artEvent(bot.tick, "dia_shell", %*{"cells": shellCells})
+    if advanced or not diaPhase.navStamped:
+      let flipped = bot.diaRestampCells(client)
+      diaPhase.navStamped = true
+      var fr = newJArray()
+      for t in diaPhase.tracks:
+        fr.add(%t.frame)
+      artEvent(bot.tick, "dia_adv",
+        %*{"f": fr, "flip": flipped, "div": diaPhase.divCount})
 
 const NavNeighbors = [
   (1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)
@@ -1074,6 +1404,10 @@ proc findDuckCell(bot: Bot, client: ProtocolClient, me, threat: Vec): int =
       let nc = ny * GridW + nx
       if not bot.cellWalkable[nc]:
         continue
+      when defined(phaseTrueWalk):
+        if diaCellShell(nc):
+          continue                       # cover here evaporates within
+                                         # ~2.7 s as the diamond turns (D5)
       let p = cellCenter(nc)
       if not bot.gridRayClear(me, p):
         continue
@@ -1216,6 +1550,8 @@ proc bestKitDetour(bot: Bot, me, dest: Vec, budget: float): int =
 
 proc resetTransient(bot: Bot) =
   ## Drops per-game memory between rounds (lobby / game-over interstitials).
+  when defined(phaseTrueWalk):
+    diaReset()                           # spin phase is per-episode state
   bot.enemies.setLen(0)
   bot.mates.setLen(0)
   bot.nadeCharge = 0
@@ -3180,6 +3516,8 @@ proc runBot(url: string) =
           artEvent(bot.tick, "game_start")
         if not bot.navBuilt and client.walkabilityReady:
           bot.buildNavGrid(client)
+        when defined(phaseTrueWalk):
+          bot.updateDiamonds(client)
         let mask = bot.decide(client)
         if mask != lastMask:
           ws.send(inputBlob(mask), BinaryMessage)
