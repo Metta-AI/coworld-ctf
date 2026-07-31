@@ -123,7 +123,12 @@ square map:
   west, Blue east, Green north, Yellow south) with an arm-mouth endzone —
   the corners are open battlefield. Both are fully open square boards whose
   terrain replicates a generated quadrant by 90-degree rotation, so all
-  four quarters are exactly fair.
+  four quarters are exactly fair: the WALL MASK a team plays against is
+  pixel-for-pixel the quarter turn of every other team's, homes included.
+  Each team's spawn pocket rotates with its home, so the north and south
+  pockets of a plus board lie on their sides relative to the east and west
+  ones — a pocket that stayed upright everywhere would be a different
+  shape than its own rotational twin.
 - **Every team has its own heart** on its own pedestal, and its own capture
   zone behind it. Steal ANY other team's heart and carry it into your own
   zone to win. Allies do not exist: 4-team play is pure free-for-all, and a

@@ -2085,51 +2085,103 @@ proc axisHomeHi(center, size, depth: int): int =
   ## home-x formula at depth 700).
   center + ((size - center) * depth div 1000)
 
+proc rot90Point*(p: MapPoint, side: int): MapPoint {.inline.} =
+  ## One quarter turn clockwise about the center of a side x side square
+  ## board: (x, y) -> (side - 1 - y, x).
+  ##
+  ## The fixed point of that map is (side - 1)/2, which on an EVEN-sided
+  ## board is a half pixel away from the div-derived `center`. Anything that
+  ## has to be exactly its own quarter turn must therefore be built by
+  ## walking this orbit (or measured in doubled coordinates), never anchored
+  ## to `center` — see rot90Quarter and centerOffset2.
+  MapPoint(x: side - 1 - p.y, y: p.x)
+
+proc rot90Quarter*(gameMap: CtfMap, team: Team): int =
+  ## How many quarter turns separate RED's quadrant from this team's. Team
+  ## enum order is not orbit order for either 4-team layout, so the mapping
+  ## is spelled out per layout; sides maps have no rot90 orbit at all.
+  case gameMap.layout
+  of layoutSides:
+    0
+  of layoutCorners:
+    ## Orbit top-left -> top-right -> bottom-right -> bottom-left.
+    case team
+    of Red: 0
+    of Blue: 1
+    of Yellow: 2
+    of Green: 3
+  of layoutPlus:
+    ## Orbit west -> north -> east -> south.
+    case team
+    of Red: 0
+    of Green: 1
+    of Blue: 2
+    of Yellow: 3
+
 proc teamAnchor*(gameMap: CtfMap, team: Team): MapPoint =
   ## Returns one team's home anchor: the center of its protected spawn
   ## pocket, where its pedestal stands.
+  ##
+  ## 4-team anchors are RED's anchor walked around the rot90 orbit, so every
+  ## team's home is EXACTLY a quarter turn of every other team's. Deriving
+  ## the far anchors from axisHomeHi instead would place them symmetrically
+  ## about `center` — one pixel off the orbit on an even-sided board, which
+  ## is a fairness difference, not a rounding detail.
   let
     cx = gameMap.center.x
     cy = gameMap.center.y
     d = gameMap.homeDepthOf()
   case gameMap.layout
   of layoutSides:
-    case team
-    of Red:
-      MapPoint(x: axisHomeLo(cx, d), y: cy)
-    else:
-      MapPoint(x: axisHomeHi(cx, gameMap.width, d), y: cy)
-  of layoutCorners:
-    ## Red top-left, Blue top-right, Green bottom-left, Yellow bottom-right.
-    case team
-    of Red:
-      MapPoint(x: axisHomeLo(cx, d), y: axisHomeLo(cy, d))
-    of Blue:
-      MapPoint(x: axisHomeHi(cx, gameMap.width, d), y: axisHomeLo(cy, d))
-    of Green:
-      MapPoint(x: axisHomeLo(cx, d), y: axisHomeHi(cy, gameMap.height, d))
-    of Yellow:
-      MapPoint(
-        x: axisHomeHi(cx, gameMap.width, d),
-        y: axisHomeHi(cy, gameMap.height, d)
-      )
-  of layoutPlus:
-    ## Red west, Blue east, Green north, Yellow south.
-    case team
-    of Red:
-      MapPoint(x: axisHomeLo(cx, d), y: cy)
-    of Blue:
-      MapPoint(x: axisHomeHi(cx, gameMap.width, d), y: cy)
-    of Green:
-      MapPoint(x: cx, y: axisHomeLo(cy, d))
-    of Yellow:
-      MapPoint(x: cx, y: axisHomeHi(cy, gameMap.height, d))
+    result =
+      case team
+      of Red:
+        MapPoint(x: axisHomeLo(cx, d), y: cy)
+      else:
+        MapPoint(x: axisHomeHi(cx, gameMap.width, d), y: cy)
+  of layoutCorners, layoutPlus:
+    ## Red seeds the orbit: top-left on corner maps, west on plus maps.
+    result =
+      if gameMap.layout == layoutCorners:
+        MapPoint(x: axisHomeLo(cx, d), y: axisHomeLo(cy, d))
+      else:
+        MapPoint(x: axisHomeLo(cx, d), y: cy)
+    for _ in 0 ..< gameMap.rot90Quarter(team):
+      result = result.rot90Point(gameMap.width)
+
+proc spawnPocketHalf*(gameMap: CtfMap, team: Team): tuple[w, h: int] =
+  ## The half-extents of one team's protected spawn pocket, around its
+  ## anchor. The pocket is taller than it is wide, so it does NOT survive a
+  ## quarter turn unchanged: on rot90 boards the odd quarters carry the
+  ## rotated W x H -> H x W box. Stamping the same box at all four anchors
+  ## would carve two of the four quadrants to a different shape than their
+  ## rotational twins — on a 1248px board that is ~119k pixels, 7.6% of the
+  ## board, where the protected floor disagrees with its own quarter turn.
+  ##
+  ## Mirror and rot180 symmetries preserve the axes, so 2-team maps keep the
+  ## single upright box they always had.
+  if gameMap.rot90Quarter(team) mod 2 == 1:
+    (gameMap.spawnClearH, gameMap.spawnClearW)
+  else:
+    (gameMap.spawnClearW, gameMap.spawnClearH)
 
 proc plusArmHalf*(gameMap: CtfMap): int =
   ## Returns the half-span of a plus map's arms — the width of each team's
   ## endzone mouth and protected approach: 19% of the map side, comfortably
   ## wider than the spawn pockets on every size class.
   19 * min(gameMap.width, gameMap.height) div 100
+
+proc plusArmBand*(gameMap: CtfMap): tuple[lo, hi: int] =
+  ## The inclusive span an arm occupies across the board, centered on the
+  ## board's TRUE rot90 axis at (side - 1)/2 rather than on the integer
+  ## center. The two differ by a pixel on an even side, and a band centered
+  ## on `center` is not its own quarter turn — the west arm's y-span would
+  ## land one pixel off the north arm's x-span. Identical to the doubled
+  ## comparison mapProtectedFloorAt carves the approach with.
+  let
+    side = min(gameMap.width, gameMap.height)
+    lo = (side - 2 * gameMap.plusArmHalf()) div 2
+  (lo, side - 1 - lo)
 
 proc teamHomeX*(gameMap: CtfMap, team: Team): int =
   ## Returns the home-edge x anchor for one team's spawn strip and pedestal.
@@ -2187,13 +2239,14 @@ proc defaultCtfRooms(gameMap: CtfMap): seq[Room] =
     for team in gameMap.teams():
       let
         anchor = gameMap.teamAnchor(team)
+        half = gameMap.spawnPocketHalf(team)
         name = teamText(team)
       result.add Room(
         name: name[0].toUpperAscii() & name[1 .. ^1] & " Base",
-        x: anchor.x - gameMap.spawnClearW,
-        y: anchor.y - gameMap.spawnClearH,
-        w: 2 * gameMap.spawnClearW,
-        h: 2 * gameMap.spawnClearH
+        x: anchor.x - half.w,
+        y: anchor.y - half.h,
+        w: 2 * half.w,
+        h: 2 * half.h
       )
 
 proc arenaCtfMap(): CtfMap =
@@ -2305,24 +2358,24 @@ proc captureZone*(gameMap: CtfMap, team: Team): CaptureZone =
   of layoutPlus:
     ## An arm-mouth box: past the anchor on the home axis, bounded to the
     ## arm span on the other (the corners are open field, not endzone).
-    let arm = gameMap.plusArmHalf()
+    let band = gameMap.plusArmBand()
     case team
     of Red:
       result.xHi = anchor.x + half
-      result.yLo = gameMap.center.y - arm
-      result.yHi = gameMap.center.y + arm
+      result.yLo = band.lo
+      result.yHi = band.hi
     of Blue:
       result.xLo = anchor.x - half
-      result.yLo = gameMap.center.y - arm
-      result.yHi = gameMap.center.y + arm
+      result.yLo = band.lo
+      result.yHi = band.hi
     of Green:
       result.yHi = anchor.y + half
-      result.xLo = gameMap.center.x - arm
-      result.xHi = gameMap.center.x + arm
+      result.xLo = band.lo
+      result.xHi = band.hi
     of Yellow:
       result.yLo = anchor.y - half
-      result.xLo = gameMap.center.x - arm
-      result.xHi = gameMap.center.x + arm
+      result.xLo = band.lo
+      result.xHi = band.hi
 
 proc inCaptureZone*(zone: CaptureZone, x, y: int): bool =
   ## Returns whether a map point sits inside one capture zone.
@@ -2737,6 +2790,21 @@ proc endzoneFloorAt*(
     return dx * dx + dy * dy <= grown * grown
   true
 
+proc centerOffset2*(
+  gameMap: CtfMap, x, y: int
+): tuple[dx, dy: int] {.inline.} =
+  ## TWICE the offset of (x, y) from the map's symmetry center. Doubling is
+  ## what lets a rot90 board measure against its true axis at (side - 1)/2:
+  ## on an even side that axis is a half pixel off the div-derived `center`,
+  ## so a radius or band measured from `center` is not its own quarter turn.
+  ## Mirror and rot180 maps keep the historical integer center exactly —
+  ## every comparison below is the old one scaled by 4, so 2-team terrain is
+  ## bit-identical.
+  if gameMap.symmetry == symRot90:
+    (2 * x - (gameMap.width - 1), 2 * y - (gameMap.height - 1))
+  else:
+    (2 * (x - gameMap.center.x), 2 * (y - gameMap.center.y))
+
 proc mapProtectedFloorAt*(gameMap: CtfMap, x, y: int): bool =
   ## isProtectedFloor for a map that is NOT installed as the process map:
   ## the generator and validators run on candidates before any selection.
@@ -2756,6 +2824,7 @@ proc mapProtectedFloorAt*(gameMap: CtfMap, x, y: int): bool =
     clear = gameMap.captureClear
     nearX = x < clear or x >= gameMap.width - clear
     nearY = y < clear or y >= gameMap.height - clear
+    (dx2, dy2) = gameMap.centerOffset2(x, y)
     approach =
       case gameMap.layout
       of layoutSides:
@@ -2763,19 +2832,17 @@ proc mapProtectedFloorAt*(gameMap: CtfMap, x, y: int): bool =
       of layoutCorners:
         nearX and nearY
       of layoutPlus:
-        (nearX and abs(y - gameMap.center.y) <= gameMap.plusArmHalf()) or
-          (nearY and abs(x - gameMap.center.x) <= gameMap.plusArmHalf())
+        (nearX and abs(dy2) <= 2 * gameMap.plusArmHalf()) or
+          (nearY and abs(dx2) <= 2 * gameMap.plusArmHalf())
   if approach:
     return true
-  let
-    dx = x - gameMap.center.x
-    dy = y - gameMap.center.y
-  if dx * dx + dy * dy <= gameMap.flagRing * gameMap.flagRing:
+  if dx2 * dx2 + dy2 * dy2 <= 4 * gameMap.flagRing * gameMap.flagRing:
     return true
   for team in gameMap.teams():
-    let anchor = gameMap.teamAnchor(team)
-    if abs(x - anchor.x) <= gameMap.spawnClearW and
-        abs(y - anchor.y) <= gameMap.spawnClearH:
+    let
+      anchor = gameMap.teamAnchor(team)
+      half = gameMap.spawnPocketHalf(team)
+    if abs(x - anchor.x) <= half.w and abs(y - anchor.y) <= half.h:
       return true
   false
 
@@ -2859,10 +2926,10 @@ proc rot90Orbit(p: tuple[x, y: int], side: int):
     array[4, tuple[x, y: int]] =
   ## The four images of one point under the rot90 symmetry group of a
   ## side x side square map, in team-orbit order (k = 0..3 quarter turns).
-  var q = p
+  var q = MapPoint(x: p.x, y: p.y)
   for k in 0 ..< 4:
-    result[k] = q
-    q = (side - 1 - q.y, q.x)
+    result[k] = (q.x, q.y)
+    q = q.rot90Point(side)
 
 proc sightlineLoX*(gameMap: CtfMap): int =
   ## The low x of the band no straight horizontal ray may cross unblocked.
@@ -3901,11 +3968,11 @@ proc resolveCtfMapMetadata*(config: GameConfig): CtfMap =
 var
   ArenaFlagRing = 70
   ArenaCaptureClear = 210
-  ArenaSpawnClearW = 70
-  ArenaSpawnClearH = 130
   ArenaLayoutG = layoutSides
+  ArenaSymmetryG = symMirror
   ArenaTeamCount = 2
   ArenaAnchors: array[Team, MapPoint]
+  ArenaPocketHalf: array[Team, tuple[w, h: int]]
   ArenaPlusArmHalf = 0
   ArenaEndzoneRadius = 0     ## > 0 selects the COMPACT endzone floor rules.
   ArenaEndzoneDisc = false   ## compact endzone is a disc, not a square.
@@ -3932,12 +3999,12 @@ proc selectCtfMap(gameMap: CtfMap) =
   ShoutRange = MapWidth div 5
   ArenaFlagRing = gameMap.flagRing
   ArenaCaptureClear = gameMap.captureClear
-  ArenaSpawnClearW = gameMap.spawnClearW
-  ArenaSpawnClearH = gameMap.spawnClearH
   ArenaLayoutG = gameMap.layout
+  ArenaSymmetryG = gameMap.symmetry
   ArenaTeamCount = gameMap.teamCount()
   for team in gameMap.teams():
     ArenaAnchors[team] = gameMap.teamAnchor(team)
+    ArenaPocketHalf[team] = gameMap.spawnPocketHalf(team)
   ArenaPlusArmHalf = gameMap.plusArmHalf()
   ArenaEndzoneRadius =
     if gameMap.endzone == ezColumn: 0 else: gameMap.endzoneRadius
@@ -4049,6 +4116,15 @@ proc inShapeF*(x, y: float, shape: ArenaShape): bool =
     dx * dx + dy * dy <=
       float(shape.thickness * shape.thickness) * len2 * len2 / 4.0
 
+proc arenaCenterOffset2(x, y, cx, cy: int): tuple[dx, dy: int] {.inline.} =
+  ## The installed-map twin of CtfMap.centerOffset2: twice the offset from
+  ## the symmetry center, measured against a rot90 board's true axis at
+  ## (side - 1)/2 and against the integer center everywhere else.
+  if ArenaSymmetryG == symRot90:
+    (2 * x - (MapWidth - 1), 2 * y - (MapHeight - 1))
+  else:
+    (2 * (x - cx), 2 * (y - cy))
+
 proc isProtectedFloor(x, y, cx, cy: int): bool =
   ## Regions that MUST stay walkable: the flag ring, every spawn pocket,
   ## and each team's home capture approach. Walls are never carved here.
@@ -4063,9 +4139,14 @@ proc isProtectedFloor(x, y, cx, cy: int): bool =
       rdx = x - cx
       rdy = y - cy
     return rdx * rdx + rdy * rdy <= ArenaFlagRing * ArenaFlagRing
+  ## The classic column path below must stay pixel-for-pixel identical to
+  ## mapProtectedFloorAt, which the generator and validators run on
+  ## uninstalled candidates. 4-team maps always draw ezColumn, so the rot90
+  ## boards are carved here and never by the compact branch above.
   let
     nearX = x < ArenaCaptureClear or x >= MapWidth - ArenaCaptureClear
     nearY = y < ArenaCaptureClear or y >= MapHeight - ArenaCaptureClear
+    (dx2, dy2) = arenaCenterOffset2(x, y, cx, cy)
     approach =
       case ArenaLayoutG
       of layoutSides:
@@ -4073,18 +4154,15 @@ proc isProtectedFloor(x, y, cx, cy: int): bool =
       of layoutCorners:
         nearX and nearY
       of layoutPlus:
-        (nearX and abs(y - cy) <= ArenaPlusArmHalf) or
-          (nearY and abs(x - cx) <= ArenaPlusArmHalf)
+        (nearX and abs(dy2) <= 2 * ArenaPlusArmHalf) or
+          (nearY and abs(dx2) <= 2 * ArenaPlusArmHalf)
   if approach:
     return true
-  let
-    dx = x - cx
-    dy = y - cy
-  if dx * dx + dy * dy <= ArenaFlagRing * ArenaFlagRing:
+  if dx2 * dx2 + dy2 * dy2 <= 4 * ArenaFlagRing * ArenaFlagRing:
     return true
   for team in activeTeams(ArenaTeamCount):
-    if abs(x - ArenaAnchors[team].x) <= ArenaSpawnClearW and
-        abs(y - ArenaAnchors[team].y) <= ArenaSpawnClearH:
+    if abs(x - ArenaAnchors[team].x) <= ArenaPocketHalf[team].w and
+        abs(y - ArenaAnchors[team].y) <= ArenaPocketHalf[team].h:
       return true
   false
 
@@ -4127,11 +4205,18 @@ proc isProtectedFloorF(x, y: float, cx, cy: int): bool =
       rdx = x - float(cx)
       rdy = y - float(cy)
     return rdx * rdx + rdy * rdy <= float(ArenaFlagRing * ArenaFlagRing)
+  ## Carries the same doubled-coordinate center as the integer test so the
+  ## painted art cannot drift off the collision mask on a rot90 board.
   let
     nearX = x < float(ArenaCaptureClear) or
       x >= float(MapWidth - ArenaCaptureClear)
     nearY = y < float(ArenaCaptureClear) or
       y >= float(MapHeight - ArenaCaptureClear)
+    (dx2, dy2) =
+      if ArenaSymmetryG == symRot90:
+        (2.0 * x - float(MapWidth - 1), 2.0 * y - float(MapHeight - 1))
+      else:
+        (2.0 * (x - float(cx)), 2.0 * (y - float(cy)))
     approach =
       case ArenaLayoutG
       of layoutSides:
@@ -4139,18 +4224,16 @@ proc isProtectedFloorF(x, y: float, cx, cy: int): bool =
       of layoutCorners:
         nearX and nearY
       of layoutPlus:
-        (nearX and abs(y - float(cy)) <= float(ArenaPlusArmHalf)) or
-          (nearY and abs(x - float(cx)) <= float(ArenaPlusArmHalf))
+        (nearX and abs(dy2) <= float(2 * ArenaPlusArmHalf)) or
+          (nearY and abs(dx2) <= float(2 * ArenaPlusArmHalf))
   if approach:
     return true
-  let
-    dx = x - float(cx)
-    dy = y - float(cy)
-  if dx * dx + dy * dy <= float(ArenaFlagRing * ArenaFlagRing):
+  if dx2 * dx2 + dy2 * dy2 <= float(4 * ArenaFlagRing * ArenaFlagRing):
     return true
   for team in activeTeams(ArenaTeamCount):
-    if abs(x - float(ArenaAnchors[team].x)) <= float(ArenaSpawnClearW) and
-        abs(y - float(ArenaAnchors[team].y)) <= float(ArenaSpawnClearH):
+    let half = ArenaPocketHalf[team]
+    if abs(x - float(ArenaAnchors[team].x)) <= float(half.w) and
+        abs(y - float(ArenaAnchors[team].y)) <= float(half.h):
       return true
   false
 

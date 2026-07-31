@@ -120,19 +120,31 @@ suite "four team ctf":
       blue = gameMap.teamAnchor(Blue)
       green = gameMap.teamAnchor(Green)
       yellow = gameMap.teamAnchor(Yellow)
-    check red.x < gameMap.center.x and red.y == gameMap.center.y
-    check blue.x > gameMap.center.x and blue.y == gameMap.center.y
-    check green.y < gameMap.center.y and green.x == gameMap.center.x
-    check yellow.y > gameMap.center.y and yellow.x == gameMap.center.x
+    check red.x < gameMap.center.x
+    check blue.x > gameMap.center.x
+    check green.y < gameMap.center.y
+    check yellow.y > gameMap.center.y
+    # Each opposing pair straddles the board's TRUE symmetry axis at
+    # (side-1)/2 — a half pixel off the integer center on an even side, so
+    # the pair sums to side-1 rather than both sitting on center exactly.
+    # Pinning them to center would put the anchors off the rot90 orbit.
+    check red.y + blue.y == gameMap.height - 1
+    check green.x + yellow.x == gameMap.width - 1
     # North team's capture zone is the arm mouth: bounded on y by the
     # anchor threshold and on x by the arm span (the corners are open
     # field, not endzone).
     let
       zone = gameMap.captureZone(Green)
-      arm = gameMap.plusArmHalf()
+      band = gameMap.plusArmBand()
     check zone.yHi < gameMap.height - 1
-    check zone.xLo == gameMap.center.x - arm
-    check zone.xHi == gameMap.center.x + arm
+    check zone.xLo == band.lo
+    check zone.xHi == band.hi
+    # The arm mouth is its own quarter turn: the north zone's x-span is the
+    # west zone's y-span rotated, exactly.
+    let west = gameMap.captureZone(Red)
+    check west.yLo == zone.xLo
+    check west.yHi == zone.xHi
+    check gameMap.width - 1 - west.yHi == zone.xLo
 
   test "corner endzones are diagonal":
     let sim = fourTeamGame()
