@@ -228,7 +228,21 @@ const
                               # games cap at 5000 ticks — the all-in must land
                               # with time to convert. Scaled from 6800/10000.
                               # the default outcome, so commit to the capture
-  HoldFrontCap = 220.0        # -d:holdFront: ceiling on the phalanx creep — a
+  deepShellCap {.intdefine.} = 60
+                              # -d:deepShell: station depth in own_x px (from
+                              # our own back wall). 60 puts the lane leads on
+                              # the alphashot v260/v329 line and the trailers
+                              # at own_x 16 (the wall-hug passability floor);
+                              # 140 is the half-dose rung of the ladder.
+  HoldFrontCap =
+    when defined(deepShell):
+      # -d:deepShell: the arisk siege line is opponent-invariant, so the
+      # engagement range is HIS line minus OUR depth. Their back-wall shell
+      # (own_x 20-24) takes 0.00 deaths/ep from killers inside 300px where our
+      # own 163-259 stations take 3.5-4.4; at >=450px the two are at parity.
+      float(deepShellCap)
+    else:
+      220.0                   # -d:holdFront: ceiling on the phalanx creep — a
                               # castle line near our wall: fights there recur on
                               # ground where our respawn walk is ~100px and the
                               # attacker re-crosses ~400px of watched open ground
@@ -734,7 +748,14 @@ proc chokeSpot(team: Team): Vec =
   ## columns — scaled proportionally so it lands in the same tactical
   ## pocket on every map.
   let
-    x = float(MapW * 390 div 1235)
+    x =
+      when defined(deepShell):
+        # -d:deepShell: the choke seat is our single most exposed station
+        # (own_x 251, .1156 shootable share inside 300px, 2.58 deaths/ep).
+        # Pin it on the back-wall line at both rungs of the dose ladder.
+        float(MapW * 60 div 1235)
+      else:
+        float(MapW * 390 div 1235)
     y = float(MapH * 340 div 659)
   if team == Red: vec(x, y) else: vec(float(MapW - 1) - x, y)
 
@@ -2223,7 +2244,13 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
          target = vec(ownEdgeX + dirX * scDepth, py)
      of pdFloat:
        if bot.helpUntil > bot.tick:
-         target = bot.snapToCover(vec(ownEdgeX + dirX * (front - 60.0),
+         # -d:deepShell: front-60 is off-map at the deep rung (own_x 0 is
+         # inside the boundary wall; 16 is the shallowest passable centre for
+         # the 13x13 footprint), so floor the help-lane depth at the wall.
+         let floatDepth =
+           when defined(deepShell): max(16.0, front - 60.0)
+           else: front - 60.0
+         target = bot.snapToCover(vec(ownEdgeX + dirX * floatDepth,
            (case bot.helpLane
              of 1: LaneTop + 26.0
              of 2: LaneMid
@@ -2284,7 +2311,21 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         intruderD = d
         intruder = i
     if intruder >= 0:
-      target = bot.enemies[intruder].pos + bot.enemies[intruder].vel * 6.0
+      when defined(deepShell):
+        # -d:deepShell: the chase is an uncapped forward pull, and our death
+        # positions (median own_x 267-290) sit well in front of the nominal
+        # stations (174-259) — excursions are where the shell leaks. Clamp the
+        # chase target to the shell depth plus one engagement step.
+        let
+          chaseEdgeX = (if bot.team == Red: 0.0 else: float(MapW))
+          chaseDirX = (if bot.team == Red: 1.0 else: -1.0)
+          chaseCap = float(deepShellCap) + 60.0
+        var chaseTgt = bot.enemies[intruder].pos + bot.enemies[intruder].vel * 6.0
+        if chaseDirX * (chaseTgt.x - chaseEdgeX) > chaseCap:
+          chaseTgt.x = chaseEdgeX + chaseDirX * chaseCap
+        target = chaseTgt
+      else:
+        target = bot.enemies[intruder].pos + bot.enemies[intruder].vel * 6.0
     else:
       target = bot.chokeHold
   elif bot.role == Overwatch and not pushOut:
