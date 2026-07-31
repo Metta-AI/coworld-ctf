@@ -333,15 +333,26 @@ const
                                ## requires every dynamic object to sort strictly
                                ## above the bands).
   DamagePopSpriteBase = 31000  ## floating "-N" damage-number sprites keyed
-                               ## color×amount×stage: 31000..31127 (above tracers).
+                               ## color×bucket×stage: 31000..31255 (above tracers).
+                               ## The bucket is NOT amount-1: the amounts in
+                               ## play (1 shot/grenade-splash, 2 grenade
+                               ## open-field, 3 spray, 6 grenade trapped-in-
+                               ## trench) are sparse, not a dense 1..N range,
+                               ## so damagePopBucket() maps each known amount
+                               ## to a small bucket index instead of baking
+                               ## one sprite id per distinct hp value. The
+                               ## displayed TEXT still shows the real amount
+                               ## (see addDamagePops) — only the bucket/sprite
+                               ## count is capped.
   DamagePopObjectBase = 31200  ## one drawn damage pop per object: 31200..31215.
   DamagePopStages = 4          ## alpha fade stages across DamageFxTicks.
   DamagePopMaxCount = 16       ## most floating numbers drawn at once.
-  DamagePopMaxAmount = 2       ## highest -N shown (a grenade removes GrenadeDamage=2).
+  DamagePopBucketCount = 4     ## distinct -N sprite buckets reserved per color
+                               ## (see damagePopBucket()), not a display clamp.
   DamagePopRisePx = 11         ## px the number floats upward over its full life.
   DamagePopZ = 30006           ## drawn above players, HP bars and name tags.
-  KillPopSpriteBase = 31128    ## floating "KO" kill-marker sprites keyed
-                               ## color×stage: 31128..31191 (above damage pops).
+  KillPopSpriteBase = 31256    ## floating "KO" kill-marker sprites keyed
+                               ## color×stage: 31256..31319 (above damage pops).
   KillPopRisePx = 16           ## px the kill marker floats upward over its life.
   ## --- Articulated turret-rig sprite/object id pools (board only) ---
   ## The cog draws as 9 z-stacked segments + a held gun, each its own board object
@@ -4846,6 +4857,21 @@ proc addPaintStains(
     )
     inc state.stainsSent
 
+proc damagePopBucket(amount: int): int =
+  ## Maps a "-N" pop's HP-loss amount to one of DamagePopBucketCount sprite
+  ## buckets. The amounts actually in play are sparse (1 shot/grenade-splash,
+  ## 2 grenade open-field, 3 spray, 6 grenade trapped-in-trench), not a dense
+  ## 1..N range, so this is an explicit lookup rather than `amount - 1` — that
+  ## would need one bucket per distinct hp value and blow the reserved sprite
+  ## range into KillPopSpriteBase. An amount outside the known set falls into
+  ## the last bucket instead of indexing out of range.
+  case amount
+  of 1: 0
+  of 2: 1
+  of 3: 2
+  of 6: 3
+  else: DamagePopBucketCount - 1
+
 proc addDamagePops(
   sim: SimServer,
   spriteDefs: var seq[SpriteDefinition],
@@ -4873,8 +4899,7 @@ proc addDamagePops(
       stage = clamp(age * DamagePopStages div life, 0,
         DamagePopStages - 1)
       colorIndex = playerColorIndex(pop.color)
-      amount = clamp(pop.amount, 1, DamagePopMaxAmount)
-      text = if pop.kill: "KO" else: "-" & $amount
+      text = if pop.kill: "KO" else: "-" & $pop.amount
       sprite = sim.buildFloatingPopSprite(colorIndex, text, stage)
       # Rise a few pixels over the full life so the label lifts off the player.
       rise = risePer * age div max(1, life)
@@ -4885,8 +4910,8 @@ proc addDamagePops(
           KillPopSpriteBase + colorIndex * DamagePopStages + stage
         else:
           DamagePopSpriteBase +
-            (colorIndex * DamagePopMaxAmount + (amount - 1)) * DamagePopStages +
-            stage
+            (colorIndex * DamagePopBucketCount + damagePopBucket(pop.amount)) *
+              DamagePopStages + stage
     packet.addBoardSpriteChanged(
       spriteDefs,
       spriteId,

@@ -153,3 +153,26 @@ suite "floating damage numbers":
     for _ in 0 ..< KillFxTicks:
       game.step(noInput, noInput)
     check game.damagePops.len == 0
+
+  test "spray and trench-grenade amounts show their real value, not clamped to -2":
+    # Spray deals PlasmaArcDamage=3 and a trench-trapped grenade deals
+    # GrenadeTrenchDamage=6; both exceed the historical 2-hp cap and must not
+    # be clamped down to "-2" in the displayed label.
+    var game = initCtfForTest(defaultGameConfig())
+    discard game.addPlayer("red0")
+    game.startGame()
+    game.players[0].team = Red
+    let
+      cx = game.gameMap.center.x
+      cy = game.gameMap.center.y
+    game.damagePops.add DamageFx(
+      x: cx, y: cy, tick: game.tickCount, amount: 3, color: game.players[0].color
+    )
+    game.damagePops.add DamageFx(
+      x: cx + 20, y: cy, tick: game.tickCount, amount: 6,
+      color: game.players[0].color
+    )
+    let labels = game.mapLabels()
+    check labels.anyIt(it.startsWith("damage pop red -3 stage 0"))
+    check labels.anyIt(it.startsWith("damage pop red -6 stage 0"))
+    check not labels.anyIt(it.startsWith("damage pop red -2 stage 0"))
