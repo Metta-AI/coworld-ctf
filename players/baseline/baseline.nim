@@ -262,6 +262,22 @@ const
                               # the team past it from gt3400 and is untouched.
   CreepWatchStepPx = 25.0     # -d:creepFrontWatch: telemetry cadence — one
                               # `creep_watch` event per this much ramp travel
+  CreepFastSlopePerK {.intdefine.} = 186
+                              # -d:creepFrontFast: DOSE ESCALATION of the creep,
+                              # px per 1000 game ticks. 0.097 (the decoded nancy
+                              # global mean) is a floor estimate: her seats sit
+                              # at 295 by gt1000 and 580 by gt3000, i.e. 0.14
+                              # over that leg, and the mechanism is ARRIVAL IN
+                              # FORCE before his gt3472-3526 flag-commit window.
+                              # 0.186 puts the line at the 600 ceiling by
+                              # gt2526, a full ~950 ticks earlier than 0.097
+                              # (gt4568), so the team is seated forward for the
+                              # whole of his commit window instead of still
+                              # walking into it.
+                              # NOTE this slope makes the ramp OUTRUN the bot's
+                              # natural front law (180 + 0.11*gt) from gt 655
+                              # onward, so unlike -d:creepFront it cannot be
+                              # applied as a ceiling — see creepFrontFastFloor.
 
   CoverShieldDist = 42.0      # an obstacle this close blocks a threat direction
   PeekLineDist = 150.0        # floor for an overwatch peek firing line; post
@@ -537,6 +553,25 @@ when defined(creepFront) or defined(creepFrontWatch):
     ## short of the midline.
     clamp(186.0 + float(CreepSlopePerK) * 0.001 * float(gameTick - CreepStartTick),
       HoldFrontCap, CreepCapMax)
+
+when defined(creepFrontFast):
+  proc creepFrontFastFloor(gameTick: int): float =
+    ## The dose-escalated creep, expressed as a FLOOR on the front rather than
+    ## a ceiling. At 0.186 px/tick the ramp crosses the bot's own natural front
+    ## law (180 + 0.11*gt) at gt 655 and runs above it thereafter, so a
+    ## `min(front, ramp)` — the shape -d:creepFront uses — would stop binding
+    ## exactly where the lever is supposed to start mattering and the line
+    ## would quietly revert to creeping at 0.11. Driving the front to
+    ## `max(champion_front, ramp)` keeps the lever live for the whole game.
+    ##
+    ## Deliberately NOT floored at HoldFrontCap the way creepFrontCap is: a
+    ## ceiling may be raised to 220 for free (the champion is already capped
+    ## there), but a FLOOR of 220 would pull the front forward during the
+    ## opening 364 ticks, when the champion is still walking 180 -> 220. Left
+    ## raw, this sits below the champion's own front until gt 482.8 and the
+    ## opening is bit-for-bit unchanged.
+    min(186.0 + float(CreepFastSlopePerK) * 0.001 * float(gameTick - CreepStartTick),
+      CreepCapMax)
 
 proc slotFromUrl(url: string): int =
   ## Reads the `slot` query parameter from the websocket URL.
@@ -2201,7 +2236,18 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
        pd = bot.phalanxDuty
      var front = min(180.0 + 0.11 * float(gameTick), float(MapW) - 300.0)
      when defined(holdFront):
-       when defined(creepFront):
+       when defined(creepFrontFast):
+         # -d:creepFrontFast: same nancy recipe as -d:creepFront at ~2x the
+         # dose, and at this dose the lever has to DRIVE the front instead of
+         # uncapping it. The castle ceiling still applies (the inner `min`),
+         # but the ramp is then imposed as a floor, so the effective front is
+         # max(220-capped champion front, ramp) and never falls back to the
+         # natural 0.11 px/tick law. Front target, px from our own wall:
+         # gt0 180 (champion), gt364-483 220 (champion), gt1000 316, gt2000
+         # 502, gt2526+ 600 (CreepCapMax). The late push from gt3400 owns
+         # everything past 600 and is untouched.
+         front = max(min(front, HoldFrontCap), creepFrontFastFloor(gameTick))
+       elif defined(creepFront):
          # -d:creepFront: the flat castle ceiling becomes nancy's forward
          # RAMP. The natural creep above is 180 + 0.11*gt and the ramp is
          # 156.9 + 0.097*gt, so the natural front sits 23 + 0.013*gt px
@@ -2315,7 +2361,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
            contact = true
            break
        if contact:
-         when defined(creepFront):
+         when defined(creepFront) or defined(creepFrontFast):
            # The decoded actuator is MONOTONE: nancy's front never gives
            # ground to contact — all 8 of her seats ramp straight through it
            # and cross the midline in 96% of episodes, and the arrival in
