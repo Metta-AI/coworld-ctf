@@ -35,9 +35,20 @@ tasks, voting) with teams, guns, hearts, and fog-of-war vision.
   center therefore **opens and closes on a clock**: a vertex that covered you a
   second ago may have swung away. A player the sweep engulfs is pushed to the
   nearest free floor rather than trapped inside stone, and never onto another
-  body. This is a feature of the two hand-authored arenas: on procedurally
-  generated terrain (`mapPath: "pool"` / `"gen"`, including every 4-team map)
-  the center diamonds stay **baked static stone**, as they were before GV28.
+  body.
+- **GameVersion 29 extends the live spin to generated terrain**, fairly. Which
+  diamonds spin is decided by a band down the center column, and that choice
+  is **closed under each map's own symmetry** — on the 90°-rotational 4-team
+  boards the band's closure is a cross, so a diamond never turns while its
+  quarter-turn twin sits as solid stone. Spin **direction** follows the same
+  logic: a mirror map turns its two halves opposite ways (a reflection
+  reverses a rotation), while a 180°- or 90°-rotational map turns **every**
+  diamond the same way, because a rotation does not. The terrain generator
+  also judges a spinning diamond from both ends of its turn — sightlines and
+  the cover floor against its **narrowest** footprint, corridors and the
+  cover ceiling against its **widest** — so a map cannot pass validation on
+  a firing lane that is only blocked at rest. Two seeds in the previous
+  curated pool did exactly that, and the pool was re-drawn without them.
 - In the outermost stub column of each half, the glass alternates in from
   both ends: the **second stub from the top, the middle stub, and the second
   from the bottom (GameVersion 27) are glass windows**: they block movement,

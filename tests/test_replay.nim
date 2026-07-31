@@ -9,7 +9,7 @@ const
   # (Phase-1 set, tools/record_fixture.sh). This capture-ending fixture
   # exceeds every tick target below and hash-verifies clean end to end.
   # (tests/replays/ctf.bitreplay is the event-substrate fixture:
-  # GameVersion 28, seed 281, lives 9, kills by all three weapons — see
+  # GameVersion 29, seed 281, lives 9, kills by all three weapons — see
   # test_extract_events.)
   CtfReplayPath = GameDir / "tests" / "fixtures" / "capture-seed7.bitreplay"
 

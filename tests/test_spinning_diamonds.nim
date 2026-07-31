@@ -126,21 +126,6 @@ suite "spinning center diamonds are real geometry":
             check simA.isWall(x, y) == simB.isWall(x, y)
     check simA.gameHash == simB.gameHash
 
-  test "the two halves spin in mirrored directions":
-    let
-      left = AnimatedDiamonds[0]
-      right = block:
-        var pick = AnimatedDiamonds[0]
-        for spot in AnimatedDiamonds:
-          if spot.cx > MapWidth div 2:
-            pick = spot
-            break
-        pick
-    check right.cx > MapWidth div 2
-    let tick = DiamondSpinTicksPerFrame       # frame 1 on the left half.
-    check diamondSpinFrame(left.cx, tick) == 1
-    check diamondSpinFrame(right.cx, tick) == DiamondSpinFrames - 1
-
   test "paint follows the live footprint, including pixels outside frame zero":
     var sim = twoTeamGame()
     let
@@ -211,33 +196,114 @@ suite "spinning center diamonds are real geometry":
               inc asymmetric
       check asymmetric == 0
 
-  test "live geometry is an arena feature; drawn terrain keeps static stone":
-    ## Generated maps are excluded on purpose (isSpinningDiamond gates on
-    ## genSeed). 4-team maps are rot90 and a vertical selection band is not
-    ## rot90-invariant — two quadrants would get rotating cover and two solid
-    ## stone — and the generator's sightline validator draws against the
-    ## resting footprint, so a pool seed can hide a cross-map lane that only
-    ## opens mid-turn. Both need their own change; until then the generator's
-    ## world is exactly what it was.
+  test "the spinning set is closed under every map's own symmetry":
+    ## If the set is not closed, one team gets rotating cover exactly where
+    ## another gets solid stone. The authored rule is a vertical band down the
+    ## center column: already closed under the mirror and under 180 degrees,
+    ## but NOT under 90 — a quarter turn maps it to a horizontal band — so
+    ## rot90 maps take the band's closure, a cross through the center.
     let previousDir = getCurrentDir()
     setCurrentDir(GameDir)
     try:
-      for mapName in ["gen:1003", "pool:1", "pool:5"]:
-        let gameMap = loadCtfMapMetadata(mapName)
-        check gameMap.genSeed != 0
-        var diamonds = 0
-        for shape in buildArenaObstacles(gameMap):
-          if shape.kind == shapeDiamond:
-            inc diamonds
-        ## These maps do have center diamonds — they simply do not spin.
-        check diamonds > 0
-        check buildAnimatedDiamonds(
-          gameMap, buildArenaObstacles(gameMap)).len == 0
+      proc imagesOf(m: CtfMap, cx, cy: int): seq[(int, int)] =
+        case m.symmetry
+        of symMirror: result = @[(m.width - 1 - cx, cy)]
+        of symRot180: result = @[(m.width - 1 - cx, m.height - 1 - cy)]
+        of symRot90:
+          var (x, y) = (cx, cy)
+          for _ in 0 ..< 3:
+            (x, y) = (m.width - 1 - y, x)
+            result.add((x, y))
+      for spec in [("arena", 0), ("arena-large", 0), ("gen:1046", 0),
+                   ("gen:1002", 0), ("gen:1005", 0)]:
+        let
+          gameMap = loadCtfMapMetadata(spec[0])
+          chosen = buildAnimatedDiamonds(
+            gameMap, buildArenaObstacles(gameMap))
+        for spot in chosen:
+          for image in gameMap.imagesOf(spot.cx, spot.cy):
+            var found = false
+            for other in chosen:
+              if other.cx == image[0] and other.cy == image[1]:
+                found = true
+            ## A selected diamond's symmetry image must be selected too.
+            check found
+      ## The authored arenas still select exactly the eight they always have.
       for mapName in ["arena", "arena-large"]:
         let gameMap = loadCtfMapMetadata(mapName)
-        check gameMap.genSeed == 0
         check buildAnimatedDiamonds(
           gameMap, buildArenaObstacles(gameMap)).len == 8
+    finally:
+      setCurrentDir(previousDir)
+
+  test "spin direction follows the symmetry: reflections invert, rotations do not":
+    ## A reflection maps a rotation by +theta to one by -theta, so mirror-image
+    ## diamonds must turn OPPOSITE ways. A rotation commutes with rotation, so
+    ## rot180 and rot90 images must turn the SAME way. Keying direction off
+    ## which side of the map a diamond sits on gets the reflection right and
+    ## both rotations wrong, because every one of these symmetries moves a
+    ## diamond across the axis.
+    check ArenaSpinMirrored          # the default arena is a mirror map
+    let
+      left = AnimatedDiamonds[0]
+      right = block:
+        var pick = AnimatedDiamonds[0]
+        for spot in AnimatedDiamonds:
+          if 2 * spot.cx >= MapWidth - 1:
+            pick = spot
+            break
+        pick
+      tick = DiamondSpinTicksPerFrame
+    check diamondSpinFrame(left.cx, tick) == 1
+    check diamondSpinFrame(right.cx, tick) == DiamondSpinFrames - 1
+
+  test "the live footprint is symmetric on rot180 and rot90 maps too":
+    ## The installed-map globals make it impractical to boot a generated map
+    ## inside this suite (selectCtfMap installs ONE map per process), so this
+    ## checks the property directly on the geometry: the union of the selected
+    ## diamonds' stone must map onto itself under the map's own symmetry, at
+    ## every frame. Rotations do not invert the spin, so the image diamond
+    ## reads the SAME frame; that is what makes this pass or fail.
+    let previousDir = getCurrentDir()
+    setCurrentDir(GameDir)
+    try:
+      for gameMap in [generateCtfMap(1046), generateCtfMap(11, teams = 4)]:
+        let
+          chosen = buildAnimatedDiamonds(
+            gameMap, buildArenaObstacles(gameMap))
+          mirrored = gameMap.symmetry == symMirror
+        check chosen.len > 0
+        check gameMap.symmetry in {symRot180, symRot90}
+        ## Frames come from diamondSpinFrame, NOT from a constant: the whole
+        ## question is whether the direction rule hands a diamond and its
+        ## image the same angle. Hard-coding one frame for both would test the
+        ## footprint and quietly assume the rule.
+        proc coveredAt(x, y, tick: int): bool =
+          for spot in chosen:
+            if animatedDiamondCovers(
+                spot,
+                diamondSpinFrame(spot.cx, tick, mirrored, gameMap.width),
+                x, y):
+              return true
+          false
+        for frame in 0 ..< DiamondSpinFrames:
+          let tick = frame * DiamondSpinTicksPerFrame
+          var asymmetric = 0
+          for spot in chosen:
+            for dy in -spot.radius - 2 .. spot.radius + 2:
+              for dx in -spot.radius - 2 .. spot.radius + 2:
+                let
+                  x = spot.cx + dx
+                  y = spot.cy + dy
+                  image =
+                    if gameMap.symmetry == symRot180:
+                      (gameMap.width - 1 - x, gameMap.height - 1 - y)
+                    else:
+                      (gameMap.width - 1 - y, x)
+                if coveredAt(x, y, tick) !=
+                    coveredAt(image[0], image[1], tick):
+                  inc asymmetric
+          check asymmetric == 0
     finally:
       setCurrentDir(previousDir)
 

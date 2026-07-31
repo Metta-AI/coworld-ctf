@@ -6,7 +6,7 @@ import
 const
   GameDir = currentSourcePath.parentDir.parentDir
   # The event-substrate fixture: a full 16-bot match recorded against the
-  # CURRENT gameplay rules (GameVersion 28, seed 281, lives 9,
+  # CURRENT gameplay rules (GameVersion 29, seed 281, lives 9,
   # tools/record_fixture.sh) whose kill mix exercises all three weapons
   # (gun, grenade, spray) plus steals, returns and heals, and ends on a
   # time-limit verdict rather than a capture.
