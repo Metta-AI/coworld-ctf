@@ -201,6 +201,30 @@ suite "procedural terrain":
       for shield in shields:
         check shield notin cans
 
+  test "2-team pickups follow the map's own symmetry":
+    ## The same promise on a 2-team board, where the symmetry is a coin flip
+    ## between mirror and rot180. A MIRRORED copy on a rot180 map lands in
+    ## the rotation of Red's OTHER pickup, so Blue's shield sat in the
+    ## terrain of the cans and vice versa. Compact endzones are 2-team only,
+    ## so both endzone shapes are covered here.
+    for seed in [MapPoolSeeds[0], MapPoolSeeds[1], 777, 4242]:
+      let
+        gameMap = generateCtfMap(seed)
+        w = gameMap.width
+        h = gameMap.height
+      for points in [gameMap.shieldSpawnPoints(),
+          gameMap.plasmaArcSpawnPoints()]:
+        check points.len == 2
+        let image =
+          case gameMap.symmetry
+          of symMirror: (w - 1 - points[0].x, points[0].y)
+          of symRot180: (w - 1 - points[0].x, h - 1 - points[0].y)
+          of symRot90: (w - 1 - points[0].y, points[0].x)
+        check points[1] == image
+        ## Each team still keeps its own pickups on its own side.
+        check points[0].x < gameMap.center.x
+        check points[1].x > gameMap.center.x
+
   test "map spec JSON round-trips the exact map":
     let gameMap = generateCtfMap(MapPoolSeeds[2])
     check mapFromSpecJson(mapSpecJson(gameMap)) == gameMap

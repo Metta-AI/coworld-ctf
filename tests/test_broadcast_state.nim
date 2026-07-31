@@ -8,7 +8,7 @@ const
   FixtureDir = GameDir / "tests" / "fixtures"
   # Fixtures are recorded against the CURRENT gameplay rules and must be
   # re-recorded on every GameVersion bump (tools/record_fixture.sh):
-  #   capture-seed7:  record_fixture.sh <out> 7
+  #   capture-seed1:  record_fixture.sh <out> 1
   #   wipe-lives1:    record_fixture.sh <out> 7 10000 \
   #                     '{"lives":1,"hitPoints":1,"carrierSpeedPct":1}'
   #   draw-nokill:    record_fixture.sh <out> 7 1500 \
@@ -17,7 +17,11 @@ const
   # preempted by a capture; record on an otherwise idle machine — a
   # CPU-starved server at speed 16 drops its bots and ends degenerate.)
   # Then re-pin the capture winner asserted below to the new recording.
-  CaptureFixture = FixtureDir / "capture-seed7.bitreplay"
+  # The capture fixture's SEED is part of the recipe, not a constant: the
+  # ending a seed produces is a property of the rules it was recorded under.
+  # GV30 moved the pickups, and seed 7 — which captured under GV29 — now
+  # runs to a time-limit draw, so the capture fixture moved to seed 1.
+  CaptureFixture = FixtureDir / "capture-seed1.bitreplay"
   WipeFixture = FixtureDir / "wipe-lives1.bitreplay"
   DrawFixture = FixtureDir / "draw-nokill.bitreplay"
 
@@ -139,8 +143,8 @@ suite "broadcast state channel":
       check state["ph"].getStr == "gameover"
       check state.hasKey("over")
       # A capture win is not a draw and not a time-limit tiebreak. The winner
-      # is pinned to the current recording of the fixture (GameVersion 29,
-      # seed 7: Blue captures).
+      # is pinned to the current recording of the fixture (GameVersion 30,
+      # seed 1: Blue captures).
       check state["over"]["draw"].getBool == false
       check state["over"]["timeLimit"].getBool == false
       check state["over"]["winner"].getStr == "blue"

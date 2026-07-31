@@ -6,12 +6,12 @@ import
 const
   GameDir = currentSourcePath.parentDir.parentDir
   # A fresh, drama-complete fixture recorded against the CURRENT gameplay rules
-  # (Phase-1 set, tools/record_fixture.sh). This capture-ending fixture
-  # exceeds every tick target below and hash-verifies clean end to end.
+  # (GameVersion 30, seed 1, tools/record_fixture.sh). This capture-ending
+  # fixture exceeds every tick target below and hash-verifies clean end to end.
   # (tests/replays/ctf.bitreplay is the event-substrate fixture:
-  # GameVersion 29, seed 281, lives 9, kills by all three weapons — see
+  # GameVersion 30, seed 281, lives 9, kills by all three weapons — see
   # test_extract_events.)
-  CtfReplayPath = GameDir / "tests" / "fixtures" / "capture-seed7.bitreplay"
+  CtfReplayPath = GameDir / "tests" / "fixtures" / "capture-seed1.bitreplay"
 
 proc initReplaySim(data: ReplayData): SimServer =
   ## Initializes a replay simulation from the replay config JSON.

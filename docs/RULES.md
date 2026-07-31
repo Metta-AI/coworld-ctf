@@ -36,6 +36,13 @@ tasks, voting) with teams, guns, hearts, and fog-of-war vision.
   second ago may have swung away. A player the sweep engulfs is pushed to the
   nearest free floor rather than trapped inside stone, and never onto another
   body.
+- **GameVersion 30 puts every team's pickups on the map's own symmetry.** A
+  team's shield and spray can are Red's spots carried over by whichever
+  symmetry the terrain was built with — mirrored, rotated 180°, or turned a
+  quarter at a time on the 4-team boards. Only that image lands in equivalent
+  terrain: a mirrored copy on a rotational map sits in the rotation of Red's
+  *other* pickup, so one team's shield had cover and sightlines the other's
+  did not. See "Shields" and "Spray can".
 - **GameVersion 29 extends the live spin to generated terrain**, fairly. Which
   diamonds spin is decided by a band down the center column, and that choice
   is **closed under each map's own symmetry** — on the 90°-rotational 4-team
@@ -332,12 +339,17 @@ What that means in practice:
 
 ## Spray can
 
-- **Two spray can pickups spawn high in the side back columns** — one on
-  each side, in the TOP half (a quarter of the map height down, between the
-  top corner grenade and the side midpoint), nudged to the nearest walkable
-  floor. The shields hold the matching bottom-half spots. Both spray cans
-  are present when the game starts, and a taken one respawns after
-  **30 seconds**.
+- **Two spray can pickups spawn high in the side back columns** — Red's in
+  the TOP half (a quarter of the map height down, between the top corner
+  grenade and the side midpoint), nudged to the nearest walkable floor. The
+  shields hold the matching bottom-half spots. Both spray cans are present
+  when the game starts, and a taken one respawns after **30 seconds**.
+- **The other team's can is Red's spot carried over by the map's own
+  symmetry** (GameVersion 30), not simply mirrored across the midline. On a
+  180°-rotational map that puts Blue's can in the BOTTOM half, because that
+  is where the rotation sends Red's — mirror it instead and it lands in the
+  rotation of Red's *shield*, so the two teams fight for the same item in
+  differently-shaped terrain.
 - **Each player carries at most one spray can**, independently of their
   grenade. Dying loses the carried can; nothing drops.
 - While carrying a spray can, **A sprays a forward paint cone instead of
@@ -458,13 +470,19 @@ What that means in practice:
 
 ## Shields
 
-- **One shield sits deep in each team's endzone**, in the same back column
-  as the corner grenade pickups but in the BOTTOM half (three quarters of
-  the map height down, between the side midpoint and the bottom corner
-  grenade), nudged to the nearest walkable floor. The spray cans hold the
-  matching top-half spots. On a **compact endzone** (disc/square) there is
-  no back column: the shield sits inside the zone below the pedestal and
+- **One shield sits deep in each team's endzone.** Red's is in the same back
+  column as the corner grenade pickups but in the BOTTOM half (three
+  quarters of the map height down, between the side midpoint and the bottom
+  corner grenade), nudged to the nearest walkable floor. The spray cans hold
+  the matching top-half spots. On a **compact endzone** (disc/square) there
+  is no back column: the shield sits inside the zone below the pedestal and
   the spray can above it.
+- **Every other team's shield is Red's spot under the map's own symmetry**
+  (GameVersion 30) — mirrored on a mirror map, rotated on a rotational one,
+  and a quarter turn round on the 4-team boards. Only that image sits in
+  terrain equivalent to Red's; a mirrored copy on a rotational map lands in
+  the transpose (4-team) or in the spray can's terrain (2-team), which is a
+  fairness difference in cover and sightlines, not a cosmetic one.
 - **Touch a shield to pick it up** — either team may take either endzone's
   shield. A shield is a **3 hp armor layer on top of your base hit points**:
   damage depletes the shield layer first, and only then your base hp. A

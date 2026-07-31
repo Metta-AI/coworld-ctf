@@ -6,10 +6,15 @@ import
 const
   GameDir = currentSourcePath.parentDir.parentDir
   # The event-substrate fixture: a full 16-bot match recorded against the
-  # CURRENT gameplay rules (GameVersion 29, seed 281, lives 9,
-  # tools/record_fixture.sh) whose kill mix exercises all three weapons
-  # (gun, grenade, spray) plus steals, returns and heals, and ends on a
-  # time-limit verdict rather than a capture.
+  # CURRENT gameplay rules (GameVersion 30, seed 281, lives 9,
+  # tools/record_fixture.sh) — 28 kills by gun AND spray, grenade damage,
+  # plus steals, returns and heals, ending on a capture.
+  #
+  # The GV29 recording of this seed ended on the time limit and carried a
+  # grenade KILL too; the GV30 re-record does not, and neither did seeds
+  # 282, 283, 42, 99, 123 or 7 (a bot that finishes a target with a grenade
+  # is rare). Prefer a seed that restores grenade-kill coverage the next
+  # time this fixture is re-recorded.
   EventsFixture = GameDir / "tests" / "replays" / "ctf.bitreplay"
 
 suite "tier-2 event extraction (tools/extract_events)":
