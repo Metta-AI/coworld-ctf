@@ -3483,32 +3483,32 @@ proc afghanCtfMap(): CtfMap =
   ## fitted masses) is applied by the dressing pass -- see the follow-up
   ## commit; the carved-stone bevel is the base layer under everything.
   result.props = @[
-    # nose section, pointed end north
-    PropSprite(file: "data/props/nose.png", x: 712, y: 449, w: 60, h: 60),
-    PropSprite(file: "data/props/fuselage.png", x: 712, y: 495, w: 66, h: 56,
-               rot: 270),
-    # forward fragment + cargo debris
+    # The crashed C-130: purpose-modeled wreck kit (blender_wrecks.py),
+    # rendered in its true orientation -- fuselage vertical, nose north,
+    # 9-degree lean baked in. Each sprite is placed at its collision rect's
+    # center corrected by the render's reported visual centroid, so the
+    # visible mass sits on the collision.
+    PropSprite(file: "data/props/c130_nose.png", x: 713, y: 474, w: 69,
+               h: 99),
     PropSprite(file: "data/props/crate.png", x: 594, y: 469, w: 30, h: 51),
     PropSprite(file: "data/props/crate.png", x: 616, y: 540, w: 27, h: 30),
-    # mid fuselage: tube running north-south + wing stubs east-west
-    PropSprite(file: "data/props/fuselage.png", x: 634, y: 621, w: 104, h: 58,
-               rot: 270),
-    PropSprite(file: "data/props/wing.png", x: 588, y: 610, w: 88, h: 20,
-               rot: 180),
-    PropSprite(file: "data/props/wing.png", x: 680, y: 632, w: 88, h: 20),
-    # engines, two per side
-    PropSprite(file: "data/props/engine.png", x: 537, y: 588, w: 28, h: 28),
-    PropSprite(file: "data/props/engine.png", x: 513, y: 634, w: 28, h: 28),
-    PropSprite(file: "data/props/engine.png", x: 717, y: 600, w: 28, h: 28),
-    PropSprite(file: "data/props/engine.png", x: 741, y: 648, w: 28, h: 28),
-    # tail cone + fallen fin
-    PropSprite(file: "data/props/fuselage.png", x: 676, y: 766, w: 84, h: 20,
-               rot: 270),
-    PropSprite(file: "data/props/tail_fin.png", x: 601, y: 787, w: 70, h: 106,
-               rot: 120),
+    PropSprite(file: "data/props/c130_mid.png", x: 635, y: 621, w: 111,
+               h: 108),
+    PropSprite(file: "data/props/c130_engine.png", x: 537, y: 586, w: 28,
+               h: 28),
+    PropSprite(file: "data/props/c130_engine.png", x: 513, y: 632, w: 28,
+               h: 28, rot: 140),
+    PropSprite(file: "data/props/c130_engine.png", x: 717, y: 598, w: 28,
+               h: 28, rot: 70),
+    PropSprite(file: "data/props/c130_engine.png", x: 741, y: 646, w: 28,
+               h: 28, rot: 200),
+    PropSprite(file: "data/props/c130_tail.png", x: 677, y: 770, w: 21,
+               h: 87),
+    PropSprite(file: "data/props/c130_fin.png", x: 594, y: 789, w: 81,
+               h: 123),
     # the burnt tank on the crates field
-    PropSprite(file: "data/props/container.png", x: 1050, y: 304, w: 57,
-               h: 42, rot: 90),
+    PropSprite(file: "data/props/burnt_tank.png", x: 1049, y: 304, w: 42,
+               h: 57, rot: 90),
     PropSprite(file: "data/props/crate.png", x: 882, y: 292, w: 54, h: 27),
     # wadi sandbag lines wear the crate family (stacked bags read as boxes)
     PropSprite(file: "data/props/crate.png", x: 675, y: 1096, w: 66, h: 45),

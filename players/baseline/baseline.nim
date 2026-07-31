@@ -1853,12 +1853,23 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     let
       pocket = bot.flagHomeOf(enemy(bot.team))
       laneY = bot.safestLaneY(me)
+    let home = bot.flagHomeOf(bot.team)
     if abs(me.x - pocket.x) < 60.0 and abs(me.y - laneY) > 70.0:
       # Bug out of the pocket VERTICALLY first: every kill respawns an
       # armed enemy at this pedestal whose spawn aim points
       # along the east-west axis — pure-vertical movement exits that cone
       # fastest, then the border lane runs home outside it.
       target = vec(pocket.x, laneY)
+    elif dist(me, home) < 420.0:
+      # FINAL LEG: converge on our own pedestal, not the home-edge depth
+      # point. Radial-capture maps score within a small circle AT the
+      # stand; running to homeDeepX at a lane y passes that circle by,
+      # and on a wide canvas the miss is fatal — measured on Afghan v2 as
+      # 43 steals, 0 captures, carriers dying at median x 1190 against a
+      # 1251 goal. On the legacy edge-column maps the pedestal sits inside
+      # the capture column ~9px from homeDeepX, so this leg is the same
+      # run there; only the last convergence to the stand's y changes.
+      target = home
     else:
       target = vec(homeDeepX(bot.team), laneY)
     # A hurt carrier detours through a stocked med kit on the way home: the
