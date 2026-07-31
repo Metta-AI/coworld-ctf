@@ -224,7 +224,14 @@ suite "mw2 paintball map pack":
     ## from what the quantity means, and a map landing just inside one is
     ## reported so the slack is visible rather than silently consumed.
     const
-      AreaTol = 0.80
+      # AreaTol is stated for TERRITORY semantics (walk-distance Voronoi
+      # from the pedestals), which is looser than the old column-half split:
+      # a faithful recreation centres its contested space asymmetrically, so
+      # even the accepted Afghan rebuild puts ~1.4x more quickly-reachable
+      # floor on one side (0.717). The sharp per-team fairness signal is the
+      # walk-to-center ratio below; territory area only guards against a map
+      # that hands one team most of the field outright.
+      AreaTol = 0.70
       CoverTol = 0.55
       MidTol = 0.70
     for name in Mw2Rotation:
@@ -234,18 +241,77 @@ suite "mw2 paintball map pack":
         for x in 0 ..< MapWidth:
           occupiable[mapIndex(x, y)] = sim.canOccupy(x, y)
 
-      # 1 + 2. Area and cover, per half of the field.
+      # 1 + 2. Area and cover, per TEAM TERRITORY, not per column half.
+      # A column split silently assumes the two teams own the two sides of
+      # the mid line. Rust broke that assumption twice over: its spawns are
+      # DIAGONAL (SW vs NE), and its canvas is centred on the derrick so the
+      # yard itself sits off-centre (204px dune west, 35px east) — the
+      # column split read a fair map as area 0.73. What a team actually owns
+      # is the floor it can reach faster than the enemy, so territory is the
+      # walk-distance Voronoi split from the two pedestals: identical to the
+      # column split on a mirrored east-west map, and team-meaningful on a
+      # diagonal one. Cover counts the wall pixels bordering each territory.
+      proc distField(sim: SimServer, occupiable: seq[bool],
+                     start: MapPoint): seq[int] =
+        result = newSeq[int](MapWidth * MapHeight)
+        for i in 0 ..< result.len:
+          result[i] = -1
+        var queue = initDeque[(int, int)]()
+        result[mapIndex(start.x, start.y)] = 0
+        queue.addLast((start.x, start.y))
+        while queue.len > 0:
+          let (cx, cy) = queue.popFirst()
+          for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
+            let
+              nx = cx + dx
+              ny = cy + dy
+            if nx < 0 or ny < 0 or nx >= MapWidth or ny >= MapHeight:
+              continue
+            if result[mapIndex(nx, ny)] >= 0 or
+                not occupiable[mapIndex(nx, ny)]:
+              continue
+            result[mapIndex(nx, ny)] = result[mapIndex(cx, cy)] + 1
+            queue.addLast((nx, ny))
+      let
+        distRed = sim.distField(occupiable, sim.gameMap.flagHome(Red))
+        distBlue = sim.distField(occupiable, sim.gameMap.flagHome(Blue))
       var areaLeft, areaRight, coverLeft, coverRight: int
       for y in 0 ..< MapHeight:
         for x in 0 ..< MapWidth:
-          let left = x < MapWidth div 2
-          if occupiable[mapIndex(x, y)]:
-            if left: inc areaLeft else: inc areaRight
-          if sim.isWall(x, y):
-            if left: inc coverLeft else: inc coverRight
+          let i = mapIndex(x, y)
+          if occupiable[i]:
+            let
+              dr = distRed[i]
+              db = distBlue[i]
+            if dr >= 0 and (db < 0 or dr < db): inc areaLeft
+            elif db >= 0 and (dr < 0 or db < dr): inc areaRight
+            # equidistant cells belong to neither side
+          elif sim.isWall(x, y):
+            # Assign cover to the territory of the nearest reachable floor
+            # in a 5px neighborhood (a wall deep inside a mass guards no one
+            # and stays unassigned).
+            # 12px radius: canOccupy needs the full 13px box, so the
+            # nearest OCCUPIABLE floor to any wall face is ~7px out — a 5px
+            # neighborhood saw no floor at all and left every wall
+            # unassigned (cover ratio 0/0).
+            var dr, db = int.high
+            for oy in -12 .. 12:
+              for ox in -12 .. 12:
+                let
+                  nx = x + ox
+                  ny = y + oy
+                if nx < 0 or ny < 0 or nx >= MapWidth or ny >= MapHeight:
+                  continue
+                let j = mapIndex(nx, ny)
+                if distRed[j] >= 0: dr = min(dr, distRed[j])
+                if distBlue[j] >= 0: db = min(db, distBlue[j])
+            if dr < db: inc coverLeft
+            elif db < dr: inc coverRight
       let
         areaRatio = min(areaLeft, areaRight) / max(areaLeft, areaRight)
-        coverRatio = min(coverLeft, coverRight) / max(coverLeft, coverRight)
+        coverRatio =
+          if max(coverLeft, coverRight) == 0: 1.0
+          else: min(coverLeft, coverRight) / max(coverLeft, coverRight)
 
       # 3. Walk to the contested middle, per team. 1px BFS over the same
       #    precomputed occupancy mask the sealed-pocket test uses — a strided

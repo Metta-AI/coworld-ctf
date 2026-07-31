@@ -51,9 +51,10 @@ class MapSpec:
     blue_home: tuple = (0, 0)
     center: tuple = None
     mask_dir: str = ""
-    # fairness: nudge this home east/west up to the limit if short.
+    # fairness: if the walk ratio is short, replace this home with the
+    # plan-sanctioned fallback position (a single lever, not a search).
     nudge_home: str = "blue"
-    nudge_limit_x: int = 0
+    nudge_to: tuple = None
 
     def __post_init__(self):
         if self.center is None:
@@ -321,27 +322,29 @@ def ship_verify(spec, discs, rect_structs, disc_structs, landmarks,
         open_rows = int((~span).all(axis=1).sum())
         print(f"  fully-open cross-field rows: {open_rows}")
         ok &= open_rows == 0
-        free = ~shipped
-        dr = bfs_dist(free, spec.red_home)
-        db = bfs_dist(free, spec.blue_home)
-        col_r = dr[:, spec.w // 2][dr[:, spec.w // 2] >= 0]
-        col_b = db[:, spec.w // 2][db[:, spec.w // 2] >= 0]
-        rmid, bmid = int(col_r.min()), int(col_b.min())
+        # Fairness: BFS over the 13px-fit floor to the CENTER POINT, the
+        # same measure as the Nim fairness test's stepsToCenter. NOT the
+        # mid-column: on a diagonal-spawn map (Rust) distance-to-column is
+        # structurally lopsided even when the contested center is equidistant
+        # -- the first Rust build read 68 vs 201 on a map whose straight-line
+        # center distances are 244 vs 269.
+        cxy = spec.center
+        dr = bfs_dist(fits, spec.red_home)
+        db = bfs_dist(fits, spec.blue_home)
+        rmid = int(dr[cxy[1], cxy[0]])
+        bmid = int(db[cxy[1], cxy[0]])
+        if rmid < 0 or bmid < 0:
+            raise SystemExit("a pedestal cannot reach the center at all")
         ratio = min(rmid, bmid) / max(rmid, bmid)
-        print(f"  walk to midfield: red {rmid}, blue {bmid}, "
+        print(f"  walk to center: red {rmid}, blue {bmid}, "
               f"ratio {ratio:.3f}")
-        if ratio < 0.75 and attempt == 0 and spec.nudge_limit_x:
-            home = list(spec.blue_home if spec.nudge_home == "blue"
-                        else spec.red_home)
-            step = 39 if spec.nudge_limit_x > home[0] else -39
-            home[0] = (min(spec.nudge_limit_x, home[0] + step) if step > 0
-                       else max(spec.nudge_limit_x, home[0] + step))
+        if ratio < 0.75 and attempt == 0 and spec.nudge_to:
             if spec.nudge_home == "blue":
-                spec.blue_home = tuple(home)
+                spec.blue_home = tuple(spec.nudge_to)
             else:
-                spec.red_home = tuple(home)
-            print(f"  -> nudging {spec.nudge_home}Home to {tuple(home)}, "
-                  "re-verifying")
+                spec.red_home = tuple(spec.nudge_to)
+            print(f"  -> {spec.nudge_home}Home -> {spec.nudge_to} "
+                  "(plan-sanctioned lever), re-verifying")
             continue
         ok &= ratio >= fairness_min
         if not ok:
