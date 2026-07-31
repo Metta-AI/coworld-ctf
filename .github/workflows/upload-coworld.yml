@@ -3,9 +3,12 @@ name: Upload Coworld
 # Builds the game and baseline-bot images via compose.yaml and
 # uploads a new ctf version to Softmax (https://softmax.com/api) on every push
 # to main. (Paintbot — the doubles variant — has its own lockstep upload in
-# upload-coworld-paintbot.yml.) The version is the latest uploaded ctf version
-# with the patch bumped, unless an explicit version is passed via
-# workflow_dispatch.
+# upload-coworld-paintbot.yml.) The version is the HIGHEST EXISTING ctf
+# registry row with the patch bumped (tools/ci/next_coworld_version.py),
+# unless an explicit version is passed via workflow_dispatch. Do NOT use
+# `coworld next-version` here: it is canonical-based, so an orphan
+# non-canonical row from a half-failed publish wedges every later publish
+# with 409s (seven in a row overnight 2026-07-30/31 on orphan ctf:0.7.128).
 #
 # Auth: the SOFTMAX_TOKEN repo secret — the non-expiring "coworld-ctf-ci"
 # user credential (softmax.com/observatory/credentials). If it is ever
@@ -39,11 +42,14 @@ jobs:
         run: uvx --from "coworld[auth]==0.1.34" softmax set-token "${{ secrets.SOFTMAX_TOKEN }}"
       - name: Determine version
         id: version
+        env:
+          SOFTMAX_TOKEN: ${{ secrets.SOFTMAX_TOKEN }}
         run: |
           set -euo pipefail
+          python3 coworld-ctf/tools/ci/test_next_coworld_version.py
           version="${{ inputs.version || '' }}"
           if [ -z "$version" ]; then
-            version=$(uvx --from "coworld[auth]==0.1.34" coworld next-version ctf)
+            version=$(python3 coworld-ctf/tools/ci/next_coworld_version.py ctf)
           fi
           echo "Uploading as ctf $version"
           echo "version=$version" >> "$GITHUB_OUTPUT"

@@ -37,11 +37,14 @@ jobs:
         run: uvx --from "coworld[auth]==0.1.34" softmax set-token "${{ secrets.SOFTMAX_TOKEN }}"
       - name: Determine version
         id: version
+        env:
+          SOFTMAX_TOKEN: ${{ secrets.SOFTMAX_TOKEN }}
         run: |
           set -euo pipefail
+          python3 coworld-ctf/tools/ci/test_next_coworld_version.py
           version="${{ inputs.version || '' }}"
           if [ -z "$version" ]; then
-            version=$(uvx --from "coworld[auth]==0.1.34" coworld next-version paintbot)
+            version=$(python3 coworld-ctf/tools/ci/next_coworld_version.py paintbot)
           fi
           echo "Uploading as paintbot $version"
           echo "version=$version" >> "$GITHUB_OUTPUT"
