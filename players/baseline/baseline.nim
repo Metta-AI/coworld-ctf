@@ -568,7 +568,7 @@ proc runBot*(rawUrl: string) =
   var endpoint = ensureWsPath(rawUrl, "/player")
   endpoint = playerConnectUrl(
     endpoint,
-    getEnv("COWORLD_PLAYER_NAME", "baseline"),
+    getEnv("COWORLD_PLAYER_NAME", ""),  # empty: configured roster identity wins
     getEnv("COWORLD_PLAYER_TOKEN", ""),
     try: parseInt(getEnv("COWORLD_PLAYER_SLOT", "-1")) except ValueError: -1
   )
