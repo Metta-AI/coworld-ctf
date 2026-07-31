@@ -33,6 +33,11 @@ import
   ../src/ctf/replays,
   ../src/ctf/sim
 
+# `key`/`jsonRow` moved to `ctf/events` so the live server and this tool share
+# one serializer. Re-exported so every existing caller of this module keeps
+# compiling: a move should not make callers chase the symbol.
+export events
+
 type
   ExtractEventsError = object of CatchableError
 

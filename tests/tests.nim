@@ -29,6 +29,7 @@ import
   test_shot_accuracy,
   test_shot_exposure,
   test_extract_events,
+  test_live_event_emission,
   test_map_export,
   test_rich_events,
   test_windows,
