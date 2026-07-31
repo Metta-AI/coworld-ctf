@@ -162,6 +162,45 @@ suite "procedural terrain":
         homes.add gameMap.teamAnchor(team)
       check homes.deduplicate().len == 4
 
+  test "4-team pickups are exact under a quarter turn":
+    ## The pickups have to ride the same orbit as the homes and the zones.
+    ## Placed by MIRRORING, Red's shield sat on the left edge at anchor
+    ## height and Blue's on the right edge — but the quarter turn sends
+    ## Red's to the TOP edge, so Blue's copy sat in the transpose of Red's
+    ## surroundings: different cover, different sightlines to the same item.
+    for layout in ["corners", "plus"]:
+      let
+        overrides = MapGenOverrides(windows: -1, layout: layout)
+        gameMap = generateCtfMap(11, overrides, teams = 4)
+        w = gameMap.width
+        shields = gameMap.shieldSpawnPoints()
+        cans = gameMap.plasmaArcSpawnPoints()
+      var sets = @[shields, cans]
+      sets.add(@(gameMap.grenadeSpawnPoints()))
+      for points in sets:
+        check points.len == 4
+        ## Closed under (x, y) -> (w - 1 - y, x): every point's quarter turn
+        ## is another point of the same set.
+        for point in points:
+          check (w - 1 - point.y, point.x) in points
+      ## And each team holds the copy that belongs to ITS quadrant — the
+      ## orbit runs Red -> Blue -> Yellow -> Green on corners, so handing the
+      ## images out in team order would put two teams' pickups in the wrong
+      ## corner entirely.
+      for points in [shields, cans]:
+        for team in gameMap.teams():
+          var red = MapPoint(x: points[ord(Red)].x, y: points[ord(Red)].y)
+          for _ in 0 ..< gameMap.rot90Quarter(team):
+            red = red.rot90Point(w)
+          check points[ord(team)] == (red.x, red.y)
+          ## The point is in that team's own endzone, not just anywhere on
+          ## its orbit.
+          check gameMap.captureZone(team).inCaptureZone(
+            points[ord(team)].x, points[ord(team)].y)
+      ## Shields and cans are distinct spots, not a doubled-up pile.
+      for shield in shields:
+        check shield notin cans
+
   test "map spec JSON round-trips the exact map":
     let gameMap = generateCtfMap(MapPoolSeeds[2])
     check mapFromSpecJson(mapSpecJson(gameMap)) == gameMap

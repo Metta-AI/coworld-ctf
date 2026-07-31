@@ -2118,6 +2118,16 @@ proc rot90Quarter*(gameMap: CtfMap, team: Team): int =
     of Blue: 2
     of Yellow: 3
 
+proc rot90TeamPoint*(gameMap: CtfMap, red: MapPoint, team: Team): MapPoint =
+  ## RED's point walked round the orbit to `team`'s quadrant. Anything one
+  ## team owns a copy of — a home, a pickup — has to be built this way: the
+  ## rot90 wall mask carries Red's surroundings onto the image of Red's
+  ## point, so a copy placed by MIRRORING lands in the transpose of them
+  ## instead, with different cover and different sightlines.
+  result = red
+  for _ in 0 ..< gameMap.rot90Quarter(team):
+    result = result.rot90Point(gameMap.width)
+
 proc teamAnchor*(gameMap: CtfMap, team: Team): MapPoint =
   ## Returns one team's home anchor: the center of its protected spawn
   ## pocket, where its pedestal stands.
@@ -6733,8 +6743,9 @@ proc grenadeSpawnPoints*(gameMap: CtfMap): array[4, tuple[x, y: int]] =
 proc shieldSpawnPoints*(gameMap: CtfMap): seq[tuple[x, y: int]] =
   ## One shield point per team, deep in that team's endzone. Sides maps keep
   ## the classic back-column pair (bottom half; the spray cans hold the
-  ## matching top-half spots); corner teams host theirs on their x edge at
-  ## anchor height, plus arms in the lower/outer half of the arm mouth.
+  ## matching top-half spots). 4-team maps place RED's — its x edge at anchor
+  ## height on corners, the lower half of the arm mouth on a plus — and walk
+  ## the rot90 orbit for the rest, the way the homes and the grenades do.
   let inset = ArenaBorder + GrenadeSpawnInset
   if gameMap.endzone != ezColumn:
     ## A compact endzone has no back column to hide a pickup in: park it
@@ -6749,30 +6760,30 @@ proc shieldSpawnPoints*(gameMap: CtfMap): seq[tuple[x, y: int]] =
     let endzoneY = 3 * gameMap.height div 4
     result = @[(inset, endzoneY), (gameMap.width - inset, endzoneY)]
   of layoutCorners:
+    ## Red's own x edge at anchor height. Blue's copy is the quarter turn of
+    ## that — the TOP edge — not the right edge a mirror picks: the mask
+    ## carries Red's cover onto the rotation, so the mirrored spot sits in
+    ## the transpose of Red's surroundings instead.
+    let red = MapPoint(x: inset, y: gameMap.teamAnchor(Red).y)
     for team in gameMap.teams():
-      let
-        anchor = gameMap.teamAnchor(team)
-        edgeX =
-          if anchor.x < gameMap.center.x: inset
-          else: gameMap.width - inset
-      result.add((edgeX, anchor.y))
+      let point = gameMap.rot90TeamPoint(red, team)
+      result.add((point.x, point.y))
   of layoutPlus:
-    let arm = gameMap.plusArmHalf()
+    ## The lower half of Red's arm mouth, orbited. Anchoring each team's copy
+    ## to the integer `center` instead lands it a pixel off the orbit, since
+    ## the rot90 axis is at (side - 1)/2.
+    let
+      arm = gameMap.plusArmHalf()
+      red = MapPoint(x: inset, y: gameMap.center.y + arm div 2)
     for team in gameMap.teams():
-      case team
-      of Red:
-        result.add((inset, gameMap.center.y + arm div 2))
-      of Blue:
-        result.add((gameMap.width - inset, gameMap.center.y - arm div 2))
-      of Green:
-        result.add((gameMap.center.x - arm div 2, inset))
-      of Yellow:
-        result.add((gameMap.center.x + arm div 2, gameMap.height - inset))
+      let point = gameMap.rot90TeamPoint(red, team)
+      result.add((point.x, point.y))
 
 proc plasmaArcSpawnPoints*(gameMap: CtfMap): seq[tuple[x, y: int]] =
   ## One spray can point per team: the classic top-half back columns on
-  ## sides maps, the y edge beside each corner team's anchor, the opposite
-  ## half of the arm mouth on plus maps.
+  ## sides maps; on 4-team maps the rot90 orbit of RED's can — the y edge
+  ## beside Red's anchor on corners, the opposite half of the arm mouth on a
+  ## plus — so the cans are quarter-turn fair like the shields.
   let inset = ArenaBorder + PlasmaArcSpawnInset
   if gameMap.endzone != ezColumn:
     ## The compact-endzone counterpart of the shield spot: same zone, other
@@ -6786,25 +6797,20 @@ proc plasmaArcSpawnPoints*(gameMap: CtfMap): seq[tuple[x, y: int]] =
     result = @[(inset, gameMap.height div 4),
       (gameMap.width - inset, gameMap.height div 4)]
   of layoutCorners:
+    ## Red's can is its shield spot reflected across the diagonal — its own y
+    ## edge at anchor width — and the other three orbit THAT, so cans and
+    ## shields never collide on the edge the rotation shares.
+    let red = MapPoint(x: gameMap.teamAnchor(Red).x, y: inset)
     for team in gameMap.teams():
-      let
-        anchor = gameMap.teamAnchor(team)
-        edgeY =
-          if anchor.y < gameMap.center.y: inset
-          else: gameMap.height - inset
-      result.add((anchor.x, edgeY))
+      let point = gameMap.rot90TeamPoint(red, team)
+      result.add((point.x, point.y))
   of layoutPlus:
-    let arm = gameMap.plusArmHalf()
+    let
+      arm = gameMap.plusArmHalf()
+      red = MapPoint(x: inset, y: gameMap.center.y - arm div 2)
     for team in gameMap.teams():
-      case team
-      of Red:
-        result.add((inset, gameMap.center.y - arm div 2))
-      of Blue:
-        result.add((gameMap.width - inset, gameMap.center.y + arm div 2))
-      of Green:
-        result.add((gameMap.center.x + arm div 2, inset))
-      of Yellow:
-        result.add((gameMap.center.x - arm div 2, gameMap.height - inset))
+      let point = gameMap.rot90TeamPoint(red, team)
+      result.add((point.x, point.y))
 
 proc resetGrenades*(sim: var SimServer) =
   ## Refills every corner pickup and clears carried and airborne grenades.
