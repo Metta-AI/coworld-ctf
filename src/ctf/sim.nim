@@ -2735,36 +2735,12 @@ const
     ArenaShape(kind: shapeRect, rect: MapRect(x: 168, y: 573, w: 39, h: 72)),
     # south hut D
     ArenaShape(kind: shapeRect, rect: MapRect(x: 168, y: 615, w: 57, h: 45)),
-    # crates row
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 855, y: 279, w: 54, h: 27)),
-    # burnt tank
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 1029, y: 276, w: 42, h: 57)),
     # wadi ledge wall
     ArenaShape(kind: shapeRect, rect: MapRect(x: 243, y: 951, w: 153, h: 15)),
-    # sandbag V wadi
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 642, y: 1074, w: 66, h: 45)),
-    # sandbag T wadi
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 783, y: 1011, w: 33, h: 48)),
-    # sandbag rect wadi
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 750, y: 1110, w: 45, h: 21)),
-    # sandbag T south
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 645, y: 1155, w: 54, h: 39)),
     # sandbag arc BLUE west
     ArenaShape(kind: shapeRect, rect: MapRect(x: 1180, y: 702, w: 70, h: 18)),
     # sandbag arc BLUE east
     ArenaShape(kind: shapeRect, rect: MapRect(x: 1262, y: 702, w: 68, h: 18)),
-    # c130 nose section
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 678, y: 432, w: 69, h: 99)),
-    # c130 forward fragment
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 579, y: 444, w: 30, h: 51)),
-    # c130 cargo debris
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 603, y: 525, w: 27, h: 30)),
-    # c130 mid fuselage + wing box
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 579, y: 567, w: 111, h: 108)),
-    # c130 tail cone
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 666, y: 723, w: 21, h: 87)),
-    # c130 tail fin fallen
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 561, y: 726, w: 81, h: 123)),
     # c130 engine debris
     ArenaShape(kind: shapeDisc, cx: 537, cy: 588, radius: 14),
     # c130 engine debris
@@ -2773,6 +2749,98 @@ const
     ArenaShape(kind: shapeDisc, cx: 717, cy: 600, radius: 14),
     # c130 engine debris
     ArenaShape(kind: shapeDisc, cx: 741, cy: 648, radius: 14),
+    # c130 nose section (collision fitted to the sprite)
+    ArenaShape(kind: shapeDisc, cx: 716, cy: 492, radius: 31),
+    ArenaShape(kind: shapeDisc, cx: 717, cy: 461, radius: 23),
+    ArenaShape(kind: shapeDisc, cx: 716, cy: 438, radius: 10),
+    ArenaShape(kind: shapeDisc, cx: 736, cy: 516, radius: 9),
+    ArenaShape(kind: shapeDisc, cx: 694, cy: 514, radius: 8),
+    ArenaShape(kind: shapeDisc, cx: 726, cy: 439, radius: 7),
+    ArenaShape(kind: shapeDisc, cx: 739, cy: 471, radius: 6),
+    ArenaShape(kind: shapeDisc, cx: 695, cy: 468, radius: 5),
+    ArenaShape(kind: shapeDisc, cx: 687, cy: 503, radius: 5),
+    # c130 mid fuselage + wing box (collision fitted to the sprite)
+    ArenaShape(kind: shapeDisc, cx: 642, cy: 612, radius: 34),
+    ArenaShape(kind: shapeDisc, cx: 638, cy: 646, radius: 31),
+    ArenaShape(kind: shapeDisc, cx: 608, cy: 609, radius: 14),
+    ArenaShape(kind: shapeDisc, cx: 669, cy: 640, radius: 14),
+    ArenaShape(kind: shapeDisc, cx: 627, cy: 581, radius: 9),
+    ArenaShape(kind: shapeDisc, cx: 609, cy: 595, radius: 9),
+    ArenaShape(kind: shapeDisc, cx: 683, cy: 641, radius: 9),
+    ArenaShape(kind: shapeDisc, cx: 659, cy: 669, radius: 8),
+    ArenaShape(kind: shapeDisc, cx: 594, cy: 612, radius: 6),
+    ArenaShape(kind: shapeDisc, cx: 595, cy: 603, radius: 6),
+    ArenaShape(kind: shapeDisc, cx: 636, cy: 578, radius: 5),
+    # c130 tail cone (collision fitted to the sprite)
+    ArenaShape(kind: shapeDisc, cx: 679, cy: 754, radius: 10),
+    ArenaShape(kind: shapeDisc, cx: 680, cy: 744, radius: 9),
+    ArenaShape(kind: shapeDisc, cx: 677, cy: 765, radius: 9),
+    ArenaShape(kind: shapeDisc, cx: 675, cy: 774, radius: 8),
+    ArenaShape(kind: shapeDisc, cx: 674, cy: 782, radius: 7),
+    ArenaShape(kind: shapeDisc, cx: 673, cy: 789, radius: 6),
+    ArenaShape(kind: shapeDisc, cx: 671, cy: 795, radius: 6),
+    ArenaShape(kind: shapeDisc, cx: 670, cy: 802, radius: 5),
+    # c130 tail fin fallen (collision fitted to the sprite)
+    ArenaShape(kind: shapeDisc, cx: 612, cy: 767, radius: 23),
+    ArenaShape(kind: shapeDisc, cx: 602, cy: 788, radius: 21),
+    ArenaShape(kind: shapeDisc, cx: 593, cy: 807, radius: 19),
+    ArenaShape(kind: shapeDisc, cx: 585, cy: 825, radius: 17),
+    ArenaShape(kind: shapeDisc, cx: 608, cy: 744, radius: 11),
+    ArenaShape(kind: shapeDisc, cx: 586, cy: 842, radius: 7),
+    ArenaShape(kind: shapeDisc, cx: 624, cy: 747, radius: 7),
+    ArenaShape(kind: shapeDisc, cx: 570, cy: 834, radius: 6),
+    ArenaShape(kind: shapeDisc, cx: 630, cy: 752, radius: 6),
+    ArenaShape(kind: shapeDisc, cx: 618, cy: 739, radius: 5),
+    # burnt tank (collision fitted to the sprite)
+    ArenaShape(kind: shapeDisc, cx: 1048, cy: 304, radius: 22),
+    ArenaShape(kind: shapeDisc, cx: 1029, cy: 316, radius: 11),
+    ArenaShape(kind: shapeDisc, cx: 1065, cy: 318, radius: 9),
+    ArenaShape(kind: shapeDisc, cx: 1030, cy: 291, radius: 8),
+    ArenaShape(kind: shapeDisc, cx: 1066, cy: 291, radius: 8),
+    ArenaShape(kind: shapeDisc, cx: 1026, cy: 302, radius: 8),
+    ArenaShape(kind: shapeDisc, cx: 1070, cy: 298, radius: 6),
+    ArenaShape(kind: shapeDisc, cx: 1070, cy: 305, radius: 6),
+    # crates row (collision fitted to the sprite)
+    ArenaShape(kind: shapeDisc, cx: 869, cy: 291, radius: 16),
+    ArenaShape(kind: shapeDisc, cx: 886, cy: 291, radius: 16),
+    ArenaShape(kind: shapeDisc, cx: 901, cy: 285, radius: 10),
+    ArenaShape(kind: shapeDisc, cx: 901, cy: 297, radius: 10),
+    # sandbag V wadi (collision fitted to the sprite)
+    ArenaShape(kind: shapeDisc, cx: 664, cy: 1095, radius: 24),
+    ArenaShape(kind: shapeDisc, cx: 688, cy: 1093, radius: 22),
+    ArenaShape(kind: shapeDisc, cx: 701, cy: 1111, radius: 9),
+    ArenaShape(kind: shapeDisc, cx: 647, cy: 1078, radius: 7),
+    ArenaShape(kind: shapeDisc, cx: 647, cy: 1112, radius: 7),
+    ArenaShape(kind: shapeDisc, cx: 704, cy: 1077, radius: 6),
+    ArenaShape(kind: shapeDisc, cx: 679, cy: 1114, radius: 6),
+    # sandbag T wadi (collision fitted to the sprite)
+    ArenaShape(kind: shapeDisc, cx: 798, cy: 1027, radius: 18),
+    ArenaShape(kind: shapeDisc, cx: 796, cy: 1045, radius: 16),
+    ArenaShape(kind: shapeDisc, cx: 810, cy: 1053, radius: 7),
+    ArenaShape(kind: shapeDisc, cx: 785, cy: 1014, radius: 5),
+    ArenaShape(kind: shapeDisc, cx: 811, cy: 1014, radius: 5),
+    ArenaShape(kind: shapeDisc, cx: 812, cy: 1039, radius: 5),
+    # sandbag rect wadi (collision fitted to the sprite)
+    ArenaShape(kind: shapeDisc, cx: 760, cy: 1119, radius: 13),
+    ArenaShape(kind: shapeDisc, cx: 774, cy: 1119, radius: 13),
+    ArenaShape(kind: shapeDisc, cx: 787, cy: 1115, radius: 9),
+    ArenaShape(kind: shapeDisc, cx: 788, cy: 1124, radius: 8),
+    # sandbag T south (collision fitted to the sprite)
+    ArenaShape(kind: shapeDisc, cx: 664, cy: 1173, radius: 21),
+    ArenaShape(kind: shapeDisc, cx: 685, cy: 1168, radius: 16),
+    ArenaShape(kind: shapeDisc, cx: 682, cy: 1184, radius: 11),
+    ArenaShape(kind: shapeDisc, cx: 693, cy: 1182, radius: 8),
+    ArenaShape(kind: shapeDisc, cx: 649, cy: 1158, radius: 6),
+    ArenaShape(kind: shapeDisc, cx: 649, cy: 1188, radius: 6),
+    # c130 forward fragment (collision fitted to the sprite)
+    ArenaShape(kind: shapeDisc, cx: 594, cy: 458, radius: 17),
+    ArenaShape(kind: shapeDisc, cx: 594, cy: 476, radius: 17),
+    ArenaShape(kind: shapeDisc, cx: 583, cy: 489, radius: 6),
+    ArenaShape(kind: shapeDisc, cx: 605, cy: 489, radius: 6),
+    # c130 cargo debris (collision fitted to the sprite)
+    ArenaShape(kind: shapeDisc, cx: 615, cy: 539, radius: 16),
+    ArenaShape(kind: shapeDisc, cx: 604, cy: 551, radius: 5),
+    ArenaShape(kind: shapeDisc, cx: 626, cy: 551, radius: 5),
   ]
 
 
