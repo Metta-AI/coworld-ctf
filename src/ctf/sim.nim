@@ -3441,8 +3441,14 @@ proc afghanCtfMap(): CtfMap =
   result.redHome = MapPoint(x: 210, y: 472)
   result.blueHome = MapPoint(x: 1251, y: 598)
   result.captureRadius = 64
-  result.redSpawn = MapRect(x: 135, y: 397, w: 150, h: 150)
-  result.blueSpawn = MapRect(x: 1176, y: 523, w: 150, h: 150)
+  ## Spawn ZONES sit offset from the stands -- the real map's muster areas,
+  ## red deeper in the compound's north corner, blue on the plateau's east
+  ## lip. The first cut centred both zones exactly on the flag stands, and
+  ## the field data was unambiguous: 22 steals, 0 captures, carry runs dying
+  ## at median x 1190 against a 1251 goal (one 8px short) -- every respawn
+  ## wave materialised inside the capture circle the carrier was running to.
+  result.redSpawn = MapRect(x: 118, y: 316, w: 130, h: 130)
+  result.blueSpawn = MapRect(x: 1272, y: 512, w: 108, h: 140)
   ## The wadi as walkable dug ground, plus a forward foxhole at the tail.
   result.trenches = @[
     MapRect(x: 390, y: 885, w: 140, h: 56),   # the wadi, west reach
@@ -3454,11 +3460,15 @@ proc afghanCtfMap(): CtfMap =
   ## floor tone so the terrain reads as rock walls, not dunes.
   result.floorTex = "data/afghan_floor.png"
   result.wallTex = "data/afghan_wall.png"
+  ## Pitched to the sculpted rock renders' own palette (pale weathered
+  ## stone) so the carve-stone base under and between the sprites reads as
+  ## the same rock family, not as a brown band the rocks float on. Still
+  ## well below the sand floor (~230,215,185).
   result.material = ArenaMaterial(
-    face: rgba(126, 108, 86, 255),
-    hi: rgba(176, 156, 128, 255),
-    lo: rgba(60, 50, 40, 255),
-    ink: rgba(30, 25, 19, 255)
+    face: rgba(152, 142, 126, 255),
+    hi: rgba(190, 182, 168, 255),
+    lo: rgba(88, 80, 68, 255),
+    ink: rgba(42, 38, 32, 255)
   )
   ## One med kit INSIDE the cave chamber (the contested heart), one in the
   ## open wadi -- both on crossfire ground, neither owned by a team.
@@ -3505,6 +3515,52 @@ proc afghanCtfMap(): CtfMap =
     PropSprite(file: "data/props/crate.png", x: 799, y: 1035, w: 33, h: 48),
     PropSprite(file: "data/props/crate.png", x: 772, y: 1120, w: 45, h: 21),
     PropSprite(file: "data/props/crate.png", x: 672, y: 1174, w: 54, h: 39),
+    # --- the compound + shacks wear the mud-brick qalat families ---
+    PropSprite(file: "data/props/qalat_wall.png", x: 189, y: 336, w: 42, h: 12),
+    PropSprite(file: "data/props/qalat_wall.png", x: 259, y: 336, w: 39, h: 12),
+    PropSprite(file: "data/props/qalat_wall.png", x: 174, y: 351, w: 42, h: 12,
+               rot: 90),
+    PropSprite(file: "data/props/qalat_wall.png", x: 273, y: 351, w: 42, h: 12,
+               rot: 90),
+    PropSprite(file: "data/props/qalat_hut.png", x: 354, y: 384, w: 42, h: 36),
+    PropSprite(file: "data/props/qalat_wall.png", x: 303, y: 510, w: 120,
+               h: 18, rot: 90),
+    PropSprite(file: "data/props/qalat_wall.png", x: 388, y: 496, w: 93,
+               h: 21, rot: 90),
+    PropSprite(file: "data/props/qalat_wall.png", x: 175, y: 599, w: 50, h: 18),
+    PropSprite(file: "data/props/qalat_wall.png", x: 259, y: 605, w: 40,
+               h: 18, rot: 90),
+    PropSprite(file: "data/props/qalat_hut.png", x: 139, y: 590, w: 45, h: 30),
+    PropSprite(file: "data/props/qalat_hut.png", x: 187, y: 609, w: 72, h: 39,
+               rot: 90),
+    PropSprite(file: "data/props/qalat_hut.png", x: 196, y: 637, w: 57, h: 45),
+    # --- terrain dressing: sculpted rock renders over the fitted masses ---
+    PropSprite(file: "data/props/mountain_wall_a.png", x: 1152, y: 60, w: 330, h: 100, rot: 10),
+    PropSprite(file: "data/props/mountain_wall_b.png", x: 1224, y: 292, w: 330, h: 100, rot: 100),
+    PropSprite(file: "data/props/mountain_wall_c.png", x: 1287, y: 482, w: 330, h: 100, rot: 55),
+    PropSprite(file: "data/props/mountain_wall_a.png", x: 1434, y: 618, w: 330, h: 100, rot: 90),
+    PropSprite(file: "data/props/mountain_wall_b.png", x: 1215, y: 762, w: 330, h: 100, rot: 140),
+    PropSprite(file: "data/props/mountain_wall_c.png", x: 1247, y: 926, w: 330, h: 100, rot: 105),
+    PropSprite(file: "data/props/mountain_wall_a.png", x: 1065, y: 1107, w: 330, h: 100, rot: 160),
+    PropSprite(file: "data/props/mountain_wall_b.png", x: 914, y: 1226, w: 330, h: 100, rot: 125),
+    PropSprite(file: "data/props/mountain_wall_c.png", x: 731, y: 1307, w: 330, h: 100, rot: 140),
+    PropSprite(file: "data/props/mountain_wall_a.png", x: 549, y: 1206, w: 330, h: 100, rot: 0),
+    PropSprite(file: "data/props/mountain_wall_b.png", x: 349, y: 1188, w: 330, h: 100, rot: 20),
+    PropSprite(file: "data/props/mountain_wall_c.png", x: 216, y: 1038, w: 330, h: 100, rot: 25),
+    PropSprite(file: "data/props/mountain_wall_a.png", x: 257, y: 812, w: 330, h: 100, rot: 110),
+    PropSprite(file: "data/props/mountain_wall_b.png", x: 210, y: 652, w: 330, h: 100, rot: 45),
+    PropSprite(file: "data/props/mountain_wall_c.png", x: 38, y: 499, w: 330, h: 100, rot: 75),
+    PropSprite(file: "data/props/mountain_wall_a.png", x: 258, y: 356, w: 330, h: 100, rot: 155),
+    PropSprite(file: "data/props/mountain_wall_b.png", x: 422, y: 257, w: 330, h: 100, rot: 15),
+    PropSprite(file: "data/props/mountain_wall_c.png", x: 470, y: 455, w: 330, h: 100, rot: 45),
+    PropSprite(file: "data/props/mountain_wall_a.png", x: 621, y: 335, w: 330, h: 100, rot: 5),
+    PropSprite(file: "data/props/mountain_wall_b.png", x: 786, y: 221, w: 330, h: 100, rot: 140),
+    PropSprite(file: "data/props/mountain_wall_c.png", x: 967, y: 134, w: 330, h: 100, rot: 170),
+    PropSprite(file: "data/props/mesa_a.png", x: 1003, y: 539, w: 240, h: 192),
+    PropSprite(file: "data/props/mesa_b.png", x: 844, y: 872, w: 240, h: 192),
+    PropSprite(file: "data/props/mesa_a.png", x: 548, y: 1033, w: 196, h: 156),
+    PropSprite(file: "data/props/mesa_b.png", x: 433, y: 764, w: 240, h: 192),
+    PropSprite(file: "data/props/mesa_a.png", x: 396, y: 1042, w: 166, h: 132),
   ]
   result.validateMap()
 
