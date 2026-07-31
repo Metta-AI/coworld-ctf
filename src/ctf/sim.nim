@@ -224,6 +224,19 @@ const
   CaptureZoneWidth* = 40      ## width of each home-edge capture zone.
   PedestalCoverSize* = 96     ## px footprint the flag-home pedestal art covers.
 
+  ClassicHomeDepth* = 700     ## the historical home-anchor depth permille:
+                              ## the base 30% of the way in from its edge.
+  HomeDepthMin* = 400         ## depth bounds. Below the floor the bases
+  HomeDepthMax* = 800         ## crowd the center; above it they clip the
+                              ## border.
+  EndzoneRadiusMin* = 90      ## compact-endzone radius bounds. The floor
+  EndzoneRadiusMax* = 220     ## keeps the pedestal art and its endzone pits
+                              ## inside the zone; the ceiling keeps the two
+                              ## zones clear of the center ring.
+  EndzoneWallMargin* = 6      ## px of protected floor past the scoring ring,
+                              ## the compact echo of the classic column's
+                              ## 210-clear vs 206-threshold gap.
+
   GrenadeSpawnInset* = 40     ## corner grenade spawn inset from the border.
   GrenadePickupRange* = 12    ## touch radius to pick a grenade up.
   GrenadeRespawnTicks* = 5 * ReplayFps  ## a taken corner refills after 5s.
@@ -468,17 +481,31 @@ type
   MapPoint* = object
     x*, y*: int
 
+  EndzoneShape* = enum
+    ## The shape of a team's home capture region on a SIDES map. The classic
+    ## column runs the full map height along the home border; the two COMPACT
+    ## shapes wrap the base itself, which lets the base sit well off the edge
+    ## with playable wilderness all around it — behind included.
+    ezColumn
+    ezDisc
+    ezSquare
+
   CaptureZone* = object
     ## One team's home capture region. Sides maps use the classic
     ## full-height columns; plus arms are boxes bounded on both axes; corner
     ## teams get a DIAGONAL zone — everything within an L1 radius of their
     ## map corner, whose threshold edge is a 45-degree line cut across the
-    ## corner. The box fields always hold the zone's bounding box (the strip
-    ## and diff-box machinery scan it); `diag` refines membership.
+    ## corner. A COMPACT endzone is the anchor-centered box (a square zone
+    ## needs nothing more; `disc` rounds it off). The box fields always hold
+    ## the zone's bounding box (the strip and diff-box machinery scan it);
+    ## `diag` / `disc` refine membership.
     xLo*, xHi*, yLo*, yHi*: int
     diag*: bool                ## L1 corner zone instead of the full box.
     cornerX*, cornerY*: int    ## the map corner the diagonal zone hugs.
     diagLimit*: int            ## inclusive L1 radius from that corner.
+    disc*: bool                ## L2 zone around the anchor instead of the box.
+    anchorX*, anchorY*: int    ## the base the compact zone is centered on.
+    radius*: int               ## inclusive L2 radius from that anchor.
 
   MapSymmetry* = enum
     ## How a map's full obstacle set derives from its authored/generated
@@ -506,6 +533,15 @@ type
     spawnClearW*: int          ## half-width of the open spawn pockets.
     spawnClearH*: int          ## half-height of the open spawn pockets.
     gunRange*: int             ## default gun range on this map (px).
+    endzone*: EndzoneShape     ## home capture-region shape (sides maps).
+    endzoneRadius*: int        ## COMPACT endzones: the scoring radius (disc)
+                               ## or half-extent (square) around the anchor,
+                               ## in px. 0 on `ezColumn` maps.
+    homeDepth*: int            ## home anchor position as a permille of the
+                               ## half-field, measured from the center: 700
+                               ## (the classic) puts the base 30% of the way
+                               ## in from its edge, and SMALLER values push it
+                               ## further from the edge.
     symmetry*: MapSymmetry
     layout*: TeamLayout        ## sides (2 teams) / corners / plus (4 teams).
     genSeed*: int              ## generator seed; 0 for hand-authored maps.
@@ -567,6 +603,15 @@ type
                            ## pit chances (100 = default feel, 0 = none,
                            ## 200 = twice as digging-happy); -1 = default.
                            ## Ignored when `pits` locks an exact count.
+    endzone*: string       ## "column" | "disc" | "square"; "" = draw. The
+                           ## two COMPACT shapes wrap the base and open the
+                           ## home border strip up as wilderness.
+    endzoneRadius*: int    ## compact endzone scoring radius in px,
+                           ## EndzoneRadiusMin..EndzoneRadiusMax; 0 = draw.
+                           ## Ignored on `ezColumn` maps.
+    baseDepth*: int        ## home anchor depth permille (see CtfMap.
+                           ## homeDepth), HomeDepthMin..HomeDepthMax;
+                           ## 0 = draw (700 on column maps).
 
   GameConfig* = object
     motionScale*: int
@@ -1829,6 +1874,25 @@ proc validateMap(gameMap: CtfMap) =
     ## rot90 rotates about the center of a SQUARE; a non-square board would
     ## silently produce team-unfair obstacle images.
     raise newException(CtfError, "rot90 symmetry needs a square map.")
+  if gameMap.homeDepth != 0 and
+      (gameMap.homeDepth < HomeDepthMin or gameMap.homeDepth > HomeDepthMax):
+    raise newException(
+      CtfError, "Map home depth must be " & $HomeDepthMin & ".." &
+        $HomeDepthMax & " permille (0 = the classic " &
+        $ClassicHomeDepth & ").")
+  if gameMap.endzone == ezColumn:
+    if gameMap.endzoneRadius != 0:
+      raise newException(
+        CtfError, "Column endzones carry no radius.")
+  else:
+    if gameMap.layout != layoutSides:
+      raise newException(
+        CtfError, "Compact endzones need a 2-team sides map.")
+    if gameMap.endzoneRadius < EndzoneRadiusMin or
+        gameMap.endzoneRadius > EndzoneRadiusMax:
+      raise newException(
+        CtfError, "Map endzone radius must be " & $EndzoneRadiusMin & ".." &
+          $EndzoneRadiusMax & " px.")
   validateMapPoint("center", gameMap.center, gameMap.width, gameMap.height)
   for i, room in gameMap.rooms:
     validateMapRect(
@@ -2004,15 +2068,22 @@ const
     ArenaShape(kind: shapeRect, rect: MapRect(x: 726, y: 761, w: 18, h: 66)),
   ]
 
-proc axisHomeLo(center: int): int =
-  ## Returns the low-edge home anchor along one axis: 30% of the way from
-  ## the edge to the center (the classic Red home-x formula).
-  center - (center * 7 div 10)
+proc homeDepthOf(gameMap: CtfMap): int =
+  ## The map's home-anchor depth permille, defaulting to the classic 700 so
+  ## a zero-valued map (a hand-built test fixture, an old replay spec) keeps
+  ## the historical anchors.
+  if gameMap.homeDepth > 0: gameMap.homeDepth else: ClassicHomeDepth
 
-proc axisHomeHi(center, size: int): int =
+proc axisHomeLo(center, depth: int): int =
+  ## Returns the low-edge home anchor along one axis: `depth` permille of the
+  ## way back from the center (700 = the classic 30%-from-the-edge home-x).
+  ## At 700 this is exactly the historical `center * 7 div 10`.
+  center - (center * depth div 1000)
+
+proc axisHomeHi(center, size, depth: int): int =
   ## Returns the high-edge home anchor along one axis (the classic Blue
-  ## home-x formula).
-  center + ((size - center) * 7 div 10)
+  ## home-x formula at depth 700).
+  center + ((size - center) * depth div 1000)
 
 proc teamAnchor*(gameMap: CtfMap, team: Team): MapPoint =
   ## Returns one team's home anchor: the center of its protected spawn
@@ -2020,38 +2091,39 @@ proc teamAnchor*(gameMap: CtfMap, team: Team): MapPoint =
   let
     cx = gameMap.center.x
     cy = gameMap.center.y
+    d = gameMap.homeDepthOf()
   case gameMap.layout
   of layoutSides:
     case team
     of Red:
-      MapPoint(x: axisHomeLo(cx), y: cy)
+      MapPoint(x: axisHomeLo(cx, d), y: cy)
     else:
-      MapPoint(x: axisHomeHi(cx, gameMap.width), y: cy)
+      MapPoint(x: axisHomeHi(cx, gameMap.width, d), y: cy)
   of layoutCorners:
     ## Red top-left, Blue top-right, Green bottom-left, Yellow bottom-right.
     case team
     of Red:
-      MapPoint(x: axisHomeLo(cx), y: axisHomeLo(cy))
+      MapPoint(x: axisHomeLo(cx, d), y: axisHomeLo(cy, d))
     of Blue:
-      MapPoint(x: axisHomeHi(cx, gameMap.width), y: axisHomeLo(cy))
+      MapPoint(x: axisHomeHi(cx, gameMap.width, d), y: axisHomeLo(cy, d))
     of Green:
-      MapPoint(x: axisHomeLo(cx), y: axisHomeHi(cy, gameMap.height))
+      MapPoint(x: axisHomeLo(cx, d), y: axisHomeHi(cy, gameMap.height, d))
     of Yellow:
       MapPoint(
-        x: axisHomeHi(cx, gameMap.width),
-        y: axisHomeHi(cy, gameMap.height)
+        x: axisHomeHi(cx, gameMap.width, d),
+        y: axisHomeHi(cy, gameMap.height, d)
       )
   of layoutPlus:
     ## Red west, Blue east, Green north, Yellow south.
     case team
     of Red:
-      MapPoint(x: axisHomeLo(cx), y: cy)
+      MapPoint(x: axisHomeLo(cx, d), y: cy)
     of Blue:
-      MapPoint(x: axisHomeHi(cx, gameMap.width), y: cy)
+      MapPoint(x: axisHomeHi(cx, gameMap.width, d), y: cy)
     of Green:
-      MapPoint(x: cx, y: axisHomeLo(cy))
+      MapPoint(x: cx, y: axisHomeLo(cy, d))
     of Yellow:
-      MapPoint(x: cx, y: axisHomeHi(cy, gameMap.height))
+      MapPoint(x: cx, y: axisHomeHi(cy, gameMap.height, d))
 
 proc plusArmHalf*(gameMap: CtfMap): int =
   ## Returns the half-span of a plus map's arms — the width of each team's
@@ -2090,6 +2162,18 @@ proc defaultCtfRooms(gameMap: CtfMap): seq[Room] =
   ## full-clearance base columns; 4-team layouts box each pocket instead.
   result.add Room(name: "Center", x: gameMap.width div 2 - 80,
     y: gameMap.height div 2 - 80, w: 160, h: 160)
+  if gameMap.endzone != ezColumn:
+    ## Compact endzones ARE the base: the room is the zone's bounding box.
+    let r = gameMap.endzoneRadius
+    for team in gameMap.teams():
+      let
+        anchor = gameMap.teamAnchor(team)
+        name = teamText(team)
+      result.add Room(
+        name: name[0].toUpperAscii() & name[1 .. ^1] & " Base",
+        x: anchor.x - r, y: anchor.y - r, w: 2 * r, h: 2 * r
+      )
+    return
   case gameMap.layout
   of layoutSides:
     result.add Room(name: "Red Base", x: 0,
@@ -2164,10 +2248,12 @@ proc arenaLargeCtfMap(): CtfMap =
 
 proc captureZone*(gameMap: CtfMap, team: Team): CaptureZone =
   ## Returns one team's home capture zone. Sides maps keep the classic
-  ## full-height home column; corner teams get a DIAGONAL zone (everything
-  ## within an L1 radius of their map corner, its threshold a 45-degree
-  ## line through the anchor); plus teams get an arm-mouth box past the
-  ## anchor, bounded to the arm span — the open corners are battlefield.
+  ## full-height home column unless the map draws a COMPACT endzone, which
+  ## wraps the base in a disc or square instead; corner teams get a DIAGONAL
+  ## zone (everything within an L1 radius of their map corner, its threshold
+  ## a 45-degree line through the anchor); plus teams get an arm-mouth box
+  ## past the anchor, bounded to the arm span — the open corners are
+  ## battlefield.
   let
     anchor = gameMap.teamAnchor(team)
     half = CaptureZoneWidth div 2
@@ -2176,6 +2262,19 @@ proc captureZone*(gameMap: CtfMap, team: Team): CaptureZone =
   # Start from the full board and pull each bounded edge in to the anchor's
   # threshold; which edges are bounded is exactly what the layout decides.
   result = CaptureZone(xLo: 0, xHi: w - 1, yLo: 0, yHi: h - 1)
+  if gameMap.endzone != ezColumn:
+    ## A compact endzone is the anchor-centered box — which IS the square
+    ## zone; the disc flag rounds its corners off. Every edge is an inner
+    ## threshold, so the paint lines all four and a carrier scores from
+    ## whichever side they reach.
+    let r = gameMap.endzoneRadius
+    result = CaptureZone(
+      xLo: anchor.x - r, xHi: anchor.x + r,
+      yLo: anchor.y - r, yHi: anchor.y + r,
+      disc: gameMap.endzone == ezDisc,
+      anchorX: anchor.x, anchorY: anchor.y, radius: r
+    )
+    return
   case gameMap.layout
   of layoutSides:
     if team == Red:
@@ -2231,6 +2330,11 @@ proc inCaptureZone*(zone: CaptureZone, x, y: int): bool =
     return false
   if zone.diag:
     return abs(x - zone.cornerX) + abs(y - zone.cornerY) <= zone.diagLimit
+  if zone.disc:
+    let
+      dx = x - zone.anchorX
+      dy = y - zone.anchorY
+    return dx * dx + dy * dy <= zone.radius * zone.radius
   true
 
 proc mirrorX(rect: MapRect, width: int): MapRect =
@@ -2617,9 +2721,37 @@ proc scaledGenShell(sizeName: string): CtfMap =
   result.spawnClearH = s(130)
   result.gunRange = s(1300)
 
+proc endzoneFloorAt*(
+  x, y, anchorX, anchorY, radius: int, disc: bool
+): bool =
+  ## Whether a point sits on one COMPACT endzone's protected floor: the
+  ## scoring shape grown by the wall margin, so the ring the carrier crosses
+  ## is never flush against a wall.
+  let
+    grown = radius + EndzoneWallMargin
+    dx = abs(x - anchorX)
+    dy = abs(y - anchorY)
+  if dx > grown or dy > grown:
+    return false
+  if disc:
+    return dx * dx + dy * dy <= grown * grown
+  true
+
 proc mapProtectedFloorAt*(gameMap: CtfMap, x, y: int): bool =
   ## isProtectedFloor for a map that is NOT installed as the process map:
   ## the generator and validators run on candidates before any selection.
+  if gameMap.endzone != ezColumn:
+    ## COMPACT endzones protect the shape around each base and NOTHING at
+    ## the border: the home strip is wilderness the terrain may build on.
+    for team in gameMap.teams():
+      let anchor = gameMap.teamAnchor(team)
+      if endzoneFloorAt(x, y, anchor.x, anchor.y, gameMap.endzoneRadius,
+          gameMap.endzone == ezDisc):
+        return true
+    let
+      dcx = x - gameMap.center.x
+      dcy = y - gameMap.center.y
+    return dcx * dcx + dcy * dcy <= gameMap.flagRing * gameMap.flagRing
   let
     clear = gameMap.captureClear
     nearX = x < clear or x >= gameMap.width - clear
@@ -2732,6 +2864,19 @@ proc rot90Orbit(p: tuple[x, y: int], side: int):
     result[k] = q
     q = (side - 1 - q.y, q.x)
 
+proc sightlineLoX*(gameMap: CtfMap): int =
+  ## The low x of the band no straight horizontal ray may cross unblocked.
+  ## Column endzones exempt the protected home strips (nothing can be built
+  ## there); a compact endzone makes those strips ordinary field, so the
+  ## scan runs border to border.
+  if gameMap.endzone != ezColumn: ArenaBorder + 5
+  else: gameMap.captureClear + 5
+
+proc sightlineHiX*(gameMap: CtfMap): int =
+  ## The high x of that band, the mirror of sightlineLoX.
+  if gameMap.endzone != ezColumn: gameMap.width - ArenaBorder - 5
+  else: gameMap.width - gameMap.captureClear - 5
+
 proc rectOnOpenFloor(
   gameMap: CtfMap, obstacles: seq[ArenaShape], rect: MapRect
 ): bool =
@@ -2806,6 +2951,65 @@ proc generateMapAttempt*(
     if overrides.layout.len > 0 and overrides.layout != "sides":
       raise newException(
         CtfError, "Map layout " & overrides.layout & " needs teams: 4.")
+
+  ## Endzone archetype. Drawn from a SEPARATE stream keyed off the same seed
+  ## so the main draw order never shifts: a seed that lands on the classic
+  ## column generates the exact map it always did, byte for byte.
+  block endzoneDraw:
+    ## The compact knobs only mean anything on a compact endzone, and which
+    ## shape a seed DRAWS is not something a config should have to guess:
+    ## demand the shape lock alongside them rather than silently applying
+    ## them on the seeds that happen to draw round.
+    if (overrides.endzoneRadius > 0 or overrides.baseDepth > 0) and
+        overrides.endzone notin ["disc", "square"]:
+      raise newException(
+        CtfError,
+        "mapEndzoneRadius / mapBaseDepth need mapEndzone: disc or square.")
+    var ezRng = MapRng(state: uint64(seed) xor 0x5A17E9D3C0FFEE11'u64)
+    let shapeDraw =
+      if teams == 4: ezColumn      ## 4-team layouts own their own geometry.
+      else:
+        case ezRng.pick(4)
+        of 0, 1: ezColumn          ## half the pool stays the classic arena.
+        of 2: ezDisc
+        else: ezSquare
+    result.endzone =
+      case overrides.endzone
+      of "": shapeDraw
+      of "column": ezColumn
+      of "disc": ezDisc
+      of "square": ezSquare
+      else:
+        raise newException(
+          CtfError, "Unknown map endzone: " & overrides.endzone)
+    if result.endzone == ezColumn:
+      ## A column endzone is pinned to the home border by `captureClear`, so
+      ## its base cannot move: the threshold would slide out of the protected
+      ## column and carriers would score on ordinary terrain.
+      result.homeDepth = ClassicHomeDepth
+      break endzoneDraw
+    if teams == 4:
+      raise newException(
+        CtfError, "Compact endzones (mapEndzone) need a 2-team map.")
+    ## Compact endzones pull the base well off its edge — the strip behind it
+    ## becomes wilderness — and wrap it in a scoring shape whose radius
+    ## scales with the size class exactly like every other clearance.
+    let
+      depthDraw = ezRng.pickRange(520, 620)
+      radiusDraw = result.width * ezRng.pickRange(110, 140) div 1235
+    result.homeDepth =
+      if overrides.baseDepth > 0: overrides.baseDepth else: depthDraw
+    result.endzoneRadius =
+      if overrides.endzoneRadius > 0: overrides.endzoneRadius else: radiusDraw
+    if result.homeDepth < HomeDepthMin or result.homeDepth > HomeDepthMax:
+      raise newException(
+        CtfError, "Config field mapBaseDepth must be " & $HomeDepthMin &
+          ".." & $HomeDepthMax & ".")
+    if result.endzoneRadius < EndzoneRadiusMin or
+        result.endzoneRadius > EndzoneRadiusMax:
+      raise newException(
+        CtfError, "Config field mapEndzoneRadius must be " &
+          $EndzoneRadiusMin & ".." & $EndzoneRadiusMax & ".")
   result.rooms = result.defaultCtfRooms()
 
   let featureDraw = CenterFeatureNames[rng.pick(3)]
@@ -2815,8 +3019,13 @@ proc generateMapAttempt*(
   if feature notin CenterFeatureNames:
     raise newException(CtfError, "Unknown map center feature: " & feature)
 
+  ## Compact-endzone maps spread their columns over the whole half-field
+  ## (the home border strip is wilderness now, not a protected column), so
+  ## they draw MORE of them to hold the same field density. Same single draw
+  ## either way — the RNG stream never shifts.
   let columnsDraw =
     if teams == 4: rng.pickRange(3, 4)
+    elif result.endzone != ezColumn: rng.pickRange(6, 8)
     else: rng.pickRange(4, 6)
   let columns =
     if overrides.columns > 0: overrides.columns else: columnsDraw
@@ -2825,9 +3034,14 @@ proc generateMapAttempt*(
 
   let
     cy = result.center.y
-    ## Obstacle columns live between the capture column and the flag-ring
-    ## flank; the ring itself carves any overlap back out of the wall mask.
-    xMin = result.captureClear + 50
+    redAnchorX = result.teamHomeX(Red)
+    ## Obstacle columns live between the home approach and the flag-ring
+    ## flank; the ring and the endzones carve any overlap back out of the
+    ## wall mask. A compact endzone frees the border strip, so the columns
+    ## start just inside the wall and terrain wraps the base on every side.
+    xMin =
+      if result.endzone != ezColumn: ArenaBorder + 34
+      else: result.captureClear + 50
     xMax = result.center.x - 52
     ## The vertical band the column slots may occupy: the full field on
     ## sides maps, the top-left quadrant on corner maps (rot90 fills the
@@ -2898,6 +3112,17 @@ proc generateMapAttempt*(
 
     var zig = rng.coin()
     for i, sy in slotYs:
+      ## Compact endzones keep an APRON of clear ground outside the ring:
+      ## terrain that crowded the scoring shape would seal the very
+      ## approaches that make an off-the-edge base worth building, and the
+      ## open-flank validator would reject the map anyway. Obstacle centers
+      ## reach ~30px, so an apron of radius + 60 leaves every cardinal gate
+      ## a full corridor's clearance.
+      if result.endzone != ezColumn and
+          endzoneFloorAt(colX, sy, redAnchorX, cy,
+            result.endzoneRadius + 60 - EndzoneWallMargin,
+            result.endzone == ezDisc):
+        continue
       if cleared[i]:
         ## A cleared gap can hold a dug pit BETWEEN the column's obstacles
         ## — the corridor stays open to movement and fire.
@@ -2943,11 +3168,25 @@ proc generateMapAttempt*(
   ## art. Endzone floor is protected (never walled), so endzone digs
   ## always survive the open-floor prune below.
   let
-    redHomeX = result.teamHomeX(Red)
+    redHomeX = redAnchorX
     pedestalClear = PedestalCoverSize div 2 + TrenchSize div 2
-  pitCandidates.add (pitEndzone, -1, redHomeX - pedestalClear - 12, cy)
-  pitCandidates.add (pitEndzone, -1, redHomeX, cy - pedestalClear - 20)
-  pitCandidates.add (pitEndzone, -1, redHomeX, cy + pedestalClear + 20)
+    ## How far off the pedestal an endzone dig sits. Column endzones have the
+    ## whole home strip to work with; a COMPACT zone clamps the offset so the
+    ## pit stays on its protected floor (clear of the pedestal art at the
+    ## floor, inside the ring at the ceiling) instead of being pruned later.
+    compactPitOffset =
+      max(pedestalClear,
+        min(pedestalClear + 20,
+          result.endzoneRadius - TrenchSize div 2 - EndzoneWallMargin))
+    backOffset =
+      if result.endzone == ezColumn: pedestalClear + 12
+      else: compactPitOffset
+    sideOffset =
+      if result.endzone == ezColumn: pedestalClear + 20
+      else: compactPitOffset
+  pitCandidates.add (pitEndzone, -1, redHomeX - backOffset, cy)
+  pitCandidates.add (pitEndzone, -1, redHomeX, cy - sideOffset)
+  pitCandidates.add (pitEndzone, -1, redHomeX, cy + sideOffset)
 
   ## Pit selection. DENSITY mode (default) rolls every candidate at its
   ## class chance scaled by pitDensity percent. COUNT mode (pits locked)
@@ -3056,7 +3295,7 @@ proc generateMapAttempt*(
   ## drawn columns; the validators still judge the repaired result.
   block sightlineRepair:
     proc rowBlocked(gameMap: CtfMap, y: int): bool =
-      for x in gameMap.captureClear + 5 .. gameMap.center.x:
+      for x in gameMap.sightlineLoX .. gameMap.center.x:
         if mapWallAt(gameMap, gameMap.leftObstacles, x, y):
           return true
       false
@@ -3065,8 +3304,7 @@ proc generateMapAttempt*(
       ## Full-width row scan against the COMPLETE symmetry-expanded set —
       ## rot90 folds a quadrant into all four quarters, so no single-half
       ## shortcut exists.
-      for x in gameMap.captureClear + 5 ..
-          gameMap.width - gameMap.captureClear - 5:
+      for x in gameMap.sightlineLoX .. gameMap.sightlineHiX:
         if mapWallAt(gameMap, obstacles, x, y):
           return true
       false
@@ -3106,9 +3344,17 @@ proc generateMapAttempt*(
             uncovered
         plugY = clamp(
           foldedRow + 24, ArenaBorder + 12, result.height - ArenaBorder - 12)
+      dec plugsLeft
+      ## A plug inside the endzone apron would seal an approach (and be
+      ## carved to a stump by the protected floor anyway); skip it and let
+      ## the next iteration try another column for the same row.
+      if result.endzone != ezColumn and
+          endzoneFloorAt(plugX, plugY, redAnchorX, cy,
+            result.endzoneRadius + 60 - EndzoneWallMargin,
+            result.endzone == ezDisc):
+        continue
       result.leftObstacles.add ArenaShape(
         kind: shapeDiamond, cx: plugX, cy: plugY, radius: 28)
-      dec plugsLeft
 
   ## Glass windows: fog sees through them, nothing passes them. Biased to
   ## the outermost column and the midline band, where sightlines matter.
@@ -3254,14 +3500,22 @@ proc validateGeneratedMap*(gameMap: CtfMap): string =
       ## against it). 4-team layouts measure the actually-playable field:
       ## everything inside the border that is not protected floor.
       let interior =
-        case gameMap.layout
-        of layoutSides:
-          x >= gameMap.captureClear and x < w - gameMap.captureClear and
-            y >= ArenaBorder and y < h - ArenaBorder
-        of layoutCorners, layoutPlus:
+        if gameMap.endzone != ezColumn:
+          ## Compact endzones: the same "everything playable" measure the
+          ## 4-team layouts use — the wilderness behind the bases is field
+          ## and must carry its share of the cover budget.
           x >= ArenaBorder and x < w - ArenaBorder and
             y >= ArenaBorder and y < h - ArenaBorder and
             not mapProtectedFloorAt(gameMap, x, y)
+        else:
+          case gameMap.layout
+          of layoutSides:
+            x >= gameMap.captureClear and x < w - gameMap.captureClear and
+              y >= ArenaBorder and y < h - ArenaBorder
+          of layoutCorners, layoutPlus:
+            x >= ArenaBorder and x < w - ArenaBorder and
+              y >= ArenaBorder and y < h - ArenaBorder and
+              not mapProtectedFloorAt(gameMap, x, y)
       if interior:
         inc interiorPixels
         if isWall:
@@ -3284,8 +3538,8 @@ proc validateGeneratedMap*(gameMap: CtfMap): string =
   ## capture columns (the property tests/test_map_los.nim pins for arena).
   block sightlines:
     let
-      ax = gameMap.captureClear + 5
-      bx = w - gameMap.captureClear - 5
+      ax = gameMap.sightlineLoX
+      bx = gameMap.sightlineHiX
     var y = ArenaBorder + 2
     while y < h - ArenaBorder:
       var blocked = false
@@ -3364,6 +3618,48 @@ proc validateGeneratedMap*(gameMap: CtfMap): string =
             teamText(team) & " flag"
   if not reached[gameMap.center.y * w + gameMap.center.x]:
     return "no " & $MinCorridorWidth & "px route to the center"
+
+  ## Compact endzones must stay OPEN-FLANKED: a base you can only be reached
+  ## from the field side is just a column endzone with extra steps. Checked
+  ## on Red alone — mirror and rot180 hand Blue the exact image.
+  if gameMap.endzone != ezColumn:
+    let
+      anchor = gameMap.teamAnchor(Red)
+      gate = gameMap.endzoneRadius + MinCorridorWidth div 2 + 4
+      gates = [
+        (name: "behind", x: anchor.x - gate, y: anchor.y),
+        (name: "above", x: anchor.x, y: anchor.y - gate),
+        (name: "below", x: anchor.x, y: anchor.y + gate),
+        (name: "ahead", x: anchor.x + gate, y: anchor.y),
+      ]
+    for g in gates:
+      if g.x < 0 or g.y < 0 or g.x >= w or g.y >= h:
+        return "endzone gate " & g.name & " is off the map"
+      if not reached[g.y * w + g.x]:
+        return "endzone gate " & g.name & " is sealed"
+
+    ## ...and the way in from behind must not run THROUGH the endzone: fill
+    ## from the rear gate with the zone itself forbidden and demand the
+    ## center. That is the whole point of moving the base off the edge.
+    let zone = gameMap.captureZone(Red)
+    var
+      around = newSeq[bool](w * h)
+      backQueue = @[gates[0].y * w + gates[0].x]
+    around[backQueue[0]] = true
+    head = 0
+    while head < backQueue.len:
+      let i = backQueue[head]
+      inc head
+      for step in [-1, 1, -w, w]:
+        let j = i + step
+        if j < 0 or j >= w * h or not open[j] or around[j]:
+          continue
+        if zone.inCaptureZone(j mod w, j div w):
+          continue
+        around[j] = true
+        backQueue.add j
+    if not around[gameMap.center.y * w + gameMap.center.x]:
+      return "no route around the endzone from behind the base"
   ""
 
 proc generateCtfMap*(
@@ -3490,6 +3786,13 @@ proc mapSpecJson*(gameMap: CtfMap): string =
       of layoutSides: "sides"
       of layoutCorners: "corners"
       of layoutPlus: "plus"),
+    "endzone": (
+      case gameMap.endzone
+      of ezColumn: "column"
+      of ezDisc: "disc"
+      of ezSquare: "square"),
+    "endzoneRadius": gameMap.endzoneRadius,
+    "homeDepth": gameMap.homeDepthOf(),
     "medKitSpawns": pointsNode(gameMap.medKitSpawns),
     "medKitCandidates": pointsNode(gameMap.medKitCandidates),
     # Trenches are FULL-map (both halves), already symmetrized — playback
@@ -3541,6 +3844,16 @@ proc mapFromSpecJson*(text: string): CtfMap =
     of "plus": layoutPlus
     else:
       raise newException(CtfError, "Unknown map spec layout: " & layoutText)
+  let endzoneText = node{"endzone"}.getStr("column")
+  result.endzone =
+    case endzoneText
+    of "column": ezColumn
+    of "disc": ezDisc
+    of "square": ezSquare
+    else:
+      raise newException(CtfError, "Unknown map spec endzone: " & endzoneText)
+  result.endzoneRadius = node{"endzoneRadius"}.getInt(0)
+  result.homeDepth = node{"homeDepth"}.getInt(ClassicHomeDepth)
   result.medKitSpawns = pointsFromNode(node["medKitSpawns"])
   result.medKitCandidates = pointsFromNode(node["medKitCandidates"])
   ## Optional: specs pinned before trenches existed carry none and replay
@@ -3594,6 +3907,8 @@ var
   ArenaTeamCount = 2
   ArenaAnchors: array[Team, MapPoint]
   ArenaPlusArmHalf = 0
+  ArenaEndzoneRadius = 0     ## > 0 selects the COMPACT endzone floor rules.
+  ArenaEndzoneDisc = false   ## compact endzone is a disc, not a square.
   ArenaObstacles*: seq[ArenaShape]
   AnimatedDiamonds*: seq[tuple[cx, cy, radius: int]]
   ArenaSpinMirrored* = true
@@ -3624,6 +3939,9 @@ proc selectCtfMap(gameMap: CtfMap) =
   for team in gameMap.teams():
     ArenaAnchors[team] = gameMap.teamAnchor(team)
   ArenaPlusArmHalf = gameMap.plusArmHalf()
+  ArenaEndzoneRadius =
+    if gameMap.endzone == ezColumn: 0 else: gameMap.endzoneRadius
+  ArenaEndzoneDisc = gameMap.endzone == ezDisc
   ArenaObstacles = buildArenaObstacles(gameMap)
   AnimatedDiamonds = buildAnimatedDiamonds(gameMap, ArenaObstacles)
   ArenaSpinMirrored = gameMap.symmetry == symMirror
@@ -3734,6 +4052,17 @@ proc inShapeF*(x, y: float, shape: ArenaShape): bool =
 proc isProtectedFloor(x, y, cx, cy: int): bool =
   ## Regions that MUST stay walkable: the flag ring, every spawn pocket,
   ## and each team's home capture approach. Walls are never carved here.
+  if ArenaEndzoneRadius > 0:
+    ## COMPACT endzones: the shape around each base plus the center ring.
+    ## The home border strips are ordinary field (see mapProtectedFloorAt).
+    for team in activeTeams(ArenaTeamCount):
+      if endzoneFloorAt(x, y, ArenaAnchors[team].x, ArenaAnchors[team].y,
+          ArenaEndzoneRadius, ArenaEndzoneDisc):
+        return true
+    let
+      rdx = x - cx
+      rdy = y - cy
+    return rdx * rdx + rdy * rdy <= ArenaFlagRing * ArenaFlagRing
   let
     nearX = x < ArenaCaptureClear or x >= MapWidth - ArenaCaptureClear
     nearY = y < ArenaCaptureClear or y >= MapHeight - ArenaCaptureClear
@@ -3784,6 +4113,20 @@ proc isArenaWindowPixel*(x, y, cx, cy: int): bool =
 
 proc isProtectedFloorF(x, y: float, cx, cy: int): bool =
   ## Float-coordinate isProtectedFloor for the render-scale rasterizer.
+  if ArenaEndzoneRadius > 0:
+    let grown = float(ArenaEndzoneRadius + EndzoneWallMargin)
+    for team in activeTeams(ArenaTeamCount):
+      let
+        adx = abs(x - float(ArenaAnchors[team].x))
+        ady = abs(y - float(ArenaAnchors[team].y))
+      if adx > grown or ady > grown:
+        continue
+      if not ArenaEndzoneDisc or adx * adx + ady * ady <= grown * grown:
+        return true
+    let
+      rdx = x - float(cx)
+      rdy = y - float(cy)
+    return rdx * rdx + rdy * rdy <= float(ArenaFlagRing * ArenaFlagRing)
   let
     nearX = x < float(ArenaCaptureClear) or
       x >= float(MapWidth - ArenaCaptureClear)
@@ -4233,6 +4576,19 @@ proc endzoneColorAt(
       return emberThroughCracks(base, tint.color,
         EndzoneGlowFloor + (1.0 - EndzoneGlowFloor) *
           clamp(d.float / max(1, tint.zone.diagLimit).float, 0.0, 1.0))
+    if tint.zone.disc:
+      ## Compact ROUND endzone: the threshold is the painted ring, so the
+      ## ember is brightest against it and eases in toward the pedestal —
+      ## the same language as the diagonal corner zones.
+      let d = sqrt(float(
+        (x - tint.zone.anchorX) * (x - tint.zone.anchorX) +
+        (y - tint.zone.anchorY) * (y - tint.zone.anchorY)))
+      if d > float(tint.zone.radius - EndzoneLineW):
+        return overTint(base, rgba(tint.color.r, tint.color.g,
+          tint.color.b, EndzoneLineAlpha))
+      return emberThroughCracks(base, tint.color,
+        EndzoneGlowFloor + (1.0 - EndzoneGlowFloor) *
+          clamp(d / max(1, tint.zone.radius).float, 0.0, 1.0))
     if tint.boundHiX:
       if x > tint.zone.xHi - EndzoneLineW:
         onLine = true
@@ -5025,6 +5381,9 @@ proc update*(config: var GameConfig, jsonText: string) =
   node.readConfigInt("mapPitDensity", config.mapGen.pitDensity)
   node.readConfigString("mapCenterFeature", config.mapGen.centerFeature)
   node.readConfigString("mapLayout", config.mapGen.layout)
+  node.readConfigString("mapEndzone", config.mapGen.endzone)
+  node.readConfigInt("mapEndzoneRadius", config.mapGen.endzoneRadius)
+  node.readConfigInt("mapBaseDepth", config.mapGen.baseDepth)
   if node.hasKey("mapSpec"):
     if node["mapSpec"].kind != JObject:
       raise newException(CtfError, "Config field mapSpec must be an object.")
@@ -5122,6 +5481,9 @@ proc configJson*(config: GameConfig): string =
     "mapPitDensity": config.mapGen.pitDensity,
     "mapCenterFeature": config.mapGen.centerFeature,
     "mapLayout": config.mapGen.layout,
+    "mapEndzone": config.mapGen.endzone,
+    "mapEndzoneRadius": config.mapGen.endzoneRadius,
+    "mapBaseDepth": config.mapGen.baseDepth,
     "closedRoster": config.closedRoster,
     "showPlayerLabels": config.showPlayerLabels,
     "fastMode": config.fastMode,
@@ -5439,10 +5801,11 @@ proc randomEndzonePosition*(sim: var SimServer, team: Team):
   var
     x = xLo + sim.rng.rand(xHi - xLo)
     y = yLo + sim.rng.rand(yHi - yLo)
-  if zone.diag:
-    ## A diagonal corner zone fills half its bounding box: redraw until the
-    ## point falls inside (deterministic — pure rng sequence), with the
-    ## anchor as a guaranteed landing spot if the draws run cold.
+  if zone.diag or zone.disc:
+    ## A diagonal corner zone fills half its bounding box and a round
+    ## compact zone about three quarters of it: redraw until the point falls
+    ## inside (deterministic — pure rng sequence), with the anchor as a
+    ## guaranteed landing spot if the draws run cold.
     var attempts = 0
     while not zone.inCaptureZone(x, y) and attempts < 16:
       x = xLo + sim.rng.rand(xHi - xLo)
@@ -6290,6 +6653,14 @@ proc shieldSpawnPoints*(gameMap: CtfMap): seq[tuple[x, y: int]] =
   ## matching top-half spots); corner teams host theirs on their x edge at
   ## anchor height, plus arms in the lower/outer half of the arm mouth.
   let inset = ArenaBorder + GrenadeSpawnInset
+  if gameMap.endzone != ezColumn:
+    ## A compact endzone has no back column to hide a pickup in: park it
+    ## below the pedestal, inside the zone (protected floor, so always
+    ## walkable and always connected) and clear of the pedestal art.
+    for team in gameMap.teams():
+      let anchor = gameMap.teamAnchor(team)
+      result.add((anchor.x, anchor.y + 2 * gameMap.endzoneRadius div 3))
+    return
   case gameMap.layout
   of layoutSides:
     let endzoneY = 3 * gameMap.height div 4
@@ -6320,6 +6691,13 @@ proc plasmaArcSpawnPoints*(gameMap: CtfMap): seq[tuple[x, y: int]] =
   ## sides maps, the y edge beside each corner team's anchor, the opposite
   ## half of the arm mouth on plus maps.
   let inset = ArenaBorder + PlasmaArcSpawnInset
+  if gameMap.endzone != ezColumn:
+    ## The compact-endzone counterpart of the shield spot: same zone, other
+    ## side of the pedestal (cans high, shields low).
+    for team in gameMap.teams():
+      let anchor = gameMap.teamAnchor(team)
+      result.add((anchor.x, anchor.y - 2 * gameMap.endzoneRadius div 3))
+    return
   case gameMap.layout
   of layoutSides:
     result = @[(inset, gameMap.height div 4),

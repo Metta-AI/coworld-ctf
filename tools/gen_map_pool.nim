@@ -1,7 +1,7 @@
 ## Regenerates src/ctf/map_pool.nim: scans seeds upward and keeps the first
 ## ones whose map passes every validator on the FIRST attempt (so the pool
-## entry IS the map — no re-roll drift if validators tighten later), under a
-## small size-class quota for variety.
+## entry IS the map — no re-roll drift if validators tighten later), under
+## small size-class and endzone-shape quotas for variety.
 ## Usage: nim c -r tools/gen_map_pool.nim [startSeed]
 ## Demo/curation tooling; not part of the server.
 import std/[os, strutils, strformat], ../src/ctf/sim
@@ -9,6 +9,7 @@ import std/[os, strutils, strformat], ../src/ctf/sim
 const
   PoolSize = 20
   SizeQuota = [6, 8, 6]        ## small, standard, large.
+  ShapeQuota = [10, 5, 5]      ## column, disc, square.
 
 proc sizeClassIndex(gameMap: CtfMap): int =
   case gameMap.width
@@ -18,11 +19,18 @@ proc sizeClassIndex(gameMap: CtfMap): int =
   else:
     raise newException(CtfError, "Unexpected map width: " & $gameMap.width)
 
+proc shapeIndex(gameMap: CtfMap): int =
+  case gameMap.endzone
+  of ezColumn: 0
+  of ezDisc: 1
+  of ezSquare: 2
+
 when isMainModule:
   let start = if paramCount() >= 1: parseInt(paramStr(1)) else: 1001
   var
     seeds: seq[int]
     counts = [0, 0, 0]
+    shapeCounts = [0, 0, 0]
     seed = start
     scanned, rejected = 0
   while seeds.len < PoolSize:
@@ -33,15 +41,21 @@ when isMainModule:
       inc rejected
       echo &"seed={seed} REJECT {reason}"
     else:
-      let sizeIndex = gameMap.sizeClassIndex()
-      if counts[sizeIndex] < SizeQuota[sizeIndex]:
+      let
+        sizeIndex = gameMap.sizeClassIndex()
+        shape = gameMap.shapeIndex()
+      if counts[sizeIndex] < SizeQuota[sizeIndex] and
+          shapeCounts[shape] < ShapeQuota[shape]:
         seeds.add seed
         inc counts[sizeIndex]
+        inc shapeCounts[shape]
         echo &"pool[{seeds.len - 1}] seed={seed} " &
           &"{gameMap.width}x{gameMap.height} sym={gameMap.symmetry} " &
+          &"endzone={gameMap.endzone} r={gameMap.endzoneRadius} " &
+          &"home={gameMap.teamHomeX(Red)} " &
           &"obstacles={gameMap.leftObstacles.len}"
       else:
-        echo &"seed={seed} ok but size quota full"
+        echo &"seed={seed} ok but quota full"
     stdout.flushFile()
     inc seed
   echo &"scanned={scanned} rejected={rejected}"

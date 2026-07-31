@@ -90,6 +90,13 @@ when isMainModule:
       "height": gameMap.height,
       "symmetry": (
         if gameMap.symmetry == symMirror: "mirror" else: "rot180"),
+      "endzone": (
+        case gameMap.endzone
+        of ezColumn: "column"
+        of ezDisc: "disc"
+        of ezSquare: "square"),
+      "endzoneRadius": gameMap.endzoneRadius,
+      "homeX": gameMap.teamHomeX(Red),
       "obstacles": gameMap.leftObstacles.len,
       "trenches": gameMap.trenches.len,
       "medKitSpawns": kits,

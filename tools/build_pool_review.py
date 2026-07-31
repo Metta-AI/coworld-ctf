@@ -28,13 +28,18 @@ for m in manifest:
     b64 = base64.b64encode((render_dir / m["file"]).read_bytes()).decode()
     size = SIZE_NAMES[m["width"]]
     kits = ", ".join(f"({x},{y})" for x, y in m["medKitSpawns"])
+    endzone = m.get("endzone", "column")
+    zone_note = (
+        f"{endzone} r{m['endzoneRadius']} home x{m['homeX']}"
+        if endzone != "column" else f"column home x{m.get('homeX', '?')}")
     cards.append(f'''
-<article class="card" data-size="{size}" data-sym="{m['symmetry']}">
+<article class="card" data-size="{size}" data-sym="{m['symmetry']}" data-endzone="{endzone}">
   <header class="card-head">
     <span class="idx">#{m['index']:02d}</span>
     <span class="seed">seed {m['seed']}</span>
     <span class="chip chip-{size}">{size} {m['width']}&times;{m['height']}</span>
     <span class="chip chip-sym">{m['symmetry']}</span>
+    <span class="chip chip-sym">{zone_note}</span>
     <span class="meta">{m['obstacles']} left-half shapes &middot; {m.get('trenches', 0)} trenches &middot; kits {kits}</span>
   </header>
   <div class="viewer" tabindex="0">
@@ -42,10 +47,12 @@ for m in manifest:
   </div>
 </article>''')
 
-counts = {"small": 0, "standard": 0, "large": 0, "mirror": 0, "rot180": 0}
+counts = {"small": 0, "standard": 0, "large": 0, "mirror": 0, "rot180": 0,
+          "column": 0, "disc": 0, "square": 0}
 for m in manifest:
     counts[SIZE_NAMES[m["width"]]] += 1
     counts[m["symmetry"]] += 1
+    counts[m.get("endzone", "column")] += 1
 
 html = f'''<!doctype html>
 <html lang="en">
@@ -96,20 +103,23 @@ h1 .gv {{ color:var(--glass); }}
 <div class="wrap">
 <header class="top"><div>
   <h1>CTF terrain pool <span class="gv">config-gated (mapPath "pool")</span></h1>
-  <span class="sub">{len(manifest)} maps &middot; {counts['small']} small / {counts['standard']} standard / {counts['large']} large &middot; {counts['mirror']} mirror / {counts['rot180']} rot180</span>
+  <span class="sub">{len(manifest)} maps &middot; {counts['small']} small / {counts['standard']} standard / {counts['large']} large &middot; {counts['mirror']} mirror / {counts['rot180']} rot180 &middot; {counts['column']} column / {counts['disc']} disc / {counts['square']} square endzones</span>
   <span class="filters">
     <button data-f="size:small" aria-pressed="false">small</button>
     <button data-f="size:standard" aria-pressed="false">standard</button>
     <button data-f="size:large" aria-pressed="false">large</button>
     <button data-f="sym:mirror" aria-pressed="false">mirror</button>
     <button data-f="sym:rot180" aria-pressed="false">rot180</button>
+    <button data-f="endzone:column" aria-pressed="false">column</button>
+    <button data-f="endzone:disc" aria-pressed="false">disc</button>
+    <button data-f="endzone:square" aria-pressed="false">square</button>
   </span>
 </div></header>
 <p class="hint">scroll to zoom &middot; drag to pan &middot; double-click to reset &middot; filters narrow the grid &middot; regenerate: tools/render_map_pool.nim + tools/build_pool_review.py</p>
 <div class="legend">
   <span><b style="background:#40301f"></b>stone</span>
   <span><b style="background:#50dcff"></b>glass window (blocks movement/fire, fog sees through)</span>
-  <span><b style="background:#e2cdac"></b>protected floor (never carved: ring, pockets, capture columns)</span>
+  <span><b style="background:#e2cdac"></b>protected floor (never carved: center ring + each team's endzone — a home column, or a disc/square around a base set back from the edge)</span>
   <span><b style="background:#d24238"></b>active med-kit pair / red pedestal</span>
   <span><b style="background:#78644e"></b>idle med-kit candidates</span>
   <span><b style="background:#4a78dc"></b>blue pedestal</span>
@@ -152,7 +162,7 @@ document.querySelectorAll('.viewer').forEach(v => {{
   }});
   v.addEventListener('pointerup', () => dragging = false);
 }});
-const active = {{ size: null, sym: null }};
+const active = {{ size: null, sym: null, endzone: null }};
 document.querySelectorAll('.filters button').forEach(b => {{
   b.addEventListener('click', () => {{
     const [k, val] = b.dataset.f.split(':');
@@ -164,7 +174,8 @@ document.querySelectorAll('.filters button').forEach(b => {{
     document.querySelectorAll('.card').forEach(c => {{
       const okSize = !active.size || c.dataset.size === active.size;
       const okSym = !active.sym || c.dataset.sym === active.sym;
-      c.classList.toggle('hidden', !(okSize && okSym));
+      const okZone = !active.endzone || c.dataset.endzone === active.endzone;
+      c.classList.toggle('hidden', !(okSize && okSym && okZone));
     }});
   }});
 }});

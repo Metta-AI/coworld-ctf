@@ -68,14 +68,25 @@ tasks, voting) with teams, guns, hearts, and fog-of-war vision.
 - **Procedurally generated terrain is available as a config option**
   (`mapPath: "pool"` draws from a curated 20-map pool, `"gen"` + `mapSeed`
   generates directly; `mapSize` / `mapSymmetry` / `mapColumns` /
-  `mapWindows` / `mapCenterFeature` lock individual draws). Generated
-  layouts keep every arena invariant — exact team symmetry (vertical mirror
-  or 180° rotation), no straight cross-field shot, corridors at least twice
-  the player footprint, a bounded cover budget — and draw their size class,
-  obstacle columns, glass placements, center feature, and med-kit pair per
-  map. The exact geometry is pinned into the match config/replay as
-  `mapSpec`. The default league map remains the hand-tuned arena described
-  above; leagues opt in through their own config.
+  `mapWindows` / `mapCenterFeature` / `mapEndzone` lock individual draws).
+  Generated layouts keep every arena invariant — exact team symmetry
+  (vertical mirror or 180° rotation), no straight cross-field shot,
+  corridors at least twice the player footprint, a bounded cover budget —
+  and draw their size class, obstacle columns, glass placements, center
+  feature, endzone archetype, and med-kit pair per map. The exact geometry
+  is pinned into the match config/replay as `mapSpec`. The default league
+  map remains the hand-tuned arena described above; leagues opt in through
+  their own config.
+- **Compact endzones** are one of those draws. Half of generated 2-team maps
+  keep the classic home column; the rest pull the base **well off its home
+  edge** and wrap it in a **disc or square endzone** (`mapEndzone`:
+  `"column"` / `"disc"` / `"square"`), which turns the whole home border
+  strip into ordinary **wilderness** — cover, glass and pits wrap all the
+  way around and behind the base. Scoring follows the shape: a carrier
+  scores by crossing the painted ring from ANY side, including from behind.
+  Such maps are validated for an OPEN FLANK — four clear cardinal approaches
+  into the ring, and a route from behind the base to midfield that never
+  enters the endzone — so a deep base cannot be defended as one front line.
 - A round ends when a team **captures the enemy heart** or is **wiped out**.
 
 ## Teams & spawns
@@ -446,7 +457,9 @@ What that means in practice:
   as the corner grenade pickups but in the BOTTOM half (three quarters of
   the map height down, between the side midpoint and the bottom corner
   grenade), nudged to the nearest walkable floor. The spray cans hold the
-  matching top-half spots.
+  matching top-half spots. On a **compact endzone** (disc/square) there is
+  no back column: the shield sits inside the zone below the pedestal and
+  the spray can above it.
 - **Touch a shield to pick it up** — either team may take either endzone's
   shield. A shield is a **3 hp armor layer on top of your base hit points**:
   damage depletes the shield layer first, and only then your base hp. A
@@ -571,6 +584,9 @@ These are starting values, exposed in the game config and tuned in self-play.
 | Trench miss chance (`TrenchMissPct`) | 70% | Incoming gun shots that fly over an occupant and carry on (same-trench shots exempt) |
 | Pit count (`mapPits`) | -1 (unset) | Generated maps: exact total pits (0..64); odd counts anchor one at map center |
 | Pit density (`mapPitDensity`) | 100 | Generated maps: percent multiplier on per-class dig chances; used when `mapPits` is unset |
+| Endzone shape (`mapEndzone`) | "" (drawn) | Generated 2-team maps: `column` (classic home strip), `disc` or `square` (compact zone around a base set back from the edge) |
+| Endzone radius (`mapEndzoneRadius`) | 0 (drawn 110-140, size-scaled) | Compact endzones only: scoring radius / half-extent in px, 90..220. Needs `mapEndzone` |
+| Base depth (`mapBaseDepth`) | 0 (drawn 520-620) | Compact endzones only: home anchor permille of the half-field, 400..800; SMALLER sets the base further from the edge. Needs `mapEndzone` |
 | Time limit (`MaxTicks`) | 5000 ticks (~3.5 min) | Round length cap before the lose-lose draw |
 | Map size | 1235×659 | Inherited from Crewrift; may change |
 

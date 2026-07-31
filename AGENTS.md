@@ -28,8 +28,14 @@ covers the workflows that are easy to get wrong.
   curated pool (`mapPoolIndex` pins an entry; otherwise the pick derives
   from the randomized game seed), `mapPath: "gen"` + `mapSeed` generates
   directly. Individual draws lock via `mapSize`, `mapSymmetry`
-  (`mirror`/`rot180`), `mapColumns`, `mapWindows`, `mapCenterFeature`.
+  (`mirror`/`rot180`), `mapColumns`, `mapWindows`, `mapCenterFeature`,
+  `mapEndzone` (+ `mapEndzoneRadius` / `mapBaseDepth`).
   Tools accept `gen:<seed>` / `pool:<idx>` map paths.
+- **Endzone archetypes** are drawn per seed from a SEPARATE RNG stream
+  (`seed xor const`) so the main draw order never shifts: a seed that lands
+  on the classic `column` generates byte-for-byte the map it always did,
+  and only `disc` / `square` seeds are new terrain. Keep that property when
+  adding draws — it is what makes an archetype addition reviewable.
 - Replays pin the resolved geometry as `mapSpec` in their config JSON —
   playback never re-runs the generator, so generator changes cannot break
   existing replays.

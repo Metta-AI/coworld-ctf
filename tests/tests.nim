@@ -5,6 +5,7 @@ import
   test_player_fog,
   test_map_los,
   test_mapgen,
+  test_endzone_shapes,
   test_movement_slide,
   test_player_collision,
   test_replay,
