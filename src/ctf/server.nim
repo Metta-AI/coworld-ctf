@@ -988,6 +988,22 @@ proc buildRewardPacket(sim: SimServer): string {.measure.} =
       result.addStatLine("deaths", identity, account.deaths)
       result.addStatLine("captures", identity, account.captures)
 
+proc declarePlayerFailure(slot: int, message: string) =
+  ## Publishes the game-declared terminal player failure the platform runner
+  ## polls for (COGAME_PLAYER_FAILURE_URI -> player_failure.json), so a lobby
+  ## no-show or mid-form drop is charged to the seat that caused it instead of
+  ## poisoning the whole episode unattributed. Best-effort: the abort that
+  ## follows must never be masked by a declaration write failure, and outside
+  ## the platform (env unset) this is a no-op.
+  try:
+    writeCogameEnv(
+      "COGAME_PLAYER_FAILURE_URI",
+      $(%*{"failed_policy_index": slot, "message": message}),
+      "application/json"
+    )
+  except CatchableError as e:
+    echo "player-failure declaration failed: ", e.msg
+
 proc runServerLoop*(
   host = DefaultHost,
   port = DefaultPort,
@@ -1096,6 +1112,8 @@ proc runServerLoop*(
     prevInputs: seq[InputState]
     liveSpeedIndex = config.liveSpeedIndex()
     gamesPlayed = 0
+    lastLobbyLeaverSlot = -1  ## last configured slot that left during Lobby;
+                              ## blamed if the mid-form drop dissolves the match.
     broadcastTracker =
       if replayLoaded: move(initializedReplay.tracker)
       else: initBroadcastTracker()
@@ -1167,6 +1185,11 @@ proc runServerLoop*(
           appState.resetRequested = false
           appState.chatMessages.clear()
         for websocket in appState.closedSockets:
+          if not replayLoaded and sim.phase == Lobby and
+              websocket in appState.playerIndices:
+            let leaverSlot = appState.playerSlots.getOrDefault(websocket, -1)
+            if leaverSlot >= 0:
+              lastLobbyLeaverSlot = leaverSlot
           if not replayLoaded and websocket in appState.playerIndices:
             let playerIndex = appState.playerIndices[websocket]
             if playerIndex >= 0 and playerIndex < sim.players.len:
@@ -1206,16 +1229,47 @@ proc runServerLoop*(
                   liveOverlays.delete(playerIndex)
             sim.removePlayer(websocket)
             socketsToClose.add(websocket)
+        if not replayLoaded and sim.lobbyJoinTimedOut():
+          # Joins are strictly slot-sequential, so the seat the lobby is stuck
+          # waiting on is exactly nextPlayerSlot(). Declare it before dying so
+          # the platform charges the no-show to that policy (player_error with
+          # failed_policy_index) instead of burning the episode timeout with
+          # every seat punished and none attributed.
+          let stuckSlot = sim.nextPlayerSlot()
+          declarePlayerFailure(
+            stuckSlot,
+            "player slot " & $stuckSlot & " never joined the lobby within " &
+              $sim.config.lobbyJoinTimeoutTicks & " lobby ticks (~" &
+              $(sim.config.lobbyJoinTimeoutTicks div TargetFps) & "s)"
+          )
+          raise newException(
+            CtfError,
+            "lobby join timeout: slot " & $stuckSlot &
+              " never joined within " & $sim.config.lobbyJoinTimeoutTicks &
+              " lobby ticks"
+          )
         if not replayLoaded and sim.shouldAbortFiniteMatch():
           # Playing/GameOver roster loss now resolves deterministically
           # inside sim.step (recorded leaves re-derive it in replays); only
           # the lobby dissolve and process exit stay live-server concerns.
           if sim.phase == Lobby:
+            if lastLobbyLeaverSlot >= 0:
+              declarePlayerFailure(
+                lastLobbyLeaverSlot,
+                "player slot " & $lastLobbyLeaverSlot &
+                  " left during the lobby start countdown and dropped the " &
+                  "finite match roster below minPlayers"
+              )
             raise newException(
               CtfError,
               "finite match roster dropped below minPlayers before roles were assigned"
             )
           quitAfterFrame = true
+        if sim.phase != Lobby:
+          # A remembered lobby leaver is only blame-worthy while THIS lobby is
+          # still forming; once a game starts (or the phase moves on) the slot
+          # may be reassigned and must not be charged for a later dissolve.
+          lastLobbyLeaverSlot = -1
 
         if not replayLoaded:
           var newSockets: seq[WebSocket] = @[]

@@ -743,6 +743,12 @@ type
     visionBubble*: int
     minPlayers*: int
     startWaitTicks*: int
+    lobbyJoinTimeoutTicks*: int  ## finite matches only: abort the lobby when
+                                 ## the roster is still short after this many
+                                 ## lobby ticks (0 = wait forever, the
+                                 ## pre-existing behavior). The clock runs on
+                                 ## lobby ticks, so board bake/setup before
+                                 ## the loop starts never eats the budget.
     gameOverTicks*: int
     maxTicks*: int
     maxGames*: int
@@ -1087,6 +1093,8 @@ type
     plasmaArcFlashes*: seq[PlasmaArcFx]
     gameStartTick*: int
     startWaitTimer*: int
+    lobbyWaitTimer*: int  ## lobby ticks spent short of minPlayers (live-server
+                          ## lobby lifecycle only: not hashed, not in replays).
     phase*: GamePhase
     asciiSprites*: PixelFont
     shoutFont*: PixelFont  ## chunky 9px grid font used only for shout bubbles.
@@ -5322,6 +5330,7 @@ proc defaultGameConfig*(): GameConfig =
     visionBubble: VisionBubble,
     minPlayers: MinPlayers,
     startWaitTicks: StartWaitTicks,
+    lobbyJoinTimeoutTicks: 0,
     gameOverTicks: GameOverTicks,
     maxTicks: MaxTicks,
     maxGames: MaxGames,
@@ -5632,6 +5641,8 @@ proc validate(config: GameConfig) =
     )
   if config.startWaitTicks < 0:
     raise newException(CtfError, "Config field startWaitTicks must be non-negative.")
+  if config.lobbyJoinTimeoutTicks < 0:
+    raise newException(CtfError, "Config field lobbyJoinTimeoutTicks must be non-negative.")
   if config.respawnTicks < 0 or config.fireCooldownTicks < 0:
     raise newException(CtfError, "Timer config fields must not be negative.")
   if config.gameOverTicks < 0 or config.maxTicks < 0 or config.maxGames < 0:
@@ -5703,6 +5714,7 @@ proc update*(config: var GameConfig, jsonText: string) =
   node.readConfigInt("minPlayers", config.minPlayers)
   node.readConfigInt("startWaitTicks", config.startWaitTicks)
   node.readConfigInt("gameStartWaitTicks", config.startWaitTicks)
+  node.readConfigInt("lobbyJoinTimeoutTicks", config.lobbyJoinTimeoutTicks)
   node.readConfigInt("gameOverTicks", config.gameOverTicks)
   node.readConfigInt("maxTicks", config.maxTicks)
   node.readConfigInt("maxGameTicks", config.maxTicks)
@@ -5808,6 +5820,7 @@ proc configJson*(config: GameConfig): string =
     "visionBubble": config.visionBubble,
     "minPlayers": config.minPlayers,
     "startWaitTicks": config.startWaitTicks,
+    "lobbyJoinTimeoutTicks": config.lobbyJoinTimeoutTicks,
     "gameOverTicks": config.gameOverTicks,
     "maxTicks": config.maxTicks,
     "maxGameTicks": config.maxTicks,
@@ -9130,6 +9143,19 @@ proc shouldAbortFiniteMatch*(sim: SimServer): bool =
     return sim.startWaitTimer > 0 and sim.players.len < sim.config.minPlayers
   sim.phase == Playing and sim.players.len == 0
 
+proc lobbyJoinTimedOut*(sim: SimServer): bool =
+  ## Returns true when a finite match waited out its lobby-join budget with
+  ## the roster still short of minPlayers. Joins are strictly slot-sequential
+  ## (`nextPlayerSlot`), so at timeout the stuck seat is exactly
+  ## `sim.nextPlayerSlot()` — the caller declares that seat's failure to the
+  ## platform (player_failure.json) so the no-show is charged to the policy
+  ## that never joined instead of poisoning the episode unattributed.
+  sim.config.maxGames > 0 and
+    sim.config.lobbyJoinTimeoutTicks > 0 and
+    sim.phase == Lobby and
+    sim.players.len < sim.config.minPlayers and
+    sim.lobbyWaitTimer >= sim.config.lobbyJoinTimeoutTicks
+
 proc eliminateTeam(sim: var SimServer, team: Team, killerIndex: int) =
   ## GV32: removes a team from play after its heart is captured — every
   ## player dies with no respawn. A heart an eliminated player was carrying
@@ -9556,6 +9582,7 @@ proc initSimServer*(config: GameConfig): SimServer =
   result.nextJoinOrder = 0
   result.gameStartTick = -1
   result.startWaitTimer = 0
+  result.lobbyWaitTimer = 0
   result.gameEventLoggingEnabled = true
   result.resetFlags()
   result.resetGrenades()
@@ -9598,6 +9625,7 @@ proc resetToLobby*(sim: var SimServer) =
   sim.nextJoinOrder = 0
   sim.gameStartTick = -1
   sim.startWaitTimer = 0
+  sim.lobbyWaitTimer = 0
   sim.timeLimitReached = false
   sim.overtimeTicks = 0
   sim.isDraw = false
@@ -9615,6 +9643,11 @@ proc stepLobby(sim: var SimServer) {.measure.} =
   ## Advances the lobby start countdown.
   if sim.players.len < sim.config.minPlayers:
     sim.startWaitTimer = 0
+    if sim.config.maxGames > 0 and sim.config.lobbyJoinTimeoutTicks > 0:
+      # Join-budget clock: only finite (league-shaped) matches, only while the
+      # roster is actually short, and only on lobby ticks — bake/setup time
+      # before the loop starts stepping never counts against the budget.
+      inc sim.lobbyWaitTimer
     sim.logLobbyWaiting()
     return
   if sim.config.startWaitTicks <= 0:

@@ -193,6 +193,12 @@
           "minimum": 0,
           "default": 120
         },
+        "lobbyJoinTimeoutTicks": {
+          "type": "integer",
+          "default": 0,
+          "minimum": 0,
+          "description": "Finite matches only: abort the lobby when the roster is still short of minPlayers after this many lobby ticks (24 ticks = 1s), declaring the stuck seat via COGAME_PLAYER_FAILURE_URI so the platform charges the no-show to that policy. 0 = wait forever (default). The clock runs on lobby ticks, so board bake time never eats the budget."
+        },
         "gameOverTicks": {
           "description": "Game over display duration in ticks.",
           "type": "integer",
@@ -521,7 +527,8 @@
         "mapPath": "gen",
         "showPlayerLabels": true,
         "teams": 2,
-        "scoring": "pot"
+        "scoring": "pot",
+        "lobbyJoinTimeoutTicks": 2880
       }
     },
     {
@@ -648,7 +655,8 @@
         "mapPath": "gen",
         "showPlayerLabels": true,
         "teams": 4,
-        "scoring": "pot"
+        "scoring": "pot",
+        "lobbyJoinTimeoutTicks": 2880
       }
     },
     {
@@ -773,7 +781,8 @@
         "maxTicks": 5000,
         "maxGames": 1,
         "mapPath": "arena",
-        "showPlayerLabels": true
+        "showPlayerLabels": true,
+        "lobbyJoinTimeoutTicks": 2880
       }
     }
   ],

@@ -8,6 +8,7 @@ import
   test_four_team,
   test_kill_badges,
   test_live_event_emission,
+  test_lobby_join_timeout,
   test_map_export,
   test_shield_bubble,
   test_shields,
