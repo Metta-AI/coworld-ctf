@@ -287,6 +287,13 @@ var
     # init marker. This bot's strategy (mirrored lanes, homeSign, the
     # Red/Blue enum) is written for 2 teams; on a 4-team map it still runs
     # its 2-team heuristics, but at least it KNOWS, and telemetry records it.
+  EndzoneMarks: seq[tuple[color, shape: string, x0, y0, x1, y1: int]]
+    # every team's stated home capture region, from the per-team
+    # `endzone <color> <shape> <x0>,<y0> <x1>,<y1>` init markers: the shape
+    # archetype and the inclusive bounding-box corners in map pixels. This
+    # bot still derives its 2-team column geometry itself (homeSign and the
+    # capture-column constants predate the marker); the stated zones are
+    # adopted for telemetry and as ground truth for anything new.
 
 type
   Team = enum
@@ -814,13 +821,47 @@ proc adoptGameParams(client: ProtocolClient) =
           discard
       break
 
+proc adoptEndzones(client: ProtocolClient) =
+  ## Reads every team's stated home capture region off the per-team init
+  ## markers `endzone <color> <shape> <x0>,<y0> <x1>,<y1>` (see
+  ## LabelPrefixEndzone). The shape token is validated against the closed
+  ## LabelEndzoneShapes vocabulary — which also skips the spectator-only
+  ## `endzone <color> power <n>` glow labels, were they ever to appear here.
+  EndzoneMarks.setLen(0)
+  for o in client.spriteObjects():
+    if not o.label.startsWith(LabelPrefixEndzone):
+      continue
+    let parts = o.label[LabelPrefixEndzone.len .. ^1].split(' ')
+    if parts.len != 4 or parts[1] notin LabelEndzoneShapes:
+      continue
+    let
+      lo = parts[2].split(',')
+      hi = parts[3].split(',')
+    if lo.len != 2 or hi.len != 2:
+      continue
+    try:
+      EndzoneMarks.add (
+        color: parts[0], shape: parts[1],
+        x0: parseInt(lo[0]), y0: parseInt(lo[1]),
+        x1: parseInt(hi[0]), y1: parseInt(hi[1])
+      )
+    except ValueError:
+      discard
+
 proc buildNavGrid(bot: Bot, client: ProtocolClient) =
   ## Erodes the pixel walkability mask into a footprint-safe nav grid, then
   ## derives the cover model (cover cells, overwatch post, defender choke).
   adoptMapSize(client)
   adoptGameParams(client)
+  adoptEndzones(client)
   artEvent(bot.tick, "game_params",
     %*{"teams": GameTeams, "mapW": MapW, "mapH": MapH})
+  block endzoneTelemetry:
+    var zones = newJArray()
+    for z in EndzoneMarks:
+      zones.add %*{"color": z.color, "shape": z.shape,
+        "x0": z.x0, "y0": z.y0, "x1": z.x1, "y1": z.y1}
+    artEvent(bot.tick, "endzones", zones)
   bot.cellWalkable = newSeq[bool](GridW * GridH)
   for cy in 0 ..< GridH:
     for cx in 0 ..< GridW:

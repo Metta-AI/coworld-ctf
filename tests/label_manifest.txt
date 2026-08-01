@@ -1,6 +1,6 @@
 # The sprite-label vocabulary the engine emits, normalized to patterns
 # (<n> a number, <color> a team/player color, <name> a slot letter, <side> a
-# facing). GENERATED — regenerate with:
+# facing, <shape> an endzone shape token). GENERATED — regenerate with:
 #   nim r -d:writeLabelManifest tests/test_label_contract.nim
 # A diff here is a change to the observation contract every policy reads.
 <color> flag
@@ -23,6 +23,7 @@ corpse <color> <side>
 damage pop <color> -<n> stage <n>
 damage pop <color> KO stage <n>
 diamond
+endzone <color> <shape> <n>,<n> <n>,<n>
 endzone <color> power <n>
 fire icon
 fire icon cooldown

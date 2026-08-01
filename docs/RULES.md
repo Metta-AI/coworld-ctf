@@ -696,6 +696,29 @@ classes and team layouts, so a policy should read this marker (or fall back to
 the walkability sprite's dimensions and counting `Room <color> Base` markers)
 instead of assuming the classic 1235x659 two-team arena.
 
+**So are the endzones.** The same init snapshot carries one invisible 1x1
+marker per team labeled `endzone <color> <shape> <x0>,<y0> <x1>,<y1>`: the
+team's home capture region stated outright. `<x0>,<y0>` / `<x1>,<y1>` are the
+INCLUSIVE top-left and bottom-right corners of the zone's bounding box in map
+pixels, and `<shape>` says how the zone fills that box:
+
+| Shape | Where | Zone membership |
+|-------|-------|-----------------|
+| `column` | 2-team sides maps (classic) | the full box |
+| `square` | 2-team compact-endzone maps | the full box |
+| `disc` | 2-team compact-endzone maps | the circle inscribed in the box (center = box center, radius = half extent); the box corners are NOT in the zone |
+| `corner` | 4-team corners maps | the L1 triangle hugging the map corner the box touches; the threshold edge is the diagonal joining the box's two corners adjacent to that map corner |
+| `arm` | 4-team plus maps | the full box |
+
+Match the prefix `endzone `; the tail splits on spaces into
+`["<color>", "<shape>", "<x0>,<y0>", "<x1>,<y1>"]`, each corner splitting once
+more on the comma. Validate `<shape>` against the five tokens above: the
+SPECTATOR stream also emits `endzone <color> power <n>` glow overlays under
+the same prefix (the player stream does not). Scoring rules are unchanged —
+these markers restate the geometry the sim already plays; before they existed
+a policy had to reconstruct it from the room markers and its own copy of the
+zone formulas.
+
 The full wire
 contract, including the CTF input-protocol extensions, is in
 [`PROTOCOL.md`](PROTOCOL.md). Labels, sprite/object ids, and layers are
