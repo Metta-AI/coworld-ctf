@@ -1,17 +1,16 @@
 ## CI shard 3 of 4. See shard_1.nim for the sharding rules.
 {.warning[UnusedImport]: off.}
 import
-  test_artlog,
-  test_board_click_select,
-  test_clock_floor,
+  test_cog_drive,
   test_ctf_game,
-  test_debug_overlay,
+  test_damage_pop,
   test_first_person_pip,
-  test_label_contract,
+  test_identity_badges,
+  test_input_buffer,
+  test_medkits,
   test_plasma_arc,
-  test_player_collision,
-  test_replay,
-  test_shot_exposure,
-  test_trenches,
-  test_weapon_observability
+  test_shield_bubble,
+  test_shot_accuracy,
+  test_shouts,
+  test_trenches
 {.warning[UnusedImport]: on.}

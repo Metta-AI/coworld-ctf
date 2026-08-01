@@ -1,8 +1,23 @@
 import
-  std/[os, sequtils, unittest],
+  std/[os, sequtils, tables, unittest],
   ctf/sim, ctf/map_pool
 
 const GameDir = currentSourcePath.parentDir.parentDir
+
+var mapCache = initTable[string, CtfMap]()
+
+proc cachedMap(seed: int,
+    overrides = MapGenOverrides(windows: -1, pits: -1, pitDensity: -1),
+    teams = 2): CtfMap =
+  ## generateCtfMap memoized per (seed, overrides, teams): generation is
+  ## deterministic (the "same seed" test pins that on every run), so the
+  ## tests that assert different properties of the SAME map share one build.
+  ## Determinism checks keep calling generateCtfMap directly — a cache hit
+  ## would make them vacuous.
+  let key = $seed & "|" & $teams & "|" & $overrides
+  if key notin mapCache:
+    mapCache[key] = generateCtfMap(seed, overrides, teams)
+  mapCache[key]
 
 proc initCtfForTest(config: GameConfig): SimServer =
   ## Initializes the CTF sim from the game directory (so data/ resolves).
@@ -33,7 +48,7 @@ suite "procedural terrain":
   test "every pool seed validates on its first attempt":
     var widths: seq[int]
     for seed in MapPoolSeeds:
-      let gameMap = generateCtfMap(seed)
+      let gameMap = cachedMap(seed)
       check gameMap.genSeed == seed
       check validateGeneratedMap(gameMap) == ""
       widths.add gameMap.width
@@ -46,7 +61,7 @@ suite "procedural terrain":
   test "obstacle union is exact under the map's symmetry":
     for seed in [MapPoolSeeds[0], MapPoolSeeds[1], 777]:
       let
-        gameMap = generateCtfMap(seed)
+        gameMap = cachedMap(seed)
         obstacles = buildArenaObstacles(gameMap)
         w = gameMap.width
         h = gameMap.height
@@ -81,7 +96,7 @@ suite "procedural terrain":
       for seed in [13, 6, 17]:
         let
           overrides = MapGenOverrides(windows: -1, layout: layout)
-          gameMap = generateCtfMap(seed, overrides, teams = 4)
+          gameMap = cachedMap(seed, overrides, teams = 4)
           again = generateCtfMap(seed, overrides, teams = 4)
           obstacles = buildArenaObstacles(gameMap)
           w = gameMap.width
@@ -120,7 +135,7 @@ suite "procedural terrain":
     for layout in ["corners", "plus"]:
       let
         overrides = MapGenOverrides(windows: -1, layout: layout)
-        gameMap = generateCtfMap(11, overrides, teams = 4)
+        gameMap = cachedMap(11, overrides, teams = 4)
         w = gameMap.width
       for team in gameMap.teams():
         ## The team one quarter turn further round the orbit.
@@ -153,7 +168,7 @@ suite "procedural terrain":
     for layout in ["corners", "plus"]:
       let
         overrides = MapGenOverrides(windows: -1, layout: layout)
-        gameMap = generateCtfMap(11, overrides, teams = 4)
+        gameMap = cachedMap(11, overrides, teams = 4)
         w = gameMap.width
       for team in gameMap.teams():
         var
@@ -179,7 +194,7 @@ suite "procedural terrain":
     for layout in ["corners", "plus"]:
       let
         overrides = MapGenOverrides(windows: -1, layout: layout)
-        gameMap = generateCtfMap(11, overrides, teams = 4)
+        gameMap = cachedMap(11, overrides, teams = 4)
         w = gameMap.width
         shields = gameMap.shieldSpawnPoints()
         cans = gameMap.plasmaArcSpawnPoints()
@@ -217,7 +232,7 @@ suite "procedural terrain":
     ## so both endzone shapes are covered here.
     for seed in [MapPoolSeeds[0], MapPoolSeeds[1], 777, 4242]:
       let
-        gameMap = generateCtfMap(seed)
+        gameMap = cachedMap(seed)
         w = gameMap.width
         h = gameMap.height
       for points in [gameMap.shieldSpawnPoints(),
@@ -234,7 +249,7 @@ suite "procedural terrain":
         check points[1].x > gameMap.center.x
 
   test "map spec JSON round-trips the exact map":
-    let gameMap = generateCtfMap(MapPoolSeeds[2])
+    let gameMap = cachedMap(MapPoolSeeds[2])
     check mapFromSpecJson(mapSpecJson(gameMap)) == gameMap
 
   test "pool config pins the expanded spec and follows its gun range":

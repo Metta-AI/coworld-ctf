@@ -1,17 +1,16 @@
 ## CI shard 2 of 4. See shard_1.nim for the sharding rules.
 {.warning[UnusedImport]: off.}
 import
-  test_damage_pop,
-  test_endzone_shapes,
+  test_blocked_damage,
   test_extract_events,
-  test_fast_mode,
   test_grenades,
-  test_input_buffer,
-  test_medkits,
+  test_lobby_join_timeout,
+  test_lull_spans,
+  test_map_export,
+  test_mapgen,
+  test_movement_slide,
+  test_player_collision,
   test_player_fog,
-  test_replay_controls,
-  test_shot_accuracy,
-  test_shouts,
   test_spinning_diamonds,
-  test_trade_pair
+  test_windows
 {.warning[UnusedImport]: on.}

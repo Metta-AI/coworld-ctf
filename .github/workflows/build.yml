@@ -18,6 +18,16 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libudev-dev libevdev-dev
       - uses: treeform/setup-nim-action@v6
       - run: nimby sync nimby.lock -g
+      # Reuse compiled C objects across runs: the release build of the deps
+      # (pixie et al.) dominates the compile step and rarely changes. The key
+      # includes the commit so every run saves a fresh cache; restore falls
+      # back to the newest cache for the same dependency lock.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/nim
+          key: nimcache-${{ runner.os }}-${{ hashFiles('nimby.lock') }}-${{ github.sha }}
+          restore-keys: |
+            nimcache-${{ runner.os }}-${{ hashFiles('nimby.lock') }}-
       - run: nim check src/ctf.nim
       - name: Compile test shards (release)
         run: |

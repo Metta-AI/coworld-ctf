@@ -4,14 +4,16 @@
 ## is also part of the full local run).
 {.warning[UnusedImport]: off.}
 import
-  test_blocked_damage,
-  test_cog_drive,
-  test_identity_badges,
+  test_artlog,
+  test_clock_floor,
+  test_fast_mode,
+  test_four_team,
   test_identity_privacy,
-  test_lull_spans,
-  test_map_los,
-  test_mapgen,
-  test_movement_slide,
+  test_kill_badges,
+  test_live_event_emission,
+  test_replay,
   test_replay_requests,
-  test_rich_events
+  test_rich_events,
+  test_sprite_collisions,
+  test_trade_pair
 {.warning[UnusedImport]: on.}

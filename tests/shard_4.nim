@@ -2,16 +2,16 @@
 {.warning[UnusedImport]: off.}
 import
   test_agent_skins,
+  test_board_click_select,
   test_broadcast_state,
   test_corpse_label,
+  test_debug_overlay,
+  test_endzone_shapes,
   test_fov,
-  test_four_team,
-  test_kill_badges,
-  test_live_event_emission,
-  test_lobby_join_timeout,
-  test_map_export,
-  test_shield_bubble,
+  test_label_contract,
+  test_map_los,
+  test_replay_controls,
   test_shields,
-  test_sprite_collisions,
-  test_windows
+  test_shot_exposure,
+  test_weapon_observability
 {.warning[UnusedImport]: on.}
