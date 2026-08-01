@@ -197,6 +197,7 @@ proc normalizeLabel(label: string): string =
   ##   team/player color token -> <color>
   ##   Greek slot name         -> <name>
   ##   " right" / " left"      -> " <side>"
+  ##   endzone shape token     -> <shape>   (endzone-marker labels only)
   ##   shout payload after ": " -> dropped (arbitrary player text)
   ## Everything else is preserved verbatim — a real rename must survive.
   var text = label
@@ -239,6 +240,19 @@ proc normalizeLabel(label: string): string =
       digitless.add(text[i])
       inc i
   text = digitless
+  # Endzone shape tokens, on endzone labels ONLY: the closed shape vocabulary
+  # normalizes to <shape> so the manifest holds one stable endzone-marker line
+  # instead of one line per shape the sweep's fixtures happen to cover (the
+  # sweeps pose column and corner maps; disc/square/arm would surface as
+  # phantom additions the first time a fixture used one). Token-wise and
+  # gated on the prefix because a blanket replace would eat the same words
+  # elsewhere — "cog arm <color>" keeps its "arm".
+  if text.startsWith(LabelPrefixEndzone):
+    var tokens = text.split(' ')
+    for i in 0 ..< tokens.len:
+      if tokens[i] in LabelEndzoneShapes:
+        tokens[i] = "<shape>"
+    text = tokens.join(" ")
   # Facing side, before the color pass: "red right" must not become
   # "<color> right" and then have "right" survive as a bare word.
   text = text.replace(" " & LabelSideRight, " <side>")
@@ -362,7 +376,7 @@ suite "sprite label contract":
     when defined(writeLabelManifest):
       var text = """# The sprite-label vocabulary the engine emits, normalized to patterns
 # (<n> a number, <color> a team/player color, <name> a slot letter, <side> a
-# facing). GENERATED — regenerate with:
+# facing, <shape> an endzone shape token). GENERATED — regenerate with:
 #   nim r -d:writeLabelManifest tests/test_label_contract.nim
 # A diff here is a change to the observation contract every policy reads.
 """
@@ -462,3 +476,57 @@ neither failure surfaces until a league round comes back wrong.
     for label in emitted:
       if label.startsWith(LabelPrefixHp):
         check label == wantHp
+
+  test "the endzone markers state each team's capture zone exactly":
+    # The vocabulary diff proves the PATTERN is emitted; this pins the VALUES:
+    # both streams must carry, for every team, the exact label labelEndzone
+    # builds from captureZone — corners and shape token alike. A marker whose
+    # numbers drift from the zone the sim actually scores in would pass the
+    # manifest check while feeding every policy wrong geometry.
+    #
+    # RAW labels on purpose (no normalizeLabel), and no sim stepping: one
+    # init-frame build per stream. The 4-team fixture runs FIRST — fixtures
+    # install their map process-wide, and every later test in this binary
+    # poses on the classic arena.
+    proc checkZones(sim: var SimServer, shape: string) =
+      var
+        gstate = initGlobalViewerState()
+        pstate: PlayerViewerState
+      for stream in [sim.buildGlobalMessages(gstate),
+                     sim.buildPlayerMessages(0, pstate)]:
+        var raw: HashSet[string]
+        for message in stream:
+          if message.kind == spkSprite:
+            raw.incl(message.sprite.label)
+        for team in sim.gameMap.teams():
+          let zone = sim.gameMap.captureZone(team)
+          check labelEndzone(
+            teamText(team), shape, zone.xLo, zone.yLo, zone.xHi, zone.yHi
+          ) in raw
+
+    proc genGame(endzone = ""; layout = ""; teams = 2): SimServer =
+      ## A minimal fixture on a generated map with the endzone archetype or
+      ## team layout locked — only the init frame matters here, so no posing.
+      var config = defaultGameConfig()
+      config.slots.setLen(6)
+      config.teams = teams
+      config.mapPath = "gen"
+      config.mapSeed = 42
+      config.mapGen.endzone = endzone
+      config.mapGen.layout = layout
+      result = initCtfForTest(config)
+      for i in 0 ..< 6:
+        discard result.addPlayer("p" & $i)
+      result.startGame()
+
+    var game4 = fullFeatureGame(teams4 = true)
+    game4.checkZones(LabelEndzoneShapeCorner)
+    var plusGame = genGame(layout = "plus", teams = 4)
+    plusGame.checkZones(LabelEndzoneShapeArm)
+    var discGame = genGame(endzone = LabelEndzoneShapeDisc)
+    discGame.checkZones(LabelEndzoneShapeDisc)
+    var squareGame = genGame(endzone = LabelEndzoneShapeSquare)
+    squareGame.checkZones(LabelEndzoneShapeSquare)
+    # The classic fixture LAST, restoring the arena for the tests that follow.
+    var game = fullFeatureGame()
+    game.checkZones(LabelEndzoneShapeColumn)

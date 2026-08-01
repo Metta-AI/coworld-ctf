@@ -128,6 +128,16 @@ const
     ## team count from counting room markers or pedestals, the map size from
     ## the walkability sprite's dimensions. Those channels still work; this
     ## label is the stated-value contract for them.
+  LabelPrefixEndzone* = "endzone "
+    ## The per-team endzone marker,
+    ## `endzone <color> <shape> <x0>,<y0> <x1>,<y1>`: an invisible 1x1 object
+    ## in the init snapshot stating one team's home capture region outright —
+    ## its shape archetype (see the LabelEndzoneShape tokens) and the
+    ## inclusive corners of its bounding box in map pixels. One marker per
+    ## team in the game. CAUTION for consumers: the broadcast/spectator
+    ## stream also carries the endzone glow overlays,
+    ## `endzone <color> power <n>` — match the third token against the shape
+    ## vocabulary (or the `power` literal) before parsing corners.
 
   # ---------------------------------------------------------------------------
   # Tokens that fill the interpolated slots above.
@@ -145,6 +155,31 @@ const
     ## Optional identity-badge suffix: the wearer carries a shield.
   LabelTokenNade* = "nade"
     ## Optional identity-badge suffix: the wearer carries a grenade.
+  LabelEndzoneShapeColumn* = "column"
+    ## Classic sides zone: the full box between the stated corners.
+  LabelEndzoneShapeSquare* = "square"
+    ## Compact anchor-centered box: the full box between the stated corners.
+  LabelEndzoneShapeDisc* = "disc"
+    ## Compact round zone: the circle INSCRIBED in the stated box (center =
+    ## box center, radius = half the box extent); the box corners themselves
+    ## are outside the zone.
+  LabelEndzoneShapeCorner* = "corner"
+    ## 4-team corners zone: the L1 triangle hugging the map corner the box
+    ## touches — its threshold edge is the diagonal joining the box's two
+    ## corners adjacent to that map corner.
+  LabelEndzoneShapeArm* = "arm"
+    ## 4-team plus-arm mouth: the full box between the stated corners.
+
+const LabelEndzoneShapes* = [
+  LabelEndzoneShapeColumn,
+  LabelEndzoneShapeSquare,
+  LabelEndzoneShapeDisc,
+  LabelEndzoneShapeCorner,
+  LabelEndzoneShapeArm,
+]
+  ## The closed shape vocabulary of the `endzone <color> <shape> ...` marker.
+  ## Consumers validate the third token against this set; the label-contract
+  ## test normalizes exactly these tokens to `<shape>`.
 
 const LabelHpBarSegments* = 3
   ## The overhead health bar's FIXED segment count — the denominator of every
@@ -217,6 +252,18 @@ proc labelGameParams*(teams, mapWidth, mapHeight: int): string =
   ## `["<count>", "map", "<width>x<height>"]` — the `map` token is fixed, and
   ## the size splits once more on the `x`.
   LabelPrefixGameParams & $teams & " map " & $mapWidth & "x" & $mapHeight
+
+proc labelEndzone*(color, shape: string; x0, y0, x1, y1: int): string =
+  ## One team's endzone marker label,
+  ## `endzone <color> <shape> <x0>,<y0> <x1>,<y1>`. A consumer matches
+  ## LabelPrefixEndzone and splits the tail on spaces into exactly
+  ## `["<color>", "<shape>", "<x0>,<y0>", "<x1>,<y1>"]`; each corner splits
+  ## once more on the comma. The corners are the INCLUSIVE bounding box of
+  ## the zone in map pixels; `shape` (a LabelEndzoneShapes token) says how
+  ## the zone fills that box — see each token's doc for the exact membership.
+  doAssert shape in LabelEndzoneShapes, "unknown endzone shape token: " & shape
+  LabelPrefixEndzone & color & " " & shape & " " &
+    $x0 & "," & $y0 & " " & $x1 & "," & $y1
 
 proc labelWeapon*(token: string): string =
   ## The own-weapon HUD label, `weapon <token>` — LabelWeaponGun or

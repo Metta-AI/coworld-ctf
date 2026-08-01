@@ -2655,6 +2655,23 @@ proc addMapMarker(
   )
   packet.addBoardObject(objectId, x, y, MapMarkerZ, MapLayerId, spriteId)
 
+proc endzoneShapeToken(gameMap: CtfMap, zone: CaptureZone): string =
+  ## Maps one team's capture zone onto the closed shape vocabulary of the
+  ## endzone marker (see LabelEndzoneShapes). The zone's own refinement flags
+  ## outrank the map fields: `disc`/`diag` say how membership is actually
+  ## tested, the layout/endzone fields only distinguish the box-filling
+  ## shapes from each other.
+  if zone.disc:
+    LabelEndzoneShapeDisc
+  elif zone.diag:
+    LabelEndzoneShapeCorner
+  elif gameMap.layout == layoutPlus:
+    LabelEndzoneShapeArm
+  elif gameMap.endzone == ezSquare:
+    LabelEndzoneShapeSquare
+  else:
+    LabelEndzoneShapeColumn
+
 proc addMapMarkers(
   sim: SimServer,
   spriteDefs: var seq[SpriteDefinition],
@@ -2663,7 +2680,9 @@ proc addMapMarkers(
   ## Adds invisible room markers for sprite agents, plus the episode-parameter
   ## marker stating the team count and map size outright (see
   ## LabelPrefixGameParams) — so a policy reads the game shape at t=0 instead
-  ## of inferring it from room markers and layer viewports.
+  ## of inferring it from room markers and layer viewports — and one endzone
+  ## marker per team stating its capture zone's shape and bounding-box
+  ## corners (see LabelPrefixEndzone).
   var index = 0
   for room in sim.rooms:
     packet.addMapMarker(
@@ -2689,6 +2708,35 @@ proc addMapMarkers(
       sim.gameMap.height
     )
   )
+  inc index
+  for team in sim.gameMap.teams():
+    let zone = sim.gameMap.captureZone(team)
+    if zone.diag:
+      ## The `corner` contract promises the threshold diagonal joins the two
+      ## box corners adjacent to the map corner — true exactly when the L1
+      ## limit was not clamped by the far map edges. HomeDepth's bounds keep
+      ## anchors well inside the clamp on every map class; hold that here so
+      ## a retune cannot silently bend the stated geometry.
+      doAssert zone.diagLimit == zone.xHi - zone.xLo and
+          zone.diagLimit == zone.yHi - zone.yLo,
+        "clamped diagonal capture zone breaks the corner-marker contract"
+    packet.addMapMarker(
+      spriteDefs,
+      index,
+      zone.xLo,
+      zone.yLo,
+      1,
+      1,
+      labelEndzone(
+        teamText(team),
+        sim.gameMap.endzoneShapeToken(zone),
+        zone.xLo,
+        zone.yLo,
+        zone.xHi,
+        zone.yHi
+      )
+    )
+    inc index
 
 proc buildFogRunSprite(widthCells: int): seq[uint8] {.measure.} =
   ## Builds one translucent dark fog run sprite covering `widthCells`
@@ -5739,7 +5787,7 @@ proc addEndzoneFadeSprite(
     strip.w,
     strip.h,
     strip.pixels,
-    "endzone " & teamText(team) & " power " & $stage,
+    LabelPrefixEndzone & teamText(team) & " power " & $stage,
     native = boardScale
   )
 
