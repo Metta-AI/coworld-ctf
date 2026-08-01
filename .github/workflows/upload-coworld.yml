@@ -1,8 +1,9 @@
 name: Upload Coworld
 
 # Builds the game and baseline-bot images via compose.yaml and
-# uploads a new ctf version to Softmax (https://softmax.com/api) on every push
-# to main. (Paintbot — the doubles variant — has its own lockstep upload in
+# uploads a new ctf version to Softmax (https://softmax.com/api) after the
+# test workflow ("Github Actions") passes on main — a red test run blocks the
+# upload. (Paintbot — the doubles variant — has its own lockstep upload in
 # upload-coworld-paintbot.yml.) The version is the HIGHEST EXISTING ctf
 # registry row with the patch bumped (tools/ci/next_coworld_version.py),
 # unless an explicit version is passed via workflow_dispatch. Do NOT use
@@ -16,7 +17,9 @@ name: Upload Coworld
 #   gh secret set SOFTMAX_TOKEN --repo Metta-AI/coworld-ctf
 
 on:
-  push:
+  workflow_run:
+    workflows: ["Github Actions"]
+    types: [completed]
     branches: [ main ]
   workflow_dispatch:
     inputs:
@@ -31,11 +34,15 @@ concurrency:
 
 jobs:
   upload:
+    # Manual dispatch always runs; workflow_run only after a green test run.
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
         with:
           path: coworld-ctf
+          # For workflow_run, build the exact SHA the tests certified.
+          ref: ${{ github.event.workflow_run.head_sha || github.ref }}
       - uses: astral-sh/setup-uv@v6
       - uses: docker/setup-buildx-action@v3
       - name: Authenticate to Softmax

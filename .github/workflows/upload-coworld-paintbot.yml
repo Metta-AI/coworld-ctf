@@ -1,7 +1,8 @@
 name: Upload Coworld Paintbot
 
 # Builds the same game/player images as upload-coworld.yml and uploads them as a
-# new paintbot version to Softmax on every push to main, keeping the Paintbot
+# new paintbot version to Softmax after the test workflow ("Github Actions")
+# passes on main — a red test run blocks the upload — keeping the Paintbot
 # league's game rules in lockstep with the singles league. The two uploads share
 # compose.yaml and differ only in the manifest template: paintbot declares the
 # doubles variants. Seating (each 8-seat parity team split between two policies,
@@ -11,7 +12,9 @@ name: Upload Coworld Paintbot
 # Auth: the same SOFTMAX_TOKEN repo secret as upload-coworld.yml.
 
 on:
-  push:
+  workflow_run:
+    workflows: ["Github Actions"]
+    types: [completed]
     branches: [ main ]
   workflow_dispatch:
     inputs:
@@ -26,11 +29,15 @@ concurrency:
 
 jobs:
   upload:
+    # Manual dispatch always runs; workflow_run only after a green test run.
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
         with:
           path: coworld-ctf
+          # For workflow_run, build the exact SHA the tests certified.
+          ref: ${{ github.event.workflow_run.head_sha || github.ref }}
       - uses: astral-sh/setup-uv@v6
       - uses: docker/setup-buildx-action@v3
       - name: Authenticate to Softmax
