@@ -2369,7 +2369,15 @@ proc selectCtfMap(gameMap: CtfMap) =
   ArenaSpinMirrored = gameMap.symmetry == symMirror
   ArenaTrenches = gameMap.trenches
 
-selectCtfMap(arenaCtfMap())
+proc installDefaultArena*() =
+  ## Installs the hand-tuned default arena into the process-wide map globals.
+  ## Stage 6 of docs/plans/2026-08-01-sim-split.md replaced the old
+  ## import-time `selectCtfMap(arenaCtfMap())` side effect with this explicit
+  ## call: constructing any sim (initSimServer -> loadCtfMap) installs its
+  ## config's map anyway, so this matters only for code that touches the
+  ## installed-map globals BEFORE building a sim (test scaffolding, tools
+  ## that query geometry standalone).
+  selectCtfMap(arenaCtfMap())
 
 proc loadCtfMapMetadata*(path = ""): CtfMap =
   ## Returns one map's metadata WITHOUT installing it as the process map.
