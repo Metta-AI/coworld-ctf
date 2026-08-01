@@ -1,13 +1,8 @@
 import
   std/[algorithm, json, math, os, random, strutils],
-  bitworld/aseprite, bitworld/pixelfonts, bitworld/profile, bitworld/spriteprotocol,
+  bitworld/pixelfonts, bitworld/profile, bitworld/spriteprotocol,
   bitworld/server,
-  jsony, pixie
-
-when not defined(emscripten):
-  import bitworld/client as bitworldClient
-
-import map_pool
+  pixie
 
 import sim_types, rig_art, arena, map_art, sim_config, sim_state, roster
 export sim_types, rig_art, arena, map_art, sim_config, sim_state, roster

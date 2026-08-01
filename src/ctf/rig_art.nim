@@ -10,7 +10,7 @@
 
 import
   std/[math, os, strutils],
-  bitworld/aseprite, bitworld/pixelfonts, bitworld/spriteprotocol,
+  bitworld/aseprite,
   pixie,
   sim_types
 

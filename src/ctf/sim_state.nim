@@ -5,8 +5,8 @@
 ## docs/plans/2026-08-01-sim-split.md; re-exported by sim.nim.
 
 import
-  std/[json, random, strutils],
-  bitworld/server, bitworld/spriteprotocol, pixie,
+  std/[random, strutils],
+  bitworld/spriteprotocol, pixie,
   sim_types, arena, map_art, sim_config
 
 proc lobbyIsStarting*(sim: SimServer): bool =

@@ -5,7 +5,7 @@
 ## docs/plans/2026-08-01-sim-split.md.
 
 import
-  std/[algorithm, math, os, random, strutils],
+  std/[algorithm, math, os],
   bitworld/aseprite, bitworld/server, bitworld/spriteprotocol, pixie,
   sim_types, rig_art, arena
 

@@ -5,8 +5,8 @@
 ## docs/plans/2026-08-01-sim-split.md; re-exported by sim.nim.
 
 import
-  std/[json, strutils],
-  sim_types, arena, sim_config, sim_state
+  std/json,
+  sim_types, sim_state
 
 proc teamForSlot*(sim: SimServer, order: int): Team =
   ## Returns the configured or default team for one slot: slots deal round

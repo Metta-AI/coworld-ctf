@@ -8,7 +8,7 @@
 ## re-exports this module, so existing consumers are unchanged.
 
 import
-  std/[algorithm, json, math, random, strutils],
+  std/[json, math, strutils],
   jsony, pixie,
   sim_types
 

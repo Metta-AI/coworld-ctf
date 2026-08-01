@@ -9,10 +9,10 @@
 ## wire format — reorder nothing without a GameVersion bump.
 
 import
-  std/[json, math, random, strutils],
-  bitworld/aseprite, bitworld/pixelfonts, bitworld/profile, bitworld/spriteprotocol,
+  std/[math, random],
+  bitworld/pixelfonts,
   bitworld/server,
-  jsony, pixie
+  pixie
 
 const
   GameName* = "ctf"
