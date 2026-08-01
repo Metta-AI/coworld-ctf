@@ -7365,6 +7365,21 @@ proc checkWinCondition*(sim: var SimServer) {.measure.} =
       sim.flags[flagTeam].carrier = -1
       sim.players[carrierIndex].carryingFlag = false
       sim.eliminateTeam(flagTeam, carrierIndex)
+  # GV33: a completely killed team's heart leaves play with it. A wiped
+  # team can never recover its heart, so it retires the moment the team is
+  # gone — even off the back of an enemy carrier, who drops it (recovering
+  # full speed and fire rate) rather than lugging an objective that can no
+  # longer score. Capture-eliminated teams take the branch above; hearts
+  # the wiped team itself was carrying already went home via killPlayer.
+  for team in sim.teams():
+    if sim.flags[team].captured or sim.teamHasLivePlayers(team):
+      continue
+    let carrier = sim.flags[team].carrier
+    if carrier >= 0:
+      sim.players[carrier].carryingFlag = false
+      sim.flags[team].carrier = -1
+    sim.flags[team].captured = true
+    sim.logGameEvent(teamText(team) & " heart retired")
   # Wipe: the game ends when at most one team still has live players — the
   # survivor wins, and a mutual wipe is a draw. A 4-team game continues
   # while two or more teams stand; a wiped team just stays out. Classic
