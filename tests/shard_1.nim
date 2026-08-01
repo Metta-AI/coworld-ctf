@@ -13,5 +13,6 @@ import
   test_mapgen,
   test_movement_slide,
   test_replay_requests,
+  test_replay_switch_caches,
   test_rich_events
 {.warning[UnusedImport]: on.}

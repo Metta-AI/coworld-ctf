@@ -2567,6 +2567,22 @@ proc addMapBands(
       spriteDefs.add def
   packet.add encoded
 
+proc invalidateBoardMapCaches*() =
+  ## Drops every process-wide cache derived from the current map's pixels.
+  ## Needed when the serve loop hot-switches replays: the new sim carries a new
+  ## map, but these globals are keyed by nothing (the band bytes) or by byte
+  ## size alone (the arena and endzone bakes), so a same-size map would keep
+  ## serving the previous arena's pixels to every new viewer. Team/skin sprite
+  ## caches are map-independent and survive.
+  boardMapCache = @[]
+  boardColdMapCache = @[]
+  EndzoneColdRgba = @[]
+  EndzoneStripCache = default(typeof(EndzoneStripCache))
+  EndzoneDiffBox = default(typeof(EndzoneDiffBox))
+  EndzoneDiffBoxReady = default(typeof(EndzoneDiffBoxReady))
+  boardMapBandsCache = @[]
+  boardMapBandsDefs = @[]
+
 proc chunkSpritePacket*(packet: seq[uint8], maxBytes: int): seq[seq[uint8]] =
   ## Splits one sprite-protocol packet into WS-frame-sized chunks at MESSAGE
   ## boundaries. The client parses each binary WS message independently and

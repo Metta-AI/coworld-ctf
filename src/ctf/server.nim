@@ -1170,6 +1170,18 @@ proc runServerLoop*(
         replayPlayer = move(initializedReplay.player)
         broadcastTracker = move(initializedReplay.tracker)
         replayLoaded = true
+        # The switched-in sim carries a new map, but the board render caches
+        # are process-wide — without this, addMapBands keeps splicing the OLD
+        # map's cached band bytes into every new viewer's init packet. Rebake
+        # before publishing the switch so the first viewer doesn't pay the
+        # supersampled bake inside the serve loop (same budget reasoning as
+        # the startup warm above).
+        invalidateBoardMapCaches()
+        block:
+          let warmStart = getMonoTime()
+          sim.warmBoardRenderCaches()
+          echo "board render caches rebaked in ",
+            (getMonoTime() - warmStart).inMilliseconds, " ms"
         {.gcsafe.}:
           withLock appState.lock:
             appState.replayLoaded = true
