@@ -119,13 +119,45 @@ proc loadReplay*(path: string): ReplayData =
   ## Loads a replay file into memory.
   replayCodec.loadReplay(path, CtfReplaySpec)
 
-proc serializeReplaySim*(sim: SimServer): string =
-  ## Serializes one simulation state for replay keyframes.
-  sim.toFlatty()
+type ReplayStaticBakes = object
+  ## The per-map render/collision bakes inside SimServer that never change
+  ## within an episode (pixels bake once at map load, masks derive from the
+  ## immutable map).
+  mapPixels, mapRgba, darkBgPixels: seq[uint8]
+  walkMask, wallMask, windowMask, fovBlocked: seq[bool]
 
-proc deserializeReplaySim*(bytes: string): SimServer =
-  ## Deserializes one simulation state from a replay keyframe.
-  bytes.fromFlatty(SimServer)
+proc swapStaticBakes(sim: var SimServer, bakes: var ReplayStaticBakes) =
+  swap(sim.mapPixels, bakes.mapPixels)
+  swap(sim.mapRgba, bakes.mapRgba)
+  swap(sim.darkBgPixels, bakes.darkBgPixels)
+  swap(sim.walkMask, bakes.walkMask)
+  swap(sim.wallMask, bakes.wallMask)
+  swap(sim.windowMask, bakes.windowMask)
+  swap(sim.fovBlocked, bakes.fovBlocked)
+
+proc serializeReplaySim*(sim: var SimServer): string =
+  ## Serializes one simulation state for replay keyframes — WITHOUT the
+  ## static map bakes, which are set aside during the flatty pass and
+  ## re-attached (`sim` reads back unchanged). The bakes are identical in
+  ## every keyframe of an episode; on a giant generated map they are ~40 MB,
+  ## and one keyframe per 100 ticks serialized them ~55x over — 2.4 GB of
+  ## duplicates that the 32-bit wasm replay viewer cannot even address
+  ## (every giant-map hosted replay died loading: "stuck warming up").
+  var bakes: ReplayStaticBakes
+  sim.swapStaticBakes(bakes)
+  result = sim.toFlatty()
+  sim.swapStaticBakes(bakes)
+
+proc deserializeReplaySim*(bytes: string, donor: var SimServer): SimServer =
+  ## Deserializes one simulation state from a replay keyframe, taking the
+  ## static map bakes from `donor` — the same episode's outgoing sim, whose
+  ## bakes are byte-identical to what serializeReplaySim stripped. MOVE
+  ## semantics: `donor` gives its bakes to the returned sim (every caller
+  ## replaces the donor with the result immediately after).
+  result = bytes.fromFlatty(SimServer)
+  var bakes: ReplayStaticBakes
+  donor.swapStaticBakes(bakes)
+  result.swapStaticBakes(bakes)
 
 proc initReplayPlayer*(data: ReplayData): ReplayPlayer =
   ## Builds replay playback state.
@@ -172,7 +204,7 @@ proc resetReplay*(replay: var ReplayPlayer) =
 
 proc saveReplayKeyframe(
   replay: ReplayPlayer,
-  sim: SimServer
+  sim: var SimServer
 ): ReplayKeyframe =
   ## Builds one replay keyframe from the current playback state.
   ReplayKeyframe(
@@ -196,10 +228,13 @@ proc restoreReplayKeyframe(
   sim: var SimServer,
   keyframe: ReplayKeyframe
 ) =
-  ## Restores playback state from one replay keyframe.
+  ## Restores playback state from one replay keyframe. The outgoing sim
+  ## donates its static map bakes to the restored one (keyframes exclude
+  ## them — see serializeReplaySim).
   let gameEventLoggingEnabled = sim.gameEventLoggingEnabled
-  sim = deserializeReplaySim(keyframe.simBytes)
-  sim.gameEventLoggingEnabled = gameEventLoggingEnabled
+  var restored = deserializeReplaySim(keyframe.simBytes, sim)
+  restored.gameEventLoggingEnabled = gameEventLoggingEnabled
+  sim = move(restored)
   replay.joinIndex = keyframe.joinIndex
   replay.leaveIndex = keyframe.leaveIndex
   replay.chatIndex = keyframe.chatIndex

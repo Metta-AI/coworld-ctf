@@ -28,6 +28,9 @@ switch("threads", "off")
 # of corrupting replay playback at a distance.
 --define:useMalloc
 
+# ENVIRONMENT includes node so CI can smoke-run the EXACT shipped bundle
+# (tools/wasm_replay_smoke.cjs) — wasm32-only failures (int overflow traps,
+# 2 GB address-space exhaustion) are invisible to the native 64-bit tests.
 switch(
   "passL",
   (&"""
@@ -36,7 +39,7 @@ switch(
   -O2
   -s ALLOW_MEMORY_GROWTH
   -s FILESYSTEM=1
-  -s ENVIRONMENT=web
+  -s ENVIRONMENT=web,node
   -s EXPORTED_RUNTIME_METHODS=HEAPU8
   -s EXPORTED_FUNCTIONS=_main,_malloc,_free,_ctf_load_replay,_ctf_frame,_ctf_input,_ctf_packet_ptr,_ctf_packet_len,_ctf_mismatch_tick,_ctf_error_ptr,_ctf_error_len
   """).replace("\n", " ")

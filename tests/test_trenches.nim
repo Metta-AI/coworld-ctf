@@ -132,6 +132,27 @@ suite "trenches":
     for i in 0 ..< edges.len:
       check trenchRoughEdge(trench, trench.x + i, trench.y) == edges[i]
 
+  test "trench edge noise survives far map coordinates and keeps its pattern":
+    # A trench parked deep in a giant/colossal map drives the noise seed to
+    # (x*8191 + y)*4 + side — tens of millions. The prime mix must run in
+    # wrapping uint64: as signed native-int math, seed * 73856093 stays legal
+    # on 64-bit but overflow-traps on the wasm32 replay viewer, which killed
+    # every map bake ("stuck warming up" on all hosted replays). These golden
+    # values pin the exact contour the original 64-bit signed math baked, so
+    # the arithmetic can never drift and desync recorded replays from the
+    # live render (values captured on the pre-fix native build).
+    let far = MapRect(x: 3100, y: 1650, w: 40, h: 28)
+    const golden = [
+      (3100, 1650, -2.6429458836),
+      (3105, 1652, 1.1066987106),
+      (3120, 1660, 10.5356984817),
+      (3139, 1677, -2.1139314870),
+      (3098, 1648, -4.8598496113),
+      (3110, 1650, 1.2175112233),
+    ]
+    for (x, y, expected) in golden:
+      check abs(trenchRoughEdge(far, x, y) - expected) < 1e-9
+
   test "climbing out of a trench is one fifth speed":
     var sim = twoTeamGame()
     let
