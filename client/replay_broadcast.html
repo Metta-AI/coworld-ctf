@@ -1190,6 +1190,7 @@ body[data-embed] #board { top: 0; height: 100%; }
 </div>
 </div>
 
+<!-- WIRE_CONSTANTS -->
 <!-- BROADCAST_CORE -->
 
 <script>
@@ -1282,8 +1283,11 @@ body[data-embed] #board { top: 0; height: 100%; }
   // darken with a source-atop ink wash so ONLY the sprite pixels dim (never the
   // floor/walls already painted behind it). Reused across draws.
   var cogScratch = document.createElement('canvas'), cogScratchCtx = null;
-  var SPEEDS = [1, 2, 3, 4, 8, 16];
-  var FPS = 24;
+  // Engine-authoritative wire constants (spliced by the server / static
+  // bundle); the literals are fallbacks for raw file:// opens only.
+  var WIRE = window.CTF_WIRE || {};
+  var SPEEDS = WIRE.speeds || [1, 2, 3, 4, 8, 16];
+  var FPS = WIRE.fps || 24;
 
   // Two independent tempo levers (§11, L20):
   //  (1) ANIM_MAX_FACTOR — chrome beat animations never play faster than this
@@ -1983,9 +1987,9 @@ body[data-embed] #board { top: 0; height: 100%; }
   // Here it's genuinely 3D: the server sends the beam as a polyline of
   // (bearing, range) samples, so the trail is projected point-by-point and
   // narrows with depth like everything else in the raycaster.
-  var SHOT_FX_TICKS = 12;    // matches sim.nim ShotFxTicks — the beam's lifetime
+  var SHOT_FX_TICKS = WIRE.shotFxTicks || 12;  // sim.nim ShotFxTicks — the beam's lifetime
   var SHOT_MISS_AGE = 4;     // a miss draws this many ticks "older" (dimmer)
-  var SHOT_TRAIL_FALLOFF = 1.6;   // trail alpha = t^this (0 muzzle -> 1 impact)
+  var SHOT_TRAIL_FALLOFF = WIRE.shotTrailFalloff || 1.6;  // trail alpha = t^this
   var SHOT_HEAD_WORLD = 11;  // world px across the leading paintball
   var SHOT_TRAIL_WORLD = 5;  // world px thick at the impact end (tapers to muzzle)
   // Beams fly at roughly chest height, a little below the eye line.

@@ -74,8 +74,11 @@ type
       ## scrubber can place its flag markers and winner cap up front instead
       ## of accumulating them as playback happens to pass each beat.
 
+# PlaybackSpeeds moved to sim.nim (the single source for every speed-coupled
+# layer); re-exported here for the existing `import replays` consumers.
+export PlaybackSpeeds
+
 const
-  PlaybackSpeeds* = [1, 2, 3, 4, 8, 16]
   ReplayKeyframeTicks* = 100
   ReplayEndHoldSeconds* = 10
     ## How long a looping replay holds on its final game-over frame (real

@@ -18,7 +18,10 @@
   // Reserved sprite id whose LABEL carries the broadcast chrome JSON on the
   // binary channel (see server: BroadcastChromeSpriteId). Kept off the drawable
   // sprite map and fed straight to onText.
-  const CHROME_SPRITE_ID = 4090;
+  // Engine-authoritative when the wire-constants block was spliced ahead of
+  // this script; the literal is the raw-file fallback.
+  const CHROME_SPRITE_ID =
+    (window.CTF_WIRE && window.CTF_WIRE.chromeSpriteId) || 4090;
 
   function readU16(bytes, offset) {
     return bytes[offset] | (bytes[offset + 1] << 8);

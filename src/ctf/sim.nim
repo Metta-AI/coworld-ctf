@@ -207,6 +207,11 @@ const
                               ## percent: 0 = a dead-stop shove, 100 = a
                               ## perfectly elastic billiard bounce.
   TargetFps* = 24
+  PlaybackSpeeds* = [1, 2, 3, 4, 8, 16]
+    ## Replay/live playback speed steps (as multiples of real time). Lives in
+    ## sim (not replays) so every layer that must agree with the top speed —
+    ## the transport keymap, global.nim's cog-drive smoothing window, the JS
+    ## clients' wire constants — derives from ONE table.
   SpaceColor* = 0'u8
   TintColor* = 3'u8
   ShadeTintColor* = 9'u8

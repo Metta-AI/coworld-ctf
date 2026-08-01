@@ -4,7 +4,7 @@ import
   bitworld/client as bitworldClient, bitworld/profile, bitworld/spriteprotocol,
   bitworld/runtime,
   curly, mummy,
-  sim, global, replays, broadcast, replay_runtime, events
+  sim, global, replays, broadcast, replay_runtime, events, wire_constants
 
 when defined(posix):
   from std/posix import SHUT_RDWR, shutdown
@@ -67,12 +67,13 @@ const
   EmbeddedBroadcastReplayHtml = staticRead("../../client/replay_broadcast.html").replace(
     "<!-- BROADCAST_CORE -->",
     "<script>" & staticRead("../../client/broadcast_core.js") & "</script>"
-  )
+  ).spliceWireConstants()
   # The League Replayer shell: a walled stone-pit viewer that EMBEDS the broadcast
   # client (via ?embed=1) as the lit pit floor and mounts the scorebug, KDA tables,
   # division standings and transport as flat panels over the dungeon walls. Served
   # at the bare replay route; embed=1 falls through to the plain broadcast client.
-  EmbeddedLeagueReplayerHtml = staticRead("../../client/league_replayer.html")
+  EmbeddedLeagueReplayerHtml =
+    staticRead("../../client/league_replayer.html").spliceWireConstants()
   # Dungeon-wall textures (nanobanana generations) served as static assets so the
   # shell HTML stays small and editable. Wide for top/bottom, tall for side walls.
   # Opaque stone, no alpha → JPEG (q82) keeps each well under any committed sprite.
@@ -118,7 +119,7 @@ const
   BroadcastFontPath = "/client/font.ttf"
   # Hosted replay closes any WS frame larger than 1 MiB (sends 1009). We chunk
   # outbound sprite packets under a margin below that so no single frame trips it.
-  MaxWsFrameBytes = 900_000
+  MaxWsFrameBytes* = 900_000
   # SpriteClientReady (0x85) and SpriteClientDebugSprite (0x86) now come from
   # bitworld/spriteprotocol: the pin carries both, and still keeps ButtonC,
   # which the grenade input bit needs.

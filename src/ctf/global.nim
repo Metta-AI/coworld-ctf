@@ -283,7 +283,8 @@ const
   MissStagePenalty = 2         ## a missed shot's comet draws this many fade
                                ## stages older: hits stay bright, misses fade.
   TrailBuckets = 6             ## along-beam opacity steps baked into the trail dots.
-  TrailFalloff = 1.6           ## trail brightness = t^this (t: 0 muzzle → 1 impact).
+  TrailFalloff* = 1.6          ## trail brightness = t^this (t: 0 muzzle → 1 impact).
+                               ## Exported for the JS wire-constants block.
   TrailMinAlpha = 0.06         ## drop trail dots fainter than this (trims the tail).
   TracerDotSpriteBase = 900    ## trail dots keyed color×stage×bucket: 900..1283.
   TracerDotObjectBase = 24000  ## tracer trail object-id pool (above the fog pool).
@@ -6063,7 +6064,9 @@ proc buildSpriteProtocolUpdates*(
   # respawn, dead) SNAPS to a fresh rest pose so a jump never inherits a stale limb
   # pose. Broadcast-only + deterministic given the recorded velocities, so playback
   # stays replay-exact.
-  const MaxSmoothStepTicks = 16   ## = the top replay playback speed.
+  const MaxSmoothStepTicks = PlaybackSpeeds[^1]
+    ## The cog-drive smoothing window follows the top playback speed by
+    ## construction (it used to be a hand-synced copy of that value).
   let neverStepped = nextState.cogDriveTick == low(int)
   let tickDelta = if neverStepped: 0 else: sim.tickCount - nextState.cogDriveTick
   if neverStepped or tickDelta != 0:

@@ -315,6 +315,7 @@
   <div id="status">connecting…</div>
 </div>
 
+<!-- WIRE_CONSTANTS -->
 <script>
 (function(){
   'use strict';
@@ -349,8 +350,11 @@
     BOARD_W = s.boardW; BOARD_H = s.boardH; BOARD_ASPECT = aspect;
     layout();
   }
-  var SPEEDS=[1,2,3,4,8,16];
-  var FPS=24;
+  // Engine-authoritative wire constants (spliced by the server / static
+  // bundle); the literals are fallbacks for raw file:// opens only.
+  var WIRE=window.CTF_WIRE||{};
+  var SPEEDS=WIRE.speeds||[1,2,3,4,8,16];
+  var FPS=WIRE.fps||24;
   var MAXLIVES=3;   // per player (3 lives each); refined up if the stream disagrees
 
   // Proxy-aware route base. Observatory serves this shell (and every /client/*
