@@ -1,4 +1,5 @@
 import
+  helpers,
   std/[os, sequtils, strutils, unittest],
   bitworld/spriteprotocol,
   ctf/[global, sim]
@@ -24,21 +25,10 @@ import
 # `buildSpriteProtocolPlayerUpdates`. Keeping the exemption ASSERTED rather than
 # merely unmentioned is what makes the player-side claim meaningful.
 
-const GameDir = currentSourcePath.parentDir.parentDir
-
 # Long, unmistakable, and sharing no substring with any label vocabulary word,
 # so a hit is a real leak and never a coincidental match on "p0" or "red".
 const SentinelAddresses = [
   "Qsentinel-alpha", "Qsentinel-bravo", "Qsentinel-charlie", "Qsentinel-delta"]
-
-proc initCtfForTest(config: GameConfig): SimServer =
-  ## Initializes the sim from the game directory (so data/ art resolves).
-  let previousDir = getCurrentDir()
-  setCurrentDir(GameDir)
-  try:
-    result = initSimServer(config)
-  finally:
-    setCurrentDir(previousDir)
 
 proc sentinelGame(): SimServer =
   ## Four sentinel-named seats piled on one spot — nothing is fogged out of any

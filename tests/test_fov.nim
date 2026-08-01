@@ -1,23 +1,8 @@
 import
-  std/[os, unittest],
+  helpers,
+  std/unittest,
   bitworld/spriteprotocol,
   ctf/sim
-
-const GameDir = currentSourcePath.parentDir.parentDir
-
-proc initCtfForTest(): SimServer =
-  ## Initializes the CTF sim from the game directory (so data/ resolves).
-  let previousDir = getCurrentDir()
-  setCurrentDir(GameDir)
-  try:
-    result = initSimServer(defaultGameConfig())
-  finally:
-    setCurrentDir(previousDir)
-
-proc fovAt(sim: SimServer, visible: seq[bool], x, y: int): bool =
-  ## Reads one map point from a computed visibility grid.
-  let (cx, cy) = fovCellAt(x, y)
-  visible[fovCellIndex(cx, cy)]
 
 suite "fog-of-war vision":
   let sim = initCtfForTest()

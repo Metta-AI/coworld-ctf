@@ -1,26 +1,8 @@
 import
-  std/[os, sequtils, strutils, tables, unittest],
+  helpers,
+  std/[sequtils, strutils, tables, unittest],
   bitworld/spriteprotocol,
-  ctf/[global, sim]
-
-const GameDir = currentSourcePath.parentDir.parentDir
-
-proc initCtfForTest(config: GameConfig): SimServer =
-  ## Initializes the CTF sim from the game directory.
-  let previousDir = getCurrentDir()
-  setCurrentDir(GameDir)
-  try:
-    result = initSimServer(config)
-  finally:
-    setCurrentDir(previousDir)
-
-proc playerMessages(
-  sim: var SimServer,
-  playerIndex: int
-): seq[SpritePacketMessage] =
-  var state, nextState: PlayerViewerState
-  sim.buildSpriteProtocolPlayerUpdates(playerIndex, state, nextState)
-    .parseSpritePacket()
+  ctf/sim
 
 proc spriteIdLabels(messages: openArray[SpritePacketMessage]): Table[int, string] =
   for m in messages:

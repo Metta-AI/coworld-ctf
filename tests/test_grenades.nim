@@ -1,33 +1,11 @@
 import
-  std/[math, os, unittest],
+  helpers,
+  std/[math, unittest],
   bitworld/spriteprotocol,
   ctf/sim
 
-const GameDir = currentSourcePath.parentDir.parentDir
-
-proc initCtfForTest(config: GameConfig): SimServer =
-  ## Initializes the CTF sim from the game directory (so data/ resolves).
-  let previousDir = getCurrentDir()
-  setCurrentDir(GameDir)
-  try:
-    result = initSimServer(config)
-  finally:
-    setCurrentDir(previousDir)
-
-proc twoTeamGame(): SimServer =
-  ## A started game with one Red player (0) and one Blue player (1).
-  result = initCtfForTest(defaultGameConfig())
-  discard result.addPlayer("red0")
-  discard result.addPlayer("blue0")
-  result.startGame()
-  result.players[0].team = Red
-  result.players[1].team = Blue
-
 proc stepWith(sim: var SimServer, inputs, prev: seq[InputState]) =
   sim.step(inputs, prev)
-
-proc none(sim: SimServer): seq[InputState] =
-  newSeq[InputState](sim.players.len)
 
 proc landGrenadeAt(sim: var SimServer, throwerIndex, tx, ty: int) =
   ## Bursts one grenade on an exact map point, bypassing aim and charge so a
@@ -40,16 +18,6 @@ proc landGrenadeAt(sim: var SimServer, throwerIndex, tx, ty: int) =
     throwerAccount: -1
   )
   let prev = sim.none()
-  sim.stepWith(sim.none(), prev)
-
-proc chargeAndThrow(sim: var SimServer, playerIndex, holdTicks: int) =
-  ## Holds C for holdTicks then releases.
-  var held = sim.none()
-  held[playerIndex].c = true
-  var prev = sim.none()
-  for _ in 0 ..< holdTicks:
-    sim.stepWith(held, prev)
-    prev = held
   sim.stepWith(sim.none(), prev)
 
 suite "grenades":

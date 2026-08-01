@@ -1,18 +1,8 @@
 import
-  std/[os, unittest],
+  helpers,
+  std/unittest,
   bitworld/spriteprotocol,
   ctf/sim
-
-const GameDir = currentSourcePath.parentDir.parentDir
-
-proc initCtfForTest(config: GameConfig): SimServer =
-  ## Initializes the CTF sim from the game directory (so data/ resolves).
-  let previousDir = getCurrentDir()
-  setCurrentDir(GameDir)
-  try:
-    result = initSimServer(config)
-  finally:
-    setCurrentDir(previousDir)
 
 proc fourTeamConfig(layout: string): GameConfig =
   result = defaultGameConfig()

@@ -1,29 +1,7 @@
 import
-  std/[os, random, unittest],
+  helpers,
+  std/[random, unittest],
   ctf/sim
-
-const GameDir = currentSourcePath.parentDir.parentDir
-
-proc initCtfForTest(): SimServer =
-  ## Initializes the CTF sim from the game directory (so data/ resolves).
-  let previousDir = getCurrentDir()
-  setCurrentDir(GameDir)
-  try:
-    result = initSimServer(defaultGameConfig())
-  finally:
-    setCurrentDir(previousDir)
-
-proc segmentBlocked(sim: SimServer, ax, ay, bx, by: int): bool =
-  ## Returns true when a wall pixel blocks the straight segment between two
-  ## map points (same stepping as the sim's line-of-sight routine).
-  let
-    dx = bx - ax
-    dy = by - ay
-    steps = max(abs(dx), abs(dy))
-  for s in 1 .. steps:
-    if sim.isWall(ax + dx * s div steps, ay + dy * s div steps):
-      return true
-  false
 
 proc isWalkable(sim: SimServer, x, y: int): bool =
   x >= 0 and y >= 0 and x < MapWidth and y < MapHeight and

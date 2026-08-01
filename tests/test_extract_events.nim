@@ -1,10 +1,10 @@
 import
+  helpers,
   std/[json, os, unittest],
   ctf/[replays, sim],
   "../tools/extract_events"
 
 const
-  GameDir = currentSourcePath.parentDir.parentDir
   # The event-substrate fixture: a full 16-bot match recorded against the
   # CURRENT gameplay rules (GameVersion 32, seed 900, lives 9:
   #   record_fixture.sh tests/replays/ctf.bitreplay 900 10000 \

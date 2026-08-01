@@ -1,27 +1,8 @@
 import
+  helpers,
   std/[algorithm, os, sequtils, strutils, tables, unittest],
   bitworld/spriteprotocol,
   ctf/[global, labels, sim]
-
-const GameDir = currentSourcePath.parentDir.parentDir
-
-proc initCtfForTest(config: GameConfig): SimServer =
-  ## Initializes the CTF sim from the game directory (so data/ resolves).
-  let previousDir = getCurrentDir()
-  setCurrentDir(GameDir)
-  try:
-    result = initSimServer(config)
-  finally:
-    setCurrentDir(previousDir)
-
-proc twoTeamGame(): SimServer =
-  ## A started game with one Red player (0) and one Blue player (1).
-  result = initCtfForTest(defaultGameConfig())
-  discard result.addPlayer("red0")
-  discard result.addPlayer("blue0")
-  result.startGame()
-  result.players[0].team = Red
-  result.players[1].team = Blue
 
 proc openGround(sim: var SimServer) =
   ## All-open floor with both players apart and at rest, so held movement
@@ -196,15 +177,6 @@ suite "shout labels name a slot letter, never the shouter's address":
   # told them exactly whose build they were playing. These tests pin the
   # anonymous per-team slot letter in BOTH streams.
 
-  proc namedGame(seats: int): SimServer =
-    ## `seats` players whose addresses are unmistakable inside a label and share
-    ## no substring with the team colors or the slot letters. Seats alternate
-    ## Red, Blue, Red, Blue... by slot order, as teamForSlot assigns them.
-    result = initCtfForTest(defaultGameConfig())
-    for i in 0 ..< seats:
-      discard result.addPlayer("policy" & $i)
-    result.startGame()
-
   proc standOn(sim: var SimServer, viewer, target: int) =
     ## Puts `viewer` on top of `target`, well inside ShoutRange.
     sim.players[viewer].x = sim.players[target].x
@@ -268,12 +240,6 @@ suite "shout bubbles keep their wire ids while other shouts churn":
   # almost every second of a talkative match. These tests pin the fix: a
   # bubble's (object id, sprite id) pair is claimed when it first draws and
   # holds until its shout dies, whatever the rest of the roster says.
-
-  proc namedGame(seats: int): SimServer =
-    result = initCtfForTest(defaultGameConfig())
-    for i in 0 ..< seats:
-      discard result.addPlayer("policy" & $i)
-    result.startGame()
 
   proc boardShoutIds(
     sim: var SimServer,
@@ -396,12 +362,6 @@ suite "board bubbles hold a wall-clock read time under compressed playback":
   # ShoutDwellFrames rendered frames of advancing playback, however many sim
   # ticks each frame swallows. Player streams are bot observations and keep
   # exact sim timing.
-
-  proc namedGame(seats: int): SimServer =
-    result = initCtfForTest(defaultGameConfig())
-    for i in 0 ..< seats:
-      discard result.addPlayer("policy" & $i)
-    result.startGame()
 
   proc boardShoutTexts(
     sim: var SimServer,

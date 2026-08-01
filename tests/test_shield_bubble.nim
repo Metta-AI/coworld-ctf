@@ -1,41 +1,12 @@
 import
-  std/[os, unittest],
+  helpers,
+  std/unittest,
   bitworld/spriteprotocol,
   ctf/[global, sim]
 
 const
-  GameDir = currentSourcePath.parentDir.parentDir
   ShieldBubbleObjectBase = 19680
   ShieldCarryObjectBase = 19620
-
-proc initCtfForTest(config: GameConfig): SimServer =
-  ## Initializes the CTF sim from the game directory.
-  let previousDir = getCurrentDir()
-  setCurrentDir(GameDir)
-  try:
-    result = initSimServer(config)
-  finally:
-    setCurrentDir(previousDir)
-
-proc buildGlobalMessages(
-  sim: var SimServer,
-  state: var GlobalViewerState
-): seq[SpritePacketMessage] =
-  ## Builds and parses one global viewer sprite packet. Renders from the game
-  ## directory so lazily-loaded sprite PNGs (hearts, shields) resolve.
-  var nextState: GlobalViewerState
-  let previousDir = getCurrentDir()
-  setCurrentDir(GameDir)
-  try:
-    result = sim.buildSpriteProtocolUpdates(state, nextState).parseSpritePacket()
-  finally:
-    setCurrentDir(previousDir)
-  state = nextState
-
-proc hasObject(messages: openArray[SpritePacketMessage], objectId: int): bool =
-  for message in messages:
-    if message.kind == spkObject and message.objectDef.id == objectId:
-      return true
 
 proc objectSpriteId(
   messages: openArray[SpritePacketMessage],

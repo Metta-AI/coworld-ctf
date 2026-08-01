@@ -1,42 +1,17 @@
 import
-  std/[json, os, sequtils, unittest],
+  helpers,
+  std/[json, sequtils, unittest],
   bitworld/spriteprotocol,
   # jsonRow lives in ctf/events, not in the tool that used to own it.
   ctf/[events, sim],
   "../tools/extract_events"
-
-const GameDir = currentSourcePath.parentDir.parentDir
-
-proc initCtfForTest(config = defaultGameConfig()): SimServer =
-  let previousDir = getCurrentDir()
-  setCurrentDir(GameDir)
-  try:
-    result = initSimServer(config)
-  finally:
-    setCurrentDir(previousDir)
-
-proc twoTeamGame(): SimServer =
-  result = initCtfForTest()
-  discard result.addPlayer("red0")
-  discard result.addPlayer("blue0")
-  result.startGame()
-  result.players[0].team = Red
-  result.players[1].team = Blue
-  result.collectEvents = true
-
-proc none(sim: SimServer): seq[InputState] =
-  newSeq[InputState](sim.players.len)
-
-proc placeAtCenter(player: var Player, x, y: int) =
-  player.x = x - CollisionW div 2
-  player.y = y - CollisionH div 2
 
 proc eventsOf(sim: SimServer, kind: SimEventKind): seq[SimEvent] =
   sim.events.filterIt(it.kind == kind)
 
 suite "rich analysis events":
   test "trigger, delayed fire, and impact share one action id and heading":
-    var game = twoTeamGame()
+    var game = twoTeamGame(collectEvents = true)
     game.players[0].placeAtCenter(60, MapHeight div 2)
     game.players[0].aimBrads = 0
     game.players[1].placeAtCenter(100, MapHeight div 2)
@@ -77,7 +52,7 @@ suite "rich analysis events":
       check impacts[0].damages[0].amount == 1
 
   test "simultaneous lethal shots retain each trigger id and locked heading":
-    var game = twoTeamGame()
+    var game = twoTeamGame(collectEvents = true)
     game.players[0].placeAtCenter(60, MapHeight div 2)
     game.players[0].aimBrads = 0
     game.players[0].hp = 1
@@ -118,7 +93,7 @@ suite "rich analysis events":
         check impact[0].damages.len == 1
 
   test "a missed shot still reports its wall or range impact":
-    var game = twoTeamGame()
+    var game = twoTeamGame(collectEvents = true)
     game.players[0].x = game.gameMap.center.x
     game.players[0].y = game.gameMap.center.y
     game.players[0].aimBrads = 64
@@ -213,7 +188,7 @@ suite "rich analysis events":
     check results["kills"][2].getInt == 0
 
   test "action ids remain unique after the lobby resets its tick and slots":
-    var game = twoTeamGame()
+    var game = twoTeamGame(collectEvents = true)
     game.players[0].placeAtCenter(60, MapHeight div 2)
     game.players[0].aimBrads = 0
     game.tryFire(0)
@@ -234,7 +209,7 @@ suite "rich analysis events":
     check secondAction != firstAction
 
   test "each active spray use reports heading and players damaged that tick":
-    var game = twoTeamGame()
+    var game = twoTeamGame(collectEvents = true)
     game.players[0].placeAtCenter(60, MapHeight div 2)
     game.players[0].aimBrads = 0
     game.players[0].hasPlasmaArc = true
@@ -256,7 +231,7 @@ suite "rich analysis events":
       check uses[0].damages[0].amount == PlasmaArcDamage
 
   test "pickups identify the item, player, and pickup location":
-    var game = twoTeamGame()
+    var game = twoTeamGame(collectEvents = true)
     game.players[0].x = game.grenadeSpawns[0].x
     game.players[0].y = game.grenadeSpawns[0].y
     game.tryPickupGrenades(0)
@@ -281,7 +256,7 @@ suite "rich analysis events":
       check pickup.x != 0 or pickup.y != 0
 
   test "shouts carry the sanitized content and shouter":
-    var game = twoTeamGame()
+    var game = twoTeamGame(collectEvents = true)
     check game.applyShout(0, " push mid ")
     let shouts = game.eventsOf(ShoutEvent)
     check shouts.len == 1
