@@ -159,8 +159,10 @@ square map:
   where it was captured. Allies do not exist: 4-team play is pure
   free-for-all, and a "2v2" is simply two policies splitting one classic
   team's seats.
-- **Seats deal round the teams** by slot order (slot mod 4), 4 players per
-  team on a 16-seat roster. Identities stay per-team (`alpha`..`delta`).
+- **Seats deal round the teams** by slot order (slot mod 4): 4 players per
+  team on a 16-seat roster, 8 per team on a 32-seat roster (the Paintbot
+  `4ffa8` variant, always on a giant generated map). Identities stay
+  per-team (`alpha`..`delta` at 4 per team, `alpha`..`theta` at 8).
 - **The last team standing wins**: the round ends when at most one team
   still has live players — so a 4-team winner either captures all three
   rival hearts or outlives the field (captures and wipes mix freely); an
