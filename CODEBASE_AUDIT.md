@@ -136,10 +136,10 @@ A schema'd semantic observation protocol (typed entities, own aim included), wit
 7. Fix the `server.nim` reset-path socket guard while consolidating the duplicated blocks.
 
 **Consolidation (pure refactors):**
-8. `tests/helpers.nim` (~600–700 lines back).
-9. `tools/toolutil.nim` + migrate the 18 tools onto `initReplayRuntime`; delete `render_plasma_frame` clone.
-10. Shared `chrome_common.js` between the two HTML chromes; generate wire constants from Nim.
-11. Make `labels.nim` the actual producer vocabulary.
+8. `tests/helpers.nim` (~600–700 lines back). — **done** (−760 lines, 44 files)
+9. `tools/toolutil.nim`; delete `render_plasma_frame` clone. — **done** (≈−200 lines, 24 tools; `initReplayRuntime` adoption deliberately rejected: it starts at the post-lobby tick and would shift every probe's tick numbering)
+10. Wire-constants single-sourcing from Nim. — *revised*: full chrome unification is **reclassified as a redesign needing product review** — a whitespace-normalized diff shows all 31 mirrored functions between `replay_broadcast.html` and `league_replayer.html` have diverged (zero byte-identical), so a shared module is a semantic reconciliation of a product surface, not an extraction.
+11. Make `labels.nim` the actual producer vocabulary. — **done** (engine + baseline bot both call the builders)
 
 **Structural (each wants its own design pass):**
 12. Split `sim.nim` along the verified seams; `arena.nim` for the map globals; hashed state as its own struct (this is also what makes fixture *regeneration* a fast deterministic CI step instead of the idle-laptop re-record ritual — 46 fixture-touching commits to date).
