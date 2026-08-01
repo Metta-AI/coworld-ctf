@@ -270,10 +270,15 @@ proc extractEvents*(data: ReplayData, captureFrames = false): ExtractResult =
     replay.looping = false
     replay.mismatchQuit = true
     # Seats join during the lobby, so the roster size comes from the config
-    # rather than from the (initially empty) player list. An open roster can
-    # seat anyone up to MaxPlayers regardless of how many slots the config
-    # lists, so the slot list is a floor on the width, never the bound.
-    let slotCount = max(sim.config.playerSlotLimit(), sim.config.slots.len)
+    # rather than from the (initially empty) player list: the configured
+    # slots (the players[] list extends them) name every seat a recorded
+    # game deals, keeping the frame width the actual roster rather than the
+    # MaxPlayers capacity bound. An unconfigured open roster has no such
+    # list and falls back to capacity. Under-sizing stays loud either way:
+    # appendFrame refuses any seat outside the width instead of dropping it.
+    var slotCount = sim.config.slots.len
+    if slotCount == 0:
+      slotCount = sim.config.playerSlotLimit()
     result.frameSlots = slotCount
     result.frameTeams = sim.config.teams
     if captureFrames:

@@ -259,7 +259,7 @@ const
                                 ## many ticks on the clock, so a timed game
                                 ## never ends mid-action.
   MaxGames* = 0  ## 0 = no limit.
-  MaxPlayers* = 16
+  MaxPlayers* = 32
   MinPlayers* = 16
 
   WinReward* = 1              ## each winner scores +1 on capture or wipe.
@@ -2901,6 +2901,7 @@ proc mapSizeScale(sizeName: string): float =
   of "large": 1.3
   of "huge": 1.8
   of "giant": 2.6
+  of "colossal": 5.2  ## override-only (not in MapSizeNames): 2x giant.
   else:
     raise newException(CtfError, "Unknown map size: " & sizeName)
 
@@ -3244,7 +3245,8 @@ proc generateMapAttempt*(
   ## classic classes keep factor 1 exactly — their bounds (and so their
   ## draws) are byte-identical to the pre-oversize generator.
   let columnScale =
-    if sizeName in ["huge", "giant"]: mapSizeScale(sizeName) else: 1.0
+    if sizeName in ["huge", "giant", "colossal"]: mapSizeScale(sizeName)
+    else: 1.0
   proc cols(value: int): int = int(round(float(value) * columnScale))
   let columnsDraw =
     if teams == 4: rng.pickRange(cols(3), cols(4))
@@ -5494,7 +5496,8 @@ proc readConfigPlayers(node: JsonNode, slots: var seq[PlayerSlotConfig]) =
   if items.len > MaxPlayers:
     raise newException(
       CtfError,
-      "Config field players cannot have more than 8 entries."
+      "Config field players cannot have more than " & $MaxPlayers &
+        " entries."
     )
   if slots.len < items.len:
     slots.setLen(items.len)

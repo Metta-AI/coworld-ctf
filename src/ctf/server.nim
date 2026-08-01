@@ -489,7 +489,7 @@ proc configuredPlayerJoinError(
   if config.playerJoinAllowed(address, slot, token):
     return ""
   if slot >= MaxPlayers:
-    return "Player slot must be between 0 and 15."
+    return "Player slot must be between 0 and " & $(MaxPlayers - 1) & "."
   if slot >= config.slots.len:
     if config.closedRoster:
       return "Player slot is outside configured roster."
