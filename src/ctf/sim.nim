@@ -191,8 +191,6 @@ const
   CollisionW* = 1
   CollisionH* = 1
   PlayerHalf* = 6             ## half-extent of the solid player footprint, in px.
-  SpriteDrawOffX* = 8
-  SpriteDrawOffY* = 8
   ## Draw offset for the soldier: place the canvas so its center lands on
   ## the player position (canvas center = the body pivot).
   SoldierDrawOff* = SoldierCanvas div 2
@@ -210,7 +208,6 @@ const
                               ## perfectly elastic billiard bounce.
   TargetFps* = 24
   SpaceColor* = 0'u8
-  MapVoidColor* = 12'u8
   TintColor* = 3'u8
   ShadeTintColor* = 9'u8
   OutlineColor* = 0'u8
@@ -420,7 +417,6 @@ const
   ShoutTicks* = 3 * ReplayFps ## a shout stays observable this long.
   ShoutCooldownTicks* = ReplayFps  ## at most one shout per second.
 
-  TextColor* = 2'u8
   TextLineHeight* = 7
   MapSpriteId* = 1
   MapObjectId* = 1
@@ -428,8 +424,6 @@ const
   MapLayerType* = 0
   ScoreboardLayerId* = 1       ## left roster panel (red; +green on 4-team maps).
   ScoreboardLayerType* = 1     ## top-left anchor.
-  ScoreboardRightLayerId* = 12 ## right roster panel (blue; +yellow on 4-team maps).
-  ScoreboardRightLayerType* = 2  ## top-right anchor.
   BottomRightLayerId* = 3
   BottomRightLayerType* = 3
   ZoomableLayerFlag* = 1
@@ -443,11 +437,8 @@ const
                               ## (820..823) and the sound/impact rings
                               ## (830/831) — same collision class as the
                               ## 2026-07-22 unit-tag/fire-icon incident.
-  SelectedTextSpriteId* = 4000
-  SelectedViewportSpriteId* = 4001
   PlayerObjectBase* = 1000
   SelectedTextObjectId* = 4000
-  SelectedViewportObjectId* = 4001
   PlayerColors* = [
     3'u8,
     7,
@@ -1211,14 +1202,6 @@ proc crewSpriteOffset*(sprite: CrewSprite, x, y: int): int =
   ## Returns the RGBA byte offset for one crew sprite pixel.
   (y * sprite.width + x) * 4
 
-proc crewPixelIsTint*(r, g, b, a: uint8): bool =
-  ## Returns true when one crew source pixel is pure tint white.
-  a >= 20'u8 and r == 255'u8 and g == 255'u8 and b == 255'u8
-
-proc crewPixelIsShade*(r, g, b, a: uint8): bool =
-  ## Returns true when one crew source pixel is the darker tint marker.
-  a >= 20'u8 and r == 0x9b'u8 and g == 0xad'u8 and b == 0xb7'u8
-
 proc crewSpriteFromImage(image: Image, index, row: int): CrewSprite =
   ## Extracts one raw 16x16 crew sprite from one sheet row.
   result = CrewSprite(
@@ -1526,7 +1509,6 @@ type
     rsWheelL, rsWheelR, rsWheelRear
 
 const
-  RigSegCount* = 9
   RigCanvas* = 96             ## px square rig segment canvas at 1x (fits the
                               ## swung legs + castered wheels + reaching arms).
   # Anchors in 192px master-frame space (scripts/art/build_cvc_rig.py anchors.json).
@@ -1962,13 +1944,6 @@ proc clampBaseHeading*(headingBrads, aimBrads: int): int =
   let d = clamp(bradDiff(headingBrads, aimBrads),
     -RigBaseMaxDivergeBrads, RigBaseMaxDivergeBrads)
   ((aimBrads + d) mod AimBradsTurn + AimBradsTurn) mod AimBradsTurn
-
-proc crewVariantIndex*(slotId: int): int =
-  ## Returns the crew sprite variant for one player slot.
-  if CrewSpriteVariants <= 0:
-    return 0
-  ((slotId mod CrewSpriteVariants) + CrewSpriteVariants) mod
-    CrewSpriteVariants
 
 proc validateMapRect(name: string, rect: MapRect, width, height: int) =
   ## Raises if one map rectangle is outside the map.
@@ -5291,29 +5266,6 @@ proc loadDarkBgPixels*(): seq[uint8] =
       result[y * ScreenWidth + x] =
         if color == TransparentColorIndex: SpaceColor else: color
 
-proc asciiIndex*(ch: char): int =
-  ## Returns the ASCII sheet index for a character.
-  ord(ch) - ord(' ')
-
-proc blitAsciiText*(
-  fb: var Framebuffer,
-  asciiSprites: PixelFont,
-  text: string,
-  screenX, screenY: int
-) =
-  ## Draws text using the CTF tiny UI font.
-  fb.drawText(asciiSprites, text, screenX, screenY, TextColor)
-
-proc blitCenteredAsciiText*(
-  fb: var Framebuffer,
-  asciiSprites: PixelFont,
-  text: string,
-  screenY: int
-) =
-  ## Draws centered text using the CTF tiny UI font.
-  let screenX = (ScreenWidth - asciiSprites.textWidth(text)) div 2
-  fb.blitAsciiText(asciiSprites, text, screenX, screenY)
-
 proc defaultGameConfig*(): GameConfig =
   ## Returns the default CTF gameplay config.
   GameConfig(
@@ -6416,11 +6368,6 @@ proc shoutIdentityName*(sim: SimServer, shout: Shout): string =
     if player.address == shout.address:
       return IdentityNames[sim.slotIdentityIndex(player.joinOrder)]
   IdentityNameUnknown
-
-proc findSpawn*(sim: SimServer): tuple[x, y: int] =
-  ## Returns the next lobby spawn position.
-  let order = sim.players.len
-  sim.spawnPosition(sim.teamForSlot(order), order div sim.gameMap.teamCount())
 
 proc playerSlotLimit*(config: GameConfig): int =
   ## Returns the number of slots players may occupy.

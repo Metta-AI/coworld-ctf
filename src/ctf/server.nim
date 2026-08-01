@@ -95,11 +95,6 @@ const
   # armed cog; the empty-handed masters cover the unarmed read. One entry per
   # team x {top-down, front, front_gun}, served by path lookup.
   SoldierArtAssets = [
-    ("/client/soldier_red.png", staticRead("../../data/soldier_red.png")),
-    ("/client/soldier_blue.png", staticRead("../../data/soldier_blue.png")),
-    ("/client/soldier_green.png", staticRead("../../data/soldier_green.png")),
-    ("/client/soldier_yellow.png",
-      staticRead("../../data/soldier_yellow.png")),
     ("/client/soldier_red_front.png",
       staticRead("../../data/soldier_red_front.png")),
     ("/client/soldier_blue_front.png",
@@ -689,8 +684,8 @@ proc httpHandler(request: Request) =
           break
       hit):
     # Cog art for the EYES PiP billboards (static PNG assets): the _front
-    # eye-level masters the billboard blits, plus the top-down board masters
-    # kept as its fallback.
+    # eye-level masters the billboard blits (with and without the gun); a
+    # missing master falls back to the procedural chassis client-side.
     var artHeaders: HttpHeaders
     artHeaders["Content-Type"] = "image/png"
     artHeaders["Cache-Control"] = "public, max-age=3600"

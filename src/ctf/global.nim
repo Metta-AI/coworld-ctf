@@ -558,7 +558,6 @@ type
     scrubbingReplay*: bool
     replaySeekTick*: int
     replayCommands*: seq[char]
-    broadcastHud*: bool          ## viewer opted into the JSON chrome channel.
     momentumSent*: bool          ## full lives-lead series already sent to this viewer.
     fpMapSent*: bool             ## static minimap wall silhouette already sent (EYES PiP tactical map).
     povSelectPending*: int       ## POV slot requested by a `v:<slot>` command.
@@ -911,36 +910,6 @@ proc putRawRgbaPixel(
   pixels[offset + 2] = b
   pixels[offset + 3] = a
 
-proc crewSpriteIsSolid(sprite: CrewSprite, x, y: int, flipH: bool): bool =
-  ## Returns true when one crew sprite pixel has visible alpha.
-  let srcX = if flipH: sprite.width - 1 - x else: x
-  if srcX < 0 or srcX >= sprite.width or y < 0 or y >= sprite.height:
-    return false
-  sprite.rgba[sprite.crewSpriteOffset(srcX, y) + 3] >= 20'u8
-
-proc putCrewPixel(
-  pixels: var seq[uint8],
-  pixelIndex: int,
-  sprite: CrewSprite,
-  x, y: int,
-  tint: uint8
-) =
-  ## Writes one selectively tinted true-color crew pixel.
-  let
-    sourceOffset = sprite.crewSpriteOffset(x, y)
-    r = sprite.rgba[sourceOffset]
-    g = sprite.rgba[sourceOffset + 1]
-    b = sprite.rgba[sourceOffset + 2]
-    a = sprite.rgba[sourceOffset + 3]
-  if a < 20'u8:
-    return
-  if crewPixelIsTint(r, g, b, a):
-    pixels.putRgbaPixel(pixelIndex, tint)
-  elif crewPixelIsShade(r, g, b, a):
-    pixels.putRgbaPixel(pixelIndex, ShadowMap[tint and 0x0f])
-  else:
-    pixels.putRawRgbaPixel(pixelIndex, r, g, b, a)
-
 proc transportSheet(): Sprite =
   ## Returns the cached transport icon sheet.
   if TransportSheet.width == 0:
@@ -959,10 +928,6 @@ proc playerColorName(index: int): string =
   if index >= 0 and index < PlayerColorNames.len:
     return PlayerColorNames[index]
   "unknown"
-
-proc crewSpriteForSlot(sim: SimServer, slotId: int): CrewSprite =
-  ## Returns the crew sprite assigned to one player slot.
-  sim.crewSprites[crewVariantIndex(slotId)]
 
 const SoldierSkinSpriteStride = 4 * SoldierRotations
   ## One rotation set per Team enum member (4), per skin — red/blue default-
@@ -1242,12 +1207,7 @@ proc applyGlobalViewerMessage*(
       # Whole-string ctf-side commands are intercepted before the legacy
       # char-by-char transport path, so a multi-digit tick or slot is never
       # mangled into speed keystrokes.
-      if item.text == "hud:on":
-        state.broadcastHud = true
-      elif item.text == "hud:off":
-        state.broadcastHud = false
-        state.momentumSent = false
-      elif item.text.startsWith("s:"):
+      if item.text.startsWith("s:"):
         let tick = try: parseInt(item.text[2 .. ^1]) except ValueError: -1
         if tick >= 0:
           state.replaySeekTick = tick
@@ -1282,92 +1242,6 @@ proc applyPlayerViewerMessage*(
     of SpriteClientMouseMoveMessage, SpriteClientMouseButtonMessage,
         SpriteClientReadyMessage:
       discard
-
-proc isSolid(sprite: Sprite, x, y: int, flipH: bool): bool =
-  let srcX = if flipH: sprite.width - 1 - x else: x
-  if srcX < 0 or srcX >= sprite.width or y < 0 or y >= sprite.height:
-    return false
-  sprite.pixels[sprite.spriteIndex(srcX, y)] != TransparentColorIndex
-
-proc buildSpriteProtocolActorSprite(
-  sprite: Sprite,
-  tint: uint8,
-  flipH: bool,
-  selected: bool = false
-): seq[uint8] {.measure.} =
-  ## Builds a tinted actor sprite for the global viewer.
-  let
-    outWidth = sprite.width + 2
-    outHeight = sprite.height + 2
-    outline = if selected: 8'u8 else: OutlineColor
-  result = newRgbaPixels(outWidth, outHeight)
-
-  proc outIndex(x, y: int): int =
-    y * outWidth + x
-
-  if selected:
-    for y in -1 .. sprite.height:
-      for x in -1 .. sprite.width:
-        if sprite.isSolid(x, y, flipH):
-          continue
-        let adjacent =
-          sprite.isSolid(x - 1, y, flipH) or
-          sprite.isSolid(x + 1, y, flipH) or
-          sprite.isSolid(x, y - 1, flipH) or
-          sprite.isSolid(x, y + 1, flipH)
-        if adjacent:
-          result.putRgbaPixel(outIndex(x + 1, y + 1), outline)
-
-  for y in 0 ..< sprite.height:
-    for x in 0 ..< sprite.width:
-      let srcX = if flipH: sprite.width - 1 - x else: x
-      let colorIndex = sprite.pixels[sprite.spriteIndex(srcX, y)]
-      if colorIndex == TransparentColorIndex:
-        continue
-      result.putRgbaPixel(
-        outIndex(x + 1, y + 1),
-        actorColor(colorIndex, tint)
-      )
-
-proc buildCrewProtocolActorSprite(
-  sprite: CrewSprite,
-  tint: uint8,
-  flipH: bool,
-  selected: bool = false
-): seq[uint8] {.measure.} =
-  ## Builds a selectively tinted true-color crew sprite.
-  let
-    outWidth = sprite.width + 2
-    outHeight = sprite.height + 2
-    outline = if selected: 8'u8 else: OutlineColor
-  result = newRgbaPixels(outWidth, outHeight)
-
-  proc outIndex(x, y: int): int =
-    y * outWidth + x
-
-  if selected:
-    for y in -1 .. sprite.height:
-      for x in -1 .. sprite.width:
-        if sprite.crewSpriteIsSolid(x, y, flipH):
-          continue
-        let adjacent =
-          sprite.crewSpriteIsSolid(x - 1, y, flipH) or
-          sprite.crewSpriteIsSolid(x + 1, y, flipH) or
-          sprite.crewSpriteIsSolid(x, y - 1, flipH) or
-          sprite.crewSpriteIsSolid(x, y + 1, flipH)
-        if adjacent:
-          result.putRgbaPixel(outIndex(x + 1, y + 1), outline)
-
-  for y in 0 ..< sprite.height:
-    for x in 0 ..< sprite.width:
-      let srcX = if flipH: sprite.width - 1 - x else: x
-      result.putCrewPixel(
-        outIndex(x + 1, y + 1),
-        sprite,
-        srcX,
-        y,
-        tint
-      )
 
 proc buildSpriteProtocolRawSprite(sprite: Sprite): seq[uint8] {.measure.} =
   ## Builds a raw global protocol sprite from a game sprite.
@@ -3871,17 +3745,6 @@ proc overheadAnchorY(player: Player): int =
   ## Y of the soldier body's top edge — the anchor for stacking overhead UI
   ## (HP bar, name, shout) just above the helmet, independent of canvas size.
   player.y + CollisionH div 2 - SoldierBodyPx div 2
-
-proc spriteActorSpriteId(player: Player, selectedJoinOrder: int): int =
-  ## Returns the sprite id for a player in the global viewer: the team soldier
-  ## pre-rotated to the player's aim angle (the held gun sweeps with the aim).
-  let
-    rot = soldierRotIndex(player.aimBrads)
-    selected = player.joinOrder == selectedJoinOrder
-  if selected:
-    selectedSoldierPlayerSpriteId(player.team, player.skin, rot)
-  else:
-    soldierPlayerSpriteId(player.team, player.skin, rot)
 
 proc selectSpritePlayer(
   sim: SimServer,
