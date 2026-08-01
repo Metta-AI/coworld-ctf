@@ -3279,7 +3279,7 @@ proc buildFlagAuraSprite(team: Team): seq[uint8] {.measure.} =
 
 proc flagLabel(team: Team): string =
   ## Returns the observation label for one team's flag sprite.
-  teamText(team) & " flag"
+  labelFlag(teamText(team))
 
 proc carryHeartSpriteId(team: Team, aimStep: int): int =
   ## The carried-heart sprite id at aim step `aimStep` (cradled in the rig cog's
@@ -3310,7 +3310,7 @@ proc addFlagSprites(
       PlantedFlagW,
       PlantedFlagH,
       buildPlantedFlagSprite(team),
-      flagLabel(team) & " planted",
+      labelFlagPlanted(teamText(team)),
       native = boardScale
     )
     packet.addBoardSpriteChanged(
@@ -3403,7 +3403,7 @@ proc addPlayerActorSprites(
           # Raster natively at the emission scale: the ~120px painted masters
           # carry real detail the 1× 34px body footprint throws away.
           pixels = soldierRotPixels(team, skin, rot, boardScale)
-          side = if soldierFacingRight(rot): " right" else: " left"
+          side = if soldierFacingRight(rot): LabelSideRight else: LabelSideLeft
         # The HD sprite keeps its full 16-step rotation for the VISUAL; the label
         # stays the documented `player <color> <side>` (RULES.md) so exact-match
         # label readers keep working. Distinct sprite ids may share a side label
@@ -3414,7 +3414,7 @@ proc addPlayerActorSprites(
           SoldierCanvas,
           SoldierCanvas,
           pixels,
-          "player " & color & side,
+          labelPlayer(color, side),
           native = boardScale
         )
         # Corpse and selection variants derive from the same rendered pixels.
@@ -3424,7 +3424,7 @@ proc addPlayerActorSprites(
           SoldierCanvas,
           SoldierCanvas,
           soldierCorpse(pixels),
-          "corpse " & color & side,
+          labelCorpse(color, side),
           native = boardScale
         )
         if selected:
@@ -3434,7 +3434,7 @@ proc addPlayerActorSprites(
             SoldierCanvas,
             SoldierCanvas,
             soldierOutlined(pixels, 8'u8, boardScale),
-            "selected player " & color & side,
+            labelSelectedPlayer(color, side),
             native = boardScale
           )
 
@@ -3529,7 +3529,7 @@ proc buildSpriteProtocolPlayerInit(
     sim.flagSprite.width,
     sim.flagSprite.height,
     buildSpriteProtocolShadowSprite(sim.flagSprite),
-    "fire icon cooldown"
+    LabelFireIconCooldown
   )
   sim.addSpriteProtocolInterstitialSprites(spriteDefs, result)
   sim.addPlayerActorSprites(spriteDefs, result, selected = false)
@@ -3988,7 +3988,7 @@ proc addShotImpactRings(
       SoundRingSize,
       SoundRingSize,
       buildShotImpactSprite(),
-      "shot impact"
+      LabelShotImpact
     )
     let
       (ix, iy) = shotImpactOffset(shot)
@@ -4530,7 +4530,7 @@ proc addGrenades(
         packet.addBoardSpriteChanged(
           spriteDefs, spriteId, size, size,
           buildBlastSprite(colorIndex, stage, size),
-          "blast stage " & $stage
+          LabelBlastStagePrefix & $stage
         )
       let objectId = BlastObjectBase + i
       currentIds.add(objectId)
@@ -4826,7 +4826,7 @@ proc addHpPips(
       HpBarWidth,
       HpBarH,
       buildHpBarSprite(litSegments),
-      "hp " & $litSegments & "/" & $HpBarSegments
+      labelHp(litSegments)
     )
     let objectId = HpPipObjectBase + i
     currentIds.add(objectId)
@@ -4870,15 +4870,16 @@ proc addIdentityBadges(
       identityIndex = sim.slotIdentityIndex(player.joinOrder)
       spriteId = IdentityBadgeSpriteBase +
         ord(player.team) * IdentityNames.len + identityIndex
-    var label = "identity " & teamText(player.team) & " " &
-      IdentityNames[identityIndex]
-    if player.hasShield: label.add " shield"
-    if player.hasGrenade: label.add " nade"
-    # The weapon token is always LAST and always present, so observers never
-    # infer a weapon from absence: " spray" for the spray can (0.7.x renamed
-    # the plasma arc, whose token was " arc"), " gun" for the default gun.
-    if player.hasPlasmaArc: label.add " spray"
-    else: label.add " gun"
+    # labelIdentity owns the ordering invariant (flags in fixed order, weapon
+    # token always LAST and always present, so observers never infer a weapon
+    # from absence).
+    let label = labelIdentity(
+      teamText(player.team),
+      IdentityNames[identityIndex],
+      shield = player.hasShield,
+      nade = player.hasGrenade,
+      weapon = (if player.hasPlasmaArc: LabelWeaponSpray else: LabelWeaponGun)
+    )
     packet.addBoardSpriteChanged(
       spriteDefs,
       spriteId,
@@ -5235,8 +5236,9 @@ proc buildSpriteProtocolPlayerUpdates*(
           soldierOutlined(soldierRotPixels(other.team, other.skin, rot), 2'u8),
           # Documented self marker (RULES.md): `self <color> <side>`, only drawn
           # while alive. Side follows the aim exactly as the sim's flipH does.
-          "self " & teamText(other.team) &
-            (if soldierFacingRight(rot): " right" else: " left")
+          labelSelf(
+            teamText(other.team),
+            if soldierFacingRight(rot): LabelSideRight else: LabelSideLeft)
         )
       let objectId = other.spriteObjectId()
       currentIds.add(objectId)
@@ -5351,7 +5353,7 @@ proc buildSpriteProtocolPlayerUpdates*(
       lives.width,
       lives.height,
       lives.pixels,
-      "lives " & livesText
+      LabelPrefixLives & livesText
     )
     result.addBoardObject(
       SelectedTextObjectId,
@@ -5367,7 +5369,7 @@ proc buildSpriteProtocolPlayerUpdates*(
     # weapon from floating markers gets it wrong at the worst moments. The
     # label is the machine contract ("weapon gun" | "weapon spray").
     let
-      weaponText = if player.hasPlasmaArc: "spray" else: "gun"
+      weaponText = if player.hasPlasmaArc: LabelWeaponSpray else: LabelWeaponGun
       weapon = sim.buildSpriteProtocolTextSprite([weaponText], 2'u8)
     currentIds.add(SpritePlayerWeaponObjectId)
     result.addSpriteChanged(
@@ -5376,7 +5378,7 @@ proc buildSpriteProtocolPlayerUpdates*(
       weapon.width,
       weapon.height,
       weapon.pixels,
-      "weapon " & weaponText
+      labelWeapon(weaponText)
     )
     result.addBoardObject(
       SpritePlayerWeaponObjectId,
@@ -5731,7 +5733,7 @@ proc rigSegLabel(seg: RigSeg, color: string): string =
   ## The `player <color>` contract label rides on the HEAD segment (the aim-facing
   ## piece a label scanner reads as the actor); limbs get plain tags.
   case seg
-  of rsHead: "player " & color
+  of rsHead: LabelPrefixPlayer & color
   of rsArmL, rsArmR: "cog arm " & color
   of rsLegFL, rsLegFR, rsLegRear: "cog leg " & color
   else: "cog wheel " & color
@@ -5854,7 +5856,7 @@ proc addCogRigObjects(
       spriteDefs, weaponSpriteId, RigCanvas, RigCanvas,
       (if holdsSpray: rigSprayCanPixels(player.team, aimStep, boardScale)
        else: rigGunPixels(player.team, aimStep, boardScale)),
-      (if holdsSpray: "cog spray can " else: "cog gun ") & color,
+      labelCogWeapon(color, spray = holdsSpray),
       native = boardScale)
   let weaponObjectId = RigGunObjectBase + base
   currentIds.add(weaponObjectId)
