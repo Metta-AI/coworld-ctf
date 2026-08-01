@@ -7,7 +7,7 @@
 import
   std/[random, strutils],
   bitworld/spriteprotocol, pixie,
-  sim_types, arena, map_art, sim_config
+  sim_types, arena, sim_config
 
 proc lobbyIsStarting*(sim: SimServer): bool =
   ## Returns whether the lobby is in the start countdown.

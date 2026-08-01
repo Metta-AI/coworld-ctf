@@ -1,8 +1,10 @@
-## The sim's shared vocabulary: every exported constant (including
-## GameVersion and its changelog), every type, and the process-wide map
-## dimension globals — split out of sim.nim (stage 1 of
-## docs/plans/2026-08-01-sim-split.md) so the coming leaf modules (arena,
-## mapgen, art, config, roster) can share them without importing gameplay.
+## The sim's shared vocabulary: the core constants (including GameVersion
+## and its changelog), the gameplay/wire types, the process-wide map
+## dimension globals, and the pure helpers both sides of every seam need —
+## split out of sim.nim (docs/plans/2026-08-01-sim-split.md) so the leaf
+## modules (rig_art, arena, map_art, sim_config, sim_state, roster) share
+## them without importing gameplay. Leaf modules may declare their own
+## section-local consts/types; anything two modules need lives here.
 ##
 ## MOVED VERBATIM from sim.nim: SimServer and friends are flatty-serialized
 ## POSITIONALLY into replay keyframes, so declaration/field order here is
@@ -1133,7 +1135,26 @@ type
     lastLobbySecondsLogged*: int
 
 
+# Team endzone display colors (shared by the map bake and the paint FX).
+const
+  RedEndzoneColor* = rgba(224, 82, 58, 255)    ## team vermillion (§4).
+  BlueEndzoneColor* = rgba(63, 124, 196, 255)  ## team cerulean (§4).
+  GreenEndzoneColor* = rgba(69, 168, 94, 255)  ## matches the viewer --green.
+  YellowEndzoneColor* = rgba(221, 197, 49, 255)  ## matches the viewer --yellow.
+    ## Exported as THE team display colors. The 16-entry `Palette` a sprite's
+    ## `color: uint8` indexes is the retro engine palette, and its blue slot
+    ## (BlueTeamColor = 13) is a muted lavender (131,118,156) that reads nothing
+    ## like the vivid cerulean the soldier art (116,168,255) and the endzone
+    ## floor actually show. Any NEW team-colored art should tint from these four
+    ## so it matches what a viewer sees on the board.
+
 # Pure aim-angle math (needed on both sides of the art/gameplay split).
+proc distSq*(ax, ay, bx, by: int): int =
+  let
+    dx = ax - bx
+    dy = ay - by
+  dx * dx + dy * dy
+
 proc aimVector*(brads: int): tuple[x, y: float] =
   ## Returns the unit vector for one aim angle in brads (256 per turn):
   ## 0 points east (+x) and the angle increases counter-clockwise on screen,

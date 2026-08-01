@@ -2607,12 +2607,34 @@ proc shapeWallAtF*(x, y: float, shape: ArenaShape, cx, cy: int): bool =
   ## applied, matching what the integer wall mask keeps of that shape.
   inShapeF(x, y, shape) and not isProtectedFloorF(x, y, cx, cy)
 
-proc overTint*(base, tint: ColorRGBA): ColorRGBA =
-  ## Alpha-composites a translucent tint over an opaque base color.
-  let a = tint.a.int
-  rgba(
-    uint8((base.r.int * (255 - a) + tint.r.int * a) div 255),
-    uint8((base.g.int * (255 - a) + tint.g.int * a) div 255),
-    uint8((base.b.int * (255 - a) + tint.b.int * a) div 255),
-    255
-  )
+proc diamondSpinFrame*(
+  cx, tick: int, mirrored = ArenaSpinMirrored, width = MapWidth
+): int {.inline.} =
+  ## The spin frame of the diamond centered at map-x `cx` on one tick. The
+  ## frame derives only from the tick, so the renderer, the collision masks,
+  ## and every replay viewer read the SAME angle. Single source of truth.
+  ##
+  ## Direction has to follow the map's symmetry or the live footprint stops
+  ## being symmetric even though the resting one is. A REFLECTION maps a
+  ## rotation by +theta to one by -theta, so mirror-image diamonds must spin
+  ## in OPPOSITE directions — the classic arena's two halves. A ROTATION
+  ## commutes with rotation, so rot180 and rot90 image diamonds must spin the
+  ## SAME way; giving them opposite directions (which the side-of-the-map rule
+  ## does, since both symmetries move a diamond across the axis) makes the two
+  ## halves of a rot180 map differ. On rotationally symmetric maps every
+  ## diamond therefore turns together.
+  ##
+  ## `mirrored` / `width` default to the installed map, which is what every
+  ## production caller wants; passing them explicitly lets the rule be checked
+  ## against a map that is not the process map.
+  let dir = if mirrored and 2 * cx >= width - 1: -1 else: 1
+  diamondFrameIndex((tick div DiamondSpinTicksPerFrame) * dir)
+
+proc animatedDiamondCovers*(
+  spot: tuple[cx, cy, radius: int], frame, x, y: int
+): bool {.inline.} =
+  ## True when map pixel (x, y) is stone in one spinning diamond at `frame`.
+  rotatedDiamondCovers(
+    spot.radius, frame, 2 * (x - spot.cx), 2 * (y - spot.cy), 2)
+
+

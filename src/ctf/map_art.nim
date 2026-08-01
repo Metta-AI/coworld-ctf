@@ -1,11 +1,11 @@
 ## The map ART bake: trench-edge noise art, rooftop/glass materials, the
 ## supersampled arena RGBA pair (renderArenaRgbaPair), layer loading
 ## (loadMapLayers) and the dark background. Consumed by global.nim and the
-## endzone bake tool; nothing here is in gameHash. Stage 3/4 of
+## endzone bake tool; nothing here is in gameHash. Stage 3 of
 ## docs/plans/2026-08-01-sim-split.md.
 
 import
-  std/[algorithm, math, os],
+  std/[math, os],
   bitworld/aseprite, bitworld/server, bitworld/spriteprotocol, pixie,
   sim_types, rig_art, arena
 
@@ -29,6 +29,17 @@ const
                                              ## gameplay square the dug art
                                              ## may reach; must stay >=
                                              ## WaveAmp + ChipAmp.
+
+proc overTint(base, tint: ColorRGBA): ColorRGBA =
+  ## Alpha-composites a translucent tint over an opaque base color.
+  ## (Moved from arena.nim in the round-2 audit: pure color math, art-only.)
+  let a = tint.a.int
+  rgba(
+    uint8((base.r.int * (255 - a) + tint.r.int * a) div 255),
+    uint8((base.g.int * (255 - a) + tint.g.int * a) div 255),
+    uint8((base.b.int * (255 - a) + tint.b.int * a) div 255),
+    255
+  )
 
 proc trenchEdgeNoise(seed, knot, salt: int): float =
   ## Deterministic hash noise in [-1, 1]: a pure function of its inputs (no
@@ -307,36 +318,6 @@ proc windowGlassColor(wall: seq[bool], w, h, x, y: int): ColorRGBA =
   ## 1× glass (the baked collision-resolution map the players observe).
   windowGlassColorAt(wall, w, h, x, y, 1)
 
-proc diamondSpinFrame*(
-  cx, tick: int, mirrored = ArenaSpinMirrored, width = MapWidth
-): int {.inline.} =
-  ## The spin frame of the diamond centered at map-x `cx` on one tick. The
-  ## frame derives only from the tick, so the renderer, the collision masks,
-  ## and every replay viewer read the SAME angle. Single source of truth.
-  ##
-  ## Direction has to follow the map's symmetry or the live footprint stops
-  ## being symmetric even though the resting one is. A REFLECTION maps a
-  ## rotation by +theta to one by -theta, so mirror-image diamonds must spin
-  ## in OPPOSITE directions — the classic arena's two halves. A ROTATION
-  ## commutes with rotation, so rot180 and rot90 image diamonds must spin the
-  ## SAME way; giving them opposite directions (which the side-of-the-map rule
-  ## does, since both symmetries move a diamond across the axis) makes the two
-  ## halves of a rot180 map differ. On rotationally symmetric maps every
-  ## diamond therefore turns together.
-  ##
-  ## `mirrored` / `width` default to the installed map, which is what every
-  ## production caller wants; passing them explicitly lets the rule be checked
-  ## against a map that is not the process map.
-  let dir = if mirrored and 2 * cx >= width - 1: -1 else: 1
-  diamondFrameIndex((tick div DiamondSpinTicksPerFrame) * dir)
-
-proc animatedDiamondCovers*(
-  spot: tuple[cx, cy, radius: int], frame, x, y: int
-): bool {.inline.} =
-  ## True when map pixel (x, y) is stone in one spinning diamond at `frame`.
-  rotatedDiamondCovers(
-    spot.radius, frame, 2 * (x - spot.cx), 2 * (y - spot.cy), 2)
-
 var diamondFrameCache: array[DiamondSpinFrames, seq[tuple[
   scale: int, pixels: seq[uint8]]]]
 
@@ -410,16 +391,9 @@ const
   EndzoneFaceLevel = 66          ## polished-surface floor luminance (glow = 0).
   EndzoneCrackLevel = 34         ## joint/crack-bottom luminance (glow = full).
   EndzoneGlowFloor = 0.82        ## min home-falloff so the far end still glows.
-  RedEndzoneColor* = rgba(224, 82, 58, 255)    ## team vermillion (§4).
-  BlueEndzoneColor* = rgba(63, 124, 196, 255)  ## team cerulean (§4).
-  GreenEndzoneColor* = rgba(69, 168, 94, 255)  ## matches the viewer --green.
-  YellowEndzoneColor* = rgba(221, 197, 49, 255)  ## matches the viewer --yellow.
-    ## Exported as THE team display colors. The 16-entry `Palette` a sprite's
-    ## `color: uint8` indexes is the retro engine palette, and its blue slot
-    ## (BlueTeamColor = 13) is a muted lavender (131,118,156) that reads nothing
-    ## like the vivid cerulean the soldier art (116,168,255) and this endzone
-    ## floor actually show. Any NEW team-colored art should tint from these four
-    ## so it matches what a viewer sees on the board.
+  # The four *EndzoneColor team display colors moved to sim_types (they are
+  # shared with the paint FX in sim_state, and hosting them here dragged the
+  # whole art bake into the hash module's import DAG).
 
 proc emberThroughCracks(base, ember: ColorRGBA, strength: float): ColorRGBA =
   ## Lets a team ember glow seep UP ONLY through the DARK joint/crack pixels of

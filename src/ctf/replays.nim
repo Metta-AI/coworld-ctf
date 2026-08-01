@@ -74,7 +74,7 @@ type
       ## scrubber can place its flag markers and winner cap up front instead
       ## of accumulating them as playback happens to pass each beat.
 
-# PlaybackSpeeds moved to sim.nim (the single source for every speed-coupled
+# PlaybackSpeeds moved to sim_types.nim (the single source for every speed-coupled
 # layer); re-exported here for the existing `import replays` consumers.
 export PlaybackSpeeds
 

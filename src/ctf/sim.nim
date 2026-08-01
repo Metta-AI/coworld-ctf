@@ -1,3 +1,8 @@
+## The deterministic gameplay core: movement/collision, combat, grenades,
+## shouts, pickups, fog-of-war, endgame, and the per-tick step loop. Types,
+## consts, map, art, config, state services and roster live in the sibling
+## modules this file imports and re-exports (see
+## docs/plans/2026-08-01-sim-split.md).
 import
   std/[algorithm, json, math, os, random, strutils],
   bitworld/pixelfonts, bitworld/profile, bitworld/spriteprotocol,
@@ -100,9 +105,10 @@ template placeWalkablePickups(
   ## spray cans): sizes the spawn seq to the targets, nudges each target to
   ## the nearest walkable floor, and refills every spawn. (Grenade spawns
   ## keep their own placement — they are never nudged.)
-  sim.spawnsField.setLen(targets.len)
+  let targetsOnce = targets   # evaluate the expression once, not per use
+  sim.spawnsField.setLen(targetsOnce.len)
   for i in 0 ..< sim.spawnsField.len:
-    let spot = sim.nearestWalkable(targets[i].x, targets[i].y)
+    let spot = sim.nearestWalkable(targetsOnce[i].x, targetsOnce[i].y)
     sim.spawnsField[i] = PickupSpawn(
       x: spot.x, y: spot.y, present: true, respawnAt: 0
     )
@@ -397,19 +403,6 @@ proc applyMomentumAxis(
   else:
     player.carryY = carry
 
-proc distSq*(ax, ay, bx, by: int): int =
-  let
-    dx = ax - bx
-    dy = ay - by
-  dx * dx + dy * dy
-
-proc actorColor*(colorIndex, tint: uint8): uint8 =
-  ## Returns the final color for actor wildcard pixels.
-  if colorIndex == TintColor:
-    return tint
-  if colorIndex == ShadeTintColor:
-    return ShadowMap[tint and 0x0f]
-  colorIndex
 
 proc isWall*(sim: SimServer, mx, my: int): bool =
   if mx < 0 or my < 0 or mx >= MapWidth or my >= MapHeight:
