@@ -271,7 +271,8 @@ html, body {
 }
 .plate .squad { color: var(--tc, var(--paper)); }
 
-/* flag-state icon — HOME (on pedestal) / TAKEN (riding a carrier). F2: two states only. */
+/* flag-state icon — HOME (on pedestal) / TAKEN (riding a carrier) /
+   CAPTURED (GV32: retired, team eliminated — drawn like TAKEN). F2. */
 .flagicon {
   position: relative;
   width: calc(26 * var(--u));
@@ -1357,7 +1358,7 @@ body[data-embed] #board { top: 0; height: 100%; }
   var BOARD_W = 1235, BOARD_H = 659;
   var BOARD_ASPECT = BOARD_W / BOARD_H;
 
-  // ---- flag icon svg (HOME/TAKEN are the only two states — F2) ----
+  // ---- flag icon svg (HOME/TAKEN/CAPTURED — F2; captured draws as taken) ----
   function buildFlag(el, color) {
     el.innerHTML =
       '<svg viewBox="0 0 26 30" aria-hidden="true">' +
@@ -1740,7 +1741,9 @@ body[data-embed] #board { top: 0; height: 100%; }
 
   function updateFlag(id, team, tstate, s) {
     var el = $(id);
-    var taken = tstate.flag === 'taken';
+    /* GV32: 'captured' (heart retired, team eliminated) shows as off-pedestal
+       like 'taken' — the carrier tag stays empty since nobody carries it. */
+    var taken = tstate.flag === 'taken' || tstate.flag === 'captured';
     var was = el.classList.contains('taken');
     el.classList.toggle('taken', taken);
     if (was !== taken) { el.classList.remove('flip'); void el.offsetWidth; el.classList.add('flip'); }

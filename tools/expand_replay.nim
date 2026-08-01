@@ -187,23 +187,27 @@ proc printCaptures(
   sim: SimServer,
   tick: int,
   events: var seq[ReplayEvent],
-  track: var TrackState
+  track: var TrackState,
+  prevCarriers: array[Team, int],
+  prevCaptured: array[Team, bool]
 ) =
   ## Adds capture events by diffing per-player capture counters. The
-  ## captured flag is whichever one the capturer still carries — a capture
-  ## ends the game without resetting the flag, and with 4 teams "the enemy
-  ## flag" is not unique.
+  ## captured flag is whichever one just flipped to captured out of this
+  ## capturer's hands (GV32 retires the heart at the capture spot) — with
+  ## 4 teams "the enemy flag" is not unique. prevCarriers/prevCaptured are
+  ## the flags as they stood before this tick's changes.
   for i, p in sim.players:
     if p.captures > track.captures[i]:
       var capturedTeam = p.team
       var found = false
       for team in sim.teams():
-        if sim.flags[team].carrier == i:
+        if sim.flags[team].captured and not prevCaptured[team] and
+            prevCarriers[team] == i:
           capturedTeam = team
           found = true
       # A miss would silently report the player capturing their OWN flag —
       # wrong-but-plausible forensics data is worse than a crash.
-      doAssert found, "capture event with no carried flag"
+      doAssert found, "capture event with no captured flag"
       events.add ReplayEvent(
         tick: tick,
         kind: Capture,
@@ -239,17 +243,19 @@ proc printFlagChanges(
   sim: SimServer,
   tick: int,
   events: var seq[ReplayEvent],
-  prevCarriers: var array[Team, int]
+  prevCarriers: var array[Team, int],
+  prevCaptured: var array[Team, bool]
 ) =
   ## Adds per-team flag steal and return-home events by diffing each flag's
   ## carrier. A carrier losing a flag for any reason other than capture sends
-  ## it straight back to its pedestal; captures keep the carrier and are
-  ## reported separately.
+  ## it straight back to its pedestal; a heart retired by a capture (GV32)
+  ## is not a return — the capture event is that story.
   for team in sim.teams():
+    prevCaptured[team] = sim.flags[team].captured
     let carrier = sim.flags[team].carrier
     if carrier == prevCarriers[team]:
       continue
-    if prevCarriers[team] >= 0:
+    if prevCarriers[team] >= 0 and not sim.flags[team].captured:
       events.add ReplayEvent(
         tick: tick,
         kind: FlagReturnHome,
@@ -383,8 +389,10 @@ proc expandReplayTimeline*(data: ReplayData): ReplayTimeline =
       track: TrackState
       phase = sim.phase
       prevCarriers: array[Team, int]
+      prevCaptured: array[Team, bool]
     for team in Team:
       prevCarriers[team] = sim.flags[team].carrier
+      prevCaptured[team] = sim.flags[team].captured
 
     sim.gameEventLoggingEnabled = false
     replay.looping = false
@@ -423,8 +431,15 @@ proc expandReplayTimeline*(data: ReplayData): ReplayTimeline =
       sim.syncPlayers(tick, result.events, track)
       sim.printShots(tick, result.events, track)
       sim.printKillsAndDeaths(tick, result.events, track)
-      sim.printFlagChanges(tick, result.events, prevCarriers)
-      sim.printCaptures(tick, result.events, track)
+      # Flag changes run first (steal/return before capture, matching
+      # broadcast's beat order); captures diff against the carriers as they
+      # stood BEFORE this tick's flag changes, so the retired heart still
+      # names its last carrier.
+      let
+        carriersBefore = prevCarriers
+        capturedBefore = prevCaptured
+      sim.printFlagChanges(tick, result.events, prevCarriers, prevCaptured)
+      sim.printCaptures(tick, result.events, track, carriersBefore, capturedBefore)
       sim.printScoreChanges(tick, result.events, track)
   finally:
     setCurrentDir(previousDir)

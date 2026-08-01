@@ -11,7 +11,20 @@ import map_pool
 
 const
   GameName* = "ctf"
-  GameVersion* = "31"  ## GV31 (operator rule): WEAPONS HIT BODIES, NOT
+  GameVersion* = "32"  ## GV32 (4ffa rule): A CAPTURE ELIMINATES, THE LAST
+                       ## TEAM STANDING WINS. Capturing a heart no longer
+                       ## ends the game outright: the captured team is
+                       ## eliminated on the spot (every player dies with no
+                       ## respawn) and its heart leaves play where it was
+                       ## captured. The game ends when at most one team
+                       ## still stands — a 4-team winner has to capture all
+                       ## three rival hearts or outlive the field. Classic
+                       ## 2-team play is unchanged in outcome (eliminating
+                       ## the only rival ends the game on the first
+                       ## capture), but the end-state differs (losers dead,
+                       ## heart retired), so GV31 replays do not re-simulate.
+                       ##
+                       ## GV31 (operator rule): WEAPONS HIT BODIES, NOT
                        ## POINTS. Three changes, all closing the same gap —
                        ## paint visibly covering a cog that walked away clean.
                        ## 1. The cone hits BODIES, not center points: a victim
@@ -1021,10 +1034,14 @@ type
     throwerAccount*: int       ## stable results account; never hashed.
 
   FlagState* = object
-    ## One team's flag: provably either sitting on its home pedestal
-    ## (carrier == -1) or carried by an enemy player (never loose).
+    ## One team's flag: provably sitting on its home pedestal (carrier == -1),
+    ## carried by an enemy player (never loose), or captured and out of play
+    ## (GV32: captured, carrier == -1, frozen where the capture happened).
     x*, y*: int
     carrier*: int              ## player index carrying this flag, -1 when home.
+    captured*: bool            ## GV32: heart captured; its team is eliminated
+                               ## and the heart is out of play for the rest of
+                               ## the game.
 
   SimServer* = object
     config*: GameConfig
@@ -5937,6 +5954,7 @@ proc gameHash*(sim: SimServer): uint64 =
     result.mixHashInt(sim.flags[team].x)
     result.mixHashInt(sim.flags[team].y)
     result.mixHashInt(sim.flags[team].carrier)
+    result.mixHashBool(sim.flags[team].captured)
   result.mixHashInt(sim.players.len)
   for player in sim.players:
     result.mixHashInt(player.x)
@@ -8554,7 +8572,7 @@ proc tryPickupFlags*(sim: var SimServer, playerIndex: int) =
   for flagTeam in sim.teams():
     if flagTeam == sim.players[playerIndex].team:
       continue
-    if sim.flags[flagTeam].carrier >= 0:
+    if sim.flags[flagTeam].carrier >= 0 or sim.flags[flagTeam].captured:
       continue
     if distSq(px, py, sim.flags[flagTeam].x, sim.flags[flagTeam].y) <= rangeSq:
       sim.flags[flagTeam].carrier = playerIndex
@@ -9057,12 +9075,32 @@ proc shouldAbortFiniteMatch*(sim: SimServer): bool =
     return sim.startWaitTimer > 0 and sim.players.len < sim.config.minPlayers
   sim.phase == Playing and sim.players.len == 0
 
+proc eliminateTeam(sim: var SimServer, team: Team, killerIndex: int) =
+  ## GV32: removes a team from play after its heart is captured — every
+  ## player dies with no respawn. A heart an eliminated player was carrying
+  ## goes home via the normal killPlayer flag return; the eliminated team's
+  ## own heart is retired by the capture site, not here.
+  sim.logGameEvent(teamText(team) & " eliminated")
+  for i in 0 ..< sim.players.len:
+    if sim.players[i].team != team:
+      continue
+    sim.players[i].lives = 0
+    sim.players[i].respawnTimer = 0
+    if sim.players[i].alive:
+      sim.killPlayer(i, killerIndex)
+
 proc checkWinCondition*(sim: var SimServer) {.measure.} =
   ## Resolves capture and wipe win conditions.
   if sim.phase != Playing or sim.players.len == 0:
     return
   # Capture: a living carrier bringing an enemy flag into their own home
   # capture zone (deliberately no own-flag-must-be-home precondition).
+  # GV32: a capture ELIMINATES the captured team instead of ending the game
+  # outright — the heart leaves play where it was captured and every player
+  # on the captured team dies for good. The game then ends below when at
+  # most one team still stands, so a 4-team winner either captures every
+  # rival heart or outlives the field; classic 2-team play still ends on
+  # the first capture (eliminating the only rival leaves one team).
   for flagTeam in sim.teams():
     let carrierIndex = sim.flags[flagTeam].carrier
     if carrierIndex < 0 or carrierIndex >= sim.players.len or
@@ -9082,8 +9120,10 @@ proc checkWinCondition*(sim: var SimServer) {.measure.} =
       sim.logGameEvent(
         teamText(carrier.team) & " captured the " & teamText(flagTeam) & " heart"
       )
-      sim.finishGame(carrier.team)
-      return
+      sim.flags[flagTeam].captured = true
+      sim.flags[flagTeam].carrier = -1
+      sim.players[carrierIndex].carryingFlag = false
+      sim.eliminateTeam(flagTeam, carrierIndex)
   # Wipe: the game ends when at most one team still has live players — the
   # survivor wins, and a mutual wipe is a draw. A 4-team game continues
   # while two or more teams stand; a wiped team just stays out. Classic

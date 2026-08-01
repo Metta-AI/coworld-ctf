@@ -599,7 +599,9 @@
   }
   function updateFlag(id, team, tstate, s){
     var el=$(id);
-    var taken = tstate.flag==='taken';
+    /* GV32: 'captured' (heart retired, team eliminated) reads off-pedestal
+       like 'taken'. */
+    var taken = tstate.flag==='taken' || tstate.flag==='captured';
     var was = el.classList.contains('taken');
     el.classList.toggle('taken', taken);
     if (was!==taken){ el.classList.remove('flip'); void el.offsetWidth; el.classList.add('flip'); }

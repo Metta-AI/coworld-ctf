@@ -106,7 +106,11 @@ tasks, voting) with teams, guns, hearts, and fog-of-war vision.
   Such maps are validated for an OPEN FLANK — four clear cardinal approaches
   into the ring, and a route from behind the base to midfield that never
   enters the endzone — so a deep base cannot be defended as one front line.
-- A round ends when a team **captures the enemy heart** or is **wiped out**.
+- A round ends when at most one team still stands: **capturing a heart
+  eliminates its team** (GV32 — every player on the captured team dies with
+  no respawn, and the heart leaves play where it was captured), and a team
+  with no live players is **wiped out**. In classic 2-team play a capture
+  therefore still ends the round on the spot.
 
 ## Teams & spawns
 
@@ -150,12 +154,17 @@ square map:
   shape than its own rotational twin.
 - **Every team has its own heart** on its own pedestal, and its own capture
   zone behind it. Steal ANY other team's heart and carry it into your own
-  zone to win. Allies do not exist: 4-team play is pure free-for-all, and a
-  "2v2" is simply two policies splitting one classic team's seats.
+  zone to **eliminate that team** (GV32): its players all die for good and
+  the captured heart is out of play for the rest of the round, resting
+  where it was captured. Allies do not exist: 4-team play is pure
+  free-for-all, and a "2v2" is simply two policies splitting one classic
+  team's seats.
 - **Seats deal round the teams** by slot order (slot mod 4), 4 players per
   team on a 16-seat roster. Identities stay per-team (`alpha`..`delta`).
-- **Wipe rule generalizes**: the round ends when at most one team still has
-  live players; a wiped team just sits out until then.
+- **The last team standing wins**: the round ends when at most one team
+  still has live players — so a 4-team winner either captures all three
+  rival hearts or outlives the field (captures and wipes mix freely); an
+  eliminated or wiped team just sits out until then.
 - **Scoring is zero-sum by construction**: the winning team scores **+1 per
   losing team**, each losing team scores **-1**. Classic 2-team play stays
   +1/-1; a 4-team win pays **+3** to the winner and **-1** to each loser.

@@ -65,20 +65,66 @@ suite "four team ctf":
     check sim.flags[Green].carrier == -1
     check not sim.players[2].carryingFlag
 
-  test "a capture pays the winner +3 and each loser -1":
-    var sim = fourTeamGame()
-    let greenHome = sim.gameMap.flagHome(Green)
-    sim.centerOn(0, greenHome.x, greenHome.y)
+  proc captureHeart(sim: var SimServer, flagTeam: Team) =
+    ## Has red player 0 steal one team's heart and run it home.
+    let home = sim.gameMap.flagHome(flagTeam)
+    sim.centerOn(0, home.x, home.y)
     sim.tryPickupFlags(0)
-    check sim.flags[Green].carrier == 0
-    # Carry it into Red's own capture zone.
+    check sim.flags[flagTeam].carrier == 0
     let anchor = sim.gameMap.teamAnchor(Red)
     sim.centerOn(0, anchor.x, anchor.y)
     sim.checkWinCondition()
+
+  test "a capture eliminates the captured team and the game goes on":
+    var sim = fourTeamGame()
+    sim.captureHeart(Green)
+    # Three teams still stand: no winner yet.
+    check sim.phase == Playing
+    # Green is out: its player is dead with no lives, its heart out of play.
+    check not sim.players[2].alive
+    check sim.players[2].lives == 0
+    check sim.players[2].respawnTimer == 0
+    check sim.flags[Green].captured
+    check sim.flags[Green].carrier == -1
+    # The captor's hands are free to steal the next heart.
+    check not sim.players[0].carryingFlag
+
+  test "a captured heart cannot be stolen again":
+    var sim = fourTeamGame()
+    sim.captureHeart(Green)
+    # Blue walks onto the captured heart's resting spot: no steal.
+    sim.centerOn(1, sim.flags[Green].x, sim.flags[Green].y)
+    sim.tryPickupFlags(1)
+    check sim.flags[Green].carrier == -1
+    check not sim.players[1].carryingFlag
+
+  test "eliminating a carrier's team returns the heart it was carrying":
+    var sim = fourTeamGame()
+    # Green steals the YELLOW heart, then Red captures the GREEN heart.
+    let yellowHome = sim.gameMap.flagHome(Yellow)
+    sim.centerOn(2, yellowHome.x, yellowHome.y)
+    sim.tryPickupFlags(2)
+    check sim.flags[Yellow].carrier == 2
+    sim.captureHeart(Green)
+    # Green's elimination sends the yellow heart home, still in play.
+    check sim.flags[Yellow].carrier == -1
+    check not sim.flags[Yellow].captured
+    check sim.flags[Yellow].x == yellowHome.x
+    check sim.flags[Yellow].y == yellowHome.y
+
+  test "capturing all three rival hearts pays the winner +3 and each loser -1":
+    var sim = fourTeamGame()
+    sim.captureHeart(Green)
+    check sim.phase == Playing
+    sim.captureHeart(Yellow)
+    check sim.phase == Playing
+    # The third capture leaves red the only team standing.
+    sim.captureHeart(Blue)
     check sim.phase == GameOver
     check sim.winner == Red
     check not sim.isDraw
     check sim.players[0].reward == 3
+    check sim.players[0].captures == 3
     for i in 1 ..< 4:
       check sim.players[i].reward == -1
 

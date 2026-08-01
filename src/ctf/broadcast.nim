@@ -13,8 +13,9 @@
 ## collapsing a whole span into one ambiguous marker. Attribution still
 ## degrades honestly to "ambiguous" only on a genuine same-tick multi-kill
 ## (fidelity rule F7). Kills are never rendered as score (F1); flags have
-## exactly HOME/TAKEN states (F2); the end-card names the tiebreak key and
-## checks a draw before a winner (F3/F4).
+## exactly HOME/TAKEN/CAPTURED states (F2 — CAPTURED added in GV32, when a
+## captured heart retires instead of ending the game); the end-card names
+## the tiebreak key and checks a draw before a winner (F3/F4).
 
 import
   std/[algorithm, json, math, strutils],
@@ -31,6 +32,7 @@ type
     deaths: seq[int]
     captures: seq[int]
     carriers: array[Team, int]
+    captured: array[Team, bool]
 
 proc initBroadcastTracker*(): BroadcastTracker =
   ## Returns a fresh, unsynced broadcast tracker.
@@ -76,6 +78,7 @@ proc snapshot(tracker: var BroadcastTracker, sim: SimServer) =
     tracker.captures[i] = p.captures
   for team in sim.teams():
     tracker.carriers[team] = sim.flags[team].carrier
+    tracker.captured[team] = sim.flags[team].captured
   tracker.prevTick = sim.tickCount
   tracker.prevPhase = sim.phase
   tracker.initialized = true
@@ -172,12 +175,14 @@ proc stepEvents*(
       events.add(%*{"t": tick, "k": "respawn", "who": sim.slotOf(i)})
 
   # Flag steals and returns, diffed per team like expand_replay. A carrier
-  # losing a flag for any reason but capture returns it home instantly.
+  # losing a flag for any reason but capture returns it home instantly; a
+  # heart retired by a capture (GV32) is not a return — the capture beat
+  # below is that story.
   for team in sim.teams():
     let carrier = sim.flags[team].carrier
     if carrier == tracker.carriers[team]:
       continue
-    if tracker.carriers[team] >= 0:
+    if tracker.carriers[team] >= 0 and not sim.flags[team].captured:
       events.add(%*{"t": tick, "k": "return", "flag": teamText(team)})
     if carrier >= 0:
       events.add(%*{
@@ -187,18 +192,19 @@ proc stepEvents*(
         "by": sim.slotOf(carrier)
       })
 
-  # Captures, diffed per player: the captured flag is whichever one the
-  # capturer STILL carries — a capture ends the game without resetting the
-  # flag, and with 4 teams "the enemy flag" is no longer unique. A capture
-  # event with no carried flag would mean corrupted state; crash honestly
-  # rather than ship a nameless banner.
+  # Captures, diffed per player: the captured flag is whichever one just
+  # flipped to captured out of this capturer's hands (GV32 retires the
+  # heart at the capture spot) — with 4 teams "the enemy flag" is no longer
+  # unique. A capture event with no matching flag would mean corrupted
+  # state; crash honestly rather than ship a nameless banner.
   for i, p in sim.players:
     if i < tracker.captures.len and p.captures > tracker.captures[i]:
       var captured = ""
       for team in sim.teams():
-        if sim.flags[team].carrier == i:
+        if sim.flags[team].captured and not tracker.captured[team] and
+            tracker.carriers[team] == i:
           captured = teamText(team)
-      doAssert captured.len > 0, "capture event with no carried flag"
+      doAssert captured.len > 0, "capture event with no captured flag"
       events.add(%*{
         "t": tick,
         "k": "capture",
@@ -230,7 +236,11 @@ proc teamStateJson(sim: SimServer, team: Team): JsonNode =
     taken = flag.carrier >= 0
   result = %*{
     "lives": sim.teamLivesRemaining(team),
-    "flag": (if taken: "taken" else: "home"),
+    "flag": (
+      if flag.captured: "captured"
+      elif taken: "taken"
+      else: "home"
+    ),
     "carrier": (if taken: sim.slotOf(flag.carrier) else: -1),
     "prog": sim.flagCarryProgress(team),
     "policies": sim.teamPoliciesJson(team)
@@ -579,7 +589,8 @@ proc firstPersonJson(sim: SimServer, playerIndex: int): JsonNode =
       "x": sim.flags[team].x,
       "y": sim.flags[team].y,
       "team": teamText(team),
-      "carried": sim.flags[team].carrier >= 0
+      "carried": sim.flags[team].carrier >= 0,
+      "captured": sim.flags[team].captured
     })
   var mapItems = newJArray()
   proc addMapItem(kind: string, spawn: PickupSpawn) =

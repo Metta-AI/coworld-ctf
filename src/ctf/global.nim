@@ -5081,6 +5081,17 @@ proc buildSpriteProtocolPlayerUpdates*(
             MapLayerId,
             FlagSpriteBase + ord(team)
           )
+        elif flag.captured:
+          # GV32: a captured heart lies flat where it was captured — the small
+          # banner, no pedestal plant and no carrier aura.
+          result.addBoardObject(
+            objectId,
+            flag.x - FlagBannerW div 2,
+            flag.y - FlagBannerH div 2,
+            flag.y - 1,
+            MapLayerId,
+            FlagSpriteBase + ord(team)
+          )
         else:
           # Home: the BIG planted banner, centered + bottom-anchored on the pedestal.
           result.addBoardObject(
@@ -5598,7 +5609,9 @@ proc addEndzoneGlowFade(
   ## Spectator/broadcast only — the shared map sprite and the POV/RL view are
   ## never touched, and stage 0 is a visual no-op (the baked glow itself).
   for team in sim.teams():
-    let taken = sim.flags[team].carrier >= 0
+    # GV32: a captured heart never comes home — an eliminated team's endzone
+    # glow stays down for the rest of the game.
+    let taken = sim.flags[team].carrier >= 0 or sim.flags[team].captured
     if taken and state.endzoneFade[team] < GlowFadeStages - 1:
       inc state.endzoneFade[team]
     elif not taken and state.endzoneFade[team] > 0:
@@ -6085,6 +6098,17 @@ proc buildSpriteProtocolUpdates*(
         carrier.y - 1,
         MapLayerId,
         heartSpriteId
+      )
+    elif flag.captured:
+      # GV32: a captured heart lies flat where it was captured — the small
+      # banner, no pedestal plant and no carrier aura.
+      result.addBoardObject(
+        objectId,
+        flag.x - FlagBannerW div 2,
+        flag.y - FlagBannerH div 2,
+        flag.y - 1,
+        MapLayerId,
+        FlagSpriteBase + ord(team)
       )
     else:
       # Home: the BIG planted banner, centered + bottom-anchored on the pedestal.
