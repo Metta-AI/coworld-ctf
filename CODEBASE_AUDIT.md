@@ -148,6 +148,54 @@ A schema'd semantic observation protocol (typed entities, own aim included), wit
 
 ---
 
+## Round 2 (2026-08-01, post-fix re-audit)
+
+Two fresh agents re-audited the finished tree: a cohesion audit of the split
+modules and an adversarial regression scan of the whole branch diff
+(instructed to trace, not to confirm). Everything they confirmed was fixed
+in the same round:
+
+**Fixed:**
+- **CI upload pwn-request path**: the `workflow_run` `branches` filter
+  matches the triggering run's *head* branch, so a fork PR from a branch
+  named `main` could have fired a production league upload — with repo
+  secrets — of unreviewed fork code. Both upload workflows now require
+  `event == 'push'` and `head_repository == this repo`, plus a freshness
+  step that skips (with a `::notice::`) when the certified SHA is no longer
+  main's HEAD (re-running an old green run must not republish old code).
+- Module cohesion: hashed spinning-diamond geometry moved out of the art
+  module into `arena.nim`; endzone colors deduped into `sim_types` (cutting
+  the hash module's dependency on the art bake); `overTint`/`distSq`
+  rehomed; dead `actorColor` deleted; the `placeWalkablePickups` template
+  no longer re-evaluates its targets expression per use.
+- Stale post-split docs: AGENTS.md layout section, sim_types/map_art
+  headers, the replays.nim PlaybackSpeeds note, the plan doc's as-built
+  deviations, and a build.yml warning about the by-name workflow coupling.
+
+**Verified faithful by the regression scan** (no action): the sim template
+dedup (exact mutation/event/log ordering), the labels adoption
+(byte-for-byte), wire-constants rendering (`1.6` renders and parses
+identically), the server admission interleave change (replay bytes
+identical), and the sim split itself (`--color-moved` sweep: only headers,
+imports, re-exports, and `*` additions differ from pure moves).
+
+**Accepted, deliberately not churned:**
+- ~40 exported symbols referenced only inside their own module (catalogued
+  by the re-audit; most predate this branch). Un-exporting is API churn
+  with no behavioral value; revisit opportunistically.
+- `labels.nim`'s internally-unreferenced prefix consts stay — the module is
+  a published contract surface.
+- The intra-arena designed twins (`mapWallAt`/`rasterizeWallMasks` annulus
+  walk; int vs float protected-floor predicates) are self-documented
+  bit-identity contracts.
+- `decodeGridFont`/`loadShoutFont` remain in sim.nim (broadcast-only font
+  loading; moving them buys little).
+
+**External dependency introduced (needs an Observatory-side change):** the
+league shell now relays Esc to its host as
+`postMessage({src:'ctf-shell', type:'esc'})`. The Observatory theater page
+must listen for it to close the theater on Esc — untestable from this repo.
+
 ## Appendix: external-review claims not verified against this worktree
 
 - "The fast-ready trap is documented **backwards** in PROTOCOL.md" — partially vindicated on closer read: the trap is real and quantified (`baseline.nim` `fastReadyEnabled` comment: ready-sends in league play collapse accuracy 44–54% → 13–23%, p=0.0039), and PROTOCOL.md's "sending it is optional" framing was misleading by omission. Fixed: PROTOCOL.md now carries the warning plus the own-aim/frame-drain/lobby-detection contracts.
