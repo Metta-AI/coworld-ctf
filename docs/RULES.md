@@ -111,6 +111,11 @@ tasks, voting) with teams, guns, hearts, and fog-of-war vision.
   no respawn, and the heart leaves play where it was captured), and a team
   with no live players is **wiped out**. In classic 2-team play a capture
   therefore still ends the round on the spot.
+- **A dead team's heart leaves play with it** (GV33): the moment a team is
+  completely killed — captured or wiped — its heart is retired and no
+  longer drawn. If an enemy was carrying that heart when the team fell,
+  it drops straight off their back (restoring full speed and fire rate);
+  a retired heart cannot be stolen or captured.
 
 ## Teams & spawns
 
@@ -155,8 +160,10 @@ square map:
 - **Every team has its own heart** on its own pedestal, and its own capture
   zone behind it. Steal ANY other team's heart and carry it into your own
   zone to **eliminate that team** (GV32): its players all die for good and
-  the captured heart is out of play for the rest of the round, resting
-  where it was captured. Allies do not exist: 4-team play is pure
+  the captured heart is out of play for the rest of the round. A team
+  wiped out by kills loses its heart the same way (GV33): it retires on
+  the spot — even straight off an enemy carrier's back — and is no longer
+  drawn. Allies do not exist: 4-team play is pure
   free-for-all, and a "2v2" is simply two policies splitting one classic
   team's seats.
 - **Seats deal round the teams** by slot order (slot mod 4), 4 players per

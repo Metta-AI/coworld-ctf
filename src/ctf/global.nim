@@ -5232,9 +5232,12 @@ proc buildSpriteProtocolPlayerUpdates*(
 
     # The team flags: a pedestal flag is always visible (so an empty own
     # pedestal means the own flag is stolen); a carried flag rides its
-    # carrier and is exactly as visible as that carrier.
+    # carrier and is exactly as visible as that carrier. A retired heart
+    # (GV32 capture or GV33 dead team) is out of play and never drawn.
     for team in sim.teams():
       let flag = sim.flags[team]
+      if flag.captured:
+        continue
       if viewerIsGhost or sim.flagVisibleTo(playerIndex, team):
         # A carried flag glows: the halo rides UNDER the carrier so the runner
         # is the brightest figure on the board.
@@ -5256,17 +5259,6 @@ proc buildSpriteProtocolPlayerUpdates*(
           # the runner's body stays the readable figure and the heart peeks out
           # around them instead of covering them. Centered on the carrier so it
           # frames the body evenly; the aura + nameplate still mark WHO runs it.
-          result.addBoardObject(
-            objectId,
-            flag.x - FlagBannerW div 2,
-            flag.y - FlagBannerH div 2,
-            flag.y - 1,
-            MapLayerId,
-            FlagSpriteBase + ord(team)
-          )
-        elif flag.captured:
-          # GV32: a captured heart lies flat where it was captured — the small
-          # banner, no pedestal plant and no carrier aura.
           result.addBoardObject(
             objectId,
             flag.x - FlagBannerW div 2,
@@ -6238,11 +6230,14 @@ proc buildSpriteProtocolUpdates*(
 
   # Both team flags: the banner planted on the home pedestal or riding the
   # carrier, with a floor-glow halo under any carrier so the flag-runner reads
-  # as the brightest figure on the board.
+  # as the brightest figure on the board. A retired heart (GV32 capture or
+  # GV33 dead team) is out of play and never drawn.
   for team in sim.teams():
     let
       flag = sim.flags[team]
       objectId = FlagObjectBase + ord(team)
+    if flag.captured:
+      continue
     if flag.carrier >= 0:
       let auraId = FlagAuraObjectBase + ord(team)
       currentIds.add(auraId)
@@ -6281,17 +6276,6 @@ proc buildSpriteProtocolUpdates*(
         carrier.y - 1,
         MapLayerId,
         heartSpriteId
-      )
-    elif flag.captured:
-      # GV32: a captured heart lies flat where it was captured — the small
-      # banner, no pedestal plant and no carrier aura.
-      result.addBoardObject(
-        objectId,
-        flag.x - FlagBannerW div 2,
-        flag.y - FlagBannerH div 2,
-        flag.y - 1,
-        MapLayerId,
-        FlagSpriteBase + ord(team)
       )
     else:
       # Home: the BIG planted banner, centered + bottom-anchored on the pedestal.

@@ -11,7 +11,21 @@ import map_pool
 
 const
   GameName* = "ctf"
-  GameVersion* = "32"  ## GV32 (4ffa rule): A CAPTURE ELIMINATES, THE LAST
+  GameVersion* = "33"  ## GV33 (dead-team rule): A DEAD TEAM'S HEART LEAVES
+                       ## PLAY. A team wiped from the field (no live player
+                       ## and no lives left) has its heart retired on the
+                       ## spot exactly like a captured one — including a
+                       ## heart riding an enemy carrier's back, which drops
+                       ## from the carrier (freeing their speed and fire
+                       ## rate) instead of lingering as a live-looking
+                       ## objective nobody can score. Retired hearts also
+                       ## stop DRAWING entirely (GV32 left a captured heart
+                       ## lying flat where it fell): a dead team keeps its
+                       ## dim pedestal, but no heart anywhere on the board.
+                       ## The retire flips hashed flag state on wipes, so
+                       ## GV32 replays do not re-simulate.
+                       ##
+                       ## GV32 (4ffa rule): A CAPTURE ELIMINATES, THE LAST
                        ## TEAM STANDING WINS. Capturing a heart no longer
                        ## ends the game outright: the captured team is
                        ## eliminated on the spot (every player dies with no
@@ -1041,13 +1055,15 @@ type
 
   FlagState* = object
     ## One team's flag: provably sitting on its home pedestal (carrier == -1),
-    ## carried by an enemy player (never loose), or captured and out of play
-    ## (GV32: captured, carrier == -1, frozen where the capture happened).
+    ## carried by an enemy player (never loose), or retired and out of play
+    ## (captured, carrier == -1, frozen where it left play).
     x*, y*: int
     carrier*: int              ## player index carrying this flag, -1 when home.
-    captured*: bool            ## GV32: heart captured; its team is eliminated
-                               ## and the heart is out of play for the rest of
-                               ## the game.
+    captured*: bool            ## the heart is out of play for the rest of the
+                               ## game: captured (GV32), or retired because its
+                               ## team has been completely killed (GV33). A
+                               ## retired heart is never drawn and cannot be
+                               ## stolen.
 
   SimServer* = object
     config*: GameConfig
@@ -9213,6 +9229,21 @@ proc checkWinCondition*(sim: var SimServer) {.measure.} =
       sim.flags[flagTeam].carrier = -1
       sim.players[carrierIndex].carryingFlag = false
       sim.eliminateTeam(flagTeam, carrierIndex)
+  # GV33: a completely killed team's heart leaves play with it. A wiped
+  # team can never recover its heart, so it retires the moment the team is
+  # gone — even off the back of an enemy carrier, who drops it (recovering
+  # full speed and fire rate) rather than lugging an objective that can no
+  # longer score. Capture-eliminated teams take the branch above; hearts
+  # the wiped team itself was carrying already went home via killPlayer.
+  for team in sim.teams():
+    if sim.flags[team].captured or sim.teamHasLivePlayers(team):
+      continue
+    let carrier = sim.flags[team].carrier
+    if carrier >= 0:
+      sim.players[carrier].carryingFlag = false
+      sim.flags[team].carrier = -1
+    sim.flags[team].captured = true
+    sim.logGameEvent(teamText(team) & " heart retired")
   # Wipe: the game ends when at most one team still has live players — the
   # survivor wins, and a mutual wipe is a draw. A 4-team game continues
   # while two or more teams stand; a wiped team just stays out. Classic

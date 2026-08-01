@@ -6,14 +6,14 @@ import
 const
   GameDir = currentSourcePath.parentDir.parentDir
   # The event-substrate fixture: a full 16-bot match recorded against the
-  # CURRENT gameplay rules (GameVersion 32, seed 900, lives 9:
-  #   record_fixture.sh tests/replays/ctf.bitreplay 900 10000 \
-  #     '{"lives":9,"speed":4}')
-  # — 38 kills across ALL THREE weapons (34 gun / 3 spray / 1 grenade), 6
-  # steals, 5 returns, 5 heals, ending on a capture. (The GV32 recording
-  # runs the server at speed 4: at speed 16 a busy machine starved the bots
-  # down to a gun-only match — the slower clock is the same guard as the
-  # idle-machine rule below.)
+  # CURRENT gameplay rules (GameVersion 33, seed 900, lives 9:
+  #   record_fixture.sh tests/replays/ctf.bitreplay 900 10000 '{"lives":9}')
+  # — 7 kills across ALL THREE weapons (5 gun / 1 grenade / 1 spray), 2
+  # steals, 1 return, 2 heals, ending on a capture. (The GV32 recording ran
+  # the server at speed 4 as a starvation guard; under GV33 the speed-4
+  # runs came back gun-only on this machine while the plain speed-16
+  # recording on an IDLE machine carried the full weapon mix — the
+  # idle-machine rule below is the guard that actually matters.)
   # (Seed 61 held the coverage until the blast became body-aware in GV31;
   # re-recorded under that rule it came back gun+spray only, so the scan
   # moved to 900. Expect the seed to move again on the next rules change.)

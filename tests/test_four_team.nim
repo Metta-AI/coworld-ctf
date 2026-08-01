@@ -112,6 +112,39 @@ suite "four team ctf":
     check sim.flags[Yellow].x == yellowHome.x
     check sim.flags[Yellow].y == yellowHome.y
 
+  test "wiping a team retires its heart and the game goes on":
+    var sim = fourTeamGame()
+    # Green dies out with its heart still home: the heart leaves play.
+    sim.players[2].alive = false
+    sim.players[2].lives = 0
+    sim.checkWinCondition()
+    check sim.phase == Playing
+    check sim.flags[Green].captured
+    check sim.flags[Green].carrier == -1
+    # A retired heart cannot be stolen off its resting spot.
+    sim.centerOn(1, sim.flags[Green].x, sim.flags[Green].y)
+    sim.tryPickupFlags(1)
+    check sim.flags[Green].carrier == -1
+    check not sim.players[1].carryingFlag
+
+  test "wiping a team drops its heart off an enemy carrier's back":
+    var sim = fourTeamGame()
+    # Red steals the GREEN heart and runs with it...
+    let greenHome = sim.gameMap.flagHome(Green)
+    sim.centerOn(0, greenHome.x, greenHome.y)
+    sim.tryPickupFlags(0)
+    check sim.flags[Green].carrier == 0
+    check sim.players[0].carryingFlag
+    # ...then Green is wiped from the field: the heart retires straight off
+    # the carrier's back and the ex-carrier's hands are free again.
+    sim.players[2].alive = false
+    sim.players[2].lives = 0
+    sim.checkWinCondition()
+    check sim.phase == Playing
+    check sim.flags[Green].captured
+    check sim.flags[Green].carrier == -1
+    check not sim.players[0].carryingFlag
+
   test "capturing all three rival hearts pays the winner +3 and each loser -1":
     var sim = fourTeamGame()
     sim.captureHeart(Green)

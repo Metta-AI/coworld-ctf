@@ -21,7 +21,7 @@ const
   # ending a seed produces is a property of the rules it was recorded under.
   # GV30 moved the pickups, and seed 7 — which captured under GV29 — now
   # runs to a time-limit draw, so the capture fixture moved to seed 1.
-  # Under GV32 seed 1 still ends on a capture (Blue captures the red heart,
+  # Under GV33 seed 1 still ends on a capture (Blue captures the red heart,
   # eliminating Red — the whole red roster dies on the capture tick).
   CaptureFixture = FixtureDir / "capture-seed1.bitreplay"
   WipeFixture = FixtureDir / "wipe-lives1.bitreplay"
@@ -145,7 +145,7 @@ suite "broadcast state channel":
       check state["ph"].getStr == "gameover"
       check state.hasKey("over")
       # A capture win is not a draw and not a time-limit tiebreak. The winner
-      # is pinned to the current recording of the fixture (GameVersion 32,
+      # is pinned to the current recording of the fixture (GameVersion 33,
       # seed 1: Blue captures the red heart, eliminating Red).
       check state["over"]["draw"].getBool == false
       check state["over"]["timeLimit"].getBool == false
