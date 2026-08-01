@@ -142,9 +142,9 @@ A schema'd semantic observation protocol (typed entities, own aim included), wit
 11. Make `labels.nim` the actual producer vocabulary. — **done** (engine + baseline bot both call the builders)
 
 **Structural (each wants its own design pass):**
-12. Split `sim.nim` along the verified seams; `arena.nim` for the map globals; hashed state as its own struct (this is also what makes fixture *regeneration* a fast deterministic CI step instead of the idle-laptop re-record ritual — 46 fixture-touching commits to date).
-13. Schema'd semantic observation protocol for policies; move `fuzzedAimBrads`/`shotImpactOffset` into the obs layer.
-14. Single-source the two league manifests (generate both schemas from `GameConfig`, validate `config.json` in CI).
+12. Split `sim.nim` along the verified seams. — **done** (stages 1–5 of docs/plans/2026-08-01-sim-split.md: sim.nim 9,828 → 2,827 lines of pure gameplay across sim_types / rig_art / arena / map_art / sim_config / sim_state / roster, acyclic DAG, zero consumer changes, warning-clean imports). Remaining follow-ups, deliberately deferred: stage 6 (explicit map init instead of the import-time default-arena install) and hashed-state-as-own-struct (a GameVersion-bump project).
+13. Schema'd semantic observation protocol for policies; move `fuzzedAimBrads`/`shotImpactOffset` into the obs layer. — *needs a product decision; not attempted autonomously.*
+14. Single-source the two league manifests (generate both schemas from `GameConfig`, validate `config.json` in CI). — *needs a product decision on the generation direction; not attempted autonomously.*
 
 ---
 
