@@ -9,7 +9,7 @@
 ## wire format — reorder nothing without a GameVersion bump.
 
 import
-  std/[json, random, strutils],
+  std/[json, math, random, strutils],
   bitworld/aseprite, bitworld/pixelfonts, bitworld/profile, bitworld/spriteprotocol,
   bitworld/server,
   jsony, pixie
@@ -1115,4 +1115,76 @@ type
     lastLobbyPlayersLogged*: int
     lastLobbyNeededLogged*: int
     lastLobbySecondsLogged*: int
+
+
+# Pure aim-angle math (needed on both sides of the art/gameplay split).
+proc aimVector*(brads: int): tuple[x, y: float] =
+  ## Returns the unit vector for one aim angle in brads (256 per turn):
+  ## 0 points east (+x) and the angle increases counter-clockwise on screen,
+  ## so 64 is north (-y in map coordinates), 128 west, and 192 south.
+  let angle = float(brads) * PI / float(AimBradsTurn div 2)
+  (cos(angle), -sin(angle))
+
+proc bradsOfVector*(dx, dy: int): int =
+  ## Returns the aim-brads angle of a map-space vector — the inverse of
+  ## `aimVector` (screen y points down, so north is -y).
+  if dx == 0 and dy == 0:
+    return 0
+  let brads = int(round(
+    arctan2(-float(dy), float(dx)) * float(AimBradsTurn div 2) / PI))
+  ((brads mod AimBradsTurn) + AimBradsTurn) mod AimBradsTurn
+
+
+# Team helpers (pure functions over the types/consts above).
+proc teamCount*(layout: TeamLayout): int =
+  ## Returns how many teams a layout seats.
+  case layout
+  of layoutSides:
+    2
+  of layoutCorners, layoutPlus:
+    4
+
+proc teamCount*(gameMap: CtfMap): int =
+  ## Returns how many teams play on one map.
+  gameMap.layout.teamCount()
+
+proc activeTeams*(count: int): Slice[Team] =
+  ## Returns the active-team slice for one team count. Active teams are
+  ## always a prefix of the enum, so 2-team games iterate exactly Red..Blue
+  ## — every historical loop, hash, and wire frame is unchanged.
+  doAssert count in [2, 4], "team count must be 2 or 4"
+  Red .. Team(count - 1)
+
+proc teams*(gameMap: CtfMap): Slice[Team] =
+  ## Returns the active teams on one map.
+  activeTeams(gameMap.teamCount())
+
+proc teams*(sim: SimServer): Slice[Team] =
+  ## Returns the active teams in one game.
+  sim.gameMap.teams()
+
+
+proc teamText*(team: Team): string =
+  ## Returns the readable team name.
+  case team
+  of Red:
+    "red"
+  of Blue:
+    "blue"
+  of Green:
+    "green"
+  of Yellow:
+    "yellow"
+
+proc teamColor*(team: Team): uint8 =
+  ## Returns the palette color for one team.
+  case team
+  of Red:
+    RedTeamColor
+  of Blue:
+    BlueTeamColor
+  of Green:
+    GreenTeamColor
+  of Yellow:
+    YellowTeamColor
 
