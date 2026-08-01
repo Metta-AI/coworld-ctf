@@ -1,22 +1,13 @@
-import std/[os, json, strutils], ../src/ctf/replays, ../src/ctf/sim
+import std/[os, json], ../src/ctf/sim, toolutil
 
 # Re-simulates a replay and emits a JSON record for side-asymmetry forensics:
 # deaths with positions + killer attribution, periodic samples, summaries.
 
 let path = commandLineParams()[0].absolutePath()
-let gameDir = currentSourcePath().parentDir().parentDir()
-setCurrentDir(gameDir)
-let data = loadReplay(path)
-var config = defaultGameConfig()
-config.update(data.configJson)
-var
-  game = initSimServer(config)
-  replay = initReplayPlayer(data)
-game.gameEventLoggingEnabled = false
-replay.looping = false
-replay.mismatchQuit = true
+chdirGameDir()
+var (game, replay) = openReplay(path)
 
-let seatCap = config.playerSlotLimit()
+let seatCap = game.config.playerSlotLimit()
 var
   prevAlive = newSeq[bool](seatCap)
   prevKills = newSeq[int](seatCap)

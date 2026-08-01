@@ -1,4 +1,4 @@
-import std/[os, algorithm, strformat], ../src/ctf/replays, ../src/ctf/sim
+import std/[os, algorithm, strformat], ../src/ctf/sim, toolutil
 
 # Re-simulates a replay and reports, per player, how much of their alive time
 # is spent "stuck" (net displacement under StuckRadius map px over a
@@ -9,19 +9,10 @@ const
   StuckRadius = 6
 
 let path = commandLineParams()[0]
-let gameDir = currentSourcePath().parentDir().parentDir()
-setCurrentDir(gameDir)
-let data = loadReplay(path)
-var config = defaultGameConfig()
-config.update(data.configJson)
-var
-  game = initSimServer(config)
-  replay = initReplayPlayer(data)
-game.gameEventLoggingEnabled = false
-replay.looping = false
-replay.mismatchQuit = true
+chdirGameDir()
+var (game, replay) = openReplay(path)
 
-let seatCap = config.playerSlotLimit()
+let seatCap = game.config.playerSlotLimit()
 var
   history = newSeq[seq[(int, int, bool)]](seatCap) # x, y, alive per tick
   stuckTicks = newSeq[int](seatCap)

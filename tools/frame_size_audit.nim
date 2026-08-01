@@ -1,5 +1,5 @@
-import std/[algorithm, os, json, strformat], supersnappy, bitworld/spriteprotocol,
-  ../src/ctf/[sim, global, broadcast]
+import std/[algorithm, json, strformat],
+  ../src/ctf/[sim, global, broadcast], toolutil
 
 # Reproduces the hosted first WS frame and reports whether ANY single frame
 # exceeds the hosted 1 MiB WebSocket limit (a frame over 1048576 bytes makes the
@@ -12,7 +12,7 @@ import std/[algorithm, os, json, strformat], supersnappy, bitworld/spriteprotoco
 
 const WsLimit = 1048576
 
-setCurrentDir(currentSourcePath().parentDir().parentDir())
+chdirGameDir()
 var config = defaultGameConfig()
 var game = initSimServer(config)
 game.gameEventLoggingEnabled = false
