@@ -525,6 +525,22 @@ proc queueReplayUri(uri: string) =
           uri != appState.currentReplayUri:
         appState.pendingReplayUri = uri
 
+proc recordStartupReplayUri(loaded: bool) =
+  ## Records the COGAME_LOAD_REPLAY_URI the process booted with as the active
+  ## replay URI. readRuntimeConfig downloads that artifact and drops the URI,
+  ## so without this a /client/replay or websocket request naming the same
+  ## URI would queue a full reload (fetch + map regen + keyframes) of the
+  ## replay that is already serving. Skipped when the startup load failed so
+  ## a later request can retry it.
+  if not loaded:
+    return
+  let uri = getEnv(CogameLoadReplayUriEnv).strip()
+  if uri.len == 0:
+    return
+  {.gcsafe.}:
+    withLock appState.lock:
+      appState.currentReplayUri = uri
+
 proc replayRequestUriOrPending(request: Request): tuple[uri: string, loaded: bool] =
   ## Returns the websocket URI, falling back to the URI captured when serving
   ## /client/replay. Kubernetes service-proxy websocket upgrades do not
@@ -1052,6 +1068,7 @@ proc runServerLoop*(
   appState.replayLoaded = replayLoaded
   appState.replayServerMode = replayLoaded
   appState.config = config
+  recordStartupReplayUri(replayLoaded)
 
   # Tier-2 event sink. Off unless the platform configured a destination, so a
   # live server that nobody is analysing keeps paying nothing — which is the
