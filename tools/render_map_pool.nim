@@ -54,11 +54,18 @@ proc renderPoolMap(gameMap: CtfMap): Image =
         c = ZoneColor
       result.unsafe[x, y] = c
   for trench in gameMap.trenches:
-    for y in trench.y ..< trench.y + trench.h:
-      for x in trench.x ..< trench.x + trench.w:
-        let rim = x - trench.x < 3 or trench.x + trench.w - 1 - x < 3 or
-          y - trench.y < 3 or trench.y + trench.h - 1 - y < 3
-        result.unsafe[x, y] = if rim: TrenchRimColor else: TrenchColor
+    # Same rough shovel-dug edge as the in-game bake (trenchRoughEdge): the
+    # cut line wanders a few px around the exact gameplay square, so the
+    # preview shows what the board will actually look like.
+    for y in max(0, trench.y - TrenchArtPadPx) ..<
+        min(MapHeight, trench.y + trench.h + TrenchArtPadPx):
+      for x in max(0, trench.x - TrenchArtPadPx) ..<
+          min(MapWidth, trench.x + trench.w + TrenchArtPadPx):
+        let edge = trenchRoughEdge(trench, x, y)
+        if edge < 0 or result.unsafe[x, y].rgba == StoneColor or
+            result.unsafe[x, y].rgba == GlassColor:
+          continue
+        result.unsafe[x, y] = if edge < 3: TrenchRimColor else: TrenchColor
   result.fillDisc(gameMap.flagHome(Red).x, gameMap.flagHome(Red).y, 7, RedColor)
   result.fillDisc(gameMap.flagHome(Blue).x, gameMap.flagHome(Blue).y, 7, BlueColor)
   for p in gameMap.medKitCandidates:

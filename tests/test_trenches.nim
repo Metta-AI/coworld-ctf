@@ -1,5 +1,5 @@
 import
-  std/[json, os, strutils, unittest],
+  std/[json, math, os, strutils, unittest],
   bitworld/spriteprotocol,
   ctf/[global, map_pool, sim]
 
@@ -110,6 +110,27 @@ suite "trenches":
     for y in trench.y ..< trench.y + trench.h:
       for x in trench.x ..< trench.x + trench.w:
         check sim.canOccupy(x, y)
+
+  test "the trench art edge is rough, bounded, and deterministic":
+    discard twoTeamGame()
+    let trench = ArenaTrenches[0]
+    # Along the top gameplay edge the rough cut line wanders: the signed
+    # distance to it takes several values (a machined square would be one
+    # constant) and never strays past the art pad.
+    var edges: seq[float]
+    for x in trench.x ..< trench.x + trench.w:
+      edges.add trenchRoughEdge(trench, x, trench.y)
+    var seen: seq[int]
+    for e in edges:
+      check abs(e) <= float(TrenchArtPadPx)
+      let r = int(round(e))
+      if r notin seen:
+        seen.add r
+    check seen.len >= 3
+    # The edge is a pure function of the trench and pixel: a second sweep
+    # bakes the identical contour (replays must match the live render).
+    for i in 0 ..< edges.len:
+      check trenchRoughEdge(trench, trench.x + i, trench.y) == edges[i]
 
   test "climbing out of a trench is one fifth speed":
     var sim = twoTeamGame()

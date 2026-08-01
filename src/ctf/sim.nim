@@ -4431,30 +4431,82 @@ const
   TrenchFloorAlpha = 95                      ## ...easing to this over the
                                              ## bevel and holding on the pit
                                              ## floor.
+  TrenchEdgeWavePeriod = 9                   ## px between wander knots along
+                                             ## a side of the cut line.
+  TrenchEdgeWaveAmp = 3.5                    ## smooth in/out wander of the
+                                             ## cut line, px.
+  TrenchEdgeChipAmp = 1.0                    ## per-pixel nick on top of the
+                                             ## wander, so the lip reads
+                                             ## chipped, not machined.
+  TrenchArtPadPx* = 5                        ## how far outside the exact
+                                             ## gameplay square the dug art
+                                             ## may reach; must stay >=
+                                             ## WaveAmp + ChipAmp.
+
+proc trenchEdgeNoise(seed, knot, salt: int): float =
+  ## Deterministic hash noise in [-1, 1]: a pure function of its inputs (no
+  ## RNG state), so the same trench bakes the same rough edge every run and
+  ## replays match the live render.
+  var h = uint32((seed * 73856093 xor knot * 19349663 xor salt * 83492791) and
+    0x7FFFFFFF)
+  h = h xor (h shr 13)
+  h = h * 0x85EBCA6B'u32
+  h = h xor (h shr 16)
+  float(h and 0xFFFF) / 32767.5 - 1.0
+
+proc trenchEdgeWave(trench: MapRect, side, t: int): float =
+  ## How far one side of the pit's cut line is displaced (px, + = outward)
+  ## at along-coordinate t: cosine-interpolated value noise with knots every
+  ## TrenchEdgeWavePeriod px, plus a per-pixel chip. Seeded off the trench's
+  ## position, so each dig gets its own stable edge.
+  let
+    seed = (trench.x * 8191 + trench.y) * 4 + side
+    k0 = floorDiv(t, TrenchEdgeWavePeriod)
+    u = float(t - k0 * TrenchEdgeWavePeriod) / TrenchEdgeWavePeriod
+    s = (1 - cos(u * PI)) / 2
+    n0 = trenchEdgeNoise(seed, k0, 0)
+    n1 = trenchEdgeNoise(seed, k0 + 1, 0)
+  (n0 + (n1 - n0) * s) * TrenchEdgeWaveAmp +
+    trenchEdgeNoise(seed, t, 1) * TrenchEdgeChipAmp
+
+proc trenchRoughEdge*(trench: MapRect, x, y: int): float =
+  ## Signed distance (px) from map pixel (x, y) to the trench's ROUGH edge:
+  ## the gameplay square with each side's cut line displaced by
+  ## trenchEdgeWave, corners rounding and chipping naturally via the min.
+  ## Negative = undug ground, ~0 = the lip, growing toward the pit floor.
+  ## The displacement never exceeds WaveAmp + ChipAmp, so the art stays
+  ## within TrenchArtPadPx of the exact square.
+  let
+    dl = float(x - trench.x) + trenchEdgeWave(trench, 0, y)
+    dr = float(trench.x + trench.w - 1 - x) + trenchEdgeWave(trench, 1, y)
+    dt = float(y - trench.y) + trenchEdgeWave(trench, 2, x)
+    db = float(trench.y + trench.h - 1 - y) + trenchEdgeWave(trench, 3, x)
+  min(min(dl, dr), min(dt, db))
 
 proc trenchArtColorAt(base: ColorRGBA, x, y: int): ColorRGBA =
   ## Returns the floor color with the trench art applied at logical (x, y):
-  ## a dug pit — a crisp dark lip line on the square's edge, an inner shadow
-  ## bevel easing down from the lip, and a uniformly darkened sunken floor,
-  ## so the recess reads at a glance. Cosmetic only — the collision masks
-  ## never see trenches, and the art is axis-aligned so it upscales crisply
-  ## at any render scale.
-  let t = trenchIndexAt(x, y)
-  if t < 0:
-    return base
-  let
-    trench = ArenaTrenches[t]
-    edge = min(
-      min(x - trench.x, trench.x + trench.w - 1 - x),
-      min(y - trench.y, trench.y + trench.h - 1 - y)
-    )
-  if edge == 0:
-    return TrenchLipColor
-  let
-    depth = min(edge, TrenchBevelPx)
-    alpha = TrenchLipAlpha -
-      (TrenchLipAlpha - TrenchFloorAlpha) * depth div TrenchBevelPx
-  overTint(base, rgba(12, 9, 5, uint8(alpha)))
+  ## a dug pit — a crisp dark lip line tracing a rough, shovel-dug edge
+  ## (trenchRoughEdge), an inner shadow bevel easing down from the lip, and
+  ## a uniformly darkened sunken floor, so the recess reads at a glance.
+  ## Cosmetic only — the collision masks and gameplay (trenchIndexAt) keep
+  ## the exact square; the art wanders at most TrenchArtPadPx around it.
+  for trench in ArenaTrenches:
+    if x < trench.x - TrenchArtPadPx or
+        x >= trench.x + trench.w + TrenchArtPadPx or
+        y < trench.y - TrenchArtPadPx or
+        y >= trench.y + trench.h + TrenchArtPadPx:
+      continue
+    let edge = trenchRoughEdge(trench, x, y)
+    if edge < 0:
+      continue                # undug ground inside the pad ring
+    if edge < 1:
+      return TrenchLipColor
+    let
+      depth = min(edge - 1, float(TrenchBevelPx))
+      alpha = float(TrenchLipAlpha) -
+        float(TrenchLipAlpha - TrenchFloorAlpha) * depth / float(TrenchBevelPx)
+    return overTint(base, rgba(12, 9, 5, uint8(alpha)))
+  base
 
 proc tileSample(tex: Image, x, y: int): ColorRGBA =
   ## Samples a seamless texture tiled across the arena (opaque source).
