@@ -320,6 +320,39 @@ proc removePlayer(sim: var SimServer, websocket: WebSocket) =
       if value > removedIndex:
         dec value
 
+proc admitPendingJoins(
+  sim: var SimServer,
+  pendingPlayers: var seq[PendingPlayerJoin],
+  socketsToClose: var seq[WebSocket],
+  liveOverlays: var seq[DebugOverlay]
+): seq[PendingPlayerJoin] =
+  ## Admits pending joins in resolved-slot order (the shared core of the main
+  ## loop's and the reset path's join resolution): sorts candidates, seats
+  ## every join whose slot is exactly the next open one, records the seat in
+  ## appState.playerIndices/playerSlots, and grows liveOverlays to the roster.
+  ## Returns the joins that were seated so each caller can run its own
+  ## bookkeeping (replay join records vs. input-mask resets). Caller holds
+  ## appState.lock.
+  pendingPlayers.sort(comparePendingPlayerJoins)
+  for join in pendingPlayers:
+    if join.slotIndex != sim.nextPlayerSlot():
+      continue
+    try:
+      appState.playerIndices[join.websocket] = sim.addPlayer(
+        join.address,
+        join.requestedSlot,
+        join.token
+      )
+    except CtfError:
+      sim.removePlayer(join.websocket)
+      socketsToClose.add(join.websocket)
+      continue
+    appState.playerSlots[join.websocket] =
+      sim.players[appState.playerIndices[join.websocket]].joinOrder
+    while liveOverlays.len < sim.players.len:
+      liveOverlays.add(DebugOverlay())
+    result.add(join)
+
 proc cleanPlayerName(name: string): string =
   ## Returns a protocol-safe player display name.
   result = name.strip()
@@ -1331,22 +1364,8 @@ proc runServerLoop*(
                   socketsToClose.add(websocket)
               else:
                 appState.playerIndices[websocket] = -1
-            pendingPlayers.sort(comparePendingPlayerJoins)
-            for join in pendingPlayers:
-              if join.slotIndex != sim.nextPlayerSlot():
-                continue
-              try:
-                appState.playerIndices[join.websocket] = sim.addPlayer(
-                  join.address,
-                  join.requestedSlot,
-                  join.token
-                )
-              except CtfError:
-                sim.removePlayer(join.websocket)
-                socketsToClose.add(join.websocket)
-                continue
-              appState.playerSlots[join.websocket] =
-                sim.players[appState.playerIndices[join.websocket]].joinOrder
+            for join in sim.admitPendingJoins(
+                pendingPlayers, socketsToClose, liveOverlays):
               replayWriter.writeJoin(
                 tickTime(sim.tickCount),
                 appState.playerIndices[join.websocket],
@@ -1356,8 +1375,6 @@ proc runServerLoop*(
               )
               while replayWriter.lastMasks.len < sim.players.len:
                 replayWriter.lastMasks.add(0)
-              while liveOverlays.len < sim.players.len:
-                liveOverlays.add(DebugOverlay())
               progressed = true
 
         if not replayLoaded:
@@ -1474,22 +1491,8 @@ proc runServerLoop*(
               except CtfError:
                 sim.removePlayer(websocket)
                 socketsToClose.add(websocket)
-            pendingPlayers.sort(comparePendingPlayerJoins)
-            for join in pendingPlayers:
-              if join.slotIndex != sim.nextPlayerSlot():
-                continue
-              try:
-                appState.playerIndices[join.websocket] = sim.addPlayer(
-                  join.address,
-                  join.requestedSlot,
-                  join.token
-                )
-              except CtfError:
-                sim.removePlayer(join.websocket)
-                socketsToClose.add(join.websocket)
-                continue
-              appState.playerSlots[join.websocket] =
-                sim.players[appState.playerIndices[join.websocket]].joinOrder
+            for join in sim.admitPendingJoins(
+                pendingPlayers, socketsToClose, liveOverlays):
               appState.inputMasks[join.websocket] = 0
               appState.inputPressedMasks[join.websocket] = 0
               appState.lastAppliedMasks[join.websocket] = 0
@@ -1499,8 +1502,6 @@ proc runServerLoop*(
               appState.playerViewers[join.websocket] =
                 initPlayerViewerState()
               playerViewerStates.add(appState.playerViewers[join.websocket])
-              while liveOverlays.len < sim.players.len:
-                liveOverlays.add(DebugOverlay())
               progressed = true
           replayWriter.lastMasks.setLen(sim.players.len)
           for websocket in appState.rewardViewers.keys:
@@ -1518,10 +1519,20 @@ proc runServerLoop*(
           withLock appState.lock:
             if sockets[i] in appState.playerViewers:
               appState.playerViewers[sockets[i]] = nextState
-        for chunk in global.chunkSpritePacket(framePacket, MaxWsFrameBytes):
-          sockets[i].send(blobFromBytes(chunk), BinaryMessage)
+        try:
+          for chunk in global.chunkSpritePacket(framePacket, MaxWsFrameBytes):
+            sockets[i].send(blobFromBytes(chunk), BinaryMessage)
+        except:
+          {.gcsafe.}:
+            withLock appState.lock:
+              discard markSocketClosed(sockets[i])
       for websocket in rewardViewers:
-        websocket.send(rewardPacket, TextMessage)
+        try:
+          websocket.send(rewardPacket, TextMessage)
+        except:
+          {.gcsafe.}:
+            withLock appState.lock:
+              discard markSocketClosed(websocket)
       # The lobby always paces at wall clock: fast-forwarding here spins the
       # loop hot on whichever seats joined first, and the appState-lock churn
       # starves mummy's upgrade path so the remaining seats never finish

@@ -531,6 +531,28 @@ proc applyReplaySeek*(
   replay.playing = false
   replay.seekReplay(sim, clamp(tick, replay.replayStartTick(), replay.replayMaxTick()))
 
+proc applySpeedCommand*(speedIndex: var int, command: char) =
+  ## Applies one live playback speed command.
+  case command
+  of '+', '=':
+    speedIndex = min(speedIndex + 1, PlaybackSpeeds.high)
+  of '-', '_':
+    speedIndex = max(speedIndex - 1, 0)
+  of '1':
+    speedIndex = 0
+  of '2':
+    speedIndex = 1
+  of '3':
+    speedIndex = 2
+  of '4':
+    speedIndex = 3
+  of '8':
+    speedIndex = 4
+  of '6':
+    speedIndex = 5
+  else:
+    discard
+
 proc applyReplayCommand*(
   replay: var ReplayPlayer,
   sim: var SimServer,
@@ -544,22 +566,8 @@ proc applyReplayCommand*(
     replay.playing = true
   of 'P':
     replay.playing = false
-  of '+', '=':
-    replay.speedIndex = min(replay.speedIndex + 1, PlaybackSpeeds.high)
-  of '-', '_':
-    replay.speedIndex = max(replay.speedIndex - 1, 0)
-  of '1':
-    replay.speedIndex = 0
-  of '2':
-    replay.speedIndex = 1
-  of '3':
-    replay.speedIndex = 2
-  of '4':
-    replay.speedIndex = 3
-  of '8':
-    replay.speedIndex = 4
-  of '6':
-    replay.speedIndex = 5
+  of '+', '=', '-', '_', '1', '2', '3', '4', '8', '6':
+    applySpeedCommand(replay.speedIndex, command)
   of ',', '<':
     replay.playing = false
     replay.seekReplay(sim, replay.replayStartTick())
@@ -634,27 +642,6 @@ proc advanceReplayPlayback*(
       replay.playing = true
       onJump()
 
-proc applySpeedCommand*(speedIndex: var int, command: char) =
-  ## Applies one live playback speed command.
-  case command
-  of '+', '=':
-    speedIndex = min(speedIndex + 1, PlaybackSpeeds.high)
-  of '-', '_':
-    speedIndex = max(speedIndex - 1, 0)
-  of '1':
-    speedIndex = 0
-  of '2':
-    speedIndex = 1
-  of '3':
-    speedIndex = 2
-  of '4':
-    speedIndex = 3
-  of '8':
-    speedIndex = 4
-  of '6':
-    speedIndex = 5
-  else:
-    discard
 
 proc playbackSpeed*(speedIndex: int): int =
   ## Returns the live playback speed for an index.
