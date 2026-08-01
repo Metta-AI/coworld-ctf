@@ -3046,6 +3046,138 @@ proc mapWallAt*(
       return true
   false
 
+proc shapeBounds*(shape: ArenaShape): tuple[x0, y0, x1, y1: int] =
+  ## Inclusive bounding box of one shape's membership: no pixel outside it
+  ## can pass inShape. Diagonals reuse inShape's own rejection half-width, so
+  ## the two can never disagree about where a segment's influence ends.
+  case shape.kind
+  of shapeRect:
+    (shape.rect.x, shape.rect.y,
+      shape.rect.x + shape.rect.w - 1, shape.rect.y + shape.rect.h - 1)
+  of shapeDisc, shapeDiamond:
+    (shape.cx - shape.radius, shape.cy - shape.radius,
+      shape.cx + shape.radius, shape.cy + shape.radius)
+  of shapeDiagonal:
+    let half = shape.thickness div 2 + 1
+    (min(shape.x0, shape.x1) - half, min(shape.y0, shape.y1) - half,
+      max(shape.x0, shape.x1) + half, max(shape.y0, shape.y1) + half)
+
+proc rasterizeWallMasks*(
+  gameMap: CtfMap, obstacles: seq[ArenaShape]
+): tuple[maxWall, minWall: seq[bool]] =
+  ## mapWallAt(spin = spinSwept) and mapWallAt(spin = spinAlways) for EVERY
+  ## pixel at once, bit-identical to querying them one pixel at a time.
+  ## mapWallAt scans the whole shape list per query, so a full-board sweep is
+  ## area x shapes — billions of shape tests on an oversize board. Painting
+  ## each shape over its own bounding box instead costs area + the sum of the
+  ## box areas, and protected floor is only consulted where a shape actually
+  ## covers. (A spinning diamond's swept rosette stays inside its circumradius
+  ## — rotation preserves L2 and L1 >= L2 — so the resting bbox bounds every
+  ## frame.)
+  let
+    w = gameMap.width
+    h = gameMap.height
+  var
+    maxWall = newSeq[bool](w * h)
+    minWall = newSeq[bool](w * h)
+  for shape in obstacles:
+    let
+      bounds = shapeBounds(shape)
+      x0 = max(bounds.x0, 0)
+      y0 = max(bounds.y0, 0)
+      x1 = min(bounds.x1, w - 1)
+      y1 = min(bounds.y1, h - 1)
+    if gameMap.isSpinningDiamond(shape):
+      ## The same circumradius/inradius bracket as mapWallAt: only the
+      ## annulus between them walks the sixteen frames.
+      let r2 = shape.radius * shape.radius
+      for y in y0 .. y1:
+        for x in x0 .. x1:
+          let
+            dx = x - shape.cx
+            dy = y - shape.cy
+            d2 = dx * dx + dy * dy
+          if d2 > r2:
+            continue
+          let i = y * w + x
+          if 2 * d2 <= r2:
+            maxWall[i] = true
+            minWall[i] = true
+            continue
+          var everStone = false
+          var alwaysStone = true
+          for frame in 0 ..< DiamondSpinFrames:
+            if rotatedDiamondCovers(shape.radius, frame, 2 * dx, 2 * dy, 2):
+              everStone = true
+            else:
+              alwaysStone = false
+          if everStone:
+            maxWall[i] = true
+          if alwaysStone:
+            minWall[i] = true
+    else:
+      for y in y0 .. y1:
+        for x in x0 .. x1:
+          if inShape(x, y, shape):
+            let i = y * w + x
+            maxWall[i] = true
+            minWall[i] = true
+  ## Border and protected floor, in mapWallAt's precedence: the border ring
+  ## is wall unconditionally, protected floor is floor no matter what shape
+  ## covers it.
+  for y in 0 ..< h:
+    let onYBorder = y < ArenaBorder or y >= h - ArenaBorder
+    for x in 0 ..< w:
+      let i = y * w + x
+      if onYBorder or x < ArenaBorder or x >= w - ArenaBorder:
+        maxWall[i] = true
+        minWall[i] = true
+      elif maxWall[i] and mapProtectedFloorAt(gameMap, x, y):
+        maxWall[i] = false
+        minWall[i] = false
+  (maxWall, minWall)
+
+proc rasterizeRestWallMask*(
+  gameMap: CtfMap,
+  obstacles: seq[ArenaShape],
+  protectedAt: proc (x, y: int): bool,
+  includeSpinning = true
+): seq[bool] =
+  ## isArenaWall / mapWallAt(spin = spinRest) for every pixel at once — the
+  ## bake-time twin of rasterizeWallMasks, painting resting silhouettes over
+  ## their bounding boxes instead of scanning every shape per pixel.
+  ## includeSpinning = false is mapWallAt's includeSpinning = false: the
+  ## spinning diamonds stay out because the bake stamps their live rotation
+  ## per frame. The protected-floor rule is a parameter because the installed
+  ## map answers it from the Arena globals (isProtectedFloor) while an
+  ## uninstalled candidate answers from the map itself (mapProtectedFloorAt);
+  ## the caller passes whichever matches the per-pixel predicate it replaces.
+  let
+    w = gameMap.width
+    h = gameMap.height
+  result = newSeq[bool](w * h)
+  for shape in obstacles:
+    if not includeSpinning and gameMap.isSpinningDiamond(shape):
+      continue
+    let
+      bounds = shapeBounds(shape)
+      x0 = max(bounds.x0, 0)
+      y0 = max(bounds.y0, 0)
+      x1 = min(bounds.x1, w - 1)
+      y1 = min(bounds.y1, h - 1)
+    for y in y0 .. y1:
+      for x in x0 .. x1:
+        if inShape(x, y, shape):
+          result[y * w + x] = true
+  for y in 0 ..< h:
+    let onYBorder = y < ArenaBorder or y >= h - ArenaBorder
+    for x in 0 ..< w:
+      let i = y * w + x
+      if onYBorder or x < ArenaBorder or x >= w - ArenaBorder:
+        result[i] = true
+      elif result[i] and protectedAt(x, y):
+        result[i] = false
+
 proc scaledGenShell4(sizeName: string): CtfMap =
   ## The 4-team field shell: a SQUARE board (rot90 symmetry needs one) with
   ## the standard clearances scaled by the same class factors as the 2-team
@@ -3712,18 +3844,10 @@ proc validateGeneratedMap*(gameMap: CtfMap): string =
   ## axis at rest but only 20 px a third of a turn later, while the swept disc
   ## claims 30 px at all times. Two seeds in the pre-GV29 pool had exactly
   ## that defect, which is why the pool was re-curated with this change.
-  var
-    maxWall = newSeq[bool](w * h)
-    minWall = newSeq[bool](w * h)
+  let (maxWall, minWall) = rasterizeWallMasks(gameMap, obstacles)
   var minCoverPixels, coverPixels, interiorPixels = 0
   for y in 0 ..< h:
     for x in 0 ..< w:
-      let
-        isWall = mapWallAt(gameMap, obstacles, x, y, spin = spinSwept)
-        isAlwaysWall =
-          mapWallAt(gameMap, obstacles, x, y, spin = spinAlways)
-      maxWall[y * w + x] = isWall
-      minWall[y * w + x] = isAlwaysWall
       ## The cover-budget interior. Sides maps keep the historical x-band
       ## definition EXACTLY (the curated pool seeds validate first-attempt
       ## against it). 4-team layouts measure the actually-playable field:
@@ -3747,9 +3871,9 @@ proc validateGeneratedMap*(gameMap: CtfMap): string =
               not mapProtectedFloorAt(gameMap, x, y)
       if interior:
         inc interiorPixels
-        if isWall:
+        if maxWall[y * w + x]:
           inc coverPixels
-        if isAlwaysWall:
+        if minWall[y * w + x]:
           inc minCoverPixels
 
   ## Cover budget: neither an open field nor a clogged maze — at EVERY frame,
@@ -5165,18 +5289,49 @@ proc loadMapLayers*(gameMap: CtfMap, withEndzoneGlow = true):
     pedSprs[team] = readImage(dir / "data/ped_" & teamText(team) & ".png")
   ## Pass 1: the boolean wall mask (border + obstacles), shared by the shading
   ## bevel and the collision masks so art and geometry can never disagree.
-  var wallMask = newSeq[bool](w * h)
-  for y in 0 ..< h:
-    for x in 0 ..< w:
-      wallMask[y * w + x] = isArenaWall(x, y, cx, cy)
+  ## Rasterized per shape (isArenaWall per pixel scans the whole obstacle
+  ## list, which is minutes of shape tests on an oversize board).
+  let installedProtected = proc (px, py: int): bool =
+    isProtectedFloor(px, py, cx, cy)
+  var wallMask = rasterizeRestWallMask(gameMap, ArenaObstacles,
+    installedProtected)
   ## The static mask drops only the spinning shapes themselves. Any overlapping
   ## wall from another obstacle remains baked under the live sprite.
+  let noSpinMask = rasterizeRestWallMask(gameMap, ArenaObstacles,
+    installedProtected, includeSpinning = false)
   var artMask = wallMask
   for y in 0 ..< h:
     for x in 0 ..< w:
       if artMask[y * w + x] and isAnimatedDiamondPixel(x, y):
-        artMask[y * w + x] =
-          mapWallAt(gameMap, ArenaObstacles, x, y, includeSpinning = false)
+        artMask[y * w + x] = noSpinMask[y * w + x]
+  ## Where glass CAN be: the union of the window shapes' footprints, painted
+  ## once so the per-pixel glass test below is a mask read instead of an
+  ## isArenaWindowPixel obstacle scan (same identity: glass = wall pixel
+  ## covered by a window shape).
+  var windowCover = newSeq[bool](w * h)
+  for shape in ArenaObstacles:
+    if not shape.window:
+      continue
+    let
+      bounds = shapeBounds(shape)
+      wx0 = max(bounds.x0, 0)
+      wy0 = max(bounds.y0, 0)
+      wx1 = min(bounds.x1, w - 1)
+      wy1 = min(bounds.y1, h - 1)
+    for y in wy0 .. wy1:
+      for x in wx0 .. wx1:
+        if inShape(x, y, shape):
+          windowCover[y * w + x] = true
+  ## Where trench art CAN reach: each pit's padded box. Outside these,
+  ## trenchArtColorAt provably returns its input, so the floor loop skips the
+  ## per-pixel trench scan.
+  var trenchNear = newSeq[bool](w * h)
+  for trench in ArenaTrenches:
+    for y in max(0, trench.y - TrenchArtPadPx) ..<
+        min(h, trench.y + trench.h + TrenchArtPadPx):
+      for x in max(0, trench.x - TrenchArtPadPx) ..<
+          min(w, trench.x + trench.w + TrenchArtPadPx):
+        trenchNear[y * w + x] = true
   ## The capture endzones: the exact score-columns from checkWinConditions'
   ## captureZoneXRange (Red's inclusive right threshold, Blue's inclusive left),
   ## painted into the FLOOR below so a carrier can read where to run.
@@ -5199,14 +5354,14 @@ proc loadMapLayers*(gameMap: CtfMap, withEndzoneGlow = true):
           x >= w - ArenaBorder or y >= h - ArenaBorder
         wall = wallMask[y * w + x]
         artWall = artMask[y * w + x]
-        windowPixel = wall and isArenaWindowPixel(x, y, cx, cy)
+        windowPixel = wall and windowCover[y * w + x]
       var color =
         if windowPixel: windowGlassColor(artMask, w, h, x, y)
         elif artWall: rooftopColor(artMask, w, h, x, y)
         elif withEndzoneGlow: endzoneColorAt(tints,
           tileSample(floorTex, x, y), x, y, playLo, playHi, playLoY, playHiY)
         else: tileSample(floorTex, x, y)
-      if not wall:
+      if not wall and trenchNear[y * w + x]:
         # The trench pit (config-gated trenches) paints over the finished floor; it never
         # overlaps a wall (it sits inside the open center ring).
         color = trenchArtColorAt(color, x, y)
@@ -9520,12 +9675,24 @@ proc initSimServer*(config: GameConfig): SimServer =
     let
       cx = result.gameMap.center.x
       cy = result.gameMap.center.y
-    for y in 0 ..< MapHeight:
-      for x in 0 ..< MapWidth:
-        let index = mapIndex(x, y)
-        if isArenaWindowPixel(x, y, cx, cy):
-          result.windowMask[index] = true
-          opaqueMask[index] = false
+    ## Only a window shape's own footprint can hold glass, so the sweep runs
+    ## over those few boxes instead of asking isArenaWindowPixel (a full
+    ## obstacle scan) at every map pixel.
+    for shape in ArenaObstacles:
+      if not shape.window:
+        continue
+      let
+        bounds = shapeBounds(shape)
+        x0 = max(bounds.x0, 0)
+        y0 = max(bounds.y0, 0)
+        x1 = min(bounds.x1, MapWidth - 1)
+        y1 = min(bounds.y1, MapHeight - 1)
+      for y in y0 .. y1:
+        for x in x0 .. x1:
+          if inShape(x, y, shape) and isArenaWall(x, y, cx, cy):
+            let index = mapIndex(x, y)
+            result.windowMask[index] = true
+            opaqueMask[index] = false
   result.fovBlocked = buildFovBlocked(opaqueMask)
   ## The bake left the spinning diamonds OUT of every collision layer; snapshot
   ## that diamond-free ground truth, then stamp tick 0's rotation over it. From
