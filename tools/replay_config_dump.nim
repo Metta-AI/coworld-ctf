@@ -12,6 +12,7 @@ for i in 1 .. paramCount():
     data, mismatchQuit = false, gameEventLoggingEnabled = false)
   echo path.extractFilename(), ": map=", initialized.sim.gameMap.width, "x",
     initialized.sim.gameMap.height,
+    " trenches=", initialized.sim.gameMap.trenches.len,
     " seed=", cfg{"seed"}.getInt(-1),
     " mapSeed=", cfg{"mapSeed"}.getInt(-1),
     " teams=", cfg{"teams"}.getInt(2),

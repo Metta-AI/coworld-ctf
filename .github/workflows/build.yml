@@ -46,3 +46,32 @@ jobs:
             echo "::endgroup::"
           done
           exit $fail
+  # The static replay viewer ships as wasm32: Nim `int` is 32 bits there
+  # (overflow checks trap on math that is silently fine on 64-bit native)
+  # and the address space ends at 2 GB. The native shards above can never
+  # catch that class of bug — twice it reached prod and every hosted replay
+  # hung on "WARMING UP" (PR #189). This job builds the EXACT bundle the
+  # observatory serves (same pinned emsdk+nim via Dockerfile.replay-viewer)
+  # and loads + steps real fixture replays inside the wasm runtime.
+  wasm-replay-viewer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build the static replay viewer bundle
+        run: |
+          docker build --file Dockerfile.replay-viewer \
+            --target replay-viewer-builder --tag ctf-replay-viewer-ci .
+          id=$(docker create ctf-replay-viewer-ci)
+          docker cp "$id":/workspace/ctf/replay-viewer/dist replay-viewer/dist
+          docker rm "$id"
+      - name: Smoke-run fixture replays in the wasm bundle
+        run: |
+          fail=0
+          for replay in tests/replays/ctf.bitreplay \
+              tests/fixtures/gen-small-pits.bitreplay; do
+            echo "::group::$replay"
+            node tools/wasm_replay_smoke.cjs replay-viewer/dist "$replay" 300 || fail=1
+            echo "::endgroup::"
+          done
+          exit $fail
