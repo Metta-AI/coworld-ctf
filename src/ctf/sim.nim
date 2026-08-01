@@ -1689,6 +1689,51 @@ proc rigSegPixels*(team: Team, seg: RigSeg, baseStep, artStep: int,
 
 var rigGunCache: array[Team, seq[tuple[aimStep, scale: int, pixels: seq[uint8]]]]
 
+proc rigHeldWeaponPixels(
+  cache: var array[Team, seq[tuple[aimStep, scale: int, pixels: seq[uint8]]]],
+  team: Team,
+  aimStep, renderScale: int,
+  master: Image,
+  masterScale: float,
+  gripPx: int
+): seq[uint8] =
+  ## Shared held-weapon compositor for the gun and the spray can: the weapon
+  ## as its own HUB-centered rig object, mounted at the cog's RIGHT
+  ## (GunRightPx off the aim ray, gripPx along aim) with its business end on
+  ## +aim, and a warm backlight glow composited BEHIND it so the dark weapon
+  ## pops off the dark floor/legs. Cached per team/aim-step/scale.
+  let a = ((aimStep mod RigSteps) + RigSteps) mod RigSteps
+  for cached in cache[team]:
+    if cached.aimStep == a and cached.scale == renderScale:
+      return cached.pixels
+  let
+    outCanvas = RigCanvas * renderScale
+    center = float32(outCanvas) / 2
+    baseAngle = float(a) * 2.0 * PI / float(RigSteps)
+    unitDeg = -baseAngle                 # pure aim space (muzzle/nozzle on +aim)
+    ws = masterScale * float(renderScale)
+    mat =
+      translate(vec2(center, center)) * rotate(float32(unitDeg)) *
+      translate(vec2(
+        float32(gripPx * renderScale), float32(GunRightPx * renderScale))) *
+      scale(vec2(float32(ws), float32(ws))) *
+      translate(vec2(0'f32, float32(-master.height) / 2))
+  # 1) lay the weapon on a transparent canvas, 2) build a warm-amber backlight
+  # from its silhouette (spread + blur), 3) draw glow THEN weapon.
+  var weaponLayer = newImage(outCanvas, outCanvas)
+  weaponLayer.draw(master, mat)
+  let glow = weaponLayer.shadow(
+    offset = vec2(0, 0),
+    spread = float32(GunGlowSpread * float(renderScale)),
+    blur = float32(GunGlowRadius * float(renderScale)),
+    color = rgba(255, 214, 138, GunGlowAlpha).color)  # faint warm rim light
+  var canvas = newImage(outCanvas, outCanvas)
+  canvas.draw(glow)                      # subtle warm edge behind the weapon
+  canvas.draw(weaponLayer)
+  let pixels = soldierCanvasToPixels(canvas)
+  cache[team].add((aimStep: a, scale: renderScale, pixels: pixels))
+  pixels
+
 proc rigGunPixels*(team: Team, aimStep: int, renderScale = 1): seq[uint8] =
   ## The held top-down paintball MARKER as its OWN HUB-centered rig object (not
   ## baked into the head): mounted at the cog's RIGHT (GunRightPx off the aim ray,
@@ -1697,38 +1742,9 @@ proc rigGunPixels*(team: Team, aimStep: int, renderScale = 1): seq[uint8] =
   ## dark floor/legs. Team-independent shape, but cached per team for symmetry with
   ## the other rig segments. Emitted ABOVE the head z; gate the caller on a
   ## `hasGun` flag to hide it when a cog is disarmed.
-  let a = ((aimStep mod RigSteps) + RigSteps) mod RigSteps
-  for cached in rigGunCache[team]:
-    if cached.aimStep == a and cached.scale == renderScale:
-      return cached.pixels
   ensureGunLoaded()
-  let
-    outCanvas = RigCanvas * renderScale
-    center = float32(outCanvas) / 2
-    baseAngle = float(a) * 2.0 * PI / float(RigSteps)
-    unitDeg = -baseAngle                 # pure aim space (muzzle on +aim)
-    gs = gunScale * float(renderScale)
-    gunMat =
-      translate(vec2(center, center)) * rotate(float32(unitDeg)) *
-      translate(vec2(
-        float32(GunGripPx * renderScale), float32(GunRightPx * renderScale))) *
-      scale(vec2(float32(gs), float32(gs))) *
-      translate(vec2(0'f32, float32(-gunMaster.height) / 2))
-  # 1) lay the gun on a transparent canvas, 2) build a warm-amber backlight from
-  # its silhouette (spread + blur), 3) draw glow THEN gun on the output.
-  var gunLayer = newImage(outCanvas, outCanvas)
-  gunLayer.draw(gunMaster, gunMat)
-  let glow = gunLayer.shadow(
-    offset = vec2(0, 0),
-    spread = float32(GunGlowSpread * float(renderScale)),
-    blur = float32(GunGlowRadius * float(renderScale)),
-    color = rgba(255, 214, 138, GunGlowAlpha).color)  # faint warm rim light
-  var canvas = newImage(outCanvas, outCanvas)
-  canvas.draw(glow)                            # subtle warm edge behind the marker
-  canvas.draw(gunLayer)
-  let pixels = soldierCanvasToPixels(canvas)
-  rigGunCache[team].add((aimStep: a, scale: renderScale, pixels: pixels))
-  pixels
+  rigHeldWeaponPixels(
+    rigGunCache, team, aimStep, renderScale, gunMaster, gunScale, GunGripPx)
 
 var rigSprayCache: array[Team, seq[tuple[aimStep, scale: int, pixels: seq[uint8]]]]
 
@@ -1740,39 +1756,10 @@ proc rigSprayCanPixels*(team: Team, aimStep: int, renderScale = 1): seq[uint8] =
   ## SprayHeldLengthPx: a can is a short fistful, so its silhouette reads clearly
   ## different from the long marker — that difference is how a viewer tells which
   ## weapon a cog is holding.
-  let a = ((aimStep mod RigSteps) + RigSteps) mod RigSteps
-  for cached in rigSprayCache[team]:
-    if cached.aimStep == a and cached.scale == renderScale:
-      return cached.pixels
   ensureSprayLoaded()
-  let
-    outCanvas = RigCanvas * renderScale
-    center = float32(outCanvas) / 2
-    baseAngle = float(a) * 2.0 * PI / float(RigSteps)
-    unitDeg = -baseAngle                 # pure aim space (nozzle on +aim)
-    ss = sprayScale * float(renderScale)
-    canMat =
-      translate(vec2(center, center)) * rotate(float32(unitDeg)) *
-      translate(vec2(
-        float32(SprayHeldGripPx * renderScale),
-        float32(GunRightPx * renderScale))) *
-      scale(vec2(float32(ss), float32(ss))) *
-      translate(vec2(0'f32, float32(-sprayMaster.height) / 2))
-  # Same three-step composite as the marker: can, warm backlight from its
-  # silhouette, then glow-under-can — so it pops off the dark floor identically.
-  var canLayer = newImage(outCanvas, outCanvas)
-  canLayer.draw(sprayMaster, canMat)
-  let glow = canLayer.shadow(
-    offset = vec2(0, 0),
-    spread = float32(GunGlowSpread * float(renderScale)),
-    blur = float32(GunGlowRadius * float(renderScale)),
-    color = rgba(255, 214, 138, GunGlowAlpha).color)
-  var canvas = newImage(outCanvas, outCanvas)
-  canvas.draw(glow)
-  canvas.draw(canLayer)
-  let pixels = soldierCanvasToPixels(canvas)
-  rigSprayCache[team].add((aimStep: a, scale: renderScale, pixels: pixels))
-  pixels
+  rigHeldWeaponPixels(
+    rigSprayCache, team, aimStep, renderScale, sprayMaster, sprayScale,
+    SprayHeldGripPx)
 
 proc soldierIconPixels*(team: Team, sizePx: int): seq[uint8] =
   ## A compact roster chip: the face-on cog scaled so the body fills the icon
@@ -7141,6 +7128,14 @@ proc grenadeSpawnPoints*(gameMap: CtfMap): array[4, tuple[x, y: int]] =
       gameMap.width
     )
 
+proc teamOrbitPoints(gameMap: CtfMap, red: MapPoint): seq[tuple[x, y: int]] =
+  ## Carries RED's chosen point to every active team by the map's own
+  ## symmetry (`teamImagePoint`), so no team's pickup sits in terrain the
+  ## others' don't get.
+  for team in gameMap.teams():
+    let point = gameMap.teamImagePoint(red, team)
+    result.add((point.x, point.y))
+
 proc shieldSpawnPoints*(gameMap: CtfMap): seq[tuple[x, y: int]] =
   ## One shield point per team, deep in that team's endzone. RED's spot is
   ## the only one chosen; every other team's is its image under the map's own
@@ -7169,9 +7164,7 @@ proc shieldSpawnPoints*(gameMap: CtfMap): seq[tuple[x, y: int]] =
           ## the integer `center` instead lands it a pixel off the orbit,
           ## since the rot90 axis is at (side - 1)/2.
           MapPoint(x: inset, y: gameMap.center.y + gameMap.plusArmHalf() div 2)
-  for team in gameMap.teams():
-    let point = gameMap.teamImagePoint(red, team)
-    result.add((point.x, point.y))
+  gameMap.teamOrbitPoints(red)
 
 proc plasmaArcSpawnPoints*(gameMap: CtfMap): seq[tuple[x, y: int]] =
   ## One spray can point per team, built exactly like the shields: RED's spot
@@ -7196,9 +7189,23 @@ proc plasmaArcSpawnPoints*(gameMap: CtfMap): seq[tuple[x, y: int]] =
           MapPoint(x: gameMap.teamAnchor(Red).x, y: inset)
         of layoutPlus:
           MapPoint(x: inset, y: gameMap.center.y - gameMap.plusArmHalf() div 2)
-  for team in gameMap.teams():
-    let point = gameMap.teamImagePoint(red, team)
-    result.add((point.x, point.y))
+  gameMap.teamOrbitPoints(red)
+
+template placeWalkablePickups(
+  sim: var SimServer,
+  spawnsField: untyped,
+  targets: seq[tuple[x, y: int]]
+) =
+  ## Shared placement core for the nudged pickup families (med kits, shields,
+  ## spray cans): sizes the spawn seq to the targets, nudges each target to
+  ## the nearest walkable floor, and refills every spawn. (Grenade spawns
+  ## keep their own placement — they are never nudged.)
+  sim.spawnsField.setLen(targets.len)
+  for i in 0 ..< sim.spawnsField.len:
+    let spot = sim.nearestWalkable(targets[i].x, targets[i].y)
+    sim.spawnsField[i] = PickupSpawn(
+      x: spot.x, y: spot.y, present: true, respawnAt: 0
+    )
 
 proc resetGrenades*(sim: var SimServer) =
   ## Refills every corner pickup and clears carried and airborne grenades.
@@ -7225,37 +7232,21 @@ proc resetMedKits*(sim: var SimServer) =
       (MapWidth div 2, MapHeight div 3),
       (MapWidth div 2, 2 * MapHeight div 3),
     ]
-  sim.medKitSpawns.setLen(targets.len)
-  for i in 0 ..< sim.medKitSpawns.len:
-    let spot = sim.nearestWalkable(targets[i].x, targets[i].y)
-    sim.medKitSpawns[i] = PickupSpawn(
-      x: spot.x, y: spot.y, present: true, respawnAt: 0
-    )
+  sim.placeWalkablePickups(medKitSpawns, targets)
 
 proc resetShields*(sim: var SimServer) =
   ## Places one shield deep in each team's endzone, in the same back column
   ## as the corner grenade pickups but in the BOTTOM half (three quarters of
   ## the map height down) — the spray cans hold the matching top-half spots —
   ## nudged to the nearest walkable floor, and refills both.
-  let targets = sim.gameMap.shieldSpawnPoints()
-  sim.shieldSpawns.setLen(targets.len)
-  for i in 0 ..< sim.shieldSpawns.len:
-    let spot = sim.nearestWalkable(targets[i].x, targets[i].y)
-    sim.shieldSpawns[i] = PickupSpawn(
-      x: spot.x, y: spot.y, present: true, respawnAt: 0
-    )
+  sim.placeWalkablePickups(shieldSpawns, sim.gameMap.shieldSpawnPoints())
   for i in 0 ..< sim.players.len:
     sim.players[i].hasShield = false
     sim.players[i].shieldHp = 0
+
 proc resetPlasmaArcs*(sim: var SimServer) =
   ## Refills every team's spray can pickup and clears carried cans.
-  let points = sim.gameMap.plasmaArcSpawnPoints()
-  sim.plasmaArcSpawns.setLen(points.len)
-  for i in 0 ..< sim.plasmaArcSpawns.len:
-    let spot = sim.nearestWalkable(points[i].x, points[i].y)
-    sim.plasmaArcSpawns[i] = PickupSpawn(
-      x: spot.x, y: spot.y, present: true, respawnAt: 0
-    )
+  sim.placeWalkablePickups(plasmaArcSpawns, sim.gameMap.plasmaArcSpawnPoints())
   sim.plasmaArcFlashes = @[]
   for i in 0 ..< sim.players.len:
     sim.players[i].hasPlasmaArc = false
@@ -8539,38 +8530,56 @@ proc updateGrenades(sim: var SimServer) =
   for grenade in landing:
     sim.explodeGrenade(grenade)
 
+template pickupByTouch(
+  sim: var SimServer,
+  playerIndex: int,
+  spawnsField: untyped,
+  pickupRange, respawnTicks: int,
+  taken: untyped
+) =
+  ## Shared touch-pickup skeleton for the four pickup families: scans present
+  ## spawns within pickupRange of the player's center, and on the first hit
+  ## marks it taken, arms its respawn timer, runs `taken` (with `spawn`, `px`,
+  ## `py` injected — grant + events + log, in each family's original order),
+  ## and stops. Callers keep their own eligibility gates.
+  let
+    px {.inject.} = sim.players[playerIndex].x + CollisionW div 2
+    py {.inject.} = sim.players[playerIndex].y + CollisionH div 2
+    rangeSq = pickupRange * pickupRange
+  for spawn {.inject.} in sim.spawnsField.mitems:
+    if spawn.present and distSq(px, py, spawn.x, spawn.y) <= rangeSq:
+      spawn.present = false
+      spawn.respawnAt = sim.tickCount + respawnTicks
+      taken
+      return
+
+template refillElapsedPickups(sim: var SimServer, spawnsField: untyped) =
+  ## Refills spawns whose respawn timer elapsed.
+  for spawn in sim.spawnsField.mitems:
+    if not spawn.present and sim.tickCount >= spawn.respawnAt:
+      spawn.present = true
+
 proc tryPickupGrenades*(sim: var SimServer, playerIndex: int) =
   ## Lets a living player pick up a corner grenade by touch (one carried
   ## grenade max; either team may take either side's pickups).
   if not sim.players[playerIndex].alive or sim.players[playerIndex].hasGrenade:
     return
-  let
-    px = sim.players[playerIndex].x + CollisionW div 2
-    py = sim.players[playerIndex].y + CollisionH div 2
-    rangeSq = GrenadePickupRange * GrenadePickupRange
-  for spawn in sim.grenadeSpawns.mitems:
-    if spawn.present and distSq(px, py, spawn.x, spawn.y) <= rangeSq:
-      spawn.present = false
-      spawn.respawnAt = sim.tickCount + GrenadeRespawnTicks
-      sim.players[playerIndex].hasGrenade = true
-      sim.emitPickup(playerIndex, "grenade", spawn.x, spawn.y)
-      sim.logGameEvent(
-        playerColorText(sim.players[playerIndex].color) &
-          " picked up a grenade"
-      )
-      return
+  sim.pickupByTouch(playerIndex, grenadeSpawns, GrenadePickupRange,
+      GrenadeRespawnTicks):
+    sim.players[playerIndex].hasGrenade = true
+    sim.emitPickup(playerIndex, "grenade", spawn.x, spawn.y)
+    sim.logGameEvent(
+      playerColorText(sim.players[playerIndex].color) &
+        " picked up a grenade"
+    )
 
 proc updateMedKits*(sim: var SimServer) =
   ## Refills center med kits whose respawn timer elapsed.
-  for spawn in sim.medKitSpawns.mitems:
-    if not spawn.present and sim.tickCount >= spawn.respawnAt:
-      spawn.present = true
+  sim.refillElapsedPickups(medKitSpawns)
 
 proc updatePlasmaArcs*(sim: var SimServer) =
   ## Refills side-center spray can pickups whose respawn timer elapsed.
-  for spawn in sim.plasmaArcSpawns.mitems:
-    if not spawn.present and sim.tickCount >= spawn.respawnAt:
-      spawn.present = true
+  sim.refillElapsedPickups(plasmaArcSpawns)
 
 proc tryPickupMedKits*(sim: var SimServer, playerIndex: int) =
   ## Lets a hurt living player pick up a center med kit by touch, restoring
@@ -8580,32 +8589,23 @@ proc tryPickupMedKits*(sim: var SimServer, playerIndex: int) =
     return
   if sim.players[playerIndex].hp >= sim.config.hitPoints:
     return
-  let
-    px = sim.players[playerIndex].x + CollisionW div 2
-    py = sim.players[playerIndex].y + CollisionH div 2
-    rangeSq = MedKitPickupRange * MedKitPickupRange
-  for spawn in sim.medKitSpawns.mitems:
-    if spawn.present and distSq(px, py, spawn.x, spawn.y) <= rangeSq:
-      spawn.present = false
-      spawn.respawnAt = sim.tickCount + MedKitRespawnTicks
-      let healed = sim.config.hitPoints - sim.players[playerIndex].hp
-      sim.players[playerIndex].hp = sim.config.hitPoints
-      sim.emitPickup(playerIndex, "med_kit", spawn.x, spawn.y)
-      sim.emitEvent(
-        Heal, source = playerIndex, amount = healed,
-        hp = sim.players[playerIndex].hp, x = float(px), y = float(py)
-      )
-      sim.logGameEvent(
-        playerColorText(sim.players[playerIndex].color) &
-          " picked up a med kit"
-      )
-      return
+  sim.pickupByTouch(playerIndex, medKitSpawns, MedKitPickupRange,
+      MedKitRespawnTicks):
+    let healed = sim.config.hitPoints - sim.players[playerIndex].hp
+    sim.players[playerIndex].hp = sim.config.hitPoints
+    sim.emitPickup(playerIndex, "med_kit", spawn.x, spawn.y)
+    sim.emitEvent(
+      Heal, source = playerIndex, amount = healed,
+      hp = sim.players[playerIndex].hp, x = float(px), y = float(py)
+    )
+    sim.logGameEvent(
+      playerColorText(sim.players[playerIndex].color) &
+        " picked up a med kit"
+    )
 
 proc updateShields*(sim: var SimServer) =
   ## Refills endzone shields whose respawn timer elapsed.
-  for spawn in sim.shieldSpawns.mitems:
-    if not spawn.present and sim.tickCount >= spawn.respawnAt:
-      spawn.present = true
+  sim.refillElapsedPickups(shieldSpawns)
 
 proc tryPickupShields*(sim: var SimServer, playerIndex: int) =
   ## Lets a living player pick up an endzone shield by touch (either team may
@@ -8620,44 +8620,30 @@ proc tryPickupShields*(sim: var SimServer, playerIndex: int) =
     return
   if sim.players[playerIndex].shieldHp >= ShieldLayerHp:
     return
-  let
-    px = sim.players[playerIndex].x + CollisionW div 2
-    py = sim.players[playerIndex].y + CollisionH div 2
-    rangeSq = ShieldPickupRange * ShieldPickupRange
-  for spawn in sim.shieldSpawns.mitems:
-    if spawn.present and distSq(px, py, spawn.x, spawn.y) <= rangeSq:
-      spawn.present = false
-      spawn.respawnAt = sim.tickCount + ShieldRespawnTicks
-      sim.players[playerIndex].hasShield = true
-      sim.players[playerIndex].shieldHp = ShieldLayerHp
-      sim.emitPickup(playerIndex, "shield", spawn.x, spawn.y)
-      sim.logGameEvent(
-        playerColorText(sim.players[playerIndex].color) &
-          " picked up a shield"
-      )
-      return
+  sim.pickupByTouch(playerIndex, shieldSpawns, ShieldPickupRange,
+      ShieldRespawnTicks):
+    sim.players[playerIndex].hasShield = true
+    sim.players[playerIndex].shieldHp = ShieldLayerHp
+    sim.emitPickup(playerIndex, "shield", spawn.x, spawn.y)
+    sim.logGameEvent(
+      playerColorText(sim.players[playerIndex].color) &
+        " picked up a shield"
+    )
 
 proc tryPickupPlasmaArcs*(sim: var SimServer, playerIndex: int) =
   ## Lets a living player pick up one side-center spray can by touch.
   if not sim.players[playerIndex].alive or sim.players[playerIndex].hasPlasmaArc:
     return
-  let
-    px = sim.players[playerIndex].x + CollisionW div 2
-    py = sim.players[playerIndex].y + CollisionH div 2
-    rangeSq = PlasmaArcPickupRange * PlasmaArcPickupRange
-  for spawn in sim.plasmaArcSpawns.mitems:
-    if spawn.present and distSq(px, py, spawn.x, spawn.y) <= rangeSq:
-      spawn.present = false
-      spawn.respawnAt = sim.tickCount + PlasmaArcRespawnTicks
-      sim.players[playerIndex].hasPlasmaArc = true
-      sim.players[playerIndex].fireWindup = 0
-      sim.players[playerIndex].windupBrads = -1
-      sim.emitPickup(playerIndex, "spray_can", spawn.x, spawn.y)
-      sim.logGameEvent(
-        playerColorText(sim.players[playerIndex].color) &
-          " picked up a spray can"
-      )
-      return
+  sim.pickupByTouch(playerIndex, plasmaArcSpawns, PlasmaArcPickupRange,
+      PlasmaArcRespawnTicks):
+    sim.players[playerIndex].hasPlasmaArc = true
+    sim.players[playerIndex].fireWindup = 0
+    sim.players[playerIndex].windupBrads = -1
+    sim.emitPickup(playerIndex, "spray_can", spawn.x, spawn.y)
+    sim.logGameEvent(
+      playerColorText(sim.players[playerIndex].color) &
+        " picked up a spray can"
+    )
 
 proc sanitizeShout*(text: string): string =
   ## Reduces raw chat text to a legal shout: printable ASCII only, at most
@@ -9806,6 +9792,17 @@ proc respawnPlayers(sim: var SimServer) =
           y = float(sim.players[i].y + CollisionH div 2)
         )
 
+template pruneAgedFx(sim: var SimServer, fxField, tickField: untyped,
+    life: untyped) =
+  ## Keeps the entries of one aged FX/state seq that are younger than `life`
+  ## ticks (the entry is in scope as `fx` inside the `life` expression, for
+  ## per-entry lifetimes). Same copy-filter shape every pruned seq used.
+  var kept: typeof(sim.fxField) = @[]
+  for fx {.inject.} in sim.fxField:
+    if sim.tickCount - fx.tickField < life:
+      kept.add fx
+  sim.fxField = kept
+
 proc step*(
   sim: var SimServer,
   inputs: openArray[InputState],
@@ -9894,49 +9891,17 @@ proc step*(
 
   # Prune expired shot tracers and splatters (cosmetic only; excluded from
   # gameHash).
-  var kept: seq[ShotFx] = @[]
-  for shot in sim.recentShots:
-    if sim.tickCount - shot.firedTick < ShotFxTicks:
-      kept.add shot
-  sim.recentShots = kept
-  var keptFlashes: seq[HitFlashFx] = @[]
-  for flash in sim.hitFlashes:
-    if sim.tickCount - flash.tick < HitFlashTicks:
-      keptFlashes.add flash
-  sim.hitFlashes = keptFlashes
-  var keptImpacts: seq[BubbleImpactFx] = @[]
-  for impact in sim.bubbleImpacts:
-    if sim.tickCount - impact.tick < BubbleImpactTicks:
-      keptImpacts.add impact
-  sim.bubbleImpacts = keptImpacts
-  var keptBlasts: seq[BlastFx] = @[]
-  for blast in sim.recentBlasts:
-    if sim.tickCount - blast.tick < BlastFxTicks:
-      keptBlasts.add blast
-  sim.recentBlasts = keptBlasts
-  var keptArcFlashes: seq[PlasmaArcFx] = @[]
-  for flash in sim.plasmaArcFlashes:
-    if sim.tickCount - flash.tick < PlasmaArcFxTicks:
-      keptArcFlashes.add flash
-  sim.plasmaArcFlashes = keptArcFlashes
+  sim.pruneAgedFx(recentShots, firedTick, ShotFxTicks)
+  sim.pruneAgedFx(hitFlashes, tick, HitFlashTicks)
+  sim.pruneAgedFx(bubbleImpacts, tick, BubbleImpactTicks)
+  sim.pruneAgedFx(recentBlasts, tick, BlastFxTicks)
+  sim.pruneAgedFx(plasmaArcFlashes, tick, PlasmaArcFxTicks)
 
   # Expire old shouts. Unlike the cosmetic effects above, shouts are
   # observable gameplay state (bots hear them), so expiry is part of the
   # deterministic sim and the hash.
-  var keptShouts: seq[Shout] = @[]
-  for shout in sim.recentShouts:
-    if sim.tickCount - shout.tick < ShoutTicks:
-      keptShouts.add shout
-  sim.recentShouts = keptShouts
-  var keptSplatters: seq[SplatterFx] = @[]
-  for splatter in sim.splatters:
-    let life = if splatter.hit: HitFxTicks else: SplatterFxTicks
-    if sim.tickCount - splatter.tick < life:
-      keptSplatters.add splatter
-  sim.splatters = keptSplatters
-  var keptPops: seq[DamageFx] = @[]
-  for pop in sim.damagePops:
-    let life = if pop.kill: KillFxTicks else: DamageFxTicks
-    if sim.tickCount - pop.tick < life:
-      keptPops.add pop
-  sim.damagePops = keptPops
+  sim.pruneAgedFx(recentShouts, tick, ShoutTicks)
+  sim.pruneAgedFx(splatters, tick,
+    (if fx.hit: HitFxTicks else: SplatterFxTicks))
+  sim.pruneAgedFx(damagePops, tick,
+    (if fx.kill: KillFxTicks else: DamageFxTicks))
