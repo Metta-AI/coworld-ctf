@@ -8,7 +8,7 @@ import std/[os, strutils, strformat], ../src/ctf/sim
 
 const
   PoolSize = 20
-  SizeQuota = [6, 8, 6]        ## small, standard, large.
+  SizeQuota = [4, 5, 4, 4, 3]  ## small, standard, large, huge, giant.
   ShapeQuota = [10, 5, 5]      ## column, disc, square.
 
 proc sizeClassIndex(gameMap: CtfMap): int =
@@ -16,6 +16,8 @@ proc sizeClassIndex(gameMap: CtfMap): int =
   of 1050: 0
   of 1235: 1
   of 1606: 2
+  of 2223: 3
+  of 3211: 4
   else:
     raise newException(CtfError, "Unexpected map width: " & $gameMap.width)
 
@@ -29,7 +31,7 @@ when isMainModule:
   let start = if paramCount() >= 1: parseInt(paramStr(1)) else: 1001
   var
     seeds: seq[int]
-    counts = [0, 0, 0]
+    counts = [0, 0, 0, 0, 0]
     shapeCounts = [0, 0, 0]
     seed = start
     scanned, rejected = 0

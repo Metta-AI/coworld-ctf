@@ -263,7 +263,10 @@ const
   EndzoneRadiusMin* = 90      ## compact-endzone radius bounds. The floor
   EndzoneRadiusMax* = 220     ## keeps the pedestal art and its endzone pits
                               ## inside the zone; the ceiling keeps the two
-                              ## zones clear of the center ring.
+                              ## zones clear of the center ring ON THE
+                              ## STANDARD 1235-WIDE FIELD — wider boards get
+                              ## a proportionally larger ceiling, see
+                              ## maxEndzoneRadius.
   EndzoneWallMargin* = 6      ## px of protected floor past the scoring ring,
                               ## the compact echo of the classic column's
                               ## 210-clear vs 206-threshold gap.
@@ -1931,6 +1934,16 @@ proc validateMapPoint(name: string, point: MapPoint, width, height: int) =
   if point.x < 0 or point.y < 0 or point.x >= width or point.y >= height:
     raise newException(CtfError, "Map " & name & " is outside the map.")
 
+proc maxEndzoneRadius*(width: int): int =
+  ## The compact-endzone radius ceiling for a board of this width. The
+  ## classic EndzoneRadiusMax was authored for the STANDARD 1235-wide field
+  ## (it keeps the two zones clear of the center ring); a wider board
+  ## supports a proportionally larger zone — the generator draws the radius
+  ## as a width fraction, and the oversize classes draw past 220. Narrower
+  ## boards keep the classic cap rather than tightening a bound existing
+  ## configs were allowed to use.
+  max(EndzoneRadiusMax, width * EndzoneRadiusMax div 1235)
+
 proc validateMap(gameMap: CtfMap) =
   ## Raises if a loaded map has invalid geometry.
   if gameMap.width <= 0 or gameMap.height <= 0:
@@ -1961,10 +1974,10 @@ proc validateMap(gameMap: CtfMap) =
       raise newException(
         CtfError, "Compact endzones need a 2-team sides map.")
     if gameMap.endzoneRadius < EndzoneRadiusMin or
-        gameMap.endzoneRadius > EndzoneRadiusMax:
+        gameMap.endzoneRadius > maxEndzoneRadius(gameMap.width):
       raise newException(
         CtfError, "Map endzone radius must be " & $EndzoneRadiusMin & ".." &
-          $EndzoneRadiusMax & " px.")
+          $maxEndzoneRadius(gameMap.width) & " px.")
   validateMapPoint("center", gameMap.center, gameMap.width, gameMap.height)
   for i, room in gameMap.rooms:
     validateMapRect(
@@ -2812,7 +2825,7 @@ const
   PoolMapName* = "pool"
   MinCorridorWidth = 26      ## narrowest corridor for the 13px footprint.
   MapGenMaxAttempts = 100
-  MapSizeNames = ["small", "standard", "large"]
+  MapSizeNames = ["small", "standard", "large", "huge", "giant"]
   CenterFeatureNames = ["bracket", "ring", "walls"]
   ## Interior cover budget, in permille of the non-protected interior that is
   ## obstacle wall. The hand-tuned arena sits inside this band; layouts
@@ -2853,17 +2866,24 @@ proc shuffle[T](rng: var MapRng, items: var seq[T]) =
     let j = rng.pick(i + 1)
     swap(items[i], items[j])
 
+proc mapSizeScale(sizeName: string): float =
+  ## Field-scale factor for one size class. The two OVERSIZE classes are
+  ## newer than the original three: "giant" doubles the old "large" ceiling
+  ## (1.3 -> 2.6), twice the map on each axis.
+  case sizeName
+  of "small": 0.85
+  of "standard": 1.0
+  of "large": 1.3
+  of "huge": 1.8
+  of "giant": 2.6
+  else:
+    raise newException(CtfError, "Unknown map size: " & sizeName)
+
 proc scaledGenShell(sizeName: string): CtfMap =
   ## Field dimensions and clearances for one size class: the standard-arena
   ## numbers scaled by the class factor. Obstacle SIZES never scale — bigger
   ## fields get roomier corridors, exactly like arena-large.
-  let scale =
-    case sizeName
-    of "small": 0.85
-    of "standard": 1.0
-    of "large": 1.3
-    else:
-      raise newException(CtfError, "Unknown map size: " & sizeName)
+  let scale = mapSizeScale(sizeName)
   proc s(value: int): int = int(round(float(value) * scale))
   result.width = s(1235)
   result.height = s(659)
@@ -3005,13 +3025,7 @@ proc scaledGenShell4(sizeName: string): CtfMap =
   ## the standard clearances scaled by the same class factors as the 2-team
   ## shell. The standard side (960) splits the difference between the
   ## classic arena's width and height so the fight density stays familiar.
-  let scale =
-    case sizeName
-    of "small": 0.85
-    of "standard": 1.0
-    of "large": 1.3
-    else:
-      raise newException(CtfError, "Unknown map size: " & sizeName)
+  let scale = mapSizeScale(sizeName)
   proc s(value: int): int = int(round(float(value) * scale))
   result.width = s(960)
   result.height = s(960)
@@ -3080,7 +3094,11 @@ proc generateMapAttempt*(
   doAssert teams in [2, 4], "team count must be 2 or 4"
   var rng = MapRng(state: uint64(seed))
 
-  let sizeDraw = MapSizeNames[rng.pick(3)]
+  ## One draw over ALL size classes. Widening this bound (3 -> 5 when the
+  ## oversize classes landed) re-dealt which size each seed draws, which
+  ## re-curated the map pool — but the draw still consumes exactly one
+  ## stream slot, so every draw after it stays in its historical position.
+  let sizeDraw = MapSizeNames[rng.pick(MapSizeNames.len)]
   let sizeName = if overrides.size.len > 0: overrides.size else: sizeDraw
   result =
     if teams == 4: scaledGenShell4(sizeName)
@@ -3176,10 +3194,10 @@ proc generateMapAttempt*(
         CtfError, "Config field mapBaseDepth must be " & $HomeDepthMin &
           ".." & $HomeDepthMax & ".")
     if result.endzoneRadius < EndzoneRadiusMin or
-        result.endzoneRadius > EndzoneRadiusMax:
+        result.endzoneRadius > maxEndzoneRadius(result.width):
       raise newException(
         CtfError, "Config field mapEndzoneRadius must be " &
-          $EndzoneRadiusMin & ".." & $EndzoneRadiusMax & ".")
+          $EndzoneRadiusMin & ".." & $maxEndzoneRadius(result.width) & ".")
   result.rooms = result.defaultCtfRooms()
 
   let featureDraw = CenterFeatureNames[rng.pick(3)]
@@ -3193,14 +3211,24 @@ proc generateMapAttempt*(
   ## (the home border strip is wilderness now, not a protected column), so
   ## they draw MORE of them to hold the same field density. Same single draw
   ## either way — the RNG stream never shifts.
+  ##
+  ## The column counts were tuned on the standard field, and column x-slots
+  ## spread over the width: an OVERSIZE board with the standard count would
+  ## space its cover ~2x apart and fall to the floor of the cover budget.
+  ## So huge/giant multiply the draw bounds by their field scale. The three
+  ## classic classes keep factor 1 exactly — their bounds (and so their
+  ## draws) are byte-identical to the pre-oversize generator.
+  let columnScale =
+    if sizeName in ["huge", "giant"]: mapSizeScale(sizeName) else: 1.0
+  proc cols(value: int): int = int(round(float(value) * columnScale))
   let columnsDraw =
-    if teams == 4: rng.pickRange(3, 4)
-    elif result.endzone != ezColumn: rng.pickRange(6, 8)
-    else: rng.pickRange(4, 6)
+    if teams == 4: rng.pickRange(cols(3), cols(4))
+    elif result.endzone != ezColumn: rng.pickRange(cols(6), cols(8))
+    else: rng.pickRange(cols(4), cols(6))
   let columns =
     if overrides.columns > 0: overrides.columns else: columnsDraw
-  if columns < 3 or columns > 8:
-    raise newException(CtfError, "Config field mapColumns must be 3..8.")
+  if columns < 3 or columns > 24:
+    raise newException(CtfError, "Config field mapColumns must be 3..24.")
 
   let
     cy = result.center.y
@@ -3478,7 +3506,11 @@ proc generateMapAttempt*(
         if mapWallAt(gameMap, obstacles, x, y):
           return true
       false
-    var plugsLeft = 40
+    ## The plug budget scales with the columns for the same reason the
+    ## columns scale: an oversize board has proportionally more rows to
+    ## cover (cols() is 1x on the classic classes, so their budget is the
+    ## historical 40).
+    var plugsLeft = cols(40)
     while plugsLeft > 0:
       var uncovered = -1
       let fullSet =

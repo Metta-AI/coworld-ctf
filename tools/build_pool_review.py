@@ -21,7 +21,8 @@ render_dir = pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else repo / "pool-pr
 out_path = pathlib.Path(sys.argv[2]) if len(sys.argv) > 2 else repo / "docs" / "pool-review.html"
 
 manifest = json.loads((render_dir / "manifest.json").read_text())
-SIZE_NAMES = {1050: "small", 1235: "standard", 1606: "large"}
+SIZE_NAMES = {1050: "small", 1235: "standard", 1606: "large",
+              2223: "huge", 3211: "giant"}
 
 cards = []
 for m in manifest:
@@ -47,8 +48,8 @@ for m in manifest:
   </div>
 </article>''')
 
-counts = {"small": 0, "standard": 0, "large": 0, "mirror": 0, "rot180": 0,
-          "column": 0, "disc": 0, "square": 0}
+counts = {"small": 0, "standard": 0, "large": 0, "huge": 0, "giant": 0,
+          "mirror": 0, "rot180": 0, "column": 0, "disc": 0, "square": 0}
 for m in manifest:
     counts[SIZE_NAMES[m["width"]]] += 1
     counts[m["symmetry"]] += 1
@@ -103,11 +104,13 @@ h1 .gv {{ color:var(--glass); }}
 <div class="wrap">
 <header class="top"><div>
   <h1>CTF terrain pool <span class="gv">config-gated (mapPath "pool")</span></h1>
-  <span class="sub">{len(manifest)} maps &middot; {counts['small']} small / {counts['standard']} standard / {counts['large']} large &middot; {counts['mirror']} mirror / {counts['rot180']} rot180 &middot; {counts['column']} column / {counts['disc']} disc / {counts['square']} square endzones</span>
+  <span class="sub">{len(manifest)} maps &middot; {counts['small']} small / {counts['standard']} standard / {counts['large']} large / {counts['huge']} huge / {counts['giant']} giant &middot; {counts['mirror']} mirror / {counts['rot180']} rot180 &middot; {counts['column']} column / {counts['disc']} disc / {counts['square']} square endzones</span>
   <span class="filters">
     <button data-f="size:small" aria-pressed="false">small</button>
     <button data-f="size:standard" aria-pressed="false">standard</button>
     <button data-f="size:large" aria-pressed="false">large</button>
+    <button data-f="size:huge" aria-pressed="false">huge</button>
+    <button data-f="size:giant" aria-pressed="false">giant</button>
     <button data-f="sym:mirror" aria-pressed="false">mirror</button>
     <button data-f="sym:rot180" aria-pressed="false">rot180</button>
     <button data-f="endzone:column" aria-pressed="false">column</button>

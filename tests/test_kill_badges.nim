@@ -57,11 +57,12 @@ proc landGrenade(sim: var SimServer) =
 
 # The left capture column is protected floor — never walled — so these tests
 # anchor the actors there for guaranteed line of sight (like test_plasma_arc).
-# `let`, not `const`: MapHeight is a `var` now (arenas are loadable at runtime),
-# so it cannot initialize a compile-time constant. Same as test_plasma_arc.
-let
-  ClearX = 60
-  ClearY = MapHeight div 2
+# A template, not a `let`: MapHeight is a process `var`, and in a combined
+# test binary an earlier module may leave a different (e.g. giant generated)
+# map installed at this module's import time — the anchor must read the
+# height AFTER badgeGame installs the default arena. Same as test_plasma_arc.
+const ClearX = 60
+template ClearY(): int = MapHeight div 2
 
 suite "kill badges":
   test "a grenade blast killing two enemies mints one double, no backstab":

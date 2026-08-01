@@ -88,7 +88,10 @@ tasks, voting) with teams, guns, hearts, and fog-of-war vision.
   Generated layouts keep every arena invariant — exact team symmetry
   (vertical mirror or 180° rotation), no straight cross-field shot,
   corridors at least twice the player footprint, a bounded cover budget —
-  and draw their size class, obstacle columns, glass placements, center
+  and draw their size class (`small` / `standard` / `large` / `huge` /
+  `giant` — `giant` is the old `large` ceiling doubled, up to 3211x1713 on
+  a 2-team board; obstacle sizes never scale, bigger fields draw more
+  cover columns instead), obstacle columns, glass placements, center
   feature, endzone archetype, and med-kit pair per map. The exact geometry
   is pinned into the match config/replay as `mapSpec`. The default league
   map remains the hand-tuned arena described above; leagues opt in through

@@ -267,7 +267,9 @@ suite "spinning center diamonds are real geometry":
     let previousDir = getCurrentDir()
     setCurrentDir(GameDir)
     try:
-      for gameMap in [generateCtfMap(1046), generateCtfMap(11, teams = 4)]:
+      ## Seeds picked (re-picked when the oversize size classes re-dealt the
+      ## draws) so the 2-team map is rot180 and both maps select diamonds.
+      for gameMap in [generateCtfMap(1111), generateCtfMap(66, teams = 4)]:
         let
           chosen = buildAnimatedDiamonds(
             gameMap, buildArenaObstacles(gameMap))

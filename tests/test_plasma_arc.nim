@@ -35,9 +35,12 @@ proc stepNone(sim: var SimServer, ticks: int) =
 
 # The left capture column (x < 210) is protected floor — never walled — so
 # arc-fire tests anchor the attacker there for guaranteed line of sight.
-let
-  ClearX = 60
-  ClearY = MapHeight div 2
+# A template, not a `let`: MapHeight is a process `var`, and in a combined
+# test binary an earlier module may leave a different (e.g. giant generated)
+# map installed at this module's import time — the anchor must read the
+# height AFTER the test's own game init installs the default arena.
+const ClearX = 60
+template ClearY(): int = MapHeight div 2
 
 suite "spray cans":
   test "two spray cans spawn walkable in the top half of the side columns":

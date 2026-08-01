@@ -47,8 +47,10 @@ const
   EastX = 310
   RowY = 138                  # center row of the top window stub (y 108..168).
   WindowCx = 277              # column-1 stub center line.
-let
-  WindowMirrorCx = MapWidth - 268 - 18 + 9  # mirrored stub's center line.
+# A template, not a `let`: MapWidth is a process `var`, and in a combined
+# test binary an earlier module may leave a different map installed at this
+# module's import time — read the width after this suite installs the arena.
+template WindowMirrorCx(): int = MapWidth - 268 - 18 + 9  # mirrored stub.
 const
   StoneRowY = 40              # center row of stub #1 (y 10..72): stays stone.
   StoneDiamondCx = 349        # column-2 diamond at (349, 282): stays opaque.

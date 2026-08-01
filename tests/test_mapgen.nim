@@ -31,10 +31,17 @@ suite "procedural terrain":
     check generateCtfMap(4242) == generateCtfMap(4242)
 
   test "every pool seed validates on its first attempt":
+    var widths: seq[int]
     for seed in MapPoolSeeds:
       let gameMap = generateCtfMap(seed)
       check gameMap.genSeed == seed
       check validateGeneratedMap(gameMap) == ""
+      widths.add gameMap.width
+    ## The curated pool spans every size class, including the two oversize
+    ## ones (huge 2223, giant 3211 — the giant scale is the old "large"
+    ## ceiling doubled).
+    for w in [1050, 1235, 1606, 2223, 3211]:
+      check w in widths
 
   test "obstacle union is exact under the map's symmetry":
     for seed in [MapPoolSeeds[0], MapPoolSeeds[1], 777]:
@@ -67,10 +74,11 @@ suite "procedural terrain":
     ## the board, worth up to 400-pixel blobs of cover that one team had and
     ## its twin did not.
     ##
-    ## Seeds are chosen to cover all three size classes, since the half-
-    ## pixel rot90 axis of an EVEN side is what the carve has to respect.
+    ## Seeds are chosen to span the size classes — smallest (816), middle
+    ## (1248), and the oversize ceiling (2496) — since the half-pixel rot90
+    ## axis of an EVEN side is what the carve has to respect.
     for layout in ["corners", "plus"]:
-      for seed in [11, 13, 33]:
+      for seed in [13, 6, 17]:
         let
           overrides = MapGenOverrides(windows: -1, layout: layout)
           gameMap = generateCtfMap(seed, overrides, teams = 4)
@@ -250,6 +258,22 @@ suite "procedural terrain":
     let gameMap = resolveCtfMapMetadata(config)
     check gameMap.width == 1606
     check gameMap.symmetry == symRot180
+
+  test "oversize size locks produce the doubled ceiling":
+    ## "giant" doubles the old "large" scale (1.3 -> 2.6): the widest
+    ## 2-team board grows from 1606x857 to 3211x1713; "huge" sits between.
+    var config = defaultGameConfig()
+    config.update("""{"mapPath": "gen", "mapSeed": 7, "mapSize": "huge"}""")
+    var gameMap = resolveCtfMapMetadata(config)
+    check gameMap.width == 2223
+    check gameMap.height == 1186
+    config = defaultGameConfig()
+    config.update("""{"mapPath": "gen", "mapSeed": 7, "mapSize": "giant"}""")
+    gameMap = resolveCtfMapMetadata(config)
+    check gameMap.width == 3211
+    check gameMap.height == 1713
+    ## Map-relative ranges follow the bigger field like any other class.
+    check config.gunRange == gameMap.gunRange
 
   test "med kits spawn on the generated map's active pair":
     var config = defaultGameConfig()
