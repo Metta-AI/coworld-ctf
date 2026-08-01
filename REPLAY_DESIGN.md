@@ -26,7 +26,9 @@ server.nim:560–569; `staticRead` in `~/.nimby/pkgs/bitworld/src/bitworld/clien
   `gameHash`, so determinism/replay hashes are untouched).
 - A **new designed broadcast client** `client/replay_broadcast.html` lives in THIS repo, `staticRead`
   into `server.nim`, served for `ReplayClientRoute`/`CoworldReplayClientRoute` instead of bitworld's
-  generic client. Single self-contained file (all assets inline, L13).
+  generic client. Single file for the markup/JS/CSS (broadcast_core.js is spliced in at compile
+  time); it fetches `font.ttf` and the per-team cog PNGs (`soldier_<team>_front[_gun].png`) as
+  separate assets at runtime.
 - A **JSON state channel**: the server sends a TextMessage frame alongside the binary sprite blobs to
   replay viewers (tick, maxTicks, phase, team lives, flag states + carriers, per-player roster
   K/D/lives/HP, beat events, winner/isDraw/timeLimitReached, playback speed/playing). Binary = board;
@@ -152,7 +154,7 @@ composited into the server-streamed board (see the WIRING note below); each veri
 - **Pedestal red** `data/ped_red.png` + **Pedestal blue** `data/ped_blue.png` (→ flag homes) — carved
   stone dais, glowing team-emblem inlay, top-down. The only cover-object blit that remains.
 - Reuses (existing, kept): 16 team-tinted crew sprites `data/spritesheet.aseprite`, flag/self/splatter/tracer/
-  sound-ring/aim-dot/fog sprites (`global.nim`), palette, wordmark `data/logo.png`, fonts.
+  sound-ring/aim-dot/fog sprites (`global.nim`), palette, fonts.
 
 > **WIRING — server-streamed board (A-plumbing third-shape, §1).** Unlike an R1 client-inlined renderer,
 > this platform's board art is composited into `mapImage` inside `sim.nim:loadMapLayers`, flows to the

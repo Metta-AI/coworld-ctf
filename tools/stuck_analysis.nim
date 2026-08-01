@@ -21,17 +21,18 @@ game.gameEventLoggingEnabled = false
 replay.looping = false
 replay.mismatchQuit = true
 
+let seatCap = config.playerSlotLimit()
 var
-  history: array[16, seq[(int, int, bool)]] # x, y, alive per tick
-  stuckTicks: array[16, int]
-  aliveTicks: array[16, int]
-  worstSpots: array[16, (int, int, int)] # start tick, x, y of longest stall
-  stallLen: array[16, int]
-  curStall: array[16, int]
+  history = newSeq[seq[(int, int, bool)]](seatCap) # x, y, alive per tick
+  stuckTicks = newSeq[int](seatCap)
+  aliveTicks = newSeq[int](seatCap)
+  worstSpots = newSeq[(int, int, int)](seatCap) # start tick, x, y of longest stall
+  stallLen = newSeq[int](seatCap)
+  curStall = newSeq[int](seatCap)
 
 while replay.playing:
   replay.stepReplay(game)
-  for i in 0 ..< min(game.players.len, 16):
+  for i in 0 ..< min(game.players.len, seatCap):
     let p = game.players[i]
     history[i].add((p.x, p.y, p.alive))
     if not p.alive:
@@ -55,7 +56,7 @@ while replay.playing:
 
 echo "ticks=", game.tickCount
 var rows: seq[(float, int)]
-for i in 0 ..< 16:
+for i in 0 ..< seatCap:
   if aliveTicks[i] == 0:
     continue
   rows.add((stuckTicks[i].float / aliveTicks[i].float, i))

@@ -3,12 +3,16 @@
 Run with the cogherence player's venv, which holds the working login:
   ~/projects/coworld-players/coworld-cogherence-player/.venv/bin/python
 
+Set COWORLD_COGHERENCE_PLAYER if that checkout lives elsewhere.
 The CLI schema drifts; we speak raw JSON against /v2.
 """
+import os
 import sys
 import time
 
-sys.path.insert(0, "/Users/maxwellstarr/projects/coworld-players/coworld-cogherence-player")
+sys.path.insert(0, os.environ.get(
+    "COWORLD_COGHERENCE_PLAYER",
+    os.path.expanduser("~/projects/coworld-players/coworld-cogherence-player")))
 
 from coworld.api_client import CoworldApiClient  # noqa: E402
 from coworld.config import DEFAULT_SUBMIT_SERVER  # noqa: E402
