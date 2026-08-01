@@ -62,3 +62,11 @@ suite "replay switch render caches":
     check simB.initBandPixels() == bandsB
     invalidateBoardMapCaches()
     check simB.initBandPixels() == bandsB
+
+# The suite above installs a pool map as THE process map (selectCtfMap runs
+# inside initSimServer) and leaves the render caches repopulated from it.
+# Both are process-wide, so any board-state module that runs after this one
+# in the same shard binary would see the pool map instead of the default
+# arena. Restore the default and drop the map-derived caches.
+discard loadCtfMap()
+invalidateBoardMapCaches()
