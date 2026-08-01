@@ -28,7 +28,9 @@ RUN nim c -d:emscripten replay-viewer/ctf_replay.nim && \
     client/replay_broadcast.html > replay-viewer/dist/index.html && \
   cp client/league_replayer.html replay-viewer/dist/league.html && \
   cp data/soldier_red_front.png data/soldier_blue_front.png \
+    data/soldier_green_front.png data/soldier_yellow_front.png \
     data/soldier_red_front_gun.png data/soldier_blue_front_gun.png \
+    data/soldier_green_front_gun.png data/soldier_yellow_front_gun.png \
     replay-viewer/dist/ && \
   mkdir -p replay-viewer/dist/art/walls && \
   cp client/art/walls/wall_h.jpg client/art/walls/wall_v.jpg \
@@ -40,6 +42,10 @@ RUN nim c -d:emscripten replay-viewer/ctf_replay.nim && \
   test -f replay-viewer/dist/league.html && \
   test -f replay-viewer/dist/soldier_red_front.png && \
   test -f replay-viewer/dist/soldier_blue_front.png && \
+  test -f replay-viewer/dist/soldier_green_front.png && \
+  test -f replay-viewer/dist/soldier_yellow_front.png && \
   test -f replay-viewer/dist/soldier_red_front_gun.png && \
   test -f replay-viewer/dist/soldier_blue_front_gun.png && \
+  test -f replay-viewer/dist/soldier_green_front_gun.png && \
+  test -f replay-viewer/dist/soldier_yellow_front_gun.png && \
   test -f replay-viewer/dist/art/walls/wall_h.jpg

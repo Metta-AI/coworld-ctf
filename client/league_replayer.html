@@ -508,7 +508,7 @@
   // ==========================================================================
   //  FRAME STREAM — the embedded replay postMessages each parsed state here.
   // ==========================================================================
-  var lastState=null, maxTick=1, lastTick=-1, lastFf=false;
+  var lastState=null, lastTick=-1, lastFf=false;
 
   // Relay an Esc up to the Observatory theater host (the frame that embeds THIS
   // shell). keydown never crosses an iframe boundary, so the host can't see
@@ -1012,7 +1012,6 @@
   // ==========================================================================
   function onFrame(s){
     lastState=s;
-    maxTick = Math.max(1, s.mx||s.mt||1);
 
     // Detect a jump (seek/loop) — nothing transient to clear here, but we keep
     // beat markers collected so far (markBeat dedups by tick|kind anyway).
