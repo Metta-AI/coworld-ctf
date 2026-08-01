@@ -53,12 +53,13 @@ suite "replay switch render caches":
     invalidateBoardMapCaches()
     check simB.initBandPixels() == bandsB
 
-# Teardown: this is the only test module that hot-switches the process-wide
-# installed map. Reinstall the default arena (a throwaway default-config sim
-# does it through the public loadCtfMap path) and drop the render caches, so
-# module ordering in a combined binary (tests.nim runs all shards in ONE
-# process, unlike CI's four) cannot leak pool-map state into later board
-# tests — test_shouts/test_shield_bubble crashed with an IndexDefect exactly
-# that way when this module ran before them.
-discard startedGame("")
+# The suite above installs a pool map as THE process map (selectCtfMap runs
+# inside initSimServer) and leaves the render caches repopulated from it.
+# Both are process-wide, so any board-state module that runs after this one
+# in the same binary would see the pool map instead of the default arena —
+# tests.nim runs ALL shards in one process (unlike CI's four), and
+# test_shouts/test_shield_bubble crashed with an IndexDefect exactly that
+# way when this module ran before them. Restore the default and drop the
+# map-derived caches.
+discard loadCtfMap()
 invalidateBoardMapCaches()
