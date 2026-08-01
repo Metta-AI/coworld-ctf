@@ -282,6 +282,11 @@ var
     # width (1300 on the 1235px arena, 1690 on the 1606px arena-large), so
     # a hair past a map-width is always inside it. 1250.0 on the default
     # arena — the value this bot always used.
+  GameTeams = 2
+    # how many teams share the arena, from the `game teams <n> map <w>x<h>`
+    # init marker. This bot's strategy (mirrored lanes, homeSign, the
+    # Red/Blue enum) is written for 2 teams; on a 4-team map it still runs
+    # its 2-team heuristics, but at least it KNOWS, and telemetry records it.
 
 type
   Team = enum
@@ -793,10 +798,29 @@ proc adoptMapSize(client: ProtocolClient) =
   LaneBottom = float(MapH) - LaneTop
   FireRange = float(MapW) + 15.0
 
+proc adoptGameParams(client: ProtocolClient) =
+  ## Reads the stated episode parameters off the init marker
+  ## `game teams <count> map <width>x<height>` (see LabelPrefixGameParams).
+  ## The team count is the marker's unique intel; the map size restates the
+  ## walkability sprite's dimensions, which adoptMapSize already adopted, so
+  ## it is not re-read here.
+  for o in client.spriteObjects():
+    if o.label.startsWith(LabelPrefixGameParams):
+      let parts = o.label[LabelPrefixGameParams.len .. ^1].split(' ')
+      if parts.len == 3:
+        try:
+          GameTeams = clamp(parseInt(parts[0]), 2, 4)
+        except ValueError:
+          discard
+      break
+
 proc buildNavGrid(bot: Bot, client: ProtocolClient) =
   ## Erodes the pixel walkability mask into a footprint-safe nav grid, then
   ## derives the cover model (cover cells, overwatch post, defender choke).
   adoptMapSize(client)
+  adoptGameParams(client)
+  artEvent(bot.tick, "game_params",
+    %*{"teams": GameTeams, "mapW": MapW, "mapH": MapH})
   bot.cellWalkable = newSeq[bool](GridW * GridH)
   for cy in 0 ..< GridH:
     for cx in 0 ..< GridW:

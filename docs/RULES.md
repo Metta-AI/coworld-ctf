@@ -662,7 +662,7 @@ These are starting values, exposed in the game config and tuned in self-play.
 | Endzone radius (`mapEndzoneRadius`) | 0 (drawn 110-140, size-scaled) | Compact endzones only: scoring radius / half-extent in px, 90..220. Needs `mapEndzone` |
 | Base depth (`mapBaseDepth`) | 0 (drawn 520-620) | Compact endzones only: home anchor permille of the half-field, 400..800; SMALLER sets the base further from the edge. Needs `mapEndzone` |
 | Time limit (`MaxTicks`) | 5000 ticks (~3.5 min) | Round length cap before the lose-lose draw |
-| Map size | 1235×659 | Inherited from Crewrift; may change |
+| Map size | 1235×659 (default) | Varies by map class; the actual size and team count are stated in the `game teams <count> map <width>x<height>` init marker |
 
 Engine tick rate is **24 ticks/sec** (inherited from Crewrift); all
 second-based values above convert at that rate.
@@ -675,7 +675,19 @@ SPECTATOR/replay stream supersamples its zoomable board layers (2x,
 `RenderScale`); the sim, the gameHash, and everything above (map size
 1235x659, ranges, speeds) stay in map pixels. A 0.6.0-era build shipped the
 wire at 3x -- any advice about dividing coordinates by 3 is stale. The
-invisible `walkability map` sprite is 1235x659 in every stream. The full wire
+invisible `walkability map` sprite is 1235x659 in every stream.
+
+**The episode parameters are stated outright at t=0.** The init snapshot
+carries an invisible 1x1 marker labeled
+`game teams <count> map <width>x<height>` — the number of teams sharing the
+arena (2 or 4) and the exact map size in map pixels for THIS episode. Match
+the prefix `game teams `; the tail splits on spaces into
+`["<count>", "map", "<width>x<height>"]`. Generated maps come in several size
+classes and team layouts, so a policy should read this marker (or fall back to
+the walkability sprite's dimensions and counting `Room <color> Base` markers)
+instead of assuming the classic 1235x659 two-team arena.
+
+The full wire
 contract, including the CTF input-protocol extensions, is in
 [`PROTOCOL.md`](PROTOCOL.md). Labels, sprite/object ids, and layers are
 unchanged between streams, with one exception: while you are dead your own

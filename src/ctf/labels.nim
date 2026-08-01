@@ -120,6 +120,14 @@ const
   LabelPrefixCogSprayCan* = "cog spray can "
     ## The held spray can, `cog spray can <color>`, which REPLACES the gun
     ## sprite while one is carried — so the silhouette shows the live weapon.
+  LabelPrefixGameParams* = "game teams "
+    ## The episode-parameter marker, `game teams <count> map <width>x<height>`:
+    ## an invisible 1x1 object in the init snapshot stating the match setup
+    ## outright — how many teams share the arena (2 or 4) and the exact map
+    ## size in map pixels. Before it existed a policy had to INFER both: the
+    ## team count from counting room markers or pedestals, the map size from
+    ## the walkability sprite's dimensions. Those channels still work; this
+    ## label is the stated-value contract for them.
 
   # ---------------------------------------------------------------------------
   # Tokens that fill the interpolated slots above.
@@ -201,6 +209,14 @@ proc labelHp*(lit: int): string =
   ## `total` parameter would preserve exactly that — two callers, two beliefs,
   ## still no check — so the total is not a parameter at all.
   LabelPrefixHp & $lit & "/" & $LabelHpBarSegments
+
+proc labelGameParams*(teams, mapWidth, mapHeight: int): string =
+  ## The episode-parameter marker label,
+  ## `game teams <count> map <width>x<height>`. A consumer matches
+  ## LabelPrefixGameParams and splits the tail on spaces into exactly
+  ## `["<count>", "map", "<width>x<height>"]` — the `map` token is fixed, and
+  ## the size splits once more on the `x`.
+  LabelPrefixGameParams & $teams & " map " & $mapWidth & "x" & $mapHeight
 
 proc labelWeapon*(token: string): string =
   ## The own-weapon HUD label, `weapon <token>` — LabelWeaponGun or

@@ -2623,7 +2623,10 @@ proc addMapMarkers(
   spriteDefs: var seq[SpriteDefinition],
   packet: var seq[uint8]
 ) {.measure.} =
-  ## Adds invisible room markers for sprite agents.
+  ## Adds invisible room markers for sprite agents, plus the episode-parameter
+  ## marker stating the team count and map size outright (see
+  ## LabelPrefixGameParams) — so a policy reads the game shape at t=0 instead
+  ## of inferring it from room markers and layer viewports.
   var index = 0
   for room in sim.rooms:
     packet.addMapMarker(
@@ -2636,6 +2639,19 @@ proc addMapMarkers(
       "Room " & room.name
     )
     inc index
+  packet.addMapMarker(
+    spriteDefs,
+    index,
+    0,
+    0,
+    1,
+    1,
+    labelGameParams(
+      sim.gameMap.teamCount(),
+      sim.gameMap.width,
+      sim.gameMap.height
+    )
+  )
 
 proc buildFogRunSprite(widthCells: int): seq[uint8] {.measure.} =
   ## Builds one translucent dark fog run sprite covering `widthCells`

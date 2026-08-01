@@ -27,6 +27,7 @@ endzone <color> power <n>
 fire icon
 fire icon cooldown
 fog
+game teams <n> map <n>x<n>
 grenade
 grenade air
 grenade carried
