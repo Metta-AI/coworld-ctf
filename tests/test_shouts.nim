@@ -307,12 +307,26 @@ suite "shout bubbles keep their wire ids while other shouts churn":
       if " shout " in label:
         result[label.split(": ", 1)[1]] = (obj.id, obj.spriteId)
 
+  proc playOn(
+    sim: var SimServer,
+    state: var GlobalViewerState,
+    spriteLabels: var Table[int, string],
+    ticks: int
+  ): Table[string, (int, int)] =
+    ## Advances `ticks` ticks at 1x playback — one drawn board frame per sim
+    ## tick, like the live broadcast — and returns the last frame's bubbles.
+    ## Wall-clock dwell (ShoutDwellFrames) never exceeds real time at 1x, so
+    ## these tests observe the same expiry/swap timing the sim dictates.
+    let none = newSeq[InputState](sim.players.len)
+    for _ in 0 ..< ticks:
+      sim.step(none, none)
+      result = sim.boardShoutIds(state, spriteLabels)
+
   test "a re-shout and an expiry never move another player's bubble":
     var
       sim = namedGame(2)
       state = initGlobalViewerState()
       spriteLabels = initTable[int, string]()
-    let none = newSeq[InputState](sim.players.len)
 
     # Frame 1: player 0's bubble claims its ids.
     check sim.applyShout(0, "one")
@@ -320,10 +334,9 @@ suite "shout bubbles keep their wire ids while other shouts churn":
     check first.len == 1
     let idsA = first["one"]
 
-    # Frame 2, one cooldown later: player 1 joins the conversation. The new
-    # bubble gets its own ids; player 0's do not move.
-    for _ in 0 ..< ShoutCooldownTicks:
-      sim.step(none, none)
+    # One cooldown later: player 1 joins the conversation. The new bubble gets
+    # its own ids; player 0's do not move.
+    discard sim.playOn(state, spriteLabels, ShoutCooldownTicks)
     check sim.applyShout(1, "two")
     let second = sim.boardShoutIds(state, spriteLabels)
     check second.len == 2
@@ -331,35 +344,31 @@ suite "shout bubbles keep their wire ids while other shouts churn":
     let idsB = second["two"]
     check idsB != idsA
 
-    # Frame 3: player 0 re-shouts, which REPLACES its recentShouts entry
-    # (remove mid-array + append at the end). Under index-keyed ids that
-    # reordering swapped both bubbles' identities; slot-keyed, each stays put.
-    for _ in 0 ..< ShoutCooldownTicks:
-      sim.step(none, none)
+    # Player 0 re-shouts, which REPLACES its recentShouts entry (remove
+    # mid-array + append at the end). Under index-keyed ids that reordering
+    # swapped both bubbles' identities; slot-keyed, each stays put.
+    discard sim.playOn(state, spriteLabels, ShoutCooldownTicks)
     check sim.applyShout(0, "three")
     let third = sim.boardShoutIds(state, spriteLabels)
     check third.len == 2
     check third["three"] == idsA
     check third["two"] == idsB
 
-    # Frame 4: player 1 refreshes its bubble too, so its shout now outlives
-    # player 0's.
-    for _ in 0 ..< ShoutCooldownTicks:
-      sim.step(none, none)
+    # Player 1 refreshes its bubble too, so its shout now outlives player 0's.
+    discard sim.playOn(state, spriteLabels, ShoutCooldownTicks)
     check sim.applyShout(1, "four")
     let fourth = sim.boardShoutIds(state, spriteLabels)
     check fourth.len == 2
     check fourth["three"] == idsA
     check fourth["four"] == idsB
 
-    # Frame 5: player 0's shout expires, compacting recentShouts. ("three" was
-    # made one cooldown before "four", so this lands after "three" dies and
-    # before "four" does.) Under index-keyed ids the surviving bubble slid
-    # into the dead one's identity; slot-keyed, it keeps its own.
-    for _ in 0 ..< ShoutTicks - ShoutCooldownTicks:
-      sim.step(none, none)
+    # Player 0's shout expires, compacting recentShouts. ("three" was made one
+    # cooldown before "four", so this lands after "three" dies and before
+    # "four" does.) Under index-keyed ids the surviving bubble slid into the
+    # dead one's identity; slot-keyed, it keeps its own.
+    let fifth = sim.playOn(
+      state, spriteLabels, ShoutTicks - ShoutCooldownTicks)
     check sim.recentShouts.len == 1
-    let fifth = sim.boardShoutIds(state, spriteLabels)
     check fifth.len == 1
     check fifth["four"] == idsB
 
@@ -368,13 +377,149 @@ suite "shout bubbles keep their wire ids while other shouts churn":
       sim = namedGame(2)
       state = initGlobalViewerState()
       spriteLabels = initTable[int, string]()
-    let none = newSeq[InputState](sim.players.len)
     check sim.applyShout(0, "one")
     let first = sim.boardShoutIds(state, spriteLabels)
-    for _ in 0 ..< ShoutTicks:
-      sim.step(none, none)
+    check sim.playOn(state, spriteLabels, ShoutTicks).len == 0
     check sim.recentShouts.len == 0
-    check sim.boardShoutIds(state, spriteLabels).len == 0
     check sim.applyShout(1, "two")
     let next = sim.boardShoutIds(state, spriteLabels)
     check next["two"] == first["one"]
+
+suite "board bubbles hold a wall-clock read time under compressed playback":
+  # Replay playback compresses sim time: speed multiplies ticks-per-frame and
+  # the default skip-lulls boost multiplies it again (up to MaxLullTicksPerFrame
+  # ticks per rendered frame). A shout's ShoutTicks lifetime is SIM time, so on
+  # the board a bubble could draw for one or two frames — a flash of random
+  # text near a bot — and a chatty policy (one comms shout per cooldown) turned
+  # its bubble into a strobe. These tests pin the render-side dwell floor: on
+  # the BOARD stream every text a bubble shows stays up for at least
+  # ShoutDwellFrames rendered frames of advancing playback, however many sim
+  # ticks each frame swallows. Player streams are bot observations and keep
+  # exact sim timing.
+
+  proc namedGame(seats: int): SimServer =
+    result = initCtfForTest(defaultGameConfig())
+    for i in 0 ..< seats:
+      discard result.addPlayer("policy" & $i)
+    result.startGame()
+
+  proc boardShoutTexts(
+    sim: var SimServer,
+    state: var GlobalViewerState,
+    spriteLabels: var Table[int, string]
+  ): seq[string] =
+    ## The shout payloads on the board this frame, via the same client
+    ## semantics as boardShoutIds.
+    let previousDir = getCurrentDir()
+    setCurrentDir(GameDir)
+    var packet: seq[uint8]
+    try:
+      var nextState: GlobalViewerState
+      packet = sim.buildSpriteProtocolUpdates(state, nextState)
+      state = nextState
+    finally:
+      setCurrentDir(previousDir)
+    var objects: seq[SpritePacketObject]
+    for message in packet.parseSpritePacket():
+      case message.kind
+      of spkSprite:
+        spriteLabels[message.sprite.id] = message.sprite.label
+      of spkObject:
+        objects.add message.objectDef
+      else:
+        discard
+    for obj in objects:
+      let label = spriteLabels.getOrDefault(obj.spriteId, "")
+      if " shout " in label:
+        result.add label.split(": ", 1)[1]
+
+  test "a bubble expired between frames lingers for the dwell, then leaves":
+    var
+      sim = namedGame(2)
+      state = initGlobalViewerState()
+      spriteLabels = initTable[int, string]()
+    let none = newSeq[InputState](sim.players.len)
+    check sim.applyShout(0, "one")
+    check sim.boardShoutTexts(state, spriteLabels) == @["one"]   # frame 1
+    # Fast-forward past the shout's whole sim lifetime WITHOUT drawing — the
+    # compressed-playback case. The sim forgets the shout...
+    for _ in 0 ..< ShoutTicks + 1:
+      sim.step(none, none)
+    check sim.recentShouts.len == 0
+    # ...but the board keeps the bubble until it has been READABLE: frames
+    # 2..ShoutDwellFrames still show it (each frame advances the sim a tick,
+    # like playback), and the frame after that is clean.
+    for frame in 2 .. ShoutDwellFrames:
+      sim.step(none, none)
+      check sim.boardShoutTexts(state, spriteLabels) == @["one"]
+    sim.step(none, none)
+    check sim.boardShoutTexts(state, spriteLabels).len == 0
+
+  test "paused playback neither ages nor drops a lingering bubble":
+    var
+      sim = namedGame(2)
+      state = initGlobalViewerState()
+      spriteLabels = initTable[int, string]()
+    let none = newSeq[InputState](sim.players.len)
+    check sim.applyShout(0, "one")
+    discard sim.boardShoutTexts(state, spriteLabels)
+    for _ in 0 ..< ShoutTicks + 1:
+      sim.step(none, none)
+    check sim.recentShouts.len == 0
+    # Many frames at the SAME tick — a paused viewer. The dwell clock counts
+    # only advancing frames, so the bubble must survive all of them.
+    for _ in 0 ..< ShoutDwellFrames * 2:
+      check sim.boardShoutTexts(state, spriteLabels) == @["one"]
+
+  test "rapid re-shouts collapse to one readable text per dwell":
+    var
+      sim = namedGame(2)
+      state = initGlobalViewerState()
+      spriteLabels = initTable[int, string]()
+    let none = newSeq[InputState](sim.players.len)
+    # A comms-bus policy: a fresh payload every cooldown, at a playback so
+    # fast each rendered frame swallows a whole cooldown. Unfloored, the
+    # bubble text would change EVERY frame.
+    var texts: seq[string]
+    check sim.applyShout(0, "t0")
+    for frame in 0 ..< ShoutDwellFrames + 1:
+      let shown = sim.boardShoutTexts(state, spriteLabels)
+      check shown.len == 1
+      texts.add shown[0]
+      for _ in 0 ..< ShoutCooldownTicks:
+        sim.step(none, none)
+      check sim.applyShout(0, "t" & $(frame + 1))
+    # The first payload held for the full dwell...
+    for frame in 0 ..< ShoutDwellFrames:
+      check texts[frame] == "t0"
+    # ...and the swap jumped to the CURRENT payload, not the next queued one.
+    check texts[ShoutDwellFrames] == "t" & $ShoutDwellFrames
+
+  test "player streams keep exact sim timing (no linger for bots)":
+    var sim = namedGame(2)
+    let none = newSeq[InputState](sim.players.len)
+    sim.players[1].x = sim.players[0].x
+    sim.players[1].y = sim.players[0].y
+    check sim.applyShout(0, "one")
+    check sim.shoutLabels(viewerIndex = 1).len == 1
+    for _ in 0 ..< ShoutTicks + 1:
+      sim.step(none, none)
+    check sim.recentShouts.len == 0
+    check sim.shoutLabels(viewerIndex = 1).len == 0
+
+  test "a backward scrub drops lingering bubbles instead of ghosting them":
+    var
+      sim = namedGame(2)
+      state = initGlobalViewerState()
+      spriteLabels = initTable[int, string]()
+    let none = newSeq[InputState](sim.players.len)
+    check sim.applyShout(0, "one")
+    discard sim.boardShoutTexts(state, spriteLabels)
+    for _ in 0 ..< ShoutTicks + 1:
+      sim.step(none, none)
+    check sim.boardShoutTexts(state, spriteLabels) == @["one"]   # lingering
+    # A scrub restores an earlier sim: tickCount jumps BACKWARD and the
+    # restored recentShouts is authoritative. Linger state must snap, not
+    # ghost a bubble from the abandoned timeline.
+    sim.tickCount -= ShoutTicks
+    check sim.boardShoutTexts(state, spriteLabels).len == 0

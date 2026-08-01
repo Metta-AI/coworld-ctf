@@ -239,6 +239,18 @@ const
   ShoutObjectBase = 19480      ## speech-bubble object pool: one per live shout,
                                ## same slot key as the sprite.
   ShoutMaxCount = 16           ## most bubbles drawn at once (one per player).
+  ShoutDwellFrames* = ShoutCooldownTicks  ## min RENDERED board frames each text
+                               ## a bubble shows stays up (~1s wall at 24fps).
+                               ## Replay playback compresses sim time (speed ×
+                               ## the skip-lulls boost, up to 64 ticks per
+                               ## frame), so ShoutTicks alone can put a bubble
+                               ## on screen for a single frame — a flash of
+                               ## random text near a bot. The dwell floors READ
+                               ## time in wall frames; at live 1x it changes
+                               ## nothing, because applyShout's cooldown already
+                               ## spaces texts at least this far apart. Board
+                               ## only: player streams are bot observations and
+                               ## keep exact sim timing. See addBoardShouts.
   ShoutBubbleZ = 30003         ## just above the name label (30002), so a shout
                                ## reads over the crowd but under the HUD text.
   ShoutPadX = 4                ## px of paper around the text, left and right.
@@ -515,6 +527,22 @@ type
     sprites*: Table[int, SpritePacketSpriteDef]
     objects*: Table[int, SpritePacketObject]
 
+  ShoutLinger* = object
+    ## Render state for one board speech-bubble slot: what the bubble is
+    ## currently SHOWING, which may lawfully trail the sim under compressed
+    ## replay playback so the text keeps its wall-clock read time
+    ## (ShoutDwellFrames). Board-only; bots never see this. See addBoardShouts.
+    active*: bool
+    team*: Team
+    name*: string              ## shouter's anonymous slot letter, resolved
+                               ## while the shout was live (the author can
+                               ## depart mid-display).
+    text*: string              ## the payload on screen — the newest payload
+                               ## only once the current one has met its dwell.
+    frames*: int               ## advancing rendered frames this text has shown.
+    anchorX*, tailTipY*: int   ## last drawn anchor, in 1x map px, so a bubble
+                               ## whose shouter died or left keeps its spot.
+
   GlobalViewerState* = object
     initialized*: bool
     objectIds*: seq[int]
@@ -555,6 +583,14 @@ type
                                  ## ("" = free), so a bubble keeps one wire
                                  ## sprite/object id for its whole life however
                                  ## sim.recentShouts reshuffles; see addShouts.
+    shoutLinger*: array[ShoutMaxCount, ShoutLinger]  ## what each claimed slot
+                                 ## is showing, aged in RENDERED frames so
+                                 ## compressed playback cannot flash a bubble;
+                                 ## see addBoardShouts.
+    shoutLingerTick*: int        ## sim.tickCount at the last board shout pass:
+                                 ## the dwell clock ticks only when playback
+                                 ## advanced, and a backward jump (scrub
+                                 ## restore) snaps linger state clean.
     spriteDefs: seq[SpriteDefinition]
 
   PlayerViewerState* = ref object
@@ -800,6 +836,7 @@ proc initGlobalViewerState*(): GlobalViewerState =
   result.replayCommands = @[]
   result.povSelectPending = -2   ## -2 = no request; -1 = clear; >=0 = slot.
   result.cogDriveTick = low(int)  ## no drive step yet; the first frame snaps.
+  result.shoutLingerTick = low(int)  ## no shout pass yet; see addBoardShouts.
 
 proc initPlayerViewerState*(): PlayerViewerState =
   ## Returns the default state for one sprite player viewer.
@@ -4603,19 +4640,18 @@ proc addShouts(
   currentIds: var seq[int],
   packet: var seq[uint8],
   shoutSlots: var array[ShoutMaxCount, string],
-  viewerIndex = -1
+  viewerIndex: int
 ) {.measure.} =
-  ## Places live shout speech bubbles. The map/broadcast view passes no viewer
-  ## and floats each bubble over the shouter (following them while they move);
-  ## a player view hears only shouts within ShoutRange and pins the bubble at
-  ## deterministically jittered coordinates, like the shot sound rings — so a
-  ## bot learns the neighborhood a shout came from, never the exact spot.
+  ## Places live shout speech bubbles for one PLAYER view: the viewer hears
+  ## only shouts within ShoutRange and the bubble pins at deterministically
+  ## jittered coordinates, like the shot sound rings — so a bot learns the
+  ## neighborhood a shout came from, never the exact spot. This stream is a
+  ## bot OBSERVATION: bubbles appear and expire on exact sim timing (no
+  ## wall-clock dwell — that is a spectator affordance; see addBoardShouts).
   ##
-  ## Both views label the bubble with the shouter's anonymous slot letter, never
-  ## its address: listeners read these labels, and the address is the connecting
-  ## policy's name. See `shoutIdentityName`. The broadcast view is anonymized
-  ## too — a human watching still gets the address from the `name` label over
-  ## the shouter's head, so nothing is lost by keeping one label shape.
+  ## The bubble is labeled with the shouter's anonymous slot letter, never its
+  ## address: listeners read these labels, and the address is the connecting
+  ## policy's name. See `shoutIdentityName`.
   ##
   ## Sprite and object ids come from `shoutSlots`, the viewer's persistent
   ## address→slot table, NOT from the shout's position in `recentShouts`. That
@@ -4640,25 +4676,12 @@ proc addShouts(
       shoutSlots[slot] = ""
 
   for shout in sim.recentShouts:
-    var
-      anchorX = shout.x        # tail-tip x (bubble is centered on it)
-      tailTipY = shout.y - ShoutFloat
-    if viewerIndex >= 0:
-      if not sim.shoutAudibleTo(viewerIndex, shout):
-        continue
-      let (dx, dy) = shoutOffset(shout)
+    if not sim.shoutAudibleTo(viewerIndex, shout):
+      continue
+    let
+      (dx, dy) = shoutOffset(shout)
       anchorX = shout.x + dx
       tailTipY = shout.y + dy - ShoutFloat
-    else:
-      # The broadcast pins the bubble over the shouter while they live, above
-      # the name label; a dead or departed shouter leaves it where it was made.
-      for player in sim.players:
-        if player.address == shout.address:
-          if player.alive:
-            anchorX = player.x + CollisionW div 2
-            tailTipY = player.overheadAnchorY() - OverheadYOffset -
-              HpBarH - TextLineHeight - 2
-          break
     var slot = -1
     for s in 0 ..< ShoutMaxCount:
       if shoutSlots[s] == shout.address:
@@ -4698,6 +4721,134 @@ proc addShouts(
       MapLayerId,
       spriteId
     )
+
+proc addBoardShouts(
+  sim: SimServer,
+  state: var GlobalViewerState,
+  currentIds: var seq[int],
+  packet: var seq[uint8]
+) {.measure.} =
+  ## Places shout speech bubbles on the BOARD/broadcast view, floating over
+  ## the shouter (following them while they move and live), with the same
+  ## anonymous slot-letter label and slot-keyed wire ids as the player path
+  ## (see addShouts for both rationales).
+  ##
+  ## Unlike the player path, what a bubble SHOWS is floored in wall-clock
+  ## time. A shout lives ShoutTicks of SIM time, but replay playback
+  ## compresses sim time per rendered frame (speed × the skip-lulls boost, up
+  ## to MaxLullTicksPerFrame ticks a frame) — enough to squeeze a bubble's
+  ## whole life into one or two frames, which a viewer reads as random text
+  ## flashing near the bots; a policy re-shouting comms every cooldown turned
+  ## its bubble into a one-frame-per-payload strobe. So each slot keeps
+  ## ShoutLinger render state: a text stays up for at least ShoutDwellFrames
+  ## ADVANCING rendered frames (paused playback does not age it), an expired
+  ## bubble lingers until its text met that dwell, and a fresher payload
+  ## replaces the shown one only once the dwell is met — jumping straight to
+  ## the newest payload, not through the queue. At live 1x this floor is
+  ## invisible: applyShout's cooldown already spaces one shouter's texts at
+  ## least ShoutDwellFrames ticks apart, and an unrefreshed bubble's
+  ## ShoutTicks lifetime more than covers its dwell.
+  ##
+  ## A backward tick jump is a scrub restore: the restored sim is
+  ## authoritative, so linger state snaps clean instead of ghosting bubbles
+  ## from the abandoned timeline (the cogDrive scrub rule).
+  let advanced = state.shoutLingerTick == low(int) or
+    sim.tickCount > state.shoutLingerTick
+  if state.shoutLingerTick != low(int) and
+      sim.tickCount < state.shoutLingerTick:
+    for slot in 0 ..< ShoutMaxCount:
+      state.shoutLinger[slot] = ShoutLinger()
+  state.shoutLingerTick = sim.tickCount
+
+  # Free a slot only when its address has no live shout anywhere AND its
+  # shown text has met the wall-clock dwell.
+  for slot in 0 ..< ShoutMaxCount:
+    if state.shoutSlots[slot].len == 0:
+      continue
+    var live = false
+    for shout in sim.recentShouts:
+      if shout.address == state.shoutSlots[slot]:
+        live = true
+        break
+    if not live and (not state.shoutLinger[slot].active or
+        state.shoutLinger[slot].frames >= ShoutDwellFrames):
+      state.shoutSlots[slot] = ""
+      state.shoutLinger[slot] = ShoutLinger()
+
+  for shout in sim.recentShouts:
+    var slot = -1
+    for s in 0 ..< ShoutMaxCount:
+      if state.shoutSlots[s] == shout.address:
+        slot = s
+        break
+    if slot < 0:
+      for s in 0 ..< ShoutMaxCount:
+        if state.shoutSlots[s].len == 0:
+          state.shoutSlots[s] = shout.address
+          slot = s
+          break
+    if slot < 0:
+      # Every slot is owned by another live bubble — only possible when churn
+      # pushes distinct shouting addresses past ShoutMaxCount. Drop the
+      # overflow shout, like the old first-ShoutMaxCount cap did.
+      continue
+    if not state.shoutLinger[slot].active:
+      state.shoutLinger[slot] = ShoutLinger(
+        active: true,
+        team: shout.team,
+        name: sim.shoutIdentityName(shout),
+        text: shout.text,
+        frames: 0,
+        # Where the shout was made; the draw pass below follows the shouter
+        # while they live, and this holds the spot when they do not.
+        anchorX: shout.x,
+        tailTipY: shout.y - ShoutFloat
+      )
+    elif state.shoutLinger[slot].text != shout.text and
+        state.shoutLinger[slot].frames >= ShoutDwellFrames:
+      state.shoutLinger[slot].team = shout.team
+      state.shoutLinger[slot].name = sim.shoutIdentityName(shout)
+      state.shoutLinger[slot].text = shout.text
+      state.shoutLinger[slot].frames = 0
+
+  for slot in 0 ..< ShoutMaxCount:
+    if not state.shoutLinger[slot].active:
+      continue
+    # The broadcast pins the bubble over the shouter while they live, above
+    # the name label; a dead or departed shouter leaves it where it last was.
+    for player in sim.players:
+      if player.address == state.shoutSlots[slot]:
+        if player.alive:
+          state.shoutLinger[slot].anchorX = player.x + CollisionW div 2
+          state.shoutLinger[slot].tailTipY =
+            player.overheadAnchorY() - OverheadYOffset -
+            HpBarH - TextLineHeight - 2
+        break
+    let
+      linger = state.shoutLinger[slot]
+      bubble = sim.buildShoutBubble(linger.team, linger.text)
+      spriteId = ShoutSpriteBase + slot
+      objectId = ShoutObjectBase + slot
+    packet.addBoardSpriteChanged(
+      state.spriteDefs,
+      spriteId,
+      bubble.width,
+      bubble.height,
+      bubble.pixels,
+      labelShout(teamText(linger.team), linger.name, linger.text),
+      native = boardScale
+    )
+    currentIds.add(objectId)
+    packet.addBoardObject(
+      objectId,
+      linger.anchorX - bubble.width div 2,
+      linger.tailTipY - bubble.height,
+      ShoutBubbleZ,
+      MapLayerId,
+      spriteId
+    )
+    if advanced:
+      state.shoutLinger[slot].frames += 1
 
 proc addHpPips(
   sim: SimServer,
@@ -5944,7 +6095,7 @@ proc buildSpriteProtocolUpdates*(
   sim.addGrenades(nextState.spriteDefs, currentIds, result)
   sim.addPlasmaArcs(nextState.spriteDefs, currentIds, result)
   sim.addPlasmaArcFlashes(nextState.spriteDefs, currentIds, result)
-  sim.addShouts(nextState.spriteDefs, currentIds, result, nextState.shoutSlots)
+  sim.addBoardShouts(nextState, currentIds, result)
   sim.addAimIndicators(nextState.spriteDefs, currentIds, result)
   sim.addHpPips(nextState.spriteDefs, currentIds, result)
   sim.addIdentityBadges(nextState.spriteDefs, currentIds, result)
