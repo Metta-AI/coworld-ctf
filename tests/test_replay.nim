@@ -116,12 +116,25 @@ suite "ctf replay":
 
     let
       hash = sim.gameHash()
+      mapBakeBytes = sim.mapPixels.len + sim.mapRgba.len +
+        sim.darkBgPixels.len + sim.walkMask.len
       bytes = serializeReplaySim(sim)
-      restored = deserializeReplaySim(bytes)
 
     check bytes.len > 0
+    # Keyframes must EXCLUDE the static map bakes: serializing them into
+    # every keyframe cost ~40 MB x ~55 keyframes on giant maps, more than
+    # the wasm32 replay viewer can address at all. The whole keyframe must
+    # come out smaller than the bakes it stripped...
+    check bytes.len < mapBakeBytes
+    # ...while the serialized sim itself reads back untouched.
+    check sim.gameHash() == hash
+    check sim.mapPixels.len > 0
+
+    let restored = deserializeReplaySim(bytes, sim)
     check restored.tickCount == sim.tickCount
     check restored.gameHash() == hash
+    # The donor's bakes moved into the restored sim.
+    check restored.mapPixels.len > 0
 
   test "keyframed seek restores matching state":
     let data = loadReplay(CtfReplayPath)

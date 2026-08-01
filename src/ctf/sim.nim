@@ -4466,8 +4466,16 @@ proc trenchEdgeNoise(seed, knot, salt: int): float =
   ## Deterministic hash noise in [-1, 1]: a pure function of its inputs (no
   ## RNG state), so the same trench bakes the same rough edge every run and
   ## replays match the live render.
-  var h = uint32((seed * 73856093 xor knot * 19349663 xor salt * 83492791) and
-    0x7FFFFFFF)
+  ## The prime mix MUST run in uint64: seed reaches tens of millions, so
+  ## seed * 73856093 overflows the 32-bit `int` of the wasm32 replay viewer
+  ## and the overflow check kills the whole viewer ("stuck warming up" —
+  ## every map bakes trench art). uint64 wrap reproduces the exact bit
+  ## pattern the original 64-bit signed math produced, keeping the baked
+  ## edges byte-identical to already-recorded replays.
+  let mixed = cast[uint64](seed) * 73856093'u64 xor
+    cast[uint64](knot) * 19349663'u64 xor
+    cast[uint64](salt) * 83492791'u64
+  var h = uint32(mixed and 0x7FFFFFFF'u64)
   h = h xor (h shr 13)
   h = h * 0x85EBCA6B'u32
   h = h xor (h shr 16)
