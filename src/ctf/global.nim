@@ -133,7 +133,7 @@ const
                                ## frame — the burst that stalled WAN replay
                                ## viewers.
   EndzoneFadeObjectBase = 19520  ## one strip overlay per team.
-  EndzonePrewarmEveryFrames = 4  ## drip one fade crop every N frames after
+  EndzonePrewarmEveryFrames* = 4  ## drip one fade crop every N frames after
                                  ## connect (~1.2 Mbps for ~2.4 s on classic
                                  ## maps, twice that on 4-team maps) instead
                                  ## of dumping every crop at once.
@@ -730,14 +730,17 @@ proc endzoneDiffBox(sim: SimServer, team: Team): tuple[x0, y0, x1, y1: int] =
   ## glow-free map — the crack glow, capture line, and pedestal disc. Everything
   ## else in the column is identical at every crossfade stage, so the fade
   ## overlay never needs to ship it. Computed once per team and cached.
-  if EndzoneDiffBoxReady[team]:
-    return EndzoneDiffBox[team]
   if EndzoneColdRgba.len != MapWidth * MapHeight * 4:
     ## Map (re)selected since the last bake: rebuild the cold map and drop
-    ## every strip/box derived from the old geometry.
+    ## every strip/box derived from the old geometry. This must run BEFORE
+    ## the ready-flag return below — a box cached on a differently-sized map
+    ## would otherwise be served as-is and index out of the current map's
+    ## (correctly re-baked) buffers in endzoneStripSprite.
     EndzoneColdRgba = coldEndzoneMapRgba(sim.gameMap)
     EndzoneStripCache = default(typeof(EndzoneStripCache))
     EndzoneDiffBoxReady = default(typeof(EndzoneDiffBoxReady))
+  if EndzoneDiffBoxReady[team]:
+    return EndzoneDiffBox[team]
   let scan = sim.gameMap.endzoneStripBox(team)
   result = (x0: scan.x1 + 1, y0: scan.y1 + 1, x1: scan.x0 - 1, y1: -1)
   for y in scan.y0 .. scan.y1:

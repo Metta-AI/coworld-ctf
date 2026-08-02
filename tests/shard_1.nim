@@ -14,11 +14,11 @@ import
   test_manifest_schema,
   test_plasma_arc,
   test_replay_requests,
+  # test_replay_switch_caches hot-switches the process-wide board render
+  # caches onto other maps, but no longer has to run last: it restores the
+  # default arena and invalidates the caches at module end, and the endzone
+  # caches self-heal on a map size mismatch (both pinned by its own tests).
+  test_replay_switch_caches,
   test_rich_events,
-  test_trade_pair,
-  # LAST on purpose, not alphabetical: this module hot-switches the
-  # process-wide board render caches onto a pool map and leaves them there,
-  # so any board-state test that runs after it in the same binary sees the
-  # wrong map (test_shouts/test_shield_bubble fail exactly that way).
-  test_replay_switch_caches
+  test_trade_pair
 {.warning[UnusedImport]: on.}
