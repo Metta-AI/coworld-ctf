@@ -250,7 +250,11 @@ const
                                ## nothing, because applyShout's cooldown already
                                ## spaces texts at least this far apart. Board
                                ## only: player streams are bot observations and
-                               ## keep exact sim timing. See addBoardShouts.
+                               ## keep exact sim timing. "Wall" is the frame
+                               ## COUNT standing in for real time — nothing
+                               ## reads the system clock, so the floor (and its
+                               ## tests) is deterministic under any CPU load.
+                               ## See addBoardShouts.
   ShoutBubbleZ = 30003         ## just above the name label (30002), so a shout
                                ## reads over the crowd but under the HUD text.
   ShoutPadX = 4                ## px of paper around the text, left and right.
@@ -4814,7 +4818,9 @@ proc addBoardShouts(
   ## (see addShouts for both rationales).
   ##
   ## Unlike the player path, what a bubble SHOWS is floored in wall-clock
-  ## time. A shout lives ShoutTicks of SIM time, but replay playback
+  ## time — where "wall-clock" is counted in ADVANCING rendered frames, never
+  ## read from the system clock, so this stays deterministic and replay-exact.
+  ## A shout lives ShoutTicks of SIM time, but replay playback
   ## compresses sim time per rendered frame (speed × the skip-lulls boost, up
   ## to MaxLullTicksPerFrame ticks a frame) — enough to squeeze a bubble's
   ## whole life into one or two frames, which a viewer reads as random text

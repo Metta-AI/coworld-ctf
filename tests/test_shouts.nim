@@ -396,6 +396,11 @@ suite "board bubbles hold a wall-clock read time under compressed playback":
   # ShoutDwellFrames rendered frames of advancing playback, however many sim
   # ticks each frame swallows. Player streams are bot observations and keep
   # exact sim timing.
+  #
+  # "Wall-clock" is design language, not an implementation: the dwell is a
+  # COUNT of advancing rendered frames against sim.tickCount, and neither the
+  # sim nor the board builder ever reads the system clock — so this suite is
+  # fully deterministic and cannot be timing-flaky under CPU load.
 
   proc namedGame(seats: int): SimServer =
     result = initCtfForTest(defaultGameConfig())
