@@ -444,6 +444,8 @@ const
   SpritePlayerFlagObjectBase = 5009  ## 5009..5012 by team.
   SpritePlayerWeaponSpriteId = 5020  ## own-weapon HUD text ("weapon gun|arc").
   SpritePlayerWeaponObjectId = 5021
+  SpritePlayerOwnAimSpriteId = 5022  ## invisible own-aim readback marker
+  SpritePlayerOwnAimObjectId = 5023  ## ("own aim <brads>", player stream only).
   SpritePlayerSelfSpriteBase = 5100  ## white-outlined self soldiers, keyed by
                                      ## skin×rotation: default 5100..5115,
                                      ## crown 5116..5131.
@@ -5380,6 +5382,30 @@ proc buildSpriteProtocolPlayerUpdates*(
       0,
       HudTopRightLayerId,
       SpritePlayerWeaponSpriteId
+    )
+
+    # Own-aim readback: an invisible 1x1 marker whose LABEL states this
+    # player's turret angle outright (`own aim <brads>`). The observation
+    # carried no readback at all — bots dead-reckoned their own aim
+    # open-loop, and the drift measurably cost accuracy (docs/PROTOCOL.md).
+    # Label-carried like the lives counter: the 1x1 sprite re-sends only on
+    # ticks the aim actually changed.
+    currentIds.add(SpritePlayerOwnAimObjectId)
+    result.addSpriteChanged(
+      nextState.spriteDefs,
+      SpritePlayerOwnAimSpriteId,
+      1,
+      1,
+      newRgbaPixels(1, 1),
+      labelOwnAim(player.aimBrads)
+    )
+    result.addBoardObject(
+      SpritePlayerOwnAimObjectId,
+      0,
+      0,
+      0,
+      HudTopRightLayerId,
+      SpritePlayerOwnAimSpriteId
     )
 
   sim.addTeamScoreboard(nextState.spriteDefs, currentIds, result)

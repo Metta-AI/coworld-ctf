@@ -493,3 +493,21 @@ neither failure surfaces until a league round comes back wrong.
     # The classic fixture LAST, restoring the arena for the tests that follow.
     var game = fullFeatureGame()
     game.checkZones(LabelEndzoneShapeColumn)
+
+suite "own-aim marker":
+  test "the player stream states the exact aim angle":
+    var sim = twoTeamGame()
+    sim.players[0].aimBrads = 137
+    var pstate: PlayerViewerState
+    var raw: HashSet[string]
+    for message in sim.buildPlayerMessages(0, pstate):
+      if message.kind == spkSprite:
+        raw.incl(message.sprite.label)
+    check labelOwnAim(137) in raw
+    # And it tracks a change on the next frame.
+    sim.players[0].aimBrads = 12
+    var raw2: HashSet[string]
+    for message in sim.buildPlayerMessages(0, pstate):
+      if message.kind == spkSprite:
+        raw2.incl(message.sprite.label)
+    check labelOwnAim(12) in raw2

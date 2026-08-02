@@ -40,17 +40,25 @@ mode (fixture recording); competitive clients should not send it at all. The
 reference implementation gates it behind `CTF_BOT_FAST_READY=1`
 (`players/baseline/baseline.nim`, `fastReadyEnabled`).
 
-## Your own aim is not observable — dead-reckon it
+## Your own aim: read the `own aim` marker; dead-reckon between frames
 
-The player observation stream carries **no absolute readback of your own aim
-angle**. (An earlier build's "aim dot" label was that readback; the engine
-retired it.) A client that steers its turret must integrate the aim itself:
+The player stream carries an absolute readback of your own aim angle: an
+invisible 1×1 HUD marker labeled `own aim <brads>` (256 brads per turn,
+0 = east, counter-clockwise), stating your turret angle as of the rendered
+tick. Match the label by the `own aim ` prefix and parse the tail. (An
+earlier build's "aim dot" label was a previous form of this readback; the
+engine retired it, and between the two the observation carried none — bots
+from that era dead-reckon open-loop.)
+
+The marker is exact only for the rendered tick, so a client still integrates
+between frames:
 
 - Spawn (and respawn) aim points toward the enemy side.
 - Each held rotate button turns the aim at the server's `aimTurnRate`
   (default 5 brads/tick) for **every elapsed sim tick** — including ticks you
   never saw a frame for. If you process frames with `frameAdvance > 1`
-  (see below), integrate the rotation across all advanced ticks.
+  (see below), integrate the rotation across all advanced ticks, then let the
+  next frame's marker correct the estimate.
 - The aim angle **locks at the trigger pull**: the shot releases after
   `fireWindupTicks` with the aim as of the pull, so stop rotating on the tick
   you fire if you want the shot to go where you aimed.

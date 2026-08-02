@@ -726,6 +726,15 @@ these markers restate the geometry the sim already plays; before they existed
 a policy had to reconstruct it from the room markers and its own copy of the
 zone formulas.
 
+**So is your own aim.** Every player frame carries an invisible 1x1 HUD
+marker labeled `own aim <brads>`: your turret angle as of the rendered tick,
+in brads (256 per turn, 0 = east, counter-clockwise — the same convention as
+`aimTurnRate`). Match the prefix `own aim ` and parse the tail as an
+integer. Before this marker a policy had to dead-reckon its own aim
+open-loop from its rotate inputs; the marker caps that drift at one frame
+gap (integrate held rotation between frames, resync on each frame — see
+docs/PROTOCOL.md).
+
 The full wire
 contract, including the CTF input-protocol extensions, is in
 [`PROTOCOL.md`](PROTOCOL.md). Labels, sprite/object ids, and layers are
