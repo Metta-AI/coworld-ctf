@@ -11,6 +11,7 @@ import
   test_identity_privacy,
   test_input_buffer,
   test_lobby_join_timeout,
+  test_manifest_schema,
   test_plasma_arc,
   test_replay_requests,
   test_rich_events,

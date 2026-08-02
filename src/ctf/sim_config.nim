@@ -271,7 +271,7 @@ proc readConfigTokens(
   if items.len > MaxPlayers:
     raise newException(
       CtfError,
-      "Config field tokens cannot have more than 8 entries."
+      "Config field tokens cannot have more than " & $MaxPlayers & " entries."
     )
   if slots.len < items.len:
     slots.setLen(items.len)
