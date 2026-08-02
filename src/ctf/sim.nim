@@ -841,18 +841,36 @@ proc tryFireArc*(sim: var SimServer, attackerIndex: int) =
   sim.startArcFire(attackerIndex)
   sim.resolveActiveArcCones()
 
-proc fireDirection(sim: SimServer, shooterIndex: int): tuple[x, y: float] =
-  ## Returns the unit shot direction: the aim angle locked at the trigger
-  ## pull when a windup is (or was) pending, else the shooter's current aim.
-  let shooter = sim.players[shooterIndex]
-  if shooter.windupBrads >= 0:
-    aimVector(shooter.windupBrads)
-  else:
-    aimVector(shooter.aimBrads)
+proc aimJitterSigma(sim: SimServer): float =
+  ## The per-shot Gaussian aim-noise sigma, in radians (GV34): calibrated
+  ## against the LIVE config.gunRange so that a fully visible body at max
+  ## range is hit exactly 80% of the time — see AimJitterCentralZ for the
+  ## derivation. PlayerHalf + BulletHalfWidth is the corridor's continuous
+  ## acceptance half-window for a centered silhouette.
+  let window = (float(PlayerHalf) + BulletHalfWidth) / float(sim.config.gunRange)
+  arcsin(min(1.0, window)) / AimJitterCentralZ
 
-proc selectFireTarget(sim: var SimServer, shooterIndex: int): int =
+proc jitterDirection(sim: var SimServer, headingBrads: int): tuple[x, y: float] =
+  ## The actual unit direction of one released shot: the locked aim rotated
+  ## by a Gaussian draw on the deterministic sim RNG (like the trench duck,
+  ## it is part of the hashed game, so replays re-roll identically). The
+  ## same fuzzed direction drives target selection AND the tracer/stain, so
+  ## where the paint lands is where the viewer sees it fly.
+  let
+    (bx, by) = aimVector(headingBrads)
+    jitter = gauss(sim.rng, 0.0, sim.aimJitterSigma())
+    cj = cos(jitter)
+    sj = sin(jitter)
+  # aimVector is (cos a, -sin a) (screen y down), so adding jitter to the
+  # angle expands to this rotation of the base vector.
+  (bx * cj + by * sj, by * cj - bx * sj)
+
+proc selectFireTarget(
+  sim: var SimServer, shooterIndex: int, ux, uy: float
+): int =
   ## Returns the player the shot lands on: the bullet travels down the
-  ## locked aim direction toward the FIRST body it crosses (friendly fire
+  ## given unit direction (the locked aim plus the released shot's jitter,
+  ## GV34) toward the FIRST body it crosses (friendly fire
   ## on), stopping at walls — or -1 for a miss. A trench occupant crossed
   ## by the ray ducks under TrenchMissPct of the shots fired from outside
   ## their trench (config-gated trenches): the bullet flies straight over them and carries
@@ -869,7 +887,6 @@ proc selectFireTarget(sim: var SimServer, shooterIndex: int): int =
   result = -1
   let
     shooter = sim.players[shooterIndex]
-    (ux, uy) = sim.fireDirection(shooterIndex)
     sx = shooter.x + CollisionW div 2
     sy = shooter.y + CollisionH div 2
     maxRange = float(sim.config.gunRange)
@@ -910,13 +927,15 @@ proc selectFireTarget(sim: var SimServer, shooterIndex: int): int =
 type PendingGunShot = object
   shooterIndex: int
   targetIndex: int
-  headingBrads: int
+  headingBrads: int          ## the INTENDED locked aim (events, animation).
+  dirX, dirY: float          ## the fuzzed direction the shot actually flew.
   actionId: int64
 
 proc selectGunShot(sim: var SimServer, shooterIndex: int): PendingGunShot =
   ## Selects a target and snapshots the trigger metadata before any
   ## simultaneous shot can kill and reset another shooter. (`var` because
-  ## target selection rolls the trench duck on the sim RNG.)
+  ## the shot rolls its aim jitter, then target selection rolls the trench
+  ## duck, both on the sim RNG — one fixed draw order per released shot.)
   let
     shooter = sim.players[shooterIndex]
     headingBrads =
@@ -927,10 +946,13 @@ proc selectGunShot(sim: var SimServer, shooterIndex: int): PendingGunShot =
         sim.tickCount - sim.config.fireWindupTicks
       else:
         sim.tickCount
+    (ux, uy) = sim.jitterDirection(headingBrads)
   PendingGunShot(
     shooterIndex: shooterIndex,
-    targetIndex: sim.selectFireTarget(shooterIndex),
+    targetIndex: sim.selectFireTarget(shooterIndex, ux, uy),
     headingBrads: headingBrads,
+    dirX: ux,
+    dirY: uy,
     actionId: sim.eventActionId(shooterIndex, GunAction, triggerTick)
   )
 
@@ -942,7 +964,7 @@ proc applyFire(sim: var SimServer, shot: PendingGunShot) =
     shooterIndex = shot.shooterIndex
     targetIndex = shot.targetIndex
     shooter = sim.players[shooterIndex]
-    (ux, uy) = aimVector(shot.headingBrads)
+    (ux, uy) = (shot.dirX, shot.dirY)  # the fuzzed direction, not the aim.
     sx = shooter.x + CollisionW div 2
     sy = shooter.y + CollisionH div 2
   # GV26: heart carriers fire at CarrierFireSlowdown (same 3x as shields);
@@ -985,7 +1007,7 @@ proc applyFire(sim: var SimServer, shot: PendingGunShot) =
     )
   else:
     # March along the unit aim to the last wall-free pixel or max range
-    # (checking each sampled pixel keeps this O(range) at 1300px).
+    # (checking each sampled pixel keeps this O(range) at 1050px).
     let maxRange = sim.config.gunRange
     var
       lastClear = 0
@@ -1820,7 +1842,8 @@ proc castFovOctant(
 ) =
   ## Recursive shadowcasting over one octant of the fog-of-war grid
   ## (Bergstrom-style). Row distance is unbounded; scanning stops at the grid
-  ## edge, so vision range is limited only by walls.
+  ## edge, so THIS pass is limited only by walls — the caller's cone/range
+  ## filter applies the visionRange cutoff (GV34) afterwards.
   if startSlope < endSlope:
     return
   var
@@ -1871,6 +1894,14 @@ proc castFovOctant(
     if not anyInside and dist > row:
       break
 
+proc visionRange*(sim: SimServer): int =
+  ## How far the vision CONE reaches, in px (GV34): 1.5x the live
+  ## config.gunRange (1575 at the stock 1050), so sight always outranges
+  ## paint by half again — you can see fights you cannot yet join — and both
+  ## scale together under a config override. The close-quarters bubble
+  ## (visionBubble) is never shrunk by this cap.
+  sim.config.gunRange * 3 div 2
+
 proc computeFovVisible*(
   sim: SimServer,
   originCx, originCy, aimBrads: int,
@@ -1878,8 +1909,9 @@ proc computeFovVisible*(
 ) {.measure.} =
   ## Computes one viewer's fog-of-war cell visibility: recursive shadowcasting
   ## from the viewer's cell (walls block), intersected with the forward vision
-  ## cone (half-angle visionConeDeg around the aim angle, unlimited range)
-  ## plus the omnidirectional vision bubble (visionBubble px).
+  ## cone (half-angle visionConeDeg around the aim angle, reaching
+  ## visionRange px — 1.5x the gun range, GV34) plus the omnidirectional
+  ## vision bubble (visionBubble px, exempt from the range cap).
   if visible.len != FovCellCount:
     visible.setLen(FovCellCount)
   zeroMem(addr visible[0], visible.len * sizeof(bool))
@@ -1904,6 +1936,7 @@ proc computeFovVisible*(
     (ax, ay) = aimVector(aimBrads)
     coneCos = cos(float(sim.config.visionConeDeg) * PI / 180.0)
     bubbleSq = float(sim.config.visionBubble * sim.config.visionBubble)
+    rangeSq = float(sim.visionRange() * sim.visionRange())
   for cy in 0 ..< FovGridH:
     for cx in 0 ..< FovGridW:
       let index = fovCellIndex(cx, cy)
@@ -1915,6 +1948,9 @@ proc computeFovVisible*(
         vy = float(py - oy)
         d2 = vx * vx + vy * vy
       if d2 <= bubbleSq:
+        continue
+      if d2 > rangeSq:
+        visible[index] = false
         continue
       let dot = vx * ax + vy * ay
       if dot < coneCos * sqrt(d2):

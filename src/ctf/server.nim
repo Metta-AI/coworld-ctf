@@ -1753,7 +1753,28 @@ proc runServerLoop*(
         {.gcsafe.}:
           withLock appState.lock:
             if globalViewers[i] in appState.globalViewers:
-              appState.globalViewers[globalViewers[i]] = nextState
+              # The websocket thread keeps writing viewer INPUT into this table
+              # entry while the frame was being built from an earlier snapshot.
+              # Blindly storing nextState would erase any input that arrived in
+              # between — a seek/command/click landing there was silently lost
+              # (scrub-back from the end screen was the visible casualty).
+              # Merge: render state comes from nextState, but the latest mouse
+              # fields and any not-yet-collected one-shot inputs survive.
+              let pending = appState.globalViewers[globalViewers[i]]
+              var merged = nextState
+              merged.mouseX = pending.mouseX
+              merged.mouseY = pending.mouseY
+              merged.mouseLayer = pending.mouseLayer
+              merged.mouseDown = pending.mouseDown
+              if pending.clickPending:
+                merged.clickPending = true
+              if pending.replaySeekTick >= 0:
+                merged.replaySeekTick = pending.replaySeekTick
+              if pending.replayCommands.len > 0:
+                merged.replayCommands.add(pending.replayCommands)
+              if pending.povSelectPending >= -1:
+                merged.povSelectPending = pending.povSelectPending
+              appState.globalViewers[globalViewers[i]] = merged
       except:
         {.gcsafe.}:
           withLock appState.lock:

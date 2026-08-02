@@ -473,7 +473,7 @@ proc arenaCtfMap(): CtfMap =
   result.captureClear = 210
   result.spawnClearW = 70
   result.spawnClearH = 130
-  result.gunRange = 1300
+  result.gunRange = GunRange
   result.leftObstacles = @ArenaLeftObstacles
   result.medKitSpawns = @[
     MapPoint(x: result.width div 2, y: result.height div 3),
@@ -485,8 +485,8 @@ proc arenaCtfMap(): CtfMap =
 
 proc arenaLargeCtfMap(): CtfMap =
   ## The arena-large map: 1606x858 (+30% both axes). Obstacles keep their
-  ## `arena` sizes but sit spread out; the layout clearances and the gun
-  ## range scale with the field.
+  ## `arena` sizes but sit spread out; the layout clearances scale with the
+  ## field (the gun range does NOT — GV34, see GunRange).
   result.name = ArenaLargeName
   result.path = ArenaLargeName
   result.width = 1606
@@ -499,7 +499,7 @@ proc arenaLargeCtfMap(): CtfMap =
   result.captureClear = 273
   result.spawnClearW = 91
   result.spawnClearH = 169
-  result.gunRange = 1690
+  result.gunRange = GunRange
   result.leftObstacles = @ArenaLargeLeftObstacles
   result.medKitSpawns = @[
     MapPoint(x: result.width div 2, y: result.height div 3),
@@ -990,7 +990,7 @@ proc scaledGenShell(sizeName: string): CtfMap =
   result.captureClear = s(210)
   result.spawnClearW = s(70)
   result.spawnClearH = s(130)
-  result.gunRange = s(1300)
+  result.gunRange = GunRange  # fixed, never scaled with the field (GV34).
 
 proc endzoneFloorAt*(
   x, y, anchorX, anchorY, radius: int, disc: bool
@@ -1264,7 +1264,7 @@ proc scaledGenShell4(sizeName: string): CtfMap =
   result.captureClear = s(210)
   result.spawnClearW = s(70)
   result.spawnClearH = s(130)
-  result.gunRange = s(1300)
+  result.gunRange = GunRange  # fixed, never scaled with the field (GV34).
 
 proc rot90Orbit*(p: tuple[x, y: int], side: int):
     array[4, tuple[x, y: int]] =

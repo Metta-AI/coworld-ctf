@@ -48,12 +48,43 @@ suite "fog-of-war vision":
     check sim.fovAt(visible, 250, cy)          # behind BOTH panes: visible.
     check not sim.fovAt(visible, 250, 234)     # off the pane line: fogged.
 
-  test "unlimited range down an open lane":
+  test "an open lane stays visible out to the map border (inside vision range)":
     var visible: seq[bool]
-    # Aiming down the open center corridor (192 brads = south): the far border is ~319px away,
-    # well past the bubble, still visible.
+    # Aiming down the open center corridor (192 brads = south): the far border
+    # is ~319px away, well past the bubble and well inside the 1575px vision
+    # range, still visible.
     sim.computeFovVisible(cx div FovCellSize, cy div FovCellSize, 192, visible)
     check sim.fovAt(visible, cx, MapHeight - 20)
+
+  test "the cone cuts off at 1.5x gun range (GV34)":
+    # Vision range is derived from the LIVE config.gunRange (1.5x), so a
+    # shortened gun proves the cutoff inside the arena: gunRange 200 fogs the
+    # open center corridor past 300px even with a clear sightline.
+    var config = defaultGameConfig()
+    config.update("""{"gunRange": 200}""")
+    var short = initCtfForTest(config)
+    check short.visionRange == 300
+    var visible: seq[bool]
+    short.computeFovVisible(cx div FovCellSize, cy div FovCellSize, 192, visible)
+    check short.fovAt(visible, cx, cy + 250)       # inside 300px: seen.
+    check not short.fovAt(visible, cx, cy + 316)   # past the cutoff: fogged.
+    # The stock sim sees the same far cell fine (only the range differs).
+    var stock: seq[bool]
+    sim.computeFovVisible(cx div FovCellSize, cy div FovCellSize, 192, stock)
+    check sim.fovAt(stock, cx, cy + 316)
+
+  test "the close-range bubble is never shrunk by the range cap":
+    # Even an absurdly short gun keeps the 90px omnidirectional bubble: the
+    # cap applies to the cone, not to close-quarters awareness.
+    var config = defaultGameConfig()
+    config.update("""{"gunRange": 40}""")
+    var short = initCtfForTest(config)
+    check short.visionRange == 60
+    var visible: seq[bool]
+    short.computeFovVisible(cx div FovCellSize, cy div FovCellSize, 64, visible)
+    check short.fovAt(visible, cx - 80, cy)        # sideways, inside the bubble.
+    check not short.fovAt(visible, cx - 150, cy)   # outside bubble AND cone.
+    check not short.fovAt(visible, cx, cy - 200)   # dead ahead, past the cap.
 
   test "everyone but yourself is culled when fogged, teammates included":
     var game = initCtfForTest()

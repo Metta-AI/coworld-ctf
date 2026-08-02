@@ -277,8 +277,10 @@ suite "procedural terrain":
     gameMap = resolveCtfMapMetadata(config)
     check gameMap.width == 3211
     check gameMap.height == 1713
-    ## Map-relative ranges follow the bigger field like any other class.
+    ## The gun range is fixed (GV34): the config still follows the map def,
+    ## but the def no longer scales it with the field.
     check config.gunRange == gameMap.gunRange
+    check config.gunRange == GunRange
 
   test "med kits spawn on the generated map's active pair":
     var config = defaultGameConfig()

@@ -18,7 +18,41 @@ import
 
 const
   GameName* = "ctf"
-  GameVersion* = "33"  ## GV33 (dead-team rule): A DEAD TEAM'S HEART LEAVES
+  GameVersion* = "34"  ## GV34 (operator rule): THE GUN HAS ONE REAL RANGE,
+                       ## ITS AIM IS FUZZED, AND SIGHT REACHES 1.5x AS FAR.
+                       ## Three coupled changes:
+                       ## 1. Every map def ships the same fixed gunRange —
+                       ## 1050 px, the SMALL generated map's field width —
+                       ## instead of scaling it with the field (1300 arena,
+                       ## 1690 arena-large, up to 3380 giant). The gun is
+                       ## map-wide only on the smallest board; on anything
+                       ## larger paint falls short and closing distance
+                       ## matters. League configs can still override
+                       ## gunRange per game; old replays carry their own
+                       ## recorded value.
+                       ## 2. Each RELEASED shot's direction gets Gaussian
+                       ## angular noise on the deterministic sim RNG,
+                       ## calibrated from the live gunRange so a FULLY
+                       ## VISIBLE body at MAX range is hit exactly 80% of
+                       ## the time (~0.6 degrees sigma at 1050 px; ~99% at
+                       ## half range, ~100% close in — see AimJitterCentralZ
+                       ## for the derivation). The fuzzed direction drives
+                       ## target selection AND the tracer/stain march, so
+                       ## the paint flies where the roll says; events keep
+                       ## the intended locked heading. The extra RNG draw
+                       ## per shot shifts every later roll, so GV33 replays
+                       ## do not re-simulate.
+                       ## 3. The vision CONE cuts off at 1.5x the gun range
+                       ## (visionRange, 1575 px stock — it was unlimited,
+                       ## LOS permitting): sight outranges paint by half
+                       ## again, and both scale together under a config
+                       ## override. The close-quarters bubble is exempt.
+                       ## The first-person strip's wall march follows
+                       ## visionRange too. Broadcast-only (fog never enters
+                       ## the hash), but bot behavior depends on what bots
+                       ## see, so the fixtures are re-recorded with it in.
+                       ##
+                       ## GV33 (dead-team rule): A DEAD TEAM'S HEART LEAVES
                        ## PLAY. A team wiped from the field (no live player
                        ## and no lives left) has its heart retired on the
                        ## spot exactly like a captured one — including a
@@ -242,10 +276,27 @@ const
   Lives* = 3
   HitPoints* = 3              ## hits to kill: each shot removes one hit point.
   RespawnTicks* = 72          ## ~3s before respawning at home.
-  GunRange* = 1300            ## px, effectively map-wide on the default
-                              ## arena; LOS and aim are the real limits.
-                              ## Each map def carries its own value — see
-                              ## CtfMap.gunRange.
+  GunRange* = 1050            ## px, the SMALL generated map's field width
+                              ## (round(1235 * 0.85)) — the ONE fixed gun
+                              ## range every map def ships (GV34): map-wide
+                              ## only on the smallest field, so on larger
+                              ## maps paint falls short and closing distance
+                              ## matters. A league config can still override
+                              ## it per game (config gunRange).
+  AimJitterCentralZ* = 1.2815516  ## Phi^-1(0.90): 80% of a Gaussian lies
+                              ## within +-z*sigma. The released-shot jitter's
+                              ## sigma is asin((PlayerHalf + BulletHalfWidth)
+                              ## / gunRange) / this, which is exactly "a
+                              ## fully visible body at max range is hit 80%
+                              ## of the time" — the +-14px acceptance window
+                              ## the corridor gives a centered silhouette,
+                              ## spanned by 1.28 sigma of angular error at
+                              ## gunRange px out (GV34). Derived from the
+                              ## LIVE config.gunRange so a range override
+                              ## keeps the calibration; at the stock 1050 px,
+                              ## sigma is ~0.6 degrees, and a fully visible
+                              ## body is hit ~99% at half range, ~100% inside
+                              ## a third.
   ExposureSampleStep* = 3     ## px between silhouette line-of-sight samples
                               ## across a target's body (±PlayerHalf): only
                               ## the exposed part of a body can be hit.

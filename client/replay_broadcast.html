@@ -842,7 +842,16 @@ html, body {
 /* ---------- 6. END-CARD ---------- */
 #endcard {
   position: absolute;
-  inset: 0;
+  /* Cover the BOARD region only — never the scorebug or transport bands. The
+     transport must stay clickable under the end card so the scrubber can jump
+     back into the match from the score screen (the card cancels server-side
+     end-hold on seek). --topband/--band are the measured band heights that
+     relayout() maintains on :root; in embed mode both are 0 and the card
+     spans the whole iframe as before. */
+  left: 0;
+  right: 0;
+  top: var(--topband, 0px);
+  bottom: var(--band, 0px);
   display: none;
   flex-direction: column;
   align-items: center;
