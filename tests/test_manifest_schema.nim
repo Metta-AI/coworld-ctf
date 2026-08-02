@@ -55,6 +55,7 @@ const SampleJson = """{
   "mapLayout": {"mapLayout": "corners", "teams": 4, "mapPath": "gen"},
   "mapPath": {"mapPath": "gen"},
   "mapSeed": {"mapSeed": 12345, "mapPath": "gen"},
+  "mapSize": {"mapSize": "small", "mapPath": "gen"},
   "maxGames": {"maxGames": 3},
   "maxTicks": {"maxTicks": 777},
   "minPlayers": {"minPlayers": 4},
@@ -77,16 +78,24 @@ suite "league manifest config_schema vs GameConfig":
     paintbotSchema = manifestSchema("coworld_manifest_paintbot.json")
     samples = parseJson(SampleJson)
 
-  test "the two manifests' schemas expose the same property set":
+  test "the ctf schema is a subset of the paintbot schema":
+    # The two manifests share one game binary; paintbot's variants may expose
+    # MORE knobs (generated-map locks like mapSize, 32-seat caps) but never
+    # fewer — a key the singles league can set must exist for doubles too.
     var ctfKeys, paintbotKeys: HashSet[string]
     for key, _ in ctfSchema["properties"]:
       ctfKeys.incl key
     for key, _ in paintbotSchema["properties"]:
       paintbotKeys.incl key
-    check ctfKeys == paintbotKeys
+    check ctfKeys <= paintbotKeys
 
   test "every schema property is consumed by config.update":
+    var unionKeys: HashSet[string]
     for key, _ in ctfSchema["properties"]:
+      unionKeys.incl key
+    for key, _ in paintbotSchema["properties"]:
+      unionKeys.incl key
+    for key in unionKeys:
       if key in PlatformOnlyKeys:
         continue
       check samples.hasKey(key)  # every schema key needs a payload below
@@ -101,7 +110,8 @@ suite "league manifest config_schema vs GameConfig":
 
   test "every sample corresponds to a schema property (no stale samples)":
     for key, _ in samples:
-      check ctfSchema["properties"].hasKey(key)
+      check ctfSchema["properties"].hasKey(key) or
+        paintbotSchema["properties"].hasKey(key)
 
   test "platform-only keys are documented as such in the schema":
     for key in PlatformOnlyKeys:
