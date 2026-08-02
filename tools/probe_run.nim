@@ -1,20 +1,11 @@
-import std/[os, strformat], ../src/ctf/replays, ../src/ctf/sim
+import std/[os, strformat], ../src/ctf/sim, toolutil
 
 # Re-simulates a replay WITH sim event logging (med kit pickups, kills) and
 # prints each flag's carrier position every 150 ticks.
 
 let path = commandLineParams()[0]
-let gameDir = currentSourcePath().parentDir().parentDir()
-setCurrentDir(gameDir)
-let data = loadReplay(path)
-var config = defaultGameConfig()
-config.update(data.configJson)
-var
-  game = initSimServer(config)
-  replay = initReplayPlayer(data)
-game.gameEventLoggingEnabled = true
-replay.looping = false
-replay.mismatchQuit = true
+chdirGameDir()
+var (game, replay) = openReplay(path, gameEventLoggingEnabled = true)
 var tick = 0
 while replay.playing:
   replay.stepReplay(game)

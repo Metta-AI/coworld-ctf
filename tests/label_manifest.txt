@@ -47,6 +47,7 @@ med kit
 muzzle bloom stage <n>
 name p<n>
 name p<n> flag <n>
+own aim <n>
 paint stain <color> variant <n>
 player <color>
 player <color> <side>

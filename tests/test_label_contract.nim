@@ -1,4 +1,5 @@
 import
+  helpers,
   std/[algorithm, os, sequtils, sets, strutils, tables, unittest],
   bitworld/spriteprotocol,
   ctf/[global, labels, sim]
@@ -28,45 +29,7 @@ import
 # `throw target` only ever appear in a player view. A one-stream sweep silently
 # misses half the vocabulary and would happily bless a rename in the other half.
 
-const GameDir = currentSourcePath.parentDir.parentDir
 const ManifestPath = currentSourcePath.parentDir / "label_manifest.txt"
-
-proc initCtfForTest(config: GameConfig): SimServer =
-  ## Initializes the sim from the game directory so data/ art resolves.
-  let previousDir = getCurrentDir()
-  setCurrentDir(GameDir)
-  try:
-    result = initSimServer(config)
-  finally:
-    setCurrentDir(previousDir)
-
-proc buildPlayerMessages(
-  sim: var SimServer,
-  playerIndex: int,
-  state: var PlayerViewerState
-): seq[SpritePacketMessage] =
-  var nextState: PlayerViewerState
-  let previousDir = getCurrentDir()
-  setCurrentDir(GameDir)
-  try:
-    result = sim.buildSpriteProtocolPlayerUpdates(
-      playerIndex, state, nextState).parseSpritePacket()
-  finally:
-    setCurrentDir(previousDir)
-  state = nextState
-
-proc buildGlobalMessages(
-  sim: var SimServer,
-  state: var GlobalViewerState
-): seq[SpritePacketMessage] =
-  var nextState: GlobalViewerState
-  let previousDir = getCurrentDir()
-  setCurrentDir(GameDir)
-  try:
-    result = sim.buildSpriteProtocolUpdates(state, nextState).parseSpritePacket()
-  finally:
-    setCurrentDir(previousDir)
-  state = nextState
 
 proc fullFeatureGame(teams4 = false): SimServer =
   ## A game posed so that every label FAMILY is live in one frame — including
@@ -530,3 +493,21 @@ neither failure surfaces until a league round comes back wrong.
     # The classic fixture LAST, restoring the arena for the tests that follow.
     var game = fullFeatureGame()
     game.checkZones(LabelEndzoneShapeColumn)
+
+suite "own-aim marker":
+  test "the player stream states the exact aim angle":
+    var sim = twoTeamGame()
+    sim.players[0].aimBrads = 137
+    var pstate: PlayerViewerState
+    var raw: HashSet[string]
+    for message in sim.buildPlayerMessages(0, pstate):
+      if message.kind == spkSprite:
+        raw.incl(message.sprite.label)
+    check labelOwnAim(137) in raw
+    # And it tracks a change on the next frame.
+    sim.players[0].aimBrads = 12
+    var raw2: HashSet[string]
+    for message in sim.buildPlayerMessages(0, pstate):
+      if message.kind == spkSprite:
+        raw2.incl(message.sprite.label)
+    check labelOwnAim(12) in raw2

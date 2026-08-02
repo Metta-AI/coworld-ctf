@@ -1,8 +1,7 @@
 import
-  std/[os, sequtils, tables, unittest],
+  helpers,
+  std/[sequtils, tables, unittest],
   ctf/sim, ctf/map_pool
-
-const GameDir = currentSourcePath.parentDir.parentDir
 
 var mapCache = initTable[string, CtfMap]()
 
@@ -18,15 +17,6 @@ proc cachedMap(seed: int,
   if key notin mapCache:
     mapCache[key] = generateCtfMap(seed, overrides, teams)
   mapCache[key]
-
-proc initCtfForTest(config: GameConfig): SimServer =
-  ## Initializes the CTF sim from the game directory (so data/ resolves).
-  let previousDir = getCurrentDir()
-  setCurrentDir(GameDir)
-  try:
-    result = initSimServer(config)
-  finally:
-    setCurrentDir(previousDir)
 
 proc obstacleAt(obstacles: seq[ArenaShape], x, y: int): bool =
   ## Raw obstacle-union test (no border, no protected-floor carve). On

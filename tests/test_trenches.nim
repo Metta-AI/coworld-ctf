@@ -1,18 +1,8 @@
 import
-  std/[json, math, os, strutils, unittest],
+  std/[json, math, strutils, unittest],
   bitworld/spriteprotocol,
   ctf/[global, map_pool, sim]
-
-const GameDir = currentSourcePath.parentDir.parentDir
-
-proc initCtfForTest(config: GameConfig): SimServer =
-  ## Initializes the CTF sim from the game directory (so data/ resolves).
-  let previousDir = getCurrentDir()
-  setCurrentDir(GameDir)
-  try:
-    result = initSimServer(config)
-  finally:
-    setCurrentDir(previousDir)
+import helpers except twoTeamGame
 
 proc twoTeamGame(extraPlayers = 0): SimServer =
   ## A started game with one Red player (0), one Blue player (1), and
@@ -31,30 +21,12 @@ proc twoTeamGame(extraPlayers = 0): SimServer =
   for i in 1 ..< result.players.len:
     result.players[i].team = Blue
 
-proc armToFire(game: var SimServer, shooter: int) =
-  ## Clears the gates so the shooter's next tryFire releases this tick.
-  game.players[shooter].windupBrads = -1
-  game.players[shooter].fireCooldown = 0
-
 proc placeAt(game: var SimServer, playerIndex, px, py: int) =
   ## Puts one player's CENTER exactly on map pixel (px, py), at rest.
   game.players[playerIndex].x = px - CollisionW div 2
   game.players[playerIndex].y = py - CollisionH div 2
   game.players[playerIndex].velX = 0
   game.players[playerIndex].velY = 0
-
-proc none(game: SimServer): seq[InputState] =
-  newSeq[InputState](game.players.len)
-
-proc chargeAndThrow(game: var SimServer, playerIndex, holdTicks: int) =
-  ## Holds C for holdTicks then releases, exactly like a real throw input.
-  var held = game.none()
-  held[playerIndex].c = true
-  var prev = game.none()
-  for _ in 0 ..< holdTicks:
-    game.step(held, prev)
-    prev = held
-  game.step(game.none(), prev)
 
 proc throwFullChargeEastAt(game: var SimServer, thrower, tx, ty: int) =
   ## Places `thrower` GrenadeMaxRange west of (tx, ty) and throws a
@@ -73,19 +45,6 @@ proc throwFullChargeEastAt(game: var SimServer, thrower, tx, ty: int) =
   for _ in 0 .. flight:
     game.step(game.none(), prev)
   check game.airborneGrenades.len == 0
-
-proc buildGlobalMessages(
-  game: var SimServer,
-  state: var GlobalViewerState
-): seq[SpritePacketMessage] =
-  var nextState: GlobalViewerState
-  let previousDir = getCurrentDir()
-  setCurrentDir(GameDir)
-  try:
-    result = game.buildSpriteProtocolUpdates(state, nextState).parseSpritePacket()
-  finally:
-    setCurrentDir(previousDir)
-  state = nextState
 
 suite "trenches":
   test "the default arena digs no trenches":

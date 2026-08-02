@@ -1,23 +1,8 @@
 import
-  std/[os, unittest],
+  helpers,
+  std/unittest,
   bitworld/spriteprotocol,
   ctf/sim
-
-const GameDir = currentSourcePath.parentDir.parentDir
-
-proc initCtfForTest(): SimServer =
-  ## Initializes the CTF sim from the game directory (so data/ resolves).
-  let previousDir = getCurrentDir()
-  setCurrentDir(GameDir)
-  try:
-    result = initSimServer(defaultGameConfig())
-  finally:
-    setCurrentDir(previousDir)
-
-proc fovAt(sim: SimServer, visible: seq[bool], x, y: int): bool =
-  ## Reads one map point from a computed visibility grid.
-  let (cx, cy) = fovCellAt(x, y)
-  visible[fovCellIndex(cx, cy)]
 
 suite "fog-of-war vision":
   let sim = initCtfForTest()
@@ -75,15 +60,9 @@ suite "fog-of-war vision":
     # Vision range is derived from the LIVE config.gunRange (1.5x), so a
     # shortened gun proves the cutoff inside the arena: gunRange 200 fogs the
     # open center corridor past 300px even with a clear sightline.
-    let previousDir = getCurrentDir()
-    setCurrentDir(GameDir)
-    var short: SimServer
-    try:
-      var config = defaultGameConfig()
-      config.update("""{"gunRange": 200}""")
-      short = initSimServer(config)
-    finally:
-      setCurrentDir(previousDir)
+    var config = defaultGameConfig()
+    config.update("""{"gunRange": 200}""")
+    var short = initCtfForTest(config)
     check short.visionRange == 300
     var visible: seq[bool]
     short.computeFovVisible(cx div FovCellSize, cy div FovCellSize, 192, visible)
@@ -97,15 +76,9 @@ suite "fog-of-war vision":
   test "the close-range bubble is never shrunk by the range cap":
     # Even an absurdly short gun keeps the 90px omnidirectional bubble: the
     # cap applies to the cone, not to close-quarters awareness.
-    let previousDir = getCurrentDir()
-    setCurrentDir(GameDir)
-    var short: SimServer
-    try:
-      var config = defaultGameConfig()
-      config.update("""{"gunRange": 40}""")
-      short = initSimServer(config)
-    finally:
-      setCurrentDir(previousDir)
+    var config = defaultGameConfig()
+    config.update("""{"gunRange": 40}""")
+    var short = initCtfForTest(config)
     check short.visionRange == 60
     var visible: seq[bool]
     short.computeFovVisible(cx div FovCellSize, cy div FovCellSize, 64, visible)

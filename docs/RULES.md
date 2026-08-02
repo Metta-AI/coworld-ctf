@@ -166,8 +166,10 @@ square map:
   drawn. Allies do not exist: 4-team play is pure
   free-for-all, and a "2v2" is simply two policies splitting one classic
   team's seats.
-- **Seats deal round the teams** by slot order (slot mod 4), 4 players per
-  team on a 16-seat roster. Identities stay per-team (`alpha`..`delta`).
+- **Seats deal round the teams** by slot order (slot mod 4): 4 players per
+  team on a 16-seat roster, 8 per team on a 32-seat roster (the Paintbot
+  `4ffa8` variant, always on a giant generated map). Identities stay
+  per-team (`alpha`..`delta` at 4 per team, `alpha`..`theta` at 8).
 - **The last team standing wins**: the round ends when at most one team
   still has live players — so a 4-team winner either captures all three
   rival hearts or outlives the field (captures and wipes mix freely); an
@@ -737,6 +739,15 @@ the same prefix (the player stream does not). Scoring rules are unchanged —
 these markers restate the geometry the sim already plays; before they existed
 a policy had to reconstruct it from the room markers and its own copy of the
 zone formulas.
+
+**So is your own aim.** Every player frame carries an invisible 1x1 HUD
+marker labeled `own aim <brads>`: your turret angle as of the rendered tick,
+in brads (256 per turn, 0 = east, counter-clockwise — the same convention as
+`aimTurnRate`). Match the prefix `own aim ` and parse the tail as an
+integer. Before this marker a policy had to dead-reckon its own aim
+open-loop from its rotate inputs; the marker caps that drift at one frame
+gap (integrate held rotation between frames, resync on each frame — see
+docs/PROTOCOL.md).
 
 The full wire
 contract, including the CTF input-protocol extensions, is in

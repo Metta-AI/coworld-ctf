@@ -23,12 +23,67 @@ shoot, and win — but cannot throw a carried grenade. See `RULES.md`, section
 carrying one turns the normal trigger into the paint cone; C keeps throwing a
 carried grenade.)
 
-## Player Ready (`0x85`) is supported
+## Player Ready (`0x85`) is supported — but do NOT send it in league play
 
 The server understands the Sprite v1 Player Ready packet (`0x85`): after each
 rendered frame a player client may send it to signal "done thinking", which
 lets the server pace fast-mode games by readiness instead of the wall clock.
 Sending it is optional; clients that never send it are paced by timeouts.
+
+**Warning (measured, not theoretical):** on a wall-clock-paced server (league
+play runs with `fastMode` off), sending ready every frame corrupts
+input-application timing. The reference bot's dead-reckoned aim random-walked
+to a median ~15-brad error at the trigger and its gun accuracy collapsed from
+44–54% to 13–23%; removing the send flipped an 0W–23L record to 8W–10L vs the
+champion (p=0.0039). Send `0x85` only when you know the server is in fast
+mode (fixture recording); competitive clients should not send it at all. The
+reference implementation gates it behind `CTF_BOT_FAST_READY=1`
+(`players/baseline/baseline.nim`, `fastReadyEnabled`).
+
+## Your own aim: read the `own aim` marker; dead-reckon between frames
+
+The player stream carries an absolute readback of your own aim angle: an
+invisible 1×1 HUD marker labeled `own aim <brads>` (256 brads per turn,
+0 = east, counter-clockwise), stating your turret angle as of the rendered
+tick. Match the label by the `own aim ` prefix and parse the tail. (An
+earlier build's "aim dot" label was a previous form of this readback; the
+engine retired it, and between the two the observation carried none — bots
+from that era dead-reckon open-loop.)
+
+The marker is exact only for the rendered tick, so a client still integrates
+between frames:
+
+- Spawn (and respawn) aim points toward the enemy side.
+- Each held rotate button turns the aim at the server's `aimTurnRate`
+  (default 5 brads/tick) for **every elapsed sim tick** — including ticks you
+  never saw a frame for. If you process frames with `frameAdvance > 1`
+  (see below), integrate the rotation across all advanced ticks, then let the
+  next frame's marker correct the estimate.
+- The aim angle **locks at the trigger pull**: the shot releases after
+  `fireWindupTicks` with the aim as of the pull, so stop rotating on the tick
+  you fire if you want the shot to go where you aimed.
+
+## Frame pacing: drain the backlog, act on the latest frame
+
+The server keeps applying your **last sent input mask** on every sim tick,
+whether or not you sent anything — inputs are level-based state, not events.
+If your client falls behind the frame stream, acting on a stale frame means
+reacting to a world that has already moved on while your held buttons kept
+applying. The reference client drains the socket backlog each loop iteration
+(up to 128 buffered frames), decides on the **latest** frame only, and tracks
+how many sim ticks elapsed since the previous decision (`frameAdvance`) so
+dead-reckoned state (like the aim, above) stays consistent. Only *changes* to
+the input mask need to be sent.
+
+## Lobby and interstitial detection
+
+There is no explicit "game phase" message on the player stream. The in-game
+signal is the **map camera object** (object id `1`, sprite id `1`): while it
+is present, a match is running and its `(x, y)` is the camera anchor; the
+server deletes it during the lobby and the game-over interstitial. The
+reference client treats "map object deleted" as leave-game (reset transient
+state) and "map object defined" as enter-game. The walkability mask arrives
+as its own labeled sprite (see `RULES.md`) and is only valid in-game.
 
 ## Observation render scale
 

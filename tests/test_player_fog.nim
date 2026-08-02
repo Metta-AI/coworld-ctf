@@ -1,42 +1,13 @@
 import
-  std/[os, sequtils, strutils, unittest],
+  helpers,
+  std/[sequtils, strutils, unittest],
   bitworld/spriteprotocol,
   ctf/[global, sim]
-
-const GameDir = currentSourcePath.parentDir.parentDir
-
-proc initCtfForTest(config: GameConfig): SimServer =
-  ## Initializes the CTF sim from the game directory.
-  let previousDir = getCurrentDir()
-  setCurrentDir(GameDir)
-  try:
-    result = initSimServer(config)
-  finally:
-    setCurrentDir(previousDir)
-
-proc buildPlayerMessages(
-  sim: var SimServer,
-  playerIndex: int,
-  state: var PlayerViewerState
-): seq[SpritePacketMessage] =
-  ## Builds and parses one sprite player packet.
-  var nextState: PlayerViewerState
-  result = sim.buildSpriteProtocolPlayerUpdates(
-    playerIndex,
-    state,
-    nextState
-  ).parseSpritePacket()
-  state = nextState
 
 proc spriteLabels(messages: openArray[SpritePacketMessage]): seq[string] =
   for message in messages:
     if message.kind == spkSprite:
       result.add(message.sprite.label)
-
-proc hasObject(messages: openArray[SpritePacketMessage], objectId: int): bool =
-  for message in messages:
-    if message.kind == spkObject and message.objectDef.id == objectId:
-      return true
 
 suite "player fog-of-war protocol":
   test "full-map POV: fog runs, self marker, no arrows, fov-culled enemies":

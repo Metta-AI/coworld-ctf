@@ -1,18 +1,8 @@
 import
-  std/[json, os, unittest],
+  helpers,
+  std/[json, unittest],
   bitworld/spriteprotocol,
   ctf/[broadcast, sim]
-
-const GameDir = currentSourcePath().parentDir.parentDir
-
-proc initCtfForTest(config: GameConfig): SimServer =
-  ## Initializes the CTF sim from the game directory (so data/ resolves).
-  let previousDir = getCurrentDir()
-  setCurrentDir(GameDir)
-  try:
-    result = initSimServer(config)
-  finally:
-    setCurrentDir(previousDir)
 
 proc badgeGame(redCount, blueCount: int): SimServer =
   ## A started game with redCount Red players followed by blueCount Blue.
@@ -30,23 +20,6 @@ proc badgeGame(redCount, blueCount: int): SimServer =
   # outright — exposure-sampled partial cover replaced it — so there is nothing
   # left to clear. This file still referenced the dead field until 2026-07-28:
   # it was never imported by tests/tests.nim, so nothing ever compiled it.)
-
-proc none(sim: SimServer): seq[InputState] =
-  newSeq[InputState](sim.players.len)
-
-proc placeAtCenter(player: var Player, x, y: int) =
-  player.x = x - CollisionW div 2
-  player.y = y - CollisionH div 2
-
-proc chargeAndThrow(sim: var SimServer, playerIndex, holdTicks: int) =
-  ## Holds C for holdTicks then releases.
-  var held = sim.none()
-  held[playerIndex].c = true
-  var prev = sim.none()
-  for _ in 0 ..< holdTicks:
-    sim.step(held, prev)
-    prev = held
-  sim.step(sim.none(), prev)
 
 proc landGrenade(sim: var SimServer) =
   ## Steps with no input until the airborne grenade explodes.

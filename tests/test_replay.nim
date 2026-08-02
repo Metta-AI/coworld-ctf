@@ -1,10 +1,10 @@
 import
+  helpers,
   std/[json, os, unittest],
   bitworld/spriteprotocol,
   ctf/[global, replay_runtime, replays, sim]
 
 const
-  GameDir = currentSourcePath.parentDir.parentDir
   # A fresh, drama-complete fixture recorded against the CURRENT gameplay rules
   # (GameVersion 34, seed 1, tools/record_fixture.sh). This capture-ending
   # fixture exceeds every tick target below and hash-verifies clean end to end.

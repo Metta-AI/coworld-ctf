@@ -1,10 +1,10 @@
 import
+  helpers,
   std/[json, os, sequtils, unittest],
   ctf/[broadcast, replays, sim],
   "../tools/expand_replay"
 
 const
-  GameDir = currentSourcePath.parentDir.parentDir
   FixtureDir = GameDir / "tests" / "fixtures"
   # Fixtures are recorded against the CURRENT gameplay rules and must be
   # re-recorded on every GameVersion bump (tools/record_fixture.sh):

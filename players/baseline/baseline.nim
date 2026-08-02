@@ -46,9 +46,10 @@
 ##   steals into captures. While our flag is stolen the back line hunts the
 ##   thief along its predicted route toward ITS home edge; attackers press on
 ##   — captures are instant wins both ways, so the race stays on.
-## - **Turret controller**: the bot dead-reckons its own aim (spawn aim is
-##   toward the enemy side; each held rotate button turns it 5 brads/tick)
-##   and resyncs it every frame from its own rendered aim-indicator dots.
+## - **Turret controller**: the bot reads its own aim from the engine's
+##   `own aim <brads>` HUD marker each frame, dead-reckoning only BETWEEN
+##   frames (each held rotate button turns 5 brads/tick server-side) and as
+##   the sole source on pre-marker engines.
 ##   Each tick it outputs the rotate button that traverses toward the desired
 ##   aim by the shortest arc, and fires only when the bullet corridor
 ##   (~14px half-width) covers the target at its range.
@@ -540,11 +541,24 @@ proc mapPos(client: ProtocolClient, o: SpriteObjectInfo): Vec =
     float(o.y + o.height div 2 + client.mapCameraY)
   )
 
+proc ownAimBrads(client: ProtocolClient): int =
+  ## The engine-stated own-aim angle from the `own aim <brads>` HUD marker,
+  ## or -1 when the marker is absent (pre-marker engines) or unparsable.
+  for o in client.spriteObjects():
+    if o.label.startsWith(LabelPrefixOwnAim):
+      let tail = o.label[LabelPrefixOwnAim.len .. ^1]
+      try:
+        return parseInt(tail)
+      except ValueError:
+        return -1
+  -1
+
 proc findSelf(
     client: ProtocolClient, color: string): tuple[alive: bool, pos: Vec] =
   ## Our avatar via the distinct self marker, only drawn while we are alive.
   for facingRight in [true, false]:
-    let label = "self " & color & (if facingRight: " right" else: " left")
+    let label = labelSelf(
+      color, if facingRight: LabelSideRight else: LabelSideLeft)
     for o in client.spriteObjectsWithLabel(label):
       return (alive: true, pos: client.mapPos(o))
 
@@ -554,7 +568,8 @@ proc actorsFor(client: ProtocolClient, color: string): seq[Actor] =
   ## its player, so whenever the player is visible its hp is too: attach the
   ## nearest pip bar within HpPipRadius.
   for facingRight in [true, false]:
-    let label = "player " & color & (if facingRight: " right" else: " left")
+    let label = labelPlayer(
+      color, if facingRight: LabelSideRight else: LabelSideLeft)
     for o in client.spriteObjectsWithLabel(label):
       result.add(Actor(pos: client.mapPos(o), facingRight: facingRight))
   for hp in 1 .. MaxHp:
@@ -1341,10 +1356,15 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # Respawned: the server points the aim back at the enemy side.
     bot.wasDead = false
     bot.estAim = spawnAim(bot.team)
-  # Our own aim is PURE dead reckoning: the observation carries no absolute
-  # readback of it. (The old "aim dot <color>" line was that readback; the
-  # engine retired it — see RULES.md label changes. Restoring the drift cap
-  # would need a new engine-emitted facing label.)
+  # Own aim: the engine now states it outright per frame (the `own aim
+  # <brads>` HUD marker), so resync estAim to the authoritative value —
+  # this caps the dead-reckoning drift at one frame gap. The per-tick
+  # integration in the run loop still predicts BETWEEN frames (held rotate
+  # inputs keep turning the turret server-side for every elapsed tick), and
+  # remains the sole source on pre-marker engines where the scan misses.
+  let statedAim = client.ownAimBrads()
+  if statedAim >= 0:
+    bot.estAim = statedAim
   # Plasma arcs and shields share the endzone back columns (inset 50)
   # but are vertically SEPARATED: spray cans in the top half (quarter height),
   # shields in the bottom half (three-quarter height). Seed the spots up
@@ -1458,7 +1478,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # thread owns every HTTP call — this block only moves strings around.
     pollTaunts(bot.tauntBank, bot.comebackWant)
     for o in client.spriteObjects():
-      if o.label.startsWith(enemyColor & " shout "):
+      if o.label.startsWith(labelShoutPrefix(enemyColor)):
         if o.label != bot.lastEnemyShout:
           bot.lastEnemyShout = o.label
           if bot.tick - bot.lastComebackReq >= 240:
@@ -1468,9 +1488,9 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
               requestComeback(o.label[sep + 2 .. ^1])
         break
     var corpses = 0
-    for facing in [" right", " left"]:
+    for facing in [LabelSideRight, LabelSideLeft]:
       corpses += client.spriteObjectsWithLabel(
-        "corpse " & enemyColor & facing).len
+        labelCorpse(enemyColor, facing)).len
     if corpses > bot.corpseCount and bot.firedLast:
       bot.killMoodUntil = bot.tick + 72
     bot.corpseCount = corpses
@@ -1481,7 +1501,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # fresh fix on the enemy thief running OUR heart. The payload carries the
     # exact quantized position; the bubble's jittered coordinates are ignored.
     for o in client.spriteObjects():
-      if not o.label.startsWith(myColor & " shout "):
+      if not o.label.startsWith(labelShoutPrefix(myColor)):
         continue
       bot.lastTeamShoutSeen = bot.tick      # spacing signal for peace lines
       let sep = o.label.rfind(": ")

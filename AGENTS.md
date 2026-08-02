@@ -9,9 +9,16 @@ covers the workflows that are easy to get wrong.
 - `src/ctf.nim` — server entrypoint (seed randomization happens HERE,
   before `config.update`, so seed-derived draws — including the terrain
   pick — follow the final seed).
-- `src/ctf/sim.nim` — the sim monolith: types, config, maps + the terrain
-  generator/validators, gameplay, replay hashing. `GameVersion` at the top
-  gates replay compatibility.
+- `src/ctf/` sim modules (split per `docs/plans/2026-08-01-sim-split.md`;
+  `sim.nim` imports and RE-EXPORTS all of them, so `import ctf/sim` still
+  sees everything): `sim_types.nim` — consts (incl. `GameVersion`, which
+  gates replay compatibility), types (flatty wire format — field order is
+  sacred), map globals; `rig_art.nim` — broadcast-only art;
+  `arena.nim` — map geometry, the terrain generator/validators, mapSpec,
+  the process-global map install, pixel queries; `map_art.nim` — the map
+  bake; `sim_config.nim` — GameConfig lifecycle; `sim_state.nim` — logging,
+  gameHash, events, spawn placement; `roster.nim` — join/auth/rewards;
+  `sim.nim` — the gameplay core and step loop.
 - `src/ctf/map_pool.nim` — GENERATED curated terrain-pool seeds; rewrite it
   only via `tools/gen_map_pool.nim`, never by hand.
 - `tests/` — run `nim c -r tests/tests.nim` from the repo ROOT (assets

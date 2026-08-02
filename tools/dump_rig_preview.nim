@@ -4,14 +4,9 @@
 ## us eyeball the turret swivel / caster / inner-leg-shorten / carry before wiring.
 
 import
-  std/[math],
   pixie,
-  ../src/ctf/sim
-
-proc spriteToImage(p: seq[uint8], w, h: int): Image =
-  result = newImage(w, h)
-  for i in 0 ..< w * h:
-    result.data[i] = rgba(p[i*4], p[i*4+1], p[i*4+2], p[i*4+3]).rgbx()
+  ../src/ctf/sim,
+  toolutil
 
 proc composePose(team: Team, aimBrads, velX, velY: int, carrying = false): Image =
   ## Drive several frames to settle the drive state, then stack the segments.

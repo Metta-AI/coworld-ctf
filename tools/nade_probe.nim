@@ -1,4 +1,4 @@
-import std/[os, json, strutils, sets, tables], ../src/ctf/replays, ../src/ctf/sim
+import std/[os, json, sets, tables], ../src/ctf/sim, toolutil
 
 # Grenade/plasma forensics: every throw (thrower/launch/landing), blast damage
 # attribution (hp drops within radius at landing tick), enemy CLUSTERS
@@ -6,36 +6,28 @@ import std/[os, json, strutils, sets, tables], ../src/ctf/replays, ../src/ctf/si
 # and plasma arc firings. JSON out.
 
 let path = commandLineParams()[0].absolutePath()
-let gameDir = currentSourcePath().parentDir().parentDir()
-setCurrentDir(gameDir)
-let data = loadReplay(path)
-var config = defaultGameConfig()
-config.update(data.configJson)
-var
-  game = initSimServer(config)
-  replay = initReplayPlayer(data)
-game.gameEventLoggingEnabled = false
-replay.looping = false
-replay.mismatchQuit = true
+chdirGameDir()
+var (game, replay) = openReplay(path)
 
+let seatCap = game.config.playerSlotLimit()
 var
   joins = newJArray()
   throws = newJArray()
   seenPlayers = 0
   liveNades = initHashSet[int]()          # launchTick*1000+thrower key
   nadeInfo = initTable[int, JsonNode]()
-  prevHp: array[16, int]
-  prevHasNade: array[16, bool]
-  prevArcTicks: array[16, int]
-  nadeHeldTicks: array[16, int]
-  arcFires: array[16, int]
+  prevHp = newSeq[int](seatCap)
+  prevHasNade = newSeq[bool](seatCap)
+  prevArcTicks = newSeq[int](seatCap)
+  nadeHeldTicks = newSeq[int](seatCap)
+  arcFires = newSeq[int](seatCap)
   clusters = newJArray()
   lastClusterSample = 0
 
 while replay.playing:
   replay.stepReplay(game)
   let t = game.tickCount
-  while seenPlayers < game.players.len and seenPlayers < 16:
+  while seenPlayers < game.players.len and seenPlayers < seatCap:
     let p = game.players[seenPlayers]
     joins.add(%*{"i": seenPlayers, "slot": p.joinOrder, "team": teamText(p.team),
                  "addr": p.address})
@@ -56,7 +48,7 @@ while replay.playing:
     if key notin current and key in nadeInfo:
       var info = nadeInfo[key]
       var hits = newJArray()
-      for i in 0 ..< min(game.players.len, 16):
+      for i in 0 ..< min(game.players.len, seatCap):
         let p = game.players[i]
         let dx = (p.x + CollisionW div 2) - info["tx"].getInt
         let dy = (p.y + CollisionH div 2) - info["ty"].getInt
@@ -67,7 +59,7 @@ while replay.playing:
       throws.add(info)
   liveNades = current
 
-  for i in 0 ..< min(game.players.len, 16):
+  for i in 0 ..< min(game.players.len, seatCap):
     let p = game.players[i]
     if p.hasGrenade: inc nadeHeldTicks[i]
     if p.arcTicksLeft > 0 and prevArcTicks[i] == 0: inc arcFires[i]
@@ -76,11 +68,11 @@ while replay.playing:
     prevHp[i] = p.hp
 
   # cluster sampling every 25 ticks: same-team pairs within 110px
-  if t - lastClusterSample >= 25 and game.players.len >= 16:
+  if t - lastClusterSample >= 25 and game.players.len >= seatCap:
     lastClusterSample = t
-    for team in [Red, Blue]:
+    for team in game.teams:
       var members: seq[int]
-      for i in 0 ..< 16:
+      for i in 0 ..< min(game.players.len, seatCap):
         if game.players[i].team == team and game.players[i].alive:
           members.add i
       var counted = initHashSet[int]()
@@ -100,7 +92,7 @@ while replay.playing:
           "x": cx div counted.len, "y": cy div counted.len})
 
 var summary = newJArray()
-for i in 0 ..< min(game.players.len, 16):
+for i in 0 ..< min(game.players.len, seatCap):
   summary.add(%*{"i": i, "nadeHeld": nadeHeldTicks[i], "arcFires": arcFires[i],
     "kills": game.players[i].kills})
 echo $(%*{"ticks": game.tickCount, "joins": joins, "throws": throws,

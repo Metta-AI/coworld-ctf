@@ -12,8 +12,10 @@ episode's participants give us index -> policy, which is what lets us split
 "our heals" from "their heals".
 
 Prereqs:
-  - /tmp/medcheck/extract_events   (nim c -d:release tools/extract_events.nim
-                                    from the GV23 lab worktree)
+  - an extract_events binary matching the replays' GameVersion
+    (nim c -d:release tools/extract_events.nim from a checkout of that
+    engine version; point CTF_EXTRACT_EVENTS at it, default
+    /tmp/medcheck/extract_events)
   - h2h.py already ran over the round range, so /tmp/ctfladder/eps_*.json exists
 
 ⚠️ ENGINE MATCHING: the hosted coworld build churns fast (v26's tenure spans
@@ -34,7 +36,7 @@ import urllib.request
 
 import rounds as R
 
-BIN = "/tmp/medcheck/extract_events"
+BIN = os.environ.get("CTF_EXTRACT_EVENTS", "/tmp/medcheck/extract_events")
 WORK = "/tmp/medcheck/work"
 # Attrition window: 81% of the pre-fix K-D deficit was booked in ticks 1000..3000.
 ATTR_LO, ATTR_HI = 1000, 3000
@@ -52,16 +54,10 @@ def our_episodes(first, last, ver):
             if not mine or mine[0].get("version") != ver:
                 continue
             rnd = e.get("round_number")
+            if rnd is not None and not (first <= rnd <= last):
+                continue
             out.append(e)
     return out
-
-
-def in_range(eps, first, last, rid_to_num):
-    keep = []
-    for e in eps:
-        n = rid_to_num.get(e.get("id")) or rid_to_num.get(e.get("episode_id"))
-        keep.append(e)
-    return keep
 
 
 def analyze(e):

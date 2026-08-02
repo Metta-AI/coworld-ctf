@@ -18,7 +18,10 @@
   // Reserved sprite id whose LABEL carries the broadcast chrome JSON on the
   // binary channel (see server: BroadcastChromeSpriteId). Kept off the drawable
   // sprite map and fed straight to onText.
-  const CHROME_SPRITE_ID = 4090;
+  // Engine-authoritative when the wire-constants block was spliced ahead of
+  // this script; the literal is the raw-file fallback.
+  const CHROME_SPRITE_ID =
+    (window.CTF_WIRE && window.CTF_WIRE.chromeSpriteId) || 4090;
 
   function readU16(bytes, offset) {
     return bytes[offset] | (bytes[offset + 1] << 8);
@@ -152,12 +155,10 @@
   }
 
   function websocketPathForClientPage(path) {
+    // This core is only ever loaded by the replay pages; the other client
+    // routes use bitworld's generic client with its own socket wiring.
     const mappings = [
-      ['/client/global', '/global'],
       ['/client/replay', '/replay'],
-      ['/client/player', '/player'],
-      ['/client/rewards', '/reward'],
-      ['/client/admin', '/admin'],
       ['/clients/replay', '/replay']
     ];
     for (const [clientPath, websocketPath] of mappings) {
@@ -177,11 +178,11 @@
     const host = url.host || 'localhost:8080';
     const wsPath = websocketPathForClientPage(url.pathname);
     const wsUrl = new URL(protocol + '//' + host + wsPath);
-    for (const key of ['name', 'slot', 'token', 'uri']) {
-      const value = url.searchParams.get(key);
-      if (value !== null) {
-        wsUrl.searchParams.set(key, value);
-      }
+    // Only `uri` means anything on a viewer socket; player-credential params
+    // (name/slot/token) make the server 403 the viewer connection.
+    const value = url.searchParams.get('uri');
+    if (value !== null) {
+      wsUrl.searchParams.set('uri', value);
     }
     return wsUrl.toString();
   }
@@ -437,14 +438,17 @@
             width,
             height
           );
-          let pixels, label = '';
-          if (snappySprite) {
-            pixels = snappySprite.pixels;
-            label = snappySprite.label;
-            offset = snappySprite.offset;
-          } else {
-            offset += width * height;
+          if (!snappySprite) {
+            // Sprites are always snappy-compressed on the wire; a failed
+            // decode means a corrupt frame, and guessing a skip width would
+            // silently desync the whole stream. Fail loudly instead.
+            console.warn('Sprite decompress failed (corrupt frame); closing socket');
+            if (socket) socket.close();
+            break;
           }
+          const pixels = snappySprite.pixels;
+          const label = snappySprite.label;
+          offset = snappySprite.offset;
           // Broadcast chrome (scorebug/clock/scrubber/roster/events) is smuggled
           // as the label of a reserved 1×1 sprite (id 4090). Route it to onText
           // exactly like the legacy TextMessage chrome channel. This binary path
@@ -502,8 +506,6 @@
         } else if (type === 0x06) {
           defineLayer(layers, bytes[offset], bytes[offset + 1], bytes[offset + 2]);
           offset += 3;
-        } else if (type === 0x07) {
-          offset += 2;
         } else {
           console.warn('Unknown sprite protocol message type:', type);
           if (socket) socket.close();

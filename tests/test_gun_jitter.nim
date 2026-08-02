@@ -1,18 +1,7 @@
 import
-  std/[os, unittest],
+  helpers,
+  std/unittest,
   ctf/sim
-
-const GameDir = currentSourcePath.parentDir.parentDir
-
-proc initCtfForTest(config: GameConfig): SimServer =
-  ## Initializes the CTF sim from the game directory (so data/ resolves).
-  let previousDir = getCurrentDir()
-  setCurrentDir(GameDir)
-  try:
-    result = initSimServer(config)
-    result.gameEventLoggingEnabled = false
-  finally:
-    setCurrentDir(previousDir)
 
 ## The firing scene: the widest fully clear corridor on the default arena is
 ## ~313px (x 10..322, y 72..88), so every live-fire test runs with a config
@@ -38,6 +27,7 @@ proc shortRangeSim(seed: int): SimServer =
   config.update("""{"gunRange": """ & $ShortRange &
     """, "seed": """ & $seed & "}")
   result = initCtfForTest(config)
+  result.gameEventLoggingEnabled = false
   discard result.addPlayer("red0")
   discard result.addPlayer("blue0")
   result.startGame()

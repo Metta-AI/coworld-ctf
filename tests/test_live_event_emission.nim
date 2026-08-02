@@ -6,6 +6,7 @@
 ## turning itself on when nobody asked for it.
 
 import
+  helpers,
   std/[json, os, strutils, unittest],
   ../src/ctf/events,
   ../src/ctf/replays,
@@ -13,7 +14,6 @@ import
   "../tools/extract_events"
 
 const
-  GameDir = currentSourcePath.parentDir.parentDir
   EventsFixture = GameDir / "tests" / "replays" / "ctf.bitreplay"
 
 suite "live event emission (src/ctf/events)":
