@@ -1046,12 +1046,163 @@ html, body {
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--ghost);
-  z-index: 8;
+  /* above the locker-room curtain (25): connection state stays readable
+     while the pre-load scene is up */
+  z-index: 26;
   pointer-events: none;
   opacity: 0;
   transition: opacity 200ms;
 }
 #status.show { opacity: 1; }
+
+/* ============================================================
+   PRE-LOAD CURTAIN — THE BOT LOCKER ROOM
+   The wasm/replay boot can take seconds; instead of a dark board
+   captioned "Warming up", the stage opens on the backstage room
+   UNDER the arena: the four cogs prepping their paintball markers
+   in a lamp-lit locker room. The scene is nanobanana-generated
+   art (art/lockerroom/ — same warm Ink & Print world as the
+   dungeon wall textures): ONE static empty-room plate (bg.jpg)
+   with five alpha-sprite poses per cog (<bot>_<pose>.webp)
+   layered on top and cycled per bot (see .lk-art below).
+   Dismissed by the first ingested frame (dismissLockerRoom).
+   Sits UNDER #status (fine-print
+   connection state stays readable) and #mmwarn; shown in embed
+   mode too — it IS the League Replayer's lit floor while loading.
+   ============================================================ */
+#lockerroom {
+  position: absolute;
+  inset: 0;
+  z-index: 25;
+  overflow: hidden;
+  font-family: var(--pixfont);
+  background: radial-gradient(120% 95% at 50% 30%, var(--stage-hi) 0%, var(--stage-lo) 55%, #100b07 100%);
+  opacity: 1;
+  transition: opacity 600ms ease;
+}
+#lockerroom.gone { opacity: 0; pointer-events: none; }
+
+/* hanging-lamp light: an amber pool over the room + a low bounce off the
+   floor, with the occasional basement-fixture flicker */
+#lockerroom .lk-glow {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(46% 60% at 50% 28%, rgba(232, 163, 61, 0.15), transparent 70%),
+    radial-gradient(62% 26% at 50% 88%, rgba(232, 163, 61, 0.08), transparent 75%);
+  animation: lk-flicker 9s linear infinite;
+}
+@keyframes lk-flicker {
+  0%, 86%, 90%, 95%, 100% { opacity: 1; }
+  88% { opacity: 0.78; }
+  93% { opacity: 0.9; }
+}
+
+/* The scene: ONE static background plate (bg.jpg — the empty room) with
+   the four cogs layered on top as freestanding alpha sprites, five
+   generated poses each. Every bot runs its own pose carousel (distinct
+   cycle length + phase, crossfaded windows) over its own idle sway, so
+   the composed scene never repeats for minutes — smooth continuous
+   animation over a rock-solid background. A soft radial mask melts the
+   plate's edges into the stage gradient, and the whole scene breathes
+   on a slow zoom. */
+#lockerroom .lk-art {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: lk-breathe 14s ease-in-out infinite alternate;
+}
+@keyframes lk-breathe { from { transform: scale(1); } to { transform: scale(1.03); } }
+#lockerroom .lk-bg {
+  display: block;
+  max-width: 94%;
+  max-height: 96%;
+  -webkit-mask-image: radial-gradient(ellipse 74% 80% at 50% 48%, #000 50%, transparent 99%);
+  mask-image: radial-gradient(ellipse 74% 80% at 50% 48%, #000 50%, transparent 99%);
+}
+/* sprite plane, fitted to the bg image's box by fitLockerSprites() */
+#lockerroom .lk-sprites { position: absolute; }
+/* one wrapper per bot (anchored over its floor spot, carries the idle
+   sway), its pose sprites stacked bottom-center inside */
+#lockerroom .lk-boto { position: absolute; transform-origin: 50% 100%; }
+#lockerroom .lk-boto img {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  transform: translateX(-50%);
+  opacity: 0;
+  animation: lk-pose var(--cyc, 4s) linear infinite;
+}
+/* each pose owns a crossfaded 1/5 window of its bot's cycle (delay-shifted) */
+@keyframes lk-pose {
+  0% { opacity: 0; }
+  4% { opacity: 1; }
+  20% { opacity: 1; }
+  24% { opacity: 0; }
+  100% { opacity: 0; }
+}
+/* idle sway per seat: subtle, distinct tempi so the row never metronomes */
+@keyframes lk-sway { 0%, 100% { transform: translateY(0) rotate(0); } 50% { transform: translateY(-1.5px) rotate(0.6deg); } }
+#lockerroom .lk-boto:nth-child(1) { animation: lk-sway 3.4s ease-in-out infinite; }
+#lockerroom .lk-boto:nth-child(2) { animation: lk-sway 2.9s ease-in-out -1.2s infinite; }
+#lockerroom .lk-boto:nth-child(3) { animation: lk-sway 3.8s ease-in-out -0.6s infinite; }
+#lockerroom .lk-boto:nth-child(4) { animation: lk-sway 3.1s ease-in-out -2s infinite; }
+
+/* rotating prep-talk line + amber scan bar + fine print, over the floor */
+#lockerroom .lk-cap {
+  position: absolute;
+  bottom: 13%;
+  left: 0; right: 0;
+  text-align: center;
+  font-family: var(--finefont);
+  font-size: calc(11 * var(--u));
+  color: var(--paper-dim);
+  text-shadow: 0 1px 0 rgba(10, 7, 4, 0.8), 0 0 calc(8 * var(--u)) rgba(10, 7, 4, 0.9);
+  transition: opacity 150ms;
+}
+#lockerroom .lk-cap.swap { opacity: 0; }
+#lockerroom .lk-bar {
+  position: absolute;
+  bottom: 10.2%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: calc(150 * var(--u));
+  height: calc(3 * var(--u));
+  background: rgba(242, 232, 216, 0.12);
+  border-radius: calc(2 * var(--u));
+  overflow: hidden;
+}
+#lockerroom .lk-bar i {
+  position: absolute;
+  top: 0; bottom: 0;
+  left: -34%;
+  width: 34%;
+  border-radius: calc(2 * var(--u));
+  background: linear-gradient(90deg, transparent, var(--amber), transparent);
+  animation: lk-scan 1.6s ease-in-out infinite alternate;
+}
+@keyframes lk-scan { from { left: -34%; } to { left: 100%; } }
+#lockerroom .lk-sub {
+  position: absolute;
+  bottom: 6.4%;
+  left: 0; right: 0;
+  text-align: center;
+  font-family: var(--finefont);
+  font-size: calc(7.5 * var(--u));
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--ghost);
+  text-shadow: 0 1px 0 rgba(10, 7, 4, 0.9);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #lockerroom * { animation: none !important; }
+  /* with the carousels stopped, hold each bot's rest pose over the plate */
+  #lockerroom .lk-boto img:first-child { opacity: 1; }
+}
 
 /* ============================================================
    The replay is ONE fixed-aspect composition (relayout() sizes #stage to the
@@ -1094,6 +1245,22 @@ body[data-embed] #board { top: 0; height: 100%; }
   <div id="lightpool"></div>
   <div id="grain" class="amb"></div>
 
+  <!-- Pre-load curtain: the bot locker room. The six art frames (srcs set by
+       buildLockerRoom — the path prefix is delivery-mode dependent) play as a
+       ~4fps idle loop; the whole scene fades out on the first ingested
+       frame (dismissLockerRoom). role=status so screen readers hear one
+       "Loading replay" while the visual squad preps their markers. -->
+  <div id="lockerroom" role="status" aria-label="Loading replay">
+    <div class="lk-art" id="lk-art" aria-hidden="true">
+      <img class="lk-bg" id="lk-bg" alt="">
+      <div class="lk-sprites" id="lk-sprites"></div>
+    </div>
+    <div class="lk-glow" aria-hidden="true"></div>
+    <div class="lk-cap" id="lk-cap" aria-hidden="true">Filling hoppers with fresh paint&hellip;</div>
+    <div class="lk-bar" aria-hidden="true"><i></i></div>
+    <div class="lk-sub">Bot locker room &middot; Loading replay</div>
+  </div>
+
   <div id="chrome">
     <!-- Plates are generated per active team (2-4) by ensureScorebug(): one
          per side for classic red/blue, two stacked per side for 3-4 teams.
@@ -1108,7 +1275,7 @@ body[data-embed] #board { top: 0; height: 100%; }
         <div class="clock amb" id="clock">
           <div class="time" id="clock-time">0:00</div>
           <span class="ffwd-mini" id="ffwd-mini">▸▸</span>
-          <div class="caption" id="clock-caption">Warming up</div>
+          <div class="caption" id="clock-caption">In the locker room</div>
         </div>
       </div>
 
@@ -1326,6 +1493,125 @@ body[data-embed] #board { top: 0; height: 100%; }
   var canvas = $('board');
   var statusEl = $('status');
 
+  // ---- pre-load curtain: the bot locker room -------------------------------
+  // The stage opens on this scene (see #lockerroom CSS) while the socket /
+  // wasm sim boots. The art frames are wired here (their base path is
+  // delivery-mode dependent, like the cog art); the first ingested frame
+  // calls dismissLockerRoom(), which fades the room out after a short
+  // minimum dwell (a sub-second load would otherwise flash the scene like
+  // a glitch).
+  var lockerEl = $('lockerroom');
+  var LOCKER_MIN_DWELL_MS = 900;
+  var lockerShownAt = Date.now();
+  var lockerCapTimer = null, lockerGone = false;
+  (function buildLockerRoom() {
+    // Scene art (nanobanana generations, like the shell's dungeon walls):
+    // bg.jpg is the empty-room plate; each bot is five freestanding alpha
+    // sprites (<bot>_<pose>.webp) cut from the generated pose frames. Same
+    // three-delivery-modes path story as the cog art, so the base derives
+    // from COG_BASE: native "<prefix>/client" + "/art/lockerroom", static
+    // bundle "./art/lockerroom".
+    var artBase = COG_BASE + '/art/lockerroom';
+    $('lk-bg').src = artBase + '/bg.jpg';
+
+    // Sprite geometry baked by the extraction script (scripts prompt in the
+    // PR): ax/ay anchor each bot's bottom-center on the plate, w/h size each
+    // pose — all in % of the 992x926 plate, so everything scales together.
+    // Distinct cycle lengths keep the four carousels out of phase; the
+    // composed scene state repeats only every few minutes.
+    var LK_BOTS = {
+      green:  { ax: 22.83, ay: 76.67, cyc: 4.6,
+        poses: [{ f: 1, w: 14.82, h: 18.03 }, { f: 2, w: 14.92, h: 18.25 },
+                { f: 3, w: 14.62, h: 18.14 }, { f: 5, w: 14.82, h: 18.25 },
+                { f: 6, w: 14.62, h: 19.01 }] },
+      blue:   { ax: 41.08, ay: 76.67, cyc: 3.8,
+        poses: [{ f: 1, w: 16.63, h: 18.25 }, { f: 2, w: 14.92, h: 21.6 },
+                { f: 3, w: 15.83, h: 21.81 }, { f: 5, w: 16.63, h: 20.63 },
+                { f: 6, w: 14.62, h: 22.68 }] },
+      yellow: { ax: 59.93, ay: 76.78, cyc: 5.2,
+        poses: [{ f: 1, w: 16.43, h: 18.57 }, { f: 2, w: 15.52, h: 18.57 },
+                { f: 3, w: 15.62, h: 18.57 }, { f: 5, w: 16.13, h: 18.36 },
+                { f: 6, w: 15.83, h: 23.11 }] },
+      red:    { ax: 79.03, ay: 77.43, cyc: 4.1,
+        poses: [{ f: 1, w: 18.15, h: 18.79 }, { f: 2, w: 15.93, h: 20.19 },
+                { f: 3, w: 15.52, h: 19.87 }, { f: 5, w: 15.83, h: 20.63 },
+                { f: 6, w: 16.73, h: 21.06 }] }
+    };
+    var spritesEl = $('lk-sprites');
+    ['green', 'blue', 'yellow', 'red'].forEach(function (bot) {
+      var b = LK_BOTS[bot];
+      var maxW = 0, maxH = 0;
+      b.poses.forEach(function (p) {
+        maxW = Math.max(maxW, p.w);
+        maxH = Math.max(maxH, p.h);
+      });
+      var wrap = document.createElement('div');
+      wrap.className = 'lk-boto';
+      wrap.style.left = (b.ax - maxW / 2) + '%';
+      wrap.style.top = (b.ay - maxH) + '%';
+      wrap.style.width = maxW + '%';
+      wrap.style.height = maxH + '%';
+      b.poses.forEach(function (p, ix) {
+        var img = document.createElement('img');
+        img.alt = '';
+        img.src = artBase + '/' + bot + '_' + p.f + '.webp';
+        // widths are % of the plate; inside the wrapper they rescale by maxW
+        img.style.width = (p.w / maxW * 100) + '%';
+        img.style.setProperty('--cyc', b.cyc + 's');
+        img.style.animationDelay = (ix * b.cyc / b.poses.length) + 's';
+        wrap.appendChild(img);
+      });
+      spritesEl.appendChild(wrap);
+    });
+
+    // Pin the sprite plane to the bg image's on-screen box (the img is the
+    // flex-fitted sizer; % geometry above resolves against this plane).
+    var bgImg = $('lk-bg');
+    function fitLockerSprites() {
+      spritesEl.style.left = bgImg.offsetLeft + 'px';
+      spritesEl.style.top = bgImg.offsetTop + 'px';
+      spritesEl.style.width = bgImg.offsetWidth + 'px';
+      spritesEl.style.height = bgImg.offsetHeight + 'px';
+    }
+    bgImg.addEventListener('load', fitLockerSprites);
+    if (window.ResizeObserver) new ResizeObserver(fitLockerSprites).observe(bgImg);
+    window.addEventListener('resize', fitLockerSprites);
+    fitLockerSprites();
+
+    // rotating prep-talk line under the scene
+    var lines = [
+      'Filling hoppers with fresh paint…',
+      'Pump check: one, two. One, two…',
+      'Polishing visors to a mirror shine…',
+      'Shaking the paint pods awake…',
+      'Squats. Even robots warm up…',
+      'Topping off the CO₂…',
+      'Chalking up the wheels…',
+      'Reviewing the game plan…'
+    ];
+    var capEl = $('lk-cap'), capIx = 0;
+    lockerCapTimer = setInterval(function () {
+      capEl.classList.add('swap');
+      setTimeout(function () {
+        capIx = (capIx + 1) % lines.length;
+        capEl.textContent = lines[capIx];
+        capEl.classList.remove('swap');
+      }, 180);
+    }, 2600);
+  })();
+  function dismissLockerRoom() {
+    if (lockerGone) return;
+    lockerGone = true;
+    var wait = Math.max(0, LOCKER_MIN_DWELL_MS - (Date.now() - lockerShownAt));
+    setTimeout(function () {
+      lockerEl.classList.add('gone');
+      setTimeout(function () {
+        lockerEl.style.display = 'none';
+        if (lockerCapTimer) { clearInterval(lockerCapTimer); lockerCapTimer = null; }
+      }, 650);
+    }, wait);
+  }
+
   // ---- embed mode (League Replayer) ----------------------------------------
   // When loaded inside the League Replayer shell (?embed=1), this client renders
   // ONLY the board (its own scorebug/transport/feed chrome is hidden by CSS via
@@ -1397,6 +1683,12 @@ body[data-embed] #board { top: 0; height: 100%; }
   });
   if (replayAdapter) replayAdapter.attachCore(core);
 
+  // Tell the League Replayer shell the board is alive and showing its
+  // locker-room curtain, so the shell can drop its own "loading replay…"
+  // toast (which would float mid-scene) and give a slow wasm boot a longer
+  // leash before escalating to the load-failure card.
+  postToShell('boot');
+
   function send(cmd) { core.sendCommand(cmd); }
 
   // Transport commands relayed DOWN from the League Replayer shell (embed mode):
@@ -1436,6 +1728,7 @@ body[data-embed] #board { top: 0; height: 100%; }
     var s;
     try { s = JSON.parse(txt); } catch (e) { return; }
     lastState = s;
+    dismissLockerRoom();  // the board is live — fade the pre-load curtain
 
     if (SEEK_T != null) { send('s:' + SEEK_T); SEEK_T = null; }
 

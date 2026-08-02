@@ -78,6 +78,55 @@ const
   # Opaque stone, no alpha → JPEG (q82) keeps each well under any committed sprite.
   WallTextureHorizontal = staticRead("../../client/art/walls/wall_h.jpg")
   WallTextureVertical = staticRead("../../client/art/walls/wall_v.jpg")
+  # The broadcast client's pre-load curtain scene (nanobanana generations,
+  # like the walls): the bot locker room as ONE empty-room plate (bg.jpg)
+  # plus five alpha-sprite poses per cog (<bot>_<pose>.webp) that the
+  # client layers and cycles on top. One entry per asset, served by path
+  # lookup like the soldier art; content type derives from the suffix.
+  LockerRoomAssets = [
+    ("/client/art/lockerroom/bg.jpg",
+      staticRead("../../client/art/lockerroom/bg.jpg")),
+    ("/client/art/lockerroom/green_1.webp",
+      staticRead("../../client/art/lockerroom/green_1.webp")),
+    ("/client/art/lockerroom/green_2.webp",
+      staticRead("../../client/art/lockerroom/green_2.webp")),
+    ("/client/art/lockerroom/green_3.webp",
+      staticRead("../../client/art/lockerroom/green_3.webp")),
+    ("/client/art/lockerroom/green_5.webp",
+      staticRead("../../client/art/lockerroom/green_5.webp")),
+    ("/client/art/lockerroom/green_6.webp",
+      staticRead("../../client/art/lockerroom/green_6.webp")),
+    ("/client/art/lockerroom/blue_1.webp",
+      staticRead("../../client/art/lockerroom/blue_1.webp")),
+    ("/client/art/lockerroom/blue_2.webp",
+      staticRead("../../client/art/lockerroom/blue_2.webp")),
+    ("/client/art/lockerroom/blue_3.webp",
+      staticRead("../../client/art/lockerroom/blue_3.webp")),
+    ("/client/art/lockerroom/blue_5.webp",
+      staticRead("../../client/art/lockerroom/blue_5.webp")),
+    ("/client/art/lockerroom/blue_6.webp",
+      staticRead("../../client/art/lockerroom/blue_6.webp")),
+    ("/client/art/lockerroom/yellow_1.webp",
+      staticRead("../../client/art/lockerroom/yellow_1.webp")),
+    ("/client/art/lockerroom/yellow_2.webp",
+      staticRead("../../client/art/lockerroom/yellow_2.webp")),
+    ("/client/art/lockerroom/yellow_3.webp",
+      staticRead("../../client/art/lockerroom/yellow_3.webp")),
+    ("/client/art/lockerroom/yellow_5.webp",
+      staticRead("../../client/art/lockerroom/yellow_5.webp")),
+    ("/client/art/lockerroom/yellow_6.webp",
+      staticRead("../../client/art/lockerroom/yellow_6.webp")),
+    ("/client/art/lockerroom/red_1.webp",
+      staticRead("../../client/art/lockerroom/red_1.webp")),
+    ("/client/art/lockerroom/red_2.webp",
+      staticRead("../../client/art/lockerroom/red_2.webp")),
+    ("/client/art/lockerroom/red_3.webp",
+      staticRead("../../client/art/lockerroom/red_3.webp")),
+    ("/client/art/lockerroom/red_5.webp",
+      staticRead("../../client/art/lockerroom/red_5.webp")),
+    ("/client/art/lockerroom/red_6.webp",
+      staticRead("../../client/art/lockerroom/red_6.webp")),
+  ]
   BroadcastFont = staticRead("../../data/font.ttf")
   # Cog art for the first-person EYES PiP billboards (real body + legs + wheels
   # + cyan visor, team-tinted). Served as static PNGs so the raycast view can
@@ -665,6 +714,24 @@ proc httpHandler(request: Request) =
       request.respond(200, texHeaders, WallTextureHorizontal)
     else:
       request.respond(200, texHeaders, WallTextureVertical)
+  elif request.httpMethod == "GET" and (block:
+      var lockerHit = false
+      for (path, art) in LockerRoomAssets:
+        if request.path == path:
+          lockerHit = true
+          break
+      lockerHit):
+    # The broadcast client's locker-room loading-scene assets: the JPEG
+    # room plate and the per-cog alpha-sprite poses (WebP).
+    var lockerHeaders: HttpHeaders
+    lockerHeaders["Content-Type"] =
+      if request.path.endsWith(".webp"): "image/webp"
+      else: "image/jpeg"
+    lockerHeaders["Cache-Control"] = "public, max-age=3600"
+    for (path, art) in LockerRoomAssets:
+      if request.path == path:
+        request.respond(200, lockerHeaders, art)
+        break
   elif request.httpMethod == "GET" and (block:
       var hit = false
       for (path, art) in SoldierArtAssets:

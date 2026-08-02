@@ -277,7 +277,7 @@
     <div class="clock amb" id="clock">
       <div class="time" id="clock-time">0:00</div>
       <span class="ffwd-mini" id="ffwd-mini">▸▸</span>
-      <div class="caption" id="clock-caption">Warming up</div>
+      <div class="caption" id="clock-caption">In the locker room</div>
     </div>
     <div class="wallnames side-r" id="names-r"></div>
   </div>
@@ -523,8 +523,22 @@
   window.addEventListener('message', function(ev){
     var m=ev.data; if(!m || m.src!=='ctf-replay') return;
     if(m.type==='frame'){ syncBoardAspect(m.data); onFrame(m.data); }
+    else if(m.type==='boot'){ onBoardBoot(); }
     else if(m.type==='esc'){ postEscToHost(); }
   });
+  // The embedded board announced it is alive and showing its locker-room
+  // loading scene on the pit floor. Drop the shell's own toast (it would float
+  // mid-scene saying "loading replay…" over bots who are visibly loading) and
+  // re-arm the failure escalation with a much longer leash: the board being
+  // alive rules out an embed block, leaving only a slow (or truly stuck) wasm
+  // boot, which deserves minutes, not the 12s no-signal timeout.
+  var boardBooted=false;
+  function onBoardBoot(){
+    boardBooted=true;
+    if(lastState) return;               // frames already flowing — nothing to do
+    hideStatus();                       // also clears statusTimer + failTimer
+    failTimer=setTimeout(showLoadFailure, 45000);
+  }
   // Direct Esc while the shell chrome (transport, KDA rows, scrubber) holds focus.
   window.addEventListener('keydown', function(ev){
     if(ev.key==='Escape'){ postEscToHost(); }
@@ -1116,7 +1130,10 @@
     el.innerHTML='';
     var head=document.createElement('div'); head.textContent='Replay didn’t load';
     var sub=document.createElement('span'); sub.className='st-sub';
-    sub.textContent='The embedded board sent no frames — it may be blocked from embedding here.';
+    // A booted board rules out an embed block — the replay itself is stuck.
+    sub.textContent=boardBooted
+      ? 'The board came up but the replay never produced a frame — it may be stuck loading.'
+      : 'The embedded board sent no frames — it may be blocked from embedding here.';
     var link=document.createElement('a'); link.textContent='Open the board directly →';
     link.href=direct; link.target='_top'; link.rel='noopener';
     el.appendChild(head); el.appendChild(sub); el.appendChild(link);

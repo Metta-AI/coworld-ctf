@@ -30,9 +30,11 @@ RUN nim c -d:emscripten replay-viewer/ctf_replay.nim && \
   cp data/soldier_red_front.png data/soldier_blue_front.png \
     data/soldier_red_front_gun.png data/soldier_blue_front_gun.png \
     replay-viewer/dist/ && \
-  mkdir -p replay-viewer/dist/art/walls && \
+  mkdir -p replay-viewer/dist/art/walls replay-viewer/dist/art/lockerroom && \
   cp client/art/walls/wall_h.jpg client/art/walls/wall_v.jpg \
     replay-viewer/dist/art/walls/ && \
+  cp client/art/lockerroom/bg.jpg client/art/lockerroom/*.webp \
+    replay-viewer/dist/art/lockerroom/ && \
   rm -rf replay-viewer/dist/nimcache && \
   test -f replay-viewer/dist/ctf_replay.wasm && \
   test -f replay-viewer/dist/ctf_replay.data && \
@@ -42,4 +44,7 @@ RUN nim c -d:emscripten replay-viewer/ctf_replay.nim && \
   test -f replay-viewer/dist/soldier_blue_front.png && \
   test -f replay-viewer/dist/soldier_red_front_gun.png && \
   test -f replay-viewer/dist/soldier_blue_front_gun.png && \
-  test -f replay-viewer/dist/art/walls/wall_h.jpg
+  test -f replay-viewer/dist/art/walls/wall_h.jpg && \
+  test -f replay-viewer/dist/art/lockerroom/bg.jpg && \
+  test -f replay-viewer/dist/art/lockerroom/green_1.webp && \
+  test -f replay-viewer/dist/art/lockerroom/red_6.webp
