@@ -488,3 +488,40 @@ suite "board bubbles hold a wall-clock read time under compressed playback":
     # ghost a bubble from the abandoned timeline.
     sim.tickCount -= ShoutTicks
     check sim.boardShoutTexts(state, spriteLabels).len == 0
+
+suite "board bubbles hold their on-screen size on oversize maps":
+  # Spectator clients fit the whole board to the viewport, so a bubble drawn
+  # at fixed map pixels shrinks as boards grow — on a colossal board it was
+  # an unreadable speck. The board stream zooms the bubble's map footprint
+  # by how far the map outgrew the standard field on its most-outgrown axis.
+  test "the zoom ladder tracks the map size classes":
+    # 2-team shells: 1235x659 scaled by the class factor (arena.nim
+    # mapSizeScale) — small 0.85x, large 1.3x, huge 1.8x, giant 2.6x,
+    # colossal 5.2x.
+    check shoutBubbleZoomFor(1050, 560) == 1
+    check shoutBubbleZoomFor(1235, 659) == 1
+    check shoutBubbleZoomFor(1606, 857) == 1
+    check shoutBubbleZoomFor(2223, 1186) == 2
+    check shoutBubbleZoomFor(3211, 1713) == 3
+    check shoutBubbleZoomFor(6422, 3427) == 5
+    # 4-team squares (960x960 shell): the fit is height-driven, so the zoom
+    # follows height ÷ 659, not width ÷ 1235.
+    check shoutBubbleZoomFor(960, 960) == 1
+    check shoutBubbleZoomFor(2496, 2496) == 4
+    check shoutBubbleZoomFor(4992, 4992) == 8
+
+  test "a zoomed bubble scales its whole map footprint":
+    var sim = twoTeamGame()
+    let previousDir = getCurrentDir()
+    setCurrentDir(GameDir)  # the vector bubble reads data/font.ttf
+    try:
+      let
+        base = sim.buildShoutBubble(Red, "push mid")
+        zoomed = sim.buildShoutBubble(Red, "push mid", zoom = 4)
+      # Height is pure geometry (font box + pads + tail), so it scales
+      # exactly; width is vector text layout, so just pin that it grew.
+      check zoomed.height == base.height * 4
+      check zoomed.width > base.width * 2
+      check zoomed.pixels.len == zoomed.width * zoomed.height * 4
+    finally:
+      setCurrentDir(previousDir)

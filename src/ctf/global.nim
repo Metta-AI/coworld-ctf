@@ -277,6 +277,8 @@ const
   ShoutPadY = 3                ## px of paper above and below the text.
   ShoutTailH = 4               ## px tail dropping from the pill toward the head.
   ShoutFloat = 13              ## px the tail tip floats above the shouter's head.
+  ShoutZoomBaseW = 1235        ## the standard 2-team field the bubble art was
+  ShoutZoomBaseH = 659         ## sized to read on; see shoutBubbleZoomFor.
   GrenadeMaxAirborne = MaxPlayers  ## most in-flight orbs drawn at once.
   GrenadeMaxBlasts = MaxPlayers    ## most blast flashes drawn at once.
   SoundRingSpriteId = 830      ## the filled landing "sound" ring sprite
@@ -760,6 +762,20 @@ proc boardRenderScaleFor*(mapWidth, mapHeight: int): int =
   ## exhaust the wasm32 replay viewer (see MaxSupersampledMapPixels).
   if mapWidth * mapHeight > MaxSupersampledMapPixels: 1
   else: RenderScale
+
+proc shoutBubbleZoomFor*(mapWidth, mapHeight: int): int =
+  ## How many times its base footprint a BOARD speech bubble draws at on this
+  ## map, so it keeps the on-screen size it has on the standard 1235×659
+  ## field. Spectator clients fit the whole board to the viewport, so
+  ## map-pixel art shrinks as boards grow — on a colossal board a 1× bubble
+  ## is an unreadable speck. The fit is driven by whichever axis outgrew the
+  ## standard field the most (a square 4-team board runs out of viewport
+  ## HEIGHT well before width). Board/broadcast affordance only: bubbles in
+  ## PLAYER streams are bot observations rendered in an ego viewport, not
+  ## fit-to-screen, and stay 1× map pixels.
+  max(1, int(round(max(
+    mapWidth / ShoutZoomBaseW,
+    mapHeight / ShoutZoomBaseH))))
 
 const WasmViewerBudgetBytes* = 1_600_000_000
   ## Working-set ceiling for the wasm32 replay viewer. The address space
@@ -2338,6 +2354,11 @@ proc boardTypeface(): Typeface =
 var smoothTextCache: Table[string, tuple[
   width, height: int, pixels: seq[uint8]]]
 
+var smoothShoutBubbleCache: Table[string, tuple[
+  width, height: int, pixels: seq[uint8]]]
+  ## Baked vector shout bubbles, keyed by (team, geometry scale, native
+  ## scale, text); see buildSmoothShoutBubble.
+
 proc imageToStraightRgba(image: Image): seq[uint8] =
   ## Straight-alpha RGBA bytes for the Sprite v1 protocol (pixie stores
   ## premultiplied).
@@ -2976,12 +2997,21 @@ proc buildSmoothShoutBubble(
   game: SimServer,
   team: Team,
   text: string,
-  k: int
+  k: int,
+  native: int
 ): tuple[width, height: int, pixels: seq[uint8]] =
-  ## The comic speech bubble re-drawn as smooth vector art for the k×
-  ## supersampled board: true rounded corners, an antialiased team outline, and
-  ## the shout text set in the board face. Same silhouette and proportions as
-  ## the pixel bubble; LOGICAL dims out, native k× pixels.
+  ## The comic speech bubble re-drawn as smooth vector art: true rounded
+  ## corners, an antialiased team outline, and the shout text set in the board
+  ## face. Same silhouette and proportions as the pixel bubble. `k` is the
+  ## GEOMETRY scale (boardScale × the map-size bubble zoom); `native` is the
+  ## wire pixel density (boardScale), so the returned LOGICAL dims are
+  ## canvas ÷ native and the bubble's map footprint grows by k ÷ native.
+  ## Baked once per (team, text, scales): the board rebuilds every live
+  ## bubble each rendered frame, and a zoomed canvas is k² the 1× area —
+  ## same rationale (and same churn cap) as smoothTextCache.
+  let cacheKey = $ord(team) & "," & $k & "," & $native & "\x1f" & text
+  if smoothShoutBubbleCache.hasKey(cacheKey):
+    return smoothShoutBubbleCache[cacheKey]
   let
     face = boardTypeface()
     font = newFont(face)
@@ -2994,10 +3024,10 @@ proc buildSmoothShoutBubble(
     pillH = game.shoutFont.height * k + 2 * ShoutPadY * k
     outW = pillW
     outH = pillH + ShoutTailH * k
-    logicalW = max(1, (outW + k - 1) div k)
-    logicalH = max(1, (outH + k - 1) div k)
-    canvasW = logicalW * k
-    canvasH = logicalH * k
+    logicalW = max(1, (outW + native - 1) div native)
+    logicalH = max(1, (outH + native - 1) div native)
+    canvasW = logicalW * native
+    canvasH = logicalH * native
     edge = Palette[teamColor(team) and 0x0f]
     edgeColor = color(
       float32(edge.r) / 255, float32(edge.g) / 255, float32(edge.b) / 255, 1)
@@ -3033,11 +3063,15 @@ proc buildSmoothShoutBubble(
   result.width = logicalW
   result.height = logicalH
   result.pixels = imageToStraightRgba(image)
+  if smoothShoutBubbleCache.len > 256:
+    smoothShoutBubbleCache.clear()
+  smoothShoutBubbleCache[cacheKey] = result
 
-proc buildShoutBubble(
+proc buildShoutBubble*(
   game: SimServer,
   team: Team,
-  text: string
+  text: string,
+  zoom = 1
 ): tuple[width, height: int, pixels: seq[uint8]] {.measure.} =
   ## A kid-friendly comic speech bubble for one shout: dark ink on a cream
   ## "paper" pill with rounded corners, a chunky team-colored outline, and a
@@ -3045,8 +3079,11 @@ proc buildShoutBubble(
   ## font (not the 6px tiny5 HUD font) so it reads at full desktop size, and
   ## in-world with the rest of the pixel art — never as an HD overlay. On the
   ## supersampled board the vector variant replaces it (same silhouette).
-  if boardScale > 1:
-    return game.buildSmoothShoutBubble(team, text, boardScale)
+  ## `zoom` grows the bubble's whole MAP footprint by that factor (the
+  ## oversize-board readability affordance — see shoutBubbleZoomFor); any
+  ## zoomed bubble uses the vector variant so the enlargement stays crisp.
+  if boardScale > 1 or zoom > 1:
+    return game.buildSmoothShoutBubble(team, text, boardScale * zoom, boardScale)
   let
     font = game.shoutFont
     # Bold widens each glyph's advance by 1 and overdraws 1px past the last
@@ -4920,6 +4957,10 @@ proc addBoardShouts(
       state.shoutLinger[slot].text = shout.text
       state.shoutLinger[slot].frames = 0
 
+  # Oversize boards draw bubbles zoomed so they hold their on-screen size
+  # when the client fits the whole board to the viewport. Board-only: the
+  # player streams (bot observations) keep 1× bubbles.
+  let zoom = shoutBubbleZoomFor(sim.gameMap.width, sim.gameMap.height)
   for slot in 0 ..< ShoutMaxCount:
     if not state.shoutLinger[slot].active:
       continue
@@ -4935,7 +4976,7 @@ proc addBoardShouts(
         break
     let
       linger = state.shoutLinger[slot]
-      bubble = sim.buildShoutBubble(linger.team, linger.text)
+      bubble = sim.buildShoutBubble(linger.team, linger.text, zoom)
       spriteId = ShoutSpriteBase + slot
       objectId = ShoutObjectBase + slot
     packet.addBoardSpriteChanged(
