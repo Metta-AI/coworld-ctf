@@ -6,10 +6,10 @@
 ## Find a burst tick with tools/spray_probe.nim's sibling scan, or grep the
 ## fixture's log for "sprayed paint".
 import
-  std/[algorithm, os, strutils, tables],
-  pixie, supersnappy,
-  bitworld/spriteprotocol,
-  ../src/ctf/global, ../src/ctf/replays, ../src/ctf/sim
+  std/[os, strutils],
+  pixie,
+  ../src/ctf/[global, sim],
+  toolutil
 
 proc main() =
   let
@@ -17,59 +17,22 @@ proc main() =
     fromTick = parseInt(paramStr(2))
     frameCount = if paramCount() >= 3: parseInt(paramStr(3)) else: 6
     outDir = if paramCount() >= 4: paramStr(4) else: "/tmp"
-  setCurrentDir(currentSourcePath().parentDir().parentDir())
-  let data = loadReplay(replayPath)
-  var config = defaultGameConfig()
-  config.update(data.configJson)
-  var sim = initSimServer(config)
-  sim.gameEventLoggingEnabled = false
-  var replay = initReplayPlayer(data)
-  replay.looping = false
-  replay.mismatchQuit = true
+  chdirGameDir()
+  var (sim, replay) = openReplay(replayPath)
 
   # Persistent sprite/object world: the wire is a DELTA protocol (see
   # tools/spray_probe.nim), so every packet must be applied, not composited alone.
   var
     state = initGlobalViewerState()
     next: GlobalViewerState
-    sprites: Table[int, Image]
-    world: Table[int, SpritePacketObject]
-    mapLayer = -1
-    mapSpriteIds: seq[int]
+    world = initSpriteWorld()
 
   proc applyPacket() =
-    for m in sim.buildSpriteProtocolUpdates(state, next).parseSpritePacket():
-      case m.kind
-      of spkSprite:
-        let raw = supersnappy.uncompress(m.sprite.compressedPixels)
-        var image = newImage(m.sprite.width, m.sprite.height)
-        for y in 0 ..< m.sprite.height:
-          for x in 0 ..< m.sprite.width:
-            let i = y * m.sprite.width + x
-            image[x, y] = rgba(raw[i*4], raw[i*4+1], raw[i*4+2], raw[i*4+3])
-        sprites[m.sprite.id] = image
-        if m.sprite.width == MapWidth * RenderScale:
-          mapSpriteIds.add(m.sprite.id)
-      of spkObject:
-        world[m.objectDef.id] = m.objectDef
-        if m.objectDef.spriteId in mapSpriteIds:
-          mapLayer = m.objectDef.layer
-      of spkDeleteObject: world.del(m.objectId)
-      of spkClearObjects: world.clear()
-      else: discard
+    world.apply(sim.buildSpriteProtocolUpdates(state, next).parseSpritePacket())
     state = next
 
   proc board(): Image =
-    var objects: seq[SpritePacketObject]
-    for _, o in world:
-      if o.layer == mapLayer: objects.add o
-    objects.sort(proc (a, b: SpritePacketObject): int = cmp(a.z, b.z))
-    result = newImage(MapWidth * RenderScale, MapHeight * RenderScale)
-    result.fill(rgba(20, 18, 16, 255))
-    for o in objects:
-      if o.spriteId in sprites:
-        result.draw(sprites[o.spriteId],
-          translate(vec2(float32(o.x), float32(o.y))))
+    world.renderBoard()
 
   while sim.tickCount < fromTick - 1 and replay.playing:
     replay.stepReplay(sim)

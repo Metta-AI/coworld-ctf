@@ -1,17 +1,8 @@
 import
+  helpers,
   std/[os, sequtils, strutils, unittest],
   bitworld/spriteprotocol,
   ctf/[global, sim]
-
-const GameDir = currentSourcePath.parentDir.parentDir
-
-proc initCtfForTest(config: GameConfig): SimServer =
-  let previousDir = getCurrentDir()
-  setCurrentDir(GameDir)
-  try:
-    result = initSimServer(config)
-  finally:
-    setCurrentDir(previousDir)
 
 proc labels(sim: var SimServer, playerIndex: int): seq[string] =
   var state, nextState: PlayerViewerState

@@ -1,14 +1,16 @@
-## Audits a replay against the glass-window contract (GameVersion 13):
+## Audits a replay against the glass-window contract (introduced GameVersion
+## 13, still current):
 ##   move  — no live player footprint ever overlaps a window pixel;
 ##   shot  — no tracer segment ever crosses a window pixel (bullets stop at
 ##           the pane, whether the shot hit or missed);
-##   vision — players DO see enemies whose sightline crosses a window (the
-##           new capability), counted as seen-through-glass pairs.
+##   vision — players DO see enemies whose sightline crosses a window,
+##           counted as seen-through-glass pairs.
 ## Prints a summary and exits nonzero on any move/shot violation. Demo/audit
 ## tooling; not part of the server.
 import
-  std/[os, strutils],
-  ../src/ctf/[replays, sim]
+  std/os,
+  ../src/ctf/sim,
+  toolutil
 
 proc windowOnSegment(sim: SimServer, cx, cy, ax, ay, bx, by: int): bool =
   ## Returns true when a glass pixel lies on the sampled segment (same
@@ -24,14 +26,7 @@ proc windowOnSegment(sim: SimServer, cx, cy, ax, ay, bx, by: int): bool =
 
 proc main() =
   let replayPath = paramStr(1)
-  let data = loadReplay(replayPath)
-  var config = defaultGameConfig()
-  config.update(data.configJson)
-  var sim = initSimServer(config)
-  sim.gameEventLoggingEnabled = false
-  var replay = initReplayPlayer(data)
-  replay.looping = false
-  replay.mismatchQuit = true
+  var (sim, replay) = openReplay(replayPath)
   let
     cx = sim.gameMap.center.x
     cy = sim.gameMap.center.y

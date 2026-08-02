@@ -1,8 +1,7 @@
 import
   std/[os, unittest],
   ctf/sim
-
-const GameDir = currentSourcePath.parentDir.parentDir
+import helpers except initCtfForTest
 
 proc initCtfForTest(): SimServer =
   ## Initializes the CTF sim from the game directory (so data/ resolves).
@@ -13,18 +12,6 @@ proc initCtfForTest(): SimServer =
     result.gameEventLoggingEnabled = false
   finally:
     setCurrentDir(previousDir)
-
-proc segmentBlocked(sim: SimServer, ax, ay, bx, by: int): bool =
-  ## Returns true when a wall pixel blocks the straight segment between two
-  ## map points (same stepping as the sim's line-of-sight routine).
-  let
-    dx = bx - ax
-    dy = by - ay
-    steps = max(abs(dx), abs(dy))
-  for s in 1 .. steps:
-    if sim.isWall(ax + dx * s div steps, ay + dy * s div steps):
-      return true
-  false
 
 ## The scene: a shooter northwest of column 1's stone stub (x 268..286,
 ## y 10..72), sweeping its aim through all 256 brads and firing every angle.

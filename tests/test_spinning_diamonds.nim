@@ -1,26 +1,8 @@
 import
+  helpers,
   std/[math, os, unittest],
   bitworld/spriteprotocol,
   ctf/sim
-
-const GameDir = currentSourcePath.parentDir.parentDir
-
-proc initCtfForTest(): SimServer =
-  ## Initializes the CTF sim from the game directory (so data/ resolves).
-  let previousDir = getCurrentDir()
-  setCurrentDir(GameDir)
-  try:
-    result = initSimServer(defaultGameConfig())
-  finally:
-    setCurrentDir(previousDir)
-
-proc twoTeamGame(): SimServer =
-  result = initCtfForTest()
-  discard result.addPlayer("red0")
-  discard result.addPlayer("blue0")
-  result.startGame()
-  result.players[0].team = Red
-  result.players[1].team = Blue
 
 proc tickOfFrame(cx, frame: int): int =
   ## The first tick on which the diamond centered at map-x `cx` shows `frame`.

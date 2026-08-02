@@ -239,6 +239,36 @@
           "type": "integer",
           "minimum": 0,
           "default": 5
+        },
+        "teams": {
+          "description": "Active team count: 2 (classic sides) or 4 (corner/plus free-for-all).",
+          "type": "integer",
+          "enum": [
+            2,
+            4
+          ]
+        },
+        "mapLayout": {
+          "description": "Generated-map layout lock: sides, corners, or plus. Empty draws corners/plus from the map seed for 4-team games.",
+          "type": "string",
+          "enum": [
+            "sides",
+            "corners",
+            "plus"
+          ]
+        },
+        "mapSeed": {
+          "description": "Terrain seed for mapPath gen/pool; -1 derives from the per-episode game seed.",
+          "type": "integer"
+        },
+        "scoring": {
+          "description": "End-of-game reward rule. \"classic\": the winning team scores +1 per losing team and each loser -1. \"pot\": every team antes one point and the winning team takes the whole pot, the losing teams splitting the forfeit evenly - 2 teams pay +2/-2, 4 teams pay +4/-1/-1/-1.",
+          "type": "string",
+          "enum": [
+            "classic",
+            "pot"
+          ],
+          "default": "classic"
         }
       }
     },
@@ -482,7 +512,7 @@
         "fireCooldownTicks": 12,
         "carrierSpeedPct": 70,
         "aimTurnRate": 5,
-        "visionConeDeg": 45,
+        "visionConeDeg": 60,
         "visionBubble": 90,
         "startWaitTicks": 120,
         "gameOverTicks": 360,

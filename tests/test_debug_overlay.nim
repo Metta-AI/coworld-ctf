@@ -1,18 +1,8 @@
 import
+  helpers,
   std/[os, tables, unittest],
   bitworld/spriteprotocol,
   ctf/[global, replays, server, sim]
-
-const GameDir = currentSourcePath.parentDir.parentDir
-
-proc initCtfForTest(): SimServer =
-  ## Initializes CTF from the game directory.
-  let previousDir = getCurrentDir()
-  setCurrentDir(GameDir)
-  try:
-    result = initSimServer(defaultGameConfig())
-  finally:
-    setCurrentDir(previousDir)
 
 proc packetHasSprite(packet: openArray[uint8], spriteId: int): bool =
   ## Returns true when a sprite packet defines one sprite id.

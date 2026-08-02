@@ -8,10 +8,8 @@
 
 import
   std/[json, math, os, strformat, strutils],
-  ../src/ctf/replays,
-  ../src/ctf/sim
-
-const GameDir = currentSourcePath().parentDir().parentDir()
+  ../src/ctf/sim,
+  toolutil
 
 proc key(kind: SimEventKind): string =
   case kind
@@ -41,16 +39,9 @@ let
   replayPath = params[0].absolutePath()
   outPrefix = params[1].absolutePath()
 
-setCurrentDir(GameDir)
-let data = loadReplay(replayPath)
-var config = defaultGameConfig()
-config.update(data.configJson)
-var game = initSimServer(config)
-var replay = initReplayPlayer(data)
-game.gameEventLoggingEnabled = false
+chdirGameDir()
+var (game, replay) = openReplay(replayPath)
 game.collectEvents = true
-replay.looping = false
-replay.mismatchQuit = true
 
 var
   ticksFile: File

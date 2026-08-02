@@ -9,8 +9,9 @@
 ##
 ## Usage (from the repo root): nim r tools/spray_fp_probe.nim
 import
-  std/[json, os],
-  ../src/ctf/broadcast, ../src/ctf/sim
+  std/json,
+  ../src/ctf/broadcast, ../src/ctf/sim,
+  toolutil
 
 proc fpFrame(sim: SimServer, povSlot: int): JsonNode =
   ## The `fp` node of a chrome frame for one POV slot (as the PiP tests do).
@@ -27,7 +28,7 @@ proc fpFrame(sim: SimServer, povSlot: int): JsonNode =
   if parsed.hasKey("fp"): parsed["fp"] else: newJNull()
 
 proc main() =
-  setCurrentDir(currentSourcePath().parentDir().parentDir())
+  chdirGameDir()
   var game = initSimServer(defaultGameConfig())
   game.gameEventLoggingEnabled = false
   let

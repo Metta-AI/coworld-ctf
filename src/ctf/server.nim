@@ -4,7 +4,7 @@ import
   bitworld/client as bitworldClient, bitworld/profile, bitworld/spriteprotocol,
   bitworld/runtime,
   curly, mummy,
-  sim, global, replays, broadcast, replay_runtime, events
+  sim, global, replays, broadcast, replay_runtime, events, wire_constants
 
 when defined(posix):
   from std/posix import SHUT_RDWR, shutdown
@@ -62,17 +62,26 @@ const
   MaxDebugSpriteBytesPerTick* = 32 * 1024
   # The designed broadcast replay client, embedded at compile time. Served for
   # the replay routes in place of bitworld's generic global client; a single
-  # self-contained file (core JS inlined). Live/player/global paths are
-  # untouched and keep serving the bitworld client (§14 live column).
+  # self-contained file (shared chrome + core JS inlined). Live/player/global
+  # paths are untouched and keep serving the bitworld client (§14 live column).
+  # Final in-page script order: wire constants, shared chrome, core, page IIFE
+  # (marker positions in the HTML fix that; the replace order here is free).
   EmbeddedBroadcastReplayHtml = staticRead("../../client/replay_broadcast.html").replace(
+    "<!-- CHROME_COMMON -->",
+    "<script>" & staticRead("../../client/chrome_common.js") & "</script>"
+  ).replace(
     "<!-- BROADCAST_CORE -->",
     "<script>" & staticRead("../../client/broadcast_core.js") & "</script>"
-  )
+  ).spliceWireConstants()
   # The League Replayer shell: a walled stone-pit viewer that EMBEDS the broadcast
   # client (via ?embed=1) as the lit pit floor and mounts the scorebug, KDA tables,
   # division standings and transport as flat panels over the dungeon walls. Served
   # at the bare replay route; embed=1 falls through to the plain broadcast client.
-  EmbeddedLeagueReplayerHtml = staticRead("../../client/league_replayer.html")
+  # Shares the same chrome_common.js splice as the broadcast client.
+  EmbeddedLeagueReplayerHtml = staticRead("../../client/league_replayer.html").replace(
+    "<!-- CHROME_COMMON -->",
+    "<script>" & staticRead("../../client/chrome_common.js") & "</script>"
+  ).spliceWireConstants()
   # Dungeon-wall textures (nanobanana generations) served as static assets so the
   # shell HTML stays small and editable. Wide for top/bottom, tall for side walls.
   # Opaque stone, no alpha → JPEG (q82) keeps each well under any committed sprite.
@@ -144,11 +153,6 @@ const
   # armed cog; the empty-handed masters cover the unarmed read. One entry per
   # team x {top-down, front, front_gun}, served by path lookup.
   SoldierArtAssets = [
-    ("/client/soldier_red.png", staticRead("../../data/soldier_red.png")),
-    ("/client/soldier_blue.png", staticRead("../../data/soldier_blue.png")),
-    ("/client/soldier_green.png", staticRead("../../data/soldier_green.png")),
-    ("/client/soldier_yellow.png",
-      staticRead("../../data/soldier_yellow.png")),
     ("/client/soldier_red_front.png",
       staticRead("../../data/soldier_red_front.png")),
     ("/client/soldier_blue_front.png",
@@ -172,7 +176,7 @@ const
   BroadcastFontPath = "/client/font.ttf"
   # Hosted replay closes any WS frame larger than 1 MiB (sends 1009). We chunk
   # outbound sprite packets under a margin below that so no single frame trips it.
-  MaxWsFrameBytes = 900_000
+  MaxWsFrameBytes* = 900_000
   # SpriteClientReady (0x85) and SpriteClientDebugSprite (0x86) now come from
   # bitworld/spriteprotocol: the pin carries both, and still keeps ButtonC,
   # which the grenade input bit needs.
@@ -374,6 +378,39 @@ proc removePlayer(sim: var SimServer, websocket: WebSocket) =
       if value > removedIndex:
         dec value
 
+proc admitPendingJoins(
+  sim: var SimServer,
+  pendingPlayers: var seq[PendingPlayerJoin],
+  socketsToClose: var seq[WebSocket],
+  liveOverlays: var seq[DebugOverlay]
+): seq[PendingPlayerJoin] =
+  ## Admits pending joins in resolved-slot order (the shared core of the main
+  ## loop's and the reset path's join resolution): sorts candidates, seats
+  ## every join whose slot is exactly the next open one, records the seat in
+  ## appState.playerIndices/playerSlots, and grows liveOverlays to the roster.
+  ## Returns the joins that were seated so each caller can run its own
+  ## bookkeeping (replay join records vs. input-mask resets). Caller holds
+  ## appState.lock.
+  pendingPlayers.sort(comparePendingPlayerJoins)
+  for join in pendingPlayers:
+    if join.slotIndex != sim.nextPlayerSlot():
+      continue
+    try:
+      appState.playerIndices[join.websocket] = sim.addPlayer(
+        join.address,
+        join.requestedSlot,
+        join.token
+      )
+    except CtfError:
+      sim.removePlayer(join.websocket)
+      socketsToClose.add(join.websocket)
+      continue
+    appState.playerSlots[join.websocket] =
+      sim.players[appState.playerIndices[join.websocket]].joinOrder
+    while liveOverlays.len < sim.players.len:
+      liveOverlays.add(DebugOverlay())
+    result.add(join)
+
 proc cleanPlayerName(name: string): string =
   ## Returns a protocol-safe player display name.
   result = name.strip()
@@ -574,6 +611,22 @@ proc queueReplayUri(uri: string) =
           uri != appState.currentReplayUri:
         appState.pendingReplayUri = uri
 
+proc recordStartupReplayUri(loaded: bool) =
+  ## Records the COGAME_LOAD_REPLAY_URI the process booted with as the active
+  ## replay URI. readRuntimeConfig downloads that artifact and drops the URI,
+  ## so without this a /client/replay or websocket request naming the same
+  ## URI would queue a full reload (fetch + map regen + keyframes) of the
+  ## replay that is already serving. Skipped when the startup load failed so
+  ## a later request can retry it.
+  if not loaded:
+    return
+  let uri = getEnv(CogameLoadReplayUriEnv).strip()
+  if uri.len == 0:
+    return
+  {.gcsafe.}:
+    withLock appState.lock:
+      appState.currentReplayUri = uri
+
 proc replayRequestUriOrPending(request: Request): tuple[uri: string, loaded: bool] =
   ## Returns the websocket URI, falling back to the URI captured when serving
   ## /client/replay. Kubernetes service-proxy websocket upgrades do not
@@ -740,8 +793,8 @@ proc httpHandler(request: Request) =
           break
       hit):
     # Cog art for the EYES PiP billboards (static PNG assets): the _front
-    # eye-level masters the billboard blits, plus the top-down board masters
-    # kept as its fallback.
+    # eye-level masters the billboard blits (with and without the gun); a
+    # missing master falls back to the procedural chassis client-side.
     var artHeaders: HttpHeaders
     artHeaders["Content-Type"] = "image/png"
     artHeaders["Cache-Control"] = "public, max-age=3600"
@@ -1119,6 +1172,7 @@ proc runServerLoop*(
   appState.replayLoaded = replayLoaded
   appState.replayServerMode = replayLoaded
   appState.config = config
+  recordStartupReplayUri(replayLoaded)
 
   # Tier-2 event sink. Off unless the platform configured a destination, so a
   # live server that nobody is analysing keeps paying nothing — which is the
@@ -1237,6 +1291,18 @@ proc runServerLoop*(
         replayPlayer = move(initializedReplay.player)
         broadcastTracker = move(initializedReplay.tracker)
         replayLoaded = true
+        # The switched-in sim carries a new map, but the board render caches
+        # are process-wide — without this, addMapBands keeps splicing the OLD
+        # map's cached band bytes into every new viewer's init packet. Rebake
+        # before publishing the switch so the first viewer doesn't pay the
+        # supersampled bake inside the serve loop (same budget reasoning as
+        # the startup warm above).
+        invalidateBoardMapCaches()
+        block:
+          let warmStart = getMonoTime()
+          sim.warmBoardRenderCaches()
+          echo "board render caches rebaked in ",
+            (getMonoTime() - warmStart).inMilliseconds, " ms"
         {.gcsafe.}:
           withLock appState.lock:
             appState.replayLoaded = true
@@ -1374,22 +1440,8 @@ proc runServerLoop*(
                   socketsToClose.add(websocket)
               else:
                 appState.playerIndices[websocket] = -1
-            pendingPlayers.sort(comparePendingPlayerJoins)
-            for join in pendingPlayers:
-              if join.slotIndex != sim.nextPlayerSlot():
-                continue
-              try:
-                appState.playerIndices[join.websocket] = sim.addPlayer(
-                  join.address,
-                  join.requestedSlot,
-                  join.token
-                )
-              except CtfError:
-                sim.removePlayer(join.websocket)
-                socketsToClose.add(join.websocket)
-                continue
-              appState.playerSlots[join.websocket] =
-                sim.players[appState.playerIndices[join.websocket]].joinOrder
+            for join in sim.admitPendingJoins(
+                pendingPlayers, socketsToClose, liveOverlays):
               replayWriter.writeJoin(
                 tickTime(sim.tickCount),
                 appState.playerIndices[join.websocket],
@@ -1399,8 +1451,6 @@ proc runServerLoop*(
               )
               while replayWriter.lastMasks.len < sim.players.len:
                 replayWriter.lastMasks.add(0)
-              while liveOverlays.len < sim.players.len:
-                liveOverlays.add(DebugOverlay())
               progressed = true
 
         if not replayLoaded:
@@ -1517,22 +1567,8 @@ proc runServerLoop*(
               except CtfError:
                 sim.removePlayer(websocket)
                 socketsToClose.add(websocket)
-            pendingPlayers.sort(comparePendingPlayerJoins)
-            for join in pendingPlayers:
-              if join.slotIndex != sim.nextPlayerSlot():
-                continue
-              try:
-                appState.playerIndices[join.websocket] = sim.addPlayer(
-                  join.address,
-                  join.requestedSlot,
-                  join.token
-                )
-              except CtfError:
-                sim.removePlayer(join.websocket)
-                socketsToClose.add(join.websocket)
-                continue
-              appState.playerSlots[join.websocket] =
-                sim.players[appState.playerIndices[join.websocket]].joinOrder
+            for join in sim.admitPendingJoins(
+                pendingPlayers, socketsToClose, liveOverlays):
               appState.inputMasks[join.websocket] = 0
               appState.inputPressedMasks[join.websocket] = 0
               appState.lastAppliedMasks[join.websocket] = 0
@@ -1542,8 +1578,6 @@ proc runServerLoop*(
               appState.playerViewers[join.websocket] =
                 initPlayerViewerState()
               playerViewerStates.add(appState.playerViewers[join.websocket])
-              while liveOverlays.len < sim.players.len:
-                liveOverlays.add(DebugOverlay())
               progressed = true
           replayWriter.lastMasks.setLen(sim.players.len)
           for websocket in appState.rewardViewers.keys:
@@ -1561,10 +1595,20 @@ proc runServerLoop*(
           withLock appState.lock:
             if sockets[i] in appState.playerViewers:
               appState.playerViewers[sockets[i]] = nextState
-        for chunk in global.chunkSpritePacket(framePacket, MaxWsFrameBytes):
-          sockets[i].send(blobFromBytes(chunk), BinaryMessage)
+        try:
+          for chunk in global.chunkSpritePacket(framePacket, MaxWsFrameBytes):
+            sockets[i].send(blobFromBytes(chunk), BinaryMessage)
+        except:
+          {.gcsafe.}:
+            withLock appState.lock:
+              discard markSocketClosed(sockets[i])
       for websocket in rewardViewers:
-        websocket.send(rewardPacket, TextMessage)
+        try:
+          websocket.send(rewardPacket, TextMessage)
+        except:
+          {.gcsafe.}:
+            withLock appState.lock:
+              discard markSocketClosed(websocket)
       # The lobby always paces at wall clock: fast-forwarding here spins the
       # loop hot on whichever seats joined first, and the appState-lock churn
       # starves mummy's upgrade path so the remaining seats never finish

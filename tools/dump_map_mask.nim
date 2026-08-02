@@ -77,18 +77,25 @@ proc rawMask*(gameMap: CtfMap): string =
   ## everywhere else, but a model that needs the mid-turn silhouette has to
   ## reconstruct it from the tick (animatedDiamondCovers). Generated maps have
   ## no live diamonds, so their masks are exact at every tick.
-  let obstacles = buildArenaObstacles(gameMap)
+  let
+    obstacles = buildArenaObstacles(gameMap)
+    wall = rasterizeRestWallMask(gameMap, obstacles,
+      proc (x, y: int): bool = mapProtectedFloorAt(gameMap, x, y))
   result = newString(gameMap.width * gameMap.height)
-  for y in 0 ..< gameMap.height:
-    for x in 0 ..< gameMap.width:
-      var cls = 0'u8
-      if mapWallAt(gameMap, obstacles, x, y):
-        cls = 1
-        for shape in obstacles:
-          if shape.window and inShape(x, y, shape):
-            cls = 2
-            break
-      result[y * gameMap.width + x] = char(cls)
+  for i in 0 ..< wall.len:
+    result[i] = char(uint8(ord(wall[i])))
+  ## Glass upgrade (1 -> 2) only where a window shape actually reaches: the
+  ## per-pixel window scan over the whole board is the expensive part on
+  ## oversize maps, and window footprints are a few small boxes.
+  for shape in obstacles:
+    if not shape.window:
+      continue
+    let bounds = shapeBounds(shape)
+    for y in max(bounds.y0, 0) .. min(bounds.y1, gameMap.height - 1):
+      for x in max(bounds.x0, 0) .. min(bounds.x1, gameMap.width - 1):
+        let i = y * gameMap.width + x
+        if result[i] == char(1) and inShape(x, y, shape):
+          result[i] = char(2)
 
 proc geometryJson*(gameMap: CtfMap): JsonNode =
   ## The map's landmarks and the constants a geometric model of it needs.

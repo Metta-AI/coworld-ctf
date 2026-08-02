@@ -14,14 +14,14 @@
 ##
 ## Usage (from the repo root): nim r tools/spray_probe.nim [outDir]
 import
-  std/[algorithm, os, strutils, tables],
-  pixie, supersnappy,
-  bitworld/spriteprotocol,
-  ../src/ctf/global, ../src/ctf/sim
+  std/[os, strutils, tables],
+  pixie,
+  ../src/ctf/[global, sim],
+  toolutil
 
 proc main() =
   let outDir = if paramCount() >= 1: paramStr(1) else: "/tmp"
-  setCurrentDir(currentSourcePath().parentDir().parentDir())
+  chdirGameDir()
 
   var sim = initSimServer(defaultGameConfig())
   sim.gameEventLoggingEnabled = false
@@ -62,50 +62,12 @@ proc main() =
   var
     state = initGlobalViewerState()
     next: GlobalViewerState
-    sprites: Table[int, Image]
-    labelsSeen: Table[int, string]
-    world: Table[int, SpritePacketObject]
-    mapLayer = -1
-    mapSpriteIds: seq[int]
+    world = initSpriteWorld()
 
   proc renderBoard(): Image =
-    for m in sim.buildSpriteProtocolUpdates(state, next).parseSpritePacket():
-      case m.kind
-      of spkSprite:
-        let raw = supersnappy.uncompress(m.sprite.compressedPixels)
-        var image = newImage(m.sprite.width, m.sprite.height)
-        for y in 0 ..< m.sprite.height:
-          for x in 0 ..< m.sprite.width:
-            let i = y * m.sprite.width + x
-            image[x, y] = rgba(
-              raw[i * 4 + 0], raw[i * 4 + 1], raw[i * 4 + 2], raw[i * 4 + 3]
-            )
-        sprites[m.sprite.id] = image
-        labelsSeen[m.sprite.id] = m.sprite.label
-        if m.sprite.width == MapWidth * RenderScale:
-          mapSpriteIds.add(m.sprite.id)
-      of spkObject:
-        world[m.objectDef.id] = m.objectDef
-        if m.objectDef.spriteId in mapSpriteIds:
-          mapLayer = m.objectDef.layer
-      of spkDeleteObject:
-        world.del(m.objectId)
-      of spkClearObjects:
-        world.clear()
-      else:
-        discard
+    world.apply(sim.buildSpriteProtocolUpdates(state, next).parseSpritePacket())
     state = next
-    var objects: seq[SpritePacketObject]
-    for _, obj in world:
-      if obj.layer == mapLayer:
-        objects.add(obj)
-    objects.sort(proc (a, b: SpritePacketObject): int = cmp(a.z, b.z))
-    result = newImage(MapWidth * RenderScale, MapHeight * RenderScale)
-    result.fill(rgba(20, 18, 16, 255))
-    for obj in objects:
-      if obj.spriteId in sprites:
-        result.draw(sprites[obj.spriteId],
-          translate(vec2(float32(obj.x), float32(obj.y))))
+    world.renderBoard()
 
   proc cropOf(board: Image, cx, cy, w, h: int): Image =
     let
@@ -142,7 +104,7 @@ proc main() =
   echo "wrote ", frames.len, " burst frames + spray-anim-strip.png to ", outDir
 
   echo "--- spray / weapon sprite labels on the wire ---"
-  for id, label in labelsSeen:
+  for id, label in world.labels:
     if "spray" in label or "cog gun" in label or "weapon " in label or
         "identity " in label:
       echo "  sprite ", id, "  \"", label, "\""

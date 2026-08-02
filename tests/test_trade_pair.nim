@@ -1,8 +1,7 @@
 import
   std/[json, os, unittest],
   ctf/[broadcast, sim]
-
-const GameDir = currentSourcePath.parentDir.parentDir
+import helpers except initCtfForTest
 
 proc initCtfForTest(): SimServer =
   ## Initializes the CTF sim from the game directory.

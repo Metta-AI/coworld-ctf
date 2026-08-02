@@ -1,20 +1,10 @@
 ## Compact endzones: the base sits well off its edge, the scoring region is a
 ## disc or square wrapped around it, and the freed home strip is wilderness.
 import
-  std/[os, strutils, unittest],
+  helpers,
+  std/[strutils, unittest],
   bitworld/spriteprotocol,
   ctf/sim, ctf/map_pool
-
-const GameDir = currentSourcePath.parentDir.parentDir
-
-proc initCtfForTest(config: GameConfig): SimServer =
-  ## Initializes the CTF sim from the game directory (so data/ resolves).
-  let previousDir = getCurrentDir()
-  setCurrentDir(GameDir)
-  try:
-    result = initSimServer(config)
-  finally:
-    setCurrentDir(previousDir)
 
 proc compactMap(shape: string, seed = 4242): CtfMap =
   generateCtfMap(seed, MapGenOverrides(

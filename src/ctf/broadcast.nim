@@ -451,8 +451,10 @@ proc firstPersonJson(sim: SimServer, playerIndex: int): JsonNode =
       )
     # Hearts on their pedestals are billboards; a carried heart rides its
     # carrier (already drawn as that player, tagged carry), so skip it here.
+    # A retired heart (GV32 capture or GV33 dead team) is out of play and
+    # never drawn.
     for team in sim.teams():
-      if sim.flags[team].carrier >= 0:
+      if sim.flags[team].carrier >= 0 or sim.flags[team].captured:
         continue
       if not sim.flagVisibleTo(playerIndex, team):
         continue

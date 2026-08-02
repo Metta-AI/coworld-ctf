@@ -1,28 +1,7 @@
 import
-  std/[os, unittest],
+  helpers,
+  std/unittest,
   ctf/sim
-
-const GameDir = currentSourcePath.parentDir.parentDir
-
-proc initCtfForTest(config: GameConfig): SimServer =
-  ## Initializes the CTF sim from the game directory (so data/ resolves).
-  let previousDir = getCurrentDir()
-  setCurrentDir(GameDir)
-  try:
-    result = initSimServer(config)
-  finally:
-    setCurrentDir(previousDir)
-
-proc twoTeamGame(): SimServer =
-  ## A started game with one Red player (0) and one Blue player (1), the tier-2
-  ## event sink on so Damage events (and their `blocked` field) are collected.
-  result = initCtfForTest(defaultGameConfig())
-  discard result.addPlayer("red0")
-  discard result.addPlayer("blue0")
-  result.startGame()
-  result.players[0].team = Red
-  result.players[1].team = Blue
-  result.collectEvents = true
 
 proc pointBlank(sim: var SimServer, shooter, target: int) =
   ## Stands the target one body-width east of the shooter, both aimed so the
@@ -43,7 +22,7 @@ proc lastDamage(sim: SimServer): SimEvent =
 
 suite "blocked damage (shield-absorbed hp)":
   test "a hit on a full shield carrier reports blocked = 1":
-    var sim = twoTeamGame()
+    var sim = twoTeamGame(collectEvents = true)
     sim.pointBlank(0, 1)
     # GV22 models the shield as a separate layer (shieldHp), depleted before
     # base hp — not bonus hp stacked on top of the base pool.
@@ -62,7 +41,7 @@ suite "blocked damage (shield-absorbed hp)":
     # Walk a full-shield carrier down one hp per shot. Every hit taken while the
     # shield layer still has hp is soaked (blocked = 1); once the layer is empty
     # the hit touches the base cog and is NOT blocked.
-    var sim = twoTeamGame()
+    var sim = twoTeamGame(collectEvents = true)
     sim.pointBlank(0, 1)
     sim.players[1].hasShield = true
     sim.players[1].shieldHp = ShieldLayerHp      # 3
@@ -84,7 +63,7 @@ suite "blocked damage (shield-absorbed hp)":
     check blockedTotal == ShieldLayerHp
 
   test "a hit on a shieldless cog blocks nothing":
-    var sim = twoTeamGame()
+    var sim = twoTeamGame(collectEvents = true)
     sim.pointBlank(0, 1)
     check not sim.players[1].hasShield
     check sim.players[1].shieldHp == 0
@@ -97,8 +76,8 @@ suite "blocked damage (shield-absorbed hp)":
   test "blocked never enters the game hash":
     # The field rides the analysis-only event sink; it must not perturb the
     # replay-safe hash.
-    var a = twoTeamGame()
-    var b = twoTeamGame()
+    var a = twoTeamGame(collectEvents = true)
+    var b = twoTeamGame(collectEvents = true)
     a.pointBlank(0, 1)
     b.pointBlank(0, 1)
     a.players[1].hasShield = true

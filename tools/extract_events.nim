@@ -30,8 +30,8 @@
 import
   std/[json, os, strutils],
   ../src/ctf/events,
-  ../src/ctf/replays,
-  ../src/ctf/sim
+  ../src/ctf/sim,
+  toolutil
 
 # `key`/`jsonRow` moved to `ctf/events` so the live server and this tool share
 # one serializer. Re-exported so every existing caller of this module keeps
@@ -47,7 +47,6 @@ const
       "[--frames <path>]"
   FramesMagic = "CTFFRM01"
   SeatRecordBytes = 10
-  GameDir = currentSourcePath().parentDir().parentDir()
   DefaultReplayPath = GameDir / "tests" / "replays" / "ctf.bitreplay"
 
 proc fail(message: string) =
@@ -87,11 +86,6 @@ proc parseArgs(): tuple[replayPath, outPath, framesPath: string] {.used.} =
     fail("Expected at most one replay path.\n" & UsageText)
   result.replayPath =
     if paths.len == 0: DefaultReplayPath else: paths[0].absolutePath()
-
-proc replayConfig(data: ReplayData): GameConfig =
-  ## Returns the game config embedded in a replay.
-  result = defaultGameConfig()
-  result.update(data.configJson)
 
 type
   ExtractResult* = object
@@ -260,15 +254,10 @@ proc extractEvents*(data: ReplayData, captureFrames = false): ExtractResult =
   ## in emission order. Raises ReplayError on any recorded-hash mismatch.
   ## With `captureFrames`, the same walk also records per-tick seat state.
   let previousDir = getCurrentDir()
-  setCurrentDir(GameDir)
+  chdirGameDir()
   try:
-    var
-      sim = initSimServer(data.replayConfig())
-      replay = initReplayPlayer(data)
-    sim.gameEventLoggingEnabled = false
+    var (sim, replay) = openReplay(data)
     sim.collectEvents = true
-    replay.looping = false
-    replay.mismatchQuit = true
     # Seats join during the lobby, so the roster size comes from the config
     # rather than from the (initially empty) player list: the configured
     # slots (the players[] list extends them) name every seat a recorded

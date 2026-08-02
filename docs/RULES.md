@@ -111,6 +111,11 @@ tasks, voting) with teams, guns, hearts, and fog-of-war vision.
   no respawn, and the heart leaves play where it was captured), and a team
   with no live players is **wiped out**. In classic 2-team play a capture
   therefore still ends the round on the spot.
+- **A dead team's heart leaves play with it** (GV33): the moment a team is
+  completely killed — captured or wiped — its heart is retired and no
+  longer drawn. If an enemy was carrying that heart when the team fell,
+  it drops straight off their back (restoring full speed and fire rate);
+  a retired heart cannot be stolen or captured.
 
 ## Teams & spawns
 
@@ -155,12 +160,16 @@ square map:
 - **Every team has its own heart** on its own pedestal, and its own capture
   zone behind it. Steal ANY other team's heart and carry it into your own
   zone to **eliminate that team** (GV32): its players all die for good and
-  the captured heart is out of play for the rest of the round, resting
-  where it was captured. Allies do not exist: 4-team play is pure
+  the captured heart is out of play for the rest of the round. A team
+  wiped out by kills loses its heart the same way (GV33): it retires on
+  the spot — even straight off an enemy carrier's back — and is no longer
+  drawn. Allies do not exist: 4-team play is pure
   free-for-all, and a "2v2" is simply two policies splitting one classic
   team's seats.
-- **Seats deal round the teams** by slot order (slot mod 4), 4 players per
-  team on a 16-seat roster. Identities stay per-team (`alpha`..`delta`).
+- **Seats deal round the teams** by slot order (slot mod 4): 4 players per
+  team on a 16-seat roster, 8 per team on a 32-seat roster (the Paintbot
+  `4ffa8` variant, always on a giant generated map). Identities stay
+  per-team (`alpha`..`delta` at 4 per team, `alpha`..`theta` at 8).
 - **The last team standing wins**: the round ends when at most one team
   still has live players — so a 4-team winner either captures all three
   rival hearts or outlives the field (captures and wipes mix freely); an
@@ -695,6 +704,38 @@ the prefix `game teams `; the tail splits on spaces into
 classes and team layouts, so a policy should read this marker (or fall back to
 the walkability sprite's dimensions and counting `Room <color> Base` markers)
 instead of assuming the classic 1235x659 two-team arena.
+
+**So are the endzones.** The same init snapshot carries one invisible 1x1
+marker per team labeled `endzone <color> <shape> <x0>,<y0> <x1>,<y1>`: the
+team's home capture region stated outright. `<x0>,<y0>` / `<x1>,<y1>` are the
+INCLUSIVE top-left and bottom-right corners of the zone's bounding box in map
+pixels, and `<shape>` says how the zone fills that box:
+
+| Shape | Where | Zone membership |
+|-------|-------|-----------------|
+| `column` | 2-team sides maps (classic) | the full box |
+| `square` | 2-team compact-endzone maps | the full box |
+| `disc` | 2-team compact-endzone maps | the circle inscribed in the box (center = box center, radius = half extent); the box corners are NOT in the zone |
+| `corner` | 4-team corners maps | the L1 triangle hugging the map corner the box touches; the threshold edge is the diagonal joining the box's two corners adjacent to that map corner |
+| `arm` | 4-team plus maps | the full box |
+
+Match the prefix `endzone `; the tail splits on spaces into
+`["<color>", "<shape>", "<x0>,<y0>", "<x1>,<y1>"]`, each corner splitting once
+more on the comma. Validate `<shape>` against the five tokens above: the
+SPECTATOR stream also emits `endzone <color> power <n>` glow overlays under
+the same prefix (the player stream does not). Scoring rules are unchanged —
+these markers restate the geometry the sim already plays; before they existed
+a policy had to reconstruct it from the room markers and its own copy of the
+zone formulas.
+
+**So is your own aim.** Every player frame carries an invisible 1x1 HUD
+marker labeled `own aim <brads>`: your turret angle as of the rendered tick,
+in brads (256 per turn, 0 = east, counter-clockwise — the same convention as
+`aimTurnRate`). Match the prefix `own aim ` and parse the tail as an
+integer. Before this marker a policy had to dead-reckon its own aim
+open-loop from its rotate inputs; the marker caps that drift at one frame
+gap (integrate held rotation between frames, resync on each frame — see
+docs/PROTOCOL.md).
 
 The full wire
 contract, including the CTF input-protocol extensions, is in

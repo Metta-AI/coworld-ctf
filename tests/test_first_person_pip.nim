@@ -1,17 +1,7 @@
 import
+  helpers,
   std/[json, os, sequtils, strutils, unittest],
   ctf/[broadcast, sim]
-
-const GameDir = currentSourcePath.parentDir.parentDir
-
-proc initCtfForTest(config: GameConfig): SimServer =
-  ## Initializes the CTF sim from the game directory.
-  let previousDir = getCurrentDir()
-  setCurrentDir(GameDir)
-  try:
-    result = initSimServer(config)
-  finally:
-    setCurrentDir(previousDir)
 
 proc fpFrame(sim: SimServer, povSlot: int): JsonNode =
   ## Parses the `fp` node out of a chrome frame for one POV slot (or null).
@@ -303,9 +293,6 @@ suite "first-person picture-in-picture":
     # throws paint, so all of them stamp it: a gun hit must advance it, and so
     # must a spray-can burst (an aerosol of paint in the face paints the visor —
     # the earlier "plasma arc" reskin was the bloodless one that did not).
-    proc placeAtCenter(p: var Player, x, y: int) =
-      p.x = x - CollisionW div 2
-      p.y = y - CollisionH div 2
     let clearX = 60
     let clearY = MapHeight div 2
 

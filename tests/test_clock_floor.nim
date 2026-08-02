@@ -1,27 +1,8 @@
 import
-  std/[os, unittest],
+  helpers,
+  std/unittest,
   bitworld/spriteprotocol,
   ctf/sim
-
-const GameDir = currentSourcePath.parentDir.parentDir
-
-proc initCtfForTest(config: GameConfig): SimServer =
-  ## Initializes the CTF sim from the game directory (so data/ resolves).
-  let previousDir = getCurrentDir()
-  setCurrentDir(GameDir)
-  try:
-    result = initSimServer(config)
-  finally:
-    setCurrentDir(previousDir)
-
-proc twoTeamGame(): SimServer =
-  ## A started game with one Red player (0) and one Blue player (1).
-  result = initCtfForTest(defaultGameConfig())
-  discard result.addPlayer("red0")
-  discard result.addPlayer("blue0")
-  result.startGame()
-  result.players[0].team = Red
-  result.players[1].team = Blue
 
 proc runClockTo(sim: var SimServer, remaining: int) =
   ## Advances the raw tick counter so `remaining` ticks stay on the clock.

@@ -1,32 +1,7 @@
 import
-  std/[math, os, unittest],
-  bitworld/spriteprotocol,
+  helpers,
+  std/[math, unittest],
   ctf/sim
-
-const GameDir = currentSourcePath().parentDir.parentDir
-
-proc initCtfForTest(config: GameConfig): SimServer =
-  let previousDir = getCurrentDir()
-  setCurrentDir(GameDir)
-  try:
-    result = initSimServer(config)
-  finally:
-    setCurrentDir(previousDir)
-
-proc twoTeamGame(): SimServer =
-  result = initCtfForTest(defaultGameConfig())
-  discard result.addPlayer("red0")
-  discard result.addPlayer("blue0")
-  result.startGame()
-  result.players[0].team = Red
-  result.players[1].team = Blue
-
-proc none(sim: SimServer): seq[InputState] =
-  newSeq[InputState](sim.players.len)
-
-proc placeAtCenter(player: var Player, x, y: int) =
-  player.x = x - CollisionW div 2
-  player.y = y - CollisionH div 2
 
 proc stepNone(sim: var SimServer, ticks: int) =
   let input = sim.none()
@@ -330,25 +305,7 @@ suite "spray cans":
     game.players[0].arcTicksLeft = 3
     check game.gameHash() != toggled
 
-import bitworld/spriteprotocol, ctf/global
-
-proc buildGlobalMessagesFx(
-  game: var SimServer,
-  state: var GlobalViewerState
-): seq[SpritePacketMessage] =
-  var nextState: GlobalViewerState
-  let previousDir = getCurrentDir()
-  setCurrentDir(GameDir)
-  try:
-    result = game.buildSpriteProtocolUpdates(state, nextState).parseSpritePacket()
-  finally:
-    setCurrentDir(previousDir)
-  state = nextState
-
-proc hasFxObject(messages: openArray[SpritePacketMessage], objectId: int): bool =
-  for message in messages:
-    if message.kind == spkObject and message.objectDef.id == objectId:
-      return true
+import ctf/global
 
 suite "the damage cone covers the plume the game draws":
   ## The complaint this guards against: paint visibly engulfing a cog that
@@ -409,11 +366,11 @@ suite "spray cone fx wall clipping":
     game.tryFireArc(0)
     check game.plasmaArcFlashes.len == 1
     var state = initGlobalViewerState()
-    let messages = game.buildGlobalMessagesFx(state)
+    let messages = game.buildGlobalMessages(state)
     # The first pulse (clear ray) draws; the last pulse (behind the wall)
     # must not.
-    check messages.hasFxObject(PlasmaArcFxObjectBase + 0)
-    check not messages.hasFxObject(PlasmaArcFxObjectBase + lastPulse)
+    check messages.hasObject(PlasmaArcFxObjectBase + 0)
+    check not messages.hasObject(PlasmaArcFxObjectBase + lastPulse)
 
   test "an unobstructed cone still draws every pulse disc":
     var game = twoTeamGame()
@@ -423,6 +380,6 @@ suite "spray cone fx wall clipping":
     game.players[0].fireCooldown = 0
     game.tryFireArc(0)
     var state = initGlobalViewerState()
-    let messages = game.buildGlobalMessagesFx(state)
+    let messages = game.buildGlobalMessages(state)
     for pulse in 0 ..< PlasmaArcFxPulses:
-      check messages.hasFxObject(PlasmaArcFxObjectBase + pulse)
+      check messages.hasObject(PlasmaArcFxObjectBase + pulse)

@@ -1,5 +1,5 @@
-import std/[algorithm, os, json, strformat], supersnappy, bitworld/spriteprotocol,
-  ../src/ctf/[sim, global, broadcast]
+import std/[algorithm, json, strformat],
+  ../src/ctf/[sim, global, broadcast, server], toolutil
 
 # Reproduces the hosted first WS frame and reports whether ANY single frame
 # exceeds the hosted 1 MiB WebSocket limit (a frame over 1048576 bytes makes the
@@ -12,7 +12,7 @@ import std/[algorithm, os, json, strformat], supersnappy, bitworld/spriteprotoco
 
 const WsLimit = 1048576
 
-setCurrentDir(currentSourcePath().parentDir().parentDir())
+chdirGameDir()
 var config = defaultGameConfig()
 var game = initSimServer(config)
 game.gameEventLoggingEnabled = false
@@ -23,7 +23,7 @@ var noInput = newSeq[InputState](game.players.len)
 for _ in 0 ..< 30:
   game.step(noInput, noInput)
 
-const ChunkCap = 900_000  ## must match MaxWsFrameBytes in server.nim
+const ChunkCap = MaxWsFrameBytes  ## the server's real chunk cap, not a copy
 
 proc report(tag: string, boardPacket: seq[uint8], chrome: string) =
   # Assemble the real outbound packet exactly as the server does (board + chrome

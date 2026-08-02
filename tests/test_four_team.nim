@@ -1,18 +1,8 @@
 import
-  std/[os, unittest],
+  helpers,
+  std/unittest,
   bitworld/spriteprotocol,
   ctf/sim
-
-const GameDir = currentSourcePath.parentDir.parentDir
-
-proc initCtfForTest(config: GameConfig): SimServer =
-  ## Initializes the CTF sim from the game directory (so data/ resolves).
-  let previousDir = getCurrentDir()
-  setCurrentDir(GameDir)
-  try:
-    result = initSimServer(config)
-  finally:
-    setCurrentDir(previousDir)
 
 proc fourTeamConfig(layout: string): GameConfig =
   result = defaultGameConfig()
@@ -111,6 +101,39 @@ suite "four team ctf":
     check not sim.flags[Yellow].captured
     check sim.flags[Yellow].x == yellowHome.x
     check sim.flags[Yellow].y == yellowHome.y
+
+  test "wiping a team retires its heart and the game goes on":
+    var sim = fourTeamGame()
+    # Green dies out with its heart still home: the heart leaves play.
+    sim.players[2].alive = false
+    sim.players[2].lives = 0
+    sim.checkWinCondition()
+    check sim.phase == Playing
+    check sim.flags[Green].captured
+    check sim.flags[Green].carrier == -1
+    # A retired heart cannot be stolen off its resting spot.
+    sim.centerOn(1, sim.flags[Green].x, sim.flags[Green].y)
+    sim.tryPickupFlags(1)
+    check sim.flags[Green].carrier == -1
+    check not sim.players[1].carryingFlag
+
+  test "wiping a team drops its heart off an enemy carrier's back":
+    var sim = fourTeamGame()
+    # Red steals the GREEN heart and runs with it...
+    let greenHome = sim.gameMap.flagHome(Green)
+    sim.centerOn(0, greenHome.x, greenHome.y)
+    sim.tryPickupFlags(0)
+    check sim.flags[Green].carrier == 0
+    check sim.players[0].carryingFlag
+    # ...then Green is wiped from the field: the heart retires straight off
+    # the carrier's back and the ex-carrier's hands are free again.
+    sim.players[2].alive = false
+    sim.players[2].lives = 0
+    sim.checkWinCondition()
+    check sim.phase == Playing
+    check sim.flags[Green].captured
+    check sim.flags[Green].carrier == -1
+    check not sim.players[0].carryingFlag
 
   test "capturing all three rival hearts pays the winner +3 and each loser -1":
     var sim = fourTeamGame()
@@ -317,3 +340,24 @@ suite "pot scoring":
     var bad = defaultGameConfig()
     expect CtfError:
       bad.update("""{"scoring": "winner-take-all"}""")
+
+  test "4ffa8 shape: 32 seats deal 8 per team on a locked giant board":
+    ## The paintbot 4ffa8 variant: MaxPlayers seats, teams 4, mapSize giant.
+    var config = fourTeamConfig("")   # layout drawn from the map seed
+    config.mapGen.size = "giant"
+    var sim = initCtfForTest(config)
+    for i in 0 ..< MaxPlayers:
+      discard sim.addPlayer("p" & $i)
+    sim.startGame()
+    check sim.gameMap.teamCount() == 4
+    check sim.gameMap.width == 2496   # 960 * 2.6: the giant lock took
+    var counts: array[Team, int]
+    for i in 0 ..< MaxPlayers:
+      inc counts[sim.players[i].team]
+    for team in sim.teams():
+      check counts[team] == 8
+    # No two players share a spawn pixel.
+    for i in 0 ..< MaxPlayers:
+      for j in i + 1 ..< MaxPlayers:
+        check sim.players[i].x != sim.players[j].x or
+          sim.players[i].y != sim.players[j].y

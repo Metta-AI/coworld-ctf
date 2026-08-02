@@ -2,16 +2,16 @@
 {.warning[UnusedImport]: off.}
 import
   test_artlog,
-  test_board_click_select,
-  test_clock_floor,
-  test_ctf_game,
+  test_blocked_damage,
   test_debug_overlay,
+  test_endzone_shapes,
+  test_fast_mode,
   test_first_person_pip,
-  test_label_contract,
-  test_plasma_arc,
+  test_lull_spans,
+  test_mapgen,
   test_player_collision,
+  test_player_fog,
   test_replay,
   test_shot_exposure,
-  test_trenches,
-  test_weapon_observability
+  test_sprite_collisions
 {.warning[UnusedImport]: on.}
