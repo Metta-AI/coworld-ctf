@@ -79,10 +79,15 @@ jobs:
           docker cp "$id":/workspace/ctf/replay-viewer/dist replay-viewer/dist
           docker rm "$id"
       - name: Smoke-run fixture replays in the wasm bundle
+        # gen-colossal-4team is the address-space canary: a 4992x4992 board
+        # only fits wasm32 because oversize boards emit at 1x (see
+        # MaxSupersampledMapPixels). Re-record on GameVersion bumps with:
+        #   tools/record_colossal_demo.sh <out> 4242 1500 16
         run: |
           fail=0
           for replay in tests/replays/ctf.bitreplay \
-              tests/fixtures/gen-small-pits.bitreplay; do
+              tests/fixtures/gen-small-pits.bitreplay \
+              tests/fixtures/gen-colossal-4team.bitreplay; do
             echo "::group::$replay"
             node tools/wasm_replay_smoke.cjs replay-viewer/dist "$replay" 300 || fail=1
             echo "::endgroup::"

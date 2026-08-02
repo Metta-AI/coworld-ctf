@@ -12,6 +12,10 @@ var Module = window.Module || {};
   var failed = false;
 
   function showFailure(error) {
+    // First failure wins: an OOM abort reports once from onAbort (with the
+    // stage note), then rethrows out of the wasm call — the later, less
+    // specific catch must not overwrite the message.
+    if (failed) return;
     failed = true;
     console.error(error);
     var status = document.getElementById('status');
@@ -33,9 +37,29 @@ var Module = window.Module || {};
     }
   }
 
+  function stageNote() {
+    // The runtime's progress note. Written into a fixed buffer before each
+    // risky phase, so it survives even an allocation-failure abort (which
+    // kills the call stack but not the wasm linear memory).
+    try {
+      var length = Module._ctf_stage_len ? Module._ctf_stage_len() : 0;
+      if (!length) return '';
+      var pointer = Module._ctf_stage_ptr();
+      return new TextDecoder().decode(
+        Module.HEAPU8.slice(pointer, pointer + length));
+    } catch (ignored) {
+      return '';
+    }
+  }
+
   function runtimeError() {
     var length = Module._ctf_error_len();
-    if (!length) return 'Replay runtime rejected the replay';
+    if (!length) {
+      var stage = stageNote();
+      return stage
+        ? 'Replay runtime failed while: ' + stage
+        : 'Replay runtime rejected the replay';
+    }
     var pointer = Module._ctf_error_ptr();
     return new TextDecoder().decode(Module.HEAPU8.slice(pointer, pointer + length));
   }
@@ -86,6 +110,14 @@ var Module = window.Module || {};
   }
 
   Module.locateFile = function (path) { return './' + path; };
+  Module.onAbort = function (what) {
+    // Allocation failure aborts the runtime (-s ABORTING_MALLOC=1); the
+    // stage buffer is still readable and says what exhausted the memory.
+    var stage = stageNote();
+    showFailure(new Error('Replay runtime ran out of memory (' + what +
+      ') — wasm32 is limited to 2 GB' +
+      (stage ? '. Failed while: ' + stage : '')));
+  };
   Module.onRuntimeInitialized = function () {
     runtimeReady = true;
     start().catch(showFailure);

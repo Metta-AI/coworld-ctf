@@ -31,6 +31,13 @@ switch("threads", "off")
 # ENVIRONMENT includes node so CI can smoke-run the EXACT shipped bundle
 # (tools/wasm_replay_smoke.cjs) — wasm32-only failures (int overflow traps,
 # 2 GB address-space exhaustion) are invisible to the native 64-bit tests.
+# ABORTING_MALLOC matters: with -d:useMalloc Nim never checks malloc for
+# nil (that path is `when defined(zephyr)`-only), and wasm32 has no memory
+# protection, so a failed allocation would otherwise write the seq header
+# through the nil pointer into address 0 — silently corrupting the module's
+# own globals, which is how oversized replays died with an EMPTY
+# ctf_error_len(). Aborting keeps linear memory intact, and the page reads
+# ctf_stage_ptr/len afterwards to report what the runtime was doing.
 switch(
   "passL",
   (&"""
@@ -38,9 +45,10 @@ switch(
   --preload-file {rootDir / "data"}@data
   -O2
   -s ALLOW_MEMORY_GROWTH
+  -s ABORTING_MALLOC=1
   -s FILESYSTEM=1
   -s ENVIRONMENT=web,node
   -s EXPORTED_RUNTIME_METHODS=HEAPU8
-  -s EXPORTED_FUNCTIONS=_main,_malloc,_free,_ctf_load_replay,_ctf_frame,_ctf_input,_ctf_packet_ptr,_ctf_packet_len,_ctf_mismatch_tick,_ctf_error_ptr,_ctf_error_len
+  -s EXPORTED_FUNCTIONS=_main,_malloc,_free,_ctf_load_replay,_ctf_frame,_ctf_input,_ctf_packet_ptr,_ctf_packet_len,_ctf_mismatch_tick,_ctf_error_ptr,_ctf_error_len,_ctf_stage_ptr,_ctf_stage_len
   """).replace("\n", " ")
 )

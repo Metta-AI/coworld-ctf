@@ -39,16 +39,36 @@ const Module = {
   locateFile: (p) => path.join(distDir, p),
   onRuntimeInitialized: run,
   onAbort: (what) => {
-    console.error('FAIL: wasm runtime aborted: ' + what);
+    // Allocation failure aborts (-s ABORTING_MALLOC=1) but leaves linear
+    // memory intact: the stage buffer still says what exhausted it.
+    const stage = readStageNote();
+    console.error('FAIL: wasm runtime aborted: ' + what +
+      (stage ? '\nruntime was: ' + stage : ''));
     process.exit(1);
   },
 };
 
+function readStageNote() {
+  try {
+    const length = Module._ctf_stage_len ? Module._ctf_stage_len() : 0;
+    if (!length) return '';
+    const pointer = Module._ctf_stage_ptr();
+    return Buffer.from(Module.HEAPU8.subarray(pointer, pointer + length)).toString('utf8');
+  } catch (ignored) {
+    return '';
+  }
+}
+
 function readRuntimeError() {
   const length = Module._ctf_error_len();
-  if (!length) return '(runtime reported no error text)';
-  const pointer = Module._ctf_error_ptr();
-  return Buffer.from(Module.HEAPU8.subarray(pointer, pointer + length)).toString('utf8');
+  if (length) {
+    const pointer = Module._ctf_error_ptr();
+    return Buffer.from(Module.HEAPU8.subarray(pointer, pointer + length)).toString('utf8');
+  }
+  const stage = readStageNote();
+  return stage
+    ? '(no error text; runtime was: ' + stage + ')'
+    : '(runtime reported no error text)';
 }
 
 function run() {

@@ -632,11 +632,56 @@ const RenderScale* {.intdefine.} = 2
   ## Board supersample factor for the spectator/replay renderer. Build with
   ## -d:RenderScale=1 to reproduce the legacy 1× wire exactly.
 
+const MaxSupersampledMapPixels* {.intdefine.} = 8_000_000
+  ## Largest board (logical map pixels, width·height) that still renders the
+  ## spectator stream at RenderScale×. Above it the board emits at 1×: the
+  ## static wasm replay viewer runs in a 32-bit address space, and the
+  ## RenderScale× hot+cold arena bakes alone cost mapPixels·RenderScale²·4
+  ## bytes EACH — on a colossal board (5.2×, ~22–25 M map px) that is
+  ## ~350 MB per bake and blows through wasm32's 2 GB ceiling before the
+  ## first frame. The bound sits between giant (4-team 2496², ~6.2 M px —
+  ## the largest class proven to play at 2× in the hosted viewer) and
+  ## colossal (~22 M px), whose 1× wire carries the same byte volume as the
+  ## proven giant 2× wire. Applies to the native server too, so a recorded
+  ## wire and any live spectator see the identical stream.
+
+proc boardRenderScaleFor*(mapWidth, mapHeight: int): int =
+  ## The spectator supersample factor for a board of the given logical size:
+  ## RenderScale, unless the board is so large that supersampled bakes would
+  ## exhaust the wasm32 replay viewer (see MaxSupersampledMapPixels).
+  if mapWidth * mapHeight > MaxSupersampledMapPixels: 1
+  else: RenderScale
+
+const WasmViewerBudgetBytes* = 1_600_000_000
+  ## Working-set ceiling for the wasm32 replay viewer. The address space
+  ## ends at 2 GB and the observed OOM abort lands at ~1.98 GB of heap; the
+  ## margin covers code, stack, preloaded assets, and allocator
+  ## fragmentation. Compared against predictedViewerRenderBytes by the
+  ## viewer's load-time preflight.
+
+proc predictedViewerRenderBytes*(mapWidth, mapHeight: int): int64 =
+  ## Engineering estimate of the replay viewer's peak working set for one
+  ## board, at the scale boardRenderScaleFor picks for it. Dominated by the
+  ## map-sized RGBA buffers: at scale k the hot + cold arena bakes and the
+  ## banded wire copy each cost mapPixels·k²·4 bytes (the 4·k² term); the
+  ## flat +4 covers the 1× sim-side buffers (mapRgba, cold endzone map,
+  ## masks) and packet staging. Calibrated against the observed colossal
+  ## 4-team failure: 4992² at k=2 predicts ~2.0 GB and the real abort came
+  ## at ~1.98 GB of heap; giant 4-team at k=2 predicts ~0.5 GB and plays.
+  let
+    px = int64(mapWidth) * int64(mapHeight)
+    k = int64(boardRenderScaleFor(mapWidth, mapHeight))
+  px * 4 * (4 * k * k + 4)
+
 var boardScale = 1
   ## Current emission scale. 1 for every player/POV stream; RenderScale inside
   ## the global broadcast/replay board section. Module state (not a param)
   ## because the ~20 emission helpers are shared verbatim between the player
   ## and spectator builders; the two builder entry points own the value.
+
+proc boardRenderScale(sim: SimServer): int =
+  ## The supersample factor this sim's board actually emits at.
+  boardRenderScaleFor(sim.gameMap.width, sim.gameMap.height)
 
 proc scaleSpritePixels(
   pixels: openArray[uint8],
@@ -5940,19 +5985,20 @@ proc buildSpriteProtocolUpdates*(
         if command != '\0':
           nextState.replayCommands.add(command)
         elif not nextState.povActive and nextState.mouseLayer == MapLayerId:
-          # Board clicks arrive in the RenderScale× wire space the spectator
-          # map layer is served at; the sim compares in 1× map pixels.
+          # Board clicks arrive in the boardRenderScale× wire space the
+          # spectator map layer is served at; the sim compares in 1× map
+          # pixels.
           nextState.toggleSelectedJoinOrder(
             sim.selectSpritePlayer(
-              nextState.mouseX div RenderScale,
-              nextState.mouseY div RenderScale
+              nextState.mouseX div sim.boardRenderScale(),
+              nextState.mouseY div sim.boardRenderScale()
             )
           )
     elif not nextState.povActive and nextState.mouseLayer == MapLayerId:
       nextState.toggleSelectedJoinOrder(
         sim.selectSpritePlayer(
-          nextState.mouseX div RenderScale,
-          nextState.mouseY div RenderScale
+          nextState.mouseX div sim.boardRenderScale(),
+          nextState.mouseY div sim.boardRenderScale()
         )
       )
     nextState.clickPending = false
@@ -6028,9 +6074,10 @@ proc buildSpriteProtocolUpdates*(
     nextState.objectIds = currentIds
     return
   # Everything below is the spectator BOARD section: emit it at the
-  # supersampled render scale. The POV branch above already returned (it is a
+  # supersampled render scale (1× on oversize boards — see
+  # MaxSupersampledMapPixels). The POV branch above already returned (it is a
   # 1× player stream), and every other stream builder leaves boardScale at 1.
-  boardScale = RenderScale
+  boardScale = sim.boardRenderScale()
   defer: boardScale = 1
   if not nextState.initialized:
     result = sim.buildSpriteProtocolInit(nextState.spriteDefs)
@@ -6344,11 +6391,13 @@ proc warmBoardRenderCaches*(sim: SimServer) =
   ## the first global viewer's init packet is assembled instantly. Without
   ## this the first connection paid the whole supersampled bake — ~8s on a
   ## laptop, far longer on a small CI runner, which tripped the coworld
-  ## certifier's first-message timeout. No-op at RenderScale 1; every cache
-  ## here is idempotent so later ensure calls are free.
-  if RenderScale <= 1:
+  ## certifier's first-message timeout. No-op when the board emits at 1×
+  ## (RenderScale 1 builds, or boards past MaxSupersampledMapPixels); every
+  ## cache here is idempotent so later ensure calls are free.
+  let scale = sim.boardRenderScale()
+  if scale <= 1:
     return
-  boardScale = RenderScale
+  boardScale = scale
   defer: boardScale = 1
   sim.ensureBoardMaps()
   for team in sim.teams():
@@ -6360,7 +6409,7 @@ proc warmBoardRenderCaches*(sim: SimServer) =
       continue
     for team in sim.teams():
       for rot in 0 ..< SoldierRotations:
-        discard soldierRotPixels(team, skin, rot, RenderScale)
+        discard soldierRotPixels(team, skin, rot, scale)
   # The board turret-rig head follows the configured skin; the remaining segments
   # are shared. Prebake the REST pose at every aim/heading step so a
   # standing/straight-driving cog is hot on the first frame; maneuvering poses
@@ -6370,14 +6419,14 @@ proc warmBoardRenderCaches*(sim: SimServer) =
       for rot in 0 ..< SoldierRotations:
         discard rigSegPixels(
           team, rsHead, rot, 0, 0,
-          renderScale = RenderScale, skin = skin)
+          renderScale = scale, skin = skin)
   for team in sim.teams():
     for rot in 0 ..< SoldierRotations:
       for seg in RigSeg:
         if seg != rsHead:
-          discard rigSegPixels(team, seg, rot, 0, 0, RenderScale)
-      discard rigGunPixels(team, rot, RenderScale)
-      discard rigSprayCanPixels(team, rot, RenderScale)
+          discard rigSegPixels(team, seg, rot, 0, 0, scale)
+      discard rigGunPixels(team, rot, scale)
+      discard rigSprayCanPixels(team, rot, scale)
   discard boardTypeface()
   block:
     # Encode the map-band wire messages too: they are byte-identical for

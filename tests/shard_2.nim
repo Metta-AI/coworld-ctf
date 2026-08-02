@@ -8,6 +8,7 @@ import
   test_live_event_emission,
   test_map_los,
   test_medkits,
+  test_render_scale,
   test_shield_bubble,
   test_shields,
   test_shot_accuracy,
