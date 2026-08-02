@@ -11,7 +11,31 @@ import map_pool
 
 const
   GameName* = "ctf"
-  GameVersion* = "33"  ## GV33 (dead-team rule): A DEAD TEAM'S HEART LEAVES
+  GameVersion* = "34"  ## GV34 (operator rule): THE GUN HAS ONE REAL RANGE,
+                       ## AND ITS AIM IS FUZZED. Two coupled changes:
+                       ## 1. Every map def ships the same fixed gunRange —
+                       ## 1050 px, the SMALL generated map's field width —
+                       ## instead of scaling it with the field (1300 arena,
+                       ## 1690 arena-large, up to 3380 giant). The gun is
+                       ## map-wide only on the smallest board; on anything
+                       ## larger paint falls short and closing distance
+                       ## matters. League configs can still override
+                       ## gunRange per game; old replays carry their own
+                       ## recorded value.
+                       ## 2. Each RELEASED shot's direction gets Gaussian
+                       ## angular noise on the deterministic sim RNG,
+                       ## calibrated from the live gunRange so a FULLY
+                       ## VISIBLE body at MAX range is hit exactly 80% of
+                       ## the time (~0.6 degrees sigma at 1050 px; ~99% at
+                       ## half range, ~100% close in — see AimJitterCentralZ
+                       ## for the derivation). The fuzzed direction drives
+                       ## target selection AND the tracer/stain march, so
+                       ## the paint flies where the roll says; events keep
+                       ## the intended locked heading. The extra RNG draw
+                       ## per shot shifts every later roll, so GV33 replays
+                       ## do not re-simulate.
+                       ##
+                       ## GV33 (dead-team rule): A DEAD TEAM'S HEART LEAVES
                        ## PLAY. A team wiped from the field (no live player
                        ## and no lives left) has its heart retired on the
                        ## spot exactly like a captured one — including a
@@ -233,10 +257,27 @@ const
   Lives* = 3
   HitPoints* = 3              ## hits to kill: each shot removes one hit point.
   RespawnTicks* = 72          ## ~3s before respawning at home.
-  GunRange* = 1300            ## px, effectively map-wide on the default
-                              ## arena; LOS and aim are the real limits.
-                              ## Each map def carries its own value — see
-                              ## CtfMap.gunRange.
+  GunRange* = 1050            ## px, the SMALL generated map's field width
+                              ## (round(1235 * 0.85)) — the ONE fixed gun
+                              ## range every map def ships (GV34): map-wide
+                              ## only on the smallest field, so on larger
+                              ## maps paint falls short and closing distance
+                              ## matters. A league config can still override
+                              ## it per game (config gunRange).
+  AimJitterCentralZ* = 1.2815516  ## Phi^-1(0.90): 80% of a Gaussian lies
+                              ## within +-z*sigma. The released-shot jitter's
+                              ## sigma is asin((PlayerHalf + BulletHalfWidth)
+                              ## / gunRange) / this, which is exactly "a
+                              ## fully visible body at max range is hit 80%
+                              ## of the time" — the +-14px acceptance window
+                              ## the corridor gives a centered silhouette,
+                              ## spanned by 1.28 sigma of angular error at
+                              ## gunRange px out (GV34). Derived from the
+                              ## LIVE config.gunRange so a range override
+                              ## keeps the calibration; at the stock 1050 px,
+                              ## sigma is ~0.6 degrees, and a fully visible
+                              ## body is hit ~99% at half range, ~100% inside
+                              ## a third.
   ExposureSampleStep* = 3     ## px between silhouette line-of-sight samples
                               ## across a target's body (±PlayerHalf): only
                               ## the exposed part of a body can be hit.
@@ -2445,7 +2486,7 @@ proc arenaCtfMap(): CtfMap =
   result.captureClear = 210
   result.spawnClearW = 70
   result.spawnClearH = 130
-  result.gunRange = 1300
+  result.gunRange = GunRange
   result.leftObstacles = @ArenaLeftObstacles
   result.medKitSpawns = @[
     MapPoint(x: result.width div 2, y: result.height div 3),
@@ -2457,8 +2498,8 @@ proc arenaCtfMap(): CtfMap =
 
 proc arenaLargeCtfMap(): CtfMap =
   ## The arena-large map: 1606x858 (+30% both axes). Obstacles keep their
-  ## `arena` sizes but sit spread out; the layout clearances and the gun
-  ## range scale with the field.
+  ## `arena` sizes but sit spread out; the layout clearances scale with the
+  ## field (the gun range does NOT — GV34, see GunRange).
   result.name = ArenaLargeName
   result.path = ArenaLargeName
   result.width = 1606
@@ -2471,7 +2512,7 @@ proc arenaLargeCtfMap(): CtfMap =
   result.captureClear = 273
   result.spawnClearW = 91
   result.spawnClearH = 169
-  result.gunRange = 1690
+  result.gunRange = GunRange
   result.leftObstacles = @ArenaLargeLeftObstacles
   result.medKitSpawns = @[
     MapPoint(x: result.width div 2, y: result.height div 3),
@@ -2962,7 +3003,7 @@ proc scaledGenShell(sizeName: string): CtfMap =
   result.captureClear = s(210)
   result.spawnClearW = s(70)
   result.spawnClearH = s(130)
-  result.gunRange = s(1300)
+  result.gunRange = GunRange  # fixed, never scaled with the field (GV34).
 
 proc endzoneFloorAt*(
   x, y, anchorX, anchorY, radius: int, disc: bool
@@ -3236,7 +3277,7 @@ proc scaledGenShell4(sizeName: string): CtfMap =
   result.captureClear = s(210)
   result.spawnClearW = s(70)
   result.spawnClearH = s(130)
-  result.gunRange = s(1300)
+  result.gunRange = GunRange  # fixed, never scaled with the field (GV34).
 
 proc rot90Orbit(p: tuple[x, y: int], side: int):
     array[4, tuple[x, y: int]] =
@@ -8026,18 +8067,36 @@ proc tryFireArc*(sim: var SimServer, attackerIndex: int) =
   sim.startArcFire(attackerIndex)
   sim.resolveActiveArcCones()
 
-proc fireDirection(sim: SimServer, shooterIndex: int): tuple[x, y: float] =
-  ## Returns the unit shot direction: the aim angle locked at the trigger
-  ## pull when a windup is (or was) pending, else the shooter's current aim.
-  let shooter = sim.players[shooterIndex]
-  if shooter.windupBrads >= 0:
-    aimVector(shooter.windupBrads)
-  else:
-    aimVector(shooter.aimBrads)
+proc aimJitterSigma(sim: SimServer): float =
+  ## The per-shot Gaussian aim-noise sigma, in radians (GV34): calibrated
+  ## against the LIVE config.gunRange so that a fully visible body at max
+  ## range is hit exactly 80% of the time — see AimJitterCentralZ for the
+  ## derivation. PlayerHalf + BulletHalfWidth is the corridor's continuous
+  ## acceptance half-window for a centered silhouette.
+  let window = (float(PlayerHalf) + BulletHalfWidth) / float(sim.config.gunRange)
+  arcsin(min(1.0, window)) / AimJitterCentralZ
 
-proc selectFireTarget(sim: var SimServer, shooterIndex: int): int =
+proc jitterDirection(sim: var SimServer, headingBrads: int): tuple[x, y: float] =
+  ## The actual unit direction of one released shot: the locked aim rotated
+  ## by a Gaussian draw on the deterministic sim RNG (like the trench duck,
+  ## it is part of the hashed game, so replays re-roll identically). The
+  ## same fuzzed direction drives target selection AND the tracer/stain, so
+  ## where the paint lands is where the viewer sees it fly.
+  let
+    (bx, by) = aimVector(headingBrads)
+    jitter = gauss(sim.rng, 0.0, sim.aimJitterSigma())
+    cj = cos(jitter)
+    sj = sin(jitter)
+  # aimVector is (cos a, -sin a) (screen y down), so adding jitter to the
+  # angle expands to this rotation of the base vector.
+  (bx * cj + by * sj, by * cj - bx * sj)
+
+proc selectFireTarget(
+  sim: var SimServer, shooterIndex: int, ux, uy: float
+): int =
   ## Returns the player the shot lands on: the bullet travels down the
-  ## locked aim direction toward the FIRST body it crosses (friendly fire
+  ## given unit direction (the locked aim plus the released shot's jitter,
+  ## GV34) toward the FIRST body it crosses (friendly fire
   ## on), stopping at walls — or -1 for a miss. A trench occupant crossed
   ## by the ray ducks under TrenchMissPct of the shots fired from outside
   ## their trench (config-gated trenches): the bullet flies straight over them and carries
@@ -8054,7 +8113,6 @@ proc selectFireTarget(sim: var SimServer, shooterIndex: int): int =
   result = -1
   let
     shooter = sim.players[shooterIndex]
-    (ux, uy) = sim.fireDirection(shooterIndex)
     sx = shooter.x + CollisionW div 2
     sy = shooter.y + CollisionH div 2
     maxRange = float(sim.config.gunRange)
@@ -8095,13 +8153,15 @@ proc selectFireTarget(sim: var SimServer, shooterIndex: int): int =
 type PendingGunShot = object
   shooterIndex: int
   targetIndex: int
-  headingBrads: int
+  headingBrads: int          ## the INTENDED locked aim (events, animation).
+  dirX, dirY: float          ## the fuzzed direction the shot actually flew.
   actionId: int64
 
 proc selectGunShot(sim: var SimServer, shooterIndex: int): PendingGunShot =
   ## Selects a target and snapshots the trigger metadata before any
   ## simultaneous shot can kill and reset another shooter. (`var` because
-  ## target selection rolls the trench duck on the sim RNG.)
+  ## the shot rolls its aim jitter, then target selection rolls the trench
+  ## duck, both on the sim RNG — one fixed draw order per released shot.)
   let
     shooter = sim.players[shooterIndex]
     headingBrads =
@@ -8112,10 +8172,13 @@ proc selectGunShot(sim: var SimServer, shooterIndex: int): PendingGunShot =
         sim.tickCount - sim.config.fireWindupTicks
       else:
         sim.tickCount
+    (ux, uy) = sim.jitterDirection(headingBrads)
   PendingGunShot(
     shooterIndex: shooterIndex,
-    targetIndex: sim.selectFireTarget(shooterIndex),
+    targetIndex: sim.selectFireTarget(shooterIndex, ux, uy),
     headingBrads: headingBrads,
+    dirX: ux,
+    dirY: uy,
     actionId: sim.eventActionId(shooterIndex, GunAction, triggerTick)
   )
 
@@ -8127,7 +8190,7 @@ proc applyFire(sim: var SimServer, shot: PendingGunShot) =
     shooterIndex = shot.shooterIndex
     targetIndex = shot.targetIndex
     shooter = sim.players[shooterIndex]
-    (ux, uy) = aimVector(shot.headingBrads)
+    (ux, uy) = (shot.dirX, shot.dirY)  # the fuzzed direction, not the aim.
     sx = shooter.x + CollisionW div 2
     sy = shooter.y + CollisionH div 2
   # GV26: heart carriers fire at CarrierFireSlowdown (same 3x as shields);
@@ -8170,7 +8233,7 @@ proc applyFire(sim: var SimServer, shot: PendingGunShot) =
     )
   else:
     # March along the unit aim to the last wall-free pixel or max range
-    # (checking each sampled pixel keeps this O(range) at 1300px).
+    # (checking each sampled pixel keeps this O(range) at 1050px).
     let maxRange = sim.config.gunRange
     var
       lastClear = 0

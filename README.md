@@ -41,9 +41,11 @@ logs or replay links, and the smallest repro.
   NOT (no team radio). Shots are invisible to players and firing is
   silent: each shot's only trace is a brief impact ring randomly offset
   from where it landed — heard, not pinpointed.
-- **Shoot** with **A**: an instant, line-of-sight, effectively map-wide hitscan
-  along your aim angle (locked at the trigger pull, released after a short
-  windup). Each hit removes one of **3 hit points** — at zero you die, and HP
+- **Shoot** with **A**: an instant, line-of-sight hitscan along your aim angle
+  (locked at the trigger pull, released after a short windup), with a fixed
+  **1050px range** on every map and lightly **fuzzed aim** — a fully visible
+  target at max range is hit 80% of the time, near-certainly when closer.
+  Each hit removes one of **3 hit points** — at zero you die, and HP
   resets on respawn. **Friendly fire is on.**
 - **Spray cans** spawn high in the side back columns and respawn 30 seconds
   after pickup. Carrying one disables the gun (and a carrier visibly holds the

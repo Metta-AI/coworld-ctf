@@ -282,8 +282,17 @@ always drawn — but moving entities are fogged:
 - The bullet is **hitscan along your aim ray**: it travels down the locked
   aim direction and hits the **first player whose footprint crosses its
   narrow corridor** — it never passes through a body to hit someone behind,
-  and **walls stop it**. Range is effectively map-wide, so cover and angles
-  matter more than distance.
+  and **walls stop it**.
+- **Range is a fixed 1050 px on every map** (since GameVersion 34) — the
+  small generated map's field width. Only on the smallest board is the gun
+  map-wide; on larger fields paint simply falls short, so closing distance
+  matters. Paint that runs out of range hits nothing and marks nothing.
+- **Aim is fuzzed** (since GameVersion 34): every released shot's direction
+  gets a small random angular error (~0.6° sigma), calibrated so a **fully
+  visible** body at **max range** is hit **80%** of the time. Accuracy
+  sharpens fast as you close: ~99% at half range, effectively perfect
+  inside a third. The noise also rides shots at partial cover — a sliver
+  target at long range is doubly hard.
 - **Cover is partial, not binary.** A target's body is sampled across its
   silhouette: only the part of the body that is both inside the bullet
   corridor AND visible from the shooter can be hit. A corner-hugger showing
@@ -650,7 +659,8 @@ These are starting values, exposed in the game config and tuned in self-play.
 | Lives per player | 3 | Out of lives = out for the round |
 | Hit points per life (`hitPoints`) | 3 | Shots to kill; reset to full on respawn |
 | Respawn delay | ~3s | Time dead before respawning at a random endzone spot |
-| Gun range | 1300px | Effectively map-wide; aim precision and line of sight are the real limits |
+| Gun range | 1050px | Fixed on every map (the small map's field width); map-wide only on the smallest board |
+| Aim jitter | ~0.6° sigma | Gaussian per released shot; 80% to hit a fully visible body at max range, ~99% at half |
 | Fire windup | ~0.2s | Trigger pull to bullet release; aim locks at the pull |
 | Fire cooldown | ~0.5s | Minimum time between shots |
 | Carrier speed | ~70% | Movement penalty while holding the heart |

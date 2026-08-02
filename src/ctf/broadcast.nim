@@ -275,7 +275,7 @@ const
   FpMapCell = 7               ## px per minimap wall-silhouette cell (~176x94 grid).
   FpShotSamples = 14          ## points sampled along a beam. The client draws the
                               ## comet through these, so there must be enough to
-                              ## curve a full-range (1300px) beam under
+                              ## curve a full-range (1050px) beam under
                               ## perspective without bloating the frame.
   FpShotMaxCount = 10         ## most beams per frame (nearest kept), so a chaotic
                               ## firefight cannot balloon the payload.
@@ -338,7 +338,12 @@ proc firstPersonJson(sim: SimServer, playerIndex: int): JsonNode =
     # The inset FOV is literally the player's vision-cone half-angle, so the
     # strip shows exactly the arc they perceive.
     halfFov = float(sim.config.visionConeDeg) * float(AimBradsTurn) / 360.0
-    maxRange = float(sim.config.gunRange)
+    # View depth, NOT weapon reach: sight is LOS-limited with unlimited
+    # range (computeFovVisible), so the wall march runs to a bound no
+    # in-map sightline can exceed. It used config.gunRange, which stopped
+    # being map-wide when GV34 fixed the gun range at 1050 on every map —
+    # tying the strip to it would blind seats on the larger fields.
+    maxRange = float(MapWidth + MapHeight)
     radPerBrad = PI / float(AimBradsTurn div 2)
 
   let
