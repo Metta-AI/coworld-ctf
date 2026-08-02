@@ -31,8 +31,8 @@ logs or replay links, and the smallest repro.
   indicator line shows every visible player's aim.
 - **Vision is fog-of-war:** the map itself is always visible, but enemies (and an
   enemy carrying a flag) only appear inside your **forward vision cone** (±60°
-  around your **aim**, unlimited range, stone walls block it) or your **~90px
-  omnidirectional bubble**. Six wall stubs are **glass windows** (the
+  around your **aim**, reaching 1.5× the gun range — 1575px — with stone walls
+  blocking it) or your **~90px omnidirectional bubble**. Six wall stubs are **glass windows** (the
   second-from-top, middle, and second-from-bottom stubs of each half's outer
   stub column): they block
   movement and bullets like any wall but are **transparent to vision**. Your aim carries your vision — you see where you

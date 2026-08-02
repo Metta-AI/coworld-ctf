@@ -224,8 +224,10 @@ Every player observes the **full map** — the terrain is static knowledge and i
 always drawn — but moving entities are fogged:
 
 - Your **vision** is a **forward cone** of half-angle `visionConeDeg` (default
-  ±60°) around your **aim angle**, with **unlimited range**, plus a small
-  **omnidirectional bubble** of `visionBubble` (default ~90px) around you.
+  ±60°) around your **aim angle**, reaching **1.5× the gun range** (1575px
+  stock, since GameVersion 34 — sight outranges paint by half again), plus a
+  small **omnidirectional bubble** of `visionBubble` (default ~90px) around
+  you that the range cap never shrinks.
 - **Stone walls block vision** — the same walls that block bullets — with one
   exception: **glass windows** (the second-from-top, middle, and
   second-from-bottom stubs of each half's outer stub column) block bullets
@@ -666,7 +668,7 @@ These are starting values, exposed in the game config and tuned in self-play.
 | Carrier speed | ~70% | Movement penalty while holding the heart |
 | Body bounce (`playerBouncePct`) | 40% | Restitution of player-player collisions; bodies are always solid |
 | Aim turn rate (`aimTurnRate`) | 5 brads/tick | Rotation speed while B/Select is held (~7°/tick; full turn ~2.1s) |
-| Vision cone (`visionConeDeg`) | ±60° | Fog-of-war forward vision half-angle; unlimited range, walls block |
+| Vision cone (`visionConeDeg`) | ±60° | Fog-of-war forward vision half-angle; reaches 1.5× gun range (1575px stock), walls block |
 | Vision bubble (`visionBubble`) | 90px | Omnidirectional close-range vision regardless of aim |
 | Spray cone reach (`PlasmaArcReach`) | 170px (5 squares) | Forward cone reach along the centerline; one square = one 34px cog body |
 | Spray cone max width (`PlasmaArcMaxWidth`) | 85px (2.5 squares) | Centerline cone width at max reach; widens linearly (half-angle atan(1/4) ≈ 14°) |

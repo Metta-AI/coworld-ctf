@@ -34,6 +34,15 @@ const
                        ## the intended locked heading. The extra RNG draw
                        ## per shot shifts every later roll, so GV33 replays
                        ## do not re-simulate.
+                       ## 3. The vision CONE cuts off at 1.5x the gun range
+                       ## (visionRange, 1575 px stock — it was unlimited,
+                       ## LOS permitting): sight outranges paint by half
+                       ## again, and both scale together under a config
+                       ## override. The close-quarters bubble is exempt.
+                       ## The first-person strip's wall march follows
+                       ## visionRange too. Broadcast-only (fog never enters
+                       ## the hash), but bot behavior depends on what bots
+                       ## see, so the fixtures are re-recorded with it in.
                        ##
                        ## GV33 (dead-team rule): A DEAD TEAM'S HEART LEAVES
                        ## PLAY. A team wiped from the field (no live player
@@ -9073,7 +9082,8 @@ proc castFovOctant(
 ) =
   ## Recursive shadowcasting over one octant of the fog-of-war grid
   ## (Bergstrom-style). Row distance is unbounded; scanning stops at the grid
-  ## edge, so vision range is limited only by walls.
+  ## edge, so THIS pass is limited only by walls — the caller's cone/range
+  ## filter applies the visionRange cutoff (GV34) afterwards.
   if startSlope < endSlope:
     return
   var
@@ -9124,6 +9134,14 @@ proc castFovOctant(
     if not anyInside and dist > row:
       break
 
+proc visionRange*(sim: SimServer): int =
+  ## How far the vision CONE reaches, in px (GV34): 1.5x the live
+  ## config.gunRange (1575 at the stock 1050), so sight always outranges
+  ## paint by half again — you can see fights you cannot yet join — and both
+  ## scale together under a config override. The close-quarters bubble
+  ## (visionBubble) is never shrunk by this cap.
+  sim.config.gunRange * 3 div 2
+
 proc computeFovVisible*(
   sim: SimServer,
   originCx, originCy, aimBrads: int,
@@ -9131,8 +9149,9 @@ proc computeFovVisible*(
 ) {.measure.} =
   ## Computes one viewer's fog-of-war cell visibility: recursive shadowcasting
   ## from the viewer's cell (walls block), intersected with the forward vision
-  ## cone (half-angle visionConeDeg around the aim angle, unlimited range)
-  ## plus the omnidirectional vision bubble (visionBubble px).
+  ## cone (half-angle visionConeDeg around the aim angle, reaching
+  ## visionRange px — 1.5x the gun range, GV34) plus the omnidirectional
+  ## vision bubble (visionBubble px, exempt from the range cap).
   if visible.len != FovCellCount:
     visible.setLen(FovCellCount)
   zeroMem(addr visible[0], visible.len * sizeof(bool))
@@ -9157,6 +9176,7 @@ proc computeFovVisible*(
     (ax, ay) = aimVector(aimBrads)
     coneCos = cos(float(sim.config.visionConeDeg) * PI / 180.0)
     bubbleSq = float(sim.config.visionBubble * sim.config.visionBubble)
+    rangeSq = float(sim.visionRange() * sim.visionRange())
   for cy in 0 ..< FovGridH:
     for cx in 0 ..< FovGridW:
       let index = fovCellIndex(cx, cy)
@@ -9168,6 +9188,9 @@ proc computeFovVisible*(
         vy = float(py - oy)
         d2 = vx * vx + vy * vy
       if d2 <= bubbleSq:
+        continue
+      if d2 > rangeSq:
+        visible[index] = false
         continue
       let dot = vx * ax + vy * ay
       if dot < coneCos * sqrt(d2):

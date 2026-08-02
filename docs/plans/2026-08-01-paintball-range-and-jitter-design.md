@@ -1,8 +1,8 @@
-# Paintball range cap + aim jitter (GV34)
+# Paintball range cap + aim jitter + vision range (GV34)
 
 ## Goal
 
-Two coupled weapon changes to the paintball gun:
+Three coupled changes — two to the paintball gun, one to vision:
 
 1. **Fixed max range on every map**: the small generated map's field width,
    `round(1235 * 0.85) = 1050 px`. Today every map def scales `gunRange` with
@@ -15,6 +15,15 @@ Two coupled weapon changes to the paintball gun:
    hit **80%** of the time. Closer targets are hit near-deterministically;
    partially covered targets get the same noise on top of the existing
    exposure sampling.
+3. **Vision range**: the fog-of-war cone (previously unlimited,
+   LOS-permitting) cuts off at **1.5× the gun range** (`visionRange`,
+   1575 px stock) — sight outranges paint by half again, and both scale
+   together under a config `gunRange` override. The ~90 px close-quarters
+   bubble is exempt, and the first-person strip's wall march follows
+   `visionRange`. Broadcast-only (fog never enters the game hash), and every
+   fixture map's diagonal is under 1575 px, so the recorded fixtures'
+   episodes are unaffected. On the default arena (diagonal ~1400 px) the cap
+   is invisible; it bites on large/huge/giant generated maps.
 
 ## Noise derivation
 

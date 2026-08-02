@@ -338,12 +338,12 @@ proc firstPersonJson(sim: SimServer, playerIndex: int): JsonNode =
     # The inset FOV is literally the player's vision-cone half-angle, so the
     # strip shows exactly the arc they perceive.
     halfFov = float(sim.config.visionConeDeg) * float(AimBradsTurn) / 360.0
-    # View depth, NOT weapon reach: sight is LOS-limited with unlimited
-    # range (computeFovVisible), so the wall march runs to a bound no
-    # in-map sightline can exceed. It used config.gunRange, which stopped
-    # being map-wide when GV34 fixed the gun range at 1050 on every map —
-    # tying the strip to it would blind seats on the larger fields.
-    maxRange = float(MapWidth + MapHeight)
+    # View depth = VISION reach, not weapon reach: the strip marches as far
+    # as the fog lets this seat see (visionRange, 1.5x the gun range —
+    # GV34). It used config.gunRange, which stopped being map-wide when
+    # GV34 fixed the gun range at 1050 on every map; the strip keeps the
+    # half-again sight advantage instead of going blind at the paint line.
+    maxRange = float(sim.visionRange())
     radPerBrad = PI / float(AimBradsTurn div 2)
 
   let
