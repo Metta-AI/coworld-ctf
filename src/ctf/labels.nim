@@ -128,6 +128,16 @@ const
     ## team count from counting room markers or pedestals, the map size from
     ## the walkability sprite's dimensions. Those channels still work; this
     ## label is the stated-value contract for them.
+  LabelPrefixOwnAim* = "own aim "
+    ## The own-aim readback, `own aim <brads>`: an invisible 1x1 HUD marker on
+    ## the PLAYER stream whose label states your own turret angle in brads
+    ## (256 per turn, 0 = east, counter-clockwise) as of the rendered tick.
+    ## Before this marker existed a policy had to dead-reckon its own aim
+    ## open-loop from its rotate inputs — the observation carried no readback
+    ## at all, and the accumulated drift measurably cost accuracy (see
+    ## docs/PROTOCOL.md, "Your own aim"). NOT named `self aim`: consumers
+    ## prefix-match `self ` for the avatar, and a marker sharing that prefix
+    ## would false-positive every such scan.
   LabelPrefixEndzone* = "endzone "
     ## The per-team endzone marker,
     ## `endzone <color> <shape> <x0>,<y0> <x1>,<y1>`: an invisible 1x1 object
@@ -264,6 +274,11 @@ proc labelEndzone*(color, shape: string; x0, y0, x1, y1: int): string =
   doAssert shape in LabelEndzoneShapes, "unknown endzone shape token: " & shape
   LabelPrefixEndzone & color & " " & shape & " " &
     $x0 & "," & $y0 & " " & $x1 & "," & $y1
+
+proc labelOwnAim*(brads: int): string =
+  ## The own-aim marker label, `own aim <brads>`. A consumer matches
+  ## LabelPrefixOwnAim and parses the tail as the integer aim angle.
+  LabelPrefixOwnAim & $brads
 
 proc labelWeapon*(token: string): string =
   ## The own-weapon HUD label, `weapon <token>` — LabelWeaponGun or

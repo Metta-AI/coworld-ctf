@@ -12,7 +12,7 @@
     "replay_viewer": {
       "bundle": "static-replay-viewer"
     },
-    "description": "Paintbot: paintball-flavored capture-the-heart, AI bots only. Every episode seats 16 agents from FOUR entrant policies, alternating two shapes on randomly generated terrain: 2v2 - the classic two-sided game with each team split between two policies (4 agents each, allies you don't control; coordination via shouts matters double) - and 4ffa - four teams (red, blue, green, yellow), one policy per team, each defending its own heart on a square corner or plus map, where every team antes a point and the winner takes the pot (+4 to the winner, -1 to each loser; 2v2 pays +2/-2). Core rules are identical to ctf. A two-team capture-the-heart shooter with fog-of-war vision. Red and Blue spawn on opposite edges, each guarding a heart on its home pedestal. Steal the enemy heart and carry it home - or wipe the enemy team. Two med kits on the center line heal the hurt back to full and respawn after 30 seconds. Grenade pickups wait in the corners: charged throws sail over walls and burst on landing, heard but not seen through the fog. Two plasma arcs spawn high in the side back columns: a carried arc disables your gun and turns the trigger into a forward plasma cone - 4 squares of reach, 2 squares wide at the tip - that stays lit for 5 ticks, takes 20 ticks to reset, and deals 3 damage per touch (lethal to a bare cog; a shield carrier survives one). One shield sits low in each endzone's back column, vertically opposite the plasma arcs: carrying it grants 6 hit points but makes your fire rate 3x slower. Both are lost on death and respawn 30 seconds after being taken (see docs/RULES.md, Plasma arc and Shields). Aim is decoupled from movement and carries your vision cone; guns are map-wide 3-hit-point hitscan with a trigger windup, teammates are fogged like enemies, and unseen gunfire is heard as a jittered sound ring - never pinpointed. Players can shout: 10-character messages heard within a fifth of the field, tagged by player and team at jittered coordinates and drawn as speech bubbles in replays. Rendered in painted high-resolution art: player observation coordinates are 1x map scale, and the grenade throw is player-input bit 7 / value 128 (see docs/PROTOCOL.md).",
+    "description": "Paintbot: paintball-flavored capture-the-heart, AI bots only. Every episode seats FOUR entrant policies, alternating three shapes on randomly generated terrain: 2v2 - the classic two-sided game with each team split between two policies (4 agents each, allies you don't control; coordination via shouts matters double) - 4ffa - 16 seats, four teams (red, blue, green, yellow), one policy per team (4 agents each), each defending its own heart on a square corner or plus map, where every team antes a point and the winner takes the pot (+4 to the winner, -1 to each loser; 2v2 pays +2/-2) - and 4ffa8 - the same four-team game at double muster: 32 seats, 8 agents per team, always on a giant map. Core rules are identical to ctf. A two-team capture-the-heart shooter with fog-of-war vision. Red and Blue spawn on opposite edges, each guarding a heart on its home pedestal. Steal the enemy heart and carry it home - or wipe the enemy team. Two med kits on the center line heal the hurt back to full and respawn after 30 seconds. Grenade pickups wait in the corners: charged throws sail over walls and burst on landing, heard but not seen through the fog. Two plasma arcs spawn high in the side back columns: a carried arc disables your gun and turns the trigger into a forward plasma cone - 5 squares of reach, 2.5 squares wide at the tip - that stays lit for 5 ticks, takes 20 ticks to reset, and deals 3 damage per touch (lethal to a bare cog; a shield carrier survives one). One shield sits low in each endzone's back column, vertically opposite the plasma arcs: carrying it grants 6 hit points but makes your fire rate 3x slower. Both are lost on death and respawn 30 seconds after being taken (see docs/RULES.md, Plasma arc and Shields). Aim is decoupled from movement and carries your vision cone; guns are 3-hit-point hitscan with a trigger windup, a fixed 1050px range on every map, and lightly fuzzed aim (80% to hit a fully visible target at max range, near-certain closer in); the vision cone reaches 1.5x the gun range, teammates are fogged like enemies, and unseen gunfire is heard as a jittered sound ring - never pinpointed. Players can shout: 10-character messages heard within a fifth of the field, tagged by player and team at jittered coordinates and drawn as speech bubbles in replays. Rendered in painted high-resolution art: player observation coordinates are 1x map scale, and the grenade throw is player-input bit 7 / value 128 (see docs/PROTOCOL.md).",
     "owner": "treeform@softmax.com",
     "runnable": {
       "type": "game",
@@ -35,7 +35,7 @@
           "description": "One connection token per player slot, indexed by slot.",
           "type": "array",
           "minItems": 16,
-          "maxItems": 16,
+          "maxItems": 32,
           "items": {
             "type": "string",
             "minLength": 1
@@ -45,7 +45,7 @@
           "description": "One player display-name object per player slot, indexed by slot.",
           "type": "array",
           "minItems": 16,
-          "maxItems": 16,
+          "maxItems": 32,
           "items": {
             "type": "object",
             "additionalProperties": false,
@@ -63,7 +63,7 @@
         "slots": {
           "description": "Optional fixed player slot team, color, skin, and token settings.",
           "type": "array",
-          "maxItems": 16,
+          "maxItems": 32,
           "default": [],
           "items": {
             "type": "object",
@@ -128,7 +128,7 @@
           "description": "Players needed before the game countdown starts.",
           "type": "integer",
           "minimum": 1,
-          "maximum": 16,
+          "maximum": 32,
           "default": 16
         },
         "lives": {
@@ -236,7 +236,7 @@
           "description": "Number of agent seats; must equal the player slot count. Used by the platform ladder service for block seating.",
           "type": "integer",
           "minimum": 1,
-          "maximum": 16,
+          "maximum": 32,
           "default": 16
         },
         "fireWindupTicks": {
@@ -274,6 +274,17 @@
             "pot"
           ],
           "default": "classic"
+        },
+        "mapSize": {
+          "description": "Generated-map size-class lock: small, standard, large, huge, or giant. Empty draws the size from the map seed.",
+          "type": "string",
+          "enum": [
+            "small",
+            "standard",
+            "large",
+            "huge",
+            "giant"
+          ]
         }
       }
     },
@@ -289,7 +300,7 @@
           "description": "One player name or address per player slot.",
           "type": "array",
           "minItems": 1,
-          "maxItems": 16,
+          "maxItems": 32,
           "items": {
             "type": "string"
           }
@@ -298,7 +309,7 @@
           "description": "One scalar score per player slot.",
           "type": "array",
           "minItems": 1,
-          "maxItems": 16,
+          "maxItems": 32,
           "items": {
             "type": "number"
           }
@@ -307,7 +318,7 @@
           "description": "One win flag per player slot.",
           "type": "array",
           "minItems": 1,
-          "maxItems": 16,
+          "maxItems": 32,
           "items": {
             "type": "boolean"
           }
@@ -316,7 +327,7 @@
           "description": "One team name (red or blue) per player slot.",
           "type": "array",
           "minItems": 1,
-          "maxItems": 16,
+          "maxItems": 32,
           "items": {
             "type": "string"
           }
@@ -325,7 +336,7 @@
           "description": "One kill count per player slot.",
           "type": "array",
           "minItems": 1,
-          "maxItems": 16,
+          "maxItems": 32,
           "items": {
             "type": "integer",
             "minimum": 0
@@ -335,7 +346,7 @@
           "description": "One death count per player slot.",
           "type": "array",
           "minItems": 1,
-          "maxItems": 16,
+          "maxItems": 32,
           "items": {
             "type": "integer",
             "minimum": 0
@@ -345,7 +356,7 @@
           "description": "One heart-capture count per player slot.",
           "type": "array",
           "minItems": 1,
-          "maxItems": 16,
+          "maxItems": 32,
           "items": {
             "type": "integer",
             "minimum": 0
@@ -518,7 +529,7 @@
         "fireCooldownTicks": 12,
         "carrierSpeedPct": 70,
         "aimTurnRate": 5,
-        "visionConeDeg": 45,
+        "visionConeDeg": 60,
         "visionBubble": 90,
         "startWaitTicks": 120,
         "gameOverTicks": 360,
@@ -646,7 +657,7 @@
         "fireCooldownTicks": 12,
         "carrierSpeedPct": 70,
         "aimTurnRate": 5,
-        "visionConeDeg": 45,
+        "visionConeDeg": 60,
         "visionBubble": 90,
         "startWaitTicks": 120,
         "gameOverTicks": 360,
@@ -657,6 +668,231 @@
         "teams": 4,
         "scoring": "pot",
         "lobbyJoinTimeoutTicks": 2880
+      }
+    },
+    {
+      "id": "4ffa8",
+      "name": "4-team free-for-all (8 per team)",
+      "description": "Four teams \u2014 red, blue, green, yellow \u2014 one entrant policy per team (slot mod 4) at double muster: 32 seats, 8 agents per team, always on a giant generated corner or plus map. Rules and scoring match 4ffa: steal any enemy heart and carry it home, last team standing wins a wipe, and every team antes a point with the winner taking the pot: +4 to the winning policy, -1 to each of the three losers.",
+      "game_config": {
+        "players": [
+          {
+            "name": "Player1"
+          },
+          {
+            "name": "Player2"
+          },
+          {
+            "name": "Player3"
+          },
+          {
+            "name": "Player4"
+          },
+          {
+            "name": "Player5"
+          },
+          {
+            "name": "Player6"
+          },
+          {
+            "name": "Player7"
+          },
+          {
+            "name": "Player8"
+          },
+          {
+            "name": "Player9"
+          },
+          {
+            "name": "Player10"
+          },
+          {
+            "name": "Player11"
+          },
+          {
+            "name": "Player12"
+          },
+          {
+            "name": "Player13"
+          },
+          {
+            "name": "Player14"
+          },
+          {
+            "name": "Player15"
+          },
+          {
+            "name": "Player16"
+          },
+          {
+            "name": "Player17"
+          },
+          {
+            "name": "Player18"
+          },
+          {
+            "name": "Player19"
+          },
+          {
+            "name": "Player20"
+          },
+          {
+            "name": "Player21"
+          },
+          {
+            "name": "Player22"
+          },
+          {
+            "name": "Player23"
+          },
+          {
+            "name": "Player24"
+          },
+          {
+            "name": "Player25"
+          },
+          {
+            "name": "Player26"
+          },
+          {
+            "name": "Player27"
+          },
+          {
+            "name": "Player28"
+          },
+          {
+            "name": "Player29"
+          },
+          {
+            "name": "Player30"
+          },
+          {
+            "name": "Player31"
+          },
+          {
+            "name": "Player32"
+          }
+        ],
+        "slots": [
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "green"
+          },
+          {
+            "team": "yellow"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "green"
+          },
+          {
+            "team": "yellow"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "green"
+          },
+          {
+            "team": "yellow"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "green"
+          },
+          {
+            "team": "yellow"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "green"
+          },
+          {
+            "team": "yellow"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "green"
+          },
+          {
+            "team": "yellow"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "green"
+          },
+          {
+            "team": "yellow"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "green"
+          },
+          {
+            "team": "yellow"
+          }
+        ],
+        "seed": 679961,
+        "num_agents": 32,
+        "minPlayers": 32,
+        "lives": 3,
+        "hitPoints": 3,
+        "respawnTicks": 72,
+        "gunRange": 1300,
+        "fireCooldownTicks": 12,
+        "carrierSpeedPct": 70,
+        "aimTurnRate": 5,
+        "visionConeDeg": 45,
+        "visionBubble": 90,
+        "startWaitTicks": 120,
+        "gameOverTicks": 360,
+        "maxTicks": 7500,
+        "maxGames": 1,
+        "mapPath": "gen",
+        "showPlayerLabels": true,
+        "teams": 4,
+        "scoring": "pot",
+        "lobbyJoinTimeoutTicks": 2880,
+        "mapSize": "giant"
       }
     },
     {
@@ -774,7 +1010,7 @@
         "fireCooldownTicks": 12,
         "carrierSpeedPct": 70,
         "aimTurnRate": 5,
-        "visionConeDeg": 45,
+        "visionConeDeg": 60,
         "visionBubble": 90,
         "startWaitTicks": 120,
         "gameOverTicks": 360,

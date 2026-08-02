@@ -1,10 +1,10 @@
 import
+  helpers,
   std/[os, unittest],
   bitworld/spriteprotocol,
   ctf/[global, sim]
 
 const
-  GameDir = currentSourcePath.parentDir.parentDir
   ReplayTickObjectId = 4002
   ReplayControlsObjectId = 4003
   ReplayScrubberObjectId = 4004

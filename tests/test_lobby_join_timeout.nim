@@ -6,9 +6,7 @@
 ## nextPlayerSlot(). Default (0) and infinite-lobby (maxGames 0) shapes must
 ## never trip, and the budget clock must not run while the roster is full.
 
-import std/[json, os], bitworld/spriteprotocol, ctf/sim
-
-const GameDir = currentSourcePath.parentDir.parentDir
+import std/[json, os], bitworld/spriteprotocol, ctf/sim, helpers
 
 proc lobbySim(configPatch: string): SimServer =
   ## Initializes a lobby-phase sim from a patched default config (cwd pinned

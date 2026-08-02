@@ -1,13 +1,13 @@
-import std/[os, strformat]
+import std/strformat
 import ../src/ctf/sim
 import ../src/ctf/global
+import toolutil
 
 # Deterministic probe for the heart-taken endzone glow fade: drives
 # buildSpriteProtocolUpdates with a team's flag carried vs home and reports how
 # the per-team crossfade stage ramps toward dark and back to full glow.
 
-let gameDir = currentSourcePath().parentDir().parentDir()
-setCurrentDir(gameDir)
+chdirGameDir()
 
 var config = defaultGameConfig()
 var game = initSimServer(config)

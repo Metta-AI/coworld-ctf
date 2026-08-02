@@ -1,4 +1,4 @@
-import std/[os, strformat], ../src/ctf/replays, ../src/ctf/sim
+import std/[os, strformat], ../src/ctf/sim, toolutil
 
 # Re-simulates a replay and prints, every SampleEvery ticks, the carrier of
 # each flag (if any) with its position — plus that carrier's position stream
@@ -7,17 +7,8 @@ import std/[os, strformat], ../src/ctf/replays, ../src/ctf/sim
 const SampleEvery = 250
 
 let path = commandLineParams()[0]
-let gameDir = currentSourcePath().parentDir().parentDir()
-setCurrentDir(gameDir)
-let data = loadReplay(path)
-var config = defaultGameConfig()
-config.update(data.configJson)
-var
-  game = initSimServer(config)
-  replay = initReplayPlayer(data)
-game.gameEventLoggingEnabled = false
-replay.looping = false
-replay.mismatchQuit = true
+chdirGameDir()
+var (game, replay) = openReplay(path)
 
 var tick = 0
 while replay.playing:

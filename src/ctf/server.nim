@@ -4,7 +4,7 @@ import
   bitworld/client as bitworldClient, bitworld/profile, bitworld/spriteprotocol,
   bitworld/runtime,
   curly, mummy,
-  sim, global, replays, broadcast, replay_runtime, events
+  sim, global, replays, broadcast, replay_runtime, events, wire_constants
 
 when defined(posix):
   from std/posix import SHUT_RDWR, shutdown
@@ -62,22 +62,80 @@ const
   MaxDebugSpriteBytesPerTick* = 32 * 1024
   # The designed broadcast replay client, embedded at compile time. Served for
   # the replay routes in place of bitworld's generic global client; a single
-  # self-contained file (core JS inlined). Live/player/global paths are
-  # untouched and keep serving the bitworld client (§14 live column).
+  # self-contained file (shared chrome + core JS inlined). Live/player/global
+  # paths are untouched and keep serving the bitworld client (§14 live column).
+  # Final in-page script order: wire constants, shared chrome, core, page IIFE
+  # (marker positions in the HTML fix that; the replace order here is free).
   EmbeddedBroadcastReplayHtml = staticRead("../../client/replay_broadcast.html").replace(
+    "<!-- CHROME_COMMON -->",
+    "<script>" & staticRead("../../client/chrome_common.js") & "</script>"
+  ).replace(
     "<!-- BROADCAST_CORE -->",
     "<script>" & staticRead("../../client/broadcast_core.js") & "</script>"
-  )
+  ).spliceWireConstants()
   # The League Replayer shell: a walled stone-pit viewer that EMBEDS the broadcast
   # client (via ?embed=1) as the lit pit floor and mounts the scorebug, KDA tables,
   # division standings and transport as flat panels over the dungeon walls. Served
   # at the bare replay route; embed=1 falls through to the plain broadcast client.
-  EmbeddedLeagueReplayerHtml = staticRead("../../client/league_replayer.html")
+  # Shares the same chrome_common.js splice as the broadcast client.
+  EmbeddedLeagueReplayerHtml = staticRead("../../client/league_replayer.html").replace(
+    "<!-- CHROME_COMMON -->",
+    "<script>" & staticRead("../../client/chrome_common.js") & "</script>"
+  ).spliceWireConstants()
   # Dungeon-wall textures (nanobanana generations) served as static assets so the
   # shell HTML stays small and editable. Wide for top/bottom, tall for side walls.
   # Opaque stone, no alpha → JPEG (q82) keeps each well under any committed sprite.
   WallTextureHorizontal = staticRead("../../client/art/walls/wall_h.jpg")
   WallTextureVertical = staticRead("../../client/art/walls/wall_v.jpg")
+  # The broadcast client's pre-load curtain scene (nanobanana generations,
+  # like the walls): the bot locker room as ONE empty-room plate (bg.jpg)
+  # plus five alpha-sprite poses per cog (<bot>_<pose>.webp) that the
+  # client layers and cycles on top. One entry per asset, served by path
+  # lookup like the soldier art; content type derives from the suffix.
+  LockerRoomAssets = [
+    ("/client/art/lockerroom/bg.jpg",
+      staticRead("../../client/art/lockerroom/bg.jpg")),
+    ("/client/art/lockerroom/green_1.webp",
+      staticRead("../../client/art/lockerroom/green_1.webp")),
+    ("/client/art/lockerroom/green_2.webp",
+      staticRead("../../client/art/lockerroom/green_2.webp")),
+    ("/client/art/lockerroom/green_3.webp",
+      staticRead("../../client/art/lockerroom/green_3.webp")),
+    ("/client/art/lockerroom/green_5.webp",
+      staticRead("../../client/art/lockerroom/green_5.webp")),
+    ("/client/art/lockerroom/green_6.webp",
+      staticRead("../../client/art/lockerroom/green_6.webp")),
+    ("/client/art/lockerroom/blue_1.webp",
+      staticRead("../../client/art/lockerroom/blue_1.webp")),
+    ("/client/art/lockerroom/blue_2.webp",
+      staticRead("../../client/art/lockerroom/blue_2.webp")),
+    ("/client/art/lockerroom/blue_3.webp",
+      staticRead("../../client/art/lockerroom/blue_3.webp")),
+    ("/client/art/lockerroom/blue_5.webp",
+      staticRead("../../client/art/lockerroom/blue_5.webp")),
+    ("/client/art/lockerroom/blue_6.webp",
+      staticRead("../../client/art/lockerroom/blue_6.webp")),
+    ("/client/art/lockerroom/yellow_1.webp",
+      staticRead("../../client/art/lockerroom/yellow_1.webp")),
+    ("/client/art/lockerroom/yellow_2.webp",
+      staticRead("../../client/art/lockerroom/yellow_2.webp")),
+    ("/client/art/lockerroom/yellow_3.webp",
+      staticRead("../../client/art/lockerroom/yellow_3.webp")),
+    ("/client/art/lockerroom/yellow_5.webp",
+      staticRead("../../client/art/lockerroom/yellow_5.webp")),
+    ("/client/art/lockerroom/yellow_6.webp",
+      staticRead("../../client/art/lockerroom/yellow_6.webp")),
+    ("/client/art/lockerroom/red_1.webp",
+      staticRead("../../client/art/lockerroom/red_1.webp")),
+    ("/client/art/lockerroom/red_2.webp",
+      staticRead("../../client/art/lockerroom/red_2.webp")),
+    ("/client/art/lockerroom/red_3.webp",
+      staticRead("../../client/art/lockerroom/red_3.webp")),
+    ("/client/art/lockerroom/red_5.webp",
+      staticRead("../../client/art/lockerroom/red_5.webp")),
+    ("/client/art/lockerroom/red_6.webp",
+      staticRead("../../client/art/lockerroom/red_6.webp")),
+  ]
   BroadcastFont = staticRead("../../data/font.ttf")
   # Cog art for the first-person EYES PiP billboards (real body + legs + wheels
   # + cyan visor, team-tinted). Served as static PNGs so the raycast view can
@@ -95,11 +153,6 @@ const
   # armed cog; the empty-handed masters cover the unarmed read. One entry per
   # team x {top-down, front, front_gun}, served by path lookup.
   SoldierArtAssets = [
-    ("/client/soldier_red.png", staticRead("../../data/soldier_red.png")),
-    ("/client/soldier_blue.png", staticRead("../../data/soldier_blue.png")),
-    ("/client/soldier_green.png", staticRead("../../data/soldier_green.png")),
-    ("/client/soldier_yellow.png",
-      staticRead("../../data/soldier_yellow.png")),
     ("/client/soldier_red_front.png",
       staticRead("../../data/soldier_red_front.png")),
     ("/client/soldier_blue_front.png",
@@ -123,7 +176,7 @@ const
   BroadcastFontPath = "/client/font.ttf"
   # Hosted replay closes any WS frame larger than 1 MiB (sends 1009). We chunk
   # outbound sprite packets under a margin below that so no single frame trips it.
-  MaxWsFrameBytes = 900_000
+  MaxWsFrameBytes* = 900_000
   # SpriteClientReady (0x85) and SpriteClientDebugSprite (0x86) now come from
   # bitworld/spriteprotocol: the pin carries both, and still keeps ButtonC,
   # which the grenade input bit needs.
@@ -324,6 +377,39 @@ proc removePlayer(sim: var SimServer, websocket: WebSocket) =
     for ws, value in appState.playerIndices.mpairs:
       if value > removedIndex:
         dec value
+
+proc admitPendingJoins(
+  sim: var SimServer,
+  pendingPlayers: var seq[PendingPlayerJoin],
+  socketsToClose: var seq[WebSocket],
+  liveOverlays: var seq[DebugOverlay]
+): seq[PendingPlayerJoin] =
+  ## Admits pending joins in resolved-slot order (the shared core of the main
+  ## loop's and the reset path's join resolution): sorts candidates, seats
+  ## every join whose slot is exactly the next open one, records the seat in
+  ## appState.playerIndices/playerSlots, and grows liveOverlays to the roster.
+  ## Returns the joins that were seated so each caller can run its own
+  ## bookkeeping (replay join records vs. input-mask resets). Caller holds
+  ## appState.lock.
+  pendingPlayers.sort(comparePendingPlayerJoins)
+  for join in pendingPlayers:
+    if join.slotIndex != sim.nextPlayerSlot():
+      continue
+    try:
+      appState.playerIndices[join.websocket] = sim.addPlayer(
+        join.address,
+        join.requestedSlot,
+        join.token
+      )
+    except CtfError:
+      sim.removePlayer(join.websocket)
+      socketsToClose.add(join.websocket)
+      continue
+    appState.playerSlots[join.websocket] =
+      sim.players[appState.playerIndices[join.websocket]].joinOrder
+    while liveOverlays.len < sim.players.len:
+      liveOverlays.add(DebugOverlay())
+    result.add(join)
 
 proc cleanPlayerName(name: string): string =
   ## Returns a protocol-safe player display name.
@@ -682,6 +768,24 @@ proc httpHandler(request: Request) =
     else:
       request.respond(200, texHeaders, WallTextureVertical)
   elif request.httpMethod == "GET" and (block:
+      var lockerHit = false
+      for (path, art) in LockerRoomAssets:
+        if request.path == path:
+          lockerHit = true
+          break
+      lockerHit):
+    # The broadcast client's locker-room loading-scene assets: the JPEG
+    # room plate and the per-cog alpha-sprite poses (WebP).
+    var lockerHeaders: HttpHeaders
+    lockerHeaders["Content-Type"] =
+      if request.path.endsWith(".webp"): "image/webp"
+      else: "image/jpeg"
+    lockerHeaders["Cache-Control"] = "public, max-age=3600"
+    for (path, art) in LockerRoomAssets:
+      if request.path == path:
+        request.respond(200, lockerHeaders, art)
+        break
+  elif request.httpMethod == "GET" and (block:
       var hit = false
       for (path, art) in SoldierArtAssets:
         if request.path == path:
@@ -689,8 +793,8 @@ proc httpHandler(request: Request) =
           break
       hit):
     # Cog art for the EYES PiP billboards (static PNG assets): the _front
-    # eye-level masters the billboard blits, plus the top-down board masters
-    # kept as its fallback.
+    # eye-level masters the billboard blits (with and without the gun); a
+    # missing master falls back to the procedural chassis client-side.
     var artHeaders: HttpHeaders
     artHeaders["Content-Type"] = "image/png"
     artHeaders["Cache-Control"] = "public, max-age=3600"
@@ -1336,22 +1440,8 @@ proc runServerLoop*(
                   socketsToClose.add(websocket)
               else:
                 appState.playerIndices[websocket] = -1
-            pendingPlayers.sort(comparePendingPlayerJoins)
-            for join in pendingPlayers:
-              if join.slotIndex != sim.nextPlayerSlot():
-                continue
-              try:
-                appState.playerIndices[join.websocket] = sim.addPlayer(
-                  join.address,
-                  join.requestedSlot,
-                  join.token
-                )
-              except CtfError:
-                sim.removePlayer(join.websocket)
-                socketsToClose.add(join.websocket)
-                continue
-              appState.playerSlots[join.websocket] =
-                sim.players[appState.playerIndices[join.websocket]].joinOrder
+            for join in sim.admitPendingJoins(
+                pendingPlayers, socketsToClose, liveOverlays):
               replayWriter.writeJoin(
                 tickTime(sim.tickCount),
                 appState.playerIndices[join.websocket],
@@ -1361,8 +1451,6 @@ proc runServerLoop*(
               )
               while replayWriter.lastMasks.len < sim.players.len:
                 replayWriter.lastMasks.add(0)
-              while liveOverlays.len < sim.players.len:
-                liveOverlays.add(DebugOverlay())
               progressed = true
 
         if not replayLoaded:
@@ -1479,22 +1567,8 @@ proc runServerLoop*(
               except CtfError:
                 sim.removePlayer(websocket)
                 socketsToClose.add(websocket)
-            pendingPlayers.sort(comparePendingPlayerJoins)
-            for join in pendingPlayers:
-              if join.slotIndex != sim.nextPlayerSlot():
-                continue
-              try:
-                appState.playerIndices[join.websocket] = sim.addPlayer(
-                  join.address,
-                  join.requestedSlot,
-                  join.token
-                )
-              except CtfError:
-                sim.removePlayer(join.websocket)
-                socketsToClose.add(join.websocket)
-                continue
-              appState.playerSlots[join.websocket] =
-                sim.players[appState.playerIndices[join.websocket]].joinOrder
+            for join in sim.admitPendingJoins(
+                pendingPlayers, socketsToClose, liveOverlays):
               appState.inputMasks[join.websocket] = 0
               appState.inputPressedMasks[join.websocket] = 0
               appState.lastAppliedMasks[join.websocket] = 0
@@ -1504,8 +1578,6 @@ proc runServerLoop*(
               appState.playerViewers[join.websocket] =
                 initPlayerViewerState()
               playerViewerStates.add(appState.playerViewers[join.websocket])
-              while liveOverlays.len < sim.players.len:
-                liveOverlays.add(DebugOverlay())
               progressed = true
           replayWriter.lastMasks.setLen(sim.players.len)
           for websocket in appState.rewardViewers.keys:
@@ -1523,10 +1595,20 @@ proc runServerLoop*(
           withLock appState.lock:
             if sockets[i] in appState.playerViewers:
               appState.playerViewers[sockets[i]] = nextState
-        for chunk in global.chunkSpritePacket(framePacket, MaxWsFrameBytes):
-          sockets[i].send(blobFromBytes(chunk), BinaryMessage)
+        try:
+          for chunk in global.chunkSpritePacket(framePacket, MaxWsFrameBytes):
+            sockets[i].send(blobFromBytes(chunk), BinaryMessage)
+        except:
+          {.gcsafe.}:
+            withLock appState.lock:
+              discard markSocketClosed(sockets[i])
       for websocket in rewardViewers:
-        websocket.send(rewardPacket, TextMessage)
+        try:
+          websocket.send(rewardPacket, TextMessage)
+        except:
+          {.gcsafe.}:
+            withLock appState.lock:
+              discard markSocketClosed(websocket)
       # The lobby always paces at wall clock: fast-forwarding here spins the
       # loop hot on whichever seats joined first, and the appState-lock churn
       # starves mummy's upgrade path so the remaining seats never finish
@@ -1671,7 +1753,28 @@ proc runServerLoop*(
         {.gcsafe.}:
           withLock appState.lock:
             if globalViewers[i] in appState.globalViewers:
-              appState.globalViewers[globalViewers[i]] = nextState
+              # The websocket thread keeps writing viewer INPUT into this table
+              # entry while the frame was being built from an earlier snapshot.
+              # Blindly storing nextState would erase any input that arrived in
+              # between — a seek/command/click landing there was silently lost
+              # (scrub-back from the end screen was the visible casualty).
+              # Merge: render state comes from nextState, but the latest mouse
+              # fields and any not-yet-collected one-shot inputs survive.
+              let pending = appState.globalViewers[globalViewers[i]]
+              var merged = nextState
+              merged.mouseX = pending.mouseX
+              merged.mouseY = pending.mouseY
+              merged.mouseLayer = pending.mouseLayer
+              merged.mouseDown = pending.mouseDown
+              if pending.clickPending:
+                merged.clickPending = true
+              if pending.replaySeekTick >= 0:
+                merged.replaySeekTick = pending.replaySeekTick
+              if pending.replayCommands.len > 0:
+                merged.replayCommands.add(pending.replayCommands)
+              if pending.povSelectPending >= -1:
+                merged.povSelectPending = pending.povSelectPending
+              appState.globalViewers[globalViewers[i]] = merged
       except:
         {.gcsafe.}:
           withLock appState.lock:

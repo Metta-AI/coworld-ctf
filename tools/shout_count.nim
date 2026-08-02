@@ -1,19 +1,10 @@
-import std/[os, tables], ../src/ctf/replays, ../src/ctf/sim
+import std/[os, tables], ../src/ctf/sim, toolutil
 
 # Re-simulates a replay and counts every applied shout (per shouter, per text).
 
 let path = commandLineParams()[0]
-let gameDir = currentSourcePath().parentDir().parentDir()
-setCurrentDir(gameDir)
-let data = loadReplay(path)
-var config = defaultGameConfig()
-config.update(data.configJson)
-var
-  game = initSimServer(config)
-  replay = initReplayPlayer(data)
-game.gameEventLoggingEnabled = false
-replay.looping = false
-replay.mismatchQuit = true
+chdirGameDir()
+var (game, replay) = openReplay(path)
 
 var seen = initTable[string, int]()
 var lastTickSeen = initTable[string, int]()

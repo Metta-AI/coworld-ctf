@@ -48,8 +48,12 @@ const
   ## the map into bands keeps every pixel (each band is a crop at its own
   ## y-offset; the client composites them into one seamless map layer) while
   ## making each message a fraction of the cap. Ids 30..(30+bands) and
-  ## 40..(40+bands) sit clear of every other pool (layer ids stop at 12, the next
-  ## sprite/object pools start at 100).
+  ## 40..(40+bands) sit clear of every other pool (layer ids stop at 12, the
+  ## next sprite pool is PlayerSpriteBase = 100) for up to 60 bands — enough
+  ## for every generated size class (4-team giant = 52). The client's
+  ## static-band cache window (broadcast_core.js STATIC_BAND_MAX_ID = 99)
+  ## mirrors that 60-band ceiling. Only the override-only colossal class can
+  ## exceed it: band 70+'s SPRITE id would collide with PlayerSpriteBase.
   MapBandSpriteBase = 30
   MapBandObjectBase = 40
   MapBandHeight = 192         ## px rows per band — 659/192 ≈ 4 bands (was 96 /
@@ -133,7 +137,7 @@ const
                                ## frame — the burst that stalled WAN replay
                                ## viewers.
   EndzoneFadeObjectBase = 19520  ## one strip overlay per team.
-  EndzonePrewarmEveryFrames = 4  ## drip one fade crop every N frames after
+  EndzonePrewarmEveryFrames* = 4  ## drip one fade crop every N frames after
                                  ## connect (~1.2 Mbps for ~2.4 s on classic
                                  ## maps, twice that on 4-team maps) instead
                                  ## of dumping every crop at once.
@@ -262,7 +266,11 @@ const
                                ## nothing, because applyShout's cooldown already
                                ## spaces texts at least this far apart. Board
                                ## only: player streams are bot observations and
-                               ## keep exact sim timing. See addBoardShouts.
+                               ## keep exact sim timing. "Wall" is the frame
+                               ## COUNT standing in for real time — nothing
+                               ## reads the system clock, so the floor (and its
+                               ## tests) is deterministic under any CPU load.
+                               ## See addBoardShouts.
   ShoutBubbleZ = 30003         ## just above the name label (30002), so a shout
                                ## reads over the crowd but under the HUD text.
   ShoutPadX = 4                ## px of paper around the text, left and right.
@@ -295,7 +303,8 @@ const
   MissStagePenalty = 2         ## a missed shot's comet draws this many fade
                                ## stages older: hits stay bright, misses fade.
   TrailBuckets = 6             ## along-beam opacity steps baked into the trail dots.
-  TrailFalloff = 1.6           ## trail brightness = t^this (t: 0 muzzle → 1 impact).
+  TrailFalloff* = 1.6          ## trail brightness = t^this (t: 0 muzzle → 1 impact).
+                               ## Exported for the JS wire-constants block.
   TrailMinAlpha = 0.06         ## drop trail dots fainter than this (trims the tail).
   TracerDotSpriteBase = 900    ## trail dots keyed color×stage×bucket: 900..1283.
   TracerDotObjectBase = 24000  ## tracer trail object-id pool (above the fog pool).
@@ -306,7 +315,7 @@ const
                                ## ShotFxTicks == FireCooldownTicks, so a
                                ## shooter never has two live tracers).
   TracerDotsPerShot = GunRange div TracerDotSpacing + 4  ## dots per full-range shot, plus slack.
-  TracerMaxDots = TracerMaxShots * TracerDotsPerShot  ## 13984 ids: 24000..37983.
+  TracerMaxDots = TracerMaxShots * TracerDotsPerShot  ## 11328 ids: 24000..35327 (GV34 gun range).
   MuzzleBloomSpriteBase = 1290 ## per-fade-stage muzzle flash sprites: 1290..1293.
   MuzzleBloomObjectBase = 16800  ## one flash per drawn shot: 16800..16831.
   HitFlashSpriteBase = 1294    ## per-stage struck-target rings: 1294..1297.
@@ -359,7 +368,7 @@ const
   StainObjectBase = 38500      ## one object per stain: 38500..39699, between
                                ## the rig object pools (..38491) and the debug
                                ## pool at 40000. Moved off 33000: the widened
-                               ## tracer-dot pool (24000..37983) swallowed it.
+                               ## tracer-dot pool (24000..35327) swallowed it.
   StainVariants = 8            ## distinct blot shapes, picked by the stain's own
                                ## hash so a lane of paint never reads as one
                                ## rubber-stamped sprite repeated.
@@ -392,7 +401,7 @@ const
                                ## count is capped.
   DamagePopObjectBase = 38000  ## one drawn damage pop per object: 38000..38031.
                                ## Moved off 31200: the widened tracer-dot pool
-                               ## (24000..37983) swallowed it.
+                               ## (24000..35327) swallowed it.
   DamagePopStages = 4          ## alpha fade stages across DamageFxTicks.
   DamagePopMaxCount = MaxPlayers  ## most floating numbers drawn at once.
   DamagePopBucketCount = 4     ## distinct -N sprite buckets reserved per color
@@ -421,7 +430,7 @@ const
   RigSpraySpriteBase = 76600   ## team×16 aim → 76600..76663 (held spray can +
                                ## glow): the swap-in art while a cog carries a
                                ## can, sharing the gun's object slot.
-  ## Object pools sit clear of the tracer-dot pool (24000..37983) and the
+  ## Object pools sit clear of the tracer-dot pool (24000..35327) and the
   ## damage/kill pops (38000..38031); rig objects live at 38100+ (32 players
   ## each). Moved off 32000+: the widened tracer-dot pool swallowed that range.
   RigHeadObjectBase = 38100    ## 1 head object per player: 38100..38131.
@@ -458,7 +467,7 @@ const
   ## (map view) / 5009..5012 (player view), team score text 9600..9603,
   ## muzzle blooms 16800..16831, tracer heads 16840..16871, hit flashes
   ## 16880..16911, splatters 17000..17063, identity badges 19040..19071,
-  ## map markers 20000, fog runs 21000..23047, tracer dots 24000..37983.
+  ## map markers 20000, fog runs 21000..23047, tracer dots 24000..35327.
   ## The full board object layout is enforced by the compile-time audit at
   ## the end of this const section (BoardObjectPools).
   ## Player debug sprites and objects use per-player pools at 40000+.
@@ -472,6 +481,8 @@ const
   SpritePlayerFlagObjectBase = 5009  ## 5009..5012 by team.
   SpritePlayerWeaponSpriteId = 5020  ## own-weapon HUD text ("weapon gun|arc").
   SpritePlayerWeaponObjectId = 5021
+  SpritePlayerOwnAimSpriteId = 5022  ## invisible own-aim readback marker
+  SpritePlayerOwnAimObjectId = 5023  ## ("own aim <brads>", player stream only).
   SpritePlayerSelfSpriteBase = 5100  ## white-outlined self soldiers, keyed by
                                      ## skin×rotation: default 5100..5115,
                                      ## crown 5116..5131.
@@ -663,7 +674,6 @@ type
     scrubbingReplay*: bool
     replaySeekTick*: int
     replayCommands*: seq[char]
-    broadcastHud*: bool          ## viewer opted into the JSON chrome channel.
     momentumSent*: bool          ## full lives-lead series already sent to this viewer.
     fpMapSent*: bool             ## static minimap wall silhouette already sent (EYES PiP tactical map).
     povSelectPending*: int       ## POV slot requested by a `v:<slot>` command.
@@ -829,14 +839,17 @@ proc endzoneDiffBox(sim: SimServer, team: Team): tuple[x0, y0, x1, y1: int] =
   ## glow-free map — the crack glow, capture line, and pedestal disc. Everything
   ## else in the column is identical at every crossfade stage, so the fade
   ## overlay never needs to ship it. Computed once per team and cached.
-  if EndzoneDiffBoxReady[team]:
-    return EndzoneDiffBox[team]
   if EndzoneColdRgba.len != MapWidth * MapHeight * 4:
     ## Map (re)selected since the last bake: rebuild the cold map and drop
-    ## every strip/box derived from the old geometry.
+    ## every strip/box derived from the old geometry. This must run BEFORE
+    ## the ready-flag return below — a box cached on a differently-sized map
+    ## would otherwise be served as-is and index out of the current map's
+    ## (correctly re-baked) buffers in endzoneStripSprite.
     EndzoneColdRgba = coldEndzoneMapRgba(sim.gameMap)
     EndzoneStripCache = default(typeof(EndzoneStripCache))
     EndzoneDiffBoxReady = default(typeof(EndzoneDiffBoxReady))
+  if EndzoneDiffBoxReady[team]:
+    return EndzoneDiffBox[team]
   let scan = sim.gameMap.endzoneStripBox(team)
   result = (x0: scan.x1 + 1, y0: scan.y1 + 1, x1: scan.x0 - 1, y1: -1)
   for y in scan.y0 .. scan.y1:
@@ -1016,36 +1029,6 @@ proc putRawRgbaPixel(
   pixels[offset + 2] = b
   pixels[offset + 3] = a
 
-proc crewSpriteIsSolid(sprite: CrewSprite, x, y: int, flipH: bool): bool =
-  ## Returns true when one crew sprite pixel has visible alpha.
-  let srcX = if flipH: sprite.width - 1 - x else: x
-  if srcX < 0 or srcX >= sprite.width or y < 0 or y >= sprite.height:
-    return false
-  sprite.rgba[sprite.crewSpriteOffset(srcX, y) + 3] >= 20'u8
-
-proc putCrewPixel(
-  pixels: var seq[uint8],
-  pixelIndex: int,
-  sprite: CrewSprite,
-  x, y: int,
-  tint: uint8
-) =
-  ## Writes one selectively tinted true-color crew pixel.
-  let
-    sourceOffset = sprite.crewSpriteOffset(x, y)
-    r = sprite.rgba[sourceOffset]
-    g = sprite.rgba[sourceOffset + 1]
-    b = sprite.rgba[sourceOffset + 2]
-    a = sprite.rgba[sourceOffset + 3]
-  if a < 20'u8:
-    return
-  if crewPixelIsTint(r, g, b, a):
-    pixels.putRgbaPixel(pixelIndex, tint)
-  elif crewPixelIsShade(r, g, b, a):
-    pixels.putRgbaPixel(pixelIndex, ShadowMap[tint and 0x0f])
-  else:
-    pixels.putRawRgbaPixel(pixelIndex, r, g, b, a)
-
 proc transportSheet(): Sprite =
   ## Returns the cached transport icon sheet.
   if TransportSheet.width == 0:
@@ -1064,10 +1047,6 @@ proc playerColorName(index: int): string =
   if index >= 0 and index < PlayerColorNames.len:
     return PlayerColorNames[index]
   "unknown"
-
-proc crewSpriteForSlot(sim: SimServer, slotId: int): CrewSprite =
-  ## Returns the crew sprite assigned to one player slot.
-  sim.crewSprites[crewVariantIndex(slotId)]
 
 const SoldierSkinSpriteStride = 4 * SoldierRotations
   ## One rotation set per Team enum member (4), per skin — red/blue default-
@@ -1347,12 +1326,7 @@ proc applyGlobalViewerMessage*(
       # Whole-string ctf-side commands are intercepted before the legacy
       # char-by-char transport path, so a multi-digit tick or slot is never
       # mangled into speed keystrokes.
-      if item.text == "hud:on":
-        state.broadcastHud = true
-      elif item.text == "hud:off":
-        state.broadcastHud = false
-        state.momentumSent = false
-      elif item.text.startsWith("s:"):
+      if item.text.startsWith("s:"):
         let tick = try: parseInt(item.text[2 .. ^1]) except ValueError: -1
         if tick >= 0:
           state.replaySeekTick = tick
@@ -1387,92 +1361,6 @@ proc applyPlayerViewerMessage*(
     of SpriteClientMouseMoveMessage, SpriteClientMouseButtonMessage,
         SpriteClientReadyMessage:
       discard
-
-proc isSolid(sprite: Sprite, x, y: int, flipH: bool): bool =
-  let srcX = if flipH: sprite.width - 1 - x else: x
-  if srcX < 0 or srcX >= sprite.width or y < 0 or y >= sprite.height:
-    return false
-  sprite.pixels[sprite.spriteIndex(srcX, y)] != TransparentColorIndex
-
-proc buildSpriteProtocolActorSprite(
-  sprite: Sprite,
-  tint: uint8,
-  flipH: bool,
-  selected: bool = false
-): seq[uint8] {.measure.} =
-  ## Builds a tinted actor sprite for the global viewer.
-  let
-    outWidth = sprite.width + 2
-    outHeight = sprite.height + 2
-    outline = if selected: 8'u8 else: OutlineColor
-  result = newRgbaPixels(outWidth, outHeight)
-
-  proc outIndex(x, y: int): int =
-    y * outWidth + x
-
-  if selected:
-    for y in -1 .. sprite.height:
-      for x in -1 .. sprite.width:
-        if sprite.isSolid(x, y, flipH):
-          continue
-        let adjacent =
-          sprite.isSolid(x - 1, y, flipH) or
-          sprite.isSolid(x + 1, y, flipH) or
-          sprite.isSolid(x, y - 1, flipH) or
-          sprite.isSolid(x, y + 1, flipH)
-        if adjacent:
-          result.putRgbaPixel(outIndex(x + 1, y + 1), outline)
-
-  for y in 0 ..< sprite.height:
-    for x in 0 ..< sprite.width:
-      let srcX = if flipH: sprite.width - 1 - x else: x
-      let colorIndex = sprite.pixels[sprite.spriteIndex(srcX, y)]
-      if colorIndex == TransparentColorIndex:
-        continue
-      result.putRgbaPixel(
-        outIndex(x + 1, y + 1),
-        actorColor(colorIndex, tint)
-      )
-
-proc buildCrewProtocolActorSprite(
-  sprite: CrewSprite,
-  tint: uint8,
-  flipH: bool,
-  selected: bool = false
-): seq[uint8] {.measure.} =
-  ## Builds a selectively tinted true-color crew sprite.
-  let
-    outWidth = sprite.width + 2
-    outHeight = sprite.height + 2
-    outline = if selected: 8'u8 else: OutlineColor
-  result = newRgbaPixels(outWidth, outHeight)
-
-  proc outIndex(x, y: int): int =
-    y * outWidth + x
-
-  if selected:
-    for y in -1 .. sprite.height:
-      for x in -1 .. sprite.width:
-        if sprite.crewSpriteIsSolid(x, y, flipH):
-          continue
-        let adjacent =
-          sprite.crewSpriteIsSolid(x - 1, y, flipH) or
-          sprite.crewSpriteIsSolid(x + 1, y, flipH) or
-          sprite.crewSpriteIsSolid(x, y - 1, flipH) or
-          sprite.crewSpriteIsSolid(x, y + 1, flipH)
-        if adjacent:
-          result.putRgbaPixel(outIndex(x + 1, y + 1), outline)
-
-  for y in 0 ..< sprite.height:
-    for x in 0 ..< sprite.width:
-      let srcX = if flipH: sprite.width - 1 - x else: x
-      result.putCrewPixel(
-        outIndex(x + 1, y + 1),
-        sprite,
-        srcX,
-        y,
-        tint
-      )
 
 proc buildSpriteProtocolRawSprite(sprite: Sprite): seq[uint8] {.measure.} =
   ## Builds a raw global protocol sprite from a game sprite.
@@ -3510,7 +3398,7 @@ proc buildFlagAuraSprite(team: Team): seq[uint8] {.measure.} =
 
 proc flagLabel(team: Team): string =
   ## Returns the observation label for one team's flag sprite.
-  teamText(team) & " flag"
+  labelFlag(teamText(team))
 
 proc carryHeartSpriteId(team: Team, aimStep: int): int =
   ## The carried-heart sprite id at aim step `aimStep` (cradled in the rig cog's
@@ -3541,7 +3429,7 @@ proc addFlagSprites(
       PlantedFlagW,
       PlantedFlagH,
       buildPlantedFlagSprite(team),
-      flagLabel(team) & " planted",
+      labelFlagPlanted(teamText(team)),
       native = boardScale
     )
     packet.addBoardSpriteChanged(
@@ -3634,7 +3522,7 @@ proc addPlayerActorSprites(
           # Raster natively at the emission scale: the ~120px painted masters
           # carry real detail the 1× 34px body footprint throws away.
           pixels = soldierRotPixels(team, skin, rot, boardScale)
-          side = if soldierFacingRight(rot): " right" else: " left"
+          side = if soldierFacingRight(rot): LabelSideRight else: LabelSideLeft
         # The HD sprite keeps its full 16-step rotation for the VISUAL; the label
         # stays the documented `player <color> <side>` (RULES.md) so exact-match
         # label readers keep working. Distinct sprite ids may share a side label
@@ -3645,7 +3533,7 @@ proc addPlayerActorSprites(
           SoldierCanvas,
           SoldierCanvas,
           pixels,
-          "player " & color & side,
+          labelPlayer(color, side),
           native = boardScale
         )
         # Corpse and selection variants derive from the same rendered pixels.
@@ -3655,7 +3543,7 @@ proc addPlayerActorSprites(
           SoldierCanvas,
           SoldierCanvas,
           soldierCorpse(pixels),
-          "corpse " & color & side,
+          labelCorpse(color, side),
           native = boardScale
         )
         if selected:
@@ -3665,7 +3553,7 @@ proc addPlayerActorSprites(
             SoldierCanvas,
             SoldierCanvas,
             soldierOutlined(pixels, 8'u8, boardScale),
-            "selected player " & color & side,
+            labelSelectedPlayer(color, side),
             native = boardScale
           )
 
@@ -3760,7 +3648,7 @@ proc buildSpriteProtocolPlayerInit(
     sim.flagSprite.width,
     sim.flagSprite.height,
     buildSpriteProtocolShadowSprite(sim.flagSprite),
-    "fire icon cooldown"
+    LabelFireIconCooldown
   )
   sim.addSpriteProtocolInterstitialSprites(spriteDefs, result)
   sim.addPlayerActorSprites(spriteDefs, result, selected = false)
@@ -4025,17 +3913,6 @@ proc overheadAnchorY(player: Player): int =
   ## (HP bar, name, shout) just above the helmet, independent of canvas size.
   player.y + CollisionH div 2 - SoldierBodyPx div 2
 
-proc spriteActorSpriteId(player: Player, selectedJoinOrder: int): int =
-  ## Returns the sprite id for a player in the global viewer: the team soldier
-  ## pre-rotated to the player's aim angle (the held gun sweeps with the aim).
-  let
-    rot = soldierRotIndex(player.aimBrads)
-    selected = player.joinOrder == selectedJoinOrder
-  if selected:
-    selectedSoldierPlayerSpriteId(player.team, player.skin, rot)
-  else:
-    soldierPlayerSpriteId(player.team, player.skin, rot)
-
 proc selectSpritePlayer(
   sim: SimServer,
   mouseX,
@@ -4230,7 +4107,7 @@ proc addShotImpactRings(
       SoundRingSize,
       SoundRingSize,
       buildShotImpactSprite(),
-      "shot impact"
+      LabelShotImpact
     )
     let
       (ix, iy) = shotImpactOffset(shot)
@@ -4772,7 +4649,7 @@ proc addGrenades(
         packet.addBoardSpriteChanged(
           spriteDefs, spriteId, size, size,
           buildBlastSprite(colorIndex, stage, size),
-          "blast stage " & $stage
+          LabelBlastStagePrefix & $stage
         )
       let objectId = BlastObjectBase + i
       currentIds.add(objectId)
@@ -4919,7 +4796,9 @@ proc addBoardShouts(
   ## (see addShouts for both rationales).
   ##
   ## Unlike the player path, what a bubble SHOWS is floored in wall-clock
-  ## time. A shout lives ShoutTicks of SIM time, but replay playback
+  ## time — where "wall-clock" is counted in ADVANCING rendered frames, never
+  ## read from the system clock, so this stays deterministic and replay-exact.
+  ## A shout lives ShoutTicks of SIM time, but replay playback
   ## compresses sim time per rendered frame (speed × the skip-lulls boost, up
   ## to MaxLullTicksPerFrame ticks a frame) — enough to squeeze a bubble's
   ## whole life into one or two frames, which a viewer reads as random text
@@ -5068,7 +4947,7 @@ proc addHpPips(
       HpBarWidth,
       HpBarH,
       buildHpBarSprite(litSegments),
-      "hp " & $litSegments & "/" & $HpBarSegments
+      labelHp(litSegments)
     )
     let objectId = HpPipObjectBase + i
     currentIds.add(objectId)
@@ -5112,15 +4991,16 @@ proc addIdentityBadges(
       identityIndex = sim.slotIdentityIndex(player.joinOrder)
       spriteId = IdentityBadgeSpriteBase +
         ord(player.team) * IdentityNames.len + identityIndex
-    var label = "identity " & teamText(player.team) & " " &
-      IdentityNames[identityIndex]
-    if player.hasShield: label.add " shield"
-    if player.hasGrenade: label.add " nade"
-    # The weapon token is always LAST and always present, so observers never
-    # infer a weapon from absence: " spray" for the spray can (0.7.x renamed
-    # the plasma arc, whose token was " arc"), " gun" for the default gun.
-    if player.hasPlasmaArc: label.add " spray"
-    else: label.add " gun"
+    # labelIdentity owns the ordering invariant (flags in fixed order, weapon
+    # token always LAST and always present, so observers never infer a weapon
+    # from absence).
+    let label = labelIdentity(
+      teamText(player.team),
+      IdentityNames[identityIndex],
+      shield = player.hasShield,
+      nade = player.hasGrenade,
+      weapon = (if player.hasPlasmaArc: LabelWeaponSpray else: LabelWeaponGun)
+    )
     packet.addBoardSpriteChanged(
       spriteDefs,
       spriteId,
@@ -5469,8 +5349,9 @@ proc buildSpriteProtocolPlayerUpdates*(
           soldierOutlined(soldierRotPixels(other.team, other.skin, rot), 2'u8),
           # Documented self marker (RULES.md): `self <color> <side>`, only drawn
           # while alive. Side follows the aim exactly as the sim's flipH does.
-          "self " & teamText(other.team) &
-            (if soldierFacingRight(rot): " right" else: " left")
+          labelSelf(
+            teamText(other.team),
+            if soldierFacingRight(rot): LabelSideRight else: LabelSideLeft)
         )
       let objectId = other.spriteObjectId()
       currentIds.add(objectId)
@@ -5585,7 +5466,7 @@ proc buildSpriteProtocolPlayerUpdates*(
       lives.width,
       lives.height,
       lives.pixels,
-      "lives " & livesText
+      LabelPrefixLives & livesText
     )
     result.addBoardObject(
       SelectedTextObjectId,
@@ -5601,7 +5482,7 @@ proc buildSpriteProtocolPlayerUpdates*(
     # weapon from floating markers gets it wrong at the worst moments. The
     # label is the machine contract ("weapon gun" | "weapon spray").
     let
-      weaponText = if player.hasPlasmaArc: "spray" else: "gun"
+      weaponText = if player.hasPlasmaArc: LabelWeaponSpray else: LabelWeaponGun
       weapon = sim.buildSpriteProtocolTextSprite([weaponText], 2'u8)
     currentIds.add(SpritePlayerWeaponObjectId)
     result.addSpriteChanged(
@@ -5610,7 +5491,7 @@ proc buildSpriteProtocolPlayerUpdates*(
       weapon.width,
       weapon.height,
       weapon.pixels,
-      "weapon " & weaponText
+      labelWeapon(weaponText)
     )
     result.addBoardObject(
       SpritePlayerWeaponObjectId,
@@ -5619,6 +5500,30 @@ proc buildSpriteProtocolPlayerUpdates*(
       0,
       HudTopRightLayerId,
       SpritePlayerWeaponSpriteId
+    )
+
+    # Own-aim readback: an invisible 1x1 marker whose LABEL states this
+    # player's turret angle outright (`own aim <brads>`). The observation
+    # carried no readback at all — bots dead-reckoned their own aim
+    # open-loop, and the drift measurably cost accuracy (docs/PROTOCOL.md).
+    # Label-carried like the lives counter: the 1x1 sprite re-sends only on
+    # ticks the aim actually changed.
+    currentIds.add(SpritePlayerOwnAimObjectId)
+    result.addSpriteChanged(
+      nextState.spriteDefs,
+      SpritePlayerOwnAimSpriteId,
+      1,
+      1,
+      newRgbaPixels(1, 1),
+      labelOwnAim(player.aimBrads)
+    )
+    result.addBoardObject(
+      SpritePlayerOwnAimObjectId,
+      0,
+      0,
+      0,
+      HudTopRightLayerId,
+      SpritePlayerOwnAimSpriteId
     )
 
   sim.addTeamScoreboard(nextState.spriteDefs, currentIds, result)
@@ -5965,7 +5870,7 @@ proc rigSegLabel(seg: RigSeg, color: string): string =
   ## The `player <color>` contract label rides on the HEAD segment (the aim-facing
   ## piece a label scanner reads as the actor); limbs get plain tags.
   case seg
-  of rsHead: "player " & color
+  of rsHead: LabelPrefixPlayer & color
   of rsArmL, rsArmR: "cog arm " & color
   of rsLegFL, rsLegFR, rsLegRear: "cog leg " & color
   else: "cog wheel " & color
@@ -6088,7 +5993,7 @@ proc addCogRigObjects(
       spriteDefs, weaponSpriteId, RigCanvas, RigCanvas,
       (if holdsSpray: rigSprayCanPixels(player.team, aimStep, boardScale)
        else: rigGunPixels(player.team, aimStep, boardScale)),
-      (if holdsSpray: "cog spray can " else: "cog gun ") & color,
+      labelCogWeapon(color, spray = holdsSpray),
       native = boardScale)
   let weaponObjectId = RigGunObjectBase + base
   currentIds.add(weaponObjectId)
@@ -6295,7 +6200,9 @@ proc buildSpriteProtocolUpdates*(
   # respawn, dead) SNAPS to a fresh rest pose so a jump never inherits a stale limb
   # pose. Broadcast-only + deterministic given the recorded velocities, so playback
   # stays replay-exact.
-  const MaxSmoothStepTicks = 16   ## = the top replay playback speed.
+  const MaxSmoothStepTicks = PlaybackSpeeds[^1]
+    ## The cog-drive smoothing window follows the top playback speed by
+    ## construction (it used to be a hand-synced copy of that value).
   let neverStepped = nextState.cogDriveTick == low(int)
   let tickDelta = if neverStepped: 0 else: sim.tickCount - nextState.cogDriveTick
   if neverStepped or tickDelta != 0:

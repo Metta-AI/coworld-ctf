@@ -8,10 +8,14 @@
 ##        [toTick] [scaleDiv]
 import
   std/[algorithm, monotimes, os, sets, strformat, strutils, tables, times],
-  pixie, supersnappy,
+  pixie,
   bitworld/spriteprotocol,
-  ../src/ctf/global, ../src/ctf/replays, ../src/ctf/sim
+  ../src/ctf/[global, sim],
+  toolutil
 
+## Divergent from toolutil's SpriteWorld ON PURPOSE: this tool's point is the
+## band/dynamic split with a cached composited background (plus per-stage
+## timing), so only the sprite decode and the replay-open dance are shared.
 type ViewerModel = object
   sprites: Table[int, Image]
   objects: Table[int, SpritePacketObject]
@@ -19,16 +23,6 @@ type ViewerModel = object
   mapLayer: int
   background: Image
   backgroundDirty: bool
-
-proc decodeSprite(def: SpritePacketSpriteDef): Image =
-  let raw = supersnappy.uncompress(def.compressedPixels)
-  result = newImage(def.width, def.height)
-  for y in 0 ..< def.height:
-    for x in 0 ..< def.width:
-      let i = y * def.width + x
-      result[x, y] = rgba(
-        raw[i * 4 + 0], raw[i * 4 + 1], raw[i * 4 + 2], raw[i * 4 + 3]
-      )
 
 proc apply(model: var ViewerModel, messages: seq[SpritePacketMessage]) =
   for m in messages:
@@ -90,14 +84,7 @@ proc main() =
     toTick = if paramCount() >= 5: parseInt(paramStr(5)) else: high(int)
     scaleDiv = if paramCount() >= 6: parseInt(paramStr(6)) else: 1
   createDir(outDir)
-  let data = loadReplay(replayPath)
-  var config = defaultGameConfig()
-  config.update(data.configJson)
-  var sim = initSimServer(config)
-  sim.gameEventLoggingEnabled = false
-  var replay = initReplayPlayer(data)
-  replay.looping = false
-  replay.mismatchQuit = true
+  var (sim, replay) = openReplay(replayPath)
   var
     model = ViewerModel(mapLayer: -1, backgroundDirty: false)
     state = initGlobalViewerState()

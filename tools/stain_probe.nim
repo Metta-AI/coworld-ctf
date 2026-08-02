@@ -8,11 +8,16 @@
 ## sort the map-layer objects by z, blit at obj.x/obj.y.
 ##
 ## Usage: nim r tools/stain_probe.nim <replay.bitreplay> <outDir> [tick,tick,..]
+## NOTE: keeps its own compositor rather than toolutil's SpriteWorld — it
+## sorts in full client order (z, then y, then id) where the shared board
+## render sorts by z alone, and that tie-break is part of what this probe
+## demonstrates.
 import
   std/[algorithm, os, sequtils, strutils],
-  pixie, supersnappy,
+  pixie,
   bitworld/spriteprotocol,
-  ../src/ctf/global, ../src/ctf/replays, ../src/ctf/sim
+  ../src/ctf/[global, sim],
+  toolutil
 
 proc renderBoard(sim: var SimServer, state: var GlobalViewerState): Image =
   ## Composites one real broadcast frame into an image, at board scale.
@@ -38,16 +43,9 @@ proc renderBoard(sim: var SimServer, state: var GlobalViewerState): Image =
   for m in messages:
     case m.kind
     of spkSprite:
-      let raw = supersnappy.uncompress(m.sprite.compressedPixels)
-      if raw.len < m.sprite.width * m.sprite.height * 4:
+      let image = decodeSprite(m.sprite)
+      if image.isNil:
         continue                      # palette sprite (UI); board art is RGBA.
-      var image = newImage(m.sprite.width, m.sprite.height)
-      for y in 0 ..< m.sprite.height:
-        for x in 0 ..< m.sprite.width:
-          let i = y * m.sprite.width + x
-          image[x, y] = rgba(
-            raw[i * 4 + 0], raw[i * 4 + 1], raw[i * 4 + 2], raw[i * 4 + 3]
-          )
       putSprite(m.sprite.id, image)
     of spkObject:
       var replaced = false
@@ -103,14 +101,7 @@ proc main() =
       if paramCount() >= 3: paramStr(3).split(',').map(parseInt)
       else: @[1, 600, 1500, 3000, 100_000]
   createDir(outDir)
-  let data = loadReplay(replayPath)
-  var config = defaultGameConfig()
-  config.update(data.configJson)
-  var sim = initSimServer(config)
-  sim.gameEventLoggingEnabled = false
-  var replay = initReplayPlayer(data)
-  replay.looping = false
-  replay.mismatchQuit = false
+  var (sim, replay) = openReplay(replayPath, mismatchQuit = false)
 
   var state = initGlobalViewerState()
   var shotFor: seq[int]

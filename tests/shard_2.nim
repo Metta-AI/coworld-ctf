@@ -5,6 +5,7 @@ import
   test_four_team,
   test_fov,
   test_fx_pools,
+  test_gun_jitter,
   test_kill_badges,
   test_live_event_emission,
   test_map_los,

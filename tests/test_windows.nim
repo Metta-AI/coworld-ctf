@@ -1,39 +1,7 @@
 import
-  std/[os, unittest],
+  helpers,
+  std/unittest,
   ctf/sim
-
-const GameDir = currentSourcePath.parentDir.parentDir
-
-proc initCtfForTest(): SimServer =
-  ## Initializes the CTF sim from the game directory (so data/ resolves).
-  let previousDir = getCurrentDir()
-  setCurrentDir(GameDir)
-  try:
-    result = initSimServer(defaultGameConfig())
-  finally:
-    setCurrentDir(previousDir)
-
-proc armToFire(game: var SimServer, shooter: int) =
-  ## Clears the gates so the shooter's next tryFire releases this tick.
-  game.players[shooter].windupBrads = -1
-  game.players[shooter].fireCooldown = 0
-
-proc segmentBlocked(sim: SimServer, ax, ay, bx, by: int): bool =
-  ## Returns true when a wall pixel blocks the straight segment between two
-  ## map points (same stepping as the sim's line-of-sight routine).
-  let
-    dx = bx - ax
-    dy = by - ay
-    steps = max(abs(dx), abs(dy))
-  for s in 1 .. steps:
-    if sim.isWall(ax + dx * s div steps, ay + dy * s div steps):
-      return true
-  false
-
-proc fovAt(sim: SimServer, visible: seq[bool], x, y: int): bool =
-  ## Reads one map point from a computed visibility grid.
-  let (cx, cy) = fovCellAt(x, y)
-  visible[fovCellIndex(cx, cy)]
 
 ## The second rect stub from the top and from the bottom of column 1
 ## (x=268..286, plus their x-mirrors) are glass windows: they stay walls for

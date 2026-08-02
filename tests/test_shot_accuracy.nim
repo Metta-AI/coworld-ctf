@@ -1,22 +1,7 @@
 import
-  std/[os, unittest],
+  helpers,
+  std/unittest,
   ctf/sim
-
-const GameDir = currentSourcePath.parentDir.parentDir
-
-proc initCtfForTest(config: GameConfig): SimServer =
-  ## Initializes the CTF sim from the game directory.
-  let previousDir = getCurrentDir()
-  setCurrentDir(GameDir)
-  try:
-    result = initSimServer(config)
-  finally:
-    setCurrentDir(previousDir)
-
-proc armToFire(game: var SimServer, shooter: int) =
-  ## Clears the gates so the shooter's next tryFire releases this tick.
-  game.players[shooter].windupBrads = -1
-  game.players[shooter].fireCooldown = 0
 
 suite "shot accuracy counters (analysis-only)":
   test "a shot that locks onto a live enemy counts as fired AND hit":

@@ -1,4 +1,5 @@
 import
+  helpers,
   std/[json, os, unittest],
   ctf/sim,
   "../tools/dump_map_mask"
@@ -11,8 +12,6 @@ import
 ## Every map here is read through loadCtfMapMetadata, which does NOT install
 ## the map: the process map is a one-shot global that the render bakes rely on
 ## (see sim.nim's "Runtime map state"), and this suite shares one process.
-
-const GameDir = currentSourcePath.parentDir.parentDir
 
 proc withGameDir(body: proc()) =
   ## Runs `body` from the repo root so data/ assets resolve.

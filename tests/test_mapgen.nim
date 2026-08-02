@@ -1,8 +1,7 @@
 import
-  std/[os, sequtils, tables, unittest],
+  helpers,
+  std/[sequtils, tables, unittest],
   ctf/sim, ctf/map_pool
-
-const GameDir = currentSourcePath.parentDir.parentDir
 
 var mapCache = initTable[string, CtfMap]()
 
@@ -18,15 +17,6 @@ proc cachedMap(seed: int,
   if key notin mapCache:
     mapCache[key] = generateCtfMap(seed, overrides, teams)
   mapCache[key]
-
-proc initCtfForTest(config: GameConfig): SimServer =
-  ## Initializes the CTF sim from the game directory (so data/ resolves).
-  let previousDir = getCurrentDir()
-  setCurrentDir(GameDir)
-  try:
-    result = initSimServer(config)
-  finally:
-    setCurrentDir(previousDir)
 
 proc obstacleAt(obstacles: seq[ArenaShape], x, y: int): bool =
   ## Raw obstacle-union test (no border, no protected-floor carve). On
@@ -287,8 +277,10 @@ suite "procedural terrain":
     gameMap = resolveCtfMapMetadata(config)
     check gameMap.width == 3211
     check gameMap.height == 1713
-    ## Map-relative ranges follow the bigger field like any other class.
+    ## The gun range is fixed (GV34): the config still follows the map def,
+    ## but the def no longer scales it with the field.
     check config.gunRange == gameMap.gunRange
+    check config.gunRange == GunRange
 
   test "med kits spawn on the generated map's active pair":
     var config = defaultGameConfig()

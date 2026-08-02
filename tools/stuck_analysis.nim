@@ -1,4 +1,4 @@
-import std/[os, algorithm, strformat], ../src/ctf/replays, ../src/ctf/sim
+import std/[os, algorithm, strformat], ../src/ctf/sim, toolutil
 
 # Re-simulates a replay and reports, per player, how much of their alive time
 # is spent "stuck" (net displacement under StuckRadius map px over a
@@ -9,29 +9,21 @@ const
   StuckRadius = 6
 
 let path = commandLineParams()[0]
-let gameDir = currentSourcePath().parentDir().parentDir()
-setCurrentDir(gameDir)
-let data = loadReplay(path)
-var config = defaultGameConfig()
-config.update(data.configJson)
-var
-  game = initSimServer(config)
-  replay = initReplayPlayer(data)
-game.gameEventLoggingEnabled = false
-replay.looping = false
-replay.mismatchQuit = true
+chdirGameDir()
+var (game, replay) = openReplay(path)
 
+let seatCap = game.config.playerSlotLimit()
 var
-  history: array[16, seq[(int, int, bool)]] # x, y, alive per tick
-  stuckTicks: array[16, int]
-  aliveTicks: array[16, int]
-  worstSpots: array[16, (int, int, int)] # start tick, x, y of longest stall
-  stallLen: array[16, int]
-  curStall: array[16, int]
+  history = newSeq[seq[(int, int, bool)]](seatCap) # x, y, alive per tick
+  stuckTicks = newSeq[int](seatCap)
+  aliveTicks = newSeq[int](seatCap)
+  worstSpots = newSeq[(int, int, int)](seatCap) # start tick, x, y of longest stall
+  stallLen = newSeq[int](seatCap)
+  curStall = newSeq[int](seatCap)
 
 while replay.playing:
   replay.stepReplay(game)
-  for i in 0 ..< min(game.players.len, 16):
+  for i in 0 ..< min(game.players.len, seatCap):
     let p = game.players[i]
     history[i].add((p.x, p.y, p.alive))
     if not p.alive:
@@ -55,7 +47,7 @@ while replay.playing:
 
 echo "ticks=", game.tickCount
 var rows: seq[(float, int)]
-for i in 0 ..< 16:
+for i in 0 ..< seatCap:
   if aliveTicks[i] == 0:
     continue
   rows.add((stuckTicks[i].float / aliveTicks[i].float, i))

@@ -1,7 +1,7 @@
 import
   std/[json, os, strutils],
-  ../src/ctf/replays,
-  ../src/ctf/sim
+  ../src/ctf/sim,
+  toolutil
 
 type
   ExpandReplayError = object of CatchableError
@@ -40,7 +40,6 @@ type
 
 const
   UsageText = "Usage: nim r tools/expand_replay.nim [replay-path]"
-  GameDir = currentSourcePath().parentDir().parentDir()
   DefaultReplayPath = GameDir / "tests" / "replays" / "ctf.bitreplay"
 
 proc fail(message: string) =
@@ -65,11 +64,6 @@ proc replayPathFromArgs(): string {.used.} =
   if paths.len == 0:
     return DefaultReplayPath
   paths[0].absolutePath()
-
-proc replayConfig(data: ReplayData): GameConfig =
-  ## Returns the game config embedded in a replay.
-  result = defaultGameConfig()
-  result.update(data.configJson)
 
 proc player(sim: SimServer, i: int): string =
   ## Returns team, color, and username for one player.
@@ -381,11 +375,10 @@ proc eventsAt(timeline: ReplayTimeline, tick: int): seq[ReplayEvent] =
 proc expandReplayTimeline*(data: ReplayData): ReplayTimeline =
   ## Expands one replay into a structured CTF event timeline.
   let previousDir = getCurrentDir()
-  setCurrentDir(GameDir)
+  chdirGameDir()
   try:
     var
-      sim = initSimServer(data.replayConfig())
-      replay = initReplayPlayer(data)
+      (sim, replay) = openReplay(data)
       track: TrackState
       phase = sim.phase
       prevCarriers: array[Team, int]
@@ -393,10 +386,6 @@ proc expandReplayTimeline*(data: ReplayData): ReplayTimeline =
     for team in Team:
       prevCarriers[team] = sim.flags[team].carrier
       prevCaptured[team] = sim.flags[team].captured
-
-    sim.gameEventLoggingEnabled = false
-    replay.looping = false
-    replay.mismatchQuit = true
 
     while replay.playing:
       let tick = sim.tickCount + 1

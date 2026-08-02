@@ -1,5 +1,6 @@
 import
-  std/[os, sets, tables, strutils, unittest],
+  helpers,
+  std/[sets, tables, strutils, unittest],
   bitworld/spriteprotocol,
   ctf/[global, sim]
 
@@ -21,44 +22,6 @@ import
 #      semantics, later-def-wins), every label the baseline bot exact-match
 #      scans for must still exist in the table (the label CONTRACT — also
 #      catches cross-packet clobbering and silent renames).
-
-const GameDir = currentSourcePath.parentDir.parentDir
-
-proc initCtfForTest(config: GameConfig): SimServer =
-  let previousDir = getCurrentDir()
-  setCurrentDir(GameDir)
-  try:
-    result = initSimServer(config)
-  finally:
-    setCurrentDir(previousDir)
-
-proc buildPlayerMessages(
-  sim: var SimServer,
-  playerIndex: int,
-  state: var PlayerViewerState
-): seq[SpritePacketMessage] =
-  var nextState: PlayerViewerState
-  let previousDir = getCurrentDir()
-  setCurrentDir(GameDir)
-  try:
-    result = sim.buildSpriteProtocolPlayerUpdates(
-      playerIndex, state, nextState).parseSpritePacket()
-  finally:
-    setCurrentDir(previousDir)
-  state = nextState
-
-proc buildGlobalMessages(
-  sim: var SimServer,
-  state: var GlobalViewerState
-): seq[SpritePacketMessage] =
-  var nextState: GlobalViewerState
-  let previousDir = getCurrentDir()
-  setCurrentDir(GameDir)
-  try:
-    result = sim.buildSpriteProtocolUpdates(state, nextState).parseSpritePacket()
-  finally:
-    setCurrentDir(previousDir)
-  state = nextState
 
 proc fullFeatureGame(withCrown = true, crownOnly = false): SimServer =
   ## A game exercising every sprite family at once: a viewer, a visible

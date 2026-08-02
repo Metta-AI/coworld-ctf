@@ -8,13 +8,12 @@
 ##
 ## Usage (from the repo root): nim r tools/spray_gap_probe.nim
 import
-  std/[math, os, strformat],
-  ../src/ctf/global, ../src/ctf/sim
-
-const GameDir = currentSourcePath().parentDir.parentDir
+  std/strformat,
+  ../src/ctf/global, ../src/ctf/sim,
+  toolutil
 
 proc twoTeamGame(): SimServer =
-  setCurrentDir(GameDir)
+  chdirGameDir()
   result = initSimServer(defaultGameConfig())
   result.gameEventLoggingEnabled = false
   discard result.addPlayer("red0")

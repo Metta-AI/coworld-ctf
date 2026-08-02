@@ -1,10 +1,10 @@
 import
+  helpers,
   std/[json, os, sequtils, unittest],
   ctf/[broadcast, replays, sim],
   "../tools/expand_replay"
 
 const
-  GameDir = currentSourcePath.parentDir.parentDir
   FixtureDir = GameDir / "tests" / "fixtures"
   # Fixtures are recorded against the CURRENT gameplay rules and must be
   # re-recorded on every GameVersion bump (tools/record_fixture.sh):
@@ -21,8 +21,9 @@ const
   # ending a seed produces is a property of the rules it was recorded under.
   # GV30 moved the pickups, and seed 7 — which captured under GV29 — now
   # runs to a time-limit draw, so the capture fixture moved to seed 1.
-  # Under GV33 seed 1 still ends on a capture (Blue captures the red heart,
-  # eliminating Red — the whole red roster dies on the capture tick).
+  # Under GV34 (range cap + aim jitter) seed 1 still ends on a capture
+  # (Blue captures the red heart, eliminating Red — the whole red roster
+  # dies on the capture tick).
   CaptureFixture = FixtureDir / "capture-seed1.bitreplay"
   WipeFixture = FixtureDir / "wipe-lives1.bitreplay"
   DrawFixture = FixtureDir / "draw-nokill.bitreplay"

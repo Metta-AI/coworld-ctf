@@ -4,14 +4,8 @@
 
 import
   pixie,
-  ../src/ctf/sim
-
-proc spriteToImage(pixels: seq[uint8], width, height: int): Image =
-  result = newImage(width, height)
-  for i in 0 ..< width * height:
-    result.data[i] = rgba(
-      pixels[i * 4], pixels[i * 4 + 1], pixels[i * 4 + 2], pixels[i * 4 + 3]
-    ).rgbx()
+  ../src/ctf/sim,
+  toolutil
 
 when isMainModule:
   let

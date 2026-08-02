@@ -1,18 +1,8 @@
 import
-  std/[os, sequtils, strutils, unittest],
+  helpers,
+  std/[sequtils, strutils, unittest],
   bitworld/spriteprotocol,
   ctf/[global, sim]
-
-const GameDir = currentSourcePath.parentDir.parentDir
-
-proc initCtfForTest(config: GameConfig): SimServer =
-  ## Initializes the CTF sim from the game directory.
-  let previousDir = getCurrentDir()
-  setCurrentDir(GameDir)
-  try:
-    result = initSimServer(config)
-  finally:
-    setCurrentDir(previousDir)
 
 proc mapLabels(sim: var SimServer): seq[string] =
   ## Builds one map-view sprite packet and returns its sprite labels. The

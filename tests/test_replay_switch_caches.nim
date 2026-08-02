@@ -1,18 +1,8 @@
 import
+  helpers,
   std/[os, strutils, unittest],
   bitworld/spriteprotocol,
   ctf/[global, sim]
-
-const GameDir = currentSourcePath.parentDir.parentDir
-
-proc initCtfForTest(config: GameConfig): SimServer =
-  ## Initializes the CTF sim from the game directory (so data/ resolves).
-  let previousDir = getCurrentDir()
-  setCurrentDir(GameDir)
-  try:
-    result = initSimServer(config)
-  finally:
-    setCurrentDir(previousDir)
 
 proc startedGame(configJson: string): SimServer =
   ## A started two-player game over the map the config JSON selects.
@@ -62,3 +52,35 @@ suite "replay switch render caches":
     check simB.initBandPixels() == bandsB
     invalidateBoardMapCaches()
     check simB.initBandPixels() == bandsB
+
+  test "endzone caches self-heal across a map size switch, no invalidate":
+    # tests.nim runs every module in ONE process, and board-state modules
+    # build sims over different-size maps back-to-back without any
+    # invalidateBoardMapCaches() courtesy call. The endzone diff boxes are
+    # cached process-wide per TEAM while the fade strips cache per (team,
+    # stage): a box baked on a larger map, served onto a smaller map for a
+    # stage whose strip is not cached yet, indexes out of the (correctly
+    # re-baked) board buffers — the IndexDefect that used to kill
+    # test_shouts/test_shield_bubble in the full-suite binary. Pin the
+    # self-heal: bake Red's box + stage-1 strip on the 1606x858 large arena,
+    # then drive one 1235x659 default-arena viewer far enough into the
+    # prewarm drip to bake Red's stage-2 strip, with no invalidation in
+    # between.
+    var simLarge = startedGame("""{"mapPath": "arena-large"}""")
+    check simLarge.initBandPixels().len > 0
+    var simDefault = startedGame("")
+    var viewer = initGlobalViewerState()
+    for _ in 0 .. EndzonePrewarmEveryFrames:
+      discard simDefault.buildGlobalMessages(viewer)
+
+# The suite above installs pool and arena-large maps as THE process map
+# (selectCtfMap runs inside initSimServer) and repopulates the render caches
+# from whichever map its last test touched. Both are process-wide, so leave
+# no footprint: restore the default arena and drop the map-derived caches,
+# whatever order the tests above ran in. (tests.nim runs ALL shards in one
+# process, unlike CI's four binaries — test_shouts/test_shield_bubble once
+# crashed with an IndexDefect on this module's leftovers; the size-mismatch
+# case now also self-heals in endzoneDiffBox, pinned by the suite's second
+# test.)
+discard loadCtfMap()
+invalidateBoardMapCaches()

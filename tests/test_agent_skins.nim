@@ -1,9 +1,8 @@
 import
+  helpers,
   std/[os, posix, strutils, tables, unittest],
   bitworld/spriteprotocol,
   ctf/[global, sim]
-
-const GameDir = currentSourcePath.parentDir.parentDir
 
 proc captureStderr(run: proc() {.closure.}): string =
   ## Runs one config parse and returns exactly what it writes to stderr.
@@ -26,14 +25,6 @@ proc captureStderr(run: proc() {.closure.}): string =
 proc parseConfig(json: string): GameConfig =
   result = defaultGameConfig()
   result.update(json)
-
-proc initCtfForTest(config: GameConfig): SimServer =
-  let previousDir = getCurrentDir()
-  setCurrentDir(GameDir)
-  try:
-    result = initSimServer(config)
-  finally:
-    setCurrentDir(previousDir)
 
 proc firstPlayerPacket(config: GameConfig): seq[uint8] =
   var sim = initCtfForTest(config)

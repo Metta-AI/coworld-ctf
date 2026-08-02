@@ -1,19 +1,10 @@
 import
-  std/[os, unittest],
+  helpers,
+  std/unittest,
   ctf/[global, sim]
 
 const
-  GameDir = currentSourcePath.parentDir.parentDir
   MapLayerId = 0
-
-proc initCtfForTest(config: GameConfig): SimServer =
-  ## Initializes the CTF sim from the game directory.
-  let previousDir = getCurrentDir()
-  setCurrentDir(GameDir)
-  try:
-    result = initSimServer(config)
-  finally:
-    setCurrentDir(previousDir)
 
 proc clickBoard(
   state: var GlobalViewerState,
