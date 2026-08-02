@@ -4,9 +4,11 @@ name: Upload Coworld Paintbot
 # new paintbot version to Softmax on every push to main, keeping the Paintbot
 # league's game rules in lockstep with the singles league. The two uploads share
 # compose.yaml and differ only in the manifest template: paintbot declares the
-# doubles variants. Seating (each 8-seat parity team split between two policies,
-# 4 policies per episode) is configured by the platform ladder service, which
-# owns this league's scheduling.
+# league shapes — 2v2 (each 8-seat parity team split between two policies, 4
+# policies per episode), 4ffa (four teams of 4, one policy per team), and 4ffa8
+# (four teams of 8 on a giant board, 32 seats). Seating is configured by the
+# platform ladder service (team_n, slot mod 4), which owns this league's
+# scheduling.
 #
 # Auth: the same SOFTMAX_TOKEN repo secret as upload-coworld.yml.
 

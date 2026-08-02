@@ -317,3 +317,24 @@ suite "pot scoring":
     var bad = defaultGameConfig()
     expect CtfError:
       bad.update("""{"scoring": "winner-take-all"}""")
+
+  test "4ffa8 shape: 32 seats deal 8 per team on a locked giant board":
+    ## The paintbot 4ffa8 variant: MaxPlayers seats, teams 4, mapSize giant.
+    var config = fourTeamConfig("")   # layout drawn from the map seed
+    config.mapGen.size = "giant"
+    var sim = initCtfForTest(config)
+    for i in 0 ..< MaxPlayers:
+      discard sim.addPlayer("p" & $i)
+    sim.startGame()
+    check sim.gameMap.teamCount() == 4
+    check sim.gameMap.width == 2496   # 960 * 2.6: the giant lock took
+    var counts: array[Team, int]
+    for i in 0 ..< MaxPlayers:
+      inc counts[sim.players[i].team]
+    for team in sim.teams():
+      check counts[team] == 8
+    # No two players share a spawn pixel.
+    for i in 0 ..< MaxPlayers:
+      for j in i + 1 ..< MaxPlayers:
+        check sim.players[i].x != sim.players[j].x or
+          sim.players[i].y != sim.players[j].y
