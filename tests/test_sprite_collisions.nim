@@ -207,3 +207,54 @@ suite "sprite id collisions":
     check "player " in prefixes    # "player red right" etc (actorsFor)
     check "hp " in prefixes        # overhead pips "hp N/3"
     check "lives " in prefixes     # own-HUD hp/lives text
+
+  test "4-team rig sprites stay inside the dynamic wire window":
+    # REGRESSION (the 2026-08-02 black-stripe reports): rig pose KEYS exceed
+    # u16 — a yellow (4th team) rear-leg key is >= ~70040, and the wire's
+    # addU16 wrapped it mod 65536 onto the low sprite ids, permanently
+    # redefining once-only map-band sprites as 96x96 leg art on every client
+    # (full-width black stripes; the emitter's dedup cache keys on the full
+    # id, so the clobbered band was never re-sent). Rig ids must reach the
+    # wire only through the dense dynamic window at DynamicSpriteWireBase+:
+    # across a maneuvering 4-team game, no rig segment may define a sprite
+    # below the window, and every map-band id keeps its band label.
+    var config = defaultGameConfig()
+    config.teams = 4
+    config.mapPath = "gen"
+    config.mapGen.layout = "corners"
+    config.mapSeed = 42
+    var game = initCtfForTest(config)
+    for i in 0 ..< 8:
+      discard game.addPlayer("p" & $i)
+    game.startGame()
+    var gstate = initGlobalViewerState()
+    var defs: Table[int, string]
+    var inputs = newSeq[InputState](game.players.len)
+    let none = newSeq[InputState](game.players.len)
+    for tick in 0 ..< 48:
+      # Sweep aim/heading through all 16 rig steps while moving and turning,
+      # so leg swing/shorten and wheel caster fan the pose keys out across
+      # the pool (the persistent gstate steps each cog's drive state).
+      for i in 0 ..< game.players.len:
+        game.players[i].aimBrads = (tick * 16 + i * 32) mod 256
+        inputs[i].up = tick mod 4 < 2
+        inputs[i].down = tick mod 4 >= 2
+        inputs[i].left = tick mod 2 == 0
+        inputs[i].right = tick mod 2 == 1
+      defs.applyDefs(game.buildGlobalMessages(gstate))
+      game.step(inputs, none)
+    var sawRigLimb = false
+    for id, label in defs:
+      if label.startsWith("cog "):
+        sawRigLimb = true
+        check id >= DynamicSpriteWireBase
+      if id >= MapBandSpriteBase and id < MapBandSpriteBase + 60:
+        check label.startsWith("map band")
+    # The invariants above are vacuous unless rig limbs actually rendered.
+    check sawRigLimb
+    # The debug pool shares the dynamic window but its RAW keys overlap the
+    # rig keys (both start at 40000): the namespaced remap must still hand
+    # debug sprites their own slots, never one already claimed by a rig pose
+    # (or any other sprite this game defined).
+    check debugSpriteId(0, 0) notin defs
+    check debugSpriteId(0, 0) >= DynamicSpriteWireBase

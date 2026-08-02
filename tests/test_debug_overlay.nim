@@ -199,8 +199,15 @@ suite "debug overlays":
   test "player id namespaces do not collide":
     check debugSpriteId(0, 7) != debugSpriteId(1, 7)
     check debugObjectId(0, 9) != debugObjectId(1, 9)
-    check debugSpriteId(1, 7) ==
-      DebugSpriteBase + DebugPlayerIdStride + 7
+    # Debug sprite ids go through the dense wire remap (the raw key space
+    # 40000..72767 crosses the u16 wire ceiling): the id is not the raw
+    # formula anymore, but it must be stable across calls — even with other
+    # dynamic-pool assignments interleaved — and inside the dynamic window.
+    let first = debugSpriteId(1, 7)
+    discard debugSpriteId(2, 8)
+    check debugSpriteId(1, 7) == first
+    check first >= DynamicSpriteWireBase
+    check first <= 65535
     check debugObjectId(1, 9) ==
       DebugObjectBase + DebugPlayerIdStride + 9
 
