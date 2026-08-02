@@ -18,7 +18,22 @@ import
 
 const
   GameName* = "ctf"
-  GameVersion* = "34"  ## GV34 (operator rule): THE GUN HAS ONE REAL RANGE,
+  GameVersion* = "35"  ## GV35 (stats rule): ELIMINATION DEATHS ARE NOT
+                       ## COMBAT DEATHS. When a team's heart is captured
+                       ## (GV32) every player on that team still dies with
+                       ## no respawn, but the fold no longer increments the
+                       ## per-player deaths stat and no longer logs a
+                       ## per-player "killed by" line — nobody shot these
+                       ## players; the team lost. The endscreen's D column,
+                       ## the reward-account stat lines, and the killfeed
+                       ## markers diffed from the deaths counter all stay
+                       ## records of combat only. The captor was never
+                       ## credited kills for the fold (kills are credited
+                       ## at weapon damage sites), so K already read clean.
+                       ## The deaths counter is hashed state, so GV34
+                       ## capture-ending replays do not re-simulate.
+                       ##
+                       ## GV34 (operator rule): THE GUN HAS ONE REAL RANGE,
                        ## ITS AIM IS FUZZED, AND SIGHT REACHES 1.5x AS FAR.
                        ## Three coupled changes:
                        ## 1. Every map def ships the same fixed gunRange —

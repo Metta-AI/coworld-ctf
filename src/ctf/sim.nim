@@ -537,18 +537,24 @@ proc killPlayer*(
   sim: var SimServer,
   targetIndex,
   killerIndex: int,
-  killerSlot = -1
+  killerSlot = -1,
+  elimination = false
 ) =
   ## Applies a fatal hit: return any carried flag to its pedestal, decrement
-  ## lives, start respawn.
+  ## lives, start respawn. GV35: an `elimination` death (the team's heart was
+  ## captured, so everyone folds with it) is a mechanical death only — no
+  ## deaths-stat increment and no per-player "killed by" line, because nobody
+  ## shot these players; the team lost. The endscreen's D column stays a
+  ## record of combat deaths.
   if targetIndex < 0 or targetIndex >= sim.players.len:
     return
   if not sim.players[targetIndex].alive:
     return
-  sim.logGameEvent(
-    playerColorText(sim.players[targetIndex].color) &
-      " killed by " & sim.playerText(killerIndex)
-  )
+  if not elimination:
+    sim.logGameEvent(
+      playerColorText(sim.players[targetIndex].color) &
+        " killed by " & sim.playerText(killerIndex)
+    )
   # A kill is action: keep at least ActionClockFloorTicks on the clock.
   sim.floorGameClock()
   # A dying trigger pull never releases, and a carried grenade is lost.
@@ -592,7 +598,10 @@ proc killPlayer*(
   sim.players[targetIndex].velY = 0
   sim.players[targetIndex].carryX = 0
   sim.players[targetIndex].carryY = 0
-  sim.recordDeath(targetIndex)
+  # GV35: elimination deaths never touch the deaths stat — the counter (and
+  # the killfeed/scrubber markers diffed from it) records combat only.
+  if not elimination:
+    sim.recordDeath(targetIndex)
   # Death is the victim-side record (source = victim, target = killer); the
   # weapon-attributed Kill is emitted by each weapon's own damage site, where
   # the weapon is known first-hand.
@@ -2185,7 +2194,9 @@ proc eliminateTeam(sim: var SimServer, team: Team, killerIndex: int) =
   ## GV32: removes a team from play after its heart is captured — every
   ## player dies with no respawn. A heart an eliminated player was carrying
   ## goes home via the normal killPlayer flag return; the eliminated team's
-  ## own heart is retired by the capture site, not here.
+  ## own heart is retired by the capture site, not here. GV35: these are
+  ## `elimination` deaths — the team lost, nobody was killed — so the
+  ## deaths stat stays untouched and the endscreen stats stay combat-only.
   sim.logGameEvent(teamText(team) & " eliminated")
   for i in 0 ..< sim.players.len:
     if sim.players[i].team != team:
@@ -2193,7 +2204,7 @@ proc eliminateTeam(sim: var SimServer, team: Team, killerIndex: int) =
     sim.players[i].lives = 0
     sim.players[i].respawnTimer = 0
     if sim.players[i].alive:
-      sim.killPlayer(i, killerIndex)
+      sim.killPlayer(i, killerIndex, elimination = true)
 
 proc checkWinCondition*(sim: var SimServer) {.measure.} =
   ## Resolves capture and wipe win conditions.

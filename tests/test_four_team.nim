@@ -79,6 +79,19 @@ suite "four team ctf":
     # The captor's hands are free to steal the next heart.
     check not sim.players[0].carryingFlag
 
+  test "elimination deaths never count in the stats (GV35)":
+    var sim = fourTeamGame()
+    sim.captureHeart(Green)
+    # Green's player folded with its team but was never killed: the deaths
+    # stat (the endscreen D column) stays at zero, and the captor is not
+    # credited with a kill.
+    check not sim.players[2].alive
+    check sim.players[2].deaths == 0
+    check sim.players[0].kills == 0
+    # A combat kill still counts as ever.
+    sim.killPlayer(1, 0)
+    check sim.players[1].deaths == 1
+
   test "a captured heart cannot be stolen again":
     var sim = fourTeamGame()
     sim.captureHeart(Green)
