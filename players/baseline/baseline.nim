@@ -285,16 +285,21 @@ var
     # arena — the value this bot always used.
   GameTeams = 2
     # how many teams share the arena, from the `game teams <n> map <w>x<h>`
-    # init marker. This bot's strategy (mirrored lanes, homeSign, the
-    # Red/Blue enum) is written for 2 teams; on a 4-team map it still runs
-    # its 2-team heuristics, but at least it KNOWS, and telemetry records it.
+    # init marker. On 2-team boards the classic mirrored-arena constants
+    # below run untouched; a bigger count re-deals this bot's color (seats
+    # go round the teams, slot mod GameTeams) and swaps the geometry procs
+    # onto the endzone-anchored multi-team frame (see deriveMultiFrame).
   EndzoneMarks: seq[tuple[color, shape: string, x0, y0, x1, y1: int]]
     # every team's stated home capture region, from the per-team
     # `endzone <color> <shape> <x0>,<y0> <x1>,<y1>` init markers: the shape
-    # archetype and the inclusive bounding-box corners in map pixels. This
-    # bot still derives its 2-team column geometry itself (homeSign and the
-    # capture-column constants predate the marker); the stated zones are
-    # adopted for telemetry and as ground truth for anything new.
+    # archetype and the inclusive bounding-box corners in map pixels. On
+    # 2-team boards the bot still derives its tuned column geometry itself
+    # (homeSign and the capture-column constants predate the marker); on
+    # multi-team boards these zones ARE the geometry (deriveMultiFrame).
+
+const TeamColorNames = ["red", "blue", "green", "yellow"]
+  ## Wire color tokens in engine seat-deal order: a game's active teams are
+  ## always a prefix of this list, and seats go round them (slot mod teams).
 
 type
   Team = enum
@@ -322,6 +327,12 @@ type
   Bot = ref object
     slot: int
     team: Team
+    myColor: string           # our ACTUAL wire color ("red".."yellow"): the
+                              # slot-dealt guess until the self marker,
+                              # the one sprite only we ever see, confirms it
+    colorLocked: bool         # self marker seen this game: myColor is truth
+    targetColor: string       # multi-team raid target's color; "" = classic
+    targetFlagSeen: int       # last tick the target's flag was accounted for
     role: Role
     tick: int                 # sim ticks, advanced by frames received
     navBuilt: bool
@@ -395,6 +406,23 @@ type
     helpUntil: int            # tick the help retasking expires
     lastEShout: int           # scout sighting-broadcast rate limit
     lastHShout: int           # help-call rate limit
+
+var
+  SelfStrategyTeam = Red
+    # this process's bot.team mirrored into a module global (one bot per
+    # process) so the team-parameterized geometry procs below can tell "our"
+    # team from "the enemy" without threading the Bot through 30 call sites.
+  MultiHome: Vec              # our pedestal (zone center until one is seen)
+  MultiCapture: Vec           # our endzone center: where a carry scores
+  MultiTarget: Vec            # the raid target's pedestal
+  MultiHomeSign = -1.0        # sign of our home->target axis (east/west)
+  MultiReady = false
+    # the anchors above are derived (deriveMultiFrame). Gated on GameTeams
+    # so classic 2-team boards NEVER leave the tuned mirrored-arena math.
+
+proc multiFrameOn(): bool {.inline.} =
+  ## Whether the geometry procs run on the multi-team endzone frame.
+  GameTeams > 2 and MultiReady
 
 proc roleForSeat(seat: int, team: Team): Role =
   ## Deterministic role spread over the 8 per-team seats. Seats 2 and 3 both
@@ -514,7 +542,11 @@ proc bradsErr(desired, current: int): int =
     AimBrads div 2
 
 proc spawnAim(team: Team): int =
-  ## The spawn/respawn aim angle: toward the enemy side.
+  ## The spawn/respawn aim angle: toward the enemy side (on a multi-team
+  ## board, along our home->target raid axis; the stated `own aim` HUD
+  ## marker resyncs the estimate on the next frame either way).
+  if multiFrameOn():
+    return bradsOf(MultiTarget - MultiHome)
   if team == Red: 0 else: AimBrads div 2
 
 proc slotFromUrl(url: string): int =
@@ -656,13 +688,20 @@ proc openLineLen(client: ProtocolClient, a, dir: Vec, maxLen, step: float): floa
   maxLen
 
 proc homeSign(team: Team): float =
-  ## -1 toward Red's home edge (left), +1 toward Blue's (right).
+  ## -1 toward Red's home edge (left), +1 toward Blue's (right). On a
+  ## multi-team board the frame is bot-relative instead: the sign of our own
+  ## home->target axis (the target is picked for maximum horizontal offset,
+  ## so the east-west advance math never degenerates).
+  if multiFrameOn():
+    return (if team == SelfStrategyTeam: MultiHomeSign else: -MultiHomeSign)
   if team == Red: -1.0 else: 1.0
 
 proc homeDeepX(team: Team): float =
   ## A point well inside our capture zone, mirrored across the map's
   ## vertical center line (150 on the default 1235px arena, scaled with
-  ## the map).
+  ## the map). On a multi-team board: our stated endzone's center x.
+  if multiFrameOn():
+    return MultiCapture.x
   let deep = float(MapW * 150 div 1235)
   if team == Red: deep else: float(MapW - 1) - deep
 
@@ -674,6 +713,10 @@ proc flagHome(team: Team): Vec =
   ## The STATIC pedestal position of one team's flag: the center of the
   ## team's protected spawn pocket (matches flagHome in src/ctf/sim.nim,
   ## computed from the map size instead of the old hardcoded 186/1049).
+  ## On a multi-team board: our own or the raid target's pedestal anchor
+  ## (every call site passes bot.team or enemy(bot.team)).
+  if multiFrameOn():
+    return (if team == SelfStrategyTeam: MultiHome else: MultiTarget)
   if team == Red:
     vec(float(CenterX - CenterX * 7 div 10), float(CenterY))
   else:
@@ -684,7 +727,12 @@ proc chokeSpot(team: Team): Vec =
   ## exactly across the map's vertical center line. (390, 340) on the
   ## default 1235x659 arena — the gap between the diamond and disc
   ## columns — scaled proportionally so it lands in the same tactical
-  ## pocket on every map.
+  ## pocket on every map. On a multi-team board the tuned pocket
+  ## coordinates mean nothing on a rotated corner/arm home: hold part-way
+  ## out from our pedestal toward the open board instead.
+  if multiFrameOn():
+    return MultiHome +
+      (vec(float(CenterX), float(CenterY)) - MultiHome) * 0.3
   let
     x = float(MapW * 390 div 1235)
     y = float(MapH * 340 div 659)
@@ -863,14 +911,71 @@ proc adoptEndzones(client: ProtocolClient) =
     except ValueError:
       discard
 
+proc deriveMultiFrame(bot: Bot) =
+  ## Anchors the 2-team strategy frame onto this bot's REAL multi-team home.
+  ## Our own endzone mark is home and capture zone; the raid target is the
+  ## enemy zone with the LARGEST horizontal offset (the diagonal twin on a
+  ## corners board, a side arm on a plus board) so the engine's east-west
+  ## advance math never degenerates on a north/south home. Pedestal
+  ## sightings refine the anchors later — pedestals are never fogged. No-op
+  ## on 2-team boards: those keep the tuned mirrored-arena constants.
+  MultiReady = false
+  if GameTeams <= 2:
+    return
+  var
+    home: Vec
+    haveHome = false
+  for z in EndzoneMarks:
+    if z.color == bot.myColor:
+      home = vec(float(z.x0 + z.x1) * 0.5, float(z.y0 + z.y1) * 0.5)
+      haveHome = true
+      break
+  if not haveHome:
+    return                     # marker missing: stay on the classic frame
+  var
+    target: Vec
+    targetColor = ""
+    bestDx = -1.0
+  for z in EndzoneMarks:
+    if z.color == bot.myColor:
+      continue
+    let
+      c = vec(float(z.x0 + z.x1) * 0.5, float(z.y0 + z.y1) * 0.5)
+      dx = abs(c.x - home.x)
+    if dx > bestDx:
+      bestDx = dx
+      target = c
+      targetColor = z.color
+  if targetColor.len == 0:
+    return
+  MultiHome = home
+  MultiCapture = home
+  MultiTarget = target
+  MultiHomeSign = (if home.x >= target.x: 1.0 else: -1.0)
+  bot.targetColor = targetColor
+  bot.targetFlagSeen = bot.tick
+  MultiReady = true
+
 proc buildNavGrid(bot: Bot, client: ProtocolClient) =
   ## Erodes the pixel walkability mask into a footprint-safe nav grid, then
   ## derives the cover model (cover cells, overwatch post, defender choke).
   adoptMapSize(client)
   adoptGameParams(client)
   adoptEndzones(client)
+  # Multi-team boards deal the seats round GameTeams colors (slot mod
+  # teams) — the startup red/blue parity guess is wrong for half the seats
+  # there, and a wrong color makes every label scan blind (the "statues on
+  # green and yellow" bug). Re-deal the color and the per-team seat role now
+  # that the team count is stated; the self marker confirms (or corrects)
+  # the color on the first alive frame.
+  if GameTeams > 2:
+    if not bot.colorLocked:
+      bot.myColor = TeamColorNames[bot.slot mod GameTeams]
+    bot.role = roleForSeat(clamp(bot.slot div GameTeams, 0, 7), bot.team)
+  bot.deriveMultiFrame()
   artEvent(bot.tick, "game_params",
-    %*{"teams": GameTeams, "mapW": MapW, "mapH": MapH})
+    %*{"teams": GameTeams, "mapW": MapW, "mapH": MapH,
+       "color": bot.myColor})
   block endzoneTelemetry:
     var zones = newJArray()
     for z in EndzoneMarks:
@@ -1226,6 +1331,8 @@ proc resetTransient(bot: Bot) =
     bot.shieldAbsentAt[i] = -1
   bot.shoutWant = ""
   bot.lastShoutTick = 0
+  bot.colorLocked = false      # re-earn the color lock from the next game's
+                               # self marker (the slot-dealt guess persists)
   bot.comebackWant = ""
   bot.corpseCount = 0
   bot.killMoodUntil = 0
@@ -1271,7 +1378,7 @@ proc safestLaneY(bot: Bot, me: Vec): float =
                                            # mild bias toward nearest lane
     for t in bot.enemies:
       let towardHome =
-        if bot.team == Red: t.pos.x < me.x + 200
+        if homeSign(bot.team) < 0: t.pos.x < me.x + 200
         else: t.pos.x > me.x - 200
       if towardHome and abs(t.pos.y - lane) < float(tuneCarrierLaneThreatY):
         score += 1.0
@@ -1341,10 +1448,31 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   ## Core CTF policy for one frame.
   when defined(statue):
     return 0'u8                          # test dummy: stand still all game
+  # Our wire color: the slot-dealt guess until the self marker — the one
+  # sprite only WE ever see — confirms it. Explicit slot configs can deal
+  # colors in any order, and a wrong color makes every scan below blind.
+  if not bot.colorLocked:
+    for i in 0 ..< max(2, GameTeams):
+      let c = TeamColorNames[i]
+      if client.findSelf(c).alive:
+        bot.colorLocked = true
+        if c != bot.myColor:
+          bot.myColor = c
+          bot.deriveMultiFrame()
+        break
   let
-    myColor = (if bot.team == Red: "red" else: "blue")
-    enemyColor = (if bot.team == Red: "blue" else: "red")
+    myColor = bot.myColor
     (alive, me) = client.findSelf(myColor)
+  var enemyColor = "red"
+    # The single color the flag-raid bookkeeping below targets: the classic
+    # opponent on 2-team boards, the picked raid target on multi-team ones.
+  if GameTeams > 2 and bot.targetColor.len > 0:
+    enemyColor = bot.targetColor
+  else:
+    for i in 0 ..< max(2, GameTeams):
+      if TeamColorNames[i] != myColor:
+        enemyColor = TeamColorNames[i]
+        break
   if not alive:
     # Dead: the view is fully fogged (only our corpse renders) and inputs
     # are ignored, so skip perception entirely.
@@ -1407,8 +1535,14 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     shotReady = client.spriteObjectsWithLabel(LabelFireIcon).len > 0 and
       not hasPlasma                      # the spray can replaces the gun; a shield
                                          # only slows it (3x cooldown)
-    seenEnemies = client.actorsFor(enemyColor)
     seenMates = client.actorsFor(myColor)
+  var seenEnemies: seq[Actor]
+  # EVERY other color is a combat threat on a free-for-all board, not just
+  # the flag-raid target — track them all.
+  for i in 0 ..< max(2, GameTeams):
+    let c = TeamColorNames[i]
+    if c != myColor:
+      seenEnemies.add(client.actorsFor(c))
   bot.updateTracks(bot.enemies, seenEnemies)
   bot.updateTracks(bot.mates, seenMates)
   if seenEnemies.len > 0:
@@ -1427,8 +1561,6 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     mateCarry = false
     mateCarryPos: Vec
   let
-    stealTarget = flagHome(enemy(bot.team))  # the enemy pedestal is static
-    ownHome = flagHome(bot.team)
     # Since the 0.7.8 renderer restore the objective is labeled a FLAG again,
     # split into distinct pedestal/carried sprites: "<color> flag planted" is
     # the always-visible pedestal banner, "<color> flag" the carried banner
@@ -1437,6 +1569,40 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     enemyFlags = client.spriteObjectsWithLabel(labelFlag(enemyColor))
     ownPlanted = client.spriteObjectsWithLabel(labelFlagPlanted(myColor))
     ownFlags = client.spriteObjectsWithLabel(labelFlag(myColor))
+  if multiFrameOn():
+    # Pedestals are never fogged: adopt their exact positions over the
+    # endzone-box approximations.
+    if ownPlanted.len > 0:
+      MultiHome = client.mapPos(ownPlanted[0])
+    if enemyPlanted.len > 0:
+      MultiTarget = client.mapPos(enemyPlanted[0])
+    if enemyPlanted.len > 0 or enemyFlags.len > 0:
+      bot.targetFlagSeen = bot.tick
+    elif bot.tick - bot.targetFlagSeen > 600:
+      # The target's flag has been off the board a long while. A captured
+      # heart retires for good (GV32/GV33), and a pedestal is never fogged —
+      # so either the target team is gone or its heart is riding fogged
+      # carriers endlessly. Re-anchor the raid on a pedestal that still
+      # stands (largest horizontal offset first, same rule as the deal).
+      var bestDx = -1.0
+      for i in 0 ..< GameTeams:
+        let c = TeamColorNames[i]
+        if c == myColor or c == bot.targetColor:
+          continue
+        let planted = client.spriteObjectsWithLabel(labelFlagPlanted(c))
+        if planted.len == 0:
+          continue
+        let p = client.mapPos(planted[0])
+        if abs(p.x - MultiHome.x) > bestDx:
+          bestDx = abs(p.x - MultiHome.x)
+          bot.targetColor = c
+          MultiTarget = p
+      if bestDx >= 0.0:
+        MultiHomeSign = (if MultiHome.x >= MultiTarget.x: 1.0 else: -1.0)
+        bot.targetFlagSeen = bot.tick
+  let
+    stealTarget = flagHome(enemy(bot.team))  # the enemy pedestal is static
+    ownHome = flagHome(bot.team)
   # Own hit points from the HUD "lives <hp>hp x<lives>" text sprite.
   for o in client.spriteObjects():
     if o.label.startsWith(LabelPrefixLives):
@@ -1941,7 +2107,12 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       # fastest, then the border lane runs home outside it.
       target = vec(pocket.x, laneY)
     else:
-      target = vec(homeDeepX(bot.team), laneY)
+      # Classic boards run the border lane home and cut in at the capture
+      # column; on a multi-team board the zone can sit at ANY y (corner or
+      # arm), so the run targets the stated zone itself.
+      target =
+        if multiFrameOn(): MultiCapture
+        else: vec(homeDeepX(bot.team), laneY)
     # A hurt carrier detours through a stocked med kit on the way home: the
     # run crosses the center line anyway, kits are hurt-only pickups (a
     # healthy escort cannot waste one), and a full-heal carrier survives
@@ -2851,8 +3022,10 @@ proc runBot(url: string) =
     role = roleForSeat(clamp(slot div 2, 0, 7), team)
     endpoint = ensureWsPath(url, WebSocketPath)
   randomize(slot * 7919 + 1)
+  SelfStrategyTeam = team
   let
-    bot = Bot(slot: slot, team: team, role: role)
+    bot = Bot(slot: slot, team: team, role: role,
+      myColor: (if team == Red: "red" else: "blue"))
     shoutEnabled = getEnv("CTF_BOT_SHOUT").len > 0
     # Opt-in ONLY (fixture recording): the per-frame ready send measurably
     # corrupts input-application timing in league play — the bot's
