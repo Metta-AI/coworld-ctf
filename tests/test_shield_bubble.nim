@@ -5,8 +5,8 @@ import
 
 const
   GameDir = currentSourcePath.parentDir.parentDir
-  ShieldBubbleObjectBase = 19680
-  ShieldCarryObjectBase = 19620
+  ShieldBubbleObjectBase = 19940  ## mirrors global.nim (private there).
+  ShieldCarryObjectBase = 19900   ## mirrors global.nim (private there).
 
 proc initCtfForTest(config: GameConfig): SimServer =
   ## Initializes the CTF sim from the game directory.

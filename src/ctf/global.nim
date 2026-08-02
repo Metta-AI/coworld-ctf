@@ -88,7 +88,7 @@ const
                                  ## 4200..4231 (clear of the endzone fade crops
                                  ## at 4100..4131).
   IdentityBadgeObjectBase = 19040  ## identity badge object pool: one per
-                                   ## player, 19040..19055 (clear of the hp
+                                   ## player, 19040..19071 (clear of the hp
                                    ## pips at 19000 and impact rings at 19120).
   IdentityBadgeSize = 11         ## px badge disc diameter.
   IdentityGlyphW = 5             ## px width of one hand-drawn Greek glyph.
@@ -184,8 +184,11 @@ const
                                  ## team — clear of the endzone-fade strips
                                  ## (19520..19523), the med kits (19600+),
                                  ## and the PER-PLAYER carried-shield markers
-                                 ## at 19620..19635.
-  ShieldCarryObjectBase = 19620  ## carried shield markers: one per player.
+                                 ## at 19900..19931.
+  ShieldCarryObjectBase = 19900  ## carried shield markers: one per player,
+                                 ## 19900..19931. Moved off 19620: a 32-wide
+                                 ## per-player pool there runs into the plasma
+                                 ## arc pickups at 19640.
   ShieldBubbleSpriteId = 1422    ## the protective bubble drawn around a carrier.
   ShieldBubbleSize = 44          ## px bubble diameter (34px soldier body + margin).
   ShieldBubbleLagPx = 6.0        ## px the bubble center trails BEHIND the aim:
@@ -194,8 +197,11 @@ const
                                  ## shell sits ~6px behind it (the dark gun
                                  ## leads), so an un-lagged bubble reads
                                  ## off-center around the agent.
-  ShieldBubbleObjectBase = 19680 ## carrier bubbles: one per player, 19680..19695
-                                 ## (clear of spray cone FX at 19700).
+  ShieldBubbleObjectBase = 19940 ## carrier bubbles: one per player,
+                                 ## 19940..19971 (clear of the map markers at
+                                 ## 20000). Moved off 19680: a 32-wide
+                                 ## per-player pool there runs into the spray
+                                 ## cone FX at 19700.
   ## The bubble shows while the carrier's shield layer (shieldHp) is intact;
   ## sim.nim records the impact FX with the same condition.
   ShieldBubbleDeformBase = 1424  ## blink/dent impact variants keyed
@@ -221,9 +227,14 @@ const
   PlasmaArcCarrySize = 10
   PlasmaArcPickupObjectBase = 19640
   PlasmaArcCarryObjectBase = 19660
-  PlasmaArcFxObjectBase* = 19700 ## 19700..19795 (16 flashes x 6 pulses),
-                                 ## clear of the map markers at 20000.
-  PlasmaArcMaxFlashes = 16
+  PlasmaArcFxObjectBase* = 19700 ## 19700..19891 (32 flashes x 6 pulses),
+                                 ## clear of the carried-shield markers at
+                                 ## 19900.
+  PlasmaArcMaxFlashes = MaxPlayers ## most spray cones drawn at once. Cans are
+                                 ## one per team, but a fired cone leaves a
+                                 ## few fading per-tick snapshots and respawns
+                                 ## let carriers overlap, so size to the
+                                 ## player count like every shooter pool.
   RotDiamondSpriteBase = 1401    ## spinning diamond frames: 1401..1416;
                                  ## 850 collided with CorpseSpriteBase.
   RotDiamondObjectBase = 19610   ## spinning center diamonds: 19610..19617;
@@ -238,7 +249,8 @@ const
                                ## and map markers at 20000.
   ShoutObjectBase = 19480      ## speech-bubble object pool: one per live shout,
                                ## same slot key as the sprite.
-  ShoutMaxCount = 16           ## most bubbles drawn at once (one per player).
+  ShoutMaxCount = MaxPlayers   ## most bubbles drawn at once (one per player:
+                               ## applyShout replaces a shouter's live bubble).
   ShoutDwellFrames* = ShoutCooldownTicks  ## min RENDERED board frames each text
                                ## a bubble shows stays up (~1s wall at 24fps).
                                ## Replay playback compresses sim time (speed ×
@@ -257,8 +269,8 @@ const
   ShoutPadY = 3                ## px of paper above and below the text.
   ShoutTailH = 4               ## px tail dropping from the pill toward the head.
   ShoutFloat = 13              ## px the tail tip floats above the shouter's head.
-  GrenadeMaxAirborne = 16      ## most in-flight orbs drawn at once.
-  GrenadeMaxBlasts = 16        ## most blast flashes drawn at once.
+  GrenadeMaxAirborne = MaxPlayers  ## most in-flight orbs drawn at once.
+  GrenadeMaxBlasts = MaxPlayers    ## most blast flashes drawn at once.
   SoundRingSpriteId = 830      ## the filled landing "sound" ring sprite
                                ## (grenade landings; shots use the impact ring).
   SoundRingSize = 12           ## px diameter of the sound rings.
@@ -270,9 +282,9 @@ const
                                ## re-rolling: too brief to learn, too long to
                                ## average away inside a 5-tick windup.
   ShotImpactSpriteId = 831     ## the hollow shot "impact" ring sprite.
-  ShotImpactObjectBase = 19120 ## impact ring object-id pool: 19120..19135
-                               ## (clear of the retired muzzle sound-ring pool
-                               ## at 19100 and the flag auras at 19200).
+  ShotImpactObjectBase = 19120 ## impact ring object-id pool: 19120..19151
+                               ## (one per drawn shot, clear of the flag
+                               ## auras at 19200).
   ## A hitscan shot's whole beam appears at once, so the tracer can't literally
   ## move — but it draws as a COMET (the shape that reads as a fired projectile
   ## and is easiest to follow, per ux.replay research): a bright paintball HEAD
@@ -290,25 +302,35 @@ const
   TracerDotSize = 4            ## a THIN trail — ~1/4 a 16px soldier, never a tube.
   TracerDotSpacing = 3         ## px between sampled blobs; < size so they overlap
                                ## into one continuous thin trail, not a dotted line.
-  TracerMaxShots = 16          ## most tracers drawn at once (one per shooter).
+  TracerMaxShots = MaxPlayers  ## most tracers drawn at once (one per shooter:
+                               ## ShotFxTicks == FireCooldownTicks, so a
+                               ## shooter never has two live tracers).
   TracerDotsPerShot = GunRange div TracerDotSpacing + 4  ## dots per full-range shot, plus slack.
-  TracerMaxDots = TracerMaxShots * TracerDotsPerShot  ## 6992 ids: 24000..30991.
+  TracerMaxDots = TracerMaxShots * TracerDotsPerShot  ## 13984 ids: 24000..37983.
   MuzzleBloomSpriteBase = 1290 ## per-fade-stage muzzle flash sprites: 1290..1293.
-  MuzzleBloomObjectBase = 16800  ## one flash per drawn shot: 16800..16815.
+  MuzzleBloomObjectBase = 16800  ## one flash per drawn shot: 16800..16831.
   HitFlashSpriteBase = 1294    ## per-stage struck-target rings: 1294..1297.
   HitFlashStages = 4           ## expanding/fading ring steps over HitFlashTicks.
   HitFlashSize = 34            ## px canvas: rings the 16px soldier body.
-  HitFlashObjectBase = 16840   ## struck-target ring pool: 16840..16855.
-  HitFlashMaxCount = 16        ## most flash rings drawn at once.
+  HitFlashObjectBase = 16880   ## struck-target ring pool: 16880..16911. Moved
+                               ## off 16840 to make room for the widened
+                               ## tracer heads.
+  HitFlashMaxCount = MaxPlayers  ## most flash rings drawn at once (hits within
+                               ## HitFlashTicks are bounded by the shooters).
   MuzzleBloomSize = 7          ## a small colorless flash marking the shooter.
   TracerHeadSpriteBase = 1300  ## per color-and-fade-stage leading heads: 1300..1363.
-  TracerHeadObjectBase = 16820  ## one leading head per drawn shot: 16820..16835.
+  TracerHeadObjectBase = 16840  ## one leading head per drawn shot: 16840..16871.
+                                ## Moved off 16820 to make room for the
+                                ## widened muzzle blooms.
   TracerHeadSize = 6           ## the bright leading paintball at the impact end.
   SplatterSpriteBase = 16000   ## per color-and-fade-stage splatter sprites: 16000..16063.
-  SplatterObjectBase = 17000   ## splatter object-id pool base, above the tracer ids.
+  SplatterObjectBase = 17000   ## splatter object-id pool base, above the tracer
+                               ## ids: 17000..17063.
   SplatterSize = 13
   SplatterStages = 4           ## fade stages across SplatterFxTicks.
-  SplatterMaxCount = 32        ## most splatters drawn at once.
+  SplatterMaxCount = MaxPlayers * 2  ## most splatters drawn at once (splatters
+                               ## outlive tracers, so keep the old 2x-players
+                               ## headroom).
   HitSpriteBase = 16100        ## per-color-and-stage hit-splat sprites: 16100..16163.
   HitSplatSize = 21            ## on-hit paint-splat canvas (~1.3x a 16px player).
   HitSplatCoreR = 6.0          ## px radius of the splat's main wet blob.
@@ -334,8 +356,10 @@ const
                                ## currently on screen is ever emitted, so a
                                ## painted diamond costs one sprite per spin
                                ## step, not 16 at once.
-  StainObjectBase = 33000      ## one object per stain: 33000..34199, clear of the
-                               ## rig object pool (32000..32183).
+  StainObjectBase = 38500      ## one object per stain: 38500..39699, between
+                               ## the rig object pools (..38491) and the debug
+                               ## pool at 40000. Moved off 33000: the widened
+                               ## tracer-dot pool (24000..37983) swallowed it.
   StainVariants = 8            ## distinct blot shapes, picked by the stain's own
                                ## hash so a lane of paint never reads as one
                                ## rubber-stamped sprite repeated.
@@ -366,9 +390,11 @@ const
                                ## displayed TEXT still shows the real amount
                                ## (see addDamagePops) — only the bucket/sprite
                                ## count is capped.
-  DamagePopObjectBase = 31200  ## one drawn damage pop per object: 31200..31215.
+  DamagePopObjectBase = 38000  ## one drawn damage pop per object: 38000..38031.
+                               ## Moved off 31200: the widened tracer-dot pool
+                               ## (24000..37983) swallowed it.
   DamagePopStages = 4          ## alpha fade stages across DamageFxTicks.
-  DamagePopMaxCount = 16       ## most floating numbers drawn at once.
+  DamagePopMaxCount = MaxPlayers  ## most floating numbers drawn at once.
   DamagePopBucketCount = 4     ## distinct -N sprite buckets reserved per color
                                ## (see damagePopBucket()), not a display clamp.
   DamagePopRisePx = 11         ## px the number floats upward over its full life.
@@ -395,13 +421,14 @@ const
   RigSpraySpriteBase = 76600   ## team×16 aim → 76600..76663 (held spray can +
                                ## glow): the swap-in art while a cog carries a
                                ## can, sharing the gun's object slot.
-  ## Object pools sit clear of the tracer-dot pool (24000..30991) and the damage/
-  ## kill pops (31200..31215); rig objects live at 32000+ (16 players each).
-  RigHeadObjectBase = 32000    ## 1 head object per player: 32000..32015.
-  RigArmObjectBase = 32020     ## 2 arm objects per player: 32020..32051.
-  RigLegObjectBase = 32060     ## 3 leg objects per player: 32060..32107.
-  RigWheelObjectBase = 32120   ## 3 wheel objects per player: 32120..32167.
-  RigGunObjectBase = 32168     ## 1 gun object per player: 32168..32183.
+  ## Object pools sit clear of the tracer-dot pool (24000..37983) and the
+  ## damage/kill pops (38000..38031); rig objects live at 38100+ (32 players
+  ## each). Moved off 32000+: the widened tracer-dot pool swallowed that range.
+  RigHeadObjectBase = 38100    ## 1 head object per player: 38100..38131.
+  RigArmObjectBase = 38140     ## 2 arm objects per player: 38140..38203.
+  RigLegObjectBase = 38220     ## 3 leg objects per player: 38220..38315.
+  RigWheelObjectBase = 38340   ## 3 wheel objects per player: 38340..38435.
+  RigGunObjectBase = 38460     ## 1 gun object per player: 38460..38491.
   ## The retired aim-dot indicator left sprites 780..795 and objects
   ## 18000..18063 unallocated; both ranges are free to reuse.
   PlayerNameSpriteBase = 7000
@@ -429,10 +456,12 @@ const
   ## 12100..12103, splatters 16000..16063, fog runs 21000..21155
   ## (one per run width in cells), map markers 20000. Objects: flags 6500..6503
   ## (map view) / 5009..5012 (player view), team score text 9600..9603,
-  ## muzzle blooms 16800..16815, tracer heads 16820..16835, splatters
-  ## 17000..17031, identity badges 19040..19055,
-  ## map markers 20000, fog runs 21000..23047, tracer dots 24000..29263.
-  ## Player debug sprites and objects use per-player pools in 40000..56383.
+  ## muzzle blooms 16800..16831, tracer heads 16840..16871, hit flashes
+  ## 16880..16911, splatters 17000..17063, identity badges 19040..19071,
+  ## map markers 20000, fog runs 21000..23047, tracer dots 24000..37983.
+  ## The full board object layout is enforced by the compile-time audit at
+  ## the end of this const section (BoardObjectPools).
+  ## Player debug sprites and objects use per-player pools at 40000+.
   SpritePlayerFireSpriteId = 5000
   SpritePlayerFireShadowSpriteId = 5001
   SpritePlayerRemainingSpriteId = 5003
@@ -514,6 +543,82 @@ const
     "dark navy",
     "black"
   ]
+  ## --- Board object-id pool audit (compile time) ---
+  ## The wire packs object ids as u16 (spriteprotocol addU16), and the
+  ## per-frame delete diff reaps by id — so two pools sharing a range is a
+  ## silent, game-wide failure (one family's delete sweep eats another's
+  ## objects). Every fixed object pool above is listed here as
+  ## (name, base, width) and the static block below proves the layout:
+  ## no two pools overlap, and nothing crosses the u16 ceiling. Widths for
+  ## index-bounded families (map bands, protocol text, map markers) are
+  ## generous envelopes, not exact caps.
+  U16ObjectIdCeiling = 65535
+  BoardObjectPools = [
+    ("map bands", MapBandObjectBase, 960),
+    ("players (POV view)", PlayerObjectBase, MaxPlayers),
+    ("replay UI", ReplayTickObjectId, 5),
+    ("player HUD", SpritePlayerInterstitialObjectId, 16),
+    ("flags", FlagObjectBase, 4),
+    ("player names", PlayerNameObjectBase, MaxPlayers),
+    ("protocol text", ProtocolTextObjectBase, 100),
+    ("team score", TeamScoreObjectBase, 4),
+    ("game-over icons", ProtocolGameOverIconObjectBase, 100),
+    ("scoreboard text", ScoreboardTextObjectBase, MaxPlayers + 8),
+    ("scoreboard pips", ScoreboardPipObjectBase, MaxPlayers + 8),
+    ("muzzle blooms", MuzzleBloomObjectBase, TracerMaxShots),
+    ("tracer heads", TracerHeadObjectBase, TracerMaxShots),
+    ("hit flashes", HitFlashObjectBase, HitFlashMaxCount),
+    ("splatters", SplatterObjectBase, SplatterMaxCount),
+    ("hp pips", HpPipObjectBase, MaxPlayers),
+    ("identity badges", IdentityBadgeObjectBase, MaxPlayers),
+    ("impact rings", ShotImpactObjectBase, TracerMaxShots),
+    ("flag auras", FlagAuraObjectBase, 4),
+    ("grenade pickups", PaintBombPickupObjectBase, 4),
+    ("airborne grenades", PaintBombAirObjectBase, GrenadeMaxAirborne),
+    ("grenade carry markers", PaintBombCarryObjectBase, MaxPlayers),
+    ("throw-target rings", ThrowTargetObjectBase, MaxPlayers),
+    ("blast flashes", BlastObjectBase, GrenadeMaxBlasts),
+    ("shout bubbles", ShoutObjectBase, ShoutMaxCount),
+    ("endzone fades", EndzoneFadeObjectBase, 4),
+    ("endzone shields", ShieldObjectBase, 4),
+    ("med kits", MedKitObjectBase, 4),
+    ("rot diamonds", RotDiamondObjectBase, 8),
+    ("plasma arc pickups", PlasmaArcPickupObjectBase, 4),
+    ("plasma arc carry markers", PlasmaArcCarryObjectBase, MaxPlayers),
+    ("plasma arc fx", PlasmaArcFxObjectBase,
+      PlasmaArcMaxFlashes * PlasmaArcFxPulses),
+    ("shield carry markers", ShieldCarryObjectBase, MaxPlayers),
+    ("shield bubbles", ShieldBubbleObjectBase, MaxPlayers),
+    ("map markers", MapMarkerObjectBase, 1000),
+    ("fog runs", FogObjectBase, FogMaxRuns),
+    ("tracer dots", TracerDotObjectBase, TracerMaxDots),
+    ("damage pops", DamagePopObjectBase, DamagePopMaxCount),
+    ("rig heads", RigHeadObjectBase, MaxPlayers),
+    ("rig arms", RigArmObjectBase, MaxPlayers * 2),
+    ("rig legs", RigLegObjectBase, MaxPlayers * 3),
+    ("rig wheels", RigWheelObjectBase, MaxPlayers * 3),
+    ("rig guns", RigGunObjectBase, MaxPlayers),
+    ("paint stains", StainObjectBase, StainMaxCount),
+  ]
+
+static:
+  for i in 0 ..< BoardObjectPools.len:
+    let (aName, aBase, aWidth) = BoardObjectPools[i]
+    doAssert aBase + aWidth - 1 <= U16ObjectIdCeiling,
+      "object pool '" & aName & "' crosses the u16 wire ceiling: " &
+      $aBase & ".." & $(aBase + aWidth - 1)
+    for j in i + 1 ..< BoardObjectPools.len:
+      let (bName, bBase, bWidth) = BoardObjectPools[j]
+      doAssert aBase + aWidth <= bBase or bBase + bWidth <= aBase,
+        "object pools overlap: '" & aName & "' " &
+        $aBase & ".." & $(aBase + aWidth - 1) & " and '" & bName & "' " &
+        $bBase & ".." & $(bBase + bWidth - 1)
+  ## The per-player debug pool (DebugObjectBase, 1024 ids per player) is not
+  ## in the table: it must only sit above every gameplay pool. (With 32
+  ## players its top ids exceed the u16 ceiling — a pre-existing, debug-only
+  ## spill; debug overlays never run in league games.)
+  doAssert DebugObjectBase >= StainObjectBase + StainMaxCount,
+    "debug object pool must start above the paint stains"
 
 type
   SpriteDefinition = ref object

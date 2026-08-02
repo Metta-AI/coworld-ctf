@@ -861,7 +861,10 @@ proc buildNavGrid(bot: Bot, client: ProtocolClient) =
     for z in EndzoneMarks:
       zones.add %*{"color": z.color, "shape": z.shape,
         "x0": z.x0, "y0": z.y0, "x1": z.x1, "y1": z.y1}
-    artEvent(bot.tick, "endzones", zones)
+    # artEvent merges `fields` with pairs(), which ASSERTS JObject — a bare
+    # JArray is an AssertionDefect that escapes `guarded` (Defects are not
+    # CatchableError) and killed every bot at nav-grid build.
+    artEvent(bot.tick, "endzones", %*{"zones": zones})
   bot.cellWalkable = newSeq[bool](GridW * GridH)
   for cy in 0 ..< GridH:
     for cx in 0 ..< GridW:
