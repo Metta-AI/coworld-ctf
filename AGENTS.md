@@ -79,3 +79,45 @@ bump (`tools/record_fixture.sh`; exact recipes in
 - After re-recording, re-pin the capture fixture's asserted winner/ending
   and verify the required beats (capture/steal/gameover) actually occur —
   scan a few seeds if needed.
+
+## Debugging prod league replays (don't drive the Observatory UI)
+
+To investigate a prod replay issue, download the replay bytes directly —
+never try to navigate softmax.com/observatory in a browser (sign-in wall,
+and the UI adds nothing). The Observatory URL carries everything needed:
+`?tab=coworlds&logscope=league:league_<uuid>&detail=league:league_<uuid>` —
+the `detail` param is the league being viewed (strip the `league_` prefix
+for SQL; `leagues.id` is the bare uuid).
+
+1. Query the prod DB via the read-only `/sql` endpoint (token from
+   `~/.softmax/credentials.yaml`, key `https://softmax.com/api`; add headers
+   `Authorization: Bearer $TOKEN` and `X-Use-Elevated-Privileges: true`,
+   POST to `https://softmax.com/api/observatory/sql/query`):
+
+   ```sql
+   -- league -> divisions -> rounds -> episode requests -> job ids
+   SELECT era.job_request_id, er.created_at,
+          er.game_config->>'teams' AS teams
+   FROM episode_requests er
+   JOIN episode_request_attempts era ON era.episode_request_id = er.id
+   JOIN rounds r ON r.id = er.round_id
+   JOIN divisions d ON d.id = r.division_id
+   WHERE d.league_id = '<league uuid without prefix>'
+   ORDER BY er.created_at DESC;
+   ```
+
+2. Every job's replay is public:
+   `https://softmax-public.s3.amazonaws.com/replays/<job_request_id>.replay`
+   (equivalently `episodes.replay_url`, joined via `episode_jobs`).
+
+3. The file is `COWLDCTF` deterministic format: a JSON config (brace-match
+   from the first `{`; includes `mapSpec` dims/layout, teams, player names)
+   plus recorded inputs — `parseReplayBytes` + `initReplayRuntime` replays
+   it locally, exactly like the wasm viewer.
+
+4. To reproduce the hosted viewer itself:
+   `POST https://softmax.com/api/observatory/v2/coworlds/replays/session`
+   with `{"coworld_id": "<episode_requests.coworld_id>", "replay_uri": "<s3 url>"}`
+   returns the exact static-bundle `viewer_url` prod serves (its
+   `broadcast_core.js` / wasm files are directly downloadable, and the
+   wasm bundle runs headless under Node — see `tools/wasm_replay_smoke.cjs`).

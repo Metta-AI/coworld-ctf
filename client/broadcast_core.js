@@ -65,7 +65,6 @@
   }
 
   function tryDecodeSpritePixelsSnappy(bytes, offset, remaining, width, height) {
-    const expected = width * height * 4;
     if (remaining < 6) return null;
     const compressedLength = readU32(bytes, offset);
     if (compressedLength > remaining - 6) return null;
@@ -73,17 +72,28 @@
     const labelLength = readU16(bytes, labelOffset);
     if (labelLength > remaining - 4 - compressedLength - 2) return null;
     const compressed = bytes.slice(offset + 4, labelOffset);
-    let pixels;
+    const labelStart = labelOffset + 2;
+    const labelEnd = labelStart + labelLength;
+    const label = textDecoder.decode(bytes.slice(labelStart, labelEnd));
+    let pixels = null;
     try {
       pixels = decodeSpritePixelsSnappy(compressed, width, height);
     } catch (e) {
-      return null;
+      // Structurally this IS a snappy sprite message — only the decode failed
+      // (in practice a transient allocation failure on huge boards, where 50+
+      // map bands each inflate to multi-MB RGBA). The message length is known
+      // from the header, so report it with the compressed payload retained for
+      // a later retry. Returning null here would make the caller fall back to
+      // the legacy raw advance (width*height), desyncing the parser and
+      // silently discarding every later message in this packet — on the map
+      // layer that means permanent black stripes, because bands are emitted
+      // exactly once per viewer.
+      pixels = null;
     }
-    const labelStart = labelOffset + 2;
-    const labelEnd = labelStart + labelLength;
     return {
       pixels,
-      label: textDecoder.decode(bytes.slice(labelStart, labelEnd)),
+      compressed: pixels ? null : compressed,
+      label,
       offset: labelEnd
     };
   }
@@ -293,15 +303,23 @@
       offsetY = (cssH - drawH) / 2;
     }
 
-    // Static map-band cache. The full-board map bands (object ids 40..67 on
+    // Static map-band cache. The full-board map bands (object ids 40 up, on
     // layer 0, z pinned at -32768 so they underlie everything) are emitted
     // once at init and never change, yet re-blitting them dominates composite
     // cost at full board size. Bake them into a per-layer base buffer and
     // start each composite from a copy of that base, re-blitting only the
     // dynamic objects above them (the endzone fade overlay at z = -32767 DOES
     // change every frame and must stay dynamic).
+    //
+    // The window matches the server's MapBandObjectBase pool: 40..40+bands.
+    // 99 covers 60 bands — enough for every generated size class (a 4-team
+    // giant is 52 bands); the next server object pool starts well above.
+    // The old cap of 67 (28 bands) predated the oversize map classes: any
+    // band past it broke the sorted-prefix rule below and silently disabled
+    // the cache for the whole board, turning every frame into a ~100 MB
+    // full re-blit on exactly the maps that could least afford it.
     const STATIC_BAND_MIN_ID = 40;
-    const STATIC_BAND_MAX_ID = 67;
+    const STATIC_BAND_MAX_ID = 99;
     const STATIC_BAND_Z = -32768;
     let staticBandsDirty = true;
 
@@ -311,9 +329,36 @@
         obj.z === STATIC_BAND_Z;
     }
 
+    // A sprite whose snappy payload failed to decode on arrival (transient
+    // allocation failure — see tryDecodeSpritePixelsSnappy) keeps its
+    // compressed bytes and is re-tried here, at most once per composite,
+    // until it decodes or the budget runs out. This is what makes a dropped
+    // map band self-heal instead of leaving a permanent black stripe: bands
+    // are sent exactly once, so this retained payload is the only repair
+    // path. ~10s at 24fps; a failure that persists that long isn't memory
+    // pressure, so stop burning CPU on it.
+    const SPRITE_DECODE_RETRY_LIMIT = 240;
+
+    function retrySpriteDecode(sprite) {
+      if (!sprite.pendingCompressed ||
+          sprite.decodeRetries >= SPRITE_DECODE_RETRY_LIMIT) {
+        return;
+      }
+      sprite.decodeRetries++;
+      try {
+        sprite.pixels = decodeSpritePixelsSnappy(
+          sprite.pendingCompressed, sprite.width, sprite.height);
+        sprite.pendingCompressed = null;
+        // The recovered sprite may be part of the baked static-band base.
+        staticBandsDirty = true;
+      } catch (e) {
+        // Still failing — try again on a later composite.
+      }
+    }
+
     function blitObject(layer, obj) {
       const sprite = sprites.get(obj.spriteId);
-      if (!sprite) return;
+      if (!sprite || !sprite.pixels) return;
       const startX = Math.max(0, -obj.x);
       const startY = Math.max(0, -obj.y);
       const endX = Math.min(sprite.width, layer.width - obj.x);
@@ -333,6 +378,13 @@
     }
 
     function composite() {
+      // Retry pending sprite decodes up front (not inside blitObject): a
+      // static band that recovers must dirty the baked base, and a band
+      // waiting on retry is exactly the one the clean-base path never
+      // re-blits, so it would otherwise never get another attempt.
+      for (const sprite of sprites.values()) {
+        if (sprite.pendingCompressed) retrySpriteDecode(sprite);
+      }
       const orderedLayers = [...layers.values()]
         .filter(layer => (layer.flags & ZoomableFlag) !== 0 || layer.type === MapLayerType)
         .sort((a, b) => a.id - b.id);
@@ -439,15 +491,21 @@
             height
           );
           if (!snappySprite) {
-            // Sprites are always snappy-compressed on the wire; a failed
-            // decode means a corrupt frame, and guessing a skip width would
-            // silently desync the whole stream. Fail loudly instead.
+            // Sprites are always snappy-compressed on the wire; a message
+            // whose STRUCTURE doesn't parse is a corrupt frame, and guessing
+            // a skip width would silently desync the whole stream. Fail
+            // loudly instead. (A structurally-valid message whose DECODE
+            // threw comes back with pixels = null plus its retained
+            // compressed payload — skipped cleanly below and retried on
+            // later composites, so one transient allocation failure can't
+            // kill the stream or permanently black out a map band.)
             console.warn('Sprite decompress failed (corrupt frame); closing socket');
             if (socket) socket.close();
             break;
           }
           const pixels = snappySprite.pixels;
           const label = snappySprite.label;
+          const pendingCompressed = snappySprite.compressed;
           offset = snappySprite.offset;
           // Broadcast chrome (scorebug/clock/scrubber/roster/events) is smuggled
           // as the label of a reserved 1×1 sprite (id 4090). Route it to onText
@@ -458,7 +516,9 @@
           if (id === CHROME_SPRITE_ID) {
             if (label) onText(label);
           } else {
-            sprites.set(id, { width, height, pixels, label });
+            sprites.set(id, {
+              width, height, pixels, label, pendingCompressed, decodeRetries: 0
+            });
             // Only a redefinition of a sprite some static band currently
             // references can change the baked base; other sprite traffic
             // (agents, fade stages, decals) must not thrash the cache.

@@ -48,8 +48,12 @@ const
   ## the map into bands keeps every pixel (each band is a crop at its own
   ## y-offset; the client composites them into one seamless map layer) while
   ## making each message a fraction of the cap. Ids 30..(30+bands) and
-  ## 40..(40+bands) sit clear of every other pool (layer ids stop at 12, the next
-  ## sprite/object pools start at 100).
+  ## 40..(40+bands) sit clear of every other pool (layer ids stop at 12, the
+  ## next sprite pool is PlayerSpriteBase = 100) for up to 60 bands — enough
+  ## for every generated size class (4-team giant = 52). The client's
+  ## static-band cache window (broadcast_core.js STATIC_BAND_MAX_ID = 99)
+  ## mirrors that 60-band ceiling. Only the override-only colossal class can
+  ## exceed it: band 70+'s SPRITE id would collide with PlayerSpriteBase.
   MapBandSpriteBase = 30
   MapBandObjectBase = 40
   MapBandHeight = 192         ## px rows per band — 659/192 ≈ 4 bands (was 96 /
