@@ -62,9 +62,14 @@ const
   MaxDebugSpriteBytesPerTick* = 32 * 1024
   # The designed broadcast replay client, embedded at compile time. Served for
   # the replay routes in place of bitworld's generic global client; a single
-  # self-contained file (core JS inlined). Live/player/global paths are
-  # untouched and keep serving the bitworld client (§14 live column).
+  # self-contained file (shared chrome + core JS inlined). Live/player/global
+  # paths are untouched and keep serving the bitworld client (§14 live column).
+  # Final in-page script order: wire constants, shared chrome, core, page IIFE
+  # (marker positions in the HTML fix that; the replace order here is free).
   EmbeddedBroadcastReplayHtml = staticRead("../../client/replay_broadcast.html").replace(
+    "<!-- CHROME_COMMON -->",
+    "<script>" & staticRead("../../client/chrome_common.js") & "</script>"
+  ).replace(
     "<!-- BROADCAST_CORE -->",
     "<script>" & staticRead("../../client/broadcast_core.js") & "</script>"
   ).spliceWireConstants()
@@ -72,8 +77,11 @@ const
   # client (via ?embed=1) as the lit pit floor and mounts the scorebug, KDA tables,
   # division standings and transport as flat panels over the dungeon walls. Served
   # at the bare replay route; embed=1 falls through to the plain broadcast client.
-  EmbeddedLeagueReplayerHtml =
-    staticRead("../../client/league_replayer.html").spliceWireConstants()
+  # Shares the same chrome_common.js splice as the broadcast client.
+  EmbeddedLeagueReplayerHtml = staticRead("../../client/league_replayer.html").replace(
+    "<!-- CHROME_COMMON -->",
+    "<script>" & staticRead("../../client/chrome_common.js") & "</script>"
+  ).spliceWireConstants()
   # Dungeon-wall textures (nanobanana generations) served as static assets so the
   # shell HTML stays small and editable. Wide for top/bottom, tall for side walls.
   # Opaque stone, no alpha → JPEG (q82) keeps each well under any committed sprite.
