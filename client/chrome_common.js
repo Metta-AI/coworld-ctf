@@ -34,6 +34,11 @@
 //                  caption string to show under FINAL, or null/undefined for
 //                  the default 'Game over'. The league shell uses it for the
 //                  looping-hold countdown ('Replaying in Ns').
+//
+// UI toggles: chrome-level toggles read their initial value from the page URL
+// (uiToggle below), so whatever launches a replay can preconfigure the chrome.
+// Current params: ?spoilers=0|1 — future kills / flag story / winner / momentum
+// past the playhead on the scrubber (default 1, the classic broadcast chrome).
 window.ChromeCommon = function (ctx) {
   var $ = function (id) { return document.getElementById(id); };
 
@@ -67,6 +72,46 @@ window.ChromeCommon = function (ctx) {
   var WIRE = window.CTF_WIRE || {};
   var SPEEDS = WIRE.speeds || [1, 2, 3, 4, 8, 16];
   var FPS = WIRE.fps || 24;
+
+  // ---- UI toggles (externally configurable) --------------------------------
+  // Chrome-level UI toggles read their initial value from the page URL, so
+  // whatever triggers a replay can preconfigure the chrome by appending query
+  // params (works on both the broadcast client and the league shell, native
+  // or static bundle). Accepted values: 1/0, true/false, on/off, yes/no;
+  // anything else keeps the default. Pages can also flip a toggle at runtime
+  // through the returned setters.
+  function uiToggle(name, dflt) {
+    var raw = null;
+    try { raw = new URLSearchParams(location.search).get(name); } catch (e) {}
+    if (raw == null) return dflt;
+    raw = String(raw).toLowerCase();
+    if (raw === '1' || raw === 'true' || raw === 'on' || raw === 'yes') return true;
+    if (raw === '0' || raw === 'false' || raw === 'off' || raw === 'no') return false;
+    return dflt;
+  }
+
+  // [spoilers] — whether story beats AHEAD of the playhead are visible before
+  // playback gets there: scrubber kill/flag markers, the winner cap + WINS
+  // chip, and the momentum curve past the playhead. ON (default) preserves
+  // the classic broadcast chrome (full flag story + verdict placed up front);
+  // OFF keeps the timeline clean of anything the viewer hasn't watched yet
+  // and reveals it as the playhead advances. URL: ?spoilers=0 starts hidden.
+  var spoilers = uiToggle('spoilers', true);
+  function getSpoilers() { return spoilers; }
+  function setSpoilers(on) {
+    spoilers = !!on;
+    var b = $('btn-spoilers');
+    if (b) b.classList.toggle('on', spoilers);
+    var s = ctx.getState();
+    if (s) applySpoilers(s);
+  }
+  // Optional [spoilers] transport button (pages that carry #btn-spoilers).
+  (function () {
+    var b = $('btn-spoilers');
+    if (!b) return;
+    b.classList.toggle('on', spoilers);
+    b.addEventListener('click', function () { setSpoilers(!spoilers); });
+  })();
 
   // ---- names ---------------------------------------------------------------
   function stripSeatSuffix(name) {
@@ -228,6 +273,35 @@ window.ChromeCommon = function (ctx) {
     renderBeatMarkers(st, mx);
     renderLullSpans(st, mx);
     renderMomentum();
+    applySpoilers(s);
+  }
+
+  // ---- [spoilers] gate ------------------------------------------------------
+  // Runs every transport render (same synchronous pass, so no flash of
+  // spoiled chrome before the gate lands). With spoilers ON everything is
+  // visible — identical to the classic chrome. With spoilers OFF, anything
+  // that tells the story past the playhead is held back: beat markers ahead
+  // of the current tick (including kill markers left stranded ahead after a
+  // backward scrub), the verdict cap/chip until the game-over beat, and the
+  // momentum curve past the playhead (clipped, so it still reveals 1:1 as
+  // playback advances).
+  function applySpoilers(s) {
+    for (var i = 0; i < markerEls.length; i++) {
+      var el = markerEls[i];
+      var hide = !spoilers && el.__tick > s.t;
+      if (el.__hidden !== hide) {
+        el.__hidden = hide;
+        el.style.display = hide ? 'none' : '';
+      }
+    }
+    applyVerdict(s);
+    if (momClipRect) {
+      var st = Math.max(0, s.st || 0);
+      var mx = Math.max(st + 1, s.mx || 1);
+      var frac = spoilers ? 1 : Math.min(1, Math.max(0, (s.t - st) / (mx - st)));
+      var w = (frac * VBW).toFixed(1);
+      if (momClipRect.getAttribute('width') !== w) momClipRect.setAttribute('width', w);
+    }
   }
 
   // ---- scrubber lull shading (spans shipped once; rendered once) -----------
@@ -260,6 +334,7 @@ window.ChromeCommon = function (ctx) {
   var scrubEl = $('scrub');
   var seenMarkers = {};      // tick|kind -> marker (dedup)
   var pendingMarkers = [];
+  var markerEls = [];        // placed marker elements (spoiler gate re-checks these)
   function markBeat(tick, kind, team) {
     var mk = tick + '|' + kind;
     if (seenMarkers[mk]) return;
@@ -279,6 +354,8 @@ window.ChromeCommon = function (ctx) {
       var el = document.createElement('div');
       el.className = 'beat-marker ' + m.kind + (m.team ? ' ' + m.team : '');
       el.style.left = (Math.min(1, Math.max(0, (m.tick - st) / span)) * 100) + '%';
+      el.__tick = m.tick;
+      markerEls.push(el);
       scrubEl.appendChild(el);
     });
     pendingMarkers = [];
@@ -312,17 +389,33 @@ window.ChromeCommon = function (ctx) {
 
   // Winner cap + "RED WINS" chip. Fed by the up-front beat timeline, and as a
   // fallback by the game-over state (older servers that ship no beats still
-  // get the verdict once playback reaches the end). Idempotent.
+  // get the verdict once playback reaches the end). Idempotent. Visibility is
+  // spoiler-gated: with spoilers off the verdict stays hidden until the
+  // playhead reaches the game-over beat (or the phase itself goes gameover,
+  // which also covers verdicts that arrive without a tick).
+  var verdict = null;        // {cls, label, tick|null} once known
   function setVerdict(v) {
     var cls = v.draw ? 'draw' : (v.winner || '');
     if (!cls) return;
-    var label = v.draw ? 'DRAW' : v.winner.toUpperCase() + ' WINS';
+    if (!verdict) {
+      verdict = {
+        cls: cls,
+        label: v.draw ? 'DRAW' : v.winner.toUpperCase() + ' WINS',
+        tick: v.t != null ? v.t : null
+      };
+    }
+    applyVerdict(ctx.getState());
+  }
+  function applyVerdict(s) {
+    if (!verdict) return;
+    var show = spoilers ||
+      (s && (s.ph === 'gameover' || (verdict.tick != null && s.t >= verdict.tick)));
     var cap = $('scrub-win');
-    cap.className = 'scrub-win show ' + cls;
-    cap.title = label;
+    cap.className = 'scrub-win ' + (show ? 'show ' : '') + verdict.cls;
+    cap.title = verdict.label;
     var chip = $('win-chip');
-    chip.textContent = label;
-    chip.className = 'win-chip show ' + cls;
+    chip.textContent = verdict.label;
+    chip.className = 'win-chip ' + (show ? 'show ' : '') + verdict.cls;
   }
 
   // ---- momentum graph (lives-lead over the WHOLE timeline) ----------------
@@ -338,6 +431,7 @@ window.ChromeCommon = function (ctx) {
   var fullLeadSeries = null;        // full-match {teams, pts} shipped once by the server
   var momentumSamples = [];         // accumulate-as-played fallback samples
   var momentumTeams = null;         // team list backing the accumulated samples
+  var momClipRect = null;           // spoiler clip: curve visible up to this width
 
   // The server ships the full-match lives-lead change-point series ONCE (on the
   // first HUD frame). Cache it so the momentum graph draws its whole-timeline
@@ -409,6 +503,19 @@ window.ChromeCommon = function (ctx) {
     bg.setAttribute('fill', 'rgba(11,7,4,0.55)');
     el.appendChild(bg);
 
+    // The graph itself draws into a clipped layer so the spoilers gate can
+    // trim the curve at the playhead (applySpoilers drives the rect width
+    // every transport render; full width when spoilers are on). The backing
+    // rect stays unclipped so the band keeps a consistent ground either way.
+    var clipDefs = document.createElementNS(MOM_SVGNS, 'defs');
+    clipDefs.innerHTML = '<clipPath id="momclip"><rect x="0" y="0" width="' +
+      VBW + '" height="' + VBH + '"/></clipPath>';
+    el.appendChild(clipDefs);
+    momClipRect = clipDefs.firstChild.firstChild;
+    var layer = document.createElementNS(MOM_SVGNS, 'g');
+    layer.setAttribute('clip-path', 'url(#momclip)');
+    el.appendChild(layer);
+
     function stepPath(valueOf) {
       // A step series across the full [0, mx] axis: hold, then step.
       var d = '';
@@ -431,7 +538,7 @@ window.ChromeCommon = function (ctx) {
       } else {
         p.setAttribute('stroke', 'none');
       }
-      el.appendChild(p);
+      layer.appendChild(p);
     }
 
     if (norm.teams.length === 2) {
@@ -474,7 +581,7 @@ window.ChromeCommon = function (ctx) {
       mid.setAttribute('x2', VBW); mid.setAttribute('y2', MID);
       mid.setAttribute('stroke', 'rgba(242,232,216,0.22)');
       mid.setAttribute('stroke-width', '0.8');
-      el.appendChild(mid);
+      layer.appendChild(mid);
       var line = stepPath(yOf);
       // Shaded area drops from the line to the midline and closes back.
       var lastX = xOf(pts[pts.length - 1].t);
@@ -495,7 +602,7 @@ window.ChromeCommon = function (ctx) {
       base.setAttribute('x2', VBW); base.setAttribute('y2', VBH - 2);
       base.setAttribute('stroke', 'rgba(242,232,216,0.22)');
       base.setAttribute('stroke-width', '0.8');
-      el.appendChild(base);
+      layer.appendChild(base);
       norm.teams.forEach(function (team, ti) {
         var line = stepPath(function (m) {
           return (VBH - 2) - ((m.vals[ti] || 0) / peak) * (VBH - 4);
@@ -521,6 +628,8 @@ window.ChromeCommon = function (ctx) {
     markBeat: markBeat, killMarkerTeam: killMarkerTeam, renderBeatMarkers: renderBeatMarkers,
     captureTeam: captureTeam, ingestBeats: ingestBeats, setVerdict: setVerdict,
     ingestLeadSeries: ingestLeadSeries, recordMomentum: recordMomentum,
-    renderMomentum: renderMomentum
+    renderMomentum: renderMomentum,
+    // UI toggles ([spoilers] + the generic URL-param reader for future ones)
+    uiToggle: uiToggle, getSpoilers: getSpoilers, setSpoilers: setSpoilers
   };
 };

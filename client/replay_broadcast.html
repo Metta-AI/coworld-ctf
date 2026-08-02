@@ -1330,6 +1330,7 @@ body[data-embed] #board { top: 0; height: 100%; }
         <button class="tbtn" id="btn-end" title="Jump to end (e)">|▸</button>
         <button class="tbtn" id="btn-loop" title="Loop (r)">↻</button>
         <button class="tbtn" id="btn-skip" title="Auto-skip lulls (f)">▸▸</button>
+        <button class="tbtn" id="btn-spoilers" title="Spoilers: kills / flag story / winner on the timeline ahead of the playhead (o)">spoilers</button>
         <span class="ffwd-chip" id="ffwd-chip">▸▸ SKIPPING LULL</span>
         <span class="win-chip" id="win-chip"></span>
         <span class="tick-clock" id="tick-clock">0 / 0</span>
@@ -1402,6 +1403,7 @@ body[data-embed] #board { top: 0; height: 100%; }
   var captureTeam = C.captureTeam, ingestBeats = C.ingestBeats, setVerdict = C.setVerdict;
   var ingestLeadSeries = C.ingestLeadSeries, recordMomentum = C.recordMomentum;
   var renderMomentum = C.renderMomentum;
+  var getSpoilers = C.getSpoilers, setSpoilers = C.setSpoilers;
 
   // ---- eye-level cog art for the EYES PiP billboards ----
   // The PiP is an eye-level raycaster, so its billboards need art drawn from a
@@ -3393,6 +3395,7 @@ body[data-embed] #board { top: 0; height: 100%; }
     else if (k === 'f') send('f');
     else if (k === '+' || k === '=') send('+');
     else if (k === '-' || k === '_') send('-');
+    else if (k === 'o') setSpoilers(!getSpoilers());
     else if (k >= '1' && k <= '9') send(k);
     // keydown never crosses the iframe boundary: relay Esc to the league
     // shell, which relays it on to the Observatory theater host.

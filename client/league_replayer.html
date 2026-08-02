@@ -294,6 +294,7 @@
       <button class="tbtn" id="btn-end" title="Jump to end (e)">|▸</button>
       <button class="tbtn" id="btn-loop" title="Loop (r)">↻</button>
       <button class="tbtn" id="btn-skip" title="Auto-skip lulls (f)">▸▸</button>
+      <button class="tbtn" id="btn-spoilers" title="Spoilers: kills / flag story / winner on the timeline ahead of the playhead (o)">spoilers</button>
       <span class="ffwd-chip" id="ffwd-chip">▸▸ SKIPPING LULL</span>
       <span class="win-chip" id="win-chip"></span>
       <span class="tick-clock" id="tick-clock">0 / 0</span>
@@ -350,6 +351,7 @@
   var markBeat=C.markBeat, killMarkerTeam=C.killMarkerTeam, renderBeatMarkers=C.renderBeatMarkers;
   var captureTeam=C.captureTeam, ingestBeats=C.ingestBeats, setVerdict=C.setVerdict;
   var ingestLeadSeries=C.ingestLeadSeries, recordMomentum=C.recordMomentum;
+  var getSpoilers=C.getSpoilers, setSpoilers=C.setSpoilers;
   var renderMomentum=C.renderMomentum;
   // Pre-stream defaults only: each embedded replay posts its board's real
   // native size on every frame (the game supports multiple map sizes), and
@@ -553,9 +555,13 @@
     hideStatus();                       // also clears statusTimer + failTimer
     failTimer=setTimeout(showLoadFailure, 45000);
   }
-  // Direct Esc while the shell chrome (transport, KDA rows, scrubber) holds focus.
+  // Direct Esc while the shell chrome (transport, KDA rows, scrubber) holds
+  // focus; 'o' mirrors the [spoilers] transport button (a shell-local UI
+  // toggle, so it never goes down the command channel to the board).
   window.addEventListener('keydown', function(ev){
+    if(ev.metaKey||ev.ctrlKey||ev.altKey) return;
     if(ev.key==='Escape'){ postEscToHost(); }
+    else if(ev.key==='o'){ setSpoilers(!getSpoilers()); }
   });
 
   // ---- names (shared chrome: stripSeatSuffix / teamPolicies / teamName /
