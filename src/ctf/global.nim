@@ -54,7 +54,8 @@ const
   ## static-band cache window (broadcast_core.js STATIC_BAND_MAX_ID = 99)
   ## mirrors that 60-band ceiling. Only the override-only colossal class can
   ## exceed it: band 70+'s SPRITE id would collide with PlayerSpriteBase.
-  MapBandSpriteBase = 30
+  MapBandSpriteBase* = 30      ## Exported for the sprite-collision audit
+                               ## (bands are the canonical clobber victim).
   MapBandObjectBase = 40
   MapBandHeight = 192         ## px rows per band — 659/192 ≈ 4 bands (was 96 /
                               ## ~7). Logical rows shrink by boardScale² so each
@@ -414,20 +415,30 @@ const
   ## --- Articulated turret-rig sprite/object id pools (board only) ---
   ## The cog draws as 9 z-stacked segments + a held gun, each its own board object
   ## so the head/arms track AIM while the legs/wheels track MOVEMENT (a true turret
-  ## swivel). Sprite pools are generous and lazily baked; they start well clear of
-  ## every family above (highest was kill pops ~31191). Bake dims: head = team×16
+  ## swivel). Sprite pools are generous and lazily baked. Bake dims: head = team×16
   ## aim; arms = team×16 aim; legs = team×16 heading×(2·swing+1)×(shorten+1);
   ## wheels = team×16 heading×(2·caster+1).
-  RigHeadSpriteBase* = 40000   ## 40000..40127 (2 skins × 4 teams × 16 aim).
+  ##
+  ## These bases are LOGICAL KEYS, not wire ids. The rig pose space totals
+  ## ~35k keys (legs alone are 7920 per team) and tops out at 76663 — far past
+  ## the u16 sprite id the wire carries (spriteprotocol addU16 silently wraps
+  ## mod 65536). Before the wireSpriteId remap below, 4-team games shipped the
+  ## wrapped ids raw: yellow-team leg keys 65536..72679 landed on sprite ids
+  ## 0..7143 — redefining the once-only map-band sprites (30..89) as 96×96 leg
+  ## art, the permanent black-stripe reports — and every team's wheel keys
+  ## (73000+) landed on 7464..10727, inside the protocol-text pool. Every
+  ## rig*SpriteId proc therefore returns wireSpriteId(key): a dense wire id
+  ## assigned on first use from DynamicSpriteWireBase..U16SpriteIdCeiling.
+  RigHeadSpriteBase* = 40000   ## 128 keys (2 skins × 4 teams × 16 aim).
                                ## Exported so the sprite-collision audit can
                                ## scope skin-pool checks below the rig pool.
-  RigArmSpriteBase = 40200     ## team×2arms×16aim×2reach → 40200..40455.
-  RigLegSpriteBase = 41000     ## team×3legs×16head×33swing×5shorten = 7920 ids
+  RigArmSpriteBase = 40200     ## team×2arms×16aim×2reach → keys 40200..40455.
+  RigLegSpriteBase = 41000     ## team×3legs×16head×33swing×5shorten = 7920 keys
                                ## per team → 41000..72679.
-  RigWheelSpriteBase = 73000   ## team×3wheels×16head×17caster = 816 ids per
+  RigWheelSpriteBase = 73000   ## team×3wheels×16head×17caster = 816 keys per
                                ## team → 73000..76263.
-  RigGunSpriteBase = 76500     ## team×16 aim → 76500..76563 (held marker + glow).
-  RigSpraySpriteBase = 76600   ## team×16 aim → 76600..76663 (held spray can +
+  RigGunSpriteBase = 76500     ## team×16 aim → keys 76500..76563 (held marker + glow).
+  RigSpraySpriteBase = 76600   ## team×16 aim → keys 76600..76663 (held spray can +
                                ## glow): the swap-in art while a cog carries a
                                ## can, sharing the gun's object slot.
   ## Object pools sit clear of the tracer-dot pool (24000..35327) and the
@@ -630,6 +641,94 @@ static:
   ## spill; debug overlays never run in league games.)
   doAssert DebugObjectBase >= StainObjectBase + StainMaxCount,
     "debug object pool must start above the paint stains"
+
+const
+  U16SpriteIdCeiling = 65535
+    ## The wire packs sprite ids as u16 too (spriteprotocol addU16): any id
+    ## past this silently wraps mod 65536 on emission and lands on another
+    ## pool's ids — the client keeps ONE definition per id, so the collision
+    ## replaces the victim's art game-wide (the 2026-08-02 4-team black-stripe
+    ## reports: yellow rig leg keys wrapped onto the map-band sprites).
+  DynamicSpriteWireBase* = 40000
+    ## First wire id of the dynamic sprite window
+    ## (DynamicSpriteWireBase..U16SpriteIdCeiling, 25536 slots). Sprites with
+    ## unbounded/oversized LOGICAL key spaces — the rig pose pools and the
+    ## debug overlays — get their wire id assigned densely from this window on
+    ## first bake (see wireSpriteId). Static pools must stay strictly below
+    ## the window; the audit right below proves it.
+
+  ## --- Board sprite-id pool audit (compile time) ---
+  ## Sprite-side twin of BoardObjectPools above: every FIXED sprite pool as
+  ## (name, base, width), proven non-overlapping and strictly below
+  ## DynamicSpriteWireBase (which also keeps them under the u16 wire
+  ## ceiling). Widths for index-bounded families are generous envelopes, not
+  ## exact caps. The rig and debug pools are absent by design: their logical
+  ## keys exceed the u16 space entirely and reach the wire only through the
+  ## dense wireSpriteId remap into the dynamic window.
+  BoardSpritePools = [
+    ("POV map", int(MapSpriteId), 1),
+    ("map bands", MapBandSpriteBase, 60),
+    ("soldiers", int(PlayerSpriteBase), 2 * 4 * SoldierRotations),
+    ("carry hearts", CarryHeartSpriteBase, 4 * SoldierRotations),
+    ("flags", int(FlagSpriteBase), 4),
+    ("flag auras", FlagAuraSpriteBase, 4),
+    ("planted flags", PlantedFlagSpriteBase, 4),
+    ("game-over icons", GameOverIconSpriteBase, 4),
+    ("hp pips", HpPipSpriteBase, 4),
+    ("sound ring", SoundRingSpriteId, 1),
+    ("impact ring", ShotImpactSpriteId, 1),
+    ("grenade statics", PaintBombPickupSpriteId, 4),
+    ("blast flashes", BlastSpriteBase, 4),
+    ("trench blasts", TrenchBlastSpriteBase, 4),
+    ("tracer dots", TracerDotSpriteBase, 384),
+    ("muzzle blooms", MuzzleBloomSpriteBase, 4),
+    ("hit flashes", HitFlashSpriteBase, 4),
+    ("tracer heads", TracerHeadSpriteBase, 64),
+    ("med kit", MedKitSpriteId, 1),
+    ("rot diamonds", RotDiamondSpriteBase, 16),
+    ("shield statics", ShieldSpriteId, 3),
+    ("corpses", CorpseSpriteBase, 2 * 4 * SoldierRotations),
+    ("plasma statics", PlasmaArcPickupSpriteId, 2),
+    ("plasma fx", PlasmaArcFxSpriteBase,
+      16 * PlasmaArcFxStages * PlasmaArcFxPulses),
+    ("replay UI", ReplayTickSpriteId, 5),
+    ("broadcast chrome", BroadcastChromeSpriteId, 1),
+    ("endzone fades", EndzoneFadeSpriteBase, 4 * GlowFadeStages),
+    ("identity badges", IdentityBadgeSpriteBase, 4 * 32),
+    ("player HUD", SpritePlayerFireSpriteId, 23),
+    ("self soldiers", SpritePlayerSelfSpriteBase, 2 * SoldierRotations),
+    ("selected soldiers", int(SelectedPlayerSpriteBase),
+      2 * 4 * SoldierRotations),
+    ("player names", PlayerNameSpriteBase, MaxPlayers),
+    ("protocol text", ProtocolTextSpriteBase, 100),
+    ("scoreboard text", ScoreboardTextSpriteBase, MaxPlayers + 8),
+    ("team scores", TeamScoreSpriteBase, 4),
+    ("scoreboard pips", ScoreboardPipSpriteBase, MaxPlayers + 8),
+    ("splatters", SplatterSpriteBase, 64),
+    ("hit splats", HitSpriteBase, 64),
+    ("map markers", MapMarkerSpriteBase, 1000),
+    ("fog runs", FogRunSpriteBase, 1000),
+    ("shout bubbles", ShoutSpriteBase, ShoutMaxCount),
+    ("damage pops", DamagePopSpriteBase,
+      16 * DamagePopBucketCount * DamagePopStages),
+    ("kill pops", KillPopSpriteBase, 16 * DamagePopStages),
+    ("paint stains", StainSpriteBase, StainMaxCount),
+    ("diamond paint", DiamondPaintSpriteBase, 8 * 16),
+  ]
+
+static:
+  for i in 0 ..< BoardSpritePools.len:
+    let (aName, aBase, aWidth) = BoardSpritePools[i]
+    doAssert aBase + aWidth - 1 < DynamicSpriteWireBase,
+      "sprite pool '" & aName & "' reaches into the dynamic wire window: " &
+      $aBase & ".." & $(aBase + aWidth - 1) & " vs base " &
+      $DynamicSpriteWireBase
+    for j in i + 1 ..< BoardSpritePools.len:
+      let (bName, bBase, bWidth) = BoardSpritePools[j]
+      doAssert aBase + aWidth <= bBase or bBase + bWidth <= aBase,
+        "sprite pools overlap: '" & aName & "' " &
+        $aBase & ".." & $(aBase + aWidth - 1) & " and '" & bName & "' " &
+        $bBase & ".." & $(bBase + bWidth - 1)
 
 type
   SpriteDefinition = ref object
@@ -1038,10 +1137,44 @@ proc applyDebugSpritePacket*(
     of spkViewport, spkLayer:
       discard
 
+var
+  dynamicWireSpriteIds = initTable[int, int]()
+  dynamicWireSpriteNext = DynamicSpriteWireBase
+
+proc wireSpriteId(key: int): int =
+  ## The u16 wire id for a dynamically-keyed sprite (rig poses, debug
+  ## overlays): assigned densely from the dynamic window on first use, stable
+  ## for the life of the process. Module state (the boardScale pattern): every
+  ## stream in a process shares one assignment, so a sprite definition and
+  ## every object referencing it agree on the wire id, on every stream. Only
+  ## sprites actually baked claim a slot — a full episode touches a few
+  ## hundred rig poses against 25536 slots. If a marathon somehow exhausted
+  ## the window, the mod wraps onto the OLDEST dynamic slots (worst case:
+  ## stale rig art on one sprite) — never onto a static pool, so a wrap can
+  ## no longer black out map bands or hijack UI sprites.
+  dynamicWireSpriteIds.withValue(key, found):
+    return found[]
+  result = DynamicSpriteWireBase +
+    (dynamicWireSpriteNext - DynamicSpriteWireBase) mod
+      (U16SpriteIdCeiling - DynamicSpriteWireBase + 1)
+  dynamicWireSpriteIds[key] = result
+  inc dynamicWireSpriteNext
+
+const DebugSpriteKeyNamespace = 1_000_000
+  ## Added to debug keys before the wireSpriteId lookup: the raw debug key
+  ## space (DebugSpriteBase + 32 players × 1024 = 40000..72767) OVERLAPS the
+  ## rig pose key space (40000..76663), and wireSpriteId keys must be unique
+  ## across every dynamic pool or two pools share a wire id — the collision
+  ## class this remap exists to kill. Keys are plain ints, so namespacing by
+  ## offset is free; every rig/static key stays below 1_000_000.
+
 proc debugSpriteId*(playerIndex, payloadId: int): int =
   ## Returns the viewer sprite id for one player's payload sprite id.
-  DebugSpriteBase + playerIndex * DebugPlayerIdStride +
-    payloadId mod DebugPlayerIdStride
+  ## Remapped: the raw debug key space crosses the u16 wire ceiling (and
+  ## overlaps the rig keys — see DebugSpriteKeyNamespace).
+  wireSpriteId(DebugSpriteKeyNamespace +
+    DebugSpriteBase + playerIndex * DebugPlayerIdStride +
+    payloadId mod DebugPlayerIdStride)
 
 proc debugObjectId*(playerIndex, payloadId: int): int =
   ## Returns the viewer object id for one player's payload object id.
@@ -1110,25 +1243,29 @@ proc selectedSoldierPlayerSpriteId(team: Team, skin: Skin, rot: int): int =
     ord(team) * SoldierRotations + rot
 
 # --- Articulated turret-rig sprite ids ---
-# Each family packs its dimensions into a dense range. Signed articulation steps
-# (leg swing, wheel caster) are offset to a non-negative index. ord(seg) within a
-# family: arms armL/armR = 0/1; legs FL/FR/Rear = 0/1/2; wheels L/R/Rear = 0/1/2.
+# Each family packs its dimensions into a dense LOGICAL key range; the key
+# space exceeds u16, so every proc returns wireSpriteId(key) — the dense wire
+# id — never the raw key. Signed articulation steps (leg swing, wheel caster)
+# are offset to a non-negative index. ord(seg) within a family: arms armL/armR
+# = 0/1; legs FL/FR/Rear = 0/1/2; wheels L/R/Rear = 0/1/2.
 proc rigHeadSpriteId(team: Team, skin: Skin, aimStep: int): int =
-  RigHeadSpriteBase +
+  wireSpriteId(RigHeadSpriteBase +
     ord(skin) * 2 * RigSteps +
     ord(team) * RigSteps +
-    aimStep
+    aimStep)
 
 proc rigGunSpriteId(team: Team, aimStep: int): int =
-  RigGunSpriteBase + ord(team) * RigSteps + aimStep
+  wireSpriteId(RigGunSpriteBase + ord(team) * RigSteps + aimStep)
 
 proc rigSpraySpriteId(team: Team, aimStep: int): int =
-  RigSpraySpriteBase + ord(team) * RigSteps + aimStep
+  wireSpriteId(RigSpraySpriteBase + ord(team) * RigSteps + aimStep)
 
 proc rigArmSpriteId(team: Team, seg: RigSeg, aimStep, reach: int): int =
   ## reach 0 = tucked (idle), 1 = reaching forward (carrying).
   let armIdx = if seg == rsArmL: 0 else: 1
-  RigArmSpriteBase + (((ord(team) * 2 + armIdx) * RigSteps + aimStep) * 2) + reach
+  wireSpriteId(
+    RigArmSpriteBase + (((ord(team) * 2 + armIdx) * RigSteps + aimStep) * 2) +
+      reach)
 
 proc rigLegIdx(seg: RigSeg): int =
   case seg
@@ -1145,7 +1282,8 @@ proc rigLegSpriteId(team: Team, seg: RigSeg,
     shorts = RigShortenSteps + 1
     sw = swingStep + RigLegSwingSteps
     idx = ((rigLegIdx(seg) * RigSteps + headStep) * swings + sw) * shorts + shortenStep
-  RigLegSpriteBase + (ord(team) * 3 * RigSteps * swings * shorts) + idx
+  wireSpriteId(
+    RigLegSpriteBase + (ord(team) * 3 * RigSteps * swings * shorts) + idx)
 
 proc rigWheelIdx(seg: RigSeg): int =
   case seg
@@ -1160,7 +1298,8 @@ proc rigWheelSpriteId(team: Team, seg: RigSeg, headStep, casterStep: int): int =
     casters = 2 * RigCasterSteps + 1
     cs = casterStep + RigCasterSteps
     idx = (rigWheelIdx(seg) * RigSteps + headStep) * casters + cs
-  RigWheelSpriteBase + (ord(team) * 3 * RigSteps * casters) + idx
+  wireSpriteId(
+    RigWheelSpriteBase + (ord(team) * 3 * RigSteps * casters) + idx)
 
 proc corpseSoldierSpriteId(team: Team, skin: Skin, rot: int): int =
   ## Sprite id for a dead soldier (grey corpse) at rotation `rot` (the
@@ -1203,6 +1342,12 @@ proc addSpriteChanged(
   ## Every sprite MUST carry a non-empty label — the inspector and bot readers
   ## both key off it, and an empty label silently re-sends forever.
   doAssert label.len > 0, "sprite " & $spriteId & " needs a non-empty label"
+  # The wire carries this id as u16: an id past the ceiling wraps mod 65536 on
+  # emission and silently redefines another pool's sprite on every client (the
+  # 4-team black-stripe incident). Dynamically-keyed pools must go through
+  # wireSpriteId; static pools are proven in range by the compile-time audit.
+  doAssert spriteId >= 0 and spriteId <= U16SpriteIdCeiling,
+    "sprite id " & $spriteId & " (" & label & ") crosses the u16 wire ceiling"
   let index = defs.spriteDefinitionIndex(spriteId)
   if index >= 0:
     if defs[index].width == width and
