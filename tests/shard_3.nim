@@ -12,6 +12,7 @@ import
   test_player_collision,
   test_player_fog,
   test_replay,
+  test_replay_scan,
   test_shot_exposure,
   test_sprite_collisions
 {.warning[UnusedImport]: on.}

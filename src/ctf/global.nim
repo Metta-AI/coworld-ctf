@@ -89,8 +89,9 @@ const
     (HpBarSegments - 1) * HpBarSegGap  ## 14px total — sized to the crew sprite.
   IdentityBadgeSpriteBase = 4200 ## Greek identity badges keyed
                                  ## ord(team)*IdentityNames.len + identity:
-                                 ## 4200..4231 (clear of the endzone fade crops
-                                 ## at 4100..4131).
+                                 ## 4200..4231 (the endzone fade crops that
+                                 ## used to sit at 4100..4131 moved to the
+                                 ## banded pool at 36600+).
   IdentityBadgeObjectBase = 19040  ## identity badge object pool: one per
                                    ## player, 19040..19071 (clear of the hp
                                    ## pips at 19000 and impact rings at 19120).
@@ -126,21 +127,61 @@ const
   ## SAME endzone columns — cropped to the hot-vs-cold diff box, transparent
   ## where the two maps agree — crossfades from the baked-glow crop to a
   ## glow-free crop, drawn just above the map and below every actor. Purely
-  ## cosmetic — outside gameHash and untouched in the player POV. Sprite ids
-  ## 4100..4131 and object ids 19520..19523 sit clear of every other pool.
-  EndzoneFadeSpriteBase = 4100 ## per-(team, stage) fade crops: 4100 +
-                               ## ord(team)*GlowFadeStages + stage → 4100..4131.
-                               ## Every stage owns an id so the crops can be
-                               ## pre-shipped once per connection and the
-                               ## event-time ramp is a pure object remap (bytes
-                               ## ≈ 0) instead of a ~200 KB sprite resend per
-                               ## frame — the burst that stalled WAN replay
-                               ## viewers.
-  EndzoneFadeObjectBase = 19520  ## one strip overlay per team.
-  EndzonePrewarmEveryFrames* = 4  ## drip one fade crop every N frames after
-                                 ## connect (~1.2 Mbps for ~2.4 s on classic
-                                 ## maps, twice that on 4-team maps) instead
-                                 ## of dumping every crop at once.
+  ## cosmetic — outside gameHash and untouched in the player POV.
+  ##
+  ## The crops ship as stacked horizontal BANDS (same idea as the map bands):
+  ## on large boards one whole (team, stage) crop is a multi-hundred-KB bake +
+  ## compress + (viewer-side) texture upload, and shipping it in one frame was
+  ## a 100–300 ms stall — the rhythmic early-replay stutter on giant maps. A
+  ## band is capped by area (EndzoneFadeBandPixels), so per-frame fade cost
+  ## stays bounded up to the id-space clamp (MaxEndzoneFadeBands): a diff crop
+  ## bigger than MaxEndzoneFadeBands x EndzoneFadeBandPixels logical px grows
+  ## its bands past the cap instead of overflowing the pools — those boards
+  ## are the colossal class, which emits at 1x, so an oversized band is still
+  ## a moderate bake.
+  EndzoneFadeSpriteBase = 36600 ## per-(team, stage, band) fade-crop bands:
+                               ## 36600 + (ord(team)*GlowFadeStages + stage) *
+                               ## MaxEndzoneFadeBands + band → 36600..38647.
+                               ## Sits between the diamond-paint pool (ends
+                               ## 35427: 8 diamonds × 16 frames) and the rig
+                               ## pools at 40000+. Every band owns an id so
+                               ## the crops can be pre-shipped once per
+                               ## connection and the event-time ramp is a pure
+                               ## object remap (bytes ≈ 0) instead of a sprite
+                               ## resend per frame — the burst that stalled
+                               ## WAN replay viewers.
+  MaxEndzoneFadeBands* = 64     ## id-space cap on bands per (team, stage); the
+                               ## band row count grows past this rather than
+                               ## overflowing the sprite/object pools.
+  EndzoneFadeBandPixels = 24_000 ## max LOGICAL map px (width × rows) per band
+                               ## — ~0.38 MB of raw RGBA at boardScale 2,
+                               ## ~15 ms to bake + compress on a laptop
+                               ## (roughly 2× that in the wasm viewer), so
+                               ## one band fits inside a 24 fps frame.
+  EndzoneFadeObjectBase* = 39700  ## band overlays, team-major: 39700 +
+                                 ## ord(team)*MaxEndzoneFadeBands + band →
+                                 ## 39700..39955, in the gap between the
+                                 ## stains (end 39699) and the per-player
+                                 ## debug pool at DebugObjectBase (40000) —
+                                 ## the audit's debug-floor assert covers
+                                 ## this pool. (The 19520 slot the old
+                                 ## one-object-per-team scheme used has only
+                                 ## 40 free ids before the shields at 19560.)
+  EndzoneRampBandsPerFrame* = 4   ## on-demand fade bands one frame may ship
+                                 ## when a steal outruns the prewarm; the ramp
+                                 ## HOLDS its stage until the next stage's
+                                 ## bands are all present, so a cold viewer
+                                 ## sees a slightly slower fade, never a stall
+                                 ## or a mixed-stage seam.
+  EndzonePrewarmEveryFrames* = 2  ## drip one fade BAND every N frames after
+                                 ## connect. The point of banding is capping
+                                 ## what any SINGLE frame bakes and ships;
+                                 ## the amortized drip rate is lower than the
+                                 ## old one-crop-per-4-frames, so a giant
+                                 ## board takes longer to fully warm — fine,
+                                 ## because a steal that outruns the prewarm
+                                 ## is covered by the ramp's own gated sends
+                                 ## (EndzoneRampBandsPerFrame).
   GlowFadeStages* = 8          ## crossfade steps; 0 = full glow, 7 = fully cold.
   ## Grenades (0.7.0): a paint-bomb orb PNG shared by three placements plus a
   ## drawn charge ring and blast flash. Sprite ids 840..845 sit above the sound
@@ -185,8 +226,10 @@ const
   ShieldSize = 26                ## px footprint of an endzone shield pickup.
   ShieldCarrySize = 12           ## px footprint of the carried shield marker.
   ShieldObjectBase = 19560       ## endzone shields: 19560..19563, one per
-                                 ## team — clear of the endzone-fade strips
-                                 ## (19520..19523), the med kits (19600+),
+                                 ## team — clear of the med kits (19600+)
+                                 ## (the endzone-fade overlays that used to
+                                 ## sit at 19520..19523 moved to the banded
+                                 ## pool at EndzoneFadeObjectBase),
                                  ## and the PER-PLAYER carried-shield markers
                                  ## at 19900..19931.
   ShieldCarryObjectBase = 19900  ## carried shield markers: one per player,
@@ -354,9 +397,8 @@ const
                                ## buildPaintStainSprite) and that mask depends on
                                ## the map under that exact spot. Lives in the gap
                                ## between the kill pops (..31191) and the rig
-                               ## pools (40000..): the 4-team rig legs alone span
-                               ## 41000..72679, so anything above 40000 is both
-                               ## taken and past the u16 id ceiling.
+                               ## pools (40000..), below the endzone fade
+                               ## bands at 36600+.
   DiamondPaintSpriteBase = 35300 ## per-(diamond, frame) painted stone:
                                ## 35300..35427 (8 diamonds x 16 frames). A
                                ## diamond claims ids here only once paint lands
@@ -422,10 +464,10 @@ const
                                ## Exported so the sprite-collision audit can
                                ## scope skin-pool checks below the rig pool.
   RigArmSpriteBase = 40200     ## team×2arms×16aim×2reach → 40200..40455.
-  RigLegSpriteBase = 41000     ## team×3legs×16head×33swing×5shorten = 7920 ids
-                               ## per team → 41000..72679.
-  RigWheelSpriteBase = 73000   ## team×3wheels×16head×17caster = 816 ids per
-                               ## team → 73000..76263.
+  RigLegSpriteBase = 41000     ## team×3legs×16head×7swing×5shorten = 1680 ids
+                               ## per team → 41000..47719.
+  RigWheelSpriteBase = 73000   ## team×3wheels×16head×9caster = 432 ids per
+                               ## team → 73000..74727.
   RigGunSpriteBase = 76500     ## team×16 aim → 76500..76563 (held marker + glow).
   RigSpraySpriteBase = 76600   ## team×16 aim → 76600..76663 (held spray can +
                                ## glow): the swap-in art while a cog carries a
@@ -590,7 +632,7 @@ const
     ("throw-target rings", ThrowTargetObjectBase, MaxPlayers),
     ("blast flashes", BlastObjectBase, GrenadeMaxBlasts),
     ("shout bubbles", ShoutObjectBase, ShoutMaxCount),
-    ("endzone fades", EndzoneFadeObjectBase, 4),
+    ("endzone fades", EndzoneFadeObjectBase, 4 * MaxEndzoneFadeBands),
     ("endzone shields", ShieldObjectBase, 4),
     ("med kits", MedKitObjectBase, 4),
     ("rot diamonds", RotDiamondObjectBase, 8),
@@ -630,6 +672,9 @@ static:
   ## spill; debug overlays never run in league games.)
   doAssert DebugObjectBase >= StainObjectBase + StainMaxCount,
     "debug object pool must start above the paint stains"
+  doAssert DebugObjectBase >=
+      EndzoneFadeObjectBase + 4 * MaxEndzoneFadeBands,
+    "debug object pool must start above the endzone fade bands"
 
 type
   SpriteDefinition = ref object
@@ -773,20 +818,43 @@ proc predictedViewerRenderBytes*(mapWidth, mapHeight: int): int64 =
   ## board, at the scale boardRenderScaleFor picks for it. Dominated by the
   ## map-sized RGBA buffers: at scale k the hot + cold arena bakes and the
   ## banded wire copy each cost mapPixels·k²·4 bytes (the 4·k² term); the
-  ## flat +4 covers the 1× sim-side buffers (mapRgba, cold endzone map,
-  ## masks) and packet staging. Calibrated against the observed colossal
-  ## 4-team failure: 4992² at k=2 predicts ~2.0 GB and the real abort came
-  ## at ~1.98 GB of heap; giant 4-team at k=2 predicts ~0.5 GB and plays.
+  ## flat +6 covers the 1× sim-side buffers (mapRgba, cold endzone map,
+  ## masks), packet staging, AND the incremental precompute walk's second
+  ## SimServer copy (its own 1× bakes and masks, alive for the scan's
+  ## duration — see ReplayScan). Calibrated against the observed colossal
+  ## 4-team failure: 4992² at k=2 predicted ~2.0 GB pre-scan and the real
+  ## abort came at ~1.98 GB of heap; colossal 4-team at k=1 with the scan
+  ## live measures ~1.0 GB against this formula's ~1.0 GB; giant 4-team at
+  ## k=2 predicts ~0.55 GB and plays.
   let
     px = int64(mapWidth) * int64(mapHeight)
     k = int64(boardRenderScaleFor(mapWidth, mapHeight))
-  px * 4 * (4 * k * k + 4)
+  px * 4 * (4 * k * k + 6)
 
 var boardScale = 1
   ## Current emission scale. 1 for every player/POV stream; RenderScale inside
   ## the global broadcast/replay board section. Module state (not a param)
   ## because the ~20 emission helpers are shared verbatim between the player
   ## and spectator builders; the two builder entry points own the value.
+
+const RigPoseDefsPerFrame* = 6
+  ## How many NEW articulated leg/wheel pose sprites one viewer build may
+  ## bake and ship (reset per build; a multi-spectator server grants each
+  ## viewer its own allowance). The pose pool (heading × swing × shorten /
+  ## caster, per team) is far too large to ever ship whole, and on large
+  ## boards a busy tick can want dozens of fresh poses at once — each a
+  ## (RigCanvas·boardScale)² bake + compress + (viewer-side) texture upload.
+  ## Past the budget a segment falls back to its CANONICAL straight-line
+  ## pose for that heading (art step 0 — the delta is a ≤RigSplayDeg leg
+  ## swing, an inner-leg shorten, or a ≤RigCasterMaxBrads wheel tilt, all
+  ## momentary sub-sprite detail at spectator zoom) and the true pose lands
+  ## on a later frame. Canonical poses themselves are exempt: they are a
+  ## small bounded pool and the fallback must always be drawable.
+
+var rigPoseDefBudget = 0
+  ## Remaining new-pose allowance for the frame being built. Reset by the
+  ## spectator board section alongside boardScale; module state for the same
+  ## reason boardScale is.
 
 proc boardRenderScale(sim: SimServer): int =
   ## The supersample factor this sim's board actually emits at.
@@ -821,9 +889,11 @@ var TransportSheet: Sprite
 
 var
   EndzoneColdRgba: seq[uint8]  ## full glow-free map RGBA, lazily built once.
-  EndzoneStripCache: array[Team, array[GlowFadeStages, seq[uint8]]]
-    ## per-team, per-stage endzone delta crops crossfading the baked-glow floor
-    ## toward the cold floor; each baked once and reused for the whole session.
+  EndzoneStripCache: array[Team, array[GlowFadeStages, seq[seq[uint8]]]]
+    ## per-team, per-stage, per-BAND endzone delta crops crossfading the
+    ## baked-glow floor toward the cold floor; each band baked once and reused
+    ## for the whole session (outer seq index = band, empty seq = not yet
+    ## baked).
   EndzoneDiffBox: array[Team, tuple[x0, y0, x1, y1: int]]
     ## per-team bounding box (map coords, inclusive) of the pixels that differ
     ## between the baked-glow map and the cold map; x1 < x0 means empty.
@@ -889,7 +959,7 @@ proc endzoneDiffBox(sim: SimServer, team: Team): tuple[x0, y0, x1, y1: int] =
     ## every strip/box derived from the old geometry. This must run BEFORE
     ## the ready-flag return below — a box cached on a differently-sized map
     ## would otherwise be served as-is and index out of the current map's
-    ## (correctly re-baked) buffers in endzoneStripSprite.
+    ## (correctly re-baked) buffers in endzoneFadeBandPixels.
     EndzoneColdRgba = coldEndzoneMapRgba(sim.gameMap)
     EndzoneStripCache = default(typeof(EndzoneStripCache))
     EndzoneDiffBoxReady = default(typeof(EndzoneDiffBoxReady))
@@ -910,46 +980,82 @@ proc endzoneDiffBox(sim: SimServer, team: Team): tuple[x0, y0, x1, y1: int] =
   EndzoneDiffBox[team] = result
   EndzoneDiffBoxReady[team] = true
 
-proc endzoneStripSprite(
-  sim: SimServer,
-  team: Team,
-  stage: int
-): tuple[x, y, w, h: int, pixels: seq[uint8]] =
-  ## Returns the endzone-glow DELTA overlay for one crossfade `stage`, cropped
-  ## to the diff bounding box: pixels where the baked-glow and cold maps agree
-  ## are fully transparent (the identical map shows through), differing pixels
-  ## carry the blend — stage 0 all hot, GlowFadeStages-1 all cold. Drawn just
-  ## above the map and below every actor so only the endzone glow + capture
-  ## line visibly power down when a heart is taken — the shared map sprite (and
-  ## the POV/RL view) is never re-baked. The endzone tint spans the whole
-  ## column floor, so the diff crop still carries most of it (~200 KB vs
-  ## ~400 KB for the full opaque strip) — which is why the crops are ALSO
-  ## pre-shipped per connection (addEndzonePrewarm) so a steal/return ramp
-  ## never pays sprite bytes at event time. Each (team, stage) crop is baked
-  ## once and cached.
+proc endzoneFadeBandRows(sim: SimServer, team: Team): int =
+  ## Logical rows per fade band for one team's diff crop: as many rows as fit
+  ## the EndzoneFadeBandPixels area cap, floored at 1 and raised as needed so
+  ## the band count never exceeds MaxEndzoneFadeBands (id-space bound).
   let box = sim.endzoneDiffBox(team)
   if box.x1 < box.x0:
-    return (x: 0, y: 0, w: 0, h: 0, pixels: @[])
+    return 1
+  let
+    w = box.x1 - box.x0 + 1
+    h = box.y1 - box.y0 + 1
+  result = clamp(EndzoneFadeBandPixels div w, 1, h)
+  if (h + result - 1) div result > MaxEndzoneFadeBands:
+    result = (h + MaxEndzoneFadeBands - 1) div MaxEndzoneFadeBands
+
+proc endzoneFadeBandCount*(sim: SimServer, team: Team): int =
+  ## How many bands one team's fade crop splits into (0 = empty crop).
+  ## Exported for the band-tiling test.
+  let box = sim.endzoneDiffBox(team)
+  if box.x1 < box.x0:
+    return 0
+  let
+    h = box.y1 - box.y0 + 1
+    rows = sim.endzoneFadeBandRows(team)
+  (h + rows - 1) div rows
+
+proc endzoneFadeBandBox*(sim: SimServer, team: Team, band: int):
+    tuple[x, y, w, h: int] =
+  ## One band's logical (1×) map-pixel box inside the team's diff crop.
+  ## Exported for the band-tiling test.
+  let box = sim.endzoneDiffBox(team)
+  if box.x1 < box.x0:
+    return (x: 0, y: 0, w: 0, h: 0)
+  let
+    rows = sim.endzoneFadeBandRows(team)
+    y0 = box.y0 + band * rows
   result.x = box.x0
-  result.y = box.y0
+  result.y = y0
   result.w = box.x1 - box.x0 + 1
-  result.h = box.y1 - box.y0 + 1
+  result.h = min(rows, box.y1 - y0 + 1)
+
+proc endzoneFadeBandPixels(
+  sim: SimServer,
+  team: Team,
+  stage: int,
+  band: int
+): seq[uint8] =
+  ## Bakes (or returns cached) the endzone-glow DELTA overlay for one
+  ## crossfade `stage`, cropped to one BAND of the diff bounding box: pixels
+  ## where the baked-glow and cold maps agree are fully transparent (the
+  ## identical map shows through), differing pixels carry the blend — stage 0
+  ## all hot, GlowFadeStages-1 all cold. Drawn just above the map and below
+  ## every actor so only the endzone glow + capture line visibly power down
+  ## when a heart is taken — the shared map sprite (and the POV/RL view) is
+  ## never re-baked. Banding bounds the bake/compress cost of any single
+  ## frame; the crops are ALSO pre-shipped band-by-band per connection
+  ## (addEndzonePrewarm) so a steal/return ramp is normally a pure object
+  ## remap. Each (team, stage, band) crop is baked once and cached.
+  let bandBox = sim.endzoneFadeBandBox(team, band)
+  if bandBox.w <= 0 or bandBox.h <= 0:
+    return @[]
   let s = clamp(stage, 0, GlowFadeStages - 1)
-  if EndzoneStripCache[team][s].len ==
-      result.w * boardScale * result.h * boardScale * 4:
-    result.pixels = EndzoneStripCache[team][s]
-    return
+  let expected = bandBox.w * boardScale * bandBox.h * boardScale * 4
+  if EndzoneStripCache[team][s].len > band and
+      EndzoneStripCache[team][s][band].len == expected:
+    return EndzoneStripCache[team][s][band]
   # t: 0 at stage 0 (all hot/baked glow), 1 at the last stage (all cold).
   let
     t = s.float / float(GlowFadeStages - 1)
     k = boardScale
   if k == 1:
-    result.pixels = newSeq[uint8](result.w * result.h * 4)
-    for y in 0 ..< result.h:
-      for x in 0 ..< result.w:
+    result = newSeq[uint8](bandBox.w * bandBox.h * 4)
+    for y in 0 ..< bandBox.h:
+      for x in 0 ..< bandBox.w:
         let
-          src = mapIndex(box.x0 + x, box.y0 + y) * 4
-          dst = (y * result.w + x) * 4
+          src = mapIndex(bandBox.x + x, bandBox.y + y) * 4
+          dst = (y * bandBox.w + x) * 4
         if sim.mapRgba[src] == EndzoneColdRgba[src] and
             sim.mapRgba[src + 1] == EndzoneColdRgba[src + 1] and
             sim.mapRgba[src + 2] == EndzoneColdRgba[src + 2]:
@@ -958,24 +1064,28 @@ proc endzoneStripSprite(
           let
             hot = sim.mapRgba[src + c].float
             cold = EndzoneColdRgba[src + c].float
-          result.pixels[dst + c] = uint8(hot + (cold - hot) * t)
-        result.pixels[dst + 3] = 255
+          result[dst + c] = uint8(hot + (cold - hot) * t)
+        result[dst + 3] = 255
   else:
-    # Native boardScale× crop: the diff BOX stays the logical 1× one (so the
+    # Native boardScale× crop: the band BOX stays the logical 1× one (so the
     # overlay lands exactly where addBoardObject scales it to), but the pixels
     # blend the native-rendered hot and cold board maps — the fade overlay is
-    # as sharp as the map it covers.
+    # as sharp as the map it covers. The bakes are read straight from the
+    # module caches: the accessor procs RETURN the seq by value, and copying
+    # two ~100 MB giant-board bakes per band would cost more than the whole
+    # band bake.
+    sim.ensureBoardMaps()
     let
-      hotMap = sim.boardScaledMapPixels()
-      coldMap = sim.boardScaledColdMapPixels()
-      ow = result.w * k
-      oh = result.h * k
+      ow = bandBox.w * k
+      oh = bandBox.h * k
       rowW = MapWidth * k
-    result.pixels = newSeq[uint8](ow * oh * 4)
+    template hotMap: seq[uint8] = boardMapCache
+    template coldMap: seq[uint8] = boardColdMapCache
+    result = newSeq[uint8](ow * oh * 4)
     for y in 0 ..< oh:
       for x in 0 ..< ow:
         let
-          src = ((box.y0 * k + y) * rowW + box.x0 * k + x) * 4
+          src = ((bandBox.y * k + y) * rowW + bandBox.x * k + x) * 4
           dst = (y * ow + x) * 4
         if hotMap[src] == coldMap[src] and
             hotMap[src + 1] == coldMap[src + 1] and
@@ -985,9 +1095,11 @@ proc endzoneStripSprite(
           let
             hot = hotMap[src + c].float
             cold = coldMap[src + c].float
-          result.pixels[dst + c] = uint8(hot + (cold - hot) * t)
-        result.pixels[dst + 3] = 255
-  EndzoneStripCache[team][s] = result.pixels
+          result[dst + c] = uint8(hot + (cold - hot) * t)
+        result[dst + 3] = 255
+  if EndzoneStripCache[team][s].len <= band:
+    EndzoneStripCache[team][s].setLen(band + 1)
+  EndzoneStripCache[team][s][band] = result
 
 proc initGlobalViewerState*(): GlobalViewerState =
   ## Returns the default state for one global protocol viewer.
@@ -5825,34 +5937,79 @@ proc addReplayMismatchWarning(
     ReplayMismatchSpriteId
   )
 
-proc endzoneFadeSpriteId(team: Team, stage: int): int =
-  ## Returns the sprite id owned by one team's fade crop at one stage.
-  EndzoneFadeSpriteBase + ord(team) * GlowFadeStages + stage
+proc endzoneFadeSpriteId*(team: Team, stage, band: int): int =
+  ## Returns the sprite id owned by one band of one team's fade crop at one
+  ## stage.
+  EndzoneFadeSpriteBase +
+    (ord(team) * GlowFadeStages + stage) * MaxEndzoneFadeBands + band
 
-proc addEndzoneFadeSprite(
+proc addEndzoneFadeBand(
   sim: SimServer,
   state: var GlobalViewerState,
   packet: var seq[uint8],
   team: Team,
-  stage: int
-): tuple[x, y, w, h: int] =
-  ## Ships one team's fade crop for one stage to this viewer (no-op if this
-  ## connection already has it — sprite defs are tracked per viewer) and
-  ## returns its placement box. w == 0 means the hot and cold maps agree and
-  ## there is nothing to fade.
-  let strip = sim.endzoneStripSprite(team, stage)
-  result = (x: strip.x, y: strip.y, w: strip.w, h: strip.h)
-  if strip.w <= 0:
+  stage: int,
+  band: int
+) =
+  ## Ships one band of one team's fade crop for one stage to this viewer
+  ## (no-op if this connection already has it — sprite defs are tracked per
+  ## viewer).
+  let bandBox = sim.endzoneFadeBandBox(team, band)
+  if bandBox.w <= 0 or bandBox.h <= 0:
     return
   packet.addBoardSpriteChanged(
     state.spriteDefs,
-    endzoneFadeSpriteId(team, stage),
-    strip.w,
-    strip.h,
-    strip.pixels,
-    LabelPrefixEndzone & teamText(team) & " power " & $stage,
+    endzoneFadeSpriteId(team, stage, band),
+    bandBox.w,
+    bandBox.h,
+    sim.endzoneFadeBandPixels(team, stage, band),
+    LabelPrefixEndzone & teamText(team) & " power " & $stage &
+      " band " & $band,
     native = boardScale
   )
+
+proc endzoneBandDefCurrent(
+  sim: SimServer,
+  state: GlobalViewerState,
+  team: Team,
+  stage: int,
+  band: int
+): bool =
+  ## Whether this viewer's def for one fade band matches the CURRENT map's
+  ## band geometry. Presence alone is not enough: a replay hot-switch keeps
+  ## connected viewers (and their sprite defs) while the fade crops re-bake
+  ## for the new map under the same ids — the dims comparison is the same
+  ## staleness signal addBoardSpriteChanged uses, checked here without
+  ## paying for band pixels first.
+  let index = state.spriteDefs.spriteDefinitionIndex(
+    endzoneFadeSpriteId(team, stage, band))
+  if index < 0:
+    return false
+  let bandBox = sim.endzoneFadeBandBox(team, band)
+  state.spriteDefs[index].width == bandBox.w * boardScale and
+    state.spriteDefs[index].height == bandBox.h * boardScale
+
+proc shipEndzoneStageBands(
+  sim: SimServer,
+  state: var GlobalViewerState,
+  packet: var seq[uint8],
+  team: Team,
+  stage: int,
+  maxNew: int
+): bool =
+  ## Ensures this viewer holds every band of one (team, stage) fade crop at
+  ## the current map's geometry, shipping at most `maxNew` missing or stale
+  ## bands this call. Returns true when the stage is fully present (drawable
+  ## without any seam of missing bands).
+  var allowance = maxNew
+  for band in 0 ..< sim.endzoneFadeBandCount(team):
+    if sim.endzoneBandDefCurrent(state, team, stage, band):
+      continue
+    if allowance <= 0:
+      return false
+    sim.addEndzoneFadeBand(state, packet, team, stage, band)
+    dec allowance
+  true
 
 proc addEndzonePrewarm(
   sim: SimServer,
@@ -5860,18 +6017,24 @@ proc addEndzonePrewarm(
   packet: var seq[uint8]
 ) {.measure.} =
   ## Drips every (team, stage) endzone fade crop to this viewer over the first
-  ## seconds of the connection — one crop every EndzonePrewarmEveryFrames — so
-  ## a later steal/return ramp is a pure object remap instead of a ~200 KB
-  ## sprite send per frame right at the dramatic moment. Crops the fade ramp
-  ## already shipped on demand are skipped by the per-viewer sprite-def check.
-  let pairCount = sim.gameMap.teamCount() * (GlowFadeStages - 1)     # stages 1..7 per team; 0 never draws.
-  let pairIndex = state.endzonePrewarmFrames div EndzonePrewarmEveryFrames
-  if state.endzonePrewarmFrames mod EndzonePrewarmEveryFrames == 0 and
-      pairIndex < pairCount:
-    let
-      team = Team(pairIndex div (GlowFadeStages - 1))
-      stage = 1 + pairIndex mod (GlowFadeStages - 1)
-    discard sim.addEndzoneFadeSprite(state, packet, team, stage)
+  ## seconds of the connection — one BAND every EndzonePrewarmEveryFrames — so
+  ## a later steal/return ramp costs band-object placements (a few bytes
+  ## each) instead of sprite pixel sends right at the dramatic moment. Bands the fade ramp already
+  ## shipped on demand are skipped by the per-viewer sprite-def check.
+  if state.endzonePrewarmFrames mod EndzonePrewarmEveryFrames == 0:
+    # Map the step counter onto its (team, stage, band) slot in the fixed
+    # drip order: team-major, stages 1.. (stage 0 never draws), bands within
+    # the stage. Band counts vary per team (diff-crop geometry), so the slot
+    # is found by walking the pairs — teams × stages is at most 32 tuples.
+    var remaining = state.endzonePrewarmFrames div EndzonePrewarmEveryFrames
+    block found:
+      for team in sim.teams():
+        let bands = sim.endzoneFadeBandCount(team)
+        for stage in 1 ..< GlowFadeStages:
+          if remaining < bands:
+            sim.addEndzoneFadeBand(state, packet, team, stage, remaining)
+            break found
+          remaining -= bands
   inc state.endzonePrewarmFrames
 
 proc addEndzoneGlowFade(
@@ -5883,33 +6046,58 @@ proc addEndzoneGlowFade(
   ## Powers each team's endzone crack-glow + capture line down when that team's
   ## heart is taken (flag.carrier >= 0) and back up when it comes home, by
   ## ramping a per-team crossfade stage ±1 per frame and drawing the matching
-  ## endzone fade crop just above the map (z below every floor decal/actor).
+  ## endzone fade bands just above the map (z below every floor decal/actor).
   ## Spectator/broadcast only — the shared map sprite and the POV/RL view are
   ## never touched, and stage 0 is a visual no-op (the baked glow itself).
+  ##
+  ## The ramp only ever DISPLAYS a stage whose bands are all present on this
+  ## viewer: advancing to the next stage is gated on shipping its missing
+  ## bands (at most EndzoneRampBandsPerFrame per frame), so a steal that
+  ## outruns the prewarm slows the fade a little instead of stalling the
+  ## frame or tearing the overlay into mixed-stage seams.
   for team in sim.teams():
     # GV32: a captured heart never comes home — an eliminated team's endzone
     # glow stays down for the rest of the game.
     let taken = sim.flags[team].carrier >= 0 or sim.flags[team].captured
-    if taken and state.endzoneFade[team] < GlowFadeStages - 1:
-      inc state.endzoneFade[team]
-    elif not taken and state.endzoneFade[team] > 0:
-      dec state.endzoneFade[team]
-    let stage = state.endzoneFade[team]
-    if stage <= 0:
+    var next = state.endzoneFade[team]
+    if taken and next < GlowFadeStages - 1:
+      inc next
+    elif not taken and next > 0:
+      dec next
+    if next != state.endzoneFade[team] and next > 0 and
+        not sim.shipEndzoneStageBands(
+          state, packet, team, next, EndzoneRampBandsPerFrame):
+      next = state.endzoneFade[team]   # hold until the stage is drawable.
+    state.endzoneFade[team] = next
+    if next <= 0:
       continue                         # full glow: the baked map already shows it.
-    let box = sim.addEndzoneFadeSprite(state, packet, team, stage)
-    if box.w <= 0:
-      continue                         # hot and cold maps agree: nothing to fade.
-    let objectId = EndzoneFadeObjectBase + ord(team)
-    currentIds.add(objectId)
-    packet.addBoardObject(
-      objectId,
-      box.x,
-      box.y,
-      low(int16) + 1,                  # just above the map, below all decals/actors.
-      MapLayerId,
-      endzoneFadeSpriteId(team, stage)
-    )
+    # Self-heal the DISPLAYED stage every frame: a POV round-trip clears this
+    # viewer's sprite defs while the stage stays pinned (an eliminated team's
+    # fade is down for the rest of the game), so a stage that only shipped on
+    # its CHANGE would leave every band object pointing at a def the viewer
+    # no longer holds — the endzone would read fully lit with the heart out.
+    # Warm, this is one def lookup per band; cold, it re-drips the bands and
+    # the loop below skips any band whose def has not landed yet.
+    discard sim.shipEndzoneStageBands(
+      state, packet, team, next, EndzoneRampBandsPerFrame)
+    for band in 0 ..< sim.endzoneFadeBandCount(team):
+      let bandBox = sim.endzoneFadeBandBox(team, band)
+      if bandBox.w <= 0:
+        continue                       # hot and cold maps agree: nothing to fade.
+      if not sim.endzoneBandDefCurrent(state, team, next, band):
+        continue                       # def missing or stale (post-POV or
+                                       # post-hot-switch re-drip in flight).
+      let objectId =
+        EndzoneFadeObjectBase + ord(team) * MaxEndzoneFadeBands + band
+      currentIds.add(objectId)
+      packet.addBoardObject(
+        objectId,
+        bandBox.x,
+        bandBox.y,
+        low(int16) + 1,                # just above the map, below all decals/actors.
+        MapLayerId,
+        endzoneFadeSpriteId(team, next, band)
+      )
 
 proc rigSegLabel(seg: RigSeg, color: string): string =
   ## The `player <color>` contract label rides on the HEAD segment (the aim-facing
@@ -6015,13 +6203,34 @@ proc addCogRigObjects(
   segs.add((rsArmR, RigArmObjectBase + base*2 + 1,
     rigArmSpriteId(player.team, rsArmR, aimStep, 0), armZ))
 
+  # Canonical (art-step-0) pose for a leg/wheel at this heading: the fallback
+  # drawn when the frame's new-pose budget is spent. Bounded pool (segs ×
+  # RigSteps × teams), so it is exempt from the budget — the fallback must
+  # always be drawable, including on a viewer's very first frame.
+  proc canonicalSprite(seg: RigSeg): int =
+    if rigSegIsLeg(seg): rigLegSpriteId(player.team, seg, headStep, 0, 0)
+    else: rigWheelSpriteId(player.team, seg, headStep, 0)
+
   for s in segs:
-    if spriteDefs.spriteDefinitionIndex(s.spriteId) < 0:
-      packet.addBoardSpriteChanged(
-        spriteDefs, s.spriteId, RigCanvas, RigCanvas,
-        bakePixels(s.seg), rigSegLabel(s.seg, color), native = boardScale)
+    var spriteId = s.spriteId
+    if spriteDefs.spriteDefinitionIndex(spriteId) < 0:
+      let articulated = rigSegIsLeg(s.seg) or rigSegIsWheel(s.seg)
+      if articulated and spriteId != canonicalSprite(s.seg) and
+          rigPoseDefBudget <= 0:
+        spriteId = canonicalSprite(s.seg)
+        if spriteDefs.spriteDefinitionIndex(spriteId) < 0:
+          packet.addBoardSpriteChanged(
+            spriteDefs, spriteId, RigCanvas, RigCanvas,
+            rigSegPixels(player.team, s.seg, headStep, 0, 0, boardScale),
+            rigSegLabel(s.seg, color), native = boardScale)
+      else:
+        if articulated and spriteId != canonicalSprite(s.seg):
+          dec rigPoseDefBudget
+        packet.addBoardSpriteChanged(
+          spriteDefs, spriteId, RigCanvas, RigCanvas,
+          bakePixels(s.seg), rigSegLabel(s.seg, color), native = boardScale)
     currentIds.add(s.objectId)
-    packet.addBoardObject(s.objectId, rigX, rigY, s.z, MapLayerId, s.spriteId)
+    packet.addBoardObject(s.objectId, rigX, rigY, s.z, MapLayerId, spriteId)
 
   # The held WEAPON: its OWN object (not baked into the head), tracking AIM, with
   # a warm backlight glow so the dark art pops. Drawn ABOVE the head so it always
@@ -6191,6 +6400,7 @@ proc buildSpriteProtocolUpdates*(
   # 1× player stream), and every other stream builder leaves boardScale at 1.
   boardScale = sim.boardRenderScale()
   defer: boardScale = 1
+  rigPoseDefBudget = RigPoseDefsPerFrame
   if not nextState.initialized:
     result = sim.buildSpriteProtocolInit(nextState.spriteDefs)
     result.addLayer(
@@ -6514,7 +6724,8 @@ proc warmBoardRenderCaches*(sim: SimServer) =
   sim.ensureBoardMaps()
   for team in sim.teams():
     for stage in 1 ..< GlowFadeStages:
-      discard sim.endzoneStripSprite(team, stage)
+      for band in 0 ..< sim.endzoneFadeBandCount(team):
+        discard sim.endzoneFadeBandPixels(team, stage, band)
   let usedSkins = sim.config.usedSkins()
   for skin in Skin:
     if skin notin usedSkins:

@@ -58,6 +58,13 @@ suite "ctf replay":
     var
       viewer = initGlobalViewerState()
       nextViewer: GlobalViewerState
+    # The whole-match precompute walk now advances a slice per frame instead
+    # of running before the first pixel; the lead chrome (momentum series,
+    # beats, lull spans) ships only once it completes. One frame in, the walk
+    # must still be in flight — finish it before asserting the lead sends.
+    check not runtime.player.scanComplete
+    runtime.player.advanceReplayScan(int.high)
+    check runtime.player.scanComplete
     let packet = runtime.sim.buildReplayViewerPacket(
       runtime.player,
       viewer,

@@ -53,6 +53,31 @@ suite "replay switch render caches":
     invalidateBoardMapCaches()
     check simB.initBandPixels() == bandsB
 
+  test "endzone fade bands tile the diff crop exactly":
+    # The fade crops ship as stacked horizontal bands so no single frame
+    # bakes/ships a whole giant-board crop (a 100-300 ms stall — the
+    # rhythmic early-replay stutter). A gap or overlap between bands would
+    # read as a horizontal seam in the powered-down glow, so pin the
+    # tiling: uniform x/width, contiguous in y, every band non-empty.
+    let previousDir = getCurrentDir()
+    setCurrentDir(GameDir)
+    try:
+      var sim = startedGame("")
+      for team in sim.teams():
+        let bands = sim.endzoneFadeBandCount(team)
+        check bands > 0
+        let first = sim.endzoneFadeBandBox(team, 0)
+        var expectedY = first.y
+        for band in 0 ..< bands:
+          let box = sim.endzoneFadeBandBox(team, band)
+          check box.w == first.w
+          check box.x == first.x
+          check box.h > 0
+          check box.y == expectedY
+          expectedY += box.h
+    finally:
+      setCurrentDir(previousDir)
+
   test "endzone caches self-heal across a map size switch, no invalidate":
     # tests.nim runs every module in ONE process, and board-state modules
     # build sims over different-size maps back-to-back without any
@@ -70,7 +95,13 @@ suite "replay switch render caches":
     check simLarge.initBandPixels().len > 0
     var simDefault = startedGame("")
     var viewer = initGlobalViewerState()
-    for _ in 0 .. EndzonePrewarmEveryFrames:
+    # The prewarm now drips one BAND per EndzonePrewarmEveryFrames, so
+    # reaching a stage-2 crop (the "strip not cached yet on the new map"
+    # path this test exists to pin) takes a full stage-1 sweep of bands
+    # first — derive the frame budget instead of hardcoding the old
+    # one-crop-per-step cadence.
+    let stageBands = simDefault.endzoneFadeBandCount(Team(0))
+    for _ in 0 .. (stageBands + 1) * EndzonePrewarmEveryFrames:
       discard simDefault.buildGlobalMessages(viewer)
 
 # The suite above installs pool and arena-large maps as THE process map

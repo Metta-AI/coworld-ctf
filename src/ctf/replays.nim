@@ -50,7 +50,7 @@ type
       ## [tick, livesPerTeam…] change-points across the WHOLE match (one lives
       ## count per team, in Team order), precomputed on the deterministic
       ## keyframe walk so the momentum graph can draw its full-timeline shape
-      ## immediately (not accumulate as it plays). Only points where some
+      ## all at once (not accumulate as it plays). Only points where some
       ## team's lives CHANGE are stored (compact step series); the client holds
       ## each value to the next point and to maxTick.
     endHoldFrames*: int
@@ -73,6 +73,31 @@ type
       ## the same keyframe walk. Shipped once to the HUD client so the
       ## scrubber can place its flag markers and winner cap up front instead
       ## of accumulating them as playback happens to pass each beat.
+    scan: ReplayScan
+      ## The in-flight whole-match precompute walk, nil when finished (and
+      ## for players that never scan — the offline tools). The walk used to
+      ## run synchronously before the first frame — seconds of black screen
+      ## on a giant board — and now advances a bounded slice per
+      ## presentation frame (advanceReplayScan) while playback is already on
+      ## screen.
+    scanDone: bool
+      ## True once the precompute walk has finished; read via scanComplete.
+      ## Private so no caller can flip it mid-walk — a premature true would
+      ## freeze a half-scanned timeline into the HUD (the lead chrome ships
+      ## exactly once per viewer).
+
+  ReplayScan* = ref object
+    ## Working state of the incremental precompute walk: a second sim +
+    ## player stepped from tick 0 that derives keyframes, the lives-lead
+    ## series, story beats and lull spans without touching the on-screen
+    ## playback state.
+    sim: SimServer
+    builder: ReplayPlayer
+    beatTracker: BroadcastTracker
+    beatTicks: seq[int]
+    lastLives: seq[int]
+    interval: int
+    maxTick: int
 
 # PlaybackSpeeds moved to sim_types.nim (the single source for every speed-coupled
 # layer); re-exported here for the existing `import replays` consumers.
@@ -421,57 +446,107 @@ proc buildLullSpans*(
     if i < beatTicks.len:
       prevBeat = nextBeat
 
-proc buildReplayKeyframes*(
+proc scanTeamLives(sim: SimServer): seq[int] =
+  ## One lives count per team, in Team order, so the series reads the same
+  ## for any team count.
+  for team in sim.teams():
+    result.add(sim.teamLivesRemaining(team))
+
+proc scanSeriesPoint(tick: int, lives: seq[int]): seq[int] =
+  ## One [tick, livesPerTeam…] change-point of the momentum series.
+  result = @[tick]
+  result.add(lives)
+
+proc scanComplete*(replay: ReplayPlayer): bool =
+  ## True once the precompute walk has finished: livesSeries, beatEvents and
+  ## lullSpans hold the whole match and the lead chrome may ship. Until then
+  ## keyframes only cover the walked prefix (seeks past it re-simulate
+  ## forward, exactly like seeking between keyframes) and skip-lulls has no
+  ## spans to boost through.
+  replay.scanDone
+
+proc advanceReplayScan*(replay: var ReplayPlayer, maxTicks: int)
+
+proc initReplayScan*(
   replay: var ReplayPlayer,
   initialSim: SimServer,
   interval = ReplayKeyframeTicks
 ) =
-  ## Builds serialized replay seek keyframes.
+  ## Starts the whole-match precompute walk: seek keyframes, the per-team
+  ## lives change-point series (momentum graph), the flag-story beats, and
+  ## the beat ticks the lull map derives from. The walk advances via
+  ## advanceReplayScan — a bounded slice per presentation frame in the
+  ## hosted viewer, or all at once via buildReplayKeyframes.
   replay.keyframes = @[]
-  var
-    sim = initialSim
-    builder = initReplayPlayer(replay.data)
-  sim.gameEventLoggingEnabled = false
-  builder.looping = false
-  builder.mismatchQuit = replay.mismatchQuit
-  replay.keyframes.add(builder.saveReplayKeyframe(sim))
-  let maxTick = builder.replayMaxTick()
-  # Record the per-team lives change-points across the full match so the
-  # momentum graph draws its whole-timeline shape up front (deterministic
-  # replay: a tick's lives are fixed). One count per team, in Team order, so
-  # the series reads the same for any team count. Store only where some
-  # team's lives change to keep it compact.
   replay.livesSeries = @[]
-  proc teamLives(sim: SimServer): seq[int] =
-    for team in sim.teams():
-      result.add(sim.teamLivesRemaining(team))
-  proc seriesPoint(tick: int, lives: seq[int]): seq[int] =
-    result = @[tick]
-    result.add(lives)
-  var lastLives = teamLives(sim)
-  replay.livesSeries.add(seriesPoint(sim.tickCount, lastLives))
-  # Beat ticks for the lull map, derived by the SAME tracker the broadcast
+  replay.lullSpans = @[]
+  replay.beatEvents = newJArray()
+  replay.scanDone = false
+  var scan = ReplayScan(interval: max(interval, 1))
+  scan.sim = initialSim
+  scan.sim.gameEventLoggingEnabled = false
+  scan.builder = initReplayPlayer(replay.data)
+  scan.builder.looping = false
+  scan.builder.mismatchQuit = replay.mismatchQuit
+  scan.maxTick = scan.builder.replayMaxTick()
+  replay.keyframes.add(scan.builder.saveReplayKeyframe(scan.sim))
+  scan.lastLives = scanTeamLives(scan.sim)
+  replay.livesSeries.add(scanSeriesPoint(scan.sim.tickCount, scan.lastLives))
+  # Beat ticks for the lull map are derived by the SAME tracker the broadcast
   # channel uses, so "nothing happens here" agrees with the story the kill
   # feed and banners tell. Respawns are excluded: they trail kills on a fixed
   # timer and are not drama worth slowing down for.
-  var
-    beatTracker = initBroadcastTracker()
-    beatTicks: seq[int]
-  beatTracker.resync(sim)
-  replay.beatEvents = newJArray()
+  scan.beatTracker = initBroadcastTracker()
+  scan.beatTracker.resync(scan.sim)
   # -1 until the match leaves the lobby: the first tick the game is Playing is
   # where a spectator's watch should begin (everything before is warmup).
-  replay.startTick = if sim.phase == Playing: sim.gameStartTick else: -1
-  while builder.playing and sim.tickCount < maxTick:
-    builder.stepReplay(sim)
-    if replay.startTick < 0 and sim.phase == Playing:
-      replay.startTick = sim.gameStartTick
-    let lives = teamLives(sim)
-    if lives != lastLives:
-      replay.livesSeries.add(seriesPoint(sim.tickCount, lives))
-      lastLives = lives
+  replay.startTick =
+    if scan.sim.phase == Playing: scan.sim.gameStartTick else: -1
+  replay.scan = scan
+  # An empty recording has nothing to walk: finalize immediately instead of
+  # spending a frame in a fictitious in-flight state.
+  replay.advanceReplayScan(0)
+
+proc advanceReplayScan*(replay: var ReplayPlayer, maxTicks: int) =
+  ## Advances the precompute walk by up to `maxTicks` simulation ticks; when
+  ## the walk stops — at the recording's final hash, earlier if the
+  ## builder's playback ends (the recorded match is over), or at a malformed
+  ## record — it derives the lull spans from whatever prefix it covered and
+  ## marks the lead chrome ready (scanComplete). No-op once finished.
+  if replay.scan == nil:
+    return
+  let scan = replay.scan
+  var stepsLeft = maxTicks
+  while stepsLeft > 0 and scan.builder.playing and
+      scan.sim.tickCount < scan.maxTick:
+    try:
+      scan.builder.stepReplay(scan.sim)
+    except ReplayError as error:
+      # A malformed record (bad join/leave, or a hash mismatch under
+      # mismatchQuit) would otherwise re-raise from this same tick on EVERY
+      # subsequent frame — the walk's cursor cannot advance past it. With
+      # mismatchQuit the raise is the diagnostic mode's whole point, so it
+      # propagates; otherwise finalize on the walked prefix and let the
+      # DISPLAY path surface the same defect loudly when playback reaches
+      # that tick.
+      if replay.mismatchQuit:
+        raise
+      echo "replay scan stopped at tick ", scan.sim.tickCount, ": ",
+        error.msg
+      scan.builder.playing = false
+      break
+    if replay.startTick < 0 and scan.sim.phase == Playing:
+      replay.startTick = scan.sim.gameStartTick
+    # Record the per-team lives change-points across the full match so the
+    # momentum graph draws its whole-timeline shape up front (deterministic
+    # replay: a tick's lives are fixed). Only points where some team's lives
+    # change are stored to keep the series compact.
+    let lives = scanTeamLives(scan.sim)
+    if lives != scan.lastLives:
+      replay.livesSeries.add(scanSeriesPoint(scan.sim.tickCount, lives))
+      scan.lastLives = lives
     var stepBeats = newJArray()
-    sim.stepEvents(beatTracker, stepBeats)
+    scan.sim.stepEvents(scan.beatTracker, stepBeats)
     for event in stepBeats:
       # The flag story + verdict for the scrubber's up-front timeline. Kills
       # stay out: dozens of same-looking ticks would bury the flag beats.
@@ -479,19 +554,47 @@ proc buildReplayKeyframes*(
         replay.beatEvents.add(event)
     for event in stepBeats:
       if event["k"].getStr() != "respawn":
-        beatTicks.add(sim.tickCount)
+        scan.beatTicks.add(scan.sim.tickCount)
         break
-    if sim.tickCount mod max(interval, 1) == 0 or sim.tickCount == maxTick:
-      replay.keyframes.add(builder.saveReplayKeyframe(sim))
+    if scan.sim.tickCount mod scan.interval == 0 or
+        scan.sim.tickCount == scan.maxTick:
+      replay.keyframes.add(scan.builder.saveReplayKeyframe(scan.sim))
+    dec stepsLeft
+  if scan.builder.playing and scan.sim.tickCount < scan.maxTick:
+    return                              # more slices to come.
   # Anchor the final tick so the client can hold the last value to the end.
   if replay.livesSeries.len == 0 or
-      replay.livesSeries[^1][0] != sim.tickCount:
-    replay.livesSeries.add(seriesPoint(sim.tickCount, lastLives))
+      replay.livesSeries[^1][0] != scan.sim.tickCount:
+    replay.livesSeries.add(
+      scanSeriesPoint(scan.sim.tickCount, scan.lastLives))
   replay.lullSpans = buildLullSpans(
-    beatTicks,
+    scan.beatTicks,
     replay.replayStartTick(),
-    maxTick
+    scan.maxTick
   )
+  replay.scan = nil
+  replay.scanDone = true
+
+proc replayScanTicksPerFrame*(sim: SimServer): int =
+  ## Deterministic scan slice per presentation frame (frame-counted, no
+  ## clock reads — machine speed must not change what any frame contains).
+  ## Big boards OR big rosters step ~10x slower than the classic arena,
+  ## so their slice is smaller to protect the frame budget; small boards
+  ## finish their walk within a couple of seconds of playback.
+  if sim.gameMap.width * sim.gameMap.height > 2_000_000 or
+      sim.players.len > 16: 24
+  else: 96
+
+proc buildReplayKeyframes*(
+  replay: var ReplayPlayer,
+  initialSim: SimServer,
+  interval = ReplayKeyframeTicks
+) =
+  ## Runs the whole precompute walk synchronously (tests and offline tools;
+  ## the hosted viewer advances it a slice per frame instead — see
+  ## advanceReplayScan).
+  replay.initReplayScan(initialSim, interval)
+  replay.advanceReplayScan(int.high)
 
 proc isLullTick*(replay: ReplayPlayer, tick: int): bool =
   ## Returns true when one tick sits inside a precomputed lull span.
@@ -619,6 +722,11 @@ proc advanceReplayPlayback*(
   ## end segment: winner, win condition, stats) holds for
   ## ReplayEndHoldSeconds of real time first. A play command during the hold
   ## skips the wait and loops immediately.
+  # Advance the background precompute walk a bounded slice per frame (no-op
+  # once complete). Runs while paused too: a paused frame has budget to
+  # spare, and finishing the walk is what unlocks the momentum graph, beat
+  # markers and skip-lulls.
+  replay.advanceReplayScan(sim.replayScanTicksPerFrame())
   if replay.playing and replay.endHoldFrames > 0:
     # Play pressed during the end hold: skip the wait and loop now.
     replay.endHoldFrames = 0

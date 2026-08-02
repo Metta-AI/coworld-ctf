@@ -23,7 +23,27 @@ proc initReplayRuntime*(
   result.sim.gameEventLoggingEnabled = gameEventLoggingEnabled
   result.player = initReplayPlayer(data)
   result.player.mismatchQuit = mismatchQuit
-  result.player.buildReplayKeyframes(result.sim)
+  # The whole-match precompute walk (seek keyframes, momentum series, story
+  # beats, lull spans) used to run synchronously HERE — seconds of black
+  # screen on a giant board before the first pixel. It now starts here and
+  # advances a bounded slice per presentation frame (advanceReplayPlayback);
+  # the lead chrome ships when it completes. Only the short lobby walk to
+  # the first Playing tick — the spectator start — is paid up front.
+  result.player.initReplayScan(result.sim)
+  while result.sim.phase != Playing and
+      result.sim.tickCount < result.player.replayMaxTick() and
+      result.player.hashIndex < result.player.data.hashes.len and
+      not result.player.hashValidationFailed:
+    result.player.stepReplay(result.sim)
+  if result.player.startTick < 0 and result.sim.phase == Playing:
+    result.player.startTick = result.sim.gameStartTick
+  # If the walk ended without reaching Playing (degenerate or corrupt
+  # recording), startTick stays -1: replayStartTick() clamps it to 0 for
+  # every consumer, and the scan still gets to publish the true value if
+  # its full walk finds one later.
+  # Land playback exactly on the spectator start tick (the walk above can
+  # overshoot it by the tick that flipped the phase): keyframe 0 exists, so
+  # this is a rewind-to-zero plus the same short lobby re-walk.
   result.player.seekReplay(result.sim, result.player.replayStartTick())
   result.player.playing = true
   result.tracker = initBroadcastTracker()
@@ -84,7 +104,11 @@ proc buildReplayViewerPacket*(
     return
 
   let
-    sendLead = not state.momentumSent
+    # The lead chrome (momentum series, beat markers, lull spans) waits for
+    # the background precompute walk: it ships ONCE per viewer, so sending
+    # before the walk finishes would freeze a half-scanned timeline into the
+    # HUD. The client keys on presence, not frame number — late is fine.
+    sendLead = not state.momentumSent and replay.scanComplete
     sendFpMap = not state.fpMapSent
   result.addSprite(
     BroadcastChromeSpriteId,

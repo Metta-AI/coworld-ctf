@@ -398,11 +398,18 @@ const
                               ## heart (art step 1); 0 at rest (tucked shoulders).
   RigShortenSteps* = 4        ## baked leg-length steps (0 = full .. this = shortest).
   RigSteps* = 16              ## baked steps per rotating quantity (aim / heading).
-  RigLegSwingSteps* = 16      ## baked leg swing steps across the full turn range.
+  RigLegSwingSteps* = 3       ## baked leg swing steps across the full turn range.
+                              ## The swing range is only ±RigSplayDeg (5°), so a
+                              ## handful of steps is already sub-2° — finer steps
+                              ## just multiply the pose pool the replay viewer
+                              ## must bake, ship, and hold as textures.
   # Wheel caster: capped TIGHT so a tall top-down tire only tilts to hint the roll
   # direction. Expressed in brads (AimBradsTurn=256): 16 brads ≈ 22°.
   RigCasterMaxBrads* = 16
-  RigCasterSteps* = 8         ## baked caster tilt steps across ±RigCasterMaxBrads.
+  RigCasterSteps* = 4         ## baked caster tilt steps across ±RigCasterMaxBrads
+                              ## (~5.5° per step — a tilt hint, not a smooth roll,
+                              ## so coarse steps read fine; see RigLegSwingSteps
+                              ## on why the pool is kept small).
 
 var
   rigLoaded: array[Team, bool]
@@ -429,10 +436,10 @@ proc rigSegPath(seg: RigSeg): string =
   of rsWheelR: "wheel_r"
   of rsWheelRear: "wheel_rear"
 
-proc rigSegIsLeg(seg: RigSeg): bool =
+proc rigSegIsLeg*(seg: RigSeg): bool =
   seg in {rsLegFL, rsLegFR, rsLegRear}
 
-proc rigSegIsWheel(seg: RigSeg): bool =
+proc rigSegIsWheel*(seg: RigSeg): bool =
   seg in {rsWheelL, rsWheelR, rsWheelRear}
 
 proc ensureRigLoaded(team: Team) =

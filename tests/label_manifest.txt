@@ -24,7 +24,7 @@ damage pop <color> -<n> stage <n>
 damage pop <color> KO stage <n>
 diamond
 endzone <color> <shape> <n>,<n> <n>,<n>
-endzone <color> power <n>
+endzone <color> power <n> band <n>
 fire icon
 fire icon cooldown
 fog
