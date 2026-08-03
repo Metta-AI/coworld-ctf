@@ -159,14 +159,21 @@ proc resetPlasmaArcs*(sim: var SimServer) =
     sim.players[i].arcTicksLeft = 0
     sim.players[i].arcHitMask = 0
 
+proc resetStains(sim: var SimServer) =
+  ## Clears the dried-paint lists and bumps the epoch the painted-diamond
+  ## pixel cache stamps against — one choke point, so no reset path can
+  ## clear the stains without also invalidating that cache.
+  sim.paintStains = @[]
+  sim.diamondStains = @[]
+  inc sim.stainEpoch
+
 proc startGame*(sim: var SimServer) =
   sim.logGameEvent("game started: players=" & $sim.players.len)
   sim.recentShots = @[]
   sim.hitFlashes = @[]
   sim.bubbleImpacts = @[]
   sim.splatters = @[]
-  sim.paintStains = @[]        ## each match starts on a clean arena.
-  sim.diamondStains = @[]
+  sim.resetStains()            ## each match starts on a clean arena.
   sim.damagePops = @[]
   sim.recentShouts = @[]
   sim.arrangeHomePositions()
@@ -2554,7 +2561,11 @@ proc updateAnimatedDiamonds*(sim: var SimServer) =
   if sim.applyDiamondGeometry(sim.tickCount):
     sim.pushPlayersOutOfDiamonds()
 
+var nextGameId = 0
+
 proc initSimServer*(config: GameConfig): SimServer =
+  inc nextGameId
+  result.gameId = nextGameId
   result.config = config
   result.rng = initRand(config.seed)
   loadPalette(clientDataDir() / "pallete.png")
@@ -2682,8 +2693,7 @@ proc resetToLobby*(sim: var SimServer) =
   sim.hitFlashes = @[]
   sim.bubbleImpacts = @[]
   sim.splatters = @[]
-  sim.paintStains = @[]
-  sim.diamondStains = @[]
+  sim.resetStains()
   sim.damagePops = @[]
   sim.nextJoinOrder = 0
   sim.gameStartTick = -1
