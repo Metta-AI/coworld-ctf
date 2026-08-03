@@ -1235,6 +1235,17 @@ proc initPlayerViewerState*(): PlayerViewerState =
   ## Returns the default state for one sprite player viewer.
   new(result)
 
+proc forgetEpisodeSprites*(state: var GlobalViewerState) =
+  ## Drops this viewer's sprite-def cache at an episode reset. A reset builds
+  ## a NEW SimServer, and a generated map can change size class with it —
+  ## which moves the board render scale and the shout-bubble zoom. The
+  ## dims-comparing dedup self-heals across that (a changed size re-sends);
+  ## the label-only def gates (the shout bubbles, the player name labels)
+  ## cannot, so a label that recurs next episode would reuse a stale raster
+  ## at the old scale. Forgetting the cache makes the first touch of every
+  ## sprite next episode a re-send, which the client applies as an overwrite.
+  state.spriteDefs.setLen(0)
+
 proc debugSpritePixels(sprite: SpritePacketSpriteDef): seq[uint8] =
   ## Decodes one sprite and rejects pixel counts that do not match its shape.
   result = uncompress(sprite.compressedPixels)
