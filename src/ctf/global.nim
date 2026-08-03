@@ -1486,6 +1486,12 @@ proc insertDefinition(defs: var seq[SpriteDefinition], def: SpriteDefinition) =
     defs[i] = defs[i - 1]
     dec i
   defs[i] = def
+  # A duplicate id lands adjacent to its twin, so this neighbor check makes a
+  # broken sort (an insertion site that bypassed this proc, re-inserting an id
+  # the bisect then missed) fail loudly instead of silently re-sending defs.
+  doAssert (i == 0 or defs[i - 1].spriteId < def.spriteId) and
+    (i + 1 == defs.len or def.spriteId < defs[i + 1].spriteId),
+    "sprite def cache unsorted or duplicate id " & $def.spriteId
 
 proc addSpriteChanged(
   packet: var seq[uint8],
