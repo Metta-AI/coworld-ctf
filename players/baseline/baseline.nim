@@ -338,6 +338,10 @@ var
     ## generated board these markers ARE the scoring geometry — we no longer
     ## reconstruct it from our own copy of the zone formulas.
 
+var
+  SelfColor = "red"             ## our confirmed wire color (see the self marker)
+  SelfEnemyColor = "blue"       ## the raid target's color
+
 const TeamColorNames = ["red", "blue", "green", "yellow"]
   ## Wire color tokens in engine seat-deal order: a game's active teams are
   ## always a prefix of this list, and seats go round them (slot mod teams).
@@ -1869,15 +1873,27 @@ proc roleForSeat(seat: int, team: Team): Role =
     #   {0..7}    -> three mids, two flanks, guard, overwatch, defender
     # Every one of those carries at least one body on our own heart, which in a
     # free-for-all is existential: a capture ELIMINATES us outright (GV32).
+    # ⚠️ The prefix-balanced REORDER of this table was measured and REJECTED:
+    # seat-rotated 2v2 A/B, 8 seeds both seatings, kill differential armR -46 /
+    # armB +5 (seat-adjusted -20.5). It has to be positive on BOTH seatings to
+    # count, and it was strongly negative on one. Plausible mechanism: in a
+    # regime where captures almost never happen (1 in 13 games locally), the
+    # HomeDefender and Overwatch it buys have nothing to do, and it paid two
+    # attackers for them. The ORIGINAL order stands.
+    #
+    # What survives from that work is the SEAT INDEX below (slot div teams,
+    # the engine's own slotIdentityIndex) — that is a plain bug fix: the old
+    # div-2 reading ran past this table on a 32-seat four-team board and
+    # clamped four seats onto HomeDefender.
     case seat
-    of 0: MidTop           # first rusher: wins the opening pickup race
-    of 1: MidBottom        # second rusher, offset low
-    of 2: HomeDefender     # choke guard before our capture zone
-    of 3: MidGuard         # third mid, trails offset high and cleans up
+    of 0: FlankBottom      # wide bottom lane, get behind the contest
+    of 1: MidGuard         # third mid, trails offset high and cleans up
+    of 2: (if team == Blue: MidTop else: MidBottom)
+    of 3: (if team == Red: MidTop else: MidBottom)
     of 4: MidBottom        # fourth mid: the second trailing attacker
-    of 5: FlankTop         # wide top lane, get behind the contest
-    of 6: Overwatch        # cover post flanking the ring: the lane sniper
-    else: FlankBottom      # wide bottom lane, get behind the contest
+    of 5: Overwatch        # cover post flanking the ring: the lane sniper
+    of 6: FlankTop         # wide top lane, get behind the contest
+    else: HomeDefender     # choke guard before our capture column
 
 proc selectPlay(elapsed: int, ownStolen: bool): Play =
   ## The team's shared play, computed from SHARED signals ONLY so all 8 bots
@@ -2925,10 +2941,50 @@ proc homeSign(team: Team): float =
   ## -1 toward Red's home edge (left), +1 toward Blue's (right).
   if team == Red: -1.0 else: 1.0
 
+var SelfStrategyTeam = Red
+  ## This process's own team, mirrored into a module global so the
+  ## team-parameterised geometry procs can tell "ours" from "theirs" without
+  ## threading the Bot through every call site (one bot per process).
+
+proc statedZone(color: string): tuple[
+    have: bool, compact: bool, c: Vec, x0, y0, x1, y1: float] =
+  ## One team's capture region as the ENGINE states it, from the per-team
+  ## endzone init marker. `compact` marks the archetypes that bound y as well
+  ## as x (square / disc / corner / arm) — the classic `column` runs the full
+  ## height, which is what all the old mirrored-arena math assumed.
+  for z in EndzoneMarks:
+    if z.color == color:
+      return (have: true,
+              compact: z.shape != LabelEndzoneShapeColumn,
+              c: vec(float(z.x0 + z.x1) * 0.5, float(z.y0 + z.y1) * 0.5),
+              x0: float(z.x0), y0: float(z.y0),
+              x1: float(z.x1), y1: float(z.y1))
+
 proc homeDeepX(team: Team): float =
-  ## A point well inside our capture zone (Red x <= ~206, Blue x >= ~1029).
-  ## Blue mirrors Red exactly across the x = 617 center line.
+  ## The x a carrier drives to in order to SCORE.
+  ##
+  ## This used to be a flat 150px off the home edge — correct only for the
+  ## classic full-height home column. Generated maps pull half their bases
+  ## well OFF the home edge and wrap them in a disc or square, which turns
+  ## that border strip into ordinary wilderness: measured on 8 generated
+  ## seeds, x=150 fell OUTSIDE the real capture zone on 3 of them, so a steal
+  ## on those maps could never be converted no matter how well it was escorted.
+  ## The engine states every zone up front, so use it.
+  let z = statedZone(if team == SelfStrategyTeam: SelfColor else: SelfEnemyColor)
+  if z.have:
+    return z.c.x
   if team == Red: 150.0 else: float(MapW - 1) - 150.0
+
+proc captureAim(team: Team, me: Vec, laneY: float): Vec =
+  ## Where a carrier should actually steer to score. A compact endzone bounds
+  ## BOTH axes, so holding the old lane height (LaneTop/LaneBottom sit at the
+  ## board edges) walks the carrier past the zone entirely — there, aim at the
+  ## stated centre. A column zone is full-height, so the tuned lane choice
+  ## still applies and only x matters.
+  let z = statedZone(if team == SelfStrategyTeam: SelfColor else: SelfEnemyColor)
+  if z.have and z.compact:
+    return z.c
+  vec(homeDeepX(team), laneY)
 
 proc enemy(team: Team): Team =
   ## The opposing team.
@@ -3768,6 +3824,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   if probe.alive and not bot.colorLocked:
     bot.myColor = myColor
     bot.colorLocked = true
+    SelfColor = myColor
     # Our color also fixes which team we are on for the mirrored-arena math:
     # colors past blue have no 2-team analogue, so they keep the parity team
     # and lean on the endzone markers for geometry instead.
@@ -3775,6 +3832,9 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       bot.team = Red
     elif myColor == "blue":
       bot.team = Blue
+    SelfStrategyTeam = bot.team
+  SelfColor = myColor
+  SelfEnemyColor = enemyColorFor(myColor)
   let
     enemyColor = enemyColorFor(myColor)
     alive = probe.alive
@@ -4294,7 +4354,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           abs(me.y - float(CenterY)) < RespawnBandHalf:
         target = vec(me.x, laneY)          # straight out of the cone, no home-x yet
       else:
-        target = vec(homeDeepX(bot.team), laneY)
+        target = captureAim(bot.team, me, laneY)
     elif abs(me.x - pocket.x) < 60.0 and abs(me.y - laneY) > 70.0:
       # Bug out of the pocket VERTICALLY first: every kill respawns an
       # armed, spawn-protected enemy at this pedestal whose spawn aim points
@@ -4302,7 +4362,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       # fastest, then the border lane runs home outside it.
       target = vec(pocket.x, laneY)
     else:
-      target = vec(homeDeepX(bot.team), laneY)
+      target = captureAim(bot.team, me, laneY)
     if bot.tune.carrierHomeStretch:
       # ⭐ FINISH FIX: within CarrierFinishBand of our home edge the entire
       # capture column (x < ArenaCaptureClear = 210, mirrored for Blue) is
@@ -4314,7 +4374,11 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       # (the confirmed "stuck on the last wall, bottom of the map" deadlock).
       # Drive STRAIGHT for the column at our current height: the shortest, wall-
       # free line into the score zone.
-      if abs(me.x - homeDeepX(bot.team)) < CarrierFinishBand:
+      # Only a COLUMN zone is protected open floor at every y; a compact
+      # endzone would have us drive along our current height straight past it.
+      let hz = statedZone(SelfColor)
+      if (not (hz.have and hz.compact)) and
+          abs(me.x - homeDeepX(bot.team)) < CarrierFinishBand:
         when defined(hsprobe):
           inc hsFireCount
           if abs(target.y - me.y) > 0.5: inc hsMovedCount
@@ -6609,6 +6673,8 @@ proc runBot(url: string) =
     # myColor is only the slot-PARITY guess here: the team count is not known
     # until the init markers arrive. buildNavGrid re-deals it on a 4-team board
     # and the self marker locks the truth on the first alive frame.
+  SelfStrategyTeam = team
+  SelfColor = bot.myColor
   bot.resetTransient()
   echo "baseline slot=", slot, " team=", team, " role=", role, " -> ", endpoint
   let client = initProtocolClient()
