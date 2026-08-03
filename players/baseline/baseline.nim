@@ -1851,15 +1851,33 @@ proc roleForSeat(seat: int, team: Team): Role =
     # the episode outright, so every seat plays the flag-racing rusher.
     MidTop
   else:
+    # ⭐ PREFIX-BALANCED SPREAD. The old order allotted eight roles to eight
+    # seats and assumed we owned ALL of them — true in the 8v8 league, false in
+    # every paintbot variant. Paintbot seats four entrant policies per episode,
+    # so we hold a STRIDED SUBSET of our team: team-seats {0,2,4,6} on a 2-team
+    # board, {0,1,2,3} on a 16-seat four-team board, all eight only on 4ffa8.
+    # Under the old order those subsets came out as four attackers and NO
+    # defender and NO overwatch (and on 4ffa8 the div-2 clamp saturated and
+    # produced FOUR home defenders on a giant map).
+    #
+    # So the order is now balanced on the prefixes we actually get dealt, and
+    # the squad is self-sufficient instead of assuming the other half of the
+    # team complements it — we do not control those seats, and in 2v2 they are
+    # a different entrant with its own plan.
+    #   {0,2,4,6} -> MidTop, HomeDefender, MidBottom, Overwatch
+    #   {0,1,2,3} -> MidTop, MidBottom, HomeDefender, MidGuard
+    #   {0..7}    -> three mids, two flanks, guard, overwatch, defender
+    # Every one of those carries at least one body on our own heart, which in a
+    # free-for-all is existential: a capture ELIMINATES us outright (GV32).
     case seat
-    of 0: FlankBottom      # wide bottom lane, get behind the contest
-    of 1: MidGuard         # third mid, trails offset high and cleans up
-    of 2: (if team == Blue: MidTop else: MidBottom)
-    of 3: (if team == Red: MidTop else: MidBottom)
+    of 0: MidTop           # first rusher: wins the opening pickup race
+    of 1: MidBottom        # second rusher, offset low
+    of 2: HomeDefender     # choke guard before our capture zone
+    of 3: MidGuard         # third mid, trails offset high and cleans up
     of 4: MidBottom        # fourth mid: the second trailing attacker
-    of 5: Overwatch        # cover post flanking the ring: the lane sniper
-    of 6: FlankTop         # wide top lane, get behind the contest
-    else: HomeDefender     # choke guard before our capture column
+    of 5: FlankTop         # wide top lane, get behind the contest
+    of 6: Overwatch        # cover post flanking the ring: the lane sniper
+    else: FlankBottom      # wide bottom lane, get behind the contest
 
 proc selectPlay(elapsed: int, ownStolen: bool): Play =
   ## The team's shared play, computed from SHARED signals ONLY so all 8 bots
@@ -3238,6 +3256,12 @@ proc buildNavGrid(bot: Bot, client: ProtocolClient) =
   # self marker confirms or corrects it on the first alive frame.
   if GameTeams > 2 and not bot.colorLocked:
     bot.myColor = TeamColorNames[bot.slot mod GameTeams]
+  # Our rank WITHIN our own team is slot div teams (the engine's own
+  # slotIdentityIndex): seats deal round the active teams. The old slot-div-2
+  # reading is only correct on a 2-team board, and on a 32-seat four-team board
+  # it ran off the end of the role table and clamped four seats onto
+  # HomeDefender.
+  bot.role = roleForSeat(clamp(bot.slot div max(GameTeams, 2), 0, 7), bot.team)
   bot.cellWalkable = newSeq[bool](GridW * GridH)
   for cy in 0 ..< GridH:
     for cx in 0 ..< GridW:
@@ -6576,6 +6600,8 @@ proc runBot(url: string) =
     slot = slotFromUrl(url)
     team = (if slot mod 2 == 0: Team.Red else: Team.Blue)
     role = roleForSeat(clamp(slot div 2, 0, 7), team)
+      # provisional: GameTeams is unknown until the init markers land, so this
+      # is the 2-team reading. buildNavGrid re-derives it once teams are stated.
     endpoint = ensureWsPath(url, WebSocketPath)
   randomize(slot * 7919 + 1)
   let bot = Bot(slot: slot, team: team, role: role, tune: shippedCombatTune(),
