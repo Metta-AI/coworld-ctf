@@ -2970,10 +2970,20 @@ proc homeDeepX(team: Team): float =
   ## seeds, x=150 fell OUTSIDE the real capture zone on 3 of them, so a steal
   ## on those maps could never be converted no matter how well it was escorted.
   ## The engine states every zone up front, so use it.
-  let z = statedZone(if team == SelfStrategyTeam: SelfColor else: SelfEnemyColor)
-  if z.have:
+  let
+    z = statedZone(if team == SelfStrategyTeam: SelfColor else: SelfEnemyColor)
+    tuned = (if team == Red: 150.0 else: float(MapW - 1) - 150.0)
+  # A COMPACT zone is the case the tuned depth gets outright wrong — it sits in
+  # wilderness there. A full-height COLUMN zone is the case the tuned depth was
+  # MEASURED for, so leave it alone: the zone centre is ~47px deeper on the
+  # stock arena, which is further into our own spawn pocket for no gain. Only
+  # fall back to the centre if a narrow column would put the tuned point
+  # outside the stated box.
+  if z.have and z.compact:
     return z.c.x
-  if team == Red: 150.0 else: float(MapW - 1) - 150.0
+  if z.have and (tuned < z.x0 or tuned > z.x1):
+    return z.c.x
+  tuned
 
 proc captureAim(team: Team, me: Vec, laneY: float): Vec =
   ## Where a carrier should actually steer to score. A compact endzone bounds
