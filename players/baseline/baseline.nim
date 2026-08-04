@@ -1772,6 +1772,9 @@ type
     stealPedSeen: bool        # because the banner vanishes while it is carried
     ownPedPos: Vec            # our own pedestal, likewise observed
     ownPedSeen: bool
+    lifeStart: int            # tick of this life's (re)spawn; shieldRush's
+                              # opening window is per LIFE, since every respawn
+                              # starts at the shield's own column
     plantUntil: int           # CQB plant: movement suppressed until this tick
                               # (set on a close-range trigger pull; the locked
                               # ray must not parallel-shift during the windup)
@@ -3987,6 +3990,17 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # Respawned: the server points the aim back at the enemy side.
     bot.wasDead = false
     bot.estAim = spawnAim(bot.team)
+    # ⭐ SHIELD RE-ARM (2026-08-04, force protection): the shield respawns 30s
+    # after being taken, and WE respawn inside our own endzone — the shield's
+    # own back column (GV25) — so re-arming after death is a near-zero detour
+    # from the spawn point. The old once-per-game latch left every later life
+    # bare: field carries 2.4 shields/game to our 1.3 on the arena, where our
+    # coordinates are right — the deficit is UPTAKE. Fire cost is nil for the
+    # seat that matters: slowdowns compose by MAX, and a carrier is already at
+    # 3x, so a shielded carrier pays nothing and gains 3 hp (the proven
+    # shieldRush premise, now per life instead of once).
+    bot.shieldRushDone = false
+    bot.lifeStart = bot.tick
   # Absolute turret fix: our own rendered aim-indicator dots show the actual
   # aim every frame, capping any dead-reckoning drift (mask-apply races).
   block resync:
@@ -5934,7 +5948,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   if bot.tune.shieldRush and not bot.shieldRushDone and not seekingPickup and
       not iHaveShield and not iCarry and not mateCarry and not ownStolen and
       bot.role == roleForSeat(ShieldRushSeat, bot.team) and
-      bot.tick - bot.gameStart <= ShieldRushWindow:
+      bot.tick - max(bot.gameStart, bot.lifeStart) <= ShieldRushWindow:
     # Navigate to the STATIC known shield spawn (no LOS needed — VisionBubble is 90px
     # and the shield sits behind the spawn cone, so the see-it scan fired 0). One
     # designated seat grabs it; a give-up latch stops re-detouring if a mate took it.
