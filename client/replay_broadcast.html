@@ -237,9 +237,11 @@ html, body {
   color: var(--paper-dim);
   flex: none;
 }
-/* Squad strip: ONE pip per player (8). Lit = alive, dim = down-but-has-lives,
-   hollow = eliminated. The strip is the "who's left" read; the big numeral is
-   the exact lives count. Each pip is clickable → POV lens (fog-honesty). */
+/* Squad strip: ONE pip per player (8). Each pip is a tiny pie: the filled
+   wedge is that seat's remaining lives (full square = all lives, a sliver =
+   last life), dim = down-but-respawning, hollow = eliminated. The strip is
+   the "who's left" read; the big numeral is the exact lives count. Each pip
+   is clickable → POV lens (fog-honesty). */
 .squad {
   display: flex;
   gap: calc(3 * var(--u));
@@ -249,11 +251,20 @@ html, body {
 .squad-pip {
   width: calc(9 * var(--u));
   height: calc(9 * var(--u));
-  background: currentColor;
+  /* --fill (0..1) = lives left / max lives; wedge sweeps clockwise from 12 */
+  background: conic-gradient(currentColor calc(var(--fill, 1) * 1turn), transparent 0);
   opacity: 0.92;
   cursor: pointer;
   position: relative;
   transition: opacity 140ms, transform 140ms;
+}
+/* faint frame so a part-filled pie still reads as one square slot */
+.squad-pip::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  box-shadow: inset 0 0 0 calc(1 * var(--u)) currentColor;
+  opacity: 0.35;
 }
 .squad-pip:hover { transform: translateY(calc(-1 * var(--u))); }
 .squad-pip.down { opacity: 0.3; }                              /* dead, lives left */
@@ -262,8 +273,9 @@ html, body {
   box-shadow: inset 0 0 0 calc(1.5 * var(--u)) currentColor;
   opacity: 0.28;
 }
+.squad-pip.out::after { display: none; }       /* .out draws its own outline */
 .squad-pip.carry {                                            /* has the flag */
-  background: var(--amber);
+  background: conic-gradient(var(--amber) calc(var(--fill, 1) * 1turn), transparent 0);
   box-shadow: 0 0 calc(7 * var(--u)) var(--amber);
 }
 .squad-pip.pov {                                             /* POV lens active */
@@ -1827,10 +1839,20 @@ body[data-embed] #board { top: 0; height: 100%; }
   }
 
   // ---------- scorebug ----------
-  // One pip per PLAYER (8), keyed by stable join slot: lit = alive, dim = down
-  // but has lives left, hollow = eliminated. The strip is the "who's left"
-  // read (the roster IS the counter); the numeral is the exact lives count.
-  // Each pip is clickable → POV lens. NEVER shows kills (F1: kills ≠ score).
+  // One pip per PLAYER (8), keyed by stable join slot. Each pip is a pie of
+  // that seat's remaining lives (wedge = lives / max, clockwise from 12):
+  // full square = all lives, a sliver = last life, dim = down but respawning,
+  // hollow = eliminated. The strip is the "who's left" read (the roster IS
+  // the counter); the numeral is the exact lives count. Each pip is clickable
+  // → POV lens. NEVER shows kills (F1: kills ≠ score).
+  // p.lives counts SPARE respawns — the current life is the alive flag — so a
+  // seat's lives-left is lives + (alive ? 1 : 0), matching the team numeral.
+  // Max isn't in the stream, so refine it up from the observed roster: frame
+  // one shows every seat at full config lives, locking the right value.
+  var squadMaxLives = 1;
+  function seatLivesLeft(p) {
+    return (p.lives || 0) + (p.alive ? 1 : 0);
+  }
   function renderSquad(el, players, pov) {
     var key = players.map(function (p) { return p.s; }).join(',');
     if (el._key !== key) {
@@ -1846,9 +1868,17 @@ body[data-embed] #board { top: 0; height: 100%; }
       el._key = key;
     }
     players.forEach(function (p) {
+      if (seatLivesLeft(p) > squadMaxLives) squadMaxLives = seatLivesLeft(p);
+    });
+    players.forEach(function (p) {
       var pip = el._pips[p.s];
       if (!pip) return;
       var eliminated = !p.alive && p.lives <= 0;
+      var fill = Math.max(0, Math.min(1, seatLivesLeft(p) / squadMaxLives));
+      if (pip._fill !== fill) {
+        pip.style.setProperty('--fill', String(fill));
+        pip._fill = fill;
+      }
       pip.classList.toggle('down', !p.alive && p.lives > 0);
       pip.classList.toggle('out', eliminated);
       pip.classList.toggle('carry', !!p.carry);
