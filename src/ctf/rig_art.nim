@@ -9,7 +9,7 @@
 ## existing consumers (global.nim, preview tools, tests) are unchanged.
 
 import
-  std/[math, os, strutils],
+  std/[math, os, strutils, tables],
   bitworld/aseprite,
   pixie,
   sim_types
@@ -102,7 +102,9 @@ proc loadCrewSprites*(): seq[CrewSprite] =
   ## Loads the first eight 16x16 living crew sprites.
   loadCrewSpriteRow(0, "Crew")
 
-proc loadRgbaSprite*(name: string, size: int, alphaCutoff = 0'u8): seq[uint8] =
+var rgbaSpriteCache: Table[(string, int, uint8), seq[uint8]]
+
+proc loadRgbaSpriteRaw(name: string, size: int, alphaCutoff: uint8): seq[uint8] =
   ## Loads a hand-painted relic PNG from data/ and returns it as a straight-alpha
   ## RGBA buffer scaled to size×size for the Sprite v1 protocol. The PNGs carry
   ## real transparency (alpha-knocked from the art), and pixie stores
@@ -130,6 +132,13 @@ proc loadRgbaSprite*(name: string, size: int, alphaCutoff = 0'u8): seq[uint8] =
       result[offset + 1] = pixel.g
       result[offset + 2] = pixel.b
       result[offset + 3] = alpha
+
+proc loadRgbaSprite*(name: string, size: int, alphaCutoff = 0'u8): seq[uint8] =
+  ## `loadRgbaSpriteRaw`, memoized: the output is a pure function of the PNG
+  ## on disk, and every player connection used to pay the decode + resize
+  ## again (~10 ms) the first time it saw each pickup family.
+  memoized(rgbaSpriteCache, (name, size, alphaCutoff),
+    loadRgbaSpriteRaw(name, size, alphaCutoff))
 
 proc loadHeartSprite*(team: Team, size: int): seq[uint8] =
   ## The CTF objective, a glowing team-colored heart-gem relic (0.7.0 renamed the

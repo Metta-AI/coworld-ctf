@@ -323,6 +323,10 @@ const
   ShoutFloat = 13              ## px the tail tip floats above the shouter's head.
   ShoutZoomBaseW = 1235        ## the standard 2-team field the bubble art was
   ShoutZoomBaseH = 659         ## sized to read on; see shoutBubbleZoomFor.
+  ShoutBubbleCacheMax = 256    ## live bubble rasters kept before a bubble
+                               ## cache is dropped whole. Both variants use
+                               ## it: see buildShoutBubble and
+                               ## buildSmoothShoutBubble.
   GrenadeMaxAirborne = MaxPlayers  ## most in-flight orbs drawn at once.
   GrenadeMaxBlasts = MaxPlayers    ## most blast flashes drawn at once.
   SoundRingSpriteId = 830      ## the filled landing "sound" ring sprite
@@ -1737,7 +1741,7 @@ proc buildIndexedSpritePixels(
         fallback
     result.putRgbaPixel(i, color)
 
-proc buildHpBarSprite(litSegments: int): seq[uint8] {.measure.} =
+proc buildHpBarSpriteRaw(litSegments: int): seq[uint8] {.measure.} =
   ## Builds the overhead health bar as a fixed row of HpBarSegments thirds. The
   ## bar length never scales with the hit-point config (a 99-hp game must not
   ## paint a full-width ribbon over a 16px sprite); health reads as N-of-3 lit
@@ -1768,7 +1772,17 @@ const IdentityGlyphs: array[8, array[IdentityGlyphH, uint8]] = [
   [0b01110'u8, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b01110], # Θ
 ]
 
-proc buildIdentityBadgeSprite(
+var hpBarSpriteCache: Table[int, seq[uint8]]
+
+proc buildHpBarSprite(litSegments: int): seq[uint8] =
+  ## `buildHpBarSpriteRaw`, memoized: a pure function of its arguments that
+  ## every connection re-rasterized for every def it had not seen. (The same
+  ## pattern covers the badge, splatter, hit-spark, tracer-head and
+  ## floating-pop builders below — cosmetic rasters, keyed by their full
+  ## argument list.)
+  memoized(hpBarSpriteCache, litSegments, buildHpBarSpriteRaw(litSegments))
+
+proc buildIdentityBadgeSpriteRaw(
   team: Team,
   identityIndex: int
 ): seq[uint8] {.measure.} =
@@ -1805,6 +1819,13 @@ proc buildIdentityBadgeSprite(
         uint8((base.b.int + 255) div 2),
         255
       )
+
+var identityBadgeCache: Table[(Team, int), seq[uint8]]
+
+proc buildIdentityBadgeSprite(team: Team, identityIndex: int): seq[uint8] =
+  ## `buildIdentityBadgeSpriteRaw`, memoized (see buildHpBarSprite).
+  memoized(identityBadgeCache, (team, identityIndex),
+    buildIdentityBadgeSpriteRaw(team, identityIndex))
 
 proc buildSoundRingSprite(): seq[uint8] {.measure.} =
   ## Builds the semi-transparent white "sound" ring: a faint filled circle
@@ -2171,7 +2192,7 @@ proc buildBlastSprite(colorIndex, stage, size: int): seq[uint8] {.measure.} =
         uint8(clamp(255.0 * fade, 0.0, 255.0))
       )
 
-proc buildTracerDotSprite(colorIndex, stage, bucket: int): seq[uint8] {.measure.} =
+proc buildTracerDotSpriteRaw(colorIndex, stage, bucket: int): seq[uint8] {.measure.} =
   ## Builds one thin trail blob of the comet's tail: a small round wet paintball
   ## in SATURATED team paint. Blobs are sampled at < their own size along the
   ## beam so they overlap into one thin continuous trail (not a dotted line),
@@ -2314,7 +2335,7 @@ proc addHitFlashes(
       spriteId
     )
 
-proc buildTracerHeadSprite(colorIndex, stage: int): seq[uint8] {.measure.} =
+proc buildTracerHeadSpriteRaw(colorIndex, stage: int): seq[uint8] {.measure.} =
   ## Builds the bright LEADING paintball at a shot's IMPACT end — the comet's
   ## head, the eye-anchor. Hotter than a trail dot (a wide white-hot core over a
   ## team-color rim) so it's the brightest thing on the beam and clearly points
@@ -2351,7 +2372,24 @@ proc buildTracerHeadSprite(colorIndex, stage: int): seq[uint8] {.measure.} =
         alpha
       )
 
-proc buildSplatterSprite(colorIndex, stage: int): seq[uint8] {.measure.} =
+var tracerDotSpriteCache: Table[(int, int, int), seq[uint8]]
+
+proc buildTracerDotSprite(colorIndex, stage, bucket: int): seq[uint8] =
+  ## `buildTracerDotSpriteRaw`, memoized (see buildHpBarSprite) — like the
+  ## tracer head below, built eagerly as a call argument per drawn shot.
+  memoized(tracerDotSpriteCache, (colorIndex, stage, bucket),
+    buildTracerDotSpriteRaw(colorIndex, stage, bucket))
+
+var tracerHeadSpriteCache: Table[(int, int), seq[uint8]]
+
+proc buildTracerHeadSprite(colorIndex, stage: int): seq[uint8] =
+  ## `buildTracerHeadSpriteRaw`, memoized (see buildHpBarSprite) — this one
+  ## is built eagerly as an argument per live shot per viewer per frame, so
+  ## without the memo the raster ran even when the def dedup then dropped it.
+  memoized(tracerHeadSpriteCache, (colorIndex, stage),
+    buildTracerHeadSpriteRaw(colorIndex, stage))
+
+proc buildSplatterSpriteRaw(colorIndex, stage: int): seq[uint8] {.measure.} =
   ## Builds one death-splatter blob: a dense irregular blob of the victim's
   ## color at stage 0 that grows sparser and darker toward the last stage.
   result = newRgbaPixels(SplatterSize, SplatterSize)
@@ -2376,7 +2414,14 @@ proc buildSplatterSprite(colorIndex, stage: int): seq[uint8] {.measure.} =
           if stage >= SplatterStages div 2: shade else: color
         )
 
-proc buildHitSparkSprite(colorIndex, stage: int): seq[uint8] {.measure.} =
+var splatterSpriteCache: Table[(int, int), seq[uint8]]
+
+proc buildSplatterSprite(colorIndex, stage: int): seq[uint8] =
+  ## `buildSplatterSpriteRaw`, memoized (see buildHpBarSprite).
+  memoized(splatterSpriteCache, (colorIndex, stage),
+    buildSplatterSpriteRaw(colorIndex, stage))
+
+proc buildHitSparkSpriteRaw(colorIndex, stage: int): seq[uint8] {.measure.} =
   ## Builds the on-hit PAINT SPLAT left by a non-fatal hit (this is paintball,
   ## not blood). A wet, glossy blob of the SHOOTER's team paint — big enough
   ## (~player-sized) to read at a glance, flung droplets around the core so it
@@ -2451,6 +2496,13 @@ proc buildHitSparkSprite(colorIndex, stage: int): seq[uint8] {.measure.} =
         y * HitSplatSize + x, r, g, b,
         uint8(clamp(255.0 * fade, 0.0, 255.0))
       )
+
+var hitSparkSpriteCache: Table[(int, int), seq[uint8]]
+
+proc buildHitSparkSprite(colorIndex, stage: int): seq[uint8] =
+  ## `buildHitSparkSpriteRaw`, memoized (see buildHpBarSprite).
+  memoized(hitSparkSpriteCache, (colorIndex, stage),
+    buildHitSparkSpriteRaw(colorIndex, stage))
 
 proc buildPaintStainSprite(
   sim: SimServer,
@@ -2627,6 +2679,11 @@ var smoothShoutBubbleCache: Table[string, tuple[
   ## Baked vector shout bubbles, keyed by (team, geometry scale, native
   ## scale, text); see buildSmoothShoutBubble.
 
+var shoutBubbleCache: Table[(Team, string), tuple[
+  width, height: int, pixels: seq[uint8]]]
+  ## The PIXEL bubble's cache, the 1x sibling of the one above; see
+  ## buildShoutBubble.
+
 proc imageToStraightRgba(image: Image): seq[uint8] =
   ## Straight-alpha RGBA bytes for the Sprite v1 protocol (pixie stores
   ## premultiplied).
@@ -2733,7 +2790,7 @@ proc blitRgbaBuffer(
       dst[d + 2] = src[s + 2]
       dst[d + 3] = src[s + 3]
 
-proc buildFloatingPopSprite(
+proc buildFloatingPopSpriteRaw(
   game: SimServer, colorIndex: int, text: string, stage: int
 ): tuple[width, height: int, pixels: seq[uint8]] {.measure.} =
   ## Builds one floating pop label ("-N" damage number or "KO" kill marker):
@@ -2800,6 +2857,20 @@ proc buildFloatingPopSprite(
             break
         if nearInk:
           result.pixels.putRawRgbaPixel(i, 20, 16, 14, alpha)
+
+var floatingPopCache:
+  Table[(int, string, int), tuple[width, height: int, pixels: seq[uint8]]]
+
+proc buildFloatingPopSprite(
+  game: SimServer, colorIndex: int, text: string, stage: int
+): tuple[width, height: int, pixels: seq[uint8]] =
+  ## `buildFloatingPopSpriteRaw`, memoized (see buildHpBarSprite). `game`
+  ## contributes only its ascii font, loaded once per process, so it stays
+  ## out of the key. The key's `text` is a damage number or "KO", so the
+  ## cache is bounded by the per-hit damage range, not by anything a player
+  ## controls.
+  memoized(floatingPopCache, (colorIndex, text, stage),
+    game.buildFloatingPopSpriteRaw(colorIndex, text, stage))
 
 proc buildMapSpritePixels(sim: SimServer): seq[uint8] {.measure.} =
   ## Returns the true-color map pixels for a global protocol sprite.
@@ -3383,27 +3454,23 @@ proc buildSmoothShoutBubble(
   result.width = logicalW
   result.height = logicalH
   result.pixels = imageToStraightRgba(image)
-  if smoothShoutBubbleCache.len > 256:
+  if smoothShoutBubbleCache.len > ShoutBubbleCacheMax:
     smoothShoutBubbleCache.clear()
   smoothShoutBubbleCache[cacheKey] = result
 
-proc buildShoutBubble*(
+proc buildShoutBubbleRaw(
   game: SimServer,
   team: Team,
-  text: string,
-  zoom = 1
+  text: string
 ): tuple[width, height: int, pixels: seq[uint8]] {.measure.} =
   ## A kid-friendly comic speech bubble for one shout: dark ink on a cream
   ## "paper" pill with rounded corners, a chunky team-colored outline, and a
   ## little tail pointing down at the shouter. Drawn with the chunky 9px shout
   ## font (not the 6px tiny5 HUD font) so it reads at full desktop size, and
-  ## in-world with the rest of the pixel art — never as an HD overlay. On the
-  ## supersampled board the vector variant replaces it (same silhouette).
-  ## `zoom` grows the bubble's whole MAP footprint by that factor (the
-  ## oversize-board readability affordance — see shoutBubbleZoomFor); any
-  ## zoomed bubble uses the vector variant so the enlargement stays crisp.
-  if boardScale > 1 or zoom > 1:
-    return game.buildSmoothShoutBubble(team, text, boardScale * zoom, boardScale)
+  ## in-world with the rest of the pixel art — never as an HD overlay. This
+  ## is the 1x pixel variant only: the supersampled and zoomed board uses
+  ## the vector one (same silhouette), and the dispatch to it — along with
+  ## the cache in front of this — is in `buildShoutBubble`.
   let
     font = game.shoutFont
     # Bold widens each glyph's advance by 1 and overdraws 1px past the last
@@ -3466,6 +3533,30 @@ proc buildShoutBubble*(
     ShoutPadX, ShoutPadY, 0'u8,  # palette 0 = near-black ink
     bold = true
   )
+
+proc buildShoutBubble*(
+  game: SimServer,
+  team: Team,
+  text: string,
+  zoom = 1
+): tuple[width, height: int, pixels: seq[uint8]] =
+  ## `buildShoutBubbleRaw`, memoized (see buildHpBarSprite) — the 1x path had
+  ## no cache while its supersampled sibling did, and a bubble stays up for
+  ## ShoutTicks with every viewer in earshot rebuilding it every frame.
+  ## `game` contributes only its shout font, loaded once per process, so it
+  ## stays out of the key (as in buildFloatingPopSprite).
+  ##
+  ## `zoom` grows the bubble's whole MAP footprint by that factor (the
+  ## oversize-board readability affordance — see shoutBubbleZoomFor); any
+  ## zoomed bubble uses the vector variant so the enlargement stays crisp.
+  ##
+  ## The key carries the shout TEXT, which a policy chooses rather than the
+  ## game, so this is bounded the same way and for the same reason as
+  ## smoothShoutBubbleCache: churn drops the table rather than growing it.
+  if boardScale > 1 or zoom > 1:
+    return game.buildSmoothShoutBubble(team, text, boardScale * zoom, boardScale)
+  memoized(shoutBubbleCache, (team, text), game.buildShoutBubbleRaw(team, text),
+    cap = ShoutBubbleCacheMax)
 
 proc centeredTextX(sim: SimServer, text: string): int =
   ## Returns the centered x position for interstitial text.
@@ -4524,7 +4615,7 @@ proc addShotImpactRings(
       ShotImpactSpriteId
     )
 
-proc buildPaintedDiamondPixels(
+proc buildPaintedDiamondPixelsRaw(
   sim: SimServer,
   diamond, frame, size: int,
   base: seq[uint8]
@@ -4589,6 +4680,33 @@ proc buildPaintedDiamondPixels(
             0.0, 255.0
           ))
 
+var
+  paintedDiamondCacheStamp = (int.low, int.low)
+  paintedDiamondCache: Table[(int, int, int, int), seq[uint8]]
+
+proc buildPaintedDiamondPixels(
+  sim: SimServer, diamond, frame, paintCount: int
+): seq[uint8] =
+  ## `buildPaintedDiamondPixelsRaw`, memoized (see buildHpBarSprite) — with
+  ## the base-pixel fetch (and the size it fixes) pulled inside, so a hit
+  ## skips both the raster and the cached-frame copy, and no caller can pass
+  ## dimensions that disagree with the key. The pixels are pure in (this
+  ## diamond's stain list, frame, boardScale), and within one (gameId,
+  ## stainEpoch) the APPEND-ONLY stain list is pinned by its length — so
+  ## paintCount closes the key. Every viewer wants the same repainted frame
+  ## right after a spin advance; one build now serves all of them where each
+  ## paid its own. The stamp check drops the cache whenever a new match or
+  ## game could reuse a key against different stains.
+  let stamp = (sim.gameId, sim.stainEpoch)
+  if stamp != paintedDiamondCacheStamp:
+    paintedDiamondCacheStamp = stamp
+    paintedDiamondCache.clear()
+  memoized(paintedDiamondCache, (diamond, frame, paintCount, boardScale),
+    (block:
+      let (size, base) = rotatingDiamondPixels(
+        AnimatedDiamonds[diamond].radius, frame, boardScale)
+      sim.buildPaintedDiamondPixelsRaw(diamond, frame, size, base)))
+
 proc addRotatingDiamonds(
   sim: SimServer,
   spriteDefs: var seq[SpriteDefinition],
@@ -4607,7 +4725,7 @@ proc addRotatingDiamonds(
     let
       spot = AnimatedDiamonds[i]
       frame = diamondSpinFrame(spot.cx, sim.tickCount)
-      (size, pixels) = rotatingDiamondPixels(spot.radius, frame, boardScale)
+      size = rotatingDiamondSize(spot.radius)
     # A diamond that has been shot carries its paint baked into the stone, so
     # the marks turn with it and stay clipped to its silhouette. Only the frame
     # on screen right now is built/emitted; the rest arrive as the spin reaches
@@ -4627,10 +4745,14 @@ proc addRotatingDiamonds(
       if defIndex < 0 or spriteDefs[defIndex].label != label:
         packet.addBoardSpriteChanged(
           spriteDefs, spriteId, size, size,
-          sim.buildPaintedDiamondPixels(i, frame, size, pixels), label,
+          sim.buildPaintedDiamondPixels(i, frame, paintCount), label,
           native = boardScale
         )
     elif spriteDefs.spriteDefinitionIndex(spriteId) < 0:
+      # The clean stone's pixels are fetched only when this viewer still owes
+      # the def — the fetch is a copy out of diamondFrameCache, and most
+      # frames every viewer already holds every def.
+      let (_, pixels) = rotatingDiamondPixels(spot.radius, frame, boardScale)
       packet.addBoardSpriteChanged(
         spriteDefs, spriteId, size, size, pixels, "diamond",
         native = boardScale

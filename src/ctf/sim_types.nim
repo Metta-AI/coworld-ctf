@@ -11,7 +11,7 @@
 ## wire format — reorder nothing without a GameVersion bump.
 
 import
-  std/[math, random],
+  std/[math, random, tables],
   bitworld/pixelfonts,
   bitworld/server,
   pixie
@@ -1151,6 +1151,15 @@ type
     wallMask*: seq[bool]
     windowMask*: seq[bool]     ## STATIC glass pixels; wall, but never opaque to vision.
     fovBlocked*: seq[bool]     ## FovGridW x FovGridH; a cell is opaque when mostly wall.
+    gameId*: int               ## process-unique, stamped by initSimServer:
+                               ## the identity module-level caches key on so
+                               ## two games in one process can never share
+                               ## state, whatever their seeds and configs.
+    stainEpoch*: int           ## bumped by resetStains, the one choke point
+                               ## where the stain lists clear, so (gameId,
+                               ## stainEpoch) pins one match's APPEND-ONLY
+                               ## diamondStains — the fact the painted-diamond
+                               ## pixel cache keys on. Never hashed.
     fovCaches*: seq[PlayerFov]           ## exported for sim.nim (stage-1 split).
     diamondPatches*: seq[DiamondPatch]   ## exported for sim.nim (stage-1 split).
     rng*: Rand
@@ -1213,6 +1222,27 @@ const
     ## like the vivid cerulean the soldier art (116,168,255) and the endzone
     ## floor actually show. Any NEW team-colored art should tint from these four
     ## so it matches what a viewer sees on the board.
+
+template memoized*(cache: var Table, keyExpr, build: untyped, cap = -1): untyped =
+  ## Lookup-or-build against `cache` in one place: the caching wrappers for
+  ## the pure sprite rasterizers all share this shape, and spelling it here
+  ## once keeps them to a line each and to a single table probe on a hit.
+  ##
+  ## `cap` >= 0 bounds the cache for keys the game does not bound (policy-
+  ## chosen text): an insert that would grow the table past `cap` drops it
+  ## whole first, so churn clears the cache rather than growing it. A hit
+  ## never clears.
+  block:
+    let memoKey = keyExpr
+    var memoResult: typeof(build)
+    cache.withValue(memoKey, memoHit):
+      memoResult = memoHit[]
+    do:
+      memoResult = build
+      if cap >= 0 and cache.len > cap:
+        cache.clear()
+      cache[memoKey] = memoResult
+    memoResult
 
 # Pure aim-angle math (needed on both sides of the art/gameplay split).
 proc distSq*(ax, ay, bx, by: int): int =
