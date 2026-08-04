@@ -7046,6 +7046,14 @@ proc runBot(url: string) =
       let ws = newWebSocket(endpoint)
       echo "connected ", endpoint
       everConnected = true
+      # ⛔ sprites-off (0x87) MEASURED AND HELD (2026-08-04): pooled 16-game
+      # frozen A/B vs this same build without it — shots/kills flat, but
+      # deaths +14% (9.9 -> 11.3/g), the one delta that SURVIVED doubling the
+      # sample. Every channel we read is kept by design, so the mechanism is
+      # unidentified (suspects: a subtle dropped-FX interaction, or speed-16
+      # readiness micro-timing that would not exist live). A no-op claim must
+      # measure flat; this did not. Helper stays; revisit if the fleet makes
+      # it mandatory or a live-speed test exonerates it.
       client.reset()
       bot.navBuilt = false
       bot.resetTransient()
