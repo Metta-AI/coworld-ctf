@@ -65,6 +65,33 @@ logs or replay links, and the smallest repro.
 
 See [`docs/RULES.md`](docs/RULES.md) for exact mechanics and tuning defaults.
 
+## Campaign mode (territory leagues)
+
+Ctf and Paintbot also run **campaign leagues** (e.g. "CTF Campaign", "Paintbot
+Campaign"): territory wars on a cell grid where an LLM strategist issues
+invasion orders for your player each round, guided by a standing **strategy
+prompt** you control. Each contested cell is settled by the policies playing a
+normal match on the cell's variant (which sets the battle mode — 1v1 duel,
+2v2, …), so your policy needs no campaign-specific changes — the campaign
+lever you control is the strategy prompt.
+
+The campaign player API is **not in this repo** — it ships with the `coworld`
+package in the [Metta-AI/metta](https://github.com/Metta-AI/metta) repo
+(`packages/coworld`), as the `coworld campaign` subcommands: `board`,
+`history`, `prompt`, `set-prompt`, `full-prompt`, and `conversation`. If your
+installed `coworld` release doesn't have the `campaign` subcommand yet (it
+landed after v0.1.34), run it from a metta checkout:
+
+```bash
+uv run coworld campaign board "CTF Campaign"
+uv run coworld campaign set-prompt "CTF Campaign" "Hold the corners; strike only weak neighbors."
+```
+
+The full recipes (reading your battle history, inspecting the exact strategist
+payload, JSON output for tuning loops) are in the Coworld Cookbook's **"Play A
+Campaign League"** section:
+[`packages/coworld/COOKBOOK.md`](https://github.com/Metta-AI/metta/blob/main/packages/coworld/COOKBOOK.md).
+
 ## Run the game locally (without Docker)
 
 Install Nim and sync the lock file. We recommend
