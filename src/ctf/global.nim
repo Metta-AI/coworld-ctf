@@ -868,6 +868,10 @@ type
   PlayerViewerState* = ref object
     initialized*: bool
     objectIds*: seq[int]
+    ## Last placement payload sent per object id. The protocol is
+    ## retained-mode — a client keeps a placement until it is replaced or
+    ## deleted — so an unchanged placement need never be re-sent.
+    sentPlacements*: Table[int, array[11, uint8]]
     pendingDebugSprites*: seq[seq[uint8]]
     debugSpriteLimitWarned*: bool
     shoutSlots*: array[ShoutMaxCount, string]  ## slot → owning shouter address
@@ -3000,6 +3004,58 @@ proc stripSpritePixels*(
     else:
       # Unknown message: we can't measure it, so ship the remainder whole —
       # mirrors chunkSpritePacket's bail-out.
+      for i in messageStart ..< packet.len:
+        result.add(packet[i])
+      break
+
+proc dedupObjectPlacements*(
+  packet: seq[uint8],
+  sentPlacements: var Table[int, array[11, uint8]]
+): seq[uint8] {.measure.} =
+  ## Drops Define Object messages whose full payload matches what this
+  ## viewer was already sent. The sprite protocol is retained-mode — the
+  ## client keeps every placement until it is replaced or deleted — so
+  ## re-sending an identical placement is pure wire noise. Deletes and
+  ## clear-objects update the memory so re-appearing objects re-send.
+  result = newSeqOfCap[uint8](packet.len)
+  var offset = 0
+  while offset < packet.len:
+    let messageStart = offset
+    let messageType = packet[offset]
+    inc offset
+    case messageType
+    of 0x01:  # sprite: id,w,h (6) + clen (4) + pixels + llen (2) + label
+      let compressedLen = packet.readU32(offset + 6)
+      offset += 10 + compressedLen
+      offset += 2 + packet.readU16(offset)
+      for i in messageStart ..< offset:
+        result.add(packet[i])
+    of 0x02:  # object: id (2) + x,y,z (6) + layer (1) + sprite (2)
+      var payload: array[11, uint8]
+      for i in 0 ..< 11:
+        payload[i] = packet[offset + i]
+      offset += 11
+      let objectId = int(payload[0]) or (int(payload[1]) shl 8)
+      if sentPlacements.getOrDefault(objectId) != payload or
+          objectId notin sentPlacements:
+        sentPlacements[objectId] = payload
+        for i in messageStart ..< offset:
+          result.add(packet[i])
+    of 0x03:  # delete object
+      sentPlacements.del(packet.readU16(offset))
+      offset += 2
+      for i in messageStart ..< offset:
+        result.add(packet[i])
+    of 0x04:  # clear objects
+      sentPlacements.clear()
+      result.add(messageType)
+    of 0x05, 0x06:
+      offset += (if messageType == 0x05: 5 else: 3)
+      for i in messageStart ..< offset:
+        result.add(packet[i])
+    else:
+      # Unknown message: ship the remainder whole — mirrors
+      # chunkSpritePacket's bail-out.
       for i in messageStart ..< packet.len:
         result.add(packet[i])
       break

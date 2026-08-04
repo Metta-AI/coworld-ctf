@@ -1718,11 +1718,18 @@ proc runServerLoop*(
           withLock appState.lock:
             if sockets[i] in appState.playerViewers:
               appState.playerViewers[sockets[i]] = nextState
-        let wirePacket =
+        let wirePacket = dedupObjectPlacements(
           if spritesOffFlags[i]: framePacket.stripSpritePixels()
-          else: framePacket
+          else: framePacket,
+          nextState.sentPlacements
+        )
         serverMetrics.recordTraffic(playerIndices[i], wirePacket)
         try:
+          if wirePacket.len == 0:
+            # One binary message per tick is the frame contract — clients
+            # count messages to advance. An all-deduped frame still ships,
+            # as an empty message.
+            sockets[i].send("", BinaryMessage)
           for chunk in global.chunkSpritePacket(wirePacket, MaxWsFrameBytes):
             sockets[i].send(blobFromBytes(chunk), BinaryMessage)
         except:
@@ -1826,11 +1833,18 @@ proc runServerLoop*(
         withLock appState.lock:
           if sockets[i] in appState.playerViewers:
             appState.playerViewers[sockets[i]] = nextState
-      let wirePacket =
+      let wirePacket = dedupObjectPlacements(
         if spritesOffFlags[i]: framePacket.stripSpritePixels()
-        else: framePacket
+        else: framePacket,
+        nextState.sentPlacements
+      )
       serverMetrics.recordTraffic(playerIndices[i], wirePacket)
       try:
+        if wirePacket.len == 0:
+          # One binary message per tick is the frame contract — clients
+          # count messages to advance. An all-deduped frame still ships,
+          # as an empty message.
+          sockets[i].send("", BinaryMessage)
         for chunk in global.chunkSpritePacket(wirePacket, MaxWsFrameBytes):
           sockets[i].send(blobFromBytes(chunk), BinaryMessage)
       except:
