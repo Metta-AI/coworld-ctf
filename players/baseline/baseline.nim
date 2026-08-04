@@ -348,6 +348,12 @@ var
     ## reconstruct it from our own copy of the zone formulas.
 
 var
+  HeartHome: array[4, bool]     ## per-colour: that team's heart is ON its
+                                ## pedestal right now. The planted banner is
+                                ## never fogged, so this is free truth every
+                                ## frame — and raiding a pedestal whose heart
+                                ## is already stolen or retired (GV33) is a
+                                ## walk across the board for nothing.
   SelfColor = "red"             ## our confirmed wire color (see the self marker)
   SelfEnemyColor = "blue"       ## the raid target's color
 
@@ -1898,6 +1904,15 @@ proc roleForSeat(seat: int, team: Team): Role =
     # the engine's own slotIdentityIndex) — that is a plain bug fix: the old
     # div-2 reading ran past this table on a 32-seat four-team board and
     # clamped four seats onto HomeDefender.
+    # ⛔ MEASURED AND REJECTED (2026-08-03): a free-for-all role spread that
+    # promoted seats to HomeDefender when GameTeams > 2, on the reasoning that
+    # you win a 4-team board by being last standing so survival dominates.
+    # Paired mixed-opponent 4ffa8, 3 seeds, our policy vs a different policy on
+    # the other three teams: mean change in alive-fraction 0.00, mean change in
+    # our-heart-retention 84 ticks WORSE. A wash. Offence was unchanged (both
+    # arms carried an enemy heart zero times) — the earlier "it gave up
+    # offence" read came from an unpaired run on a nondeterministic rig.
+    # The premise may still be right; this implementation of it bought nothing.
     case seat
     of 0: FlankBottom      # wide bottom lane, get behind the contest
     of 1: MidGuard         # third mid, trails offset high and cleans up
@@ -2678,18 +2693,25 @@ proc enemyColorFor(myColor: string): string =
     # shorter, and a capture is worth the same whoever it lands on — GV32 makes
     # any capture ELIMINATE that team, so there is no bonus for picking a
     # particular rival, only a cost for walking further to reach one.
-    var
-      best = ""
-      bestD = 1e18
-    for z in EndzoneMarks:
-      if z.color == myColor:
-        continue
-      let d = dist(vec(float(z.x0 + z.x1) * 0.5, float(z.y0 + z.y1) * 0.5), home)
-      if d < bestD:
-        bestD = d
-        best = z.color
-    if best.len > 0:
-      return best
+    # Two passes: prefer a rival whose heart is actually THERE to take. Falling
+    # back to plain nearest keeps this inert before the first frame of banner
+    # data, and on any map where the scan comes up empty.
+    for requireHeart in [true, false]:
+      var
+        best = ""
+        bestD = 1e18
+      for z in EndzoneMarks:
+        if z.color == myColor:
+          continue
+        let ci = TeamColorNames.find(z.color)
+        if requireHeart and (ci < 0 or not HeartHome[ci]):
+          continue
+        let d = dist(vec(float(z.x0 + z.x1) * 0.5, float(z.y0 + z.y1) * 0.5), home)
+        if d < bestD:
+          bestD = d
+          best = z.color
+      if best.len > 0:
+        return best
   let mine = TeamColorNames.find(myColor)
   TeamColorNames[(max(mine, 0) + activeColors() div 2) mod activeColors()]
 
@@ -4091,6 +4113,12 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # it the first time and keep it — a pedestal never moves during an episode.
   # While a heart is being CARRIED its planted banner is absent, which is
   # exactly when the cached fix matters.
+  # The planted banner is never fogged, so a colour with no banner either had
+  # its heart stolen or has been eliminated (GV33 retires a dead team's heart).
+  # Either way there is nothing there to raid.
+  for i in 0 ..< max(GameTeams, 2):
+    HeartHome[i] = client.spriteObjectsWithLabel(
+      TeamColorNames[i] & " flag planted").len > 0
   if enemyPlanted.len > 0:
     bot.stealPedPos = client.mapPos(enemyPlanted[0])
     bot.stealPedSeen = true
