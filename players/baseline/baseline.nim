@@ -2723,6 +2723,18 @@ proc findSelf(
     for o in client.spriteObjectsWithLabel(label):
       return (alive: true, pos: client.mapPos(o))
 
+proc plantedPedestalPos(client: ProtocolClient, o: SpriteObjectInfo): Vec =
+  ## The TRUE pedestal point under a planted-banner sprite. The big home banner
+  ## is BOTTOM-ANCHORED (global.nim: object top = flag.y - (PlantedFlagH - 2)),
+  ## so the sprite CENTER that mapPos returns floats PlantedFlagH/2 - 2 = 28px
+  ## NORTH of the heart. Caching that as the pedestal put a grab-committed bot
+  ## 28px off a ~26px pickup — hovering forever just outside the touch (the
+  ## grabs 6 -> 2 gate regression). Anchor on the bottom edge instead.
+  vec(
+    float((o.x + o.width div 2) div RenderScale + client.mapCameraX),
+    float((o.y + o.height) div RenderScale + client.mapCameraY - 2)
+  )
+
 proc rotFromSpriteId(spriteId: int): int =
   ## aimRotRead: the aim rotation step baked into a v9 soldier sprite id, or
   ## -1 when the id is outside the soldier rotation pools. Live soldiers use
@@ -4120,10 +4132,10 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     HeartHome[i] = client.spriteObjectsWithLabel(
       TeamColorNames[i] & " flag planted").len > 0
   if enemyPlanted.len > 0:
-    bot.stealPedPos = client.mapPos(enemyPlanted[0])
+    bot.stealPedPos = client.plantedPedestalPos(enemyPlanted[0])
     bot.stealPedSeen = true
   if ownPlanted.len > 0:
-    bot.ownPedPos = client.mapPos(ownPlanted[0])
+    bot.ownPedPos = client.plantedPedestalPos(ownPlanted[0])
     bot.ownPedSeen = true
   let
     stealTarget =
@@ -4562,6 +4574,35 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       target = vec(clamp(capEdgeX + homeSign(bot.team) * HuntCarrierStandoff,
                          20.0, float(MapW - 20)),
                    clamp(bot.carrierPos.y, 20.0, float(MapH - 20)))
+    elif GameTeams > 2:
+      # ⭐ MULTI-TEAM ROUTE INTERCEPT (FFA-4, 2026-08-03). The 2-team fallback
+      # below guards the map centre at an arena lane height — on a 4-team board
+      # that is a random midfield point. But a stolen heart can only be CAPTURED
+      # at one of exactly three STATED places (the rival endzones, init
+      # markers), and it starts from one KNOWN place (our pedestal). Post on
+      # the route: measured before this branch existed, our heart was carried
+      # 1094 ticks while our nearest bot drifted from 668px to 1239px AWAY.
+      #
+      # Which zone? Unknowable without a sighting, so cover the two most
+      # probable by seat parity (all bots agree — pure function of shared
+      # state): nearest zone to our pedestal first (shortest carry, and the
+      # rival we contact most), second-nearest for the odd seats. Stand at the
+      # route midpoint, not in their zone — their spawn pocket is a grinder.
+      var zones: seq[Vec]
+      for z in EndzoneMarks:
+        if z.color != SelfColor:
+          zones.add vec(float(z.x0 + z.x1) * 0.5, float(z.y0 + z.y1) * 0.5)
+      if zones.len > 0:
+        let anchor = (if bot.ownPedSeen: bot.ownPedPos
+                      else: vec(float(CenterX), float(CenterY)))
+        for i in 0 ..< zones.len:     # nearest-first, tiny fixed-size sort
+          for j in i + 1 ..< zones.len:
+            if dist(zones[j], anchor) < dist(zones[i], anchor):
+              swap(zones[i], zones[j])
+        let pick = zones[min((bot.slot div GameTeams) mod 2, zones.len - 1)]
+        target = anchor + (pick - anchor) * 0.55
+      else:
+        target = vec(float(CenterX), float(CenterY))
     else:
       # No fix this life: guess the lane. Default mid; COUNTER-DAVEEY top-bias
       # guesses LaneTop against a top-heavy field. A stale prior fix (seen earlier
@@ -4776,6 +4817,18 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       if botPhase == PhDefend: inc dtPhase
       let el = bot.tick - bot.gameStart
       if el > phMaxElapsed: phMaxElapsed = el
+      # WS-path emit (2026-08-03): the tallies above only ever printed through the
+      # in-process eval harness, which is 2-team-only — on a real 4-team server
+      # game the counters incremented and nothing reported them. Same counters,
+      # periodic stderr line, so the probe works on ANY board.
+      var phTot = 0
+      for ph in TeamPhase: phTot += phFrames[ph]
+      if phTot mod 100 == 0:
+        var line = "PHOCC slot=" & $bot.slot & " tot=" & $phTot
+        for ph in TeamPhase:
+          line &= " " & ($ph)[2..^1] & "=" & $phFrames[ph]
+        line &= " ownStolenNow=" & $ownStolen
+        stderr.writeLine line
   if bot.tune.planLayer and not iCarry:
     let phase = botPhase
     let attacker = bot.role in {MidTop, MidBottom, MidGuard, FlankTop, FlankBottom}
