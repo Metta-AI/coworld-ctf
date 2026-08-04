@@ -2518,14 +2518,6 @@ proc shippedCombatTune(): CombatTune =
   # timeout (PhForce commits before the clock). Movement-intent only; pure fn of shared
   # signals (the backstop-the-caller design — no unit must survive to hold the plan).
   result.planLayer = true
-  # ⭐ LETHALITY DIRECTIVE: flag protection. huntCarrier keeps Overwatch
-  # PURSUING the enemy carrier through the stale-fix window instead of parking
-  # on a lane guess — built 2026-07-17 for the 518-tick unchallenged enemy
-  # carry, gated off ONLY because the self-play mirror cannot trigger its
-  # 41-240t stale-fix window (a field-only scenario; see the curriculum
-  # entry). The field is where we play. defendTeeth stays OFF (its v26 form
-  # aimed at the wrong entity).
-  result.huntCarrier = true
   # ── ⭐ ARC BREACHER (anti-line offense) + enemy-shield awareness. The plasma arc
   # is a MULTIKILL cone and a line is a cluster: when a line is called, the fixed
   # breacher seat (MidGuard) grabs the arc and cones the seam while the wave is base-
@@ -5309,15 +5301,8 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       # advancing into the nest. Engage 0 drops the combat branch so the carrier
       # pure-navigates home at full speed, turret free (still nav-steered).
     elif iCarry: bot.tune.carrierFireRange
-    # ⭐ LETHALITY DIRECTIVE (Maxwell, 2026-08-04): kills and survival are the
-    # optimization targets. The rush/escort engage caps (230px / 320px) date
-    # from the map-wide-gun era and FORBID pulling the trigger on visible
-    # enemies a 1300px gun can kill — measured shot suppression (we fire 101
-    # shots/game to the field's 112 in losses, and the higher-volume side won
-    # the plant A/B 9-1). MOVEMENT stays on-objective — the turret alone is
-    # freed, and only for FRESH visible targets (freshShotTicks), which is
-    # what separates this from the refuted stale-memory hunt [[REF-hunt]].
-    # Carrier caps stay: a carrier that stops to fight is a dead carrier.
+    elif rushing: bot.tune.rushEngageRange
+    elif mateCarry: bot.tune.escortEngageRange
     else: bot.tune.fireRange
   # ⭐⭐ PLAN-LAYER COMBAT TEETH: the phase drives ENGAGEMENT, not just movement, so a
   # called play actually WINS its fight instead of gently repositioning. PhOpen/PhPress
