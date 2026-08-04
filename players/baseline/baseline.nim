@@ -70,6 +70,15 @@
 ## press fires, and the aim angle locks at the pull (the bullet leaves after
 ## a short windup), so we stop rotating on the tick we pull.
 
+when defined(tgtprobe):
+  var tpFrames = 0
+
+when defined(perfprobe):
+  import std/monotimes, std/times
+  var ppFrames = 0
+  var ppDecideNs, ppFieldNs, ppNavBuildNs: int64
+  var ppFields = 0
+
 import
   std/[algorithm, heapqueue, math, os, random, strutils],
   bitworld/spriteprotocol,
@@ -1737,6 +1746,10 @@ type
                               # for half the seats, and a wrong color blinds
                               # every label scan (the statue bug).
     colorLocked: bool         # self marker seen this game: myColor is truth
+    stealPedPos: Vec          # OBSERVED enemy pedestal (never fogged); cached
+    stealPedSeen: bool        # because the banner vanishes while it is carried
+    ownPedPos: Vec            # our own pedestal, likewise observed
+    ownPedSeen: bool
     role: Role
     tune: CombatTune          # fire/engage knobs; default == baseline consts
     tick: int                 # sim ticks, advanced by frames received
@@ -2651,15 +2664,29 @@ proc enemyColorFor(myColor: string): string =
       haveHome = true
       break
   if haveHome:
+    # ⭐ RAID THE NEAREST RIVAL, not the furthest.
+    #
+    # This used to take the endzone with the largest HORIZONTAL offset, so the
+    # old east-west advance math could not degenerate on a north/south
+    # neighbour. That reason is gone — the geometry now comes from the stated
+    # zones and the observed pedestals — and on a giant board it was actively
+    # awful: it sent the bottom-left team diagonally across 2245px of a
+    # 2496x2496 map, past its own neighbour, through three other teams, to
+    # reach the furthest heart on the board. Measured: nobody ever arrived.
+    #
+    # Nearest is strictly better here. The trip is shorter, the exposure is
+    # shorter, and a capture is worth the same whoever it lands on — GV32 makes
+    # any capture ELIMINATE that team, so there is no bonus for picking a
+    # particular rival, only a cost for walking further to reach one.
     var
       best = ""
-      bestDx = -1.0
+      bestD = 1e18
     for z in EndzoneMarks:
       if z.color == myColor:
         continue
-      let dx = abs(float(z.x0 + z.x1) * 0.5 - home.x)
-      if dx > bestDx:
-        bestDx = dx
+      let d = dist(vec(float(z.x0 + z.x1) * 0.5, float(z.y0 + z.y1) * 0.5), home)
+      if d < bestD:
+        bestD = d
         best = z.color
     if best.len > 0:
       return best
@@ -3397,7 +3424,7 @@ proc rebuildExposure(bot: Bot, client: ProtocolClient) =
             rayClearCoarse(client, spot, p, 8.0):
           bot.exposure[c] = true
 
-proc computeField(bot: Bot, client: ProtocolClient, goal: int) =
+proc computeFieldInner(bot: Bot, client: ProtocolClient, goal: int) =
   ## Cost field (Dijkstra) over the nav grid toward one goal cell. Steps cost
   ## StepCost/DiagCost and entering a threat-exposed cell adds ExposedCost, so
   ## paths prefer segments that keep obstacles between us and known enemies.
@@ -3448,6 +3475,15 @@ proc gridRayClear(bot: Bot, a, b: Vec): bool =
     if not bot.cellWalkable[cellOf(p)]:
       return false
   true
+
+proc computeField(bot: Bot, client: ProtocolClient, goal: int) =
+  when defined(perfprobe):
+    let t0 = getMonoTime()
+    bot.computeFieldInner(client, goal)
+    ppFieldNs += (getMonoTime() - t0).inNanoseconds
+    inc ppFields
+  else:
+    bot.computeFieldInner(client, goal)
 
 proc navSteer(bot: Bot, client: ProtocolClient, me, target: Vec): Vec =
   ## Direction along the cost-field path toward `target`, with waypoint
@@ -3644,6 +3680,8 @@ proc resetTransient(bot: Bot) =
   ## Drops per-game memory between rounds (lobby / game-over interstitials).
   bot.colorLocked = false      # re-earn the lock from the next game's self
                                # marker; the dealt guess persists as the seed
+  bot.stealPedSeen = false     # pedestals are per-episode geometry
+  bot.ownPedSeen = false
   bot.enemies.setLen(0)
   bot.mates.setLen(0)
   bot.nadeCharge = 0
@@ -4005,8 +4043,6 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     mateCarry = false
     mateCarryPos: Vec
   let
-    stealTarget = flagHome(enemy(bot.team))  # the enemy pedestal is static
-    ownHome = flagHome(bot.team)
     # 0.7.8 renderer restore: the objective is a FLAG again, split into two
     # distinct sprites — "<color> flag planted" is the always-visible pedestal
     # banner (present ONLY while the flag sits home), "<color> flag" is the
@@ -4017,6 +4053,48 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     enemyFlags = client.spriteObjectsWithLabel(enemyColor & " flag")
     ownPlanted = client.spriteObjectsWithLabel(myColor & " flag planted")
     ownFlags = client.spriteObjectsWithLabel(myColor & " flag")
+  # ⭐⭐ THE PEDESTALS ARE OBSERVED, NOT ASSUMED.
+  #
+  # This used to be `flagHome(enemy(bot.team))`, which returned the stock
+  # arena's coordinates — (186,329) and (1049,329) — on EVERY map. On a
+  # 2496x2496 four-team board that is a point from a different game: our
+  # attackers marched to open ground and the grab gate (which needs to be
+  # within PocketRushRange of the pedestal) never opened at all. Measured on a
+  # giant board: 32 agents, 6491 ticks, the closest ANY of them ever came to an
+  # enemy heart was 386px, median 772px, and not one flag was carried all game.
+  #
+  # RULES: "Always visible regardless of fog: ... both heart pedestals". The
+  # planted banner states the exact position every frame we can see it, so cache
+  # it the first time and keep it — a pedestal never moves during an episode.
+  # While a heart is being CARRIED its planted banner is absent, which is
+  # exactly when the cached fix matters.
+  if enemyPlanted.len > 0:
+    bot.stealPedPos = client.mapPos(enemyPlanted[0])
+    bot.stealPedSeen = true
+  if ownPlanted.len > 0:
+    bot.ownPedPos = client.mapPos(ownPlanted[0])
+    bot.ownPedSeen = true
+  let
+    stealTarget =
+      if bot.stealPedSeen: bot.stealPedPos
+      else:
+        let z = statedZone(enemyColor)      # stated endzone centre: their base
+        if z.have: z.c else: flagHome(enemy(bot.team))
+    ownHome =
+      if bot.ownPedSeen: bot.ownPedPos
+      else:
+        let z = statedZone(myColor)
+        if z.have: z.c else: flagHome(bot.team)
+  when defined(tgtprobe):
+    inc tpFrames
+    if tpFrames mod 120 == 0:
+      stderr.writeLine "TGT slot=" & $bot.slot & " color=" & myColor &
+        " enemyColor=" & enemyColor &
+        " pedSeen=" & $bot.stealPedSeen &
+        " stealTarget=" & $int(stealTarget.x) & "," & $int(stealTarget.y) &
+        " me=" & $int(me.x) & "," & $int(me.y) &
+        " distToSteal=" & $int(dist(me, stealTarget)) &
+        " role=" & $bot.role & " iCarry=" & $iCarry
   if bot.tune.shout or bot.tune.reactContact or bot.tune.commsPlay:
     # Team comms intake: teammates broadcast on the one shout channel — a
     # 10-char message heard through walls/fog within ~247px. We read the label
@@ -6711,8 +6789,26 @@ proc runBot(url: string) =
           bot.resetTransient()             # lobby / game-over interstitial
           continue
         if not bot.navBuilt and client.walkabilityReady:
-          bot.buildNavGrid(client)
+          when defined(perfprobe):
+            let ppN0 = getMonoTime()
+            bot.buildNavGrid(client)
+            ppNavBuildNs += (getMonoTime() - ppN0).inNanoseconds
+          else:
+            bot.buildNavGrid(client)
+        when defined(perfprobe):
+          let ppT0 = getMonoTime()
         let mask = bot.decide(client)
+        when defined(perfprobe):
+          ppDecideNs += (getMonoTime() - ppT0).inNanoseconds
+          inc ppFrames
+          if ppFrames mod 200 == 0:
+            stderr.writeLine "PERF slot=" & $bot.slot &
+              " map=" & $MapW & "x" & $MapH & " cells=" & $(GridW * GridH) &
+              " frames=" & $ppFrames &
+              " decide_avg_us=" & $(ppDecideNs div ppFrames div 1000) &
+              " field_calls=" & $ppFields &
+              " field_avg_us=" & $(if ppFields > 0: ppFieldNs div ppFields div 1000 else: 0) &
+              " navbuild_ms=" & $(ppNavBuildNs div 1_000_000)
         if mask != lastMask:
           ws.send(inputBlob(mask), BinaryMessage)
           lastMask = mask
