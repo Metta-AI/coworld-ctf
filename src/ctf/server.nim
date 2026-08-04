@@ -34,6 +34,9 @@ type
     playerSlots: Table[WebSocket, int]
     playerTokens: Table[WebSocket, string]
     playerReady: Table[WebSocket, bool]
+    ## Sprites Off (0x87) senders: these clients get pixel-free sprite
+    ## definitions — id, dimensions, and label with no pixel payload.
+    spritesOff: Table[WebSocket, bool]
     globalViewers: Table[WebSocket, GlobalViewerState]
     playerViewers: Table[WebSocket, PlayerViewerState]
     rewardViewers: Table[WebSocket, bool]
@@ -305,10 +308,17 @@ proc removePlayerWebSocketState(websocket: WebSocket): int =
   appState.playerSlots.del(websocket)
   appState.playerTokens.del(websocket)
   appState.playerReady.del(websocket)
+  appState.spritesOff.del(websocket)
 
 proc isPlayerReadyPacket*(message: string): bool =
   ## Returns true for the one-byte Sprite v1 player-ready packet.
   message.len == 1 and message[0].uint8 == SpriteClientReady
+
+proc isSpritesOffPacket*(message: string): bool =
+  ## Returns true for the one-byte Sprite v1 sprites-off packet (0x87).
+  ## The pinned bitworld predates the packet, so the id is declared here
+  ## rather than imported.
+  message.len == 1 and message[0].uint8 == 0x87'u8
 
 proc addressIsKicked(address: string): bool =
   ## Returns true when an address is blocked from this match.
@@ -886,6 +896,8 @@ proc websocketHandler(
           if message.data.isPlayerReadyPacket() and
               websocket in appState.playerReady:
             appState.playerReady[websocket] = true
+          elif message.data.isSpritesOffPacket():
+            appState.spritesOff[websocket] = true
           elif websocket in appState.globalViewers:
             appState.globalViewers[websocket].applyGlobalViewerMessage(
               message.data
@@ -954,23 +966,113 @@ proc allPlayersReady(
           return false
   activePlayers > 0
 
+type
+  FrameAdvance = enum
+    LateFrame,    ## the frame budget was already spent before the limiter ran
+    SkippedFrame, ## fastMode: every player reported ready before the budget
+    WaitedFrame   ## slept out the remaining wall-clock frame budget
+
+  PlayerTraffic = object
+    bytesTotal, bytesImage, bytesObject, bytesOther: int64
+
+  ServerMetrics = object
+    frames: array[FrameAdvance, int]
+    players: seq[PlayerTraffic]
+    ## Object-update bytes bucketed by BoardObjectPools pool name; ids
+    ## outside every pool (map, flags, players, HUD) land in "core".
+    objectPools: Table[string, int64]
+
 proc runFrameLimiter(
   previousTick: var MonoTime,
   fastMode: bool,
   sockets: openArray[WebSocket],
   playerIndices: openArray[int],
   playerCount: int
-) =
+): FrameAdvance =
   let frameDuration = initDuration(microseconds = 1_000_000 div TargetFps)
+  var slept = false
   while true:
     let elapsed = getMonoTime() - previousTick
     if elapsed >= frameDuration:
+      result = if slept: WaitedFrame else: LateFrame
       break
     if fastMode and sockets.allPlayersReady(playerIndices, playerCount):
+      result = SkippedFrame
       break
     let remaining = frameDuration - elapsed
     sleep(max(1, min(2, int(remaining.inMilliseconds))))
+    slept = true
   previousTick = getMonoTime()
+
+proc recordTraffic(
+  metrics: var ServerMetrics,
+  playerIndex: int,
+  packet: openArray[uint8]
+) =
+  ## Tallies one outgoing player packet, split by sprite-protocol message
+  ## type: sprite definitions carry pixel maps, board objects carry the
+  ## per-tick state; viewport/layer chrome counts as other.
+  if playerIndex < 0 or playerIndex >= MaxPlayers or packet.len == 0:
+    return
+  if playerIndex >= metrics.players.len:
+    metrics.players.setLen(playerIndex + 1)
+  metrics.players[playerIndex].bytesTotal += packet.len.int64
+  var offset = 0
+  while offset < packet.len:
+    let messageStart = offset
+    let messageType = packet[offset]
+    inc offset
+    case messageType
+    of 0x01:  # sprite: id,w,h (6) + clen (4) + pixels + llen (2) + label
+      let compressedLen = packet.readU32(offset + 6)
+      offset += 10 + compressedLen
+      let labelLen = packet.readU16(offset)
+      offset += 2 + labelLen
+      metrics.players[playerIndex].bytesImage += int64(offset - messageStart)
+    of 0x02, 0x03, 0x04:
+      if messageType != 0x04:
+        let objectId = packet.readU16(offset)
+        metrics.objectPools.mgetOrPut(boardObjectPoolName(objectId), 0) +=
+          int64(if messageType == 0x02: 12 else: 3)
+      offset += (if messageType == 0x02: 11 elif messageType == 0x03: 2 else: 0)
+      metrics.players[playerIndex].bytesObject += int64(offset - messageStart)
+    of 0x05, 0x06:
+      offset += (if messageType == 0x05: 5 else: 3)
+      metrics.players[playerIndex].bytesOther += int64(offset - messageStart)
+    else:
+      # Unknown message: its size is unknowable, so attribute the remainder
+      # and stop — mirrors chunkSpritePacket's bail-out.
+      metrics.players[playerIndex].bytesOther += int64(packet.len - messageStart)
+      break
+
+proc metricsJson(metrics: ServerMetrics, sim: SimServer, ticks: int): string =
+  ## Serializes the performance counters recorded over one server run.
+  var players = newJArray()
+  for i in 0 ..< metrics.players.len:
+    let traffic = metrics.players[i]
+    players.add(%*{
+      "slot": i,
+      "name": if i < sim.players.len: sim.players[i].address else: "",
+      "bytesTotal": traffic.bytesTotal,
+      "bytesImage": traffic.bytesImage,
+      "bytesObject": traffic.bytesObject,
+      "bytesOther": traffic.bytesOther
+    })
+  var objectPools = newJObject()
+  for name, bytes in metrics.objectPools:
+    objectPools[name] = %bytes
+  $(%*{
+    "ticks": ticks,
+    "frames": {
+      "skipped": metrics.frames[SkippedFrame],
+      "waited": metrics.frames[WaitedFrame],
+      "late": metrics.frames[LateFrame],
+      "total": metrics.frames[SkippedFrame] + metrics.frames[WaitedFrame] +
+        metrics.frames[LateFrame]
+    },
+    "objectPools": objectPools,
+    "players": players
+  })
 
 proc rewardAccountFor(sim: SimServer, address: string): int =
   ## Returns the reward account index for one address.
@@ -1194,6 +1296,19 @@ proc runServerLoop*(
         "COGAME_EVENTS_URI must be a file:// path, got: " & uri
       )
 
+  # Optional performance-metrics sink, same file:// contract as events.
+  let metricsPath = block:
+    let uri = getEnv("COGAME_METRICS_URI")
+    if uri.len == 0:
+      ""
+    elif uri.startsWith("file://"):
+      uri[7 .. ^1]
+    else:
+      raise newException(
+        ValueError,
+        "COGAME_METRICS_URI must be a file:// path, got: " & uri
+      )
+
   var
     sim =
       if replayLoaded: move(initializedReplay.sim)
@@ -1233,6 +1348,7 @@ proc runServerLoop*(
     prevInputs: seq[InputState]
     liveSpeedIndex = config.liveSpeedIndex()
     gamesPlayed = 0
+    serverMetrics = ServerMetrics()
     lastLobbyLeaverSlot = -1  ## last configured slot that left during Lobby;
                               ## blamed if the mid-form drop dissolves the match.
     broadcastTracker =
@@ -1584,19 +1700,37 @@ proc runServerLoop*(
             rewardViewers.add(websocket)
 
       let rewardPacket = sim.buildRewardPacket()
+      var spritesOffFlags = newSeq[bool](sockets.len)
+      {.gcsafe.}:
+        withLock appState.lock:
+          for i in 0 ..< sockets.len:
+            spritesOffFlags[i] =
+              appState.spritesOff.getOrDefault(sockets[i], false)
       for i in 0 ..< sockets.len:
         var nextState: PlayerViewerState
         let framePacket = sim.buildSpriteProtocolPlayerUpdates(
           playerIndices[i],
           playerViewerStates[i],
-          nextState
+          nextState,
+          spritesOff = spritesOffFlags[i]
         )
         {.gcsafe.}:
           withLock appState.lock:
             if sockets[i] in appState.playerViewers:
               appState.playerViewers[sockets[i]] = nextState
+        let wirePacket = dedupObjectPlacements(
+          if spritesOffFlags[i]: framePacket.stripSpritePixels()
+          else: framePacket,
+          nextState.sentPlacements
+        )
+        serverMetrics.recordTraffic(playerIndices[i], wirePacket)
         try:
-          for chunk in global.chunkSpritePacket(framePacket, MaxWsFrameBytes):
+          if wirePacket.len == 0:
+            # One binary message per tick is the frame contract — clients
+            # count messages to advance. An all-deduped frame still ships,
+            # as an empty message.
+            sockets[i].send("", BinaryMessage)
+          for chunk in global.chunkSpritePacket(wirePacket, MaxWsFrameBytes):
             sockets[i].send(blobFromBytes(chunk), BinaryMessage)
         except:
           {.gcsafe.}:
@@ -1613,7 +1747,8 @@ proc runServerLoop*(
       # loop hot on whichever seats joined first, and the appState-lock churn
       # starves mummy's upgrade path so the remaining seats never finish
       # connecting (certifier deadlock at "waiting for players").
-      runFrameLimiter(lastTick, false, sockets, playerIndices, sim.players.len)
+      discard runFrameLimiter(
+        lastTick, false, sockets, playerIndices, sim.players.len)
       continue
 
     var frameEvents = newJArray()
@@ -1680,19 +1815,37 @@ proc runServerLoop*(
     if not replayLoaded and config.fastMode:
       sockets.resetPlayerReady(playerIndices, sim.players.len)
 
+    var spritesOffFlags = newSeq[bool](sockets.len)
+    {.gcsafe.}:
+      withLock appState.lock:
+        for i in 0 ..< sockets.len:
+          spritesOffFlags[i] =
+            appState.spritesOff.getOrDefault(sockets[i], false)
     for i in 0 ..< sockets.len:
       var nextState: PlayerViewerState
       let framePacket = sim.buildSpriteProtocolPlayerUpdates(
         playerIndices[i],
         playerViewerStates[i],
-        nextState
+        nextState,
+        spritesOff = spritesOffFlags[i]
       )
       {.gcsafe.}:
         withLock appState.lock:
           if sockets[i] in appState.playerViewers:
             appState.playerViewers[sockets[i]] = nextState
+      let wirePacket = dedupObjectPlacements(
+        if spritesOffFlags[i]: framePacket.stripSpritePixels()
+        else: framePacket,
+        nextState.sentPlacements
+      )
+      serverMetrics.recordTraffic(playerIndices[i], wirePacket)
       try:
-        for chunk in global.chunkSpritePacket(framePacket, MaxWsFrameBytes):
+        if wirePacket.len == 0:
+          # One binary message per tick is the frame contract — clients
+          # count messages to advance. An all-deduped frame still ships,
+          # as an empty message.
+          sockets[i].send("", BinaryMessage)
+        for chunk in global.chunkSpritePacket(wirePacket, MaxWsFrameBytes):
           sockets[i].send(blobFromBytes(chunk), BinaryMessage)
       except:
         {.gcsafe.}:
@@ -1805,14 +1958,50 @@ proc runServerLoop*(
         writeFile(saveScoresPath, sim.playerResultsJson() & "\n")
         echo "Scores written: ", saveScoresPath,
           " (", getFileSize(saveScoresPath), " bytes)"
+      block:
+        let framesTotal = serverMetrics.frames[SkippedFrame] +
+          serverMetrics.frames[WaitedFrame] + serverMetrics.frames[LateFrame]
+        proc pct(part: int): string =
+          formatFloat(part.float * 100.0 / max(1, framesTotal).float,
+            ffDecimal, 1) & "%"
+        echo "Frame pacing: ", framesTotal, " playing frames — skipped ",
+          serverMetrics.frames[SkippedFrame], " (",
+          pct(serverMetrics.frames[SkippedFrame]), "), waited ",
+          serverMetrics.frames[WaitedFrame], " (",
+          pct(serverMetrics.frames[WaitedFrame]), "), late ",
+          serverMetrics.frames[LateFrame], " (",
+          pct(serverMetrics.frames[LateFrame]), ")"
+        var totalBytes, imageBytes, objectBytes: int64
+        for traffic in serverMetrics.players:
+          totalBytes += traffic.bytesTotal
+          imageBytes += traffic.bytesImage
+          objectBytes += traffic.bytesObject
+        proc mb(bytes: int64): string =
+          formatFloat(bytes.float / 1e6, ffDecimal, 1) & " MB"
+        proc share(part: int64): string =
+          formatFloat(part.float * 100.0 / max(1'i64, totalBytes).float,
+            ffDecimal, 1) & "%"
+        echo "Player traffic: ", mb(totalBytes), " to ",
+          serverMetrics.players.len, " players — images ", mb(imageBytes),
+          " (", share(imageBytes), "), objects ", mb(objectBytes), " (",
+          share(objectBytes), ")"
+        if metricsPath.len > 0:
+          writeFile(metricsPath,
+            serverMetrics.metricsJson(sim, sim.tickCount) & "\n")
+          echo "Metrics written: ", metricsPath,
+            " (", getFileSize(metricsPath), " bytes)"
       httpServer.close()
       joinThread(serverThread)
       break
 
-    runFrameLimiter(
+    let frameAdvance = runFrameLimiter(
       lastTick,
       not replayLoaded and config.fastMode,
       sockets,
       playerIndices,
       sim.players.len
     )
+    # Pacing is only meaningful while a game is actually running: the lobby
+    # paces at wall clock by design, and end-card frames idle by design.
+    if sim.phase == Playing:
+      inc serverMetrics.frames[frameAdvance]

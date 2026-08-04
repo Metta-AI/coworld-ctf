@@ -18,7 +18,17 @@ import
 
 const
   GameName* = "ctf"
-  GameVersion* = "35"  ## GV35 (stats rule): ELIMINATION DEATHS ARE NOT
+  GameVersion* = "36"  ## GV36 (aim rule): THE AIM HAS EXACTLY 32 ROTATIONS.
+                       ## The aim angle is one of 32 discrete slots (8 brads
+                       ## = 11.25 deg apart), the classic fixed-rotation-count
+                       ## scheme. A held rotate button steps whole slots
+                       ## (aimTurnRate slots/tick, default 1); spawn aims sit
+                       ## on the grid; there are no finer-grained aim angles.
+                       ## Brads remain the wire unit — aim values are now
+                       ## always multiples of 8. Shot jitter and the cosmetic
+                       ## render fuzz are unchanged and apply on top.
+                       ##
+                       ## GV35 (stats rule): ELIMINATION DEATHS ARE NOT
                        ## COMBAT DEATHS. When a team's heart is captured
                        ## (GV32) every player on that team still dies with
                        ## no respawn, but the fold no longer increments the
@@ -347,8 +357,19 @@ const
                               ## after a death (cosmetic only, never in gameHash).
   CarrierSpeedPct* = 70       ## carrier moves at 70% speed.
   AimBradsTurn* = 256         ## aim angle units per full turn (binary radians).
-  AimTurnRate* = 5            ## brads/tick a held rotate button turns the aim
-                              ## (~7 deg/tick; a full turn takes ~2.1s).
+                              ## Brads are the WIRE unit only (events, labels,
+                              ## replays); the aim itself lives on the 32-slot
+                              ## rotation grid below.
+  AimRotations* = 32          ## discrete aim rotations per full turn. The aim
+                              ## is always one of these 32 slots — there are no
+                              ## finer-grained angles.
+  AimStepBrads* = AimBradsTurn div AimRotations
+                              ## brads between adjacent rotation slots (11.25
+                              ## deg); every aim value on the wire is a
+                              ## multiple of this.
+  AimTurnRate* = 1            ## rotation slots/tick a held rotate button turns
+                              ## the aim (11.25 deg/tick; a full turn takes 32
+                              ## ticks, ~1.3s).
   VisionConeDeg* = 60         ## vision cone half-angle around the aim angle.
   VisionBubble* = 90          ## omnidirectional vision radius in px.
 
@@ -821,7 +842,8 @@ type
     fireCooldownTicks*: int
     fireWindupTicks*: int
     carrierSpeedPct*: int
-    aimTurnRate*: int
+    aimTurnRate*: int          ## rotation slots/tick a held rotate button
+                               ## turns the aim (of the AimRotations slots).
     visionConeDeg*: int
     visionBubble*: int
     minPlayers*: int
@@ -866,6 +888,9 @@ type
     flipH*: bool
     aimBrads*: int             ## aim angle in brads, 0..255: 0 = east (+x),
                                ## counter-clockwise on screen (64 = north).
+                               ## ALWAYS one of the AimRotations slots (a
+                               ## multiple of AimStepBrads) — the aim is 32
+                               ## discrete rotations, not a free angle (GV36).
     team*: Team
     alive*: bool
     lives*: int
@@ -917,11 +942,18 @@ type
 
   PlayerFov* = object
     ## One player's cached fog-of-war visibility grid (FovGridW x FovGridH
-    ## cells). Recomputed only when the viewer's cell or aim changes.
+    ## cells). The expensive shadowcast pass depends only on the viewer's
+    ## CELL, so it is cached separately (cellVisible) from the final
+    ## cone-filtered grid (visible): a viewer who only turns — bots rotate
+    ## aim nearly every tick — reuses the cached shadowcast and pays just
+    ## the cone filter.
     valid*: bool
     originCx*, originCy*: int
     aimBrads*: int
     visible*: seq[bool]
+    cellValid*: bool
+    cellCx*, cellCy*: int
+    cellVisible*: seq[bool]
 
   DiamondPatch* = object
     ## Diamond-free wall pixels for one live geometry window. Fields exported

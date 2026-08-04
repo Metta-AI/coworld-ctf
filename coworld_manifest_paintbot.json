@@ -34,7 +34,7 @@
         "tokens": {
           "description": "One connection token per player slot, indexed by slot.",
           "type": "array",
-          "minItems": 16,
+          "minItems": 2,
           "maxItems": 32,
           "items": {
             "type": "string",
@@ -44,7 +44,7 @@
         "players": {
           "description": "One player display-name object per player slot, indexed by slot.",
           "type": "array",
-          "minItems": 16,
+          "minItems": 2,
           "maxItems": 32,
           "items": {
             "type": "object",
@@ -1018,6 +1018,50 @@
         "maxGames": 1,
         "mapPath": "arena",
         "showPlayerLabels": true,
+        "lobbyJoinTimeoutTicks": 2880
+      }
+    },
+    {
+      "id": "1v1",
+      "name": "1v1 Duel",
+      "description": "Two-policy Paintbot duel for custom lobbies and campaign cells: one Red player versus one Blue player on random generated terrain with Paintbot's standard pot scoring and tuning.",
+      "game_config": {
+        "players": [
+          {
+            "name": "Player1"
+          },
+          {
+            "name": "Player2"
+          }
+        ],
+        "slots": [
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          }
+        ],
+        "seed": 679961,
+        "num_agents": 2,
+        "minPlayers": 2,
+        "lives": 3,
+        "hitPoints": 3,
+        "respawnTicks": 72,
+        "gunRange": 1300,
+        "fireCooldownTicks": 12,
+        "carrierSpeedPct": 70,
+        "aimTurnRate": 5,
+        "visionConeDeg": 60,
+        "visionBubble": 90,
+        "startWaitTicks": 120,
+        "gameOverTicks": 360,
+        "maxTicks": 5000,
+        "maxGames": 1,
+        "mapPath": "gen",
+        "showPlayerLabels": true,
+        "teams": 2,
+        "scoring": "pot",
         "lobbyJoinTimeoutTicks": 2880
       }
     }

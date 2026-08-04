@@ -6,19 +6,20 @@ import
 
 const
   # The event-substrate fixture: a full 16-bot match recorded against the
-  # CURRENT gameplay rules (GameVersion 35, seed 902, lives 9:
-  #   record_fixture.sh tests/replays/ctf.bitreplay 902 10000 '{"lives":9}')
-  # — 17 kills across ALL THREE weapons (9 gun / 1 grenade / 7 spray), a
-  # steal, 2 heals, ending on a capture. (The GV32 recording ran the server
-  # at speed 4 as a starvation guard; under GV33 the speed-4 runs came back
-  # gun-only on this machine while the plain speed-16 recording on an IDLE
-  # machine carried the full weapon mix — the idle-machine rule below is
-  # the guard that actually matters: the first GV35 take of this same seed
-  # came back gun-only under load.)
+  # CURRENT gameplay rules (GameVersion 36, seed 905, lives 9:
+  #   record_fixture.sh tests/replays/ctf.bitreplay 905 10000 '{"lives":9}')
+  # — 43 kills across ALL THREE weapons (26 gun / 1 grenade / 16 spray),
+  # 5 steals, 2 heals, ending on a capture. (The GV32 recording ran the
+  # server at speed 4 as a starvation guard; under GV33 the speed-4 runs
+  # came back gun-only on this machine while the plain speed-16 recording
+  # on an IDLE machine carried the full weapon mix — the idle-machine rule
+  # below is the guard that actually matters: the first GV35 take of that
+  # era's seed came back gun-only under load.)
   # (Seed 61 held the coverage until the blast became body-aware in GV31;
   # GV31-33 sat on seed 900; the GV34 range-cap + aim-jitter re-record came
-  # back grenade-less there, and the scan moved to 902. Expect the seed to
-  # move again on the next rules change.)
+  # back grenade-less there, and the scan moved to 902. The GV36 32-rotation
+  # aim re-record came back grenade-less on 902, and the scan moved to 905.
+  # Expect the seed to move again on the next rules change.)
   #
   # Two things make this fixture easy to weaken by accident, both learned the
   # hard way:

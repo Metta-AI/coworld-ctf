@@ -34,6 +34,16 @@ proc manifestSchema(name: string): JsonNode =
   result = findConfigSchema(parseFile(GameDir / name))
   doAssert result != nil, name & " has no config_schema"
 
+proc manifestVariant(name, variantId: string): JsonNode =
+  ## Returns one published variant by id, or nil when it is absent.
+  let manifest = parseFile(GameDir / name)
+  if not manifest.hasKey("variants"):
+    return nil
+  for variant in manifest["variants"]:
+    if variant.hasKey("id") and variant["id"].getStr() == variantId:
+      return variant
+  nil
+
 # One payload per schema property, each carrying a NON-DEFAULT value for its
 # key (plus companion keys where update()'s cross-field validation demands
 # them — the whole-object inequality below still proves the target key
@@ -123,3 +133,121 @@ suite "league manifest config_schema vs GameConfig":
     # rejected value, so a clean call IS the validation.
     var config = defaultGameConfig()
     config.update(readFile(GameDir / "config.json"))
+
+  test "ctf publishes a two-seat 1v1 custom-lobby variant":
+    let
+      variant = manifestVariant("coworld_manifest.json", "1v1")
+      defaultVariant = manifestVariant("coworld_manifest.json", "default")
+      schema = manifestSchema("coworld_manifest.json")
+      found = not variant.isNil
+    check found
+    check not defaultVariant.isNil
+    if found and not defaultVariant.isNil:
+      let gameConfig = variant["game_config"]
+      check schema["properties"]["tokens"]["minItems"].getInt() == 2
+      check schema["properties"]["players"]["minItems"].getInt() == 2
+      check gameConfig["players"].len == 2
+      check gameConfig["slots"].len == 2
+      check gameConfig["slots"][0]["team"].getStr() == "red"
+      check gameConfig["slots"][1]["team"].getStr() == "blue"
+      check gameConfig["num_agents"].getInt() == 2
+      check gameConfig["minPlayers"].getInt() == 2
+      check gameConfig["teams"].getInt() == 2
+      check gameConfig["mapPath"].getStr() == "arena"
+      for key, value in defaultVariant["game_config"]:
+        case key
+        of "players", "slots", "num_agents", "minPlayers":
+          discard
+        else:
+          check gameConfig.hasKey(key)
+          check gameConfig[key] == value
+
+      var config = defaultGameConfig()
+      config.update($gameConfig)
+      check config.minPlayers == 2
+      check config.slots.len == 2
+      check config.slots[0].team == Red
+      check config.slots[1].team == Blue
+
+      var sim = initCtfForTest(config)
+      let
+        red = sim.addPlayer("Player1")
+        blue = sim.addPlayer("Player2")
+      check sim.players[red].team == Red
+      check sim.players[blue].team == Blue
+      for _ in 0 ..< config.startWaitTicks:
+        sim.step(@[], @[])
+      check sim.phase == Playing
+      check sim.players[red].alive
+      check sim.players[blue].alive
+
+      sim.players[blue].alive = false
+      sim.players[blue].lives = 0
+      sim.checkWinCondition()
+      check sim.phase == GameOver
+      check sim.winner == Red
+
+  test "paintbot publishes a two-seat 1v1 variant without changing league defaults":
+    let
+      manifest = parseFile(GameDir / "coworld_manifest_paintbot.json")
+      variant = manifestVariant("coworld_manifest_paintbot.json", "1v1")
+      leagueVariant = manifestVariant("coworld_manifest_paintbot.json", "2v2")
+      schema = manifestSchema("coworld_manifest_paintbot.json")
+      found = not variant.isNil
+    check manifest["variants"][0]["id"].getStr() == "2v2"
+    check manifest["certification"]["players"].len == 16
+    check manifest["certification"]["game_config"]["players"].len == 16
+    check manifest["certification"]["game_config"]["minPlayers"].getInt() == 16
+    check found
+    check not leagueVariant.isNil
+    if found and not leagueVariant.isNil:
+      let gameConfig = variant["game_config"]
+      check schema["properties"]["tokens"]["minItems"].getInt() == 2
+      check schema["properties"]["players"]["minItems"].getInt() == 2
+      check schema["properties"]["tokens"]["maxItems"].getInt() == 32
+      check schema["properties"]["players"]["maxItems"].getInt() == 32
+      check gameConfig["players"].len == 2
+      check gameConfig["slots"].len == 2
+      check gameConfig["slots"][0]["team"].getStr() == "red"
+      check gameConfig["slots"][1]["team"].getStr() == "blue"
+      check gameConfig["num_agents"].getInt() == 2
+      check gameConfig["minPlayers"].getInt() == 2
+      check gameConfig["teams"].getInt() == 2
+      check gameConfig["mapPath"].getStr() == "gen"
+      check gameConfig["scoring"].getStr() == "pot"
+      for key, value in leagueVariant["game_config"]:
+        case key
+        of "players", "slots", "num_agents", "minPlayers":
+          discard
+        else:
+          check gameConfig.hasKey(key)
+          check gameConfig[key] == value
+
+      var config = defaultGameConfig()
+      config.update($gameConfig)
+      check config.minPlayers == 2
+      check config.slots.len == 2
+      check config.slots[0].team == Red
+      check config.slots[1].team == Blue
+      check config.mapPath == "gen"
+      check config.scoring == PotScoring
+
+      var sim = initCtfForTest(config)
+      let
+        red = sim.addPlayer("Player1")
+        blue = sim.addPlayer("Player2")
+      check sim.players[red].team == Red
+      check sim.players[blue].team == Blue
+      for _ in 0 ..< config.startWaitTicks:
+        sim.step(@[], @[])
+      check sim.phase == Playing
+      check sim.players[red].alive
+      check sim.players[blue].alive
+
+      sim.players[blue].alive = false
+      sim.players[blue].lives = 0
+      sim.checkWinCondition()
+      check sim.phase == GameOver
+      check sim.winner == Red
+      check sim.players[red].reward == 2
+      check sim.players[blue].reward == -2

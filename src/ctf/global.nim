@@ -691,6 +691,14 @@ static:
       EndzoneFadeObjectBase + 4 * MaxEndzoneFadeBands,
     "debug object pool must start above the endzone fade bands"
 
+proc boardObjectPoolName*(objectId: int): string =
+  ## Names the fixed object pool an object id belongs to, for traffic
+  ## metrics; ids outside every pool (map, flags, players, HUD) are "core".
+  for (name, base, width) in BoardObjectPools:
+    if objectId >= base and objectId < base + width:
+      return name
+  "core"
+
 const
   U16SpriteIdCeiling = 65535
     ## The wire packs sprite ids as u16 too (spriteprotocol addU16): any id
@@ -860,6 +868,13 @@ type
   PlayerViewerState* = ref object
     initialized*: bool
     objectIds*: seq[int]
+    ## Last placement payload sent per object id, flat-indexed by the u16
+    ## id (byte 11 = present flag; 720 KB per viewer, allocated lazily).
+    ## The protocol is retained-mode — a client keeps a placement until it
+    ## is replaced or deleted — so an unchanged placement need never be
+    ## re-sent. Flat array, not a Table: the per-object hashing was itself
+    ## a profiler hot spot.
+    sentPlacements*: seq[array[12, uint8]]
     pendingDebugSprites*: seq[seq[uint8]]
     debugSpriteLimitWarned*: bool
     shoutSlots*: array[ShoutMaxCount, string]  ## slot → owning shouter address
@@ -2944,6 +2959,116 @@ proc chunkSpritePacket*(packet: seq[uint8], maxBytes: int): seq[seq[uint8]] =
   if chunkStart < packet.len:
     result.add(packet[chunkStart ..< packet.len])
 
+proc stripSpritePixels*(
+  packet: seq[uint8],
+  keepLabel = LabelWalkabilityMap
+): seq[uint8] =
+  ## Rewrites one sprite-protocol packet for a Sprites Off (0x87) client:
+  ## sprite definitions keep id, dimensions, and label but ship a zero-length
+  ## pixel payload; every other message passes through untouched. A sprite
+  ## whose label equals keepLabel keeps its pixels — the walkability map is
+  ## semantic gameplay data delivered as pixels, not art.
+  result = newSeqOfCap[uint8](packet.len)
+  var offset = 0
+  while offset < packet.len:
+    let messageStart = offset
+    let messageType = packet[offset]
+    inc offset
+    case messageType
+    of 0x01:  # sprite: id,w,h (6) + clen (4) + pixels + llen (2) + label
+      let compressedLen = packet.readU32(offset + 6)
+      let labelStart = offset + 10 + compressedLen
+      let labelLen = packet.readU16(labelStart)
+      let messageEnd = labelStart + 2 + labelLen
+      var label = newString(labelLen)
+      for i in 0 ..< labelLen:
+        label[i] = char(packet[labelStart + 2 + i])
+      if keepLabel.len > 0 and label == keepLabel:
+        for i in messageStart ..< messageEnd:
+          result.add(packet[i])
+      else:
+        for i in messageStart ..< offset + 6:
+          result.add(packet[i])
+        result.addU32(0)
+        for i in labelStart ..< messageEnd:
+          result.add(packet[i])
+      offset = messageEnd
+    of 0x02, 0x03, 0x04, 0x05, 0x06:
+      offset += (
+        case messageType
+        of 0x02: 11
+        of 0x03: 2
+        of 0x05: 5
+        of 0x06: 3
+        else: 0
+      )
+      for i in messageStart ..< offset:
+        result.add(packet[i])
+    else:
+      # Unknown message: we can't measure it, so ship the remainder whole —
+      # mirrors chunkSpritePacket's bail-out.
+      for i in messageStart ..< packet.len:
+        result.add(packet[i])
+      break
+
+proc dedupObjectPlacements*(
+  packet: seq[uint8],
+  sentPlacements: var seq[array[12, uint8]]
+): seq[uint8] {.measure.} =
+  ## Drops Define Object messages whose full payload matches what this
+  ## viewer was already sent. The sprite protocol is retained-mode — the
+  ## client keeps every placement until it is replaced or deleted — so
+  ## re-sending an identical placement is pure wire noise. Deletes and
+  ## clear-objects update the memory so re-appearing objects re-send.
+  ##
+  ## Kept bytes are coalesced into pass-through runs and block-copied:
+  ## only a SKIPPED placement breaks a run, so a packet with nothing to
+  ## drop costs one copyMem — per-byte appends here were once the hottest
+  ## proc in the whole server.
+  result = newSeqOfCap[uint8](packet.len)
+  if sentPlacements.len == 0:
+    sentPlacements.setLen(65536)
+  var
+    offset = 0
+    keepStart = 0
+  template flushKept(upTo: int) =
+    if upTo > keepStart:
+      let start = result.len
+      result.setLen(start + upTo - keepStart)
+      copyMem(addr result[start], unsafeAddr packet[keepStart],
+        upTo - keepStart)
+  while offset < packet.len:
+    let messageStart = offset
+    let messageType = packet[offset]
+    inc offset
+    case messageType
+    of 0x01:  # sprite: id,w,h (6) + clen (4) + pixels + llen (2) + label
+      offset += 10 + packet.readU32(offset + 6)
+      offset += 2 + packet.readU16(offset)
+    of 0x02:  # object: id (2) + x,y,z (6) + layer (1) + sprite (2)
+      var payload: array[12, uint8]
+      copyMem(addr payload[0], unsafeAddr packet[offset], 11)
+      payload[11] = 1
+      offset += 11
+      let objectId = int(payload[0]) or (int(payload[1]) shl 8)
+      if sentPlacements[objectId] == payload:
+        flushKept(messageStart)
+        keepStart = offset
+      else:
+        sentPlacements[objectId] = payload
+    of 0x03:  # delete object
+      sentPlacements[packet.readU16(offset)][11] = 0
+      offset += 2
+    of 0x04:  # clear objects
+      zeroMem(addr sentPlacements[0], sentPlacements.len * 12)
+    of 0x05, 0x06:
+      offset += (if messageType == 0x05: 5 else: 3)
+    else:
+      # Unknown message: ship the remainder whole — mirrors
+      # chunkSpritePacket's bail-out.
+      offset = packet.len
+  flushKept(packet.len)
+
 proc buildWalkabilitySpritePixels(sim: SimServer): seq[uint8] {.measure.} =
   ## Returns a binary RGBA walkability mask for sprite agents.
   result = newSeq[uint8](sim.gameMap.width * sim.gameMap.height * 4)
@@ -4547,7 +4672,10 @@ proc addRotatingDiamonds(
     let
       spot = AnimatedDiamonds[i]
       frame = diamondSpinFrame(spot.cx, sim.tickCount)
-      (size, pixels) = rotatingDiamondPixels(spot.radius, frame, boardScale)
+      # Pixels are fetched lazily inside the define branches below: the
+      # cached-frame return copies a full pixel buffer, and on the steady
+      # path (sprite already defined) nothing needs it.
+      size = rotatingDiamondSize(spot.radius)
     # A diamond that has been shot carries its paint baked into the stone, so
     # the marks turn with it and stay clipped to its silhouette. Only the frame
     # on screen right now is built/emitted; the rest arrive as the spin reaches
@@ -4565,12 +4693,15 @@ proc addRotatingDiamonds(
       let label = "diamond " & $i & " paint " & $paintCount
       let defIndex = spriteDefs.spriteDefinitionIndex(spriteId)
       if defIndex < 0 or spriteDefs[defIndex].label != label:
+        let (_, basePixels) =
+          rotatingDiamondPixels(spot.radius, frame, boardScale)
         packet.addBoardSpriteChanged(
           spriteDefs, spriteId, size, size,
-          sim.buildPaintedDiamondPixels(i, frame, size, pixels), label,
+          sim.buildPaintedDiamondPixels(i, frame, size, basePixels), label,
           native = boardScale
         )
     elif spriteDefs.spriteDefinitionIndex(spriteId) < 0:
+      let (_, pixels) = rotatingDiamondPixels(spot.radius, frame, boardScale)
       packet.addBoardSpriteChanged(
         spriteDefs, spriteId, size, size, pixels, "diamond",
         native = boardScale
@@ -5554,9 +5685,16 @@ proc buildSpriteProtocolPlayerUpdates*(
   sim: var SimServer,
   playerIndex: int,
   state: PlayerViewerState,
-  nextState: var PlayerViewerState
+  nextState: var PlayerViewerState,
+  spritesOff = false
 ): seq[uint8] {.measure.} =
-  ## Builds sprite protocol updates for one playable player view.
+  ## Builds sprite protocol updates for one playable player view. A Sprites
+  ## Off (0x87) viewer is a bot: skip what only exists for human eyes — the
+  ## fog overlay (bots compute their own line of sight from the walkability
+  ## map and the vision rules), splatters, and damage pops. Everything
+  ## semantic stays: the map object (the "game is live" signal and camera
+  ## anchor), hearts on pedestals, players, pickups, impact rings, shouts,
+  ## HUD state.
   result = @[]
   nextState =
     if state.isNil:
@@ -5600,13 +5738,18 @@ proc buildSpriteProtocolPlayerUpdates*(
     if not viewerIsGhost:
       discard sim.refreshPlayerFov(playerIndex)
 
-    # The full static map, always drawn: terrain is static knowledge.
+    # The full static map, always drawn: terrain is static knowledge. Sent
+    # to sprites-off bots too (12 bytes, pixel-free sprite): the map OBJECT
+    # is the protocol's "game is live" signal and camera anchor — the
+    # baseline client flips mapCameraReady off the moment it disappears and
+    # stops playing entirely.
     currentIds.add(MapObjectId)
     result.addBoardObject(MapObjectId, 0, 0, low(int16), MapLayerId, MapSpriteId)
 
     # The fog overlay dims everything outside this viewer's vision. Ghost
-    # viewers (dead players) watch the whole map unfogged.
-    if not viewerIsGhost:
+    # viewers (dead players) watch the whole map unfogged. Sprites-off bots
+    # compute their own line of sight; entity culling stays exact regardless.
+    if not viewerIsGhost and not spritesOff:
       sim.addFogRuns(playerIndex, nextState.spriteDefs, currentIds, result)
 
     # The team flags: a pedestal flag is always visible (so an empty own
@@ -5728,18 +5871,19 @@ proc buildSpriteProtocolPlayerUpdates*(
       result,
       viewerIndex = playerIndex
     )
-    sim.addSplatters(
-      nextState.spriteDefs,
-      currentIds,
-      result,
-      viewerIndex = playerIndex
-    )
-    sim.addDamagePops(
-      nextState.spriteDefs,
-      currentIds,
-      result,
-      viewerIndex = playerIndex
-    )
+    if not spritesOff:
+      sim.addSplatters(
+        nextState.spriteDefs,
+        currentIds,
+        result,
+        viewerIndex = playerIndex
+      )
+      sim.addDamagePops(
+        nextState.spriteDefs,
+        currentIds,
+        result,
+        viewerIndex = playerIndex
+      )
     sim.addRotatingDiamonds(nextState.spriteDefs, currentIds, result)
     sim.addMedKits(
       nextState.spriteDefs,

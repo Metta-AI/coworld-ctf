@@ -1777,6 +1777,12 @@ type
     wasCarrying: bool         # edge detector for our OWN carry (grabPos stamp)
     grabPos: Vec              # where THIS carry began: the fight-out breakout
                               # is measured from the actual snatch point
+    aimStepBrads: int         # GV36: brads the server turns per held rotate
+                              # tick (aimTurnRate SLOTS x 8). Inferred live
+                              # from own-aim marker deltas (default 40 = the
+                              # league manifest's aimTurnRate 5), so a config
+                              # change cannot silently break the servo again.
+    prevStatedAim: int        # last frame's stated aim, for the inference
     lifeStart: int            # tick of this life's (re)spawn; shieldRush's
                               # opening window is per LIFE, since every respawn
                               # starts at the shield's own column
@@ -3779,6 +3785,8 @@ proc resetTransient(bot: Bot) =
   bot.stealPedSeen = false     # pedestals are per-episode geometry
   bot.ownPedSeen = false
   bot.plantUntil = 0
+  bot.prevStatedAim = -1
+  if bot.aimStepBrads <= 0: bot.aimStepBrads = 40
   bot.enemies.setLen(0)
   bot.mates.setLen(0)
   bot.nadeCharge = 0
@@ -4028,6 +4036,17 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # (which checks estAim, not truth). Fits the field census exactly: our
     # locked heading lands off-body on 27% of CQB shots vs the field's 13%.
     let stated = client.ownAimBrads()
+    if stated >= 0 and bot.prevStatedAim >= 0 and bot.rotSign != 0 and
+        client.frameAdvance == 1:
+      # Infer the true per-tick step from consecutive stated aims across one
+      # held-rotate tick. GV36 reinterpreted aimTurnRate as SLOTS/tick, so the
+      # honest step is config-dependent and the config is not observable —
+      # but its effect is, every frame.
+      let d = bradsErr(stated, bot.prevStatedAim) * bot.rotSign
+      if d >= 8 and d <= 64 and d mod 8 == 0:
+        bot.aimStepBrads = d
+    if stated >= 0:
+      bot.prevStatedAim = stated
     if stated >= 0:
       # Exact truth: adopt it outright. The old >AimResyncBrads(4) tolerance
       # existed to stop QUANTIZED readbacks fighting healthy dead reckoning;
@@ -6400,7 +6419,14 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     let
       err = abs(bradsErr(desiredAim, bot.estAim))
       perpMiss = engageD * sin(float(err) * PI / float(AimBrads div 2))
-    wantFire = perpMiss <= bot.tune.fireSlackPx
+    # GV36 recalibration: settled on the NEAREST slot the residual error is
+    # up to 4 brads (5.6 deg) — at 150px that is 14.7px of perp-miss against
+    # a slack tuned for 5-brad precision that no longer exists. Inside 300px
+    # widen to body+corridor (17px); beyond, the old slack stands (a ray that
+    # far off really does miss).
+    wantFire = perpMiss <=
+      (if engageD < 300.0: max(bot.tune.fireSlackPx, 17.0)
+       else: bot.tune.fireSlackPx)
     if bot.tune.fireOnRealBody:
       # Also open the trigger when the current aim's perp-miss to the target's
       # REAL last-seen position sits in the corridor (the lead phantom swings
@@ -6854,11 +6880,29 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # (AimRate cannot settle tighter than +-AimRate/2) hold the turret still.
   var rotBits: uint8 = 0
   if desiredAim >= 0:
-    let err = bradsErr(desiredAim, bot.estAim)
-    if err > deadband:
-      rotBits = ButtonB
-    elif err < -deadband:
-      rotBits = ButtonSelect
+    # ⭐ GV36 SLOT SERVO. The aim occupies 32 discrete slots and a held rotate
+    # steps aimTurnRate SLOTS per tick (league config: 5 slots = 40 brads =
+    # 56 degrees). Proportional shortest-arc turning cannot settle: gcd
+    # arithmetic means reaching an ADJACENT slot can take 13 ticks the long
+    # way round, and a naive servo oscillates or parks 20 brads off — which
+    # is why ranged gunfire died league-wide (measured on live physics: hit%
+    # 0.0 past 300px, 83% of all shots under 150px). Plan in slot space: take
+    # whichever direction reaches the desired slot in fewer held ticks, even
+    # when that transiently widens the raw error.
+    let
+      sSlots = max(1, bot.aimStepBrads div 8)
+      cur = ((bot.estAim + 4) div 8) mod 32
+      des = ((desiredAim + 4) div 8) mod 32
+      delta = ((des - cur) mod 32 + 32) mod 32
+    if delta != 0:
+      var kp = -1
+      var km = -1
+      for k in 1 .. 32:
+        if kp < 0 and (k * sSlots) mod 32 == delta: kp = k
+        if km < 0 and (k * sSlots) mod 32 == (32 - delta) mod 32: km = k
+        if kp >= 0 and km >= 0: break
+      if kp >= 0 and (km < 0 or kp <= km): rotBits = ButtonB
+      elif km >= 0: rotBits = ButtonSelect
 
   # Only a FRESH A press fires, and the pull locks the aim angle on the same
   # tick — never rotate on the pull tick so the lock takes the settled aim.
@@ -6986,6 +7030,7 @@ proc runBot(url: string) =
     endpoint = ensureWsPath(url, WebSocketPath)
   randomize(slot * 7919 + 1)
   let bot = Bot(slot: slot, team: team, role: role, tune: shippedCombatTune(),
+                aimStepBrads: 40, prevStatedAim: -1,
                 myColor: (if team == Red: "red" else: "blue"))
     # myColor is only the slot-PARITY guess here: the team count is not known
     # until the init markers arrive. buildNavGrid re-deals it on a 4-team board
@@ -7013,7 +7058,7 @@ proc runBot(url: string) =
         # Dead-reckon the aim: the last sent mask keeps rotating on the
         # server for every elapsed sim tick until we change it.
         bot.estAim = floorMod(
-          bot.estAim + bot.rotSign * AimRate * advance, AimBrads)
+          bot.estAim + bot.rotSign * bot.aimStepBrads * advance, AimBrads)
         if not client.mapCameraReady:
           bot.resetTransient()             # lobby / game-over interstitial
           continue

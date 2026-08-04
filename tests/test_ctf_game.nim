@@ -248,34 +248,37 @@ suite "ctf game":
     check not sim.players[1].alive     # still hit along the original aim
     check sim.players[0].windupBrads == -1
 
-  test "rotate buttons turn the aim; movement never does":
+  test "rotate buttons step the aim through the 32 rotation slots; movement never does":
     var sim = twoTeamGame()
-    let rate = sim.config.aimTurnRate
+    let stepBrads = sim.config.aimTurnRate * AimStepBrads
     check sim.players[0].aimBrads == 0     # Red spawns aiming east.
     check sim.players[1].aimBrads == 128   # Blue spawns aiming west.
 
     var inputs = newSeq[InputState](sim.players.len)
     let noInput = newSeq[InputState](sim.players.len)
-    # Holding B rotates counter-clockwise by aimTurnRate per tick.
+    # Holding B rotates counter-clockwise by aimTurnRate rotation slots
+    # (aimTurnRate * 8 brads) per tick.
     inputs[0] = InputState(b: true)
     sim.step(inputs, noInput)
-    check sim.players[0].aimBrads == rate
+    check sim.players[0].aimBrads == stepBrads
     # Holding Select rotates clockwise (wrapping under 0).
     inputs[0] = InputState(select: true)
     sim.step(inputs, noInput)
     sim.step(inputs, noInput)
-    check sim.players[0].aimBrads == (256 - rate) mod 256
+    check sim.players[0].aimBrads == (256 - stepBrads) mod 256
     # Holding both rotate buttons cancels the rotation.
     inputs[0] = InputState(b: true, select: true)
     sim.step(inputs, noInput)
-    check sim.players[0].aimBrads == (256 - rate) mod 256
+    check sim.players[0].aimBrads == (256 - stepBrads) mod 256
     # Movement moves the player but NEVER changes the aim.
     inputs[0] = InputState(up: true, left: true)
     let (x0, y0) = (sim.players[0].x, sim.players[0].y)
     for _ in 1 .. 6:
       sim.step(inputs, noInput)
     check (sim.players[0].x, sim.players[0].y) != (x0, y0)
-    check sim.players[0].aimBrads == (256 - rate) mod 256
+    check sim.players[0].aimBrads == (256 - stepBrads) mod 256
+    # The aim never leaves the 32-slot grid, wherever it lands.
+    check sim.players[0].aimBrads mod AimStepBrads == 0
 
   test "fire direction comes from the aim angle (32 = northeast)":
     var sim = twoTeamGame()

@@ -189,7 +189,10 @@ proc gameHash*(sim: SimServer): uint64 =
     result.mixHashInt(player.shieldHp)
     result.mixHashBool(player.hasPlasmaArc)
     result.mixHashInt(player.arcTicksLeft)
-    result.mixHashInt(int(player.arcHitMask))
+    # A 32-seat board can set bit 31 of the arc-hit mask; converting through
+    # `int` overflows on wasm32 (same class as the color fix below). Widening
+    # to uint64 hashes the identical value on both 32- and 64-bit targets.
+    result.mixHash(uint64(player.arcHitMask))
     result.mixHashInt(player.throwCharge)
     result.mixHashInt(player.lastShoutTick)
     result.mixHashInt(player.joinOrder)

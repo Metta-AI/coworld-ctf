@@ -6,7 +6,7 @@
   "fireCooldownTicks": 12,
   "carrierSpeedPct": 70,
   "playerBouncePct": 40,
-  "aimTurnRate": 5,
+  "aimTurnRate": 1,
   "visionConeDeg": 60,
   "visionBubble": 90,
   "maxTicks": 5000,

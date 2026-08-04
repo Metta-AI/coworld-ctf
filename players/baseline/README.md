@@ -29,8 +29,10 @@ regardless of fog: the map, **both flag pedestals**, and **ourselves** via the
 distinct self marker. There is **no team radio** — a mate outside our cone and
 bubble is as invisible to us as an enemy, so any notion of where our team is
 has to be tracked and predicted, not read off the frame.
-**Aim is decoupled from movement** (a per-player angle in brads, 0 = east,
-counter-clockwise; B rotates CCW, Select CW at `AimRate` = 5 brads/tick) and
+**Aim is decoupled from movement** (a per-player angle on the 32-slot
+rotation grid, reported in brads as multiples of 8, 0 = east,
+counter-clockwise; B rotates CCW, Select CW one slot per tick, `AimRate` =
+8 brads/tick) and
 only a **fresh A press** fires — the pull locks the aim angle and the bullet
 leaves after a ~5-tick windup. Labels we read:
 
