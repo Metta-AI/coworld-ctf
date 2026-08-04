@@ -3032,9 +3032,32 @@ proc flagHome(team: Team): Vec =
   ## team's protected spawn pocket (matches flagHome in src/ctf/sim.nim).
   if team == Red: vec(186, 329) else: vec(1049, 329)
 
+const ChokeOffset = 204.0
+  ## How far the defender posts OFF its own pedestal, toward the field. The
+  ## stock arena's tuned pair was pedestal x=186 / choke x=390.
+
 proc chokeSpot(team: Team): Vec =
-  ## Defender hold point between the flag and our home edge, mirrored
-  ## exactly across the x = 617 center line.
+  ## Defender hold point between our heart and the field it is threatened from.
+  ##
+  ## This used to be the arena's mirrored constant, which only ever knew Red and
+  ## Blue. On a four-team board green and yellow got BLUE's post: measured on a
+  ## 2496x2496 board, green's defender held station 2503px from the heart it
+  ## exists to guard, yellow's 1809px. Half our four-team seats therefore left
+  ## their heart completely unguarded — and losing the heart is not a setback
+  ## there, it is ELIMINATION (GV32).
+  ##
+  ## Derived instead from the team's own stated home, offset toward the board
+  ## centre so the post sits on the approach. On the stock arena this reproduces
+  ## the tuned value: pedestal (186,329) + 204px toward centre = (390,329).
+  let z = statedZone(if team == SelfStrategyTeam: SelfColor else: SelfEnemyColor)
+  if z.have:
+    let
+      centre = vec(float(CenterX), float(CenterY))
+      away = centre - z.c
+      d = away.len()
+    if d > 1.0:
+      return z.c + away * (ChokeOffset / d)
+    return z.c
   if team == Red: vec(390, 340) else: vec(float(MapW - 1) - 390.0, 340)
 
 proc ownShieldSpawn(team: Team): Vec =
