@@ -917,11 +917,18 @@ type
 
   PlayerFov* = object
     ## One player's cached fog-of-war visibility grid (FovGridW x FovGridH
-    ## cells). Recomputed only when the viewer's cell or aim changes.
+    ## cells). The expensive shadowcast pass depends only on the viewer's
+    ## CELL, so it is cached separately (cellVisible) from the final
+    ## cone-filtered grid (visible): a viewer who only turns — bots rotate
+    ## aim nearly every tick — reuses the cached shadowcast and pays just
+    ## the cone filter.
     valid*: bool
     originCx*, originCy*: int
     aimBrads*: int
     visible*: seq[bool]
+    cellValid*: bool
+    cellCx*, cellCy*: int
+    cellVisible*: seq[bool]
 
   DiamondPatch* = object
     ## Diamond-free wall pixels for one live geometry window. Fields exported

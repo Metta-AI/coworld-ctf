@@ -76,7 +76,7 @@
 
 import
   std/[algorithm, heapqueue, math, net, os, random, strutils],
-  bitworld/spriteprotocol,
+  bitworld/profile, bitworld/spriteprotocol,
   ctf/labels,
   whisky,
   baseline/protocols,
@@ -594,7 +594,7 @@ proc findSelf(
     for o in client.spriteObjectsWithLabel(label):
       return (alive: true, pos: client.mapPos(o))
 
-proc actorsFor(client: ProtocolClient, color: string): seq[Actor] =
+proc actorsFor(client: ProtocolClient, color: string): seq[Actor] {.measure.} =
   ## Visible players of one color in map coordinates plus horizontal facing
   ## and hit points. The overhead "hp <n>/<max>" pip bar is fog-culled with
   ## its player, so whenever the player is visible its hp is too: attach the
@@ -956,7 +956,7 @@ proc deriveMultiFrame(bot: Bot) =
   bot.targetFlagSeen = bot.tick
   MultiReady = true
 
-proc buildNavGrid(bot: Bot, client: ProtocolClient) =
+proc buildNavGrid(bot: Bot, client: ProtocolClient) {.measure.} =
   ## Erodes the pixel walkability mask into a footprint-safe nav grid, then
   ## derives the cover model (cover cells, overwatch post, defender choke).
   adoptMapSize(client)
@@ -1444,7 +1444,7 @@ proc friendlyBlocked(bot: Bot, me, aim: Vec, enemyDist: float): bool =
       return true
   false
 
-proc decide(bot: Bot, client: ProtocolClient): uint8 =
+proc decide(bot: Bot, client: ProtocolClient): uint8 {.measure.} =
   ## Core CTF policy for one frame.
   when defined(statue):
     return 0'u8                          # test dummy: stand still all game
@@ -3036,6 +3036,7 @@ proc runBot(url: string) =
     # never set this env, so competitive builds do not send ready at all.
     fastReadyEnabled = getEnv("CTF_BOT_FAST_READY").len > 0
   bot.resetTransient()
+  startProfileTrace()
   echo "baseline slot=", slot, " team=", team, " role=", role, " -> ", endpoint
   artInit(slot, $team, $role)
   let client = initProtocolClient()
@@ -3065,6 +3066,8 @@ proc runBot(url: string) =
           continue
         let advance = max(1, client.frameAdvance)
         bot.tick += advance
+        if profileShouldDump(bot.tick):
+          finishProfileTrace()
         # Dead-reckon the aim: the last sent mask keeps rotating on the
         # server for every elapsed sim tick until we change it.
         bot.estAim = floorMod(

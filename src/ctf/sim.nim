@@ -1911,16 +1911,14 @@ proc visionRange*(sim: SimServer): int =
   ## (visionBubble) is never shrunk by this cap.
   sim.config.gunRange * 3 div 2
 
-proc computeFovVisible*(
+proc computeFovShadowcast*(
   sim: SimServer,
-  originCx, originCy, aimBrads: int,
+  originCx, originCy: int,
   visible: var seq[bool]
 ) {.measure.} =
-  ## Computes one viewer's fog-of-war cell visibility: recursive shadowcasting
-  ## from the viewer's cell (walls block), intersected with the forward vision
-  ## cone (half-angle visionConeDeg around the aim angle, reaching
-  ## visionRange px — 1.5x the gun range, GV34) plus the omnidirectional
-  ## vision bubble (visionBubble px, exempt from the range cap).
+  ## The aim-independent half of fog-of-war: recursive shadowcasting from
+  ## the viewer's cell (walls block, unbounded by range). Cacheable per
+  ## cell — this is the expensive pass.
   if visible.len != FovCellCount:
     visible.setLen(FovCellCount)
   zeroMem(addr visible[0], visible.len * sizeof(bool))
@@ -1940,6 +1938,22 @@ proc computeFovVisible*(
       0.0,
       xx, xy, yx, yy
     )
+
+proc applyFovCone*(
+  sim: SimServer,
+  originCx, originCy, aimBrads: int,
+  shadowcast: seq[bool],
+  visible: var seq[bool]
+) {.measure.} =
+  ## The aim-dependent half of fog-of-war: intersects a cached shadowcast
+  ## with the forward vision cone (half-angle visionConeDeg around the aim
+  ## angle, reaching visionRange px — 1.5x the gun range, GV34) plus the
+  ## omnidirectional vision bubble (visionBubble px, exempt from the range
+  ## cap).
+  if visible.len != FovCellCount:
+    visible.setLen(FovCellCount)
+  copyMem(addr visible[0], unsafeAddr shadowcast[0],
+    FovCellCount * sizeof(bool))
   let
     (ox, oy) = fovCellCenter(originCx, originCy)
     (ax, ay) = aimVector(aimBrads)
@@ -1964,6 +1978,19 @@ proc computeFovVisible*(
       let dot = vx * ax + vy * ay
       if dot < coneCos * sqrt(d2):
         visible[index] = false
+
+proc computeFovVisible*(
+  sim: SimServer,
+  originCx, originCy, aimBrads: int,
+  visible: var seq[bool]
+) {.measure.} =
+  ## Computes one viewer's full fog-of-war cell visibility in one shot:
+  ## shadowcast, then cone/range filter. Uncached path, kept for tools and
+  ## probes; the server loop goes through refreshPlayerFov's two-level
+  ## cache instead.
+  var shadowcast = newSeq[bool](FovCellCount)
+  sim.computeFovShadowcast(originCx, originCy, shadowcast)
+  sim.applyFovCone(originCx, originCy, aimBrads, shadowcast, visible)
 
 proc ensureFovCacheSlots(sim: var SimServer) =
   ## Keeps player-indexed fog-of-war cache storage aligned with players.
@@ -1991,7 +2018,15 @@ proc refreshPlayerFov*(sim: var SimServer, playerIndex: int): bool {.measure.} =
       cache.originCy == cy and
       cache.aimBrads == player.aimBrads:
     return false
-  sim.computeFovVisible(cx, cy, player.aimBrads, cache.visible)
+  # Two-level refresh: the shadowcast only depends on the viewer's cell, so
+  # a viewer who merely turned (bots rotate aim nearly every tick) reuses it
+  # and pays only the cone filter.
+  if not (cache.cellValid and cache.cellCx == cx and cache.cellCy == cy):
+    sim.computeFovShadowcast(cx, cy, cache.cellVisible)
+    cache.cellValid = true
+    cache.cellCx = cx
+    cache.cellCy = cy
+  sim.applyFovCone(cx, cy, player.aimBrads, cache.cellVisible, cache.visible)
   cache.valid = true
   cache.originCx = cx
   cache.originCy = cy

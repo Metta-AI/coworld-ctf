@@ -4607,7 +4607,10 @@ proc addRotatingDiamonds(
     let
       spot = AnimatedDiamonds[i]
       frame = diamondSpinFrame(spot.cx, sim.tickCount)
-      (size, pixels) = rotatingDiamondPixels(spot.radius, frame, boardScale)
+      # Pixels are fetched lazily inside the define branches below: the
+      # cached-frame return copies a full pixel buffer, and on the steady
+      # path (sprite already defined) nothing needs it.
+      size = rotatingDiamondSize(spot.radius)
     # A diamond that has been shot carries its paint baked into the stone, so
     # the marks turn with it and stay clipped to its silhouette. Only the frame
     # on screen right now is built/emitted; the rest arrive as the spin reaches
@@ -4625,12 +4628,15 @@ proc addRotatingDiamonds(
       let label = "diamond " & $i & " paint " & $paintCount
       let defIndex = spriteDefs.spriteDefinitionIndex(spriteId)
       if defIndex < 0 or spriteDefs[defIndex].label != label:
+        let (_, basePixels) =
+          rotatingDiamondPixels(spot.radius, frame, boardScale)
         packet.addBoardSpriteChanged(
           spriteDefs, spriteId, size, size,
-          sim.buildPaintedDiamondPixels(i, frame, size, pixels), label,
+          sim.buildPaintedDiamondPixels(i, frame, size, basePixels), label,
           native = boardScale
         )
     elif spriteDefs.spriteDefinitionIndex(spriteId) < 0:
+      let (_, pixels) = rotatingDiamondPixels(spot.radius, frame, boardScale)
       packet.addBoardSpriteChanged(
         spriteDefs, spriteId, size, size, pixels, "diamond",
         native = boardScale

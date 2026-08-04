@@ -321,6 +321,11 @@ proc windowGlassColor(wall: seq[bool], w, h, x, y: int): ColorRGBA =
 var diamondFrameCache: array[DiamondSpinFrames, seq[tuple[
   scale: int, pixels: seq[uint8]]]]
 
+proc rotatingDiamondSize*(radius: int): int =
+  ## The LOGICAL (map-pixel) footprint of a spinning diamond sprite — the
+  ## same value rotatingDiamondPixels returns, without building any pixels.
+  2 * radius + 8
+
 proc rotatingDiamondPixels*(
   radius, frame: int,
   scale = 1
