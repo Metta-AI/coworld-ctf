@@ -868,10 +868,13 @@ type
   PlayerViewerState* = ref object
     initialized*: bool
     objectIds*: seq[int]
-    ## Last placement payload sent per object id. The protocol is
-    ## retained-mode — a client keeps a placement until it is replaced or
-    ## deleted — so an unchanged placement need never be re-sent.
-    sentPlacements*: Table[int, array[11, uint8]]
+    ## Last placement payload sent per object id, flat-indexed by the u16
+    ## id (byte 11 = present flag; 720 KB per viewer, allocated lazily).
+    ## The protocol is retained-mode — a client keeps a placement until it
+    ## is replaced or deleted — so an unchanged placement need never be
+    ## re-sent. Flat array, not a Table: the per-object hashing was itself
+    ## a profiler hot spot.
+    sentPlacements*: seq[array[12, uint8]]
     pendingDebugSprites*: seq[seq[uint8]]
     debugSpriteLimitWarned*: bool
     shoutSlots*: array[ShoutMaxCount, string]  ## slot → owning shouter address
@@ -3010,55 +3013,61 @@ proc stripSpritePixels*(
 
 proc dedupObjectPlacements*(
   packet: seq[uint8],
-  sentPlacements: var Table[int, array[11, uint8]]
+  sentPlacements: var seq[array[12, uint8]]
 ): seq[uint8] {.measure.} =
   ## Drops Define Object messages whose full payload matches what this
   ## viewer was already sent. The sprite protocol is retained-mode — the
   ## client keeps every placement until it is replaced or deleted — so
   ## re-sending an identical placement is pure wire noise. Deletes and
   ## clear-objects update the memory so re-appearing objects re-send.
+  ##
+  ## Kept bytes are coalesced into pass-through runs and block-copied:
+  ## only a SKIPPED placement breaks a run, so a packet with nothing to
+  ## drop costs one copyMem — per-byte appends here were once the hottest
+  ## proc in the whole server.
   result = newSeqOfCap[uint8](packet.len)
-  var offset = 0
+  if sentPlacements.len == 0:
+    sentPlacements.setLen(65536)
+  var
+    offset = 0
+    keepStart = 0
+  template flushKept(upTo: int) =
+    if upTo > keepStart:
+      let start = result.len
+      result.setLen(start + upTo - keepStart)
+      copyMem(addr result[start], unsafeAddr packet[keepStart],
+        upTo - keepStart)
   while offset < packet.len:
     let messageStart = offset
     let messageType = packet[offset]
     inc offset
     case messageType
     of 0x01:  # sprite: id,w,h (6) + clen (4) + pixels + llen (2) + label
-      let compressedLen = packet.readU32(offset + 6)
-      offset += 10 + compressedLen
+      offset += 10 + packet.readU32(offset + 6)
       offset += 2 + packet.readU16(offset)
-      for i in messageStart ..< offset:
-        result.add(packet[i])
     of 0x02:  # object: id (2) + x,y,z (6) + layer (1) + sprite (2)
-      var payload: array[11, uint8]
-      for i in 0 ..< 11:
-        payload[i] = packet[offset + i]
+      var payload: array[12, uint8]
+      copyMem(addr payload[0], unsafeAddr packet[offset], 11)
+      payload[11] = 1
       offset += 11
       let objectId = int(payload[0]) or (int(payload[1]) shl 8)
-      if sentPlacements.getOrDefault(objectId) != payload or
-          objectId notin sentPlacements:
+      if sentPlacements[objectId] == payload:
+        flushKept(messageStart)
+        keepStart = offset
+      else:
         sentPlacements[objectId] = payload
-        for i in messageStart ..< offset:
-          result.add(packet[i])
     of 0x03:  # delete object
-      sentPlacements.del(packet.readU16(offset))
+      sentPlacements[packet.readU16(offset)][11] = 0
       offset += 2
-      for i in messageStart ..< offset:
-        result.add(packet[i])
     of 0x04:  # clear objects
-      sentPlacements.clear()
-      result.add(messageType)
+      zeroMem(addr sentPlacements[0], sentPlacements.len * 12)
     of 0x05, 0x06:
       offset += (if messageType == 0x05: 5 else: 3)
-      for i in messageStart ..< offset:
-        result.add(packet[i])
     else:
       # Unknown message: ship the remainder whole — mirrors
       # chunkSpritePacket's bail-out.
-      for i in messageStart ..< packet.len:
-        result.add(packet[i])
-      break
+      offset = packet.len
+  flushKept(packet.len)
 
 proc buildWalkabilitySpritePixels(sim: SimServer): seq[uint8] {.measure.} =
   ## Returns a binary RGBA walkability mask for sprite agents.
