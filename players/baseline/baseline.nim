@@ -581,6 +581,22 @@ const
   CombatDeadband = 2          # stop the traverse within this error (brads);
                               # AimRate 5 cannot settle tighter than +-2
   CruiseDeadband = 8          # sloppier deadband for non-combat aim
+  CqbRange = 180.0            # ⭐ CQB plant-and-settle applies inside this range
+  CqbFireSlackPx = 6.0        # ...with the corridor halved: field census (24 real
+                              # arena episodes, 2026-08-04) — our locked heading is
+                              # OFF the body on 27% of point-blank shots vs the
+                              # field's 13%, and we fire while MOVING >8px during
+                              # the windup on 33% of them vs their 8%. Hit% falls
+                              # 59->20 with windup self-movement: the locked ray
+                              # parallel-shifts with the shooter. The field plants
+                              # to shoot; run-and-gun buys no defense (constant-
+                              # velocity strafe is fully lead-compensable — they
+                              # hit us 65.6% regardless). REF-slack refuted GLOBAL
+                              # knob tuning; this is the range-conditioned LOGIC
+                              # fork it prescribes, >=CqbRange untouched.
+  WindupPlantTicks = 5        # suppress movement this long after a CQB pull
+                              # (the fire windup: aim locks at pull, bullet
+                              # leaves 5 ticks later from wherever we drifted)
   FireSlackPx = 11.0          # fire when the aim error's perpendicular miss
                               # at the target's range is inside this (the
                               # corridor half-width is ~14px; keep margin)
@@ -1756,6 +1772,9 @@ type
     stealPedSeen: bool        # because the banner vanishes while it is carried
     ownPedPos: Vec            # our own pedestal, likewise observed
     ownPedSeen: bool
+    plantUntil: int           # CQB plant: movement suppressed until this tick
+                              # (set on a close-range trigger pull; the locked
+                              # ray must not parallel-shift during the windup)
     role: Role
     tune: CombatTune          # fire/engage knobs; default == baseline consts
     tick: int                 # sim ticks, advanced by frames received
@@ -2714,6 +2733,18 @@ proc enemyColorFor(myColor: string): string =
         return best
   let mine = TeamColorNames.find(myColor)
   TeamColorNames[(max(mine, 0) + activeColors() div 2) mod activeColors()]
+
+proc ownAimBrads(client: ProtocolClient): int =
+  ## The engine-stated own-aim angle from the `own aim <brads>` HUD marker,
+  ## or -1 when the marker is absent (pre-marker engines) or unparsable.
+  for o in client.spriteObjects():
+    if o.label.startsWith(LabelPrefixOwnAim):
+      let tail = o.label[LabelPrefixOwnAim.len .. ^1]
+      try:
+        return parseInt(tail)
+      except ValueError:
+        return -1
+  -1
 
 proc findSelf(
     client: ProtocolClient, color: string): tuple[alive: bool, pos: Vec] =
@@ -3739,6 +3770,7 @@ proc resetTransient(bot: Bot) =
                                # marker; the dealt guess persists as the seed
   bot.stealPedSeen = false     # pedestals are per-episode geometry
   bot.ownPedSeen = false
+  bot.plantUntil = 0
   bot.enemies.setLen(0)
   bot.mates.setLen(0)
   bot.nadeCharge = 0
@@ -3958,6 +3990,21 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # Absolute turret fix: our own rendered aim-indicator dots show the actual
   # aim every frame, capping any dead-reckoning drift (mask-apply races).
   block resync:
+    # ⭐ THE ENGINE STATES OUR EXACT AIM (2026-08-04). The `own aim <brads>`
+    # HUD marker (LabelPrefixOwnAim, self-only, TRUE since GV26) states the
+    # turret angle outright every frame. This tree predates it and was
+    # resyncing off the rotation-SPRITE readback instead — quantized to ±8
+    # brads and only corrected past 16. ±8 brads at 100px is ~19px of ray
+    # error: MORE than a body radius, invisible to our own trigger gate
+    # (which checks estAim, not truth). Fits the field census exactly: our
+    # locked heading lands off-body on 27% of CQB shots vs the field's 13%.
+    let stated = client.ownAimBrads()
+    if stated >= 0:
+      # Exact truth: adopt it outright. The old >AimResyncBrads(4) tolerance
+      # existed to stop QUANTIZED readbacks fighting healthy dead reckoning;
+      # tolerating 4 brads of known error is 10px of ray at 100px for nothing.
+      bot.estAim = stated
+      break resync
     var seen = client.observedAim(me, myColor)
     if seen < 0 and bot.tune.aimRotRead:
       # v9: no dots exist — read our aim off the self soldier's rotation id
@@ -6764,6 +6811,12 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
 
   # Only a FRESH A press fires, and the pull locks the aim angle on the same
   # tick — never rotate on the pull tick so the lock takes the settled aim.
+  # ⛔ CQB PLANT was here — MEASURED AND REVERTED (2026-08-04). 12-game frozen
+  # A/B: moving-while-firing 63% -> 0.1% (mechanism perfect) and CQB hit%
+  # 36.0 -> 36.1 (NO effect), while shots -19%, hits -25%, kills -34%,
+  # deaths +34%, W-L-D 1-9-2. The REF-slack failure plus a stationary-target
+  # penalty. The field's plant/hit correlation was a SIDE-COMPOSITION
+  # confound (within-side gradient only 8pp). Movement was never the cause.
   var mask = moveMask or rotBits
   if wantFire and not bot.firedLast:
     mask = moveMask or ButtonA
