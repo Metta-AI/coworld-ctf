@@ -5349,7 +5349,20 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     let t = bot.enemies[i]
     if bot.tick - t.lastSeen > bot.tune.freshShotTicks:
       continue
-    let predicted = t.pos + t.vel * (float(bot.tick - t.lastSeen) + bot.tune.leadTicks)
+    # ⭐ RANGE-SCALED LEAD (2026-08-04, the CQB accuracy crater). Field census,
+    # 24 real Default episodes: our hit% by range is 36.7 / 60.4 / 68.7 / 56.4
+    # across 0-150 / 150-300 / 300-500 / 500-700px vs the field's 65.6 / 65.6 /
+    # 61.7 / 44.2 — we WIN every band past 300px and lose 0-150 by 29 points,
+    # where 43% of our shots are fired. The fixed ~16px lead is 2 degrees at
+    # 400px and ~12 at 75px — at point-blank it aims off the body edge of a
+    # jinking target. Scale the lead in below 300px (full lead above; at 60px
+    # ~20%). [[REF-realbody]] refuted DELETING the lead globally (undershot at
+    # range); the range-scaled form keeps the ranged lead that verdict protects.
+    let
+      rawRange = dist(t.pos, me)
+      leadScale = clamp(rawRange / 300.0, 0.15, 1.0)
+      predicted = t.pos + t.vel *
+        (float(bot.tick - t.lastSeen) + bot.tune.leadTicks * leadScale)
     let d = dist(predicted, me)
     if d >= maxEngage:
       continue
