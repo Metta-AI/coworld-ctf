@@ -581,6 +581,8 @@ const
   CombatDeadband = 2          # stop the traverse within this error (brads);
                               # AimRate 5 cannot settle tighter than +-2
   CruiseDeadband = 8          # sloppier deadband for non-combat aim
+  FightOutRadius = 260.0      # the breakout ring after a snatch: inside it the
+                              # carrier keeps a point-blank gun (fight off the X)
   CqbRange = 180.0            # ⭐ CQB plant-and-settle applies inside this range
   CqbFireSlackPx = 6.0        # ...with the corridor halved: field census (24 real
                               # arena episodes, 2026-08-04) — our locked heading is
@@ -1772,6 +1774,9 @@ type
     stealPedSeen: bool        # because the banner vanishes while it is carried
     ownPedPos: Vec            # our own pedestal, likewise observed
     ownPedSeen: bool
+    wasCarrying: bool         # edge detector for our OWN carry (grabPos stamp)
+    grabPos: Vec              # where THIS carry began: the fight-out breakout
+                              # is measured from the actual snatch point
     lifeStart: int            # tick of this life's (re)spawn; shieldRush's
                               # opening window is per LIFE, since every respawn
                               # starts at the shield's own column
@@ -3975,6 +3980,16 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     SelfStrategyTeam = bot.team
   SelfColor = myColor
   SelfEnemyColor = enemyColorFor(myColor)
+  SelfStrategyTeam = bot.team
+    # Re-stamped EVERY decide, not just at the colour lock: the eval harness
+    # runs all 16 bots in ONE process, so a once-per-lock global holds the
+    # LAST locked bot's team and the `team == SelfStrategyTeam` discrimination
+    # inside the geometry procs turns to garbage. Measured: a RED carrier
+    # hauled the stolen flag to the BLUE zone centre (homeDeepX returned 1131
+    # for a red seat) and parked there for 8000 ticks — every 10000-tick
+    # grab-no-cap DRAW in the v32-v35 gates was this artifact. Production has
+    # one bot per process and never sees it; the re-stamp makes the harness
+    # faithful and is a no-op live.
   let
     enemyColor = enemyColorFor(myColor)
     alive = probe.alive
@@ -4552,7 +4567,16 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     let
       pocket = flagHome(enemy(bot.team))
     var laneY = bot.safestLaneY(me)
-    if bot.tune.carrierClearBand:
+    let
+      ezc = statedZone(SelfEnemyColor)
+      arenaExit = GameTeams <= 2 and not (ezc.have and ezc.compact)
+        # The vertical-bugout + border-lane exit is ARENA geometry. On a
+        # compact/wrapped endzone or any 4-team layout those lanes are
+        # fiction — live census: surviving carriers wandered the pocket for
+        # 300-900 ticks at ~0% progress with the override steering them.
+        # There, the eroded live nav grid knows the real walls: navSteer
+        # straight at captureAim.
+    if bot.tune.carrierClearBand and arenaExit:
       # ⭐ Grab-survival: every kill respawns an armed, spawn-protected (thus
       # UNKILLABLE) enemy at this pedestal aimed E-W across pedestal height. A
       # carrier lane at that height (safestLaneY often picks LaneMid) is a
@@ -4567,7 +4591,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         target = vec(me.x, laneY)          # straight out of the cone, no home-x yet
       else:
         target = captureAim(bot.team, me, laneY)
-    elif abs(me.x - pocket.x) < 60.0 and abs(me.y - laneY) > 70.0:
+    elif arenaExit and abs(me.x - pocket.x) < 60.0 and abs(me.y - laneY) > 70.0:
       # Bug out of the pocket VERTICALLY first: every kill respawns an
       # armed, spawn-protected enemy at this pedestal whose spawn aim points
       # along the east-west axis — pure-vertical movement exits that cone
@@ -5306,10 +5330,23 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # but objective play caps the range: the carrier only fights point-blank,
   # rushers racing for the steal and escorts guarding a run only fight what
   # is actually in the way, instead of frag-chasing across the map.
+  if iCarry and not bot.wasCarrying:
+    bot.grabPos = me
+  bot.wasCarrying = iCarry
   var maxEngage =
     if disarmedRush: 0.0         # ONLY an uncontested pocket touch disarms; a DEFENDED
                                  # pocket keeps the gun up (armedPocket) and fights its way in
-    elif iCarry and bot.tune.carrierSprint: 0.0  # ⭐⭐ carrier never fights:
+    elif iCarry and bot.tune.carrierSprint:
+      # ⭐ FIGHT OFF THE X (2026-08-04): live-replay carrier census, 10 carries —
+      # median progress toward home at span end was MINUS 2%, 7 of 10 died at
+      # <30%, half GRABBED at 1-2 hp with up to 3 defenders inside 300px. Our
+      # carriers do not die on the run home; they die AT THE PEDESTAL — which
+      # GV25 made the enemy's own respawn zone — holding a gun the old rule
+      # disarmed at the instant of the grab. The disarmed sprint stays proven
+      # for the RUN; the first 260px after the snatch is a breakout, not a
+      # run. Point-blank gun until clear, then sprint.
+      (if dist(me, bot.grabPos) < FightOutRadius: bot.tune.carrierFireRange
+       else: 0.0)                # ⭐⭐ past the ring: carrier never fights:
       # the diagnosis showed carriers survive ~110t but travel ~4% of the run —
       # PINNED firing at the invulnerable spawn-protected respawner (wasted) while
       # advancing into the nest. Engage 0 drops the combat branch so the carrier
@@ -6831,6 +6868,14 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # deaths +34%, W-L-D 1-9-2. The REF-slack failure plus a stationary-target
   # penalty. The field's plant/hit correlation was a SIDE-COMPOSITION
   # confound (within-side gradient only 8pp). Movement was never the cause.
+  when defined(carrytrace):
+    if iCarry and bot.tick mod 60 < 2:
+      stderr.writeLine "CARRY slot=" & $bot.slot & " t=" & $bot.tick &
+        " me=" & $int(me.x) & "," & $int(me.y) &
+        " target=" & $int(target.x) & "," & $int(target.y) &
+        " hp=" & $bot.ownHp & " engage=" & $engage &
+        " homeDeepX=" & $int(homeDeepX(bot.team)) &
+        " ownHome=" & $int(ownHome.x) & "," & $int(ownHome.y)
   var mask = moveMask or rotBits
   if wantFire and not bot.firedLast:
     mask = moveMask or ButtonA
