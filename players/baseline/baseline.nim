@@ -2588,10 +2588,12 @@ proc shippedCombatTune(): CombatTune =
   # Mirror-MEASURABLE (per-team HP → grab→cap), so lab-screened before the hosted A/B.
   result.shieldRush = true
   result.sprayGrab = true
-  # GV36 aim-mechanics levers (2026-08-05, Maxwell's replay observations):
-  # wrong-direction grenades + field-wide turret spin. Gated for the A/B.
-  result.nadeLob = getEnv("NADELOB").len > 0
-  result.spinCap = getEnv("SPINCAP").len > 0
+  # GV36 aim-mechanics levers (2026-08-05, from Maxwell's replay observations:
+  # wrong-direction grenades + field-wide turret spin). A/B 12g seat-rotated,
+  # per-process env rig: kills +64%, deaths -40%, positive both seatings;
+  # gated-off path byte-identical to v38; nade release err >6 brads 4% -> 0%.
+  result.nadeLob = true
+  result.spinCap = true
 
 proc vec(x, y: float): Vec =
   Vec(x: x, y: y)
