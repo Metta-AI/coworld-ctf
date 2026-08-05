@@ -155,6 +155,14 @@ proc verticalAnchors(
 proc genScatter(r: var Rand, region: MapRect, p: StyleParams): seq[ArenaShape] =
   let period = max(48, p.period)
   result.add verticalAnchors(r, region, period, 18, akRect)
+  # A `diamond` whose center lands within the map's central spin band becomes a
+  # rotating "spinning diamond" — an AUTHORED-arena feature whose renderer
+  # (buildPaintedDiamondPixels) assumes the arena's fixed diamond size and
+  # overflows on an arbitrary one. The seam is the map center, so keep diamonds
+  # clear of the last SpinSafe px before it; everything there falls back to a
+  # disc (never spinning). Comfortably wider than DiamondSpinBand (80).
+  const SpinSafe = 100
+  let diamondMaxX = region.x + region.w - SpinSafe
   var gy = region.y
   while gy <= region.y + region.h:
     var gx = region.x
@@ -167,7 +175,7 @@ proc genScatter(r: var Rand, region: MapRect, p: StyleParams): seq[ArenaShape] =
             cx = gx + ri(r, -p.jitter, p.jitter + 1)
             cy = gy + ri(r, -p.jitter, p.jitter + 1)
             (x, y) = clampCenter(region, cx, cy, radius)
-          if rand(r, 1.0) < 0.5:
+          if rand(r, 1.0) < 0.5 or x > diamondMaxX:
             result.add discShape(x, y, radius)
           else:
             result.add diamondShape(x, y, radius)

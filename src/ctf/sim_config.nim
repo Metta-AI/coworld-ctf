@@ -292,6 +292,60 @@ proc readConfigTokens(
     if closedRoster and slots[i].name.len == 0:
       slots[i].name = defaultSlotName(i)
 
+proc readHandicapTeam(text: string): Team =
+  ## Reads one handicap-map team key.
+  case text.strip().toLowerAscii()
+  of "red":
+    Red
+  of "blue":
+    Blue
+  of "green":
+    Green
+  of "yellow":
+    Yellow
+  else:
+    raise newException(
+      CtfError,
+      "Config field handicaps has key " & text &
+        "; expected red, blue, green, or yellow."
+    )
+
+proc readHandicapPermille(value: JsonNode, teamName: string): int =
+  ## Reads one 0.0..1.0 handicap and returns it as a permille (0..1000).
+  var f: float
+  case value.kind
+  of JFloat:
+    f = value.getFloat()
+  of JInt:
+    f = float(value.getInt())
+  else:
+    raise newException(
+      CtfError,
+      "Config field handicaps." & teamName & " must be a number between 0 and 1."
+    )
+  if f < 0.0 or f > 1.0:
+    raise newException(
+      CtfError,
+      "Config field handicaps." & teamName & " must be between 0 and 1."
+    )
+  # Round to the nearest permille. f is in [0, 1], so this lands in [0, 1000];
+  # exactly 0.0 maps to 0 (the byte-identical no-handicap path).
+  int(f * 1000.0 + 0.5)
+
+proc readConfigHandicaps(node: JsonNode, config: var GameConfig) =
+  ## Reads the optional per-team handicap map, e.g. {"red": 0.0, "blue": 0.6}.
+  ## Omitted teams stay at 0 (no handicap). A handicap named for an inactive
+  ## team is accepted and simply never applies, so a caller (e.g. Campaign)
+  ## can set all four teams without knowing the active count.
+  if not node.hasKey("handicaps"):
+    return
+  let handicaps = node["handicaps"]
+  if handicaps.kind != JObject:
+    raise newException(CtfError, "Config field handicaps must be an object.")
+  for teamName, value in handicaps.pairs:
+    config.handicaps[readHandicapTeam(teamName)] =
+      readHandicapPermille(value, teamName)
+
 proc validate(config: GameConfig) =
   ## Raises if a gameplay config has invalid values.
   if config.motionScale <= 0:
@@ -454,6 +508,7 @@ proc update*(config: var GameConfig, jsonText: string) =
   if not node.hasKey("gunRange"):
     config.gunRange = mapMeta.gunRange
   node.readConfigSlots(config.slots)
+  node.readConfigHandicaps(config)
   node.readConfigBool("closedRoster", config.closedRoster)
   node.readConfigTokens(config.slots, config.closedRoster)
   node.readConfigPlayers(config.slots)
@@ -550,6 +605,14 @@ proc configJson*(config: GameConfig): string =
   }
   if includePlayers:
     node["players"] = players
+  # Echo only the handicapped teams, as their authored 0..1 floats, so a
+  # default (unhandicapped) game's replay config carries no handicaps key.
+  var handicaps = newJObject()
+  for team in Red .. Yellow:
+    if config.handicaps[team] > 0:
+      handicaps[teamText(team)] = %(config.handicaps[team].float / 1000.0)
+  if handicaps.len > 0:
+    node["handicaps"] = handicaps
   if config.mapSpec.len > 0:
     node["mapSpec"] = fromJson(config.mapSpec)
   $node

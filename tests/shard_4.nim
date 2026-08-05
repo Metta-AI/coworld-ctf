@@ -6,6 +6,7 @@ import
   test_corpse_label,
   test_extract_events,
   test_grenades,
+  test_handicaps,
   test_identity_badges,
   test_label_contract,
   test_map_export,

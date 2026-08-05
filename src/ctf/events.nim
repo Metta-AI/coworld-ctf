@@ -61,13 +61,20 @@ proc jsonRow*(event: SimEvent): JsonNode =
       "blocked": damage.blocked
     })
 
-proc eventsJsonl*(events: openArray[SimEvent], ticks: int): string =
+proc eventsJsonl*(
+    events: openArray[SimEvent], ticks: int, summaryExtra: JsonNode = nil
+): string =
   ## Returns the full JSON-lines stream: one row per event, then a summary.
   ##
   ## The trailing summary row is part of the contract, not decoration — it is
   ## how a reader distinguishes "this episode had no events" from "the file was
   ## truncated", and it carries the GameVersion the events were produced under
   ## so a consumer never has to infer it.
+  ##
+  ## `summaryExtra` merges extra keys into that row for a producer that knows
+  ## more than the event stream does — the offline extractor attaches the
+  ## episode's roster and outcome there. The four keys above are always
+  ## present, so a reader can treat everything else as optional.
   var lines = newSeqOfCap[string](events.len + 1)
   for event in events:
     lines.add($event.jsonRow())
@@ -76,6 +83,9 @@ proc eventsJsonl*(events: openArray[SimEvent], ticks: int): string =
   summary["ticks"] = %ticks
   summary["events"] = %events.len
   summary["gameVersion"] = %GameVersion
+  if summaryExtra != nil:
+    for key, value in summaryExtra:
+      summary[key] = value
   lines.add($summary)
   result = ""
   for line in lines:

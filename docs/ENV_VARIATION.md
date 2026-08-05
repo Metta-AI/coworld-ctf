@@ -94,6 +94,18 @@ Per-map descriptor `CtfMap` [sim_types.nim:733](../src/ctf/sim_types.nim#L733) c
 | `minPlayers` | int / `16` | `1..32` | Players required to start; effectively sets roster size on open join. |
 | `closedRoster` | bool / `false` | needs ≥`minPlayers` named+tokened slots | Fixed named roster vs open join. |
 | `slots` | `seq[PlayerSlotConfig]` / `@[]` | ≤32; unique names/tokens; `team < teams` | Per-seat overrides. |
+| `handicaps` | `array[Team, int]` permille / all `0` | authored as `{team: 0.0..1.0}` | Per-team handicap: 0 = normal, 1 = 50% miss + 1 life + 1 hit point + ½ max speed, linearly interpolated. |
+
+**Per-team handicap** ([sim_types.nim `handicaps`](../src/ctf/sim_types.nim), accessors
+`hitPointsFor`/`livesFor`/`maxSpeedFor`/`missPermilleFor`): a single `0.0..1.0`
+knob per team, authored as a float map `"handicaps": {"red": 0.0, "blue": 0.6}`
+and stored internally as permille (`0..1000`) so every in-sim derivation is
+integer-only (native/wasm agree). At `0` a team plays normally (byte-identical to
+no handicap — no extra RNG, existing replays re-simulate unchanged); at `1` it
+gets 50% of would-be gun hits dropped, 1 life, 1 hit point, and half max speed;
+values between interpolate linearly from the base config toward that floor.
+Omitted/inactive teams stay at 0. Intended for a league (Campaign) to weaken a
+dominating team. Design: [docs/plans/2026-08-05-per-team-handicaps-design.md](plans/2026-08-05-per-team-handicaps-design.md).
 
 `Team` enum: Red, Blue, Green, Yellow ([sim_types.nim:637](../src/ctf/sim_types.nim#L637));
 active teams are always the prefix `Red..Team(teams-1)`. Hard caps `MaxPlayers`=32,

@@ -1,6 +1,6 @@
 import
   helpers,
-  std/[json, os, unittest],
+  std/[json, os, strutils, unittest],
   ctf/[replays, sim],
   "../tools/extract_events"
 
@@ -172,6 +172,54 @@ suite "tier-2 event extraction (tools/extract_events)":
       for field in ["tick", "kind", "source", "target", "weapon", "amount",
           "hp", "x", "y"]:
         check row.hasKey(field)
+
+  test "the summary names every seat and the outcome, so a scan stands alone":
+    # Ladder scouting attributes every tier-2 event to a league entrant. The
+    # roster travels WITH the events so a scan of the JSONL alone can do that:
+    # no second read of the league API, and — the part that matters as
+    # episodes grow past two teams — no inferring an entrant from its SEAT.
+    let
+      data = loadReplay(EventsFixture)
+      extraction = extractEvents(data)
+      results = parseJson(extraction.resultsJson)
+      slotCount = results["names"].len
+
+    check extraction.slotAddress.len == slotCount
+    check extraction.slotTeam.len == slotCount
+    var named = 0
+    for slot in 0 ..< slotCount:
+      # A seat the game never dealt reads "unknown" in the results snapshot and
+      # stays empty here; every seat that DID play must be named.
+      if results["team"][slot].getStr == "unknown":
+        continue
+      inc named
+      check extraction.slotAddress[slot].len > 0
+      # The team is whatever the sim dealt that seat — cross-checked against
+      # the results snapshot, NOT against a seat-parity rule. Parity only ever
+      # described a 2-team head-to-head; an episode can seat four teams.
+      check extraction.slotTeam[slot] == results["team"][slot].getStr
+    check named >= 2
+
+    # A finished match names exactly one winner, or is an explicit draw.
+    check extraction.finished
+    if extraction.isDraw:
+      check extraction.winner == ""
+    else:
+      check extraction.winner in extraction.slotTeam
+
+    # And all of it survives the trip through the JSONL summary row.
+    let
+      output = extractEventsJsonl(data)
+      lines = output.strip(chars = {'\n'}).split('\n')
+      summary = parseJson(lines[^1])
+    check summary["slot_address"].len == slotCount
+    check summary["slot_team"].len == slotCount
+    check summary["winner"].getStr == extraction.winner
+    check summary["draw"].getBool == extraction.isDraw
+    check summary["finished"].getBool == extraction.finished
+    # The shared four keys are still there: extras never displace the contract.
+    for field in ["type", "ticks", "events", "gameVersion"]:
+      check summary.hasKey(field)
 
   test "collectEvents defaults off: a live sim collects nothing":
     let previousDir = getCurrentDir()

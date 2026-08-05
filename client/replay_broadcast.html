@@ -237,6 +237,22 @@ html, body {
   color: var(--paper-dim);
   flex: none;
 }
+/* Handicap chip: an amber pill next to the team name when that team is
+   weakened. The full delta breakdown rides in the native `title` on hover
+   (cursor:help hints it). Hidden entirely for an unhandicapped team. */
+.plate .hcap {
+  font-family: var(--finefont);
+  font-size: calc(8 * var(--u));
+  letter-spacing: 0.08em;
+  line-height: 1;
+  color: var(--ink);
+  background: var(--amber);
+  border-radius: calc(3 * var(--u));
+  padding: calc(2 * var(--u)) calc(4 * var(--u));
+  flex: none;
+  cursor: help;
+  white-space: nowrap;
+}
 /* Squad strip: ONE pip per player (8). Each pip is a tiny pie: the filled
    wedge is that seat's remaining lives (full square = all lives, a sliver =
    last life), dim = down-but-respawning, hollow = eliminated. The strip is
@@ -1420,6 +1436,7 @@ body[data-embed] #board { top: 0; height: 100%; }
   var otherTeam = C.otherTeam, stripSeatSuffix = C.stripSeatSuffix;
   var teamPolicies = C.teamPolicies, teamName = C.teamName, teamHeadline = C.teamHeadline;
   var rosterName = C.rosterName, setName = C.setName, esc = C.esc, fmt = C.fmt;
+  var setHandicap = C.setHandicap;
   var togglePov = C.togglePov, renderClock = C.renderClock, renderTransport = C.renderTransport;
   var ingestLullSpans = C.ingestLullSpans, renderLullSpans = C.renderLullSpans;
   var markBeat = C.markBeat, killMarkerTeam = C.killMarkerTeam, renderBeatMarkers = C.renderBeatMarkers;
@@ -1908,6 +1925,7 @@ body[data-embed] #board { top: 0; height: 100%; }
         '<div class="team-id">' +
         '<div class="lives-line">' +
         '<span class="team-name" id="name-' + team + '">' + team.toUpperCase() + '</span>' +
+        '<span class="hcap" id="hcap-' + team + '" style="display:none"></span>' +
         '<span class="lives-label">Lives</span>' +
         '<span class="lives-num" id="lives-' + team + '">—</span>' +
         '</div>' +
@@ -1936,6 +1954,7 @@ body[data-embed] #board { top: 0; height: 100%; }
 
     teams.forEach(function (team) {
       setName('name-' + team, teamName(s, team, team.toUpperCase()));
+      setHandicap('hcap-' + team, s, team);
       // '—' until the frame actually carries this team's entry (a pre-roster
       // frame would otherwise read as a real 0). Matches the league shell.
       $('lives-' + team).textContent = tr[team] ? lives[team] : '—';

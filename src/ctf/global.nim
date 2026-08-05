@@ -89,16 +89,36 @@ const
   HpBarWidth = HpBarSegments * HpBarSegW +
     (HpBarSegments - 1) * HpBarSegGap  ## 14px total — sized to the crew sprite.
   IdentityBadgeSpriteBase = 4200 ## Greek identity badges keyed
-                                 ## ord(team)*IdentityNames.len + identity:
-                                 ## 4200..4231 (the endzone fade crops that
-                                 ## used to sit at 4100..4131 moved to the
-                                 ## banded pool at 36600+).
+                                 ## (ord(team)*IdentityNames.len + identity) *
+                                 ## SoldierRotations + aim step: 4200..4711
+                                 ## (the endzone fade crops that used to sit at
+                                 ## 4100..4131 moved to the banded pool at
+                                 ## 36600+; the player HUD starts at 5000).
+                                 ## One id per AIM STEP because the glyph is
+                                 ## baked turned to the aim — it is painted ON
+                                 ## the cog, not floating upright over it.
   IdentityBadgeObjectBase = 19040  ## identity badge object pool: one per
                                    ## player, 19040..19071 (clear of the hp
                                    ## pips at 19000 and impact rings at 19120).
   IdentityBadgeSize = 11         ## px badge disc diameter.
+  IdentityBadgeBackPx = 5        ## px the BOARD badge rides BEHIND the cog's
+                                 ## rotation hub, along the aim. The hub is the
+                                 ## head cube's center and the cube's leading
+                                 ## face is the VISOR — a hub-centered badge sat
+                                 ## squarely on the cog's face. The bare plate
+                                 ## behind the visor spans ~1.7px forward to
+                                 ## ~11px back of the hub, so a 5px step back
+                                 ## drops the 11px disc onto the middle of it
+                                 ## with the face left clear.
   IdentityGlyphW = 5             ## px width of one hand-drawn Greek glyph.
   IdentityGlyphH = 7             ## px height of one hand-drawn Greek glyph.
+  IdentityGlyphSuper = 4         ## supersample factor the rotated glyph is
+                                 ## rasterized at before it is boxed back down:
+                                 ## a 5x7 bitmap turned to an arbitrary angle
+                                 ## needs the extra samples to keep clean edges
+                                 ## at this footprint. An axis-aligned step
+                                 ## (the upright POV badge) boxes back down to
+                                 ## the exact source mask, unchanged.
   FlagBannerW = 20             ## px width of the carried heart-gem sprite (square).
   FlagBannerH = 20             ## px height of the carried heart-gem sprite (square).
   PlantedFlagScale = 3         ## the HOME heart is drawn this many x bigger so it
@@ -1775,43 +1795,108 @@ const IdentityGlyphs: array[8, array[IdentityGlyphH, uint8]] = [
   [0b01110'u8, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b01110], # Θ
 ]
 
+proc identityBadgeSpriteId(team: Team, identityIndex, rot: int): int =
+  ## Sprite id for one identity badge baked at aim step `rot`.
+  IdentityBadgeSpriteBase +
+    (ord(team) * IdentityNames.len + identityIndex) * SoldierRotations +
+    ((rot mod SoldierRotations) + SoldierRotations) mod SoldierRotations
+
 proc buildIdentityBadgeSprite(
   team: Team,
-  identityIndex: int
+  identityIndex, rot: int,
+  scale = 1
 ): seq[uint8] {.measure.} =
-  ## Builds one identity badge: a dark ink disc with a team-tinted rim and the
+  ## Builds one identity badge at aim step `rot`, rasterized at `scale`x its
+  ## logical footprint: a dark ink disc with a team-tinted rim and the
   ## identity's Greek glyph in the team color mixed toward white (the aim-dot
   ## treatment), so the letter reads over the disc at board scale.
-  result = newRgbaPixels(IdentityBadgeSize, IdentityBadgeSize)
+  ## The disc is a circle, so only the GLYPH turns — and it turns by exactly the
+  ## angle the cog's own art uses (soldierRotPixels' bodyMat), so the letter
+  ## reads as PAINTED ON the head plate: it rides the cog around instead of
+  ## floating upright over a body that rotated out from under it.
   let
+    size = IdentityBadgeSize * scale
     base = Palette[teamColor(team) and 0x0f]
-    c = float(IdentityBadgeSize - 1) / 2
-  for y in 0 ..< IdentityBadgeSize:
-    for x in 0 ..< IdentityBadgeSize:
+    c = float(size - 1) / 2
+  result = newRgbaPixels(size, size)
+  for y in 0 ..< size:
+    for x in 0 ..< size:
       let d = sqrt((float(x) - c) * (float(x) - c) +
         (float(y) - c) * (float(y) - c))
       if d > c:
         continue
-      let i = y * IdentityBadgeSize + x
-      if d >= c - 1.2:
+      let i = y * size + x
+      if d >= c - 1.2 * float(scale):
         result.putRawRgbaPixel(i, base.r, base.g, base.b, 220)
       else:
         result.putRawRgbaPixel(i, 24, 22, 20, 215)
+  # The glyph rides a supersampled canvas, turned about the badge center, then
+  # boxes back down onto the disc: a 5x7 bitmap at an arbitrary angle needs the
+  # extra samples to keep clean edges this small. The upright step lands
+  # axis-aligned, so it averages back to the exact source mask.
   let
-    gx0 = (IdentityBadgeSize - IdentityGlyphW) div 2
-    gy0 = (IdentityBadgeSize - IdentityGlyphH) div 2
+    cell = scale * IdentityGlyphSuper
+    ss = size * IdentityGlyphSuper
+    gw = IdentityGlyphW * cell
+    gh = IdentityGlyphH * cell
     glyph = IdentityGlyphs[identityIndex]
+    ink = rgba(
+      uint8((base.r.int + 255) div 2),
+      uint8((base.g.int + 255) div 2),
+      uint8((base.b.int + 255) div 2),
+      255
+    ).rgbx()
+  var mask = newImage(gw, gh)
   for gy in 0 ..< IdentityGlyphH:
     for gx in 0 ..< IdentityGlyphW:
       if (glyph[gy] shr (IdentityGlyphW - 1 - gx) and 1) == 0:
         continue
-      result.putRawRgbaPixel(
-        (gy0 + gy) * IdentityBadgeSize + gx0 + gx,
-        uint8((base.r.int + 255) div 2),
-        uint8((base.g.int + 255) div 2),
-        uint8((base.b.int + 255) div 2),
-        255
-      )
+      for py in gy * cell ..< (gy + 1) * cell:
+        for px in gx * cell ..< (gx + 1) * cell:
+          mask.data[py * gw + px] = ink
+  # aim increases CCW (0=east) and screen y is down, so a positive step turns
+  # the art clockwise in image space; the extra -90° is the same
+  # master-faces-SOUTH turn soldierRotPixels applies to the body, which is what
+  # keeps the glyph square to the head plate at every step.
+  let angle = float(rot) * 2.0 * PI / float(SoldierRotations)
+  var canvas = newImage(ss, ss)
+  canvas.draw(
+    mask,
+    translate(vec2(float32(ss) / 2, float32(ss) / 2)) *
+      rotate(float32(-angle - PI / 2)) *
+      translate(vec2(float32(-gw) / 2, float32(-gh) / 2))
+  )
+  let samples = IdentityGlyphSuper * IdentityGlyphSuper
+  for y in 0 ..< size:
+    for x in 0 ..< size:
+      var sr, sg, sb, sa = 0
+      for sy in 0 ..< IdentityGlyphSuper:
+        for sx in 0 ..< IdentityGlyphSuper:
+          # pixie stores premultiplied, which is what a box average wants.
+          let p = canvas.data[
+            (y * IdentityGlyphSuper + sy) * ss + x * IdentityGlyphSuper + sx]
+          sr += p.r.int
+          sg += p.g.int
+          sb += p.b.int
+          sa += p.a.int
+      let srcA = sa div samples
+      if srcA == 0:
+        continue
+      # Source-over the disc pixel already written, in premultiplied space
+      # (out = src + dst*(1-srcA)), then back to the wire's straight alpha.
+      let
+        i = (y * size + x) * 4
+        dstA = result[i + 3].int
+        keep = 255 - srcA
+        outA = srcA + dstA * keep div 255
+        srcRgb = [sr div samples, sg div samples, sb div samples]
+      if outA == 0:
+        continue
+      for ch in 0 .. 2:
+        let dstPm = result[i + ch].int * dstA div 255
+        result[i + ch] = uint8(clamp(
+          (srcRgb[ch] + dstPm * keep div 255) * 255 div outA, 0, 255))
+      result[i + 3] = uint8(outA)
 
 proc buildSoundRingSprite(): seq[uint8] {.measure.} =
   ## Builds the semi-transparent white "sound" ring: a faint filled circle
@@ -5430,7 +5515,6 @@ proc addHpPips(
   ## viewer index and only receives the bars of players it can see (a wounded
   ## enemy's hp is readable intel). Object ids are a fixed pool keyed by player
   ## index; stale bars fall to the delete sweep.
-  let maxHp = max(1, sim.config.hitPoints)
   for i in 0 ..< sim.players.len:
     let player = sim.players[i]
     if not player.alive:
@@ -5441,6 +5525,9 @@ proc addHpPips(
     # Map remaining hit points onto 3 thirds (ceil, so any living player keeps
     # at least one lit segment). The bar's pixel size is constant regardless of
     # the hit-point config, so a 99-hp game reads the same 14px 3-chunk bar.
+    # The denominator is the player's OWN team max, so a handicapped team's
+    # smaller bar still reads full when topped up.
+    let maxHp = max(1, sim.config.hitPointsFor(player.team))
     let effectiveHp = player.hp + player.shieldHp
     let litSegments = min(HpBarSegments,
       max(1, (effectiveHp * HpBarSegments + maxHp - 1) div maxHp))
@@ -5472,9 +5559,14 @@ proc addIdentityBadges(
   viewerIndex = -1
 ) {.measure.} =
   ## Places each living player's identity badge (a Greek letter, alpha..theta
-  ## by slot order within the team) centered on the soldier body. The body
-  ## rotates with the aim, so the center — its rotation pivot — is the only
-  ## spot that stays on the cog at every heading.
+  ## by slot order within the team) on the soldier body.
+  ## On the BROADCAST BOARD the badge is painted onto the cog's head plate: it
+  ## sits a few px BEHIND the rotation hub, clear of the visor (the cog's
+  ## face), and its glyph is baked to the same aim step the head is, so it
+  ## turns with the cog instead of hovering upright over it. A PLAYER view
+  ## keeps the badge centered and upright — RULES.md documents it as "centered
+  ## on its player's body: attach it by proximity", and a bot's observation
+  ## contract is not a place to spend a cosmetic change.
   ## The label is `identity <color> <name>[ shield][ nade][ arc]` — the
   ## suffixes carry the wearer's current loadout so an observing agent can
   ## read weapon state at a glance (the surviving half of the reverted #77
@@ -5492,9 +5584,15 @@ proc addIdentityBadges(
         not sim.playerVisibleTo(viewerIndex, i):
       continue
     let
+      onBoard = viewerIndex < 0
       identityIndex = sim.slotIdentityIndex(player.joinOrder)
-      spriteId = IdentityBadgeSpriteBase +
-        ord(player.team) * IdentityNames.len + identityIndex
+      # The board glues the glyph to the cog's true aim step (spectators see
+      # true aim anyway); a player view keeps the upright badge, which is the
+      # master's own pose — aim south, the step the art is drawn at.
+      rot =
+        if onBoard: soldierRotIndex(player.aimBrads)
+        else: SoldierRotations * 3 div 4
+      spriteId = identityBadgeSpriteId(player.team, identityIndex, rot)
     # labelIdentity owns the ordering invariant (flags in fixed order, weapon
     # token always LAST and always present, so observers never infer a weapon
     # from absence).
@@ -5505,20 +5603,34 @@ proc addIdentityBadges(
       nade = player.hasGrenade,
       weapon = (if player.hasPlasmaArc: LabelWeaponSpray else: LabelWeaponGun)
     )
-    packet.addBoardSpriteChanged(
-      spriteDefs,
-      spriteId,
-      IdentityBadgeSize,
-      IdentityBadgeSize,
-      buildIdentityBadgeSprite(player.team, identityIndex),
-      label
-    )
-    let objectId = IdentityBadgeObjectBase + i
+    # 16 aim steps x identity means the pixels are worth building only when this
+    # id is genuinely new or its loadout tail moved; addBoardSpriteChanged would
+    # drop a rebuilt-but-identical sprite on the floor after paying for it.
+    let defIndex = spriteDefs.spriteDefinitionIndex(spriteId)
+    if defIndex < 0 or spriteDefs[defIndex].label != label:
+      packet.addBoardSpriteChanged(
+        spriteDefs,
+        spriteId,
+        IdentityBadgeSize,
+        IdentityBadgeSize,
+        buildIdentityBadgeSprite(player.team, identityIndex, rot, boardScale),
+        label,
+        native = boardScale
+      )
+    # On the board, step BACK along the aim onto the bare plate behind the
+    # visor; a player view keeps the badge dead-centered on the body.
+    let
+      back =
+        if onBoard: aimVector(rot * (AimBradsTurn div SoldierRotations))
+        else: (x: 0.0, y: 0.0)
+      objectId = IdentityBadgeObjectBase + i
     currentIds.add(objectId)
     packet.addBoardObject(
       objectId,
-      player.overheadAnchorX() + (SoldierBodyPx - IdentityBadgeSize) div 2,
-      player.overheadAnchorY() + (SoldierBodyPx - IdentityBadgeSize) div 2,
+      player.overheadAnchorX() + (SoldierBodyPx - IdentityBadgeSize) div 2 -
+        int(round(back.x * float(IdentityBadgeBackPx))),
+      player.overheadAnchorY() + (SoldierBodyPx - IdentityBadgeSize) div 2 -
+        int(round(back.y * float(IdentityBadgeBackPx))),
       player.y + 1,
       MapLayerId,
       spriteId
