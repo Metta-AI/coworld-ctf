@@ -14,6 +14,7 @@ import
   test_map_eval,
   test_map_export,
   test_map_rules,
+  test_map_select,
   test_movement_slide,
   test_replay_controls,
   test_trenches,

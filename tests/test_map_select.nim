@@ -198,12 +198,96 @@ suite "best-of-K selection":
         check MapSelectionK[c] <= MapSelectionK[MapSizeClass(ord(c) - 1)]
     check MapSelectionK[mszColossal] == 1
 
-  test "an over-constrained lock still raises rather than shipping garbage":
+  test "a gate nothing passes reports zero valid rather than a blank map":
+    # The exhaustion branch. `generateCtfMap` turns exactly this into the
+    # over-constrained-overrides CtfError; no lock combination the config
+    # accepts reaches it today (the worst measured is 92/100 valid), so the
+    # branch is exercised through the seam instead of faked with a bad lock.
+    let selection = selectBestMap(
+      1001, 4,
+      produce = proc (s, attempt: int): CtfMap =
+        generateMapAttempt(s, Unlocked, 2, attempt),
+      accept = proc (gameMap: CtfMap): bool = false,
+      maxAttempts = 3)
+    check selection.valid == 0
+    check selection.attempts == 3
+    check selection.gameMap.width == 0
+
+  test "an impossible lock still raises rather than shipping garbage":
     expect CtfError:
       discard generateCtfMap(
         1001,
         MapGenOverrides(
-          windows: -1, pits: -1, pitDensity: -1,
-          size: "small", columns: 3, centerFeature: "walls",
-          endzone: "disc", endzoneRadius: 200, baseDepth: 520),
+          windows: -1, pits: -1, pitDensity: -1, endzoneRadius: 100_000),
         2, k = 2)
+
+suite "the ranker does not know its generator":
+  # `selectBestMap` is exercised against a FAKE generator with no relationship
+  # to the column lattice. That is the point of the seam: the structure pass
+  # replaces `produce` and inherits selection, attempt accounting and the
+  # first-valid fallback without touching this code.
+  proc fakeMap(seed, attempt: int): CtfMap =
+    ## Candidate quality is a known function of the attempt index, so the
+    ## selector's choice is checkable rather than merely plausible.
+    result = CtfMap(name: "fake-" & $seed & "-" & $attempt, width: attempt)
+
+  proc fakeScore(gameMap: CtfMap): float =
+    ## Peaks at attempt 3 so the best candidate is neither the first nor the
+    ## last one drawn — a selector that returns either would still "pass" a
+    ## monotone score.
+    1.0 - abs(float(gameMap.width) - 3.0)
+
+  test "it ships the highest-scoring candidate, not the first or the last":
+    let selection = selectBestMap(
+      42, 6,
+      produce = fakeMap,
+      accept = proc (gameMap: CtfMap): bool = true,
+      score = fakeScore)
+    check selection.gameMap.name == "fake-42-3"
+    check selection.valid == 6
+    check selection.attempts == 6
+    check selection.ranked
+
+  test "the gate is the caller's, and rejects never count toward K":
+    let selection = selectBestMap(
+      42, 2,
+      produce = fakeMap,
+      accept = proc (gameMap: CtfMap): bool = gameMap.width mod 3 == 0,
+      score = fakeScore)
+    # attempts 0 and 3 pass; it stops as soon as it has K = 2 of them.
+    check selection.valid == 2
+    check selection.attempts == 4
+    check selection.gameMap.name == "fake-42-3"
+
+  test "K is honoured exactly, and K below 1 still draws one candidate":
+    for k in 1 .. 5:
+      let selection = selectBestMap(
+        42, k,
+        produce = fakeMap,
+        accept = proc (gameMap: CtfMap): bool = true,
+        score = fakeScore)
+      check selection.valid == k
+    let degenerate = selectBestMap(
+      42, 0,
+      produce = fakeMap,
+      accept = proc (gameMap: CtfMap): bool = true,
+      score = fakeScore)
+    check degenerate.valid == 1
+
+  test "a zero-variance score keeps the first valid candidate":
+    # Every candidate scores the same, which is what an unrankable batch looks
+    # like. The selector must still return a map, and must not drift to the
+    # last one it saw.
+    var drawn = 0
+    let selection = selectBestMap(
+      42, 6,
+      produce = proc (s, attempt: int): CtfMap =
+        inc drawn
+        fakeMap(s, attempt),
+      accept = proc (gameMap: CtfMap): bool = gameMap.width >= 2,
+      score = proc (gameMap: CtfMap): float = 0.0,
+      maxAttempts = 10)
+    check selection.valid == 6
+    check drawn == 8
+    # A zero-variance score must not make the selector pick nothing.
+    check selection.gameMap.name == "fake-42-2"
