@@ -532,6 +532,127 @@ helps).
 
 Neither quantity is in our metric suite. Both are static, cheap, and directly actionable.
 
+---
+
+## 4. The property set — what a generator must be *required* to guarantee
+
+**Evidence classes.** These are the whole point of the table; a threshold without one is an opinion.
+
+| Class | Meaning |
+|---|---|
+| **N★** | **Necessary, causally established by our own intervention.** We changed this and only this on a failing map and the outcome changed. |
+| **N⊢** | **Necessary by derivation** from engine constants — true by arithmetic, not by observation. |
+| **C∼** | **Correlated in our data, no intervention run.** Goodhart risk; do not optimise directly. |
+| **C†** | **Asserted by a cited source, untested here.** |
+| **F** | **Folklore.** Confident, widely repeated, no evidence found. |
+
+### 4.0 Summary table
+
+| ID | Property | Threshold | Class | Regime |
+|---|---|---|---|---|
+| **A. Playability — hard constraints; violation ⇒ infeasible, never scored** ||||
+| A1 | Full mutual reachability of every spawn, pedestal, endzone and pickup on the 12 px collision hull | exact | N⊢ | all |
+| A2 | No sealed pockets; one open connected component | exact | N⊢ | all |
+| A3 | Required routes admit two abreast | width ≥ 68 px (`2 × SoldierBodyPx`) | N⊢ | all |
+| A4 | Spawn zones disjoint from every capture circle | clearance ≥ `endzoneRadius + SoldierBodyPx` | **N★** | all |
+| A5 | Pedestal, endzone and pickups on occupiable floor | exact | N⊢ | all |
+| A6 | Endzone position is *emitted by the map* and read by the policy — no hard-coded home column | exact | **N★** | all |
+| **B. Fairness** ||||
+| B1 | Team configs related by an element of **D4** about the board centre | exact for k ∈ {2, 4} | N⊢ | all |
+| B2 | Heading-speed spread `max m(θ_i) / min m(θ_j)` | 1.000 for k ∈ {2,4}; **≤ 1.155 irreducible** for k ∈ {3,6} | N⊢ | all |
+| B3 | L∞ time-to-frontier spread across teams | ≤ 2% | N⊢ / C† | all |
+| B4 | The full objective triple (spawn, own pedestal, own endzone) maps under **the same** g | exact | N⊢ | all |
+| B5 | Per-**seat** symmetry, not just per-team (we hold a strided subset) | exact | C† | all |
+| B6 | Sim-side tie-breaks (resolution order, pickup contention, hit ordering) independent of player index | audit, not a map property | — | all |
+| **C. Contact — does the game happen at all** ||||
+| C1 | L∞ time-to-first-contact from spawn is finite and bounded | ≤ ~8 s occlusion-limited; ≤ ~20 s range-limited | C† | regime |
+| C2 | Equidistant frontier F (in L∞) is non-degenerate and does not coincide with any pedestal | dist(F, pedestal) ≥ `GunRange` | C† | all |
+| C3 | Cover fraction on F is in band | 5–9% (full-speed traffic, §3.4) | C† | occl. |
+| **D. Conversion — the phase that decides matches** ||||
+| D1 | Stand-side cover fraction within 200 px of each pedestal | **10–25%** | **N★** | all |
+| D2 | Carry-route cover cadence: no exposed run > carrier budget anywhere on the shortest carry route | ≤ 92 px axis / 131 px diagonal ⇒ f ≥ 9–14% in a 200 px corridor | N⊢ | all |
+| D3 | Vertex-disjoint routes between each base pair **and** on the carry route | **k ≥ 3**; k = 1 fatal | **N★** | all |
+| D4 | Carry route contains no dead end | exact | N⊢ | all |
+| **E. Sightline and exposure** ||||
+| E1 | Max exposed run on any required route, heading- and acquire-corrected | see §3.3 table | N⊢ | occl. |
+| E2 | Angle count `A(p)` on required routes | `A ≤ 3`, and `A ≤ 2` on the carry route (proposed, untested) | C† | occl. |
+| E3 | Exposure fraction `Ω(p)` on required routes | `Ω ≤ 0.5` (proposed, untested) | C† | occl. |
+| E4 | No single position covers all chokepoints | exact | C† | all |
+| E5 | Every power position has a D4-image counter-position | exact (free under B1) | C† | all |
+| **F. Architecture — shape, not density** ||||
+| F1 | `coverFrac` (components ≤ ~2 w) banded separately from `structureFrac` | cover 5–9% global, 10–25% stand; structure unbanded | N⊢ | all |
+| F2 | Free-sightline **tail**, not mean: 95th percentile of free-ray length | ≤ `GunRange` | C∼ | occl. |
+| F3 | Used space — floor on a shortest path between an objective pair | ≥ 50% (proposed; Güttler's failure case was < 50%) | C† | all |
+| F4 | Total wall coverage below the maze threshold | ≤ 35% | C† / F | all |
+| F5 | `interiorFrac` | **diagnostic only — do not optimise** (see §6.3) | C∼ | all |
+
+### 4.1 The properties that matter most, in detail
+
+**A4 / A6 — the objective plumbing.** These two are not aesthetic. Both have produced a
+*deterministic zero*: a map where the respawn wave materialised inside the circle the carrier was
+running toward converted **0 of 22**, and a policy driving to a hard-coded `homeDeepX = 150` "home
+column" that lay outside the real capture zone on ~3 of 8 seeds went **0/6 → 3/4** on grab→capture
+once it steered to the engine-stated endzone. These are the cheapest checks in the whole set and the
+most expensive to get wrong. They belong in the *infeasible* population (Liapis's FI-2pop framing),
+never in the score.
+
+**B1 / B2 — fairness is a group-theoretic property, and for 3 and 6 teams it is unattainable.**
+The practical rule: **generate the fundamental domain once and stamp it with a D4 element.** Do not
+generate a whole board and then measure its asymmetry — that is strictly worse, because the residual
+is unbounded and the measurement is expensive. For k ∈ {3, 6}, accept that exact fairness is
+impossible, apply the distance compensation of §3.2, and *record the 15.5% heading residual in the
+map's metadata* so that downstream analysis knows the board is structurally tilted rather than
+attributing the tilt to policy.
+
+**B4 is the trap the brief warns about, made concrete.** A perfectly mirrored *wall field* with
+objectives placed independently is unfair, and our symmetry check would pass it. The correct
+statement is that the *whole labelled configuration* — walls, pedestal, endzone disc, spawn ring
+including per-seat ordering, and pickups — is a single object, and `g` maps it wholesale. A useful
+implementation: compute a per-team hash over the labelled configuration expressed in that team's own
+D4 frame; the hashes must be equal.
+
+**B6 is not a map property and cannot be fixed by one.** If the simulator resolves collisions, hit
+detection or pickup contention in player-index order, then team 0 has an advantage on *every map*,
+including a perfectly symmetric one. This is the "spawn ORDER breaks the symmetry" channel. It needs
+a separate audit: run a perfectly D4-symmetric board with a mirrored policy on both sides and check
+that the outcome distribution is symmetric. If it is not, no map work will fix it.
+
+**C2 — the collision point must not be the pedestal.** This is our own inference from Güttler plus
+the conversion data, and it is worth stating sharply. If the equidistant frontier coincides with the
+pedestal, then the defender arrives at the pedestal at the same moment as the attacker, every time,
+and there is no steal — this is Güttler's example B, where the anti-terrorists "easily can predict how
+the terrorists will move" and the mission becomes impossible. The threshold `dist(F, pedestal) ≥
+GunRange` says: by the time the defender can *shoot* the pedestal approach, the attacker must already
+have had an independent decision to make.
+
+**D1 vs D2 — the reframe.** D1 is what we measured; D2 is what D1 is an instance of. The measurement
+was taken in a 200 px disc because that is where the pedestal is, but §3.4 shows the binding
+constraint is the *carrier's* 0.70× speed, which applies for the entire run home. Maps that pass D1
+and fail D2 are the predicted next failure mode: the steal succeeds, the carrier clears the stand,
+and then dies in an unfurnished midfield. **This matches the already-recorded field observation that
+"we steal now, the carrier dies".** D2 is the highest-value untested property in this document.
+
+**D3 — k ≥ 3 vertex-disjoint routes.** Note two refinements the current formulation misses.
+(a) It must hold on the **carry route** specifically, i.e. between the *enemy pedestal* and *our
+endzone*, which is a different pair from base-to-base. (b) Vertex-disjointness on a coarse cell graph
+overstates real route count, because on a grid you can slip diagonally past a single-cell cut — our
+own `map_metrics.nim` notes this. Compute route count on the collision hull with the diagonal-slip
+rule the sim actually implements, or the number is optimistic.
+
+**E4 — the joint-coverage constraint.** "It should be impossible to cover all chokepoints from a
+single point" **[C†, Level Design Book]** is directly computable: for each candidate defender
+position q, count the chokepoints c with `‖q − c‖ ≤ GunRange ∧ LOS(q, c)`; require
+`max_q count(q) < numChokepoints`. Our current suite has `chokepointSpacingPx = GunRange` **[engine]**
+which is a *pairwise* proxy for the same idea — and pairwise spacing does not imply joint
+non-coverage (three chokepoints can be pairwise 1050 px apart and all visible from one point in the
+middle). Replace the proxy with the real test.
+
+**F2 — the mean is the wrong statistic for sightlines.** `meanFreeSightlineMinPx/MaxPx` **[engine]**
+bands an *average*. The quantity that kills is the tail: one 900 px lane on an otherwise well-broken
+board sets the map's character, and it moves the mean by almost nothing. Band a high percentile
+(p95) or the max instead, or band the mean *and* the tail. This is a small change with a large
+correctness gain and no new machinery.
+
 ### 2.3 Folklore — flagged as such
 
 These are widely repeated and, as far as we can find, have **no published evidence** behind them.
