@@ -133,6 +133,13 @@ const BOXES = process.env.BOXES
       { label: 'portrait_390x780', w: 390, h: 780 },
     ];
 
+// The query the client is opened with — the other input to `relayout()` that
+// is not the box or the board. `QUERY=chrome=off` probes board-only mode, which
+// is the mode whose whole claim is geometric ("the board takes the box"), so it
+// has to be measurable by the rig that measures that claim rather than eyeballed
+// in a screenshot.
+const QUERY = process.env.QUERY ? '?' + process.env.QUERY : '';
+
 // Board shapes the game actually serves. The square is the four-team rot90 draw
 // (arena.nim: "4 draws a square rot90 corner/plus map"); the wide one is the
 // hand-tuned default arena (sim_types.nim MapWidth x MapHeight).
@@ -196,7 +203,7 @@ async function measure(page, box, board) {
       const errs = [];
       page.on('pageerror', (e) => errs.push(e.message.slice(0, 160)));
       page.on('console', (m) => { if (m.type() === 'error') errs.push(m.text().slice(0, 160)); });
-      await page.goto(base + '/client/replay', { waitUntil: 'load' });
+      await page.goto(base + '/client/replay' + QUERY, { waitUntil: 'load' });
       const m = await measure(page, box, board);
       const tag = board.label + '__' + box.label;
       await page.screenshot({ path: path.join(OUT, tag + '.png') });

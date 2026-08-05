@@ -1318,6 +1318,36 @@ body[data-embed] #lightpool,
 body[data-embed] #grain,
 body[data-embed] #status { display: none !important; }
 body[data-embed] #board { left: 0; top: 0; width: 100%; height: 100%; }
+
+/* ============================================================
+   BOARD-ONLY MODE — a thumbnail-sized embed (?chrome=off)
+   //
+   NOT THE SAME THING AS EMBED MODE, which says "a shell is re-drawing my
+   scorebug and transport, so hide those two and keep everything a broadcast
+   lays over the play area". This says "the box is 200px wide and the caption
+   under it already names the players": the owner's note on the /watch rail
+   tiles is that a tile should be the replay and nothing else, because at that
+   size the scorebug repeats the caption verbatim and the transport, the
+   timeline and the speed chips are controls nobody can hit. So the whole of
+   `#chrome` goes — scorebug, transport, kill feed, banner lane, POV lens, end
+   card — along with the ambient light pool, grain and status line, and the
+   board takes the box.
+   //
+   THE LOCKER-ROOM CURTAIN STAYS. It is not chrome, it is what this client
+   shows while the replay is still arriving, and a tile that paints nothing for
+   its first seconds is the black rectangle /watch already removed once.
+   //
+   THE RESERVES COLLAPSE ON THEIR OWN: relayout() measures --topband and --band
+   off `scorebug.offsetHeight` and `transport.offsetHeight`, and a
+   `display: none` element measures zero. Only the SIDE-scorebug mode has to be
+   told, because it reserves its column from a constant rather than from a
+   measurement — see `sideMode`.
+   ============================================================ */
+body[data-chrome="off"] #chrome,
+body[data-chrome="off"] #lightpool,
+body[data-chrome="off"] #grain,
+body[data-chrome="off"] #status { display: none !important; }
+body[data-chrome="off"] #board { left: 0; top: 0; width: 100%; height: 100%; }
 </style>
 </head>
 <body>
@@ -1713,6 +1743,22 @@ body[data-embed] #board { left: 0; top: 0; width: 100%; height: 100%; }
   var EMBED = false;
   try { EMBED = new URLSearchParams(location.search).get('embed') === '1'; } catch (e) {}
   if (EMBED) document.body.setAttribute('data-embed', '1');
+
+  // BOARD-ONLY (?chrome=off) — the replay and nothing else, for an embed too
+  // small to carry chrome that says anything. See the CSS block of the same
+  // name for what goes and what stays; this is the whole of the JS side except
+  // the side-scorebug gate below, which cannot measure its way to zero.
+  //
+  // A separate flag rather than a second spelling of `embed=1`: that mode
+  // implies a PARENT SHELL — it opens a postMessage listener and expects the
+  // shell to drive the transport — and a page with no shell would then have no
+  // transport at all and no way to be given one. `chrome=off` claims nothing
+  // about who is embedding it.
+  var BOARD_ONLY = false;
+  try {
+    BOARD_ONLY = new URLSearchParams(location.search).get('chrome') === 'off';
+  } catch (e) {}
+  if (BOARD_ONLY) document.body.setAttribute('data-chrome', 'off');
 
   // Tick deep-link (?t=<tick>): seek there on load, paused, via the same s:
   // command the scrubber uses (the sim clamps out-of-range ticks). One-shot,
@@ -3633,7 +3679,11 @@ body[data-embed] #board { left: 0; top: 0; width: 100%; height: 100%; }
     // against the full boxH (rather than boxH less the transport) keeps the
     // test conservative and, combined with the gate, guarantees the fit below
     // lands on the height-bound branch.
-    var sideMode = !EMBED &&
+    // `!BOARD_ONLY` for the same reason as `!EMBED`: the column is reserved
+    // from `colMin`, a constant, and not from the scorebug's measured width —
+    // so a hidden scorebug would still take up to 42% of the box and letterbox
+    // the one thing the embed asked for.
+    var sideMode = !EMBED && !BOARD_ONLY &&
       BOARD_ASPECT < SIDEBUG_MAX_ASPECT &&
       BOARD_ASPECT * boxH <= boxW - colMin;
     // Toggled before the measure below, so the scorebug is measured in the
