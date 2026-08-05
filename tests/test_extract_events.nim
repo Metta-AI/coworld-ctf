@@ -8,18 +8,25 @@ const
   # The event-substrate fixture: a full 16-bot match recorded against the
   # CURRENT gameplay rules (GameVersion 38 — the HEX arena — seed 905, lives 9:
   #   record_fixture.sh tests/replays/ctf.bitreplay 905 10000 '{"lives":9}')
-  # — 107 kills (24 gun / 83 spray), 5 steals, 6 heals, 43 pickups, 4 grenade
-  # throws, a capture and a win.
+  # — 3688 ticks, 58 kills across ALL THREE WEAPONS (19 gun / 38 spray /
+  # 1 grenade), 4 steals, 3 returns, 16 pickups, 2 grenade throws, a capture
+  # and a win.
   #
-  # NO GRENADE KILLS in the current take, and that is a KNOWN COVERAGE GAP, not
-  # an oversight: grenades are ~2% of kills field-wide, the seed scan below is
-  # the only way to find one, and every other axis of this fixture got richer on
-  # the hex board (107 kills against the GV36 take's 43). The assertions here do
-  # not require a grenade kill — `event.weapon in ["gun", "spray", "grenade"]`
-  # is a membership test, not a coverage test — so the suite is honest either
-  # way. If you re-record, run tools/scan_event_seeds.sh first and take a seed
-  # that has one; do not silently ship a narrower fixture than this.
+  # This take is the LANDSCAPE re-record: the flat-top flip moved every wall,
+  # so the portrait recording no longer re-simulates (a hash mismatch at tick
+  # 1) and every consumer of this fixture failed at once. It is shorter than
+  # the portrait take (3688 ticks against 9771) because the capture lands
+  # earlier, and it carries a GRENADE KILL, which the portrait take did not —
+  # the coverage gap that used to be documented here is closed. Grenades are
+  # ~2% of kills field-wide, so that is luck, not a property of the seed:
+  # if you re-record, run tools/scan_event_seeds.sh first and take a seed that
+  # still has one rather than silently shipping narrower coverage. The
+  # assertions do not REQUIRE it — `event.weapon in ["gun", "spray",
+  # "grenade"]` is a membership test — so nothing here fails if it is lost;
+  # the fixture would just quietly test less.
   #
+  # HISTORICAL: the portrait-hex GV38 take was 107 kills (24 gun / 83 spray,
+  # no grenade), 5 steals, 6 heals, 43 pickups.
   # HISTORICAL: the GV36 take was 43 kills across all three weapons
   # (26 gun / 1 grenade / 16 spray), 5 steals, 2 heals, ending on a capture. (The GV32 recording ran the
   # server at speed 4 as a starvation guard; under GV33 the speed-4 runs
