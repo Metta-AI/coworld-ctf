@@ -51,7 +51,7 @@ wide → the box goes PORTRAIT ~0.5:1.
 **Responsive model = ONE fixed-aspect composition (LOCKED).** The board AND every overlay are a single
 unit that scales together, so overlays never drift from the graphics inside an arbitrary Observatory
 embed container. `#viewport` fills the iframe box (`inset:0`, flex-centered) and `relayout()` sizes an
-inner `#stage` in px to the board aspect (1235:659) with a contain-fit; the canvas fills the stage and
+inner `#stage` in px to the board aspect with a contain-fit; the canvas fills the stage and
 `--hudscale = clamp(0.5, 1.6, stageW/760)` derives ALL chrome sizing from the stage width, so scorebug,
 kill feed, banner, and transport ride the composition at every size. Leftover embed space is a warm
 near-black letterbox (`#120d09`, NEVER pure #000) — not a reflow. This SUPERSEDES the earlier
@@ -60,8 +60,23 @@ letterboxed and centered, overlays intact, rather than re-stacking. Iframe sandb
 `allow-scripts allow-same-origin`, no CDN reachable. Verified inside a mock Observatory page
 (`tools/mock_observatory.html`, driven by `tools/qa_mock_embed.cjs`) at three window sizes plus a direct
 container-shape sweep (2.4:1, 16:9, square, 420×820 portrait, 640×360 floor): at every shape
-`stageAspect≈1.87`, scorebug pinned to stage-top, transport pinned to stage-bottom, `--hudscale` tracks
+`stageAspect` tracks the board, scorebug pinned to stage-top, transport pinned to stage-bottom, `--hudscale` tracks
 stage width, zero 4xx, zero JS errors — geometry-probed and confirmed by looking.
+
+**The board aspect is the MAP's, and the chrome moves for it.** The generator serves two board families —
+`1235:659` (= 1.874) for two teams and a SQUARE `960:960` for four (`arena.nim scaledGenShell4`; rot90
+symmetry needs a square), each uniformly size-scaled so the aspect never moves — and Paintbot's league
+runs both (`4ffa`, `4ffa8`). `replay_broadcast.html` used to pin the composition to the two-team literal,
+so a four-team replay drew a square map letterboxed inside a 1.874 canvas: chrome across the full width,
+play only in the middle. It now adopts the real native size off `core.getTransform()` (`syncBoardAspect`,
+the same fix `league_replayer.html` already carried), and — below `SIDEBUG_MAX_ASPECT = 1.45`, a gate that
+separates the two families with room on either side and sits at the narrowest desktop embed this client
+targets — the scorebug relayouts from a top BAND into a left COLUMN (`#stage.sidebug`, reserve
+`--leftband`), because stacking costs the axis a squarish board is starved on. The column then absorbs
+the leftover width, so the stage spans the whole box rather than shrinking inside it. The transport stays
+a bottom band in both arrangements. Measured with `tools/qa_board_aspect.cjs` in the `/watch` featured
+stage (748×517): a square board went **398×398 with 350px of black bars → 470×470 with none**, and every
+1.874 board is byte-for-byte unchanged at all five container targets.
 
 ## 3. ART-DIRECTION LOCK
 

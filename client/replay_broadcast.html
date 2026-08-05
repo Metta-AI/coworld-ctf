@@ -84,17 +84,19 @@ html, body {
   overflow: hidden;
 }
 
-/* The board fills the frame ABOVE the reserved transport band; broadcast_core
-   letterboxes it to native aspect. --band is the bottom strip (set by relayout)
-   where the transport lives, so no chrome ever sits over play. */
+/* The board fills whatever the reserved chrome bands leave; broadcast_core
+   letterboxes it to native aspect. relayout() maintains three reserves on
+   :root — --band (transport, always at the bottom), and then EITHER --topband
+   (the scorebug stacked above the board) OR --leftband (the scorebug as a
+   column beside it). Exactly one of the two is non-zero; which one is the
+   board-shape decision in relayout(). Writing the board's box against all
+   three means neither mode needs its own rule here. */
 #board {
   position: absolute;
-  left: 0;
-  /* canvas is a replaced element: `inset` won't stretch it, so size explicitly.
-     The board sits BETWEEN the reserved scorebug band (top) and transport band
-     (bottom), so no chrome ever overlaps play. */
+  /* canvas is a replaced element: `inset` won't stretch it, so size explicitly. */
+  left: var(--leftband, 0px);
   top: var(--topband, 0px);
-  width: 100%;
+  width: calc(100% - var(--leftband, 0px));
   height: calc(100% - var(--topband, 0px) - var(--band, 0px));
   display: block;
   image-rendering: pixelated;
@@ -104,7 +106,7 @@ html, body {
    the board area so it never darkens the reserved transport band below. */
 #lightpool {
   position: absolute;
-  inset: var(--topband, 0px) 0 var(--band, 0px) 0;
+  inset: var(--topband, 0px) 0 var(--band, 0px) var(--leftband, 0px);
   pointer-events: none;
   background:
     radial-gradient(70% 58% at 50% 46%, transparent 40%, rgba(12, 8, 5, 0.34) 100%);
@@ -168,6 +170,48 @@ html, body {
   background: var(--stage-lo);
   box-shadow: inset 0 calc(-1 * var(--u)) 0 rgba(242, 232, 216, 0.06);
 }
+
+/* ---------- 1b. SIDE-COLUMN SCOREBUG (squarish boards) ----------
+   Same scorebug, turned ninety degrees: the plates and clock stack in a column
+   down the LEFT of the stage instead of stretching across the top.
+
+   Why a whole second arrangement exists: the top band costs HEIGHT, and height
+   is the axis a squarish board is starved on. A 960x960 four-team map
+   (arena.nim scaledGenShell4 — rot90 symmetry needs a square) in the /watch
+   featured stage (748x517) fits by height, so every pixel the band takes off
+   the top comes straight off the board, and the width the board cannot use
+   becomes letterbox: measured 398x398 of play inside a 748px box, 350px of it
+   dead. Moving the same chrome to the side spends the axis the board has
+   SPARE, and the column then absorbs the leftover so there is nothing left to
+   letterbox — 473x473 of play and zero dead width in the same box.
+
+   The grid collapses to one column, so the three children (left plates, clock,
+   right plates) stack in DOM order — the horizontal reading order rotated,
+   which is why no markup changes. `--u` drops its 0.8 squeeze: that factor
+   exists because the band competes for width with the clock and both plate
+   sides, and in a column nothing competes. */
+#stage.sidebug #scorebug {
+  right: auto;
+  bottom: var(--band, 0px);
+  width: var(--leftband, 0px);
+  grid-template-columns: minmax(0, 1fr);
+  grid-auto-rows: min-content;
+  align-content: center;
+  --u: calc(1px * var(--hudscale));
+  gap: calc(14 * var(--u));
+  padding: calc(10 * var(--u)) calc(16 * var(--u)) calc(12 * var(--u));
+}
+/* A 3-4 team game rows its plates in the band (two per side, one line across);
+   in a column there is no line to share, so every plate gets its own row. */
+#stage.sidebug .plates.row { flex-direction: column; align-items: stretch; }
+/* Orientation is a SIDE property (see .plate.side-r / .side-l .lives-line):
+   in the band the two sides MIRROR so both team names land innermost, flanking
+   the clock. A column has only one side, so the mirror has nothing left to
+   serve — every plate reads name-first off the same left edge, or half the
+   teams would put their numerals where the other half put their names. */
+#stage.sidebug .plate.side-r { flex-direction: row; text-align: left; }
+#stage.sidebug .plate.side-l .lives-line { flex-direction: row; }
+#stage.sidebug .plate.side-r .squad { justify-content: flex-start; }
 
 /* One side of the scorebug: one plate per side for classic red/blue (exactly
    the old layout); a 3-4 team game puts BOTH of a side's plates on the same
@@ -389,7 +433,10 @@ html, body {
 #bannerlane {
   position: absolute;
   top: calc(78 * var(--u));
-  left: 0; right: 0;
+  /* Over the BOARD, not the stage: in side-column mode the scorebug owns the
+     left --leftband and a banner centred on the stage would sit off-centre
+     over play (and its left edge would run under the plates). */
+  left: var(--leftband, 0px); right: 0;
   display: flex;
   justify-content: center;
   pointer-events: none;
@@ -480,7 +527,9 @@ html, body {
 #povBadge {
   position: absolute;
   top: calc(64 * var(--u));
-  left: 50%;
+  /* Centred on the BOARD: the board spans --leftband..100%, whose midpoint is
+     50% + --leftband/2. Same correction for #mmwarn below. */
+  left: calc(50% + var(--leftband, 0px) / 2);
   transform: translateX(-50%);
   display: none;
   align-items: center;
@@ -503,7 +552,9 @@ html, body {
    frames it as a genuine window, not a decorative card. */
 #fpv {
   position: absolute;
-  left: calc(12 * var(--u));
+  /* Inset from the BOARD's left edge, which is --leftband in side-column mode
+     — pinned to the stage it would sit on top of the scorebug column. */
+  left: calc(var(--leftband, 0px) + 12 * var(--u));
   bottom: calc(64 * var(--u));
   /* Sized/positioned in px once dragged or resized; these are the defaults. */
   width: 30%;
@@ -837,7 +888,7 @@ html, body {
 #mmwarn {
   position: absolute;
   top: calc(40 * var(--u));
-  left: 50%;
+  left: calc(50% + var(--leftband, 0px) / 2);
   transform: translateX(-50%);
   display: none;
   padding: calc(3 * var(--u)) calc(9 * var(--u));
@@ -857,10 +908,10 @@ html, body {
   /* Cover the BOARD region only — never the scorebug or transport bands. The
      transport must stay clickable under the end card so the scrubber can jump
      back into the match from the score screen (the card cancels server-side
-     end-hold on seek). --topband/--band are the measured band heights that
-     relayout() maintains on :root; in embed mode both are 0 and the card
+     end-hold on seek). --topband/--leftband/--band are the reserves that
+     relayout() maintains on :root; in embed mode all three are 0 and the card
      spans the whole iframe as before. */
-  left: 0;
+  left: var(--leftband, 0px);
   right: 0;
   top: var(--topband, 0px);
   bottom: var(--band, 0px);
@@ -1266,7 +1317,7 @@ body[data-embed] #transport,
 body[data-embed] #lightpool,
 body[data-embed] #grain,
 body[data-embed] #status { display: none !important; }
-body[data-embed] #board { top: 0; height: 100%; }
+body[data-embed] #board { left: 0; top: 0; width: 100%; height: 100%; }
 </style>
 </head>
 <body>
@@ -1677,12 +1728,30 @@ body[data-embed] #board { top: 0; height: 100%; }
   }
 
   // The whole replay is ONE fixed-aspect composition locked to the board's
-  // native size (sim.nim MapWidth×MapHeight = 1235×659). The stage is sized to
-  // this aspect inside the embed box and every overlay scales with it, so the
-  // chrome can never drift off the graphics regardless of the Observatory
-  // container's shape (§2 real-container-target, L82 bounded-embed).
+  // native size. The stage is sized to this aspect inside the embed box and
+  // every overlay scales with it, so the chrome can never drift off the
+  // graphics regardless of the Observatory container's shape (§2
+  // real-container-target, L82 bounded-embed).
+  //
+  // THE ASPECT IS THE MAP'S, NOT A CONSTANT. These literals are the default
+  // arena (sim_types.nim MapWidth×MapHeight) and are pre-stream defaults ONLY:
+  // the generator serves two board families — 1235:659 for two teams and a
+  // SQUARE 960:960 for four (arena.nim scaledGenShell4; rot90 symmetry needs a
+  // square) — each scaled by size class, which preserves the aspect. Pinning
+  // the composition to 1.874 meant a four-team replay drew a square map
+  // letterboxed INSIDE a 1.874 canvas: the chrome stretched the full width, the
+  // play area did not, and the gap read as broken black bars. The league shell
+  // (league_replayer.html syncBoardAspect) already tracked the real size off
+  // the frame stream; this is the same fix on the board's own page.
   var BOARD_W = 1235, BOARD_H = 659;
   var BOARD_ASPECT = BOARD_W / BOARD_H;
+  function syncBoardAspect(w, h) {
+    if (!(w > 1) || !(h > 1)) return;
+    var aspect = w / h;
+    if (Math.abs(aspect - BOARD_ASPECT) < 0.001) return;
+    BOARD_W = w; BOARD_H = h; BOARD_ASPECT = aspect;
+    relayout();
+  }
 
   // ---- flag icon svg (HOME/TAKEN/CAPTURED — F2; captured draws as taken) ----
   function buildFlag(el, color) {
@@ -1763,6 +1832,9 @@ body[data-embed] #board { top: 0; height: 100%; }
     if (core) {
       var bt = core.getTransform();
       if (bt.nativeW > 1 && bt.nativeH > 1) { s.boardW = bt.nativeW; s.boardH = bt.nativeH; }
+      // The same fact this page owes the shell, it owes its OWN composition:
+      // re-fit the stage when the map's native size is not what we assumed.
+      syncBoardAspect(bt.nativeW, bt.nativeH);
     }
     postToShell('frame', s);
 
@@ -3509,29 +3581,84 @@ body[data-embed] #board { top: 0; height: 100%; }
   //  one unit. Chrome sizes off the STAGE width, so overlays stay locked to
   //  the graphics at any container shape (§2, L82 bounded-embed).
   // ============================================================
+  // WHERE THE SCOREBUG GOES: above the board, or beside it.
+  //
+  // Stacking the scorebug costs HEIGHT. That is free on a 1.874 board, which
+  // in every embed this client targets runs out of WIDTH first — but it is the
+  // whole problem on the square 960:960 four-team map, which runs out of
+  // height first, so the band eats the board and the width it cannot reach
+  // becomes letterbox. Measured in the /watch featured stage (748x517, the box
+  // from the bug report): 398x398 of play with 350px of dead width. Beside it,
+  // the same chrome spends the axis that board has spare: 473x473, no dead
+  // width at all.
+  //
+  // 1.45 is a GATE, not the decision. It separates the only two board families
+  // the generator can produce — 1235:659 = 1.874 for two teams, 960:960 = 1.000
+  // for four, both size-scaled uniformly so the aspect never moves — with room
+  // on either side, and it is roughly the narrowest desktop embed this client
+  // targets (REPLAY_DESIGN §2's ~1.5 featured; the /watch stage is 10:7 =
+  // 1.429). Below that, a board is squarer than its container and provably
+  // cannot use the container's full width with chrome stacked on top of it.
+  var SIDEBUG_MAX_ASPECT = 1.45;
+  // The column never takes more than this share of the box. It only binds where
+  // the box is far wider than a board of that shape could ever fill (a 1:1 board
+  // in a 1.9:1 embed), and there some letterbox is honest — an 700px-wide column
+  // of four name plates is not.
+  var SIDEBUG_MAX_WIDTH = 0.42;
+
   function relayout() {
     var boxW = viewport.clientWidth, boxH = viewport.clientHeight;
     if (!boxW || !boxH) return;
-    // The board region (game action) fits the board aspect into the box BETWEEN a
-    // reserved top band (the scorebug) and bottom band (the transport), so neither
-    // ever sits over play. Each band's pixel height depends on --hudscale (→ board
-    // width) and the board fit depends on the bands, so iterate twice — the bands
-    // are a small fraction of the height, so it converges immediately.
+    // The board region (game action) fits the board aspect into what the
+    // reserved chrome leaves: always the transport band at the bottom, plus
+    // EITHER the scorebug stacked above (--topband) or beside (--leftband).
+    // Each reserve's pixel size depends on --hudscale (→ board width) and the
+    // board fit depends on the reserves, so iterate twice — they are a small
+    // fraction of the box, so it converges immediately.
     var scorebug = document.getElementById('scorebug');
     var transport = document.getElementById('transport');
     var root = document.documentElement;
     var topBand = parseFloat(getComputedStyle(root).getPropertyValue('--topband')) || 0;
     var band = parseFloat(getComputedStyle(root).getPropertyValue('--band')) || 0;
+    var leftBand = 0;
+    // The column's floor. Below it the plates stop being a scoreboard, so a box
+    // too narrow to afford one keeps the classic band however square the board.
+    // Deliberately independent of the measured reserves: the mode has to be a
+    // pure function of (box, board aspect) or the two passes could disagree and
+    // oscillate — a mode chosen from a band height that was itself measured in
+    // the other mode is a feedback loop, not a layout.
+    var colMin = Math.min(300, Math.max(120, Math.round(boxW * 0.16)));
+    // Column mode needs the board to be HEIGHT-bound beside that floor,
+    // otherwise the column is taking width the board still needed. Testing it
+    // against the full boxH (rather than boxH less the transport) keeps the
+    // test conservative and, combined with the gate, guarantees the fit below
+    // lands on the height-bound branch.
+    var sideMode = !EMBED &&
+      BOARD_ASPECT < SIDEBUG_MAX_ASPECT &&
+      BOARD_ASPECT * boxH <= boxW - colMin;
+    // Toggled before the measure below, so the scorebug is measured in the
+    // arrangement it will actually be drawn in.
+    stage.classList.toggle('sidebug', sideMode);
     var stageW = 0, stageH = 0;
     for (var pass = 0; pass < 2; pass++) {
-      var availH = Math.max(1, boxH - topBand - band);
+      var availW = Math.max(1, boxW - (sideMode ? colMin : 0));
+      var availH = Math.max(1, boxH - (sideMode ? 0 : topBand) - band);
       var boardW, boardH;
-      if (boxW / availH > BOARD_ASPECT) {
+      if (availW / availH > BOARD_ASPECT) {
         boardH = availH; boardW = Math.round(availH * BOARD_ASPECT);
       } else {
-        boardW = boxW; boardH = Math.round(boxW / BOARD_ASPECT);
+        boardW = availW; boardH = Math.round(availW / BOARD_ASPECT);
       }
-      stageW = boardW; stageH = boardH + topBand + band;
+      // THE COLUMN ABSORBS THE LEFTOVER. This is what removes the letterbox
+      // rather than merely shrinking it: the board is height-bound here (the
+      // gate guarantees it), so the width it does not want cannot make it any
+      // bigger — handing that width to the column instead of to the letterbox
+      // costs the board nothing and leaves the stage spanning the whole box.
+      leftBand = sideMode
+        ? Math.min(boxW - boardW, Math.round(boxW * SIDEBUG_MAX_WIDTH))
+        : 0;
+      stageW = boardW + leftBand;
+      stageH = boardH + (sideMode ? 0 : topBand) + band;
       stage.style.width = stageW + 'px';
       stage.style.height = stageH + 'px';
       // One scale for the whole composition: chrome was authored against a
@@ -3541,8 +3668,11 @@ body[data-embed] #board { top: 0; height: 100%; }
       var scale = Math.max(0.5, Math.min(1.6, boardW / 760));
       root.style.setProperty('--hudscale', scale.toFixed(3));
       stage.classList.toggle('tiny', boardW <= 620);
-      // Measure each band's natural height → reserve exactly that.
-      topBand = scorebug ? scorebug.offsetHeight : 0;
+      root.style.setProperty('--leftband', leftBand + 'px');
+      // Measure the reserve the scorebug actually claims in this mode: its
+      // natural height when stacked, nothing when it is the column (whose width
+      // we just set).
+      topBand = (scorebug && !sideMode) ? scorebug.offsetHeight : 0;
       band = transport ? transport.offsetHeight : 0;
       root.style.setProperty('--topband', topBand + 'px');
       root.style.setProperty('--band', band + 'px');
