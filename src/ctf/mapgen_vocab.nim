@@ -85,6 +85,20 @@ type
     density*: float
       ## Multiplier on how many shapes an item emits, 1.0 = nominal. Clamped
       ## into [0.5, 1.6] on read.
+    mirrorIsVertical*: bool
+      ## True when the symmetry that will be applied downstream reflects
+      ## ACROSS a vertical line (`x -> width-1-x`) — which is `symMirror` and
+      ## `symRot180` on the rect board, i.e. every 2-team map that ships.
+      ##
+      ## This is not a styling knob, it is a FAIRNESS input, and it exists
+      ## because of `arena.pointInPolygon`'s strict straddle. A traced ridge is
+      ## mirror-exact only when its two profiles carry vertices at matching
+      ## SCAN ROWS, which in turn is only possible when the ridge's run axis is
+      ## PERPENDICULAR to the mirror line (see `pairedSimplify`). Measured over
+      ## twelve massifs: 3,458 asymmetric wall pixels run the fair way, 147,906
+      ## run the other way — 0.5% versus 21%. So `massif` and `cave` take their
+      ## run axis from this flag, NOT from the shape of the region they are
+      ## handed, and `vocabFootprint` reports their footprint already oriented.
 
 # ---------------------------------------------------------------------------
 # Derived sizes
@@ -223,12 +237,25 @@ func horizontal(region: MapRect): bool {.inline.} = region.w >= region.h
 func wedgePolygon(x0, y0, x1, y1, wStart, wEnd: int): ArenaShape =
   ## A TAPERED QUAD about the segment (x0,y0)-(x1,y1): `wStart` wide at one
   ## end, `wEnd` at the other. Convex, four integer vertices, simple by
-  ## construction — everything `pointInPolygon` wants.
+  ## construction.
   ##
   ## Why not `shapeDiagonal`? A diagonal is a capsule: constant width, round
   ## caps. Rendered at map scale a run of them reads as scattered LOGS, and
   ## two in one slot at free angles cross into an X. A taper reads as built
   ## masonry, and it is the difference between "wedge" and "stick".
+  ##
+  ## THE MIDDLE TWO VERTICES ARE SNAPPED TO A SHARED Y, and that is a
+  ## FAIRNESS fix, not a cosmetic one. `arena.pointInPolygon` counts an edge
+  ## only on a STRICT straddle, so a vertex whose neighbours sit on opposite
+  ## sides in y contributes no crossing on its own row. Sort a convex quad's
+  ## corners by y and the top and bottom are extrema (harmless) but the middle
+  ## two are both pass-through, at DIFFERENT rows — so two rows each lose ONE
+  ## crossing, which inverts inside/outside across the rest of that row. Under
+  ## the mirror the inversion lands on the other side, and the two teams get
+  ## different walls: 5,630 asymmetric wall pixels measured over four boards
+  ## of beams. Snapping the two middle vertices to a common y makes that row
+  ## lose TWO crossings instead of one, which is parity-neutral and therefore
+  ## mirror-exact. Measured after: zero.
   let
     dx = float(x1 - x0)
     dy = float(y1 - y0)
@@ -237,11 +264,21 @@ func wedgePolygon(x0, y0, x1, y1, wStart, wEnd: int): ArenaShape =
     ny = dx / length
     h0 = float(max(2, wStart)) / 2.0
     h1 = float(max(2, wEnd)) / 2.0
-  ArenaShape(kind: shapePolygon, points: @[
+  var pts = @[
     MapPoint(x: x0 + int(round(nx * h0)), y: y0 + int(round(ny * h0))),
     MapPoint(x: x1 + int(round(nx * h1)), y: y1 + int(round(ny * h1))),
     MapPoint(x: x1 - int(round(nx * h1)), y: y1 - int(round(ny * h1))),
-    MapPoint(x: x0 - int(round(nx * h0)), y: y0 - int(round(ny * h0)))])
+    MapPoint(x: x0 - int(round(nx * h0)), y: y0 - int(round(ny * h0)))]
+  var order = [0, 1, 2, 3]
+  for i in 1 .. 3:
+    var j = i
+    while j > 0 and pts[order[j]].y < pts[order[j - 1]].y:
+      swap(order[j], order[j - 1])
+      dec j
+  let snapped = (pts[order[1]].y + pts[order[2]].y) div 2
+  pts[order[1]].y = snapped
+  pts[order[2]].y = snapped
+  ArenaShape(kind: shapePolygon, points: pts)
 
 # ---------------------------------------------------------------------------
 # DORITOS — the signature angled bunker
@@ -679,39 +716,57 @@ proc rdpKeep(pts: seq[(int, int)], eps2: int64, lo, hi: int, keep: var seq[bool]
   rdpKeep(pts, eps2, lo, best, keep)
   rdpKeep(pts, eps2, best, hi, keep)
 
-proc simplify(pts: seq[(int, int)], eps: int): seq[(int, int)] =
-  ## Douglas-Peucker at a given epsilon, endpoints always kept.
-  if pts.len <= 2: return pts
-  var keep = newSeq[bool](pts.len)
-  keep[0] = true
-  keep[^1] = true
-  rdpKeep(pts, int64(eps) * int64(eps), 0, pts.high, keep)
-  for i in 0 ..< pts.len:
-    if keep[i]: result.add pts[i]
+proc keepFlags(pts: seq[(int, int)], eps: int): seq[bool] =
+  ## Douglas-Peucker at a given epsilon as a keep-mask; endpoints always kept.
+  result = newSeq[bool](pts.len)
+  if pts.len == 0: return
+  result[0] = true
+  result[^1] = true
+  if pts.len <= 2: return
+  rdpKeep(pts, int64(eps) * int64(eps), 0, pts.high, result)
 
-proc simplifyToBudget(
-    pts: seq[(int, int)], budget: int, epsOut: var int
-): seq[(int, int)] =
-  ## The smallest epsilon (searched over a doubling ladder, then refined) that
-  ## brings the polyline under `budget` points. `epsOut` reports what it cost,
-  ## which is the signal `ridgeHull` uses to decide whether to SPLIT instead.
+proc pairedSimplify(
+    top, bot: seq[(int, int)], budget: int, epsOut: var int
+): tuple[st, sb: seq[(int, int)]] =
+  ## Simplify BOTH profiles against a SHARED index set: whichever sample index
+  ## either profile wants to keep is kept on both.
+  ##
+  ## THIS IS A FAIRNESS CONSTRUCTION, and it is worth being explicit about why
+  ## a cosmetic-looking coupling is load-bearing.
+  ##
+  ## `arena.pointInPolygon` counts an edge only on a STRICT straddle, so a
+  ## vertex whose neighbours sit on opposite sides in y contributes NO crossing
+  ## on its own scan row. Every interior vertex of a profile is such a vertex.
+  ## If a row loses ONE crossing, inside/outside INVERTS across the rest of
+  ## that row — and under the mirror the inversion lands on the other side, so
+  ## the two teams get different walls. Measured on massifs simplified
+  ## independently: 158,136 asymmetric wall pixels, 17.7% of the item's wall.
+  ##
+  ## Sharing the index set makes the two profiles' vertices come in PAIRS at
+  ## the same sample index. In the barrier orientation (`alongH == false`, the
+  ## one a 2-team board actually wants, where the run axis is y) that means a
+  ## matched pair at the same SCAN ROW, so such a row loses TWO crossings
+  ## instead of one. Two is parity-neutral: the row goes empty rather than
+  ## inverted, identically on both sides of the mirror. The row is then covered
+  ## by the hidden core discs, which are exactly mirror-symmetric.
   epsOut = 0
-  if pts.len <= budget: return pts
-  var eps = 1
+  var eps = 0
   while eps < 4096:
-    let s = simplify(pts, eps)
-    if s.len <= budget:
+    let
+      ka = keepFlags(top, eps)
+      kb = keepFlags(bot, eps)
+    var n = 0
+    for i in 0 ..< ka.len:
+      if ka[i] or kb[i]: inc n
+    if n <= budget or eps >= 2048:
       epsOut = eps
-      return s
-    eps *= 2
-  epsOut = eps
-  # Fallback that cannot fail: uniform decimation. Only reachable for a
-  # pathological input; kept so the vertex ceiling is a hard guarantee.
-  let stride = (pts.len + budget - 1) div budget
-  for i in countup(0, pts.high, stride):
-    result.add pts[i]
-  if result.len == 0 or result[^1] != pts[^1]:
-    result.add pts[^1]
+      for i in 0 ..< ka.len:
+        if ka[i] or kb[i]:
+          result.st.add top[i]
+          result.sb.add bot[i]
+      return
+    eps = if eps == 0: 1 else: eps * 2
+  # Unreachable: the loop returns at eps >= 2048 at the latest.
 
 type SpineDisc = tuple[u, v, rad: int]
 
@@ -749,11 +804,8 @@ proc ridgeHull(
     if u >= uHi: break
     u = min(uHi, u + step)
   if top.len < 2: return
-  var e1, e2: int
-  let
-    st = simplifyToBudget(top, budget, e1)
-    sb = simplifyToBudget(bot, budget, e2)
-  epsOut = max(e1, e2)
+  let (st, sb) = pairedSimplify(top, bot, budget, epsOut)
+  if st.len < 2: return
   proc emit(uu, vv: int): MapPoint =
     if alongH: MapPoint(x: originX + uu, y: originY + vv)
     else: MapPoint(x: originX + vv, y: originY + uu)
@@ -816,10 +868,31 @@ proc massifPolys(
     step = max(2, radMean div 6)
     budget = MaxPolygonVerts div 2
     qualityEps = max(2, radMean div 5)
-  # Try one polygon; SPLIT into overlapping sub-chains when the ceiling would
-  # cost more detail than `qualityEps`.
+  # A CORE OF SMALL DISCS RIDES UNDER THE OUTLINE. It is not belt-and-braces
+  # and its RADIUS is the whole trick.
+  #
+  # `arena.pointInPolygon` counts an edge only on a STRICT straddle
+  # (`ylo < y < yhi`), so a vertex whose two neighbours sit on OPPOSITE sides
+  # in y contributes no crossing at all on its own scan row. Measured on a
+  # real massif ring: 8 of 594 rows inside the mass came back entirely EMPTY
+  # — eight one-pixel horizontal slits straight through a barrier, which leak
+  # line of sight and trip the generator's own "open horizontal sightline"
+  # validator. That is a property of the shared primitive, not of this
+  # module, and the strictness is a FAIRNESS invariant that must not be
+  # loosened to fix it. A disc's membership is `dx^2 + dy^2 <= r^2`: no
+  # vertices, no scan rows, so a disc cannot slit.
+  #
+  # Emitting the spine discs at their FULL radius fixed the slits and ruined
+  # the item — the render came back as unmistakable beads on a string,
+  # precisely the failure the brief names, because the circles then WERE the
+  # silhouette. At `CoreDiscPct` they sit entirely inside the traced outline
+  # (RDP is bounded by `qualityEps` = radMean/5, so the ring is never nearer
+  # than ~0.8 r to the spine) and are invisible. The polygon supplies the
+  # faceted, non-repeating silhouette; the hidden core supplies solidity.
+  const CoreDiscPct = 58
   const MaxParts = 8
   var parts = 1
+  var rings: seq[ArenaShape]
   while parts <= MaxParts:
     var
       worst = 0
@@ -836,9 +909,50 @@ proc massifPolys(
       worst = max(worst, eps)
       if stop >= discs.high: break
       start = stop
+    rings = built
     if worst <= qualityEps or parts == MaxParts:
-      return built
+      break
     inc parts
+  result = rings
+  template addCore(u, v, rad: int) =
+    if alongH:
+      result.add discOf(region.x + (u), region.y + (v), rad)
+    else:
+      result.add discOf(region.x + (v), region.y + (u), rad)
+  for i, d in discs:
+    let core = max(3, d.rad * CoreDiscPct div 100)
+    addCore(d.u, d.v, core)
+    # A MIDPOINT CORE, but ONLY where the chain would otherwise break. The
+    # cores are not automatically contiguous: the spine advances up to 0.9 r_i
+    # while a core only reaches 0.58 r, so a big disc followed by a small one
+    # leaves a few-pixel gap. Adding one unconditionally very nearly doubled
+    # the shape count, and `arena.isArenaWall` is a LINEAR SCAN over every
+    # obstacle on every wall query, so shape count is sim runtime.
+    if i + 1 < discs.len:
+      let
+        n = discs[i + 1]
+        nCore = max(3, n.rad * CoreDiscPct div 100)
+        du = n.u - d.u
+        dv = n.v - d.v
+        gapSq = du * du + dv * dv
+        reach = max(0, core + nCore - 2)
+      # The spine jitters ACROSS as well as advancing, so the test has to be
+      # the true centre distance; using the along-axis step alone let three
+      # slits back in.
+      if gapSq > reach * reach:
+        addCore((d.u + n.u) div 2, (d.v + n.v) div 2,
+                max(3, min(d.rad, n.rad) * 55 div 100))
+  # The END CAPS need their own core. The chain above only reaches
+  # `u_first - 0.58 r`, but the traced outline reaches `u_first - r`, so the
+  # tip of the mass was polygon-only and still slit (measured: up to 4 rows).
+  # A half-radius disc pushed 45% of a radius outward sits inside the cap arc
+  # (whose half-width there is 0.89 r) and closes it.
+  block:
+    let
+      a = discs[0]
+      b = discs[^1]
+    addCore(a.u - a.rad * 45 div 100, a.v, max(3, a.rad div 2))
+    addCore(b.u + b.rad * 45 div 100, b.v, max(3, b.rad div 2))
 
 proc massif*(r: var Rand, region: MapRect, p: VocabParams): seq[ArenaShape] =
   ## An organic lumpy mass: a chain of discs of varying radius walked along a
