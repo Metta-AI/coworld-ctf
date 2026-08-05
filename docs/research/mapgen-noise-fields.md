@@ -915,6 +915,221 @@ residual lattice regularity, and it is the one nobody plots.
 
 ---
 
+## 6. From scalar field to geometry — where the headline finding lives
+
+### 6.1 The two ways to turn a field into walls
+
+Given a scalar field `f` and a level `u`, there are exactly two things you can
+build:
+
+| | Object | Topology at our cover budget | Class |
+|---|---|---|---|
+| **Fill** | the **excursion set** `{f >= u}` | disjoint blobs, no holes (§12.2) | **(C)** |
+| **Trace** | the **level curve** `{f = u}`, thickened | closed rings, hole-rich by construction | **(A)** for connectivity (§6.4) |
+
+Nearly every "Perlin cave generator" on the internet does *fill*. **Fill is the
+wrong operator for us**, and §12 proves it rather than asserting it. Everything
+below is about *trace*.
+
+### 6.2 Thresholding, and the one (A) it can carry
+
+Covered in §11.5, restated here for the section's completeness: threshold by the
+**empirical quantile** of the sampled field, not by a fixed value. Sorting the
+raster values and taking the order statistic at the target fraction makes the
+pre-carve wall fraction *exactly* the target on every seed, with no distributional
+assumption. **(A) for cover fraction.** Six lines of code, and it retires
+`CoverPermilleMin`/`Max` as a source of rejections.
+
+### 6.3 Hysteresis thresholding (double threshold)
+
+Borrowed from Canny edge detection: use two levels `u_lo < u_hi`; seed the wall
+set from `{f >= u_hi}` and then flood-fill outward through `{f >= u_lo}` from
+those seeds only. Components that never reach `u_hi` are discarded.
+
+What this buys: **speckle suppression**. A single-threshold field at 15% coverage
+produces a long tail of tiny components — sub-corridor fragments that cost shape
+count and rasterise into 3-pixel pebbles. Hysteresis removes them without
+raising the threshold globally (which would also shrink the features you wanted).
+
+**Classification: (B).** It makes sub-corridor features rarer. It does not bound
+them. The bound comes from an explicit morphological step: **open the wall mask
+with a disc of radius `MinFeaturePx/2`, and open the floor mask with a disc of
+radius `MinCorridorWidth/2`.** Morphological opening `A ∘ B = (A ⊖ B) ⊕ B` has a
+genuine property — the result is exactly the union of all translates of `B` that
+fit inside `A`, so **every point of the opened set lies in a placed copy of `B`.**
+Opening the *floor* with a disc of radius 34 px therefore guarantees that every
+remaining floor pixel is in a 68 px-diameter free disc, i.e. **(A) for local
+corridor width** — at the cost of possibly disconnecting the floor, which is why
+it must be followed by the connectivity step, not replace it.
+
+Note we already do the erode-then-flood pattern: `arena.nim` computes a chamfer
+3-4 distance transform, erodes by half the corridor minimum, and flood-fills
+(`arena.nim:2245-2250`). So the primitive exists; it is used as a *validator*, and
+the proposal here is to also use it as a *constructor*.
+
+### 6.4 Marching squares, and the contour-tree theorem — THE FINDING
+
+**Marching squares** is the 2D case of Lorensen & Cline's marching cubes
+(*Marching Cubes: A High Resolution 3D Surface Construction Algorithm*, SIGGRAPH
+'87, https://dl.acm.org/doi/10.1145/37401.37422). For each 2×2 cell of the sampled
+field, the four corners' sign relative to `u` give a 4-bit index into 16 cases;
+each case emits 0, 1, or 2 line segments, with the endpoints placed on the cell
+edges by **linear interpolation** of the field values (which recovers sub-cell
+accuracy and is what makes the contour smooth rather than staircased).
+
+Two of the 16 cases (`0101` and `1010`) are **ambiguous saddles** — the two
+diagonal corners above the level could be joined or separated. The resolution
+matters:
+
+> **(A) HARD GUARANTEE — output topology.** If the saddle ambiguity is resolved
+> *consistently* (always the same way, or by the asymptotic decider of Nielson &
+> Hamann, IEEE Visualization '91), marching squares emits a set of **closed,
+> simple (non-self-intersecting), pairwise-disjoint polygonal loops**. Each cell
+> edge is crossed at most once and each crossing is shared by exactly two
+> segments, so every vertex of the output graph has degree exactly 2 — a disjoint
+> union of cycles. Inconsistent saddle resolution is the *only* way to break this,
+> and it breaks it by creating degree-4 vertices.
+
+For a field sampled on a grid, "closed" needs one caveat: contours that reach the
+map border are open arcs. Close them by running the contour along the border — or
+simply sample the field on a frame one cell larger than the map and force the
+outer ring to be below `u`, which makes every contour interior and closed. The
+second is one line and is strictly better.
+
+Now the theorem this document is built on.
+
+> **Theorem (contour nesting tree).** Let `C_1, …, C_m` be pairwise disjoint
+> simple closed curves in a simply connected region `D`. Then `D \ union(C_i)` has
+> exactly `m + 1` connected faces, and the face-adjacency graph — one node per
+> face, one edge per curve, joining the two faces that curve separates — is a
+> **tree**.
+>
+> *Proof.* By the Jordan curve theorem each `C_i` bounds a closed disc `D_i`.
+> Pairwise disjointness forces, for every `i != j`, exactly one of
+> `D_i ⊂ int D_j`, `D_j ⊂ int D_i`, or `D_i ∩ D_j = ∅`. A family closed under
+> that trichotomy is **laminar**, and a laminar family ordered by containment is a
+> forest; adding `D` itself as a root makes it a tree with `m + 1` nodes. The
+> faces are exactly "`D_i` minus its children" (and the root's face is `D` minus
+> its top-level discs), and two faces are adjacent iff their nodes are
+> parent-and-child. `m + 1` nodes, `m` edges, connected ⟹ tree. ∎
+
+**The construction that follows, and its guarantee:**
+
+1. Extract the contours of `f` at level `u` with marching squares. By the (A)
+   above they are disjoint closed simple loops, so by the theorem they induce a
+   **tree** of faces.
+2. Thicken each loop into a **ribbon of wall** of thickness `t`.
+3. Punch **exactly one door** of width ≥ `RecommendedCorridorWidthPx` in each
+   loop.
+
+> **(A) HARD GUARANTEE — floor connectivity.** Each door is exactly one edge of
+> the tree; `m` doors reconnect `m + 1` faces; a connected graph on `m + 1`
+> nodes with `m` edges is spanning. **The floor is connected by construction.** No
+> flood fill, no repair pass, no retry.
+
+And simultaneously, from the same object:
+
+> **(A)-adjacent — `interiorFrac` structure.** A thickened closed loop is a
+> **ring**, and every point inside a ring of inner diameter ≤ 240 px has all 8
+> directions blocked within 120 px. §12.3 works the numbers: at wavelength ~275 px,
+> excursion fraction 0.35, ribbon 20 px, the model predicts `interiorFrac ≈ 0.32`
+> at 150 permille cover — inside both bands, against a pool median of 0.118.
+
+**The failure modes, and the repair that PRESERVES the guarantee.** This is the
+part that makes it engineering rather than a nice theorem:
+
+| Failure | Detection | Repair |
+|---|---|---|
+| Two contours closer than `t` — ribbons merge, faces vanish | distance transform between contours < `t` | **delete one of the two curves** |
+| A face too thin to walk after thickening | max of the floor distance transform inside the face < 34 px | **delete the curve bounding that face** |
+| No door site with ≥ 68 px clearance on *both* sides | scan the contour's distance transform | **delete the curve** |
+
+All three repairs are the *same* repair: remove a curve. **Removing a leaf or an
+internal node from a laminar family leaves it laminar** (contract the tree edge;
+the node's children reattach to its parent). So the tree structure — and therefore
+the connectivity guarantee — survives every repair. That is a rare property: a
+repair pass that cannot invalidate the invariant it is repairing under.
+
+**Door placement, concretely.** Compute the distance transform of the *floor*
+(pre-thickening). Walk the contour and pick the vertex maximising
+`min(clearance on the inside, clearance on the outside)`. That is the widest point
+of the wall, and placing the door there maximises the margin over 68 px. Ties
+broken by the RNG so different seeds put the door in different places.
+
+### 6.5 Contour → `shapePolygon`: the concrete emission
+
+Our primitive is a **closed ring of integer vertices** with even-odd fill
+(`sim_types.nim:752-759`). A ribbon is an *annulus*, which is not a simple ring.
+Three options, in order of how much I like them:
+
+1. **Quad chain (recommended).** Emit one 4-vertex `shapePolygon` per contour
+   segment: the two offset points on each side of segment `i`. Adjacent quads
+   overlap slightly at the joins (miter them or just let them overlap — the wall
+   mask is a union). **The door is simply the quads you do not emit.** Integer
+   vertices are natural, symmetry stays bit-exact, and there is no annulus
+   problem. Cost: one shape per segment.
+2. **Keyhole polygon.** Even-odd fill *can* express an annulus as a single ring
+   with a slit joining outer to inner. Fewer shapes, but the slit is a
+   degenerate feature that will interact badly with integer rounding and with the
+   symmetry mirror. Not worth it.
+3. **`shapeDiagonal` chain.** `shapeDiagonal` is `(x0,y0,x1,y1,thickness)`, and
+   its uses in `arena.nim` (e.g. `:193-213`) are all at exactly 45°, matching the
+   type's own comment ("a 45-degree wall segment"). **Check `inShape` before
+   assuming it generalises** — if it does support arbitrary angles it is the
+   cheapest possible ribbon representation (one shape per segment, no vertex
+   maths).
+
+**Shape budget.** At `L_A ≈ 0.009 px/px²` on a ~1.08M px² standard board, total
+contour length is ~9,700 px. At 24 px per segment that is ~400 quads full-board,
+~200 in a 2-team fundamental domain. Compare `genCaves`, which emits one 14-vertex
+blob per filled CA cell and routinely emits low hundreds. So the budget is
+comparable to what we ship — but `mapWallAt` is linear in shape count per pixel
+query, so **simplify the contour first** and target ~40–60 px segments, i.e.
+~100 shapes per half.
+
+### 6.6 Polygon simplification: RDP, and a condition that makes it safe
+
+**Ramer–Douglas–Peucker** (Ramer 1972; Douglas & Peucker 1973) recursively keeps
+the point furthest from the chord and discards everything within tolerance `eps`.
+**Visvalingam–Whyatt** (1993) instead repeatedly removes the vertex whose
+triangle with its neighbours has the smallest area, which gives perceptually
+better results on smooth curves — which ours are.
+
+**Neither preserves simplicity in general**: a simplified polyline can
+self-intersect, and can cross a *different* polyline it used to be disjoint from.
+Topology-preserving variants exist (de Berg, van Kreveld, Schirra, 1998,
+*Topologically correct subdivision simplification using the bandwidth criterion*),
+but they are more machinery than we need, because of this:
+
+> **Conditional (A) — simplification safety.** RDP with tolerance `eps` moves
+> every point of the curve by at most `eps`. Therefore if
+> `eps < (1/2) * min distance between any two non-adjacent parts of the contour
+> family`, the simplified curves remain simple and pairwise disjoint, and the
+> nesting tree is unchanged.
+
+And that minimum distance is **something we already compute**: it is the value of
+the distance transform, which §6.4's repair pass needs anyway. So set
+`eps = min(t/2, halfMinContourGap)` and the simplification is provably safe with
+no extra work. If the bound forces `eps` so small that the shape budget blows,
+that is the same signal as "two contours are too close" — and the same repair
+(delete a curve) fixes both.
+
+### 6.7 Dual contouring and surface nets — not needed in 2D
+
+Ju, Losasso, Schaefer & Warren, *Dual Contouring of Hermite Data*, SIGGRAPH 2002
+(https://www.cs.wustl.edu/~taoju/research/dualContour.pdf), places one vertex per
+*cell* (minimising a quadratic error function over the cell's Hermite data) rather
+than on cell edges, which reproduces **sharp features** — creases and corners —
+that marching cubes rounds off. Surface nets are the simpler, non-Hermite cousin.
+
+**Verdict: skip it.** Sharp features are exactly what we do *not* want from a
+noise contour (they eat vertices and produce concave spikes), the 2D case gains
+little, and dual contouring's output can be non-manifold, which would cost us the
+(A) in §6.4. Marching squares' guaranteed degree-2 output is worth more to us than
+its rounded corners cost us.
+
+---
+
 ## 11. Solving for the threshold instead of rolling dice
 
 *(Section order note: §11–§12 are the analysis that motivates the
