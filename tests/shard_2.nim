@@ -9,6 +9,7 @@ import
   test_kill_badges,
   test_live_event_emission,
   test_map_los,
+  test_mapgen_styles,
   test_medkits,
   test_render_scale,
   test_shield_bubble,

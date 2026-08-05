@@ -122,6 +122,25 @@ Two invariants to keep if you touch it:
 - **No map installation on the request path.** See `tools/map_render.nim`
   above.
 
+## Map generation (mapkit)
+
+`tools/mapkit.nim` generates and hand-edits maps in the native `mapSpec`
+format from the command line — the batch/LLM counterpart to the map editor.
+Terrain styles (`bsp`, `caves`, `maze`, `scatter`) live in
+`src/ctf/mapgen_styles.nim` as pure `(rng, region, params) -> seq[ArenaShape]`
+generators that emit only CTF shapes into the seed half; the sim mirrors,
+carves, and validates. No sim change, no replay risk. Playbook + the
+generate → render → validate → edit loop: [docs/MAPKIT.md](docs/MAPKIT.md).
+
+```bash
+nim c -d:release -o:/tmp/mapkit tools/mapkit.nim
+```
+
+Generators must stay pure and fairness-agnostic: they never reason about
+symmetry, protected floor, or endzones — those live in `arena.nim`. Raw
+generation passes the validator ~55–65% of the time by design; the workflow is
+generate-many-then-curate/edit, not one-shot.
+
 ## Replay fixtures
 
 `tests/fixtures/*.bitreplay` + `tests/replays/ctf.bitreplay` are recorded

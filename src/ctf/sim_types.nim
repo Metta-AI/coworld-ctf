@@ -1049,6 +1049,12 @@ type
     aimBrads*: int
     tick*: int
     color*: uint8
+    attacker*: int
+      ## Which player fired this snapshot. One burst emits a snapshot per active
+      ## tick, each with the owner's LIVE pose; the renderer groups snapshots by
+      ## attacker and draws them all along the newest one's pose, so a burst that
+      ## swings its aim reads as one plume, not a divergent trail. See
+      ## plasmaArcRenderPose.
 
   DamageFx* = object
     ## A cosmetic floating "-N" damage number that rises and fades above a
