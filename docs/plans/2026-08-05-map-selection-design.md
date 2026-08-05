@@ -160,6 +160,61 @@ cheaper draw, but the editor must not use it — an editor that previews a
 different map than the sim ships is worse than a slow editor. Server boot pays
 one selection, once.
 
+## 3b. The measured shift
+
+`map_eval bestof --seeds 2001-2150` — 150 seeds held OUT of the curated pool
+and out of the validation baseline, each generated BOTH ways, with the
+hand-authored `arena` as control. Reproduce with that one command.
+
+```
+staticScore
+  K=1  (first valid)  min 0.637  p25 0.786  med 0.840  p75 0.882  max 0.959  mean 0.829
+  best-of-K           min 0.721  p25 0.842  med 0.901  p75 0.944  max 1.000  mean 0.889
+  seeds improved 123, unchanged 27, regressed 0
+```
+
+Zero regressions is structural, not luck: the K=1 candidate is a prefix of the
+K>1 candidate list, so the shipped map can never score below it. One seed
+(2138) reaches 1.000 — the control's own score.
+
+The scalar moving is not evidence on its own; a weighted rubric can be moved by
+one metric. So the report prints the whole band set, and **every non-degenerate
+metric moved TOWARD the control, none away:**
+
+| metric | control (arena) | K=1 median | best-of-K median | direction |
+|---|---|---|---|---|
+| interiorFrac | 0.342 | 0.117 | **0.161** | toward |
+| exposedFrac | 0.038 | 0.232 | **0.200** | toward |
+| longRunFrac | 0.110 | 0.172 | **0.141** | toward |
+| routeCapacityFrac | 0.320 | 0.438 | **0.381** | toward |
+| collisionCoverRatio | 1.456 | 0.752 | **0.922** | toward |
+| midOpenFrac | 0.412 | 0.607 | **0.562** | toward |
+| detourMax | 1.295 | 1.111 | **1.170** | toward |
+| visDegreeCv | 0.524 | 0.290 | **0.328** | toward |
+| coverPermille | 167 | 90 | **110** | toward |
+
+`chokeCount`, `standRingSpread` and `standCoverSpread` read 0 on both sides:
+the column lattice produces no genuine chokepoints at all, and it is exactly
+symmetric. Selection has nothing to choose between there. That is a fact about
+the GENERATOR, not about selection, and it is what the structure pass exists to
+change — selection cannot invent architecture, it can only ship the best board
+the generator is capable of drawing.
+
+Attempt cost per shipped map, same run (machine under load ~19, so these are
+upper bounds against the per-candidate table above):
+
+| class | maps | K | attempts drawn | ms/map |
+|---|---|---|---|---|
+| small | 23 | 12 | 18.3 | 988 |
+| standard | 36 | 8 | 8.9 | 827 |
+| large | 30 | 6 | 6.1 | 1208 |
+| huge | 29 | 4 | 4.0 | 1554 |
+| giant | 32 | 2 | 2.0 | 1553 |
+
+Small boards are the outlier: 12 valid candidates cost 18.3 attempts, a ~65%
+pass rate, against ~90% on standard and ~100% on large and up. The generator is
+worst on its smallest board.
+
 ## 4. Blast radius
 
 Seed → map identity is **not** preserved, and that is allowed: replays pin
