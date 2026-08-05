@@ -592,3 +592,334 @@ scored by *how close to feasible it is*, not by quality.
 That is exactly our situation with the roles renamed. §6 develops it.
 
 ---
+
+## 6. FI-2Pop and our 77% rejection rate
+
+### 6.1 The technique
+
+[Kimbrough, Koehler, Lu & Wood, "On a Feasible–Infeasible Two-Population (FI-2Pop) genetic
+algorithm for constrained optimization: Distance tracing and no free lunch," *European
+Journal of Operational Research* 190(2):310–327,
+2008](https://www.sciencedirect.com/science/article/abs/pii/S0377221707005668) maintains
+**two** populations:
+
+- the **feasible** population is selected and bred on the *objective function*;
+- the **infeasible** population is selected and bred on *how small its constraint violation
+  is* — i.e. infeasible individuals compete on getting closer to feasibility;
+- **the two never interbreed directly.** Cross-population influence happens only when an
+  offspring migrates: a feasible parent's child that violates a constraint moves to the
+  infeasible pool, and vice versa.
+
+The reported advantages are that it beats penalty-function constraint handling, and that it
+can be initialised with an **empty feasible population** and still find its way in — the
+infeasible pool does the work of locating the feasible region.
+
+### 6.2 Why it applies to us, precisely
+
+We currently draw 35–55 candidates to obtain K=12 valid ones on a 4-team standard board,
+and the 23–45 rejects are **discarded with no information extracted**. Every one of them
+was a sample of the boundary of our feasible region, and we threw it away. FI-2Pop's whole
+proposition is that those samples are the cheapest map of the constraint surface you will
+ever get.
+
+### 6.3 The one thing we are missing: a graded violation function
+
+`selectBestMap` tests feasibility as `validateGeneratedMap(candidate).len == 0`, and
+`MapMetrics.reason` records only the **first** validator failure. FI-2Pop needs *how badly*,
+not *which*. So the prerequisite work is:
+
+1. Have each validator return a **scalar residual** in a normalised unit — px of corridor
+   shortfall, count of sealed pockets, permille of cover missing, etc. — rather than a
+   string.
+2. Define `violation(m) = Σ_i w_i · normalised_residual_i`, which is the fitness of the
+   infeasible population.
+3. Record **all** failures, not the first, so the residual is complete.
+
+This is bounded work in `map_rules.nim`, and it is a prerequisite for FI-2Pop, for
+Constrained MAP-Elites (§5.5), and for debugging the generator at all. It is worth doing
+independent of any search algorithm.
+
+### 6.4 ⚠️ Do the cheap thing first: look at the failure histogram
+
+Before building an algorithm to cope with a 77% rejection rate, spend twenty minutes
+dumping the histogram of *which validator* rejects, over ~2000 attempts per
+(teams × size class).
+
+If 90% of rejections are one validator, the feasibility problem is not a search problem at
+all — it is one generator/validator interaction, and a targeted fix beats FI-2Pop by a mile
+and costs a fraction as much. **Always look at the failure histogram before building an
+algorithm to cope with failures.** We have never looked. There is also the unreconciled
+47%-vs-22% pass-rate discrepancy from §1.3 to settle in the same run.
+
+Estimated payoff *if* the rejections turn out to be diffuse (i.e. FI-2Pop is genuinely
+warranted): raising 4-team standard from 22% to ~60% would cut the online cost of best-of-K
+by ~2.7× and give an offline QD run ~2.7× more useful evaluations for the same wall clock.
+That number is an estimate, not a measurement.
+
+---
+
+## 7. Deliverable 3a — expressive range analysis: the plan
+
+### 7.1 What ERA is and why we need it
+
+[Smith & Whitehead, "Analyzing the expressive range of a level generator," *Proceedings of
+the 2010 Workshop on Procedural Content Generation in Games*
+(PCG'10)](https://dl.acm.org/doi/10.1145/1814256.1814260) introduced the idea that the
+right unit of analysis for a generator is not any individual output but **the space of
+outputs**. Method: generate a large sample, annotate each with a couple of behavioural
+metrics, and plot the sample as a 2D histogram/heatmap. Their Launchpad study used
+*linearity* (x, 0.0–0.65) and *leniency* (y, −1.0–1.0), with hexbin shading by count. The
+stated payoff is that this "can expose unexpected biases in the generation algorithm and
+holes in the expressive range."
+
+We have no such instrument. Every claim in this dimension — "seeds look near-identical",
+"the generator makes scatter not architecture", "best-of-K improved things" — is currently
+unfalsifiable, because none of them is a statement about an individual map and we only
+measure individual maps.
+
+### 7.2 Build order (cheapest and most decisive first)
+
+**Step 1 — the metric-free check (build this first; ~half a day).** Following
+[*Compressing and Comparing the Generative Spaces of Procedural Content
+Generators*](https://arxiv.org/abs/2205.15133), skip metrics entirely for the first pass:
+downsample each generated map's occupancy grid to e.g. 64×64, stack the sample into a
+matrix, project to 2D with PCA (the paper tested PCA, SVD, MCA and t-SNE, and found MCA
+best overall for categorical level data, with results "inconsistent across domains"), and
+scatter-plot.
+
+Why first: it answers the *live* complaint — "I replaced a uniform lattice of pebbles with
+a uniform lattice of boxes; seeds look near-identical" — **directly, without depending on
+having guessed the right metric**. If 40 scene-graph seeds land in a tight blob and the 7
+hand-authored maps land far outside it, that is the whole argument in one image, and it
+cannot be waved away as a metric artefact. It is also nearly free: 40 maps, no simulation,
+no new metrics.
+
+**Step 2 — pick the ERA axes by criterion, not by taste (~half a day).** We have 150
+held-out seeds with full metric vectors. Compute, over all 45 metrics, the three tests from
+[*The Right Variety: Improving Expressive Range Analysis with Metric Selection
+Methods*](https://arxiv.org/abs/2304.02366):
+
+- **fitness independence** — discretise the candidate 2D plot and check that fit content is
+  spread across it, not piled in one corner;
+- **mutual correlation** — Spearman's ρ between the pair; low is good, because a correlated
+  pair makes most of the plot unreachable in principle;
+- **alternative-metric correlation** — the chosen pair should *correlate with* the metrics
+  you left out, so you are not leaving diversity unmeasured.
+
+The paper's own recommendation is to rank candidate pairs by the average of the three, and
+to prefer pairs that **combine a structural metric with an agent-evaluated one**. We only
+have structural metrics today, which is itself a finding: our ERA will be
+structure-only until `MapPlay` is wired in.
+
+**Step 3 — the ERA harness (~1–2 days).** A `tools/map_range.nim` that generates N maps for
+a given (generator, teams, size class, K) and emits one CSV row per map: seed, attempt,
+config, valid, reason, and all 45 metrics. At 50 ms/map, N = 2000 costs **100 seconds**.
+This is the cheapest instrument in the whole programme and everything else reads from it.
+
+**Step 4 — the plot and the report.** Hexbin heatmap over the chosen pair, plus:
+
+- **The controls overlaid as labelled points** — the arena and all 6 MW2 maps. This is
+  non-negotiable. A generative-space plot without the hand-authored controls on it cannot
+  tell you whether the generator is anywhere near the region you want.
+- **Coverage** — occupied bins / bins inside the feasible region of the plot.
+- **Concentration** — entropy (or Gini) of the bin-count histogram. "How much of the mass is
+  in how few bins" is the numeric form of "every map looks alike."
+- **Holes** — bins that are feasible-in-principle and empty. These are the work items.
+
+**Step 5 — version diffs.** Two generators as two contours on one plot. The headline claim
+becomes "generator B covers 3.1× the area of generator A at equal feasibility", which is a
+falsifiable sentence about a space, not a median of a saturated scalar.
+
+---
+
+## 8. Cost analysis against our real budget
+
+### 8.1 The numbers
+
+| Quantity | Value | Source |
+|---|---|---|
+| Static evaluation, standard board | ~50 ms | brief |
+| Static evaluation, giant board | ~2.4 s | brief |
+| Simulated episode, 32 seats | ~97 s | brief |
+| Online generation budget | ~1 s | current K schedule targets this |
+| Current K | 12 / 8 / 6 / 4 / 2 / 1 by size class | `map_rules.MapSelectionK` |
+| `MapGenMaxAttempts` | 100 | `arena.nim:1085` |
+
+### 8.2 The search-power table — the single most important arithmetic here
+
+| Regime | Wall clock | Static evals (standard) | Static evals (giant) | Sim episodes |
+|---|---|---|---|---|
+| **Online, per request** | 1 s | **20** | 0.4 | 0.01 |
+| Offline batch | 1 h | 72,000 | 1,500 | 37 |
+| **Offline overnight** | 8 h | **576,000** | 12,000 | 297 |
+| Offline, one machine-week | 168 h | 12.1 M | 252,000 | 6,200 |
+
+**Offline search power is ~29,000× the online budget, for zero change in request latency.**
+
+That number decides the whole dimension. Compare against what the literature actually
+spends: the FPS MAP-Elites work used 400 iterations × 10 emitters ≈ **4,000 evaluations**
+(with 5 simulated matches each); Talakat ran for 24 hours; typical MAP-Elites papers sit at
+10⁵–10⁶ evaluations. **576,000 static evaluations overnight on one machine is a fully
+respectable MAP-Elites budget.** We can run a real QD algorithm tonight with the evaluator
+we already have.
+
+By contrast, no amount of raising K helps online. K=12 → K=24 doubles latency to buy the
+96th percentile instead of the 92nd of a distribution whose *mode* is the problem (§13).
+
+### 8.3 Giant boards are the awkward case
+
+12,000 evaluations overnight across a 100-cell archive is 120 evaluations per cell — thin
+but usable. Three options, in order of preference:
+
+1. **Transfer from the standard archive.** The genotype is a scene-graph parameter vector;
+   seed the giant archive with the standard archive's elites re-expanded at giant scale.
+   Both recommended BC axes are scale-free fractions precisely so this works.
+2. **Split the evaluator.** MAP-Elites needs the *BC vector* on every candidate and the full
+   45-metric report only on archive insertion. If `interiorFrac` + `routeCapacityFrac`
+   alone can be computed in a fraction of the 2.4 s, that is a direct multiplier on search.
+   **Action: profile `evaluateMap` and find out** — the caps in the source
+   (`VisibilitySampleCap = 400`, `ChokeCandidateCap = 1500`, the max-flow, the isovist
+   sweep) suggest the cost is concentrated in a few stages, several of which neither BC
+   axis needs.
+3. Run giants for a week instead of a night. They are the rarest size class; there is no
+   reason their archive must be rebuilt on the same cadence.
+
+### 8.4 Simulation is affordable only where we place it deliberately
+
+297 episodes overnight, at ≥3 episodes per map for a stable `MapPlay`, is **~99 maps per
+machine-night**. That is nowhere near enough to be a QD fitness (the FPS paper's
+4,000 maps × 5 matches would be ~539 machine-hours for us). It is comfortably enough for
+the two jobs simulation should actually do:
+
+- **Calibrate and validate the static surrogate** (§10.2) — 40 maps × 3 episodes = 3.2 h.
+- **Final head-to-head on a handful of finalists** — e.g. the 10 archive corners, 3 episodes
+  each = 0.8 h.
+
+That is exactly the DSAGE division of labour: cheap model in the inner loop, ground truth
+at the archive boundary.
+
+---
+
+## 9. Multi-objective: is scalarising ~45 metrics into one number a mistake?
+
+**Yes, but not for the reason it looks like, and NSGA-II is not the fix.**
+
+### 9.1 The real defect of a weighted sum
+
+A linear scalarisation `Σ wᵢ fᵢ` can only ever find solutions on the **convex hull** of the
+Pareto front. Solutions in a non-convex region of the front are optimal-in-principle and
+**unreachable at every possible weight vector** — this is a theorem, not a tuning problem
+(Das & Dennis, "A closer look at drawbacks of minimizing weighted sums of objectives for
+Pareto set generation in multicriteria optimization problems," *Structural Optimization*
+14:63–69, 1997). So there exist map designs that are genuinely non-dominated and that
+`staticScore` can never prefer.
+
+### 9.2 The defect we can actually measure today
+
+Our weights are hand-set in the range 1.0–3.0 with no sensitivity analysis. **Cheap
+experiment, one afternoon, no new machinery:** on the 150-seed held-out pool, perturb the
+weight vector (Dirichlet noise around the current values) a few thousand times and measure
+how often the argmax-of-K changes.
+
+- If the winner changes often, the weights are load-bearing *and* unjustified, and that is
+  a bug of the same class as the saturation.
+- If the winner never changes, the weights do not matter and should be deleted.
+
+Either answer is worth having, and nobody knows which it is.
+
+### 9.3 Why NSGA-II is nevertheless the wrong prescription at 15 objectives
+
+Pareto dominance degenerates in many-objective settings: as the objective count rises past
+roughly 4, the fraction of mutually non-dominated candidates approaches 1, non-dominated
+sorting stops discriminating, and the algorithm's selection pressure collapses onto its
+secondary criterion — crowding distance, i.e. **diversity**. (This is the motivating
+observation for NSGA-III; see Deb & Jain, *IEEE Trans. Evolutionary Computation* 18(4),
+2014.)
+
+Which produces a mildly funny conclusion:
+
+> Running NSGA-II on our 15 banded objectives would give us diversity-driven selection with
+> extra steps and an uninterpretable population. MAP-Elites gives us diversity-driven
+> selection *on purpose*, with an archive you can look at. If the many-objective answer is
+> "you get diversity selection anyway", take the version that was designed for it.
+
+### 9.4 Where multi-objective *is* right for us
+
+After the §5.2 partition, the objective count drops to ~1, and the question mostly
+evaporates. It returns in exactly one place: **if the intervention test (§11.4) promotes 2–3
+metrics to genuine quality and they conflict** — the classic pair being "balanced" versus
+"decisive/fast-paced" — then a 2–3 objective Pareto front is precisely the right structure,
+and NSGA-II is entirely well-behaved at that count. The QD literature also has a native
+answer here, multi-objective quality-diversity, which keeps a Pareto front *per archive
+cell* (see e.g. [*Multi-Objective Quality-Diversity in Unstructured and Unbounded
+Spaces*](https://arxiv.org/abs/2504.03715) for the current state of that family).
+
+**Sequencing:** partition first (§5.2), intervention-test the survivors (§11.4), and only
+then ask whether the 2–3 survivors need a Pareto front. Do not start at NSGA-II.
+
+---
+
+## 10. Surrogate models — and the fact that `staticScore` already is one
+
+### 10.1 The reframe
+
+The literature on surrogate-assisted QD — canonically [Bhatt, Tjanaka, Fontaine &
+Nikolaidis, "Deep Surrogate Assisted Generation of Environments," *NeurIPS*
+2022](https://arxiv.org/abs/2206.04199) — is usually read as "train a network so you can
+skip the expensive simulation." DSAGE maintains a **ground-truth archive** (populated by
+real evaluations) *and* a deep surrogate that predicts agent behaviour, exploiting the
+surrogate in the inner loop and correcting with ground truth at insertion.
+
+Read our stack against that structure and the finding writes itself:
+
+> **`staticScore` already *is* our surrogate model for simulated play quality. It is
+> hand-written rather than learned, and — unlike DSAGE's — it has never been trained,
+> calibrated, or validated against the ground truth it proxies.**
+
+We have a `MapPlay` type in `map_metrics.nim` with `balanceEntropy`, `pace`,
+`fightTimeFrac`, `deadFloorFrac`, `biggestDeadPx`, populated by `tools/map_playtest.nim`.
+Nobody has ever correlated it with `staticScore`. Until that is done, **every rank
+best-of-K has ever produced is unfalsified**, and so is every claim in this document about
+what search should optimise.
+
+### 10.2 The 3-hour experiment that decides the dimension
+
+1. Take ~40 maps spanning the full observed `staticScore` range — the 20-seed curated pool
+   (0.717 / 0.870 / 0.932), the arena (1.000), the 6 MW2 maps, and a spread of generated
+   seeds.
+2. Run ≥3 episodes each: 40 × 3 × 97 s = **3.23 hours**, single machine, trivially
+   parallel across the fleet.
+3. Compute Spearman ρ between (a) `staticScore` and (b) **each band's individual sub-score**
+   against each `MapPlay` outcome.
+
+Reading the result:
+
+| Outcome | Meaning | What to do |
+|---|---|---|
+| aggregate ρ ≈ 0 | `staticScore` is a *style filter*, not a fitness | Stop calling it fitness. Re-aim the whole search programme at `MapPlay`, or accept that we are optimising taste and say so out loud. |
+| per-band ρ mixed | **The most likely outcome, and the most valuable** | You have just discovered which of the 15 bands are real. Those become the quality terms; the rest become constraints or BC axes. |
+| some band ρ < 0 | That band is actively harmful | Best-of-K has been *selecting against* play quality on that axis, silently, since it shipped. |
+
+**Do this before the old generator is retired.** The experiment needs *spread* in
+`staticScore` to compute a correlation at all, and the old column-lattice generator's
+0.717–0.932 range is the only spread we have. The scene-graph generator, by scoring 1.000
+on 39/40, **destroys the measurement instrument**. This is time-sensitive in a way nothing
+else in this document is.
+
+### 10.3 Should we train a learned surrogate?
+
+**Not yet.** A learned model predicting `MapPlay` from geometry needs ~1,000+ (map, outcome)
+pairs = 1,000 × 3 × 97 s ≈ **81 machine-hours** just for the training set, and it would be
+learning a proxy for a proxy. The sequencing is:
+
+1. Run §10.2. If the static metrics already predict play outcomes well, a learned surrogate
+   buys nothing — use the metrics.
+2. If they predict *poorly* but play outcomes clearly differ between maps, **then** a learned
+   surrogate over raw geometry is the natural next step and DSAGE is the blueprint.
+3. If play outcomes barely differ between maps at all, that is the most important finding
+   available and it retires several research dimensions at once.
+
+Note also the classification: a surrogate is **(C)** with respect to map quality. It changes
+what search costs, never what search can reach. It is a budget instrument.
+
+---
