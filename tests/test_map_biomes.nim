@@ -186,11 +186,18 @@ suite "biome emitters are deterministic":
       check seen.len > 0
 
   test "different seeds produce different terrain":
+    # Not a formality. Desert failed this: at a 384 px period only two or three
+    # ridges cross the band and the 10% break roll rarely fires, so without a
+    # field PHASE every seed got a byte-identical desert. Six consecutive
+    # seeds must produce six distinct terrains, for every biome.
     let domain = testDomain()
     for style in BiomeStyle:
       let p = defaultBiomeParams(style)
-      check digest(generateBiomeShapes(style, 1, TestRegion, p, domain)) !=
-        digest(generateBiomeShapes(style, 2, TestRegion, p, domain))
+      var seen: seq[string]
+      for seed in 1 .. 6:
+        let d = digest(generateBiomeShapes(style, seed, TestRegion, p, domain))
+        check d notin seen
+        seen.add d
 
   test "the edge mask is deterministic too":
     let p = defaultBiomeParams(biomeStyleCaves)
@@ -347,17 +354,30 @@ suite "each biome emits the terrain it claims to":
     let p = defaultBiomeParams(biomeStyleCity)
     check p.roadWidthPx >= RecommendedCorridorWidthPx
 
-  test "forest is sparser than caves at the published defaults":
-    let domain = testDomain()
-    var area: array[BiomeStyle, int]
+  test "every biome's default density lands in the legal cover band":
+    # `arena.validateGeneratedMap` rejects a map outside 40..170 permille
+    # cover, and EVERY biome at its published density falls outside that
+    # window on a CTF board (caves 334, desert 251, forest 26, plains 37,
+    # measured over 8 seeds). The defaults are retuned to sit near the middle
+    # of the band; this pins that, because a density drift is a whole family
+    # of maps that stops validating.
+    #
+    # Bounding-box area over-counts a disc and a diagonal, so the check is a
+    # generous bracket around the real 100..170 permille, not a restatement of
+    # the validator.
+    let
+      domain = testDomain()
+      regionPx = TestRegion.w * TestRegion.h
     for style in BiomeStyle:
-      let shapes = generateBiomeShapes(style, 101, TestRegion,
-                                       defaultBiomeParams(style), domain)
-      for s in shapes:
-        let b = s.bounds()
-        area[style] += (b.x1 - b.x0) * (b.y1 - b.y0)
-    check area[biomeStyleForest] < area[biomeStyleCaves]
-    check area[biomeStylePlains] < area[biomeStyleCaves]
+      var area = 0
+      for seed in 1 .. 4:
+        for s in generateBiomeShapes(style, seed, TestRegion,
+                                     defaultBiomeParams(style), domain):
+          let b = s.bounds()
+          area += (b.x1 - b.x0) * (b.y1 - b.y0)
+      let permille = area * 1000 div (4 * regionPx)
+      check permille >= 60
+      check permille <= 420
 
   test "caves self-seals at the region border when borderIsRock is set":
     # np.pad(constant_values=1): off-grid counts as rock, so a cave ZONE closes

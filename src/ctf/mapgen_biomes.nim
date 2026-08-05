@@ -190,30 +190,54 @@ type
 # ---------------------------------------------------------------------------
 
 proc defaultBiomeParams*(style: BiomeStyle): BiomeParams =
-  ## Source-faithful wherever the source's number is a RATIO or a probability;
-  ## re-derived wherever it is a LENGTH, because the source's lengths are in
-  ## agent tiles and ours are in pixels.
+  ## Source-faithful wherever the source's number is a RATIO the algorithm's
+  ## character depends on; re-derived wherever it is a LENGTH (the source's are
+  ## agent tiles, ours are pixels) or a DENSITY.
+  ##
+  ## THE DENSITIES ALL MOVED, and the reason is one number: `arena.nim` rejects
+  ## a map outside 40..170 permille cover. Every biome at its published density
+  ## lands outside that window on a CTF board — caves at 334, desert at 251,
+  ## forest at 26, plains at 37 (measured, 8 seeds, standard board). So each
+  ## density knob below is set to put its biome near 140 permille, the middle
+  ## of the legal band, and the value it moved FROM is recorded next to it.
+  ## Nothing else was retuned: the automata, thresholds, growth rules, walk
+  ## rules and the dither are the source's.
   result = BiomeParams(
     cell: BiomeCellPx,
     minOpenCells: BiomeMinOpenCells,
-    ditherProb: 0.15,        # dither.py default
-    ditherDepth: 5,          # dither.py default
+    ditherProb: 0.15,        # dither.py default, kept
+    ditherDepth: 5,          # dither.py default, kept
     pebbleDiscs: true,
-    # caves
-    fillProb: 0.4, steps: 3, birthLimit: 5, deathLimit: 3, borderIsRock: true,
-    # forest
-    clumpiness: 2, seedProb: 0.03, growthProb: 0.5, neighborThreshold: 3,
-    # desert
-    dunePeriodPx: 192, ridgeWidthPx: BaseCoverSizePx, duneAngle: PI / 4.0,
+    # caves — fill 0.4 -> 0.27. At 0.4 the CA lands at 334 permille, twice the
+    # legal ceiling; this is the biome the source itself weights 0 as an
+    # overlay and uses only as a base.
+    fillProb: 0.27, steps: 3, birthLimit: 5, deathLimit: 3, borderIsRock: true,
+    # forest — seed 0.03 -> 0.10. With `neighbor_threshold` 3, an isolated seed
+    # can never grow (three of its eight neighbours must already be forest), so
+    # the forest is very nearly its own seed density: 3% of cells, which is
+    # 26 permille, well under the 40 permille floor. 0.10 puts it at 141 and
+    # switches the growth rule on, which is what makes it CLUMP.
+    clumpiness: 2, seedProb: 0.10, growthProb: 0.5, neighborThreshold: 3,
+    # desert — the source's period is 8 CELLS with a 1-cell ridge. A 1-cell
+    # ridge here would be 34 px, under the 47 px at which cover actually hides
+    # a body, so the ridge is `BaseCoverSizePx`; holding the 8:1 ratio would
+    # then put the period at 448 and the duty cycle at 250 permille. 384 gives
+    # 143 permille and a 328 px sand lane between ridges.
+    dunePeriodPx: 384, ridgeWidthPx: BaseCoverSizePx, duneAngle: PI / 4.0,
     noiseProb: 0.1, duneSegmentPx: 192,
     duneGapPx: BaseCoverSizePx + RecommendedCorridorWidthPx,
-    # city — see genCityBiome for why minBlockFrac is 0.38 and not the
-    # source's 0.5 (at 0.5 the size jitter is entirely clipped away, in the
-    # source too)
-    pitchPx: WallSpanPx, roadWidthPx: RecommendedCorridorWidthPx + 4,
-    placeProb: 0.9, minBlockFrac: 0.38, blockJitterPx: 16,
-    # plains
-    clusterPeriod: 7, clusterMinRadius: 0, clusterMaxRadius: 2,
+    # city — see genCityBiome. pitch 200 px with a 68 px road is the finest
+    # lattice that still leaves a block worth calling one, given that the road
+    # may not go below `RecommendedCorridorWidthPx`; minBlockFrac 0.5 -> 0.32
+    # because at 0.5 the size jitter is entirely clipped away (in the source
+    # too — its city is a perfectly regular grid).
+    pitchPx: 200, roadWidthPx: RecommendedCorridorWidthPx,
+    placeProb: 0.9, minBlockFrac: 0.32, blockJitterPx: 16,
+    # plains — cluster_period 7 -> 3 cells. The source's grids are 60+ cells
+    # across, so a period of 7 gives it dozens of anchors; our 10x10 pebble
+    # lattice would get four, for 37 permille. At 3 it gets ~16 and lands at
+    # 148.
+    clusterPeriod: 3, clusterMinRadius: 0, clusterMaxRadius: 2,
     clusterFill: 0.7, clusterProb: 0.8, clusterJitter: 2,
     # asteroid mask — source counts are CELLS; scaled to px by BiomeCellPx
     maskStepPx: 3 * BiomeCellPx,
@@ -593,6 +617,15 @@ proc genDesertBiome*(
     segLen = float(max(16, p.duneSegmentPx))
     gapLen = float(max(width + 8, p.duneGapPx))
     half = float(width) / 2.0
+    # PHASE. The source's field is anchored at the array origin because a
+    # source zone is itself placed at a random position — the randomness lives
+    # one level up. Ours fills a fixed band, so without a phase the field is
+    # the same for every seed: at a 384 px period only two or three ridges
+    # cross the band, the 10% break roll rarely fires, and two different seeds
+    # produce byte-identical deserts (they did; the determinism test caught
+    # it). One uniform draw over a whole period restores the variation the
+    # source got from placement.
+    phase = rand(r, 1.0) * float(period)
   # u-range of the region's four corners bounds which ridges can intersect it.
   var
     uLo = 1.0e9
@@ -603,10 +636,10 @@ proc genDesertBiome*(
     let u = float(cx) * ct + float(cy) * st
     uLo = min(uLo, u)
     uHi = max(uHi, u)
-  var k = int(floor(uLo / float(period))) - 1
-  while float(k) * float(period) <= uHi + float(period):
+  var k = int(floor((uLo - phase) / float(period))) - 1
+  while float(k) * float(period) + phase <= uHi + float(period):
     let
-      u = float(k) * float(period) + float(width) / 2.0
+      u = float(k) * float(period) + phase + float(width) / 2.0
       # A point on this ridge's centre line, plus the in-region span.
       px = u * ct
       py = u * st

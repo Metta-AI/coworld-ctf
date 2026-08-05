@@ -117,10 +117,26 @@ proc biomeMap(
   if anchor:
     result.leftObstacles.add sightlineAnchors(r, region, 120)
 
+proc bandScore(m: MapMetrics): float =
+  ## `staticScore` with the VALIDATOR GATE BYPASSED: the same weighted mean of
+  ## the same bands, but not short-circuited to 0 when `validateGeneratedMap`
+  ## refuses the map.
+  ##
+  ## This is the number that measures TERRAIN. The hard gates a biome trips as
+  ## a full-region fill — an unbroken cross-field row — are the structure
+  ## pass's to fix, and scoring them as 0 would only measure how good the
+  ## stand-in anchor above is. `valid=` in the same row keeps the gate visible.
+  var total, weight = 0.0
+  for r in m.scoreBands(DefaultBands):
+    total += r.sub * r.band.weight
+    weight += r.band.weight
+  if weight <= 0.0: 0.0 else: total / weight
+
 proc row(style: BiomeStyle, seeds: int, size: string,
          mask, anchor: bool): string =
   var
     score = 0.0
+    band = 0.0
     interior = 0.0
     cover = 0.0
     openRun = 0.0
@@ -133,6 +149,7 @@ proc row(style: BiomeStyle, seeds: int, size: string,
       gameMap = biomeMap(style, 1000 + i, size, mask, anchor)
       m = evaluateMap(gameMap, $style)
     score += staticScore(m)
+    band += bandScore(m)
     interior += m.interiorFrac
     cover += float(m.coverPermille)
     openRun += float(m.openRunP95Px)
@@ -141,7 +158,8 @@ proc row(style: BiomeStyle, seeds: int, size: string,
     if m.valid: inc valid
     elif firstReason.len == 0: firstReason = m.reason
   let n = float(seeds)
-  &"{$style:<8} score={score / n:5.3f} interior={interior / n:5.3f} " &
+  &"{$style:<8} band={band / n:5.3f} score={score / n:5.3f} " &
+    &"interior={interior / n:5.3f} " &
     &"cover={int(cover / n):4d}pm openP95={int(openRun / n):5d}px " &
     &"seed_shapes={shapes div seeds:4d} full={full div seeds:4d} " &
     &"valid={valid}/{seeds} {firstReason}"
@@ -187,7 +205,8 @@ when isMainModule:
     renderMap(gameMap, options).image.writeFile(outPath)
     let m = evaluateMap(gameMap, biome)
     echo &"{biome} seed={seed} shapes={gameMap.leftObstacles.len} " &
-      &"score={staticScore(m):5.3f} interior={m.interiorFrac:5.3f} " &
+      &"band={bandScore(m):5.3f} score={staticScore(m):5.3f} " &
+      &"interior={m.interiorFrac:5.3f} " &
       &"cover={m.coverPermille}pm valid={m.valid} {m.reason}"
     echo "wrote " & outPath
   of "score":
