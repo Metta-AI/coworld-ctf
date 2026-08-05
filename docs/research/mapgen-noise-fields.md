@@ -1130,6 +1130,83 @@ And simultaneously, from the same object:
 > excursion fraction 0.35, ribbon 20 px, the model predicts `interiorFrac ≈ 0.32`
 > at 150 permille cover — inside both bands, against a pool median of 0.118.
 
+### 6.4b The deeper problem the identity does NOT fix — and the construction that does
+
+Reconciling with the sibling surveys (`docs/research/mapgen-partition-geometry.md`
+§7 and `docs/research/mapgen-constructive.md` §4.6) forced me to look harder at my
+own result, and it has a flaw the metric cannot see. Stating it against myself
+before anyone else does:
+
+**`routeCountMin = min_i d_i` is a statement about the PIXEL min-cut. The room
+graph is still a tree.** Three doors in one wall give three vertex-disjoint
+*corridors* and the metric will happily read 3 — but every route visits **the same
+rooms in the same order**, and all three doors are on one wall, so **one defender
+standing back from that wall watches all of them.** That very likely trips
+`chokeCoveredPenalty` ("ONE 1050 px isovist watches every chokepoint"), and more
+to the point it is the map being a corridor while the number says otherwise. Our
+own generator history is that the validators pass 96% of first attempts — they are
+a crash guard, not a filter. **My identity would have been metric-gaming.**
+
+The siblings' answer is structurally right and I adopt it: **do not open a tree,
+close a triangulation.** Every plane triangulation with `n >= 4` vertices is
+**3-connected**, so by Menger there are 3 vertex-disjoint paths between *every*
+pair of nodes; start from the Delaunay/Voronoi partition with all doorways open
+(3-connected) and close doorways only while the check still passes. That delivers
+redundancy at the **room** level, which is the thing that matters.
+
+But that is a *partition* construction, and nesting contours are inherently a
+*hierarchy* — closed curves nest, they cannot form cycles. So rather than bolt a
+partition onto §6.4, there is a one-line change to the contour construction that
+dissolves the problem entirely:
+
+> **Cut the rings. Thicken ARCS, not loops.**
+
+Thicken only a contiguous **arc** of each extracted contour — 270° to 340° of the
+loop — and discard the rest. A thickened simple arc is homeomorphic to a **closed
+disc**: simply connected, and it does not separate the plane. Then:
+
+> **(A) HARD GUARANTEE — connectivity, with no doors at all.** If every wall
+> component is a thickened simple arc, components are pairwise disjoint, and none
+> touches the map border, then the wall set is a finite disjoint union of closed
+> topological discs, and the complement of such a union in a rectangle is
+> connected. **The floor is connected, there are no sealed pockets, and no wall is
+> a cut set — so `chokeCount` from walls is 0**, matching the arena's control of 0.
+> This is the *same one-line proof* as §5.4, now applied to concave pieces instead
+> of convex ones. Everything §5.4 gives scatter, arcs give too.
+
+> **(A) HARD GUARANTEE — route capacity.** Enforce a minimum gap `g` between any
+> two wall components and between any component and the border (a distance-
+> transform check, or Poisson-disk on the arc centres). Any cut separating the two
+> bases must cross at least one gap, and a gap of width `g` costs
+> `floor(g / RouteCellPx)` cells. So **`routeCountMin >= floor(g / 26)` by
+> construction.** Set `g = 78` (3 cells, comfortably above
+> `RecommendedCorridorWidthPx = 68`) and the hard band `routeCountMin >= 2` cannot
+> fail, with a full cell of margin.
+
+> **(A)-adjacent — `interiorFrac`, with an exact design rule.** An arc spanning
+> angle `theta` blocks about `8 * theta / 360` of the 8 probe directions from its
+> centre. `InteriorBlockedMin = 6` therefore lands at **`theta >= 270°`** — the
+> threshold at `map_metrics.nim:81` is *literally* a three-quarter horseshoe.
+> **Keep at least 270° of every contour; cut at most 90° out.** The pocket inside
+> the C counts as interior floor provided the arc's inner radius is
+> ≤ `EnclosureReachPx = 120 px`.
+
+The mouth of the C **is** the door, and it costs nothing: no door-punching pass,
+no distance-transform door siting, no laminar-family repair bookkeeping. The cut
+angle is a per-ring RNG draw, lifted by the orbit so every team's rooms have their
+mouths in matching places. A horseshoe bunker with an open mouth is also a
+thoroughly conventional FPS map element, so the output should read as designed
+rather than as generated.
+
+**What is lost:** the contour-nesting-tree theorem no longer does any work,
+because there is no tree — which is the point. Keep §6.4/§6.4a in the document as
+the reason the *loop* version fails, not as the recommendation. And leave
+room-level redundancy where the siblings put it: at the **partition** layer
+(Voronoi cells, Delaunay 3-connectivity), with contour arcs placed *inside* the
+cells as the concave cover. **The two dimensions compose exactly there** — their
+partition gives the lane network and the route redundancy; my arcs give the
+enclosed pockets that a convex-blob generator provably cannot (§12.1).
+
 **The failure modes, and the repair that PRESERVES the guarantee.** This is the
 part that makes it engineering rather than a nice theorem:
 
