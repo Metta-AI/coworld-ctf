@@ -101,9 +101,9 @@ whenever standings or preferences change:
 resolve(claimants, palette):
   # claimants = players who set a preference: {player, standing, requested_slug}.
   # Players with no preference are NOT claimants; their teams keep stock colors.
-  # Sort by standing, best first. Standings are a total order; if an upstream
-  # tie is possible, break it lexicographically by player id — the result must
-  # be identical on every run.
+  # Sort by standing, best first ("standing" is bigger-is-better, Elo-like).
+  # Standings are a total order; if an upstream tie is possible, break it
+  # lexicographically by player id — the result must be identical on every run.
   taken  = {}   # slug -> player who holds it
   grants = {}   # player -> provenance record (§4)
   for c in sort(claimants, by=standing, tiebreak=player_id):
@@ -111,6 +111,9 @@ resolve(claimants, palette):
       # more claimants than slugs: everyone past the 8th keeps stock colors
       grants[c.player] = { requested: c.requested_slug, granted: null,
                            takenBy: walk_of_all_slugs(taken) }
+      # walk_of_all_slugs STARTS AT c.requested_slug and cycles the whole
+      # array in order — the full-palette walk still tells THIS player's
+      # story ("why did I get nothing when I chose teal"), not index 0's.
       continue
     i    = palette.indexOf(c.requested_slug)
     walk = []                                # the story of the walk, in order
@@ -215,9 +218,47 @@ Rules:
   no claimant, red team's owner holds slug `blue`). When composing the payload the
   platform resolves this by walking the *unclaimed* team from its stock slug to the
   next slug free within this payload — explicit grants are promises made by the
-  picker and are never moved.
+  picker and are never moved. When SEVERAL unclaimed teams need to walk, process
+  teams in fixed wire order (`red, blue, green, yellow`), each resolution feeding
+  the taken-set of the next — a later unclaimed team's stock can collide with an
+  *earlier* unclaimed team's already-bumped slug, not just with a grant.
+- **Executable reference**: `scripts/resolve_reference.py` implements §3 + this
+  section exactly, and `tests/resolver_vectors.json` carries 13 golden vectors
+  (including both worked examples byte-for-byte). Port the vectors as tests in the
+  platform repo; an implementation that passes all 13 is contract-equivalent.
 - The payload carries slugs, not hexes: the viewer translates slug → `game` hex via
   its own copy of `team_palette.json`. The platform never sends raw colors.
+- A `teams` entry may carry `shimmer` with **no** `slug` (that policy shimmers, the
+  team keeps its stock color). The viewer accepts it.
+
+## 5.1 How the viewer receives it
+
+The board is **server-rendered** — team color is baked into sprite RGBA in Nim and
+shipped over the sprite protocol — so the mapping has to reach the *engine*, not
+just the page. `src/ctf/team_colors.nim` is the single funnel; it accepts the raw
+param value (base64 JSON, or plain JSON for hand runs) and never raises.
+
+| Delivery path | How the mapping arrives |
+|---|---|
+| **Static WASM bundle** (`replay-viewer/`, the Observatory production path) | `?colors=` on the board URL. `static_replay.js` hands the raw value to the exported `ctf_set_team_colors(ptr, len)` immediately before `ctf_load_replay`. The league shell (`league.html`) forwards `?colors=` verbatim onto the board iframe's `src`. |
+| **Native server** (`bin/ctf-server`) | The `CTF_TEAM_COLORS` environment variable, read in `src/ctf.nim` before the server loop starts. It is an env var, not a CLI flag, because `bitworld/runtime` owns the option parser and rejects unknown options; and it stays out of `GameConfig` so a display choice can never reach the game hash or the recorded replay config. The page still takes `?colors=` for its own chrome. |
+
+Two ordering rules that are easy to get wrong and fail *silently*:
+
+- **Before the first bake.** Every team-colored sprite is baked once and cached,
+  and paint stains are append-only behind a send cursor. A mapping installed
+  after the first frame changes nothing. `setTeamDisplayColors` therefore
+  refuses a second call.
+- **After the runtime's `main()`.** On wasm, `Module.onRuntimeInitialized` fires
+  *before* emscripten calls `main`, and `main` runs Nim's module-level
+  initializers — which reset the mapping to stock. The call must sit next to
+  `ctf_load_replay`, which has the same constraint.
+
+The browser chrome resolves the same payload independently (CSS custom
+properties + the FPV cog art), reading slug → hex from `window.CTF_PALETTE`,
+which is **generated** from `data/team_palette.json` by the same Nim module the
+engine paints with (`teamPaletteJs`, emitted alongside `window.CTF_WIRE`). A
+palette change needs no JavaScript edit, and the hexes are never re-typed.
 
 ## 6. Vendoring guidance (webpage repo)
 

@@ -1465,10 +1465,24 @@ body[data-embed] #board { top: 0; height: 100%; }
     : location.pathname.replace(/\/clients?\/[^/]*$/, '') + '/client';
   var COG_ART = {}, COG_ART_GUN = {};
   ['red', 'blue', 'green', 'yellow'].forEach(function (team) {
-    COG_ART[team] = new Image();
-    COG_ART[team].src = COG_BASE + '/soldier_' + team + '_front.png';
-    COG_ART_GUN[team] = new Image();
-    COG_ART_GUN[team].src = COG_BASE + '/soldier_' + team + '_front_gun.png';
+    // Display funnel (docs/COLOR_CONTRACT.md): a team the platform recolored
+    // either borrows another WIRE color's hand-made front master, or re-tints
+    // its own into a canvas once it loads. Mirrors the board's Nim re-tint
+    // (src/ctf/team_colors.nim) so the FPV inset cog and the board cog are the
+    // same color. A stock team takes the untouched PNG, exactly as before.
+    var plan = window.CtfTeamColors.artPlan(team);
+    [['', COG_ART], ['_gun', COG_ART_GUN]].forEach(function (variant) {
+      var suffix = variant[0], store = variant[1];
+      var img = new Image();
+      store[team] = img;
+      if (plan.retint) {
+        img.addEventListener('load', function () {
+          var cv = window.CtfTeamColors.retintImage(img, plan.from, plan.to);
+          if (cv) store[team] = cv;
+        });
+      }
+      img.src = COG_BASE + '/soldier_' + plan.team + '_front' + suffix + '.png';
+    });
   });
   function cogArtReady(img) { return img && img.complete && img.naturalWidth > 0; }
   // Pick the armed pose when it's ready, else the plain one, else null (the

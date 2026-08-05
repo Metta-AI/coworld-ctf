@@ -12,7 +12,7 @@ import
   std/[math, os, strutils],
   bitworld/aseprite,
   pixie,
-  sim_types
+  sim_types, team_colors
 
 when not defined(emscripten):
   import bitworld/client as bitworldClient
@@ -102,21 +102,12 @@ proc loadCrewSprites*(): seq[CrewSprite] =
   ## Loads the first eight 16x16 living crew sprites.
   loadCrewSpriteRow(0, "Crew")
 
-proc loadRgbaSprite*(name: string, size: int, alphaCutoff = 0'u8): seq[uint8] =
-  ## Loads a hand-painted relic PNG from data/ and returns it as a straight-alpha
-  ## RGBA buffer scaled to size×size for the Sprite v1 protocol. The PNGs carry
-  ## real transparency (alpha-knocked from the art), and pixie stores
-  ## premultiplied alpha internally, so we take `.rgba` to hand the protocol
-  ## un-premultiplied colors.
-  ##
-  ## `alphaCutoff` > 0 snaps the resized alpha to a HARD edge (>= cutoff opaque,
-  ## else fully clear). Pixie's `resize` is bilinear, so downscaling a big PNG
-  ## feathers its bold dark outline into a ring of semi-transparent pixels that
-  ## reads as a fuzzy colored halo bleeding onto the floor. Snapping the alpha
-  ## keeps the SAME art but restores the crisp outline; the interior facets are
-  ## untouched (they were already fully opaque). 128 is the sweet spot at both
-  ## the carried (20px) and planted (60px) footprints.
-  let image = readImage(gameDir() / name).resize(size, size)
+proc rgbaSpriteFromImage*(
+  source: Image, size: int, alphaCutoff = 0'u8
+): seq[uint8] =
+  ## The pixel half of `loadRgbaSprite`, split out so a team-recolored master
+  ## can be re-tinted in memory before it is scaled into a sprite buffer.
+  let image = source.resize(size, size)
   result = newSeq[uint8](size * size * 4)
   for y in 0 ..< size:
     for x in 0 ..< size:
@@ -131,16 +122,41 @@ proc loadRgbaSprite*(name: string, size: int, alphaCutoff = 0'u8): seq[uint8] =
       result[offset + 2] = pixel.b
       result[offset + 3] = alpha
 
+proc loadRgbaSprite*(name: string, size: int, alphaCutoff = 0'u8): seq[uint8] =
+  ## Loads a hand-painted relic PNG from data/ and returns it as a straight-alpha
+  ## RGBA buffer scaled to size×size for the Sprite v1 protocol. The PNGs carry
+  ## real transparency (alpha-knocked from the art), and pixie stores
+  ## premultiplied alpha internally, so we take `.rgba` to hand the protocol
+  ## un-premultiplied colors.
+  ##
+  ## `alphaCutoff` > 0 snaps the resized alpha to a HARD edge (>= cutoff opaque,
+  ## else fully clear). Pixie's `resize` is bilinear, so downscaling a big PNG
+  ## feathers its bold dark outline into a ring of semi-transparent pixels that
+  ## reads as a fuzzy colored halo bleeding onto the floor. Snapping the alpha
+  ## keeps the SAME art but restores the crisp outline; the interior facets are
+  ## untouched (they were already fully opaque). 128 is the sweet spot at both
+  ## the carried (20px) and planted (60px) footprints.
+  rgbaSpriteFromImage(readImage(gameDir() / name), size, alphaCutoff)
+
 proc loadHeartSprite*(team: Team, size: int): seq[uint8] =
   ## The CTF objective, a glowing team-colored heart-gem relic (0.7.0 renamed the
   ## "flag" a heart in-sim). Red = crimson life-crystal, Blue = frost life-crystal.
   ## Hard alpha edge (cutoff 128) so the bold painted outline stays crisp at the
   ## sprite footprint instead of feathering into a fuzzy halo on the floor.
-  loadRgbaSprite(
-    "data/heart_" & teamText(team) & ".png",
-    size,
-    alphaCutoff = 128'u8
-  )
+  ##
+  ## A recolored team (docs/COLOR_CONTRACT.md) borrows another wire color's
+  ## hand-painted gem, or gets the red gem re-tinted to its display color.
+  let spec = teamArtTint(team, propArt = true)
+  if not spec.retint:
+    return loadRgbaSprite(
+      "data/heart_" & teamText(spec.sourceTeam) & ".png",
+      size,
+      alphaCutoff = 128'u8
+    )
+  let image = readImage(
+    gameDir() / "data/heart_" & teamText(spec.sourceTeam) & ".png")
+  image.applyTeamArtTint(spec, propArt = true)
+  rgbaSpriteFromImage(image, size, alphaCutoff = 128'u8)
 
 proc loadMedKitSprite*(size: int): seq[uint8] =
   ## The center-field healing pickup: a chunky white healer's kit with a red
@@ -238,9 +254,16 @@ proc measureSoldierBody(skin: Skin, team: Team, master: Image) =
       float(SoldierBodyPx) / max(1.0, float(bot - top + 1))
 
 proc ensureSoldierLoaded(skin: Skin, team: Team) =
+  ## Loads (once) the cog master this team is DISPLAYED as. A stock team reads
+  ## its own shipped PNG byte-for-byte; a team the platform recolored either
+  ## borrows another wire color's hand-tinted master or gets its own re-tinted
+  ## at load — see team_colors.teamArtTint. Boot-time: the master feeds every
+  ## cached rotation below, so this must run before the first sprite is baked.
   if soldierLoaded[skin][team]:
     return
-  let master = readImage(gameDir() / SoldierMasterPaths[skin][team])
+  let spec = teamArtTint(team)
+  let master = readImage(gameDir() / SoldierMasterPaths[skin][spec.sourceTeam])
+  master.applyTeamArtTint(spec)
   soldierMasters[skin][team] = master
   measureSoldierBody(skin, team, master)
   soldierLoaded[skin][team] = true
@@ -445,11 +468,17 @@ proc rigSegIsWheel*(seg: RigSeg): bool =
 proc ensureRigLoaded(team: Team) =
   if rigLoaded[team]:
     return
-  let dir = gameDir() / "data/rig_real" / teamText(team)
+  # Same display-color rule as the unified cog master: the rig segments are
+  # slices of that art, so they take the identical source + re-tint decision.
+  let
+    spec = teamArtTint(team)
+    dir = gameDir() / "data/rig_real" / teamText(spec.sourceTeam)
   for seg in RigSeg:
     rigSegImg[team][seg] = readImage(dir / rigSegPath(seg) & ".png")
+    rigSegImg[team][seg].applyTeamArtTint(spec)
   rigHeadImg[DefaultSkin][team] = rigSegImg[team][rsHead]
   rigHeadImg[CrownSkin][team] = readImage(dir / "head_crown.png")
+  rigHeadImg[CrownSkin][team].applyTeamArtTint(spec)
   # Scale the rig so its body matches the unified soldier footprint. The solid
   # body spans ~99px in the 192px frame (y56..154); map that to SoldierBodyPx.
   ensureSoldierLoaded(DefaultSkin, team)

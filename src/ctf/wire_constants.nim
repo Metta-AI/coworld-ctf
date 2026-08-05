@@ -9,7 +9,7 @@
 ## only as fallbacks for raw file:// opens of the un-spliced sources.
 
 import std/strutils
-import sim, global
+import sim, global, team_colors
 
 proc jsIntArray(values: openArray[int]): string =
   result = "["
@@ -26,6 +26,12 @@ const WireConstantsJs* =
   ",shotTrailFalloff:" & $TrailFalloff &
   "};"
 
+const TeamPaletteBlockJs* = teamPaletteJs()
+  ## `window.CTF_PALETTE`: the slug -> in-game hex table, rendered from the SAME
+  ## data/team_palette.json the engine paints with (src/ctf/team_colors.nim).
+  ## The chrome needs it to translate a `?colors=` payload into CSS vars, and
+  ## docs/COLOR_CONTRACT.md forbids a second hand-typed copy of the hexes.
+
 const WireConstantsMarker* = "<!-- WIRE_CONSTANTS -->"
   ## The placeholder both client HTML files carry where the block belongs
   ## (before any script that reads window.CTF_WIRE).
@@ -34,4 +40,4 @@ proc spliceWireConstants*(page: string): string =
   ## Replaces the marker with the inline constants script. A page without the
   ## marker passes through unchanged.
   page.replace(WireConstantsMarker,
-    "<script>" & WireConstantsJs & "</script>")
+    "<script>" & WireConstantsJs & TeamPaletteBlockJs & "</script>")

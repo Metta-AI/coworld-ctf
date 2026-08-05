@@ -3,7 +3,7 @@ import
   supersnappy,
   bitworld/pixelfonts, bitworld/profile, bitworld/spriteprotocol, bitworld/server,
   pixie,
-  labels, shimmer, sim
+  labels, shimmer, sim, team_colors
 
 const
   BroadcastChromeSpriteId* = 4090
@@ -1851,7 +1851,15 @@ proc buildIdentityBadgeSprite(
   ## treatment), so the letter reads over the disc at board scale.
   result = newRgbaPixels(IdentityBadgeSize, IdentityBadgeSize)
   let
-    base = Palette[teamColor(team) and 0x0f]
+    # Team-colored chrome that has always drawn from the RETRO palette slot.
+    # teamDisplayRgba is that exact lookup until the platform recolors the
+    # team, at which point it follows the display color — so a recolored team
+    # is coherent everywhere and a stock replay is pixel-identical. (The retro
+    # slot and the true display color genuinely differ for all four teams —
+    # blue's slot is a muted lavender the board shows nowhere else — but
+    # closing THAT gap would repaint every existing replay, so it is left as a
+    # deliberate, separate decision.)
+    base = teamDisplayRgba(teamColor(team))
     c = float(IdentityBadgeSize - 1) / 2
   for y in 0 ..< IdentityBadgeSize:
     for x in 0 ..< IdentityBadgeSize:
@@ -3340,6 +3348,18 @@ proc putTextSpritePixel(
     return
   pixels.putRgbaPixel(y * width + x, color)
 
+proc putTextSpriteRgba(
+  pixels: var seq[uint8],
+  width, height, x, y: int,
+  rgba: ColorRGBA
+) =
+  ## Puts one TRUE-COLOR pixel into a text sprite. Used where the art inside a
+  ## text sprite carries team identity (the carrier's flag chip) and must track
+  ## the display funnel instead of the retro palette slot.
+  if x < 0 or y < 0 or x >= width or y >= height:
+    return
+  pixels.putRawRgbaPixel(y * width + x, rgba.r, rgba.g, rgba.b, rgba.a)
+
 proc blitGlyph(
   target: var seq[uint8],
   targetWidth, targetHeight: int,
@@ -3438,6 +3458,20 @@ proc buildSpriteProtocolTextSprite(
           3'u8
         )
 
+proc recolorMonochromeSprite(pixels: var seq[uint8], tint: ColorRGBA) =
+  ## Repaints every non-transparent pixel of a SINGLE-COLOR sprite to `tint`,
+  ## keeping alpha (and therefore any anti-aliasing) exactly as rendered. Lets a
+  ## palette-indexed text sprite follow the display funnel without threading a
+  ## true color through the whole glyph-blit path — safe ONLY on sprites that
+  ## are one color by construction.
+  var i = 0
+  while i + 3 < pixels.len:
+    if pixels[i + 3] != 0'u8:
+      pixels[i] = tint.r
+      pixels[i + 1] = tint.g
+      pixels[i + 2] = tint.b
+    i += 4
+
 proc textLabel(lines: openArray[string]): string =
   ## Returns a debugger label for one rendered text sprite.
   for i, line in lines:
@@ -3480,7 +3514,7 @@ proc buildSmoothShoutBubble(
     logicalH = max(1, (outH + native - 1) div native)
     canvasW = logicalW * native
     canvasH = logicalH * native
-    edge = Palette[teamColor(team) and 0x0f]
+    edge = teamDisplayRgba(teamColor(team))  # retro slot until recolored
     edgeColor = color(
       float32(edge.r) / 255, float32(edge.g) / 255, float32(edge.b) / 255, 1)
     paperColor = color(1, 241 / 255, 232 / 255, 240 / 255)
@@ -3546,7 +3580,7 @@ proc buildShoutBubble*(
     pillH = font.height + 2 * ShoutPadY
     width = pillW
     height = pillH + ShoutTailH
-    edge = Palette[teamColor(team) and 0x0f]  # team-colored outline
+    edge = teamDisplayRgba(teamColor(team))  # team-colored outline
     tailCx = pillW div 2                       # tail centered under the pill
   result.width = width
   result.height = height
@@ -3627,7 +3661,11 @@ proc addTeamScoreboard(
   for team in sim.teams():
     let text = teamText(team).toUpperAscii() & " " &
       $kills[team] & "/" & $deaths[team]
-    let sprite = sim.buildSpriteProtocolTextSprite([text], teamColor(team))
+    var sprite = sim.buildSpriteProtocolTextSprite([text], teamColor(team))
+    # The score chip is the team's name in its own color: a recolored team's
+    # chip follows it. Stock teams keep the exact palette-indexed pixels.
+    if teamDisplayIsRecolored(team):
+      sprite.pixels.recolorMonochromeSprite(teamDisplayColor(team))
     totalWidth += sprite.width + TeamScoreGap
     chips.add((team: team, text: text, sprite: sprite))
   var x = max(0, (TeamScoreWidth - totalWidth) div 2)
@@ -3914,7 +3952,7 @@ proc buildFlagAuraSprite(team: Team): seq[uint8] {.measure.} =
   let outSize = FlagAuraSize * boardScale
   result = newRgbaPixels(outSize, outSize)
   let
-    base = Palette[teamColor(team) and 0x0f]
+    base = teamDisplayRgba(teamColor(team))  # retro slot until recolored
     c = float(outSize - boardScale) / 2
   for y in 0 ..< outSize:
     for x in 0 ..< outSize:
@@ -4523,7 +4561,8 @@ proc blitNameFlag(
   ## outline) into a name sprite at (baseX, baseY). The outline lets it read on
   ## any floor, matching the board banner.
   let
-    body = teamColor(team)
+    body = teamDisplayRgba(teamColor(team))  # follows a recolored team; the
+                                             # exact retro slot when stock.
     h = TextLineHeight
   var kind = newSeq[uint8](NameFlagW * h)  # 0 empty, 1 pole, 2 cloth
   proc put(x, y: int, k: uint8) =
@@ -4542,7 +4581,7 @@ proc blitNameFlag(
       let py = baseY + y
       case kind[y * NameFlagW + x]
       of 1: target.putTextSpritePixel(targetWidth, targetHeight, px, py, 5'u8)  # wood pole
-      of 2: target.putTextSpritePixel(targetWidth, targetHeight, px, py, body)  # team cloth
+      of 2: target.putTextSpriteRgba(targetWidth, targetHeight, px, py, body)  # team cloth
       else:
         if solid(x - 1, y) or solid(x + 1, y) or solid(x, y - 1) or solid(x, y + 1):
           target.putTextSpritePixel(targetWidth, targetHeight, px, py, OutlineColor)

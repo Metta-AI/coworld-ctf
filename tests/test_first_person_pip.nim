@@ -65,12 +65,17 @@ suite "bundle asset paths":
     # the guard checks the loop goes through COG_BASE (issue #131: a root
     # path resolves to the API origin from the static bundle and 404s) and
     # that every team name is in the roster it iterates.
+    #
+    # The loop now sources the master by DISPLAY color (team_colors.artPlan: a
+    # team the platform recolored borrows another wire color's hand-made PNG),
+    # so the team token in the URL is `plan.team` and plain/gun differ by a
+    # `suffix`. The invariant under test is unchanged, and is still asserted on
+    # the WHOLE expression rather than a prefix: the base must be COG_BASE.
     checkpoint("the templated art loop must derive from COG_BASE")
     check html.contains(
-      "COG_ART[team].src = COG_BASE + '/soldier_' + team + '_front.png'")
-    check html.contains(
-      "COG_ART_GUN[team].src = COG_BASE + '/soldier_' + team + " &
-      "'_front_gun.png'")
+      "img.src = COG_BASE + '/soldier_' + plan.team + '_front' + suffix + '.png'")
+    checkpoint("both the plain and the armed master ride that one loop")
+    check html.contains("[['', COG_ART], ['_gun', COG_ART_GUN]]")
     for team in ["'red'", "'blue'", "'green'", "'yellow'"]:
       checkpoint(team & " must be in the art roster")
       check html.contains(team)

@@ -5,4 +5,4 @@
 ## HTML pages — same constants, same source, different delivery.
 import ../src/ctf/wire_constants
 
-echo WireConstantsJs
+echo WireConstantsJs & TeamPaletteBlockJs

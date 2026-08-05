@@ -12,6 +12,9 @@ import
   test_movement_slide,
   test_replay_controls,
   test_shimmer,
+  # test_team_colors installs the process-global display mapping, but resets it
+  # in every teardown — it must never leave a recolor behind for a later module.
+  test_team_colors,
   test_trenches,
   test_weapon_observability,
   test_windows

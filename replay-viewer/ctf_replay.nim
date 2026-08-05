@@ -1,6 +1,6 @@
 import
   std/json,
-  ctf/[broadcast, global, replay_runtime, replays, sim]
+  ctf/[broadcast, global, replay_runtime, replays, sim, team_colors]
 
 var
   runtimeLoaded = false
@@ -42,6 +42,21 @@ proc renderCurrent(events: JsonNode) =
   var nextViewer: GlobalViewerState
   packet = game.buildReplayViewerPacket(replay, viewer, nextViewer, events)
   viewer = nextViewer
+
+proc ctfSetTeamColors(data: ptr uint8, length: cint): cint
+    {.exportc: "ctf_set_team_colors", cdecl.} =
+  ## Installs the platform's resolved team -> display-slug mapping: the raw
+  ## `?colors=` param value (base64 of UTF-8 JSON, docs/COLOR_CONTRACT.md §5).
+  ##
+  ## MUST be called before ctf_load_replay — that call bakes the first frame,
+  ## and every team-colored sprite (including the append-only paint stains) is
+  ## baked once and cached. Returns 1 when at least one team was recolored.
+  ## Never fails the page: an absent, malformed or version-skewed payload
+  ## simply leaves every team on its stock color.
+  try:
+    if setTeamDisplayColors(data.bytesFromPointer(int(length))): 1 else: 0
+  except Exception:
+    0
 
 proc ctfLoadReplay(data: ptr uint8, length: cint): cint
     {.exportc: "ctf_load_replay", cdecl.} =

@@ -392,6 +392,11 @@
   var staticReplayUri = params.get('replay') || '';
   var STATIC_BUNDLE = staticReplayUri !== '';
   var replayUri = params.get('uri') || '';
+  // colors: the Observatory's resolved team -> display-slug mapping, same
+  // base64/JSON encoding as standings (docs/COLOR_CONTRACT.md §5). The shared
+  // chrome (chrome_common.js) has already decoded it for THIS page's CSS vars
+  // and tints; the shell only has to forward the raw value to the board.
+  var colorsParam = params.get('colors') || '';
   // standings: base64/JSON of {division, competitors:{red,blue}, ladder:[{name,rank,score,you}]}
   var standings = null;
   try {
@@ -419,6 +424,12 @@
       src = ROUTE_BASE + '/client/replay?embed=1';
       if (replayUri) src += '&uri=' + encodeURIComponent(replayUri);
     }
+    // Team recolor (docs/COLOR_CONTRACT.md §5) rides the iframe SRC, not the
+    // postMessage bridge: the board must have its colors before it bakes its
+    // first frame, and a message can only arrive after the frame has loaded and
+    // begun rendering. Forwarded verbatim — the board and the shared chrome
+    // each decode it, and the WASM board hands the raw value to the engine.
+    if (colorsParam) src += '&colors=' + encodeURIComponent(colorsParam);
     $('game').src = src;
   })();
 
