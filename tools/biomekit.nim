@@ -39,8 +39,65 @@ proc placementRegion(base: CtfMap): MapRect =
     MapRect(x: sr.x + hMargin, y: sr.y + vMargin,
             w: max(1, sr.w - hMargin - seam), h: max(1, sr.h - vMargin - seam))
 
+var overrideParams: seq[(string, string)]
+
+proc applyOverrides(p: var BiomeParams) =
+  for (key, raw) in overrideParams:
+    template asInt: int = raw.parseInt
+    template asFloat: float = raw.parseFloat
+    case key
+    of "cell": p.cell = asInt
+    of "fillProb": p.fillProb = asFloat
+    of "steps": p.steps = asInt
+    of "seedProb": p.seedProb = asFloat
+    of "growthProb": p.growthProb = asFloat
+    of "clumpiness": p.clumpiness = asInt
+    of "neighborThreshold": p.neighborThreshold = asInt
+    of "dunePeriodPx": p.dunePeriodPx = asInt
+    of "ridgeWidthPx": p.ridgeWidthPx = asInt
+    of "duneAngle": p.duneAngle = asFloat
+    of "noiseProb": p.noiseProb = asFloat
+    of "pitchPx": p.pitchPx = asInt
+    of "roadWidthPx": p.roadWidthPx = asInt
+    of "minBlockFrac": p.minBlockFrac = asFloat
+    of "placeProb": p.placeProb = asFloat
+    of "clusterPeriod": p.clusterPeriod = asInt
+    of "clusterMaxRadius": p.clusterMaxRadius = asInt
+    of "clusterProb": p.clusterProb = asFloat
+    of "ditherProb": p.ditherProb = asFloat
+    of "borderIsRock": p.borderIsRock = raw == "true"
+    of "minOpenCells": p.minOpenCells = asInt
+    else: quit("unknown --set key: " & key, 2)
+
+proc sightlineAnchors(r: var Rand, region: MapRect, period: int): seq[ArenaShape] =
+  ## MEASUREMENT INSTRUMENT, NOT TERRAIN. `validateGeneratedMap` rejects any
+  ## map with an unbroken horizontal sightline, and three of the five biomes
+  ## produce one as a FULL-REGION fill (city's road lattice by construction;
+  ## forest and plains because they are sparse scatters). Breaking that is the
+  ## structure pass's job, and the structure pass is not this module's.
+  ##
+  ## But `staticScore` returns 0 for an invalid map, so without something here
+  ## every biome would score 0.000 and the terrain itself would be
+  ## unmeasurable. This is the minimum that opens the gate: one staggered
+  ## mid-field bar per row band, the same device `mapgen_styles.verticalAnchors`
+  ## uses. It lives in the TOOL so nothing ships it by accident.
+  let
+    loX = region.x + region.w * 50 div 100
+    hiX = region.x + region.w * 82 div 100
+    thick = 18
+  var gy = region.y
+  while gy <= region.y + region.h:
+    let
+      x = clamp(loX + rand(r, max(1, hiX - loX)), region.x,
+                region.x + region.w - thick)
+      y = max(region.y, gy - 12)
+      hh = min(period + 24, region.y + region.h - y)
+    result.add ArenaShape(kind: shapeRect,
+                          rect: MapRect(x: x, y: y, w: thick, h: hh))
+    gy += period
+
 proc biomeMap(
-    style: BiomeStyle, seed: int, size: string, mask: bool
+    style: BiomeStyle, seed: int, size: string, mask, anchor: bool
 ): CtfMap =
   var overrides = MapGenOverrides(
     size: size, symmetry: "mirror", endzone: "",
@@ -50,14 +107,18 @@ proc biomeMap(
     region = placementRegion(result)
     board = MapRect(x: 0, y: 0, w: result.width, h: result.height)
     domain = fundamentalDomain(board, region, result.symmetry)
-    p = defaultBiomeParams(style)
+  var p = defaultBiomeParams(style)
+  applyOverrides(p)
   result.leftObstacles =
     generateBiomeShapes(style, seed xor BiomeSalt, region, p, domain)
+  var r = initRand(seed xor BiomeSalt xor 0x1234)
   if mask:
-    var r = initRand(seed xor BiomeSalt xor 0x1234)
     result.leftObstacles.add edgeMaskShapes(r, region, p)
+  if anchor:
+    result.leftObstacles.add sightlineAnchors(r, region, 120)
 
-proc row(style: BiomeStyle, seeds: int, size: string, mask: bool): string =
+proc row(style: BiomeStyle, seeds: int, size: string,
+         mask, anchor: bool): string =
   var
     score = 0.0
     interior = 0.0
@@ -69,7 +130,7 @@ proc row(style: BiomeStyle, seeds: int, size: string, mask: bool): string =
     firstReason = ""
   for i in 0 ..< seeds:
     let
-      gameMap = biomeMap(style, 1000 + i, size, mask)
+      gameMap = biomeMap(style, 1000 + i, size, mask, anchor)
       m = evaluateMap(gameMap, $style)
     score += staticScore(m)
     interior += m.interiorFrac
@@ -89,7 +150,7 @@ when isMainModule:
   let argv = commandLineParams()
   if argv.len == 0:
     echo "biomekit render|score|table [--biome X] [--seed N] [--seeds N] " &
-      "[--size X] [--mask] [-o out.png]"
+      "[--size X] [--mask] [--anchor] [--set k=v] [-o out.png]"
     quit(0)
   var
     cmd = argv[0]
@@ -98,6 +159,7 @@ when isMainModule:
     seeds = 8
     size = "standard"
     mask = false
+    anchor = false
     outPath = "/tmp/biome.png"
     i = 1
   while i < argv.len:
@@ -107,12 +169,18 @@ when isMainModule:
     of "--seeds": inc i; seeds = argv[i].parseInt
     of "--size": inc i; size = argv[i]
     of "--mask": mask = true
+    of "--anchor": anchor = true
+    of "--set":
+      inc i
+      let kv = argv[i].split('=', 1)
+      if kv.len != 2: quit("--set expects k=v", 2)
+      overrideParams.add (kv[0], kv[1])
     of "-o", "--out": inc i; outPath = argv[i]
     else: quit("unknown flag: " & argv[i], 2)
     inc i
   case cmd
   of "render":
-    let gameMap = biomeMap(parseBiomeStyle(biome), seed, size, mask)
+    let gameMap = biomeMap(parseBiomeStyle(biome), seed, size, mask, anchor)
     let options = MapRenderOptions(
       maxDimension: 0, overlays: {overlayProtected},
       pickupKinds: {pickupMedKitActive})
@@ -123,9 +191,9 @@ when isMainModule:
       &"cover={m.coverPermille}pm valid={m.valid} {m.reason}"
     echo "wrote " & outPath
   of "score":
-    echo row(parseBiomeStyle(biome), seeds, size, mask)
+    echo row(parseBiomeStyle(biome), seeds, size, mask, anchor)
   of "table":
     for style in BiomeStyle:
-      echo row(style, seeds, size, mask)
+      echo row(style, seeds, size, mask, anchor)
   else:
     quit("unknown command: " & cmd, 2)
