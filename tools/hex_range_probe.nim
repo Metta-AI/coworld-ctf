@@ -31,6 +31,53 @@ proc classReport() =
          &"{probe.homeDepth:>5}  {behind:>6.1f}  {need:>4}" &
          (if behind >= float(need): "" else: "   <-- FAILS")
 
+proc standMetrics(gameMap: CtfMap, obstacles: seq[ArenaShape], team: Team) =
+  ## The two numbers that decide whether a base is PLAYABLE where it sits, as
+  ## opposed to merely geometrically legal:
+  ##
+  ##   stand-ring openness — the fraction of a ring at `r` around the pedestal
+  ##     that is walkable floor. This is the funnel test: a base parked in the
+  ##     120-degree vertex wedge with its approaches pinched would read as a low
+  ##     number on the outer rings even while the inner ones stay clear.
+  ##   stand-side cover — the wall fraction of the disc within 200px. Too low is
+  ##     an exposed base, too high is a sealed one.
+  ##
+  ## Reported per TEAM, because "the bases are images of each other" is a claim
+  ## worth checking rather than assuming: on a mirror board it should come out
+  ## exactly equal, and any difference is a pipeline bug.
+  let
+    anchor = gameMap.teamAnchor(team)
+    board = gameMap.mapBoard()
+  var line = &"  {teamText(team):<7}"
+  for radius in [120, 160, 200, 240]:
+    var open = 0
+    var total = 0
+    for step in 0 ..< 720:
+      let
+        ang = degToRad(float(step) * 0.5)
+        x = anchor.x + int(round(float(radius) * cos(ang)))
+        y = anchor.y + int(round(float(radius) * sin(ang)))
+      inc total
+      if x >= 0 and y >= 0 and x < gameMap.width and y < gameMap.height and
+          not gameMap.mapWallAt(obstacles, x, y):
+        inc open
+    line.add &" r{radius}={float(open) / float(total) * 100.0:5.1f}%"
+  var wall = 0
+  var cells = 0
+  for dy in -200 .. 200:
+    for dx in -200 .. 200:
+      if dx * dx + dy * dy > 200 * 200: continue
+      let
+        x = anchor.x + dx
+        y = anchor.y + dy
+      inc cells
+      if x < 0 or y < 0 or x >= gameMap.width or y >= gameMap.height or
+          gameMap.mapWallAt(obstacles, x, y):
+        inc wall
+  line.add &"  cover200={float(wall) / float(cells) * 100.0:5.1f}%"
+  line.add &"  hullBehind={board.hexEdgeDist(anchor.x, anchor.y):6.1f}"
+  echo line
+
 proc baseReport(gameMap: CtfMap) =
   echo ""
   echo "=== BASES (standard arena) ==="
@@ -53,6 +100,10 @@ proc baseReport(gameMap: CtfMap) =
     inc flank
   echo &"  open field above/below the anchor column: {flank} px " &
        &"(endzone radius {gameMap.endzoneRadius})"
+  echo "  stand-ring openness (walkable fraction of a ring at r):"
+  let obstacles = buildArenaObstacles(gameMap)
+  for team in gameMap.teams():
+    standMetrics(gameMap, obstacles, team)
 
 proc longestOpenRun(gameMap: CtfMap): tuple[len: int, deg: float,
                                             x0, y0, x1, y1: int] =
