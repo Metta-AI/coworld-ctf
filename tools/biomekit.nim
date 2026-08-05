@@ -96,6 +96,27 @@ proc sightlineAnchors(r: var Rand, region: MapRect, period: int): seq[ArenaShape
                           rect: MapRect(x: x, y: y, w: thick, h: hh))
     gy += period
 
+var
+  zoneCount = 0     ## --zones N: tile the band with an NxN zone lattice
+  zoneFill = 0.4    ## --zonefill F: fraction of those zones that get terrain
+
+proc zoneRects(r: var Rand, region: MapRect, n: int, fill: float): seq[MapRect] =
+  ## The band cut into an n x n lattice of zone rects, a `fill` fraction of
+  ## them kept. This is what the SOURCE actually does — its BiomeArena places
+  ## biomes as ZONES capped at `max_biome_zone_fraction` = 0.27 of the map, not
+  ## as full-map fills — and it is the composition a scene graph will perform.
+  ## Reproducing it here is how we test whether a biome that cannot survive
+  ## dilution to a legal full-board cover budget survives as a zone at its own
+  ## native density.
+  let
+    zw = region.w div n
+    zh = region.h div n
+  for gy in 0 ..< n:
+    for gx in 0 ..< n:
+      if rand(r, 1.0) >= fill: continue
+      result.add MapRect(x: region.x + gx * zw, y: region.y + gy * zh,
+                         w: zw, h: zh)
+
 proc biomeMap(
     style: BiomeStyle, seed: int, size: string, mask, anchor: bool
 ): CtfMap =
@@ -109,9 +130,18 @@ proc biomeMap(
     domain = fundamentalDomain(board, region, result.symmetry)
   var p = defaultBiomeParams(style)
   applyOverrides(p)
-  result.leftObstacles =
-    generateBiomeShapes(style, seed xor BiomeSalt, region, p, domain)
   var r = initRand(seed xor BiomeSalt xor 0x1234)
+  if zoneCount > 0:
+    # The base map arrives WITH the current generator's own obstacle set.
+    # Forgetting to clear it made every zone measurement a reading of the
+    # existing generator plus a handful of biome shapes.
+    result.leftObstacles = @[]
+    for i, zone in zoneRects(r, region, zoneCount, zoneFill):
+      result.leftObstacles.add generateBiomeShapes(
+        style, seed xor BiomeSalt xor (i * 0x9E3779B1), zone, p, domain)
+  else:
+    result.leftObstacles =
+      generateBiomeShapes(style, seed xor BiomeSalt, region, p, domain)
   if mask:
     result.leftObstacles.add edgeMaskShapes(r, region, p)
   if anchor:
@@ -186,6 +216,8 @@ when isMainModule:
     of "--seed": inc i; seed = argv[i].parseInt
     of "--seeds": inc i; seeds = argv[i].parseInt
     of "--size": inc i; size = argv[i]
+    of "--zones": inc i; zoneCount = argv[i].parseInt
+    of "--zonefill": inc i; zoneFill = argv[i].parseFloat
     of "--mask": mask = true
     of "--anchor": anchor = true
     of "--set":
