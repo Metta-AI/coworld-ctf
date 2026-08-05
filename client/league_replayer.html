@@ -56,13 +56,17 @@
     image-rendering:auto; filter:brightness(1.0) contrast(1.03) saturate(.96)}
   #walls .lv-shade{position:absolute; inset:0}
 
-  /* the embedded replay — the lit pit floor */
-  #floor{position:absolute; z-index:2; overflow:hidden;
-    box-shadow:0 0 calc(40*var(--u)) calc(10*var(--u)) rgba(232,163,61,.10),
-               0 0 0 2px rgba(0,0,0,.55),
-               inset 0 0 0 1px rgba(242,232,216,.05);
-    background:#120c08}
-  #floor iframe{width:100%; height:100%; border:0; display:block; background:#120c08}
+  /* The embedded replay. NO container: the board iframe is transparent outside
+     the hexagon, so anything painted here silhouettes the hexagon against a
+     RECTANGLE instead of against the shell. That killed three things:
+     the #120c08 fills (on the div AND the iframe — the iframe's own background
+     wins over the parent, so both had to go), the 2px near-black ring, and the
+     inset hairline. The amber bloom went too: a glow traces whatever it is
+     drawn around, so it was drawing a soft rectangle around a hexagon.
+     `transparent` on the iframe is load-bearing, not cosmetic. */
+  #floor{position:absolute; z-index:2; overflow:hidden; background:transparent}
+  #floor iframe{width:100%; height:100%; border:0; display:block;
+    background:transparent}
 
   /* HUD panels ride ABOVE the walls */
   .hud{position:absolute; z-index:5; font-family:var(--pixfont)}
@@ -356,7 +360,7 @@
   // Pre-stream defaults only: each embedded replay posts its board's real
   // native size on every frame (the game supports multiple map sizes), and
   // the stage re-layouts when it changes.
-  var BOARD_W=1235, BOARD_H=659, BOARD_ASPECT=BOARD_W/BOARD_H;
+  var BOARD_W=1119, BOARD_H=969, BOARD_ASPECT=BOARD_W/BOARD_H;
   function syncBoardAspect(s){
     if (!s || !(s.boardW > 1) || !(s.boardH > 1)) return;
     var aspect = s.boardW / s.boardH;

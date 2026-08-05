@@ -441,8 +441,13 @@
 
       computeFit();
 
-      ctx.fillStyle = '#000';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      // CLEAR, never fill. The map bake emits alpha 0 outside the hexagon so
+      // the hull silhouettes against the page; filling a colour here — this
+      // was '#000' — puts that colour behind the board and the silhouette
+      // becomes a black rectangle again. It also violated the house rule at
+      // replay_broadcast.html (never pure #000). The letterbox around the
+      // board is the page background for the same reason.
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
 
       if (dirty) {
         composite();

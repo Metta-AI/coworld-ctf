@@ -31,33 +31,37 @@ const
                                              ## WaveAmp + ChipAmp.
 
 const
-  ArenaVoidColor* = rgba(14, 11, 9, 255)
-    ## Outside the hexagon. The six corners of the bounding box are not
-    ## playfield, not wall, and not a rendering hole — they need their own
-    ## material or they bake as a VAST FLAT ROOF: `rooftopColorAt` shades from
-    ## the distance to the nearest floor, which saturates a hundred pixels into
-    ## a slab, so a hexagonal board painted with the wall material reads as a
-    ## plain grey rectangle and the whole shape change becomes invisible.
-  ArenaVoidGrainPermille* = 130
-    ## How much of the floor texture's own grain the void keeps. Enough that it
-    ## reads as unlit ground rather than a flat fill; little enough that it
-    ## never competes with the playfield.
-  ArenaVoidRimPx* = 3
-    ## Width of the lit rim just inside the hull, so the six edges read as
-    ## deliberate boundary rather than as a staircase artifact.
-  ArenaVoidRimColor* = rgba(96, 74, 55, 255)
-
-proc voidColorAt(grain: ColorRGBA, edge: float): ColorRGBA =
-  ## The out-of-hexagon material at a pixel `edge` px OUTSIDE the hull
-  ## (`hexEdgeDist` is negative there, so `edge` is its magnitude).
-  if edge < float(ArenaVoidRimPx):
-    return ArenaVoidRimColor
-  let g = int(grain.r) + int(grain.g) + int(grain.b)
-  rgba(
-    uint8(int(ArenaVoidColor.r) + g * ArenaVoidGrainPermille div 9000),
-    uint8(int(ArenaVoidColor.g) + g * ArenaVoidGrainPermille div 9600),
-    uint8(int(ArenaVoidColor.b) + g * ArenaVoidGrainPermille div 10500),
-    255)
+  VoidClear* = rgba(0, 0, 0, 0)
+    ## Outside the hexagon: nothing at all.
+    ##
+    ## ArenaVoidNote — WHY TRANSPARENT AND NOT A MATERIAL.
+    ##
+    ## The six corners of the bounding box are not playfield, not wall, and not
+    ## a rendering hole. Painting them with the WALL material fails outright:
+    ## `rooftopColorAt` shades from the distance to the nearest floor, which
+    ## saturates a hundred pixels into a slab, so a hexagonal board painted as
+    ## wall bakes into a vast flat roof, reads as a plain grey rectangle, and
+    ## makes the whole shape change invisible. That is the failure Stage 2 hit,
+    ## and it answered it with a dedicated dark "void material" plus a lit rim.
+    ##
+    ## The material worked but it was a FAKE BACKDROP: it drew a lit stage the
+    ## hexagon sat on, and the board then needed a dark panel behind it for the
+    ## stage to look intentional. The answer is neither material nor wall — it
+    ## is ALPHA 0. The corners emit nothing, the hexagon's silhouette reads
+    ## directly against whatever is behind the board, and the six edges are
+    ## defined by the hexagon's OWN border ring (`ArenaBorderColor`, thickness
+    ## `ArenaBorder`) which is inside the hull and already exists. No rim, no
+    ## grain, no panel.
+    ##
+    ## GAMEPLAY IS UNAFFECTED. This is the art bake only (`map_art.nim` is not
+    ## in `gameHash`). The void is still WALL and still opaque to vision in both
+    ## collision layers — `walkImage` stays `clear` and `wallImage` stays
+    ## `opaque` out there, exactly as the four wall predicates say.
+    ##
+    ## The consumer contract: whatever composites this image must NOT fill a
+    ## solid colour behind it first, or that colour is what silhouettes the
+    ## hexagon. `client/broadcast_core.js` used to fill `#000` every frame and
+    ## now clears instead.
 
 proc overTint(base, tint: ColorRGBA): ColorRGBA =
   ## Alpha-composites a translucent tint over an opaque base color.
@@ -662,11 +666,11 @@ proc renderArenaRgbaPair*(
   # opaque board.
   result.hot = newSeq[uint8](ow * oh * 4)
   result.cold = newSeq[uint8](ow * oh * 4)
-  template put(buf: seq[uint8], offset: int, c: ColorRGBA) =
+  template put(buf: seq[uint8], offset: int, c: ColorRGBA, alpha: uint8) =
     buf[offset] = c.r
     buf[offset + 1] = c.g
     buf[offset + 2] = c.b
-    buf[offset + 3] = 255
+    buf[offset + 3] = alpha
   let board = gameMap.mapBoard()
   for y in 0 ..< oh:
     let
@@ -683,9 +687,10 @@ proc renderArenaRgbaPair*(
                                   (float(y) + 0.5) / float(scale))
         onBorder = edge < float(ArenaBorder)
       if edge <= 0.0:
-        let c = voidColorAt(tileBlock[tileRow + x mod tileW], -edge)
-        put(result.hot, i * 4, c)
-        put(result.cold, i * 4, c)
+        ## Outside the hexagon: TRANSPARENT, so the hexagon's silhouette reads
+        ## against whatever is behind the board. See `ArenaVoidNote`.
+        put(result.hot, i * 4, VoidClear, 0)
+        put(result.cold, i * 4, VoidClear, 0)
         continue
       var hotColor, coldColor: ColorRGBA
       if artMask[i]:
@@ -706,8 +711,8 @@ proc renderArenaRgbaPair*(
       if onBorder:
         hotColor = overTint(hotColor, ArenaBorderColor)
         coldColor = overTint(coldColor, ArenaBorderColor)
-      put(result.hot, i * 4, hotColor)
-      put(result.cold, i * 4, coldColor)
+      put(result.hot, i * 4, hotColor, 255)
+      put(result.cold, i * 4, coldColor, 255)
   # Pedestals: pixie still resizes the painted masters, but the composite onto
   # the board is a manual straight-alpha src-over into the byte buffers.
   for team in gameMap.teams():
@@ -848,9 +853,10 @@ proc loadMapLayers*(gameMap: CtfMap, withEndzoneGlow = true):
         artWall = artMask[y * w + x]
         windowPixel = wall and windowCover[y * w + x]
       if edge <= 0.0:
-        ## Outside the hexagon: its own material, and it is WALL in both
-        ## collision layers exactly as the four wall predicates say.
-        result.mapImage[x, y] = voidColorAt(tileSample(floorTex, x, y), -edge)
+        ## Outside the hexagon: TRANSPARENT art (see `ArenaVoidNote`), and
+        ## still WALL in both collision layers exactly as the four wall
+        ## predicates say.
+        result.mapImage[x, y] = clear
         result.walkImage[x, y] = clear
         result.wallImage[x, y] = opaque
         continue

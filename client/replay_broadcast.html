@@ -79,8 +79,14 @@ html, body {
      aspect → no internal letterbox) and all chrome is pinned in this space. */
   width: 100%;
   height: 100%;
-  background:
-    radial-gradient(120% 90% at 50% 38%, var(--stage-hi) 0%, var(--stage-lo) 72%);
+  /* NO PANEL. The stage used to paint a radial-gradient slab for the board to
+     sit on. The board's out-of-hexagon region is alpha 0 now, so the hexagon
+     silhouettes directly against the page background (html/body, warm
+     near-black) — a panel here would simply become the fake backdrop again,
+     and a rectangular one at that, which re-announces the bounding box the
+     hexagon is supposed to have replaced. The scorebug and transport carry
+     their own backgrounds and do not depend on this. */
+  background: none;
   overflow: hidden;
 }
 
@@ -100,16 +106,14 @@ html, body {
   image-rendering: pixelated;
 }
 
-/* A soft light pool focuses the eye on the arena (not a literal set). Matches
-   the board area so it never darkens the reserved transport band below. */
-#lightpool {
-  position: absolute;
-  inset: var(--topband, 0px) 0 var(--band, 0px) 0;
-  pointer-events: none;
-  background:
-    radial-gradient(70% 58% at 50% 46%, transparent 40%, rgba(12, 8, 5, 0.34) 100%);
-  z-index: 2;
-}
+/* The light pool is GONE. It was a radial vignette darkening the board's outer
+   area to focus the eye — which worked while the board was an opaque rectangle
+   filling the frame. Against a transparent board it would darken the page
+   around the hexagon in a soft RECTANGLE, drawing back exactly the fake stage
+   the hexagon is meant to float free of. The hexagon's own silhouette is the
+   focusing device now. The element is left in the DOM (relayout and the embed
+   path both reference it) but paints nothing. */
+#lightpool { display: none; }
 
 /* CRT phosphor grain drift — ambient, paused under prefers-reduced-motion. */
 #grain {
@@ -1685,13 +1689,14 @@ body[data-embed] #board { top: 0; height: 100%; }
   // graphics regardless of the Observatory container's shape (§2
   // real-container-target, L82 bounded-embed).
   //
-  // These literals are PRE-STREAM DEFAULTS ONLY. They used to be the whole
-  // story, and the board was drawn stretched to 1235:659 on every map that was
-  // not that shape — which by GV38 is every map, since the hex arena is
-  // portrait (969x1119 standard). `league_replayer.html` already had the fix;
-  // this is the same `syncBoardAspect`, on the side that actually owns the
-  // canvas.
-  var BOARD_W = 1235, BOARD_H = 659;
+  // These literals are PRE-STREAM DEFAULTS ONLY — the real aspect arrives with
+  // the stream and `syncBoardAspect` re-lays out. They used to be 1235:659 and
+  // the whole story, so the board was drawn stretched on every map that was not
+  // that shape, which by GV38 is every map. `league_replayer.html` already had
+  // the fix; this is the same `syncBoardAspect`, on the side that actually owns
+  // the canvas. Defaulted to the standard hex arena so the very first frame is
+  // already the right shape: LANDSCAPE, 1119x969, flat-top hull.
+  var BOARD_W = 1119, BOARD_H = 969;
   var BOARD_ASPECT = BOARD_W / BOARD_H;
   function syncBoardAspect(nativeW, nativeH) {
     if (!(nativeW > 1) || !(nativeH > 1)) return;
