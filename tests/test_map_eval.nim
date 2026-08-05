@@ -123,8 +123,13 @@ suite "map fitness: counts carry fractions":
   test "route capacity has a scale-free form as well as a raw count":
     # A giant board carries more absolute capacity for reasons that have
     # nothing to do with architecture, so the raw count cannot be banded across
-    # size classes.
-    let giant = evaluateMap(loadCtfMapMetadata("pool:1"), "pool:1")
+    # size classes. The board is LOCKED to a size class rather than read off a
+    # pool index: which index holds a big map is a fact about today's curation,
+    # and pinning it here made this test fail when the pool was re-curated.
+    let giant = evaluateMap(
+      generateCtfMap(1001, MapGenOverrides(
+        windows: -1, pits: -1, pitDensity: -1, size: "giant")),
+      "gen:1001 giant")
     check giant.width > 2 * control.width
     check giant.routeCountMin > control.routeCountMin
     check control.routeCapacityFrac > 0.0

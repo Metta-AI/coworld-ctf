@@ -62,10 +62,22 @@ Definition [sim_types.nim:796](../src/ctf/sim_types.nim#L796). Zero/`-1`/`""` va
 | `baseDepth` | int / `0` | `mapBaseDepth` | `400..800` permille (gen); needs disc/square; 0 = draw | Home anchor depth. |
 
 Generator internals (all `arena.nim`, config-gated, no GameVersion bump; change in code):
-`MapGenMaxAttempts`=100 (re-rolls until validators pass), `MinCorridorWidth`=26,
+`MapGenMaxAttempts`=100 (candidate budget per seed), `MinCorridorWidth`=26,
 cover-density band `CoverPermilleMin`=40..`CoverPermilleMax`=170,
 `ColumnFamily` per column = one of `colStubs`/`colDiamonds`/`colDiscs`/`colChevrons`,
 pit-candidate kinds `pitInstead`/`pitGap`/`pitEndzone`, curated `MapPoolSeeds` = 20 seeds.
+
+**Selection breadth** — `map_rules.MapSelectionK`
+(small 12 / standard 8 / large 6 / huge 4 / giant 2 / colossal 1) is how many
+VALID candidates of one seed `generateCtfMap` ranks by `map_metrics.staticScore`
+before shipping the best. Deliberately NOT a config knob: it does not vary a
+level, it decides which of a seed's candidate levels ships, and raising it buys
+logarithmic quality for linear time (~1 s per generated map at every size
+today). A caller that knowingly wants a cheaper draw passes
+`generateCtfMap(..., k = N)`. Candidates of one seed differ only in the
+`map_seed` scenes drawn with `stream`; the board shell (size, symmetry, layout,
+endzone archetype) is drawn with `seedStream` and is identical across all K, so
+no override in the table above ever varies within a single selection.
 
 ### Hand-authored arenas (fixed geometry, selected by `mapPath`)
 

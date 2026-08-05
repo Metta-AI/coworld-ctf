@@ -10,18 +10,25 @@ const ValidationBaselinePath =
   currentSourcePath.parentDir / "fixtures" / "map-validation-baseline.tsv"
 
 const PoolRenderHashes = [
-  0xff7ea386'u32, 0xe7a608d6'u32, 0xcfbc5c15'u32, 0xbc4bbdba'u32,
-  0xb0e53440'u32, 0x64365320'u32, 0x9eef99a4'u32, 0x8e7237dc'u32,
-  0x56d6b747'u32, 0x23906590'u32, 0xb04e9473'u32, 0x81eaef9f'u32,
-  0xa1d457d4'u32, 0x8a5b61a2'u32, 0x4522b04c'u32, 0x8fa035f7'u32,
-  0xee524a7e'u32, 0x65501d0f'u32, 0xe736475e'u32, 0xae0849b1'u32,
+  0x9f926a3c'u32, 0x54f76e63'u32, 0x2bdff721'u32, 0x8320fa3a'u32,
+  0x3aea36e4'u32, 0xe5106b5d'u32, 0x5d8209c7'u32, 0xcfccedf8'u32,
+  0xe1e3f179'u32, 0x51e49497'u32, 0x1304ed0b'u32, 0x97aaefba'u32,
+  0xe957511b'u32, 0xe2db79e5'u32, 0x3ce45262'u32, 0x795c4edf'u32,
+  0x09af8448'u32, 0x663dd06a'u32, 0x216ce37c'u32, 0x5183c782'u32,
 ]
 
+var poolMapCache: array[20, CtfMap]
 proc poolMap(index: int): CtfMap =
-  generateMapAttempt(
-    MapPoolSeeds[index],
-    MapGenOverrides(windows: -1, pits: -1, pitDensity: -1),
-  )
+  ## The map the pool actually SERVES — a full best-of-K selection, not the
+  ## raw first draw. It used to be `generateMapAttempt`, which was the same
+  ## thing only while the pool was curated on first-attempt validity; now that
+  ## `poolCtfMap` ranks candidates, pinning render hashes against attempt 0
+  ## would pin an image nobody plays. Memoized because a selection costs ~1s
+  ## and three tests below walk the whole pool.
+  doAssert poolMapCache.len == MapPoolSeeds.len
+  if poolMapCache[index].width == 0:
+    poolMapCache[index] = poolCtfMap(index)
+  poolMapCache[index]
 
 proc poolRenderOptions(maxDimension = 0): MapRenderOptions =
   MapRenderOptions(
@@ -198,7 +205,11 @@ suite "map editor core":
           "teams=" & $teams & " seed=" & $seed &
             " expected=" & expected.repr & " actual=" & actual.repr
         )
-      if (teams, seed) in [(2, 1002), (2, 1156), (4, 1024)]:
+      # Three seeds are re-checked through the FULL diagnostic pass (not the
+      # first-failure early exit) so the two code paths cannot drift apart:
+      # one 2-team sightline rejection, one 2-team cover rejection, one
+      # 4-team rejection. Re-picked when best-of-K re-dealt every seed.
+      if (teams, seed) in [(2, 1020), (2, 1029), (4, 1000)]:
         let diagnostics = mapDiagnostics(gameMap)
         if diagnostics.reason != expected:
           mismatches.add(
@@ -206,13 +217,13 @@ suite "map editor core":
               " expected=" & expected.repr &
               " actual=" & diagnostics.reason.repr
           )
-        if teams == 2 and seed == 1002:
+        if teams == 2 and seed == 1020:
           collectedSightlineRows = diagnostics.openSightlineRows
     check cases == 402
     check endzones2 == ["column", "disc", "square"].toHashSet()
     check layouts4 == ["corners", "plus"].toHashSet()
     check collectedSightlineRows.len > 1
-    check collectedSightlineRows[0] == 512
+    check collectedSightlineRows[0] == 12
     check mismatches.len == 0
 
   test "every curated map spec round-trips byte-identically":
