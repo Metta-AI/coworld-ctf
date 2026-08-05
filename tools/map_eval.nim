@@ -657,7 +657,8 @@ proc printStatic(candidate: Candidate, isControl: bool) =
       &"({stand.protectedFrac * 100:.0f}% of that annulus is protected " &
       "floor the generator may not build in), ring " &
       &"r{stand.ringRadius} {stand.ringOpen * 100:.0f}% open in " &
-      &"{stand.ringArcs} arc(s)"
+      &"{stand.ringArcs} arc(s) " &
+      &"({stand.ringProtectedFrac * 100:.0f}% of the ring is protected)"
   echo &"    chokepoints {metrics.chokepoints} genuine cut vertices of " &
     &"{metrics.chokeCandidates} medial-axis minima; one isovist covers " &
     &"all: {metrics.chokeCoveredByOnePoint}"
@@ -727,7 +728,8 @@ proc metricsJson(metrics: MapMetrics, card: ScoreCard,
     stands.add(%*{"team": stand.team, "x": stand.x, "y": stand.y,
       "coverFrac": stand.coverFrac, "protectedFrac": stand.protectedFrac,
       "ringRadius": stand.ringRadius,
-      "ringOpen": stand.ringOpen, "ringArcs": stand.ringArcs})
+      "ringOpen": stand.ringOpen, "ringArcs": stand.ringArcs,
+      "ringProtectedFrac": stand.ringProtectedFrac})
   result["stands"] = stands
   var routes = newJArray()
   for route in metrics.routes:

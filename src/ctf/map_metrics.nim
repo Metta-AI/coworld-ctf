@@ -103,6 +103,11 @@ type
                                   ## structurally low there.
     ringRadius*: int              ## px the ring was sampled at.
     ringOpen*: float              ## fraction of the ring that is walkable.
+    ringProtectedFrac*: float     ## ...of the ring that is PROTECTED floor.
+                                  ## 1.0 on every hex map: the ring radius
+                                  ## (endzoneRadius + 30) sits inside the
+                                  ## 60px endzone apron, so `ringOpen` is
+                                  ## decided by EndzoneApron, not by terrain.
     ringArcs*: int                ## distinct arcs wide enough to walk.
 
   RouteMetric* = object
@@ -172,6 +177,7 @@ type
     standCoverMin*, standCoverMax*: float
     standRingMin*, standRingMax*: float
     standRingDelta*: float        ## max inter-team ring gap.
+    standRingProtectedMax*: float ## worst team's `ringProtectedFrac`.
     routes*: seq[RouteMetric]
     minRoutes*: int
     minCutPx*: int
@@ -186,6 +192,31 @@ type
     trenchCount*: int
 
 # ---------------------------------------------------------------- masks ----
+
+proc noTerrainAt*(gameMap: CtfMap, x, y: int): bool =
+  ## Whether this pixel is ground the GENERATOR MAY NOT BUILD ON — which is
+  ## strictly more than `mapProtectedFloorAt` reports, and the difference is
+  ## the entire endzone APRON.
+  ##
+  ## `mapProtectedFloorAt` is the sim's rule (the scoring discs plus the
+  ## centre flag ring). The generator additionally keeps terrain out to
+  ## `endzoneRadius + EndzoneApron` around every pedestal, so the approaches
+  ## that make an off-the-edge base playable stay open. Asking the sim's
+  ## predicate "could terrain have been here?" therefore under-reports by an
+  ## annulus 60px wide — on the standard arena it answered 0% for a ring
+  ## that is 100% unbuildable, which is exactly how a band ends up scoring
+  ## maps on ground no draw could have changed.
+  if mapProtectedFloorAt(gameMap, x, y):
+    return true
+  for team in gameMap.teams():
+    let
+      anchor = gameMap.teamAnchor(team)
+      reach = gameMap.endzoneRadius + EndzoneApron
+      dx = x - anchor.x
+      dy = y - anchor.y
+    if dx * dx + dy * dy <= reach * reach:
+      return true
+  false
 
 proc buildMapMasks*(gameMap: CtfMap, cell = AnalysisCell): MapMasks
     {.gcsafe.} =
@@ -472,7 +503,7 @@ proc standMetric(
       inc total
       if masks.wallPix[y * w + x]:
         inc wallCount
-      if mapProtectedFloorAt(gameMap, x, y):
+      if noTerrainAt(gameMap, x, y):
         inc protectedCount
   result.coverFrac = wallCount.float / max(total, 1).float
   ## Protected floor is where the generator is FORBIDDEN to build, so an
@@ -489,17 +520,28 @@ proc standMetric(
   result.ringRadius = radius
   const Steps = 180
   var ring = newSeq[bool](Steps)
+  var ringProtected = 0
   for i in 0 ..< Steps:
     let
       theta = 2.0 * PI * float(i) / float(Steps)
       x = int(round(float(home.x) + float(radius) * cos(theta)))
       y = int(round(float(home.y) + float(radius) * sin(theta)))
-    ring[i] = x >= 0 and y >= 0 and x < w and y < h and
-      not masks.wallPix[y * w + x]
+      onBoard = x >= 0 and y >= 0 and x < w and y < h
+    ring[i] = onBoard and not masks.wallPix[y * w + x]
+    if onBoard and noTerrainAt(gameMap, x, y):
+      inc ringProtected
   var open = 0
   for v in ring:
     if v: inc open
   result.ringOpen = open.float / float(Steps)
+  ## The same question the annulus asks, asked of the ring: how much of it
+  ## is ground no generator may build on (`noTerrainAt`, so the endzone
+  ## apron counts)? On the hexagon this is 100% by construction —
+  ## `StandRingPad` is 30px and `EndzoneApron` is 60px, so the ring sampled
+  ## here sits INSIDE the apron on every disc-endzone map — and without this
+  ## number the resulting flat 100% openness reads as a map property instead
+  ## of an arithmetic one.
+  result.ringProtectedFrac = ringProtected.float / float(Steps)
   if open == Steps:
     result.ringArcs = 1
     return
@@ -1062,6 +1104,8 @@ proc computeMapMetrics*(
     result.standCoverMax = max(result.standCoverMax, stand.coverFrac)
     result.standRingMin = min(result.standRingMin, stand.ringOpen)
     result.standRingMax = max(result.standRingMax, stand.ringOpen)
+    result.standRingProtectedMax =
+      max(result.standRingProtectedMax, stand.ringProtectedFrac)
   result.standRingDelta = result.standRingMax - result.standRingMin
 
   var distances: seq[seq[int]]

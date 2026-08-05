@@ -162,12 +162,27 @@ proc scoreMap*(metrics: MapMetrics, control: MapMetrics): ScoreCard =
     note = "wall fraction within 200px of the least-covered pedestal")
   add("stand cover (max)", metrics.standCoverMax, 0.10, 0.25, 0.10, 1.0,
     "pct", skipReason = standSkip)
-  ## Complementary: open AT the stand, cover in the approach annulus.
-  ## Scored on EVERY map, column or compact: the flag sits on the pedestal
-  ## whatever the endzone shape, so the ring is the ground an attacker must
-  ## contest to steal even where it is not where they score.
+  ## Complementary: open AT the stand, cover in the approach annulus. The
+  ## flag sits on the pedestal whatever the endzone shape, so the ring is
+  ## the ground an attacker must contest to steal even where it is not where
+  ## they score.
+  ##
+  ## ON THE HEXAGON THIS BAND FLAGGED THE CONTROL, at 100% against a 90%
+  ## ceiling — and so did every generated map, at exactly 100%. That is the
+  ## metric's fault, not the arena's. `StandRingPad` is 30px and
+  ## `EndzoneApron` is 60px, so the sampled ring lies wholly INSIDE the
+  ## apron: protected floor, where no generator may build, on every
+  ## disc-endzone map that exists. The reading is arithmetic, not
+  ## architecture. It is measured and printed with its protected fraction
+  ## beside it, and scored only where terrain could have changed it —
+  ## the same treatment, for the same reason, as stand-side cover.
   add("stand ring open (min)", metrics.standRingMin, 0.70, 0.90, 0.15, 1.5,
-    "pct", note = "openness of the ring an attacker must contest")
+    "pct", note = "openness of the ring an attacker must contest",
+    skipReason =
+      if metrics.standRingProtectedMax > 0.80:
+        &"{metrics.standRingProtectedMax * 100:.0f}% of the ring is " &
+          "protected floor — the endzone apron decides this, not the terrain"
+      else: "")
   ## Fairness of the objective is a rule on every map, column or compact.
   add("stand ring delta", metrics.standRingDelta, 0.0, 0.25, 0.15, 1.5,
     "pct", loOpen = true,
@@ -207,13 +222,29 @@ proc scoreMap*(metrics: MapMetrics, control: MapMetrics): ScoreCard =
     note = "interior wall pixels; the brief's 18-30% would flag the control")
   ## Where the fight will happen must have at least as much cover as the
   ## map average; the documented failure is a collision point in the open.
+  ##
+  ## THE ABSOLUTE 1.00x BOUND FLAGGED THE CONTROL on the hexagon, at 0.57x.
+  ## Again the metric, not the arena: on a two-team hex board the
+  ## equidistant frontier IS the centre, and the centre carries the always-
+  ## open flag ring — protected floor by rule, so structurally barer than
+  ## the map average on every hex map ever generated. The rule it encodes
+  ## ("do not stage the fight in a cover-free area") is still right, so it
+  ## is kept ALIVE and anchored on the control rather than dropped: a
+  ## candidate has to stage its fight in at least as much cover as the
+  ## layout the engine was tuned on. That still discriminates — the
+  ## measured spread across seeds is 0.3x to 0.9x.
   let coverRatio =
     if metrics.collision.mapCoverFrac > 0:
       metrics.collision.coverFrac / metrics.collision.mapCoverFrac
     else:
       0.0
-  add("collision-point cover", coverRatio, 1.0, 0.0, 0.4, 1.5, "x",
-    hiOpen = true,
+  let controlCoverRatio =
+    if control.collision.mapCoverFrac > 0:
+      control.collision.coverFrac / control.collision.mapCoverFrac
+    else:
+      1.0
+  add("collision-point cover", coverRatio, controlCoverRatio, 0.0, 0.4, 1.5,
+    "x", hiOpen = true, controlRelative = true,
     note = "cover density at the equidistant frontier vs the map average")
   ## Gallery shots: measured against the control, not an absolute.
   add("long sightline share", metrics.longSightFrac, 0.0,
