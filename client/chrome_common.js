@@ -168,6 +168,41 @@ window.ChromeCommon = function (ctx) {
   }
   function setName(id, txt) { var el = $(id); if (el.textContent !== txt) el.textContent = txt; }
 
+  // Per-team handicap badge. The chrome carries teams[team].hcap ONLY for a
+  // handicapped team, with the deltas already resolved server-side (the sim is
+  // the single source of the interpolation), so here we just format: `h` is the
+  // authored fraction in permille, `spd` a percent of base speed, `miss` a
+  // percent of point-blank shots dropped. Returns null for an unhandicapped
+  // team so the caller hides the badge.
+  function handicapInfo(s, team) {
+    var tr = s && s.teams && s.teams[team];
+    var h = tr && tr.hcap;
+    if (!h || !h.h) return null;
+    var pct = Math.round(h.h / 10);
+    return {
+      text: 'HCP ' + pct + '%',
+      title: 'Handicap ' + pct + '% — HP ' + h.hp0 + '→' + h.hp +
+        ' · Lives ' + h.lives0 + '→' + h.lives +
+        ' · Speed ' + h.spd + '% · Miss ' + h.miss + '%'
+    };
+  }
+  // Update a badge element in place: text is the compact "HCP 60%", the native
+  // `title` is the full delta breakdown on hover (the codebase's one tooltip
+  // idiom). Hidden entirely when the team is unhandicapped.
+  function setHandicap(id, s, team) {
+    var el = $(id); if (!el) return;
+    var info = handicapInfo(s, team);
+    if (!info) {
+      if (el.style.display !== 'none') el.style.display = 'none';
+      if (el.title) el.title = '';
+      if (el.textContent) el.textContent = '';
+      return;
+    }
+    if (el.style.display === 'none') el.style.display = '';
+    if (el.textContent !== info.text) el.textContent = info.text;
+    if (el.title !== info.title) el.title = info.title;
+  }
+
   function rosterName(s, slot) {
     if (!s.roster) return '#' + slot;
     for (var i = 0; i < s.roster.length; i++) {
@@ -622,6 +657,7 @@ window.ChromeCommon = function (ctx) {
     teamCol: teamCol, activeTeams: activeTeams, teamOf: teamOf, otherTeam: otherTeam,
     stripSeatSuffix: stripSeatSuffix, teamPolicies: teamPolicies, teamName: teamName,
     teamHeadline: teamHeadline, rosterName: rosterName, setName: setName,
+    handicapInfo: handicapInfo, setHandicap: setHandicap,
     esc: esc, fmt: fmt, togglePov: togglePov,
     renderClock: renderClock, renderTransport: renderTransport,
     ingestLullSpans: ingestLullSpans, renderLullSpans: renderLullSpans,

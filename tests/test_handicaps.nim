@@ -2,7 +2,7 @@ import
   helpers,
   std/[json, unittest],
   bitworld/spriteprotocol,
-  ctf/sim
+  ctf/[broadcast, sim]
 
 # Per-team handicaps: a single 0..1 knob per team (stored as permille 0..1000)
 # that interpolates a bundle of weakenings — 50% miss, 1 life, 1 hit point,
@@ -175,6 +175,30 @@ suite "handicap applied in the sim":
       sim.applyInput(blue, InputState(right: true))
     check sim.players[blue].velX == 704
     check sim.players[red].velX == 352
+
+  test "the broadcast chrome carries a handicapped team's deltas, omits others":
+    var sim = initCtfForTest(defaultGameConfig())
+    discard sim.addPlayer("red0")
+    discard sim.addPlayer("blue0")
+    sim.startGame()
+    sim.players[0].team = Red
+    sim.players[1].team = Blue
+    sim.config.handicaps[Red] = 600            # 0.6
+    let state = parseJson(sim.buildStateJson(
+      newJArray(), false, 1, 1000, false, true, -1, -1
+    ))
+    # Blue is unhandicapped → no badge data at all.
+    check not state["teams"]["blue"].hasKey("hcap")
+    # Red carries the fraction plus the resolved deltas the tooltip shows.
+    let hcap = state["teams"]["red"]["hcap"]
+    check hcap["h"].getInt == 600
+    check hcap["hp0"].getInt == sim.config.hitPoints
+    check hcap["hp"].getInt == sim.config.hitPointsFor(Red)
+    check hcap["lives0"].getInt == sim.config.lives
+    check hcap["lives"].getInt == sim.config.livesFor(Red)
+    check hcap["spd"].getInt ==
+      sim.config.maxSpeedFor(Red) * 100 div sim.config.maxSpeed
+    check hcap["miss"].getInt == sim.config.missPermilleFor(Red) div 10
 
   test "a fully handicapped shooter misses roughly half its point-blank shots":
     proc hitsWithHandicap(permille: int): int =
