@@ -231,6 +231,17 @@ bug, is *cheaper* than the ray version at scale=2, and makes the shader
 lattice-agnostic. It benefits `rooftopColor`, `windowGlassColorAt`, and
 `rotatingDiamondPixels` at once.
 
+**Correction, measured 2026-08-05.** An earlier draft of this plan said the
+chevron parapet was √2 **too wide**. It is too **narrow**, and the sign matters
+for anyone reasoning about hex faces. A ray *overshoots* the true perpendicular
+distance by `1/cos θ`, so a 45° face reaches each band threshold at `1/√2` of the
+perpendicular distance an axis face needs — the band closes *early*. Measured
+perpendicular cut through an arena chevron arm at scale 2, before → after:
+ink 2→2, parapet 3→4, lip 1→2, total **6 px → 8 px** — exactly the rim an
+axis-aligned rect already wore. The same sign applies on a hex board: every 60°
+face would otherwise wear a rim `cos 30° ≈ 0.87` of the correct width, i.e.
+thinner, not thicker.
+
 Also: a distinct **void material** for the out-of-hex corners (code, not an
 asset — they would otherwise render as a vast flat roof); a hex-periodic
 `data/arena_floor.png` honoring the lum 66/34 glow contract with
