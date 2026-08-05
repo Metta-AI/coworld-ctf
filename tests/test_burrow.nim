@@ -632,7 +632,12 @@ suite "burrow: real boards":
   test "standard and giant boards, end to end, with timings":
     const
       CellSize = FovCellSize   ## 8 px — see burrow.nim's RESOLUTION note.
-      MinCorridorPx = 26       ## arena.nim's MinCorridorWidth (not exported).
+      MinCorridorPx = MinCorridorWidth
+        ## arena's own corridor minimum, now that it is exported — this used to
+        ## be a hand-copied 26 that could drift. `map_rules` argues for raising
+        ## it to `RecommendedCorridorWidthPx` = 68 (two DRAWN cog bodies); the
+        ## measured pool churn of doing so is in
+        ## docs/plans/2026-08-05-map-size-class-rules.md.
     let brush = brushRadiusForCorridor(MinCorridorPx, CellSize)
     for sizeName in ["standard", "giant"]:
       let gameMap = generateCtfMap(4242, MapGenOverrides(

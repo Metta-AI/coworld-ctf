@@ -13,6 +13,13 @@ import
   sim_types
 
 import map_pool
+# `map_rules` owns the canonical size-class table and the derived per-regime /
+# per-team-count design parameters. Re-exported so everything that already
+# imports `arena` (or `sim`, which re-exports it) reaches them without a new
+# import — including `tools/gen_map_pool.nim`, which used to carry its own copy
+# of the class widths as five literals that RAISED on any sixth.
+import map_rules
+export map_rules
 
 proc validateMapRect(name: string, rect: MapRect, width, height: int) =
   ## Raises if one map rectangle is outside the map.
@@ -1058,9 +1065,23 @@ proc buildAnimatedDiamonds*(
 const
   GenMapName* = "gen"
   PoolMapName* = "pool"
-  MinCorridorWidth = 26      ## narrowest corridor for the 13px footprint.
+  MinCorridorWidth* = 26
+    ## Narrowest corridor for the 13 px SOLID footprint (`PlayerHalf` = 6).
+    ## It does NOT clear the 34 px DRAWN silhouette, so two cogs abreast in a
+    ## minimum corridor visually overlap; `map_rules.RecommendedCorridorWidthPx`
+    ## = 68 is the derived target and `docs/plans/2026-08-05-map-size-class-
+    ## rules.md` carries the measured churn of moving there (at 68 px, 222 of
+    ## the 402 pinned baseline rows change verdict, first-attempt pass falls
+    ## 76% -> 28%, and 13 of the 20 curated pool seeds stop validating). The
+    ## column generator physically cannot serve 68 px — its slot period is
+    ## 88-120 px around 56-60 px obstacles, so no adjacent-slot gap exceeds
+    ## 64 px. Raising this belongs to the structure pass, not here. Exported so
+    ## tools and tests stop re-declaring it.
   MapGenMaxAttempts = 100
-  MapSizeNames = ["small", "standard", "large", "huge", "giant"]
+  MapSizeNames = DrawableSizeNames
+    ## Derived from `map_rules.MapSizeClassTable`, not typed. The generator
+    ## indexes this with ONE rng draw, so its length and order are part of the
+    ## seed contract — adding a drawable class re-deals every seed's size.
   CenterFeatureNames = ["bracket", "ring", "walls"]
   ## Interior cover budget, in permille of the non-protected interior that is
   ## obstacle wall. The hand-tuned arena sits inside this band; layouts
@@ -1104,18 +1125,32 @@ proc shuffle[T](rng: var MapRng, items: var seq[T]) =
     swap(items[i], items[j])
 
 proc mapSizeScale(sizeName: string): float =
-  ## Field-scale factor for one size class. The two OVERSIZE classes are
-  ## newer than the original three: "giant" doubles the old "large" ceiling
-  ## (1.3 -> 2.6), twice the map on each axis.
-  case sizeName
-  of "small": 0.85
-  of "standard": 1.0
-  of "large": 1.3
-  of "huge": 1.8
-  of "giant": 2.6
-  of "colossal": 5.2  ## override-only (not in MapSizeNames): 2x giant.
-  else:
+  ## Field-scale factor for one size class, read from the canonical table in
+  ## `map_rules`. The two OVERSIZE classes are newer than the original three:
+  ## "giant" doubles the old "large" ceiling (1.3 -> 2.6), twice the map on
+  ## each axis; "colossal" is override-only (not in MapSizeNames), 2x giant.
+  let index = findSizeClass(sizeName)
+  if index < 0:
     raise newException(CtfError, "Unknown map size: " & sizeName)
+  MapSizeClass(index).sizeScale()
+
+proc mapSizeClass*(gameMap: CtfMap): MapSizeClass =
+  ## Which size class a generated map belongs to, DERIVED from the class
+  ## table rather than matched against width literals. Answers for any class
+  ## in `MapSizeClassTable`, including one added tomorrow — which is exactly
+  ## what `tools/gen_map_pool.nim`'s old five-arm `case` could not do.
+  ## The rect, square and hex shell widths never collide across the whole
+  ## table (pinned by `tests/test_map_rules.nim`), so the width alone names
+  ## the class and no caller has to know which family it is holding.
+  let index = sizeClassOfWidth(gameMap.width)
+  if index < 0:
+    raise newException(
+      CtfError, "Unexpected map width: " & $gameMap.width &
+        " (known shell widths: " & knownWidths() & ")")
+  MapSizeClass(index)
+
+proc mapSizeClassName*(gameMap: CtfMap): string {.inline.} =
+  gameMap.mapSizeClass().sizeName()
 
 proc scaledGenShell(sizeName: string): CtfMap =
   ## Field dimensions and clearances for one size class: the standard-arena
