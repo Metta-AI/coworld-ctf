@@ -11,6 +11,7 @@ import
   test_identity_badges,
   test_label_contract,
   test_map_biome,
+  test_map_eval,
   test_map_export,
   test_map_rules,
   test_movement_slide,
