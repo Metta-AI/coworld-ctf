@@ -950,7 +950,10 @@ proc predictedViewerRenderBytes*(mapWidth, mapHeight: int): int64 =
   ## Engineering estimate of the replay viewer's peak working set for one
   ## board, at the scale boardRenderScaleFor picks for it. Dominated by the
   ## map-sized RGBA buffers: at scale k the hot + cold arena bakes and the
-  ## banded wire copy each cost mapPixels·k²·4 bytes (the 4·k² term); the
+  ## banded wire copy each cost mapPixels·k²·4 bytes (the 4·k² term, whose
+  ## remaining slack also covers the bake's transient k× art/window masks at
+  ## 1 byte per pixel each and its wall distance field at 2 — all three are
+  ## freed when renderArenaRgbaPair returns); the
   ## flat +6 covers the 1× sim-side buffers (mapRgba, cold endzone map,
   ## masks), packet staging, AND the incremental precompute walk's second
   ## SimServer copy (its own 1× bakes and masks, alive for the scan's

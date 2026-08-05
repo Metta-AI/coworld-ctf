@@ -188,16 +188,16 @@ proc blitCover(dst, spr: Image, cx, cy, size: int) =
 ## rendered as one coherent LOW-DETAIL BUILDING seen from above: a light
 ## parapet rim around the perimeter, a shadow line where the parapet drops to
 ## the roof, and a dark flat roof membrane crossed by subtle diagonal seams.
-## The shading comes from each pixel's distance to the nearest floor pixel, so
-## — like the carved-stone material it replaces — the art matches every
-## collider EXACTLY and is identical on both halves by construction (the mask
-## is mirror-symmetric; the world-space roof seams are the one deliberate
-## exception, same as the glass sheen). Light comes from the up-left, so the
-## up-left parapet run catches a highlight and the down-right run falls into
-## shadow — the Gungeon/Nuclear-Throne top-down convention (L98). The
-## buildings keep the cover's warm-tan family (REPLAY_DESIGN §3 warm-stone
-## cover) so they pop off the neutral-grey concrete floor, and the team
-## colors stay the only saturated channels.
+## The shading comes from each pixel's distance to the nearest floor pixel and
+## from the direction that distance grows, so — like the carved-stone material
+## it replaces — the art matches every collider EXACTLY and is identical on
+## both halves by construction (the mask is mirror-symmetric; the world-space
+## roof seams are the one deliberate exception, same as the glass sheen).
+## Light comes from the up-left, so a face turned up-left catches a highlight
+## and one turned down-right falls into shadow — the Gungeon/Nuclear-Throne
+## top-down convention (L98). The buildings keep the cover's warm-tan family
+## (REPLAY_DESIGN §3 warm-stone cover) so they pop off the neutral-grey
+## concrete floor, and the team colors stay the only saturated channels.
 const
   WallBevel = 3                          ## px width of the parapet rim band.
   RoofFace = rgba(110, 92, 72, 255)      ## flat warm roof (the old cover tan,
@@ -210,66 +210,290 @@ const
   StoneInk = rgba(32, 27, 22, 255)       ## warm near-black ground line (never #000).
   RoofSeamPeriod = 16                    ## px between diagonal roof seams.
 
-proc floorDistDir(wall: seq[bool], w, h, x, y, dx, dy, cap: int): int =
-  ## Steps from (x, y) along (dx, dy) until the first floor (non-wall) pixel,
-  ## capped at `cap`. Off-map counts as wall (the border is solid), so a pixel
-  ## with no floor within `cap` in that direction returns cap + 1.
-  for step in 1 .. cap:
-    let
-      nx = x + dx * step
-      ny = y + dy * step
-    if nx < 0 or ny < 0 or nx >= w or ny >= h:
-      continue
-    if not wall[ny * w + nx]:
-      return step
-  cap + 1
+## --- The wall distance field: the ONE metric behind both wall materials ---
+## Rooftop and glass both shade from a single quantity per pixel: how far it is
+## from the nearest FLOOR pixel, and which way that distance grows. Both come
+## out of one Euclidean distance transform of the art mask, so the materials
+## stay DERIVED from the collision mask (they cannot disagree with it) and are
+## orientation-independent: a 45° chevron face gets the same parapet width as
+## an axis-aligned rect face.
+##
+## This replaces a 4-axis RAY metric (step up/left/down/right until floor, take
+## the min). That metric had three separate couplings to a square lattice:
+##   * it is not a distance. A ray to an edge tilted θ off an axis OVERSHOOTS
+##     the true distance by 1/cos θ, so a 45° face hit every band's threshold
+##     at 1/√2 of the perpendicular distance an axis-aligned face did. Measured
+##     across the arena's chevrons at scale 2: ink + parapet + lip came to 6 px
+##     where the rect beside them got 8 — a quarter narrower, on the same
+##     material;
+##   * lit-vs-shaded was the binary predicate min(up,left) <= min(down,right):
+##     a 2-bucket quantization of the surface normal into {up ∪ left} and
+##     {down ∪ right}. With every normal one of 4 axis directions and the light
+##     at 135° that IS the exact half-plane split — and it generalizes to
+##     nothing. It painted BOTH long faces of a chevron, and three of a
+##     diamond's four faces, at full highlight;
+##   * it cost up to 4·cap steps per wall pixel.
+## The transform is O(w·h) once per bake and every pixel then reads O(1).
+
+const
+  DistFrac = 64.0
+    ## Fixed-point denominator of WallDistField: distances are stored in
+    ## 1/64 px. Two bytes per pixel instead of four (a giant board at scale 2
+    ## is 22M pixels, and this bake is already the memory peak of container
+    ## boot), and 1/64 px leaves the gradient's central difference two orders
+    ## of magnitude finer than one shading step.
+
+type WallDistField* = object
+  ## Euclidean distance from every pixel of a wall mask to the nearest FLOOR
+  ## pixel: 0 on floor, SATURATING at `sat` px. Off-mask counts as wall (the
+  ## arena border frame is solid), matching the ray metric this replaces, so
+  ## no phantom edge leaks in from outside the board.
+  ##
+  ## Saturation is what keeps this cheap and overflow-proof. Every band the
+  ## wall materials draw lives a handful of pixels from the floor, so nothing
+  ## reads a distance past `sat`; capping there bounds the squared distances
+  ## to 16 bits and the field to 2 bytes per pixel.
+  w, h: int
+  sat: float                 ## saturation distance, px.
+  d: seq[uint16]             ## distance in 1/DistFrac px.
+
+proc wallDistSat(scale: int): int =
+  ## The saturation distance (px) that still serves every band the wall
+  ## materials draw at this render scale: the outermost threshold is the
+  ## parapet's inner lip at (WallBevel + 1)·scale, plus 2 px so the gradient's
+  ## central difference at the last shaded pixel is still taken between two
+  ## TRUE distances rather than against the cap.
+  (WallBevel + 1) * scale + 2
+
+proc wallDistField*(wall: seq[bool], w, h, scale: int): WallDistField =
+  ## The exact saturated Euclidean distance transform of a wall mask.
+  ##
+  ## Two separable passes (Felzenszwalb & Huttenlocher, "Distance Transforms
+  ## of Sampled Functions"), O(w·h) total:
+  ##   1. per COLUMN, the exact 1-D distance to the nearest floor pixel in
+  ##      that column, by two linear sweeps — written as whole-ROW sweeps of
+  ##      row y against row y∓1, which is the same transform with sequential
+  ##      memory access instead of a cache-hostile column walk. Capped, then
+  ##      squared, IN PLACE in the result buffer that pass 2 then overwrites
+  ##      row by row (no second full-board allocation: at scale 2 a giant
+  ##      board is 22M pixels and this bake is already boot's memory peak).
+  ##   2. per ROW, the lower envelope of the parabolas f(q) + (x − q)², whose
+  ##      minimum is the exact squared 2-D Euclidean distance.
+  ##
+  ## Capping pass 1 before pass 2 cannot corrupt the band we care about:
+  ## capping only LOWERS values, so a result can only fall below the true
+  ## distance by way of a capped column, and every such result is itself ≥ the
+  ## cap — i.e. already outside every band. Below the cap the transform is
+  ## exact.
+  ##
+  ## wasm32 note (same hazard as trenchEdgeNoise above): `int` is 32 bits
+  ## under emscripten and overflow TRAPS, which kills the replay viewer
+  ## outright. Pass 1 caps distances BEFORE squaring so its arithmetic never
+  ## leaves 16 bits, and pass 2's parabola math is written in int64 because
+  ## q² alone reaches 4.1e7 on a giant board at scale 2 — comfortable in 32
+  ## bits today and one board-size bump from not being.
+  let
+    n = w * h
+    capPx = wallDistSat(scale)
+  doAssert capPx <= 255,
+    "wall distance field saturates past 16-bit squares at scale " & $scale
+  result = WallDistField(w: w, h: h, sat: capPx.float, d: newSeq[uint16](n))
+  if n == 0:
+    return
+  # Pass 1: exact 1-D column distance, capped, then squared. The backward
+  # sweep squares the row it has just finished reading, so the whole pass is
+  # two touches of the buffer instead of four.
+  let capU = uint16(capPx)
+  for x in 0 ..< w:
+    result.d[x] = if wall[x]: capU else: 0'u16
+  for y in 1 ..< h:
+    let row = y * w
+    for x in 0 ..< w:
+      result.d[row + x] =
+        if wall[row + x]: min(result.d[row - w + x] + 1, capU) else: 0'u16
+  for y in countdown(h - 2, 0):
+    let row = y * w
+    for x in 0 ..< w:
+      let below = result.d[row + w + x]
+      if below + 1 < result.d[row + x]:
+        result.d[row + x] = below + 1
+      result.d[row + w + x] = below * below
+  for x in 0 ..< w:
+    result.d[x] = result.d[x] * result.d[x]
+  # Pass 2: the parabola lower envelope along each row — but only over the
+  # RUNS of nonzero column distance. A zero means "floor in this column at
+  # this row", which pins the answer to 0, and it also DOMINATES every
+  # parabola behind it: for a run bracketed by zeros at lo and hi, any q past
+  # them contributes (x − q)² > (x − lo)², so the envelope never needs them.
+  # Boards are mostly floor, so this is where the transform's cost actually
+  # goes: it turns a whole-board envelope into a wall-only one.
+  var
+    vertex = newSeq[int](w)      ## parabolas still on the envelope
+    cross = newSeq[float](w + 1) ## x where consecutive parabolas cross
+    f = newSeq[int64](w)         ## this row's squared column distances
+  for y in 0 ..< h:
+    let row = y * w
+    for x in 0 ..< w:
+      f[x] = int64(result.d[row + x])
+    template intersect(a, b: int): float =
+      ## Where parabolas rooted at a and b cross (a > b, so never /0).
+      float((f[a] + a.int64 * a.int64) - (f[b] + b.int64 * b.int64)) /
+        float(2 * (a - b))
+    var runStart = 0
+    while runStart < w:
+      if f[runStart] == 0:
+        result.d[row + runStart] = 0
+        inc runStart
+        continue
+      var runEnd = runStart
+      while runEnd < w and f[runEnd] != 0:
+        inc runEnd
+      let
+        lo = max(0, runStart - 1)
+        hi = min(w - 1, runEnd)
+      var k = 0
+      vertex[0] = lo
+      cross[0] = NegInf
+      cross[1] = Inf
+      for q in lo + 1 .. hi:
+        var s = intersect(q, vertex[k])
+        while k > 0 and s <= cross[k]:
+          dec k
+          s = intersect(q, vertex[k])
+        inc k
+        vertex[k] = q
+        cross[k] = s
+        cross[k + 1] = Inf
+      k = 0
+      for x in runStart ..< runEnd:
+        while cross[k + 1] < x.float:
+          inc k
+        let
+          dx = int64(x - vertex[k])
+          sq = f[vertex[k]] + dx * dx
+          dist = min(sqrt(sq.float), result.sat)
+        result.d[row + x] = uint16(dist * DistFrac + 0.5)
+      runStart = runEnd
+
+proc distSat*(field: WallDistField): float =
+  ## The distance past which this field stops being a distance. Exported with
+  ## distAt so a test can state the saturation contract.
+  field.sat
+
+proc distAt*(field: WallDistField, x, y: int): float =
+  ## The field sampled with EDGE REPLICATION, so the gradient stencil at a
+  ## board-border pixel takes a one-sided difference instead of reading a
+  ## phantom floor from outside the board.
+  let
+    cx = clamp(x, 0, field.w - 1)
+    cy = clamp(y, 0, field.h - 1)
+  field.d[cy * field.w + cx].float / DistFrac
+
+proc surfaceLit*(field: WallDistField, x, y: int): float =
+  ## How lit the surface is at (x, y), 0 = full shadow … 1 = full highlight.
+  ##
+  ## The distance grows INTO the wall, so −∇d is the OUTWARD face normal — the
+  ## true angle of the edge, not the nearest of four axes. The lit fraction is
+  ## the cosine against a light from the up-left, (−1, −1)/√2 (screen y points
+  ## DOWN), remapped to [0, 1].
+  ##
+  ## The cosine is scaled by √2 before the remap so an AXIS-ALIGNED face still
+  ## lands exactly on full highlight or full shadow. That is deliberate: the
+  ## arena is ~90% axis-aligned rects and they must keep the tone they have
+  ## today, with the off-axis faces (chevrons, discs, diamonds) filling in the
+  ## in-between tones the old 2-bucket test could not express. It also makes
+  ## the ramp linear in the cosine, which is the flat-shaded look this
+  ## material wants — not a soft Lambert falloff.
+  ##
+  ## A pixel with no gradient at all has no orientation and reads as the
+  ## neutral mid-tone. That is the ridge down the middle of a wall thinner
+  ## than two parapets, where the two faces meet and the answer genuinely is
+  ## "neither".
+  let
+    gx = field.distAt(x + 1, y) - field.distAt(x - 1, y)
+    gy = field.distAt(x, y + 1) - field.distAt(x, y - 1)
+    m = sqrt(gx * gx + gy * gy)
+  if m < 1e-6:
+    return 0.5
+  ## −(gx, gy)/m · (−1, −1)/√2, times √2 = (gx + gy)/m.
+  clamp(((gx + gy) / m + 1.0) * 0.5, 0.0, 1.0)
+
+type SeamAxis = object
+  ## A stripe family: the stripes are the level sets of nx·x + ny·y, so
+  ## (nx, ny) is the pattern's NORMAL and the stripes run across it.
+  ##
+  ## Parameterized rather than baked into an (x + y) expression because a
+  ## 45° family is a property of a SQUARE lattice. A hex build moves the two
+  ## materials onto two hex axes without touching the shading code.
+  nx, ny: float
+
+const
+  RoofSeamAxis = SeamAxis(nx: 1.0, ny: 1.0)
+    ## Roof membrane seams: level sets of x + y, running down-left.
+  GlassSheenAxis = SeamAxis(nx: 1.0, ny: -1.0)
+    ## Glass sheen streaks: level sets of x − y, running down-right.
+
+## DESIGN INTENT, kept as a contract: the two stripe families must stay well
+## APART in angle, or a window and the roof it is set into read as one
+## continuous pattern instead of two materials. Perpendicular is the
+## square-lattice answer; what actually matters is the ANGLE, so this admits a
+## hex build putting them on two hex axes (0° and 120°, |cos| = 1/2) without
+## weakening the guarantee. Written without sqrt so it holds at compile time.
+static:
+  const
+    dot = RoofSeamAxis.nx * GlassSheenAxis.nx +
+      RoofSeamAxis.ny * GlassSheenAxis.ny
+    lenSq = (RoofSeamAxis.nx * RoofSeamAxis.nx +
+        RoofSeamAxis.ny * RoofSeamAxis.ny) *
+      (GlassSheenAxis.nx * GlassSheenAxis.nx +
+        GlassSheenAxis.ny * GlassSheenAxis.ny)
+  doAssert dot * dot * 4.0 <= lenSq + 1e-9,
+    "roof seams and glass sheen must stay at least 60 degrees apart"
+
+proc seamPhase(axis: SeamAxis, x, y: int, period: int): float =
+  ## Where (x, y) sits within one stripe period, in [0, period). floorMod, so
+  ## it stays continuous across the origin and across negative coordinates.
+  let
+    t = axis.nx * x.float + axis.ny * y.float
+    p = period.float
+  t - floor(t / p) * p
 
 proc rooftopColorAt(
-  wall: seq[bool], w, h, x, y, scale: int
+  field: WallDistField, x, y, scale: int
 ): ColorRGBA =
   ## Shades one wall pixel as a low-detail rooftop: an ink ground line where
-  ## the building meets the floor, a parapet rim lit toward the up-left light
-  ## and shaded toward the down-right, a shadow line where the parapet drops
-  ## inside, and a dark seamed roof membrane deep in the interior. The mask
-  ## may be a `scale`× render of the arena; every band (ink line, parapet,
-  ## lip) widens by `scale` so the material keeps its 1× proportions.
+  ## the building meets the floor, a parapet rim graded from the face's own
+  ## angle to the up-left light, a shadow line where the parapet drops inside,
+  ## and a dark seamed roof membrane deep in the interior. The field may be a
+  ## `scale`× render of the arena; every band (ink line, parapet, lip) widens
+  ## by `scale` so the material keeps its 1× proportions.
   let
-    bevel = WallBevel * scale
-    cap = bevel + scale                  ## parapet + the inner lip line.
-    up = floorDistDir(wall, w, h, x, y, 0, -1, cap)
-    left = floorDistDir(wall, w, h, x, y, -1, 0, cap)
-    down = floorDistDir(wall, w, h, x, y, 0, 1, cap)
-    right = floorDistDir(wall, w, h, x, y, 1, 0, cap)
-    edge = min(min(up, down), min(left, right))
-  if edge <= scale:
+    s = scale.float
+    bevel = (WallBevel * scale).float
+    edge = field.distAt(x, y)
+  if edge <= s:
     return StoneInk                      ## touches the floor → ground outline.
-  let
-    topDist = min(up, left)              ## nearer the up-left (lit) rim.
-    botDist = min(down, right)           ## nearer the down-right (shaded) rim.
   if edge <= bevel:
     ## Graded parapet rim: brightest at the outer edge (just inside the ink
     ## line), easing toward the flat parapet top by the rim width so the
     ## building edge reads raised, not painted.
-    if topDist <= botDist:
-      let t = (topDist - 2 * scale).float / max(1, bevel - 2 * scale).float
-      mix(ParapetHi, ParapetFace, clamp(t, 0.0, 1.0))
-    else:
-      let t = (botDist - 2 * scale).float / max(1, bevel - 2 * scale).float
-      mix(ParapetLo, ParapetFace, clamp(t, 0.0, 1.0))
-  elif edge <= bevel + scale:
-    RoofLip                              ## parapet drops to the roof.
-  else:
-    ## Roof membrane: flat dark field with subtle diagonal seams running
-    ## down-left (perpendicular to the glass sheen streaks, so the two
-    ## materials never read as one pattern).
     let
-      period = RoofSeamPeriod * scale
-      phase = ((x + y) mod period + period) mod period
-    if phase < scale: RoofSeam else: RoofFace
+      rim = mix(ParapetLo, ParapetHi, field.surfaceLit(x, y))
+      t = (edge - 2 * s) / max(1.0, bevel - 2 * s)
+    return mix(rim, ParapetFace, clamp(t, 0.0, 1.0))
+  if edge <= bevel + s:
+    return RoofLip                       ## parapet drops to the roof.
+  ## Roof membrane: flat dark field with subtle diagonal seams (perpendicular
+  ## to the glass sheen streaks, so the two materials never read as one
+  ## pattern).
+  if seamPhase(RoofSeamAxis, x, y, RoofSeamPeriod * scale) < s:
+    RoofSeam
+  else:
+    RoofFace
 
-proc rooftopColor(wall: seq[bool], w, h, x, y: int): ColorRGBA =
+proc rooftopColor(field: WallDistField, x, y: int): ColorRGBA =
   ## 1× rooftop material (the baked collision-resolution map and spun diamonds).
-  rooftopColorAt(wall, w, h, x, y, 1)
+  rooftopColorAt(field, x, y, 1)
 
 const
   ## Glass window material: a pale pane set in the same parapet frame language
@@ -281,42 +505,34 @@ const
   GlassSheen = rgba(240, 236, 226, 255)  ## diagonal streaks; quantizes to 2.
 
 proc windowGlassColorAt(
-  wall: seq[bool], w, h, x, y, scale: int
+  field: WallDistField, x, y, scale: int
 ): ColorRGBA =
   ## Shades one glass window pixel: the same ink ground line and a thin
   ## parapet frame where the pane meets the floor (so windows sit in the
-  ## rooftop wall language), then a pale pane crossed by 45-degree sheen
-  ## streaks running down-right, perpendicular to the up-left light the
-  ## parapet bevels use.
-  ## Like rooftopColorAt, every band widens by `scale` so the material
-  ## keeps its 1× screen proportions on the render-scale board.
+  ## rooftop wall language), then a pale pane crossed by sheen streaks on the
+  ## GlassSheenAxis, held well off the roof seams' axis so glass and roof
+  ## never read as one material.
+  ## Like rooftopColorAt, every band widens by `scale` so the material keeps
+  ## its 1× screen proportions on the render-scale board, and reads the same
+  ## Euclidean distance field — so the frame is the same width on a diagonal
+  ## pane as on an axis-aligned one.
   let
-    frameCap = 2 * scale
-    edge = min(
-      min(
-        floorDistDir(wall, w, h, x, y, 0, -1, frameCap),
-        floorDistDir(wall, w, h, x, y, 0, 1, frameCap)
-      ),
-      min(
-        floorDistDir(wall, w, h, x, y, -1, 0, frameCap),
-        floorDistDir(wall, w, h, x, y, 1, 0, frameCap)
-      )
-    )
-  if edge <= scale:
+    s = scale.float
+    frameCap = (2 * scale).float
+    edge = field.distAt(x, y)
+  if edge <= s:
     return StoneInk                      ## touches the floor → carve outline.
   if edge <= frameCap:
     return ParapetFace                   ## thin parapet frame around the pane.
-  let
-    period = 24 * scale
-    phase = ((x - y) mod period + period) mod period
-  if phase < 3 * scale or phase in 7 * scale .. 9 * scale - 1:
+  let phase = seamPhase(GlassSheenAxis, x, y, 24 * scale)
+  if phase < 3 * s or (phase >= 7 * s and phase < 9 * s):
     GlassSheen
   else:
     GlassFace
 
-proc windowGlassColor(wall: seq[bool], w, h, x, y: int): ColorRGBA =
+proc windowGlassColor(field: WallDistField, x, y: int): ColorRGBA =
   ## 1× glass (the baked collision-resolution map the players observe).
-  windowGlassColorAt(wall, w, h, x, y, 1)
+  windowGlassColorAt(field, x, y, 1)
 
 var diamondFrameCache: array[DiamondSpinFrames, seq[tuple[
   scale: int, pixels: seq[uint8]]]]
@@ -358,12 +574,16 @@ proc rotatingDiamondPixels*(
         2 * x - size * scale,
         2 * y - size * scale,
         2 * scale)
+  ## One distance transform per frame, then every pixel of the parapet reads
+  ## it: the diamond's four 45° faces each get their own tone from their own
+  ## normal, which is the whole point of spinning it.
+  let field = wallDistField(mask, outSize, outSize, scale)
   var pixels = newSeq[uint8](outSize * outSize * 4)
   for y in 0 ..< outSize:
     for x in 0 ..< outSize:
       if mask[y * outSize + x]:
         let
-          color = rooftopColorAt(mask, outSize, outSize, x, y, scale)
+          color = rooftopColorAt(field, x, y, scale)
           offset = (y * outSize + x) * 4
         pixels[offset] = color.r
         pixels[offset + 1] = color.g
@@ -599,6 +819,12 @@ proc renderArenaRgbaPair*(
           artMask[y * ow + x] = true
           if shape.window:
             windowMask[y * ow + x] = true
+  # ONE distance transform of the finished art mask serves every wall pixel of
+  # both materials and both variants. It is the whole shading input: the old
+  # per-pixel 4-ray scan was the single most expensive thing in this loop on a
+  # big board, because each of its up-to-4·cap steps chased a mask that no
+  # longer fits in cache.
+  let artDist = wallDistField(artMask, ow, oh, scale)
   # The floor texture tiles the board with a period of exactly texW×texH LOGICAL
   # pixels, so the bilinear floor repeats every texW·scale × texH·scale output
   # pixels — bake ONE tile block and index it, instead of bilinear-sampling
@@ -619,6 +845,20 @@ proc renderArenaRgbaPair*(
     playHi = w - 1 - ArenaBorder
     playLoY = ArenaBorder
     playHiY = h - 1 - ArenaBorder
+  # Where trench art CAN reach: each pit's padded box, in LOGICAL pixels — the
+  # same guard loadMapLayers has always had, and for the same reason. Outside
+  # these boxes trenchArtColorAt provably returns its input, so adding it here
+  # is a pixel-for-pixel no-op; without it EVERY floor pixel pays a scan of
+  # EVERY trench, TWICE (hot and cold). A giant board digs 78 pits under 22M
+  # output pixels, and that scan alone was ~75% of this bake's wall clock —
+  # on the certifier's boot clock.
+  var trenchNear = newSeq[bool](w * h)
+  for trench in ArenaTrenches:
+    for ty in max(0, trench.y - TrenchArtPadPx) ..<
+        min(h, trench.y + trench.h + TrenchArtPadPx):
+      for tx in max(0, trench.x - TrenchArtPadPx) ..<
+          min(w, trench.x + trench.w + TrenchArtPadPx):
+        trenchNear[ty * w + tx] = true
   # Paint straight into the output byte buffers — the pixie Image round trip
   # (premultiply on write, un-premultiply on pack) was pure overhead for an
   # opaque board.
@@ -643,9 +883,9 @@ proc renderArenaRgbaPair*(
       if artMask[i]:
         hotColor =
           if windowMask[i]:
-            windowGlassColorAt(artMask, ow, oh, x, y, scale)
+            windowGlassColorAt(artDist, x, y, scale)
           else:
-            rooftopColorAt(artMask, ow, oh, x, y, scale)
+            rooftopColorAt(artDist, x, y, scale)
         coldColor = hotColor
       else:
         coldColor = tileBlock[tileRow + x mod tileW]
@@ -653,8 +893,9 @@ proc renderArenaRgbaPair*(
           tints, coldColor, lx, ly, playLo, playHi, playLoY, playHiY)
         # The trench pit (config-gated trenches) paints over the finished floor on both
         # variants; it sits at the center, well clear of the endzone glow.
-        coldColor = trenchArtColorAt(coldColor, lx, ly)
-        hotColor = trenchArtColorAt(hotColor, lx, ly)
+        if trenchNear[ly * w + lx]:
+          coldColor = trenchArtColorAt(coldColor, lx, ly)
+          hotColor = trenchArtColorAt(hotColor, lx, ly)
       if onBorder:
         hotColor = overTint(hotColor, ArenaBorderColor)
         coldColor = overTint(coldColor, ArenaBorderColor)
@@ -746,6 +987,11 @@ proc loadMapLayers*(gameMap: CtfMap, withEndzoneGlow = true):
     for x in 0 ..< w:
       if artMask[y * w + x] and isAnimatedDiamondPixel(x, y):
         artMask[y * w + x] = noSpinMask[y * w + x]
+  ## The 1× distance field over that same art mask — the sole shading input
+  ## for both wall materials below, so the art stays derived from the exact
+  ## geometry (and the collision-resolution map a player observes gets the
+  ## identical treatment the spectator board does).
+  let artDist = wallDistField(artMask, w, h, 1)
   ## Where glass CAN be: the union of the window shapes' footprints, painted
   ## once so the per-pixel glass test below is a mask read instead of an
   ## isArenaWindowPixel obstacle scan (same identity: glass = wall pixel
@@ -798,8 +1044,8 @@ proc loadMapLayers*(gameMap: CtfMap, withEndzoneGlow = true):
         artWall = artMask[y * w + x]
         windowPixel = wall and windowCover[y * w + x]
       var color =
-        if windowPixel: windowGlassColor(artMask, w, h, x, y)
-        elif artWall: rooftopColor(artMask, w, h, x, y)
+        if windowPixel: windowGlassColor(artDist, x, y)
+        elif artWall: rooftopColor(artDist, x, y)
         elif withEndzoneGlow: endzoneColorAt(tints,
           tileSample(floorTex, x, y), x, y, playLo, playHi, playLoY, playHiY)
         else: tileSample(floorTex, x, y)
