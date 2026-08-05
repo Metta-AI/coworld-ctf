@@ -457,6 +457,66 @@ proc why(sizeName: string, seed: int) =
   echo &"  after an extra repair pass: {retry.openLanes()} open, " &
     &"{retry.leftObstacles.len - gameMap.leftObstacles.len} plugs added"
 
+proc longestOpenRun(gameMap: CtfMap): tuple[len: int, deg: int,
+                                            x0, y0, x1, y1: int] =
+  ## The longest straight run of non-wall pixels anywhere on the board, swept
+  ## over 180 directions at 1-degree steps with 1px spacing between parallel
+  ## rays. This is the INDEPENDENT check on the sightline rule: the validator
+  ## scans six families on a 4px grid, so a slit narrower than that grid can
+  ## hide from it, and only a full sweep says what a gun can really cover.
+  let obstacles = buildArenaObstacles(gameMap)
+  var wall = newSeq[bool](gameMap.width * gameMap.height)
+  for y in 0 ..< gameMap.height:
+    for x in 0 ..< gameMap.width:
+      wall[y * gameMap.width + x] = gameMap.mapWallAt(obstacles, x, y)
+  let
+    cx = gameMap.center.x
+    cy = gameMap.center.y
+    reach = int(hypot(float(gameMap.width), float(gameMap.height))) div 2 + 2
+  for degI in 0 ..< 180:
+    let
+      ang = degToRad(float(degI))
+      dxs = cos(ang)
+      dys = sin(ang)
+    for off in -reach .. reach:
+      var
+        run = 0
+        sx, sy = 0
+      for t in -reach .. reach:
+        let
+          x = int(round(float(cx) + dxs * float(t) - dys * float(off)))
+          y = int(round(float(cy) + dys * float(t) + dxs * float(off)))
+        var open = x >= 0 and y >= 0 and
+          x < gameMap.width and y < gameMap.height
+        if open:
+          open = not wall[y * gameMap.width + x]
+        if not open:
+          run = 0
+          continue
+        if run == 0:
+          sx = x
+          sy = y
+        inc run
+        if run > result.len:
+          result = (run, degI, sx, sy, x, y)
+
+proc runs(sizeName: string, firstSeed, count: int) =
+  ## Longest fully-open run on `count` ACCEPTED maps of one class, against the
+  ## 1050px gun range. The number the lane rule exists to hold down.
+  var seed = firstSeed
+  var found = 0
+  while found < count:
+    let gameMap = generateCtfMap(seed, MapGenOverrides(
+      size: sizeName, windows: -1, pits: -1, pitDensity: -1), 2)
+    let best = gameMap.longestOpenRun()
+    inc found
+    echo &"{sizeName} seed {seed:>5}  longest open run {best.len:>5} px " &
+      &"at {best.deg:>3} deg  ({best.x0},{best.y0})->({best.x1},{best.y1})  " &
+      &"minSpan {gameMap.sightlineMinSpan()}  gunRange {GunRange}  " &
+      (if best.len <= GunRange: &"margin {GunRange - best.len} px"
+       else: &"OVER by {best.len - GunRange} px")
+    seed += 1
+
 when isMainModule:
   let mode = if paramCount() >= 1: paramStr(1) else: "geom"
   var classes: seq[HexSizeClass]
@@ -478,5 +538,8 @@ when isMainModule:
     dist(classes, perClass, firstSeed)
   of "why":
     why(paramStr(2), parseInt(paramStr(3)))
+  of "runs":
+    runs(paramStr(2), parseInt(paramStr(3)),
+         if paramCount() >= 4: parseInt(paramStr(4)) else: 4)
   else:
     quit("usage: hex_cover_probe [geom|dist|why] ...")
