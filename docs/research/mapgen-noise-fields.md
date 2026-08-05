@@ -1730,7 +1730,107 @@ centre is correspondingly larger.
 
 ---
 
-## 11. Solving for the threshold instead of rolling dice
+### 10.6 The mirror-axis hazard, checked for every construction in this dimension
+
+`docs/research/mapgen-partition-geometry.md` §8 proves a sharp trap: **a mirror
+axis IS a Voronoi edge unless a seed sits on it**, because the axis is exactly the
+equidistant set between any seed and its mirror image. So a symmetric cell
+construction that leaves the axis unseeded lays a perfectly straight full-board
+feature down the middle of every 2-team map.
+
+I was asked whether the analogue holds for thresholded noise. **It does for some
+of my constructions and provably not for others**, and the dividing line is
+clean enough to be a design rule. Let `s` be the mirror about `x = x_c` and let
+`g` be the lifted (symmetric) field.
+
+**The general test.** A construction has the hazard iff its output places a
+*boundary* on the fixed-point set of the group by symmetry alone. So: ask what
+locus the construction draws, and ask whether symmetry forces that locus onto the
+axis.
+
+**(1) Worley / cellular F2−F1 — HAZARD, at full force.** `F2 − F1` *is* the
+Voronoi edge function, so this is not an analogue of the siblings' theorem, it is
+the same theorem. On the axis, the nearest seed and its mirror are equidistant, so
+`F1 = F2` and **`F2 − F1 = 0` exactly, along the entire axis, on every seed.**
+Both polarities are bad and you get to choose which: threshold walls as the *low*
+set of `F2 − F1` and the axis is a **straight full-board wall**; threshold them as
+the *high* set and the axis is a **straight full-board open corridor** with no
+cover for its entire length. Since `symMirror` folds across the *vertical* centre
+line, that corridor is vertical — which our **hard** sightline validator never
+looks at (§2.4, it scans rows only), so it would ship silently and only be scored
+softly by `longRunFrac`. **If we ever use cellular noise under a mirror lift, seeds
+must be placed ON the axis, exactly as the partition survey prescribes.**
+
+**(2) Point-placed cover (scatter, Poisson-disk) — HAZARD, and we already have
+it.** A disc at distance `d` from the axis and its mirror image leave a straight
+open channel of width `2d − 2R` centred on the axis; the axis itself is open
+unless some obstacle straddles it. `mapgen_styles.nim`'s own header says the
+placement region is *"already inset from … the symmetry seam"*, which makes this
+**deterministic rather than probabilistic**: every mirror map gets a straight open
+seam channel whose width is twice the inset. This is very likely part of why
+`verticalAnchors` draws its `x` from a mid-field band at all
+(`mapgen_styles.nim:130-133`), and it is a second, independent argument for
+letting shapes straddle the seam.
+
+**(3) Gradient-noise LEVEL SETS — NO HAZARD, and here is the proof.** This is the
+one that matters, because it is the recommendation.
+
+> *Claim.* For either symmetrisation, the mirror axis is neither systematically
+> wall nor systematically floor, and the density of wall crossings along the axis
+> equals the density along any other vertical line.
+>
+> *Proof.* **Marginal value.** Under folding, `g(x_c, y) = f(0, y)`; under
+> averaging, `g(x_c, y) = f(x_c, y)` since `s` fixes the axis pointwise. In both
+> cases the restriction of `g` to the axis is an ordinary sample of `f`, unit
+> variance, mean zero — **no bias toward or away from the threshold**.
+> **Along-axis derivative.** Under folding, `d g/dy (x_c, y) = d f/dy (0, y)`;
+> under averaging, `d g/dy (x_c, y) = d f/dy (x_c, y)`. Both have variance
+> `lambda2`, the generic value. By Rice (§11.1) the level-`u` crossing rate along
+> the axis is `(sqrt(lambda2)/pi) exp(-u^2/2)` — **identical to the rate along any
+> vertical line.** So the run-length distribution on the axis is the generic one.
+> **Transversality.** A contour can only lie *along* the axis if `grad g` is
+> perpendicular to it there. Under averaging, `grad g` on the axis is exactly
+> *parallel* to the axis (§10.3), so contours cross it at right angles; under
+> folding they cross in a V. Either way, transversally, at isolated points. ∎
+
+So the arc/contour construction of §6.4b is **structurally immune** to the
+sibling's trap. That is a third independent argument for it, and it is the kind of
+thing worth knowing *before* building, not after.
+
+One residual, for folding only: where `grad f` at the axis happens to point nearly
+along `x`, the contour runs nearly parallel to the axis and the fold produces a
+**long thin chevron hugging the seam** — a wall parallel to the axis, not an open
+lane, so it fails safe. Averaging removes even that, because `grad g` is exactly
+parallel to the axis there, which makes the near-parallel case impossible.
+
+**(4) Ridge, watershed and flow constructions (ridged multifractal §4.7, D8 §9.2)
+— PARTIAL HAZARD, and it is real.** Here the construction draws a *ridge/valley*
+locus, and symmetry does force that locus onto the axis. Under averaging,
+`d g/dn = 0` identically on the axis, so **every point of the axis is a critical
+point transverse to the axis** — the axis is a critical line, decomposing into
+alternating ridge segments (where `d^2 g/dn^2 < 0`) and valley segments. Water
+placed on the axis can only flow *along* it, so **the D8 flow network of a
+mirror-symmetrised heightfield always contains the axis.** Under folding the same
+thing happens as a crease.
+
+Quantitatively this is milder than the Voronoi case because the segments alternate
+rather than running the full board: the alternation scale is the field's
+correlation length `L0`, so segments are ~`L0` long with an exponential-ish tail.
+At the §11.2 design point `L0 ≈ 275 px`, `P(segment > LongRunPx = 600) ≈
+exp(-600/275) ≈ 0.11`, and with ~4 segments down a 1119 px board that is roughly
+**0.4 long straight mid-board features per map** — not every map, but far too
+often to ignore, and systematically in the worst possible place. **If we use
+ridged noise or an erosion-derived trench network under a mirror lift, the seam
+needs an explicit check and probably an explicit obstacle.**
+
+**Summary rule.** The hazard tracks *what locus the construction draws*:
+
+| Construction draws… | On the axis, symmetry forces… | Hazard |
+|---|---|---|
+| Voronoi edges (Worley F2−F1) | `F2 − F1 = 0` exactly, full board | **Severe** |
+| points, lifted in pairs | a straight gap between each pair and its mirror | **Severe** (and deterministic given a seam inset) |
+| ridge / valley / flow lines | a critical line ⇒ alternating ridge and valley segments | **Moderate**, ~`L0`-scale segments |
+| **level sets of a scalar field** | **nothing — generic crossing rate, transversal crossings** | **None** |
 
 *(Section order note: §11–§12 are the analysis that motivates the
 recommendation, and were written first because they are what the recommendation
