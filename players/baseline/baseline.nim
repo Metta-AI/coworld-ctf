@@ -196,6 +196,26 @@ when defined(meprobe):
   var meSafe = 0       # ...and cleared the contact rule (out of contact or light-break)
   var meFireCount = 0  # ...and a known kit sits within MedKitEconDetour => fired
 
+when defined(wbprobe):
+  # -d:wbprobe ONLY (plan #13): instrument woundedBank as a FUNNEL plus the
+  # hp-1 SEGMENT FATE metric (the plan's §3.1 mechanism probe). Counters are
+  # module globals shared across the in-process harness's 16 bots — common-mode
+  # is fine for "does it fire". The hp-1 segment counters run tune-independent
+  # so a WBANK-unset run of the same binary is the control. Never compiled into
+  # the shipped player.
+  var wbAllFrames = 0      # alive decide frames with a read hp (dump clock)
+  var wbEntries = 0        # FIGHT→BANK segment entries
+  var wbFrames = 0         # banking frames
+  var wbFinishSuspend = 0  # frames the finish-window suspended an armed bank
+  var wbLineSegs = 0       # bank segments where a fresh threat line was on us
+  var wbBreak60 = 0        # ...and that line was BROKEN within 60t of entry
+  var wbBankDeaths = 0     # bank segments ending in death
+  var wbBankHeals = 0      # heals to full WHILE banking (the re-arm)
+  var wbHp1Segs = 0        # closed hp-1 segments (all bots, tune-independent)
+  var wbHp1Heals = 0       # ...ending in a heal to full (alive)
+  var wbHp1Deaths = 0      # ...ending in death
+  var wbHp1Ticks = 0       # total ticks spent at hp 1 across closed segments
+
 when defined(scprobe):
   # -d:scprobe ONLY (v9): instrument the satCap redistribution as a FUNNEL so a
   # null A/B is diagnosable (pair-saturation never occurs in range vs occurs but
@@ -409,6 +429,24 @@ const
                               # inside 900 will punish a turned back before our gun returns.
   HoldVsGunTtl = 20           # holdVsGun: only hold for a threat seen this recently (a
                               # fresh, gun-on-us read — not a stale fix)
+  FinishRange = 260.0         # woundedBank: the finish-window — a fresh 1-hp enemy
+                              # inside this with our clear line is one trigger pull
+                              # from a won exchange; banking suspends (per-frame)
+                              # to convert it (disengaging a won exchange is the
+                              # REF-force trap)
+  BankSearchCells = 10        # woundedBank: bank-cell search radius in nav cells
+                              # (DuckSearchCells is a duck, not a disengage — the
+                              # bank needs the wider cover model)
+  BankRecalc = 12             # woundedBank: keep a chosen bank cell this many ticks
+                              # (no dithering between near-equal cover cells)
+  BankBlindTicks = 16         # woundedBank: no fresh threat line on us for this
+                              # long => HOLD sub-mode (park at the bank cell, aim
+                              # the re-emergence bearing, let medEcon route to a kit)
+  BankStandoffGain = 40.0     # woundedBank: an open-floor (non-LOS-breaking) cell
+                              # only qualifies with at least this much standoff GAIN
+                              # (radial-only retreat is the measured-useless shape)
+  BankKitLambda = 0.25        # woundedBank: kit-gravity tiebreak weight toward the
+                              # nearest static kit spot (disengage-to-heal synergy)
   DominateGuardBand = 300.0   # #7: search the domination post within this x-band
                               # inside our half of the center line (toward home)
   MateSpacing = 40.0          # soft repulsion radius between teammates
@@ -1313,6 +1351,20 @@ type
                               # the back. This guard catches that SOLO case: face the
                               # threat + break its line (duck) instead of turning away.
                               # SEALs: never present your back to an unsuppressed gun.
+    woundedBank: bool         # ⭐ WOUNDED BANK (plan #13, the hp-keyed survival
+                              # posture). At own hp == 1 (own-state ONLY — headcount
+                              # appears NOWHERE in entry/exit, the REF-force
+                              # distinction) disengage on the COVER model: route to
+                              # a bank cell that BREAKS the fresh threat lines (out-
+                              # geometry, not out-run — equal top speeds make radial
+                              # retreat useless), gun held on the chaser the whole
+                              # withdraw. Suspended per-frame by the finish-window
+                              # (a fresh 1-hp enemy with our clear line inside
+                              # FinishRange — one pull from a won exchange) and by
+                              # an imminent grab (inside GrabCommitRing). Carriers
+                              # never bank (carrierFlee owns them). A banked 1-hp
+                              # life still counts toward the lives/wipe economy and
+                              # re-arms to FULL off a kit (sim heals to MaxHp).
     pointOfDomination: bool   # #7 POINT OF DOMINATION: score overwatch posts by
                               # clear-LOS coverage of the cells where enemies
                               # ACTUALLY travel (baked from the occupancy heatmap),
@@ -1856,6 +1908,16 @@ type
     aimLockPos: Vec           # TARGET-LOCK: the enemy the turret is pinned on,
     aimLockUntil: int         # held (aim stays on its bearing) until this tick
     retreatUntil: int         # force-balance withdrawal committed until this tick
+    bankCell: int             # woundedBank: cached LOS-break bank cell (-1 = none)
+    bankCellTick: int         # woundedBank: tick that cell was computed (BankRecalc)
+    bankBlindSince: int       # woundedBank: last tick a fresh threat had a clear
+                              # pixel ray to us (HOLD sub-mode after BankBlindTicks)
+    when defined(wbprobe):
+      pWasBanking: bool       # probe: banking state last frame (segment edges)
+      pBankEnter: int         # probe: tick the current bank segment began
+      pHadLine: bool          # probe: a fresh threat line existed this segment
+      pBroke: bool            # probe: that line was broken this segment
+      pHp1Since: int          # probe: tick own hp became 1 (-1 = not at hp 1)
     shieldRushDone: bool      # shieldRush: latched once we grabbed the opening shield OR
                               # gave up (mate took it) — stops re-detouring mid-run
     assaultUntil: int         # assaultThrough: near-ambush charge committed until
@@ -2154,6 +2216,7 @@ proc defaultCombatTune(): CombatTune =
     twoSpeedScan: false,      # control: sentry sweep rakes past the hot bearing.
     boundingOverwatch: false, # control: advance across open ground even on cooldown.
     holdVsGun: false,         # control: a solo gun-down bot strolls away from a live gun.
+    woundedBank: false,       # control: a 1-hp bot fights on with its posture unchanged.
     pointOfDomination: false, # control: overwatch posts scored by raw line length.
     tempoPress: false,        # control: always duck on cooldown, never press dead time.
     fireSuperiority: false,   # control: no press-vs-break judgement.
@@ -2518,6 +2581,11 @@ proc shippedCombatTune(): CombatTune =
   # upside was field-only. TOUCH=1 arms it for the hosted ASYMMETRIC A/B that is the correct
   # gate. Do not flip this default without that field result.
   result.touchCommit = getEnv("TOUCH").len > 0
+  # ⭐ woundedBank (plan #13): the hp-keyed wounded survival posture. UNPROVEN —
+  # stays ENV-ARMED ONLY until the pre-registered A/B passes (the contaminated-
+  # control trap, failed.md: never bake an unproven lever into the champion
+  # tune). WBANK=1 arms it per-process for the env-server A/B rig.
+  result.woundedBank = getEnv("WBANK").len > 0
   # ── COMMS BUS (C1/C2 + the WIPE coupling). Event-driven team plays over the one
   # shout channel: a bot classifies a LIVE scenario from its own fresh local reads
   # and broadcasts an opaque rotating 2-char codeword; teammates in earshot adopt it
@@ -3691,6 +3759,72 @@ proc findDuckCell(bot: Bot, client: ProtocolClient, me, threat: Vec): int =
         bestD = d
         result = nc
 
+proc findBankCell(bot: Bot, client: ProtocolClient, me: Vec,
+                  threats: seq[Vec]): int =
+  ## woundedBank (plan #13 §1.2): the BANK cell — a directly-reachable cell
+  ## that breaks the fresh threat lines. Equal top speeds mean radial retreat
+  ## holds the gap constant while the map-scale hitscan keeps landing (the
+  ## arcStandoff finding: you cannot outrun; you out-GEOMETRY), so the search
+  ## prefers ANY LOS-breaking cell over any open one:
+  ##   tier 2  breaks EVERY fresh threat line
+  ##   tier 1  breaks the nearest threat's line
+  ##   tier 0  open floor, admitted only with >= BankStandoffGain standoff GAIN
+  ## Within a tier: nearest cell wins, kit-gravity tiebreak toward the nearest
+  ## static kit spot (kits are hurt-only and heal to full — the disengage-to-
+  ## heal synergy). Never a cell deeper into enemy territory (the regroup
+  ## home-side rule). -1 when nothing qualifies.
+  result = -1
+  if threats.len == 0:
+    return
+  var nearIdx = 0
+  var nearD = 1e18
+  for i in 0 ..< threats.len:
+    let d = dist(threats[i], me)
+    if d < nearD:
+      nearD = d
+      nearIdx = i
+  let
+    kitA = vec(MedKitAX, MedKitAY)
+    kitB = vec(MedKitBX, MedKitBY)
+    c0 = cellOf(me)
+    cx0 = c0 mod GridW
+    cy0 = c0 div GridW
+  var bestTier = -1
+  var bestCost = 1e18
+  for dy in -BankSearchCells .. BankSearchCells:
+    for dx in -BankSearchCells .. BankSearchCells:
+      let
+        nx = cx0 + dx
+        ny = cy0 + dy
+      if nx < 0 or ny < 0 or nx >= GridW or ny >= GridH:
+        continue
+      let nc = ny * GridW + nx
+      if not bot.cellWalkable[nc]:
+        continue
+      let p = cellCenter(nc)
+      if not bot.gridRayClear(me, p):
+        continue                          # not directly reachable
+      if homeSign(bot.team) * (p.x - me.x) < -20.0:
+        continue                          # deeper into enemy territory
+      var tier = 0
+      if not client.pixelRayClear(p, threats[nearIdx]):
+        tier = 1
+        var breaksAll = true
+        for t in threats:
+          if client.pixelRayClear(p, t):
+            breaksAll = false
+            break
+        if breaksAll:
+          tier = 2
+      elif dist(p, threats[nearIdx]) < nearD + BankStandoffGain:
+        continue                          # open floor with no real standoff gain
+      let cost = dist(p, me) +
+        BankKitLambda * min(dist(p, kitA), dist(p, kitB))
+      if tier > bestTier or (tier == bestTier and cost < bestCost):
+        bestTier = tier
+        bestCost = cost
+        result = nc
+
 proc findPeekCell(bot: Bot, client: ProtocolClient, me, aim: Vec): int =
   ## The nearest directly-reachable cell that opens a firing line to `aim`
   ## within gun range; -1 when no sidestep grants the shot.
@@ -3835,6 +3969,15 @@ proc resetTransient(bot: Bot) =
   bot.lockUntil = -100_000
   bot.aimLockUntil = -100_000
   bot.retreatUntil = -100_000
+  bot.bankCell = -1
+  bot.bankCellTick = -100_000
+  bot.bankBlindSince = bot.tick
+  when defined(wbprobe):
+    bot.pWasBanking = false
+    bot.pBankEnter = 0
+    bot.pHadLine = false
+    bot.pBroke = false
+    bot.pHp1Since = -1
   bot.shieldRushDone = false
   bot.assaultUntil = -100_000
   bot.arcBreachUntil = -100_000
@@ -4032,6 +4175,15 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     bot.firedLast = false
     bot.rotSign = 0
     bot.wasDead = true
+    when defined(wbprobe):
+      if bot.pHp1Since >= 0:
+        inc wbHp1Segs
+        inc wbHp1Deaths
+        wbHp1Ticks += bot.tick - bot.pHp1Since
+        bot.pHp1Since = -1
+      if bot.pWasBanking:
+        inc wbBankDeaths
+        bot.pWasBanking = false
     return 0
   if bot.wasDead:
     # Respawned: the server points the aim back at the enemy side.
@@ -4185,6 +4337,29 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       break damageSense
     let prevHp = bot.ownHp
     bot.ownHp = hp
+    when defined(wbprobe):
+      # hp-1 SEGMENT FATE (tune-independent — a WBANK-unset run is the control):
+      # a segment opens the frame hp reads 1 and closes on a heal-to-full here
+      # or on death in the dead path above. Game-end truncations = opened −
+      # closed at the last dump.
+      inc wbAllFrames
+      if hp == 1 and bot.pHp1Since < 0:
+        bot.pHp1Since = bot.tick
+      elif hp >= MaxHp and bot.pHp1Since >= 0:
+        inc wbHp1Segs
+        inc wbHp1Heals
+        wbHp1Ticks += bot.tick - bot.pHp1Since
+        if bot.pWasBanking:
+          inc wbBankHeals
+        bot.pHp1Since = -1
+      if wbAllFrames mod 20000 == 0:
+        stderr.writeLine "WBPROBE frames=" & $wbAllFrames &
+          " entries=" & $wbEntries & " bankFrames=" & $wbFrames &
+          " finishSusp=" & $wbFinishSuspend & " lineSegs=" & $wbLineSegs &
+          " break60=" & $wbBreak60 & " bankDeaths=" & $wbBankDeaths &
+          " bankHeals=" & $wbBankHeals & " hp1Segs=" & $wbHp1Segs &
+          " hp1Heals=" & $wbHp1Heals & " hp1Deaths=" & $wbHp1Deaths &
+          " hp1Ticks=" & $wbHp1Ticks
     if not bot.tune.damageAware or prevHp <= 0 or hp >= prevHp:
       break damageSense                  # first read, respawn, or no damage
     # We took a hit. Is a threat already in view? If so, combat handles it.
@@ -4578,6 +4753,63 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       if localEnemies - localFriends >= bot.tune.outnumberMargin:
         bot.retreatUntil = bot.tick + RetreatHold  # hysteresis: commit the fall-back
   let retreating = onOffense and bot.tick <= bot.retreatUntil
+  # ── ⭐ WOUNDED BANK entry (plan #13 §1.1). The trigger is OWN hp state only:
+  # hp == 1, where we measured 100% death (n=160 lives, median 83t) — there is
+  # no won fight being thrown away at hp1 as a class, and headcount appears
+  # NOWHERE in entry/exit (the REF-force distinction). Suspended per-frame by:
+  #   • the finish-window — a fresh 1-hp enemy with our clear pixel line inside
+  #     FinishRange is one trigger pull from a won exchange (the AGG-E3 state);
+  #   • an imminent grab — inside GrabCommitRing the touch ends the episode
+  #     (grab→capture is the other proven lever family);
+  #   • carrying — carrierFlee + the fight-out ring own carriers (a banked
+  #     carrier forfeits the capture). Exit is implicit: a kit heals to FULL
+  #     (hp >= 2 fails the entry read next frame) and death re-reads 3.
+  var banking = false
+  if bot.tune.woundedBank and bot.ownHp == 1 and not iCarry and
+      dist(me, stealTarget) > GrabCommitRing:
+    banking = true
+    for t in bot.enemies:
+      if bot.tick - t.lastSeen <= TempoFreshTicks and t.hp == 1 and
+          dist(t.pos, me) <= FinishRange and
+          client.pixelRayClear(me, t.pos):
+        banking = false                    # finish-window: convert, don't bank
+        when defined(wbprobe):
+          inc wbFinishSuspend
+        break
+  # BANK sub-mode clock: bankBlindSince = the last tick a fresh threat held a
+  # clear pixel ray to us. Blind for >= BankBlindTicks => HOLD (park at the
+  # bank cell, aim the re-emergence bearing). medEcon's aimedAtUs veto passes
+  # exactly once the line is broken, so kit routing takes over — banking is
+  # the missing under-the-gun tier medEcon deliberately refuses to handle.
+  var bankLineOnUs = false
+  if banking:
+    for t in bot.enemies:
+      if bot.tick - t.lastSeen <= HoldVsGunTtl and
+          dist(t.pos, me) <= HoldVsGunRange and
+          client.pixelRayClear(me, t.pos):
+        bankLineOnUs = true
+        break
+    if bankLineOnUs:
+      bot.bankBlindSince = bot.tick
+  elif bot.tune.woundedBank:
+    bot.bankBlindSince = bot.tick          # not banking: keep the blind clock idle
+  when defined(wbprobe):
+    if banking:
+      inc wbFrames
+      if not bot.pWasBanking:
+        inc wbEntries
+        bot.pBankEnter = bot.tick
+        bot.pHadLine = false
+        bot.pBroke = false
+      if bankLineOnUs:
+        if not bot.pHadLine:
+          bot.pHadLine = true
+          inc wbLineSegs
+      elif bot.pHadLine and not bot.pBroke:
+        bot.pBroke = true
+        if bot.tick - bot.pBankEnter <= 60:
+          inc wbBreak60
+    bot.pWasBanking = banking
   # The fall-back point: regroup on the nearest fresh mate who is NOT deeper in
   # enemy territory than we are (two guns beat the 1-vs-N), else withdraw toward
   # our own side.
@@ -4662,6 +4894,63 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           inc hsFireCount
           if abs(target.y - me.y) > 0.5: inc hsMovedCount
         target = vec(homeDeepX(bot.team), me.y)
+  elif banking:
+    # ⭐ WOUNDED BANK movement (plan #13 §1.2): out-GEOMETRY, not out-run.
+    # Route to the bank cell — the nearest reachable cell that breaks the
+    # fresh threat lines (kit-gravity tiebreak, never deeper into enemy
+    # territory). Position after the carrier arm and before every role/steal
+    # arm: a 1-hp attacker is a fed life, not an attacker, so steal pursuit,
+    # roles and pickups are overridden while banking (§1.5); the imminent-grab
+    # exemption already kept a bot inside GrabCommitRing out of BANK. The gun
+    # is NOT touched here — the engage branch still fires the free trade while
+    # the feet withdraw, and aimLock/orient keep the cone on the chaser.
+    var bankThreats: seq[Vec]
+    var bankNear = vec(-1.0, -1.0)
+    var bankNearD = 1e18
+    var bankRemembered = vec(-1.0, -1.0)   # any-age nearest track (re-emergence)
+    var bankRememberedD = 1e18
+    for t in bot.enemies:
+      let d = dist(t.pos, me)
+      if d < bankRememberedD:
+        bankRememberedD = d
+        bankRemembered = t.pos
+      if bot.tick - t.lastSeen > HoldVsGunTtl or d > HoldVsGunRange:
+        continue
+      bankThreats.add t.pos
+      if d < bankNearD:
+        bankNearD = d
+        bankNear = t.pos
+    if bankThreats.len > 0 and
+        (bot.bankCell < 0 or bot.tick - bot.bankCellTick > BankRecalc):
+      bot.bankCell = bot.findBankCell(client, me, bankThreats)
+      bot.bankCellTick = bot.tick
+    let bankHold = bot.tick - bot.bankBlindSince >= BankBlindTicks
+    if bankHold:
+      # HOLD: no fresh line on us for BankBlindTicks. Park at/near the bank
+      # cell and aim the RE-EMERGENCE bearing (the threat's last position —
+      # the cornerPreAim idea) via the orient mechanism; medEcon below is free
+      # to override the target toward a kit (its aimedAtUs veto now passes).
+      target = (if bot.bankCell >= 0: cellCenter(bot.bankCell) else: me)
+      if bankRemembered.x >= 0:
+        bot.orientPos = bankRemembered
+        bot.orientUntil = bot.tick + 2
+    elif bot.bankCell >= 0:
+      target = cellCenter(bot.bankCell)    # SEEK: break the line via cover
+    elif bankNear.x >= 0:
+      # Open-map fallback (§5.4 caveat): DIAGONAL withdraw, the press-branch
+      # pattern mirrored — away + perpendicular-with-clearance, biased toward
+      # our side. Radial-only is the measured-useless shape.
+      let away = norm(me - bankNear)
+      var side = vec(-away.y, away.x)
+      if not bot.gridRayClear(me, me + side * 24.0):
+        side = side * -1.0
+      var dirv = away + side * 0.8
+      dirv.x += homeSign(bot.team) * 0.4
+      let fb = me + norm(dirv) * 96.0
+      target = vec(clamp(fb.x, 20.0, float(MapW - 20)),
+                   clamp(fb.y, 20.0, float(MapH - 20)))
+    else:
+      target = me                          # no threat known: hold; medEcon routes
   elif ownStolen and (bot.role == HomeDefender or
       (bot.role == Overwatch and
        bot.tick - bot.carrierSeen <= (if bot.tune.huntCarrier: HuntCarrierStaleTtl
@@ -5269,7 +5558,10 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     if bot.tick - t.lastSeen > 48:
       continue
     nearestMateToSteal = min(nearestMateToSteal, dist(t.pos, stealTarget))
-  let wantPocketRush = not iCarry and not mateCarry and
+  # `not banking` (plan #13 §1.5): a 1-hp attacker outside GrabCommitRing is a
+  # fed life, not an attacker — steal pursuit is overridden while banking (the
+  # imminent-grab exemption already keeps a bot inside the ring out of BANK).
+  let wantPocketRush = not iCarry and not mateCarry and not banking and
     bot.role in {MidTop, MidBottom, MidGuard, FlankTop, FlankBottom} and
     dist(me, stealTarget) < PocketRushRange and
     dist(me, stealTarget) < nearestMateToSteal + 8.0
@@ -5928,7 +6220,8 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           nadeThrowD = d
     when defined(commsprobe):
       if nadeAim >= 0 and (lineLive or bestScore >= 2): inc csNadeLine
-  elif not carryingNade and not iCarry and not mateCarry and not pocketRush:
+  elif not carryingNade and not iCarry and not mateCarry and not pocketRush and
+      not banking:
     # Collect a pickup: anyone grabs one within a short detour, and the two
     # flankers own their lane's friendly-side corner spawn — it sits right on
     # their border route, so they arm up on the way out every respawn cycle.
@@ -6008,7 +6301,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # it to become a fat body-block on the carrier's cone (it can't shoot anyway).
   var seekingPickup = false
   if bot.tune.shieldTank and not iHaveShield and not iHaveSword and
-      not iCarry and mateCarry and
+      not iCarry and not banking and mateCarry and
       bot.role in {MidBottom, FlankBottom, MidGuard} and
       dist(me, mateCarryPos) < EscortRunMateRange:
     var best = 1e18
@@ -6031,6 +6324,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # Opportunistic and VISIBLE-ONLY (no spawn-coordinate guessing — the kit
   # lesson): any free attacker seat that sees a can nearby grabs it.
   if bot.tune.sprayGrab and not seekingPickup and not iHavePlasma and
+      not banking and
       not iHaveShield and not iCarry and not mateCarry and not ownStolen and
       bot.role in {MidTop, MidBottom, MidGuard, FlankTop, FlankBottom}:
     var best = 1e18
@@ -6046,6 +6340,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # carrying/shielded/seeking — a cheap detour toward home, never a backtrack once
   # forward. The shield sits at our endzone (¾ height), so it's on the way out.
   if bot.tune.shieldRush and not bot.shieldRushDone and not seekingPickup and
+      not banking and
       not iHaveShield and not iCarry and not mateCarry and not ownStolen and
       bot.role == roleForSeat(ShieldRushSeat, bot.team) and
       bot.tick - max(bot.gameStart, bot.lifeStart) <= ShieldRushWindow:
@@ -6508,8 +6803,9 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           client.pixelRayClear(me, engageBody) and
           not bot.friendlyBlocked(me, engageBody, bodyD):
         wantFire = true
-    if retreating or (bot.tune.carrierFlee and iCarry):
-      # Outnumbered (retreat) OR carrying the heart (flee): keep the gun on the
+    if retreating or banking or (bot.tune.carrierFlee and iCarry):
+      # Outnumbered (retreat) OR banking at 1 hp OR carrying the heart (flee):
+      # keep the gun on the
       # lined-up target and take the free trade, but MOVE toward our objective
       # (the regroup point / home capture edge) instead of advancing into the
       # enemy. A carrier that steps toward a point-blank respawner walks into the
@@ -6581,7 +6877,9 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       dist(tp.pos, me) <= AssaultPressRange
     when defined(asprobe):
       if assaultOn: inc asCharge
-    let pressWorth = assaultOn or (
+    # woundedBank: a 1-hp bot never closes into spray range on a reload gamble
+    # (that close IS the median-83-tick death) — the one offensive suppression.
+    let pressWorth = not banking and (assaultOn or (
       bot.tune.tempoPress and bot.tick - tp.lastSeen <= TempoFreshTicks and
       # #8 TEMPO / AUDACITY — press on the half-beat: our reload is dead time,
       # but so is theirs if the threat can't punish us right now. When it is
@@ -6591,7 +6889,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       # on top of it and finish it in ITS dead time. Only inside a band where
       # closing actually pays; a facing, full-hp gun still gets the duck.
       ((tp.hp in 1 ..< MaxHp) or not facingMe) and
-      dist(tp.pos, me) <= TempoPressRange)
+      dist(tp.pos, me) <= TempoPressRange))
     if pressWorth:
       desiredAim = bradsOf(tp.pos - me)      # pre-lay for the returning shot
       # Close on a jinking line (never a static/straight target): step toward
@@ -6630,7 +6928,9 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       holdStill = true
     acted = true
   elif bot.tune.holdVsGun and not shotReady and not iCarry and not pocketRush and
-      not retreating:
+      not retreating and not banking:
+    # (banking already keeps the gun on the threat while withdrawing — avoid
+    # double-owning the frame; plan #13 touch 12.)
     # ⭐ NEVER TURN YOUR BACK ON A LIVE GUN (focus-fire audit fix). boundHold above only
     # holds a gun-down bot that has a covering MATE; a SOLO bot (no wingman) with its gun
     # on cooldown and a fresh enemy whose gun is ON us past DuckRange but inside
