@@ -35,7 +35,7 @@ when isMainModule:
     count = if args.len > 0: parseInt(args[0]) else: 12
     size = if args.len > 1: args[1] else: "standard"
     renderDir = if args.len > 2: args[2] else: ""
-    coverTarget = if args.len > 3: parseInt(args[3]) else: 150
+    coverTarget = if args.len > 3: parseInt(args[3]) else: 180
 
   echo "CONTROL"
   let control = evaluateMap(loadCtfMapMetadata("arena"), "arena")

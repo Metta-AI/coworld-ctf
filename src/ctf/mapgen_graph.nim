@@ -177,6 +177,46 @@ proc opaqueAt*(b: Board, x, y: int): bool =
       return true
   false
 
+proc rayClear*(b: Board, x0, y0, dx, dy, len: int, skip: int): bool =
+  ## Straight-line occlusion test against the CURRENT wall set. Lives here,
+  ## with the other derived state, because both the structure scenes and the
+  ## glazier make promises in terms of it.
+  var i = skip
+  while i <= len:
+    let
+      x = x0 + dx * i
+      y = y0 + dy * i
+    if x < 0 or y < 0 or x >= b.width or y >= b.height: return true
+    if b.opaqueAt(x, y): return false
+    inc i
+  true
+
+proc hasAperture*(b: Board, box: MapRect, thick: int): bool =
+  ## Is there a gap anywhere in this structure's wall ring? Walked along the
+  ## CENTRELINE of each of the four walls, so a door shows up as open samples
+  ## wherever it happens to sit.
+  ##
+  ## The first version of this promise fired a ray from the footprint's exact
+  ## centre along each axis, and rejected every seed: a courtyard's doors are
+  ## a band on the side wall, and the centre row almost never lines up with
+  ## one. A reachability test has to look for the aperture, not guess where
+  ## it is.
+  let
+    h = thick div 2
+    x0 = box.x + h
+    x1 = box.x + box.w - 1 - h
+    y0 = box.y + h
+    y1 = box.y + box.h - 1 - h
+  var i = y0
+  while i <= y1:
+    if not b.wallAt(x0, i) or not b.wallAt(x1, i): return true
+    inc i, 2
+  i = x0
+  while i <= x1:
+    if not b.wallAt(i, y0) or not b.wallAt(i, y1): return true
+    inc i, 2
+  false
+
 proc rectClear*(b: Board, r: MapRect, step = 4): bool =
   ## No existing obstacle inside this rectangle (sampled).
   var y = r.y
@@ -508,8 +548,22 @@ proc structureScene(): Scene =
         westLo = fp.y + a
         eastLo = fp.y + min(b, fp.h - t - DoorPx)
       doAssert westLo + DoorPx <= eastLo, "west and east doors must not align"
-      ctx.place rect(fp.x, fp.y, fp.w, t), "courtyard north wall"
-      ctx.place rect(fp.x, fp.y + fp.h - t, fp.w, t), "courtyard south wall"
+      ## North and south doors too. They cost the sightline claim NOTHING —
+      ## that claim rests on the union of the west and east side walls — and
+      ## they make the courtyard a through-route on both axes instead of a
+      ## corridor with two ends. Adding them cut stranded floor from 2.59% to
+      ## the number in the report.
+      let
+        nDoor = fp.x + t + ri(ctx.rng, 0, max(1, fp.w - 2 * t - DoorPx))
+        sDoor = fp.x + t + ri(ctx.rng, 0, max(1, fp.w - 2 * t - DoorPx))
+      ctx.place rect(fp.x, fp.y, nDoor - fp.x, t), "courtyard north wall"
+      ctx.place rect(nDoor + DoorPx, fp.y, fp.x + fp.w - nDoor - DoorPx, t),
+        "courtyard north wall past the door"
+      ctx.place rect(fp.x, fp.y + fp.h - t, sDoor - fp.x, t),
+        "courtyard south wall"
+      ctx.place rect(sDoor + DoorPx, fp.y + fp.h - t,
+                     fp.x + fp.w - sDoor - DoorPx, t),
+        "courtyard south wall past the door"
       ctx.place rect(fp.x, fp.y, t, westLo - fp.y), "west wall above the door"
       ctx.place rect(fp.x, westLo + DoorPx, t, fp.y + fp.h - westLo - DoorPx),
         "west wall below the door"
@@ -519,13 +573,36 @@ proc structureScene(): Scene =
                      fp.y + fp.h - eastLo - DoorPx), "east wall below the door"
       ctx.board.rayCover.add (fp.y, fp.y + fp.h)
     else:
-      let dir = ctx.rng.rand(3)
-      ctx.place rect(fp.x, fp.y, fp.w, t), "bunker north wall"
-      ctx.place rect(fp.x, fp.y + fp.h - t, fp.w, t), "bunker south wall"
-      if dir != 0: ctx.place rect(fp.x, fp.y, t, fp.h), "bunker west wall"
-      if dir != 1:
-        ctx.place rect(fp.x + fp.w - t, fp.y, t, fp.h), "bunker east wall"
+      ## A U opens on EXACTLY ONE side. The first version omitted a side only
+      ## for two of the four `dir` values and placed all four walls for the
+      ## other two — a sealed box, which the sim validator happily accepts
+      ## because it only demands that the flags and the centre connect. Three
+      ## of eight seeds stranded floor, up to 7.74% of the board (40,248 px)
+      ## against the arena's 0.00%. That is the exact "placed but pointless"
+      ## failure this design exists to prevent, committed by the design's own
+      ## prototype: "thin borders, never fill" is necessary for reachability
+      ## but NOT sufficient, and the aperture has to be an explicit promise
+      ## rather than an assumed side effect.
+      ##
+      ## The opening never faces west or east: the y-cover is claimed against
+      ## a full-height side wall, so removing one would break a promise the
+      ## plan has already made on this district's behalf.
+      let openNorth = ctx.rng.rand(1) == 0
+      if not openNorth:
+        ctx.place rect(fp.x, fp.y, fp.w, t), "bunker north wall"
+      ctx.place rect(fp.x, fp.y, t, fp.h), "bunker west wall"
+      ctx.place rect(fp.x + fp.w - t, fp.y, t, fp.h), "bunker east wall"
+      if openNorth:
+        ctx.place rect(fp.x, fp.y + fp.h - t, fp.w, t), "bunker south wall"
       ctx.board.rayCover.add (fp.y, fp.y + fp.h)
+    ## Every structure promises its own interior keeps a way in, and the
+    ## driver re-checks that after the WHOLE tree has rendered — so a later
+    ## scene that parks something across the aperture fails the map by name
+    ## instead of shipping a room nobody can enter.
+    let box = fp
+    ctx.promise("the structure at " & $box.x & "," & $box.y &
+                " still has a way in", proc(b: Board): bool =
+      b.hasAperture(box, WallThick))
   )
 
 # ---------------------------------------------------------------------------
@@ -640,17 +717,6 @@ proc centralBastionScene(center: MapPoint, ringPx: int): Scene =
 #     scene ever does block it, the driver fails the map by name instead of
 #     shipping a pointless window.
 
-proc rayClear(b: Board, x0, y0, dx, dy, len: int, skip: int): bool =
-  var i = skip
-  while i <= len:
-    let
-      x = x0 + dx * i
-      y = y0 + dy * i
-    if x < 0 or y < 0 or x >= b.width or y >= b.height: return true
-    if b.opaqueAt(x, y): return false
-    inc i
-  true
-
 proc glazierScene(maxPanes: int): Scene =
   Scene(name: "glazier", render: proc(ctx: var Ctx) =
     var candidates: seq[int]
@@ -692,8 +758,28 @@ proc glazierScene(maxPanes: int): Scene =
 # Composition
 # ---------------------------------------------------------------------------
 
+proc vandalScene(): Scene =
+  ## NEGATIVE CONTROL, and the only reason the post-condition machinery can
+  ## be trusted. A guard that has never once fired is indistinguishable from
+  ## a guard that cannot fire, so this scene exists to break the glazier's
+  ## promise on purpose: it parks a slab of stone directly in front of every
+  ## pane, which is exactly the live `arena.nim` defect (a repair diamond
+  ## dropped in front of a window a previous pass glazed). It is wired in
+  ## only by `generateGraphMap(breakGlass = true)`; `tests/test_mapgen_graph`
+  ## asserts that turning it on turns the failure ON.
+  Scene(name: "vandal", render: proc(ctx: var Ctx) =
+    var panes: seq[MapRect]
+    for p in ctx.board.placements:
+      if p.shape.window and p.shape.kind == shapeRect:
+        panes.add p.shape.rect
+    for r in panes:
+      ctx.place rect(r.x - 40, r.y - 10, 16, r.h + 20),
+        "a slab parked in front of a window"
+  )
+
 proc ctfTwoTeamScene*(gameMap: CtfMap,
-                      coverTargetPermille, interiorHalfPx: int): Scene =
+                      coverTargetPermille, interiorHalfPx: int,
+                      breakGlass = false): Scene =
   ## The whole 2-team map as ONE tree. Read top to bottom, this IS the map's
   ## design intent in order — which is the thing the current 590-line
   ## imperative generator cannot show you at any length.
@@ -739,6 +825,8 @@ proc ctfTwoTeamScene*(gameMap: CtfMap,
         anchor, gameMap.captureClear - anchor.x + 24, 200)),
       ChildAction(tags: @["field"], scene: glazierScene(3)),
     ])
+  if breakGlass:
+    result.children.add ChildAction(tags: @["field"], scene: vandalScene())
 
 type GraphResult* = object
   gameMap*: CtfMap
@@ -747,7 +835,8 @@ type GraphResult* = object
   reason*: string
 
 proc generateGraphMap*(seed: int, sizeName = "standard",
-                       coverTargetPermille = 150): GraphResult =
+                       coverTargetPermille = 180,
+                       breakGlass = false): GraphResult =
   ## Borrow the SHELL (board size, clearances, endzone, pedestals) from the
   ## existing generator, then replace its terrain wholesale with the scene
   ## tree. Reusing the shell is deliberate for a prototype: it keeps the
@@ -781,7 +870,8 @@ proc generateGraphMap*(seed: int, sizeName = "standard",
     ## permille over.
     interiorHalfPx = (gameMap.width - 2 * gameMap.captureClear) *
       (gameMap.height - 2 * ArenaBorder) div 2
-  runScene(ctfTwoTeamScene(gameMap, coverTargetPermille, interiorHalfPx),
+  runScene(ctfTwoTeamScene(gameMap, coverTargetPermille, interiorHalfPx,
+                           breakGlass),
            "root", seed, domain, rules, board)
 
   for p in board.placements:
