@@ -132,12 +132,21 @@ Two corollaries worth writing down:
 
 `arena.nim:2461` documents the gate as passing **"~47% of 4-team first attempts."** The
 brief for this work states **22–23%** for 4-team small/standard (35–55 attempts to find
-K=12 valid). Both cannot be current. This matters because:
+K valid). Both cannot be current.
+
+As a sanity check on the 22–23% figure, `MapSelectionK` is **12 for small** and **8 for
+standard** (`map_rules.nim:222`), so at p = 0.223 the expected draws are 12/0.223 ≈ **54**
+and 8/0.223 ≈ **36** — which reproduces the observed 35–55 range almost exactly. The 22–23%
+number is self-consistent; the code comment's 47% is not, and should be corrected or
+re-scoped.
+
+This matters because:
 
 - `MapGenMaxAttempts = 100` and `generateCtfMap` **raises** when zero candidates validate.
-- At p = 0.223, drawing 100 gives mean 22.3 valid (sd 4.16), so P(fewer than K=12 valid)
-  ≈ 0.7% of seeds. On those seeds we silently ship best-of-*fewer-than-K*. The accounting
-  is recorded (`MapSelection.valid`) but nothing reads it.
+- At p = 0.223, drawing 100 gives mean 22.3 valid (sd 4.16), so on a small board
+  P(fewer than K=12 valid) ≈ 0.7% of seeds. On those seeds we silently ship
+  best-of-*fewer-than-K*. The accounting is recorded (`MapSelection.valid`) but nothing
+  reads it.
 - If a future generator's pass rate fell to 3%, P(zero valid in 100) = 0.97¹⁰⁰ ≈ **4.8%
   of seeds raise**. The rejection loop's safety margin is a function of a pass rate that
   is not monitored as an SLO. See §6 and §13.2.
@@ -191,7 +200,7 @@ The trade-off the survey draws:
 
 | | Direct | Indirect |
 |---|---|---|
-| Search space size | Enormous (|tiles|^cells) | Small |
+| Search space size | Enormous (`T^cells`, T = tile alphabet) | Small |
 | Locality (small genotype change → small phenotype change) | Good | Often poor |
 | Fraction of space that is *valid* | Vanishing | Can be made high by construction |
 | Expressiveness | Everything | Only what the constructor can build |
@@ -547,7 +556,7 @@ ONLINE   (map-request time)
 Properties of this design:
 
 - **Latency goes DOWN, not up.** One construction + one validation, versus today's 35–55
-  attempts to fill K=12. It is *faster* than what we ship now.
+  attempts to fill K (8 standard / 12 small). It is *faster* than what we ship now.
 - **Character is archive-guaranteed.** Every shipped map came from a cell that was proven
   reachable and feasible offline. That is the (A)-like coverage guarantee from the
   technique table: not "this map is good", but "a map of this character exists and we can
@@ -616,7 +625,7 @@ infeasible pool does the work of locating the feasible region.
 
 ### 6.2 Why it applies to us, precisely
 
-We currently draw 35–55 candidates to obtain K=12 valid ones on a 4-team standard board,
+We currently draw 35–55 candidates to obtain K valid ones on a 4-team small/standard board,
 and the 23–45 rejects are **discarded with no information extracted**. Every one of them
 was a sample of the boundary of our feasible region, and we threw it away. FI-2Pop's whole
 proposition is that those samples are the cheapest map of the constraint surface you will
