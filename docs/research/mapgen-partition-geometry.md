@@ -964,4 +964,156 @@ of bug is known in the tree. **Test:** rasterise the lifted obstacle set and ass
 is exactly `σ`-symmetric, pixel for pixel. That is a cheap unit test and it catches every
 convention error at once.
 
+---
+
+## 11. Four designs, worked against our primitives
+
+Common front end for all of them (this is the piece to build once):
+
+```
+G           = hex.teamGroup(teams)                     # C2 / C3 / V4 / C6
+F           = fundamental domain of G on the board
+r           = inhibition radius                        # see per-design table
+axisSeeds   = seeds on every mirror line of G, spacing a = 0.8 r     # §10.3
+baseSeeds   = one seed at each pedestal, local radius r_base ≥ 2·endzoneRadius
+fill        = Bridson maximal Poisson-disk over F, radius r,
+              distance tested against the FULL ORBIT of every accepted seed
+S           = orbit(axisSeeds ∪ baseSeeds ∪ fill, G)   # hex.orbitUnique
+DT          = Delaunay(S)                              # int64-exact incircle, §10.4
+VD          = dual Voronoi, cells clipped to the board rect inset by ArenaBorder=10
+```
+
+Everything after this differs only in **what you do with the cells**.
+
+| | A. Rooms + doorways | B. City blocks | C. Graph-first template | D. Base pocket |
+| --- | --- | --- | --- | --- |
+| free space is | cell interiors + doorway gaps | the grout + open cells | Tutte faces, eroded | BSP leaves |
+| obstacles are | thin wall quads on Voronoi edges | eroded solid cells | eroded faces | rectangles |
+| `r` | 280–340 px | 140–180 px | n/a (graph first) | n/a |
+| obstacle count (2-team half) | ~35 quads + ~15 pebbles | ~12 polys + pebbles | ~10 polys | ~6 rects |
+| k-routes | **(A)** via §6.2 + §6.3 | (B), measured | **(A)** by template | n/a |
+| lane width | **(A)** = doorway width `d` | **(A)** = grout width `t` | **(A)** = erosion | (A) |
+| best at | rooms, chokepoints, control of k | streets, cover budget, simplicity | authored arenas, 4-team | spawn compounds |
+
+### 11.1 Design A — Rooms and doorways (**the recommendation**)
+
+**Construction.**
+
+1. `r = 300`. On 1235 × 659 this gives ≈ 8–10 cells (≈ 4–5 per half); on the 969 × 1119 hex
+   standard board ≈ 12; on the 960 × 960 4-team square ≈ 9 (≈ 2–3 per quadrant).
+2. Pick the doorway set `S ⊆ Delaunay`. Start with `S = Delaunay` (all adjacencies open) —
+   by §6.3(a) that is a plane triangulation, hence 3-connected, hence **3 vertex-disjoint routes
+   between every pair of rooms, by Menger, with no measurement.** Then *close* doorways one at a
+   time, only while a cheap 3-connectivity check still passes. Closing is where the map gets its
+   character; the check is what keeps the guarantee.
+3. For each Voronoi edge `e = (p → q)` with dual Delaunay edge in `S`: choose a doorway centre
+   `m` on `e` and emit **two wall quads**,
+   `wall(p → m − d/2·û)` and `wall(m + d/2·û → q)`, each the rectangle of thickness `t_wall`
+   about the sub-segment. For an edge **not** in `S`: emit one full-length wall quad.
+4. Interior cover: Poisson-disk pebbles inside each eroded cell at pitch ≤ `MaxExposedRunPx = 132`,
+   at least one strictly interior (§7.2, empty-kernel rule), sized `coverSizePx = 56`.
+5. Clip everything to the fundamental domain, emit into `leftObstacles`, let
+   `buildArenaObstacles` lift (§10.5).
+
+**Numbers.** `d = 40` px for a chokepoint doorway, `d = 124` (`NominalLanePx`) for a lane doorway,
+`t_wall = 18` px (matching today's `colStubs` width of 18, `arena.nim:1764`). Wall cover budget:
+total Voronoi edge length ≈ `n·π·ρ̄` ≈ 8 · π · 180 ≈ 4 500 px, times 18 px ≈ 81 k px² ≈ **10 %** of
+the board — right in the middle of the 40–170 permille band before any pebbles. Tune `t_wall`
+between 8 and 30 px to move cover between 4 % and 17 %; it is continuous and monotone, so a
+3-step bisection hits any target exactly. **That makes the cover band an (A), not a rejection test.**
+
+**What is guaranteed:**
+
+| Property | Class | Exactly what |
+| --- | --- | --- |
+| symmetry | **(A)** | Voronoi of a `G`-invariant set is `G`-invariant (§3.4) |
+| room size | **(A)** | inradius ≥ `r/2` = 150, diameter ≤ `2r` = 600 (§3.1) |
+| doorway width | **(A)** | exactly `d`; C-space clearance `d − 2·17` for two drawn bodies |
+| pinch length | **(A)** | a doorway's pinch length is `t_wall` = 18 px ≪ `L_kill` = 132 ⇒ **every chokepoint is a doorway, never a kill box** (§5.2) |
+| k routes | **(A)** | `S` 3-connected ⇒ 3 disjoint routes (§6.2, §6.3a) — subject to the 52 px grid-aliasing check |
+| no axis street | **(A)** | on-axis seeding (§10.3) |
+| cover permille | **(A)** | bisect `t_wall`; continuous and monotone |
+| no god spot | **(A)** | ≥ 1 strictly-interior pebble per room (§7.2) |
+| exposed run ≤ 132 | **(A)** within a room | pebble pitch; **(B)** across a doorway chain |
+| max sightline | **(B)** | ≤ `2r` = 600 inside a room; longer only through aligned doorways — enumerable and repairable by nudging `m` along its edge |
+| base approach arcs | **(A)** | `standRing` arc count = the base room's doorway count; give the base room ≥ 3 doorways |
+| endzone fits | **(A)** | seed the pedestal ⇒ its cell contains `B(seed, r/2)`; use a larger local radius so `r/2 ≥ EndzoneRadiusMax = 220` |
+
+**As `shapePolygon`.** A wall quad is
+`shapePolygon(points: @[MapPoint(x:…, y:…) × 4])` — four integer vertices, the corners of a
+thickened segment. A room's eroded cell, if you ever need it as a polygon, is a convex ring of
+≤ 8 integer vertices. Nothing in the engine changes. Rounding to integers perturbs a wall by
+< 1 px; keep the doorway nominal width at `d + 2` and the guarantee survives rounding.
+
+**Failure modes to design against.**
+- *Doorway alignment* — three collinear doorways make an axial line. Fix: after emitting, enumerate
+  axial lines (§7.3) and slide the offending `m` along its edge; both are O(cells).
+- *Grid aliasing* — a 40 px doorway on a 26 px routing grid can read as one cell; keep doorway
+  centres ≥ 52 px apart, or lower `RouteCellPx` for validation.
+- *Thin slivers* — a Voronoi edge much shorter than `d` cannot host a doorway. Poisson-disk seeding
+  makes short edges rare but not impossible; rule: if `|e| < d + 2·t_wall`, either open it fully
+  (no wall at all) or close it fully, and re-check `S`'s connectivity.
+
+### 11.2 Design B — City blocks (simplest thing that works)
+
+Label each cell solid or open; **erode every solid cell by `t/2`** and emit it as one
+`shapePolygon`. Free space is everything else: the grout of width exactly `t` between adjacent
+solid cells, plus the open cells, which merge with the grout and with each other.
+
+**Why it is attractive:** the obstacle list is literally the eroded solid cells — *one convex
+integer polygon per obstacle*, ~12 per half, and the erosion is a half-plane re-intersection
+(§9.1). This is the least code of any design in this document, and probably a day's work.
+
+**What is guaranteed:** street width exactly `t` **(A)**; street segment length ≤ `2r` **(A)**;
+symmetry **(A)**; cover fraction = Σ eroded solid areas / A, continuous in `t` and discrete in the
+label set, so **(A)** by bisection on `t` after fixing the labels.
+**What is *not*:** the k-route property. The free space here is the complement of a set of blobs,
+and its route count depends on the labelling in a way that is not a graph theorem. It is
+**(B) + a cheap repair**: measure with `vertexDisjointRoutes`, and if `flow < k`, flip the solid
+cell nearest the returned min cut to open (§6.5). That converges in 1–3 flips and each iteration
+is a millisecond if we expose a flow-only entry point.
+
+**Sizing.** With `t = laneWidthPx = 124` and `r = 150` (n ≈ 32 cells): mean cell effective radius
+≈ 90 px, eroded to ≈ 28 px, so each solid cell contributes ≈ 0.3 % of the board and *all 32 solid*
+gives ≈ 10 % cover — dead centre of the band. That parameter pair produces a **dense city of
+~56 px blocks separated by 124 px lanes**, which is exactly `lanePitchPx = laneWidth + coverSize
+= 124 + 56 = 180 ≈ r`. The rules file and the geometry agree, which is a good sign that
+`r = lanePitchPx` is the right binding.
+
+**Honest limitation:** at that scale the blocks *are* pebbles again — 56 px obstacles. The
+difference from today is real but structural rather than visual: the blocks are arranged on a
+blue-noise Voronoi topology with **guaranteed 124 px lanes and no lattice lines**, instead of a
+column grid with 51–76 px gaps. If we want *rooms*, we need Design A or a two-level version of B
+(coarse districts + fine blocks, §8.3).
+
+### 11.3 Design C — Graph-first template + Tutte embedding
+
+For authored arenas where the topology should be fixed and only the geometry varies:
+
+1. Choose a template: `Wheel(n)`, `Prism(n)` (two rings + spokes), `Antiprism(n)`. All planar and
+   3-connected, all with native `n`-fold rotational symmetry that composes with `GroupC3`/`GroupC6`.
+2. Pin the outer face to the board's inscribed convex polygon and solve the Tutte system
+   (§6.4) → straight-line embedding with **all faces convex**.
+3. Erode each face by `t/2` → convex `shapePolygon` obstacles; the grout is the corridor network,
+   width exactly `t`, and its graph is the template's **dual**, so you know its connectivity in
+   advance too.
+
+**(A)** on topology, symmetry, corridor width and convexity. **(B)** on everything metric —
+face areas from a Tutte embedding are not controlled (that is what power diagrams are for, §3.3).
+Best use: a small library of 3–5 named arena skeletons ("ring", "wheel", "double-ring") that the
+seed selects, giving recognisable, learnable structure while the cover layer stays random. This is
+also the cleanest answer for **4-team boards**, where `GroupV4` has only order 4 and a hand-chosen
+template avoids the awkwardness of two teams seeing a mirror world.
+
+### 11.4 Design D — BSP / rectangular dual for the base pocket only
+
+Inside the base cell, the requirements are rectangular and prescriptive: spawn pocket
+(`spawnClearW/H` = 70 × 130), endzone (`ezColumn`/`ezDisc`/`ezSquare`, radius 90–220),
+`captureClear` columns, `PedestalCoverSize = 96`. That is a 4–6 room floorplan with prescribed
+adjacencies — the textbook case for **rectangular dualization** (§6.6) or a 3-level BSP. Both are
+(A) on disjointness and adjacency, and the straight-cut objection of §4.2 does not apply because
+the region is ~300 px across, far below `GunRange`.
+
+Use BSP *here*, and nowhere else.
+
 <!-- SECTION-MARKER -->
