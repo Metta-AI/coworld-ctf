@@ -305,8 +305,37 @@ proc axisHomeLo(center, depth: int): int =
   center - (center * depth div 1000)
 
 proc axisHomeHi(center, size, depth: int): int =
-  ## Returns the high-edge home anchor along one axis (the classic Blue
-  ## home-x formula at depth 700).
+  ## Returns the high-edge home anchor along one axis.
+  ##
+  ## ⚠ KNOWN SHIPPED TEAM-FAIRNESS BUG, diagnosed and measured but NOT fixed
+  ## here. This computes the same formula as `axisHomeLo` read from the other
+  ## end, and it lands ONE PIXEL OFF the mirror: on the standard board Red's
+  ## anchor is 186, so Blue's should be 1235 - 1 - 186 = 1048, and this gives
+  ## 1049.
+  ##
+  ## That one pixel matters, because every SHAPE on the
+  ## board is mirrored at `width - 1 - x` while the anchor was placed at
+  ## `width - x`. The two disagreed across the seam, so `mapProtectedFloorAt`
+  ## contradicted itself over exactly two 1-px columns — x=256 and x=978 on
+  ## standard, 261 rows each, 522 px per board. Red's spawn pocket was
+  ## [116, 256] whose exact mirror is [978, 1118], while Blue's actual pocket
+  ## was [979, 1119]. Any obstacle overlapping a pocket edge was therefore
+  ## STONE FOR ONE TEAM AND FLOOR FOR THE OTHER. Measured on every class under
+  ## both symmetries: small 688 px, standard 522, large 1044, huge 938-1772,
+  ## giant 1354. The stock generator's obstacles happened to miss those two
+  ## columns on the seeds anyone had looked at — luck, not correctness; tiled
+  ## vocabulary shapes hit them immediately.
+  ##
+  ## When it is fixed, derive it from `axisHomeLo` (`size - 1 - lo`) rather
+  ## than repairing this arithmetic, so the two anchors cannot drift apart
+  ## again whatever `depth` does.
+  ## NOT YET APPLIED — see the blast radius above. The corrected form is
+  ##     size - 1 - axisHomeLo(center, depth)
+  ## which is verified to clear the seam (522 px -> 0 on standard). It moves
+  ## Blue's spawn by one pixel, which is a SIM-BEHAVIOUR change: it breaks
+  ## every recorded replay fixture's hash and alters the HAND-AUTHORED arena,
+  ## so it needs a GameVersion bump and a fixture re-record, exactly as the
+  ## GV38 grenade change did. Flagged rather than taken unilaterally.
   center + ((size - center) * depth div 1000)
 
 proc rot90Point*(p: MapPoint, side: int): MapPoint {.inline.} =

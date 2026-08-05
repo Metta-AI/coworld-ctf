@@ -303,23 +303,54 @@ suite "shape vocabulary: polygons":
 # ---------------------------------------------------------------------------
 
 suite "the arena defects this vocabulary has to live with":
-  test "mapProtectedFloorAt is NOT mirror-symmetric (arena, not this module)":
-    # PINNED SO IT CANNOT HIDE AGAIN. This is what made the mirror test fail
-    # on the integration branch, and it was blamed on the constructors.
+  test "the anchor seam is STILL open: it needs a GameVersion bump":
+    # PINNED SO IT CANNOT HIDE. `arena` places team anchors at `width - x`
+    # while it mirrors every SHAPE at `width - 1 - x`, so a spawn pocket sits
+    # one pixel off its own mirror and `mapProtectedFloorAt` contradicts itself
+    # across the seam. Any obstacle overlapping a pocket edge is then stone for
+    # one team and floor for the other.
     #
-    # `arena` places team anchors at `width - x` but mirrors every shape with
-    # `width - 1 - x`, so a spawn pocket sits one pixel off its own mirror
-    # image and `mapProtectedFloorAt` disagrees with itself across the seam.
-    # Any obstacle overlapping a pocket edge is then stone for one team and
-    # floor for the other. The stock generator's own obstacles happen to miss
-    # those columns on the seeds we tried, which is luck, not correctness.
+    # The fix is one line (`axisHomeHi` -> `size - 1 - axisHomeLo(...)`) and was
+    # verified to take standard from 522 asymmetric px to 0. It is NOT applied,
+    # because moving a spawn by one pixel is a SIM-BEHAVIOUR change: it breaks
+    # every recorded replay fixture hash and alters the hand-authored arena
+    # (22 test failures). That needs a GameVersion bump plus a fixture
+    # re-record, the same route the GV38 grenade change took.
     #
-    # The fix is in `arena`: place the anchors so the second is
-    # `width - 1 - first`. When that lands this test flips to `== 0`.
+    # WHEN THAT LANDS: flip this to `anchors[1] == m.width - 1 - anchors[0]`,
+    # and the odd-width classes below to `bad == 0`.
     for sizeName in ["small", "standard", "large", "huge", "giant"]:
       let m = generateMapAttempt(5, MapGenOverrides(
         size: sizeName, symmetry: "mirror", windows: 0, pits: 0,
         pitDensity: -1))
+      var anchors: seq[int]
+      for t in m.teams(): anchors.add m.teamAnchor(t).x
+      check anchors.len >= 2
+      checkpoint(sizeName & ": anchors " & $anchors[0] & "/" & $anchors[1] &
+        ", exact mirror of first would be " & $(m.width - 1 - anchors[0]))
+      check anchors[1] == m.width - anchors[0]       ## the defect
+      check anchors[1] != m.width - 1 - anchors[0]   ## ...is exactly one px
+
+  test "a SECOND, independent defect lives on EVEN-sided boards":
+    # Found while measuring the anchor seam, and NOT the same bug: protected
+    # geometry is anchored on `center = size div 2`, whose mirror is
+    # `size - 1 - size div 2`, and those differ by one whenever the side is
+    # EVEN. Same hazard `rot90Point`'s own comment warns about — the true
+    # symmetry axis of an even side is a half pixel off the div-derived centre.
+    #
+    # Proof they are independent: applying the anchor fix locally took the
+    # ODD-width classes to exactly 0 (standard, huge-mirror, giant) and left
+    # every EVEN-sided one non-zero — small 242 px and large 366 px under
+    # mirror, and under rot180 the even-HEIGHT classes add their own share
+    # (small 498, huge 838). The correlation with parity is exact.
+    #
+    # Fix belongs with whoever moves protected geometry onto doubled
+    # coordinates, the way `hex.HexBoard` already does.
+    for sizeName in ["small", "large"]:
+      let m = generateMapAttempt(5, MapGenOverrides(
+        size: sizeName, symmetry: "mirror", windows: 0, pits: 0,
+        pitDensity: -1))
+      check m.width mod 2 == 0
       var bad = 0
       for y in 0 ..< m.height:
         for x in 0 ..< m.width:
@@ -327,14 +358,10 @@ suite "the arena defects this vocabulary has to live with":
              mapProtectedFloorAt(m, m.width - 1 - x, y):
             inc bad
       checkpoint(sizeName & ": protected-floor asymmetric px = " & $bad)
-      check bad > 0            ## the defect is still here
-      # And it is exactly the pocket-edge columns, not something diffuse:
-      # two 1px columns spanning the pocket height.
-      var anchors: seq[int]
-      for t in m.teams(): anchors.add m.teamAnchor(t).x
-      check anchors.len >= 2
-      check anchors[1] != m.width - 1 - anchors[0]
-      check anchors[1] == m.width - anchors[0]
+      check bad > 0             ## both defects, awaiting their own fixes
+      # While the anchor seam is also open, the figure above is the SUM of the
+      # two. The isolation measurement is in the comment: with the anchor fix
+      # applied locally, the odd-width classes went to 0 and these did not.
 
 # ---------------------------------------------------------------------------
 
