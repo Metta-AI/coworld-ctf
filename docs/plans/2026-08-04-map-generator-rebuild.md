@@ -196,6 +196,43 @@ objective). ⚠️ It **silently no-ops** if impossible — make ours reject.
 
 ---
 
+## 3.5 Measured: on a hexagon the binding constraint is CONNECTIVITY, not lanes
+
+**Finding, 2026-08-05.** Re-curating the pool after the hex conversion scanned 68
+seeds and rejected 6. Of those 6: **five were `no 26px route to the center`**, one
+was the cover budget, and **not one was an open sightline on any of the three hex
+axes.**
+
+That inverts the pre-hex picture. On the square generator, **81 of 97** recorded
+failures were open *horizontal* sightlines — lanes were the binding constraint,
+and the generator carried an entire sightline-repair pass (dropping r28 diamonds
+at random column x's until every 4px row was blocked) whose only job was to
+appease that validator. `mapgen_styles`' `verticalAnchors` was the same hack
+duplicated into all four styles.
+
+On a hexagon that pressure appears to lift, and connectivity through the hull
+takes its place.
+
+**Caveats — this is a strong hint, not a settled result.** One scan; an *adapted*
+generator that was deliberately not rebuilt; 2-team only; and the hull-void
+corners are a large new source of unreachable area that a rebuilt generator may
+stop producing.
+
+**Why it matters before §4 is built.** The structure pass below is scoped
+substantially around lane and sightline control — max open run, vertex-disjoint
+routes, chokepoint isovists. Those remain right as *quality* targets. But if the
+measured *failure* mode is connectivity, then the cheap accept/reject gate and
+the expensive scoring layer are pulling on different ropes, and the pass should
+lead with reachability rather than treat it as a late validator.
+
+It is also the first field evidence bearing on §2.2's proposal to **carve a
+G-invariant central hub first and pin it**, under which connectivity reduces to a
+local check on the wedge. The open question, worth one cheap probe before
+designing: of those `no route to the center` rejections, does the break sit at
+the **hull edge** (terrain crowding the six boundary faces) or in the
+**interior**? Edge → the fix is a boundary apron. Interior → the hub-first carve
+is the right shape.
+
 ## 4. What the generator must actually build
 
 The MW2 study is the calibration source. Every number below is measured, with the
