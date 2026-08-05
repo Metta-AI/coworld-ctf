@@ -740,20 +740,38 @@ proc enemy(team: Team): Team =
   ## The opposing team.
   if team == Red: Blue else: Red
 
+proc lastResortHome(team: Team): Vec =
+  ## THE LAST DERIVED HOME COORDINATE IN THIS FILE, isolated here so it can be
+  ## found, and named for exactly what it is.
+  ##
+  ## It is the mirrored-arena guess: 30% of the way in from our board edge, at
+  ## mid height. It is MEASURABLY WRONG on a hexagonal board — 24px off the
+  ## real pedestal on `arena`, 291px on the largest generated size class, which
+  ## is more than a whole endzone radius (tools/ez_probe_aacf.nim) — and it is
+  ## the same species of literal as the `MapW * 150 div 1235` home column that
+  ## cost two measurement rounds and that `captureAim` retired.
+  ##
+  ## It survives only because a bot must point somewhere on a frame where it
+  ## has been told nothing, and it is reachable ONLY when the board sent no
+  ## `endzone` marker AND nobody has ever laid eyes on the pedestal. Our own
+  ## pedestal is never fogged, so in a real game the latch above supersedes
+  ## this on the first alive frame. If this ever becomes load-bearing again,
+  ## the fix is another source of truth, not a better constant.
+  if team == Red:
+    vec(float(CenterX - CenterX * 7 div 10), float(CenterY))
+  else:
+    vec(float(CenterX + (MapW - CenterX) * 7 div 10), float(CenterY))
+
 proc flagHome(team: Team): Vec =
   ## The pedestal position of one team's flag.
   ##
-  ## Three sources, best first. A LATCHED sighting of the never-fogged
-  ## `<color> flag planted` banner is exact (see PedestalPos); the stated
-  ## endzone's box centre is exact too on every board the engine ships, since
-  ## the zone is the disc drawn AROUND the base anchor and `flagHome` in
-  ## src/ctf/arena.nim IS that anchor; and only a board that sent no marker and
-  ## has never been looked at falls through to the mirrored-arena literal.
-  ##
-  ## The literal is kept solely as that last resort and is measurably wrong on
-  ## a hex board — 24px off on `arena`, 291px on the largest generated size
-  ## class, which is more than a whole endzone radius (tools/ez_probe_aacf.nim).
-  ## It must never be the reason a bot knows where anything is.
+  ## Three sources, best first, and the first two are both TRUTH rather than
+  ## derivation. A latched sighting of the never-fogged `<color> flag planted`
+  ## banner is exact (see PedestalPos). The stated endzone's box centre is
+  ## exact too on every board the engine ships, because the zone is the disc
+  ## drawn AROUND the base anchor and `flagHome` in src/ctf/arena.nim IS that
+  ## anchor. Only a board that sent no marker and has never been looked at
+  ## reaches `lastResortHome`.
   if multiFrameOn():
     return (if team == SelfStrategyTeam: MultiHome else: MultiTarget)
   if PedestalKnown[int(team)]:
@@ -761,10 +779,7 @@ proc flagHome(team: Team): Vec =
   let i = endzoneIndex(team)
   if i >= 0:
     return zoneBoxCentre(i)
-  if team == Red:
-    vec(float(CenterX - CenterX * 7 div 10), float(CenterY))
-  else:
-    vec(float(CenterX + (MapW - CenterX) * 7 div 10), float(CenterY))
+  lastResortHome(team)
 
 proc captureAim(team: Team, tick: int): Vec =
   ## The point to stand on to SCORE a carry: a point the bot believes is
