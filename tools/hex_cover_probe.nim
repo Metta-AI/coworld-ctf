@@ -392,6 +392,71 @@ proc dist(classes: seq[HexSizeClass], perClass, firstSeed: int) =
     for reason, n in reasons:
       echo &"    {n:>4}  {reason}"
 
+proc why(sizeName: string, seed: int) =
+  ## Locate one rejected seed's open lanes: where they are, how long they are,
+  ## and whether the repair pass had anywhere legal to build on them.
+  let gameMap = generateMapAttempt(seed, MapGenOverrides(
+    size: sizeName, windows: -1, pits: -1, pitDensity: -1), 2)
+  let diag = mapDiagnostics(gameMap)
+  echo &"seed {seed} {sizeName} {gameMap.width}x{gameMap.height} " &
+    &"cover {diag.coverPermille} band {diag.coverPermilleFloor}.." &
+    &"{diag.coverPermilleCeiling}  reason: " &
+    (if diag.reason.len == 0: "PASS" else: diag.reason)
+  echo &"  obstacles(left) {gameMap.leftObstacles.len} " &
+    &"trenches {gameMap.trenches.len} minSpan {gameMap.sightlineMinSpan()}"
+  echo &"  center ({gameMap.center.x},{gameMap.center.y}) " &
+    &"redAnchor ({gameMap.teamAnchor(Red).x},{gameMap.teamAnchor(Red).y}) " &
+    &"homeX {gameMap.teamHomeX(Red)} ezR {gameMap.endzoneRadius} " &
+    &"apron {gameMap.endzoneRadius + EndzoneApron - EndzoneWallMargin} " &
+    &"ringKeepOut {gameMap.flagRing + 26 + 30}"
+  let obstacles = buildArenaObstacles(gameMap)
+  let (_, minWall) = rasterizeWallMasks(gameMap, obstacles)
+  let
+    apron = gameMap.endzoneRadius + EndzoneApron - EndzoneWallMargin
+    keepOut = gameMap.flagRing + 26 + 30
+  var shown = 0
+  for axis in 0 ..< SightlineAxisCount:
+    for intercept in gameMap.sightlineIntercepts(axis):
+      let run = gameMap.sightlineOpenRun(minWall, axis, intercept)
+      if not run.open:
+        continue
+      inc shown
+      if shown > 8:
+        continue
+      let steps = max(abs(run.x1 - run.x0), abs(run.y1 - run.y0)) + 1
+      ## How many of the 2*halfSteps+1 positions the repair would try are
+      ## legal ground to build on.
+      var legal = 0
+      let halfSteps = max(1, steps div 16)
+      for num in 0 .. 2 * halfSteps:
+        let
+          px0 = run.x0 + (run.x1 - run.x0) * num div (2 * halfSteps)
+          py0 = run.y0 + (run.y1 - run.y0) * num div (2 * halfSteps)
+        var (px, py) = (px0, py0)
+        if px > gameMap.center.x:
+          px = gameMap.width - 1 - px
+          if gameMap.symmetry == symRot180:
+            py = gameMap.height - 1 - py
+        if mapProtectedFloorAt(gameMap, px, py): continue
+        if endzoneFloorAt(px, py, gameMap.teamHomeX(Red), gameMap.center.y,
+            apron, true): continue
+        let
+          rdx = px - gameMap.center.x
+          rdy = py - gameMap.center.y
+        if rdx * rdx + rdy * rdy <= keepOut * keepOut: continue
+        inc legal
+      echo &"  OPEN axis {SightlineAxisDeg[axis]:>3} deg intercept " &
+        &"{intercept:>5}  ({run.x0},{run.y0})->({run.x1},{run.y1})  " &
+        &"{steps} steps = {sightlineRunPixels(axis, steps)} px  " &
+        &"legal build spots {legal}/{2 * halfSteps + 1}"
+  echo &"  open lanes total: {shown}"
+  ## Does another repair pass, run right here on the finished map, close them?
+  ## If it does, the generator's own call is the thing that is not reaching.
+  var retry = gameMap
+  retry.plugOpenSightlines(200)
+  echo &"  after an extra repair pass: {retry.openLanes()} open, " &
+    &"{retry.leftObstacles.len - gameMap.leftObstacles.len} plugs added"
+
 when isMainModule:
   let mode = if paramCount() >= 1: paramStr(1) else: "geom"
   var classes: seq[HexSizeClass]
@@ -411,5 +476,7 @@ when isMainModule:
     if paramCount() >= 4:
       classes = @[hexSizeClass(paramStr(4))]
     dist(classes, perClass, firstSeed)
+  of "why":
+    why(paramStr(2), parseInt(paramStr(3)))
   else:
-    quit("usage: hex_cover_probe [geom|dist] ...")
+    quit("usage: hex_cover_probe [geom|dist|why] ...")

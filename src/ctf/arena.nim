@@ -260,6 +260,11 @@ const
   ArenaName = "arena"
   ArenaLargeName = "arena-large"
   ArenaBorder* = 10            ## perimeter wall thickness in px.
+  MinCorridorWidth* = 26
+    ## Narrowest corridor for the 13px footprint. Declared HERE, with the
+    ## other clearances, rather than down in the generator's const block: the
+    ## base-depth budget (`homeDepthWindow`) has to reserve a corridor's width
+    ## of buildable ground, and it runs long before the generator does.
 
   EndzoneApron* = 60
     ## How far past the scoring ring terrain is kept out, so the base's
@@ -384,15 +389,44 @@ proc teamAnchor*(gameMap: CtfMap, team: Team): MapPoint =
   ## difference, not a rounding detail.
   gameMap.teamAnchorAt(team, gameMap.homeDepthOf())
 
+proc flagRingKeepOut*(gameMap: CtfMap, relaxed = false): int {.inline.} =
+  ## The radius around the board centre inside which the sightline repair
+  ## refuses to build. It exists so the repair cannot answer every ray through
+  ## the middle by ringing the flag and sealing it (19 of 19 connectivity
+  ## rejections, once). ONE definition, because `homeDepthWindow` reserves
+  ## room outside it and a second copy would silently drift.
+  ##
+  ## `relaxed` drops the belt-and-braces margin, leaving only a corridor's
+  ## width of clear ground outside the flag ring itself. The repair falls back
+  ## to it ONLY on a ray where nothing else on the whole run is legal — which
+  ## on a hexagon is a real case, not a theoretical one: the row through both
+  ## bases has the endzone aprons closing in from each side and the keep-out
+  ## from the middle, and at the strict radius they can meet with no buildable
+  ## ground between them at all. Connectivity is still the RULE that decides
+  ## whether the centre got sealed; this radius is only the preference.
+  gameMap.flagRing + MinCorridorWidth + (if relaxed: 0 else: 30)
+
 proc homeDepthWindow*(gameMap: CtfMap): tuple[lo, hi: int] =
   ## The depth permilles at which this map's base anchor satisfies BOTH
   ## budgets at once:
   ##
-  ## - IN FRONT: apron, then the scoring ring, then a corridor of real field
-  ##   before the center ring — or the two bases fight over the middle.
+  ## - IN FRONT: the endzone apron, the flag ring's keep-out, and a corridor's
+  ##   width of BUILDABLE ground between them — or the two bases fight over
+  ##   the middle.
   ## - BEHIND: apron, then room for one obstacle between the endzone and the
   ##   hull — or the base is flush against the wall and its back approaches
   ##   vanish.
+  ##
+  ## THE BUILDABLE TERM IS LOAD-BEARING and was missing. The row through both
+  ## bases is the hexagon's longest chord; the only ground on it where the
+  ## repair may place a plug is the gap between the apron and the ring
+  ## keep-out, and if those two overlap the lane cannot be interrupted BY
+  ## CONSTRUCTION — no budget, no granularity, no number of attempts helps.
+  ## Measured on small/seed 2001 under the old budget: anchor 257px from
+  ## centre, apron reaching 363 (`endzoneFloorAt` grows the passed radius by
+  ## `EndzoneWallMargin`, which the old `+ 50` slack did not cover) against a
+  ## keep-out starting at 359. Four pixels of overlap, and the generator's own
+  ## repair had nowhere legal to stand on the board's longest chord.
   ##
   ## Solved by SCANNING the legal permilles and evaluating each candidate
   ## through the real `teamAnchorAt` + `hexEdgeDist`, not by trigonometry.
@@ -404,7 +438,8 @@ proc homeDepthWindow*(gameMap: CtfMap): tuple[lo, hi: int] =
   ## run once per map build.
   let
     reserved = gameMap.endzoneRadius + EndzoneApron
-    front = reserved + gameMap.flagRing + 50
+    front = reserved + gameMap.flagRingKeepOut(relaxed = true) +
+      MinCorridorWidth
     behind = float(reserved + 40)
     board = gameMap.mapBoard()
   result = (lo: 0, hi: -1)
@@ -874,7 +909,6 @@ proc buildAnimatedDiamonds*(
 const
   GenMapName* = "gen"
   PoolMapName* = "pool"
-  MinCorridorWidth = 26      ## narrowest corridor for the 13px footprint.
   MapGenMaxAttempts = 100
   MapSizeNames = ["small", "standard", "large", "huge", "giant"]
   CenterFeatureNames = ["bracket", "ring", "walls"]
@@ -902,17 +936,17 @@ const
   ## `tools/hex_cover_probe.nim geom`, which measures every figure quoted here
   ## over the real hull through the real validator iterators.
   ## ------------------------------------------------------------------------
-  CoverSkeletonPermille* = 141
+  CoverSkeletonPermille* = 140
     ## MEASURED: the least interior cover that interrupts every scanned chord
     ## of all SIX families on the standard hex hull, built from the
     ## generator's own repair primitive — a 28px hex plug. Greedy set cover
-    ## over the hull, verified against `sightlineOpenRun`: 26 plugs, mirrored
-    ## to 52 shapes, 98,711 px^2 of a 697,012 px^2 interior.
+    ## over the hull, verified against `sightlineOpenRun`: 25 plugs, mirrored
+    ## to 50 shapes, 98,161 px^2 of a 697,012 px^2 interior.
     ##
     ## THIS IS THE NUMBER THE OLD CEILING OF 170 WAS UP AGAINST. On the SMALL
-    ## class the same skeleton costs 156 permille, so a small hexagonal board
-    ## had to spend 156 of its 170 permille closing its own lanes before it
-    ## could place one piece of designed terrain — 9% of the budget left for
+    ## class the same skeleton costs 163 permille, so a small hexagonal board
+    ## had to spend 163 of its 170 permille closing its own lanes before it
+    ## could place one piece of designed terrain — 4% of the budget left for
     ## the map itself. That, not the lane rule, is why the generator stopped
     ## producing maps: 170 was calibrated on a RECTANGLE, where only the
     ## horizontal family had to be interrupted because the other two board
@@ -936,11 +970,13 @@ const
     ## `(3*sqrt3/2)*28^2 = 2037 px^2` and mean shadow `perimeter/pi = 6*28/pi
     ## = 53.5 px`, i.e. an effective thickness of `2037/53.5 = 38.1 px`. The
     ## thinnest wall feature the generator authors is 12px, so the same
-    ## blocking curtain drawn at 12px costs `141 * 12/38.1 = 44 permille`.
+    ## blocking curtain drawn at 12px costs `140 * 12/38.1 = 44 permille`.
     ##
     ## 40 was the inherited rectangle figure, and landing within 4 permille of
     ## it on the standard class is a coincidence of that class only: the
-    ## derived floor is 51 on small and 16 on giant, so the flat 40 was
+    ## derived floor is 51 on small and 16 on giant — and the measured
+    ## skeletons, priced the same way, come out at 51 / 44 / 34 / 24 / 16 / 8
+    ## across the six classes, which is the same numbers. So the flat 40 was
     ## simultaneously too slack for the smallest board and 2.5x too strict for
     ## the largest.
   CoverPermilleMax* = 266
@@ -1528,8 +1564,8 @@ proc plugOpenSightlines*(gameMap: var CtfMap, budget: int) =
   ## about twelve neighbouring rays in its own family and a further ten in
   ## each of the other five. Measured on a bare standard hull
   ## (`tools/hex_cover_probe.nim geom`, 856 lanes to close): 865 plugs and 658
-  ## permille of cover before, 48 plugs and 221 permille after, for the same
-  ## zero open lanes — against a greedy-optimal skeleton of 26 plugs and 141
+  ## permille of cover before, 48 plugs and 220 permille after, for the same
+  ## zero open lanes — against a greedy-optimal skeleton of 25 plugs and 140
   ## permille. That single stale re-read was most of the reason a hexagonal
   ## board looked structurally too clogged to generate.
   ##
@@ -1568,60 +1604,79 @@ proc plugOpenSightlines*(gameMap: var CtfMap, budget: int) =
         ## hypothetical: it was 19 of 19 connectivity rejections, every one with
         ## 95-98% of the eroded floor reachable and only the core cut off.
         ## Rotating the order scatters them along the rays instead.
+        ##
+        ## TWO GRANULARITIES, coarse first. The coarse sweep is the scatter
+        ## above: 2*halfSteps+1 positions, roughly 8px apart on a
+        ## board-crossing ray. The fine sweep — every pixel of the run — only
+        ## runs when the coarse one found nowhere legal at all, and it exists
+        ## because on a hexagonal board the two keep-outs can very nearly
+        ## MEET. Measured on small/seed 2001: the row through both bases is a
+        ## 763px lane, and along it the red endzone apron reaches x=357 while
+        ## the flag-ring keep-out starts at x=359 — a ONE-PIXEL window that an
+        ## 8px sweep steps straight over, so the generator's own repair could
+        ## not close its longest lane and the seed was rejected for a lane it
+        ## had somewhere legal to plug all along. Anchor-to-centre is 257px
+        ## against an apron of 139 and a keep-out of 116: 2px of slack.
         var placed = false
         let
-          halfSteps = max(abs(run.x1 - run.x0), abs(run.y1 - run.y0)) div 16
-          spread = 2 * halfSteps + 1
-        for t in 0 ..< max(1, spread):
+          runSteps = max(abs(run.x1 - run.x0), abs(run.y1 - run.y0))
+          halfSteps = runSteps div 16
+        for granularity in 0 .. 2:
           if placed:
             break
-          block tryOne:
-            let
-              ## POSITIVE modulo, deliberately. Nim's `mod` takes the sign of
-              ## its dividend, and the slanted axes sweep NEGATIVE intercepts —
-              ## so the plain form yields a negative `num`, which extrapolates
-              ## the plug BEFORE the run's start instead of interpolating along
-              ## it, and drops hexes hundreds of pixels off the board.
-              rot = (intercept div SightlineStep + t) mod max(1, spread)
-              num = (rot + spread) mod max(1, spread)
-              den = 2 * halfSteps
-            if den == 0:
-              break tryOne
-            var
-              px = run.x0 + (run.x1 - run.x0) * num div den
-              py = run.y0 + (run.y1 - run.y0) * num div den
-            if px > gameMap.center.x:
-              px = gameMap.width - 1 - px
-              if gameMap.symmetry == symRot180:
-                py = gameMap.height - 1 - py
-            ## Protected floor (the flag ring and every endzone disc) is never
-            ## walled, and the endzone APRON must stay clear or the map loses
-            ## the open flanks the validator demands.
-            if mapProtectedFloorAt(gameMap, px, py):
-              break tryOne
-            if endzoneFloorAt(px, py, redAnchorX, cy, apron, true):
-              break tryOne
-            ## Keep a corridor's worth of clear ground OUTSIDE the flag ring,
-            ## so the rotated order above cannot rebuild the ring it exists to
-            ## avoid. Belt and braces, deliberately: the scatter alone fixed
-            ## the measured failures, but the two together took connectivity
-            ## rejections from 19 in 200 seeds to ZERO.
-            let
-              rdx = px - gameMap.center.x
-              rdy = py - gameMap.center.y
-              ringKeepOut = gameMap.flagRing + MinCorridorWidth + 30
-            if rdx * rdx + rdy * rdy <= ringKeepOut * ringKeepOut:
-              break tryOne
-            let plug = hexShape(px, py, 28)
-            gameMap.leftObstacles.add plug
-            ## The plug and every symmetry image of it become stone NOW, in
-            ## the mask this pass is still reading, so the twenty-odd other
-            ## rays it just closed are seen as closed instead of each buying a
-            ## plug of its own.
-            for op in group:
-              gameMap.stampShapeIntoMask(
-                masks.minWall, plug.pixelImage(op, gameMap.width, gameMap.height))
-            placed = true
+          let
+            den = (if granularity == 0: 2 * halfSteps else: runSteps)
+            spread = den + 1
+            ringKeepOut = gameMap.flagRingKeepOut(relaxed = granularity == 2)
+          if den == 0:
+            continue
+          for t in 0 ..< spread:
+            if placed:
+              break
+            block tryOne:
+              let
+                ## POSITIVE modulo, deliberately. Nim's `mod` takes the sign
+                ## of its dividend, and the slanted axes sweep NEGATIVE
+                ## intercepts — so the plain form yields a negative `num`,
+                ## which extrapolates the plug BEFORE the run's start instead
+                ## of interpolating along it, and drops hexes hundreds of
+                ## pixels off the board.
+                rot = (intercept div SightlineStep + t) mod spread
+                num = (rot + spread) mod spread
+              var
+                px = run.x0 + (run.x1 - run.x0) * num div den
+                py = run.y0 + (run.y1 - run.y0) * num div den
+              if px > gameMap.center.x:
+                px = gameMap.width - 1 - px
+                if gameMap.symmetry == symRot180:
+                  py = gameMap.height - 1 - py
+              ## Protected floor (the flag ring and every endzone disc) is never
+              ## walled, and the endzone APRON must stay clear or the map loses
+              ## the open flanks the validator demands.
+              if mapProtectedFloorAt(gameMap, px, py):
+                break tryOne
+              if endzoneFloorAt(px, py, redAnchorX, cy, apron, true):
+                break tryOne
+              ## Keep a corridor's worth of clear ground OUTSIDE the flag ring,
+              ## so the rotated order above cannot rebuild the ring it exists to
+              ## avoid. Belt and braces, deliberately: the scatter alone fixed
+              ## the measured failures, but the two together took connectivity
+              ## rejections from 19 in 200 seeds to ZERO.
+              let
+                rdx = px - gameMap.center.x
+                rdy = py - gameMap.center.y
+              if rdx * rdx + rdy * rdy <= ringKeepOut * ringKeepOut:
+                break tryOne
+              let plug = hexShape(px, py, 28)
+              gameMap.leftObstacles.add plug
+              ## The plug and every symmetry image of it become stone NOW, in
+              ## the mask this pass is still reading, so the twenty-odd other
+              ## rays it just closed are seen as closed instead of each buying a
+              ## plug of its own.
+              for op in group:
+                gameMap.stampShapeIntoMask(
+                  masks.minWall, plug.pixelImage(op, gameMap.width, gameMap.height))
+              placed = true
         if not placed:
           continue
         dec plugsLeft
@@ -2123,6 +2178,20 @@ proc generateMapAttempt*(
     result.trenches = @[]
     for d in digs:
       result.trenches.add rectShape(d)
+
+  ## SECOND sightline repair, after the pits. `pitInstead` digs a trench
+  ## INSTEAD of raising a column obstacle, so the pit pass DELETES wall — and
+  ## it runs after the first repair, which therefore closed lanes that were
+  ## then re-opened behind its back. On the small class that was 30 of 120
+  ## seeds rejected for an open axis-0 lane the generator had already fixed
+  ## once. Re-running the repair rather than re-ordering the passes keeps the
+  ## column/window/pit draw order — and so every seed's structural map —
+  ## exactly where it was.
+  ##
+  ## Trenches are FINAL by now, and a plug landing on one is harmless: a
+  ## trench is a hole in the floor, not cover, so it never blocked a ray and
+  ## the wall over it reads as ordinary cover.
+  result.plugOpenSightlines(cols(40))
   result.validateMap()
 
 type
