@@ -113,7 +113,7 @@ proc summaryLine(m: MapMetrics): string =
     &"chokes={m.chokeCount}(tightest {m.chokeMinClearPx}px, " &
     &"""covered={(if m.chokeCovered: "YES" else: "no")})  """ &
     &"mid={m.midCrossCount}x/{m.midOpenFrac * 100:.1f}%  " &
-    &"stand={m.standRingOpenMin * 100:.0f}-{m.standRingOpenMax * 100:.1f}%"
+    &"stand={m.standRingOpenMin * 100:.1f}-{m.standRingOpenMax * 100:.1f}%"
 
 proc detailReport(m: MapMetrics): string =
   var s: seq[string]
@@ -288,6 +288,10 @@ proc cmdRank(a: Args) =
     if not m.valid: inc gated
   echo ""
   echo &"{gated} of {metrics.len} failed the sim's hard gates."
+  echo "(expect 0: `gen:<seed>` goes through generateCtfMap, which RE-ROLLS " &
+    "up to 100 attempts until a seed validates. A best-of-K ranker that wants " &
+    "to see rejections has to call generateMapAttempt directly — the " &
+    "validators are a crash guard, not a filter.)"
 
 # --- episode orchestration (the simulation half) ----------------------------
 
@@ -308,6 +312,33 @@ proc portListening(port: int): bool =
   except CatchableError:
     false
 
+proc portBindable(port: int): bool =
+  ## Whether we can actually take this port right now.
+  ##
+  ## Probing with `portListening` alone is not enough and produced a silent
+  ## wrong result: this machine routinely runs many agents, one of them already
+  ## held 21501, so the "wait for the port to listen" loop was satisfied
+  ## INSTANTLY by a stranger's server. The bots then attached to it, our own
+  ## server had already died with "Address already in use", and the episode
+  ## reported ticks=-1 and walked on. Bind-probing rejects that port up front.
+  let socket = newSocket()
+  defer: socket.close()
+  try:
+    socket.bindAddr(Port(port), "127.0.0.1")
+    true
+  except CatchableError:
+    false
+
+proc pickPort(start: int): int =
+  ## The first port at or above `start` that nothing else holds. Offset by the
+  ## process id so two concurrent harness runs do not race for the same one.
+  var port = start + (getCurrentProcessId() mod 97) * 4
+  for _ in 0 ..< 400:
+    if not portListening(port) and portBindable(port):
+      return port
+    inc port
+  fail("no free port near " & $start)
+
 proc drainToFile(arg: tuple[handle: FileHandle, path: string]) {.thread.} =
   ## The server echoes every game event, more than a pipe buffer holds — left
   ## undrained it fills and deadlocks the game mid-match.
@@ -320,6 +351,11 @@ proc drainToFile(arg: tuple[handle: FileHandle, path: string]) {.thread.} =
     output.flushFile()
   output.close()
   input.close()
+
+proc tailFile(path: string, lines: int): string =
+  if not fileExists(path): return ""
+  let all = readFile(path).strip().splitLines()
+  all[max(0, all.len - lines) .. ^1].join("\n")
 
 proc writeEpisodeConfig(
   mapPath: string, seed, maxTicks, seats, teams: int
@@ -387,9 +423,9 @@ proc runEpisode(
     while not portListening(port):
       if not serverProcess.running:
         joinThread(logThread)
-        fail("server died during startup; see " & serverLog)
+        fail("server died during startup; log tail:\n" & tailFile(serverLog, 12))
       if (getMonoTime() - started).inSeconds > 480:
-        fail("server never listened; see " & serverLog)
+        fail("server never listened; log tail:\n" & tailFile(serverLog, 12))
       sleep(200)
     putEnv("CTF_BOT_FAST_READY", "1")
     for slot in 0 ..< seats:
@@ -413,7 +449,14 @@ proc runEpisode(
         let row = parseJson(line)
         if row{"type"}.getStr() == "summary":
           result.ticks = row["ticks"].getInt()
+    # A written replay under ~10KB is a truncated episode, not evidence. This
+    # must be LOUD: the whole dynamic half hangs off the replay existing, and
+    # an episode that quietly produced nothing once walked past as "MISSING"
+    # while the batch carried on averaging the ones that worked.
     result.ok = fileExists(replayPath) and getFileSize(replayPath) > 10_000
+    if not result.ok:
+      fail("episode produced no usable replay (" & replayPath &
+        "); server log tail:\n" & tailFile(serverLog, 15))
   finally:
     shutdown()
     removeFile(configPath)
@@ -445,7 +488,7 @@ proc cmdPlay(a: Args) =
       replayPath = outDir / &"{slug}-ep{episode}.bitreplay"
       seed = 1 + episode
       run = runEpisode(mapPath, seed, maxTicks, seats, teams,
-        basePort + episode, replayPath)
+        pickPort(basePort), replayPath)
     # Rule 4: each episode's length and result print individually. A capture
     # ENDS the episode, so length IS an outcome and a mean hides it.
     lines.add &"  ep{episode} seed={seed} ticks={run.ticks} " &
@@ -453,8 +496,13 @@ proc cmdPlay(a: Args) =
     echo lines[^1]
   echo ""
   echo &"recorded {episodes} episode(s) of {mapPath} into {outDir}"
-  echo "next: tools/extract_events.nim <replay> --out ev.jsonl --frames fr.bin"
-  echo "      python3 tools/map_playtest.py <spec.json> ev.jsonl fr.bin ..."
+  echo &"next: for r in {outDir}/*.bitreplay; do \\"
+  echo &"        map_playtest \"$r\" --name {mapPath} --out \"${{r%.bitreplay}}.json\"; done"
+  echo &"      python3 tools/map_playtest.py {outDir}/*.json"
+  echo "      ...and pass an `arena` evidence set in the SAME invocation: " &
+    "every dynamic flag is a delta from the control, and dead space has no " &
+    "absolute bar (the arena reads 24% dead at one long episode and 51% at " &
+    "three short ones)."
 
 const usage = """
 map_eval — the map-generator fitness harness (arena is ALWAYS the control)
