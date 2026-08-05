@@ -978,23 +978,64 @@ edges by **linear interpolation** of the field values (which recovers sub-cell
 accuracy and is what makes the contour smooth rather than staircased).
 
 Two of the 16 cases (`0101` and `1010`) are **ambiguous saddles** — the two
-diagonal corners above the level could be joined or separated. The resolution
-matters:
+diagonal corners above the level could be joined or separated. The **asymptotic
+decider** (Nielson & Hamann, *The Asymptotic Decider: Resolving the Ambiguity in
+Marching Cubes*, IEEE Visualization '91) resolves it by evaluating the bilinear
+interpolant at its own saddle point:
 
-> **(A) HARD GUARANTEE — output topology.** If the saddle ambiguity is resolved
-> *consistently* (always the same way, or by the asymptotic decider of Nielson &
-> Hamann, IEEE Visualization '91), marching squares emits a set of **closed,
-> simple (non-self-intersecting), pairwise-disjoint polygonal loops**. Each cell
-> edge is crossed at most once and each crossing is shared by exactly two
-> segments, so every vertex of the output graph has degree exactly 2 — a disjoint
-> union of cycles. Inconsistent saddle resolution is the *only* way to break this,
-> and it breaks it by creating degree-4 vertices.
+```
+f_saddle = (f00*f11 - f10*f01) / (f00 + f11 - f10 - f01)
+```
 
-For a field sampled on a grid, "closed" needs one caveat: contours that reach the
-map border are open arcs. Close them by running the contour along the border — or
-simply sample the field on a frame one cell larger than the map and force the
-outer ring to be below `u`, which makes every contour interior and closed. The
-second is one line and is strictly better.
+If `f_saddle` falls on the same side of the isovalue as the two diagonal corners,
+those corners are **connected**; otherwise they are **separated**. (The folklore
+"average the four corners" shortcut agrees with this only when the cell is square
+*and* the denominator is positive — it is not the asymptotic decider and it can
+differ.)
+
+> **(A) HARD GUARANTEE — output topology, and it is stronger in 2D than in 3D.**
+> Marching squares emits a set of **closed, simple (non-self-intersecting),
+> pairwise-disjoint polygonal loops** — and in 2D this holds under **any**
+> per-cell resolution of the saddle cases, even a random one.
+>
+> *Proof.* An edge with a strict sign change contains exactly one interpolated
+> crossing; none otherwise. Walking a cell's four edges cyclically, the number of
+> sign changes is even (parity of a cyclic ±1 sequence). The lookup table pairs
+> the crossings so that each is an endpoint of exactly one segment within that
+> cell. Each interior grid edge belongs to exactly two cells, so every crossing
+> vertex has degree exactly 2 — a closed 1-manifold, i.e. a disjoint union of
+> simple closed polygons. Non-self-intersection: both saddle pairings are
+> non-crossing chords inside the cell, segments never leave their cell, and cells
+> have disjoint interiors. ∎
+
+**Why 2D is the easy case, and it is worth understanding why.** In 2D the
+ambiguity is *entirely internal to a cell*: two adjacent cells share an **edge**,
+and both the existence and the position of the crossing on that edge depend only
+on the two endpoint samples. Neighbours physically cannot disagree, so **marching
+squares cannot produce cracks.** In 3D the ambiguity lives on a shared **face**,
+which is exactly why Dürst's 1988 correction to the Lorensen–Cline table exists
+and why the asymptotic decider matters there. For us, the decider changes *which*
+loops we get (joined vs split rooms) — a design choice, not a correctness one.
+
+Three caveats to carry into a validator:
+
+- **Ties.** If a sample equals the isovalue exactly, the sign is undefined. Pick
+  "above" or "below" and be consistent; integer fields make this a live concern.
+- **Border edges belong to one cell only**, so they yield degree-1 vertices —
+  **open arcs, not loops**. Sample the field on a frame one cell larger than the
+  map and force the outer ring below `u`. One line, and it makes every contour
+  interior and closed.
+- **Closed ≠ faithful.** A feature smaller than a cell is silently dropped. The
+  guarantee is about the output polyline, not about fidelity to the continuous
+  field. That is fine for us — a sub-cell feature is a sub-corridor feature and we
+  did not want it.
+
+One more precision point, because it interacts with the theorem below: the *true*
+level set through a saddle of `f` is a **figure-eight** — it self-intersects, so
+it is not a disjoint union of simple curves. Marching squares resolves that into
+two disjoint arcs. **The nesting-tree theorem therefore applies to the marching-
+squares output, not to the ideal level set.** That is the version we ship, so the
+guarantee is the one we need, but do not state it about the continuous field.
 
 Now the theorem this document is built on.
 
@@ -1019,13 +1060,67 @@ Now the theorem this document is built on.
    above they are disjoint closed simple loops, so by the theorem they induce a
    **tree** of faces.
 2. Thicken each loop into a **ribbon of wall** of thickness `t`.
-3. Punch **exactly one door** of width ≥ `RecommendedCorridorWidthPx` in each
-   loop.
+3. Punch `d_i >= 1` **doors** of width ≥ `RecommendedCorridorWidthPx` in loop `i`.
 
-> **(A) HARD GUARANTEE — floor connectivity.** Each door is exactly one edge of
-> the tree; `m` doors reconnect `m + 1` faces; a connected graph on `m + 1`
-> nodes with `m` edges is spanning. **The floor is connected by construction.** No
-> flood fill, no repair pass, no retry.
+> **(A) HARD GUARANTEE — floor connectivity.** With `d_i >= 1` for every curve,
+> every tree edge is realised, so the `m + 1` faces are connected. **The floor is
+> connected by construction.** No flood fill, no repair pass, no retry.
+
+### 6.4a The trap: one door per curve is a DISASTER, and the fix is the best result here
+
+A spanning tree connects everything and *nothing more*. If `d_i = 1` for all `i`,
+then between any two faces there is **exactly one** route, every door is a **cut
+vertex**, and the map would score:
+
+| Band | Requirement | One-door-per-curve gives |
+|---|---|---|
+| `routeCountMin` | **≥ 2, `bandHard`** — "a map with one route is a corridor" | **1 — REJECTED** |
+| `chokeCount` | ≤ 6 | one per curve — blown |
+| `midCrossCount` | ≥ 3 | 1 — blown |
+| `chokeCoveredPenalty` | 0 | one camper watches the only door |
+
+So the naive construction fails a **hard** band. This is exactly the trap that
+sinks the D8 flow-tree idea in §9.2 as well, and it is worth stating loudly
+because "guaranteed connected" sounds like the finish line and is actually the
+starting line: **for a competitive map, connectivity is cheap and *redundancy* is
+the thing that is hard.**
+
+The fix is one line, and it converts the tree from a liability into the sharpest
+control surface in this document:
+
+> **(A) HARD GUARANTEE — exact route capacity.** In the door construction, the
+> minimum vertex cut between two faces `F` and `F'` is exactly
+> `min over the curves on the tree path from F to F' of d_i`. By Menger's theorem
+> the number of vertex-disjoint routes between them equals that cut. Therefore:
+>
+> ```
+> routeCountMin  =  min_i d_i          (over curves separating the two bases)
+> ```
+>
+> **Set `d_i >= 2` for every curve and `routeCountMin >= 2` is satisfied by
+> construction — the hard band can never fail.** Set `d_i >= 3` on the curves
+> that cross the midfield seam and `midCrossCount >= 3` is satisfied by
+> construction too.
+
+And the same statement kills the chokepoint problem for free: **a door is a cut
+vertex if and only if it is the only door on its curve.** So `d_i >= 2` for all
+`i` gives `chokeCount = 0` from doors — which is exactly the arena's measured
+value (`control: 0.0`, `map_metrics.nim:1316`).
+
+This is the strongest thing in the survey. It is not "noise makes route counts
+more likely to be good"; it is a **closed-form identity between a generator
+parameter and a banded metric**, with the metric's definition (max-flow / min-cut
+over a coarse grid, `map_metrics.nim:530`) matching the theorem's. Two caveats to
+keep it honest:
+
+- The identity is about the *door graph*. Rasterisation, the protected-floor
+  carve, and the endzone apron all edit the mask afterwards; the guarantee is on
+  the pre-carve structure and the measured value can only be *reduced* by a carve
+  that seals a door. Carves open floor, they do not close it — so in practice the
+  measured value should be ≥ the constructed one. Verify rather than assume.
+- A door of width 68 px spans ~2.6 cells of `RouteCellPx = 26`, so the measured
+  `routeCountMin` will typically exceed `min_i d_i`. The identity is a **lower
+  bound** in cell units, which is the direction we want.
 
 And simultaneously, from the same object:
 
@@ -1042,7 +1137,7 @@ part that makes it engineering rather than a nice theorem:
 |---|---|---|
 | Two contours closer than `t` — ribbons merge, faces vanish | distance transform between contours < `t` | **delete one of the two curves** |
 | A face too thin to walk after thickening | max of the floor distance transform inside the face < 34 px | **delete the curve bounding that face** |
-| No door site with ≥ 68 px clearance on *both* sides | scan the contour's distance transform | **delete the curve** |
+| Fewer than `d_i` legal door sites (≥ 68 px clearance both sides, mutually separated) | scan the contour's distance transform | **delete the curve** |
 
 All three repairs are the *same* repair: remove a curve. **Removing a leaf or an
 internal node from a laminar family leaves it laminar** (contract the tree edge;
@@ -1051,10 +1146,14 @@ the connectivity guarantee — survives every repair. That is a rare property: a
 repair pass that cannot invalidate the invariant it is repairing under.
 
 **Door placement, concretely.** Compute the distance transform of the *floor*
-(pre-thickening). Walk the contour and pick the vertex maximising
-`min(clearance on the inside, clearance on the outside)`. That is the widest point
-of the wall, and placing the door there maximises the margin over 68 px. Ties
-broken by the RNG so different seeds put the door in different places.
+(pre-thickening). Walk the contour scoring each vertex by
+`min(clearance inside, clearance outside)`; that is the widest point of the wall,
+where the door has the most margin over 68 px. Then pick the `d_i` best sites
+**subject to a minimum arc separation** (say a quarter of the contour's
+perimeter), so two doors never land next to each other and collapse back into one
+effective route. Ties broken by the RNG so different seeds place doors
+differently. Sites are chosen on the fundamental-domain copy and lifted by the
+orbit, so every team's rooms have doors in the same places — fairness for free.
 
 ### 6.5 Contour → `shapePolygon`: the concrete emission
 
@@ -1127,6 +1226,364 @@ noise contour (they eat vertices and produce concave spikes), the 2D case gains
 little, and dual contouring's output can be non-manifold, which would cost us the
 (A) in §6.4. Marching squares' guaranteed degree-2 output is worth more to us than
 its rounded corners cost us.
+
+---
+
+## 7. Curl noise, flow fields, and the honest home for noise in a pipeline
+
+### 7.1 In 2D, curl-noise streamlines ARE iso-contours — there is no second technique here
+
+Bridson, Hourihan & Nordenstam, *Curl-Noise for Procedural Fluid Flow*, SIGGRAPH
+2007 (https://www.cs.ubc.ca/~rbridson/docs/bridson-siggraph2007-curlnoise.pdf).
+Take a potential `psi` and set `v = curl(psi)`. In 2D, with a scalar potential:
+
+```
+v = ( d(psi)/dy , -d(psi)/dx )
+```
+
+Two facts fall straight out:
+
+- `div v = d2(psi)/dxdy - d2(psi)/dydx = 0` — **divergence-free by
+  construction**, which is the whole point of the paper: advected particles never
+  bunch up or vanish, because there are no sources or sinks.
+- `v · grad(psi) = (d psi/dy)(d psi/dx) - (d psi/dx)(d psi/dy) = 0` — **`psi` is
+  constant along every streamline.**
+
+The second one is the finding: **in 2D, the streamlines of curl noise are exactly
+the level sets of the potential.** So "trace curl-noise flow lines to lay out
+lanes" and "extract iso-contours to lay out walls" are *the same computation on
+the same object*, differing only in which levels you pick. There is no second
+algorithm to build here, and anyone who proposes a streamline tracer alongside a
+contour extractor is building the same thing twice.
+
+**Classification: (C) for us.** Divergence-free is a genuine (A), but it is an (A)
+about a property (no sources or sinks in a velocity field) that a static map has
+no use for.
+
+**What IS worth stealing** is Bridson's boundary handling. To make flow follow a
+solid boundary he ramps `psi` to a constant near it. Translated out of fluids:
+**pinning `psi` to a constant on a set makes that set a level set.** Which means
+you can *plant* structure in the potential and the contour extractor will honour
+it. That is the bridge to the next subsection, and it is where noise finally has
+an honest job.
+
+### 7.2 Designed potential + bounded noise: a converging loop instead of a rejection loop
+
+Everything in §12 says a stationary field cannot produce structure. The fix is not
+a better noise function; it is to stop asking noise to be the structure.
+
+```
+psi(p) = psi_design(p)  +  eps * noise(p)
+```
+
+where `psi_design` is a hand-built, deterministic potential encoding the intended
+layout — bumps at the intended room centres, ridges along the intended lanes, a
+saddle where the intended crossroads is — and `noise` is fBm, domain-warped,
+whatever you like. Then extract contours of `psi` (§6.4).
+
+> **Conditional (A) — the noise cannot break the designed layout.** Level-set
+> topology changes only at critical points (Morse theory), and **Morse functions
+> are structurally stable**: a sufficiently small C¹ perturbation moves the
+> critical points but changes neither their number nor their indices. So for small
+> enough `eps`, the contour nesting tree of `psi` is *isomorphic to the nesting
+> tree of `psi_design`*. The rooms you designed are the rooms you get; noise only
+> decides their exact shape.
+
+The engineering consequence is better than the theorem. The stability threshold is
+not analytically convenient, but **you do not need it**, because you can *check*
+the conclusion cheaply and exactly: extract the contours, build the nesting tree,
+compare it to the design's. If it matches, ship. If it does not, halve `eps` and
+retry.
+
+**That loop always terminates** — at `eps = 0` the field *is* the design, so the
+trees match trivially — and it converges geometrically. This is categorically
+different from generate-and-test: it is not "resample and hope", it is
+**"anneal the randomness down until the invariant holds"**, on a monotone
+parameter, with a guaranteed fixed point. If you want one sentence for where noise
+belongs in an "always good" pipeline, it is this one.
+
+(Practical note: in practice `eps` almost never needs to be reduced, because the
+design potential's gradients are large by construction. The loop is insurance,
+not a hot path.)
+
+### 7.3 Tensor fields and hyperstreamlines — the only route-first technique in this dimension
+
+Chen, Esch, Wonka, Müller & Zhang, *Interactive Procedural Street Modeling*,
+SIGGRAPH 2008 (https://peterwonka.net/Publications/pdfs/2008.SG.Chen.InteractiveProceduralStreetModeling.final.pdf).
+Instead of a scalar field, design a **tensor field**; at each point it has two
+orthogonal eigenvector directions (major and minor). Trace **hyperstreamlines**
+along each, and you get two interleaved, roughly-orthogonal, smoothly curving
+families of curves — a road network that bends with the terrain instead of being a
+grid.
+
+Why this is the most interesting entry in my dimension for *lanes* specifically:
+it is the only technique surveyed that natively produces a **route network** with
+designer control, rather than producing a texture from which routes must be
+inferred. Map it onto CTF directly: the **major** family is the base-to-base
+attack lanes, the **minor** family is the cross-connections that make flanking
+possible, and `midCrossCount` (band `[3, 12]`, arena 5) is literally a count of
+minor-family crossings of the midfield seam.
+
+Two structural facts worth carrying:
+
+- Singularities of a 2D tensor field come in named types (**wedge** index +1/2,
+  **trisector** −1/2, plus node/centre/focus/saddle at +1), and by the
+  **Poincaré–Hopf index theorem** the indices must sum to the Euler
+  characteristic of the domain — **+1 for a disc**. So a lane field on a
+  simply-connected board *must* contain singularities and their indices *must*
+  total 1. You cannot design a singularity-free lane network on a disc; the
+  question is only which junctions you spend your index budget on. That is a
+  genuine (A)-flavoured constraint on lane topology, and it is the sort of thing
+  that explains why hand-made maps all have a small number of distinctive
+  junctions.
+- The output is curves, not regions, so it needs the same thickening + door
+  machinery as §6.4 — and it does **not** come with the tree guarantee, because
+  two streamline families cross, producing cycles.
+
+**Classification: (B).** High implementation cost (field design UI, streamline
+seeding, merging and termination rules are all fiddly), high payoff, and the
+guarantee has to come from elsewhere. It is the right technique for a *later*
+generation of the generator, and the wrong one to start with.
+
+---
+
+## 8. Directional control: Gabor, sparse convolution, and the cheap version
+
+Our hard validator is directional (§2.4). It is therefore worth knowing that the
+noise literature has an entire family built for **exact directional control**, and
+also worth knowing that we can get most of the benefit for two multiplies.
+
+### 8.1 The sparse-convolution lineage
+
+- **Lewis**, *Algorithms for Solid Noise Synthesis*, SIGGRAPH '89 — sparse
+  convolution noise: convolve a random impulse (Poisson) process with a chosen
+  kernel. The kernel *is* the autocorrelation, so you control the spectrum by
+  choosing the kernel.
+- **van Wijk**, *Spot Noise*, SIGGRAPH '91 — the same idea aimed at flow
+  visualisation, where stretching the "spot" along the flow direction encodes the
+  vector field. This is directly the "elongate features along a chosen direction"
+  primitive.
+- **Lagae, Lefebvre, Drettakis & Dutré**, *Procedural Noise using Sparse Gabor
+  Convolution*, SIGGRAPH 2009 — the modern form. The kernel is a **Gabor kernel**:
+  a Gaussian envelope times a cosine harmonic. That gives **exact, intuitive,
+  per-point control of frequency `F0`, bandwidth `a`, and orientation `omega0`**,
+  with anisotropic (single orientation) and isotropic (orientation randomised per
+  kernel) variants, and no texture-space setup.
+- **Lagae et al.**, *A Survey of Procedural Noise Functions*, Computer Graphics
+  Forum 29(8):2579–2600, 2010 — the canonical comparison, and the right citation
+  for any claim about the spectra of Perlin vs simplex vs wavelet vs Gabor noise.
+- **Tricard et al.**, *Procedural Phasor Noise*, SIGGRAPH 2019 — replaces the
+  Gabor amplitude with a phase, giving **high-contrast oriented stripes** with
+  uniform contrast everywhere. A stripe field is, structurally, a corridor field.
+
+### 8.2 What directional control buys us, and the two-multiply version
+
+The specific play: **orient the noise so features elongate perpendicular to the
+gun lane.** On a sides map the lane is horizontal, so elongate vertically; wall
+features then present their long axis to every horizontal ray, and long horizontal
+open runs become rare. This is precisely what `verticalAnchors`
+(`mapgen_styles.nim:120-153`) does by hand, expressed as a property of the field
+instead of as a bolted-on repair.
+
+**Classification: (B), firmly.** It shifts the distribution of horizontal run
+lengths hard. It does **not** guarantee that any particular row is blocked, so
+the validator and the anchor/plug repair still have to exist. Do not let anyone
+delete `verticalAnchors` because "the noise is anisotropic now".
+
+**And here is the cost note that matters.** Gabor noise is roughly 10–50× the cost
+of Perlin, and for our purpose almost all of its benefit is available from
+**anisotropic domain scaling**:
+
+```
+f(x / sx, y / sy)      with sy > sx
+```
+
+Compressing the `y` input stretches features along `y`. One divide each, no new
+noise basis, no kernel machinery. If we later want the orientation to *vary across
+the map* — vertical near the bases, diagonal at midfield — that is when Gabor
+earns its cost, and not before.
+
+One consistency caveat: §11's mean-free-sightline formula assumed **isotropy**. An
+anisotropic field has a direction-dependent mean free path — which is the entire
+point — so [11.3] then describes only the isotropic average. If you go anisotropic,
+measure the horizontal and vertical mean free paths separately; they are the two
+numbers you actually care about.
+
+---
+
+## 9. Erosion: the simulation is cosmetic, the flow structure is a guarantee
+
+### 9.1 The simulation itself
+
+- **Musgrave, Kolb & Mace**, *The Synthesis and Rendering of Eroded Fractal
+  Terrains*, SIGGRAPH '89 — the origin. **Thermal erosion**: material above a
+  talus angle slides to lower neighbours, which rounds slopes to a maximum
+  gradient. **Hydraulic erosion**: water dissolves, transports and deposits
+  sediment, which carves channels and builds alluvial fans.
+- **Mei, Decaudin & Hu**, *Fast Hydraulic Erosion Simulation and Visualization on
+  GPU*, Pacific Graphics 2007 — the shallow-water "virtual pipes" model, the
+  standard real-time formulation.
+- **Particle / droplet erosion** (Beyer's 2015 thesis; Sebastian Lague's widely
+  copied implementation) — simulate individual droplets carrying sediment
+  downhill. Cheapest to implement, hardest to control.
+
+**Classification: (C), and not a close call.** Erosion produces the most natural
+*heightfields* in graphics, and we **render no height**. The sim reads a binary
+wall mask through `inShape`. Every visual payoff of erosion is invisible to us,
+and the cost is the highest in this survey.
+
+### 9.2 The part that is actually an (A): D8 flow routing
+
+Strip the physics away and what erosion is *built on* is a flow-routing structure,
+and that structure carries a hard guarantee.
+
+- **D8 flow direction** (O'Callaghan & Mark, 1984, *The extraction of drainage
+  networks from digital elevation data*): each cell drains to exactly one of its 8
+  neighbours — the steepest downhill one.
+- **Priority-flood depression filling** (Barnes, Lehman & Mulla, 2014,
+  *Priority-Flood: An Optimal Depression-Filling and Watershed-Labeling Algorithm
+  for Digital Elevation Models*, Computers & Geosciences 62:117–127,
+  arXiv:1511.04463): raise every local pit to the level of its lowest outlet, in
+  `O(N log N)` (or `O(N)` with the integer variant).
+
+> **(A) HARD GUARANTEE — the flow graph is a spanning forest rooted at the
+> outlets.** After depression filling, every cell has a strictly-descending path
+> to the domain boundary. Each cell has exactly **one** outgoing edge, so the
+> graph is *functional*; a descending path cannot revisit a cell, so there are no
+> cycles; a functional acyclic graph is a **forest**, rooted at the boundary
+> outlets. Therefore **carving corridors along any downstream-closed subset of the
+> flow edges (e.g. all edges with flow accumulation above a threshold) yields a
+> CONNECTED channel network** — every carved cell has a carved path to an outlet.
+
+Honesty about how impressive that is: you could get the same guarantee from any
+spanning tree on any graph, and `genMaze`'s recursive backtracker already does
+exactly that (`mapgen_styles.nim:220-250`). **The flow formulation's value-add is
+not the guarantee, it is the *geometry* of the tree it produces**: channels are
+sinuous rather than lattice-aligned, junctions are Y-shaped and never X-shaped
+(a functional graph merges, it never crosses), branch importance follows flow
+accumulation so the network has a natural trunk/tributary hierarchy, and dead ends
+are rare. Those are exactly the qualities a hand-made lane network has and a maze
+does not.
+
+### 9.3 The one place height means something in our sim: TRENCHES
+
+`CtfMap.trenches` (`sim_types.nim:856-864`) are **walkable pits**: standing inside
+slows movement and fire, and most incoming gun shots fly straight over. And
+`map_rules.trenchSharePermille` (`map_rules.nim:403-417`) prescribes the share of
+total cover that should be delivered as trench rather than wall — **250 permille
+in the occlusion regime, 400 mixed, 500 range** — with the explicit rationale that
+a trench *"gives survivability WITHOUT shortening a sightline"*.
+
+That is a **three-level** structure, and a scalar field is a three-level object
+for free:
+
+```
+f > u_hi           ->  WALL     (shapePolygon in leftObstacles)
+u_lo <= f <= u_hi  ->  FLOOR
+f < u_lo           ->  TRENCH   (shapeRect / shapePolygon in trenches)
+```
+
+Set **both** thresholds by empirical quantile (§11.5) and you get **(A) for the
+cover fraction *and* (A) for the trench share** — the two numbers `map_rules`
+asks for — on every seed, with no search.
+
+This is, as far as I can tell, **the only place in the whole survey where terrain
+"height" carries genuine gameplay meaning in our engine**, and it is cheap: one
+extra threshold on a field you already computed. It is also the natural home for
+erosion's drainage geometry, because a low-lying, branching, sinuous network is
+exactly what a trench system should look like — and unlike walls, trenches do not
+have to satisfy corridor-width or connectivity constraints, because they are
+walkable. **Trenches are the risk-free place to spend organic-looking noise.**
+
+Two implementation notes: `trenches` is documented as a **FULL-map** field (both
+halves, already symmetrised), so generate them in the fundamental domain and lift
+them explicitly rather than handing them to the left-half path; and the generator
+today emits rect pits while the mechanic is `inShape`-based and shape-agnostic, so
+polygonal trenches work but only the rect art has the organic-edge treatment.
+
+---
+
+## 10. Making noise meet our symmetry
+
+### 10.1 The recommendation: don't symmetrise the field at all
+
+Restating §2.3 because it is the one thing a noise implementer is most likely to
+get wrong: our pipeline already generates in a fundamental domain and lifts by an
+orbit (`mapgen_styles` returns a left-half/quadrant set; `arena.nim` and `hex.nim`
+do the lift). **Evaluate the field only on the fundamental domain.** Symmetry is
+then (A) by construction, exact, free, and you keep a *sharper* field than any
+symmetrisation would give you.
+
+Build symmetric noise only if you have a specific reason to evaluate the field
+across the whole board. §10.3 is the one such reason.
+
+### 10.2 If you must: folding vs averaging, and their different artefacts
+
+**Folding (orbit representative).** `g(p) = f(rep(p))`, where `rep` maps every
+point to a canonical representative of its orbit. Exactly invariant. But `g` has a
+**gradient crease** on the fundamental-domain boundary: continuous (C⁰) across a
+mirror, discontinuous in the normal derivative. Contours therefore meet the seam
+at a **kink**, and if you thicken them, the kink becomes a visible V in the wall.
+
+**Averaging (Reynolds operator).** `g(p) = (1/|G|) * sum_{s in G} f(s.p)`. Exactly
+invariant **and** as smooth as `f`. Two consequences worth knowing before you use
+it:
+
+- **It is not stationary.** Away from the group's fixed points the `|G|` orbit
+  images are nearly independent, so the variance of the average is about
+  `sigma^2/|G|` — contrast drops by `sqrt(|G|)`. *On* the fixed-point set all
+  images coincide and the variance is the full `sigma^2`. So an orbit-averaged
+  field has **systematically higher contrast near the group's fixed points**, and
+  for every group we use that means **near the map centre** — the flag ring and
+  the midfield. That is the worst possible place for a statistical artefact.
+- **`rot180` symmetrisation always puts a critical point at the map centre.** At a
+  fixed point `p` of `s`, `grad g(p) = (1/|G|) sum_s s^T grad f(p)`. For
+  `C2 = {e, rot180}`, `s^T = -I`, so `grad g = 0` **identically at the centre**.
+  Every seed therefore has a local max or min exactly on the centre — i.e. a blob
+  or a hole centred on the flag ring, forever. Sometimes that is a great central
+  feature; it is never a coincidence, and you should decide which.
+
+### 10.3 The one case where symmetric noise earns its keep: seam-crossing contours
+
+If you *want* wall structures that span the mirror seam as single coherent
+features rather than as folded chevrons, mirror-symmetrise the field. The reason
+is a clean bit of calculus:
+
+> For a mirror `s` about the axis, at any point `p` **on** the axis,
+> `grad g(p) = (1/2)(I + s^T) grad f(p)`, and for `s = diag(-1, 1)` this kills the
+> normal component exactly: `grad g` is **parallel to the axis**. Therefore every
+> level curve of `g` **crosses the mirror axis at a right angle**, and a contour
+> plus its mirror image join into a **single smooth closed curve** spanning both
+> halves.
+
+Which means the contour-tree theorem of §6.4 applies to the *whole board's* curve
+family, not just to one half — you get one global tree, one door per curve, and a
+door punched *on* the axis is its own mirror image, so it is automatically fair.
+That is a genuinely elegant construction and the only argument I found for paying
+the symmetrisation cost.
+
+### 10.4 Tileable / periodic noise (for completeness)
+
+Two standard tricks, neither of which we need but both of which come up:
+
+- **Lattice permutation mod the period.** For Perlin, index the gradient table
+  with `(ix mod P, iy mod P)`. Exactly periodic with period `P`, one line of code.
+  Only works for lattice noise.
+- **The 4D torus embedding.** Map `(x, y) -> (cos 2 pi x, sin 2 pi x, cos 2 pi y,
+  sin 2 pi y)` and sample **4D** noise there. Gives a seamlessly tiling 2D field
+  with no directional distortion, for any noise basis, at 4D evaluation cost.
+
+### 10.5 Hex boards are a non-issue
+
+Worth stating explicitly since the hex conversion is live: noise is defined on
+continuous `R^2`, so it does not care that the authoring lattice is a cube-coordinate
+hex grid. Evaluate the field at `cubeToPixel(q, r)` positions and everything in
+this document applies unchanged. The fundamental domain for `D6` is a 30° wedge and
+for `C6` a 60° wedge; generate there and let `orbit()` lift. The **only** thing to
+be careful of is the same seam question as §10.2–10.3, now with a 6-fold rosette at
+the centre instead of a 2-fold chevron — and §10.2's fixed-point warning applies
+with more force, since `C6` has a 6-image orbit and the contrast artefact at the
+centre is correspondingly larger.
 
 ---
 
