@@ -150,6 +150,47 @@ in a boundary convention without re-checking the parity test). Runtime is
 unaffected: LoS/nav read the baked `wallMask` bitmap, shapes only stamp it at
 load. Design: [docs/plans/2026-08-04-vector-obstacles-design.md](docs/plans/2026-08-04-vector-obstacles-design.md).
 
+## Map fitness harness (map_eval)
+
+`tools/map_eval.nim` scores a map instead of merely validating it: load or
+generate → hard gates → static score → (top-k only) simulate N episodes →
+rank. `tools/map_metrics.nim` holds the static geometry metrics as a PURE
+function of a `CtfMap` (same invariant as `map_render.nim` — no map install,
+no process globals), and `tools/map_eval.py` renders the heatmaps and the
+gameplay report.
+
+```bash
+nim c -d:release -o:/tmp/mapeval tools/map_eval.nim
+/tmp/mapeval --map pool:0 --map gen:4242 --episodes 3 --lives 9
+python3 tools/map_eval.py /tmp/map-eval
+```
+
+Map sources: `arena`, `arena-large`, `gen:<seed>`, `pool:<index>`, and
+`spec:<path.json>` for an arbitrary inline `mapSpec` (`resolveCtfMapMetadata`
+checks `mapSpec` first, so this scores hand-authored candidates no seed
+produces). Always `-d:release`.
+
+Five properties are enforced by the harness, not by discipline. Keep them if
+you touch it:
+
+- **The default `arena` is injected as CONTROL in every batch** and ranking
+  is refused without it. Every scored band is checked against the control
+  first, and a band the control fails prints as a METRIC BUG rather than as
+  a bad map. Two bands are deliberately *reported but not scored* because
+  scoring them would flag the control or a thing no terrain choice can fix:
+  trench count (the arena has none) and stand-side cover on legacy
+  column-endzone maps.
+- **Never a count without its fraction.** Midfield crossings print the open
+  fraction of the line; stand ring arcs print beside the ring's openness.
+- **Three episodes minimum**, and fewer prints a warning.
+- **A capture ends the episode**, so every episode's tick count and result
+  is printed and dead space is only compared across similar-length samples.
+  Reported ticks include the lobby and banked overtime, so they exceed
+  `--max-ticks` legitimately.
+- **Conversion is only a map signal when the control converts.** At the
+  shipped `lives: 3` a 16-seat game is decided by attrition before anyone
+  scores; the harness says so instead of blaming the terrain.
+
 ## Replay fixtures
 
 `tests/fixtures/*.bitreplay` + `tests/replays/ctf.bitreplay` are recorded
