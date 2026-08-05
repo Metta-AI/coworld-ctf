@@ -67,12 +67,28 @@ proc slotsFor(item: VocabItem, p: VocabParams, region: MapRect,
   fw = max(8, fw * pitchPct div 100)
   fh = max(8, fh * pitchPct div 100)
   if isLongItem(item):
-    # Full-width bands: a snake / massif / cave is a RUN, and slicing it into
-    # slots would measure a different feature than the one being tested.
-    let rows = max(1, region.h div fh)
-    let rh = region.h div rows
-    for i in 0 ..< rows:
-      result.add MapRect(x: region.x, y: region.y + i * rh, w: region.w, h: rh)
+    # A snake / massif / cave is a RUN, so it gets a BAND, never a slot —
+    # slicing one into slots measures a different feature than the one named.
+    #
+    # ORIENTATION IS DELIBERATE. Every long item takes its run axis from the
+    # region's longer side, so the band's shape decides what the feature is:
+    #   * a massif or a cave is a BARRIER, so it gets vertical columns and
+    #     runs ACROSS the attack axis, where it breaks the horizontal
+    #     sightlines a 2-team board is made of;
+    #   * a snake is a FLANK route, so it gets horizontal rows and runs ALONG
+    #     the attack axis, hugging the top or bottom edge.
+    # Getting this backwards is not a small error: a massif laid in a
+    # landscape band is a lane divider, and it measures like one.
+    if item == viSnake:
+      let rows = max(1, region.h div fh)
+      let rh = region.h div rows
+      for i in 0 ..< rows:
+        result.add MapRect(x: region.x, y: region.y + i * rh, w: region.w, h: rh)
+    else:
+      let cols = max(1, region.w div fh)
+      let cw = region.w div cols
+      for i in 0 ..< cols:
+        result.add MapRect(x: region.x + i * cw, y: region.y, w: cw, h: region.h)
   else:
     let
       cols = max(1, region.w div fw)
@@ -207,41 +223,38 @@ proc benchMixed(sizeName: string, seed: int): (Row, CtfMap) =
 # Commands
 # ---------------------------------------------------------------------------
 
+var emptyCover = 0.0
+var emptyInterior = 0.0
+  ## The bare board with NO obstacles at all. The 10 px perimeter wall is
+  ## itself ~46 permille of cover and buys real enclosure along the edges, so
+  ## an item measured at low coverage gets that for free and its raw
+  ## interior/cover ratio is flattered. Every ratio printed is MARGINAL over
+  ## this baseline.
+
+proc marginal(r: Row): float =
+  let
+    dc = r.coverFrac - emptyCover
+    di = r.interiorFrac - emptyInterior
+  if dc > 0.001: di / dc else: 0.0
+
 proc header(): string =
   &"""{"item":<10} {"pitch":>6} {"shp":>4} {"ply":>4} {"vmax":>4} """ &
   &"""{"rect%":>6} {"cover":>6} {"interior":>9} {"covrd":>6} {"expsd":>6} """ &
-  &"""{"openP95":>8} {"score":>6} {"int/cov":>8}"""
+  &"""{"openP95":>8} {"score":>6} {"ENCL/COV":>9}"""
 
 proc line(r: Row): string =
-  let ratio = if r.coverFrac > 0.0: r.interiorFrac / r.coverFrac else: 0.0
   &"{r.name:<10} {r.pitch:>5}% {r.shapes:>4} {r.polys:>4} {r.maxVerts:>4} " &
   &"{r.rectShare * 100.0:>5.0f}% {r.coverFrac:>6.3f} {r.interiorFrac:>9.3f} " &
   &"{r.coveredFrac:>6.3f} {r.exposedFrac:>6.3f} {r.openP95:>8} " &
-  &"{r.score:>6.3f} {ratio:>8.2f}" &
+  &"{r.score:>6.3f} {marginal(r):>9.2f}" &
   (if r.valid: "" else: "  INVALID: " & r.reason)
 
-proc cmdTable(sizeName: string, seeds: seq[int]) =
-  echo &"# board: 2-team {sizeName};  seeds: {seeds.join(\",\")}"
-  let p = vocabParams(sizeName, 2)
-  echo &"# coverSizePx={p.coverSizePx} corridorPx={p.corridorPx} " &
-       &"maxExposedRunPx={p.maxExposedRunPx}"
-  echo ""
-  # Controls first: the hand-authored arena, then whatever the current
-  # generator produces at this seed with no vocabulary at all.
-  echo header()
-  var ctrl = measure("arena", loadCtfMapMetadata("arena"))
-  echo line(ctrl)
-  block:
-    var g = baseMap(sizeName, seeds[0])
-    var row = measure("gen-bare", g)
-    echo line(row)
-  echo ""
-  var rows: seq[Row]
+proc meanRows(sizeName: string, seeds: seq[int], matchCover: bool): seq[Row] =
   for item in VocabItem:
     var acc: Row
     acc.name = vocabName(item)
     for s in seeds:
-      let (r, _) = benchOne(item, sizeName, s)
+      let (r, _) = benchOne(item, sizeName, s, matchCover)
       acc.shapes += r.shapes
       acc.polys += r.polys
       acc.maxVerts = max(acc.maxVerts, r.maxVerts)
@@ -253,12 +266,11 @@ proc cmdTable(sizeName: string, seeds: seq[int]) =
       acc.openP95 += r.openP95
       acc.score += r.score
       acc.pitch += r.pitch
-      if not r.valid and acc.reason.len == 0:
-        acc.reason = r.reason
+      if not r.valid and acc.reason.len == 0: acc.reason = r.reason
     let n = float(seeds.len)
-    acc.pitch = int(float(acc.pitch) / n)
     acc.shapes = int(float(acc.shapes) / n)
     acc.polys = int(float(acc.polys) / n)
+    acc.pitch = int(float(acc.pitch) / n)
     acc.rectShare /= n
     acc.coverFrac /= n
     acc.interiorFrac /= n
@@ -267,7 +279,45 @@ proc cmdTable(sizeName: string, seeds: seq[int]) =
     acc.openP95 = int(float(acc.openP95) / n)
     acc.score /= n
     acc.valid = acc.reason.len == 0
-    rows.add acc
+    result.add acc
+  result.sort(proc (a, b: Row): int = cmp(marginal(b), marginal(a)))
+
+proc cmdTable(sizeName: string, seeds: seq[int]) =
+  echo &"# board: 2-team {sizeName};  seeds: {seeds.join(\",\")}"
+  let p = vocabParams(sizeName, 2)
+  echo &"# coverSizePx={p.coverSizePx} corridorPx={p.corridorPx} " &
+       &"maxExposedRunPx={p.maxExposedRunPx}"
+  echo ""
+  # Controls first: the hand-authored arena, then whatever the current
+  # generator produces at this seed with no vocabulary at all.
+  block:
+    var g = baseMap(sizeName, seeds[0])
+    g.leftObstacles = @[]
+    let e = measure("empty", g)
+    emptyCover = e.coverFrac
+    emptyInterior = e.interiorFrac
+  echo header()
+  block:
+    var g = baseMap(sizeName, seeds[0])
+    g.leftObstacles = @[]
+    echo line(measure("empty", g))
+  echo line(measure("arena", loadCtfMapMetadata("arena")))
+  block:
+    var g = baseMap(sizeName, seeds[0])
+    echo line(measure("gen-bare", g))
+  echo ""
+  echo "## A. NATURAL DENSITY — each item tiled at its own vocabFootprint."
+  echo "##    This is the density the item is DESIGNED for; `cover` is the"
+  echo "##    wall budget it naturally carries."
+  for r in meanRows(sizeName, seeds, matchCover = false): echo line(r)
+  echo ""
+  echo "## B. MATCHED COVERAGE — pitch stretched until wall coverage lands"
+  echo "##    near the arena control's 167 permille. Read `interiorFrac` here"
+  echo "##    directly against the control's 0.342. CAVEAT: stretching the"
+  echo "##    pitch of a long item reduces it to one or two instances per"
+  echo "##    half-map, which is a degenerate layout, not a fair density."
+  echo ""
+  var rows = meanRows(sizeName, seeds, matchCover = true)
   var mixedAcc: Row
   mixedAcc.name = "MIXED"
   for s in seeds:
@@ -296,27 +346,18 @@ proc cmdTable(sizeName: string, seeds: seq[int]) =
     mixedAcc.score /= n
     mixedAcc.valid = mixedAcc.reason.len == 0
 
-  # Ranked by ENCLOSURE PER UNIT WALL COVERAGE. Coverage is matched to the
-  # control first, so this is very nearly a ranking on `interiorFrac` alone;
-  # the ratio is still the ranking key because a couple of items cannot reach
-  # the target coverage at any pitch and would otherwise be flattered.
-  rows.sort(proc (a, b: Row): int =
-    let
-      ra = if a.coverFrac > 0: a.interiorFrac / a.coverFrac else: 0.0
-      rb = if b.coverFrac > 0: b.interiorFrac / b.coverFrac else: 0.0
-    cmp(rb, ra))
   for r in rows: echo line(r)
   echo ""
   echo line(mixedAcc)
 
 proc cmdRender(item: string, sizeName: string, seed: int, outPath: string,
-               maxDim: int) =
+               maxDim: int, matchCover: bool) =
   var gameMap: CtfMap
   var row: Row
   if item == "mixed":
     (row, gameMap) = benchMixed(sizeName, seed)
   else:
-    (row, gameMap) = benchOne(parseVocabItem(item), sizeName, seed)
+    (row, gameMap) = benchOne(parseVocabItem(item), sizeName, seed, matchCover)
   let options = MapRenderOptions(
     maxDimension: maxDim, overlays: {}, pickupKinds: {})
   renderMap(gameMap, options).image.writeFile(outPath)
@@ -329,7 +370,7 @@ proc cmdSpec(item: string, sizeName: string, seed: int, outPath: string) =
   if item == "mixed":
     (row, gameMap) = benchMixed(sizeName, seed)
   else:
-    (row, gameMap) = benchOne(parseVocabItem(item), sizeName, seed)
+    (row, gameMap) = benchOne(parseVocabItem(item), sizeName, seed, false)
   writeFile(outPath, mapSpecJson(gameMap))
   stderr.writeLine(line(row))
 
@@ -338,7 +379,7 @@ vocab_bench — measure and look at the shape vocabulary
 
   vocab_bench table  [--size standard] [--seeds 1,2,3]
   vocab_bench render --item <name>|mixed [--size ...] [--seed N] [-o out.png]
-                     [--max N]
+                     [--max N] [--match]
   vocab_bench spec   --item <name>|mixed [--size ...] [--seed N] -o spec.json
 
 items: dorito can snake beam temple bunker massif cave mixed
@@ -356,6 +397,7 @@ when isMainModule:
     item = ""
     outPath = ""
     maxDim = 0
+    matchCover = false
   var i = 1
   while i < argv.len:
     case argv[i]
@@ -367,6 +409,7 @@ when isMainModule:
       for s in argv[i].split(','): seedList.add s.strip.parseInt
     of "--item": inc i; item = argv[i]
     of "--max": inc i; maxDim = argv[i].parseInt
+    of "--match": matchCover = true
     of "-o", "--out": inc i; outPath = argv[i]
     else: fail("unknown argument: " & argv[i])
     inc i
@@ -377,7 +420,7 @@ when isMainModule:
       if item.len == 0: fail("render needs --item")
       cmdRender(item, size, seed,
                 (if outPath.len > 0: outPath else: "/tmp/vocab_" & item & ".png"),
-                maxDim)
+                maxDim, matchCover)
     of "spec":
       if item.len == 0: fail("spec needs --item")
       if outPath.len == 0: fail("spec needs -o")
