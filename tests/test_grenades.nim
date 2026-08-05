@@ -280,9 +280,17 @@ suite "weapon reach is pinned to the gun, not to the board (GameVersion 38)":
     finally:
       installDefaultArena()
     check MapWidth == 1235
-    # The maps really were different boards: under the old rule these three
-    # installs alone would have shipped three different grenades.
+    # The maps really were different boards: under the old rule these installs
+    # would have shipped different grenades. Assert the sweep exercised more
+    # than one board WIDTH, without pinning WHICH width each path resolves to.
+    # `pool:N` is a CURATED artifact and the generator re-curates it, so an
+    # ordering pinned here breaks on an unrelated map-generator change (it did:
+    # the best-of-K ranker re-curated the pool and pool:1 became a standard
+    # board). The invariant under test is "width does not move reach", not
+    # "these three paths are in ascending size order".
     check widths.len == 3
-    check widths[0] < widths[1]
-    check widths[1] < widths[2]
-    check widths[0] div 5 != widths[2] div 5
+    let
+      narrowest = min(widths)
+      widest = max(widths)
+    check narrowest < widest
+    check narrowest div 5 != widest div 5
