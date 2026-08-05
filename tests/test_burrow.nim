@@ -585,12 +585,16 @@ proc gridForMap(gameMap: CtfMap, cellSize: int):
     t0 = getMonoTime()
     masks = rasterizeWallMasks(gameMap, obstacles)
     t1 = getMonoTime()
-  ## Trenches are walkable dug squares: floor carrying content, not obstacles.
+  ## Trenches are walkable dug shapes: floor carrying content, not obstacles.
+  ## Since GV37 a trench is an ArenaShape (it may be a polygon), so test the
+  ## shape itself rather than a bounding rect — a bbox would mark undug floor.
   var content = newSeq[bool](gameMap.width * gameMap.height)
   for trench in gameMap.trenches:
-    for y in max(0, trench.y) .. min(gameMap.height - 1, trench.y + trench.h - 1):
-      for x in max(0, trench.x) .. min(gameMap.width - 1, trench.x + trench.w - 1):
-        content[y * gameMap.width + x] = true
+    let b = shapeBounds(trench)
+    for y in max(0, b.y0) .. min(gameMap.height - 1, b.y1):
+      for x in max(0, b.x0) .. min(gameMap.width - 1, b.x1):
+        if inShape(x, y, trench):
+          content[y * gameMap.width + x] = true
   let
     grid = burrowGridFromPixels(gameMap.width, gameMap.height, cellSize,
       masks.maxWall, content = content)
