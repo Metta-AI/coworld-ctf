@@ -17,6 +17,7 @@ import
   test_map_lanes,
   test_map_rules,
   test_map_select,
+  test_mapgen_vocab,
   test_movement_slide,
   test_replay_controls,
   test_trenches,
