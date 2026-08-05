@@ -312,6 +312,10 @@
               "maximum": 1
             }
           }
+        },
+        "mapSpec": {
+          "description": "Full expanded map geometry (obstacles, trenches, endzones) as a JSON object. Pins an exact authored map — e.g. a campaign cell's custom organic terrain — overriding mapPath/mapSeed/mapSize. Same format the replay config carries.",
+          "type": "object"
         }
       }
     },
