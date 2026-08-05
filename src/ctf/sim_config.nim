@@ -439,6 +439,7 @@ proc update*(config: var GameConfig, jsonText: string) =
   node.readConfigString("mapEndzone", config.mapGen.endzone)
   node.readConfigInt("mapEndzoneRadius", config.mapGen.endzoneRadius)
   node.readConfigInt("mapBaseDepth", config.mapGen.baseDepth)
+  node.readConfigInt("mapRankK", config.mapGen.rankK)
   if node.hasKey("mapSpec"):
     if node["mapSpec"].kind != JObject:
       raise newException(CtfError, "Config field mapSpec must be an object.")
@@ -540,6 +541,7 @@ proc configJson*(config: GameConfig): string =
     "mapEndzone": config.mapGen.endzone,
     "mapEndzoneRadius": config.mapGen.endzoneRadius,
     "mapBaseDepth": config.mapGen.baseDepth,
+    "mapRankK": config.mapGen.rankK,
     "closedRoster": config.closedRoster,
     "showPlayerLabels": config.showPlayerLabels,
     "fastMode": config.fastMode,

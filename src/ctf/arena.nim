@@ -812,6 +812,17 @@ const
   PoolMapName* = "pool"
   MinCorridorWidth = 26      ## narrowest corridor for the 13px footprint.
   MapGenMaxAttempts = 100
+  MapRankDefaultK* = 8
+    ## Best-of-K candidates per generated map. E[max of K] = K/(K+1), so 8
+    ## is the 89th percentile of the generator's own quality range against
+    ## first-valid's 50th. 8 rather than 32 (the 97th) because the curve is
+    ## a logarithm and the clock is not: on the standard hexagon 8 costs
+    ## ~0.2s and 32 costs ~0.9s for four more percentiles. Raise it for
+    ## OFFLINE curation, where the wall clock is nobody's latency —
+    ## `gen_map_pool` does exactly that.
+  MapRankMaxK* = 64
+    ## The attempt budget is 100 and the pass rate is ~80%, so a K much
+    ## above this cannot be met and would silently ship best-of-fewer.
   MapSizeNames = ["small", "standard", "large", "huge", "giant"]
   CenterFeatureNames = ["bracket", "ring", "walls"]
   ## Interior cover budget, in permille of the non-protected interior that is
@@ -839,6 +850,46 @@ proc next(rng: var MapRng): uint64 =
   z = (z xor (z shr 30)) * 0xBF58476D1CE4E5B9'u64
   z = (z xor (z shr 27)) * 0x94D049BB133111EB'u64
   z xor (z shr 31)
+
+proc splitmix(value: uint64): uint64 =
+  ## The splitmix64 finalizer on its own, used to AVALANCHE a stream key so
+  ## neighbouring seeds start in unrelated places. `next` mixes on the way
+  ## out, so a raw `state = seed` would make seeds 1000 and 1001 produce
+  ## first draws one golden-ratio step apart — fine for one stream, wrong
+  ## the moment several streams are derived from the same integer.
+  var z = value
+  z = (z xor (z shr 30)) * 0xBF58476D1CE4E5B9'u64
+  z = (z xor (z shr 27)) * 0x94D049BB133111EB'u64
+  z xor (z shr 31)
+
+proc streamKey(name: static string): uint64 =
+  ## FNV-1a of a stage name, folded at compile time. Naming the streams
+  ## rather than numbering them is the point: a stage's stream must not
+  ## move when a stage is inserted before it.
+  const key = block:
+    var h = 0xCBF29CE484222325'u64
+    for ch in name:
+      h = (h xor uint64(ord(ch))) * 0x100000001B3'u64
+    h
+  key
+
+proc mapSubStream(seed: int, name: static string, attempt = 0): MapRng =
+  ## ONE DERIVED SUB-STREAM PER GENERATOR STAGE.
+  ##
+  ## The generator used to run off a single flat splitmix64 stream, which
+  ## made every draw position load-bearing: inserting a draw at position k
+  ## re-dealt every map from every seed, re-curated the pool, and moved
+  ## every regression baseline. The endzone archetype escaped that once via
+  ## `seed xor <const>`, and that escape hatch is what let compact endzones
+  ## ship with 29 of 29 column maps byte-identical and no GameVersion bump.
+  ## This makes the hatch structural: any stage can gain, lose, or reorder
+  ## draws without disturbing any other stage.
+  ##
+  ## `attempt` is the retry index, and it deliberately reaches only the
+  ## TERRAIN-side streams — see `generateMapAttempt`.
+  MapRng(state: splitmix(
+    uint64(seed) xor streamKey(name) xor
+      (uint64(attempt) * 0x9E3779B97F4A7C15'u64)))
 
 proc pick(rng: var MapRng, bound: int): int =
   ## Uniform 0..bound-1 (modulo bias is immaterial at these bounds).
@@ -1360,7 +1411,7 @@ proc columnBand*(gameMap: CtfMap, x, margin: int): tuple[lo, hi: int] =
   (lo, hi)
 
 proc generateMapAttempt*(
-  seed: int, overrides: MapGenOverrides, teams = 2
+  seed: int, overrides: MapGenOverrides, teams = 2, attempt = 0
 ): CtfMap =  ## One UNVALIDATED draw. Every top-level parameter is drawn unconditionally
   ## and THEN overridden if locked, so locking one knob never shifts the
   ## other draws for the same seed.
@@ -1370,14 +1421,38 @@ proc generateMapAttempt*(
   ## orbits) is a separate epic; this is the minimal adaptation that emits a
   ## VALID hex map — terrain inside the hull, symmetric under the map's group,
   ## passing the validators.
+  ##
+  ## THE ATTEMPT INDEX REACHES THE TERRAIN, NOT THE BOARD. `layout` and
+  ## `endzone` are functions of the SEED alone; every terrain-side stream is
+  ## a function of `(seed, attempt)`. So a retry — and every candidate the
+  ## best-of-K ranker compares — is genuinely "this map, redrawn", on the
+  ## same board, at the same size class, with the same pedestals. Two
+  ## consequences, both wanted:
+  ##
+  ##   * `mapSeed 1002` MEANS something. The old retry was `seed + attempt`,
+  ##     so attempt 1 of seed 1002 was literally attempt 0 of seed 1003 —
+  ##     rejected seeds aliased onto their neighbours, at a different board
+  ##     size, which is why `gen_map_pool` had to insist on first-attempt
+  ##     validity and `render_map_pool` asserts the seed never rolled
+  ##     forward.
+  ##   * the ranker cannot buy its score with the size class. If the size
+  ##     were redrawn per attempt, best-of-K would quietly converge on
+  ##     whichever class scores best under the rubric and the pool's
+  ##     size-class quota would become unfillable.
   if teams != 2:
     raise newException(
       CtfError, "Hex Stage 2 generates 2-team maps only; " & $teams &
         " teams needs the cube-space orbit rasterizer (Stage 2b).")
-  var rng = MapRng(state: uint64(seed))
+  var
+    layoutRng = mapSubStream(seed, "layout")
+    terrainRng = mapSubStream(seed, "terrain", attempt)
+    coverRng = mapSubStream(seed, "cover", attempt)
+    trenchRng = mapSubStream(seed, "trench", attempt)
+    decorRng = mapSubStream(seed, "decor", attempt)
+    pickupRng = mapSubStream(seed, "pickups", attempt)
 
-  ## One draw over ALL size classes, in its historical stream slot.
-  let sizeDraw = MapSizeNames[rng.pick(MapSizeNames.len)]
+  ## One draw over ALL size classes.
+  let sizeDraw = MapSizeNames[layoutRng.pick(MapSizeNames.len)]
   let sizeName = if overrides.size.len > 0: overrides.size else: sizeDraw
   result = scaledGenShell(sizeName)
   result.name = "gen-" & $seed
@@ -1385,7 +1460,7 @@ proc generateMapAttempt*(
   result.genSeed = seed
   result.layout = layoutHex2
 
-  let symDraw = if rng.coin(): symRot180 else: symMirrorHex
+  let symDraw = if layoutRng.coin(): symRot180 else: symMirrorHex
   result.symmetry =
     case overrides.symmetry
     of "": symDraw
@@ -1404,15 +1479,16 @@ proc generateMapAttempt*(
 
   ## Endzone. Every hex endzone is a DISC (the one rotation-invariant shape),
   ## so what used to be an archetype draw is now only its radius and the base
-  ## depth. Both still come from the SEPARATE stream keyed off the same seed,
-  ## so the main draw order never shifts.
+  ## depth. Both come from the endzone SUB-STREAM — the original `seed xor
+  ## <const>` escape hatch, now one named stream among six — and it is keyed
+  ## on the seed alone, because where the pedestals sit is part of the board
+  ## a seed names, not part of the terrain a retry redraws.
   block endzoneDraw:
     if overrides.endzone notin ["", "disc"]:
       raise newException(
         CtfError, "The hex arena is all-disc; unknown map endzone: " &
           overrides.endzone)
-    var ezRng = MapRng(state: uint64(seed) xor 0x5A17E9D3C0FFEE11'u64)
-    discard ezRng.pick(4)      ## the retired archetype draw keeps its slot.
+    var ezRng = mapSubStream(seed, "endzone")
     result.endzone = ezDisc
     let
       ## The radius keeps a fraction of the board WIDTH; the DEPTH is then
@@ -1481,7 +1557,7 @@ proc generateMapAttempt*(
           $maxEndzoneRadius(result.width) & ".")
   result.rooms = result.defaultCtfRooms()
 
-  let featureDraw = CenterFeatureNames[rng.pick(3)]
+  let featureDraw = CenterFeatureNames[terrainRng.pick(3)]
   let feature =
     if overrides.centerFeature.len > 0: overrides.centerFeature
     else: featureDraw
@@ -1495,7 +1571,7 @@ proc generateMapAttempt*(
     if sizeName in ["huge", "giant", "colossal"]: mapSizeScale(sizeName)
     else: 1.0
   proc cols(value: int): int = int(round(float(value) * columnScale))
-  let columnsDraw = rng.pickRange(cols(5), cols(7))
+  let columnsDraw = terrainRng.pickRange(cols(5), cols(7))
   let columns =
     if overrides.columns > 0: overrides.columns else: columnsDraw
   let maxColumns = max(24, cols(8))
@@ -1526,13 +1602,13 @@ proc generateMapAttempt*(
   for col in 0 ..< columns:
     let
       colX = xMin + ((2 * col + 1) * (xMax - xMin)) div (2 * columns)
-      family = ColumnFamily(rng.pick(4))
-      period = rng.pickRange(88, 120)
+      family = ColumnFamily(coverRng.pick(4))
+      period = coverRng.pickRange(88, 120)
       ## Phases are STRATIFIED across columns (like the hand-authored arena's
       ## 0/+48/+24/+72 ladder) with a half-period jitter: fully random phases
       ## leave rows every column misses, which the sightline validator rejects.
       phase = (period * col div columns +
-        rng.pick(max(1, period div 2))) mod period
+        coverRng.pick(max(1, period div 2))) mod period
       ## THE hex change: each column's usable span is the hexagon's own
       ## vertical extent at that x, not a board-wide constant.
       band = result.columnBand(colX, ArenaBorder + 30)
@@ -1550,21 +1626,21 @@ proc generateMapAttempt*(
     var cleared = newSeq[bool](slotYs.len)
     var clearedCount = 0
     for i in 0 ..< slotYs.len:
-      if rng.pick(4) == 0:
+      if coverRng.pick(4) == 0:
         cleared[i] = true
         inc clearedCount
     if clearedCount == 0:
-      cleared[rng.pick(slotYs.len)] = true
+      cleared[coverRng.pick(slotYs.len)] = true
       clearedCount = 1
     let minKept = (slotYs.len + 1) div 2
     while slotYs.len - clearedCount < minKept and clearedCount > 1:
-      var idx = rng.pick(slotYs.len)
+      var idx = coverRng.pick(slotYs.len)
       while not cleared[idx]:
         idx = (idx + 1) mod slotYs.len
       cleared[idx] = false
       dec clearedCount
 
-    var zig = rng.coin()
+    var zig = coverRng.coin()
     for i, sy in slotYs:
       ## The endzone keeps an APRON of clear ground outside its ring: terrain
       ## that crowded the scoring disc would seal the very approaches that make
@@ -1653,7 +1729,7 @@ proc generateMapAttempt*(
     pitPairsWanted = if overrides.pits >= 0: overrides.pits div 2 else: -1
   var obstacleRemoved = newSeq[bool](result.leftObstacles.len)
   if pitPairsWanted >= 0:
-    rng.shuffle(pitCandidates)
+    trenchRng.shuffle(pitCandidates)
   for cand in pitCandidates:
     if pitPairsWanted >= 0:
       if result.trenches.len >= pitPairsWanted:
@@ -1664,7 +1740,7 @@ proc generateMapAttempt*(
         of pitInstead: 17
         of pitGap: 25
         else: 50
-      if rng.pick(100) >= clamp(baseChance * pitDensity div 100, 0, 100):
+      if trenchRng.pick(100) >= clamp(baseChance * pitDensity div 100, 0, 100):
         continue
     let pit = trenchSquareAt(cand.x, cand.y)
     var blocked = oddCenterPit and rectsIntersect(pit, centerPit)
@@ -1728,7 +1804,7 @@ proc generateMapAttempt*(
 
   ## Glass windows: fog sees through them, nothing passes them. Biased to
   ## the outermost column and the midline band, where sightlines matter.
-  let windowsDraw = rng.pickRange(2, 4)
+  let windowsDraw = decorRng.pickRange(2, 4)
   let windowCount =
     if overrides.windows >= 0: overrides.windows else: windowsDraw
   if windowCount > 6:
@@ -1739,8 +1815,8 @@ proc generateMapAttempt*(
       preferred.add entry
     else:
       rest.add entry
-  rng.shuffle(preferred)
-  rng.shuffle(rest)
+  decorRng.shuffle(preferred)
+  decorRng.shuffle(rest)
   let ranked = preferred & rest
   for i in 0 ..< min(windowCount, ranked.len):
     result.leftObstacles[ranked[i].idx].window = true
@@ -1764,8 +1840,8 @@ proc generateMapAttempt*(
   ## on-axis pair was meant to be, while giving the group nothing to fix.
   let
     axisX = result.width div 2 - 1
-    y1 = rng.pickRange(result.height * 16 div 100, result.height * 34 div 100)
-    y2 = rng.pickRange(result.height * 36 div 100, result.height * 47 div 100)
+    y1 = pickupRng.pickRange(result.height * 16 div 100, result.height * 34 div 100)
+    y2 = pickupRng.pickRange(result.height * 36 div 100, result.height * 47 div 100)
   proc kitOrbit(gameMap: CtfMap, seedPoint: MapPoint): seq[MapPoint] =
     ## One kit seed's full orbit, with its SIZE checked. A short orbit means
     ## the seed landed on a symmetry axis and the map would ship with fewer
@@ -1780,7 +1856,7 @@ proc generateMapAttempt*(
     for image in result.kitOrbit(seedPoint):
       result.medKitCandidates.add image
   result.medKitSpawns =
-    if rng.coin():
+    if pickupRng.coin():
       result.kitOrbit(MapPoint(x: axisX, y: y1))
     else:
       result.kitOrbit(MapPoint(x: axisX, y: y2))
@@ -2120,18 +2196,90 @@ proc validateGeneratedMap*(gameMap: CtfMap): string =
   ## not in the draws: anything that passes is fair game.
   collectMapDiagnostics(gameMap, {}, stopAfterFirstFailure = true).reason
 
+type
+  MapCandidateRanker* = proc (candidates: openArray[CtfMap]): int
+    {.nimcall, gcsafe.}
+    ## Picks the index of the best map among K VALID candidates.
+
+var mapCandidateRanker: MapCandidateRanker = nil
+  ## THE INVERTED DEPENDENCY, and why it is a hook rather than an import.
+  ##
+  ## The scorer (`ctf/map_score`, over `ctf/map_metrics`) reads this
+  ## module's rasterizer and validators, so `arena` importing it back would
+  ## cycle. Rather than move the generator or duplicate the metrics, the
+  ## generator advertises a seam and the scoring layer fills it in at module
+  ## initialization. `sim.nim` imports `map_score`, so every binary that
+  ## builds a game ranks; the wasm replay viewer, which only ever replays a
+  ## pinned `mapSpec`, never imports it and pays neither the code size nor
+  ## the milliseconds.
+  ##
+  ## Set once, before any thread exists, and read-only afterwards — and
+  ## `{.nimcall.}` keeps it a bare function pointer rather than a closure,
+  ## so it holds no GC'd environment. With no ranker installed the generator
+  ## degrades to the historical first-valid behaviour instead of failing.
+
+proc installMapCandidateRanker*(ranker: MapCandidateRanker) =
+  ## Installs the best-of-K ranker. Called once, at module init, by
+  ## `ctf/map_score`.
+  mapCandidateRanker = ranker
+
+proc mapAttemptBudget(rankK: int): int =
+  ## How many attempts a best-of-K generation may spend. E[max of K] is the
+  ## K/(K+1) percentile of the generator's own quality range, so K is the
+  ## quality knob; the budget just has to be loose enough that a normal pass
+  ## rate reaches K. At the measured hex pass rate (~80%) K=8 needs ~10
+  ## attempts, so MapGenMaxAttempts=100 already covers every default K, and
+  ## the cap exists to bound a pathological locked-override combination.
+  MapGenMaxAttempts
+
 proc generateCtfMap*(
   seed: int,
   overrides = MapGenOverrides(windows: -1, pits: -1, pitDensity: -1),
   teams = 2
 ): CtfMap =
-  ## Generates a VALIDATED map: attempts seeds seed, seed+1, ... until one
-  ## passes every validator. A locked-parameter combination that can never
-  ## pass errors out after MapGenMaxAttempts.
-  for attempt in 0 ..< MapGenMaxAttempts:
-    let candidate = generateMapAttempt(seed + attempt, overrides, teams)
-    if validateGeneratedMap(candidate).len == 0:
+  ## Generates a VALIDATED map: BEST OF K, not first-valid.
+  ##
+  ## The old loop returned the first candidate that passed, which is a
+  ## uniformly random valid map — the 50th percentile of the generator's own
+  ## quality range, because at a 80-96% first-attempt pass rate the
+  ## validators are a crash guard, not a quality filter. Collecting K valid
+  ## candidates and shipping the best lifts that to the K/(K+1) percentile:
+  ## K=8 is the 89th, K=32 the 97th, for K/passRate attempts.
+  ##
+  ## Every candidate is the SAME BOARD (see `generateMapAttempt`): same size
+  ## class, same symmetry, same pedestals. Only the terrain is redrawn, so
+  ## the ranker is choosing between layouts of one map rather than between
+  ## map sizes — which is both the honest comparison and the only one that
+  ## leaves the pool's size-class quota fillable.
+  ##
+  ## K=1 restores first-valid exactly, and so does a build with no ranker
+  ## installed. A locked-parameter combination that can never pass still
+  ## errors out after MapGenMaxAttempts.
+  if overrides.rankK < 0 or overrides.rankK > MapRankMaxK:
+    raise newException(
+      CtfError, "Config field mapRankK must be 0.." & $MapRankMaxK & ".")
+  let rankK =
+    if overrides.rankK > 0: overrides.rankK
+    elif mapCandidateRanker == nil: 1
+    else: MapRankDefaultK
+  var candidates: seq[CtfMap]
+  for attempt in 0 ..< mapAttemptBudget(rankK):
+    let candidate = generateMapAttempt(seed, overrides, teams, attempt)
+    if validateGeneratedMap(candidate).len != 0:
+      continue
+    if rankK <= 1 or mapCandidateRanker == nil:
       return candidate
+    candidates.add candidate
+    if candidates.len >= rankK:
+      break
+  if candidates.len > 0:
+    ## The seed the CALLER asked for, not the attempt that happened to win.
+    ## `gen:<seed>` has to round-trip, and the pool stores seeds.
+    result = candidates[clamp(mapCandidateRanker(candidates), 0,
+      candidates.high)]
+    result.genSeed = seed
+    result.name = "gen-" & $seed
+    return
   raise newException(
     CtfError,
     "Map generation found no valid layout in " & $MapGenMaxAttempts &
@@ -2258,7 +2406,7 @@ proc arenaHexCtfMap(name: string, cls: HexSizeClass): CtfMap =
   result.rooms = result.defaultCtfRooms()
   result.validateMap()
 
-proc arenaCtfMap(): CtfMap =
+proc arenaCtfMap*(): CtfMap =
   ## The default arena: the hand-tuned STANDARD hexagon, 969x1119.
   arenaHexCtfMap(ArenaName, hxStandard)
 

@@ -4,9 +4,16 @@
 ## Every number here is a PURE function of one `CtfMap`. Like
 ## `tools/map_render.nim`, this module never installs a map and never reads
 ## the process-global arena (`MapWidth`, `ArenaObstacles`, `obstacleWallAtF`,
-## ...) — the map editor serves renders from a mummy thread pool, the future
-## best-of-K ranking loop scores candidates that were never selected, and
-## both would be corrupted by a process-wide install.
+## ...) — the map editor serves renders from a mummy thread pool, the
+## best-of-K ranking loop in `generateCtfMap` scores candidates that were
+## never selected, and both would be corrupted by a process-wide install.
+##
+## It lives in `src/ctf/` rather than `tools/` because the GENERATOR calls it
+## (`map_score.nim` installs it as `generateCtfMap`'s candidate scorer). The
+## purity invariant is what makes that safe: a `{.gcsafe.}` function of its
+## argument can be called from a mummy request thread and from the boot path
+## alike. It imports `arena` and nothing above it, so the dependency runs one
+## way — the sim never imports the measuring stick.
 ##
 ## What is measured and why (the calibration source is the MW2 study; the
 ## default `arena` is the control in every batch — see tools/map_eval.nim):
@@ -37,7 +44,8 @@
 ##
 ## Rule followed throughout: never a count without its fraction, and never a
 ## threshold that was not picked against the control.
-import std/[algorithm, math], ../src/ctf/sim
+import std/[algorithm, math], sim_types, arena
+export sim_types, arena
 
 const
   AnalysisCell* = FovCellSize
@@ -138,11 +146,17 @@ type
     teamCount*: int
     cell*: int
     genSeed*: int
-    compactEndzone*: bool         ## capture AT the stand (disc/square) as
-                                  ## opposed to the legacy home column. The
-                                  ## MW2 stand rules were measured on
+    compactEndzone*: bool         ## capture AT the stand rather than in a
+                                  ## full-height home column. The MW2 stand
+                                  ## rules were measured on
                                   ## capture-at-the-stand maps and only
-                                  ## govern conversion there.
+                                  ## govern conversion there. The hex arena
+                                  ## is ALL-DISC (`EndzoneShape` has one
+                                  ## member), so this is true on every map
+                                  ## today; it is kept because the reading it
+                                  ## gates is regime-specific, and a future
+                                  ## `ezHex` sector must arrive as a decision
+                                  ## rather than a silent fallthrough.
     validationReason*: string     ## "" when the shipped validators pass.
     freeCells*, wallCells*: int
     wallFrac*: float              ## wall pixels / interior pixels.
@@ -173,7 +187,8 @@ type
 
 # ---------------------------------------------------------------- masks ----
 
-proc buildMapMasks*(gameMap: CtfMap, cell = AnalysisCell): MapMasks =
+proc buildMapMasks*(gameMap: CtfMap, cell = AnalysisCell): MapMasks
+    {.gcsafe.} =
   ## Rasterizes both masks once. `wallPix` comes from the same
   ## `rasterizeRestWallMask` the art bake and `dump_map_mask --raw` use, so
   ## the terrain measured here is the terrain a bullet meets.
@@ -184,8 +199,19 @@ proc buildMapMasks*(gameMap: CtfMap, cell = AnalysisCell): MapMasks =
   result.width = w
   result.height = h
   result.cell = cell
-  result.wallPix = rasterizeRestWallMask(gameMap, obstacles,
-    proc (x, y: int): bool = mapProtectedFloorAt(gameMap, x, y))
+  ## THE PURITY INVARIANT, ASSERTED TO THE COMPILER. `rasterizeRestWallMask`
+  ## takes its protected-floor rule as an untyped closure because the
+  ## INSTALLED map answers it from the Arena globals — so Nim must treat
+  ## every call as potentially global-reading, and the whole measurement
+  ## stack comes out non-gcsafe. The closure passed HERE is
+  ## `mapProtectedFloorAt` on the argument map: it reads the `CtfMap` it was
+  ## handed and nothing else. That is the module's stated invariant, and it
+  ## is what lets the generator's ranker and the editor's mummy thread pool
+  ## both call this. Widening the parameter type to `{.gcsafe.}` instead
+  ## would break `map_art`, whose closure legitimately does read the globals.
+  {.cast(gcsafe).}:
+    result.wallPix = rasterizeRestWallMask(gameMap, obstacles,
+      proc (x, y: int): bool = mapProtectedFloorAt(gameMap, x, y))
 
   ## An integral image answers "is any pixel in this box a wall?" in O(1),
   ## which is what the 13x13 footprint test needs at every cell centre.
@@ -456,7 +482,7 @@ proc standMetric(
   result.protectedFrac = protectedCount.float / max(total, 1).float
 
   let radius =
-    if gameMap.endzone != ezColumn and gameMap.endzoneRadius > 0:
+    if gameMap.endzoneRadius > 0:
       gameMap.endzoneRadius + StandRingPad
     else:
       StandRingFallbackRadius + StandRingPad
@@ -956,8 +982,9 @@ proc crossingMetric(
 # ------------------------------------------------------------- assembly ----
 
 proc computeMapMetrics*(
-  gameMap: CtfMap, cell = AnalysisCell, withChokepoints = true
-): MapMetrics =
+  gameMap: CtfMap, cell = AnalysisCell, withChokepoints = true,
+  withValidation = true
+): MapMetrics {.gcsafe.} =
   ## The full static evidence set for one map. `withChokepoints` is the one
   ## expensive stage (a flood per candidate); the ranking loop can drop it.
   let masks = buildMapMasks(gameMap, cell)
@@ -968,13 +995,24 @@ proc computeMapMetrics*(
   result.teamCount = gameMap.teamCount()
   result.genSeed = gameMap.genSeed
   result.cell = cell
-  result.compactEndzone = gameMap.endzone != ezColumn
-  result.validationReason = validateGeneratedMap(gameMap)
+  result.compactEndzone = gameMap.endzone == ezDisc
+  ## The ranking loop has ALREADY validated every candidate it scores, and
+  ## re-validating is the single most expensive thing this proc could do
+  ## (a flood fill and a distance transform at pixel resolution). It passes
+  ## `withValidation = false`; every other caller wants the reading.
+  if withValidation:
+    result.validationReason = validateGeneratedMap(gameMap)
   result.trenchCount = gameMap.trenches.len
 
+  ## "No more than half your shapes should be plain rectangles." The hex
+  ## conversion deleted `shapeRect` and `shapeDiamond` in favour of one
+  ## oriented `shapeBar`, so "plain rectangle" now means an AXIS-ALIGNED bar
+  ## — a bar on the (1,1) axis is the old diamond and reads as a diamond.
+  ## Asking for `kind == shapeBar` would have quietly counted every diamond
+  ## as a rectangle and doubled the reading.
   var rects = 0
   for shape in gameMap.leftObstacles:
-    if shape.kind == shapeRect:
+    if shape.kind == shapeBar and (shape.axisX == 0 or shape.axisY == 0):
       inc rects
   result.shapeCount = gameMap.leftObstacles.len
   result.rectShapeFrac = rects.float / max(result.shapeCount, 1).float
@@ -1058,7 +1096,10 @@ proc computeMapMetrics*(
   result.collision =
     collisionMetric(masks, distances, dt, gameMap.teamCount())
   result.crossings.add crossingMetric(masks, "vertical")
-  if gameMap.layout != layoutSides:
+  ## On a left/right pair the horizontal midline is not midfield at all — it
+  ## runs THROUGH both bases, so "ways across it" measures the wrong thing.
+  ## Every other team count separates its bases in both axes and wants both.
+  if gameMap.layout != layoutHex2:
     result.crossings.add crossingMetric(masks, "horizontal")
 
   if withChokepoints:
