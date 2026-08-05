@@ -38,6 +38,11 @@ when isMainModule:
       "file": name,
       "width": gameMap.width,
       "height": gameMap.height,
+      # The class NAME, resolved by Nim from the canonical table in
+      # `map_rules`. The review page used to carry its OWN width -> name dict
+      # and KeyError'd on any width it had not been told about, which is why a
+      # new size class could not ship.
+      "sizeClass": gameMap.mapSizeClassName(),
       "symmetry": (
         if gameMap.symmetry == symMirror: "mirror" else: "rot180"),
       "endzone": (
