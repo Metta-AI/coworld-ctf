@@ -111,12 +111,17 @@ suite "map metrics":
       check control.crossings.len == 1
       check control.crossings[0].count >= 3     # not "1 way across"
       check control.crossings[0].openFrac > 0.2 # ...and its fraction beside it
-      # An open field has no bottleneck, and saying so is information. The
-      # unfiltered candidate set is large, which is exactly why the
-      # cut-vertex filter exists.
-      check control.chokepoints == 0
+      # Bottlenecks. The PORTRAIT hull measured 0 of 127 candidates as true
+      # cut vertices; the LANDSCAPE hull measures 3, and one point covers
+      # them. That is a real property of the flat-top board, not a metric
+      # fault: turning the hexagon a sixth of a turn puts the slanted walls
+      # on the long axis, which pinches the two flank corridors the portrait
+      # board ran wide open. Re-based deliberately, and kept as an exact pin
+      # (not a `<=`) so a FOURTH chokepoint appearing is still loud — the
+      # candidate filter, not the count, is what these two lines guard.
+      check control.chokepoints == 3
       check control.chokeCandidates > 10
-      check not control.chokeCoveredByOnePoint
+      check control.chokeCoveredByOnePoint
       check control.stands.len == 2
       # Mirror symmetry, to within one pixel. The two anchors come from
       # different formulas — axisHomeLo gives Red 186 and axisHomeHi gives

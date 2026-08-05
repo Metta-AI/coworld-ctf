@@ -181,11 +181,32 @@ suite "sprite id collisions":
       (game.plasmaArcSpawns[0].x, game.plasmaArcSpawns[0].y),
       (game.medKitSpawns[0].x, game.medKitSpawns[0].y),
     ]
+    # A hover spot BESIDE the spawn: on floor, and with the spawn actually in
+    # line of sight, looking back at it. A fixed "+40, aim west" was fine on
+    # the old rectangular board. On the landscape hull it fails TWICE over: the
+    # centre-line med kit sits in a 37px slot between stone at x 540 and 578,
+    # so +40 parked the viewer inside that stone, and the low grenade vertex
+    # sits 3px from a stone block that swallows every eastward stand-off. Both
+    # made a bot-critical label vanish from the one test whose entire job is to
+    # notice a label vanishing — so the stand-off is now SEARCHED, not assumed,
+    # and the search is asserted below.
+    proc hoverBeside(game: SimServer, x, y: int): (int, int, int) =
+      ## (viewer x, viewer y, aim) — nearest clear stand on the spawn's own row,
+      ## either side, aiming back at it. Returns aim 0 (east) when the viewer
+      ## ends up WEST of the spawn.
+      for d in countdown(40, 12):
+        if not game.isWall(x + d, y) and not game.segmentBlocked(x + d, y, x, y):
+          return (x + d, y, 128)
+        if not game.isWall(x - d, y) and not game.segmentBlocked(x - d, y, x, y):
+          return (x - d, y, 0)
+      (x + 40, y, 128)   # nothing clear: keep the historical stand and fail loudly
     for stop in stops:
       # Hover NEXT TO the spawn (not on it) so nothing is picked up.
-      game.players[0].x = stop[0] + 40
-      game.players[0].y = stop[1]
-      game.players[0].aimBrads = 128    # aim west, spawn in the cone
+      let (hx, hy, aim) = game.hoverBeside(stop[0], stop[1])
+      check not game.isWall(hx, hy)
+      game.players[0].x = hx
+      game.players[0].y = hy
+      game.players[0].aimBrads = aim    # aim back at the spawn, in the cone
       defs.applyDefs(game.buildPlayerMessages(0, pstate))
       game.step(none, none)
       defs.applyDefs(game.buildPlayerMessages(0, pstate))

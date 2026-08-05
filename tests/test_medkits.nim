@@ -63,11 +63,19 @@ suite "med kits":
     # it: kits are not walls, not LOS blockers, and not in any mask.
     let kit = sim.medKitSpawns[0]
     check not sim.isWall(kit.x, kit.y)
-    sim.players[0].x = kit.x - 24
+    # STAND-OFF 16, not 24. On the landscape hull the centre-line kit sits at
+    # (559, 323) in a 37px-wide slot between stone at x 540 and x 578, so the
+    # old +-24 put BOTH the shooter and the target inside a wall and the test
+    # was reporting terrain, not the kit. The lane either side of the kit is
+    # what this test needs; assert it rather than assume it.
+    const StandOff = 16
+    check not sim.isWall(kit.x - StandOff, kit.y)
+    check not sim.isWall(kit.x + StandOff, kit.y)
+    sim.players[0].x = kit.x - StandOff
     sim.players[0].y = kit.y
     sim.players[0].aimBrads = 0          # east, straight over the kit
     sim.players[0].fireCooldown = 0
-    sim.players[1].x = kit.x + 24
+    sim.players[1].x = kit.x + StandOff
     sim.players[1].y = kit.y
     sim.players[1].hp = 1
     sim.tryFire(0)

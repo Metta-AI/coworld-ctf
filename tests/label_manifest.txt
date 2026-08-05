@@ -23,6 +23,7 @@ corpse <color> <side>
 damage pop <color> -<n> stage <n>
 damage pop <color> KO stage <n>
 diamond
+diamond <n> paint <n>
 endzone <color> <shape> <n>,<n> <n>,<n>
 endzone <color> power <n> band <n>
 fire icon

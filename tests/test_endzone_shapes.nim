@@ -40,9 +40,13 @@ suite "endzone discs":
       check gameMap.mapBoard().hexEdgeDist(
         gameMap.teamAnchor(Red).x, gameMap.teamAnchor(Red).y) >
         float(gameMap.endzoneRadius + EndzoneWallMargin)
-    ## The two homes are exact mirror images on the standard hexagon.
+    ## The two homes are exact mirror images on the standard hexagon. 170 was
+    ## the PORTRAIT hull's column; the flat-top flip made the board landscape
+    ## (1119x969 rather than 969x1119) and the home rides the width, so the
+    ## literal moved with it. Re-measured off the installed arena, not scaled
+    ## by hand.
     let arena = loadCtfMapMetadata("arena")
-    check arena.teamHomeX(Red) == 170
+    check arena.teamHomeX(Red) == 255
     check arena.teamHomeX(Blue) == arena.width - 1 - arena.teamHomeX(Red)
 
   test "the disc endzone generates, validates and is deterministic":

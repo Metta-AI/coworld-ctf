@@ -190,18 +190,23 @@ suite "first-person picture-in-picture":
       check e["k"].getStr() != "mate"
 
   test "glass windows are see-through: a column reads BOTH the pane and the wall behind":
-    # The GV16 midline bracket carries the arena's glass: on the board's CENTER
-    # ROW its only pane is the glass one (x 346..357 in the left half), with
-    # stone above and below. A player standing just EAST of that pane and aiming
+    # The GV16 midline bracket carries the arena's glass: its pane spans
+    # x 421..432 in the left half and is GLASS on rows 467..502, with stone
+    # above and below. A player standing just EAST of that pane and aiming
     # WEST must ray THROUGH the glass to the wall behind it — so its center
     # column is a [stoneHit, glassDist] pair, never a dead stone face. This is
     # the see-through-not-shoot-through contract.
+    #
+    # Coordinates re-measured off the landscape hull (the portrait board put
+    # the same pane at x 346..357 on the centre row). The row is 475, NOT the
+    # centre row: from y 484 down the centre feature stands east of the pane
+    # and the ray would meet stone first — see tests/test_fov.nim.
     var game = initCtfForTest(defaultGameConfig())
     let red = game.addPlayer("red0")
     game.startGame()
     game.players[red].team = Red
-    game.players[red].x = 366            # east of the x=346..357 glass pane
-    game.players[red].y = game.gameMap.center.y   # the pane's own row
+    game.players[red].x = 439            # east of the x=421..432 glass pane
+    game.players[red].y = 475            # inside the pane's clean band
     game.players[red].aimBrads = AimBradsTurn div 2   # due west, through the glass
     let fp = game.fpFrame(game.players[red].joinOrder)
     var sawGlass = false

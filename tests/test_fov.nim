@@ -198,36 +198,53 @@ suite "fog-of-war vision":
     check game.playerVisibleTo(0, 0)
 
 suite "fog-of-war vision: glass on the real arena":
-  ## The GV16 midline bracket straddles the center row of each half. On row
-  ## `cy` its only pane is GLASS (x 346..357 in the left half, and its mirror),
-  ## with stone above and below it — so a viewer just east of the pane sees
-  ## straight through it, while a ray a little off the pane line dies on the
-  ## bracket's stone bar.
+  ## The GV16 midline bracket carries the arena's only glass. Its pane spans
+  ## x 421..432 in the left half (and its x-mirror), and is GLASS on rows
+  ## y 467..502 with the bracket's stone bar directly above — so a viewer just
+  ## east of the pane sees straight through it, while the same lane one bar up
+  ## dies on stone.
+  ##
+  ## Every coordinate here moved with the LANDSCAPE flip and was RE-MEASURED
+  ## off the installed arena (tools/hex_scene_probe.nim), not rescaled by hand:
+  ## the board is 1119x969 with centre (559, 484), where the portrait hull put
+  ## the same pane at x 346..357.
+  ##
+  ## GlassRowY IS NOT THE CENTRE ROW any more. From y 484 downward the floor
+  ## east of the pane runs into the centre feature (stone at x 444..489 on
+  ## y 490), so a westward ray from a viewer at x 439 would cross that stone as
+  ## well as the glass — and this suite would then pass on stone while claiming
+  ## to test glass. 475 sits in the clean band (467..483) where the only thing
+  ## between the viewer and the far floor is the pane.
   var sim = initCtfForTest()
-  let cy = sim.gameMap.center.y
-  const StoneRowY = 530     # the bracket's stone bar (y 518..541).
+  const
+    PaneCx = 426            # centre of the glass pane (x 421..432).
+    GlassRowY = 475         # inside the pane, in the clean band.
+    StoneRowY = 454         # the bracket's stone bar (y 431..466).
+    ViewerX = 439           # floor just east of the pane, both rows.
+    BehindX = 300           # open floor west of the pane, both rows.
 
   test "the bracket scene is laid out as documented":
-    check isArenaWindowPixel(351, cy, sim.gameMap.center.x, cy)
-    check sim.isWall(351, cy)                 # glass is still wall for shots.
-    check not sim.isWall(370, cy)             # the viewer's own cell.
-    check not sim.isWall(300, cy)             # floor behind the pane.
-    check sim.isWall(351, StoneRowY)          # stone above the pane...
+    check isArenaWindowPixel(PaneCx, GlassRowY, sim.gameMap.center.x,
+      sim.gameMap.center.y)
+    check sim.isWall(PaneCx, GlassRowY)       # glass is still wall for shots.
+    check not sim.isWall(ViewerX, GlassRowY)  # the viewer's own cell.
+    check not sim.isWall(BehindX, GlassRowY)  # floor behind the pane.
+    check sim.isWall(PaneCx, StoneRowY)       # stone above the pane...
     check not isArenaWindowPixel(             # ...and it is NOT glass.
-      351, StoneRowY, sim.gameMap.center.x, cy)
-    check not sim.isWall(370, StoneRowY)      # the stone viewer's own cell.
-    check not sim.isWall(300, StoneRowY)      # floor behind that stone.
+      PaneCx, StoneRowY, sim.gameMap.center.x, sim.gameMap.center.y)
+    check not sim.isWall(ViewerX, StoneRowY)  # the stone viewer's own cell.
+    check not sim.isWall(BehindX, StoneRowY)  # floor behind that stone.
 
   test "walls block the cone, glass does not":
-    # Two viewers 29px apart, both just east of the bracket aiming west
+    # Two viewers one bar apart, both just east of the bracket aiming west
     # (128 brads). On the pane's own row the lane is glass and stays visible;
     # one bar up the same lane is stone and fogs. Same x, same aim, same
     # distance — the only difference is which pane the ray meets.
     var throughGlass: seq[bool]
-    sim.computeFovVisible(370 div FovCellSize, cy div FovCellSize, 128,
-      throughGlass)
-    check sim.fovAt(throughGlass, 300, cy)
+    sim.computeFovVisible(ViewerX div FovCellSize, GlassRowY div FovCellSize,
+      128, throughGlass)
+    check sim.fovAt(throughGlass, BehindX, GlassRowY)
     var throughStone: seq[bool]
-    sim.computeFovVisible(370 div FovCellSize, StoneRowY div FovCellSize, 128,
-      throughStone)
-    check not sim.fovAt(throughStone, 300, StoneRowY)
+    sim.computeFovVisible(ViewerX div FovCellSize, StoneRowY div FovCellSize,
+      128, throughStone)
+    check not sim.fovAt(throughStone, BehindX, StoneRowY)

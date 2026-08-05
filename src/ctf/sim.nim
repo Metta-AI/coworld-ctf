@@ -12,7 +12,8 @@ import
 import sim_types, rig_art, arena, map_art, sim_config, sim_state, roster
 export sim_types, rig_art, arena, map_art, sim_config, sim_state, roster
 
-proc grenadeSpawnPoints*(gameMap: CtfMap): array[4, tuple[x, y: int]] =
+proc grenadeSpawnPoints*(gameMap: CtfMap,
+                         extraInset = 0): array[4, tuple[x, y: int]] =
   ## The four grenade spawn points, at four VERTICES of the arena hexagon,
   ## pulled in off the hull by the border ring and the spawn inset.
   ##
@@ -36,20 +37,43 @@ proc grenadeSpawnPoints*(gameMap: CtfMap): array[4, tuple[x, y: int]] =
   ## set is closed under both the mirror (60<->120, 240<->300) and the half turn
   ## (60<->240, 120<->300), so it is exactly fair on either 2-team symmetry.
   ##
-  ## Still not nudged onto walkable floor — terrain can cover a vertex pocket.
-  ## Routing these through `placeWalkablePickups` is hex Stage 3.
+  ## `extraInset` shrinks the vertex hexagon toward the centre, keeping all
+  ## four points on one concentric ring. `resetGrenades` walks it up until the
+  ## whole set lands on floor: the arena's bottom pair of vertex pockets is
+  ## covered by a pillar, and a pickup inside a wall is one no seat can reach.
+  ## Shrinking the RING rather than nudging each point is what keeps the set
+  ## symmetric — an independent per-point nudge lands mirror partners on
+  ## different spots (measured: (780,891) against (339,890)), which is exactly
+  ## the team unfairness every other pickup family routes through
+  ## `teamImagePoint` to avoid.
+  ##
+  ## NO TRIGONOMETRY. The four off-axis vertices of a flat-top hexagon are at
+  ## `(+-R/2, +-A)` EXACTLY, and `cos(degToRad(120))` is not exactly `-0.5`:
+  ## the 120-degree point rounded to x=330 where the 240-degree one rounded to
+  ## 329, so the set was not closed under the mirror and `teamImagePoint`
+  ## fairness failed on a set that is supposed to be symmetric by construction.
+  ## Only the low corner is computed; the other three are its exact images, so
+  ## closure holds for any board parity rather than only for even sides.
   let
     board = gameMap.mapBoard()
-    (cx, cy) = board.hexCenter()
     ## Pull in far enough that a vertex spot clears BOTH edges meeting there:
     ## at a 120-degree corner a radial inset of `d` leaves only `0.866 * d`
     ## perpendicular clearance, so the inset is doubled.
-    reach = board.circumradius() - 2.0 * float(ArenaBorder + GrenadeSpawnInset)
-  const VertexDeg = [60.0, 120.0, 240.0, 300.0]
-  for k, deg in VertexDeg:
-    let angle = degToRad(deg)
-    result[k] = (int(round(cx + reach * cos(angle))),
-                 int(round(cy + reach * sin(angle))))
+    reach = max(0.0, board.circumradius() -
+      2.0 * float(ArenaBorder + GrenadeSpawnInset) - float(extraInset))
+    ## `A/R` is sqrt(3)/2 for the hull, so scaling the apothem by the same
+    ## factor as the radius puts the point on the ring's own vertex.
+    dx = reach / 2.0
+    dy = reach * board.apothem() / board.circumradius()
+    cx = float(gameMap.width - 1) / 2.0
+    cy = float(gameMap.height - 1) / 2.0
+    xLo = int(round(cx - dx))
+    yLo = int(round(cy - dy))
+    xHi = gameMap.width - 1 - xLo
+    yHi = gameMap.height - 1 - yLo
+  ## Kept in the historical 60 / 120 / 240 / 300 degree order (screen y grows
+  ## downward, so the 60-degree vertex is the LOW one).
+  result = [(xHi, yHi), (xLo, yHi), (xLo, yLo), (xHi, yLo)]
 
 proc teamOrbitPoints(gameMap: CtfMap, red: MapPoint): seq[tuple[x, y: int]] =
   ## Carries RED's chosen point to every active team by the map's own
@@ -99,9 +123,41 @@ template placeWalkablePickups(
       x: spot.x, y: spot.y, present: true, respawnAt: 0
     )
 
+proc walkableGrenadePoints(sim: SimServer): array[4, tuple[x, y: int]] =
+  ## The vertex ring, shrunk toward the centre until every one of the four
+  ## points is walkable floor.
+  ##
+  ## The other pickup families nudge each spot independently
+  ## (`placeWalkablePickups` -> `nearestWalkable`), which is safe for them
+  ## because each spot is already a `teamImagePoint` of one representative and
+  ## the map's own terrain is symmetric under that image. The grenade set is
+  ## NOT built that way — it is four points on one ring — so an independent
+  ## nudge breaks it: on the standard arena the bottom pair sits on a pillar
+  ## and `nearestWalkable` pushes the two partners to (780,891) and (339,890),
+  ## a 1px asymmetry that hands one side a marginally different approach.
+  ## Shrinking the whole ring keeps all four exact images of one another at
+  ## every step, so the set is fair however far it has to travel.
+  ##
+  ## Bounded, and it FALLS BACK rather than looping: a board whose vertex
+  ## corridor is walled the whole way in still gets its four points, just not
+  ## walkable ones. That is the pre-existing behaviour, kept as the floor.
+  const MaxShrink = 200
+  result = sim.gameMap.grenadeSpawnPoints()
+  var inset = 0
+  while inset <= MaxShrink:
+    let points = sim.gameMap.grenadeSpawnPoints(inset)
+    var allWalkable = true
+    for point in points:
+      if not sim.isWalkable(point.x, point.y):
+        allWalkable = false
+        break
+    if allWalkable:
+      return points
+    inset += 4
+
 proc resetGrenades*(sim: var SimServer) =
   ## Refills every corner pickup and clears carried and airborne grenades.
-  let points = sim.gameMap.grenadeSpawnPoints()
+  let points = sim.walkableGrenadePoints()
   for i in 0 ..< sim.grenadeSpawns.len:
     sim.grenadeSpawns[i] = PickupSpawn(
       x: points[i].x, y: points[i].y, present: true, respawnAt: 0
