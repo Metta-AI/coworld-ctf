@@ -3,6 +3,7 @@
 import
   test_agent_skins,
   test_broadcast_state,
+  test_burrow,
   test_corpse_label,
   test_extract_events,
   test_grenades,
