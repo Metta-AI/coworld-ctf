@@ -40,6 +40,25 @@
 ##   * `corridorOpen` (the validator's player-width erosion) for movement:
 ##     routes, chokepoints, detour, the collision frontier.
 ##
+## DO THESE MASKS DESCRIBE WHAT THE ENGINE ACTUALLY COLLIDES WITH? Measured,
+## yes — which is the fact that makes every number below mean anything. The
+## engine's `walkMask`/`wallMask` come from the art BAKE (sim.nim, via
+## `loadMapLayers`), not from these procs, so the question is real. But the
+## bake calls `rasterizeRestWallMask` itself and its masking composition
+## reduces to `includeSpinning = false`; `tools/mask_parity_probe.nim` (added
+## by the map-art work) measures zero mismatched pixels against the baked
+## collision mask across arena, arena-large and five generated seeds spanning
+## three size classes. Window glass needs no special case — it sits on the WALL
+## side of both. So for every non-spinning pixel the geometry scored here IS
+## the shipped collision geometry.
+##
+## Spinning diamonds are the one exception, and are why this module brackets
+## rather than picks: the bake EXCLUDES them (their rotation is stamped per
+## frame and resolved by `animatedDiamondCovers` at query time), so no single
+## static mask is the truth for those pixels. `minWall` and `maxWall` are the
+## floor and ceiling over a full turn, and each metric above takes whichever
+## one is pessimistic for what it measures.
+##
 ## The single weighted scalar is `staticScore`. It is deliberately a thin
 ## weighted sum of banded sub-scores so a downstream ranker can re-weight
 ## without re-deriving anything, and so `bandReport` can print how much slack
