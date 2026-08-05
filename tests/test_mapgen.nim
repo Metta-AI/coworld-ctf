@@ -40,9 +40,10 @@ suite "procedural terrain":
       let gameMap = cachedMap(seed)
       check gameMap.genSeed == seed
       check validateGeneratedMap(gameMap) == ""
-      ## The bounding box is a hexagon's, not a rectangle's: portrait, and
-      ## within a pixel of the sqrt(3)/2 aspect on every class.
-      check gameMap.height > gameMap.width
+      ## The bounding box is a hexagon's, not a rectangle's: LANDSCAPE (the
+      ## flat-top flip made the long axis the width), and within a pixel of the
+      ## sqrt(3)/2 aspect on every class.
+      check gameMap.width > gameMap.height
       check gameMap.mapBoard().aspectOk()
       widths.add gameMap.width
     ## The curated pool spans the size classes, including the two oversize

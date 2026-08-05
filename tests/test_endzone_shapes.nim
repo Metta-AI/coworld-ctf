@@ -46,7 +46,7 @@ suite "endzone discs":
     ## literal moved with it. Re-measured off the installed arena, not scaled
     ## by hand.
     let arena = loadCtfMapMetadata("arena")
-    check arena.teamHomeX(Red) == 255
+    check arena.teamHomeX(Red) == 254
     check arena.teamHomeX(Blue) == arena.width - 1 - arena.teamHomeX(Red)
 
   test "the disc endzone generates, validates and is deterministic":
@@ -174,7 +174,12 @@ suite "endzone discs":
     ## bases is then open border to border with nowhere legal to build.
     let fat = generateMapAttempt(4242, MapGenOverrides(
       windows: -1, pits: -1, pitDensity: -1, size: "standard",
-      endzone: "disc", endzoneRadius: maxEndzoneRadius(HexStandardWidth),
+      ## `maxEndzoneRadius` keys off the SHORT axis (the apothem is the
+      ## orientation-independent measure of "how much field"), which the
+      ## flat-top flip made the HEIGHT. Passing the width here asked for a
+      ## radius 15.5% above the ceiling the generator itself enforces, so the
+      ## attempt raised on the config bound instead of reaching the validator.
+      endzone: "disc", endzoneRadius: maxEndzoneRadius(HexStandardHeight),
       baseDepth: HomeDepthMin))
     check validateGeneratedMap(fat).startsWith("open sightline")
     var config = defaultGameConfig()
