@@ -360,8 +360,12 @@ What that means in practice:
 - **Throwing:** hold the **C button** (input mask bit 128) to charge, release
   to throw along your **current aim**. The charge picks the distance, from a
   short tap (~30 px — inside the blast radius, so a panicked drop can hurt
-  you) up to a full-charge **maximum of one fifth of the field width**
-  (~247 px) after ~1s of holding. While you charge, a **throw target ring**
+  you) up to a full-charge **maximum of one quarter of the gun's range**
+  (262 px) after ~1s of holding. That maximum is the SAME on every map size —
+  a grenade is the short-range answer to the gun, so it is measured against
+  the gun, never against the board (GameVersion 38; it used to be a fifth of
+  the field width, which on the biggest boards out-threw what the gun could
+  shoot). While you charge, a **throw target ring**
   marks the landing spot on your own view (and is readable intel for anyone
   who can see you, like your aim line).
 - **Grenades fly over every obstacle** in a straight lob from thrower to
@@ -451,9 +455,12 @@ What that means in practice:
   dropped). Send it as a chat packet (`0x81`, the standard sprite-protocol
   chat message); in the browser client press **Enter**, type, and press
   Enter again.
-- **Anyone within one fifth of the field width (~247 px) hears it** —
+- **Anyone within a quarter of the gun's range (262 px) hears it** —
   through walls and fog, like gunfire. Outside that radius the shout does
-  not appear in your frame at all.
+  not appear in your frame at all. Like the grenade, the radius is the same
+  on every map size (GameVersion 38; it used to be a fifth of the field
+  width): a callout is only worth something to a mate close enough to act on
+  it, and on a big board that distance is still one gun range, not one board.
 - A heard shout appears as a speech bubble labeled
   `<team> shout <name>: <text>` pinned at **deterministically jittered
   coordinates** (~±20 px, like gunshot impact rings): you learn roughly where

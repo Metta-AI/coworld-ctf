@@ -119,7 +119,7 @@ for curved/organic terrain. Trenches are also `ArenaShape` (the generator emits
 | Item | Count | Key consts (sim_types.nim) |
 |---|---|---|
 | Flags/hearts | 1 per active team | `FlagPickupRange`=12, `CaptureZoneWidth`=40, `PedestalCoverSize`=96 |
-| Grenades | exactly 4 corner pickups | `GrenadeRespawnTicks`=120, `GrenadeChargeTicks`=24, `GrenadeBlastRadius`=52, `GrenadeDamage`=2, `GrenadeTrenchDamage`=6, max throw = `MapWidth/5` |
+| Grenades | exactly 4 corner pickups | `GrenadeRespawnTicks`=120, `GrenadeChargeTicks`=24, `GrenadeBlastRadius`=52, `GrenadeDamage`=2, `GrenadeTrenchDamage`=6, max throw = `GrenadeMaxRange` = `GunRange/4` = 262 px (GV38; was `MapWidth/5`, so it no longer varies with the board) |
 | Med kits | 2 (sides) / up to 4 (4-team) | `MedKitPickupRange`=12, `MedKitRespawnTicks`=720 |
 | Shields | 1 per team endzone | `ShieldRespawnTicks`=720, `ShieldLayerHp`=3, `ShieldFireSlowdown`=3 |
 | Plasma arcs (spray) | 1 per team endzone | `PlasmaArcRespawnTicks`=720, `PlasmaArcReach`=5, `PlasmaArcDamage`=3 |

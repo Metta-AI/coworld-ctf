@@ -2708,7 +2708,10 @@ var
 
 proc selectCtfMap(gameMap: CtfMap) =
   ## Installs one map as THE map for this process: dimensions, fog grid,
-  ## map-relative ranges, layout clearances, and the mirrored obstacle set.
+  ## layout clearances, and the mirrored obstacle set. No WEAPON REACH is
+  ## installed here — the gun, the grenade and the shout are the same pixel
+  ## distances on every board (GameVersion 38), which is what gives each size
+  ## class its own visibility regime.
   ## Runs before any sim, mask, or render work; the render bakes in
   ## global.nim assume the arena never changes afterward.
   ArenaMapG = gameMap
@@ -2717,8 +2720,6 @@ proc selectCtfMap(gameMap: CtfMap) =
   FovGridW = (MapWidth + FovCellSize - 1) div FovCellSize
   FovGridH = (MapHeight + FovCellSize - 1) div FovCellSize
   FovCellCount = FovGridW * FovGridH
-  GrenadeMaxRange = MapWidth div 5
-  ShoutRange = MapWidth div 5
   ArenaFlagRing = gameMap.flagRing
   ArenaCaptureClear = gameMap.captureClear
   ArenaLayoutG = gameMap.layout

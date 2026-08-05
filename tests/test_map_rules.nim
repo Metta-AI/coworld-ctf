@@ -388,23 +388,32 @@ suite "team-count rule sets":
     check gameMap.teamHomeX(Blue) - gameMap.teamHomeX(Red) < GunRange
 
 suite "the two open decisions":
-  test "the grenade out-ranges the gun on colossal, and only there":
-    # GrenadeMaxRange is MapWidth div 5 and scales with the board; GunRange has
-    # been fixed at 1050 since GV34. RECOMMENDED, not shipped — changing it is
-    # a sim-behaviour change and needs a GameVersion bump.
+  test "the grenade is pinned to the gun and can never out-range it (GV38)":
+    # It USED to be MapWidth div 5, which scaled with the board while GunRange
+    # has been fixed at 1050 since GV34 — so on colossal the grenade nominally
+    # out-ranged the gun (6422 div 5 = 1284 px). GV38 pinned it to
+    # GunRange div 4 = 262 px, the same number on every class. This test was
+    # written to fire the day that landed; it now guards the inversion staying
+    # closed on EVERY class, team count and board family, colossal included.
+    check mapRules(mszColossal, 2).boardWidth div 5 == 1284  # the old value...
+    check 1284 > GunRange                                    # ...i.e. a defect
     for c in MapSizeClass:
-      let r = mapRules(c, 2)
-      check r.grenadeMaxRangeTodayPx == r.boardWidth div 5
-      check r.grenadeOutRangesGun == (c == mszColossal)
-    check mapRules(mszColossal, 2).grenadeMaxRangeTodayPx == 1284
-    # The inversion needs a shell wider than 5 * GunRange; the 4-team square
-    # colossal is 4992 px and stays (barely) under it.
-    check mapRules(mszColossal, 4, boardSquare4).grenadeMaxRangeTodayPx <
-      GunRange
-    check 5 * GunRange == 5250
-    # The recommendation pins the grenade to the gun and reproduces the
+      for teamCount in 2 .. 4:
+        for family in BoardFamily:
+          let r = mapRules(c, teamCount, family)
+          check r.grenadeMaxRangeTodayPx == GrenadeRangeFromGunPx
+          check r.grenadeMaxRangeRecommendedPx == GrenadeRangeFromGunPx
+          check r.grenadeMaxRangeTodayPx < r.gunRangePx
+          check not r.grenadeOutRangesGun
+    # No board dimension is left in the derivation: the smallest and the
+    # largest shell report the identical reach even though their widths differ
+    # 6.1x, where the old formula spanned 210 px to 1284 px.
+    check mapRules(mszSmall, 2).grenadeMaxRangeTodayPx ==
+      mapRules(mszColossal, 2).grenadeMaxRangeTodayPx
+    # The rules module and the sim agree, and the shipped value reproduces the
     # standard board's historical 247 px within 6%.
     check GrenadeRangeFromGunPx == GunRange div 4
+    check GrenadeRangeFromGunPx == GrenadeMaxRange
     check abs(GrenadeRangeFromGunPx - 1235 div 5) * 100 div (1235 div 5) < 7
 
   test "the corridor minimum is recommended, not raised, in this task":

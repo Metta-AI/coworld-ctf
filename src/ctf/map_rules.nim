@@ -59,9 +59,12 @@
 ##
 ## PURITY. This module reads only COMPILE-TIME CONSTANTS from `sim_types`. It
 ## must never read the mutable installed-map globals (`MapWidth`, `MapHeight`,
-## `GrenadeMaxRange`, ...): those are per-process install state, and a rules
-## table that depended on them could not describe a class other than the one
+## `FovGridW`, ...): those are per-process install state, and a rules table
+## that depended on them could not describe a class other than the one
 ## currently loaded. `hex` is imported for the hex board table only.
+## (`GrenadeMaxRange` and `ShoutRange` WERE two of those globals; GV38 pinned
+## them to `GunRange`, so they are compile-time constants now and this module
+## may read them — which is how it reports the shipped grenade reach below.)
 
 import std/[math, strutils]
 import sim_types
@@ -304,12 +307,14 @@ const
     ## transfer. NOT SHIPPED — see the doc for the measured pool churn.
 
   GrenadeRangeFromGunPx* = GunRange div 4
-    ## 262 px — the grenade range this module RECOMMENDS. `GrenadeMaxRange` is
-    ## `MapWidth div 5` today and therefore scales with the board while
-    ## `GunRange` does not, so on colossal the grenade nominally OUT-RANGES the
-    ## gun (1284 px vs 1050 px). A quarter of the gun's reach reproduces the
-    ## standard board's historical 247 px within 6% and cannot invert again.
-    ## NOT SHIPPED: it is a sim-behaviour change and needs a GameVersion bump.
+    ## 262 px — the grenade range this module recommended and the sim now
+    ## SHIPS (GameVersion 38). `GrenadeMaxRange` used to be `MapWidth div 5`,
+    ## which scaled with the board while `GunRange` did not, so on colossal the
+    ## grenade nominally OUT-RANGED the gun (1284 px vs 1050 px). A quarter of
+    ## the gun's reach reproduces the standard board's historical 247 px within
+    ## 6% and cannot invert again. `ShoutRange` moved with it, on the same
+    ## principle: a reach that scales with the board erases the size class's
+    ## visibility regime. Pinned by test to equal `sim_types.GrenadeMaxRange`.
 
 # ---------------------------------------------------------------------------
 # Regime classification
@@ -559,12 +564,17 @@ type
     gunRangePx*: int
     visionRangePx*: int
     grenadeMaxRangeTodayPx*: int
-      ## What the sim computes today: `MapWidth div 5`.
+      ## What the sim ships today: `sim_types.GrenadeMaxRange`, the same
+      ## 262 px on every class since GV38 (it was `MapWidth div 5`).
     grenadeMaxRangeRecommendedPx*: int
-      ## `GunRange div 4`. Differs from the above on every class; the
-      ## SIGN of the difference is what matters — see `grenadeOutRangesGun`.
+      ## `GunRange div 4`. It USED to differ from the above on every class;
+      ## GV38 landed the recommendation, so the two now agree everywhere and
+      ## a divergence means someone re-coupled a weapon to the board.
     grenadeOutRangesGun*: bool
-      ## True when today's grenade range exceeds the gun range on this class.
+      ## True when the shipped grenade range exceeds the gun range on this
+      ## class — the defect GV38 closed (it was true on colossal, 1284 px vs
+      ## 1050 px). Now false on every class, and pinned false by test: a
+      ## grenade that out-ranges the gun is not a grenade.
 
 func maxOpenRunFor(regime: VisibilityRegime): int =
   ## The longest straight unobstructed run a class permits, ramped linearly
@@ -760,7 +770,8 @@ func mapRules*(c: MapSizeClass, teamCount: int,
   # --- ranges --------------------------------------------------------------
   result.gunRangePx = GunRange
   result.visionRangePx = VisionRangePx
-  result.grenadeMaxRangeTodayPx = bw div 5
+  result.grenadeMaxRangeTodayPx = GrenadeMaxRange
+    # Board-independent since GV38 — `bw` deliberately does not appear here.
   result.grenadeMaxRangeRecommendedPx = GrenadeRangeFromGunPx
   result.grenadeOutRangesGun = result.grenadeMaxRangeTodayPx > GunRange
 

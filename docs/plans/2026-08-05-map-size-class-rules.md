@@ -1,8 +1,16 @@
 # Size-class and team-count rule sets, split by visibility regime
 
 **Status:** parameter table LANDED (`src/ctf/map_rules.nim`), two brittle tools
-FIXED, corridor-width and grenade-range changes RECOMMENDED with measured churn
-but deliberately NOT shipped. Generator output is byte-identical to `c49cbe6`.
+FIXED, corridor-width change RECOMMENDED with measured churn but deliberately
+NOT shipped. Generator output is byte-identical to `c49cbe6`.
+
+**Update (GameVersion 38): §7.2 SHIPPED, and it took `ShoutRange` with it.**
+`GrenadeMaxRange` and `ShoutRange` are `GunRange div 4` = 262 px on every size
+class; neither is re-derived per map install any more (both are compile-time
+constants in `sim_types`, and `arena.selectCtfMap` no longer installs a weapon
+reach at all). §7.2's own recommendation against moving `ShoutRange` was
+OVERRULED — see the amendment there for why the "it is only a coordination
+channel" argument does not survive the regime framing.
 
 **Stage 2 of the map-generator rebuild.** Stage 1 was the hex coordinate kernel
 (`src/ctf/hex.nim`) and the burrow connectivity tool (`src/ctf/burrow.nim`).
@@ -390,19 +398,20 @@ generator, so the pool is re-curated once rather than twice.
 If someone wants an incremental step now: **34 px is nearly free** — 25 changed
 rows, zero pool seeds lost — and it is exactly one drawn body.
 
-### 7.2 `GrenadeMaxRange`: pin to the gun — recommended, needs a GameVersion bump
+### 7.2 `GrenadeMaxRange`: pin to the gun — SHIPPED in GameVersion 38
 
-`GrenadeMaxRange` and `ShoutRange` are both `MapWidth div 5` and therefore
-scale with the board, while `GunRange` has been frozen since GV34.
+`GrenadeMaxRange` and `ShoutRange` were both `MapWidth div 5` and therefore
+scaled with the board, while `GunRange` has been frozen since GV34. Both
+columns below are the SAME number for the shout, which is why it moved too.
 
-| class | today's grenade | vs GunRange |
-|---|---|---|
-| small | 210 | 0.20x |
-| standard | 247 | 0.24x |
-| large | 321 | 0.31x |
-| huge | 444 | 0.42x |
-| giant | 642 | 0.61x |
-| **colossal** | **1284** | **1.22x — INVERTED** |
+| class | rect shell | before (grenade = shout) | vs GunRange | after (GV38) |
+|---|---|---|---|---|
+| small | 1050 | 210 | 0.20x | 262 (+25%) |
+| standard | 1235 | 247 | 0.24x | 262 (+6%) |
+| large | 1606 | 321 | 0.31x | 262 (-18%) |
+| huge | 2223 | 444 | 0.42x | 262 (-41%) |
+| giant | 3211 | 642 | 0.61x | 262 (-59%) |
+| **colossal** | 6422 | **1284** | **1.22x — INVERTED** | 262 (-80%) |
 
 Confirmed: the inversion needs a shell wider than `5 * GunRange` = 5250 px, so
 it happens on colossal only. The 4-team square colossal (4992 px) stays
@@ -413,28 +422,62 @@ whole identity is "closer than the gun". Tying it to `MapWidth` is a fossil of
 the era when the gun was ALSO map-wide — GV34 froze the gun and left these two
 scaling.
 
-**Recommendation: `GrenadeMaxRange = gunRange div 4` = 262 px.** It reproduces
-the standard board's historical 247 px within 6%, cannot invert again, and
-follows a config `gunRange` override the way the grenade should. Per-class
-delta: small +25%, standard +6%, large -18%, huge -41%, giant -59%, colossal
--80%.
+**Recommendation, now shipped: `GrenadeMaxRange = GunRange div 4` = 262 px.**
+It reproduces the standard board's historical 247 px within 6% and cannot
+invert again. Per-class delta: small +25%, standard +6%, large -18%, huge -41%,
+giant -59%, colossal -80%.
 
-Lower-churn alternative if that is too much: `min(MapWidth div 5, GunRange div
-2)`, which touches only giant and colossal.
+One caveat on the shipped form: it pins to the compile-time `GunRange`
+constant, NOT to `config.gunRange`. A league that overrides `gunRange` per game
+moves the gun and the derived vision cone (`sim.visionRange` is
+`config.gunRange * 3 div 2`) but not the grenade or the shout. Following the
+live config would mean threading `sim` through `throwTarget(player)`, which the
+render calls with a bare `Player`; it is a real (small) inconsistency, left for
+whoever needs a per-game range override to actually change the grenade.
 
-**NOT SHIPPED HERE.** It changes sim behaviour and replay reproduction, so it
-needs a `GameVersion` bump at `src/ctf/sim_types.nim:21` (currently "37", bumped
-by the vector-obstacle change with a doc block explaining what older viewers
-cannot parse). That is a decision for whoever owns the next GV, not a silent
-side effect of a parameter table. `map_rules` carries both numbers
-(`grenadeMaxRangeTodayPx`, `grenadeMaxRangeRecommendedPx`) and a
-`grenadeOutRangesGun` flag, and a test pins that the flag is true on colossal
-and false everywhere else — so the day the fix lands, the test tells you.
+The lower-churn alternative considered and rejected: `min(MapWidth div 5,
+GunRange div 2)`, which touches only giant and colossal. It closes the
+inversion but keeps the coupling — small and large would still play different
+weapons, which is the thing worth removing.
 
-**`ShoutRange` should keep scaling with the map. Leave it alone.** It is a
-coordination channel, not a weapon: there is no fixed physical scale it must
-respect, and on colossal the fact that you can call out a contact you cannot
-shoot is exactly right for the range regime.
+**NOT SHIPPED IN THIS STAGE** (it changes sim behaviour and replay
+reproduction, so it needs a `GameVersion` bump) — **shipped immediately after,
+as GameVersion 38.** What landed:
+
+- `sim_types.GrenadeMaxRange = GunRange div 4` and
+  `sim_types.ShoutRange = GunRange div 4`, both now COMPILE-TIME CONSTANTS.
+  They used to be `var`s in the runtime-map block, re-derived from `MapWidth`
+  by `arena.selectCtfMap` on every install; those two install lines are gone,
+  so a weapon reach is no longer per-map state that a map can move.
+- `map_rules.grenadeMaxRangeTodayPx` now reports the shipped constant instead
+  of `boardWidth div 5`, and `grenadeOutRangesGun` is false on every class,
+  team count and board family — pinned by test, which is the same test that
+  used to assert the inversion was live on colossal.
+- GameVersion 37 -> 38. The bump is not ceremonial: a grenade's target
+  coordinates are hashed state (`sim_state.gameHash` mixes `sx/sy/tx/ty`) and
+  replay playback re-simulates each tick and compares that hash
+  (`replays.checkReplayHash`), so every GV37 recording would diverge. The
+  version string in the file header is the mechanism that stops that — the
+  codec refuses to load a replay whose `gameVersion` is not the running one
+  (`bitworld/replays.nim`, "Replay game version does not match"). All six
+  recorded fixtures were re-recorded.
+
+**Amendment: `ShoutRange` moved too.** This section originally recommended
+leaving it alone — "a coordination channel, not a weapon; there is no fixed
+physical scale it must respect, and on colossal the fact that you can call out
+a contact you cannot shoot is exactly right for the range regime". That was
+overruled, and the reasoning it missed is the point of the whole document: the
+value of a callout is not that it is *heard*, it is that a mate can ACT on it,
+and the radius inside which a mate can act is set by the gun, not by the shell
+the map generator happened to draw. A 1284 px bubble on colossal hands out free
+coordination exactly on the boards where crossing the ground is meant to be the
+problem — it flattens the range regime the same way a board-scaled grenade
+does. If everything scales with the map, there is no point to the larger map.
+Pinned at 262 px, the standard board's historical 247 px is preserved within
+6%, and the "call out what you cannot shoot" play is untouched: what a shout is
+ABOUT is anything the caller can see, and vision still reaches 1.5x the gun
+(1575 px). 262 px is only how far the voice carries — how close a mate has to
+be to receive it.
 
 ---
 
@@ -495,10 +538,13 @@ Table helpers: `MapSizeClassTable`, `DrawableSizeNames`, `sizeClassOf(name)`,
 `gameMap.mapSizeClass()` / `mapSizeClassName()`.
 
 **Purity.** `map_rules` reads only compile-time constants from `sim_types`; it
-must never read the mutable installed-map globals (`MapWidth`,
-`GrenadeMaxRange`, ...), because a rules table that depended on them could not
+must never read the mutable installed-map globals (`MapWidth`, `MapHeight`,
+`FovGridW`, ...), because a rules table that depended on them could not
 describe a class other than the one currently loaded. It imports `hex` for the
-hex board table.
+hex board table. (`GrenadeMaxRange` and `ShoutRange` were on that forbidden
+list until GV38 made them compile-time constants; the module reads
+`GrenadeMaxRange` now, which is how `grenadeMaxRangeTodayPx` reports what the
+sim actually ships rather than a copy of the formula.)
 
 ---
 
@@ -557,11 +603,13 @@ Produced by the module itself (`mapRules` over every class x team count).
 
 - No structure pass, no biome layer, no ranker.
 - **No generator output changed.** `MinCorridorWidth` stays 26,
-  `CoverPermilleMin/Max` stay 40/170, `GrenadeMaxRange` stays `MapWidth div 5`,
-  the RNG draw order is untouched, and `MapSizeNames` is the same five names in
-  the same order. `tests/fixtures/map-validation-baseline.tsv` and the pool are
-  unchanged; the pool review page is regenerated only because the manifest
-  gained a `sizeClass` key.
+  `CoverPermilleMin/Max` stay 40/170, the RNG draw order is untouched, and
+  `MapSizeNames` is the same five names in the same order.
+  `tests/fixtures/map-validation-baseline.tsv` and the pool are unchanged; the
+  pool review page is regenerated only because the manifest gained a
+  `sizeClass` key. (The GV38 follow-up moved `GrenadeMaxRange` and
+  `ShoutRange`, which are weapon reaches read by the sim — it changed no
+  geometry, so the generator output and the validation baseline still stand.)
 - The soft input is isolated: `FieldAccuracyPct` = 55 (from GV26-GV36 scout
   re-simulations, 48-61%). It is the ONE number in the module that is measured
   rather than derived, it lives in one place, and halving it doubles

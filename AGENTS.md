@@ -42,6 +42,15 @@ the same change.
 
 ## Terrain
 
+- **No weapon reach scales with the board.** `GunRange` (1050, GV34),
+  `GrenadeMaxRange` and `ShoutRange` (both `GunRange div 4` = 262, GV38) are
+  compile-time constants; `arena.selectCtfMap` installs map dimensions, never
+  a range. This is deliberate and is what makes a size class mean anything:
+  one vision cone covers 3.19 playfields on standard and 0.118 on colossal, so
+  large is occlusion-limited and colossal is navigation-limited. Re-derive a
+  reach from `MapWidth` and every class collapses back to the same coverage
+  ratio — a bigger board is supposed to cost movement, not hand out reach.
+  Derivation: [docs/plans/2026-08-05-map-size-class-rules.md](docs/plans/2026-08-05-map-size-class-rules.md).
 - The **default league map is the hand-tuned arena** (`config.json`
   `mapPath: "arena"`). Do not flip it without an explicit ask.
 - **Procedural terrain is config-gated**: `mapPath: "pool"` draws from the

@@ -58,8 +58,14 @@ suite "grenades":
     game.stepWith(game.none(), prev)
     check game.grenadeSpawns[1].present
 
-  test "charge picks the distance and max is a fifth of the field":
-    check GrenadeMaxRange == MapWidth div 5
+  test "charge picks the distance and max is a quarter of the GUN":
+    # GameVersion 38: the throw is a fraction of the gun's reach, not of the
+    # board. It was MapWidth div 5, which on the standard arena happened to be
+    # 247 px — 262 is the same weapon, and now it is the same weapon on every
+    # size class (see the size-class sweep in test_map_rules).
+    check GrenadeMaxRange == GunRange div 4
+    check GrenadeMaxRange == 262
+    check GrenadeMaxRange < GunRange
     var game = twoTeamGame()
     game.players[0].x = 300
     game.players[0].y = 300
@@ -218,3 +224,65 @@ suite "grenades":
     game.players[0].hasGrenade = false
     game.grenadeSpawns[0].present = false
     check game.gameHash() != before
+
+suite "weapon reach is pinned to the gun, not to the board (GameVersion 38)":
+  # GrenadeMaxRange and ShoutRange were both `MapWidth div 5`, re-derived by
+  # every map install (arena.selectCtfMap). GunRange has been frozen at 1050 px
+  # since GV34, so the two map-scaled ranges drifted with the board: on a
+  # colossal shell the grenade nominally out-ranged the gun, 1284 px vs 1050.
+  # They are compile-time constants now. These tests are the regression guard
+  # against anyone re-installing a weapon reach per map: the analytic sweep
+  # covers every size class including colossal, and the install sweep proves it
+  # on real maps whose widths actually differ.
+
+  test "the constants are a fixed fraction of the gun":
+    check GrenadeMaxRange == GunRange div 4
+    check ShoutRange == GunRange div 4
+    check GrenadeMaxRange == 262
+    # Both reproduce the standard arena's historical MapWidth div 5 = 247 px
+    # within 6%, so small / standard / large play as they always did.
+    check abs(GrenadeMaxRange - 247) * 100 div 247 < 7
+    check abs(ShoutRange - 247) * 100 div 247 < 7
+    # A grenade that out-ranges the gun is not a grenade.
+    check GrenadeMaxRange < GunRange
+
+  test "no size class moves either range, colossal included":
+    # The shipped shell width of every class (tests/test_map_rules.nim pins
+    # these against the widths that actually shipped). Under the old formula
+    # each one produced a DIFFERENT grenade and shout range; under GV38 the
+    # board cannot reach the constant at all.
+    const ClassWidths = [
+      ("small", 1050), ("standard", 1235), ("large", 1606),
+      ("huge", 2223), ("giant", 3211), ("colossal", 6422)]
+    var oldRanges: seq[int]
+    for (name, width) in ClassWidths:
+      checkpoint("size class " & name)
+      oldRanges.add width div 5
+      check GrenadeMaxRange == GunRange div 4   # invariant of the board width
+      check ShoutRange == GunRange div 4
+    # The old formula spanned 210..1284 px over the same six classes, and its
+    # top end broke the gun (the defect GV38 closed).
+    check oldRanges[0] == 210
+    check oldRanges[^1] == 1284
+    check oldRanges[^1] > GunRange
+    check oldRanges[0] != oldRanges[^1]
+
+  test "installing a wider map does not move either range":
+    # selectCtfMap used to recompute both ranges here. Installs are process
+    # global, so the default arena goes back in afterwards.
+    let before = (GrenadeMaxRange, ShoutRange)
+    var widths: seq[int]
+    try:
+      for path in ["arena", "arena-large", "pool:1"]:
+        discard loadCtfMap(path)
+        widths.add MapWidth
+        check (GrenadeMaxRange, ShoutRange) == before
+    finally:
+      installDefaultArena()
+    check MapWidth == 1235
+    # The maps really were different boards: under the old rule these three
+    # installs alone would have shipped three different grenades.
+    check widths.len == 3
+    check widths[0] < widths[1]
+    check widths[1] < widths[2]
+    check widths[0] div 5 != widths[2] div 5
