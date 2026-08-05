@@ -1250,6 +1250,17 @@ proc initPlayerViewerState*(): PlayerViewerState =
   ## Returns the default state for one sprite player viewer.
   new(result)
 
+proc forgetEpisodeSprites*(state: var GlobalViewerState) =
+  ## Drops this viewer's sprite-def cache at an episode reset. A reset builds
+  ## a NEW SimServer, and a generated map can change size class with it —
+  ## which moves the board render scale and the shout-bubble zoom. The
+  ## dims-comparing dedup self-heals across that (a changed size re-sends);
+  ## the label-only def gates (the shout bubbles, the player name labels)
+  ## cannot, so a label that recurs next episode would reuse a stale raster
+  ## at the old scale. Forgetting the cache makes the first touch of every
+  ## sprite next episode a re-send, which the client applies as an overwrite.
+  state.spriteDefs.setLen(0)
+
 proc debugSpritePixels(sprite: SpritePacketSpriteDef): seq[uint8] =
   ## Decodes one sprite and rejects pixel counts that do not match its shape.
   result = uncompress(sprite.compressedPixels)
@@ -1476,6 +1487,39 @@ proc spriteDefinitionIndex(
       return i
   -1
 
+proc knownTextDefSize(
+  defs: openArray[SpriteDefinition],
+  spriteId: int,
+  label: string,
+  scale = 1
+): tuple[width, height: int] =
+  ## Size of the def already holding `label`, or width -1 when a send is owed.
+  ## A match means addSpriteChanged below would dedup the send anyway — text
+  ## callers use this to skip rasterizing the glyphs entirely and lay out off
+  ## the def, and `addBoardSpriteGated` uses it to skip any raster at all.
+  ##
+  ## It reads as a TEXT query and is not one: what it needs is that the label
+  ## determines the pixels, which is true of a rendered string and equally
+  ## true of an hp bar or an identity badge, whose label and sprite id fix
+  ## every input their rasterizer takes.
+  ##
+  ## `scale` divides the stored dims back down to LOGICAL ones, for the board
+  ## path: addBoardSpriteChanged stores `boardScale ×` what it was given, so a
+  ## board caller passes `boardScale` and a UI-layer caller takes the default.
+  ## Exact either way, because that is how they were multiplied up: the store
+  ## is `width * boardScale`, so dividing by the same boardScale recovers
+  ## `width` with no remainder at any scale. The suite exercises the divide at
+  ## RenderScale — tests/test_damage_pop.nim builds a board packet and asserts
+  ## on labels a mis-divided gate would have dropped.
+  ##
+  ## The HEIGHT is here for the shout bubbles, which hang their tail tip off
+  ## it; the HUD readouts only lay out horizontally and take `.width`.
+  let index = defs.spriteDefinitionIndex(spriteId)
+  if index >= 0 and defs[index].label == label:
+    (defs[index].width div scale, defs[index].height div scale)
+  else:
+    (-1, 0)
+
 proc addSpriteChanged(
   packet: var seq[uint8],
   defs: var seq[SpriteDefinition],
@@ -1557,6 +1601,58 @@ proc addBoardSpriteChanged(
     packet.addSpriteChanged(
       defs, spriteId, outW, outH,
       scaleSpritePixels(pixels, width, height, boardScale), label, changed)
+
+template addBoardSpriteGated(
+  packet: var seq[uint8],
+  defs: var seq[SpriteDefinition],
+  spriteIdArg, widthArg, heightArg: int,
+  labelArg: string,
+  pixels: untyped,
+  nativeArg = 1
+) =
+  ## `addBoardSpriteChanged` with the RASTER evaluated only if it will be sent.
+  ##
+  ## Every per-frame emitter here passes its raster as an ordinary argument,
+  ## so Nim builds it before the call and the dedup above then throws it away
+  ## — a full rasterization per living visible player (or splatter, or pop)
+  ## per viewer per frame, for pixels nothing looks at.
+  ##
+  ## `pixels` is `untyped`, so it is only touched on the branch that ships it.
+  ## The gate is `addBoardSpriteChanged`'s own dedup asked ahead of time —
+  ## `knownTextDefSize` is that predicate minus its `changed` term, which is
+  ## why this template does not expose `changed`: a caller that needs a forced
+  ## re-send must call `addBoardSpriteChanged` directly rather than have its
+  ## intent silently swallowed here.
+  ##
+  ## THE GATE LIVES HERE AND NOT AT THE EMITTERS, and that is an invariant,
+  ## not a tidiness call: THE OBJECT STREAM MUST NEVER BE A FUNCTION OF WHAT
+  ## GETS RASTERIZED. An emitter-level `if` around a send is an `if` a later
+  ## edit can slide `currentIds.add` or a pool-slot counter into, which
+  ## renumbers every later item in the pool — a difference invisible until a
+  ## stale id ships a spurious delete mid-episode. This proc emits no objects
+  ## at all, so a gate inside it cannot reach the stream even by accident.
+  ##
+  ## The gate divides by `boardScale` and NOT by `nativeArg`, which is right
+  ## and reads as though it might not be: `native` says what scale the caller
+  ## rasterized at, while addBoardSpriteChanged stores `width * boardScale`
+  ## for every value of it — `native` only decides whether those pixels get
+  ## upscaled on the way out. So the stored dims divide back by boardScale
+  ## whatever `native` was, and an edit that changed how `outW` is computed
+  ## would have to change this divisor with it.
+  ##
+  ## The arguments are bound to locals first: a template substitutes its
+  ## parameters as EXPRESSIONS, and `label` in particular is built by the
+  ## caller and read twice below.
+  block:
+    let
+      gateId = spriteIdArg
+      gateW = widthArg
+      gateH = heightArg
+      gateLabel = labelArg
+      gateNative = nativeArg
+    if defs.knownTextDefSize(gateId, gateLabel, boardScale) != (gateW, gateH):
+      packet.addBoardSpriteChanged(
+        defs, gateId, gateW, gateH, pixels, gateLabel, native = gateNative)
 
 proc addDebugOverlay(
   packet: var seq[uint8],
@@ -3553,27 +3649,38 @@ proc addTeamScoreboard(
     deaths[p.team] += p.deaths
   # One "NAME k/d" text sprite per active team, laid out left to right in
   # enum order and centered as a group (the classic red-left/blue-right
-  # strip is the 2-team case).
-  var chips: seq[tuple[team: Team, text: string,
-    sprite: tuple[width, height: int, pixels: seq[uint8]]]]
+  # strip is the 2-team case). Each chip rasterizes only when its label is
+  # not already the def's — see knownTextDefSize.
+  var chips: seq[tuple[team: Team, label: string, width, height: int,
+    pixels: seq[uint8]]]
   var totalWidth = -TeamScoreGap
   for team in sim.teams():
     let text = teamText(team).toUpperAscii() & " " &
       $kills[team] & "/" & $deaths[team]
-    let sprite = sim.buildSpriteProtocolTextSprite([text], teamColor(team))
-    totalWidth += sprite.width + TeamScoreGap
-    chips.add((team: team, text: text, sprite: sprite))
+    let label = "team score " & text
+    var chip = (team: team, label: label,
+      width: spriteDefs.knownTextDefSize(
+        TeamScoreSpriteBase + ord(team), label).width,
+      height: 0, pixels: newSeq[uint8]())
+    if chip.width < 0:
+      let sprite = sim.buildSpriteProtocolTextSprite([text], teamColor(team))
+      chip.width = sprite.width
+      chip.height = sprite.height
+      chip.pixels = sprite.pixels
+    totalWidth += chip.width + TeamScoreGap
+    chips.add(chip)
   var x = max(0, (TeamScoreWidth - totalWidth) div 2)
   for chip in chips:
     let slot = ord(chip.team)
-    packet.addSpriteChanged(
-      spriteDefs,
-      TeamScoreSpriteBase + slot,
-      chip.sprite.width,
-      chip.sprite.height,
-      chip.sprite.pixels,
-      "team score " & chip.text
-    )
+    if chip.pixels.len > 0:
+      packet.addSpriteChanged(
+        spriteDefs,
+        TeamScoreSpriteBase + slot,
+        chip.width,
+        chip.height,
+        chip.pixels,
+        chip.label
+      )
     currentIds.add(TeamScoreObjectBase + slot)
     packet.addBoardObject(
       TeamScoreObjectBase + slot,
@@ -3583,7 +3690,7 @@ proc addTeamScoreboard(
       TeamScoreLayerId,
       TeamScoreSpriteBase + slot
     )
-    x += chip.sprite.width + TeamScoreGap
+    x += chip.width + TeamScoreGap
 
 proc addTextItem(
   items: var seq[ProtocolTextItem],
@@ -5261,24 +5368,36 @@ proc addShouts(
       # overflow shout, like the old first-ShoutMaxCount cap did.
       continue
     let
-      bubble = sim.buildShoutBubble(shout.team, shout.text)
       spriteId = ShoutSpriteBase + slot
       objectId = ShoutObjectBase + slot
-    packet.addBoardSpriteChanged(
-      spriteDefs,
-      spriteId,
-      bubble.width,
-      bubble.height,
-      bubble.pixels,
-      labelShout(
-        teamText(shout.team), sim.shoutIdentityName(shout), shout.text),
-      native = boardScale
-    )
+      label = labelShout(
+        teamText(shout.team), sim.shoutIdentityName(shout), shout.text)
+    # Rasterize only when the label — which carries the whole shout text — is
+    # not already this viewer's def, and lay out off the def when it is. Same
+    # gate as the lives and weapon readouts, and it belongs here more than
+    # anywhere: a bubble stays up for ShoutTicks and every viewer in earshot
+    # rebuilt it on every one of those frames, for a send
+    # addBoardSpriteChanged then deduped away.
+    var (bubbleWidth, bubbleHeight) =
+      spriteDefs.knownTextDefSize(spriteId, label, boardScale)
+    if bubbleWidth < 0:
+      let bubble = sim.buildShoutBubble(shout.team, shout.text)
+      bubbleWidth = bubble.width
+      bubbleHeight = bubble.height
+      packet.addBoardSpriteChanged(
+        spriteDefs,
+        spriteId,
+        bubble.width,
+        bubble.height,
+        bubble.pixels,
+        label,
+        native = boardScale
+      )
     currentIds.add(objectId)
     packet.addBoardObject(
       objectId,
-      anchorX - bubble.width div 2,
-      tailTipY - bubble.height,
+      anchorX - bubbleWidth div 2,
+      tailTipY - bubbleHeight,
       ShoutBubbleZ,
       MapLayerId,
       spriteId
@@ -5394,23 +5513,35 @@ proc addBoardShouts(
         break
     let
       linger = state.shoutLinger[slot]
-      bubble = sim.buildShoutBubble(linger.team, linger.text, zoom)
       spriteId = ShoutSpriteBase + slot
       objectId = ShoutObjectBase + slot
-    packet.addBoardSpriteChanged(
-      state.spriteDefs,
-      spriteId,
-      bubble.width,
-      bubble.height,
-      bubble.pixels,
-      labelShout(teamText(linger.team), linger.name, linger.text),
-      native = boardScale
-    )
+      label = labelShout(teamText(linger.team), linger.name, linger.text)
+    # Same gate as addShouts, and the label fixes the raster here too: the
+    # bubble is a pure function of (team, text, zoom), and zoom and
+    # boardScale are constants of a running server (gameMap never changes
+    # under one). The win is larger on this stream — the zoomed variant
+    # returns a full raster copy zoom² the 1× area, per bubble per rendered
+    # frame for its whole dwell.
+    var (bubbleWidth, bubbleHeight) =
+      state.spriteDefs.knownTextDefSize(spriteId, label, boardScale)
+    if bubbleWidth < 0:
+      let bubble = sim.buildShoutBubble(linger.team, linger.text, zoom)
+      bubbleWidth = bubble.width
+      bubbleHeight = bubble.height
+      packet.addBoardSpriteChanged(
+        state.spriteDefs,
+        spriteId,
+        bubble.width,
+        bubble.height,
+        bubble.pixels,
+        label,
+        native = boardScale
+      )
     currentIds.add(objectId)
     packet.addBoardObject(
       objectId,
-      linger.anchorX - bubble.width div 2,
-      linger.tailTipY - bubble.height,
+      linger.anchorX - bubbleWidth div 2,
+      linger.tailTipY - bubbleHeight,
       ShoutBubbleZ,
       MapLayerId,
       spriteId
@@ -5444,15 +5575,12 @@ proc addHpPips(
     let effectiveHp = player.hp + player.shieldHp
     let litSegments = min(HpBarSegments,
       max(1, (effectiveHp * HpBarSegments + maxHp - 1) div maxHp))
-    let spriteId = HpPipSpriteBase + litSegments
-    packet.addBoardSpriteChanged(
-      spriteDefs,
-      spriteId,
-      HpBarWidth,
-      HpBarH,
-      buildHpBarSprite(litSegments),
-      labelHp(litSegments)
-    )
+    let
+      spriteId = HpPipSpriteBase + litSegments
+      label = labelHp(litSegments)
+    packet.addBoardSpriteGated(
+      spriteDefs, spriteId, HpBarWidth, HpBarH, label,
+      buildHpBarSprite(litSegments))
     let objectId = HpPipObjectBase + i
     currentIds.add(objectId)
     packet.addBoardObject(
@@ -5505,14 +5633,14 @@ proc addIdentityBadges(
       nade = player.hasGrenade,
       weapon = (if player.hasPlasmaArc: LabelWeaponSpray else: LabelWeaponGun)
     )
-    packet.addBoardSpriteChanged(
-      spriteDefs,
-      spriteId,
-      IdentityBadgeSize,
-      IdentityBadgeSize,
-      buildIdentityBadgeSprite(player.team, identityIndex),
-      label
-    )
+    # The badge RASTER is a pure function of (team, identityIndex), which the
+    # sprite id already fixes, so a label that differs is a loadout change and
+    # re-sends the identical pixels under a new label — exactly as before.
+    # What the gate removes is rebuilding those pixels on every other frame,
+    # which is every frame.
+    packet.addBoardSpriteGated(
+      spriteDefs, spriteId, IdentityBadgeSize, IdentityBadgeSize, label,
+      buildIdentityBadgeSprite(player.team, identityIndex))
     let objectId = IdentityBadgeObjectBase + i
     currentIds.add(objectId)
     packet.addBoardObject(
@@ -5561,17 +5689,19 @@ proc addSplatters(
       spriteSize = if splatter.hit: HitSplatSize else: SplatterSize
       px = splatter.x - spriteSize div 2
       py = splatter.y - spriteSize div 2
-    let spriteId = splatterSpriteId(colorIndex, stage, splatter.hit)
-    packet.addBoardSpriteChanged(
-      spriteDefs,
-      spriteId,
-      spriteSize,
-      spriteSize,
-      (if splatter.hit: buildHitSparkSprite(colorIndex, stage)
-       else: buildSplatterSprite(colorIndex, stage)),
-      (if splatter.hit: "hit splat " else: "splatter ") &
+    let
+      spriteId = splatterSpriteId(colorIndex, stage, splatter.hit)
+      label = (if splatter.hit: "hit splat " else: "splatter ") &
         playerColorName(colorIndex) & " stage " & $stage
-    )
+    # No emitter-level skip here on purpose: it would take `inc nextSplatter`
+    # with it and shift every later splatter into a different pool slot,
+    # which is a renumbered object stream. Gating the RASTER costs the stream
+    # nothing, which is the whole point of the gate living inside the send
+    # rather than around it.
+    packet.addBoardSpriteGated(
+      spriteDefs, spriteId, spriteSize, spriteSize, label,
+      (if splatter.hit: buildHitSparkSprite(colorIndex, stage)
+       else: buildSplatterSprite(colorIndex, stage)))
     let objectId = SplatterObjectBase + nextSplatter
     inc nextSplatter
     currentIds.add(objectId)
@@ -5681,11 +5811,10 @@ proc addDamagePops(
         DamagePopStages - 1)
       colorIndex = playerColorIndex(pop.color)
       text = if pop.kill: "KO" else: "-" & $pop.amount
-      sprite = sim.buildFloatingPopSprite(colorIndex, text, stage)
+      label = "damage pop " & playerColorName(colorIndex) & " " & text &
+        " stage " & $stage
       # Rise a few pixels over the full life so the label lifts off the player.
       rise = risePer * age div max(1, life)
-      px = pop.x - sprite.width div 2
-      py = pop.y - sprite.height div 2 - rise
       spriteId =
         if pop.kill:
           KillPopSpriteBase + colorIndex * DamagePopStages + stage
@@ -5693,17 +5822,31 @@ proc addDamagePops(
           DamagePopSpriteBase +
             (colorIndex * DamagePopBucketCount + damagePopBucket(pop.amount)) *
               DamagePopStages + stage
-    packet.addBoardSpriteChanged(
-      spriteDefs,
-      spriteId,
-      sprite.width,
-      sprite.height,
-      sprite.pixels,
-      "damage pop " & playerColorName(colorIndex) & " " & text &
-        " stage " & $stage,
-      native = boardScale
-    )
-    let objectId = DamagePopObjectBase + nextPop
+    # No emitter-level skip here either, for the splatters' reason: it would
+    # take `inc nextPop` with it. The raster is gated through knownTextDefSize
+    # rather than addBoardSpriteGated because this emitter needs the DIMS as
+    # well as the send: the label carries the colour, the text and the stage,
+    # which is everything buildFloatingPopSprite reads, so a def holding this
+    # label holds those exact pixels and its stored dims are the ones the
+    # placement wants.
+    var (sw, sh) = spriteDefs.knownTextDefSize(spriteId, label, boardScale)
+    if sw < 0:
+      let sprite = sim.buildFloatingPopSprite(colorIndex, text, stage)
+      sw = sprite.width
+      sh = sprite.height
+      packet.addBoardSpriteChanged(
+        spriteDefs,
+        spriteId,
+        sw,
+        sh,
+        sprite.pixels,
+        label,
+        native = boardScale
+      )
+    let
+      px = pop.x - sw div 2
+      py = pop.y - sh div 2 - rise
+      objectId = DamagePopObjectBase + nextPop
     inc nextPop
     currentIds.add(objectId)
     packet.addBoardObject(objectId, px, py, DamagePopZ, MapLayerId, spriteId)
@@ -5972,22 +6115,29 @@ proc buildSpriteProtocolPlayerUpdates*(
           SpritePlayerFireSpriteId
       )
 
-    # Lives counter on the top-right HUD layer.
+    # Lives counter on the top-right HUD layer, rasterized only when its
+    # label (which carries the whole text) is not already the def's — see
+    # knownTextDefSize.
     let
       livesText = $(player.hp + player.shieldHp) & "hp x" & $player.lives
-      lives = sim.buildSpriteProtocolTextSprite([livesText], 2'u8)
+      livesLabel = LabelPrefixLives & livesText
+    var livesWidth = nextState.spriteDefs.knownTextDefSize(
+      SpritePlayerRemainingSpriteId, livesLabel).width
+    if livesWidth < 0:
+      let lives = sim.buildSpriteProtocolTextSprite([livesText], 2'u8)
+      livesWidth = lives.width
+      result.addSpriteChanged(
+        nextState.spriteDefs,
+        SpritePlayerRemainingSpriteId,
+        lives.width,
+        lives.height,
+        lives.pixels,
+        livesLabel
+      )
     currentIds.add(SelectedTextObjectId)
-    result.addSpriteChanged(
-      nextState.spriteDefs,
-      SpritePlayerRemainingSpriteId,
-      lives.width,
-      lives.height,
-      lives.pixels,
-      LabelPrefixLives & livesText
-    )
     result.addBoardObject(
       SelectedTextObjectId,
-      23 - lives.width,
+      23 - livesWidth,
       1,
       0,
       HudTopRightLayerId,
@@ -5998,21 +6148,27 @@ proc buildSpriteProtocolPlayerUpdates*(
     # whenever a spray can is carried, and a bot that has to infer its own
     # weapon from floating markers gets it wrong at the worst moments. The
     # label is the machine contract ("weapon gun" | "weapon spray").
+    # Same rasterize-only-on-change gate as the lives counter above.
     let
       weaponText = if player.hasPlasmaArc: LabelWeaponSpray else: LabelWeaponGun
-      weapon = sim.buildSpriteProtocolTextSprite([weaponText], 2'u8)
+      weaponLabel = labelWeapon(weaponText)
+    var weaponWidth = nextState.spriteDefs.knownTextDefSize(
+      SpritePlayerWeaponSpriteId, weaponLabel).width
+    if weaponWidth < 0:
+      let weapon = sim.buildSpriteProtocolTextSprite([weaponText], 2'u8)
+      weaponWidth = weapon.width
+      result.addSpriteChanged(
+        nextState.spriteDefs,
+        SpritePlayerWeaponSpriteId,
+        weapon.width,
+        weapon.height,
+        weapon.pixels,
+        weaponLabel
+      )
     currentIds.add(SpritePlayerWeaponObjectId)
-    result.addSpriteChanged(
-      nextState.spriteDefs,
-      SpritePlayerWeaponSpriteId,
-      weapon.width,
-      weapon.height,
-      weapon.pixels,
-      labelWeapon(weaponText)
-    )
     result.addBoardObject(
       SpritePlayerWeaponObjectId,
-      23 - weapon.width,
+      23 - weaponWidth,
       8,
       0,
       HudTopRightLayerId,
