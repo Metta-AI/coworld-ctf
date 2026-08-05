@@ -280,36 +280,65 @@ const
   WallThick = 14
   DoorPx = 44          ## comfortably over the validator's 26px erosion
   MinLeafW = 96
-  MinLeafH = 150
+  MinLeafH = 200
+    ## Not a taste number. A district must survive being inset by a street on
+    ## both sides and STILL fit two non-overlapping doors plus the wall
+    ## between them: 2*DoorPx + 3*WallThick + 2*StreetInset = 178. 200 is
+    ## that bound with a little slack, and a smaller value silently produced
+    ## a partition in which no district could host a structure at all.
 
-proc bspLeaves(r: var Rand, region: MapRect, minW, minH: int,
-               depth = 0): seq[MapRect] =
-  ## Recursive binary partition. Irregular leaf sizes are the point: a
-  ## uniform lattice is exactly what the current generator produces and
-  ## exactly what reads as "not intentional".
-  let
-    canV = region.w >= 2 * minW
-    canH = region.h >= 2 * minH
-  if depth >= 5 or (not canV and not canH):
-    return @[region]
-  let splitV =
-    if canV and not canH: true
-    elif canH and not canV: false
-    elif region.w * minH > region.h * minW: true
-    else: rand(r, 1.0) < 0.45
-  if splitV:
-    let cut = ri(r, minW, region.w - minW + 1)
-    return bspLeaves(r, MapRect(x: region.x, y: region.y, w: cut,
-                                h: region.h), minW, minH, depth + 1) &
-      bspLeaves(r, MapRect(x: region.x + cut, y: region.y,
-                           w: region.w - cut, h: region.h),
-                minW, minH, depth + 1)
-  else:
-    let cut = ri(r, minH, region.h - minH + 1)
-    return bspLeaves(r, MapRect(x: region.x, y: region.y, w: region.w,
-                                h: cut), minW, minH, depth + 1) &
-      bspLeaves(r, MapRect(x: region.x, y: region.y + cut, w: region.w,
-                           h: region.h - cut), minW, minH, depth + 1)
+proc colonnadeLeaves(r: var Rand, band: MapRect, cols: int,
+                     minH: int): seq[MapRect] =
+  ## The partition, and the single most load-bearing decision in this file.
+  ##
+  ## THE THING THAT WENT WRONG FIRST. A plain BSP partition refused every
+  ## seed, and it was right to: a horizontal cut that spans the whole domain
+  ## leaves a STREET running clear across the half-field, and a street is a
+  ## horizontal sightline. The generator was being told, correctly, that its
+  ## own street plan was an unshootable-across-map defect.
+  ##
+  ## So the partition is constrained rather than repaired: columns first,
+  ## and each column's horizontal cuts are STAGGERED half a row against its
+  ## neighbour. Every row is then either inside some column's structure (and
+  ## blocked by it) or in one column's street — where the neighbouring
+  ## column is mid-structure. The sightline invariant becomes a property of
+  ## the street plan, and the map needs no repair pass at all.
+  ##
+  ## It also buys the route shape a CTF map wants for free: to cross the
+  ## field you must jog in y at every column boundary, which is exactly the
+  ## detour the metrics reward and the straight sprint they punish.
+  let colW = band.w div cols
+  for c in 0 ..< cols:
+    let
+      x0 = band.x + c * colW
+      w = if c == cols - 1: band.x + band.w - x0 else: colW
+      rows = max(2, band.h div max(minH, 1))
+      pitch = band.h div rows
+      ## The stagger: column c is offset by c/cols of a row pitch. This is
+      ## the same stratified ladder the hand-authored arena uses for its
+      ## pickets — the difference is that here it is load-bearing rather
+      ## than decorative, and the plan proves it worked before shipping.
+      ## Column 0 is deliberately UNJITTERED. Its first district has to sit
+      ## flush against the top of the domain, because the validator's very
+      ## first scan row is two pixels below it and nothing else can reach
+      ## that far up. Jittering it cost twelve of twelve seeds.
+      phase =
+        if c == 0: 0
+        else: (c * pitch) div cols + ri(r, 0, max(1, pitch div 8))
+    var y = band.y
+    if phase > 0:
+      result.add MapRect(x: x0, y: y, w: w, h: phase)
+      y += phase
+    while y < band.y + band.h:
+      let h = min(pitch + ri(r, -pitch div 8, pitch div 8 + 1),
+                  band.y + band.h - y)
+      if h < 40:
+        ## Absorb a runt tail into the previous district rather than
+        ## emitting a district too small to host anything.
+        if result.len > 0: result[^1].h += h
+        break
+      result.add MapRect(x: x0, y: y, w: w, h: h)
+      y += h
 
 proc footprintOf(leaf, band: MapRect): MapRect =
   ## The buildable rectangle inside one district. A leaf is inset only on the
@@ -327,21 +356,24 @@ proc footprintOf(leaf, band: MapRect): MapRect =
   MapRect(x: leaf.x + l, y: leaf.y + t,
           w: leaf.w - l - r, h: leaf.h - t - b)
 
-proc districtPlanScene(coverTargetPermille: int): Scene =
+proc districtPlanScene(coverTargetPermille, interiorHalfPx: int): Scene =
   Scene(name: "districtPlan", render: proc(ctx: var Ctx) =
     let
       band = ctx.region.rect
-      leaves = bspLeaves(ctx.rng, band, MinLeafW, MinLeafH)
+      cols = clamp(band.w div MinLeafW, 2, 3)
+      leaves = colonnadeLeaves(ctx.rng, band, cols, MinLeafH)
     ## FEASIBILITY FIRST. A leaf can host a ray-blocking structure only if
     ## its whole footprint is off protected floor — otherwise the carve
     ## deletes the very wall the plan is counting on. Checking this BEFORE
     ## choosing roles is what stops the generator from promising something
     ## the engine will silently take away.
-    var capable: seq[int]
+    var
+      foot = newSeq[MapRect](leaves.len)
+      capable: seq[int]
     for i, leaf in leaves:
-      let fp = footprintOf(leaf)
-      if fp.w >= 60 and fp.h >= 2 * DoorPx + 3 * WallThick and
-          ctx.board.rectUnprotected(fp):
+      foot[i] = footprintOf(leaf, band)
+      if foot[i].w >= 60 and foot[i].h >= 2 * DoorPx + 3 * WallThick and
+          ctx.board.rectUnprotected(foot[i]):
         capable.add i
 
     ## THE Y-COVER. Under mirror symmetry the left half alone must break
@@ -350,49 +382,62 @@ proc districtPlanScene(coverTargetPermille: int): Scene =
     ## built because it covers rows nothing else covers — that is the
     ## reason, recorded as the `rayblock` tag, and it is the reason the
     ## sightline-repair prosthetic is not needed.
-    var
-      role = newSeq[string](leaves.len)
-      order = capable
-    order.sort(proc(a, b: int): int = cmp(leaves[a].y, leaves[b].y))
-    var cursor = ctx.board.scanLo
+    ##
+    ## Classic greedy interval cover: from the current cursor, take the
+    ## candidate reaching FURTHEST, not merely the next one that starts in
+    ## time. The naive sweep this replaces refused every seed.
+    var role = newSeq[string](leaves.len)
+    var cursor = max(ctx.board.scanLo, band.y)
     let bandHi = min(ctx.board.scanHi, band.y + band.h)
-    for i in order:
-      let fp = footprintOf(leaves[i])
-      if fp.y <= cursor and fp.y + fp.h > cursor:
-        role[i] = "rayblock"
-        cursor = fp.y + fp.h
-      if cursor >= bandHi: break
-    if cursor < bandHi:
-      ## An honest failure, not a patch: this seed's partition cannot cover
-      ## the scan band, so the candidate is refused and best-of-K draws
-      ## another. No random diamonds are dropped to make it pass.
-      ctx.note "y-cover incomplete, uncovered from y=" & $cursor
-      ctx.board.notes.add "REJECT: sightline y-cover unreachable"
+    while cursor < bandHi:
+      var best = -1
+      for i in capable:
+        if role[i] == "rayblock": continue
+        if foot[i].y <= cursor and foot[i].y + foot[i].h > cursor:
+          if best < 0 or foot[i].y + foot[i].h > foot[best].y + foot[best].h:
+            best = i
+      if best < 0:
+        ## An honest failure, not a patch: this seed's partition cannot cover
+        ## the scan band, so the candidate is refused and best-of-K draws
+        ## another. No random diamonds are dropped to make it pass.
+        ctx.note "y-cover incomplete, uncovered from y=" & $cursor
+        ctx.board.notes.add "REJECT: sightline y-cover unreachable at y=" &
+          $cursor
+        break
+      role[best] = "rayblock"
+      cursor = foot[best].y + foot[best].h
 
     ## Spend what is left of the cover budget on more structure, biggest
     ## leaves first so the map gains architecture rather than confetti.
-    var wallPx = 0
     proc ringPx(fp: MapRect): int =
       fp.w * fp.h - max(0, fp.w - 2 * WallThick) * max(0, fp.h - 2 * WallThick)
+    var wallPx = 0
     for i, r in role:
-      if r == "rayblock": wallPx += ringPx(footprintOf(leaves[i]))
-    let budgetPx = coverTargetPermille * band.w * band.h div 1000
+      if r == "rayblock": wallPx += ringPx(foot[i])
+    ## The budget is measured against the validator's OWN interior band (the
+    ## half of it this domain is responsible for), not against the domain
+    ## rectangle — otherwise the generator aims at a permille the validator
+    ## does not compute and lands outside the 42..168 window it must hit.
+    let budgetPx = coverTargetPermille * interiorHalfPx div 1000
     var rest = capable.filterIt(role[it].len == 0)
     rest.sort(proc(a, b: int): int =
       cmp(leaves[b].w * leaves[b].h, leaves[a].w * leaves[a].h))
     for i in rest:
-      let add = ringPx(footprintOf(leaves[i]))
+      let add = ringPx(foot[i])
       if wallPx + add <= budgetPx:
         role[i] = "rayblock"
         wallPx += add
 
+    ## The areas handed to children are FOOTPRINTS, not leaves: the street
+    ## has already been subtracted, so a child cannot accidentally build in
+    ## it. A child can only ever be given ground it is allowed to use.
     for i, leaf in leaves:
       var tags = @["district"]
       if role[i].len > 0: tags.add role[i]
       else: tags.add "open"
       if leaf.x + leaf.w >= band.x + band.w - 2: tags.add "seam"
       if leaf.x <= band.x + 2: tags.add "home"
-      discard ctx.make(leaf, tags)
+      discard ctx.make(foot[i], tags)
   )
 
 # ---------------------------------------------------------------------------
@@ -419,8 +464,8 @@ proc districtPlanScene(coverTargetPermille: int): Scene =
 proc structureScene(): Scene =
   Scene(name: "structure", render: proc(ctx: var Ctx) =
     let
-      leaf = ctx.region.rect
-      fp = footprintOf(leaf)
+      fp = ctx.region.rect   ## already the footprint: the plan subtracted
+                             ## the street before handing this region over
       t = WallThick
     if fp.w < 60 or fp.h < 2 * DoorPx + 3 * t:
       ctx.note "district too small for a structure"
@@ -463,7 +508,7 @@ proc structureScene(): Scene =
 
 proc plazaScene(): Scene =
   Scene(name: "plaza", render: proc(ctx: var Ctx) =
-    let fp = footprintOf(ctx.region.rect)
+    let fp = ctx.region.rect
     if fp.w < 60 or fp.h < 60: return
     ## Two or three pieces of hard cover, sized from the rules rather than
     ## from a magic number, placed so the open ground is crossable but not
@@ -618,25 +663,53 @@ proc glazierScene(maxPanes: int): Scene =
 # Composition
 # ---------------------------------------------------------------------------
 
-proc ctfTwoTeamScene*(gameMap: CtfMap, coverTargetPermille: int): Scene =
-  ## The whole 2-team map as ONE tree. Read top to bottom this is the map's
-  ## design intent, in order, which is the thing the current 590-line
-  ## imperative generator cannot show you.
+proc ctfTwoTeamScene*(gameMap: CtfMap,
+                      coverTargetPermille, interiorHalfPx: int): Scene =
+  ## The whole 2-team map as ONE tree. Read top to bottom, this IS the map's
+  ## design intent in order — which is the thing the current 590-line
+  ## imperative generator cannot show you at any length.
+  ##
+  ##   ctf2                       names the three regions of a half-field
+  ##     districtPlan  (field)    partitions, and decides which districts
+  ##       structure   (rayblock) must break a sightline / may hold cover
+  ##       plaza       (open)
+  ##     centralBastion (seam)    cover where the two teams actually meet
+  ##     standApron     (apron)   cover on the approach to the pedestal
+  ##     glazier        (field)   glass, last, only where sight exists
   let
     anchor = gameMap.teamAnchor(Red)
-    plan = districtPlanScene(coverTargetPermille)
+    center = gameMap.center
+    ring = gameMap.flagRing
+    border = ArenaBorder
+    height = gameMap.height
+    ## The field stops short of the spawn pocket and of the flag ring. Both
+    ## are protected floor: a wall there is deleted by the carve, so a
+    ## district that straddled them could not keep the sightline promise the
+    ## plan makes on its behalf. The domain is trimmed so the promise is
+    ## always keepable, rather than trimmed later by a validator.
+    fieldX0 = max(gameMap.captureClear + 4,
+                  anchor.x + gameMap.spawnClearW + 8)
+    fieldX1 = center.x - ring - 26
+    plan = districtPlanScene(coverTargetPermille, interiorHalfPx)
   plan.children = @[
     ChildAction(tags: @["district", "rayblock"], scene: structureScene()),
     ChildAction(tags: @["district", "open"], scene: plazaScene()),
   ]
-  result = Scene(name: "ctf2", children: @[
-    ChildAction(full: true, scene: plan),
-    ChildAction(full: true, scene: standApronScene(
-      anchor, gameMap.captureClear - anchor.x + 20, 200)),
-    ChildAction(full: true, scene: centralBastionScene(
-      gameMap.center, gameMap.flagRing)),
-    ChildAction(full: true, scene: glazierScene(3)),
-  ])
+  result = Scene(name: "ctf2",
+    render: proc(ctx: var Ctx) =
+      discard ctx.make(MapRect(x: fieldX0, y: border, w: fieldX1 - fieldX0,
+                               h: height - 2 * border), "field")
+      discard ctx.make(MapRect(x: fieldX1, y: border, w: center.x - fieldX1,
+                               h: height - 2 * border), "seam")
+      discard ctx.make(MapRect(x: border, y: border, w: center.x - border,
+                               h: height - 2 * border), "apron"),
+    children: @[
+      ChildAction(tags: @["field"], scene: plan),
+      ChildAction(tags: @["seam"], scene: centralBastionScene(center, ring)),
+      ChildAction(tags: @["apron"], scene: standApronScene(
+        anchor, gameMap.captureClear - anchor.x + 24, 200)),
+      ChildAction(tags: @["field"], scene: glazierScene(3)),
+    ])
 
 type GraphResult* = object
   gameMap*: CtfMap
@@ -664,41 +737,20 @@ proc generateGraphMap*(seed: int, sizeName = "standard",
       width: gameMap.width, height: gameMap.height, center: gameMap.center,
       scanLo: ArenaBorder + 2, scanHi: gameMap.height - ArenaBorder,
       protectedAt: proc(x, y: int): bool = shell.mapProtectedFloorAt(x, y))
-    anchor = gameMap.teamAnchor(Red)
-    ## The fundamental domain: the left half, minus the home column the
-    ## carve owns, minus the flag ring's reach at the seam.
+    ## The FUNDAMENTAL DOMAIN: the left half. Every scene runs inside it and
+    ## nothing here knows about the lift — `buildArenaObstacles` mirrors the
+    ## result downstream, exactly as it does for the current generator, so
+    ## team fairness is structural rather than checked.
     domain = Region(
-      rect: MapRect(
-        x: gameMap.captureClear + 4,
-        y: ArenaBorder,
-        w: gameMap.center.x - gameMap.flagRing - 26 - gameMap.captureClear - 4,
-        h: gameMap.height - 2 * ArenaBorder),
+      rect: MapRect(x: 0, y: 0, w: gameMap.width div 2, h: gameMap.height),
       tags: @["domain"])
-    seamBand = Region(
-      rect: MapRect(
-        x: gameMap.center.x - gameMap.flagRing - 26,
-        y: ArenaBorder,
-        w: gameMap.flagRing + 26,
-        h: gameMap.height - 2 * ArenaBorder),
-      tags: @["seam"])
     rules = mapRules(sizeName, 2)
-
-  let
-    plan = districtPlanScene(coverTargetPermille)
-  plan.children = @[
-    ChildAction(tags: @["district", "rayblock"], scene: structureScene()),
-    ChildAction(tags: @["district", "open"], scene: plazaScene()),
-  ]
-  runScene(plan, "root/districtPlan", seed, domain, rules, board)
-  runScene(centralBastionScene(gameMap.center, gameMap.flagRing),
-           "root/centralBastion", seed, seamBand, rules, board)
-  runScene(standApronScene(anchor, gameMap.captureClear - anchor.x + 24, 200),
-           "root/standApron", seed,
-           Region(rect: MapRect(x: ArenaBorder, y: ArenaBorder,
-                                w: gameMap.center.x - ArenaBorder,
-                                h: gameMap.height - 2 * ArenaBorder)),
-           rules, board)
-  runScene(glazierScene(3), "root/glazier", seed, domain, rules, board)
+    ## The half-share of the band the validator actually computes its cover
+    ## permille over.
+    interiorHalfPx = (gameMap.width - 2 * gameMap.captureClear) *
+      (gameMap.height - 2 * ArenaBorder) div 2
+  runScene(ctfTwoTeamScene(gameMap, coverTargetPermille, interiorHalfPx),
+           "root", seed, domain, rules, board)
 
   for p in board.placements:
     gameMap.leftObstacles.add p.shape
