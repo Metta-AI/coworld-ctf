@@ -87,7 +87,15 @@ suite "league manifest config_schema vs GameConfig":
   let
     ctfSchema = manifestSchema("coworld_manifest.json")
     paintbotSchema = manifestSchema("coworld_manifest_paintbot.json")
-    samples = parseJson(SampleJson)
+    samples = block:
+      # mapSpec's payload must be a FULL, valid map object — config.update
+      # resolves it (mapFromSpecJson) rather than storing it blind — so build
+      # one from a generated map instead of inlining a huge literal.
+      var s = parseJson(SampleJson)
+      let spec = mapSpecJson(generateMapAttempt(
+        1, MapGenOverrides(size: "small", windows: -1, pits: -1, pitDensity: -1)))
+      s["mapSpec"] = %*{"mapSpec": parseJson(spec)}
+      s
 
   test "the ctf schema is a subset of the paintbot schema":
     # The two manifests share one game binary; paintbot's variants may expose
