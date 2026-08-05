@@ -993,7 +993,7 @@ By this standard, exactly three of our properties are established:
 
 | Property | Intervention | Result |
 |---|---|---|
-| **D1** stand-side cover 10–25% | raised cover fraction into band | 0 captures → 18 steals / 6 captures, every episode ending in a capture. Failing maps outside the band: 0-of-21, 0-of-17, 0-of-10 |
+| **D1** stand-side cover 10–25% *(and it is **not** enforced — §4.2)* | raised cover fraction into band | 0 captures → 18 steals / 6 captures, every episode ending in a capture. Failing maps outside the band: 0-of-21, 0-of-17, 0-of-10 |
 | **A4** spawn clear of the capture circle | moved the spawn out of the circle | 0-of-22 → converts |
 | **A6** endzone read from the map | steered to the engine-stated endzone instead of `homeDeepX = 150` | grab→capture 0/6 → 3/4 |
 
@@ -1088,6 +1088,13 @@ plus G1) and roughly a dozen that deserve to be bands.
 
 Ordered by expected value. Items 7.1–7.3 are computable today from data we already have.
 
+**Correction to the brief I was given:** the shipped band list in `map_metrics.nim` is considerably
+richer than I was told, and four things I would otherwise have listed as missing are in fact present
+— `collisionCoverRatio`, `chokeCoveredPenalty`, `visDegreeFrac`/`visDegreeCv`, and the
+`standRingSpread`/`standCoverSpread` fairness pair. Those are marked **[present]** below with what is
+actually still absent about them. Claiming a shipped metric is missing would be the worst possible
+error in a document like this, so each item below was re-checked against source.
+
 ### 7.1 Anything that knows travel is L∞
 
 Nothing in `map_metrics.nim` or `map_rules.nim` models the 41% heading anisotropy of §3.1. Every
@@ -1097,7 +1104,11 @@ heading-aware `exposureBudget(θ, carrying)`. This is the cheapest large correct
 
 ### 7.2 Time-to-contact and the collision point
 
-We have `midfieldSeam` **[engine]**, which is a geometric seam. We do not have:
+**[present]** `collisionCoverRatio` — "cover within 200 px of the collision point vs map average",
+banded 0.70–2.40, arena 1.46 — is Güttler's principle, already implemented and already calibrated.
+`midCrossCount` and `midOpenFrac` describe the seam's permeability. So the *place* is modelled.
+
+What is missing is **time**, which is what Güttler's fairness test is actually about:
 
 - **`T_contact(i)`** — L∞ time from team *i*'s spawn to first mutual visibility with any opponent
   along a shortest route. Güttler's fairness test is `spread(T_contact) ≈ 0` **[lit]**, and it is a
@@ -1108,8 +1119,11 @@ We have `midfieldSeam` **[engine]**, which is a geometric seam. We do not have:
   `pace = 2(1 + exp(−5 N_x / Σ T_e))⁻¹ − 1`, tuned so pace ≈ 0.9 at ~3 s mean time-to-engage.
 
 Güttler's `cs_citymall` failure is the canonical warning: the designed climax room went unused
-because the collision point landed elsewhere and "almost half the level wasn't used". We have no
-metric that would catch this.
+because the collision point landed elsewhere and "almost half the level wasn't used".
+`collisionCoverRatio` would catch a *badly covered* collision point; nothing we have would catch a
+collision point in *the wrong place*, because the seam is computed geometrically rather than as an
+L∞ isochrone. Note also that the pool's `collisionCoverRatio` minimum is **0.05** — some generated
+maps have essentially no cover where the teams first meet, which is Güttler's example A.
 
 ### 7.3 Angle count `A(p)` and exposure fraction `Ω(p)`; and the cone-restricted isovist
 
@@ -1128,7 +1142,12 @@ metric that would catch this.
 
 ### 7.4 Visibility graph analysis proper
 
-Turner et al. (2001) **[lit]** give a mature toolkit we approximate with hand-rolled scalars:
+**[present]** `visDegreeFrac` and `visDegreeCv` (banded 0.30–1.20, "unevenness of exposure across
+the board; arena 0.52, pool median 0.28 — a uniform board has no good and bad ground") mean a
+visibility-degree field already exists and is already used well. The critique is not that it is
+absent but that only its *first two moments* are used.
+
+Turner et al. (2001) **[lit]** give a mature toolkit around the same field:
 **connectivity** (degree = isovist area), **integration** (inverse mean visual depth), **control**,
 and the **clustering coefficient** (local convexity/enclosure — the principled `interiorFrac`
 replacement, §6.3). The MAP-Elites paper's "visibility matrix ... for each tile the number of tiles
@@ -1159,9 +1178,18 @@ as boards get bigger (§5.3), and the divergence is *maximal* on exactly the pat
 
 ### 7.7 The quality/balance pairing
 
-Liapis et al. pair **every** quality metric with a balance metric — `f_res`/`b_res`,
-`f_saf`/`b_saf`, `f_exp`/`b_exp` **[lit]**. We report means over the whole board and no spreads
-across teams. A map with an excellent mean stand-side cover fraction can have one team at 4% and the
+**[present, for two metrics]** `standRingSpread` (≤ 0.10) and `standCoverSpread` (≤ 0.04) are
+exactly Liapis's quality/balance pairing, applied to the stand ring. The idea is already in the
+codebase; it is simply not generalised.
+
+Liapis et al. pair **every** quality metric with a balance metric — `f_res`/`b_res`, `f_saf`/`b_saf`,
+`f_exp`/`b_exp` **[lit]**. We pair two, and report the rest as whole-board means.
+
+**A spread is not a substitute for a floor, and conflating them is the single most consequential
+mistake in the current suite.** `standCoverSpread ≤ 0.04` is satisfied perfectly by two *equally
+naked* stands. The causally-established property (§6.1) is an absolute minimum, and a fairness spread
+cannot express it. Every metric needs **both**: a floor/band on the level, and a spread on the
+difference. A map with an excellent mean stand-side cover fraction can have one team at 4% and the
 other at 22%; today it scores well. **Rule: for every P in the suite, also compute `spread(P)` across
 teams and band it.** Under exact D4 symmetry the spreads are identically zero, which makes this cheap
 insurance rather than a burden — and it is precisely the check that catches a symmetry bug.
@@ -1170,9 +1198,14 @@ insurance rather than a burden — and it is precisely the check that catches a 
 
 Two constraints, both formalisable, both absent:
 
-- **No single position covers all chokepoints** (Level Design Book **[C†]**): for every candidate
-  `q`, `count{ c : ‖q−c‖ ≤ GunRange ∧ LOS(q,c) } < numChokepoints`. Our `chokepointSpacingPx =
-  GunRange` is a *pairwise* proxy, and pairwise spacing does not imply joint non-coverage.
+- **[present, mis-ranged]** `chokeCoveredPenalty` — "1 when ONE 1050 px isovist watches every
+  chokepoint — one camper owns every route" — already implements the joint-coverage test. But
+  1050 px is `GunRange`, and §3.6 shows a camper can only *kill* out to ~260 px. As written the
+  metric conflates watching with covering: it flags maps that are actually fine, and misses maps
+  where one position genuinely covers every chokepoint at lethal range. **Compute it at 260 px.**
+  Keeping the 1050 px version as a separate *information* metric is worthwhile — they are different
+  design facts and both matter. Separately, `chokepointSpacingPx = GunRange` is a pairwise proxy for
+  the same idea, and is wrong by 4× for the same reason.
 - **Every power position has a counter-position** (Hullett 2012 **[C†]**): "players in sniper
   locations must also be wary of counter attack from the complementary sniper location on the other
   side of the level". Free under exact D4 symmetry — which is a good argument for enforcing B1 by
