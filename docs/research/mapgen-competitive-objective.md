@@ -15,6 +15,8 @@ confident published assertions with no evidence behind them.
 ## 0. The three headline results
 
 Read these first; the rest of the document is their derivation and their consequences.
+**Read 0.4 first — it is the largest single correction and it changes range-derived numbers
+throughout this epic.**
 
 **0.1 — Our movement metric is L∞ (Chebyshev), not Euclidean, and nothing in our metric suite
 knows it.** `sim.nim` clamps `velX` and `velY` independently to `±maxSpeed` with no diagonal
@@ -50,7 +52,20 @@ gives `f = 14.3%` and `f = 9.0%` respectively — the centre and the floor of th
 Setting `g` for a *non-carrier* at full speed (132 px / 187 px) gives 8.9% and 5.3%. That is why the
 invariant is *specific to the pedestal*: the pedestal is the only place where anyone is moving at
 0.7×. The global validator band (4–17%) is roughly right for full-speed traffic and fatally too loose
-at the stand. See §3.4 for the full derivation.
+at the stand. See §3.4 for the derivation and §3.6 for the version that also accounts for 0.4.
+
+**0.4 — `GunRange = 1050 px` is a REACH, not an engagement range; the aim lattice caps the real
+lethal envelope at ~140–260 px.** Aim is quantised to 32 slots 11.25° apart and re-snapped every
+tick; the gun hit test accepts a ray within `PlayerHalf + BulletHalfWidth = 14 px` of the *solid*
+13 px body (not the 34 px drawn one); there is no aim assist. One slot's worst-case pointing error
+equals that 14 px window at **`R_slot = 14 / tan(5.625°) = 142 px`**, and beyond it hit probability
+falls as `arctan(14/t) / 5.625°` — 0.47 at 300 px, **0.14 at `GunRange`**, where time-to-kill is
+10.5 s. Three independent engine constants agree on the envelope: `FieldAccuracyPct = 55` is
+achieved at 259 px, `GrenadeMaxRange = ShoutRange = GunRange/4 = 262 px`, and the observed 1.0–1.9 s
+TTK band implies 142–225 px. **You can see 6× further than you can kill.** §3.6 derives it from the
+simulator source and lists the numbers it invalidates — `ChokepointSpacingPx` (4× too large),
+`chokeCoveredPenalty`'s 1050 px isovist, `longRunFrac`'s 600 px cut, and any encounter-density law
+calibrated on gun or vision range (overstated 12–16×).
 
 ---
 
@@ -744,18 +759,18 @@ the same 150–300 px window.
 | C2 | Equidistant frontier F (in L∞) is non-degenerate and does not coincide with any pedestal | dist(F, pedestal) ≥ `GunRange` | C† | all |
 | C3 | Cover fraction on F is in band | 5–9% (full-speed traffic, §3.4) | C† | occl. |
 | **D. Conversion — the phase that decides matches** ||||
-| D1 | Stand-side cover fraction within 200 px of each pedestal | **10–25%** | **N★** | all |
+| D1 | Stand-side cover fraction within 200 px of each pedestal | **10–25%** — *intent only; see §4.2* | **N★** | all |
 | D2 | Carry-route cover cadence: no exposed run > carrier budget anywhere on the shortest carry route | ≤ 92 px axis / 131 px diagonal ⇒ f ≥ 9–14% in a 200 px corridor | N⊢ | all |
-| D3 | Vertex-disjoint routes between each base pair **and** on the carry route | **k ≥ 3**; k = 1 fatal | **N★** | all |
+| D3 | Vertex-disjoint routes between each base pair **and** on the carry route | intent **k ≥ 3**; **shipped `routeCountMin ≥ 2`**; k = 1 fatal | **N★** | all |
 | D4 | Carry route contains no dead end | exact | N⊢ | all |
 | **E. Sightline and exposure** ||||
-| E1 | Max exposed run on any required route, heading- and acquire-corrected | see §3.3 table | N⊢ | occl. |
+| E1 | Max exposed run on any required route, heading-, acquire- **and range-**corrected | see §3.3 and §3.6 | N⊢ | occl. |
 | E2 | Angle count `A(p)` on required routes | `A ≤ 3`, and `A ≤ 2` on the carry route (proposed, untested) | C† | occl. |
 | E3 | Exposure fraction `Ω(p)` on required routes | `Ω ≤ 0.5` (proposed, untested) | C† | occl. |
-| E4 | No single position covers all chokepoints | exact | C† | all |
+| E4 | No single position covers all chokepoints | exact — **shipped as `chokeCoveredPenalty`, but on a 1050 px isovist; re-cut at 260 px (§3.6)** | C† | all |
 | E5 | Every power position has a D4-image counter-position | exact (free under B1) | C† | all |
 | **F. Architecture — shape, not density** ||||
-| F1 | `coverFrac` (components ≤ ~2 w) banded separately from `structureFrac` | cover 5–9% global, 10–25% stand; structure unbanded | N⊢ | all |
+| F1 | `coverFrac` (components ≤ ~2 w) banded separately from `structureFrac` | derived 5–9% global, 10–25% stand; **shipped is a single global `CoverPermille 40–170` (4–17%)** | N⊢ | all |
 | F2 | Free-sightline **tail**, not mean: 95th percentile of free-ray length | ≤ `GunRange` | C∼ | occl. |
 | F3 | Used space — floor on a shortest path between an objective pair | ≥ 50% (proposed; Güttler's failure case was < 50%) | C† | all |
 | F4 | Total wall coverage below the maze threshold | ≤ 35% | C† / F | all |
@@ -827,6 +842,33 @@ bands an *average*. The quantity that kills is the tail: one 900 px lane on an o
 board sets the map's character, and it moves the mean by almost nothing. Band a high percentile
 (p95) or the max instead, or band the mean *and* the tail. This is a small change with a large
 correctness gain and no new machinery.
+
+### 4.2 Shipped vs intent — the drift this section exists to catch
+
+Verified against `map_metrics.nim` / `map_rules.nim` on this branch. **Where design intent and the
+enforced band disagree, the enforced band is what ships and the intent is decoration.**
+
+| Property | Design intent | What the validator actually enforces | Verdict |
+|---|---|---|---|
+| Route count | `k ≥ 3` vertex-disjoint | `Band("routeCountMin", lo = 2.0, kind = bandHard)` — **`k ≥ 2`** | **Divergent.** k = 2 admits a two-corridor map; the intent was three. Either raise the band or stop citing 3 |
+| Stand-side cover | absolute **10–25%** within 200 px | **no absolute stand rule**. What ships is `standRingOpenMin` (0.25–0.95), `standRingSpread` (≤ 0.10) and `standCoverSpread` (≤ 0.04) — i.e. **fairness spreads between teams**, plus a global `CoverPermille 40–170` | **Divergent, and this is the highest-value gap in the suite.** A perfectly *symmetric* pair of naked stands scores 0 on both spreads and passes. The causally-established property (§6.1) is an **absolute floor**, and no absolute floor is enforced |
+| Cover fraction | 5–9% global / 10–25% stand (§3.4, §3.6) | one global band, 4–17% | **Under-specified**, not wrong. One band cannot express a phase-dependent requirement |
+| Chokepoint coverage | no position covers all chokepoints | `chokeCoveredPenalty`, computed on a **1050 px** isovist | **Present but mis-ranged** (§3.6). Re-cut at 260 px |
+| Chokepoint spacing | independently defensible | `ChokepointSpacingPx = GunRange = 1050` | **Wrong by ~4×** (§3.6) |
+| Collision-point cover | Güttler's principle | `collisionCoverRatio` 0.70–2.40, arena 1.46, **pool median 0.83, pool min 0.05** | **Present and well-calibrated.** The pool minimum of 0.05 says some generated maps have essentially no cover where the teams meet |
+| `interiorFrac` | architecture discriminator | banded 0.25–0.65 at **weight 3.0 — the highest weight in the set**, labelled "the single highest-value static metric" | **The Goodhart exposure in §6.3 is aimed at the most heavily weighted term in the score.** Treat as urgent |
+
+Two structural observations about the shipped band list, which is considerably better than the brief
+implied:
+
+- **It is already control-anchored.** Every band records the hand-authored arena's measured value in
+  `control:` and `map_eval` re-checks the control on every run. That is the right discipline and it
+  should not be lost in a rewrite.
+- **But every band is calibrated on `control` = the arena and `pool` = today's generator output.**
+  That is an *expressive-range* calibration (§7.12), not a *quality* calibration: it encodes "look
+  more like the arena and less like the current pool". §6.3 is the argument that this is exactly the
+  authorship confound, and the `interiorFrac` note — "arena 34.2%, pool median 11.8% — the
+  scatter-vs-buildings discriminator" — states the confound in its own words.
 
 ---
 
