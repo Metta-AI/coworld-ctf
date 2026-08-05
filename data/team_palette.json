@@ -1,0 +1,70 @@
+{
+  "version": 1,
+  "comment": "Canonical team color palette — the shared contract between the replay viewer (vibrant `game` colors) and the softmax.com picker (`ink` print variants). Array order IS the fallback walk order (see docs/COLOR_CONTRACT.md). The first four entries are the engine's stock team colors and wire words: they must never change value or position. Validate with scripts/validate_palette.py.",
+  "colors": [
+    {
+      "slug": "red",
+      "wire": "red",
+      "display": "Vermillion",
+      "game": "#e0523a",
+      "hue": 9,
+      "ink": ["#b3603f", "#8a4630"]
+    },
+    {
+      "slug": "blue",
+      "wire": "blue",
+      "display": "Cerulean",
+      "game": "#3f7cc4",
+      "hue": 213,
+      "ink": ["#52739f", "#2f4e7c"]
+    },
+    {
+      "slug": "green",
+      "wire": "green",
+      "display": "Clover",
+      "game": "#45a85e",
+      "hue": 135,
+      "ink": ["#5d8a68", "#3f6349"]
+    },
+    {
+      "slug": "yellow",
+      "wire": "yellow",
+      "display": "Citrine",
+      "game": "#ddc531",
+      "hue": 52,
+      "ink": ["#9a7a2c", "#6f5720"]
+    },
+    {
+      "slug": "teal",
+      "wire": null,
+      "display": "Lagoon",
+      "game": "#35a8a8",
+      "hue": 180,
+      "ink": ["#3f7f7c", "#2b5a58"]
+    },
+    {
+      "slug": "purple",
+      "wire": null,
+      "display": "Amethyst",
+      "game": "#8452cf",
+      "hue": 264,
+      "ink": ["#7d5f9e", "#584273"]
+    },
+    {
+      "slug": "magenta",
+      "wire": null,
+      "display": "Fuchsia",
+      "game": "#d15a9e",
+      "hue": 326,
+      "ink": ["#a85780", "#7c3d5d"]
+    },
+    {
+      "slug": "orange",
+      "wire": null,
+      "display": "Marigold",
+      "game": "#e08a2e",
+      "hue": 31,
+      "ink": ["#b06d2e", "#845020"]
+    }
+  ]
+}
