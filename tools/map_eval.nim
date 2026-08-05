@@ -274,16 +274,16 @@ proc scoreMap*(metrics: MapMetrics, control: MapMetrics): ScoreCard =
   ## a stand standing in the open never converted (6-12% cover within 200px)
   ## while every map that did convert measured 10-25%.
   ##
-  ## It governs CAPTURE-AT-THE-STAND maps. On a legacy full-height column
-  ## endzone the carrier scores by crossing into the home column, the whole
-  ## `captureClear` strip is protected floor the generator may not build in,
-  ## and the reading is structurally low for a reason that has nothing to do
-  ## with how the map plays: the control measures 7.2% and converts fine.
-  ## So the numbers are measured and printed on every map, and scored only
-  ## where the rule applies.
+  ## It governs CAPTURE-AT-THE-STAND maps, which since GV38 is every map: the
+  ## hex arena is all-disc and the scoring zone IS the ring around the stand.
+  ## The skip below is what remains of the era when a zone could be a
+  ## full-height column that scored nowhere near the stand — it can no longer
+  ## trigger from the shipped generator, and it is kept rather than deleted so
+  ## a `spec:` map pinned from an older replay still reports instead of being
+  ## scored against a rule that does not describe it.
   var standSkip =
     if metrics.compactEndzone: ""
-    else: "legacy column endzone: capture is not at the stand here"
+    else: "endzone states no radius: capture is not at the stand here"
   ## And the second way this band can be unreachable: a compact endzone
   ## whose radius swallows the whole 200px annulus makes every pixel of it
   ## protected floor, where the generator is forbidden to build. Scoring

@@ -90,9 +90,9 @@ type
     coverFrac*: float             ## wall fraction within StandRadius.
     protectedFrac*: float         ## ...of that annulus that is PROTECTED
                                   ## floor, where terrain may not be built.
-                                  ## On a legacy column endzone this is most
-                                  ## of it, which is why `coverFrac` reads
-                                  ## structurally low there.
+                                  ## A large endzone radius makes this most of
+                                  ## the annulus, which is why `coverFrac`
+                                  ## reads structurally low on those maps.
     ringRadius*: int              ## px the ring was sampled at.
     ringOpen*: float              ## fraction of the ring that is walkable.
     ringArcs*: int                ## distinct arcs wide enough to walk.

@@ -178,8 +178,8 @@ you touch it:
   first, and a band the control fails prints as a METRIC BUG rather than as
   a bad map. Two bands are deliberately *reported but not scored* because
   scoring them would flag the control or a thing no terrain choice can fix:
-  trench count (the arena has none) and stand-side cover on legacy
-  column-endzone maps.
+  trench count (the arena has none) and stand-side cover on a map whose
+  endzone states no radius.
 - **Never a count without its fraction.** Midfield crossings print the open
   fraction of the line; stand ring arcs print beside the ring's openness.
 - **Three episodes minimum**, and fewer prints a warning.
@@ -189,7 +189,12 @@ you touch it:
   `--max-ticks` legitimately.
 - **Conversion is only a map signal when the control converts.** At the
   shipped `lives: 3` a 16-seat game is decided by attrition before anyone
-  scores; the harness says so instead of blaming the terrain.
+  scores; the harness says so instead of blaming the terrain. This guard has
+  already earned its keep: on the hex board it caught the reference bot
+  converting 0 of 21 steals across every map at once — a policy bug driving
+  the carrier to a "home column" that never entered a disc endzone, which
+  would otherwise have been read as four bad maps
+  (`players/baseline/baseline.nim`'s `captureAim`, `tools/ez_probe_aacf.nim`).
 
 ## Replay fixtures
 
