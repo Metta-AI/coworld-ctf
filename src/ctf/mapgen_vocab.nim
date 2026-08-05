@@ -110,7 +110,8 @@ func vocabParams*(rules: MapRules): VocabParams =
     coverSizePx: rules.coverSizePx,
     corridorPx: rules.minCorridorWidthPx,
     maxExposedRunPx: rules.maxExposedRunPx,
-    density: 1.0)
+    density: 1.0,
+    mirrorIsVertical: true)
 
 func vocabParams*(sizeName: string, teamCount: int): VocabParams {.inline.} =
   vocabParams(mapRules(sizeName, teamCount))
@@ -154,10 +155,16 @@ func vocabFootprint*(item: VocabItem, p: VocabParams): tuple[w, h: int] =
   ## region still gets valid output (everything is clamped in), but a dorito
   ## run squeezed into half a footprint degenerates into one diamond, and a
   ## massif into a pebble. The long items (`viSnake`, `viMassif`, `viCave`)
-  ## are BANDS: their first dimension is a run length, and a composer is
-  ## expected to stretch them further along whichever axis the region is
-  ## longer on — every long item picks its axis from `region`.
+  ## are BANDS: one dimension is a run length and the other is the feature's
+  ## thickness. A snake takes its axis from the region's longer side; a massif
+  ## or cave takes it from `mirrorIsVertical`, NOT from the region, so the
+  ## footprint returned here is already oriented the way the item will build
+  ## (see `VocabParams.mirrorIsVertical` — it is a fairness constraint).
   let c = p.coverSizePx
+  # A ridge runs perpendicular to the mirror line, so with the usual vertical
+  # mirror its RUN is vertical and its footprint is portrait.
+  template ridge(runLen, thick: int): tuple[w, h: int] =
+    if p.mirrorIsVertical: (thick, runLen) else: (runLen, thick)
   case item
   of viDorito: (3 * c, 3 * c)
   of viCan: (3 * c + p.corridorPx, 3 * c + p.corridorPx)
@@ -169,11 +176,13 @@ func vocabFootprint*(item: VocabItem, p: VocabParams): tuple[w, h: int] =
   # A massif is at most `2*radHi` (~1.57 c) thick; the corridor on top is the
   # walkable lane BETWEEN two neighbouring massifs. Tiling at the bare mass
   # width packs ridges 30-60 px apart, which is under the passability floor.
-  of viMassif: (6 * c, 2 * c + p.corridorPx)
+  of viMassif: ridge(8 * c, 2 * c + p.corridorPx)
   # A cave needs two walls of `2*radHi + radLo` (~1.93 c) PLUS its mouth, and
   # then a lane outside it before the next feature; squeeze it into less and
-  # the walls thin out before the gap does.
-  of viCave: (6 * c, 4 * c + 2 * p.corridorPx)
+  # the walls thin out before the gap does. That makes a cave intrinsically
+  # ~6.5 cover pieces THICK, so its run has to be long enough that it still
+  # reads as a passage rather than a square blot — hence 10c.
+  of viCave: ridge(10 * c, 4 * c + 2 * p.corridorPx)
 
 func isLongItem*(item: VocabItem): bool {.inline.} =
   ## Items that read as a RUN along an axis and want a band, not a slot.
@@ -854,8 +863,15 @@ proc massifPolys(
     r: var Rand, region: MapRect, p: VocabParams, vStart: int
 ): seq[ArenaShape] =
   ## The shared body of `massif` and `cave`.
+  ##
+  ## THE RUN AXIS COMES FROM THE MIRROR, NOT FROM THE REGION. `pairedSimplify`
+  ## can only make a traced ridge mirror-exact when its profile samples land
+  ## on matching SCAN ROWS, which requires the run axis to be perpendicular to
+  ## the mirror line. Taking the axis from the region's aspect (as every other
+  ## item does) silently produced ridges that were 21% asymmetric wall
+  ## whenever a composer handed over a landscape band.
   let
-    alongH = horizontal(region)
+    alongH = not p.mirrorIsVertical
     runLen = if alongH: region.w else: region.h
     crossLen = if alongH: region.h else: region.w
   if runLen < 24 or crossLen < 10: return
@@ -977,7 +993,9 @@ proc cave*(r: var Rand, region: MapRect, p: VocabParams): seq[ArenaShape] =
   let band = region.inset(2)
   if band.w < 40 or band.h < 24: return
   let
-    alongH = horizontal(band)
+    # Same fairness constraint as `massifPolys`: the two walls run
+    # perpendicular to the mirror line, so the MOUTH is measured across it.
+    alongH = not p.mirrorIsVertical
     crossLen = if alongH: band.h else: band.w
     (radLo, radHi) = p.massifRadius
   if crossLen < 4 * radLo + p.corridorPx: return
