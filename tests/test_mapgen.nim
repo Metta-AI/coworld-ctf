@@ -34,6 +34,97 @@ suite "procedural terrain":
   test "same seed generates the same map":
     check generateCtfMap(4242) == generateCtfMap(4242)
 
+  test "a retry redraws the TERRAIN, never the board":
+    ## The old retry was `seed + attempt`, so attempt 1 of seed N was
+    ## literally attempt 0 of seed N+1: rejected seeds aliased onto their
+    ## neighbours, at whatever size class that neighbour drew, and
+    ## `mapSeed 1002` silently meant "map 1003". Every retry now perturbs the
+    ## TERRAIN sub-streams only, so a seed names one board and the retries
+    ## are that board redrawn.
+    ##
+    ## This is also what stops best-of-K buying its score with the size
+    ## class: the ranker compares layouts of one map, not different maps.
+    const Overrides = MapGenOverrides(windows: -1, pits: -1, pitDensity: -1)
+    var terrainChanged = false
+    for seed in 1001 .. 1012:
+      let first = generateMapAttempt(seed, Overrides, 2, 0)
+      for attempt in 1 .. 3:
+        let retry = generateMapAttempt(seed, Overrides, 2, attempt)
+        check (retry.width, retry.height) == (first.width, first.height)
+        check retry.symmetry == first.symmetry
+        check retry.endzoneRadius == first.endzoneRadius
+        check retry.homeDepth == first.homeDepth
+        check retry.teamHomeX(Red) == first.teamHomeX(Red)
+        if retry.leftObstacles != first.leftObstacles:
+          terrainChanged = true
+      ## ...and it must not be the SAME map either, or the retry could never
+      ## clear a validator the first draw failed.
+      check generateMapAttempt(seed, Overrides, 2, 1) != first
+    check terrainChanged
+
+  test "best-of-K ships a different, still-valid map than first-valid":
+    ## `generateCtfMap` collects K valid candidates and ships the highest
+    ## static scorer. K=1 must reproduce the historical first-valid map
+    ## exactly, K>1 must still validate, and the two must actually differ on
+    ## some seed — a ranker that always picks candidate 0 is indistinguishable
+    ## from no ranker at all.
+    proc withK(k: int): MapGenOverrides =
+      MapGenOverrides(windows: -1, pits: -1, pitDensity: -1, rankK: k)
+    ## Six seeds, not sixty: every K=8 generation is ~10 validated draws plus
+    ## 8 scorings (~3.5s release), so this suite pays real wall clock and the
+    ## assertion is qualitative — "ranking happens and never breaks the map".
+    ## The DISTRIBUTION claim is measured by tools/map_rank_probe.nim over
+    ## hundreds of seeds, which is where that question belongs.
+    var ranked = 0
+    for seed in 1001 .. 1006:
+      let
+        firstValid = generateCtfMap(seed, withK(1))
+        best = generateCtfMap(seed, withK(8))
+      check validateGeneratedMap(best) == ""
+      ## The seed the CALLER asked for, whichever attempt won it: `gen:<seed>`
+      ## has to round-trip and the pool stores seeds.
+      check best.genSeed == seed
+      check best.name == "gen-" & $seed
+      ## Same board, ranked terrain.
+      check (best.width, best.height) == (firstValid.width, firstValid.height)
+      check best.symmetry == firstValid.symmetry
+      if best.leftObstacles != firstValid.leftObstacles:
+        inc ranked
+      ## THE INVARIANT THAT MAKES BEST-OF-K SAFE: candidate 0 IS the
+      ## first-valid map, so the ranker's argmax can never score below it.
+      ## Measured over 300 seeds, 260 improved and ZERO regressed.
+      check best.scoreCandidate(controlMetrics()) >=
+        firstValid.scoreCandidate(controlMetrics()) - 1e-9
+    check ranked > 0
+
+  test "the ranker prefers the candidate the scorer prefers":
+    ## The ranking loop and the score must not drift apart: whatever
+    ## `generateCtfMap` ships has to be the argmax of `scoreCandidate` over
+    ## the candidates it actually collected.
+    const Overrides = MapGenOverrides(windows: -1, pits: -1, pitDensity: -1)
+    let control = controlMetrics()
+    for seed in [1001, 1004, 1009]:
+      var candidates: seq[CtfMap]
+      var attempt = 0
+      while attempt < 100 and candidates.len < 8:
+        let candidate = generateMapAttempt(seed, Overrides, 2, attempt)
+        inc attempt
+        if validateGeneratedMap(candidate) == "":
+          candidates.add candidate
+      check candidates.len == 8
+      var bestScore = -1.0
+      for candidate in candidates:
+        bestScore = max(bestScore, candidate.scoreCandidate(control))
+      let shipped = generateCtfMap(
+        seed, MapGenOverrides(windows: -1, pits: -1, pitDensity: -1, rankK: 8))
+      check abs(shipped.scoreCandidate(control) - bestScore) < 1e-9
+
+  test "mapRankK is bounded":
+    var config = defaultGameConfig()
+    expect CtfError:
+      config.update("""{"mapPath": "gen", "mapSeed": 7, "mapRankK": 999}""")
+      discard resolveCtfMapMetadata(config)
+
   test "every pool seed validates on its first attempt":
     var widths: seq[int]
     for seed in MapPoolSeeds:

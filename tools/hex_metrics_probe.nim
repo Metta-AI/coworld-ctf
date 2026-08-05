@@ -1,5 +1,5 @@
 ## Scratch probe: the control arena's landmark metrics on the landscape hull.
-import std/[os, strformat], ctf/[arena, sim], "./map_metrics", "./map_eval"
+import std/[os, strformat], ctf/[arena, sim], "./map_eval"
 
 setCurrentDir(getAppDir() / "..")
 let control = computeMapMetrics(loadCtfMapMetadata("arena"))

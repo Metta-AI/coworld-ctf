@@ -5,8 +5,7 @@
 ## a steal converts, this says WHY it could not.
 import
   std/[strformat, strutils],
-  ../src/ctf/[arena, sim_config, sim_types],
-  map_metrics,
+  ../src/ctf/[arena, map_metrics, sim_config, sim_types],
   toolutil
 
 proc report(label: string, gm: CtfMap) =

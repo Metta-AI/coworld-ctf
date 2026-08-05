@@ -12,6 +12,15 @@ import
 import sim_types, rig_art, arena, map_art, sim_config, sim_state, roster
 export sim_types, rig_art, arena, map_art, sim_config, sim_state, roster
 
+## `map_metrics`/`map_score` are the measuring stick, not gameplay — nothing
+## below calls them. They are imported HERE for one reason: importing
+## `map_score` runs its module initializer, which installs the best-of-K
+## candidate ranker into `arena`'s hook, so every binary that can build a
+## game generates RANKED maps rather than first-valid ones. Drop this import
+## and map generation silently degrades to the 50th percentile.
+import map_metrics, map_score
+export map_metrics, map_score
+
 proc grenadeSpawnPoints*(gameMap: CtfMap,
                          extraInset = 0): array[4, tuple[x, y: int]] =
   ## The four grenade spawn points, at four VERTICES of the arena hexagon,
