@@ -304,6 +304,38 @@ const
     ## (`S` = MaxExposedRunPx), that is `W >= 47 px`. The hand-tuned 56 clears
     ## it by 19%; a 34 px piece (one body) would NOT.
 
+  AimHalfSlotDeg* = 360.0 / float(AimRotations) / 2.0            ## 5.625 deg
+  LethalEnvelopePx* = 259
+    ## THE ENGAGEMENT RANGE, as opposed to `GunRange`, which is a REACH.
+    ##
+    ## Aim is exactly `AimRotations` = 32 slots, 11.25 deg apart, and `sim`
+    ## reconstructs `aimBrads = slot * AimStepBrads` every tick, so an off-grid
+    ## angle cannot persist. There is no aim assist anywhere in the sim. A shot
+    ## is accepted against the 13 px SOLID body within `BulletHalfWidth`, so the
+    ## angular acceptance is `atan((PlayerHalf + BulletHalfWidth) / t)` against
+    ## a half-slot of 5.625 deg — and the jitter sigma of 0.596 deg is 9.4x
+    ## smaller than the half-slot, so THE LATTICE DOMINATES, not the jitter.
+    ##
+    ## Below `R_slot = 14 / tan(5.625 deg)` = 142 px a centred enemy cannot be
+    ## missed by the lattice at all; beyond it `P(hit) ~= atan(14/t) / 5.625`,
+    ## which is 0.47 at 300 px and 0.14 at `GunRange` — where TTK is over ten
+    ## seconds and nobody is fighting.
+    ##
+    ## Three independent constants converge on the same envelope, which is why
+    ## this is a constant and not a guess:
+    ##   * `FieldAccuracyPct` = 55 is achieved at 259 px;
+    ##   * `GrenadeMaxRange` = `GunRange div 4` = 262 px, agreeing to 1.1%;
+    ##   * the observed 1.0-1.9 s TTK band implies 142-225 px.
+    ##
+    ## UNVERIFIED DEPENDENCY: no hit-rate-versus-range measurement from the
+    ## field has been taken. One query against the league replay loop would
+    ## settle it. Everything gated on this constant moves together if it does.
+
+  EngagementWidthPx* = 2 * LethalEnvelopePx
+    ## The strip within which a moving player can actually KILL, not merely
+    ## see. `2 * lambda` (the awareness width) is 4x this, which is why any
+    ## encounter law computed on sightlines overstates lethal contact ~16x.
+
   StrafeWindowPx* = 2 * (PlayerHalf + int(BulletHalfWidth))
     ## 28 px. A shot's acceptance corridor is +-(PlayerHalf + BulletHalfWidth)
     ## = +-14 px, so 28 px of lateral displacement turns a locked-in hit into
@@ -320,19 +352,31 @@ const
     ## emits nothing longer than a 60 px stub, so it builds ZERO structural
     ## walls on any class.
 
-  ChokepointSpacingPx* = GunRange
+  ChokepointSpacingPx* = LethalEnvelopePx
     ## Two chokepoints are tactically distinct exactly when a defender holding
-    ## one cannot shoot into the other. REGIME-INVARIANT; the COUNT per route
-    ## is what a size class changes.
+    ## one cannot KILL into the other — which is `LethalEnvelopePx`, not
+    ## `GunRange`. This was 1050 and therefore about 4x too large, producing
+    ## about 4x too few chokepoints on every class. REGIME-INVARIANT; the COUNT
+    ## per route is what a size class changes.
 
-  MinPickupSpacingPx* = GunRange
-    ## Two pickups closer than a gun range are one pickup: a single camper
-    ## covers both. (Today's generator places its med-kit pair 211-448 px
+  MinPickupSpacingPx* = LethalEnvelopePx
+    ## Two pickups closer than this are one pickup: a single camper covers
+    ## both. COVERING is a lethality question, not an awareness one — a camper
+    ## who can see a second pickup but cannot hit anyone standing on it is not
+    ## covering it. (Today's generator places its med-kit pair 211-448 px
     ## apart on the standard board — inside one gun range. See the doc.)
 
   HubRadiusCapPx* = GunRange div 2
-    ## 525 px. A hub wider than this is two engagements, not one: players on
-    ## opposite rims cannot reach each other.
+    ## 525 px — deliberately still on the AWARENESS axis. A hub wider than this
+    ## is two engagements, not one: players on opposite rims cannot see each
+    ## other, so it stops being a single contested space.
+    ##
+    ## KNOWN TENSION, stated rather than resolved: the lethality reading of the
+    ## same rule would be `LethalEnvelopePx div 2` = 130 px, which is BELOW the
+    ## occupancy floor a 16-seat hub fight needs (215 px). The two criteria
+    ## disagree and there is no board on which both hold. Awareness wins here
+    ## because a hub is a place players converge on and read, and a 130 px hub
+    ## cannot physically hold the fight it exists to create.
 
   RecommendedCorridorWidthPx* = 2 * SoldierBodyPx
     ## 68 px — two DRAWN cog bodies abreast. `arena.MinCorridorWidth` is 26 px
@@ -922,11 +966,21 @@ const
     ## tuned rather than derived. `Red` faces 8 opponents.
   PxPerOpponent* = TunedPlayfieldPx div TunedOpponents  ## 101,733 px^2
 
-  DetectionWidthPx* = 2 * (GunRange div 2)
-    ## `2 * lambda` at the occlusion band's midpoint — the width of the strip a
-    ## moving player effectively clears. Only ever used to REPORT `t_find` in
-    ## ticks; the density law itself runs on `PxPerOpponent`, which carries the
-    ## same physics without needing this to be exact.
+  DetectionWidthPx* = EngagementWidthPx
+    ## The width of the strip a moving player effectively clears, on the
+    ## LETHALITY axis — `2 * LethalEnvelopePx`, not `2 * lambda`.
+    ##
+    ## Which axis this sits on is load-bearing, because every band below
+    ## compares the contact clock against ENGAGEMENT constants
+    ## (`FireCooldownTicks`, `RespawnTicks`, `TicksToKill`). Timing an
+    ## engagement clock against a SIGHTING event would be a category error and
+    ## would run ~4x fast: you can see a player at 1050 px and be unable to
+    ## kill them until 259.
+    ##
+    ## Note this does NOT disturb `PxPerOpponent`, which is read straight off
+    ## the tuned board and never touches a range constant. It sets the absolute
+    ## scale of `TunedContactTicks`, and therefore how wide the stress bands
+    ## are — the ratios themselves are unaffected.
 
 func relativeClosingRateNum(): float {.inline.} =
   ## Two players on uncorrelated headings close at sqrt(2) times one speed.

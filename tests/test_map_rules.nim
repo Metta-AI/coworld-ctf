@@ -136,8 +136,8 @@ suite "tactical lengths are regime-invariant; counts are not":
       let r = mapRules(c, 2)
       check r.maxExposedRunPx == MaxExposedRunPx
       check r.wallSpanPx == WallSpanPx
-      check r.chokepointSpacingPx == GunRange
-      check r.minPickupSpacingPx == GunRange
+      check r.chokepointSpacingPx == LethalEnvelopePx
+      check r.minPickupSpacingPx == LethalEnvelopePx
       check r.gunRangePx == GunRange
       check r.visionRangePx == VisionRangePx
 
@@ -224,7 +224,9 @@ suite "routes: lanes, chokepoints, open runs":
     var counts: seq[int]
     for c in MapSizeClass:
       counts.add mapRules(c, 2).chokepointsPerRoute
-    check counts == @[1, 1, 2, 2, 3, 6]
+    # ~4x what they were: spacing moved from GunRange (a REACH) to
+    # LethalEnvelopePx (where a defender can actually kill into the next one).
+    check counts == @[4, 5, 6, 9, 12, 25]
 
 suite "trenches, pickups and the hub":
   test "the trench share rises as the regime opens up":
@@ -265,7 +267,9 @@ suite "trenches, pickups and the hub":
     # at (y1, H-1-y1), so the pair is 0.32H..0.68H apart — 211..448 px on the
     # standard board, well inside MinPickupSpacingPx. One camper covers both.
     let h = mszStandard.boardDims(boardRect2).height
-    check h * 68 div 100 < MinPickupSpacingPx
+    # The pair can be as close as 0.32H = 211 px, inside the 259 px envelope,
+    # so a single camper genuinely covers both on the tight end of the draw.
+    check h * 32 div 100 < MinPickupSpacingPx
 
   test "the hub is never wider than one engagement":
     for teams in [2, 3, 4, 6]:
@@ -469,7 +473,7 @@ suite "population fit: board area as a function of roster":
     let duel = fitMapSize(2, 1)
     check mszGiant notin duel.legalClasses
     check mszHuge notin duel.legalClasses
-    check duel.legalClasses == @[mszSmall, mszStandard, mszLarge]
+    check duel.legalClasses == @[mszSmall, mszStandard]
     # The old uniform draw offered all five.
     check DrawableSizeNames.len == 5
 
@@ -524,21 +528,24 @@ suite "population fit: separation versus density":
 
   test "6-team FFA is only playable at a full roster":
     # The resolution in one line: 6 teams work when you fill them.
+    # On the LETHALITY clock this is sharper than it first looked: 6-team FFA
+    # is viable only at a FULL 30-seat roster, and even that is stressed.
     check fitMapSize(6, 1).verdict == popUnsupported
     check fitMapSize(6, 2).verdict == popUnsupported
-    check fitMapSize(6, 4).verdict == popStressed
+    check fitMapSize(6, 4).verdict == popUnsupported
     check fitMapSize(6, 5).verdict == popStressed
     check fitMapSize(6, 5).densityStress < fitMapSize(6, 1).densityStress
 
   test "3 teams inherit a milder version of the same conflict":
     check fitMapSize(3, 4).separationClass == mszHuge
-    check fitMapSize(3, 4).verdict == popStressed
-    check fitMapSize(3, 8).verdict == popGood
+    check fitMapSize(3, 4).verdict == popUnsupported
+    check fitMapSize(3, 8).verdict == popStressed
+    check fitMapSize(3, 8).densityStress < fitMapSize(3, 4).densityStress
 
   test "the legality ceiling is the player's own loop, not the tick cap":
     check LegalStressMax ==
       float(TicksToKill + RespawnTicks) / TunedContactTicks
-    check LegalStressMax > 4.0 and LegalStressMax < 5.0
+    check LegalStressMax > 2.0 and LegalStressMax < 3.0
     # MaxTicks is a safety cap, not a match length; building the budget on it
     # would be about twice as permissive.
     check (float(MaxTicks) / float(Lives)) / 4.0 / TunedContactTicks >
@@ -582,8 +589,8 @@ suite "population fit: cover is part of the answer":
 
 suite "population fit: the generator's draw set":
   test "the default rosters restrict the draw and drop the absurd classes":
-    check legalSizeNames(2, 8) == @["small", "standard", "large"]
-    check legalSizeNames(4, 4) == @["small", "standard", "large", "huge"]
+    check legalSizeNames(2, 8) == @["small", "standard"]
+    check legalSizeNames(4, 4) == @["small", "standard", "large"]
     for teams in [2, 4]:
       check legalSizeNames(teams, fitMapSize(teams).unitsPerTeam).len <
         DrawableSizeNames.len
@@ -603,3 +610,52 @@ suite "population fit: the generator's draw set":
   test "the shipping default agrees with the seat plans":
     check fitMapSize(2).unitsPerTeam == 8      ## nearestSeatPlan(2) = 16
     check fitMapSize(4).unitsPerTeam == 4      ## nearestSeatPlan(4) = 16
+
+suite "the two axes: awareness versus lethality":
+  ## `GunRange` is a REACH, not an engagement range. Aim is 32 discrete slots
+  ## and there is no aim assist, so beyond `14 / tan(5.625 deg)` = 142 px the
+  ## lattice — not the jitter — decides whether a shot connects. Every derived
+  ## number has to say which axis it lives on, because the two differ by 4x in
+  ## distance and 16x in area.
+  test "the lethal envelope is where the aim lattice puts it":
+    check AimRotations == 32
+    check abs(AimHalfSlotDeg - 5.625) < 1e-9
+    # R_slot: inside this a centred body cannot be missed by the lattice.
+    let rSlot = float(PlayerHalf + int(BulletHalfWidth)) /
+      tan(degToRad(AimHalfSlotDeg))
+    check abs(rSlot - 142.0) < 1.0
+    # The envelope itself is where field accuracy is actually achieved...
+    let pHit = radToDeg(arctan(
+      float(PlayerHalf + int(BulletHalfWidth)) / float(LethalEnvelopePx))) /
+      AimHalfSlotDeg
+    check abs(pHit - float(FieldAccuracyPct) / 100.0) < 0.01
+    # ...and it independently agrees with the shipped grenade reach to ~1%.
+    check abs(LethalEnvelopePx - GrenadeMaxRange) * 100 div GrenadeMaxRange <= 2
+    # The jitter is an order of magnitude smaller than the half-slot, which is
+    # why the LATTICE is what sets the envelope.
+    check LethalEnvelopePx < GunRange div 3
+
+  test "lethality quantities use the envelope, awareness ones use the range":
+    let r = mapRules(mszStandard, 2)
+    # Lethality: can a defender KILL into the next one / onto that pickup?
+    check r.chokepointSpacingPx == LethalEnvelopePx
+    check r.minPickupSpacingPx == LethalEnvelopePx
+    # Awareness: how far can anyone SEE? The regimes, the sightline band and
+    # the cover budget that follows from it are all sightline questions and
+    # keep the vision constants.
+    check r.visionRangePx == VisionRangePx
+    check r.meanFreeSightlineMaxPx == GunRange
+    check r.maxOpenRunPx == GunRange
+    check ConeAreaPx > 0
+
+  test "an encounter law on sightlines would overstate lethal contact ~16x":
+    # The reason this distinction had to be made explicit: areas, not lengths.
+    let ratio = (GunRange * GunRange) div
+      (LethalEnvelopePx * LethalEnvelopePx)
+    check ratio >= 12 and ratio <= 17
+
+  test "the exposed run survives the axis change":
+    # 132 px stands because TicksToKill = 48 corresponds to an engagement at
+    # ~237 px, which is inside the envelope rather than out at the reach.
+    check MaxExposedRunPx == 132
+    check MaxExposedRunPx < LethalEnvelopePx
