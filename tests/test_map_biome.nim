@@ -155,6 +155,46 @@ suite "map biomes: failure modes":
       raised = true
       check "tundra" in error.msg
     check raised
+  test "the BAKE's collision masks are exactly the SPEC rasterizer's":
+    # The engine collides against masks that fall out of the ART bake
+    # (sim.nim: loadMapLayers -> walkMask/wallMask), while validateGeneratedMap
+    # and the map-fitness harness certify geometry from rasterizeRestWallMask.
+    # loadMapLayers composes TWO rasterizer calls — the resting silhouettes,
+    # then the no-spinning variant substituted at isAnimatedDiamondPixel — and
+    # nothing pinned that the composition reduces to the plain
+    # includeSpinning = false mask. It does, exactly, and it must keep doing
+    # so: an art change that perturbed artMask would otherwise hand the engine
+    # geometry the validator never approved, with every suite still green.
+    # Measured zero-delta on arena, arena-large and gen:{1001,1003,1007,2024,
+    # 4242} — tools/mask_parity_probe.nim re-measures the whole set.
+    let previous = getCurrentDir()
+    setCurrentDir(GameDir)
+    try:
+      for path in ["arena", "gen:4242"]:
+        let
+          gameMap = loadCtfMap(path)
+          cx = gameMap.center.x
+          cy = gameMap.center.y
+          layers = loadMapLayers(gameMap)
+          protectedAt = proc (x, y: int): bool = isProtectedFloor(x, y, cx, cy)
+          spec = rasterizeRestWallMask(gameMap, ArenaObstacles, protectedAt,
+            includeSpinning = false)
+        var
+          mismatches = 0
+          notComplement = 0
+        for y in 0 ..< gameMap.height:
+          for x in 0 ..< gameMap.width:
+            let baked = layers.wallImage[x, y].a > 0
+            if baked != spec[y * gameMap.width + x]:
+              inc mismatches
+            if (layers.walkImage[x, y].a > 0) == baked:
+              inc notComplement
+        checkpoint(path & " mismatches=" & $mismatches &
+          " walk/wall-not-complement=" & $notComplement)
+        check mismatches == 0
+        check notComplement == 0
+    finally:
+      setCurrentDir(previous)
 
   test "a biome changes the LOOK and never the collision skeleton":
     let previous = getCurrentDir()
