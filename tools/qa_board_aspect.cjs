@@ -118,13 +118,20 @@ function serve(clientDir) {
 // `watch_stage` is the /watch featured stage (web/softmax.com WatchTheater:
 // `aspect-10/7`), at 1440x900 where it renders 748x517 — the box in the bug
 // report. The rest are REPLAY_DESIGN §2's targets.
-const BOXES = [
-  { label: 'watch_stage_748x517', w: 748, h: 517 },
-  { label: 'wide_1330x700', w: 1330, h: 700 },
-  { label: 'featured_1040x694', w: 1040, h: 694 },
-  { label: 'floor_640x360', w: 640, h: 360 },
-  { label: 'portrait_390x780', w: 390, h: 780 },
-];
+// BOXES=800x600,517x517 replaces the list, for answering "what would this
+// client do if the embed were shaped differently" without editing the file.
+const BOXES = process.env.BOXES
+  ? process.env.BOXES.split(',').map((s) => {
+      const [w, h] = s.trim().split('x').map(Number);
+      return { label: w + 'x' + h, w, h };
+    })
+  : [
+      { label: 'watch_stage_748x517', w: 748, h: 517 },
+      { label: 'wide_1330x700', w: 1330, h: 700 },
+      { label: 'featured_1040x694', w: 1040, h: 694 },
+      { label: 'floor_640x360', w: 640, h: 360 },
+      { label: 'portrait_390x780', w: 390, h: 780 },
+    ];
 
 // Board shapes the game actually serves. The square is the four-team rot90 draw
 // (arena.nim: "4 draws a square rot90 corner/plus map"); the wide one is the
