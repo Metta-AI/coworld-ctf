@@ -221,11 +221,520 @@ line of noise code.
 
 ---
 
+## 3. The master table
+
+Everything surveyed, classified. "Property" is what the (A) actually guarantees —
+an (A) with no named property is not an (A).
+
+| # | Technique | Class | Property guaranteed (A only) | Cost | What it buys us |
+|---|---|---|---|---|---|
+| 4.1 | **Perlin (classic, 1985)** | **(C)** | — | O(2^n) corners/sample, ~40 ns | A smooth field. Axis-aligned artefacts *actively hostile* to our horizontal sightline validator (§2.4) |
+| 4.3 | **Improved Perlin (2002)** | **(C)** | — | same | C² continuity (matters for derivatives/normals — we render none of those) |
+| 4.4 | **Simplex noise** | **(C)** | — | O(n²), ~2× faster in 2D | Fewer directional artefacts than Perlin; analytic gradient |
+| 4.5 | **OpenSimplex2 / domain rotation** | **(C)→(B)** | — | ~same as simplex | Removes the residual straight-edge lattice artefacts. **(B) for `longRunFrac`** specifically, because it decorrelates the field from the map axes |
+| 4.6 | **fBm (octaves/lacunarity/persistence)** | **(C)** | — | ×N octaves | Multi-scale texture. §11.3: each octave *shortens* mean free sightline for no structural gain |
+| 4.7 | **Ridged multifractal / billow / turbulence** | **(C)** | — | ×N | Sharp crests / puffy lumps. `1-abs(n)` creates *creases*, which read as ridgelines — the only fBm variant that makes anything resembling a wall network |
+| 4.8 | **Domain warping** | **(C)** | — | ×2–3 field evals | The best-looking trick in the survey. Guarantees **nothing**. Makes contours sinuous and non-repetitive, which is worth real money aesthetically and zero competitively |
+| 5.1 | **Worley / cellular (F1)** | **(C)** | — | O(9) cells/sample 2D | Blobby cover. Same convexity trap as scatter (§12.1) |
+| 5.2 | **Worley F2−F1** | **(B)** | — | same | Voronoi *cracks* — a connected thin-wall network, i.e. the one cellular variant that is topologically room-like |
+| 5.3 | **Poisson-disk (Bridson)** | **(A)** | **min separation ≥ r between all samples** | O(N) | Guaranteed inter-obstacle gaps ⇒ guaranteed corridor width |
+| 5.4 | **Poisson-disk with r > 2R** | **(A)** | **+ floor connectivity, no sealed pockets** | O(N) | One-line proof, replaces a flood-fill repair |
+| 5.6 | **Maximal Poisson-disk (Ebeida)** | **(A)** | **+ covering: no gap > 2r (an r-net)** | O(N log N) | Bounds *dead floor* from above — the max-void guarantee |
+| 5.7 | **Jittered/stratified grid** | **(A)** | **exactly one sample per cell; min sep ≥ period − 2·jitter** | O(N) | Free version of the above, weaker. **Our `genScatter` violates its own** (§5.5) |
+| 5.8 | **Lloyd relaxation / CVT** | **(B)** | — | O(iters·N log N) | Evens out cell sizes. Converges to a *local* optimum only — no uniformity bound |
+| 5.9 | **R2 / golden-ratio low-discrepancy** | **(B)** | (bounded discrepancy is proven; min-separation is *conjectural* for R2) | O(1)/sample, stateless | Deterministic, seekable, no memory. See the honesty note in §5.9 |
+| 6.2 | **Threshold / excursion set** | **(C)** | — | O(pixels) | Walls from a field. §12.2: provably blob-regime at our cover cap |
+| 6.2 | **…at an empirical quantile** | **(A)** | **exact pre-carve cover fraction** | +O(N log N) sort | Turns the cover validator into a non-event (§11.5) |
+| 6.3 | **Hysteresis / double threshold** | **(B)** | — | +1 flood fill | Kills speckle, thickens features. Removes sub-corridor pinches *statistically* |
+| 6.4 | **Marching squares → `shapePolygon`** | **(A)** | **output is closed, simple, non-self-intersecting loops** (given consistent saddle resolution) | O(pixels) | Directly emits our native polygon primitive |
+| 6.4 | **Contour nesting tree + one door per contour** | **(A)** | **floor connectivity, by construction** | O(contours) | **The headline finding.** Rooms *and* connectivity from the same object |
+| 6.5 | **RDP / Visvalingam simplification** | **(B)** | — | O(n log n) | Gets a 4000-vertex contour under the 48-vertex budget. **Does not preserve simplicity** — needs a guard |
+| 7.1 | **Curl noise** | **(C)** | divergence-free is (A), but of a property we do not care about | ×2 field evals | In 2D its streamlines *are* the level sets of the potential (§7.1) — same object as §6.4, no new information |
+| 7.2 | **Tensor fields / hyperstreamlines** | **(B)** | — | high | Genuine lane layout with designer control. The one technique here that thinks in terms of *routes* |
+| 8.1 | **Gabor / sparse convolution noise** | **(B)** | — | ~10–50× Perlin | **Exact, per-point control of orientation and bandwidth.** The principled fix for "no long horizontal runs" |
+| 8.2 | **Phasor noise** | **(C)** | — | high | High-contrast oriented stripes; a stripe field is a *corridor* field |
+| 9.1 | **Hydraulic / thermal erosion sim** | **(C)** | — | very high | Beautiful heightfields. We render no height |
+| 9.2 | **D8 flow routing + priority-flood** | **(A)** | **every cell has a downhill path to an outlet ⇒ the flow graph is a spanning forest** | O(N log N) | A *guaranteed-connected* channel network, for ~1% of the cost of the erosion sim |
+| 10.1 | **Fundamental-domain evaluation** | **(A)** | **exact symmetry under the orbit group** | free | Already how our pipeline works. **Do not build symmetric noise** |
+| 10.2 | **Orbit-averaged (Reynolds) noise** | **(A)** | exact symmetry, smooth across the seam | ×\|G\| evals | Only needed if you must evaluate the field on the *whole* board |
+
+Read the table as: **there are exactly six (A)s in my whole dimension** — §5.3/5.4,
+§5.6, §5.7, §6.2-quantile, §6.4, §9.2, §10 — and **five of the six are not
+noise at all.** They are point processes, level-set topology, flow routing and
+group theory. The noise is the paint; the guarantees come from the combinatorics
+underneath it. That is the honest shape of this dimension.
+
+---
+
+## 4. The gradient-noise family
+
+### 4.1 Perlin noise (1985)
+
+Ken Perlin, *An Image Synthesizer*, SIGGRAPH '85, Computer Graphics 19(3):287–296
+(https://dl.acm.org/doi/10.1145/325165.325247). Reference implementation and the
+author's own page: https://cs.nyu.edu/~perlin/noise/.
+
+The construction: place a pseudo-random unit **gradient vector** at every integer
+lattice point; for a sample point `p`, take the dot product of each surrounding
+corner's gradient with the offset from that corner to `p`, and interpolate the
+`2^n` results with a smooth fade. Because the value at a lattice point is the dot
+product of a gradient with the zero vector, **Perlin noise is exactly 0 at every
+lattice point** — a structural fact, not an artefact of a particular
+implementation, and the root of most of its visual problems.
+
+Cost: `2^n` corner evaluations per sample — 4 in 2D, 8 in 3D, 16 in 4D.
+
+### 4.2 The artefacts, and why they are dangerous *here* specifically
+
+Three known, structural artefacts:
+
+1. **Value-zero lattice.** Every lattice point is a zero crossing. At threshold
+   `u = 0` the level set is forced through a regular grid of points, so the
+   contour inherits grid structure directly.
+2. **Axis and 45° bias.** The interpolation is separable — done along `x`, then
+   `y` — and the gradient set is finite and symmetric about the axes. The result
+   is that features preferentially align with the lattice axes and the diagonals;
+   the power spectrum of Perlin noise is not isotropic, and this is well
+   documented in the noise-survey literature (Lagae et al., *A Survey of
+   Procedural Noise Functions*, Computer Graphics Forum 29(8):2579–2600, 2010 —
+   the canonical reference for spectral comparison of noise bases).
+3. **Directional derivative discontinuity in the original fade.** The 1985 fade
+   `3t² − 2t³` has a non-zero second derivative at `t = 0, 1`, so the field is C¹
+   but not C² and the *derivative* shows the lattice plainly.
+
+**Why this matters for us and not for a terrain renderer.** Our only hard
+geometric rejection is `"open horizontal sightline at y=…"`
+(`arena.nim:2219-2237`), and it is **axis-aligned and horizontal-only**. Perlin's
+worst artefact is *also* axis-aligned. Sampling a Perlin field on a lattice
+parallel to the map axes deliberately correlates the noise's failure mode with
+the validator's tripwire — and, worse, with `longRunFrac` (cap 0.15, arena 0.110,
+pool median 0.17 — the pool is *already over* this cap).
+
+Mitigation is cheap and should be treated as mandatory, not optional:
+
+```
+# sample the field in a rotated frame, angle unrelated to the map axes
+const NoiseTheta = 0.5843   # ~33.5 deg; any angle with irrational tangent works
+let (c, s) = (cos(NoiseTheta), sin(NoiseTheta))
+f(x*c - y*s, x*s + y*c)
+```
+
+This is the same idea as OpenSimplex2's recommended "domain rotation" for 2D
+slices of 3D noise (§4.5). It costs two multiplies and removes the specific
+correlation that would hurt us.
+
+### 4.3 Improved Perlin (2002)
+
+Ken Perlin, *Improving Noise*, SIGGRAPH 2002, ACM TOG 21(3):681–682
+(https://dl.acm.org/doi/10.1145/566570.566636). Two changes:
+
+- **Fade curve** `6t⁵ − 15t⁴ + 10t³`, whose first *and* second derivatives vanish
+  at `t = 0` and `t = 1`, making the field C². This removes the visible
+  second-derivative grid.
+- **Gradient set** restricted to the **12 vectors from the centre of a cube to
+  its edge midpoints** (`(±1,±1,0)`, `(±1,0,±1)`, `(0,±1,±1)`), which (a) removes
+  the bias of a naively-normalised random gradient set, and (b) makes the dot
+  product additions and subtractions only — no multiplies. The 12 directions are
+  more uniformly distributed on the sphere than the 8 cube-corner directions, and
+  cheaper than true random unit vectors.
+
+**Verdict for us: (C).** C² continuity buys shading quality. We rasterise a
+binary mask; we do not shade the field. Take improved Perlin because it is
+strictly better and free, but do not expect it to change a metric.
+
+### 4.4 Simplex noise
+
+Perlin, *Noise Hardware* (SIGGRAPH 2001 course notes) and the SIGGRAPH 2002
+material; the clearest exposition is Stefan Gustavson, *Simplex noise demystified*
+(2005), https://weber.itn.liu.se/~stegu/simplexnoise/simplexnoise.pdf.
+
+Simplex noise replaces the hypercube lattice with a **simplex** lattice (the
+densest regular simplex tiling of the space — triangles in 2D, tetrahedra in 3D).
+Key facts:
+
+- **Cost drops from O(2ⁿ) to O(n²).** A simplex in `n` dimensions has `n+1`
+  corners, not `2ⁿ`. In 2D that is 3 corners instead of 4; in 4D, 5 instead of 16.
+- **Skew transform.** The square grid is skewed into the simplex grid by
+  `F = (sqrt(n+1) − 1)/n` and unskewed by `G = (1 − 1/sqrt(n+1))/n`. In 2D,
+  `F = (sqrt(3) − 1)/2 ≈ 0.366`, `G = (3 − sqrt(3))/6 ≈ 0.211`.
+- **Radially-symmetric summed kernel** rather than separable interpolation: each
+  corner contributes `max(0, r² − |d|²)⁴ · (grad·d)`. Because the kernel is
+  radial, the directional bias of separable interpolation is gone.
+- **Well-defined, cheap analytic derivative** at every point (the separable Perlin
+  interpolant's derivative is more awkward).
+
+**The patent.** Perlin held US Patent 6,867,776 B2, "Standard for perlin noise"
+(filed November 2001, granted March 2005), covering the *simplex-lattice*
+implementation of gradient noise — not classic Perlin noise, which predates it and
+was never patented. The patent expired in **January 2022** on the normal 20-year
+term. This is why OpenSimplex exists at all, and why the concern is now historical.
+*(Dates from memory; worth a 30-second check before quoting them externally.)*
+
+**Verdict: (C).** Faster and less directionally biased than Perlin, which is a
+real improvement to the *distribution* of artefacts, but it still guarantees
+nothing. Use it; do not credit it.
+
+### 4.5 OpenSimplex / OpenSimplex2, and domain rotation
+
+Kurt Spencer's OpenSimplex (2014) and OpenSimplex2 (https://github.com/KdotJPG/OpenSimplex2)
+were written first to sidestep the patent and then, more interestingly, to fix a
+residual artefact of 2D simplex noise: the triangular lattice leaves faintly
+visible **straight-edge / directional streaks** along the simplex grid directions.
+OpenSimplex2 uses a different lattice and gradient set and measurably reduces
+them.
+
+The most practically valuable thing in that repository is not the noise function
+but a piece of advice: for **2D slices of 3D noise**, apply a **domain rotation**
+that puts one axis along the (1,1,1) direction, so that the 2D plane you sample
+is not aligned with the lattice at all. The same idea applied to pure 2D — sample
+in a rotated frame — is the mitigation in §4.2, and it is the single change that
+moves this family from (C) toward (B) *for `longRunFrac` specifically*.
+
+### 4.6 fBm: octaves, lacunarity, persistence
+
+The fractal sum, standard since Mandelbrot and formalised for graphics by
+F. Kenton Musgrave (PhD thesis, *Methods for Realistic Landscape Imaging*, Yale
+1993; and *Texturing & Modeling: A Procedural Approach*, Ebert/Musgrave/Peachey/
+Perlin/Worley, ch. 16 "Procedural Fractal Terrains"):
+
+```
+fbm(p) = sum_{i=0}^{N-1}  gain^i * noise(lacunarity^i * p)
+```
+
+- **octaves** `N` — how many scales are summed.
+- **lacunarity** — frequency multiplier per octave. 2.0 is standard; values that
+  are *exactly* 2 make octaves share lattice alignment, so ~2.01–2.19 is common
+  folklore to decorrelate them. (Folklore, not established — but harmless.)
+- **persistence / gain** — amplitude multiplier per octave. 0.5 with lacunarity 2
+  gives amplitude ∝ 1/frequency, i.e. **pink / 1/f noise**, and Hurst exponent
+  `H = 1` via `gain = lacunarity^(−H)`.
+
+Musgrave's real contribution beyond the plain sum is the **multifractal**: make
+the amplitude of each octave depend on the value accumulated so far, so the local
+fractal dimension varies with altitude — smooth valleys, rough peaks. Variants:
+*hybrid multifractal*, *hetero terrain*, *ridged multifractal*.
+
+**Verdict: (C), and see §11.3 for the sting** — under our metrics, octaves past
+the second or third actively cost us mean free sightline and polygon vertices for
+no structural gain.
+
+### 4.7 Ridged, billow, turbulence
+
+All three are pointwise reshapings of the same sum:
+
+| Name | Per-octave transform | Look |
+|---|---|---|
+| turbulence | `abs(noise)` summed | Puffy, creased, "smoke" |
+| billow | `abs(noise)` then remapped to [-1,1] | Bulbous lumps |
+| ridged | `1 − abs(noise)`, usually squared | Sharp crests along the zero set |
+
+The one worth noticing is **ridged**. `abs()` creates a **crease along the zero
+set of the noise**, and `1 − abs(n)` turns that crease into a *maximum*. So the
+high values of a ridged field form a **thin, connected, branching network** — the
+zero-level curve of the underlying noise, thickened.
+
+That is structurally the same object as the §6.4 contour ribbon, arrived at by a
+different route, and it means **ridged multifractal is the only member of the
+gradient-noise family whose high-value set is topologically a wall network rather
+than a field of blobs.** If you want a quick, ugly, one-line experiment to see
+whether contour-walls help `interiorFrac`, thresholding a ridged field high is a
+30-minute version of it.
+
+Ridged also has an important practical downside for us: the crease is where the
+gradient is discontinuous, so the extracted contour has high curvature and eats
+vertices.
+
+### 4.8 Domain warping
+
+Inigo Quilez, *Domain warping*: https://iquilezles.org/articles/warp/ (see also
+*fBM*: https://iquilezles.org/articles/fbm/). The canonical formulation:
+
+```
+q = ( fbm(p + c1), fbm(p + c2) )
+r = ( fbm(p + 4q + c3), fbm(p + 4q + c4) )
+f = fbm(p + 4r)
+```
+
+i.e. `f(p) = fbm(p + fbm(p + fbm(p)))`. Warping the *input* domain by another
+noise field before evaluating.
+
+This is the highest-value aesthetic trick in procedural graphics and I want to be
+careful to praise it accurately. What it does: it destroys the statistical
+signature that makes noise look like noise. Plain fBm has the same "cloudiness"
+everywhere; a warped field develops **regions with distinct character** — swirls,
+elongations, folds, filaments — because the warp locally stretches and compresses
+the domain, so the *effective local frequency* varies from place to place. That
+local frequency variation is precisely the non-stationarity that plain noise
+lacks.
+
+Now the honest part, in three claims:
+
+1. **Domain warping does not create structure, it creates the *appearance* of
+   structure.** The excursion-set topology at a given area fraction is largely
+   preserved by a warp, because a warp is (locally) a diffeomorphism, and
+   diffeomorphisms preserve topology. The Euler-characteristic argument in §12.2
+   goes through essentially unchanged. **A warped field thresholded at 15% is
+   still a field of blobs — prettier, more elongated, more varied blobs.**
+2. **It destroys isotropy locally, which is a genuine (B) for us.** Elongated,
+   curved features are directionally biased *locally* but with a direction that
+   varies across the map — which is exactly the opposite of the axis-aligned bias
+   that hurts us. So warping is a real, if indirect, mitigation for
+   `longRunFrac`: a long open run has to follow a straight line, and warped
+   contours are almost never straight for 600 px.
+3. **It costs 2–3× the field evaluations** and the effect saturates fast.
+
+**Verdict: (C), with an honest (B) footnote for `longRunFrac` and `visDegreeCv`.**
+Use it — it is genuinely the difference between "generated" and "designed"-looking
+contours, and if we ship a contour-based generator the warp is what will make the
+rooms not all look like the same room. Just do not put it on the guarantee side of
+the ledger.
+
+---
+
+## 5. Point processes: where the real guarantees are
+
+This is the section that pays. Everything above shapes a *field*; everything here
+places *points*, and point placement is where minimum-distance invariants live.
+
+### 5.1–5.2 Worley / cellular noise
+
+Steven Worley, *A Cellular Texture Basis Function*, SIGGRAPH '96, 291–294
+(https://dl.acm.org/doi/10.1145/237170.237267).
+
+Scatter feature points by a Poisson process (in practice: a hash-seeded random
+count and positions per grid cell, so evaluation only touches the 3×3
+neighbourhood in 2D). For a sample point, sort the distances to nearby feature
+points and return a function of them:
+
+| Basis | Value | Appearance |
+|---|---|---|
+| **F1** | distance to nearest feature point | Cones/blobs; thresholding low gives discs around each point |
+| **F2** | distance to 2nd nearest | Similar, offset |
+| **F2 − F1** | 0 exactly on the Voronoi boundary, rising inward | **Voronoi cell edges — a connected crack network** |
+
+Distance metric matters: Euclidean gives round cells, Manhattan gives
+axis-aligned diamond cells (**do not use — see §2.4**), Chebyshev gives squares.
+
+**F1 is (C)** and lands in the same convexity trap as our existing scatter
+(§12.1): thresholded F1 is literally a union of discs.
+
+**F2 − F1 is (B) and interesting.** Its low-value set is the Voronoi edge
+network: thin, connected, and it partitions the plane into cells. That is
+architecture, not scatter. Two caveats before getting excited:
+
+- Voronoi edges meet at **degree-3 vertices** and the cells are **convex
+  polygons**, so a Voronoi-wall map is a map of convex rooms with corridors along
+  the edges. Convex rooms are fine for `interiorFrac` (a room is a hole in the
+  wall set regardless of its convexity — §12.1's proposition is about *obstacles*,
+  not *rooms*).
+- The wall network is **fully connected**, so without door-punching the cells are
+  sealed. Unlike §6.4 the arrangement graph here is **not** a tree — Voronoi cell
+  adjacency in the plane is a planar graph with cycles — so "one door per wall
+  segment" massively over-connects, and "one door per cell" does not obviously
+  connect. You need an explicit spanning-tree door pass (which is exactly
+  `genMaze`'s recursive backtracker, run on the Delaunay dual instead of a
+  lattice). That is a real and well-trodden design (the Delaunay triangulation is
+  the dual graph and hands you the adjacency for free), but it is a *graph*
+  algorithm carrying the guarantee, not the noise.
+
+### 5.3 Poisson-disk sampling, and the guarantee it actually gives
+
+Robert Bridson, *Fast Poisson Disk Sampling in Arbitrary Dimensions*, SIGGRAPH
+2007 sketches: https://www.cs.ubc.ca/~rbridson/docs/bridson-siggraph07-poissondisk.pdf
+
+Algorithm, in three lines: keep a background grid with cell size `r/sqrt(n)` (so
+each cell holds at most one sample); keep an *active list*; repeatedly pick a
+random active sample, throw `k` candidate darts into the annulus `[r, 2r]` around
+it, accept the first that is ≥ `r` from every existing sample (checkable in O(1)
+via the grid), and deactivate the sample if all `k` fail. `k = 30` is the usual
+value. **O(N)** total.
+
+**(A) HARD GUARANTEE — minimum separation.** No two output samples are closer
+than `r`. This is not probabilistic and not asymptotic: it is enforced by the
+rejection test on every single accepted sample. If the test is correct, the
+invariant holds for every seed, every parameter, every run. This is the strongest
+unconditional guarantee anywhere in my dimension.
+
+**What it does NOT guarantee, stated plainly:**
+
+- **Not maximality.** With finite `k`, a gap can survive simply because all `k`
+  darts happened to miss it. So Bridson gives you a *separated* set, not a
+  *maximal* separated set, and therefore no upper bound on hole size. Raising `k`
+  makes this rarer; it does not make it impossible.
+- **Not an unbiased Poisson-disk distribution.** Bridson's sampling is biased
+  relative to true dart-throwing / true maximal Poisson-disk sampling — the
+  annulus-based propagation correlates a sample with its parent. For texture and
+  rendering this matters; for cover placement it does not.
+
+### 5.4 The corollary that matters: separation ⇒ connectivity
+
+**(A) HARD GUARANTEE — floor connectivity and absence of sealed pockets.**
+
+*Claim.* Place one convex obstacle of circumradius `R` at each Poisson-disk sample
+with separation `r`. If `r > 2R`, the obstacle set is a **disjoint** union of
+convex bodies, and the complement of finitely many disjoint convex bodies in a
+rectangle is connected. Therefore the floor is connected and there are no sealed
+pockets — for every seed, with no flood-fill check.
+
+*Proof.* Two obstacles with circumcentres at distance `d ≥ r > 2R` cannot
+intersect, since each is contained in a disc of radius `R` about its centre and
+`2R < d`. A finite disjoint family of compact convex sets in the plane does not
+separate the plane (each is simply connected and they share no boundary), so the
+complement is connected. ∎
+
+*Strengthening to a corridor width.* If `r ≥ 2R + w`, then the narrowest passage
+between any two obstacles is at least `w`. Setting `w = RecommendedCorridorWidthPx
+= 68` gives:
+
+```
+r  >=  2*R + 68
+```
+
+as a **compile-time assertable** relationship between the obstacle radius knob and
+the separation knob. Every corridor between two pieces of scatter cover is then
+≥ 68 px wide, by construction, on every map we ever generate.
+
+This is the cheapest real win in the document, and it is about twenty lines of
+code.
+
+### 5.5 Our current `genScatter` has no such guarantee — and can violate it
+
+Concretely (`mapgen_styles.nim:155-175`, defaults at `:48-51`):
+
+```
+period = 120, jitter = 40, clusterMin = 1, clusterMax = 2, radMin = 16, radMax = 32
+```
+
+Each grid cell rolls `prob = 0.45`, then emits **1–2 discs, each independently
+jittered by ±40 px**. So:
+
+- Two discs drawn for the **same cell** are jittered independently and can land
+  arbitrarily close — including coincident. There is **no** intra-cell separation
+  at all.
+- Two discs in **adjacent cells** have centres `120 ± 80` apart, i.e. as close as
+  **40 px**. With radii up to 32 each, they overlap whenever the centre distance
+  is under 64 px. Overlap is therefore common, not exceptional.
+
+Overlapping discs merge into non-convex composite blobs, which is why the current
+scatter is not *quite* as bad on `interiorFrac` as pure disjoint discs would be —
+but they merge *uncontrolledly*, and a chain of merged discs is exactly the "long
+wall we did not intend" failure mode. There is no bound on the length of such a
+chain.
+
+**Recommended replacement, no new concepts required:** keep every downstream
+behaviour, replace the placement loop with Bridson at `r = 2*radMax + 68 = 132`
+(against the current effective period of 120 — so the *density is essentially
+unchanged*), and assert the relation. This is a strictly-tighter distribution
+*and* a new hard guarantee, at no cost in map density.
+
+### 5.6 Maximal Poisson-disk sampling, and the r-net theorem
+
+Ebeida, Patney, Mitchell, Davidson, Knupp, Owens, *Efficient Maximal Poisson-Disk
+Sampling*, SIGGRAPH 2011 / ACM TOG 30(4); and Ebeida et al., *A Simple Algorithm
+for Maximal Poisson-Disk Sampling in High Dimensions*, Computer Graphics Forum
+2012. These give **provably maximal** and **provably unbiased** sampling, which
+Bridson does not.
+
+Maximality matters because of a clean piece of metric geometry:
+
+> **Theorem (r-net).** If `S` is a *maximal* `r`-separated subset of a metric
+> space `X` — i.e. no point of `X` can be added while keeping all pairwise
+> distances ≥ `r` — then `S` is `r`-**covering**: every point of `X` is within
+> `r` of some point of `S`.
+>
+> *Proof.* If some `x ∈ X` were at distance > `r` from every point of `S`, then
+> `S ∪ {x}` would still be `r`-separated, contradicting maximality. ∎
+
+So maximality is **(A) for a maximum-void bound**: no disc of radius `r` anywhere
+in the region is empty of samples. In map terms that is *"no region of the board
+larger than `r` is featureless"* — a direct, constructive bound on **dead
+floor**, which `MapPlay.deadFloorFrac` and `biggestDeadPx`
+(`map_metrics.nim:204-205`) measure and which nothing in our generator currently
+controls.
+
+Combining §5.4 and §5.6: **a maximal Poisson-disk set with `2R + 68 ≤ r` gives
+you, simultaneously and unconditionally, a minimum corridor width of 68 px, a
+maximum featureless void of radius `r`, connected floor, and no sealed pockets.**
+Four properties, one construction, zero retries. That is the best guarantee
+bundle in this survey, and its weakness is §12: it is still a scatter generator,
+so it still cannot make rooms. Which is exactly why the recommendation in §14 is
+to run it on **compound footprints** rather than on individual obstacles.
+
+### 5.7 Jittered / stratified grids — the free 80%
+
+**(A) HARD GUARANTEE — one sample per cell, and min separation ≥ `period − 2·jitter`
+between samples in different cells** (adjacent-cell centres differ by `period`
+along an axis; each moves at most `jitter`).
+
+This is nearly free and is what `genScatter` is *trying* to be. It is weaker than
+Poisson-disk (samples in diagonal cells can be closer; the bound only binds
+axis-adjacent cells if you are careless about it) but it also gives the covering
+bound for free — every cell has a sample, so no void exceeds a cell diagonal.
+
+The fix to `genScatter` in §5.5 could equally be "emit exactly one disc per cell
+and set `jitter ≤ (period − 2·radMax − 68)/2`", which for `period = 120,
+radMax = 32` gives `jitter ≤ −6` — i.e. **the current parameters are infeasible**
+and the period must rise to at least `2·32 + 68 = 132` before any jitter is
+affordable. That falls out of the arithmetic, and it is a good example of why
+writing the guarantee down as an inequality is worth doing even when you then
+choose Poisson-disk instead.
+
+### 5.8 Lloyd relaxation / centroidal Voronoi tessellation
+
+Iterate: compute the Voronoi diagram of the sites, move each site to its cell's
+centroid, repeat. Converges to a **centroidal Voronoi tessellation**, where each
+site *is* its cell's centroid. Amit Patel's *Polygonal Map Generation for Games*
+(http://www-cs-students.stanford.edu/~amitp/game-programming/polygon-map-generation/)
+uses exactly this, and it is the best-known worked example of Voronoi map
+generation in the games literature — worth reading for the *pipeline shape* even
+though its terrain model (islands, biomes, rivers) is not ours.
+
+**Classification: (B), and I want to be precise about why it is not (A).** Lloyd's
+algorithm converges to a *local* minimum of the CVT energy, not a global one, and
+it comes with no bound on the resulting cell-size spread after a finite number of
+iterations. In practice 2–3 iterations visibly evens out a Poisson point set,
+which is a genuinely useful distribution shift. But "visibly evens out" is not a
+theorem, and after relaxation you have **lost** the min-separation guarantee you
+started with unless you re-check it — Lloyd moves points, and it can move two
+points closer together. If you want both, relax *then* re-run the separation
+filter, and treat the guarantee as coming from the filter.
+
+### 5.9 Low-discrepancy sequences (R2, Sobol, Halton)
+
+Martin Roberts, *The Unreasonable Effectiveness of Quasirandom Sequences*
+(http://extremelearning.com.au/unreasonable-effectiveness-of-quasirandom-sequences/)
+popularised the **R2 sequence**: the 2D generalisation of the golden-ratio
+sequence, `p_n = frac(n * (1/phi2, 1/phi2^2))` where `phi2 ≈ 1.324718` is the
+plastic number (real root of `x³ = x + 1`).
+
+Its attractions for us are real: **stateless, O(1) per sample, seekable, and
+deterministic** — you can ask for "the 47th cover position" without generating the
+first 46, which is a genuinely nice property for a seed-reproducible generator.
+
+**Classification: (B), and here is the honesty note.** Bounded *discrepancy* is
+proven for low-discrepancy sequences generally, and that is a statement about how
+evenly the points fill the space *in the limit*. A **minimum-separation lower
+bound** is a different and much stronger claim. For the 1D golden-ratio sequence
+the three-distance (Steinhaus) theorem does give a clean minimum-gap result. For
+R2 in 2D, the claim that the minimum pairwise distance is bounded below by
+`c/sqrt(N)` circulates in blog posts and I have **not** been able to verify it
+against a primary source in this session. **Treat it as folklore until checked.**
+If it holds it would be a lovely (A) — a stateless, allocation-free generator with
+a proven separation bound — so it is worth someone spending an hour on the
+literature. Until then: if you want the separation guarantee, use Bridson, where
+the guarantee is enforced by construction and needs no theorem at all.
+
+For comparison, **stratified sampling gives a trivially provable guarantee** —
+exactly one sample per stratum — and that is §5.7. When in doubt, prefer the
+guarantee you can see in the code over the one you have to look up.
+
+---
+
 ## 11. Solving for the threshold instead of rolling dice
 
-*(Section order note: §3–§10 are the technique survey and follow below in the
-final document; §11–§12 are the analysis that motivates the recommendation, and
-were written first because they are what the recommendation rests on.)*
+*(Section order note: §11–§12 are the analysis that motivates the
+recommendation, and were written first because they are what the recommendation
+rests on.)*
 
 This section is the strongest *quantitative* thing noise buys us, and it is worth
 more than any of the aesthetic tricks. It is largely a derivation, so I flag
