@@ -122,8 +122,13 @@ proc placementRegion(base: CtfMap): MapRect =
     MapRect(x: sr.x + hMargin, y: sr.y + vMargin,
             w: max(1, sr.w - hMargin - seam), h: max(1, sr.h - 2 * vMargin))
   of symRot90:
+    # rot90: the quadrant's right AND bottom edges are the map's center lines.
+    # Keep the x-side seam (anchors stay off the central flag ring), but let the
+    # region reach nearly to the center ROW so the vertical anchors chain all the
+    # way down — their identity+rot180 images then tile every horizontal row with
+    # no center-band gap (and the rot90/rot270 images cover the columns).
     MapRect(x: sr.x + hMargin, y: sr.y + vMargin,
-            w: max(1, sr.w - hMargin - seam), h: max(1, sr.h - vMargin - seam))
+            w: max(1, sr.w - hMargin - seam), h: max(1, sr.h - vMargin))
 
 const styleSalt = 0x9E3779B1  ## decorrelate the style stream from the map seed.
 
@@ -146,6 +151,7 @@ proc cmdGenerate(a: Args) =
   var overrides = MapGenOverrides(
     size: a.flag("size", ""),
     symmetry: symmetry,
+    layout: a.flag("layout", ""),
     endzone: a.flag("endzone", ""),
     windows: -1,
     pits: (if trenches: -1 else: 0),
