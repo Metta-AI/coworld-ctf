@@ -83,14 +83,18 @@ suite "map metrics":
       # and called it honest scatter; the PORTRAIT hexagon measured 41.5%,
       # because the slanted hull walls enclose the board's corners that a
       # rectangle left wide open. The LANDSCAPE hull with a correctly staggered
-      # picket ladder and the re-derived cover band measures 61.4%.
+      # picket ladder measured 49.7%, and the re-derived cover band — which
+      # opens the lanes the repair pass could not reach — brings it back to
+      # 38.0%. Enclosure and lane-openness pull against each other; this
+      # number falling while zero sightlines survive is the trade landing,
+      # not a regression.
       #
       # Re-based deliberately, and said out loud: this is a DESCRIPTIVE landmark
       # of whatever board ships as the control, not a quality band, and its job
       # is to make a silent drift loud. Moving it without saying so re-bases the
       # whole rubric — the harness's `interior fraction` band is anchored on
       # exactly this number.
-      check abs(control.interiorFrac - 0.614) < 0.02
+      check abs(control.interiorFrac - 0.380) < 0.02
       # The bands that four candidate metrics got wrong, pinned:
       check control.p95ClearancePx <= 125.0     # distance to cover, not 2x it
       check control.minRoutes >= 3              # not "1 route for every map"

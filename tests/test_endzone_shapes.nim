@@ -172,13 +172,14 @@ suite "endzone discs":
     ## The other end of the same budget: a fat disc on a shallow base pushes
     ## its protected apron into the flag ring, and the row joining the two
     ## bases is then open border to border with nowhere legal to build.
+    ##
+    ## `maxEndzoneRadius` keys off the SHORT axis (the apothem is the
+    ## orientation-independent measure of "how much field"), which the flat-top
+    ## flip made the HEIGHT. Passing the width here asked for a radius 15.5%
+    ## above the ceiling the generator itself enforces, so the attempt raised
+    ## on the config bound instead of ever reaching the validator.
     let fat = generateMapAttempt(4242, MapGenOverrides(
       windows: -1, pits: -1, pitDensity: -1, size: "standard",
-      ## `maxEndzoneRadius` keys off the SHORT axis (the apothem is the
-      ## orientation-independent measure of "how much field"), which the
-      ## flat-top flip made the HEIGHT. Passing the width here asked for a
-      ## radius 15.5% above the ceiling the generator itself enforces, so the
-      ## attempt raised on the config bound instead of reaching the validator.
       endzone: "disc", endzoneRadius: maxEndzoneRadius(HexStandardHeight),
       baseDepth: HomeDepthMin))
     ## Asserted on the DIAGNOSTIC, not on the first-failure string. The claim

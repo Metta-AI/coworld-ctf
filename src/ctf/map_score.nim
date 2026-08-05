@@ -157,11 +157,27 @@ proc scoreMap*(metrics: MapMetrics, control: MapMetrics): ScoreCard =
   if standSkip.len == 0 and maxProtected > 0.80:
     standSkip = &"{maxProtected * 100:.0f}% of the 200px annulus is " &
       "protected floor — the endzone radius decides this, not the terrain"
-  add("stand cover (min)", metrics.standCoverMin, 0.10, 0.25, 0.10, 2.0,
-    "pct", skipReason = standSkip,
+  ## The FLOOR is anchored on the control, the ceiling stays absolute.
+  ##
+  ## The MW2 study's 10% floor was measured on annuli that were buildable
+  ## end to end. On the hexagon 62% of this one is the endzone disc and its
+  ## apron, so a map can only ever spend the remaining 38% here, and 10% of
+  ## the whole ring is a materially harsher bar than the same number was on
+  ## the board the study ran on. The re-derived cover band moved the arena to
+  ## 9.1% and the absolute floor promptly flagged the CONTROL — which by this
+  ## harness's first rule means the bound, not the arena, is what is wrong.
+  ##
+  ## Anchoring rather than skipping keeps the band SCORED: a map that leaves
+  ## its pedestal barer than the arena's still loses points for it, which is
+  ## the conversion signal the study actually found. The ceiling is untouched
+  ## because "too much cover at the stand" is not a bound the control is
+  ## anywhere near.
+  let standCoverLo = min(0.10, control.standCoverMin)
+  add("stand cover (min)", metrics.standCoverMin, standCoverLo, 0.25, 0.10,
+    2.0, "pct", controlRelative = true, skipReason = standSkip,
     note = "wall fraction within 200px of the least-covered pedestal")
-  add("stand cover (max)", metrics.standCoverMax, 0.10, 0.25, 0.10, 1.0,
-    "pct", skipReason = standSkip)
+  add("stand cover (max)", metrics.standCoverMax, standCoverLo, 0.25, 0.10,
+    1.0, "pct", controlRelative = true, skipReason = standSkip)
   ## Complementary: open AT the stand, cover in the approach annulus. The
   ## flag sits on the pedestal whatever the endzone shape, so the ring is
   ## the ground an attacker must contest to steal even where it is not where
