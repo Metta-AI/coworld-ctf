@@ -849,17 +849,40 @@ proc inRect*(x, y: int, rect: MapRect): bool =
     y >= rect.y and y < rect.y + rect.h
 
 proc pointInPolygon*(x, y: int, pts: seq[MapPoint]): bool =
-  ## Integer even-odd point-in-polygon over a closed ring. An edge is counted
-  ## only when the scan line at `y` lies STRICTLY between the edge's endpoints
-  ## (`ylo < y < yhi`). That strict straddle is the key: it is symmetric under
-  ## the integer coordinate reflections the map uses — mirror (x -> w-1-x) and
-  ## rot180 (x,y -> w-1-x, h-1-y) — so a polygon and its symmetry image
-  ## rasterize to bit-for-bit mirror-symmetric wall masks. That exactness is
-  ## the team-fairness invariant the diamond (integer-offset) and diagonal
-  ## (int64) tests also protect. Edges that merely touch the scan line at a
-  ## vertex are skipped identically on both sides, so at worst a shape loses a
-  ## 1px sliver at a y-extremum — symmetrically, so fairness holds. int64
-  ## throughout: cross products of map-scale coords overflow int32 on wasm.
+  ## Integer even-odd point-in-polygon over a closed ring, using the standard
+  ## HALF-OPEN rule `(yi > y) != (yj > y)`: an edge is counted when exactly one
+  ## endpoint is strictly above the scan line. Every crossing is counted exactly
+  ## once, the per-row crossing count is always even, and horizontal edges
+  ## contribute nothing — which is correct, since a horizontal edge enters and
+  ## leaves on the same row.
+  ##
+  ## THIS USED TO BE A STRICT STRADDLE (`ylo < y < yhi`) and the comment here
+  ## claimed the strictness is what bought reflection symmetry. It bought the
+  ## opposite, and it was a shipped team-fairness bug. A vertex whose two
+  ## neighbours sit on opposite sides of its scan row has BOTH of its edges
+  ## skipped (that vertex is an endpoint of each, so `y == ylo` on one and
+  ## `y == yhi` on the other). The row loses one crossing, so the even-odd
+  ## parity INVERTS across the whole rest of it — and under the mirror the
+  ## inversion lands on the other side of the board, so the two teams got
+  ## different walls. Measured before the fix: a plain convex quad against its
+  ## own mirror image differed on 538 px, and the shipped `mapgen_styles` CAVES
+  ## style on 8,770 px, 19% of its wall. Every organic ring has such vertices,
+  ## and so does any convex quad — sort its corners by y and the middle two are
+  ## exactly this case.
+  ##
+  ## Same root cause, second symptom: such a row could come back ENTIRELY EMPTY
+  ## inside the shape, i.e. a 1 px horizontal hole straight through a barrier,
+  ## leaking line of sight and tripping the generator's own open-sightline
+  ## validator. A 24-gon measured 8 empty interior rows before the fix and 0
+  ## after.
+  ##
+  ## Do not "restore" the strict form. The fairness invariant it was supposed to
+  ## protect — that a polygon and its mirror rasterize bit-for-bit identically —
+  ## is what the half-open rule actually delivers, and
+  ## `tests/test_mapgen_styles` now checks it at EVERY pixel rather than every
+  ## 9th (the sparse sampling is why this shipped green).
+  ##
+  ## int64 throughout: cross products of map-scale coords overflow int32 on wasm.
   if pts.len < 3:
     return false
   var
@@ -881,12 +904,34 @@ proc pointInPolygon*(x, y: int, pts: seq[MapPoint]): bool =
       yi = pts[i].y
       xj = pts[j].x
       yj = pts[j].y
-      ylo = min(yi, yj)
-      yhi = max(yi, yj)
-    if y > ylo and y < yhi:
-      # Strict straddle => dy != 0. Flip when the sample is left of the edge's
-      # intersection with the scan line: x < xi + (xj-xi)*(y-yi)/(yj-yi),
-      # cross-multiplied by the (signed) edge dy so there is no division.
+    ## ON-BOUNDARY POINTS ARE INSIDE, decided before the parity test, because
+    ## it is the only reflection-invariant answer available.
+    ##
+    ## The parity test flips on crossings strictly to one side of the sample
+    ## (`x < x_int`). Reflection turns that into `x > x_int`, so the two sides
+    ## count complementary crossing sets — which agree in parity only while no
+    ## crossing lands EXACTLY on the sample's column. When one does (the sample
+    ## sits on an edge) the answer differs between a shape and its mirror. Half
+    ## -open y alone therefore fixes the dropped-vertex parity inversion and
+    ## the 1 px holes, but still leaves an on-edge residue: measured 118 px on
+    ## a convex quad and 60 px on a 24-gon. With this test it is 0 on both.
+    ##
+    ## "Inside" rather than "outside" so a degenerate sliver still rasterizes
+    ## as wall rather than vanishing; either choice is reflection-invariant,
+    ## this one is the conservative direction for a barrier.
+    let
+      cross = int64(xj - xi) * int64(y - yi) -
+        int64(yj - yi) * int64(x - xi)
+    if cross == 0 and
+        x >= min(xi, xj) and x <= max(xi, xj) and
+        y >= min(yi, yj) and y <= max(yi, yj):
+      return true
+    if (yi > y) != (yj > y):
+      # Half-open straddle => dy != 0 (the two endpoints are on opposite sides
+      # of the scan line, so they cannot be equal). Flip when the sample is
+      # left of the edge's intersection with the scan line:
+      # x < xi + (xj-xi)*(y-yi)/(yj-yi), cross-multiplied by the (signed) edge
+      # dy so there is no division.
       let
         dyv = int64(yj - yi)
         lhs = int64(x - xi) * dyv
