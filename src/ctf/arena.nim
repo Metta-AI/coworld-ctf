@@ -2223,15 +2223,6 @@ proc installMapCandidateRanker*(ranker: MapCandidateRanker) =
   ## `ctf/map_score`.
   mapCandidateRanker = ranker
 
-proc mapAttemptBudget(rankK: int): int =
-  ## How many attempts a best-of-K generation may spend. E[max of K] is the
-  ## K/(K+1) percentile of the generator's own quality range, so K is the
-  ## quality knob; the budget just has to be loose enough that a normal pass
-  ## rate reaches K. At the measured hex pass rate (~80%) K=8 needs ~10
-  ## attempts, so MapGenMaxAttempts=100 already covers every default K, and
-  ## the cap exists to bound a pathological locked-override combination.
-  MapGenMaxAttempts
-
 proc generateCtfMap*(
   seed: int,
   overrides = MapGenOverrides(windows: -1, pits: -1, pitDensity: -1),
@@ -2262,8 +2253,15 @@ proc generateCtfMap*(
     if overrides.rankK > 0: overrides.rankK
     elif mapCandidateRanker == nil: 1
     else: MapRankDefaultK
+  ## ONE budget for both jobs — finding a valid map and collecting K of
+  ## them. It is deliberately not scaled by K: a layout whose terrain rarely
+  ## validates should ship best-of-however-many-it-found rather than spend
+  ## proportionally longer chasing the quota, and 100 attempts at the
+  ## measured ~77% mean pass rate reaches even MapRankMaxK comfortably. The
+  ## degradation is graceful and observable — `tools/map_rank_probe.nim`
+  ## reports candidates per map beside K.
   var candidates: seq[CtfMap]
-  for attempt in 0 ..< mapAttemptBudget(rankK):
+  for attempt in 0 ..< MapGenMaxAttempts:
     let candidate = generateMapAttempt(seed, overrides, teams, attempt)
     if validateGeneratedMap(candidate).len != 0:
       continue
