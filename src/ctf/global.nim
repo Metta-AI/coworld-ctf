@@ -144,7 +144,7 @@ const
                                ## in the gap between the identity badges (end
                                ## 19071) and the impact rings (19120).
   ShimmerSize = 20             ## px square overlay canvas.
-  ShimmerRadius = 7.6          ## px radius of the modeled shell dome. This is
+  ShimmerRadius = 8.9          ## px radius of the modeled shell dome. This is
                                ## the ONE number the effect lives or dies on:
                                ## the dome must fit INSIDE the head-cube
                                ## silhouette at every aim, because any part of
@@ -177,10 +177,12 @@ const
                                ## The sprites are 20x20 map px, so a wider pool
                                ## is nearly free.
   ShimmerTicksPerFrame = 4     ## 96 ticks = 4s per glide at 24 ticks/s. Slow
-                               ## on purpose: the brief is a sheen, not a strobe,
-                               ## and the sweep spends the ends of its travel
-                               ## off the disc entirely, so the cog rests as a
-                               ## plain lit dome between passes.
+                               ## on purpose: the brief is a sheen, not a strobe.
+                               ## There is deliberately NO rest phase — the
+                               ## chrome cap is identical in every frame and the
+                               ## band never leaves the disc (see
+                               ## buildShimmerSprite), so the frame a viewer
+                               ## pauses on is never the frame with no mark.
   ShimmerSeatStride = 5        ## per-seat phase offset in frames. Coprime with
                                ## ShimmerFrames, so consecutive seats land on
                                ## distinct phases: teammates glint out of
@@ -3993,27 +3995,49 @@ proc buildShimmerSprite(frame: int): seq[uint8] {.measure.} =
   ## scale — no team color anywhere in here, because tinting the sheen would put
   ## it back on the color axis the shimmer channel exists to stay off.
   ##
-  ## The composite, back to front, is a car-paint reflection model rather than a
-  ## generic glow — the difference between "shiny" and "metal" is that metal
-  ## shows BOTH a highlight and the dark it sits against:
-  ##   1. broad shade away from the light, so the shell reads as curved;
-  ##   2. broad gloss toward it;
-  ##   3. a chrome rim-light hugging the shaded EDGE — the environment
-  ##      reflection that makes a dome read as polished metal and not as a
-  ##      lit ball;
-  ##   4. a compact specular blob toward the light — the fixed catchlight that
-  ##      keeps a flagged agent legible in a STILL frame, when the moving band
-  ##      happens to be off the disc;
-  ##   5. the sweeping band's dark leading edge, then
-  ##   6. the band itself; and
+  ## The composite is a CHROME BALL model — an outdoor environment reflection —
+  ## rather than the diffuse-shaded ball it used to be. A polished dome outdoors
+  ## reflects bright sky over its upper half and dark ground under it, split by a
+  ## hard horizon; that is the whole reason a chrome sphere reads as metal at a
+  ## glance and a lit rubber ball does not, and it is also, conveniently, a
+  ## SHAPE rather than a moving feature, which is what lets the mark survive a
+  ## paused frame. Back to front:
+  ##   1. the GROUND reflection — a thin dark crescent on the shaded rim, gated
+  ##      off the middle of the disc. Metal shows both a highlight and the dark
+  ##      it sits against, but the dark is an accent that makes the highlight
+  ##      pop; when it was the broad half-dome wash this used to be, the dark was
+  ##      measurably the only half that reached the screen and the flagged cog
+  ##      read as SHADOWED (see below);
+  ##   2. the SKY reflection — a broad bright cap over the lit half. Phase
+  ##      independent, so it is the same in every frame, and it is what actually
+  ##      identifies the cog;
+  ##   3. a chrome rim-light hugging the shaded EDGE;
+  ##   4. the sweeping band's dark leading/trailing edges, then
+  ##   5. the band itself — motion flavour on top of a mark that already reads
+  ##      standing still, and it never leaves the disc (see `sweep`);
+  ##   6. a compact, near-opaque catchlight toward the light, which owns the
+  ##      PEAK luminance; and
   ##   7. metal-FLAKE sparkle: fixed grains that sit dim until the band crosses
   ##      them and then flare. Flake is what separates metallic paint from
   ##      gloss paint, and it is the part that survives the squint test.
   ##
-  ## Alpha is kept low and dips over the middle of the disc (`guard`): the cog's
-  ## face is its aim indicator and the sheen must never wash it out. That also
-  ## happens to be physically right — on a dome the highlights live near the
-  ## rim, not on the pole facing the camera.
+  ## TWO MEASURED CONSTRAINTS SHAPE EVERY NUMBER IN HERE (tools/shimmer_legibility.nim
+  ## renders this against a stock teammate of the same team, box-downsampled to a
+  ## real embed scale, and reports the margins):
+  ##
+  ## - **Bright must dominate.** The mark is a trophy. If the dark component is
+  ##   the one that survives to the screen, the league #1 looks dirty rather than
+  ##   polished, which is not a subtle miss but a backwards one.
+  ## - **Bright must be COMPACT.** Peak luminance is won by a handful of pixels;
+  ##   mean saturation is lost by many. Concentrating the highlight into the
+  ##   outer annulus (see `guard`) is what lets the sheen out-read the cog's own
+  ##   brightest art without dragging the cog off its team color — and team color
+  ##   is a separate feature this one is forbidden to corrupt.
+  ##
+  ## Alpha still dips over the middle of the disc (`guard`): the cog's face is
+  ## its aim indicator and the sheen must never wash it out. That also happens to
+  ## be physically right — on a dome the highlights live near the rim, not on the
+  ## pole facing the camera.
   let
     outSize = ShimmerSize * boardScale
     scale = float(boardScale)
@@ -4027,10 +4051,13 @@ proc buildShimmerSprite(frame: int): seq[uint8] {.measure.} =
     # running along one axis of it.
     nx = 0.7071
     ny = 0.7071
-    # Band center, in disc radii. Runs past ±1 at both ends of the cycle, which
-    # is the "rest": the band is fully off the shell and only the static dome
-    # remains.
-    sweep = -1.35 + 2.7 * (float(frame) + 0.5) / float(ShimmerFrames)
+    # Band center, in disc radii. Kept INSIDE ±0.82 for the whole cycle: the
+    # band is on the shell at every frame, so there is no phase at which the
+    # sweep has nothing to say. The old travel ran to ±1.35 and spent a third of
+    # its cycle off the disc entirely — an explicit "rest state" that is fine for
+    # a mood effect and fatal for an identification mark, because a paused frame
+    # or a thumbnail lands on one of those phases as often as any other.
+    sweep = -0.82 + 1.64 * (float(frame) + 0.5) / float(ShimmerFrames)
 
   # Metal flake: a fixed, deterministic grain field. Seeded by a constant and
   # walked with a plain LCG so every process — server, wasm viewer, frame dump —
@@ -4049,7 +4076,15 @@ proc buildShimmerSprite(frame: int): seq[uint8] {.measure.} =
       fx = cos(ang) * rad
       fy = sin(ang) * rad
     flakes[i] = (fx, fy, fx * nx + fy * ny)
-  let flakeR = 0.85 * scale / r  ## grain radius in disc-normalized units.
+  let flakeR = 1.05 * scale / r  ## grain radius in disc-normalized units.
+
+  proc smoothstep(e0, e1, x: float): float =
+    ## Hermite ramp. Not in pixie/vmath's exported surface, and the sheen is
+    ## built out of soft-edged REGIONS (a sky cap, a ground crescent, a rim)
+    ## rather than the gaussians it used to be built from, because a region
+    ## survives the viewer's box filter and a thin gaussian does not.
+    let t = clamp((x - e0) / (e1 - e0), 0.0, 1.0)
+    t * t * (3.0 - 2.0 * t)
 
   result = newRgbaPixels(outSize, outSize)
   for y in 0 ..< outSize:
@@ -4061,13 +4096,38 @@ proc buildShimmerSprite(frame: int): seq[uint8] {.measure.} =
       if u >= 1.0:
         continue
       let
-        # Feather the last ~2.5px so the disc has no hard rim on the floor.
-        edge = min(1.0, (1.0 - u) * r / (1.5 * scale))
-        # Face guard: hold the sheen off the middle of the shell.
-        guard = 0.50 + 0.50 * clamp((u - 0.10) / 0.60, 0.0, 1.0)
+        # Feather the last ~1px so the disc has no hard rim on the floor. Tighter
+        # than it was (1.5px): the bright cap lives in the outer annulus, and a
+        # wide feather was dimming exactly the pixels the mark is made of. The
+        # dome is inscribed in the head cube (ShimmerRadius), so this rim lands
+        # on the cog's own shell, not on the floor.
+        edge = min(1.0, (1.0 - u) * r / (0.9 * scale))
+        # EDGE LIGHT, not a cap. `guard` is the radial window the whole sheen
+        # lives in, and it is a narrow ring hugging the shell's curved rim; the
+        # middle of the disc gets nothing at all. This one term is doing three
+        # jobs at once, which is why it is a hard zero inside rather than the
+        # soft 50% floor it started as:
+        #   - the face glyph and the cyan aim accents live there and are the
+        #     cog's aim indicator, so the sheen must never wash them out;
+        #   - a filled disc reads as a soft CLOUD sitting on the cog and a
+        #     BRIGHT filled disc reads as a white cog — both were built and both
+        #     were measured, and the second is the worse failure, because it
+        #     destroys the team color a user deliberately picked. Light wrapping
+        #     a rim reads as metal; a pale object just reads as pale. Metal is a
+        #     CONTRAST between a hot specular and a saturated body, so the body
+        #     has to stay saturated for the specular to mean anything;
+        #   - and every pixel not covered is a pixel that keeps its team color.
+        #     Peak luminance is bought by a handful of pixels; team identity is
+        #     lost by many, so the sheen spends area as if it were expensive.
+        guard = smoothstep(0.62, 0.82, u)
         lit = dx * lx + dy * ly        # +1 toward the light, -1 away
         p = dx * nx + dy * ny          # position along the sweep axis
         cover = edge * guard
+        # The travelling glint and the catchlight ride a slightly WIDER window
+        # than the persistent edge light, so the glide visibly crosses the shell
+        # instead of only crawling along its outline — motion needs somewhere to
+        # travel. Still nowhere near the middle: the face well is intact.
+        bandWin = edge * smoothstep(0.52, 0.74, u)
       var
         ar = 0.0
         ag = 0.0
@@ -4086,37 +4146,63 @@ proc buildShimmerSprite(frame: int): seq[uint8] {.measure.} =
             ab = (cb * sa + ab * keep) / na
           aa = na
       let
-        shade = pow(max(-lit, 0.0), 1.1)
-        gloss = pow(max(lit, 0.0), 1.2)
-        rim = clamp((u - 0.80) / 0.18, 0.0, 1.0) * pow(max(-lit, 0.0), 0.7)
-        bx = dx - lx * 0.46
-        by = dy - ly * 0.46
-        spec = exp(-(bx * bx + by * by) / 0.028)
-        lead = exp(-((p - sweep - 0.30) * (p - sweep - 0.30)) / 0.032)
-        trail = exp(-((p - sweep + 0.30) * (p - sweep + 0.30)) / 0.032)
-        band = exp(-((p - sweep) * (p - sweep)) / 0.021)
-      over(0.05, 0.06, 0.09, shade * 0.44 * cover)
-      over(0.95, 0.97, 1.00, gloss * 0.30 * cover)
-      over(0.88, 0.94, 1.00, rim * 0.62 * edge)
-      over(0.92, 0.96, 1.00, spec * 0.52 * cover)
+        # GROUND reflection: a thin dark crescent hugging the shaded RIM, gated
+        # off the middle of the disc by the `u` term. The previous build shaded
+        # the whole away-from-light HEMISPHERE at the effect's single largest
+        # alpha, and measurement showed that was the only half a spectator ever
+        # saw: the flagged cog's 95th-percentile luminance came out BELOW its
+        # stock teammate's on half of all phases, i.e. the trophy mark read as a
+        # shadow. The dark is now an accent that makes the highlight pop and
+        # nothing more.
+        ground = smoothstep(0.0, 0.35, -lit) * smoothstep(0.38, 0.56, u) *
+          (1.0 - smoothstep(0.64, 0.80, u))
+        # EDGE LIGHT: the persistent, PHASE-INDEPENDENT component, and the one
+        # that carries the identification on its own. This is the part that had
+        # to exist — the mark has to be legible in a paused frame or a thumbnail,
+        # and the first build put the whole signal in a travelling band, so
+        # several phases of every cycle carried no mark at all. It is brighter
+        # toward the light and never fully dark away from it, so the rim reads
+        # all the way round the shell the way a polished edge does.
+        sky = 0.08 + 0.92 * smoothstep(-0.40, 0.30, lit)
+        bx = dx - lx * 0.80
+        by = dy - ly * 0.80
+        # Compact near-opaque catchlight. This is what owns the PEAK: on the
+        # brightest palette slug (citrine yellow, luma ~191) a white overlay only
+        # has ~64 luma of headroom over the cog's own art, so the top of the
+        # distribution has to be nearly opaque white or it cannot beat the
+        # unflagged teammate at all. Keeping it SMALL is what makes that
+        # affordable — peak luminance is won by a few pixels, mean saturation is
+        # lost by many, so the brightest component is also the most compact one.
+        spec = exp(-(bx * bx + by * by) / 0.052)
+        lead = exp(-((p - sweep - 0.34) * (p - sweep - 0.34)) / 0.034)
+        trail = exp(-((p - sweep + 0.34) * (p - sweep + 0.34)) / 0.034)
+        band = exp(-((p - sweep) * (p - sweep)) / 0.045)
+      over(0.03, 0.04, 0.07, ground * 0.58 * edge)
+      over(0.97, 0.98, 1.00, sky * 0.92 * cover)
       # The sweep is a RAMP, not a stripe: dark - bright - dark. A pure white
       # band is invisible on a bright team color (yellow measured as an outright
       # miss), and pure dark is invisible on nothing at all; carrying both edges
       # means the glide reads on every one of the eight palette slugs. The
       # highlight is also slightly COOL — a daylight specular — which gives it
       # hue contrast against the warm slugs (red, yellow, orange) on top of the
-      # luminance contrast it relies on for the cool ones.
-      over(0.04, 0.05, 0.08, lead * 0.30 * cover)
-      over(0.04, 0.05, 0.08, trail * 0.24 * cover)
-      over(0.90, 0.95, 1.00, band * 0.85 * cover)
+      # luminance contrast it relies on for the cool ones. Its GAUSSIAN WIDTH is
+      # a legibility constraint, not a taste one: the board emits at RenderScale
+      # and the viewer fits the whole field into the embed, so one screen pixel
+      # averages ~3.3x3.3 emitted pixels and any feature thinner than that is
+      # box-filtered out of existence before a human sees it. The old band's
+      # sigma was 1.5 emitted px — literally sub-pixel on screen.
+      over(0.04, 0.05, 0.08, lead * 0.10 * cover)
+      over(0.04, 0.05, 0.08, trail * 0.09 * cover)
+      over(1.00, 1.00, 1.00, band * 0.97 * bandWin)
+      over(1.00, 1.00, 1.00, spec * 0.98 * bandWin)
       var flakeA = 0.0
       for f in flakes:
         let
           fdx = dx - f.x
           fdy = dy - f.y
         if fdx * fdx + fdy * fdy < flakeR * flakeR:
-          let flare = exp(-((f.p - sweep) * (f.p - sweep)) / 0.045)
-          flakeA = max(flakeA, 0.06 + 0.88 * flare)
+          let flare = exp(-((f.p - sweep) * (f.p - sweep)) / 0.055)
+          flakeA = max(flakeA, 0.05 + 0.85 * flare)
       over(1.00, 1.00, 0.96, flakeA * cover)
       if aa <= 0.0:
         continue
