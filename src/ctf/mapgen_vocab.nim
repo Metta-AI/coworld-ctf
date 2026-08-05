@@ -152,7 +152,9 @@ func vocabFootprint*(item: VocabItem, p: VocabParams): tuple[w, h: int] =
   of viTemple: (2 * c, 3 * c)
   of viBunker: (3 * c + p.corridorPx, 3 * c + p.corridorPx)
   of viMassif: (6 * c, 2 * c)
-  of viCave: (6 * c, 3 * c + p.corridorPx)
+  # A cave needs two walls of `2*radHi + radLo` (~1.93 c) PLUS its mouth;
+  # squeeze it into less and the walls thin out before the gap does.
+  of viCave: (6 * c, 4 * c + p.corridorPx)
 
 func isLongItem*(item: VocabItem): bool {.inline.} =
   ## Items that read as a RUN along an axis and want a band, not a slot.
@@ -466,8 +468,14 @@ proc bunkerCluster*(r: var Rand, region: MapRect, p: VocabParams): seq[ArenaShap
     count = clamp(densityScaled(p, 3), 2, 3)
     gap = clampTo(p.corridorPx + ri(r, 0, max(1, p.corridorPx)),
                   p.corridorPx, max(p.corridorPx, min(band.w, band.h) div 2))
-    # Piece size: whatever fits once the gap is reserved out of the middle.
-    ringR = max(6, (min(band.w, band.h) - gap) div 4)
+    # PIECE SIZE IS COVER-DERIVED, NOT SLOT-DERIVED. An earlier version took
+    # `(min(band.w, band.h) - gap) div 4`, so handing a cluster a large slot
+    # inflated it into three boulders around one 68 px slit — which measured
+    # as the worst item in the vocabulary (0.43 enclosure per unit cover) and
+    # was really just the wrong feature. A bunker is a cover-sized thing; the
+    # slot only bounds it.
+    ringR = clampTo(p.coverSizePx * rr(r, 40, 62) div 100,
+                    6, max(6, (min(band.w, band.h) - gap) div 4))
     cxc = band.x + band.w div 2
     cyc = band.y + band.h div 2
     # Orientation of the gap. Everything sits at `gap/2 + ringR` from center
@@ -669,26 +677,31 @@ proc ridgeHull(
   for i in countdown(sb.high, 0):
     result.add emit(sb[i][0], sb[i][1])
 
+const MaxSpineDiscs = 96
+  ## Safety cap only. A massif is sized by the REGION it is handed, not by a
+  ## disc count: an early version took a fixed 8 discs and so covered barely
+  ## half of any band wider than its own footprint, which measured as a
+  ## massif buying almost no cover at all (0.094 cover fraction). The length
+  ## of a massif is a composition decision and belongs in `vocabFootprint`.
+
 proc walkSpine(
-    r: var Rand, runLen, crossLen: int, p: VocabParams,
-    vStart: int, discCount: int
+    r: var Rand, runLen, crossLen: int, p: VocabParams, vStart: int
 ): seq[SpineDisc] =
   ## Forward-only steps along `u` with jitter only across, which is what makes
   ## the union y-simple (see `ridgeHull`). Radius varies 2.2x piece to piece:
   ## that variation, not the spine wobble, is most of what stops the outline
-  ## repeating.
+  ## repeating. The walk runs the FULL length of the region it is given.
   let
     (radLo, radHi) = p.massifRadius
     radCap = max(4, crossLen div 2 - 2)
     rLo = max(3, min(radLo, radCap))
     rHi = max(rLo, min(radHi, radCap))
-    n = max(2, discCount)
   var
     rad0 = rr(r, rLo, rHi)
     u = rad0
     v = clampTo(vStart, rad0, max(rad0, crossLen - 1 - rad0))
   let usable = max(2 * rad0 + 2, runLen)
-  for i in 0 ..< n:
+  for i in 0 ..< MaxSpineDiscs:
     let rad = if i == 0: rad0 else: rr(r, rLo, rHi)
     let
       uu = clampTo(u, rad, max(rad, usable - 1 - rad))
@@ -701,7 +714,7 @@ proc walkSpine(
     v = vv + ri(r, -(rad * 2 div 3), rad * 2 div 3 + 1)
 
 proc massifPolys(
-    r: var Rand, region: MapRect, p: VocabParams, vStart, discCount: int
+    r: var Rand, region: MapRect, p: VocabParams, vStart: int
 ): seq[ArenaShape] =
   ## The shared body of `massif` and `cave`.
   let
@@ -709,7 +722,7 @@ proc massifPolys(
     runLen = if alongH: region.w else: region.h
     crossLen = if alongH: region.h else: region.w
   if runLen < 24 or crossLen < 10: return
-  let discs = walkSpine(r, runLen, crossLen, p, vStart, discCount)
+  let discs = walkSpine(r, runLen, crossLen, p, vStart)
   if discs.len == 0: return
   var radSum = 0
   for d in discs: radSum += d.rad
@@ -720,8 +733,9 @@ proc massifPolys(
     qualityEps = max(2, radMean div 5)
   # Try one polygon; SPLIT into overlapping sub-chains when the ceiling would
   # cost more detail than `qualityEps`.
+  const MaxParts = 8
   var parts = 1
-  while parts <= 4:
+  while parts <= MaxParts:
     var
       worst = 0
       built: seq[ArenaShape]
@@ -737,7 +751,7 @@ proc massifPolys(
       worst = max(worst, eps)
       if stop >= discs.high: break
       start = stop
-    if worst <= qualityEps or parts == 4:
+    if worst <= qualityEps or parts == MaxParts:
       return built
     inc parts
 
@@ -748,10 +762,8 @@ proc massif*(r: var Rand, region: MapRect, p: VocabParams): seq[ArenaShape] =
   ## on a string; the unioned outline is what makes it read as rock.
   let band = region.inset(2)
   if band.w < 24 or band.h < 12: return
-  let
-    crossLen = if horizontal(band): band.h else: band.w
-    discCount = clamp(densityScaled(p, 8), 4, 12)
-  massifPolys(r, band, p, ri(r, crossLen div 4, crossLen * 3 div 4 + 1), discCount)
+  let crossLen = if horizontal(band): band.h else: band.w
+  massifPolys(r, band, p, ri(r, crossLen div 4, crossLen * 3 div 4 + 1))
 
 # ---------------------------------------------------------------------------
 # CAVE — two near-parallel massifs with a gap
@@ -769,28 +781,32 @@ proc cave*(r: var Rand, region: MapRect, p: VocabParams): seq[ArenaShape] =
     alongH = horizontal(band)
     crossLen = if alongH: band.h else: band.w
     (radLo, radHi) = p.massifRadius
-    radNom = (radLo + radHi) div 2
-    # Reserve: wall + gap + wall must fit across.
+  if crossLen < 4 * radLo + p.corridorPx: return
+  # THE GAP IS SIZED, NOT LEFT OVER. The first version handed each spine half
+  # the region and let the mouth be whatever fell out of that arithmetic —
+  # which on a tall band was 227 px, two and a half corridors, i.e. not a cave
+  # at all. Here the two walls are given their own thickness and the gap is
+  # the explicit remainder between them, centered in the region.
+  let
+    wallThick = min(2 * radHi + radLo, max(2 * radLo, (crossLen - p.corridorPx) div 2))
     gapWant = p.corridorPx + ri(r, 0, max(1, p.corridorPx div 2))
-    gap = clampTo(gapWant, p.corridorPx, max(p.corridorPx, crossLen - 4 * radLo))
-    wallRoom = max(radLo, (crossLen - gap) div 2)
-    discCount = clamp(densityScaled(p, 8), 4, 12)
-  if crossLen < 2 * radLo + p.corridorPx + 4: return
-  discard radNom
-  # Two independent spines, each confined to its own side band, so the gap
-  # between them can pinch and widen but never close.
+    gap = clampTo(gapWant, p.corridorPx, max(p.corridorPx, crossLen - 2 * wallThick))
+    total = 2 * wallThick + gap
+    offset = max(0, (crossLen - total) div 2)
+  # Two independent spines, each confined to its OWN side band. A spine can
+  # wander to the inner edge of its band and no further, so the mouth pinches
+  # and widens along the run but can never close below `gap`.
   var lowBand, highBand: MapRect
   if alongH:
-    lowBand = MapRect(x: band.x, y: band.y, w: band.w, h: wallRoom)
-    highBand = MapRect(x: band.x, y: band.y + band.h - wallRoom,
-                       w: band.w, h: wallRoom)
+    lowBand = MapRect(x: band.x, y: band.y + offset, w: band.w, h: wallThick)
+    highBand = MapRect(x: band.x, y: band.y + offset + wallThick + gap,
+                       w: band.w, h: wallThick)
   else:
-    lowBand = MapRect(x: band.x, y: band.y, w: wallRoom, h: band.h)
-    highBand = MapRect(x: band.x + band.w - wallRoom, y: band.y,
-                       w: wallRoom, h: band.h)
-  let sideCross = wallRoom
-  result.add massifPolys(r, lowBand, p, sideCross * 2 div 5, discCount)
-  result.add massifPolys(r, highBand, p, sideCross * 3 div 5, discCount)
+    lowBand = MapRect(x: band.x + offset, y: band.y, w: wallThick, h: band.h)
+    highBand = MapRect(x: band.x + offset + wallThick + gap, y: band.y,
+                       w: wallThick, h: band.h)
+  result.add massifPolys(r, lowBand, p, wallThick div 2)
+  result.add massifPolys(r, highBand, p, wallThick div 2)
 
 # ---------------------------------------------------------------------------
 # Dispatch + composition helpers
