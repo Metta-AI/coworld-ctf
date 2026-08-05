@@ -1,0 +1,559 @@
+[
+  {
+    "name": "resolve-no-claimants",
+    "description": "Empty claimant list resolves to an empty grants map (no-op).",
+    "input": {
+      "op": "resolve",
+      "palette": {
+        "version": 1,
+        "colors": [
+          { "slug": "red", "wire": "red" },
+          { "slug": "blue", "wire": "blue" },
+          { "slug": "green", "wire": "green" },
+          { "slug": "yellow", "wire": "yellow" },
+          { "slug": "teal", "wire": null },
+          { "slug": "purple", "wire": null },
+          { "slug": "magenta", "wire": null },
+          { "slug": "orange", "wire": null }
+        ]
+      },
+      "claimants": []
+    },
+    "expected": { "grants": {} }
+  },
+  {
+    "name": "resolve-single-uncontested-claim",
+    "description": "One claimant requesting a free slug is granted exactly that slug, with an empty walk.",
+    "input": {
+      "op": "resolve",
+      "palette": {
+        "version": 1,
+        "colors": [
+          { "slug": "red", "wire": "red" },
+          { "slug": "blue", "wire": "blue" },
+          { "slug": "green", "wire": "green" },
+          { "slug": "yellow", "wire": "yellow" },
+          { "slug": "teal", "wire": null },
+          { "slug": "purple", "wire": null },
+          { "slug": "magenta", "wire": null },
+          { "slug": "orange", "wire": null }
+        ]
+      },
+      "claimants": [
+        { "player": "alice", "standing": 1500, "requested_slug": "teal" }
+      ]
+    },
+    "expected": {
+      "grants": {
+        "alice": { "requested": "teal", "granted": "teal", "takenBy": [] }
+      }
+    }
+  },
+  {
+    "name": "resolve-simple-bump-adjacent",
+    "description": "Lower-standing claimant contests the same slug and bumps one step to the adjacent array entry (no wrap).",
+    "input": {
+      "op": "resolve",
+      "palette": {
+        "version": 1,
+        "colors": [
+          { "slug": "red", "wire": "red" },
+          { "slug": "blue", "wire": "blue" },
+          { "slug": "green", "wire": "green" },
+          { "slug": "yellow", "wire": "yellow" },
+          { "slug": "teal", "wire": null },
+          { "slug": "purple", "wire": null },
+          { "slug": "magenta", "wire": null },
+          { "slug": "orange", "wire": null }
+        ]
+      },
+      "claimants": [
+        { "player": "alice", "standing": 1500, "requested_slug": "purple" },
+        { "player": "bob", "standing": 1400, "requested_slug": "purple" }
+      ]
+    },
+    "expected": {
+      "grants": {
+        "alice": { "requested": "purple", "granted": "purple", "takenBy": [] },
+        "bob": {
+          "requested": "purple",
+          "granted": "magenta",
+          "takenBy": [ { "slug": "purple", "by": "alice" } ]
+        }
+      }
+    }
+  },
+  {
+    "name": "resolve-wrap-past-array-end",
+    "description": "Bumping off the last palette entry (orange, index 7) wraps around to index 0 (red).",
+    "input": {
+      "op": "resolve",
+      "palette": {
+        "version": 1,
+        "colors": [
+          { "slug": "red", "wire": "red" },
+          { "slug": "blue", "wire": "blue" },
+          { "slug": "green", "wire": "green" },
+          { "slug": "yellow", "wire": "yellow" },
+          { "slug": "teal", "wire": null },
+          { "slug": "purple", "wire": null },
+          { "slug": "magenta", "wire": null },
+          { "slug": "orange", "wire": null }
+        ]
+      },
+      "claimants": [
+        { "player": "alice", "standing": 1500, "requested_slug": "orange" },
+        { "player": "bob", "standing": 1400, "requested_slug": "orange" }
+      ]
+    },
+    "expected": {
+      "grants": {
+        "alice": { "requested": "orange", "granted": "orange", "takenBy": [] },
+        "bob": {
+          "requested": "orange",
+          "granted": "red",
+          "takenBy": [ { "slug": "orange", "by": "alice" } ]
+        }
+      }
+    }
+  },
+  {
+    "name": "resolve-doc-worked-example",
+    "description": "Reproduces docs/COLOR_CONTRACT.md SS4's worked example byte-for-byte: orange taken by daveey, walk wraps through red/blue/green (all taken), lands on yellow.",
+    "input": {
+      "op": "resolve",
+      "palette": {
+        "version": 1,
+        "colors": [
+          { "slug": "red", "wire": "red" },
+          { "slug": "blue", "wire": "blue" },
+          { "slug": "green", "wire": "green" },
+          { "slug": "yellow", "wire": "yellow" },
+          { "slug": "teal", "wire": null },
+          { "slug": "purple", "wire": null },
+          { "slug": "magenta", "wire": null },
+          { "slug": "orange", "wire": null }
+        ]
+      },
+      "claimants": [
+        { "player": "daveey", "standing": 1600, "requested_slug": "orange" },
+        { "player": "alice", "standing": 1500, "requested_slug": "red" },
+        { "player": "bob", "standing": 1400, "requested_slug": "blue" },
+        { "player": "carol", "standing": 1300, "requested_slug": "green" },
+        { "player": "erin", "standing": 1000, "requested_slug": "orange" }
+      ]
+    },
+    "expected": {
+      "grants": {
+        "daveey": { "requested": "orange", "granted": "orange", "takenBy": [] },
+        "alice": { "requested": "red", "granted": "red", "takenBy": [] },
+        "bob": { "requested": "blue", "granted": "blue", "takenBy": [] },
+        "carol": { "requested": "green", "granted": "green", "takenBy": [] },
+        "erin": {
+          "requested": "orange",
+          "granted": "yellow",
+          "takenBy": [
+            { "slug": "orange", "by": "daveey" },
+            { "slug": "red", "by": "alice" },
+            { "slug": "blue", "by": "bob" },
+            { "slug": "green", "by": "carol" }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "resolve-standings-tie-lexicographic",
+    "description": "Two claimants with equal standing are ordered lexicographically by player id (amy before bob), so amy keeps the contested slug and bob bumps.",
+    "input": {
+      "op": "resolve",
+      "palette": {
+        "version": 1,
+        "colors": [
+          { "slug": "red", "wire": "red" },
+          { "slug": "blue", "wire": "blue" },
+          { "slug": "green", "wire": "green" },
+          { "slug": "yellow", "wire": "yellow" },
+          { "slug": "teal", "wire": null },
+          { "slug": "purple", "wire": null },
+          { "slug": "magenta", "wire": null },
+          { "slug": "orange", "wire": null }
+        ]
+      },
+      "claimants": [
+        { "player": "bob", "standing": 1500, "requested_slug": "red" },
+        { "player": "amy", "standing": 1500, "requested_slug": "red" }
+      ]
+    },
+    "expected": {
+      "grants": {
+        "amy": { "requested": "red", "granted": "red", "takenBy": [] },
+        "bob": {
+          "requested": "red",
+          "granted": "blue",
+          "takenBy": [ { "slug": "red", "by": "amy" } ]
+        }
+      }
+    }
+  },
+  {
+    "name": "resolve-more-than-8-claimants-null",
+    "description": "9 claimants against an 8-slug palette: the first 8 (by standing) fill every slug one-by-one requesting the same slug; the 9th is granted null with a full 8-entry walk starting at their own requested slug.",
+    "input": {
+      "op": "resolve",
+      "palette": {
+        "version": 1,
+        "colors": [
+          { "slug": "red", "wire": "red" },
+          { "slug": "blue", "wire": "blue" },
+          { "slug": "green", "wire": "green" },
+          { "slug": "yellow", "wire": "yellow" },
+          { "slug": "teal", "wire": null },
+          { "slug": "purple", "wire": null },
+          { "slug": "magenta", "wire": null },
+          { "slug": "orange", "wire": null }
+        ]
+      },
+      "claimants": [
+        { "player": "alpha", "standing": 9000, "requested_slug": "red" },
+        { "player": "bravo", "standing": 8000, "requested_slug": "red" },
+        { "player": "charlie", "standing": 7000, "requested_slug": "red" },
+        { "player": "delta", "standing": 6000, "requested_slug": "red" },
+        { "player": "echo", "standing": 5000, "requested_slug": "red" },
+        { "player": "foxtrot", "standing": 4000, "requested_slug": "red" },
+        { "player": "golf", "standing": 3000, "requested_slug": "red" },
+        { "player": "hotel", "standing": 2000, "requested_slug": "red" },
+        { "player": "india", "standing": 1000, "requested_slug": "teal" }
+      ]
+    },
+    "expected": {
+      "grants": {
+        "alpha": { "requested": "red", "granted": "red", "takenBy": [] },
+        "bravo": {
+          "requested": "red",
+          "granted": "blue",
+          "takenBy": [ { "slug": "red", "by": "alpha" } ]
+        },
+        "charlie": {
+          "requested": "red",
+          "granted": "green",
+          "takenBy": [
+            { "slug": "red", "by": "alpha" },
+            { "slug": "blue", "by": "bravo" }
+          ]
+        },
+        "delta": {
+          "requested": "red",
+          "granted": "yellow",
+          "takenBy": [
+            { "slug": "red", "by": "alpha" },
+            { "slug": "blue", "by": "bravo" },
+            { "slug": "green", "by": "charlie" }
+          ]
+        },
+        "echo": {
+          "requested": "red",
+          "granted": "teal",
+          "takenBy": [
+            { "slug": "red", "by": "alpha" },
+            { "slug": "blue", "by": "bravo" },
+            { "slug": "green", "by": "charlie" },
+            { "slug": "yellow", "by": "delta" }
+          ]
+        },
+        "foxtrot": {
+          "requested": "red",
+          "granted": "purple",
+          "takenBy": [
+            { "slug": "red", "by": "alpha" },
+            { "slug": "blue", "by": "bravo" },
+            { "slug": "green", "by": "charlie" },
+            { "slug": "yellow", "by": "delta" },
+            { "slug": "teal", "by": "echo" }
+          ]
+        },
+        "golf": {
+          "requested": "red",
+          "granted": "magenta",
+          "takenBy": [
+            { "slug": "red", "by": "alpha" },
+            { "slug": "blue", "by": "bravo" },
+            { "slug": "green", "by": "charlie" },
+            { "slug": "yellow", "by": "delta" },
+            { "slug": "teal", "by": "echo" },
+            { "slug": "purple", "by": "foxtrot" }
+          ]
+        },
+        "hotel": {
+          "requested": "red",
+          "granted": "orange",
+          "takenBy": [
+            { "slug": "red", "by": "alpha" },
+            { "slug": "blue", "by": "bravo" },
+            { "slug": "green", "by": "charlie" },
+            { "slug": "yellow", "by": "delta" },
+            { "slug": "teal", "by": "echo" },
+            { "slug": "purple", "by": "foxtrot" },
+            { "slug": "magenta", "by": "golf" }
+          ]
+        },
+        "india": {
+          "requested": "teal",
+          "granted": null,
+          "takenBy": [
+            { "slug": "teal", "by": "echo" },
+            { "slug": "purple", "by": "foxtrot" },
+            { "slug": "magenta", "by": "golf" },
+            { "slug": "orange", "by": "hotel" },
+            { "slug": "red", "by": "alpha" },
+            { "slug": "blue", "by": "bravo" },
+            { "slug": "green", "by": "charlie" },
+            { "slug": "yellow", "by": "delta" }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "resolve-determinism-reorder",
+    "description": "Same claimants, listed in the input array in the reverse of standing order (worst-first): the resolver sorts internally, so alice (best standing) still keeps red and the others still bump in standing order regardless of array position.",
+    "input": {
+      "op": "resolve",
+      "palette": {
+        "version": 1,
+        "colors": [
+          { "slug": "red", "wire": "red" },
+          { "slug": "blue", "wire": "blue" },
+          { "slug": "green", "wire": "green" },
+          { "slug": "yellow", "wire": "yellow" },
+          { "slug": "teal", "wire": null },
+          { "slug": "purple", "wire": null },
+          { "slug": "magenta", "wire": null },
+          { "slug": "orange", "wire": null }
+        ]
+      },
+      "claimants": [
+        { "player": "carol", "standing": 1300, "requested_slug": "red" },
+        { "player": "bob", "standing": 1400, "requested_slug": "red" },
+        { "player": "alice", "standing": 1500, "requested_slug": "red" }
+      ]
+    },
+    "expected": {
+      "grants": {
+        "alice": { "requested": "red", "granted": "red", "takenBy": [] },
+        "bob": {
+          "requested": "red",
+          "granted": "blue",
+          "takenBy": [ { "slug": "red", "by": "alice" } ]
+        },
+        "carol": {
+          "requested": "red",
+          "granted": "green",
+          "takenBy": [
+            { "slug": "red", "by": "alice" },
+            { "slug": "blue", "by": "bob" }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "compose-2-team-episode",
+    "description": "A 2-team (red vs blue) episode payload: red's claimant was granted teal, blue has no claimant and keeps its stock slug with no collision.",
+    "input": {
+      "op": "compose_payload",
+      "palette": {
+        "version": 1,
+        "colors": [
+          { "slug": "red", "wire": "red" },
+          { "slug": "blue", "wire": "blue" },
+          { "slug": "green", "wire": "green" },
+          { "slug": "yellow", "wire": "yellow" },
+          { "slug": "teal", "wire": null },
+          { "slug": "purple", "wire": null },
+          { "slug": "magenta", "wire": null },
+          { "slug": "orange", "wire": null }
+        ]
+      },
+      "grants": {
+        "alice": { "requested": "teal", "granted": "teal", "takenBy": [] }
+      },
+      "episode_teams": {
+        "red": { "claimant": "alice" },
+        "blue": {}
+      }
+    },
+    "expected": {
+      "payload": {
+        "v": 1,
+        "palette": 1,
+        "teams": {
+          "red": { "slug": "teal" },
+          "blue": { "slug": "blue" }
+        }
+      }
+    }
+  },
+  {
+    "name": "compose-4-team-two-shimmer",
+    "description": "Reproduces docs/COLOR_CONTRACT.md SS5's worked example byte-for-byte (including the exact ?colors= base64): 4 teams, all claimed, red and green each carry a shimmer marker, blue and yellow carry none.",
+    "input": {
+      "op": "compose_payload",
+      "palette": {
+        "version": 1,
+        "colors": [
+          { "slug": "red", "wire": "red" },
+          { "slug": "blue", "wire": "blue" },
+          { "slug": "green", "wire": "green" },
+          { "slug": "yellow", "wire": "yellow" },
+          { "slug": "teal", "wire": null },
+          { "slug": "purple", "wire": null },
+          { "slug": "magenta", "wire": null },
+          { "slug": "orange", "wire": null }
+        ]
+      },
+      "grants": {
+        "daveey": { "requested": "orange", "granted": "orange", "takenBy": [] },
+        "blue_owner": { "requested": "teal", "granted": "teal", "takenBy": [] },
+        "focusfire_owner": { "requested": "green", "granted": "green", "takenBy": [] },
+        "yellow_owner": { "requested": "magenta", "granted": "magenta", "takenBy": [] }
+      },
+      "episode_teams": {
+        "red": { "claimant": "daveey", "shimmer": "picasso" },
+        "blue": { "claimant": "blue_owner" },
+        "green": { "claimant": "focusfire_owner", "shimmer": "focusfire" },
+        "yellow": { "claimant": "yellow_owner" }
+      }
+    },
+    "expected": {
+      "payload": {
+        "v": 1,
+        "palette": 1,
+        "teams": {
+          "red": { "slug": "orange", "shimmer": "picasso" },
+          "blue": { "slug": "teal" },
+          "green": { "slug": "green", "shimmer": "focusfire" },
+          "yellow": { "slug": "magenta" }
+        }
+      }
+    }
+  },
+  {
+    "name": "compose-unclaimed-team-stock-collision",
+    "description": "Red's claimant is granted slug 'blue' (their own team's grant, never moved); blue team has no claimant this episode, so its stock default ('blue') collides and blue walks to the next free slug in this payload (green) -- the exact scenario docs/COLOR_CONTRACT.md SS5 describes.",
+    "input": {
+      "op": "compose_payload",
+      "palette": {
+        "version": 1,
+        "colors": [
+          { "slug": "red", "wire": "red" },
+          { "slug": "blue", "wire": "blue" },
+          { "slug": "green", "wire": "green" },
+          { "slug": "yellow", "wire": "yellow" },
+          { "slug": "teal", "wire": null },
+          { "slug": "purple", "wire": null },
+          { "slug": "magenta", "wire": null },
+          { "slug": "orange", "wire": null }
+        ]
+      },
+      "grants": {
+        "red_owner": { "requested": "blue", "granted": "blue", "takenBy": [] }
+      },
+      "episode_teams": {
+        "red": { "claimant": "red_owner" },
+        "blue": {}
+      }
+    },
+    "expected": {
+      "payload": {
+        "v": 1,
+        "palette": 1,
+        "teams": {
+          "red": { "slug": "blue" },
+          "blue": { "slug": "green" }
+        }
+      }
+    }
+  },
+  {
+    "name": "compose-all-stock-no-claimants",
+    "description": "Baseline/regression guard: a 4-team episode with zero claimants composes a payload where every team keeps its own stock slug and no shimmer keys appear.",
+    "input": {
+      "op": "compose_payload",
+      "palette": {
+        "version": 1,
+        "colors": [
+          { "slug": "red", "wire": "red" },
+          { "slug": "blue", "wire": "blue" },
+          { "slug": "green", "wire": "green" },
+          { "slug": "yellow", "wire": "yellow" },
+          { "slug": "teal", "wire": null },
+          { "slug": "purple", "wire": null },
+          { "slug": "magenta", "wire": null },
+          { "slug": "orange", "wire": null }
+        ]
+      },
+      "grants": {},
+      "episode_teams": {
+        "red": {},
+        "blue": {},
+        "green": {},
+        "yellow": {}
+      }
+    },
+    "expected": {
+      "payload": {
+        "v": 1,
+        "palette": 1,
+        "teams": {
+          "red": { "slug": "red" },
+          "blue": { "slug": "blue" },
+          "green": { "slug": "green" },
+          "yellow": { "slug": "yellow" }
+        }
+      }
+    }
+  },
+  {
+    "name": "compose-cascading-unclaimed-collision-chain",
+    "description": "Two locked grants (red->blue, green->green) each block one unclaimed team's stock default in turn: blue's stock collides and walks to yellow, which then collides with yellow team's own stock default, forcing yellow to walk again to teal. Exercises the distinctness pass beyond the doc's single-hop example.",
+    "input": {
+      "op": "compose_payload",
+      "palette": {
+        "version": 1,
+        "colors": [
+          { "slug": "red", "wire": "red" },
+          { "slug": "blue", "wire": "blue" },
+          { "slug": "green", "wire": "green" },
+          { "slug": "yellow", "wire": "yellow" },
+          { "slug": "teal", "wire": null },
+          { "slug": "purple", "wire": null },
+          { "slug": "magenta", "wire": null },
+          { "slug": "orange", "wire": null }
+        ]
+      },
+      "grants": {
+        "red_owner": { "requested": "blue", "granted": "blue", "takenBy": [] },
+        "green_owner": { "requested": "green", "granted": "green", "takenBy": [] }
+      },
+      "episode_teams": {
+        "red": { "claimant": "red_owner" },
+        "blue": {},
+        "green": { "claimant": "green_owner" },
+        "yellow": {}
+      }
+    },
+    "expected": {
+      "payload": {
+        "v": 1,
+        "palette": 1,
+        "teams": {
+          "red": { "slug": "blue" },
+          "blue": { "slug": "yellow" },
+          "green": { "slug": "green" },
+          "yellow": { "slug": "teal" }
+        }
+      }
+    }
+  }
+]
