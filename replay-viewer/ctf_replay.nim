@@ -1,6 +1,6 @@
 import
   std/json,
-  ctf/[broadcast, global, replay_runtime, replays, sim, team_colors]
+  ctf/[broadcast, global, replay_runtime, replays, shimmer, sim, team_colors]
 
 var
   runtimeLoaded = false
@@ -54,7 +54,10 @@ proc ctfSetTeamColors(data: ptr uint8, length: cint): cint
   ## Never fails the page: an absent, malformed or version-skewed payload
   ## simply leaves every team on its stock color.
   try:
-    if setTeamDisplayColors(data.bytesFromPointer(int(length))): 1 else: 0
+    let recolored = setTeamDisplayColors(data.bytesFromPointer(int(length)))
+    installPayloadShimmer()   # the payload's shimmer channel rides along even
+                              # when no team was re-COLORED (shimmer-only §5).
+    if recolored: 1 else: 0
   except Exception:
     0
 

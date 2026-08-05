@@ -115,9 +115,9 @@ suite "team display colors":
     check not teamDisplayIsRecolored(Green)
     check teamDisplayColor(Green) == GreenEndzoneColor
     # shimmer is a separate feature: parsed and exposed, never a color.
-    check teamShimmerPolicy(Red) == "picasso"
-    check teamShimmerPolicy(Green) == "focusfire"
-    check teamShimmerPolicy(Blue) == ""
+    check payloadShimmerPolicy(Red) == "picasso"
+    check payloadShimmerPolicy(Green) == "focusfire"
+    check payloadShimmerPolicy(Blue) == ""
 
   test "every malformed or skewed payload falls back to stock, silently":
     for payload in [

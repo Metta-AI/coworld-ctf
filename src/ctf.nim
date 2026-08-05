@@ -1,6 +1,7 @@
 import
   std/[json, os, strutils, sysrand],
   bitworld/runtime,
+  ctf/shimmer,
   ctf/sim,
   ctf/server,
   ctf/team_colors
@@ -97,6 +98,7 @@ when isMainModule:
   # stains are append-only and can never be re-sent, so there is no live
   # recolor). A no-op when the env var is absent.
   setTeamDisplayColors(getEnv(TeamColorsEnv))
+  installPayloadShimmer()
 
   var config = defaultGameConfig()
   if seedPinned(runtimeConfig.config):

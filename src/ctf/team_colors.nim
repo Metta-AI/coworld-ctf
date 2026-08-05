@@ -146,10 +146,11 @@ proc anyTeamDisplayRecolored*(): bool =
   ## exact pre-existing behaviour.
   anyRecolor
 
-proc teamShimmerPolicy*(team: Team): string =
+proc payloadShimmerPolicy*(team: Team): string =
   ## The policy identity (seat-suffix already stripped by the platform, §5)
   ## whose agents wear the metallic shimmer on this team, or "" for none.
-  ## Parsed and preserved here; the shimmer RENDER is a separate task.
+  ## Parsed and preserved here; the RENDER lives in shimmer.nim, whose own
+  ## `teamShimmerPolicy` answers for the renderer — hence the distinct name.
   displayShimmer[team]
 
 proc teamColorsInstalled*(): bool =

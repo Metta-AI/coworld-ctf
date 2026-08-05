@@ -32,7 +32,7 @@
 
 import
   std/[os, strutils, tables],
-  sim_types, broadcast
+  sim_types, broadcast, team_colors
 
 export broadcast.policyName
 
@@ -60,6 +60,21 @@ proc setTeamShimmerPolicies*(mapping: Table[Team, string]) =
   for team in Team:
     shimmerPolicies[team] = mapping.getOrDefault(team, "")
   shimmerSeamCalled = true
+
+proc installPayloadShimmer*() =
+  ## Bridges the `?colors=` payload into the seam above: reads the per-team
+  ## `shimmer` fields that `setTeamDisplayColors` parsed and, when the payload
+  ## carried at least one, installs them as THE mapping. A payload with colors
+  ## but no shimmer deliberately leaves the seam untouched, so the CTF_SHIMMER
+  ## dev stub still works in local runs; a payload WITH shimmer wins outright.
+  ## Call it right after `setTeamDisplayColors` on both boot paths.
+  var mapping: Table[Team, string]
+  for team in Team:
+    let policy = payloadShimmerPolicy(team)
+    if policy.len > 0:
+      mapping[team] = policy
+  if mapping.len > 0:
+    setTeamShimmerPolicies(mapping)
 
 proc teamShimmerPolicies*(): Table[Team, string] =
   ## The current mapping, teams with no shimmer omitted. The inverse of

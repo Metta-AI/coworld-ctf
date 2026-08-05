@@ -198,6 +198,9 @@ Schema (payload version `v: 1`):
     **after seat-suffix stripping** — the engine strips a hosted `" (N)"` / `"_(N)"`
     suffix so all seats of one policy collapse to one identity. The platform must
     send the stripped form; the viewer compares against stripped roster names.
+    Rendered by `src/ctf/shimmer.nim` — an animated clearcoat sheen on the
+    flagged policy's living cogs, deterministic per tick so every viewer of a
+    replay sees the same glint.
 
 Concrete example — the exact JSON above, minified and encoded:
 
