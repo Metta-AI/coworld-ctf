@@ -120,6 +120,7 @@
 import std/[algorithm, math, random, strutils]
 import sim_types
 import map_rules
+import burrow
 
 # ---------------------------------------------------------------------------
 # Constants this module must agree with, and cannot import
@@ -1473,3 +1474,238 @@ proc carveLanes*(
   shapes.add laneGateShapes(plan)
   shapes.add clearLanes(cover, plan)
   (shapes, plan)
+
+# ---------------------------------------------------------------------------
+# k-FOLD DISJOINT BURROW — route count stops being MEASURED and is GUARANTEED
+# ---------------------------------------------------------------------------
+#
+# `map_metrics.vertexDisjointRoutes` MEASURES how many independent flank routes
+# a map has, and the shipped hard band is `routeCountMin >= 2` (control: the
+# arena, 8.0). Everything above in this module is likewise measurement: carve,
+# then check, then reroll if the check fails.
+#
+# It does not have to be that way. By MENGER'S THEOREM the maximum number of
+# internally vertex-disjoint s-t paths equals the minimum s-t vertex cut. So
+# if we can EXHIBIT k pairwise cell-disjoint corridors between two bases, the
+# min-cut is >= k as a theorem — not as a measurement that might come back
+# unlucky. Exhibiting them is the whole job:
+#
+#     dig a corridor, mark its cells used, dig again, k times.
+#
+# `burrow` already owns every piece: a `domain` mask to exclude cells from, a
+# width-guaranteeing brush (`brushRadiusForCorridor` — stamping an L2 disc of
+# radius r unions to a band exactly 2r+1 cells across), the wall/object cost
+# ratios that make a dig prefer reusing corridor over cutting rock over
+# bulldozing content, and `labelComponents` to certify the result.
+#
+# ---------------------------------------------------------------------------
+# THE TRAP: THE PROOF MUST BE ON THE METRIC'S OWN GRID
+# ---------------------------------------------------------------------------
+#
+# `burrow` is normally run at a fine cell size (8 px). The route metric counts
+# disjointness at `RouteCellPx` = 26 px, one vertex per coarse cell. Two
+# corridors that are disjoint on an 8 px grid can sit in the SAME 26 px cell —
+# and then they are one vertex to the metric, the min-cut is 1 where we
+# "proved" 2, and the guarantee is about a graph nobody measures.
+#
+# So `RouteGridCellPx` is pinned to `RouteCellPx` and the dig runs there. Cell
+# indexing agrees too: `burrowGridFromPixels` and `map_metrics.buildCoarse`
+# both index as `px div cell` from the origin, so cell (i,j) here IS cell
+# (i,j) there. And the rasterisation difference points the safe way — burrow
+# calls a cell passable only when EVERY pixel in it is clear, while the metric
+# calls it open when ANY pixel is, so every cell this proof uses is a cell the
+# metric also considers open.
+
+const RouteGridCellPx* = 26
+  ## MUST equal `map_metrics.RouteCellPx`. The disjointness certificate below
+  ## is a statement about the graph whose vertices are cells of this size; at
+  ## any other size it is a true statement about a graph the validator does
+  ## not measure. Pinned by test.
+
+type
+  KRouteReport* = object
+    ## The certificate. `ok` means k pairwise cell-disjoint corridors were
+    ## exhibited, so by Menger the min cut is at least k.
+    requested*, achieved*: int
+    ok*: bool
+    reason*: string
+    cellSize*: int
+    corridorWidthPx*: int
+    routes*: seq[seq[BurrowPoint]]  ## centreline of each corridor, in cells
+    wallCellsDug*: int
+    disjoint*: bool                 ## verified, not assumed
+
+proc digDisjointRoutes*(
+  grid: var BurrowGrid, a, b: BurrowPoint, k: int,
+  corridorWidthPx = RecommendedCorridorWidthPx,
+  params = defaultBurrowParams(),
+): KRouteReport =
+  ## Dig `k` pairwise cell-disjoint corridors between two anchors, each at
+  ## least `corridorWidthPx` wide, and return the certificate.
+  ##
+  ## Each pass is a Dial's bucket-queue shortest path under burrow's own cost
+  ## model — reuse open floor (1) << cut rock (`WallCostRatio`) << bulldoze
+  ## placed content (`ObjectCostRatio`) — so the first corridor follows what is
+  ## already there and only later ones pay to cut new ground. A cell is
+  ## eligible only when its WHOLE brush footprint is unused, which is what
+  ## makes the stamped bands disjoint rather than merely their centrelines.
+  result.requested = k
+  result.cellSize = grid.cellSize
+  result.corridorWidthPx = corridorWidthPx
+  result.disjoint = true
+  if k <= 0: 
+    result.ok = true
+    return
+  if grid.cellSize != RouteGridCellPx:
+    result.reason = "grid cell size " & $grid.cellSize & " != RouteCellPx " &
+      $RouteGridCellPx & ": a disjointness proof here is about a graph the " &
+      "route metric does not measure"
+    return
+  let
+    w = grid.w
+    h = grid.h
+    n = w * h
+  if not grid.onGrid(a.x, a.y) or not grid.onGrid(b.x, b.y):
+    result.reason = "anchor off grid"
+    return
+  let brush = brushRadiusForCorridor(corridorWidthPx, grid.cellSize)
+
+  # Routes may SHARE the immediate neighbourhood of each anchor, and must be
+  # allowed to: every corridor starts at the same base cell, so retiring the
+  # first corridor's brush footprint there walls the base in and pass 2 cannot
+  # leave it. `map_metrics` makes the same allowance for the same reason --
+  # it sources from each base's whole near neighbourhood so that the engine's
+  # spawn-pocket mouth is never the answer. The certificate below excludes the
+  # zone too, so nothing is proved about cells that were exempted.
+  let anchorFree = brush + 1
+  var anchorZone = newSeq[bool](n)
+  for centre in [a, b]:
+    for dy in -anchorFree .. anchorFree:
+      for dx in -anchorFree .. anchorFree:
+        let
+          x = centre.x + dx
+          y = centre.y + dy
+        if grid.onGrid(x, y): anchorZone[y * w + x] = true
+
+  var used = newSeq[bool](n)
+  template footprintFree(cx, cy: int): bool =
+    ## Whether the whole brush disc at this cell is unused and on-grid.
+    var free = true
+    for dy in -brush .. brush:
+      for dx in -brush .. brush:
+        if dx * dx + dy * dy > brush * brush: continue
+        let
+          x = cx + dx
+          y = cy + dy
+        if not grid.onGrid(x, y) or not grid.inDomain(x, y) or
+            used[y * w + x]:
+          free = false
+    free
+
+  func stepCost(cell: BurrowCell): int =
+    case cell
+    of bcFloor, bcContent: 1
+    of bcWall: params.wallCost
+    of bcObject: params.objectCost
+
+  for pass in 0 ..< k:
+    # --- Dial's over cells whose brush footprint is still free -------------
+    let maxStep = max(params.wallCost, params.objectCost)
+    var
+      dist = newSeq[int32](n)
+      prev = newSeq[int32](n)
+      buckets = newSeq[seq[int32]](maxStep + 1)
+    for i in 0 ..< n:
+      dist[i] = int32.high
+      prev[i] = -1
+    let
+      src = a.y * w + a.x
+      dst = b.y * w + b.x
+    dist[src] = 0
+    buckets[0].add int32(src)
+    var
+      level = 0
+      settled = 0
+      pending = 1
+    while settled < pending:
+      let slot = level mod (maxStep + 1)
+      while buckets[slot].len > 0:
+        let i = int(buckets[slot].pop())
+        if int(dist[i]) != level: continue
+        inc settled
+        if i == dst: break
+        let x = i mod w
+        for step in [-1, 1, -w, w]:
+          if step == -1 and x == 0: continue
+          if step == 1 and x == w - 1: continue
+          let j = i + step
+          if j < 0 or j >= n: continue
+          let (jx, jy) = (j mod w, j div w)
+          if not anchorZone[j] and not footprintFree(jx, jy): continue
+          let nd = int32(level + stepCost(grid.cells[j]))
+          if nd < dist[j]:
+            if dist[j] == int32.high: inc pending
+            dist[j] = nd
+            prev[j] = int32(i)
+            buckets[int(nd) mod (maxStep + 1)].add int32(j)
+      inc level
+      if level > n * maxStep + maxStep + 2: break
+    if dist[dst] == int32.high:
+      result.achieved = pass
+      result.reason = "no " & $corridorWidthPx & "px route left after " &
+        $pass & " disjoint corridor(s); the board cannot carry " & $k
+      return
+
+    # --- stamp the corridor and retire its cells --------------------------
+    var route: seq[BurrowPoint]
+    var cur = dst
+    var guard = 0
+    while cur >= 0 and guard <= n:
+      route.add BurrowPoint(x: cur mod w, y: cur div w)
+      if cur == src: break
+      cur = int(prev[cur])
+      inc guard
+    for p in route:
+      for dy in -brush .. brush:
+        for dx in -brush .. brush:
+          if dx * dx + dy * dy > brush * brush: continue
+          let
+            x = p.x + dx
+            y = p.y + dy
+          if not grid.onGrid(x, y) or not grid.inDomain(x, y): continue
+          let i = y * w + x
+          if grid.cells[i] == bcWall: inc result.wallCellsDug
+          if not grid.cells[i].isPassable: grid.cells[i] = bcFloor
+          if not anchorZone[i]: used[i] = true
+    result.routes.add route
+    result.achieved = pass + 1
+
+  # --- verify the certificate rather than asserting it --------------------
+  var seen = newSeq[int](n)
+  for i in 0 ..< result.routes.len:
+    for p in result.routes[i]:
+      let idx = p.y * w + p.x
+      if anchorZone[idx]: continue
+      if seen[idx] != 0 and seen[idx] != i + 1: result.disjoint = false
+      seen[idx] = i + 1
+  result.ok = result.achieved == k and result.disjoint
+  if not result.disjoint:
+    result.reason = "corridors share a routing cell: not a Menger certificate"
+
+proc guaranteeRouteCount*(
+  wall: seq[bool], w, h: int, a, b: MapPoint, k: int,
+  corridorWidthPx = RecommendedCorridorWidthPx,
+): KRouteReport =
+  ## THE pixel-space entry point: build the routing grid at the metric's own
+  ## cell size and exhibit `k` disjoint corridors between two bases.
+  ##
+  ## The returned `routes` are cell centrelines; `cellRectPx` turns each into
+  ## the pixel box a caller must keep clear, which is what a scene graph
+  ## reserves BEFORE it places any cover.
+  var grid = burrowGridFromPixels(w, h, RouteGridCellPx, wall)
+  let
+    ac = BurrowPoint(x: clamp(a.x div RouteGridCellPx, 0, grid.w - 1),
+                     y: clamp(a.y div RouteGridCellPx, 0, grid.h - 1))
+    bc = BurrowPoint(x: clamp(b.x div RouteGridCellPx, 0, grid.w - 1),
+                     y: clamp(b.y div RouteGridCellPx, 0, grid.h - 1))
+  digDisjointRoutes(grid, ac, bc, k, corridorWidthPx)

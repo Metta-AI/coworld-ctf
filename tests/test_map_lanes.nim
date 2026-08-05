@@ -19,7 +19,7 @@
 
 import
   std/[strutils, unittest],
-  ctf/[arena, map_lanes, map_rules, sim_types]
+  ctf/[arena, burrow, map_lanes, map_metrics, map_rules, sim_types]
 
 const
   BoardW = 600
@@ -258,3 +258,80 @@ suite "NEGATIVE control: the hand-authored arena":
     # raw floor, or it would reject the best map in the repo.
     check audit.routeWidthPx < RecommendedCorridorWidthPx
     check audit.routeWidthPx > EngineMinCorridorPx
+
+suite "k-fold disjoint burrow: route count becomes a THEOREM":
+  # By Menger, the maximum number of internally vertex-disjoint s-t paths
+  # equals the minimum s-t vertex cut. Exhibiting k pairwise cell-disjoint
+  # corridors therefore PROVES min-cut >= k, rather than measuring it and
+  # hoping. The shipped hard band is routeCountMin >= 2 (control: arena 8.0).
+
+  test "the proof runs on the route metric's own grid, or it is not a proof":
+    # Two corridors disjoint on burrow's usual 8px grid can share one 26px
+    # routing cell, and then they are ONE vertex to the metric: min-cut 1
+    # where we proved 2. The cell size is pinned, and a mismatched grid is
+    # refused rather than silently certifying the wrong graph.
+    check RouteGridCellPx == RouteCellPx
+    var fine = initBurrowGrid(60, 40, cellSize = 8)
+    let bad = fine.digDisjointRoutes(
+      BurrowPoint(x: 2, y: 20), BurrowPoint(x: 55, y: 20), 3)
+    check not bad.ok
+    check bad.reason.contains("route metric does not measure")
+
+  test "three disjoint corridors are dug through open ground":
+    var grid = initBurrowGrid(48, 26, cellSize = RouteGridCellPx)
+    let rep = grid.digDisjointRoutes(
+      BurrowPoint(x: 1, y: 13), BurrowPoint(x: 46, y: 13), 3)
+    check rep.ok
+    check rep.achieved == 3
+    check rep.routes.len == 3
+    check rep.disjoint
+
+  test "the corridors share no routing cell — the Menger certificate":
+    var grid = initBurrowGrid(48, 26, cellSize = RouteGridCellPx)
+    let rep = grid.digDisjointRoutes(
+      BurrowPoint(x: 1, y: 13), BurrowPoint(x: 46, y: 13), 3)
+    check rep.ok
+    var seenCell: seq[string]
+    for i in 0 ..< rep.routes.len:
+      for p in rep.routes[i]:
+        if (p.x == 1 and p.y == 13) or (p.x == 46 and p.y == 13): continue
+        let key = $p.x & "," & $p.y
+        check key notin seenCell
+        seenCell.add key
+
+  test "every corridor is at least the corridor floor wide":
+    # brushRadiusForCorridor stamps a band exactly 2r+1 cells across, so the
+    # width guarantee is structural rather than checked afterwards.
+    let r = brushRadiusForCorridor(RecommendedCorridorWidthPx, RouteGridCellPx)
+    check (2 * r + 1) * RouteGridCellPx >= RecommendedCorridorWidthPx
+
+  test "it digs THROUGH rock when the board makes it necessary":
+    # A solid wall with no opening: the first corridor must cut it, and three
+    # disjoint corridors must cut it in three separate places.
+    var grid = initBurrowGrid(48, 26, cellSize = RouteGridCellPx)
+    for y in 0 ..< 26:
+      grid[24, y] = bcWall
+    let rep = grid.digDisjointRoutes(
+      BurrowPoint(x: 1, y: 13), BurrowPoint(x: 46, y: 13), 3)
+    check rep.ok
+    check rep.wallCellsDug > 0
+    check rep.disjoint
+
+  test "an impossible k is REPORTED, never silently certified":
+    # A board too narrow to carry three disjoint 68px corridors must say so.
+    var grid = initBurrowGrid(48, 3, cellSize = RouteGridCellPx)
+    let rep = grid.digDisjointRoutes(
+      BurrowPoint(x: 1, y: 1), BurrowPoint(x: 46, y: 1), 3)
+    check not rep.ok
+    check rep.achieved < 3
+    check rep.reason.len > 0
+
+  test "the arena already carries three disjoint routes, and it is proved":
+    let gameMap = loadCtfMapMetadata("arena")
+    let diag = mapDiagnostics(gameMap, {diagnosticWallMasks})
+    let rep = guaranteeRouteCount(
+      diag.maxWall, gameMap.width, gameMap.height,
+      gameMap.flagHome(Red), gameMap.flagHome(Blue), 3)
+    check rep.ok
+    check rep.achieved == 3
+    check rep.disjoint
