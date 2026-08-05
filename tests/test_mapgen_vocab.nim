@@ -40,31 +40,67 @@ proc emit(item: VocabItem, seed: int, region: MapRect,
   emitVocab(item, r, region, p)
 
 proc mirrorAsymmetry(
-    item: VocabItem, p: VocabParams
+    item: VocabItem, sizeName: string, symmetry: string, teams = 2
 ): tuple[wall, bad: int] =
-  ## Wall pixels, and wall pixels whose MIRROR is not also a wall pixel, over
-  ## the full obstacle set the sim builds. This is the fairness question asked
-  ## exactly the way `arena` answers it at runtime.
+  ## Stone pixels, and stone pixels whose SYMMETRY IMAGE is not also stone,
+  ## over the full obstacle set `buildArenaObstacles` produces. EVERY pixel is
+  ## compared — no stride. A fairness test that samples is not a fairness test:
+  ## `test_mapgen_styles`' mirror check samples every 9th pixel and is green on
+  ## a polygon that is in fact 274 pixels asymmetric.
+  ##
+  ## THIS DELIBERATELY DOES NOT GO THROUGH `mapWallAt`, and the reason is a
+  ## defect this test used to blame on the constructors. `mapWallAt` subtracts
+  ## `mapProtectedFloorAt`, and THAT is asymmetric on every size class and both
+  ## 2-team symmetries: the generator places team anchors at `width - x` while
+  ## every shape mirrors with `width - 1 - x`, so a team's spawn pocket sits
+  ## one pixel off its own mirror image. Measured: exactly two 1px columns of
+  ## 261 rows = 522 px on the standard board (x = 256 and x = 978 — Red's
+  ## pocket is [116,256], its exact mirror is [978,1118], but Blue's is
+  ## [979,1119]); 688 to 1,772 px on the other classes. Any obstacle
+  ## overlapping a pocket edge then reads as stone for one team and floor for
+  ## the other, whoever authored it. That is `arena`'s to fix. What a shape
+  ## constructor owns — and what this measures — is the obstacle union itself.
   var base = generateMapAttempt(5, MapGenOverrides(
-    size: "standard", symmetry: "mirror", windows: 0, pits: 0, pitDensity: -1))
+    size: sizeName, symmetry: symmetry, windows: 0, pits: 0, pitDensity: -1),
+    teams)
+  let p = vocabParams(sizeName, teams)
   var shapes: seq[ArenaShape]
   var r = initRand(90210)
   let (fw, fh) = vocabFootprint(item, p)
+  let
+    yLimit = (if symmetry == "rot90": base.height div 2 else: base.height) - 20
+    xLimit = base.width div 2 - 20
   var y = 20
-  while y + fh <= base.height - 20:
-    var x = 60
-    while x + fw <= base.width div 2 - 20:
+  while y + fh <= yLimit:
+    var x = (if symmetry == "rot90": 20 else: 60)
+    while x + fw <= xLimit:
       shapes.add emitVocab(item, r, MapRect(x: x, y: y, w: fw, h: fh), p)
       x += fw
     y += fh
+  if shapes.len == 0: return
   base.leftObstacles = shapes
-  let obstacles = buildArenaObstacles(base)
-  for yy in 12 ..< base.height - 12:
-    for xx in 12 ..< base.width - 12:
-      let a = mapWallAt(base, obstacles, xx, yy)
-      if a: inc result.wall
-      if a != mapWallAt(base, obstacles, base.width - 1 - xx, yy):
-        inc result.bad
+  let
+    w = base.width
+    h = base.height
+  # Paint each shape over its own bounding box: cost is area + the sum of the
+  # box areas, so even a colossal board is affordable at full resolution.
+  var mask = newSeq[bool](w * h)
+  for s in buildArenaObstacles(base):
+    let (x0, y0, x1, y1) = shapeBounds(s)
+    for yy in max(0, y0) .. min(h - 1, y1):
+      for xx in max(0, x0) .. min(w - 1, x1):
+        if not mask[yy * w + xx] and inShape(xx, yy, s):
+          mask[yy * w + xx] = true
+  for yy in 0 ..< h:
+    for xx in 0 ..< w:
+      if not mask[yy * w + xx]: continue
+      inc result.wall
+      let image =
+        case symmetry
+        of "rot180": (h - 1 - yy) * w + (w - 1 - xx)
+        of "rot90": xx * w + (w - 1 - yy)   ## one 90-degree step
+        else: yy * w + (w - 1 - xx)
+      if image < 0 or image >= mask.len or not mask[image]: inc result.bad
 
 proc within(s: ArenaShape, region: MapRect): bool =
   ## Containment measured through `shapeBounds`, which is the sim's OWN answer
@@ -173,13 +209,27 @@ suite "shape vocabulary: polygons":
           inc tested
     check tested > 20
 
-  test "non-polygon items are EXACTLY mirror-fair":
+  test "non-polygon items are EXACTLY fair on EVERY size class":
     # Rects, discs, diamonds and diagonals transform exactly under
-    # `x -> width-1-x`, so for these the bar is zero asymmetric pixels and
-    # nothing about the vocabulary may erode that.
-    let p = stdParams()
-    for item in [viDorito, viCan, viSnake, viTemple]:
-      check mirrorAsymmetry(item, p).bad == 0
+    # `x -> width-1-x`, so for these the bar is zero asymmetric pixels.
+    #
+    # THE SWEEP IS THE POINT. This test used to pin one parameter set
+    # (`stdParams()`), and a constructor that is exact at the standard class
+    # and asymmetric at giant would have sailed through it — the same weakness
+    # as a mirror test that samples every 9th pixel. We ship six size classes
+    # and `coverSizePx` scales as `56*sqrt(scale)` across them (52..128), so
+    # every radius, thickness and offset these constructors compute lands on a
+    # different parity at every class. Sweep them all, and both 2-team
+    # symmetries, or the guarantee is only about one board.
+    for sizeName in DrawableSizeNames & @["colossal"]:
+      for symmetry in ["mirror", "rot180"]:
+        for item in [viDorito, viCan, viSnake, viTemple]:
+          let m = mirrorAsymmetry(item, sizeName, symmetry)
+          check m.wall > 0
+          if m.bad != 0:
+            checkpoint("asymmetric: " & vocabName(item) & " " & sizeName &
+                       " " & symmetry & " bad=" & $m.bad)
+          check m.bad == 0
 
   test "polygon items stay within the primitive's known asymmetry":
     # A FINDING, PINNED. `arena.pointInPolygon` counts an edge only on a
@@ -205,13 +255,86 @@ suite "shape vocabulary: polygons":
     # counts every crossing exactly once AND is exactly mirror-symmetric,
     # because it never drops an edge. When that lands, these bounds should be
     # tightened to zero.
-    let p = stdParams()
-    for item in [viBeam, viBunker, viMassif, viCave]:
-      let m = mirrorAsymmetry(item, p)
-      check m.wall > 0
-      # Under 2% of the item's own wall, and far under the shipped caves
-      # style's 19%.
-      check m.bad * 50 < m.wall
+    # Swept over every size class, for the same reason as the test above: a
+    # bound that holds only at the standard class is not a bound.
+    for sizeName in DrawableSizeNames & @["colossal"]:
+      for symmetry in ["mirror", "rot180"]:
+        for item in [viBeam, viBunker, viMassif, viCave]:
+          let m = mirrorAsymmetry(item, sizeName, symmetry)
+          check m.wall > 0
+          # Under 2% of the item's own wall, and far under the shipped caves
+          # style's 19%.
+          if m.bad * 50 >= m.wall:
+            checkpoint("over budget: " & vocabName(item) & " " & sizeName &
+                       " " & symmetry & " bad=" & $m.bad & " wall=" & $m.wall)
+          check m.bad * 50 < m.wall
+
+  test "EVERY item is exactly fair on the 4-team rot90 board":
+    # rot90 is the case the polygon mitigations cannot help: `pairedSimplify`
+    # and `wedgePolygon`'s mid-y snap both work by putting matched vertices on
+    # one scan ROW, and a quarter turn maps rows to columns. Measured before
+    # the fallbacks, on a giant rot90 board: massif 47 per mille asymmetric,
+    # cave 45, beams 12-14, bunker 2-7.
+    #
+    # So on a non-reflection symmetry the traced outline is dropped: a massif
+    # emits its spine discs at full radius and a wedge becomes a capsule. Both
+    # primitives are exactly equivariant under every transform the map uses,
+    # so the bar here is ZERO for the whole vocabulary, not a budget.
+    for sizeName in ["standard", "large", "giant"]:
+      for item in AllItems:
+        let m = mirrorAsymmetry(item, sizeName, "rot90", teams = 4)
+        if m.wall == 0: continue   ## footprint did not fit the quadrant
+        if m.bad != 0:
+          checkpoint("rot90 asymmetric: " & vocabName(item) & " " & sizeName &
+                     " bad=" & $m.bad & " wall=" & $m.wall)
+        check m.bad == 0
+
+  test "vocabParams picks the fair construction from the team count":
+    # The fallback must not depend on a composer remembering to set a flag.
+    check vocabParams("standard", 2).symmetryIsReflection
+    check not vocabParams("standard", 4).symmetryIsReflection
+    var r = initRand(5)
+    let quad = MapRect(x: 0, y: 0, w: 420, h: 420)
+    var sawPolygon = false
+    for s in emitVocab(viMassif, r, quad, vocabParams("standard", 4)):
+      if s.kind == shapePolygon: sawPolygon = true
+    check not sawPolygon
+
+# ---------------------------------------------------------------------------
+
+suite "the arena defects this vocabulary has to live with":
+  test "mapProtectedFloorAt is NOT mirror-symmetric (arena, not this module)":
+    # PINNED SO IT CANNOT HIDE AGAIN. This is what made the mirror test fail
+    # on the integration branch, and it was blamed on the constructors.
+    #
+    # `arena` places team anchors at `width - x` but mirrors every shape with
+    # `width - 1 - x`, so a spawn pocket sits one pixel off its own mirror
+    # image and `mapProtectedFloorAt` disagrees with itself across the seam.
+    # Any obstacle overlapping a pocket edge is then stone for one team and
+    # floor for the other. The stock generator's own obstacles happen to miss
+    # those columns on the seeds we tried, which is luck, not correctness.
+    #
+    # The fix is in `arena`: place the anchors so the second is
+    # `width - 1 - first`. When that lands this test flips to `== 0`.
+    for sizeName in ["small", "standard", "large", "huge", "giant"]:
+      let m = generateMapAttempt(5, MapGenOverrides(
+        size: sizeName, symmetry: "mirror", windows: 0, pits: 0,
+        pitDensity: -1))
+      var bad = 0
+      for y in 0 ..< m.height:
+        for x in 0 ..< m.width:
+          if mapProtectedFloorAt(m, x, y) !=
+             mapProtectedFloorAt(m, m.width - 1 - x, y):
+            inc bad
+      checkpoint(sizeName & ": protected-floor asymmetric px = " & $bad)
+      check bad > 0            ## the defect is still here
+      # And it is exactly the pocket-edge columns, not something diffuse:
+      # two 1px columns spanning the pocket height.
+      var anchors: seq[int]
+      for t in m.teams(): anchors.add m.teamAnchor(t).x
+      check anchors.len >= 2
+      check anchors[1] != m.width - 1 - anchors[0]
+      check anchors[1] == m.width - anchors[0]
 
 # ---------------------------------------------------------------------------
 

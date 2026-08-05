@@ -99,6 +99,26 @@ type
       ## run the other way — 0.5% versus 21%. So `massif` and `cave` take their
       ## run axis from this flag, NOT from the shape of the region they are
       ## handed, and `vocabFootprint` reports their footprint already oriented.
+    symmetryIsReflection*: bool
+      ## True when the downstream symmetry maps a scan ROW to a scan row —
+      ## `symMirror` and `symRot180`. False for `symRot90`, the 4-team square
+      ## board.
+      ##
+      ## Also a fairness input, and for the same strict-straddle reason.
+      ## `pairedSimplify` buys exactness by putting a matched pair of vertices
+      ## on the SAME ROW, so a broken row loses two crossings instead of one. A
+      ## 90-degree rotation maps rows to COLUMNS, so the pairing buys nothing:
+      ## measured on a giant rot90 board, massif 47 per mille and cave 45 per
+      ## mille asymmetric, against 1 and 1 under reflection.
+      ##
+      ## So on a rot90 board `massif` and `cave` drop the traced outline and
+      ## emit their spine discs at FULL radius instead. A disc is exactly
+      ## equivariant under every transform the map uses, so the result is
+      ## exactly fair. It also looks worse — scalloped, closer to the beads the
+      ## outline exists to avoid — and that is the honest trade: a 4-team board
+      ## gets a rounder massif rather than an unfair one. Revisit when
+      ## `arena.pointInPolygon` moves to the half-open rule; the outline is
+      ## safe under every symmetry then and this flag can go.
 
 # ---------------------------------------------------------------------------
 # Derived sizes
@@ -111,7 +131,12 @@ func vocabParams*(rules: MapRules): VocabParams =
     corridorPx: rules.minCorridorWidthPx,
     maxExposedRunPx: rules.maxExposedRunPx,
     density: 1.0,
-    mirrorIsVertical: true)
+    mirrorIsVertical: true,
+    # Only the 2-team rect board is lifted by a row-preserving transform
+    # (`symMirror` / `symRot180`). Every other team count deploys a rotation
+    # group — rot90 on the 4-team square, D6 subgroups on the hex family — so
+    # the traced-outline items fall back to exact discs there.
+    symmetryIsReflection: rules.teamCount == 2)
 
 func vocabParams*(sizeName: string, teamCount: int): VocabParams {.inline.} =
   vocabParams(mapRules(sizeName, teamCount))
@@ -372,6 +397,25 @@ proc cans*(r: var Rand, region: MapRect, p: VocabParams): seq[ArenaShape] =
   for (cx, cy, rad) in placed:
     result.add discOf(cx, cy, rad)
 
+func wedgeShape(p: VocabParams, x0, y0, x1, y1, wStart, wEnd: int): ArenaShape =
+  ## `wedgePolygon` where a polygon is provably fair, an exact CAPSULE where it
+  ## is not.
+  ##
+  ## The mid-y snap in `wedgePolygon` makes a quad exact under a transform that
+  ## preserves scan rows. Under `symRot90` it buys nothing — rows become
+  ## columns — and beams measured 12-14 per mille asymmetric on a 4-team board.
+  ## `shapeDiagonal` is a true point-to-segment capsule with no vertices at
+  ## all, so it is exactly equivariant under every transform the map uses
+  ## (measured: snake, which is built from capsules, is 0 on rot90 too).
+  ##
+  ## The cost is that a 4-team board gets round-ended bars instead of tapered
+  ## masonry — the same trade `symmetryIsReflection` makes for the massif, and
+  ## it reverses the moment `arena.pointInPolygon` takes the half-open rule.
+  if p.symmetryIsReflection:
+    wedgePolygon(x0, y0, x1, y1, wStart, wEnd)
+  else:
+    diagOf(x0, y0, x1, y1, max(4, (wStart + wEnd) div 2))
+
 # ---------------------------------------------------------------------------
 # BEAMS / WEDGES — thick diagonals, the visual workhorse
 # ---------------------------------------------------------------------------
@@ -416,7 +460,7 @@ proc beams*(r: var Rand, region: MapRect, p: VocabParams): seq[ArenaShape] =
     # is a coin flip, so a field of wedges does not all point one way.
     narrow = max(6, thick * rr(r, 30, 70) div 100)
     flip = coin(r, 50)
-  result.add wedgePolygon(cx - dx, cy - dy, cx + dx, cy + dy,
+  result.add wedgeShape(p, cx - dx, cy - dy, cx + dx, cy + dy,
                           (if flip: thick else: narrow),
                           (if flip: narrow else: thick))
   # A parallel partner, offset perpendicular by a full corridor plus both
@@ -430,7 +474,7 @@ proc beams*(r: var Rand, region: MapRect, p: VocabParams): seq[ArenaShape] =
       sy = clampTo(cy + oy, core.y, core.y + core.h - 1)
       thick2 = max(6, thick * rr(r, 70, 100) div 100)
       narrow2 = max(6, thick2 * rr(r, 30, 70) div 100)
-    result.add wedgePolygon(sx - dx, sy - dy, sx + dx, sy + dy,
+    result.add wedgeShape(p, sx - dx, sy - dy, sx + dx, sy + dy,
                             (if flip: narrow2 else: thick2),
                             (if flip: thick2 else: narrow2))
 
@@ -655,7 +699,7 @@ proc bunkerCluster*(r: var Rand, region: MapRect, p: VocabParams): seq[ArenaShap
         ay = clampTo(py - ty, inner.y, inner.y + inner.h - 1)
         bx = clampTo(px + tx, inner.x, inner.x + inner.w - 1)
         by = clampTo(py + ty, inner.y, inner.y + inner.h - 1)
-      result.add wedgePolygon(ax, ay, bx, by, wide, max(6, wide div 2))
+      result.add wedgeShape(p, ax, ay, bx, by, wide, max(6, wide div 2))
 
 # ---------------------------------------------------------------------------
 # MASSIF — a lumpy organic mass whose outline never repeats
@@ -923,6 +967,17 @@ proc massifPolys(
   const MaxParts = 8
   var parts = 1
   var rings: seq[ArenaShape]
+  # ROT90 FALLBACK: no traced outline at all. See
+  # `VocabParams.symmetryIsReflection` — row pairing cannot help a symmetry
+  # that maps rows to columns, so a ridge outline is 45-47 per mille
+  # asymmetric on a 4-team board. Discs are exactly equivariant under every
+  # transform the map uses, so the mass is emitted as its spine discs at FULL
+  # radius: rounder, and fair.
+  if not p.symmetryIsReflection:
+    for d in discs:
+      if alongH: result.add discOf(region.x + d.u, region.y + d.v, d.rad)
+      else: result.add discOf(region.x + d.v, region.y + d.u, d.rad)
+    return
   while parts <= MaxParts:
     var
       worst = 0
