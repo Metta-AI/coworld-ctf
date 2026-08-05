@@ -22,13 +22,15 @@ out_path = pathlib.Path(sys.argv[2]) if len(sys.argv) > 2 else repo / "docs" / "
 
 manifest = json.loads((render_dir / "manifest.json").read_text())
 
-# Widths of the HEX size classes (ctf/hex.nim HexSizes). The board is a regular
-# hexagon inscribed in width x height, portrait, so these replaced the old
-# rectangular 1050/1235/1606/2223/3211 set outright. `colossal` is
-# override-only and never appears in a random pool draw, but it is listed so an
-# override-built pool still labels correctly.
-SIZE_NAMES = {824: "small", 969: "standard", 1260: "large",
-              1744: "huge", 2519: "giant", 5039: "colossal"}
+# WIDTHS of the HEX size classes (ctf/hex.nim HexSizes). The board is a regular
+# flat-top hexagon inscribed in width x height, LANDSCAPE, so these replaced the
+# old rectangular 1050/1235/1606/2223/3211 set outright — and then the flat-top
+# flip swapped the axes again, which is why these are 951/1119/... and not the
+# short-axis 824/969/... a portrait board reported. `colossal` is override-only
+# and never appears in a random pool draw, but it is listed so an override-built
+# pool still labels correctly.
+SIZE_NAMES = {951: "small", 1119: "standard", 1455: "large",
+              2014: "huge", 2909: "giant", 5819: "colossal"}
 SIZE_ORDER = ["small", "standard", "large", "huge", "giant", "colossal"]
 # Wire tokens from mapSpecJson. `mirror` is the legacy spelling the loader
 # still accepts, so an older manifest keeps rendering under the right chip.
@@ -55,7 +57,8 @@ for m in manifest:
     # The pool is curated BY SCORE, so the score is on the card. Interior
     # fraction rides beside it with the control's own figure, because that is
     # the one number the fitness harness measured every pre-ranking pool map
-    # as failing (9.9-17.9% against the arena's 32.5% on the square board).
+    # as failing (9.9-17.9%, against 32.5% for the same arena on the square
+    # board and 38.0% for it on the landscape hexagon).
     score_note = ""
     if "score" in m:
         interior = m.get("interiorFrac", 0) * 100
