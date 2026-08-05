@@ -844,4 +844,124 @@ Since §11 keeps every offset target convex, we do not need a straight-skeleton 
 all in v1. Note it as the thing we would need if we ever offset a union of cells (a "district")
 rather than a single cell.
 
+---
+
+## 10. Symmetry: generating in the fundamental domain, and the trap nobody mentions
+
+### 10.1 The easy part
+
+Everything in the Voronoi family commutes with isometries, so:
+
+```
+seeds_F  ← sample the fundamental domain F
+seeds    ← ⋃_{g ∈ G} g · seeds_F                       # hex.orbit / hex.orbitUnique
+V        ← Voronoi(seeds)                              # exactly G-invariant
+```
+
+**(A), exactly.** Cells, edges, the Delaunay graph, chokepoints, route counts, cover fractions —
+all G-invariant with zero tolerance. Contrast with generating the whole board and *checking*
+fairness, which can only ever be (B).
+
+`hex.nim` already has everything: `apply(op, cube)` (`:282`), `orbit`/`orbitUnique` (`:423`/`:432`),
+`stabilizer` (`:441`), `actsFreely` (`:450`), and the subgroup table `GroupC2/C3/V4/C6/D6` (`:390`)
+with `teamGroup(teamCount)` (`:404`). It is **not currently wired to the generator** — the shipping
+path lifts pixel-space shapes via `arena.buildArenaObstacles` (`:939`) using `mirrorX`/`rot180`/`rot90`.
+Both paths work; the hex one is the one that generalises to 3 and 6 teams.
+
+### 10.2 The trap: **a mirror axis is a Voronoi edge**
+
+This is the single most important symmetry finding in this document, and it is not something the
+Voronoi-for-games literature mentions, because game maps are rarely mirror-symmetric.
+
+> **Theorem.** Let `ℓ` be a mirror line of the group `G`, with reflection `σ`, and let `S` be a
+> `G`-invariant seed set with **no seed on `ℓ`**. Then **every point of `ℓ` lies on a Voronoi edge
+> or vertex** — the mirror axis is entirely a cell boundary.
+>
+> *Proof.* Take `x ∈ ℓ` and let `s` be a nearest seed. Then `σ(s) ∈ S` and
+> `|x − σ(s)| = |σ(x) − σ(s)| = |x − s|`, so `σ(s)` is also nearest. Since `s ≠ σ(s)` (no seed on
+> `ℓ`), `x` is equidistant from two distinct seeds ⇒ `x` is not in the interior of any cell. ∎
+
+**Why this is a catastrophe for us.** In every design where the free space is the grout between
+eroded cells (§11.1, §11.3), the cell boundaries are exactly where the corridors run. So a
+mirror-symmetric map generated this way has a **perfectly straight corridor running the entire
+length of the symmetry axis** — which on a 1235 × 659 board with `GunRange = 1050` is the
+best sniping lane it is possible to draw. And every 2-team map is `symMirror`. You would ship
+this bug and it would look intentional.
+
+(The same argument shows the 180° rotation centre and the `GroupV4` mirror pair produce the same
+artefact on **both** axes: `GroupV4 = {e, hexMir0, hexMir90, hexRot180}` (`hex.nim:~385`), so a
+4-team map gets a full-width *and* a full-height street through the middle.)
+
+### 10.3 The fix, with its own theorem
+
+Put seeds **on** the axis. A seed `s ∈ ℓ` satisfies `σ(s) = s`, its cell is `σ`-symmetric, and the
+axis passes through the cell's *interior*.
+
+> **Axis-coverage lemma.** Let `S` be a `G`-invariant maximal Poisson-disk set with radius `r`.
+> Place on-axis seeds along `ℓ` with spacing `a < r`. Then every point of `ℓ` lies in the closed
+> cell of an on-axis seed.
+>
+> *Proof.* Any off-axis seed `s` has `|s − σ(s)| ≥ r` (both are in `S` and they are distinct), and
+> `|s − σ(s)| = 2·dist(s, ℓ)`, so `dist(s, ℓ) ≥ r/2`. Hence for `x ∈ ℓ`, every off-axis seed is at
+> distance ≥ r/2. The nearest on-axis seed is at distance ≤ a/2 < r/2. So the nearest seed to `x`
+> is on-axis. ∎
+
+Consequences, all (A):
+
+- The axis is a chain of on-axis cell interiors, separated by the perpendicular bisector edges
+  between consecutive on-axis seeds. The axis is **broken into segments of length ≈ a < r = 180 px**.
+- If an on-axis cell is labelled **solid**, the axis is blocked there outright.
+- If it is **open**, the run along the axis is bounded by the cell diameter ≤ 2r.
+- Either way, the full-board axial street is destroyed **by construction**, not by rejection.
+
+This turns a lurking catastrophic artefact into a one-line seeding rule: *seed the mirror axes
+first, at spacing `a = 0.8·r`, then Poisson-fill the fundamental domain around them.* Note the
+fill must test candidate distance against **the whole orbit**, not just the seeds already in `F`
+— the standard periodic-Poisson fix, costing a factor `|G| ≤ 12`.
+
+Rotation centres need the analogous treatment: for `GroupC3`/`GroupC6`, the centre is a fixed
+point, so place **one seed exactly at the centre** or accept a pinwheel Voronoi vertex there
+(harmless — a vertex is a point, not a line). For `GroupC2`/`symRot180` there is **no mirror line
+at all**, only a centre; the theorem does not apply, and 2-team rot180 maps are structurally safer
+than 2-team mirror maps. Worth knowing: **`symRot180` is the cheaper symmetry for this family**,
+and `map_rules.mirroredTeams` says 4-team `GroupV4` is where the mirrors (and the trap) live.
+
+### 10.4 Numerical degeneracy: symmetry is the adversarial input for Delaunay
+
+A `G`-invariant point set is *saturated with exact cocircularities and collinearities* — four
+mirror-images of a point are exactly cocircular, three collinear seeds on an axis are exactly
+collinear. Floating-point Delaunay on such input produces inconsistent orientation tests and
+non-manifold output. This is a real, boring, project-killing bug and it must be designed out up
+front. Three mitigations, in order of preference:
+
+1. **Integer seeds + exact integer predicates.** `shapePolygon` wants integer vertices anyway.
+   With coordinates ≤ 2048, the `incircle` determinant of lifted points `(x, y, x²+y²)` has terms
+   bounded by about `2^12 · 2^12 · 2^24 = 2^48`; six terms ⇒ `< 2^51`, comfortably inside `int64`.
+   **Exact Delaunay in pure Nim with `int64` arithmetic, no Shewchuk adaptive predicates needed.**
+   This is the recommendation.
+2. **Compute in the fundamental domain plus a collar** and lift the *combinatorics*, the trick
+   CGAL's periodic triangulations use ([Osang et al., ESA 2020](https://drops.dagstuhl.de/opus/volltexte/2020/12941/pdf/LIPIcs-ESA-2020-75.pdf)).
+   Halves the work and keeps degeneracies inside one domain.
+3. **Symmetry-equivariant symbolic perturbation** — correct, but you must ensure the perturbation
+   itself commutes with `G` or you break the exactness you paid for.
+
+### 10.5 Emitting into `leftObstacles`
+
+`CtfMap.leftObstacles` (`sim_types.nim:855`) holds the **half or quadrant seed set only**;
+`buildArenaObstacles` (`arena.nim:939`) stamps the images. So the generator should emit only the
+fundamental domain's polygons. For a cell that **straddles** the axis (which, by §10.3, on-axis
+cells always do):
+
+> **Clip the cell to the fundamental domain** with Sutherland–Hodgman against the axis half-plane,
+> and emit the clipped convex polygon. The lift regenerates the other half; the union is the full
+> symmetric cell.
+
+Convex ∩ half-plane is convex, so the result is still a `shapePolygon` and still erodes trivially.
+The one hazard is the **seam**: `mirrorX` maps `x → width − x` (check the exact convention at
+`arena.nim:652`) and an off-by-one there leaves a 1 px slit or a 1 px double-wall down the axis.
+`burrow.nim:305-308` already documents a "≤ 1 cell wide seam at the wedge boundary", so this class
+of bug is known in the tree. **Test:** rasterise the lifted obstacle set and assert the wall mask
+is exactly `σ`-symmetric, pixel for pixel. That is a cheap unit test and it catches every
+convention error at once.
+
 <!-- SECTION-MARKER -->
