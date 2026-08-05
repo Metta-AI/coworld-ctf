@@ -49,7 +49,7 @@ the same change.
   from the randomized game seed), `mapPath: "gen"` + `mapSeed` generates
   directly. Individual draws lock via `mapSize`, `mapSymmetry`
   (`mirror`/`rot180`), `mapColumns`, `mapWindows`, `mapCenterFeature`,
-  `mapEndzone` (+ `mapEndzoneRadius` / `mapBaseDepth`).
+  `mapEndzone` (+ `mapEndzoneRadius` / `mapBaseDepth`), `mapRankK`.
   Tools accept `gen:<seed>` / `pool:<idx>` map paths.
 - **The generator runs on NAMED RNG SUB-STREAMS, one per stage** —
   `layout` / `endzone` / `terrain` / `cover` / `trench` / `decor` /

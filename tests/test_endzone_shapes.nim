@@ -172,7 +172,16 @@ suite "endzone discs":
       windows: -1, pits: -1, pitDensity: -1, size: "standard",
       endzone: "disc", endzoneRadius: maxEndzoneRadius(HexStandardWidth),
       baseDepth: HomeDepthMin))
-    check validateGeneratedMap(fat).startsWith("open sightline")
+    ## Asserted on the DIAGNOSTIC, not on the first-failure string. The claim
+    ## is geometric — the base-to-base row is open border to border — and
+    ## `validateGeneratedMap` reports whichever validator fires FIRST, which
+    ## is a property of the terrain draw rather than of the endzone. Seed
+    ## 4242's terrain now trips the cover budget a stage earlier (the RNG
+    ## sub-stream split re-dealt every seed's terrain), and pinning the
+    ## reason string made that read as "the lane closed" when it had not.
+    let fatDiagnostics = mapDiagnostics(fat)
+    check fatDiagnostics.openSightlineRows.len > 0
+    check validateGeneratedMap(fat).len > 0
     var config = defaultGameConfig()
     expect CtfError:
       config.update("""{

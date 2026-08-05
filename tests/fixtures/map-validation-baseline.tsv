@@ -3,203 +3,203 @@
 #   CTF_REGEN_MAP_BASELINE=1 nim c -d:release -r tests/test_map_editor_core.nim
 # 2-team only: hex Stage 2 generates no other team count.
 seed	size	symmetry	reason
-1000	standard	symRot180	too clogged: 206 permille cover
-1001	standard	symMirrorHex	
-1002	small	symMirrorHex	
-1003	giant	symMirrorHex	
-1004	giant	symRot180	
-1005	giant	symRot180	
-1006	small	symRot180	too clogged: 199 permille cover
-1007	huge	symRot180	
-1008	standard	symRot180	
-1009	giant	symRot180	
-1010	small	symMirrorHex	too clogged: 171 permille cover
-1011	giant	symRot180	
-1012	large	symMirrorHex	
-1013	large	symRot180	
-1014	giant	symRot180	
-1015	small	symMirrorHex	too clogged: 196 permille cover
-1016	large	symMirrorHex	
-1017	small	symMirrorHex	too clogged: 171 permille cover
-1018	giant	symRot180	
-1019	large	symMirrorHex	
+1000	small	symRot180	too clogged: 249 permille cover
+1001	standard	symRot180	
+1002	large	symMirrorHex	
+1003	giant	symRot180	
+1004	standard	symMirrorHex	too clogged: 183 permille cover
+1005	small	symRot180	
+1006	small	symMirrorHex	too clogged: 195 permille cover
+1007	standard	symMirrorHex	too clogged: 184 permille cover
+1008	large	symMirrorHex	
+1009	standard	symRot180	
+1010	large	symMirrorHex	
+1011	standard	symMirrorHex	too clogged: 184 permille cover
+1012	giant	symMirrorHex	
+1013	giant	symMirrorHex	
+1014	large	symMirrorHex	
+1015	standard	symMirrorHex	too clogged: 171 permille cover
+1016	standard	symRot180	
+1017	huge	symRot180	
+1018	large	symRot180	
+1019	giant	symRot180	
 1020	giant	symRot180	
 1021	giant	symMirrorHex	
-1022	standard	symMirrorHex	too clogged: 185 permille cover
-1023	huge	symRot180	
-1024	large	symMirrorHex	
-1025	standard	symRot180	open sightline on axis 0 deg at intercept 556
-1026	large	symRot180	
-1027	huge	symMirrorHex	
-1028	giant	symRot180	
-1029	huge	symRot180	
-1030	large	symMirrorHex	
-1031	giant	symMirrorHex	
-1032	large	symRot180	
-1033	huge	symMirrorHex	
-1034	huge	symMirrorHex	
+1022	small	symRot180	too clogged: 197 permille cover
+1023	large	symRot180	
+1024	standard	symMirrorHex	too clogged: 184 permille cover
+1025	standard	symMirrorHex	too clogged: 174 permille cover
+1026	standard	symRot180	
+1027	standard	symRot180	
+1028	standard	symMirrorHex	too clogged: 202 permille cover
+1029	standard	symRot180	
+1030	giant	symRot180	
+1031	large	symRot180	open sightline on axis 0 deg at intercept 584
+1032	standard	symRot180	too clogged: 180 permille cover
+1033	large	symMirrorHex	
+1034	standard	symMirrorHex	
 1035	small	symRot180	
-1036	small	symMirrorHex	too clogged: 238 permille cover
-1037	huge	symMirrorHex	
-1038	large	symRot180	
-1039	giant	symMirrorHex	
-1040	large	symMirrorHex	
-1041	huge	symRot180	
-1042	small	symMirrorHex	too clogged: 242 permille cover
-1043	standard	symMirrorHex	too clogged: 172 permille cover
-1044	huge	symRot180	
-1045	huge	symMirrorHex	
-1046	large	symRot180	
-1047	huge	symRot180	
-1048	huge	symRot180	
-1049	large	symRot180	
-1050	giant	symRot180	
-1051	giant	symRot180	
-1052	large	symRot180	
-1053	giant	symMirrorHex	
-1054	giant	symRot180	
-1055	giant	symRot180	
-1056	large	symRot180	
-1057	huge	symMirrorHex	
-1058	standard	symRot180	
-1059	large	symMirrorHex	
-1060	giant	symRot180	
-1061	huge	symMirrorHex	
-1062	huge	symMirrorHex	
-1063	huge	symRot180	
-1064	small	symRot180	too clogged: 239 permille cover
-1065	huge	symMirrorHex	
-1066	large	symRot180	
-1067	giant	symRot180	
-1068	standard	symMirrorHex	too clogged: 197 permille cover
-1069	large	symRot180	
-1070	small	symMirrorHex	
-1071	standard	symRot180	
-1072	large	symMirrorHex	
-1073	giant	symMirrorHex	
-1074	small	symRot180	
-1075	giant	symMirrorHex	
-1076	small	symMirrorHex	too clogged: 235 permille cover
-1077	standard	symRot180	
-1078	standard	symRot180	open sightline on axis 0 deg at intercept 560
-1079	small	symRot180	open sightline on axis 0 deg at intercept 460
-1080	large	symRot180	
-1081	standard	symMirrorHex	too clogged: 211 permille cover
-1082	small	symMirrorHex	too clogged: 207 permille cover
-1083	giant	symRot180	
-1084	large	symRot180	
-1085	large	symRot180	
-1086	small	symMirrorHex	too clogged: 206 permille cover
-1087	giant	symRot180	
-1088	giant	symRot180	
-1089	large	symMirrorHex	
-1090	standard	symRot180	
-1091	standard	symMirrorHex	too clogged: 201 permille cover
-1092	giant	symRot180	
-1093	giant	symMirrorHex	
-1094	huge	symMirrorHex	
-1095	standard	symMirrorHex	open sightline on axis 0 deg at intercept 540
-1096	standard	symMirrorHex	too clogged: 196 permille cover
-1097	large	symMirrorHex	
-1098	huge	symRot180	
-1099	large	symRot180	
-1100	giant	symRot180	
-1101	large	symRot180	
-1102	huge	symMirrorHex	
-1103	huge	symRot180	
-1104	standard	symRot180	too clogged: 172 permille cover
-1105	standard	symMirrorHex	too clogged: 187 permille cover
-1106	huge	symRot180	
-1107	huge	symMirrorHex	
-1108	standard	symMirrorHex	too clogged: 204 permille cover
-1109	large	symRot180	
-1110	huge	symMirrorHex	
-1111	small	symRot180	open sightline on axis 0 deg at intercept 456
-1112	huge	symRot180	
-1113	large	symMirrorHex	
-1114	giant	symRot180	
-1115	large	symMirrorHex	
-1116	small	symMirrorHex	too clogged: 232 permille cover
-1117	giant	symMirrorHex	
-1118	small	symMirrorHex	too clogged: 258 permille cover
-1119	giant	symRot180	
-1120	large	symMirrorHex	too clogged: 186 permille cover
+1036	small	symRot180	
+1037	huge	symRot180	
+1038	standard	symMirrorHex	too clogged: 171 permille cover
+1039	giant	symRot180	
+1040	huge	symRot180	
+1041	giant	symRot180	
+1042	huge	symMirrorHex	
+1043	standard	symMirrorHex	
+1044	standard	symRot180	
+1045	standard	symMirrorHex	too clogged: 189 permille cover
+1046	small	symMirrorHex	too clogged: 232 permille cover
+1047	giant	symRot180	
+1048	large	symRot180	
+1049	huge	symRot180	
+1050	large	symRot180	
+1051	large	symMirrorHex	too clogged: 176 permille cover
+1052	small	symRot180	too clogged: 195 permille cover
+1053	standard	symRot180	open sightline on axis 0 deg at intercept 540
+1054	huge	symMirrorHex	
+1055	large	symRot180	
+1056	standard	symRot180	open sightline on axis 0 deg at intercept 556
+1057	giant	symRot180	
+1058	huge	symRot180	
+1059	giant	symRot180	
+1060	giant	symMirrorHex	
+1061	giant	symRot180	
+1062	small	symRot180	open sightline on axis 0 deg at intercept 476
+1063	giant	symMirrorHex	
+1064	small	symMirrorHex	too clogged: 190 permille cover
+1065	small	symRot180	too clogged: 176 permille cover
+1066	standard	symRot180	
+1067	small	symMirrorHex	too clogged: 201 permille cover
+1068	small	symMirrorHex	too clogged: 230 permille cover
+1069	small	symRot180	too clogged: 223 permille cover
+1070	giant	symMirrorHex	
+1071	small	symMirrorHex	too clogged: 239 permille cover
+1072	large	symRot180	
+1073	standard	symMirrorHex	too clogged: 178 permille cover
+1074	huge	symRot180	
+1075	standard	symRot180	
+1076	huge	symRot180	
+1077	large	symMirrorHex	
+1078	giant	symRot180	
+1079	huge	symRot180	
+1080	large	symMirrorHex	
+1081	standard	symMirrorHex	
+1082	giant	symMirrorHex	
+1083	huge	symRot180	
+1084	standard	symRot180	
+1085	standard	symRot180	
+1086	giant	symRot180	
+1087	small	symMirrorHex	too clogged: 185 permille cover
+1088	small	symMirrorHex	
+1089	small	symMirrorHex	too clogged: 180 permille cover
+1090	giant	symRot180	
+1091	huge	symMirrorHex	
+1092	large	symRot180	
+1093	large	symMirrorHex	
+1094	large	symRot180	
+1095	small	symRot180	open sightline on axis 0 deg at intercept 472
+1096	small	symRot180	
+1097	small	symRot180	too clogged: 172 permille cover
+1098	giant	symRot180	
+1099	giant	symMirrorHex	
+1100	standard	symMirrorHex	
+1101	standard	symMirrorHex	too clogged: 210 permille cover
+1102	standard	symRot180	too clogged: 172 permille cover
+1103	huge	symMirrorHex	
+1104	huge	symRot180	
+1105	large	symMirrorHex	
+1106	huge	symMirrorHex	
+1107	standard	symMirrorHex	open sightline on axis 0 deg at intercept 540
+1108	giant	symMirrorHex	
+1109	large	symRot180	open sightline on axis 0 deg at intercept 728
+1110	giant	symMirrorHex	
+1111	huge	symMirrorHex	
+1112	huge	symMirrorHex	
+1113	standard	symRot180	
+1114	small	symMirrorHex	too clogged: 173 permille cover
+1115	standard	symRot180	
+1116	large	symMirrorHex	
+1117	standard	symRot180	
+1118	huge	symRot180	
+1119	small	symRot180	too clogged: 201 permille cover
+1120	standard	symMirrorHex	
 1121	standard	symMirrorHex	too clogged: 199 permille cover
-1122	large	symMirrorHex	
-1123	large	symMirrorHex	
-1124	giant	symMirrorHex	
-1125	standard	symMirrorHex	open sightline on axis 0 deg at intercept 540
-1126	large	symRot180	
-1127	small	symMirrorHex	
-1128	giant	symMirrorHex	
-1129	small	symMirrorHex	too clogged: 174 permille cover
-1130	large	symRot180	
-1131	large	symMirrorHex	
+1122	small	symRot180	too clogged: 258 permille cover
+1123	small	symMirrorHex	too clogged: 177 permille cover
+1124	large	symRot180	
+1125	small	symMirrorHex	open sightline on axis 0 deg at intercept 484
+1126	standard	symRot180	
+1127	giant	symMirrorHex	
+1128	huge	symRot180	
+1129	large	symMirrorHex	
+1130	giant	symRot180	
+1131	standard	symMirrorHex	too clogged: 191 permille cover
 1132	giant	symMirrorHex	
-1133	large	symRot180	
-1134	giant	symRot180	
-1135	huge	symMirrorHex	
+1133	huge	symRot180	
+1134	huge	symRot180	
+1135	standard	symRot180	
 1136	small	symRot180	
-1137	giant	symRot180	
-1138	standard	symRot180	
-1139	small	symRot180	too clogged: 182 permille cover
-1140	giant	symMirrorHex	
-1141	standard	symRot180	
-1142	huge	symMirrorHex	
-1143	giant	symMirrorHex	
-1144	small	symRot180	open sightline on axis 0 deg at intercept 476
-1145	huge	symMirrorHex	
-1146	standard	symMirrorHex	too clogged: 191 permille cover
-1147	giant	symRot180	
-1148	large	symRot180	
+1137	small	symMirrorHex	too clogged: 221 permille cover
+1138	huge	symRot180	
+1139	standard	symMirrorHex	too clogged: 205 permille cover
+1140	large	symRot180	
+1141	giant	symMirrorHex	
+1142	giant	symMirrorHex	
+1143	small	symMirrorHex	too clogged: 208 permille cover
+1144	large	symMirrorHex	
+1145	standard	symRot180	open sightline on axis 0 deg at intercept 556
+1146	small	symMirrorHex	too clogged: 206 permille cover
+1147	small	symRot180	open sightline on axis 0 deg at intercept 456
+1148	standard	symMirrorHex	too clogged: 193 permille cover
 1149	giant	symRot180	
-1150	standard	symRot180	open sightline on axis 0 deg at intercept 540
-1151	large	symRot180	
-1152	huge	symRot180	
-1153	large	symMirrorHex	
-1154	standard	symMirrorHex	too clogged: 184 permille cover
-1155	large	symMirrorHex	
-1156	standard	symRot180	
-1157	standard	symMirrorHex	
-1158	giant	symRot180	
-1159	large	symRot180	
-1160	huge	symMirrorHex	
-1161	small	symRot180	too clogged: 185 permille cover
-1162	small	symRot180	too clogged: 215 permille cover
-1163	small	symMirrorHex	too clogged: 212 permille cover
-1164	huge	symMirrorHex	
-1165	giant	symRot180	
-1166	small	symRot180	open sightline on axis 0 deg at intercept 456
-1167	giant	symMirrorHex	
-1168	small	symMirrorHex	
-1169	standard	symRot180	open sightline on axis 0 deg at intercept 540
-1170	large	symMirrorHex	
-1171	huge	symMirrorHex	
+1150	standard	symRot180	too clogged: 244 permille cover
+1151	small	symRot180	
+1152	standard	symMirrorHex	open sightline on axis 0 deg at intercept 540
+1153	small	symRot180	
+1154	huge	symMirrorHex	
+1155	large	symMirrorHex	open sightline on axis 0 deg at intercept 636
+1156	giant	symMirrorHex	
+1157	large	symMirrorHex	
+1158	small	symRot180	
+1159	giant	symRot180	
+1160	giant	symMirrorHex	
+1161	small	symMirrorHex	too clogged: 203 permille cover
+1162	huge	symMirrorHex	
+1163	giant	symRot180	
+1164	large	symRot180	
+1165	huge	symMirrorHex	
+1166	small	symMirrorHex	
+1167	huge	symRot180	
+1168	huge	symRot180	
+1169	huge	symMirrorHex	
+1170	huge	symRot180	
+1171	huge	symRot180	
 1172	huge	symRot180	
-1173	large	symMirrorHex	
-1174	small	symRot180	
-1175	giant	symRot180	
-1176	huge	symRot180	
-1177	standard	symRot180	too clogged: 215 permille cover
-1178	huge	symMirrorHex	
-1179	huge	symMirrorHex	
-1180	giant	symRot180	
-1181	giant	symRot180	
-1182	giant	symMirrorHex	
-1183	standard	symMirrorHex	too clogged: 200 permille cover
-1184	standard	symRot180	
-1185	small	symRot180	open sightline on axis 0 deg at intercept 456
-1186	giant	symRot180	
-1187	huge	symRot180	
-1188	giant	symMirrorHex	
-1189	giant	symMirrorHex	
-1190	large	symRot180	
-1191	small	symMirrorHex	too clogged: 179 permille cover
-1192	standard	symRot180	
-1193	large	symMirrorHex	
+1173	large	symRot180	
+1174	huge	symRot180	
+1175	large	symRot180	
+1176	huge	symMirrorHex	
+1177	large	symMirrorHex	too clogged: 185 permille cover
+1178	small	symMirrorHex	too clogged: 213 permille cover
+1179	standard	symMirrorHex	too clogged: 175 permille cover
+1180	large	symMirrorHex	
+1181	standard	symRot180	open sightline on axis 0 deg at intercept 540
+1182	huge	symMirrorHex	
+1183	giant	symRot180	
+1184	large	symMirrorHex	
+1185	large	symMirrorHex	
+1186	small	symMirrorHex	
+1187	standard	symMirrorHex	open sightline on axis 0 deg at intercept 540
+1188	giant	symRot180	
+1189	small	symRot180	too clogged: 200 permille cover
+1190	large	symMirrorHex	
+1191	huge	symRot180	
+1192	standard	symMirrorHex	too clogged: 200 permille cover
+1193	huge	symRot180	
 1194	giant	symRot180	
-1195	standard	symMirrorHex	
-1196	small	symRot180	too clogged: 179 permille cover
-1197	large	symRot180	
-1198	small	symMirrorHex	too clogged: 241 permille cover
-1199	standard	symRot180	
+1195	standard	symMirrorHex	too clogged: 228 permille cover
+1196	standard	symRot180	
+1197	giant	symMirrorHex	
+1198	large	symMirrorHex	
+1199	standard	symMirrorHex	too clogged: 178 permille cover
