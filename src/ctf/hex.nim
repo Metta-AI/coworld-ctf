@@ -33,23 +33,34 @@
 ## THE FROZEN ORIENTATION, AND WHY
 ## ---------------------------------------------------------------------------
 ##
-## Two orientations exist and they are duals, so both words appear in the plan
-## and both are correct — of different objects:
+## Two orientations exist and they are DUALS — a hexagonal region of hex cells
+## is always rotated 30deg from the cells it is made of — so both words appear
+## and both are correct, of different objects. **They are frozen as a PAIR, and
+## flipping the arena means flipping BOTH halves:**
 ##
-## - **Lattice cells are FLAT-TOP.** `cubeToPixel` is the standard flat-top
-##   layout: `x = size * 3/2 * q`, `y = size * (sqrt(3)/2 * q + sqrt(3) * r)`.
-##   A cell has vertices at its left and right, flat edges top and bottom.
-## - **The arena hexagon is POINTY-TOP.** A hexagonal REGION of flat-top cells
+## - **Lattice cells are POINTY-TOP.** `cubeToPixel` is the standard pointy-top
+##   layout: `x = size * (sqrt(3) * q + sqrt(3)/2 * r)`, `y = size * 3/2 * r`.
+##   A cell has vertices at its top and bottom, flat edges left and right, and
+##   its six neighbours sit at 0, 60, ..., 300 degrees.
+## - **The arena hexagon is FLAT-TOP.** A hexagonal REGION of pointy-top cells
 ##   is itself rotated 30deg from its cells: `max(|q|, |r|, |s|) <= N` spans
-##   `3*N*size` horizontally and `2*sqrt(3)*N*size` vertically, aspect
-##   `3 / (2*sqrt(3)) = sqrt(3)/2 = 0.866`. So the natural hull of the authoring
-##   lattice is a hexagon with vertices at top and bottom and flat edges left
-##   and right, bounding box W x H with `W/H = sqrt(3)/2` — which is exactly the
-##   969 x 1119 standard class below.
+##   `2*sqrt(3)*N*size` horizontally and `3*N*size` vertically, aspect
+##   `2*sqrt(3) / 3 = 2/sqrt(3) = 1.1547`. So the natural hull of the authoring
+##   lattice is a hexagon with vertices at left and right and flat edges top and
+##   bottom, bounding box W x H with `W/H = 2/sqrt(3)` — which is exactly the
+##   1119 x 969 standard class below. The board is LANDSCAPE.
 ##
 ## Freezing both is what makes the boundary commensurate with the lattice: the
 ## arena outline is the hull of the same lattice the obstacles are authored on,
 ## so it needs no separate fairness argument.
+##
+## THIS IS A CONSTRUCTION CONVENTION, NOT A ROTATION. `rot90` is not an element
+## of D6 and there is no board-level quarter turn anywhere in this module: the
+## exact integer cube operators below are byte-for-byte what they were under the
+## portrait convention. What changed is the cube->pixel MAP (and, following it,
+## which permutation earns which mirror NAME) and the size table. Anyone who
+## implements the landscape board as a rot90 of the portrait one has
+## reintroduced precisely the non-lattice rotation section 0.2 forbids.
 ##
 ## ANGLE CONVENTION, frozen with the layout: `cubeToPixel` emits SCREEN pixels
 ## with y growing DOWN, matching every other coordinate in the sim, and EVERY
@@ -109,14 +120,22 @@ const
   Sqrt3Third* = 0.57735026918962576451        ## sqrt(3)/3 = tan 30deg
   HexAreaFactor* = 2.5980762113533159403      ## 3*sqrt(3)/2: hex area / R^2
 
-  HexAspectMin* = Sqrt3Half                   ## 0.8660..., a pointy-top hull
-  HexAspectMax* = 1.1547005383792515290       ## 2/sqrt(3), a flat-top hull
+  HexAspectMin* = Sqrt3Half                   ## 0.8660..., a POINTY-TOP hull
+  HexAspectMax* = 1.1547005383792515290       ## 2/sqrt(3), a FLAT-TOP hull
     ## Any group transitive on 3 or 6 spawns contains a 120deg rotation, which
     ## confines the bounding-box aspect (W/H) to [sqrt(3)/2, 2/sqrt(3)]. The
     ## square arena's 1235/659 = 1.874 is far outside it: exact 3- or 6-team
     ## fairness on today's canvas is IMPOSSIBLE, and an anisotropic stretch of
     ## the lattice is not an isometry, so it silently breaks per-team travel
     ## times. The board has to change shape. See plan section 0.3.
+    ##
+    ## These two numbers are the ONLY two aspects a regular hexagon can have,
+    ## and they are the two ENDS of the same admissible window: portrait
+    ## (pointy-top) sits exactly at the minimum, landscape (flat-top) exactly at
+    ## the maximum. Choosing between them is a free convention — 3- and 6-team
+    ## symmetry is equally possible at either end — so the board ships
+    ## FLAT-TOP/landscape, and `aspectOk` accepts both so a spec-loaded map from
+    ## either convention still validates.
 
 # ---------------------------------------------------------------------------
 # Cube and axial coordinates
@@ -160,19 +179,21 @@ func `*`*(c: Cube, k: int): Cube {.inline.} =
 const CubeOrigin* = Cube(q: 0, r: 0, s: 0)
 
 const CubeDirections* = [
-  Cube(q: 1, r: 0, s: -1),    ## 0:  30deg — right and down
-  Cube(q: 0, r: 1, s: -1),    ## 1:  90deg — straight down
-  Cube(q: -1, r: 1, s: 0),    ## 2: 150deg
-  Cube(q: -1, r: 0, s: 1),    ## 3: 210deg — left and up
-  Cube(q: 0, r: -1, s: 1),    ## 4: 270deg — straight up
-  Cube(q: 1, r: -1, s: 0),    ## 5: 330deg
+  Cube(q: 1, r: 0, s: -1),    ## 0:   0deg — straight right
+  Cube(q: 0, r: 1, s: -1),    ## 1:  60deg — right and down
+  Cube(q: -1, r: 1, s: 0),    ## 2: 120deg — left and down
+  Cube(q: -1, r: 0, s: 1),    ## 3: 180deg — straight left
+  Cube(q: 0, r: -1, s: 1),    ## 4: 240deg — left and up
+  Cube(q: 1, r: -1, s: 0),    ## 5: 300deg — right and up
 ]
   ## The six unit steps, in `hexRot60` orbit order: applying `hexRot60` to
   ## `CubeDirections[i]` yields `CubeDirections[(i + 1) mod 6]`. Pinned by test.
   ##
-  ## They sit at 30, 90, ..., 330 degrees rather than 0, 60, ..., 300 — the
-  ## signature of a FLAT-TOP cell, whose two vertical neighbours are directly
-  ## above and below it and whose other four are diagonal.
+  ## They sit at 0, 60, ..., 300 degrees rather than 30, 90, ..., 330 — the
+  ## signature of a POINTY-TOP cell, whose two horizontal neighbours are
+  ## directly left and right of it and whose other four are diagonal. (The cube
+  ## VECTORS are unchanged from the portrait convention; only `cubeToPixel`
+  ## moved, so the same lattice step now points 30deg further round.)
 
 func neighbor*(c: Cube, dir: int): Cube {.inline.} =
   ## The adjacent cell in one of the six directions (`dir` is taken mod 6, so
@@ -190,7 +211,7 @@ func hexDistance*(a, b: Cube): int {.inline.} =
 iterator hexRing*(radius: int): Cube =
   ## The `6 * radius` cells at exactly `radius` steps from the origin, walked
   ## once in increasing-angle order (clockwise as drawn), starting from the
-  ## 270deg corner. Radius 0 yields the origin alone.
+  ## 240deg corner. Radius 0 yields the origin alone.
   if radius <= 0:
     yield CubeOrigin
   else:
@@ -209,25 +230,33 @@ iterator hexDisc*(radius: int): Cube =
       yield cube(q, r)
 
 # ---------------------------------------------------------------------------
-# Cube <-> pixel (flat-top layout, screen y down)
+# Cube <-> pixel (POINTY-TOP cell layout, screen y down)
 # ---------------------------------------------------------------------------
+#
+# THE one place the portrait/landscape convention lives. Everything else in this
+# module — every cube operator, every group, every orbit — is identical under
+# both conventions; they are pure signed permutations and know nothing about
+# pixels. Swapping these two functions for their flat-top counterparts is what
+# would turn the board back to portrait, and nothing else would need to move
+# except the size table and the mirror NAMES (which are defined by their pixel
+# axis, not by their permutation).
 
 func cubeToPixel*(c: Cube, size: float): tuple[x, y: float] {.inline.} =
-  ## Cell center as a pixel OFFSET from the lattice origin, flat-top layout,
+  ## Cell center as a pixel OFFSET from the lattice origin, POINTY-TOP layout,
   ## screen y down. `size` is the cell circumradius in pixels.
   ##
   ## Offsets, not absolute pixels, deliberately: the caller adds the board
   ## center once, so there is exactly one place where the lattice is pinned to
   ## the canvas and the symmetry operators never have to know about it.
-  (x: size * 1.5 * float(c.q),
-   y: size * (Sqrt3Half * float(c.q) + Sqrt3 * float(c.r)))
+  (x: size * (Sqrt3 * float(c.q) + Sqrt3Half * float(c.r)),
+   y: size * 1.5 * float(c.r))
 
 func pixelToCubeF*(x, y, size: float): tuple[q, r, s: float] {.inline.} =
   ## The exact inverse of `cubeToPixel`, before rounding — fractional cube
   ## coordinates for a pixel offset from the lattice origin.
   let
-    q = (2.0 / 3.0) * x / size
-    r = (-x / 3.0 + Sqrt3Third * y) / size
+    q = (Sqrt3Third * x - y / 3.0) / size
+    r = (2.0 / 3.0) * y / size
   (q: q, r: r, s: -q - r)
 
 func cubeRound*(fq, fr, fs: float): Cube =
@@ -266,18 +295,26 @@ type
     ## both in the frozen screen frame (from +x toward +y, i.e. clockwise as
     ## drawn). Every axis angle here is pinned by a fixed-point probe in
     ## `tests/test_hex.nim`.
+    ## A mirror is named for the pixel AXIS it reflects about, so which
+    ## permutation earns which name follows `cubeToPixel`. Under the pointy-top
+    ## cell layout each mirror name carries the permutation the name 30deg
+    ## BELOW it carried under the old flat-top layout — the same twelve
+    ## permutations, relabelled, because the lattice turned 30deg under them.
+    ## The two that matter most, `hexMir0` and `hexMir90`, are still exactly the
+    ## horizontal and vertical pixel mirrors; that is a requirement, not a
+    ## coincidence (see V4 below).
     hexE          ## identity                (q, r, s)
     hexRot60      ## +60deg                  (-r, -s, -q)
     hexRot120     ## +120deg                 (s, q, r)
     hexRot180     ## +180deg                 (-q, -r, -s)
     hexRot240     ## +240deg                 (r, s, q)
     hexRot300     ## +300deg                 (-s, -q, -r)
-    hexMir0       ## axis 0deg, horizontal   (q, s, r)     pixel (x,y)->(x,-y)
-    hexMir30      ## axis 30deg              (-s, -r, -q)
-    hexMir60      ## axis 60deg              (r, q, s)
-    hexMir90      ## axis 90deg, vertical    (-q, -s, -r)  pixel (x,y)->(-x,y)
-    hexMir120     ## axis 120deg             (s, r, q)
-    hexMir150     ## axis 150deg             (-r, -q, -s)
+    hexMir0       ## axis 0deg, horizontal   (-s, -r, -q)  pixel (x,y)->(x,-y)
+    hexMir30      ## axis 30deg              (r, q, s)
+    hexMir60      ## axis 60deg              (-q, -s, -r)
+    hexMir90      ## axis 90deg, vertical    (s, r, q)     pixel (x,y)->(-x,y)
+    hexMir120     ## axis 120deg             (-r, -q, -s)
+    hexMir150     ## axis 150deg             (q, s, r)
 
 func apply*(op: HexSym, c: Cube): Cube {.inline.} =
   ## One symmetry operator applied to a cell. This is the whole fairness
@@ -290,12 +327,12 @@ func apply*(op: HexSym, c: Cube): Cube {.inline.} =
   of hexRot180:  Cube(q: -c.q, r: -c.r, s: -c.s)
   of hexRot240:  Cube(q: c.r, r: c.s, s: c.q)
   of hexRot300:  Cube(q: -c.s, r: -c.q, s: -c.r)
-  of hexMir0:    Cube(q: c.q, r: c.s, s: c.r)
-  of hexMir30:   Cube(q: -c.s, r: -c.r, s: -c.q)
-  of hexMir60:   Cube(q: c.r, r: c.q, s: c.s)
-  of hexMir90:   Cube(q: -c.q, r: -c.s, s: -c.r)
-  of hexMir120:  Cube(q: c.s, r: c.r, s: c.q)
-  of hexMir150:  Cube(q: -c.r, r: -c.q, s: -c.s)
+  of hexMir0:    Cube(q: -c.s, r: -c.r, s: -c.q)
+  of hexMir30:   Cube(q: c.r, r: c.q, s: c.s)
+  of hexMir60:   Cube(q: -c.q, r: -c.s, s: -c.r)
+  of hexMir90:   Cube(q: c.s, r: c.r, s: c.q)
+  of hexMir120:  Cube(q: -c.r, r: -c.q, s: -c.s)
+  of hexMir150:  Cube(q: c.q, r: c.s, s: c.r)
 
 func apply*(op: HexSym, a: Axial): Axial {.inline.} =
   toAxial(op.apply(a.toCube()))
@@ -311,9 +348,13 @@ const
     ## `HexRotations[k]` is the rotation by `60 * k` degrees, so
     ## `HexRotations[k] == rot60^k`. Pinned by test.
   HexMirrors* = [hexMir0, hexMir30, hexMir60, hexMir90, hexMir120, hexMir150]
-    ## `HexMirrors[k]` has its axis at `30 * k` degrees. On the pointy-top
-    ## arena the EVEN entries (0, 60, 120) run through opposite edge midpoints
-    ## and the ODD ones (30, 90, 150) through opposite vertices.
+    ## `HexMirrors[k]` has its axis at `30 * k` degrees. On the FLAT-TOP arena
+    ## the EVEN entries (0, 60, 120) run through opposite VERTICES and the ODD
+    ## ones (30, 90, 150) through opposite EDGE MIDPOINTS — the reverse of the
+    ## portrait convention, because the hull turned 30deg with the layout.
+    ##
+    ## `hexMir0` is therefore the long axis of the landscape board: the axis the
+    ## 2-team arena seats RED and BLUE on, vertex to vertex.
 
 # The composition table is BUILT, not typed. Two independent lattice vectors
 # determine a D6 element uniquely, so identifying `a . b` by its action on
@@ -458,22 +499,29 @@ const SpawnSeedAngle*: array[7, float] = [
   0.0,      ## 0 teams (unused)
   0.0,      ## 1
   0.0,      ## 2: orbit {0, 180} — bases LEFT and RIGHT, see below.
-  90.0,     ## 3: orbit {90, 210, 330} — the three vertex directions.
+  0.0,      ## 3: orbit {0, 120, 240} — three of the six vertex directions.
   45.0,     ## 4: see below.
   0.0,      ## 5 (unsupported)
-  30.0,     ## 6: orbit {30, 90, ..., 330} — all six vertex directions.
+  0.0,      ## 6: orbit {0, 60, ..., 300} — all six vertex directions.
 ]
   ## The screen-frame angle at which to seed each team count's orbit.
   ##
-  ## Vertex directions (30, 90, 150, ...) are preferred where the choice is
-  ## free: at a ring radius of `f * R` the wall is `R` away along a vertex
-  ## direction but only `0.866 * R` away along an edge-midpoint direction, so a
-  ## base seeded on a vertex direction gets meaningfully more room behind it.
+  ## Vertex directions are preferred where the choice is free: at a ring radius
+  ## of `f * R` the wall is `R` away along a vertex direction but only
+  ## `0.866 * R` away along an edge-midpoint direction, so a base seeded on a
+  ## vertex direction gets meaningfully more room behind it. On the FLAT-TOP
+  ## board those are 0, 60, ..., 300 — every entry above moved 30deg from its
+  ## portrait value, because the hull turned and the directions did not.
   ##
-  ## 2 teams is the deliberate exception: the orbit is kept on the horizontal
-  ## (an edge-midpoint pair) so RED stays left and BLUE stays right. `teamHomeX`
-  ## and every deployed league policy encode that; `homeDeepX`'s scarred
-  ## `MapW * 150 div 1235` literal is what a silent change of this axis costs.
+  ## 2 teams keeps the orbit on the horizontal so RED stays left and BLUE stays
+  ## right — `teamHomeX` and every deployed league policy encode that, and
+  ## `homeDeepX`'s scarred `MapW * 150 div 1235` literal is what a silent change
+  ## of this axis costs. On the landscape board that axis is now a VERTEX pair
+  ## rather than the old edge-midpoint pair, which is a straight upgrade: the
+  ## two bases sit on the board's LONG axis with the most wall clearance the
+  ## hexagon has to offer. It also means the depth permille must be re-derived
+  ## — a vertex approach loses clearance as `cos 30`, not as 1 (see
+  ## `arena.nim`'s `HexArenaHomeDepth`).
   ##
   ## 4 teams is the interesting entry. V4 carries a seed at angle `t` to
   ## `{t, -t, 180 - t, 180 + t}`, whose gaps alternate `2t` and `180 - 2t`.
@@ -530,19 +578,26 @@ func spawnCells*(teamCount, ring: int): seq[Cube] {.inline.} =
 type
   HexBoard* = object
     ## A hexagon inscribed EXACTLY in a `width x height` pixel bounding box:
-    ## pointy-top, centered on the board's true center `((W-1)/2, (H-1)/2)`,
-    ## vertices at `(cx, 0)` and `(cx, H-1)`, flat edges at `x = 0` and
-    ## `x = W-1`.
+    ## FLAT-TOP, centered on the board's true center `((W-1)/2, (H-1)/2)`,
+    ## vertices at `(0, cy)` and `(W-1, cy)`, flat edges at `y = 0` and
+    ## `y = H-1`. The board is LANDSCAPE: `W/H = 2/sqrt(3) = 1.1547`.
     ##
-    ## `a2` and `r2` are the DOUBLED half-extents (`W-1`, `H-1`) — the same
-    ## doubling trick `centerOffset2` uses on the square board, and for the same
-    ## reason: on an even side the true symmetry axis is a half pixel off the
-    ## div-derived center, and a shape measured from `center` is then not its
-    ## own image. Doubling keeps every comparison in exact integers.
+    ## `a2` is the DOUBLED APOTHEM (`H-1`, the short axis) and `r2` the DOUBLED
+    ## CIRCUMRADIUS (`W-1`, the long axis) — the same doubling trick
+    ## `centerOffset2` uses on the square board, and for the same reason: on an
+    ## even side the true symmetry axis is a half pixel off the div-derived
+    ## center, and a shape measured from `center` is then not its own image.
+    ## Doubling keeps every comparison in exact integers.
+    ##
+    ## The names are semantic, not positional: `a` is always the apothem and `r`
+    ## always the circumradius, so which BOUNDING-BOX side feeds each one is the
+    ## single line that encodes the portrait/landscape convention. Under the
+    ## portrait convention it was `a2 = W-1, r2 = H-1`; everything downstream
+    ## reads the semantic accessors and needed no change.
     ##
     ## A regular hexagon has no vertices on the integer lattice (the same
     ## irrationality that killed rot60 on pixels), so this hexagon is regular to
-    ## within the rounding of `W` against `H * sqrt(3)/2` — at most half a pixel
+    ## within the rounding of `H` against `W * sqrt(3)/2` — at most half a pixel
     ## on every class in `HexSizes`. What it IS exactly is invariant under V4:
     ## `x -> W-1-x` and `y -> H-1-y` map the doubled coordinates to their
     ## negations and permute the three half-plane pairs among themselves.
@@ -552,14 +607,14 @@ type
 func hexBoard*(width, height: int): HexBoard {.inline.} =
   doAssert width > 1 and height > 1, "hex board must be at least 2x2"
   HexBoard(width: width, height: height,
-           a2: int64(width - 1), r2: int64(height - 1))
+           a2: int64(height - 1), r2: int64(width - 1))
 
 func circumradius*(b: HexBoard): float {.inline.} =
-  ## Center to a vertex, in pixels: half the bounding-box HEIGHT (pointy-top).
+  ## Center to a vertex, in pixels: half the bounding-box WIDTH (flat-top).
   float(b.r2) / 2.0
 
 func apothem*(b: HexBoard): float {.inline.} =
-  ## Center to an edge midpoint: half the bounding-box WIDTH.
+  ## Center to an edge midpoint: half the bounding-box HEIGHT.
   float(b.a2) / 2.0
 
 func hexArea*(b: HexBoard): float {.inline.} =
@@ -574,7 +629,13 @@ func aspect*(b: HexBoard): float {.inline.} =
 func aspectOk*(b: HexBoard): bool {.inline.} =
   ## Whether the bounding box sits in the 120deg-rotation-admissible band, with
   ## one pixel of slack for the integer rounding of the class table.
-  let slack = 1.0 / float(b.height)
+  ##
+  ## The band is accepted OPEN at both ends on purpose. The shipped classes all
+  ## sit at the flat-top maximum, but a map spec recorded under the portrait
+  ## convention sits at the pointy-top minimum, and both are legal hexagons that
+  ## a 120deg rotation admits — refusing one would reject old specs for a
+  ## convention choice rather than for a fairness defect.
+  let slack = 1.0 / float(min(b.width, b.height))
   b.aspect() >= HexAspectMin - slack and b.aspect() <= HexAspectMax + slack
 
 func hexSlacks(b: HexBoard, dx2, dy2: float): tuple[n0, n1, n2: float] {.inline.} =
@@ -584,12 +645,17 @@ func hexSlacks(b: HexBoard, dx2, dy2: float): tuple[n0, n1, n2: float] {.inline.
   ## share; nothing else may re-derive it.
   ##
   ## The hexagon's six edges are three OPPOSED PAIRS, so three absolute values
-  ## cover all six half-planes:
-  ##   |dx|                    <= a          (the two vertical edges)
-  ##   |R*dx + 2A*dy|          <= 2*A*R      (the two edges of positive slope)
-  ##   |R*dx - 2A*dy|          <= 2*A*R      (the two of negative slope)
+  ## cover all six half-planes. FLAT-TOP, so the unslanted pair is HORIZONTAL:
+  ##   |dy|                    <= A          (the two horizontal edges)
+  ##   |R*dy + 2A*dx|          <= 2*A*R      (the two edges of positive slope)
+  ##   |R*dy - 2A*dx|          <= 2*A*R      (the two of negative slope)
   ## with `A = a2/2` the apothem and `R = r2/2` the circumradius; the second
-  ## line is the line through the vertices `(A, R/2)` and `(0, R)`.
+  ## line is the line through the vertices `(R, 0)` and `(R/2, A)`.
+  ##
+  ## This is the portrait core with `dx` and `dy` exchanged — which is exactly
+  ## what a construction-convention flip should be, and is why the V4 pixel
+  ## invariance survives it untouched: V4 negates the two axes INDEPENDENTLY,
+  ## so it commutes with exchanging them.
   ##
   ## int64 for the products (see the wasm note at the top): `2 * a2 * r2` is
   ## 5.9e7 on the colossal class, comfortably inside int32 today but one
@@ -601,9 +667,9 @@ func hexSlacks(b: HexBoard, dx2, dy2: float): tuple[n0, n1, n2: float] {.inline.
     cross = 2.0 * float(b.a2 * b.r2)
     fr2 = float(b.r2)
     fa2 = float(b.a2)
-  (n0: float(b.a2) - abs(dx2),
-   n1: cross - abs(fr2 * dx2 + 2.0 * fa2 * dy2),
-   n2: cross - abs(fr2 * dx2 - 2.0 * fa2 * dy2))
+  (n0: float(b.a2) - abs(dy2),
+   n1: cross - abs(fr2 * dy2 + 2.0 * fa2 * dx2),
+   n2: cross - abs(fr2 * dy2 - 2.0 * fa2 * dx2))
 
 func hexEdgeDistF*(b: HexBoard, x, y: float): float =
   ## Signed distance in pixels from `(x, y)` to the hexagon boundary: positive
@@ -616,10 +682,10 @@ func hexEdgeDistF*(b: HexBoard, x, y: float): float =
   ## thickness, void detection, clamping a throw back inside — wants the
   ## conservative answer.
   let
-    dx2 = 2.0 * x - float(b.a2)
-    dy2 = 2.0 * y - float(b.r2)
+    dx2 = 2.0 * x - float(b.r2)
+    dy2 = 2.0 * y - float(b.a2)
     (n0, n1, n2) = b.hexSlacks(dx2, dy2)
-    # Normals: (1, 0) for the vertical edges, (R, 2A) for the slanted pairs.
+    # Normals: (0, 1) for the horizontal edges, (2A, R) for the slanted pairs.
     # In doubled units their lengths are 1 and sqrt(r2^2 + 4*a2^2)/2, and the
     # slacks above are quadrupled, hence the /2 and the 2*sqrt(...) divisors.
     slantNorm = 2.0 * sqrt(float(b.r2 * b.r2) + 4.0 * float(b.a2 * b.a2))
@@ -651,12 +717,14 @@ func insideHex*(x, y, width, height: int): bool {.inline.} =
 func hexCenter*(b: HexBoard): tuple[x, y: float] {.inline.} =
   ## The board's TRUE symmetry center. Note it lands on a half pixel whenever a
   ## dimension is even — anchor to this, never to `width div 2`.
-  (x: float(b.a2) / 2.0, y: float(b.r2) / 2.0)
+  (x: float(b.r2) / 2.0, y: float(b.a2) / 2.0)
 
 func lattice*(b: HexBoard, cells: int): float {.inline.} =
   ## The cell circumradius that fits a radius-`cells` hex lattice exactly inside
   ## this board, so `cubeToPixel` of the outermost ring lands on the boundary.
-  ## The lattice hull spans `3 * cells * size` horizontally, matching `2 * A`.
+  ## A radius-N lattice of POINTY-TOP cells spans `3 * cells * size`
+  ## VERTICALLY, which is the short axis `2 * A`; its horizontal span then comes
+  ## out at `2 * R` for free, because the hull's aspect IS the lattice's.
   doAssert cells > 0, "lattice radius must be positive"
   2.0 * b.apothem() / (3.0 * float(cells))
 
@@ -671,40 +739,61 @@ func lattice*(b: HexBoard, cells: int): float {.inline.} =
 #
 #     (3*sqrt(3)/2) * R^2 = 813865
 #     R = sqrt(813865 / 2.598076) = 559.69 px
-#     height = 2R          = 1119.4  -> 1119
-#     width  = sqrt(3) * R =  969.4  ->  969
+#     width  = 2R          = 1119.4  -> 1119   (LONG axis, vertex to vertex)
+#     height = sqrt(3) * R =  969.4  ->  969   (SHORT axis, edge to edge)
 #
-# So STANDARD = 969 x 1119, bounding box 1,084,311 px^2 of which 25% is void.
+# So STANDARD = 1119 x 969, bounding box 1,084,311 px^2 of which 25% is void.
 # Every other class is that standard hexagon scaled by the SAME class factors
 # `arena.nim`'s `mapSizeScale` already uses, and rounded the same way —
-# `scaledGenShell` scales 1235/659, this scales 969/1119, so the two tables stay
+# `scaledGenShell` scales 1235/659, this scales 1119/969, so the two tables stay
 # in step and a class name means the same amount of field on either geometry.
+#
+# ORIENTATION FLIP, and what it did NOT change. This table is the portrait table
+# transposed: every (W, H) became (H, W). The playfield column is therefore
+# BIT-IDENTICAL to the portrait one, because `hexArea` is `3/4 * (W-1) * (H-1)`
+# and a product does not care which factor is which. So the landscape board is
+# equal-area not just with the rectangular class it replaces but with the
+# portrait hexagon it replaces, to the pixel — the flip costs no field at all.
 #
 # Playfield below is `hexArea` (measured on the DOUBLED half-extents `W-1`,
 # `H-1`, which is what the boundary predicate actually encloses), against the
 # rectangular class it replaces:
 #
 #   class      factor      hex WxH        playfield    old rect WxH   old area
-#   small        0.85     824 x  951        586,388      1050 x  560    588,000
-#   standard     1.00     969 x 1119        811,668      1235 x  659    813,865
-#   large        1.30    1260 x 1455      1,372,940      1606 x  857  1,376,342
-#   huge         1.80    1744 x 2014      2,631,494      2223 x 1186  2,636,478
-#   giant        2.60    2519 x 2909      5,491,758      3211 x 1713  5,500,443
-#   colossal     5.20    5039 x 5819     21,983,313      6422 x 3427 22,008,194
+#   small        0.85     951 x  824        586,388      1050 x  560    588,000
+#   standard     1.00    1119 x  969        811,668      1235 x  659    813,865
+#   large        1.30    1455 x 1260      1,372,940      1606 x  857  1,376,342
+#   huge         1.80    2014 x 1744      2,631,494      2223 x 1186  2,636,478
+#   giant        2.60    2909 x 2519      5,491,758      3211 x 1713  5,500,443
+#   colossal     5.20    5819 x 5039     21,983,313      6422 x 3427 22,008,194
 #
 # Every row is within 0.3% of its rectangular predecessor's area and within one
-# pixel of the exact sqrt(3)/2 aspect — `aspectOk` asserts the latter with
+# pixel of the exact 2/sqrt(3) aspect — `aspectOk` asserts the latter with
 # exactly that slack, and `test_hex.nim` asserts both.
+#
+# GUN RANGE. `GunRange` is a fixed 1050 px and does NOT scale with the class.
+# The portrait standard board was 969 px across its widest span, so the gun
+# outranged the entire field and range was never a constraint on the standard
+# class. Landscape is 1119 px vertex to vertex, so the longest chord of the
+# playfield now EXCEEDS one gun range for the first time. See
+# `tools/hex_range_probe.nim` for the measured longest open run on the shipped
+# arena, which is what actually decides whether that matters.
 
 type
   HexSizeClass* = enum
     hxSmall, hxStandard, hxLarge, hxHuge, hxGiant, hxColossal
 
 const
-  HexStandardWidth* = 969
-  HexStandardHeight* = 1119
+  HexStandardWidth* = 1119
+  HexStandardHeight* = 969
     ## Frozen. Deriving these at runtime from a float would make every map hash
     ## depend on the platform's `sqrt`.
+    ##
+    ## `HexStandardHeight` is the SHORT axis, i.e. twice the standard apothem.
+    ## It is the orientation-independent measure of "how much field" a class
+    ## has, so the ratios that used to be keyed to the portrait board's WIDTH
+    ## (endzone radius bounds, shout/grenade range) are keyed to this and their
+    ## numbers did not move across the flip.
 
   HexClassScale*: array[HexSizeClass, float] = [
     0.85,   ## small
@@ -724,12 +813,12 @@ const
     ## as on the square board.
 
   HexSizes*: array[HexSizeClass, tuple[width, height: int]] = [
-    (824, 951),      ## small
-    (969, 1119),     ## standard
-    (1260, 1455),    ## large
-    (1744, 2014),    ## huge
-    (2519, 2909),    ## giant
-    (5039, 5819),    ## colossal
+    (951, 824),      ## small
+    (1119, 969),     ## standard
+    (1455, 1260),    ## large
+    (2014, 1744),    ## huge
+    (2909, 2519),    ## giant
+    (5819, 5039),    ## colossal
   ]
     ## `round(standard * HexClassScale[c])` on both axes, tabled rather than
     ## computed so the numbers are reviewable and platform-independent.

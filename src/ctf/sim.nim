@@ -25,11 +25,16 @@ proc grenadeSpawnPoints*(gameMap: CtfMap): array[4, tuple[x, y: int]] =
   ## FOUR of the six vertices, not all six: `grenadeSpawns` is an
   ## `array[4, PickupSpawn]`, and emitting six here would silently place only
   ## the first four — an ASYMMETRIC set, which is exactly the team-unfairness
-  ## every other pickup family goes through `teamImagePoint` to avoid. The two
-  ## dropped vertices are the top and bottom points, which sit ON the vertical
-  ## symmetry axis; the remaining four (30, 150, 210, 330 degrees in the screen
-  ## frame) are closed under both the mirror and the half turn, so they are
-  ## exactly fair on either 2-team symmetry.
+  ## every other pickup family goes through `teamImagePoint` to avoid.
+  ##
+  ## On the FLAT-TOP board the six vertices are at 0, 60, ..., 300 degrees, and
+  ## the two to drop are the ones at 0 and 180 — the LEFT and RIGHT points,
+  ## which is to say the two sitting directly behind a base. Dropping those is
+  ## a strict improvement over the portrait board, where the discarded pair was
+  ## merely the two on the symmetry axis: the surviving four (60, 120, 240, 300)
+  ## are the board's outer corners, far from both bases and contested, and the
+  ## set is closed under both the mirror (60<->120, 240<->300) and the half turn
+  ## (60<->240, 120<->300), so it is exactly fair on either 2-team symmetry.
   ##
   ## Still not nudged onto walkable floor — terrain can cover a vertex pocket.
   ## Routing these through `placeWalkablePickups` is hex Stage 3.
@@ -40,7 +45,7 @@ proc grenadeSpawnPoints*(gameMap: CtfMap): array[4, tuple[x, y: int]] =
     ## at a 120-degree corner a radial inset of `d` leaves only `0.866 * d`
     ## perpendicular clearance, so the inset is doubled.
     reach = board.circumradius() - 2.0 * float(ArenaBorder + GrenadeSpawnInset)
-  const VertexDeg = [30.0, 150.0, 210.0, 330.0]
+  const VertexDeg = [60.0, 120.0, 240.0, 300.0]
   for k, deg in VertexDeg:
     let angle = degToRad(deg)
     result[k] = (int(round(cx + reach * cos(angle))),

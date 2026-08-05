@@ -141,27 +141,41 @@ proc shapeAsRect*(s: ArenaShape): MapRect =
         x1 = max(x1, p.x); y1 = max(y1, p.y)
       MapRect(x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1)
 
-proc maxEndzoneRadius*(width: int): int =
-  ## The endzone radius ceiling for a board of this width. The classic
-  ## EndzoneRadiusMax was authored for the standard field (it keeps the two
-  ## zones clear of the center ring); a wider board supports a proportionally
-  ## larger zone — the generator draws the radius as a width fraction, and the
-  ## oversize classes draw past 220. Narrower boards keep the classic cap
-  ## rather than tightening a bound existing configs were allowed to use.
-  max(EndzoneRadiusMax, width * EndzoneRadiusMax div HexStandardWidth)
+## THE FIELD-SIZE AXIS. Every ratio below is keyed to the board's SHORT axis
+## (its height, i.e. twice the hexagon's apothem), never to its width.
+##
+## That is not a style choice, it is what survives the orientation flip. Under
+## the portrait convention the short axis WAS the width, so these read
+## `width`; when the board went landscape the short axis moved to the height
+## and the width grew by 2/sqrt(3) for the very same amount of field. Keying to
+## the width would have silently inflated every endzone, shout radius and
+## grenade range by 15.5% as a side effect of a rendering-orientation decision.
+## The apothem is the orientation-independent measure of "how much field", so
+## every number here is unchanged across the flip.
 
-proc minEndzoneRadius*(width: int): int =
-  ## The endzone radius FLOOR for a board of this width. `EndzoneRadiusMin`
-  ## was authored against the old 1235-wide standard field and is a hard 90;
-  ## the hex classes are narrower at equal playfield area (the standard is
-  ## 969), so a flat 90 sat ABOVE what the small class's own radius draw
-  ## produces and every small-class seed raised instead of generating.
+proc maxEndzoneRadius*(across: int): int =
+  ## The endzone radius ceiling for a board of this SHORT-AXIS extent. The
+  ## classic EndzoneRadiusMax was authored for the standard field (it keeps the
+  ## two zones clear of the center ring); a bigger board supports a
+  ## proportionally larger zone — the generator draws the radius as a fraction
+  ## of the same axis, and the oversize classes draw past 220. Smaller boards
+  ## keep the classic cap rather than tightening a bound existing configs were
+  ## allowed to use.
+  max(EndzoneRadiusMax, across * EndzoneRadiusMax div HexStandardHeight)
+
+proc minEndzoneRadius*(across: int): int =
+  ## The endzone radius FLOOR for a board of this SHORT-AXIS extent.
+  ## `EndzoneRadiusMin` was authored against the old 1235-wide square field and
+  ## is a hard 90; the hex classes are smaller across at equal playfield area
+  ## (the standard measures 969), so a flat 90 sat ABOVE what the small class's
+  ## own radius draw produces and every small-class seed raised instead of
+  ## generating.
   ##
-  ## Scaled by width, floored at the pedestal art plus a margin — which is
-  ## what the constant was protecting in the first place (the pedestal and its
-  ## endzone pits have to fit inside the scoring disc).
+  ## Scaled by the short axis, floored at the pedestal art plus a margin —
+  ## which is what the constant was protecting in the first place (the pedestal
+  ## and its endzone pits have to fit inside the scoring disc).
   max(PedestalCoverSize div 2 + 12,
-      min(EndzoneRadiusMin, width * EndzoneRadiusMin div 1235))
+      min(EndzoneRadiusMin, across * EndzoneRadiusMin div 1235))
 
 proc endzoneFloorAt*(
   x, y, anchorX, anchorY, radius: int, disc: bool
@@ -224,12 +238,12 @@ proc validateMap(gameMap: CtfMap) =
       CtfError, "Map home depth must be " & $HomeDepthMin & ".." &
         $HomeDepthMax & " permille (0 = the classic " &
         $ClassicHomeDepth & ").")
-  if gameMap.endzoneRadius < minEndzoneRadius(gameMap.width) or
-      gameMap.endzoneRadius > maxEndzoneRadius(gameMap.width):
+  if gameMap.endzoneRadius < minEndzoneRadius(gameMap.height) or
+      gameMap.endzoneRadius > maxEndzoneRadius(gameMap.height):
     raise newException(
       CtfError, "Map endzone radius must be " &
-        $minEndzoneRadius(gameMap.width) & ".." &
-        $maxEndzoneRadius(gameMap.width) & " px.")
+        $minEndzoneRadius(gameMap.height) & ".." &
+        $maxEndzoneRadius(gameMap.height) & " px.")
   validateMapPoint("center", gameMap.center, gameMap.width, gameMap.height)
   for i, room in gameMap.rooms:
     validateMapRect(
@@ -326,25 +340,27 @@ proc teamImagePoint*(gameMap: CtfMap, red: MapPoint, team: Team): MapPoint =
   ## this abstraction exists, and it survived the move to hex unchanged.
   gameMap.pixelImage(red, gameMap.teamOp(team))
 
-proc teamAnchor*(gameMap: CtfMap, team: Team): MapPoint =
-  ## Returns one team's home anchor: the center of its protected spawn
-  ## pocket, where its pedestal stands.
-  ##
-  ## RED seeds the orbit and every other team's anchor is RED's carried by the
-  ## map's own symmetry, so the homes are EXACTLY images of one another.
-  ## Deriving the far anchor from a mirrored FORMULA instead (the old
-  ## `axisHomeHi`) put it a pixel off the orbit on an even board — a fairness
-  ## difference, not a rounding detail.
+proc teamAnchorAt*(gameMap: CtfMap, team: Team, d: int): MapPoint =
+  ## One team's home anchor at an ARBITRARY depth permille, so the depth
+  ## solver can evaluate a candidate through exactly the code that will later
+  ## place the base. `teamAnchor` is this at the map's own depth.
   let
     cx = gameMap.center.x
     cy = gameMap.center.y
-    d = gameMap.homeDepthOf()
   result =
     case gameMap.layout
     of layoutHex2:
-      ## The horizontal (edge-midpoint) axis: RED left, BLUE right. `hex.nim`
-      ## keeps the 2-team orbit here deliberately — `teamHomeX` and every
-      ## deployed league policy encode it.
+      ## The horizontal axis: RED left, BLUE right. `hex.nim` keeps the 2-team
+      ## orbit here deliberately — `teamHomeX` and every deployed league policy
+      ## encode it.
+      ##
+      ## On the FLAT-TOP board this axis runs VERTEX TO VERTEX (it was
+      ## edge-midpoint to edge-midpoint while the board was portrait), so it is
+      ## the board's LONG axis and the hull is `R` away rather than `A`. The
+      ## depth permille is NOT transferable across that change: behind a base on
+      ## a vertex ray the hull closes in at `cos 30`, so a permille that left
+      ## the apron 13px of daylight on the portrait board leaves it 3px SHORT
+      ## here. `homeDepthWindow` re-solves it from the budgets instead.
       MapPoint(x: axisHomeLo(cx, d), y: cy)
     else:
       ## Off-axis seed. V4 carries a seed at angle t to {t, -t, 180-t, 180+t},
@@ -356,6 +372,54 @@ proc teamAnchor*(gameMap: CtfMap, team: Team): MapPoint =
       MapPoint(x: cx - radial * 707 div 1000, y: cy - radial * 707 div 1000)
   if team != Red:
     result = gameMap.teamImagePoint(result, team)
+
+proc teamAnchor*(gameMap: CtfMap, team: Team): MapPoint =
+  ## Returns one team's home anchor: the center of its protected spawn
+  ## pocket, where its pedestal stands.
+  ##
+  ## RED seeds the orbit and every other team's anchor is RED's carried by the
+  ## map's own symmetry, so the homes are EXACTLY images of one another.
+  ## Deriving the far anchor from a mirrored FORMULA instead (the old
+  ## `axisHomeHi`) put it a pixel off the orbit on an even board — a fairness
+  ## difference, not a rounding detail.
+  gameMap.teamAnchorAt(team, gameMap.homeDepthOf())
+
+proc homeDepthWindow*(gameMap: CtfMap): tuple[lo, hi: int] =
+  ## The depth permilles at which this map's base anchor satisfies BOTH
+  ## budgets at once:
+  ##
+  ## - IN FRONT: apron, then the scoring ring, then a corridor of real field
+  ##   before the center ring — or the two bases fight over the middle.
+  ## - BEHIND: apron, then room for one obstacle between the endzone and the
+  ##   hull — or the base is flush against the wall and its back approaches
+  ##   vanish.
+  ##
+  ## Solved by SCANNING the legal permilles and evaluating each candidate
+  ## through the real `teamAnchorAt` + `hexEdgeDist`, not by trigonometry.
+  ## That is deliberate: the clearance behind a base depends on whether its ray
+  ## points at a vertex (`cos 30` falloff), at an edge midpoint (no falloff), or
+  ## anywhere between, and the 2-team ray swapped categories when the board went
+  ## landscape. A closed form would have to be re-derived for every layout and
+  ## every orientation; this cannot go stale. 401 iterations of integer math,
+  ## run once per map build.
+  let
+    reserved = gameMap.endzoneRadius + EndzoneApron
+    front = reserved + gameMap.flagRing + 50
+    behind = float(reserved + 40)
+    board = gameMap.mapBoard()
+  result = (lo: 0, hi: -1)
+  for d in HomeDepthMin .. HomeDepthMax:
+    let
+      a = gameMap.teamAnchorAt(Red, d)
+      dx = a.x - gameMap.center.x
+      dy = a.y - gameMap.center.y
+    if dx * dx + dy * dy < front * front:
+      continue                      ## too shallow: crowds the center ring.
+    if board.hexEdgeDist(a.x, a.y) < behind:
+      break                         ## too deep: the apron is cut by the hull.
+    if result.hi < result.lo:
+      result.lo = d
+    result.hi = d
 
 proc spawnPocketHalf*(gameMap: CtfMap, team: Team): tuple[w, h: int] =
   ## The half-extents of one team's protected spawn pocket, around its anchor.
@@ -1112,14 +1176,35 @@ proc rasterizeRestWallMask*(
         result[i] = false
 
 const
-  SightlineAxisCount* = 3
-    ## A straight ray can run down a hexagon in three directions: 0, 60, and
-    ## 120 degrees in the screen frame — the three families of chords joining
-    ## OPPOSITE EDGES. The old board had exactly one family that mattered
-    ## (horizontal, base to base) because its other two edges were the top and
-    ## bottom walls; a hexagon has three, and a lane down any of them is the
-    ## same cross-field snipe the validator has always refused.
-    ## `sightlinePixels` carries each family's parametrization.
+  SightlineAxisCount* = 6
+    ## A hexagon has SIX families of parallel chords worth refusing, in two
+    ## kinds, and the validator scans both kinds:
+    ##
+    ##   axes 0-2, EDGE TO EDGE      — 90, 30, 150 deg on the flat-top hull.
+    ##     Each runs between an opposite pair of parallel edges and maxes out at
+    ##     `2 * apothem` (968px on the standard class).
+    ##   axes 3-5, VERTEX TO VERTEX  —  0, 60, 120 deg on the flat-top hull.
+    ##     Each runs corner to corner and maxes out at `2 * circumradius`
+    ##     (1118px). These are the LONGER family and include the horizontal,
+    ##     which on the landscape board is the base-to-base axis.
+    ##
+    ## THESE ANGLES ARE A PROPERTY OF THE HULL AND TURN WITH IT. While the hull
+    ## was pointy-top the edge-to-edge family was 0/60/120 and the
+    ## vertex-to-vertex family was 30/90/150; the landscape flip rotated the
+    ## hull 30 degrees and both sets had to follow. Getting that wrong is silent
+    ## in the worst way — the validator still runs, still passes, and simply
+    ## stops looking where the lanes are. `tools/hex_range_probe.nim` caught it
+    ## by measuring a 950px open run at 87 degrees on a board whose validator
+    ## was still scanning 0, 60 and 120.
+    ##
+    ## Stage 2 scanned only THREE (the edge-to-edge kind), which was survivable
+    ## on the portrait board because the unscanned long family ran vertically,
+    ## across the play axis rather than down it. On the landscape board the
+    ## unscanned long family is the HORIZONTAL one — red base to blue base — and
+    ## the probe measured a 1033px open run straight down it against a 1050px
+    ## gun. That is the cross-field spawn snipe this rule exists to refuse, so
+    ## the long families are now scanned too rather than left to the generator
+    ## epic.
   SightlineStep* = 5
     ## Spacing between scanned lines, in intercept units. On the slanted axes
     ## one unit of intercept is 0.866 px of perpendicular separation, so this
@@ -1129,10 +1214,16 @@ proc sightlineMinSpan*(gameMap: CtfMap): int =
   ## How long an unblocked run has to be before it counts as a lane. On a
   ## rectangle every row spanned the whole board and no threshold was needed;
   ## on a hexagon the chords near the two vertices are arbitrarily short, and
-  ## demanding cover on a 40px stub at the top of the board would reject every
-  ## map ever generated. 80% of the board's width is the width of a chord
+  ## demanding cover on a 40px stub at the tip of the board would reject every
+  ## map ever generated. 80% of the board's SHORT axis is the length of a chord
   ## roughly 60% of the way out to a vertex — past that the field is a wedge,
   ## not a lane.
+  ##
+  ## The short axis, not the width: all three chord families max out at exactly
+  ## `2 * apothem` (they are 60-degree rotations of one another, and the hexagon
+  ## is invariant under that), which is the board's HEIGHT on the landscape
+  ## hull. Keyed to the width this threshold would sit at 92% of the longest
+  ## chord instead of 80% and the rule would go nearly dead.
   ##
   ## 80%, not 90%. At 90% the raw pass rate is 93% instead of 77% — but a
   ## chord at 87% of the board width is still 843px on the standard class,
@@ -1141,7 +1232,7 @@ proc sightlineMinSpan*(gameMap: CtfMap): int =
   ## exists to refuse. See the cover-ceiling note in the hex report: enforcing
   ## THREE axes against a CoverPermilleMax calibrated for ONE is the actual
   ## tension, and it belongs to the generator epic, not to a threshold tweak.
-  gameMap.width * 4 div 5
+  gameMap.height * 4 div 5
 
 iterator sightlinePixels*(
   gameMap: CtfMap, axis, intercept: int
@@ -1152,32 +1243,59 @@ iterator sightlinePixels*(
   ## outside the hexagon are both already `true` in every wall mask (see
   ## `mapBorderWallAt`), so a run clips itself at the hull.
   ##
-  ## The slanted families are parametrized `x = intercept +- 153*y div 265`
-  ## rather than `y = f(x)`: those lines rise faster than they run, so y is
-  ## the axis to step.
-  if axis == 0:
+  ## Axis 0 is the VERTICAL family (top edge to bottom edge), indexed by
+  ## column; axis 3 is the HORIZONTAL one (vertex to vertex), indexed by row.
+  ## The four slanted families step whichever of x/y they travel further along,
+  ## so a one-pixel-thin wall can never be stepped over: axes 1-2 have slope
+  ## `+-tan 30 = +-153/265` and step x, axes 4-5 have slope `+-tan 60 =
+  ## +-265/153` and step y.
+  case axis
+  of 0:
+    for y in 0 ..< gameMap.height:
+      yield (intercept, y)
+  of 1, 2:
+    let sign = if axis == 1: 1 else: -1
+    for x in 0 ..< gameMap.width:
+      let y = intercept + sign * (Sqrt3Den * x) div Sqrt3Num
+      if y >= 0 and y < gameMap.height:
+        yield (x, y)
+  of 3:
     for x in 0 ..< gameMap.width:
       yield (x, intercept)
   else:
-    let sign = if axis == 1: 1 else: -1
+    let sign = if axis == 4: 1 else: -1
     for y in 0 ..< gameMap.height:
       let x = intercept + sign * (Sqrt3Den * y) div Sqrt3Num
       if x >= 0 and x < gameMap.width:
         yield (x, y)
 
 iterator sightlineIntercepts*(gameMap: CtfMap, axis: int): int =
-  ## The intercepts to scan on one axis, spaced `SightlineStep` apart. Axis 0
-  ## is indexed by row; the slanted axes sweep an intercept range wide enough
-  ## to carry every line that crosses the board.
-  if axis == 0:
+  ## The intercepts to scan on one axis, spaced `SightlineStep` apart. The two
+  ## unslanted axes are indexed by column (0) and row (3); the four slanted
+  ## axes sweep an intercept range wide enough to carry every line that crosses
+  ## the board.
+  case axis
+  of 0:
+    var x = ArenaBorder + 2
+    while x < gameMap.width - ArenaBorder:
+      yield x
+      x += 4
+  of 3:
     var y = ArenaBorder + 2
     while y < gameMap.height - ArenaBorder:
       yield y
       y += 4
+  of 1, 2:
+    let reach = (Sqrt3Den * gameMap.width) div Sqrt3Num + 2
+    var c = (if axis == 1: -reach else: 0)
+    let hi = (if axis == 1: gameMap.height else: gameMap.height + reach)
+    while c < hi:
+      yield c
+      c += SightlineStep
   else:
     let reach = (Sqrt3Den * gameMap.height) div Sqrt3Num + 2
-    var c = (if axis == 1: -reach else: 0)
-    let hi = (if axis == 1: gameMap.width else: gameMap.width + reach)
+    var c = (if axis == 4: -reach else: 0)
+    let hi = (if axis == 4: gameMap.width else: gameMap.width + reach)
     while c < hi:
       yield c
       c += SightlineStep
@@ -1435,7 +1553,7 @@ proc generateMapAttempt*(
       ## and the draw happens inside it — and if the radius is too big for the
       ## board to afford any window at all, the RADIUS gives way, because it is
       ## the parameter with slack.
-      radiusDraw = result.width * ezRng.pickRange(89, 113) div 1000
+      radiusDraw = result.height * ezRng.pickRange(89, 113) div 1000
       depthDraw = ezRng.pickRange(0, 1000)   ## resolved against the window
     result.endzoneRadius =
       if overrides.endzoneRadius > 0: overrides.endzoneRadius else: radiusDraw
@@ -1444,19 +1562,20 @@ proc generateMapAttempt*(
     else:
       ## Shrink the radius until the board can afford SOME depth, then pick one
       ## inside the affordable window with the drawn fraction.
-      let
-        halfField = result.center.x
-        floorR = minEndzoneRadius(result.width)
+      ##
+      ## The window itself comes from `homeDepthWindow`, which measures the real
+      ## anchor against the real hull. It used to be inlined here as
+      ## `maxDist = halfField - reserved - 40`, which assumed the hull sits
+      ## `halfField` away along the base's ray and closes in at rate 1. That was
+      ## true while the 2-team axis ran to an EDGE MIDPOINT; on the landscape
+      ## board it runs to a VERTEX, where the clearance is `cos 30` of the
+      ## radial distance, and the inlined form overstated the affordable depth
+      ## by 15%. Sharing one solver with `arenaHexCtfMap` is what keeps that
+      ## correction from being applied in one place and forgotten in the other.
+      let floorR = minEndzoneRadius(result.height)
       var window = (lo: 0, hi: -1)
       while true:
-        let
-          reserved = result.endzoneRadius + EndzoneApron
-          ## In front: apron, then the ring, then a corridor of real field.
-          minDist = reserved + result.flagRing + 50
-          ## Behind: apron, then room for one obstacle against the hull.
-          maxDist = halfField - reserved - 40
-        window = (lo: (1000 * minDist + halfField - 1) div halfField,
-                  hi: 1000 * maxDist div halfField)
+        window = result.homeDepthWindow()
         if window.lo <= window.hi or result.endzoneRadius <= floorR:
           break
         result.endzoneRadius = max(floorR, result.endzoneRadius - 4)
@@ -1465,7 +1584,7 @@ proc generateMapAttempt*(
           ## The class cannot host both at any depth. Split the difference
           ## rather than silently favouring one — the validators still judge
           ## the result, so this cannot ship a map that fails either way.
-          clamp((window.lo + window.hi) div 2, HomeDepthMin, HomeDepthMax)
+          clamp((HomeDepthMin + HomeDepthMax) div 2, HomeDepthMin, HomeDepthMax)
         else:
           clamp(window.lo + depthDraw * (window.hi - window.lo) div 1000,
                 HomeDepthMin, HomeDepthMax)
@@ -1473,12 +1592,12 @@ proc generateMapAttempt*(
       raise newException(
         CtfError, "Config field mapBaseDepth must be " & $HomeDepthMin &
           ".." & $HomeDepthMax & ".")
-    if result.endzoneRadius < minEndzoneRadius(result.width) or
-        result.endzoneRadius > maxEndzoneRadius(result.width):
+    if result.endzoneRadius < minEndzoneRadius(result.height) or
+        result.endzoneRadius > maxEndzoneRadius(result.height):
       raise newException(
         CtfError, "Config field mapEndzoneRadius must be " &
-          $minEndzoneRadius(result.width) & ".." &
-          $maxEndzoneRadius(result.width) & ".")
+          $minEndzoneRadius(result.height) & ".." &
+          $maxEndzoneRadius(result.height) & ".")
   result.rooms = result.defaultCtfRooms()
 
   let featureDraw = CenterFeatureNames[rng.pick(3)]
@@ -2219,7 +2338,7 @@ proc arenaHexObstacles(gameMap: CtfMap): seq[ArenaShape] =
   result.add diamondShape(cx - 34, cy - gameMap.flagRing - 76, 30)
   result.add diamondShape(cx - 34, cy + gameMap.flagRing + 76, 30)
 
-proc arenaHexCtfMap(name: string, cls: HexSizeClass): CtfMap =
+proc arenaHexCtfMap*(name: string, cls: HexSizeClass): CtfMap =
   ## The hand-tuned default arena on one hex size class. Obstacle SIZES never
   ## scale — a bigger field gets roomier corridors, exactly as `arena-large`
   ## always did.
@@ -2243,8 +2362,25 @@ proc arenaHexCtfMap(name: string, cls: HexSizeClass): CtfMap =
   result.symmetry = symMirrorHex
   result.layout = layoutHex2
   result.endzone = ezDisc
-  result.endzoneRadius = board.width * 101 div 1000
-  result.homeDepth = 650
+  ## A permille of the board's SHORT axis (twice the apothem), which is the
+  ## orientation-independent measure of field. Keyed to the WIDTH this would
+  ## have grown 15.5% — a third more scoring area — purely because the board
+  ## turned landscape.
+  result.endzoneRadius = board.height * 101 div 1000
+  ## RE-DERIVED, not carried over. The portrait arena shipped 650, which put
+  ## the anchor 314px out along an EDGE-MIDPOINT ray with the hull 170px behind
+  ## it and the apron needing 157 — 13px of daylight. The same 650 on the
+  ## landscape board puts the anchor 363px out along a VERTEX ray, where the
+  ## hull is only `cos 30 * 196 = 170`px away while the apron now needs 173: it
+  ## fails, by 3px, silently, as an endzone clipped by the wall.
+  ##
+  ## So the depth is solved from the budgets instead, and the midpoint of the
+  ## affordable window is taken — the same window the generator draws inside,
+  ## so hand-authored and generated boards cannot drift apart.
+  let window = result.homeDepthWindow()
+  doAssert window.lo <= window.hi,
+    "the " & name & " class affords no legal base depth"
+  result.homeDepth = (window.lo + window.hi) div 2
   result.leftObstacles = arenaHexObstacles(result)
   ## Hold the SAME sightline standard every generated map must clear. The
   ## authored slalom closes most lanes on its own; this closes the rest, on

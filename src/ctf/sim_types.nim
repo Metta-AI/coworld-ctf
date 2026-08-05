@@ -19,7 +19,8 @@ import
 const
   GameName* = "ctf"
   GameVersion* = "38"  ## GV38 (HEX ARENA): the playfield is a HEXAGON, not a
-    ## rectangle. The board is portrait (standard 969x1119, a pointy-top hull),
+    ## rectangle. The board is LANDSCAPE (standard 1119x969, a flat-top hull:
+    ## vertices left and right, flat walls top and bottom, aspect 2/sqrt(3)),
     ## the bounding box's six corners are permanent void, the shape vocabulary
     ## is disc/bar/hex/diagonal/polygon (rect and diamond are gone), symmetry is
     ## a D6 subgroup (rot90 is gone — C4 is not a hex symmetry), and every
@@ -633,13 +634,20 @@ const
 ## initialized to the default arena so tools that never call loadCtfMap
 ## keep working unchanged.
 var
-  MapWidth* = 969        ## bounding box of the STANDARD hexagon (hex.nim).
-  MapHeight* = 1119      ## Portrait: the arena hull is POINTY-TOP.
+  MapWidth* = 1119       ## bounding box of the STANDARD hexagon (hex.nim).
+  MapHeight* = 969       ## Landscape: the arena hull is FLAT-TOP.
   FovGridW* = (MapWidth + FovCellSize - 1) div FovCellSize
   FovGridH* = (MapHeight + FovCellSize - 1) div FovCellSize
   FovCellCount* = FovGridW * FovGridH
-  GrenadeMaxRange* = MapWidth div 5  ## max throw distance (full charge).
-  ShoutRange* = MapWidth div 5  ## audible within 20% of the screen width.
+  GrenadeMaxRange* = MapHeight div 5  ## max throw distance (full charge).
+  ShoutRange* = MapHeight div 5       ## audible within 20% of the field.
+    ## Both are keyed to the board's SHORT axis — twice the hexagon's apothem —
+    ## and NOT to `MapWidth`, even though "20% of the screen width" is what the
+    ## constant has always been called. The short axis is the
+    ## orientation-independent measure of field size: it was the width while the
+    ## board was portrait, and reading `MapWidth` after the flip to landscape
+    ## would have handed every player a 15.5% longer throw and a 15.5% louder
+    ## shout as an accidental side effect of a rendering decision.
 
 type
   Team* = enum
@@ -734,9 +742,12 @@ type
       axisX*, axisY*: int
     of shapeHex:
       ## A regular hexagon: DOUBLED center + DOUBLED circumradius, and an
-      ## orientation. `flatTop` matches the lattice CELLS (a hexagonal region of
-      ## flat-top cells is itself pointy-top, which is why the arena hull is
-      ## pointy-top and the board is portrait — see `ctf/hex.nim`).
+      ## orientation. `flatTop` selects the obstacle's own turn and is
+      ## independent of the board's: a hexagonal region of POINTY-TOP lattice
+      ## cells is itself FLAT-TOP, which is why the arena hull is flat-top and
+      ## the board is landscape — see `ctf/hex.nim`. Boulders drawn to match the
+      ## hull therefore pass `flatTop = true`, and boulders drawn to match the
+      ## authoring lattice pass `false` (the default).
       ## Membership uses the same three-opposed-pairs half-plane test as the
       ## arena boundary, with sqrt(3) as the exact rational 265/153 so the
       ## predicate is integer and its mirror image is bit-identical.
