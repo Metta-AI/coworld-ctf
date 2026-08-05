@@ -8,18 +8,18 @@ import std/[os, strutils, strformat], ../src/ctf/sim
 
 const
   PoolSize = 20
-  SizeQuota = [4, 5, 4, 4, 3]  ## small, standard, large, huge, giant.
+  SizeQuota: array[MapSizeClass, int] = [
+    4,   ## small
+    5,   ## standard
+    4,   ## large
+    4,   ## huge
+    3,   ## giant
+    0,   ## colossal — override-only, never drawn, so never pooled.
+  ]
+    ## Keyed by the canonical class enum, not by a positional index into a
+    ## list of width literals. Adding a class to `map_rules.MapSizeClassTable`
+    ## adds a row here as a compile error rather than a runtime raise.
   ShapeQuota = [10, 5, 5]      ## column, disc, square.
-
-proc sizeClassIndex(gameMap: CtfMap): int =
-  case gameMap.width
-  of 1050: 0
-  of 1235: 1
-  of 1606: 2
-  of 2223: 3
-  of 3211: 4
-  else:
-    raise newException(CtfError, "Unexpected map width: " & $gameMap.width)
 
 proc shapeIndex(gameMap: CtfMap): int =
   case gameMap.endzone
@@ -31,7 +31,7 @@ when isMainModule:
   let start = if paramCount() >= 1: parseInt(paramStr(1)) else: 1001
   var
     seeds: seq[int]
-    counts = [0, 0, 0, 0, 0]
+    counts: array[MapSizeClass, int]
     shapeCounts = [0, 0, 0]
     seed = start
     scanned, rejected = 0
@@ -44,14 +44,14 @@ when isMainModule:
       echo &"seed={seed} REJECT {reason}"
     else:
       let
-        sizeIndex = gameMap.sizeClassIndex()
+        sizeClass = gameMap.mapSizeClass()
         shape = gameMap.shapeIndex()
-      if counts[sizeIndex] < SizeQuota[sizeIndex] and
+      if counts[sizeClass] < SizeQuota[sizeClass] and
           shapeCounts[shape] < ShapeQuota[shape]:
         seeds.add seed
-        inc counts[sizeIndex]
+        inc counts[sizeClass]
         inc shapeCounts[shape]
-        echo &"pool[{seeds.len - 1}] seed={seed} " &
+        echo &"pool[{seeds.len - 1}] seed={seed} size={sizeClass.sizeName()} " &
           &"{gameMap.width}x{gameMap.height} sym={gameMap.symmetry} " &
           &"endzone={gameMap.endzone} r={gameMap.endzoneRadius} " &
           &"home={gameMap.teamHomeX(Red)} " &
