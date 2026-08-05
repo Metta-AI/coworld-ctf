@@ -10,6 +10,7 @@ import
   test_hex,
   test_identity_badges,
   test_label_contract,
+  test_map_eval,
   test_map_export,
   test_movement_slide,
   test_replay_controls,
