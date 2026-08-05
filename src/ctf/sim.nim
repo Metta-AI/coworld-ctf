@@ -733,7 +733,8 @@ proc resolveActiveArcCones*(sim: var SimServer) =
       y: attacker.y + CollisionH div 2,
       aimBrads: attacker.aimBrads,
       tick: sim.tickCount,
-      color: teamColor(attacker.team)
+      color: teamColor(attacker.team),
+      attacker: arcFire.attacker
     )
     # A can sprayed at the terrain coats it. March the cone's center ray to the
     # first wall inside reach and dry a stain there — so spraying down a

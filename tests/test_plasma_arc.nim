@@ -306,6 +306,77 @@ suite "spray cans":
     check game.gameHash() != toggled
 
 import ctf/global
+import std/tables
+import bitworld/spriteprotocol
+
+suite "one spray per firing (no divergent trail when the cog turns)":
+  ## A burst emits one snapshot per active tick, each capturing the owner's LIVE
+  ## aim, and every snapshot lingers a few ticks. If the cog swings its aim
+  ## mid-burst those stale snapshots must NOT draw a second plume pointing the
+  ## old way: the whole plume follows the current aim as one cone, so a single
+  ## firing never reads as two simultaneous sprays.
+  test "every snapshot of a burst renders along the burst's newest pose":
+    # The pure pose selection: whatever poses the per-tick snapshots captured,
+    # they are all DRAWN along the most-recent one (here the north swing), so a
+    # burst collapses to one plume instead of a divergent trail.
+    var game = twoTeamGame()
+    game.players[0].hasPlasmaArc = true
+    game.players[0].placeAtCenter(ClearX, ClearY)
+    game.players[0].aimBrads = 0            # east
+    game.players[0].fireCooldown = 0
+    game.startArcFire(0)
+    game.resolveActiveArcCones()            # snapshot 0: aimed east
+    game.players[0].aimBrads = 64           # swing 90 deg to north (screen up)
+    game.resolveActiveArcCones()            # snapshot 1: aimed north
+    check game.plasmaArcFlashes.len == 2
+    # Stored aims are untouched (the sim still tracks the live cone)...
+    check game.plasmaArcFlashes[0].aimBrads == 0
+    check game.plasmaArcFlashes[1].aimBrads == 64
+    # ...but BOTH draw along the newest (north) pose.
+    check game.plasmaArcRenderPose(0).aimBrads == 64
+    check game.plasmaArcRenderPose(1).aimBrads == 64
+
+  test "a burst that turns mid-window paints only the current aim, not a trail":
+    var game = twoTeamGame()
+    game.players[0].hasPlasmaArc = true
+    game.players[0].placeAtCenter(ClearX, ClearY)
+    game.players[0].aimBrads = 0            # east
+    game.players[0].fireCooldown = 0
+    game.startArcFire(0)
+    game.resolveActiveArcCones()            # snapshot 0: aimed east
+    game.players[0].aimBrads = 64           # swing 90 deg to north (screen up)
+    game.resolveActiveArcCones()            # snapshot 1: aimed north
+    check game.plasmaArcFlashes.len == 2
+
+    var state = initGlobalViewerState()
+    let messages = game.buildGlobalMessages(state)
+    # Recover each puff's CENTER: an object's x/y is its sprite's top-left, and
+    # the width rides in the sprite def emitted alongside it (a fresh viewer
+    # state re-sends every def). The board packet is emitted at boardScale, so
+    # the cog reference is scaled to match.
+    var widthById = initTable[int, int]()
+    for m in messages:
+      if m.kind == spkSprite:
+        widthById[m.sprite.id] = m.sprite.width
+    let
+      scale = boardRenderScaleFor(game.gameMap.width, game.gameMap.height)
+      cx = float((game.players[0].x + CollisionW div 2) * scale)
+      cy = float((game.players[0].y + CollisionH div 2) * scale)
+      base = PlasmaArcFxObjectBase
+      cap = base + MaxPlayers * PlasmaArcFxPulses
+    var puffs = 0
+    for m in messages:
+      if m.kind == spkObject and m.objectDef.id >= base and m.objectDef.id < cap:
+        let w = widthById.getOrDefault(m.objectDef.spriteId, 0)
+        let
+          pcx = float(m.objectDef.x) + float(w) / 2
+          pcy = float(m.objectDef.y) + float(w) / 2
+        inc puffs
+        # Current aim is NORTH: every puff sits above the cog (screen up = -y),
+        # and none juts east where the stale first snapshot pointed.
+        check pcy < cy
+        check abs(pcx - cx) < float(PlasmaArcFxReach * scale) / 2
+    check puffs > 0
 
 suite "the damage cone covers the plume the game draws":
   ## The complaint this guards against: paint visibly engulfing a cog that

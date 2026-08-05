@@ -4,6 +4,14 @@ Orientation for coding agents (Claude Code, Codex, etc.) working in this
 repo. Gameplay rules live in [docs/RULES.md](docs/RULES.md); this file
 covers the workflows that are easy to get wrong.
 
+[docs/ENV_VARIATION.md](docs/ENV_VARIATION.md) is the catalog of every knob
+that varies a level (all `GameConfig` fields + `MapGenOverrides` + the
+envelope consts, each cited to `file:line`) — the reference for generating
+new levels/curricula. **Keep it current:** whenever you add, remove, rename,
+or re-bound a `GameConfig` field, a `mapGen` override, or a gameplay const
+(motion/combat/vision/scoring/item), update the matching row in that file in
+the same change.
+
 ## Layout
 
 - `src/ctf.nim` — server entrypoint (seed randomization happens HERE,
@@ -21,6 +29,11 @@ covers the workflows that are easy to get wrong.
   `sim.nim` — the gameplay core and step loop.
 - `src/ctf/map_pool.nim` — GENERATED curated terrain-pool seeds; rewrite it
   only via `tools/gen_map_pool.nim`, never by hand.
+- `tools/map_render.nim` — the shared map rasterizer behind both
+  `render_map_pool.nim` and the map editor. It is a PURE function of a
+  `CtfMap`: it must never install a map or read the process-global arena
+  (`MapWidth`, `ArenaObstacles`, `obstacleWallAtF`, …), because the editor
+  service renders arbitrary specs from multiple threads.
 - `tests/` — run `nim c -r tests/tests.nim` from the repo ROOT (assets
   resolve via `data/`). Use `-d:release` for anything heavy; debug builds
   are 10-50x slower through the per-pixel map code.
@@ -46,9 +59,17 @@ covers the workflows that are easy to get wrong.
 - Replays pin the resolved geometry as `mapSpec` in their config JSON —
   playback never re-runs the generator, so generator changes cannot break
   existing replays.
-- Generator design intent lives in the VALIDATORS
-  (`validateGeneratedMap`): sightlines, corridor connectivity, cover
-  budget. Change behavior there, not by hand-tuning draws.
+- Generator design intent lives in the VALIDATORS: sightlines, corridor
+  connectivity, cover budget. Change behavior there, not by hand-tuning
+  draws. The measurements live in `mapDiagnostics`;
+  `validateGeneratedMap` is a thin consumer that reports the first failure,
+  and `mapValidationReason` turns a completed diagnostic pass into the same
+  string. Diagnostics are collected in STAGES: the validator asks for
+  first-failure mode so a rejected attempt never pays for the distance
+  transform and flood fill, and full-board masks are opt-in
+  (`MapDiagnosticArtifact`) because retaining them costs ~88 MB on a
+  colossal board. Preserve both properties — `generateCtfMap` runs the
+  validator up to 100 times per map.
 
 ## Pool review page
 
@@ -65,6 +86,41 @@ python3 tools/build_pool_review.py pool-preview
 
 Commit the refreshed `docs/pool-review.html` together with the pool/
 generator change — a stale page misrepresents what the pool serves.
+
+## Map editor
+
+A local service + browser UI for inspecting and authoring map geometry against
+the REAL validators — the interactive counterpart to the static pool-review
+page. Every validator failure is locatable on the board, which makes it the
+fastest way to answer "why was this seed rejected".
+Design: [docs/designs/map-editor.md](docs/designs/map-editor.md).
+
+```bash
+nim c --threads:on --mm:orc -r tools/map_editor.nim 8099   # then open localhost:8099
+```
+
+It needs `--threads:on --mm:orc` because it serves over mummy; the request
+handlers are deliberately split from the mummy adapter (which is behind
+`when isMainModule`) so `tests/test_map_editor.nim` can exercise the API
+without a socket or a threaded test build.
+
+Loads any pool entry, `gen` seed + overrides, or pasted `mapSpec`, and
+returns a Nim-rendered board plus live validation, and edits it: obstacles,
+trenches, med kits, and the tier-1 map parameters, with undo/redo.
+
+Authoring places a seed item ONCE; `POST /api/symmetry` returns its full
+deduplicated orbit and the editor writes that into the spec. Trench authoring is
+refused on rot90 maps because `finalizeTrenches` never places them there.
+
+Two invariants to keep if you touch it:
+
+- **The browser never owns geometry.** It renders what the service sends and
+  draws markers on top; it must not compute walls, symmetry images, or
+  capture zones. The map code's fairness invariants (doubled rot90
+  coordinates, `int64` in the diagonal test for wasm, integer-offset diamond
+  sampling) fail silently as team unfairness when reimplemented.
+- **No map installation on the request path.** See `tools/map_render.nim`
+  above.
 
 ## Replay fixtures
 

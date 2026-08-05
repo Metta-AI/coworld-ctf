@@ -4779,6 +4779,29 @@ proc addPlasmaArcs(
       PlasmaArcCarrySpriteId
     )
 
+proc plasmaArcRenderPose*(
+  sim: SimServer, flashIndex: int
+): tuple[x, y, aimBrads: int] =
+  ## The pose a spray snapshot is DRAWN at: its firing player's MOST RECENT
+  ## snapshot (latest tick; ties broken by later emission), NOT its own captured
+  ## pose. One burst emits a snapshot per active tick, each capturing the owner's
+  ## live pose, and each lingers PlasmaArcFxTicks — drawn at their own poses, a
+  ## burst that swings its aim fans out into several divergent plumes and reads
+  ## as two simultaneous sprays. Collapsing every snapshot of a burst onto its
+  ## newest pose keeps the jet/fade animation (still driven by each snapshot's
+  ## own age) while showing exactly one cone that tracks the current aim. Since
+  ## the newest snapshot was captured this tick, that pose IS the owner's live
+  ## pose during the burst and freezes at the last-sprayed pose as it fades.
+  let flash = sim.plasmaArcFlashes[flashIndex]
+  result = (flash.x, flash.y, flash.aimBrads)
+  var best = (tick: flash.tick, idx: flashIndex)
+  for j in 0 ..< sim.plasmaArcFlashes.len:
+    let other = sim.plasmaArcFlashes[j]
+    if other.attacker == flash.attacker and
+        (other.tick > best.tick or (other.tick == best.tick and j > best.idx)):
+      best = (other.tick, j)
+      result = (other.x, other.y, other.aimBrads)
+
 proc addPlasmaArcFlashes(
   sim: SimServer,
   spriteDefs: var seq[SpriteDefinition],
@@ -4787,18 +4810,22 @@ proc addPlasmaArcFlashes(
   viewerIndex = -1
 ) {.measure.} =
   ## Places each recent spray burst's fading cone: a run of paint-mist puffs
-  ## along the attacker's aim, each sized to the local cone width.
+  ## along the attacker's aim, each sized to the local cone width. Every snapshot
+  ## of one burst is drawn along that burst's newest pose (plasmaArcRenderPose),
+  ## so a burst that turns mid-window stays one coherent plume.
   for i in 0 ..< min(sim.plasmaArcFlashes.len, PlasmaArcMaxFlashes):
-    let flash = sim.plasmaArcFlashes[i]
+    let
+      flash = sim.plasmaArcFlashes[i]
+      pose = sim.plasmaArcRenderPose(i)
     if viewerIndex >= 0 and
-        not sim.fovVisibleAt(viewerIndex, flash.x, flash.y):
+        not sim.fovVisibleAt(viewerIndex, pose.x, pose.y):
       continue
     let
       age = max(0, sim.tickCount - flash.tick)
       stage = clamp(age * PlasmaArcFxStages div PlasmaArcFxTicks,
         0, PlasmaArcFxStages - 1)
       colorIndex = playerColorIndex(flash.color)
-      (ux, uy) = aimVector(flash.aimBrads)
+      (ux, uy) = aimVector(pose.aimBrads)
       # The cog's RIGHT, perpendicular to the aim: for east aim (1, 0) this is
       # (0, 1) — screen-down — matching the held weapon's GunRightPx convention.
       (rx, ry) = (-uy, ux)
@@ -4814,13 +4841,13 @@ proc addPlasmaArcFlashes(
         # the NOZZLE (which is held off-axis) and eases onto the cone's axis.
         right = float(plasmaPulseRight(pulse, stage))
         diameter = plasmaPulseDiameter(pulse, stage)
-        px = flash.x + int(round(ux * forward + rx * right))
-        py = flash.y + int(round(uy * forward + ry * right))
+        px = pose.x + int(round(ux * forward + rx * right))
+        py = pose.y + int(round(uy * forward + ry * right))
       # The damage cone is blocked by walls (selectArcVictims runs a
       # line-of-sight test per victim), so the animation must not sail
       # through them either: stop placing mist puffs at the first wall
       # along the aim ray.
-      if not sim.lineOfSightClear(flash.x, flash.y, px, py):
+      if not sim.lineOfSightClear(pose.x, pose.y, px, py):
         break
       if spriteDefs.spriteDefinitionIndex(spriteId) < 0:
         packet.addBoardSpriteChanged(

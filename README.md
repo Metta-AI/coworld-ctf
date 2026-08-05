@@ -186,6 +186,33 @@ seeks.
 - Define sprites once and move objects per tick — every accepted packet is
   stored in the replay, so diff-style authoring keeps files small.
 
+## Inspect and edit maps
+
+Maps come from a seeded procedural generator (see [`docs/RULES.md`](docs/RULES.md)
+for what the terrain features do in play). To look at one interactively — or
+author your own — run the map editor:
+
+```sh
+nim c --threads:on --mm:orc -r tools/map_editor.nim 8099
+```
+
+Then open <http://localhost:8099>. It loads any curated pool entry, generator
+seed with the full override set, or pasted map spec, renders it through the real
+game geometry, and reports the play-quality validators live — cover budget, open
+sightlines, corridor connectivity, and endzone access. Failures are **locatable**:
+click an open sightline and it draws a rule across the board where the validator
+found it, so "why was this candidate rejected" has a visible answer rather than a
+sentence.
+
+You can also edit: add and reshape obstacles, place trenches and med kits, change
+the map parameters, and export the result as a `mapSpec` you can drop straight
+into a config. Maps are authored for one half (or one quadrant on 4-team boards)
+and the server derives the rest, so team fairness is structural — you cannot
+accidentally give one side more cover than the other.
+
+For a static, zoomable view of the whole curated pool without running anything,
+open [`docs/pool-review.html`](docs/pool-review.html).
+
 ## Inspect replay timelines
 
 Use `tools/expand_replay.nim` to get a text view of a replay — tick numbers, phase

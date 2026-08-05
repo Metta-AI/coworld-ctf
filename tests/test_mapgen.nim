@@ -282,6 +282,31 @@ suite "procedural terrain":
     check config.gunRange == gameMap.gunRange
     check config.gunRange == GunRange
 
+  test "a size class never rejects its own column draw":
+    ## The mapColumns ceiling used to be a flat 24 that predated the oversize
+    ## classes, so colossal (5.2x) drew past its own bound and RAISED instead of
+    ## generating: 32 of 40 two-team seeds failed. The 4-team draw tops out at
+    ## cols(4) = 21, which is why record_colossal_demo.sh never hit it.
+    ##
+    ## Drawing is what regresses here, so this uses generateMapAttempt rather
+    ## than a validated generate — the bound is checked before any validator
+    ## runs, and validating eight 22-megapixel boards would cost ~100s for no
+    ## extra signal. Eight seeds is ample: the old bug rejected ~80% of draws,
+    ## so the chance of all eight slipping past a regression is ~1e-6.
+    const ColossalOverrides = MapGenOverrides(
+      size: "colossal", windows: -1, pits: -1, pitDensity: -1)
+    for seed in 1001 .. 1008:
+      let gameMap = generateMapAttempt(seed, ColossalOverrides)
+      check gameMap.width == 6422
+      check gameMap.height == 3427
+    ## ...while the classes that scale by 1 keep exactly the historical bound.
+    var narrow = defaultGameConfig()
+    expect CtfError:
+      narrow.update(
+        """{"mapPath": "gen", "mapSeed": 7, "mapSize": "standard",
+            "mapColumns": 25}""")
+      discard resolveCtfMapMetadata(narrow)
+
   test "med kits spawn on the generated map's active pair":
     var config = defaultGameConfig()
     config.update("""{"mapPath": "pool", "mapPoolIndex": 0, "minPlayers": 1}""")

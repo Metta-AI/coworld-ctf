@@ -12,6 +12,8 @@ import
   test_input_buffer,
   test_lobby_join_timeout,
   test_manifest_schema,
+  test_map_editor,
+  test_map_editor_core,
   test_plasma_arc,
   test_replay_requests,
   # test_replay_switch_caches hot-switches the process-wide board render
