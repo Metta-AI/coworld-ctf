@@ -786,8 +786,11 @@ proc auditCorridorPinches*(
 
   # --- the gates, route by route -----------------------------------------
   # Pass 0 is the route a player takes and the one `ok` is decided on. Then
-  # the route is SEALED and the search repeats, so pass 1 is the best route
-  # that avoids it, pass 2 the best that avoids both, and so on. That
+  # the route is SEALED and the search repeats on the FULL walkable graph --
+  # not the width-restricted one, or the alternatives are excluded by the very
+  # width restriction that picked pass 0. On a carved board the ungated fast
+  # lane is the widest route, so pass 0 measures IT and every designed gate
+  # sits on a narrower lane the restriction had already thrown away. That
   # enumerates one gate per independent lane, which is what the isovist
   # assertion needs: on a map with three parallel doors NONE of them is
   # individually load-bearing, so a cut test alone would report zero gates on
@@ -810,7 +813,7 @@ proc auditCorridorPinches*(
     # other routes the board actually has.
     for pix in cumulative: sealRun(sealed, pix)
     for pass in 1 ..< MaxRoutePasses:
-      let probe = leastPain(wide, sealed)
+      let probe = leastPain(walk, sealed)
       var reached = false
       for b in 1 ..< anchorPx.len:
         if probe.pain[anchorPx[b]] != int32.high: reached = true
@@ -1104,6 +1107,10 @@ type
     region*: MapRect
     seamX*: int
     corridorMinPx*: int
+    sepThickPx*: int
+    laneStartX*: int
+      ## Where the profiles leave the base and the lanes become distinct.
+      ## Nothing structural can exist left of it.
     lanes*: seq[Lane]
 
 func laneY*(lane: Lane, x: int): int =
@@ -1167,53 +1174,101 @@ proc planLanes*(
     usable = max(1, bottom - top)
     x0 = max(region.x, base.x)
     xs = max(x0 + 4 * EngineMinCorridorPx, seamX)
-  # Lane bands are evenly pitched across the cross-section; the MIDDLE band is
-  # the contested one, the outermost is the flank, the rest run fast.
+    thick = EngineMinCorridorPx
+    jogAmp = rules.coverSizePx div 2
+  result.sepThickPx = thick
+  result.laneStartX = x0
+  # Lane WIDTHS first, then the bands are packed around them with a separator
+  # between each pair and at both margins. Pitching the bands evenly and
+  # setting widths independently (the obvious way) overruns the cross-section:
+  # the outer lanes ended up squeezed against the border, the flank's bow ran
+  # off the board, and the separators had no room to be structure rather than
+  # trim.
+  var widths: seq[int]
+  for i in 0 ..< lanes:
+    let isMid = i == lanes div 2
+    widths.add(
+      if isMid: rules.laneWidthPx
+      elif i == 0: rules.minCorridorWidthPx
+      else: rules.laneWidthPx + rules.coverSizePx div 2)
+  # The jog amplitude has to be RESERVED, not taken out of the separators.
+  # Packing bands from widths alone left 3px of slack on a standard half, so
+  # the profiles' jogs pushed adjacent lanes into overlap, the separator
+  # between them was suppressed by its own `yb - ya >= thick` guard, and the
+  # middle of the board came out as one open expanse with no structure in it.
+  # Jog room is reserved between EVERY pair, not just at the margins.
+  # Reserving it only at the outside still let a jogging lane close to within
+  # 6px of its neighbour mid-field, where the separator's own `yb - ya >=
+  # thick` guard then suppressed it and the board lost its middle structure.
+  let pitch = thick + 2 * jogAmp
+  var need = (lanes + 1) * pitch
+  for wpx in widths: need += wpx
+  if need > usable:
+    # Shrink lanes proportionally, never below the corridor floor: a lane one
+    # body wide is a corridor, and a network of corridors has no overtaking.
+    let slack = need - usable
+    var shrinkable = 0
+    for wpx in widths: shrinkable += max(0, wpx - rules.minCorridorWidthPx)
+    if shrinkable > 0:
+      for i in 0 ..< widths.len:
+        let give = max(0, widths[i] - rules.minCorridorWidthPx)
+        widths[i] -= min(give, give * slack div shrinkable)
+  var cursor = top + pitch
   for i in 0 ..< lanes:
     var lane = Lane()
     let
-      slot = (i * 2 + 1) * usable div (2 * lanes)
-      bandY = top + slot
+      bandY = cursor + widths[i] div 2
       isMid = i == lanes div 2
-      isEdge = i == 0 or i == lanes - 1
+    # The FIRST band is the tight flank and the LAST is the exposed fast lane.
+    # Making both edges flanks (the obvious reading of "outermost") produced
+    # flank / mid / flank on a three-lane board -- two identical routes and no
+    # fast lane at all, which is the failure this grammar exists to prevent.
     lane.role =
       if isMid: laneMid
-      elif isEdge: laneFlank
-      else: laneFast
-    lane.widthPx =
-      case lane.role
-      of laneFlank: rules.minCorridorWidthPx
-      of laneMid: rules.laneWidthPx
-      of laneFast: rules.laneWidthPx + rules.coverSizePx div 2
+      elif i == 0: laneFlank
+      elif i == lanes - 1: laneFast
+      else: (if i < lanes div 2: laneFlank else: laneFast)
+    lane.widthPx = widths[i]
+    cursor += widths[i] + pitch
     # Profiles. Mid runs straight from the base to the seam and is therefore
     # the SHORTEST — the fastest route, and the one everyone contests. The
     # others must climb to their band first, which costs length for free, and
     # the flank additionally bows toward the edge, which is what makes it the
     # longest and the sneakiest.
     let
-      jog = max(rules.coverSizePx, usable div (4 * lanes))
+      headroom = min(bandY - top - widths[i] div 2 - thick,
+                     bottom - bandY - widths[i] div 2 - thick) - thick
+      jog = clamp(jogAmp, 0, max(0, headroom))
+      # Lanes fan out from the base and must be ON their bands for the rest of
+      # the run; a fan that lasts the whole field is three lanes that overlap
+      # everywhere except the seam.
+      fan = x0 + (xs - x0) div 5
       mid1 = x0 + (xs - x0) div 3
       mid2 = x0 + 2 * (xs - x0) div 3
     case lane.role
     of laneMid:
+      # Straight once it is on its band: the SHORTEST route, which is what
+      # makes it the fast one everybody contests.
       lane.path = @[
         MapPoint(x: x0, y: base.y),
-        MapPoint(x: mid1, y: base.y - jog div 2),
-        MapPoint(x: mid2, y: base.y + jog div 2),
+        MapPoint(x: fan, y: bandY),
         MapPoint(x: xs, y: bandY)]
     of laneFast:
+      # One shallow jog: long enough to break the horizontal sightline, not so
+      # long that it stops being the quick way across.
       lane.path = @[
         MapPoint(x: x0, y: base.y),
-        MapPoint(x: mid1, y: bandY),
+        MapPoint(x: fan, y: bandY),
         MapPoint(x: mid2, y: bandY - jog),
         MapPoint(x: xs, y: bandY)]
     of laneFlank:
-      let bow = if bandY < base.y: -jog else: jog
+      # Serpentine: the LONGEST route, and the tightest. You take it to
+      # arrive somewhere nobody is looking, and you pay for it in seconds.
       lane.path = @[
         MapPoint(x: x0, y: base.y),
-        MapPoint(x: x0 + (xs - x0) div 5, y: bandY + bow),
-        MapPoint(x: mid1, y: bandY),
-        MapPoint(x: mid2, y: bandY + bow),
+        MapPoint(x: fan, y: bandY + jog),
+        MapPoint(x: mid1, y: bandY - jog),
+        MapPoint(x: mid2, y: bandY + jog),
         MapPoint(x: xs, y: bandY)]
     lane.lengthPx = lane.laneLengthPx()
     # Gates. `map_rules` sizes the count by traverse over one gun range: two
@@ -1225,11 +1280,33 @@ proc planLanes*(
       of laneFlank: max(1, rules.chokepointsPerRoute)
       of laneMid: 1
       of laneFast: 0
+    # Gate x positions are STAGGERED per lane and aligned to the middle of a
+    # separator run. Both matter and both were found by measurement:
+    #   - Spacing them evenly per lane put all three gates of a three-lane
+    #     board on ONE vertical line, and the isovist assertion immediately
+    #     reported that a single vantage watches every chokepoint. One camper
+    #     would own the map.
+    #   - A gate in a separator GAP pinches nothing: players leave the lane
+    #     through the gap and walk around it. A gate has to sit where the lane
+    #     is enclosed, which is the middle of a wall segment.
+    let period = WallSpanPx + max(EngineMinCorridorPx, lane.widthPx)
     for g in 0 ..< want:
+      # Spread the gates of one lane along its run, then OFFSET each lane by
+      # half a slot so no two lanes gate at the same x, then SNAP to the
+      # nearest separator-segment centre.
       let
-        gx = x0 + (xs - x0) * (g + 1) div (want + 1)
+        frac = (2 * g + 1) * 2 * lanes + (2 * i + 1)
+        want2 = 2 * want * 2 * lanes
+        wish = x0 + (xs - x0) * frac div max(1, want2)
+        k = (wish - region.x - WallSpanPx div 2 + period div 2) div period
+        snapped = region.x + k * period + WallSpanPx div 2
+        gx =
+          if snapped > x0 + EngineMinCorridorPx and
+             snapped < xs - EngineMinCorridorPx: snapped
+          else: wish
         gw = gateWidthFor(rng, rules)
-      if gx <= x0 or gx >= xs: continue
+      if gx <= x0 + EngineMinCorridorPx or gx >= xs - EngineMinCorridorPx:
+        continue
       lane.gates.add LaneGate(
         x: gx, y: lane.laneY(gx), widthPx: gw, runPx: maxGateRunPx(gw))
     result.lanes.add lane
@@ -1244,26 +1321,66 @@ proc laneSeparatorShapes*(plan: LanePlan, thickPx = 0): seq[ArenaShape] =
   ## wall of span S costs S/2 of extra travel, and for the separation to mean
   ## anything that detour has to cost more than a kill takes, so
   ## S >= 2 * maxExposedRunPx = 264 px. Shorter walls are cover, not structure.
-  let thick = if thickPx > 0: thickPx else: max(12, EngineMinCorridorPx div 2)
+  ## The MARGIN strips between the outermost lanes and the board edge get a
+  ## separator too. Skipping them left a ~44 px lane of untouched floor along
+  ## the top border running the whole width, and `arena`'s validator rejected
+  ## every carved map outright with "open horizontal sightline at y=12".
+  let thick = if thickPx > 0: thickPx else: max(12, plan.sepThickPx)
   const Step = 14
-  for i in 1 ..< plan.lanes.len:
+  if plan.lanes.len == 0: return
+  for i in 0 .. plan.lanes.len:
     let
-      above = plan.lanes[i - 1]
-      below = plan.lanes[i]
-      span = WallSpanPx
-      gap = max(EngineMinCorridorPx, below.widthPx)
-      period = span + gap
-    var x = plan.region.x
+      above =
+        if i == 0:
+          Lane(widthPx: 0, path: @[
+            MapPoint(x: plan.region.x, y: plan.region.y),
+            MapPoint(x: plan.seamX, y: plan.region.y)])
+        else: plan.lanes[i - 1]
+      below =
+        if i == plan.lanes.len:
+          Lane(widthPx: 0, path: @[
+            MapPoint(x: plan.region.x, y: plan.region.y + plan.region.h),
+            MapPoint(x: plan.seamX, y: plan.region.y + plan.region.h)])
+        else: plan.lanes[i]
+      gap = max(EngineMinCorridorPx, max(above.widthPx, below.widthPx))
+      # Phase from where the lanes actually DIVERGE, not from the board edge.
+      # Everything left of that is the home pocket, where all profiles sit on
+      # the base and no separator can exist; phasing from region.x spent most
+      # of every separator's duty cycle in that dead zone and left the middle
+      # of the field as one open expanse.
+      runStart = plan.laneStartX
+      runSpan = max(1, plan.seamX - runStart)
+      # One wallSpan segment plus one gap is the most a standard half-field
+      # fits, so clamp the period to the span rather than letting a segment
+      # fall off the end, and STAGGER each separator by a fraction of it so
+      # the gaps do not line up into an open cross-field row.
+      period = min(WallSpanPx + gap, runSpan)
+      span = max(WallSpanPx * 2 div 3, period - gap) * 3 div 4
+      offset = i * period div max(1, plan.lanes.len + 1)
+    var x = runStart
     while x < plan.seamX:
-      let phase = (x - plan.region.x) mod period
+      let phase = (x - runStart + offset) mod period
       if phase < span:
         let
           ya = above.laneY(x) + above.widthPx div 2
           yb = below.laneY(x) - below.widthPx div 2
           y = (ya + yb) div 2
         if yb - ya >= thick:
+          # A flat separator blocks only the rows it sits on, and `arena`'s
+          # validator wants EVERY row between the capture columns broken. The
+          # margin strips are where that bites -- a single thin wall at y=46
+          # left the whole top border open and every carved map was rejected
+          # with "open horizontal sightline at y=64". So a separator SWEEPS
+          # its band as a triangle wave, which costs nothing and closes every
+          # row it spans.
+          let
+            room = max(0, (yb - ya - thick) div 2)
+            cycle = max(1, span)
+            t = (x - plan.region.x) mod cycle
+            tri = if t < cycle div 2: t * 2 else: (cycle - t) * 2
+            sweep = if room == 0: 0 else: (tri * room * 2) div cycle - room
           result.add ArenaShape(kind: shapeRect, rect: MapRect(
-            x: x, y: y - thick div 2, w: Step + 2, h: thick))
+            x: x, y: y + sweep - thick div 2, w: Step + 2, h: thick))
       x += Step
 
 proc laneGateShapes*(plan: LanePlan): seq[ArenaShape] =

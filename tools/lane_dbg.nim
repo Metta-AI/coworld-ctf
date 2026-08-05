@@ -3,13 +3,34 @@
 ##
 ## Floor is shaded by the local WIDTH the rule actually reads: green at or
 ## above the corridor floor, amber in the chokepoint band, red below it.
-import std/[os, strformat]
+import std/[os, strformat, strutils]
 import pixie
-import ../src/ctf/[sim, map_lanes, map_rules]
+import std/random
+import ../src/ctf/[sim, map_lanes, map_rules, mapgen_styles]
+
+proc carvedMap(seed: int): CtfMap =
+  var gameMap = loadCtfMapMetadata("arena")
+  let
+    rules = mapRules("standard", 2)
+    base = gameMap.flagHome(Red)
+    seamX = gameMap.width div 2
+    region = MapRect(x: BorderPx, y: BorderPx,
+      w: seamX - BorderPx, h: gameMap.height - 2 * BorderPx)
+    coverRegion = MapRect(x: base.x + gameMap.spawnClearW + 30, y: BorderPx + 20,
+      w: seamX - (base.x + gameMap.spawnClearW + 30) - 10,
+      h: gameMap.height - 2 * BorderPx - 40)
+  var rng = initRand(seed)
+  let cover = generateShapes(styleScatter, seed, coverRegion,
+    defaultParams(styleScatter))
+  gameMap.leftObstacles = carveLanes(rng, region, base, seamX, rules, cover).shapes
+  gameMap.name = "carved"
+  gameMap
 
 proc render(name: string, outPath: string, cropX, cropY, cropW, cropH: int,
             report: bool) =
-  let gameMap = loadCtfMapMetadata(name)
+  let gameMap =
+    if name.startsWith("carved:"): carvedMap(parseInt(name[7 .. ^1]))
+    else: loadCtfMapMetadata(name)
   let diag = mapDiagnostics(gameMap, {diagnosticWallMasks})
   let
     w = gameMap.width
@@ -63,7 +84,9 @@ proc render(name: string, outPath: string, cropX, cropY, cropW, cropH: int,
 when isMainModule:
   let name = if paramCount() >= 1: paramStr(1) else: "arena"
   createDir("/tmp/lanes")
-  let gameMap = loadCtfMapMetadata(name)
-  render(name, "/tmp/lanes/" & name & "_full.png", 0, 0,
+  let gameMap =
+    if name.startsWith("carved:"): carvedMap(parseInt(name[7 .. ^1]))
+    else: loadCtfMapMetadata(name)
+  let tag = name.replace(":", "_")
+  render(name, "/tmp/lanes/" & tag & "_full.png", 0, 0,
     gameMap.width, gameMap.height, true)
-  render(name, "/tmp/lanes/" & name & "_crop.png", 180, 490, 420, 169, false)
