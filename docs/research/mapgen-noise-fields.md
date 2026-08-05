@@ -23,20 +23,26 @@ need *concavity*, and smoothing a noise field is precisely the operator that
 
 What noise **is** worth, honestly, in descending order of value:
 
-1. **A level set of a smooth field is a disjoint union of closed curves, and the
-   faces they cut the plane into form a TREE.** That is a hard theorem (§6.4).
-   Thicken the curves into walls, punch exactly one door per curve, and the
-   floor is connected **by construction** — no flood-fill repair, no
-   generate-and-test. And a thickened closed curve is a *ring*, whose interior is
-   8-of-8 blocked, which is exactly the `interiorFrac` structure we lack. This is
-   the single highest-value finding in my dimension and it is where noise
-   belongs.
+1. **Extract a contour from the field, keep a ≥270° ARC of it, thicken it into a
+   wall.** (§6.4b) A thickened simple arc is a closed *disc* — simply connected —
+   so a family of disjoint arcs cannot separate the plane: **floor connectivity,
+   no sealed pockets, and `chokeCount = 0` follow from a one-line proof, on every
+   seed.** Enforce a minimum gap `g` between arcs and `routeCountMin >=
+   floor(g/26)` follows too. And an arc is **concave**, which is the one thing a
+   noise-thresholded blob provably cannot be (§12.1) — `InteriorBlockedMin = 6`
+   of 8 is *literally* the 270° horseshoe threshold, and the mouth of the C is a
+   free door. This is the highest-value finding in my dimension.
+   *(§6.4/§6.4a develop the closed-loop version and the nesting-tree theorem
+   first; keep them as the reason loops **fail** — a tree of doors satisfies
+   `routeCountMin` on paper while leaving every route through the same rooms,
+   which is metric-gaming. The arcs supersede it.)*
 2. **Poisson-disk sampling's minimum-separation property is a hard invariant**
-   (§5.3), and with radius `R` and separation `r > 2R + MinCorridorWidth` it
-   upgrades to a one-line proof of *floor connectivity and no sealed pockets*
-   (§5.4). Our current `genScatter` has **no** such guarantee and can produce
-   overlapping clusters (§5.5) — swapping its jittered grid for Bridson is a
-   cheap, local, strictly-better change.
+   (§5.3), and with radius `R` and separation `r > 2R + g` it upgrades to the same
+   one-line proof of *floor connectivity and no sealed pockets* (§5.4). Our
+   current `genScatter` has **no** such guarantee — its own parameters admit
+   coincident discs (§5.5). At `r = lanePitchPx = 180` (which the partition
+   survey derived independently) we could afford **51 px** cover blobs, larger
+   than the 32 px we ship, *and* guarantee 78 px gaps. ~20 lines (§15.1).
 3. **You can solve for the threshold analytically instead of rolling dice**
    (§11). Cauchy's mean-chord formula plus Rice's level-crossing formula give
    closed forms for both cover fraction *and* mean free sightline as functions of
@@ -247,7 +253,8 @@ an (A) with no named property is not an (A).
 | 6.2 | **…at an empirical quantile** | **(A)** | **exact pre-carve cover fraction** | +O(N log N) sort | Turns the cover validator into a non-event (§11.5) |
 | 6.3 | **Hysteresis / double threshold** | **(B)** | — | +1 flood fill | Kills speckle, thickens features. Removes sub-corridor pinches *statistically* |
 | 6.4 | **Marching squares → `shapePolygon`** | **(A)** | **output is closed, simple, non-self-intersecting loops** (given consistent saddle resolution) | O(pixels) | Directly emits our native polygon primitive |
-| 6.4 | **Contour nesting tree + one door per contour** | **(A)** | **floor connectivity, by construction** | O(contours) | **The headline finding.** Rooms *and* connectivity from the same object |
+| 6.4 | **Contour nesting tree + doors** | **(A)** | floor connectivity; and `routeCountMin = min_i d_i` exactly | O(contours) | Superseded — the room graph stays a **tree**, so it passes the metric while every route uses the same rooms (§6.4b) |
+| **6.4b** | **Thickened ≥270° ARCS (not loops)** | **(A)** | **floor connectivity + no sealed pockets + `chokeCount = 0` + `routeCountMin >= floor(g/26)`** | O(contours) | **The headline finding.** Concave cover (so `interiorFrac` works) with the disjoint-discs proof (so connectivity works) and no door pass at all |
 | 6.5 | **RDP / Visvalingam simplification** | **(B)** | — | O(n log n) | Gets a 4000-vertex contour under the 48-vertex budget. **Does not preserve simplicity** — needs a guard |
 | 7.1 | **Curl noise** | **(C)** | divergence-free is (A), but of a property we do not care about | ×2 field evals | In 2D its streamlines *are* the level sets of the potential (§7.1) — same object as §6.4, no new information |
 | 7.2 | **Tensor fields / hyperstreamlines** | **(B)** | — | high | Genuine lane layout with designer control. The one technique here that thinks in terms of *routes* |
