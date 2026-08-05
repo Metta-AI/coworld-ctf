@@ -66,11 +66,14 @@ finds one place where the currently-assumed bridge is wrong.
 | Gun range | `GunRange` | **1050 px**, frozen since GV34 |
 | Vision range | `1.5 × GunRange` | 1575 px |
 | Vision cone | `VisionConeDeg = 60` (half-angle) | **120° full**, rides the aim |
-| Drawn body / hitbox | `SoldierBodyPx = 34`, `PlasmaArcBodyRadius = 17` | 34 px |
-| Solid collision footprint | `PlayerHalf = 6` | 12–13 px |
+| Drawn body — **art and the spray cone only** | `SoldierBodyPx = 34`, `PlasmaArcBodyRadius = 17` | 34 px |
+| Solid body — collision **and the gun/grenade hit tests** | `PlayerHalf = 6` | 12–13 px |
+| Bullet corridor half-width | `BulletHalfWidth = 8.0` | acceptance half-window **14 px** |
 | Speed | `MaxSpeed / MotionScale = 704/256` | 2.75 px/tick = 66 px/s at 24 Hz |
 | Carrier speed | `CarrierSpeedPct = 70` | 1.925 px/tick = 46.2 px/s |
-| Time to kill | `TicksToKill = (3−1) × FireCooldown` | 48 ticks = 2.0 s (observed band 1.0–1.9 s) |
+| Shot cadence | `FireCooldownTicks = 12` | 0.5 s between shots |
+| Time to kill | `TicksToKill = (ShotsToKill−1) × 12`, `ShotsToKill = 5` | 48 ticks = 2.0 s (observed 1.0–1.9 s) |
+| Assumed field accuracy (baked into `ShotsToKill`) | `FieldAccuracyPct = 60` | 60% |
 | Fire windup | `FireWindupTicks = 5` | 0.21 s |
 | Lethal exposure run | `MaxExposedRunPx` | **132 px** axis-aligned (see §0.1 — 187 px diagonal) |
 | Aim lattice | `AimRotations = 32`, `AimStepBrads = 8` | 11.25° per slot |
@@ -82,10 +85,21 @@ finds one place where the currently-assumed bridge is wrong.
 | Endzone radius | `EndzoneRadiusMin/Max` | 90–220 px |
 | Objective | capture-the-heart: steal from enemy pedestal, carry home | conversion decides matches **[measured]** |
 
-Two body sizes matter and they are 2.8× apart. **Use 34 px for anything combat-geometric** (hit
-tests use the drawn body; sightlines, cover width, angle counts, silhouette occlusion). **Use 12 px
-only for passability.** Source-engine geometry has no analogue of this split — there the collision
-hull *is* the functional body — so every imported Source number must be anchored to 34 px.
+**Three body sizes are in play and they disagree by up to 2.8×. Getting this wrong invalidates
+every geometric threshold, so it is worth stating flatly:**
+
+| Purpose | Size | Source |
+|---|---|---|
+| Passability / wall collision | ±`PlayerHalf` = 12–13 px | `sim.nim` movement |
+| **Gun and grenade hit tests** | ±`PlayerHalf` silhouette, sampled every 3 px, inside a ±`BulletHalfWidth` = 8 px corridor → **28 px total acceptance width** | `selectFireTarget`, grenade blast (GV30) |
+| Spray cone, and everything the viewer sees | 34 px (`PlasmaArcBodyRadius` = 17) | `rig_art.nim`, arc resolution |
+
+The gun does **not** shoot at the 34 px silhouette — it shoots at the 13 px solid body inside a 16 px
+corridor. Source-engine geometry has no analogue of this split (there the collision hull *is* the
+functional body), so an imported Source number has to be matched to whichever of the three is doing
+the same job: **32 HU ↔ the drawn 34 px for map-legibility numbers (corridors, room sizes), and
+32 HU ↔ the 13 px solid body for anything about how hard a target is to hit.** The two bridges differ
+by 2.6× and §3.6 shows that the second one is the one that decides how this game actually plays.
 
 ### 1.2 The scale bridge, and a correction to it
 
