@@ -636,11 +636,12 @@ html, body {
   position: absolute;
   top: calc(4 * var(--u));
   right: calc(4 * var(--u));
+  /* PRE-STREAM DEFAULTS. Both are overwritten inline by syncFpvMapShape() from
+     the streamed map's real w/h, which also bounds the box on the HEIGHT axis —
+     38% wide on a near-square hull is ~57% of the PiP tall and would lid the
+     raycast this inset floats over. `syncBoardAspect` publishes --boardaspect. */
   width: 38%;
-  /* Tracks the real board, not the retired 1235:659 rectangle — the hex arena
-     is portrait, and a fixed-aspect minimap would letterbox or crop it.
-     `syncBoardAspect` sets --boardaspect from the stream's native size. */
-  aspect-ratio: var(--boardaspect, 1235 / 659);
+  aspect-ratio: var(--boardaspect, 1119 / 969);
   background: rgba(8, 5, 3, 0.42);
   box-shadow: 0 0 0 1px rgba(232, 163, 61, 0.28);
   overflow: hidden;
@@ -1698,6 +1699,13 @@ body[data-embed] #board { top: 0; height: 100%; }
   // already the right shape: LANDSCAPE, 1119x969, flat-top hull.
   var BOARD_W = 1119, BOARD_H = 969;
   var BOARD_ASPECT = BOARD_W / BOARD_H;
+  // Publish the default immediately. `syncBoardAspect` deliberately returns
+  // early when the streamed aspect already matches — which is the common case,
+  // the standard arena — so if the var were only written on a CHANGE, every
+  // consumer of `--boardaspect` would sit on its CSS fallback forever and the
+  // hex arena would be the one board that never sets it.
+  document.documentElement.style.setProperty(
+    '--boardaspect', BOARD_W + ' / ' + BOARD_H);
   function syncBoardAspect(nativeW, nativeH) {
     if (!(nativeW > 1) || !(nativeH > 1)) return;
     var aspect = nativeW / nativeH;
@@ -2980,10 +2988,54 @@ body[data-embed] #board { top: 0; height: 100%; }
   // spatial context — deliberately NOT fog-limited — so the viewer always knows
   // where the EYES are looking and located.
   var fpvMapEl = $('fpv-map'), fpvMapCanvas = $('fpv-map-canvas'), fpvMapCtx = null;
+
+  // THE PLAYFIELD BOUNDARY, as a path. Everything that needs the field's extent
+  // — the floor wash, the outline — goes through this one function, so the
+  // shape lives in exactly one place. It is a FLAT-TOP HEXAGON: the arena hull
+  // (src/ctf/hex.nim `HexBoard`) is inscribed exactly in the board's w×h box,
+  // with its two vertices at the left and right edge midpoints and its flat
+  // edges along the top and bottom, which puts the other four vertices at one
+  // and three quarters of the width. Drawing the box instead would re-assert
+  // the bounding rectangle the hull exists to replace, right on top of a baked
+  // image that is transparent outside it.
+  function fieldBoundaryPath(ctx, ox, oy, w, h) {
+    ctx.beginPath();
+    ctx.moveTo(ox, oy + h / 2);
+    ctx.lineTo(ox + w * 0.25, oy);
+    ctx.lineTo(ox + w * 0.75, oy);
+    ctx.lineTo(ox + w, oy + h / 2);
+    ctx.lineTo(ox + w * 0.75, oy + h);
+    ctx.lineTo(ox + w * 0.25, oy + h);
+    ctx.closePath();
+  }
+
+  // Give the inset the BOARD's shape, not a hard-coded one, and bound it on
+  // BOTH axes — 38% of the PiP wide, and never more than 42% of it tall. The
+  // width bound alone was enough while the board was a 1.874:1 rectangle (38%
+  // wide is only ~30% tall); the hex arena is 1.155:1, which at a fixed 38%
+  // width grows to roughly 57% of the PiP's height and lids the raycast the
+  // inset is supposed to sit over. The CSS `aspect-ratio` (--boardaspect) is
+  // the pre-stream default; this is the live correction.
+  var fpvMapShape = '';
+  function syncFpvMapShape(m) {
+    var box = fpvMapEl.parentElement;
+    var bw = box ? box.clientWidth : 0, bh = box ? box.clientHeight : 0;
+    if (!(m.w > 1) || !(m.h > 1) || !bw || !bh) return;
+    var key = m.w + 'x' + m.h + '@' + bw + 'x' + bh;
+    if (key === fpvMapShape) return;
+    fpvMapShape = key;
+    var wFrac = 0.38;
+    var hFrac = wFrac * (bw / bh) * (m.h / m.w);
+    if (hFrac > 0.42) wFrac *= 0.42 / hFrac;
+    fpvMapEl.style.aspectRatio = m.w + ' / ' + m.h;
+    fpvMapEl.style.width = (wFrac * 100).toFixed(2) + '%';
+  }
+
   function renderFpvMap(fp) {
     var m = fp.map;
     if (!m) { fpvMapEl.style.display = 'none'; return; }
     fpvMapEl.style.display = 'block';
+    syncFpvMapShape(m);
     if (!fpvMapCtx) fpvMapCtx = fpvMapCanvas.getContext('2d');
     var ctx = fpvMapCtx;
     var dpr = window.devicePixelRatio || 1;
@@ -2991,24 +3043,37 @@ body[data-embed] #board { top: 0; height: 100%; }
     var W = Math.max(1, Math.round(cssW * dpr)), H = Math.max(1, Math.round(cssH * dpr));
     if (fpvMapCanvas.width !== W) fpvMapCanvas.width = W;
     if (fpvMapCanvas.height !== H) fpvMapCanvas.height = H;
-    var sx = W / m.w, sy = H / m.h;              // world px → canvas px
-    function px(x) { return x * sx; }
-    function py(y) { return y * sy; }
+    // ONE uniform world px → canvas px scale, centered. Independent x/y scales
+    // squash any board whose aspect differs from the inset's and turn every
+    // circle drawn here into an ellipse — the old `(sx+sy)/2` fudge on the
+    // vision-bubble radius was the tell. syncFpvMapShape normally leaves the
+    // letterbox bands at zero; this keeps the map honest when it cannot (the
+    // height bound above, a user-resized PiP, a frame before the reshape lands).
+    var sc = Math.min(W / m.w, H / m.h);
+    var fw = m.w * sc, fh = m.h * sc;
+    var ox = (W - fw) / 2, oy = (H - fh) / 2;
+    function px(x) { return ox + x * sc; }
+    function py(y) { return oy + y * sc; }
 
-    // floor wash
+    // floor wash, confined to the field
     ctx.clearRect(0, 0, W, H);
+    fieldBoundaryPath(ctx, ox, oy, fw, fh);
     ctx.fillStyle = 'rgba(20,15,10,0.55)';
-    ctx.fillRect(0, 0, W, H);
-    // midline, for a quick sense of sides
-    ctx.strokeStyle = 'rgba(242,232,216,0.10)';
-    ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(W / 2, 0); ctx.lineTo(W / 2, H); ctx.stroke();
+    ctx.fill();
 
-    // baked terrain silhouette (stone + glass), stretched to the inset
+    // baked terrain silhouette (stone + glass), scaled to the field
     if (fpMapBaked) {
       ctx.imageSmoothingEnabled = false;
-      ctx.drawImage(fpMapBaked, 0, 0, fpMapBaked.width, fpMapBaked.height, 0, 0, W, H);
+      ctx.drawImage(fpMapBaked, 0, 0, fpMapBaked.width, fpMapBaked.height, ox, oy, fw, fh);
     }
+
+    // The hull, for a quick sense of extent and where the edges are. This
+    // replaces a fixed vertical midline, which encoded a two-team left/right
+    // split that means nothing on a four-team board and nothing on a hexagon.
+    fieldBoundaryPath(ctx, ox, oy, fw, fh);
+    ctx.strokeStyle = 'rgba(242,232,216,0.16)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
 
     // POV vision wedge (cone + bubble), un-fogged. aimBrads: 0 = east, CCW+, and
     // screen-y grows downward so we negate the angle.
@@ -3030,7 +3095,7 @@ body[data-embed] #board { top: 0; height: 100%; }
       ctx.fill();
       // omni bubble
       ctx.beginPath();
-      ctx.arc(ax, ay, (here.bubble || 0) * ((sx + sy) / 2), 0, Math.PI * 2);
+      ctx.arc(ax, ay, (here.bubble || 0) * sc, 0, Math.PI * 2);
       ctx.fillStyle = 'rgba(232,163,61,0.14)';
       ctx.fill();
       // aim ray
@@ -3543,15 +3608,21 @@ body[data-embed] #board { top: 0; height: 100%; }
     // The board region (game action) fits the board aspect into the box BETWEEN a
     // reserved top band (the scorebug) and bottom band (the transport), so neither
     // ever sits over play. Each band's pixel height depends on --hudscale (→ board
-    // width) and the board fit depends on the bands, so iterate twice — the bands
-    // are a small fraction of the height, so it converges immediately.
+    // width) and the board fit depends on the bands, so iterate to a FIXED POINT:
+    // stop as soon as a pass measures back the same bands it was laid out with.
+    // Two passes settle a container resize — but a MAP-ASPECT change swings
+    // --hudscale far enough (the retired 1.874:1 rectangle → the hex arena's
+    // 1.155:1 hull is 1.55 → 0.95) that pass two is still reserving the old band
+    // heights, leaving the board a couple of percent off its true aspect. That
+    // reads as thin dead strips beside a board that should be exact.
     var scorebug = document.getElementById('scorebug');
     var transport = document.getElementById('transport');
     var root = document.documentElement;
     var topBand = parseFloat(getComputedStyle(root).getPropertyValue('--topband')) || 0;
     var band = parseFloat(getComputedStyle(root).getPropertyValue('--band')) || 0;
     var stageW = 0, stageH = 0;
-    for (var pass = 0; pass < 2; pass++) {
+    for (var pass = 0; pass < 4; pass++) {
+      var prevTop = topBand, prevBand = band;
       var availH = Math.max(1, boxH - topBand - band);
       var boardW, boardH;
       if (boxW / availH > BOARD_ASPECT) {
@@ -3574,6 +3645,7 @@ body[data-embed] #board { top: 0; height: 100%; }
       band = transport ? transport.offsetHeight : 0;
       root.style.setProperty('--topband', topBand + 'px');
       root.style.setProperty('--band', band + 'px');
+      if (Math.abs(topBand - prevTop) < 0.5 && Math.abs(band - prevBand) < 0.5) break;
     }
     core.setViewportFit();
   }
