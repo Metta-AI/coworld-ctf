@@ -27,8 +27,11 @@ import
 
 const
   Cogs = 8              ## 4 teams x (flagged, control).
-  Phases = 24           ## one full glide, sampled every ShimmerTicksPerFrame.
-  TicksPerPhase = 4     ## must match ShimmerTicksPerFrame.
+  Phases = CogMetalSweepFrames    ## one full glint cycle, one row per baked
+                                  ## phase — so consecutive rows really ARE
+                                  ## consecutive frames and the strobe bound
+                                  ## below measures what a viewer sees.
+  TicksPerPhase = CogMetalTicksPerFrame
   Spacing = 150         ## map px between posed cogs.
   HueTol = 25.0         ## degrees of hue a shell pixel may drift and still be
                         ## nameable as the same team color.
@@ -318,10 +321,10 @@ proc main() =
         dSat = f.meanSat - c.meanSat
         dSatOwn = f.meanSat - fOff.meanSat
         dHue = hueDelta(f.meanHue, c.meanHue)
-      # The per-seat phase stride means seat fi's own glide frame is
-      # (phase + fi*ShimmerSeatStride) mod Phases; label rows by that so the
-      # WORST row names the real art frame, not the sample index.
-      let ownPhase = (phase + fi * 5) mod Phases
+      # The per-seat phase stride means seat fi's own glint frame is
+      # cogMetalPhase(tick, seat); label rows by that so the WORST row names the
+      # real baked frame, not the sample index.
+      let ownPhase = cogMetalPhase(want, fi)
       echo &"{ownPhase}\t{t}\t{teamDisplaySlug(Team(t))}\t" &
         &"{f.peak:.1f}\t{c.peak:.1f}\t{dPeak:+.1f}\t" &
         &"{f.p95:.1f}\t{c.p95:.1f}\t{dP95:+.1f}\t" &
@@ -374,10 +377,9 @@ proc main() =
     let
       tw = sheets[0].width
       th = sheets[0].height
-    var sheet = newImage(tw * 6, th * 4)
+    var sheet = newImage(tw * sheets.len, th)
     for i, tile in sheets:
-      sheet.draw(tile, translate(vec2(
-        float32((i mod 6) * tw), float32((i div 6) * th))))
+      sheet.draw(tile, translate(vec2(float32(i * tw), 0)))
     sheet.writeFile(outDir / "contact_sheet.png")
     echo "# wrote ", outDir / "contact_sheet.png"
 

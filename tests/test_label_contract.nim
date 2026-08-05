@@ -259,12 +259,14 @@ proc collectLabels(sim: var SimServer): HashSet[string] =
     ghostState: PlayerViewerState
   let none = newSeq[InputState](sim.players.len)
 
-  # METALLIC SHIMMER (`metal shimmer stage <n>`, board stream only). It renders
-  # only for the seats of the one league-wide shimmer policy, and the registry
-  # is empty by default — so without this the family would never enter the
-  # vocabulary, and a rename of it would diff clean forever. Flag seat 0's
-  # policy; the seats of every other policy do NOT match, so the sweep covers
-  # the negative side of the gate too.
+  # METALLIC PAINT. The league #1's cogs are drawn from a metallic RE-BAKE of
+  # their own shell art (rig_art.applyCogMetal), and that bake deliberately
+  # keeps the STOCK bake's label — a label scanner must still read the #1's cog
+  # as `player <color>`, or flagging a policy would blind every bot to it. The
+  # family therefore contributes NO new label, and the sweep flags a policy
+  # anyway: the manifest must come out unchanged when a cog goes metal, and
+  # this is the check that proves it. (It supersedes a retired
+  # `metal shimmer stage <n>` overlay family, whose manifest line went with it.)
   #
   # Saved and restored rather than just set: the registry is process state, and
   # this binary runs other suites after the sweep.

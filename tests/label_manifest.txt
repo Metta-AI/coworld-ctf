@@ -45,7 +45,6 @@ lives <n>hp x<n>
 map
 map band <n>
 med kit
-metal shimmer stage <n>
 muzzle bloom stage <n>
 name p<n>
 name p<n> flag <n>
