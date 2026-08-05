@@ -149,3 +149,264 @@ statistic rather than a construction statistic (~92 % of 2-team, ~47 % of 4-team
 attempts pass, `arena.nim:2460`). Once the skeleton is protected and the fill region is
 freely wallable, the two repairs act on **disjoint pixel sets** and cannot interfere.
 That is the rewrite's central structural change and it costs nothing at runtime.
+
+### 3.4 One more class we need: (A*) conditional guarantees
+
+The (A)/(B)/(C) key needs a fourth box, because "ALWAYS good" is a *two-part* promise:
+the map must be good **and there must be a map**. Solver methods split these:
+
+- **(A) unconditional** — always terminates, always correct. Constructive methods.
+- **(A\*) conditional** — *if* it returns, the output is provably correct; it may return
+  nothing, and there is no useful bound on when. Every solver (SAT, SMT, ASP, WFC with
+  backtracking) is (A\*), not (A).
+
+For a game that must produce a map every episode inside a frame budget, an (A\*) method
+**with no constructive fallback is a crash**, not a generator. This is the single most
+important practical distinction in the survey and it is almost never drawn in the PCG
+literature.
+
+---
+
+## 4. Technique survey
+
+### 4.1 Wave Function Collapse and model synthesis — **(B)**, and widely oversold
+
+**What it is.** Merrell's *model synthesis* (2007 i3D; SIGGRAPH 2008; 2009 thesis) is the
+original formulation: given an example model, generate larger models in which every local
+neighbourhood is one that appeared in the example. It uses a global search to find
+vertex labellings that would make the model inconsistent and removes them from
+consideration before committing, and it decomposes the generation into overlapping
+subproblems solved in sequence
+([Merrell, model synthesis](https://paulmerrell.org/model-synthesis/),
+[PDF](https://paulmerrell.org/wp-content/uploads/2022/03/model_synthesis.pdf)).
+Gumin's **WaveFunctionCollapse** (2016) is a re-derivation of the same algorithm with an
+overlapping-`N×N`-pattern input mode and an entropy-ordered collapse heuristic; Gumin
+credits Merrell explicitly and describes his contribution as generalising "his approach to
+work with NxN overlapping patterns of tiles instead of individual tiles"
+([mxgmn/WaveFunctionCollapse README](https://github.com/mxgmn/WaveFunctionCollapse/blob/master/README.md)).
+Karth & Smith's analysis positions both as constraint solving — WFC is a
+propagate-and-guess CSP solver whose propagation is arc consistency
+([*WaveFunctionCollapse is Constraint Solving in the Wild*, FDG 2017](https://dl.acm.org/doi/10.1145/3102071.3110566)).
+
+**What it actually guarantees.** Gumin states the property himself, and it is *local*:
+
+> **C1.** "The output should contain only those NxN patterns of pixels that are present in
+> the input."
+
+C2 (that the output's pattern *distribution* resembles the input's) is explicitly the weak
+one. There is nothing about connectivity, path count, sightlines, or cover. Boris Newgas
+puts the limitation bluntly: "Because WFC only constrains nearby tiles, it rarely
+generates large scale structures"
+([*Wave Function Collapse Explained*](https://www.boristhebrave.com/2020/04/13/wave-function-collapse-explained/)).
+
+Nor is success guaranteed. Gumin again: "The problem of determining whether a certain
+bitmap allows other nontrivial bitmaps satisfying condition (C1) is NP-hard, so it's
+impossible to create a fast solution that always finishes." When propagation empties a
+cell's domain, base WFC simply gives up. Karth & Smith find that *shallow* backtracking
+does little to resolve conflicts — the folklore that "just add backtracking and it's
+fine" is folklore.
+
+**WFC with global constraints.** Newgas's DeBroglie adds non-local constraints, including
+`ConnectedConstraint` (a path exists between designated tiles), `LoopConstraint` (**at
+least two independent paths**) and `AcyclicConstraint`
+([DeBroglie path constraints](https://boristhebrave.github.io/DeBroglie/articles/path_constraints.html);
+[*Tessera: A Practical System for Extended WaveFunctionCollapse*](https://www.boristhebrave.com/permanent/21/08/Tessera_A_Practical_System_for_WFC.pdf)).
+These are real and useful, but the docs are candid: path constraints "are generally more
+performance heavy than other constraints, and usually require backtracking to get good
+results." That puts constrained WFC in class **(A\*)**: correct if it returns, no bound on
+returning. And `LoopConstraint` tops out at 2 independent paths — our I1 wants 3.
+
+**Verdict for us.**
+
+| Variant | Guarantee | Class |
+|---|---|---|
+| Simple tiled WFC | tile-adjacency legality | **(A)** for adjacency — which is a *local* property and not one of our invariants |
+| Overlapping WFC | C1 local pattern containment | **(B)** for anything we care about |
+| Model synthesis | same + a contradiction-avoidance search that materially reduces failures | **(B)**, with better failure behaviour than WFC |
+| WFC + DeBroglie path constraints | connectivity / 2 independent paths | **(A\*)**, and short of I1's `k=3` |
+
+**And the grid mismatch is fatal on its own.** Our obstacles are continuous `ArenaShape`s
+(`sim_types.nim:731`) on a ~3000×1600 px board; agents are 13 px solid; `MinCorridorWidth`
+is 26 px today and the plan argues for 68 (`map_rules.nim:338`). To run WFC you must pick
+a tile pitch. Pick it small (26 px) and you get a 115×61 grid where every tile is a
+featureless blob and the "patterns" carry no architecture; pick it large (128 px) and the
+tile *is* the design — you're really authoring a hand-made tile set and WFC is just
+shuffling your own pieces, which is a legitimate authoring tool but not a generator with
+guarantees. Merrell's own answer to the continuity problem is *Continuous Model Synthesis*
+(Merrell & Manocha, [PDF](https://paulmerrell.org/continuous.pdf)), which works on plane
+arrangements rather than a voxel grid — closer to our world model, and worth knowing
+about, but it is a *modelling* technique for architectural geometry, not a playability
+technique. **Recommendation: do not build the CTF generator on WFC.** It is the right tool
+for skinning and for art-tile variety (class C for our invariants), and the wrong tool for
+"always good."
+
+### 4.2 Constraint solving: ASP, SAT, SMT, CSP — **(A\*)**, and the cost is the whole story
+
+**Answer Set Programming.** Smith & Mateas, *Answer Set Programming for Procedural Content
+Generation: A Design Space Approach* (IEEE TCIAIG, 2011,
+[PDF](https://adamsmith.as/papers/tciaig-asp4pcg.pdf);
+[researchr record](https://researchr.org/publication/SmithM11-3)) is the canonical
+reference. The idea is the *generate / define / test* idiom: choice rules non-
+deterministically lay down candidate content, definitions derive properties, and integrity
+constraints forbid anything that violates them. The solver then enumerates **all and only**
+the artifacts satisfying the specification. This is genuinely the family that can state
+our I1 directly — a reachability-with-forbidden-vertices predicate plus
+`:- not routes(B1,B2,3).` — and get either a map or `UNSAT`. Nothing else in this survey
+can do that.
+
+Follow-on work applies it to mazes and dungeons specifically
+([Smith, *A Logical Approach to Building Dungeons*, AISB 2014](https://doc.gold.ac.uk/aisb50/AISB50-S02/AISB50-S2-Smith-paper.pdf);
+[*ASP with Applications to Mazes and Levels*](https://link.springer.com/chapter/10.1007/978-3-319-42716-4_8);
+[Graph-based action-adventure dungeon levels via ASP](https://www.researchgate.net/publication/327635798)).
+
+**SAT / SMT.** Same power, different packaging. Nelson & Smith's constraint-based
+generators produce a level *and a reference solution* simultaneously, so completability is
+witnessed rather than asserted; Cooper's **Sturgeon** family generalises this — a mid-level
+API over Boolean variables lowered into SAT, SMT, or ASP backends, generating a level
+together with an example playthrough
+([Sturgeon-MKIII](https://www.researchgate.net/publication/369968681)). For *continuous*
+placement — which is our situation — the important pointer is
+[*Spatial Layout of Procedural Dungeons Using Linear Constraints and SMT Solvers* (FDG
+2020)](https://dl.acm.org/doi/10.1145/3402942.3409603): rooms as real-valued rectangles,
+non-overlap and adjacency as linear arithmetic, solved by Z3. That is the one paper in
+this survey whose problem shape most nearly matches ours.
+
+**What they guarantee.** (A\*) — every returned model satisfies every stated constraint,
+exactly. `UNSAT` means no map in the declared space satisfies them, which is itself
+valuable information (it tells you your invariant band is empty for that board size, which
+is exactly the failure mode behind our 3/6-team aspect-ratio problem).
+
+**Cost, realistically.** This is where the family fails as a *runtime* generator:
+
+- **Grounding, not solving, is the wall.** clingo grounds rules into propositional form
+  before solving. A transitive-closure `reach/2` over a 115×61 = 7 015-cell board grounds
+  to ~`n²` = 49 M instances *per source*, and I1 needs it per base pair under vertex
+  deletion. The literature says exactly this: clingo "does not scale well, reaching memory
+  limits while grounding at higher scaling factors," and "grounding time can be
+  unacceptably large as problem size increases despite negligible solving time"
+  ([Pushing the Limits of Clingo's Incremental Grounding](https://www.mdpi.com/1999-4893/16/3/169);
+  [*Diminution: On Reducing the Size of Grounding ASP Programs*](https://arxiv.org/pdf/2508.08633)).
+- The optimistic in-game numbers in the literature — "the time required for PCG is
+  negligible and usually below a second"
+  ([An Application of ASP for PCG in Video Games, CEUR](https://ceur-ws.org/Vol-3204/paper_14.pdf))
+  — are for *small* levels (tens to low hundreds of cells), not 7 000 cells with a
+  vertex-connectivity constraint.
+- SMT over continuous coordinates is better behaved on *our* variable count (dozens of
+  shapes, not thousands of cells) but pairwise non-overlap is `O(n²)` disjunctions and Z3
+  on ~50–100 rectangles with adjacency is comfortably in the 0.1–10 s range, not 10–30 ms.
+
+**Therefore: solvers are an OFFLINE tool for us.** Two roles where they pay for
+themselves immediately, at zero runtime cost:
+
+1. **Catalogue construction.** Use clingo/Z3 to enumerate a few hundred *skeletons*
+   (topology + corridor routing on a coarse lattice, §7) that provably satisfy I1, I3,
+   I5 and I6. Ship the catalogue as data. The runtime picks one and decorates the fill
+   region constructively. This converts an (A\*) with unbounded cost into an (A) with
+   zero cost, and it is the standard move.
+2. **Verification oracle.** Encode the invariants once in ASP and use it in CI as an
+   independent check on the constructive generator. Two implementations that must agree
+   is the cheapest real assurance available; it catches "the constructor and the metric
+   disagree about what 3 routes means," which is exactly the class of bug that ships.
+
+One more genuinely useful pointer from this family:
+[*You-Only-Randomize-Once: Shaping Statistical Properties in Constraint-based
+PCG*](https://arxiv.org/pdf/2409.00837) — solver-based generation naturally produces
+*some* answer, not a *representative* one, and this is a real technique for getting
+distributional control back. Relevant because our best-of-K ranker assumes candidates of
+one seed are comparable samples.
+
+### 4.3 Graph and shape grammars — **(A) for topology, (B) for geometry**
+
+**Dormans's mission/space split.** The core idea — generate the *mission* (the abstract
+task/connectivity structure) as a graph via graph rewriting, then generate the *space*
+that realises it — is the right idea for us, and Dormans's **cyclic dungeon generation**
+is its sharpest form: instead of searching for a path from start to goal, the generator
+*rewrites in a cycle*, so the level provably contains a loop rather than a tree
+([Dormans/Ludomotion, *Unexplored's Secret: Cyclic Dungeon Generation*, Game
+Developer](https://www.gamedeveloper.com/design/unexplored-s-secret-cyclic-dungeon-generation-);
+[Newgas, *Dungeon Generation in Unexplored*](https://www.boristhebrave.com/2021/04/10/dungeon-generation-in-unexplored/);
+[Newgas, *Graph Rewriting for Procedural Level Generation*](https://www.boristhebrave.com/2021/04/02/graph-rewriting/)).
+
+**What a grammar guarantees:** exactly the invariants preserved by its production rules,
+and no more. That is a real and precise (A) — if every rule preserves 3-connectivity of
+the mission graph (start from a 3-connected seed graph and only apply rules that are
+connectivity-monotone, e.g. vertex splitting, edge subdivision *paired with* a
+compensating edge), then every derivation is 3-connected. **This is the mechanism our I1
+should use at the topology layer.** Concretely: 3-connected planar graphs are exactly the
+graphs of convex polytopes (Steinitz), and there is a clean generation route — start from
+a wheel `W_n` (3-connected by inspection) and apply Δ-Y / edge-addition operations known
+to preserve 3-connectivity (Tutte's wheel theorem gives the converse: every 3-connected
+graph reduces to a wheel). Harary's `H_{k,n}` gives minimal `k`-connected graphs with
+`⌈kn/2⌉` edges if you want the sparsest 3-connected skeleton
+([Menger's theorem](https://en.wikipedia.org/wiki/Menger's_theorem);
+[edge connectivity notes](https://en.wikipedia.org/wiki/Edge_connectivity)).
+
+**What a grammar does NOT guarantee:** anything geometric. The guarantee evaporates at
+embedding (Lemma 1's corollary, §3.1). Dormans's own pipeline embeds with a second
+"space grammar" and the space grammar can and does fail to realise the mission graph
+faithfully; production systems handle this by retrying. So: **(A)** for the graph,
+**(B)** for the map, unless the embedding step is itself constructive (§4.4, §7).
+
+**Shape grammars and split grammars.** Stiny & Gips's shape grammars (1972; set grammars
+1982) and Wonka et al.'s **split grammars** (*Instant Architecture*, SIGGRAPH 2003) give a
+different and genuinely useful (A): a split rule **partitions** a shape into sub-shapes,
+so a derivation is a partition of space and sub-shapes **cannot overlap, by construction**
+([Procedural Modeling of Buildings / CGA Shape lineage](https://peterwonka.net/Publications/pdfs/2008.CGA.Watson.ProceduralModelingTutorial.pdf);
+[Recompose Grammars for Procedural Architecture, SIGGRAPH 2024](https://dl.acm.org/doi/10.1145/3641519.3657400)).
+Non-overlap and exhaustive coverage are exactly the properties BSP-style room layout
+wants, and our `styleBsp` already gets them implicitly. But split grammars say nothing
+about connectivity or sightlines. **(A) for the partition, (C) for playability.**
+
+**L-systems.** Parallel rewriting for branching structures. No invariant we need is
+preserved by an L-system, and their characteristic output (trees/branches) is topologically
+*acyclic*, which is the opposite of I1. **(C)** for us — useful for decorative
+vegetation and crack/erosion detail only.
+
+### 4.4 Graph embedding and floor-plan synthesis — **the missing constructive step**
+
+If §4.3 gives us a topology with the right guarantee, this section is how to lay it into
+geometry **without losing the guarantee**. Four families:
+
+**Rectangular dualization.** Given a planar adjacency graph, produce a partition of a
+rectangle into rectangles whose adjacency graph is exactly the input. This is a hard,
+exact realisation theorem: a plane graph has a rectangular dual iff it is *rectangularly
+dualizable* (essentially: internally triangulated, no separating triangles, four corner
+vertices on the outer face), and there are **linear-time** algorithms to build it
+([*A Theory of Rectangularly Dualizable Graphs*, arXiv:2102.05304](https://arxiv.org/pdf/2102.05304);
+[*Rectangular Dualization of biconnected plane graphs in linear time*](https://cab.unime.it/journals/index.php/congress/article/download/125/125);
+[Kozminski & Kinnen, *Rectangular duals of planar graphs*](https://www.researchgate.net/publication/229650900);
+[He, *Sliceable Floorplanning by Graph Dualization*, SIAM J. Discrete Math.](https://doi.org/10.1137/S0895480191266700)).
+**Class (A) conditional on dualizability** — and dualizability is *checkable in linear
+time and constructible by design*: if you generate the topology graph in the dualizable
+family to begin with, you never fail. Linear-time realisation is comfortably inside our
+budget. This is the strongest off-the-shelf constructive embedding in the literature.
+
+Caveat: rectangular duals give **rooms sharing walls**, which encodes adjacency as *shared
+boundary*, not as *a corridor of width ≥ 68 px*. Converting shared boundary to a doorway
+of controlled width is an extra step, and it is where the disjointness certificate has to
+be re-established (two doorways on the same wall segment can be one routing cell apart).
+Doable — punch doorways at the wall midpoint with the lattice pitch as the separation
+guarantee — but it is not free.
+
+**Orthogonal graph drawing.** Draws a graph with edges as rectilinear polylines, and the
+literature gives exact bounds on bends, edge separation and area. Class **(A)** for
+planarity and separation — which is precisely the certificate Lemma 1 needs. If corridors
+are drawn as orthogonal polylines with a guaranteed minimum separation, corridor
+disjointness in pixels follows from disjointness in the drawing. This is the most direct
+route from "3-connected graph" to "3 vertex-disjoint pixel corridors."
+
+**Treemaps / squarified layouts.** Partition a rectangle into sub-rectangles with
+prescribed *areas*. Class **(A) for area targets** (each cell gets exactly its share) and
+**(C) for topology** (adjacency is whatever falls out). Directly useful for **I2**: give
+the stand-side 200 px disc an area budget and squarify the cover pieces into it. Not
+useful for I1.
+
+**Optimisation-based level layout.** Ma, Vining, Lefebvre & Sheffer, *Game Level Layout
+from Design Specification* (CGF 2014,
+[preprint PDF](http://www.chongyangma.com/publications/gl/2014_gl_preprint.pdf);
+[HAL record](https://inria.hal.science/hal-00927311)) takes a user connectivity graph plus
+building blocks and lays them out, "in seconds," producing diverse layouts for the same
+connectivity. Excellent prior art and the closest published thing to what we want — but it
+is a **deformation/optimisation** method: it *tries* to satisfy the specification and
+measures how well it did. **Class (B).** Worth reading for its block-deformation
+machinery; do not rely on it for a guarantee.
