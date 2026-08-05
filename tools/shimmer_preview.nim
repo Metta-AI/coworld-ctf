@@ -11,7 +11,7 @@
 ##
 ##   nim c -d:release -r tools/shimmer_preview.nim /tmp/shimmer/strip.png
 import
-  std/[os, strutils, tables],
+  std/[os, strutils],
   pixie,
   ../src/ctf/[global, shimmer, sim],
   toolutil
@@ -37,10 +37,9 @@ proc main() =
     discard sim.addPlayer(
       (if i mod 2 == 0: "metalpolicy" else: "stockpolicy") & "_(" & $i & ")")
   sim.startGame()
-  var shimmerMap: Table[Team, string]
-  for team in Team:
-    shimmerMap[team] = "metalpolicy"
-  setTeamShimmerPolicies(shimmerMap)
+  # One policy league-wide, seated on every team here so the strip shows the
+  # sheen against a stock control on each team's own color.
+  setShimmerPolicy("metalpolicy")
 
   let
     scale = boardRenderScaleFor(sim.gameMap.width, sim.gameMap.height)

@@ -120,11 +120,13 @@ const
                                ## (700..703 are the carried flag banners).
   FlagAuraObjectBase = 19200   ## carrier-glow object pool (one per carried flag).
   FlagAuraSize = 26            ## px diameter of the carrier halo.
-  ## Metallic paint (broadcast/spectator only): the cogs of ONE flagged policy
-  ## per team wear a clearcoat sheen — a lit dome plus a specular band gliding
-  ## across the shell — so a spectator can tell WHOSE agents those are inside a
-  ## team that is all one color (see src/ctf/shimmer.nim, docs/COLOR_CONTRACT.md
-  ## §5). It is a separate OVERLAY object, not a re-bake of the cog:
+  ## Metallic paint (broadcast/spectator only): the cogs of the ONE policy
+  ## flagged league-wide — the #1-ranked competitor, if it is even in this
+  ## episode — wear a clearcoat sheen, a lit dome plus a specular band gliding
+  ## across the shell, so a spectator knows on sight that the top of the ladder
+  ## is on the board (see src/ctf/shimmer.nim, docs/COLOR_CONTRACT.md §5). Most
+  ## episodes show none. It is a separate OVERLAY object, not a re-bake of the
+  ## cog:
   ##
   ## - the cog is nine rig segments whose sprite pools already run to ~1700 keys
   ##   per team (RigLegSpriteBase), so baking a sheen INTO the art would
@@ -6878,17 +6880,17 @@ proc addCogRigObjects(
   packet.addBoardObject(
     weaponObjectId, rigX, rigY, player.y + 1, MapLayerId, weaponSpriteId)
 
-  # METALLIC PAINT, per AGENT: only the seats whose stripped policy name is this
-  # team's shimmer policy. The gate is per-player and not per-team on purpose —
-  # a mixed team (CTF-Doubles) is exactly the case the channel exists for, so
-  # teammates of a different policy must render stock right next to a metal one.
+  # METALLIC PAINT, per AGENT: only the seats whose stripped policy name is the
+  # one league-wide shimmer policy. The gate is per-player and team-independent
+  # on purpose — teammates of a different policy render stock right next to a
+  # metal one, and if the flagged policy holds seats on two teams, both shimmer.
   #
   # Drawn ABOVE every segment INCLUDING the held weapon (z = y+2): a specular
   # reflection lives on the outermost surface light reaches, so a sheen that
   # slid under the gun would read as an underglow. The alpha is low and dips
   # over the middle of the shell (see buildShimmerSprite) so the face — which is
   # the cog's aim indicator — still reads through it.
-  if playerShimmers(player.team, player.address):
+  if playerShimmers(player.address):
     let
       frame = shimmerFrame(sim.tickCount, base)
       shimmerSpriteId = ShimmerSpriteBase + frame

@@ -1,18 +1,23 @@
 import
   helpers,
-  std/[sets, strutils, tables, unittest],
+  std/[sets, strutils, unittest],
   bitworld/spriteprotocol,
-  ctf/[global, shimmer, sim]
+  ctf/[global, shimmer, sim, team_colors]
 
-# Metallic-paint shimmer: the PER-AGENT overlay that marks one policy's cogs
-# inside an otherwise uniformly colored team (src/ctf/shimmer.nim,
+# Metallic-paint shimmer: the PER-AGENT overlay that marks the ONE league #1's
+# cogs — at most one policy in the whole lobby, usually none (src/ctf/shimmer.nim,
 # docs/COLOR_CONTRACT.md §5).
 #
-# The thing worth testing here is not that a sprite draws — it is the GATE. The
-# feature's whole reason to exist is that two seats on the SAME team, in the
-# same frame, must disagree: one wears the sheen and one does not. A test that
-# only checked "shimmer on ⇒ something renders" would pass just as happily on a
-# per-TEAM implementation, which is the bug this channel exists to avoid.
+# The thing worth testing here is not that a sprite draws — it is the GATE, and
+# the gate has two halves that pull in opposite directions:
+#
+#  - It is per AGENT, not per team: two seats on the SAME team, in the same
+#    frame, must disagree. A test that only checked "shimmer on ⇒ something
+#    renders" would pass just as happily on a per-team implementation.
+#  - It is SINGULAR and team-INDEPENDENT: one policy lobby-wide, shimmering on
+#    every team it holds a seat on. The failure this file exists to catch is the
+#    old per-team schema coming back — a stale payload lighting up four policies
+#    at once, which turns the rarest mark on the board into wallpaper.
 #
 # So every check below is a control as much as an assertion: the seats that must
 # NOT shimmer are named explicitly, and the off-by-default case is asserted
@@ -84,11 +89,14 @@ proc shimmersOnSeat(
   false
 
 proc mixedTeamGame(): SimServer =
-  ## Six seats, two teams, TWO policies per team — the CTF-Doubles shape the
-  ## shimmer channel is for. Seats deal round the teams in enum order
+  ## Six seats, two teams, mixed policies — the CTF-Doubles shape the shimmer
+  ## channel renders into. Seats deal round the teams in enum order
   ## (roster.teamForSlot), so evens are Red and odds are Blue:
   ##   Red:  0 picasso, 2 picasso, 4 focusfire
-  ##   Blue: 1 jordan,  3 baseline, 5 baseline
+  ##   Blue: 1 jordan,  3 baseline, 5 picasso
+  ## `picasso` deliberately straddles BOTH teams: the flag is a league standing,
+  ## not a team property, and the platform seats one policy wherever it likes.
+  ## `focusfire` sits alone on Red as the one-seat control.
   ## Names carry the hosted per-connection seat suffix, so the stripping is
   ## exercised on the real path rather than in isolation.
   var config = defaultGameConfig()
@@ -96,7 +104,7 @@ proc mixedTeamGame(): SimServer =
   result = initCtfForTest(config)
   for (i, name) in [(0, "picasso_(0)"), (1, "jordan (1)"), (2, "picasso_(2)"),
                     (3, "baseline_(3)"), (4, "focusfire_(4)"),
-                    (5, "baseline_(5)")]:
+                    (5, "picasso_(5)")]:
     discard result.addPlayer(name)
   result.startGame()
   # Spread them out so a positional hit can only belong to one seat.
@@ -111,48 +119,103 @@ proc mixedTeamGame(): SimServer =
 
 suite "metal shimmer":
   setup:
-    setTeamShimmerPolicies(initTable[Team, string]())
+    setShimmerPolicy("")
+    resetTeamDisplayColorsForTests()
 
   teardown:
-    setTeamShimmerPolicies(initTable[Team, string]())
+    setShimmerPolicy("")
+    resetTeamDisplayColorsForTests()
 
   test "no shimmer policy means no shimmer sprite anywhere":
     # The off case is the one that has to be airtight: every stock episode, and
-    # every episode whose payload carried no `shimmer` field, renders through
-    # this path. If the default leaked, every league replay would change.
+    # every episode whose payload carried no `shimmer` field — which is MOST of
+    # them, since the #1 is in only a slice of the league's matches — renders
+    # through this path. If the default leaked, every league replay would change.
     var game = mixedTeamGame()
     let messages = game.fullFrame()
     check messages.shimmerSpriteIds().len == 0
     check messages.shimmerCentres().len == 0
     check not anyShimmer()
 
-  test "only the flagged policy's seats shimmer, on the flagged team only":
+  test "only the flagged policy's seats shimmer, teammates render stock":
     var game = mixedTeamGame()
-    setTeamShimmerPolicies({Red: "picasso"}.toTable)
+    setShimmerPolicy("focusfire")
     let frame = game.fullFrame()
-    # Red picasso: yes. Red focusfire: no — same team, same frame, and this
-    # single line is what separates a per-AGENT flag from a per-TEAM one.
-    check game.shimmersOnSeat(frame, 0)
-    check game.shimmersOnSeat(frame, 2)
-    check not game.shimmersOnSeat(frame, 4)
-    # Blue has no shimmer policy at all, so no Blue seat may shimmer — not even
-    # one whose policy name happens to be flagged on the other team.
+    # focusfire holds exactly one seat in this episode, so exactly one cog in
+    # the whole frame wears the sheen. Seats 0 and 2 are its own TEAMMATES and
+    # must render stock — the single pair of lines that separates a per-AGENT
+    # flag from a per-team one.
+    check game.shimmersOnSeat(frame, 4)
+    check not game.shimmersOnSeat(frame, 0)
+    check not game.shimmersOnSeat(frame, 2)
     check not game.shimmersOnSeat(frame, 1)
     check not game.shimmersOnSeat(frame, 3)
     check not game.shimmersOnSeat(frame, 5)
-    # Exactly two overlays in the frame, so nothing is being drawn off-cog.
-    check frame.shimmerCentres().len == 2
+    # Exactly one overlay in the frame, so nothing is being drawn off-cog.
+    check frame.shimmerCentres().len == 1
 
-  test "both teams can carry their own shimmer policy at once":
+  test "one policy seated on two teams shimmers on BOTH":
+    # The flag is a league standing, not a team property. picasso holds seats 0
+    # and 2 on Red and seat 5 on Blue; all three are the #1's agents, so all
+    # three wear the sheen while their respective teammates do not.
     var game = mixedTeamGame()
-    setTeamShimmerPolicies({Red: "focusfire", Blue: "baseline"}.toTable)
+    setShimmerPolicy("picasso")
     let frame = game.fullFrame()
-    check game.shimmersOnSeat(frame, 4)      # Red focusfire
-    check game.shimmersOnSeat(frame, 3)      # Blue baseline
-    check game.shimmersOnSeat(frame, 5)      # Blue baseline
-    check not game.shimmersOnSeat(frame, 0)  # Red picasso is not flagged now
-    check not game.shimmersOnSeat(frame, 1)  # Blue jordan is not flagged
+    check game.shimmersOnSeat(frame, 0)      # Red picasso
+    check game.shimmersOnSeat(frame, 2)      # Red picasso
+    check game.shimmersOnSeat(frame, 5)      # Blue picasso — the cross-team half
+    check not game.shimmersOnSeat(frame, 4)  # Red focusfire
+    check not game.shimmersOnSeat(frame, 1)  # Blue jordan
+    check not game.shimmersOnSeat(frame, 3)  # Blue baseline
     check frame.shimmerCentres().len == 3
+
+  test "a flagged policy that is not in this episode shimmers nobody":
+    # The NORMAL case for a real payload: the league #1 is not in most matches,
+    # so the viewer is handed a name no seat answers to. That must render a
+    # stock board in silence — not raise, not fall back to marking somebody.
+    var game = mixedTeamGame()
+    setShimmerPolicy("ctf-nemesis:v9")
+    let frame = game.fullFrame()
+    check anyShimmer()                       # a policy IS flagged...
+    check shimmerPolicy() == "ctf-nemesis:v9"
+    check frame.shimmerSpriteIds().len == 0  # ...and nothing draws.
+    check frame.shimmerCentres().len == 0
+    for seat in 0 ..< 6:
+      check not game.shimmersOnSeat(frame, seat)
+
+  test "a root-level payload shimmer installs the one flagged policy":
+    # The seam the platform actually drives, end to end: raw payload JSON in,
+    # sheen on the right cogs out.
+    # No `teams` key at all: a shimmer-only payload is legal (§5), so the root
+    # field has to be read BEFORE the color half's gate, not after it.
+    setTeamDisplayColors("""{"v":1,"shimmer":"picasso"}""")
+    installPayloadShimmer()
+    check payloadShimmerPolicy() == "picasso"
+    check shimmerPolicy() == "picasso"
+    var game = mixedTeamGame()
+    let frame = game.fullFrame()
+    check frame.shimmerCentres().len == 3    # seats 0, 2 (Red) and 5 (Blue)
+
+  test "a STALE per-team shimmer payload shimmers nobody":
+    # The regression this change exists to prevent. `shimmer` used to live
+    # inside each `teams` entry; an old platform build still sending that shape
+    # must mark NOBODY, because honoring it would light up one policy per team —
+    # up to four in a 4-team match, which is the opposite of a singular mark.
+    # Note this payload names two policies that ARE in the episode, so a parser
+    # that still read the per-team key would light up five of the six seats.
+    setTeamDisplayColors(
+      """{"v":1,"teams":{"red":{"shimmer":"picasso"},""" &
+      """"blue":{"shimmer":"baseline"}}}""")
+    installPayloadShimmer()
+    check payloadShimmerPolicy() == ""
+    check shimmerPolicy() == ""
+    check not anyShimmer()
+    var game = mixedTeamGame()
+    let frame = game.fullFrame()
+    check frame.shimmerSpriteIds().len == 0
+    check frame.shimmerCentres().len == 0
+    for seat in 0 ..< 6:
+      check not game.shimmersOnSeat(frame, seat)
 
   test "the hosted seat suffix is stripped on both spellings":
     # "jordan (1)" keeps a space in config but the join path underscores it
@@ -164,11 +227,13 @@ suite "metal shimmer":
     check policyName("ctf-focusfire:v62_(4)") == "ctf-focusfire:v62"
     check policyName("Player1") == "Player1"
     var game = mixedTeamGame()
-    setTeamShimmerPolicies({Blue: "jordan"}.toTable)
+    setShimmerPolicy("jordan")
     check game.shimmersOnSeat(game.fullFrame(), 1)
-    # And the platform sending an already-stripped name is the documented case,
-    # while sending a suffixed one still resolves — the viewer strips too.
-    setTeamShimmerPolicies({Blue: policyName("jordan_(9)")}.toTable)
+    # The platform sending an already-stripped name is the documented case, but
+    # a suffixed one still resolves: the seam strips whatever it is handed, so
+    # one half forgetting cannot silently un-mark the #1.
+    setShimmerPolicy("jordan_(9)")
+    check shimmerPolicy() == "jordan"
     check game.shimmersOnSeat(game.fullFrame(), 1)
 
   test "the sweep advances with the tick and differs by seat":
@@ -177,14 +242,15 @@ suite "metal shimmer":
     # policy must be out of phase (ShimmerSeatStride), or a squad glints in
     # unison and reads as a UI blink instead of light.
     var game = mixedTeamGame()
-    setTeamShimmerPolicies({Red: "picasso"}.toTable)
+    setShimmerPolicy("picasso")
     let atStart = game.fullFrame().shimmerSpriteIds()
-    check atStart.len == 2          # seats 0 and 2, two DIFFERENT sweep frames
+    check atStart.len == 3          # seats 0, 2, 5 — three DIFFERENT sweep frames
     check atStart[0] != atStart[1]
-    # Far enough ahead that the frame index must have moved for both seats.
+    check atStart[1] != atStart[2]
+    # Far enough ahead that the frame index must have moved for every seat.
     game.tickCount += 40
     let later = game.fullFrame().shimmerSpriteIds()
-    check later.len == 2
+    check later.len == 3
     check later.toHashSet() != atStart.toHashSet()
     # Both seats stepped by the same amount, so the phase GAP is preserved:
     # they never converge onto one frame and start glinting in unison.
@@ -192,7 +258,7 @@ suite "metal shimmer":
 
   test "a dead seat wears no sheen":
     var game = mixedTeamGame()
-    setTeamShimmerPolicies({Red: "picasso"}.toTable)
+    setShimmerPolicy("picasso")
     check game.shimmersOnSeat(game.fullFrame(), 0)
     game.players[0].alive = false
     let frame = game.fullFrame()
@@ -204,8 +270,8 @@ suite "metal shimmer":
     # change a replay. Same seed, same inputs, one run with the sheen on and one
     # with it off — the recorded hash has to agree tick for tick, or a replay
     # recorded on a shimmering viewer would fail its own mismatch check.
-    proc runHashes(policies: Table[Team, string]): seq[uint64] =
-      setTeamShimmerPolicies(policies)
+    proc runHashes(policy: string): seq[uint64] =
+      setShimmerPolicy(policy)
       var game = mixedTeamGame()
       let none = newSeq[InputState](game.players.len)
       for _ in 0 ..< 12:
@@ -213,20 +279,22 @@ suite "metal shimmer":
         game.step(none, none)
         result.add game.gameHash()
     let
-      off = runHashes(initTable[Team, string]())
-      on = runHashes({Red: "picasso", Blue: "baseline"}.toTable)
+      off = runHashes("")
+      on = runHashes("picasso")                   # three shimmering seats
     check off.len == 12
     check on == off
 
-  test "the dev env stub parses wire team words, not display slugs":
-    # CTF_SHIMMER is scaffolding, but its vocabulary still matters: the payload
-    # keys teams by WIRE word (docs/COLOR_CONTRACT.md §5), and a stub that
-    # accepted display slugs would teach the wrong shape to whoever reads it.
-    let spec = parseShimmerSpec("red:picasso, blue:jordan_(3);green: focusfire")
-    check spec[Red] == "picasso"
-    check spec[Blue] == "jordan"          # suffix stripped on the way in
-    check spec[Green] == "focusfire"
-    check Yellow notin spec
-    # Junk is skipped, never raised on — a typo must not take a server down.
-    let junk = parseShimmerSpec("nonsense,,red:,:orphan,vermillion:picasso")
-    check junk.len == 0
+  test "the dev env stub takes a plain policy name":
+    # CTF_SHIMMER is scaffolding, but its shape still teaches the schema: one
+    # policy for the whole lobby (docs/COLOR_CONTRACT.md §5), so the stub takes
+    # `CTF_SHIMMER=picasso` and not the `red:x,blue:y` pairs the per-team schema
+    # used to need.
+    check parseShimmerSpec("picasso") == "picasso"
+    check parseShimmerSpec("  picasso  ") == "picasso"
+    check parseShimmerSpec("jordan_(3)") == "jordan"   # suffix stripped
+    # A colon is now part of the NAME — hosted policy names genuinely contain
+    # one, and the old parser would have eaten `ctf-focusfire` as a team word.
+    check parseShimmerSpec("ctf-focusfire:v62") == "ctf-focusfire:v62"
+    # Nothing to fail at: blank means nobody, exactly like an absent value.
+    check parseShimmerSpec("") == ""
+    check parseShimmerSpec("   ") == ""

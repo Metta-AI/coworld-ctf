@@ -56,7 +56,10 @@
 // throws and never blanks the page.
 window.CtfTeamColors = (function () {
   var WIRE = ['red', 'blue', 'green', 'yellow'];
-  var tint = {}, shim = {}, moved = {}, slugOf = {};
+  var tint = {}, moved = {}, slugOf = {};
+  // At most ONE shimmering policy per lobby (the league #1), so this is a single
+  // policy name and not a per-team map. Null = nobody, the usual case.
+  var shim = null;
 
   function paletteColors() {
     return (window.CTF_PALETTE && window.CTF_PALETTE.colors) || [];
@@ -99,19 +102,24 @@ window.CtfTeamColors = (function () {
   try { raw = new URLSearchParams(location.search).get('colors'); } catch (e) {}
 
   WIRE.forEach(function (t) {
-    tint[t] = stockHex(t); shim[t] = null; moved[t] = false; slugOf[t] = t;
+    tint[t] = stockHex(t); moved[t] = false; slugOf[t] = t;
   });
 
   var changed = false;
   var payload = decodePayload(raw);
   var wantV = (window.CTF_PALETTE && window.CTF_PALETTE.payloadV) || 1;
-  if (payload && payload.v === wantV && payload.teams &&
-      typeof payload.teams === 'object') {
+  var versioned = !!payload && payload.v === wantV;
+  // shimmer is a separate feature, parsed and exposed here but never a color:
+  // one ROOT-level policy name marking the league #1. A stale payload carrying
+  // per-team `shimmer` keys is ignored outright — reading those would light up
+  // one policy per team, which is the opposite of a singular mark.
+  if (versioned && typeof payload.shimmer === 'string' && payload.shimmer) {
+    shim = payload.shimmer;
+  }
+  if (versioned && payload.teams && typeof payload.teams === 'object') {
     WIRE.forEach(function (team) {
       var entry = payload.teams[team];
       if (!entry || typeof entry !== 'object') return;
-      // shimmer is a separate feature: parsed and exposed here, never a color.
-      if (typeof entry.shimmer === 'string') shim[team] = entry.shimmer;
       if (typeof entry.slug !== 'string') return;
       var hex = hexForSlug(entry.slug);
       if (!hex) return;                  // unknown slug (skew) => keep stock
@@ -219,7 +227,7 @@ window.CtfTeamColors = (function () {
     teams: WIRE,
     hex: function (team) { return tint[team] || null; },
     slug: function (team) { return slugOf[team] || team; },
-    shimmer: function (team) { return shim[team] || null; },
+    shimmer: function () { return shim || null; },
     isRecolored: function (team) { return !!moved[team]; },
     artPlan: artPlan,
     retintImage: retintImage

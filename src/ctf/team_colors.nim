@@ -115,16 +115,16 @@ proc teamForWire*(wire: string): int =
 var
   displaySlug: array[Team, string]
   displayColor: array[Team, ColorRGBA]
-  displayShimmer: array[Team, string]
+  displayShimmer: string
   displayRecolored: array[Team, bool]
   anyRecolor = false
   mappingInstalled = false
 
 proc initTeamDisplayDefaults() =
+  displayShimmer = ""
   for team in Team:
     displaySlug[team] = teamText(team)
     displayColor[team] = stockTeamDisplayColor(team)
-    displayShimmer[team] = ""
     displayRecolored[team] = false
 
 initTeamDisplayDefaults()
@@ -146,12 +146,14 @@ proc anyTeamDisplayRecolored*(): bool =
   ## exact pre-existing behaviour.
   anyRecolor
 
-proc payloadShimmerPolicy*(team: Team): string =
-  ## The policy identity (seat-suffix already stripped by the platform, §5)
-  ## whose agents wear the metallic shimmer on this team, or "" for none.
-  ## Parsed and preserved here; the RENDER lives in shimmer.nim, whose own
-  ## `teamShimmerPolicy` answers for the renderer — hence the distinct name.
-  displayShimmer[team]
+proc payloadShimmerPolicy*(): string =
+  ## The ONE policy identity (seat-suffix already stripped by the platform, §5)
+  ## the payload flagged as the league/lobby #1, or "" — the usual case — when
+  ## it named nobody. Team-independent by construction: `shimmer` is a root key,
+  ## so there is no team to ask about. Parsed and preserved here; the RENDER
+  ## lives in shimmer.nim, whose own `shimmerPolicy` answers for the renderer —
+  ## hence the distinct name.
+  displayShimmer
 
 proc teamColorsInstalled*(): bool =
   ## True once a `?colors=` payload has been accepted (or rejected) for this
@@ -241,6 +243,15 @@ proc setTeamDisplayColors*(raw: string): bool {.discardable.} =
   if not payload.hasKey("v") or payload["v"].kind != JInt or
       payload["v"].getInt != ColorPayloadVersion:
     return false
+  # ROOT-level `shimmer`: at most ONE policy in the whole lobby renders as metal
+  # (the league #1), so it is read here and never from inside `teams`. A payload
+  # from an older platform build still carrying per-team `shimmer` keys must
+  # shimmer NOBODY rather than up to four policies at once — the per-team key is
+  # not read anywhere below, which is what makes that true.
+  if payload.hasKey("shimmer") and payload["shimmer"].kind == JString:
+    displayShimmer = payload["shimmer"].getStr
+  # Read before the `teams` gate: a shimmer-only payload (no recolors at all) is
+  # legal, and the whole point of the channel is that it is orthogonal to color.
   if not payload.hasKey("teams") or payload["teams"].kind != JObject:
     return false
   for wire, value in payload["teams"].pairs:
@@ -248,10 +259,8 @@ proc setTeamDisplayColors*(raw: string): bool {.discardable.} =
     if teamOrd < 0 or value.kind != JObject:
       continue                       # unknown wire word => nothing to recolor.
     let team = Team(teamOrd)
-    if value.hasKey("shimmer") and value["shimmer"].kind == JString:
-      displayShimmer[team] = value["shimmer"].getStr
     if not value.hasKey("slug") or value["slug"].kind != JString:
-      continue                       # shimmer without a slug is legal.
+      continue                       # an entry with no slug keeps stock.
     let
       slug = value["slug"].getStr
       index = paletteIndexOfSlug(slug)

@@ -1,6 +1,6 @@
 import
   helpers,
-  std/[algorithm, os, sequtils, sets, strutils, tables, unittest],
+  std/[algorithm, os, sequtils, sets, strutils, unittest],
   bitworld/spriteprotocol,
   ctf/[global, labels, shimmer, sim]
 
@@ -260,17 +260,17 @@ proc collectLabels(sim: var SimServer): HashSet[string] =
   let none = newSeq[InputState](sim.players.len)
 
   # METALLIC SHIMMER (`metal shimmer stage <n>`, board stream only). It renders
-  # only for seats whose policy is their team's shimmer policy, and the registry
+  # only for the seats of the one league-wide shimmer policy, and the registry
   # is empty by default — so without this the family would never enter the
   # vocabulary, and a rename of it would diff clean forever. Flag seat 0's
-  # policy on Red; seats 2 and 4 share that team and do NOT match, so the sweep
-  # covers the negative side of the gate too.
+  # policy; the seats of every other policy do NOT match, so the sweep covers
+  # the negative side of the gate too.
   #
   # Saved and restored rather than just set: the registry is process state, and
   # this binary runs other suites after the sweep.
-  let priorShimmer = teamShimmerPolicies()
-  setTeamShimmerPolicies({Red: policyName(sim.players[0].address)}.toTable)
-  defer: setTeamShimmerPolicies(priorShimmer)
+  let priorShimmer = shimmerPolicy()
+  setShimmerPolicy(policyName(sim.players[0].address))
+  defer: setShimmerPolicy(priorShimmer)
 
   proc keepPlaying(sim: var SimServer) =
     ## Undo any round-ending side effect the teleporting sweep caused. Seat 3 is

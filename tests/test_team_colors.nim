@@ -100,24 +100,56 @@ suite "team display colors":
 
   test "the contract's own example payload decodes as documented":
     # Copied verbatim from docs/COLOR_CONTRACT.md §5 — if the doc and the
-    # parser ever disagree, this is where it shows.
-    const Example =
-      "eyJ2IjoxLCJwYWxldHRlIjoxLCJ0ZWFtcyI6eyJyZWQiOnsic2x1ZyI6Im9yYW5nZSIs" &
-      "InNoaW1tZXIiOiJwaWNhc3NvIn0sImJsdWUiOnsic2x1ZyI6InRlYWwifSwiZ3JlZW4i" &
-      "Onsic2x1ZyI6ImdyZWVuIiwic2hpbW1lciI6ImZvY3VzZmlyZSJ9LCJ5ZWxsb3ciOnsi" &
-      "c2x1ZyI6Im1hZ2VudGEifX19"
+    # parser ever disagree, this is where it shows. The base64 is asserted to
+    # decode to the doc's minified JSON byte for byte before it is installed,
+    # so a doc example that was edited without re-encoding fails here rather
+    # than quietly documenting a string nobody can use.
+    const
+      Example =
+        "eyJ2IjoxLCJwYWxldHRlIjoxLCJzaGltbWVyIjoicGljYXNzbyIsInRlYW1zIjp7In" &
+        "JlZCI6eyJzbHVnIjoib3JhbmdlIn0sImJsdWUiOnsic2x1ZyI6InRlYWwifX19"
+      ExampleJson =
+        """{"v":1,"palette":1,"shimmer":"picasso",""" &
+        """"teams":{"red":{"slug":"orange"},"blue":{"slug":"teal"}}}"""
+    check decode(Example) == ExampleJson
+    check encodePayload(ExampleJson) == Example
     check install(Example)
     check teamDisplaySlug(Red) == "orange"
     check teamDisplaySlug(Blue) == "teal"
+    # Teams the payload does not name keep stock — any subset of the four wire
+    # words is legal.
     check teamDisplaySlug(Green) == "green"
-    check teamDisplaySlug(Yellow) == "magenta"
-    # green -> green is not a recolor, so its art stays byte-identical.
+    check teamDisplaySlug(Yellow) == "yellow"
     check not teamDisplayIsRecolored(Green)
     check teamDisplayColor(Green) == GreenEndzoneColor
-    # shimmer is a separate feature: parsed and exposed, never a color.
-    check payloadShimmerPolicy(Red) == "picasso"
-    check payloadShimmerPolicy(Green) == "focusfire"
-    check payloadShimmerPolicy(Blue) == ""
+    # shimmer is a separate, ROOT-level feature: parsed and exposed, never a
+    # color, and one string for the whole lobby rather than one per team.
+    check payloadShimmerPolicy() == "picasso"
+
+  test "a stale per-team shimmer key is ignored, not honored":
+    # `shimmer` used to live inside each `teams` entry. An old platform build
+    # still sending that shape must mark NOBODY: reading it would flag one
+    # policy per team — up to four at once — when the whole point is that at
+    # most ONE policy in the lobby (the #1) ever wears the sheen.
+    check install(encodePayload(
+      """{"v":1,"teams":{"red":{"slug":"orange","shimmer":"picasso"},""" &
+      """"blue":{"slug":"teal","shimmer":"focusfire"}}}"""))
+    check payloadShimmerPolicy() == ""
+    # The COLOR half of a stale payload is still honored — only the moved key
+    # is dropped, so an old link keeps working, just without a false mark.
+    check teamDisplaySlug(Red) == "orange"
+    check teamDisplaySlug(Blue) == "teal"
+
+  test "a shimmer-only payload needs no teams at all":
+    # The two channels are read independently (§5): no team is recolored here,
+    # so `setTeamDisplayColors` reports false, and the shimmer still lands.
+    check not install("""{"v":1,"shimmer":"picasso"}""")
+    check payloadShimmerPolicy() == "picasso"
+    for team in Team:
+      check not teamDisplayIsRecolored(team)
+    # And an unknown payload VERSION still drops everything, shimmer included.
+    check not install("""{"v":99,"shimmer":"picasso"}""")
+    check payloadShimmerPolicy() == ""
 
   test "every malformed or skewed payload falls back to stock, silently":
     for payload in [

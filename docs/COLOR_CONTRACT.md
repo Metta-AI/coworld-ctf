@@ -175,12 +175,8 @@ Schema (payload version `v: 1`):
 {
   "v": 1,
   "palette": 1,
-  "teams": {
-    "red":    { "slug": "orange", "shimmer": "picasso" },
-    "blue":   { "slug": "teal" },
-    "green":  { "slug": "green", "shimmer": "focusfire" },
-    "yellow": { "slug": "magenta" }
-  }
+  "shimmer": "picasso",
+  "teams": { "red": {"slug":"orange"}, "blue": {"slug":"teal"} }
 }
 ```
 
@@ -188,33 +184,52 @@ Schema (payload version `v: 1`):
   payload and renders stock.
 - `palette` (optional): the palette `version` the platform resolved against, so the
   viewer can log skew. Not required to apply the payload.
+- `shimmer` (optional, ROOT level) — the one policy that renders as metal: the
+  **#1-ranked competitor in the league/lobby**, and nobody else. At most ONE
+  shimmering policy exists per payload; absent or empty ⇒ nobody shimmers, which is
+  what most payloads carry. The mark is a recognition device — if you are in a match
+  with the #1 you really know it — and that only works because it is rare, so the
+  platform must never promote it to a per-team legend.
+  - **Team-independent.** It names a policy, not a seat and not a team. The flagged
+    policy usually is not in this episode at all (normal, nothing shimmers, not an
+    error); if it holds seats on two different teams, all of them shimmer.
+  - Identity is the roster `pol` string **after seat-suffix stripping** — a hosted
+    `" (N)"` / `"_(N)"` suffix is removed so all seats of one policy collapse to one
+    identity. The platform must send the stripped form; the viewer strips again and
+    compares against stripped roster names, so both halves agree either way.
+  - Rendered by `src/ctf/shimmer.nim` — an animated clearcoat sheen on the flagged
+    policy's living cogs, deterministic per tick so every viewer of a replay sees the
+    same glint. Separate from color, so team color stays uniform.
+  - **STALE PAYLOADS**: `shimmer` used to live inside each `teams` entry. A per-team
+    `shimmer` key is now ignored outright, by the engine and by the page. Honoring it
+    would light up as many as four policies in one match — the exact opposite of a
+    singular mark — so the rule is "ignore", not "fall back".
 - `teams` keys are **wire team words** (`red|blue|green|yellow`) — the words the
-  replay roster already uses. Values:
+  replay roster already uses; any subset is legal. Values:
   - `slug` — the display color for the ENTIRE team: cogs AND paint stains (paint is
     the scoreboard; a half-recolored team would corrupt the score read).
-  - `shimmer` (optional) — the policy whose agents get the metallic shimmer: the
-    dictating (highest-standing) policy owner on that team. Per-agent flag, separate
-    from color, so team color stays uniform. Identity is the roster `pol` string
-    **after seat-suffix stripping** — the engine strips a hosted `" (N)"` / `"_(N)"`
-    suffix so all seats of one policy collapse to one identity. The platform must
-    send the stripped form; the viewer compares against stripped roster names.
-    Rendered by `src/ctf/shimmer.nim` — an animated clearcoat sheen on the
-    flagged policy's living cogs, deterministic per tick so every viewer of a
-    replay sees the same glint.
 
-Concrete example — the exact JSON above, minified and encoded:
+Concrete example — the exact JSON above, minified
+(`{"v":1,"palette":1,"shimmer":"picasso","teams":{"red":{"slug":"orange"},"blue":{"slug":"teal"}}}`)
+and encoded:
 
 ```
-?colors=eyJ2IjoxLCJwYWxldHRlIjoxLCJ0ZWFtcyI6eyJyZWQiOnsic2x1ZyI6Im9yYW5nZSIsInNoaW1tZXIiOiJwaWNhc3NvIn0sImJsdWUiOnsic2x1ZyI6InRlYWwifSwiZ3JlZW4iOnsic2x1ZyI6ImdyZWVuIiwic2hpbW1lciI6ImZvY3VzZmlyZSJ9LCJ5ZWxsb3ciOnsic2x1ZyI6Im1hZ2VudGEifX19
+?colors=eyJ2IjoxLCJwYWxldHRlIjoxLCJzaGltbWVyIjoicGljYXNzbyIsInRlYW1zIjp7InJlZCI6eyJzbHVnIjoib3JhbmdlIn0sImJsdWUiOnsic2x1ZyI6InRlYWwifX19
 ```
+
+Read: red plays as orange, blue as teal, green and yellow keep stock — and whichever
+seats belong to `picasso`, on any team, wear the sheen. `tests/test_team_colors.nim`
+decodes this exact string, so the doc and the parser cannot drift.
 
 Rules:
 
 - **Boot-time only, immutable per page load.** The viewer applies colors before the
   first frame and never re-reads the param. Changing colors = reloading the embed.
 - **Graceful omission at every level**: no `colors` param ⇒ stock identity mapping;
-  missing team key ⇒ that team keeps stock; no `shimmer` ⇒ no shimmer; unknown slug
-  (version skew) ⇒ that team keeps stock. The viewer never errors over this param.
+  missing team key ⇒ that team keeps stock; no root `shimmer` ⇒ nobody shimmers (the
+  common case); a root `shimmer` naming a policy that is not in this episode ⇒ nobody
+  shimmers, silently; unknown slug (version skew) ⇒ that team keeps stock. The viewer
+  never errors over this param.
 - **The platform guarantees the four slugs in one payload are distinct.** Grants
   (§3) are already unique; the remaining hazard is a granted slug colliding with the
   *stock* color of a team that has no override in this episode (e.g. blue team has
@@ -226,13 +241,14 @@ Rules:
   the taken-set of the next — a later unclaimed team's stock can collide with an
   *earlier* unclaimed team's already-bumped slug, not just with a grant.
 - **Executable reference**: `scripts/resolve_reference.py` implements §3 + this
-  section exactly, and `tests/resolver_vectors.json` carries 13 golden vectors
+  section exactly, and `tests/resolver_vectors.json` carries 15 golden vectors
   (including both worked examples byte-for-byte). Port the vectors as tests in the
-  platform repo; an implementation that passes all 13 is contract-equivalent.
+  platform repo; an implementation that passes all 15 is contract-equivalent.
 - The payload carries slugs, not hexes: the viewer translates slug → `game` hex via
   its own copy of `team_palette.json`. The platform never sends raw colors.
-- A `teams` entry may carry `shimmer` with **no** `slug` (that policy shimmers, the
-  team keeps its stock color). The viewer accepts it.
+- A payload may carry `shimmer` with **no** `teams` at all (the #1 is marked, every
+  team keeps its stock color). The viewer accepts it: the two channels are read
+  independently, so a shimmer-only payload is as legal as a color-only one.
 
 ## 5.1 How the viewer receives it
 
