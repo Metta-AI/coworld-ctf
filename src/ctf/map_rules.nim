@@ -216,6 +216,45 @@ func knownWidths*(): string =
       parts.add MapSizeClassTable[c].name & "=" & $c.boardDims(family).width
   parts.join(" ")
 
+const MapSelectionK*: array[MapSizeClass, int] = [
+  mszSmall: 12,
+  mszStandard: 8,
+  mszLarge: 6,
+  mszHuge: 4,
+  mszGiant: 2,
+  mszColossal: 1,
+]
+  ## How many VALID candidates `arena.generateCtfMap` ranks before shipping the
+  ## best one. E[max of K] is K/(K+1) of the generator's own quality range, so
+  ## K=4 buys the 80th percentile, K=8 the 89th and K=12 the 92nd. The returns
+  ## are logarithmic and the cost is exactly linear, which is why nothing here
+  ## is 32 — measured over 40 seeds, K=1 -> K=8 moves the mean `staticScore`
+  ## 0.834 -> 0.898 and the WORST map 0.636 -> 0.804, and K=8 -> K=16 is worth
+  ## another ~0.01.
+  ##
+  ## The table is per CLASS because the cost is per class and spans an order of
+  ## magnitude. Selection pays generate + validate + `map_metrics.evaluateMap`
+  ## per candidate, and `evaluateMap` dominates above `standard` (isovists and
+  ## the visibility graph grow with board area). Measured per candidate,
+  ## release build, 2-team:
+  ##   small 50 ms · standard 132 ms · large 151 ms · huge 301 ms ·
+  ##   giant 648 ms
+  ## The K column is chosen to hold the cost of ONE generated map near a
+  ## second at every size — 0.6 s small, 1.1 s standard, 0.9 s large, 1.2 s
+  ## huge, 1.3 s giant — rather than to hold K constant and let a giant board
+  ## cost forty times a small one.
+  ##
+  ## `colossal` is 1: it is override-only, it is 22 M pixels, and one
+  ## `evaluateMap` there costs more than a whole standard-board selection.
+  ##
+  ## Selection is deterministic given the seed, so this table is part of the
+  ## seed -> map contract: changing a row re-deals every seed of that class.
+  ## Replays are unaffected — they pin `mapSpec`, which never re-runs the
+  ## generator (see `arena.resolveCtfMapMetadata`).
+
+func selectionK*(c: MapSizeClass): int {.inline.} =
+  MapSelectionK[c]
+
 # ---------------------------------------------------------------------------
 # Derived physical quantities (all from sim_types constants)
 # ---------------------------------------------------------------------------

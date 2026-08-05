@@ -1405,3 +1405,29 @@ proc bandReport*(m: MapMetrics, bands: seq[Band] = DefaultBands): string =
     lines.add &"  {mark} {r.band.name:<20} {r.value:8.3f}  " &
       &"[{r.band.lo:.2f}..{r.band.hi:.2f}] sub={r.sub:.2f} w={r.band.weight:.1f}"
   lines.join("\n")
+
+# ---------------------------------------------------------------------------
+# The generator's ranker. `arena.generateCtfMap` draws K candidates and ships
+# the best one by this score; it reaches the function through a hook because
+# the import only runs one way (this module measures maps, so it imports
+# `arena`, so `arena` cannot import it back). Installed at module-init time,
+# and `sim` imports this module, so every binary that speaks CTF ranks with
+# the same rubric — see `arena.setMapFitness` for what a missing hook means.
+# ---------------------------------------------------------------------------
+
+proc staticFitness(gameMap: CtfMap): float {.nimcall, gcsafe, raises: [].} =
+  ## `staticScore` of a freshly measured map, and 0 for anything that throws.
+  ## A metric that raises must not be able to abort map generation: the score
+  ## is an ORDERING, and an unrankable candidate simply loses.
+  ##
+  ## `cast(gcsafe)`: the only globals this reaches are `DefaultBands` and the
+  ## tunable consts — `let`/`const`, built at module init, never written again.
+  ## The cast is required because `tools/map_editor.nim` serves over mummy and
+  ## generates maps from request threads, so the hook has to be callable there.
+  {.cast(gcsafe).}:
+    try:
+      evaluateMap(gameMap).staticScore()
+    except CatchableError, Defect:
+      0.0
+
+setMapFitness(staticFitness, "map_metrics.staticScore")

@@ -51,11 +51,25 @@ the same change.
   (`mirror`/`rot180`), `mapColumns`, `mapWindows`, `mapCenterFeature`,
   `mapEndzone` (+ `mapEndzoneRadius` / `mapBaseDepth`).
   Tools accept `gen:<seed>` / `pool:<idx>` map paths.
-- **Endzone archetypes** are drawn per seed from a SEPARATE RNG stream
-  (`seed xor const`) so the main draw order never shifts: a seed that lands
-  on the classic `column` generates byte-for-byte the map it always did,
-  and only `disc` / `square` seeds are new terrain. Keep that property when
-  adding draws — it is what makes an archetype addition reviewable.
+- **Every generation stage draws from its own RNG sub-stream**
+  (`src/ctf/map_seed.nim`): `mapSeed(seed, attempt).stream(stageTerrain)`,
+  and `spawn` for a child stream inside a stage. Never build a `MapRng` from
+  a raw integer and never thread one stream through two stages — the whole
+  point is that a stage can gain or lose draws without re-dealing the
+  others. `stageLayout` and `stageBiome` are SEED-level (identical across
+  best-of-K attempts); the rest are resampled per attempt.
+- **`generateCtfMap` is best-of-K**, not first-valid: it draws K valid
+  candidates of the same seed and ships the highest
+  `map_metrics.staticScore`. K comes from `map_rules.MapSelectionK` per size
+  class (cost is linear in K and the score is ~50 ms on a standard board,
+  ~600 ms on a giant one). The ranker is installed by `map_metrics`'s module
+  init and `sim` imports it for that side effect — a binary that imports
+  `ctf/arena` alone silently falls back to first-valid and generates a
+  DIFFERENT map for the same seed.
+- **`tests/fixtures/map-validation-baseline.tsv`** pins the raw first draw's
+  validator verdict for 402 (teams, seed) pairs. Regenerate with
+  `nim c -d:release -r tools/gen_validation_baseline.nim` whenever the draw
+  order or the validators change, and report the pass-rate line it prints.
 - Replays pin the resolved geometry as `mapSpec` in their config JSON —
   playback never re-runs the generator, so generator changes cannot break
   existing replays.
