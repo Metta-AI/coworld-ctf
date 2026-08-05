@@ -93,9 +93,10 @@ const
   BiomeMinOpenCells* = 2
     ## Narrowest passage a grid biome may emit, in cells. 2 * 34 = 68 px =
     ## `RecommendedCorridorWidthPx`.
-  BiomeWidenPasses* = 6
-    ## Bound on `widenCorridors` sweeps. Each sweep strictly removes wall cells,
-    ## so the loop terminates anyway; this only caps the worst case.
+  BiomeWidenPasses* = 32
+    ## Bound on `widenCorridors` sweeps. Every sweep that changes anything
+    ## strictly REMOVES wall cells, so the loop always terminates; the cap only
+    ## bounds a pathological grid, and a converged grid exits on sweep two.
 
 type
   BiomeStyle* = enum
@@ -206,9 +207,11 @@ proc defaultBiomeParams*(style: BiomeStyle): BiomeParams =
     dunePeriodPx: 192, ridgeWidthPx: BaseCoverSizePx, duneAngle: PI / 4.0,
     noiseProb: 0.1, duneSegmentPx: 192,
     duneGapPx: BaseCoverSizePx + RecommendedCorridorWidthPx,
-    # city
-    pitchPx: 240, roadWidthPx: RecommendedCorridorWidthPx + 4,
-    placeProb: 0.9, minBlockFrac: 0.5, blockJitterPx: 12,
+    # city — see genCityBiome for why minBlockFrac is 0.38 and not the
+    # source's 0.5 (at 0.5 the size jitter is entirely clipped away, in the
+    # source too)
+    pitchPx: WallSpanPx, roadWidthPx: RecommendedCorridorWidthPx + 4,
+    placeProb: 0.9, minBlockFrac: 0.38, blockJitterPx: 16,
     # plains
     clusterPeriod: 7, clusterMinRadius: 0, clusterMaxRadius: 2,
     clusterFill: 0.7, clusterProb: 0.8, clusterJitter: 2,
@@ -607,7 +610,11 @@ proc genDesertBiome*(
       # A point on this ridge's centre line, plus the in-region span.
       px = u * ct
       py = u * st
-      clip = clipSegmentToRect(px, py, dx, dy, region, half + 1.0)
+      # `inShape` accepts a point within `thickness div 2 + 1` of the segment,
+      # so the centre line is inset by that plus a pixel: a dune never pokes
+      # out of the placement band, which is what keeps the seed set fair.
+      clip = clipSegmentToRect(px, py, dx, dy, region,
+                               float(width div 2 + 2))
     inc k
     if not clip.ok: continue
     var t = clip.t0
@@ -663,16 +670,31 @@ proc genCityBiome*(
   ## `BiomeCity`: rectangular blocks on a `pitch` lattice with a road margin on
   ## every side, each block jittered in size and placed with `place_prob`.
   ##
-  ## The structure is the source's, exactly: block origin at
-  ## `(gx + road, gy + road)`, nominal side `pitch * min_block_frac`, jittered,
-  ## then clipped to `pitch - 2*road` so a block can never spill into the next
-  ## road. Only the units change — the source's lattice is 10 cells with a
-  ## 3-cell road, ours is 240 px with a 72 px road, which keeps the block/road
-  ## proportion in the same family while making the road itself
-  ## `RecommendedCorridorWidthPx` wide. Streets are therefore 144 px (road on
-  ## both sides of the gap), blocks about 96 px, and the cover fraction lands
-  ## near 160 permille — inside `map_rules`' 42..168 occlusion band, which is
-  ## not a coincidence: it is what the block/pitch ratio was chosen for.
+  ## The structure is the source's, exactly: one `place_prob` roll per lattice
+  ## cell, block origin a road width past the lattice line, nominal side
+  ## `pitch * min_block_frac`, jittered, then clipped to `pitch - 2*road` so a
+  ## block can never spill into the next road. Only the units and two numbers
+  ## move, and both for a stated reason:
+  ##
+  ## - LENGTHS. The source's lattice is 10 cells with a 3-cell road. Ours is
+  ##   `WallSpanPx` = 264 px with a 72 px road, which makes the road itself
+  ##   wider than `RecommendedCorridorWidthPx` and makes one block a
+  ##   STRUCTURAL wall rather than a pebble. Streets come out 144-180 px and
+  ##   blocks 84-120 px, for a cover fraction near 145 permille — inside
+  ##   `map_rules`' 42..168 occlusion band, which is what the ratio was picked
+  ##   for.
+  ## - `min_block_frac` 0.5 -> 0.38. At 0.5 the nominal block (`pitch/2`) is
+  ##   LARGER than the clip (`pitch - 2*road`) for any road wider than a
+  ##   quarter of the pitch, so `min(bw, maxBlock)` swallows the jitter whole
+  ##   and every block comes out identical. That is true of the source's own
+  ##   numbers as well (5 jittered to 4..6, clipped to 4, always 4) — its city
+  ##   is a perfectly regular grid. 0.38 keeps the jitter live.
+  ##
+  ## One addition the source does not have: the block is also OFFSET inside its
+  ## own cell, within the slack the clip leaves. It cannot reach a road band
+  ## (tested), so the road guarantee is untouched, and it is what stops a
+  ## coarse lattice — a standard board only fits 3x3 cells — from producing the
+  ## same nine squares for every seed.
   discard domain  # city is rectilinear and never dithers in our port; see note
   let
     pitch = max(32, p.pitchPx)
@@ -685,18 +707,21 @@ proc genCityBiome*(
   while gy < region.y + region.h:
     var gx = region.x
     while gx < region.x + region.w:
-      # One roll per lattice cell whether or not it fits, so the RNG stream is
-      # a function of the lattice alone (source does the same).
+      # Every roll happens for every lattice cell whether or not the block
+      # lands, so the rng stream is a function of the lattice alone.
       let place = rand(r, 1.0) <= p.placeProb
       var
         bw = minBlock + (if jitter > 0: rand(r, 2 * jitter) - jitter else: 0)
         bh = minBlock + (if jitter > 0: rand(r, 2 * jitter) - jitter else: 0)
       bw = min(bw, maxBlock)
       bh = min(bh, maxBlock)
+      let
+        offX = (if maxBlock > bw: rand(r, maxBlock - bw) else: 0)
+        offY = (if maxBlock > bh: rand(r, maxBlock - bh) else: 0)
       if place and bw > 0 and bh > 0:
         let
-          x0 = gx + road
-          y0 = gy + road
+          x0 = gx + road + offX
+          y0 = gy + road + offY
           w = min(bw, region.x + region.w - x0)
           h = min(bh, region.y + region.h - y0)
         if w > 0 and h > 0:
