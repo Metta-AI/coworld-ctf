@@ -341,7 +341,8 @@ suite "trenches":
             x: gameMap.width - trench.x - trench.w,
             y: gameMap.height - trench.y - trench.h,
             w: trench.w, h: trench.h)
-          of symRot90: raiseAssert "trenches never place on rot90 maps"
+          of symRot90, symQuadMirror:
+            raiseAssert "trenches never place on 4-team maps"
         check rectShape(image) in gameMap.trenches
     ## The drawn pool exercises the endzone and field placement classes.
     check mapsWithTrenches > 0
@@ -453,7 +454,8 @@ suite "trenches":
           x: gameMap.width - trench.x - trench.w,
           y: gameMap.height - trench.y - trench.h,
           w: trench.w, h: trench.h)
-        of symRot90: raiseAssert "trenches never place on rot90 maps"
+        of symRot90, symQuadMirror:
+          raiseAssert "trenches never place on 4-team maps"
       check rectShape(image) in gameMap.trenches
 
   test "out-of-range pit knobs raise config errors at config load":

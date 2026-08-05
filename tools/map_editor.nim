@@ -403,7 +403,7 @@ proc symmetryResponseNode(body: string): JsonNode =
   let
     trenches = parseTrenches(request.requiredField("trenches"), gameMap)
     medKits = parseMedKits(request.requiredField("medKits"), gameMap)
-  if gameMap.symmetry == symRot90 and trenches.len > 0:
+  if gameMap.symmetry in {symRot90, symQuadMirror} and trenches.len > 0:
     raiseRequestError("Trenches are not supported on 4-team maps yet.")
   var
     trenchOrbits = newJArray()

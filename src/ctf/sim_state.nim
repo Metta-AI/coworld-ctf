@@ -33,6 +33,12 @@ proc spawnAimBrads*(gameMap: CtfMap, team: Team): int =
   ## Returns the spawn/respawn aim angle: toward the map center, so every
   ## team wakes facing the fight. Sides maps keep the classic east/west pair;
   ## corner teams face the diagonal, plus arms face along their arm.
+  ##
+  ## The table keys on layout + team only, and that already serves BOTH
+  ## 4-team symmetries: the corner aims are exactly the reflections of Red's
+  ## south-east (Blue = its x-mirror SW, Green = its y-mirror NE, Yellow =
+  ## its rot180 NW), which is what quad-mirror demands, and they equal the
+  ## rot90 quarter turns of it too. Plus aims point along each arm either way.
   case gameMap.layout
   of layoutSides:
     if team == Red:

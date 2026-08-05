@@ -11,6 +11,7 @@ import
   test_mapgen,
   test_player_collision,
   test_player_fog,
+  test_quad_mirror,
   test_replay,
   test_replay_scan,
   test_shot_exposure,

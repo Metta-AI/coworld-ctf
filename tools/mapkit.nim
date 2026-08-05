@@ -121,8 +121,8 @@ proc placementRegion(base: CtfMap): MapRect =
   of symMirror, symRot180:
     MapRect(x: sr.x + hMargin, y: sr.y + vMargin,
             w: max(1, sr.w - hMargin - seam), h: max(1, sr.h - 2 * vMargin))
-  of symRot90:
-    # rot90: the quadrant's right AND bottom edges are the map's center lines.
+  of symRot90, symQuadMirror:
+    # 4-team: the quadrant's right AND bottom edges are the map's center lines.
     # Keep the x-side seam (anchors stay off the central flag ring), but let the
     # region reach nearly to the center ROW so the vertical anchors chain all the
     # way down — their identity+rot180 images then tile every horizontal row with
@@ -146,7 +146,7 @@ proc cmdGenerate(a: Args) =
     symmetry = a.flag("symmetry", "")
     teams =
       if "teams" in a.flags: a.intFlag("teams", 2)
-      elif symmetry == "rot90": 4
+      elif symmetry in ["rot90", "quadmirror"]: 4
       else: 2
   var overrides = MapGenOverrides(
     size: a.flag("size", ""),
@@ -230,8 +230,11 @@ const usage = """
 mapkit — author interesting-but-fair CTF maps
 
   mapkit generate --style bsp|caves|maze|scatter [--seed N] [--size ...]
-                  [--symmetry mirror|rot180|rot90] [--endzone column|disc|square]
+                  [--symmetry mirror|rot180|rot90|quadmirror]
+                  [--endzone column|disc|square]
                   [--teams 2|4] [--trenches] [--param k=v ...] [-o spec.json]
+                  (rot90/quadmirror imply --teams 4; quadmirror boards are
+                  rectangular)
   mapkit render   spec.json [-o out.png] [--diagnostics] [--max N]
   mapkit validate spec.json      # metrics + PASS/FAIL, non-zero exit on FAIL
   mapkit metrics  spec.json      # cover / sightlines / reachability

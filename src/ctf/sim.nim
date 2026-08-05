@@ -25,13 +25,31 @@ proc grenadeSpawnPoints*(gameMap: CtfMap): array[4, tuple[x, y: int]] =
       (gameMap.width - inset, inset),
       (gameMap.width - inset, gameMap.height - inset)]
   of layoutCorners:
-    rot90Orbit((gameMap.width div 2, inset), gameMap.width)
+    if gameMap.symmetry == symQuadMirror:
+      ## Quad-mirror's group is the reflections, so the set must be a Klein
+      ## orbit. The rot90 edge-MIDPOINT seed degenerates there (its mirrorX
+      ## image is itself, half a pixel off on an even width), so the seed
+      ## slides to a third of the top edge: the orbit is four distinct
+      ## points along the top and bottom edges, clear of the corner
+      ## endzones, and exactly fair by construction.
+      quadMirrorOrbit(
+        (gameMap.width div 3, inset), gameMap.width, gameMap.height)
+    else:
+      rot90Orbit((gameMap.width div 2, inset), gameMap.width)
   of layoutPlus:
     let arm = gameMap.plusArmHalf()
-    rot90Orbit(
-      (gameMap.center.x + arm - inset, gameMap.center.y + arm - inset),
-      gameMap.width
-    )
+    if gameMap.symmetry == symQuadMirror:
+      ## The same four inner corners of the center intersection as rot90,
+      ## built as the reflections of the bottom-right one — the group that
+      ## actually completes this map.
+      quadMirrorOrbit(
+        (gameMap.center.x + arm - inset, gameMap.center.y + arm - inset),
+        gameMap.width, gameMap.height)
+    else:
+      rot90Orbit(
+        (gameMap.center.x + arm - inset, gameMap.center.y + arm - inset),
+        gameMap.width
+      )
 
 proc teamOrbitPoints(gameMap: CtfMap, red: MapPoint): seq[tuple[x, y: int]] =
   ## Carries RED's chosen point to every active team by the map's own
@@ -425,13 +443,14 @@ proc animatedDiamondAt*(sim: SimServer, x, y: int): int =
   for i in 0 ..< AnimatedDiamonds.len:
     let spot = AnimatedDiamonds[i]
     if animatedDiamondCovers(
-        spot, diamondSpinFrame(spot.cx, sim.tickCount), x, y):
+        spot, diamondSpinFrame(spot.cx, spot.cy, sim.tickCount), x, y):
       return i
   -1
 
 proc diamondSpinAngle*(sim: SimServer, diamond: int): float =
   ## Cosmetic angle derived from the geometry/render frame source of truth.
-  let frame = diamondSpinFrame(AnimatedDiamonds[diamond].cx, sim.tickCount)
+  let frame = diamondSpinFrame(
+    AnimatedDiamonds[diamond].cx, AnimatedDiamonds[diamond].cy, sim.tickCount)
   float(frame) / float(DiamondSpinFrames) * PI / 2.0
 
 proc seatInWall*(sim: SimServer, x, y: int, ux, uy: float): (int, int) =
@@ -2519,7 +2538,8 @@ proc applyDiamondGeometry*(sim: var SimServer, tick: int): bool
   ## No allocation on either pass: this runs every tick, and three ticks in
   ## four nothing has moved.
   for index in 0 ..< sim.diamondPatches.len:
-    let frame = diamondSpinFrame(AnimatedDiamonds[index].cx, tick)
+    let frame = diamondSpinFrame(
+      AnimatedDiamonds[index].cx, AnimatedDiamonds[index].cy, tick)
     if frame == sim.diamondPatches[index].frame:
       continue
     sim.diamondPatches[index].frame = frame
@@ -2571,7 +2591,7 @@ proc sweptByDiamond(sim: SimServer, px, py: int): bool =
   ## diamond's CURRENT footprint — i.e. the stone moved onto them, rather than
   ## their being unable to stand for some unrelated reason.
   for spot in AnimatedDiamonds:
-    let frame = diamondSpinFrame(spot.cx, sim.tickCount)
+    let frame = diamondSpinFrame(spot.cx, spot.cy, sim.tickCount)
     for dy in -PlayerHalf .. PlayerHalf:
       for dx in -PlayerHalf .. PlayerHalf:
         if animatedDiamondCovers(spot, frame, px + dx, py + dy):

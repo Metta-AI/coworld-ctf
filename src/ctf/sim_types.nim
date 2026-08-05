@@ -18,7 +18,18 @@ import
 
 const
   GameName* = "ctf"
-  GameVersion* = "38"  ## GV38 (spray rule): THE SPRAY IS ONE DIRECTIONAL
+  GameVersion* = "39"  ## GV39 (map format): QUAD-MIRROR SYMMETRY — 4-team
+    ## maps may be RECTANGULAR. A new `symQuadMirror` map symmetry authors the
+    ## TOP-LEFT quadrant and completes the board by reflecting it across both
+    ## center axes (mirrorX, mirrorY, and their composition rot180 — the
+    ## Klein four-group), instead of rot90's quarter turns, which demand a
+    ## square. Reflections preserve congruence exactly, so team fairness stays
+    ## bit-exact; mirror-image spinning diamonds counter-rotate (the rot180
+    ## image co-rotates). Default 4-team draws stay rot90/square; the
+    ## "quadmirror" mapSymmetry override opts a map in. Older viewers cannot
+    ## parse "quadmirror" specs.
+    ##
+    ## GV38 (spray rule): THE SPRAY IS ONE DIRECTIONAL
     ## SHOT, NOT A SWEEP. A fired cone locks its aim at the fire instant and
     ## points that way for its whole active window (`arcAimBrads`): turning the
     ## cog mid-spray no longer rotates the cone across a fan of targets. The
@@ -742,11 +753,17 @@ type
     ## seed set. Mirror and rot180 complete a LEFT-half set across the
     ## vertical center line (2-team maps); rot90 completes a QUADRANT set by
     ## rotating it 90/180/270 degrees about the center (4-team maps, square
-    ## only). All are exactly team-fair; rot180 keeps diagonal lanes diagonal
-    ## instead of folding them into chevrons.
+    ## only); quadMirror completes a TOP-LEFT quadrant set by reflecting it
+    ## across both center axes (mirrorX, mirrorY, rot180 — 4-team maps, any
+    ## rectangle). All are exactly team-fair; rot180 keeps diagonal lanes
+    ## diagonal instead of folding them into chevrons.
+    ##
+    ## Ordinals are wire format (flatty stores them positionally in replay
+    ## keyframes): APPEND new members, never insert.
     symMirror
     symRot180
     symRot90
+    symQuadMirror
 
   CtfMap* = object
     name*: string

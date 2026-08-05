@@ -4756,7 +4756,7 @@ proc addRotatingDiamonds(
   for i in 0 ..< AnimatedDiamonds.len:
     let
       spot = AnimatedDiamonds[i]
-      frame = diamondSpinFrame(spot.cx, sim.tickCount)
+      frame = diamondSpinFrame(spot.cx, spot.cy, sim.tickCount)
       # Pixels are fetched lazily inside the define branches below: the
       # cached-frame return copies a full pixel buffer, and on the steady
       # path (sprite already defined) nothing needs it.
