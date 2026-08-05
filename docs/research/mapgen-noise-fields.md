@@ -1196,7 +1196,24 @@ better results on smooth curves — which ours are.
 
 **Neither preserves simplicity in general**: a simplified polyline can
 self-intersect, and can cross a *different* polyline it used to be disjoint from.
-Topology-preserving variants exist (de Berg, van Kreveld, Schirra, 1998,
+This is established, not folklore:
+
+- **Saalfeld, 1999**, *Topologically Consistent Line Simplification with the
+  Douglas-Peucker Algorithm*, Cartography and GIS 26(1):7–18 — analyses exactly
+  how DP breaks topology and **proves that one extra test in the stopping
+  condition** (via a dynamically maintained convex hull) guarantees the simplified
+  polyline is topologically consistent with itself and with its neighbours. This
+  is the cheapest correct fix and is what to implement if the bound below is ever
+  inconvenient.
+- **Estkowski & Mitchell, 2001**, *Simplifying a polygonal subdivision while
+  keeping it simple*, SoCG '01 — **optimal homotopic simplification with simple
+  output is NP-hard**. So there is no cheap optimal algorithm; use a guard, not an
+  optimiser.
+- **Visvalingam–Whyatt is unproven either way.** Its effective-area criterion
+  bounds *local* area change but places no bound on displacement relative to a
+  distant part of the curve. Treat it as the same risk class as RDP.
+
+Topology-preserving variants exist (de Berg, van Kreveld & Schirra, 1998,
 *Topologically correct subdivision simplification using the bandwidth criterion*),
 but they are more machinery than we need, because of this:
 
@@ -1221,11 +1238,22 @@ Ju, Losasso, Schaefer & Warren, *Dual Contouring of Hermite Data*, SIGGRAPH 2002
 than on cell edges, which reproduces **sharp features** — creases and corners —
 that marching cubes rounds off. Surface nets are the simpler, non-Hermite cousin.
 
-**Verdict: skip it.** Sharp features are exactly what we do *not* want from a
-noise contour (they eat vertices and produce concave spikes), the 2D case gains
-little, and dual contouring's output can be non-manifold, which would cost us the
-(A) in §6.4. Marching squares' guaranteed degree-2 output is worth more to us than
-its rounded corners cost us.
+**Verdict: skip it**, and for a sharper reason than the usual one. In 2D, a dual
+vertex has degree equal to the number of sign-changing edges of its cell — 2 for
+ordinary cells, but **4 for exactly the saddle cells**. So **2D dual contouring is
+non-manifold precisely where marching squares is manifold by construction**, which
+is the reverse of the "DC is cleaner" intuition and would cost us the §6.4
+guarantee outright. Fixes exist (Manifold Dual Contouring: emit one vertex per
+connected component of the cell's contour), but they are extra machinery to buy
+back a property we already had for free.
+
+DC also wants the field **gradient** (Hermite data), not just the scalar, and its
+QEF minimiser can land outside its own cell and need clamping. Its real payoff is
+sharp corners, which is what you want for *rectilinear architecture from a field*
+— worth remembering if we ever want a "city" biome generator, and wrong for
+organic rooms. Note the ancestor is arguably Gibson's **Constrained Elastic
+Surface Nets** (MICCAI/VBC 1998), whose one good idea is the constraint that each
+node stays inside its own cell — which is what preserves thin features.
 
 ---
 
@@ -1249,23 +1277,61 @@ Two facts fall straight out:
 - `v · grad(psi) = (d psi/dy)(d psi/dx) - (d psi/dx)(d psi/dy) = 0` — **`psi` is
   constant along every streamline.**
 
-The second one is the finding: **in 2D, the streamlines of curl noise are exactly
-the level sets of the potential.** So "trace curl-noise flow lines to lay out
-lanes" and "extract iso-contours to lay out walls" are *the same computation on
-the same object*, differing only in which levels you pick. There is no second
-algorithm to build here, and anyone who proposes a streamline tracer alongside a
-contour extractor is building the same thing twice.
+The second one is the finding, and the paper says it in as many words (§2.1):
 
-**Classification: (C) for us.** Divergence-free is a genuine (A), but it is an (A)
-about a property (no sources or sinks in a velocity field) that a static map has
-no use for.
+> *"We recall from fluid dynamics that the potential in 2D may be called the
+> 'stream function': its isocontours are the streamlines of the flow."*
 
-**What IS worth stealing** is Bridson's boundary handling. To make flow follow a
-solid boundary he ramps `psi` to a constant near it. Translated out of fluids:
-**pinning `psi` to a constant on a set makes that set a level set.** Which means
-you can *plant* structure in the potential and the contour extractor will honour
-it. That is the bridge to the next subsection, and it is where noise finally has
-an honest job.
+**In 2D, the streamlines of curl noise are exactly the level sets of the
+potential.** So "trace curl-noise flow lines to lay out lanes" and "extract
+iso-contours to lay out walls" are *the same computation on the same object*,
+differing only in which levels you pick. There is no second algorithm to build
+here, and anyone proposing a streamline tracer alongside a contour extractor is
+building the same thing twice. Two honest differences: same *set*, different
+*parameterisation* (speed along the curve is `|grad psi|`, which contour
+extraction discards); and contour extraction gives you **every** component of a
+level set at once, whereas streamline tracing gives you one orbit per seed.
+
+**A third connection worth flagging** because it unifies two "bugs": the level set
+through a **saddle** of `psi` self-intersects (a figure-eight), and that is
+precisely where `v = 0` (a stagnation point) and precisely where marching squares'
+case 5/10 fires. **Our contour-simplicity question and a flow-stall bug have the
+same root object.**
+
+**Classification: (C) for us.** Divergence-free is a genuine (A) — Bridson is
+explicit that the motivation is that raw Perlin velocity fields *"generally contain
+many sinks ('gutters' where particles accumulate)"* — but it is an (A) about a
+property of a velocity field that a static map has no use for.
+
+**What IS worth stealing is the boundary handling, and it generalises.** To make
+flow follow a solid boundary, Bridson multiplies the potential by a ramp of the
+distance field (eqs. 3–4):
+
+```
+psi_constrained(x) = ramp( d(x) / d0 ) * psi(x)
+ramp(r) = 1 for r >= 1;  (15/8)r - (10/8)r^3 + (3/8)r^5 for -1 < r < 1;  -1 for r <= -1
+```
+
+with `d(x)` the distance to the boundary and, his recommendation, `d0 = L` the
+noise length scale. His reasoning is the reusable part:
+
+> *"if we want the velocity field to be tangent to the boundary, we need the
+> gradient to be perpendicular to the boundary. This happens precisely when the
+> boundary is an isocontour of psi."*
+
+Translated out of fluids: **multiplying a field by `ramp(d/d0)` forces any chosen
+set to be a level set.** For us that is directly actionable — multiply the map
+field by a ramp of the distance to the **endzone apron, the flag ring, and the
+spawn pockets**, and the extracted contours will *hug* the protected regions
+instead of being generated inside them and then destroyed by the carve. That is
+strictly better than the current order of operations, where the generator emits
+shapes and `arena.nim` deletes the ones that landed in protected floor.
+
+Bridson's other transferable rule, §2.3: *"modulating the velocity field A(x)v(x)
+no longer gives a divergence-free field, modulating the potential… does the
+trick."* The general principle — **modulate the potential, never the derived
+field** — is the right instinct for any of this, and it is the bridge to the next
+subsection, where noise finally gets an honest job.
 
 ### 7.2 Designed potential + bounded noise: a converging loop instead of a rejection loop
 
