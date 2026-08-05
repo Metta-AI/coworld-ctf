@@ -713,7 +713,12 @@ proc extractEpisode(
 
   var trenches = newJArray()
   for t in gameMap.trenches:
-    trenches.add(%*{"x": t.x, "y": t.y, "w": t.w, "h": t.h})
+    ## GV37 made a trench an `ArenaShape` (it can be a disc or a hex, not just
+    ## a box), so the artifact carries its BOUNDING BOX — the renderer only
+    ## ever wanted an extent to draw.
+    let b = shapeBounds(t)
+    trenches.add(%*{"x": b.x0, "y": b.y0,
+      "w": b.x1 - b.x0 + 1, "h": b.y1 - b.y0 + 1})
 
   var occTeamNode = newJArray()
   for t in 0 ..< teams:
@@ -748,8 +753,7 @@ proc extractEpisode(
     "spawns": spawns,
     "redHome": pointNode(gameMap.flagHome(Red)),
     "blueHome": pointNode(gameMap.flagHome(Blue)),
-    "captureRadius":
-      (if gameMap.endzone == ezColumn: 0 else: gameMap.endzoneRadius),
+    "captureRadius": gameMap.endzoneRadius,
     "trenches": trenches,
     "teamKills": teamKills,
     "balanceEntropy": balanceEntropy(teamKills),

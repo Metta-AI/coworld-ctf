@@ -167,7 +167,9 @@ type
     chokeCoveredByOnePoint*: bool ## a single isovist sees them all.
     collision*: CollisionMetric
     crossings*: seq[CrossingMetric]
-    rectShapeFrac*: float         ## share of obstacles that are plain rects.
+    rectShapeFrac*: float         ## share of obstacles that are plain bars
+                                  ## (GV38 `shapeBar` subsumes the old
+                                  ## `shapeRect`/`shapeDiamond` pair exactly).
     shapeCount*: int
     trenchCount*: int
 
@@ -456,7 +458,7 @@ proc standMetric(
   result.protectedFrac = protectedCount.float / max(total, 1).float
 
   let radius =
-    if gameMap.endzone != ezColumn and gameMap.endzoneRadius > 0:
+    if gameMap.endzoneRadius > 0:
       gameMap.endzoneRadius + StandRingPad
     else:
       StandRingFallbackRadius + StandRingPad
@@ -968,13 +970,13 @@ proc computeMapMetrics*(
   result.teamCount = gameMap.teamCount()
   result.genSeed = gameMap.genSeed
   result.cell = cell
-  result.compactEndzone = gameMap.endzone != ezColumn
+  result.compactEndzone = gameMap.endzoneRadius > 0
   result.validationReason = validateGeneratedMap(gameMap)
   result.trenchCount = gameMap.trenches.len
 
   var rects = 0
   for shape in gameMap.leftObstacles:
-    if shape.kind == shapeRect:
+    if shape.kind == shapeBar:
       inc rects
   result.shapeCount = gameMap.leftObstacles.len
   result.rectShapeFrac = rects.float / max(result.shapeCount, 1).float
@@ -1058,7 +1060,10 @@ proc computeMapMetrics*(
   result.collision =
     collisionMetric(masks, distances, dt, gameMap.teamCount())
   result.crossings.add crossingMetric(masks, "vertical")
-  if gameMap.layout != layoutSides:
+  if gameMap.layout != layoutHex2:
+    ## `layoutHex2` is the left/right pair: the vertical midline is the only
+    ## line a run home must cross. Every wider layout seats teams around the
+    ## hex, so the horizontal midline is a real crossing too.
     result.crossings.add crossingMetric(masks, "horizontal")
 
   if withChokepoints:
