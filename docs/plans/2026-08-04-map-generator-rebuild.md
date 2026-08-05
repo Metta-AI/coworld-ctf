@@ -233,6 +233,40 @@ the **hull edge** (terrain crowding the six boundary faces) or in the
 **interior**? Edge → the fix is a boundary apron. Interior → the hub-first carve
 is the right shape.
 
+### 3.5.1 SUPERSEDED — the connectivity failures were a bug, and the real constraint is the cover budget
+
+**Correction, later on 2026-08-05.** §3.5's reading did not survive Stage 2, and it
+is worth recording *why* rather than deleting it.
+
+Those `no route to the center` rejections were **not a property of hexagons**. The
+sightline-repair pass was converging its plugs into a **ring that sealed the
+core**: 19 of 19 connectivity rejections had 95–98% of the floor reachable with
+only the centre cut off. With plugs scattered instead, **connectivity rejections
+are zero**.
+
+The measured steady state, over 400 seeds at **79.5% raw pass**: **74 too clogged,
+7 open sightline, 1 endzone gate, 0 connectivity.** The binding constraint is the
+**cover budget** — three axes of lane-blocking collide with a `CoverPermilleMax`
+calibrated for *one*, so "too clogged" is ~90% of rejections.
+
+**That is a design input for §4, not a tuning knob.** The cover band was derived
+on a board with one lane family; a hexagon has three, so blocking them all
+necessarily spends more wall. Re-derive the band from the hex lane geometry rather
+than raising the ceiling until maps pass.
+
+**And the tuning trap, stated because it was declined once already.** Raising the
+lane threshold from 80% to 90% of board width lifts the pass rate to 93% — but a
+chord at 87% of the standard board is **843px, inside the 1050px gun range**, i.e.
+a real firing lane. That buys the number by excusing exactly what the rule exists
+to refuse. Any future pass-rate improvement should be checked against this: does
+it remove the defect, or redefine it away?
+
+**The methodological lesson is the durable part.** A failure distribution measured
+on a pipeline that still contains a bug describes the bug, not the domain. §3.5
+was hedged as "one scan, adapted generator, 2-team only" and those hedges were the
+right ones — but the hedge that would actually have caught it is *"and the
+pipeline is not yet known-good."*
+
 ## 4. What the generator must actually build
 
 The MW2 study is the calibration source. Every number below is measured, with the
