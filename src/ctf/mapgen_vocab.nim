@@ -873,10 +873,24 @@ proc massifPolys(
   let
     alongH = not p.mirrorIsVertical
     runLen = if alongH: region.w else: region.h
-    crossLen = if alongH: region.h else: region.w
-  if runLen < 24 or crossLen < 10: return
-  let discs = walkSpine(r, runLen, crossLen, p, vStart)
+    fullCross = if alongH: region.h else: region.w
+  if runLen < 24 or fullCross < 10: return
+  # A LANE IS RESERVED OUT OF THE BAND. `walkSpine` lets the spine wander the
+  # whole cross extent it is given, so handing it the band's full width made
+  # the mass fill the band edge to edge: tiled at its own footprint the
+  # ridges came out 40-70 px apart, at or under the passability floor, and
+  # the render showed it (313 permille cover, "too clogged"). Half a corridor
+  # is held back at each edge so neighbouring ridges always leave a walkable
+  # lane between them.
+  let
+    reserve = min(p.corridorPx, max(0, fullCross - 12))
+    crossLen = fullCross - reserve
+    crossOff = reserve div 2
+  if crossLen < 10: return
+  var discs = walkSpine(r, runLen, crossLen, p, vStart - crossOff)
   if discs.len == 0: return
+  for d in discs.mitems:
+    d.v += crossOff
   var radSum = 0
   for d in discs: radSum += d.rad
   let
