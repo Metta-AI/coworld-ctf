@@ -30,7 +30,13 @@ import
 # should fail this file, and mirroring the constants here would hide one of
 # those.
 
-const ShimmerLabelPrefix = "metal shimmer "
+const
+  ShimmerLabelPrefix = "metal shimmer "
+  HeartShimmerLabelPart = " flag metal shimmer stage "
+    ## The HEART half of the same feature (`<color> flag metal shimmer stage
+    ## <n>`), matched on its own distinct family so the per-agent counts above
+    ## stay exact: the two marks share a paint language and a policy identity,
+    ## not a label prefix.
 
 proc shimmerSpriteIds(
   messages: openArray[SpritePacketMessage]
@@ -56,6 +62,51 @@ proc shimmerCentres(
     if message.kind == spkObject and message.objectDef.spriteId in ids:
       result.add (message.objectDef.x + size div 2,
                   message.objectDef.y + size div 2)
+
+proc heartShimmerSpriteIds(
+  messages: openArray[SpritePacketMessage]
+): seq[int] =
+  ## Every sprite id defined in this packet under the heart-clearcoat family.
+  for message in messages:
+    if message.kind == spkSprite and
+        HeartShimmerLabelPart in message.sprite.label:
+      result.add message.sprite.id
+
+proc heartShimmerCentres(
+  messages: openArray[SpritePacketMessage]
+): seq[(int, int)] =
+  ## The CENTER of every heart clearcoat placed in this packet, in wire
+  ## (board-scaled) pixels.
+  let ids = messages.heartShimmerSpriteIds()
+  var w, h = 0
+  for message in messages:
+    if message.kind == spkSprite and message.sprite.id in ids:
+      w = message.sprite.width
+      h = message.sprite.height
+  for message in messages:
+    if message.kind == spkObject and message.objectDef.spriteId in ids:
+      result.add (message.objectDef.x + w div 2, message.objectDef.y + h div 2)
+
+proc heartShimmersOnTeam(
+  sim: SimServer,
+  messages: openArray[SpritePacketMessage],
+  team: Team
+): bool =
+  ## Whether a clearcoat is registered over THIS team's heart in this frame.
+  ## Positional, like `shimmersOnSeat`: it proves the sheen landed on the right
+  ## team's gem, which an object-id check would take on faith — and with the
+  ## four hearts parked in four different corners, a positional hit can only
+  ## belong to one of them.
+  let
+    scale = boardRenderScaleFor(sim.gameMap.width, sim.gameMap.height)
+    flag = sim.flags[team]
+  for (cx, cy) in messages.heartShimmerCentres():
+    # The overlay is registered EXACTLY over the planted banner, which is
+    # centered on the flag in x and bottom-anchored on the pedestal in y.
+    if abs(cx - flag.x * scale) <= 2 * scale and
+        abs(cy - flag.y * scale) <= 40 * scale:
+      return true
+  false
 
 proc fullFrame(sim: var SimServer): seq[SpritePacketMessage] =
   ## ONE complete board frame, built against a FRESH viewer state.
@@ -264,6 +315,106 @@ suite "metal shimmer":
     let frame = game.fullFrame()
     check not game.shimmersOnSeat(frame, 0)
     check game.shimmersOnSeat(frame, 2)
+
+  # --- The HEART half of the mark ----------------------------------------
+  #
+  # The cog sheen is area-capped by the cog: at the zoom a spectator actually
+  # watches (a ~1727 map px board fitted into ~800 screen px) a cog is ~16
+  # screen px and its sheen can never exceed ~9, which is why the shipped
+  # version was reported as invisible on a real replay. The planted heart is 60
+  # map px, static, and parked at a fixed corner, so the same paint on it is the
+  # half of the feature that actually reads.
+  #
+  # The gate it hangs off is DERIVED, not new: a heart shimmers exactly when the
+  # one flagged policy holds a seat on that heart's team. Everything below is
+  # about that derivation — which is why the controls (the OTHER team's heart)
+  # are named on every check, the same way the per-agent tests name teammates.
+
+  test "no shimmer policy means no heart clearcoat anywhere":
+    # The normal episode. Nobody is flagged, so all four gems render stock.
+    var game = mixedTeamGame()
+    let frame = game.fullFrame()
+    check frame.heartShimmerSpriteIds().len == 0
+    check frame.heartShimmerCentres().len == 0
+    check not game.heartShimmersOnTeam(frame, Red)
+    check not game.heartShimmersOnTeam(frame, Blue)
+
+  test "only the flagged policy's TEAM heart wears the clearcoat":
+    # focusfire holds one seat, on Red. Red's heart is metal; Blue's is not —
+    # the single pair of lines that separates "the team the #1 sits on" from
+    # "every team".
+    var game = mixedTeamGame()
+    setShimmerPolicy("focusfire")
+    let frame = game.fullFrame()
+    check game.heartShimmersOnTeam(frame, Red)
+    check not game.heartShimmersOnTeam(frame, Blue)
+    check frame.heartShimmerCentres().len == 1
+
+  test "one policy seated on two teams shimmers BOTH hearts":
+    # picasso holds seats 0 and 2 on Red and seat 5 on Blue. The mark is a
+    # league standing, not a team property, so both gems wear it — and one
+    # policy holding three seats still produces exactly TWO hearts, because the
+    # heart gate is per TEAM where the cog gate is per seat.
+    var game = mixedTeamGame()
+    setShimmerPolicy("picasso")
+    let frame = game.fullFrame()
+    check game.heartShimmersOnTeam(frame, Red)
+    check game.heartShimmersOnTeam(frame, Blue)
+    check frame.heartShimmerCentres().len == 2
+
+  test "a flagged policy that is not in this episode shimmers no heart":
+    # The normal case for a real payload: the league #1 is in only a slice of
+    # the league's matches, so most viewers are handed a name no seat answers
+    # to. Silence, on the hearts as on the cogs.
+    var game = mixedTeamGame()
+    setShimmerPolicy("ctf-nemesis:v9")
+    let frame = game.fullFrame()
+    check anyShimmer()
+    check frame.heartShimmerSpriteIds().len == 0
+    check not game.heartShimmersOnTeam(frame, Red)
+    check not game.heartShimmersOnTeam(frame, Blue)
+
+  test "a CARRIED heart drops the clearcoat and gets it back on return":
+    # Home hearts only. A stolen heart is being run by somebody else — usually
+    # an enemy — and the same paint riding that runner would read as a mark on
+    # the RUNNER, i.e. the mark naming the wrong competitor. Blue's gem, whose
+    # policy is also flagged, is the control that proves the drop is about the
+    # carry and not about the gate collapsing.
+    var game = mixedTeamGame()
+    setShimmerPolicy("picasso")
+    check game.heartShimmersOnTeam(game.fullFrame(), Red)
+    game.flags[Red].carrier = 1                  # a Blue seat runs it
+    let stolen = game.fullFrame()
+    check not game.heartShimmersOnTeam(stolen, Red)
+    check game.heartShimmersOnTeam(stolen, Blue)
+    game.flags[Red].carrier = -1
+    check game.heartShimmersOnTeam(game.fullFrame(), Red)
+
+  test "a dead seat does not un-mark its team's heart":
+    # The cog sheen needs a living cog to sit on; the TEAM a policy was seated
+    # on does not change when its agents die. A heart that dropped its mark
+    # mid-firefight and picked it up on respawn would read as a rendering bug.
+    var game = mixedTeamGame()
+    setShimmerPolicy("focusfire")                # seat 4, Red, its only seat
+    game.players[4].alive = false
+    let frame = game.fullFrame()
+    check not game.shimmersOnSeat(frame, 4)      # the cog is gone...
+    check game.heartShimmersOnTeam(frame, Red)   # ...the heart is not
+
+  test "the heart sweep advances with the tick and the two hearts differ":
+    # Derived from tickCount alone, like the cog sheen, so every viewer of a
+    # replay agrees on the frame at any scrub position. The two flagged hearts
+    # ride a per-TEAM phase stride, so they never glide in lockstep with each
+    # other (a pair of gems pulsing in unison reads as a UI blink).
+    var game = mixedTeamGame()
+    setShimmerPolicy("picasso")
+    let atStart = game.fullFrame().heartShimmerSpriteIds()
+    check atStart.len == 2
+    check atStart[0] != atStart[1]
+    game.tickCount += 40
+    let later = game.fullFrame().heartShimmerSpriteIds()
+    check later.len == 2
+    check later.toHashSet() != atStart.toHashSet()
 
   test "shimmer is display-only: the game hash is untouched":
     # The one property that makes this safe to ship: it must not be able to

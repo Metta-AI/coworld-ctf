@@ -189,6 +189,50 @@ const
                                ## step (a squad flashing in unison reads as a UI
                                ## blink, not as light), and any single frame
                                ## shows the effect mid-sweep on someone.
+  ## The SAME metallic paint on the flagged policy's team HEART, and the reason
+  ## the mark is legible at all. A cog is ~34 map px of art with a sheen that has
+  ## to stay inside its 18px head cube, and a spectator watches a ~1727 map px
+  ## board fitted into ~800 screen px (0.46 screen per map px) — so the cog mark
+  ## can never exceed ~9 screen px no matter how bright it is pushed, and pushing
+  ## it further was measured to wash the cog to white chrome and destroy the team
+  ## color this feature exists to honor. The planted heart is 60 map px, ~28
+  ## screen px, STATIC, and parked at a fixed corner the eye already returns to
+  ## for the score read; the same paint on it is ~3x the area and does not move,
+  ## which is what makes it read.
+  ##
+  ## Scope is the TEAM the flagged policy is seated on (both teams when the
+  ## platform split its seats), derived from the same stripped-policy identity as
+  ## the cog gate, so the two marks always agree about who is being pointed at.
+  ##
+  ## HOME HEARTS ONLY — a carried heart wears no sheen. The mark's whole meaning
+  ## is "this belongs to the #1"; a stolen heart is being run by SOMEONE ELSE,
+  ## usually an enemy, and a sheen riding that runner reads as a mark on the
+  ## RUNNER (it is the same paint the runner's own cogs would wear, on a sprite
+  ## cradled inside their arms). That is not a subtle miss, it is the mark
+  ## naming the wrong competitor. Dropping it on pickup also costs nothing and
+  ## buys a free state cue: the metal goes out when the relic is taken and comes
+  ## back when it is returned.
+  HeartShimmerSpriteBase = 1730 ## planted-heart clearcoat frames, team-major:
+                                ## 1730..1825 (4 x ShimmerFrames), in the same
+                                ## corpse/plasma-fx gap as the cog sheen. Unlike
+                                ## the cog overlay these are PER TEAM, because
+                                ## the sheen is clipped to the heart's own
+                                ## silhouette and the four hand-painted gems are
+                                ## not the same shape (heart_blue is a 573x530
+                                ## master, the rest are 458x438). Baked lazily,
+                                ## so a stock episode bakes none and a flagged
+                                ## one bakes ShimmerFrames for one team.
+  HeartShimmerObjectBase = 19104 ## one clearcoat overlay per team heart:
+                                 ## 19104..19107, in the gap between the cog
+                                 ## sheens (end 19103) and the impact rings
+                                 ## (19120).
+  HeartShimmerTeamStride = 7   ## per-team phase offset in frames. Coprime with
+                               ## ShimmerFrames like ShimmerSeatStride, and
+                               ## deliberately a DIFFERENT number: when the
+                               ## flagged policy holds seats on two teams the
+                               ## two hearts glide out of step with each other,
+                               ## and no heart ever pulses in lockstep with the
+                               ## cogs standing next to it.
   ## Heart-taken endzone power-down (broadcast/spectator only): when a team's
   ## heart is stolen (flag.carrier >= 0) that team's endzone crack-glow + capture
   ## line fade out "like the power source is gone", and fade back when it comes
@@ -709,6 +753,7 @@ const
     ("hp pips", HpPipObjectBase, MaxPlayers),
     ("identity badges", IdentityBadgeObjectBase, MaxPlayers),
     ("metal shimmer", ShimmerObjectBase, MaxPlayers),
+    ("heart shimmer", HeartShimmerObjectBase, 4),
     ("impact rings", ShotImpactObjectBase, TracerMaxShots),
     ("flag auras", FlagAuraObjectBase, 4),
     ("grenade pickups", PaintBombPickupObjectBase, 4),
@@ -800,6 +845,7 @@ const
     ("flags", int(FlagSpriteBase), 4),
     ("flag auras", FlagAuraSpriteBase, 4),
     ("metal shimmer", ShimmerSpriteBase, ShimmerFrames),
+    ("heart shimmer", HeartShimmerSpriteBase, 4 * ShimmerFrames),
     ("planted flags", PlantedFlagSpriteBase, 4),
     ("game-over icons", GameOverIconSpriteBase, 4),
     ("hp pips", HpPipSpriteBase, 4),
@@ -3972,6 +4018,19 @@ proc buildFlagAuraSprite(team: Team): seq[uint8] {.measure.} =
         alpha
       )
 
+proc smoothstep(e0, e1, x: float): float =
+  ## Hermite ramp, for the heart clearcoat below. Both sheens are built out of
+  ## soft-edged REGIONS (a bevel, a ground crescent, a band) rather than out of
+  ## the gaussians they started as, because a region survives the viewer's box
+  ## filter and a thin gaussian does not.
+  ##
+  ## `buildShimmerSprite` keeps its own nested copy rather than sharing this one
+  ## ON PURPOSE, for now: the cog's material is being reworked in parallel, and
+  ## reaching into that proc to delete two lines would collide with the rewrite
+  ## for no benefit. Fold the two together once the cog work lands.
+  let t = clamp((x - e0) / (e1 - e0), 0.0, 1.0)
+  t * t * (3.0 - 2.0 * t)
+
 proc shimmerLabel(frame: int): string =
   ## The metal-sheen overlay's label, `metal shimmer stage <n>`. CHROME, not
   ## contract: it is deliberately NOT in labels.nim (see that module's header on
@@ -4214,9 +4273,349 @@ proc buildShimmerSprite(frame: int): seq[uint8] {.measure.} =
         uint8(clamp(aa, 0.0, 1.0) * 255.0)
       )
 
+type HeartShell = object
+  ## The shading basis for ONE team's planted heart: how the clearcoat is
+  ## supposed to sit on THAT gem. Derived from the hand-painted master's own
+  ## alpha silhouette rather than from a shape constant, because the four gems
+  ## are not the same shape (heart_blue is a 573x530 master against 458x438 for
+  ## the rest) and a mark that spilled past the outline would stop reading as
+  ## light on a surface and start reading as a UI glow around an icon — the
+  ## single failure mode this feature is least allowed to have.
+  ##
+  ## The model is a puffed gem: distance-to-edge is read as thickness, so the
+  ## surface rises steeply at the outline and flattens over the core, and the
+  ## normal that falls out of it tilts OUTWARD toward the nearest edge. That is
+  ## what puts the sky reflection on the two upper lobes and the ground
+  ## reflection under the point, all without hard-coding where a heart's lobes
+  ## are.
+  size: int                 ## canvas side in emitted px; 0 means unbuilt.
+  source: Team              ## master this was derived from (a recolored team
+                            ## borrows another wire color's gem, so the cache
+                            ## key has to include it or a palette change would
+                            ## silently shade the wrong silhouette).
+  edgePx: seq[float32]      ## distance to the silhouette edge, in emitted px.
+  depth: seq[float32]       ## the same, normalized: 0 at the edge, 1 at the
+                            ## deepest point of the gem.
+  nx, ny: seq[float32]      ## unit OUTWARD tilt of the modeled surface.
+  cx, cy: float             ## silhouette centroid, in emitted px.
+  rad: float                ## max radius from the centroid, so positions
+                            ## normalize into [-1, 1] on every gem.
+
+var heartShells: array[Team, HeartShell]
+  ## One basis per team, built on first use and reused across all ShimmerFrames.
+  ## Keyed by canvas size AND source master, so a different board scale or a
+  ## palette that re-points a team at another gem rebuilds instead of shading
+  ## last episode's outline.
+
+proc ensureHeartShell(team: Team, size: int) {.measure.} =
+  ## Builds `heartShells[team]` for this canvas size if it is not already there.
+  let spec = teamArtTint(team, propArt = true)
+  if heartShells[team].size == size and heartShells[team].source == spec.sourceTeam:
+    return
+  let
+    art = loadHeartSprite(team, size)
+    n = size * size
+  const Far = 1e9'f32
+  var
+    dist = newSeq[float32](n)
+    inside = newSeq[bool](n)
+  for i in 0 ..< n:
+    # loadHeartSprite snaps alpha at 128, so this is the gem's exact silhouette.
+    inside[i] = art[i * 4 + 3] >= 128'u8
+    dist[i] = if inside[i]: Far else: 0.0'f32
+
+  # Chamfer distance transform, two sweeps (3-4 style with true 1 / sqrt(2)
+  # weights). Off-canvas neighbours count as OUTSIDE, so a gem that touched the
+  # sprite border would still be treated as ending there rather than as running
+  # on forever.
+  template probe(bestVar: float32; qx, qy: int; w: float32) =
+    # Neighbour coordinates come in as arguments rather than as offsets off the
+    # loop variables: a template body binds free identifiers at its DEFINITION
+    # site, where `x`/`y` are still vmath's swizzle templates and not the loops
+    # below (an ambiguous-identifier wall of a compile error).
+    let other = (if qx < 0 or qy < 0 or qx >= size or qy >= size: 0.0'f32
+                 else: dist[qy * size + qx])
+    if other + w < bestVar:
+      bestVar = other + w
+  const
+    Orth = 1.0'f32
+    Diag = 1.4142136'f32
+  for iy in 0 ..< size:
+    for ix in 0 ..< size:
+      if not inside[iy * size + ix]:
+        continue
+      var best = dist[iy * size + ix]
+      probe(best, ix - 1, iy, Orth)
+      probe(best, ix, iy - 1, Orth)
+      probe(best, ix - 1, iy - 1, Diag)
+      probe(best, ix + 1, iy - 1, Diag)
+      dist[iy * size + ix] = best
+  for iy in countdown(size - 1, 0):
+    for ix in countdown(size - 1, 0):
+      if not inside[iy * size + ix]:
+        continue
+      var best = dist[iy * size + ix]
+      probe(best, ix + 1, iy, Orth)
+      probe(best, ix, iy + 1, Orth)
+      probe(best, ix + 1, iy + 1, Diag)
+      probe(best, ix - 1, iy + 1, Diag)
+      dist[iy * size + ix] = best
+
+  var
+    dmax = 1.0'f32
+    sumX, sumY, count = 0.0
+  for y in 0 ..< size:
+    for x in 0 ..< size:
+      let i = y * size + x
+      if not inside[i]:
+        continue
+      dmax = max(dmax, dist[i])
+      sumX += float(x)
+      sumY += float(y)
+      count += 1.0
+
+  var shell = HeartShell(
+    size: size,
+    source: spec.sourceTeam,
+    edgePx: dist,
+    depth: newSeq[float32](n),
+    nx: newSeq[float32](n),
+    ny: newSeq[float32](n),
+    cx: (if count > 0: sumX / count else: float(size) / 2.0),
+    cy: (if count > 0: sumY / count else: float(size) / 2.0),
+    rad: 1.0
+  )
+  for i in 0 ..< n:
+    shell.depth[i] = dist[i] / dmax
+  # Height field: sqrt of depth, so the surface climbs fast off the outline and
+  # levels over the core — a cabochon, not a cone. The lateral normal is the
+  # DOWNHILL (outward) direction, which is what `face` below dots against the
+  # light.
+  var height = newSeq[float32](n)
+  for i in 0 ..< n:
+    height[i] = sqrt(shell.depth[i])
+  template heightAt(px, py: int): float32 =
+    if px < 0 or py < 0 or px >= size or py >= size: 0.0'f32
+    else: height[py * size + px]
+  for y in 0 ..< size:
+    for x in 0 ..< size:
+      let i = y * size + x
+      if not inside[i]:
+        continue
+      let
+        gx = float(heightAt(x + 1, y) - heightAt(x - 1, y))
+        gy = float(heightAt(x, y + 1) - heightAt(x, y - 1))
+        m = sqrt(gx * gx + gy * gy)
+      if m > 1e-6:
+        shell.nx[i] = float32(-gx / m)
+        shell.ny[i] = float32(-gy / m)
+      let
+        rx = float(x) - shell.cx
+        ry = float(y) - shell.cy
+      shell.rad = max(shell.rad, sqrt(rx * rx + ry * ry))
+  heartShells[team] = shell
+
+proc buildHeartShimmerSprite(team: Team, frame: int): seq[uint8] {.measure.} =
+  ## Bakes one frame of the planted heart's clearcoat: the SAME metallic-paint
+  ## language as `buildShimmerSprite` — chrome-ball sky over ground, a compact
+  ## catchlight, a gliding band, metal flake — re-derived on the gem's own
+  ## silhouette instead of on an inscribed dome. Analytic, achromatic, and
+  ## rasterized at the emission scale, for the same reason the cog sheen is:
+  ## tinting it would put the mark back on the color axis it exists to stay off.
+  ##
+  ## The heart is a much harder host than the cog, and one number does most of
+  ## the work: `shoulder`. The gem is the single largest, most saturated block of
+  ## team color on the board and the whole point of the color feature this one
+  ## sits beside, so the sheen is confined to the SHOULDER — the band between the
+  ## ink outline and the deep core — and the core is left completely alone. That
+  ## is both the color guard and, as on a real cabochon, where the highlights
+  ## actually live: the crown catches the sky, the middle of the dome faces the
+  ## camera and stays the body color.
+  ##
+  ## `edge` is the other half of the discipline: nothing is drawn on the outer
+  ## ~1.6px of ink. A bright pixel ON the outline turns the mark into a selection
+  ## ring around an icon, which is a UI badge — the one thing this was asked not
+  ## to be — where the same light one pixel INSIDE the outline reads as a lit
+  ## bevel on a solid object.
+  let
+    outSize = PlantedFlagW * boardScale
+    scale = float(boardScale)
+  ensureHeartShell(team, outSize)
+  let shell = addr heartShells[team]
+  result = newRgbaPixels(outSize, outSize)
+  let
+    # Same light and same sweep axis as the cog sheen: upper-left key, band
+    # travelling down-right across the silhouette, so the two marks read as one
+    # paint job under one light rather than as two effects.
+    lx = -0.5145
+    ly = -0.8575
+    nxs = 0.7071
+    nys = 0.7071
+    # Band center in normalized radii, kept INSIDE the gem for the whole cycle
+    # (see buildShimmerSprite: an identification mark may not have a rest phase,
+    # because a paused frame lands on one as often as any other).
+    # Travel is deliberately SHORTER than the cog's in normalized units, because
+    # `rad` is the gem's MAX radius (its bottom point) and almost no crystal
+    # lives out there: a band run to ±0.78 spent four phases of every cycle
+    # parked on the silhouette's corner with the body of the gem clean, which is
+    # the rest phase an identification mark is not allowed to have (measured on
+    # the 24-phase sweep, phases 9-12).
+    sweep = -0.55 + 1.10 * (float(frame) + 0.5) / float(ShimmerFrames)
+
+  # NO METAL FLAKE on the heart, deliberately, and this is the one place the
+  # heart's paint is allowed to differ from the cog's. A flake grain is ~1 map
+  # px, which is 0.46 SCREEN px at the zoom a spectator watches; the viewer's
+  # box filter turns the whole grain field into a uniform pale veil, so it costs
+  # the gem's saturation everywhere and delivers no sparkle anywhere. Grains big
+  # enough to survive the downsample would be ~4 map px — a seventh of the gem —
+  # which is not flake, it is blotches. The gem's own hand-painted facets
+  # already carry the high-frequency sparkle; the clearcoat's job here is the
+  # moving specular that travels OVER them.
+
+  for y in 0 ..< outSize:
+    for x in 0 ..< outSize:
+      let i = y * outSize + x
+      if shell.edgePx[i] <= 0.0'f32:
+        continue
+      let
+        # Depth in MAP px, not in normalized units: every region below is sized
+        # against the 0.46 screen-px-per-map-px the spectator actually watches
+        # at, and a normalized budget silently rescales those sizes with the
+        # gem. The planted heart runs to ~22 map px deep at its thickest.
+        mp = float(shell.edgePx[i]) / scale
+        # Position in gem-normalized coordinates, for the travelling parts.
+        px = (float(x) - shell.cx) / shell.rad
+        py = (float(y) - shell.cy) / shell.rad
+        # Which way this bit of surface tilts, relative to the key light.
+        face = float(shell.nx[i]) * lx + float(shell.ny[i]) * ly
+        # Keep every component off the ink outline (see the header).
+        edge = smoothstep(0.0, 1.5, mp)
+        # THE COLOR GUARD, and the number this build lives on. The persistent
+        # sheen is a BEVEL — a ~6 map px annulus just inside the ink, about a
+        # third of the gem's area — and the whole body of the crystal is left
+        # alone. The first build spent the shoulder instead (everything outside
+        # a deep core), which on a heart is ~90% of the pixels, and measured
+        # exactly the failure this feature is forbidden to have: the teal gem
+        # went milky white, 0.96 of it read as team-colored before and 0.42
+        # after. Where a highlight goes matters more than how bright it is.
+        bevel = edge * (1.0 - smoothstep(2.5, 5.5, mp))
+        # The LIT half of the bevel is deliberately narrower than the shaded
+        # half. White is the expensive paint here and dark is the free one (see
+        # `ground` below), so the two halves of one bevel are not budgeted the
+        # same way.
+        litBevel = edge * (1.0 - smoothstep(2.2, 4.6, mp))
+        # The glide and the catchlight get the run of the crystal minus its
+        # deepest core, because motion needs somewhere to travel and a band
+        # confined to the bevel would just crawl around the outline.
+        bandWin = edge * (1.0 - smoothstep(14.0, 21.0, mp))
+        p = px * nxs + py * nys
+      var
+        ar = 0.0
+        ag = 0.0
+        ab = 0.0
+        aa = 0.0
+      template over(cr, cg, cb, ca: float) =
+        let sa = clamp(ca, 0.0, 1.0)
+        if sa > 0.0:
+          let na = sa + aa * (1.0 - sa)
+          if na > 0.0:
+            let keep = aa * (1.0 - sa)
+            ar = (cr * sa + ar * keep) / na
+            ag = (cg * sa + ag * keep) / na
+            ab = (cb * sa + ab * keep) / na
+          aa = na
+      let
+        # GROUND reflection: the shaded half of the bevel, a dark chrome rim
+        # under the lower-right shoulders. It carries a disproportionate share
+        # of the work here and costs nothing, because of an asymmetry that does
+        # not hold on the cog: darkening a saturated pixel SCALES its channels
+        # and leaves HSV hue and saturation where they were, while brightening
+        # it toward white destroys both. Dark is the free half of the contrast
+        # budget on a team-color surface, so the metal read is bought mostly
+        # with it. Held to the bevel and never allowed near the middle, so it
+        # cannot be mistaken for the endzone power-down (which dims the FLOOR
+        # glow when this same heart is stolen).
+        ground = smoothstep(-0.05, 0.45, -face) * bevel
+        # SKY reflection: the lit half of the same bevel, and the
+        # PHASE-INDEPENDENT component — the one that has to identify the heart
+        # in a paused frame or a thumbnail. A short ARC, not a half-perimeter:
+        # `face` has to be well past zero before any white lands, so the white
+        # is a highlight on the two upper lobes rather than a pale border.
+        sky = smoothstep(0.14, 0.66, face) * litBevel
+        bx = px - lx * 0.56
+        by = py - ly * 0.56
+        # Compact near-opaque catchlight, owner of the PEAK luminance. Small on
+        # purpose: peak is won by a few pixels and saturation is lost by many —
+        # and the gem's own painted facets already run to ~248 luma, so there is
+        # almost no headroom to win the peak with anything broad.
+        spec = exp(-(bx * bx + by * by) / 0.012)
+        lead = exp(-((p - sweep - 0.18) * (p - sweep - 0.18)) / 0.012)
+        trail = exp(-((p - sweep + 0.18) * (p - sweep + 0.18)) / 0.012)
+        band = exp(-((p - sweep) * (p - sweep)) / 0.010)
+      over(0.03, 0.04, 0.07, ground * 0.58)
+      over(0.97, 0.98, 1.00, sky * 0.52)
+      # The sweep is a RAMP — dark, bright, dark — and on this host the DARK
+      # rails are the load-bearing part, not the highlight. A white band laid
+      # over a crystal whose own facets already read near-white adds almost
+      # nothing; the same band flanked by two dark rails is a luminance step
+      # nothing in the gem's painted art comes close to, and the rails are
+      # saturation-free. So the flanks run HOTTER than the highlight here, where
+      # on the cog they run at a tenth of it.
+      over(0.04, 0.05, 0.08, lead * 0.55 * bandWin)
+      over(0.04, 0.05, 0.08, trail * 0.50 * bandWin)
+      over(1.00, 1.00, 1.00, band * 0.72 * bandWin)
+      over(1.00, 1.00, 1.00, spec * 0.95 * bandWin)
+      if aa <= 0.0:
+        continue
+      result.putRawRgbaPixel(
+        i,
+        uint8(clamp(ar, 0.0, 1.0) * 255.0),
+        uint8(clamp(ag, 0.0, 1.0) * 255.0),
+        uint8(clamp(ab, 0.0, 1.0) * 255.0),
+        uint8(clamp(aa, 0.0, 1.0) * 255.0)
+      )
+
 proc flagLabel(team: Team): string =
   ## Returns the observation label for one team's flag sprite.
   labelFlag(teamText(team))
+
+proc heartShimmerLabel(team: Team, frame: int): string =
+  ## The planted heart's clearcoat label, `<color> flag metal shimmer stage <n>`.
+  ## CHROME, like the cog sheen's — deliberately not in labels.nim (spectator
+  ## chrome gets no stability promise) but present in tests/label_manifest.txt so
+  ## a rename is a reviewable diff. It sits in the `<color> flag ...` family
+  ## because it is an overlay ON the flag object, carries "metal shimmer" so the
+  ## two halves of one feature grep together, and does NOT start with
+  ## `metal shimmer ` so the per-agent family stays exactly countable.
+  flagLabel(team) & " metal shimmer stage " & $frame
+
+proc heartShimmerSpriteId(team: Team, frame: int): int =
+  ## Team-major, ShimmerFrames wide (see HeartShimmerSpriteBase).
+  HeartShimmerSpriteBase + ord(team) * ShimmerFrames + frame
+
+proc heartShimmerFrame(tick: int, team: Team): int =
+  ## The sweep frame one team's heart shows at one tick — derived from tickCount
+  ## alone, like the cog sheen and the diamond spin, so every viewer of a replay
+  ## agrees on the frame at any scrub position with no animation state to sync.
+  ((tick div ShimmerTicksPerFrame) + ord(team) * HeartShimmerTeamStride) mod
+    ShimmerFrames
+
+proc heartShimmers(sim: SimServer, team: Team): bool =
+  ## Whether THIS team's heart wears the clearcoat: the one league-wide flagged
+  ## policy holds a seat on it. Team-from-policy is resolved off the roster with
+  ## the same `playerShimmers` identity the cog gate uses, so a heart can never
+  ## disagree with the cogs standing around it about who the #1 is.
+  ##
+  ## Roster membership, NOT liveness: the cog sheen needs a living cog to sit on,
+  ## but the team a policy was seated on does not change when its agents die, and
+  ## a heart that dropped its mark mid-firefight would read as a bug. The usual
+  ## answer is false on every team — the #1 is not in most episodes.
+  if not anyShimmer():
+    return false
+  for player in sim.players:
+    if player.team == team and playerShimmers(player.address):
+      return true
+  false
 
 proc carryHeartSpriteId(team: Team, aimStep: int): int =
   ## The carried-heart sprite id at aim step `aimStep` (cradled in the rig cog's
@@ -7350,6 +7749,33 @@ proc buildSpriteProtocolUpdates*(
         MapLayerId,
         PlantedFlagSpriteBase + ord(team)
       )
+      # METALLIC PAINT on the HOME heart of the team the one flagged policy is
+      # seated on — the large, static half of the mark (see HeartShimmerSpriteBase
+      # for why the cog half cannot carry it alone). Registered EXACTLY over the
+      # planted banner, same origin and same footprint, so the clearcoat is
+      # pixel-aligned with the art it sits on; z one above the heart so nothing
+      # of the gem draws over its own reflection, and still below any cog that
+      # walks in front of the pedestal. Home only: a carried heart is being run
+      # by somebody else and a sheen on it would name the wrong competitor.
+      if sim.heartShimmers(team):
+        let
+          heartFrame = heartShimmerFrame(sim.tickCount, team)
+          sheenSpriteId = heartShimmerSpriteId(team, heartFrame)
+        if nextState.spriteDefs.spriteDefinitionIndex(sheenSpriteId) < 0:
+          result.addBoardSpriteChanged(
+            nextState.spriteDefs, sheenSpriteId, PlantedFlagW, PlantedFlagH,
+            buildHeartShimmerSprite(team, heartFrame),
+            heartShimmerLabel(team, heartFrame), native = boardScale)
+        let sheenObjectId = HeartShimmerObjectBase + ord(team)
+        currentIds.add(sheenObjectId)
+        result.addBoardObject(
+          sheenObjectId,
+          flag.x - PlantedFlagW div 2,
+          flag.y - (PlantedFlagH - 2),
+          flag.y + 2,
+          MapLayerId,
+          sheenSpriteId
+        )
 
   if sim.hasInterstitialFrame():
     # Status text and (on game over) the winner roster float directly over

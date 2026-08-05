@@ -6,6 +6,7 @@
 <color> flag
 <color> flag carried
 <color> flag carrier glow
+<color> flag metal shimmer stage <n>
 <color> flag planted
 <color> shout <name>
 Room Blue Base
