@@ -544,3 +544,171 @@ interval for `homeDepth` once, at compile time if possible, and clamp. Never val
 scalar you can clamp — a validated scalar costs a reroll, a clamped one costs nothing.
 (This is also the fix pattern for the "carrier ran to a hard-coded home column outside the
 real capture zone" class of bug.)
+
+---
+
+## 5. Surviving continuous space
+
+We are not on a tile grid. Obstacles are `ArenaShape`s — rect, disc, diamond, diagonal,
+and integer-vertex `shapePolygon` (`sim_types.nim:731`) — on a continuous px board. The
+agent is 13 px solid / 34 px drawn; `MinCorridorWidth` is 26 px today with 68 px
+recommended. Here is how each family fares, without pretending a grid port is free.
+
+### 5.1 The two-resolution architecture (the actual answer)
+
+The resolution of this tension is that **guarantees and geometry do not need the same
+resolution.** Every one of our invariants is either
+
+- a **topological** property (I1) — which is already, in our own metrics, evaluated on a
+  **26 px coarse cell grid** (`RouteCellPx`, `map_metrics.nim:91`), chosen precisely
+  because "one min-cut cell IS one minimum-width corridor"; or
+- a **measure** property (I2, I3, I4) — an area or a 1-D interval union, which is
+  computed by rasterising and is therefore also a discrete quantity at pixel resolution;
+  or
+- an **arithmetic** property (I5, I6) — over a handful of scalars.
+
+So: **run the guarantee machinery on a coarse lattice; run the art on continuous shapes.**
+The lattice is a *routing abstraction*, not a tiling of the world. Nothing about it
+constrains what an obstacle looks like — only *where it may not go*. This is the crucial
+difference from WFC, which requires the world itself to be a tiling.
+
+This also means the coarse lattice must be **the same one the metric uses**, or the
+guarantee does not transfer. Concretely: if we build the skeleton with `burrow` at
+`cellSize = 8` (the value the tests use) and the metric evaluates disjointness at
+`RouteCellPx = 26`, then two corridors that are vertex-disjoint in burrow's grid can land
+inside the *same* 26 px metric cell and the measured route count silently drops. **The
+constructor's cell size must equal `RouteCellPx`, or the proof is about a different
+graph.** This is a genuine, checkable precondition and it is the kind of thing that
+silently invalidates a "guarantee."
+
+### 5.2 Corridor width in continuous space — Minkowski / configuration space
+
+Corridor width is the textbook robotics problem and it has an exact continuous answer:
+the **configuration-space obstacle** is the Minkowski sum of the obstacle with the
+reflected agent footprint, and a path exists for the fat agent iff a path exists for a
+*point* in the eroded free space
+([Minkowski addition / C-space](https://grokipedia.com/page/Minkowski_addition);
+[Varadhan & Manocha, *Accurate Minkowski Sum Approximation of Polyhedral
+Models*](https://www.cs.unc.edu/techreports/03-042.pdf)). For our shape catalogue the
+sums are all closed-form:
+
+| Shape ⊕ disc(r) | Result |
+|---|---|
+| disc(c, R) | disc(c, R + r) |
+| rect | rounded rect (rect grown by `r` + quarter-discs at corners) |
+| diamond (L1 ball) | L1 ball ⊕ L2 ball — an octagon-ish convex body; exact, cheap |
+| convex polygon | polygon offset by `r` (convolve edge normals) |
+| non-convex polygon | offset with the usual self-intersection handling |
+
+So "the corridor is at least `w` wide" is decidable *exactly*, in continuous space, at low
+cost, without rasterising — **and constructible**: dilate the skeleton polyline by
+`w/2 + agentHalf` and forbid obstacles there. `burrow`'s brush already does the discrete
+version of exactly this and states the identity (`(2r+1) * cellSize ≥ minWidthPx`).
+
+Our own validator already does the erosion version: "chamfer 3-4 distance to the nearest
+wall, eroded by half the corridor minimum, then a flood fill" (`arena.nim:2242`). Correct
+in kind; the change the rewrite wants is to run it **as a constructor** (dilate the
+skeleton, exclude) rather than **as a test** (build, measure, reroll).
+
+### 5.3 Sightlines in continuous space — and the honest limit
+
+I3 (no unblocked *horizontal* ray) and I4 as-measured (*axis* runs) are 1-D problems in
+continuous space and are exactly constructible: maintain, per row, the union of the
+obstacles' `y`-projections (I3) or the sorted set of blocked `x`-spans (I4), and insert
+pickets into gaps. `O(n log n)` in the obstacle count, exact, no rasterisation, no
+sampling stride.
+
+The all-directions version (I4′) does not have a clean construction, and I want to be
+precise about why rather than hand-wave. "No free segment of length `L` in any direction"
+means the obstacle set is a **transversal (stabbing set) for all `L`-segments**. That is a
+real and hard geometric covering problem. Two things worth knowing:
+
+- **Pólya's orchard problem** gives an *exact* threshold for the special case of a lattice
+  of discs and rays from the centre: in a square lattice orchard of radius `R` (integer),
+  the view from the centre escapes iff the tree radius `r < 1/√(R² + 1)`
+  ([Allen / *The orchard visibility problem and some variants*, JCSS
+  2007](https://www.sciencedirect.com/science/article/pii/S0022000007000700);
+  [expository notes](https://hlma.hanglung.com/assets/A2B7672D-A423-4A87-9CE4-195588838F32/008.pdf)).
+  Rays from *the centre* is a much weaker statement than rays from *anywhere*, and the
+  generalisation to all pairs costs roughly a factor 2 in radius. Sizing it for our board
+  (playfield radius ≈ 1500 px, lattice pitch ≈ 136 px ⇒ `R ≈ 11`) gives a blocking radius
+  around `pitch/√122 ≈ 12 px` for centre-rays — i.e. a *lattice* arrangement blocks
+  everything with surprisingly small obstacles, but only because a lattice has no
+  irrational-slope channels within a bounded radius. Our obstacles are not lattice-placed
+  and jitter destroys the argument.
+- **Dense forests** (Bishop; Adiceam and others) are the modern general form: point sets
+  such that every segment of length `L` passes within `ε` of a point. They exist, with
+  quantitative bounds, but the densities are not compatible with a 10–25 % cover budget
+  and a fun map.
+
+**Verdict, stated plainly as requested: the all-directions bounded-open-run invariant is
+ONLY CHECKABLE.** The constructive compromise that is actually worth building is a
+**4-direction interval cover** (0°, 45°, 90°, 135°) — run the same 1-D bookkeeping in two
+rotated frames as well as the axis frames. That is still class (A) *for those four
+directions*, it is four times the (already trivial) cost, and it kills the great majority
+of felt gallery shots because human/bot movement and our own `openRun` metric are
+axis-and-diagonal biased anyway.
+
+### 5.4 Where the grid-native methods land
+
+| Method | Continuous-space verdict |
+|---|---|
+| WFC / model synthesis | requires a tiling of the *world*. Port is a rewrite of the map representation, and buys a guarantee we don't need. **Reject for geometry**; keep as an art/skin tool. |
+| Continuous model synthesis (Merrell & Manocha) | works on plane arrangements, genuinely continuous — but it is architectural *modelling*, no playability guarantee. **(C)** for our invariants. |
+| ASP / SAT | inherently discrete. Would force a cell discretisation — but only of the **skeleton**, which is exactly the two-resolution architecture, so this is fine *offline*. |
+| SMT (linear real arithmetic) | **natively continuous.** Real-valued shape coordinates, non-overlap and clearance as linear constraints. This is the right solver if we ever want a solver in the loop. |
+| Rectangular dual / orthogonal drawing | continuous by nature (coordinates are reals; only the combinatorics is discrete). Excellent fit. |
+| Graph grammars | topology is resolution-free; the embedding is where continuity is handled, see §4.4. |
+| Minkowski / erosion | *is* the continuous method. Already in our validator. |
+
+---
+
+## 6. Surviving mandatory symmetry
+
+Symmetry is not an obstacle to constructive generation — it is a **multiplier**, because
+everything you prove in the fundamental domain you get `|Γ|` times over. But there are
+three places where a naive "generate in the wedge, lift by the orbit" silently breaks a
+guarantee, and all three are ours today.
+
+**(1) The seam.** Points on the boundary of the fundamental domain have non-trivial
+stabilisers — a shape straddling the seam is *its own* orbit image and must be
+self-symmetric or the lift double-draws it (or worse, draws a chiral pair that overlaps
+into a solid slab). `hex.nim` already has the vocabulary (`stabilizer`, `actsFreely`,
+`orbitUnique`). The constructive rule: **a shape may straddle the seam only if it is
+invariant under its own stabiliser subgroup** — for a mirror seam, that means symmetric
+about the seam line, which restricts you to rects/discs/diamonds centred on it, or
+polygons built as `P ∪ σ(P)`. Enforce at placement, not at validation. `mapgen_styles`'s
+comment that "the seam side is where a shape meets its own mirror image, so cover placed
+near the seam becomes a central feature" is describing this without enforcing it.
+
+**(2) The invariants are not all fundamental-domain-local.** This is the subtle one.
+
+- I2 (stand cover) **is** wedge-local when the 200 px disc lies inside one fundamental
+  domain — and it does *not* when the base sits near a seam. Then the disc's contents come
+  from two wedges and the budget must be computed on the *lifted* mask.
+- I3 (horizontal rays) is **never** wedge-local: a row's blocked-ness is a property of the
+  full width, and the contributions come from different orbit elements. Our current code
+  knows this — it has three different row-coverage rules for `symMirror`, `symRot180` and
+  `symRot90` (`arena.nim:1948`), with rot90 forced to rebuild the entire obstacle set to
+  answer the question. That is correct, and it is also the reason the sightline pass is
+  expensive.
+- I1 (routes) is **never** wedge-local, obviously — the routes run between wedges.
+
+  **Constructive consequence:** the skeleton and the row-cover bookkeeping must live on
+  the **full board**, generated by lifting a wedge-local *seed* and then doing the
+  bookkeeping globally. The reservation mask (§4.7) should therefore be a full-board
+  structure that is *written* through the orbit and *read* globally. Getting this backwards
+  — doing all bookkeeping in the wedge — is the most likely way to ship a "provable"
+  generator that isn't.
+
+**(3) Chirality.** Klein V4 for 4 teams means two teams see a mirror world (§4.5).
+Geometric fairness holds exactly; behavioural fairness under reflection is an empirical
+claim. And note `symRot90` was removed from the hex formulation because `C4 ⊄ D6` — the
+hex board's group genuinely cannot host a 4-fold rotation, which is why the mirror shows
+up at all.
+
+**The payoff.** Because the lift is exact and integer, **I6 is the one invariant we
+already get for free, and it makes I2 free as a side effect**: if the stand disc is
+wedge-local, one team's cover budget *is* every team's cover budget. Only the seam case
+needs care. That is a good trade and it argues for a `homeDepth` that keeps the stand
+discs clear of the seam — another parameter to clamp (§4.7) rather than validate.
