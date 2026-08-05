@@ -888,9 +888,19 @@ Regime cuts **[engine]**: occlusion-limited ≥ 1.4, mixed 0.25–1.4, range-lim
 
 ### 5.1 Occlusion-limited (small, standard, large)
 
-The gun reaches 85–100% of the long axis, and the small board's width is *exactly* `GunRange`
-**[engine]**. A sightline is essentially never range-limited; if you can see it you can shoot it.
-**Sightline control is the entire design problem** and every property in family E binds hard.
+The gun *reaches* 85–100% of the long axis, and the small board's width is *exactly* `GunRange`
+**[engine]**. But §3.6 splits this in two, and the split is the whole point of the regime idea:
+
+- **Awareness is unlimited.** A sightline is essentially never vision-range-limited. If geometry does
+  not cut the angle, you know where they are.
+- **Lethality is not.** At 400 px — a third of a standard board — a shot lands 36% of the time and
+  time-to-kill is over 3 s. **The board is one awareness zone containing several disjoint lethal
+  zones of ~260 px radius.**
+
+So "sightline control is the entire design problem" is half right and the wrong half is the dangerous
+one. Sightline control governs *information*; only **short-range** sightline control governs
+*killing*. Family E binds hard, but its thresholds must be cut at the lethal radius, not the gun
+range — which is precisely the `chokeCoveredPenalty` and `longRunFrac` bug in §4.2.
 
 - C1 (forcing contact) is free — do not spend generator effort on it.
 - E1/E2/E3 are the binding constraints. F2 (sightline tail) matters more than F1 (density).
@@ -1272,12 +1282,21 @@ statement that survives: *cover belongs wherever the decisive conflict is, and i
 decisive conflict is at the pedestal, not at the seam, because conversion decides matches and kills
 do not.*
 
-**8.2 — "Avoid long sightlines" is vacuous here.** The rule exists for games where weapon range ≪
-map size, so a long lane creates a *sniper* who outranges everyone. In our occlusion-limited regimes
-the gun reaches 85–100% of the long axis (§5.1), so "long sightline" is the default state and the
-rule forbids the map. The transferable statement is about **exposed run**, not sightline length: a
-1000 px sightline you can cross in under a TTK behind cover is fine; a 200 px sightline with no cover
-is not. These are different quantities and only one of them is a constraint.
+**8.2 — "Avoid long sightlines" reaches the right conclusion here for entirely the wrong reason.**
+The rule exists for games where weapon range ≪ map size, so a long lane creates a *sniper* who
+outranges everyone. Our gun nominally reaches 85–100% of the long axis, which would make the rule
+forbid the map — but §3.6 shows a shot at that range lands 14% of the time. **We have no snipers,
+because the aim lattice cannot resolve a body at range.** So long lanes are indeed harmless, but not
+because we obeyed the rule: because the mechanic that makes them dangerous elsewhere does not exist
+here.
+
+That matters for what we do next. The transferable statement is about **exposed run at lethal
+range**, not sightline length: a 1000 px sightline with no threat position inside 300 px of it is
+fine; a 200 px sightline with a defender at one end is not. `longRunFrac`'s 600 px cut is measuring
+the first thing and calling it the second (§4.2). And it means a *deliberate* long lane is a cheap,
+safe way to add legibility and orientation to a board (Güttler's "level orientation" heuristic
+**[lit]**) at almost no combat cost — an option no shooter-design source would offer, because in
+every other shooter it would be suicide.
 
 **8.3 — "Radial symmetry accommodates multiple teams" is false for k = 3 and 6 in this engine.**
 The Level Design Book presents radial symmetry as the natural multi-team answer **[C†]**. §3.2 shows
@@ -1382,19 +1401,30 @@ retire the Goodhart risk permanently.
 
 In descending order of expected value per unit of work:
 
-1. **`travelTime()` in L∞ and a heading-aware exposure budget** (§3.1, §3.3). One helper; corrects
-   every distance-derived threshold in the suite.
-2. **D2 — carry-route cover cadence** (§3.4, §7.6). The highest-value untested property, and it
+0. **Measure hit-rate versus range** off the free field-diagnosis loop. One query. It either
+   confirms §3.6 or refutes it, and §3.6 moves so many numbers that nothing else should be re-tuned
+   until it is settled.
+1. **Re-cut every `GunRange`-derived threshold at the ~260 px lethal radius** (§3.6): the
+   `chokeCoveredPenalty` isovist, `ChokepointSpacingPx`, `longRunFrac`'s 600 px, and any
+   encounter-density law. This is a search-and-replace over constants with an outsized effect.
+2. **Add an absolute stand-side cover FLOOR** to sit beside the existing `standCoverSpread`
+   (§4.2, §7.7). Today two equally naked stands pass. This is the only causally-established property
+   in the suite that the validator does not enforce.
+3. **`travelTime()` in L∞ and a heading-aware exposure budget** (§3.1, §3.3). One helper; corrects
+   every distance-derived threshold.
+4. **D2 — carry-route cover cadence** (§3.4, §7.6). The highest-value untested property, and it
    directly attacks the recorded "we steal now, the carrier dies" failure.
-3. **G1 — conversion feasibility** (§5.4). Two lines; potentially retires a whole size class.
-4. **Move C-class properties from the score into wide feasibility bands** (§6.5). Structural; kills
-   the best-of-K amplification.
-5. **`A(p)` and `Ω(p)`** (§3.5), replacing `interiorFrac` in the score and demoting it to a
-   diagnostic (§6.3).
-6. **Band the sightline tail, not the mean** (§4.1/F2). Small change, large correctness gain.
-7. **Spread-across-teams twin for every metric** (§7.7). Free under exact symmetry; catches symmetry
-   bugs.
-8. **Expressive-range plot of the current generator** (§7.12) before re-tuning any threshold.
+5. **G1 — conversion feasibility** (§5.4). Two lines; potentially retires a whole size class.
+6. **Move C-class properties from the score into wide feasibility bands** (§6.5), starting with
+   `interiorFrac` — currently the highest-weighted term in the score and the largest Goodhart
+   exposure (§4.2, §6.3).
+7. **Raise `routeCountMin` to 3, or stop claiming 3** (§4.2). Either is fine; the drift is not.
+8. **`A(p)` and `Ω(p)`** (§3.5), as the principled replacement for `interiorFrac`.
+9. **Band the sightline tail, not the mean** (§4.1/F2), and **give every metric a spread twin**
+   (§7.7).
+10. **Expressive-range plot of the current generator** (§7.12) before re-tuning any threshold — and
+    note that today's bands are calibrated *as* an expressive-range comparison (arena vs pool), which
+    is not the same thing as a quality calibration.
 
 ---
 
