@@ -19,6 +19,42 @@
 ##
 ## PURITY: like `tools/map_render.nim`, this never installs a map and never
 ## reads the process-wide arena globals.
+##
+## ---------------------------------------------------------------------------
+## THE RANKING, AND WHY IT MUST BE READ NEXT TO THE RENDER
+## ---------------------------------------------------------------------------
+##
+## Measured 2026-08-05, 2-team standard board, seeds 1/2/3. `ENCL/COV` is
+## marginal enclosure per unit wall coverage; `diag` is the P95 diagonal open
+## run, which `map_metrics` does not measure at all (its scan is horizontal and
+## vertical only). Controls: arena 2.05 encl/cov, 0.342 interior, 376 diag;
+## empty board 903 diag.
+##
+##   at its OWN footprint             at MATCHED coverage (~167 permille)
+##   snake    2.51   diag 426         cave     2.61   diag 297
+##   massif   1.26   diag 341         bunker   2.58   diag 371
+##   dorito   1.08   diag 671         snake    2.52   diag 357
+##   beam     0.93   diag 635         beam     1.38   diag 486
+##   temple   0.91   diag 535         dorito   1.12   diag 585
+##   cave     0.83   diag 546         can      1.05   diag 524
+##   bunker   0.78   diag 763         temple   0.52   diag 665
+##   can      0.50   diag 881         massif   0.31   diag 562
+##
+## TWO OF THE TOP THREE MATCHED-COVERAGE SCORES ARE METRIC ARTIFACTS, and that
+## is the most useful thing this tool found. Look at the renders:
+##
+##  * `cave` at 55% pitch scores best in the whole table and renders as a
+##    BARCODE — eight thin parallel vertical stripes. Parallel walls create
+##    "enclosed" floor by definition, so `interiorFrac` loves them; a player
+##    would just be threading identical lanes.
+##  * `bunker` at 34% pitch scores second and renders as CONFETTI — a regular
+##    lattice of ~130 rice grains. Dense fine obstacles block everything,
+##    including diagonals (371, tighter than the arena), and look like nothing.
+##  * `snake` is the only top-three entry whose render is a map.
+##
+## So `interiorFrac` per unit cover rewards FINE-GRAINED and PARALLEL layouts,
+## and both look terrible. Use the ranking to choose which feature buys
+## architecture cheaply — not to choose a density, and never without looking.
 
 import
   std/[algorithm, math, os, random, strformat, strutils],
