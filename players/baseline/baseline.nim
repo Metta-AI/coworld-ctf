@@ -1397,6 +1397,12 @@ proc bestKitDetour(bot: Bot, me, dest: Vec, budget: float): int =
 
 proc resetTransient(bot: Bot) =
   ## Drops per-game memory between rounds (lobby / game-over interstitials).
+  # A latched pedestal is only safe while the thing it caches cannot move, and
+  # the next round can be a different map. Forgetting costs nothing: our own
+  # pedestal is never fogged, so the latch re-locks on the first alive frame,
+  # and until it does the stated endzone centre stands in.
+  for i in 0 ..< PedestalKnown.len:
+    PedestalKnown[i] = false
   bot.enemies.setLen(0)
   bot.mates.setLen(0)
   bot.nadeCharge = 0
