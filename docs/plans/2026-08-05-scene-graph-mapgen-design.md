@@ -166,12 +166,22 @@ a scan goes quiet.
 * `make_connected.py` — Dial's algorithm over a cost grid, wall cost 10,
   object cost 50; joins components by cheapest tunnel. Already ported as
   `src/ctf/burrow.nim`, cost model intact.
-* `mirror.py` — renders a child on one half and copies it across; a *scene*,
-  so symmetry composes with everything else.
-* `dither.py` — stochastically flips cells near a boundary with probability
-  decaying by distance. The archetypal **symmetry-destroying** pass: for us it
-  must run inside the fundamental domain, before the lift, or it breaks team
-  fairness silently.
+* `mirror.py` — a *scene*, so symmetry composes with everything else. It tags
+  an `original` sub-area and one/three `mirrored` ones, runs the child scene on
+  `original`, then a `Mirrored` helper blits the original grid through reversed
+  numpy slices. Odd sizes give the original the extra row/column
+  (`(w + 1) // 2`). **Reflections only** — `horizontal`, `vertical`, `x4`
+  (the Klein four-group). There is no rotation mirror at all, so our
+  `symRot180` and `symRot90` have no analogue to port and the hex D6 orbit
+  even less. Our lift stays ours; what transfers is only the idea that the
+  lift is a scene.
+* `dither.py` — `dither_edges(grid, prob, depth, rng)`: finds 8-neighbour
+  wall/empty boundary cells, BFS-expands a distance field to `depth`, excludes
+  a `depth`-wide border band, and flips each cell with probability
+  `prob * (depth - max(1, dist) + 1) / depth` — linear falloff from the
+  boundary. The archetypal **symmetry-destroying** pass: for us it must run
+  inside the fundamental domain, before the lift, or it breaks team fairness
+  silently and invisibly.
 * `maze.py` (dfs/kruskal), `radial_maze.py`, `room_grid.py`, `convchain.py`,
   `wfc.py`, `asteroid_mask.py`, `mean_distance.py` — content and analysis
   scenes, all region-scoped.
