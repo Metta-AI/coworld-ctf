@@ -257,3 +257,338 @@ Anyone who tells you a fitness function guarantees a property is describing a re
 filter and should say so.
 
 ---
+
+## 4. Deliverable 1 — how to fix a saturating fitness function
+
+### 4.1 Diagnosis: the rubric contradicts its own prose
+
+`DefaultBands` documents `interiorFrac` like this:
+
+> *"enclosed floor … arena 34.2%, pool median 11.8% — the scatter-vs-buildings
+> discriminator"* — and above it: *"The arena is honest SCATTER by design, so its 34% is
+> the **FLOOR to beat**, not the target."*
+
+The band is `lo: 0.25, hi: 0.65`. A map at 0.26 and a map at 0.60 score **identically**.
+The prose says *beat 0.342*; the formula says *don't bother*. The band table's own comments
+already know something the scoring function structurally cannot express.
+
+Generalise that and you have the whole diagnosis:
+
+> **A band expresses "acceptable range". An acceptable range contains no information about
+> which point inside it is better. Therefore no function of the band table can be a good
+> ranker, and no reweighting, rescaling, or margin tweak will make one.** The preference
+> information is not in the data structure.
+
+Two further consequences, both of which we are living:
+
+- **A rubric on which your reference artefact scores exactly 1.000 cannot express
+  "better than the reference."** The arena scores 1.000 by construction (every bound was
+  calibrated to contain it). The ceiling was placed at the control. Anything above the
+  control is invisible.
+- **Reaching 1.000 is therefore not "we made a perfect map." It is "we made a map that is
+  at least as acceptable as the arena on 15 axes."** That is a real and useful statement —
+  it is just a *feasibility* statement, not a *quality* statement.
+
+### 4.2 The trap: "just tighten the bands"
+
+The obvious response to 39/40 seeds at 1.000 is to narrow the bands. Do not do this as the
+ranking fix. Three reasons:
+
+1. **It makes "be the arena" the objective.** Every bound carries `control:` = the arena's
+   value. Tightening toward the control encodes one hand-authored map's *accidents*
+   (`chokeCount 0`, `standRingOpenMin 0.892`, `midCrossCount 5`) as law. That destroys
+   diversity — the exact problem we are trying to solve.
+2. **It has no fixed point.** Any generator that beats the tightened bands re-saturates.
+   You are on a treadmill, and each turn of it further narrows the expressive range.
+3. **It is extrapolation into unobserved territory.** `interiorFrac` has `hi: 0.65` but we
+   have never *seen* a map above ~0.35 — the control is 0.342 and the pool median 0.118.
+   The upper half of that band has never been validated by anything. Tightening toward it
+   is [extremal Goodhart](https://arxiv.org/abs/1803.04585): optimising into a region where
+   the proxy–goal relationship was never established.
+
+Tightening bands is legitimate as **gate recalibration** — raising the feasibility bar
+once a generator reliably clears the old one. It is never the ranking fix.
+
+### 4.3 The structural fix: one metric, one role
+
+Split the metric suite into three disjoint roles, and enforce that **a metric appears in
+exactly one of them**:
+
+```
+Feasibility   F(m) ∈ {0, 1}     validator + hard bands + fairness bands.  A GATE.
+Behaviour     B(m) ∈ R^d        the axes we want VARIETY along.  Drives an ARCHIVE.
+Quality       Q(m) ∈ R          the (very few) things where more is genuinely better.
+```
+
+Today `interiorFrac` is doing all three jobs at once and doing all three badly: it is a
+soft gate, it is the highest-weight quality term (`weight: 3.0`), and it is simultaneously
+the thing we most want variety in. That single overload explains most of the saturation.
+
+§5.2 applies this partition to all 15 bands. The result — worth previewing, because it is
+the finding of this document — is **6 constraints, 8 behaviour axes, and about 1 quality
+term.** We have been treating all 15 as quality.
+
+### 4.4 Where ranking information can actually come from
+
+Once you accept §4.1, there are exactly three sources of preference, and only three:
+
+| Source | Cost | Trustworthiness | Status |
+|---|---|---|---|
+| **Simulation** (`MapPlay`: balanceEntropy, pace, fightTimeFrac, deadFloorFrac) | ~97 s/episode, ≥3 episodes | Ground truth, modulo agent policy | Type exists, plumbed via `tools/map_playtest.nim`, **never used as a ranker** |
+| **Diversity** (distance to the rest of the archive / the shipped corpus) | free — we compute the metrics anyway | A preference we genuinely hold and can state ("seeds must not look alike") | Not implemented |
+| **A human** (Maxwell looking at it) | minutes, does not scale | Highest fidelity | Has already fired twice, informally |
+
+Note what is *not* on that list: any further transformation of the static geometry. The
+static metrics are an *input* to preference, not a source of it.
+
+### 4.5 The recommendation: at saturation, rank on diversity
+
+This is the Lehman–Stanley result applied literally. [*Abandoning Objectives: Evolution
+Through the Search for Novelty Alone*](https://direct.mit.edu/evco/article-abstract/19/2/189/1365/)
+(Lehman & Stanley, *Evolutionary Computation* 19(2), 2011) shows that when an objective
+function stops providing gradient toward the goal, searching for behavioural novelty
+outperforms searching for the objective. Our objective has stopped providing gradient in
+the strongest possible sense: it is *constant* on 39 of 40 candidates.
+
+So:
+
+> **Our fitness saturating at 1.000 is not a crisis. It is the signal to switch from
+> quality search to diversity search.** The generator is now good enough that
+> "is it acceptable?" is answered yes, and the only question left worth asking is
+> "is it *different*?"
+
+Concretely, replace the ranker with a lexicographic rule:
+
+```
+rank(candidate) = ( feasible?,                       # gate: 0 or 1
+                    -distance_to_nearest_shipped,     # novelty: the actual ranker
+                    quality )                         # tie-break, once validated
+```
+
+where `distance_to_nearest_shipped` is Euclidean distance in the normalised BC space of
+§5.3, against the maps already shipped in this session/pool. This is implementable inside
+`selectBestMap` without touching the generator — it needs one extra argument (the
+reference set) and one distance function.
+
+**Cost:** zero extra `evaluateMap` calls. We already compute the vector.
+
+### 4.6 If you must keep a scalar: rank against a frozen reference population
+
+Some callers want a single comparable number. The fix that always ranks and never
+saturates is to make the score a **percentile within a frozen reference population**
+rather than an absolute band satisfaction. This is the scalar analogue of
+[MAP-Elites with Sliding Boundaries](https://arxiv.org/abs/1904.10656) (Fontaine, Lee,
+Soros, De Mesentier Silva, Togelius & Hoover, GECCO '19), which slides archive cell
+boundaries according to the *density* of what has actually been evolved, precisely so that
+a region everyone reaches stops counting as distinguished.
+
+Concrete shape:
+
+1. Generate N = 2000 maps per (teams × size class) from the *current* generator; dump all
+   45 metrics. Freeze as a versioned artefact, e.g.
+   `tests/fixtures/map_reference_population_v1.csv`. Treat it exactly like a test fixture:
+   it changes only in a commit that says it changed.
+2. `percentileScore(m)` = weighted mean over metrics of the candidate's empirical
+   percentile within that frozen population (two-sided for band-shaped metrics: distance
+   from the population median in percentile terms, signed by the band's direction).
+3. Because it is a rank statistic, it is **total by construction** — no plateau, ever.
+4. Because the reference is frozen and versioned, it *is* comparable across generator
+   versions: "the scene-graph generator's median map is at the 97th percentile of the
+   v1 column-lattice population" is a sentence with content, and it does not cap.
+
+**Trade-off, stated honestly:** this measures *unusualness relative to the old generator*,
+not goodness. It is a good instrument for tracking generator change and a bad objective to
+optimise hard (a maximally weird map wins). Use it for reporting; use §4.5 for selection.
+
+### 4.7 Retire `median staticScore` as the headline number
+
+`median staticScore` is now an instrument reading at the top of its range. Replace the
+generator scorecard with four numbers that have headroom:
+
+| Metric | Definition | Today (est.) | Ceiling |
+|---|---|---|---|
+| `feasible%` | fraction of first attempts passing the gate | 22–23% (4-team std) | 100% |
+| `coverage` | occupied archive cells / reachable cells, 10×10 archive | **unknown, likely <10%** | 100% |
+| `QD-score` | Σ quality over occupied cells | unknown | 100 (10×10) |
+| `minSlack` | min over bands of (distance to nearest bound)/margin | reported by `bandReport` | — |
+
+`coverage` is the one to lead with. It is the number that says "this generator makes N
+kinds of map", it is currently unmeasurable because we have no archive, and it is the
+number the scene-graph prototype's own report is complaining about in prose
+("seeds look near-identical").
+
+---
+
+## 5. Deliverable 2 — diversity as a first-class objective: MAP-Elites for CTF maps
+
+### 5.1 What MAP-Elites is, and why it is the right shape for our problem
+
+[MAP-Elites](https://arxiv.org/abs/1504.04909) (Mouret & Clune, 2015) discretises a
+low-dimensional *behaviour* space into cells, and keeps the single best-performing
+solution found for each cell. It returns not one optimum but an **archive**: a diverse set
+of high-performing solutions, one per behavioural niche.
+
+Why this is the right shape for us, specifically:
+
+- **It makes diversity structural rather than a term in a sum.** You cannot trade
+  diversity away for quality, because they live in different data structures. A weighted
+  "+ diversity bonus" term always gets traded away; an archive cell cannot be.
+- **It cannot saturate the way our scalar does.** Filling every cell of a 10×10 archive
+  requires producing maps at `interiorFrac` 0.05 *and* 0.55, which today's generator has
+  never done. The objective has ~90 cells of headroom on day one.
+- **It doubles as expressive range analysis.** [Gravina, Khalifa, Liapis, Togelius &
+  Yannakakis, "Procedural Content Generation through Quality Diversity," IEEE CoG
+  2019](https://arxiv.org/abs/1907.04053) list "online expressivity analysis" as one of
+  four core reasons QD suits PCG: the archive *is* the expressive-range plot, computed
+  during the run.
+- **There is direct precedent in exactly our genre.** ["Procedural Generation of First
+  Person Shooter Maps using MAP-Elites"](https://arxiv.org/html/2605.30570v1) illuminates
+  FPS map space using **area × maxSymmetry** (pure topology) and **pace × averageEccentricity**
+  (mixed), with fitness = *entropy of match balance averaged over five matches* between
+  deliberately mismatched bots. Archive 10 bins per feature = 100 cells; 400 iterations ×
+  10 emitters. They screened **69 candidate features** down to those pairs. That is the
+  same problem we have with 45 metrics, solved the same way.
+
+### 5.2 The three-way partition of our 15 bands
+
+Applying §4.3 to `DefaultBands`. The test for each row is: *do we want every shipped map
+to satisfy this (constraint), do we want variety along it (behaviour), or is more of it
+genuinely and causally better (quality)?*
+
+| Band | Role | Why |
+|---|---|---|
+| `routeCountMin` (bandHard) | **CONSTRAINT** | Already hard. One route is a corridor. |
+| `standRingSpread` | **CONSTRAINT** | *Fairness.* We never want variety in whether the teams got equal objectives. A symmetric map must score 0. |
+| `standCoverSpread` | **CONSTRAINT** | Fairness, same argument. |
+| `chokeCoveredPenalty` | **CONSTRAINT** | "One camper owns every route" is never acceptable at any setting. |
+| `exposedFrac` | **CONSTRAINT** (cap) | A cap with control 0.038 and pool median 0.22 — this is a floor-quality gate, not a dial. |
+| `standRingOpenMin` | **CONSTRAINT** | Its own note says the upper bound is *structural* (the engine carves protected floor around every pedestal). A metric whose range the engine dictates cannot be a design dial. |
+| `interiorFrac` | **BEHAVIOUR** | The scatter↔architecture axis. **The** axis. |
+| `routeCapacityFrac` | **BEHAVIOUR** | Tight↔open. Explicitly scale-free by construction. |
+| `longRunFrac` | **BEHAVIOUR** | Sightline character: brawler map ↔ gallery map. Both are legitimate maps. |
+| `chokeCount` | **BEHAVIOUR** | "Zero is a field; too many is a map of doorways" — that is a *description of an axis*, in the band's own note. |
+| `midCrossCount` | **BEHAVIOUR** | Lanes across midfield. |
+| `midOpenFrac` | **BEHAVIOUR** | Its note says to read it *with* the count — i.e. it is one coordinate of a 2D character, which is what a BC pair is. |
+| `detourMax` | **BEHAVIOUR** | Sprint ↔ winding. |
+| `visDegreeCv` | **BEHAVIOUR** | Uniform board ↔ good-and-bad ground. |
+| `collisionCoverRatio` | **QUALITY (candidate)** | "First contact should happen where there is cover" is a genuine design claim about *outcomes*. It is the only band that is. **It must pass the intervention test in §11.4 before it is allowed to be the ranker.** |
+
+**6 constraints, 8 behaviour axes, 1 quality candidate.** That is the whole explanation of
+the saturation: we have been scoring a feasibility check and a style descriptor as if they
+were quality, and once both are satisfied there is nothing left to rank on. There never
+was.
+
+**Hard rule that falls out:** *anything with `kind: bandHard`, or any band whose purpose is
+fairness, is a constraint and must never be a BC axis.* A BC axis is something you are
+happy to see variety in. You are not happy to see variety in whether the red team's
+pedestal is easier to defend than blue's.
+
+### 5.3 The recommended archives
+
+**Archive A — primary, 2D, human-legible, ERA-plottable.**
+
+| Axis | Metric | Bins | Range | Arena | Pool |
+|---|---|---|---|---|---|
+| x | `interiorFrac` | 10 | 0.00 – 0.60 | 0.342 | median 0.118 |
+| y | `routeCapacityFrac` | 10 | 0.05 – 0.65 | 0.316 | 0.4 – 0.6 |
+
+100 cells. Both are already computed inside `evaluateMap` — **zero additional evaluation
+cost.** Both are fractions, so they are scale-free and one archive serves every size class.
+
+Why this pair, on the Right Variety criteria
+([arXiv:2304.02366](https://arxiv.org/abs/2304.02366), which proposes exactly three tests:
+*fitness independence*, *mutual correlation*, and *alternative-metric correlation*):
+
+- **Structurally different quantities**, so low mutual correlation is plausible:
+  `interiorFrac` is a *local* 8-direction 120 px enclosure probe; `routeCapacityFrac` is a
+  *global* vertex-disjoint max-flow min-cut normalised by the board's short side. One is
+  texture, one is topology.
+- **The plane is the design question.** "How much stuff" × "how much room to move" is
+  literally the scatter-vs-architecture plane the band notes call the discriminator.
+- **The hole is immediately visible.** The arena sits at (0.342, 0.316); the pool sits in a
+  blob around (0.118, 0.5). The generator's output and the control are in *different
+  regions of the plane*, and one plot says so.
+
+**Archive B — secondary: `detourMax` × `visDegreeCv`.** Route shape × exposure texture.
+Arena (1.295, 0.524), pool (1.14, 0.28) — again the control is outside the blob.
+
+**Archive C — if going to 3–4D:** add `midCrossCount` (integer, natural bins 2–12) and
+`chokeCount` (0–6). ⚠️ Both are **counts**, so they scale with board size; either bin them
+per size class or normalise before use. A regular grid costs 10^d cells, so beyond 3D use
+[CVT-MAP-Elites](https://arxiv.org/abs/1610.05729) (Vassiliades, Chatzilygeroudis &
+Mouret), which places *k* centroids from a centroidal Voronoi tessellation instead of a
+grid and therefore lets you choose the archive size directly, independent of dimension.
+
+**Do not guess — measure first.** We already have 150 held-out seeds with full metric
+vectors. Computing the pairwise Spearman ρ matrix over all 45 metrics, plus the
+fitness-independence score for each candidate pair, is a half-day of analysis with no new
+machinery, and it either confirms the pair above or replaces it with a better one. This is
+the cheapest high-value experiment in this document. Do it before writing any archive code.
+
+### 5.4 The archive as a generator: the offline/online split
+
+This is the structural move that makes everything else affordable, and it is available
+today because `evaluateMap` is documented as a pure function.
+
+```
+OFFLINE  (overnight, per teams × size class)
+  genotype  = the scene-graph parameter vector  (indirect encoding, §2b)
+  loop:     select a random occupied cell -> mutate its elite -> construct -> gate ->
+            evaluate -> place in the cell its BC vector lands in, if it beats the
+            incumbent
+  output:   archive of ELITE GENOTYPES (not maps) — a versioned data artefact
+
+ONLINE   (map-request time)
+  seed -> pick an occupied cell (uniform, or from a designer-chosen sub-region = a
+          "map style" selector) -> take that cell's elite genotype -> apply a small
+          seeded mutation -> construct -> validate -> ship
+```
+
+Properties of this design:
+
+- **Latency goes DOWN, not up.** One construction + one validation, versus today's 35–55
+  attempts to fill K=12. It is *faster* than what we ship now.
+- **Character is archive-guaranteed.** Every shipped map came from a cell that was proven
+  reachable and feasible offline. That is the (A)-like coverage guarantee from the
+  technique table: not "this map is good", but "a map of this character exists and we can
+  produce one".
+- **Maps are still fresh.** The elite genotype is *mutated*, not replayed. Seeds do not
+  repeat maps.
+- **Fully deterministic and replay-safe.** seed → cell → genotype → mutation is a pure
+  function chain, which is the same contract `selectBestMap` already requires.
+- **It gives us a style dial for free.** "Give me a tight-architecture map" = restrict the
+  cell sampler to a sub-region of the archive. That is the mixed-initiative capability
+  [Interactive Constrained MAP-Elites](https://arxiv.org/abs/1906.05175) (Alvarez, Dahlskog,
+  Font & Togelius, IEEE CoG 2019) was built to provide, and we would get it as a side
+  effect.
+
+**Risks, stated:**
+
+- The archive becomes a **versioned asset with a lifecycle** — it must be regenerated when
+  the generator or the metric definitions change, exactly like a test fixture. Stale
+  archive = silently shipping the old generator.
+- **League memorisation.** A fixed archive of ~100 cells is a bounded family of map
+  characters; an opponent could in principle adapt to it. Mitigations: mutation radius,
+  larger archive (CVT lets you pick 1000 cells as easily as 100), and periodic
+  regeneration. This is a real consideration for a competitive league and should be
+  decided deliberately rather than discovered.
+- If a cell's elite is feasible but its *mutation neighbourhood* is mostly infeasible, the
+  online step degrades into a rejection loop again. Fix: store per-cell the measured
+  feasible-rate of mutations, and prefer cells with a healthy one. Cheap, and it is data
+  the offline run produces for free.
+
+### 5.5 Constrained MAP-Elites: the version we should actually build
+
+Plain MAP-Elites discards infeasible candidates. At a 22–23% feasible rate that throws
+away 77% of the compute. **Constrained MAP-Elites** ([Khalifa, Lee, Nealen & Togelius,
+"Talakat: Bullet Hell Generation through Constrained Map-Elites," GECCO
+'18](https://arxiv.org/abs/1806.04718)) fuses MAP-Elites with FI-2Pop: **each cell holds
+two populations**, feasible and infeasible. Chromosomes migrate *across* cells when their
+BC changes and *between* populations when their feasibility changes. Talakat used a 3D BC
+map (entropy × risk × distribution, 11 bins each = 1331 cells), 50 chromosomes per cell
+split across the two populations, and — the key part — the **infeasible** population is
+scored by *how close to feasible it is*, not by quality.
+
+That is exactly our situation with the roles renamed. §6 develops it.
+
+---
