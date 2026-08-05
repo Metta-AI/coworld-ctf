@@ -326,6 +326,46 @@ proc measureWindow(
     c.isReachable(cx - dx * (halfSpan + outB), cy - dy * (halfSpan + outB)),
     m.fg)
 
+proc occluderOf(
+  c: MapCtx, shape: ArenaShape, axis: string, isPlug: seq[bool]
+): int =
+  ## Which construction phase built the wall this pane looks into, on its
+  ## SHORTER side? 1 = a sightline-repair plug, 2 = a column obstacle,
+  ## 3 = the centre feature, 0 = the map border (or nothing within range).
+  let
+    b = bboxOf(shape)
+    cx = (b.x0 + b.x1) div 2
+    cy = (b.y0 + b.y1) div 2
+    (dxs, dys) = if axis == "x": (1, 0) else: (0, 1)
+    bxFeature = c.gameMap.center.x - 138
+  var best = int.high
+  var bestWho = 0
+  for sgn in [1, -1]:
+    let (dx, dy) = (dxs * sgn, dys * sgn)
+    var (x, y) = (cx, cy)
+    var guard = 0
+    while c.inBounds(x, y) and inShape(x, y, shape) and guard < 400:
+      x += dx; y += dy; inc guard
+    var d = 0
+    while d < GunRange:
+      if not c.inBounds(x, y): break
+      if c.vision[y * c.w + x]: break
+      x += dx * MarchStep; y += dy * MarchStep; d += MarchStep
+    if d >= best: continue
+    best = d
+    bestWho = 0
+    if c.inBounds(x, y):
+      for si, other in c.obstacles:
+        if other.window or not inShape(x, y, other): continue
+        if isPlug[si]: bestWho = 1
+        elif other.kind == shapeRect and
+            (other.rect.x == bxFeature or
+             other.rect.x == c.w - bxFeature - other.rect.w):
+          bestWho = 3
+        else: bestWho = 2
+        if bestWho == 1: break
+  bestWho
+
 proc classifyWindow(r: WindowRow): WindowClass =
   if r.glassPx == 0: winDead
   elif r.minSide < StandDepthPx: winInert
@@ -346,6 +386,7 @@ type
     valid: bool
 
     windows, winDead, winInert, winDecor, winShallow, winUseful: int
+    blindPanes, blindByPlug, blindByColumn, blindByFeature, blindByBorder: int
     winMinSideMedian: int
 
     ## sightline rows: the validator's 4px scan across [sightlineLoX..HiX]
@@ -472,6 +513,20 @@ proc measureMap(
   result.h = g.height
   result.valid = validateGeneratedMap(g).len == 0
 
+  # --- construction phases (needed before the windows, to attribute blame) --
+  let split = g.plugSplit()
+  result.plugsResolved = split.resolved
+  result.plugsExact = split.exact
+  result.columnShapes = split.colN
+  result.featureShapes = split.featN
+  result.plugShapes = split.plugN
+  var plugIsPlug = newSeq[bool](c.obstacles.len)
+  if split.resolved and split.plugN > 0:
+    let plugStart = split.colN + split.featN
+    for li in plugStart ..< g.leftObstacles.len:
+      for k in 0 ..< c.symMult:
+        plugIsPlug[li * c.symMult + k] = true
+
   # --- windows -------------------------------------------------------------
   var minSides: seq[int]
   for i, shape in c.obstacles:
@@ -487,6 +542,17 @@ proc measureMap(
     row.through = m.depthA + m.depthB
     row.cls = row.classifyWindow()
     minSides.add row.minSide
+    ## WHO blinded this pane? The sightline-repair pass runs BEFORE window
+    ## selection and drops its r28 diamonds at the SAME column x the columns
+    ## use, so a plug lands on a column obstacle that pass 2 then turns to
+    ## glass. Attributing the occluder is what turns that story into a number.
+    if row.minSide < UsefulDepthPx:
+      inc result.blindPanes
+      let who = c.occluderOf(shape, m.axis, plugIsPlug)
+      if who == 1: inc result.blindByPlug
+      elif who == 2: inc result.blindByColumn
+      elif who == 3: inc result.blindByFeature
+      else: inc result.blindByBorder
     case row.cls
     of winDead: inc result.winDead
     of winInert: inc result.winInert
@@ -502,20 +568,7 @@ proc measureMap(
   result.visionOpenRows = rows.visOpen
   result.glassOnlyRows = rows.glassOnly
 
-  # --- plugs ---------------------------------------------------------------
-  let split = g.plugSplit()
-  result.plugsResolved = split.resolved
-  result.plugsExact = split.exact
-  result.columnShapes = split.colN
-  result.featureShapes = split.featN
-  result.plugShapes = split.plugN
-
-  var plugIsPlug = newSeq[bool](c.obstacles.len)
-  if split.resolved and split.plugN > 0:
-    let plugStart = split.colN + split.featN
-    for li in plugStart ..< g.leftObstacles.len:
-      for k in 0 ..< c.symMult:
-        plugIsPlug[li * c.symMult + k] = true
+  # --- plugs: how much of the map's cover is validator prosthetic? ---------
   var plugMask = newSeq[bool](c.w * c.h)
   for i, shape in c.obstacles:
     if not plugIsPlug[i]: continue
@@ -885,6 +938,17 @@ proc main() =
     echo &"  faces another pane       {fg:>5}  {pct(fg, tw)}"
     echo &"  a side is UNREACHABLE    {unreach:>5}  {pct(unreach, tw)}"
     echo &"  flush to the border      {bord:>5}  {pct(bord, tw)}"
+
+    var bp, bpl, bcol, bfeat, bbord = 0
+    for m in rows:
+      bp += m.blindPanes; bpl += m.blindByPlug; bcol += m.blindByColumn
+      bfeat += m.blindByFeature; bbord += m.blindByBorder
+    if bp > 0:
+      echo &"  WHO blinded the {bp} sub-200px panes:"
+      echo &"    a sightline-repair PLUG   {bpl:>5}  {pct(bpl, bp)}"
+      echo &"    a column obstacle         {bcol:>5}  {pct(bcol, bp)}"
+      echo &"    the centre feature        {bfeat:>5}  {pct(bfeat, bp)}"
+      echo &"    the border / nothing      {bbord:>5}  {pct(bbord, bp)}"
 
     var byProv = initTable[string, seq[float]]()
     for r in wins:
