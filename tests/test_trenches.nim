@@ -355,9 +355,13 @@ suite "trenches":
     check rebuilt.trenches == generated.trenches
 
   test "mapPits locks an exact total; odd counts anchor the map center":
+    ## The lock is BEST-EFFORT — a board whose candidate spots cannot host the
+    ## full request places as many as fit — so the seed here has to be one
+    ## whose selected map can seat 12 (4242 seats only 8 after best-of-K
+    ## re-dealt it). That is a property of the seed, not of the lock.
     for count in [0, 1, 4, 7, 12]:
       let gameMap = generateCtfMap(
-        4242, MapGenOverrides(windows: -1, pits: count, pitDensity: -1))
+        1002, MapGenOverrides(windows: -1, pits: count, pitDensity: -1))
       check gameMap.trenches.len == count
       let center = MapRect(
         x: gameMap.center.x - TrenchSize div 2,

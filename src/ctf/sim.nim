@@ -12,6 +12,15 @@ import
 import sim_types, rig_art, arena, map_art, sim_config, sim_state, roster
 export sim_types, rig_art, arena, map_art, sim_config, sim_state, roster
 
+# `map_metrics` is imported for its SIDE EFFECT as much as for its API: its
+# module init installs the static-fitness ranker that `arena.generateCtfMap`
+# selects best-of-K with. Importing it HERE is what makes selection a property
+# of "this binary speaks CTF" rather than of which modules it happened to pull
+# in — a binary missing the hook would generate a different map for the same
+# seed. `tests/test_map_select.nim` pins it.
+import map_metrics
+export map_metrics
+
 proc grenadeSpawnPoints*(gameMap: CtfMap): array[4, tuple[x, y: int]] =
   ## The four grenade spawn points. Sides maps keep the classic corners;
   ## corner maps move them to the edge midpoints (the corners are endzones

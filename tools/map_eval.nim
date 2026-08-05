@@ -251,6 +251,124 @@ proc cmdPool(a: Args) =
   column("visDegreeCv", proc (m: MapMetrics): float = m.visDegreeCv)
   column("staticScore", proc (m: MapMetrics): float = m.staticScore())
 
+const ShiftMetrics = [
+  "interiorFrac", "exposedFrac", "longRunFrac", "routeCapacityFrac",
+  "chokeCount", "collisionCoverRatio", "standRingOpenMin", "standRingSpread",
+  "standCoverSpread", "midCrossCount", "midOpenFrac", "detourMax",
+  "visDegreeCv", "coverPermille",
+]
+  ## Every band-backed metric, so the best-of-K report is a DISTRIBUTION SHIFT
+  ## across the whole rubric rather than one flattering example. A selection
+  ## that only moves the scalar and no metric is selecting noise.
+
+proc quantile(sorted: seq[float], q: float): float =
+  if sorted.len == 0: return 0.0
+  let idx = clamp(int(q * float(sorted.len - 1) + 0.5), 0, sorted.len - 1)
+  sorted[idx]
+
+proc spread(values: seq[float]): string =
+  var s = values
+  s.sort()
+  var mean = 0.0
+  for v in s: mean += v
+  if s.len > 0: mean /= float(s.len)
+  &"min {s.quantile(0.0):7.3f}  p25 {s.quantile(0.25):7.3f}  " &
+    &"med {s.quantile(0.5):7.3f}  p75 {s.quantile(0.75):7.3f}  " &
+    &"max {s.quantile(1.0):7.3f}  mean {mean:7.3f}"
+
+proc cmdBestOf(a: Args) =
+  ## The verification harness for best-of-K selection: the same seeds
+  ## generated BOTH ways (K=1, i.e. the old first-valid draw, and the shipped
+  ## best-of-K), with the hand-authored arena as control. Reports the shift as
+  ## a distribution over every band metric, plus the real per-size-class cost.
+  let
+    spec = a.flag("seeds", "1001-1200")
+    parts = spec.split('-')
+    lo = parts[0].parseInt
+    hi = if parts.len > 1: parts[1].parseInt else: lo
+    teams = a.intFlag("teams", 2)
+    kFlag = a.intFlag("k", 0)
+    overrides = MapGenOverrides(windows: -1, pits: -1, pitDensity: -1)
+  if not mapFitnessInstalled():
+    fail("no map fitness installed — selection would be first-valid")
+  let control = evaluateMap(loadCandidate(ControlMapPath), ControlMapPath)
+  for w in controlWarnings(control, control): echo w
+  var
+    firstMetrics, bestMetrics: seq[MapMetrics]
+    perClassMs, perClassCount, perClassAttempts, perClassValid:
+      array[MapSizeClass, int]
+    improved, tied, regressed = 0
+  for seed in lo .. hi:
+    # K=1 IS the old behaviour: the loop stops at the first valid candidate.
+    let firstMap = generateCtfMap(seed, overrides, teams, k = 1)
+    let started = getMonoTime()
+    let bestMap = generateCtfMap(seed, overrides, teams, k = kFlag)
+    let ms = int((getMonoTime() - started).inMilliseconds)
+    let cls = bestMap.mapSizeClass()
+    perClassMs[cls] += ms
+    inc perClassCount[cls]
+    # Attempt accounting: replayed cheaply, generation only, no scoring.
+    var attempts, valid = 0
+    let want = if kFlag > 0: kFlag else: selectionK(cls)
+    while attempts < 100 and valid < want:
+      if validateGeneratedMap(
+          generateMapAttempt(seed, overrides, teams, attempts)).len == 0:
+        inc valid
+      inc attempts
+    perClassAttempts[cls] += attempts
+    perClassValid[cls] += valid
+    let
+      fm = evaluateMap(firstMap, &"gen:{seed}")
+      bm = evaluateMap(bestMap, &"gen:{seed}")
+    if bm.staticScore() > fm.staticScore() + 1e-9: inc improved
+    elif bm.staticScore() < fm.staticScore() - 1e-9: inc regressed
+    else: inc tied
+    firstMetrics.add fm
+    bestMetrics.add bm
+    stderr.writeLine &"  seed {seed} {cls.sizeName():<9} " &
+      &"first={fm.staticScore():.3f} best={bm.staticScore():.3f} " &
+      &"({valid} valid / {attempts} attempts, {ms}ms)"
+  echo ""
+  echo &"BEST-OF-K SELECTION, seeds {lo}-{hi}, {teams} teams, " &
+    &"""k={(if kFlag > 0: $kFlag else: "per size class")}"""
+  echo &"ranker: {mapFitnessLabel()}"
+  echo ""
+  echo &"CONTROL  arena  staticScore = {control.staticScore():.3f}"
+  echo ""
+  var firstScores, bestScores: seq[float]
+  for m in firstMetrics: firstScores.add m.staticScore()
+  for m in bestMetrics: bestScores.add m.staticScore()
+  echo "staticScore"
+  echo "  K=1  (first valid)  " & firstScores.spread()
+  echo "  best-of-K           " & bestScores.spread()
+  echo &"  seeds improved {improved}, unchanged {tied}, regressed {regressed}"
+  echo ""
+  echo "PER-METRIC DISTRIBUTION SHIFT (median, then p25..p75)"
+  echo &"""  {"metric":<22}{"control":>9}{"K=1 med":>10}{"best med":>10}""" &
+    &"""{"delta":>9}   {"K=1 p25..p75":>18}   {"best p25..p75":>18}"""
+  for name in ShiftMetrics:
+    var fv, bv: seq[float]
+    for m in firstMetrics: fv.add m.metricValue(name)
+    for m in bestMetrics: bv.add m.metricValue(name)
+    fv.sort(); bv.sort()
+    let
+      fMed = fv.quantile(0.5)
+      bMed = bv.quantile(0.5)
+    echo &"  {name:<22}{control.metricValue(name):9.3f}{fMed:10.3f}" &
+      &"{bMed:10.3f}{bMed - fMed:+9.3f}   " &
+      &"{fv.quantile(0.25):8.3f}..{fv.quantile(0.75):<8.3f}   " &
+      &"{bv.quantile(0.25):8.3f}..{bv.quantile(0.75):<8.3f}"
+  echo ""
+  echo "COST (generate + validate + score, per shipped map)"
+  echo &"""  {"class":<10}{"maps":>6}{"K":>4}{"attempts":>10}{"valid":>7}""" &
+    &"""{"ms/map":>9}"""
+  for cls in MapSizeClass:
+    if perClassCount[cls] == 0: continue
+    let n = perClassCount[cls]
+    echo &"  {cls.sizeName():<10}{n:6}{selectionK(cls):4}" &
+      &"{perClassAttempts[cls] / n:10.1f}{perClassValid[cls] / n:7.1f}" &
+      &"{perClassMs[cls] / n:9}"
+
 proc cmdRank(a: Args) =
   let
     spec = a.flag("seeds", "1001-1040")
@@ -511,6 +629,8 @@ map_eval — the map-generator fitness harness (arena is ALWAYS the control)
   map_eval score  [map ...] [--detail]  static metrics (arena prepended)
   map_eval pool   [--detail]            the 20 curated pool seeds vs arena
   map_eval rank   --seeds LO-HI [--top N] [--teams N]
+  map_eval bestof --seeds LO-HI [--teams N] [--k N]
+                                        K=1 vs best-of-K, per-metric shift
   map_eval play   <map> --episodes N [--out DIR] [--seats N] [--teams N]
 
 maps are "arena", "gen:<seed>", "pool:<index>", or a mapSpec .json path.
@@ -528,6 +648,7 @@ when isMainModule:
     of "score": cmdScore(a)
     of "pool": cmdPool(a)
     of "rank": cmdRank(a)
+    of "bestof": cmdBestOf(a)
     of "play": cmdPlay(a)
     else:
       stderr.writeLine "unknown command: " & argv[0]

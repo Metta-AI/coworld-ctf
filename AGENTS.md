@@ -60,11 +60,28 @@ the same change.
   (`mirror`/`rot180`), `mapColumns`, `mapWindows`, `mapCenterFeature`,
   `mapEndzone` (+ `mapEndzoneRadius` / `mapBaseDepth`).
   Tools accept `gen:<seed>` / `pool:<idx>` map paths.
-- **Endzone archetypes** are drawn per seed from a SEPARATE RNG stream
-  (`seed xor const`) so the main draw order never shifts: a seed that lands
-  on the classic `column` generates byte-for-byte the map it always did,
-  and only `disc` / `square` seeds are new terrain. Keep that property when
-  adding draws — it is what makes an archetype addition reviewable.
+- **Every generation SCENE draws from its own RNG sub-stream**
+  (`src/ctf/map_seed.nim`): `mapSeed(seed, attempt).stream("terrain")` for a
+  scene selection re-rolls, `.seedStream("layout")` for one that belongs to
+  the seed, and `rng.spawn("room:7")` for a child node inside a scene (one
+  parent draw, any depth). Scene names are free-form strings, not an enum:
+  a scene that does not exist yet must be able to appear without re-dealing
+  the ones that do. Never build a `MapRng` from a raw integer and never
+  thread one stream through two scenes.
+- **`generateCtfMap` is best-of-K**, not first-valid: `arena.selectBestMap`
+  draws K valid candidates of one seed and ships the highest
+  `map_metrics.staticScore`. The ranker takes a candidate-producing callback
+  and knows nothing about the current generator — a replacement generator
+  passes its own `produce` and inherits selection unchanged. K comes from
+  `map_rules.MapSelectionK` per size class, chosen so one generated map
+  costs ~1 s at every size. The scorer is installed by `map_metrics`'s
+  module init and `sim` imports it for that side effect — a binary that
+  imports `ctf/arena` alone silently falls back to first-valid and generates
+  a DIFFERENT map for the same seed.
+- **`tests/fixtures/map-validation-baseline.tsv`** pins the raw first draw's
+  validator verdict for 402 (teams, seed) pairs. Regenerate with
+  `nim c -d:release -r tools/gen_validation_baseline.nim` whenever the draw
+  order or the validators change, and report the pass-rate line it prints.
 - Replays pin the resolved geometry as `mapSpec` in their config JSON —
   playback never re-runs the generator, so generator changes cannot break
   existing replays.
@@ -88,10 +105,13 @@ from any static host; images are inlined). **Regenerate it whenever
 `map_pool.nim` or the generator changes**:
 
 ```bash
-nim c -r tools/gen_map_pool.nim              # only when re-curating seeds
-nim c -r tools/render_map_pool.nim pool-preview
+nim c -d:release -r tools/gen_map_pool.nim   # only when re-curating seeds
+nim c -d:release -r tools/render_map_pool.nim pool-preview
 python3 tools/build_pool_review.py pool-preview
 ```
+
+`-d:release` is not optional any more: every pool entry is a full best-of-K
+selection, so both Nim steps generate and score 20 maps.
 
 Commit the refreshed `docs/pool-review.html` together with the pool/
 generator change — a stale page misrepresents what the pool serves.

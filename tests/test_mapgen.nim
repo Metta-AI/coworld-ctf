@@ -35,7 +35,18 @@ suite "procedural terrain":
   test "same seed generates the same map":
     check generateCtfMap(4242) == generateCtfMap(4242)
 
-  test "every pool seed validates on its first attempt":
+  test "every pool seed ships a valid map under its own seed":
+    ## Renamed from "validates on its first attempt". `cachedMap` goes through
+    ## `generateCtfMap`, so what this has always actually checked is the
+    ## SHIPPED map — and first-attempt validity is no longer the curation rule
+    ## (`tools/gen_map_pool.nim` curates on the shipped best-of-K map now).
+    ##
+    ## `genSeed == seed` is the load-bearing half. The old re-roll walked
+    ## `seed + attempt`, so a pool entry needing one re-roll silently became a
+    ## DIFFERENT seed on a different board size — the first draw off the flat
+    ## stream was the size class. That is why the pool used to have to demand
+    ## first-attempt validity. It is structural now: every candidate for a
+    ## seed is the same board, under the same seed.
     var widths: seq[int]
     for seed in MapPoolSeeds:
       let gameMap = cachedMap(seed)
