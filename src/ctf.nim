@@ -1,8 +1,19 @@
 import
-  std/[json, os, sysrand],
+  std/[json, os, strutils, sysrand],
   bitworld/runtime,
   ctf/sim,
-  ctf/server
+  ctf/server,
+  ctf/team_colors
+
+const TeamColorsEnv = "CTF_TEAM_COLORS"
+  ## The platform's resolved team -> display-slug mapping for this episode,
+  ## as the `?colors=` payload of docs/COLOR_CONTRACT.md §5 (base64 of UTF-8
+  ## JSON; raw JSON also accepted for hand runs). An ENV var, not a CLI flag:
+  ## bitworld/runtime owns the option parser and raises on anything it does not
+  ## know, and the display mapping deliberately stays OUT of GameConfig so it
+  ## can never touch the game hash or the recorded replay config.
+  ##
+  ## Unset / malformed / version-skewed => every team renders its stock color.
 
 const LegacyFixedSeed = 0xA6019
   ## The old compiled-in default seed. Hosted variant configs historically
@@ -65,6 +76,12 @@ proc echoStartupConfig(
     " maxTicks=", config.maxTicks.limitText(),
     " maxGames=", config.maxGames.limitText(),
     " map=", config.mapPath
+  var recolored: seq[string]
+  for team in Team:
+    if teamDisplayIsRecolored(team):
+      recolored.add teamText(team) & "->" & teamDisplaySlug(team)
+  if recolored.len > 0:
+    echo "CTF team colors: ", recolored.join(" ")
 
 when isMainModule:
   let
@@ -75,6 +92,11 @@ when isMainModule:
           ".bitreplay")
       else:
         ""
+
+  # Display-only team recolor, installed BEFORE anything bakes a sprite (paint
+  # stains are append-only and can never be re-sent, so there is no live
+  # recolor). A no-op when the env var is absent.
+  setTeamDisplayColors(getEnv(TeamColorsEnv))
 
   var config = defaultGameConfig()
   if seedPinned(runtimeConfig.config):

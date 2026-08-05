@@ -7,7 +7,7 @@
 import
   std/[math, os],
   bitworld/aseprite, bitworld/server, bitworld/spriteprotocol, pixie,
-  sim_types, rig_art, arena
+  sim_types, rig_art, arena, team_colors
 
 const
   TrenchBevelPx = 8                          ## width of the pit's inner
@@ -415,12 +415,18 @@ proc emberThroughCracks(base, ember: ColorRGBA, strength: float): ColorRGBA =
   overTint(base, rgba(ember.r, ember.g, ember.b, uint8(clamp(a, 0.0, 255.0))))
 
 proc teamEndzoneColor(team: Team): ColorRGBA =
-  ## Returns the floor-glow ember color for one team's endzone.
-  case team
-  of Red: RedEndzoneColor
-  of Blue: BlueEndzoneColor
-  of Green: GreenEndzoneColor
-  of Yellow: YellowEndzoneColor
+  ## Returns the floor-glow ember color for one team's endzone — through the
+  ## display funnel, so a recolored team's floor matches its cogs and paint.
+  ## Returns the stock *EndzoneColor when no mapping is installed.
+  teamDisplayColor(team)
+
+proc loadPedestalImage(dir: string, team: Team): Image =
+  ## The team's pedestal master. A recolored team either borrows another wire
+  ## color's hand-painted pedestal or gets the red master re-tinted to its
+  ## display color; a stock team reads its own file untouched.
+  let spec = teamArtTint(team, propArt = true)
+  result = readImage(dir / "data/ped_" & teamText(spec.sourceTeam) & ".png")
+  result.applyTeamArtTint(spec, propArt = true)
 
 type EndzoneTint = object
   ## One team's precomputed endzone paint job: its capture-zone box, ember
@@ -559,7 +565,7 @@ proc renderArenaRgbaPair*(
     floorTex = readImage(dir / "data/arena_floor.png")
   var pedSprs: array[Team, Image]
   for team in gameMap.teams():
-    pedSprs[team] = readImage(dir / "data/ped_" & teamText(team) & ".png")
+    pedSprs[team] = loadPedestalImage(dir, team)
   # The art mask at output resolution: border + obstacle shapes from float
   # geometry, minus the spinning center diamonds (drawn live as objects).
   # Window pixels (glass) get their own mask in the same per-shape pass: wall
@@ -728,7 +734,7 @@ proc loadMapLayers*(gameMap: CtfMap, withEndzoneGlow = true):
     floorTex = readImage(dir / "data/arena_floor.png")
   var pedSprs: array[Team, Image]
   for team in gameMap.teams():
-    pedSprs[team] = readImage(dir / "data/ped_" & teamText(team) & ".png")
+    pedSprs[team] = loadPedestalImage(dir, team)
   ## Pass 1: the boolean wall mask (border + obstacles), shared by the shading
   ## bevel and the collision masks so art and geometry can never disagree.
   ## Rasterized per shape (isArenaWall per pixel scans the whole obstacle

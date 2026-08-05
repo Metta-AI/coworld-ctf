@@ -91,14 +91,38 @@ var Module = window.Module || {};
   async function start() {
     if (started || !runtimeReady || !core) return;
     started = true;
-    var replayUrl = new URLSearchParams(location.search).get('replay');
+    var params = new URLSearchParams(location.search);
+    var replayUrl = params.get('replay');
     if (!replayUrl) throw new Error('Missing required replay URL');
+    var colors = params.get('colors');
     var response = await fetch(replayUrl, { credentials: 'omit', mode: 'cors' });
     if (!response.ok) {
       throw new Error('Replay request returned HTTP ' + response.status);
     }
     var bytes = new Uint8Array(await response.arrayBuffer());
     if (!bytes.length) throw new Error('Replay response was empty');
+    // Team recolor (docs/COLOR_CONTRACT.md §5): hand the raw ?colors= value to
+    // the runtime, which decodes it (base64 -> JSON -> slug -> palette hex) so
+    // the board and the chrome can never disagree, and renders stock for any
+    // malformed or version-skewed payload.
+    //
+    // THE PLACEMENT IS LOAD-BEARING, keep this call glued to ctf_load_replay:
+    //  - it must be BEFORE the load, which bakes the first frame — every
+    //    team-colored sprite (and the append-only paint stains) is baked once
+    //    and cached, so there is no second chance;
+    //  - it must be AFTER emscripten's callMain(). Module.onRuntimeInitialized
+    //    fires BEFORE main runs, and main executes Nim's module-level
+    //    initializers — which reset the display mapping straight back to stock.
+    //    Calling from the synchronous head of start() looked correct and was
+    //    silently undone. Anything after `await fetch` is safely past main, and
+    //    ctf_load_replay has the same requirement, so adjacency is the rule.
+    if (colors && Module._ctf_set_team_colors) {
+      try {
+        copyIntoRuntime(new TextEncoder().encode(colors), function (p, n) {
+          Module._ctf_set_team_colors(p, n);
+        });
+      } catch (ignored) { /* stock colors; never block playback */ }
+    }
     var loaded = 0;
     copyIntoRuntime(bytes, function (pointer, length) {
       loaded = Module._ctf_load_replay(pointer, length);

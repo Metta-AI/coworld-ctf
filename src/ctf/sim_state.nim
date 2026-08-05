@@ -6,8 +6,8 @@
 
 import
   std/[random, strutils],
-  bitworld/spriteprotocol, pixie,
-  sim_types, arena, sim_config
+  pixie,
+  sim_types, arena, sim_config, team_colors
 
 proc lobbyIsStarting*(sim: SimServer): bool =
   ## Returns whether the lobby is in the start countdown.
@@ -75,16 +75,11 @@ proc teamPaintRgba*(color: uint8): ColorRGBA =
   ## `Palette[BlueTeamColor]` is a muted lavender (131,118,156) that matches the
   ## blue a viewer sees nowhere else on the board. A non-team color (an
   ## individual player slot) falls back to its palette entry.
-  if color == RedTeamColor:
-    RedEndzoneColor
-  elif color == BlueTeamColor:
-    BlueEndzoneColor
-  elif color == GreenTeamColor:
-    GreenEndzoneColor
-  elif color == YellowTeamColor:
-    YellowEndzoneColor
-  else:
-    Palette[color and 0x0f]
+  ##
+  ## Now a thin alias over `team_colors.teamTrueColorRgba`, so a team the
+  ## platform recolored (docs/COLOR_CONTRACT.md) drags its paint FX with it.
+  ## Identical to the old four-way case with no mapping installed.
+  teamTrueColorRgba(color)
 
 
 proc playerText*(sim: SimServer, playerIndex: int): string =

@@ -218,6 +218,37 @@ Rules:
   picker and are never moved.
 - The payload carries slugs, not hexes: the viewer translates slug → `game` hex via
   its own copy of `team_palette.json`. The platform never sends raw colors.
+- A `teams` entry may carry `shimmer` with **no** `slug` (that policy shimmers, the
+  team keeps its stock color). The viewer accepts it.
+
+## 5.1 How the viewer receives it
+
+The board is **server-rendered** — team color is baked into sprite RGBA in Nim and
+shipped over the sprite protocol — so the mapping has to reach the *engine*, not
+just the page. `src/ctf/team_colors.nim` is the single funnel; it accepts the raw
+param value (base64 JSON, or plain JSON for hand runs) and never raises.
+
+| Delivery path | How the mapping arrives |
+|---|---|
+| **Static WASM bundle** (`replay-viewer/`, the Observatory production path) | `?colors=` on the board URL. `static_replay.js` hands the raw value to the exported `ctf_set_team_colors(ptr, len)` immediately before `ctf_load_replay`. The league shell (`league.html`) forwards `?colors=` verbatim onto the board iframe's `src`. |
+| **Native server** (`bin/ctf-server`) | The `CTF_TEAM_COLORS` environment variable, read in `src/ctf.nim` before the server loop starts. It is an env var, not a CLI flag, because `bitworld/runtime` owns the option parser and rejects unknown options; and it stays out of `GameConfig` so a display choice can never reach the game hash or the recorded replay config. The page still takes `?colors=` for its own chrome. |
+
+Two ordering rules that are easy to get wrong and fail *silently*:
+
+- **Before the first bake.** Every team-colored sprite is baked once and cached,
+  and paint stains are append-only behind a send cursor. A mapping installed
+  after the first frame changes nothing. `setTeamDisplayColors` therefore
+  refuses a second call.
+- **After the runtime's `main()`.** On wasm, `Module.onRuntimeInitialized` fires
+  *before* emscripten calls `main`, and `main` runs Nim's module-level
+  initializers — which reset the mapping to stock. The call must sit next to
+  `ctf_load_replay`, which has the same constraint.
+
+The browser chrome resolves the same payload independently (CSS custom
+properties + the FPV cog art), reading slug → hex from `window.CTF_PALETTE`,
+which is **generated** from `data/team_palette.json` by the same Nim module the
+engine paints with (`teamPaletteJs`, emitted alongside `window.CTF_WIRE`). A
+palette change needs no JavaScript edit, and the hexes are never re-typed.
 
 ## 6. Vendoring guidance (webpage repo)
 

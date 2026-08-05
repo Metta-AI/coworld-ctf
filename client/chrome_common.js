@@ -39,12 +39,203 @@
 // (uiToggle below), so whatever launches a replay can preconfigure the chrome.
 // Current params: ?spoilers=0|1 — future kills / flag story / winner / momentum
 // past the playhead on the scrubber (default 1, the classic broadcast chrome).
+// ---- team display colors (docs/COLOR_CONTRACT.md) --------------------------
+// The platform may recolor a team for DISPLAY only: ?colors=<base64 JSON> maps
+// each WIRE team word (red|blue|green|yellow — those words are the observation
+// schema and never change) to a palette slug. window.CTF_PALETTE, generated
+// from data/team_palette.json by the same Nim module the engine paints with
+// (src/ctf/team_colors.nim), translates slug -> in-game hex, so the hexes are
+// never re-typed here.
+//
+// BOOT TIME, immutable per page load: this runs at script load — before either
+// page instantiates ChromeCommon — and rewrites the :root --red/--blue/--green/
+// --yellow custom properties, so the whole --tc utility chain and every
+// team-colored CSS rule follows on the FIRST paint. With no param, nothing is
+// written and the page renders exactly as it always has. Any malformed,
+// unknown-version or unknown-slug payload falls back to stock; this never
+// throws and never blanks the page.
+window.CtfTeamColors = (function () {
+  var WIRE = ['red', 'blue', 'green', 'yellow'];
+  var tint = {}, shim = {}, moved = {}, slugOf = {};
+
+  function paletteColors() {
+    return (window.CTF_PALETTE && window.CTF_PALETTE.colors) || [];
+  }
+  function hexForSlug(slug) {
+    var colors = paletteColors();
+    for (var i = 0; i < colors.length; i++) {
+      if (colors[i].slug === slug) return colors[i].game;
+    }
+    return null;
+  }
+  function entryForSlug(slug) {
+    var colors = paletteColors();
+    for (var i = 0; i < colors.length; i++) {
+      if (colors[i].slug === slug) return colors[i];
+    }
+    return null;
+  }
+  // Stock = the palette's own wire-tagged entry; on a raw file:// open with no
+  // generated palette block, the page's existing :root var is the same value.
+  function stockHex(team) {
+    var fromPalette = hexForSlug(team);
+    if (fromPalette) return fromPalette;
+    try {
+      return (getComputedStyle(document.documentElement)
+        .getPropertyValue('--' + team) || '').trim() || null;
+    } catch (e) { return null; }
+  }
+  function decodePayload(raw) {
+    if (!raw) return null;
+    // Same encoding as ?standings= : base64 of UTF-8 JSON. Raw JSON is also
+    // accepted so a hand-built debug URL works.
+    try { return JSON.parse(decodeURIComponent(escape(atob(raw)))); }
+    catch (e) {
+      try { return JSON.parse(raw); } catch (e2) { return null; }
+    }
+  }
+
+  var raw = null;
+  try { raw = new URLSearchParams(location.search).get('colors'); } catch (e) {}
+
+  WIRE.forEach(function (t) {
+    tint[t] = stockHex(t); shim[t] = null; moved[t] = false; slugOf[t] = t;
+  });
+
+  var changed = false;
+  var payload = decodePayload(raw);
+  var wantV = (window.CTF_PALETTE && window.CTF_PALETTE.payloadV) || 1;
+  if (payload && payload.v === wantV && payload.teams &&
+      typeof payload.teams === 'object') {
+    WIRE.forEach(function (team) {
+      var entry = payload.teams[team];
+      if (!entry || typeof entry !== 'object') return;
+      // shimmer is a separate feature: parsed and exposed here, never a color.
+      if (typeof entry.shimmer === 'string') shim[team] = entry.shimmer;
+      if (typeof entry.slug !== 'string') return;
+      var hex = hexForSlug(entry.slug);
+      if (!hex) return;                  // unknown slug (skew) => keep stock
+      tint[team] = hex;
+      slugOf[team] = entry.slug;
+      if (entry.slug !== team) { moved[team] = true; changed = true; }
+    });
+  }
+  if (changed) {
+    try {
+      var root = document.documentElement;
+      WIRE.forEach(function (t) {
+        if (tint[t]) root.style.setProperty('--' + t, tint[t]);
+      });
+    } catch (e) {}
+  }
+
+  // ---- pre-tinted ART, client side -----------------------------------------
+  // The FPV billboard blits soldier_<team>_front.png, which is tinted offline.
+  // Mirrors src/ctf/team_colors.nim teamArtTint/retintTeamImage so the inset
+  // cog matches the board cog: a team displayed as another WIRE color loads
+  // that color's hand-made PNG, and an added slug re-tints in a canvas. The
+  // gate is the art's own hue — the team-carrying pixels cluster at the stock
+  // team hue while the cyan visor sits at 180 in every master, so the visor,
+  // ink and shadow never move. Keep the constants in step with the Nim ones.
+  var HUE_BAND = 20, HUE_SOFT = 10, SAT_LO = 0.10, SAT_HI = 0.22;
+
+  function hexToRgb(hex) {
+    return [parseInt(hex.substr(1, 2), 16), parseInt(hex.substr(3, 2), 16),
+            parseInt(hex.substr(5, 2), 16)];
+  }
+  function rgbToHsv(r, g, b) {
+    r /= 255; g /= 255; b /= 255;
+    var mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn, h = 0;
+    if (d > 1e-6) {
+      if (mx === r) h = (60 * ((g - b) / d) + 360) % 360;
+      else if (mx === g) h = 60 * ((b - r) / d) + 120;
+      else h = 60 * ((r - g) / d) + 240;
+    }
+    return [h, mx > 0 ? d / mx : 0, mx];
+  }
+  function hsvToRgb(h, s, v) {
+    var h6 = ((h / 60) % 6 + 6) % 6, i = Math.floor(h6), f = h6 - i;
+    var p = v * (1 - s), q = v * (1 - s * f), t = v * (1 - s * (1 - f));
+    var m = [[v, t, p], [q, v, p], [p, v, t], [p, q, v], [t, p, v], [v, p, q]][i];
+    return [m[0] * 255, m[1] * 255, m[2] * 255];
+  }
+
+  // How to source one team's pre-tinted art. { team, retint, from, to }.
+  function artPlan(team) {
+    var plan = { team: team, retint: false, from: null, to: null };
+    if (!moved[team]) return plan;
+    var entry = entryForSlug(slugOf[team]);
+    if (!entry) return plan;
+    if (entry.wire) { plan.team = entry.wire; return plan; }
+    plan.retint = true;
+    plan.from = stockHex(team);
+    plan.to = entry.game;
+    return plan;
+  }
+
+  // Returns a canvas holding `img` re-tinted from -> to, or null if it cannot
+  // be done (tainted canvas, zero-size image); callers fall back to the image.
+  function retintImage(img, fromHex, toHex) {
+    try {
+      var w = img.naturalWidth, h = img.naturalHeight;
+      if (!w || !h) return null;
+      var cv = document.createElement('canvas');
+      cv.width = w; cv.height = h;
+      var cx = cv.getContext('2d');
+      cx.drawImage(img, 0, 0);
+      var data = cx.getImageData(0, 0, w, h);
+      var px = data.data;
+      var src = rgbToHsv.apply(null, hexToRgb(fromHex));
+      var dst = rgbToHsv.apply(null, hexToRgb(toHex));
+      var dh = ((dst[0] - src[0] + 180) % 360 + 360) % 360 - 180;
+      var ss = src[1] > 1e-3 ? dst[1] / src[1] : 1;
+      var vs = src[2] > 1e-3 ? dst[2] / src[2] : 1;
+      for (var i = 0; i < px.length; i += 4) {
+        if (px[i + 3] === 0) continue;
+        var hsv = rgbToHsv(px[i], px[i + 1], px[i + 2]);
+        var dist = Math.abs(((hsv[0] - src[0] + 180) % 360 + 360) % 360 - 180);
+        if (dist >= HUE_BAND + HUE_SOFT || hsv[1] <= SAT_LO) continue;
+        var wgt = Math.min(1, Math.max(0, (HUE_BAND + HUE_SOFT - dist) / HUE_SOFT)) *
+                  Math.min(1, Math.max(0, (hsv[1] - SAT_LO) / (SAT_HI - SAT_LO)));
+        if (wgt <= 0) continue;
+        var out = hsvToRgb(
+          hsv[0] + wgt * dh,
+          Math.min(1, hsv[1] * (1 + wgt * (ss - 1))),
+          Math.min(1, hsv[2] * (1 + wgt * (vs - 1))));
+        px[i] = out[0]; px[i + 1] = out[1]; px[i + 2] = out[2];
+      }
+      cx.putImageData(data, 0, 0);
+      // Expandos so the canvas is a drop-in for the Image it replaces: every
+      // caller reads naturalWidth/naturalHeight/complete and drawImage takes a
+      // canvas source unchanged.
+      cv.naturalWidth = w; cv.naturalHeight = h; cv.complete = true;
+      return cv;
+    } catch (e) { return null; }
+  }
+
+  return {
+    changed: changed,
+    param: function () { return raw; },
+    teams: WIRE,
+    hex: function (team) { return tint[team] || null; },
+    slug: function (team) { return slugOf[team] || team; },
+    shimmer: function (team) { return shim[team] || null; },
+    isRecolored: function (team) { return !!moved[team]; },
+    artPlan: artPlan,
+    retintImage: retintImage
+  };
+})();
+
 window.ChromeCommon = function (ctx) {
   var $ = function (id) { return document.getElementById(id); };
 
   // ---- palette (mirrors board tints so chrome matches the arena) ----
-  var RED = '#e0523a', BLUE = '#3f7cc4', AMBER = '#e8a33d', PAPER = '#f2e8d8';
-  var GREEN = '#45a85e', YELLOW = '#ddc531';
+  // Team tints come from the display funnel (window.CtfTeamColors above), which
+  // is the stock palette unless the page carries a ?colors= mapping.
+  var TC = window.CtfTeamColors;
+  var RED = TC.hex('red') || '#e0523a', BLUE = TC.hex('blue') || '#3f7cc4';
+  var AMBER = '#e8a33d', PAPER = '#f2e8d8';
+  var GREEN = TC.hex('green') || '#45a85e', YELLOW = TC.hex('yellow') || '#ddc531';
 
   // ---- teams (2-4, data-driven) --------------------------------------------
   // The chrome renders whatever teams the state frame carries, in this
