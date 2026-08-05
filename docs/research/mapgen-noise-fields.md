@@ -239,7 +239,7 @@ an (A) with no named property is not an (A).
 | 5.2 | **Worley F2−F1** | **(B)** | — | same | Voronoi *cracks* — a connected thin-wall network, i.e. the one cellular variant that is topologically room-like |
 | 5.3 | **Poisson-disk (Bridson)** | **(A)** | **min separation ≥ r between all samples** | O(N) | Guaranteed inter-obstacle gaps ⇒ guaranteed corridor width |
 | 5.4 | **Poisson-disk with r > 2R** | **(A)** | **+ floor connectivity, no sealed pockets** | O(N) | One-line proof, replaces a flood-fill repair |
-| 5.6 | **Maximal Poisson-disk (Ebeida)** | **(A)** | **+ covering: no gap > 2r (an r-net)** | O(N log N) | Bounds *dead floor* from above — the max-void guarantee |
+| 5.6 | **Maximal Poisson-disk (Ebeida)** | **(A)** | **+ covering: every point of the board is within `r` of a sample (an r-net)** | E[O(N log N)] time, O(N) mem | Bounds *dead floor* from above — the max-void guarantee. Also gives Delaunay min-angle > 30° for free |
 | 5.7 | **Jittered/stratified grid** | **(A)** | **exactly one sample per cell; min sep ≥ period − 2·jitter** | O(N) | Free version of the above, weaker. **Our `genScatter` violates its own** (§5.5) |
 | 5.8 | **Lloyd relaxation / CVT** | **(B)** | — | O(iters·N log N) | Evens out cell sizes. Converges to a *local* optimum only — no uniformity bound |
 | 5.9 | **R2 / golden-ratio low-discrepancy** | **(B)** | (bounded discrepancy is proven; min-separation is *conjectural* for R2) | O(1)/sample, stateless | Deterministic, seekable, no memory. See the honesty note in §5.9 |
@@ -512,8 +512,36 @@ points and return a function of them:
 | **F2** | distance to 2nd nearest | Similar, offset |
 | **F2 − F1** | 0 exactly on the Voronoi boundary, rising inward | **Voronoi cell edges — a connected crack network** |
 
-Distance metric matters: Euclidean gives round cells, Manhattan gives
-axis-aligned diamond cells (**do not use — see §2.4**), Chebyshev gives squares.
+Distance metric matters. Worley's paper names exactly two alternatives to
+Euclidean, and it is worth quoting him because the usual "Euclidean / Manhattan /
+Chebyshev" recital is **wrong about the third** — Chebyshev and general Minkowski
+variants are later folklore added by libnoise/FastNoiseLite/Blender, not Worley:
+
+> Using the Manhattan distance metric forms regions that are rigidly rectangular,
+> but still random. These make surfaces like random right angle channels; useful
+> for space ship hulls.
+
+**Manhattan is exactly the metric we must not use** (§2.4): "rigidly rectangular"
+regions produce axis-aligned wall runs, straight into the horizontal sightline
+validator. Note also that our `shapeDiamond` primitive is already an L1 disc, so
+we ship the L1 blob and should keep it as *cover*, not as a *cell metric*.
+
+Two more facts from the paper worth having:
+
+- **Cost.** "Simultaneously computing F1 and F2 requires about the same amount of
+  time as computing one scale of Perlin's noise." The 3×3(×3) neighbourhood is
+  pruned against the current best distance, so "typically, only 1–3 cubes
+  actually need to be tested". Cellular noise is *not* expensive.
+- **The isotropy claim is empirical, not structural.** Worley clamps the
+  per-cell point count to [1, 9] for efficiency and says so plainly: "This cutoff
+  in theory breaks some of the isotropy of the distribution of feature points, but
+  in practice we see no visual consequence… We lost some isotropy with the
+  decision to forbid empty cubes." Since forbidding empty cells is what our
+  jittered-grid scatter also does, this is the same latent grid signature we
+  already carry. Flag it as (B)-at-best on isotropy, not (A).
+- The gradient of `Fn` is free: "simply the unit direction vector from the nth
+  closest feature point to x" — no finite differencing. Useful if we ever want to
+  offset or thicken a cellular contour.
 
 **F1 is (C)** and lands in the same convexity trap as our existing scatter
 (§12.1): thresholded F1 is literally a union of discs.
@@ -555,16 +583,41 @@ rejection test on every single accepted sample. If the test is correct, the
 invariant holds for every seed, every parameter, every run. This is the strongest
 unconditional guarantee anywhere in my dimension.
 
-**What it does NOT guarantee, stated plainly:**
+One implementation caveat that turns the invariant back into a bug, and is worth
+writing into the code as a comment: **the guarantee is carried by the rejection
+test, and the background grid is only an accelerator.** With cell size `r/sqrt(n)`
+you must scan every cell within distance `r`, which in 2D is a 5×5 block. A
+hard-coded 3×3 scan silently misses conflicts and you lose the invariant without
+any symptom you would notice on a screenshot.
 
-- **Not maximality.** With finite `k`, a gap can survive simply because all `k`
-  darts happened to miss it. So Bridson gives you a *separated* set, not a
-  *maximal* separated set, and therefore no upper bound on hole size. Raising `k`
-  makes this rarer; it does not make it impossible.
-- **Not an unbiased Poisson-disk distribution.** Bridson's sampling is biased
-  relative to true dart-throwing / true maximal Poisson-disk sampling — the
-  annulus-based propagation correlates a sample with its parent. For texture and
-  rendering this matters; for cover placement it does not.
+**What Bridson does NOT guarantee, stated plainly:**
+
+- **Not maximality.** With finite `k`, a void can survive simply because all `k`
+  darts from every neighbouring active sample happened to miss it — and once a
+  sample is popped off the active list it is never revisited. The per-void failure
+  probability is bounded away from zero for any finite `k` and there are Θ(N)
+  chances to fail, so **the expected number of surviving voids grows with N**.
+  Bridson gives a *separated* set, not a *maximal* one, and therefore **no upper
+  bound on hole size.** The paper itself never claims maximality; the word appears
+  only in its description of Dunbar & Humphreys.
+- **Not an unbiased Poisson-disk distribution.** Ebeida et al. 2011 name Bridson
+  explicitly: *"This class of methods improves efficiency by computing samples on
+  the fly [Mitchell 1987; Jones 2006; Dunbar and Humphreys 2006; Bridson 2007].
+  However, these methods are biased."* The mechanism: candidates are drawn from
+  the annulus around *one randomly chosen active sample*, so the density of the
+  next accepted sample is proportional to how many active annuli cover a region,
+  not to that region's uncovered area. For cover placement this does not matter;
+  for the *distribution* claims people make about Bridson output, it does.
+- **It is not even especially good at what it does.** The sharpest critique
+  (Kunimune, *Stop using Bridson's algorithm!*, 2025,
+  https://kunimune.blog/2025/06/29/stop-using-bridsons-algorithm/) points out that
+  the annulus trick is fundamentally dart-throwing with heavily overlapping
+  regions, and benchmarks it as performing *"similarly to dart-throwing (slightly
+  worse, in fact)"* near the ~0.69 jammed packing density. **Grid-accelerated
+  plain dart throwing is linear-time, simpler, and just as good.** If we adopt
+  this, adopt the simple version: uniform grid of cell side `r/sqrt(2)` (so each
+  cell holds at most one sample), throw darts into randomly chosen still-valid
+  cells, retire cells that become fully covered. Same hard guarantee, less code.
 
 ### 5.4 The corollary that matters: separation ⇒ connectivity
 
@@ -630,20 +683,47 @@ unchanged*), and assert the relation. This is a strictly-tighter distribution
 ### 5.6 Maximal Poisson-disk sampling, and the r-net theorem
 
 Ebeida, Patney, Mitchell, Davidson, Knupp, Owens, *Efficient Maximal Poisson-Disk
-Sampling*, SIGGRAPH 2011 / ACM TOG 30(4); and Ebeida et al., *A Simple Algorithm
-for Maximal Poisson-Disk Sampling in High Dimensions*, Computer Graphics Forum
-2012. These give **provably maximal** and **provably unbiased** sampling, which
-Bridson does not.
+Sampling*, SIGGRAPH 2011 / ACM TOG 30(4)
+(https://anjulpatney.com/docs/papers/2011_Ebeida_EMP.pdf); and Ebeida, Mitchell,
+Patney, Davidson, Owens, *A Simple Algorithm for Maximal Poisson-Disk Sampling in
+High Dimensions*, CGF 31(2), Eurographics 2012
+(https://www.sandia.gov/files/samitch/files/eurographics_mps-final-with-appendix.pdf).
+These give **provably maximal** and **provably unbiased** sampling, which Bridson
+does not. Their three conditions, which are the right vocabulary for this whole
+document:
+
+```
+bias-free:   P(x_i in Omega) = Area(Omega) / Area(D_{i-1})   for Omega in the uncovered region
+empty disk:  ||x_i - x_j|| >= r                              for all i != j
+maximal:     for all x in D, exists x_i with ||x - x_i|| < r
+```
+
+Their own framing of the state of the art is worth quoting because it is the
+cleanest statement of why maximality is rare: *"To our knowledge, all prior
+methods relax the unbiased or maximal conditions, or require potentially unbounded
+time or space."* Cost: `E[O(n log n)]` time, `O(n)` deterministic memory (2011);
+the 2012 follow-up is `O(n)/O(n)` and maximal "up to round-off error".
 
 Maximality matters because of a clean piece of metric geometry:
 
-> **Theorem (r-net).** If `S` is a *maximal* `r`-separated subset of a metric
-> space `X` — i.e. no point of `X` can be added while keeping all pairwise
-> distances ≥ `r` — then `S` is `r`-**covering**: every point of `X` is within
-> `r` of some point of `S`.
+> **Theorem (r-net / Delone set).** If `S` is a *maximal* `r`-separated subset of
+> a metric space `X` — i.e. no point of `X` can be added while keeping all
+> pairwise distances ≥ `r` — then `S` is `r`-**covering**: every point of `X` is
+> within `r` of some point of `S`.
 >
-> *Proof.* If some `x ∈ X` were at distance > `r` from every point of `S`, then
-> `S ∪ {x}` would still be `r`-separated, contradicting maximality. ∎
+> *Proof.* If some `x ∈ X` were at distance ≥ `r` from every point of `S`, then
+> `S ∪ {x}` would still be `r`-separated and strictly larger, contradicting
+> maximality. ∎
+
+**Mind the convention** — this is the one place a factor of 2 sneaks in and the
+folklore version of the theorem is stated in the other one. Under the
+**separation** convention (centres ≥ `r` apart, which is Bridson's and Ebeida's
+`r`) maximality gives covering radius **< r**, same constant. Under the
+**packing** convention (open discs of radius `r` pairwise disjoint, i.e. centres
+≥ `2r`) it gives covering radius **≤ 2r**. Same theorem; say which one you are in.
+Everything in this document uses the separation convention. Standard reference:
+Vershynin, *High-Dimensional Probability* §4.2, and
+https://en.wikipedia.org/wiki/Delone_set.
 
 So maximality is **(A) for a maximum-void bound**: no disc of radius `r` anywhere
 in the region is empty of samples. In map terms that is *"no region of the board
@@ -651,6 +731,23 @@ larger than `r` is featureless"* — a direct, constructive bound on **dead
 floor**, which `MapPlay.deadFloorFrac` and `biggestDeadPx`
 (`map_metrics.nim:204-205`) measure and which nothing in our generator currently
 controls.
+
+**A free corollary that is worth more than it looks.** An `r`-separated,
+`r`-covering point set has the property that every Delaunay circumcircle has
+radius `R < r` (else its centre would be uncovered) while every Delaunay edge has
+length `e ≥ r`. So `R/e < 1`, and since `sin(theta_min) = e/(2R) > 1/2`, **every
+triangle in the Delaunay triangulation of a maximal Poisson-disk set has minimum
+angle > 30°.** If we ever build a room/lane graph on the Delaunay dual of the
+sample set (§5.2, §14), maximality hands us a well-shaped triangulation with no
+slivers, for free. Bridson's output has no such property.
+
+**Variable-radius MPS decouples the two knobs.** Mitchell, Rand, Ebeida, Bajaj,
+*Variable Radii Poisson-Disk Sampling*
+(https://www.sandia.gov/files/samitch/files/VarRadiusPoissonDiskCCCG-bw2.pdf) makes
+the **inhibition** radius (min spacing) independent of the **coverage** radius
+(max gap). For us that is exactly right: min spacing is set by the corridor
+budget (`2R + 68`) and max gap is set by the dead-floor budget, and they have no
+reason to be the same number.
 
 Combining §5.4 and §5.6: **a maximal Poisson-disk set with `2R + 68 ≤ r` gives
 you, simultaneously and unconditionally, a minimum corridor width of 68 px, a
@@ -689,15 +786,48 @@ uses exactly this, and it is the best-known worked example of Voronoi map
 generation in the games literature — worth reading for the *pipeline shape* even
 though its terrain model (islands, biomes, rivers) is not ours.
 
-**Classification: (B), and I want to be precise about why it is not (A).** Lloyd's
-algorithm converges to a *local* minimum of the CVT energy, not a global one, and
-it comes with no bound on the resulting cell-size spread after a finite number of
-iterations. In practice 2–3 iterations visibly evens out a Poisson point set,
-which is a genuinely useful distribution shift. But "visibly evens out" is not a
-theorem, and after relaxation you have **lost** the min-separation guarantee you
-started with unless you re-check it — Lloyd moves points, and it can move two
-points closer together. If you want both, relax *then* re-run the separation
-filter, and treat the guarantee as coming from the filter.
+**Classification: (B), and I want to be precise about why it is not (A).** A CVT
+is a **critical point** of the quantisation energy `F = sum_i integral_{V_i}
+rho(x)|x - z_i|^2 dx` — a *necessary* condition for optimality, not a sufficient
+one. Lloyd is the continuous analogue of k-means and inherits its local-optimum
+caveat; convergence is proven in 1D and only weaker results are known in higher
+dimensions (Du, Emelianenko & Ju, *Convergence of the Lloyd Algorithm for
+Computing Centroidal Voronoi Tessellations*, SIAM J. Numer. Anal. 44(1), 2006,
+https://math.gmu.edu/~memelian/pubs/pdfs/DEJ_SIAM_lloyd.pdf; foundational survey
+Du, Faber & Gunzburger, SIAM Review 41(4):637–676, 1999).
+
+**Lloyd guarantees nothing about cell-size uniformity.** No lower bound on
+inter-site distance, no upper bound on cell area, no iteration bound to reach a
+given regularity. It monotonically decreases an energy. The crisp asymptotic
+statement people are reaching for is **Gersho's conjecture** — that the
+*energy-minimising* CVT is asymptotically a tiling by congruent copies of one cell
+— which is **proven in 2D (the regular hexagon; Fejes Tóth 1959)** and open in 3D
+and above. That is a statement about the global optimum, not about the iterate.
+So "Lloyd makes the cells hexagonal" is conjecture-adjacent folklore about
+something Lloyd does not compute.
+
+Worse for us: **Lloyd moves points, so it can destroy a min-separation guarantee
+you already had.** If you want both, relax and *then* re-run the separation
+filter, and credit the filter.
+
+The strongest evidence here is that the canonical practitioner abandoned it.
+Amit Patel used two Lloyd iterations in the original polygon-map-generation work
+and later wrote: *"In newer projects I use a Poisson Disc algorithm, which
+generates a nice distribution of points from the start, without iterating through
+multiple steps of Lloyd relaxation."* Constructive sampler beats improvement
+heuristic — which is the thesis of this entire document, arrived at independently.
+
+**What the Delaunay dual gives you for free** (all proven, all useful if we build
+a room graph on the sample set): it is a connected planar graph, so Euler bounds
+it at ≤ `3n − 6` edges and ≤ `2n − 5` triangles — a hard ceiling on the
+connectivity budget; it **maximises the minimum angle** over all triangulations of
+the point set; it **contains the Euclidean minimum spanning tree** as a subgraph
+(and the nearest-neighbour, relative-neighbourhood and Gabriel graphs, nested);
+and it is a `t`-spanner with `t < 1.998`, which bounds `detourMax`
+(band `[1.10, 1.90]`, `map_metrics.nim:1354`) *structurally* if routes follow
+Delaunay edges. Construction is `O(n log n)`. Reference: Fortune, *Voronoi Diagrams
+and Delaunay Triangulations*, Handbook of Discrete and Computational Geometry
+ch. 27, https://www.csun.edu/~ctoth/Handbook/chap27.pdf.
 
 ### 5.9 Low-discrepancy sequences (R2, Sobol, Halton)
 
@@ -711,22 +841,77 @@ Its attractions for us are real: **stateless, O(1) per sample, seekable, and
 deterministic** — you can ask for "the 47th cover position" without generating the
 first 46, which is a genuinely nice property for a seed-reproducible generator.
 
-**Classification: (B), and here is the honesty note.** Bounded *discrepancy* is
-proven for low-discrepancy sequences generally, and that is a statement about how
-evenly the points fill the space *in the limit*. A **minimum-separation lower
-bound** is a different and much stronger claim. For the 1D golden-ratio sequence
-the three-distance (Steinhaus) theorem does give a clean minimum-gap result. For
-R2 in 2D, the claim that the minimum pairwise distance is bounded below by
-`c/sqrt(N)` circulates in blog posts and I have **not** been able to verify it
-against a primary source in this session. **Treat it as folklore until checked.**
-If it holds it would be a lovely (A) — a stateless, allocation-free generator with
-a proven separation bound — so it is worth someone spending an hour on the
-literature. Until then: if you want the separation guarantee, use Bridson, where
-the guarantee is enforced by construction and needs no theorem at all.
+**Classification: (B). Do not write "provable minimum separation" for R2.** This
+was chased hard and the honest picture is:
 
-For comparison, **stratified sampling gives a trivially provable guarantee** —
-exactly one sample per stratum — and that is §5.7. When in doubt, prefer the
-guarantee you can see in the code over the one you have to look up.
+- **In 1D, there is a genuine separation theorem.** The three-distance (Steinhaus
+  / Sós / Świerczkowski) theorem says `{alpha, 2alpha, …, N alpha} mod 1` cuts the
+  circle into gaps of **at most three distinct lengths**; combined with the golden
+  ratio being the extremal badly-approximable number (all continued-fraction
+  partial quotients 1), the minimum gap is `Theta(1/N)` with an explicit constant.
+  Recent formalisation: *One-dimensional quasi-uniform Kronecker sequences*,
+  Archiv der Mathematik, 2024,
+  https://link.springer.com/article/10.1007/s00013-024-02039-0.
+- **In 2D the analogous result is a bound on the number of distances, not on
+  their size.** Haynes & Marklof, *A five distance theorem for Kronecker
+  sequences* (https://arxiv.org/abs/2009.08444, IMRN 2022): at most **five**
+  nearest-neighbour distances arise, for all `alpha` and `N`, and five is sharp.
+  That constrains the *structure* of the gap spectrum and says nothing about how
+  small the smallest gap is.
+- **The reduction is clean and worth stating.** For a Kronecker sequence the
+  distance between points `n` and `m` is `||(n-m) alpha||`, so a min-separation
+  bound over `N` points is *exactly equivalent* to `alpha` being **badly
+  approximable**: `|n alpha - l|_inf > c * n^(-1/d)`. Badly approximable ⟹
+  min separation ≥ `c * N^(-1/2)` in 2D — the `1/sqrt(N)` decay people quote.
+- **Whether the specific plastic-number vector `(1/rho, 1/rho^2)` is badly
+  approximable appears to be OPEN.** The 1D literature is discouraging on
+  explicit algebraic constructions (it is a well-known open problem whether any
+  algebraic irrational of degree ≥ 3 is badly approximable, with the common
+  conjecture being that none are), and the simultaneous `d = 2` question for a
+  cubic-field vector is deeper still. **Roberts' minimum-distance figures for R2
+  are empirical measurements over finite `N`, not a theorem.**
+
+One important thing that *is* a guarantee and is easy to conflate with the
+above: Roberts' **grid-based** blue-noise construction states a minimum neighbour
+separation of `0.707/n`. That guarantee comes from the underlying **lattice**,
+i.e. it is the stratification argument of §5.7 again — not a property of the plain
+R2 sequence. Do not merge the two claims.
+
+**Practical conclusion:** if you want the separation guarantee, use dart-throwing
+or Bridson, where it is enforced by a rejection test you can read, and needs no
+number theory at all. When in doubt, prefer the guarantee you can see in the code
+over the one you have to look up.
+
+### 5.10 The rest of the blue-noise zoo, and their (lack of) guarantees
+
+Two entries are worth a line each because they are commonly recommended and
+neither carries the guarantee people assume:
+
+- **Mitchell's best-candidate (1991)** — *Spectrally Optimal Sampling for
+  Distribution Ray Tracing*, SIGGRAPH '91, 157–164
+  (https://my.eng.utah.edu/~cs6965/papers/p157-mitchell.pdf). Generate `mn`
+  candidates for the `(n+1)`-th sample and keep the one whose nearest existing
+  neighbour is furthest. Spectrally excellent, `O(n^2)`, and **no separation
+  guarantee at all** — the author says so himself: *"This point process is not
+  strictly hard-disk, because it is possible (although unlikely) for samples to
+  lie very close together."* For us, "unlikely" is the wrong word: we generate
+  thousands of maps and "unlikely" means "eventually ships".
+- **Void-and-cluster (Ulichney 1993)** — no separation or coverage bound (it is a
+  greedy swap heuristic), but it has a structural property nothing else here has:
+  **the output is a *ranking*, so thresholding it at any level yields a blue-noise
+  point set at that density, and the sets are nested.** That is exactly what our
+  density-mode roll wants: one precomputed order, and "sparse / medium / dense"
+  becomes a prefix of it, with the sparse map's cover being a subset of the dense
+  map's. Author's PDF: https://cv.ulichney.com/papers/1993-void-cluster.pdf.
+
+**A terminology caveat to carry into any discussion of this.** "Blue noise" in
+graphics is a family resemblance — low DC energy, no spectral spikes, an isotropic
+ring — not the literal signal-processing definition (power density rising 3 dB per
+octave). The standard measurement apparatus is **two** numbers, from Ulichney,
+*Dithering with Blue Noise*, Proc. IEEE 76(1):56–79, 1988: the **radially averaged
+power spectral density** and the **anisotropy** (the variance over each frequency
+ring, normalised by the ring mean). The second one is the one that detects
+residual lattice regularity, and it is the one nobody plots.
 
 ---
 
