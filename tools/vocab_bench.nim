@@ -351,7 +351,7 @@ proc cmdTable(sizeName: string, seeds: seq[int]) =
   echo line(mixedAcc)
 
 proc cmdRender(item: string, sizeName: string, seed: int, outPath: string,
-               maxDim: int, matchCover: bool) =
+               maxDim: int, matchCover: bool, overlay = false) =
   var gameMap: CtfMap
   var row: Row
   if item == "mixed":
@@ -359,7 +359,9 @@ proc cmdRender(item: string, sizeName: string, seed: int, outPath: string,
   else:
     (row, gameMap) = benchOne(parseVocabItem(item), sizeName, seed, matchCover)
   let options = MapRenderOptions(
-    maxDimension: maxDim, overlays: {}, pickupKinds: {})
+    maxDimension: maxDim,
+    overlays: (if overlay: {overlayProtected, overlaySeedRegion} else: {}),
+    pickupKinds: {})
   renderMap(gameMap, options).image.writeFile(outPath)
   stderr.writeLine(line(row))
   stderr.writeLine(&"rendered {item} -> {outPath}")
@@ -398,6 +400,7 @@ when isMainModule:
     outPath = ""
     maxDim = 0
     matchCover = false
+    overlay = false
   var i = 1
   while i < argv.len:
     case argv[i]
@@ -410,6 +413,7 @@ when isMainModule:
     of "--item": inc i; item = argv[i]
     of "--max": inc i; maxDim = argv[i].parseInt
     of "--match": matchCover = true
+    of "--overlay": overlay = true
     of "-o", "--out": inc i; outPath = argv[i]
     else: fail("unknown argument: " & argv[i])
     inc i
@@ -420,7 +424,7 @@ when isMainModule:
       if item.len == 0: fail("render needs --item")
       cmdRender(item, size, seed,
                 (if outPath.len > 0: outPath else: "/tmp/vocab_" & item & ".png"),
-                maxDim, matchCover)
+                maxDim, matchCover, overlay)
     of "spec":
       if item.len == 0: fail("spec needs --item")
       if outPath.len == 0: fail("spec needs -o")

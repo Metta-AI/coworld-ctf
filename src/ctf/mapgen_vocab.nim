@@ -150,11 +150,16 @@ func vocabFootprint*(item: VocabItem, p: VocabParams): tuple[w, h: int] =
   of viSnake: (7 * c, 2 * c)
   of viBeam: (3 * c, 3 * c)
   of viTemple: (2 * c, 3 * c)
-  of viBunker: (3 * c + p.corridorPx, 3 * c + p.corridorPx)
-  of viMassif: (6 * c, 2 * c)
-  # A cave needs two walls of `2*radHi + radLo` (~1.93 c) PLUS its mouth;
-  # squeeze it into less and the walls thin out before the gap does.
-  of viCave: (6 * c, 4 * c + p.corridorPx)
+  # A wall of three pieces at 1.2-1.9 cover diameters each, plus the doorway.
+  of viBunker: (5 * c + p.corridorPx, 3 * c)
+  # A massif is at most `2*radHi` (~1.57 c) thick; the corridor on top is the
+  # walkable lane BETWEEN two neighbouring massifs. Tiling at the bare mass
+  # width packs ridges 30-60 px apart, which is under the passability floor.
+  of viMassif: (6 * c, 2 * c + p.corridorPx)
+  # A cave needs two walls of `2*radHi + radLo` (~1.93 c) PLUS its mouth, and
+  # then a lane outside it before the next feature; squeeze it into less and
+  # the walls thin out before the gap does.
+  of viCave: (6 * c, 4 * c + 2 * p.corridorPx)
 
 func isLongItem*(item: VocabItem): bool {.inline.} =
   ## Items that read as a RUN along an axis and want a band, not a slot.
@@ -214,6 +219,29 @@ func fitRadius(region: MapRect, radius: int): int {.inline.} =
   max(1, min(radius, min(region.w, region.h) div 2 - 1))
 
 func horizontal(region: MapRect): bool {.inline.} = region.w >= region.h
+
+func wedgePolygon(x0, y0, x1, y1, wStart, wEnd: int): ArenaShape =
+  ## A TAPERED QUAD about the segment (x0,y0)-(x1,y1): `wStart` wide at one
+  ## end, `wEnd` at the other. Convex, four integer vertices, simple by
+  ## construction — everything `pointInPolygon` wants.
+  ##
+  ## Why not `shapeDiagonal`? A diagonal is a capsule: constant width, round
+  ## caps. Rendered at map scale a run of them reads as scattered LOGS, and
+  ## two in one slot at free angles cross into an X. A taper reads as built
+  ## masonry, and it is the difference between "wedge" and "stick".
+  let
+    dx = float(x1 - x0)
+    dy = float(y1 - y0)
+    length = max(1.0, hypot(dx, dy))
+    nx = -dy / length
+    ny = dx / length
+    h0 = float(max(2, wStart)) / 2.0
+    h1 = float(max(2, wEnd)) / 2.0
+  ArenaShape(kind: shapePolygon, points: @[
+    MapPoint(x: x0 + int(round(nx * h0)), y: y0 + int(round(ny * h0))),
+    MapPoint(x: x1 + int(round(nx * h1)), y: y1 + int(round(ny * h1))),
+    MapPoint(x: x1 - int(round(nx * h1)), y: y1 - int(round(ny * h1))),
+    MapPoint(x: x0 - int(round(nx * h0)), y: y0 - int(round(ny * h0)))])
 
 # ---------------------------------------------------------------------------
 # DORITOS — the signature angled bunker
@@ -303,52 +331,62 @@ proc cans*(r: var Rand, region: MapRect, p: VocabParams): seq[ArenaShape] =
 # ---------------------------------------------------------------------------
 
 proc beams*(r: var Rand, region: MapRect, p: VocabParams): seq[ArenaShape] =
-  ## One to three THICK diagonal bars at free angles. `shapeDiagonal` is a
-  ## true point-to-segment capsule (`arena.inShape`), not a 45-degree-only
-  ## primitive, so a beam can take any angle — which is exactly why it does so
-  ## much work visually: it is the only vocabulary item whose silhouette is
-  ## not axis-aligned or radially symmetric.
+  ## ONE thick tapered wedge at a free angle, and sometimes a second wedge
+  ## PARALLEL to it with a corridor between them.
+  ##
+  ## The first version emitted two independent free-angle capsules per slot,
+  ## which crossed near the middle about half the time: a whole map of X's and
+  ## V's that read as spilled pick-up-sticks. Two rules fix it and both matter:
+  ## the second wedge is parallel (never crossing), and length is capped at
+  ## 4.5x thickness so a beam is a WEDGE and not a stick. `wedgePolygon`
+  ## supplies the taper that makes it read as masonry.
   let
     (tLo, tHi) = p.beamThickness
     band = region.inset(2)
   if band.w < 16 or band.h < 16: return
   let
-    count = clamp(densityScaled(p, 2), 1, 3)
     maxThick = max(4, min(band.w, band.h) div 3)
-  for i in 0 ..< count:
+    thick = min(rr(r, tLo, tHi), maxThick)
+    # A wedge is 2.5-4.5 thicknesses long. Beyond that it stops being a wedge.
+    wantLen = thick * rr(r, 25, 45) div 10
+    half = thick div 2 + 2
+    inner = band.inset(half)
+  if inner.w < 8 or inner.h < 8: return
+  let
+    length = clampTo(wantLen, thick * 2, max(thick * 2, min(inner.w, inner.h)))
+    # Free angle, but biased AWAY from the axes: an axis-aligned wedge is just
+    # a tapered temple, and the point of this item is the raking silhouette.
+    deg = rr(r, 18, 72) + 90 * ri(r, 0, 4)
+    ang = float(deg) * PI / 180.0
+    dx = int(round(cos(ang) * float(length) / 2.0))
+    dy = int(round(sin(ang) * float(length) / 2.0))
+    pad = max(abs(dx), abs(dy)) + 1
+    core = inner.inset(pad)
+  if core.w < 2 or core.h < 2: return
+  let
+    cx = ri(r, core.x, core.x + core.w)
+    cy = ri(r, core.y, core.y + core.h)
+    # Taper: the narrow end is 30-70% of the wide end, and which end is wide
+    # is a coin flip, so a field of wedges does not all point one way.
+    narrow = max(6, thick * rr(r, 30, 70) div 100)
+    flip = coin(r, 50)
+  result.add wedgePolygon(cx - dx, cy - dy, cx + dx, cy + dy,
+                          (if flip: thick else: narrow),
+                          (if flip: narrow else: thick))
+  # A parallel partner, offset perpendicular by a full corridor plus both
+  # half-thicknesses: two ramparts with a lane between, never an X.
+  if coin(r, 40):
     let
-      thick = min(rr(r, tLo, tHi), maxThick)
-      half = thick div 2 + 2
-      inner = band.inset(half)
-    if inner.w < 4 or inner.h < 4: break
-    # A beam spans a good fraction of the region on its long axis and a
-    # smaller, RANDOMLY SIGNED amount on the short one: that is what makes it
-    # a raking bar rather than a diagonal of the bounding box.
-    let
-      lenLong = max(thick * 2, (if horizontal(inner): inner.w else: inner.h) *
-                    rr(r, 55, 95) div 100)
-      lenShort = (if horizontal(inner): inner.h else: inner.w) *
-                 rr(r, 25, 80) div 100
-      dirShort = (if coin(r, 50): 1 else: -1)
-    var x0, y0, x1, y1: int
-    if horizontal(inner):
-      x0 = ri(r, inner.x, max(inner.x + 1, inner.x + inner.w - lenLong))
-      x1 = x0 + lenLong
-      let yMid = ri(r, inner.y, inner.y + inner.h)
-      y0 = yMid - dirShort * lenShort div 2
-      y1 = yMid + dirShort * lenShort div 2
-    else:
-      y0 = ri(r, inner.y, max(inner.y + 1, inner.y + inner.h - lenLong))
-      y1 = y0 + lenLong
-      let xMid = ri(r, inner.x, inner.x + inner.w)
-      x0 = xMid - dirShort * lenShort div 2
-      x1 = xMid + dirShort * lenShort div 2
-    result.add diagOf(
-      clampTo(x0, inner.x, inner.x + inner.w - 1),
-      clampTo(y0, inner.y, inner.y + inner.h - 1),
-      clampTo(x1, inner.x, inner.x + inner.w - 1),
-      clampTo(y1, inner.y, inner.y + inner.h - 1),
-      thick)
+      sep = thick + p.corridorPx
+      ox = int(round(-sin(ang) * float(sep)))
+      oy = int(round(cos(ang) * float(sep)))
+      sx = clampTo(cx + ox, core.x, core.x + core.w - 1)
+      sy = clampTo(cy + oy, core.y, core.y + core.h - 1)
+      thick2 = max(6, thick * rr(r, 70, 100) div 100)
+      narrow2 = max(6, thick2 * rr(r, 30, 70) div 100)
+    result.add wedgePolygon(sx - dx, sy - dy, sx + dx, sy + dy,
+                            (if flip: narrow2 else: thick2),
+                            (if flip: thick2 else: narrow2))
 
 # ---------------------------------------------------------------------------
 # TEMPLES — medium rects as solid anchors
@@ -455,47 +493,90 @@ proc snake*(r: var Rand, region: MapRect, p: VocabParams): seq[ArenaShape] =
 # ---------------------------------------------------------------------------
 
 proc bunkerCluster*(r: var Rand, region: MapRect, p: VocabParams): seq[ArenaShape] =
-  ## Two or three pieces of DIFFERENT kinds, arranged around one shared center
-  ## with a gap between them. The GAP is the feature: it is the thing you
-  ## fight through, and it is sized at `corridorPx` (68 px = two drawn cog
-  ## bodies abreast) up to about two of those, never the 26 px collision
-  ## floor. Different kinds is not decoration — three identical rocks read as
-  ## scatter, while a diamond + disc + bar around a slot reads as ONE built
-  ## thing with a doorway.
+  ## Two or three pieces of DIFFERENT kinds laid along ONE short axis, all but
+  ## one junction TOUCHING, and exactly one junction opened to a corridor. It
+  ## reads as a stub of wall with a doorway punched through it: one feature,
+  ## one gap, and the gap is the thing you fight through.
+  ##
+  ## THE FIRST VERSION PUT THE PIECES ON A RING around a central hole, and it
+  ## looked like three loose rocks — which is exactly the defect this whole
+  ## vocabulary exists to end, so it is worth saying why it was doomed. A
+  ## cover-sized piece is `coverSizePx` = 56 px across and the passability
+  ## floor is `corridorPx` = 68 px. Space three pieces evenly around a hole
+  ## that wide and every piece is FURTHER from its neighbours than it is big:
+  ## no amount of tuning makes that read as one object. Put the same pieces in
+  ## contact and spend the whole gap budget in ONE place, and it does.
   let band = region.inset(2)
   if band.w < 24 or band.h < 24: return
   let
-    count = clamp(densityScaled(p, 3), 2, 3)
-    gap = clampTo(p.corridorPx + ri(r, 0, max(1, p.corridorPx)),
-                  p.corridorPx, max(p.corridorPx, min(band.w, band.h) div 2))
-    # PIECE SIZE IS COVER-DERIVED, NOT SLOT-DERIVED. An earlier version took
-    # `(min(band.w, band.h) - gap) div 4`, so handing a cluster a large slot
-    # inflated it into three boulders around one 68 px slit — which measured
-    # as the worst item in the vocabulary (0.43 enclosure per unit cover) and
-    # was really just the wrong feature. A bunker is a cover-sized thing; the
-    # slot only bounds it.
-    ringR = clampTo(p.coverSizePx * rr(r, 40, 62) div 100,
-                    6, max(6, (min(band.w, band.h) - gap) div 4))
-    cxc = band.x + band.w div 2
-    cyc = band.y + band.h div 2
-    # Orientation of the gap. Everything sits at `gap/2 + ringR` from center
-    # along the ring, so the clear slot runs THROUGH the middle.
-    theta0 = float(ri(r, 0, 360)) * PI / 180.0
-    ringD = gap div 2 + ringR
-  # Kinds without replacement: a cluster is never three of one thing.
-  var kinds = @[0, 1, 2, 3]   ## 0 diamond, 1 disc, 2 rect, 3 diagonal
+    # THREE PIECES, NOT TWO. With two, the door has a piece on each side and
+    # nothing else, so it reads as two rocks with a space — there is no wall
+    # for the door to be a hole in. With three, one junction fuses into a
+    # visible mass and the door separates that mass from a single buttress,
+    # which is legible as ONE built thing. Density may add a fourth.
+    count = clamp(densityScaled(p, 3), 3, 4)
+    # The door is held at the corridor floor plus a SMALL jitter. A wider door
+    # does not read as a hole in a wall, it reads as two objects.
+    gap = clampTo(p.corridorPx + ri(r, 0, max(1, p.corridorPx div 4)),
+                  p.corridorPx, max(p.corridorPx, min(band.w, band.h) * 2 div 5))
+    # THE PIECES MUST OUT-MASS THE DOORWAY. At `coverSizePx/2` they were 56 px
+    # across with a 68-102 px door between them, so each piece was further
+    # from its neighbour than it was big and the cluster read as loose rocks
+    # even when in contact. A bunker piece is a piece of WALL, not a piece of
+    # cover: 1.2-1.9 cover diameters, so the door is plainly a hole IN
+    # something.
+    baseR = clampTo(p.coverSizePx * rr(r, 62, 95) div 100,
+                    6, max(6, min(band.w, band.h) div 3))
+    doorAt = ri(r, 0, max(1, count - 1))   ## which junction is the doorway
+  # Kinds without replacement: a cluster is never two of one thing.
+  var kinds = @[0, 1, 2, 3]   ## 0 diamond, 1 disc, 2 rect, 3 wedge
   for i in countdown(kinds.high, 1):
     let j = ri(r, 0, i + 1)
     swap(kinds[i], kinds[j])
+  # Walk the axis, accumulating each piece's radius. Every junction that is
+  # NOT the door overlaps by a third of a radius, so those pieces fuse into
+  # one visible mass and the door is unmistakably the one hole in it.
+  var
+    radii: seq[int]
+    offs: seq[int]
+    cursor = 0
+    maxRad = 0
+  for i in 0 ..< count:
+    let rad = max(5, baseR * rr(r, 78, 118) div 100)
+    if i > 0:
+      cursor += radii[^1] + rad -
+        (if i - 1 == doorAt: -gap else: max(3, rad div 2))
+    radii.add rad
+    offs.add cursor
+    maxRad = max(maxRad, rad)
+  # THE ANGLE IS FITTED TO THE SLOT, NOT DRAWN FREELY. A three-piece wall is
+  # ~360 px long; tilting it 35 degrees in a 163 px tall band drove its end
+  # pieces into `clampCenter`, which squashed them into edge slivers — visible
+  # in the render as stray 4 px shards. The tilt is now whatever the slot can
+  # actually accommodate, which is often zero.
+  let
+    runLen = offs[^1] - offs[0] + radii[0] + radii[^1]
+    alongH = horizontal(band)
+    crossRoom = float(max(0, (if alongH: band.h else: band.w) - 2 * maxRad))
+    sinCap = clamp(crossRoom / max(1.0, float(runLen)), 0.0, 0.60)
+    tiltMax = int(radToDeg(arcsin(sinCap)))
+    axis = if alongH: 0 else: 90
+    ang = float(axis + ri(r, -tiltMax, tiltMax + 1)) * PI / 180.0
+    ux = cos(ang)
+    uy = sin(ang)
+    mid = (offs[0] + offs[^1]) div 2
+    cxc = band.x + band.w div 2
+    cyc = band.y + band.h div 2
+  # A STAGGER WAS TRIED AND REVERTED. Pushing everything past the door
+  # sideways by half a radius, to make the group read as a turned gate rather
+  # than a broken line, changed the render not at all and cost 14% of the
+  # item's enclosure (0.64 -> 0.55 encl/cov). The pieces stay colinear.
   for i in 0 ..< count:
     let
-      # Spread the pieces around the ring but push them apart by at least a
-      # third of a turn, so no two ever fuse into one blob.
-      ang = theta0 + TAU * float(i) / float(count) +
-            float(ri(r, -18, 19)) * PI / 180.0
-      px = cxc + int(round(cos(ang) * float(ringD)))
-      py = cyc + int(round(sin(ang) * float(ringD)))
-      rad = max(5, ringR * rr(r, 70, 105) div 100)
+      t = float(offs[i] - mid)
+      rad = radii[i]
+      px = cxc + int(round(ux * t))
+      py = cyc + int(round(uy * t))
     case kinds[i mod kinds.len]
     of 0:
       let (x, y) = clampCenter(band, px, py, rad)
@@ -505,26 +586,30 @@ proc bunkerCluster*(r: var Rand, region: MapRect, p: VocabParams): seq[ArenaShap
       result.add discOf(x, y, rad)
     of 2:
       let
-        w = max(6, rad * rr(r, 120, 190) div 100)
-        h = max(6, rad * rr(r, 80, 140) div 100)
-        x = clampTo(px - w div 2, band.x, band.x + band.w - w)
-        y = clampTo(py - h div 2, band.y, band.y + band.h - h)
+        w = max(6, rad * rr(r, 130, 185) div 100)
+        h = max(6, rad * rr(r, 85, 135) div 100)
+        x = clampTo(px - w div 2, band.x, max(band.x, band.x + band.w - w))
+        y = clampTo(py - h div 2, band.y, max(band.y, band.y + band.h - h))
       result.add rectOf(x, y, w, h)
     else:
+      # A wedge laid PERPENDICULAR to the run: it caps the end of the wall and
+      # gives the doorway a jamb to shoot around. The arm is capped by what
+      # the slot can hold ACROSS the run — an uncapped arm was clamped into a
+      # 4 px shard, which is what the stray slivers in the render were.
       let
-        thick = max(6, rad * 3 div 4)
-        half = thick div 2 + 2
-        inner = band.inset(half)
-        # A bar laid TANGENT to the ring: it walls one side of the slot.
-        tx = int(round(-sin(ang) * float(rad)))
-        ty = int(round(cos(ang) * float(rad)))
-      if inner.w < 4 or inner.h < 4: continue
-      result.add diagOf(
-        clampTo(px - tx, inner.x, inner.x + inner.w - 1),
-        clampTo(py - ty, inner.y, inner.y + inner.h - 1),
-        clampTo(px + tx, inner.x, inner.x + inner.w - 1),
-        clampTo(py + ty, inner.y, inner.y + inner.h - 1),
-        thick)
+        wide = max(6, rad * 3 div 2)
+        inner = band.inset(wide div 2 + 2)
+      if inner.w < 8 or inner.h < 8: continue
+      let
+        arm = clampTo(rad, 4, max(4, min(inner.w, inner.h) div 2 - 1))
+        tx = int(round(-uy * float(arm)))
+        ty = int(round(ux * float(arm)))
+      let
+        ax = clampTo(px - tx, inner.x, inner.x + inner.w - 1)
+        ay = clampTo(py - ty, inner.y, inner.y + inner.h - 1)
+        bx = clampTo(px + tx, inner.x, inner.x + inner.w - 1)
+        by = clampTo(py + ty, inner.y, inner.y + inner.h - 1)
+      result.add wedgePolygon(ax, ay, bx, by, wide, max(6, wide div 2))
 
 # ---------------------------------------------------------------------------
 # MASSIF — a lumpy organic mass whose outline never repeats
