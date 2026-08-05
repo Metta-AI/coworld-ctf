@@ -85,7 +85,10 @@ proc slotsFor(item: VocabItem, p: VocabParams, region: MapRect,
       for i in 0 ..< rows:
         result.add MapRect(x: region.x, y: region.y + i * rh, w: region.w, h: rh)
     else:
-      let cols = max(1, region.w div fh)
+      # `vocabFootprint` already returns a massif/cave footprint oriented for
+      # the mirror axis (portrait, on every board that ships), so the band is
+      # a COLUMN and `fw` is its width.
+      let cols = max(1, region.w div fw)
       let cw = region.w div cols
       for i in 0 ..< cols:
         result.add MapRect(x: region.x + i * cw, y: region.y, w: cw, h: region.h)
@@ -170,10 +173,52 @@ type Row = object
   coveredFrac: float
   exposedFrac: float
   openP95: int
+  diagP95: int
   score: float
   pitch: int
   valid: bool
   reason: string
+
+proc diagonalOpenP95(gameMap: CtfMap): int =
+  ## P95 of the longest unbroken DIAGONAL open run, in pixels.
+  ##
+  ## `map_metrics.openRunP95Px` scans horizontals and verticals ONLY, so a
+  ## 900 px diagonal sightline is invisible to it — and a vocabulary built to
+  ## please that metric could sail straight through the hole. Anything here
+  ## that scores well on enclosure has to be checked against this too, with
+  ## the hand-authored arena as the control.
+  let
+    obstacles = buildArenaObstacles(gameMap)
+    (maxWall, _) = rasterizeWallMasks(gameMap, obstacles)
+    w = gameMap.width
+    h = gameMap.height
+  var runs: seq[int]
+  for dirIdx in 0 .. 1:
+    let dy = 1
+    let dx = if dirIdx == 0: 1 else: -1
+    # Seed every border pixel so every diagonal line is walked exactly once.
+    var starts: seq[(int, int)]
+    for x in 0 ..< w: starts.add (x, 0)
+    for y in 0 ..< h:
+      starts.add (if dx == 1: (0, y) else: (w - 1, y))
+    for (sx, sy) in starts:
+      var
+        x = sx
+        y = sy
+        run = 0
+      while x >= 0 and x < w and y >= 0 and y < h:
+        if maxWall[y * w + x]:
+          if run > 0: runs.add run
+          run = 0
+        else:
+          inc run
+        x += dx
+        y += dy
+      if run > 0: runs.add run
+  if runs.len == 0: return 0
+  runs.sort()
+  # Diagonal steps are sqrt(2) px apart.
+  int(float(runs[int(float(runs.len - 1) * 0.95)]) * 1.41421356)
 
 proc shapeStats(shapes: seq[ArenaShape]): tuple[polys, maxVerts: int] =
   for s in shapes:
@@ -193,6 +238,7 @@ proc measure(name: string, gameMap: CtfMap): Row =
       coveredFrac: m.coveredFrac,
       exposedFrac: m.exposedFrac,
       openP95: m.openRunP95Px,
+      diagP95: diagonalOpenP95(gameMap),
       score: m.staticScore(),
       valid: m.valid, reason: m.reason)
 
@@ -240,12 +286,12 @@ proc marginal(r: Row): float =
 proc header(): string =
   &"""{"item":<10} {"pitch":>6} {"shp":>4} {"ply":>4} {"vmax":>4} """ &
   &"""{"rect%":>6} {"cover":>6} {"interior":>9} {"covrd":>6} {"expsd":>6} """ &
-  &"""{"openP95":>8} {"score":>6} {"ENCL/COV":>9}"""
+  &"""{"openP95":>8} {"diagP95":>8} {"score":>6} {"ENCL/COV":>9}"""
 
 proc line(r: Row): string =
   &"{r.name:<10} {r.pitch:>5}% {r.shapes:>4} {r.polys:>4} {r.maxVerts:>4} " &
   &"{r.rectShare * 100.0:>5.0f}% {r.coverFrac:>6.3f} {r.interiorFrac:>9.3f} " &
-  &"{r.coveredFrac:>6.3f} {r.exposedFrac:>6.3f} {r.openP95:>8} " &
+  &"{r.coveredFrac:>6.3f} {r.exposedFrac:>6.3f} {r.openP95:>8} {r.diagP95:>8} " &
   &"{r.score:>6.3f} {marginal(r):>9.2f}" &
   (if r.valid: "" else: "  INVALID: " & r.reason)
 
@@ -264,6 +310,7 @@ proc meanRows(sizeName: string, seeds: seq[int], matchCover: bool): seq[Row] =
       acc.coveredFrac += r.coveredFrac
       acc.exposedFrac += r.exposedFrac
       acc.openP95 += r.openP95
+      acc.diagP95 += r.diagP95
       acc.score += r.score
       acc.pitch += r.pitch
       if not r.valid and acc.reason.len == 0: acc.reason = r.reason
@@ -277,6 +324,7 @@ proc meanRows(sizeName: string, seeds: seq[int], matchCover: bool): seq[Row] =
     acc.coveredFrac /= n
     acc.exposedFrac /= n
     acc.openP95 = int(float(acc.openP95) / n)
+    acc.diagP95 = int(float(acc.diagP95) / n)
     acc.score /= n
     acc.valid = acc.reason.len == 0
     result.add acc
@@ -331,6 +379,7 @@ proc cmdTable(sizeName: string, seeds: seq[int]) =
     mixedAcc.coveredFrac += r.coveredFrac
     mixedAcc.exposedFrac += r.exposedFrac
     mixedAcc.openP95 += r.openP95
+    mixedAcc.diagP95 += r.diagP95
     mixedAcc.score += r.score
     if not r.valid and mixedAcc.reason.len == 0: mixedAcc.reason = r.reason
   block:
@@ -343,6 +392,7 @@ proc cmdTable(sizeName: string, seeds: seq[int]) =
     mixedAcc.coveredFrac /= n
     mixedAcc.exposedFrac /= n
     mixedAcc.openP95 = int(float(mixedAcc.openP95) / n)
+    mixedAcc.diagP95 = int(float(mixedAcc.diagP95) / n)
     mixedAcc.score /= n
     mixedAcc.valid = mixedAcc.reason.len == 0
 
