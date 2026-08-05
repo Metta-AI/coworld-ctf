@@ -17,15 +17,23 @@ tasks, voting) with teams, guns, hearts, and fog-of-war vision.
 ## Overview
 
 - **GameVersion 38: the arena is a HEXAGON.** The playfield is a regular
-  hexagon, POINTY-TOP (a vertex at the top and bottom, flat walls left and
-  right), inscribed in a portrait bounding box — 969x1119 on the standard size
-  class, against the old 1235x659 rectangle, chosen to hold the PLAYFIELD AREA
-  constant. The wire format is unchanged: coordinates are still absolute pixels
-  in that bounding box, and **the six corners of the box are permanent void** —
-  they are wall, they are opaque, and nothing spawns, walks, or shoots there.
-  A policy that assumes a rectangular field will walk into a wall at 45 degrees
-  from the center; the walkability sprite is the channel that carries the true
-  shape.
+  hexagon, FLAT-TOP (a vertex at the left and right, flat walls top and
+  bottom), inscribed in a LANDSCAPE bounding box — 1119x969 on the standard
+  size class, against the old 1235x659 rectangle, chosen to hold the PLAYFIELD
+  AREA constant. The wire format is unchanged: coordinates are still absolute
+  pixels in that bounding box, and **the six corners of the box are permanent
+  void** — they are wall, they are opaque, and nothing spawns, walks, or shoots
+  there. A policy that assumes a rectangular field will walk into a wall well
+  short of the box corners; the walkability sprite is the channel that carries
+  the true shape.
+  - The two bases sit on the board's LONG axis, at the left and right
+    VERTICES — red left, blue right, as they always have been. The hexagon
+    narrows behind each base at 120 degrees, so the wilderness behind a base is
+    a wedge rather than a strip along a flat wall.
+  - The longest chord of the playfield is 1118px on the standard class, which
+    for the first time EXCEEDS the fixed 1050px gun range. The longest run no
+    terrain interrupts is shorter than that — see `tools/hex_range_probe.nim`,
+    which measures it.
   - Movement stays continuous pixel-space. There is no hex-cell movement.
   - Symmetry is now a subgroup of **D6**, the hexagon's point group: a mirror
     or a half turn for 2 teams. The old 90-degree rotational (4-team) boards
@@ -36,18 +44,21 @@ tasks, voting) with teams, guns, hearts, and fog-of-war vision.
     straight edges they were pinned to; `disc` is the only token the
     `endzone <color> <shape> ...` marker now emits.
 - **16 players, 8 vs 8.** Red team spawns on the **left**, Blue on the
-  **right** — the hexagon's two flat walls, and the one 2-team orbit that
-  keeps the historical left/right frame.
+  **right** — the hexagon's two opposite VERTICES, which on the landscape hull
+  is its long axis, and the one 2-team orbit that keeps the historical
+  left/right frame.
 - **Two team hearts**, one on each team's **home pedestal** inside its spawn
   pocket (classic two-object CTF, with hearts for flags).
 - The arena is filled with **staggered cover** (a slalom of offset wall bars,
   hexagons, discs and diagonal chevron walls, mirrored symmetrically so neither
   team has a positional advantage): **no straight shot crosses the field**, so
   every approach is a series of corners. Since GameVersion 38 that rule is
-  enforced down **all three of the hexagon's axes** (0, 60 and 120 degrees),
-  not just the horizontal — a hexagon has three pairs of opposite edges where
-  a rectangle had one that mattered, and a lane down any of them is the same
-  cross-field snipe.
+  enforced down **all six of the hexagon's axes**, not just the horizontal:
+  the three edge-to-edge families (90, 30 and 150 degrees on the flat-top
+  hull) and the three longer vertex-to-vertex families (0, 60 and 120). A
+  rectangle had one family that mattered; a hexagon has six, and a lane down
+  any of them is the same cross-field snipe. The horizontal one is the
+  base-to-base axis, so it is the one that matters most.
 - The **eight diamonds flanking the center spin**, and since **GameVersion 28
   the spin is real geometry**: the rotating silhouette you see is the exact
   footprint that stops your feet, your bullets, and your line of sight. A
@@ -111,8 +122,8 @@ tasks, voting) with teams, guns, hearts, and fog-of-war vision.
   (vertical mirror or 180° rotation), no straight cross-field shot,
   corridors at least twice the player footprint, a bounded cover budget —
   and draw their size class (`small` / `standard` / `large` / `huge` /
-  `giant` — the hexagon bounding boxes are 824x951 / 969x1119 / 1260x1455 /
-  1744x2014 / 2519x2909, each holding the same PLAYFIELD area as the
+  `giant` — the hexagon bounding boxes are 951x824 / 1119x969 / 1455x1260 /
+  2014x1744 / 2909x2519, each holding the same PLAYFIELD area as the
   rectangle it replaced; obstacle sizes never scale, bigger fields draw more
   cover columns instead), obstacle columns, glass placements, center
   feature, endzone radius, and med-kit pair per map. The exact geometry

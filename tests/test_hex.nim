@@ -98,19 +98,27 @@ suite "hex lattice and coordinates":
           images.incl op.apply(c)
         check images == cells
 
-  test "cube <-> pixel is flat-top, y down, and round-trips":
-    ## Hand-computed against x = size*3/2*q, y = size*(sqrt(3)/2*q + sqrt(3)*r).
+  test "cube <-> pixel is POINTY-TOP, y down, and round-trips":
+    ## THE frozen orientation, half one. Lattice cells are pointy-top, which is
+    ## what makes their hexagonal HULL flat-top and the board landscape — the
+    ## two are duals and this test is where the cell half is pinned.
+    ## Hand-computed against x = size*(sqrt(3)*q + sqrt(3)/2*r), y = size*3/2*r.
     let p10 = cube(1, 0).cubeToPixel(10.0)
-    check abs(p10.x - 15.0) < 1e-9
-    check abs(p10.y - 8.6602540378) < 1e-9
+    check abs(p10.x - 17.3205080757) < 1e-9
+    check abs(p10.y - 0.0) < 1e-9
     let p01 = cube(0, 1).cubeToPixel(10.0)
-    check abs(p01.x - 0.0) < 1e-9
-    check abs(p01.y - 17.3205080757) < 1e-9
-    ## (2, -1, -1) is the +x direction exactly: a FLAT-TOP cell's neighbours sit
-    ## at 30/90/... degrees, so pure +x is two cells away, not one.
-    let pAxis = cube(2, -1).cubeToPixel(10.0)
-    check abs(pAxis.x - 30.0) < 1e-9
+    check abs(p01.x - 8.6602540378) < 1e-9
+    check abs(p01.y - 15.0) < 1e-9
+    ## (1, 0, -1) is the +x direction exactly: a POINTY-TOP cell's neighbours
+    ## sit at 0/60/... degrees, so pure +x is ONE cell away. (On the old
+    ## flat-top layout it was two, via (2, -1, -1) — the clearest single
+    ## fingerprint of which layout is in force.)
+    let pAxis = cube(1, 0).cubeToPixel(10.0)
+    check abs(pAxis.x - 17.3205080757) < 1e-9
     check abs(pAxis.y) < 1e-9
+    ## ...and pure +y is NOT a lattice direction at all: (0,1,-1) is 60 degrees
+    ## off it. The vertical steps are the two 60/120 diagonals.
+    check abs(cube(0, 1).cubeToPixel(10.0).x - 8.6602540378) < 1e-9
     check CubeOrigin.cubeToPixel(37.0) == (x: 0.0, y: 0.0)
     for c in hexDisc(30):
       let p = c.cubeToPixel(11.0)
@@ -234,19 +242,23 @@ suite "D6: exact integer symmetry":
     check acc == hexE
     for i in 0 .. 5:
       check hexRot60.apply(CubeDirections[i]) == CubeDirections[(i + 1) mod 6]
-      ## Flat-top cells: neighbours at 30, 90, 150, 210, 270, 330 degrees.
-      check abs(screenAngle(CubeDirections[i]) - float(30 + 60 * i)) < 1e-9
+      ## POINTY-TOP cells: neighbours at 0, 60, 120, 180, 240, 300 degrees.
+      check abs(screenAngle(CubeDirections[i]) - float(60 * i)) < 1e-9
 
   test "each mirror's axis is where its name says it is":
     ## One probe cell per axis, verified both by its pixel angle and by being a
     ## fixed point of exactly that mirror.
+    ## Every probe moved one step round with the layout: under the pointy-top
+    ## cell layout each mirror NAME carries the permutation the name 30 degrees
+    ## below it carried under the old flat-top one, so the cell that lies on a
+    ## given axis changed even though the axis angles did not.
     let probes = [
-      (hexMir0, cube(2, -1), 0.0),
-      (hexMir30, cube(1, 0), 30.0),
-      (hexMir60, cube(1, 1), 60.0),
-      (hexMir90, cube(0, 1), 90.0),
-      (hexMir120, cube(-1, 2), 120.0),
-      (hexMir150, cube(-1, 1), 150.0)]
+      (hexMir0, cube(1, 0), 0.0),
+      (hexMir30, cube(1, 1), 30.0),
+      (hexMir60, cube(0, 1), 60.0),
+      (hexMir90, cube(-1, 2), 90.0),
+      (hexMir120, cube(-1, 1), 120.0),
+      (hexMir150, cube(-2, 1), 150.0)]
     for (mirror, probe, angle) in probes:
       check abs(screenAngle(probe) - angle) < 1e-9
       check mirror.apply(probe) == probe
@@ -272,9 +284,13 @@ suite "D6: exact integer symmetry":
     check hexRot180.apply(cube(2, -1)) == cube(-2, 1)
     check hexRot240.apply(cube(2, -1)) == cube(-1, -1)
     check hexRot300.apply(cube(2, -1)) == cube(1, -2)
-    check hexMir0.apply(cube(2, -1)) == cube(2, -1)      # on its own axis
-    check hexMir90.apply(cube(2, -1)) == cube(-2, 1)
-    check hexMir30.apply(cube(3, 1)) == cube(4, -1)      # (3,1,-4)->(4,-1,-3)
+    ## The ROTATIONS above are byte-for-byte what they were under the portrait
+    ## convention — they are pure signed permutations and know nothing about
+    ## pixels. The MIRRORS below are the ones that moved, because a mirror is
+    ## named for the pixel axis it reflects about and the pixel map changed.
+    check hexMir0.apply(cube(1, 0)) == cube(1, 0)        # on its own axis
+    check hexMir90.apply(cube(1, 0)) == cube(-1, 0)      # +x flips to -x
+    check hexMir30.apply(cube(3, 1)) == cube(1, 3)       # (3,1,-4)->(1,3,-4)
     check hexRot60.apply(Axial(q: 2, r: -1)) == Axial(q: 1, r: 1)
 
 suite "team groups and spawns":
@@ -391,7 +407,7 @@ suite "team groups and spawns":
 
   test "orbit keeps duplicates for team indexing, orbitUnique drops them":
     ## A seed ON a mirror axis collapses: 4 group elements, 2 distinct images.
-    let onAxis = cube(2, -1)          # fixed by hexMir0
+    let onAxis = cube(1, 0)           # fixed by hexMir0 (the horizontal axis)
     check onAxis.orbit(GroupV4).len == 4
     check onAxis.orbitUnique(GroupV4).len == 2
     check onAxis.stabilizer(GroupV4) == @[hexE, hexMir0]
@@ -407,7 +423,7 @@ suite "team groups and spawns":
 
 suite "the hexagon boundary predicate":
 
-  const Standard = (969, 1119)
+  const Standard = (1119, 969)
 
   test "insideHex agrees with hexEdgeDist > 0 on every pixel of a board":
     ## The one predicate, swept in full. `arena.nim` warns that its wall rule is
@@ -454,7 +470,7 @@ suite "the hexagon boundary predicate":
     ## integer in float64, so the result must match to the last bit. Any
     ## deviation here is per-team unfairness at the arena wall — the hex
     ## analogue of the non-square rot90 board `validateMap` refuses.
-    for (w, h) in [(969, 1119), (12, 14), (824, 951)]:
+    for (w, h) in [(1119, 969), (14, 12), (951, 824)]:
       let b = hexBoard(w, h)
       var asymmetric = 0
       for y in 0 ..< b.height:
@@ -468,32 +484,45 @@ suite "the hexagon boundary predicate":
 
   test "the hexagon is inscribed exactly in its bounding box":
     let b = hexBoard(Standard[0], Standard[1])
-    check b.apothem() == 484.0                 # (969-1)/2
-    check b.circumradius() == 559.0            # (1119-1)/2
-    check b.hexCenter() == (x: 484.0, y: 559.0)
+    ## FLAT-TOP: the apothem is half the HEIGHT and the circumradius half the
+    ## WIDTH. Under the portrait convention these were the other way round, and
+    ## that single swap is the whole orientation change at board level.
+    check b.apothem() == 484.0                 # (969-1)/2, the short axis
+    check b.circumradius() == 559.0            # (1119-1)/2, the long axis
+    check b.hexCenter() == (x: 559.0, y: 484.0)
     ## The four extreme points are exactly ON the boundary, so nothing spills
-    ## outside the declared bounding box and nothing falls short of it.
-    check b.hexEdgeDist(0, 559) == 0.0
-    check b.hexEdgeDist(968, 559) == 0.0
-    check b.hexEdgeDist(484, 0) == 0.0
-    check b.hexEdgeDist(484, 1118) == 0.0
-    check not b.insideHex(0, 559)
-    check b.insideHex(1, 559)
-    check b.insideHex(484, 1)
-    ## The corners of the bounding box are deep void.
-    for (x, y) in [(0, 0), (968, 0), (0, 1118), (968, 1118)]:
+    ## outside the declared bounding box and nothing falls short of it. The two
+    ## VERTICES are left and right; the two flat edges are top and bottom.
+    check b.hexEdgeDist(0, 484) == 0.0         # left vertex
+    check b.hexEdgeDist(1118, 484) == 0.0      # right vertex
+    check b.hexEdgeDist(559, 0) == 0.0         # top edge midpoint
+    check b.hexEdgeDist(559, 968) == 0.0       # bottom edge midpoint
+    check not b.insideHex(0, 484)
+    check b.insideHex(1, 484)
+    check b.insideHex(559, 1)
+    ## The corners of the bounding box are deep void — at exactly the same
+    ## depth as under the portrait convention, since the box merely transposed.
+    for (x, y) in [(0, 0), (1118, 0), (0, 968), (1118, 968)]:
       check b.hexEdgeDist(x, y) < -242.0
       check b.hexEdgeDist(x, y) > -242.1
-    ## No pixel of the top or bottom row except the two apex columns is inside.
+    ## The top and bottom rows are whole EDGES lying exactly on the boundary,
+    ## so no pixel of either is strictly inside; and the two apex COLUMNS are
+    ## likewise only touched, never entered.
     for x in 0 ..< b.width:
       check not b.insideHex(x, 0)
       check not b.insideHex(x, b.height - 1)
+    for y in 0 ..< b.height:
+      check not b.insideHex(0, y)
+      check not b.insideHex(b.width - 1, y)
 
   test "the distance at the center is the apothem, and falls off linearly":
     let b = hexBoard(Standard[0], Standard[1])
-    check abs(b.hexEdgeDist(484, 559) - b.apothem()) < 1e-9
+    check abs(b.hexEdgeDist(559, 484) - b.apothem()) < 1e-9
+    ## Straight up/down from the centre runs at the two FLAT edges, so the
+    ## distance falls off at rate exactly 1. (On the portrait board that ray
+    ## was horizontal — it is the apothem direction either way.)
     for k in 0 .. 400:
-      check abs(b.hexEdgeDist(484 + k, 559) - float(484 - k)) < 1e-9
+      check abs(b.hexEdgeDist(559, 484 + k) - float(484 - k)) < 1e-9
     ## Every point at distance >= t from the boundary is inside, in all six
     ## directions: sample the six edge normals at 60-degree steps.
     for step in 0 .. 5:
@@ -502,8 +531,8 @@ suite "the hexagon boundary predicate":
         margin = 10.0
       for radius in 0 .. 470:
         let
-          x = 484.0 + float(radius) * cos(ang)
-          y = 559.0 + float(radius) * sin(ang)
+          x = 559.0 + float(radius) * cos(ang)
+          y = 484.0 + float(radius) * sin(ang)
         if float(radius) <= b.apothem() - margin:
           check b.insideHex(x, y)
 
@@ -514,33 +543,40 @@ suite "the hexagon boundary predicate":
         check b.hexEdgeDistF(float(x), float(y)) == b.hexEdgeDist(x, y)
 
   test "a lattice sized to the board has its hull on the arena boundary":
-    ## The hull of a radius-N lattice of FLAT-TOP cells is itself a POINTY-TOP
-    ## hexagon of aspect sqrt(3)/2 — the same hexagon the arena outline is. That
-    ## duality is the reason the orientation pair is frozen the way it is, and
-    ## the reason the boundary needs no fairness argument separate from the
-    ## lattice's.
+    ## THE frozen orientation, half two — and the reason half one had to flip
+    ## with it. The hull of a radius-N lattice of POINTY-TOP cells is itself a
+    ## FLAT-TOP hexagon of aspect 2/sqrt(3): the same hexagon the arena outline
+    ## is. That duality is why the pair is frozen together, and why the boundary
+    ## needs no fairness argument separate from the lattice's.
     let b = hexBoard(Standard[0], Standard[1])
     for cells in [4, 12, 40]:
       let size = b.lattice(cells)
-      ## The extreme +x cell of the radius-N disc sits exactly on the arena's
-      ## right edge midpoint.
-      let east = cube(cells, -(cells div 2)).cubeToPixel(size)
-      check abs(east.x - b.apothem()) < 1e-9
+      ## The extreme +x cell of the radius-N disc sits on the arena's right
+      ## VERTEX, to within the half pixel by which the integer size table rounds
+      ## H against W.
+      let east = cube(cells, 0).cubeToPixel(size)
+      check abs(east.x - b.circumradius()) < 1.0
       check abs(east.y) < 1e-9
-      ## The extreme +y cell sits on the arena's bottom vertex, to within the
-      ## half pixel by which the integer size table rounds W against H.
-      let south = cube(0, cells).cubeToPixel(size)
-      check abs(south.x) < 1e-9
-      check abs(south.y - b.circumradius()) < 1.0
-      ## The hull aspect is exactly sqrt(3)/2, independent of N.
-      check abs(east.x / south.y - HexAspectMin) < 1e-12
+      ## The bottom EDGE is flat, so the two cells that reach lowest share a y
+      ## exactly on it and straddle the vertical axis — neither is on the axis,
+      ## because +y is not a lattice direction for pointy-top cells.
+      let
+        southEast = cube(0, cells).cubeToPixel(size)
+        southWest = cube(-cells, cells).cubeToPixel(size)
+      check abs(southEast.y - b.apothem()) < 1e-9
+      check abs(southWest.y - b.apothem()) < 1e-9
+      check abs(southEast.x + southWest.x) < 1e-9
+      ## The hull aspect is exactly 2/sqrt(3), independent of N.
+      check abs(east.x / southEast.y - HexAspectMax) < 1e-12
 
 suite "hex size classes":
 
   test "the table is exactly round(standard * class factor)":
-    check HexStandardWidth == 969
-    check HexStandardHeight == 1119
-    check HexSizes[hxStandard] == (969, 1119)
+    check HexStandardWidth == 1119
+    check HexStandardHeight == 969
+    check HexSizes[hxStandard] == (1119, 969)
+    ## LANDSCAPE: wider than tall, at the flat-top end of the aspect band.
+    check HexStandardWidth > HexStandardHeight
     for c in HexSizeClass:
       check HexSizes[c].width ==
         int(round(float(HexStandardWidth) * HexClassScale[c]))
@@ -563,8 +599,11 @@ suite "hex size classes":
     for c in HexSizeClass:
       let b = hexBoardOf(c)
       check b.aspectOk()
-      ## Within one pixel of the exact sqrt(3)/2 pointy-top aspect.
-      check abs(b.aspect() - HexAspectMin) <= 1.0 / float(b.height)
+      ## Within one pixel of the exact 2/sqrt(3) FLAT-TOP aspect. The band's
+      ## two ends are the only two aspects a regular hexagon can have, and the
+      ## board ships at the maximum; a portrait board would sit at the minimum
+      ## and `aspectOk` accepts both.
+      check abs(b.aspect() - HexAspectMax) <= 1.0 / float(min(b.width, b.height))
     check abs(HexAspectMin - sqrt(3.0) / 2.0) < 1e-15
     check abs(HexAspectMax - 2.0 / sqrt(3.0)) < 1e-15
     check abs(HexAreaFactor - 3.0 * sqrt(3.0) / 2.0) < 1e-12
@@ -591,12 +630,15 @@ suite "hex size classes":
 
   test "the standard class matches the documented derivation":
     let b = hexBoardOf(hxStandard)
-    ## R = sqrt(1235*659 / (3*sqrt(3)/2)) = 559.69 -> height 1119, width 969.
+    ## R = sqrt(1235*659 / (3*sqrt(3)/2)) = 559.69 -> width 1119, height 969.
     let r = sqrt(1235.0 * 659.0 / HexAreaFactor)
     check abs(r - 559.69) < 0.01
-    check int(round(2.0 * r)) == b.height
-    check int(round(sqrt(3.0) * r)) == b.width
+    check int(round(2.0 * r)) == b.width          # long axis, vertex to vertex
+    check int(round(sqrt(3.0) * r)) == b.height   # short axis, edge to edge
     check b.hexArea() == 3.0 * 484.0 * 559.0    # 811,668 px^2
+    ## The flip is area-neutral to the PIXEL: hexArea is 3/4*(W-1)*(H-1) and a
+    ## product does not care which factor is which, so this is the identical
+    ## number the portrait table produced.
 
   test "the boundary arithmetic is wasm32-safe on the largest class":
     ## Under emscripten `int` is 32 bits and signed overflow TRAPS. `hexSlacks`
@@ -604,8 +646,11 @@ suite "hex size classes":
     ## pinned here — and so is how little headroom the largest class leaves.
     const Int32Max = 2_147_483_647'i64
     let b = hexBoardOf(hxColossal)
-    check b.a2 == 5038
-    check b.r2 == 5818
+    ## a2 is the doubled APOTHEM (height-1) and r2 the doubled CIRCUMRADIUS
+    ## (width-1); under the portrait convention the two were fed by the opposite
+    ## sides, and the products below are unchanged because they transposed.
+    check b.a2 == 5038      # 5039 - 1, the short axis
+    check b.r2 == 5818      # 5819 - 1, the long axis
     check 2'i64 * b.a2 * b.r2 == 58_622_168
     check b.r2 * b.r2 + 4'i64 * b.a2 * b.a2 == 135_374_900
     check 2'i64 * b.a2 * b.r2 < Int32Max
@@ -621,9 +666,9 @@ suite "hex size classes":
     check 2'i64 * (4 * b.a2) * (4 * b.r2) < Int32Max      # 16x: still fits
     check 2'i64 * (7 * b.a2) * (7 * b.r2) > Int32Max      # 49x: does not
     ## And the predicate is still correct out there.
-    check abs(b.hexEdgeDist(2519, 2909) - b.apothem()) < 1e-9
-    check b.hexEdgeDist(0, 2909) == 0.0
-    check b.hexEdgeDist(2519, 0) == 0.0
+    check abs(b.hexEdgeDist(2909, 2519) - b.apothem()) < 1e-9
+    check b.hexEdgeDist(0, 2519) == 0.0        # left vertex
+    check b.hexEdgeDist(2909, 0) == 0.0        # top edge midpoint
     check not b.insideHex(0, 0)
     var disagree = 0
     for y in countup(0, b.height - 1, 13):

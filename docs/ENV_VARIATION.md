@@ -49,7 +49,7 @@ Definition [sim_types.nim:796](../src/ctf/sim_types.nim#L796). Zero/`-1`/`""` va
 
 | Field | Type / default | JSON key | Valid values / draw | Effect |
 |---|---|---|---|---|
-| `size` | string / `""` | `mapSize` | `small`/`standard`/`large`/`huge`/`giant` → HEXAGON bounding boxes 824×951 / 969×1119 / 1260×1455 / 1744×2014 / 2519×2909 (scales 0.85/1.0/1.3/1.8/2.6 of the 969×1119 standard); `colossal`=5.2 override-only (5039×5819). Each holds the same PLAYFIELD area as the rectangle it replaced; 25% of the box is void | Field dimensions. |
+| `size` | string / `""` | `mapSize` | `small`/`standard`/`large`/`huge`/`giant` → HEXAGON bounding boxes 951×824 / 1119×969 / 1455×1260 / 2014×1744 / 2909×2519 (scales 0.85/1.0/1.3/1.8/2.6 of the 1119×969 standard); `colossal`=5.2 override-only (5819×5039). Each holds the same PLAYFIELD area as the rectangle it replaced; 25% of the box is void | Field dimensions. |
 | `symmetry` | string / `""` | `mapSymmetry` | 2-team: `mirrorHex` (legacy alias `mirror`) / `rot180` (coin). `rot120`/`rot60`/`klein4` are declared but raise — the cube-space orbit rasterizer is Stage 2b. `rot90` is DELETED (C4 is not a subgroup of D6) | Which D6 subgroup completes the seed set. |
 | `columns` | int / `0` | `mapColumns` | `3..24` (gen); draw 5–7, scaled by class on huge/giant/colossal | Obstacle column count per half. |
 | `windows` | int / `-1` | `mapWindows` | `0..6` per half; -1 = draw | Glass-window count (walls transparent to fog). |
@@ -76,9 +76,9 @@ span from the hexagon itself (`hexEdgeDist`), so one layout re-fits every size c
 and both run `plugOpenSightlines` so the authored map holds the same published
 "no straight shot crosses the field" promise the generator enforces.
 
-- **`arena`** (`arenaCtfMap()`): HEXAGON in 969×1119, `flagRing`=70,
+- **`arena`** (`arenaCtfMap()`): HEXAGON in 1119×969 (FLAT-TOP, landscape), `flagRing`=70,
   `spawnClearW`=70, `spawnClearH`=130, `gunRange`=1050, `endzone`=disc r=97,
-  `homeDepth`=650, 6 obstacle columns + windowed center bracket + 2 spinning
+  `homeDepth`=544 (solved from the base budgets, not tabled), 6 obstacle columns + windowed center bracket + 2 spinning
   diamonds per half, 2 med-kit spawns.
 - **`arena-large`** (`arenaLargeCtfMap()`): the same layout on the LARGE class,
   1260×1455, `flagRing`=91, `endzone`=disc r=127.
