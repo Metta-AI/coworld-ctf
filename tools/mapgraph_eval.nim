@@ -5,7 +5,7 @@
 ## scored in every run and printed first. A prototype that cannot be read as
 ## a delta from the control is not a measurement.
 
-import std/[os, strformat, strutils, algorithm, sequtils]
+import std/[os, strformat, strutils, algorithm, sequtils, tables]
 import pixie
 import ../src/ctf/[sim, map_metrics, map_pool, mapgen_graph]
 import ../tools/map_render
@@ -35,6 +35,7 @@ when isMainModule:
     count = if args.len > 0: parseInt(args[0]) else: 12
     size = if args.len > 1: args[1] else: "standard"
     renderDir = if args.len > 2: args[2] else: ""
+    coverTarget = if args.len > 3: parseInt(args[3]) else: 150
 
   echo "CONTROL"
   let control = evaluateMap(loadCtfMapMetadata("arena"), "arena")
@@ -52,16 +53,23 @@ when isMainModule:
   echo "\nSCENE-GRAPH PROTOTYPE"
   var
     graphScores, graphInterior: seq[float]
-    valid, rejected = 0
+    valid, rejected, broke = 0
+    serves: CountTable[string]
+    shapeCounts: seq[int]
   for s in 0 ..< count:
     let seed = 4001 + s
-    let g = generateGraphMap(seed, size)
+    let g = generateGraphMap(seed, size, coverTarget)
+    for p in g.board.placements: serves.inc p.serves
+    shapeCounts.add g.board.placements.len
     if g.rejected:
       inc rejected
+      if not g.reason.startsWith("REJECT"): inc broke
       echo &"REJ  graph-{seed}  {g.reason}"
       continue
     let m = evaluateMap(g.gameMap, "graph-" & $seed)
-    echo line(m)
+    ## Failures ALWAYS print, however large the sweep. A summary that hides
+    ## its rejects is how a generator ships a defect it already measured.
+    if count <= 16 or not m.valid: echo line(m)
     if m.valid:
       inc valid
       graphScores.add m.staticScore
@@ -70,6 +78,14 @@ when isMainModule:
       createDir(renderDir)
       let img = renderMap(g.gameMap, MapRenderOptions(maxDimension: 900))
       img.image.writeFile(renderDir / &"graph-{seed}.png")
+
+  echo "\nINTENT LEDGER (what every placed feature says it is FOR)"
+  var kinds = toSeq(serves.pairs)
+  kinds.sort(proc(a, b: (string, int)): int = cmp(b[1], a[1]))
+  for (k, n) in kinds: echo &"  {n:5}  {k}"
+  echo &"  postcondition failures: {broke}"
+  if shapeCounts.len > 0:
+    echo &"  shapes per map: min {min(shapeCounts)} max {max(shapeCounts)}"
 
   echo "\nSUMMARY (staticScore, then interiorFrac)"
   echo &"  arena control        {control.staticScore:5.3f}   " &

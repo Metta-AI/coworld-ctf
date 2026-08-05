@@ -76,6 +76,14 @@ type
     notes*: seq[string]
     rayCover*: seq[(int, int)]     ## y intervals a structure provably blocks
     protectedAt*: proc(x, y: int): bool {.closure.}
+    budgetPx*, spentPx*: int
+      ## The cover budget is a resource SHARED by every scene, so it lives on
+      ## the board and is debited by `place`, not owned by whichever scene
+      ## happened to think about it. The first version made it a parameter of
+      ## the district plan alone; the plan then stayed inside its budget while
+      ## the bastion, the plazas and the apron spent on top of it, and two of
+      ## forty seeds shipped over the validator's 170-permille ceiling. A
+      ## budget that only one of five spenders can see is not a budget.
 
   Order* = enum ordFirst, ordRandom
 
@@ -122,12 +130,26 @@ proc make*(ctx: var Ctx, rect: MapRect, tags: varargs[string]): Region =
   result = Region(rect: r, tags: @tags)
   ctx.areas.add result
 
+proc areaOf(s: ArenaShape): int =
+  case s.kind
+  of shapeRect: max(0, s.rect.w) * max(0, s.rect.h)
+  of shapeDisc: int(3.1416 * float(s.radius * s.radius))
+  of shapeDiamond: 2 * s.radius * s.radius
+  else: 0
+
 proc place*(ctx: var Ctx, shape: ArenaShape, serves: string) =
   ## Write one obstacle. `serves` is mandatory: the ledger is what makes
-  ## "placed but pointless" auditable after the fact.
+  ## "placed but pointless" auditable after the fact. Every write debits the
+  ## shared cover budget, so no scene can overspend one it never read.
   doAssert serves.len > 0, "every placement must name what it serves"
   ctx.board.placements.add Placement(
     shape: shape, scene: ctx.path, serves: serves)
+  ctx.board.spentPx += areaOf(shape)
+
+proc budgetLeft*(b: Board): int = b.budgetPx - b.spentPx
+
+proc canAfford*(b: Board, px: int): bool =
+  b.budgetPx <= 0 or b.spentPx + px <= b.budgetPx
 
 proc promise*(ctx: var Ctx, claim: string,
               check: proc(b: Board): bool {.closure.}) =
@@ -279,6 +301,9 @@ const
                        ## because it is the complement of the BSP cut lines.
   WallThick = 14
   DoorPx = 44          ## comfortably over the validator's 26px erosion
+  DistrictBudgetShare = 74
+    ## Percent of the shared cover budget the district plan may claim. The
+    ## remainder is what the bastion, the plazas and the stand apron spend.
   MinLeafW = 96
   MinLeafH = 200
     ## Not a taste number. A district must survive being inset by a street on
@@ -414,11 +439,12 @@ proc districtPlanScene(coverTargetPermille, interiorHalfPx: int): Scene =
     var wallPx = 0
     for i, r in role:
       if r == "rayblock": wallPx += ringPx(foot[i])
-    ## The budget is measured against the validator's OWN interior band (the
-    ## half of it this domain is responsible for), not against the domain
-    ## rectangle — otherwise the generator aims at a permille the validator
-    ## does not compute and lands outside the 42..168 window it must hit.
-    let budgetPx = coverTargetPermille * interiorHalfPx div 1000
+    ## The budget is the board's, measured against the validator's OWN
+    ## interior band — not against the domain rectangle, or the generator
+    ## aims at a permille the validator never computes. The plan may claim
+    ## only part of it; the rest is left for the scenes that run after it,
+    ## which is the fix for the two "too clogged" seeds.
+    let budgetPx = ctx.board.budgetPx * DistrictBudgetShare div 100
     var rest = capable.filterIt(role[it].len == 0)
     rest.sort(proc(a, b: int): int =
       cmp(leaves[b].w * leaves[b].h, leaves[a].w * leaves[a].h))
@@ -519,7 +545,8 @@ proc plazaScene(): Scene =
         rad = max(18, ctx.rules.coverSizePx div 2 - ctx.rng.rand(10))
         cx = fp.x + rad + ctx.rng.rand(max(1, fp.w - 2 * rad))
         cy = fp.y + rad + ctx.rng.rand(max(1, fp.h - 2 * rad))
-      if ctx.board.rectUnprotected(MapRect(x: cx - rad, y: cy - rad,
+      if ctx.board.canAfford(3 * rad * rad) and
+          ctx.board.rectUnprotected(MapRect(x: cx - rad, y: cy - rad,
                                            w: 2 * rad, h: 2 * rad)):
         ctx.place disc(cx, cy, rad), "plaza cover"
   )
@@ -551,6 +578,7 @@ proc standApronScene(anchor: MapPoint, innerPx, outerPx: int): Scene =
           box.x + box.w > ctx.region.rect.x + ctx.region.rect.w or
           box.y < ctx.region.rect.y or
           box.y + box.h > ctx.region.rect.y + ctx.region.rect.h: continue
+      if not ctx.board.canAfford(3 * pr * pr): continue
       if not ctx.board.rectUnprotected(box): continue
       if not ctx.board.rectClear(box): continue
       ctx.place disc(cx, cy, pr), "cover on the stand approach"
@@ -584,6 +612,7 @@ proc centralBastionScene(center: MapPoint, ringPx: int): Scene =
       if y0 < band.y or y0 + armH > band.y + band.h: continue
       let box = MapRect(x: x0, y: y0, w: w, h: armH)
       if not ctx.board.rectUnprotected(box): continue
+      if not ctx.board.canAfford(w * t + t * armH): continue
       ## A hook opening toward the centre: the wall that faces midfield is
       ## solid (so it is real cover for whoever holds it), and the arm that
       ## reaches back toward the seam gives the holder a lane to fall into.
@@ -718,7 +747,7 @@ type GraphResult* = object
   reason*: string
 
 proc generateGraphMap*(seed: int, sizeName = "standard",
-                       coverTargetPermille = 120): GraphResult =
+                       coverTargetPermille = 150): GraphResult =
   ## Borrow the SHELL (board size, clearances, endzone, pedestals) from the
   ## existing generator, then replace its terrain wholesale with the scene
   ## tree. Reusing the shell is deliberate for a prototype: it keeps the
@@ -736,7 +765,10 @@ proc generateGraphMap*(seed: int, sizeName = "standard",
     board = Board(
       width: gameMap.width, height: gameMap.height, center: gameMap.center,
       scanLo: ArenaBorder + 2, scanHi: gameMap.height - ArenaBorder,
-      protectedAt: proc(x, y: int): bool = shell.mapProtectedFloorAt(x, y))
+      protectedAt: proc(x, y: int): bool = shell.mapProtectedFloorAt(x, y),
+      budgetPx: coverTargetPermille *
+        ((gameMap.width - 2 * gameMap.captureClear) *
+         (gameMap.height - 2 * ArenaBorder) div 2) div 1000)
     ## The FUNDAMENTAL DOMAIN: the left half. Every scene runs inside it and
     ## nothing here knows about the lift — `buildArenaObstacles` mirrors the
     ## result downstream, exactly as it does for the current generator, so
