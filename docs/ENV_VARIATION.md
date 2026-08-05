@@ -63,10 +63,15 @@ Definition [sim_types.nim:796](../src/ctf/sim_types.nim#L796). Zero/`-1`/`""` va
 
 Generator internals (all `arena.nim`, config-gated, no GameVersion bump; change in code):
 `MapGenMaxAttempts`=100 (re-rolls until validators pass), `MinCorridorWidth`=26,
-cover-density band `CoverPermilleMin`=40..`CoverPermilleMax`=170,
+cover-density band `coverPermilleMin(map)`..`CoverPermilleMax`=266 — the floor is
+class-dependent, `CoverPermilleMin`=44 on the standard class scaled as `1/L`
+(51 small … 8 colossal), because the wall that interrupts a hull's chords is a
+curtain whose length scales with the board while the obstacle vocabulary does
+not; the ceiling is scale-free because `GunRange` never scales,
 `ColumnFamily` per column = one of `colStubs`/`colDiamonds`/`colDiscs`/`colChevrons`
 (`colDiamonds` now emits a hexagon — the diamond was a C4 shape), the sightline rule
-is `sightlineMinSpan` = 80% of board width on each of the THREE hex axes,
+is `sightlineMinSpan` = 80% of the board's SHORT axis on all SIX hex chord
+families (three edge-to-edge, three vertex-to-vertex),
 pit-candidate kinds `pitInstead`/`pitGap`/`pitEndzone`, curated `MapPoolSeeds` = 20 seeds.
 
 ### Hand-authored arenas (fixed geometry, selected by `mapPath`)

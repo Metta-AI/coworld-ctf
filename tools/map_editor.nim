@@ -274,8 +274,11 @@ proc diagnosticsNode(gameMap: CtfMap, diagnostics: MapDiagnostics): JsonNode =
     "reason": reason,
     "coverPermille": diagnostics.coverPermille,
     "minCoverPermille": diagnostics.minCoverPermille,
-    "coverPermilleMin": CoverPermilleMin,
-    "coverPermilleMax": CoverPermilleMax,
+    # The band THIS hull was judged against, not the consts: the floor is
+    # class-dependent (`coverPermilleMin`), so restating `CoverPermilleMin`
+    # would mislabel every board but the standard class.
+    "coverPermilleMin": diagnostics.coverPermilleFloor,
+    "coverPermilleMax": diagnostics.coverPermilleCeiling,
     # Only the HORIZONTAL family is indexable by a row. The validator also
     # scans the +-60 degree families (a hexagon has three pairs of opposite
     # edges, and a lane down any of them is the same cross-field snipe); those
