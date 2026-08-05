@@ -226,6 +226,11 @@ type
     ok*: bool
     reason*: string         ## first failure, "" when ok
     corridorMinPx*: int
+    routeWidthPx*: int
+      ## The widest sustained corridor the map delivers between the bases —
+      ## the maximin bottleneck the rule was evaluated on. Read this FIRST
+      ## when a map fails: a board whose route width is 26 px does not have a
+      ## chokepoint problem, it has no corridors.
     runs*: seq[PinchRun]        ## every pinched section, worst-excess first
     chokepoints*: seq[PinchRun] ## the subset that are genuine CUTS
     worstExcessPx*: int         ## how far the worst offender overruns
@@ -378,23 +383,185 @@ proc losClear*(wall: seq[bool], w, h, x0, y0, x1, y1: int): bool =
 # THE AUDIT
 # ---------------------------------------------------------------------------
 
+proc routeWidthPx*(
+  wall: seq[bool], w, h: int, anchors: openArray[MapPoint]
+): int =
+  ## THE WIDEST SUSTAINED CORRIDOR the map actually delivers: the largest T
+  ## such that some route joins every base while never narrowing below T px.
+  ##
+  ## This is the single number that says whether a 68 px corridor floor is a
+  ## rule the map obeys or a rule it has never met, and it is the number to
+  ## read FIRST when the pinch audit reports a violation — a map whose route
+  ## width is 26 px does not have a chokepoint problem, it has no corridors.
+  ##
+  ## Computed as a widest-path / maximum-bottleneck join: add pixels in
+  ## DESCENDING width order, union each into its already-added neighbours, and
+  ## report the width at which the bases first land in one set. Exact, and one
+  ## counting sort plus one union-find pass rather than a search over floods.
+  ##
+  ## The engine's spawn pocket is forced to the top bucket for the reason the
+  ## audit excludes it: its mouth is the tightest cut on every board ever
+  ## generated and no map author controls it.
+  let n = w * h
+  if n <= 0 or wall.len < n or anchors.len < 2: return 0
+  let
+    clear = clearancePx(wall, w, h)
+    walk = walkableMask(clear, w, h)
+  var anchorPx: seq[int]
+  for a in anchors:
+    let i = nearestWalkable(walk, w, h, a.x, a.y)
+    if i >= 0: anchorPx.add i
+  if anchorPx.len < 2: return 0
+
+  var nearBase = newSeq[bool](n)
+  for a in 0 ..< anchorPx.len:
+    let field = geodesic(walk, w, h, [anchorPx[a]])
+    var span = -1
+    for b in 0 ..< anchorPx.len:
+      if b == a: continue
+      let d = int(field[anchorPx[b]])
+      if d >= 0 and (span < 0 or d < span): span = d
+    if span < 5 * EngineMinCorridorPx: continue
+    let near = int32(span div 5)
+    for i in 0 ..< n:
+      if field[i] >= 0 and field[i] <= near: nearBase[i] = true
+
+  var maxW = 0
+  for i in 0 ..< n:
+    if walk[i]: maxW = max(maxW, 2 * int(clear[i]))
+  if maxW <= 0: return 0
+  let top = maxW + 1
+
+  var order = newSeq[seq[int32]](top + 1)
+  for i in 0 ..< n:
+    if not walk[i]: continue
+    let wpx = if nearBase[i]: top else: min(top, 2 * int(clear[i]))
+    order[wpx].add int32(i)
+
+  var parent = newSeq[int32](n)
+  var added = newSeq[bool](n)
+  proc find(a: int): int =
+    var r = a
+    while int(parent[r]) != r: r = int(parent[r])
+    var c = a
+    while int(parent[c]) != c:
+      let nxt = int(parent[c])
+      parent[c] = int32(r)
+      c = nxt
+    r
+  proc union(a, b: int) =
+    let ra = find(a)
+    let rb = find(b)
+    if ra != rb: parent[ra] = int32(rb)
+
+  for wpx in countdown(top, 0):
+    for m in order[wpx]:
+      let i = int(m)
+      added[i] = true
+      parent[i] = int32(i)
+      let x = i mod w
+      for step in [-1, 1, -w, w]:
+        if step == -1 and x == 0: continue
+        if step == 1 and x == w - 1: continue
+        let j = i + step
+        if j >= 0 and j < n and added[j]: union(i, j)
+    var joined = true
+    for b in 1 ..< anchorPx.len:
+      if not added[anchorPx[0]] or not added[anchorPx[b]] or
+          find(anchorPx[0]) != find(anchorPx[b]):
+        joined = false
+        break
+    if joined: return min(wpx, maxW)
+  0
+
+const LethalUnit* = 396
+  ## One whole kill, in lethality units. `maxPinchRunPx` only ever returns
+  ## 66, 99 or 132 (shots-to-kill is an integer), and 396 is their LCM — so
+  ## a pixel of sub-corridor floor costs exactly `396 div maxPinchRunPx` and
+  ## a run that accumulates 396 is a run you die in, with no rounding.
+
+func pixelLethality*(widthPx, corridorMinPx: int): int {.inline.} =
+  ## What one pixel of travel at this local width costs, as a fraction of a
+  ## kill scaled by `LethalUnit`. Floor at or above the corridor minimum is
+  ## FREE: two cogs abreast is the sustained-corridor property, and a player
+  ## who has it can trade, escort and dodge, so it never accrues pinch debt.
+  if widthPx >= corridorMinPx: 0
+  else: LethalUnit div max(1, maxPinchRunPx(widthPx))
+
 proc auditCorridorPinches*(
   wall: seq[bool], w, h: int, anchors: openArray[MapPoint],
   corridorMinPx = RecommendedCorridorWidthPx,
 ): PinchAudit =
-  ## THE length-aware corridor/chokepoint measurement, and the only filter
-  ## worth trusting for either question.
+  ## THE length-aware corridor/chokepoint measurement.
   ##
-  ## Finds every connected section of walkable floor narrower than
-  ## `corridorMinPx`, measures how far a player TRAVELS while inside it (its
-  ## arc length along the geodesic from the first base), and compares that
-  ## against `maxPinchRunPx` at the section's own tightest width. Sections
-  ## that overrun are corridor-floor violations; sections that fit AND are
-  ## genuine cuts are chokepoints.
+  ## ------------------------------------------------------------------------
+  ## WHY THIS IS A ROUTING PROBLEM AND NOT A SHAPE PROBLEM
+  ## ------------------------------------------------------------------------
   ##
-  ## `anchors` are the team flag homes. Two or more are needed for the cut
-  ## test and for the spawn-pocket exclusion; with fewer, only the geometric
-  ## measurements are populated and nothing is ever reported as mandatory.
+  ## The first version of this audit took connected components of sub-68px
+  ## walkable floor and measured each one's arc length. It FLAGGED THE
+  ## CONTROL: the hand-authored arena came back as a single 26px-wide "kill
+  ## box" 1175 px long, spanning the whole board.
+  ##
+  ## That verdict was nonsense and the reason is worth keeping. In any
+  ## open-plan map, thin floor is not a set of separate necks — it is a WEB.
+  ## The arena's passages run between pickets, so the pinched skirt around
+  ## every picket touches the pinched skirt around the next one, and all of
+  ## them 4-connect into one component that spans the map. Its "arc length"
+  ## is the map's diameter, and it means nothing, because at every point on
+  ## that web a player can take one step sideways into a 200 px opening.
+  ##
+  ## Being IN narrow floor is not the hazard. Being UNABLE TO AVOID IT is.
+  ## So the question is about ROUTES, not regions:
+  ##
+  ##   over all routes from base A to base B, what is the least pinch debt a
+  ##   player can pay, and does any single unavoidable stretch of it exceed
+  ##   what they can clear alive?
+  ##
+  ## That is a shortest-path problem with `pixelLethality` as the edge cost —
+  ## zero on corridor-width floor, `LethalUnit / maxPinchRunPx(width)` on
+  ## anything narrower. Costs are the small integers {0, 3, 4, 6}, so it runs
+  ## on a bucket queue: Dial's algorithm, the same engine `burrow` uses to
+  ## dig, now used to measure.
+  ##
+  ## Everything falls out of the one number `pain[B]`:
+  ##
+  ##   pain = 0     Some route from A to B never drops below the corridor
+  ##                floor. The map obeys the 68 px minimum. There is no
+  ##                chokepoint and nothing to report.
+  ##   0 < pain     Every route pays. The cheapest one is reconstructed and
+  ##                cut into maximal sub-68px stretches; each of those IS a
+  ##                chokepoint, and each is checked against `maxPinchRunPx`
+  ##                at its own tightest width.
+  ##   pain >= 396  A whole kill's worth in one stretch: a kill box.
+  ##
+  ## ------------------------------------------------------------------------
+  ## WHICH ROUTE THE RULE IS EVALUATED ON — the second control failure
+  ## ------------------------------------------------------------------------
+  ##
+  ## Minimising TOTAL pinch debt is not what a player does, and taking it
+  ## literally flagged the control a second time: on the arena the cheapest-
+  ## by-total route threaded a 26 px gap between two pickets for 133 px,
+  ## because a long tight squeeze summed cheaper than a short detour. The
+  ## widest route available on that board is 36 px (`routeWidthPx`), and 36 px
+  ## is the door a player actually walks through.
+  ##
+  ## So the search is LEXICOGRAPHIC: widest bottleneck first, least debt
+  ## second. `routeWidthPx` gives the maximin width T, the graph is restricted
+  ## to floor at least T wide, and Dial's runs inside that. The rule is then
+  ## evaluated on the route a player would really pick, and `minWidthPx` of
+  ## the worst run agrees with `routeWidthPx` by construction instead of
+  ## contradicting it.
+  ##
+  ## THE CUT TEST IS STILL THE ONLY FILTER, and it is now on the right graph.
+  ## A stretch is confirmed by blocking it and re-routing. "Strictly more
+  ## painful" is too weak a bar — on a board where every route pays something,
+  ## any detour is worse by a pixel and everything reads as mandatory — so the
+  ## bar is a WHOLE KILL's worth of extra exposure (`LethalUnit`), or outright
+  ## disconnection. A notch beside a wide opening re-routes for nearly free
+  ## and is dropped, so no confetti; a real doorway costs a kill to avoid, so
+  ## never a blanket zero. No ridge heuristic and no medial-axis skeleton is
+  ## involved at any point.
   result.corridorMinPx = corridorMinPx
   result.ok = true
   let n = w * h
@@ -408,144 +575,173 @@ proc auditCorridorPinches*(
   for a in anchors:
     let i = nearestWalkable(walk, w, h, a.x, a.y)
     if i >= 0: anchorPx.add i
-  if anchorPx.len == 0: return
-
-  # Geodesic fields, one per base. `dist[0]` doubles as the ARC-LENGTH ruler:
-  # `max - min` of it over a section is exactly how far you travel inside it.
-  var dist: seq[seq[int32]]
-  for a in anchorPx: dist.add geodesic(walk, w, h, [a])
+  if anchorPx.len < 2: return
 
   # The engine's protected spawn pocket and its approach — the first fifth of
   # the walk to the nearest other base. Its mouth is a genuine cut on EVERY
   # board, carved identically on all of them, and no map author controls it.
   # `map_metrics` excludes it from both the route metric and the chokepoint
-  # detector for this reason and so does this audit.
+  # detector for exactly this reason; charging pinch debt for it would make
+  # every map fail on the engine's own geometry.
+  let plain = geodesic(walk, w, h, [anchorPx[0]])
   var nearBase = newSeq[bool](n)
   for a in 0 ..< anchorPx.len:
+    let field = if a == 0: plain else: geodesic(walk, w, h, [anchorPx[a]])
     var span = -1
     for b in 0 ..< anchorPx.len:
       if b == a: continue
-      let d = int(dist[a][anchorPx[b]])
+      let d = int(field[anchorPx[b]])
       if d >= 0 and (span < 0 or d < span): span = d
     if span < 5 * EngineMinCorridorPx: continue
     let near = int32(span div 5)
     for i in 0 ..< n:
-      if dist[a][i] >= 0 and dist[a][i] <= near: nearBase[i] = true
+      if field[i] >= 0 and field[i] <= near: nearBase[i] = true
 
-  # --- pinched components -------------------------------------------------
-  var pinched = newSeq[bool](n)
+  # --- restrict to the WIDEST route ---------------------------------------
+  # Lexicographic: widest bottleneck first, least pinch debt second. Without
+  # this the router threads a long tight squeeze whenever it sums cheaper than
+  # a short detour, which is not a route any player takes. See the doc above.
+  let routeW = routeWidthPx(wall, w, h, anchors)
+  result.routeWidthPx = routeW
+  var wide = newSeq[bool](n)
   for i in 0 ..< n:
-    pinched[i] = walk[i] and not nearBase[i] and 2 * int(clear[i]) < corridorMinPx
+    wide[i] = walk[i] and (nearBase[i] or 2 * int(clear[i]) >= routeW)
 
-  var
-    seen = newSeq[bool](n)
-    stack: seq[int32]
-    comps: seq[seq[int32]]
-  for start in 0 ..< n:
-    if seen[start] or not pinched[start]: continue
-    stack.setLen(0)
-    stack.add int32(start)
-    seen[start] = true
-    var members: seq[int32]
-    while stack.len > 0:
-      let i = int(stack.pop())
-      members.add int32(i)
-      let x = i mod w
-      if x > 0 and pinched[i - 1] and not seen[i - 1]:
-        seen[i - 1] = true; stack.add int32(i - 1)
-      if x < w - 1 and pinched[i + 1] and not seen[i + 1]:
-        seen[i + 1] = true; stack.add int32(i + 1)
-      if i >= w and pinched[i - w] and not seen[i - w]:
-        seen[i - w] = true; stack.add int32(i - w)
-      if i + w < n and pinched[i + w] and not seen[i + w]:
-        seen[i + w] = true; stack.add int32(i + w)
-    if members.len >= PinchMinPixels:
-      comps.add members
+  # --- pixel cost ---------------------------------------------------------
+  var cost = newSeq[uint8](n)
+  for i in 0 ..< n:
+    if not wide[i]: continue
+    cost[i] =
+      if nearBase[i]: 0'u8
+      else: uint8(pixelLethality(2 * int(clear[i]), corridorMinPx))
+  var maxCost = 0
+  for i in 0 ..< n: maxCost = max(maxCost, int(cost[i]))
 
-  # --- measure each ------------------------------------------------------
-  # A mandatory pinch must lie on a near-shortest base-to-base path (if you
-  # can route around it at similar cost, it is not a cut). That is a cheap
-  # NECESSARY condition, and it is what keeps the cut test off the confetti.
-  let slack = int32(2 * corridorMinPx)
-  var runs: seq[PinchRun]
-  var members: seq[seq[int32]]
-  for c in comps:
+  # --- Dial's: least-pinch routing ---------------------------------------
+  # Buckets are indexed by pain modulo (maxCost + 1); every relaxation moves
+  # forward by at most `maxCost`, so the cyclic window is always valid. This
+  # is the same bucket structure `burrow.weightedDistances` runs on.
+  proc leastPain(blocked: seq[bool]): tuple[pain: seq[int32], prev: seq[int32]] =
+    let buckets = max(1, maxCost) + 1
     var
-      run = PinchRun(minWidthPx: high(int), arcLenPx: 0, pixels: c.len)
-      sx, sy = 0
-      dLo = int32.high
-      dHi = int32.low
-    for m in c:
-      let i = int(m)
-      run.minWidthPx = min(run.minWidthPx, 2 * int(clear[i]))
-      sx += i mod w
-      sy += i div w
-      let d = dist[0][i]
-      if d >= 0:
-        dLo = min(dLo, d)
-        dHi = max(dHi, d)
-    run.x = sx div c.len
-    run.y = sy div c.len
-    if dHi >= dLo: run.arcLenPx = int(dHi - dLo)
-    run.allowedPx = maxPinchRunPx(run.minWidthPx)
-    for a in 0 ..< anchorPx.len:
-      for b in a + 1 ..< anchorPx.len:
-        let span = dist[a][anchorPx[b]]
-        if span < 0: continue
-        for m in c:
-          let i = int(m)
-          if dist[a][i] < 0 or dist[b][i] < 0: continue
-          if dist[a][i] + dist[b][i] <= span + slack:
-            run.onRoute = true
-            break
-        if run.onRoute: break
-      if run.onRoute: break
-    runs.add run
-    members.add c
+      pain = newSeq[int32](n)
+      prev = newSeq[int32](n)
+      queue = newSeq[seq[int32]](buckets)
+    for i in 0 ..< n:
+      pain[i] = int32.high
+      prev[i] = -1
+    if blocked.len == n and blocked[anchorPx[0]]: return (pain, prev)
+    pain[anchorPx[0]] = 0
+    queue[0].add int32(anchorPx[0])
+    var
+      level = 0
+      seen = 1
+      drained = 0
+    while drained < seen:
+      let slot = level mod buckets
+      while queue[slot].len > 0:
+        let i = int(queue[slot].pop())
+        if int(pain[i]) != level: continue
+        inc drained
+        let x = i mod w
+        for step in [-1, 1, -w, w]:
+          if step == -1 and x == 0: continue
+          if step == 1 and x == w - 1: continue
+          let j = i + step
+          if j < 0 or j >= n or not wide[j]: continue
+          if blocked.len == n and blocked[j]: continue
+          let nd = int32(level + int(cost[j]))
+          if nd < pain[j]:
+            if pain[j] == int32.high: inc seen
+            pain[j] = nd
+            prev[j] = int32(i)
+            queue[int(nd) mod buckets].add int32(j)
+      inc level
+      if level > n * (maxCost + 1) + buckets: break
+    (pain, prev)
 
-  # --- the cut test: THE ONLY FILTER -------------------------------------
-  # Narrowest first, capped. Everything above is cost control; this is what
-  # decides whether a pinch is a chokepoint.
-  var order: seq[int]
-  for i in 0 ..< runs.len:
-    if runs[i].onRoute: order.add i
-  order.sort(proc (a, b: int): int = cmp(runs[a].minWidthPx, runs[b].minWidthPx))
-  if order.len > PinchCandidateCap: order.setLen(PinchCandidateCap)
+  var noBlock: seq[bool]
+  let (pain, prev) = leastPain(noBlock)
 
-  if anchorPx.len >= 2:
-    var blockedPx = newSeq[bool](n)
+  # --- the runs on the cheapest route ------------------------------------
+  var runs: seq[PinchRun]
+  var runPixels: seq[seq[int32]]
+  for b in 1 ..< anchorPx.len:
+    if pain[anchorPx[b]] == int32.high or pain[anchorPx[b]] == 0: continue
+    # Walk the predecessor chain back to A, collecting maximal stretches of
+    # sub-corridor floor. Each stretch is one chokepoint, and its length in
+    # pixels IS its arc length: the chain is a 4-connected path, one px a step.
+    var path: seq[int32]
+    var cur = int32(anchorPx[b])
+    while cur >= 0:
+      path.add cur
+      if int(cur) == anchorPx[0]: break
+      cur = prev[int(cur)]
+    var k = 0
+    while k < path.len:
+      let i = int(path[k])
+      if cost[i] == 0:
+        inc k
+        continue
+      var
+        run = PinchRun(minWidthPx: high(int), onRoute: true)
+        sx, sy, count = 0
+        pix: seq[int32]
+      while k < path.len and cost[int(path[k])] > 0:
+        let j = int(path[k])
+        run.minWidthPx = min(run.minWidthPx, 2 * int(clear[j]))
+        sx += j mod w
+        sy += j div w
+        inc count
+        pix.add int32(j)
+        inc k
+      run.pixels = count
+      run.arcLenPx = count
+      run.x = sx div max(1, count)
+      run.y = sy div max(1, count)
+      run.allowedPx = maxPinchRunPx(run.minWidthPx)
+      runs.add run
+      runPixels.add pix
+
+  # --- the cut test: THE ONLY FILTER --------------------------------------
+  # Block the stretch and re-route. If the cheapest route gets strictly more
+  # painful, or vanishes, the stretch was load-bearing and is a genuine cut of
+  # the CORRIDOR graph. A notch beside a wide opening re-routes for free and
+  # is dropped here — that is the anti-confetti filter, and it is the only one.
+  if runs.len > 0:
+    var order: seq[int]
+    for i in 0 ..< runs.len: order.add i
+    order.sort(proc (a, b: int): int = cmp(runs[a].minWidthPx, runs[b].minWidthPx))
+    if order.len > PinchCandidateCap: order.setLen(PinchCandidateCap)
+    var blocked = newSeq[bool](n)
     for k in order:
-      for m in members[k]: blockedPx[int(m)] = true
-      var probe = newSeq[bool](n)
-      for i in 0 ..< n: probe[i] = walk[i] and not blockedPx[i]
-      var isCut = false
-      if probe[anchorPx[0]]:
-        let d = geodesic(probe, w, h, [anchorPx[0]])
-        for b in 1 ..< anchorPx.len:
-          if dist[0][anchorPx[b]] >= 0 and d[anchorPx[b]] < 0:
-            isCut = true
-            break
-      else:
-        isCut = true
-      runs[k].mandatory = isCut
+      for m in runPixels[k]: blocked[int(m)] = true
+      let probe = leastPain(blocked)
+      var harder = false
+      for b in 1 ..< anchorPx.len:
+        if pain[anchorPx[b]] == int32.high: continue
+        if probe.pain[anchorPx[b]] == int32.high or
+            int(probe.pain[anchorPx[b]]) - int(pain[anchorPx[b]]) >= LethalUnit:
+          harder = true
+      runs[k].mandatory = harder
       runs[k].tested = true
-      for m in members[k]: blockedPx[int(m)] = false
+      for m in runPixels[k]: blocked[int(m)] = false
 
   # --- verdict ------------------------------------------------------------
   runs.sort(proc (a, b: PinchRun): int = cmp(b.excessPx, a.excessPx))
   result.runs = runs
-  result.worstExcessPx = low(int)
+  result.worstExcessPx = if runs.len == 0: 0 else: low(int)
   for r in runs:
     if r.mandatory: result.chokepoints.add r
     result.worstExcessPx = max(result.worstExcessPx, r.excessPx)
     if r.mandatory and r.arcLenPx > r.allowedPx and result.reason.len == 0:
       result.ok = false
       result.reason =
-        "kill box at (" & $r.x & "," & $r.y & "): " & $r.minWidthPx &
-          "px floor runs " & $r.arcLenPx & "px, over the " & $r.allowedPx &
+        "kill box at (" & $r.x & "," & $r.y & "): every route between the " &
+          "bases crosses " & $r.arcLenPx & "px of floor only " &
+          $r.minWidthPx & "px wide, past the " & $r.allowedPx &
           "px a player can clear alive at that width (corridor floor is " &
           $corridorMinPx & "px)"
-  if runs.len == 0: result.worstExcessPx = 0
 
 proc corridorPinchFailures*(
   wall: seq[bool], w, h: int, anchors: openArray[MapPoint],
