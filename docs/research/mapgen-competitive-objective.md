@@ -571,6 +571,144 @@ Neither quantity is in our metric suite. Both are static, cheap, and directly ac
 
 ---
 
+### 3.6 The aim lattice caps the real engagement range at ~142–260 px, not 1050 px
+
+**This is the most consequential thing in this document. It invalidates numbers throughout the
+epic.** It is derived from the simulator source, not from comments or documentation.
+
+#### The evidence, from `src/ctf/sim.nim` and `src/ctf/sim_types.nim`
+
+1. **The aim is quantised to 32 slots and re-snapped every tick.** `sim.nim` (movement update):
+
+   ```nim
+   let slot = player.aimBrads div AimStepBrads
+   player.aimBrads =
+     (((slot + steps) mod AimRotations + AimRotations) mod AimRotations) * AimStepBrads
+   ```
+
+   with `AimRotations = 32`, `AimBradsTurn = 256`, `AimStepBrads = 8` → **11.25° per slot**
+   (`sim_types.nim`: "The aim is always one of these 32 slots — there are no finer-grained angles").
+   The comment is confirmed by the arithmetic: the value is reconstructed as `slot * AimStepBrads`,
+   so an off-grid angle cannot persist.
+
+2. **The shot is fired down the snapped aim.** `sim.nim:968` → `sim.jitterDirection(headingBrads)`,
+   and every call site takes `headingBrads` from `player.aimBrads` / `attacker.aimBrads`
+   (`sim.nim:681, 756, 1216, 1234`). `jitterDirection` calls `aimVector(headingBrads)` and rotates it
+   by a Gaussian draw. **There is no aim assist and no snap-to-target anywhere in `sim.nim`** (grep
+   for `assist|snapTo|autoAim|aimAssist|nearestTarget` returns nothing).
+
+3. **The hit test uses the SOLID body, not the 34 px drawn body.** `selectFireTarget`:
+
+   ```nim
+   for off in countup(-PlayerHalf, PlayerHalf, ExposureSampleStep):   # PlayerHalf = 6
+     ...
+     if abs(vx * uy - vy * ux) > BulletHalfWidth: continue            # BulletHalfWidth = 8.0
+   ```
+
+   So a fully-exposed, centred body is hit iff the ray passes within
+   `PlayerHalf + BulletHalfWidth = 14 px` of its centre. The engine states this identity itself in
+   `aimJitterSigma`: "`PlayerHalf + BulletHalfWidth` is the corridor's continuous acceptance
+   half-window for a centered silhouette." The grenade blast uses the same solid box
+   (`sim.nim:1343–1350`, GV30). **Only the spray cone uses the 34 px drawn body.**
+
+4. **Jitter is an order of magnitude smaller than the lattice.**
+   `σ = asin(14 / 1050) / AimJitterCentralZ = 0.013333 / 1.2815516 = 0.010404 rad = 0.596°`,
+   calibrated so a fully visible body at max range is hit 80% of the time *given a perfectly aimed
+   ray*. The half-slot pointing error is 5.625° — **9.4× larger than σ**. The dominant source of
+   miss is therefore the lattice, not the jitter, and the jitter calibration never accounted for it.
+
+#### The quantity the coordinator asked for
+
+One slot's worst-case pointing error is half a slot, `δ = 5.625°`. Its lateral miss at range `t` is
+`t·tan δ = 0.09849·t`. Setting that equal to the acceptance window:
+
+```
+    R_slot  =  (PlayerHalf + BulletHalfWidth) / tan(5.625°)  =  14 / 0.098491  =  142 px
+    (strict "one body half-width", ignoring the bullet corridor:  6 / 0.098491 = 61 px)
+```
+
+**`R_slot` = 142 px is the range ceiling below which the aim lattice is guaranteed to be able to put
+the ray on a fully exposed body. Beyond it, whether you can hit at all depends on where the target
+happens to sit relative to the 32-slot grid.** For a target at a bearing uniform within its slot:
+
+```
+    P(hit | range t)  ≈  min(1,  arctan(14 / t) / 0.0981748 rad)
+    TTK(t)            =  FireCooldownTicks · (HitPoints / P(t) − 1)  =  12 · (3/P(t) − 1) ticks
+```
+
+| range t | P(hit) per shot | TTK | note |
+|---|---|---|---|
+| ≤ 142 px | **1.00** | 24 t = **1.00 s** | the fast end of the observed 1.0–1.9 s TTK band |
+| 200 px | 0.712 | 39 t = 1.61 s | inside the observed band |
+| **237 px** | 0.600 | **48 t = 2.00 s** | **exactly `TicksToKill`** |
+| **259 px** | **0.550** | 54 t = 2.24 s | **exactly `FieldAccuracyPct = 55`** |
+| 300 px | 0.475 | 64 t = 2.66 s | |
+| 500 px | 0.285 | 114 t = 4.76 s | |
+| 1050 px | 0.136 | 253 t = **10.5 s** | `GunRange`. Against a moving target, effectively never |
+
+Three independent constants land on the same answer, which is the strongest evidence that this is
+real and not an artefact of my model:
+
+- The engine's own **`FieldAccuracyPct = 55`** — the accuracy it *assumes* when deriving
+  `ShotsToKill` and `TicksToKill` — is achieved at **259 px**.
+- **`GrenadeMaxRange` = `ShoutRange` = `GunRange div 4` = 262 px**. Whoever set the grenade and shout
+  radii to a quarter of the gun range set them, by a completely different route, to the true lethal
+  radius. Agreement to 1.2%.
+- The **observed TTK band of 1.0–1.9 s** corresponds to engagement ranges of 142–225 px.
+
+**Conclusion: `GunRange = 1050 px` is a REACH, not an engagement range. The real lethal envelope of
+this game is ~140–260 px — one quarter of the gun and one sixth of the vision range.** Coworld CTF
+is a knife fight conducted inside an enormous see-but-cannot-hit band. This is consistent with the
+already-recorded field truth that after GV36 "ranged fire is dead" and the spray — a cone weapon that
+needs no pointing precision — became 51% of kills.
+
+**Caveats, stated honestly.** (a) A policy that *strafes to align a slot ray with its target* recovers
+range; the model assumes it does not, and the field evidence (spray dominance) says current policies
+mostly do not. (b) Against a laterally moving target, successive shots sample independent bearings,
+which the model already assumes. (c) The 80%-at-max-range jitter calibration means even a
+slot-aligned ray misses 20% at 1050 px, so the table is if anything optimistic at long range. **The
+one measurement that would settle it is hit-rate-versus-range from the free field-diagnosis loop, and
+that is cheap — run it.**
+
+#### What this invalidates
+
+| Number | Status | Correction |
+|---|---|---|
+| `ChokepointSpacingPx = GunRange` = 1050 px | **wrong by ~4×** | One defender can only *cover* ~260 px, not 1050. Chokepoints need to be ~260 px apart to be independently defensible; at 1050 px the generator produces ~4× too few chokepoints (`traversePx / 1050`) and a far more open board than intended |
+| `chokeCoveredPenalty` — "1 when ONE **1050 px** isovist watches every chokepoint" | **measuring the wrong thing** | At 1050 px a camper can *see* every chokepoint but can only *kill* at ~260 px. Compute the penalty on a **260 px** isovist. Keep the 1050 px version as a separate "watched" (information) metric — they are different design facts |
+| `longRunFrac` — share of open axis runs over **600 px** | **threshold 2.3× too long** | A 600 px run is not lethal; a 260 px run with a shooter at the end is. Re-cut at ~260 px, or better, at the heading-corrected `S_max` of §3.3 |
+| Visibility regimes (`coneCoverage` from the 1575 px cone) | **correct, but they are AWARENESS regimes** | Under an *engagement* metric (260 px disc) the areas fall by ~37×: small 4.42 → 0.12, colossal 0.118 → 0.003. **On the lethality axis every board is range-limited.** The occlusion/mixed/range trichotomy describes what players *know*, not where they can *kill* |
+| `MaxExposedRunPx = 132 px` | **survives, for a different reason** | `TicksToKill = 48` corresponds to a ~237 px engagement, so 132 px is the exposure budget *against a defender at ~240 px*. It is not "the run you can make under fire from anywhere in gun range" — beyond ~300 px the real budget is 2–8× larger |
+| Any encounter-rate or population-density law calibrated on `GunRange` or `visionRange` | **must be re-based** | The *lethal* disc is π·260² = 2.1×10⁵ px². The gun disc is 3.5×10⁶ px² (16×) and the vision cone 2.6×10⁶ px² (12×). A density law calibrated on either overstates the contact rate that matters by more than an order of magnitude |
+| §3.4's cover-cadence derivation | **strengthened, see below** | It is range-conditioned, and the range it implies is the real combat envelope |
+| `RecommendedCorridorWidthPx = 68`, `NominalLanePx = 124` | **unaffected** | These are legibility/traffic numbers built on the drawn body, which is the right anchor for them |
+| `visionRange = 1.5 × GunRange = 1575 px` | **unaffected, but reframe it** | You can see **6× further than you can kill**. That see-but-cannot-hit band is a first-class design primitive nobody has written down, and it is what makes shout (262 px) and the fog channel valuable |
+
+#### The cover band, re-derived with the lattice in it
+
+§3.4 required the cover gap `g` to be at most one time-to-kill of carrier travel. With TTK now a
+function of the *defender's* engagement range `t`, and carrier speed 1.925 px/tick:
+
+```
+    g(t) = 1.925 · TTK(t)          f = 56² / (g + 56)²
+```
+
+| defender at | TTK | carrier gap `g` | required cover fraction `f` |
+|---|---|---|---|
+| 162 px | 29 t | 56 px | **25%** ← top of the measured band |
+| 200 px | 39 t | 74 px | 19% |
+| 236 px | 48 t | 92 px | **14%** ← centre of the measured band |
+| 262 px | 54 t | 104 px | 12% |
+| 296 px | 63 t | 121 px | **10%** ← floor of the measured band |
+
+**The measured 10–25% stand-side band maps exactly onto defender engagement ranges of 162–296 px —
+which is the real combat envelope derived independently above (142–262 px).** The band is not a
+tuning constant. It is the cover density that keeps a carrier alive against a defender shooting from
+the only ranges at which shooting works. Two independent derivations, from opposite ends, meeting in
+the same 150–300 px window.
+
+---
+
 ## 4. The property set — what a generator must be *required* to guarantee
 
 **Evidence classes.** These are the whole point of the table; a threshold without one is an opinion.
