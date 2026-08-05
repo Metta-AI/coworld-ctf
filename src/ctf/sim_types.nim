@@ -741,6 +741,26 @@ type
     symRot180
     symRot90
 
+  MapBiome* = enum
+    ## A map's surface SKIN: which floor texture the art bake tiles the board
+    ## with. A biome is purely cosmetic — it changes what the board is made
+    ## OF, never the competitive skeleton (no wall, spawn, pickup or capture
+    ## geometry reads this). `biomeArena` is the classic polished concrete and
+    ## is the zero value, so every map that never sets a biome keeps exactly
+    ## the art it has today.
+    ##
+    ## The enum's string values ARE the biome names used on the wire and in
+    ## map specs, and they index the texture set: biome `x` resolves to
+    ## data/arena_floor_x.png (map_art.biomeFloorPath). Adding a biome means
+    ## adding a recipe to scripts/art/build_floor.py, committing the PNG with
+    ## `git add -f`, and adding its `test -f` guard to Dockerfile.replay-viewer.
+    biomeArena = "arena"
+    biomeCaves = "caves"
+    biomeForest = "forest"
+    biomeDesert = "desert"
+    biomeCity = "city"
+    biomePlains = "plains"
+
   CtfMap* = object
     name*: string
     path*: string
@@ -766,6 +786,9 @@ type
                                ## in from its edge, and SMALLER values push it
                                ## further from the edge.
     symmetry*: MapSymmetry
+    biome*: MapBiome           ## surface skin (floor texture) only; NEVER
+                               ## consulted by geometry, spawns or scoring.
+                               ## Zero value = biomeArena = today's concrete.
     layout*: TeamLayout        ## sides (2 teams) / corners / plus (4 teams).
     genSeed*: int              ## generator seed; 0 for hand-authored maps.
     medKitSpawns*: seq[MapPoint]     ## the two ACTIVE med-kit points.

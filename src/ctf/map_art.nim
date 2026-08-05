@@ -5,7 +5,7 @@
 ## docs/plans/2026-08-01-sim-split.md.
 
 import
-  std/[math, os],
+  std/[math, os, strutils],
   bitworld/aseprite, bitworld/server, bitworld/spriteprotocol, pixie,
   sim_types, rig_art, arena
 
@@ -377,6 +377,62 @@ proc rotatingDiamondPixels*(
   diamondFrameCache[index].add((scale: scale, pixels: pixels))
   (size, pixels)
 
+## --- Biome floors (which surface the board is made of) ---
+## The board tiles ONE floor texture, chosen by the map's biome. This is the
+## whole art side of a biome: the layout stays exactly what the generator
+## produced (a biome must never move a wall), only the material under it
+## changes. Every tile is baked by scripts/art/build_floor.py against the
+## luminance contract the endzone ember glow depends on (see EndzoneFaceLevel
+## / EndzoneCrackLevel below), which is why these are generated, not painted.
+
+proc biomeFloorPath*(biome: MapBiome): string =
+  ## Repo-relative path of one biome's floor tile. biomeArena keeps the
+  ## historical unsuffixed name so the classic board's art file never moved.
+  if biome == biomeArena: "data/arena_floor.png"
+  else: "data/arena_floor_" & $biome & ".png"
+
+proc biomeFromName*(name: string): MapBiome =
+  ## Parses a biome name (map spec / CLI / wire) case-insensitively, FALLING
+  ## BACK to biomeArena for an empty or unrecognized name: an unknown skin
+  ## degrades to the classic concrete instead of bricking the map. A name that
+  ## IS known but whose texture is missing is a different failure and is loud
+  ## — see loadBiomeFloor.
+  let key = name.strip().toLowerAscii()
+  if key.len == 0:
+    return biomeArena
+  for biome in MapBiome:
+    if $biome == key:
+      return biome
+  biomeArena
+
+proc loadBiomeFloor*(biome: MapBiome, dir = gameDir()): Image =
+  ## The floor tile for one biome, or a NAMED error saying which biome and
+  ## which path if the texture is not there.
+  ##
+  ## This existence check is the point of the proc. A freshly generated PNG is
+  ## UNTRACKED until it is added by name (`git commit -a` skips it, and
+  ## .gitignore opens with `*`), so a biome ships texture-less all too easily;
+  ## a bare readImage on the missing file then raises deep inside pixie at BAKE
+  ## time, and only the maps on that one biome fail to boot while every other
+  ## map is fine — a mystery crash for one map. The message below names the
+  ## biome, the exact expected path, and the commands that fix it.
+  let path = dir / biomeFloorPath(biome)
+  if not fileExists(path):
+    raise newException(CtfError,
+      "missing floor texture for map biome '" & $biome & "': expected " &
+      path & ". Regenerate it with `python3 scripts/art/build_floor.py " &
+      $biome & "` and commit it with `git add -f " & biomeFloorPath(biome) &
+      "` (a new asset stays untracked until it is added BY NAME — " &
+      "`git commit -a` will not pick it up — which is what CI's `test -f` " &
+      "guard in Dockerfile.replay-viewer is there to catch).")
+  readImage(path)
+
+proc floorLuminance*(color: ColorRGBA): int =
+  ## The luminance the endzone ember gates on. ONE definition, shared by the
+  ## glow itself (emberThroughCracks) and by the contract check in
+  ## tests/test_map_biome.nim, so the test cannot drift from the renderer.
+  (color.r.int * 30 + color.g.int * 59 + color.b.int * 11) div 100
+
 ## --- Capture endzones (the floor a carrier must reach to score) ---
 ## The win condition is a full-height vertical column at each home edge: a live
 ## carrier scores the instant its center-x crosses the inner threshold, at ANY
@@ -398,8 +454,10 @@ const
   # light panel-seam bevels — stays at lum 72..112 (at/above FaceLevel → NO
   # glow); only the hairline crack bottoms dip to ~32..34 (at/below CrackLevel
   # → full glow), with the crack tapers crossing the band and glowing partially.
-  EndzoneFaceLevel = 66          ## polished-surface floor luminance (glow = 0).
-  EndzoneCrackLevel = 34         ## joint/crack-bottom luminance (glow = full).
+  # Exported so the biome floor set is verified against the REAL gates
+  # (tests/test_map_biome.nim) instead of a copy that can drift.
+  EndzoneFaceLevel* = 66         ## polished-surface floor luminance (glow = 0).
+  EndzoneCrackLevel* = 34        ## joint/crack-bottom luminance (glow = full).
   EndzoneGlowFloor = 0.82        ## min home-falloff so the far end still glows.
   # The four *EndzoneColor team display colors moved to sim_types (they are
   # shared with the paint FX in sim_state, and hosting them here dragged the
@@ -412,7 +470,7 @@ proc emberThroughCracks(base, ember: ColorRGBA, strength: float): ColorRGBA =
   ## tint over the tiles (L98 #4). Distinct from the solid capture LINE, which is
   ## a painted stripe. A two-point luminance gate anchored to the measured floor
   ## split does the confining; `strength` is a gentle pedestal-side falloff.
-  let l = (base.r.int * 30 + base.g.int * 59 + base.b.int * 11) div 100
+  let l = floorLuminance(base)
   # 0 at/above a polished face, 1 at/below a crack bottom — cracks only.
   let crack = clamp((EndzoneFaceLevel - l).float /
     (EndzoneFaceLevel - EndzoneCrackLevel).float, 0.0, 1.0)
@@ -455,7 +513,9 @@ proc endzoneColorAt(
   ## Tints one floor pixel if it sits inside a capture endzone. Team ember
   ## seeps up through the tile cracks, brightest at the pedestal (the inner
   ## threshold edge) and floored so the whole zone still glows; the exact
-  ## threshold a carrier must cross gets a crisp solid line. Sides maps
+  ## threshold a carrier must cross gets a crisp solid line. Every biome floor
+  ## honors the same luminance contract, so this reads as ember-in-the-cracks
+  ## on cave rock and mud plate and paver joint alike. Sides maps
   ## reproduce the classic two-column paint exactly; corner boxes fade on
   ## both axes and line both inner edges.
   for tint in tints:
@@ -574,7 +634,7 @@ proc renderArenaRgbaPair*(
     cx = gameMap.center.x
     cy = gameMap.center.y
     dir = gameDir()
-    floorTex = readImage(dir / "data/arena_floor.png")
+    floorTex = loadBiomeFloor(gameMap.biome, dir)
   var pedSprs: array[Team, Image]
   for team in gameMap.teams():
     pedSprs[team] = readImage(dir / "data/ped_" & teamText(team) & ".png")
@@ -720,7 +780,8 @@ proc renderArenaRgbaPair*(
 proc loadMapLayers*(gameMap: CtfMap, withEndzoneGlow = true):
     tuple[mapImage, walkImage, wallImage: Image] =
   ## Builds the visual map plus the walk and wall masks for the arena. The
-  ## visuals: a tiled top-down polished-concrete floor, and ONE coherent
+  ## visuals: a tiled top-down floor in the map's BIOME material (polished
+  ## concrete unless the map says otherwise — loadBiomeFloor), and ONE coherent
   ## rooftop material for every wall pixel — border frame, rect stub, diamond,
   ## disc, and chevron alike — beveled from the collision mask itself so the
   ## art matches each collider EXACTLY and is identical on both halves by
@@ -743,7 +804,7 @@ proc loadMapLayers*(gameMap: CtfMap, withEndzoneGlow = true):
     clear = rgba(0, 0, 0, 0)
     opaque = rgba(255, 255, 255, 255)
     dir = gameDir()
-    floorTex = readImage(dir / "data/arena_floor.png")
+    floorTex = loadBiomeFloor(gameMap.biome, dir)
   var pedSprs: array[Team, Image]
   for team in gameMap.teams():
     pedSprs[team] = readImage(dir / "data/ped_" & teamText(team) & ".png")

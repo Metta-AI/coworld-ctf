@@ -20,6 +20,19 @@ COPY nimby.lock .
 RUN nimby --global sync nimby.lock
 
 COPY . .
+# The per-biome floor textures ride into the wasm bundle through
+# replay-viewer/config.nims' `--preload-file data@data`, so unlike the soldier
+# PNGs below they are never copied to dist/ and a `test -f dist/...` guard
+# cannot see them. Guard the SOURCE files instead, before the build: .gitignore
+# opens with `*`, so a freshly generated PNG is silently left untracked, and a
+# missing tile takes out only the maps on that one biome (loadBiomeFloor names
+# it, but a fail-fast here is cheaper than a mystery boot crash in the field).
+RUN test -f data/arena_floor.png && \
+  test -f data/arena_floor_caves.png && \
+  test -f data/arena_floor_forest.png && \
+  test -f data/arena_floor_desert.png && \
+  test -f data/arena_floor_city.png && \
+  test -f data/arena_floor_plains.png
 RUN nim c -d:emscripten replay-viewer/ctf_replay.nim && \
   nim c -r --hints:off -o:/tmp/gen_wire_constants tools/gen_wire_constants.nim \
     > replay-viewer/dist/wire_constants.js && \
