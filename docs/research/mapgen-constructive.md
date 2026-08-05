@@ -410,3 +410,137 @@ connectivity. Excellent prior art and the closest published thing to what we wan
 is a **deformation/optimisation** method: it *tries* to satisfy the specification and
 measures how well it did. **Class (B).** Worth reading for its block-deformation
 machinery; do not rely on it for a guarantee.
+
+### 4.5 Declarative symmetry and fairness — **(A)**, and cheaper done constructively
+
+There are two entirely different things called "symmetry" here and conflating them is a
+classic error.
+
+**(a) Symmetry as a map property (what we want).** The obstacle mask must be invariant
+under the team group `Γ`. The constructive method — generate in a fundamental domain, lift
+by the orbit — is an unconditional **(A)** and costs nothing: it is a `|Γ|`-fold copy with
+integer arithmetic. We already do this (`hex.nim:423 orbit`, `orbitUnique`, `stabilizer`,
+`actsFreely`), and `sim_types.nim:752` already records *why* integer polygon vertices
+matter: "a polygon and its mirror image rasterize to exactly mirror-symmetric wall masks."
+Even `burrow.nim` already carries a `domain` fundamental-domain mask
+(`burrow.nim:151`) so a repair pass stays inside the wedge and lifts afterwards. **This
+part is solved and the rewrite should not touch it.**
+
+A declarative encoding of the same thing (an ASP constraint `wall(X,Y) :- wall(σ(X,Y))`
+for each `σ ∈ Γ`) gives the identical guarantee at vastly higher cost. There is no reason
+to buy it.
+
+**(b) Symmetry breaking as a solver technique (a different thing entirely).** When you
+*do* use a solver, the symmetry of the problem makes the search space `|Γ|` times bigger
+than it needs to be, and the fix is symmetry-breaking predicates: pick the
+lexicographically smallest member of each orbit as its representative and constrain the
+solver to it
+([Anders, *The Complexity of Symmetry Breaking Beyond Lex-Leader*, CP 2024](https://drops.dagstuhl.de/storage/00lipics/lipics-vol307-cp2024/LIPIcs.CP.2024.3/LIPIcs.CP.2024.3.pdf);
+[*Satsuma: Structure-Based Symmetry Breaking in SAT*, SAT 2024](https://drops.dagstuhl.de/storage/00lipics/lipics-vol305-sat2024/LIPIcs.SAT.2024.4/LIPIcs.SAT.2024.4.pdf);
+[Drescher, Tifrea & Schaub, *Symmetry-breaking Answer Set Solving*](https://arxiv.org/pdf/1008.1809);
+[Bogaerts et al., *Improved static symmetry breaking for SAT*](https://www.bartbogaerts.eu/articles/2016/003/ImprovedStaticSymmetryBreakingSAT.pdf)).
+Note that **restricting a solver to a fundamental domain IS lex-leader symmetry breaking**
+— the two literatures are describing the same operation from opposite ends. If we build
+the offline skeleton catalogue with clingo (§4.2), generating in the wedge is both the
+fairness mechanism *and* the `|Γ|`× speedup, for free. **Class (B)** — it is a performance
+technique, not a map-quality one.
+
+**Fairness beyond symmetry.** Exact geometric symmetry is *necessary* and *not sufficient*
+for fairness. Two known holes in our setup:
+
+1. **Chirality.** With 4 teams on Klein V4, two teams receive a **mirrored** world. A
+   mirror is an isometry of the *geometry* but not of anything **handed** in the game
+   — turn-rate asymmetries, sprite-facing conventions, or a policy trained on one
+   chirality. Geometric fairness is exact; behavioural fairness under a reflection is an
+   empirical claim, not a theorem. Say so out loud in the rewrite doc; do not let the
+   orbit lift imply more than it proves.
+2. **Seat/role asymmetry.** Symmetry equalises the *map*, not the *matchup*. Our own
+   ladder tooling already has to seat-adjust. Out of scope here, but it is why "the map is
+   provably fair" must never be shortened to "the game is fair."
+
+### 4.6 Repair-based guarantees — **(A) exactly when the repair is monotone in the invariant**
+
+We already ship a repair: `src/ctf/burrow.nim`, a Nim port of mettagrid's
+`make_connected.py` — Dial's-algorithm bucket-queue shortest paths with a wall-cost model
+(`WallCostRatio = 10`, `ObjectCostRatio = 50`), a disc brush that guarantees corridor
+width (`brushRadiusForCorridor`, `burrow.nim:268`: stamping an L2 disc of radius `r` along
+a centreline unions to a band exactly `2r+1` cells across), a fundamental-domain mask, and
+an explicit audit of destroyed objects. It is a genuinely well-built piece of machinery.
+**Note it is currently only exercised by `tests/test_burrow.nim` — `arena.nim` does not
+call it.** The live pipeline's connectivity story is still validate-and-reroll.
+
+**The general theory of when repair is sufficient.** Repair `R` provably establishes
+invariant `P` iff:
+
+1. `P` is **monotone** in the direction `R` moves. Connectivity is monotone under opening
+   floor: opening a cell can only merge components, never split them. So a dig can never
+   un-connect anything, and a finite sequence of digs terminates with one component. This
+   is why burrow's guarantee is real.
+2. `R` **terminates with `P` true**, not merely "makes progress." Burrow does: it
+   enumerates components, digs each to the anchor, and re-labels; the only failure modes
+   are structural (`bsUnreachable` — the fundamental domain itself is severed) and it
+   reports them rather than silently succeeding (`burrow.nim:181`).
+3. `R` **does not violate `Q`** for the other invariants `Q`. **This is where repair
+   wrecks the design**, and it is worth being explicit because it is our live failure
+   mode:
+   - A Dial's dig takes the *cheapest* path. Cheapest ≈ shortest ≈ straight. **A straight
+     dug corridor is exactly what I3/I4 forbid.** Connectivity repair is a sightline
+     *generator*.
+   - Cheapest also means "through the thinnest walls," which preferentially deletes small
+     cover pieces — i.e. it eats the 10–25 % stand-side cover band I2 needs.
+   - Symmetrically, our sightline repair (`arena.nim:1921`) *adds* walls with a
+     `cols(40)` plug budget and can narrow or seal a corridor, attacking I1.
+
+   Neither repair re-checks the other's invariant. The global validator plus reroll is
+   what stands in for it, and that is a (B), not an (A).
+
+**Repair verdicts:**
+
+| Repair | Establishes | Class |
+|---|---|---|
+| Burrow / Dial's connectivity dig | one connected component (`k = 1`) | **(A)** for `k=1`, and `k=1` is *not* a playable CTF map |
+| **k-fold disjoint burrow** (proposed, §7.2) | min-cut `≥ k` between pinned anchors | **(A)** — and it is a ~30-line change to an existing module |
+| Sightline plug pass (`arena.nim:1921`) | every sampled row blocked | **(B)** — bounded plug budget, stride-4 row sampling, can exhaust |
+| Sightline pass rebuilt as an interval cover (§3, I3) | every row blocked, no budget, no sampling | **(A)** |
+| Protected-floor carve (endzones, spawn pockets) | I5 | **(A)** |
+| Best-of-K ranking (`arena.nim:2455`) | nothing | **(B)** — see §9 |
+
+### 4.7 Constructive tricks — the family that actually ships
+
+These are unglamorous and they are where all our (A)s come from.
+
+**Spanning-structure-first, then only ADD.** Build the thing that carries the global
+property (the skeleton) before anything else exists, and afterwards apply only operations
+that are monotone in that property. For I1 the monotone direction is *opening floor*, so
+the rule becomes: **obstacles may be placed anywhere except intersecting the protected
+skeleton.** The test is per-obstacle, local, `O(1)` against a precomputed skeleton mask,
+and rejection is total (no partial states). Unconditional **(A)**.
+
+**Invariant-preserving edits (monotone predicate bookkeeping).** For each invariant that
+is a *union* or a *sum*, keep the running aggregate and make every edit either a no-op or
+an improvement:
+- I3 / I4: keep the per-row union of blocked spans. Adding an obstacle only extends it.
+- I2: keep the wall area inside each stand disc. Adding cover only increases it; overshoot
+  is prevented by placing the *last* piece with a computed size rather than a drawn one.
+This turns "check afterwards, reroll on failure" into "cannot go wrong," which is the
+difference between a 47 % first-attempt pass rate and 100 %.
+
+**Budgeted continuous placement instead of drawn-then-tested placement.** Our generator
+draws a radius and a position and then discovers what coverage it produced. The
+constructive inversion is to draw a *target* and solve for the last free parameter. For a
+disc, `area = πr²` is invertible; for a rect, one side is; for a blob polygon, the radial
+scale factor is. In every case there is a monotone one-parameter family and a closed-form
+or bisection-in-3-steps solve. Cost: nanoseconds. This is how I2 becomes exact.
+
+**Reserve-then-fill (the "protected floor" idea, generalised).** We already carve
+protected floor for endzones and spawn pockets. Generalise it into the generator's
+*primary* data structure: a **reservation mask** with three states — PROTECTED (never
+wall), FREE (anything), REQUIRED-BLOCKER (must contain wall, from the I3/I4 interval
+cover). Every placement consults it. This single structure discharges I1, I3, I4 and I5
+simultaneously and makes the invariants *compositional* rather than adversarial.
+
+**Parameter clamping over parameter validating.** I5 is six numbers. Derive the safe
+interval for `homeDepth` once, at compile time if possible, and clamp. Never validate a
+scalar you can clamp — a validated scalar costs a reroll, a clamped one costs nothing.
+(This is also the fix pattern for the "carrier ran to a hard-coded home column outside the
+real capture zone" class of bug.)
