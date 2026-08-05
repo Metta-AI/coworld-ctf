@@ -588,8 +588,11 @@ proc gridForMap(gameMap: CtfMap, cellSize: int):
   ## Trenches are walkable dug squares: floor carrying content, not obstacles.
   var content = newSeq[bool](gameMap.width * gameMap.height)
   for trench in gameMap.trenches:
-    for y in max(0, trench.y) .. min(gameMap.height - 1, trench.y + trench.h - 1):
-      for x in max(0, trench.x) .. min(gameMap.width - 1, trench.x + trench.w - 1):
+    # Trenches are `ArenaShape`s since GV37; they are still axis-aligned boxes,
+    # so `shapeAsRect` recovers the dug rectangle exactly.
+    let tr = shapeAsRect(trench)
+    for y in max(0, tr.y) .. min(gameMap.height - 1, tr.y + tr.h - 1):
+      for x in max(0, tr.x) .. min(gameMap.width - 1, tr.x + tr.w - 1):
         content[y * gameMap.width + x] = true
   let
     grid = burrowGridFromPixels(gameMap.width, gameMap.height, cellSize,

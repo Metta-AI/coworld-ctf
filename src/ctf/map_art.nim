@@ -896,10 +896,13 @@ proc renderArenaRgbaPair*(
   # on the certifier's boot clock.
   var trenchNear = newSeq[bool](w * h)
   for trench in ArenaTrenches:
-    for ty in max(0, trench.y - TrenchArtPadPx) ..<
-        min(h, trench.y + trench.h + TrenchArtPadPx):
-      for tx in max(0, trench.x - TrenchArtPadPx) ..<
-          min(w, trench.x + trench.w + TrenchArtPadPx):
+    # A trench is an `ArenaShape` since GV37 (vector obstacles); every trench is
+    # still axis-aligned, so `shapeAsRect` recovers the pit box exactly.
+    let tr = shapeAsRect(trench)
+    for ty in max(0, tr.y - TrenchArtPadPx) ..<
+        min(h, tr.y + tr.h + TrenchArtPadPx):
+      for tx in max(0, tr.x - TrenchArtPadPx) ..<
+          min(w, tr.x + tr.w + TrenchArtPadPx):
         trenchNear[ty * w + tx] = true
   # Paint straight into the output byte buffers — the pixie Image round trip
   # (premultiply on write, un-premultiply on pack) was pure overhead for an
