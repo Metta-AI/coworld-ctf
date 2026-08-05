@@ -37,6 +37,8 @@ echo "--- glass bracket rows (left half) ---"
 for y in [449, 454, 460, 470, 475, 480, 490]:
   rowScan(y, 0, MapWidth div 2)
 
+echo "--- centre row, full width ---"
+rowScan(cy)
 echo "--- med kit rows ---"
 for p in game.medKitSpawns:
   rowScan(p.y, max(0, p.x - 140), min(MapWidth - 1, p.x + 140))

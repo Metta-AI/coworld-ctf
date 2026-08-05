@@ -97,31 +97,38 @@ suite "map metrics":
     withGameDir(proc() =
       let control = computeMapMetrics(loadCtfMapMetadata("arena"))
       # Enclosure. The MW2 study measured the pre-hex 1235x659 control at ~33%
-      # and called it honest scatter; the HEXAGONAL arena measures 41.5%,
+      # and called it honest scatter; the PORTRAIT hexagon measured 41.5%,
       # because the slanted hull walls enclose the board's corners that a
-      # rectangle left wide open. Re-based deliberately: this is a DESCRIPTIVE
-      # landmark of whatever board ships as the control, not a quality band,
-      # and its job is to make a silent drift loud. Moving it is fine; moving
-      # it without saying so re-bases the whole rubric — and the harness's
-      # `interior fraction` band is anchored on exactly this number.
-      check abs(control.interiorFrac - 0.415) < 0.02
+      # rectangle left wide open. The LANDSCAPE hull with a correctly staggered
+      # picket ladder measures 49.7%: the stagger fix moved slots off each
+      # other and onto open field, which is the whole point of it.
+      #
+      # Re-based deliberately, and said out loud: this is a DESCRIPTIVE landmark
+      # of whatever board ships as the control, not a quality band, and its job
+      # is to make a silent drift loud. Moving it without saying so re-bases the
+      # whole rubric — the harness's `interior fraction` band is anchored on
+      # exactly this number.
+      check abs(control.interiorFrac - 0.497) < 0.02
       # The bands that four candidate metrics got wrong, pinned:
       check control.p95ClearancePx <= 125.0     # distance to cover, not 2x it
       check control.minRoutes >= 3              # not "1 route for every map"
       check control.crossings.len == 1
       check control.crossings[0].count >= 3     # not "1 way across"
       check control.crossings[0].openFrac > 0.2 # ...and its fraction beside it
-      # Bottlenecks. The PORTRAIT hull measured 0 of 127 candidates as true
-      # cut vertices; the LANDSCAPE hull measures 3, and one point covers
-      # them. That is a real property of the flat-top board, not a metric
-      # fault: turning the hexagon a sixth of a turn puts the slanted walls
-      # on the long axis, which pinches the two flank corridors the portrait
-      # board ran wide open. Re-based deliberately, and kept as an exact pin
-      # (not a `<=`) so a FOURTH chokepoint appearing is still loud — the
-      # candidate filter, not the count, is what these two lines guard.
-      check control.chokepoints == 3
+      # An open field has no bottleneck, and saying so is information. The
+      # unfiltered candidate set is large, which is exactly why the
+      # cut-vertex filter exists.
+      #
+      # These two lines EARNED their keep on the landscape hull: while the
+      # picket ladder was anchored per-column instead of to the centre row,
+      # the arena measured 3 true cut vertices with one point covering them
+      # all — a scrambled slalom leaves pinch points where the columns share
+      # gaps. Anchoring the ladder (src/ctf/arena.nim) put both back to the
+      # values the portrait board had. Do not re-base a landmark to match a
+      # regression; find out why it moved.
+      check control.chokepoints == 0
       check control.chokeCandidates > 10
-      check control.chokeCoveredByOnePoint
+      check not control.chokeCoveredByOnePoint
       check control.stands.len == 2
       # Mirror symmetry, to within one pixel. The two anchors come from
       # different formulas — axisHomeLo gives Red 186 and axisHomeHi gives

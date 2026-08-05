@@ -86,17 +86,25 @@ suite "grenades":
 
   test "grenades fly over walls and explode on landing":
     var game = twoTeamGame()
-    # The chevron wall pair straddles x=479..506 near the vertical center;
-    # a bullet cannot cross it, a grenade sails over.
-    game.players[0].x = 460
+    # The GV16 bracket's glass pane (x 421..432) is the only thing standing on
+    # the arena's centre row: a bullet cannot cross it — glass blocks shots
+    # exactly like stone — and a grenade sails over. The chevron pair this
+    # scene used to name (x 479..506) is gone; the picket ladder that placed it
+    # is anchored to the centre row now, so its slots sit elsewhere. The
+    # `wallBetween` assertion below is what caught that, and it stays: the
+    # scene must PROVE there is something to fly over, never assume it.
+    const ThrowerX = 400            # floor, just west of the pane
+    game.players[0].x = ThrowerX
     game.players[0].y = game.gameMap.center.y
     game.players[0].aimBrads = 0
     game.players[0].hasGrenade = true
-    game.players[1].x = 460 + GrenadeMaxRange
+    game.players[1].x = ThrowerX + GrenadeMaxRange
     game.players[1].y = game.gameMap.center.y
     game.players[1].hp = GrenadeDamage
+    check not game.isWall(ThrowerX, game.gameMap.center.y)
+    check not game.isWall(ThrowerX + GrenadeMaxRange, game.gameMap.center.y)
     var wallBetween = false
-    for x in 461 ..< 460 + GrenadeMaxRange:
+    for x in ThrowerX + 1 ..< ThrowerX + GrenadeMaxRange:
       if game.isWall(x, game.gameMap.center.y):
         wallBetween = true
     check wallBetween
