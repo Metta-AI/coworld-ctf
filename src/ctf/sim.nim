@@ -173,8 +173,8 @@ proc startGame*(sim: var SimServer) =
   for i in 0 ..< sim.players.len:
     sim.players[i].lastShoutTick = -1
     sim.players[i].alive = true
-    sim.players[i].lives = sim.config.lives
-    sim.players[i].hp = sim.config.hitPoints
+    sim.players[i].lives = sim.config.livesFor(sim.players[i].team)
+    sim.players[i].hp = sim.config.hitPointsFor(sim.players[i].team)
     sim.players[i].respawnTimer = 0
     sim.players[i].fireCooldown = 0
     sim.players[i].fireWindup = 0
@@ -927,6 +927,14 @@ proc selectFireTarget(
   # Walk the crossed bodies in ray order (index breaks exact ties, so the
   # walk is deterministic); the first body that does not duck is the hit.
   crossed.sort()
+  # A handicapped shooter's aim goes wide on a fraction of the shots that would
+  # otherwise connect. Rolled ONCE per shot, only when there is a body to hit
+  # AND the team carries a handicap — so an unhandicapped game draws no extra
+  # RNG and re-simulates byte-for-byte. On a miss the whole shot flies wide
+  # (it does not fall through to a body further down the ray).
+  let missPermille = sim.config.missPermilleFor(shooter.team)
+  if missPermille > 0 and crossed.len > 0 and sim.rng.rand(999) < missPermille:
+    return -1
   for candidate in crossed:
     let targetTrench = sim.playerTrench(candidate.index)
     if targetTrench >= 0 and targetTrench != shooterTrench and
@@ -1512,12 +1520,13 @@ proc tryPickupMedKits*(sim: var SimServer, playerIndex: int) =
   ## kit is never wasted; a taken kit refills after MedKitRespawnTicks.
   if not sim.players[playerIndex].alive:
     return
-  if sim.players[playerIndex].hp >= sim.config.hitPoints:
+  let maxHp = sim.config.hitPointsFor(sim.players[playerIndex].team)
+  if sim.players[playerIndex].hp >= maxHp:
     return
   sim.pickupByTouch(playerIndex, medKitSpawns, MedKitPickupRange,
       MedKitRespawnTicks):
-    let healed = sim.config.hitPoints - sim.players[playerIndex].hp
-    sim.players[playerIndex].hp = sim.config.hitPoints
+    let healed = maxHp - sim.players[playerIndex].hp
+    sim.players[playerIndex].hp = maxHp
     sim.emitPickup(playerIndex, "med_kit", spawn.x, spawn.y)
     sim.emitEvent(
       Heal, source = playerIndex, amount = healed,
@@ -1739,7 +1748,7 @@ proc applyInput*(
   let
     speedScale =
       if player.carryingFlag: sim.config.carrierSpeedPct else: 100
-    maxSpeed = sim.config.maxSpeed * speedScale div 100
+    maxSpeed = sim.config.maxSpeedFor(player.team) * speedScale div 100
     accel = sim.config.accel * speedScale div 100
     # CLIMBING OUT of a trench is slow; dropping in and moving around it
     # are not. While the center is inside a pit, each axis whose motion
@@ -2778,7 +2787,7 @@ proc respawnPlayers(sim: var SimServer) =
         let spawn = sim.randomEndzonePosition(sim.players[i].team)
         sim.placePlayer(i, spawn.x, spawn.y)
         sim.players[i].alive = true
-        sim.players[i].hp = sim.config.hitPoints
+        sim.players[i].hp = sim.config.hitPointsFor(sim.players[i].team)
         sim.players[i].aimBrads = sim.gameMap.spawnAimBrads(sim.players[i].team)
         sim.players[i].flipH = sim.gameMap.spawnFlipH(sim.players[i].team)
         sim.emitEvent(

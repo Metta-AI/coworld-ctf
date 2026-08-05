@@ -896,6 +896,16 @@ type
                               ## geometry and never re-runs the generator.
     closedRoster*: bool
     slots*: seq[PlayerSlotConfig]
+    handicaps*: array[Team, int]  ## per-team handicap in PERMILLE (0..1000),
+                                  ## authored as a 0.0..1.0 float. 0 = normal
+                                  ## (the default, byte-identical to no
+                                  ## handicap); 1000 = fully handicapped: 50%
+                                  ## of shots miss, 1 life, 1 hit point, half
+                                  ## max speed. Intermediate values interpolate
+                                  ## linearly (see hitPointsFor/livesFor/
+                                  ## maxSpeedFor/missPermilleFor). Integer
+                                  ## permille keeps every in-sim derivation
+                                  ## integer-only, so native and wasm agree.
 
   Player* = object
     x*, y*: int
@@ -1345,4 +1355,34 @@ proc teamColor*(team: Team): uint8 =
     GreenTeamColor
   of Yellow:
     YellowTeamColor
+
+# Per-team handicap accessors. The handicap is stored as a permille (0..1000);
+# every derivation below is pure integer math and returns the EXACT base config
+# value at permille 0, so an unhandicapped game (the default) is byte-identical
+# to one with no handicap field at all — no drift, no extra RNG. See
+# docs/plans/2026-08-05-per-team-handicaps-design.md.
+
+proc hitPointsFor*(config: GameConfig, team: Team): int =
+  ## Hit points for `team`: interpolates from config.hitPoints down to 1 as the
+  ## team's handicap rises from 0 to full.
+  let p = config.handicaps[team]
+  if p <= 0: config.hitPoints
+  else: max(1, config.hitPoints - (config.hitPoints - 1) * p div 1000)
+
+proc livesFor*(config: GameConfig, team: Team): int =
+  ## Lives for `team`: interpolates from config.lives down to 1.
+  let p = config.handicaps[team]
+  if p <= 0: config.lives
+  else: max(1, config.lives - (config.lives - 1) * p div 1000)
+
+proc maxSpeedFor*(config: GameConfig, team: Team): int =
+  ## Max speed for `team`: interpolates from config.maxSpeed down to half.
+  let p = config.handicaps[team]
+  if p <= 0: config.maxSpeed
+  else: config.maxSpeed * (2000 - p) div 2000
+
+proc missPermilleFor*(config: GameConfig, team: Team): int =
+  ## Fraction of a would-be gun hit dropped, in permille (0..500): 0 at no
+  ## handicap, 500 (50%) at full. The caller draws RNG only when this is > 0.
+  config.handicaps[team] div 2
 

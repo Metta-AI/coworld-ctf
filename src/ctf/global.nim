@@ -5430,7 +5430,6 @@ proc addHpPips(
   ## viewer index and only receives the bars of players it can see (a wounded
   ## enemy's hp is readable intel). Object ids are a fixed pool keyed by player
   ## index; stale bars fall to the delete sweep.
-  let maxHp = max(1, sim.config.hitPoints)
   for i in 0 ..< sim.players.len:
     let player = sim.players[i]
     if not player.alive:
@@ -5441,6 +5440,9 @@ proc addHpPips(
     # Map remaining hit points onto 3 thirds (ceil, so any living player keeps
     # at least one lit segment). The bar's pixel size is constant regardless of
     # the hit-point config, so a 99-hp game reads the same 14px 3-chunk bar.
+    # The denominator is the player's OWN team max, so a handicapped team's
+    # smaller bar still reads full when topped up.
+    let maxHp = max(1, sim.config.hitPointsFor(player.team))
     let effectiveHp = player.hp + player.shieldHp
     let litSegments = min(HpBarSegments,
       max(1, (effectiveHp * HpBarSegments + maxHp - 1) div maxHp))

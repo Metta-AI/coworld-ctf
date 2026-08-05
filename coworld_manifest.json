@@ -269,6 +269,33 @@
             "pot"
           ],
           "default": "classic"
+        },
+        "handicaps": {
+          "description": "Per-team handicap that weakens a team, keyed by team name. Each value is 0..1: 0 = normal, 1 = 50% of shots miss, 1 life, 1 hit point, half max speed; values in between interpolate linearly. Omitted teams are unhandicapped. Intended for a league (e.g. Campaign) to level a dominating team.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "red": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "blue": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "green": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "yellow": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            }
+          }
         }
       }
     },
