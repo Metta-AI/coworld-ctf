@@ -1000,6 +1000,15 @@ const
     ## hand-authored arena, which measures 194 permille on the standard class
     ## and 217 on small — both OUTSIDE the old 170 ceiling, which is to say
     ## the band had come to reject its own design target.
+    ##
+    ## WHAT A GLOBAL PERMILLE CANNOT SEE is where the wall went. Now that the
+    ## repair spends a fifth of what it used to, it no longer sprays the
+    ## WILDERNESS BEHIND EACH BASE with plugs by accident, and 2 of 16 sampled
+    ## standard seeds come out with literally zero cover in the strip between
+    ## the hull and the endzone (median 10%, best 21%) while sitting
+    ## comfortably inside this band. `test_endzone_shapes` is the rule that
+    ## catches it, per map rather than per family; selecting against it belongs
+    ## to whatever scores the curated pool, not to a density bound.
 
 type
   MapRng = object

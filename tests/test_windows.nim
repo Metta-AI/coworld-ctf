@@ -30,7 +30,13 @@ const
   RowY = 475                  # inside the pane, in the clean band.
   WestX = 414
   EastX = 439
-  StoneRowY = 454             # the bracket's stone bar (y 431..466): stays stone.
+  StoneRowY = 460             # the bracket's stone bar (y 431..466): stays stone.
+    # 460, not 454. The stone bar itself is unmoved — `bx` and `cy` are what
+    # place it and neither changed — but the six-family sightline repair now
+    # puts a plug just WEST of the bracket, and at 454 that plug clipped the
+    # west spot's 13px footprint. 456 down is clear floor from x 405 to the
+    # bar; 460 sits in the middle of that band. Re-derived from the installed
+    # arena with `hex_cover_probe pixels arena 405 428 55 80`, not guessed.
 # A template, not a `let`: MapWidth is a process `var`, and in a combined
 # test binary an earlier module may leave a different map installed at this
 # module's import time — read the width after this suite installs the arena.

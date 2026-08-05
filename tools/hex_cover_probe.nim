@@ -27,7 +27,9 @@
 ## Curation/derivation tooling; not part of the server.
 
 import std/[math, os, strutils, strformat, algorithm, tables, bitops, sets]
+import pixie
 import ../src/ctf/[sim_types, arena, hex]
+import map_render
 
 const
   PlugRadius = 28
@@ -544,6 +546,61 @@ proc runs(sizeName: string, firstSeed, count: int) =
        else: &"OVER by {best.len - GunRange} px")
     seed += 1
 
+proc render(sizeName: string, firstSeed, count: int, outDir: string) =
+  ## PNGs of ACCEPTED maps, through the same rasterizer the pool-review page
+  ## uses, so the thing being looked at is the thing that ships. Also prints
+  ## the two numbers a picture cannot settle: the cover against the derived
+  ## band, and how much wall the strip BEHIND each base carries — a map that
+  ## is legal because its lanes are plugged in midfield can still be a bare
+  ## run-up from the hull to the endzone.
+  createDir(outDir)
+  var seed = firstSeed
+  for i in 0 ..< count:
+    let gameMap = generateCtfMap(seed, MapGenOverrides(
+      size: sizeName, windows: -1, pits: -1, pitDensity: -1), 2)
+    let diag = mapDiagnostics(gameMap)
+    let obstacles = buildArenaObstacles(gameMap)
+    let anchor = gameMap.teamAnchor(Red)
+    var behind, behindFloor = 0
+    var y = ArenaBorder
+    while y < gameMap.height - ArenaBorder:
+      var x = ArenaBorder
+      while x < anchor.x - (gameMap.endzoneRadius + EndzoneWallMargin):
+        if not gameMap.mapBorderWallAt(x, y):
+          inc behindFloor
+          if gameMap.mapWallAt(obstacles, x, y):
+            inc behind
+        x += 3
+      y += 3
+    let img = renderMap(gameMap, MapRenderOptions(
+      maxDimension: 0,
+      overlays: {overlayProtected, overlayPickups},
+      pickupKinds: {pickupMedKitActive})).image
+    let name = &"{sizeName}-{seed}.png"
+    img.writeFile(outDir / name)
+    echo &"{name}  {gameMap.width}x{gameMap.height}  cover {diag.coverPermille}" &
+      &" band {diag.coverPermilleFloor}..{diag.coverPermilleCeiling}" &
+      &"  obstacles {obstacles.len}  trenches {gameMap.trenches.len}" &
+      &"  backfield cover {100.0 * float(behind) / float(max(1, behindFloor)):.1f}%"
+    seed += 1
+
+proc pixels(mapPath: string, x0, y0, w, h: int) =
+  ## ASCII wall dump of one rectangle of a named map — for re-deriving a test
+  ## scene's pinned coordinates after the geometry legitimately moves.
+  let gameMap = loadCtfMapMetadata(mapPath)
+  let obstacles = buildArenaObstacles(gameMap)
+  echo &"{mapPath} {gameMap.width}x{gameMap.height} " &
+    &"rect ({x0},{y0}) {w}x{h}   '#' wall  '.' floor"
+  var header = "      "
+  for x in x0 ..< x0 + w:
+    header.add(if x mod 10 == 0: $((x div 10) mod 10) else: " ")
+  echo header
+  for y in y0 ..< y0 + h:
+    var line = &"{y:>5} "
+    for x in x0 ..< x0 + w:
+      line.add(if gameMap.mapWallAt(obstacles, x, y): '#' else: '.')
+    echo line
+
 when isMainModule:
   let mode = if paramCount() >= 1: paramStr(1) else: "geom"
   var classes: seq[HexSizeClass]
@@ -565,6 +622,13 @@ when isMainModule:
     dist(classes, perClass, firstSeed)
   of "why":
     why(paramStr(2), parseInt(paramStr(3)))
+  of "pixels":
+    pixels(paramStr(2), parseInt(paramStr(3)), parseInt(paramStr(4)),
+           parseInt(paramStr(5)), parseInt(paramStr(6)))
+  of "render":
+    render(paramStr(2), parseInt(paramStr(3)),
+           (if paramCount() >= 4: parseInt(paramStr(4)) else: 4),
+           (if paramCount() >= 5: paramStr(5) else: "/tmp/hexmaps"))
   of "runs":
     runs(paramStr(2), parseInt(paramStr(3)),
          if paramCount() >= 4: parseInt(paramStr(4)) else: 4)
