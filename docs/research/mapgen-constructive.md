@@ -712,3 +712,249 @@ already get for free, and it makes I2 free as a side effect**: if the stand disc
 wedge-local, one team's cover budget *is* every team's cover budget. Only the seam case
 needs care. That is a good trade and it argues for a `homeDepth` that keeps the stand
 discs clear of the seam — another parameter to clamp (§4.7) rather than validate.
+
+---
+
+## 7. What I would build
+
+### 7.1 The architecture — a reservation mask and one ordering rule
+
+One data structure, one ordering rule, and every invariant falls out.
+
+**The structure.** A full-board **reservation mask** at `RouteCellPx = 26` resolution
+(116 × 62 ≈ 7 200 cells on a standard board — 7 KB), with three states:
+
+- `PROTECTED` — the skeleton. No obstacle may intersect it, ever.
+- `FREE` — anything.
+- `MUST_BLOCK` — a cell the I3/I4 interval cover has demanded contain wall.
+
+**The ordering rule.** Establish invariants in **decreasing order of how global they are**,
+and never let a later stage write into an earlier stage's territory.
+
+```
+1.  board + symmetry group Γ + anchors        →  I5, I6   (clamped scalars, orbit lift)
+2.  skeleton TOPOLOGY: a 3-connected graph    →  I1 (topological half)
+      on hub nodes in the fundamental domain,
+      lifted by the orbit
+3.  skeleton EMBEDDING: route edges on a      →  I1 (geometric half) + corridor width
+      Γ-invariant lattice of pitch
+      p = corridorWidth + wallThickness;
+      dilate by corridorWidth/2 → PROTECTED
+      (reject any routing that fills a row)
+4.  fill region: obstacles placed freely,     →  style, variety, art
+      reservation mask the ONLY spatial gate
+5.  interval-cover pass (4 directions)        →  I3, I4-axis
+      inserts pickets into FREE cells only
+6.  budgeted region fill in each stand disc   →  I2 (exact, last piece sized not drawn)
+7.  best-of-K now ranks on PLAY quality,      →  quality, not validity
+      because validity is 100 %
+```
+
+**Why the lattice does so much work.** Put the hub nodes on a lattice that is invariant
+under `Γ` — for the hex family that is the triangular lattice `hex.nim` already uses, for
+rect boards a square or brick lattice. Then:
+
+- **corridor width** is `p`-automatic (corridors are lattice edges dilated to a fixed
+  width);
+- **corridor separation** is `p`-automatic (distinct lattice edges are `≥ wallThickness`
+  apart), which discharges the embedding hazard of Lemma 1 §3.1 — *the place topological
+  guarantees normally die*;
+- **symmetry** is automatic (the orbit maps lattice points to lattice points, so the lift
+  is exact and integer, no rounding);
+- **3-connectivity** is easy to guarantee (the triangular lattice is 6-regular; any
+  subgraph containing a theta-graph or a wheel `W_n` between the base hubs is 3-connected,
+  and Tutte's wheel theorem says every 3-connected graph is reachable from a wheel by
+  connectivity-preserving operations).
+
+Four guarantees from one choice. This is the highest-leverage decision in the rewrite.
+
+**What best-of-K becomes.** Today the ranker exists because the generator is a lottery
+(`arena.nim:2460`: "~92 % of 2-team and ~47 % of 4-team first attempts" pass; the
+validators are a crash guard, not a filter). Once the invariants are constructive, K is no
+longer buying correctness — it is buying *interestingness*, and every one of the K
+candidates is shippable. That means the fitness function can be aggressive and opinionated
+(favour asymmetric-feeling-but-fair layouts, favour multi-storey approaches, penalise
+sameness against the last N maps) without any risk of the search wandering into invalid
+territory. **The constructive rewrite makes the existing ranker roughly 2× more effective
+for free**, because on 4-team boards more than half of today's K is spent on candidates
+that were going to be thrown away.
+
+### 7.2 Ship order — smallest first, each one independently valuable
+
+| # | Item | Effort | Buys |
+|---|---|---|---|
+| **1** | **k-fold disjoint burrow.** `burrow.nim` already has everything: a `domain` mask, pinned `anchors`, and a width-guaranteeing brush. Run it, mark the dug cells `domain = false`, run again, run again. Three successes ⇒ 3 vertex-disjoint corridors ⇒ min-cut ≥ 3 by Menger. **Requires `cellSize == RouteCellPx` (§5.1) or the guarantee is about the wrong graph.** | ~30 lines + a test | Turns I1 from *measured* to **(A)**, today, with no architectural change |
+| **2** | **Interval-cover sightline constructor** replacing `arena.nim:1921`. Per-row union of blocked spans; insert pickets into gaps. No plug budget, no stride-4 sampling, no reroll. | ~120 lines | I3 **(A)**, and removes a repair that currently attacks I1 |
+| **3** | **Reservation mask** as the generator's primary structure; obstacles consult it instead of being validated after the fact. | ~1 day | Makes the invariants compositional; unblocks 4–6 |
+| **4** | **Budgeted stand-disc fill** — last piece sized, not drawn. | ~80 lines | I2 **(A)** |
+| **5** | **Lattice skeleton** (topology-first, §7.1 steps 2–3), replacing burrow-as-repair with skeleton-as-construction. | ~1 week | I1 **(A)** *unconditionally* (no dig can fail), corridor width and separation free, symmetry exact |
+| **6** | **Extend the interval cover to 45°/135°.** | ~1 day | I4′ partially, in the directions that matter |
+| **7** | **Offline clingo/Z3 skeleton catalogue + CI oracle.** | ~1 week, offline only | Independent verification; catches "the constructor and the metric disagree about what 3 routes means" |
+
+Items 1 and 2 are worth doing **regardless of whether the full rewrite happens** — they
+convert two invariants from probabilistic to guaranteed using code that already exists.
+
+### 7.3 The one place a solver is genuinely viable at runtime
+
+Worth calling out because it cuts against §4.2's verdict: **the topology layer is small
+enough for a solver even in-loop.** A skeleton graph has ~30–60 hub nodes and ~80–150
+edges. A clingo encoding of "3-connected, `Γ`-symmetric, bases at prescribed hubs, no row
+fully protected" grounds to a few thousand atoms and solves in single-digit milliseconds.
+It is the **pixel** layer (7 200 cells, reachability under vertex deletion) that grounds
+to tens of millions of atoms and is hopeless. If we ever want declarative control over
+map topology — "this map should have exactly one long flank and two short ones" — that is
+where to put it, and it fits the budget. Everything below the topology layer should stay
+constructive.
+
+---
+
+## 8. Cost, realistically
+
+Budget: **10–30 ms** for static generation, ~1 s of headroom with best-of-K.
+Reference board: 3000 × 1600 px = 4.8 Mpx; 116 × 62 = 7 192 routing cells at 26 px.
+
+| Stage | Cost | Fits? |
+|---|---|---|
+| Skeleton topology on a lattice (≤ 60 nodes) | µs | ✅ |
+| Skeleton embedding + dilation into a 7 KB cell mask | ~50 µs | ✅ |
+| Per-obstacle reservation test (200–400 shapes, analytic shape-vs-mask) | ~100 µs | ✅ |
+| Interval cover, 1 direction, `O(H + n log n)` | ~50 µs | ✅ |
+| Interval cover, 4 directions | ~200 µs | ✅ |
+| Budgeted stand-disc fill (126 kpx per disc × ≤ 6) | ~1 ms | ✅ |
+| `burrow` (Dial's, 7 192 cells, ~51 cost buckets), one pass | sub-ms | ✅ |
+| k-fold burrow, k = 3 | ~3× the above | ✅ |
+| Full wall rasterisation (4.8 Mpx) — already paid today | ~5–15 ms | ✅ (dominant term) |
+| Unit-capacity Dinic route check, `O(E√V)` ≈ 5 M ops (as a **seatbelt assertion**, not a filter) | ~3–5 ms | ✅ |
+| **Constructive pipeline total** | **~10–25 ms** | ✅ |
+| clingo on the **topology** graph (60 nodes, 3-connectivity) | ~1–10 ms | ✅ (in-loop viable) |
+| clingo on the **pixel** grid (7 192 cells, reach under vertex deletion) | grounding ≈ 50 M+ atoms → GB of RAM, tens of s | ❌ by 3–5 orders of magnitude |
+| Z3 / SMT continuous layout, 50–100 rects, pairwise non-overlap | 0.1–10 s | ❌ in-loop, ✅ offline |
+| WFC on a 116 × 62 grid, no global constraints | ~10–100 ms | marginal, and buys nothing we need |
+| WFC + path constraints + backtracking | unbounded — path constraints "usually require backtracking" | ❌ (and it's (A\*), so it can return nothing) |
+
+The honest headline: **the constructive pipeline is cheaper than the wall rasterisation we
+already pay for**, and the solver families are 3–5 orders of magnitude out at the pixel
+layer while being comfortably in budget at the topology layer.
+
+The scalability claims above are grounded in the ASP literature's own reporting: clingo
+"does not scale well, reaching memory limits while grounding at higher scaling factors,"
+and "grounding time can be unacceptably large as problem size increases despite negligible
+solving time"
+([MDPI, *Pushing the Limits of Clingo's Incremental Grounding*](https://www.mdpi.com/1999-4893/16/3/169);
+[*Diminution*, arXiv:2508.08633](https://arxiv.org/pdf/2508.08633)). The cheerful
+"below a second" figures in game-facing ASP papers
+([CEUR Vol-3204](https://ceur-ws.org/Vol-3204/paper_14.pdf)) are for levels of tens to low
+hundreds of cells.
+
+---
+
+## 9. Folklore, flagged
+
+Things that are widely repeated and are either false or much weaker than they sound.
+
+- **"WFC generates playable levels."** *Folklore.* WFC's stated guarantee is C1 — the
+  output contains only `N×N` patterns present in the input. Playability is not implied and
+  the author never claims it. Newgas: "Because WFC only constrains nearby tiles, it rarely
+  generates large scale structures."
+- **"WFC always terminates / just add backtracking."** *Folklore.* Gumin: deciding whether
+  a bitmap admits nontrivial C1 outputs is NP-hard, "so it's impossible to create a fast
+  solution that always finishes." Karth & Smith find shallow backtracking does little to
+  resolve conflicts.
+- **"WFC is a new algorithm."** *Mis-credit.* It is a re-derivation of Merrell's model
+  synthesis (2007/2008/2009) with an overlapping-pattern input mode; Gumin says so in his
+  own README. Cite Merrell.
+- **"Connected ⇒ playable."** *False for CTF.* A spanning tree is connected and has
+  min-cut 1 everywhere. `k = 1` is a fatal map. Every corridor-graph/MST/BSP/maze
+  generator produces tree-like topology by default, and a `braid` parameter that reopens
+  20 % of dead ends (`mapgen_styles.nim:44`) raises the *average* connectivity while
+  guaranteeing nothing about the *minimum*, which is the only number I1 cares about.
+- **"Cellular-automata caves are connected."** *Folklore.* They are not; every shipped CA
+  cave generator has a connectivity repair bolted on, and ours will need one too — see
+  `burrow`.
+- **"Symmetric ⇒ fair."** *True for geometry, unproven for play.* Reflections are
+  geometric isometries but the game has handed mechanics and handed policies. With Klein
+  V4, two of four teams get a mirror world; that is a fairness *hypothesis*, not a
+  theorem.
+- **"Best-of-K makes maps good."** *Half true, and the half that's false matters.*
+  `E[max of K]` climbs to `K/(K+1)` of the generator's own range — it cannot exceed the
+  range. If the generator's 99th percentile is mediocre, K is wasted. Our own note in
+  `arena.nim:2455` is exactly right about this. Additionally, K spent on candidates that
+  fail validation is K wasted: on 4-team boards that is currently the majority of it.
+- **"The validators guarantee quality."** *False, and we've measured it.* ~92 % / ~47 %
+  first-attempt pass means the validators are a crash guard, not a filter — a map that
+  passes is a uniformly random draw from the generator's own distribution.
+- **"Generate the topology first and the geometry follows."** *Half true and the missing
+  half is the whole problem.* Topological guarantees survive embedding only if the
+  embedding carries a **separation certificate** (§3.1). Almost no paper in the
+  graph-grammar literature states this explicitly; production systems handle it by
+  retrying, which silently converts an (A) into a (B).
+- **"An SMT/ASP generator can't be fast enough."** *Overstated.* True at the pixel layer,
+  false at the topology layer (§7.3), and irrelevant offline where it is the single best
+  tool available for building and certifying a catalogue.
+
+---
+
+## 10. Sources
+
+**Wave Function Collapse / model synthesis**
+- Merrell, *Model Synthesis* — project page and thesis: https://paulmerrell.org/model-synthesis/ · https://paulmerrell.org/wp-content/uploads/2022/03/model_synthesis.pdf
+- Merrell & Manocha, *Continuous Model Synthesis*: https://paulmerrell.org/continuous.pdf
+- Gumin, *WaveFunctionCollapse* README (the C1/C2 statements, NP-hardness, Merrell credit): https://github.com/mxgmn/WaveFunctionCollapse/blob/master/README.md
+- Karth & Smith, *WaveFunctionCollapse is Constraint Solving in the Wild*, FDG 2017: https://dl.acm.org/doi/10.1145/3102071.3110566
+- Newgas (BorisTheBrave), *Wave Function Collapse Explained*: https://www.boristhebrave.com/2020/04/13/wave-function-collapse-explained/
+- Newgas, *Tessera: A Practical System for Extended WaveFunctionCollapse*: https://www.boristhebrave.com/permanent/21/08/Tessera_A_Practical_System_for_WFC.pdf
+- DeBroglie path constraints (Connected / Loop / Acyclic): https://boristhebrave.github.io/DeBroglie/articles/path_constraints.html
+
+**Constraint solving**
+- Smith & Mateas, *Answer Set Programming for Procedural Content Generation: A Design Space Approach*, IEEE TCIAIG 2011: https://adamsmith.as/papers/tciaig-asp4pcg.pdf · https://researchr.org/publication/SmithM11-3
+- Smith, *A Logical Approach to Building Dungeons: Answer Set Programming for Hierarchical Procedural Content Generation*, AISB 2014: https://doc.gold.ac.uk/aisb50/AISB50-S02/AISB50-S2-Smith-paper.pdf
+- *ASP with Applications to Mazes and Levels*, in Procedural Content Generation in Games: https://link.springer.com/chapter/10.1007/978-3-319-42716-4_8
+- *Spatial Layout of Procedural Dungeons Using Linear Constraints and SMT Solvers*, FDG 2020: https://dl.acm.org/doi/10.1145/3402942.3409603
+- Cooper, *Sturgeon-MKIII: Simultaneous Level and Example Playthrough Generation via Constraint Satisfaction*: https://www.researchgate.net/publication/369968681
+- *An Application of ASP for Procedural Content Generation in Video Games*, CEUR Vol-3204: https://ceur-ws.org/Vol-3204/paper_14.pdf
+- *Pushing the Limits of Clingo's Incremental Grounding and Solving Capabilities*, Algorithms 16(3), 2023: https://www.mdpi.com/1999-4893/16/3/169
+- *Diminution: On Reducing the Size of Grounding ASP Programs*, arXiv:2508.08633: https://arxiv.org/pdf/2508.08633
+- *You-Only-Randomize-Once: Shaping Statistical Properties in Constraint-based PCG*, arXiv:2409.00837: https://arxiv.org/pdf/2409.00837
+
+**Symmetry breaking**
+- Anders et al., *The Complexity of Symmetry Breaking Beyond Lex-Leader*, CP 2024: https://drops.dagstuhl.de/storage/00lipics/lipics-vol307-cp2024/LIPIcs.CP.2024.3/LIPIcs.CP.2024.3.pdf
+- *Satsuma: Structure-Based Symmetry Breaking in SAT*, SAT 2024: https://drops.dagstuhl.de/storage/00lipics/lipics-vol305-sat2024/LIPIcs.SAT.2024.4/LIPIcs.SAT.2024.4.pdf
+- Drescher, Tifrea & Schaub, *Symmetry-breaking Answer Set Solving*, arXiv:1008.1809: https://arxiv.org/pdf/1008.1809
+- Devriendt, Bogaerts et al., *Improved static symmetry breaking for SAT*: https://www.bartbogaerts.eu/articles/2016/003/ImprovedStaticSymmetryBreakingSAT.pdf
+- *Orbitopal Fixing in SAT*, arXiv:2601.16855: https://arxiv.org/html/2601.16855
+
+**Graph and shape grammars**
+- Dormans / Ludomotion, *Unexplored's Secret: Cyclic Dungeon Generation*, Game Developer: https://www.gamedeveloper.com/design/unexplored-s-secret-cyclic-dungeon-generation-
+- Newgas, *Dungeon Generation in Unexplored*: https://www.boristhebrave.com/2021/04/10/dungeon-generation-in-unexplored/
+- Newgas, *Graph Rewriting for Procedural Level Generation*: https://www.boristhebrave.com/2021/04/02/graph-rewriting/
+- Wonka et al. split grammars / CGA Shape lineage (SIGGRAPH course notes): https://peterwonka.net/Publications/pdfs/2008.CGA.Watson.ProceduralModelingTutorial.pdf
+- *Recompose Grammars for Procedural Architecture*, SIGGRAPH 2024: https://dl.acm.org/doi/10.1145/3641519.3657400
+- *Procedural architecture using deformation-aware split grammars*, The Visual Computer: https://link.springer.com/article/10.1007/s00371-013-0912-3
+
+**Graph embedding / floor plans**
+- *A Theory of Rectangularly Dualizable Graphs*, arXiv:2102.05304: https://arxiv.org/pdf/2102.05304
+- *Rectangular Dualization of biconnected plane graphs in linear time*: https://cab.unime.it/journals/index.php/congress/article/download/125/125
+- Kozminski & Kinnen, *Rectangular duals of planar graphs*: https://www.researchgate.net/publication/229650900
+- He, *Sliceable Floorplanning by Graph Dualization*, SIAM J. Discrete Math.: https://doi.org/10.1137/S0895480191266700
+- Ma, Vining, Lefebvre & Sheffer, *Game Level Layout from Design Specification*, CGF 2014: http://www.chongyangma.com/publications/gl/2014_gl_preprint.pdf · https://inria.hal.science/hal-00927311
+
+**Connectivity theory**
+- Menger's theorem: https://en.wikipedia.org/wiki/Menger's_theorem
+- Edge/vertex connectivity, Harary graphs `H_{k,n}` (minimum `⌈kn/2⌉` edges for `k`-connectivity): https://en.wikipedia.org/wiki/Edge_connectivity
+- ETH connectivity lecture notes (vertex cuts, Menger): https://ti.inf.ethz.ch/ew/lehre/GT04/lectures/PDF/lecture7.pdf
+
+**Continuous-space geometry**
+- Minkowski addition / configuration-space obstacles: https://grokipedia.com/page/Minkowski_addition
+- Varadhan & Manocha, *Accurate Minkowski Sum Approximation of Polyhedral Models*: https://www.cs.unc.edu/techreports/03-042.pdf
+- *The orchard visibility problem and some variants*, JCSS 2007 (Pólya's orchard, `r < 1/√(R²+1)`): https://www.sciencedirect.com/science/article/pii/S0022000007000700
+- Expository notes on Pólya's orchard problem: https://hlma.hanglung.com/assets/A2B7672D-A423-4A87-9CE4-195588838F32/008.pdf
+
+**Our code (all paths absolute from repo root)**
+- `src/ctf/burrow.nim` — Dial's connectivity repair, brush width identity, fundamental-domain mask, anchors, audit
+- `src/ctf/map_metrics.nim` — ~45 metrics; `vertexDisjointRoutes` (unit-capacity Dinic) at :530, `RouteCellPx = 26` at :91, `standCover` at :173
+- `src/ctf/map_rules.nim` — per-regime derived targets; `MinCorridorWidth` discussion at :338
+- `src/ctf/hex.nim` — D6 cube coords, `orbit`/`stabilizer`/`actsFreely` at :423–:450, subgroup table at :390
+- `src/ctf/arena.nim` — `MinCorridorWidth = 26` at :1073, sightline repair at :1921, sightline validator at :2219, corridor erosion + flood fill at :2242, best-of-K ranker at :2455
+- `src/ctf/mapgen_styles.nim` — the four current styles and their params
+- `src/ctf/sim_types.nim` — `ArenaShape` at :731 (and the integer-vertex symmetry rationale at :752)
+
