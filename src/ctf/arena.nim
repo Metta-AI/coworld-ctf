@@ -1135,6 +1135,27 @@ proc rasterizeWallMasks*(
         minWall[i] = false
   (maxWall, minWall)
 
+proc stampShapeIntoMask*(
+  gameMap: CtfMap, mask: var seq[bool], shape: ArenaShape
+) =
+  ## Paints ONE already-placed shape into an existing wall mask, in
+  ## `rasterizeWallMasks`' precedence — protected floor stays floor whatever
+  ## covers it. This is the incremental form of the full rasterize, for a
+  ## caller that adds obstacles one at a time and must see its own work
+  ## without re-sweeping the board (`plugOpenSightlines`). Not for spinning
+  ## diamonds: those are not one shape, and a repair pass never places one.
+  let
+    w = gameMap.width
+    bounds = shapeBounds(shape)
+    x0 = max(bounds.x0, 0)
+    y0 = max(bounds.y0, 0)
+    x1 = min(bounds.x1, w - 1)
+    y1 = min(bounds.y1, gameMap.height - 1)
+  for y in y0 .. y1:
+    for x in x0 .. x1:
+      if inShape(x, y, shape) and not mapProtectedFloorAt(gameMap, x, y):
+        mask[y * w + x] = true
+
 proc rasterizeRestWallMask*(
   gameMap: CtfMap,
   obstacles: seq[ArenaShape],
@@ -1176,12 +1197,18 @@ proc rasterizeRestWallMask*(
         result[i] = false
 
 const
-  SightlineAxisCount* = 3
-    ## A hexagon has SIX families of parallel chords, in two kinds. This
-    ## validator scans the three EDGE-TO-EDGE ones — 90, 30 and 150 degrees on
-    ## the flat-top hull — each of which runs between an opposite pair of
-    ## parallel edges and maxes out at `2 * apothem` (968px on the standard
-    ## class). `sightlinePixels` carries each family's parametrization.
+  SightlineAxisCount* = 6
+    ## A hexagon has SIX families of parallel chords, in two kinds, and this
+    ## validator scans ALL of them.
+    ##
+    ##   axes 0-2, EDGE-TO-EDGE — 90, 30 and 150 degrees on the flat-top hull.
+    ##     Each joins an opposite pair of parallel edges and maxes out at
+    ##     `2 * apothem` (968px on the standard class).
+    ##   axes 3-5, VERTEX-TO-VERTEX — 0, 60 and 120 degrees. Each joins an
+    ##     opposite pair of corners and reaches `2 * circumradius` = 1118px.
+    ##
+    ## `sightlinePixels` carries each family's parametrization; the two kinds
+    ## are the same three lines with x and y exchanged.
     ##
     ## THESE ANGLES ARE A PROPERTY OF THE HULL AND TURN WITH IT. While the hull
     ## was pointy-top the edge-to-edge family was 0/60/120; the landscape flip
@@ -1191,27 +1218,25 @@ const
     ## `tools/hex_range_probe.nim` caught exactly that, measuring a 950px open
     ## run at 87 degrees on a board whose validator was still scanning 0/60/120.
     ##
-    ## THE OTHER THREE FAMILIES ARE STILL UNSCANNED, and that is now a MEASURED
-    ## gap rather than an unexamined one. The vertex-to-vertex families (0, 60,
-    ## 120 degrees on this hull) run corner to corner and reach
-    ## `2 * circumradius` = 1118px. On the portrait board the unscanned long
-    ## family ran vertically, ACROSS the play axis, so it cost little. On the
-    ## landscape board it is the HORIZONTAL one — red base to blue base — and
-    ## `hex_range_probe` measures a 1033px open run down it against a 1050px
-    ## gun range: a real cross-field firing lane, with 17px of margin.
-    ##
-    ## Scanning all six was tried and REVERTED, with the number: the plug pass
-    ## then adds roughly twice the cover and the generator's accept rate goes to
-    ## 0 of 3197 seeds (61% rejected "too clogged", 18% still on sightlines).
-    ## That is the tension the Stage 2 report already named — enforcing many
-    ## axes against a `CoverPermilleMax` calibrated for ONE — and closing it
-    ## needs the cover budget re-derived, which belongs to the generator epic.
-    ## Raising the ceiling blind to make the sixth family fit would be trading a
-    ## measured lane for an unmeasured one.
+    ## WHY ALL SIX, when scanning six was tried on three axes' worth of cover
+    ## budget and took the accept rate to 0 of 3197 seeds: the LONGEST family on
+    ## a landscape hull is the horizontal one, red base to blue base, and it was
+    ## the one going unscanned. `hex_range_probe` measured a 1033px open run
+    ## down it against a 1050px gun range — a real cross-field firing lane with
+    ## 17px of margin. The earlier zero-accept result was a cover-budget defect,
+    ## not a geometry verdict: `CoverPermilleMax` had been calibrated on a
+    ## rectangle, where only ONE family had to be interrupted. Re-derived from
+    ## the hull (see `CoverPermilleMin`), the sixth family costs about 3% more
+    ## wall than the third, because an optimal blocking skeleton for three
+    ## families very nearly blocks six already.
+  SightlineAxisDeg*: array[SightlineAxisCount, int] = [90, 30, 150, 0, 60, 120]
+    ## The direction of each family's lines, in degrees, for diagnostics. NOT
+    ## `60 * axis` — that was the pointy-top numbering and it survived the
+    ## landscape flip only inside an error string.
   SightlineStep* = 5
     ## Spacing between scanned lines, in intercept units. On the slanted axes
     ## one unit of intercept is 0.866 px of perpendicular separation, so this
-    ## is the historical ~4px scan on all three.
+    ## is the historical ~4px scan on all six.
 
 proc sightlineMinSpan*(gameMap: CtfMap): int =
   ## How long an unblocked run has to be before it counts as a lane. On a
@@ -1246,36 +1271,82 @@ iterator sightlinePixels*(
   ## outside the hexagon are both already `true` in every wall mask (see
   ## `mapBorderWallAt`), so a run clips itself at the hull.
   ##
-  ## Axis 0 is the VERTICAL family (top edge to bottom edge), indexed by
-  ## column. The slanted families are the 30- and 150-degree ones, parametrized
-  ## `y = intercept +- 153*x div 265` — slope `+-tan 30`, so they run faster
-  ## than they rise and x is the axis to step.
-  if axis == 0:
+  ## The EDGE-TO-EDGE half. Axis 0 is the VERTICAL family (top edge to bottom
+  ## edge), indexed by column. Axes 1 and 2 are the 30- and 150-degree ones,
+  ## parametrized `y = intercept +- 153*x div 265` — slope `+-tan 30`, so they
+  ## run faster than they rise and x is the axis to step.
+  ##
+  ## The VERTEX-TO-VERTEX half (axes 3-5) is the same three lines with x and y
+  ## exchanged: axis 3 is HORIZONTAL, indexed by row, and axes 4/5 are the 60-
+  ## and 120-degree ones, `x = intercept +- 153*y div 265`, stepped along y.
+  ## Exchanging the axes is exactly the 90-degree rotation that carries one
+  ## kind of family into the other on a hull whose bounding box is
+  ## `2/sqrt(3)` — which is why no second parametrization is needed.
+  case axis
+  of 0:
     for y in 0 ..< gameMap.height:
       yield (intercept, y)
-  else:
+  of 1, 2:
     let sign = if axis == 1: 1 else: -1
     for x in 0 ..< gameMap.width:
       let y = intercept + sign * (Sqrt3Den * x) div Sqrt3Num
       if y >= 0 and y < gameMap.height:
         yield (x, y)
+  of 3:
+    for x in 0 ..< gameMap.width:
+      yield (x, intercept)
+  else:
+    let sign = if axis == 4: 1 else: -1
+    for y in 0 ..< gameMap.height:
+      let x = intercept + sign * (Sqrt3Den * y) div Sqrt3Num
+      if x >= 0 and x < gameMap.width:
+        yield (x, y)
 
 iterator sightlineIntercepts*(gameMap: CtfMap, axis: int): int =
   ## The intercepts to scan on one axis, spaced `SightlineStep` apart. Axis 0
-  ## is indexed by COLUMN; the slanted axes sweep a y-intercept range wide
-  ## enough to carry every line that crosses the board.
-  if axis == 0:
+  ## is indexed by COLUMN and axis 3 by ROW; the four slanted axes sweep an
+  ## intercept range wide enough to carry every line that crosses the board.
+  case axis
+  of 0:
     var x = ArenaBorder + 2
     while x < gameMap.width - ArenaBorder:
       yield x
       x += 4
-  else:
+  of 3:
+    var y = ArenaBorder + 2
+    while y < gameMap.height - ArenaBorder:
+      yield y
+      y += 4
+  of 1, 2:
     let reach = (Sqrt3Den * gameMap.width) div Sqrt3Num + 2
     var c = (if axis == 1: -reach else: 0)
     let hi = (if axis == 1: gameMap.height else: gameMap.height + reach)
     while c < hi:
       yield c
       c += SightlineStep
+  else:
+    let reach = (Sqrt3Den * gameMap.height) div Sqrt3Num + 2
+    var c = (if axis == 4: -reach else: 0)
+    let hi = (if axis == 4: gameMap.width else: gameMap.width + reach)
+    while c < hi:
+      yield c
+      c += SightlineStep
+
+proc sightlineRunPixels*(axis, steps: int): int {.inline.} =
+  ## A scan run's TRUE length in pixels, from the number of pixels the walk
+  ## yielded. `sightlinePixels` steps one pixel of the line's LONGER axis at a
+  ## time, so on the four SLANTED families each step also advances 0.577 px
+  ## along the other axis: `2/sqrt(3) = 1.1547` px of line per step.
+  ##
+  ## Counting steps as pixels — which is what this did before the six-family
+  ## scan made the discrepancy load-bearing — holds the four slanted families
+  ## to a lane 15% longer than the two straight ones: 895px against 775px on
+  ## the standard class. Both are inside `GunRange`, so nothing was visibly
+  ## broken; it is the same silent class of error as scanning the wrong
+  ## angles, and just as invisible, because a step count still looks like a
+  ## length.
+  if axis == 0 or axis == 3: steps
+  else: (2 * Sqrt3Den * steps) div Sqrt3Num
 
 proc sightlineOpenRun*(
   gameMap: CtfMap, wall: seq[bool], axis, intercept: int
@@ -1302,7 +1373,7 @@ proc sightlineOpenRun*(
     if runLen > bestLen:
       bestLen = runLen
       bestX0 = startX; bestY0 = startY; bestX1 = x; bestY1 = y
-  if bestLen >= gameMap.sightlineMinSpan():
+  if sightlineRunPixels(axis, bestLen) >= gameMap.sightlineMinSpan():
     return (true, bestX0, bestY0, bestX1, bestY1)
   (false, 0, 0, 0, 0)
 
@@ -1332,18 +1403,31 @@ proc rectOnOpenFloor(
 
 proc plugOpenSightlines*(gameMap: var CtfMap, budget: int) =
   ## Closes every straight lane at least `sightlineMinSpan` long on ANY of the
-  ## hexagon's three axes, by adding hexagonal cover to the map's SEED half.
+  ## hexagon's six chord families, by adding hexagonal cover to the map's SEED
+  ## half.
   ##
-  ## A hexagon has three families of chords joining opposite edges where a
-  ## rectangle had one that mattered, so the old "does the left half cover
-  ## every row" shortcut no longer applies: this works against the fully
-  ## symmetrized wall mask and re-rasterizes between passes.
+  ## A hexagon has six families of chords — three edge-to-edge, three
+  ## vertex-to-vertex — where a rectangle had one that mattered, so the old
+  ## "does the left half cover every row" shortcut no longer applies: this
+  ## works against the fully symmetrized wall mask and re-rasterizes between
+  ## passes.
   ##
   ## Plugs go on the ray's midpoint where they can (an obstacle anywhere on a
   ## straight ray blocks it, and the middle splits it most evenly), folded
   ## into the seed half when the midpoint lands on the far side — a ray and
   ## its symmetry image are either both open or both blocked, so plugging the
   ## image plugs the original too.
+  ##
+  ## EVERY PLUG IS STAMPED BACK INTO THE WORKING MASK the instant it is
+  ## placed. Without that the pass re-reads a mask that predates its own work
+  ## and buys one plug per open ray, when a single 28px plug already closes
+  ## about twelve neighbouring rays in its own family and a further ten in
+  ## each of the other five. Measured on a bare standard hull
+  ## (`tools/hex_cover_probe.nim geom`, 856 lanes to close): 865 plugs and 658
+  ## permille of cover before, 48 plugs and 221 permille after, for the same
+  ## zero open lanes — against a greedy-optimal skeleton of 26 plugs and 141
+  ## permille. That single stale re-read was most of the reason a hexagonal
+  ## board looked structurally too clogged to generate.
   ##
   ## Shared by the generator AND the hand-authored arena. The generator's
   ## validators never run on an authored map, so without this the default
@@ -1354,15 +1438,15 @@ proc plugOpenSightlines*(gameMap: var CtfMap, budget: int) =
     cy = gameMap.center.y
     redAnchorX = gameMap.teamHomeX(Red)
     apron = gameMap.endzoneRadius + EndzoneApron - EndzoneWallMargin
+    group = gameMap.mapGroup()
   var plugsLeft = budget
   for repairPass in 0 ..< 24:
     if plugsLeft <= 0:
       break
-    let
-      obstacles = buildArenaObstacles(gameMap)
-      masks = rasterizeWallMasks(gameMap, obstacles)
+    let obstacles = buildArenaObstacles(gameMap)
+    var masks = rasterizeWallMasks(gameMap, obstacles)
     var plugged = 0
-    for axis in 0 .. 2:
+    for axis in 0 ..< SightlineAxisCount:
       for intercept in gameMap.sightlineIntercepts(axis):
         if plugsLeft <= 0:
           break
@@ -1424,7 +1508,15 @@ proc plugOpenSightlines*(gameMap: var CtfMap, budget: int) =
               ringKeepOut = gameMap.flagRing + MinCorridorWidth + 30
             if rdx * rdx + rdy * rdy <= ringKeepOut * ringKeepOut:
               break tryOne
-            gameMap.leftObstacles.add hexShape(px, py, 28)
+            let plug = hexShape(px, py, 28)
+            gameMap.leftObstacles.add plug
+            ## The plug and every symmetry image of it become stone NOW, in
+            ## the mask this pass is still reading, so the twenty-odd other
+            ## rays it just closed are seen as closed instead of each buying a
+            ## plug of its own.
+            for op in group:
+              gameMap.stampShapeIntoMask(
+                masks.minWall, plug.pixelImage(op, gameMap.width, gameMap.height))
             placed = true
         if not placed:
           continue
@@ -2037,20 +2129,22 @@ proc collectMapDiagnostics(
     recordFailure("too clogged: " & $permille & " permille cover")
 
   ## With map-wide guns no straight ray may survive a full lane down ANY of
-  ## the hexagon's three axes. On the rectangle only the horizontal family
-  ## mattered, because the other two board edges were the top and bottom
-  ## walls; a hexagon has three pairs of opposite edges and a lane down any of
-  ## them is the same cross-field snipe. `sightlineMinSpan` is what keeps the
-  ## short chords near the two vertices from failing every map ever drawn.
+  ## the hexagon's six chord families. On the rectangle only the horizontal
+  ## family mattered, because the other two board edges were the top and bottom
+  ## walls; a hexagon has three pairs of opposite EDGES and three pairs of
+  ## opposite VERTICES, and a lane down any of the six is the same cross-field
+  ## snipe. The longest of them on a landscape hull is the horizontal one, red
+  ## base to blue base. `sightlineMinSpan` is what keeps the short chords near
+  ## the corners from failing every map ever drawn.
   block sightlines:
-    for axis in 0 .. 2:
+    for axis in 0 ..< SightlineAxisCount:
       for intercept in gameMap.sightlineIntercepts(axis):
         if gameMap.sightlineOpenRun(minWall, axis, intercept).open:
           if axis == 0:
             result.openSightlineRows.add intercept
           if result.reason.len == 0:
-            result.reason = "open sightline on axis " & $(60 * axis) &
-              " deg at intercept " & $intercept
+            result.reason = "open sightline on axis " &
+              $SightlineAxisDeg[axis] & " deg at intercept " & $intercept
           if stopAfterFirstFailure:
             return
   if diagnosticWallMasks in artifacts:
