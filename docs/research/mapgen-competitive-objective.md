@@ -12,7 +12,7 @@ confident published assertions with no evidence behind them.
 
 ---
 
-## 0. The three headline results
+## 0. The four headline results
 
 Read these first; the rest of the document is their derivation and their consequences.
 **Read 0.4 first — it is the largest single correction and it changes range-derived numbers
@@ -139,8 +139,13 @@ Two independent checks:
   ([Valve, *TF2 Mapper's Reference*](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Mapper%27s_Reference)).
   Normalised by each game's own player width — the only defensible comparison — TF2's medium-range
   cap is `1024/49 = 20.9` body-widths, while our `GunRange` is `1050/34 = 30.9` body-widths.
-  **Our gun reaches ~48% further, relative to the player, than TF2's "medium range".** Applying the
-  32-HU bridge to a 49-HU game produced a spurious 4% match.
+  **Our gun *reaches* ~48% further, relative to the player, than TF2's "medium range".** Applying
+  the 32-HU bridge to a 49-HU game produced a spurious 4% match.
+
+  **But reach is not lethality.** §3.6 shows the aim lattice caps our *effective* engagement range at
+  ~260 px = 7.6 body-widths, against TF2's 20.9. Normalised properly, **our lethal envelope is
+  2.7× SHORTER than TF2's medium range, not 48% longer.** Both statements are true and they are about
+  different quantities; conflating them is how `ChokepointSpacingPx` came to be four times too large.
 
   This is not a small correction. It says our weapon is *long* by shooter conventions, which is
   exactly consistent with the occlusion-limited regime finding in §5: on our small/standard/large
@@ -396,7 +401,7 @@ They may still be true. They must not be encoded as generator constraints withou
 
 ---
 
-## 3. The math: five derivations that turn guidance into thresholds
+## 3. The math: six derivations that turn guidance into thresholds
 
 Everything in §4 that has a number behind it comes from one of these.
 
@@ -494,8 +499,14 @@ Solving for the maximum survivable span:
 | **carrier** (0.70×), shooter aimed | — | 48 | **92 px** | 131 px |
 | carrier, mean random bearing | 5 | 54.6 | 105 px | 148 px |
 
+**All of the above assumes the shooter can actually hit.** §3.6 shows that is only true inside
+~260 px; at 500 px the real TTK is 114 ticks and the exposure budget is 314 px axis / 444 px
+diagonal. So this table is the **short-range** table, and short range is where it matters — but do
+not apply it to a gap whose nearest threat position is 600 px away.
+
 `MaxExposedRunPx = 132` **[engine]** is therefore the *most conservative corner* of this table: an
-axis-aligned crossing by a full-speed runner against a pre-aimed shooter with no windup credit. It is
+axis-aligned crossing by a full-speed runner against a pre-aimed shooter at ~240 px with no windup
+credit. It is
 also **the wrong number for the phase that decides matches**, where the correct figure is the carrier
 row: **92 px**.
 
