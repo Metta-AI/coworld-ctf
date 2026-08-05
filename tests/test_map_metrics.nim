@@ -2,12 +2,13 @@ import
   helpers,
   std/[os, unittest],
   ctf/sim,
-  "../tools/map_metrics",
   "../tools/map_eval"
 
-## Covers the map fitness harness (tools/map_metrics.nim + the scoring layer
-## of tools/map_eval.nim). Importing the modules is half the point: nothing
-## else in the suite reaches them, so CI would never compile them.
+## Covers the map fitness harness: `ctf/map_metrics` (the measurements),
+## `ctf/map_score` (the bands, the gates and the best-of-K ranker, both
+## re-exported by `ctf/sim`) and the simulation layer of `tools/map_eval`.
+## Importing the tool is half the point: nothing else in the suite reaches
+## it, so CI would never compile it.
 ##
 ## The load-bearing case is the CONTROL one. The harness exists to rank maps
 ## against the hand-authored `arena`, and during development four separate
@@ -32,17 +33,22 @@ proc withGameDir(body: proc()) =
     setCurrentDir(previousDir)
 
 const BottleneckSpec = """
-{"name":"bottleneck-probe","genSeed":0,"width":1235,"height":659,
+{"name":"bottleneck-probe","genSeed":0,"width":969,"height":1119,
  "flagRing":70,"captureClear":210,"spawnClearW":70,"spawnClearH":130,
- "gunRange":1050,"symmetry":"mirror","layout":"sides","endzone":"column",
- "endzoneRadius":0,"homeDepth":700,
- "medKitSpawns":[[617,219],[617,439]],
- "medKitCandidates":[[617,219],[617,439]],
+ "gunRange":1050,"symmetry":"mirrorHex","layout":"hex2","endzone":"disc",
+ "endzoneRadius":97,"homeDepth":650,
+ "medKitSpawns":[[483,373],[483,746]],
+ "medKitCandidates":[[483,373],[483,746]],
  "trenches":[],
  "leftObstacles":[
-   {"kind":"rect","x":400,"y":10,"w":18,"h":288},
-   {"kind":"rect","x":400,"y":362,"w":18,"h":287}]}
+   {"kind":"rect","x":300,"y":0,"w":18,"h":460},
+   {"kind":"rect","x":300,"y":524,"w":18,"h":595}]}
 """
+  ## One 18px wall per half, spanning the hull with a single 64px doorway, on
+  ## the STANDARD hexagon. It sits at x=300 — left of the flag ring (which
+  ## starts at x=414 and is protected floor that would have carved a second
+  ## doorway) and right of Red's endzone disc. The mirror gives Blue the
+  ## matching wall, so a base-to-base route must pass exactly two doorways.
 
 suite "map metrics":
   test "the control passes every band the harness scores":

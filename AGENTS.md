@@ -51,11 +51,30 @@ the same change.
   (`mirror`/`rot180`), `mapColumns`, `mapWindows`, `mapCenterFeature`,
   `mapEndzone` (+ `mapEndzoneRadius` / `mapBaseDepth`).
   Tools accept `gen:<seed>` / `pool:<idx>` map paths.
-- **Endzone archetypes** are drawn per seed from a SEPARATE RNG stream
-  (`seed xor const`) so the main draw order never shifts: a seed that lands
-  on the classic `column` generates byte-for-byte the map it always did,
-  and only `disc` / `square` seeds are new terrain. Keep that property when
-  adding draws — it is what makes an archetype addition reviewable.
+- **The generator runs on NAMED RNG SUB-STREAMS, one per stage** —
+  `layout` / `endzone` / `terrain` / `cover` / `trench` / `decor` /
+  `pickups`, each `splitmix(seed xor fnv1a(name) xor attempt*GOLDEN)`.
+  Add draws to a stage freely; they cannot disturb any other stage. (This
+  generalizes the old `seed xor const` endzone hatch, which is what let
+  compact endzones ship with 29/29 column maps byte-identical and no
+  GameVersion bump.) **Do not reintroduce a shared stream** — with one flat
+  stream, inserting a draw at position *k* re-deals every map from every
+  seed, re-curates the pool, and moves every regression baseline.
+- **The RETRY index reaches the terrain streams only.** `layout` and
+  `endzone` are functions of the seed alone, so `mapSeed 1002` always names
+  the same board — same size class, same symmetry, same pedestals — and a
+  retry is that map redrawn, not the next seed's map. The old `seed +
+  attempt` made attempt 1 of seed N literally attempt 0 of seed N+1.
+- **`generateCtfMap` is BEST-OF-K, not first-valid** (`mapRankK`, default
+  8): it collects K valid candidates, scores each with `ctf/map_score`, and
+  ships the best, which is the K/(K+1) percentile of the generator's own
+  quality range instead of the 50th. Two invariants:
+  - **the pool is curated at the SHIPPED K.** A pool entry is a seed and
+    `poolCtfMap` calls `generateCtfMap`, so curating at a different K pins
+    seeds whose runtime map is a different map.
+  - **candidates must stay same-board.** If the size class were redrawn per
+    attempt, ranking would converge on whichever class the rubric favours
+    and the pool's size-class quota would become unfillable.
 - Replays pin the resolved geometry as `mapSpec` in their config JSON —
   playback never re-runs the generator, so generator changes cannot break
   existing replays.
@@ -79,10 +98,17 @@ from any static host; images are inlined). **Regenerate it whenever
 `map_pool.nim` or the generator changes**:
 
 ```bash
-nim c -r tools/gen_map_pool.nim              # only when re-curating seeds
-nim c -r tools/render_map_pool.nim pool-preview
+nim c -d:release -r tools/gen_map_pool.nim   # only when re-curating seeds
+nim c -d:release -r tools/render_map_pool.nim pool-preview
 python3 tools/build_pool_review.py pool-preview
 ```
+
+`gen_map_pool` curates BY SCORE: it generates the map each seed actually
+ships (best-of-K, at the runtime K), scores it against the arena, and keeps
+the highest scorers under a size-class quota. It used to keep "the first
+seeds that pass on the first attempt", which selected nothing at a ~77%
+pass rate. Always `-d:release` — it is a per-pixel workload and debug is
+10-50x slower.
 
 Commit the refreshed `docs/pool-review.html` together with the pool/
 generator change — a stale page misrepresents what the pool serves.
@@ -154,15 +180,34 @@ load. Design: [docs/plans/2026-08-04-vector-obstacles-design.md](docs/plans/2026
 
 `tools/map_eval.nim` scores a map instead of merely validating it: load or
 generate → hard gates → static score → (top-k only) simulate N episodes →
-rank. `tools/map_metrics.nim` holds the static geometry metrics as a PURE
-function of a `CtfMap` (same invariant as `map_render.nim` — no map install,
-no process globals), and `tools/map_eval.py` renders the heatmaps and the
-gameplay report.
+rank. `tools/map_eval.py` renders the heatmaps and the gameplay report.
+
+The measuring stick itself lives in `src/`, not `tools/`, because **the
+GENERATOR ranks with it**:
+
+- `src/ctf/map_metrics.nim` — the measurements, a PURE function of a
+  `CtfMap` (same invariant as `map_render.nim`: no map install, no process
+  globals). That purity is asserted to the compiler — the stack is
+  `{.gcsafe.}` — which is what makes it callable from `generateCtfMap` and
+  from the editor's mummy thread pool alike.
+- `src/ctf/map_score.nim` — the JUDGEMENT: hard gates, the scored bands,
+  and `rankCtfMapCandidates`. `arena.nim` cannot import it (the metrics read
+  arena's rasterizer, so it would cycle), so the dependency is inverted:
+  arena exposes a `{.nimcall.}` ranker hook and `map_score` installs itself
+  at module init. **`sim.nim` imports it for that side effect alone** —
+  drop that import and map generation silently degrades to first-valid.
+
+`tools/map_rank_probe.nim` measures what ranking buys: the metric
+distribution at each K over a batch of seeds, plus attempts and wall clock
+per accepted map, with the arena as control in the same run.
 
 ```bash
 nim c -d:release -o:/tmp/mapeval tools/map_eval.nim
 /tmp/mapeval --map pool:0 --map gen:4242 --episodes 3 --lives 9
 python3 tools/map_eval.py /tmp/map-eval
+
+nim c -d:release -o:/tmp/rankprobe tools/map_rank_probe.nim
+/tmp/rankprobe --seeds 300 --k 1,8 --tsv /tmp/rank-sweep.tsv
 ```
 
 Map sources: `arena`, `arena-large`, `gen:<seed>`, `pool:<index>`, and
@@ -176,10 +221,13 @@ you touch it:
 - **The default `arena` is injected as CONTROL in every batch** and ranking
   is refused without it. Every scored band is checked against the control
   first, and a band the control fails prints as a METRIC BUG rather than as
-  a bad map. Two bands are deliberately *reported but not scored* because
-  scoring them would flag the control or a thing no terrain choice can fix:
-  trench count (the arena has none) and stand-side cover on legacy
-  column-endzone maps.
+  a bad map — and that has now fired twice on real geometry, so treat it as
+  a working alarm, not decoration. Bands are deliberately *reported but not
+  scored* where no terrain choice could move them: trench count (the arena
+  has none), and stand-side cover / stand-ring openness wherever the
+  endzone disc and its 60px apron own the ground being measured. Ask
+  `noTerrainAt`, not `mapProtectedFloorAt`, when deciding that — the sim's
+  predicate does not know about the apron and under-reports by 60px.
 - **Never a count without its fraction.** Midfield crossings print the open
   fraction of the line; stand ring arcs print beside the ring's openness.
 - **Three episodes minimum**, and fewer prints a warning.
