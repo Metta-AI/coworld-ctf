@@ -2,7 +2,7 @@ import
   helpers,
   std/[algorithm, os, sequtils, sets, strutils, tables, unittest],
   bitworld/spriteprotocol,
-  ctf/[global, labels, sim]
+  ctf/[global, labels, shimmer, sim]
 
 # Sprite-label VOCABULARY contract.
 #
@@ -225,8 +225,15 @@ proc normalizeLabel(label: string): string =
   colorNames.sort(proc (a, b: string): int = cmp(b.len, a.len))
   for name in colorNames:
     text = text.replace(name, "<color>")
+  # Greek slot names, matched with a LEADING SPACE. Every real use of one is a
+  # standalone token (`identity <color> alpha gun`, `<color> shout alpha`), and
+  # a bare substring replace silently eats them out of ordinary words — "metal"
+  # contains "eta", so `metal shimmer stage <n>` normalized to
+  # `m<name>l shimmer stage <n>`. That still diffs on a rename, so it never
+  # failed anything; it just made the golden unreadable and would keep doing so
+  # for any future label containing a Greek name. The space is the boundary.
   for name in IdentityNames:
-    text = text.replace(name, "<name>")
+    text = text.replace(" " & name, " <name>")
   text
 
 proc collectLabels(sim: var SimServer): HashSet[string] =
@@ -251,6 +258,19 @@ proc collectLabels(sim: var SimServer): HashSet[string] =
     livingState: PlayerViewerState
     ghostState: PlayerViewerState
   let none = newSeq[InputState](sim.players.len)
+
+  # METALLIC SHIMMER (`metal shimmer stage <n>`, board stream only). It renders
+  # only for seats whose policy is their team's shimmer policy, and the registry
+  # is empty by default — so without this the family would never enter the
+  # vocabulary, and a rename of it would diff clean forever. Flag seat 0's
+  # policy on Red; seats 2 and 4 share that team and do NOT match, so the sweep
+  # covers the negative side of the gate too.
+  #
+  # Saved and restored rather than just set: the registry is process state, and
+  # this binary runs other suites after the sweep.
+  let priorShimmer = teamShimmerPolicies()
+  setTeamShimmerPolicies({Red: policyName(sim.players[0].address)}.toTable)
+  defer: setTeamShimmerPolicies(priorShimmer)
 
   proc keepPlaying(sim: var SimServer) =
     ## Undo any round-ending side effect the teleporting sweep caused. Seat 3 is
