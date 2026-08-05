@@ -8,6 +8,7 @@ import
   test_gun_jitter,
   test_kill_badges,
   test_live_event_emission,
+  test_map_art,
   test_map_los,
   test_mapgen_styles,
   test_medkits,
