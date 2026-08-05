@@ -17,7 +17,7 @@
 import
   std/[os, random, strformat, strutils],
   pixie,
-  ../src/ctf/[map_metrics, mapgen_biomes, sim],
+  ../src/ctf/[map_metrics, mapgen_biomes, mapgen_styles, sim],
   map_render
 
 const BiomeSalt = 0x5BF03635  ## decorrelate the biome stream from the map seed.
@@ -194,6 +194,36 @@ proc row(style: BiomeStyle, seeds: int, size: string,
     &"seed_shapes={shapes div seeds:4d} full={full div seeds:4d} " &
     &"valid={valid}/{seeds} {firstReason}"
 
+proc styleRow(style: MapStyle, seeds: int, size: string): string =
+  ## The SAME harness applied to the shipping `mapgen_styles` generators — the
+  ## control. Without it a biome's interiorFrac is a number with nothing to be
+  ## compared against on this board, at these sizes, under this scorer.
+  ## Those styles carry their own sightline anchors, so they get no `--anchor`.
+  var
+    score, band, interior, cover = 0.0
+    shapes, valid = 0
+    firstReason = ""
+  for i in 0 ..< seeds:
+    var overrides = MapGenOverrides(
+      size: size, symmetry: "mirror", endzone: "",
+      windows: -1, pits: 0, pitDensity: -1)
+    var gameMap = generateMapAttempt(1000 + i, overrides, 2)
+    let region = placementRegion(gameMap)
+    gameMap.leftObstacles = generateShapes(
+      style, (1000 + i) xor BiomeSalt, region, defaultParams(style))
+    let m = evaluateMap(gameMap, $style)
+    score += staticScore(m)
+    band += bandScore(m)
+    interior += m.interiorFrac
+    cover += float(m.coverPermille)
+    shapes += gameMap.leftObstacles.len
+    if m.valid: inc valid
+    elif firstReason.len == 0: firstReason = m.reason
+  let n = float(seeds)
+  &"{$style:<8} band={band / n:5.3f} score={score / n:5.3f} " &
+    &"interior={interior / n:5.3f} cover={int(cover / n):4d}pm " &
+    &"seed_shapes={shapes div seeds:4d} valid={valid}/{seeds} {firstReason}"
+
 when isMainModule:
   let argv = commandLineParams()
   if argv.len == 0:
@@ -243,6 +273,9 @@ when isMainModule:
     echo "wrote " & outPath
   of "score":
     echo row(parseBiomeStyle(biome), seeds, size, mask, anchor)
+  of "styles":
+    for style in MapStyle:
+      echo styleRow(style, seeds, size)
   of "table":
     for style in BiomeStyle:
       echo row(style, seeds, size, mask, anchor)
