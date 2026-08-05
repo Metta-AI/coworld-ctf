@@ -52,6 +52,30 @@ proc interiorArea(gameMap: CtfMap): int =
           not mapProtectedFloorAt(gameMap, x, y):
         inc result
 
+proc buildableArea(gameMap: CtfMap): int =
+  ## The interior MINUS the ground no generator pass will ever build on: the
+  ## endzone aprons and the flag-ring keep-out. This is NOT the cover-budget
+  ## denominator, and the difference is the point — see `geom`'s report line.
+  let
+    apron = gameMap.endzoneRadius + EndzoneApron - EndzoneWallMargin
+    keepOut = gameMap.flagRingKeepOut()
+  for y in 0 ..< gameMap.height:
+    for x in 0 ..< gameMap.width:
+      if gameMap.mapBorderWallAt(x, y) or mapProtectedFloorAt(gameMap, x, y):
+        continue
+      var blocked = false
+      for team in gameMap.teams():
+        let a = gameMap.teamAnchor(team)
+        if endzoneFloorAt(x, y, a.x, a.y, apron, true):
+          blocked = true
+      let
+        dx = x - gameMap.center.x
+        dy = y - gameMap.center.y
+      if dx * dx + dy * dy <= keepOut * keepOut:
+        blocked = true
+      if not blocked:
+        inc result
+
 proc wallArea(gameMap: CtfMap, obstacles: seq[ArenaShape]): int =
   ## Interior wall pixels, same interior. `rasterizeWallMasks`' maxWall is the
   ## swept union, which is what the cover CEILING is measured on.
@@ -268,6 +292,9 @@ proc geom(classes: seq[HexSizeClass]) =
     echo &"  playfield {board.hexArea():.0f} px^2   " &
       &"interior (hull - protected) {interior} px^2   " &
       &"protected {board.hexArea().int - interior} px^2"
+    let buildable = shell.buildableArea()
+    echo &"  buildable (interior - aprons - ring keep-out) {buildable} px^2 " &
+      &"= {100.0 * float(buildable) / float(interior):.1f}% of interior"
     echo &"  minSpan {shell.sightlineMinSpan()} px " &
       &"(0.8 * short axis)   endzoneR {shell.endzoneRadius}   " &
       &"flagRing {shell.flagRing}"

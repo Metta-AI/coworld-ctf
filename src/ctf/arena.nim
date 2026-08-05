@@ -2289,6 +2289,20 @@ proc collectMapDiagnostics(
       ## the same map read HIGHER then than it does now. The hex definition
       ## here is hull-minus-protected for every layout, and `CoverPermilleMin`
       ## / `CoverPermilleMax` are derived against exactly this denominator.
+      ##
+      ## NOT the BUILDABLE area, deliberately. More ground than the protected
+      ## floor is off limits to the generator — the endzone aprons and the
+      ## flag-ring keep-out are field no pass will build on, and they are
+      ## 22% of a small hull's interior against 3% of a colossal one
+      ## (`hex_cover_probe geom` prints both). Measuring cover over the
+      ## buildable area would be the right question to ask a GENERATOR, and
+      ## the wrong one to ask a MAP: a player walking the apron is walking
+      ## open ground, and that open ground genuinely dilutes the density the
+      ## cover ceiling is about. What matters is that the band was derived
+      ## over this denominator too — the skeleton in `CoverSkeletonPermille`
+      ## is measured on the same hull with the same aprons in place — so the
+      ## class-dependence that survives in the floor is lane geometry and not
+      ## a denominator artifact.
       let interior =
         not gameMap.mapBorderWallAt(x, y) and
           not mapProtectedFloorAt(gameMap, x, y)

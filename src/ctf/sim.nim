@@ -38,6 +38,13 @@ proc grenadeSpawnPoints*(gameMap: CtfMap): array[4, tuple[x, y: int]] =
   ##
   ## Still not nudged onto walkable floor — terrain can cover a vertex pocket.
   ## Routing these through `placeWalkablePickups` is hex Stage 3.
+  ## ONE point is computed in floating point; the other three are its EXACT
+  ## integer images. Rounding each of the four independently does not give a
+  ## symmetric set: `cos(120 deg)` is not exactly `-cos(60 deg)` in binary
+  ## floating point, so for some board widths the 60- and 120-degree spots
+  ## round to columns 329 and 330 — an off-by-one that hands one team a
+  ## grenade a pixel closer than the other. Measured on the standard class the
+  ## moment a re-derived base depth moved which class a pool seed drew.
   let
     board = gameMap.mapBoard()
     (cx, cy) = board.hexCenter()
@@ -45,11 +52,21 @@ proc grenadeSpawnPoints*(gameMap: CtfMap): array[4, tuple[x, y: int]] =
     ## at a 120-degree corner a radial inset of `d` leaves only `0.866 * d`
     ## perpendicular clearance, so the inset is doubled.
     reach = board.circumradius() - 2.0 * float(ArenaBorder + GrenadeSpawnInset)
-  const VertexDeg = [60.0, 120.0, 240.0, 300.0]
-  for k, deg in VertexDeg:
-    let angle = degToRad(deg)
-    result[k] = (int(round(cx + reach * cos(angle))),
-                 int(round(cy + reach * sin(angle))))
+    angle = degToRad(60.0)
+    seedX = int(round(cx + reach * cos(angle)))
+    seedY = int(round(cy + reach * sin(angle)))
+    mirrorX = gameMap.width - 1 - seedX
+    mirrorY = gameMap.height - 1 - seedY
+  ## 60, 120, 240, 300 degrees — the seed and its three images under the group
+  ## the 2-team board actually wears (both axis mirrors and the half turn), in
+  ## the order the float sweep produced. Exact integer arithmetic, so the set
+  ## is closed under the mirror AND the half turn by construction rather than
+  ## by luck of rounding. `hexCenter` lands on a half pixel on an even side,
+  ## and `width - 1 - x` is exactly the reflection through it.
+  result[0] = (seedX, seedY)
+  result[1] = (mirrorX, seedY)
+  result[2] = (mirrorX, mirrorY)
+  result[3] = (seedX, mirrorY)
 
 proc teamOrbitPoints(gameMap: CtfMap, red: MapPoint): seq[tuple[x, y: int]] =
   ## Carries RED's chosen point to every active team by the map's own
