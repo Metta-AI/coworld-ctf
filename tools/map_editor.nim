@@ -386,6 +386,13 @@ proc generateResponseNode(body: string): JsonNode =
       else:
         MapGenOverrides(windows: -1, pits: -1, pitDensity: -1)
     gameMap =
+      ## `validated` (the default) returns the map the SIM would ship: a full
+      ## best-of-K selection, ~1.1 s on a standard board and ~1.3 s on a giant
+      ## one, up from ~50/230 ms when this returned the first valid draw. Worth
+      ## it — an editor that previews a different map than the sim generates is
+      ## worse than a slow editor. `validated: false` stays the fast path and
+      ## is the honest one for "why was this seed rejected": it hands back the
+      ## raw first draw, rejections included, which is what selection hides.
       if validated: generateCtfMap(seed, overrides, teams)
       else: generateMapAttempt(seed, overrides, teams)
   gameMap.validateMapResourceLimits()
