@@ -12,6 +12,30 @@ or re-bound a `GameConfig` field, a `mapGen` override, or a gameplay const
 (motion/combat/vision/scoring/item), update the matching row in that file in
 the same change.
 
+## Before you start — pull the branch
+
+**Always update the branch against `origin/main` before touching code.** This
+repo moves fast and keeps many worktrees around, so a branch (or a worktree's
+checkout) is easily tens of commits behind `main`. Building on a stale base
+silently wastes the work: a `GameVersion` bump becomes a *regression*, fixtures
+regenerate against old rules, and the diff reverts everything merged in the
+meantime.
+
+At the start of every task, and again before you commit:
+
+```bash
+git fetch origin
+git rev-parse --abbrev-ref HEAD                 # confirm you're on the branch you think
+git rev-list --left-right --count HEAD...origin/main   # "<ahead> <behind>"; behind must be 0 before you build
+git merge origin/main    # or: git rebase origin/main — bring the branch current, resolve conflicts
+```
+
+If `behind` is non-zero, merge/rebase `origin/main` **first**, then start.
+Re-derive version-sensitive work (the `GameVersion` const, replay fixtures)
+against the *updated* code, never the base you happened to check out. When
+working in a worktree, also confirm you're editing files under that worktree's
+path — not a sibling checkout on an unrelated branch.
+
 ## Layout
 
 - `src/ctf.nim` — server entrypoint (seed randomization happens HERE,

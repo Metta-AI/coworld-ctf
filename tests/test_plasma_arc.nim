@@ -188,6 +188,56 @@ suite "spray cans":
     check not game.players[1].alive
     check game.players[0].kills == 1
 
+  test "spinning after firing never sweeps the cone onto new targets":
+    # The exploit this closes: fire, then spin, raking the cone across
+    # everyone around you. One fire now paints ONE direction for the window.
+    var game = twoTeamGame()
+    game.players[0].hasPlasmaArc = true
+    game.players[0].placeAtCenter(ClearX, ClearY)
+    let
+      ax = game.players[0].x + CollisionW div 2
+      ay = game.players[0].y + CollisionH div 2
+      northX = ax
+      northY = ay - (PlasmaArcReach - 2)   # a victim due north, at spray reach.
+    # 1. Self-check: aiming north and firing DOES catch the northern cog, so
+    #    the spot is a legitimate in-range, unobstructed north target.
+    game.players[1].placeAtCenter(northX, northY)
+    game.players[0].aimBrads = 64            # north
+    game.tryFireArc(0)
+    check not game.players[1].alive
+    # 2. Revive it, aim EAST, fire, then spin north through the whole active
+    #    window. The locked cone stays east and never touches the north cog.
+    game.players[1].alive = true
+    game.players[1].respawnTimer = 0
+    game.players[1].hp = game.config.hitPoints
+    game.players[1].placeAtCenter(northX, northY)
+    game.players[0].fireCooldown = 0
+    game.players[0].aimBrads = 0             # fire east
+    game.startArcFire(0)
+    check game.players[0].arcAimBrads == 0   # aim locked at the fire instant.
+    game.players[0].aimBrads = 64            # spin to face north mid-spray
+    for _ in 0 ..< PlasmaArcActiveTicks:
+      game.resolveActiveArcCones()
+    check game.players[1].alive              # cone never swung onto the cog.
+    check game.players[0].arcAimBrads == -1  # cleared when the window closed.
+
+  test "the locked cone still hits its launch target after the cog turns away":
+    # The flip side of the sweep fix: turning off your target must NOT spare
+    # them — the shot was already committed east when you spun north.
+    var game = twoTeamGame()
+    game.players[0].hasPlasmaArc = true
+    game.players[0].aimBrads = 0             # fire east
+    game.players[0].placeAtCenter(ClearX, ClearY)
+    let
+      ax = game.players[0].x + CollisionW div 2
+      ay = game.players[0].y + CollisionH div 2
+    game.players[1].placeAtCenter(ax + PlasmaArcReach - 2, ay)
+    game.startArcFire(0)
+    game.players[0].aimBrads = 64            # spin away to face north
+    game.resolveActiveArcCones()
+    check not game.players[1].alive
+    check game.players[0].kills == 1
+
   test "same-tick arc fires can kill each other":
     var game = twoTeamGame()
     game.players[0].hasPlasmaArc = true
@@ -310,42 +360,43 @@ import std/tables
 import bitworld/spriteprotocol
 
 suite "one spray per firing (no divergent trail when the cog turns)":
-  ## A burst emits one snapshot per active tick, each capturing the owner's LIVE
-  ## aim, and every snapshot lingers a few ticks. If the cog swings its aim
-  ## mid-burst those stale snapshots must NOT draw a second plume pointing the
-  ## old way: the whole plume follows the current aim as one cone, so a single
-  ## firing never reads as two simultaneous sprays.
-  test "every snapshot of a burst renders along the burst's newest pose":
-    # The pure pose selection: whatever poses the per-tick snapshots captured,
-    # they are all DRAWN along the most-recent one (here the north swing), so a
-    # burst collapses to one plume instead of a divergent trail.
+  ## A burst emits one snapshot per active tick, each carrying the LOCKED fire
+  ## aim (GV38), and every snapshot lingers a few ticks. Because the aim is
+  ## fixed at the fire instant, swinging the cog mid-burst can never point a
+  ## snapshot the old way — so a single firing never reads as two simultaneous
+  ## sprays. (Snapshots still differ in POSITION when the owner moves, and
+  ## plasmaArcRenderPose collapses those onto the newest pose so a moving
+  ## sprayer's plume stays one coherent cone.)
+  test "every snapshot of a burst keeps the locked fire aim when the cog turns":
+    # Swing the aim mid-burst: neither the stored snapshots nor the render pose
+    # follow the swing, because the direction was locked at fire.
     var game = twoTeamGame()
     game.players[0].hasPlasmaArc = true
     game.players[0].placeAtCenter(ClearX, ClearY)
-    game.players[0].aimBrads = 0            # east
+    game.players[0].aimBrads = 0            # fire east
     game.players[0].fireCooldown = 0
     game.startArcFire(0)
-    game.resolveActiveArcCones()            # snapshot 0: aimed east
+    game.resolveActiveArcCones()            # snapshot 0
     game.players[0].aimBrads = 64           # swing 90 deg to north (screen up)
-    game.resolveActiveArcCones()            # snapshot 1: aimed north
+    game.resolveActiveArcCones()            # snapshot 1
     check game.plasmaArcFlashes.len == 2
-    # Stored aims are untouched (the sim still tracks the live cone)...
+    # Both snapshots carry the LOCKED east aim, not the north swing.
     check game.plasmaArcFlashes[0].aimBrads == 0
-    check game.plasmaArcFlashes[1].aimBrads == 64
-    # ...but BOTH draw along the newest (north) pose.
-    check game.plasmaArcRenderPose(0).aimBrads == 64
-    check game.plasmaArcRenderPose(1).aimBrads == 64
+    check game.plasmaArcFlashes[1].aimBrads == 0
+    # And both render along that same locked aim (the newest pose is still east).
+    check game.plasmaArcRenderPose(0).aimBrads == 0
+    check game.plasmaArcRenderPose(1).aimBrads == 0
 
-  test "a burst that turns mid-window paints only the current aim, not a trail":
+  test "a burst that turns mid-window paints the locked aim, not the swing":
     var game = twoTeamGame()
     game.players[0].hasPlasmaArc = true
     game.players[0].placeAtCenter(ClearX, ClearY)
-    game.players[0].aimBrads = 0            # east
+    game.players[0].aimBrads = 0            # fire east
     game.players[0].fireCooldown = 0
     game.startArcFire(0)
-    game.resolveActiveArcCones()            # snapshot 0: aimed east
+    game.resolveActiveArcCones()            # snapshot 0
     game.players[0].aimBrads = 64           # swing 90 deg to north (screen up)
-    game.resolveActiveArcCones()            # snapshot 1: aimed north
+    game.resolveActiveArcCones()            # snapshot 1
     check game.plasmaArcFlashes.len == 2
 
     var state = initGlobalViewerState()
@@ -372,10 +423,10 @@ suite "one spray per firing (no divergent trail when the cog turns)":
           pcx = float(m.objectDef.x) + float(w) / 2
           pcy = float(m.objectDef.y) + float(w) / 2
         inc puffs
-        # Current aim is NORTH: every puff sits above the cog (screen up = -y),
-        # and none juts east where the stale first snapshot pointed.
-        check pcy < cy
-        check abs(pcx - cx) < float(PlasmaArcFxReach * scale) / 2
+        # Locked aim is EAST: every puff sits east of the cog (screen right =
+        # +x), and none juts north where the swung aim now points.
+        check pcx > cx
+        check abs(pcy - cy) < float(PlasmaArcFxReach * scale) / 2
     check puffs > 0
 
 suite "the damage cone covers the plume the game draws":

@@ -18,7 +18,14 @@ import
 
 const
   GameName* = "ctf"
-  GameVersion* = "37"  ## GV37 (obstacle format): map obstacles and trenches
+  GameVersion* = "38"  ## GV38 (spray rule): THE SPRAY IS ONE DIRECTIONAL
+    ## SHOT, NOT A SWEEP. A fired cone locks its aim at the fire instant and
+    ## points that way for its whole active window (`arcAimBrads`): turning the
+    ## cog mid-spray no longer rotates the cone across a fan of targets. The
+    ## cone's ORIGIN still rides its owner, so a moving sprayer drags the stream
+    ## forward — only the rotation is pinned. GV37 replays do not re-simulate.
+    ##
+    ## GV37 (obstacle format): map obstacles and trenches
     ## may be `polygon` shapes (integer vertex rings), so curved / organic
     ## terrain is authorable. Older viewers cannot parse the new spec kind.
                        ## The aim angle is one of 32 discrete slots (8 brads
@@ -924,6 +931,11 @@ type
     hasPlasmaArc*: bool        ## each player carries at most one plasma arc.
     arcTicksLeft*: int         ## remaining active ticks of a fired spray
                                ## cone (0 = the cone is off).
+    arcAimBrads*: int          ## aim direction locked at the spray's fire
+                               ## instant, -1 = no active cone. The cone points
+                               ## this way for its whole active window: turning
+                               ## the cog mid-spray no longer sweeps it. (The
+                               ## cone's ORIGIN still rides the owner.)
     arcHitMask*: uint32        ## players already damaged by the current
                                ## activation: one hit per victim per firing.
     throwCharge*: int          ## ticks the throw button has been held.

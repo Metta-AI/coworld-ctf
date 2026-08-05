@@ -157,6 +157,7 @@ proc resetPlasmaArcs*(sim: var SimServer) =
   for i in 0 ..< sim.players.len:
     sim.players[i].hasPlasmaArc = false
     sim.players[i].arcTicksLeft = 0
+    sim.players[i].arcAimBrads = -1
     sim.players[i].arcHitMask = 0
 
 proc startGame*(sim: var SimServer) =
@@ -565,6 +566,7 @@ proc killPlayer*(
   sim.players[targetIndex].shieldHp = 0
   sim.players[targetIndex].hasPlasmaArc = false
   sim.players[targetIndex].arcTicksLeft = 0
+  sim.players[targetIndex].arcAimBrads = -1
   sim.players[targetIndex].throwCharge = 0
   for team in sim.teams():
     if sim.flags[team].carrier == targetIndex:
@@ -656,8 +658,10 @@ proc selectArcVictims(
   attackerIndex: int
 ): seq[int] =
   ## Returns every living player whose BODY overlaps the attacker's forward
-  ## spray cone, computed from the attacker's CURRENT position and aim: a live
-  ## cone tracks its owner across the active window.
+  ## spray cone. The cone's ORIGIN is the attacker's CURRENT position (it rides
+  ## its owner across the active window), but its DIRECTION is the aim locked at
+  ## the fire instant (`arcAimBrads`) — turning the cog mid-spray never sweeps
+  ## the cone.
   ##
   ## The victim is a disc of PlasmaArcBodyRadius, not the bare point its
   ## 1px collision box would suggest, so the cone covers what the paint
@@ -669,7 +673,7 @@ proc selectArcVictims(
     attacker = sim.players[attackerIndex]
     ax = attacker.x + CollisionW div 2
     ay = attacker.y + CollisionH div 2
-    (ux, uy) = aimVector(attacker.aimBrads)
+    (ux, uy) = aimVector(attacker.arcAimBrads)
     reach = float(PlasmaArcReach)
     # The cone's half-width grows linearly with forward distance, hitting
     # PlasmaArcMaxWidth / 2 exactly at the reach cap.
@@ -704,6 +708,10 @@ proc startArcFire*(sim: var SimServer, attackerIndex: int) =
   sim.players[attackerIndex].fireCooldown =
     PlasmaArcActiveTicks + PlasmaArcResetTicks
   sim.players[attackerIndex].arcTicksLeft = PlasmaArcActiveTicks
+  # Lock the aim NOW: the cone keeps this direction for its whole active
+  # window, so turning the cog mid-spray no longer sweeps it around. One
+  # fire, one direction.
+  sim.players[attackerIndex].arcAimBrads = sim.players[attackerIndex].aimBrads
   sim.players[attackerIndex].arcHitMask = 0
   sim.players[attackerIndex].arcKillsThisFire = 0
   sim.logGameEvent(
@@ -731,7 +739,7 @@ proc resolveActiveArcCones*(sim: var SimServer) =
     sim.plasmaArcFlashes.add PlasmaArcFx(
       x: attacker.x + CollisionW div 2,
       y: attacker.y + CollisionH div 2,
-      aimBrads: attacker.aimBrads,
+      aimBrads: attacker.arcAimBrads,   ## the locked fire direction, not live aim
       tick: sim.tickCount,
       color: teamColor(attacker.team),
       attacker: arcFire.attacker
@@ -744,7 +752,7 @@ proc resolveActiveArcCones*(sim: var SimServer) =
       let
         ax = attacker.x + CollisionW div 2
         ay = attacker.y + CollisionH div 2
-        (ux, uy) = aimVector(attacker.aimBrads)
+        (ux, uy) = aimVector(attacker.arcAimBrads)
       for step in 1 .. PlasmaArcReach:
         let
           rx = ax + int(round(ux * float(step)))
@@ -837,11 +845,15 @@ proc resolveActiveArcCones*(sim: var SimServer) =
           SprayAction,
           sim.tickCount - (PlasmaArcActiveTicks - attacker.arcTicksLeft)
         ),
-        headingBrads = attacker.aimBrads,
+        headingBrads = attacker.arcAimBrads,
         damages = damages
       )
     if sim.players[arcFire.attacker].arcTicksLeft > 0:
       dec sim.players[arcFire.attacker].arcTicksLeft
+      # The cone just shut off: clear the locked aim so an idle owner carries
+      # no stale direction (matches how the gun clears windupBrads on release).
+      if sim.players[arcFire.attacker].arcTicksLeft == 0:
+        sim.players[arcFire.attacker].arcAimBrads = -1
 
 proc tryFireArc*(sim: var SimServer, attackerIndex: int) =
   ## Fires one spray burst immediately for direct callers and tests: ignites

@@ -4784,14 +4784,14 @@ proc plasmaArcRenderPose*(
 ): tuple[x, y, aimBrads: int] =
   ## The pose a spray snapshot is DRAWN at: its firing player's MOST RECENT
   ## snapshot (latest tick; ties broken by later emission), NOT its own captured
-  ## pose. One burst emits a snapshot per active tick, each capturing the owner's
-  ## live pose, and each lingers PlasmaArcFxTicks — drawn at their own poses, a
-  ## burst that swings its aim fans out into several divergent plumes and reads
-  ## as two simultaneous sprays. Collapsing every snapshot of a burst onto its
-  ## newest pose keeps the jet/fade animation (still driven by each snapshot's
-  ## own age) while showing exactly one cone that tracks the current aim. Since
-  ## the newest snapshot was captured this tick, that pose IS the owner's live
-  ## pose during the burst and freezes at the last-sprayed pose as it fades.
+  ## pose. One burst emits a snapshot per active tick; the aim is LOCKED at the
+  ## fire instant (GV38, `arcAimBrads`) so every snapshot shares it, but the
+  ## POSITION rides the moving owner. Each snapshot lingers PlasmaArcFxTicks —
+  ## drawn at their own positions, a burst whose owner walks fans out into
+  ## several divergent plumes and reads as two simultaneous sprays. Collapsing
+  ## every snapshot of a burst onto its newest pose keeps the jet/fade animation
+  ## (still driven by each snapshot's own age) while showing exactly one cone
+  ## that sits at the owner's current position and freezes there as it fades.
   let flash = sim.plasmaArcFlashes[flashIndex]
   result = (flash.x, flash.y, flash.aimBrads)
   var best = (tick: flash.tick, idx: flashIndex)

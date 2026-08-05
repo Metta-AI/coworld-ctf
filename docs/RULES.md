@@ -45,6 +45,12 @@ tasks, voting) with teams, guns, hearts, and fog-of-war vision.
   squares**, with the width grown to match so the **14° half-angle did not
   change**; the 5th square is exactly what it takes to cover the tip of the
   plume the game draws. See the Spray can section for the shape.
+- **GameVersion 38 makes the spray one directional shot, not a sweep.** A
+  fired cone now locks its aim at the moment of firing and keeps it for the
+  whole 5-tick window: spinning the cog after you press no longer rakes the
+  cone around you. The cone's origin still rides its owner, so a moving
+  sprayer drags the stream forward — only the rotation is pinned. See the
+  Spray can section.
 - **GameVersion 30 puts every team's pickups on the map's own symmetry.** A
   team's shield and spray can are Red's spots carried over by whichever
   symmetry the terrain was built with — mirrored, rotated 180°, or turned a
@@ -421,9 +427,12 @@ What that means in practice:
   lengthwise — nothing the paint **engulfs** survives — but the mist still
   runs about **15 px wider** than the cone, so a cog can catch paint on its
   **edge** without taking damage. Closing that too would need a 31° cone.
-- **The cone stays on for 5 ticks**, tracking the attacker's position and
-  aim across the window, then the can takes **20 ticks to repressurize**
-  (one burst every 25 ticks). The cone shuts off if its owner dies.
+- **The cone stays on for 5 ticks**, riding the attacker's position but
+  **holding the aim it was fired at** (GameVersion 38): one press is one
+  directional shot, so turning the cog mid-spray no longer sweeps the cone
+  across a fan of targets — only the origin moves with you, not the direction.
+  Then the can takes **20 ticks to repressurize** (one burst every 25 ticks).
+  The cone shuts off if its owner dies.
 - **A touch removes 3 hit points, once per victim per burst** — instantly
   lethal to a bare 3 hp cog, while a 6 hp shield carrier survives the first
   touch with 3 hp left. The cone affects teammates too and requires line
