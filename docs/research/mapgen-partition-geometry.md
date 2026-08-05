@@ -624,4 +624,224 @@ practice are not proven. The genuinely transferable idea is Dormans' core insigh
 base should be a *loop*, not an out-and-back. That is a statement about the graph, and §6.3(a)
 delivers it with a theorem instead of a rule set.
 
+---
+
+## 7. Visibility: the part that is ~100 % of the design on our board
+
+`GunRange = 1050` on a 1235 × 659 board. A clear line is a kill. Everything in this section is
+about turning that into constructive rules.
+
+### 7.1 Isovists and visibility polygons
+
+The isovist at a point is the set of points visible from it (Benedikt 1979). Computing it exactly
+for a simple polygon is **O(n)** by the Joe–Simpson stack algorithm
+([Joe & Simpson, *Corrections to Lee's visibility polygon algorithm*, BIT 27 (1987)](https://www.tandfonline.com/doi/abs/10.1080/00207169008803824);
+practical survey and CGAL implementations in
+[Bungiu et al., *Efficient Computation of Visibility Polygons*](https://arxiv.org/pdf/1403.3905)).
+Classification: **(A) as measurement**. Our version (`map_metrics.nim:1160`, `:1196`) is a
+*sampled* approximation — 3 px LOS stride, ≤ 400 vantage samples, adaptive grid. That is the right
+engineering call for a 45-metric evaluator, but it means isovist numbers are noisy at the ±few-%
+level and should not be used as a hard gate.
+
+**The one thing exact visibility buys us that sampling does not:** a *proof* that a specific
+sightline does or does not exist. If we want a hard guarantee like "no sightline longer than L
+crosses the midfield", exact geometry on ~25 convex cells is cheap and sampling is not.
+
+### 7.2 The art gallery theorem, inverted
+
+Chvátal's theorem: `⌊n/3⌋` vertex guards always suffice, and are sometimes necessary, to see all
+of a simple polygon with `n` vertices; Fisk's proof is constructive (triangulate, 3-colour, take
+the smallest colour class) ([Art gallery problem, Wikipedia](https://en.wikipedia.org/wiki/Art_gallery_problem);
+[O'Rourke, *Art Gallery Theorems and Algorithms*, ch. 8](https://www.science.smith.edu/~jorourke/books/ArtGalleryTheorems/Art_Gallery_Chapter_8.pdf)).
+Classification: **(A)** on the bound.
+
+The design-relevant reading is the **inverse**: a region needing only *one* guard is a region one
+defender can fully cover — a god spot. The set of such positions is the **kernel** of the region,
+computable exactly in O(n) as the intersection of the inner half-planes of the edges
+(Lee–Preparata). So:
+
+> **Rule (A): every room must have an empty kernel.**
+> A convex room has a non-empty kernel by definition — *every* point of it is a god spot. Adding
+> **one obstacle strictly interior to the room** makes the kernel empty: no point can see the region
+> directly behind the obstacle.
+
+That is a hard guarantee obtained by a trivially enforceable construction, and it is the precise
+statement of why a bare Voronoi cell is a death box and why cover inside rooms is not decoration.
+It also gives a *reason* for the cover budget beyond "40–170 permille felt right":
+cover exists to empty kernels and to keep exposed traverses under `MaxExposedRunPx = 132`.
+
+The stronger, quantitative version — "at least g guards are needed to cover this room" — is the
+minimum guard number, which is NP-hard in general but perfectly tractable as a **greedy lower
+bound via witness points** on 25 small convex-ish rooms. A useful new metric:
+`roomGuardNumber ≥ 2` for every room.
+
+### 7.3 Visibility graphs, axial maps — this is what a "lane" is
+
+Space syntax (Hillier & Hanson) formalises exactly the thing our generator lacks. An **axial line**
+is a maximal straight line of unobstructed visibility/movement; the **axial map** is the smallest
+set of axial lines covering the free space; the graph of axial-line intersections carries the
+metrics (integration, choice) that predict movement
+([Jiang & Liu, *Defining and generating axial lines*](https://arxiv.org/pdf/1009.5249);
+[Turner et al., *From isovists to visibility graphs*, Env. & Planning B 28 (2001)](https://www.academia.edu/14187411/From_isovists_to_visibility_graphs_a_methodology_for_the_analysis_of_architectural_space);
+[Visibility graph analysis, Wikipedia](https://en.wikipedia.org/wiki/Visibility_graph_analysis)).
+
+**A lane is an axial line.** That is the definition to adopt, and it makes lanes *countable*,
+*measurable* and *placeable*:
+
+- `laneCount` (`map_rules.nim:736`, floor 3) = the number of long axial lines connecting the two
+  halves. Today nothing computes it.
+- `laneWidthPx` = 124 = the width of the free-space band around the axial line.
+- A **sniping lane** is an axial line whose length exceeds `GunRange`; a **designed lane** is one
+  we placed deliberately, of controlled length, with flanking cover so the exposed traverse across
+  it is ≤ 132 px.
+
+In the partition designs of §11 an axial line has a direct combinatorial meaning: it is a straight
+segment that passes through a chain of aligned doorways/grout segments. That makes lanes
+*enumerable* — you can list every axial line longer than L by intersecting a candidate line with
+the cell decomposition, in O(cells) per line, instead of rasterising and scanning pixels.
+
+**Recommended new metric (cheap, exact):** `axialLines(L)` = number of maximal straight free
+segments of length ≥ L, and `axialLenMax`. Compare with the current `openRunP95Px`/`longRunFrac`
+(`map_metrics.nim:776`), which only scan **horizontal and vertical** runs — a diagonal 900 px
+sightline is invisible to them today. That is a live blind spot, and it is exactly the blind spot
+a non-axis-aligned partition would exploit if we scored maps with the current metric.
+
+### 7.4 Guard-placement as cover-placement
+
+The dual of "where do I put guards" is "where do I put cover so that no small guard set works".
+Integer-programming formulations of optimal camera placement
+([Optimizing placements of 360° panoramic cameras in indoor environments by integer programming](https://arxiv.org/pdf/2211.07296))
+are directly reusable: solve for the minimum guard set, then place a cover blob that breaks the
+best guard's isovist, repeat. **(B)** — it is a heuristic loop — but it is a *targeted* one, and
+it beats scattering pebbles. Worth prototyping only after §11 lands.
+
+---
+
+## 8. Tessellations, lattices, and aperiodic tilings
+
+### 8.1 Periodic lattices are the disease, not the cure
+
+A square, triangular or hexagonal lattice gives exact symmetry and uniform spacing — **(A)** on
+both. It also has, by definition, **infinitely many straight lattice lines**, and free space that
+follows the lattice inherits them. Our current generator is a 1-D lattice
+(`colX = xMin + ((2·col+1)·(xMax−xMin)) div (2·columns)`, `arena.nim:1693`) and its measured
+failure is precisely this. A hex lattice is *better* than a square one for us (three line families
+at 60° instead of two at 90°, and `map_metrics`' run scan is axis-aligned so hex at least does not
+line up with the metric), but "fewer straight lines" is a (B) improvement on an (A) problem.
+
+Hex is still the right **coordinate system** — `hex.nim`'s cube coordinates are the correct algebra
+for D6 symmetry, orbit lifting and fairness, and `HexAspectMin/Max` (0.866 / 1.155) is exactly the
+kind of hard fairness constraint we want. Use hex for *symmetry bookkeeping and cell indexing*;
+do not use it as the *obstacle layout*.
+
+### 8.2 Aperiodic tilings: interesting, and not for us
+
+The hat/spectre monotile (Smith, Myers, Kaplan, Goodman-Strauss,
+[*An aperiodic monotile*, arXiv:2303.10798](https://arxiv.org/abs/2303.10798); chiral version
+[arXiv:2305.17743](https://arxiv.org/abs/2305.17743)) admits only non-periodic tilings — a genuine
+**(A)** on "no global repetition", which is superficially exactly our complaint about the current
+maps. Penrose tilings give the same via substitution rules and are *repetitive*: every finite patch
+recurs throughout the tiling at bounded density, so local structure is uniform without global
+periodicity.
+
+Three reasons it is the wrong tool here, and they are worth recording so nobody re-litigates:
+
+1. **Aperiodic ≠ no long straight lines.** Penrose tilings carry **Ammann bars** — families of
+   perfectly straight lines running across the entire tiling, spaced in a Fibonacci pattern. An
+   aperiodic tiling can be riddled with full-board sightlines. (Whether the hat/spectre tilings
+   admit an analogous straight-line family is, as far as I can tell, not settled in the literature
+   I found — **flagging that as unverified**, which is itself a reason not to bet a generator on it.)
+2. **It fights our mandatory symmetry.** Aperiodicity forbids translational symmetry; it does not
+   forbid a single point of rotational/reflective symmetry (Penrose "sun"/"star" tilings have exact
+   5-fold point symmetry). But 5-fold is not in D6, and constructing a hat tiling with exact
+   `GroupV4` or `GroupC3` point symmetry is a research project, not a sprint.
+3. **We already solve the stated problem more cheaply.** "Local regularity without global
+   repetition" is *precisely* the definition of blue noise, and a maximal Poisson-disk sample gives
+   it in O(n) with two hard bounds attached (§3.1). Aperiodic tilings are a beautiful answer to a
+   question we can answer with dart-throwing.
+
+**Verdict: (C) for us** — it would change how the maps look and read, not what they measure.
+
+### 8.3 Substitution / hierarchy — steal this bit
+
+The one transferable idea from the tiling world is **hierarchy**. Substitution tilings are built by
+inflating and subdividing, giving structure at every scale. Our maps have structure at exactly one
+scale (56–60 px pebbles) and that is a large part of why they read as noise. The partition designs
+of §11 are naturally two-level (cell → interior cover) and should be three:
+
+```
+district  (≈ 400 px)  : super-cells — which quadrant/lane group you are in
+room      (≈ 180 px)  : Voronoi cell — r = lanePitchPx
+cover     (≈  56 px)  : interior blobs — coverSizePx, pitch ≤ MaxExposedRunPx = 132
+```
+
+Implement hierarchy as **two nested Voronoi levels** (coarse seeds → districts, fine seeds within
+each district → rooms), not as a substitution tiling. Same benefit, none of the machinery.
+
+---
+
+## 9. Offsets, straight skeletons, Minkowski sums: the clearance algebra
+
+### 9.1 The convex shortcut (the reason this whole approach is cheap)
+
+For a **convex** polygon `P = ⋂ H_i` (intersection of half-planes), the inward offset by `d` is
+
+```
+erode(P, d) = ⋂ shift(H_i, d)      # move each bounding line inward by d
+```
+
+— just re-intersect the shifted half-planes and drop empties. Every point of the result is at
+distance ≥ d from `∂P`, exactly. **(A)**, O(k) per cell, ~15 lines of Nim, no straight-skeleton
+machinery, no CGAL, no floating-point robustness drama beyond one clip.
+
+Voronoi cells are convex. Power-diagram cells are convex. Tutte-embedded faces of a 3-connected
+planar graph are convex. **Every region this document recommends generating is convex**, which is
+why the erosion step — the step that manufactures corridors of exactly the width you asked for —
+is trivial. That is not a coincidence to gloss over; it is the reason to prefer these partitions
+over cave/noise/BSP-with-corridors approaches, where offsetting a non-convex region is a real
+algorithm.
+
+### 9.2 Minkowski sums and configuration space
+
+Growing obstacles by the agent's shape converts "can a disc of radius ρ pass?" into "can a point
+pass?", exactly: the C-obstacle is `P ⊕ (−R)`, and the free C-space is `F ⊖ B(ρ)`
+([Iowa State, *Minkowski Sums: C-obstacles*](https://faculty.sites.iastate.edu/jia/files/inline-files/15.%20Minkowski%20sum.pdf);
+[UMD CMSC425 lecture 16, *Motion Planning: Basic Concepts*](https://www.cs.umd.edu/class/spring2018/cmsc425/Lects/lect16-motion-basics.pdf)).
+**(A)**, exact.
+
+For us `ρ = PlayerHalf = 6` (solid) but the *design* radius should be `SoldierBodyPx/2 = 17`
+(drawn), because two bodies abreast is what `RecommendedCorridorWidthPx = 68` encodes. Practical
+consequences:
+
+- **State corridor widths in C-space.** "A 68 px corridor" = "the eroded free region is non-empty
+  and 34 px wide after eroding by 17". Building in C-space and dilating at the end removes an
+  entire class of off-by-one bugs where a corridor is nominally wide enough and the collider says no.
+- **Route counting should run on the eroded free space**, not the raw one. `map_metrics` approximates
+  this with `PlayerHalf` in the choke-cut radius (`:1057`) and a 26 px cell, which is close enough
+  for the solid footprint and too generous for the drawn body.
+- Erosion of a convex polygon by a *disc* rounds the corners; erosion by half-plane shifting
+  (§9.1) is the **mitred** version and is *contained in* the disc erosion for convex input, i.e.
+  slightly conservative. Conservative is the correct direction for a clearance guarantee.
+
+### 9.3 Straight skeletons: needed only if we go non-convex
+
+The straight skeleton is the trace of a self-parallel wavefront shrinking a polygon; mitred offsets
+are wavefront snapshots, computable in fractions of a second for 100 k-segment inputs once the
+skeleton exists ([Held & Huber, *Computing mitered offset curves based on straight skeletons*,
+CAD & Applications 12(4) 2015](https://www.cad-journal.net/files/vol_12/CAD_12(4)_2015_414-424.pdf);
+[Palfrader & Held, *Generalized offsetting of planar structures using skeletons*](https://www.tandfonline.com/doi/full/10.1080/16864360.2016.1150718),
+building on Aichholzer & Aurenhammer's wavefront algorithm).
+
+**The precision that matters and is usually elided:** for a **non-convex** region, the mitred
+(straight-skeleton) inward offset is *not* the same as the Minkowski erosion. At a **reflex**
+vertex the mitred offset keeps a sharp corner that pokes further into the region than the rounded
+erosion does, so a point on the mitred offset can be **closer than `d`** to the boundary. If you
+use mitred offsets to certify clearance on a non-convex free space, the certificate is **wrong**.
+Classification: straight skeleton is **(A)** as a wavefront/skeleton construction, **(B)** as a
+clearance guarantee on non-convex input; Minkowski erosion by a disc is **(A)** unconditionally.
+
+Since §11 keeps every offset target convex, we do not need a straight-skeleton implementation at
+all in v1. Note it as the thing we would need if we ever offset a union of cells (a "district")
+rather than a single cell.
+
 <!-- SECTION-MARKER -->
