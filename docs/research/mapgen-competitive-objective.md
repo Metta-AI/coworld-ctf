@@ -50,7 +50,7 @@ gives `f = 14.3%` and `f = 9.0%` respectively — the centre and the floor of th
 Setting `g` for a *non-carrier* at full speed (132 px / 187 px) gives 8.9% and 5.3%. That is why the
 invariant is *specific to the pedestal*: the pedestal is the only place where anyone is moving at
 0.7×. The global validator band (4–17%) is roughly right for full-speed traffic and fatally too loose
-at the stand. See §4.3 for the full derivation.
+at the stand. See §3.4 for the full derivation.
 
 ---
 
@@ -341,6 +341,29 @@ recording:
 - Balance is contextual: "Map balance matters less when teams switch sides/roles during the game."
   For us this is live — our league seats us as a *strided subset* of a team across four entrant
   policies, so per-seat balance, not per-team balance, is the quantity that matters.
+
+### 2.3 Folklore — flagged as such
+
+These are widely repeated and, as far as we can find, have **no published evidence** behind them.
+They may still be true. They must not be encoded as generator constraints without our own test.
+
+- **"Three lanes."** No study establishes 3 as correct, or lanes as a necessary structure. The
+  evidence-bearing version of this intuition is a *graph* property (≥ 3 vertex-disjoint routes),
+  which many non-lane topologies satisfy. Note also that the "popular CS maps are 3 big circular
+  loops" claim and the "3 lanes" claim are different topological statements often used
+  interchangeably.
+- **"No long sightlines."** See §8.2 — this rule is about sniper dominance in games where weapon
+  range ≪ map size. In our occlusion-limited regimes the gun outranges the board, so the rule is
+  vacuous as stated and must be restated as a constraint on *exposed run*, not on sightline length.
+- **"Cover every N metres."** Every source states cover cadence qualitatively. §4.3 derives it.
+- **Dead ends are bad.** Güttler asserts it ("Sudden dead-ends ... are not appreciated features");
+  Gee's controlled study (MIT thesis, SMU Guildhall 2008, summarised in Hullett & Whitehead) found
+  "dead ends did not negatively impact FPS levels". **The literature contradicts itself here.** For
+  us the relevant statement is narrower and testable: a dead end *on the carry-home route* collapses
+  the route count to k = 1 and is fatal.
+
+---
+
 
 ---
 
@@ -653,22 +676,214 @@ board sets the map's character, and it moves the mean by almost nothing. Band a 
 (p95) or the max instead, or band the mean *and* the tail. This is a small change with a large
 correctness gain and no new machinery.
 
-### 2.3 Folklore — flagged as such
+---
 
-These are widely repeated and, as far as we can find, have **no published evidence** behind them.
-They may still be true. They must not be encoded as generator constraints without our own test.
+## 5. Per-visibility-regime differences
 
-- **"Three lanes."** No study establishes 3 as correct, or lanes as a necessary structure. The
-  evidence-bearing version of this intuition is a *graph* property (≥ 3 vertex-disjoint routes),
-  which many non-lane topologies satisfy. Note also that the "popular CS maps are 3 big circular
-  loops" claim and the "3 lanes" claim are different topological statements often used
-  interchangeably.
-- **"No long sightlines."** See §8.2 — this rule is about sniper dominance in games where weapon
-  range ≪ map size. In our occlusion-limited regimes the gun outranges the board, so the rule is
-  vacuous as stated and must be restated as a constraint on *exposed run*, not on sightline length.
-- **"Cover every N metres."** Every source states cover cadence qualitatively. §4.3 derives it.
-- **Dead ends are bad.** Güttler asserts it ("Sudden dead-ends ... are not appreciated features");
-  Gee's controlled study (MIT thesis, SMU Guildhall 2008, summarised in Hullett & Whitehead) found
-  "dead ends did not negatively impact FPS levels". **The literature contradicts itself here.** For
-  us the relevant statement is narrower and testable: a dead end *on the carry-home route* collapses
-  the route count to k = 1 and is fatal.
+`coneCoverage` = (area of one 120° cone at 1575 px) / (playfield area) = 2,597,600 px² / A.
+Regime cuts **[engine]**: occlusion-limited ≥ 1.4, mixed 0.25–1.4, range-limited ≤ 0.25.
+
+| Class | Playfield px² | coneCoverage | ≈ w × h @ 1.874 | Regime |
+|---|---|---|---|---|
+| small | 587,700 | 4.42 | 1050 × 560 | occlusion |
+| standard | 814,300 | 3.19 | 1235 × 659 | occlusion |
+| large | 1,374,400 | 1.89 | 1605 × 856 | occlusion |
+| huge | 2,636,478 | 0.99 | 2223 × 1186 | mixed |
+| giant | 5,500,443 | 0.47 | 3211 × 1713 | mixed |
+| colossal | 22,008,194 | 0.118 | 6422 × 3427 | range / navigation |
+
+### 5.1 Occlusion-limited (small, standard, large)
+
+The gun reaches 85–100% of the long axis, and the small board's width is *exactly* `GunRange`
+**[engine]**. A sightline is essentially never range-limited; if you can see it you can shoot it.
+**Sightline control is the entire design problem** and every property in family E binds hard.
+
+- C1 (forcing contact) is free — do not spend generator effort on it.
+- E1/E2/E3 are the binding constraints. F2 (sightline tail) matters more than F1 (density).
+- Spawn safety in the Ballabio & Loiacono sense **[lit]** matters *most* here, because a spawn can be
+  covered from most of the board. We do not measure it at all (§7.5).
+- `coneCoverage > 1` does **not** mean players see everything: the cone is 120°, so a player sees one
+  third of bearings at any instant and **an enemy behind you is invisible at any range**. Range stops
+  being the limiter; **facing** becomes the limiter, everywhere, always.
+
+### 5.2 The aimTurnRate coupling — our objective is not stationary
+
+The value of every flanking-related property (E2 angle count, D3 route count, F3 used space) is set
+by how expensive it is to turn around, and that is a **league config, not a map property**:
+
+```
+    cost of a 180° turn = 16 slots / aimTurnRate ticks, against TicksToKill = 48
+    aimTurnRate = 1 (engine default):   16 ticks = 33% of a TTK   → flanking is decisive
+    aimTurnRate = 5 (live league):      3.2 ticks = 6.7% of a TTK → flanking is nearly free
+```
+
+At the live rate, being flanked costs you 7% of a kill's worth of time; at the default rate it costs
+a third. **A map tuned for flanking value under one `aimTurnRate` is mistuned under the other.** This
+is the map-side analogue of the already-recorded lesson that economy verdicts expire on physics
+changes: *map* verdicts expire on control-rate changes too. Any threshold in family E should be
+stated as a function of `aimTurnRate`, or the pool regenerated when the league bumps it.
+
+### 5.3 Mixed (huge, giant)
+
+Both problems, neither dominant. The gun covers under half the long axis, so genuinely range-limited
+sightlines appear and cover cadence stops being needed *everywhere* — only on routes. Route-level
+metrics (exposure along the actual shortest paths) start to beat field-level metrics (exposure over
+all cells), because most cells are no longer on anyone's path.
+
+### 5.4 Range / navigation-limited (colossal) — and a hard feasibility result
+
+One cone sees 11.8% of the board. Finding people is the design problem, and this is the only regime
+where the published simulation-based fitnesses were designed to apply: Cardamone et al.'s **average
+fighting time** and the MAP-Elites **pace** function **[lit]** both measure encounter frequency,
+which is only a free variable when the map is big enough to hide in.
+
+But before tuning encounter density, check that the objective is reachable at all.
+
+**Conversion-feasibility bound (proposed property G1).** A capture requires a full outbound trip at
+full speed plus a full return at `CarrierSpeedPct = 70`:
+
+```
+    T_convert  ≈  d / v  +  d / (0.7 v)  =  2.43 · d / v   axis-aligned
+                                         =  1.72 · d / v   diagonal
+    d = L∞ base separation,  v = 66 px/s
+```
+
+Taking base separation as 70% of board width (bases inset ~15% from each end) and an episode of
+~2410 ticks ≈ 100 s **[measured — verify per size class]**:
+
+| Class | width | d ≈ 0.7 w | T_convert (axis) | fraction of a 100 s episode |
+|---|---|---|---|---|
+| small | 1050 | 735 | 27 s | 27% |
+| standard | 1235 | 865 | 32 s | 32% |
+| large | 1605 | 1124 | 41 s | 41% |
+| huge | 2223 | 1556 | 57 s | **57%** |
+| giant | 3211 | 2248 | 83 s | **83%** |
+| colossal | 6422 | 4495 | **165 s** | **165% — impossible** |
+
+**A colossal board cannot be converted even once inside an episode**, before a single tick is spent
+on combat, aiming, dying, respawning or route-following. Giant leaves 17 s of slack for everything
+that is not walking in a straight line, which in practice is also zero. This is a *structural*
+result, not a tuning one: no amount of cover placement fixes it.
+
+Three readings, and we should pick one deliberately rather than by accident:
+
+1. **CTF is not a colossal-board game type.** Restrict capture-the-heart to ≤ huge and give the big
+   classes a different objective (territory, elimination, multiple pedestals). This is what the
+   arithmetic actually argues for.
+2. **Shorten the effective distance** — multiple pedestals, forward endzones, or one-way teleporters
+   (Hullett notes Blood Gulch's teleporters exist precisely to shorten the respawn return **[lit]**).
+3. **Scale episode length with board width.** `T_convert ∝ w`, so a constant episode length is
+   itself the bug.
+
+Whichever is chosen, **G1 belongs in the property set as a hard feasibility constraint**, computed
+from board width, `CarrierSpeedPct` and episode length. It is a two-line check that would have
+retired an entire size class.
+
+*(Assumptions to verify before acting: episode length in ticks per size class; the base-inset
+fraction the generator actually uses; and, independently, whether `GrenadeMaxRange` / `ShoutRange`
+pinned at 262 px on a 6422 px board leaves teams unable to coordinate at all — a second colossal
+problem with the same root.)*
+
+---
+
+## 6. Necessary vs correlated — the Goodhart classification
+
+### 6.1 The test
+
+**A property is necessary only if we have an intervention.** Take a map that fails, change *only*
+that property, hold the seed and everything else, re-simulate. If the outcome moves, the property is
+causal. If we have never run that experiment, the property is correlated, however clean the
+correlation looks.
+
+By this standard, exactly three of our properties are established:
+
+| Property | Intervention | Result |
+|---|---|---|
+| **D1** stand-side cover 10–25% | raised cover fraction into band | 0 captures → 18 steals / 6 captures, every episode ending in a capture. Failing maps outside the band: 0-of-21, 0-of-17, 0-of-10 |
+| **A4** spawn clear of the capture circle | moved the spawn out of the circle | 0-of-22 → converts |
+| **A6** endzone read from the map | steered to the engine-stated endzone instead of `homeDeepX = 150` | grab→capture 0/6 → 3/4 |
+
+Everything else in §4 is either derived arithmetic (N⊢ — true about the *engine*, but not yet shown
+to move outcomes) or correlational.
+
+### 6.2 The failure mode we have already paid for
+
+The template case: a change took moving-while-firing from 63% to 0.1%, moved hit rate 36.0 → 36.1,
+and dropped kills 34%. The metric was correlated with poor accuracy in observational data because of
+a **common cause** — players moving while firing were the ones in bad engagements — so suppressing
+the metric severed the correlation without touching the cause, and cost a third of our kills through
+a channel nobody had modelled.
+
+The map-side version has exactly the same shape, and we have at least one metric sitting in it.
+
+### 6.3 `interiorFrac` is the highest Goodhart risk in the suite
+
+`interiorFrac` (floor with ≥ 6 of 8 directions blocked within 120 px) separates hand-authored arena
+(**0.342**) from the generated pool (**median 0.118**) cleanly. But that is a *population* difference
+between hand-authored and generated maps, and hand-authoring differs from generation in a hundred
+ways at once. **The common cause is authorship.**
+
+The diagnostic that makes this concrete: many other statistics would separate those two populations
+just as cleanly — the fraction of axis-aligned wall edges, the entropy of wall component sizes, the
+count of right-angle junctions, the modal wall length. None of them cause good play. A metric that
+distinguishes "looks hand-made" from "looks generated" is measuring authorship — and that is exactly
+the trap already recorded as *a map is judged on PLAY, not resemblance*, paid for twice on
+correct-footprint maps that played badly.
+
+**But do not simply delete it.** `interiorFrac` is a crude proxy for something real: local angular
+enclosure, i.e. `Ω(p)` from §3.5. The right move is not to rescue the proxy but to **replace it with
+the quantity it approximates** — `Ω(p)` / `A(p)`, or the visibility-graph clustering coefficient
+(Turner et al. 2001) **[lit]** — which is unconfounded, has a derivable threshold, and is causal by
+construction because it is defined in terms of the shot geometry.
+
+**The intervention that would settle it,** if we want to know: take a generated map at
+`interiorFrac = 0.118`, raise it to 0.34 while holding `coverFrac`, the sightline tail and the
+stand-side band fixed, and re-simulate. Prediction: little or no movement, because the causal channel
+runs through cover cadence and angular coverage, both of which are being held.
+
+### 6.4 The other correlated metrics, ranked by risk
+
+**Wall coverage (any global density) — high risk when used alone.** Any density is achievable by any
+arrangement. 28% delivered as one blob, as 200 scattered 56 px dots, or as three long walls are three
+completely different maps with identical scores. A density is only meaningful *paired with an
+arrangement statistic* — free-sightline tail, run-length distribution, or component-size
+distribution. Never band a density on its own.
+
+**The 4–17% vs 28% comparison may not even be the same quantity.** See §3.4(3): split `coverFrac`
+from `structureFrac` before comparing anything to a reference plate.
+
+**`meanFreeSightline` band — medium risk, easily fixed.** It is arrangement-sensitive, which is good,
+but it is a *mean*, and a single lethal lane is invisible in an average. Band the tail (§4.1/F2).
+
+**`balanceEntropy` — noise, not signal, at our sample sizes.** It is an *outcome* metric over
+simulated kills. Using it to pick among K map candidates with a handful of episodes each is selecting
+on sampling noise. Either budget enough episodes that its standard error is small relative to the
+between-map spread, or drop it from selection and keep it as a post-hoc report.
+
+### 6.5 Best-of-K selection is a Goodhart *amplifier* — the most important structural point
+
+`MapSelectionK` picks `argmax staticScore` over K = 8–16 candidates **[engine]**, and the module
+records the expected gain: "E[max of K] is K/(K+1) of the generator's own quality range, so
+0.834 → 0.898 and the WORST map 0.636 → 0.804".
+
+Those are gains **in the score**. They are gains in *quality* only if the score is valid. If the score
+contains a confounded term, best-of-K does not merely fail to help — it **actively selects the
+candidates that exploit the confound hardest**, because those are the ones scoring highest for the
+wrong reason. Raising K makes this monotonically worse. And since the validators pass 96% of
+first attempts, they are not filtering; the K-selection is therefore doing *all* of the quality work,
+through a score whose terms are mostly unvalidated.
+
+**The structural fix is to move evidence-class C properties out of the maximised objective and into
+the feasibility test.**
+
+```
+    FEASIBLE  (hard, satisficing, Goodhart-safe):  all N★ and N⊢ properties, plus every C
+                                                    property expressed as a WIDE band
+    SCORE     (maximised, Goodhart-exposed):       only properties with an intervention behind them
+```
+
+Constraints are satisficing: once inside the band there is no pressure to go further, so there is
+nothing to over-optimise. Objectives are not. This is Liapis's feasible/infeasible two-population
+structure **[lit]** and it is the correct shape for a suite where most terms are unvalidated.
+Concretely: today's score has about four terms that deserve to be maximised (the three N★ properties
+plus G1) and roughly a dozen that deserve to be bands.
