@@ -50,8 +50,11 @@ Override any style param with repeated `--param k=v` (e.g.
 
 ## How fairness is guaranteed
 
-- **Symmetry** — a style fills only the seed half (or quadrant on rot90); the
-  sim expands it into an exactly team-fair whole via `buildArenaObstacles`.
+- **Symmetry** — a style fills only the seed half (or the top-left quadrant
+  on rot90/quadmirror); the sim expands it into an exactly team-fair whole via
+  `buildArenaObstacles`. Quad-mirror boards also get thin column-anchor bars
+  (the transpose of the styles' row anchors) because their validator scans
+  VERTICAL sightlines too.
 - **Carve** — the sim subtracts any shape overlapping a flag ring, spawn
   pocket, or capture lane, so generators never special-case protected floor.
 - **Validators** — `validate` runs the real `mapDiagnostics`: cover budget

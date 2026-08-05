@@ -18,7 +18,7 @@
 ## docs/ENV_VARIATION.md and docs/MAPKIT.md.
 
 import
-  std/[os, strformat, strutils, tables],
+  std/[os, random, strformat, strutils, tables],
   pixie,
   ../src/ctf/[sim, mapgen_styles],
   map_render
@@ -121,16 +121,75 @@ proc placementRegion(base: CtfMap): MapRect =
   of symMirror, symRot180:
     MapRect(x: sr.x + hMargin, y: sr.y + vMargin,
             w: max(1, sr.w - hMargin - seam), h: max(1, sr.h - 2 * vMargin))
-  of symRot90, symQuadMirror:
-    # 4-team: the quadrant's right AND bottom edges are the map's center lines.
+  of symRot90:
+    # rot90: the quadrant's right AND bottom edges are the map's center lines.
     # Keep the x-side seam (anchors stay off the central flag ring), but let the
     # region reach nearly to the center ROW so the vertical anchors chain all the
     # way down — their identity+rot180 images then tile every horizontal row with
     # no center-band gap (and the rot90/rot270 images cover the columns).
     MapRect(x: sr.x + hMargin, y: sr.y + vMargin,
             w: max(1, sr.w - hMargin - seam), h: max(1, sr.h - vMargin))
+  of symQuadMirror:
+    # quad-mirror: reflections never rotate a shape into cross-coverage, so
+    # the quadrant itself must cover the border COLUMNS as well as the edge
+    # rows — the validator scans vertical sightlines on these maps. Flush to
+    # the perimeter on the left exactly like the top (the protected-floor
+    # carve still guards the corner/arm bases); keep both center seams.
+    MapRect(x: sr.x + vMargin, y: sr.y + vMargin,
+            w: max(1, sr.w - vMargin - seam), h: max(1, sr.h - vMargin))
 
 const styleSalt = 0x9E3779B1  ## decorrelate the style stream from the map seed.
+
+proc quadColumnAnchors(base: CtfMap, region: MapRect, seed: int):
+    seq[ArenaShape] =
+  ## Quad-mirror boards must break VERTICAL sightlines too (the sim
+  ## validator scans columns on them; reflections never rotate a style's
+  ## row anchors into column cover the way rot90 does). The styles ship
+  ## `verticalAnchors` for rows; this is its transpose, authored here as
+  ## tool policy: one thin horizontal bar per column band, bars overlapping
+  ## in x so their union (plus the mirrorX images) covers every column, each
+  ## bar's y drawn INSIDE the validator's scan band so every bar counts.
+  var r = initRand(seed xor 0x51D3_BA22)
+  const
+    Period = 150
+    Thick = 12
+  let
+    barW = Period + 24
+    loY = max(region.y, base.sightlineLoY)
+    hiY = min(region.y + region.h - Thick, base.sightlineHiY - Thick)
+  if hiY <= loY:
+    return
+  ## The bars run all the way to the CENTER seam (past the style region's
+  ## seam margin): the mirrorX fold covers the right half, so the seed bars
+  ## must reach x = width/2 or the seam-gap columns stay open. A bar
+  ## overhanging the seam just overlaps its own image — harmless.
+  ##
+  ## Each bar's y is chosen carve-aware: the protected-floor carve (spawn
+  ## pockets, the flag ring at the seam, plus-arm approaches) erases any
+  ## bar segment it covers, so of a handful of candidate rows the bar takes
+  ## the one whose span keeps the most wall. A span that is protected at
+  ## EVERY candidate is left bare — those columns are exempt in the
+  ## validator for exactly the same reason.
+  var gx = region.x
+  while gx <= base.width div 2:
+    let x = max(region.x, gx - 12)
+    var
+      bestY = -1
+      bestKept = 0
+    for _ in 0 ..< 8:
+      let y = r.rand(loY .. hiY)
+      var kept = 0
+      var sx = x
+      while sx < x + barW:
+        if not mapProtectedFloorAt(base, sx, y + Thick div 2):
+          inc kept
+        sx += 4
+      if kept > bestKept:
+        bestKept = kept
+        bestY = y
+    if bestY >= 0:
+      result.add rectShape(MapRect(x: x, y: bestY, w: barW, h: Thick))
+    gx += Period
 
 # --- commands ----------------------------------------------------------------
 
@@ -160,8 +219,20 @@ proc cmdGenerate(a: Args) =
   var base = generateMapAttempt(seed, overrides, teams)
   let region = placementRegion(base)
   var params = defaultParams(style)
+  if base.symmetry == symQuadMirror:
+    ## Quad boards replicate every seed FOUR ways (vs the 2-team mirror's
+    ## two) and spend part of the cover ceiling on the column anchors below,
+    ## so the organic fill is thinned to keep the validated budget. Explicit
+    ## --param overrides still win (applied after).
+    case style
+    of styleScatter: params.prob = params.prob * 0.62
+    of styleCaves: params.fillProb = params.fillProb * 0.9
+    of styleMaze: params.wallThick = 12; params.braid = 0.5
+    of styleBsp: params.wallThick = 12; params.cell = 340
   applyParams(params, a.params)
   base.leftObstacles = generateShapes(style, seed xor styleSalt, region, params)
+  if base.symmetry == symQuadMirror:
+    base.leftObstacles.add quadColumnAnchors(base, region, seed)
   let spec = mapSpecJson(base)
   let outPath = a.flag("out", "")
   if outPath.len == 0:
