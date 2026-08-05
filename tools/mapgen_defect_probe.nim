@@ -828,7 +828,7 @@ proc main() =
       "interiorWallPx\tinteriorPx\tsoleBlockers\tsoleBlockerPlugs\t" &
       "trenches\ttrenchInEz\tmedKitPairPx\tmedKitLos\tmedKitOneCovers\t" &
       "grenadeBroken\tgrenadeUnreach\trespawnAreaPx\trespawnNear150\t" &
-      "respawnMeanDist\tcaptureAreaFrac\tobstacles\tdistinctXs\tlatticeFrac\n"
+      "respawnMeanDist\tcaptureAreaFrac\tobstacles\tdistinctXs\tlatticeFrac\tcandidates\tcandUseful\n"
     for m in mapRows:
       s.add &"{m.name}\t{m.seed}\t{m.teams}\t{m.size}\t{m.sym}\t{m.endz}\t" &
         &"{m.layout}\t{m.w}\t{m.h}\t{m.valid}\t{m.windows}\t{m.winDead}\t" &
@@ -842,7 +842,8 @@ proc main() =
         &"{m.medKitOneCovers}\t{m.grenadeBroken}\t{m.grenadeUnreachable}\t" &
         &"{m.respawnAreaPx}\t{m.respawnWithin150}\t" &
         &"{m.respawnMeanDistPx:.0f}\t{m.captureAreaFrac:.4f}\t" &
-        &"{m.obstacleCount}\t{m.distinctColumnXs}\t{m.latticeFrac:.3f}\n"
+        &"{m.obstacleCount}\t{m.distinctColumnXs}\t{m.latticeFrac:.3f}\t" &
+        &"{m.candidates}\t{m.candidatesUseful}\n"
     writeFile(a.flag("maps", ""), s)
 
   # --- report ---------------------------------------------------------------
