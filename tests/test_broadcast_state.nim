@@ -160,18 +160,20 @@ suite "broadcast state channel":
       check state.hasKey("over")
       # A capture win is not a draw and not a time-limit tiebreak. The winner
       # is pinned to the CURRENT recording of the fixture (GameVersion 38,
-      # seed 4: RED captures the blue heart, eliminating Blue). Which side
+      # seed 4: BLUE captures the red heart, eliminating Red). Which side
       # captures is a property of the recording, not of the rules — re-pin it
       # whenever the fixture is re-recorded, and do not "fix" a flipped winner
-      # by re-rolling until it matches.
+      # by re-rolling until it matches. It has flipped twice inside GV38
+      # alone, on the same seed: the bots are separate live processes, so the
+      # ending follows the RUN.
       check state["over"]["draw"].getBool == false
       check state["over"]["timeLimit"].getBool == false
-      check state["over"]["winner"].getStr == "red"
+      check state["over"]["winner"].getStr == "blue"
       # The scorebug axis is lives + flag state, never a kill score.
-      check state["teams"]["blue"].hasKey("lives")
+      check state["teams"]["red"].hasKey("lives")
       # GV32: the captured heart ends the game in the "captured" state.
-      check state["teams"]["blue"]["flag"].getStr == "captured"
-      check state["teams"]["red"]["flag"].getStr in ["home", "taken"]
+      check state["teams"]["red"]["flag"].getStr == "captured"
+      check state["teams"]["blue"]["flag"].getStr in ["home", "taken"]
       # The verdict carries a team-keyed map (any team count) that agrees with
       # the legacy red/blue scalars.
       for team in ["red", "blue"]:
@@ -257,11 +259,11 @@ suite "broadcast state channel":
       let verdicts = replay.beatEvents.elems.filterIt(it["k"].getStr == "gameover")
       check verdicts.len == 1
       check verdicts[0]["draw"].getBool == false
-      ## Same pin as the capture assertions above: GV38 seed 4 is RED
-      ## capturing the blue heart. Re-pin BOTH places together — this one is
+      ## Same pin as the capture assertions above: GV38 seed 4 is BLUE
+      ## capturing the red heart. Re-pin BOTH places together — this one is
       ## easy to miss because it reads the beat timeline rather than the
       ## end-of-game state.
-      check verdicts[0]["winner"].getStr == "red"
+      check verdicts[0]["winner"].getStr == "blue"
       # The chrome frame ships the timeline when (and only when) asked.
       let withBeats = parseJson(sim.buildStateJson(
         newJArray(), false, 1, replay.replayMaxTick(), false, true, -1, -1,

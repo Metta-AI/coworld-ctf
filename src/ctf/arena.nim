@@ -2275,15 +2275,31 @@ proc arenaHexObstacles(gameMap: CtfMap): seq[ArenaShape] =
       inc span
     if span < period:
       continue
-    let slots = (2 * span) div period
-    for i in 0 .. slots:
-      let sy = cy - span + phase + i * period
-      if sy < cy - span or sy > cy + span:
-        continue
+    ## THE LADDER IS ANCHORED TO THE BOARD'S CENTRE ROW, not to each column's
+    ## own top edge. Anchoring it at `cy - span` looked equivalent and is not:
+    ## `span` is a function of `colX` on a hexagon — the outer columns run out
+    ## of field long before the inner ones — so every column's ladder started
+    ## from a DIFFERENT row and the stagger the comment above describes was
+    ## scrambled by `-span mod period`. The columns then shared gaps instead of
+    ## covering each other's, and 27 rows carried a straight, unblocked
+    ## 805px shot from one base's flank to the other's (tests/test_map_los.nim,
+    ## measured at every diamond spin frame). Off `cy` the phases are exactly
+    ## the intended 0 / 16 / 32 / 48 / 64 / 80 ladder on every column and every
+    ## size class.
+    let
+      loSy = cy - span
+      hiSy = cy + span
+      ## `floorDiv`, not `div`: Nim's `div` truncates toward zero and these
+      ## offsets go negative above the centre row. (`std/math.ceilDiv` asserts
+      ## a non-negative dividend, so the ceiling is taken as `-floor(-a/b)`.)
+      kLo = -floorDiv((cy + phase) - loSy, period)
+      kHi = floorDiv(hiSy - (cy + phase), period)
+    for k in kLo .. kHi:
+      let sy = cy + phase + k * period
       ## One slot in four is cleared, so every column is a picket with real
       ## gaps rather than a wall; the cleared index walks with the column so
-      ## the gaps stagger too.
-      if (i + col) mod 4 == 0:
+      ## the gaps stagger too. Positive modulo — `k` is negative above centre.
+      if ((k + col) mod 4 + 4) mod 4 == 0:
         continue
       ## Never build on the base's apron: those approaches are what make a
       ## deep base playable from every side.
