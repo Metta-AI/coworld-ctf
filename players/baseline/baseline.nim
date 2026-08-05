@@ -82,7 +82,8 @@ import
   ctf/labels,
   whisky,
   baseline/protocols,
-  baseline/artlog
+  baseline/artlog,
+  baseline/endzones
 
 when defined(taunt):
   import baseline/taunts
@@ -269,11 +270,6 @@ const
     # How close to the scoring point (in x) the carry stops following its lane
     # and drives at the zone centre. Wider than any endzone radius the
     # generator draws, so the cut-in always starts OUTSIDE the ring.
-  UnknownZoneProbeTicks = 90
-    # Ticks the carrier dwells on each interior probe of a capture zone whose
-    # SHAPE TOKEN this build does not recognize (see captureAim). Long enough
-    # to actually arrive and stand there, short enough that a full five-probe
-    # sweep of the box costs a few seconds rather than the episode.
   tuneExtraDefenders {.intdefine.} = 0 # promote flank/mid seats to defense
 
   LaneTop = 40.0              # open corridor above the mirrored obstacles
@@ -303,13 +299,14 @@ var
     # below run untouched; a bigger count re-deals this bot's color (seats
     # go round the teams, slot mod GameTeams) and swaps the geometry procs
     # onto the endzone-anchored multi-team frame (see deriveMultiFrame).
-  EndzoneMarks: seq[tuple[color, shape: string, x0, y0, x1, y1: int]]
+  EndzoneMarks: seq[EndzoneMark]
     # every team's stated home capture region, from the per-team
     # `endzone <color> <shape> <x0>,<y0> <x1>,<y1>` init markers: the shape
-    # archetype and the inclusive bounding-box corners in map pixels. On
-    # 2-team boards the bot still derives its tuned column geometry itself
-    # (homeSign and the capture-column constants predate the marker); on
-    # multi-team boards these zones ARE the geometry (deriveMultiFrame).
+    # archetype and the inclusive bounding-box corners in map pixels. These
+    # zones ARE the geometry on every board now, two-team included — the
+    # derived "home column" they replaced is the bug this file's `captureAim`
+    # documents. Parsing and the shape branch live in baseline/endzones.nim so
+    # tests can check them against the sim's own zone predicate.
 
 const TeamColorNames = ["red", "blue", "green", "yellow"]
   ## Wire color tokens in engine seat-deal order: a game's active teams are
@@ -712,15 +709,12 @@ proc endzoneIndex(team: Team): int =
   ## The index of one team's stated endzone marker, or -1 if the board sent
   ## none. Colors are matched against the wire token, which is what the marker
   ## carries; the seat deal maps `Team` onto that token.
-  for i in 0 ..< EndzoneMarks.len:
-    if EndzoneMarks[i].color == TeamColorNames[int(team)]:
-      return i
-  -1
+  EndzoneMarks.endzoneIndex(TeamColorNames[int(team)])
 
 proc zoneBoxCentre(i: int): Vec =
   ## The centre of stated zone `i`'s bounding box.
-  let z = EndzoneMarks[i]
-  vec(float(z.x0 + z.x1) * 0.5, float(z.y0 + z.y1) * 0.5)
+  let c = EndzoneMarks[i].boxCentre()
+  vec(c.x, c.y)
 
 proc homeSign(team: Team): float =
   ## -1 toward Red's home edge (left), +1 toward Blue's (right). On a
@@ -786,21 +780,10 @@ proc captureAim(team: Team, tick: int): Vec =
   ## coordinate that APPROXIMATES the endzone will fail again the next time the
   ## geometry moves; the engine states the geometry, so read it.
   ##
-  ## The marker carries a shape token, so the aim BRANCHES on it. For a `disc`
-  ## the box centre is provably inside: the zone is the circle inscribed in the
-  ## box, so its centre is the box centre and its radius is half the box
-  ## extent, which is positive. That guarantee is a property of the disc, not
-  ## of bounding boxes, and it is not assumed for anything else.
-  ##
-  ## An UNRECOGNIZED token is handled, never dropped. The vocabulary is closed
-  ## on the emit side so it can grow additively, and an old policy meeting a new
-  ## token must degrade rather than break: the corners are still exact map
-  ## pixels, so the aim opens at the box centre — the best single guess for any
-  ## zone inscribed in a box — and then, rather than hovering there forever if
-  ## the centre happens not to score, walks a slow deterministic cycle of
-  ## interior probes at half-extent. That is a sweep, not a proof; it is what
-  ## can honestly be done with a shape whose membership rule this build does
-  ## not know.
+  ## The shape branch and the unrecognized-token sweep are in
+  ## baseline/endzones.nim, where a test can hold their answer against the
+  ## sim's own `inCaptureZone` predicate rather than against a second copy of
+  ## the geometry.
   if multiFrameOn():
     return MultiCapture
   let i = endzoneIndex(team)
@@ -808,20 +791,8 @@ proc captureAim(team: Team, tick: int): Vec =
     ## No marker at all: the pedestal is the only anchor left, and on every
     ## board the engine ships the zone is drawn around it.
     return flagHome(team)
-  let centre = zoneBoxCentre(i)
-  if EndzoneMarks[i].shape == LabelEndzoneShapeDisc:
-    return centre
-  let
-    z = EndzoneMarks[i]
-    qx = float(z.x1 - z.x0) * 0.25
-    qy = float(z.y1 - z.y0) * 0.25
-    phase = (tick div UnknownZoneProbeTicks) mod 5
-  case phase
-  of 1: vec(centre.x - qx, centre.y)
-  of 2: vec(centre.x, centre.y - qy)
-  of 3: vec(centre.x + qx, centre.y)
-  of 4: vec(centre.x, centre.y + qy)
-  else: centre
+  let p = EndzoneMarks[i].captureAim(tick)
+  vec(p.x, p.y)
 
 proc chokeSpot(team: Team): Vec =
   ## Defender hold point between the flag and our home edge, mirrored
@@ -1004,25 +975,10 @@ proc adoptEndzones(client: ProtocolClient) =
   ## its `<n>` is not a `x,y` pair. Both corners must parse as integers, so a
   ## marker only lands here if it really carries a bounding box.
   EndzoneMarks.setLen(0)
+  var mark: EndzoneMark
   for o in client.spriteObjects():
-    if not o.label.startsWith(LabelPrefixEndzone):
-      continue
-    let parts = o.label[LabelPrefixEndzone.len .. ^1].split(' ')
-    if parts.len != 4:
-      continue
-    let
-      lo = parts[2].split(',')
-      hi = parts[3].split(',')
-    if lo.len != 2 or hi.len != 2:
-      continue
-    try:
-      EndzoneMarks.add (
-        color: parts[0], shape: parts[1],
-        x0: parseInt(lo[0]), y0: parseInt(lo[1]),
-        x1: parseInt(hi[0]), y1: parseInt(hi[1])
-      )
-    except ValueError:
-      discard
+    if parseEndzoneMark(o.label, mark):
+      EndzoneMarks.add mark
 
 proc deriveMultiFrame(bot: Bot) =
   ## Anchors the 2-team strategy frame onto this bot's REAL multi-team home.
