@@ -2515,7 +2515,7 @@ proc mapSpecJson*(gameMap: CtfMap): string =
   var trenchShapes = newJArray()
   for trench in gameMap.trenches:
     trenchShapes.add trench.shapeSpecNode()
-  $(%*{
+  var spec = %*{
     "name": gameMap.name,
     "genSeed": gameMap.genSeed,
     "width": gameMap.width,
@@ -2549,7 +2549,15 @@ proc mapSpecJson*(gameMap: CtfMap): string =
     # generator emits rect pits; authored maps may use any shape).
     "trenches": trenchShapes,
     "leftObstacles": shapes,
-  })
+  }
+  # The biome is cosmetic (it picks the floor texture; it never moves a wall),
+  # and biomeArena is the zero value every map built before biomes existed
+  # carries. Emitting the key ONLY for a non-arena biome keeps every classic
+  # map's spec byte-identical, which is what lets the 402-row validation
+  # baseline and tools/dump_map_specs.nim stay pinned across this change.
+  if gameMap.biome != biomeArena:
+    spec["biome"] = %($gameMap.biome)
+  $spec
 
 proc mapFromSpecJson*(text: string): CtfMap =
   ## Rebuilds one map from its expanded replay spec. Rooms are derived from
@@ -2602,6 +2610,23 @@ proc mapFromSpecJson*(text: string): CtfMap =
     of "square": ezSquare
     else:
       raise newException(CtfError, "Unknown map spec endzone: " & endzoneText)
+  ## Same contract as the three above, and for the same reason: a MISSING key
+  ## means a spec pinned before biomes existed, which really was the classic
+  ## concrete, so it defaults. An unknown NON-EMPTY value is a typo or a spec
+  ## from the future — raise rather than silently reinterpreting it. Note this
+  ## deliberately does NOT use `biomeFromName`: that parser is tolerant by
+  ## design for the generator/CLI boundary, and tolerance is wrong here.
+  let biomeText = node{"biome"}.getStr("arena")
+  result.biome =
+    case biomeText
+    of "arena": biomeArena
+    of "caves": biomeCaves
+    of "forest": biomeForest
+    of "desert": biomeDesert
+    of "city": biomeCity
+    of "plains": biomePlains
+    else:
+      raise newException(CtfError, "Unknown map spec biome: " & biomeText)
   result.endzoneRadius = node{"endzoneRadius"}.getInt(0)
   result.homeDepth = node{"homeDepth"}.getInt(ClassicHomeDepth)
   result.medKitSpawns = pointsFromNode(node["medKitSpawns"])

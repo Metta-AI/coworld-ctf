@@ -122,6 +122,40 @@ suite "map biomes: failure modes":
         check "git add -f" in error.msg
       check raised
 
+  test "the map spec round-trips a biome, and omits the key for arena":
+    ## Replays PIN mapSpec, so a biome that does not survive the round-trip
+    ## silently replays as concrete. The key is emitted only for a non-arena
+    ## biome so every classic map's spec stays byte-identical — that is what
+    ## keeps the 402-row validation baseline and dump_map_specs pinned.
+    let classic = generateCtfMap(1001)
+    check classic.biome == biomeArena
+    let classicSpec = mapSpecJson(classic)
+    check "\"biome\"" notin classicSpec
+    check mapFromSpecJson(classicSpec).biome == biomeArena
+
+    var skinned = generateCtfMap(1001)
+    skinned.biome = biomeDesert
+    let skinnedSpec = mapSpecJson(skinned)
+    check "\"biome\":\"desert\"" in skinnedSpec
+    check mapFromSpecJson(skinnedSpec).biome == biomeDesert
+
+  test "an unknown spec biome raises rather than falling back":
+    ## Matches symmetry/layout/endzone: a MISSING key is an old spec and
+    ## defaults, but an unknown NON-EMPTY value is a typo or a spec from the
+    ## future, and silently reinterpreting one defeats the point of pinning.
+    ## `biomeFromName` is tolerant BY DESIGN for the CLI/generator boundary
+    ## and must never be used at this boundary.
+    var skinned = generateCtfMap(1001)
+    skinned.biome = biomeCity
+    let bad = mapSpecJson(skinned).replace("\"city\"", "\"tundra\"")
+    var raised = false
+    try:
+      discard mapFromSpecJson(bad)
+    except CtfError as error:
+      raised = true
+      check "tundra" in error.msg
+    check raised
+
   test "a biome changes the LOOK and never the collision skeleton":
     let previous = getCurrentDir()
     setCurrentDir(GameDir)
