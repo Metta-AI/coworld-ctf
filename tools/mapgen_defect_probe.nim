@@ -36,6 +36,15 @@
 ##   mapgen_defect_probe --seeds 1000-1199 --teams 4
 ##   mapgen_defect_probe --seeds 1000-1099 --rows rows.tsv --maps maps.tsv
 ##   mapgen_defect_probe --seeds 1000-1299 --worst 12 # print the worst windows
+##   mapgen_defect_probe --seeds 1000-1199 --counterfactual
+##       ^ also measures EVERY column obstacle as if it were glass, which is
+##         the ceiling a smarter selector could reach without changing the
+##         lattice. Costs roughly 3x; run it on a subset.
+##
+## Reproduces the audit of 2026-08-05:
+##   --seeds 1000-1299 --teams 2 --worst 20 --rows w2.tsv --maps m2.tsv
+##   --seeds 2000-2199 --teams 4 --worst 20 --rows w4.tsv --maps m4.tsv
+##   --seeds 1000-1199 --teams 2 --counterfactual --maps mcf.tsv
 
 import
   std/[algorithm, math, os, strformat, strutils, tables],
