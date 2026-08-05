@@ -45,11 +45,12 @@ proc poolRenderOptions(maxDimension = 0): MapRenderOptions =
   )
 
 proc surroundingsMap(symmetry: MapSymmetry): CtfMap =
-  ## A tiny hand-built board in the hexagon's own aspect (101 x 117 is within a
-  ## pixel of sqrt(3)/2), with one stone block well inside the hull.
+  ## A tiny hand-built board in the hexagon's own aspect (117 x 101 is within a
+  ## pixel of 2/sqrt(3), the FLAT-TOP landscape aspect), with one stone block
+  ## well inside the hull.
   const
-    Width = 101
-    Height = 117
+    Width = 117
+    Height = 101
   CtfMap(
     width: Width,
     height: Height,

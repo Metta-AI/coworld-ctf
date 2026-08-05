@@ -1176,35 +1176,38 @@ proc rasterizeRestWallMask*(
         result[i] = false
 
 const
-  SightlineAxisCount* = 6
-    ## A hexagon has SIX families of parallel chords worth refusing, in two
-    ## kinds, and the validator scans both kinds:
-    ##
-    ##   axes 0-2, EDGE TO EDGE      — 90, 30, 150 deg on the flat-top hull.
-    ##     Each runs between an opposite pair of parallel edges and maxes out at
-    ##     `2 * apothem` (968px on the standard class).
-    ##   axes 3-5, VERTEX TO VERTEX  —  0, 60, 120 deg on the flat-top hull.
-    ##     Each runs corner to corner and maxes out at `2 * circumradius`
-    ##     (1118px). These are the LONGER family and include the horizontal,
-    ##     which on the landscape board is the base-to-base axis.
+  SightlineAxisCount* = 3
+    ## A hexagon has SIX families of parallel chords, in two kinds. This
+    ## validator scans the three EDGE-TO-EDGE ones — 90, 30 and 150 degrees on
+    ## the flat-top hull — each of which runs between an opposite pair of
+    ## parallel edges and maxes out at `2 * apothem` (968px on the standard
+    ## class). `sightlinePixels` carries each family's parametrization.
     ##
     ## THESE ANGLES ARE A PROPERTY OF THE HULL AND TURN WITH IT. While the hull
-    ## was pointy-top the edge-to-edge family was 0/60/120 and the
-    ## vertex-to-vertex family was 30/90/150; the landscape flip rotated the
-    ## hull 30 degrees and both sets had to follow. Getting that wrong is silent
-    ## in the worst way — the validator still runs, still passes, and simply
-    ## stops looking where the lanes are. `tools/hex_range_probe.nim` caught it
-    ## by measuring a 950px open run at 87 degrees on a board whose validator
-    ## was still scanning 0, 60 and 120.
+    ## was pointy-top the edge-to-edge family was 0/60/120; the landscape flip
+    ## rotated the hull 30 degrees and the family had to follow. Getting that
+    ## wrong is silent in the worst way — the validator still runs, still
+    ## passes, and simply stops looking where the lanes are.
+    ## `tools/hex_range_probe.nim` caught exactly that, measuring a 950px open
+    ## run at 87 degrees on a board whose validator was still scanning 0/60/120.
     ##
-    ## Stage 2 scanned only THREE (the edge-to-edge kind), which was survivable
-    ## on the portrait board because the unscanned long family ran vertically,
-    ## across the play axis rather than down it. On the landscape board the
-    ## unscanned long family is the HORIZONTAL one — red base to blue base — and
-    ## the probe measured a 1033px open run straight down it against a 1050px
-    ## gun. That is the cross-field spawn snipe this rule exists to refuse, so
-    ## the long families are now scanned too rather than left to the generator
-    ## epic.
+    ## THE OTHER THREE FAMILIES ARE STILL UNSCANNED, and that is now a MEASURED
+    ## gap rather than an unexamined one. The vertex-to-vertex families (0, 60,
+    ## 120 degrees on this hull) run corner to corner and reach
+    ## `2 * circumradius` = 1118px. On the portrait board the unscanned long
+    ## family ran vertically, ACROSS the play axis, so it cost little. On the
+    ## landscape board it is the HORIZONTAL one — red base to blue base — and
+    ## `hex_range_probe` measures a 1033px open run down it against a 1050px
+    ## gun range: a real cross-field firing lane, with 17px of margin.
+    ##
+    ## Scanning all six was tried and REVERTED, with the number: the plug pass
+    ## then adds roughly twice the cover and the generator's accept rate goes to
+    ## 0 of 3197 seeds (61% rejected "too clogged", 18% still on sightlines).
+    ## That is the tension the Stage 2 report already named — enforcing many
+    ## axes against a `CoverPermilleMax` calibrated for ONE — and closing it
+    ## needs the cover budget re-derived, which belongs to the generator epic.
+    ## Raising the ceiling blind to make the sixth family fit would be trading a
+    ## measured lane for an unmeasured one.
   SightlineStep* = 5
     ## Spacing between scanned lines, in intercept units. On the slanted axes
     ## one unit of intercept is 0.866 px of perpendicular separation, so this
@@ -1244,58 +1247,32 @@ iterator sightlinePixels*(
   ## `mapBorderWallAt`), so a run clips itself at the hull.
   ##
   ## Axis 0 is the VERTICAL family (top edge to bottom edge), indexed by
-  ## column; axis 3 is the HORIZONTAL one (vertex to vertex), indexed by row.
-  ## The four slanted families step whichever of x/y they travel further along,
-  ## so a one-pixel-thin wall can never be stepped over: axes 1-2 have slope
-  ## `+-tan 30 = +-153/265` and step x, axes 4-5 have slope `+-tan 60 =
-  ## +-265/153` and step y.
-  case axis
-  of 0:
+  ## column. The slanted families are the 30- and 150-degree ones, parametrized
+  ## `y = intercept +- 153*x div 265` — slope `+-tan 30`, so they run faster
+  ## than they rise and x is the axis to step.
+  if axis == 0:
     for y in 0 ..< gameMap.height:
       yield (intercept, y)
-  of 1, 2:
+  else:
     let sign = if axis == 1: 1 else: -1
     for x in 0 ..< gameMap.width:
       let y = intercept + sign * (Sqrt3Den * x) div Sqrt3Num
       if y >= 0 and y < gameMap.height:
         yield (x, y)
-  of 3:
-    for x in 0 ..< gameMap.width:
-      yield (x, intercept)
-  else:
-    let sign = if axis == 4: 1 else: -1
-    for y in 0 ..< gameMap.height:
-      let x = intercept + sign * (Sqrt3Den * y) div Sqrt3Num
-      if x >= 0 and x < gameMap.width:
-        yield (x, y)
 
 iterator sightlineIntercepts*(gameMap: CtfMap, axis: int): int =
-  ## The intercepts to scan on one axis, spaced `SightlineStep` apart. The two
-  ## unslanted axes are indexed by column (0) and row (3); the four slanted
-  ## axes sweep an intercept range wide enough to carry every line that crosses
-  ## the board.
-  case axis
-  of 0:
+  ## The intercepts to scan on one axis, spaced `SightlineStep` apart. Axis 0
+  ## is indexed by COLUMN; the slanted axes sweep a y-intercept range wide
+  ## enough to carry every line that crosses the board.
+  if axis == 0:
     var x = ArenaBorder + 2
     while x < gameMap.width - ArenaBorder:
       yield x
       x += 4
-  of 3:
-    var y = ArenaBorder + 2
-    while y < gameMap.height - ArenaBorder:
-      yield y
-      y += 4
-  of 1, 2:
+  else:
     let reach = (Sqrt3Den * gameMap.width) div Sqrt3Num + 2
     var c = (if axis == 1: -reach else: 0)
     let hi = (if axis == 1: gameMap.height else: gameMap.height + reach)
-    while c < hi:
-      yield c
-      c += SightlineStep
-  else:
-    let reach = (Sqrt3Den * gameMap.height) div Sqrt3Num + 2
-    var c = (if axis == 4: -reach else: 0)
-    let hi = (if axis == 4: gameMap.width else: gameMap.width + reach)
     while c < hi:
       yield c
       c += SightlineStep

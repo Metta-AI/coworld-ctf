@@ -7,26 +7,37 @@ import
 ## line-of-sight exactly like stone, but fog-of-war shadowcasting sees straight
 ## through it.
 ##
-## The GV16 midline bracket carries the glass. On the board's CENTER ROW its
-## only pane is the glass one (x 346..357 in the left half, and its x-mirror),
-## with the bracket's stone bar directly above it — so one row picks the glass
-## and a row 29px up picks stone at the same x, which is the whole contrast this
-## file needs. The scene: a west spot at (330, cy), the pane at x 346..357, and
-## an east spot at (366, cy); the straight line between the spots crosses only
-## the glass.
+## The GV16 midline bracket carries the glass. Its only pane on RowY is the
+## glass one (x 421..432 in the left half, and its x-mirror), with the bracket's
+## stone bar directly above it — so one row picks the glass and a row 21px up
+## picks stone at the same x, which is the whole contrast this file needs. The
+## scene: a west spot at (414, RowY), the pane at x 421..432, and an east spot
+## at (439, RowY); the straight line between the spots crosses only the glass.
+##
+## Every coordinate moved with the LANDSCAPE flip: the bracket is placed at
+## `cx - flagRing - 68` and the centre is now (559, 484) rather than (484, 559),
+## so both the column and the row changed. They were re-measured off the
+## installed arena, not re-derived by hand.
+##
+## RowY IS NO LONGER THE CENTRE ROW. The pane spans y 467..502, but from y 484
+## downward the floor east of the pane runs into the centre feature, so a
+## straight line there would cross stone as well as glass and the contrast this
+## file exists to test would be contaminated — silently, as a "glass blocks
+## shots" pass that stone was really producing. 475 is the middle of the clean
+## band (467..483), where the only thing between the two spots is the glass.
 const
-  WindowCx = 351              # the glass pane's center column (346..357).
-  RowY = HexStandardHeight div 2   # 559: the pane's own row.
-  WestX = 330
-  EastX = 366
-  StoneRowY = 530             # the bracket's stone bar (y 518..541): stays stone.
+  WindowCx = 426              # the glass pane's center column (421..432).
+  RowY = 475                  # inside the pane, in the clean band.
+  WestX = 414
+  EastX = 439
+  StoneRowY = 454             # the bracket's stone bar (y 431..466): stays stone.
 # A template, not a `let`: MapWidth is a process `var`, and in a combined
 # test binary an earlier module may leave a different map installed at this
 # module's import time — read the width after this suite installs the arena.
 template WindowMirrorCx(): int = MapWidth - 1 - WindowCx
 const
-  StoneDiamondCx = 450        # a spinning center diamond: stays opaque.
-  StoneDiamondCy = 413
+  StoneDiamondCx = 525        # a spinning center diamond: stays opaque.
+  StoneDiamondCy = 338
 
 suite "windows: glass blocks movement and shots but not vision":
   let sim = initCtfForTest()
@@ -104,5 +115,5 @@ suite "windows: glass blocks movement and shots but not vision":
     # The tracer visibly ends at the window, not at the target.
     check game.recentShots.len > 0
     let tracer = game.recentShots[^1]
-    check tracer.x1 < 346                       # stopped at the west face.
+    check tracer.x1 < 421                       # stopped at the west face.
     check tracer.x1 > WestX

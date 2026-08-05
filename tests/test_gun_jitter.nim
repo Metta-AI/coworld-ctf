@@ -61,21 +61,34 @@ proc hitCount(game: var SimServer, targetX, shots: int): int =
       inc result
 
 suite "gun range: one fixed cap, every map":
-  test "the fixed range outreaches the standard board's own width":
+  test "the fixed range no longer outreaches the standard board's long axis":
     ## GunRange was frozen at 1050 on the rectangular board, where it was the
-    ## width of the SMALLEST field (round(1235 * 0.85)). The hexagon holds the
-    ## same playfield AREA in a narrower, taller box, so 1050 is now longer
-    ## than the standard board is wide and longer than the small board's whole
-    ## bounding box: on a hex arena TERRAIN, not range, is what ends a
-    ## sightline. The constant is pinned here because it is frozen (GV34) and
-    ## every jitter sigma below is derived from it.
+    ## width of the SMALLEST field (round(1235 * 0.85)). It is still frozen
+    ## (GV34) and every jitter sigma below derives from it, so it is pinned.
+    ##
+    ## WHAT THE LANDSCAPE FLIP CHANGED. The portrait hexagon was 969 across its
+    ## widest span, so 1050 outranged the entire standard board and range was
+    ## simply not a constraint there. The flat-top board is 1119 vertex to
+    ## vertex, so for the first time the playfield's longest chord EXCEEDS one
+    ## gun range — while still being shorter than one along the board's other
+    ## axis. That asymmetry is new and it lands on the base-to-base axis.
     check GunRange == 1050
-    check GunRange > HexStandardWidth
+    check GunRange < HexStandardWidth      # 1050 < 1119, the long axis
+    check GunRange > HexStandardHeight     # 1050 >  969, the short axis
+    ## It is the OPEN RUN, not the chord, that decides whether this matters:
+    ## terrain is what ends a sightline on a hex arena. `tools/hex_range_probe`
+    ## sweeps 180 directions on the shipped standard arena and measures 1033px,
+    ## which still fits inside one gun range — with 17px to spare, where the
+    ## portrait board had the whole question moot. Closing the last of that gap
+    ## is what the sixth sightline family (arena.nim's SightlineAxisCount) is
+    ## for; if this margin ever goes negative the board outranges the gun and
+    ## spawn-to-spawn fire becomes possible.
     var config = defaultGameConfig()
     config.update("""{"mapPath": "gen", "mapSeed": 7, "mapSize": "small"}""")
     let smallMap = resolveCtfMapMetadata(config)
     check (smallMap.width, smallMap.height) == HexSizes[hxSmall]
     check config.gunRange == GunRange
+    ## The small class is still entirely inside one gun range on both axes.
     check GunRange > smallMap.width
 
   test "larger maps keep the same absolute range":
