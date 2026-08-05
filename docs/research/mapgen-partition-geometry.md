@@ -1116,4 +1116,157 @@ the region is ~300 px across, far below `GunRange`.
 
 Use BSP *here*, and nowhere else.
 
-<!-- SECTION-MARKER -->
+---
+
+## 12. Computational cost against our budget
+
+Budget as measured in the tree: `evaluateMap` = **132 ms** on a standard 2-team board
+(`map_rules.nim:222`), `MapSelectionK[standard] = 8`, so best-of-K ≈ **1.06 s**, and
+`generateMapAttempt` currently runs up to `MapGenMaxAttempts = 100` times (`arena.nim:1085`).
+
+| Stage | Complexity | n = 30 seeds, release Nim | Verdict |
+| --- | --- | --- | --- |
+| Poisson-disk (Bridson, grid `r/√2`) with orbit distance tests | O(n·\|G\|) | < 50 µs | free |
+| Delaunay (Bowyer–Watson, int64 exact incircle) | O(n²) worst, O(n log n) expected | ~900 predicate evals, < 100 µs | free |
+| Voronoi = dual + clip to board | O(n) | < 50 µs | free |
+| Convex erosion (half-plane re-intersect) per cell | O(k) per cell, k ≈ 6 | < 20 µs | free |
+| Wall/doorway emission → `shapePolygon` | O(edges) ≈ 3n | < 20 µs | free |
+| Sutherland–Hodgman clip to fundamental domain | O(vertices) ≈ 200 | < 20 µs | free |
+| Axial-line enumeration (exact, on cells) | O(lines · cells) | ~1 ms | cheap |
+| `vertexDisjointRoutes` alone (Dinic, 47×25 cells) | O(V²E) worst, tiny in practice | **< 2 ms** | cheap |
+| **Total generation** | | **≈ 1–3 ms** | **well inside 10–30 ms** |
+| `evaluateMap` (full 45 metrics) | O(8·w·h) + O(400²) LOS | **132 ms** | dominates everything |
+
+**The conclusion is unambiguous: geometry is free and measurement is the entire cost.** Two
+implications for how the rewrite should be shaped:
+
+1. **Move work from rejection into construction.** Every property we can make (A) removes a
+   rejection, and each rejection currently costs a full 132 ms `evaluateMap`. Design A makes
+   symmetry, room size, doorway width, chokepoint-vs-killbox, cover permille, god spots and the
+   k-route property all (A). That is most of the current failure surface.
+2. **Split the evaluator.** Expose a `routeCountOnly()` and an `axialLinesOnly()` at ~1–2 ms so the
+   *repair* loops of §6.5 and §11.1 can iterate 50 times for less than one `evaluateMap`. The full
+   45-metric pass then runs once per accepted candidate, not once per attempt. This alone would
+   let us raise `MapSelectionK` from 8 to 30+ inside the same wall-clock budget.
+
+The one genuinely expensive optional extra is power diagrams with prescribed areas (§3.3): an
+L-BFGS with a diagram rebuild per evaluation, maybe 20–50 rebuilds — still only a few ms at n = 30,
+but the implementation cost is high and the benefit is small given the erosion bisection. Skip it.
+
+---
+
+## 13. What I would build first
+
+Staged so that each stage ships something measurable and nothing is wasted if the next stage
+changes direction.
+
+**Stage 0 — instrument what we already have (½ day, no generator changes).**
+- Add `axialLines(L)` and `axialLenMax` to `map_metrics.nim` (§7.3). Today `openRunP50Px/P95Px`
+  at `:776` only scan horizontal and vertical runs, so a diagonal 900 px sightline is invisible.
+  Any non-axis-aligned generator will exploit that blind spot the moment we score against it.
+  **Fix the metric before changing the generator.**
+- Add pinch **length** to the chokepoint block at `map_metrics.nim:1057` (§5.2), so doorway and
+  kill box stop scoring identically.
+- Split out `routeCountOnly()` (§12).
+
+**Stage 1 — the partition front end (2–3 days).** `src/ctf/partition.nim`:
+maximal Poisson-disk with orbit-aware distance tests, int64-exact Bowyer–Watson Delaunay, Voronoi
+dual, board clip, convex erosion, Sutherland–Hodgman domain clip. ~400 lines, no engine changes,
+fully unit-testable against the two lemmas (§3.1 cell bounds, §10.3 axis coverage) — those are
+*assertable*, which is unusual and valuable in a generator.
+
+**Stage 2 — Design B, city blocks (1–2 days).** Emit eroded solid cells as `shapePolygon` into
+`leftObstacles` behind a `MAPGEN=partition` env gate. Cheapest possible end-to-end proof that the
+pipeline works: symmetry lift, rasterisation, validation, replay. Compare `evaluateMap` bands
+against the hand-authored `arena` control (`map_metrics.ArenaControl`). Expect immediate wins on
+`longRunFrac`, `interiorFrac` and `visDegreeCv`; expect to *lose* on route count until Stage 3.
+
+**Stage 3 — Design A, rooms and doorways (3–5 days).** Wall quads with cut doorways, the
+`S ⊆ Delaunay` doorway-set selection with the 3-connectivity check, interior cover for the
+empty-kernel and 132 px exposed-run rules, `t_wall` bisection for the cover band. This is where
+the (A) guarantees land and where the pass rate should go to ~100 %.
+
+**Stage 4 — the repair loops (1–2 days).** Min-cut-driven doorway opening (§6.5), axial-line-driven
+doorway sliding (§11.1). Both turn rejections into O(1) fixes.
+
+**Stage 5 — templates and hierarchy (optional).** Design C's named skeletons for 4-team boards;
+the coarse-district / fine-room two-level Voronoi of §8.3.
+
+**Do not build:** aperiodic tilings (§8.2), power diagrams (§3.3), straight-skeleton offsetting
+(§9.3), medial-axis pruning for the generator path (§5.3 — emit the skeleton, don't extract it),
+BSP for anything except the base pocket (§11.4).
+
+**The single highest-leverage thing in this document**, if only one change is possible: the
+**on-axis seeding rule of §10.3**. Any Voronoi-based generator that skips it ships a full-board
+sniping lane down the symmetry axis of every single map, and it will look deliberate.
+
+---
+
+## 14. Sources
+
+Primary sources preferred; folklore flagged as folklore.
+
+**Voronoi, Delaunay, relaxation**
+- Aurenhammer, F. *Power Diagrams: Properties, Algorithms and Applications.* SIAM J. Comput. 16(1), 1987 — https://www.cs.jhu.edu/~misha/Spring16/Aurenhammer87.pdf
+- Aurenhammer, Hoffmann, Aronov. *Minkowski-type theorems and least-squares clustering.* Algorithmica 20 (1998) 61–76 — existence/uniqueness of power weights realising prescribed cell areas. (Modern exposition: Bourne & Roper, *Centroidal power diagrams, Lloyd's algorithm and applications to optimal location problems* — https://arxiv.org/pdf/1409.2786)
+- Du, Emelianenko, Ju. *Convergence of the Lloyd algorithm for computing centroidal Voronoi tessellations.* SIAM J. Numer. Anal. 44(1), 2006 — https://math.gmu.edu/~memelian/pubs/pdfs/DEJ_SIAM_lloyd.pdf
+- *Lloyd's algorithm* — https://en.wikipedia.org/wiki/Lloyd%27s_algorithm
+- Osang, Rouxel-Labbé, Teillaud. *Generalizing CGAL Periodic Delaunay Triangulations.* ESA 2020 — https://drops.dagstuhl.de/opus/volltexte/2020/12941/pdf/LIPIcs-ESA-2020-75.pdf
+- Yan, Wang, Lévy, Liu. *Computing 2D Periodic Centroidal Voronoi Tessellation.* ISVD 2011 — https://www.gipsa-lab.grenoble-inp.fr/~kai.wang/papers/ISVD11.pdf
+- Patel, A. *Polygonal Map Generation for Games* (Red Blob Games, 2010) — the canonical game reference; **folklore-grade** on parameter choices ("run Lloyd twice") — http://www-cs-students.stanford.edu/~amitp/game-programming/polygon-map-generation/
+
+**Poisson-disk / blue noise**
+- Bridson, R. *Fast Poisson Disk Sampling in Arbitrary Dimensions.* SIGGRAPH 2007 sketches — https://www.cs.ubc.ca/~rbridson/docs/bridson-siggraph07-poissondisk.pdf
+- Ebeida et al. *A Simple Algorithm for Maximal Poisson-Disk Sampling in High Dimensions*; and Quan et al. *Maximal Poisson-disk Sampling via Sampling Radius Optimization* — https://weizequan.github.io/mps2016/MPS.pdf (both state the empty-disk + maximality pair used in the §3.1 lemma)
+- Mitchell et al. *Variable Radii Poisson-Disk Sampling* — https://www.sandia.gov/files/samitch/files/cccg-present.pdf (for the larger base-cell radius of §11)
+- *The cell-size lemma of §3.1 is proved here, not cited* — it is elementary and I did not find it stated in this form in the sampling literature, which tends to quote the spectral properties instead.
+
+**Graph connectivity and embedding**
+- *Menger's theorem* — https://en.wikipedia.org/wiki/Menger%27s_theorem
+- Diestel, R. *Graph Theory*, ch. 3 (Connectivity) — https://www.math.uni-hamburg.de/home/diestel/books/graph.theory/preview/Ch3.pdf
+- *Menger's n-Arc Theorem* and Harary graphs `H(k,n)` attaining ⌈nk/2⌉ edges — https://mathworld.wolfram.com/Mengersn-ArcTheorem.html
+- *Steinitz's theorem* (3-connected planar ⇔ convex polyhedron) and Tutte's wheel theorem — https://en.wikipedia.org/wiki/Steinitz%27s_theorem
+- Biedl et al. *Decomposing 4-connected planar triangulations into two trees and one path* — https://arxiv.org/pdf/1710.02411 (states "every plane triangulation with ≥ 4 vertices is 3-connected" and "4-connected iff no separating triangle" in its preliminaries)
+- *Antiprism graph* — https://en.wikipedia.org/wiki/Antiprism_graph (polyhedral ⇒ 3-connected; do **not** assume 4-connected)
+- Erickson, J. *Tutte's Spring Embedding Theorem* (course notes) — https://jeffe.cs.illinois.edu/teaching/comptop/2023/notes/12-spring-embedding.html
+- Gortler, Gotsman, Thurston. *An elementary proof of Tutte's planar embedding theorem* — https://www.eecs.harvard.edu/~sjg/papers/tutte.pdf
+- Kozminski & Kinnen. *Rectangular dualization and rectangular dissections.* IEEE TCAS, 1988 — https://ieeexplore.ieee.org/document/16806/
+- Shekhawat et al. *GPLAN: Computer-Generated Dimensioned Floorplans for given Adjacencies* — https://arxiv.org/pdf/2008.01803
+
+**Medial axis / skeletons / offsets**
+- Chazal, F. & Lieutier, A. *The λ-medial axis.* Graphical Models 67(4), 2005. Discrete version: *Robust skeletonization using the discrete λ-medial axis* — https://www.researchgate.net/publication/220644771_Robust_skeletonization_using_the_discrete_l-medial_axis
+- Montero & Lang. *Skeleton pruning by contour approximation and the integer medial axis transform.* Computers & Graphics 36(5), 2012 — https://dl.acm.org/doi/10.1016/j.cag.2012.03.029
+- Patiño et al. *Cosine-Pruned Medial Axis* — https://arxiv.org/pdf/2012.02910
+- Held & Huber. *Computing Mitered Offset Curves Based on Straight Skeletons.* CAD & Applications 12(4), 2015 — https://www.cad-journal.net/files/vol_12/CAD_12(4)_2015_414-424.pdf
+- Palfrader & Held. *Generalized offsetting of planar structures using skeletons* — https://www.tandfonline.com/doi/full/10.1080/16864360.2016.1150718
+- Wein / Iowa State CS. *Minkowski Sums: C-obstacles* — https://faculty.sites.iastate.edu/jia/files/inline-files/15.%20Minkowski%20sum.pdf
+- UMD CMSC425 lecture 16, *Motion Planning: Basic Concepts* — https://www.cs.umd.edu/class/spring2018/cmsc425/Lects/lect16-motion-basics.pdf
+- *Roadmap-Based Path Planning: Using the Voronoi Diagram for a Clearance-Based Shortest Path.* IEEE Robotics & Automation Magazine, 2008 — https://ieeexplore.ieee.org/document/4539723/ (GVD = medial axis of free space = maximum-clearance roadmap)
+
+**Visibility**
+- *Art gallery problem* — https://en.wikipedia.org/wiki/Art_gallery_problem (Chvátal 1975; Fisk's constructive 1978 proof)
+- O'Rourke, J. *Art Gallery Theorems and Algorithms*, ch. 8 (Visibility Algorithms) — https://www.science.smith.edu/~jorourke/books/ArtGalleryTheorems/Art_Gallery_Chapter_8.pdf
+- Joe & Simpson. *Corrections to Lee's visibility polygon algorithm.* BIT 27, 1987 — https://www.tandfonline.com/doi/abs/10.1080/00207169008803824; implementation survey: Bungiu et al., *Efficient Computation of Visibility Polygons* — https://arxiv.org/pdf/1403.3905
+- Turner, Doxa, O'Sullivan, Penn. *From isovists to visibility graphs: a methodology for the analysis of architectural space.* Environment and Planning B 28(1), 2001 — https://www.academia.edu/14187411/From_isovists_to_visibility_graphs_a_methodology_for_the_analysis_of_architectural_space
+- Jiang & Liu. *Defining and Generating Axial Lines from Street Center Lines* — https://arxiv.org/pdf/1009.5249
+- *Visibility graph analysis* — https://en.wikipedia.org/wiki/Visibility_graph_analysis
+
+**Tilings**
+- Smith, Myers, Kaplan, Goodman-Strauss. *An aperiodic monotile.* arXiv:2303.10798 — https://arxiv.org/abs/2303.10798; chiral version arXiv:2305.17743 — https://arxiv.org/abs/2305.17743
+- *Planar aperiodic tile sets: from Wang tiles to the Hat and Spectre monotiles* — https://arxiv.org/pdf/2310.06759
+
+**Level generation (game literature — treat as folklore unless it states a theorem)**
+- Adonaac, A. *Procedural Dungeon Generation Algorithm* (TinyKeep). Gamasutra/Game Developer, 2015 — https://www.gamedeveloper.com/programming/procedural-dungeon-generation-algorithm — **folklore**: the "re-add 15 % of edges" constant has no derivation.
+- RogueBasin, *Basic BSP Dungeon generation* — https://www.roguebasin.com/index.php/Basic_BSP_Dungeon_generation — **folklore**: split ratios 0.45–0.55 / 0.1–0.9 are taste.
+- Liapis, A. *Constructive Generation Methods for Dungeons and Levels* (PCG Book ch. 3) — https://antoniosliapis.com/articles/pcgbook_dungeons.php
+- Dormans & Bakkes. *Generating Missions and Spaces for Adaptable Play Experiences.* IEEE TCIAIG, 2011 — https://sander.landofsand.com/publications/Dormans_Bakkes_-_Generating_Missions_and_Spaces_for_Adaptable_Play_Experiences.pdf; popular account: *Unexplored's Secret: Cyclic Dungeon Generation* — https://www.gamedeveloper.com/design/unexplored-s-secret-cyclic-dungeon-generation-
+- Boris the Brave. *Graph Rewriting for Procedural Level Generation* — https://www.boristhebrave.com/2021/04/02/graph-rewriting/
+
+**Explicitly flagged as unverified in this document**
+- Whether hat/spectre aperiodic tilings admit an Ammann-bar-like family of unbroken straight lines
+  (§8.2). Penrose tilings demonstrably do; I found no statement either way for the monotiles. Do
+  not rely on "aperiodic ⇒ no long sightlines" without checking.
+- Antiprism graphs are polyhedral (3-connected) and 4-regular; the stronger claim that `A_n` is
+  4-**connected** for all `n` is stated in some references but I did not find a primary source, so
+  §6.3(c) does not lean on it.
+
