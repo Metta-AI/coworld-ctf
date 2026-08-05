@@ -524,6 +524,7 @@ const
   DisarmAvoidRadius = 34.0    # avoidDisarm: steer this far around a sword/shield
                               # pickup we're NOT deliberately collecting (a body is
                               # ~24px; a shell of margin clears the 12px touch grab).
+  SprayGrabDetour = 170.0     # opportunistic spray pickup budget (GV36 melee)
   ShieldGrabDetour = 120.0    # shieldTank: an escort grabs a shield within this detour.
   ShieldRushSeat = 3          # the designated shield-rusher team-seat: seat 3 is the
                               # closest-spawn rusher (roleForSeat) — the bot most likely to
@@ -1550,6 +1551,7 @@ type
                               # shield. ⚠️ COORDINATION lever — the mirror gives both teams
                               # the tank and its trigger (mate carrying past our shield) is
                               # rare in self-play. Validate hosted, gated OFF.
+    sprayGrab: bool           # GV36 melee: opportunistic spray-can pickup
     shieldRush: bool          # ⭐⭐ SHIELD-RUSH CARRIER (2026-07-23, the grab→cap fix): the
                               # A/B + n=37 teardown proved we LOSE ON THE RUN HOME — 34 steals /
                               # 4 caps (12%) vs h006, carriers die at MIDFIELD crossing back. A
@@ -2572,6 +2574,7 @@ proc shippedCombatTune(): CombatTune =
   # shielded both confirmed legal on GV21; first-mover mechanic (h006 doesn't use it).
   # Mirror-MEASURABLE (per-team HP → grab→cap), so lab-screened before the hosted A/B.
   result.shieldRush = true
+  result.sprayGrab = true
 
 proc vec(x, y: float): Vec =
   Vec(x: x, y: y)
@@ -5968,7 +5971,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       if p.x < 40.0 or p.y < 40.0 or p.x > float(MapW - 40) or p.y > float(MapH - 40):
         continue
       swordPickups.add(p)
-  if bot.tune.avoidDisarm:            # the real disarm object on v15
+  if bot.tune.avoidDisarm or bot.tune.sprayGrab:
     for o in client.spriteObjectsWithLabel(LabelSprayCan):
       let p = client.mapPos(o)
       if p.x < 40.0 or p.y < 40.0 or p.x > float(MapW - 40) or p.y > float(MapH - 40):
@@ -5996,6 +5999,26 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         seekingPickup = true
     when defined(ssprobe):
       if seekingPickup: inc ssTankSeek
+  # ⭐ SPRAY GRAB (2026-08-04, GV36 melee doctrine — Maxwell's swap framing).
+  # The cone is not a sidearm: carrying it REPLACES the gun with a 3-dmg/touch
+  # close-range weapon that one-shots a bare cog. Census of 18 live post-GV36
+  # episodes: the post-churn league #1 takes 31% of his kills with the cone
+  # (5.77 kills/1k carry-ticks, short frequent carries), and NOBODY in the
+  # sample died while carrying — the gun you give up is broken at range
+  # anyway, so the swap is currently FREE. Our per-carry efficiency already
+  # beats focusfire's; we simply never picked one up (1% carry time).
+  # Opportunistic and VISIBLE-ONLY (no spawn-coordinate guessing — the kit
+  # lesson): any free attacker seat that sees a can nearby grabs it.
+  if bot.tune.sprayGrab and not seekingPickup and not iHavePlasma and
+      not iHaveShield and not iCarry and not mateCarry and not ownStolen and
+      bot.role in {MidTop, MidBottom, MidGuard, FlankTop, FlankBottom}:
+    var best = 1e18
+    for p in plasmaPickups:
+      let d = dist(p, me)
+      if d <= SprayGrabDetour and d < best:
+        best = d
+        target = p
+        seekingPickup = true
   # ⭐⭐ shieldRush: the rusher grabs OUR OWN endzone shield BEFORE the steal so it
   # carries the heart home at 6 HP (survive 6 hits vs 3 = the grab→cap fix). Gated to
   # the rusher seats, only while still home-side (ShieldRushMaxDepth) and not already
