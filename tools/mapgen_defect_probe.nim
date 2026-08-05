@@ -382,6 +382,12 @@ type
     respawnMeanDistPx: float
     captureAreaFrac: float
 
+    ## Counterfactual: how many of the COLUMN obstacles this map actually
+    ## built would have made a useful window if the selector had checked?
+    ## This is the ceiling the current generator could reach with nothing but
+    ## a smarter pick — the number that decides "fixable" vs "structural".
+    candidates, candidatesUseful: int
+
     ## lattice / architecture
     obstacleCount: int
     distinctColumnXs: int
@@ -450,7 +456,9 @@ proc plugSplit(g: CtfMap): tuple[resolved, exact: bool, colN, featN, plugN: int]
       return (false, false, 0, 0, 0)
   (true, exact, plugStart - featN, featN, g.leftObstacles.len - plugStart)
 
-proc measureMap(gameMap: CtfMap, label: string, seed: int): MapRow =
+proc measureMap(
+  gameMap: CtfMap, label: string, seed: int, countCandidates = false
+): MapRow =
   let c = buildCtx(gameMap)
   let g = gameMap
   result.name = label
@@ -667,6 +675,20 @@ proc measureMap(gameMap: CtfMap, label: string, seed: int): MapRow =
     result.captureAreaFrac =
       float(result.respawnAreaPx) / float(max(1, c.w * c.h))
 
+  # --- counterfactual: where COULD a window have gone? ---------------------
+  ## Every column obstacle is window-eligible (arena.nim:1777-1785 adds stubs,
+  ## diamonds and discs to `eligible`); the selector just shuffles and takes
+  ## the first 2-4. So measure every one of them as if it were glass. The
+  ## marching already steps clear of the candidate's own body, so a solid
+  ## obstacle and the same obstacle turned to glass measure identically.
+  if countCandidates and split.resolved:
+    for li in 0 ..< split.colN:
+      let s = g.leftObstacles[li]
+      if s.kind notin {shapeRect, shapeDiamond, shapeDisc}: continue
+      inc result.candidates
+      let m = c.measureWindow(s, li)
+      if min(m.depthA, m.depthB) >= UsefulDepthPx: inc result.candidatesUseful
+
   # --- architecture: is the cover a lattice? -------------------------------
   var xs = initCountTable[int]()
   for s in g.leftObstacles:
@@ -751,6 +773,7 @@ proc main() =
   let teams = a.flag("teams", "2").parseInt
   let seedSpec = a.flag("seeds", "1000-1099")
   let sizeLock = a.flag("size", "")
+  let counterfactual = "counterfactual" in a.bools
   var lo, hi: int
   if seedSpec.contains('-'):
     let parts = seedSpec.split('-', 1)
@@ -766,7 +789,7 @@ proc main() =
   ## Rule 1: the CONTROL is prepended to every batch, never optional.
   for ctrl in ["arena", "arena-large"]:
     let g = loadCtfMapMetadata(ctrl)
-    mapRows.add measureMap(g, ctrl, -1)
+    mapRows.add measureMap(g, ctrl, -1, counterfactual)
     winRows.add windowRows(g, ctrl, -1)
 
   var overrides = MapGenOverrides(windows: -1, pits: -1, pitDensity: -1)
@@ -781,7 +804,7 @@ proc main() =
       continue
     inc generated
     let label = &"gen:{seed}"
-    mapRows.add measureMap(g, label, seed)
+    mapRows.add measureMap(g, label, seed, counterfactual)
     winRows.add windowRows(g, label, seed)
     if generated mod 25 == 0:
       stderr.writeLine(&"  ... {generated} maps")
@@ -1006,6 +1029,17 @@ proc main() =
       &"p90={percentile(respFrac, 0.9) * 100:.1f}%"
     echo &"  mean respawn distance to the stand px p50={percentile(respMean, 0.5):.0f}" &
       &" (p10={percentile(respMean, 0.1):.0f} p90={percentile(respMean, 0.9):.0f})"
+
+    var cand, candUse = 0
+    for m in rows:
+      cand += m.candidates
+      candUse += m.candidatesUseful
+    if cand > 0:
+      echo ""
+      echo &"COUNTERFACTUAL: could a SMARTER selector have done better?"
+      echo &"  column obstacles measured as if glass  {cand}"
+      echo &"  ...that would clear the useful bar     {candUse}  " &
+        pct(candUse, cand) & "   <- the ceiling of the current lattice"
 
     echo ""
     echo &"ARCHITECTURE"
