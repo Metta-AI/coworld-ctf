@@ -433,3 +433,173 @@ suite "the two open decisions":
     # SoldierBodyPx = 34 against Source's 32-unit player is 1.06 px/unit, under
     # which TF2's 1024-unit medium-range cap lands within 4% of GunRange.
     check abs(1024 * SoldierBodyPx div 32 - GunRange) * 100 div GunRange <= 4
+
+suite "population fit: board area as a function of roster":
+  test "the law is anchored on the one tuned configuration":
+    check TunedPlayfieldPx == 1235 * 659
+    check TunedPlayfieldPx == 813865
+    check TunedOpponents == 8
+    check PxPerOpponent == TunedPlayfieldPx div TunedOpponents
+    check PxPerOpponent == 101733
+    # ...and it reproduces that configuration: 2 x 8 resolves to standard at
+    # stress 1.00. If this ever drifts, the anchor has moved.
+    let tuned = fitMapSize(2, 8)
+    check tuned.sizeClass == mszStandard
+    check abs(tuned.densityStress - 1.0) < 0.01
+    check tuned.verdict == popGood
+
+  test "constant density is refused: the weapon sets a floor":
+    # A = 50,900 * P would put a 1v1 on 101,733 px2 — a 319 px board, smaller
+    # in every dimension than the gun's own reach. The floor is why not.
+    check PxPerOpponent * 1 < mszSmall.playfieldPx(boardRect2)
+    let duel = fitMapSize(2, 1)
+    check duel.floorBound
+    check duel.targetPlayfieldPx == mszSmall.playfieldPx(boardRect2)
+    check duel.sizeClass == mszSmall          ## Maxwell's ask, directly
+    # Every roster under the hinge wants the same board, and the hinge is where
+    # the linear term overtakes the floor.
+    let hinge = mszSmall.playfieldPx(boardRect2) / PxPerOpponent
+    check hinge > 5.0 and hinge < 6.0
+    for units in 1 .. 4:
+      check fitMapSize(2, units).floorBound
+      check fitMapSize(2, units).sizeClass == mszSmall
+    check not fitMapSize(2, 8).floorBound
+
+  test "a 1v1 never lands on giant, which is the whole complaint":
+    let duel = fitMapSize(2, 1)
+    check mszGiant notin duel.legalClasses
+    check mszHuge notin duel.legalClasses
+    check duel.legalClasses == @[mszSmall, mszStandard, mszLarge]
+    # The old uniform draw offered all five.
+    check DrawableSizeNames.len == 5
+
+  test "the effective exponent is ~0.45, and the law is a hinge not a power":
+    # Quoted in the design doc, so pinned here: fitting A(n_e) as a power law
+    # over the realistic roster range gives ~0.45, but the true shape is a
+    # constant floor hinged to a linear term (exponents 0 and 1).
+    let
+      lo = float(fitMapSize(2, 1).targetPlayfieldPx)
+      hi = float(fitMapSize(6, 5).targetPlayfieldPx)
+      alpha = ln(hi / lo) / ln(25.0)
+    check alpha > 0.40 and alpha < 0.50
+
+  test "opponents drive the law, not population":
+    # 6 teams x 2 units and 2 teams x 2 units are both 4-and-12 players, but
+    # five sixths of a 6-team field is hostile and only half of a 2-team one is.
+    check fitMapSize(2, 6).opponents == 6
+    check fitMapSize(6, 2).opponents == 10
+    check fitMapSize(6, 2).population == 12
+    check fitMapSize(2, 6).population == 12
+    check fitMapSize(6, 2).targetPlayfieldPx >
+      fitMapSize(2, 6).targetPlayfieldPx
+
+  test "the roster cap is enforced, including Maxwell's own example":
+    # "FFA6 with 6 units each" is 36 seats and does not fit MaxPlayers = 32.
+    let over = fitMapSize(6, 6)
+    check over.population == 36
+    check over.population > MaxPlayers
+    check over.verdict == popUnsupported
+    check "MaxPlayers" in over.reason
+    check fitMapSize(6, 5).population == 30    ## the largest that does fit
+    check fitMapSize(6, 5).verdict != popUnsupported
+
+suite "population fit: separation versus density":
+  test "separation wins, and the resolved class is never below it":
+    for teams in [2, 3, 4, 6]:
+      for units in 1 .. (MaxPlayers div teams):
+        let f = fitMapSize(teams, units)
+        check ord(f.sizeClass) >= ord(f.separationClass)
+        for c in f.legalClasses:
+          check ord(c) >= ord(f.separationClass)
+
+  test "the conflict is reported with a number, never papered over":
+    # 6 teams are forced onto giant for base separation; 6 x 1 wants small.
+    let sparse = fitMapSize(6, 1)
+    check sparse.separationClass == mszGiant
+    check sparse.sizeClass == mszGiant
+    check sparse.densityStress > 9.0          ## 9.4x the area it wants
+    check sparse.verdict == popUnsupported
+    check sparse.reason.len > 0
+    check "separation" in sparse.reason
+
+  test "6-team FFA is only playable at a full roster":
+    # The resolution in one line: 6 teams work when you fill them.
+    check fitMapSize(6, 1).verdict == popUnsupported
+    check fitMapSize(6, 2).verdict == popUnsupported
+    check fitMapSize(6, 4).verdict == popStressed
+    check fitMapSize(6, 5).verdict == popStressed
+    check fitMapSize(6, 5).densityStress < fitMapSize(6, 1).densityStress
+
+  test "3 teams inherit a milder version of the same conflict":
+    check fitMapSize(3, 4).separationClass == mszHuge
+    check fitMapSize(3, 4).verdict == popStressed
+    check fitMapSize(3, 8).verdict == popGood
+
+  test "the legality ceiling is the player's own loop, not the tick cap":
+    check LegalStressMax ==
+      float(TicksToKill + RespawnTicks) / TunedContactTicks
+    check LegalStressMax > 4.0 and LegalStressMax < 5.0
+    # MaxTicks is a safety cap, not a match length; building the budget on it
+    # would be about twice as permissive.
+    check (float(MaxTicks) / float(Lives)) / 4.0 / TunedContactTicks >
+      2.0 * LegalStressMax
+
+suite "population fit: cover is part of the answer":
+  test "an over-sized board compensates with LESS cover, not more":
+    # t_find is proportional to cover fraction, so longer sightlines find
+    # people sooner. Same conclusion the range regime reached from the other
+    # end, which is the consistency check that matters.
+    let
+      tuned = fitMapSize(2, 8)
+      stretched = fitMapSize(6, 4)
+      stretchedBand = mapRules(stretched.sizeClass, 6)
+    check stretched.densityStress > tuned.densityStress
+    check stretched.coverPermilleTarget <= stretchedBand.coverPermilleMax
+    check stretched.coverPermilleTarget >= stretchedBand.coverPermilleMin
+    # A board LARGER than its roster wants sits at the bottom of its band...
+    check stretched.coverPermilleTarget == stretchedBand.coverPermilleMin
+    # ...and a board SMALLER than its roster wants sits above the middle.
+    let crowded = fitMapSize(2, 10)
+    let crowdedBand = mapRules(crowded.sizeClass, 2)
+    check crowded.densityStress < 1.0
+    check crowded.coverPermilleTarget >
+      (crowdedBand.coverPermilleMin + crowdedBand.coverPermilleMax) div 2
+
+  test "saturation is reported when cover cannot pay the difference back":
+    check fitMapSize(6, 4).coverCompensationSaturated
+    check not fitMapSize(2, 8).coverCompensationSaturated
+    # And saturation alone is enough to stop calling a config good.
+    check fitMapSize(6, 4).verdict != popGood
+
+  test "the target cover always lands inside the class's own derived band":
+    for teams in [2, 3, 4, 6]:
+      for units in 1 .. (MaxPlayers div teams):
+        let
+          f = fitMapSize(teams, units)
+          band = mapRules(f.sizeClass, teams)
+        check f.coverPermilleTarget >= band.coverPermilleMin
+        check f.coverPermilleTarget <= band.coverPermilleMax
+
+suite "population fit: the generator's draw set":
+  test "the default rosters restrict the draw and drop the absurd classes":
+    check legalSizeNames(2, 8) == @["small", "standard", "large"]
+    check legalSizeNames(4, 4) == @["small", "standard", "large", "huge"]
+    for teams in [2, 4]:
+      check legalSizeNames(teams, fitMapSize(teams).unitsPerTeam).len <
+        DrawableSizeNames.len
+
+  test "a draw set is never empty, even for a broken configuration":
+    for teams in [2, 3, 4, 6]:
+      for units in 1 .. (MaxPlayers div teams):
+        check legalSizeNames(teams, units).len >= 1
+
+  test "bigger rosters move the draw set upward, monotonically":
+    var lowest: seq[int]
+    for units in [1, 4, 8, 12, 16]:
+      lowest.add ord(fitMapSize(2, units).legalClasses[0])
+    for i in 1 ..< lowest.len:
+      check lowest[i] >= lowest[i - 1]
+
+  test "the shipping default agrees with the seat plans":
+    check fitMapSize(2).unitsPerTeam == 8      ## nearestSeatPlan(2) = 16
+    check fitMapSize(4).unitsPerTeam == 4      ## nearestSeatPlan(4) = 16
