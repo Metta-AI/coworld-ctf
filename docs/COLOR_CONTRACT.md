@@ -101,9 +101,9 @@ whenever standings or preferences change:
 resolve(claimants, palette):
   # claimants = players who set a preference: {player, standing, requested_slug}.
   # Players with no preference are NOT claimants; their teams keep stock colors.
-  # Sort by standing, best first. Standings are a total order; if an upstream
-  # tie is possible, break it lexicographically by player id — the result must
-  # be identical on every run.
+  # Sort by standing, best first ("standing" is bigger-is-better, Elo-like).
+  # Standings are a total order; if an upstream tie is possible, break it
+  # lexicographically by player id — the result must be identical on every run.
   taken  = {}   # slug -> player who holds it
   grants = {}   # player -> provenance record (§4)
   for c in sort(claimants, by=standing, tiebreak=player_id):
@@ -111,6 +111,9 @@ resolve(claimants, palette):
       # more claimants than slugs: everyone past the 8th keeps stock colors
       grants[c.player] = { requested: c.requested_slug, granted: null,
                            takenBy: walk_of_all_slugs(taken) }
+      # walk_of_all_slugs STARTS AT c.requested_slug and cycles the whole
+      # array in order — the full-palette walk still tells THIS player's
+      # story ("why did I get nothing when I chose teal"), not index 0's.
       continue
     i    = palette.indexOf(c.requested_slug)
     walk = []                                # the story of the walk, in order
@@ -215,7 +218,14 @@ Rules:
   no claimant, red team's owner holds slug `blue`). When composing the payload the
   platform resolves this by walking the *unclaimed* team from its stock slug to the
   next slug free within this payload — explicit grants are promises made by the
-  picker and are never moved.
+  picker and are never moved. When SEVERAL unclaimed teams need to walk, process
+  teams in fixed wire order (`red, blue, green, yellow`), each resolution feeding
+  the taken-set of the next — a later unclaimed team's stock can collide with an
+  *earlier* unclaimed team's already-bumped slug, not just with a grant.
+- **Executable reference**: `scripts/resolve_reference.py` implements §3 + this
+  section exactly, and `tests/resolver_vectors.json` carries 13 golden vectors
+  (including both worked examples byte-for-byte). Port the vectors as tests in the
+  platform repo; an implementation that passes all 13 is contract-equivalent.
 - The payload carries slugs, not hexes: the viewer translates slug → `game` hex via
   its own copy of `team_palette.json`. The platform never sends raw colors.
 - A `teams` entry may carry `shimmer` with **no** `slug` (that policy shimmers, the
