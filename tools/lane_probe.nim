@@ -42,6 +42,9 @@ proc probe(gameMap: CtfMap, label: string) =
        &", engine minimum {EngineMinCorridorPx}px)"
   echo &"   routes    k(min)={m.routeCountMin} k(max)={m.routeCountMax} " &
        &"bottleneck={m.bottleneckPx}px midCross={m.midCrossCount}"
+  echo &"   sightline openRunP50={m.openRunP50Px}px openRunP95={m.openRunP95Px}px " &
+       &"longRunFrac=" & formatFloat(m.longRunFrac, ffDecimal, 3) &
+       &" score=" & formatFloat(m.staticScore, ffDecimal, 3)
   echo &"   pinches   sections={audit.runs.len} onRouteTested={tested} " &
        &"chokepoints={audit.chokepoints.len} inBand(30-45)={inBand} " &
        &"overlong={tooLong} worstExcess={audit.worstExcessPx}px"
@@ -101,6 +104,13 @@ proc probeCarved(seed: int) =
   echo &"   ROUTEWIDTH {audit.routeWidthPx}px  k(min)={m.routeCountMin} " &
        &"k(max)={m.routeCountMax} midCross={m.midCrossCount} " &
        &"cover={m.coverPermille}permille"
+  echo &"   sightline openRunP50={m.openRunP50Px}px openRunP95={m.openRunP95Px}px " &
+       &"longRunFrac=" & formatFloat(m.longRunFrac, ffDecimal, 3) &
+       &" score=" & formatFloat(m.staticScore, ffDecimal, 3)
+  let proof = guaranteeRouteCount(diag.maxWall, w, h,
+    gameMap.flagHome(Red), gameMap.flagHome(Blue), 3)
+  echo &"   MENGER    k>=3 proved={proof.ok} achieved={proof.achieved} " &
+       &"disjoint={proof.disjoint} dug={proof.wallCellsDug}cells"
   echo "   lanes:"
   for lane in plan.lanes:
     echo &"      {lane.role:<10} width={lane.widthPx}px length={lane.lengthPx}px " &

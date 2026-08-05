@@ -1356,7 +1356,7 @@ proc laneSeparatorShapes*(plan: LanePlan, thickPx = 0): seq[ArenaShape] =
       # fall off the end, and STAGGER each separator by a fraction of it so
       # the gaps do not line up into an open cross-field row.
       period = min(WallSpanPx + gap, runSpan)
-      span = max(WallSpanPx * 2 div 3, period - gap) * 3 div 4
+      span = max(WallSpanPx * 2 div 3, period - gap) * 5 div 8
       offset = i * period div max(1, plan.lanes.len + 1)
     var x = runStart
     while x < plan.seamX:
@@ -1451,6 +1451,22 @@ proc clearLanes*(shapes: seq[ArenaShape], plan: LanePlan): seq[ArenaShape] =
           cy = lane.laneY(shape.cx)
           half = lane.widthPx div 2
         if abs(shape.cy - cy) >= half + shape.radius: continue
+        # KEEP the piece inside the lane when the lane is wide enough to give
+        # it up: hug one edge, and the clear channel left on the far side is
+        # `widthPx - 2*radius`. A lane with NO cover in it is wrong by this
+        # repo's own rules -- `map_rules.MaxExposedRunPx` says a route may not
+        # run more than 132px without cover -- and it is also what left every
+        # carved map with an open horizontal sightline, because a swept
+        # separator can only break the rows it sits on and nothing broke the
+        # rows inside the lanes. The tight flank is exactly the lane this
+        # cannot help, which is correct: tight is its character.
+        if lane.widthPx - 2 * shape.radius >= plan.corridorMinPx:
+          moved.cy =
+            if shape.cy < cy: cy - (half - shape.radius)
+            else: cy + (half - shape.radius)
+          result.add moved
+          placed = false
+          break
         let push = half + shape.radius + 2
         moved.cy = if shape.cy < cy: cy - push else: cy + push
         placed = true
@@ -1462,18 +1478,6 @@ proc clearLanes*(shapes: seq[ArenaShape], plan: LanePlan): seq[ArenaShape] =
     else:
       discard
 
-proc carveLanes*(
-  rng: var Rand, region: MapRect, base: MapPoint, seamX: int,
-  rules: MapRules, cover: seq[ArenaShape] = @[]
-): tuple[shapes: seq[ArenaShape], plan: LanePlan] =
-  ## THE CALL a scene graph makes. Plans the route network, emits the
-  ## structure that makes it real, and reconciles whatever cover a style
-  ## generator produced with the lanes it has to leave open.
-  let plan = planLanes(rng, region, base, seamX, rules)
-  var shapes = laneSeparatorShapes(plan)
-  shapes.add laneGateShapes(plan)
-  shapes.add clearLanes(cover, plan)
-  (shapes, plan)
 
 # ---------------------------------------------------------------------------
 # k-FOLD DISJOINT BURROW — route count stops being MEASURED and is GUARANTEED
@@ -1709,3 +1713,132 @@ proc guaranteeRouteCount*(
     bc = BurrowPoint(x: clamp(b.x div RouteGridCellPx, 0, grid.w - 1),
                      y: clamp(b.y div RouteGridCellPx, 0, grid.h - 1))
   digDisjointRoutes(grid, ac, bc, k, corridorWidthPx)
+
+proc shapeRowSpan(shape: ArenaShape): tuple[y0, y1, x0, x1: int] =
+  ## Conservative row/column extent of one shape. Radial kinds are shrunk by a
+  ## quarter radius so a row is only claimed where the shape is actually solid
+  ## across, not merely inside its bounding box.
+  case shape.kind
+  of shapeRect:
+    (shape.rect.y, shape.rect.y + shape.rect.h - 1,
+     shape.rect.x, shape.rect.x + shape.rect.w - 1)
+  of shapeDisc:
+    # Half the radius: a disc is only reliably solid ACROSS a row near its
+    # equator, and claiming rows out to its poles reports a row blocked that
+    # the real rasteriser leaves open.
+    let r = shape.radius div 2
+    (shape.cy - r, shape.cy + r, shape.cx - r, shape.cx + r)
+  of shapeDiamond:
+    # A diamond is an L1 ball: at cy +- r it is a single pixel. Claiming its
+    # bounding box was what kept reporting row 288 as covered when it was not.
+    let r = shape.radius div 3
+    (shape.cy - r, shape.cy + r, shape.cx - r, shape.cx + r)
+  of shapeDiagonal:
+    (min(shape.y0, shape.y1), max(shape.y0, shape.y1),
+     min(shape.x0, shape.x1), max(shape.x0, shape.x1))
+  of shapePolygon:
+    var (y0, y1, x0, x1) = (high(int), low(int), high(int), low(int))
+    for p in shape.points:
+      y0 = min(y0, p.y); y1 = max(y1, p.y)
+      x0 = min(x0, p.x); x1 = max(x1, p.x)
+    (y0, y1, x0, x1)
+
+proc plugOpenRows*(
+  shapes: seq[ArenaShape], plan: LanePlan, height, loX, hiX: int
+): seq[ArenaShape] =
+  ## Close every horizontal row that no obstacle blocks, CONSTRUCTIVELY.
+  ##
+  ## `arena`'s validator rejects a map outright if any row between the capture
+  ## columns is unbroken ("open horizontal sightline at y="), and it is right
+  ## to: with map-wide 1050 px guns, one open row is a gallery shot across the
+  ## whole board. Chasing those rows by nudging separators is whack-a-mole --
+  ## every fix here moved the failure to a new y and never removed it.
+  ##
+  ## So this is an INTERVAL COVER instead of a repair: take the union of the
+  ## rows the obstacle set already blocks, and insert one picket into each row
+  ## still uncovered. No budget to exhaust and no reroll, which is the whole
+  ## difference between a construction and a repair.
+  ##
+  ## A picket has to go INSIDE a lane -- everywhere else is already blocked by
+  ## the separator that made it a lane -- so it is placed hugging the lane
+  ## edge and only where the lane can afford it, leaving `corridorMinPx` of
+  ## clear channel. That is the same rule `clearLanes` keeps cover in a lane
+  ## by, and it is why the tight flank never receives one.
+  result = shapes
+  if plan.lanes.len == 0 or height <= 0: return
+  var blocked = newSeq[bool](height)
+  for shape in shapes:
+    let sp = shape.shapeRowSpan()
+    if sp.x1 < loX or sp.x0 > hiX: continue
+    for y in max(0, sp.y0) .. min(height - 1, sp.y1):
+      blocked[y] = true
+  const PicketW = 22
+  let picketH = EngineMinCorridorPx
+  var y = 0
+  var stagger = 0
+  while y < height:
+    if blocked[y]:
+      inc y
+      continue
+    # Find a lane that owns this row and can spare the width.
+    var placed = false
+    let span = max(1, plan.seamX - plan.laneStartX)
+    # Try several x offsets, not one. A lane's centreline MOVES -- that is the
+    # point of a profile -- so a single staggered x can easily land where this
+    # row is outside the lane, and giving up there left rows open in the
+    # middle of a lane wide enough to have taken a picket.
+    block place:
+     for attempt in 0 ..< 8:
+      for lane in plan.lanes:
+        if lane.widthPx - PicketW < plan.corridorMinPx: continue
+        let
+          px = plan.laneStartX +
+            ((stagger + attempt) * 137) mod max(1, span - PicketW)
+          cy = lane.laneY(px)
+          half = lane.widthPx div 2
+        if y < cy - half or y > cy + half: continue
+        let py = if y < cy: cy - half else: cy + half - picketH
+        # Cover the row that PROMPTED the picket, not merely the rows the
+        # picket happens to span -- a picket pushed to the far lane edge can
+        # miss its own trigger row, and then `y` never advances.
+        let lo = min(py, y)
+        let hi = max(py + picketH - 1, y)
+        result.add ArenaShape(kind: shapeRect, rect: MapRect(
+          x: px, y: py, w: PicketW, h: picketH))
+        for yy in max(0, lo) .. min(height - 1, hi):
+          blocked[yy] = true
+        inc stagger
+        placed = true
+        break place
+    if not placed:
+      # No lane owns this row: it lies in a separator band or a margin, where
+      # a picket costs nothing because that ground is already structure. This
+      # is the case the lane-only version missed -- the failing row was always
+      # y=104, in the margin between the top separator's sweep and the flank
+      # lane, which no lane could ever claim.
+      let
+        span = max(1, plan.seamX - plan.laneStartX)
+        px = plan.laneStartX + (stagger * 137) mod max(1, span - PicketW)
+        candidate = ArenaShape(kind: shapeRect, rect: MapRect(
+          x: px, y: y, w: PicketW, h: picketH))
+      if not plan.intrudesOnLane(candidate):
+        result.add candidate
+        for yy in y .. min(height - 1, y + picketH - 1):
+          blocked[yy] = true
+        inc stagger
+    inc y
+
+proc carveLanes*(
+  rng: var Rand, region: MapRect, base: MapPoint, seamX: int,
+  rules: MapRules, cover: seq[ArenaShape] = @[]
+): tuple[shapes: seq[ArenaShape], plan: LanePlan] =
+  ## THE CALL a scene graph makes. Plans the route network, emits the
+  ## structure that makes it real, and reconciles whatever cover a style
+  ## generator produced with the lanes it has to leave open.
+  let plan = planLanes(rng, region, base, seamX, rules)
+  var shapes = laneSeparatorShapes(plan)
+  shapes.add laneGateShapes(plan)
+  shapes.add clearLanes(cover, plan)
+  shapes = plugOpenRows(shapes, plan, region.y + region.h,
+    region.x, plan.seamX)
+  (shapes, plan)
