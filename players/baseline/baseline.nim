@@ -269,6 +269,11 @@ const
     # How close to the scoring point (in x) the carry stops following its lane
     # and drives at the zone centre. Wider than any endzone radius the
     # generator draws, so the cut-in always starts OUTSIDE the ring.
+  UnknownZoneProbeTicks = 90
+    # Ticks the carrier dwells on each interior probe of a capture zone whose
+    # SHAPE TOKEN this build does not recognize (see captureAim). Long enough
+    # to actually arrive and stand there, short enough that a full five-probe
+    # sweep of the box costs a few seconds rather than the episode.
   tuneExtraDefenders {.intdefine.} = 0 # promote flank/mid seats to defense
 
   LaneTop = 40.0              # open corridor above the mirrored obstacles
@@ -428,6 +433,13 @@ var
   MultiReady = false
     # the anchors above are derived (deriveMultiFrame). Gated on GameTeams
     # so classic 2-team boards NEVER leave the tuned mirrored-arena math.
+  PedestalPos: array[2, Vec]
+  PedestalKnown: array[2, bool]
+    # Last SEEN position of each team's `<color> flag planted` pedestal banner,
+    # latched. Our own pedestal is never fogged, so ours locks on the first
+    # alive frame; the enemy's locks the first time anyone lays eyes on it.
+    # Latched rather than live because the banner DISAPPEARS while the heart is
+    # carried, and "the pedestal moved" is never what that means.
 
 proc multiFrameOn(): bool {.inline.} =
   ## Whether the geometry procs run on the multi-team endzone frame.
@@ -696,75 +708,120 @@ proc openLineLen(client: ProtocolClient, a, dir: Vec, maxLen, step: float): floa
     l += step
   maxLen
 
+proc endzoneIndex(team: Team): int =
+  ## The index of one team's stated endzone marker, or -1 if the board sent
+  ## none. Colors are matched against the wire token, which is what the marker
+  ## carries; the seat deal maps `Team` onto that token.
+  for i in 0 ..< EndzoneMarks.len:
+    if EndzoneMarks[i].color == TeamColorNames[int(team)]:
+      return i
+  -1
+
+proc zoneBoxCentre(i: int): Vec =
+  ## The centre of stated zone `i`'s bounding box.
+  let z = EndzoneMarks[i]
+  vec(float(z.x0 + z.x1) * 0.5, float(z.y0 + z.y1) * 0.5)
+
 proc homeSign(team: Team): float =
   ## -1 toward Red's home edge (left), +1 toward Blue's (right). On a
   ## multi-team board the frame is bot-relative instead: the sign of our own
   ## home->target axis (the target is picked for maximum horizontal offset,
   ## so the east-west advance math never degenerates).
+  ##
+  ## When both endzones are stated the sign is READ off them rather than
+  ## assumed from the color: Red-is-left is a property of one team layout, not
+  ## a law, and the markers say which way home is on any board.
   if multiFrameOn():
     return (if team == SelfStrategyTeam: MultiHomeSign else: -MultiHomeSign)
+  let
+    mine = endzoneIndex(team)
+    theirs = endzoneIndex(if team == Red: Blue else: Red)
+  if mine >= 0 and theirs >= 0:
+    let dx = zoneBoxCentre(mine).x - zoneBoxCentre(theirs).x
+    if dx != 0.0:
+      return (if dx < 0.0: -1.0 else: 1.0)
   if team == Red: -1.0 else: 1.0
-
-proc homeDeepX(team: Team): float =
-  ## A point well inside our capture zone. On a multi-team board: our stated
-  ## endzone's center x.
-  ##
-  ## GV38 (hex arena): READ THE MARKER. The scarred `MapW * 150 div 1235`
-  ## literal below described a 2-team board whose capture zone was a full-height
-  ## COLUMN pinned to a straight home border — so "150px in from the wall" was
-  ## always inside it. A hex board's zone is a DISC well off the hull, and that
-  ## literal lands outside it on most size classes: the carrier would drive to a
-  ## fixed column in the wilderness and the steal would never convert. The
-  ## engine states every zone's bounding box in an `endzone` init marker; the
-  ## center of ours is the answer on every board shape, and the literal survives
-  ## only as the fallback for a board that somehow sent no marker.
-  if multiFrameOn():
-    return MultiCapture.x
-  for z in EndzoneMarks:
-    if z.color == TeamColorNames[int(team)]:
-      return float(z.x0 + z.x1) * 0.5
-  let deep = float(MapW * 150 div 1235)
-  if team == Red: deep else: float(MapW - 1) - deep
-
-proc homeCapture(team: Team): Vec =
-  ## The point that actually SCORES: the centre of this team's stated capture
-  ## zone, both axes.
-  ##
-  ## GV38 (hex arena) is why this exists. Every endzone is now a DISC around
-  ## the base, and `homeDeepX` only ever answered "which COLUMN is home" —
-  ## which was enough while the zone was a full-height strip pinned to a
-  ## straight home border, because every y on that column scored. On a disc,
-  ## running to `(homeDeepX, laneY)` lands OUTSIDE the zone whenever the lane
-  ## is more than a radius off the base, and the carry silently never converts:
-  ## the bot reaches home, stands next to the scoring ring, and the steal is
-  ## wasted. Measured on the hex board before this fix: 7 steals, 0 captures.
-  ##
-  ## The engine states the zone's bounding box in an `endzone` init marker, so
-  ## the centre is known exactly. The fallback is the old column at mid-height,
-  ## which is the best guess available with no marker.
-  if multiFrameOn():
-    return MultiCapture
-  for z in EndzoneMarks:
-    if z.color == TeamColorNames[int(team)]:
-      return vec(float(z.x0 + z.x1) * 0.5, float(z.y0 + z.y1) * 0.5)
-  vec(homeDeepX(team), float(CenterY))
 
 proc enemy(team: Team): Team =
   ## The opposing team.
   if team == Red: Blue else: Red
 
 proc flagHome(team: Team): Vec =
-  ## The STATIC pedestal position of one team's flag: the center of the
-  ## team's protected spawn pocket (matches flagHome in src/ctf/sim.nim,
-  ## computed from the map size instead of the old hardcoded 186/1049).
-  ## On a multi-team board: our own or the raid target's pedestal anchor
-  ## (every call site passes bot.team or enemy(bot.team)).
+  ## The pedestal position of one team's flag.
+  ##
+  ## Three sources, best first. A LATCHED sighting of the never-fogged
+  ## `<color> flag planted` banner is exact (see PedestalPos); the stated
+  ## endzone's box centre is exact too on every board the engine ships, since
+  ## the zone is the disc drawn AROUND the base anchor and `flagHome` in
+  ## src/ctf/arena.nim IS that anchor; and only a board that sent no marker and
+  ## has never been looked at falls through to the mirrored-arena literal.
+  ##
+  ## The literal is kept solely as that last resort and is measurably wrong on
+  ## a hex board — 24px off on `arena`, 291px on the largest generated size
+  ## class, which is more than a whole endzone radius (tools/ez_probe_aacf.nim).
+  ## It must never be the reason a bot knows where anything is.
   if multiFrameOn():
     return (if team == SelfStrategyTeam: MultiHome else: MultiTarget)
+  if PedestalKnown[int(team)]:
+    return PedestalPos[int(team)]
+  let i = endzoneIndex(team)
+  if i >= 0:
+    return zoneBoxCentre(i)
   if team == Red:
     vec(float(CenterX - CenterX * 7 div 10), float(CenterY))
   else:
     vec(float(CenterX + (MapW - CenterX) * 7 div 10), float(CenterY))
+
+proc captureAim(team: Team, tick: int): Vec =
+  ## The point to stand on to SCORE a carry: a point the bot believes is
+  ## INSIDE this team's capture zone.
+  ##
+  ## This proc replaces a mechanism, not a constant. What it replaces was
+  ## `homeDeepX`: a "home COLUMN" x, `MapW * 150 div 1235`, that the carrier
+  ## combined with whatever lane y it was running. That is correct exactly
+  ## when the zone is a full-height strip pinned to a straight board edge, and
+  ## it has now failed twice — first on generated rectangular maps whose column
+  ## sat outside the zone on 3 of 8 seeds, then on GV38's hex board where every
+  ## zone is a DISC and a column at a lane y never enters one at all. A derived
+  ## coordinate that APPROXIMATES the endzone will fail again the next time the
+  ## geometry moves; the engine states the geometry, so read it.
+  ##
+  ## The marker carries a shape token, so the aim BRANCHES on it. For a `disc`
+  ## the box centre is provably inside: the zone is the circle inscribed in the
+  ## box, so its centre is the box centre and its radius is half the box
+  ## extent, which is positive. That guarantee is a property of the disc, not
+  ## of bounding boxes, and it is not assumed for anything else.
+  ##
+  ## An UNRECOGNIZED token is handled, never dropped. The vocabulary is closed
+  ## on the emit side so it can grow additively, and an old policy meeting a new
+  ## token must degrade rather than break: the corners are still exact map
+  ## pixels, so the aim opens at the box centre — the best single guess for any
+  ## zone inscribed in a box — and then, rather than hovering there forever if
+  ## the centre happens not to score, walks a slow deterministic cycle of
+  ## interior probes at half-extent. That is a sweep, not a proof; it is what
+  ## can honestly be done with a shape whose membership rule this build does
+  ## not know.
+  if multiFrameOn():
+    return MultiCapture
+  let i = endzoneIndex(team)
+  if i < 0:
+    ## No marker at all: the pedestal is the only anchor left, and on every
+    ## board the engine ships the zone is drawn around it.
+    return flagHome(team)
+  let centre = zoneBoxCentre(i)
+  if EndzoneMarks[i].shape == LabelEndzoneShapeDisc:
+    return centre
+  let
+    z = EndzoneMarks[i]
+    qx = float(z.x1 - z.x0) * 0.25
+    qy = float(z.y1 - z.y0) * 0.25
+    phase = (tick div UnknownZoneProbeTicks) mod 5
+  case phase
+  of 1: vec(centre.x - qx, centre.y)
+  of 2: vec(centre.x, centre.y - qy)
+  of 3: vec(centre.x + qx, centre.y)
+  of 4: vec(centre.x, centre.y + qy)
+  else: centre
 
 proc chokeSpot(team: Team): Vec =
   ## Defender hold point between the flag and our home edge, mirrored
@@ -931,15 +988,27 @@ proc adoptGameParams(client: ProtocolClient) =
 proc adoptEndzones(client: ProtocolClient) =
   ## Reads every team's stated home capture region off the per-team init
   ## markers `endzone <color> <shape> <x0>,<y0> <x1>,<y1>` (see
-  ## LabelPrefixEndzone). The shape token is validated against the closed
-  ## LabelEndzoneShapes vocabulary — which also skips the spectator-only
-  ## `endzone <color> power <n>` glow labels, were they ever to appear here.
+  ## LabelPrefixEndzone).
+  ##
+  ## The shape token is KEPT, not filtered. Rejecting a marker whose token is
+  ## not in this build's copy of `LabelEndzoneShapes` was the wrong shape of
+  ## strictness: the vocabulary is closed on the EMIT side (a doAssert in
+  ## `labelEndzone`) precisely so it can grow additively, and a policy that
+  ## drops the whole marker on an unrecognized token throws away the corners —
+  ## which are exact map pixels whatever fills them — and silently falls back
+  ## to a guess. That is how a "home column" literal survives an engine change:
+  ## not by being wrong loudly, but by being reached.
+  ##
+  ## The arity check alone already excludes the spectator-only glow overlay
+  ## `endzone <color> power <n>`: it splits into THREE parts, not four, and
+  ## its `<n>` is not a `x,y` pair. Both corners must parse as integers, so a
+  ## marker only lands here if it really carries a bounding box.
   EndzoneMarks.setLen(0)
   for o in client.spriteObjects():
     if not o.label.startsWith(LabelPrefixEndzone):
       continue
     let parts = o.label[LabelPrefixEndzone.len .. ^1].split(' ')
-    if parts.len != 4 or parts[1] notin LabelEndzoneShapes:
+    if parts.len != 4:
       continue
     let
       lo = parts[2].split(',')
@@ -1414,10 +1483,24 @@ proc safestLaneY(bot: Bot, me: Vec): float =
   ## The carrier's lane home: fewest remembered enemies AND the best cover
   ## continuity — under map-wide guns a lane whose run has no cover nearby is
   ## a shooting gallery even when it looks empty.
+  ##
+  ## The candidate set and the scoring both changed at GV38. `LaneTop` (y=40)
+  ## and `LaneBottom` (y=height-40) are the open top and bottom corridors of a
+  ## RECTANGULAR board; on a hexagon they are inside the hull's slanted wall
+  ## across most of the width, and — measured on every map including both
+  ## hand-authored ones — they are wall at the endzone's own x and score
+  ## nowhere (tools/ez_probe_aacf.nim). A carrier that picked one was routing
+  ## into a wall on the last leg of the run home. So:
+  ##   - the scoring point's own lane is a candidate, and
+  ##   - a lane is charged for every UNWALKABLE sample on the route, which
+  ##     retires a wall lane on its own instead of by another map literal.
+  ## Neither changes anything on a board where those corridors really are
+  ## open, which is what keeps the rectangular arena's tuned behaviour intact.
+  let scoreLane = captureAim(bot.team, bot.tick).y
   var
     bestLane = LaneMid
     bestScore = 1e18
-  for lane in [LaneTop, LaneMid, LaneBottom]:
+  for lane in [LaneTop, LaneMid, LaneBottom, scoreLane]:
     var score = abs(me.y - lane) / float(tuneCarrierLaneBiasDiv)
                                            # mild bias toward nearest lane
     for t in bot.enemies:
@@ -1433,20 +1516,24 @@ proc safestLaneY(bot: Bot, me: Vec): float =
         score += 1.0
     if bot.navBuilt:
       # Cover continuity: sample the run home along the lane and charge each
-      # sample with no cover cell in its 3x3 nav neighborhood.
+      # sample with no cover cell in its 3x3 nav neighborhood. The run ends at
+      # the point that SCORES, not at a home column.
       let
-        goalX = homeDeepX(bot.team)
+        goalX = captureAim(bot.team, bot.tick).x
         stepX = (if goalX > me.x: 32.0 else: -32.0)
       var
         x = me.x
         samples = 0
         bare = 0
+        blocked = 0
       while (stepX > 0.0 and x < goalX) or (stepX < 0.0 and x > goalX):
         inc samples
         let
           c = cellOf(vec(x, lane))
           cx = c mod GridW
           cy = c div GridW
+        if not bot.cellWalkable[c]:
+          inc blocked
         block covered:
           for dy in -1 .. 1:
             for dx in -1 .. 1:
@@ -1460,6 +1547,11 @@ proc safestLaneY(bot: Bot, me: Vec): float =
         x += stepX
       if samples > 0:
         score += float(bare) / float(samples) * 2.0
+        # A lane that is WALL is not a lane. Weighted an order of magnitude
+        # above the cover term so no amount of nearby cover can talk the
+        # carrier into running a corridor that does not exist; a route
+        # clipping an obstacle for a few samples still competes normally.
+        score += float(blocked) / float(samples) * 20.0
     if score < bestScore:
       bestScore = score
       bestLane = lane
@@ -1613,6 +1705,18 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 {.measure.} =
     enemyFlags = client.spriteObjectsWithLabel(labelFlag(enemyColor))
     ownPlanted = client.spriteObjectsWithLabel(labelFlagPlanted(myColor))
     ownFlags = client.spriteObjectsWithLabel(labelFlag(myColor))
+  # Latch both pedestals from the never-moving `<color> flag planted` banner.
+  # This is the same "adopt the exact position over the box approximation"
+  # the multi-team frame below has always done, hoisted so the TWO-team frame
+  # gets it too — it never did, and its literal is up to 291px off the real
+  # anchor on a hex board (tools/ez_probe_aacf.nim). A banner is absent while
+  # the heart is carried, so the fix latches instead of tracking.
+  if ownPlanted.len > 0:
+    PedestalPos[int(bot.team)] = client.mapPos(ownPlanted[0])
+    PedestalKnown[int(bot.team)] = true
+  if enemyPlanted.len > 0:
+    PedestalPos[int(enemy(bot.team))] = client.mapPos(enemyPlanted[0])
+    PedestalKnown[int(enemy(bot.team))] = true
   if multiFrameOn():
     # Pedestals are never fogged: adopt their exact positions over the
     # endzone-box approximations.
@@ -2155,8 +2259,8 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 {.measure.} =
       # keeps the carry away from remembered enemies — then CUT IN to the
       # scoring point itself for the last stretch. Aiming at the lane all the
       # way home was correct only while the zone was a full-height column;
-      # against a disc it parks the carrier beside the ring (see homeCapture).
-      let cap = homeCapture(bot.team)
+      # against a disc it parks the carrier beside the ring (see captureAim).
+      let cap = captureAim(bot.team, bot.tick)
       target =
         if abs(me.x - cap.x) < float(tuneCarrierCutInX): cap
         else: vec(cap.x, laneY)
