@@ -7,19 +7,45 @@
       "palette": {
         "version": 1,
         "colors": [
-          { "slug": "red", "wire": "red" },
-          { "slug": "blue", "wire": "blue" },
-          { "slug": "green", "wire": "green" },
-          { "slug": "yellow", "wire": "yellow" },
-          { "slug": "teal", "wire": null },
-          { "slug": "purple", "wire": null },
-          { "slug": "magenta", "wire": null },
-          { "slug": "orange", "wire": null }
+          {
+            "slug": "red",
+            "wire": "red"
+          },
+          {
+            "slug": "blue",
+            "wire": "blue"
+          },
+          {
+            "slug": "green",
+            "wire": "green"
+          },
+          {
+            "slug": "yellow",
+            "wire": "yellow"
+          },
+          {
+            "slug": "teal",
+            "wire": null
+          },
+          {
+            "slug": "purple",
+            "wire": null
+          },
+          {
+            "slug": "magenta",
+            "wire": null
+          },
+          {
+            "slug": "orange",
+            "wire": null
+          }
         ]
       },
       "claimants": []
     },
-    "expected": { "grants": {} }
+    "expected": {
+      "grants": {}
+    }
   },
   {
     "name": "resolve-single-uncontested-claim",
@@ -29,23 +55,55 @@
       "palette": {
         "version": 1,
         "colors": [
-          { "slug": "red", "wire": "red" },
-          { "slug": "blue", "wire": "blue" },
-          { "slug": "green", "wire": "green" },
-          { "slug": "yellow", "wire": "yellow" },
-          { "slug": "teal", "wire": null },
-          { "slug": "purple", "wire": null },
-          { "slug": "magenta", "wire": null },
-          { "slug": "orange", "wire": null }
+          {
+            "slug": "red",
+            "wire": "red"
+          },
+          {
+            "slug": "blue",
+            "wire": "blue"
+          },
+          {
+            "slug": "green",
+            "wire": "green"
+          },
+          {
+            "slug": "yellow",
+            "wire": "yellow"
+          },
+          {
+            "slug": "teal",
+            "wire": null
+          },
+          {
+            "slug": "purple",
+            "wire": null
+          },
+          {
+            "slug": "magenta",
+            "wire": null
+          },
+          {
+            "slug": "orange",
+            "wire": null
+          }
         ]
       },
       "claimants": [
-        { "player": "alice", "standing": 1500, "requested_slug": "teal" }
+        {
+          "player": "alice",
+          "standing": 1500,
+          "requested_slug": "teal"
+        }
       ]
     },
     "expected": {
       "grants": {
-        "alice": { "requested": "teal", "granted": "teal", "takenBy": [] }
+        "alice": {
+          "requested": "teal",
+          "granted": "teal",
+          "takenBy": []
+        }
       }
     }
   },
@@ -57,28 +115,69 @@
       "palette": {
         "version": 1,
         "colors": [
-          { "slug": "red", "wire": "red" },
-          { "slug": "blue", "wire": "blue" },
-          { "slug": "green", "wire": "green" },
-          { "slug": "yellow", "wire": "yellow" },
-          { "slug": "teal", "wire": null },
-          { "slug": "purple", "wire": null },
-          { "slug": "magenta", "wire": null },
-          { "slug": "orange", "wire": null }
+          {
+            "slug": "red",
+            "wire": "red"
+          },
+          {
+            "slug": "blue",
+            "wire": "blue"
+          },
+          {
+            "slug": "green",
+            "wire": "green"
+          },
+          {
+            "slug": "yellow",
+            "wire": "yellow"
+          },
+          {
+            "slug": "teal",
+            "wire": null
+          },
+          {
+            "slug": "purple",
+            "wire": null
+          },
+          {
+            "slug": "magenta",
+            "wire": null
+          },
+          {
+            "slug": "orange",
+            "wire": null
+          }
         ]
       },
       "claimants": [
-        { "player": "alice", "standing": 1500, "requested_slug": "purple" },
-        { "player": "bob", "standing": 1400, "requested_slug": "purple" }
+        {
+          "player": "alice",
+          "standing": 1500,
+          "requested_slug": "purple"
+        },
+        {
+          "player": "bob",
+          "standing": 1400,
+          "requested_slug": "purple"
+        }
       ]
     },
     "expected": {
       "grants": {
-        "alice": { "requested": "purple", "granted": "purple", "takenBy": [] },
+        "alice": {
+          "requested": "purple",
+          "granted": "purple",
+          "takenBy": []
+        },
         "bob": {
           "requested": "purple",
           "granted": "magenta",
-          "takenBy": [ { "slug": "purple", "by": "alice" } ]
+          "takenBy": [
+            {
+              "slug": "purple",
+              "by": "alice"
+            }
+          ]
         }
       }
     }
@@ -91,28 +190,69 @@
       "palette": {
         "version": 1,
         "colors": [
-          { "slug": "red", "wire": "red" },
-          { "slug": "blue", "wire": "blue" },
-          { "slug": "green", "wire": "green" },
-          { "slug": "yellow", "wire": "yellow" },
-          { "slug": "teal", "wire": null },
-          { "slug": "purple", "wire": null },
-          { "slug": "magenta", "wire": null },
-          { "slug": "orange", "wire": null }
+          {
+            "slug": "red",
+            "wire": "red"
+          },
+          {
+            "slug": "blue",
+            "wire": "blue"
+          },
+          {
+            "slug": "green",
+            "wire": "green"
+          },
+          {
+            "slug": "yellow",
+            "wire": "yellow"
+          },
+          {
+            "slug": "teal",
+            "wire": null
+          },
+          {
+            "slug": "purple",
+            "wire": null
+          },
+          {
+            "slug": "magenta",
+            "wire": null
+          },
+          {
+            "slug": "orange",
+            "wire": null
+          }
         ]
       },
       "claimants": [
-        { "player": "alice", "standing": 1500, "requested_slug": "orange" },
-        { "player": "bob", "standing": 1400, "requested_slug": "orange" }
+        {
+          "player": "alice",
+          "standing": 1500,
+          "requested_slug": "orange"
+        },
+        {
+          "player": "bob",
+          "standing": 1400,
+          "requested_slug": "orange"
+        }
       ]
     },
     "expected": {
       "grants": {
-        "alice": { "requested": "orange", "granted": "orange", "takenBy": [] },
+        "alice": {
+          "requested": "orange",
+          "granted": "orange",
+          "takenBy": []
+        },
         "bob": {
           "requested": "orange",
           "granted": "red",
-          "takenBy": [ { "slug": "orange", "by": "alice" } ]
+          "takenBy": [
+            {
+              "slug": "orange",
+              "by": "alice"
+            }
+          ]
         }
       }
     }
@@ -125,38 +265,110 @@
       "palette": {
         "version": 1,
         "colors": [
-          { "slug": "red", "wire": "red" },
-          { "slug": "blue", "wire": "blue" },
-          { "slug": "green", "wire": "green" },
-          { "slug": "yellow", "wire": "yellow" },
-          { "slug": "teal", "wire": null },
-          { "slug": "purple", "wire": null },
-          { "slug": "magenta", "wire": null },
-          { "slug": "orange", "wire": null }
+          {
+            "slug": "red",
+            "wire": "red"
+          },
+          {
+            "slug": "blue",
+            "wire": "blue"
+          },
+          {
+            "slug": "green",
+            "wire": "green"
+          },
+          {
+            "slug": "yellow",
+            "wire": "yellow"
+          },
+          {
+            "slug": "teal",
+            "wire": null
+          },
+          {
+            "slug": "purple",
+            "wire": null
+          },
+          {
+            "slug": "magenta",
+            "wire": null
+          },
+          {
+            "slug": "orange",
+            "wire": null
+          }
         ]
       },
       "claimants": [
-        { "player": "daveey", "standing": 1600, "requested_slug": "orange" },
-        { "player": "alice", "standing": 1500, "requested_slug": "red" },
-        { "player": "bob", "standing": 1400, "requested_slug": "blue" },
-        { "player": "carol", "standing": 1300, "requested_slug": "green" },
-        { "player": "erin", "standing": 1000, "requested_slug": "orange" }
+        {
+          "player": "daveey",
+          "standing": 1600,
+          "requested_slug": "orange"
+        },
+        {
+          "player": "alice",
+          "standing": 1500,
+          "requested_slug": "red"
+        },
+        {
+          "player": "bob",
+          "standing": 1400,
+          "requested_slug": "blue"
+        },
+        {
+          "player": "carol",
+          "standing": 1300,
+          "requested_slug": "green"
+        },
+        {
+          "player": "erin",
+          "standing": 1000,
+          "requested_slug": "orange"
+        }
       ]
     },
     "expected": {
       "grants": {
-        "daveey": { "requested": "orange", "granted": "orange", "takenBy": [] },
-        "alice": { "requested": "red", "granted": "red", "takenBy": [] },
-        "bob": { "requested": "blue", "granted": "blue", "takenBy": [] },
-        "carol": { "requested": "green", "granted": "green", "takenBy": [] },
+        "daveey": {
+          "requested": "orange",
+          "granted": "orange",
+          "takenBy": []
+        },
+        "alice": {
+          "requested": "red",
+          "granted": "red",
+          "takenBy": []
+        },
+        "bob": {
+          "requested": "blue",
+          "granted": "blue",
+          "takenBy": []
+        },
+        "carol": {
+          "requested": "green",
+          "granted": "green",
+          "takenBy": []
+        },
         "erin": {
           "requested": "orange",
           "granted": "yellow",
           "takenBy": [
-            { "slug": "orange", "by": "daveey" },
-            { "slug": "red", "by": "alice" },
-            { "slug": "blue", "by": "bob" },
-            { "slug": "green", "by": "carol" }
+            {
+              "slug": "orange",
+              "by": "daveey"
+            },
+            {
+              "slug": "red",
+              "by": "alice"
+            },
+            {
+              "slug": "blue",
+              "by": "bob"
+            },
+            {
+              "slug": "green",
+              "by": "carol"
+            }
           ]
         }
       }
@@ -170,28 +382,69 @@
       "palette": {
         "version": 1,
         "colors": [
-          { "slug": "red", "wire": "red" },
-          { "slug": "blue", "wire": "blue" },
-          { "slug": "green", "wire": "green" },
-          { "slug": "yellow", "wire": "yellow" },
-          { "slug": "teal", "wire": null },
-          { "slug": "purple", "wire": null },
-          { "slug": "magenta", "wire": null },
-          { "slug": "orange", "wire": null }
+          {
+            "slug": "red",
+            "wire": "red"
+          },
+          {
+            "slug": "blue",
+            "wire": "blue"
+          },
+          {
+            "slug": "green",
+            "wire": "green"
+          },
+          {
+            "slug": "yellow",
+            "wire": "yellow"
+          },
+          {
+            "slug": "teal",
+            "wire": null
+          },
+          {
+            "slug": "purple",
+            "wire": null
+          },
+          {
+            "slug": "magenta",
+            "wire": null
+          },
+          {
+            "slug": "orange",
+            "wire": null
+          }
         ]
       },
       "claimants": [
-        { "player": "bob", "standing": 1500, "requested_slug": "red" },
-        { "player": "amy", "standing": 1500, "requested_slug": "red" }
+        {
+          "player": "bob",
+          "standing": 1500,
+          "requested_slug": "red"
+        },
+        {
+          "player": "amy",
+          "standing": 1500,
+          "requested_slug": "red"
+        }
       ]
     },
     "expected": {
       "grants": {
-        "amy": { "requested": "red", "granted": "red", "takenBy": [] },
+        "amy": {
+          "requested": "red",
+          "granted": "red",
+          "takenBy": []
+        },
         "bob": {
           "requested": "red",
           "granted": "blue",
-          "takenBy": [ { "slug": "red", "by": "amy" } ]
+          "takenBy": [
+            {
+              "slug": "red",
+              "by": "amy"
+            }
+          ]
         }
       }
     }
@@ -204,111 +457,285 @@
       "palette": {
         "version": 1,
         "colors": [
-          { "slug": "red", "wire": "red" },
-          { "slug": "blue", "wire": "blue" },
-          { "slug": "green", "wire": "green" },
-          { "slug": "yellow", "wire": "yellow" },
-          { "slug": "teal", "wire": null },
-          { "slug": "purple", "wire": null },
-          { "slug": "magenta", "wire": null },
-          { "slug": "orange", "wire": null }
+          {
+            "slug": "red",
+            "wire": "red"
+          },
+          {
+            "slug": "blue",
+            "wire": "blue"
+          },
+          {
+            "slug": "green",
+            "wire": "green"
+          },
+          {
+            "slug": "yellow",
+            "wire": "yellow"
+          },
+          {
+            "slug": "teal",
+            "wire": null
+          },
+          {
+            "slug": "purple",
+            "wire": null
+          },
+          {
+            "slug": "magenta",
+            "wire": null
+          },
+          {
+            "slug": "orange",
+            "wire": null
+          }
         ]
       },
       "claimants": [
-        { "player": "alpha", "standing": 9000, "requested_slug": "red" },
-        { "player": "bravo", "standing": 8000, "requested_slug": "red" },
-        { "player": "charlie", "standing": 7000, "requested_slug": "red" },
-        { "player": "delta", "standing": 6000, "requested_slug": "red" },
-        { "player": "echo", "standing": 5000, "requested_slug": "red" },
-        { "player": "foxtrot", "standing": 4000, "requested_slug": "red" },
-        { "player": "golf", "standing": 3000, "requested_slug": "red" },
-        { "player": "hotel", "standing": 2000, "requested_slug": "red" },
-        { "player": "india", "standing": 1000, "requested_slug": "teal" }
+        {
+          "player": "alpha",
+          "standing": 9000,
+          "requested_slug": "red"
+        },
+        {
+          "player": "bravo",
+          "standing": 8000,
+          "requested_slug": "red"
+        },
+        {
+          "player": "charlie",
+          "standing": 7000,
+          "requested_slug": "red"
+        },
+        {
+          "player": "delta",
+          "standing": 6000,
+          "requested_slug": "red"
+        },
+        {
+          "player": "echo",
+          "standing": 5000,
+          "requested_slug": "red"
+        },
+        {
+          "player": "foxtrot",
+          "standing": 4000,
+          "requested_slug": "red"
+        },
+        {
+          "player": "golf",
+          "standing": 3000,
+          "requested_slug": "red"
+        },
+        {
+          "player": "hotel",
+          "standing": 2000,
+          "requested_slug": "red"
+        },
+        {
+          "player": "india",
+          "standing": 1000,
+          "requested_slug": "teal"
+        }
       ]
     },
     "expected": {
       "grants": {
-        "alpha": { "requested": "red", "granted": "red", "takenBy": [] },
+        "alpha": {
+          "requested": "red",
+          "granted": "red",
+          "takenBy": []
+        },
         "bravo": {
           "requested": "red",
           "granted": "blue",
-          "takenBy": [ { "slug": "red", "by": "alpha" } ]
+          "takenBy": [
+            {
+              "slug": "red",
+              "by": "alpha"
+            }
+          ]
         },
         "charlie": {
           "requested": "red",
           "granted": "green",
           "takenBy": [
-            { "slug": "red", "by": "alpha" },
-            { "slug": "blue", "by": "bravo" }
+            {
+              "slug": "red",
+              "by": "alpha"
+            },
+            {
+              "slug": "blue",
+              "by": "bravo"
+            }
           ]
         },
         "delta": {
           "requested": "red",
           "granted": "yellow",
           "takenBy": [
-            { "slug": "red", "by": "alpha" },
-            { "slug": "blue", "by": "bravo" },
-            { "slug": "green", "by": "charlie" }
+            {
+              "slug": "red",
+              "by": "alpha"
+            },
+            {
+              "slug": "blue",
+              "by": "bravo"
+            },
+            {
+              "slug": "green",
+              "by": "charlie"
+            }
           ]
         },
         "echo": {
           "requested": "red",
           "granted": "teal",
           "takenBy": [
-            { "slug": "red", "by": "alpha" },
-            { "slug": "blue", "by": "bravo" },
-            { "slug": "green", "by": "charlie" },
-            { "slug": "yellow", "by": "delta" }
+            {
+              "slug": "red",
+              "by": "alpha"
+            },
+            {
+              "slug": "blue",
+              "by": "bravo"
+            },
+            {
+              "slug": "green",
+              "by": "charlie"
+            },
+            {
+              "slug": "yellow",
+              "by": "delta"
+            }
           ]
         },
         "foxtrot": {
           "requested": "red",
           "granted": "purple",
           "takenBy": [
-            { "slug": "red", "by": "alpha" },
-            { "slug": "blue", "by": "bravo" },
-            { "slug": "green", "by": "charlie" },
-            { "slug": "yellow", "by": "delta" },
-            { "slug": "teal", "by": "echo" }
+            {
+              "slug": "red",
+              "by": "alpha"
+            },
+            {
+              "slug": "blue",
+              "by": "bravo"
+            },
+            {
+              "slug": "green",
+              "by": "charlie"
+            },
+            {
+              "slug": "yellow",
+              "by": "delta"
+            },
+            {
+              "slug": "teal",
+              "by": "echo"
+            }
           ]
         },
         "golf": {
           "requested": "red",
           "granted": "magenta",
           "takenBy": [
-            { "slug": "red", "by": "alpha" },
-            { "slug": "blue", "by": "bravo" },
-            { "slug": "green", "by": "charlie" },
-            { "slug": "yellow", "by": "delta" },
-            { "slug": "teal", "by": "echo" },
-            { "slug": "purple", "by": "foxtrot" }
+            {
+              "slug": "red",
+              "by": "alpha"
+            },
+            {
+              "slug": "blue",
+              "by": "bravo"
+            },
+            {
+              "slug": "green",
+              "by": "charlie"
+            },
+            {
+              "slug": "yellow",
+              "by": "delta"
+            },
+            {
+              "slug": "teal",
+              "by": "echo"
+            },
+            {
+              "slug": "purple",
+              "by": "foxtrot"
+            }
           ]
         },
         "hotel": {
           "requested": "red",
           "granted": "orange",
           "takenBy": [
-            { "slug": "red", "by": "alpha" },
-            { "slug": "blue", "by": "bravo" },
-            { "slug": "green", "by": "charlie" },
-            { "slug": "yellow", "by": "delta" },
-            { "slug": "teal", "by": "echo" },
-            { "slug": "purple", "by": "foxtrot" },
-            { "slug": "magenta", "by": "golf" }
+            {
+              "slug": "red",
+              "by": "alpha"
+            },
+            {
+              "slug": "blue",
+              "by": "bravo"
+            },
+            {
+              "slug": "green",
+              "by": "charlie"
+            },
+            {
+              "slug": "yellow",
+              "by": "delta"
+            },
+            {
+              "slug": "teal",
+              "by": "echo"
+            },
+            {
+              "slug": "purple",
+              "by": "foxtrot"
+            },
+            {
+              "slug": "magenta",
+              "by": "golf"
+            }
           ]
         },
         "india": {
           "requested": "teal",
           "granted": null,
           "takenBy": [
-            { "slug": "teal", "by": "echo" },
-            { "slug": "purple", "by": "foxtrot" },
-            { "slug": "magenta", "by": "golf" },
-            { "slug": "orange", "by": "hotel" },
-            { "slug": "red", "by": "alpha" },
-            { "slug": "blue", "by": "bravo" },
-            { "slug": "green", "by": "charlie" },
-            { "slug": "yellow", "by": "delta" }
+            {
+              "slug": "teal",
+              "by": "echo"
+            },
+            {
+              "slug": "purple",
+              "by": "foxtrot"
+            },
+            {
+              "slug": "magenta",
+              "by": "golf"
+            },
+            {
+              "slug": "orange",
+              "by": "hotel"
+            },
+            {
+              "slug": "red",
+              "by": "alpha"
+            },
+            {
+              "slug": "blue",
+              "by": "bravo"
+            },
+            {
+              "slug": "green",
+              "by": "charlie"
+            },
+            {
+              "slug": "yellow",
+              "by": "delta"
+            }
           ]
         }
       }
@@ -322,36 +749,87 @@
       "palette": {
         "version": 1,
         "colors": [
-          { "slug": "red", "wire": "red" },
-          { "slug": "blue", "wire": "blue" },
-          { "slug": "green", "wire": "green" },
-          { "slug": "yellow", "wire": "yellow" },
-          { "slug": "teal", "wire": null },
-          { "slug": "purple", "wire": null },
-          { "slug": "magenta", "wire": null },
-          { "slug": "orange", "wire": null }
+          {
+            "slug": "red",
+            "wire": "red"
+          },
+          {
+            "slug": "blue",
+            "wire": "blue"
+          },
+          {
+            "slug": "green",
+            "wire": "green"
+          },
+          {
+            "slug": "yellow",
+            "wire": "yellow"
+          },
+          {
+            "slug": "teal",
+            "wire": null
+          },
+          {
+            "slug": "purple",
+            "wire": null
+          },
+          {
+            "slug": "magenta",
+            "wire": null
+          },
+          {
+            "slug": "orange",
+            "wire": null
+          }
         ]
       },
       "claimants": [
-        { "player": "carol", "standing": 1300, "requested_slug": "red" },
-        { "player": "bob", "standing": 1400, "requested_slug": "red" },
-        { "player": "alice", "standing": 1500, "requested_slug": "red" }
+        {
+          "player": "carol",
+          "standing": 1300,
+          "requested_slug": "red"
+        },
+        {
+          "player": "bob",
+          "standing": 1400,
+          "requested_slug": "red"
+        },
+        {
+          "player": "alice",
+          "standing": 1500,
+          "requested_slug": "red"
+        }
       ]
     },
     "expected": {
       "grants": {
-        "alice": { "requested": "red", "granted": "red", "takenBy": [] },
+        "alice": {
+          "requested": "red",
+          "granted": "red",
+          "takenBy": []
+        },
         "bob": {
           "requested": "red",
           "granted": "blue",
-          "takenBy": [ { "slug": "red", "by": "alice" } ]
+          "takenBy": [
+            {
+              "slug": "red",
+              "by": "alice"
+            }
+          ]
         },
         "carol": {
           "requested": "red",
           "granted": "green",
           "takenBy": [
-            { "slug": "red", "by": "alice" },
-            { "slug": "blue", "by": "bob" }
+            {
+              "slug": "red",
+              "by": "alice"
+            },
+            {
+              "slug": "blue",
+              "by": "bob"
+            }
           ]
         }
       }
@@ -365,21 +843,51 @@
       "palette": {
         "version": 1,
         "colors": [
-          { "slug": "red", "wire": "red" },
-          { "slug": "blue", "wire": "blue" },
-          { "slug": "green", "wire": "green" },
-          { "slug": "yellow", "wire": "yellow" },
-          { "slug": "teal", "wire": null },
-          { "slug": "purple", "wire": null },
-          { "slug": "magenta", "wire": null },
-          { "slug": "orange", "wire": null }
+          {
+            "slug": "red",
+            "wire": "red"
+          },
+          {
+            "slug": "blue",
+            "wire": "blue"
+          },
+          {
+            "slug": "green",
+            "wire": "green"
+          },
+          {
+            "slug": "yellow",
+            "wire": "yellow"
+          },
+          {
+            "slug": "teal",
+            "wire": null
+          },
+          {
+            "slug": "purple",
+            "wire": null
+          },
+          {
+            "slug": "magenta",
+            "wire": null
+          },
+          {
+            "slug": "orange",
+            "wire": null
+          }
         ]
       },
       "grants": {
-        "alice": { "requested": "teal", "granted": "teal", "takenBy": [] }
+        "alice": {
+          "requested": "teal",
+          "granted": "teal",
+          "takenBy": []
+        }
       },
       "episode_teams": {
-        "red": { "claimant": "alice" },
+        "red": {
+          "claimant": "alice"
+        },
         "blue": {}
       }
     },
@@ -388,41 +896,93 @@
         "v": 1,
         "palette": 1,
         "teams": {
-          "red": { "slug": "teal" },
-          "blue": { "slug": "blue" }
+          "red": {
+            "slug": "teal"
+          },
+          "blue": {
+            "slug": "blue"
+          }
         }
       }
     }
   },
   {
-    "name": "compose-4-team-two-shimmer",
-    "description": "Reproduces docs/COLOR_CONTRACT.md SS5's worked example byte-for-byte (including the exact ?colors= base64): 4 teams, all claimed, red and green each carry a shimmer marker, blue and yellow carry none.",
+    "name": "compose-4-team-all-claimed-no-shimmer",
+    "description": "Corrected shimmer rule baseline (2026-08): a fully-claimed 4-team episode composed with NO root shimmer -- the common case, since the single #1-ranked-player shimmer identity usually isn't even in a given match. Formerly named compose-4-team-two-shimmer and carried TWO per-team shimmer markers (red+green) under the retracted one-shimmering-policy-per-team rule; the per-team shimmer key no longer exists in the schema at all.",
     "input": {
       "op": "compose_payload",
       "palette": {
         "version": 1,
         "colors": [
-          { "slug": "red", "wire": "red" },
-          { "slug": "blue", "wire": "blue" },
-          { "slug": "green", "wire": "green" },
-          { "slug": "yellow", "wire": "yellow" },
-          { "slug": "teal", "wire": null },
-          { "slug": "purple", "wire": null },
-          { "slug": "magenta", "wire": null },
-          { "slug": "orange", "wire": null }
+          {
+            "slug": "red",
+            "wire": "red"
+          },
+          {
+            "slug": "blue",
+            "wire": "blue"
+          },
+          {
+            "slug": "green",
+            "wire": "green"
+          },
+          {
+            "slug": "yellow",
+            "wire": "yellow"
+          },
+          {
+            "slug": "teal",
+            "wire": null
+          },
+          {
+            "slug": "purple",
+            "wire": null
+          },
+          {
+            "slug": "magenta",
+            "wire": null
+          },
+          {
+            "slug": "orange",
+            "wire": null
+          }
         ]
       },
       "grants": {
-        "daveey": { "requested": "orange", "granted": "orange", "takenBy": [] },
-        "blue_owner": { "requested": "teal", "granted": "teal", "takenBy": [] },
-        "focusfire_owner": { "requested": "green", "granted": "green", "takenBy": [] },
-        "yellow_owner": { "requested": "magenta", "granted": "magenta", "takenBy": [] }
+        "daveey": {
+          "requested": "orange",
+          "granted": "orange",
+          "takenBy": []
+        },
+        "blue_owner": {
+          "requested": "teal",
+          "granted": "teal",
+          "takenBy": []
+        },
+        "focusfire_owner": {
+          "requested": "green",
+          "granted": "green",
+          "takenBy": []
+        },
+        "yellow_owner": {
+          "requested": "magenta",
+          "granted": "magenta",
+          "takenBy": []
+        }
       },
       "episode_teams": {
-        "red": { "claimant": "daveey", "shimmer": "picasso" },
-        "blue": { "claimant": "blue_owner" },
-        "green": { "claimant": "focusfire_owner", "shimmer": "focusfire" },
-        "yellow": { "claimant": "yellow_owner" }
+        "red": {
+          "claimant": "daveey"
+        },
+        "blue": {
+          "claimant": "blue_owner"
+        },
+        "green": {
+          "claimant": "focusfire_owner"
+        },
+        "yellow": {
+          "claimant": "yellow_owner"
+        }
       }
     },
     "expected": {
@@ -430,10 +990,163 @@
         "v": 1,
         "palette": 1,
         "teams": {
-          "red": { "slug": "orange", "shimmer": "picasso" },
-          "blue": { "slug": "teal" },
-          "green": { "slug": "green", "shimmer": "focusfire" },
-          "yellow": { "slug": "magenta" }
+          "red": {
+            "slug": "orange"
+          },
+          "blue": {
+            "slug": "teal"
+          },
+          "green": {
+            "slug": "green"
+          },
+          "yellow": {
+            "slug": "magenta"
+          }
+        }
+      }
+    }
+  },
+  {
+    "name": "compose-root-shimmer-present",
+    "description": "Corrected shimmer rule (2026-08): shimmer is a single ROOT-level policy name -- at most one shimmering identity exists in the whole lobby/league, never one per team. 'picasso' is that sole identity here; red and blue are both claimed (granted orange and teal). This is the doc-cross-check vector: scripts/resolve_reference.py asserts its minified JSON and base64 byte-for-byte against a literal it computed and round-tripped independently (minify -> base64 -> decode -> reparse -> compare), for the platform team to diff against docs/COLOR_CONTRACT.md SS5's own worked example.",
+    "input": {
+      "op": "compose_payload",
+      "palette": {
+        "version": 1,
+        "colors": [
+          {
+            "slug": "red",
+            "wire": "red"
+          },
+          {
+            "slug": "blue",
+            "wire": "blue"
+          },
+          {
+            "slug": "green",
+            "wire": "green"
+          },
+          {
+            "slug": "yellow",
+            "wire": "yellow"
+          },
+          {
+            "slug": "teal",
+            "wire": null
+          },
+          {
+            "slug": "purple",
+            "wire": null
+          },
+          {
+            "slug": "magenta",
+            "wire": null
+          },
+          {
+            "slug": "orange",
+            "wire": null
+          }
+        ]
+      },
+      "grants": {
+        "red_owner": {
+          "requested": "orange",
+          "granted": "orange",
+          "takenBy": []
+        },
+        "blue_owner": {
+          "requested": "teal",
+          "granted": "teal",
+          "takenBy": []
+        }
+      },
+      "episode_teams": {
+        "red": {
+          "claimant": "red_owner"
+        },
+        "blue": {
+          "claimant": "blue_owner"
+        }
+      },
+      "shimmer": "picasso"
+    },
+    "expected": {
+      "payload": {
+        "v": 1,
+        "palette": 1,
+        "shimmer": "picasso",
+        "teams": {
+          "red": {
+            "slug": "orange"
+          },
+          "blue": {
+            "slug": "teal"
+          }
+        }
+      }
+    }
+  },
+  {
+    "name": "compose-root-shimmer-policy-absent-from-episode",
+    "description": "The root shimmer names a policy that appears nowhere in this episode -- not as a claimant, not in episode_teams at all. This is normal, not an error: the #1-ranked player usually isn't in a given match. compose_payload does not filter or validate presence; it stamps the name verbatim at the payload root regardless, while both teams here (no claimants) keep their stock slugs.",
+    "input": {
+      "op": "compose_payload",
+      "palette": {
+        "version": 1,
+        "colors": [
+          {
+            "slug": "red",
+            "wire": "red"
+          },
+          {
+            "slug": "blue",
+            "wire": "blue"
+          },
+          {
+            "slug": "green",
+            "wire": "green"
+          },
+          {
+            "slug": "yellow",
+            "wire": "yellow"
+          },
+          {
+            "slug": "teal",
+            "wire": null
+          },
+          {
+            "slug": "purple",
+            "wire": null
+          },
+          {
+            "slug": "magenta",
+            "wire": null
+          },
+          {
+            "slug": "orange",
+            "wire": null
+          }
+        ]
+      },
+      "grants": {},
+      "episode_teams": {
+        "red": {},
+        "blue": {}
+      },
+      "shimmer": "ghost_policy"
+    },
+    "expected": {
+      "payload": {
+        "v": 1,
+        "palette": 1,
+        "shimmer": "ghost_policy",
+        "teams": {
+          "red": {
+            "slug": "red"
+          },
+          "blue": {
+            "slug": "blue"
+          }
         }
       }
     }
@@ -446,21 +1159,51 @@
       "palette": {
         "version": 1,
         "colors": [
-          { "slug": "red", "wire": "red" },
-          { "slug": "blue", "wire": "blue" },
-          { "slug": "green", "wire": "green" },
-          { "slug": "yellow", "wire": "yellow" },
-          { "slug": "teal", "wire": null },
-          { "slug": "purple", "wire": null },
-          { "slug": "magenta", "wire": null },
-          { "slug": "orange", "wire": null }
+          {
+            "slug": "red",
+            "wire": "red"
+          },
+          {
+            "slug": "blue",
+            "wire": "blue"
+          },
+          {
+            "slug": "green",
+            "wire": "green"
+          },
+          {
+            "slug": "yellow",
+            "wire": "yellow"
+          },
+          {
+            "slug": "teal",
+            "wire": null
+          },
+          {
+            "slug": "purple",
+            "wire": null
+          },
+          {
+            "slug": "magenta",
+            "wire": null
+          },
+          {
+            "slug": "orange",
+            "wire": null
+          }
         ]
       },
       "grants": {
-        "red_owner": { "requested": "blue", "granted": "blue", "takenBy": [] }
+        "red_owner": {
+          "requested": "blue",
+          "granted": "blue",
+          "takenBy": []
+        }
       },
       "episode_teams": {
-        "red": { "claimant": "red_owner" },
+        "red": {
+          "claimant": "red_owner"
+        },
         "blue": {}
       }
     },
@@ -469,8 +1212,12 @@
         "v": 1,
         "palette": 1,
         "teams": {
-          "red": { "slug": "blue" },
-          "blue": { "slug": "green" }
+          "red": {
+            "slug": "blue"
+          },
+          "blue": {
+            "slug": "green"
+          }
         }
       }
     }
@@ -483,14 +1230,38 @@
       "palette": {
         "version": 1,
         "colors": [
-          { "slug": "red", "wire": "red" },
-          { "slug": "blue", "wire": "blue" },
-          { "slug": "green", "wire": "green" },
-          { "slug": "yellow", "wire": "yellow" },
-          { "slug": "teal", "wire": null },
-          { "slug": "purple", "wire": null },
-          { "slug": "magenta", "wire": null },
-          { "slug": "orange", "wire": null }
+          {
+            "slug": "red",
+            "wire": "red"
+          },
+          {
+            "slug": "blue",
+            "wire": "blue"
+          },
+          {
+            "slug": "green",
+            "wire": "green"
+          },
+          {
+            "slug": "yellow",
+            "wire": "yellow"
+          },
+          {
+            "slug": "teal",
+            "wire": null
+          },
+          {
+            "slug": "purple",
+            "wire": null
+          },
+          {
+            "slug": "magenta",
+            "wire": null
+          },
+          {
+            "slug": "orange",
+            "wire": null
+          }
         ]
       },
       "grants": {},
@@ -506,10 +1277,18 @@
         "v": 1,
         "palette": 1,
         "teams": {
-          "red": { "slug": "red" },
-          "blue": { "slug": "blue" },
-          "green": { "slug": "green" },
-          "yellow": { "slug": "yellow" }
+          "red": {
+            "slug": "red"
+          },
+          "blue": {
+            "slug": "blue"
+          },
+          "green": {
+            "slug": "green"
+          },
+          "yellow": {
+            "slug": "yellow"
+          }
         }
       }
     }
@@ -522,24 +1301,60 @@
       "palette": {
         "version": 1,
         "colors": [
-          { "slug": "red", "wire": "red" },
-          { "slug": "blue", "wire": "blue" },
-          { "slug": "green", "wire": "green" },
-          { "slug": "yellow", "wire": "yellow" },
-          { "slug": "teal", "wire": null },
-          { "slug": "purple", "wire": null },
-          { "slug": "magenta", "wire": null },
-          { "slug": "orange", "wire": null }
+          {
+            "slug": "red",
+            "wire": "red"
+          },
+          {
+            "slug": "blue",
+            "wire": "blue"
+          },
+          {
+            "slug": "green",
+            "wire": "green"
+          },
+          {
+            "slug": "yellow",
+            "wire": "yellow"
+          },
+          {
+            "slug": "teal",
+            "wire": null
+          },
+          {
+            "slug": "purple",
+            "wire": null
+          },
+          {
+            "slug": "magenta",
+            "wire": null
+          },
+          {
+            "slug": "orange",
+            "wire": null
+          }
         ]
       },
       "grants": {
-        "red_owner": { "requested": "blue", "granted": "blue", "takenBy": [] },
-        "green_owner": { "requested": "green", "granted": "green", "takenBy": [] }
+        "red_owner": {
+          "requested": "blue",
+          "granted": "blue",
+          "takenBy": []
+        },
+        "green_owner": {
+          "requested": "green",
+          "granted": "green",
+          "takenBy": []
+        }
       },
       "episode_teams": {
-        "red": { "claimant": "red_owner" },
+        "red": {
+          "claimant": "red_owner"
+        },
         "blue": {},
-        "green": { "claimant": "green_owner" },
+        "green": {
+          "claimant": "green_owner"
+        },
         "yellow": {}
       }
     },
@@ -548,10 +1363,18 @@
         "v": 1,
         "palette": 1,
         "teams": {
-          "red": { "slug": "blue" },
-          "blue": { "slug": "yellow" },
-          "green": { "slug": "green" },
-          "yellow": { "slug": "teal" }
+          "red": {
+            "slug": "blue"
+          },
+          "blue": {
+            "slug": "yellow"
+          },
+          "green": {
+            "slug": "green"
+          },
+          "yellow": {
+            "slug": "teal"
+          }
         }
       }
     }

@@ -18,15 +18,28 @@ Public API:
         shape from data/team_palette.json (only "slug" is read).
         Returns {player: {"requested", "granted", "takenBy"}} per SS4.
 
-    compose_payload(grants, episode_teams, palette=None, palette_version=None) -> payload
+    compose_payload(grants, episode_teams, palette=None, palette_version=None,
+                     shimmer=None) -> payload
         SS5. grants: output of resolve() (or an equivalently
         globally-unique grant map). episode_teams: {wire_word: {
-        "claimant": player_id | None, "shimmer": policy_name | None}}
-        for exactly the wire words live in one episode (2 or 4 keys).
-        Returns the {"v": 1, "palette": N, "teams": {...}} payload,
-        including the SS5 distinctness pass for unclaimed teams whose
-        stock slug collides with a grant (or with another unclaimed
-        team's already-bumped slug) elsewhere in the same payload.
+        "claimant": player_id | None}} for exactly the wire words live
+        in one episode (2 or 4 keys). shimmer: an optional single,
+        already seat-suffix-stripped policy name -- the #1-ranked
+        player in the whole lobby/league, if and only if that player is
+        currently flagged for the shimmer treatment. There is at most
+        ONE shimmering identity in existence at a time (not one per
+        team); most episodes carry none, since the #1-ranked player
+        usually isn't even in a given match, and shimmer is omitted
+        (None) in that case. The name is stamped verbatim at the
+        payload root -- compose_payload does NOT check whether it
+        matches any claimant/grant in episode_teams, so a root shimmer
+        naming a policy absent from this episode is normal, not an
+        error.
+        Returns the {"v": 1, "palette": N, "shimmer": name?, "teams":
+        {...}} payload, including the SS5 distinctness pass for
+        unclaimed teams whose stock slug collides with a grant (or with
+        another unclaimed team's already-bumped slug) elsewhere in the
+        same payload.
 
 Run this file directly to execute tests/resolver_vectors.json as a
 self-check:
@@ -122,11 +135,12 @@ def compose_payload(
     episode_teams: dict[str, dict],
     palette: Optional[dict] = None,
     palette_version: Optional[int] = None,
+    shimmer: Optional[str] = None,
 ) -> dict:
-    """SS5 compose_payload(grants, episode_teams).
+    """SS5 compose_payload(grants, episode_teams, shimmer=None).
 
     `palette` / `palette_version` are reference-implementation
-    conveniences, not part of the two-argument SS5 signature: the
+    conveniences, not part of the three-argument SS5 signature: the
     algorithm still needs *some* copy of the slug array (to know
     walk/wrap order) and the version number to stamp into the payload,
     so they default to loading data/team_palette.json when omitted.
@@ -137,6 +151,13 @@ def compose_payload(
     too -- SS5's own graceful-omission rule ("missing team key => that
     team keeps stock") makes this equivalent to sending it explicitly at
     stock, so the leaner form is used here.
+
+    `shimmer` is a payload-ROOT concern, not a per-team one: there is
+    exactly one shimmering policy identity in the entire lobby/league
+    (the #1 ranked player) or none at all. Per-team shimmer keys do not
+    exist in this schema. Pass the seat-suffix-stripped policy name to
+    stamp it at the root, or leave it None (the common case -- most
+    episodes don't include the #1 player) to omit the key entirely.
     """
     palette = palette or load_default_palette()
     slugs = _slug_order(palette)
@@ -158,7 +179,7 @@ def compose_payload(
         else:
             slug = wire_word
             locked = False
-        info[wire_word] = {"slug": slug, "locked": locked, "shimmer": team_in.get("shimmer")}
+        info[wire_word] = {"slug": slug, "locked": locked}
 
     # Pass 2: distinctness (SS5). Walk each unclaimed team whose slug
     # collides with something already spoken for in this payload.
@@ -188,14 +209,13 @@ def compose_payload(
     teams_out: dict[str, dict] = {}
     for wire_word in episode_teams:
         rec = info[wire_word]
-        entry = {"slug": rec["slug"]}
-        if rec.get("shimmer"):
-            entry["shimmer"] = rec["shimmer"]
-        teams_out[wire_word] = entry
+        teams_out[wire_word] = {"slug": rec["slug"]}
 
     payload: dict[str, Any] = {"v": 1}
     if version is not None:
         payload["palette"] = version
+    if shimmer:
+        payload["shimmer"] = shimmer
     payload["teams"] = teams_out
     return payload
 
@@ -204,23 +224,27 @@ def compose_payload(
 # Self-check runner
 # --------------------------------------------------------------------------
 
-# The exact base64 payload from docs/COLOR_CONTRACT.md SS5's worked
-# example, used as an independent byte-for-byte cross-check on top of
-# the golden-vector comparison.
+# Worked example for the corrected (2026-08) shimmer rule: shimmer is a
+# single root-level policy name (the #1-ranked player in the whole
+# lobby/league, or nobody), never a per-team key. This literal was
+# computed and round-tripped independently in this repo (minify ->
+# base64 -> decode -> reparse -> compare) rather than copied from
+# docs/COLOR_CONTRACT.md SS5, whose §5 prose is being rewritten
+# concurrently by another agent in a different worktree as of this
+# writing -- see the module report for the exact bytes so that doc's
+# author can cross-check against them independently.
 DOC_SS5_EXAMPLE_JSON = (
-    '{"v":1,"palette":1,"teams":{"red":{"slug":"orange","shimmer":"picasso"},'
-    '"blue":{"slug":"teal"},"green":{"slug":"green","shimmer":"focusfire"},'
-    '"yellow":{"slug":"magenta"}}}'
+    '{"v":1,"palette":1,"shimmer":"picasso","teams":{"red":{"slug":"orange"},'
+    '"blue":{"slug":"teal"}}}'
 )
 DOC_SS5_EXAMPLE_B64 = (
-    "eyJ2IjoxLCJwYWxldHRlIjoxLCJ0ZWFtcyI6eyJyZWQiOnsic2x1ZyI6Im9yYW5nZSIsInNoaW1tZXIiOiJwaWNhc3NvIn0s"
-    "ImJsdWUiOnsic2x1ZyI6InRlYWwifSwiZ3JlZW4iOnsic2x1ZyI6ImdyZWVuIiwic2hpbW1lciI6ImZvY3VzZmlyZSJ9LCJ5"
-    "ZWxsb3ciOnsic2x1ZyI6Im1hZ2VudGEifX19"
+    "eyJ2IjoxLCJwYWxldHRlIjoxLCJzaGltbWVyIjoicGljYXNzbyIsInRlYW1zIjp7InJlZCI6"
+    "eyJzbHVnIjoib3JhbmdlIn0sImJsdWUiOnsic2x1ZyI6InRlYWwifX19"
 )
 # Name of the vector expected to reproduce that exact example (checked
 # by name below so the doc cross-check runs against the golden vector,
 # not a hand-rolled duplicate).
-DOC_SS5_VECTOR_NAME = "compose-4-team-two-shimmer"
+DOC_SS5_VECTOR_NAME = "compose-root-shimmer-present"
 
 
 def _print_diff(label: str, expected: Any, got: Any) -> None:
@@ -264,9 +288,10 @@ def run_vectors(path: Path = VECTORS_PATH) -> bool:
                 palette = v["input"]["palette"]
                 grants = v["input"]["grants"]
                 episode_teams = v["input"]["episode_teams"]
+                shimmer = v["input"].get("shimmer")
                 want = v["expected"]["payload"]
 
-                got = compose_payload(grants, episode_teams, palette=palette)
+                got = compose_payload(grants, episode_teams, palette=palette, shimmer=shimmer)
                 if got != want:
                     ok = False
                     _print_diff("payload", want, got)
