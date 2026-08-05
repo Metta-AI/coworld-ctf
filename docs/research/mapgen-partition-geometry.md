@@ -179,4 +179,266 @@ Two failure modes to watch for when reading claims in this literature:
 | 28 | **Aperiodic tilings** (Penrose; hat/spectre monotile) | Admits only non-periodic tilings; repetitivity ⇒ every local patch recurs at bounded density | **(A)** for aperiodicity | ✗ Penrose has **Ammann bars**: perfectly straight lines across the whole tiling. And global point symmetry fights aperiodicity |
 | 29 | **Substitution / hierarchical tilings** | Exact self-similar hierarchy (district → room → cover) | **(A)** for the hierarchy | ★ the hierarchy idea is worth stealing without the tiling |
 
+---
+
+## 3. Voronoi, Delaunay, and the seed distribution that makes them behave
+
+### 3.1 Why relaxed / blue-noise Voronoi cells are so well-behaved
+
+The Voronoi diagram of a point set S partitions the plane into cells
+`V(s) = {x : |x−s| ≤ |x−t| ∀t ∈ S}`. Each cell is an intersection of half-planes, therefore
+**convex** — that is unconditional, (A). What is *not* unconditional is cell size and shape:
+Voronoi of uniform-random points produces cells whose areas vary by an order of magnitude,
+with thin slivers wherever two seeds are close.
+
+Two ways to fix that, and they are not equally strong.
+
+**Lloyd relaxation / CVT (class B).** Iterate: compute the diagram, move each seed to its cell's
+centroid, repeat. Each step is a gradient-descent step on the quantisation energy, and the
+distribution visibly evens out ([Lloyd's algorithm, Wikipedia](https://en.wikipedia.org/wiki/Lloyd%27s_algorithm);
+[Du–Emelianenko–Ju, *Convergence of the Lloyd algorithm for computing CVTs*, SIAM J. Numer. Anal. 2006](https://math.gmu.edu/~memelian/pubs/pdfs/DEJ_SIAM_lloyd.pdf)).
+But convergence is *linear at best*, is only fully proven in 1-D, and — crucially for us —
+**there is no bound on the worst cell after k iterations**. Amit Patel's polygon-map pipeline,
+the canonical game reference, just says "running it twice typically gives good results"
+([Polygonal Map Generation for Games](http://www-cs-students.stanford.edu/~amitp/game-programming/polygon-map-generation/)).
+That is textbook (B): a distribution shift, still needing a filter.
+
+**Maximal Poisson-disk seeding (class A).** A *maximal* Poisson-disk sample with radius `r`
+satisfies two conditions:
+1. **empty-disk / inhibition**: `|s − t| ≥ r` for all distinct samples;
+2. **maximality / coverage**: every point of the domain is within `r` of some sample.
+
+([Ebeida et al., *A Simple Algorithm for Maximal Poisson-Disk Sampling in High Dimensions*;
+definition restated in [Quan et al., *Maximal Poisson-disk Sampling via Sampling Radius Optimization*](https://weizequan.github.io/mps2016/MPS.pdf).)
+Bridson's O(n) dart-throwing with a background grid of cell size `r/√2` gives condition 1
+directly and condition 2 in practice by exhausting the active list
+([Bridson, *Fast Poisson Disk Sampling in Arbitrary Dimensions*, SIGGRAPH sketches 2007](https://www.cs.ubc.ca/~rbridson/docs/bridson-siggraph07-poissondisk.pdf)).
+
+**Then the cell bounds are theorems, not hopes.** For a maximal sample with radius `r`:
+
+> **Cell size lemma.** For every seed `s`, `V(s)` contains the disc of radius `r/2` about `s`,
+> and is contained in the disc of radius `r` about `s`.
+>
+> *Proof.* Inradius: any neighbour `t` has `|s−t| ≥ r`, so the bisector of `s,t` is at distance
+> `≥ r/2` from `s`; `V(s)` is the intersection of the half-planes bounded by those bisectors,
+> all of which contain `B(s, r/2)`. Circumradius: for `x ∈ V(s)`, maximality gives some sample
+> `u` with `|x−u| ≤ r`, and `s` is the nearest sample to `x`, so `|x−s| ≤ |x−u| ≤ r`. ∎
+
+So: **room inradius ≥ r/2, room diameter ≤ 2r, and every Voronoi edge has length ≤ 2r**
+(an edge lies in the closure of both its cells). That is (A), it is cheap, and it is the single
+most useful hard property in this whole document, because it converts a global geometric
+constraint (no long straight pinches, bounded room scale) into *one scalar parameter*.
+
+**Choosing `r` from our own rules.** `lanePitchPx = laneWidthPx + coverSizePx = 124 + 56 = 180`
+at standard size (`map_rules.nim:749`, `:733`). Set
+
+```
+r = lanePitchPx = 180 px
+```
+
+and you get: cell diameter ≤ 360 px (comfortably inside `maxOpenRunPx = 1050` and *above* the
+262 px mean-free-sightline floor), grout segments ≤ 360 px, cell inradius ≥ 90 px so an eroded
+room of lane width 124 is always non-empty. On 1235 × 659 (A ≈ 814 k px²) a maximal
+disk sample at r = 180 lands around **20–25 seeds**; on the 969 × 1119 hex board, ~28. Those
+are small numbers: everything downstream is trivially fast.
+
+### 3.2 The Delaunay dual is the region graph you have been missing
+
+The Delaunay triangulation is the dual of the Voronoi diagram: two cells are adjacent iff their
+seeds are joined by a Delaunay edge. So *the room-adjacency graph comes for free with the
+partition* — you do not build it, you read it off. This is the structural thing the column
+lattice can never give: `arena.nim` has obstacles but no adjacency, so no question of the form
+"how many ways from A to B" can be asked before rasterising and running max-flow.
+
+Delaunay properties we can lean on:
+
+- **Planar** (A) — so route disjointness in the graph maps to spatial disjointness (§7.2).
+- **Contains the Euclidean MST** and the Gabriel/relative-neighbourhood graphs (A) — so any
+  spanning subgraph you want is available as a *subgraph selection* problem, not a search.
+- **Degree** averages < 6 for interior seeds (Euler), so the graph is sparse and the k-connected
+  subgraph problem is tiny.
+
+The *game-dev* canonical use of this is TinyKeep's "Delaunay → MST → put back ~15 % of the
+discarded edges" recipe
+([Adonaac, *Procedural Dungeon Generation Algorithm*, Gamasutra 2015](https://www.gamedeveloper.com/programming/procedural-dungeon-generation-algorithm)).
+Judged honestly that is **(B)**: MST gives connectivity (1-connected) and the 15 % re-add gives
+*some* loops with no guarantee at all about how many are vertex-disjoint or where. We can do
+strictly better — see §7, where the correct move is to keep the graph 3-connected by
+construction rather than to prune to a tree and sprinkle edges back.
+
+### 3.3 Power (Laguerre) diagrams: prescribing area exactly
+
+Replace `|x−s|` with the *power distance* `|x−s|² − w_s`. Cells are still intersections of
+half-planes, hence still convex — the classification-preserving generalisation
+([Aurenhammer, *Power Diagrams: Properties, Algorithms and Applications*, SIAM J. Comput. 16(1), 1987](https://www.cs.jhu.edu/~misha/Spring16/Aurenhammer87.pdf)).
+The reason to care: **for any prescribed positive areas summing to the domain area, there exist
+weights whose power diagram realises those areas exactly**, and they are the solution of a
+convex problem (semi-discrete optimal transport; Aurenhammer–Hoffmann–Aronov,
+*Minkowski-type theorems and least-squares clustering*, Algorithmica 20 (1998) 61–76; modern
+treatment in [de Goes et al. / Bourne–Roper, *Centroidal power diagrams, Lloyd's algorithm and applications to optimal location problems*](https://arxiv.org/pdf/1409.2786)).
+
+Classification: **(A) on cell area**, given a convergent solve. For us it buys:
+
+- "Each of the four team quadrants owns exactly 25 % of the field" — but symmetry already gives
+  that for free, so the real use is intra-quadrant: "the base pocket is 12 % of the quadrant,
+  the midfield room is 20 %."
+- Direct control of the **cover permille band (40–170)** by prescribing the total area of the
+  solid cells before you even build them.
+
+Cost: an L-BFGS on ~20 weights, each evaluation a diagram rebuild. At n = 25 this is well under
+a millisecond, but it is the most complex piece of machinery here. **Recommendation: skip in v1.**
+The erosion knob (§6.4) already gives continuous, monotone control of cover fraction and is a
+five-line bisection. Keep power diagrams in the back pocket for the day someone asks for
+per-region area targets.
+
+### 3.4 Voronoi under a symmetry group
+
+Because the Voronoi construction is defined purely by distances, it commutes with isometries:
+if `S` is invariant under a group `G` of isometries, then `V(gs) = g·V(s)` and the whole diagram
+is `G`-invariant. **(A), exactly, with no numerical tolerance.** This is why our dimension is
+unusually well matched to the fairness requirement: seed the fundamental domain, lift the seeds
+by `hex.orbit`, and the *entire partition* — cells, edges, adjacency graph, chokepoints,
+route counts — is exactly symmetric. There is nothing to re-verify.
+
+The trap this creates is important enough to have its own section: **§8**.
+
+### 3.5 Torus / periodic Voronoi
+
+For a lattice `Λ`, the periodic Voronoi/Delaunay of `S + Λ` on the flat torus `R²/Λ` is standard
+and implemented in CGAL ([Osang et al., *Generalizing CGAL Periodic Delaunay Triangulations*, ESA 2020](https://drops.dagstuhl.de/opus/volltexte/2020/12941/pdf/LIPIcs-ESA-2020-75.pdf);
+[Yan et al., *Computing 2D Periodic Centroidal Voronoi Tessellation*, ISVD 2011](https://www.gipsa-lab.grenoble-inp.fr/~kai.wang/papers/ISVD11.pdf)).
+**Not applicable to us**: our board has a hard wall border (`ArenaBorder = 10`) and a
+non-wrapping topology. The technique that *is* applicable — and is the same idea — is the
+"compute in the fundamental domain plus a collar, then lift the combinatorics" trick those papers
+use to keep predicates exact. See §8.4.
+
+---
+
+## 4. BSP, k-d, and why an axis-aligned cut is a rifle
+
+### 4.1 What BSP actually guarantees
+
+Recursively split a rectangle by a line; recurse; place a room inside each leaf; connect siblings
+bottom-up ([RogueBasin, *Basic BSP Dungeon generation*](https://www.roguebasin.com/index.php/Basic_BSP_Dungeon_generation);
+[Liapis, *Constructive Generation Methods for Dungeons and Levels*, PCG Book ch. 3](https://antoniosliapis.com/articles/pcgbook_dungeons.php)).
+Guarantees, precisely:
+
+- **(A)** Leaves are pairwise-disjoint and tile the domain. Rooms inset in leaves never overlap.
+  This is genuinely valuable and is why BSP is everywhere.
+- **(A)** The sibling-connection scheme induces a **tree** on the leaves.
+- **(B)** Room aspect ratio, if you constrain the split ratio (0.45–0.55 → homogeneous,
+  0.1–0.9 → heterogeneous, per the RogueBasin write-up).
+
+### 4.2 The two reasons it is wrong for us
+
+**Reason 1 — a tree is 1-connected.** Menger's theorem is unforgiving: a tree has a vertex cut of
+size 1 between almost every pair, i.e. **exactly one** vertex-disjoint route. Our target is ≥ 3.
+Retrofitting extra edges onto a BSP tree is possible but it is exactly the TinyKeep patch: no
+guarantee about *how many* of the resulting routes are vertex-disjoint, and none about where they
+run. If the k-route property is the point (and it is — `laneCount` floors at 3 for a reason), then
+starting from a structure whose defining feature is acyclicity is starting in the wrong place.
+
+**Reason 2 — cuts span the domain.** The root split of a BSP is a single line across the whole
+board. Even if the *rooms* are inset, the cut line is where corridors get routed and where room
+walls align, so open space accumulates along it. With `GunRange = 1050` on a 1235-wide board, a
+single unbroken straight run of free space along a root cut is a full-field firing lane. Our own
+generator has this disease already via a different mechanism (the uniform column lattice of
+`arena.nim:1693` — a degenerate 1-D BSP), and the measured symptom is exactly what you would
+predict: `longRunFrac` pressure and glass that never occludes anything.
+
+### 4.3 The variants, honestly classified
+
+| Variant | Effect | Class |
+| --- | --- | --- |
+| Jittered split position (0.1–0.9 instead of 0.45–0.55) | Room sizes vary; cut lines still span | **(B)** |
+| **Offset / staggered cuts** (each child shifts its sub-cut) | Breaks *alignment* of walls across the tree; the top cut still spans | **(B)** |
+| **Non-axis-aligned BSP** (arbitrary split hyperplanes) | Kills the axis-aligned open *row* specifically (which is what `map_metrics`' horizontal/vertical run scan at `:776` measures!) but the run is still straight, just diagonal — and our metric would stop seeing it | **(B)**, and a *metric-gaming* hazard |
+| **k-d tree** (alternating axis, split at a data point) | Same as BSP with axis alternation forced | **(B)** |
+| BSP on a **non-convex or curved** domain | Cuts no longer span; but you have lost the disjoint-rectangle guarantee | (B) |
+
+The honest summary: **every BSP variant that removes the spanning cut removes it statistically,
+not structurally.** The Voronoi family removes it structurally, because a Voronoi edge is a
+bisector segment of length ≤ 2r (§3.1) and consecutive edges are collinear only on a measure-zero
+set of seed configurations. That is the crisp reason to prefer the Voronoi family here, and it is
+worth stating in exactly that form: *BSP's boundaries are global by construction; Voronoi's are
+local by construction.*
+
+**Where BSP is still right for us:** the **base pocket**. A base needs an axis-aligned, predictable,
+symmetric little compound with spawn clearance (`spawnClearW/H`) and endzone gates. That is a
+rectangle-packing problem and BSP or rectangular dualization (§7.5) is the right tool for a region
+of ~4 rooms. Use it *inside* one cell, not for the field.
+
+---
+
+## 5. Medial axis, distance transforms, and what a chokepoint actually *is*
+
+### 5.1 The guarantee
+
+The grassfire / medial-axis transform of an open region `F` is the set of centres of maximal
+inscribed discs, with the radius function `ρ(x)` = the distance transform. Two exact facts:
+
+- **The medial axis is a deformation retract of `F`** (for bounded open sets with reasonable
+  boundary), so it has the same number of connected components and the same first homology.
+  Route counting and loop counting on the skeleton are therefore *exact*, not approximate. **(A)**
+- **`ρ` is the exact clearance.** A disc agent of radius ρ₀ can traverse a skeleton branch iff
+  `ρ ≥ ρ₀` everywhere on it. **(A)** (this is the C-space statement of §6.6.)
+
+Our `buildCoarse` (`map_metrics.nim:380`) already computes a 26 px-resolution version of this:
+each cell stores its widest open pixel and its `clearPx`. So we own the machinery; what we lack
+is a *definition* that uses it.
+
+### 5.2 The definition to adopt: chokepoints are sublevel intervals, and they have a length
+
+The brief asks for length-aware clearance ("a short pinch is a doorway, a long one is a kill box").
+The medial axis gives this exactly and with no fudge:
+
+> Parameterise a skeleton branch by arclength `s` and consider the **sublevel set**
+> `{ s : ρ(s) < ρ_choke }`. Its connected components are the pinches. Each component `I` has
+> - **width** `w(I) = 2·min_{s∈I} ρ(s)` — the narrowest clearance;
+> - **length** `L(I) = |I|` — how far you must travel while that narrow.
+>
+> Classify: **doorway** if `L ≤ L_door`, **corridor** if `L_door < L ≤ L_kill`, **kill box** if `L > L_kill`.
+
+With our numbers: `ρ_choke` ≈ 45 px (so `w < 90`, matching `ChokeMaxClearPx = 90`);
+`L_door` ≈ `SoldierBodyPx` × 2 ≈ 68 px (you are through it in ~25 ticks);
+`L_kill` ≈ `MaxExposedRunPx = 132` (past this, a defender kills you before you clear it).
+
+This is worth building because it is the first definition in our stack that distinguishes
+"tight and interesting" from "tight and lethal", and it is computable from data
+`map_metrics.nim` already produces. Today, `map_metrics.nim:1057` finds chokepoint *candidates*
+(cells with `clearPx ≤ 90`) and then does a cut test — it has no notion of the pinch's **length**
+at all, which means a 40 px doorway and a 40 px × 400 px shooting gallery score identically.
+**That is a concrete, small, high-value fix to an existing file.**
+
+### 5.3 Pruning — the classic hard part
+
+Plain medial axes are wildly unstable: a one-pixel boundary bump spawns a branch. The literature's
+answer is a *regularised* skeleton with a stability theorem:
+
+- **λ-medial axis** (Chazal & Lieutier): keep points whose set of nearest boundary points has
+  circumradius ≥ λ. Hausdorff-stable under perturbation of the shape, unlike the raw MA
+  ([Chazal & Lieutier, *The λ-medial axis*, Graphical Models 67(4), 2005]; discrete version:
+  [Robust skeletonization using the discrete λ-medial axis](https://www.researchgate.net/publication/220644771_Robust_skeletonization_using_the_discrete_l-medial_axis)).
+- **Discrete Skeleton Evolution / contour-approximation pruning**: iteratively delete end branches
+  that contribute least to shape reconstruction
+  ([Bai–Latecki; Montero & Lang, *Skeleton pruning by contour approximation and the integer medial axis transform*, Computers & Graphics 36(5), 2012](https://dl.acm.org/doi/10.1016/j.cag.2012.03.029)).
+- **Scale axis / cosine-pruned MA** ([Patiño et al., CPMA, 2020](https://arxiv.org/pdf/2012.02910)).
+
+Classification: pruning is **(B)** — it improves the skeleton but the parameter is a taste knob and
+no method gives "the right branches" unconditionally.
+
+**Our shortcut, which is better than any of them:** if you *generate* the free space as a
+partition, you already know the skeleton — it is the Voronoi edge network, by construction, with
+no pruning needed. The generalized Voronoi diagram of a set of obstacles **is** the medial axis of
+the free space, which is precisely why GVDs are the standard maximum-clearance roadmap in robot
+motion planning ([Roadmap-based path planning using the Voronoi diagram for a clearance-based
+shortest path, IEEE RAM 2008](https://ieeexplore.ieee.org/document/4539723/)). Extracting a
+skeleton from pixels is only hard when you did not build the pixels from a skeleton.
+
+> **Design rule:** never *extract* the corridor network from a rasterised map if you can *emit*
+> it. Extraction costs a pruning heuristic (B); emission is (A).
+
+Keep the extraction path alive for one purpose only: validating hand-authored maps and legacy
+pool maps, where there is no generator to ask.
+
 <!-- SECTION-MARKER -->
