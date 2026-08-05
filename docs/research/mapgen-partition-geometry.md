@@ -441,4 +441,187 @@ skeleton from pixels is only hard when you did not build the pixels from a skele
 Keep the extraction path alive for one purpose only: validating hand-authored maps and legacy
 pool maps, where there is no generator to ask.
 
+---
+
+## 6. Graph-first layout: getting k routes by construction
+
+This is the section the brief calls the most valuable deliverable, so it is written as an
+argument with a proof, not a survey.
+
+### 6.1 Menger, used forwards
+
+Menger's theorem: the maximum number of internally vertex-disjoint `s–t` paths equals the
+minimum number of vertices whose removal separates `s` from `t`; globally, **a graph is
+k-connected iff every pair of vertices is joined by ≥ k internally vertex-disjoint paths**
+([Menger's theorem, Wikipedia](https://en.wikipedia.org/wiki/Menger%27s_theorem);
+[Diestel, *Graph Theory*, ch. 3 "Connectivity"](https://www.math.uni-hamburg.de/home/diestel/books/graph.theory/preview/Ch3.pdf)).
+
+We currently use this **backwards**: build a map, rasterise it, run unit-vertex-capacity max-flow
+(`map_metrics.nim:530`), read off the route count, and reject if it is < 2. Every rejection is a
+wasted 132 ms `evaluateMap`.
+
+Used **forwards**, it says: *if you build a room graph that is k-connected, you never have to
+measure.* The measurement becomes a regression test, not a filter.
+
+### 6.2 The realization lemma (graph k-connectivity ⇒ spatial k-routes)
+
+The step everyone skips. Graph connectivity is about abstract vertices; our invariant is about
+disjoint paths in continuous free space. Here is the bridge, with its preconditions stated so we
+can actually enforce them.
+
+> **Lemma (spatial realization).** Let the free space be
+> `F = (⊔_{i∈V} R_i) ∪ (⊔_{e∈E} D_e)` where
+> (i) the room regions `R_i` are pairwise disjoint and each is path-connected;
+> (ii) the doorway regions `D_e` are pairwise disjoint and disjoint from all `R_i` interiors;
+> (iii) doorway `D_e` for `e = {i,j}` meets exactly `R_i` and `R_j`;
+> (iv) no two rooms touch except through a doorway.
+> Let `G = (V,E)`. If `G` is k-connected, then for any two rooms `a,b` there exist k paths in `F`
+> from `a` to `b` that pairwise share no point outside `R_a ∪ R_b`.
+>
+> *Proof.* Menger gives k internally vertex-disjoint paths `P_1..P_k` in `G`. Realize `P_m` by,
+> for each interior room `R_i` on it, choosing any curve inside `R_i` from the entry doorway to the
+> exit doorway (exists by (i)), concatenated with straight traversals of the doorways. Distinct
+> `P_m` use disjoint interior room sets and disjoint edge sets, so by (ii)–(iv) the realized
+> curves are disjoint outside the endpoints. ∎
+
+Conditions (i)–(iv) are exactly what a Voronoi partition with walled boundaries and cut doorways
+satisfies **by construction** — rooms are Voronoi cells (disjoint by definition of a Voronoi
+diagram), doorways are gaps in distinct edges (disjoint because Voronoi edges are disjoint except
+at vertices, which we keep walled). So the lemma is not a hope; it is a property of the
+construction.
+
+**The one caveat that bites in practice:** our validator measures on a **26 px** grid
+(`RouteCellPx`, `map_metrics.nim:92`) with node-splitting. Two spatially disjoint routes that pass
+within 26 px of each other can alias onto the same cell and be counted as one. So the construction
+should keep **doorway-to-doorway separation ≥ 2 × RouteCellPx = 52 px** if we want the measured
+number to equal the constructed number. This is free — Voronoi vertices are already ≥ some
+distance apart when seeds are Poisson-disk separated — but it must be *checked*, not assumed.
+
+### 6.3 The cheapest k-connected planar graph generator we can write
+
+Four constructions, in increasing order of machinery:
+
+**(a) Plane triangulation. (A), and the one to use.**
+> Every plane triangulation (all faces triangles, including the outer face) with `n ≥ 4` vertices
+> is **3-connected**.
+
+This is the standard Whitney-type lemma; it is stated in exactly this form in the planar-graph
+literature (e.g. the plane-triangulation preliminaries of
+[Biedl et al., *Decomposing 4-connected planar triangulations into two trees and one path*](https://arxiv.org/pdf/1710.02411),
+which also gives the companion: *a planar triangulation is 4-connected iff it has no separating
+triangle*). Combined with Menger: **every pair of rooms has 3 vertex-disjoint routes, for free.**
+
+The practical form for us: take the Delaunay triangulation of the seeds, add the board border as
+a cycle of boundary vertices, and triangulate the outer region so that no face except the exterior
+is non-triangular. Two subtleties:
+- A Delaunay triangulation of points *in convex position* is **not** 3-connected (a triangulated
+  convex quadrilateral has the 2-cut {two diagonal endpoints}). You need interior seeds — which a
+  Poisson-disk sample over a 1235 × 659 rectangle always has.
+- More precisely, the condition to enforce is that the **outer boundary cycle is chordless** (no
+  Delaunay edge joins two non-consecutive hull vertices). Cheap to test, cheap to fix (drop the
+  chord and re-triangulate, or nudge a seed inward).
+
+**(b) 4-connectivity: no separating triangle.** If we want ≥ 4 routes, the criterion above is a
+*local* test (enumerate triangles, check whether the triangle separates) that is O(n) on a
+Delaunay of 25 vertices. Removing a separating triangle = inserting a seed inside it. That is a
+one-line repair, and it upgrades the guarantee from 3 to 4.
+
+**(c) Explicit templates.** For a hand-designed backbone rather than a random one:
+- **Prism** `C_n × K₂` — two concentric ring corridors + `n` radial spokes. Planar, 3-connected,
+  3-regular. Reads as "outer ring road, inner ring road, spokes" — a very legible CTF arena.
+- **Antiprism** `A_n` — two rings + zig-zag rungs, 4-regular, planar, polyhedral. Wikipedia and the
+  polyhedral-graph literature classify antiprism graphs as **3-connected** (polyhedral) and
+  4-regular ([Antiprism graph, Wikipedia](https://en.wikipedia.org/wiki/Antiprism_graph)); do not
+  claim 4-connectivity for them without checking the specific `n`. Both have `n`-fold rotational
+  symmetry natively, which composes perfectly with `GroupC2/C3/C6` from `hex.nim`.
+- **Wheel `W_n`** — hub + rim. 3-connected, and the hub is a natural centre objective. Note
+  `map_rules.HubRadiusCapPx = 525` already anticipates a hub.
+- **Harary graphs `H(k,n)`** — the minimum-edge k-connected graphs, `⌈nk/2⌉` edges, explicit
+  circulant construction ([MathWorld, Menger's n-Arc Theorem](https://mathworld.wolfram.com/Mengersn-ArcTheorem.html);
+  Harary 1962). Useful as a *reference* for how few corridors you need, but `H(k,n)` is generally
+  non-planar for `k ≥ 5`, and non-planar means corridors must cross, which our 2-D board cannot do
+  without an overpass. **Planarity is a hard physical constraint for us; that caps our achievable
+  k at 5** (every planar graph has a vertex of degree ≤ 5, so no planar graph is 6-connected).
+  Good to know the ceiling: **k ∈ {3,4,5}, and 3–4 is the sensible target.**
+
+**(d) Tutte's wheel theorem.** Every 3-connected graph is obtainable from a wheel by a sequence of
+edge additions and vertex splittings (Tutte moves), each of which preserves 3-connectivity
+([Steinitz's theorem, Wikipedia](https://en.wikipedia.org/wiki/Steinitz%27s_theorem), which also
+records the companion fact that 3-connected planar graphs are exactly the graphs of convex
+polyhedra). This is the *complete* generator of the class — if we ever want "random 3-connected
+planar graph, uniformly-ish", this is the correct machine. It is more than v1 needs; (a) is a
+one-liner that gets the same guarantee.
+
+### 6.4 Then embed it: Tutte and Schnyder
+
+If you generate the graph first (option (c)/(d)) you must place it in the plane. Two theorems make
+this a solved problem:
+
+- **Tutte's spring/barycentric embedding.** Pin the outer face to a convex polygon and make every
+  interior vertex the barycentre of its neighbours (solve one sparse linear system). For a
+  3-connected planar graph the result is a straight-line planar embedding in which **every face is
+  convex**, with no zero-length edges and no degenerate angles
+  ([Erickson's notes, *Tutte's Spring Embedding Theorem*](https://jeffe.cs.illinois.edu/teaching/comptop/2023/notes/12-spring-embedding.html);
+  [Gortler–Gotsman–Thurston, *An elementary proof of Tutte's planar embedding theorem*](https://www.eecs.harvard.edu/~sjg/papers/tutte.pdf)).
+  Convex faces are exactly what we want, because a convex face is a `shapePolygon` and an easy
+  erosion target (§9.1). And the converse is instructive: *every planar graph with a strictly convex
+  embedding is 3-connected* — convex-face layouts and the k-route property are the same thing.
+- **Schnyder woods / de Fraysseix–Pach–Pollack.** Any planar graph has a straight-line embedding on
+  an `(n−2) × (n−2)` **integer** grid. Integer vertices means `shapePolygon` with no rounding step
+  and bit-exact symmetry lifts.
+
+Classification: both **(A)**. Cost: a sparse solve on ~25 unknowns (microseconds) or a linear-time
+combinatorial walk.
+
+**But note the ordering trade-off.** Graph-first (generate graph → embed) gives you total control
+of topology and *no* control of geometry until the embedding, which then has to be pushed around
+to respect the board shape, the base positions and the symmetry. Geometry-first (§3: seeds →
+Voronoi → read off the graph) gives you geometry that already respects everything and a graph you
+then *repair* to k-connected. For our constraints — mandatory symmetry, fixed base positions,
+fixed board rectangle, pixel space — **geometry-first is clearly the right order**, and graph-first
+belongs in the toolbox for the base pocket and for scripted "template" maps.
+
+### 6.5 Flow and cut as a *repair operator*, not a verdict
+
+The most under-exploited thing we already own: `vertexDisjointRoutes` (`map_metrics.nim:530`)
+returns `(flow, cutX, cutY)` — the **min vertex cut cell**. Today that is used to fail a map. By
+Menger, that cut cell is precisely the bottleneck: removing the obstacle at `(cutX, cutY)`, or
+opening one more doorway across it, raises the route count by (at least) one.
+
+So the loop should be: measure → if `flow < k`, **open the cut** → re-measure. That converts a
+`1/K` rejection into a deterministic O(1) fix. Each iteration costs a re-measure, but the flow
+alone is far cheaper than the full `evaluateMap` (the 132 ms is dominated by the O(8·w·h)
+enclosure scan at `:762` and the O(n²) visibility sample at `:1196`, not by Dinic on a
+47 × 25 cell grid). **Recommendation: expose a `routeCountOnly()` entry point** so the repair loop
+can iterate at ~1 ms instead of 132 ms.
+
+For the graph-side version of the same idea, the literature is *k-connectivity augmentation*:
+given a graph and a target k, add the minimum number of edges to make it k-connected. Polynomial
+algorithms exist (Frank–Jordán and successors) but at n = 25 a greedy "add the edge across the
+current min cut, repeat" is optimal enough and 10 lines.
+
+### 6.6 Rectangular dualization and graph grammars — where they fit
+
+**Rectangular dualization** takes a planar adjacency graph and realises it as a packing of
+axis-aligned rectangles with exactly those adjacencies (VLSI floorplanning;
+[Kozminski & Kinnen, *Rectangular dualization and rectangular dissections*, IEEE TCAS 1988](https://ieeexplore.ieee.org/document/16806/);
+[Shekhawat et al., *GPLAN*](https://arxiv.org/pdf/2008.01803)). Guarantee: **exact adjacency
+realization — but only for graphs that admit a rectangular dual**, which is a real restriction
+(properly-triangulated planar graphs with no separating triangles / four corner-implying
+conditions). Overall **(B)** for arbitrary input, **(A)** if you *generate* an admissible graph.
+For us: the right tool for a **base pocket** ("spawn room adjacent to armoury adjacent to
+endzone, all rectangles"), the wrong tool for a field (rectangles ⇒ axis-aligned walls ⇒ straight
+runs, i.e. we are back in §4).
+
+**Graph grammars / cyclic generation** (Dormans' Ludoscope and *Unexplored*;
+[Dormans & Bakkes, *Generating Missions and Spaces for Adaptable Play Experiences*](https://sander.landofsand.com/publications/Dormans_Bakkes_-_Generating_Missions_and_Spaces_for_Adaptable_Play_Experiences.pdf);
+[*Unexplored's Secret: Cyclic Dungeon Generation*, Game Developer](https://www.gamedeveloper.com/design/unexplored-s-secret-cyclic-dungeon-generation-);
+[Boris the Brave, *Graph Rewriting for Procedural Level Generation*](https://www.boristhebrave.com/2021/04/02/graph-rewriting/))
+generate the mission/topology graph by rewriting rules that *build in* a cycle. Classification:
+**(B)**, because the guarantee is only whatever the rule set provably preserves, and rule sets in
+practice are not proven. The genuinely transferable idea is Dormans' core insight —
+**design in cycles, not paths** — which for a CTF map means: the round trip base → enemy flag →
+base should be a *loop*, not an out-and-back. That is a statement about the graph, and §6.3(a)
+delivers it with a theorem instead of a rule set.
+
 <!-- SECTION-MARKER -->
