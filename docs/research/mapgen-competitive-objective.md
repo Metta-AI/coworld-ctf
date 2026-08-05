@@ -887,3 +887,368 @@ nothing to over-optimise. Objectives are not. This is Liapis's feasible/infeasib
 structure **[lit]** and it is the correct shape for a suite where most terms are unvalidated.
 Concretely: today's score has about four terms that deserve to be maximised (the three N★ properties
 plus G1) and roughly a dozen that deserve to be bands.
+
+---
+
+## 7. What the literature says we are missing entirely
+
+Ordered by expected value. Items 7.1–7.3 are computable today from data we already have.
+
+### 7.1 Anything that knows travel is L∞
+
+Nothing in `map_metrics.nim` or `map_rules.nim` models the 41% heading anisotropy of §3.1. Every
+"distance", "spacing", "detour budget", "traverse" and "equidistant" in the suite is Euclidean or
+grid-Manhattan. **Fix first**: a single `travelTime(p, q) = max(|Δx|, |Δy|) / v` helper, and a
+heading-aware `exposureBudget(θ, carrying)`. This is the cheapest large correction available.
+
+### 7.2 Time-to-contact and the collision point
+
+We have `midfieldSeam` **[engine]**, which is a geometric seam. We do not have:
+
+- **`T_contact(i)`** — L∞ time from team *i*'s spawn to first mutual visibility with any opponent
+  along a shortest route. Güttler's fairness test is `spread(T_contact) ≈ 0` **[lit]**, and it is a
+  *different* test from geometric symmetry.
+- **The equidistant frontier F** — the L∞ isochrone set where all teams' `T_contact` are equal. Its
+  shape, its width, its cover fraction, and its distance from the pedestals (§4.1/C2).
+- **Pace**, the only published normalisation of encounter frequency (MAP-Elites, §2.1):
+  `pace = 2(1 + exp(−5 N_x / Σ T_e))⁻¹ − 1`, tuned so pace ≈ 0.9 at ~3 s mean time-to-engage.
+
+Güttler's `cs_citymall` failure is the canonical warning: the designed climax room went unused
+because the collision point landed elsewhere and "almost half the level wasn't used". We have no
+metric that would catch this.
+
+### 7.3 Angle count `A(p)` and exposure fraction `Ω(p)`; and the cone-restricted isovist
+
+§3.5 defines both. Neither exists in our suite. Two notes on how to compute them correctly here:
+
+- **Use the 34 px drawn body**, not the 12 px hull, for LOS occlusion and for target subtense.
+- **Our isovist is not the standard 360° isovist.** Vision is a 120° cone riding the aim
+  **[engine]**, so the classical Benedikt isovist area *overstates what any player actually sees by
+  a factor of 3*. Compute the standard isovist for *threat* (a shooter can rotate to face you) and
+  the cone-restricted isovist for *awareness* (what you will actually notice). These are different
+  fields and they justify different design responses. Nobody in the literature has this split
+  because mouse-look FPS players can face anywhere instantly; we cannot.
+- Glass blocks movement and shots but not vision **[engine]**, so the visibility graph and the
+  *threat* graph are genuinely different graphs on our maps. Compute both. A glass-fronted position
+  is high-awareness / zero-threat, which is a design primitive nobody else has.
+
+### 7.4 Visibility graph analysis proper
+
+Turner et al. (2001) **[lit]** give a mature toolkit we approximate with hand-rolled scalars:
+**connectivity** (degree = isovist area), **integration** (inverse mean visual depth), **control**,
+and the **clustering coefficient** (local convexity/enclosure — the principled `interiorFrac`
+replacement, §6.3). The MAP-Elites paper's "visibility matrix ... for each tile the number of tiles
+visible from it" **[lit]** is exactly the degree field; both the spawn heuristic (§7.5) and `Ω(p)`
+are functions of it, so one shared computation serves three metrics.
+
+### 7.5 Spawn safety
+
+We check that spawns clear the capture circle (A4, causally established) and nothing else. Ballabio
+& Loiacono's validated heuristic **[lit]** says a spawn should additionally minimise **visibility
+degree** and maximise **distance to other placed elements**, with an 18–21% measured effect on a
+navigation task. On occlusion-limited boards, where a spawn can be covered from most of the map
+(§5.1), the absence of this check is a live hazard: the generator may be placing spawns in the
+highest-visibility cells on the board by chance.
+
+### 7.6 Route-conditioned metrics — the carry route above all
+
+Every metric we compute is a **field** statistic (averaged over all open cells). What decides matches
+is a **path** statistic (what happens along the routes people actually walk). The two diverge sharply
+as boards get bigger (§5.3), and the divergence is *maximal* on exactly the path that matters:
+
+- **The carry route** — from the enemy pedestal to our endzone, traversed at 0.70× speed. It has its
+  own exposure budget (§3.3), its own cadence requirement (D2), its own route-count requirement (D3)
+  and its own dead-end prohibition (D4). We measure **none** of it. Given that "we steal now, the
+  carrier dies" is already the recorded field diagnosis, this is the largest single hole in the suite.
+- Route-conditioned versions of E1/E2/E3 (max exposed run, angle count, exposure fraction *along the
+  route*) are the metrics with the most direct line to conversion.
+
+### 7.7 The quality/balance pairing
+
+Liapis et al. pair **every** quality metric with a balance metric — `f_res`/`b_res`,
+`f_saf`/`b_saf`, `f_exp`/`b_exp` **[lit]**. We report means over the whole board and no spreads
+across teams. A map with an excellent mean stand-side cover fraction can have one team at 4% and the
+other at 22%; today it scores well. **Rule: for every P in the suite, also compute `spread(P)` across
+teams and band it.** Under exact D4 symmetry the spreads are identically zero, which makes this cheap
+insurance rather than a burden — and it is precisely the check that catches a symmetry bug.
+
+### 7.8 Joint chokepoint coverage and power-position pairing
+
+Two constraints, both formalisable, both absent:
+
+- **No single position covers all chokepoints** (Level Design Book **[C†]**): for every candidate
+  `q`, `count{ c : ‖q−c‖ ≤ GunRange ∧ LOS(q,c) } < numChokepoints`. Our `chokepointSpacingPx =
+  GunRange` is a *pairwise* proxy, and pairwise spacing does not imply joint non-coverage.
+- **Every power position has a counter-position** (Hullett 2012 **[C†]**): "players in sniper
+  locations must also be wary of counter attack from the complementary sniper location on the other
+  side of the level". Free under exact D4 symmetry — which is a good argument for enforcing B1 by
+  construction rather than by measurement.
+
+### 7.9 Used space / dead space
+
+Liapis: **used space** = passable tiles on a shortest path between any two objectives **[lit]**.
+Güttler's failure case is a used-space failure. We have no such metric; a generator can produce a
+board where half the floor is unreachable-in-practice and score perfectly on every density band.
+
+### 7.10 Segment decomposition
+
+Liapis decomposes into **segments** — "passable areas which are surrounded solely by chokepoints" —
+plus counts of chokepoints, dead ends and open areas **[lit]**. This yields a *room graph*, which is
+what `interiorFrac` gropes toward. A room graph gives us, for free: room count, room size
+distribution, room adjacency, dead-end count, and Hullett's *stronghold* and *arena* patterns as
+directly detectable structures rather than vibes.
+
+### 7.11 Pickup and objective placement theory
+
+We have `minPickupSpacingPx` **[engine]** and nothing else. Ballabio & Loiacono's guidelines
+**[lit]**: strong items in *strategically disadvantageous* positions (dead ends, hard to reach);
+mid-power items and their ammo *easy to reach*, because the losing player needs them most; full-armour
+pickups in *dangerous* areas. This is a comeback-mechanic theory encoded in geometry, and given that
+the heal economy is live and contested for us, it is directly applicable.
+
+### 7.12 Expressive-range analysis of our own generator
+
+Smith & Whitehead **[lit]**: sample the generator, plot the output in 2-D metric space, and look at
+the holes. **A 96% first-attempt validator pass rate is the diagnostic signature of a generator whose
+range has never been plotted** — the validator bands sit outside the generator's reachable set, so
+they are a crash guard, not a filter. Plot `coverFrac × sightlineP95` and `interiorFrac ×
+usedSpace` for a few thousand seeds before touching any threshold: the bands should bisect the
+generator's cloud, not enclose it.
+
+### 7.13 The emergent half of the metric suite
+
+The MAP-Elites inventory is **46 topological / 23 emergent** **[lit]**. Ours is ~100% topological.
+The missing emergent family: average fight time, time-to-engage, target-loss rate, kill-difference,
+pace, and kill-distance distribution. **We are unusually well placed to compute these** — the free
+field-diagnosis loop re-simulates 411 episodes in 9 minutes — so the usual cost argument against
+simulation-based fitness does not apply to us (§9).
+
+### 7.14 Conversion feasibility (G1) and 7.15 per-seat balance
+
+§5.4 and §4.1/B5 respectively. Both are two-line checks with disproportionate consequences.
+
+---
+
+## 8. Where published guidance conflicts with our measurements
+
+Our measurements win. The conflicts are recorded because each one is a place where following the
+literature would have cost us, and because each identifies a boundary of the published work's
+validity.
+
+**8.1 — Cover belongs at the collision point (Güttler) vs at the pedestal (us).**
+Güttler puts the cover budget at midfield, where the teams clash. Our intervention put it within
+200 px of the pedestal, and that is what converted (0 → 18 steals / 6 captures). **This is a
+refinement, not a contradiction** — Hullett's multiplayer chapter already says the CTF flag location
+"serves as a point of conflict" **[lit]** — but the *emphasis* in Güttler and in CS-derived practice
+is squarely on midfield, and following it would have sent us to the wrong place. The general
+statement that survives: *cover belongs wherever the decisive conflict is, and in symmetric CTF the
+decisive conflict is at the pedestal, not at the seam, because conversion decides matches and kills
+do not.*
+
+**8.2 — "Avoid long sightlines" is vacuous here.** The rule exists for games where weapon range ≪
+map size, so a long lane creates a *sniper* who outranges everyone. In our occlusion-limited regimes
+the gun reaches 85–100% of the long axis (§5.1), so "long sightline" is the default state and the
+rule forbids the map. The transferable statement is about **exposed run**, not sightline length: a
+1000 px sightline you can cross in under a TTK behind cover is fine; a 200 px sightline with no cover
+is not. These are different quantities and only one of them is a constraint.
+
+**8.3 — "Radial symmetry accommodates multiple teams" is false for k = 3 and 6 in this engine.**
+The Level Design Book presents radial symmetry as the natural multi-team answer **[C†]**. §3.2 shows
+that the L∞ movement metric admits no order-3 or order-6 isometry, and the residual is an irreducible
+**15.5% travel-speed advantage** — 2.0 s on a 1000 px approach, one full time-to-kill. Published
+guidance assumes an isotropic movement model. Ours is not isotropic. Our measurement (and the
+already-recorded hex work) wins.
+
+**8.4 — "Exploration" as a virtue is inverted for us.** Sentient Sketchbook maximises `f_exp`, "how
+difficult every base is to find" **[lit]**; that is an RTS objective. Güttler is explicit in the
+other direction for shooters: the design "must make it possible for the players to meet each other
+and preferable within a shorter period of time", and if they don't meet "the game will be reduced to
+a race against time" **[lit]**. For us, on occlusion-limited boards, contact is free and exploration
+is irrelevant; on colossal boards contact is the *binding* problem and exploration is actively
+harmful. **In no regime do we want to maximise it.**
+
+**8.5 — The TF2 1024-unit anchor does not transfer.** §1.2. TF2's player is 49 HU, not 32, so the
+32-HU bridge mis-scales every TF2 number by 1.53×. Normalised properly, our gun is ~48% longer
+relative to the player than TF2's medium-range cap. Use CS/HL2 numbers with the 32-HU bridge and TF2
+numbers only in TF2 body-widths.
+
+**8.6 — The literature contradicts itself on dead ends.** Güttler: avoid them. Gee's controlled
+study: "dead ends did not negatively impact FPS levels" **[lit]**. Both are about single-player or
+loosely-objective play. Our narrower, testable version: a dead end *on the carry route* collapses
+`k` to 1 and is fatal (D4). Elsewhere we have no evidence and should not legislate.
+
+**8.7 — "Symmetry guarantees fairness" is false in general and only conditionally true for us.**
+Three ways a perfectly mirrored map can still be unfair, of which the literature discusses at most
+the first:
+  (a) *Chirality.* In a real FPS the weapon sits on one shoulder, so mirror-image corners are not
+      equally easy. **We are exempt** — the sim's shot originates on the body along the aim axis and
+      the muzzle offset is art only (§1.3) — but this is a property we should keep testing, not
+      assume.
+  (b) *Turn order.* If the sim resolves collisions, hits or pickup contention in player-index order,
+      team 0 wins ties on every map including a perfect mirror. No map property can detect or fix
+      this (B6); it needs a mirrored-policy audit.
+  (c) *Incomplete transform.* Mirroring walls but not the spawn ring's per-seat ordering, or the
+      endzone, or the pickups, leaves a residual our symmetry check would pass. B4 states the fix:
+      the transform applies to the whole labelled configuration or it does not apply.
+
+**8.8 — "Levels are often symmetric to ensure balance" understates the measurement problem.**
+Hullett states it as the CTF norm **[lit]**. Our own asymmetric-map work found that the obvious
+fairness statistic — spawn→enemy-pedestal run length — is *structurally* 1.0 on a mirrored map and
+therefore proves nothing; the informative measurement is walk-to-midfield, and an asymmetry assertion
+is needed too or a mirror passes trivially. **Symmetry makes the fairness measurement vacuous, not
+the map fair.** Enforce symmetry by construction and spend the measurement budget on the residuals
+that symmetry does not cover (B6, B5, and the k ∈ {3,6} heading residual).
+
+**8.9 — "Three lanes" vs `k ≥ 3` vertex-disjoint routes.** The lane claim is folklore about geometry;
+our route-count claim is a graph property with a fatal-at-k=1 observation behind it. They are not the
+same statement, and many topologies satisfy the second without looking like lanes. Prefer ours; it is
+measurable and it is the one with evidence.
+
+**8.10 — Generate-and-filter vs constrained optimisation.** The literature's mature form is
+constrained search: hard playability constraints and a separate infeasible population (Liapis), or an
+archive over behavioural characteristics (MAP-Elites) **[lit]**. Our shape is generate-K,
+score-and-take-max, with validators that pass 96% of first attempts. §6.5 argues this is the worst
+combination available when most score terms are unvalidated. This is a conflict between our
+*architecture* and the literature's, and here the literature is right.
+
+---
+
+## 9. Playtest-free evaluation: what is decidable statically and what is not
+
+The MAP-Elites 46/23 split **[lit]** is the right frame. Applied to our property set:
+
+| Statically decidable (cheap, exact, run on every candidate) | Requires simulation (expensive, valid, run on the shortlist) |
+|---|---|
+| A1–A6 reachability, clearances, objective plumbing | whether a route is actually *used* |
+| B1–B5 symmetry, D4 exactness, heading residual, spreads | whether the win rate is actually ~50% |
+| C2 equidistant frontier, C3 frontier cover | C1 realised time-to-first-contact |
+| D1–D4 cover fractions, route counts, dead ends | realised grab→capture conversion rate |
+| E1–E5 exposure runs, `A(p)`, `Ω(p)`, joint coverage | kill-distance distribution, engagement distance |
+| F1–F4 densities, sightline tail, used space | pace, fight time, time-to-engage, target-loss rate |
+| G1 conversion feasibility | `balanceEntropy` over kills |
+| VGA: connectivity, integration, clustering coefficient | whether the collision point lands where predicted |
+
+**The asymmetry that matters:** static properties are **necessary conditions** — cheap vetoes that
+can only prove a map *bad*. Simulation properties are **sufficient evidence** — expensive confirmations
+that a map is *good*. Neither substitutes for the other, and Güttler's `cs_citymall` is the proof: the
+collision point is *predicted* statically and must be *verified* by play, because the prediction was
+confidently wrong and cost half the level.
+
+**Our situation is unusual and we should exploit it.** The standard reason the literature leans on
+static proxies is that simulation is expensive. For us it is not: the free field-diagnosis loop
+re-simulates 411 episodes of ground truth in ~9 minutes, verified 88/88 against the platform's own
+scores. That changes the economics. The right allocation:
+
+```
+    per candidate (K = 8–16):   static constraints only — veto, do not score
+    per shortlist (top 2–3):    ~20–50 simulated episodes — the emergent metrics
+    per pool release:           full re-simulation — conversion rate, per-team win rate, pace
+    per metric, once:           the INTERVENTION that promotes it from C∼ to N★
+```
+
+The last line is the one that has never been run for most of the suite, and it is the one that would
+retire the Goodhart risk permanently.
+
+---
+
+## 10. If you implement one thing
+
+In descending order of expected value per unit of work:
+
+1. **`travelTime()` in L∞ and a heading-aware exposure budget** (§3.1, §3.3). One helper; corrects
+   every distance-derived threshold in the suite.
+2. **D2 — carry-route cover cadence** (§3.4, §7.6). The highest-value untested property, and it
+   directly attacks the recorded "we steal now, the carrier dies" failure.
+3. **G1 — conversion feasibility** (§5.4). Two lines; potentially retires a whole size class.
+4. **Move C-class properties from the score into wide feasibility bands** (§6.5). Structural; kills
+   the best-of-K amplification.
+5. **`A(p)` and `Ω(p)`** (§3.5), replacing `interiorFrac` in the score and demoting it to a
+   diagnostic (§6.3).
+6. **Band the sightline tail, not the mean** (§4.1/F2). Small change, large correctness gain.
+7. **Spread-across-teams twin for every metric** (§7.7). Free under exact symmetry; catches symmetry
+   bugs.
+8. **Expressive-range plot of the current generator** (§7.12) before re-tuning any threshold.
+
+---
+
+## 11. Sources
+
+**Primary — academic, evidence-bearing**
+
+- Güttler, C. & Johansson, T. D. (2003). *Spatial Principles of Level-Design in Multi-Player
+  First-Person Shooters.* NetGames 2003.
+  https://svn.sable.mcgill.ca/sable/courses/COMP763/oldpapers/guttler-03-spatial.pdf
+- Hullett, K. & Whitehead, J. (2010). *Design Patterns in FPS Levels.* FDG 2010.
+  https://users.soe.ucsc.edu/~ejw/papers/hullett-fps-fdg2010.pdf
+- Hullett, K. (2012). *The Science of Level Design: Design Patterns and Analysis of Player Behavior
+  in First-Person Shooter Levels.* PhD dissertation, UC Santa Cruz.
+  https://users.soe.ucsc.edu/~ejw/dissertations/Ken-Hullett-dissertation.pdf ·
+  https://escholarship.org/uc/item/1m25b5j5
+- Ballabio, M. & Loiacono, D. (2019). *Heuristics for Placing the Spawn Points in Multiplayer First
+  Person Shooters.* IEEE CoG 2019. https://ieee-cog.org/2019/papers/paper_59.pdf
+- Cardamone, L., Yannakakis, G. N., Togelius, J. & Lanzi, P. L. (2011). *Evolving Interesting Maps
+  for a First Person Shooter.* EvoApplications, LNCS 6624.
+  https://link.springer.com/chapter/10.1007/978-3-642-20525-5_7
+- (2026). *Procedural Generation of First Person Shooter Maps using MAP-Elites.*
+  https://arxiv.org/html/2605.30570v1 — the 46 topological / 23 emergent metric split, the entropy
+  fitness, and the `pace` formula.
+- Liapis, A., Yannakakis, G. N. & Togelius, J. (2013). *Sentient Sketchbook: Computer-Aided Game
+  Level Authoring.* FDG 2013. http://www.fdg2013.org/program/papers/paper28_liapis_etal.pdf
+- Togelius, J., Yannakakis, G. N., Stanley, K. O. & Browne, C. (2011). *Search-Based Procedural
+  Content Generation: A Taxonomy and Survey.* IEEE TCIAIG 3(3).
+  https://nyuscholars.nyu.edu/en/publications/search-based-procedural-content-generation-a-taxonomy-and-survey
+- Smith, G. & Whitehead, J. (2010). *Analyzing the Expressive Range of a Level Generator.*
+  PCGames @ FDG 2010. https://dl.acm.org/doi/10.1145/1814256.1814260
+- Turner, A., Doxa, M., O'Sullivan, D. & Penn, A. (2001). *From isovists to visibility graphs: a
+  methodology for the analysis of architectural space.* Environment and Planning B 28(1):103–121.
+  https://discovery.ucl.ac.uk/160/1/turner-doxa-osullivan-penn-2001.pdf
+- Benedikt, M. L. (1979). *To take hold of space: isovists and isovist fields.* Environment and
+  Planning B 6:47–65. — the origin of isovist area, perimeter, occlusivity, variance, skewness and
+  circularity.
+- *ARENA — Dynamic Run-Time Map Generation for Multiplayer Shooters.* LNCS 8770 (ICEC 2014).
+  https://link.springer.com/chapter/10.1007/978-3-662-45212-7_19 — cited for completeness;
+  paywalled, abstract only, not used for any threshold in this document.
+
+**Primary — Valve official**
+
+- *CS:GO Mapper's Reference.* https://developer.valvesoftware.com/wiki/CS:GO_Mapper%27s_Reference —
+  player 32×32×72 standing / 32×32×54 crouching; corridors must exceed 32 units; wall thickness
+  conventions (≥32 non-penetrable, ≤16 penetrable, ≤8 penetrable by most weapons); crate heights
+  (72 = blind, 56–60 = headglitch, ≤44 = see over).
+- *Team Fortress 2 Mapper's Reference.*
+  https://developer.valvesoftware.com/wiki/Team_Fortress_2/Mapper%27s_Reference — player 49 wide ×
+  83 tall; class speeds in HU/s; "scale the entire map up 1.5×" when porting from standard scale;
+  sentry detection 1100; explosion radius 146; 2Fort room dimensions.
+- *GoldSrc Dimensions* / *Hammer Units.*
+  https://developer.valvesoftware.com/wiki/GoldSrc_Dimensions ·
+  https://developer.valvesoftware.com/wiki/Hammer_Units
+- *Damage* (Official TF Wiki). https://wiki.teamfortress.com/wiki/Damage — 150% at 0 units, 100% at
+  512, 50% at ≥1024.
+
+*(The Valve wiki serves an anti-scraping challenge to automated fetchers; these pages were read via
+the Wayback Machine.)*
+
+**Curated secondary — cites its sources, is not itself evidence**
+
+- *The Level Design Book* (Robert Yang et al.): [Map balance](https://book.leveldesignbook.com/process/combat/balance),
+  [Circulation](https://book.leveldesignbook.com/process/layout/flow/circulation).
+  Cites in turn: David Sirlin on balance; Jaime Griesemer, GDC 2010 *Design in Detail: Changing the
+  Time Between Shots for the Sniper Rifle*; Sal Garozzo & Shawn Snelling, GDC 2015, CS:GO community
+  level design; Matthew "Lunaran" Breit (1999) on Quake map balance.
+
+**Folklore — flagged, not relied on**
+
+- "Three lanes"; "avoid long sightlines"; "cover every N metres"; "dead ends are bad" (contradicted
+  by Gee's own controlled study). See §2.3.
+
+**Our own measurements (this project)**
+
+- Stand-side cover band 10–25% within 200 px; failures at 0-of-21, 0-of-17, 0-of-10; the fixed map's
+  0 → 18 steals / 6 captures.
+- `interiorFrac`: hand-authored arena 0.342 vs generated pool median 0.118.
+- Spawn-in-capture-circle: 0-of-22.
+- Hard-coded `homeDeepX = 150`: grab→capture 0/6 → 3/4 after steering to the engine-stated endzone.
+- `k = 1` route count fatal; `k ≥ 3` required.
+- Reference plates ~54% open / ~28% structure; current validator band 4–17%.
+- Validator first-attempt pass rate 96%.
+- Free field-diagnosis loop: 411 episodes re-simulated in ~9 min, verified 88/88.
