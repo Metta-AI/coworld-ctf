@@ -923,3 +923,389 @@ Note also the classification: a surrogate is **(C)** with respect to map quality
 what search costs, never what search can reach. It is a budget instrument.
 
 ---
+
+## 11. Fitness-design pathologies, with the CQB plant as a worked example
+
+[Manheim & Garrabrant, "Categorizing Variants of Goodhart's Law"
+(arXiv:1803.04585)](https://arxiv.org/abs/1803.04585) gives four mechanisms. All four are
+live in our stack right now, and I can name the instance of each.
+
+### 11.1 Regressional Goodhart — *the proxy is signal plus noise, and argmax selects noise*
+
+Once the signal is exhausted, `argmax` over K candidates selects on whatever varies, which
+is noise and tie-break order. §1.2 shows the terminal case: at 39/40 candidates scoring
+1.000, `selectBestMap`'s strict `>` makes the RNG attempt order the actual quality policy.
+
+**A note on "150 held-out seeds."** Holding out seeds protects against overfitting the
+*generator* to particular seeds. It provides **zero** protection against a mis-specified
+*rubric* — a wrong metric is wrong on held-out seeds too, and will look just as convincing
+there. "Measured over 150 held-out seeds" reads as more rigour than it is, and should be
+stated as "held out across seeds, not across rubric design."
+
+### 11.2 Extremal Goodhart — *the relationship breaks at the extremes*
+
+Every band was calibrated against the arena and the 20-seed pool. Consider `interiorFrac`,
+`lo: 0.25, hi: 0.65`, control 0.342, pool median 0.118:
+
+> **We have never observed a map above ~0.35.** The entire upper half of that band —
+> 0.35 to 0.65 — is extrapolation from two data points, one of which is a single
+> hand-authored map. Optimising into it is optimising into a region where the
+> proxy–goal relationship was never established, and where nobody has any idea whether a
+> 0.60-interior map plays as a fortress, a maze, or a bug.
+
+Same argument applies to `chokeCount hi: 6.0` (control 0), `midCrossCount hi: 12.0`
+(control 5), and `detourMax hi: 1.90` (control 1.295).
+
+### 11.3 Adversarial Goodhart — *a search is an adversary*
+
+Optimisation pressure *is* adversarial pressure against your metric; the only question is
+how much of it you apply. Best-of-12 is a very weak adversary. A 576,000-evaluation
+overnight MAP-Elites run (§8.2) is a strong one, and it will find whatever exploit exists
+in a 15-band rubric that has never been validated against an outcome.
+
+> **The single biggest lever in this document (§8.2, offline search) is also the single
+> biggest Goodhart amplifier in it. Do not pull it before §10.2 has run.**
+
+That ordering constraint is the most important operational recommendation here.
+
+### 11.4 Causal Goodhart — *the CQB plant, in full*
+
+**What happened.** We shipped a change intended to raise accuracy. Its stated mechanism was
+"stop firing while moving."
+
+| Reading | Before | After | Verdict |
+|---|---|---|---|
+| moving-while-firing | 63% | **0.1%** | mechanism **perfected** |
+| hit rate | 36.0% | **36.1%** | outcome **unmoved** |
+| kills | — | **−34%** | outcome **regressed hard** |
+| deaths | — | **+34%** | outcome **regressed hard** |
+
+**Why it is causal Goodhart, precisely.** The assumed chain was
+`moving-while-firing → accuracy penalty → low hit rate`, so removing the first link should
+raise hit rate. It did not move (+0.1pp on a 36pp base is nothing). So the association was
+not causal in the assumed direction — plausibly the reverse, that agents move while firing
+*because* they are already in a losing fight. And the intervention carried an enormous
+effect through an entirely unmodelled channel: to not move while firing you must **stand
+still**, and standing still in this engine is fatal (the loss profile is alive time, and
+equal 2.75 px/tick speeds mean you cannot disengage). −34% kills and +34% deaths is the
+price of standing still, and no metric in the change's own scorecard could see it.
+
+**The four lessons, transferred to map fitness.**
+
+1. **A metric earns fitness status only when an *intervention* that moves it has been shown
+   to move the *outcome*.** All 15 of our bands were calibrated by **observation** — the
+   arena measures X, the pool measures Y, therefore X is good. That is exactly the class of
+   evidence the CQB plant had, and exactly the class that failed.
+2. **A mechanism reading is not an outcome reading.** "moving-while-firing = 0.1%" is a
+   mechanism; "hit rate" is an outcome. `interiorFrac = 0.45` is a mechanism;
+   `balanceEntropy` / `pace` / `deadFloorFrac` are outcomes. Reporting
+   "median static score 0.840 → 0.901" is reporting a mechanism and calling it a result.
+3. **A perfected mechanism metric is evidence of nothing except that the code works.**
+   63% → 0.1% proves the lever fires. It does not prove the lever should exist. A map
+   generator that hits `interiorFrac = 0.45` on every seed has proven the same thing and
+   no more.
+4. **Enumerate the side-effect channels before shipping.** The CQB damage travelled through
+   alive time, which nobody had listed. For an architecture-maximising map the analogous
+   unlisted channels are: reduced alive time in enclosed space, collapsed scoring pace,
+   new camping ground, an objective that becomes undefendable or unassailable. **None of
+   these is in the band table.** Every one is in `MapPlay`.
+
+### 11.5 The intervention test — and why it caps the size of your objective
+
+**Protocol.** For a candidate quality metric X:
+
+1. Produce **matched pairs** of maps differing mainly in X, with the other metrics held as
+   close as possible.
+2. Simulate both, ≥3 episodes each.
+3. If the `MapPlay` outcomes do not separate, **X does not belong in the fitness function.**
+
+**Cost:** 97 s × 3 episodes × 2 maps = 9.7 min per pair; ~20 pairs for a usable signal =
+**3.2 machine-hours per metric.**
+
+Which gives the constraint that should govern the whole design:
+
+> We can afford to causally justify **two or three** quality metrics, not fifteen.
+> Therefore the fitness function should contain two or three quality metrics. The budget
+> for justification sets the size of the objective.
+
+**And here is the elegant part: MAP-Elites produces the matched pairs for free.** Two
+*adjacent cells* on a BC axis are, by construction, two maps that differ mainly in that one
+coordinate. An archive is not only a diversity instrument — it is a **matched-pair
+generator for causal testing**, which is the single most expensive input to §11.5 and the
+one we currently have no way to produce.
+
+### 11.6 A flat landscape is worse than a deceptive one
+
+The classic pathology in this literature is *deception* — a fitness landscape whose gradient
+points away from the goal, which is the motivation for
+[novelty search](https://direct.mit.edu/evco/article-abstract/19/2/189/1365/). Ours is not
+deceptive. Ours is **flat**: `staticScore` is constant on a large plateau containing
+essentially all good candidates.
+
+That is a concrete blocker for half the technique table. Hill climbing, simulated annealing,
+tabu search, and a plain GA all require a gradient to follow, and there is none.
+
+> **You cannot hill-climb a plateau. The fitness fix (§4) is a hard prerequisite for every
+> local-search method in §3, not an independent improvement.**
+
+---
+
+## 12. RL and ML for level generation, assessed honestly at our scale
+
+### 12.1 PCGRL
+
+[Khalifa, Bontrager, Earle & Togelius, "PCGRL: Procedural Content Generation via
+Reinforcement Learning," *AIIDE* 16(1):95–101,
+2020](https://arxiv.org/abs/2001.09212) frames level design as an MDP — the designer agent
+edits tiles and is rewarded for improving level quality — and trains it with RL. Its two
+stated advantages: it "can be used when few or no examples exist to train from", and "the
+trained generator is very fast."
+
+**Verdict: (B), and not worth it for us. Four reasons, in order of decisiveness.**
+
+1. **The reward function is the same fitness we do not trust.** RL does not fix a
+   mis-specified objective; it optimises it harder, faster, and with more creativity about
+   loopholes. Everything in §11 applies with substantially more force.
+2. **Its headline advantage solves a problem we do not have.** "The trained generator is
+   very fast" is valuable when generation is the bottleneck. Ours is ~1 s, and the
+   archive-as-generator design in §5.4 makes it *faster* than today without any learning.
+3. **Representation mismatch.** PCGRL's MDP formulations (narrow / turtle / wide) assume a
+   modest **tile grid** — Sokoban, Zelda, binary mazes. Our maps are ~1500×800 px of
+   continuous geometry with rectangular obstacles, medkit points, pedestals and endzones.
+   Reducing that to a tile grid an agent can edit is itself a large representation project,
+   and it would discard exactly the structure (the scene graph) that we just built.
+4. **Cost.** Training infrastructure, reward shaping, and a hyperparameter budget, in
+   exchange for a generator we would still have to filter.
+
+### 12.2 PCGML
+
+[Summerville et al., "Procedural Content Generation via Machine Learning (PCGML)," *IEEE
+Trans. Games*, 2018 (arXiv:1702.00539)](https://arxiv.org/abs/1702.00539) surveys learning
+generators from a corpus of existing content.
+
+**Verdict: no.** We have the arena plus 6 MW2 maps — **7 artefacts**. That is not a corpus,
+and the survey itself lists "learning from small data sets and lack of training data" among
+its open problems. The one low-data method the survey singles out, WaveFunctionCollapse,
+is a *constructive* technique and belongs to the sibling constructive/partition dimensions,
+not to this one. Handing it off rather than claiming it.
+
+### 12.3 Where ML genuinely earns its place here
+
+Two places, both narrow and both sequenced behind other work:
+
+- **The learned surrogate** (§10.3) — and only if §10.2 shows that play outcomes differ
+  between maps *and* that the static metrics fail to predict them. DSAGE is the blueprint.
+- **Dimensionality reduction for expressive-range analysis** (§7.2 step 1) — PCA/MCA over
+  downsampled occupancy grids. This is ML in the boring, useful, half-a-day sense, and it
+  is the single highest-value-per-hour item in this document.
+
+---
+
+## 13. Deliverable 3b — the honest ceiling of search-based methods
+
+### 13.1 Search changes the measure; it cannot change the support
+
+This is the exact statement of the ceiling.
+
+Best-of-K returns the `K/(K+1)` quantile of **the generator's own quality distribution**.
+It reweights that distribution toward its upper tail. It cannot place probability mass
+where the generator places none.
+
+> **If the generator assigns probability zero to architecture, no amount of search finds
+> architecture.** Selection is a reweighting; it cannot add support.
+
+Our own numbers are the proof, and they are unusually clean: after shipping best-of-K,
+`interiorFrac` still sits near the pool median of **0.118** against the arena's **0.342**.
+We selected 12× and the architecture gap did not close, because *none of the 12 candidates
+had architecture*. The measured `0.840 → 0.901` is a genuine gain from the tail of a
+distribution whose **mode is still wrong**.
+
+**Therefore:** to move the mode you must change the *representation* — the generator, the
+grammar, the scene graph, the partition scheme. Those are the sibling dimensions
+(constructive, partition, noise/gradient, shapes, biomes). **Search's job is to exploit a
+representation, and it is very good at that; it is structurally incapable of repairing
+one.** A team that keeps raising K instead of fixing the generator is, in the precise
+technical sense, optimising the wrong object.
+
+### 13.2 The rejection-sampling identity: guarantees have a price, and the price diverges
+
+"Always good" achieved by *filtering* is rejection sampling. Its cost identity is exact:
+
+```
+E[draws to ship one acceptable map] = 1 / p(T)      where p(T) = P(candidate meets bar T)
+```
+
+- At our measured **p = 0.223**, we already pay **4.5×** — that is what the 35–55 attempts
+  are.
+- Raising the bar T lowers p and raises cost as `1/p(T)`.
+- There exists a T at which `p(T) = 0` and the loop **never terminates**.
+
+Our loop terminates by fiat: `MapGenMaxAttempts = 100`, and `generateCtfMap` **raises** on
+exhaustion. So:
+
+> The failure mode of a quality guarantee implemented as a filter is **not a bad map. It is
+> an availability outage.** And the margin against that outage is a function of a pass rate
+> nobody monitors.
+
+At p = 0.223, P(zero valid in 100) ≈ 10⁻¹¹ — fine. At p = 0.03 it is **4.8% of seeds**.
+There should be an SLO on the pass rate and a defined fallback (ship a pool map? relax the
+bar and log?) rather than an exception.
+
+### 13.3 What "always good" can and cannot mean under search
+
+**It CAN mean:**
+
+| Claim | Class | Have it? |
+|---|---|---|
+| "No map ships that violates property P" — for P in the validator's tested set | **A** | Yes |
+| "A map of behavioural character C is always available" | **A**, about the *set* | No — needs an archive |
+| "The shipped map is the best of K draws by rubric R" | **B** | Yes, but currently a no-op (§1.2) |
+| "The shipped map is at the n-th percentile of a frozen reference population" | **B** | No — §4.6 |
+
+**It CANNOT mean:**
+
+- **"Every map is good."** Search has no access whatsoever to properties absent from R, and
+  as §1.4 notes, it does not even leave them alone.
+- **"Good" by a definition we have not written down.** The definition that matters —
+  does it play well — is `MapPlay`, and it has never been connected to the ranker.
+- **"Better than the generator can make."** §13.1.
+- **"Guaranteed, cheaply."** §13.2. The guarantee costs `1/p`, and it costs infinity
+  exactly where it starts being interesting.
+
+### 13.4 The one honest route from (B) to (A), and it is not ours
+
+Inside a search framework, the only way to reach a hard guarantee is to make the
+**representation incapable of expressing a violation** — constraint-preserving encodings,
+total repair operators, grammars whose every derivation is valid. That is a representation
+technique wearing a search hat, and it belongs to the constructive and partition
+dimensions. **Explicit handoff:** if "always good" is meant literally, the answer is over
+there, not here. What this dimension can honestly promise is *"reliably better than
+average, along axes we have written down, with measured coverage of a design space."*
+That is a smaller promise and it is a true one.
+
+---
+
+## 14. What I would build first
+
+Ranked by (decisiveness ÷ cost). Items 1–4 are all under a day each and none depends on
+any other.
+
+| # | Build | Cost | Why this order |
+|---|---|---|---|
+| 1 | **Metric-free generative-space plot.** Downsample 40 scene-graph maps + 40 old-generator maps + the 7 hand-authored controls to 64×64 occupancy, PCA to 2D, scatter with the controls labelled. | ~½ day | Answers the live "seeds look near-identical" complaint **directly**, depends on no metric being right, and produces one image that ends the argument either way. Highest value per hour in this document. |
+| 2 | ⚠️ **Surrogate-validation sim run.** 40 maps spanning the old generator's 0.717–0.932 spread × 3 episodes; Spearman ρ of `staticScore` **and each band's sub-score** against every `MapPlay` outcome. | 3.2 h compute, ~1 day to wire | **Time-sensitive.** It needs `staticScore` spread to compute a correlation, and the saturating scene-graph generator destroys that spread. Decides what everything downstream should optimise. Run it this week or lose the instrument. |
+| 3 | **Failure histogram + pass-rate reconciliation.** Which validator rejects, over ~2000 attempts per (teams × size class). Settle 47% (code comment) vs 22–23% (measured). | ~½ day | May make FI-2Pop unnecessary by revealing one dominant rejection cause. Also establishes the pass-rate SLO from §13.2. |
+| 4 | **BC-axis selection analysis.** Spearman ρ matrix over all 45 metrics on the 150 held-out seeds + the three Right Variety criteria for candidate pairs. | ~½ day | Picks the archive axes by criterion instead of by my taste. Confirms or replaces `interiorFrac × routeCapacityFrac`. Prerequisite for item 6. |
+| 5 | **Split the gate from the ranker.** `staticFeasible: bool` + slack report; `selectBestMap` gains a reference-set argument and ranks lexicographically on (feasible, novelty, quality) per §4.5. Retire `median staticScore` for the §4.7 scorecard. | 1–2 days | **This is a bug fix, not a feature.** Best-of-K is a no-op on the new generator today and is shipping that way. Restores selection immediately, with no new machinery and no new evaluation cost. |
+| 6 | **`tools/map_range.nim` ERA harness** — N maps → CSV of all 45 metrics; hexbin plots with controls overlaid; coverage + concentration + holes; version diffs. | 1–2 days | The instrument every later claim reads from. 2000 samples costs 100 s. |
+| 7 | **Graded violation function** in `map_rules.nim` (all failures, scalar residuals). | 2–3 days | Prerequisite for FI-2Pop and CME; independently valuable for debugging. Gate on item 3's result. |
+| 8 | **Offline Constrained MAP-Elites + archive-as-generator** (§5.4, §5.5). Overnight per (teams × size class); archive of elite **genotypes**; online = pick cell → mutate → construct → validate. | 1–2 weeks | The big one. Fixes diversity structurally, un-saturates the objective, gives a style dial for free, and makes request latency go **down**. **Do not start before items 2 and 4** — see §11.3. |
+
+**Explicitly do not build:** a larger K (§8.2 — buys percentile, not mode); NSGA-II over 15
+objectives (§9.3); PCGRL (§12.1); PCGML (§12.2); a learned surrogate before §10.2 (§10.3);
+tabu search (§3); anything that hill-climbs `staticScore` before item 5 (§11.6 — it is a
+plateau).
+
+**If only one thing gets done: item 5.** Best-of-K is currently doing nothing on the new
+generator while paying full price, and that is live in the tree.
+
+---
+
+## 15. Sources
+
+Primary, in the order they are used.
+
+**Search-based PCG**
+- Togelius, Yannakakis, Stanley & Browne, "Search-Based Procedural Content Generation: A
+  Taxonomy and Survey," *IEEE Transactions on Computational Intelligence and AI in Games*
+  3(3):172–186, 2011. https://ieeexplore.ieee.org/document/5756645 ·
+  https://www.semanticscholar.org/paper/3288d7575f451d2e95f57cefc9566691ff272f1c
+- Shaker, Togelius & Nelson, *Procedural Content Generation in Games*, ch. 2
+  ("Search-based PCG"). http://pcgbook.com/
+
+**Constraint handling**
+- Kimbrough, Koehler, Lu & Wood, "On a Feasible–Infeasible Two-Population (FI-2Pop) genetic
+  algorithm for constrained optimization: Distance tracing and no free lunch," *EJOR*
+  190(2):310–327, 2008.
+  https://www.sciencedirect.com/science/article/abs/pii/S0377221707005668 ·
+  https://repository.upenn.edu/oid_papers/46
+
+**Quality-Diversity**
+- Mouret & Clune, "Illuminating search spaces by mapping elites," arXiv:1504.04909, 2015.
+  https://arxiv.org/abs/1504.04909
+- Lehman & Stanley, "Abandoning Objectives: Evolution Through the Search for Novelty Alone,"
+  *Evolutionary Computation* 19(2):189–223, 2011.
+  https://direct.mit.edu/evco/article-abstract/19/2/189/1365/ ·
+  https://www.cs.swarthmore.edu/~meeden/DevelopmentalRobotics/lehman_ecj11.pdf
+- Khalifa, Lee, Nealen & Togelius, "Talakat: Bullet Hell Generation through Constrained
+  Map-Elites," *GECCO '18*. https://arxiv.org/abs/1806.04718
+- Gravina, Khalifa, Liapis, Togelius & Yannakakis, "Procedural Content Generation through
+  Quality Diversity," *IEEE CoG 2019*. https://arxiv.org/abs/1907.04053 ·
+  https://antoniosliapis.com/articles/pcgqd.php
+- Fontaine, Togelius, Nikolaidis & Hoover, "Covariance Matrix Adaptation for the Rapid
+  Illumination of Behavior Space" (CMA-ME), arXiv:1912.02400.
+  https://arxiv.org/abs/1912.02400
+- Fontaine, Lee, Soros, De Mesentier Silva, Togelius & Hoover, "Mapping Hearthstone Deck
+  Spaces through MAP-Elites with Sliding Boundaries," *GECCO '19*.
+  https://arxiv.org/abs/1904.10656
+- Vassiliades, Chatzilygeroudis & Mouret, "Scaling Up MAP-Elites Using Centroidal Voronoi
+  Tessellations" (CVT-MAP-Elites), arXiv:1610.05729. https://arxiv.org/abs/1610.05729
+- Alvarez, Dahlskog, Font & Togelius, "Empowering Quality Diversity in Dungeon Design with
+  Interactive Constrained MAP-Elites," *IEEE CoG 2019*. https://arxiv.org/abs/1906.05175 ·
+  follow-up analysis of feature-dimension expressiveness: https://arxiv.org/abs/2003.03377
+- "Procedural Generation of First Person Shooter Maps using MAP-Elites" — the closest
+  published analogue to our problem (BCs: area × maxSymmetry, pace × averageEccentricity;
+  fitness = entropy of match balance over 5 matches; 10 bins/feature; 69 candidate features
+  screened). https://arxiv.org/html/2605.30570v1
+- "Multi-Objective Quality-Diversity in Unstructured and Unbounded Spaces" — entry point to
+  the MOQD family. https://arxiv.org/abs/2504.03715
+
+**Expressive range**
+- Smith & Whitehead, "Analyzing the expressive range of a level generator," *PCG '10*.
+  https://dl.acm.org/doi/10.1145/1814256.1814260 ·
+  https://www.semanticscholar.org/paper/09f8fe6a89b5f5a480ab059f60a251052a31e2ed
+- "The Right Variety: Improving Expressive Range Analysis with Metric Selection Methods,"
+  arXiv:2304.02366 (fitness independence, mutual correlation, alternative-metric
+  correlation). https://arxiv.org/abs/2304.02366
+- "Compressing and Comparing the Generative Spaces of Procedural Content Generators,"
+  arXiv:2205.15133 (metric-free generative-space comparison via PCA/SVD/MCA/t-SNE).
+  https://arxiv.org/abs/2205.15133
+- Cook, Gow, Smith et al., "Danesh: Interactive Tools for Understanding Procedural Content
+  Generators." https://mkremins.github.io/refs/Danesh.pdf
+
+**Surrogates**
+- Bhatt, Tjanaka, Fontaine & Nikolaidis, "Deep Surrogate Assisted Generation of
+  Environments" (DSAGE), *NeurIPS 2022*. https://arxiv.org/abs/2206.04199 ·
+  https://dsagepaper.github.io/
+
+**Multi-objective**
+- Das & Dennis, "A closer look at drawbacks of minimizing weighted sums of objectives for
+  Pareto set generation in multicriteria optimization problems," *Structural Optimization*
+  14:63–69, 1997. (Weighted sums reach only the convex hull of the Pareto front.)
+- Deb & Jain, "An Evolutionary Many-Objective Optimization Algorithm Using
+  Reference-Point-Based Nondominated Sorting Approach, Part I" (NSGA-III), *IEEE TEVC*
+  18(4):577–601, 2014. (Motivating the degeneration of Pareto dominance above ~4
+  objectives.)
+- Deb, Pratap, Agarwal & Meyarivan, "A fast and elitist multiobjective genetic algorithm:
+  NSGA-II," *IEEE TEVC* 6(2), 2002.
+  https://sci2s.ugr.es/sites/default/files/files/Teaching/OtherPostGraduateCourses/Metaheuristicas/Deb_NSGAII.pdf
+
+**Metric pathologies**
+- Manheim & Garrabrant, "Categorizing Variants of Goodhart's Law," arXiv:1803.04585.
+  (Regressional / extremal / causal / adversarial.) https://arxiv.org/abs/1803.04585
+
+**RL / ML level generation**
+- Khalifa, Bontrager, Earle & Togelius, "PCGRL: Procedural Content Generation via
+  Reinforcement Learning," *AIIDE* 16(1):95–101, 2020. https://arxiv.org/abs/2001.09212
+- Summerville, Snodgrass, Guzdial, Holmgård, Hoover, Isaksen, Nealen & Togelius,
+  "Procedural Content Generation via Machine Learning (PCGML)," *IEEE Trans. Games*, 2018.
+  https://arxiv.org/abs/1702.00539
+
+**Folklore flags.** The following are stated here without primary-source backing and should
+be treated as folklore until measured *in our stack*: (a) that `interiorFrac` and
+`routeCapacityFrac` are uncorrelated — plausible from their definitions, **must** be
+measured on the 150-seed pool (§5.3); (b) the estimate that FI-2Pop would lift our pass
+rate to ~60% (§6.4) — an illustrative number, not a prediction; (c) that splitting
+`evaluateMap` into a cheap BC path and a full report path yields a large speed-up (§8.3) —
+profile it first; (d) the "coverage <10% today" estimate in §4.7 — unmeasured, and item 6
+of §14 exists to replace it with a number.
