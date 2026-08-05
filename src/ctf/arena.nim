@@ -2442,9 +2442,28 @@ type
     ## to report cost honestly rather than guess it.
     gameMap*: CtfMap
     score*: float          ## -1 when nothing was ranked.
+    worstScore*: float     ## -1 when nothing was ranked.
     attempts*: int         ## candidates drawn, valid or not.
     valid*: int            ## candidates that passed the gate.
     ranked*: bool          ## false = no scorer, so this is first-valid.
+    tiedAtBest*: int
+      ## How many ranked candidates scored EXACTLY the winner's score, the
+      ## winner included. 1 means selection expressed a real preference.
+    degenerate*: bool
+      ## True when selection ranked MORE THAN ONE candidate and could not tell
+      ## them apart (`tiedAtBest == valid`, `valid > 1`).
+      ##
+      ## This is the failure mode that looks exactly like success: a map comes
+      ## back, `ranked` is true, the full K-candidate cost is paid, and the
+      ## result is just the first valid draw. A scorer that saturates, that
+      ## reads a field this generator never varies, or that quantises to a
+      ## handful of values all land here — and `score` alone cannot show it,
+      ## because the winning score is perfectly healthy-looking.
+      ##
+      ## Deliberately NOT an error: a genuinely tied field is a legitimate
+      ## outcome at small K, and callers that ignore this keep working.
+      ## `worstScore` is the companion — `score == worstScore` over many
+      ## candidates is the same signal as a continuous quantity.
 
 proc selectBestMap*(
   seed: int,
@@ -2480,6 +2499,7 @@ proc selectBestMap*(
   ## `valid == 0` means nothing passed the gate inside `maxAttempts`; the
   ## caller decides whether that is an error (`generateCtfMap` raises).
   result.score = -1.0
+  result.worstScore = -1.0
   result.ranked = score != nil or mapFitness != nil
   let want = max(1, k)
   for attempt in 0 ..< maxAttempts:
@@ -2499,11 +2519,43 @@ proc selectBestMap*(
     let value =
       if score != nil: score(candidate)
       else: mapFitness(candidate)
+    if result.valid == 1 or value < result.worstScore:
+      result.worstScore = value
     if value > result.score:
       result.score = value
       result.gameMap = candidate
+      result.tiedAtBest = 1
+    elif value == result.score:
+      ## Exact equality only — this counts a scorer that cannot separate
+      ## candidates, not one that separates them narrowly. The winner is NOT
+      ## replaced, so selection stays deterministic (first best wins).
+      inc result.tiedAtBest
     if result.valid >= want:
-      return
+      break
+  result.degenerate = result.ranked and result.valid > 1 and
+    result.tiedAtBest == result.valid
+
+proc generateCtfMapSelection*(
+  seed: int,
+  overrides = MapGenOverrides(windows: -1, pits: -1, pitDensity: -1),
+  teams = 2,
+  k = 0
+): MapSelection =
+  ## `generateCtfMap` with the SELECTION ACCOUNTING kept instead of discarded —
+  ## score, worstScore, attempts, valid, tiedAtBest, degenerate.
+  ##
+  ## Exists because `generateCtfMap` returns only the map, so a caller auditing
+  ## selection had to re-derive the accounting by replaying the generator (as
+  ## `tools/map_eval.nim bestof` did, which cannot see `degenerate` at all —
+  ## the whole point of that flag is that the winning map looks fine).
+  let
+    first = generateMapAttempt(seed, overrides, teams, 0)
+    want = if k > 0: k else: first.selectionK()
+  selectBestMap(
+    seed, want,
+    produce = proc (s, attempt: int): CtfMap =
+      if attempt == 0: first
+      else: generateMapAttempt(s, overrides, teams, attempt))
 
 proc generateCtfMap*(
   seed: int,
@@ -2517,17 +2569,10 @@ proc generateCtfMap*(
   ##
   ## Raises only when NO candidate validates inside `MapGenMaxAttempts` — the
   ## over-constrained-overrides case, unchanged.
-  let
-    ## Attempt 0 is drawn up front because it settles the board shell (which
-    ## `map_seed.seedStream` holds identical for every attempt) and the shell
-    ## is what chooses K. Reused below rather than re-drawn.
-    first = generateMapAttempt(seed, overrides, teams, 0)
-    want = if k > 0: k else: first.selectionK()
-    selection = selectBestMap(
-      seed, want,
-      produce = proc (s, attempt: int): CtfMap =
-        if attempt == 0: first
-        else: generateMapAttempt(s, overrides, teams, attempt))
+  ## Attempt 0 settles the board shell (which `map_seed.seedStream` holds
+  ## identical for every attempt) and the shell is what chooses K — see
+  ## `generateCtfMapSelection`, which this is a thin projection of.
+  let selection = generateCtfMapSelection(seed, overrides, teams, k)
   if selection.valid == 0:
     raise newException(
       CtfError,

@@ -298,25 +298,26 @@ proc cmdBestOf(a: Args) =
     perClassMs, perClassCount, perClassAttempts, perClassValid:
       array[MapSizeClass, int]
     improved, tied, regressed = 0
+    degenerateSeeds: seq[int]
   for seed in lo .. hi:
     # K=1 IS the old behaviour: the loop stops at the first valid candidate.
     let firstMap = generateCtfMap(seed, overrides, teams, k = 1)
     let started = getMonoTime()
-    let bestMap = generateCtfMap(seed, overrides, teams, k = kFlag)
+    ## The SELECTION, not just the map. `degenerate` is the failure mode that
+    ## looks like success — a full-price search whose scorer separated nothing
+    ## — and the old replay-based accounting here could not see it, because a
+    ## replay re-derives attempts and valid but never the SCORES.
+    let selection = generateCtfMapSelection(seed, overrides, teams, k = kFlag)
+    let bestMap = selection.gameMap
     let ms = int((getMonoTime() - started).inMilliseconds)
     let cls = bestMap.mapSizeClass()
     perClassMs[cls] += ms
     inc perClassCount[cls]
-    # Attempt accounting: replayed cheaply, generation only, no scoring.
-    var attempts, valid = 0
-    let want = if kFlag > 0: kFlag else: selectionK(cls)
-    while attempts < 100 and valid < want:
-      if validateGeneratedMap(
-          generateMapAttempt(seed, overrides, teams, attempts)).len == 0:
-        inc valid
-      inc attempts
+    let (attempts, valid) = (selection.attempts, selection.valid)
     perClassAttempts[cls] += attempts
     perClassValid[cls] += valid
+    if selection.degenerate:
+      degenerateSeeds.add seed
     let
       fm = evaluateMap(firstMap, &"gen:{seed}")
       bm = evaluateMap(bestMap, &"gen:{seed}")
@@ -327,11 +328,23 @@ proc cmdBestOf(a: Args) =
     bestMetrics.add bm
     stderr.writeLine &"  seed {seed} {cls.sizeName():<9} " &
       &"first={fm.staticScore():.3f} best={bm.staticScore():.3f} " &
-      &"({valid} valid / {attempts} attempts, {ms}ms)"
+      &"({valid} valid / {attempts} attempts, {ms}ms" &
+      (if selection.degenerate: ", DEGENERATE" else: "") & ")"
   echo ""
   echo &"BEST-OF-K SELECTION, seeds {lo}-{hi}, {teams} teams, " &
     &"""k={(if kFlag > 0: $kFlag else: "per size class")}"""
   echo &"ranker: {mapFitnessLabel()}"
+  if degenerateSeeds.len > 0:
+    ## The one result here that invalidates the rest of the report: on these
+    ## seeds every ranked candidate scored EXACTLY the same, so best-of-K paid
+    ## full price to return the first valid draw. Any "improvement" measured
+    ## over them is noise, not selection.
+    echo ""
+    echo &"!! DEGENERATE SELECTION on {degenerateSeeds.len}/{hi - lo + 1} " &
+      "seeds: the ranker separated no candidate, so best-of-K reduced to " &
+      "first-valid at full cost."
+    echo "   seeds: " & degenerateSeeds[0 ..< min(12, degenerateSeeds.len)]
+      .join(", ") & (if degenerateSeeds.len > 12: ", ..." else: "")
   echo ""
   echo &"CONTROL  arena  staticScore = {control.staticScore():.3f}"
   echo ""

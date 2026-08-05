@@ -213,6 +213,62 @@ suite "best-of-K selection":
     check selection.attempts == 3
     check selection.gameMap.width == 0
 
+  test "a scorer that separates nothing is reported, not hidden":
+    # THE failure mode that looks like success: a map comes back, `ranked` is
+    # true, the full K-candidate cost is paid, and the winner is just the first
+    # valid draw. `score` alone cannot show it — the winning score is perfectly
+    # healthy — so `tiedAtBest` and `degenerate` say it out loud.
+    let flat = selectBestMap(
+      1001, 4,
+      produce = proc (s, attempt: int): CtfMap =
+        generateMapAttempt(s, Unlocked, 2, attempt),
+      score = proc (gameMap: CtfMap): float = 0.5)
+    check flat.valid == 4
+    check flat.ranked
+    check flat.score == 0.5
+    check flat.worstScore == 0.5
+    check flat.tiedAtBest == flat.valid
+    check flat.degenerate
+
+  test "a scorer that does separate candidates is not called degenerate":
+    var call = 0
+    let sharp = selectBestMap(
+      1001, 4,
+      produce = proc (s, attempt: int): CtfMap =
+        generateMapAttempt(s, Unlocked, 2, attempt),
+      score = proc (gameMap: CtfMap): float =
+        inc call
+        float(call))
+    check sharp.valid == 4
+    check sharp.tiedAtBest == 1
+    check not sharp.degenerate
+    check sharp.score > sharp.worstScore
+
+  test "one ranked candidate is never degenerate":
+    # K=1 is trivially "every candidate tied at best", which is not the defect.
+    let single = selectBestMap(
+      1001, 1,
+      produce = proc (s, attempt: int): CtfMap =
+        generateMapAttempt(s, Unlocked, 2, attempt),
+      score = proc (gameMap: CtfMap): float = 0.5)
+    check single.valid == 1
+    check single.tiedAtBest == 1
+    check not single.degenerate
+
+  test "the shipped ranker separates real candidates":
+    # The regression this buys: if map_metrics ever saturates, or starts
+    # reading a field this generator holds constant, best-of-K silently becomes
+    # first-valid at full price. This is the alarm for that.
+    let selection = generateCtfMapSelection(1001, Unlocked, 2, k = 4)
+    check selection.ranked
+    check selection.valid >= 2
+    check not selection.degenerate
+    check selection.score > selection.worstScore
+
+  test "the selection projection agrees with generateCtfMap":
+    check generateCtfMapSelection(1001, Unlocked, 2, k = 3).gameMap.mapSpecJson ==
+      generateCtfMap(1001, Unlocked, 2, k = 3).mapSpecJson
+
   test "an impossible lock still raises rather than shipping garbage":
     expect CtfError:
       discard generateCtfMap(
