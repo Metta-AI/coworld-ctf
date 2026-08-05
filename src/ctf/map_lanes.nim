@@ -117,7 +117,7 @@
 ## can adopt `corridorPinchFailures` with a one-line call without creating an
 ## import cycle. See `docs` in `laneApi` below for that exact line.
 
-import std/[algorithm, math, strutils]
+import std/[algorithm, math, random, strutils]
 import sim_types
 import map_rules
 
@@ -1057,3 +1057,302 @@ proc collisionFrontier*(
         formatFloat(result.coverRatio, ffDecimal, 2) & " and " &
         $result.components & " frontier lobe(s); the fight lands in " &
         (if result.coverRatio < 1.0: "open ground" else: "a single queue")
+
+# ---------------------------------------------------------------------------
+# LANE CARVING
+# ---------------------------------------------------------------------------
+#
+# A route network is not three corridors of the same shape in three places.
+# The MW2 grammar is ONE TIGHT FLANK, ONE CONTESTED MID, ONE EXPOSED FAST
+# LANE, and the lengths differ: Terminal shipped 1575 / 1064 / 1352, mid
+# fastest but flankable. Three identical corridors give a player a choice with
+# no decision in it.
+#
+# Lanes here are y-PROFILES over the attack axis: each lane is a function
+# `laneY(x)` built from waypoints. That one representation makes every
+# operation below a one-liner — the separator between two lanes is their
+# midline, a gate is two shoulders straddling the profile, and a piece of
+# cover intrudes exactly when its centre is within a lane half-width of the
+# profile at its own x.
+#
+# WHY PROFILES JOG. A straight horizontal lane is an open horizontal
+# sightline, which `arena`'s validator rejects outright ("open horizontal
+# sightline at y="), and `map_rules.maxOpenRunPx` forbids for the same reason
+# a designer would. Every profile therefore carries vertical jogs, which cost
+# nothing in readability and buy both the validator and the sightline budget.
+
+type
+  LaneRole* = enum
+    laneFlank   ## tight, longest, hugs the edge. The sneak route.
+    laneMid     ## contested, shortest, through the middle. Everyone meets here.
+    laneFast    ## exposed, wide, straight. Quick but you are seen.
+
+  LaneGate* = object
+    ## One deliberate pinch across a lane.
+    x*, y*: int
+    widthPx*: int    ## 30-45: one cog at a time
+    runPx*: int      ## how deep the pinch is, always <= maxPinchRunPx(width)
+
+  Lane* = object
+    role*: LaneRole
+    path*: seq[MapPoint]   ## waypoints, ascending in x
+    widthPx*: int
+    lengthPx*: int
+    gates*: seq[LaneGate]
+
+  LanePlan* = object
+    region*: MapRect
+    seamX*: int
+    corridorMinPx*: int
+    lanes*: seq[Lane]
+
+func laneY*(lane: Lane, x: int): int =
+  ## The lane's centreline at this x, linearly interpolated between waypoints.
+  if lane.path.len == 0: return 0
+  if x <= lane.path[0].x: return lane.path[0].y
+  for i in 1 ..< lane.path.len:
+    if x <= lane.path[i].x:
+      let
+        a = lane.path[i - 1]
+        b = lane.path[i]
+        span = max(1, b.x - a.x)
+      return a.y + (b.y - a.y) * (x - a.x) div span
+  lane.path[^1].y
+
+func laneLengthPx*(lane: Lane): int =
+  ## Arc length of the profile — the distance a player actually runs. This is
+  ## what must DIFFER between lanes; three routes of equal length are one
+  ## route drawn three times.
+  for i in 1 ..< lane.path.len:
+    let
+      dx = float(lane.path[i].x - lane.path[i - 1].x)
+      dy = float(lane.path[i].y - lane.path[i - 1].y)
+    result += int(round(sqrt(dx * dx + dy * dy)))
+
+func gateWidthFor*(rng: var Rand, rules: MapRules): int =
+  ## A gate width inside the design band. Never the corridor floor: a gate
+  ## that admits two cogs abreast is not a gate.
+  ChokeWidthMinPx + rand(rng, ChokeWidthMaxPx - ChokeWidthMinPx)
+
+func maxGateRunPx*(widthPx: int): int =
+  ## How deep a gate of this width may be built.
+  ##
+  ## NOT `maxPinchRunPx(widthPx)` directly: the measured exposed run of a
+  ## doorway includes the FUNNEL on both sides, where the floor has already
+  ## dropped below the corridor width but the walls have not closed to the
+  ## gate width yet. A 40 px door through a 40 px wall measures 94 px of
+  ## exposure, not 40. Budgeting half the allowance for the pinch itself
+  ## leaves the other half for its approaches, which is what keeps a built
+  ## gate inside the rule that will later audit it.
+  max(EngineMinCorridorPx, maxPinchRunPx(widthPx) div 2)
+
+proc planLanes*(
+  rng: var Rand, region: MapRect, base: MapPoint, seamX: int, rules: MapRules
+): LanePlan =
+  ## The route plan for one half-field: `rules.laneCount` lanes from the base
+  ## out to the symmetry seam, with different widths, different lengths and
+  ## different gate counts.
+  ##
+  ## Emitted in the SEED half only. The symmetry lift in `arena` mirrors it,
+  ## so a lane meets its own image at the seam and the pair is one full route
+  ## between the two bases — which is what makes the count of lanes here the
+  ## count of vertex-disjoint routes there.
+  result.region = region
+  result.seamX = seamX
+  result.corridorMinPx = rules.minCorridorWidthPx
+  let
+    lanes = max(3, rules.laneCount)
+    top = region.y
+    bottom = region.y + region.h
+    usable = max(1, bottom - top)
+    x0 = max(region.x, base.x)
+    xs = max(x0 + 4 * EngineMinCorridorPx, seamX)
+  # Lane bands are evenly pitched across the cross-section; the MIDDLE band is
+  # the contested one, the outermost is the flank, the rest run fast.
+  for i in 0 ..< lanes:
+    var lane = Lane()
+    let
+      slot = (i * 2 + 1) * usable div (2 * lanes)
+      bandY = top + slot
+      isMid = i == lanes div 2
+      isEdge = i == 0 or i == lanes - 1
+    lane.role =
+      if isMid: laneMid
+      elif isEdge: laneFlank
+      else: laneFast
+    lane.widthPx =
+      case lane.role
+      of laneFlank: rules.minCorridorWidthPx
+      of laneMid: rules.laneWidthPx
+      of laneFast: rules.laneWidthPx + rules.coverSizePx div 2
+    # Profiles. Mid runs straight from the base to the seam and is therefore
+    # the SHORTEST — the fastest route, and the one everyone contests. The
+    # others must climb to their band first, which costs length for free, and
+    # the flank additionally bows toward the edge, which is what makes it the
+    # longest and the sneakiest.
+    let
+      jog = max(rules.coverSizePx, usable div (4 * lanes))
+      mid1 = x0 + (xs - x0) div 3
+      mid2 = x0 + 2 * (xs - x0) div 3
+    case lane.role
+    of laneMid:
+      lane.path = @[
+        MapPoint(x: x0, y: base.y),
+        MapPoint(x: mid1, y: base.y - jog div 2),
+        MapPoint(x: mid2, y: base.y + jog div 2),
+        MapPoint(x: xs, y: bandY)]
+    of laneFast:
+      lane.path = @[
+        MapPoint(x: x0, y: base.y),
+        MapPoint(x: mid1, y: bandY),
+        MapPoint(x: mid2, y: bandY - jog),
+        MapPoint(x: xs, y: bandY)]
+    of laneFlank:
+      let bow = if bandY < base.y: -jog else: jog
+      lane.path = @[
+        MapPoint(x: x0, y: base.y),
+        MapPoint(x: x0 + (xs - x0) div 5, y: bandY + bow),
+        MapPoint(x: mid1, y: bandY),
+        MapPoint(x: mid2, y: bandY + bow),
+        MapPoint(x: xs, y: bandY)]
+    lane.lengthPx = lane.laneLengthPx()
+    # Gates. `map_rules` sizes the count by traverse over one gun range: two
+    # gates are tactically distinct exactly when a defender holding one cannot
+    # shoot into the other. The exposed lane gets NONE — being fast and open
+    # is its whole character, and gating it would make it a third flank.
+    let want =
+      case lane.role
+      of laneFlank: max(1, rules.chokepointsPerRoute)
+      of laneMid: 1
+      of laneFast: 0
+    for g in 0 ..< want:
+      let
+        gx = x0 + (xs - x0) * (g + 1) div (want + 1)
+        gw = gateWidthFor(rng, rules)
+      if gx <= x0 or gx >= xs: continue
+      lane.gates.add LaneGate(
+        x: gx, y: lane.laneY(gx), widthPx: gw, runPx: maxGateRunPx(gw))
+    result.lanes.add lane
+
+proc laneSeparatorShapes*(plan: LanePlan, thickPx = 0): seq[ArenaShape] =
+  ## The structural walls BETWEEN adjacent lanes. Without these there are no
+  ## lanes, only three imaginary lines drawn on one open field.
+  ##
+  ## Each separator follows the midline of the two profiles it divides and is
+  ## emitted in SEGMENTS at least `map_rules.wallSpanPx` long with a lane's
+  ## width of gap between them. That span is derived: rounding one end of a
+  ## wall of span S costs S/2 of extra travel, and for the separation to mean
+  ## anything that detour has to cost more than a kill takes, so
+  ## S >= 2 * maxExposedRunPx = 264 px. Shorter walls are cover, not structure.
+  let thick = if thickPx > 0: thickPx else: max(12, EngineMinCorridorPx div 2)
+  const Step = 14
+  for i in 1 ..< plan.lanes.len:
+    let
+      above = plan.lanes[i - 1]
+      below = plan.lanes[i]
+      span = WallSpanPx
+      gap = max(EngineMinCorridorPx, below.widthPx)
+      period = span + gap
+    var x = plan.region.x
+    while x < plan.seamX:
+      let phase = (x - plan.region.x) mod period
+      if phase < span:
+        let
+          ya = above.laneY(x) + above.widthPx div 2
+          yb = below.laneY(x) - below.widthPx div 2
+          y = (ya + yb) div 2
+        if yb - ya >= thick:
+          result.add ArenaShape(kind: shapeRect, rect: MapRect(
+            x: x, y: y - thick div 2, w: Step + 2, h: thick))
+      x += Step
+
+proc laneGateShapes*(plan: LanePlan): seq[ArenaShape] =
+  ## The gate SHOULDERS: two stubs straddling a lane's centreline that pinch
+  ## it to `gate.widthPx` for `gate.runPx`, and no further.
+  ##
+  ## This is the feature the length-aware rule exists to make legal. A global
+  ## 68 px corridor floor would reject every one of these; the pinch rule
+  ## accepts them precisely because they are SHORT.
+  for lane in plan.lanes:
+    for gate in lane.gates:
+      let
+        half = max(lane.widthPx div 2, gate.widthPx div 2 + EngineMinCorridorPx)
+        opening = gate.widthPx div 2
+        reach = half - opening
+      if reach < 6: continue
+      result.add ArenaShape(kind: shapeRect, rect: MapRect(
+        x: gate.x, y: gate.y - half, w: gate.runPx, h: reach))
+      result.add ArenaShape(kind: shapeRect, rect: MapRect(
+        x: gate.x, y: gate.y + opening, w: gate.runPx, h: reach))
+
+proc intrudesOnLane*(plan: LanePlan, shape: ArenaShape): bool =
+  ## Whether a piece of cover would narrow a lane below its designed width.
+  ## Discs and diamonds test centre-to-profile; rects test their box against
+  ## the lane band over the x range they actually span.
+  for lane in plan.lanes:
+    let half = lane.widthPx div 2
+    case shape.kind
+    of shapeDisc, shapeDiamond:
+      if shape.cx < plan.region.x - shape.radius or shape.cx > plan.seamX: continue
+      if abs(shape.cy - lane.laneY(shape.cx)) < half + shape.radius: return true
+    of shapeRect:
+      var x = shape.rect.x
+      while x <= shape.rect.x + shape.rect.w:
+        let cy = lane.laneY(x)
+        if shape.rect.y <= cy + half and shape.rect.y + shape.rect.h >= cy - half:
+          return true
+        x += 14
+    of shapePolygon:
+      for p in shape.points:
+        if abs(p.y - lane.laneY(p.x)) < half: return true
+    of shapeDiagonal:
+      if abs(shape.y0 - lane.laneY(shape.x0)) < half: return true
+      if abs(shape.y1 - lane.laneY(shape.x1)) < half: return true
+  false
+
+proc clearLanes*(shapes: seq[ArenaShape], plan: LanePlan): seq[ArenaShape] =
+  ## Push cover OUT of the lanes rather than deleting it.
+  ##
+  ## Deleting is the obvious move and it is the wrong one twice over: it
+  ## spends the map's cover budget (`arena` rejects a map under
+  ## `CoverPermilleMin`) and it leaves the lane reading as a random absence.
+  ## Sliding a disc perpendicular until it clears keeps the mass AND lines it
+  ## up along the lane edge, so the lane reads as something carved through the
+  ## terrain — which is exactly what it is. Only shapes with nowhere to go are
+  ## dropped.
+  for shape in shapes:
+    if not plan.intrudesOnLane(shape):
+      result.add shape
+      continue
+    case shape.kind
+    of shapeDisc, shapeDiamond:
+      var moved = shape
+      var placed = false
+      for lane in plan.lanes:
+        let
+          cy = lane.laneY(shape.cx)
+          half = lane.widthPx div 2
+        if abs(shape.cy - cy) >= half + shape.radius: continue
+        let push = half + shape.radius + 2
+        moved.cy = if shape.cy < cy: cy - push else: cy + push
+        placed = true
+        break
+      if placed and not plan.intrudesOnLane(moved) and
+          moved.cy - moved.radius > plan.region.y and
+          moved.cy + moved.radius < plan.region.y + plan.region.h:
+        result.add moved
+    else:
+      discard
+
+proc carveLanes*(
+  rng: var Rand, region: MapRect, base: MapPoint, seamX: int,
+  rules: MapRules, cover: seq[ArenaShape] = @[]
+): tuple[shapes: seq[ArenaShape], plan: LanePlan] =
+  ## THE CALL a scene graph makes. Plans the route network, emits the
+  ## structure that makes it real, and reconciles whatever cover a style
+  ## generator produced with the lanes it has to leave open.
+  let plan = planLanes(rng, region, base, seamX, rules)
+  var shapes = laneSeparatorShapes(plan)
+  shapes.add laneGateShapes(plan)
+  shapes.add clearLanes(cover, plan)
+  (shapes, plan)
