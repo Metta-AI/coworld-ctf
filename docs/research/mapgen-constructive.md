@@ -45,6 +45,49 @@ A recurring trap in this literature: a technique with an (A) guarantee about som
 *local* gets marketed as an (A) guarantee about something *global*. WFC is the canonical
 case (§4.1). Watch for it everywhere.
 
+§3.4 adds a fourth box, **(A\*)**, for methods that are correct *if they return* but may
+not return. Every solver lives there, and the distinction is what "ALWAYS good" turns on.
+
+### 1.1 Master technique table
+
+Every technique in the survey, with **what precisely is guaranteed** — because that
+column, not the letter, is the whole content.
+
+| Technique | What is guaranteed — precisely | Class | §  |
+|---|---|---|---|
+| Simple tiled WFC | tile-**adjacency** legality (a local property) | **A** (local) / **B** (playability) | 4.1 |
+| Overlapping WFC | C1: output contains only `N×N` patterns from the exemplar | **B** | 4.1 |
+| Merrell model synthesis | same local consistency + contradiction-avoiding global search | **B**, better failure behaviour | 4.1 |
+| Continuous model synthesis | consistent plane-arrangement geometry; continuous, not gridded | **C** for our invariants | 4.1, 5.4 |
+| WFC + DeBroglie `ConnectedConstraint` | a path exists between designated tiles | **A\*** | 4.1 |
+| WFC + DeBroglie `LoopConstraint` | ≥ **2** independent paths (short of our `k=3`) | **A\*** | 4.1 |
+| ASP (clingo), generate/define/test | **all and only** artifacts satisfying the encoding — including "≥3 vertex-disjoint routes" verbatim | **A\*** | 4.2 |
+| SAT | same, propositional | **A\*** | 4.2 |
+| SMT / linear real arithmetic | same, and **natively continuous coordinates** | **A\*** | 4.2, 5.4 |
+| Constraint-generated level + witness playthrough (Nelson & Smith, Sturgeon) | completability is **witnessed**, not asserted | **A\*** | 4.2 |
+| Graph grammar (Dormans mission graph) | exactly the invariants the production rules preserve — e.g. cyclic rules guarantee a cycle exists | **A** for the graph, **B** for the map | 4.3 |
+| Connectivity-preserving graph ops (wheel seed + Tutte ops; Harary `H_{k,n}`) | κ(G) ≥ k on the topology graph | **A** | 4.3 |
+| Split / shape grammars (Wonka, Stiny) | derivation is a **partition** of space ⇒ sub-shapes cannot overlap | **A** for the partition, **C** for playability | 4.3 |
+| L-systems | branching structure; output is topologically **acyclic** — the opposite of I1 | **C** | 4.3 |
+| Rectangular dualization | realises a given planar adjacency graph **exactly** as a rectangle partition, linear time, if the graph is rectangularly dualizable | **A** (conditional, and the condition is designable) | 4.4 |
+| Orthogonal graph drawing | planarity + **edge separation** — the certificate Lemma 1 needs | **A** | 4.4 |
+| Treemap / squarified layout | exact **area** targets per cell | **A** for area, **C** for topology | 4.4 |
+| Optimisation layout (Ma et al. 2014) | tries to realise a connectivity spec; measures how well | **B** | 4.4 |
+| Fundamental-domain generation + orbit lift | exact geometric invariance under Γ, bit-exact with integer vertices | **A** | 4.5, 6 |
+| Lex-leader / orbitopal symmetry breaking | solver speed only, no map property | **B** (perf) | 4.5 |
+| Burrow / Dial's connectivity repair (ours) | **one connected component** (`k=1`) — and `k=1` is a fatal CTF map | **A**, for the wrong `k` | 4.6 |
+| **k-fold disjoint burrow** (proposed) | min-cut ≥ `k` between pinned anchors, by Menger | **A** | 4.6, 7.2 |
+| Sightline plug repair (ours, `arena.nim:1921`) | every *sampled* row blocked, within a `cols(40)` budget | **B** | 4.6 |
+| **Interval-cover sightline construction** (proposed) | every row blocked; no budget, no sampling | **A** | 3, 7.2 |
+| Minkowski dilation / C-space erosion | exact clearance for a fat agent, in continuous space | **A** | 5.2 |
+| Monotone edits over a protected skeleton | any invariant monotone in the edit direction | **A** | 3.1, 4.7 |
+| Budgeted placement (size the last piece, don't draw it) | an exact target value of any monotone one-parameter measure | **A** | 4.7 |
+| Parameter clamping (vs. validating) | any invariant that is an arithmetic predicate over scalars | **A** | 4.7 |
+| Pólya-orchard / dense-forest blocker densities | no escaping ray, at densities incompatible with a 10–25 % cover budget | **A** in theory, unusable in practice | 5.3 |
+| Best-of-K + validator (ours) | nothing. `E[max of K]` = `K/(K+1)` of the generator's **own** range | **B** | 4.6, 9 |
+| Cellular automata (`styleCaves`) | nothing structural; not even connectivity | **B** | 9 |
+| BSP / maze + braid (`styleBsp`, `styleMaze`) | tree topology by default; `braid` raises *average* connectivity, guarantees nothing about the **minimum** | **B** | 9 |
+
 ---
 
 ## 2. The invariant set, stated precisely enough to construct
