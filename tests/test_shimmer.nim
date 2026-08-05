@@ -1,11 +1,12 @@
 import
   helpers,
-  std/[sets, strutils, unittest],
+  std/[algorithm, sets, strutils, tables, unittest],
   bitworld/spriteprotocol,
-  ctf/[global, shimmer, sim, team_colors]
+  supersnappy,
+  ctf/[global, labels, shimmer, sim, team_colors]
 
-# Metallic-paint shimmer: the PER-AGENT overlay that marks the ONE league #1's
-# cogs — at most one policy in the whole lobby, usually none (src/ctf/shimmer.nim,
+# Metallic paint: the PER-AGENT re-bake that marks the ONE league #1's cogs — at
+# most one policy in the whole lobby, usually none (src/ctf/shimmer.nim,
 # docs/COLOR_CONTRACT.md §5).
 #
 # The thing worth testing here is not that a sprite draws — it is the GATE, and
@@ -23,39 +24,55 @@ import
 # NOT shimmer are named explicitly, and the off-by-default case is asserted
 # before anything is turned on.
 #
-# Detection is deliberately BLACK-BOX — find the sprite ids whose label is the
-# shimmer family, then find the objects drawn with them — rather than reading
-# global.nim's private id pools. A regression that moved the overlay to another
-# pool while keeping the label, or renamed the label while keeping the pool,
-# should fail this file, and mirroring the constants here would hide one of
-# those.
+# DETECTION IS BY PIXELS, and it has to be. The mark used to be its own overlay
+# sprite with its own label, which made it trivial to find; it is now a metallic
+# re-bake of the cog's own head art, and that bake keeps the STOCK head's label
+# by contract — a label scanner must still read the league #1's cog as
+# `player <color>`, or flagging a policy would blind every bot to it. So there is
+# no label and no id to look for, and the only honest question left is the one a
+# spectator asks: does THIS cog's shell look like metal? `metalOnSeat` answers it
+# from the decoded sprite, which also means these tests fail if the material ever
+# stops producing a specular — a stricter promise than the old label check made.
 
-const ShimmerLabelPrefix = "metal shimmer "
+const MetalPeakLuma = 235.0
+  ## Rec.709 luma a head bake must reach to count as metal. The stock bakes top
+  ## out at ~221 on every palette slug (their own brightest painted pixel) and
+  ## the material's blown specular lands at ~251, so this threshold sits in a
+  ## ~30-luma gap. It is deliberately an ABSOLUTE brightness rather than a
+  ## difference: "the flagged cog owns the top of the luminance distribution" is
+  ## the property that keeps the trophy mark from reading as a dirty cog, and it
+  ## is worth failing on.
 
-proc shimmerSpriteIds(
+proc headBakes(
   messages: openArray[SpritePacketMessage]
-): seq[int] =
-  ## Every sprite id defined in this packet under the shimmer label family.
+): Table[int, tuple[label: string, peak: float]] =
+  ## Peak luminance of every RIG HEAD sprite defined in this packet, by sprite
+  ## id. The rig head is the sprite carrying the bare `player <color>` contract
+  ## label; the POV soldier pool shares the prefix but carries a `<side>` tail,
+  ## which is the only difference that does not move with the board scale.
   for message in messages:
-    if message.kind == spkSprite and
-        message.sprite.label.startsWith(ShimmerLabelPrefix):
-      result.add message.sprite.id
+    if message.kind != spkSprite:
+      continue
+    let sprite = message.sprite
+    if not sprite.label.startsWith(LabelPrefixPlayer) or
+        sprite.label.split(' ').len != 2:
+      continue
+    let raw = supersnappy.uncompress(sprite.compressedPixels)
+    var peak = 0.0
+    var i = 0
+    while i + 3 < raw.len:
+      if raw[i + 3] > 200'u8:
+        peak = max(peak, 0.2126 * float(raw[i]) + 0.7152 * float(raw[i + 1]) +
+          0.0722 * float(raw[i + 2]))
+      i += 4
+    result[sprite.id] = (label: sprite.label, peak: peak)
 
-proc shimmerCentres(
-  messages: openArray[SpritePacketMessage]
-): seq[(int, int)] =
-  ## The CENTER of every shimmer overlay placed in this packet, in wire
-  ## (board-scaled) pixels. Objects carry the sprite id they draw with, so the
-  ## label lookup above is what identifies them.
-  let ids = messages.shimmerSpriteIds()
-  var size = 0
-  for message in messages:
-    if message.kind == spkSprite and message.sprite.id in ids:
-      size = message.sprite.width
-  for message in messages:
-    if message.kind == spkObject and message.objectDef.spriteId in ids:
-      result.add (message.objectDef.x + size div 2,
-                  message.objectDef.y + size div 2)
+proc metalSpriteIds(messages: openArray[SpritePacketMessage]): seq[int] =
+  ## Every head sprite in this packet baked in the metallic material.
+  for id, bake in messages.headBakes():
+    if bake.peak >= MetalPeakLuma:
+      result.add id
+  result.sort()
 
 proc fullFrame(sim: var SimServer): seq[SpritePacketMessage] =
   ## ONE complete board frame, built against a FRESH viewer state.
@@ -68,25 +85,39 @@ proc fullFrame(sim: var SimServer): seq[SpritePacketMessage] =
   var state = initGlobalViewerState()
   sim.buildGlobalMessages(state)
 
-proc shimmersOnSeat(
+proc metalOnSeat(
   sim: SimServer,
   messages: openArray[SpritePacketMessage],
   seat: int
 ): bool =
-  ## Whether a shimmer overlay is centered on one seat's cog in this frame.
-  ## Positional rather than id-based on purpose: it proves the sheen landed on
+  ## Whether the cog at `seat` is drawn with the METALLIC bake of its head.
+  ## Positional rather than id-based on purpose: it proves the material landed on
   ## the RIGHT agent, which an object-id check would take on faith.
   let
     scale = boardRenderScaleFor(sim.gameMap.width, sim.gameMap.height)
+    metals = messages.metalSpriteIds()
+    # Rig segment sprites are HUB-centered in a RigCanvas square, so the object's
+    # top-left plus half the canvas is the cog itself.
+    half = RigCanvas * scale div 2
     px = sim.players[seat].x * scale
     py = sim.players[seat].y * scale
-  for (cx, cy) in messages.shimmerCentres():
-    # The overlay rides a few px back along the aim (ShimmerBackPx), so this is
-    # a proximity test, not an equality one. The tolerance is far tighter than
-    # the gap between any two posed cogs below.
-    if abs(cx - px) <= 8 * scale and abs(cy - py) <= 8 * scale:
+  for message in messages:
+    if message.kind != spkObject or message.objectDef.spriteId notin metals:
+      continue
+    if abs(message.objectDef.x + half - px) <= 2 * scale and
+        abs(message.objectDef.y + half - py) <= 2 * scale:
       return true
   false
+
+proc metalCogCount(
+  sim: SimServer,
+  messages: openArray[SpritePacketMessage]
+): int =
+  ## How many of this frame's cogs wear the material — the "nothing is being
+  ## drawn off-cog / on too many cogs" counterpart to the per-seat check.
+  for seat in 0 ..< sim.players.len:
+    if sim.metalOnSeat(messages, seat):
+      inc result
 
 proc mixedTeamGame(): SimServer =
   ## Six seats, two teams, mixed policies — the CTF-Doubles shape the shimmer
@@ -133,8 +164,8 @@ suite "metal shimmer":
     # through this path. If the default leaked, every league replay would change.
     var game = mixedTeamGame()
     let messages = game.fullFrame()
-    check messages.shimmerSpriteIds().len == 0
-    check messages.shimmerCentres().len == 0
+    check messages.metalSpriteIds().len == 0
+    check game.metalCogCount(messages) == 0
     check not anyShimmer()
 
   test "only the flagged policy's seats shimmer, teammates render stock":
@@ -145,14 +176,14 @@ suite "metal shimmer":
     # the whole frame wears the sheen. Seats 0 and 2 are its own TEAMMATES and
     # must render stock — the single pair of lines that separates a per-AGENT
     # flag from a per-team one.
-    check game.shimmersOnSeat(frame, 4)
-    check not game.shimmersOnSeat(frame, 0)
-    check not game.shimmersOnSeat(frame, 2)
-    check not game.shimmersOnSeat(frame, 1)
-    check not game.shimmersOnSeat(frame, 3)
-    check not game.shimmersOnSeat(frame, 5)
+    check game.metalOnSeat(frame, 4)
+    check not game.metalOnSeat(frame, 0)
+    check not game.metalOnSeat(frame, 2)
+    check not game.metalOnSeat(frame, 1)
+    check not game.metalOnSeat(frame, 3)
+    check not game.metalOnSeat(frame, 5)
     # Exactly one overlay in the frame, so nothing is being drawn off-cog.
-    check frame.shimmerCentres().len == 1
+    check game.metalCogCount(frame) == 1
 
   test "one policy seated on two teams shimmers on BOTH":
     # The flag is a league standing, not a team property. picasso holds seats 0
@@ -161,13 +192,13 @@ suite "metal shimmer":
     var game = mixedTeamGame()
     setShimmerPolicy("picasso")
     let frame = game.fullFrame()
-    check game.shimmersOnSeat(frame, 0)      # Red picasso
-    check game.shimmersOnSeat(frame, 2)      # Red picasso
-    check game.shimmersOnSeat(frame, 5)      # Blue picasso — the cross-team half
-    check not game.shimmersOnSeat(frame, 4)  # Red focusfire
-    check not game.shimmersOnSeat(frame, 1)  # Blue jordan
-    check not game.shimmersOnSeat(frame, 3)  # Blue baseline
-    check frame.shimmerCentres().len == 3
+    check game.metalOnSeat(frame, 0)      # Red picasso
+    check game.metalOnSeat(frame, 2)      # Red picasso
+    check game.metalOnSeat(frame, 5)      # Blue picasso — the cross-team half
+    check not game.metalOnSeat(frame, 4)  # Red focusfire
+    check not game.metalOnSeat(frame, 1)  # Blue jordan
+    check not game.metalOnSeat(frame, 3)  # Blue baseline
+    check game.metalCogCount(frame) == 3
 
   test "a flagged policy that is not in this episode shimmers nobody":
     # The NORMAL case for a real payload: the league #1 is not in most matches,
@@ -178,10 +209,10 @@ suite "metal shimmer":
     let frame = game.fullFrame()
     check anyShimmer()                       # a policy IS flagged...
     check shimmerPolicy() == "ctf-nemesis:v9"
-    check frame.shimmerSpriteIds().len == 0  # ...and nothing draws.
-    check frame.shimmerCentres().len == 0
+    check frame.metalSpriteIds().len == 0  # ...and nothing draws.
+    check game.metalCogCount(frame) == 0
     for seat in 0 ..< 6:
-      check not game.shimmersOnSeat(frame, seat)
+      check not game.metalOnSeat(frame, seat)
 
   test "a root-level payload shimmer installs the one flagged policy":
     # The seam the platform actually drives, end to end: raw payload JSON in,
@@ -194,7 +225,7 @@ suite "metal shimmer":
     check shimmerPolicy() == "picasso"
     var game = mixedTeamGame()
     let frame = game.fullFrame()
-    check frame.shimmerCentres().len == 3    # seats 0, 2 (Red) and 5 (Blue)
+    check game.metalCogCount(frame) == 3    # seats 0, 2 (Red) and 5 (Blue)
 
   test "a STALE per-team shimmer payload shimmers nobody":
     # The regression this change exists to prevent. `shimmer` used to live
@@ -212,10 +243,10 @@ suite "metal shimmer":
     check not anyShimmer()
     var game = mixedTeamGame()
     let frame = game.fullFrame()
-    check frame.shimmerSpriteIds().len == 0
-    check frame.shimmerCentres().len == 0
+    check frame.metalSpriteIds().len == 0
+    check game.metalCogCount(frame) == 0
     for seat in 0 ..< 6:
-      check not game.shimmersOnSeat(frame, seat)
+      check not game.metalOnSeat(frame, seat)
 
   test "the hosted seat suffix is stripped on both spellings":
     # "jordan (1)" keeps a space in config but the join path underscores it
@@ -228,42 +259,83 @@ suite "metal shimmer":
     check policyName("Player1") == "Player1"
     var game = mixedTeamGame()
     setShimmerPolicy("jordan")
-    check game.shimmersOnSeat(game.fullFrame(), 1)
+    check game.metalOnSeat(game.fullFrame(), 1)
     # The platform sending an already-stripped name is the documented case, but
     # a suffixed one still resolves: the seam strips whatever it is handed, so
     # one half forgetting cannot silently un-mark the #1.
     setShimmerPolicy("jordan_(9)")
     check shimmerPolicy() == "jordan"
-    check game.shimmersOnSeat(game.fullFrame(), 1)
+    check game.metalOnSeat(game.fullFrame(), 1)
 
-  test "the sweep advances with the tick and differs by seat":
+  test "the glint advances with the tick and differs by seat":
     # The animation is derived from tickCount alone, so every viewer of a replay
-    # agrees on the frame with no animation state to sync. Two seats of the same
-    # policy must be out of phase (ShimmerSeatStride), or a squad glints in
-    # unison and reads as a UI blink instead of light.
+    # agrees on the frame with no animation state to sync — scrubbing backwards
+    # lands on exactly the pixels the forward pass showed.
+    check cogMetalPhase(0, 0) == cogMetalPhase(0, 0)
+    check cogMetalPhase(0, 0) != cogMetalPhase(CogMetalTicksPerFrame, 0)
+    # Two seats of the same policy must be out of phase (CogMetalSeatStride is
+    # coprime with the frame count), or a squad glints in unison and reads as a
+    # UI blink instead of light on a surface.
+    check cogMetalPhase(0, 0) != cogMetalPhase(0, 1)
+    check cogMetalPhase(0, 1) != cogMetalPhase(0, 2)
     var game = mixedTeamGame()
     setShimmerPolicy("picasso")
-    let atStart = game.fullFrame().shimmerSpriteIds()
-    check atStart.len == 3          # seats 0, 2, 5 — three DIFFERENT sweep frames
-    check atStart[0] != atStart[1]
-    check atStart[1] != atStart[2]
-    # Far enough ahead that the frame index must have moved for every seat.
-    game.tickCount += 40
-    let later = game.fullFrame().shimmerSpriteIds()
+    # Seats 0 and 2 are the same TEAM at different phases and seat 5 is another
+    # team, so three metallic head bakes, all distinct.
+    let atStart = game.fullFrame().metalSpriteIds()
+    check atStart.len == 3
+    check atStart.toHashSet().len == 3
+    # Far enough ahead that the phase must have moved for every seat.
+    game.tickCount += 5 * CogMetalTicksPerFrame
+    let later = game.fullFrame().metalSpriteIds()
     check later.len == 3
     check later.toHashSet() != atStart.toHashSet()
-    # Both seats stepped by the same amount, so the phase GAP is preserved:
-    # they never converge onto one frame and start glinting in unison.
-    check later[1] - later[0] == atStart[1] - atStart[0]
+
+  test "the material rides the cog's ORIENTATION, not just the clock":
+    # The headline property, and the one the retired overlay structurally could
+    # not have: turn the cog and the highlight moves, because the facets are
+    # anchored in the cog's own frame while the light is anchored in the world.
+    # Asserted on the BAKES rather than on a sprite id, because an id changing
+    # only proves the cache key has an aim in it — this proves the PIXELS differ.
+    var seen: HashSet[string]
+    for aim in 0 ..< RigSteps:
+      let pixels = rigMetalSegPixels(Red, rsHead, aim, 0, 2)
+      var digest = ""
+      for i in countup(0, pixels.len - 4, 997):
+        digest.add char(pixels[i])
+      seen.incl digest
+    # Every aim step is its own bake. (The stock art already differs per aim, so
+    # the real content of this check is the pair of asserts below.)
+    check seen.len == RigSteps
+    # At ONE aim, the material still differs from the stock bake — it is not a
+    # pass-through — and it is BRIGHTER at the peak, so the trophy mark can never
+    # read as a cog sitting in shadow.
+    proc peak(px: seq[uint8]): float =
+      var i = 0
+      while i + 3 < px.len:
+        if px[i + 3] > 200'u8:
+          result = max(result, 0.2126 * float(px[i]) + 0.7152 * float(px[i + 1]) +
+            0.0722 * float(px[i + 2]))
+        i += 4
+    let
+      stock = rigSegPixels(Red, rsHead, 3, 0, 0, 2)
+      metal = rigMetalSegPixels(Red, rsHead, 3, 0, 2)
+    check metal != stock
+    check peak(metal) > peak(stock)
+    # ...and the silhouette is untouched: the material may only repaint pixels
+    # the cog art already owns, so a label scanner sees the same shape it always
+    # did and the mark cannot change what a bot can see.
+    for i in countup(3, stock.len - 1, 4):
+      check metal[i] == stock[i]
 
   test "a dead seat wears no sheen":
     var game = mixedTeamGame()
     setShimmerPolicy("picasso")
-    check game.shimmersOnSeat(game.fullFrame(), 0)
+    check game.metalOnSeat(game.fullFrame(), 0)
     game.players[0].alive = false
     let frame = game.fullFrame()
-    check not game.shimmersOnSeat(frame, 0)
-    check game.shimmersOnSeat(frame, 2)
+    check not game.metalOnSeat(frame, 0)
+    check game.metalOnSeat(frame, 2)
 
   test "shimmer is display-only: the game hash is untouched":
     # The one property that makes this safe to ship: it must not be able to

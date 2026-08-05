@@ -197,9 +197,14 @@ Schema (payload version `v: 1`):
     `" (N)"` / `"_(N)"` suffix is removed so all seats of one policy collapse to one
     identity. The platform must send the stripped form; the viewer strips again and
     compares against stripped roster names, so both halves agree either way.
-  - Rendered by `src/ctf/shimmer.nim` — an animated clearcoat sheen on the flagged
-    policy's living cogs, deterministic per tick so every viewer of a replay sees the
-    same glint. Separate from color, so team color stays uniform.
+  - Gated by `src/ctf/shimmer.nim`, rendered by `applyCogMetal` in
+    `src/ctf/rig_art.nim`: the flagged policy's living cogs have their own shell art
+    re-baked in metallic clearcoat, rather than a sheen sprite pasted over them. The
+    highlight is anchored to the cog's chamfer facets in OBJECT space, so it sweeps
+    as the cog turns, and it also slides over a tick-derived glint phase, so a
+    stationary cog still shimmers. Deterministic from (team, skin, aim step, phase)
+    alone, so every viewer of a replay bakes identical pixels at any scrub position.
+    Separate from color, so team color stays uniform.
   - **STALE PAYLOADS**: `shimmer` used to live inside each `teams` entry. A per-team
     `shimmer` key is now ignored outright, by the engine and by the page. Honoring it
     would light up as many as four policies in one match — the exact opposite of a

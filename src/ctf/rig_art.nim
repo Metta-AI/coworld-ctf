@@ -605,31 +605,41 @@ proc rigSegPixels*(team: Team, seg: RigSeg, baseStep, artStep: int,
 ##     Automotive paint is not brighter than matte plastic, it is DEEPER: darker
 ##     darks under a hot specular. Scaling all three channels by one factor moves
 ##     luminance and leaves HSV hue and saturation mathematically untouched, so
-##     the whole contrast half of this effect costs the team-color budget exactly
+##     the whole contrast half of this effect costs the team-colour budget exactly
 ##     nothing. (The two rejected builds both spent their budget raising pixels
 ##     toward white, which is the one operation that DOES destroy hue.)
-##  2. BODY SHADE — a broad light-to-dark ramp across the shell from a fixed world
-##     light. Also multiplicative, also free on the color axis, and at the size a
-##     cog actually occupies on screen (a ~10px head) this ramp is most of what
-##     sells a curved metal surface.
-##  3. FACET SPECULAR — the orientation-coupled layer. The shell is modelled as a
-##     chamfered cube: CogMetalFacets flats whose normals are fixed in OBJECT
-##     space and therefore rotate with the aim. The flat currently pointed at the
-##     light goes hot; two aim steps later a different flat does. This is the
-##     layer that makes the cog read as metal rather than as a lit ball, and it is
-##     the one the old rotationally-symmetric dome structurally could not have.
-##  4. TRAVELLING GLINT — a hot arc running around the shell once per cycle, also
-##     in object space, so a STATIONARY cog still shimmers and a turning one gets
-##     both motions at once. Phase is a pure function of tick, so scrubbing works.
+##  2. CHROME HORIZON — the body shade, QUANTIZED into `bands` hard tone steps by
+##     a fixed world light. A polished ball outdoors reflects bright sky over its
+##     upper half and dark ground under it across a hard edge; a matte one has a
+##     smooth cosine ramp. At the size a cog actually occupies — a ~10 screen px
+##     head, a third of which is the visor — the smooth ramp box-filters into one
+##     flat mid-tone and the hard steps do not, so this layer is where most of the
+##     metallic read actually comes from. Also multiplicative, also colour-free.
+##  3. CANDY COAT — extra saturation on the lit half. A metallic finish's lit side
+##     is a RICHER version of the colour, not a paler one, so this layer ADDS to
+##     the team-colour budget and pays for the achromatic pixels below.
+##  4. THE SPECULAR — one small, near-opaque, achromatic spot, and it moves for
+##     TWO reasons at once. Its home is the chamfer flat currently turned toward
+##     the light: the flats are fixed in OBJECT space (CogMetalFacets of them), so
+##     turning the cog makes the spot JUMP from flat to flat and the whole shell
+##     WINK as the alignment passes through cos(22.5°) between them — that is the
+##     orientation cue, and it is the one a composited decal structurally cannot
+##     have. On top of that it slides across the flat over the glint cycle, so a
+##     cog holding one angle still shimmers. ONE spot rather than a fixed specular
+##     plus an orbiting glint: two white features were built first and measured,
+##     and they cost twice the shell area for the same read — area is the entire
+##     team-colour budget.
 ##  5. FRESNEL EDGE — bright where the shell turns away from the viewer on the lit
 ##     side, dark on the shaded side. A polished edge catches light all the way
 ##     round; a matte one does not.
 ##
-## Layers 1-2 are multiplicative and colour-safe; only 3-5 spend achromatic white,
+## Layers 1-3 are colour-safe by construction; only 4-5 spend achromatic white,
 ## and they are deliberately the compact ones (tools/shimmer_legibility.nim
 ## `shellKeep`). Flake sparkle is deliberately ABSENT: a flake grain is ~1 map px
 ## and the viewer averages ~4x4 emitted px into one screen px, so flake is a
-## zoomed-in-only feature that costs saturation and buys nothing on screen.
+## zoomed-in-only feature that costs saturation and buys nothing on screen. The
+## same measurement is why the specular is as LARGE as it is — a genuinely tight
+## specular is under one screen pixel and the box filter erases it outright.
 const
   CogMetalShellPx* = 11.0     ## radius, in MAP px, of the modelled shell — the
                               ## head cube's own footprint (18x16 map px, ~18x18
@@ -656,24 +666,45 @@ type CogMetalTune = object
   ## (-d:metalTune) can sweep them without a recompile per value.
   gamma: float        ## luminance curve; > 1 deepens the darks.
   shadeLo, shadeHi: float  ## body-shade multiplier away from / toward the light.
+  bands: float        ## number of QUANTIZED tone steps the body shade is snapped
+                      ## to. At the size a cog actually occupies (~10 screen px
+                      ## of shell, of which the visor eats a third) a continuous
+                      ## ramp box-filters into one flat mid-tone; hard steps are
+                      ## how pixel art has always drawn chrome, and they are the
+                      ## only form of contrast that survives the downsample.
+  horizon: float      ## HALF-WIDTH of the light/dark transition, in units of the
+                      ## `lit` term. Small = a hard chrome horizon, large = a
+                      ## soft diffuse ramp. This one number is the difference
+                      ## between "polished" and "in shadow" at 10 screen px.
+  chromaLit: float    ## extra SATURATION on the lit half. Metallic paint's lit
+                      ## side is a deeper, candy-richer version of the colour,
+                      ## not a paler one — so this layer BUYS team colour back
+                      ## instead of spending it.
   rimPx: float        ## fresnel width, in MAP px, measured in from the silhouette.
   rimBright: float    ## additive white alpha on the lit edge.
   rimDark: float      ## multiplicative darkening on the shaded edge.
-  facetGain: float    ## additive white alpha of the hot facet.
-  facetPow: float     ## facet lobe exponent; higher = tighter, harder glint.
+  facetGain: float    ## additive white alpha of the lit facet wedge.
+  facetPow: float     ## facet lobe exponent; higher = tighter, harder wink.
   facetFloor: float   ## how much of the facet term survives off the hot flat.
-  hotGain: float      ## the blown highlight at the hot facet's outer corner.
-  glintGain: float    ## additive white alpha of the travelling arc.
-  glintWidth: float   ## travelling arc half-width, in radians.
-  annLo, annHi: float ## shell radii (0..1) the specular layers live between.
+  hotGain: float      ## the blown highlight: the ONE achromatic spot.
+  hotR: float         ## its centre, in shell radii from the hub.
+  hotSigma: float     ## its gaussian radius, in shell radii. SMALL by contract.
+  travelArc: float    ## radians the spot slides across the lit side over one
+                      ## glint cycle. This is the TIME half of the motion; the
+                      ## facet jump is the ORIENTATION half, and they share one
+                      ## spot so the whole animation costs one white footprint
+                      ## instead of two.
+  travelR: float      ## how far the spot also drifts outward over that cycle.
+  annLo, annHi: float ## shell radii (0..1) the facet wedge lives between.
 
 const DefaultCogMetalTune = CogMetalTune(
-  gamma: 1.62, shadeLo: 0.50, shadeHi: 1.06,
-  rimPx: 2.1, rimBright: 0.62, rimDark: 0.45,
-  facetGain: 0.60, facetPow: 5.0, facetFloor: 0.06,
-  hotGain: 0.92,
-  glintGain: 0.58, glintWidth: 0.62,
-  annLo: 0.24, annHi: 1.35)
+  gamma: 1.45, shadeLo: 0.30, shadeHi: 1.55, bands: 4.0, horizon: 0.50,
+  chromaLit: 0.95,
+  rimPx: 2.4, rimBright: 0.28, rimDark: 0.55,
+  facetGain: 0.12, facetPow: 7.0, facetFloor: 0.04,
+  hotGain: 1.00, hotR: 0.50, hotSigma: 0.38,
+  travelArc: 1.75, travelR: 0.22,
+  annLo: 0.22, annHi: 1.20)
 
 when defined(metalTune):
   import std/envvars
@@ -685,14 +716,17 @@ when defined(metalTune):
     CogMetalTune(
       gamma: envF("GAMMA", d.gamma),
       shadeLo: envF("SHADELO", d.shadeLo), shadeHi: envF("SHADEHI", d.shadeHi),
+      bands: envF("BANDS", d.bands), horizon: envF("HORIZON", d.horizon),
+      chromaLit: envF("CHROMALIT", d.chromaLit),
       rimPx: envF("RIMPX", d.rimPx), rimBright: envF("RIMBRIGHT", d.rimBright),
       rimDark: envF("RIMDARK", d.rimDark),
       facetGain: envF("FACETGAIN", d.facetGain),
       facetPow: envF("FACETPOW", d.facetPow),
       facetFloor: envF("FACETFLOOR", d.facetFloor),
-      hotGain: envF("HOTGAIN", d.hotGain),
-      glintGain: envF("GLINTGAIN", d.glintGain),
-      glintWidth: envF("GLINTWIDTH", d.glintWidth),
+      hotGain: envF("HOTGAIN", d.hotGain), hotR: envF("HOTR", d.hotR),
+      hotSigma: envF("HOTSIGMA", d.hotSigma),
+      travelArc: envF("TRAVELARC", d.travelArc),
+      travelR: envF("TRAVELR", d.travelR),
       annLo: envF("ANNLO", d.annLo), annHi: envF("ANNHI", d.annHi))
 else:
   proc cogMetalTune(): CogMetalTune = DefaultCogMetalTune
@@ -704,12 +738,6 @@ proc metalSmoothstep(e0, e1, x: float): float {.inline.} =
   if e1 <= e0: return (if x >= e1: 1.0 else: 0.0)
   let t = clamp((x - e0) / (e1 - e0), 0.0, 1.0)
   t * t * (3.0 - 2.0 * t)
-
-proc metalAngDelta(a, b: float): float {.inline.} =
-  ## Shortest absolute angular distance, radians.
-  var d = abs(a - b) mod (2.0 * PI)
-  if d > PI: d = 2.0 * PI - d
-  d
 
 proc alphaEdgeDistance(pixels: openArray[uint8], side: int): seq[float32] =
   ## Chamfer (3,4)-style distance transform: px from each opaque pixel to the
@@ -765,7 +793,27 @@ proc applyCogMetal*(pixels: var seq[uint8], side, renderScale,
       2.0 * PI / float(RigSteps)
     lightAz = arctan2(CogMetalLightY, CogMetalLightX)
     facetArc = 2.0 * PI / float(CogMetalFacets)
-    sweepAz = 2.0 * PI * float(phase) / float(CogMetalSweepFrames)
+    # THE ORIENTATION CUE, in three lines. `hotFacet` is the chamfer flat whose
+    # OBJECT-space normal currently points nearest the world light; `hotAz` is
+    # where that flat sits on screen once the cog is turned. Because the flats
+    # are quantized, turning the cog makes the blown highlight JUMP from one flat
+    # to the next (every two aim steps, at 8 flats over 16 steps) rather than
+    # crawl — and `hotAlign` falls to cos(22.5 deg) in between, so the cog also
+    # WINKS as it turns. Both are things only a surface does; a decal cannot.
+    hotFacet = floor((lightAz - aimAz) / facetArc + 0.5)
+    hotAz = hotFacet * facetArc + aimAz
+    hotAlign = max(0.0, cos(hotAz - lightAz))
+    # THE TIME CUE, riding the SAME spot. The glint slides across the lit flat
+    # over one cycle and drifts outward as it goes, so a cog holding one angle
+    # still visibly shimmers. Two separate white features (a fixed specular plus
+    # an orbiting glint) were built first and measured: they cost twice the shell
+    # area, and area is the entire team-colour budget — so the two motions share
+    # one spot instead.
+    travel = float(phase) / float(CogMetalSweepFrames) - 0.5
+    spotAz = hotAz + t.travelArc * travel
+    spotR = t.hotR + t.travelR * travel
+    hotX = spotR * cos(spotAz)
+    hotY = spotR * sin(spotAz)
   for y in 0 ..< side:
     for x in 0 ..< side:
       let i = y * side + x
@@ -793,7 +841,13 @@ proc applyCogMetal*(pixels: var seq[uint8], side, renderScale,
           (1.0 - metalSmoothstep(t.annHi - 0.35, t.annHi, u))
         edge = float(dist[i]) / max(rimPx, 1.0e-6)
         rim = 1.0 - metalSmoothstep(0.0, 1.0, edge)
-        glint = exp(-pow(metalAngDelta(phiObj, sweepAz) / t.glintWidth, 2.0))
+        hotD2 = (dx - hotX) * (dx - hotX) + (dy - hotY) * (dy - hotY)
+        # A hard-edged DISC, not a gaussian falloff: a soft blob averages down
+        # into a haze over the cog (the two rejected builds both looked like
+        # fog); a disc with a one-pixel edge averages down into a bright pixel,
+        # which is what a specular is.
+        spot = 1.0 -
+          metalSmoothstep(t.hotSigma * 0.55, t.hotSigma, sqrt(hotD2))
       var
         cr = float(pixels[i * 4]) / 255.0
         cg = float(pixels[i * 4 + 1]) / 255.0
@@ -804,7 +858,20 @@ proc applyCogMetal*(pixels: var seq[uint8], side, renderScale,
       # free on the color axis the shimmer feature is forbidden to spend.
       let
         lum = 0.2126 * cr + 0.7152 * cg + 0.0722 * cb
-        shade = t.shadeLo + (t.shadeHi - t.shadeLo) * (0.5 + 0.5 * lit)
+        # THE CHROME HORIZON. A polished ball outdoors reflects bright sky over
+        # its upper half and dark ground under it, split by a HARD edge; that
+        # split is the single most recognizable "this is metal" silhouette there
+        # is, and unlike a specular dot it survives being averaged down to ten
+        # screen pixels. A soft cosine ramp in its place reads as a matte ball
+        # sitting in shadow — which is exactly how the first pass measured.
+        shadeRaw = metalSmoothstep(-t.horizon, t.horizon, lit)
+        # QUANTIZE. `bands` hard tone steps instead of a continuous ramp: a
+        # stepped surface reads as polished, a smooth one reads as matte, and at
+        # this footprint the smooth one does not read at all.
+        shadeT = if t.bands >= 2.0:
+            min(floor(shadeRaw * t.bands), t.bands - 1.0) / (t.bands - 1.0)
+          else: shadeRaw
+        shade = t.shadeLo + (t.shadeHi - t.shadeLo) * shadeT
         darken = t.rimDark * rim * metalSmoothstep(-0.15, 0.55, -lit)
       if lum > 1.0e-4:
         let
@@ -815,6 +882,25 @@ proc applyCogMetal*(pixels: var seq[uint8], side, renderScale,
           # avoid, and it would do it worst on the brightest palette slugs.
           s = min(want / lum, if mx > 1.0e-4: 1.0 / mx else: 1.0)
         cr *= s; cg *= s; cb *= s
+      # 2b. CANDY COAT. A metallic finish's lit side is a RICHER version of the
+      # base colour, so the lit half gets its chroma pushed AWAY from its own
+      # luminance. Hue is untouched (every channel moves along the same axis
+      # through the grey point) and HSV saturation goes UP, so this is the one
+      # layer of the material that adds to the `shellKeep` budget rather than
+      # spending it — which is what pays for the achromatic pip below.
+      if t.chromaLit > 0.0:
+        let
+          lum2 = 0.2126 * cr + 0.7152 * cg + 0.0722 * cb
+          mx2 = max(cr, max(cg, cb))
+          wantK = 1.0 + t.chromaLit * shadeT
+          # Cap so the brightest channel still lands under 1.0: a clipped channel
+          # silently DESATURATES, undoing the very thing this layer is for.
+          k = if mx2 - lum2 > 1.0e-4: min(wantK, (1.0 - lum2) / (mx2 - lum2))
+              else: wantK
+        cr = lum2 + (cr - lum2) * k
+        cg = lum2 + (cg - lum2) * k
+        cb = lum2 + (cb - lum2) * k
+        cr = max(cr, 0.0); cg = max(cg, 0.0); cb = max(cb, 0.0)
       # 3-5. The achromatic layers, straight-alpha "over" onto the base coat.
       # These are the only pixels the material spends on white, which is why each
       # one is compact: peak luminance is won by a handful of pixels, team
@@ -825,19 +911,62 @@ proc applyCogMetal*(pixels: var seq[uint8], side, renderScale,
           cr += (1.0 - cr) * sa
           cg += (1.0 - cg) * sa
           cb += (1.0 - cb) * sa
+      # The lit facet WEDGE: a moderate brightening of the flat currently turned
+      # toward the light, so the shell has a lit side and a dark side that swap
+      # as the cog turns. Deliberately modest — this layer covers area, and area
+      # is what costs team colour.
       white(t.facetGain * facet * ann)
-      white(t.glintGain * glint * ann)
-      # The blown highlight: tiny, near-opaque, and placed where the hot flat
-      # meets the shell's outer edge — the one spot a real specular peaks. It
-      # owns the top of the luminance distribution so the flagged cog out-reads
-      # its stock teammate's own brightest art (a citrine-yellow cog leaves only
-      # ~64 luma of headroom, so the peak has to be nearly white).
-      white(t.hotGain * pow(lobe, t.facetPow * 2.0) *
-        metalSmoothstep(0.45, 0.80, u) * (1.0 - metalSmoothstep(1.0, 1.35, u)))
+      # The BLOWN HIGHLIGHT: small, near-opaque, sitting on the hot flat. It owns
+      # the top of the luminance distribution, which is what lets the flagged cog
+      # out-read its stock teammate's own brightest art (a citrine-yellow cog
+      # leaves only ~64 luma of headroom, so the peak has to be nearly white),
+      # and it is small precisely so it can afford to be that bright: peak
+      # luminance is won by a handful of pixels, team identity is lost by many.
+      white(t.hotGain * hotAlign * spot)
       white(t.rimBright * rim * metalSmoothstep(-0.05, 0.65, lit))
       pixels[i * 4] = uint8(clamp(cr, 0.0, 1.0) * 255.0)
       pixels[i * 4 + 1] = uint8(clamp(cg, 0.0, 1.0) * 255.0)
       pixels[i * 4 + 2] = uint8(clamp(cb, 0.0, 1.0) * 255.0)
+
+const
+  CogMetalTicksPerFrame* = 8  ## 48 ticks = 2s per glint lap at 24 ticks/s. Slow
+                              ## on purpose: the brief is a sheen, not a strobe,
+                              ## and the ROTATION cue already fires every time the
+                              ## cog turns two aim steps, which in a real match is
+                              ## most of the time.
+  CogMetalSeatStride* = 5     ## per-seat phase offset in frames. Coprime with
+                              ## CogMetalSweepFrames so consecutive seats of one
+                              ## policy land on distinct phases — a squad glinting
+                              ## in unison reads as a UI blink, not as light on a
+                              ## surface.
+  RigMetalSegSpriteBase* = 80000
+    ## Logical KEY base for the metallic segment pool (not a wire id — the
+    ## caller remaps through the dense dynamic window like every other rig
+    ## pose). Sits above the rig pose key space (40000..76663) and far below the
+    ## debug namespace at 1_000_000. Width: seg(2) x skin(2) x team(4) x
+    ## aim(16) x phase(CogMetalSweepFrames) = 1536 keys, of which a real episode
+    ## touches only the flagged policy's own team.
+
+proc cogMetalPhase*(tick, seat: int): int =
+  ## The glint phase one seat shows at one tick. A pure function of tickCount
+  ## (plus a per-seat offset), like the diamond spin — so every viewer, live or
+  ## replayed, at any scrub position, agrees without any animation state to sync.
+  ((tick div CogMetalTicksPerFrame) + seat * CogMetalSeatStride) mod
+    CogMetalSweepFrames
+
+proc rigMetalSegSpriteKey*(team: Team, seg: RigSeg, skin: Skin,
+    aimStep, phase: int): int =
+  ## Logical sprite key for one baked metallic segment. Only the three
+  ## AIM-tracking segments can be metal (head, armL, armR — the shell panels);
+  ## the legs and wheels are struts and rubber and stay stock, which is both
+  ## right for the material and what keeps this pool small.
+  let segIdx = case seg
+    of rsHead: 0
+    of rsArmL: 1
+    else: 2
+  RigMetalSegSpriteBase +
+    (((segIdx * 2 + ord(skin)) * 4 + ord(team)) * RigSteps + aimStep) *
+      CogMetalSweepFrames + phase
 
 var rigMetalCache: array[Skin, array[Team, array[RigSeg, seq[tuple[
   aimStep, phase, scale: int, pixels: seq[uint8]]]]]]
