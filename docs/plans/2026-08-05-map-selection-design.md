@@ -215,6 +215,42 @@ Small boards are the outlier: 12 valid candidates cost 18.3 attempts, a ~65%
 pass rate, against ~90% on standard and ~100% on large and up. The generator is
 worst on its smallest board.
 
+### 4 teams
+
+`map_eval bestof --seeds 2001-2060 --teams 4`, 60 seeds:
+
+```
+staticScore
+  K=1  (first valid)  min 0.625  p25 0.727  med 0.786  p75 0.830  max 0.889  mean 0.777
+  best-of-K           min 0.658  p25 0.765  med 0.841  p75 0.890  max 0.929  mean 0.822
+  seeds improved 51, unchanged 9, regressed 0
+```
+
+Same direction, smaller magnitude (+0.045 mean vs +0.060), and again 0
+regressions. Every metric that moves moves toward the control; `detourMax` is
+the one that does not move at all, and it sits on the WRONG side of the control
+(1.412 vs 1.295) across the whole 4-team population — selection cannot fix a
+bias the generator applies to every candidate.
+
+The real 4-team finding is the ATTEMPT COST, and it is a warning for the
+structure pass:
+
+| class | K | attempts per shipped map | implied pass rate |
+|---|---|---|---|
+| small | 12 | 54.8 | 22% |
+| standard | 8 | 35.0 | 23% |
+| large | 6 | 10.4 | 58% |
+| huge | 4 | 5.1 | 78% |
+| giant | 2 | 2.7 | 74% |
+
+Small and standard 4-team boards spend a third to half of the 100-attempt
+budget to find K candidates; individual seeds hit 81 attempts. `selectBestMap`
+degrades correctly (it ships the best of however many it found), but the
+headroom is thin, and it is thin because the generator is bad at small rot90
+boards — not because K is high. If the structure pass raises `MinCorridorWidth`
+toward `RecommendedCorridorWidthPx`, re-measure this table before trusting the
+budget.
+
 ## 4. Blast radius
 
 Seed → map identity is **not** preserved, and that is allowed: replays pin
