@@ -22,8 +22,8 @@
 ##
 ## Curation/measurement tooling; not part of the server.
 import
-  std/[algorithm, math, os, sequtils, strformat, strutils, times],
-  ../src/ctf/sim
+  std/[algorithm, math, os, sequtils, sha1, strformat, strutils, times],
+  ../src/ctf/sim, ../src/ctf/map_pool
 
 const
   Usage = """
@@ -33,6 +33,12 @@ Usage: map_rank_probe [options]
   --k <list>      comma-separated K values (default 1,8,32)
   --tsv <path>    write the per-map metric rows here
   --no-verify     skip the generateCtfMap cross-check (it doubles the work)
+  --audit         BAND-CHANGE AUDIT instead of the K sweep: print the map
+                  each pool entry and each scanned seed actually SHIPS, with
+                  its score, its rank among them, and a hash of its geometry.
+                  Run it in two worktrees and diff: a rubric change that
+                  reorders the pool, or ships a different map for a seed, is
+                  a bigger event than one that only moves the numbers.
 """
 
 type
@@ -88,6 +94,47 @@ proc median(values: seq[float]): float =
   if sorted.len mod 2 == 1: sorted[mid]
   else: 0.5 * (sorted[mid - 1] + sorted[mid])
 
+proc auditBands(seeds, first: int) =
+  ## What a RUBRIC change did, stated the way it should be judged: not "does
+  ## the control still pass" but "which map does each seed now ship, and in
+  ## what order do they rank". Run in two worktrees and diff the output.
+  ##
+  ## Both questions matter and they are different. The score feeds
+  ## `rankCtfMapCandidates`, so moving a band can change WHICH candidate a
+  ## seed ships (the geometry hash moves); and it can change how the shipped
+  ## maps ORDER against each other, which is what curation reads.
+  let control = controlMetrics()
+  echo &"# band audit at K={MapRankDefaultK}; control score " &
+    &"{scoreMap(control, control).score * 100:.2f}"
+  echo "# kind\tid\tscore\trank\tgeometry"
+  type Audited = object
+    kind: string
+    id, rank: int
+    score: float
+    hash: string
+  var audited: seq[Audited]
+  for i, seed in MapPoolSeeds:
+    let gameMap = generateCtfMap(seed)
+    audited.add Audited(kind: "pool", id: i, hash: $secureHash(gameMap.mapSpecJson()),
+      score: gameMap.scoreCandidate(control))
+  for s in 0 ..< seeds:
+    let
+      seed = first + s
+      gameMap = generateCtfMap(seed)
+    audited.add Audited(kind: "seed", id: seed,
+      hash: $secureHash(gameMap.mapSpecJson()),
+      score: gameMap.scoreCandidate(control))
+  ## Rank within each kind, best first. Ties keep the listed order, so a
+  ## rank that moves means the SCORE reordered them, not the sort.
+  for kind in ["pool", "seed"]:
+    var order = toSeq(0 ..< audited.len).filterIt(audited[it].kind == kind)
+    order.sort(proc (a, b: int): int = cmp(audited[b].score, audited[a].score))
+    for rank, idx in order:
+      audited[idx].rank = rank
+  for entry in audited:
+    echo &"{entry.kind}\t{entry.id}\t{entry.score * 100:.4f}\t" &
+      &"{entry.rank}\t{entry.hash}"
+
 proc main() =
   var
     seeds = 200
@@ -95,6 +142,7 @@ proc main() =
     ks = @[1, 8, 32]
     tsvPath = ""
     verify = true
+    audit = false
     i = 1
   while i <= paramCount():
     let arg = paramStr(i)
@@ -108,9 +156,14 @@ proc main() =
     of "--k": ks = next().split(',').mapIt(parseInt(it.strip()))
     of "--tsv": tsvPath = next()
     of "--no-verify": verify = false
+    of "--audit": audit = true
     of "--help", "-h": quit(Usage, 0)
     else: quit("Unknown option " & arg & "\n" & Usage)
     inc i
+
+  if audit:
+    auditBands(seeds, first)
+    return
 
   ## Rule 1 of the five meta-rules: the control runs in every batch. It is
   ## also what three of the bands are anchored on, so it is measured once

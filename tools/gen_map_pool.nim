@@ -25,7 +25,8 @@
 ##     existed precisely because attempt 1 of seed N was attempt 0 of seed
 ##     N+1 — is obsolete. A pool entry is the map its seed makes, whether
 ##     that took one attempt or nine.
-import std/[algorithm, os, strutils, strformat, times], ../src/ctf/sim
+import
+  std/[algorithm, os, sequtils, strutils, strformat, times], ../src/ctf/sim
 
 const
   PoolSize = 20

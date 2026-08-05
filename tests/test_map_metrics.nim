@@ -69,10 +69,16 @@ suite "map metrics":
   test "the control's landmark numbers hold":
     withGameDir(proc() =
       let control = computeMapMetrics(loadCtfMapMetadata("arena"))
-      # Enclosure: the MW2 study measured this same control at ~33% and
-      # called it honest scatter. It is the floor every generated map has to
-      # clear, so a drift here silently re-bases the whole rubric.
-      check abs(control.interiorFrac - 0.325) < 0.02
+      # Enclosure: the MW2 study measured this control at ~33% on the
+      # RECTANGULAR board and called it honest scatter. The HEXAGON reads
+      # 41.5% for the same authored slalom, and that is the arena genuinely
+      # moving rather than the metric drifting: a hex hull is wall on all six
+      # sides and 25% of the bounding box is void, so far more floor has 6 of
+      # 8 directions blocked within 120px. It matters because this number is
+      # the FLOOR every generated map has to clear — the hex conversion
+      # raised the bar by 9 points, which is most of why generated maps still
+      # read flatter than the control.
+      check abs(control.interiorFrac - 0.415) < 0.02
       # The bands that four candidate metrics got wrong, pinned:
       check control.p95ClearancePx <= 125.0     # distance to cover, not 2x it
       check control.minRoutes >= 3              # not "1 route for every map"
