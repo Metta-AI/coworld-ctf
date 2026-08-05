@@ -342,6 +342,196 @@ recording:
   For us this is live — our league seats us as a *strided subset* of a team across four entrant
   policies, so per-seat balance, not per-team balance, is the quantity that matters.
 
+---
+
+## 3. The math: five derivations that turn guidance into thresholds
+
+Everything in §4 that has a number behind it comes from one of these.
+
+### 3.1 Travel time is L∞, and headings are not interchangeable
+
+With `velX`, `velY` independently clamped **[engine]**, the achievable average-velocity set is the
+square `[−v, v]²`. Consequences:
+
+```
+    travel time between p and q (unobstructed)   t = max(|Δx|, |Δy|) / v
+    speed along heading θ                        v(θ) = v / max(|cos θ|, |sin θ|)
+    v(0°)   = 66.0 px/s     v(30°) = 76.2 px/s
+    v(45°)  = 93.3 px/s     ← 41.4% faster than axis-aligned
+    carrier: multiply by 0.70 → 46.2 px/s axis, 65.3 px/s diagonal
+```
+
+Two things follow that are not currently modelled anywhere:
+
+1. **Path shape is free, endpoints are everything.** In open ground the L∞ time depends only on the
+   endpoints, so a "staircase" route costs the same as a straight one. You cannot fix a bad heading
+   by routing around it.
+2. **Every equidistance argument must be redone in L∞.** The set of points equidistant from two
+   bases under L∞ is *not* the perpendicular bisector; it is a piecewise-linear polyline whose
+   segments run at 0°, 45° or 90°. A generator that places the "midfield seam" on a Euclidean
+   bisector is placing it in the wrong place, by up to `(√2 − 1)/√2 = 29%` of the half-separation.
+
+### 3.2 The exact fairness group is D4, and the residual for k = 3, 6 is 15.5%
+
+A team-permuting transform `g` must preserve (a) the wall geometry, (b) the movement lattice
+(8 headings, 45°), (c) the aim lattice (32 slots, 11.25°), and (d) the L∞ metric. (d) is the binding
+one: the isometry group of the L∞ plane is the symmetry group of the square, **D4** (order 8). Hence:
+
+| Teams k | Exact k-fold rotation? | Why |
+|---|---|---|
+| 2 | **yes** | 180° ∈ D4; 128 brads = 16 aim slots; d-pad headings map to d-pad headings |
+| 3 | **no** | 120° = 85.33 brads — not an integer brad, not a multiple of the 8-brad slot, off the movement lattice |
+| 4 | **yes** | 90° ∈ D4; 64 brads = 8 slots |
+| 6 | **no** | 60° = 42.67 brads — same failure as k = 3 |
+| 8 | **no** | 45° preserves the movement *headings* and the aim lattice but **not** the L∞ metric — it maps the velocity square to a diamond |
+
+Reflections about 0°, 45°, 90°, 135° are all in D4 and are legitimate, because our shot geometry is
+achiral (§1.3). Reflections about any other axis are not.
+
+**The irreducible residual for k = 3 and k = 6.** Put the bases on a ring and let team *i*'s
+base→contact axis have heading `θ_i`. Travel time to a point at Euclidean distance D is
+`D·max(|cos θ|, |sin θ|)/v`, so team *i*'s time carries a factor `m(θ_i) = max(|cos θ_i|, |sin θ_i|)`
+with `m ∈ [1/√2, 1]`. Fairness requires all `m(θ_i)` equal.
+
+`m` has period 90° and satisfies `m(θ) = m(90° − θ)`, so each level set of `m` contains at most two
+headings per period. Three headings 120° apart reduce mod 90° to `{φ, φ+30°, φ+60°}` — three
+*distinct* values, so they can never all lie in one two-element level set. **No 3-fold or 6-fold
+rotational layout can equalise travel speed.** Minimising the spread over φ:
+
+```
+    φ = 0°  → headings {0°, 30°, 60°},  m = {1.000, 0.866, 0.866}   spread 1.155  ← minimum
+    φ = 5°  → m = {0.996, 0.819, 0.906}                              spread 1.216
+    φ = 15° → m = {0.966, 0.707, 0.966}                              spread 1.366
+```
+
+**The best achievable 3-team (and 6-team) rotational map still gives one team in three a 15.5%
+travel-time penalty** — equivalently, two teams in three arrive 13.4% early. For reference, 13.4% of
+a 1000 px approach at 66 px/s is 2.0 s, which is exactly one time-to-kill. This is not a rounding
+error; it is a decisive head start.
+
+For k = 4 both `{0°, 90°, 180°, 270°}` (all `m = 1`) and `{45°, 135°, 225°, 315°}` (all
+`m = 1/√2`, everyone 41% faster) are exactly fair. For k = 2, any opposed pair is exact.
+
+**Partial remedy for k = 3, 6:** compensate in Euclidean distance rather than heading — set each
+team's base-to-frontier distance `D_i ∝ 1 / m(θ_i)`, which restores *time*-to-contact equality
+exactly. It does **not** restore local geometry equality (sightline lengths, cover cadence
+requirements, and exposure budgets remain heading-dependent, per §3.3), so it is a first-order fix
+only. Record the residual rather than pretending it is zero.
+
+### 3.3 The exposure inequality — what "too open" actually means
+
+A player crossing an open gap of span `S` at heading θ, under fire from a shooter already in range
+with line of sight, survives iff
+
+```
+    S / v(θ)  <  T_kill + T_windup + T_acquire
+
+    T_kill    = TicksToKill = 48 ticks                       [engine]
+    T_windup  = FireWindupTicks = 5 ticks                    [engine]
+    T_acquire = Δslots / aimTurnRate ticks                   Δ = slots the shooter must rotate
+```
+
+Solving for the maximum survivable span:
+
+| case | aimTurnRate | T_total | axis-aligned | diagonal |
+|---|---|---|---|---|
+| runner, shooter already aimed | — | 48 | **132 px** | 187 px |
+| runner, shooter aimed | — | 53 (+windup) | 146 px | 206 px |
+| runner, mean random bearing (Δ = 8) | 1 (default) | 61 | 168 px | 237 px |
+| runner, mean random bearing (Δ = 8) | 5 (league) | 54.6 | 150 px | 212 px |
+| **carrier** (0.70×), shooter aimed | — | 48 | **92 px** | 131 px |
+| carrier, mean random bearing | 5 | 54.6 | 105 px | 148 px |
+
+`MaxExposedRunPx = 132` **[engine]** is therefore the *most conservative corner* of this table: an
+axis-aligned crossing by a full-speed runner against a pre-aimed shooter with no windup credit. It is
+also **the wrong number for the phase that decides matches**, where the correct figure is the carrier
+row: **92 px**.
+
+Note the direction of the two corrections: heading (up to +41%) and acquire time (up to +27%) both
+*loosen* the budget; carrying (−30%) tightens it. They do not cancel, and which dominates depends on
+the phase. A generator that applies one global `maxExposedRun` is answering the wrong question in
+both directions at once.
+
+### 3.4 Cover cadence — the derivation that reproduces our measured 10–25% band
+
+Model a cover field as a square lattice of `w = BaseCoverSizePx = 56` px blocks with clear gap `g`
+between neighbours. Areal wall fraction:
+
+```
+    f = w² / (g + w)²                    ⟺        g = w·(1/√f − 1)
+```
+
+Require that no traverse of the field exposes the mover for longer than one time-to-kill, i.e.
+`g ≤ S_max` from §3.3:
+
+| mover | heading | S_max | required f |
+|---|---|---|---|
+| runner | diagonal | 187 px | **5.3%** |
+| runner | axis | 132 px | **8.9%** |
+| carrier | diagonal | 131 px | **9.0%** |
+| carrier | axis | 92 px | **14.3%** |
+
+And from the other side, the density at which a field stops being a field:
+
+```
+    f = 25%  ⟺  g = 56 px  — a single gap of one drawn body plus a strafe margin
+    f = 35%  ⟺  g = 39 px  — narrower than one drawn body; the space is now a maze, not a field
+```
+
+**Our measured stand-side conversion band of 10–25% is exactly the carrier's cadence requirement.**
+Its floor (10%) sits on the carrier-diagonal figure (9.0%); its centre (~15%) sits on the
+carrier-axis figure (14.3%); its ceiling (25%) is the maze threshold. Maps below the band leave the
+carrier a gap longer than one TTK on the only run that matters; maps above it turn the pedestal
+approach into a corridor system where a defender needs to cover only one mouth.
+
+Three consequences:
+
+1. **The invariant is a property of the carry phase, not of the pedestal.** It should be enforced
+   along the whole carry route out to the endzone, not only in a 200 px disc around the stand. The
+   200 px disc was where we happened to measure it. (The 200 px radius is itself sensible — it is
+   ~2× the carrier's TTK-distance and ~1.5 endzone radii — but it is not where the requirement
+   stops.)
+2. **The global band should be lower than the stand band, not the same.** Full-speed traffic needs
+   5–9%; the current 4–17% global validator band brackets that adequately at the bottom and is
+   harmless at the top. The bug was never the global band. It was having *only* a global band.
+3. **The 28% reference-plate figure is a different quantity.** A hand-authored plate's "structure"
+   includes the perimeter, solid buildings and interior walls, none of which are 56 px cover blocks.
+   Comparing 4–17% cover to 28% structure is apples to oranges and has probably been driving the
+   generator toward the wrong target. Split the measurement: **`coverFrac`** (connected components
+   with bounding box ≤ ~2 w on both axes) versus **`structureFrac`** (everything else), and band them
+   separately.
+
+### 3.5 Angle geometry — what one block actually protects
+
+A cover block of width `w` at distance `d` from a defended point subtends
+
+```
+    α(d) = 2·arctan(w / 2d)
+    w = 56:   α(50) = 58°     α(100) = 31°     α(200) = 16°     α(400) = 8°
+```
+
+The whole 360° threat field at a point therefore needs **≈ 12 blocks at 100 px** to be fully covered,
+or ~6 to cover a 180° frontal sector. This is the mathematical content of the intuition that a
+*scatter* of blocks protects nobody while *architecture* does: a wall of length L at distance d
+subtends up to `2·arctan(L/2d)`, which for L = 400, d = 100 is 127° — one wall does the work of four
+blocks, and does it as a *contiguous* sector rather than four slivers with lethal gaps between them.
+
+Define, for a point p:
+
+```
+    V(p) = { q : ‖q − p‖ ≤ GunRange  ∧  LOS(q, p) }        the threat set
+    A(p) = number of connected components of the bearing-projection of V(p)     the ANGLE COUNT
+    Ω(p) = angular measure of that projection / 2π                              the EXPOSURE FRACTION
+```
+
+`A(p)` is the level-design term "how many angles can shoot this point", made computable. `Ω(p)` is
+its magnitude. The pair distinguishes the two failure modes that a single scalar cannot: high `Ω`
+with `A = 1` is *one open side* (survivable — turn your back to it and run); moderate `Ω` with
+`A = 5` is a **crossfire** (unsurvivable — there is no facing that is safe, and no single cover piece
+helps).
+
+Neither quantity is in our metric suite. Both are static, cheap, and directly actionable.
+
 ### 2.3 Folklore — flagged as such
 
 These are widely repeated and, as far as we can find, have **no published evidence** behind them.
