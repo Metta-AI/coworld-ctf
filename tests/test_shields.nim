@@ -13,13 +13,21 @@ suite "shields":
   test "one shield spawns in each team's endzone on walkable floor":
     let sim = twoTeamGame()
     check sim.shieldSpawns.len == 2
-    for spawn in sim.shieldSpawns:
+    for i, spawn in sim.shieldSpawns:
+      let
+        team = Team(i)
+        anchor = sim.gameMap.teamAnchor(team)
       check spawn.present
       check sim.canOccupy(spawn.x, spawn.y)
-      # Shields live in the BOTTOM half (three-quarter height); the plasma arcs
-      # hold the matching top-half spots.
-      check abs(spawn.y - 3 * MapHeight div 4) < 120
-      check spawn.y > MapHeight div 2
+      # Every endzone is a DISC around its anchor now, so "three-quarter map
+      # height" no longer names anything: a shield sits in the BOTTOM half of
+      # its own team's scoring disc and the spray can holds the matching spot
+      # in the top half. That is the property the old constant stood for, and
+      # it is the one that has to survive an anchor moving with `homeDepth`.
+      check sim.gameMap.captureZone(team).inCaptureZone(spawn.x, spawn.y)
+      check spawn.y > anchor.y
+      check spawn.y - anchor.y < sim.gameMap.endzoneRadius
+      check sim.plasmaArcSpawns[i].y < anchor.y
     # One shield on the red (left) half, one on the blue (right) half.
     check sim.shieldSpawns[0].x < MapWidth div 2
     check sim.shieldSpawns[1].x > MapWidth div 2
@@ -49,15 +57,11 @@ suite "shields":
     check not sim.shieldSpawns[0].present
 
   test "damage depletes the shield layer before base hp":
-    var sim = twoTeamGame()
+    var sim = bareTwoTeamGame()
     sim.players[0].hasShield = true
     sim.players[0].shieldHp = ShieldLayerHp
     sim.players[0].fireCooldown = 0
-    sim.players[0].x = 300
-    sim.players[0].y = 300
-    sim.players[0].aimBrads = 0
-    sim.players[1].x = 300 + 30
-    sim.players[1].y = 300
+    sim.faceOff(0, 1, 30)
     sim.players[1].hasShield = true
     sim.players[1].shieldHp = 2
     sim.tryFire(0)
@@ -106,14 +110,10 @@ suite "shields":
     check sim.players[0].shieldHp == ShieldLayerHp
 
   test "a shield carrier can still shoot and kill":
-    var sim = twoTeamGame()
-    sim.players[0].x = 300
-    sim.players[0].y = 300
-    sim.players[0].aimBrads = 0           # east
+    var sim = bareTwoTeamGame()
+    sim.faceOff(0, 1, 30)
     sim.players[0].fireCooldown = 0
     sim.players[0].hasShield = true
-    sim.players[1].x = 300 + 30
-    sim.players[1].y = 300
     sim.players[1].hp = 1
     sim.tryFire(0)
     check not sim.players[1].alive

@@ -181,21 +181,20 @@ suite "spinning center diamonds are real geometry":
   test "the spinning set is closed under every map's own symmetry":
     ## If the set is not closed, one team gets rotating cover exactly where
     ## another gets solid stone. The authored rule is a vertical band down the
-    ## center column: already closed under the mirror and under 180 degrees,
-    ## but NOT under 90 — a quarter turn maps it to a horizontal band — so
-    ## rot90 maps take the band's closure, a cross through the center.
+    ## center column, which is closed under both groups a 2-team hex board can
+    ## wear (the vertical mirror and the half turn). The images are taken from
+    ## the map's OWN group via `teamOp`, not from a hard-coded reflection —
+    ## C4 is gone with `symRot90` because it is not a subgroup of D6.
     let previousDir = getCurrentDir()
     setCurrentDir(GameDir)
     try:
       proc imagesOf(m: CtfMap, cx, cy: int): seq[(int, int)] =
-        case m.symmetry
-        of symMirror: result = @[(m.width - 1 - cx, cy)]
-        of symRot180: result = @[(m.width - 1 - cx, m.height - 1 - cy)]
-        of symRot90:
-          var (x, y) = (cx, cy)
-          for _ in 0 ..< 3:
-            (x, y) = (m.width - 1 - y, x)
-            result.add((x, y))
+        for team in m.teams():
+          let op = m.teamOp(team)
+          if op == hexE:
+            continue
+          let image = m.pixelImage(MapPoint(x: cx, y: cy), op)
+          result.add((image.x, image.y))
       for spec in [("arena", 0), ("arena-large", 0), ("gen:1046", 0),
                    ("gen:1002", 0), ("gen:1005", 0)]:
         let
@@ -210,11 +209,22 @@ suite "spinning center diamonds are real geometry":
                 found = true
             ## A selected diamond's symmetry image must be selected too.
             check found
-      ## The authored arenas still select exactly the eight they always have.
+      ## The authored arenas select FOUR: the hexagonal arena flanks its flag
+      ## ring with one diamond above and one below on the center column of each
+      ## half (the old rectangular arena stacked two per flank, i.e. eight).
+      ## Pinned so a re-tune of `arenaHexObstacles` cannot silently drop or
+      ## double the spinning set, and asserted as an exact mirror pair.
       for mapName in ["arena", "arena-large"]:
-        let gameMap = loadCtfMapMetadata(mapName)
-        check buildAnimatedDiamonds(
-          gameMap, buildArenaObstacles(gameMap)).len == 8
+        let
+          gameMap = loadCtfMapMetadata(mapName)
+          chosen = buildAnimatedDiamonds(
+            gameMap, buildArenaObstacles(gameMap))
+        check chosen.len == 4
+        var leftHalf = 0
+        for spot in chosen:
+          if 2 * spot.cx < gameMap.width - 1:
+            inc leftHalf
+        check leftHalf == 2
     finally:
       setCurrentDir(previousDir)
 
@@ -239,7 +249,7 @@ suite "spinning center diamonds are real geometry":
     check diamondSpinFrame(left.cx, tick) == 1
     check diamondSpinFrame(right.cx, tick) == DiamondSpinFrames - 1
 
-  test "the live footprint is symmetric on rot180 and rot90 maps too":
+  test "the live footprint is symmetric on a rot180 map too":
     ## The installed-map globals make it impractical to boot a generated map
     ## inside this suite (selectCtfMap installs ONE map per process), so this
     ## checks the property directly on the geometry: the union of the selected
@@ -249,15 +259,29 @@ suite "spinning center diamonds are real geometry":
     let previousDir = getCurrentDir()
     setCurrentDir(GameDir)
     try:
-      ## Seeds picked (re-picked when the oversize size classes re-dealt the
-      ## draws) so the 2-team map is rot180 and both maps select diamonds.
-      for gameMap in [generateCtfMap(1111), generateCtfMap(66, teams = 4)]:
+      ## A CONTROLLED rot180 board rather than a generated one: the hex
+      ## generator's obstacle vocabulary is rect / hexagon / disc / chevron and
+      ## emits no diamond at all, so no generated map selects a spinning one.
+      ## The two diamonds are placed on the center column exactly as the
+      ## hand-authored arena places its own, and the half turn carries each
+      ## onto the other. (The 4-team arm is gone with `symRot90`: Stage 2
+      ## generates 2-team boards only, and the Klein-four direction rule is a
+      ## Stage-2b question — its HORIZONTAL mirror carries a diamond to the
+      ## SAME side of the board, so the side-of-the-map rule cannot invert it.
+      ## See `diamondSpinFrame`.)
+      var rot180 = bareHexMap()
+      rot180.symmetry = symRot180
+      rot180.leftObstacles = @[
+        diamondShape(rot180.center.x - 34,
+                     rot180.center.y - rot180.flagRing - 76, 30)]
+      rot180 = mapFromSpecJson(mapSpecJson(rot180))
+      for gameMap in [rot180]:
         let
           chosen = buildAnimatedDiamonds(
             gameMap, buildArenaObstacles(gameMap))
-          mirrored = gameMap.symmetry == symMirror
+          mirrored = gameMap.symmetry == symMirrorHex
         check chosen.len > 0
-        check gameMap.symmetry in {symRot180, symRot90}
+        check gameMap.symmetry == symRot180
         ## Frames come from diamondSpinFrame, NOT from a constant: the whole
         ## question is whether the direction rule hands a diamond and its
         ## image the same angle. Hard-coding one frame for both would test the
@@ -279,11 +303,9 @@ suite "spinning center diamonds are real geometry":
                 let
                   x = spot.cx + dx
                   y = spot.cy + dy
-                  image =
-                    if gameMap.symmetry == symRot180:
-                      (gameMap.width - 1 - x, gameMap.height - 1 - y)
-                    else:
-                      (gameMap.width - 1 - y, x)
+                  imagePoint = gameMap.pixelImage(
+                    MapPoint(x: x, y: y), gameMap.teamOp(Blue))
+                  image = (imagePoint.x, imagePoint.y)
                 if coveredAt(x, y, tick) !=
                     coveredAt(image[0], image[1], tick):
                   inc asymmetric

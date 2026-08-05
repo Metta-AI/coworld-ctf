@@ -3,30 +3,37 @@ import
   std/unittest,
   ctf/sim
 
-## The firing scene: the widest fully clear corridor on the default arena is
-## ~313px (x 10..322, y 72..88), so every live-fire test runs with a config
-## gunRange OVERRIDE of 250 inside that lane. That is the point of the jitter
-## design: sigma derives from the LIVE config.gunRange, so "80% at max range"
-## holds for any configured range and can be pinned without a 1050px lane
-## (which no hand-authored arena has).
+## The firing scene runs on the BARE hexagon (`helpers.bareHexMap`), down the
+## board's CENTER ROW — the hexagon's widest chord, open from border to border
+## once the arena's furniture is out of the way.
+##
+## Two things forced the move off the hand-authored arena. The widest fully
+## clear corridor there is now 501px and it shifts whenever `arenaHexObstacles`
+## is re-tuned, so a pinned lane would assert the arena's furniture rather than
+## the jitter. And the fixed `GunRange` (1050) is longer than the standard
+## board is WIDE (969) and far longer than its longest open run (626), so no
+## hand-authored hex map can present a max-range shot at all. That is exactly
+## what the jitter design is for: sigma derives from the LIVE config.gunRange,
+## so "80% at max range" holds for any configured range and is pinned here with
+## a 250px override.
 const
   ShortRange = 250
-  ShooterX = 24
-  ShooterY = 80
-  LaneX0 = 12                  # asserted wall-free rectangle around the lane:
-  LaneX1 = 310                 # covers both bodies (±PlayerHalf) and every
-  LaneY0 = 72                  # silhouette sample the shots can probe.
-  LaneY1 = 88
+  CenterX = HexStandardWidth div 2    # 484
+  CenterY = HexStandardHeight div 2   # 559
+  ShooterX = CenterX - 300
+  ShooterY = CenterY
+  LaneX0 = ShooterX - 14       # asserted wall-free rectangle around the lane:
+  LaneX1 = ShooterX + ShortRange + 26   # covers both bodies (+-PlayerHalf) and
+  LaneY0 = ShooterY - 8        # every silhouette sample the shots can probe.
+  LaneY1 = ShooterY + 8
   MaxRangeTargetX = ShooterX + ShortRange
   BeyondTargetX = ShooterX + ShortRange + 12
   HalfRangeTargetX = ShooterX + ShortRange div 2
   PointBlankTargetX = ShooterX + 60
 
 proc shortRangeSim(seed: int): SimServer =
-  var config = defaultGameConfig()
-  config.update("""{"gunRange": """ & $ShortRange &
-    """, "seed": """ & $seed & "}")
-  result = initCtfForTest(config)
+  result = initCtfForTest(bareHexConfig(
+    """"gunRange": """ & $ShortRange & """, "seed": """ & $seed))
   result.gameEventLoggingEnabled = false
   discard result.addPlayer("red0")
   discard result.addPlayer("blue0")
@@ -54,14 +61,22 @@ proc hitCount(game: var SimServer, targetX, shots: int): int =
       inc result
 
 suite "gun range: one fixed cap, every map":
-  test "the default range is the small map's field width":
-    ## round(1235 * 0.85) = 1050: map-wide only on the smallest field.
+  test "the fixed range outreaches the standard board's own width":
+    ## GunRange was frozen at 1050 on the rectangular board, where it was the
+    ## width of the SMALLEST field (round(1235 * 0.85)). The hexagon holds the
+    ## same playfield AREA in a narrower, taller box, so 1050 is now longer
+    ## than the standard board is wide and longer than the small board's whole
+    ## bounding box: on a hex arena TERRAIN, not range, is what ends a
+    ## sightline. The constant is pinned here because it is frozen (GV34) and
+    ## every jitter sigma below is derived from it.
+    check GunRange == 1050
+    check GunRange > HexStandardWidth
     var config = defaultGameConfig()
     config.update("""{"mapPath": "gen", "mapSeed": 7, "mapSize": "small"}""")
     let smallMap = resolveCtfMapMetadata(config)
-    check smallMap.width == 1050
-    check config.gunRange == smallMap.width
-    check GunRange == smallMap.width
+    check (smallMap.width, smallMap.height) == HexSizes[hxSmall]
+    check config.gunRange == GunRange
+    check GunRange > smallMap.width
 
   test "larger maps keep the same absolute range":
     for lock in [

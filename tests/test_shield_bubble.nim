@@ -65,20 +65,14 @@ suite "shield carrier bubble":
     check not messages.hasObject(ShieldCarryObjectBase + red)
 
   test "a hit on the bubble blinks the bubble instead of the body FX":
-    var game = initCtfForTest(defaultGameConfig())
+    var game = bareTwoTeamGame()
     let
-      red = game.addPlayer("red0")
-      blue = game.addPlayer("blue0")
-    game.startGame()
-    game.players[red].team = Red
-    game.players[blue].team = Blue
+      red = 0
+      blue = 1
     # Blue shoots the bubbled carrier from the east (like test_shields).
-    game.players[red].x = 300
-    game.players[red].y = 300
+    game.faceOff(red, blue, 30)
     game.players[red].hasShield = true
     game.players[red].shieldHp = ShieldLayerHp
-    game.players[blue].x = 300 + 30
-    game.players[blue].y = 300
     game.players[blue].aimBrads = 128
     game.players[blue].fireCooldown = 0
     game.tryFire(blue)
@@ -111,21 +105,15 @@ suite "shield carrier bubble":
       ShieldBubbleSpriteId
 
   test "a hit below the bubble threshold keeps the normal body FX":
-    var game = initCtfForTest(defaultGameConfig())
+    var game = bareTwoTeamGame()
     let
-      red = game.addPlayer("red0")
-      blue = game.addPlayer("blue0")
-    game.startGame()
-    game.players[red].team = Red
-    game.players[blue].team = Blue
+      red = 0
+      blue = 1
     # The carrier is already worn below the bubble threshold: no bubble, so
     # the ordinary struck-target flash and paint spark show as always.
-    game.players[red].x = 300
-    game.players[red].y = 300
+    game.faceOff(red, blue, 30)
     game.players[red].hasShield = true
     game.players[red].hp = 3
-    game.players[blue].x = 300 + 30
-    game.players[blue].y = 300
     game.players[blue].aimBrads = 128
     game.players[blue].fireCooldown = 0
     game.tryFire(blue)

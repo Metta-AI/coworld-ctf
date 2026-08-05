@@ -13,7 +13,7 @@
 ## image, so cover placed near the seam becomes a central feature.
 
 import std/[random, math]
-import sim_types
+import sim_types, arena
 
 const BlobMaxVerts = 48  ## soft cap on vertices per authored blob polygon.
 
@@ -72,14 +72,15 @@ proc ri(r: var Rand, lo, hi: int): int =
   ## Inclusive-lo, exclusive-hi integer in [lo, hi); lo when the span is empty.
   if hi <= lo: lo else: lo + rand(r, hi - lo - 1)
 
-proc rectShape(x, y, w, h: int): ArenaShape =
-  ArenaShape(kind: shapeRect, rect: MapRect(x: x, y: y, w: w, h: h))
+proc boxShape(x, y, w, h: int): ArenaShape =
+  ## An axis-aligned box in (x, y, w, h) form. `shapeRect` is gone; `arena`'s
+  ## `rectShape` builds the oriented bar that covers EXACTLY those pixels, so
+  ## the wall styles keep authoring in rectangles without restating the
+  ## doubled-center arithmetic that makes an even extent exact.
+  rectShape(MapRect(x: x, y: y, w: w, h: h))
 
 proc discShape(cx, cy, radius: int): ArenaShape =
   ArenaShape(kind: shapeDisc, cx: cx, cy: cy, radius: radius)
-
-proc diamondShape(cx, cy, radius: int): ArenaShape =
-  ArenaShape(kind: shapeDiamond, cx: cx, cy: cy, radius: radius)
 
 proc clampCenter(region: MapRect, cx, cy, radius: int): (int, int) =
   ## Keep a radial shape wholly inside the placement band.
@@ -140,7 +141,7 @@ proc verticalAnchors(
       let
         y = max(region.y, gy - 12)
         hh = min(h, region.y + region.h - y)
-      result.add rectShape(x, y, thick, hh)
+      result.add boxShape(x, y, thick, hh)
     of akBlob:
       # A vertical RIDGE of overlapping ORGANIC blobs at one x — reads as a
       # rock spine, not a bar, and blends with organic styles while still
@@ -170,7 +171,13 @@ proc genScatter(r: var Rand, region: MapRect, p: StyleParams): seq[ArenaShape] =
           if rand(r, 1.0) < 0.5:
             result.add discShape(x, y, radius)
           else:
-            result.add diamondShape(x, y, radius)
+            ## The non-round boulder is a HEXAGON, not the old diamond. Two
+            ## reasons, and the second is a bug fix: a hexagon is the shape the
+            ## board itself is, so scatter cover reads as native terrain; and a
+            ## diamond drawn near the center column is silently selected by
+            ## `isSpinningDiamond`, so the old code could hand a hand-authored
+            ## mapkit map rotating stone it never asked for and has no art for.
+            result.add hexShape(x, y, radius)
       gx += period
     gy += period
 
@@ -269,12 +276,12 @@ proc genMaze(r: var Rand, region: MapRect, p: StyleParams): seq[ArenaShape] =
         let
           wx = region.x + (c + 1) * cell - half
           wy = region.y + row * cell
-        result.add rectShape(wx, wy, thick, cell)
+        result.add boxShape(wx, wy, thick, cell)
       if row + 1 < rows and not down[idx(c, row)]:
         let
           wx = region.x + c * cell
           wy = region.y + (row + 1) * cell - half
-        result.add rectShape(wx, wy, cell, thick)
+        result.add boxShape(wx, wy, cell, thick)
 
 # --- bsp (rooms + doors) -----------------------------------------------------
 
@@ -318,15 +325,15 @@ proc genBsp(r: var Rand, region: MapRect, p: StyleParams): seq[ArenaShape] =
       gx = rx + (rw - door) div 2
       gy = ry + (rh - door) div 2
     # Top and bottom walls, split around the vertical door.
-    result.add rectShape(rx, ry, gx - rx, thick)
-    result.add rectShape(gx + door, ry, rx + rw - (gx + door), thick)
-    result.add rectShape(rx, ry + rh - thick, gx - rx, thick)
-    result.add rectShape(gx + door, ry + rh - thick, rx + rw - (gx + door), thick)
+    result.add boxShape(rx, ry, gx - rx, thick)
+    result.add boxShape(gx + door, ry, rx + rw - (gx + door), thick)
+    result.add boxShape(rx, ry + rh - thick, gx - rx, thick)
+    result.add boxShape(gx + door, ry + rh - thick, rx + rw - (gx + door), thick)
     # Left and right walls, split around the horizontal door.
-    result.add rectShape(rx, ry, thick, gy - ry)
-    result.add rectShape(rx, gy + door, thick, ry + rh - (gy + door))
-    result.add rectShape(rx + rw - thick, ry, thick, gy - ry)
-    result.add rectShape(rx + rw - thick, gy + door, thick, ry + rh - (gy + door))
+    result.add boxShape(rx, ry, thick, gy - ry)
+    result.add boxShape(rx, gy + door, thick, ry + rh - (gy + door))
+    result.add boxShape(rx + rw - thick, ry, thick, gy - ry)
+    result.add boxShape(rx + rw - thick, gy + door, thick, ry + rh - (gy + door))
 
 # --- dispatch ----------------------------------------------------------------
 

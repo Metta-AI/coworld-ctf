@@ -6,12 +6,14 @@ import
 
 const
   # A fresh, drama-complete fixture recorded against the CURRENT gameplay rules
-  # (GameVersion 35, seed 1, tools/record_fixture.sh). This capture-ending
-  # fixture exceeds every tick target below and hash-verifies clean end to end.
+  # (GameVersion 38, seed 4, tools/record_capture_fixture.sh). Seed 1 no longer
+  # ends in a capture on the hexagonal arena — it runs to a draw — so the
+  # capture fixture moved to seed 4. This capture-ending fixture exceeds every
+  # tick target below and hash-verifies clean end to end.
   # (tests/replays/ctf.bitreplay is the event-substrate fixture:
   # GameVersion 35, seed 902, lives 9 — see
   # test_extract_events.)
-  CtfReplayPath = GameDir / "tests" / "fixtures" / "capture-seed1.bitreplay"
+  CtfReplayPath = GameDir / "tests" / "fixtures" / "capture-seed4.bitreplay"
 
 proc initReplaySim(data: ReplayData): SimServer =
   ## Initializes a replay simulation from the replay config JSON.

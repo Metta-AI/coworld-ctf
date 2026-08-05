@@ -106,24 +106,35 @@ proc applyParams(p: var StyleParams, params: Table[string, string]) =
 # --- placement region --------------------------------------------------------
 
 proc placementRegion(base: CtfMap): MapRect =
-  ## The seed region, inset only enough to clear the perimeter wall, keep a
-  ## touch off the home border, and stop short of the symmetry seam. It spans
-  ## nearly the full HEIGHT on purpose: the validator rejects any unbroken
-  ## horizontal sightline, so cover must reach top and bottom. Bases need no
-  ## wide margin here — the sim carves protected floor out of any shape that
-  ## overlaps a flag ring, spawn pocket, or capture lane.
+  ## The seed region, inset only enough to keep a touch off the home border and
+  ## stop short of the symmetry seam. It spans nearly the full HEIGHT on
+  ## purpose: the validator rejects any unbroken lane, so cover must reach the
+  ## top and bottom of the field. Bases need no wide margin here — the sim
+  ## carves protected floor out of any shape that overlaps a flag ring, spawn
+  ## pocket, or capture lane.
+  ##
+  ## The band is still a RECTANGLE while the board is a HEXAGON, so its four
+  ## outer corners sit in the hull's permanent void. Shapes landing there are
+  ## carved away by the border predicate — harmless, but it means a style's
+  ## effective cover density inside the playfield runs below its nominal
+  ## setting. Filling a hexagon with hexagonal structure is the Stage 2b
+  ## generator epic, not this band.
   let
     sr = mapSeedRegion(base)
-    vMargin = 2    ## flush to the perimeter wall so cover reaches the edge rows
+    vMargin = 2    ## the hull, not a straight edge, is what bounds the field
     hMargin = 40   ## a little off the home border (carve still protects bases)
     seam = 20      ## short of the center seam (where a shape meets its image)
   case base.symmetry
-  of symMirror, symRot180:
+  of symMirrorHex, symRot180:
     MapRect(x: sr.x + hMargin, y: sr.y + vMargin,
             w: max(1, sr.w - hMargin - seam), h: max(1, sr.h - 2 * vMargin))
-  of symRot90:
+  of symKlein4:
     MapRect(x: sr.x + hMargin, y: sr.y + vMargin,
             w: max(1, sr.w - hMargin - seam), h: max(1, sr.h - vMargin - seam))
+  of symRot120, symRot60:
+    ## Unreachable: mapSeedRegion already raised for these.
+    raise newException(
+      CtfError, "Symmetry " & $base.symmetry & " has no rectangular seed band.")
 
 const styleSalt = 0x9E3779B1  ## decorrelate the style stream from the map seed.
 
@@ -139,10 +150,12 @@ proc cmdGenerate(a: Args) =
     seed = a.intFlag("seed", 1)
     trenches = a.bools.getOrDefault("trenches", false)
     symmetry = a.flag("symmetry", "")
-    teams =
-      if "teams" in a.flags: a.intFlag("teams", 2)
-      elif symmetry == "rot90": 4
-      else: 2
+    ## The team count no longer follows from the symmetry name: `rot90` is
+    ## gone (C4 is not a subgroup of D6) and the two 2-team hex groups are
+    ## `mirrorHex` and `rot180`. Anything but 2 is refused by
+    ## `generateMapAttempt` itself, with the reason, so ask it rather than
+    ## guessing here.
+    teams = a.intFlag("teams", 2)
   var overrides = MapGenOverrides(
     size: a.flag("size", ""),
     symmetry: symmetry,
@@ -190,10 +203,17 @@ proc printMetrics(gameMap: CtfMap) =
   echo &"full obstacles:{buildArenaObstacles(gameMap).len}"
   echo &"trenches:      {gameMap.trenches.len}"
   echo &"cover permille:{diag.coverPermille} (min {diag.minCoverPermille})"
-  echo &"open sightlines:{diag.openSightlineRows.len} scanned rows"
+  ## The validator scans all THREE hexagon axes (0 / 60 / 120 deg); only the
+  ## horizontal family is indexable by a row, so that is all this count can
+  ## show. A slanted lane shows up in `reason` and nowhere else — printing this
+  ## number as "open sightlines" would call a failing map clean.
+  echo &"open lanes (0 deg rows):{diag.openSightlineRows.len} " &
+    &"of {gameMap.sightlineMinSpan()}px min span"
   echo &"center reachable:{diag.centerReachable}"
   echo &"unreachable teams:{diag.unreachableTeams}"
   echo &"red home on open floor:{diag.redHomeOnOpenFloor}"
+  if diag.reason.len > 0:
+    echo &"first failure:{diag.reason}"
 
 proc cmdValidate(a: Args) =
   if a.positionals.len == 0: fail("validate needs a spec path")
@@ -223,9 +243,10 @@ proc cmdMirror(a: Args) =
 const usage = """
 mapkit — author interesting-but-fair CTF maps
 
-  mapkit generate --style bsp|caves|maze|scatter [--seed N] [--size ...]
-                  [--symmetry mirror|rot180|rot90] [--endzone column|disc|square]
-                  [--teams 2|4] [--trenches] [--param k=v ...] [-o spec.json]
+  mapkit generate --style bsp|caves|maze|scatter [--seed N]
+                  [--size small|standard|large|huge|giant|colossal]
+                  [--symmetry mirrorHex|rot180] [--endzone disc]
+                  [--teams 2] [--trenches] [--param k=v ...] [-o spec.json]
   mapkit render   spec.json [-o out.png] [--diagnostics] [--max N]
   mapkit validate spec.json      # metrics + PASS/FAIL, non-zero exit on FAIL
   mapkit metrics  spec.json      # cover / sightlines / reachability

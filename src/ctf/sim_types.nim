@@ -18,7 +18,13 @@ import
 
 const
   GameName* = "ctf"
-  GameVersion* = "37"  ## GV37 (obstacle format): map obstacles and trenches
+  GameVersion* = "38"  ## GV38 (HEX ARENA): the playfield is a HEXAGON, not a
+    ## rectangle. The board is portrait (standard 969x1119, a pointy-top hull),
+    ## the bounding box's six corners are permanent void, the shape vocabulary
+    ## is disc/bar/hex/diagonal/polygon (rect and diamond are gone), symmetry is
+    ## a D6 subgroup (rot90 is gone — C4 is not a hex symmetry), and every
+    ## endzone is a disc. Older viewers read the wrong playfield outright.
+    ## GV37 (obstacle format): map obstacles and trenches
     ## may be `polygon` shapes (integer vertex rings), so curved / organic
     ## terrain is authorable. Older viewers cannot parse the new spec kind.
                        ## The aim angle is one of 32 discrete slots (8 brads
@@ -627,8 +633,8 @@ const
 ## initialized to the default arena so tools that never call loadCtfMap
 ## keep working unchanged.
 var
-  MapWidth* = 1235
-  MapHeight* = 659
+  MapWidth* = 969        ## bounding box of the STANDARD hexagon (hex.nim).
+  MapHeight* = 1119      ## Portrait: the arena hull is POINTY-TOP.
   FovGridW* = (MapWidth + FovCellSize - 1) div FovCellSize
   FovGridH* = (MapHeight + FovCellSize - 1) div FovCellSize
   FovCellCount* = FovGridW * FovGridH
@@ -646,12 +652,20 @@ type
     Yellow
 
   TeamLayout* = enum
-    ## Where the teams live on the map. `layoutSides` is the classic 2-team
-    ## left/right arena; the two 4-team layouts put a team in each corner or
-    ## at the end of each arm of a plus.
-    layoutSides
-    layoutCorners
-    layoutPlus
+    ## How many teams the hexagonal arena seats, and therefore which D6
+    ## subgroup carries one team's world onto the next (see `ctf/hex.nim`'s
+    ## `teamGroup`). The old square-board layouts (`sides`/`corners`/`plus`)
+    ## are gone: `corners` and `plus` were both C4 orbits, and C4 is not a
+    ## subgroup of D6 — see docs/plans/2026-08-04-hex-arena-conversion.md §0.1.
+    ##
+    ## `layoutHex2` is the classic left/right pair (RED left, BLUE right) and
+    ## is the only layout Stage 2 generates. 3 and 4 are expressible today; 6
+    ## needs the `Team` enum widened (Stage 4) and is rejected by `validateMap`
+    ## until then.
+    layoutHex2
+    layoutHex3
+    layoutHex4
+    layoutHex6
 
   Skin* = enum
     DefaultSkin
@@ -672,25 +686,67 @@ type
     x*, y*, w*, h*: int
 
   ArenaShapeKind* = enum
-    shapeRect
+    ## The obstacle vocabulary of the HEXAGONAL arena. Every kind here is
+    ## closed as a family under 60-degree rotation, which `shapeRect` and
+    ## `shapeDiamond` were not: an axis-aligned rectangle only survived the old
+    ## `rot90` because a quarter turn preserves axis alignment. Both are gone;
+    ## `shapeBar` subsumes them exactly (see below).
     shapeDisc
-    shapeDiamond
+    shapeBar
+    shapeHex
     shapeDiagonal
     shapePolygon
 
   ArenaShape* = object
-    ## One arena obstacle. Discs and diamonds are center + radius (L2 and L1
-    ## norms); diagonals are a 45-degree wall segment of given perpendicular
-    ## thickness between two endpoints. A `window` shape is glass: it blocks
-    ## movement, bullets, and spray-cone line-of-sight exactly like stone, but
+    ## One arena obstacle. A `window` shape is glass: it blocks movement,
+    ## bullets, and spray-cone line-of-sight exactly like stone, but
     ## fog-of-war shadowcasting sees straight through it.
     window*: bool
     case kind*: ArenaShapeKind
-    of shapeRect:
-      rect*: MapRect
-    of shapeDisc, shapeDiamond:
+    of shapeDisc:
+      ## L2 ball, center + radius. The one rotation-INVARIANT kind.
       cx*, cy*, radius*: int
+    of shapeBar:
+      ## An ORIENTED box, and the exact replacement for both the old rect and
+      ## the old diamond. Membership, for the DOUBLED offset
+      ## `d = (2*(x - cx), 2*(y - cy))` from the bar's center:
+      ##
+      ##     |d.x*ux + d.y*uy| <= halfLong   and   |-d.x*uy + d.y*ux| <= halfPerp
+      ##
+      ## All integers, so it is exact on every target (wasm included) and its
+      ## mirror/rot180 images are bit-identical masks — the same discipline the
+      ## `int64` diagonal test and the strict-straddle polygon rule follow.
+      ##
+      ## `cx2`/`cy2` are the DOUBLED center, so a box of EVEN pixel extent is
+      ## representable exactly (its center falls on a half pixel). `axisX`/
+      ## `axisY` are an integer direction vector that need NOT be unit: the
+      ## half-extents are therefore measured in units of `|axis|` doubled
+      ## pixels, i.e. the true half-width in pixels is
+      ## `halfLong / (2 * hypot(axisX, axisY))`. That scaling is what buys
+      ## exactness — a unit-normalized axis at 60 degrees is irrational.
+      ##
+      ## Two canonical instances:
+      ##   axis (1, 0), halfLong = w-1, halfPerp = h-1  -> the classic rect.
+      ##   axis (1, 1), halfLong = halfPerp = 2*r       -> the classic diamond
+      ##                                                   (L1 ball of radius r).
+      cx2*, cy2*: int
+      halfLong*, halfPerp*: int
+      axisX*, axisY*: int
+    of shapeHex:
+      ## A regular hexagon: DOUBLED center + DOUBLED circumradius, and an
+      ## orientation. `flatTop` matches the lattice CELLS (a hexagonal region of
+      ## flat-top cells is itself pointy-top, which is why the arena hull is
+      ## pointy-top and the board is portrait — see `ctf/hex.nim`).
+      ## Membership uses the same three-opposed-pairs half-plane test as the
+      ## arena boundary, with sqrt(3) as the exact rational 265/153 so the
+      ## predicate is integer and its mirror image is bit-identical.
+      hexCx2*, hexCy2*: int
+      hexR2*: int
+      flatTop*: bool
     of shapeDiagonal:
+      ## A wall segment of given perpendicular thickness between two endpoints.
+      ## Its point-to-segment test is angle-general in int64, so 60-degree
+      ## chevrons work exactly as the old 45-degree ones did.
       x0*, y0*, x1*, y1*, thickness*: int
     of shapePolygon:
       ## A closed ring of INTEGER vertices. Curves (Beziers, metaballs,
@@ -705,41 +761,52 @@ type
     x*, y*: int
 
   EndzoneShape* = enum
-    ## The shape of a team's home capture region on a SIDES map. The classic
-    ## column runs the full map height along the home border; the two COMPACT
-    ## shapes wrap the base itself, which lets the base sit well off the edge
-    ## with playable wilderness all around it — behind included.
-    ezColumn
+    ## The shape of a team's home capture region. The hexagonal arena is
+    ## ALL-DISC: `ezDisc` is the one endzone geometry that is already
+    ## rotation-invariant, already tested, and needs zero art work, so it is
+    ## the only shape a hex board can wear without re-earning its fairness.
+    ##
+    ## `ezColumn` (a full-height strip pinned to a straight home border) has no
+    ## meaning on a hexagon at all, and `ezSquare` is not closed under
+    ## 60-degree rotation; both are deleted. The enum is kept as an enum, not
+    ## collapsed away, because a hex SECTOR zone (`ezHex`) is the one plausible
+    ## future addition and it must arrive as a new label token, never as a
+    ## silent fallthrough — see `endzoneShapeToken`.
     ezDisc
-    ezSquare
 
   CaptureZone* = object
-    ## One team's home capture region. Sides maps use the classic
-    ## full-height columns; plus arms are boxes bounded on both axes; corner
-    ## teams get a DIAGONAL zone — everything within an L1 radius of their
-    ## map corner, whose threshold edge is a 45-degree line cut across the
-    ## corner. A COMPACT endzone is the anchor-centered box (a square zone
-    ## needs nothing more; `disc` rounds it off). The box fields always hold
-    ## the zone's bounding box (the strip and diff-box machinery scan it);
-    ## `diag` / `disc` refine membership.
+    ## One team's home capture region: on the hexagonal arena, always the DISC
+    ## around that team's base anchor. The box fields hold the zone's bounding
+    ## box (the strip and diff-box machinery scan it) and `disc` refines
+    ## membership to the inscribed circle.
+    ##
+    ## `disc` is retained as a flag rather than assumed, so a future sector
+    ## zone can join it without every consumer silently reading a disc; the
+    ## rectangular `diag` corner zone (a C4 artifact) is gone.
     xLo*, xHi*, yLo*, yHi*: int
-    diag*: bool                ## L1 corner zone instead of the full box.
-    cornerX*, cornerY*: int    ## the map corner the diagonal zone hugs.
-    diagLimit*: int            ## inclusive L1 radius from that corner.
     disc*: bool                ## L2 zone around the anchor instead of the box.
     anchorX*, anchorY*: int    ## the base the compact zone is centered on.
     radius*: int               ## inclusive L2 radius from that anchor.
 
   MapSymmetry* = enum
-    ## How a map's full obstacle set derives from its authored/generated
-    ## seed set. Mirror and rot180 complete a LEFT-half set across the
-    ## vertical center line (2-team maps); rot90 completes a QUADRANT set by
-    ## rotating it 90/180/270 degrees about the center (4-team maps, square
-    ## only). All are exactly team-fair; rot180 keeps diagonal lanes diagonal
-    ## instead of folding them into chevrons.
-    symMirror
+    ## How a map's full obstacle set derives from its authored/generated seed
+    ## set — one subgroup of D6, the hexagon's point group.
+    ##
+    ## `symMirrorHex` and `symRot180` are the two 2-team groups and the only
+    ## ones Stage 2 generates. Both act on PIXELS as exact integer bijections
+    ## (`x -> W-1-x`, and additionally `y -> H-1-y`), which is why the 2-team
+    ## board needs no cube-space authoring: its images are bit-exact on the
+    ## square pixel lattice, exactly as they were on the rectangular board.
+    ##
+    ## `symRot120` / `symRot60` / `symKlein4` are NOT pixel-exact (sin 60 is
+    ## irrational), so their orbits must be walked in CUBE coordinates via
+    ## `ctf/hex.nim` and rasterized ONCE — never by rotating pixels. `symRot90`
+    ## is deleted outright: C4 is not a subgroup of D6.
+    symMirrorHex
     symRot180
-    symRot90
+    symRot120
+    symRot60
+    symKlein4
 
   CtfMap* = object
     name*: string
@@ -1297,10 +1364,10 @@ proc bradsOfVector*(dx, dy: int): int =
 proc teamCount*(layout: TeamLayout): int =
   ## Returns how many teams a layout seats.
   case layout
-  of layoutSides:
-    2
-  of layoutCorners, layoutPlus:
-    4
+  of layoutHex2: 2
+  of layoutHex3: 3
+  of layoutHex4: 4
+  of layoutHex6: 6
 
 proc teamCount*(gameMap: CtfMap): int =
   ## Returns how many teams play on one map.
@@ -1310,7 +1377,8 @@ proc activeTeams*(count: int): Slice[Team] =
   ## Returns the active-team slice for one team count. Active teams are
   ## always a prefix of the enum, so 2-team games iterate exactly Red..Blue
   ## — every historical loop, hash, and wire frame is unchanged.
-  doAssert count in [2, 4], "team count must be 2 or 4"
+  doAssert count in [2, 3, 4],
+    "team count must be 2, 3, or 4 (6 needs the Team enum widened — Stage 4)"
   Red .. Team(count - 1)
 
 proc teams*(gameMap: CtfMap): Slice[Team] =

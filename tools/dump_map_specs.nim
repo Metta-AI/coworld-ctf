@@ -1,7 +1,9 @@
 ## Prints `seed <sha1-of-mapSpecJson>` for a range of generator seeds — a
 ## baseline for proving that a generator change leaves given maps untouched.
-## The endzone keys are stripped before hashing so a pre-endzone baseline and
-## a post-endzone run hash IDENTICALLY for every column-endzone map.
+## The endzone/homeDepth keys are stripped before hashing, which is what let a
+## pre-endzone baseline and a post-endzone run compare directly. Note that no
+## pre-hex baseline can match a post-hex one at all: the board is a different
+## shape and a different size, so every seed names a different map.
 ## Usage: nim c -r -d:release tools/dump_map_specs.nim [lo] [hi]
 import std/[json, os, strutils, strformat, sha1], ../src/ctf/sim
 
@@ -18,13 +20,14 @@ when isMainModule:
   for seed in lo .. hi:
     let gameMap = generateMapAttempt(
       seed, MapGenOverrides(windows: -1, pits: -1, pitDensity: -1))
-    let shape =
-      case gameMap.endzone
-      of ezColumn: "column"
-      of ezDisc: "disc"
-      of ezSquare: "square"
+    ## `EndzoneShape` has one member on a hex board, so the shape column is a
+    ## constant now — printed from the enum rather than a hand-written token,
+    ## so the day a sector zone lands it shows up here instead of silently
+    ## reading "disc".
+    let shape = $gameMap.endzone
     echo &"{seed} {($secureHash(gameMap.legacySpec))[0 .. 15]} " &
-      &"{gameMap.width} obstacles={gameMap.leftObstacles.len} " &
+      &"{gameMap.width}x{gameMap.height} " &
+      &"obstacles={gameMap.leftObstacles.len} " &
       &"valid={validateGeneratedMap(gameMap).len == 0} {shape} " &
       &"home={gameMap.teamHomeX(Red)} r={gameMap.endzoneRadius} " &
       &"why={validateGeneratedMap(gameMap)}"

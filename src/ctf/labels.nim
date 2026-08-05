@@ -165,27 +165,20 @@ const
     ## Optional identity-badge suffix: the wearer carries a shield.
   LabelTokenNade* = "nade"
     ## Optional identity-badge suffix: the wearer carries a grenade.
-  LabelEndzoneShapeColumn* = "column"
-    ## Classic sides zone: the full box between the stated corners.
-  LabelEndzoneShapeSquare* = "square"
-    ## Compact anchor-centered box: the full box between the stated corners.
   LabelEndzoneShapeDisc* = "disc"
-    ## Compact round zone: the circle INSCRIBED in the stated box (center =
-    ## box center, radius = half the box extent); the box corners themselves
-    ## are outside the zone.
-  LabelEndzoneShapeCorner* = "corner"
-    ## 4-team corners zone: the L1 triangle hugging the map corner the box
-    ## touches — its threshold edge is the diagonal joining the box's two
-    ## corners adjacent to that map corner.
-  LabelEndzoneShapeArm* = "arm"
-    ## 4-team plus-arm mouth: the full box between the stated corners.
+    ## Round zone: the circle INSCRIBED in the stated box (center = box
+    ## center, radius = half the box extent); the box corners themselves are
+    ## OUTSIDE the zone.
+    ##
+    ## GV38 made this the only token. The hexagonal arena is all-disc, and the
+    ## four straight-edged tokens it retired — `column`, `square`, `corner`,
+    ## `arm` — were each an artifact of a rectangular board (a full-height
+    ## home strip, an axis-aligned box, an L1 corner wedge, a plus arm). A
+    ## policy that still matches one of them will now fail its match loudly
+    ## rather than score a box that is not the zone.
 
 const LabelEndzoneShapes* = [
-  LabelEndzoneShapeColumn,
-  LabelEndzoneShapeSquare,
   LabelEndzoneShapeDisc,
-  LabelEndzoneShapeCorner,
-  LabelEndzoneShapeArm,
 ]
   ## The closed shape vocabulary of the `endzone <color> <shape> ...` marker.
   ## Consumers validate the third token against this set; the label-contract

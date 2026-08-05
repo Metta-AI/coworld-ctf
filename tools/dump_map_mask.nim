@@ -11,6 +11,11 @@
 ##                   it loads as a flat array — take its shape from --geom's
 ##                   width/height (also echoed on stdout); map size varies by
 ##                   draw, so do NOT assume the default arena's dimensions.
+##                   The array is still the full BOUNDING BOX, but since GV37
+##                   the playfield is the HEXAGON inscribed in it: the six
+##                   corners outside the hull are permanent stone (1), exactly
+##                   as the sim collides them. --geom now says so explicitly
+##                   ("boardShape": "hexagon").
 ##                   Classified from the sim's INTEGER collision predicate,
 ##                   not from the PNG's float rasterizer, so the bytes are the
 ##                   terrain a bullet meets. (The two agree everywhere today;
@@ -109,6 +114,12 @@ proc geometryJson*(gameMap: CtfMap): JsonNode =
   result["height"] = %gameMap.height
   result["center"] = point(gameMap.center)
   result["border"] = %ArenaBorder
+  ## The playfield is the regular HEXAGON inscribed in width x height (pointy
+  ## top), not the box: `border` is the wall ring measured from the hexagon's
+  ## EDGE, and the six corners of the box outside the hull are permanent
+  ## stone. Additive key, so an existing consumer keeps parsing — but one that
+  ## assumed a rectangular arena is now wrong, and this is what says so.
+  result["boardShape"] = %"hexagon"
   result["symmetry"] = %($gameMap.symmetry)
   result["layout"] = %($gameMap.layout)
   result["genSeed"] = %gameMap.genSeed
@@ -127,6 +138,12 @@ proc geometryJson*(gameMap: CtfMap): JsonNode =
   result["consts"] = consts
 
   var teams = newJArray()
+  ## Every hex capture zone is the DISC around the team's anchor. The box is
+  ## its bounding box (kept: the strip and diff-box machinery scans it);
+  ## `disc`/`anchorX`/`anchorY`/`radius` are what actually decides membership.
+  ## The C4-era corner-zone keys (`diag`, `cornerX`, `cornerY`, `diagLimit`) no
+  ## longer exist on `CaptureZone` and are gone from this export — a consumer
+  ## that read them was modelling a zone shape the hex arena cannot produce.
   for team in activeTeams(gameMap.teamCount):
     let
       home = gameMap.flagHome(team)
@@ -136,8 +153,8 @@ proc geometryJson*(gameMap: CtfMap): JsonNode =
       "pedestal": point(home),
       "captureZone": {
         "xLo": zone.xLo, "xHi": zone.xHi, "yLo": zone.yLo, "yHi": zone.yHi,
-        "diag": zone.diag, "cornerX": zone.cornerX, "cornerY": zone.cornerY,
-        "diagLimit": zone.diagLimit
+        "disc": zone.disc, "anchorX": zone.anchorX, "anchorY": zone.anchorY,
+        "radius": zone.radius
       }
     })
   result["teams"] = teams
@@ -174,9 +191,11 @@ when isMainModule:
     for x in 0 ..< MapWidth:
       var c = rgba(214, 189, 150, 255)
       let
+        ## ONE boundary predicate. The board is a HEXAGON inscribed in its
+        ## bounding box, so the four-way rectangle test this used to spell out
+        ## would paint the six void corners as walkable floor.
         wall =
-          x < ArenaBorder or y < ArenaBorder or
-          x >= MapWidth - ArenaBorder or y >= MapHeight - ArenaBorder or
+          isArenaBorderWall(x, y) or
           obstacleWallAtF(float(x), float(y), cx, cy)
         window = isArenaWindowPixel(x, y, cx, cy)
       if window:

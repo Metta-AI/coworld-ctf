@@ -332,16 +332,18 @@ suite "trenches":
           sawEndzone = true
         else:
           sawField = true
-        let image =
-          case gameMap.symmetry
-          of symMirror: MapRect(
-            x: gameMap.width - trench.x - trench.w,
-            y: trench.y, w: trench.w, h: trench.h)
-          of symRot180: MapRect(
-            x: gameMap.width - trench.x - trench.w,
-            y: gameMap.height - trench.y - trench.h,
-            w: trench.w, h: trench.h)
-          of symRot90: raiseAssert "trenches never place on rot90 maps"
+        ## The image under the map's OWN group. Both 2-team hex groups act on
+        ## the rect's far corner, so the image is taken through `pixelImage`
+        ## rather than by hand: mirror sends `x -> W-1-x`, the half turn also
+        ## sends `y -> H-1-y`, and a rect maps corner to opposite corner.
+        let
+          op = gameMap.teamOp(Blue)
+          lo = gameMap.pixelImage(MapPoint(x: trench.x, y: trench.y), op)
+          hi = gameMap.pixelImage(MapPoint(
+            x: trench.x + trench.w - 1, y: trench.y + trench.h - 1), op)
+          image = MapRect(
+            x: min(lo.x, hi.x), y: min(lo.y, hi.y),
+            w: abs(hi.x - lo.x) + 1, h: abs(hi.y - lo.y) + 1)
         check rectShape(image) in gameMap.trenches
     ## The drawn pool exercises the endzone and field placement classes.
     check mapsWithTrenches > 0
@@ -436,24 +438,34 @@ suite "trenches":
     check sim.players[0].fireCooldown ==
       sim.config.fireCooldownTicks * TrenchFireSlowdown
 
-  test "an over-request places as many pits as fit, still in fair pairs":
+  test "the pit ceiling places as many as fit, still in fair pairs":
+    ## `pits: 64` is the config CEILING, and on the rectangular board it was
+    ## also an over-request — the candidate slots ran out first, so the count
+    ## came back strictly under 64 and that `< 64` was the proof that the
+    ## "place as many as fit" clamp had engaged.
+    ##
+    ## A hexagon has more pit candidates (its columns run the full height of a
+    ## taller board), so the full 64 now fit and the strict bound has become a
+    ## statement about the OLD board's capacity rather than about the clamp.
+    ## What still has to hold — and what the clamp is actually for — is that
+    ## the count never EXCEEDS the request, stays even, and pairs exactly under
+    ## the map's symmetry. A pit without its image is the team-unfairness this
+    ## whole test file exists to refuse.
     let gameMap = generateCtfMap(
       4242, MapGenOverrides(windows: -1, pits: 64, pitDensity: -1))
     check gameMap.trenches.len mod 2 == 0
     check gameMap.trenches.len > 12
-    check gameMap.trenches.len < 64
+    check gameMap.trenches.len <= 64
     for trenchShape in gameMap.trenches:
-      let trench = shapeAsRect(trenchShape)
-      let image =
-        case gameMap.symmetry
-        of symMirror: MapRect(
-          x: gameMap.width - trench.x - trench.w,
-          y: trench.y, w: trench.w, h: trench.h)
-        of symRot180: MapRect(
-          x: gameMap.width - trench.x - trench.w,
-          y: gameMap.height - trench.y - trench.h,
-          w: trench.w, h: trench.h)
-        of symRot90: raiseAssert "trenches never place on rot90 maps"
+      let
+        trench = shapeAsRect(trenchShape)
+        op = gameMap.teamOp(Blue)
+        lo = gameMap.pixelImage(MapPoint(x: trench.x, y: trench.y), op)
+        hi = gameMap.pixelImage(MapPoint(
+          x: trench.x + trench.w - 1, y: trench.y + trench.h - 1), op)
+        image = MapRect(
+          x: min(lo.x, hi.x), y: min(lo.y, hi.y),
+          w: abs(hi.x - lo.x) + 1, h: abs(hi.y - lo.y) + 1)
       check rectShape(image) in gameMap.trenches
 
   test "out-of-range pit knobs raise config errors at config load":

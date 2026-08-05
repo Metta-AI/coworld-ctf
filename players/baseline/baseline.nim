@@ -265,6 +265,10 @@ const
   tuneWeaveGain {.intdefine.} = 60 # percent side-steer gain while weaving
   tuneCarrierLaneBiasDiv {.intdefine.} = 500 # nearest-lane stickiness divisor
   tuneCarrierLaneThreatY {.intdefine.} = 120 # lane-threat y-window
+  tuneCarrierCutInX {.intdefine.} = 220
+    # How close to the scoring point (in x) the carry stops following its lane
+    # and drives at the zone centre. Wider than any endzone radius the
+    # generator draws, so the cut-in always starts OUTSIDE the ring.
   tuneExtraDefenders {.intdefine.} = 0 # promote flank/mid seats to defense
 
   LaneTop = 40.0              # open corridor above the mirrored obstacles
@@ -702,13 +706,48 @@ proc homeSign(team: Team): float =
   if team == Red: -1.0 else: 1.0
 
 proc homeDeepX(team: Team): float =
-  ## A point well inside our capture zone, mirrored across the map's
-  ## vertical center line (150 on the default 1235px arena, scaled with
-  ## the map). On a multi-team board: our stated endzone's center x.
+  ## A point well inside our capture zone. On a multi-team board: our stated
+  ## endzone's center x.
+  ##
+  ## GV38 (hex arena): READ THE MARKER. The scarred `MapW * 150 div 1235`
+  ## literal below described a 2-team board whose capture zone was a full-height
+  ## COLUMN pinned to a straight home border — so "150px in from the wall" was
+  ## always inside it. A hex board's zone is a DISC well off the hull, and that
+  ## literal lands outside it on most size classes: the carrier would drive to a
+  ## fixed column in the wilderness and the steal would never convert. The
+  ## engine states every zone's bounding box in an `endzone` init marker; the
+  ## center of ours is the answer on every board shape, and the literal survives
+  ## only as the fallback for a board that somehow sent no marker.
   if multiFrameOn():
     return MultiCapture.x
+  for z in EndzoneMarks:
+    if z.color == TeamColorNames[int(team)]:
+      return float(z.x0 + z.x1) * 0.5
   let deep = float(MapW * 150 div 1235)
   if team == Red: deep else: float(MapW - 1) - deep
+
+proc homeCapture(team: Team): Vec =
+  ## The point that actually SCORES: the centre of this team's stated capture
+  ## zone, both axes.
+  ##
+  ## GV38 (hex arena) is why this exists. Every endzone is now a DISC around
+  ## the base, and `homeDeepX` only ever answered "which COLUMN is home" —
+  ## which was enough while the zone was a full-height strip pinned to a
+  ## straight home border, because every y on that column scored. On a disc,
+  ## running to `(homeDeepX, laneY)` lands OUTSIDE the zone whenever the lane
+  ## is more than a radius off the base, and the carry silently never converts:
+  ## the bot reaches home, stands next to the scoring ring, and the steal is
+  ## wasted. Measured on the hex board before this fix: 7 steals, 0 captures.
+  ##
+  ## The engine states the zone's bounding box in an `endzone` init marker, so
+  ## the centre is known exactly. The fallback is the old column at mid-height,
+  ## which is the best guess available with no marker.
+  if multiFrameOn():
+    return MultiCapture
+  for z in EndzoneMarks:
+    if z.color == TeamColorNames[int(team)]:
+      return vec(float(z.x0 + z.x1) * 0.5, float(z.y0 + z.y1) * 0.5)
+  vec(homeDeepX(team), float(CenterY))
 
 proc enemy(team: Team): Team =
   ## The opposing team.
@@ -2112,12 +2151,15 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 {.measure.} =
       # fastest, then the border lane runs home outside it.
       target = vec(pocket.x, laneY)
     else:
-      # Classic boards run the border lane home and cut in at the capture
-      # column; on a multi-team board the zone can sit at ANY y (corner or
-      # arm), so the run targets the stated zone itself.
+      # Run the border lane home for the long haul — the lane choice is what
+      # keeps the carry away from remembered enemies — then CUT IN to the
+      # scoring point itself for the last stretch. Aiming at the lane all the
+      # way home was correct only while the zone was a full-height column;
+      # against a disc it parks the carrier beside the ring (see homeCapture).
+      let cap = homeCapture(bot.team)
       target =
-        if multiFrameOn(): MultiCapture
-        else: vec(homeDeepX(bot.team), laneY)
+        if abs(me.x - cap.x) < float(tuneCarrierCutInX): cap
+        else: vec(cap.x, laneY)
     # A hurt carrier detours through a stocked med kit on the way home: the
     # run crosses the center line anyway, kits are hurt-only pickups (a
     # healthy escort cannot waste one), and a full-heal carrier survives

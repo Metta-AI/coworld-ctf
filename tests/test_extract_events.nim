@@ -6,10 +6,22 @@ import
 
 const
   # The event-substrate fixture: a full 16-bot match recorded against the
-  # CURRENT gameplay rules (GameVersion 36, seed 905, lives 9:
+  # CURRENT gameplay rules (GameVersion 38 — the HEX arena — seed 905, lives 9:
   #   record_fixture.sh tests/replays/ctf.bitreplay 905 10000 '{"lives":9}')
-  # — 43 kills across ALL THREE weapons (26 gun / 1 grenade / 16 spray),
-  # 5 steals, 2 heals, ending on a capture. (The GV32 recording ran the
+  # — 107 kills (24 gun / 83 spray), 5 steals, 6 heals, 43 pickups, 4 grenade
+  # throws, a capture and a win.
+  #
+  # NO GRENADE KILLS in the current take, and that is a KNOWN COVERAGE GAP, not
+  # an oversight: grenades are ~2% of kills field-wide, the seed scan below is
+  # the only way to find one, and every other axis of this fixture got richer on
+  # the hex board (107 kills against the GV36 take's 43). The assertions here do
+  # not require a grenade kill — `event.weapon in ["gun", "spray", "grenade"]`
+  # is a membership test, not a coverage test — so the suite is honest either
+  # way. If you re-record, run tools/scan_event_seeds.sh first and take a seed
+  # that has one; do not silently ship a narrower fixture than this.
+  #
+  # HISTORICAL: the GV36 take was 43 kills across all three weapons
+  # (26 gun / 1 grenade / 16 spray), 5 steals, 2 heals, ending on a capture. (The GV32 recording ran the
   # server at speed 4 as a starvation guard; under GV33 the speed-4 runs
   # came back gun-only on this machine while the plain speed-16 recording
   # on an IDLE machine carried the full weapon mix — the idle-machine rule

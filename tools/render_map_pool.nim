@@ -24,6 +24,11 @@ when isMainModule:
       )
     doAssert gameMap.genSeed == seed, "pool seed rolled forward: " & $seed
     let img = renderMap(gameMap, renderOptions).image
+    ## The manifest reports the map's own SPEC tokens rather than a second
+    ## hand-written vocabulary. `mapSpecJson` is the one place the wire names
+    ## live ("mirrorHex" / "rot180" / ..., "hex2".."hex6", "disc"), so the
+    ## review page can never label a map with a token the sim retired.
+    let spec = parseJson(gameMap.mapSpecJson())
     let name = &"pool-{i:02}-seed-{seed}.png"
     img.writeFile(outDir / name)
     var kits = newJArray()
@@ -38,14 +43,12 @@ when isMainModule:
       "file": name,
       "width": gameMap.width,
       "height": gameMap.height,
-      "symmetry": (
-        if gameMap.symmetry == symMirror: "mirror" else: "rot180"),
-      "endzone": (
-        case gameMap.endzone
-        of ezColumn: "column"
-        of ezDisc: "disc"
-        of ezSquare: "square"),
+      "boardShape": "hexagon",
+      "symmetry": spec["symmetry"].getStr(),
+      "layout": spec["layout"].getStr(),
+      "endzone": spec["endzone"].getStr(),
       "endzoneRadius": gameMap.endzoneRadius,
+      "homeDepth": spec["homeDepth"].getInt(),
       "homeX": gameMap.teamHomeX(Red),
       "obstacles": gameMap.leftObstacles.len,
       "trenches": gameMap.trenches.len,

@@ -30,6 +30,35 @@ const
                                              ## may reach; must stay >=
                                              ## WaveAmp + ChipAmp.
 
+const
+  ArenaVoidColor* = rgba(14, 11, 9, 255)
+    ## Outside the hexagon. The six corners of the bounding box are not
+    ## playfield, not wall, and not a rendering hole — they need their own
+    ## material or they bake as a VAST FLAT ROOF: `rooftopColorAt` shades from
+    ## the distance to the nearest floor, which saturates a hundred pixels into
+    ## a slab, so a hexagonal board painted with the wall material reads as a
+    ## plain grey rectangle and the whole shape change becomes invisible.
+  ArenaVoidGrainPermille* = 130
+    ## How much of the floor texture's own grain the void keeps. Enough that it
+    ## reads as unlit ground rather than a flat fill; little enough that it
+    ## never competes with the playfield.
+  ArenaVoidRimPx* = 3
+    ## Width of the lit rim just inside the hull, so the six edges read as
+    ## deliberate boundary rather than as a staircase artifact.
+  ArenaVoidRimColor* = rgba(96, 74, 55, 255)
+
+proc voidColorAt(grain: ColorRGBA, edge: float): ColorRGBA =
+  ## The out-of-hexagon material at a pixel `edge` px OUTSIDE the hull
+  ## (`hexEdgeDist` is negative there, so `edge` is its magnitude).
+  if edge < float(ArenaVoidRimPx):
+    return ArenaVoidRimColor
+  let g = int(grain.r) + int(grain.g) + int(grain.b)
+  rgba(
+    uint8(int(ArenaVoidColor.r) + g * ArenaVoidGrainPermille div 9000),
+    uint8(int(ArenaVoidColor.g) + g * ArenaVoidGrainPermille div 9600),
+    uint8(int(ArenaVoidColor.b) + g * ArenaVoidGrainPermille div 10500),
+    255)
+
 proc overTint(base, tint: ColorRGBA): ColorRGBA =
   ## Alpha-composites a translucent tint over an opaque base color.
   ## (Moved from arena.nim in the round-2 audit: pure color math, art-only.)
@@ -105,9 +134,12 @@ proc trenchArtColorAt(base: ColorRGBA, x, y: int): ColorRGBA =
         y < tr.y - TrenchArtPadPx or
         y >= tr.y + tr.h + TrenchArtPadPx:
       continue
-    # Rect pits get the rough dug edge; other kinds fill flat (inside only).
+    # Axis-aligned rectangular pits get the rough dug edge; other kinds fill
+    # flat (inside only). `shapeAsRect` is EXACT for an axis-aligned bar, so
+    # the generator's square pits still take the rough path they always did.
     let edge =
-      if trench.kind == shapeRect: trenchRoughEdge(tr, x, y)
+      if trench.kind == shapeBar and trench.axisY == 0:
+        trenchRoughEdge(tr, x, y)
       elif inShape(x, y, trench): float(TrenchBevelPx) + 1.0
       else: -1.0
     if edge < 0:
@@ -464,20 +496,8 @@ proc endzoneColorAt(
     var
       onLine = false
       near = 1.0
-    if tint.zone.diag:
-      ## Diagonal corner zone: the threshold edge is the 45-degree L1
-      ## shell; the ember is brightest at the line and eases toward the
-      ## corner. The line band is one pixel wider in L1 so its diagonal
-      ## stripe carries the same optical weight as the axis lines.
-      let d = abs(x - tint.zone.cornerX) + abs(y - tint.zone.cornerY)
-      if d > tint.zone.diagLimit - EndzoneLineW - 1:
-        return overTint(base, rgba(tint.color.r, tint.color.g,
-          tint.color.b, EndzoneLineAlpha))
-      return emberThroughCracks(base, tint.color,
-        EndzoneGlowFloor + (1.0 - EndzoneGlowFloor) *
-          clamp(d.float / max(1, tint.zone.diagLimit).float, 0.0, 1.0))
     if tint.zone.disc:
-      ## Compact ROUND endzone: the threshold is the painted ring, so the
+      ## ROUND endzone — the only kind a hex board has: the threshold is the
       ## ember is brightest against it and eases in toward the pedestal —
       ## the same language as the diagonal corner zones.
       let d = sqrt(float(
@@ -520,12 +540,12 @@ proc shapeLogicalBounds(shape: ArenaShape): tuple[x0, y0, x1, y1: int] =
   ## A conservative logical-pixel bounding box around one obstacle shape (the
   ## scale× rasterizer only evaluates the float geometry inside it).
   case shape.kind
-  of shapeRect:
-    (shape.rect.x - 1, shape.rect.y - 1,
-     shape.rect.x + shape.rect.w + 1, shape.rect.y + shape.rect.h + 1)
-  of shapeDisc, shapeDiamond:
+  of shapeDisc:
     (shape.cx - shape.radius - 1, shape.cy - shape.radius - 1,
      shape.cx + shape.radius + 1, shape.cy + shape.radius + 1)
+  of shapeBar, shapeHex:
+    let r = shapeAsRect(shape)
+    (r.x - 1, r.y - 1, r.x + r.w + 1, r.y + r.h + 1)
   of shapeDiagonal:
     (min(shape.x0, shape.x1) - shape.thickness - 1,
      min(shape.y0, shape.y1) - shape.thickness - 1,
@@ -647,16 +667,26 @@ proc renderArenaRgbaPair*(
     buf[offset + 1] = c.g
     buf[offset + 2] = c.b
     buf[offset + 3] = 255
+  let board = gameMap.mapBoard()
   for y in 0 ..< oh:
     let
       ly = y div scale
-      rowBorder = ly < ArenaBorder or ly >= h - ArenaBorder
       tileRow = (y mod tileH) * tileW
     for x in 0 ..< ow:
       let
         i = y * ow + x
         lx = x div scale
-        onBorder = rowBorder or lx < ArenaBorder or lx >= w - ArenaBorder
+        ## THE hex boundary, at the renderer's own sub-pixel resolution, so the
+        ## six edges are drawn as crisply as the scale allows instead of
+        ## stepping in whole logical pixels.
+        edge = board.hexEdgeDistF((float(x) + 0.5) / float(scale),
+                                  (float(y) + 0.5) / float(scale))
+        onBorder = edge < float(ArenaBorder)
+      if edge <= 0.0:
+        let c = voidColorAt(tileBlock[tileRow + x mod tileW], -edge)
+        put(result.hot, i * 4, c)
+        put(result.cold, i * 4, c)
+        continue
       var hotColor, coldColor: ColorRGBA
       if artMask[i]:
         hotColor =
@@ -808,14 +838,22 @@ proc loadMapLayers*(gameMap: CtfMap, withEndzoneGlow = true):
   ## pixels inside a
   ## capture column get a CONFINED team endzone tint + a bright threshold line
   ## (endzoneColorAt) — not the removed broad half-board wash (L98 #4).
+  let board = gameMap.mapBoard()
   for y in 0 ..< h:
     for x in 0 ..< w:
       let
-        onBorder = x < ArenaBorder or y < ArenaBorder or
-          x >= w - ArenaBorder or y >= h - ArenaBorder
+        edge = board.hexEdgeDist(x, y)
+        onBorder = edge < float(ArenaBorder)
         wall = wallMask[y * w + x]
         artWall = artMask[y * w + x]
         windowPixel = wall and windowCover[y * w + x]
+      if edge <= 0.0:
+        ## Outside the hexagon: its own material, and it is WALL in both
+        ## collision layers exactly as the four wall predicates say.
+        result.mapImage[x, y] = voidColorAt(tileSample(floorTex, x, y), -edge)
+        result.walkImage[x, y] = clear
+        result.wallImage[x, y] = opaque
+        continue
       var color =
         if windowPixel: windowGlassColor(artMask, w, h, x, y)
         elif artWall: rooftopColor(artMask, w, h, x, y)

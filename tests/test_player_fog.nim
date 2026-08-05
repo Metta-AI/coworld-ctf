@@ -9,6 +9,14 @@ proc spriteLabels(messages: openArray[SpritePacketMessage]): seq[string] =
     if message.kind == spkSprite:
       result.add(message.sprite.label)
 
+const Behind = 341
+  ## px south of the board center: well past the 90px vision bubble, and still
+  ## inside the hexagon (the standard hull reaches 547px below its center).
+  ## The literal 550 this replaces was an ABSOLUTE y on the 659-tall
+  ## rectangular board; on the 1119-tall hexagon it lands 9px from the center,
+  ## i.e. inside the bubble, and every "fogged behind me" case silently became
+  ## a "right next to me" case.
+
 suite "player fog-of-war protocol":
   test "full-map POV: fog runs, self marker, no arrows, fov-culled enemies":
     var game = initCtfForTest(defaultGameConfig())
@@ -25,7 +33,7 @@ suite "player fog-of-war protocol":
     game.players[viewer].y = cy
     game.players[viewer].aimBrads = 64
     game.players[foe].x = cx
-    game.players[foe].y = 550
+    game.players[foe].y = cy + Behind
 
     var state: PlayerViewerState
     let messages = game.buildPlayerMessages(viewer, state)
@@ -79,11 +87,11 @@ suite "player fog-of-war protocol":
     game.players[viewer].aimBrads = 64
     # The teammate runs the stolen blue flag far behind the viewer.
     game.players[mate].x = cx
-    game.players[mate].y = 550
+    game.players[mate].y = cy + Behind
     game.flags[Blue].carrier = mate
     game.players[mate].carryingFlag = true
     game.flags[Blue].x = cx
-    game.flags[Blue].y = 550
+    game.flags[Blue].y = cy + Behind
 
     var state: PlayerViewerState
     # The mate is behind the viewer (aiming north): fogged, flag and all.

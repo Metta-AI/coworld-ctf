@@ -1,4 +1,5 @@
 import
+  helpers,
   std/[base64, json, strutils, unittest],
   ctf/[map_pool, sim],
   "../tools/map_editor"
@@ -36,19 +37,21 @@ proc mapRequest(spec: JsonNode, overlays: seq[string] = @[]): string =
   })
 
 proc symmetrySpec(symmetry: string): JsonNode =
-  let
-    teams = if symmetry == "rot90": 4 else: 2
-    gameMap = generateMapAttempt(
-      1001,
-      MapGenOverrides(
-        size: "small",
-        symmetry: symmetry,
-        windows: -1,
-        pits: -1,
-        pitDensity: -1,
-      ),
-      teams,
-    )
+  ## Hex Stage 2 generates 2-team boards only, so the 4-team spec is the
+  ## hand-authored Klein-four hexagon (helpers.hexTeamMap) rather than a
+  ## generated one. `symRot90` is gone with C4, which is not a subgroup of D6.
+  if symmetry == "klein4":
+    return parseJson(mapSpecJson(hexTeamMap()))
+  let gameMap = generateMapAttempt(
+    1001,
+    MapGenOverrides(
+      size: "small",
+      symmetry: symmetry,
+      windows: -1,
+      pits: -1,
+      pitDensity: -1,
+    ),
+  )
   parseJson(mapSpecJson(gameMap))
 
 proc symmetryRequest(spec, trenches, medKits: JsonNode): string =
@@ -111,9 +114,10 @@ suite "map editor service":
     check derived["expandedObstacleCount"].getInt() == expanded.len
 
     for zoneNode in derived["captureZones"]:
+      # The rectangular `diag` corner zone (a C4 artifact) is gone with its
+      # cornerX / cornerY / diagLimit fields: every hex endzone is a disc.
       for field in [
-        "xLo", "xHi", "yLo", "yHi", "diag", "cornerX", "cornerY",
-        "diagLimit", "disc", "anchorX", "anchorY", "radius",
+        "xLo", "xHi", "yLo", "yHi", "disc", "anchorX", "anchorY", "radius",
       ]:
         check zoneNode.hasKey(field)
 
@@ -191,7 +195,7 @@ suite "map editor service":
       check response.status == 200
       check body["ok"].getBool()
       check body["spec"].kind == JObject
-      check body["spec"]["width"].getInt() == 1050
+      check body["spec"]["width"].getInt() == HexSizes[hxSmall].width
 
   test "POST /api/generate validates request fields":
     for requestBody in [
@@ -242,8 +246,8 @@ suite "map editor service":
     ]
     check body["medKits"][1][0] == %*[200, 220]
 
-  test "POST /api/symmetry allows med kits but refuses trenches on rot90":
-    let spec = symmetrySpec("rot90")
+  test "POST /api/symmetry allows med kits but refuses trenches on klein4":
+    let spec = symmetrySpec("klein4")
     var response = handleEditorRequest(
       "POST",
       "/api/symmetry",
@@ -308,7 +312,7 @@ suite "map editor service":
     body = response.responseJson()
     check response.status == 200
     check body["ok"].getBool()
-    check body["spec"]["genSeed"].getInt() == MapPoolSeeds[0]
+    check body["spec"]["genSeed"].getInt() == poolCtfMap(0).genSeed
 
     for path in ["/api/pool/nope", "/api/pool/-1", "/api/pool/20"]:
       response = handleEditorRequest("GET", path, "")

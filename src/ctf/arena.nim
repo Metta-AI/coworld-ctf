@@ -10,9 +10,81 @@
 import
   std/[json, math, strutils],
   jsony, pixie,
-  sim_types
+  sim_types, hex
 
 import map_pool
+
+export hex
+
+const
+  Sqrt3Num* = 265
+  Sqrt3Den* = 153
+    ## sqrt(3) as the exact rational 265/153 (1.7320261..., 1.4e-5 low). Every
+    ## 60-degree geometry that has to be EXACT — hexagonal obstacle membership,
+    ## the canonical bar axes — is written against this pair rather than
+    ## against `Sqrt3`, for the same reason `pointInPolygon` is integer and the
+    ## diagonal test is int64: a float predicate rounds differently under a
+    ## mirror and the two halves of the board stop being bit-identical masks.
+    ## The kernel's float `Sqrt3` stays where floats are already the answer
+    ## (distances, the boundary's normalization).
+
+  BarAxisFlat* = [
+    (306, 0), (153, 265), (-153, 265), (-306, 0), (-153, -265), (153, -265)]
+    ## The six canonical bar axes, 60 degrees apart in the SCREEN frame,
+    ## closed under exact 60-degree rotation: rotating entry `k` by +60 gives
+    ## entry `k+1` EXACTLY, because 306*cos60 = 153 and 306*sin60 = 265.0006
+    ## rounds into the same rational sqrt(3) the rest of the file uses. A bar
+    ## authored on one of these is therefore congruent to all six of its
+    ## rotational images, with no float in the loop.
+
+proc barShape*(cx2, cy2, halfLong, halfPerp, axisX, axisY: int;
+               window = false): ArenaShape =
+  ## An oriented bar from its DOUBLED center, its half-extents (in units of
+  ## `|axis|` doubled pixels, see `ArenaShape`), and an integer axis.
+  ArenaShape(kind: shapeBar, window: window, cx2: cx2, cy2: cy2,
+             halfLong: halfLong, halfPerp: halfPerp, axisX: axisX, axisY: axisY)
+
+proc rectShape*(r: MapRect, window = false): ArenaShape =
+  ## The axis-aligned bar covering exactly the pixels of a rectangle — the
+  ## replacement for the deleted `shapeRect`, and exact for EVEN extents
+  ## because the center is stored doubled. Trenches are stored as shapes and
+  ## the generator digs rectangular pits, so this bridge stays.
+  barShape(2 * r.x + r.w - 1, 2 * r.y + r.h - 1, r.w - 1, r.h - 1, 1, 0, window)
+
+proc diamondShape*(cx, cy, radius: int, window = false): ArenaShape =
+  ## The L1 ball of radius `radius` — the old `shapeDiamond`, expressed
+  ## EXACTLY as a bar on the (1, 1) axis. With `halfLong = halfPerp = 2r` the
+  ## two slab tests read `|dx + dy| <= r` and `|dx - dy| <= r`, whose
+  ## intersection is `|dx| + |dy| <= r`: the same integer predicate, the same
+  ## pixels, the same mirror exactness the spinning-diamond art depends on.
+  barShape(2 * cx, 2 * cy, 2 * radius, 2 * radius, 1, 1, window)
+
+proc hexShape*(cx, cy, radius: int, flatTop = false,
+               window = false): ArenaShape =
+  ## A regular hexagonal obstacle: integer center, circumradius in px.
+  ArenaShape(kind: shapeHex, window: window, hexCx2: 2 * cx, hexCy2: 2 * cy,
+             hexR2: 2 * radius, flatTop: flatTop)
+
+proc asDiamond*(shape: ArenaShape): tuple[ok: bool, cx, cy, radius: int] =
+  ## Recognizes the bars that ARE diamonds (see `diamondShape`), which is what
+  ## the spinning-obstacle machinery selects on. Returns `ok = false` for every
+  ## other shape, including bars on the (1, 1) axis whose center or radius
+  ## would not land on integers.
+  if shape.kind != shapeBar or shape.halfLong != shape.halfPerp or
+      abs(shape.axisX) != 1 or abs(shape.axisY) != 1 or
+      shape.halfLong mod 2 != 0 or
+      shape.cx2 mod 2 != 0 or shape.cy2 mod 2 != 0:
+    return (false, 0, 0, 0)
+  (true, shape.cx2 div 2, shape.cy2 div 2, shape.halfLong div 2)
+
+proc barHalfExtents(shape: ArenaShape): tuple[ex2, ey2: int] =
+  ## The bar's DOUBLED axis-aligned half-extents, rounded UP so a bounding box
+  ## built from them is always a superset of the bar's pixels.
+  let
+    l = shape.axisX * shape.axisX + shape.axisY * shape.axisY
+    sx = shape.halfLong * abs(shape.axisX) + shape.halfPerp * abs(shape.axisY)
+    sy = shape.halfLong * abs(shape.axisY) + shape.halfPerp * abs(shape.axisX)
+  ((sx + l - 1) div l, (sy + l - 1) div l)
 
 proc validateMapRect(name: string, rect: MapRect, width, height: int) =
   ## Raises if one map rectangle is outside the map.
@@ -27,18 +99,28 @@ proc validateMapPoint(name: string, point: MapPoint, width, height: int) =
   if point.x < 0 or point.y < 0 or point.x >= width or point.y >= height:
     raise newException(CtfError, "Map " & name & " is outside the map.")
 
-proc rectShape*(r: MapRect): ArenaShape =
-  ## Wrap a rectangle as a rect-kind shape (trenches are stored as shapes).
-  ArenaShape(kind: shapeRect, rect: r)
-
 proc shapeAsRect*(s: ArenaShape): MapRect =
-  ## The rectangle for a rect-kind shape; the tight bounding box for any other
-  ## kind. Trench generation and the rect-edge trench art work in rectangles;
-  ## this bridges them to the shape-typed `trenches` field.
+  ## The tight bounding box of one shape — EXACT for an axis-aligned bar, so a
+  ## rectangular trench round-trips through `rectShape` unchanged. Trench
+  ## generation and the rect-edge trench art work in rectangles; this bridges
+  ## them to the shape-typed `trenches` field.
   case s.kind
-  of shapeRect:
-    s.rect
-  of shapeDisc, shapeDiamond:
+  of shapeBar:
+    let
+      (ex2, ey2) = s.barHalfExtents()
+      x0 = floorDiv(s.cx2 - ex2, 2)
+      y0 = floorDiv(s.cy2 - ey2, 2)
+    MapRect(x: x0, y: y0,
+            w: ceilDiv(s.cx2 + ex2, 2) - x0 + 1,
+            h: ceilDiv(s.cy2 + ey2, 2) - y0 + 1)
+  of shapeHex:
+    ## A hexagon of circumradius R fits in the R-square either way round.
+    let
+      r = ceilDiv(s.hexR2, 2)
+      x0 = floorDiv(s.hexCx2, 2) - r
+      y0 = floorDiv(s.hexCy2, 2) - r
+    MapRect(x: x0, y: y0, w: 2 * r + 2, h: 2 * r + 2)
+  of shapeDisc:
     MapRect(x: s.cx - s.radius, y: s.cy - s.radius,
             w: 2 * s.radius + 1, h: 2 * s.radius + 1)
   of shapeDiagonal:
@@ -60,49 +142,94 @@ proc shapeAsRect*(s: ArenaShape): MapRect =
       MapRect(x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1)
 
 proc maxEndzoneRadius*(width: int): int =
-  ## The compact-endzone radius ceiling for a board of this width. The
-  ## classic EndzoneRadiusMax was authored for the STANDARD 1235-wide field
-  ## (it keeps the two zones clear of the center ring); a wider board
-  ## supports a proportionally larger zone — the generator draws the radius
-  ## as a width fraction, and the oversize classes draw past 220. Narrower
-  ## boards keep the classic cap rather than tightening a bound existing
-  ## configs were allowed to use.
-  max(EndzoneRadiusMax, width * EndzoneRadiusMax div 1235)
+  ## The endzone radius ceiling for a board of this width. The classic
+  ## EndzoneRadiusMax was authored for the standard field (it keeps the two
+  ## zones clear of the center ring); a wider board supports a proportionally
+  ## larger zone — the generator draws the radius as a width fraction, and the
+  ## oversize classes draw past 220. Narrower boards keep the classic cap
+  ## rather than tightening a bound existing configs were allowed to use.
+  max(EndzoneRadiusMax, width * EndzoneRadiusMax div HexStandardWidth)
+
+proc minEndzoneRadius*(width: int): int =
+  ## The endzone radius FLOOR for a board of this width. `EndzoneRadiusMin`
+  ## was authored against the old 1235-wide standard field and is a hard 90;
+  ## the hex classes are narrower at equal playfield area (the standard is
+  ## 969), so a flat 90 sat ABOVE what the small class's own radius draw
+  ## produces and every small-class seed raised instead of generating.
+  ##
+  ## Scaled by width, floored at the pedestal art plus a margin — which is
+  ## what the constant was protecting in the first place (the pedestal and its
+  ## endzone pits have to fit inside the scoring disc).
+  max(PedestalCoverSize div 2 + 12,
+      min(EndzoneRadiusMin, width * EndzoneRadiusMin div 1235))
+
+proc endzoneFloorAt*(
+  x, y, anchorX, anchorY, radius: int, disc: bool
+): bool =
+  ## Whether a point sits on one endzone's protected floor: the scoring shape
+  ## grown by the wall margin, so the ring the carrier crosses is never flush
+  ## against a wall.
+  let
+    grown = radius + EndzoneWallMargin
+    dx = abs(x - anchorX)
+    dy = abs(y - anchorY)
+  if dx > grown or dy > grown:
+    return false
+  if disc:
+    return dx * dx + dy * dy <= grown * grown
+  true
+
+proc mapBoard*(gameMap: CtfMap): HexBoard {.inline.} =
+  ## The hexagon inscribed in this map's bounding box. ONE boundary predicate
+  ## for the whole codebase (`hex.nim`); nothing here re-derives it.
+  hexBoard(gameMap.width, gameMap.height)
 
 proc validateMap(gameMap: CtfMap) =
   ## Raises if a loaded map has invalid geometry.
-  if gameMap.width <= 0 or gameMap.height <= 0:
+  if gameMap.width <= 1 or gameMap.height <= 1:
     raise newException(CtfError, "Map dimensions must be positive.")
-  case gameMap.layout
-  of layoutSides:
-    if gameMap.symmetry == symRot90:
-      raise newException(CtfError, "Sides maps cannot use rot90 symmetry.")
-  of layoutCorners, layoutPlus:
-    if gameMap.symmetry != symRot90:
-      raise newException(CtfError, "Corner/plus maps are rot90-only.")
-  if gameMap.symmetry == symRot90 and gameMap.width != gameMap.height:
-    ## rot90 rotates about the center of a SQUARE; a non-square board would
-    ## silently produce team-unfair obstacle images.
-    raise newException(CtfError, "rot90 symmetry needs a square map.")
+  ## Any group transitive on 3 or 6 spawns contains a 120-degree rotation,
+  ## which confines the bounding-box aspect to [sqrt(3)/2, 2/sqrt(3)]. The old
+  ## 1235x659 board is at 1.874 — far outside it. Refusing an out-of-band board
+  ## here is the hex analogue of the old "rot90 needs a square map" validator,
+  ## and it refuses for exactly the same reason: the alternative is a silently
+  ## team-unfair obstacle image.
+  if not gameMap.mapBoard().aspectOk():
+    raise newException(
+      CtfError, "A hex arena's bounding box must be within [0.866, 1.155]; " &
+        $gameMap.width & "x" & $gameMap.height & " is " &
+        formatFloat(gameMap.mapBoard().aspect(), ffDecimal, 3) & ".")
+  case gameMap.symmetry
+  of symMirrorHex, symRot180:
+    if gameMap.layout != layoutHex2:
+      raise newException(
+        CtfError, "Mirror/rot180 symmetry seats exactly 2 teams.")
+  of symKlein4:
+    if gameMap.layout != layoutHex4:
+      raise newException(CtfError, "Klein-four symmetry seats exactly 4 teams.")
+  of symRot120, symRot60:
+    ## The 3- and 6-team groups are NOT pixel-exact, so their orbits have to be
+    ## walked in cube space and rasterized once. That pipeline is Stage 2b;
+    ## refusing here is better than shipping a rounded rotation, which is
+    ## precisely the failure the old rot90 validator existed to prevent.
+    raise newException(
+      CtfError, "rot120 / rot60 symmetry needs the cube-space orbit " &
+        "rasterizer (hex Stage 2b); not generated yet.")
+  if gameMap.layout == layoutHex6:
+    raise newException(
+      CtfError, "6-team hex needs the Team enum widened (hex Stage 4).")
   if gameMap.homeDepth != 0 and
       (gameMap.homeDepth < HomeDepthMin or gameMap.homeDepth > HomeDepthMax):
     raise newException(
       CtfError, "Map home depth must be " & $HomeDepthMin & ".." &
         $HomeDepthMax & " permille (0 = the classic " &
         $ClassicHomeDepth & ").")
-  if gameMap.endzone == ezColumn:
-    if gameMap.endzoneRadius != 0:
-      raise newException(
-        CtfError, "Column endzones carry no radius.")
-  else:
-    if gameMap.layout != layoutSides:
-      raise newException(
-        CtfError, "Compact endzones need a 2-team sides map.")
-    if gameMap.endzoneRadius < EndzoneRadiusMin or
-        gameMap.endzoneRadius > maxEndzoneRadius(gameMap.width):
-      raise newException(
-        CtfError, "Map endzone radius must be " & $EndzoneRadiusMin & ".." &
-          $maxEndzoneRadius(gameMap.width) & " px.")
+  if gameMap.endzoneRadius < minEndzoneRadius(gameMap.width) or
+      gameMap.endzoneRadius > maxEndzoneRadius(gameMap.width):
+    raise newException(
+      CtfError, "Map endzone radius must be " &
+        $minEndzoneRadius(gameMap.width) & ".." &
+        $maxEndzoneRadius(gameMap.width) & " px.")
   validateMapPoint("center", gameMap.center, gameMap.width, gameMap.height)
   for i, room in gameMap.rooms:
     validateMapRect(
@@ -120,165 +247,23 @@ const
   ArenaLargeName = "arena-large"
   ArenaBorder* = 10            ## perimeter wall thickness in px.
 
+  EndzoneApron* = 60
+    ## How far past the scoring ring terrain is kept out, so the base's
+    ## approaches cannot be sealed.
+    ##
+    ## DERIVED, and the derivation is why it cannot simply be shrunk to make
+    ## room for something else: `collectMapDiagnostics` demands four cardinal
+    ## gates at `endzoneRadius + MinCorridorWidth div 2 + 4` (r + 17) be
+    ## reachable, an obstacle centred at the apron edge reaches 30px back in
+    ## toward the base, and the gate then needs a player half-width of daylight.
+    ## 30 + 17 + 13 = 60. Cutting it to 40 seals a gate on 87 of 200 seeds.
+
   ## Warm CRT-phosphor arena (REPLAY_DESIGN §3 art-lock): neutral-warm grey
   ## polished-concrete floor, warm-stone cover, the two team colors the only
   ## saturated channels — never the cold blue-slate default the house style
   ## forbids.
   ArenaBorderColor* = rgba(44, 34, 25, 255)
 
-  ## Interior obstacle shapes for the LEFT half only. Each is mirrored
-  ## across the vertical center line so both halves are identical, and the
-  ## in-column shapes come in top/bottom mirrored pairs around the map's
-  ## horizontal midline. With map-wide guns the layout is a slalom of five
-  ## staggered columns (x-centers 277/349/421/493/565 plus their x-mirrors)
-  ## whose in-column gaps are offset from the neighbours', so every
-  ## horizontal row hits a shape and no straight cross-field ray survives,
-  ## while every corridor stays >= 26px for the 13px player footprint. The
-  ## columns vary the shape per lane: border-attached rect stubs, diamonds,
-  ## discs, 45-degree chevron walls angling across the old corridors, and
-  ## rect/diamond stubs flanking the flag ring. A windowed square bracket
-  ## straddling the horizontal midline closes the mid lane outside the flag
-  ## ring to movement and fire, while its glass center pane gives both teams
-  ## a fogless sightline down the center corridor (GameVersion 16); the
-  ## ring itself stays an open disc for close flag fights. Shapes sit
-  ## between the capture/spawn columns and the flag ring; isProtectedFloor
-  ## carves them out of the ring, pockets, and capture columns.
-  ArenaLeftObstacles = [
-    # Column 1 (x=268..286): rect stubs, phase 0, border-attached ends.
-    # GV27 (operator rule): the GLASS WINDOWS alternate from both ends —
-    # stone, glass, stone, glass — landing on stubs 2, 4 (the middle), and
-    # 6 of 7, a top/bottom-symmetric set. Glass is solid to movement,
-    # bullets, and spray cones, transparent to fog-of-war; x-mirrored like
-    # every column-1 shape.
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 268, y: 10, w: 18, h: 62)),
-    ArenaShape(kind: shapeRect, window: true,
-      rect: MapRect(x: 268, y: 108, w: 18, h: 60)),
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 268, y: 204, w: 18, h: 60)),
-    ArenaShape(kind: shapeRect, window: true,
-      rect: MapRect(x: 268, y: 300, w: 18, h: 59)),
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 268, y: 395, w: 18, h: 60)),
-    ArenaShape(kind: shapeRect, window: true,
-      rect: MapRect(x: 268, y: 491, w: 18, h: 60)),
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 268, y: 587, w: 18, h: 62)),
-    # Column 2 (x=349): diamonds, phase +48 (half period) vs column 1.
-    ArenaShape(kind: shapeDiamond, cx: 349, cy: 90, radius: 28),
-    ArenaShape(kind: shapeDiamond, cx: 349, cy: 186, radius: 28),
-    ArenaShape(kind: shapeDiamond, cx: 349, cy: 282, radius: 28),
-    ArenaShape(kind: shapeDiamond, cx: 349, cy: 376, radius: 28),
-    ArenaShape(kind: shapeDiamond, cx: 349, cy: 472, radius: 28),
-    ArenaShape(kind: shapeDiamond, cx: 349, cy: 568, radius: 28),
-    # Column 3 (x=421): discs, phase +24. GameVersion 16 thinned the lane:
-    # every other disc removed (was 66/162/258/400/496/592), giving the
-    # column real gaps instead of a near-solid picket. Top/bottom mirror
-    # symmetry is intentionally traded for the lower density; team fairness
-    # only needs the x-mirror.
-    ArenaShape(kind: shapeDisc, cx: 421, cy: 66, radius: 28),
-    ArenaShape(kind: shapeDisc, cx: 421, cy: 258, radius: 28),
-    ArenaShape(kind: shapeDisc, cx: 421, cy: 496, radius: 28),
-    # Column 4 (x=479..509): 45-degree chevron walls, phase +72; the
-    # midline pair was replaced in GameVersion 16 by the windowed bracket
-    # below.
-    ArenaShape(kind: shapeDiagonal, x0: 479, y0: 86, x1: 507, y1: 114, thickness: 12),
-    ArenaShape(kind: shapeDiagonal, x0: 507, y0: 114, x1: 479, y1: 142, thickness: 12),
-    ArenaShape(kind: shapeDiagonal, x0: 507, y0: 182, x1: 479, y1: 210, thickness: 12),
-    ArenaShape(kind: shapeDiagonal, x0: 479, y0: 210, x1: 507, y1: 238, thickness: 12),
-    # GameVersion 16: the old midline chevron zigzag (the sideways "W" that
-    # closed the mid lane) is now a square bracket over the same footprint
-    # (x=479..507, y=276..383): a vertical bar on the outer side plus short
-    # arms reaching toward the flag ring — "[" here, "]" on the x-mirror.
-    # The middle of the bar, straddling the midline, is a GLASS WINDOW:
-    # the mid lane stays closed to movement, bullets, and spray, but
-    # fog-of-war now sees straight down the center corridor through it.
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 479, y: 276, w: 28, h: 12)),
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 479, y: 288, w: 12, h: 24)),
-    ArenaShape(kind: shapeRect, window: true,
-      rect: MapRect(x: 479, y: 312, w: 12, h: 36)),
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 479, y: 348, w: 12, h: 23)),
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 479, y: 371, w: 28, h: 12)),
-    ArenaShape(kind: shapeDiagonal, x0: 507, y0: 421, x1: 479, y1: 449, thickness: 12),
-    ArenaShape(kind: shapeDiagonal, x0: 479, y0: 449, x1: 507, y1: 477, thickness: 12),
-    ArenaShape(kind: shapeDiagonal, x0: 479, y0: 517, x1: 507, y1: 545, thickness: 12),
-    ArenaShape(kind: shapeDiagonal, x0: 507, y0: 545, x1: 479, y1: 573, thickness: 12),
-    # Column 5 (x=556..595): rect stubs at the borders, diamonds flanking
-    # the flag ring (the ring carves their inner edges).
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 556, y: 24, w: 18, h: 66)),
-    ArenaShape(kind: shapeDiamond, cx: 565, cy: 156, radius: 30),
-    ArenaShape(kind: shapeDiamond, cx: 565, cy: 252, radius: 30),
-    ArenaShape(kind: shapeDiamond, cx: 565, cy: 406, radius: 30),
-    ArenaShape(kind: shapeDiamond, cx: 565, cy: 502, radius: 30),
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 556, y: 569, w: 18, h: 66)),
-  ]
-
-  ## The arena-large layout (1606x858, 30% bigger in both axes): every
-  ## shape keeps its `arena` SIZE while its CENTER (and the layout
-  ## clearances) scale by 1.3, so the same cover sits in a roomier field
-  ## with ~30% wider corridors — and some long sightlines the dense arena
-  ## deliberately closed now survive; the field plays roomier by design.
-  ## Five staggered columns at x-centers 360/454/547/641/735 plus their
-  ## x-mirrors; border-attached stubs stay attached and the column-5 border
-  ## gaps stay < 26px (impassable) rather than scaling into new lanes.
-  ArenaLargeLeftObstacles = [
-    # Column 1 (x=351..369): rect stubs, phase 0, border-attached ends. The
-    # SECOND stub from the top and from the bottom are GLASS WINDOWS
-    # (GameVersion 15): solid to movement, bullets, and spray cones, transparent
-    # to fog-of-war.
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 351, y: 10, w: 18, h: 62)),
-    ArenaShape(kind: shapeRect, window: true,
-      rect: MapRect(x: 351, y: 149, w: 18, h: 60)),
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 351, y: 274, w: 18, h: 60)),
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 351, y: 399, w: 18, h: 59)),
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 351, y: 524, w: 18, h: 60)),
-    ArenaShape(kind: shapeRect, window: true,
-      rect: MapRect(x: 351, y: 649, w: 18, h: 60)),
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 351, y: 786, w: 18, h: 62)),
-    # Column 2 (x=454): diamonds, phase +48 (half period) vs column 1.
-    ArenaShape(kind: shapeDiamond, cx: 454, cy: 117, radius: 28),
-    ArenaShape(kind: shapeDiamond, cx: 454, cy: 242, radius: 28),
-    ArenaShape(kind: shapeDiamond, cx: 454, cy: 367, radius: 28),
-    ArenaShape(kind: shapeDiamond, cx: 454, cy: 491, radius: 28),
-    ArenaShape(kind: shapeDiamond, cx: 454, cy: 616, radius: 28),
-    ArenaShape(kind: shapeDiamond, cx: 454, cy: 741, radius: 28),
-    # Column 3 (x=547): discs, phase +24. GameVersion 16 thinned the lane:
-    # every other disc removed, giving the column real gaps instead of a
-    # near-solid picket. Top/bottom mirror symmetry is intentionally traded
-    # for the lower density; team fairness only needs the x-mirror.
-    ArenaShape(kind: shapeDisc, cx: 547, cy: 86, radius: 28),
-    ArenaShape(kind: shapeDisc, cx: 547, cy: 335, radius: 28),
-    ArenaShape(kind: shapeDisc, cx: 547, cy: 645, radius: 28),
-    # Column 4 (x=627..655): 45-degree chevron walls, phase +72; the
-    # midline pair was replaced in GameVersion 16 by the windowed bracket
-    # below.
-    ArenaShape(kind: shapeDiagonal, x0: 627, y0: 120, x1: 655, y1: 148, thickness: 12),
-    ArenaShape(kind: shapeDiagonal, x0: 655, y0: 148, x1: 627, y1: 176, thickness: 12),
-    ArenaShape(kind: shapeDiagonal, x0: 655, y0: 245, x1: 627, y1: 273, thickness: 12),
-    ArenaShape(kind: shapeDiagonal, x0: 627, y0: 273, x1: 655, y1: 301, thickness: 12),
-    # GameVersion 16: the old midline chevron zigzag (the sideways "W" that
-    # closed the mid lane) is now a square bracket over the same footprint
-    # (x=627..655, y=375..482): a vertical bar on the outer side plus short
-    # arms reaching toward the flag ring — "[" here, "]" on the x-mirror.
-    # The middle of the bar, straddling the midline, is a GLASS WINDOW:
-    # the mid lane stays closed to movement, bullets, and spray, but
-    # fog-of-war now sees straight down the center corridor through it.
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 627, y: 375, w: 28, h: 12)),
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 627, y: 387, w: 12, h: 24)),
-    ArenaShape(kind: shapeRect, window: true,
-      rect: MapRect(x: 627, y: 411, w: 12, h: 36)),
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 627, y: 447, w: 12, h: 23)),
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 627, y: 470, w: 28, h: 12)),
-    ArenaShape(kind: shapeDiagonal, x0: 655, y0: 557, x1: 627, y1: 585, thickness: 12),
-    ArenaShape(kind: shapeDiagonal, x0: 627, y0: 585, x1: 655, y1: 613, thickness: 12),
-    ArenaShape(kind: shapeDiagonal, x0: 627, y0: 682, x1: 655, y1: 710, thickness: 12),
-    ArenaShape(kind: shapeDiagonal, x0: 655, y0: 710, x1: 627, y1: 738, thickness: 12),
-    # Column 5 (x=726..744): rect stubs at the borders (their border gaps
-    # stay < 26px, i.e. impassable, rather than scaling into new lanes),
-    # diamonds flanking the flag ring.
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 726, y: 31, w: 18, h: 66)),
-    ArenaShape(kind: shapeDiamond, cx: 735, cy: 203, radius: 30),
-    ArenaShape(kind: shapeDiamond, cx: 735, cy: 328, radius: 30),
-    ArenaShape(kind: shapeDiamond, cx: 735, cy: 530, radius: 30),
-    ArenaShape(kind: shapeDiamond, cx: 735, cy: 655, radius: 30),
-    ArenaShape(kind: shapeRect, rect: MapRect(x: 726, y: 761, w: 18, h: 66)),
-  ]
 
 proc homeDepthOf(gameMap: CtfMap): int =
   ## The map's home-anchor depth permille, defaulting to the classic 700 so
@@ -292,139 +277,96 @@ proc axisHomeLo(center, depth: int): int =
   ## At 700 this is exactly the historical `center * 7 div 10`.
   center - (center * depth div 1000)
 
-proc axisHomeHi(center, size, depth: int): int =
-  ## Returns the high-edge home anchor along one axis (the classic Blue
-  ## home-x formula at depth 700).
-  center + ((size - center) * depth div 1000)
+proc mapGroup*(gameMap: CtfMap): seq[HexSym] =
+  ## The D6 subgroup this map's terrain was authored against, in TEAM ORDER.
+  ## The map's `symmetry` field decides, never its team count: the 2-team
+  ## board has two different groups of order 2 (a mirror and a half turn) and
+  ## picking the wrong one is the shields-in-the-spray-cans' terrain bug.
+  case gameMap.symmetry
+  of symMirrorHex: @[hexE, hexMir90]
+  of symRot180: GroupC2
+  of symRot120: GroupC3
+  of symKlein4: GroupV4
+  of symRot60: GroupC6
 
-proc rot90Point*(p: MapPoint, side: int): MapPoint {.inline.} =
-  ## One quarter turn clockwise about the center of a side x side square
-  ## board: (x, y) -> (side - 1 - y, x).
-  ##
-  ## The fixed point of that map is (side - 1)/2, which on an EVEN-sided
-  ## board is a half pixel away from the div-derived `center`. Anything that
-  ## has to be exactly its own quarter turn must therefore be built by
-  ## walking this orbit (or measured in doubled coordinates), never anchored
-  ## to `center` — see rot90Quarter and centerOffset2.
-  MapPoint(x: side - 1 - p.y, y: p.x)
+proc teamOp*(gameMap: CtfMap, team: Team): HexSym =
+  ## The D6 element carrying RED's world onto `team`'s. The ORDER of
+  ## `mapGroup` is a contract exactly as `rot90Quarter`'s quarter-turn count
+  ## was on the square board: team `i` is group element `i`, forever.
+  let group = gameMap.mapGroup()
+  group[min(int(team), group.high)]
 
-proc rot90Quarter*(gameMap: CtfMap, team: Team): int =
-  ## How many quarter turns separate RED's quadrant from this team's. Team
-  ## enum order is not orbit order for either 4-team layout, so the mapping
-  ## is spelled out per layout; sides maps have no rot90 orbit at all.
-  case gameMap.layout
-  of layoutSides:
-    0
-  of layoutCorners:
-    ## Orbit top-left -> top-right -> bottom-right -> bottom-left.
-    case team
-    of Red: 0
-    of Blue: 1
-    of Yellow: 2
-    of Green: 3
-  of layoutPlus:
-    ## Orbit west -> north -> east -> south.
-    case team
-    of Red: 0
-    of Green: 1
-    of Blue: 2
-    of Yellow: 3
-
-proc rot90TeamPoint*(gameMap: CtfMap, red: MapPoint, team: Team): MapPoint =
-  ## RED's point walked round the orbit to `team`'s quadrant. Anything one
-  ## team owns a copy of — a home, a pickup — has to be built this way: the
-  ## rot90 wall mask carries Red's surroundings onto the image of Red's
-  ## point, so a copy placed by MIRRORING lands in the transpose of them
-  ## instead, with different cover and different sightlines.
-  result = red
-  for _ in 0 ..< gameMap.rot90Quarter(team):
-    result = result.rot90Point(gameMap.width)
+proc pixelImage*(gameMap: CtfMap, p: MapPoint, op: HexSym): MapPoint =
+  ## One point carried by a PIXEL-EXACT D6 element. Only four of the twelve act
+  ## exactly on a square pixel lattice — the identity, the two axis mirrors,
+  ## and the half turn — and those four are precisely the group V4 plus its
+  ## subgroups, i.e. every symmetry the 2- and 4-team boards use. The other
+  ## eight involve sin 60 and MUST be walked in cube space instead (plan
+  ## section 0.2); asking for one here is a bug, not a rounding question.
+  case op
+  of hexE: p
+  of hexMir0: MapPoint(x: p.x, y: gameMap.height - 1 - p.y)
+  of hexMir90: MapPoint(x: gameMap.width - 1 - p.x, y: p.y)
+  of hexRot180:
+    MapPoint(x: gameMap.width - 1 - p.x, y: gameMap.height - 1 - p.y)
+  else:
+    raise newException(
+      CtfError, "D6 element " & $op & " is not exact on a pixel lattice; " &
+        "walk its orbit in cube coordinates instead.")
 
 proc teamImagePoint*(gameMap: CtfMap, red: MapPoint, team: Team): MapPoint =
   ## RED's point carried onto `team`'s side of the board by the map's OWN
-  ## symmetry — the general form of `rot90TeamPoint`, for the 2-team boards
-  ## too.
+  ## symmetry.
   ##
-  ## Which symmetry is not a detail: the terrain was built with exactly one
-  ## of them, and only that one carries Red's surroundings onto the image.
-  ## On a rot180 board a MIRRORED copy lands in the rotation of some other
-  ## Red spot instead — which is how the shields came to sit in the terrain
-  ## of the spray cans, and the cans in the terrain of the shields.
-  case gameMap.symmetry
-  of symRot90:
-    gameMap.rot90TeamPoint(red, team)
-  of symMirror:
-    if team == Red: red
-    else: MapPoint(x: gameMap.width - 1 - red.x, y: red.y)
-  of symRot180:
-    if team == Red: red
-    else: MapPoint(
-      x: gameMap.width - 1 - red.x, y: gameMap.height - 1 - red.y)
+  ## Which symmetry is not a detail: the terrain was built with exactly one of
+  ## them, and only that one carries Red's surroundings onto the image. On a
+  ## rot180 board a MIRRORED copy lands in the rotation of some other Red spot
+  ## instead — which is how the shields came to sit in the terrain of the spray
+  ## cans, and the cans in the terrain of the shields. That bug is the reason
+  ## this abstraction exists, and it survived the move to hex unchanged.
+  gameMap.pixelImage(red, gameMap.teamOp(team))
 
 proc teamAnchor*(gameMap: CtfMap, team: Team): MapPoint =
   ## Returns one team's home anchor: the center of its protected spawn
   ## pocket, where its pedestal stands.
   ##
-  ## 4-team anchors are RED's anchor walked around the rot90 orbit, so every
-  ## team's home is EXACTLY a quarter turn of every other team's. Deriving
-  ## the far anchors from axisHomeHi instead would place them symmetrically
-  ## about `center` — one pixel off the orbit on an even-sided board, which
-  ## is a fairness difference, not a rounding detail.
+  ## RED seeds the orbit and every other team's anchor is RED's carried by the
+  ## map's own symmetry, so the homes are EXACTLY images of one another.
+  ## Deriving the far anchor from a mirrored FORMULA instead (the old
+  ## `axisHomeHi`) put it a pixel off the orbit on an even board — a fairness
+  ## difference, not a rounding detail.
   let
     cx = gameMap.center.x
     cy = gameMap.center.y
     d = gameMap.homeDepthOf()
-  case gameMap.layout
-  of layoutSides:
-    result =
-      case team
-      of Red:
-        MapPoint(x: axisHomeLo(cx, d), y: cy)
-      else:
-        MapPoint(x: axisHomeHi(cx, gameMap.width, d), y: cy)
-  of layoutCorners, layoutPlus:
-    ## Red seeds the orbit: top-left on corner maps, west on plus maps.
-    result =
-      if gameMap.layout == layoutCorners:
-        MapPoint(x: axisHomeLo(cx, d), y: axisHomeLo(cy, d))
-      else:
-        MapPoint(x: axisHomeLo(cx, d), y: cy)
-    for _ in 0 ..< gameMap.rot90Quarter(team):
-      result = result.rot90Point(gameMap.width)
+  result =
+    case gameMap.layout
+    of layoutHex2:
+      ## The horizontal (edge-midpoint) axis: RED left, BLUE right. `hex.nim`
+      ## keeps the 2-team orbit here deliberately — `teamHomeX` and every
+      ## deployed league policy encode it.
+      MapPoint(x: axisHomeLo(cx, d), y: cy)
+    else:
+      ## Off-axis seed. V4 carries a seed at angle t to {t, -t, 180-t, 180+t},
+      ## whose gaps are equal only at t = 45 degrees, so the 4-team seed sits
+      ## on the DIAGONAL rather than on a lattice axis (plan section 0.1).
+      ## 707/1000 is cos 45 to four places — integer, so the seed is a pure
+      ## function of the board and its three images are exact.
+      let radial = min(cx, cy) * d div 1000
+      MapPoint(x: cx - radial * 707 div 1000, y: cy - radial * 707 div 1000)
+  if team != Red:
+    result = gameMap.teamImagePoint(result, team)
 
 proc spawnPocketHalf*(gameMap: CtfMap, team: Team): tuple[w, h: int] =
-  ## The half-extents of one team's protected spawn pocket, around its
-  ## anchor. The pocket is taller than it is wide, so it does NOT survive a
-  ## quarter turn unchanged: on rot90 boards the odd quarters carry the
-  ## rotated W x H -> H x W box. Stamping the same box at all four anchors
-  ## would carve two of the four quadrants to a different shape than their
-  ## rotational twins — on a 1248px board that is ~119k pixels, 7.6% of the
-  ## board, where the protected floor disagrees with its own quarter turn.
+  ## The half-extents of one team's protected spawn pocket, around its anchor.
   ##
-  ## Mirror and rot180 symmetries preserve the axes, so 2-team maps keep the
-  ## single upright box they always had.
-  if gameMap.rot90Quarter(team) mod 2 == 1:
-    (gameMap.spawnClearH, gameMap.spawnClearW)
-  else:
-    (gameMap.spawnClearW, gameMap.spawnClearH)
-
-proc plusArmHalf*(gameMap: CtfMap): int =
-  ## Returns the half-span of a plus map's arms — the width of each team's
-  ## endzone mouth and protected approach: 19% of the map side, comfortably
-  ## wider than the spawn pockets on every size class.
-  19 * min(gameMap.width, gameMap.height) div 100
-
-proc plusArmBand*(gameMap: CtfMap): tuple[lo, hi: int] =
-  ## The inclusive span an arm occupies across the board, centered on the
-  ## board's TRUE rot90 axis at (side - 1)/2 rather than on the integer
-  ## center. The two differ by a pixel on an even side, and a band centered
-  ## on `center` is not its own quarter turn — the west arm's y-span would
-  ## land one pixel off the north arm's x-span. Identical to the doubled
-  ## comparison mapProtectedFloorAt carves the approach with.
-  let
-    side = min(gameMap.width, gameMap.height)
-    lo = (side - 2 * gameMap.plusArmHalf()) div 2
-  (lo, side - 1 - lo)
+  ## Every symmetry a hex board can wear that is exact on pixels (mirror, half
+  ## turn, and V4) preserves the coordinate AXES, so the upright box is its own
+  ## image and one box serves every team — unlike the old rot90 boards, where
+  ## the odd quarters had to carry the transposed H x W box or 7.6% of the
+  ## board disagreed with its own quarter turn.
+  discard team
+  (gameMap.spawnClearW, gameMap.spawnClearH)
 
 proc teamHomeX*(gameMap: CtfMap, team: Team): int =
   ## Returns the home-edge x anchor for one team's spawn strip and pedestal.
@@ -452,180 +394,42 @@ proc rectsIntersect(a, b: MapRect): bool =
 
 proc defaultCtfRooms(gameMap: CtfMap): seq[Room] =
   ## The room annotation set every map shares: an informal center zone plus
-  ## one base strip per team spanning its spawn pocket. Derives entirely
-  ## from the map's dimensions and clearances. Sides maps keep the classic
-  ## full-clearance base columns; 4-team layouts box each pocket instead.
+  ## one base room per team. The endzone IS the base on a hex board, so the
+  ## room is the scoring disc's bounding box.
   result.add Room(name: "Center", x: gameMap.width div 2 - 80,
     y: gameMap.height div 2 - 80, w: 160, h: 160)
-  if gameMap.endzone != ezColumn:
-    ## Compact endzones ARE the base: the room is the zone's bounding box.
-    let r = gameMap.endzoneRadius
-    for team in gameMap.teams():
-      let
-        anchor = gameMap.teamAnchor(team)
-        name = teamText(team)
-      result.add Room(
-        name: name[0].toUpperAscii() & name[1 .. ^1] & " Base",
-        x: anchor.x - r, y: anchor.y - r, w: 2 * r, h: 2 * r
-      )
-    return
-  case gameMap.layout
-  of layoutSides:
-    result.add Room(name: "Red Base", x: 0,
-      y: gameMap.height div 2 - gameMap.spawnClearH,
-      w: gameMap.captureClear, h: 2 * gameMap.spawnClearH)
-    result.add Room(name: "Blue Base",
-      x: gameMap.width - gameMap.captureClear,
-      y: gameMap.height div 2 - gameMap.spawnClearH,
-      w: gameMap.captureClear, h: 2 * gameMap.spawnClearH)
-  of layoutCorners, layoutPlus:
-    for team in gameMap.teams():
-      let
-        anchor = gameMap.teamAnchor(team)
-        half = gameMap.spawnPocketHalf(team)
-        name = teamText(team)
-      result.add Room(
-        name: name[0].toUpperAscii() & name[1 .. ^1] & " Base",
-        x: anchor.x - half.w,
-        y: anchor.y - half.h,
-        w: 2 * half.w,
-        h: 2 * half.h
-      )
-
-proc arenaCtfMap(): CtfMap =
-  ## The default arena: the procedurally-defined symmetric 1235x659 map.
-  result.name = ArenaName
-  result.path = ArenaName
-  result.width = 1235
-  result.height = 659
-  result.mapLayer = 0
-  result.walkLayer = 1
-  result.wallLayer = 2
-  result.center = MapPoint(x: result.width div 2, y: result.height div 2)
-  result.flagRing = 70
-  result.captureClear = 210
-  result.spawnClearW = 70
-  result.spawnClearH = 130
-  result.gunRange = GunRange
-  result.leftObstacles = @ArenaLeftObstacles
-  result.medKitSpawns = @[
-    MapPoint(x: result.width div 2, y: result.height div 3),
-    MapPoint(x: result.width div 2, y: 2 * result.height div 3),
-  ]
-  result.medKitCandidates = result.medKitSpawns
-  result.rooms = result.defaultCtfRooms()
-  result.validateMap()
-
-proc arenaLargeCtfMap(): CtfMap =
-  ## The arena-large map: 1606x858 (+30% both axes). Obstacles keep their
-  ## `arena` sizes but sit spread out; the layout clearances scale with the
-  ## field (the gun range does NOT — GV34, see GunRange).
-  result.name = ArenaLargeName
-  result.path = ArenaLargeName
-  result.width = 1606
-  result.height = 858
-  result.mapLayer = 0
-  result.walkLayer = 1
-  result.wallLayer = 2
-  result.center = MapPoint(x: result.width div 2, y: result.height div 2)
-  result.flagRing = 91
-  result.captureClear = 273
-  result.spawnClearW = 91
-  result.spawnClearH = 169
-  result.gunRange = GunRange
-  result.leftObstacles = @ArenaLargeLeftObstacles
-  result.medKitSpawns = @[
-    MapPoint(x: result.width div 2, y: result.height div 3),
-    MapPoint(x: result.width div 2, y: 2 * result.height div 3),
-  ]
-  result.medKitCandidates = result.medKitSpawns
-  result.rooms = result.defaultCtfRooms()
-  result.validateMap()
+  let r = gameMap.endzoneRadius
+  for team in gameMap.teams():
+    let
+      anchor = gameMap.teamAnchor(team)
+      name = teamText(team)
+    result.add Room(
+      name: name[0].toUpperAscii() & name[1 .. ^1] & " Base",
+      x: anchor.x - r, y: anchor.y - r, w: 2 * r, h: 2 * r
+    )
 
 proc captureZone*(gameMap: CtfMap, team: Team): CaptureZone =
-  ## Returns one team's home capture zone. Sides maps keep the classic
-  ## full-height home column unless the map draws a COMPACT endzone, which
-  ## wraps the base in a disc or square instead; corner teams get a DIAGONAL
-  ## zone (everything within an L1 radius of their map corner, its threshold
-  ## a 45-degree line through the anchor); plus teams get an arm-mouth box
-  ## past the anchor, bounded to the arm span — the open corners are
-  ## battlefield.
+  ## Returns one team's home capture zone: the DISC around its base anchor.
+  ## Every edge is an inner threshold, so the paint rings the whole zone and a
+  ## carrier scores from whichever side they reach.
+  ##
+  ## All-disc is the hex decision: it is the one endzone geometry already
+  ## invariant under every rotation the board admits, so it needs no separate
+  ## fairness argument and no new art. The old column / square / corner / arm
+  ## zones were all straight-edged artifacts of a rectangular board.
   let
     anchor = gameMap.teamAnchor(team)
-    half = CaptureZoneWidth div 2
-    w = gameMap.width
-    h = gameMap.height
-  # Start from the full board and pull each bounded edge in to the anchor's
-  # threshold; which edges are bounded is exactly what the layout decides.
-  result = CaptureZone(xLo: 0, xHi: w - 1, yLo: 0, yHi: h - 1)
-  if gameMap.endzone != ezColumn:
-    ## A compact endzone is the anchor-centered box — which IS the square
-    ## zone; the disc flag rounds its corners off. Every edge is an inner
-    ## threshold, so the paint lines all four and a carrier scores from
-    ## whichever side they reach.
-    let r = gameMap.endzoneRadius
-    result = CaptureZone(
-      xLo: anchor.x - r, xHi: anchor.x + r,
-      yLo: anchor.y - r, yHi: anchor.y + r,
-      disc: gameMap.endzone == ezDisc,
-      anchorX: anchor.x, anchorY: anchor.y, radius: r
-    )
-    return
-  case gameMap.layout
-  of layoutSides:
-    if team == Red:
-      result.xHi = anchor.x + half
-    else:
-      result.xLo = anchor.x - half
-  of layoutCorners:
-    ## The threshold edge is the 45-degree line through the anchor (plus
-    ## half slack): everything within that L1 radius of the team's map
-    ## corner scores. The box fields are its bounding box.
-    result.diag = true
-    result.cornerX = if anchor.x < gameMap.center.x: 0 else: w - 1
-    result.cornerY = if anchor.y < gameMap.center.y: 0 else: h - 1
-    result.diagLimit = abs(anchor.x - result.cornerX) +
-      abs(anchor.y - result.cornerY) + half
-    ## The inset-clamped respawn box must intersect the L1 region, or every
-    ## respawn would silently fall back to the pedestal point.
-    doAssert result.diagLimit >= 2 * (ArenaBorder + PlayerHalf) + 2,
-      "degenerate diagonal capture zone"
-    if anchor.x < gameMap.center.x:
-      result.xHi = min(w - 1, result.diagLimit)
-    else:
-      result.xLo = max(0, w - 1 - result.diagLimit)
-    if anchor.y < gameMap.center.y:
-      result.yHi = min(h - 1, result.diagLimit)
-    else:
-      result.yLo = max(0, h - 1 - result.diagLimit)
-  of layoutPlus:
-    ## An arm-mouth box: past the anchor on the home axis, bounded to the
-    ## arm span on the other (the corners are open field, not endzone).
-    let band = gameMap.plusArmBand()
-    case team
-    of Red:
-      result.xHi = anchor.x + half
-      result.yLo = band.lo
-      result.yHi = band.hi
-    of Blue:
-      result.xLo = anchor.x - half
-      result.yLo = band.lo
-      result.yHi = band.hi
-    of Green:
-      result.yHi = anchor.y + half
-      result.xLo = band.lo
-      result.xHi = band.hi
-    of Yellow:
-      result.yLo = anchor.y - half
-      result.xLo = band.lo
-      result.xHi = band.hi
+    r = gameMap.endzoneRadius
+  CaptureZone(
+    xLo: anchor.x - r, xHi: anchor.x + r,
+    yLo: anchor.y - r, yHi: anchor.y + r,
+    disc: true, anchorX: anchor.x, anchorY: anchor.y, radius: r
+  )
 
 proc inCaptureZone*(zone: CaptureZone, x, y: int): bool =
   ## Returns whether a map point sits inside one capture zone.
   if x < zone.xLo or x > zone.xHi or y < zone.yLo or y > zone.yHi:
     return false
-  if zone.diag:
-    return abs(x - zone.cornerX) + abs(y - zone.cornerY) <= zone.diagLimit
   if zone.disc:
     let
       dx = x - zone.anchorX
@@ -637,59 +441,9 @@ proc mirrorX(rect: MapRect, width: int): MapRect =
   ## Mirrors one rectangle across the vertical center line of a width-px map.
   MapRect(x: width - rect.x - rect.w, y: rect.y, w: rect.w, h: rect.h)
 
-proc mirrorX(shape: ArenaShape, width: int): ArenaShape =
-  ## Mirrors one arena shape across the vertical center line of a width-px map.
-  case shape.kind
-  of shapeRect:
-    ArenaShape(kind: shapeRect, window: shape.window,
-      rect: shape.rect.mirrorX(width))
-  of shapeDisc:
-    ArenaShape(
-      kind: shapeDisc,
-      window: shape.window,
-      cx: width - 1 - shape.cx,
-      cy: shape.cy,
-      radius: shape.radius
-    )
-  of shapeDiamond:
-    ArenaShape(
-      kind: shapeDiamond,
-      window: shape.window,
-      cx: width - 1 - shape.cx,
-      cy: shape.cy,
-      radius: shape.radius
-    )
-  of shapeDiagonal:
-    ArenaShape(
-      kind: shapeDiagonal,
-      window: shape.window,
-      x0: width - 1 - shape.x0,
-      y0: shape.y0,
-      x1: width - 1 - shape.x1,
-      y1: shape.y1,
-      thickness: shape.thickness
-    )
-  of shapePolygon:
-    var pts = newSeq[MapPoint](shape.points.len)
-    for i, p in shape.points:
-      pts[i] = MapPoint(x: width - 1 - p.x, y: p.y)
-    ArenaShape(kind: shapePolygon, window: shape.window, points: pts)
-
-proc `==`*(a, b: ArenaShape): bool =
-  ## Field-wise equality (Nim derives no `==` for case objects); lets whole
-  ## CtfMap values compare, which the map-spec round-trip tests rely on.
-  if a.kind != b.kind or a.window != b.window:
-    return false
-  case a.kind
-  of shapeRect:
-    a.rect == b.rect
-  of shapeDisc, shapeDiamond:
-    a.cx == b.cx and a.cy == b.cy and a.radius == b.radius
-  of shapeDiagonal:
-    a.x0 == b.x0 and a.y0 == b.y0 and a.x1 == b.x1 and a.y1 == b.y1 and
-      a.thickness == b.thickness
-  of shapePolygon:
-    a.points == b.points
+proc mirrorY(rect: MapRect, height: int): MapRect =
+  ## Mirrors one rectangle across the horizontal center line.
+  MapRect(x: rect.x, y: height - rect.y - rect.h, w: rect.w, h: rect.h)
 
 proc rot180(rect: MapRect, width, height: int): MapRect =
   ## Rotates one rectangle 180 degrees about the map center.
@@ -700,136 +454,114 @@ proc rot180(rect: MapRect, width, height: int): MapRect =
     h: rect.h
   )
 
-proc rot180(shape: ArenaShape, width, height: int): ArenaShape =
-  ## Rotates one arena shape 180 degrees about the map center.
+proc pixelImage*(shape: ArenaShape, op: HexSym, width, height: int): ArenaShape =
+  ## One obstacle carried by a PIXEL-EXACT D6 element — the shape-level twin of
+  ## `pixelImage(MapPoint, ...)`, and the only transform any Stage-2 map needs.
+  ##
+  ## Every kind transforms in CLOSED FORM here, with no rounding anywhere: a
+  ## bar's doubled center reflects exactly and its axis flips one component; a
+  ## hexagon is invariant under both axis mirrors and the half turn, so only
+  ## its center moves; the diagonal's endpoints and the polygon's vertices
+  ## reflect one integer at a time. That exactness is the whole team-fairness
+  ## proof — a mirrored obstacle rasterizes to a bit-for-bit mirrored mask.
+  ##
+  ## `hexRot60`/`hexRot120` and the four diagonal mirrors are absent on
+  ## purpose: sin 60 is irrational on a square pixel lattice, and rotating in
+  ## floats and rounding would reintroduce exactly the unfairness the old
+  ## "rot90 needs a square map" refusal existed to prevent. Their orbits belong
+  ## in cube space (plan section 0.2).
+  let
+    fx = (op == hexMir90 or op == hexRot180)   ## flips x
+    fy = (op == hexMir0 or op == hexRot180)    ## flips y
+  case op
+  of hexE, hexMir0, hexMir90, hexRot180: discard
+  else:
+    raise newException(
+      CtfError, "D6 element " & $op & " is not exact on a pixel lattice; " &
+        "walk its orbit in cube coordinates instead.")
+  template mx(v: int): int = (if fx: width - 1 - v else: v)
+  template my(v: int): int = (if fy: height - 1 - v else: v)
+  template mx2(v: int): int = (if fx: 2 * (width - 1) - v else: v)
+  template my2(v: int): int = (if fy: 2 * (height - 1) - v else: v)
   case shape.kind
-  of shapeRect:
-    ArenaShape(kind: shapeRect, window: shape.window,
-      rect: shape.rect.rot180(width, height))
   of shapeDisc:
-    ArenaShape(
-      kind: shapeDisc,
-      window: shape.window,
-      cx: width - 1 - shape.cx,
-      cy: height - 1 - shape.cy,
-      radius: shape.radius
-    )
-  of shapeDiamond:
-    ArenaShape(
-      kind: shapeDiamond,
-      window: shape.window,
-      cx: width - 1 - shape.cx,
-      cy: height - 1 - shape.cy,
-      radius: shape.radius
-    )
+    ArenaShape(kind: shapeDisc, window: shape.window,
+      cx: mx(shape.cx), cy: my(shape.cy), radius: shape.radius)
+  of shapeBar:
+    ## A reflection negates one component of the axis and leaves the
+    ## half-extents alone: the two slab tests come back with their signs
+    ## flipped inside the absolute values, so the pixel set is exactly the
+    ## reflected one. A half turn negates the whole offset, which a bar is
+    ## already symmetric under, so its axis is untouched.
+    ArenaShape(kind: shapeBar, window: shape.window,
+      cx2: mx2(shape.cx2), cy2: my2(shape.cy2),
+      halfLong: shape.halfLong, halfPerp: shape.halfPerp,
+      axisX: (if fx: -shape.axisX else: shape.axisX),
+      axisY: (if fy: -shape.axisY else: shape.axisY))
+  of shapeHex:
+    ## Both axis mirrors and the half turn map a regular hexagon's vertex set
+    ## onto itself whichever way it is turned, so orientation is preserved.
+    ArenaShape(kind: shapeHex, window: shape.window,
+      hexCx2: mx2(shape.hexCx2), hexCy2: my2(shape.hexCy2),
+      hexR2: shape.hexR2, flatTop: shape.flatTop)
   of shapeDiagonal:
-    ArenaShape(
-      kind: shapeDiagonal,
-      window: shape.window,
-      x0: width - 1 - shape.x0,
-      y0: height - 1 - shape.y0,
-      x1: width - 1 - shape.x1,
-      y1: height - 1 - shape.y1,
-      thickness: shape.thickness
-    )
+    ArenaShape(kind: shapeDiagonal, window: shape.window,
+      x0: mx(shape.x0), y0: my(shape.y0),
+      x1: mx(shape.x1), y1: my(shape.y1), thickness: shape.thickness)
   of shapePolygon:
     var pts = newSeq[MapPoint](shape.points.len)
     for i, p in shape.points:
-      pts[i] = MapPoint(x: width - 1 - p.x, y: height - 1 - p.y)
+      pts[i] = MapPoint(x: mx(p.x), y: my(p.y))
     ArenaShape(kind: shapePolygon, window: shape.window, points: pts)
 
-proc rot90(rect: MapRect, side: int): MapRect =
-  ## Rotates one rectangle 90 degrees clockwise about the center of a
-  ## side x side square map: pixel (x, y) maps to (side - 1 - y, x).
-  MapRect(
-    x: side - rect.y - rect.h,
-    y: rect.x,
-    w: rect.h,
-    h: rect.w
-  )
-
-proc rot90(shape: ArenaShape, side: int): ArenaShape =
-  ## Rotates one arena shape 90 degrees clockwise about the center of a
-  ## side x side square map. Applying it twice equals rot180, so the rot90
-  ## quadrant replication is an exact 4-fold symmetry group. Diamonds and
-  ## discs are rotation-invariant about their own centers, so only the
-  ## centers move.
-  case shape.kind
-  of shapeRect:
-    ArenaShape(kind: shapeRect, window: shape.window,
-      rect: shape.rect.rot90(side))
+proc `==`*(a, b: ArenaShape): bool =
+  ## Field-wise equality (Nim derives no `==` for case objects); lets whole
+  ## CtfMap values compare, which the map-spec round-trip tests rely on.
+  if a.kind != b.kind or a.window != b.window:
+    return false
+  case a.kind
   of shapeDisc:
-    ArenaShape(
-      kind: shapeDisc,
-      window: shape.window,
-      cx: side - 1 - shape.cy,
-      cy: shape.cx,
-      radius: shape.radius
-    )
-  of shapeDiamond:
-    ArenaShape(
-      kind: shapeDiamond,
-      window: shape.window,
-      cx: side - 1 - shape.cy,
-      cy: shape.cx,
-      radius: shape.radius
-    )
+    a.cx == b.cx and a.cy == b.cy and a.radius == b.radius
+  of shapeBar:
+    a.cx2 == b.cx2 and a.cy2 == b.cy2 and a.halfLong == b.halfLong and
+      a.halfPerp == b.halfPerp and a.axisX == b.axisX and a.axisY == b.axisY
+  of shapeHex:
+    a.hexCx2 == b.hexCx2 and a.hexCy2 == b.hexCy2 and a.hexR2 == b.hexR2 and
+      a.flatTop == b.flatTop
   of shapeDiagonal:
-    ArenaShape(
-      kind: shapeDiagonal,
-      window: shape.window,
-      x0: side - 1 - shape.y0,
-      y0: shape.x0,
-      x1: side - 1 - shape.y1,
-      y1: shape.x1,
-      thickness: shape.thickness
-    )
+    a.x0 == b.x0 and a.y0 == b.y0 and a.x1 == b.x1 and a.y1 == b.y1 and
+      a.thickness == b.thickness
   of shapePolygon:
-    var pts = newSeq[MapPoint](shape.points.len)
-    for i, p in shape.points:
-      pts[i] = MapPoint(x: side - 1 - p.y, y: p.x)
-    ArenaShape(kind: shapePolygon, window: shape.window, points: pts)
+    a.points == b.points
 
 proc symmetryImages*(gameMap: CtfMap, rect: MapRect): seq[MapRect] =
-  ## Returns one rectangle's full orbit under the map's own symmetry,
-  ## original first. Images are deduplicated after applying the canonical
-  ## integer transforms: that handles center-straddling rectangles on even
-  ## boards, as well as the one- and two-member rot90 orbits, without
-  ## re-deriving the half-pixel rotation axis.
+  ## Returns one rectangle's full orbit under the map's own symmetry, original
+  ## first, deduplicated — which handles a center-straddling rectangle without
+  ## re-deriving the half-pixel symmetry axis.
   result.add rect
-  case gameMap.symmetry
-  of symMirror:
-    let image = rect.mirrorX(gameMap.width)
+  for op in gameMap.mapGroup():
+    let image =
+      case op
+      of hexE: rect
+      of hexMir0: rect.mirrorY(gameMap.height)
+      of hexMir90: rect.mirrorX(gameMap.width)
+      of hexRot180: rect.rot180(gameMap.width, gameMap.height)
+      else:
+        raise newException(
+          CtfError, "rectangle orbits need a pixel-exact symmetry; " & $op &
+            " does not have one.")
     if image notin result:
       result.add image
-  of symRot180:
-    let image = rect.rot180(gameMap.width, gameMap.height)
-    if image notin result:
-      result.add image
-  of symRot90:
-    var image = rect
-    for _ in 0 ..< 3:
-      image = image.rot90(gameMap.width)
-      if image notin result:
-        result.add image
 
 proc symmetryImages*(gameMap: CtfMap, point: MapPoint): seq[MapPoint] =
   ## Returns one point's full orbit under the map's own symmetry, original
-  ## first. Two-team images go through teamImagePoint so pickups authored by
-  ## the editor cannot regress to mirroring on rot180 terrain; rot90 images
-  ## walk the same exact quarter-turn orbit as team-owned sim geometry.
+  ## first. Images go through teamImagePoint so pickups authored by the editor
+  ## cannot regress to mirroring on rot180 terrain.
   result.add point
-  case gameMap.symmetry
-  of symMirror, symRot180:
-    let image = gameMap.teamImagePoint(point, Blue)
+  for team in gameMap.teams():
+    let image = gameMap.teamImagePoint(point, team)
     if image notin result:
       result.add image
-  of symRot90:
-    var image = point
-    for _ in 0 ..< 3:
-      image = image.rot90Point(gameMap.width)
-      if image notin result:
-        result.add image
 
 proc inRect*(x, y: int, rect: MapRect): bool =
   ## Returns true when (x, y) lies inside the rectangle.
@@ -884,24 +616,56 @@ proc pointInPolygon*(x, y: int, pts: seq[MapPoint]): bool =
     j = i
   inside
 
+proc inBar*(x, y: int, shape: ArenaShape): bool {.inline.} =
+  ## Integer membership for an oriented bar: two slab tests on the DOUBLED
+  ## offset from the bar's center. int64 because `dx2 * axisX` reaches ~3e6 on
+  ## a 60-degree axis (whose components are 153 and 265) on a colossal board,
+  ## and products of those overflow int32 on wasm.
+  let
+    dx2 = int64(2 * x - shape.cx2)
+    dy2 = int64(2 * y - shape.cy2)
+    ux = int64(shape.axisX)
+    uy = int64(shape.axisY)
+  abs(dx2 * ux + dy2 * uy) <= int64(shape.halfLong) and
+    abs(dy2 * ux - dx2 * uy) <= int64(shape.halfPerp)
+
+proc inHexShape*(x, y: int, shape: ArenaShape): bool {.inline.} =
+  ## Integer membership for a regular hexagonal obstacle: three opposed pairs
+  ## of half-planes, exactly as the arena boundary is tested, with sqrt(3) as
+  ## the rational 265/153 so the predicate never touches a float.
+  ##
+  ## For a FLAT-TOP hexagon of circumradius R the three slabs are
+  ##   |dx + dy/sqrt(3)| <= R,  |dx - dy/sqrt(3)| <= R,  |dy| <= R*sqrt(3)/2,
+  ## which clear their denominators into the integer forms below. A POINTY-TOP
+  ## hexagon is the same test with the two axes swapped.
+  let
+    dx2 = int64(2 * x - shape.hexCx2)
+    dy2 = int64(2 * y - shape.hexCy2)
+    (a, b) = if shape.flatTop: (dx2, dy2) else: (dy2, dx2)
+    r2 = int64(shape.hexR2)
+  abs(a * Sqrt3Num + b * Sqrt3Den) <= r2 * Sqrt3Num and
+    abs(a * Sqrt3Num - b * Sqrt3Den) <= r2 * Sqrt3Num and
+    2 * abs(b) * Sqrt3Den <= r2 * Sqrt3Num
+
 proc inShape*(x, y: int, shape: ArenaShape): bool =
   ## Returns true when (x, y) lies inside one arena shape.
   case shape.kind
-  of shapeRect:
-    inRect(x, y, shape.rect)
   of shapeDisc:
     let
       dx = x - shape.cx
       dy = y - shape.cy
     dx * dx + dy * dy <= shape.radius * shape.radius
-  of shapeDiamond:
-    abs(x - shape.cx) + abs(y - shape.cy) <= shape.radius
+  of shapeBar:
+    inBar(x, y, shape)
+  of shapeHex:
+    inHexShape(x, y, shape)
   of shapePolygon:
     pointInPolygon(x, y, shape.points)
   of shapeDiagonal:
     ## Bounding-box rejection first, then point-to-segment distance in
     ## integers: (x, y) is inside when its distance to the segment is at
-    ## most half the wall thickness.
+    ## most half the wall thickness. Angle-general, so a 60-degree chevron
+    ## works exactly as the 45-degree ones always did.
     let half = shape.thickness div 2 + 1
     if x < min(shape.x0, shape.x1) - half or
         x > max(shape.x0, shape.x1) + half or
@@ -925,22 +689,15 @@ proc inShape*(x, y: int, shape: ArenaShape): bool =
         int64(shape.thickness) * int64(shape.thickness) * len2 * len2 div 4
 
 proc buildArenaObstacles*(gameMap: CtfMap): seq[ArenaShape] =
-  ## The full obstacle set: every seed shape plus its image(s) under the
-  ## map's symmetry (x-mirror or 180° rotation of the left half; 90/180/270°
-  ## rotations of the quadrant on rot90 maps), precomputed once per map
-  ## selection so the per-pixel wall test never re-mirrors.
+  ## The full obstacle set: every seed shape plus its image(s) under the map's
+  ## symmetry group, precomputed once per map selection so the per-pixel wall
+  ## test never re-transforms. Images are deduplicated, so a seed sitting on a
+  ## mirror axis is stamped once rather than twice.
   for shape in gameMap.leftObstacles:
-    result.add shape
-    case gameMap.symmetry
-    of symMirror:
-      result.add shape.mirrorX(gameMap.width)
-    of symRot180:
-      result.add shape.rot180(gameMap.width, gameMap.height)
-    of symRot90:
-      let quarter = shape.rot90(gameMap.width)
-      result.add quarter
-      result.add shape.rot180(gameMap.width, gameMap.height)
-      result.add quarter.rot180(gameMap.width, gameMap.height)
+    for op in gameMap.mapGroup():
+      let image = shape.pixelImage(op, gameMap.width, gameMap.height)
+      if image notin result:
+        result.add image
 
 ## Spinning-diamond geometry lives up here, ahead of mapWallAt, because
 ## the terrain validator has to reason about the whole turn.
@@ -1012,25 +769,19 @@ proc nearSpinAxis(center, span: int): bool {.inline.} =
 
 proc isSpinningDiamond*(gameMap: CtfMap, shape: ArenaShape): bool {.inline.} =
   ## The diamonds flanking the center of the field are the ones drawn — and,
-  ## since GV28, COLLIDED — as spinning stone.
+  ## since GV28, COLLIDED — as spinning stone. A "diamond" is now a bar on the
+  ## (1, 1) axis with equal half-extents (`asDiamond`); the pixels, and so the
+  ## spin, are unchanged.
   ##
   ## The selected set must be CLOSED under the map's symmetry group, or one
-  ## team gets rotating cover where another gets solid stone. The authored
-  ## rule is a vertical band down the center column; that band is already
-  ## closed under the mirror and under 180° rotation, since both preserve
-  ## distance from the vertical axis. It is NOT closed under 90° rotation,
-  ## which maps it to a horizontal band — so on rot90 (4-team) maps the set is
-  ## the band's own closure: the union of the vertical and horizontal bands, a
-  ## cross through the center. The arena is unaffected either way; it selects
-  ## the same eight diamonds it always has.
-  if shape.kind != shapeDiamond:
-    return false
-  case gameMap.symmetry
-  of symMirror, symRot180:
-    nearSpinAxis(shape.cx, gameMap.width)
-  of symRot90:
-    nearSpinAxis(shape.cx, gameMap.width) or
-      nearSpinAxis(shape.cy, gameMap.height)
+  ## team gets rotating cover where another gets solid stone. The authored rule
+  ## is a vertical band down the center column, which both the vertical mirror
+  ## and the half turn preserve. V4 adds the horizontal mirror, which does NOT
+  ## preserve it — but that mirror fixes x, so the band is closed under V4 too.
+  ## Under rot120/rot60 it would not be, which is one more reason those groups
+  ## wait for the cube-space pipeline.
+  let d = shape.asDiamond()
+  d.ok and nearSpinAxis(d.cx, gameMap.width)
 
 proc buildAnimatedDiamonds*(
   gameMap: CtfMap, obstacles: seq[ArenaShape]
@@ -1043,7 +794,8 @@ proc buildAnimatedDiamonds*(
   ## (applyDiamondGeometry).
   for shape in obstacles:
     if gameMap.isSpinningDiamond(shape):
-      result.add((shape.cx, shape.cy, shape.radius))
+      let d = shape.asDiamond()
+      result.add((d.cx, d.cy, d.radius))
 
 
 ## ---------------------------------------------------------------------------
@@ -1104,108 +856,64 @@ proc shuffle[T](rng: var MapRng, items: var seq[T]) =
     swap(items[i], items[j])
 
 proc mapSizeScale(sizeName: string): float =
-  ## Field-scale factor for one size class. The two OVERSIZE classes are
-  ## newer than the original three: "giant" doubles the old "large" ceiling
-  ## (1.3 -> 2.6), twice the map on each axis.
-  case sizeName
-  of "small": 0.85
-  of "standard": 1.0
-  of "large": 1.3
-  of "huge": 1.8
-  of "giant": 2.6
-  of "colossal": 5.2  ## override-only (not in MapSizeNames): 2x giant.
-  else:
-    raise newException(CtfError, "Unknown map size: " & sizeName)
+  ## Field-scale factor for one size class, shared with `hex.nim`'s
+  ## `HexClassScale`. If one moves, both move.
+  HexClassScale[hexSizeClass(sizeName)]
 
 proc scaledGenShell(sizeName: string): CtfMap =
-  ## Field dimensions and clearances for one size class: the standard-arena
-  ## numbers scaled by the class factor. Obstacle SIZES never scale — bigger
-  ## fields get roomier corridors, exactly like arena-large.
-  let scale = mapSizeScale(sizeName)
+  ## Field dimensions and clearances for one size class: the standard hexagon
+  ## from `hex.nim` plus the standard-arena clearances scaled by the class
+  ## factor. Obstacle SIZES never scale — bigger fields get roomier corridors,
+  ## exactly like arena-large.
+  let
+    cls = hexSizeClass(sizeName)
+    board = hexBoardOf(cls)
+    scale = HexClassScale[cls]
   proc s(value: int): int = int(round(float(value) * scale))
-  result.width = s(1235)
-  result.height = s(659)
+  result.width = board.width
+  result.height = board.height
   result.mapLayer = 0
   result.walkLayer = 1
   result.wallLayer = 2
   result.center = MapPoint(x: result.width div 2, y: result.height div 2)
   result.flagRing = s(70)
+  ## Retained in the map spec (old replays pin it) but INERT since GV38: it
+  ## sized the column endzones' protected home strip, and the hex arena has no
+  ## straight home border to pin a strip to.
   result.captureClear = s(210)
   result.spawnClearW = s(70)
   result.spawnClearH = s(130)
   result.gunRange = GunRange  # fixed, never scaled with the field (GV34).
 
-proc endzoneFloorAt*(
-  x, y, anchorX, anchorY, radius: int, disc: bool
-): bool =
-  ## Whether a point sits on one COMPACT endzone's protected floor: the
-  ## scoring shape grown by the wall margin, so the ring the carrier crosses
-  ## is never flush against a wall.
-  let
-    grown = radius + EndzoneWallMargin
-    dx = abs(x - anchorX)
-    dy = abs(y - anchorY)
-  if dx > grown or dy > grown:
-    return false
-  if disc:
-    return dx * dx + dy * dy <= grown * grown
-  true
-
-proc centerOffset2*(
-  gameMap: CtfMap, x, y: int
-): tuple[dx, dy: int] {.inline.} =
-  ## TWICE the offset of (x, y) from the map's symmetry center. Doubling is
-  ## what lets a rot90 board measure against its true axis at (side - 1)/2:
-  ## on an even side that axis is a half pixel off the div-derived `center`,
-  ## so a radius or band measured from `center` is not its own quarter turn.
-  ## Mirror and rot180 maps keep the historical integer center exactly —
-  ## every comparison below is the old one scaled by 4, so 2-team terrain is
-  ## bit-identical.
-  if gameMap.symmetry == symRot90:
-    (2 * x - (gameMap.width - 1), 2 * y - (gameMap.height - 1))
-  else:
-    (2 * (x - gameMap.center.x), 2 * (y - gameMap.center.y))
-
 proc mapProtectedFloorAt*(gameMap: CtfMap, x, y: int): bool =
   ## isProtectedFloor for a map that is NOT installed as the process map:
   ## the generator and validators run on candidates before any selection.
-  if gameMap.endzone != ezColumn:
-    ## COMPACT endzones protect the shape around each base and NOTHING at
-    ## the border: the home strip is wilderness the terrain may build on.
-    for team in gameMap.teams():
-      let anchor = gameMap.teamAnchor(team)
-      if endzoneFloorAt(x, y, anchor.x, anchor.y, gameMap.endzoneRadius,
-          gameMap.endzone == ezDisc):
-        return true
-    let
-      dcx = x - gameMap.center.x
-      dcy = y - gameMap.center.y
-    return dcx * dcx + dcy * dcy <= gameMap.flagRing * gameMap.flagRing
-  let
-    clear = gameMap.captureClear
-    nearX = x < clear or x >= gameMap.width - clear
-    nearY = y < clear or y >= gameMap.height - clear
-    (dx2, dy2) = gameMap.centerOffset2(x, y)
-    approach =
-      case gameMap.layout
-      of layoutSides:
-        nearX
-      of layoutCorners:
-        nearX and nearY
-      of layoutPlus:
-        (nearX and abs(dy2) <= 2 * gameMap.plusArmHalf()) or
-          (nearY and abs(dx2) <= 2 * gameMap.plusArmHalf())
-  if approach:
-    return true
-  if dx2 * dx2 + dy2 * dy2 <= 4 * gameMap.flagRing * gameMap.flagRing:
-    return true
+  ##
+  ## On a hex board this is the endzone discs plus the center flag ring, and
+  ## nothing else: there is no straight home border for a protected column to
+  ## be pinned to, and the wilderness behind each base is ordinary field the
+  ## terrain may build on.
   for team in gameMap.teams():
-    let
-      anchor = gameMap.teamAnchor(team)
-      half = gameMap.spawnPocketHalf(team)
-    if abs(x - anchor.x) <= half.w and abs(y - anchor.y) <= half.h:
+    let anchor = gameMap.teamAnchor(team)
+    if endzoneFloorAt(x, y, anchor.x, anchor.y, gameMap.endzoneRadius,
+        gameMap.endzone == ezDisc):
       return true
-  false
+  let
+    dcx = x - gameMap.center.x
+    dcy = y - gameMap.center.y
+  dcx * dcx + dcy * dcy <= gameMap.flagRing * gameMap.flagRing
+
+proc mapBorderWallAt*(gameMap: CtfMap, x, y: int): bool {.inline.} =
+  ## THE boundary rule, in its uninstalled-map form: a pixel is border wall
+  ## when it is within `ArenaBorder` of the hexagon's edge — or outside the
+  ## hexagon altogether, since `hexEdgeDist` goes negative there and the six
+  ## corners of the bounding box are permanent void.
+  ##
+  ## One predicate replaces the four-way rectangular test that `mapWallAt`,
+  ## `isArenaWall`, `mapObstacleWallAtF`, and `mapShapeWallAtF` each spelled
+  ## out separately. `tests/test_hex_arena.nim` sweeps a whole board asserting
+  ## the four agree pixel-for-pixel; that sweep is the safety net.
+  gameMap.mapBoard().hexEdgeDist(x, y) < float(ArenaBorder)
 
 proc mapWallAt*(
   gameMap: CtfMap,
@@ -1218,8 +926,7 @@ proc mapWallAt*(
   ## `includeSpinning = false` drops the live diamonds, which is what the art
   ## bake needs to see under them; `spin` picks which bound of the turn a
   ## spinning diamond presents, for validation that must hold at every frame.
-  if x < ArenaBorder or y < ArenaBorder or
-      x >= gameMap.width - ArenaBorder or y >= gameMap.height - ArenaBorder:
+  if gameMap.mapBorderWallAt(x, y):
     return true
   if mapProtectedFloorAt(gameMap, x, y):
     return false
@@ -1229,10 +936,11 @@ proc mapWallAt*(
         continue
       if spin != spinRest:
         let
-          dx = x - shape.cx
-          dy = y - shape.cy
+          spot = shape.asDiamond()
+          dx = x - spot.cx
+          dy = y - spot.cy
           d2 = dx * dx + dy * dy
-          r2 = shape.radius * shape.radius
+          r2 = spot.radius * spot.radius
         ## Two cheap circles bracket the answer: nothing outside the
         ## circumradius is ever stone, everything inside the inradius
         ## (2*d2 <= r2) is stone at every frame. Only the annulus between them
@@ -1247,7 +955,7 @@ proc mapWallAt*(
         var everStone, alwaysStone = false
         alwaysStone = true
         for frame in 0 ..< DiamondSpinFrames:
-          if rotatedDiamondCovers(shape.radius, frame, 2 * dx, 2 * dy, 2):
+          if rotatedDiamondCovers(spot.radius, frame, 2 * dx, 2 * dy, 2):
             everStone = true
           else:
             alwaysStone = false
@@ -1263,12 +971,12 @@ proc shapeBounds*(shape: ArenaShape): tuple[x0, y0, x1, y1: int] =
   ## can pass inShape. Diagonals reuse inShape's own rejection half-width, so
   ## the two can never disagree about where a segment's influence ends.
   case shape.kind
-  of shapeRect:
-    (shape.rect.x, shape.rect.y,
-      shape.rect.x + shape.rect.w - 1, shape.rect.y + shape.rect.h - 1)
-  of shapeDisc, shapeDiamond:
+  of shapeDisc:
     (shape.cx - shape.radius, shape.cy - shape.radius,
       shape.cx + shape.radius, shape.cy + shape.radius)
+  of shapeBar, shapeHex:
+    let r = shapeAsRect(shape)
+    (r.x, r.y, r.x + r.w - 1, r.y + r.h - 1)
   of shapeDiagonal:
     let half = shape.thickness div 2 + 1
     (min(shape.x0, shape.x1) - half, min(shape.y0, shape.y1) - half,
@@ -1315,12 +1023,14 @@ proc rasterizeWallMasks*(
     if gameMap.isSpinningDiamond(shape):
       ## The same circumradius/inradius bracket as mapWallAt: only the
       ## annulus between them walks the sixteen frames.
-      let r2 = shape.radius * shape.radius
+      let
+        spot = shape.asDiamond()
+        r2 = spot.radius * spot.radius
       for y in y0 .. y1:
         for x in x0 .. x1:
           let
-            dx = x - shape.cx
-            dy = y - shape.cy
+            dx = x - spot.cx
+            dy = y - spot.cy
             d2 = dx * dx + dy * dy
           if d2 > r2:
             continue
@@ -1332,7 +1042,7 @@ proc rasterizeWallMasks*(
           var everStone = false
           var alwaysStone = true
           for frame in 0 ..< DiamondSpinFrames:
-            if rotatedDiamondCovers(shape.radius, frame, 2 * dx, 2 * dy, 2):
+            if rotatedDiamondCovers(spot.radius, frame, 2 * dx, 2 * dy, 2):
               everStone = true
             else:
               alwaysStone = false
@@ -1351,10 +1061,9 @@ proc rasterizeWallMasks*(
   ## is wall unconditionally, protected floor is floor no matter what shape
   ## covers it.
   for y in 0 ..< h:
-    let onYBorder = y < ArenaBorder or y >= h - ArenaBorder
     for x in 0 ..< w:
       let i = y * w + x
-      if onYBorder or x < ArenaBorder or x >= w - ArenaBorder:
+      if gameMap.mapBorderWallAt(x, y):
         maxWall[i] = true
         minWall[i] = true
       elif maxWall[i] and mapProtectedFloorAt(gameMap, x, y):
@@ -1395,54 +1104,112 @@ proc rasterizeRestWallMask*(
         if inShape(x, y, shape):
           result[y * w + x] = true
   for y in 0 ..< h:
-    let onYBorder = y < ArenaBorder or y >= h - ArenaBorder
     for x in 0 ..< w:
       let i = y * w + x
-      if onYBorder or x < ArenaBorder or x >= w - ArenaBorder:
+      if gameMap.mapBorderWallAt(x, y):
         result[i] = true
       elif result[i] and protectedAt(x, y):
         result[i] = false
 
-proc scaledGenShell4(sizeName: string): CtfMap =
-  ## The 4-team field shell: a SQUARE board (rot90 symmetry needs one) with
-  ## the standard clearances scaled by the same class factors as the 2-team
-  ## shell. The standard side (960) splits the difference between the
-  ## classic arena's width and height so the fight density stays familiar.
-  let scale = mapSizeScale(sizeName)
-  proc s(value: int): int = int(round(float(value) * scale))
-  result.width = s(960)
-  result.height = s(960)
-  result.mapLayer = 0
-  result.walkLayer = 1
-  result.wallLayer = 2
-  result.center = MapPoint(x: result.width div 2, y: result.height div 2)
-  result.flagRing = s(70)
-  result.captureClear = s(210)
-  result.spawnClearW = s(70)
-  result.spawnClearH = s(130)
-  result.gunRange = GunRange  # fixed, never scaled with the field (GV34).
+const
+  SightlineAxisCount* = 3
+    ## A straight ray can run down a hexagon in three directions: 0, 60, and
+    ## 120 degrees in the screen frame — the three families of chords joining
+    ## OPPOSITE EDGES. The old board had exactly one family that mattered
+    ## (horizontal, base to base) because its other two edges were the top and
+    ## bottom walls; a hexagon has three, and a lane down any of them is the
+    ## same cross-field snipe the validator has always refused.
+    ## `sightlinePixels` carries each family's parametrization.
+  SightlineStep* = 5
+    ## Spacing between scanned lines, in intercept units. On the slanted axes
+    ## one unit of intercept is 0.866 px of perpendicular separation, so this
+    ## is the historical ~4px scan on all three.
 
-proc rot90Orbit*(p: tuple[x, y: int], side: int):
-    array[4, tuple[x, y: int]] =
-  ## The four images of one point under the rot90 symmetry group of a
-  ## side x side square map, in team-orbit order (k = 0..3 quarter turns).
-  var q = MapPoint(x: p.x, y: p.y)
-  for k in 0 ..< 4:
-    result[k] = (q.x, q.y)
-    q = q.rot90Point(side)
+proc sightlineMinSpan*(gameMap: CtfMap): int =
+  ## How long an unblocked run has to be before it counts as a lane. On a
+  ## rectangle every row spanned the whole board and no threshold was needed;
+  ## on a hexagon the chords near the two vertices are arbitrarily short, and
+  ## demanding cover on a 40px stub at the top of the board would reject every
+  ## map ever generated. 80% of the board's width is the width of a chord
+  ## roughly 60% of the way out to a vertex — past that the field is a wedge,
+  ## not a lane.
+  ##
+  ## 80%, not 90%. At 90% the raw pass rate is 93% instead of 77% — but a
+  ## chord at 87% of the board width is still 843px on the standard class,
+  ## well inside the 1050px gun range, i.e. a real end-to-end firing lane. The
+  ## looser bound buys the number by excusing exactly the lanes this rule
+  ## exists to refuse. See the cover-ceiling note in the hex report: enforcing
+  ## THREE axes against a CoverPermilleMax calibrated for ONE is the actual
+  ## tension, and it belongs to the generator epic, not to a threshold tweak.
+  gameMap.width * 4 div 5
 
-proc sightlineLoX*(gameMap: CtfMap): int =
-  ## The low x of the band no straight horizontal ray may cross unblocked.
-  ## Column endzones exempt the protected home strips (nothing can be built
-  ## there); a compact endzone makes those strips ordinary field, so the
-  ## scan runs border to border.
-  if gameMap.endzone != ezColumn: ArenaBorder + 5
-  else: gameMap.captureClear + 5
+iterator sightlinePixels*(
+  gameMap: CtfMap, axis, intercept: int
+): tuple[x, y: int] =
+  ## Every in-bounds pixel of one scan line, walked along the line's LONGER
+  ## axis one pixel at a time so a one-pixel-thin wall can never be stepped
+  ## over. No boundary test is needed here: the border ring AND the void
+  ## outside the hexagon are both already `true` in every wall mask (see
+  ## `mapBorderWallAt`), so a run clips itself at the hull.
+  ##
+  ## The slanted families are parametrized `x = intercept +- 153*y div 265`
+  ## rather than `y = f(x)`: those lines rise faster than they run, so y is
+  ## the axis to step.
+  if axis == 0:
+    for x in 0 ..< gameMap.width:
+      yield (x, intercept)
+  else:
+    let sign = if axis == 1: 1 else: -1
+    for y in 0 ..< gameMap.height:
+      let x = intercept + sign * (Sqrt3Den * y) div Sqrt3Num
+      if x >= 0 and x < gameMap.width:
+        yield (x, y)
 
-proc sightlineHiX*(gameMap: CtfMap): int =
-  ## The high x of that band, the mirror of sightlineLoX.
-  if gameMap.endzone != ezColumn: gameMap.width - ArenaBorder - 5
-  else: gameMap.width - gameMap.captureClear - 5
+iterator sightlineIntercepts*(gameMap: CtfMap, axis: int): int =
+  ## The intercepts to scan on one axis, spaced `SightlineStep` apart. Axis 0
+  ## is indexed by row; the slanted axes sweep an intercept range wide enough
+  ## to carry every line that crosses the board.
+  if axis == 0:
+    var y = ArenaBorder + 2
+    while y < gameMap.height - ArenaBorder:
+      yield y
+      y += 4
+  else:
+    let reach = (Sqrt3Den * gameMap.height) div Sqrt3Num + 2
+    var c = (if axis == 1: -reach else: 0)
+    let hi = (if axis == 1: gameMap.width else: gameMap.width + reach)
+    while c < hi:
+      yield c
+      c += SightlineStep
+
+proc sightlineOpenRun*(
+  gameMap: CtfMap, wall: seq[bool], axis, intercept: int
+): tuple[open: bool, x0, y0, x1, y1: int] =
+  ## Whether one scan line carries an unblocked run at least
+  ## `sightlineMinSpan` long, and the ENDPOINTS of the longest such run. The
+  ## endpoints are what the generator's repair pass works from: an obstacle
+  ## anywhere along a straight ray blocks it, so the repair gets to choose
+  ## which point of the run to build on.
+  let w = gameMap.width
+  var
+    runLen = 0
+    startX, startY = 0
+    bestLen = 0
+    bestX0, bestY0, bestX1, bestY1 = 0
+  for (x, y) in gameMap.sightlinePixels(axis, intercept):
+    if wall[y * w + x]:
+      runLen = 0
+      continue
+    if runLen == 0:
+      startX = x
+      startY = y
+    inc runLen
+    if runLen > bestLen:
+      bestLen = runLen
+      bestX0 = startX; bestY0 = startY; bestX1 = x; bestY1 = y
+  if bestLen >= gameMap.sightlineMinSpan():
+    return (true, bestX0, bestY0, bestX1, bestY1)
+  (false, 0, 0, 0, 0)
 
 proc rectOnOpenFloor(
   gameMap: CtfMap, obstacles: seq[ArenaShape], rect: MapRect
@@ -1468,119 +1235,250 @@ proc rectOnOpenFloor(
         return false
   true
 
+proc plugOpenSightlines*(gameMap: var CtfMap, budget: int) =
+  ## Closes every straight lane at least `sightlineMinSpan` long on ANY of the
+  ## hexagon's three axes, by adding hexagonal cover to the map's SEED half.
+  ##
+  ## A hexagon has three families of chords joining opposite edges where a
+  ## rectangle had one that mattered, so the old "does the left half cover
+  ## every row" shortcut no longer applies: this works against the fully
+  ## symmetrized wall mask and re-rasterizes between passes.
+  ##
+  ## Plugs go on the ray's midpoint where they can (an obstacle anywhere on a
+  ## straight ray blocks it, and the middle splits it most evenly), folded
+  ## into the seed half when the midpoint lands on the far side — a ray and
+  ## its symmetry image are either both open or both blocked, so plugging the
+  ## image plugs the original too.
+  ##
+  ## Shared by the generator AND the hand-authored arena. The generator's
+  ## validators never run on an authored map, so without this the default
+  ## league arena could silently sit below the standard every generated map
+  ## has to clear — and "no straight shot crosses the field" is a promise
+  ## docs/RULES.md publishes to every policy author.
+  let
+    cy = gameMap.center.y
+    redAnchorX = gameMap.teamHomeX(Red)
+    apron = gameMap.endzoneRadius + EndzoneApron - EndzoneWallMargin
+  var plugsLeft = budget
+  for repairPass in 0 ..< 24:
+    if plugsLeft <= 0:
+      break
+    let
+      obstacles = buildArenaObstacles(gameMap)
+      masks = rasterizeWallMasks(gameMap, obstacles)
+    var plugged = 0
+    for axis in 0 .. 2:
+      for intercept in gameMap.sightlineIntercepts(axis):
+        if plugsLeft <= 0:
+          break
+        let run = gameMap.sightlineOpenRun(masks.minWall, axis, intercept)
+        if not run.open:
+          continue
+        ## Where along the run to build. Every legal position on the ray is
+        ## tried, but the ORDER is rotated per ray by its own intercept.
+        ##
+        ## Searching every ray outward from its midpoint (the obvious order)
+        ## makes the plugs converge: the midpoint of a ray through the middle
+        ## of the board is the FLAG RING, which is protected floor, and the
+        ## keep-out below pushes each plug just far enough out to be legal — so
+        ## they land in a ring around the centre and SEAL IT. That is not
+        ## hypothetical: it was 19 of 19 connectivity rejections, every one with
+        ## 95-98% of the eroded floor reachable and only the core cut off.
+        ## Rotating the order scatters them along the rays instead.
+        var placed = false
+        let
+          halfSteps = max(abs(run.x1 - run.x0), abs(run.y1 - run.y0)) div 16
+          spread = 2 * halfSteps + 1
+        for t in 0 ..< max(1, spread):
+          if placed:
+            break
+          block tryOne:
+            let
+              ## POSITIVE modulo, deliberately. Nim's `mod` takes the sign of
+              ## its dividend, and the slanted axes sweep NEGATIVE intercepts —
+              ## so the plain form yields a negative `num`, which extrapolates
+              ## the plug BEFORE the run's start instead of interpolating along
+              ## it, and drops hexes hundreds of pixels off the board.
+              rot = (intercept div SightlineStep + t) mod max(1, spread)
+              num = (rot + spread) mod max(1, spread)
+              den = 2 * halfSteps
+            if den == 0:
+              break tryOne
+            var
+              px = run.x0 + (run.x1 - run.x0) * num div den
+              py = run.y0 + (run.y1 - run.y0) * num div den
+            if px > gameMap.center.x:
+              px = gameMap.width - 1 - px
+              if gameMap.symmetry == symRot180:
+                py = gameMap.height - 1 - py
+            ## Protected floor (the flag ring and every endzone disc) is never
+            ## walled, and the endzone APRON must stay clear or the map loses
+            ## the open flanks the validator demands.
+            if mapProtectedFloorAt(gameMap, px, py):
+              break tryOne
+            if endzoneFloorAt(px, py, redAnchorX, cy, apron, true):
+              break tryOne
+            ## Keep a corridor's worth of clear ground OUTSIDE the flag ring,
+            ## so the rotated order above cannot rebuild the ring it exists to
+            ## avoid. Belt and braces, deliberately: the scatter alone fixed
+            ## the measured failures, but the two together took connectivity
+            ## rejections from 19 in 200 seeds to ZERO.
+            let
+              rdx = px - gameMap.center.x
+              rdy = py - gameMap.center.y
+              ringKeepOut = gameMap.flagRing + MinCorridorWidth + 30
+            if rdx * rdx + rdy * rdy <= ringKeepOut * ringKeepOut:
+              break tryOne
+            gameMap.leftObstacles.add hexShape(px, py, 28)
+            placed = true
+        if not placed:
+          continue
+        dec plugsLeft
+        inc plugged
+    if plugged == 0:
+      break
+
+proc columnBand*(gameMap: CtfMap, x, margin: int): tuple[lo, hi: int] =
+  ## The vertical span of column `x` that sits at least `margin` px inside the
+  ## hexagon. This is the one structural change a hex board forces on the
+  ## column generator: on a rectangle every column ran the full height, so the
+  ## band was a constant; on a hexagon the columns nearer the vertical axis
+  ## reach further up and down, which is exactly why the terrain reads as
+  ## hexagonal rather than as a rectangle with the corners painted out.
+  let
+    board = gameMap.mapBoard()
+    limit = float(margin)
+    cy = gameMap.center.y
+  if board.hexEdgeDist(x, cy) < limit:
+    return (cy, cy - 1)      ## empty: the whole column is inside the wall.
+  var lo = cy
+  while lo > 0 and board.hexEdgeDist(x, lo - 1) >= limit:
+    dec lo
+  var hi = cy
+  while hi < gameMap.height - 1 and board.hexEdgeDist(x, hi + 1) >= limit:
+    inc hi
+  (lo, hi)
+
 proc generateMapAttempt*(
   seed: int, overrides: MapGenOverrides, teams = 2
 ): CtfMap =  ## One UNVALIDATED draw. Every top-level parameter is drawn unconditionally
   ## and THEN overridden if locked, so locking one knob never shifts the
-  ## other draws for the same seed. `teams` selects the family: 2 draws the
-  ## classic left/right half-map, 4 draws a square rot90 corner/plus map.
-  doAssert teams in [2, 4], "team count must be 2 or 4"
+  ## other draws for the same seed.
+  ##
+  ## HEX STAGE 2 generates 2-team boards only. The structure pass that fills a
+  ## hexagon with genuinely hexagonal terrain (rings, wedges, cube-space
+  ## orbits) is a separate epic; this is the minimal adaptation that emits a
+  ## VALID hex map — terrain inside the hull, symmetric under the map's group,
+  ## passing the validators.
+  if teams != 2:
+    raise newException(
+      CtfError, "Hex Stage 2 generates 2-team maps only; " & $teams &
+        " teams needs the cube-space orbit rasterizer (Stage 2b).")
   var rng = MapRng(state: uint64(seed))
 
-  ## One draw over ALL size classes. Widening this bound (3 -> 5 when the
-  ## oversize classes landed) re-dealt which size each seed draws, which
-  ## re-curated the map pool — but the draw still consumes exactly one
-  ## stream slot, so every draw after it stays in its historical position.
+  ## One draw over ALL size classes, in its historical stream slot.
   let sizeDraw = MapSizeNames[rng.pick(MapSizeNames.len)]
   let sizeName = if overrides.size.len > 0: overrides.size else: sizeDraw
-  result =
-    if teams == 4: scaledGenShell4(sizeName)
-    else: scaledGenShell(sizeName)
+  result = scaledGenShell(sizeName)
   result.name = "gen-" & $seed
   result.path = GenMapName
   result.genSeed = seed
+  result.layout = layoutHex2
 
-  if teams == 4:
-    ## The symmetry draw keeps its slot in the draw order (locking layout
-    ## must not shift later draws), but rot90 is the only 4-team symmetry —
-    ## a config that locks another one is a mistake, not a preference.
-    discard rng.coin()
-    result.symmetry = symRot90
-    if overrides.symmetry notin ["", "rot90"]:
+  let symDraw = if rng.coin(): symRot180 else: symMirrorHex
+  result.symmetry =
+    case overrides.symmetry
+    of "": symDraw
+    of "mirror", "mirrorHex": symMirrorHex
+    of "rot180": symRot180
+    of "rot120", "rot60", "klein4":
       raise newException(
-        CtfError, "4-team maps are rot90-only; got mapSymmetry: " &
-          overrides.symmetry)
-    let layoutDraw = if rng.coin(): layoutCorners else: layoutPlus
-    result.layout =
-      case overrides.layout
-      of "": layoutDraw
-      of "corners": layoutCorners
-      of "plus": layoutPlus
-      else:
-        raise newException(
-          CtfError, "Unknown map layout: " & overrides.layout)
-  else:
-    let symDraw = if rng.coin(): symRot180 else: symMirror
-    result.symmetry =
-      case overrides.symmetry
-      of "": symDraw
-      of "mirror": symMirror
-      of "rot180": symRot180
-      else:
-        raise newException(
-          CtfError, "Unknown map symmetry: " & overrides.symmetry)
-    if overrides.layout.len > 0 and overrides.layout != "sides":
+        CtfError, "Map symmetry " & overrides.symmetry &
+          " needs 3, 4, or 6 teams (hex Stage 2b).")
+    else:
       raise newException(
-        CtfError, "Map layout " & overrides.layout & " needs teams: 4.")
+        CtfError, "Unknown map symmetry: " & overrides.symmetry)
+  if overrides.layout.len > 0 and overrides.layout notin ["sides", "hex2"]:
+    raise newException(
+      CtfError, "Map layout " & overrides.layout & " is not a 2-team layout.")
 
-  ## Endzone archetype. Drawn from a SEPARATE stream keyed off the same seed
-  ## so the main draw order never shifts: a seed that lands on the classic
-  ## column generates the exact map it always did, byte for byte.
+  ## Endzone. Every hex endzone is a DISC (the one rotation-invariant shape),
+  ## so what used to be an archetype draw is now only its radius and the base
+  ## depth. Both still come from the SEPARATE stream keyed off the same seed,
+  ## so the main draw order never shifts.
   block endzoneDraw:
-    ## The compact knobs only mean anything on a compact endzone, and which
-    ## shape a seed DRAWS is not something a config should have to guess:
-    ## demand the shape lock alongside them rather than silently applying
-    ## them on the seeds that happen to draw round.
-    if (overrides.endzoneRadius > 0 or overrides.baseDepth > 0) and
-        overrides.endzone notin ["disc", "square"]:
+    if overrides.endzone notin ["", "disc"]:
       raise newException(
-        CtfError,
-        "mapEndzoneRadius / mapBaseDepth need mapEndzone: disc or square.")
+        CtfError, "The hex arena is all-disc; unknown map endzone: " &
+          overrides.endzone)
     var ezRng = MapRng(state: uint64(seed) xor 0x5A17E9D3C0FFEE11'u64)
-    let shapeDraw =
-      if teams == 4: ezColumn      ## 4-team layouts own their own geometry.
-      else:
-        case ezRng.pick(4)
-        of 0, 1: ezColumn          ## half the pool stays the classic arena.
-        of 2: ezDisc
-        else: ezSquare
-    result.endzone =
-      case overrides.endzone
-      of "": shapeDraw
-      of "column": ezColumn
-      of "disc": ezDisc
-      of "square": ezSquare
-      else:
-        raise newException(
-          CtfError, "Unknown map endzone: " & overrides.endzone)
-    if result.endzone == ezColumn:
-      ## A column endzone is pinned to the home border by `captureClear`, so
-      ## its base cannot move: the threshold would slide out of the protected
-      ## column and carriers would score on ordinary terrain.
-      result.homeDepth = ClassicHomeDepth
-      break endzoneDraw
-    if teams == 4:
-      raise newException(
-        CtfError, "Compact endzones (mapEndzone) need a 2-team map.")
-    ## Compact endzones pull the base well off its edge — the strip behind it
-    ## becomes wilderness — and wrap it in a scoring shape whose radius
-    ## scales with the size class exactly like every other clearance.
+    discard ezRng.pick(4)      ## the retired archetype draw keeps its slot.
+    result.endzone = ezDisc
     let
-      depthDraw = ezRng.pickRange(520, 620)
-      radiusDraw = result.width * ezRng.pickRange(110, 140) div 1235
-    result.homeDepth =
-      if overrides.baseDepth > 0: overrides.baseDepth else: depthDraw
+      ## The radius keeps a fraction of the board WIDTH; the DEPTH is then
+      ## SOLVED from what the board can actually afford, not drawn blind.
+      ##
+      ## A deep base has to pay for two things at once on the same half-field,
+      ## and the hex half-field is 484px where the rectangle's was 617:
+      ##   IN FRONT — `anchorDist - (r + apron) - flagRing` px of ordinary
+      ##     midfield, or the protected apron TOUCHES the always-open flag ring
+      ##     and the row through both bases is a lane no obstacle may ever stand
+      ##     in: permanently open, unpluggable, rejected every attempt.
+      ##   BEHIND  — `A - anchorDist - (r + apron)` px of buildable ground, or
+      ##     the WILDERNESS behind the base (the whole reason to move a base off
+      ##     its edge, and a promise docs/RULES.md makes) comes out bare.
+      ##
+      ## Drawing the depth from a fixed range satisfies at most one of those.
+      ## 520-620 ate the midfield; 600-700 ate the wilderness; and on the SMALL
+      ## class the window between them is four permille wide, so no fixed range
+      ## can be right for every size class at once. So the window is computed
+      ## and the draw happens inside it — and if the radius is too big for the
+      ## board to afford any window at all, the RADIUS gives way, because it is
+      ## the parameter with slack.
+      radiusDraw = result.width * ezRng.pickRange(89, 113) div 1000
+      depthDraw = ezRng.pickRange(0, 1000)   ## resolved against the window
     result.endzoneRadius =
       if overrides.endzoneRadius > 0: overrides.endzoneRadius else: radiusDraw
+    if overrides.baseDepth > 0:
+      result.homeDepth = overrides.baseDepth
+    else:
+      ## Shrink the radius until the board can afford SOME depth, then pick one
+      ## inside the affordable window with the drawn fraction.
+      let
+        halfField = result.center.x
+        floorR = minEndzoneRadius(result.width)
+      var window = (lo: 0, hi: -1)
+      while true:
+        let
+          reserved = result.endzoneRadius + EndzoneApron
+          ## In front: apron, then the ring, then a corridor of real field.
+          minDist = reserved + result.flagRing + 50
+          ## Behind: apron, then room for one obstacle against the hull.
+          maxDist = halfField - reserved - 40
+        window = (lo: (1000 * minDist + halfField - 1) div halfField,
+                  hi: 1000 * maxDist div halfField)
+        if window.lo <= window.hi or result.endzoneRadius <= floorR:
+          break
+        result.endzoneRadius = max(floorR, result.endzoneRadius - 4)
+      result.homeDepth =
+        if window.lo > window.hi:
+          ## The class cannot host both at any depth. Split the difference
+          ## rather than silently favouring one — the validators still judge
+          ## the result, so this cannot ship a map that fails either way.
+          clamp((window.lo + window.hi) div 2, HomeDepthMin, HomeDepthMax)
+        else:
+          clamp(window.lo + depthDraw * (window.hi - window.lo) div 1000,
+                HomeDepthMin, HomeDepthMax)
     if result.homeDepth < HomeDepthMin or result.homeDepth > HomeDepthMax:
       raise newException(
         CtfError, "Config field mapBaseDepth must be " & $HomeDepthMin &
           ".." & $HomeDepthMax & ".")
-    if result.endzoneRadius < EndzoneRadiusMin or
+    if result.endzoneRadius < minEndzoneRadius(result.width) or
         result.endzoneRadius > maxEndzoneRadius(result.width):
       raise newException(
         CtfError, "Config field mapEndzoneRadius must be " &
-          $EndzoneRadiusMin & ".." & $maxEndzoneRadius(result.width) & ".")
+          $minEndzoneRadius(result.width) & ".." &
+          $maxEndzoneRadius(result.width) & ".")
   result.rooms = result.defaultCtfRooms()
 
   let featureDraw = CenterFeatureNames[rng.pick(3)]
@@ -1590,35 +1488,16 @@ proc generateMapAttempt*(
   if feature notin CenterFeatureNames:
     raise newException(CtfError, "Unknown map center feature: " & feature)
 
-  ## Compact-endzone maps spread their columns over the whole half-field
-  ## (the home border strip is wilderness now, not a protected column), so
-  ## they draw MORE of them to hold the same field density. Same single draw
-  ## either way — the RNG stream never shifts.
-  ##
-  ## The column counts were tuned on the standard field, and column x-slots
-  ## spread over the width: an OVERSIZE board with the standard count would
-  ## space its cover ~2x apart and fall to the floor of the cover budget.
-  ## So huge/giant multiply the draw bounds by their field scale. The three
-  ## classic classes keep factor 1 exactly — their bounds (and so their
-  ## draws) are byte-identical to the pre-oversize generator.
+  ## The column counts were tuned on the standard field and the slots spread
+  ## over the width, so the oversize classes multiply the draw bounds by their
+  ## field scale; the three classic classes keep factor 1 exactly.
   let columnScale =
     if sizeName in ["huge", "giant", "colossal"]: mapSizeScale(sizeName)
     else: 1.0
   proc cols(value: int): int = int(round(float(value) * columnScale))
-  let columnsDraw =
-    if teams == 4: rng.pickRange(cols(3), cols(4))
-    elif result.endzone != ezColumn: rng.pickRange(cols(6), cols(8))
-    else: rng.pickRange(cols(4), cols(6))
+  let columnsDraw = rng.pickRange(cols(5), cols(7))
   let columns =
     if overrides.columns > 0: overrides.columns else: columnsDraw
-  ## The ceiling has to admit the generator's OWN widest draw, or a size class
-  ## rejects itself: the flat 24 this bound used to carry predated the oversize
-  ## classes, and at colossal's 5.2x a compact-endzone board draws cols(8) = 42,
-  ## so 32 of 40 two-team colossal seeds raised here instead of generating. (The
-  ## 4-team draw tops out at cols(4) = 21, which is why record_colossal_demo.sh
-  ## never hit it.) Deriving the ceiling from the same cols() the draw uses keeps
-  ## any future class in range automatically; small/standard/large scale by 1, so
-  ## their bound stays exactly 24.
   let maxColumns = max(24, cols(8))
   if columns < 3 or columns > maxColumns:
     raise newException(
@@ -1627,27 +1506,12 @@ proc generateMapAttempt*(
   let
     cy = result.center.y
     redAnchorX = result.teamHomeX(Red)
-    ## Obstacle columns live between the home approach and the flag-ring
-    ## flank; the ring and the endzones carve any overlap back out of the
-    ## wall mask. A compact endzone frees the border strip, so the columns
-    ## start just inside the wall and terrain wraps the base on every side.
-    xMin =
-      if result.endzone != ezColumn: ArenaBorder + 34
-      else: result.captureClear + 50
+    ## Obstacle columns live between the base apron and the flag-ring flank;
+    ## the ring and the endzones carve any overlap back out of the wall mask.
+    ## A hex endzone is a disc well off the hull, so the columns start just
+    ## inside the wall and terrain wraps the base on every side.
+    xMin = ArenaBorder + 34
     xMax = result.center.x - 52
-    ## The vertical band the column slots may occupy: the full field on
-    ## sides maps, the top-left quadrant on corner maps (rot90 fills the
-    ## rest), the west arm on plus maps (the corner blocks own the rest).
-    slotBand =
-      case result.layout
-      of layoutSides:
-        (lo: ArenaBorder + 30, hi: result.height - ArenaBorder - 30)
-      of layoutCorners, layoutPlus:
-        ## The full quadrant, crossing the centerline: the rot90 images
-        ## fill the other side, and slots near cy are what covers the
-        ## central horizontal band. Both 4-team layouts are fully open
-        ## square boards — they differ only in where the teams live.
-        (lo: ArenaBorder + 30, hi: cy + 60)
   ## Window-eligible shapes: (obstacle index, column, slot y).
   var eligible: seq[tuple[idx, col, y: int]]
   ## Trench pit candidates, resolved into actual digs after the columns
@@ -1663,23 +1527,21 @@ proc generateMapAttempt*(
     let
       colX = xMin + ((2 * col + 1) * (xMax - xMin)) div (2 * columns)
       family = ColumnFamily(rng.pick(4))
-      ## 4-team quadrant shapes replicate x4 (not x2), so slots spread out
-      ## to keep the same field density.
-      period =
-        if teams == 4: rng.pickRange(130, 180)
-        else: rng.pickRange(88, 120)
-      ## Phases are STRATIFIED across columns (like the hand-authored
-      ## arena's 0/+48/+24/+72 ladder) with a half-period jitter: fully
-      ## random phases leave rows every column misses, which the sightline
-      ## validator rejects — mirror-symmetric maps almost never survived.
+      period = rng.pickRange(88, 120)
+      ## Phases are STRATIFIED across columns (like the hand-authored arena's
+      ## 0/+48/+24/+72 ladder) with a half-period jitter: fully random phases
+      ## leave rows every column misses, which the sightline validator rejects.
       phase = (period * col div columns +
         rng.pick(max(1, period div 2))) mod period
+      ## THE hex change: each column's usable span is the hexagon's own
+      ## vertical extent at that x, not a board-wide constant.
+      band = result.columnBand(colX, ArenaBorder + 30)
     var slotYs: seq[int]
-    var slotY = slotBand.lo + phase
-    while slotY <= slotBand.hi:
+    var slotY = band.lo + phase
+    while slotY <= band.hi:
       slotYs.add slotY
       slotY += period
-    if slotYs.len < (if result.layout == layoutSides: 3 else: 2):
+    if slotYs.len < 3:
       continue
 
     ## Clear-mask: drop each slot with probability 1/4, then guarantee at
@@ -1704,16 +1566,12 @@ proc generateMapAttempt*(
 
     var zig = rng.coin()
     for i, sy in slotYs:
-      ## Compact endzones keep an APRON of clear ground outside the ring:
-      ## terrain that crowded the scoring shape would seal the very
-      ## approaches that make an off-the-edge base worth building, and the
-      ## open-flank validator would reject the map anyway. Obstacle centers
-      ## reach ~30px, so an apron of radius + 60 leaves every cardinal gate
-      ## a full corridor's clearance.
-      if result.endzone != ezColumn and
-          endzoneFloorAt(colX, sy, redAnchorX, cy,
-            result.endzoneRadius + 60 - EndzoneWallMargin,
-            result.endzone == ezDisc):
+      ## The endzone keeps an APRON of clear ground outside its ring: terrain
+      ## that crowded the scoring disc would seal the very approaches that make
+      ## an off-the-edge base worth building, and the open-flank validator
+      ## would reject the map anyway.
+      if endzoneFloorAt(colX, sy, redAnchorX, cy,
+          result.endzoneRadius + EndzoneApron - EndzoneWallMargin, true):
         continue
       if cleared[i]:
         ## A cleared gap can hold a dug pit BETWEEN the column's obstacles
@@ -1721,71 +1579,68 @@ proc generateMapAttempt*(
         pitCandidates.add (pitGap, -1, colX, sy)
         continue
       ## Every kept slot can dig a trench INSTEAD of raising its obstacle
-      ## — cover you stand in rather than behind. Selection below decides;
-      ## the sightline repair and the validators judge the thinner wall
-      ## set exactly as usual.
+      ## — cover you stand in rather than behind.
       pitCandidates.add (pitInstead, result.leftObstacles.len, colX, sy)
       case family
       of colStubs:
-        ## Stub ends whose border gap would drop under the corridor minimum
-        ## anchor to the border instead — a sub-26px slit is impassable
-        ## anyway and reads as a wart.
+        ## Stub ends whose gap to the hull would drop under the corridor
+        ## minimum reach the wall instead — a sub-26px slit is impassable
+        ## anyway and reads as a wart. On a hexagon "the wall" is a slanted
+        ## edge, so the stub grows past the band end rather than to a
+        ## constant y and the border carves it back.
         var top = sy - 30
         var bottom = sy + 30
-        if i == 0 and top - ArenaBorder < MinCorridorWidth:
-          top = ArenaBorder
-        if i == slotYs.len - 1 and result.layout == layoutSides and
-            result.height - ArenaBorder - bottom < MinCorridorWidth:
-          bottom = result.height - ArenaBorder
-        result.leftObstacles.add ArenaShape(kind: shapeRect,
-          rect: MapRect(x: colX - 9, y: top, w: 18, h: bottom - top))
+        if i == 0 and top - band.lo < MinCorridorWidth:
+          top = band.lo - ArenaBorder - 30
+        if i == slotYs.len - 1 and band.hi - bottom < MinCorridorWidth:
+          bottom = band.hi + ArenaBorder + 30
+        ## The overshoot is deliberate — the hull carves the stub flush against
+        ## a SLANTED wall, where a stub clamped to the band would leave a
+        ## sliver of floor — but it must stay ON THE BOARD. Near the top and
+        ## bottom vertices a column's band starts within 40px of the edge, so
+        ## an unclamped overshoot runs off the canvas into negative y, where
+        ## the rasterizer clips it and every reader has to remember that it did.
+        top = clamp(top, 0, result.height - 1)
+        bottom = clamp(bottom, top + 1, result.height - 1)
+        result.leftObstacles.add rectShape(
+          MapRect(x: colX - 9, y: top, w: 18, h: bottom - top))
         eligible.add (result.leftObstacles.high, col, sy)
       of colDiamonds:
-        result.leftObstacles.add ArenaShape(
-          kind: shapeDiamond, cx: colX, cy: sy, radius: 28)
+        ## Hexagonal cover on a hexagonal board — the kind that is closed
+        ## under the arena's own 60-degree rotation, where the old diamond
+        ## (a C4 shape) was not.
+        result.leftObstacles.add hexShape(colX, sy, 28)
         eligible.add (result.leftObstacles.high, col, sy)
       of colDiscs:
         result.leftObstacles.add ArenaShape(
           kind: shapeDisc, cx: colX, cy: sy, radius: 28)
         eligible.add (result.leftObstacles.high, col, sy)
       of colChevrons:
-        let (ya, yb) = if zig: (sy - 14, sy + 14) else: (sy + 14, sy - 14)
+        ## Chevrons angled with the hull's own edges instead of across them;
+        ## the point-to-segment test is angle-general, so this costs nothing.
+        let (ya, yb) = if zig: (sy - 24, sy + 24) else: (sy + 24, sy - 24)
         result.leftObstacles.add ArenaShape(kind: shapeDiagonal,
           x0: colX - 14, y0: ya, x1: colX + 14, y1: yb, thickness: 12)
         zig = not zig
 
   ## Endzone trench pit candidates, authored on the RED side (the symmetry
   ## image gives Blue the exact counterpart): BEHIND the pedestal toward
-  ## the home edge, and ABOVE and BELOW it — each clear of the pedestal
-  ## art. Endzone floor is protected (never walled), so endzone digs
-  ## always survive the open-floor prune below.
+  ## the hull, and ABOVE and BELOW it — each clear of the pedestal art.
   let
-    redHomeX = redAnchorX
     pedestalClear = PedestalCoverSize div 2 + TrenchSize div 2
-    ## How far off the pedestal an endzone dig sits. Column endzones have the
-    ## whole home strip to work with; a COMPACT zone clamps the offset so the
-    ## pit stays on its protected floor (clear of the pedestal art at the
-    ## floor, inside the ring at the ceiling) instead of being pruned later.
-    compactPitOffset =
+    pitOffset =
       max(pedestalClear,
         min(pedestalClear + 20,
           result.endzoneRadius - TrenchSize div 2 - EndzoneWallMargin))
-    backOffset =
-      if result.endzone == ezColumn: pedestalClear + 12
-      else: compactPitOffset
-    sideOffset =
-      if result.endzone == ezColumn: pedestalClear + 20
-      else: compactPitOffset
-  pitCandidates.add (pitEndzone, -1, redHomeX - backOffset, cy)
-  pitCandidates.add (pitEndzone, -1, redHomeX, cy - sideOffset)
-  pitCandidates.add (pitEndzone, -1, redHomeX, cy + sideOffset)
+  pitCandidates.add (pitEndzone, -1, redAnchorX - pitOffset, cy)
+  pitCandidates.add (pitEndzone, -1, redAnchorX, cy - pitOffset)
+  pitCandidates.add (pitEndzone, -1, redAnchorX, cy + pitOffset)
 
   ## Pit selection. DENSITY mode (default) rolls every candidate at its
   ## class chance scaled by pitDensity percent. COUNT mode (pits locked)
   ## shuffles the candidates and takes symmetric pairs until the requested
   ## total is met — an ODD total anchors its extra pit at the exact map
-  ## center, the one spot that is its own image under mirror AND rot180,
-  ## so both parities stay exactly team-fair.
+  ## center, the one spot that is its own image under mirror AND rot180.
   if overrides.pits < -1 or overrides.pits > 64:
     raise newException(CtfError, "Config field mapPits must be 0..64.")
   if overrides.pitDensity < -1 or overrides.pitDensity > 1000:
@@ -1797,17 +1652,6 @@ proc generateMapAttempt*(
     oddCenterPit = overrides.pits >= 0 and overrides.pits mod 2 == 1
     pitPairsWanted = if overrides.pits >= 0: overrides.pits div 2 else: -1
   var obstacleRemoved = newSeq[bool](result.leftObstacles.len)
-  if result.symmetry == symRot90:
-    ## Trenches are a 2-team-map feature for now: the dig/image pair
-    ## accounting assumes one symmetry image per dig, and rot90 maps have
-    ## three. An explicit pit request errors; the density path digs nothing
-    ## (clearing the candidates keeps the loop from writing UNPAIRED digs
-    ## into result.trenches — finalize is what pairs them, and it is
-    ## skipped on rot90).
-    if overrides.pits > 0:
-      raise newException(
-        CtfError, "Trenches are not supported on 4-team maps yet.")
-    pitCandidates.setLen(0)
   if pitPairsWanted >= 0:
     rng.shuffle(pitCandidates)
   for cand in pitCandidates:
@@ -1854,109 +1698,37 @@ proc generateMapAttempt*(
 
   ## Center feature, straddling the horizontal midline just outside the
   ## flag ring ("[" here; its symmetry image closes the right side).
-  let bx = result.center.x - 138
+  let bx = result.center.x - result.flagRing - 68
   case feature
   of "bracket":
     ## The GV16 windowed bracket: mid lane closed to movement and fire,
     ## glass pane over the midline for a fogless center sightline.
-    result.leftObstacles.add ArenaShape(kind: shapeRect,
-      rect: MapRect(x: bx, y: cy - 53, w: 28, h: 12))
-    result.leftObstacles.add ArenaShape(kind: shapeRect,
-      rect: MapRect(x: bx, y: cy - 41, w: 12, h: 24))
-    result.leftObstacles.add ArenaShape(kind: shapeRect, window: true,
-      rect: MapRect(x: bx, y: cy - 17, w: 12, h: 36))
-    result.leftObstacles.add ArenaShape(kind: shapeRect,
-      rect: MapRect(x: bx, y: cy + 19, w: 12, h: 23))
-    result.leftObstacles.add ArenaShape(kind: shapeRect,
-      rect: MapRect(x: bx, y: cy + 42, w: 28, h: 12))
+    result.leftObstacles.add rectShape(
+      MapRect(x: bx, y: cy - 53, w: 28, h: 12))
+    result.leftObstacles.add rectShape(
+      MapRect(x: bx, y: cy - 41, w: 12, h: 24))
+    result.leftObstacles.add rectShape(
+      MapRect(x: bx, y: cy - 17, w: 12, h: 36), window = true)
+    result.leftObstacles.add rectShape(
+      MapRect(x: bx, y: cy + 19, w: 12, h: 23))
+    result.leftObstacles.add rectShape(
+      MapRect(x: bx, y: cy + 42, w: 28, h: 12))
   of "walls":
     ## Solid bar pair with an open (glassless) midline gap.
-    result.leftObstacles.add ArenaShape(kind: shapeRect,
-      rect: MapRect(x: bx, y: cy - 100, w: 12, h: 80))
-    result.leftObstacles.add ArenaShape(kind: shapeRect,
-      rect: MapRect(x: bx, y: cy + 20, w: 12, h: 80))
+    result.leftObstacles.add rectShape(
+      MapRect(x: bx, y: cy - 100, w: 12, h: 80))
+    result.leftObstacles.add rectShape(
+      MapRect(x: bx, y: cy + 20, w: 12, h: 80))
   else:
     discard  # "ring": the center stays fully open.
 
-  ## Sightline repair. A horizontal ray survives when no obstacle blocks its
-  ## row: under MIRROR the right half repeats the left, so the LEFT half
-  ## alone must cover every row; under ROT180 the right half contributes the
-  ## flipped rows, so row y needs cover at y or height-1-y. Random layouts
-  ## almost never satisfy the mirror condition on their own (the first pool
-  ## scan came out 100% rot180), so plug the uncovered rows with diamonds in
-  ## drawn columns; the validators still judge the repaired result.
-  block sightlineRepair:
-    proc rowBlocked(gameMap: CtfMap, y: int): bool =
-      for x in gameMap.sightlineLoX .. gameMap.center.x:
-        if mapWallAt(gameMap, gameMap.leftObstacles, x, y):
-          return true
-      false
-    proc rowBlockedFull(gameMap: CtfMap, obstacles: seq[ArenaShape],
-        y: int): bool =
-      ## Full-width row scan against the COMPLETE symmetry-expanded set —
-      ## rot90 folds a quadrant into all four quarters, so no single-half
-      ## shortcut exists.
-      for x in gameMap.sightlineLoX .. gameMap.sightlineHiX:
-        if mapWallAt(gameMap, obstacles, x, y):
-          return true
-      false
-    ## The plug budget scales with the columns for the same reason the
-    ## columns scale: an oversize board has proportionally more rows to
-    ## cover (cols() is 1x on the classic classes, so their budget is the
-    ## historical 40).
-    var plugsLeft = cols(40)
-    while plugsLeft > 0:
-      var uncovered = -1
-      let fullSet =
-        if result.symmetry == symRot90: buildArenaObstacles(result)
-        else: @[]
-      var y = ArenaBorder + 2
-      while y < result.height - ArenaBorder:
-        let covered =
-          case result.symmetry
-          of symMirror:
-            result.rowBlocked(y)
-          of symRot180:
-            result.rowBlocked(y) or
-              result.rowBlocked(result.height - 1 - y)
-          of symRot90:
-            result.rowBlockedFull(fullSet, y)
-        if not covered:
-          uncovered = y
-          break
-        y += 4
-      if uncovered < 0:
-        break sightlineRepair
-      let
-        plugCol = rng.pick(columns)
-        plugX = xMin + ((2 * plugCol + 1) * (xMax - xMin)) div (2 * columns)
-        ## Under rot90 a quadrant shape at row y also covers row H-1-y (its
-        ## rot180 image), so an uncovered bottom-half row folds to its top
-        ## reflection before plugging; plugs may sit close to the border.
-        foldedRow =
-          if result.symmetry == symRot90 and uncovered > cy:
-            result.height - 1 - uncovered
-          else:
-            uncovered
-        plugY = clamp(
-          foldedRow + 24, ArenaBorder + 12, result.height - ArenaBorder - 12)
-      dec plugsLeft
-      ## A plug inside the endzone apron would seal an approach (and be
-      ## carved to a stump by the protected floor anyway); skip it and let
-      ## the next iteration try another column for the same row.
-      if result.endzone != ezColumn and
-          endzoneFloorAt(plugX, plugY, redAnchorX, cy,
-            result.endzoneRadius + 60 - EndzoneWallMargin,
-            result.endzone == ezDisc):
-        continue
-      result.leftObstacles.add ArenaShape(
-        kind: shapeDiamond, cx: plugX, cy: plugY, radius: 28)
+  ## Sightline repair, on all three hex axes — shared with the hand-authored
+  ## arena, which has to hold exactly the same published promise.
+  result.plugOpenSightlines(cols(120))
 
   ## Glass windows: fog sees through them, nothing passes them. Biased to
   ## the outermost column and the midline band, where sightlines matter.
-  let windowsDraw =
-    if teams == 4: rng.pickRange(1, 2)
-    else: rng.pickRange(2, 4)
+  let windowsDraw = rng.pickRange(2, 4)
   let windowCount =
     if overrides.windows >= 0: overrides.windows else: windowsDraw
   if windowCount > 6:
@@ -1973,44 +1745,51 @@ proc generateMapAttempt*(
   for i in 0 ..< min(windowCount, ranked.len):
     result.leftObstacles[ranked[i].idx].window = true
 
-  ## Med kits. Sides maps: two complementary (y, H-1-y) center-line pairs
-  ## are drawn as candidates and ONE pair goes active — a top/bottom pair on
-  ## x = W/2 is invariant under both mirror and rot180, so pickup fairness
-  ## is exact. 4-team maps: one kit per team as the rot90 orbit of a single
-  ## drawn ring point, which is fair by the same symmetry argument.
-  if teams == 4:
-    let
-      ringLo = result.flagRing + 40
-      ringHi = result.center.x - result.captureClear - 60
-      d = rng.pickRange(ringLo, max(ringLo + 1, ringHi))
-      orbit = rot90Orbit((result.center.x + d, result.center.y), result.width)
-    result.medKitCandidates = @[]
-    for point in orbit:
-      result.medKitCandidates.add MapPoint(x: point.x, y: point.y)
-    result.medKitSpawns = result.medKitCandidates
-  else:
-    let
-      mid = result.width div 2
-      y1 = rng.pickRange(result.height * 16 div 100, result.height * 34 div 100)
-      y2 = rng.pickRange(result.height * 36 div 100, result.height * 47 div 100)
-    result.medKitCandidates = @[
-      MapPoint(x: mid, y: y1),
-      MapPoint(x: mid, y: result.height - 1 - y1),
-      MapPoint(x: mid, y: y2),
-      MapPoint(x: mid, y: result.height - 1 - y2),
-    ]
-    result.medKitSpawns =
-      if rng.coin():
-        @[result.medKitCandidates[0], result.medKitCandidates[1]]
-      else:
-        @[result.medKitCandidates[2], result.medKitCandidates[3]]
+  ## Med kits. Two seeds are drawn on the board's vertical symmetry axis and
+  ## each is expanded through its full symmetry orbit, so the candidate set is
+  ## exactly its own image under whichever group the map drew.
+  ##
+  ## THE SEEDS SIT JUST OFF THE VERTICAL AXIS, and that is the whole trick. A
+  ## point ON a symmetry axis is a FIXED POINT of the reflection across it, so
+  ## its orbit has size ONE, not two: seeding at `(width - 1) div 2` collapsed
+  ## both kits into a single central kit on every ODD-width mirror board
+  ## (standard 969, giant 2519, colossal 5039) and then read `medKitSpawns[1]`
+  ## out of bounds. The scheme it replaced — "x = W/2, y and H-1-y" — had the
+  ## exact COMPLEMENTARY hole on even widths. Both were the same mistake:
+  ## assuming an orbit's size instead of checking it.
+  ##
+  ## So the placement is off-axis on every width AND the orbit size is
+  ## ASSERTED. `width div 2 - 1` and its image straddle the centre line by one
+  ## pixel either way, which keeps both kits as central and as contested as the
+  ## on-axis pair was meant to be, while giving the group nothing to fix.
+  let
+    axisX = result.width div 2 - 1
+    y1 = rng.pickRange(result.height * 16 div 100, result.height * 34 div 100)
+    y2 = rng.pickRange(result.height * 36 div 100, result.height * 47 div 100)
+  proc kitOrbit(gameMap: CtfMap, seedPoint: MapPoint): seq[MapPoint] =
+    ## One kit seed's full orbit, with its SIZE checked. A short orbit means
+    ## the seed landed on a symmetry axis and the map would ship with fewer
+    ## kits than the contract states — silently, and then out of bounds.
+    result = gameMap.symmetryImages(seedPoint)
+    doAssert result.len == gameMap.teamCount(),
+      "med-kit seed " & $seedPoint & " has a stabilizer under " &
+        $gameMap.symmetry & ": orbit is " & $result.len & ", not " &
+        $gameMap.teamCount() & " — it is sitting on a symmetry axis."
+  result.medKitCandidates = @[]
+  for seedPoint in [MapPoint(x: axisX, y: y1), MapPoint(x: axisX, y: y2)]:
+    for image in result.kitOrbit(seedPoint):
+      result.medKitCandidates.add image
+  result.medKitSpawns =
+    if rng.coin():
+      result.kitOrbit(MapPoint(x: axisX, y: y1))
+    else:
+      result.kitOrbit(MapPoint(x: axisX, y: y2))
 
-  ## Finalize the trenches. Every left-half dig gets its image under
-  ## the map's symmetry so neither team has a private pit; a dig that ended
-  ## up under a wall (a sightline-repair plug can land on its slot) or on
-  ## top of an already-accepted dig is dropped — and a dig whose image is
-  ## blocked drops WITH it, fairness before density. (rot90 maps reach
-  ## here with zero candidates and place nothing — see the guard above.)
+  ## Finalize the trenches. Every left-half dig gets its image under the map's
+  ## symmetry so neither team has a private pit; a dig that ended up under a
+  ## wall (a sightline-repair plug can land on its slot) or on top of an
+  ## already-accepted dig is dropped — and a dig whose image is blocked drops
+  ## WITH it, fairness before density.
   block finalizeTrenches:
     let obstacles = buildArenaObstacles(result)
     var digs: seq[MapRect]
@@ -2021,16 +1800,12 @@ proc generateMapAttempt*(
       gameMap: CtfMap, digs: var seq[MapRect], trench: MapRect
     ): bool =
       ## Accepts one left-half dig plus its symmetry image when both sit
-      ## on open floor clear of every accepted dig. Count-mode parity
-      ## rests on every candidate being distinct from its own image —
-      ## true because column candidates cap at center.x - 52 and endzone
-      ## candidates hug the red home; a future center-adjacent candidate
-      ## class would break the exact-count accounting here.
+      ## on open floor clear of every accepted dig.
       let image =
         case gameMap.symmetry
-        of symMirror: trench.mirrorX(gameMap.width)
+        of symMirrorHex: trench.mirrorX(gameMap.width)
         of symRot180: trench.rot180(gameMap.width, gameMap.height)
-        of symRot90: raiseAssert "trenches never place on rot90 maps"
+        else: raiseAssert "2-team map with a non-2-team symmetry"
       if not rectOnOpenFloor(gameMap, obstacles, trench) or
           not rectOnOpenFloor(gameMap, obstacles, image):
         return false
@@ -2045,8 +1820,7 @@ proc generateMapAttempt*(
     for trench in result.trenches:
       discard result.addPair(digs, shapeAsRect(trench))
     ## COUNT mode: pairs lost to sightline-repair walls are topped back up
-    ## from the unused candidates that cannot change the wall set (gap and
-    ## endzone spots; a late `instead` swap would dodge the repair pass).
+    ## from the unused candidates that cannot change the wall set.
     if pitPairsWanted >= 0:
       for cand in pitCandidates:
         if digs.len >= overrides.pits:
@@ -2138,27 +1912,14 @@ proc collectMapDiagnostics(
   var minCoverPixels, coverPixels, interiorPixels = 0
   for y in 0 ..< h:
     for x in 0 ..< w:
-      ## The cover-budget interior. Sides maps keep the historical x-band
-      ## definition EXACTLY (the curated pool seeds validate first-attempt
-      ## against it). 4-team layouts measure the actually-playable field:
-      ## everything inside the border that is not protected floor.
+      ## The cover-budget interior: the actually-playable field — everything
+      ## inside the hull's border ring that is not protected floor. The void
+      ## outside the hexagon is excluded by the same predicate that walls it,
+      ## so the budget is measured against the PLAYFIELD (75% of the bounding
+      ## box), never against the box.
       let interior =
-        if gameMap.endzone != ezColumn:
-          ## Compact endzones: the same "everything playable" measure the
-          ## 4-team layouts use — the wilderness behind the bases is field
-          ## and must carry its share of the cover budget.
-          x >= ArenaBorder and x < w - ArenaBorder and
-            y >= ArenaBorder and y < h - ArenaBorder and
-            not mapProtectedFloorAt(gameMap, x, y)
-        else:
-          case gameMap.layout
-          of layoutSides:
-            x >= gameMap.captureClear and x < w - gameMap.captureClear and
-              y >= ArenaBorder and y < h - ArenaBorder
-          of layoutCorners, layoutPlus:
-            x >= ArenaBorder and x < w - ArenaBorder and
-              y >= ArenaBorder and y < h - ArenaBorder and
-              not mapProtectedFloorAt(gameMap, x, y)
+        not gameMap.mapBorderWallAt(x, y) and
+          not mapProtectedFloorAt(gameMap, x, y)
       if interior:
         inc interiorPixels
         if maxWall[y * w + x]:
@@ -2179,26 +1940,23 @@ proc collectMapDiagnostics(
   if permille > CoverPermilleMax:
     recordFailure("too clogged: " & $permille & " permille cover")
 
-  ## With map-wide guns no straight horizontal ray may survive between the
-  ## capture columns (the property tests/test_map_los.nim pins for arena).
+  ## With map-wide guns no straight ray may survive a full lane down ANY of
+  ## the hexagon's three axes. On the rectangle only the horizontal family
+  ## mattered, because the other two board edges were the top and bottom
+  ## walls; a hexagon has three pairs of opposite edges and a lane down any of
+  ## them is the same cross-field snipe. `sightlineMinSpan` is what keeps the
+  ## short chords near the two vertices from failing every map ever drawn.
   block sightlines:
-    let
-      ax = gameMap.sightlineLoX
-      bx = gameMap.sightlineHiX
-    var y = ArenaBorder + 2
-    while y < h - ArenaBorder:
-      var blocked = false
-      for x in ax .. bx:
-        if minWall[y * w + x]:
-          blocked = true
-          break
-      if not blocked:
-        result.openSightlineRows.add y
-        if result.reason.len == 0:
-          result.reason = "open horizontal sightline at y=" & $y
-        if stopAfterFirstFailure:
-          return
-      y += 4
+    for axis in 0 .. 2:
+      for intercept in gameMap.sightlineIntercepts(axis):
+        if gameMap.sightlineOpenRun(minWall, axis, intercept).open:
+          if axis == 0:
+            result.openSightlineRows.add intercept
+          if result.reason.len == 0:
+            result.reason = "open sightline on axis " & $(60 * axis) &
+              " deg at intercept " & $intercept
+          if stopAfterFirstFailure:
+            return
   if diagnosticWallMasks in artifacts:
     result.minWall = minWall
   else:
@@ -2283,10 +2041,10 @@ proc collectMapDiagnostics(
   if not result.centerReachable:
     recordFailure("no " & $MinCorridorWidth & "px route to the center")
 
-  ## Compact endzones must stay OPEN-FLANKED: a base you can only be reached
-  ## from the field side is just a column endzone with extra steps. Checked
-  ## on Red alone — mirror and rot180 hand Blue the exact image.
-  if gameMap.endzone != ezColumn:
+  ## Endzones must stay OPEN-FLANKED: a base you can only reach from the field
+  ## side is a wall with a pedestal in front of it. Checked on Red alone —
+  ## every symmetry the board can wear hands the other teams the exact image.
+  block endzoneFlanks:
     let
       anchor = gameMap.teamAnchor(Red)
       gate = gameMap.endzoneRadius + MinCorridorWidth div 2 + 4
@@ -2380,6 +2138,134 @@ proc generateCtfMap*(
       " attempts from seed " & $seed & " (over-constrained overrides?)."
   )
 
+proc arenaHexObstacles(gameMap: CtfMap): seq[ArenaShape] =
+  ## The hand-authored default arena's LEFT-HALF cover set, built from the
+  ## board's own hexagon rather than typed out as pixel literals.
+  ##
+  ## The old 1235x659 tables could not survive the move: they were authored
+  ## column by column against a straight top and bottom border, and on a
+  ## pointy-top hull those columns run out of field at different heights.
+  ## Deriving each column's vertical span from `hexEdgeDist` instead re-fits
+  ## the layout to every size class for free, and it is the same slalom the
+  ## arena always was — staggered columns whose in-column gaps are offset from
+  ## their neighbours', so no straight cross-field ray survives while every
+  ## corridor stays wider than the 13px player footprint.
+  ##
+  ## Left half only; `buildArenaObstacles` mirrors it. Nothing here is random.
+  let
+    board = gameMap.mapBoard()
+    cx = gameMap.center.x
+    cy = gameMap.center.y
+    anchor = gameMap.teamAnchor(Red)
+    apron = gameMap.endzoneRadius + EndzoneApron - EndzoneWallMargin
+    ## The columns span the WHOLE half-field, wall to flag ring — not the gap
+    ## between the base and the center. A hex base sits deep, so a span that
+    ## started past its apron would crush five columns into a ~95px strip and
+    ## leave the entire outer third of the board an empty run-up.
+    xLo = ArenaBorder + 34
+    xHi = cx - 52
+    columns = 6
+    period = 96
+  for col in 0 ..< columns:
+    let
+      colX = xLo + ((2 * col + 1) * (xHi - xLo)) div (2 * columns)
+      ## The classic 0 / +48 / +24 / +72 phase ladder, so each column's gaps
+      ## sit opposite its neighbours' and no row is missed by all of them.
+      phase = (period * col) div columns
+    ## How far the field reaches above and below this column, on the hexagon.
+    var span = 0
+    while cy - span - 1 > 0 and
+        board.hexEdgeDist(colX, cy - span - 1) >= float(ArenaBorder + 30):
+      inc span
+    if span < period:
+      continue
+    let slots = (2 * span) div period
+    for i in 0 .. slots:
+      let sy = cy - span + phase + i * period
+      if sy < cy - span or sy > cy + span:
+        continue
+      ## One slot in four is cleared, so every column is a picket with real
+      ## gaps rather than a wall; the cleared index walks with the column so
+      ## the gaps stagger too.
+      if (i + col) mod 4 == 0:
+        continue
+      ## Never build on the base's apron: those approaches are what make a
+      ## deep base playable from every side.
+      if endzoneFloorAt(colX, sy, anchor.x, cy, apron, true):
+        continue
+      case col mod 4
+      of 0:
+        result.add rectShape(MapRect(x: colX - 9, y: sy - 30, w: 18, h: 60))
+      of 1:
+        result.add hexShape(colX, sy, 28)
+      of 2:
+        result.add ArenaShape(kind: shapeDisc, cx: colX, cy: sy, radius: 28)
+      else:
+        ## A 60-degree chevron, angled with the hull rather than across it.
+        result.add ArenaShape(kind: shapeDiagonal,
+          x0: colX - 14, y0: sy - 24, x1: colX + 14, y1: sy + 24,
+          thickness: 12)
+  ## The GV16 windowed bracket, straddling the horizontal midline just outside
+  ## the flag ring: the mid lane stays closed to movement, bullets, and spray,
+  ## but its glass center pane gives both teams a fogless center sightline.
+  let bx = cx - gameMap.flagRing - 68
+  result.add rectShape(MapRect(x: bx, y: cy - 53, w: 28, h: 12))
+  result.add rectShape(MapRect(x: bx, y: cy - 41, w: 12, h: 24))
+  result.add rectShape(MapRect(x: bx, y: cy - 17, w: 12, h: 36), window = true)
+  result.add rectShape(MapRect(x: bx, y: cy + 19, w: 12, h: 23))
+  result.add rectShape(MapRect(x: bx, y: cy + 42, w: 28, h: 12))
+  ## Two spinning diamonds per half, flanking the flag ring on the center
+  ## column — the band `isSpinningDiamond` selects.
+  result.add diamondShape(cx - 34, cy - gameMap.flagRing - 76, 30)
+  result.add diamondShape(cx - 34, cy + gameMap.flagRing + 76, 30)
+
+proc arenaHexCtfMap(name: string, cls: HexSizeClass): CtfMap =
+  ## The hand-tuned default arena on one hex size class. Obstacle SIZES never
+  ## scale — a bigger field gets roomier corridors, exactly as `arena-large`
+  ## always did.
+  let
+    board = hexBoardOf(cls)
+    scale = HexClassScale[cls]
+  proc s(value: int): int = int(round(float(value) * scale))
+  result.name = name
+  result.path = name
+  result.width = board.width
+  result.height = board.height
+  result.mapLayer = 0
+  result.walkLayer = 1
+  result.wallLayer = 2
+  result.center = MapPoint(x: result.width div 2, y: result.height div 2)
+  result.flagRing = s(70)
+  result.captureClear = s(210)
+  result.spawnClearW = s(70)
+  result.spawnClearH = s(130)
+  result.gunRange = GunRange
+  result.symmetry = symMirrorHex
+  result.layout = layoutHex2
+  result.endzone = ezDisc
+  result.endzoneRadius = board.width * 101 div 1000
+  result.homeDepth = 650
+  result.leftObstacles = arenaHexObstacles(result)
+  ## Hold the SAME sightline standard every generated map must clear. The
+  ## authored slalom closes most lanes on its own; this closes the rest, on
+  ## every size class, without a table of hand-tuned pixel literals.
+  result.plugOpenSightlines(120)
+  result.medKitSpawns = @[
+    MapPoint(x: result.width div 2, y: result.height div 3),
+    MapPoint(x: result.width div 2, y: 2 * result.height div 3),
+  ]
+  result.medKitCandidates = result.medKitSpawns
+  result.rooms = result.defaultCtfRooms()
+  result.validateMap()
+
+proc arenaCtfMap(): CtfMap =
+  ## The default arena: the hand-tuned STANDARD hexagon, 969x1119.
+  arenaHexCtfMap(ArenaName, hxStandard)
+
+proc arenaLargeCtfMap(): CtfMap =
+  ## The arena-large variant: the same layout on the LARGE class, 1260x1455.
+  arenaHexCtfMap(ArenaLargeName, hxLarge)
+
 proc poolCtfMap*(
   index: int, overrides = MapGenOverrides(windows: -1, pits: -1, pitDensity: -1)
 ): CtfMap =
@@ -2391,17 +2277,29 @@ proc shapeSpecNode(shape: ArenaShape): JsonNode =
   ## One obstacle as replay-spec JSON.
   result = newJObject()
   case shape.kind
-  of shapeRect:
-    result["kind"] = %"rect"
-    result["x"] = %shape.rect.x
-    result["y"] = %shape.rect.y
-    result["w"] = %shape.rect.w
-    result["h"] = %shape.rect.h
-  of shapeDisc, shapeDiamond:
-    result["kind"] = %(if shape.kind == shapeDisc: "disc" else: "diamond")
+  of shapeDisc:
+    result["kind"] = %"disc"
     result["cx"] = %shape.cx
     result["cy"] = %shape.cy
     result["r"] = %shape.radius
+  of shapeBar:
+    ## DOUBLED center and half-extents go on the wire verbatim: a bar of even
+    ## pixel extent has a half-pixel center, and halving it here would round a
+    ## replay's geometry away.
+    result["kind"] = %"bar"
+    result["cx2"] = %shape.cx2
+    result["cy2"] = %shape.cy2
+    result["hl"] = %shape.halfLong
+    result["hp"] = %shape.halfPerp
+    result["ux"] = %shape.axisX
+    result["uy"] = %shape.axisY
+  of shapeHex:
+    result["kind"] = %"hex"
+    result["cx2"] = %shape.hexCx2
+    result["cy2"] = %shape.hexCy2
+    result["r2"] = %shape.hexR2
+    if shape.flatTop:
+      result["flat"] = %true
   of shapeDiagonal:
     result["kind"] = %"diagonal"
     result["x0"] = %shape.x0
@@ -2422,18 +2320,30 @@ proc shapeFromSpecNode(node: JsonNode): ArenaShape =
   ## One obstacle parsed back from replay-spec JSON.
   let window = node{"window"}.getBool(false)
   case node["kind"].getStr()
-  of "rect":
-    ArenaShape(kind: shapeRect, window: window, rect: MapRect(
-      x: node["x"].getInt(), y: node["y"].getInt(),
-      w: node["w"].getInt(), h: node["h"].getInt()))
   of "disc":
     ArenaShape(kind: shapeDisc, window: window,
       cx: node["cx"].getInt(), cy: node["cy"].getInt(),
       radius: node["r"].getInt())
-  of "diamond":
-    ArenaShape(kind: shapeDiamond, window: window,
-      cx: node["cx"].getInt(), cy: node["cy"].getInt(),
-      radius: node["r"].getInt())
+  of "bar":
+    ArenaShape(kind: shapeBar, window: window,
+      cx2: node["cx2"].getInt(), cy2: node["cy2"].getInt(),
+      halfLong: node["hl"].getInt(), halfPerp: node["hp"].getInt(),
+      axisX: node["ux"].getInt(), axisY: node["uy"].getInt())
+  of "hex":
+    ArenaShape(kind: shapeHex, window: window,
+      hexCx2: node["cx2"].getInt(), hexCy2: node["cy2"].getInt(),
+      hexR2: node["r2"].getInt(), flatTop: node{"flat"}.getBool(false))
+  of "rect", "diamond":
+    ## GV37 and earlier. Both are exactly expressible as bars, so a pre-hex
+    ## spec still loads — but it will fail `validateMap` on its rectangular
+    ## aspect, which is the honest answer: its PLAYFIELD was a different shape.
+    if node["kind"].getStr() == "rect":
+      rectShape(MapRect(
+        x: node["x"].getInt(), y: node["y"].getInt(),
+        w: node["w"].getInt(), h: node["h"].getInt()), window)
+    else:
+      diamondShape(node["cx"].getInt(), node["cy"].getInt(),
+        node["r"].getInt(), window)
   of "diagonal":
     ArenaShape(kind: shapeDiagonal, window: window,
       x0: node["x0"].getInt(), y0: node["y0"].getInt(),
@@ -2492,19 +2402,20 @@ proc mapSpecJson*(gameMap: CtfMap): string =
     "gunRange": gameMap.gunRange,
     "symmetry": (
       case gameMap.symmetry
-      of symMirror: "mirror"
+      of symMirrorHex: "mirrorHex"
       of symRot180: "rot180"
-      of symRot90: "rot90"),
+      of symRot120: "rot120"
+      of symRot60: "rot60"
+      of symKlein4: "klein4"),
     "layout": (
       case gameMap.layout
-      of layoutSides: "sides"
-      of layoutCorners: "corners"
-      of layoutPlus: "plus"),
+      of layoutHex2: "hex2"
+      of layoutHex3: "hex3"
+      of layoutHex4: "hex4"
+      of layoutHex6: "hex6"),
     "endzone": (
       case gameMap.endzone
-      of ezColumn: "column"
-      of ezDisc: "disc"
-      of ezSquare: "square"),
+      of ezDisc: "disc"),
     "endzoneRadius": gameMap.endzoneRadius,
     "homeDepth": gameMap.homeDepthOf(),
     "medKitSpawns": pointsNode(gameMap.medKitSpawns),
@@ -2542,29 +2453,30 @@ proc mapFromSpecJson*(text: string): CtfMap =
   ## value is a typo or a spec from a future version — replays pin specs
   ## precisely so playback is exact, so silently reinterpreting one would
   ## defeat the point. Raise instead.
-  let symmetryText = node{"symmetry"}.getStr("mirror")
+  let symmetryText = node{"symmetry"}.getStr("mirrorHex")
   result.symmetry =
     case symmetryText
-    of "mirror": symMirror
+    of "mirrorHex", "mirror": symMirrorHex
     of "rot180": symRot180
-    of "rot90": symRot90
+    of "rot120": symRot120
+    of "rot60": symRot60
+    of "klein4": symKlein4
     else:
       raise newException(
         CtfError, "Unknown map spec symmetry: " & symmetryText)
-  let layoutText = node{"layout"}.getStr("sides")
+  let layoutText = node{"layout"}.getStr("hex2")
   result.layout =
     case layoutText
-    of "sides": layoutSides
-    of "corners": layoutCorners
-    of "plus": layoutPlus
+    of "hex2", "sides": layoutHex2
+    of "hex3": layoutHex3
+    of "hex4": layoutHex4
+    of "hex6": layoutHex6
     else:
       raise newException(CtfError, "Unknown map spec layout: " & layoutText)
-  let endzoneText = node{"endzone"}.getStr("column")
+  let endzoneText = node{"endzone"}.getStr("disc")
   result.endzone =
     case endzoneText
-    of "column": ezColumn
     of "disc": ezDisc
-    of "square": ezSquare
     else:
       raise newException(CtfError, "Unknown map spec endzone: " & endzoneText)
   result.endzoneRadius = node{"endzoneRadius"}.getInt(0)
@@ -2581,7 +2493,7 @@ proc mapFromSpecJson*(text: string): CtfMap =
       if item.kind == JArray:
         result.trenches.add rectShape(MapRect(
           x: item[0].getInt(), y: item[1].getInt(),
-          w: item[2].getInt(), h: item[3].getInt()))
+          w: item[2].getInt(), h: item[3].getInt()))  # GV<=36 [x,y,w,h]
       else:
         result.trenches.add item.shapeFromSpecNode()
   for item in node["leftObstacles"]:
@@ -2629,14 +2541,16 @@ var
     ## renderer. Editor/tool rendering never reads this process global.
   ArenaFlagRing = 70
   ArenaCaptureClear = 210
-  ArenaLayoutG = layoutSides
-  ArenaSymmetryG = symMirror
+  ArenaLayoutG = layoutHex2
+  ArenaSymmetryG = symMirrorHex
   ArenaTeamCount = 2
   ArenaAnchors: array[Team, MapPoint]
   ArenaPocketHalf: array[Team, tuple[w, h: int]]
-  ArenaPlusArmHalf = 0
-  ArenaEndzoneRadius = 0     ## > 0 selects the COMPACT endzone floor rules.
-  ArenaEndzoneDisc = false   ## compact endzone is a disc, not a square.
+  ArenaBoardG* = hexBoard(HexStandardWidth, HexStandardHeight)
+    ## THE installed hexagon. Every wall predicate reads its boundary from
+    ## here; nothing re-derives one.
+  ArenaEndzoneRadius = 0
+  ArenaEndzoneDisc = false
   ArenaObstacles*: seq[ArenaShape]
   AnimatedDiamonds*: seq[tuple[cx, cy, radius: int]]
   ArenaSpinMirrored* = true
@@ -2667,13 +2581,12 @@ proc selectCtfMap(gameMap: CtfMap) =
   for team in gameMap.teams():
     ArenaAnchors[team] = gameMap.teamAnchor(team)
     ArenaPocketHalf[team] = gameMap.spawnPocketHalf(team)
-  ArenaPlusArmHalf = gameMap.plusArmHalf()
-  ArenaEndzoneRadius =
-    if gameMap.endzone == ezColumn: 0 else: gameMap.endzoneRadius
+  ArenaBoardG = gameMap.mapBoard()
+  ArenaEndzoneRadius = gameMap.endzoneRadius
   ArenaEndzoneDisc = gameMap.endzone == ezDisc
   ArenaObstacles = buildArenaObstacles(gameMap)
   AnimatedDiamonds = buildAnimatedDiamonds(gameMap, ArenaObstacles)
-  ArenaSpinMirrored = gameMap.symmetry == symMirror
+  ArenaSpinMirrored = gameMap.symmetry == symMirrorHex
   ArenaTrenches = gameMap.trenches
 
 proc installDefaultArena*() =
@@ -2762,17 +2675,30 @@ proc inShapeF*(x, y: float, shape: ArenaShape): bool =
   ## Collision and FOV keep using the integer predicate; the two may disagree
   ## by less than one map pixel along shape boundaries, which is invisible.
   case shape.kind
-  of shapeRect:
-    x >= float(shape.rect.x) and x < float(shape.rect.x + shape.rect.w) and
-      y >= float(shape.rect.y) and y < float(shape.rect.y + shape.rect.h)
   of shapeDisc:
     let
       dx = x - float(shape.cx)
       dy = y - float(shape.cy)
     dx * dx + dy * dy <= float(shape.radius * shape.radius)
-  of shapeDiamond:
-    abs(x - float(shape.cx)) + abs(y - float(shape.cy)) <=
-      float(shape.radius)
+  of shapeBar:
+    let
+      dx2 = 2.0 * x - float(shape.cx2)
+      dy2 = 2.0 * y - float(shape.cy2)
+      ux = float(shape.axisX)
+      uy = float(shape.axisY)
+    abs(dx2 * ux + dy2 * uy) <= float(shape.halfLong) and
+      abs(dy2 * ux - dx2 * uy) <= float(shape.halfPerp)
+  of shapeHex:
+    let
+      dx2 = 2.0 * x - float(shape.hexCx2)
+      dy2 = 2.0 * y - float(shape.hexCy2)
+      (a, b) = if shape.flatTop: (dx2, dy2) else: (dy2, dx2)
+      r2 = float(shape.hexR2)
+      num = float(Sqrt3Num)
+      den = float(Sqrt3Den)
+    abs(a * num + b * den) <= r2 * num and
+      abs(a * num - b * den) <= r2 * num and
+      2.0 * abs(b) * den <= r2 * num
   of shapePolygon:
     ## Float even-odd for the render rasterizer. Render need not be bit-exact
     ## with the integer predicate (they may disagree by <1px on the boundary,
@@ -2808,60 +2734,32 @@ proc inShapeF*(x, y: float, shape: ArenaShape): bool =
     dx * dx + dy * dy <=
       float(shape.thickness * shape.thickness) * len2 * len2 / 4.0
 
-proc arenaCenterOffset2(x, y, cx, cy: int): tuple[dx, dy: int] {.inline.} =
-  ## The installed-map twin of CtfMap.centerOffset2: twice the offset from
-  ## the symmetry center, measured against a rot90 board's true axis at
-  ## (side - 1)/2 and against the integer center everywhere else.
-  if ArenaSymmetryG == symRot90:
-    (2 * x - (MapWidth - 1), 2 * y - (MapHeight - 1))
-  else:
-    (2 * (x - cx), 2 * (y - cy))
+proc isArenaBorderWall*(x, y: int): bool {.inline.} =
+  ## THE boundary rule, installed-map form. Identical by construction to
+  ## `mapBorderWallAt` — both call the ONE predicate in `hex.nim` — so the
+  ## four parallel wall tests can no longer drift apart the way four
+  ## hand-written rectangle comparisons could.
+  ArenaBoardG.hexEdgeDist(x, y) < float(ArenaBorder)
 
 proc isProtectedFloor*(x, y, cx, cy: int): bool =
-  ## Regions that MUST stay walkable: the flag ring, every spawn pocket,
-  ## and each team's home capture approach. Walls are never carved here.
-  if ArenaEndzoneRadius > 0:
-    ## COMPACT endzones: the shape around each base plus the center ring.
-    ## The home border strips are ordinary field (see mapProtectedFloorAt).
-    for team in activeTeams(ArenaTeamCount):
-      if endzoneFloorAt(x, y, ArenaAnchors[team].x, ArenaAnchors[team].y,
-          ArenaEndzoneRadius, ArenaEndzoneDisc):
-        return true
-    let
-      rdx = x - cx
-      rdy = y - cy
-    return rdx * rdx + rdy * rdy <= ArenaFlagRing * ArenaFlagRing
-  ## The classic column path below must stay pixel-for-pixel identical to
-  ## mapProtectedFloorAt, which the generator and validators run on
-  ## uninstalled candidates. 4-team maps always draw ezColumn, so the rot90
-  ## boards are carved here and never by the compact branch above.
-  let
-    nearX = x < ArenaCaptureClear or x >= MapWidth - ArenaCaptureClear
-    nearY = y < ArenaCaptureClear or y >= MapHeight - ArenaCaptureClear
-    (dx2, dy2) = arenaCenterOffset2(x, y, cx, cy)
-    approach =
-      case ArenaLayoutG
-      of layoutSides:
-        nearX
-      of layoutCorners:
-        nearX and nearY
-      of layoutPlus:
-        (nearX and abs(dy2) <= 2 * ArenaPlusArmHalf) or
-          (nearY and abs(dx2) <= 2 * ArenaPlusArmHalf)
-  if approach:
-    return true
-  if dx2 * dx2 + dy2 * dy2 <= 4 * ArenaFlagRing * ArenaFlagRing:
-    return true
+  ## Regions that MUST stay walkable: the flag ring and every team's endzone
+  ## disc. Walls are never carved here.
+  ##
+  ## This must stay pixel-for-pixel identical to `mapProtectedFloorAt`, which
+  ## the generator and validators run on uninstalled candidates.
   for team in activeTeams(ArenaTeamCount):
-    if abs(x - ArenaAnchors[team].x) <= ArenaPocketHalf[team].w and
-        abs(y - ArenaAnchors[team].y) <= ArenaPocketHalf[team].h:
+    if endzoneFloorAt(x, y, ArenaAnchors[team].x, ArenaAnchors[team].y,
+        ArenaEndzoneRadius, ArenaEndzoneDisc):
       return true
-  false
+  let
+    rdx = x - cx
+    rdy = y - cy
+  rdx * rdx + rdy * rdy <= ArenaFlagRing * ArenaFlagRing
 
 proc isArenaWall*(x, y, cx, cy: int): bool =
-  ## Returns true when (x, y) is a wall pixel on the generated arena.
-  if x < ArenaBorder or y < ArenaBorder or
-      x >= MapWidth - ArenaBorder or y >= MapHeight - ArenaBorder:
+  ## Returns true when (x, y) is a wall pixel on the installed arena — which
+  ## includes every pixel of the bounding box OUTSIDE the hexagon.
+  if isArenaBorderWall(x, y):
     return true
   if isProtectedFloor(x, y, cx, cy):
     return false
@@ -2887,59 +2785,20 @@ proc mapProtectedFloorAtF*(
   ## Float-coordinate mapProtectedFloorAt for a map that is NOT installed as
   ## the process map. Render tools use this form so concurrent arbitrary-spec
   ## renders never read or mutate the installed arena globals.
-  if gameMap.endzone != ezColumn:
-    let grown = float(gameMap.endzoneRadius + EndzoneWallMargin)
-    for team in gameMap.teams():
-      let anchor = gameMap.teamAnchor(team)
-      let
-        adx = abs(x - float(anchor.x))
-        ady = abs(y - float(anchor.y))
-      if adx > grown or ady > grown:
-        continue
-      if gameMap.endzone != ezDisc or
-          adx * adx + ady * ady <= grown * grown:
-        return true
-    let
-      rdx = x - float(cx)
-      rdy = y - float(cy)
-    return rdx * rdx + rdy * rdy <=
-      float(gameMap.flagRing * gameMap.flagRing)
-  ## Carries the same doubled-coordinate center as the integer test so the
-  ## painted art cannot drift off the collision mask on a rot90 board.
-  let
-    nearX = x < float(gameMap.captureClear) or
-      x >= float(gameMap.width - gameMap.captureClear)
-    nearY = y < float(gameMap.captureClear) or
-      y >= float(gameMap.height - gameMap.captureClear)
-    (dx2, dy2) =
-      if gameMap.symmetry == symRot90:
-        (2.0 * x - float(gameMap.width - 1),
-          2.0 * y - float(gameMap.height - 1))
-      else:
-        (2.0 * (x - float(cx)), 2.0 * (y - float(cy)))
-    approach =
-      case gameMap.layout
-      of layoutSides:
-        nearX
-      of layoutCorners:
-        nearX and nearY
-      of layoutPlus:
-        let arm = gameMap.plusArmHalf()
-        (nearX and abs(dy2) <= float(2 * arm)) or
-          (nearY and abs(dx2) <= float(2 * arm))
-  if approach:
-    return true
-  if dx2 * dx2 + dy2 * dy2 <=
-      float(4 * gameMap.flagRing * gameMap.flagRing):
-    return true
+  let grown = float(gameMap.endzoneRadius + EndzoneWallMargin)
   for team in gameMap.teams():
     let
       anchor = gameMap.teamAnchor(team)
-      half = gameMap.spawnPocketHalf(team)
-    if abs(x - float(anchor.x)) <= float(half.w) and
-        abs(y - float(anchor.y)) <= float(half.h):
+      adx = abs(x - float(anchor.x))
+      ady = abs(y - float(anchor.y))
+    if adx > grown or ady > grown:
+      continue
+    if gameMap.endzone != ezDisc or adx * adx + ady * ady <= grown * grown:
       return true
-  false
+  let
+    rdx = x - float(cx)
+    rdy = y - float(cy)
+  rdx * rdx + rdy * rdy <= float(gameMap.flagRing * gameMap.flagRing)
 
 proc mapObstacleWallAtF*(
   gameMap: CtfMap,
@@ -2948,7 +2807,11 @@ proc mapObstacleWallAtF*(
   cx, cy: int,
 ): bool =
   ## Float-coordinate interior-obstacle test for an uninstalled map. The
-  ## border ring is excluded because renderers draw it as separate slabs.
+  ## border RING is excluded because renderers draw it as separate slabs — but
+  ## the VOID outside the hexagon is not a ring, it is the shape of the board,
+  ## so it is wall here exactly as it is in the integer predicates.
+  if gameMap.mapBoard().hexEdgeDistF(x, y) <= 0.0:
+    return true
   if mapProtectedFloorAtF(gameMap, x, y, cx, cy):
     return false
   for shape in obstacles:
@@ -2968,8 +2831,9 @@ proc mapShapeWallAtF*(
   cx, cy: int,
 ): bool =
   ## Float-coordinate test for one uninstalled-map shape with the canonical
-  ## protected-floor carve applied.
-  inShapeF(x, y, shape) and
+  ## protected-floor carve — and the hull — applied.
+  gameMap.mapBoard().hexEdgeDistF(x, y) > 0.0 and
+    inShapeF(x, y, shape) and
     not mapProtectedFloorAtF(gameMap, x, y, cx, cy)
 
 proc shapeWallAtF*(x, y: float, shape: ArenaShape, cx, cy: int): bool =

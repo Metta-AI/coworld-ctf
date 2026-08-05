@@ -21,18 +21,37 @@ render_dir = pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else repo / "pool-pr
 out_path = pathlib.Path(sys.argv[2]) if len(sys.argv) > 2 else repo / "docs" / "pool-review.html"
 
 manifest = json.loads((render_dir / "manifest.json").read_text())
-SIZE_NAMES = {1050: "small", 1235: "standard", 1606: "large",
-              2223: "huge", 3211: "giant"}
+
+# Widths of the HEX size classes (ctf/hex.nim HexSizes). The board is a regular
+# hexagon inscribed in width x height, portrait, so these replaced the old
+# rectangular 1050/1235/1606/2223/3211 set outright. `colossal` is
+# override-only and never appears in a random pool draw, but it is listed so an
+# override-built pool still labels correctly.
+SIZE_NAMES = {824: "small", 969: "standard", 1260: "large",
+              1744: "huge", 2519: "giant", 5039: "colossal"}
+SIZE_ORDER = ["small", "standard", "large", "huge", "giant", "colossal"]
+# Wire tokens from mapSpecJson. `mirror` is the legacy spelling the loader
+# still accepts, so an older manifest keeps rendering under the right chip.
+SYMMETRIES = ["mirrorHex", "rot180", "rot120", "rot60", "klein4", "mirror"]
+
+
+def size_name(width):
+    """Never KeyError on an unknown width. The old dict raised, which turned a
+    board-size change into a crash in a review page — exactly what happened at
+    the hex conversion. An unrecognised width is a fact worth SHOWING."""
+    return SIZE_NAMES.get(width, f"{width}px")
+
 
 cards = []
 for m in manifest:
     b64 = base64.b64encode((render_dir / m["file"]).read_bytes()).decode()
-    size = SIZE_NAMES[m["width"]]
+    size = size_name(m["width"])
     kits = ", ".join(f"({x},{y})" for x, y in m["medKitSpawns"])
-    endzone = m.get("endzone", "column")
-    zone_note = (
-        f"{endzone} r{m['endzoneRadius']} home x{m['homeX']}"
-        if endzone != "column" else f"column home x{m.get('homeX', '?')}")
+    # Every hex endzone is a disc; the variety is in radius and base depth.
+    endzone = m.get("endzone", "disc")
+    zone_note = f"{endzone} r{m['endzoneRadius']} home x{m['homeX']}"
+    if "homeDepth" in m:
+        zone_note += f" depth {m['homeDepth']}‰"
     cards.append(f'''
 <article class="card" data-size="{size}" data-sym="{m['symmetry']}" data-endzone="{endzone}">
   <header class="card-head">
@@ -48,12 +67,34 @@ for m in manifest:
   </div>
 </article>''')
 
-counts = {"small": 0, "standard": 0, "large": 0, "huge": 0, "giant": 0,
-          "mirror": 0, "rot180": 0, "column": 0, "disc": 0, "square": 0}
+counts = {}
 for m in manifest:
-    counts[SIZE_NAMES[m["width"]]] += 1
-    counts[m["symmetry"]] += 1
-    counts[m.get("endzone", "column")] += 1
+    for key in (size_name(m["width"]), m["symmetry"], m.get("endzone", "disc")):
+        counts[key] = counts.get(key, 0) + 1
+
+
+def tally(keys):
+    """Only the buckets that actually occur, in a stable order. A fixed dict of
+    every possible bucket had to be edited in lockstep with the enums, and
+    missing one raised."""
+    return " / ".join(f"{counts[k]} {k}" for k in keys if counts.get(k))
+
+
+sizes_present = [k for k in SIZE_ORDER if counts.get(k)]
+sizes_present += sorted(
+    k for k in counts if k not in SIZE_ORDER and k.endswith("px"))
+syms_present = [k for k in SYMMETRIES if counts.get(k)]
+zones_present = sorted(k for k in counts
+                       if k not in SIZE_ORDER and k not in SYMMETRIES
+                       and not k.endswith("px"))
+summary = " &middot; ".join(part for part in (
+    tally(sizes_present), tally(syms_present),
+    tally(zones_present) + " endzones" if zones_present else "") if part)
+filter_buttons = "\n    ".join(
+    f'<button data-f="{group}:{name}" aria-pressed="false">{name}</button>'
+    for group, names in (("size", sizes_present), ("sym", syms_present),
+                         ("endzone", zones_present))
+    for name in names)
 
 html = f'''<!doctype html>
 <html lang="en">
@@ -104,25 +145,17 @@ h1 .gv {{ color:var(--glass); }}
 <div class="wrap">
 <header class="top"><div>
   <h1>CTF terrain pool <span class="gv">config-gated (mapPath "pool")</span></h1>
-  <span class="sub">{len(manifest)} maps &middot; {counts['small']} small / {counts['standard']} standard / {counts['large']} large / {counts['huge']} huge / {counts['giant']} giant &middot; {counts['mirror']} mirror / {counts['rot180']} rot180 &middot; {counts['column']} column / {counts['disc']} disc / {counts['square']} square endzones</span>
+  <span class="sub">{len(manifest)} maps &middot; {summary}</span>
   <span class="filters">
-    <button data-f="size:small" aria-pressed="false">small</button>
-    <button data-f="size:standard" aria-pressed="false">standard</button>
-    <button data-f="size:large" aria-pressed="false">large</button>
-    <button data-f="size:huge" aria-pressed="false">huge</button>
-    <button data-f="size:giant" aria-pressed="false">giant</button>
-    <button data-f="sym:mirror" aria-pressed="false">mirror</button>
-    <button data-f="sym:rot180" aria-pressed="false">rot180</button>
-    <button data-f="endzone:column" aria-pressed="false">column</button>
-    <button data-f="endzone:disc" aria-pressed="false">disc</button>
-    <button data-f="endzone:square" aria-pressed="false">square</button>
+    {filter_buttons}
   </span>
 </div></header>
 <p class="hint">scroll to zoom &middot; drag to pan &middot; double-click to reset &middot; filters narrow the grid &middot; regenerate: tools/render_map_pool.nim + tools/build_pool_review.py</p>
 <div class="legend">
   <span><b style="background:#40301f"></b>stone</span>
   <span><b style="background:#50dcff"></b>glass window (blocks movement/fire, fog sees through)</span>
-  <span><b style="background:#e2cdac"></b>protected floor (never carved: center ring + each team's endzone — a home column, or a disc/square around a base set back from the edge)</span>
+  <span><b style="background:#40301f"></b>the six corners outside the hexagonal hull (permanent void, collided as stone)</span>
+  <span><b style="background:#e2cdac"></b>protected floor (never carved: the center ring + each team's endzone DISC around a base set back from the hull)</span>
   <span><b style="background:#d24238"></b>active med-kit pair / red pedestal</span>
   <span><b style="background:#78644e"></b>idle med-kit candidates</span>
   <span><b style="background:#4a78dc"></b>blue pedestal</span>

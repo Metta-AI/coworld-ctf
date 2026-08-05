@@ -131,64 +131,78 @@ class MapEditorApi {
 
 // Mock mode is intentionally a separate API implementation. Its bitmap is fixed
 // canned artwork, not a JavaScript interpretation of arbitrary map geometry.
+//
+// The fixture is the STANDARD hex class (ctf/hex.nim HexSizes): a 969 x 1119
+// portrait bounding box holding a pointy-top regular hexagon. It is not a
+// rendering of any real seed — it exists so the UI can be developed without the
+// Nim service — but every token in it (`bar`/`hex` obstacles, `mirrorHex`,
+// `hex2`, `disc`) is a token the real format uses today. A mock that still
+// spoke `rect`/`diamond`/`mirror`/`square` would teach the vocabulary wrong.
 const MOCK_SPEC = {
   name: 'mock-pool-00',
   genSeed: 1001,
-  width: 1235,
-  height: 659,
+  width: 969,
+  height: 1119,
   flagRing: 70,
   captureClear: 210,
   spawnClearW: 70,
   spawnClearH: 130,
   gunRange: 1050,
-  symmetry: 'mirror',
-  layout: 'sides',
-  endzone: 'square',
-  endzoneRadius: 140,
-  homeDepth: 700,
-  medKitSpawns: [[617, 219], [617, 439]],
-  medKitCandidates: [[617, 219], [617, 439], [617, 286], [617, 372]],
-  trenches: [[250, 110, 56, 56], [929, 493, 56, 56]],
+  symmetry: 'mirrorHex',
+  layout: 'hex2',
+  endzone: 'disc',
+  endzoneRadius: 97,
+  homeDepth: 650,
+  medKitSpawns: [[484, 380], [484, 739]],
+  medKitCandidates: [[484, 380], [484, 739], [484, 470], [484, 649]],
+  trenches: [[300, 300, 56, 56], [613, 763, 56, 56]],
   leftObstacles: [
-    { kind: 'rect', x: 245, y: 70, w: 18, h: 152 },
-    { kind: 'diamond', cx: 405, cy: 167, r: 28 },
-    { kind: 'disc', cx: 489, cy: 329, r: 28, window: true },
-    { kind: 'diagonal', x0: 530, y0: 430, x1: 577, y1: 487, t: 12 },
+    // A 19 x 153 upright bar: doubled centre (2*250, 2*430), half-extents in
+    // units of |axis| doubled px on the unit axis (1, 0).
+    { kind: 'bar', cx2: 500, cy2: 860, hl: 18, hp: 152, ux: 1, uy: 0 },
+    { kind: 'hex', cx2: 700, cy2: 700, r2: 56 },
+    { kind: 'disc', cx: 400, cy: 560, r: 28, window: true },
+    { kind: 'diagonal', x0: 330, y0: 830, x1: 377, y1: 887, t: 12 },
   ],
 };
 
 const MOCK_DERIVED = {
   teamCount: 2,
-  seedRegion: { x: 0, y: 0, w: 617, h: 659 },
+  seedRegion: { x: 0, y: 0, w: 484, h: 1119 },
   anchors: [
-    { team: 'red', x: 185, y: 329 },
-    { team: 'blue', x: 1049, y: 329 },
+    { team: 'red', x: 170, y: 559 },
+    { team: 'blue', x: 798, y: 559 },
   ],
   captureZones: [
     {
-      team: 'red', xLo: 45, xHi: 325, yLo: 189, yHi: 469,
-      diag: false, cornerX: 0, cornerY: 0, diagLimit: 0,
-      disc: false, anchorX: 185, anchorY: 329, radius: 140,
+      team: 'red', xLo: 73, xHi: 267, yLo: 462, yHi: 656,
+      disc: true, anchorX: 170, anchorY: 559, radius: 97,
     },
     {
-      team: 'blue', xLo: 909, xHi: 1189, yLo: 189, yHi: 469,
-      diag: false, cornerX: 0, cornerY: 0, diagLimit: 0,
-      disc: false, anchorX: 1049, anchorY: 329, radius: 140,
+      team: 'blue', xLo: 701, xHi: 895, yLo: 462, yHi: 656,
+      disc: true, anchorX: 798, anchorY: 559, radius: 97,
     },
   ],
   pickups: {
-    grenade: [[50, 50], [50, 608], [1184, 50], [1184, 608]],
-    shield: [[185, 399], [1049, 259]],
-    plasmaArc: [[185, 259], [1049, 399]],
-    medKitActive: [[617, 219], [617, 439]],
-    medKitCandidate: [[617, 219], [617, 439], [617, 286], [617, 372]],
+    grenade: [[300, 250], [300, 869], [669, 250], [669, 869]],
+    shield: [[170, 640], [798, 478]],
+    plasmaArc: [[170, 478], [798, 640]],
+    medKitActive: [[484, 380], [484, 739]],
+    medKitCandidate: [[484, 380], [484, 739], [484, 470], [484, 649]],
   },
   spinningDiamonds: [
-    { cx: 565, cy: 252, r: 30 },
-    { cx: 669, cy: 406, r: 30 },
+    { cx: 440, cy: 470, r: 30 },
+    { cx: 529, cy: 649, r: 30 },
   ],
-  authoredObstacleCount: 34,
-  expandedObstacleCount: 68,
+  authoredBounds: [
+    [241, 354, 19, 153],
+    [322, 322, 58, 58],
+    [372, 532, 57, 57],
+    [323, 823, 62, 72],
+  ],
+  trenchRects: [[300, 300, 56, 56], [613, 763, 56, 56]],
+  authoredObstacleCount: 4,
+  expandedObstacleCount: 8,
 };
 
 class MockMapEditorApi {
@@ -217,7 +231,7 @@ class MockMapEditorApi {
     if (request.spec.width !== MOCK_SPEC.width || request.spec.height !== MOCK_SPEC.height) {
       return {
         ok: false,
-        error: 'Mock mode only has canned artwork for a 1235×659 px map.',
+        error: `Mock mode only has canned artwork for a ${MOCK_SPEC.width}×${MOCK_SPEC.height} px map.`,
       };
     }
 
@@ -233,24 +247,30 @@ class MockMapEditorApi {
       renderScale: scale,
       validation: {
         valid: false,
-        reason: 'open horizontal sightline at y=412',
+        reason: 'open sightline on axis 0 deg at intercept 412',
         coverPermille: 88,
         minCoverPermille: 74,
         coverPermilleMin: 40,
         coverPermilleMax: 170,
         openSightlineRows: [412, 416, 420, 508],
-        sightlineXRange: { xLo: 215, xHi: 1020 },
+        openSightlineSpans: [
+          { y: 412, xLo: 160, xHi: 808 },
+          { y: 416, xLo: 158, xHi: 810 },
+          { y: 420, xLo: 156, xHi: 812 },
+          { y: 508, xLo: 106, xHi: 862 },
+        ],
+        sightlineMinSpan: 775,
         redHomeOnOpenFloor: true,
         unreachableTeams: ['blue'],
         centerReachable: true,
         endzoneFlankChecked: false,
         rearGateReachesCenterWithoutEndzone: false,
         endzoneGates: [
-          { name: 'above', state: 'open', x: 185, y: 115 },
-          { name: 'behind', state: 'sealed', x: 41, y: 329 },
+          { name: 'above', state: 'open', x: 170, y: 430 },
+          { name: 'behind', state: 'sealed', x: 60, y: 559 },
         ],
       },
-      derived: { ...cloneJson(MOCK_DERIVED), center: { x: 617, y: 329 } },
+      derived: { ...cloneJson(MOCK_DERIVED), center: { x: 484, y: 559 } },
     };
   }
 
@@ -273,56 +293,81 @@ class MockMapEditorApi {
     const context = canvas.getContext('2d');
     const px = (value) => value * scale;
 
-    context.fillStyle = '#cdbfa9';
+    // The playfield is the pointy-top hexagon inscribed in the box; its six
+    // corners are permanent void that the sim collides as stone. Painting the
+    // whole box as floor — which is what this canned art used to do — would
+    // show a board that cannot be played.
+    const hull = [
+      [484, 0], [968, 280], [968, 839], [484, 1118], [0, 839], [0, 280],
+    ];
+    const traceHull = () => {
+      context.beginPath();
+      context.moveTo(px(hull[0][0]), px(hull[0][1]));
+      for (const [x, y] of hull.slice(1)) context.lineTo(px(x), px(y));
+      context.closePath();
+    };
+
+    context.fillStyle = '#2c2219';
     context.fillRect(0, 0, width, height);
+    context.fillStyle = '#cdbfa9';
+    traceHull();
+    context.fill();
     context.strokeStyle = '#2c2219';
-    context.lineWidth = Math.max(2, px(10));
-    context.strokeRect(0, 0, width, height);
+    context.lineWidth = Math.max(2, px(20));
+    traceHull();
+    context.stroke();
 
     if (overlays.has('protected')) {
       context.fillStyle = '#e4d2ad';
-      context.beginPath();
-      context.arc(px(617), px(329), px(70), 0, Math.PI * 2);
-      context.fill();
-      context.fillRect(px(45), px(189), px(280), px(280));
-      context.fillRect(px(909), px(189), px(280), px(280));
+      for (const [x, y, r] of [[484, 559, 70], [170, 559, 97], [798, 559, 97]]) {
+        context.beginPath();
+        context.arc(px(x), px(y), px(r), 0, Math.PI * 2);
+        context.fill();
+      }
     }
 
     context.fillStyle = '#493827';
-    const rectangles = [
-      [245, 70, 18, 152], [245, 437, 18, 152],
-      [972, 70, 18, 152], [972, 437, 18, 152],
-      [350, 277, 95, 22], [790, 360, 95, 22],
-      [530, 430, 58, 14], [647, 215, 58, 14],
+    const bars = [
+      [241, 354, 19, 153], [709, 354, 19, 153],
+      [300, 700, 95, 22], [574, 780, 95, 22],
+      [330, 830, 58, 14], [581, 240, 58, 14],
     ];
-    for (const [x, y, w, h] of rectangles) {
+    for (const [x, y, w, h] of bars) {
       context.fillRect(px(x), px(y), px(w), px(h));
     }
 
+    // Hexagonal boulders, drawn pointy-top like the hull and like `hexShape`.
     context.fillStyle = '#5c4733';
-    for (const [x, y] of [[405, 167], [405, 492], [829, 167], [829, 492]]) {
+    for (const [x, y] of [[350, 350], [350, 769], [619, 350], [619, 769]]) {
       context.beginPath();
-      context.moveTo(px(x), px(y - 28));
-      context.lineTo(px(x + 28), px(y));
-      context.lineTo(px(x), px(y + 28));
-      context.lineTo(px(x - 28), px(y));
+      for (let i = 0; i < 6; i += 1) {
+        const angle = Math.PI / 6 + (i * Math.PI) / 3;
+        const vx = px(x + 28 * Math.cos(angle));
+        const vy = px(y + 28 * Math.sin(angle));
+        if (i === 0) context.moveTo(vx, vy);
+        else context.lineTo(vx, vy);
+      }
       context.closePath();
       context.fill();
     }
 
     context.fillStyle = '#1e8395';
-    context.beginPath();
-    context.arc(px(489), px(329), px(28), 0, Math.PI * 2);
-    context.fill();
-    context.beginPath();
-    context.arc(px(745), px(329), px(28), 0, Math.PI * 2);
-    context.fill();
+    for (const [x, y] of [[400, 560], [568, 560]]) {
+      context.beginPath();
+      context.arc(px(x), px(y), px(28), 0, Math.PI * 2);
+      context.fill();
+    }
 
     context.fillStyle = '#80674f';
-    context.fillRect(px(250), px(110), px(56), px(56));
-    context.fillRect(px(929), px(493), px(56), px(56));
+    for (const [x, y, w, h] of MOCK_DERIVED.trenchRects) {
+      context.fillRect(px(x), px(y), px(w), px(h));
+    }
 
     if (overlays.has('sightlines')) {
+      // Clipped to the hull, because a row's scanned span IS its chord.
+      context.save();
+      traceHull();
+      context.clip();
       context.strokeStyle = '#a33b32';
       context.lineWidth = Math.max(1, px(2));
       for (const y of [412, 416, 420, 508]) {
@@ -331,11 +376,16 @@ class MockMapEditorApi {
         context.lineTo(width, px(y));
         context.stroke();
       }
+      context.restore();
     }
 
     if (overlays.has('reachability')) {
+      context.save();
+      traceHull();
+      context.clip();
       context.fillStyle = 'rgba(163, 59, 50, 0.16)';
-      context.fillRect(px(820), px(100), px(360), px(459));
+      context.fillRect(px(620), px(200), px(340), px(700));
+      context.restore();
     }
 
     return canvas.toDataURL('image/png').split(',')[1];
@@ -1005,20 +1055,14 @@ class MapViewport {
       context.setLineDash([5, 4]);
       context.beginPath();
 
+      // Every hex zone is the disc around its team's anchor. The box branch
+      // stays because `disc` travels as a FLAG, not an assumption: a future hex
+      // sector zone must show up as an unfamiliar box rather than be silently
+      // drawn as a circle. The C4 corner zone (`diag`) is gone from the format.
       if (zone.disc) {
         const center = this.specToScreen(zone.anchorX, zone.anchorY);
         const radius = zone.radius * this.response.renderScale * this.zoom;
         context.arc(center.x, center.y, radius, 0, Math.PI * 2);
-      } else if (zone.diag) {
-        const corner = this.specToScreen(zone.cornerX, zone.cornerY);
-        const xDirection = zone.cornerX <= this.spec.width / 2 ? 1 : -1;
-        const yDirection = zone.cornerY <= this.spec.height / 2 ? 1 : -1;
-        const xEdge = this.specToScreen(zone.cornerX + xDirection * zone.diagLimit, zone.cornerY);
-        const yEdge = this.specToScreen(zone.cornerX, zone.cornerY + yDirection * zone.diagLimit);
-        context.moveTo(corner.x, corner.y);
-        context.lineTo(xEdge.x, xEdge.y);
-        context.lineTo(yEdge.x, yEdge.y);
-        context.closePath();
       } else {
         const start = this.specToScreen(zone.xLo, zone.yLo);
         const end = this.specToScreen(zone.xHi + 1, zone.yHi + 1);
@@ -1110,8 +1154,7 @@ class MapViewport {
   }
 
   drawTrenches(context) {
-    if (!Array.isArray(this.spec.trenches)) return;
-    for (const trench of this.spec.trenches) {
+    for (const trench of specTrenchRects(this.spec, this.response?.derived)) {
       if (!Array.isArray(trench) || trench.length < 4) continue;
       const [x, y, width, height] = trench;
       const start = this.specToScreen(x, y);
@@ -1199,25 +1242,110 @@ class MapViewport {
   }
 }
 
+// The spec's obstacle vocabulary is ctf/sim_types.nim's ArenaShapeKind:
+// disc | bar | hex | diagonal | polygon. `rect` and `diamond` are GONE from the
+// format — an axis-aligned rectangle only survived the old quarter-turn because
+// a quarter turn preserves axis alignment, and neither kind is closed under the
+// 60-degree rotations a hexagon's group contains. A `bar` (oriented box)
+// subsumes both exactly.
+//
+// A bar carries a DOUBLED centre (cx2/cy2) and half-extents measured in units
+// of |axis| doubled pixels, so an even pixel extent is representable exactly.
+// The editor authors bars in those fields rather than presenting a synthetic
+// x/y/w/h: re-deriving the doubled centre in JavaScript is exactly the
+// fairness-critical arithmetic AGENTS.md keeps out of the browser.
+//
+// `rect` survives ONLY as an internal UI proxy for trench authoring, which the
+// service still exchanges as [x, y, w, h] arrays.
+const AUTHORABLE_OBSTACLES = ['bar', 'disc', 'hex', 'diagonal'];
+
 function obstacleFields(shape) {
   switch (shape.kind) {
-    case 'rect': return ['x', 'y', 'w', 'h'];
-    case 'disc':
-    case 'diamond': return ['cx', 'cy', 'r'];
+    case 'rect': return ['x', 'y', 'w', 'h'];   // trench proxy only
+    case 'disc': return ['cx', 'cy', 'r'];
+    case 'bar': return ['cx2', 'cy2', 'hl', 'hp', 'ux', 'uy'];
+    case 'hex': return ['cx2', 'cy2', 'r2'];
     case 'diagonal': return ['x0', 'y0', 'x1', 'y1', 't'];
+    // polygon: an authored ring of vertices. Point editing is not built, so it
+    // is listed and rendered but has no numeric editor; better than offering
+    // fields that silently do nothing.
     default: return [];
   }
 }
 
 function obstacleSummary(shape) {
   if (shape.kind === 'rect') return `x ${shape.x}, y ${shape.y} · ${shape.w}×${shape.h}`;
-  if (shape.kind === 'disc' || shape.kind === 'diamond') {
-    return `(${shape.cx}, ${shape.cy}) · r ${shape.r}`;
+  if (shape.kind === 'disc') return `(${shape.cx}, ${shape.cy}) · r ${shape.r}`;
+  if (shape.kind === 'bar') {
+    return `c2 (${shape.cx2}, ${shape.cy2}) · ${shape.hl}×${shape.hp} · axis (${shape.ux}, ${shape.uy})`;
+  }
+  if (shape.kind === 'hex') {
+    return `c2 (${shape.cx2}, ${shape.cy2}) · r2 ${shape.r2}${shape.flat ? ' · flat top' : ''}`;
   }
   if (shape.kind === 'diagonal') {
     return `(${shape.x0}, ${shape.y0})→(${shape.x1}, ${shape.y1}) · t ${shape.t}`;
   }
+  if (shape.kind === 'polygon') {
+    return `${(shape.points || []).length} vertices`;
+  }
   return 'Unknown obstacle';
+}
+
+// Authoring chrome only — the dashed envelope and its drag handles, drawn from
+// a shape's own parameters. This is the same class of thing the editor already
+// did for rectangles and discs; it is not a wall predicate, a symmetry image or
+// a capture zone, all of which stay in Nim.
+//
+// A bar's membership test is, for the doubled offset d = 2*(p - c):
+//     |d·u| <= hl  and  |d·n| <= hp,  n = (-uy, ux)
+// so the corner where both are tight sits at d = (hl*u + hp*n) / |u|^2, i.e. at
+// the PIXEL offset (hl*u + hp*n) / (2*|u|^2). Those two half-axis vectors are
+// all the chrome needs.
+function barFrame(shape) {
+  const lengthSquared = shape.ux * shape.ux + shape.uy * shape.uy;
+  if (!lengthSquared) return null;
+  const denominator = 2 * lengthSquared;
+  return {
+    cx: shape.cx2 / 2,
+    cy: shape.cy2 / 2,
+    longX: (shape.hl * shape.ux) / denominator,
+    longY: (shape.hl * shape.uy) / denominator,
+    perpX: (shape.hp * -shape.uy) / denominator,
+    perpY: (shape.hp * shape.ux) / denominator,
+  };
+}
+
+// A regular hexagon of circumradius r2/2. Pointy top unless `flat` is set,
+// matching ArenaShape.flatTop.
+function hexVertices(shape) {
+  const cx = shape.cx2 / 2;
+  const cy = shape.cy2 / 2;
+  const radius = shape.r2 / 2;
+  const turn = shape.flat ? 0 : Math.PI / 6;
+  const points = [];
+  for (let i = 0; i < 6; i += 1) {
+    const angle = turn + (i * Math.PI) / 3;
+    points.push([cx + radius * Math.cos(angle), cy + radius * Math.sin(angle)]);
+  }
+  return points;
+}
+
+function shapeCenter(shape) {
+  switch (shape.kind) {
+    case 'rect': return [shape.x + shape.w / 2, shape.y + shape.h / 2];
+    case 'disc': return [shape.cx, shape.cy];
+    case 'bar':
+    case 'hex': return [shape.cx2 / 2, shape.cy2 / 2];
+    case 'diagonal': return [(shape.x0 + shape.x1) / 2, (shape.y0 + shape.y1) / 2];
+    case 'polygon': {
+      const points = shape.points || [];
+      if (!points.length) return [0, 0];
+      const xs = points.map((point) => point[0]);
+      const ys = points.map((point) => point[1]);
+      return [(Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2];
+    }
+    default: return [0, 0];
+  }
 }
 
 function pointSegmentDistance(px, py, x0, y0, x1, y1) {
@@ -1442,7 +1570,13 @@ class EditingController {
     hint.className = 'section-intro';
     hint.textContent = shape.kind === 'diagonal'
       ? 'Any angle is valid. Hold Shift while dragging an endpoint to snap to 45° increments.'
-      : 'Fields are integer map pixels and commit on Enter or when focus leaves the field.';
+      : shape.kind === 'bar'
+        ? 'cx2/cy2 are the DOUBLED centre and hl/hp are half-extents in units of |axis| doubled pixels, so the true half-width is hl / (2·hypot(ux, uy)). Integers keep a bar and its mirror image bit-identical.'
+        : shape.kind === 'hex'
+          ? 'cx2/cy2 are the DOUBLED centre and r2 the DOUBLED circumradius. Pointy top unless the spec sets "flat".'
+          : shape.kind === 'polygon'
+            ? 'Polygon vertices are authored in the spec JSON; this editor moves the ring but does not edit points.'
+            : 'Fields are integer map pixels and commit on Enter or when focus leaves the field.';
 
     const actions = document.createElement('div');
     actions.className = 'selection-actions';
@@ -1486,33 +1620,22 @@ class EditingController {
   }
 
   shapeCenterInside(shape, rect) {
-    let x;
-    let y;
-    if (shape.kind === 'rect') {
-      x = shape.x + shape.w / 2;
-      y = shape.y + shape.h / 2;
-    } else if (shape.kind === 'diagonal') {
-      x = (shape.x0 + shape.x1) / 2;
-      y = (shape.y0 + shape.y1) / 2;
-    } else {
-      x = shape.cx;
-      y = shape.cy;
-    }
+    const [x, y] = shapeCenter(shape);
     return x >= rect.x && x < rect.x + rect.w && y >= rect.y && y < rect.y + rect.h;
   }
 
+  // The board test uses NIM's bounding box for the authored shape (derived
+  // .authoredBounds), not a JavaScript re-derivation of a bar's axis-aligned
+  // extent. A shape created since the last accepted render has no server box
+  // yet; the next render supplies one, so the warning simply waits rather than
+  // guessing.
   shapeOutsideBoard(shape, spec) {
-    if (shape.kind === 'rect') {
-      return shape.x < 0 || shape.y < 0 || shape.x + shape.w > spec.width || shape.y + shape.h > spec.height;
-    }
-    if (shape.kind === 'disc' || shape.kind === 'diamond') {
-      return shape.cx - shape.r < 0 || shape.cy - shape.r < 0
-        || shape.cx + shape.r >= spec.width || shape.cy + shape.r >= spec.height;
-    }
-    const half = shape.t / 2;
-    return Math.min(shape.x0, shape.x1) - half < 0 || Math.min(shape.y0, shape.y1) - half < 0
-      || Math.max(shape.x0, shape.x1) + half >= spec.width
-      || Math.max(shape.y0, shape.y1) + half >= spec.height;
+    const bounds = this.store.state.render.lastGoodResponse?.derived?.authoredBounds;
+    const index = this.store.state.editing.selection?.index;
+    const box = Array.isArray(bounds) && Number.isInteger(index) ? bounds[index] : null;
+    if (!box) return false;
+    return box[0] < 0 || box[1] < 0
+      || box[0] + box[2] > spec.width || box[1] + box[3] > spec.height;
   }
 
   createObstacle(kind) {
@@ -1524,12 +1647,24 @@ class EditingController {
       || { x: 0, y: 0, w: spec.width, h: spec.height };
     const cx = this.snapCoordinate(seed.x + seed.w / 2);
     const cy = this.snapCoordinate(seed.y + seed.h / 2);
+    // A bar's half-extents are in units of |axis| DOUBLED pixels, so the true
+    // half-width in px is halfLong / (2 * hypot(ux, uy)). On the unit axis
+    // (1, 0) that makes hl = hp = 48 a 49 px box centred exactly on (cx, cy).
+    // The angled seed rides arena.nim's canonical 60-degree axis (153, 265),
+    // |axis| = 306 — the whole point of that scaling is that a 60-degree bar
+    // is congruent to all six of its rotational images with no float in the
+    // loop, so its extents are 2 * 306 * (half-width in px).
     const shapes = {
-      rect: { kind: 'rect', x: cx - 24, y: cy - 24, w: 48, h: 48 },
+      bar: { kind: 'bar', cx2: 2 * cx, cy2: 2 * cy, hl: 48, hp: 48, ux: 1, uy: 0 },
+      barAngled: {
+        kind: 'bar', cx2: 2 * cx, cy2: 2 * cy,
+        hl: 2 * 306 * 60, hp: 2 * 306 * 9, ux: 153, uy: 265,
+      },
       disc: { kind: 'disc', cx, cy, r: 24 },
-      diamond: { kind: 'diamond', cx, cy, r: 28 },
+      hex: { kind: 'hex', cx2: 2 * cx, cy2: 2 * cy, r2: 56 },
       diagonal: { kind: 'diagonal', x0: cx - 24, y0: cy - 24, x1: cx + 24, y1: cy + 24, t: 12 },
     };
+    if (!shapes[kind]) return;
     next.leftObstacles.push(shapes[kind]);
     const selection = { type: 'obstacle', index: next.leftObstacles.length - 1 };
     if (this.store.commitSpec(next, `create ${kind}`, selection)) this.coordinator.schedule({ immediate: true });
@@ -1573,7 +1708,9 @@ class EditingController {
     const shape = next.leftObstacles[selection.index];
     if (!shape) return;
     const field = input.dataset.obstacleField;
-    if (['w', 'h', 'r', 't'].includes(field) && value < 1) {
+    // Extents must be positive; a bar's AXIS components may be negative (they
+    // are a direction, not a size) and its doubled centre may be anything.
+    if (['w', 'h', 'r', 't', 'hl', 'hp', 'r2'].includes(field) && value < 1) {
       input.setCustomValidity(`${field} must be at least 1 px.`);
       input.reportValidity();
       return;
@@ -1808,9 +1945,18 @@ class EditingController {
     if (shape.kind === 'rect') {
       shape.x += dx;
       shape.y += dy;
-    } else if (shape.kind === 'disc' || shape.kind === 'diamond') {
+    } else if (shape.kind === 'disc') {
       shape.cx += dx;
       shape.cy += dy;
+    } else if (shape.kind === 'bar' || shape.kind === 'hex') {
+      // The centre is stored DOUBLED, so a one-pixel nudge is two units.
+      shape.cx2 += 2 * dx;
+      shape.cy2 += 2 * dy;
+    } else if (shape.kind === 'polygon') {
+      for (const point of shape.points || []) {
+        point[0] += dx;
+        point[1] += dy;
+      }
     } else {
       shape.x0 += dx;
       shape.y0 += dy;
@@ -1862,9 +2008,18 @@ class EditingController {
       if (shape.kind === 'rect') {
         shape.x = this.snapCoordinate(base.x + dx);
         shape.y = this.snapCoordinate(base.y + dy);
-      } else if (shape.kind === 'disc' || shape.kind === 'diamond') {
+      } else if (shape.kind === 'disc') {
         shape.cx = this.snapCoordinate(base.cx + dx);
         shape.cy = this.snapCoordinate(base.cy + dy);
+      } else if (shape.kind === 'bar' || shape.kind === 'hex') {
+        // Snap the PIXEL position, then double it — snapping the doubled value
+        // would let the centre land on a half pixel the grid never offered.
+        shape.cx2 = 2 * this.snapCoordinate(base.cx2 / 2 + dx);
+        shape.cy2 = 2 * this.snapCoordinate(base.cy2 / 2 + dy);
+      } else if (shape.kind === 'polygon') {
+        const sdx = this.snapCoordinate(dx);
+        const sdy = this.snapCoordinate(dy);
+        shape.points = (base.points || []).map((point) => [point[0] + sdx, point[1] + sdy]);
       } else {
         const x0 = this.snapCoordinate(base.x0 + dx);
         const y0 = this.snapCoordinate(base.y0 + dy);
@@ -1891,8 +2046,26 @@ class EditingController {
       shape.h = Math.max(1, Math.abs(y1 - y0));
     } else if (shape.kind === 'disc') {
       shape.r = this.snapSize(Math.hypot(point.x - base.cx, point.y - base.cy));
-    } else if (shape.kind === 'diamond') {
-      shape.r = this.snapSize(Math.abs(point.x - base.cx) + Math.abs(point.y - base.cy));
+    } else if (shape.kind === 'bar') {
+      // Drag the tip of one half-axis. The pointer's distance along that axis
+      // is a pixel half-width; the stored extent is that in |axis| doubled px,
+      // which is the ONE conversion the chrome needs (see barFrame).
+      const frame = barFrame(base);
+      if (frame) {
+        const scale = 2 * Math.hypot(base.ux, base.uy);
+        const dxp = point.x - frame.cx;
+        const dyp = point.y - frame.cy;
+        const ux = base.ux / Math.hypot(base.ux, base.uy);
+        const uy = base.uy / Math.hypot(base.ux, base.uy);
+        if (handle === 'long') {
+          shape.hl = Math.max(1, Math.round(Math.abs(dxp * ux + dyp * uy) * scale));
+        } else if (handle === 'perp') {
+          shape.hp = Math.max(1, Math.round(Math.abs(dyp * ux - dxp * uy) * scale));
+        }
+      }
+    } else if (shape.kind === 'hex') {
+      shape.r2 = Math.max(2, 2 * this.snapSize(
+        Math.hypot(point.x - base.cx2 / 2, point.y - base.cy2 / 2)));
     } else if (handle === 'start' || handle === 'end') {
       const fixedX = handle === 'start' ? base.x1 : base.x0;
       const fixedY = handle === 'start' ? base.y1 : base.y0;
@@ -1940,16 +2113,40 @@ class EditingController {
     const scale = this.viewport.response.renderScale * this.viewport.zoom;
     const tolerance = 7 / Math.max(scale, 0.001);
     // Selection deliberately uses parameter envelopes, not Nim's wall
-    // predicates. In particular, discs and diamonds share the same square
-    // proxy and diagonals use only their centerline; carving and thickness do
-    // not decide selection. The authored list remains the canonical fallback.
+    // predicates. Bars use their own oriented box, hexagons their circumradius
+    // square, and diagonals only their centerline; carving and thickness do not
+    // decide selection. The authored list remains the canonical fallback.
     if (shape.kind === 'rect') {
       return point.x >= shape.x - tolerance && point.x <= shape.x + shape.w + tolerance
         && point.y >= shape.y - tolerance && point.y <= shape.y + shape.h + tolerance;
     }
-    if (shape.kind === 'disc' || shape.kind === 'diamond') {
+    if (shape.kind === 'disc') {
       return point.x >= shape.cx - shape.r - tolerance && point.x <= shape.cx + shape.r + tolerance
         && point.y >= shape.cy - shape.r - tolerance && point.y <= shape.cy + shape.r + tolerance;
+    }
+    if (shape.kind === 'bar') {
+      const frame = barFrame(shape);
+      if (!frame) return false;
+      const length = Math.hypot(shape.ux, shape.uy);
+      const ux = shape.ux / length;
+      const uy = shape.uy / length;
+      const dx = point.x - frame.cx;
+      const dy = point.y - frame.cy;
+      return Math.abs(dx * ux + dy * uy) <= Math.hypot(frame.longX, frame.longY) + tolerance
+        && Math.abs(dy * ux - dx * uy) <= Math.hypot(frame.perpX, frame.perpY) + tolerance;
+    }
+    if (shape.kind === 'hex') {
+      const radius = shape.r2 / 2 + tolerance;
+      return Math.abs(point.x - shape.cx2 / 2) <= radius
+        && Math.abs(point.y - shape.cy2 / 2) <= radius;
+    }
+    if (shape.kind === 'polygon') {
+      const points = shape.points || [];
+      if (!points.length) return false;
+      const xs = points.map((entry) => entry[0]);
+      const ys = points.map((entry) => entry[1]);
+      return point.x >= Math.min(...xs) - tolerance && point.x <= Math.max(...xs) + tolerance
+        && point.y >= Math.min(...ys) - tolerance && point.y <= Math.max(...ys) + tolerance;
     }
     return pointSegmentDistance(point.x, point.y, shape.x0, shape.y0, shape.x1, shape.y1)
       <= tolerance;
@@ -1965,8 +2162,28 @@ class EditingController {
       const cy = (y0 + y1) / 2;
       return { nw: [x0, y0], n: [cx, y0], ne: [x1, y0], e: [x1, cy], se: [x1, y1], s: [cx, y1], sw: [x0, y1], w: [x0, cy], move: [cx, cy] };
     }
-    if (shape.kind === 'disc' || shape.kind === 'diamond') {
+    if (shape.kind === 'disc') {
       return { n: [shape.cx, shape.cy - shape.r], e: [shape.cx + shape.r, shape.cy], s: [shape.cx, shape.cy + shape.r], w: [shape.cx - shape.r, shape.cy], move: [shape.cx, shape.cy] };
+    }
+    if (shape.kind === 'bar') {
+      // Two handles, one per half-axis: a general oriented box has no "north
+      // edge" to grab, and eight axis-aligned handles on a 60-degree bar would
+      // be chrome that lies about the shape.
+      const frame = barFrame(shape);
+      if (!frame) return { move: shapeCenter(shape) };
+      return {
+        move: [frame.cx, frame.cy],
+        long: [frame.cx + frame.longX, frame.cy + frame.longY],
+        perp: [frame.cx + frame.perpX, frame.cy + frame.perpY],
+      };
+    }
+    if (shape.kind === 'hex') {
+      const cx = shape.cx2 / 2;
+      const cy = shape.cy2 / 2;
+      return { move: [cx, cy], radius: [cx, cy - shape.r2 / 2] };
+    }
+    if (shape.kind === 'polygon') {
+      return { move: shapeCenter(shape) };
     }
     const mx = (shape.x0 + shape.x1) / 2;
     const my = (shape.y0 + shape.y1) / 2;
@@ -2032,16 +2249,29 @@ class EditingController {
       const center = toScreen(shape.cx, shape.cy);
       const radius = shape.r * this.viewport.response.renderScale * this.viewport.zoom;
       context.arc(center.x, center.y, radius, 0, Math.PI * 2);
-    } else if (shape.kind === 'diamond') {
-      const north = toScreen(shape.cx, shape.cy - shape.r);
-      const east = toScreen(shape.cx + shape.r, shape.cy);
-      const south = toScreen(shape.cx, shape.cy + shape.r);
-      const west = toScreen(shape.cx - shape.r, shape.cy);
-      context.moveTo(north.x, north.y);
-      context.lineTo(east.x, east.y);
-      context.lineTo(south.x, south.y);
-      context.lineTo(west.x, west.y);
+    } else if (shape.kind === 'bar') {
+      const frame = barFrame(shape);
+      if (frame) {
+        const corners = [[1, 1], [1, -1], [-1, -1], [-1, 1]].map(([a, b]) => toScreen(
+          frame.cx + a * frame.longX + b * frame.perpX,
+          frame.cy + a * frame.longY + b * frame.perpY,
+        ));
+        context.moveTo(corners[0].x, corners[0].y);
+        for (const corner of corners.slice(1)) context.lineTo(corner.x, corner.y);
+        context.closePath();
+      }
+    } else if (shape.kind === 'hex') {
+      const corners = hexVertices(shape).map(([x, y]) => toScreen(x, y));
+      context.moveTo(corners[0].x, corners[0].y);
+      for (const corner of corners.slice(1)) context.lineTo(corner.x, corner.y);
       context.closePath();
+    } else if (shape.kind === 'polygon') {
+      const corners = (shape.points || []).map(([x, y]) => toScreen(x, y));
+      if (corners.length) {
+        context.moveTo(corners[0].x, corners[0].y);
+        for (const corner of corners.slice(1)) context.lineTo(corner.x, corner.y);
+        context.closePath();
+      }
     } else {
       const start = toScreen(shape.x0, shape.y0);
       const end = toScreen(shape.x1, shape.y1);
@@ -2125,6 +2355,19 @@ class EditingController {
     }
     context.restore();
   }
+}
+
+// Trenches travel in TWO shapes and always have since GV37: `mapSpecJson`
+// serializes them as shape OBJECTS (they may be any kind, including a curved
+// polygon pit), while the trench UI and `POST /api/symmetry` speak [x, y, w, h]
+// arrays — which `mapFromSpecJson` still accepts, so an edited spec round-trips.
+// Nim sends the rectangle form alongside the render as `derived.trenchRects`;
+// this is the ONE place the two representations are reconciled.
+function specTrenchRects(spec, derived) {
+  const trenches = (spec && spec.trenches) || [];
+  if (trenches.every((entry) => Array.isArray(entry))) return trenches;
+  const rects = (derived && derived.trenchRects) || [];
+  return rects.length === trenches.length ? rects : [];
 }
 
 function memberKey(member) {
@@ -2214,12 +2457,18 @@ class SymmetryPlacementController {
 
   structuralKey(spec) {
     if (!spec) return '';
+    // Trenches enter through `specTrenchRects`, which needs the render's
+    // `derived.trenchRects` to read a spec whose pits are shape objects. That
+    // arrives one round trip AFTER the spec, so the resolved rectangles — not
+    // the raw field — have to be in the key, or a freshly loaded map would show
+    // its pits as "0 orbits" until something else happened to change.
+    const derived = this.store.state.render.lastGoodResponse?.derived;
     return JSON.stringify({
       width: spec.width,
       height: spec.height,
       symmetry: spec.symmetry,
       layout: spec.layout,
-      trenches: spec.trenches || [],
+      trenches: specTrenchRects(spec, derived),
       medKitCandidates: spec.medKitCandidates || [],
       medKitSpawns: spec.medKitSpawns || [],
     });
@@ -2247,8 +2496,14 @@ class SymmetryPlacementController {
     }
     this.busy = true;
     this.render(this.store.state);
+    const derived = this.store.state.render.lastGoodResponse?.derived;
+    const specTrenches = specTrenchRects(spec, derived);
     try {
-      const trenches = spec.symmetry === 'rot90' ? [] : (spec.trenches || []);
+      // Trench orbits are refused on the 4-team board (finalizeTrenches never
+      // places them there), so its stored pits stay read-only rather than being
+      // re-expanded through a service call that would reject them.
+      const fourTeam = spec.symmetry === 'klein4';
+      const trenches = fourTeam ? [] : specTrenches;
       const response = await this.api.symmetry({
         spec: cloneJson(spec),
         trenches: cloneJson(trenches),
@@ -2258,8 +2513,8 @@ class SymmetryPlacementController {
       if (!response || response.ok !== true) {
         throw new Error(response?.error || 'The symmetry service rejected the placements.');
       }
-      this.trenchGroups = spec.symmetry === 'rot90'
-        ? (spec.trenches || []).map((rect) => ({ orbit: [cloneJson(rect)], readOnly: true }))
+      this.trenchGroups = fourTeam
+        ? specTrenches.map((rect) => ({ orbit: [cloneJson(rect)], readOnly: true }))
         : this.groupOrbits(response.trenches || []);
       const active = new Set((spec.medKitSpawns || []).map(memberKey));
       this.medKitGroups = this.groupOrbits(response.medKits || []).map((group) => ({
@@ -2273,7 +2528,7 @@ class SymmetryPlacementController {
     } catch (error) {
       if (revision !== this.operationRevision) return;
       this.error = error instanceof Error ? error.message : String(error);
-      this.trenchGroups = (spec.trenches || []).map((rect) => ({ orbit: [cloneJson(rect)], readOnly: true }));
+      this.trenchGroups = specTrenches.map((rect) => ({ orbit: [cloneJson(rect)], readOnly: true }));
       this.medKitGroups = (spec.medKitCandidates || []).map((point) => ({
         orbit: [cloneJson(point)], readOnly: true,
       }));
@@ -2309,7 +2564,7 @@ class SymmetryPlacementController {
   render(state) {
     const spec = state.document.spec;
     const selection = state.editing.selection;
-    $('new-trench').disabled = !spec || this.busy || !this.ready || spec.symmetry === 'rot90';
+    $('new-trench').disabled = !spec || this.busy || !this.ready || spec.symmetry === 'klein4';
     $('new-med-kit').disabled = !spec || this.busy || !this.ready;
     const status = $('placement-status');
     if (!spec) status.textContent = 'Load a map to author placements.';
@@ -2443,7 +2698,7 @@ class SymmetryPlacementController {
       return;
     }
     const messages = [];
-    if (spec.symmetry === 'rot90') messages.push('Trench authoring is unavailable on rot90 maps; the generator does not support 4-team trenches.');
+    if (spec.symmetry === 'klein4') messages.push('Trench authoring is unavailable on 4-team (klein4) maps; the generator does not place trenches there.');
     if ((spec.medKitSpawns || []).length < 2) messages.push('Fewer than two active med-kit points triggers the runtime hardcoded centre-thirds fallback.');
     const active = new Set((spec.medKitSpawns || []).map(memberKey));
     const candidates = new Set((spec.medKitCandidates || []).map(memberKey));
@@ -2494,7 +2749,7 @@ class SymmetryPlacementController {
 
   addPlacement(type) {
     const spec = this.store.state.document.spec;
-    if (!spec || (type === 'trench' && spec.symmetry === 'rot90')) return;
+    if (!spec || (type === 'trench' && spec.symmetry === 'klein4')) return;
     let [cx, cy] = this.seedCenter(spec);
     if (this.store.state.controls.snapToGrid) {
       const size = this.store.state.controls.gridSize;
@@ -2592,8 +2847,8 @@ class SymmetryPlacementController {
 
   async reexpandForSpec(candidateSpec) {
     if (!this.ready || this.busy) throw new Error('Wait for the current symmetry orbits to resolve.');
-    if (candidateSpec.symmetry === 'rot90' && (candidateSpec.trenches || []).length) {
-      throw new Error('Remove all trenches before switching to rot90 symmetry.');
+    if (candidateSpec.symmetry === 'klein4' && (candidateSpec.trenches || []).length) {
+      throw new Error('Remove all trenches before switching to 4-team (klein4) symmetry.');
     }
     const trenchSeeds = this.trenchGroups.map((group) => group.orbit[0]);
     const medSeeds = this.medKitGroups.map((group) => group.orbit[0]);
@@ -2607,12 +2862,28 @@ class SymmetryPlacementController {
   }
 }
 
+// The mapSpec vocabularies (arena.nim mapSpecJson / mapFromSpecJson).
+//
+// Symmetry is one subgroup of D6, the hexagon's point group. Only the three
+// listed here are pixel-exact AND accepted by validateMap today: `rot120` and
+// `rot60` involve sin 60, so their orbits must be walked in cube coordinates
+// and rasterized once (hex Stage 2b), and the service refuses them — offering
+// them here would be a control that can only fail. `rot90` is deleted outright:
+// C4 is not a subgroup of D6.
+const SPEC_SYMMETRIES = ['mirrorHex', 'rot180', 'klein4'];
+// hex3 (rot120) and hex6 (rot60, and a wider Team enum) wait on the same stage.
+const SPEC_LAYOUTS = ['hex2', 'hex4'];
+// EndzoneShape has exactly one member. It stays a list, not a fixed label, so a
+// future hex-sector zone arrives as a new token instead of a silent default.
+const SPEC_ENDZONES = ['disc'];
+const TWO_TEAM_SYMMETRIES = ['mirrorHex', 'rot180'];
+
 const TIER_ONE_FIELDS = [
   { name: 'width', label: 'Width · px', type: 'number', minimum: 1 },
   { name: 'height', label: 'Height · px', type: 'number', minimum: 1 },
-  { name: 'symmetry', label: 'Symmetry', options: ['mirror', 'rot180', 'rot90'] },
-  { name: 'layout', label: 'Layout', options: ['sides', 'corners', 'plus'] },
-  { name: 'endzone', label: 'Endzone', options: ['column', 'disc', 'square'] },
+  { name: 'symmetry', label: 'Symmetry', options: SPEC_SYMMETRIES },
+  { name: 'layout', label: 'Layout', options: SPEC_LAYOUTS },
+  { name: 'endzone', label: 'Endzone', options: SPEC_ENDZONES },
   { name: 'endzoneRadius', label: 'Endzone radius · px', type: 'number', minimum: 0 },
   { name: 'homeDepth', label: 'Home depth · ‰', type: 'number', minimum: 0 },
   { name: 'flagRing', label: 'Flag ring · px', type: 'number', minimum: 0 },
@@ -2681,35 +2952,46 @@ class TierOneController {
       return;
     }
     const messages = [];
-    if (spec.symmetry === 'rot90' && spec.width !== spec.height) messages.push('rot90 symmetry requires a square board; the service will reject this spec.');
-    if (spec.layout === 'sides' && spec.symmetry === 'rot90') messages.push('Sides layout cannot use rot90 symmetry.');
-    if (spec.layout !== 'sides' && spec.symmetry !== 'rot90') messages.push('Corners and plus layouts require rot90 symmetry.');
-    if (spec.layout !== 'sides' && spec.endzone !== 'column') messages.push('Compact endzones require a 2-team sides layout.');
-    if (spec.endzone === 'column' && spec.endzoneRadius !== 0) messages.push('Column endzones carry no radius; set endzone radius to 0.');
+    // The board is a regular HEXAGON inscribed in width x height. Any group
+    // transitive on 3 or 6 spawns contains a 120-degree rotation, which pins
+    // the bounding box's aspect into [sqrt(3)/2, 2/sqrt(3)] — validateMap
+    // refuses anything else, so flag it before the round trip. Nim still
+    // decides; this only saves a rejected render, and it carries hex.nim
+    // aspectOk's ONE PIXEL of slack: the size-class table is rounded to
+    // integers and the standard 969x1119 class is itself a hair under sqrt(3)/2.
+    const aspect = spec.height ? spec.width / spec.height : 0;
+    const aspectSlack = spec.height ? 1 / spec.height : 0;
+    if (aspect && (aspect < 0.8660254 - aspectSlack || aspect > 1.1547005 + aspectSlack)) {
+      messages.push(`A hex arena's bounding box must be within [0.866, 1.155]; ${aspect.toFixed(4)} is outside it and the service will reject this spec.`);
+    }
+    if (TWO_TEAM_SYMMETRIES.includes(spec.symmetry) && spec.layout !== 'hex2') {
+      messages.push('Mirror and rot180 symmetry seat exactly 2 teams (hex2).');
+    }
+    if (spec.symmetry === 'klein4' && spec.layout !== 'hex4') {
+      messages.push('Klein-four symmetry seats exactly 4 teams (hex4).');
+    }
+    if (spec.layout === 'hex6') messages.push('6-team hex needs a wider Team enum (hex Stage 4); the service will reject this spec.');
+    if (['rot120', 'rot60'].includes(spec.symmetry)) {
+      messages.push('rot120 / rot60 orbits are not pixel-exact and need the cube-space rasterizer (hex Stage 2b); the service will reject this spec.');
+    }
     if (this.authoredGeometryOutside(spec)) messages.push('Some authored geometry or pickup coordinates lie outside the current dimensions.');
     root.textContent = messages.join(' ');
     root.hidden = !messages.length;
   }
 
+  // Envelope bounds come from Nim (`derived.authoredBounds`, one per authored
+  // obstacle, in authored order). A bar's axis-aligned extent depends on its
+  // half-extents AND its integer axis; deriving that here is the browser owning
+  // geometry, which is exactly what the map editor's invariants forbid.
   authoredGeometryOutside(spec) {
+    const derived = this.store.state.render.lastGoodResponse?.derived || {};
     const pointOutside = (point) => point[0] < 0 || point[1] < 0
       || point[0] >= spec.width || point[1] >= spec.height;
     if ((spec.medKitCandidates || []).some(pointOutside) || (spec.medKitSpawns || []).some(pointOutside)) return true;
-    if ((spec.trenches || []).some((rect) => rect[0] < 0 || rect[1] < 0
-        || rect[0] + rect[2] > spec.width || rect[1] + rect[3] > spec.height)) return true;
-    for (const shape of spec.leftObstacles || []) {
-      if (shape.kind === 'rect' && (shape.x < 0 || shape.y < 0
-          || shape.x + shape.w > spec.width || shape.y + shape.h > spec.height)) return true;
-      if ((shape.kind === 'disc' || shape.kind === 'diamond') && (shape.cx - shape.r < 0
-          || shape.cy - shape.r < 0 || shape.cx + shape.r >= spec.width || shape.cy + shape.r >= spec.height)) return true;
-      if (shape.kind === 'diagonal') {
-        const half = shape.t / 2;
-        if (Math.min(shape.x0, shape.x1) - half < 0 || Math.min(shape.y0, shape.y1) - half < 0
-            || Math.max(shape.x0, shape.x1) + half >= spec.width
-            || Math.max(shape.y0, shape.y1) + half >= spec.height) return true;
-      }
-    }
-    return false;
+    const boxOutside = (box) => box[0] < 0 || box[1] < 0
+      || box[0] + box[2] > spec.width || box[1] + box[3] > spec.height;
+    if (specTrenchRects(spec, derived).some(boxOutside)) return true;
+    return (derived.authoredBounds || []).some(boxOutside);
   }
 
   async commitField(field, config) {
@@ -2726,8 +3008,8 @@ class TierOneController {
     }
     field.setCustomValidity('');
     if (spec[config.name] === value) return;
-    if (config.name === 'symmetry' && value === 'rot90' && (spec.trenches || []).length) {
-      field.setCustomValidity('Remove all trenches before switching to rot90 symmetry.');
+    if (config.name === 'symmetry' && value === 'klein4' && (spec.trenches || []).length) {
+      field.setCustomValidity('Remove all trenches before switching to 4-team (klein4) symmetry.');
       field.reportValidity();
       field.value = spec.symmetry;
       return;
@@ -2741,33 +3023,28 @@ class TierOneController {
       // Layout and symmetry are one compatibility choice in the map format.
       // Commit their required counterpart together so the user is not trapped
       // between two service-rejected intermediate states.
+      // A symmetry is a SUBGROUP and the layout is the number of seats its
+      // orbit has; validateMap refuses any other pairing, so commit the
+      // counterpart together rather than trapping the user between two
+      // service-rejected intermediate states. The endzone no longer takes part:
+      // every hex endzone is a disc with a radius, whatever the seat count.
       if (config.name === 'layout') {
-        if (value === 'sides' && next.symmetry === 'rot90') next.symmetry = 'mirror';
-        if (value !== 'sides') {
-          next.symmetry = 'rot90';
-          next.endzone = 'column';
-          next.endzoneRadius = 0;
+        if (value === 'hex2' && !TWO_TEAM_SYMMETRIES.includes(next.symmetry)) {
+          next.symmetry = 'mirrorHex';
         }
+        if (value === 'hex4') next.symmetry = 'klein4';
       }
       if (config.name === 'symmetry') {
-        if (value === 'rot90') {
-          if (next.layout === 'sides') next.layout = 'corners';
-          next.endzone = 'column';
-          next.endzoneRadius = 0;
-        } else if (next.layout !== 'sides') {
-          next.layout = 'sides';
-        }
+        if (value === 'klein4') next.layout = 'hex4';
+        else if (TWO_TEAM_SYMMETRIES.includes(value)) next.layout = 'hex2';
       }
       if (['width', 'height', 'symmetry', 'layout'].includes(config.name)) {
-        const intentionallyInvalidRot90 = next.symmetry === 'rot90' && next.width !== next.height;
-        if (!intentionallyInvalidRot90) {
-          try {
-            next = await this.placements.reexpandForSpec(next);
-          } catch (error) {
-            // Dimension edits are allowed to strand authored geometry. Preserve
-            // it verbatim so the map render can report the authoritative error.
-            if (!['width', 'height'].includes(config.name)) throw error;
-          }
+        try {
+          next = await this.placements.reexpandForSpec(next);
+        } catch (error) {
+          // Dimension edits are allowed to strand authored geometry. Preserve
+          // it verbatim so the map render can report the authoritative error.
+          if (!['width', 'height'].includes(config.name)) throw error;
         }
       }
       if (documentRevision !== this.store.state.document.revision) {
@@ -2901,24 +3178,31 @@ class DiagnosticController {
       });
     }
 
-    const sightlineRange = validation.sightlineXRange;
-    if (sightlineRange) {
-      for (const rows of groupSightlineRows(validation.openSightlineRows)) {
-        const range = rows.length === 1
-          ? `y ${formatInteger(rows[0])} px`
-          : `y ${formatInteger(rows[0])}–${formatInteger(rows.at(-1))} px`;
-        result.push({
-          id: `sightline:${rows.join(',')}`,
-          actionable: true,
-          kind: 'sightline',
-          rows,
-          xLo: sightlineRange.xLo,
-          xHi: sightlineRange.xHi,
-          label: `Open sightline · ${range}`,
-          detail: `${formatInteger(rows.length)} sampled row${rows.length === 1 ? '' : 's'}`,
-          announcement: `open sightline ${range}, x ${formatInteger(sightlineRange.xLo)} to ${formatInteger(sightlineRange.xHi)} pixels`,
-        });
-      }
+    // Rows carry their OWN x span now: a hexagon's rows are chords of different
+    // lengths, so one board-wide band would draw a rule across permanent void
+    // and claim the validator looked there. Nim measures each span
+    // (openSightlineSpans); a run of rows takes the union of its members'.
+    const spans = new Map((validation.openSightlineSpans || [])
+      .map((span) => [span.y, span]));
+    for (const rows of groupSightlineRows(validation.openSightlineRows)) {
+      const members = rows.map((row) => spans.get(row)).filter(Boolean);
+      if (!members.length) continue;
+      const xLo = Math.min(...members.map((span) => span.xLo));
+      const xHi = Math.max(...members.map((span) => span.xHi));
+      const range = rows.length === 1
+        ? `y ${formatInteger(rows[0])} px`
+        : `y ${formatInteger(rows[0])}–${formatInteger(rows.at(-1))} px`;
+      result.push({
+        id: `sightline:${rows.join(',')}`,
+        actionable: true,
+        kind: 'sightline',
+        rows,
+        xLo,
+        xHi,
+        label: `Open lane · ${range}`,
+        detail: `${formatInteger(rows.length)} sampled row${rows.length === 1 ? '' : 's'}`,
+        announcement: `open lane ${range}, x ${formatInteger(xLo)} to ${formatInteger(xHi)} pixels`,
+      });
     }
 
     const anchors = derived.anchors || [];
@@ -2965,6 +3249,19 @@ class DiagnosticController {
         'rear-flank', anchor, 'No route around the endzone',
         behind ? 'Behind gate to center' : 'Behind the Red base', 'rear-flank route failure',
       ));
+    }
+    // A hexagon has THREE pairs of opposite edges and the validator scans a
+    // lane family down each of them, but only the horizontal family is
+    // indexable by a row — a +-60 degree lane reaches the client as prose in
+    // `reason` and nothing else. Without this fallback the failures panel would
+    // be empty on a map the service just rejected, which reads as "no problems
+    // found" and is the worst possible answer.
+    if (!result.length && validation.reason) {
+      result.push({
+        id: 'reason', actionable: false,
+        label: 'Validator failure',
+        detail: validation.reason,
+      });
     }
     return result;
   }
@@ -3127,10 +3424,16 @@ class InspectorView {
     const runs = groupSightlineRows(rows);
     appendDetail(
       details,
-      'Sightlines',
+      'Lanes · 0°',
       rows.length
         ? `${rows.length} open sampled rows · ${runs.length} run${runs.length === 1 ? '' : 's'}`
-        : 'No open cross-field rows',
+        : `No open horizontal lane (min span ${formatInteger(validation.sightlineMinSpan || 0)} px)`,
+    );
+    // The +-60 degree families are scanned too and are NOT in this row list.
+    appendDetail(
+      details,
+      'Lanes · ±60°',
+      validation.valid ? 'Clear' : 'See the reason line — slanted lanes report there only',
     );
 
     const unreachable = validation.unreachableTeams || [];
@@ -3176,7 +3479,7 @@ class InspectorView {
     appendDetail(summary, 'Symmetry', humanizeToken(spec.symmetry));
     appendDetail(summary, 'Endzone', formatEndzone(spec));
     appendDetail(summary, 'Obstacles', `${formatInteger(derived.authoredObstacleCount)} authored · ${formatInteger(derived.expandedObstacleCount)} expanded`);
-    appendDetail(summary, 'Trenches', `${formatInteger((spec.trenches || []).length)} full-map rectangles`);
+    appendDetail(summary, 'Trenches', `${formatInteger((spec.trenches || []).length)} full-map pits`);
     appendDetail(summary, 'Render scale', `${response.renderScale.toFixed(4)} image px per map px`);
 
     const seed = derived.seedRegion;
@@ -3207,9 +3510,9 @@ class InspectorView {
     )));
 
     addMarkerGroup(root, 'Capture zones', (derived.captureZones || []).map((zone) => {
-      const shape = zone.diag ? `diagonal · L1 limit ${zone.diagLimit} px`
-        : zone.disc ? `disc · radius ${zone.radius} px`
-          : `box · x ${zone.xLo}–${zone.xHi} px · y ${zone.yLo}–${zone.yHi} px`;
+      const shape = zone.disc
+        ? `disc · radius ${zone.radius} px`
+        : `box · x ${zone.xLo}–${zone.xHi} px · y ${zone.yLo}–${zone.yHi} px`;
       return `${humanizeToken(zone.team)} · ${shape}`;
     }));
 
@@ -3225,7 +3528,7 @@ class InspectorView {
       `${formatPoint(diamond.cx, diamond.cy)} · L1 radius ${formatInteger(diamond.r)} px`
     )));
 
-    addMarkerGroup(root, 'Trenches', (spec.trenches || []).map((trench) => (
+    addMarkerGroup(root, 'Trenches', specTrenchRects(spec, derived).map((trench) => (
       `x ${formatInteger(trench[0])} px · y ${formatInteger(trench[1])} px · ${formatInteger(trench[2])} × ${formatInteger(trench[3])} px`
     )));
   }
@@ -3256,9 +3559,8 @@ function addMarkerGroup(root, heading, items) {
 }
 
 function formatEndzone(spec) {
-  if (spec.endzone === 'column') {
-    return `Column · base depth ${formatInteger(spec.homeDepth)}‰ of half-field`;
-  }
+  // Every hex endzone is a disc with a radius; the `column` strip pinned to a
+  // straight home border has no meaning on a hexagon and is gone.
   return `${humanizeToken(spec.endzone)} · radius ${formatInteger(spec.endzoneRadius)} px · base depth ${formatInteger(spec.homeDepth)}‰ of half-field`;
 }
 

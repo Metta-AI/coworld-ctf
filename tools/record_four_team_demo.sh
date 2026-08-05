@@ -3,6 +3,14 @@
 # dealt round the four teams (red, blue, green, yellow — slot mod 4), each
 # seat a baseline bot. Demo fixture for the multi-team replay viewer.
 # Usage: tools/record_four_team_demo.sh <corners|plus> <out.bitreplay RELATIVE to repo root> <seed> [maxTicks]
+#
+# NOT RUNNABLE ON THE HEX ARENA YET (GV37 / hex Stage 2). 4-team generation is
+# gone for now: `corners` and `plus` were C4 orbits and C4 is not a subgroup of
+# D6, so the 4-team hex layout is Klein-four ("hex4") and its terrain orbit
+# needs the cube-space rasterizer (Stage 2b). The server refuses `teams = 4`
+# with exactly that reason, so this script fails loudly rather than recording a
+# wrong fixture. The recipe below is preserved verbatim for when 2b lands;
+# `mapLayout` will then take "hex4", not "corners"/"plus".
 set -euo pipefail
 cd "$(dirname "$0")/.."
 LAYOUT="$1"; OUT="$2"; SEED="$3"; MAXTICKS="${4:-5000}"; PORT="${PORT:-21200}"

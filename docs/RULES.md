@@ -16,16 +16,38 @@ tasks, voting) with teams, guns, hearts, and fog-of-war vision.
 
 ## Overview
 
-- **16 players, 8 vs 8.** Red team spawns along the **left edge**, Blue along the
-  **right edge**.
+- **GameVersion 38: the arena is a HEXAGON.** The playfield is a regular
+  hexagon, POINTY-TOP (a vertex at the top and bottom, flat walls left and
+  right), inscribed in a portrait bounding box — 969x1119 on the standard size
+  class, against the old 1235x659 rectangle, chosen to hold the PLAYFIELD AREA
+  constant. The wire format is unchanged: coordinates are still absolute pixels
+  in that bounding box, and **the six corners of the box are permanent void** —
+  they are wall, they are opaque, and nothing spawns, walks, or shoots there.
+  A policy that assumes a rectangular field will walk into a wall at 45 degrees
+  from the center; the walkability sprite is the channel that carries the true
+  shape.
+  - Movement stays continuous pixel-space. There is no hex-cell movement.
+  - Symmetry is now a subgroup of **D6**, the hexagon's point group: a mirror
+    or a half turn for 2 teams. The old 90-degree rotational (4-team) boards
+    are gone — **C4 is not a hex symmetry**, so a quarter turn cannot map the
+    board onto itself.
+  - Every capture zone is a **disc** around its team's base. The `column`,
+    `square`, `corner`, and `arm` endzone shapes are retired along with the
+    straight edges they were pinned to; `disc` is the only token the
+    `endzone <color> <shape> ...` marker now emits.
+- **16 players, 8 vs 8.** Red team spawns on the **left**, Blue on the
+  **right** — the hexagon's two flat walls, and the one 2-team orbit that
+  keeps the historical left/right frame.
 - **Two team hearts**, one on each team's **home pedestal** inside its spawn
   pocket (classic two-object CTF, with hearts for flags).
-- The arena is filled with **staggered cover** (a slalom of offset wall
-  stubs, diamonds, discs, and diagonal chevron walls, mirrored symmetrically so
-  neither team has a positional advantage): **no straight shot crosses the
-  field**, so every approach is a series of corners. GameVersion 16 thinned
-  the disc column to every other disc, opening real gaps in the mid-field
-  slalom.
+- The arena is filled with **staggered cover** (a slalom of offset wall bars,
+  hexagons, discs and diagonal chevron walls, mirrored symmetrically so neither
+  team has a positional advantage): **no straight shot crosses the field**, so
+  every approach is a series of corners. Since GameVersion 38 that rule is
+  enforced down **all three of the hexagon's axes** (0, 60 and 120 degrees),
+  not just the horizontal — a hexagon has three pairs of opposite edges where
+  a rectangle had one that mattered, and a lane down any of them is the same
+  cross-field snipe.
 - The **eight diamonds flanking the center spin**, and since **GameVersion 28
   the spin is real geometry**: the rotating silhouette you see is the exact
   footprint that stops your feet, your bullets, and your line of sight. A
@@ -89,17 +111,17 @@ tasks, voting) with teams, guns, hearts, and fog-of-war vision.
   (vertical mirror or 180° rotation), no straight cross-field shot,
   corridors at least twice the player footprint, a bounded cover budget —
   and draw their size class (`small` / `standard` / `large` / `huge` /
-  `giant` — `giant` is the old `large` ceiling doubled, up to 3211x1713 on
-  a 2-team board; obstacle sizes never scale, bigger fields draw more
+  `giant` — the hexagon bounding boxes are 824x951 / 969x1119 / 1260x1455 /
+  1744x2014 / 2519x2909, each holding the same PLAYFIELD area as the
+  rectangle it replaced; obstacle sizes never scale, bigger fields draw more
   cover columns instead), obstacle columns, glass placements, center
-  feature, endzone archetype, and med-kit pair per map. The exact geometry
+  feature, endzone radius, and med-kit pair per map. The exact geometry
   is pinned into the match config/replay as `mapSpec`. The default league
   map remains the hand-tuned arena described above; leagues opt in through
   their own config.
-- **Compact endzones** are one of those draws. Half of generated 2-team maps
-  keep the classic home column; the rest pull the base **well off its home
-  edge** and wrap it in a **disc or square endzone** (`mapEndzone`:
-  `"column"` / `"disc"` / `"square"`), which turns the whole home border
+- **Endzones are discs** (`mapEndzone: "disc"` — the only accepted value since
+  GameVersion 38). The base sits **well off the hull** and is wrapped in a
+  round scoring zone, which turns the whole home border
   strip into ordinary **wilderness** — cover, glass and pits wrap all the
   way around and behind the base. Scoring follows the shape: a carrier
   scores by crossing the painted ring from ANY side, including from behind.
@@ -139,8 +161,25 @@ tasks, voting) with teams, guns, hearts, and fog-of-war vision.
 
 ## Four-team mode (config-gated)
 
+> **SUSPENDED at GameVersion 38 (hex arena).** Four-team play was built on
+> `rot90` symmetry: a generated quadrant replicated by quarter turns on a
+> square board. **C4 is not a subgroup of D6**, so a quarter turn does not map
+> a hexagon onto itself and that construction has no hex analogue — it is
+> deleted, not ported. The replacement is the **Klein four-group**
+> V4 = {identity, mirror-x, mirror-y, half turn}, which IS a subgroup of D6,
+> acts freely on four spawns, and (because all four of its elements are exact
+> on a square pixel lattice) is exactly as fair as the rot90 boards it
+> replaces. The geometry for it is in place — `symKlein4` / `layoutHex4`,
+> `teamAnchor`, `teamImagePoint` and `captureZone` all work — but the
+> GENERATOR does not emit 4-team maps yet, so `"teams": 4` currently raises.
+> The one real cost to plan for is **handedness**: two of the four teams reach
+> their seat through a MIRROR, so a learned route flips chirality for them.
+>
+> The rest of this section describes the retired square boards and is kept as
+> the record of what 4-team play meant.
+
 The default game is the classic 2-team arena above; nothing changes unless a
-config opts in. With `"teams": 4` (and `"mapPath": "gen"`), the game seats
+config opts in. With `"teams": 4` (and `"mapPath": "gen"`), the game seated
 FOUR teams — **Red, Blue, Green, Yellow** — in a free-for-all on a generated
 square map:
 
@@ -728,15 +767,20 @@ pixels, and `<shape>` says how the zone fills that box:
 
 | Shape | Where | Zone membership |
 |-------|-------|-----------------|
-| `column` | 2-team sides maps (classic) | the full box |
-| `square` | 2-team compact-endzone maps | the full box |
-| `disc` | 2-team compact-endzone maps | the circle inscribed in the box (center = box center, radius = half extent); the box corners are NOT in the zone |
-| `corner` | 4-team corners maps | the L1 triangle hugging the map corner the box touches; the threshold edge is the diagonal joining the box's two corners adjacent to that map corner |
-| `arm` | 4-team plus maps | the full box |
+| `disc` | every map | the circle inscribed in the box (center = box center, radius = half extent); the box corners are NOT in the zone |
+
+**GameVersion 38 reduced this vocabulary to one token.** `column`, `square`,
+`corner` and `arm` each described a straight-edged zone pinned to a
+rectangular board's edges or corners, and the hexagonal arena is all-disc.
+A policy that still matches one of the retired tokens will now match nothing
+— which is the intended failure. The alternative, and the reason the emitter
+has no fallthrough arm any more, is far worse: a new zone shape silently
+reported as `column` would tell every policy that its ENTIRE BOUNDING BOX
+scores.
 
 Match the prefix `endzone `; the tail splits on spaces into
 `["<color>", "<shape>", "<x0>,<y0>", "<x1>,<y1>"]`, each corner splitting once
-more on the comma. Validate `<shape>` against the five tokens above: the
+more on the comma. Validate `<shape>` against the token table above: the
 SPECTATOR stream also emits `endzone <color> power <n>` glow overlays under
 the same prefix (the player stream does not). Scoring rules are unchanged —
 these markers restate the geometry the sim already plays; before they existed

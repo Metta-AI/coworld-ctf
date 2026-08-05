@@ -30,36 +30,24 @@ proc lobbyStartSecondsRemaining*(sim: SimServer): int =
   max(1, (ticks + TargetFps - 1) div TargetFps)
 
 proc spawnAimBrads*(gameMap: CtfMap, team: Team): int =
-  ## Returns the spawn/respawn aim angle: toward the map center, so every
-  ## team wakes facing the fight. Sides maps keep the classic east/west pair;
-  ## corner teams face the diagonal, plus arms face along their arm.
-  case gameMap.layout
-  of layoutSides:
-    if team == Red:
-      0                        ## east, toward Blue.
-    else:
-      AimBradsTurn div 2       ## west, toward Red.
-  of layoutCorners:
-    ## 0 = east, counter-clockwise: SE 224, SW 160, NE 32, NW 96.
-    case team
-    of Red:
-      AimBradsTurn - AimBradsTurn div 8      ## top-left faces south-east.
-    of Blue:
-      AimBradsTurn div 2 + AimBradsTurn div 8  ## top-right faces south-west.
-    of Green:
-      AimBradsTurn div 8                     ## bottom-left faces north-east.
-    of Yellow:
-      AimBradsTurn div 2 - AimBradsTurn div 8  ## bottom-right faces north-west.
-  of layoutPlus:
-    case team
-    of Red:
-      0                        ## west arm faces east.
-    of Blue:
-      AimBradsTurn div 2       ## east arm faces west.
-    of Green:
-      3 * AimBradsTurn div 4   ## north arm faces south.
-    of Yellow:
-      AimBradsTurn div 4       ## south arm faces north.
+  ## Returns the spawn/respawn aim angle: toward the map center, so every team
+  ## wakes facing the fight.
+  ##
+  ## DERIVED from the anchor's true bearing rather than tabled per layout. A
+  ## hex board's spawn ring is not on the coordinate axes, and on a 4-team
+  ## board two of the four teams reach their seat through a MIRROR, which no
+  ## quarter-turn table can express (plan section 0.1) — a tabled facing would
+  ## silently point one pair of teams the wrong way.
+  ##
+  ## The result is snapped to the 32-slot aim grid: since GV36 every aim in the
+  ## game is a multiple of 8 brads, and a spawn aim that was not would be one
+  ## the rotate button can never return to.
+  let
+    anchor = gameMap.teamAnchor(team)
+    raw = bradsOfVector(gameMap.center.x - anchor.x,
+                        gameMap.center.y - anchor.y)
+    slot = AimBradsTurn div AimRotations
+  ((raw + slot div 2) div slot * slot) mod AimBradsTurn
 
 proc spawnFlipH*(gameMap: CtfMap, team: Team): bool =
   ## Returns whether a team's sprite spawns horizontally flipped: any spawn
@@ -277,9 +265,13 @@ proc spawnPosition*(sim: SimServer, team: Team, order: int): tuple[x, y: int] =
     spread = 36
     stepMajor = (strip - 1) * spread
     stepMinor = (if order mod 2 == 0: -6 else: 6)
-    vertical = sim.gameMap.layout != layoutPlus or team in {Red, Blue}
-    targetX = if vertical: anchor.x + stepMinor else: anchor.x + stepMajor
-    targetY = if vertical: anchor.y + stepMajor else: anchor.y + stepMinor
+    ## Stagger ACROSS the team's line of advance: the minor jitter runs
+    ## toward the center, the major spread runs perpendicular to it. On the
+    ## 2-team board that is exactly the historical "down the side" column.
+    horizontal = abs(sim.gameMap.center.x - anchor.x) >=
+      abs(sim.gameMap.center.y - anchor.y)
+    targetX = if horizontal: anchor.x + stepMinor else: anchor.x + stepMajor
+    targetY = if horizontal: anchor.y + stepMajor else: anchor.y + stepMinor
   sim.nearestWalkable(targetX, targetY)
 
 proc captureZone*(sim: SimServer, team: Team): CaptureZone =
@@ -300,11 +292,10 @@ proc randomEndzonePosition*(sim: var SimServer, team: Team):
   var
     x = xLo + sim.rng.rand(xHi - xLo)
     y = yLo + sim.rng.rand(yHi - yLo)
-  if zone.diag or zone.disc:
-    ## A diagonal corner zone fills half its bounding box and a round
-    ## compact zone about three quarters of it: redraw until the point falls
-    ## inside (deterministic — pure rng sequence), with the anchor as a
-    ## guaranteed landing spot if the draws run cold.
+  if zone.disc:
+    ## A round zone fills about three quarters of its bounding box: redraw
+    ## until the point falls inside (deterministic — pure rng sequence), with
+    ## the anchor as a guaranteed landing spot if the draws run cold.
     var attempts = 0
     while not zone.inCaptureZone(x, y) and attempts < 16:
       x = xLo + sim.rng.rand(xHi - xLo)

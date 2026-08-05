@@ -230,6 +230,26 @@ proc parseRenderOptions(node: JsonNode): MapRenderOptions =
     else:
       raiseRequestError("Unknown render overlay: " & item.getStr() & ".")
 
+proc sightlineSpansNode(gameMap: CtfMap, rows: seq[int]): JsonNode =
+  ## The x span each reported open row actually occupies INSIDE the hull.
+  ##
+  ## On the rectangle every row spanned one fixed band, so the service sent a
+  ## single `sightlineXRange` pair for all of them. A hexagon's rows are chords
+  ## of different lengths, so one pair would draw a rule across ground that is
+  ## permanent void — the client would be told the validator checked pixels it
+  ## never looked at. Nim measures it per row; the browser still derives no
+  ## geometry of its own.
+  result = newJArray()
+  for y in rows:
+    var xLo, xHi = -1
+    for (x, _) in gameMap.sightlinePixels(0, y):
+      if gameMap.mapBorderWallAt(x, y):
+        continue
+      if xLo < 0:
+        xLo = x
+      xHi = x
+    result.add %*{"y": y, "xLo": max(xLo, 0), "xHi": max(xHi, 0)}
+
 proc diagnosticsNode(gameMap: CtfMap, diagnostics: MapDiagnostics): JsonNode =
   ## Every positional detail the validator knows travels with the verdict, so a
   ## client can point at a failure without deriving geometry or scraping the
@@ -256,13 +276,15 @@ proc diagnosticsNode(gameMap: CtfMap, diagnostics: MapDiagnostics): JsonNode =
     "minCoverPermille": diagnostics.minCoverPermille,
     "coverPermilleMin": CoverPermilleMin,
     "coverPermilleMax": CoverPermilleMax,
+    # Only the HORIZONTAL family is indexable by a row. The validator also
+    # scans the +-60 degree families (a hexagon has three pairs of opposite
+    # edges, and a lane down any of them is the same cross-field snipe); those
+    # failures reach the client through `reason` alone, so a client must not
+    # read an empty `openSightlineRows` as "no open lanes".
     "openSightlineRows": diagnostics.openSightlineRows,
-    # The x band the sightline scan actually covers. A rule drawn across the
-    # full width would claim the validator checked ground it never looked at.
-    "sightlineXRange": {
-      "xLo": gameMap.sightlineLoX(),
-      "xHi": gameMap.sightlineHiX(),
-    },
+    "openSightlineSpans":
+      sightlineSpansNode(gameMap, diagnostics.openSightlineRows),
+    "sightlineMinSpan": gameMap.sightlineMinSpan(),
     "unreachableTeams": teamNamesNode(diagnostics.unreachableTeams),
     "centerReachable": diagnostics.centerReachable,
     "redHomeOnOpenFloor": diagnostics.redHomeOnOpenFloor,
@@ -273,6 +295,12 @@ proc diagnosticsNode(gameMap: CtfMap, diagnostics: MapDiagnostics): JsonNode =
   }
 
 proc captureZonesNode(gameMap: CtfMap): JsonNode =
+  ## Every hex capture zone is the DISC around its team's anchor; the box is
+  ## its bounding box, which is what the strip and diff-box machinery scans.
+  ## The C4-era `diag` / `cornerX` / `cornerY` / `diagLimit` corner zone is
+  ## gone from `CaptureZone` and so is gone from the wire — `disc` is still
+  ## sent as a flag rather than assumed, so a future sector zone cannot be
+  ## silently drawn as a circle.
   result = newJArray()
   for team in gameMap.teams():
     let zone = gameMap.captureZone(team)
@@ -282,10 +310,6 @@ proc captureZonesNode(gameMap: CtfMap): JsonNode =
       "xHi": zone.xHi,
       "yLo": zone.yLo,
       "yHi": zone.yHi,
-      "diag": zone.diag,
-      "cornerX": zone.cornerX,
-      "cornerY": zone.cornerY,
-      "diagLimit": zone.diagLimit,
       "disc": zone.disc,
       "anchorX": zone.anchorX,
       "anchorY": zone.anchorY,
@@ -320,6 +344,24 @@ proc derivedNode(gameMap: CtfMap): JsonNode =
       "cy": diamond.cy,
       "r": diamond.radius,
     }
+  ## The authored shapes' bounding boxes, in AUTHORED order, so the client can
+  ## say "this envelope hangs off the board" without deriving a bar's
+  ## axis-aligned extent itself. A bar's half-extents live in units of |axis|
+  ## DOUBLED pixels; re-deriving that in JavaScript is precisely the
+  ## fairness-critical arithmetic the browser must not own.
+  var authoredBounds = newJArray()
+  for shape in gameMap.leftObstacles:
+    let r = shapeAsRect(shape)
+    authoredBounds.add rectNode(r)
+  ## Trenches as [x, y, w, h], which is the form the trench UI and
+  ## `POST /api/symmetry` both speak. Since GV37 the SPEC serializes trenches
+  ## as shape objects (they may be any kind, including polygon), so a client
+  ## reading `spec.trenches` as rectangles reads objects and renders nothing.
+  ## `shapeAsRect` is exact for the axis-aligned pits the generator digs and a
+  ## bounding box for anything else.
+  var trenchRects = newJArray()
+  for trench in gameMap.trenches:
+    trenchRects.add rectNode(shapeAsRect(trench))
   %*{
     "teamCount": gameMap.teamCount(),
     # Trivially derivable from the dimensions, but returning it keeps the
@@ -341,6 +383,8 @@ proc derivedNode(gameMap: CtfMap): JsonNode =
       "medKitCandidate": mapPointsNode(gameMap.medKitCandidates),
     },
     "spinningDiamonds": diamondNodes,
+    "authoredBounds": authoredBounds,
+    "trenchRects": trenchRects,
     "authoredObstacleCount": gameMap.leftObstacles.len,
     "expandedObstacleCount": obstacles.len,
   }
@@ -403,7 +447,7 @@ proc symmetryResponseNode(body: string): JsonNode =
   let
     trenches = parseTrenches(request.requiredField("trenches"), gameMap)
     medKits = parseMedKits(request.requiredField("medKits"), gameMap)
-  if gameMap.symmetry == symRot90 and trenches.len > 0:
+  if gameMap.symmetry == symKlein4 and trenches.len > 0:
     raiseRequestError("Trenches are not supported on 4-team maps yet.")
   var
     trenchOrbits = newJArray()

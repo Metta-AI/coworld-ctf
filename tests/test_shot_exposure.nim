@@ -3,31 +3,42 @@ import
   ctf/sim
 import helpers except initCtfForTest
 
+## The scene: a shooter northwest of a single stone stub, sweeping its aim
+## through all 256 brads and firing every angle. One target stands fully in the
+## open due south; the same distance away, another pokes out past the stub's
+## south-east corner at varying depths of cover. Exposure-sampled hit resolution
+## means the number of aim angles that connect scales with how much body the
+## target shows.
+##
+## The stub is PLACED (`helpers.coverHexConfig`) rather than borrowed from the
+## hand-authored arena. It is the same 19x63 block in the same relative
+## position the rectangular board's column-1 stub gave for free; on the hexagon
+## the old absolute coordinates are in the void above the hull, and any
+## replacement borrowed from `arenaHexObstacles` would move whenever the arena
+## is re-tuned.
+const
+  StubRect = MapRect(x: 300, y: 290, w: 19, h: 63)
+  ShooterX = 272
+  ShooterY = 320
+  OpenX = 272                 # due south of the shooter, nothing between.
+  OpenY = 383
+  DeepX = 319                 # tucked close behind the stub's SE corner:
+  DeepY = 366                 # center-line blocked, a south sliver exposed.
+  ShallowX = 313              # a step out of the same corner's shadow:
+  ShallowY = 366              # more silhouette shown, still partly covered.
+  CoveredX = 328              # fully inside the stub's shadow.
+  CoveredY = 360
+
 proc initCtfForTest(): SimServer =
-  ## Initializes the CTF sim from the game directory (so data/ resolves).
+  ## Initializes the CTF sim from the game directory (so data/ resolves), on
+  ## the bare hexagon plus the one stub this scene is built around.
   let previousDir = getCurrentDir()
   setCurrentDir(GameDir)
   try:
-    result = initSimServer(defaultGameConfig())
+    result = initSimServer(coverHexConfig(@[rectShape(StubRect)]))
     result.gameEventLoggingEnabled = false
   finally:
     setCurrentDir(previousDir)
-
-## The scene: a shooter northwest of column 1's stone stub (x 268..286,
-## y 10..72), sweeping its aim through all 256 brads and firing every angle.
-## One target stands fully in the open due south; the same distance away,
-## another pokes out past the stub's south-east corner at varying depths of
-## cover. Exposure-sampled hit resolution means the number of aim angles
-## that connect scales with how much body the target shows.
-const
-  ShooterX = 240
-  ShooterY = 40
-  OpenX = 240                 # due south of the shooter, nothing between.
-  OpenY = 103
-  DeepX = 284                 # tucked close behind the stub's SE corner:
-  DeepY = 80                  # center-line blocked, a south sliver exposed.
-  ShallowX = 276              # a step out of the same corner's shadow:
-  ShallowY = 92               # more silhouette shown, still partly covered.
 
 suite "shot exposure: more exposed opponents get hit more often":
   proc sweepHits(game: var SimServer, targetX, targetY: int): int =
@@ -62,6 +73,11 @@ suite "shot exposure: more exposed opponents get hit more often":
     check game.canOccupy(ShallowX, ShallowY)
     check not game.segmentBlocked(ShooterX, ShooterY, OpenX, OpenY)
     check game.segmentBlocked(ShooterX, ShooterY, DeepX, DeepY)
+    # ...and the stub is real, sitting exactly where the scene says it does.
+    check game.isWall(StubRect.x, StubRect.y)
+    check game.isWall(StubRect.x + StubRect.w - 1, StubRect.y + StubRect.h - 1)
+    check not game.isWall(StubRect.x - 1, StubRect.y)
+    check not game.isWall(StubRect.x, StubRect.y + StubRect.h)
 
   test "hit angles grow monotonically with exposure":
     let
@@ -79,6 +95,6 @@ suite "shot exposure: more exposed opponents get hit more often":
   test "full cover is still full immunity":
     # Fully behind the stub (well inside the corner's shadow) no aim
     # angle connects at all.
-    let coveredHits = game.sweepHits(300, 56)
-    check game.segmentBlocked(ShooterX, ShooterY, 300, 56)
+    let coveredHits = game.sweepHits(CoveredX, CoveredY)
+    check game.segmentBlocked(ShooterX, ShooterY, CoveredX, CoveredY)
     check coveredHits == 0

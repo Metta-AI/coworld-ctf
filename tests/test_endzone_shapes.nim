@@ -1,127 +1,192 @@
-## Compact endzones: the base sits well off its edge, the scoring region is a
-## disc or square wrapped around it, and the freed home strip is wilderness.
+## Endzones on the hexagonal arena. Every board is ALL-DISC now: `ezDisc` is
+## the one endzone geometry that survives a rotation, so the archetype draw is
+## gone and what remains is the disc's RADIUS and the base's DEPTH.
+##
+## `ezColumn` (a full-height strip pinned to a straight home border) has no
+## meaning on a hexagon — there is no straight home border — and `ezSquare` is
+## not closed under a 60-degree turn; both are deleted with their tests. The
+## properties those tests were really protecting survive here, re-expressed:
+## the scoring region wraps the base rather than the border, the ground behind
+## the base is ordinary field carrying real cover, and a base pushed too deep
+## or a disc grown too fat is refused rather than shipped.
 import
   helpers,
   std/[strutils, unittest],
   bitworld/spriteprotocol,
-  ctf/sim, ctf/map_pool
+  ctf/[global, sim], ctf/map_pool
 
-proc compactMap(shape: string, seed = 4242): CtfMap =
+proc discMap(seed = 4242): CtfMap =
   generateCtfMap(seed, MapGenOverrides(
-    windows: -1, pits: -1, pitDensity: -1, endzone: shape))
+    windows: -1, pits: -1, pitDensity: -1, endzone: "disc"))
 
-proc compactConfig(shape: string, seed = 4242): GameConfig =
+proc discConfig(seed = 4242): GameConfig =
   result = defaultGameConfig()
   result.update("""{"mapPath": "gen", "mapSeed": """ & $seed &
-    """, "mapEndzone": """" & shape & """", "minPlayers": 1}""")
+    """, "mapEndzone": "disc", "minPlayers": 1}""")
 
-suite "compact endzones":
-  test "the hand-authored arenas are untouched":
+suite "endzone discs":
+  test "the hand-authored arenas wear the one hex endzone":
     for name in ["arena", "arena-large"]:
       let gameMap = loadCtfMapMetadata(name)
-      check gameMap.endzone == ezColumn
-      check gameMap.endzoneRadius == 0
-      check gameMap.captureZone(Red).xLo == 0
-    check loadCtfMapMetadata("arena").teamHomeX(Red) == 186
-    check loadCtfMapMetadata("arena").teamHomeX(Blue) == 1049
+      check gameMap.endzone == ezDisc
+      check gameMap.endzoneRadius > 0
+      let zone = gameMap.captureZone(Red)
+      check zone.disc
+      check zone.radius == gameMap.endzoneRadius
+      ## The zone is the disc's bounding BOX around the anchor, nowhere near
+      ## the hull: on a hexagon a zone flush against x = 0 would be half void.
+      check zone.xLo == gameMap.teamAnchor(Red).x - gameMap.endzoneRadius
+      check zone.xLo > ArenaBorder
+      check gameMap.mapBoard().hexEdgeDist(
+        gameMap.teamAnchor(Red).x, gameMap.teamAnchor(Red).y) >
+        float(gameMap.endzoneRadius + EndzoneWallMargin)
+    ## The two homes are exact mirror images on the standard hexagon.
+    let arena = loadCtfMapMetadata("arena")
+    check arena.teamHomeX(Red) == 170
+    check arena.teamHomeX(Blue) == arena.width - 1 - arena.teamHomeX(Red)
 
-  test "both compact shapes generate, validate and are deterministic":
-    for shape in ["disc", "square"]:
-      let gameMap = compactMap(shape)
-      check gameMap == compactMap(shape)
-      check validateGeneratedMap(gameMap) == ""
-      check gameMap.endzone == (if shape == "disc": ezDisc else: ezSquare)
-      check gameMap.endzoneRadius >= EndzoneRadiusMin
-      check gameMap.endzoneRadius <= EndzoneRadiusMax
+  test "the disc endzone generates, validates and is deterministic":
+    let gameMap = discMap()
+    check gameMap == discMap()
+    check validateGeneratedMap(gameMap) == ""
+    check gameMap.endzone == ezDisc
+    ## The radius bounds SCALE with the board: `EndzoneRadiusMin` was authored
+    ## against the old 1235-wide field, and the hex classes are narrower at
+    ## equal playfield area, so a flat 90 sat above what the small class's own
+    ## draw produces.
+    check gameMap.endzoneRadius >= minEndzoneRadius(gameMap.width)
+    check gameMap.endzoneRadius <= maxEndzoneRadius(gameMap.width)
 
-  test "the base sits further from the edge than a column map's":
-    let column = generateCtfMap(4242, MapGenOverrides(
-      windows: -1, pits: -1, pitDensity: -1, endzone: "column"))
-    for shape in ["disc", "square"]:
-      let gameMap = compactMap(shape)
-      check gameMap.width == column.width      ## same size class, same seed.
-      check gameMap.teamHomeX(Red) > column.teamHomeX(Red)
-      ## ...and symmetrically on the far side.
-      check gameMap.teamHomeX(Blue) < column.teamHomeX(Blue)
+  test "the base sits deep enough to leave buildable midfield":
+    ## THE arithmetic the hex generator is tuned around: a base needs
+    ## `anchorDist - (radius + apron) - flagRing` px of ordinary field in front
+    ## of it, or its protected apron touches the always-open flag ring and the
+    ## row through the two bases becomes a lane no obstacle may ever stand in —
+    ## permanently open, unpluggable, rejected by the sightline validator on
+    ## every attempt. The hex board is 22% narrower than the rectangle it
+    ## replaced at equal area, so this budget is tight and worth pinning.
+    for index in 0 ..< MapPoolSeeds.len:
+      let
+        gameMap = poolCtfMap(index)
+        anchor = gameMap.teamAnchor(Red)
+        midfield = (gameMap.center.x - anchor.x) -
+          (gameMap.endzoneRadius + EndzoneWallMargin) - gameMap.flagRing
+      check midfield > 0
+      ## And the base is far enough off the hull that its whole apron is real
+      ## floor rather than half void.
+      check gameMap.mapBoard().hexEdgeDist(anchor.x, anchor.y) >
+        float(gameMap.endzoneRadius + EndzoneWallMargin)
 
   test "the capture zone wraps the base instead of the border":
-    for shape in ["disc", "square"]:
-      let
-        gameMap = compactMap(shape)
-        anchor = gameMap.teamAnchor(Red)
-        r = gameMap.endzoneRadius
-        zone = gameMap.captureZone(Red)
-      check zone.inCaptureZone(anchor.x, anchor.y)
-      ## Every side of the base scores, including BEHIND it...
-      for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
-        check zone.inCaptureZone(anchor.x + dx * (r - 2), anchor.y + dy * (r - 2))
-        check not zone.inCaptureZone(
-          anchor.x + dx * (r + 2), anchor.y + dy * (r + 2))
-      ## ...and the home border strip does NOT: it is ordinary field now.
-      check not zone.inCaptureZone(ArenaBorder + 1, gameMap.center.y)
-      ## A disc rounds its corners off; a square keeps them.
-      let corner = (x: anchor.x - r + 3, y: anchor.y - r + 3)
-      check zone.inCaptureZone(corner.x, corner.y) == (shape == "square")
+    let
+      gameMap = discMap()
+      anchor = gameMap.teamAnchor(Red)
+      r = gameMap.endzoneRadius
+      zone = gameMap.captureZone(Red)
+    check zone.inCaptureZone(anchor.x, anchor.y)
+    ## Every side of the base scores, including BEHIND it...
+    for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+      check zone.inCaptureZone(anchor.x + dx * (r - 2), anchor.y + dy * (r - 2))
+      check not zone.inCaptureZone(
+        anchor.x + dx * (r + 2), anchor.y + dy * (r + 2))
+    ## ...and the home border strip does NOT: it is ordinary field now.
+    check not zone.inCaptureZone(ArenaBorder + 1, gameMap.center.y)
+    ## A disc rounds its corners off — the one property that made `ezSquare` a
+    ## different shape, asserted now as the only shape's own signature.
+    check not zone.inCaptureZone(anchor.x - r + 3, anchor.y - r + 3)
 
   test "the zone is clear floor and the ground behind the base is not":
-    for shape in ["disc", "square"]:
+    ## Swept over the whole curated pool rather than one seed: "the freed home
+    ## strip is wilderness that carries cover" is a claim about the map FAMILY,
+    ## and a single draw can legitimately leave its backfield empty.
+    for index in 0 ..< MapPoolSeeds.len:
       let
-        gameMap = compactMap(shape)
+        gameMap = poolCtfMap(index)
         obstacles = buildArenaObstacles(gameMap)
+        board = gameMap.mapBoard()
         anchor = gameMap.teamAnchor(Red)
         zone = gameMap.captureZone(Red)
       ## No wall inside the scoring shape: a carrier can always finish.
+      var walled = 0
       var y = anchor.y - gameMap.endzoneRadius
       while y <= anchor.y + gameMap.endzoneRadius:
         var x = anchor.x - gameMap.endzoneRadius
         while x <= anchor.x + gameMap.endzoneRadius:
-          if zone.inCaptureZone(x, y):
-            check not mapWallAt(gameMap, obstacles, x, y)
+          if zone.inCaptureZone(x, y) and mapWallAt(gameMap, obstacles, x, y):
+            inc walled
           x += 3
         y += 3
-      ## Wilderness: the strip between the base and its border carries real
-      ## cover, which on a column map is protected floor and always empty.
-      var behind = 0
+      check walled == 0
+      ## Wilderness: the strip between the base and the hull is ordinary field
+      ## (never protected floor) and carries real cover. Only pixels on the
+      ## PLAYFIELD count — every pixel of the void outside the hexagon reads as
+      ## wall, so counting the whole box would make this pass on an empty map.
+      var behind, floorSeen, protectedSeen, strayVoid = 0
       y = ArenaBorder
       while y < gameMap.height - ArenaBorder:
         var x = ArenaBorder
-        while x < anchor.x - gameMap.endzoneRadius:
-          if mapWallAt(gameMap, obstacles, x, y):
-            inc behind
+        while x < anchor.x - (gameMap.endzoneRadius + EndzoneWallMargin):
+          if not gameMap.mapBorderWallAt(x, y):
+            if not board.insideHex(x, y):
+              inc strayVoid
+            inc floorSeen
+            if mapProtectedFloorAt(gameMap, x, y):
+              inc protectedSeen
+            if mapWallAt(gameMap, obstacles, x, y):
+              inc behind
           x += 3
         y += 3
+      check strayVoid == 0
+      check floorSeen > 0
+      check protectedSeen == 0
       check behind > 0
 
-  test "every compact pool seed keeps its flanks open":
-    var compact = 0
+  test "every pool seed keeps its flanks open":
     for seed in MapPoolSeeds:
       let gameMap = generateCtfMap(seed)
-      if gameMap.endzone == ezColumn:
-        continue
-      inc compact
-      ## validateGeneratedMap is what enforces the four cardinal gates and
-      ## the route around the endzone; the pool pins first-attempt passes.
+      check gameMap.endzone == ezDisc
+      ## validateGeneratedMap is what enforces the cardinal gates and the route
+      ## around the endzone; the pool pins first-attempt passes.
       check validateGeneratedMap(gameMap) == ""
-    check compact > 0
 
   test "a sealed backfield is rejected":
-    ## Lock a radius so large that the base's own apron swallows the
-    ## wilderness behind it: the flank invariants must catch it rather than
-    ## shipping a base you can only reach from the field.
+    ## Push the base against the hull and its behind-gate falls off the map —
+    ## a base you could only reach from the field. The validator names it
+    ## rather than shipping it, on every attempt, so the generator gives up.
+    let sealed = generateMapAttempt(4242, MapGenOverrides(
+      windows: -1, pits: -1, pitDensity: -1, size: "standard",
+      endzone: "disc", endzoneRadius: 97, baseDepth: HomeDepthMax))
+    check validateGeneratedMap(sealed) == "endzone gate behind is off the map"
     var config = defaultGameConfig()
     expect CtfError:
       config.update("""{
-        "mapPath": "gen", "mapSeed": 4242, "mapEndzone": "disc",
-        "mapEndzoneRadius": 215, "mapBaseDepth": 800
+        "mapPath": "gen", "mapSeed": 4242, "mapSize": "standard",
+        "mapEndzoneRadius": 97, "mapBaseDepth": 800
+      }""")
+
+  test "an endzone that swallows the midfield opens a cross-field lane":
+    ## The other end of the same budget: a fat disc on a shallow base pushes
+    ## its protected apron into the flag ring, and the row joining the two
+    ## bases is then open border to border with nowhere legal to build.
+    let fat = generateMapAttempt(4242, MapGenOverrides(
+      windows: -1, pits: -1, pitDensity: -1, size: "standard",
+      endzone: "disc", endzoneRadius: maxEndzoneRadius(HexStandardWidth),
+      baseDepth: HomeDepthMin))
+    check validateGeneratedMap(fat).startsWith("open sightline")
+    var config = defaultGameConfig()
+    expect CtfError:
+      config.update("""{
+        "mapPath": "gen", "mapSeed": 4242, "mapSize": "standard",
+        "mapEndzoneRadius": 220, "mapBaseDepth": 400
       }""")
 
   test "capture, respawn and pickups follow the shape":
-    let sim = initCtfForTest(compactConfig("disc"))
+    let sim = initCtfForTest(discConfig())
     let
       zone = sim.gameMap.captureZone(Red)
       anchor = sim.gameMap.teamAnchor(Red)
       r = sim.gameMap.endzoneRadius
-    ## Both pickups sit inside the zone, clear of the pedestal art.
+    ## Both pickups sit inside a zone, clear of the pedestal art.
     for points in [sim.gameMap.shieldSpawnPoints(),
         sim.gameMap.plasmaArcSpawnPoints()]:
       check points.len == 2
@@ -136,15 +201,15 @@ suite "compact endzones":
   test "respawn draws land inside a ROUND zone, not its bounding box":
     ## A disc fills only ~78% of the box it is drawn from, so the sampler
     ## has to re-roll — the corners are wilderness, not endzone.
-    var sim = initCtfForTest(compactConfig("disc"))
+    var sim = initCtfForTest(discConfig())
     let zone = sim.gameMap.captureZone(Red)
     for i in 0 ..< 200:
       let spot = sim.randomEndzonePosition(Red)
       check zone.inCaptureZone(spot.x, spot.y)
 
-  test "a stepped compact episode is deterministic and respawns in-zone":
+  test "a stepped episode is deterministic and respawns in-zone":
     proc runGame(): SimServer =
-      result = initCtfForTest(compactConfig("disc"))
+      result = initCtfForTest(discConfig())
       for i in 0 ..< 4:
         discard result.addPlayer("p" & $i)
       result.startGame()
@@ -163,30 +228,38 @@ suite "compact endzones":
     check zone.inCaptureZone(px, py)
 
   test "the spec round-trips the endzone and the config locks it":
-    for shape in ["column", "disc", "square"]:
-      let gameMap = compactMap(shape)
-      check mapFromSpecJson(mapSpecJson(gameMap)) == gameMap
-    ## A spec pinned before compact endzones existed still reads as classic.
-    let legacy = generateCtfMap(4242, MapGenOverrides(
-      windows: -1, pits: -1, pitDensity: -1, endzone: "column"))
-    var node = mapSpecJson(legacy)
-    node = node.replace(""""endzone":"column",""", "")
-    node = node.replace(""""endzoneRadius":0,""", "")
-    node = node.replace(""""homeDepth":700,""", "")
-    check mapFromSpecJson(node) == legacy
+    let gameMap = discMap()
+    check mapFromSpecJson(mapSpecJson(gameMap)) == gameMap
+    ## A spec pinned before the endzone fields existed still reads as a disc:
+    ## `ezDisc` is the loader's one silent default, and the reason the enum is
+    ## kept as an enum rather than collapsed away — a future hex SECTOR zone
+    ## must arrive as a NEW token, never as a fallthrough onto this one.
+    let node = mapSpecJson(gameMap).replace(""""endzone":"disc",""", "")
+    check node != mapSpecJson(gameMap)     # the key really was dropped
+    check mapFromSpecJson(node) == gameMap
 
   test "bad endzone configs fail loudly":
     for bad in [
+      # Not a shape the hexagon has — and the deleted ones are refused BY
+      # NAME, never silently reinterpreted as the disc.
       """{"mapPath": "gen", "mapSeed": 5, "mapEndzone": "blob"}""",
-      """{"mapPath": "gen", "mapSeed": 5, "mapEndzoneRadius": 120}""",
-      """{"mapPath": "gen", "mapSeed": 5, "mapBaseDepth": 500}""",
+      """{"mapPath": "gen", "mapSeed": 5, "mapEndzone": "column"}""",
+      """{"mapPath": "gen", "mapSeed": 5, "mapEndzone": "square"}""",
+      # Below the board's own radius floor, and past the depth bounds.
       """{"mapPath": "gen", "mapSeed": 5, "mapEndzone": "disc",
           "mapEndzoneRadius": 40}""",
       """{"mapPath": "gen", "mapSeed": 5, "mapEndzone": "disc",
           "mapBaseDepth": 900}""",
+      """{"mapPath": "gen", "mapSeed": 5, "mapEndzone": "disc",
+          "mapBaseDepth": 300}""",
+      # 4-team generation is Stage 2b.
       """{"mapPath": "gen", "mapSeed": 5, "mapEndzone": "disc",
           "teams": 4}""",
     ]:
       var config = defaultGameConfig()
       expect CtfError:
         config.update(bad)
+
+## Generated maps are installed as the process map above; put the arena back.
+installDefaultArena()
+invalidateBoardMapCaches()

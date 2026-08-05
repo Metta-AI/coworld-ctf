@@ -633,7 +633,10 @@ html, body {
   top: calc(4 * var(--u));
   right: calc(4 * var(--u));
   width: 38%;
-  aspect-ratio: 1235 / 659;
+  /* Tracks the real board, not the retired 1235:659 rectangle — the hex arena
+     is portrait, and a fixed-aspect minimap would letterbox or crop it.
+     `syncBoardAspect` sets --boardaspect from the stream's native size. */
+  aspect-ratio: var(--boardaspect, 1235 / 659);
   background: rgba(8, 5, 3, 0.42);
   box-shadow: 0 0 0 1px rgba(232, 163, 61, 0.28);
   overflow: hidden;
@@ -1677,12 +1680,28 @@ body[data-embed] #board { top: 0; height: 100%; }
   }
 
   // The whole replay is ONE fixed-aspect composition locked to the board's
-  // native size (sim.nim MapWidth×MapHeight = 1235×659). The stage is sized to
-  // this aspect inside the embed box and every overlay scales with it, so the
-  // chrome can never drift off the graphics regardless of the Observatory
-  // container's shape (§2 real-container-target, L82 bounded-embed).
+  // native size. The stage is sized to that aspect inside the embed box and
+  // every overlay scales with it, so the chrome can never drift off the
+  // graphics regardless of the Observatory container's shape (§2
+  // real-container-target, L82 bounded-embed).
+  //
+  // These literals are PRE-STREAM DEFAULTS ONLY. They used to be the whole
+  // story, and the board was drawn stretched to 1235:659 on every map that was
+  // not that shape — which by GV38 is every map, since the hex arena is
+  // portrait (969x1119 standard). `league_replayer.html` already had the fix;
+  // this is the same `syncBoardAspect`, on the side that actually owns the
+  // canvas.
   var BOARD_W = 1235, BOARD_H = 659;
   var BOARD_ASPECT = BOARD_W / BOARD_H;
+  function syncBoardAspect(nativeW, nativeH) {
+    if (!(nativeW > 1) || !(nativeH > 1)) return;
+    var aspect = nativeW / nativeH;
+    if (Math.abs(aspect - BOARD_ASPECT) < 0.001) return;
+    BOARD_W = nativeW; BOARD_H = nativeH; BOARD_ASPECT = aspect;
+    document.documentElement.style.setProperty(
+      '--boardaspect', nativeW + ' / ' + nativeH);
+    relayout();
+  }
 
   // ---- flag icon svg (HOME/TAKEN/CAPTURED — F2; captured draws as taken) ----
   function buildFlag(el, color) {
@@ -1762,7 +1781,11 @@ body[data-embed] #board { top: 0; height: 100%; }
     // aspect (its syncBoardAspect re-layouts when this changes).
     if (core) {
       var bt = core.getTransform();
-      if (bt.nativeW > 1 && bt.nativeH > 1) { s.boardW = bt.nativeW; s.boardH = bt.nativeH; }
+      if (bt.nativeW > 1 && bt.nativeH > 1) {
+        s.boardW = bt.nativeW; s.boardH = bt.nativeH;
+        // Our OWN stage tracks it too, not just the shell's.
+        syncBoardAspect(bt.nativeW, bt.nativeH);
+      }
     }
     postToShell('frame', s);
 

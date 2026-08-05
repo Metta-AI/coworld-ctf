@@ -6,12 +6,10 @@ import
 proc pointBlank(sim: var SimServer, shooter, target: int) =
   ## Stands the target one body-width east of the shooter, both aimed so the
   ## shooter's shot locks onto the target, cooldown cleared for an instant fire.
-  sim.players[shooter].x = 300
-  sim.players[shooter].y = 300
-  sim.players[shooter].aimBrads = 0            # east
+  ## `faceOff` puts the pair on the board's center row (the hexagon's widest);
+  ## these fixtures run on the bare hull, so the lane is open either way.
+  sim.faceOff(shooter, target, 30)
   sim.players[shooter].fireCooldown = 0
-  sim.players[target].x = 300 + 30
-  sim.players[target].y = 300
 
 proc lastDamage(sim: SimServer): SimEvent =
   ## The most recently emitted Damage event.
@@ -22,7 +20,7 @@ proc lastDamage(sim: SimServer): SimEvent =
 
 suite "blocked damage (shield-absorbed hp)":
   test "a hit on a full shield carrier reports blocked = 1":
-    var sim = twoTeamGame(collectEvents = true)
+    var sim = bareTwoTeamGame(collectEvents = true)
     sim.pointBlank(0, 1)
     # GV22 models the shield as a separate layer (shieldHp), depleted before
     # base hp — not bonus hp stacked on top of the base pool.
@@ -41,7 +39,7 @@ suite "blocked damage (shield-absorbed hp)":
     # Walk a full-shield carrier down one hp per shot. Every hit taken while the
     # shield layer still has hp is soaked (blocked = 1); once the layer is empty
     # the hit touches the base cog and is NOT blocked.
-    var sim = twoTeamGame(collectEvents = true)
+    var sim = bareTwoTeamGame(collectEvents = true)
     sim.pointBlank(0, 1)
     sim.players[1].hasShield = true
     sim.players[1].shieldHp = ShieldLayerHp      # 3
@@ -63,7 +61,7 @@ suite "blocked damage (shield-absorbed hp)":
     check blockedTotal == ShieldLayerHp
 
   test "a hit on a shieldless cog blocks nothing":
-    var sim = twoTeamGame(collectEvents = true)
+    var sim = bareTwoTeamGame(collectEvents = true)
     sim.pointBlank(0, 1)
     check not sim.players[1].hasShield
     check sim.players[1].shieldHp == 0
@@ -76,8 +74,8 @@ suite "blocked damage (shield-absorbed hp)":
   test "blocked never enters the game hash":
     # The field rides the analysis-only event sink; it must not perturb the
     # replay-safe hash.
-    var a = twoTeamGame(collectEvents = true)
-    var b = twoTeamGame(collectEvents = true)
+    var a = bareTwoTeamGame(collectEvents = true)
+    var b = bareTwoTeamGame(collectEvents = true)
     a.pointBlank(0, 1)
     b.pointBlank(0, 1)
     a.players[1].hasShield = true

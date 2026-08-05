@@ -3117,20 +3117,19 @@ proc addMapMarker(
 
 proc endzoneShapeToken(gameMap: CtfMap, zone: CaptureZone): string =
   ## Maps one team's capture zone onto the closed shape vocabulary of the
-  ## endzone marker (see LabelEndzoneShapes). The zone's own refinement flags
-  ## outrank the map fields: `disc`/`diag` say how membership is actually
-  ## tested, the layout/endzone fields only distinguish the box-filling
-  ## shapes from each other.
-  if zone.disc:
-    LabelEndzoneShapeDisc
-  elif zone.diag:
-    LabelEndzoneShapeCorner
-  elif gameMap.layout == layoutPlus:
-    LabelEndzoneShapeArm
-  elif gameMap.endzone == ezSquare:
-    LabelEndzoneShapeSquare
-  else:
-    LabelEndzoneShapeColumn
+  ## endzone marker (see LabelEndzoneShapes). The zone's own refinement flag
+  ## outranks the map fields: `disc` says how membership is actually tested.
+  ##
+  ## There is deliberately NO fallthrough. The old `else: column` arm was a
+  ## silent lie waiting to happen: any zone shape added without touching this
+  ## proc would have told every policy that its ENTIRE BOUNDING BOX scores,
+  ## and `labelEndzone`'s doAssert could not catch it because "column" was a
+  ## legal token. A new zone shape must now arrive as a new token on all four
+  ## surfaces (labels.nim, tests/label_manifest.txt, docs/RULES.md,
+  ## players/baseline) or fail here, loudly, at the first frame.
+  doAssert zone.disc,
+    "capture zone has no endzone-marker token: " & $gameMap.endzone
+  LabelEndzoneShapeDisc
 
 proc addMapMarkers(
   sim: SimServer,
@@ -3171,15 +3170,14 @@ proc addMapMarkers(
   inc index
   for team in sim.gameMap.teams():
     let zone = sim.gameMap.captureZone(team)
-    if zone.diag:
-      ## The `corner` contract promises the threshold diagonal joins the two
-      ## box corners adjacent to the map corner — true exactly when the L1
-      ## limit was not clamped by the far map edges. HomeDepth's bounds keep
-      ## anchors well inside the clamp on every map class; hold that here so
-      ## a retune cannot silently bend the stated geometry.
-      doAssert zone.diagLimit == zone.xHi - zone.xLo and
-          zone.diagLimit == zone.yHi - zone.yLo,
-        "clamped diagonal capture zone breaks the corner-marker contract"
+    ## The `disc` contract promises the circle INSCRIBED in the stated box —
+    ## center at the box center, radius half the box extent. Hold that here so
+    ## a retune of the zone cannot silently bend the stated geometry.
+    doAssert zone.xHi - zone.xLo == zone.yHi - zone.yLo and
+        zone.xHi - zone.xLo == 2 * zone.radius and
+        zone.xLo + zone.radius == zone.anchorX and
+        zone.yLo + zone.radius == zone.anchorY,
+      "capture zone is not the disc inscribed in its own bounding box"
     packet.addMapMarker(
       spriteDefs,
       index,

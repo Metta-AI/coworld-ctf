@@ -8,6 +8,9 @@ import
   test_cog_drive,
   test_ctf_game,
   test_damage_pop,
+  # test_hex_arena installs generated maps and restores the default arena at
+  # module end, exactly as test_replay_switch_caches does.
+  test_hex_arena,
   test_identity_privacy,
   test_input_buffer,
   test_lobby_join_timeout,

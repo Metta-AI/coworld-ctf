@@ -48,7 +48,15 @@ proc manifestVariant(name, variantId: string): JsonNode =
 # key (plus companion keys where update()'s cross-field validation demands
 # them — the whole-object inequality below still proves the target key
 # landed, since companions only ever change the object further).
-const SampleJson = """{
+#
+# NO COMMENTS INSIDE THE LITERAL: this is parsed with std/json, which rejects
+# them. Two entries need a note:
+#   mapLayout — hex Stage 2 generates 2-team boards only, so the knob is
+#     exercised with the one 2-team token it accepts ("sides" / "hex2"). The
+#     4-team layouts (corners / plus) are deleted with C4, and hex4 needs the
+#     cube-space orbit rasterizer (Stage 2b).
+#   teams — 4 teams therefore needs a PINNED spec, substituted in below.
+const SampleJsonTemplate = """{
   "aimTurnRate": {"aimTurnRate": 7},
   "carrierSpeedPct": {"carrierSpeedPct": 55},
   "closedRoster": {"closedRoster": true, "minPlayers": 1,
@@ -62,7 +70,7 @@ const SampleJson = """{
   "hitPoints": {"hitPoints": 5},
   "lives": {"lives": 2},
   "lobbyJoinTimeoutTicks": {"lobbyJoinTimeoutTicks": 50},
-  "mapLayout": {"mapLayout": "corners", "teams": 4, "mapPath": "gen"},
+  "mapLayout": {"mapLayout": "hex2", "teams": 2, "mapPath": "gen"},
   "mapPath": {"mapPath": "gen"},
   "mapSeed": {"mapSeed": 12345, "mapPath": "gen"},
   "mapSize": {"mapSize": "small", "mapPath": "gen"},
@@ -76,11 +84,17 @@ const SampleJson = """{
   "showPlayerLabels": {"showPlayerLabels": false},
   "slots": {"slots": [{"token": "tok1"}]},
   "startWaitTicks": {"startWaitTicks": 60},
-  "teams": {"teams": 4, "mapPath": "gen"},
+  "teams": {"teams": 4, "mapSpec": @FOUR_TEAM_SPEC@},
   "tokens": {"tokens": ["tokA"]},
   "visionBubble": {"visionBubble": 50},
   "visionConeDeg": {"visionConeDeg": 45}
 }"""
+
+let SampleJson = SampleJsonTemplate.replace(
+  "@FOUR_TEAM_SPEC@", mapSpecJson(hexTeamMap()))
+  ## Hex Stage 2 generates 2-team boards only, so the `teams` sample pins a
+  ## hand-authored Klein-four hexagon through `mapSpec` (helpers.hexTeamMap)
+  ## instead of asking the generator for a 4-team draw.
 
 suite "league manifest config_schema vs GameConfig":
   let

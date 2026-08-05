@@ -40,10 +40,10 @@ proc fullFeatureGame(teams4 = false): SimServer =
   ## (green/yellow room markers etc.) is emitted too.
   var config = defaultGameConfig()
   if teams4:
-    config.teams = 4
-    config.mapPath = "gen"
-    config.mapGen.layout = "corners"
-    config.mapSeed = 42
+    ## Hex Stage 2 generates 2-team boards only, so the 4-team vocabulary is
+    ## lit up on the hand-authored Klein-four hexagon (helpers.hexTeamMap),
+    ## pinned through the same mapSpec channel a replay uses.
+    config.update(fourTeamSpecJson())
   config.slots.setLen(6)
   result = initCtfForTest(config)
   for i in 0 ..< 6:
@@ -64,11 +64,15 @@ proc fullFeatureGame(teams4 = false): SimServer =
   result.players[1].hasShield = true
   # Teammates in the viewer's bubble carrying the grenade and the spray can,
   # so both carry markers and both `cog <weapon>` rig sprites render.
-  result.players[2].x = cx - 90
-  result.players[2].y = cy - 20
+  # The teammates sit inside the always-open FLAG RING (radius 70 around the
+  # center) rather than 90px out: on the hexagonal arena the old x offset lands
+  # in the obstacle column just west of the ring, so both carry markers went
+  # unrendered and the vocabulary guard lost two families silently.
+  result.players[2].x = cx - 40
+  result.players[2].y = cy - 40
   result.players[2].hasGrenade = true
-  result.players[4].x = cx - 90
-  result.players[4].y = cy + 20
+  result.players[4].x = cx - 40
+  result.players[4].y = cy + 40
   result.players[4].hasPlasmaArc = true
   # A CHARGING thrower right next to the viewer: `throw target` is drawn only
   # in a player view, only while throwCharge > 0, and only for a player the
@@ -467,32 +471,34 @@ neither failure surfaces until a league round comes back wrong.
             teamText(team), shape, zone.xLo, zone.yLo, zone.xHi, zone.yHi
           ) in raw
 
-    proc genGame(endzone = ""; layout = ""; teams = 2): SimServer =
-      ## A minimal fixture on a generated map with the endzone archetype or
-      ## team layout locked — only the init frame matters here, so no posing.
+    proc genGame(endzone = ""): SimServer =
+      ## A minimal fixture on a GENERATED 2-team map with the endzone locked —
+      ## only the init frame matters here, so no posing.
       var config = defaultGameConfig()
       config.slots.setLen(6)
-      config.teams = teams
       config.mapPath = "gen"
       config.mapSeed = 42
       config.mapGen.endzone = endzone
-      config.mapGen.layout = layout
       result = initCtfForTest(config)
       for i in 0 ..< 6:
         discard result.addPlayer("p" & $i)
       result.startGame()
 
+    ## The hexagonal arena is ALL-DISC: `ezDisc` is the one endzone geometry
+    ## that survives a rotation, so `disc` is the only token any map can emit
+    ## now (`LabelEndzoneShapes` is a one-element list, and the column, square,
+    ## corner and arm tokens are deleted with their geometries). What still
+    ## varies, and what this therefore covers, is the map KIND behind the
+    ## token: a 4-team Klein-four board, a generated 2-team board, and the
+    ## hand-authored arena.
+    check LabelEndzoneShapes == [LabelEndzoneShapeDisc]
     var game4 = fullFeatureGame(teams4 = true)
-    game4.checkZones(LabelEndzoneShapeCorner)
-    var plusGame = genGame(layout = "plus", teams = 4)
-    plusGame.checkZones(LabelEndzoneShapeArm)
+    game4.checkZones(LabelEndzoneShapeDisc)
     var discGame = genGame(endzone = LabelEndzoneShapeDisc)
     discGame.checkZones(LabelEndzoneShapeDisc)
-    var squareGame = genGame(endzone = LabelEndzoneShapeSquare)
-    squareGame.checkZones(LabelEndzoneShapeSquare)
     # The classic fixture LAST, restoring the arena for the tests that follow.
     var game = fullFeatureGame()
-    game.checkZones(LabelEndzoneShapeColumn)
+    game.checkZones(LabelEndzoneShapeDisc)
 
 suite "own-aim marker":
   test "the player stream states the exact aim angle":

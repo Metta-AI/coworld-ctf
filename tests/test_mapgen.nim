@@ -1,7 +1,7 @@
 import
   helpers,
   std/[sequtils, tables, unittest],
-  ctf/sim, ctf/map_pool
+  ctf/[global, sim], ctf/map_pool
 
 var mapCache = initTable[string, CtfMap]()
 
@@ -19,13 +19,12 @@ proc cachedMap(seed: int,
   mapCache[key]
 
 proc obstacleAt(obstacles: seq[ArenaShape], x, y: int): bool =
-  ## Raw obstacle-union test (no border, no protected-floor carve). On
-  ## 2-TEAM maps this is the only exactly symmetric layer: their carve is
-  ## anchored to the div-derived center, which sits half a pixel off the
-  ## mirror/rot180 axis on the even-width size classes. rot90 boards carve
-  ## against the true axis instead, so there the whole rasterized MASK is
-  ## exact — see the 4-team test below, which asserts on that and not on
-  ## this.
+  ## Raw obstacle-union test (no hull, no protected-floor carve). This is the
+  ## layer that is exactly symmetric on a 2-TEAM board: the carve is anchored
+  ## to the div-derived center, which sits half a pixel off the mirror/rot180
+  ## axis on the even-width size classes, so the rasterized MASK is not. The
+  ## HULL is symmetric under all of D6 by construction and is swept separately
+  ## in test_hex_arena.nim.
   for shape in obstacles:
     if inShape(x, y, shape):
       return true
@@ -41,202 +40,142 @@ suite "procedural terrain":
       let gameMap = cachedMap(seed)
       check gameMap.genSeed == seed
       check validateGeneratedMap(gameMap) == ""
+      ## The bounding box is a hexagon's, not a rectangle's: portrait, and
+      ## within a pixel of the sqrt(3)/2 aspect on every class.
+      check gameMap.height > gameMap.width
+      check gameMap.mapBoard().aspectOk()
       widths.add gameMap.width
-    ## The curated pool spans every size class, including the two oversize
-    ## ones (huge 2223, giant 3211 — the giant scale is the old "large"
-    ## ceiling doubled).
-    for w in [1050, 1235, 1606, 2223, 3211]:
-      check w in widths
+    ## The curated pool spans the size classes, including the two oversize
+    ## ones (huge 1744, giant 2519).
+    for cls in [hxSmall, hxStandard, hxLarge, hxHuge, hxGiant]:
+      check HexSizes[cls].width in widths
 
   test "obstacle union is exact under the map's symmetry":
+    ## The map's OWN symmetry, resolved through `teamOp` — not a hard-coded
+    ## mirror. A 2-team board's group is order 2 and its non-identity element
+    ## is either the vertical mirror or the half turn; asserting the wrong one
+    ## is the bug `teamImagePoint` exists to prevent.
     for seed in [MapPoolSeeds[0], MapPoolSeeds[1], 777]:
       let
         gameMap = cachedMap(seed)
         obstacles = buildArenaObstacles(gameMap)
+        op = gameMap.teamOp(Blue)
         w = gameMap.width
         h = gameMap.height
+      check op in [hexMir90, hexRot180]
       var x = ArenaBorder
       while x < w - ArenaBorder:
         var y = ArenaBorder
         while y < h - ArenaBorder:
-          let (sx, sy) =
-            case gameMap.symmetry
-            of symMirror: (w - 1 - x, y)
-            of symRot180: (w - 1 - x, h - 1 - y)
-            of symRot90: (w - 1 - y, x)
+          let image = gameMap.pixelImage(MapPoint(x: x, y: y), op)
           check obstacleAt(obstacles, x, y) ==
-            obstacleAt(obstacles, sx, sy)
+            obstacleAt(obstacles, image.x, image.y)
           y += 13
         x += 11
 
-  test "4-team maps are exactly rot90-fair and deterministic":
-    ## The invariant is on the RASTERIZED WALL MASK, not on the obstacle
-    ## union: border, protected-floor carve and obstacles together must map
-    ## wall to wall under a quarter turn, (x, y) -> (w-1-y, x). Checking
-    ## only the union hid a real fairness bug — the spawn pockets stamped
-    ## one upright W x H box at every anchor, so two of the four quadrants
-    ## were carved to a different shape than their rotational twins, ~8% of
-    ## the board, worth up to 400-pixel blobs of cover that one team had and
-    ## its twin did not.
+  test "terrain never escapes the hull by more than the wall anchor":
+    ## The rectangular board had no unreachable interior, so terrain could be
+    ## stamped anywhere in the box. A hexagon throws 25% of its box away, and an
+    ## obstacle sprawling out there is invisible cover that costs the generator
+    ## a column it thinks it placed.
     ##
-    ## Seeds are chosen to span the size classes — smallest (816), middle
-    ## (1248), and the oversize ceiling (2496) — since the half-pixel rot90
-    ## axis of an EVEN side is what the carve has to respect.
-    for layout in ["corners", "plus"]:
-      for seed in [13, 6, 17]:
-        let
-          overrides = MapGenOverrides(windows: -1, layout: layout)
-          gameMap = cachedMap(seed, overrides, teams = 4)
-          again = generateCtfMap(seed, overrides, teams = 4)
-          obstacles = buildArenaObstacles(gameMap)
-          w = gameMap.width
-        check gameMap == again
-        check gameMap.symmetry == symRot90
-        check w == gameMap.height
-        ## The carve alone, at EVERY pixel: it is cheap (no obstacle loop)
-        ## and it is the layer that broke, so it gets exhaustive coverage.
-        ## Counted rather than `check`ed per pixel — a million-iteration
-        ## unittest assertion loop is far slower than the geometry.
-        var carveMismatch = 0
-        for y in 0 ..< w:
-          for x in 0 ..< w:
-            if mapProtectedFloorAt(gameMap, x, y) !=
-                mapProtectedFloorAt(gameMap, w - 1 - y, x):
-              inc carveMismatch
-        check carveMismatch == 0
-        ## Then the full mask, sampled finer than the thinnest wall feature.
-        var wallMismatch = 0
-        var x = ArenaBorder
-        while x < w - ArenaBorder:
-          var y = ArenaBorder
-          while y < w - ArenaBorder:
-            if mapWallAt(gameMap, obstacles, x, y) !=
-                mapWallAt(gameMap, obstacles, w - 1 - y, x):
-              inc wallMismatch
-            y += 5
-          x += 5
-        check wallMismatch == 0
-
-  test "4-team capture zones are exact under a quarter turn":
-    ## The scoring side of the same promise: a quarter turn carries each
-    ## team's endzone onto the next team's, pixel for pixel. The plus arms
-    ## used to span the integer center, which is half a pixel off the rot90
-    ## axis, so the west mouth landed one pixel off the north mouth.
-    for layout in ["corners", "plus"]:
-      let
-        overrides = MapGenOverrides(windows: -1, layout: layout)
-        gameMap = cachedMap(11, overrides, teams = 4)
-        w = gameMap.width
-      for team in gameMap.teams():
-        ## The team one quarter turn further round the orbit.
-        var next = team
-        for other in gameMap.teams():
-          if gameMap.rot90Quarter(other) ==
-              (gameMap.rot90Quarter(team) + 1) mod 4:
-            next = other
-        check next != team
-        let
-          zone = gameMap.captureZone(team)
-          nextZone = gameMap.captureZone(next)
-        var mismatch = 0
-        var x = 0
-        while x < w:
-          var y = 0
-          while y < w:
-            if zone.inCaptureZone(x, y) !=
-                nextZone.inCaptureZone(w - 1 - y, x):
-              inc mismatch
-            y += 3
-          x += 3
-        check mismatch == 0
-
-  test "4-team homes and pockets are a rot90 orbit":
-    ## Every team's anchor is exactly a quarter turn of the previous team's,
-    ## and its pocket is that anchor's box rotated with it — the odd
-    ## quarters carry the swapped H x W extents. Anchors derived from the
-    ## map center instead would sit one pixel off the orbit on an even side.
-    for layout in ["corners", "plus"]:
-      let
-        overrides = MapGenOverrides(windows: -1, layout: layout)
-        gameMap = cachedMap(11, overrides, teams = 4)
-        w = gameMap.width
-      for team in gameMap.teams():
-        var
-          point = gameMap.teamAnchor(Red)
-          half = gameMap.spawnPocketHalf(Red)
-        for _ in 0 ..< gameMap.rot90Quarter(team):
-          point = point.rot90Point(w)
-          half = (w: half.h, h: half.w)
-        check gameMap.teamAnchor(team) == point
-        check gameMap.spawnPocketHalf(team) == half
-      ## The orbit is a genuine 4-cycle: no two teams share a home.
-      var homes: seq[MapPoint]
-      for team in gameMap.teams():
-        homes.add gameMap.teamAnchor(team)
-      check homes.deduplicate().len == 4
-
-  test "4-team pickups are exact under a quarter turn":
-    ## The pickups have to ride the same orbit as the homes and the zones.
-    ## Placed by MIRRORING, Red's shield sat on the left edge at anchor
-    ## height and Blue's on the right edge — but the quarter turn sends
-    ## Red's to the TOP edge, so Blue's copy sat in the transpose of Red's
-    ## surroundings: different cover, different sightlines to the same item.
-    for layout in ["corners", "plus"]:
-      let
-        overrides = MapGenOverrides(windows: -1, layout: layout)
-        gameMap = cachedMap(11, overrides, teams = 4)
-        w = gameMap.width
-        shields = gameMap.shieldSpawnPoints()
-        cans = gameMap.plasmaArcSpawnPoints()
-      var sets = @[shields, cans]
-      sets.add(@(gameMap.grenadeSpawnPoints()))
-      for points in sets:
-        check points.len == 4
-        ## Closed under (x, y) -> (w - 1 - y, x): every point's quarter turn
-        ## is another point of the same set.
-        for point in points:
-          check (w - 1 - point.y, point.x) in points
-      ## And each team holds the copy that belongs to ITS quadrant — the
-      ## orbit runs Red -> Blue -> Yellow -> Green on corners, so handing the
-      ## images out in team order would put two teams' pickups in the wrong
-      ## corner entirely.
-      for points in [shields, cans]:
-        for team in gameMap.teams():
-          var red = MapPoint(x: points[ord(Red)].x, y: points[ord(Red)].y)
-          for _ in 0 ..< gameMap.rot90Quarter(team):
-            red = red.rot90Point(w)
-          check points[ord(team)] == (red.x, red.y)
-          ## The point is in that team's own endzone, not just anywhere on
-          ## its orbit.
-          check gameMap.captureZone(team).inCaptureZone(
-            points[ord(team)].x, points[ord(team)].y)
-      ## Shields and cans are distinct spots, not a doubled-up pile.
-      for shield in shields:
-        check shield notin cans
-
-  test "2-team pickups follow the map's own symmetry":
-    ## The same promise on a 2-team board, where the symmetry is a coin flip
-    ## between mirror and rot180. A MIRRORED copy on a rot180 map lands in
-    ## the rotation of Red's OTHER pickup, so Blue's shield sat in the
-    ## terrain of the cans and vice versa. Compact endzones are 2-team only,
-    ## so both endzone shapes are covered here.
-    for seed in [MapPoolSeeds[0], MapPoolSeeds[1], 777, 4242]:
+    ## But "no pixel outside the hull at all" is stricter than the invariant
+    ## that matters, and would fail on purpose-built geometry: the `colStubs`
+    ## family deliberately overshoots its column band — `band.lo - ArenaBorder -
+    ## 30`, `band.hi + ArenaBorder + 30` — so the boundary carves the stub flush
+    ## against a SLANTED wall with no sliver of floor between them. On the
+    ## rectangular board the same trick anchored a stub to a straight border.
+    ## What has to hold is that the overshoot is BOUNDED, and that nothing out
+    ## there is ever floor. (`tests/test_hex_arena.nim` asserts the same pair on
+    ## the hand-authored arena.)
+    const MaxOvershoot = ArenaBorder + 60
+    for seed in [MapPoolSeeds[0], MapPoolSeeds[7], 777]:
       let
         gameMap = cachedMap(seed)
-        w = gameMap.width
-        h = gameMap.height
+        obstacles = buildArenaObstacles(gameMap)
+        board = gameMap.mapBoard()
+      var
+        sprawl = 0
+        outsideNotWall = 0
+        outside = 0
+      for shape in obstacles:
+        let b = shape.shapeBounds()
+        var x = b.x0
+        while x <= b.x1:
+          var y = b.y0
+          while y <= b.y1:
+            if inShape(x, y, shape) and not board.insideHex(x, y):
+              inc outside
+              if board.hexEdgeDist(x, y) < -float(MaxOvershoot):
+                inc sprawl
+              if not mapWallAt(gameMap, obstacles, x, y):
+                inc outsideNotWall
+            y += 3
+          x += 3
+      check sprawl == 0
+      check outsideNotWall == 0
+
+  test "generating any team count but 2 is refused until Stage 2b":
+    ## 3/4/6-team hex boards need their orbits walked in CUBE space and
+    ## rasterized once (sin 60 is irrational, so a pixel rotation would round
+    ## and hand one team different cover). The generator says so rather than
+    ## shipping a rounded orbit — the same discipline the old validator
+    ## applied to rot90 on non-square boards.
+    const Plain = MapGenOverrides(windows: -1, pits: -1, pitDensity: -1)
+    for teams in [1, 3, 4, 6]:
+      expect CtfError:
+        discard generateMapAttempt(11, Plain, teams)
+    ## And the symmetries that only make sense with more teams are refused by
+    ## name, not silently downgraded to a 2-team group.
+    for symmetry in ["rot120", "rot60", "klein4"]:
+      expect CtfError:
+        discard generateMapAttempt(
+          11, MapGenOverrides(windows: -1, pits: -1, pitDensity: -1,
+                              symmetry: symmetry))
+    expect CtfError:
+      discard generateMapAttempt(
+        11, MapGenOverrides(windows: -1, pits: -1, pitDensity: -1,
+                            layout: "corners"))
+
+  test "2-team pickups follow the map's own symmetry":
+    ## A MIRRORED copy on a rot180 map lands in the rotation of Red's OTHER
+    ## pickup, so Blue's shield sat in the terrain of the cans and vice versa.
+    for seed in [MapPoolSeeds[0], MapPoolSeeds[1], 777, 4242]:
+      let gameMap = cachedMap(seed)
       for points in [gameMap.shieldSpawnPoints(),
           gameMap.plasmaArcSpawnPoints()]:
         check points.len == 2
-        let image =
-          case gameMap.symmetry
-          of symMirror: (w - 1 - points[0].x, points[0].y)
-          of symRot180: (w - 1 - points[0].x, h - 1 - points[0].y)
-          of symRot90: (w - 1 - points[0].y, points[0].x)
-        check points[1] == image
+        let image = gameMap.teamImagePoint(
+          MapPoint(x: points[0].x, y: points[0].y), Blue)
+        check points[1] == (image.x, image.y)
         ## Each team still keeps its own pickups on its own side.
         check points[0].x < gameMap.center.x
         check points[1].x > gameMap.center.x
+
+  test "grenades spawn on four vertices of the hexagon":
+    ## The old four points sat at the four CORNERS OF THE BOUNDING BOX, which
+    ## on a hexagon are permanent void: unreachable, and never corrected,
+    ## because grenades are the one pickup family `placeWalkablePickups` does
+    ## not nudge. Four VERTEX pockets replace them — the four off-axis ones, so
+    ## the set is closed under the mirror AND the half turn, which is the same
+    ## exact fairness every other pickup family gets from `teamImagePoint`.
+    for seed in [MapPoolSeeds[0], MapPoolSeeds[4], 777]:
+      let
+        gameMap = cachedMap(seed)
+        board = gameMap.mapBoard()
+        w = gameMap.width
+        h = gameMap.height
+        points = gameMap.grenadeSpawnPoints()
+      check points.len == 4
+      for point in points:
+        check board.insideHex(point.x, point.y)
+        check (w - 1 - point.x, point.y) in points
+        check (point.x, h - 1 - point.y) in points
+      ## Off the two symmetry axes, so the four are genuinely distinct spots
+      ## rather than a doubled-up pair on a vertex the mirror fixes.
+      for point in points:
+        check 2 * point.x != w - 1
+        check 2 * point.y != h - 1
 
   test "map spec JSON round-trips the exact map":
     let gameMap = cachedMap(MapPoolSeeds[2])
@@ -261,22 +200,22 @@ suite "procedural terrain":
       "mapSymmetry": "rot180", "mapCenterFeature": "ring"
     }""")
     let gameMap = resolveCtfMapMetadata(config)
-    check gameMap.width == 1606
+    check (gameMap.width, gameMap.height) == HexSizes[hxLarge]
     check gameMap.symmetry == symRot180
 
   test "oversize size locks produce the doubled ceiling":
-    ## "giant" doubles the old "large" scale (1.3 -> 2.6): the widest
-    ## 2-team board grows from 1606x857 to 3211x1713; "huge" sits between.
+    ## "giant" doubles the "large" scale (1.3 -> 2.6): the biggest 2-team board
+    ## grows from 1260x1455 to 2519x2909; "huge" sits between. Every class
+    ## holds the same PLAYFIELD AREA as the rectangular class it replaced, so a
+    ## size name still means the same amount of field.
     var config = defaultGameConfig()
     config.update("""{"mapPath": "gen", "mapSeed": 7, "mapSize": "huge"}""")
     var gameMap = resolveCtfMapMetadata(config)
-    check gameMap.width == 2223
-    check gameMap.height == 1186
+    check (gameMap.width, gameMap.height) == HexSizes[hxHuge]
     config = defaultGameConfig()
     config.update("""{"mapPath": "gen", "mapSeed": 7, "mapSize": "giant"}""")
     gameMap = resolveCtfMapMetadata(config)
-    check gameMap.width == 3211
-    check gameMap.height == 1713
+    check (gameMap.width, gameMap.height) == HexSizes[hxGiant]
     ## The gun range is fixed (GV34): the config still follows the map def,
     ## but the def no longer scales it with the field.
     check config.gunRange == gameMap.gunRange
@@ -285,20 +224,18 @@ suite "procedural terrain":
   test "a size class never rejects its own column draw":
     ## The mapColumns ceiling used to be a flat 24 that predated the oversize
     ## classes, so colossal (5.2x) drew past its own bound and RAISED instead of
-    ## generating: 32 of 40 two-team seeds failed. The 4-team draw tops out at
-    ## cols(4) = 21, which is why record_colossal_demo.sh never hit it.
+    ## generating: 32 of 40 two-team seeds failed.
     ##
     ## Drawing is what regresses here, so this uses generateMapAttempt rather
     ## than a validated generate — the bound is checked before any validator
-    ## runs, and validating eight 22-megapixel boards would cost ~100s for no
+    ## runs, and validating 29-megapixel boards would cost far more for no
     ## extra signal. Eight seeds is ample: the old bug rejected ~80% of draws,
     ## so the chance of all eight slipping past a regression is ~1e-6.
     const ColossalOverrides = MapGenOverrides(
       size: "colossal", windows: -1, pits: -1, pitDensity: -1)
     for seed in 1001 .. 1008:
       let gameMap = generateMapAttempt(seed, ColossalOverrides)
-      check gameMap.width == 6422
-      check gameMap.height == 3427
+      check (gameMap.width, gameMap.height) == HexSizes[hxColossal]
     ## ...while the classes that scale by 1 keep exactly the historical bound.
     var narrow = defaultGameConfig()
     expect CtfError:
@@ -318,3 +255,9 @@ suite "procedural terrain":
       check abs(sim.medKitSpawns[i].x - expected.x) <= 20
       check abs(sim.medKitSpawns[i].y - expected.y) <= 20
       check sim.medKitSpawns[i].present
+
+## A pool map is installed as the process map above, and pool index 0 is the
+## SAME 969 x 1119 standard board as the default arena — so the board render
+## caches cannot self-heal on a size mismatch. Put the arena back explicitly.
+installDefaultArena()
+invalidateBoardMapCaches()

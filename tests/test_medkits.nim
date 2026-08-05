@@ -75,7 +75,10 @@ suite "med kits":
 
   test "spinning center diamonds are solid at their core":
     let sim = twoTeamGame()
-    check AnimatedDiamonds.len == 8
+    # Four on the hexagonal arena: one above and one below the flag ring on
+    # the center column of each half (the rectangular arena stacked two per
+    # flank). tests/test_spinning_diamonds.nim pins the count and the pairing.
+    check AnimatedDiamonds.len == 4
     for spot in AnimatedDiamonds:
       # The center pixel is inside the diamond at every spin angle, so it is
       # wall for movement, LOS, and bullets no matter where the rotation is.

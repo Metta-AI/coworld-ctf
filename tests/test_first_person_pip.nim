@@ -132,7 +132,10 @@ suite "first-person picture-in-picture":
     check wallHit < 60
 
   test "a visible enemy in front shows up as an entity near view-center":
-    var game = initCtfForTest(defaultGameConfig())
+    # On the BARE hexagon: 80px due east of the arena's center is inside an
+    # obstacle column, and an enemy standing in a wall is neither visible nor
+    # an entity. The raycaster is what is under test, not the furniture.
+    var game = initCtfForTest(bareHexConfig())
     let
       red = game.addPlayer("red0")
       blue = game.addPlayer("blue0")
@@ -187,16 +190,18 @@ suite "first-person picture-in-picture":
       check e["k"].getStr() != "mate"
 
   test "glass windows are see-through: a column reads BOTH the pane and the wall behind":
-    # Column-1 has GLASS window stubs (x 268..286). A player standing just EAST of
-    # the top glass stub (y ~138) and aiming WEST must ray THROUGH the glass to the
-    # border wall behind it — so its center column is a [stoneHit, glassDist] pair,
-    # never a dead stone face. This is the see-through-not-shoot-through contract.
+    # The GV16 midline bracket carries the arena's glass: on the board's CENTER
+    # ROW its only pane is the glass one (x 346..357 in the left half), with
+    # stone above and below. A player standing just EAST of that pane and aiming
+    # WEST must ray THROUGH the glass to the wall behind it — so its center
+    # column is a [stoneHit, glassDist] pair, never a dead stone face. This is
+    # the see-through-not-shoot-through contract.
     var game = initCtfForTest(defaultGameConfig())
     let red = game.addPlayer("red0")
     game.startGame()
     game.players[red].team = Red
-    game.players[red].x = 340            # east of the x=268..286 glass stub
-    game.players[red].y = 138            # inside the top glass stub's y-span
+    game.players[red].x = 366            # east of the x=346..357 glass pane
+    game.players[red].y = game.gameMap.center.y   # the pane's own row
     game.players[red].aimBrads = AimBradsTurn div 2   # due west, through the glass
     let fp = game.fpFrame(game.players[red].joinOrder)
     var sawGlass = false

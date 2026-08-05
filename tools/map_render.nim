@@ -68,16 +68,30 @@ const AllPickupKinds* = {
 }
 
 proc mapSeedRegion*(gameMap: CtfMap): MapRect =
-  ## Returns the authored seed half (2-team) or quadrant (rot90) whose shapes
-  ## buildArenaObstacles expands into the complete symmetric obstacle set.
+  ## Returns the authored seed half (2-team) or quadrant (Klein-four) whose
+  ## shapes buildArenaObstacles expands into the complete symmetric obstacle
+  ## set.
+  ##
+  ## Only the D6 elements that act EXACTLY on the square pixel lattice have a
+  ## seed region that is a rectangle at all: the identity, the two axis
+  ## mirrors, and the half turn — i.e. exactly the groups behind symMirrorHex,
+  ## symRot180, and symKlein4. `symRot120` / `symRot60` involve sin 60 and must
+  ## be walked in cube space and rasterized once (arena.pixelImage says the
+  ## same thing, and validateMap refuses such a map today), so drawing a
+  ## rectangle for them would be a picture of a region that does not exist.
   case gameMap.symmetry
-  of symMirror, symRot180:
+  of symMirrorHex, symRot180:
     MapRect(x: 0, y: 0, w: gameMap.width div 2, h: gameMap.height)
-  of symRot90:
+  of symKlein4:
     MapRect(
       x: 0, y: 0,
       w: gameMap.width div 2, h: gameMap.height div 2,
     )
+  of symRot120, symRot60:
+    raise newException(
+      CtfError,
+      "Symmetry " & $gameMap.symmetry & " has no rectangular seed region; " &
+        "its orbit is walked in cube coordinates.")
 
 proc overTint(base, tint: ColorRGBA): ColorRGBA =
   let alpha = int(tint.a)
@@ -185,21 +199,25 @@ proc renderMap*(
     obstacles = buildArenaObstacles(gameMap)
     cx = gameMap.center.x
     cy = gameMap.center.y
+    board = gameMap.mapBoard()
   result.renderScale = scale
   result.image = newImage(outputWidth, outputHeight)
   var
     wall = newSeq[bool](outputWidth * outputHeight)
     window = newSeq[bool](outputWidth * outputHeight)
 
+  ## THE boundary rule, at render resolution: within ArenaBorder of the
+  ## hexagon's edge, or outside the hexagon entirely (hexEdgeDist goes negative
+  ## there, so the six void corners of the bounding box come out stone). This
+  ## is the float twin of `mapBorderWallAt`; the old four-way rectangle test
+  ## painted the corners as floor and drew a board that cannot be played.
   for y in 0 ..< outputHeight:
     let fy = logicalCoordinate(y, scale)
     for x in 0 ..< outputWidth:
       let
         fx = logicalCoordinate(x, scale)
         index = y * outputWidth + x
-      if fx < float(ArenaBorder) or fy < float(ArenaBorder) or
-          fx >= float(gameMap.width - ArenaBorder) or
-          fy >= float(gameMap.height - ArenaBorder):
+      if board.hexEdgeDistF(fx, fy) < float(ArenaBorder):
         wall[index] = true
 
   for shape in obstacles:
@@ -260,9 +278,14 @@ proc renderMap*(
       for x in x0 ..< x1:
         let
           mapX = logicalPixel(x, gameMap.width, scale)
-          # Rect trenches keep the rough-edge art; other kinds fill flat.
+          # Axis-aligned trenches keep the rough-edge art; other kinds fill
+          # flat. `shapeAsRect` is EXACT only for a bar on an axis-aligned
+          # direction, which is precisely when `tr` IS the trench's pixel set
+          # and the rect-edge art is describing the real shape.
           edge =
-            if trench.kind == shapeRect: trenchRoughEdge(tr, mapX, mapY)
+            if trench.kind == shapeBar and
+                (trench.axisX == 0 or trench.axisY == 0):
+              trenchRoughEdge(tr, mapX, mapY)
             elif inShape(mapX, mapY, trench): 5.0
             else: -1.0
           existing = result.image.unsafe[x, y].rgba
@@ -298,20 +321,18 @@ proc renderMap*(
               overTint(result.image.unsafe[x, y].rgba, SpinTint)
 
   if overlaySightlines in options.overlays:
-    let
-      x0 = clamp(
-        outputCoordinate(gameMap.sightlineLoX(), scale),
-        0,
-        outputWidth - 1,
-      )
-      x1 = clamp(
-        outputCoordinate(gameMap.sightlineHiX(), scale),
-        0,
-        outputWidth - 1,
-      )
+    ## The scan no longer runs between two fixed x columns: a hexagon's rows
+    ## are chords of different lengths, so the band IS the row's span inside
+    ## the hull. Walking `sightlinePixels` — the same iterator the validator
+    ## scans with — draws exactly the ground that was checked, and nothing the
+    ## validator never looked at. (Only the horizontal family is drawable as a
+    ## row; the +-60 degree families are reported in `reason`, not here.)
     for row in diagnostics.openSightlineRows:
       let y = clamp(outputCoordinate(row, scale), 0, outputHeight - 1)
-      for x in x0 .. x1:
+      for (mapX, mapY) in gameMap.sightlinePixels(0, row):
+        if gameMap.mapBorderWallAt(mapX, mapY):
+          continue
+        let x = clamp(outputCoordinate(mapX, scale), 0, outputWidth - 1)
         result.image.unsafe[x, y] = SightlineTint
 
   if overlaySeedRegion in options.overlays:

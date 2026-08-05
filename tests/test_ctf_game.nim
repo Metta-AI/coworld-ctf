@@ -105,7 +105,7 @@ suite "ctf game":
     let
       cx = sim.gameMap.center.x
       cy = sim.gameMap.center.y
-      zoneLo = sim.gameMap.teamHomeX(Blue) - CaptureZoneWidth div 2
+      blueZone = sim.gameMap.captureZone(Blue)
       noInput = newSeq[InputState](sim.players.len)
     var spots: seq[tuple[x, y: int]] = @[]
     for round in 1 .. 4:
@@ -118,13 +118,24 @@ suite "ctf game":
       sim.players[1].y = cy
       sim.players[1].hp = 1
       sim.players[1].lives = 2
+      # Strip whatever the last respawn walked into. A hex endzone is a DISC
+      # wrapped around the anchor and the team's shield sits inside it, so a
+      # player respawning there picks the shield up on the way out — and a
+      # shielded target absorbs this shot on its layer instead of dying, which
+      # would silently turn a respawn-LOCATION test into a shield test.
+      sim.players[1].hasShield = false
+      sim.players[1].shieldHp = 0
       sim.tryFire(0)
       check not sim.players[1].alive
       for _ in 1 .. sim.config.respawnTicks + 1:
         sim.step(noInput, noInput)
       check sim.players[1].alive
-      # Inside Blue's endzone column (small slack for the walkability nudge).
-      check sim.players[1].x >= zoneLo - PlayerHalf
+      # Inside Blue's endzone DISC — the hexagonal arena has no home column
+      # for a respawn to land in (small slack for the walkability nudge).
+      check sim.players[1].x >= blueZone.xLo - PlayerHalf
+      check sim.players[1].x <= blueZone.xHi + PlayerHalf
+      check sim.players[1].y >= blueZone.yLo - PlayerHalf
+      check sim.players[1].y <= blueZone.yHi + PlayerHalf
       check sim.players[1].x < MapWidth - ArenaBorder
       spots.add((sim.players[1].x, sim.players[1].y))
     # The respawn point moves around instead of being campable.
@@ -502,7 +513,11 @@ suite "ctf game":
     # Red player 0 carries the BLUE flag into Red's capture zone.
     sim.flags[Blue].carrier = 0
     sim.players[0].carryingFlag = true
-    sim.players[0].x = 0          # leftmost column is always in Red's zone
+    # The hexagon has no home COLUMN: a team's capture region is the disc
+    # around its own anchor, so the carrier scores by standing on the pedestal.
+    let redHome = sim.gameMap.teamAnchor(Red)
+    sim.players[0].x = redHome.x - CollisionW div 2
+    sim.players[0].y = redHome.y - CollisionH div 2
     sim.players[0].alive = true
 
     sim.checkWinCondition()

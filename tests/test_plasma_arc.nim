@@ -18,15 +18,24 @@ const ClearX = 60
 template ClearY(): int = MapHeight div 2
 
 suite "spray cans":
-  test "two spray cans spawn walkable in the top half of the side columns":
+  test "two spray cans spawn walkable in the top half of their endzone":
     let game = twoTeamGame()
     for i in 0 ..< game.plasmaArcSpawns.len:
+      let
+        team = Team(i)
+        anchor = game.gameMap.teamAnchor(team)
       check game.plasmaArcSpawns[i].present
       check game.canOccupy(game.plasmaArcSpawns[i].x, game.plasmaArcSpawns[i].y)
-      # Plasma arcs live in the TOP half (quarter height); the shields hold
-      # the matching bottom-half spots.
-      check abs(game.plasmaArcSpawns[i].y - MapHeight div 4) < 120
-      check game.plasmaArcSpawns[i].y < MapHeight div 2
+      # Every endzone is a DISC around its anchor now, so "quarter map height"
+      # no longer names anything: a spray can sits in the TOP half of its own
+      # team's scoring disc and the shield holds the matching bottom-half spot.
+      # That is the property the old constant stood for, and the one that has
+      # to survive an anchor moving with `homeDepth`.
+      check game.gameMap.captureZone(team).inCaptureZone(
+        game.plasmaArcSpawns[i].x, game.plasmaArcSpawns[i].y)
+      check game.plasmaArcSpawns[i].y < anchor.y
+      check anchor.y - game.plasmaArcSpawns[i].y < game.gameMap.endzoneRadius
+      check game.shieldSpawns[i].y > anchor.y
       if i == 0:
         check game.plasmaArcSpawns[i].x < MapWidth div 2
       else:
@@ -424,8 +433,23 @@ suite "spray cone fx wall clipping":
           let ny = y + int(uy * nearD)
           let fxp = x + int(ux * farD)
           let fyp = y + int(uy * farD)
-          if game.lineOfSightClear(x, y, nx, ny) and
-              not game.lineOfSightClear(x, y, fxp, fyp):
+          ## MARGIN, not a hairline: the renderer clips from the cog's RIG
+          ## POSE origin (a few px off the collision center) and nudges each
+          ## puff toward the cog's right, so a spot whose exact center ray
+          ## happens to clear the wall is not enough. Demand a band.
+          proc bandClear(ax, ay, bx, by: int): bool =
+            for d in countup(-16, 16, 4):
+              for ox in [-6, 0, 6]:
+                if not game.lineOfSightClear(ax + ox, ay, bx + ox, by + d):
+                  return false
+            true
+          proc bandBlocked(ax, ay, bx, by: int): bool =
+            for d in countup(-16, 16, 4):
+              for ox in [-6, 0, 6]:
+                if game.lineOfSightClear(ax + ox, ay, bx + ox, by + d):
+                  return false
+            true
+          if bandClear(x, y, nx, ny) and bandBlocked(x, y, fxp, fyp):
             fx = x
             fy = y
             break search

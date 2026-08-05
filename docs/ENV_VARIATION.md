@@ -49,32 +49,39 @@ Definition [sim_types.nim:796](../src/ctf/sim_types.nim#L796). Zero/`-1`/`""` va
 
 | Field | Type / default | JSON key | Valid values / draw | Effect |
 |---|---|---|---|---|
-| `size` | string / `""` | `mapSize` | `small`/`standard`/`large`/`huge`/`giant` (scales 0.85/1.0/1.3/1.8/2.6 of 1235×659); `colossal`=5.2 override-only | Field dimensions. |
-| `symmetry` | string / `""` | `mapSymmetry` | 2-team: `mirror`/`rot180` (coin); 4-team forced `rot90` | How half/quadrant seed set completes. |
-| `columns` | int / `0` | `mapColumns` | `3..24` (gen); draw 4-team 3–4, compact-endzone 6–8, else 4–6 | Obstacle column count per half. |
+| `size` | string / `""` | `mapSize` | `small`/`standard`/`large`/`huge`/`giant` → HEXAGON bounding boxes 824×951 / 969×1119 / 1260×1455 / 1744×2014 / 2519×2909 (scales 0.85/1.0/1.3/1.8/2.6 of the 969×1119 standard); `colossal`=5.2 override-only (5039×5819). Each holds the same PLAYFIELD area as the rectangle it replaced; 25% of the box is void | Field dimensions. |
+| `symmetry` | string / `""` | `mapSymmetry` | 2-team: `mirrorHex` (legacy alias `mirror`) / `rot180` (coin). `rot120`/`rot60`/`klein4` are declared but raise — the cube-space orbit rasterizer is Stage 2b. `rot90` is DELETED (C4 is not a subgroup of D6) | Which D6 subgroup completes the seed set. |
+| `columns` | int / `0` | `mapColumns` | `3..24` (gen); draw 5–7, scaled by class on huge/giant/colossal | Obstacle column count per half. |
 | `windows` | int / `-1` | `mapWindows` | `0..6` per half; -1 = draw | Glass-window count (walls transparent to fog). |
 | `centerFeature` | string / `""` | `mapCenterFeature` | `bracket`/`ring`/`walls` | Central obstacle archetype. |
-| `layout` | string / `""` | `mapLayout` | 4-team: `corners`/`plus` (coin); 2-team `""`/`sides` | Team placement (4-team). |
-| `pits` | int / `-1` | `mapPits` | `0..64` (gen); -1 = density draw; even = symmetric pairs, odd = center pit; 4-team supports only 0/-1 | Exact trench count. |
+| `layout` | string / `""` | `mapLayout` | `""`/`hex2` (legacy alias `sides`). `hex3`/`hex4`/`hex6` exist in the type but the generator raises for teams != 2; `corners`/`plus` are DELETED | Team placement. |
+| `pits` | int / `-1` | `mapPits` | `0..64` (gen); -1 = density draw; even = symmetric pairs, odd = center pit | Exact trench count. |
 | `pitDensity` | int / `-1` | `mapPitDensity` | `0..1000` percent (gen); -1 = 100; ignored if `pits` set | Trench density multiplier. |
-| `endzone` | string / `""` | `mapEndzone` | `column`/`disc`/`square`; 2-team draw ¼ disc / ¼ square / ½ column; 4-team forced column | Home capture-region shape. |
-| `endzoneRadius` | int / `0` | `mapEndzoneRadius` | `90..width` (gen); needs disc/square; 0 = draw | Compact endzone scoring radius. |
-| `baseDepth` | int / `0` | `mapBaseDepth` | `400..800` permille (gen); needs disc/square; 0 = draw | Home anchor depth. |
+| `endzone` | string / `""` | `mapEndzone` | `disc` ONLY — the hex arena is all-disc; `column` and `square` are DELETED | Home capture-region shape. |
+| `endzoneRadius` | int / `0` | `mapEndzoneRadius` | `minEndzoneRadius(width)..maxEndzoneRadius(width)`; both scale with the board (the flat 90 floor sat ABOVE what the small hex class draws); 0 = draw 8.9%–11.3% of width | Endzone scoring radius. |
+| `baseDepth` | int / `0` | `mapBaseDepth` | `400..800` permille (gen); 0 = draw 600–700. Deeper than the old 520–620 draw: the hex board is 22% narrower at equal playfield area, and a shallower base puts its protected apron INTO the flag ring, leaving the row through both bases a permanently open lane | Home anchor depth. |
 
 Generator internals (all `arena.nim`, config-gated, no GameVersion bump; change in code):
 `MapGenMaxAttempts`=100 (re-rolls until validators pass), `MinCorridorWidth`=26,
 cover-density band `CoverPermilleMin`=40..`CoverPermilleMax`=170,
-`ColumnFamily` per column = one of `colStubs`/`colDiamonds`/`colDiscs`/`colChevrons`,
+`ColumnFamily` per column = one of `colStubs`/`colDiamonds`/`colDiscs`/`colChevrons`
+(`colDiamonds` now emits a hexagon — the diamond was a C4 shape), the sightline rule
+is `sightlineMinSpan` = 80% of board width on each of the THREE hex axes,
 pit-candidate kinds `pitInstead`/`pitGap`/`pitEndzone`, curated `MapPoolSeeds` = 20 seeds.
 
 ### Hand-authored arenas (fixed geometry, selected by `mapPath`)
 
-- **`arena`** (`arenaCtfMap()` [arena.nim:462](../src/ctf/arena.nim#L462)): 1235×659,
-  `flagRing`=70, `captureClear`=210, `spawnClearW`=70, `spawnClearH`=130,
-  `gunRange`=1050, 5 obstacle columns, 2 med-kit spawns.
-- **`arena-large`** (`arenaLargeCtfMap()` [arena.nim:486](../src/ctf/arena.nim#L486)):
-  1606×858, `flagRing`=91, `captureClear`=273, `spawnClearW`=91, `spawnClearH`=169,
-  2 med-kit spawns.
+Both are now BUILT, not tabled: `arenaHexObstacles` derives each column's vertical
+span from the hexagon itself (`hexEdgeDist`), so one layout re-fits every size class,
+and both run `plugOpenSightlines` so the authored map holds the same published
+"no straight shot crosses the field" promise the generator enforces.
+
+- **`arena`** (`arenaCtfMap()`): HEXAGON in 969×1119, `flagRing`=70,
+  `spawnClearW`=70, `spawnClearH`=130, `gunRange`=1050, `endzone`=disc r=97,
+  `homeDepth`=650, 6 obstacle columns + windowed center bracket + 2 spinning
+  diamonds per half, 2 med-kit spawns.
+- **`arena-large`** (`arenaLargeCtfMap()`): the same layout on the LARGE class,
+  1260×1455, `flagRing`=91, `endzone`=disc r=127.
 
 Per-map descriptor `CtfMap` [sim_types.nim:733](../src/ctf/sim_types.nim#L733) carries
 `width`/`height`, `flagRing`, `captureClear`, `spawnClearW/H`, `gunRange`, `endzone`
@@ -90,7 +97,7 @@ Per-map descriptor `CtfMap` [sim_types.nim:733](../src/ctf/sim_types.nim#L733) c
 
 | Field | Type / default | Bounds | Effect |
 |---|---|---|---|
-| `teams` | int / `2` | must be `2` or `4` | Active team count: 2 (classic sides) or 4 (corners/plus FFA). |
+| `teams` | int / `2` | must be `2` (4 raises until hex Stage 2b) | Active team count. |
 | `minPlayers` | int / `16` | `1..32` | Players required to start; effectively sets roster size on open join. |
 | `closedRoster` | bool / `false` | needs ≥`minPlayers` named+tokened slots | Fixed named roster vs open join. |
 | `slots` | `seq[PlayerSlotConfig]` / `@[]` | ≤32; unique names/tokens; `team < teams` | Per-seat overrides. |

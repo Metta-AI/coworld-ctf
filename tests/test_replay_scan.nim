@@ -5,7 +5,7 @@ import
   ctf/[global, labels, replay_runtime, replays, sim]
 
 const
-  CtfReplayPath = GameDir / "tests" / "fixtures" / "capture-seed1.bitreplay"
+  CtfReplayPath = GameDir / "tests" / "fixtures" / "capture-seed4.bitreplay"
 
 proc initReplaySim(data: ReplayData): SimServer =
   ## Initializes a replay simulation from the replay config JSON.

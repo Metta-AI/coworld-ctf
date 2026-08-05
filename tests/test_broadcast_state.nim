@@ -8,7 +8,7 @@ const
   FixtureDir = GameDir / "tests" / "fixtures"
   # Fixtures are recorded against the CURRENT gameplay rules and must be
   # re-recorded on every GameVersion bump (tools/record_fixture.sh):
-  #   capture-seed1:  record_fixture.sh <out> 1
+  #   capture-seed4:  tools/record_capture_fixture.sh 4
   #   wipe-lives1:    record_fixture.sh <out> 3 10000 \
   #                     '{"lives":1,"hitPoints":1,"carrierSpeedPct":1}'
   #   draw-nokill:    record_fixture.sh <out> 7 1500 \
@@ -21,14 +21,23 @@ const
   # ending a seed produces is a property of the rules it was recorded under.
   # GV30 moved the pickups, and seed 7 — which captured under GV29 — now
   # runs to a time-limit draw, so the capture fixture moved to seed 1.
-  # Under GV36 (32-rotation aim) seed 1 still ends on a capture (Blue
-  # captures the red heart, eliminating Red). The recording must ALSO keep
-  # only one flag out from the last steal to the capture: the endzone fade
-  # ramp test (test_replay_scan) watches this fixture just past the last
-  # steal and its per-frame band allowance assumes a single powered-down
-  # endzone — a double-steal ending ships both teams' bands at once and
-  # busts the bound, so re-record until the last carry stands alone.
-  CaptureFixture = FixtureDir / "capture-seed1.bitreplay"
+  # GV38 (hex arena) moved it again: seed 1 now draws as well, and the
+  # fixture is seed 4 (Blue captures the red heart, eliminating Red).
+  #
+  # AND THE SEED IS NOT ENOUGH. The bots are separate live processes, so the
+  # same seed ends differently on different recordings — seed 4 drew on 7 of
+  # 8 attempts and captured on the 8th. `tools/record_capture_fixture.sh`
+  # retries until BOTH properties hold, and `tools/find_fixture_seed.sh`
+  # re-finds a seed when a rules change kills the current one. Use them; a
+  # single hand-run recording is a coin flip.
+  #
+  # The recording must ALSO keep only one flag out from the last steal to the
+  # capture: the endzone fade ramp test (test_replay_scan) watches this
+  # fixture just past the last steal and its per-frame band allowance assumes
+  # a single powered-down endzone — a double-steal ending ships both teams'
+  # bands at once and busts the bound, so re-record until the last carry
+  # stands alone. The retry script checks that too.
+  CaptureFixture = FixtureDir / "capture-seed4.bitreplay"
   WipeFixture = FixtureDir / "wipe-lives1.bitreplay"
   DrawFixture = FixtureDir / "draw-nokill.bitreplay"
 
@@ -150,16 +159,19 @@ suite "broadcast state channel":
       check state["ph"].getStr == "gameover"
       check state.hasKey("over")
       # A capture win is not a draw and not a time-limit tiebreak. The winner
-      # is pinned to the current recording of the fixture (GameVersion 36,
-      # seed 1: Blue captures the red heart, eliminating Red).
+      # is pinned to the CURRENT recording of the fixture (GameVersion 38,
+      # seed 4: RED captures the blue heart, eliminating Blue). Which side
+      # captures is a property of the recording, not of the rules — re-pin it
+      # whenever the fixture is re-recorded, and do not "fix" a flipped winner
+      # by re-rolling until it matches.
       check state["over"]["draw"].getBool == false
       check state["over"]["timeLimit"].getBool == false
-      check state["over"]["winner"].getStr == "blue"
+      check state["over"]["winner"].getStr == "red"
       # The scorebug axis is lives + flag state, never a kill score.
-      check state["teams"]["red"].hasKey("lives")
+      check state["teams"]["blue"].hasKey("lives")
       # GV32: the captured heart ends the game in the "captured" state.
-      check state["teams"]["red"]["flag"].getStr == "captured"
-      check state["teams"]["blue"]["flag"].getStr in ["home", "taken"]
+      check state["teams"]["blue"]["flag"].getStr == "captured"
+      check state["teams"]["red"]["flag"].getStr in ["home", "taken"]
       # The verdict carries a team-keyed map (any team count) that agrees with
       # the legacy red/blue scalars.
       for team in ["red", "blue"]:
@@ -245,7 +257,11 @@ suite "broadcast state channel":
       let verdicts = replay.beatEvents.elems.filterIt(it["k"].getStr == "gameover")
       check verdicts.len == 1
       check verdicts[0]["draw"].getBool == false
-      check verdicts[0]["winner"].getStr == "blue"
+      ## Same pin as the capture assertions above: GV38 seed 4 is RED
+      ## capturing the blue heart. Re-pin BOTH places together — this one is
+      ## easy to miss because it reads the beat timeline rather than the
+      ## end-of-game state.
+      check verdicts[0]["winner"].getStr == "red"
       # The chrome frame ships the timeline when (and only when) asked.
       let withBeats = parseJson(sim.buildStateJson(
         newJArray(), false, 1, replay.replayMaxTick(), false, true, -1, -1,

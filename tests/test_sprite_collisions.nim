@@ -52,11 +52,15 @@ proc fullFeatureGame(withCrown = true, crownOnly = false): SimServer =
   result.players[1].hasShield = true
   # Red teammates just behind the viewer, in its vision bubble, carrying
   # the grenade and the plasma arc so those markers render too.
-  result.players[2].x = cx - 90
-  result.players[2].y = cy - 20
+  # The teammates sit inside the always-open FLAG RING (radius 70 around the
+  # center) rather than 90px out: on the hexagonal arena the old x offset lands
+  # in the obstacle column just west of the ring, so both carry markers went
+  # unrendered and the vocabulary guard lost two families silently.
+  result.players[2].x = cx - 40
+  result.players[2].y = cy - 40
   result.players[2].hasGrenade = true
-  result.players[4].x = cx - 90
-  result.players[4].y = cy + 20
+  result.players[4].x = cx - 40
+  result.players[4].y = cy + 40
   result.players[4].hasPlasmaArc = true
 
 proc conflicts(messages: openArray[SpritePacketMessage]): seq[string] =
@@ -139,11 +143,11 @@ suite "sprite id collisions":
     # The widened pools (soldier/corpse/selected strides, rig blocks, flag
     # 700..703, carry hearts 600..663, endzone fades 4100..4131) all get
     # exercised by a full 4-team frame with green/yellow seated.
+    # Hex Stage 2 generates 2-team boards only, so the 4-team frame is posed on
+    # the hand-authored Klein-four hexagon (helpers.hexTeamMap), pinned through
+    # the same mapSpec channel a replay uses.
     var config = defaultGameConfig()
-    config.teams = 4
-    config.mapPath = "gen"
-    config.mapGen.layout = "corners"
-    config.mapSeed = 42
+    config.update(fourTeamSpecJson())
     var game = initCtfForTest(config)
     for i in 0 ..< 8:
       discard game.addPlayer("p" & $i)
@@ -218,11 +222,11 @@ suite "sprite id collisions":
     # wire only through the dense dynamic window at DynamicSpriteWireBase+:
     # across a maneuvering 4-team game, no rig segment may define a sprite
     # below the window, and every map-band id keeps its band label.
+    # Hex Stage 2 generates 2-team boards only, so the 4-team frame is posed on
+    # the hand-authored Klein-four hexagon (helpers.hexTeamMap), pinned through
+    # the same mapSpec channel a replay uses.
     var config = defaultGameConfig()
-    config.teams = 4
-    config.mapPath = "gen"
-    config.mapGen.layout = "corners"
-    config.mapSeed = 42
+    config.update(fourTeamSpecJson())
     var game = initCtfForTest(config)
     for i in 0 ..< 8:
       discard game.addPlayer("p" & $i)

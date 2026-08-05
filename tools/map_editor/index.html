@@ -84,7 +84,7 @@
           <label for="override-symmetry">Symmetry</label>
           <select id="override-symmetry" name="symmetry">
             <option value="">Draw from seed</option>
-            <option value="mirror">Mirror</option>
+            <option value="mirrorHex">Mirror</option>
             <option value="rot180">Rotate 180°</option>
           </select>
 
@@ -102,11 +102,13 @@
             <option value="walls">Walls</option>
           </select>
 
-          <label for="override-layout">4-team layout</label>
+          <!-- The generator seats 2 teams only for now: hex3/hex4/hex6 orbits
+               need the cube-space rasterizer (hex Stage 2b). Kept as a control
+               so the one accepted value is visible and named. -->
+          <label for="override-layout">Team layout</label>
           <select id="override-layout" name="layout">
             <option value="">Draw from seed</option>
-            <option value="corners">Corners</option>
-            <option value="plus">Plus</option>
+            <option value="hex2">Hex 2 · left/right pair</option>
           </select>
 
           <label for="override-pits">Total trenches</label>
@@ -115,12 +117,14 @@
           <label for="override-pit-density">Trench density</label>
           <input id="override-pit-density" name="pitDensity" type="number" min="0" max="1000" step="1" placeholder="Default 100">
 
+          <!-- The hex arena is ALL-DISC: `ezDisc` is the one endzone geometry
+               already invariant under 60-degree rotation. `column` had no
+               meaning without a straight home border and `square` was not
+               closed under the rotation; both are deleted from the format. -->
           <label for="override-endzone">Endzone shape</label>
           <select id="override-endzone" name="endzone">
             <option value="">Draw from seed</option>
-            <option value="column">Column</option>
             <option value="disc">Disc</option>
-            <option value="square">Square</option>
           </select>
 
           <label for="override-endzone-radius">Endzone radius</label>
@@ -191,9 +195,10 @@
           </div>
         </div>
         <div class="create-actions" aria-label="Create obstacle">
-          <button type="button" data-create-obstacle="rect" disabled>New rectangle</button>
+          <button type="button" data-create-obstacle="bar" disabled>New bar</button>
+          <button type="button" data-create-obstacle="barAngled" disabled>New 60° bar</button>
           <button type="button" data-create-obstacle="disc" disabled>New disc</button>
-          <button type="button" data-create-obstacle="diamond" disabled>New diamond</button>
+          <button type="button" data-create-obstacle="hex" disabled>New hexagon</button>
           <button type="button" data-create-obstacle="diagonal" disabled>New diagonal</button>
         </div>
         <div id="precision-controls" class="precision-controls" aria-label="Editing precision" hidden>

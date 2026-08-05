@@ -1,38 +1,42 @@
 ## Regenerates src/ctf/map_pool.nim: scans seeds upward and keeps the first
 ## ones whose map passes every validator on the FIRST attempt (so the pool
-## entry IS the map — no re-roll drift if validators tighten later), under
-## small size-class and endzone-shape quotas for variety.
+## entry IS the map — no re-roll drift if validators tighten later), under a
+## small size-class quota for variety.
 ## Usage: nim c -r tools/gen_map_pool.nim [startSeed]
 ## Demo/curation tooling; not part of the server.
 import std/[os, strutils, strformat], ../src/ctf/sim
 
 const
   PoolSize = 20
-  SizeQuota = [4, 5, 4, 4, 3]  ## small, standard, large, huge, giant.
-  ShapeQuota = [10, 5, 5]      ## column, disc, square.
+  SizeQuota: array[HexSizeClass, int] = [4, 5, 4, 4, 3, 0]
+    ## small, standard, large, huge, giant, colossal. Colossal is
+    ## override-only and never drawn at random, so its quota is 0 by
+    ## construction rather than by the array simply being short.
 
-proc sizeClassIndex(gameMap: CtfMap): int =
-  case gameMap.width
-  of 1050: 0
-  of 1235: 1
-  of 1606: 2
-  of 2223: 3
-  of 3211: 4
-  else:
-    raise newException(CtfError, "Unexpected map width: " & $gameMap.width)
+  ## There is no ENDZONE-SHAPE quota any more: the hex arena is all-disc
+  ## (`EndzoneShape` has one member), so the old column/disc/square split had
+  ## nothing left to balance. Variety in the endzone now lives in its RADIUS
+  ## and the base depth, both of which the generator draws per seed.
 
-proc shapeIndex(gameMap: CtfMap): int =
-  case gameMap.endzone
-  of ezColumn: 0
-  of ezDisc: 1
-  of ezSquare: 2
+proc sizeClass(gameMap: CtfMap): HexSizeClass =
+  ## The size class this board's dimensions name, looked up in `HexSizes` —
+  ## the ONE table `scaledGenShell` scales from. The old form re-listed five
+  ## widths of the rectangular board and raised on anything else, so after the
+  ## hex conversion it raised on EVERY generated map; deriving it from the
+  ## source of truth cannot go stale that way again.
+  for cls in HexSizeClass:
+    if HexSizes[cls].width == gameMap.width and
+        HexSizes[cls].height == gameMap.height:
+      return cls
+  raise newException(
+    CtfError, "Map " & $gameMap.width & "x" & $gameMap.height &
+      " matches no hex size class.")
 
 when isMainModule:
   let start = if paramCount() >= 1: parseInt(paramStr(1)) else: 1001
   var
     seeds: seq[int]
-    counts = [0, 0, 0, 0, 0]
-    shapeCounts = [0, 0, 0]
+    counts: array[HexSizeClass, int]
     seed = start
     scanned, rejected = 0
   while seeds.len < PoolSize:
@@ -43,16 +47,13 @@ when isMainModule:
       inc rejected
       echo &"seed={seed} REJECT {reason}"
     else:
-      let
-        sizeIndex = gameMap.sizeClassIndex()
-        shape = gameMap.shapeIndex()
-      if counts[sizeIndex] < SizeQuota[sizeIndex] and
-          shapeCounts[shape] < ShapeQuota[shape]:
+      let cls = gameMap.sizeClass()
+      if counts[cls] < SizeQuota[cls]:
         seeds.add seed
-        inc counts[sizeIndex]
-        inc shapeCounts[shape]
+        inc counts[cls]
         echo &"pool[{seeds.len - 1}] seed={seed} " &
-          &"{gameMap.width}x{gameMap.height} sym={gameMap.symmetry} " &
+          &"{HexClassNames[cls]} {gameMap.width}x{gameMap.height} " &
+          &"sym={gameMap.symmetry} " &
           &"endzone={gameMap.endzone} r={gameMap.endzoneRadius} " &
           &"home={gameMap.teamHomeX(Red)} " &
           &"obstacles={gameMap.leftObstacles.len}"

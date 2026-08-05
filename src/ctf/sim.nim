@@ -13,25 +13,38 @@ import sim_types, rig_art, arena, map_art, sim_config, sim_state, roster
 export sim_types, rig_art, arena, map_art, sim_config, sim_state, roster
 
 proc grenadeSpawnPoints*(gameMap: CtfMap): array[4, tuple[x, y: int]] =
-  ## The four grenade spawn points. Sides maps keep the classic corners;
-  ## corner maps move them to the edge midpoints (the corners are endzones
-  ## there); plus maps tuck them at the inner corners of the center
-  ## intersection, clear of the four endzone arm mouths.
-  let inset = ArenaBorder + GrenadeSpawnInset
-  case gameMap.layout
-  of layoutSides:
-    [(inset, inset),
-      (inset, gameMap.height - inset),
-      (gameMap.width - inset, inset),
-      (gameMap.width - inset, gameMap.height - inset)]
-  of layoutCorners:
-    rot90Orbit((gameMap.width div 2, inset), gameMap.width)
-  of layoutPlus:
-    let arm = gameMap.plusArmHalf()
-    rot90Orbit(
-      (gameMap.center.x + arm - inset, gameMap.center.y + arm - inset),
-      gameMap.width
-    )
+  ## The four grenade spawn points, at four VERTICES of the arena hexagon,
+  ## pulled in off the hull by the border ring and the spawn inset.
+  ##
+  ## The old four points sat at the four corners of the BOUNDING BOX at inset
+  ## 50 — which on a hexagon is deep in the VOID: unreachable, and never
+  ## corrected, because `resetGrenades` is the one pickup family
+  ## `placeWalkablePickups` does not nudge. Vertex pockets keep the "far from
+  ## both bases, contested" intent while landing on real floor.
+  ##
+  ## FOUR of the six vertices, not all six: `grenadeSpawns` is an
+  ## `array[4, PickupSpawn]`, and emitting six here would silently place only
+  ## the first four — an ASYMMETRIC set, which is exactly the team-unfairness
+  ## every other pickup family goes through `teamImagePoint` to avoid. The two
+  ## dropped vertices are the top and bottom points, which sit ON the vertical
+  ## symmetry axis; the remaining four (30, 150, 210, 330 degrees in the screen
+  ## frame) are closed under both the mirror and the half turn, so they are
+  ## exactly fair on either 2-team symmetry.
+  ##
+  ## Still not nudged onto walkable floor — terrain can cover a vertex pocket.
+  ## Routing these through `placeWalkablePickups` is hex Stage 3.
+  let
+    board = gameMap.mapBoard()
+    (cx, cy) = board.hexCenter()
+    ## Pull in far enough that a vertex spot clears BOTH edges meeting there:
+    ## at a 120-degree corner a radial inset of `d` leaves only `0.866 * d`
+    ## perpendicular clearance, so the inset is doubled.
+    reach = board.circumradius() - 2.0 * float(ArenaBorder + GrenadeSpawnInset)
+  const VertexDeg = [30.0, 150.0, 210.0, 330.0]
+  for k, deg in VertexDeg:
+    let angle = degToRad(deg)
+    result[k] = (int(round(cx + reach * cos(angle))),
+                 int(round(cy + reach * sin(angle))))
 
 proc teamOrbitPoints(gameMap: CtfMap, red: MapPoint): seq[tuple[x, y: int]] =
   ## Carries RED's chosen point to every active team by the map's own
@@ -46,55 +59,23 @@ proc shieldSpawnPoints*(gameMap: CtfMap): seq[tuple[x, y: int]] =
   ## the only one chosen; every other team's is its image under the map's own
   ## symmetry (`teamImagePoint`), so no team's shield sits in terrain the
   ## others' don't get.
-  let
-    inset = ArenaBorder + GrenadeSpawnInset
-    red =
-      if gameMap.endzone != ezColumn:
-        ## A compact endzone has no back column to hide a pickup in: park it
-        ## below the pedestal, inside the zone (protected floor, so always
-        ## walkable and always connected) and clear of the pedestal art.
-        let anchor = gameMap.teamAnchor(Red)
-        MapPoint(x: anchor.x, y: anchor.y + 2 * gameMap.endzoneRadius div 3)
-      else:
-        case gameMap.layout
-        of layoutSides:
-          ## The classic back column, bottom half; the cans hold the top.
-          MapPoint(x: inset, y: 3 * gameMap.height div 4)
-        of layoutCorners:
-          ## Red's own x edge at anchor height. Blue's copy is the quarter
-          ## turn of that — the TOP edge — not the right edge a mirror picks.
-          MapPoint(x: inset, y: gameMap.teamAnchor(Red).y)
-        of layoutPlus:
-          ## The lower half of Red's arm mouth. Anchoring each team's copy to
-          ## the integer `center` instead lands it a pixel off the orbit,
-          ## since the rot90 axis is at (side - 1)/2.
-          MapPoint(x: inset, y: gameMap.center.y + gameMap.plusArmHalf() div 2)
-  gameMap.teamOrbitPoints(red)
+  ## A hex endzone is a disc with no back column to hide a pickup in: park it
+  ## below the pedestal, inside the zone (protected floor, so always walkable
+  ## and always connected) and clear of the pedestal art.
+  let anchor = gameMap.teamAnchor(Red)
+  gameMap.teamOrbitPoints(
+    MapPoint(x: anchor.x, y: anchor.y + 2 * gameMap.endzoneRadius div 3))
 
 proc plasmaArcSpawnPoints*(gameMap: CtfMap): seq[tuple[x, y: int]] =
   ## One spray can point per team, built exactly like the shields: RED's spot
   ## carried to every other team by the map's own symmetry. Red's can is the
   ## opposite half of its endzone from Red's shield, so the two sets never
   ## collide.
-  let
-    inset = ArenaBorder + PlasmaArcSpawnInset
-    red =
-      if gameMap.endzone != ezColumn:
-        ## The compact-endzone counterpart of the shield spot: same zone,
-        ## other side of the pedestal (cans high, shields low).
-        let anchor = gameMap.teamAnchor(Red)
-        MapPoint(x: anchor.x, y: anchor.y - 2 * gameMap.endzoneRadius div 3)
-      else:
-        case gameMap.layout
-        of layoutSides:
-          MapPoint(x: inset, y: gameMap.height div 4)
-        of layoutCorners:
-          ## Red's shield spot reflected across the diagonal — its own y edge
-          ## at anchor width — so the two orbits never share an edge spot.
-          MapPoint(x: gameMap.teamAnchor(Red).x, y: inset)
-        of layoutPlus:
-          MapPoint(x: inset, y: gameMap.center.y - gameMap.plusArmHalf() div 2)
-  gameMap.teamOrbitPoints(red)
+  ## The counterpart of the shield spot: same zone, other side of the pedestal
+  ## (cans high, shields low), so the two orbits never collide.
+  let anchor = gameMap.teamAnchor(Red)
+  gameMap.teamOrbitPoints(
+    MapPoint(x: anchor.x, y: anchor.y - 2 * gameMap.endzoneRadius div 3))
 
 template placeWalkablePickups(
   sim: var SimServer,
@@ -2176,19 +2157,15 @@ proc flagCarryProgress*(sim: SimServer, flagTeam: Team): int =
   let
     carrierTeam = sim.players[flag.carrier].team
     home = sim.gameMap.flagHome(flagTeam)
-  let progress =
-    case sim.gameMap.layout
-    of layoutSides:
-      if carrierTeam == Red:
-        home.x - flag.x
-      else:
-        flag.x - home.x
-    of layoutCorners, layoutPlus:
-      let
-        anchor = sim.gameMap.teamAnchor(carrierTeam)
-        d0 = sqrt(float(distSq(home.x, home.y, anchor.x, anchor.y)))
-        d = sqrt(float(distSq(flag.x, flag.y, anchor.x, anchor.y)))
-      int(d0 - d)
+  ## Straight-line displacement toward the carrier's own base. The old
+  ## x-displacement shortcut was only right because the two bases sat on the
+  ## x axis; it stays exactly equivalent for the 2-team hex board (whose bases
+  ## still do) and is the only measure that means anything for 3, 4, or 6.
+  let
+    anchor = sim.gameMap.teamAnchor(carrierTeam)
+    d0 = sqrt(float(distSq(home.x, home.y, anchor.x, anchor.y)))
+    d = sqrt(float(distSq(flag.x, flag.y, anchor.x, anchor.y)))
+    progress = int(d0 - d)
   max(0, progress)
 
 proc teamFlagProgress*(sim: SimServer, team: Team): int =

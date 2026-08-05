@@ -1,19 +1,42 @@
+## Four-team CTF rules, on a HAND-AUTHORED Klein-four hexagon.
+##
+## Hex Stage 2 GENERATES 2-team boards only (`generateMapAttempt` raises for
+## any other count — the cube-space orbit rasterizer that fills a hexagon with
+## 3/4/6-fold terrain is Stage 2b), so the old `mapPath: "gen"` + `mapLayout:
+## "corners"/"plus"` fixtures cannot exist. Nothing in this file was ever ABOUT
+## the terrain, though: it tests seating, hearts, elimination, and pot scoring.
+## So the fixture is a bare hexagon carrying `symKlein4` / `layoutHex4`, pinned
+## through the same `mapSpec` channel a replay uses — which is a real supported
+## map (`validateMap` accepts it, `teamAnchor`/`teamImagePoint`/`captureZone`
+## all resolve it) and exercises the 4-team spec path end to end besides.
+##
+## The terrain-shaped assertions that USED to live here — the plus arm mouths
+## and the diagonal corner zones — are gone with their geometries and are
+## replaced by the V4 orbit properties that took their place: the four anchors
+## and the four capture discs are exact images of one another under the map's
+## own group.
 import
   helpers,
   std/unittest,
   bitworld/spriteprotocol,
-  ctf/sim
+  ctf/[global, sim]
 
-proc fourTeamConfig(layout: string): GameConfig =
+proc fourTeamMap(): CtfMap =
+  ## The standard-class 4-team board: the same 969 x 1119 hexagon every other
+  ## test runs on. Built by `helpers.hexTeamMap`.
+  hexTeamMap()
+
+proc giantFourTeamMap(): CtfMap =
+  ## The giant class (2.6x), for the 32-seat 4ffa8 shape.
+  hexTeamMap(HexSizes[hxGiant].width, HexSizes[hxGiant].height, 26, 10)
+
+proc fourTeamConfig(gameMap = fourTeamMap()): GameConfig =
   result = defaultGameConfig()
-  result.teams = 4
-  result.mapPath = "gen"
-  result.mapGen.layout = layout
-  result.mapSeed = 42
+  result.update(fourTeamSpecJson(gameMap))
 
-proc fourTeamGame(layout = "corners"): SimServer =
+proc fourTeamGame(): SimServer =
   ## A started 4-team game with one player per team (slots deal mod 4).
-  result = initCtfForTest(fourTeamConfig(layout))
+  result = initCtfForTest(fourTeamConfig())
   for i in 0 ..< 4:
     discard result.addPlayer("p" & $i)
   result.startGame()
@@ -24,6 +47,35 @@ proc centerOn(sim: var SimServer, playerIndex, x, y: int) =
   sim.players[playerIndex].y = y - CollisionH div 2
 
 suite "four team ctf":
+  test "the hand-authored Klein-four board is a real 4-team map":
+    ## The fixture has to be a map the engine would accept from a replay, not
+    ## a struct the tests alone believe in: it round-trips through the spec,
+    ## validates, and seats four teams.
+    let gameMap = fourTeamMap()
+    check gameMap.teamCount() == 4
+    check gameMap.symmetry == symKlein4
+    check gameMap.layout == layoutHex4
+    check gameMap.endzone == ezDisc
+    check mapFromSpecJson(mapSpecJson(gameMap)) == gameMap
+    check resolveCtfMapMetadata(fourTeamConfig(gameMap)) == gameMap
+    ## Every anchor is clear of the hull by more than its own protected apron,
+    ## so all four endzones are real floor rather than half-void.
+    let board = gameMap.mapBoard()
+    for team in gameMap.teams():
+      let anchor = gameMap.teamAnchor(team)
+      check board.hexEdgeDist(anchor.x, anchor.y) >
+        float(gameMap.endzoneRadius + EndzoneWallMargin + ArenaBorder)
+
+  test "generating a 4-team map is refused until Stage 2b":
+    ## The replacement for the old generated corners/plus fixtures: the
+    ## generator says so out loud rather than emitting a rounded orbit.
+    expect CtfError:
+      discard generateMapAttempt(
+        42, MapGenOverrides(windows: -1, pits: -1, pitDensity: -1), teams = 4)
+    var config = defaultGameConfig()
+    expect CtfError:
+      config.update("""{"teams": 4, "mapPath": "gen", "mapSeed": 42}""")
+
   test "seats deal round all four teams":
     let sim = fourTeamGame()
     check sim.gameMap.teamCount() == 4
@@ -189,63 +241,122 @@ suite "four team ctf":
     check config.teams == 4
     check config.mapSpec.len > 0
     let rebuilt = resolveCtfMapMetadata(config)
-    check rebuilt.layout == layoutCorners
+    check rebuilt.layout == layoutHex4
     check rebuilt.teamCount() == 4
     check rebuilt == sim.gameMap
 
-  test "plus layout anchors the four teams on the four arms":
-    let sim = fourTeamGame("plus")
-    let gameMap = sim.gameMap
-    check gameMap.layout == layoutPlus
+  test "the four homes are an exact Klein-four orbit":
+    ## The replacement for the plus-arm test. `GroupV4` is
+    ## [identity, mirror-0, mirror-90, half-turn] IN TEAM ORDER, so Blue is
+    ## Red flipped in y, Green is Red flipped in x, and Yellow is Red turned
+    ## through 180 degrees — all three exact integer bijections on pixels.
+    ## Anchors derived from the div-truncated center instead would sit a pixel
+    ## off the orbit on an even side, which is a fairness difference.
+    let gameMap = fourTeamMap()
     let
       red = gameMap.teamAnchor(Red)
       blue = gameMap.teamAnchor(Blue)
       green = gameMap.teamAnchor(Green)
       yellow = gameMap.teamAnchor(Yellow)
+    # Red seeds the orbit off the diagonal, away from both symmetry axes.
     check red.x < gameMap.center.x
-    check blue.x > gameMap.center.x
-    check green.y < gameMap.center.y
-    check yellow.y > gameMap.center.y
+    check red.y < gameMap.center.y
+    check blue == MapPoint(x: red.x, y: gameMap.height - 1 - red.y)
+    check green == MapPoint(x: gameMap.width - 1 - red.x, y: red.y)
+    check yellow == MapPoint(
+      x: gameMap.width - 1 - red.x, y: gameMap.height - 1 - red.y)
     # Each opposing pair straddles the board's TRUE symmetry axis at
-    # (side-1)/2 — a half pixel off the integer center on an even side, so
-    # the pair sums to side-1 rather than both sitting on center exactly.
-    # Pinning them to center would put the anchors off the rot90 orbit.
+    # (side - 1) / 2 — a half pixel off the integer center on an even side.
     check red.y + blue.y == gameMap.height - 1
-    check green.x + yellow.x == gameMap.width - 1
-    # North team's capture zone is the arm mouth: bounded on y by the
-    # anchor threshold and on x by the arm span (the corners are open
-    # field, not endzone).
-    let
-      zone = gameMap.captureZone(Green)
-      band = gameMap.plusArmBand()
-    check zone.yHi < gameMap.height - 1
-    check zone.xLo == band.lo
-    check zone.xHi == band.hi
-    # The arm mouth is its own quarter turn: the north zone's x-span is the
-    # west zone's y-span rotated, exactly.
-    let west = gameMap.captureZone(Red)
-    check west.yLo == zone.xLo
-    check west.yHi == zone.xHi
-    check gameMap.width - 1 - west.yHi == zone.xLo
+    check red.x + green.x == gameMap.width - 1
+    # `teamImagePoint` is the same orbit, and the group acts freely: four
+    # distinct homes, no two teams sharing one.
+    var homes: seq[MapPoint]
+    for team in gameMap.teams():
+      check gameMap.teamImagePoint(red, team) == gameMap.teamAnchor(team)
+      check gameMap.spawnPocketHalf(team) == gameMap.spawnPocketHalf(Red)
+      homes.add gameMap.teamAnchor(team)
+    for i in 0 ..< homes.len:
+      for j in i + 1 ..< homes.len:
+        check homes[i] != homes[j]
 
-  test "corner endzones are diagonal":
-    let sim = fourTeamGame()
-    let zone = sim.gameMap.captureZone(Red)
-    check zone.diag
-    # The map corner itself is deep inside; the anchor is inside; a point
-    # past the 45-degree threshold on one axis alone is not.
-    check zone.inCaptureZone(ArenaBorder, ArenaBorder)
-    let anchor = sim.gameMap.teamAnchor(Red)
-    check zone.inCaptureZone(anchor.x, anchor.y)
-    check not zone.inCaptureZone(zone.diagLimit - 5, zone.diagLimit - 5)
+  test "the four endzones are discs and exact images of one another":
+    ## The replacement for the diagonal corner zones. Every hex endzone is a
+    ## DISC around its anchor — the one shape that survives a rotation — and
+    ## the map's own group carries each team's zone onto the next's, pixel for
+    ## pixel, which is the fairness promise the old rot90 test made.
+    let gameMap = fourTeamMap()
+    let
+      redZone = gameMap.captureZone(Red)
+      w = gameMap.width
+      h = gameMap.height
+    check redZone.disc
+    check redZone.radius == gameMap.endzoneRadius
+    let anchor = gameMap.teamAnchor(Red)
+    check redZone.inCaptureZone(anchor.x, anchor.y)
+    check redZone.inCaptureZone(anchor.x + redZone.radius, anchor.y)
+    check not redZone.inCaptureZone(anchor.x + redZone.radius + 1, anchor.y)
+    check not redZone.inCaptureZone(gameMap.center.x, gameMap.center.y)
+    ## Green's zone is Red's mirrored in x, Blue's is Red's mirrored in y, and
+    ## Yellow's is Red's turned through 180 — counted rather than `check`ed
+    ## per pixel so the sweep costs one assertion, not a million.
+    var mismatch = 0
+    var x = 0
+    while x < w:
+      var y = 0
+      while y < h:
+        let inRed = redZone.inCaptureZone(x, y)
+        if inRed != gameMap.captureZone(Green).inCaptureZone(w - 1 - x, y):
+          inc mismatch
+        if inRed != gameMap.captureZone(Blue).inCaptureZone(x, h - 1 - y):
+          inc mismatch
+        if inRed != gameMap.captureZone(Yellow).inCaptureZone(
+            w - 1 - x, h - 1 - y):
+          inc mismatch
+        y += 3
+      x += 3
+    check mismatch == 0
+
+  test "4-team pickups ride the same orbit as the homes":
+    ## Placed by MIRRORING alone, a pickup lands in the image of some OTHER
+    ## team's spot: different cover, different sightlines to the same item.
+    ## Every set has to be closed under the map's whole group.
+    let gameMap = fourTeamMap()
+    let
+      w = gameMap.width
+      h = gameMap.height
+      shields = gameMap.shieldSpawnPoints()
+      cans = gameMap.plasmaArcSpawnPoints()
+    for points in [shields, cans]:
+      check points.len == 4
+      let red = MapPoint(x: points[ord(Red)].x, y: points[ord(Red)].y)
+      for team in gameMap.teams():
+        let image = gameMap.teamImagePoint(red, team)
+        check points[ord(team)] == (image.x, image.y)
+        ## Each team holds the copy in its OWN endzone, not just somewhere on
+        ## the orbit.
+        check gameMap.captureZone(team).inCaptureZone(
+          points[ord(team)].x, points[ord(team)].y)
+    # Shields and cans are distinct spots, not a doubled-up pile.
+    for shield in shields:
+      check shield notin cans
+    ## The grenades sit on four VERTICES of the hexagon — the four off-axis
+    ## ones — so their set is closed under both mirrors and the half turn, i.e.
+    ## under the whole Klein-four group, without going through `teamOp`.
+    let nades = gameMap.grenadeSpawnPoints()
+    check nades.len == 4
+    for point in nades:
+      check (w - 1 - point.x, point.y) in nades
+      check (point.x, h - 1 - point.y) in nades
+      check (w - 1 - point.x, h - 1 - point.y) in nades
 
   test "a stepped 4-team episode is deterministic and respawns in-zone":
     proc runGame(): SimServer =
-      result = initCtfForTest(fourTeamConfig("corners"))
+      result = initCtfForTest(fourTeamConfig())
       for i in 0 ..< 8:
         discard result.addPlayer("p" & $i)
       result.startGame()
-      # Kill one player so the respawn path (diagonal-zone sampling) runs.
+      # Kill one player so the respawn path (endzone-disc sampling) runs.
       result.killPlayer(5, 0)
       let none = newSeq[InputState](0)
       for tick in 0 ..< 400:
@@ -254,7 +365,7 @@ suite "four team ctf":
     let b = runGame()
     check a.gameHash() == b.gameHash()
     check a.tickCount == b.tickCount
-    # The killed player respawned somewhere inside its OWN diagonal zone.
+    # The killed player respawned somewhere inside its OWN endzone disc.
     check a.players[5].alive
     let
       zone = a.gameMap.captureZone(a.players[5].team)
@@ -272,9 +383,10 @@ suite "four team ctf":
       config.update("""{"teams": 4, "mapPath": "pool"}""")
     expect CtfError:
       config.update("""{"teams": 2, "mapPath": "gen", "mapLayout": "corners"}""")
+    ## A 2-team game cannot run a 4-team spec.
     expect CtfError:
       config.update(
-        """{"teams": 4, "mapPath": "gen", "mapSymmetry": "mirror"}""")
+        """{"teams": 2, "mapSpec": """ & mapSpecJson(fourTeamMap()) & "}")
 
   test "classic 2-team configs reject green and yellow slots":
     var config = defaultGameConfig()
@@ -295,7 +407,7 @@ suite "pot scoring":
     result.startGame()
 
   proc fourTeamPotGame(): SimServer =
-    var config = fourTeamConfig("corners")
+    var config = fourTeamConfig()
     config.scoring = PotScoring
     result = initCtfForTest(config)
     for i in 0 ..< 4:
@@ -354,16 +466,18 @@ suite "pot scoring":
     expect CtfError:
       bad.update("""{"scoring": "winner-take-all"}""")
 
-  test "4ffa8 shape: 32 seats deal 8 per team on a locked giant board":
-    ## The paintbot 4ffa8 variant: MaxPlayers seats, teams 4, mapSize giant.
-    var config = fourTeamConfig("")   # layout drawn from the map seed
-    config.mapGen.size = "giant"
-    var sim = initCtfForTest(config)
+  test "4ffa8 shape: 32 seats deal 8 per team on a giant board":
+    ## The paintbot 4ffa8 variant: MaxPlayers seats, teams 4, giant class. The
+    ## size lock used to come from the generator; on a pinned 4-team spec the
+    ## board carries its own class, so the check is that the giant hexagon
+    ## (2519 x 2909, the 2.6x class) is what got installed.
+    var sim = initCtfForTest(fourTeamConfig(giantFourTeamMap()))
     for i in 0 ..< MaxPlayers:
       discard sim.addPlayer("p" & $i)
     sim.startGame()
     check sim.gameMap.teamCount() == 4
-    check sim.gameMap.width == 2496   # 960 * 2.6: the giant lock took
+    check sim.gameMap.width == HexSizes[hxGiant].width
+    check sim.gameMap.height == HexSizes[hxGiant].height
     var counts: array[Team, int]
     for i in 0 ..< MaxPlayers:
       inc counts[sim.players[i].team]
@@ -374,3 +488,10 @@ suite "pot scoring":
       for j in i + 1 ..< MaxPlayers:
         check sim.players[i].x != sim.players[j].x or
           sim.players[i].y != sim.players[j].y
+
+## This module installs 4-team maps as the process map, and the standard-class
+## one is the SAME 969 x 1119 board as the default arena — so the board render
+## caches cannot self-heal on a size mismatch the way test_replay_switch_caches
+## relies on. Put the default arena back and drop the caches explicitly.
+installDefaultArena()
+invalidateBoardMapCaches()
