@@ -1552,6 +1552,17 @@ type
                               # the tank and its trigger (mate carrying past our shield) is
                               # rare in self-play. Validate hosted, gated OFF.
     sprayGrab: bool           # GV36 melee: opportunistic spray-can pickup
+    nadeLob: bool             # GV36 lob discipline: the engine throws along the CURRENT
+                              # aim at C-release, and a mid-charge slot-servo correction
+                              # sweeps whole revolutions (13 ticks for ±1 slot) — so a
+                              # release mid-sweep flies the WRONG WAY (field-observed).
+                              # Freeze the lob bearing at charge start; release only on
+                              # a settled turret (holding C past full just caps range).
+    spinCap: bool             # GV36 spin budget: gcd(5,32)=1 makes an EXACT ±1-slot
+                              # correction cost 13 held ticks = two full blind
+                              # revolutions (vision rides the aim). Cap the budget at 4
+                              # ticks; settle on the best cheaply-reachable slot and let
+                              # fire-gate slack govern the residual ≤1 slot (11.25°).
     shieldRush: bool          # ⭐⭐ SHIELD-RUSH CARRIER (2026-07-23, the grab→cap fix): the
                               # A/B + n=37 teardown proved we LOSE ON THE RUN HOME — 34 steals /
                               # 4 caps (12%) vs h006, carriers die at MIDFIELD crossing back. A
@@ -1832,6 +1843,8 @@ type
     mateFixPos: Vec           # last SEEN position of a mate-carried enemy heart
     mateFixTick: int          # tick of that sighting; 0 = never seen this game
     nadeNeed: int             # charge ticks required for the planned throw
+    nadeLockAim: int          # nadeLob: lob bearing frozen at charge start (-1 idle)
+    nadeHold: int             # nadeLob: full-charge ticks spent waiting for the turret
     shoutWant: string         # chat packet to send after this frame's input
     lastShoutTick: int        # rate limit: server allows one shout per second
     heardPlay: ReactPlay      # COMMS BUS: play decoded from the last heard codeword
@@ -2575,6 +2588,10 @@ proc shippedCombatTune(): CombatTune =
   # Mirror-MEASURABLE (per-team HP → grab→cap), so lab-screened before the hosted A/B.
   result.shieldRush = true
   result.sprayGrab = true
+  # GV36 aim-mechanics levers (2026-08-05, Maxwell's replay observations):
+  # wrong-direction grenades + field-wide turret spin. Gated for the A/B.
+  result.nadeLob = getEnv("NADELOB").len > 0
+  result.spinCap = getEnv("SPINCAP").len > 0
 
 proc vec(x, y: float): Vec =
   Vec(x: x, y: y)
@@ -3793,6 +3810,8 @@ proc resetTransient(bot: Bot) =
   bot.enemies.setLen(0)
   bot.mates.setLen(0)
   bot.nadeCharge = 0
+  bot.nadeLockAim = -1
+  bot.nadeHold = 0
   bot.mateFixTick = 0
   bot.shoutWant = ""
   bot.lastShoutTick = 0
@@ -6304,11 +6323,22 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   elif bot.nadeCharge > 0 or nadeAim >= 0:
     # Charge-throw: lay the turret on the lob line, then hold C for the ticks
     # the planned distance needs and release — the grenade leaves along the
-    # CURRENT aim on release, so the turret keeps correcting while charging.
+    # CURRENT aim on release. Pre-GV36 the turret could keep correcting while
+    # charging (5 brads/tick drifts stay near the line); on the GV36 slot grid
+    # a mid-charge correction is a 40-brad/tick multi-revolution sweep, so an
+    # uncgated release flies the WRONG WAY. nadeLob: freeze the lob bearing at
+    # charge start (no cluster-chasing) and release only on a settled turret —
+    # the engine holds max charge indefinitely, so waiting is legal; the cost
+    # is range creep toward the cap, bounded by the NadeHoldMax bail-out.
     if bot.nadeCharge == 0:
       bot.nadeNeed = max(3, int(float(NadeFullChargeTicks) *
         (nadeThrowD - 30.0) / (NadeMaxRange - 30.0)))
-    if nadeAim >= 0:
+      if bot.tune.nadeLob:
+        bot.nadeLockAim = nadeAim
+        bot.nadeHold = 0
+    if bot.tune.nadeLob and bot.nadeLockAim >= 0:
+      desiredAim = bot.nadeLockAim
+    elif nadeAim >= 0:
       desiredAim = nadeAim
     if bot.nadeCharge > 0 or (desiredAim >= 0 and
         abs(bradsErr(desiredAim, bot.estAim)) <= CombatDeadband + 2):
@@ -6316,7 +6346,20 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         nadeC = true
         inc bot.nadeCharge
       else:
-        bot.nadeCharge = 0           # release this tick = the throw
+        const NadeHoldMax = 20         # settle-wait bail-out (ticks)
+        if bot.tune.nadeLob and desiredAim >= 0 and
+            abs(bradsErr(desiredAim, bot.estAim)) > 6 and
+            bot.nadeHold < NadeHoldMax:
+          nadeC = true                 # keep holding: turret not on the line yet
+          inc bot.nadeHold
+        else:
+          when defined(nadeprobe):
+            if desiredAim >= 0:
+              stderr.writeLine "NADEREL slot=" & $bot.slot & " t=" & $bot.tick &
+                " err=" & $abs(bradsErr(desiredAim, bot.estAim)) &
+                " held=" & $bot.nadeHold
+          bot.nadeCharge = 0           # release this tick = the throw
+          bot.nadeLockAim = -1
     holdStill = true
     acted = true
   elif bot.tune.swordAmbush and iHaveSword and swordTarget >= 0:
@@ -6924,8 +6967,33 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         if kp < 0 and (k * sSlots) mod 32 == delta: kp = k
         if km < 0 and (k * sSlots) mod 32 == (32 - delta) mod 32: km = k
         if kp >= 0 and km >= 0: break
-      if kp >= 0 and (km < 0 or kp <= km): rotBits = ButtonB
-      elif km >= 0: rotBits = ButtonSelect
+      # ⭐ SPINCAP (gated): with step 5 and gcd(5,32)=1, the EXACT plan for a
+      # ±1-slot correction is 13 held ticks — 65 slots swept, two full BLIND
+      # revolutions (the vision cone rides the aim), and the field-visible
+      # "turret spinning the long way". When the exact plan exceeds the
+      # budget, steer to the reachable slot with the least angular error
+      # inside it (often: hold, accepting ≤1 slot = 11.25°) and let the
+      # fire-gate slack + the target's own bearing drift close the rest.
+      var capped = false
+      if bot.tune.spinCap:
+        const SpinCapTicks = 4
+        let kbest = (if kp >= 0 and (km < 0 or kp <= km): kp
+                     elif km >= 0: km else: 99)
+        if kbest > SpinCapTicks:
+          capped = true
+          var bestJ = 0
+          var bestErr = 99
+          for jj in -SpinCapTicks .. SpinCapTicks:
+            let net = (((cur + jj * sSlots - des) mod 32) + 32) mod 32
+            let e = min(net, 32 - net)
+            if e < bestErr or (e == bestErr and abs(jj) < abs(bestJ)):
+              bestErr = e
+              bestJ = jj
+          if bestJ > 0: rotBits = ButtonB
+          elif bestJ < 0: rotBits = ButtonSelect
+      if not capped:
+        if kp >= 0 and (km < 0 or kp <= km): rotBits = ButtonB
+        elif km >= 0: rotBits = ButtonSelect
 
   # Only a FRESH A press fires, and the pull locks the aim angle on the same
   # tick — never rotate on the pull tick so the lock takes the settled aim.
@@ -7053,7 +7121,7 @@ proc runBot(url: string) =
     endpoint = ensureWsPath(url, WebSocketPath)
   randomize(slot * 7919 + 1)
   let bot = Bot(slot: slot, team: team, role: role, tune: shippedCombatTune(),
-                aimStepBrads: 40, prevStatedAim: -1,
+                aimStepBrads: 40, prevStatedAim: -1, nadeLockAim: -1,
                 myColor: (if team == Red: "red" else: "blue"))
     # myColor is only the slot-PARITY guess here: the team count is not known
     # until the init markers arrive. buildNavGrid re-deals it on a 4-team board
