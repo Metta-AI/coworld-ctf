@@ -795,13 +795,23 @@ proc captureAim(team: Team, tick: int): Vec =
   vec(p.x, p.y)
 
 proc chokeSpot(team: Team): Vec =
-  ## Defender hold point between the flag and our home edge, mirrored
-  ## exactly across the map's vertical center line. (390, 340) on the
-  ## default 1235x659 arena — the gap between the diamond and disc
-  ## columns — scaled proportionally so it lands in the same tactical
-  ## pocket on every map. On a multi-team board the tuned pocket
-  ## coordinates mean nothing on a rotated corner/arm home: hold part-way
-  ## out from our pedestal toward the open board instead.
+  ## Defender hold point between the flag and our home edge, mirrored exactly
+  ## across the map's vertical center line: a fixed 31.6% / 51.6% of the way
+  ## across the board.
+  ##
+  ## AUDITED, deliberately unchanged, GV38. These fractions were the gap
+  ## between the diamond and disc columns of the old 1235x659 arena — furniture
+  ## the hexagonal board does not have, so the rationale in the ratio is gone
+  ## and this is the same species of derived coordinate as the "home column"
+  ## `captureAim` retired. It is left alone because, unlike that one, it is
+  ## still MEASURABLY in the pocket it names on every board checked: (306,577)
+  ## against a base at (170,559) on `arena`, (795,1501) against (669,1454) on
+  ## the largest generated class — outside the endzone, inboard of it, on the
+  ## approach. It is also not on the objective path, so no measurement here
+  ## can score a change to it. The principled replacement is the multi-team
+  ## arm below, which holds part-way out from the pedestal toward the open
+  ## board and needs no map constant at all; adopting it for two teams wants
+  ## its own A/B, not a drive-by.
   if multiFrameOn():
     return MultiHome +
       (vec(float(CenterX), float(CenterY)) - MultiHome) * 0.3
