@@ -42,9 +42,16 @@
 ##
 ## A one-cell corridor would still be only 34 px, above the enforced 26 but
 ## below the recommended 68. So the grid biomes run `widenCorridors` with
-## `minOpenCells` = 2 as a MANDATORY post-pass: every width-1 pinch is opened
-## to two cells, which makes 68 px the narrowest passage any grid biome can
-## emit, by construction. The guarantee is tested, not asserted.
+## `minOpenCells` = 2 as a MANDATORY post-pass, which makes 68 px the narrowest
+## passage a player can be COMMITTED to. The guarantee is tested, not asserted.
+##
+## What counts as a corridor is the subtle part, and getting it wrong was
+## visible in the renders: widening every one-cell pinch shatters a
+## cellular-automata field into isolated dots, because most pinches in one are
+## just two pebbles a cell apart. A 34 px gap between two boulders is not a
+## corridor — you walk around it. So a corridor is a pinch that CONTINUES: two
+## adjacent cells pinched the same way, 68 px of enclosed run. See
+## `widenCorridors`.
 ##
 ## `plains` is the exception and uses `BiomePebbleCellPx` = 56 px
 ## (`BaseCoverSizePx`): it is a SPARSE scatter of isolated pebbles, so its cells
@@ -208,22 +215,22 @@ proc defaultBiomeParams*(style: BiomeStyle): BiomeParams =
     ditherProb: 0.15,        # dither.py default, kept
     ditherDepth: 5,          # dither.py default, kept
     pebbleDiscs: true,
-    # caves — fill 0.4 -> 0.27. At 0.4 the CA lands at 334 permille, twice the
+    # caves — fill 0.4 -> 0.25. At 0.4 the CA lands at 334 permille, twice the
     # legal ceiling; this is the biome the source itself weights 0 as an
     # overlay and uses only as a base.
-    fillProb: 0.27, steps: 3, birthLimit: 5, deathLimit: 3, borderIsRock: true,
-    # forest — seed 0.03 -> 0.10. With `neighbor_threshold` 3, an isolated seed
+    fillProb: 0.25, steps: 3, birthLimit: 5, deathLimit: 3, borderIsRock: true,
+    # forest — seed 0.03 -> 0.085. With `neighbor_threshold` 3, an isolated seed
     # can never grow (three of its eight neighbours must already be forest), so
     # the forest is very nearly its own seed density: 3% of cells, which is
     # 26 permille, well under the 40 permille floor. 0.10 puts it at 141 and
     # switches the growth rule on, which is what makes it CLUMP.
-    clumpiness: 2, seedProb: 0.10, growthProb: 0.5, neighborThreshold: 3,
+    clumpiness: 2, seedProb: 0.085, growthProb: 0.5, neighborThreshold: 3,
     # desert — the source's period is 8 CELLS with a 1-cell ridge. A 1-cell
     # ridge here would be 34 px, under the 47 px at which cover actually hides
     # a body, so the ridge is `BaseCoverSizePx`; holding the 8:1 ratio would
-    # then put the period at 448 and the duty cycle at 250 permille. 384 gives
-    # 143 permille and a 328 px sand lane between ridges.
-    dunePeriodPx: 384, ridgeWidthPx: BaseCoverSizePx, duneAngle: PI / 4.0,
+    # then put the period at 448 and the duty cycle at 250 permille. 416 gives
+    # 136 permille and a 360 px sand lane between ridges.
+    dunePeriodPx: 416, ridgeWidthPx: BaseCoverSizePx, duneAngle: PI / 4.0,
     noiseProb: 0.1, duneSegmentPx: 192,
     duneGapPx: BaseCoverSizePx + RecommendedCorridorWidthPx,
     # city — see genCityBiome. pitch 200 px with a 68 px road is the finest
@@ -235,10 +242,10 @@ proc defaultBiomeParams*(style: BiomeStyle): BiomeParams =
     placeProb: 0.9, minBlockFrac: 0.32, blockJitterPx: 16,
     # plains — cluster_period 7 -> 3 cells. The source's grids are 60+ cells
     # across, so a period of 7 gives it dozens of anchors; our 10x10 pebble
-    # lattice would get four, for 37 permille. At 3 it gets ~16 and lands at
-    # 148.
+    # lattice would get four, for 37 permille. At 3 it gets ~16; cluster_prob
+    # 0.8 -> 0.55 then trims the variance, landing at 141 permille.
     clusterPeriod: 3, clusterMinRadius: 0, clusterMaxRadius: 2,
-    clusterFill: 0.7, clusterProb: 0.8, clusterJitter: 2,
+    clusterFill: 0.7, clusterProb: 0.55, clusterJitter: 2,
     # asteroid mask — source counts are CELLS; scaled to px by BiomeCellPx
     maskStepPx: 3 * BiomeCellPx,
     maskDepthMin: 2 * BiomeCellPx, maskDepthMax: 8 * BiomeCellPx,
@@ -450,32 +457,60 @@ proc ditherEdges*(
 # Corridor-width guarantee
 # ---------------------------------------------------------------------------
 
+proc pinchedH(g: BiomeGrid, c, row: int): bool {.inline.} =
+  ## The cell is open with wall on its left AND right.
+  not g.at(c, row) and g.at(c - 1, row) and g.at(c + 1, row)
+
+proc pinchedV(g: BiomeGrid, c, row: int): bool {.inline.} =
+  not g.at(c, row) and g.at(c, row - 1) and g.at(c, row + 1)
+
+proc corridorH(g: BiomeGrid, c, row: int): bool {.inline.} =
+  ## A one-cell-wide VERTICAL corridor: the cell is pinched left/right AND the
+  ## passage CONTINUES, i.e. the cell above or below is pinched the same way.
+  ## Two stacked pinched cells is 68 px of enclosed run — a corridor a player
+  ## has to commit to. One pinched cell on its own is just a gap between two
+  ## pebbles, which a player walks around, and which is why this distinction
+  ## exists at all.
+  g.pinchedH(c, row) and (g.pinchedH(c, row - 1) or g.pinchedH(c, row + 1))
+
+proc corridorV(g: BiomeGrid, c, row: int): bool {.inline.} =
+  g.pinchedV(c, row) and (g.pinchedV(c - 1, row) or g.pinchedV(c + 1, row))
+
 proc widenCorridors*(r: var Rand, g: var BiomeGrid, minOpenCells: int) =
-  ## Open every width-1 pinch to `minOpenCells` cells wide, so the narrowest
-  ## passage the grid can emit is `minOpenCells * cell` px. With the defaults
-  ## that is 2 * 34 = 68 px = `map_rules.RecommendedCorridorWidthPx`.
+  ## Open every one-cell-wide CORRIDOR to `minOpenCells` cells, so the
+  ## narrowest passage a player can be committed to is `minOpenCells * cell`
+  ## px — with the defaults, 2 * 34 = 68 = `RecommendedCorridorWidthPx`.
   ##
-  ## A pinch is an OPEN cell with wall on both sides along an axis. We clear
-  ## whichever of the two walls is the more isolated (fewest wall neighbours),
-  ## so the pass eats stray pebbles before it eats a ridge; ties break on the
-  ## rng. Off-grid counts as OPEN — the pass must not chew the region border,
-  ## where the map simply continues.
+  ## WHAT COUNTS AS A CORRIDOR IS THE WHOLE DESIGN. The first version widened
+  ## every pinch: any open cell with wall on both sides. That is far too
+  ## greedy. In a cellular-automata field most pinches are just two pebbles a
+  ## cell apart, and deleting one of them every time SHATTERS the rock into
+  ## isolated dots — the caves render came out as scatter, not caves, and
+  ## `interiorFrac` sat at the pool median. A 34 px gap between two boulders is
+  ## not a corridor; you walk around it.
+  ##
+  ## So a corridor is a pinch that CONTINUES: two adjacent cells pinched the
+  ## same way, i.e. 68 px of enclosed run. Those are the passages a player
+  ## commits to and cannot dodge inside, and they are the only ones widened.
+  ##
+  ## Of the two flanking walls we clear the more isolated one (fewest wall
+  ## neighbours), so the pass eats a stray pebble before it eats a ridge; ties
+  ## break on the rng. Off-grid counts as OPEN — the pass must not chew the
+  ## region border, where the map simply continues.
   if minOpenCells <= 1: return
   for _ in 0 ..< BiomeWidenPasses:
     var changed = false
     for row in 0 ..< g.rows:
       for c in 0 ..< g.cols:
         if g.wall[g.idx(c, row)]: continue
-        # Horizontal pinch: wall to the left AND right of an open cell.
-        if g.at(c - 1, row) and g.at(c + 1, row):
+        if g.corridorH(c, row):
           let
             a = g.neighbours8(c - 1, row, false)
             b = g.neighbours8(c + 1, row, false)
             takeLeft = (if a == b: rand(r, 1.0) < 0.5 else: a < b)
           g.wall[g.idx(if takeLeft: c - 1 else: c + 1, row)] = false
           changed = true
-        # Vertical pinch.
-        if g.at(c, row - 1) and g.at(c, row + 1):
+        if g.corridorV(c, row):
           let
             a = g.neighbours8(c, row - 1, false)
             b = g.neighbours8(c, row + 1, false)
@@ -485,14 +520,12 @@ proc widenCorridors*(r: var Rand, g: var BiomeGrid, minOpenCells: int) =
     if not changed: break
 
 proc hasPinch*(g: BiomeGrid): bool =
-  ## True when some open cell still has wall on both sides along an axis —
-  ## i.e. a passage narrower than two cells survives. The test hook for the
-  ## corridor guarantee.
+  ## True when a one-cell-wide corridor of at least two cells survives — the
+  ## test hook for the corridor guarantee. Isolated pinches are deliberately
+  ## NOT reported; see `widenCorridors`.
   for row in 0 ..< g.rows:
     for c in 0 ..< g.cols:
-      if g.wall[g.idx(c, row)]: continue
-      if g.at(c - 1, row) and g.at(c + 1, row): return true
-      if g.at(c, row - 1) and g.at(c, row + 1): return true
+      if g.corridorH(c, row) or g.corridorV(c, row): return true
   false
 
 # ---------------------------------------------------------------------------
