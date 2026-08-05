@@ -878,13 +878,92 @@ const
   MapGenMaxAttempts = 100
   MapSizeNames = ["small", "standard", "large", "huge", "giant"]
   CenterFeatureNames = ["bracket", "ring", "walls"]
+  ## ------------------------------------------------------------------------
   ## Interior cover budget, in permille of the non-protected interior that is
-  ## obstacle wall. The hand-tuned arena sits inside this band; layouts
-  ## outside it play too open or too clogged and are re-rolled. Public so
-  ## tooling can report a measured figure against the band it is judged by
-  ## rather than restating the numbers.
-  CoverPermilleMin* = 40
-  CoverPermilleMax* = 170
+  ## obstacle wall. Layouts outside the band play too open or too clogged and
+  ## are re-rolled.
+  ##
+  ## THE TWO BOUNDS SCALE DIFFERENTLY, and that is the whole reason a single
+  ## pair of numbers could not survive the move to a hexagon:
+  ##
+  ##   The FLOOR is lane geometry. The wall that interrupts a hull's chords is
+  ##     a CURTAIN — a one-dimensional structure whose length grows with the
+  ##     hull while its thickness is fixed by the obstacle vocabulary, which
+  ##     never scales (a colossal board gets the same 28px pebbles, just more
+  ##     of them). Wall area therefore grows as L and interior as L^2, so the
+  ##     floor goes as 1/L. `coverPermilleMin` applies that; `CoverPermilleMin`
+  ##     is its value on the standard class.
+  ##   The CEILING is combat density, and `GunRange` — the length that decides
+  ##     whether a field reads as an arena or a maze — is FIXED at 1050px and
+  ##     explicitly never scales with the board (GV34). So the ceiling is
+  ##     scale-free: one number for every class.
+  ##
+  ## Both are DERIVED below rather than fitted to a pass rate. Re-derive with
+  ## `tools/hex_cover_probe.nim geom`, which measures every figure quoted here
+  ## over the real hull through the real validator iterators.
+  ## ------------------------------------------------------------------------
+  CoverSkeletonPermille* = 141
+    ## MEASURED: the least interior cover that interrupts every scanned chord
+    ## of all SIX families on the standard hex hull, built from the
+    ## generator's own repair primitive — a 28px hex plug. Greedy set cover
+    ## over the hull, verified against `sightlineOpenRun`: 26 plugs, mirrored
+    ## to 52 shapes, 98,711 px^2 of a 697,012 px^2 interior.
+    ##
+    ## THIS IS THE NUMBER THE OLD CEILING OF 170 WAS UP AGAINST. On the SMALL
+    ## class the same skeleton costs 156 permille, so a small hexagonal board
+    ## had to spend 156 of its 170 permille closing its own lanes before it
+    ## could place one piece of designed terrain — 9% of the budget left for
+    ## the map itself. That, not the lane rule, is why the generator stopped
+    ## producing maps: 170 was calibrated on a RECTANGLE, where only the
+    ## horizontal family had to be interrupted because the other two board
+    ## edges were the top and bottom walls.
+    ##
+    ## The six-family cost is close to the three-family one — an optimal
+    ## skeleton for three families very nearly blocks six already, because
+    ## three curtains at 0/60/120 degrees project onto all six perpendicular
+    ## axes. What was expensive was never the sixth family; it was a repair
+    ## pass buying one plug per ray (see `plugOpenSightlines`).
+  CoverPermilleMin* = 44
+    ## The floor on the STANDARD class, and a NECESSARY condition rather than
+    ## a taste: below it no arrangement of wall the generator can express
+    ## interrupts every chord, so the map cannot pass the sightline rule
+    ## either way.
+    ##
+    ## `CoverSkeletonPermille` is what the skeleton costs in the repair
+    ## primitive; the floor prices the SAME skeleton in the vocabulary's
+    ## THINNEST feature, because a floor must never reject a map that found a
+    ## better-shaped blocker. A hex plug of circumradius 28 has area
+    ## `(3*sqrt3/2)*28^2 = 2037 px^2` and mean shadow `perimeter/pi = 6*28/pi
+    ## = 53.5 px`, i.e. an effective thickness of `2037/53.5 = 38.1 px`. The
+    ## thinnest wall feature the generator authors is 12px, so the same
+    ## blocking curtain drawn at 12px costs `141 * 12/38.1 = 44 permille`.
+    ##
+    ## 40 was the inherited rectangle figure, and landing within 4 permille of
+    ## it on the standard class is a coincidence of that class only: the
+    ## derived floor is 51 on small and 16 on giant, so the flat 40 was
+    ## simultaneously too slack for the smallest board and 2.5x too strict for
+    ## the largest.
+  CoverPermilleMax* = 266
+    ## The ceiling, scale-free. A field of convex cover at area fraction `c`
+    ## leaves a mean free path between obstacles of `g * (1 - c) / c`, where
+    ## `g = area / mean width` is the cover's grain — `2037/53.5 = 38.1 px`
+    ## for the 28px plug that is this generator's characteristic cover piece.
+    ##
+    ## Anchor: a straight run must average at least a TENTH OF GUN RANGE
+    ## (`1050/10 = 105 px`) of open ground between cover. Below that the gun
+    ## is never usable beyond knife range and the interior is a maze, not an
+    ## arena. `c <= 38.1 / (38.1 + 105) = 0.266`.
+    ##
+    ## Gun range is the right anchor precisely because it does not scale with
+    ## the board, which is what makes this bound one number instead of six.
+    ##
+    ## It brackets AUTHORING as much as generation: at 266 the shipping
+    ## repair pass's own output before it was fixed (658 permille on a bare
+    ## standard hull) is refused outright, and so is a mapkit `maze` or
+    ## `caves` draw that fills its half. What it no longer refuses is the
+    ## hand-authored arena, which measures 194 permille on the standard class
+    ## and 217 on small — both OUTSIDE the old 170 ceiling, which is to say
+    ## the band had come to reject its own design target.
 
 type
   MapRng = object
@@ -918,6 +997,31 @@ proc shuffle[T](rng: var MapRng, items: var seq[T]) =
   for i in countdown(items.high, 1):
     let j = rng.pick(i + 1)
     swap(items[i], items[j])
+
+proc coverPermilleMin*(gameMap: CtfMap): int =
+  ## The cover FLOOR for this hull: `CoverPermilleMin` scaled as `1/L`.
+  ##
+  ## The wall that interrupts a hull's chords is a curtain, so its area grows
+  ## with the hull's linear size while the interior grows with the square —
+  ## and the obstacle vocabulary that sets the curtain's THICKNESS does not
+  ## scale at all. A colossal board is 5.2x across and needs 5.2x the curtain,
+  ## spread over 27x the field: the same geometry, at 8 permille instead of
+  ## 44.
+  ##
+  ## Keyed to `height`, the board's SHORT axis, for the same reason
+  ## `endzoneRadius` and the shout/grenade ranges are: it is twice the
+  ## apothem, the orientation-independent measure of how much field a class
+  ## has, and it does not jump 15% when the hull turns landscape. Read off the
+  ## hull rather than looked up in `HexSizes` so an authored or mapkit board
+  ## between two classes gets the floor its own geometry earns.
+  ##
+  ## Measured skeletons for the six shipped classes, and what this returns:
+  ##   small 156 -> 51    standard 141 -> 44    large 109 -> 33
+  ##   huge   77 -> 24    giant     52 -> 16    colossal 26 -> 8
+  ## (left column: `tools/hex_cover_probe.nim geom`, priced in 28px plugs;
+  ## right: the same skeleton priced in the 12px thinnest wall feature, which
+  ## is the bound a map can never legally sit below.)
+  max(1, CoverPermilleMin * HexStandardHeight div max(1, gameMap.height))
 
 proc mapSizeScale(sizeName: string): float =
   ## Field-scale factor for one size class, shared with `hex.nim`'s
@@ -2048,6 +2152,10 @@ type
     ## when their matching MapDiagnosticArtifact is requested.
     reason*: string
     coverPermille*, minCoverPermille*: int
+    coverPermilleFloor*, coverPermilleCeiling*: int
+      ## The band THIS hull was judged against. The floor is class-dependent
+      ## (`coverPermilleMin`), so a caller that restated the consts would
+      ## report the wrong bound on every class but `standard`.
     openSightlineRows*: seq[int]
       ## Every open row in the validator's historical 4px scan, not every
       ## physical map row.
@@ -2105,6 +2213,13 @@ proc collectMapDiagnostics(
       ## outside the hexagon is excluded by the same predicate that walls it,
       ## so the budget is measured against the PLAYFIELD (75% of the bounding
       ## box), never against the box.
+      ##
+      ## MEASURE AND BOUND MUST AGREE ON WHAT "INTERIOR" IS. The pre-hex band
+      ## was measured over a layout-cased interior that cut an x-band off both
+      ## ends (`captureClear` inward), which is where the map is emptiest — so
+      ## the same map read HIGHER then than it does now. The hex definition
+      ## here is hull-minus-protected for every layout, and `CoverPermilleMin`
+      ## / `CoverPermilleMax` are derived against exactly this denominator.
       let interior =
         not gameMap.mapBorderWallAt(x, y) and
           not mapProtectedFloorAt(gameMap, x, y)
@@ -2123,10 +2238,14 @@ proc collectMapDiagnostics(
     minPermille = minCoverPixels * 1000 div max(1, interiorPixels)
   result.coverPermille = permille
   result.minCoverPermille = minPermille
-  if minPermille < CoverPermilleMin:
-    recordFailure("too open: " & $minPermille & " permille cover")
-  if permille > CoverPermilleMax:
-    recordFailure("too clogged: " & $permille & " permille cover")
+  result.coverPermilleFloor = gameMap.coverPermilleMin()
+  result.coverPermilleCeiling = CoverPermilleMax
+  if minPermille < result.coverPermilleFloor:
+    recordFailure("too open: " & $minPermille & " permille cover (floor " &
+      $result.coverPermilleFloor & ")")
+  if permille > result.coverPermilleCeiling:
+    recordFailure("too clogged: " & $permille & " permille cover (ceiling " &
+      $result.coverPermilleCeiling & ")")
 
   ## With map-wide guns no straight ray may survive a full lane down ANY of
   ## the hexagon's six chord families. On the rectangle only the horizontal

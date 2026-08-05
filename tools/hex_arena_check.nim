@@ -17,7 +17,7 @@ proc report(name: string, gameMap: CtfMap) =
     "  ez r=", gameMap.endzoneRadius,
     "  anchor ", gameMap.teamAnchor(Red).x, ",", gameMap.teamAnchor(Red).y
   echo "  cover ", d.coverPermille, " permille (min ", d.minCoverPermille,
-    "), bounds ", CoverPermilleMin, "..", CoverPermilleMax
+    "), bounds ", d.coverPermilleFloor, "..", d.coverPermilleCeiling
   echo "  open sightline rows (axis 0): ", d.openSightlineRows.len
   echo "  center reachable: ", d.centerReachable,
     "   unreachable teams: ", d.unreachableTeams.len

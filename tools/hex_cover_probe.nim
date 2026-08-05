@@ -302,9 +302,27 @@ proc geom(classes: seq[HexSizeClass]) =
       skelWall = skeleton.wallArea(skelObstacles)
       skelPermille = skelWall * 1000 div max(1, interior)
       stillOpen = skeleton.openLanes()
+    ## The same skeleton priced in the vocabulary's THINNEST wall feature.
+    ## A plug's effective thickness is its area over its mean shadow
+    ## (`perimeter/pi`), so a curtain that does the same blocking work drawn
+    ## at 12px costs that ratio of the plug figure. This is the number the
+    ## FLOOR is set from: a map below it cannot interrupt its chords with any
+    ## wall the generator can express.
+    let
+      plugArea = 3.0 * sqrt(3.0) / 2.0 * float(PlugRadius * PlugRadius)
+      plugMeanShadow = 6.0 * float(PlugRadius) / PI
+      plugThickness = plugArea / plugMeanShadow
+      thinPermille = int(round(float(skelPermille) * 12.0 / plugThickness))
     echo &"  SKELETON  {plugs.len} plugs (grid {grid}px) -> " &
       &"{skelObstacles.len} shapes, {skelWall} px^2 wall = " &
       &"{skelPermille} permille   [{stillOpen} lanes still open]"
+    echo &"    plug grain: area {plugArea:.0f} px^2 / mean shadow " &
+      &"{plugMeanShadow:.1f} px = {plugThickness:.1f} px effective thickness"
+    echo &"    same skeleton at the 12px thinnest wall feature: " &
+      &"{thinPermille} permille"
+    echo &"  BAND      {shell.coverPermilleMin()} .. {CoverPermilleMax} " &
+      &"permille  (floor = CoverPermilleMin {CoverPermilleMin} * " &
+      &"{HexStandardHeight}/{shell.height})"
 
     ## What the shipping repair pass spends on the same bare hull.
     var repaired = shell
