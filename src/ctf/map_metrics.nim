@@ -143,6 +143,23 @@ type
     openRunP50Px*, openRunP95Px*, openRunMaxPx*: int
     longRunFrac*: float           ## share of axis runs over LongRunPx
     clearP50Px*, clearP95Px*: int ## distance transform over open floor
+    diagRunP95Px*, diagRunMaxPx*: int
+      ## The SAME open-run scan along both 45-degree diagonals, length scaled
+      ## to px by sqrt(2) per step. Reported SEPARATELY from the axis runs on
+      ## purpose: every band above is calibrated against the hand-authored
+      ## arena's AXIS numbers, so folding diagonals into that histogram would
+      ## move every bound and the control with it, which is not a measurement.
+      ##
+      ## Why it exists: the axis scan is blind to a diagonal sightline of ANY
+      ## length. That was harmless while every obstacle was an axis-aligned
+      ## rect on a column lattice, but GV37 added polygon obstacles and every
+      ## generator now under construction (Voronoi cells, thresholded noise,
+      ## organic massifs) produces non-axis-aligned geometry. A diagonal
+      ## sniping lane would score PERFECTLY under the axis scan alone — so a
+      ## generator optimised against it would be rewarded for building one.
+      ## Measure the hole first; fold it into the gate only once we know what
+      ## the control actually scores.
+    diagLongRunFrac*: float       ## share of DIAGONAL runs over LongRunPx
 
     # --- routes (vertex-disjoint max-flow per base pair) --------------------
     routeCountMin*, routeCountMax*: int
@@ -796,6 +813,45 @@ proc evaluateMap*(gameMap: CtfMap, name = ""): MapMetrics =
         noteRun(run); run = 0
       else: inc run
     noteRun(run)
+  # --- diagonal open runs (the axis scan above cannot see these at all) ----
+  # Same mask, same LongRunPx bar, but stepping (+1,+1) and (+1,-1). A run of
+  # n diagonal cells spans n*sqrt(2) px, so lengths are scaled before being
+  # histogrammed — otherwise a diagonal lane reads 29% shorter than the axis
+  # lane it is exactly as dangerous as.
+  var
+    diagHist = newSeq[int](int(float(max(w, h)) * 1.4143) + 2)
+    diagTotal, diagLong = 0
+  template noteDiag(cells: int) =
+    if cells > 0:
+      let px = int(float(cells) * 1.41421356)
+      inc diagHist[min(px, diagHist.len - 1)]
+      inc diagTotal
+      if px > LongRunPx: inc diagLong
+  template scanDiag(sx, sy, dy: int) =
+    var
+      x = sx
+      y = sy
+      run = 0
+    while x >= 0 and x < w and y >= 0 and y < h:
+      if minWall[y * w + x]:
+        noteDiag(run); run = 0
+      else: inc run
+      x += 1
+      y += dy
+    noteDiag(run)
+  for y in 0 ..< h:          # "\" diagonals, seeded down the left edge
+    scanDiag(0, y, 1)
+  for x in 1 ..< w:          # ...and along the top edge
+    scanDiag(x, 0, 1)
+  for y in 0 ..< h:          # "/" diagonals, seeded down the left edge
+    scanDiag(0, y, -1)
+  for x in 1 ..< w:          # ...and along the bottom edge
+    scanDiag(x, h - 1, -1)
+  result.diagRunP95Px = percentileOf(diagHist, diagTotal, 0.95)
+  result.diagRunMaxPx = percentileOf(diagHist, diagTotal, 1.0)
+  result.diagLongRunFrac =
+    if diagTotal > 0: diagLong.float / diagTotal.float else: 0.0
+
   result.openRunP50Px = percentileOf(runHist, runTotal, 0.50)
   result.openRunP95Px = percentileOf(runHist, runTotal, 0.95)
   result.openRunMaxPx = percentileOf(runHist, runTotal, 1.0)
