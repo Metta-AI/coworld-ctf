@@ -31,7 +31,9 @@ proc main() =
         let raw = generateMapAttempt(seed, MapGenOverrides(
           windows: -1, pits: -1, pitDensity: -1), teams, attempt)
         let why = validateGeneratedMap(raw)
-        tally.add (if why.len == 0: "VALID?" else: why.split(":")[0])
+        let rm = evaluateMap(raw, "raw")
+        tally.add (if why.len == 0: "VALID?" else: why.split(":")[0]) &
+          &" [cover={rm.coverPermille}pm int={rm.interiorFrac:.2f}]"
       reasons.add &"seed {seed}: no valid layout; attempt reasons " &
         tally.join(" | ")
       continue

@@ -1878,20 +1878,91 @@ proc generateMapAttempt*(
       ## interior) is a candidate this attempt cannot draw, not a crash: the
       ## best-of-K loop simply ranks the others.
       break terrain
-    let
-      fill = generateBiomeShapes(style, fillSeed, region,
-        defaultBiomeParams(style), domain)
-      carved = carveLanes(laneRand, region,
+    let fill = generateBiomeShapes(style, fillSeed, region,
+      defaultBiomeParams(style), domain)
+
+    ## The lane skeleton is a HALF-FIELD topology: three parallel routes from
+    ## a base out to the symmetry seam. A rot90 domain is a QUARTER of the
+    ## board, and putting those same three lanes in half the area and lifting
+    ## them x4 measured 187-235 permille cover against a 170 ceiling. The
+    ## STRUCTURE alone was over, so budgeting the fill could not rescue it —
+    ## tried, and it only starved the fill, costing 0.07 of interiorFrac on
+    ## 2-team for no validity at all.
+    ##
+    ## So rot90 boards take the fill and the constructive row cover WITHOUT
+    ## the lane network. That is honest about what exists rather than forcing
+    ## a two-team grammar onto a four-team board: the brief is explicit that
+    ## 4-team topology must stop being radial-only, and a ring road, a grid of
+    ## blocks or a central keep are separate archetypes still to be built.
+    let useLanes = result.symmetry != symRot90
+    var
+      emitted: seq[ArenaShape]
+      structureCount = 0
+    if useLanes:
+      ## `carveLanes` emits separators, then gates, then the reconciled cover,
+      ## then any pickets — so the split between STRUCTURE and FILL is
+      ## positional, and the plan reproduces the structure counts exactly.
+      let carved = carveLanes(laneRand, region,
         MapPoint(x: redAnchorX, y: cy), xMax, rules, fill)
-    ## `carveLanes` emits separators, then gates, then the reconciled cover,
-    ## then any pickets — so the split between STRUCTURE and FILL is
-    ## positional, and the plan reproduces the structure counts exactly.
-    lanePlan = carved.plan
-    haveLanes = true
-    let structureCount =
-      laneSeparatorShapes(carved.plan).len + laneGateShapes(carved.plan).len
-    for i, shape in carved.shapes:
+      lanePlan = carved.plan
+      haveLanes = true
+      structureCount =
+        laneSeparatorShapes(carved.plan).len + laneGateShapes(carved.plan).len
+      emitted = carved.shapes
+    else:
+      emitted = fill
+
+    ## BUDGET the fill. The structure spends first and the fill takes what is
+    ## left, rather than both drawing freely and the validator refereeing.
+    ##
+    ## This is what the symmetry order costs: a mirror domain is HALF the
+    ## board and a rot90 domain is a QUARTER, but `planLanes` puts at least
+    ## three lanes in either. Same absolute structure in half the area is
+    ## double the density, and after a x4 lift 4-team boards measured 189-261
+    ## permille against a 170 ceiling while 2-team sat comfortably inside it.
+    ## Budgeting against the DOMAIN's own area makes the two cases one case.
+    ##
+    ## Dropping fill cannot re-open a sightline row, because the constructive
+    ## row cover below runs on the finished mask and closes whatever is left.
+    proc approxArea(shape: ArenaShape): int =
+      case shape.kind
+      of shapeRect: max(0, shape.rect.w * shape.rect.h)
+      of shapeDisc: (314 * shape.radius * shape.radius) div 100
+      of shapeDiamond: 2 * shape.radius * shape.radius
+      of shapeDiagonal:
+        let
+          dx = shape.x1 - shape.x0
+          dy = shape.y1 - shape.y0
+        shape.thickness * (abs(dx) + abs(dy))
+      of shapePolygon:
+        var acc = 0
+        for i in 0 ..< shape.points.len:
+          let
+            a = shape.points[i]
+            b = shape.points[(i + 1) mod shape.points.len]
+          acc += a.x * b.y - b.x * a.y
+        abs(acc) div 2
+    const
+      FillBudgetPermille = 160
+        ## Under the 170 ceiling with room for the pickets and the centre
+        ## feature that are still to come.
+      FillFloorPermille = 55
+        ## ...but the fill is never starved to buy structure. Cover and
+        ## ENCLOSURE are different metrics, and squeezing the fill to nothing
+        ## keeps a board legal while making it empty — which is exactly what
+        ## the first attempt at this budget did.
+    let domainArea = region.w * region.h
+    var budget = domainArea * FillBudgetPermille div 1000
+    for i in 0 ..< min(structureCount, emitted.len):
+      budget -= approxArea(emitted[i])
+    budget = max(budget, domainArea * FillFloorPermille div 1000)
+
+    for i, shape in emitted:
       if result.sealsEndzoneGate(shape): continue
+      if i >= structureCount:
+        let a = approxArea(shape)
+        if a > budget: continue
+        budget -= a
       result.leftObstacles.add shape
       ## Window and trench candidates come from the FILL rather than from
       ## lattice slots. A window wants a piece of COVER you can see past, and
