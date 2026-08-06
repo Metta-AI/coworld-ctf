@@ -2720,8 +2720,15 @@ proc shippedCombatTune(): CombatTune =
   # A/B passes (the contaminated-control trap, failed.md: never bake an unproven lever
   # into the champion tune). FOURCARRY=1 / CORNERDEEP=1 arm them per-process for the
   # env-server A/B rig. Both are four-team-only by construction.
-  result.carryAnyHeart = getEnv("FOURCARRY").len > 0
-  result.cornerDeep = getEnv("CORNERDEEP").len > 0
+  # BAKED 2026-08-05 (v40 candidate). 75-game cfg_4ffa A/B, 4 colour rotations +
+  # a 15-game NULL arm, one frozen binary: iCarry 5.5% -> 100%, captures/colour-game
+  # 0.817 vs 0.044, ELIMINATED 31.1% -> 1.7%, wins 15.0% vs 2.8% (NULL 0.0%),
+  # cos(v, own endzone) +0.637 vs +0.086, run-home closed 73.7% vs 29.2%, deaths
+  # -28.4%; positive on ALL FOUR colour rotations. Provably INERT on 2-team boards
+  # (byte-identical deterministic gate with the knobs on). FOURCARRY / CORNERDEEP
+  # remain as per-process overrides for the A/B rig.
+  result.carryAnyHeart = getEnv("NOFOURCARRY").len == 0
+  result.cornerDeep = getEnv("NOCORNERDEEP").len == 0
   # ── COMMS BUS (C1/C2 + the WIPE coupling). Event-driven team plays over the one
   # shout channel: a bot classifies a LIVE scenario from its own fresh local reads
   # and broadcasts an opaque rotating 2-char codeword; teammates in earshot adopt it
