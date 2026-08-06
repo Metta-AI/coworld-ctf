@@ -4,8 +4,9 @@ Epic owner, 2026-08-06. Scored against five lenses. **A lens with no measurement
 "assumed fine".** Every number here I measured myself on `maxwell/mapgen-rebuild`, with the arena
 as control in the same batch and an explicit clean `--nimcache`, rather than accepting a report.
 
-State at time of writing: 10 of the epic's tasks closed, archetypes (10fc7a24) still in flight,
-pool re-curation (c752704b) and corridor floor (49cb2dce) not started.
+State at time of writing: 11 of the epic's tasks closed. Pool re-curation (c752704b) and the label
+regression (89d9ce71) are in flight; corridor floor (49cb2dce), the retargeted enclosure task
+(b7f44fb5) and the GV39 fairness bundle (d768ba09, complete but deliberately unmerged) are not.
 
 ---
 
@@ -41,7 +42,9 @@ new criterion silently would be moving the goalposts.
 ## Lens 3 — Diversity and archetypes: 8/10
 
     distinct maps per seed   39/39, 32/32                   MET
-    nameable archetypes      NOT DELIVERED at time of writing
+    archetypes shipping      6 (bar was >= 5)               MET
+    nameable on a sheet      yes, at both team counts       MET
+    centre no longer a fixture                              MET
 
 The seed collapse is genuinely fixed — ten 4-team seeds used to produce two maps — and SIX route
 topologies now ship: `three-lane`, `blocks`, `ring`, `hub`, `warren`, `field`. Each is chosen from
