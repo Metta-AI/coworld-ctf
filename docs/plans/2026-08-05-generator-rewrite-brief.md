@@ -164,6 +164,63 @@ of purpose. Make placed-but-pointless structurally impossible rather than caught
 
 ---
 
+## 3.5. ARCHETYPES — the requirement that outranks the score
+
+**Maxwell, 2026-08-05, on a 30-map 4-team sheet: _"they should be very unique from one
+another, different styles... this is all the same pinwheel shape dividing the 4 corners."_**
+
+This is the primary acceptance criterion. A generator that satisfies every invariant in §4
+and produces thirty variations of one map has failed.
+
+### The diagnosis: the route GRAPH never changes
+The pinwheel is not a decoration problem. Every 4-team map today routes the same way —
+**four corners connected through a centre hub** — and every 2-team map routes as parallel
+columns. That is ONE graph per team count. Swapping diamonds for discs changes the pixels;
+it cannot change the graph, which is why the four "column families" are indistinguishable.
+
+⚠️ **Symmetry AMPLIFIES this.** Generating in a fundamental domain and lifting means the
+design space is one domain — so a templated domain makes the template *more* visible after
+the lift, not less. Variety must live inside the domain, in the topology.
+
+### What an archetype is
+An **archetype** picks the route topology and the spatial character; the biome and the shape
+vocabulary then only skin it. Different archetype = different GRAPH, not different pebbles.
+
+Suggested starting set — invent better ones, but they must differ in topology, not decor:
+
+| archetype | route topology | character |
+|---|---|---|
+| **three-lane** | 3 parallel routes, distinct lengths | the MW2 grammar: one tight flank, one contested mid, one exposed fast lane |
+| **ring** | a perimeter loop; the centre is contested but optional | rotations matter, centre is a risk not a requirement |
+| **hub** | one dominant central space everything funnels through | high contact rate, short fights |
+| **warren** | many small rooms, high route count | short sightlines, high `interiorFrac`, low open runs |
+| **field** | few LARGE masses, sparse | long sightlines, cover is rare and valuable |
+| **blocks** | a grid of streets | regular, readable, many equivalent routes |
+
+For 4 teams the topology must ALSO stop being radial-only: a ring road with four bases on
+it, a grid of blocks, a central keep with four approaches, or four warrens joined at the
+edges are all rot90-legal and none is a pinwheel. **Radial arms from a centre are one option
+among several, not the only shape a 4-fold symmetric map can take.**
+
+### Make it measurable, or it will not happen
+Archetype must be a real stage with its own RNG substream, chosen per map, and it must show
+up in the numbers. Two maps of different archetypes should differ in **room count**, **route
+count** and their metric fingerprint — which is exactly a MAP-Elites behaviour space over
+`interiorFrac` x `routeCapacityFrac` (see `docs/research/mapgen-search-based.md`, which also
+explains that our 15 bands are really ~6 constraints + ~8 style axes + ~1 quality term, and
+that scoring style axes as quality is what makes the rubric saturate).
+
+**Acceptance tests for this section specifically:**
+- On a 50-map sheet, an observer can point at a tile and say which archetype it is.
+- Room count and route count both vary materially across seeds — report the distributions,
+  not the means.
+- **The self-check: could you identify a specific seed from its picture alone?** If every
+  tile is interchangeable, you have rebuilt the problem with better geometry.
+- The centre of the map is not a fixture. Today essentially every 4-team board has the same
+  ring at dead centre; some archetypes should have nothing there at all.
+
+---
+
 ## 4. The invariants, and how each is guaranteed
 
 | invariant | mechanism | class |
