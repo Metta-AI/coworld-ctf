@@ -55,7 +55,7 @@ You would not rewrite this codebase. The fundamental bets — Nim, input-based r
 - `broadcast_core.js:445` uncompressed-sprite fallback — advances the wrong byte count; if it ever fired it would desync. Better to fail loudly.
 - Vendored SnappyJS **compressor** (~⅓ of the blob) — only `uncompress` is called.
 - `websocketPathForClientPage` mappings for pages never served with this file (`/client/rewards`, `/client/admin`, `/client/global`, `/client/player`).
-- `.feed-row .badge.carrier` CSS rule (no code creates it); write-only `maxTick` (`league_replayer.html:511`); `endcardWinCondition` non-draw time-limit branch (unreachable — `checkMaxTicks` is always a draw in the current sim).
+- `.feed-row .badge.carrier` CSS rule (no code creates it); write-only `maxTick` (`league_replayer.html:511` — **retired** with the walled-pit League Replayer); `endcardWinCondition` non-draw time-limit branch (unreachable — `checkMaxTicks` is always a draw in the current sim).
 
 ---
 
@@ -63,7 +63,7 @@ You would not rewrite this codebase. The fundamental bets — Nim, input-based r
 
 - **Tests**: `initCtfForTest` copy-pasted **36×** (~320 lines), `const GameDir` 43×, `twoTeamGame()` 11×, plus a dozen smaller repeated helpers (`buildGlobalMessages` ×4, `segmentBlocked` ×3, `chargeAndThrow` ×3, ...) — several byte-identical (diff/hash-verified). One `tests/helpers.nim` absorbs ~600–700 lines.
 - **Tools**: 18 of 19 replay-loading tools re-implement boilerplate that `replay_runtime.initReplayRuntime` already encapsulates (only `replay_config_dump.nim` uses it). The chdir dance ×15, the sprite-packet→PNG compositor ×9 independent implementations, `spriteToImage` ×3 identical. A small `tools/toolutil.nim` collapses most of it. Also: `record_*.sh` share scaffolding but only two got the port-wait robustness fix (`record_fixture.sh` still uses bare `sleep 1.5`); the five `qa_*.cjs` share a copy-pasted preamble and require an undocumented `tools/.qa` Playwright install.
-- **Two full browser chromes**: `replay_broadcast.html` and `league_replayer.html` hand-mirror a large helper family — team tables, clock (same "Honest countdown" comment), momentum graph, scrubber/beat markers, transport wiring — several carrying the literal comment "Mirrors replay_broadcast.html". Extract a shared `chrome_common.js` inlined the same way `broadcast_core.js` already is.
+- **Two full browser chromes** (**resolved by deletion**: `league_replayer.html` and its `/client/league` route are gone; `replay_broadcast.html` is the only chrome, and `chrome_common.js` — extracted for this item — now has one consumer): `replay_broadcast.html` and `league_replayer.html` hand-mirror a large helper family — team tables, clock (same "Honest countdown" comment), momentum graph, scrubber/beat markers, transport wiring — several carrying the literal comment "Mirrors replay_broadcast.html". Extract a shared `chrome_common.js` inlined the same way `broadcast_core.js` already is.
 - **Three parallel derivations of the kill/steal/capture/phase story**: sim's tier-2 `emitEvent` sink; `broadcast.nim stepEvents` state-diffing (header: "mirrors tools/expand_replay.nim exactly" — by hand); `expand_replay.nim`'s own diff pass. Byte-consistency is maintained by discipline plus one test.
 - **`sim.nim` internal**: the pickup quartet (`tryPickup{Grenades,MedKits,Shields,PlasmaArcs}`), the respawn-refill triple, the reset quartet, near-duplicate spawn-point pair, `rigGunPixels`/`rigSprayCanPixels` pair, 7 near-identical FX prune loops in `step`, axis-swapped `canSlideHorizontal/Vertical`. (Refactor byte-identically; `gameHash`/GameVersion gate replay compat. In passing: `startGame` calls all resets *except* `resetMedKits` while `initSimServer`/`resetToLobby` call all four — confirm intended.)
 - **`server.nim` internal**: pending-join resolution loop twice (:1274 vs :1434), per-player frame-send block twice (:1486 vs :1572) — and the reset-path copy **lacks the `try`/`markSocketClosed` guard**, so consolidating fixes a latent silent-failure path.
@@ -116,8 +116,8 @@ A schema'd semantic observation protocol (typed entities, own aim included), wit
 ## 5. Bugs found in passing
 
 - Reset-path frame send missing the socket-close guard (`server.nim:1572` vs the guarded main-loop copy at :1486).
-- League shell handles an `esc` postMessage the board never sends (`league_replayer.html:526`) — Esc does nothing while focus is inside the board iframe.
-- `syncBoardAspect` (league:345) reads `boardW/boardH` fields never emitted — the theater aspect is permanently the 1235×659 default, contrary to its comment.
+- ~~League shell handles an `esc` postMessage the board never sends (`league_replayer.html:526`) — Esc does nothing while focus is inside the board iframe.~~ — **moot**: the walled-pit shell is deleted.
+- ~~`syncBoardAspect` (league:345) reads `boardW/boardH` fields never emitted — the theater aspect is permanently the 1235×659 default, contrary to its comment.~~ — **moot**: the walled-pit shell is deleted; the board owns `syncBoardAspect` and drives it off the stream.
 - `broadcast_core.js:180` forwards `name`/`slot`/`token` query params onto viewer sockets, where the server 403s them — foot-gun for embedders.
 - Three forensic probes truncate replays with >16 seats silently (`array[16, ...]`).
 - `tools/ladder/heals.py` `in_range` is a no-op (round-range parameters filter nothing).
@@ -138,7 +138,7 @@ A schema'd semantic observation protocol (typed entities, own aim included), wit
 **Consolidation (pure refactors):**
 8. `tests/helpers.nim` (~600–700 lines back). — **done** (−760 lines, 44 files)
 9. `tools/toolutil.nim`; delete `render_plasma_frame` clone. — **done** (≈−200 lines, 24 tools; `initReplayRuntime` adoption deliberately rejected: it starts at the post-lobby tick and would shift every probe's tick numbering)
-10. Wire-constants single-sourcing from Nim. — *revised*: full chrome unification is **reclassified as a redesign needing product review** — a whitespace-normalized diff shows all 31 mirrored functions between `replay_broadcast.html` and `league_replayer.html` have diverged (zero byte-identical), so a shared module is a semantic reconciliation of a product surface, not an extraction.
+10. Wire-constants single-sourcing from Nim. — *revised*: full chrome unification is **reclassified as a redesign needing product review** — a whitespace-normalized diff shows all 31 mirrored functions between `replay_broadcast.html` and `league_replayer.html` have diverged (zero byte-identical), so a shared module is a semantic reconciliation of a product surface, not an extraction. — **closed by deletion**: `league_replayer.html` is retired, so there is one chrome and nothing left to unify.
 11. Make `labels.nim` the actual producer vocabulary. — **done** (engine + baseline bot both call the builders)
 
 **Structural (each wants its own design pass):**
@@ -191,10 +191,14 @@ imports, re-exports, and `*` additions differ from pure moves).
 - `decodeGridFont`/`loadShoutFont` remain in sim.nim (broadcast-only font
   loading; moving them buys little).
 
-**External dependency introduced (needs an Observatory-side change):** the
+**External dependency introduced (needs an Observatory-side change):** ~~the
 league shell now relays Esc to its host as
 `postMessage({src:'ctf-shell', type:'esc'})`. The Observatory theater page
-must listen for it to close the theater on Esc — untestable from this repo.
+must listen for it to close the theater on Esc — untestable from this repo.~~
+— **withdrawn**: the walled-pit shell that relayed it is deleted, so nothing
+emits `src:'ctf-shell'` any more. The board itself still posts
+`{src:'ctf-replay', type:'esc'}` to its parent when framed with `?embed=1`,
+so a future host can listen directly; nothing in this repo requires it.
 
 ## Appendix: external-review claims not verified against this worktree
 

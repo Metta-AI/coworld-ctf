@@ -1463,9 +1463,9 @@ body[data-embed] #board { top: 0; height: 100%; }
   //    index.html, where the PNGs sit NEXT TO the page and there is no server
   //    at all — a leading slash resolves to the API origin root and 404s.
   // Stripping the trailing "/client/<page>" recovers the prefix, so the same
-  // expression serves all three. Mirrors ART_BASE in league_replayer.html and
-  // websocketPathForClientPage() in broadcast_core.js, which map the same
-  // /client + /clients route pair the same way. The bundle is detected by its
+  // expression serves all three. Mirrors websocketPathForClientPage() in
+  // broadcast_core.js, which maps the same /client + /clients route pair the
+  // same way. The bundle is detected by its
   // WASM adapter rather than a URL param: window.CtfStaticReplay only exists
   // when static_replay.js is on the page.
   var COG_BASE = window.CtfStaticReplay
@@ -1693,9 +1693,9 @@ body[data-embed] #board { top: 0; height: 100%; }
   // These literals are PRE-STREAM DEFAULTS ONLY — the real aspect arrives with
   // the stream and `syncBoardAspect` re-lays out. They used to be 1235:659 and
   // the whole story, so the board was drawn stretched on every map that was not
-  // that shape, which by GV38 is every map. `league_replayer.html` already had
-  // the fix; this is the same `syncBoardAspect`, on the side that actually owns
-  // the canvas. Defaulted to the standard hex arena so the very first frame is
+  // that shape, which by GV38 is every map. `syncBoardAspect` is the fix, on
+  // the side that actually owns the canvas.
+  // Defaulted to the standard hex arena so the very first frame is
   // already the right shape: LANDSCAPE, 1119x969, flat-top hull.
   var BOARD_W = 1119, BOARD_H = 969;
   var BOARD_ASPECT = BOARD_W / BOARD_H;

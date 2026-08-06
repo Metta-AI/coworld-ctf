@@ -34,10 +34,14 @@ suite "bundle asset paths":
   #
   # The Dockerfile's `test -f` guards prove the PNGs SHIP; they say nothing
   # about how the page ASKS for them. This is the other half: a static scan
-  # asserting no asset reference in either bundle page is root-absolute. Kept as
-  # a text scan on purpose — the paths live in inline JS inside the HTML, so
+  # asserting no asset reference in a shipped bundle page is root-absolute. Kept
+  # as a text scan on purpose — the paths live in inline JS inside the HTML, so
   # there is no Nim symbol to type-check and no cheap way to run the page here.
-  const BundlePages = ["client/replay_broadcast.html", "client/league_replayer.html"]
+  #
+  # The list is a list because the bundle used to ship two pages (the board plus
+  # the retired walled-pit League Replayer shell). The board is the only surface
+  # now; keep the loop so a second page re-earns the guard for free.
+  const BundlePages = ["client/replay_broadcast.html"]
 
   test "no bundle page requests an asset from the origin root":
     # Every offender is collected so a failure names them all at once, rather

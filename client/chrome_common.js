@@ -1,17 +1,20 @@
 'use strict';
-// chrome_common.js — the replay chrome shared 1:1 by the broadcast client
-// (replay_broadcast.html) and the League Replayer shell (league_replayer.html):
-// team identity/naming, the clock, the transport bar (buttons/speed chips/
-// scrubber), beat markers, lull shading, the beats timeline + verdict, and the
-// momentum graph. Both pages instantiate it at the top of their IIFE and alias
-// the returned functions to their old local names, so the per-view code
-// (board rendering, killfeed, endcard, walls, KDA tables) is untouched.
+// chrome_common.js — the replay chrome used by the broadcast client
+// (replay_broadcast.html): team identity/naming, the clock, the transport bar
+// (buttons/speed chips/scrubber), beat markers, lull shading, the beats
+// timeline + verdict, and the momentum graph. The page instantiates it at the
+// top of its IIFE and aliases the returned functions to their old local names,
+// so the per-view code (board rendering, killfeed, endcard) is untouched.
+//
+// It was extracted when a SECOND page (the walled-pit League Replayer shell)
+// mirrored the same helpers by hand; that shell is retired, so this is now a
+// one-consumer module kept as the chrome's single source of truth.
 //
 // Served three ways, mirroring wire_constants (this file is inlined into a
 // script tag, so it must never contain the literal splice marker or a script
 // close tag):
 //  - native server: staticRead + spliced over the CHROME_COMMON marker in
-//    both embedded pages (src/ctf/server.nim);
+//    the embedded page (src/ctf/server.nim);
 //  - static WASM bundle: copied into dist/ and loaded via a script src
 //    (Dockerfile.replay-viewer sed's the marker);
 //  - raw file:// opens of the source HTML have NO splice — the pages guard the
@@ -23,17 +26,17 @@
 //  - send(cmd):    deliver a transport command char ('.', 'b', '1'…'8', '6',
 //                  's:<tick>'-style strings NOT included — plain chars only
 //                  here; pages keep their own seek path) to the playback
-//                  channel. Broadcast sends over its websocket; the league
-//                  shell postMessages it down to the embedded board.
-//  - sendPov(slot): select the POV lens for a join slot (-1 clears). The two
-//                  pages transport this differently (broadcast: 'v:'+slot
-//                  command; league: a dedicated postMessage), hence its own hook.
+//                  channel. Broadcast sends over its websocket. (An injected
+//                  hook, not a hard-wired socket, because the retired league
+//                  shell relayed the same char down a postMessage bridge.)
+//  - sendPov(slot): select the POV lens for a join slot (-1 clears). Its own
+//                  hook for the same reason (broadcast: a 'v:'+slot command).
 //  - getState():   the latest parsed state frame (or null before the first
 //                  frame). Read lazily by togglePov and renderMomentum.
 //  - holdCaption(s): OPTIONAL. Given the gameover-phase state, return a
 //                  caption string to show under FINAL, or null/undefined for
-//                  the default 'Game over'. The league shell uses it for the
-//                  looping-hold countdown ('Replaying in Ns').
+//                  the default 'Game over'. No current consumer overrides it
+//                  (the retired league shell mirrored the board's countdown).
 //
 // UI toggles: chrome-level toggles read their initial value from the page URL
 // (uiToggle below), so whatever launches a replay can preconfigure the chrome.
@@ -76,8 +79,8 @@ window.ChromeCommon = function (ctx) {
   // ---- UI toggles (externally configurable) --------------------------------
   // Chrome-level UI toggles read their initial value from the page URL, so
   // whatever triggers a replay can preconfigure the chrome by appending query
-  // params (works on both the broadcast client and the league shell, native
-  // or static bundle). Accepted values: 1/0, true/false, on/off, yes/no;
+  // params (works on the broadcast client, native or static bundle).
+  // Accepted values: 1/0, true/false, on/off, yes/no;
   // anything else keeps the default. Pages can also flip a toggle at runtime
   // through the returned setters.
   function uiToggle(name, dflt) {
@@ -206,8 +209,7 @@ window.ChromeCommon = function (ctx) {
     } else if (s.ph === 'gameover') {
       timeEl.textContent = 'FINAL';
       // ctx.holdCaption may supply a live caption during the server's
-      // end-segment hold (the league shell mirrors the board end-card's
-      // "Replaying in Ns" countdown); default reads Game over.
+      // end-segment hold; default reads Game over.
       capEl.textContent = (ctx.holdCaption && ctx.holdCaption(s)) || 'Game over';
       clk.classList.remove('tiebreak-warn');
     } else {
@@ -230,8 +232,8 @@ window.ChromeCommon = function (ctx) {
   }
 
   // ---- speed chips ---------------------------------------------------------
-  // Built here (both pages carry an identical #speedchips host + the identical
-  // speed→command map); clicks go down the page's own command channel.
+  // Built here (the page carries the #speedchips host; the speed→command map
+  // lives here); clicks go down the page's own command channel.
   var speedChipEls = {};
   (function () {
     var host = $('speedchips'), map = { 1: '1', 2: '2', 3: '3', 4: '4', 8: '8', 16: '6' };
