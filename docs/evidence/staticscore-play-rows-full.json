@@ -1,0 +1,7013 @@
+[
+  {
+    "lateFrac": 0.031400000000000004,
+    "lateFrac_max": 0.10099999999999999,
+    "_per_episode": {
+      "deadFloorFrac": [
+        0.6314027939464494,
+        0.6325669383003493,
+        0.6286379511059371,
+        0.5897846332945285,
+        0.6151047729918511
+      ],
+      "ticks_mean": [
+        1897.0,
+        1901.0,
+        1873.0,
+        2698.0,
+        1871.0
+      ],
+      "pace": [
+        22.667369530838165,
+        21.567596002104157,
+        21.89001601708489,
+        16.30837657524092,
+        22.44788882950294
+      ],
+      "balanceEntropy": [
+        0.999609836367807,
+        0.9788698505067783,
+        0.9649567669505688,
+        1.0,
+        1.0
+      ],
+      "steals_per_ep": [
+        0.0,
+        3.0,
+        1.0,
+        2.0,
+        2.0
+      ],
+      "captures_per_ep": [
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0
+      ],
+      "closeContactFrac": [
+        0.44625985958221376,
+        0.4671500179018976,
+        0.5043294614572333,
+        0.4794445258683863,
+        0.48446266724212345
+      ]
+    },
+    "episodes": 5,
+    "ticks_all": [
+      1897,
+      1901,
+      1873,
+      2698,
+      1871
+    ],
+    "ticks_mean": 2048.0,
+    "captures_total": 1,
+    "captures_per_ep": 0.2,
+    "capture_rate": 0.2,
+    "steals_per_ep": 1.6,
+    "conversion": 0.125,
+    "deadFloorFrac": 0.3259604190919674,
+    "closeContactFrac": 0.4763293064103709,
+    "fightTimeFrac": 0.9996062426072492,
+    "pace": 20.976249390954216,
+    "balanceEntropy": 0.9886872907650307,
+    "deadFloor_perEp": 0.619499417927823,
+    "label": "arena",
+    "staticScore": 1.0,
+    "interiorFrac": 0.34169289459059043,
+    "is_control": true,
+    "bands": {
+      "interiorFrac": {
+        "value": 0.34169289459059043,
+        "sub": 1.0,
+        "weight": 3.0,
+        "breached": false
+      },
+      "exposedFrac": {
+        "value": 0.038441502660519974,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "longRunFrac": {
+        "value": 0.11040021780560849,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCountMin": {
+        "value": 8.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCapacityFrac": {
+        "value": 0.32,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "chokeCount": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "chokeCoveredPenalty": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "collisionCoverRatio": {
+        "value": 1.455614554387538,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "standRingOpenMin": {
+        "value": 0.8916666666666667,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "standRingSpread": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "standCoverSpread": {
+        "value": 0.0002204672663369267,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "midCrossCount": {
+        "value": 5.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "midOpenFrac": {
+        "value": 0.41158059467918623,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "detourMax": {
+        "value": 1.295480880648899,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "visDegreeCv": {
+        "value": 0.5242665215692281,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      }
+    }
+  },
+  {
+    "lateFrac": 0.014400000000000001,
+    "lateFrac_max": 0.05,
+    "_per_episode": {
+      "deadFloorFrac": [
+        0.6540943639753334,
+        0.6713035995984511,
+        0.7305320522013481,
+        0.6764663702853865,
+        0.7022802237200632
+      ],
+      "ticks_mean": [
+        3703.0,
+        3168.0,
+        1936.0,
+        5123.0,
+        3909.0
+      ],
+      "pace": [
+        12.152308938698352,
+        13.573232323232324,
+        20.66115702479339,
+        8.588717548311536,
+        10.744435917114352
+      ],
+      "balanceEntropy": [
+        0.9967916319816367,
+        0.9681647320759545,
+        0.954434002924965,
+        0.9940302114769565,
+        0.9852281360342516
+      ],
+      "steals_per_ep": [
+        0.0,
+        1.0,
+        1.0,
+        0.0,
+        1.0
+      ],
+      "captures_per_ep": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "closeContactFrac": [
+        0.3272557581413953,
+        0.3531974597548368,
+        0.3421837024808548,
+        0.31472019464720197,
+        0.32253465911115864
+      ]
+    },
+    "episodes": 5,
+    "ticks_all": [
+      3703,
+      3168,
+      1936,
+      5123,
+      3909
+    ],
+    "ticks_mean": 3567.8,
+    "captures_total": 1,
+    "captures_per_ep": 0.2,
+    "capture_rate": 0.2,
+    "steals_per_ep": 0.6,
+    "conversion": 0.3333333333333333,
+    "deadFloorFrac": 0.424064247812993,
+    "closeContactFrac": 0.3319783548270895,
+    "fightTimeFrac": 0.9917337257250228,
+    "pace": 13.143970350429992,
+    "balanceEntropy": 0.9797297428987528,
+    "deadFloor_perEp": 0.6869353219561164,
+    "label": "s1018a3",
+    "staticScore": 0.8173197871260105,
+    "interiorFrac": 0.18076270761920438,
+    "is_control": false,
+    "bands": {
+      "interiorFrac": {
+        "value": 0.18076270761920438,
+        "sub": 0.6852850346327471,
+        "weight": 3.0,
+        "breached": true
+      },
+      "exposedFrac": {
+        "value": 0.15126628929647415,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "longRunFrac": {
+        "value": 0.09908424908424908,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCountMin": {
+        "value": 2.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCapacityFrac": {
+        "value": 0.08,
+        "sub": 0.8400000000000001,
+        "weight": 2.0,
+        "breached": true
+      },
+      "chokeCount": {
+        "value": 8.0,
+        "sub": 0.5,
+        "weight": 1.0,
+        "breached": true
+      },
+      "chokeCoveredPenalty": {
+        "value": 1.0,
+        "sub": 0.0,
+        "weight": 1.5,
+        "breached": true
+      },
+      "collisionCoverRatio": {
+        "value": 1.3842580851052786,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "standRingOpenMin": {
+        "value": 1.0,
+        "sub": 0.37499999999999944,
+        "weight": 1.5,
+        "breached": true
+      },
+      "standRingSpread": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "standCoverSpread": {
+        "value": 0.00016620261390369595,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "midCrossCount": {
+        "value": 4.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "midOpenFrac": {
+        "value": 0.6244131455399061,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "detourMax": {
+        "value": 1.4762456546929317,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "visDegreeCv": {
+        "value": 0.33083741548476514,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      }
+    }
+  },
+  {
+    "lateFrac": 0.022,
+    "lateFrac_max": 0.083,
+    "_per_episode": {
+      "deadFloorFrac": [
+        0.813953488372093,
+        0.7856613834987409,
+        0.8090653236557547,
+        0.7875870241445712,
+        0.7911420530291808
+      ],
+      "ticks_mean": [
+        1738.0,
+        3439.0,
+        2084.0,
+        2836.0,
+        2019.0
+      ],
+      "pace": [
+        21.86421173762946,
+        13.375981389938936,
+        18.71401151631478,
+        15.514809590973202,
+        17.33531451213472
+      ],
+      "balanceEntropy": [
+        0.926819063964577,
+        0.9876925088958033,
+        0.961236604722876,
+        0.9760206482366149,
+        0.7755126581331478
+      ],
+      "steals_per_ep": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "captures_per_ep": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "closeContactFrac": [
+        0.5704810836057916,
+        0.5227000109047291,
+        0.6120343127097924,
+        0.554828215504245,
+        0.6325360489495528
+      ]
+    },
+    "episodes": 5,
+    "ticks_all": [
+      1738,
+      3439,
+      2084,
+      2836,
+      2019
+    ],
+    "ticks_mean": 2423.2,
+    "captures_total": 0,
+    "captures_per_ep": 0.0,
+    "capture_rate": 0.0,
+    "steals_per_ep": 0.0,
+    "conversion": 0.0,
+    "deadFloorFrac": 0.6364982965486594,
+    "closeContactFrac": 0.5785159343348221,
+    "fightTimeFrac": 0.9916518990598691,
+    "pace": 17.36086574939822,
+    "balanceEntropy": 0.9254562967906038,
+    "deadFloor_perEp": 0.7974818545400681,
+    "label": "s1037a1",
+    "staticScore": 0.8322282608695651,
+    "interiorFrac": 0.4052661993417251,
+    "is_control": false,
+    "bands": {
+      "interiorFrac": {
+        "value": 0.4052661993417251,
+        "sub": 1.0,
+        "weight": 3.0,
+        "breached": false
+      },
+      "exposedFrac": {
+        "value": 0.08848728305673667,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "longRunFrac": {
+        "value": 0.03358402489626556,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCountMin": {
+        "value": 1.0,
+        "sub": 0.5,
+        "weight": 1.5,
+        "breached": true
+      },
+      "routeCapacityFrac": {
+        "value": 0.04,
+        "sub": 0.68,
+        "weight": 2.0,
+        "breached": true
+      },
+      "chokeCount": {
+        "value": 10.0,
+        "sub": 0.0,
+        "weight": 1.0,
+        "breached": true
+      },
+      "chokeCoveredPenalty": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "collisionCoverRatio": {
+        "value": 1.3949952017015776,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "standRingOpenMin": {
+        "value": 0.975,
+        "sub": 0.6874999999999998,
+        "weight": 1.5,
+        "breached": true
+      },
+      "standRingSpread": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "standCoverSpread": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "midCrossCount": {
+        "value": 5.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "midOpenFrac": {
+        "value": 0.4350547730829421,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "detourMax": {
+        "value": 2.453521126760563,
+        "sub": 0.0,
+        "weight": 1.0,
+        "breached": true
+      },
+      "visDegreeCv": {
+        "value": 0.47300629941368055,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      }
+    }
+  },
+  {
+    "lateFrac": 0.059,
+    "lateFrac_max": 0.282,
+    "_per_episode": {
+      "deadFloorFrac": [
+        0.7462600690448792,
+        0.7363348676639816,
+        0.7697065592635213,
+        0.746403912543153,
+        0.7137514384349828
+      ],
+      "ticks_mean": [
+        4216.0,
+        4103.0,
+        1650.0,
+        3604.0,
+        2560.0
+      ],
+      "pace": [
+        10.910815939278937,
+        11.211308798440166,
+        23.03030303030303,
+        11.931187569367369,
+        16.796875
+      ],
+      "balanceEntropy": [
+        0.9876925088958033,
+        0.9945386816500111,
+        0.9677884628267678,
+        0.996485989886783,
+        0.9681647320759545
+      ],
+      "steals_per_ep": [
+        0.0,
+        0.0,
+        1.0,
+        2.0,
+        0.0
+      ],
+      "captures_per_ep": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "closeContactFrac": [
+        0.28124543729011536,
+        0.2973742486554888,
+        0.3875210959992058,
+        0.29270586465034043,
+        0.3833629717447145
+      ]
+    },
+    "episodes": 5,
+    "ticks_all": [
+      4216,
+      4103,
+      1650,
+      3604,
+      2560
+    ],
+    "ticks_mean": 3226.6,
+    "captures_total": 0,
+    "captures_per_ep": 0.0,
+    "capture_rate": 0.0,
+    "steals_per_ep": 0.6,
+    "conversion": 0.0,
+    "deadFloorFrac": 0.4919447640966629,
+    "closeContactFrac": 0.328441923667973,
+    "fightTimeFrac": 0.9882408692148308,
+    "pace": 14.7760980674779,
+    "balanceEntropy": 0.9829340750670639,
+    "deadFloor_perEp": 0.7424913693901036,
+    "label": "s1020a2",
+    "staticScore": 0.8363810860189664,
+    "interiorFrac": 0.20777943175199015,
+    "is_control": false,
+    "bands": {
+      "interiorFrac": {
+        "value": 0.20777943175199015,
+        "sub": 0.8080883261454098,
+        "weight": 3.0,
+        "breached": true
+      },
+      "exposedFrac": {
+        "value": 0.159309357898446,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "longRunFrac": {
+        "value": 0.09254888739042481,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCountMin": {
+        "value": 3.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCapacityFrac": {
+        "value": 0.12,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "chokeCount": {
+        "value": 9.0,
+        "sub": 0.25,
+        "weight": 1.0,
+        "breached": true
+      },
+      "chokeCoveredPenalty": {
+        "value": 1.0,
+        "sub": 0.0,
+        "weight": 1.5,
+        "breached": true
+      },
+      "collisionCoverRatio": {
+        "value": 1.250315423667753,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "standRingOpenMin": {
+        "value": 1.0,
+        "sub": 0.37499999999999944,
+        "weight": 1.5,
+        "breached": true
+      },
+      "standRingSpread": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "standCoverSpread": {
+        "value": 0.00036011790524150336,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "midCrossCount": {
+        "value": 4.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "midOpenFrac": {
+        "value": 0.5758998435054773,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "detourMax": {
+        "value": 1.4762456546929317,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "visDegreeCv": {
+        "value": 0.3743218214925407,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      }
+    }
+  },
+  {
+    "lateFrac": 0.0318,
+    "lateFrac_max": 0.13,
+    "_per_episode": {
+      "deadFloorFrac": [
+        0.7141193595342067,
+        0.7681222707423581,
+        0.7199417758369724,
+        0.7296943231441049,
+        0.740174672489083
+      ],
+      "ticks_mean": [
+        5124.0,
+        2398.0,
+        3934.0,
+        2424.0,
+        3135.0
+      ],
+      "pace": [
+        8.58704137392662,
+        15.846538782318598,
+        10.930350788002034,
+        16.914191419141915,
+        12.759170653907496
+      ],
+      "balanceEntropy": [
+        0.9760206482366149,
+        0.926819063964577,
+        0.999609836367807,
+        0.9995708393473225,
+        0.9837082626231857
+      ],
+      "steals_per_ep": [
+        2.0,
+        1.0,
+        3.0,
+        0.0,
+        1.0
+      ],
+      "captures_per_ep": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "closeContactFrac": [
+        0.29121783969115306,
+        0.3197046919502323,
+        0.2651417723069386,
+        0.37667554653473717,
+        0.3776406933866354
+      ]
+    },
+    "episodes": 5,
+    "ticks_all": [
+      5124,
+      2398,
+      3934,
+      2424,
+      3135
+    ],
+    "ticks_mean": 3403.0,
+    "captures_total": 0,
+    "captures_per_ep": 0.0,
+    "capture_rate": 0.0,
+    "steals_per_ep": 1.4,
+    "conversion": 0.0,
+    "deadFloorFrac": 0.5208151382823871,
+    "closeContactFrac": 0.32607610877393933,
+    "fightTimeFrac": 0.9950203446463473,
+    "pace": 13.007458603459332,
+    "balanceEntropy": 0.9771457301079014,
+    "deadFloor_perEp": 0.734410480349345,
+    "label": "s1004a1",
+    "staticScore": 0.8479362763546687,
+    "interiorFrac": 0.23753585278487457,
+    "is_control": false,
+    "bands": {
+      "interiorFrac": {
+        "value": 0.23753585278487457,
+        "sub": 0.9433447853857935,
+        "weight": 3.0,
+        "breached": true
+      },
+      "exposedFrac": {
+        "value": 0.16598696895442616,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "longRunFrac": {
+        "value": 0.09063395985982797,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCountMin": {
+        "value": 1.0,
+        "sub": 0.5,
+        "weight": 1.5,
+        "breached": true
+      },
+      "routeCapacityFrac": {
+        "value": 0.04,
+        "sub": 0.68,
+        "weight": 2.0,
+        "breached": true
+      },
+      "chokeCount": {
+        "value": 11.0,
+        "sub": 0.0,
+        "weight": 1.0,
+        "breached": true
+      },
+      "chokeCoveredPenalty": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "collisionCoverRatio": {
+        "value": 1.4851655610777976,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "standRingOpenMin": {
+        "value": 1.0,
+        "sub": 0.37499999999999944,
+        "weight": 1.5,
+        "breached": true
+      },
+      "standRingSpread": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "standCoverSpread": {
+        "value": 0.00035417655965241067,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "midCrossCount": {
+        "value": 3.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "midOpenFrac": {
+        "value": 0.5555555555555556,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "detourMax": {
+        "value": 1.4762456546929317,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "visDegreeCv": {
+        "value": 0.3884097263091076,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      }
+    }
+  },
+  {
+    "lateFrac": 0.0366,
+    "lateFrac_max": 0.133,
+    "_per_episode": {
+      "deadFloorFrac": [
+        0.6915820029027576,
+        0.6596516690856313,
+        0.7030478955007258,
+        0.6806966618287373,
+        0.7044992743105951
+      ],
+      "ticks_mean": [
+        5124.0,
+        4700.0,
+        3852.0,
+        5124.0,
+        5124.0
+      ],
+      "pace": [
+        7.611241217798595,
+        10.0,
+        11.163032191069574,
+        8.97736143637783,
+        8.001561280249804
+      ],
+      "balanceEntropy": [
+        0.9957274520849257,
+        0.9839393951635758,
+        0.996485989886783,
+        0.9876925088958033,
+        0.9961344835095797
+      ],
+      "steals_per_ep": [
+        1.0,
+        2.0,
+        0.0,
+        1.0,
+        2.0
+      ],
+      "captures_per_ep": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "closeContactFrac": [
+        0.4410034872221933,
+        0.44488679449680424,
+        0.39667408432068324,
+        0.3732119635890767,
+        0.38771225362832323
+      ]
+    },
+    "episodes": 5,
+    "ticks_all": [
+      5124,
+      4700,
+      3852,
+      5124,
+      5124
+    ],
+    "ticks_mean": 4784.8,
+    "captures_total": 0,
+    "captures_per_ep": 0.0,
+    "capture_rate": 0.0,
+    "steals_per_ep": 1.2,
+    "conversion": 0.0,
+    "deadFloorFrac": 0.42525399129172714,
+    "closeContactFrac": 0.4086977166514162,
+    "fightTimeFrac": 0.9938546442405638,
+    "pace": 9.15063922509916,
+    "balanceEntropy": 0.9919959659081335,
+    "deadFloor_perEp": 0.6878955007256895,
+    "label": "s1005a3",
+    "staticScore": 0.8598574532655219,
+    "interiorFrac": 0.2026429045078468,
+    "is_control": false,
+    "bands": {
+      "interiorFrac": {
+        "value": 0.2026429045078468,
+        "sub": 0.7847404750356672,
+        "weight": 3.0,
+        "breached": true
+      },
+      "exposedFrac": {
+        "value": 0.15895133293748998,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "longRunFrac": {
+        "value": 0.09776632302405498,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCountMin": {
+        "value": 1.0,
+        "sub": 0.5,
+        "weight": 1.5,
+        "breached": true
+      },
+      "routeCapacityFrac": {
+        "value": 0.04,
+        "sub": 0.68,
+        "weight": 2.0,
+        "breached": true
+      },
+      "chokeCount": {
+        "value": 7.0,
+        "sub": 0.75,
+        "weight": 1.0,
+        "breached": true
+      },
+      "chokeCoveredPenalty": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "collisionCoverRatio": {
+        "value": 1.4064439768148418,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "standRingOpenMin": {
+        "value": 1.0,
+        "sub": 0.37499999999999944,
+        "weight": 1.5,
+        "breached": true
+      },
+      "standRingSpread": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "standCoverSpread": {
+        "value": 0.00035417655965241067,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "midCrossCount": {
+        "value": 4.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "midOpenFrac": {
+        "value": 0.6244131455399061,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "detourMax": {
+        "value": 1.4762456546929317,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "visDegreeCv": {
+        "value": 0.37019206571364566,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      }
+    }
+  },
+  {
+    "lateFrac": 0.036000000000000004,
+    "lateFrac_max": 0.063,
+    "_per_episode": {
+      "deadFloorFrac": [
+        0.7130624092888244,
+        0.6708272859216255,
+        0.7129172714078374,
+        0.6911465892597968,
+        0.6846153846153846
+      ],
+      "ticks_mean": [
+        2339.0,
+        1973.0,
+        2065.0,
+        2455.0,
+        5121.0
+      ],
+      "pace": [
+        18.811457887986318,
+        20.27369488089204,
+        21.307506053268764,
+        17.922606924643585,
+        8.201523140011716
+      ],
+      "balanceEntropy": [
+        0.9940302114769565,
+        0.9340680553754911,
+        0.9865446300055645,
+        0.9985090989176322,
+        0.998363672593813
+      ],
+      "steals_per_ep": [
+        0.0,
+        2.0,
+        0.0,
+        1.0,
+        1.0
+      ],
+      "captures_per_ep": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "closeContactFrac": [
+        0.41882640586797065,
+        0.32048094743027616,
+        0.39416677832864355,
+        0.41700618681152857,
+        0.46174663990755943
+      ]
+    },
+    "episodes": 5,
+    "ticks_all": [
+      2339,
+      1973,
+      2065,
+      2455,
+      5121
+    ],
+    "ticks_mean": 2790.6,
+    "captures_total": 0,
+    "captures_per_ep": 0.0,
+    "capture_rate": 0.0,
+    "steals_per_ep": 0.8,
+    "conversion": 0.0,
+    "deadFloorFrac": 0.43352685050798256,
+    "closeContactFrac": 0.40244539166919574,
+    "fightTimeFrac": 0.9905251754176497,
+    "pace": 17.303357777360485,
+    "balanceEntropy": 0.9823031336738914,
+    "deadFloor_perEp": 0.6945137880986938,
+    "label": "s1013a1",
+    "staticScore": 0.8623116000625494,
+    "interiorFrac": 0.19651556543883347,
+    "is_control": false,
+    "bands": {
+      "interiorFrac": {
+        "value": 0.19651556543883347,
+        "sub": 0.7568889338128795,
+        "weight": 3.0,
+        "breached": true
+      },
+      "exposedFrac": {
+        "value": 0.10276533922855417,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "longRunFrac": {
+        "value": 0.09313249109167476,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCountMin": {
+        "value": 3.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCapacityFrac": {
+        "value": 0.12,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "chokeCount": {
+        "value": 3.0,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "chokeCoveredPenalty": {
+        "value": 1.0,
+        "sub": 0.0,
+        "weight": 1.5,
+        "breached": true
+      },
+      "collisionCoverRatio": {
+        "value": 1.06653233093237,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "standRingOpenMin": {
+        "value": 1.0,
+        "sub": 0.37499999999999944,
+        "weight": 1.5,
+        "breached": true
+      },
+      "standRingSpread": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "standCoverSpread": {
+        "value": 0.00029905362217642895,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "midCrossCount": {
+        "value": 4.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "midOpenFrac": {
+        "value": 0.6338028169014085,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "detourMax": {
+        "value": 1.295480880648899,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "visDegreeCv": {
+        "value": 0.3357385723225434,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      }
+    }
+  },
+  {
+    "lateFrac": 0.0268,
+    "lateFrac_max": 0.054000000000000006,
+    "_per_episode": {
+      "deadFloorFrac": [
+        0.6775028768699655,
+        0.656789413118527,
+        0.6953394706559264,
+        0.666283084004603,
+        0.6946202531645569
+      ],
+      "ticks_mean": [
+        5123.0,
+        3607.0,
+        3867.0,
+        2965.0,
+        3673.0
+      ],
+      "pace": [
+        8.393519422213547,
+        12.75298031605212,
+        11.895526247737264,
+        14.839797639123104,
+        11.707051456575007
+      ],
+      "balanceEntropy": [
+        0.996485989886783,
+        0.9986359641585718,
+        0.9986359641585718,
+        0.9865446300055645,
+        0.9902246902198684
+      ],
+      "steals_per_ep": [
+        1.0,
+        0.0,
+        0.0,
+        2.0,
+        0.0
+      ],
+      "captures_per_ep": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "closeContactFrac": [
+        0.338582224648717,
+        0.38206882326652686,
+        0.3843569887910611,
+        0.4258424475317765,
+        0.39118570064128805
+      ]
+    },
+    "episodes": 5,
+    "ticks_all": [
+      5123,
+      3607,
+      3867,
+      2965,
+      3673
+    ],
+    "ticks_mean": 3847.0,
+    "captures_total": 0,
+    "captures_per_ep": 0.0,
+    "capture_rate": 0.0,
+    "steals_per_ep": 0.6,
+    "conversion": 0.0,
+    "deadFloorFrac": 0.40491944764096666,
+    "closeContactFrac": 0.3844072369758739,
+    "fightTimeFrac": 0.9969374501209796,
+    "pace": 11.91777501634021,
+    "balanceEntropy": 0.994105447685872,
+    "deadFloor_perEp": 0.6781070195627158,
+    "label": "s1024a2",
+    "staticScore": 0.8712743425600042,
+    "interiorFrac": 0.21163272445120715,
+    "is_control": false,
+    "bands": {
+      "interiorFrac": {
+        "value": 0.21163272445120715,
+        "sub": 0.8256032929600325,
+        "weight": 3.0,
+        "breached": true
+      },
+      "exposedFrac": {
+        "value": 0.09913468583956779,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "longRunFrac": {
+        "value": 0.09075126262626262,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCountMin": {
+        "value": 3.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCapacityFrac": {
+        "value": 0.12,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "chokeCount": {
+        "value": 3.0,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "chokeCoveredPenalty": {
+        "value": 1.0,
+        "sub": 0.0,
+        "weight": 1.5,
+        "breached": true
+      },
+      "collisionCoverRatio": {
+        "value": 1.0541048608129906,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "standRingOpenMin": {
+        "value": 1.0,
+        "sub": 0.37499999999999944,
+        "weight": 1.5,
+        "breached": true
+      },
+      "standRingSpread": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "standCoverSpread": {
+        "value": 0.0003031382972689331,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "midCrossCount": {
+        "value": 4.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "midOpenFrac": {
+        "value": 0.6338028169014085,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "detourMax": {
+        "value": 1.295480880648899,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "visDegreeCv": {
+        "value": 0.36318593112125647,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      }
+    }
+  },
+  {
+    "lateFrac": 0.029200000000000004,
+    "lateFrac_max": 0.052000000000000005,
+    "_per_episode": {
+      "deadFloorFrac": [
+        0.7097242380261248,
+        0.7519593613933236,
+        0.7264150943396226,
+        0.7317851959361393,
+        0.7290275761973875
+      ],
+      "ticks_mean": [
+        2732.0,
+        2385.0,
+        3614.0,
+        4268.0,
+        3491.0
+      ],
+      "pace": [
+        13.177159590043924,
+        16.771488469601678,
+        10.79136690647482,
+        9.840674789128398,
+        12.030936694356917
+      ],
+      "balanceEntropy": [
+        0.9640787648082292,
+        0.9837082626231857,
+        0.961236604722876,
+        0.9852281360342516,
+        0.9736680645496201
+      ],
+      "steals_per_ep": [
+        3.0,
+        3.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "captures_per_ep": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "closeContactFrac": [
+        0.25238971889825107,
+        0.3201498127340824,
+        0.3361771024690974,
+        0.33424206111443977,
+        0.2718453165669472
+      ]
+    },
+    "episodes": 5,
+    "ticks_all": [
+      2732,
+      2385,
+      3614,
+      4268,
+      3491
+    ],
+    "ticks_mean": 3298.0,
+    "captures_total": 1,
+    "captures_per_ep": 0.2,
+    "capture_rate": 0.2,
+    "steals_per_ep": 1.8,
+    "conversion": 0.1111111111111111,
+    "deadFloorFrac": 0.4788098693759071,
+    "closeContactFrac": 0.30296080235656353,
+    "fightTimeFrac": 0.9895819553992681,
+    "pace": 12.522325289921149,
+    "balanceEntropy": 0.9735839665476325,
+    "deadFloor_perEp": 0.7297822931785196,
+    "label": "s1010a2",
+    "staticScore": 0.8752003935313317,
+    "interiorFrac": 0.2182546637561796,
+    "is_control": false,
+    "bands": {
+      "interiorFrac": {
+        "value": 0.2182546637561796,
+        "sub": 0.8557030170735437,
+        "weight": 3.0,
+        "breached": true
+      },
+      "exposedFrac": {
+        "value": 0.1026989601333764,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "longRunFrac": {
+        "value": 0.08558558558558559,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCountMin": {
+        "value": 3.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCapacityFrac": {
+        "value": 0.12,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "chokeCount": {
+        "value": 5.0,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "chokeCoveredPenalty": {
+        "value": 1.0,
+        "sub": 0.0,
+        "weight": 1.5,
+        "breached": true
+      },
+      "collisionCoverRatio": {
+        "value": 1.262214995660365,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "standRingOpenMin": {
+        "value": 1.0,
+        "sub": 0.37499999999999944,
+        "weight": 1.5,
+        "breached": true
+      },
+      "standRingSpread": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "standCoverSpread": {
+        "value": 0.00030350963136824977,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "midCrossCount": {
+        "value": 4.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "midOpenFrac": {
+        "value": 0.6338028169014085,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "detourMax": {
+        "value": 1.4762456546929317,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "visDegreeCv": {
+        "value": 0.3510654593729138,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      }
+    }
+  },
+  {
+    "lateFrac": 0.0438,
+    "lateFrac_max": 0.07200000000000001,
+    "_per_episode": {
+      "deadFloorFrac": [
+        0.7911973918197984,
+        0.7643746295198577,
+        0.7686721991701244,
+        0.7823058684054535,
+        0.7729697688203913
+      ],
+      "ticks_mean": [
+        1758.0,
+        5125.0,
+        5121.0,
+        5123.0,
+        5124.0
+      ],
+      "pace": [
+        21.61547212741752,
+        8.390243902439025,
+        7.225151337629369,
+        7.4175287917235995,
+        7.611241217798595
+      ],
+      "balanceEntropy": [
+        0.8680403986166403,
+        0.999609836367807,
+        0.9994730201859838,
+        0.9980008838722996,
+        0.9995256892936492
+      ],
+      "steals_per_ep": [
+        0.0,
+        1.0,
+        1.0,
+        1.0,
+        0.0
+      ],
+      "captures_per_ep": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "closeContactFrac": [
+        0.4820269353744792,
+        0.4090274081958489,
+        0.3313914522864361,
+        0.3559597921069164,
+        0.39716745348514304
+      ]
+    },
+    "episodes": 5,
+    "ticks_all": [
+      1758,
+      5125,
+      5121,
+      5123,
+      5124
+    ],
+    "ticks_mean": 4450.2,
+    "captures_total": 0,
+    "captures_per_ep": 0.0,
+    "capture_rate": 0.0,
+    "steals_per_ep": 0.6,
+    "conversion": 0.0,
+    "deadFloorFrac": 0.5866923532898637,
+    "closeContactFrac": 0.3951146082897647,
+    "fightTimeFrac": 0.9989390807861678,
+    "pace": 10.451927475401622,
+    "balanceEntropy": 0.972929965667276,
+    "deadFloor_perEp": 0.775903971547125,
+    "label": "s1016a8",
+    "staticScore": 0.8795419476803595,
+    "interiorFrac": 0.34826524054690905,
+    "is_control": false,
+    "bands": {
+      "interiorFrac": {
+        "value": 0.34826524054690905,
+        "sub": 1.0,
+        "weight": 3.0,
+        "breached": false
+      },
+      "exposedFrac": {
+        "value": 0.1178838667740196,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "longRunFrac": {
+        "value": 0.05468153352680617,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCountMin": {
+        "value": 2.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCapacityFrac": {
+        "value": 0.08,
+        "sub": 0.8400000000000001,
+        "weight": 2.0,
+        "breached": true
+      },
+      "chokeCount": {
+        "value": 1.0,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "chokeCoveredPenalty": {
+        "value": 1.0,
+        "sub": 0.0,
+        "weight": 1.5,
+        "breached": true
+      },
+      "collisionCoverRatio": {
+        "value": 1.453353657010902,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "standRingOpenMin": {
+        "value": 0.9861111111111112,
+        "sub": 0.5486111111111099,
+        "weight": 1.5,
+        "breached": true
+      },
+      "standRingSpread": {
+        "value": 0.002777777777777768,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "standCoverSpread": {
+        "value": 0.0001671588566334245,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "midCrossCount": {
+        "value": 4.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "midOpenFrac": {
+        "value": 0.36306729264475746,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "detourMax": {
+        "value": 1.0042918454935623,
+        "sub": 0.7265481299816063,
+        "weight": 1.0,
+        "breached": true
+      },
+      "visDegreeCv": {
+        "value": 0.3846281872338232,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      }
+    }
+  },
+  {
+    "lateFrac": 0.07499999999999998,
+    "lateFrac_max": 0.121,
+    "_per_episode": {
+      "deadFloorFrac": [
+        0.7142650672062436,
+        0.7113744760803584,
+        0.694609047550224,
+        0.700101170689406,
+        0.6816013874837404
+      ],
+      "ticks_mean": [
+        3790.0,
+        2004.0,
+        2879.0,
+        3293.0,
+        3956.0
+      ],
+      "pace": [
+        12.401055408970976,
+        19.461077844311376,
+        15.630427231677666,
+        13.96902520498026,
+        11.627906976744185
+      ],
+      "balanceEntropy": [
+        0.9970590569034108,
+        0.9881108365218301,
+        0.9967916319816367,
+        0.9876925088958033,
+        0.9986359641585718
+      ],
+      "steals_per_ep": [
+        1.0,
+        2.0,
+        3.0,
+        0.0,
+        1.0
+      ],
+      "captures_per_ep": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "closeContactFrac": [
+        0.3466069845023437,
+        0.3699236572254596,
+        0.3908694749948122,
+        0.3691788711535297,
+        0.34148973064621785
+      ]
+    },
+    "episodes": 5,
+    "ticks_all": [
+      3790,
+      2004,
+      2879,
+      3293,
+      3956
+    ],
+    "ticks_mean": 3184.4,
+    "captures_total": 0,
+    "captures_per_ep": 0.0,
+    "capture_rate": 0.0,
+    "steals_per_ep": 1.4,
+    "conversion": 0.0,
+    "deadFloorFrac": 0.4392253215782628,
+    "closeContactFrac": 0.36361374370447264,
+    "fightTimeFrac": 0.9816040422852506,
+    "pace": 14.617898533336893,
+    "balanceEntropy": 0.9936579996922505,
+    "deadFloor_perEp": 0.7003902298019944,
+    "label": "s1038a2",
+    "staticScore": 0.8892884006905983,
+    "interiorFrac": 0.2288164358314761,
+    "is_control": false,
+    "bands": {
+      "interiorFrac": {
+        "value": 0.2288164358314761,
+        "sub": 0.903711071961255,
+        "weight": 3.0,
+        "breached": true
+      },
+      "exposedFrac": {
+        "value": 0.16116480173787195,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "longRunFrac": {
+        "value": 0.089924670433145,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCountMin": {
+        "value": 2.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCapacityFrac": {
+        "value": 0.08,
+        "sub": 0.8400000000000001,
+        "weight": 2.0,
+        "breached": true
+      },
+      "chokeCount": {
+        "value": 11.0,
+        "sub": 0.0,
+        "weight": 1.0,
+        "breached": true
+      },
+      "chokeCoveredPenalty": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "collisionCoverRatio": {
+        "value": 1.19508082483415,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "standRingOpenMin": {
+        "value": 1.0,
+        "sub": 0.37499999999999944,
+        "weight": 1.5,
+        "breached": true
+      },
+      "standRingSpread": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "standCoverSpread": {
+        "value": 0.00036011790524150336,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "midCrossCount": {
+        "value": 3.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "midOpenFrac": {
+        "value": 0.5070422535211268,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "detourMax": {
+        "value": 1.295480880648899,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "visDegreeCv": {
+        "value": 0.3747334899384304,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      }
+    }
+  },
+  {
+    "lateFrac": 0.061,
+    "lateFrac_max": 0.12300000000000001,
+    "_per_episode": {
+      "deadFloorFrac": [
+        0.7029360967184801,
+        0.6885434657455383,
+        0.6948762233736328,
+        0.7097006332757628,
+        0.683649971214738
+      ],
+      "ticks_mean": [
+        5124.0,
+        3162.0,
+        3115.0,
+        3119.0,
+        5378.0
+      ],
+      "pace": [
+        8.391881342701016,
+        13.915243516761544,
+        13.804173354735152,
+        13.78647002244309,
+        8.553365563406471
+      ],
+      "balanceEntropy": [
+        0.996485989886783,
+        0.9985090989176322,
+        0.9681647320759545,
+        0.9807983646944296,
+        1.0
+      ],
+      "steals_per_ep": [
+        3.0,
+        2.0,
+        1.0,
+        1.0,
+        2.0
+      ],
+      "captures_per_ep": [
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "closeContactFrac": [
+        0.40262915659878035,
+        0.36875,
+        0.4385218522555466,
+        0.34124409337753014,
+        0.3409023799681096
+      ]
+    },
+    "episodes": 5,
+    "ticks_all": [
+      5124,
+      3162,
+      3115,
+      3119,
+      5378
+    ],
+    "ticks_mean": 3979.6,
+    "captures_total": 1,
+    "captures_per_ep": 0.2,
+    "capture_rate": 0.2,
+    "steals_per_ep": 1.8,
+    "conversion": 0.1111111111111111,
+    "deadFloorFrac": 0.44948186528497414,
+    "closeContactFrac": 0.3784094964399934,
+    "fightTimeFrac": 0.9922923234625929,
+    "pace": 11.690226760009455,
+    "balanceEntropy": 0.9887916371149599,
+    "deadFloor_perEp": 0.6959412780656303,
+    "label": "s1030a7",
+    "staticScore": 0.8967661499596769,
+    "interiorFrac": 0.2047622395986551,
+    "is_control": false,
+    "bands": {
+      "interiorFrac": {
+        "value": 0.2047622395986551,
+        "sub": 0.7943738163575232,
+        "weight": 3.0,
+        "breached": true
+      },
+      "exposedFrac": {
+        "value": 0.14866895216665685,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "longRunFrac": {
+        "value": 0.09405424200278165,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCountMin": {
+        "value": 2.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCapacityFrac": {
+        "value": 0.08,
+        "sub": 0.8400000000000001,
+        "weight": 2.0,
+        "breached": true
+      },
+      "chokeCount": {
+        "value": 8.0,
+        "sub": 0.5,
+        "weight": 1.0,
+        "breached": true
+      },
+      "chokeCoveredPenalty": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "collisionCoverRatio": {
+        "value": 1.4002182784313566,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "standRingOpenMin": {
+        "value": 1.0,
+        "sub": 0.37499999999999944,
+        "weight": 1.5,
+        "breached": true
+      },
+      "standRingSpread": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "standCoverSpread": {
+        "value": 0.0002763641565693663,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "midCrossCount": {
+        "value": 4.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "midOpenFrac": {
+        "value": 0.6244131455399061,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "detourMax": {
+        "value": 1.4762456546929317,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "visDegreeCv": {
+        "value": 0.3551263816073131,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      }
+    }
+  },
+  {
+    "lateFrac": 0.0528,
+    "lateFrac_max": 0.099,
+    "_per_episode": {
+      "deadFloorFrac": [
+        0.7274963820549928,
+        0.6685962373371925,
+        0.6846599131693198,
+        0.7054992764109986,
+        0.6940665701881331
+      ],
+      "ticks_mean": [
+        1808.0,
+        5335.0,
+        3201.0,
+        2332.0,
+        4011.0
+      ],
+      "pace": [
+        19.911504424778762,
+        8.622305529522025,
+        13.433302093095907,
+        18.43910806174957,
+        11.717776115681875
+      ],
+      "balanceEntropy": [
+        0.9640787648082292,
+        0.9986359641585718,
+        0.996485989886783,
+        0.9902246902198684,
+        0.9996734260048918
+      ],
+      "steals_per_ep": [
+        3.0,
+        6.0,
+        2.0,
+        0.0,
+        1.0
+      ],
+      "captures_per_ep": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "closeContactFrac": [
+        0.4051126715315067,
+        0.42134713155440573,
+        0.4450517628321147,
+        0.4799152705565184,
+        0.42368585244111684
+      ]
+    },
+    "episodes": 5,
+    "ticks_all": [
+      1808,
+      5335,
+      3201,
+      2332,
+      4011
+    ],
+    "ticks_mean": 3337.4,
+    "captures_total": 0,
+    "captures_per_ep": 0.0,
+    "capture_rate": 0.0,
+    "steals_per_ep": 2.4,
+    "conversion": 0.0,
+    "deadFloorFrac": 0.4261939218523878,
+    "closeContactFrac": 0.43502253778313243,
+    "fightTimeFrac": 0.9822117048591528,
+    "pace": 14.42479924496563,
+    "balanceEntropy": 0.9898197670156688,
+    "deadFloor_perEp": 0.6960636758321275,
+    "label": "s1009a0",
+    "staticScore": 0.908795246477553,
+    "interiorFrac": 0.18838464905880636,
+    "is_control": false,
+    "bands": {
+      "interiorFrac": {
+        "value": 0.18838464905880636,
+        "sub": 0.7199302229945743,
+        "weight": 3.0,
+        "breached": true
+      },
+      "exposedFrac": {
+        "value": 0.15463199610490744,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "longRunFrac": {
+        "value": 0.09394356503785271,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCountMin": {
+        "value": 2.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCapacityFrac": {
+        "value": 0.08,
+        "sub": 0.8400000000000001,
+        "weight": 2.0,
+        "breached": true
+      },
+      "chokeCount": {
+        "value": 4.0,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "chokeCoveredPenalty": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "collisionCoverRatio": {
+        "value": 1.152676165767328,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "standRingOpenMin": {
+        "value": 1.0,
+        "sub": 0.37499999999999944,
+        "weight": 1.5,
+        "breached": true
+      },
+      "standRingSpread": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "standCoverSpread": {
+        "value": 0.00027042281098027185,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "midCrossCount": {
+        "value": 4.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "midOpenFrac": {
+        "value": 0.6244131455399061,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "detourMax": {
+        "value": 1.295480880648899,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "visDegreeCv": {
+        "value": 0.35408469835958045,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      }
+    }
+  },
+  {
+    "lateFrac": 0.05920000000000001,
+    "lateFrac_max": 0.091,
+    "_per_episode": {
+      "deadFloorFrac": [
+        0.7744693396226415,
+        0.7685731132075472,
+        0.7452830188679245,
+        0.7448408018867925,
+        0.7334905660377358
+      ],
+      "ticks_mean": [
+        1480.0,
+        1635.0,
+        2390.0,
+        5124.0,
+        5123.0
+      ],
+      "pace": [
+        26.35135135135135,
+        24.464831804281346,
+        16.736401673640167,
+        7.41608118657299,
+        7.612726917821589
+      ],
+      "balanceEntropy": [
+        0.9418285354475157,
+        0.9709505944546688,
+        0.99819587904281,
+        0.8680403986166403,
+        0.97663491144401
+      ],
+      "steals_per_ep": [
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        2.0
+      ],
+      "captures_per_ep": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "closeContactFrac": [
+        0.4912734680394208,
+        0.4566917728852839,
+        0.5190178534951179,
+        0.37434789089283055,
+        0.2137712934173111
+      ]
+    },
+    "episodes": 5,
+    "ticks_all": [
+      1480,
+      1635,
+      2390,
+      5124,
+      5123
+    ],
+    "ticks_mean": 3150.4,
+    "captures_total": 0,
+    "captures_per_ep": 0.0,
+    "capture_rate": 0.0,
+    "steals_per_ep": 0.6,
+    "conversion": 0.0,
+    "deadFloorFrac": 0.5577830188679245,
+    "closeContactFrac": 0.41102045574599283,
+    "fightTimeFrac": 0.94539569292646,
+    "pace": 16.51627858673349,
+    "balanceEntropy": 0.9511300638011291,
+    "deadFloor_perEp": 0.7533313679245282,
+    "label": "s1007a4",
+    "staticScore": 0.9455903030249936,
+    "interiorFrac": 0.3468411483309895,
+    "is_control": false,
+    "bands": {
+      "interiorFrac": {
+        "value": 0.3468411483309895,
+        "sub": 1.0,
+        "weight": 3.0,
+        "breached": false
+      },
+      "exposedFrac": {
+        "value": 0.1460979929509094,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "longRunFrac": {
+        "value": 0.048770602539854095,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCountMin": {
+        "value": 3.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCapacityFrac": {
+        "value": 0.12,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "chokeCount": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "chokeCoveredPenalty": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "collisionCoverRatio": {
+        "value": 1.425741903974489,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "standRingOpenMin": {
+        "value": 1.0,
+        "sub": 0.37499999999999944,
+        "weight": 1.5,
+        "breached": true
+      },
+      "standRingSpread": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "standCoverSpread": {
+        "value": 0.0005651561343320427,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "midCrossCount": {
+        "value": 4.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "midOpenFrac": {
+        "value": 0.4162754303599374,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "detourMax": {
+        "value": 0.9901269393511989,
+        "sub": 0.6860769695748536,
+        "weight": 1.0,
+        "breached": true
+      },
+      "visDegreeCv": {
+        "value": 0.3980518435405094,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      }
+    }
+  },
+  {
+    "lateFrac": 0.0308,
+    "lateFrac_max": 0.057999999999999996,
+    "_per_episode": {
+      "deadFloorFrac": [
+        0.7452926580061305,
+        0.7223762954313239,
+        0.7524448985549554,
+        0.7349292074149759,
+        0.7285067873303168
+      ],
+      "ticks_mean": [
+        3374.0,
+        5123.0,
+        2463.0,
+        5122.0,
+        2302.0
+      ],
+      "pace": [
+        11.855364552459989,
+        7.4175287917235995,
+        17.458384084449857,
+        7.41897696212417,
+        16.507384882710685
+      ],
+      "balanceEntropy": [
+        0.9340680553754911,
+        0.926819063964577,
+        0.996485989886783,
+        0.9919924034538556,
+        0.8680403986166403
+      ],
+      "steals_per_ep": [
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "captures_per_ep": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "closeContactFrac": [
+        0.4721578084902452,
+        0.43014228849156605,
+        0.5464874770922419,
+        0.21512558791153807,
+        0.3599731892914876
+      ]
+    },
+    "episodes": 5,
+    "ticks_all": [
+      3374,
+      5123,
+      2463,
+      5122,
+      2302
+    ],
+    "ticks_mean": 3676.8,
+    "captures_total": 0,
+    "captures_per_ep": 0.0,
+    "capture_rate": 0.0,
+    "steals_per_ep": 0.2,
+    "conversion": 0.0,
+    "deadFloorFrac": 0.5575828346226828,
+    "closeContactFrac": 0.4047772702554157,
+    "fightTimeFrac": 0.9931968797732205,
+    "pace": 12.131527854693662,
+    "balanceEntropy": 0.9434811822594693,
+    "deadFloor_perEp": 0.7367099693475405,
+    "label": "s1023a4",
+    "staticScore": 0.9483044780005206,
+    "interiorFrac": 0.32832373650696905,
+    "is_control": false,
+    "bands": {
+      "interiorFrac": {
+        "value": 0.32832373650696905,
+        "sub": 1.0,
+        "weight": 3.0,
+        "breached": false
+      },
+      "exposedFrac": {
+        "value": 0.10871121596577513,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "longRunFrac": {
+        "value": 0.05379746835443038,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCountMin": {
+        "value": 4.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCapacityFrac": {
+        "value": 0.16,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "chokeCount": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "chokeCoveredPenalty": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "collisionCoverRatio": {
+        "value": 1.2967974988667472,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "standRingOpenMin": {
+        "value": 1.0,
+        "sub": 0.37499999999999944,
+        "weight": 1.5,
+        "breached": true
+      },
+      "standRingSpread": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "standCoverSpread": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "midCrossCount": {
+        "value": 5.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "midOpenFrac": {
+        "value": 0.39906103286384975,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "detourMax": {
+        "value": 1.0119760479041917,
+        "sub": 0.7485029940119761,
+        "weight": 1.0,
+        "breached": true
+      },
+      "visDegreeCv": {
+        "value": 0.37412148902717307,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      }
+    }
+  },
+  {
+    "lateFrac": 0.0132,
+    "lateFrac_max": 0.031,
+    "_per_episode": {
+      "deadFloorFrac": [
+        0.7032818822118987,
+        0.6948898546380938,
+        0.7086767570807733,
+        0.7459913082571556,
+        0.7259103851341226
+      ],
+      "ticks_mean": [
+        2081.0,
+        5121.0,
+        2652.0,
+        1462.0,
+        2369.0
+      ],
+      "pace": [
+        20.182604517059108,
+        8.396797500488185,
+        17.345399698340874,
+        28.72777017783858,
+        18.15111861544956
+      ],
+      "balanceEntropy": [
+        0.998363672593813,
+        0.999609836367807,
+        0.9945386816500111,
+        0.998363672593813,
+        0.9902246902198684
+      ],
+      "steals_per_ep": [
+        2.0,
+        1.0,
+        1.0,
+        0.0,
+        1.0
+      ],
+      "captures_per_ep": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "closeContactFrac": [
+        0.4818323439013094,
+        0.34365350235657405,
+        0.403402083776313,
+        0.4099482557169087,
+        0.4143114852675887
+      ]
+    },
+    "episodes": 5,
+    "ticks_all": [
+      2081,
+      5121,
+      2652,
+      1462,
+      2369
+    ],
+    "ticks_mean": 2737.0,
+    "captures_total": 2,
+    "captures_per_ep": 0.4,
+    "capture_rate": 0.4,
+    "steals_per_ep": 1.0,
+    "conversion": 0.4,
+    "deadFloorFrac": 0.5182077026824516,
+    "closeContactFrac": 0.4106295342037388,
+    "fightTimeFrac": 0.9986159069740213,
+    "pace": 18.560738101835263,
+    "balanceEntropy": 0.9962201106850624,
+    "deadFloor_perEp": 0.7157500374644089,
+    "label": "s1039a6",
+    "staticScore": 0.9577805426336442,
+    "interiorFrac": 0.3547782152055041,
+    "is_control": false,
+    "bands": {
+      "interiorFrac": {
+        "value": 0.3547782152055041,
+        "sub": 1.0,
+        "weight": 3.0,
+        "breached": false
+      },
+      "exposedFrac": {
+        "value": 0.12259048572352085,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "longRunFrac": {
+        "value": 0.05232320479629377,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCountMin": {
+        "value": 4.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCapacityFrac": {
+        "value": 0.16,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "chokeCount": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "chokeCoveredPenalty": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "collisionCoverRatio": {
+        "value": 1.5171206483585729,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "standRingOpenMin": {
+        "value": 0.9888888888888889,
+        "sub": 0.5138888888888878,
+        "weight": 1.5,
+        "breached": true
+      },
+      "standRingSpread": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "standCoverSpread": {
+        "value": 0.0004855566787923156,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "midCrossCount": {
+        "value": 5.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "midOpenFrac": {
+        "value": 0.4428794992175274,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "detourMax": {
+        "value": 1.0153417015341701,
+        "sub": 0.7581191472404858,
+        "weight": 1.0,
+        "breached": true
+      },
+      "visDegreeCv": {
+        "value": 0.38202629068769856,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      }
+    }
+  },
+  {
+    "lateFrac": 0.0128,
+    "lateFrac_max": 0.037000000000000005,
+    "_per_episode": {
+      "deadFloorFrac": [
+        0.7529940119760479,
+        0.6732035928143713,
+        0.7115269461077844,
+        0.6857784431137725,
+        0.7396706586826347
+      ],
+      "ticks_mean": [
+        1830.0,
+        5123.0,
+        2869.0,
+        5122.0,
+        5121.0
+      ],
+      "pace": [
+        20.218579234972676,
+        8.198321296115557,
+        14.987800627396306,
+        8.78563061304178,
+        6.83460261667643
+      ],
+      "balanceEntropy": [
+        0.9352691398683567,
+        0.998363672593813,
+        0.9522656254366642,
+        0.9996437496778561,
+        0.9946937953613058
+      ],
+      "steals_per_ep": [
+        0.0,
+        3.0,
+        2.0,
+        3.0,
+        0.0
+      ],
+      "captures_per_ep": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "closeContactFrac": [
+        0.46457049655672344,
+        0.35317481055657174,
+        0.5236565133283059,
+        0.2975994946304485,
+        0.2635548512627124
+      ]
+    },
+    "episodes": 5,
+    "ticks_all": [
+      1830,
+      5123,
+      2869,
+      5122,
+      5121
+    ],
+    "ticks_mean": 4013.0,
+    "captures_total": 0,
+    "captures_per_ep": 0.0,
+    "capture_rate": 0.0,
+    "steals_per_ep": 1.6,
+    "conversion": 0.0,
+    "deadFloorFrac": 0.48323353293413174,
+    "closeContactFrac": 0.3805112332669524,
+    "fightTimeFrac": 0.9933794919639253,
+    "pace": 11.804986877640548,
+    "balanceEntropy": 0.9760471965875992,
+    "deadFloor_perEp": 0.7126347305389222,
+    "label": "s1002a4",
+    "staticScore": 0.962998601383199,
+    "interiorFrac": 0.26823047338555617,
+    "is_control": false,
+    "bands": {
+      "interiorFrac": {
+        "value": 0.26823047338555617,
+        "sub": 1.0,
+        "weight": 3.0,
+        "breached": false
+      },
+      "exposedFrac": {
+        "value": 0.13542403392450073,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "longRunFrac": {
+        "value": 0.07701421800947868,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCountMin": {
+        "value": 3.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCapacityFrac": {
+        "value": 0.12,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "chokeCount": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "chokeCoveredPenalty": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "collisionCoverRatio": {
+        "value": 1.4151972931862697,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "standRingOpenMin": {
+        "value": 0.9805555555555555,
+        "sub": 0.6180555555555556,
+        "weight": 1.5,
+        "breached": true
+      },
+      "standRingSpread": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "standCoverSpread": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "midCrossCount": {
+        "value": 4.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "midOpenFrac": {
+        "value": 0.41471048513302033,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "detourMax": {
+        "value": 1.002659574468085,
+        "sub": 0.7218844984802428,
+        "weight": 1.0,
+        "breached": true
+      },
+      "visDegreeCv": {
+        "value": 0.36995350153126144,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      }
+    }
+  },
+  {
+    "lateFrac": 0.001,
+    "lateFrac_max": 0.001,
+    "_per_episode": {
+      "deadFloorFrac": [
+        0.7130025033132086,
+        0.6931232513620968,
+        0.7819172434103961,
+        0.710057428950081,
+        0.6934177587984096
+      ],
+      "ticks_mean": [
+        5124.0,
+        5123.0,
+        1684.0,
+        5121.0,
+        5126.0
+      ],
+      "pace": [
+        7.8064012490242,
+        8.588717548311536,
+        24.346793349168646,
+        8.982620581917594,
+        7.21810378462739
+      ],
+      "balanceEntropy": [
+        0.9097361225311662,
+        1.0,
+        0.9892452969285003,
+        0.9945386816500111,
+        0.9352691398683567
+      ],
+      "steals_per_ep": [
+        2.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "captures_per_ep": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "closeContactFrac": [
+        0.42804874906598644,
+        0.31932641839540116,
+        0.4940425531914894,
+        0.3287390696616065,
+        0.40385922956085435
+      ]
+    },
+    "episodes": 5,
+    "ticks_all": [
+      5124,
+      5123,
+      1684,
+      5121,
+      5126
+    ],
+    "ticks_mean": 4435.6,
+    "captures_total": 0,
+    "captures_per_ep": 0.0,
+    "capture_rate": 0.0,
+    "steals_per_ep": 1.2,
+    "conversion": 0.0,
+    "deadFloorFrac": 0.4905021351789133,
+    "closeContactFrac": 0.3948032039750676,
+    "fightTimeFrac": 0.9903049610974047,
+    "pace": 11.388527302609871,
+    "balanceEntropy": 0.9657578481956068,
+    "deadFloor_perEp": 0.7183036371668383,
+    "label": "s1001a8",
+    "staticScore": 0.9747483455462393,
+    "interiorFrac": 0.2498792334564563,
+    "is_control": false,
+    "bands": {
+      "interiorFrac": {
+        "value": 0.2498792334564563,
+        "sub": 0.9994510611657105,
+        "weight": 3.0,
+        "breached": true
+      },
+      "exposedFrac": {
+        "value": 0.10907428026085574,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "longRunFrac": {
+        "value": 0.07548273844353423,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCountMin": {
+        "value": 5.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCapacityFrac": {
+        "value": 0.2,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "chokeCount": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "chokeCoveredPenalty": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "collisionCoverRatio": {
+        "value": 1.391453968557666,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "standRingOpenMin": {
+        "value": 0.9666666666666667,
+        "sub": 0.7916666666666661,
+        "weight": 1.5,
+        "breached": true
+      },
+      "standRingSpread": {
+        "value": 0.005555555555555536,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "standCoverSpread": {
+        "value": 0.00031839782215889456,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "midCrossCount": {
+        "value": 4.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "midOpenFrac": {
+        "value": 0.40219092331768386,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "detourMax": {
+        "value": 1.006675567423231,
+        "sub": 0.7333587640663741,
+        "weight": 1.0,
+        "breached": true
+      },
+      "visDegreeCv": {
+        "value": 0.36200266954792115,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      }
+    }
+  },
+  {
+    "lateFrac": 0.0008,
+    "lateFrac_max": 0.001,
+    "_per_episode": {
+      "deadFloorFrac": [
+        0.7125091441111924,
+        0.7274323335771763,
+        0.6864667154352597,
+        0.7221653255303584,
+        0.7381126554498902
+      ],
+      "ticks_mean": [
+        5123.0,
+        5123.0,
+        5123.0,
+        2120.0,
+        2793.0
+      ],
+      "pace": [
+        8.393519422213547,
+        8.783915674409526,
+        6.636736287331642,
+        21.69811320754717,
+        15.395631936985321
+      ],
+      "balanceEntropy": [
+        0.999609836367807,
+        0.9996437496778561,
+        0.9774178175281716,
+        0.9986359641585718,
+        0.9681647320759545
+      ],
+      "steals_per_ep": [
+        1.0,
+        0.0,
+        1.0,
+        1.0,
+        0.0
+      ],
+      "captures_per_ep": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "closeContactFrac": [
+        0.31044269537993385,
+        0.36221881390593047,
+        0.14520494972931167,
+        0.41871278953543956,
+        0.372568020872158
+      ]
+    },
+    "episodes": 5,
+    "ticks_all": [
+      5123,
+      5123,
+      5123,
+      2120,
+      2793
+    ],
+    "ticks_mean": 4056.4,
+    "captures_total": 0,
+    "captures_per_ep": 0.0,
+    "capture_rate": 0.0,
+    "steals_per_ep": 0.6,
+    "conversion": 0.0,
+    "deadFloorFrac": 0.5425018288222385,
+    "closeContactFrac": 0.3218294538845547,
+    "fightTimeFrac": 0.9998086928332726,
+    "pace": 12.18158330569744,
+    "balanceEntropy": 0.9886944199616721,
+    "deadFloor_perEp": 0.7173372348207753,
+    "label": "s1014a4",
+    "staticScore": 0.9821612059482182,
+    "interiorFrac": 0.24314171436392412,
+    "is_control": false,
+    "bands": {
+      "interiorFrac": {
+        "value": 0.24314171436392412,
+        "sub": 0.9688259743814733,
+        "weight": 3.0,
+        "breached": true
+      },
+      "exposedFrac": {
+        "value": 0.16304672268516024,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "longRunFrac": {
+        "value": 0.08021877848678213,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCountMin": {
+        "value": 3.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCapacityFrac": {
+        "value": 0.12,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "chokeCount": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "chokeCoveredPenalty": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "collisionCoverRatio": {
+        "value": 1.6996747288160974,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "standRingOpenMin": {
+        "value": 0.9472222222222222,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "standRingSpread": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "standCoverSpread": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "midCrossCount": {
+        "value": 4.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "midOpenFrac": {
+        "value": 0.3646322378716745,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "detourMax": {
+        "value": 0.9891304347826086,
+        "sub": 0.6832298136645958,
+        "weight": 1.0,
+        "breached": true
+      },
+      "visDegreeCv": {
+        "value": 0.3059783698013294,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      }
+    }
+  },
+  {
+    "lateFrac": 0.0008,
+    "lateFrac_max": 0.001,
+    "_per_episode": {
+      "deadFloorFrac": [
+        0.6832044360134248,
+        0.6913760396906464,
+        0.723916532905297,
+        0.6948781555523129,
+        0.7240624543995331
+      ],
+      "ticks_mean": [
+        5123.0,
+        1926.0,
+        2123.0,
+        2095.0,
+        2306.0
+      ],
+      "pace": [
+        8.783915674409526,
+        21.287642782969886,
+        20.254357041921807,
+        21.957040572792362,
+        19.080659150043367
+      ],
+      "balanceEntropy": [
+        0.9967916319816367,
+        0.9788698505067783,
+        0.9681647320759545,
+        1.0,
+        0.9760206482366149
+      ],
+      "steals_per_ep": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "captures_per_ep": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "closeContactFrac": [
+        0.3103394822508138,
+        0.35236932734644055,
+        0.4552589589891759,
+        0.454857444561774,
+        0.5166767738023045
+      ]
+    },
+    "episodes": 5,
+    "ticks_all": [
+      5123,
+      1926,
+      2123,
+      2095,
+      2306
+    ],
+    "ticks_mean": 2714.6,
+    "captures_total": 0,
+    "captures_per_ep": 0.0,
+    "capture_rate": 0.0,
+    "steals_per_ep": 0.2,
+    "conversion": 0.0,
+    "deadFloorFrac": 0.48533488982927186,
+    "closeContactFrac": 0.41790039739010176,
+    "fightTimeFrac": 0.9971319956281974,
+    "pace": 18.27272304442739,
+    "balanceEntropy": 0.9839693725601968,
+    "deadFloor_perEp": 0.7034875237122429,
+    "label": "s1026a1",
+    "staticScore": 0.9861123547943309,
+    "interiorFrac": 0.29485449288204363,
+    "is_control": false,
+    "bands": {
+      "interiorFrac": {
+        "value": 0.29485449288204363,
+        "sub": 1.0,
+        "weight": 3.0,
+        "breached": false
+      },
+      "exposedFrac": {
+        "value": 0.13791404819923284,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "longRunFrac": {
+        "value": 0.07092198581560284,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCountMin": {
+        "value": 3.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCapacityFrac": {
+        "value": 0.12,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "chokeCount": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "chokeCoveredPenalty": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "collisionCoverRatio": {
+        "value": 1.6734381989498415,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "standRingOpenMin": {
+        "value": 0.9444444444444444,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "standRingSpread": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "standCoverSpread": {
+        "value": 0.0005651561343320427,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "midCrossCount": {
+        "value": 4.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "midOpenFrac": {
+        "value": 0.4272300469483568,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "detourMax": {
+        "value": 0.9882044560943644,
+        "sub": 0.6805841602696121,
+        "weight": 1.0,
+        "breached": true
+      },
+      "visDegreeCv": {
+        "value": 0.4023147734947321,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      }
+    }
+  },
+  {
+    "lateFrac": 0.0002,
+    "lateFrac_max": 0.001,
+    "_per_episode": {
+      "deadFloorFrac": [
+        0.6648449039881832,
+        0.6556868537666174,
+        0.676218611521418,
+        0.6682422451994092,
+        0.6487444608567208
+      ],
+      "ticks_mean": [
+        5123.0,
+        5121.0,
+        3575.0,
+        5123.0,
+        5124.0
+      ],
+      "pace": [
+        8.393519422213547,
+        8.201523140011716,
+        12.027972027972028,
+        8.198321296115557,
+        8.19672131147541
+      ],
+      "balanceEntropy": [
+        0.999609836367807,
+        0.998363672593813,
+        0.9681647320759545,
+        1.0,
+        0.998363672593813
+      ],
+      "steals_per_ep": [
+        2.0,
+        0.0,
+        1.0,
+        2.0,
+        2.0
+      ],
+      "captures_per_ep": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "closeContactFrac": [
+        0.49707779426460347,
+        0.25363680836272817,
+        0.3943381692129927,
+        0.6201373571285342,
+        0.4351062972021394
+      ]
+    },
+    "episodes": 5,
+    "ticks_all": [
+      5123,
+      5121,
+      3575,
+      5123,
+      5124
+    ],
+    "ticks_mean": 4813.2,
+    "captures_total": 0,
+    "captures_per_ep": 0.0,
+    "capture_rate": 0.0,
+    "steals_per_ep": 1.4,
+    "conversion": 0.0,
+    "deadFloorFrac": 0.4438700147710487,
+    "closeContactFrac": 0.44005928523419957,
+    "fightTimeFrac": 0.9879445371678008,
+    "pace": 9.003611439557652,
+    "balanceEntropy": 0.9929003827262776,
+    "deadFloor_perEp": 0.6627474150664696,
+    "label": "s1036a0",
+    "staticScore": 1.0,
+    "interiorFrac": 0.3696556391751819,
+    "is_control": false,
+    "bands": {
+      "interiorFrac": {
+        "value": 0.3696556391751819,
+        "sub": 1.0,
+        "weight": 3.0,
+        "breached": false
+      },
+      "exposedFrac": {
+        "value": 0.08093104691281734,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "longRunFrac": {
+        "value": 0.018921862237952627,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCountMin": {
+        "value": 3.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCapacityFrac": {
+        "value": 0.12,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "chokeCount": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "chokeCoveredPenalty": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "collisionCoverRatio": {
+        "value": 1.508888839467104,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "standRingOpenMin": {
+        "value": 0.9333333333333333,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "standRingSpread": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "standCoverSpread": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "midCrossCount": {
+        "value": 4.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "midOpenFrac": {
+        "value": 0.4303599374021909,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "detourMax": {
+        "value": 1.5476190476190477,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "visDegreeCv": {
+        "value": 0.41999841404516486,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      }
+    }
+  },
+  {
+    "lateFrac": 0.0006000000000000001,
+    "lateFrac_max": 0.001,
+    "_per_episode": {
+      "deadFloorFrac": [
+        0.7123509495068453,
+        0.6996908582364199,
+        0.7117621080524069,
+        0.7057264831444134,
+        0.7334020315030179
+      ],
+      "ticks_mean": [
+        2602.0,
+        3151.0,
+        5123.0,
+        5123.0,
+        2715.0
+      ],
+      "pace": [
+        17.294388931591083,
+        13.329101872421454,
+        8.198321296115557,
+        8.588717548311536,
+        15.469613259668508
+      ],
+      "balanceEntropy": [
+        0.9967916319816367,
+        0.998363672593813,
+        1.0,
+        0.9985090989176322,
+        0.998363672593813
+      ],
+      "steals_per_ep": [
+        1.0,
+        0.0,
+        1.0,
+        0.0,
+        1.0
+      ],
+      "captures_per_ep": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "closeContactFrac": [
+        0.5333634459820146,
+        0.48575029358691607,
+        0.42206585640744465,
+        0.3416800116465279,
+        0.5063600247840507
+      ]
+    },
+    "episodes": 5,
+    "ticks_all": [
+      2602,
+      3151,
+      5123,
+      5123,
+      2715
+    ],
+    "ticks_mean": 3742.8,
+    "captures_total": 1,
+    "captures_per_ep": 0.2,
+    "capture_rate": 0.2,
+    "steals_per_ep": 0.6,
+    "conversion": 0.3333333333333333,
+    "deadFloorFrac": 0.5053731782717503,
+    "closeContactFrac": 0.45784392648139083,
+    "fightTimeFrac": 0.998725983171509,
+    "pace": 12.576028581621626,
+    "balanceEntropy": 0.9984056152173789,
+    "deadFloor_perEp": 0.7125864860886206,
+    "label": "s1022a1",
+    "staticScore": 0.8118478260869565,
+    "interiorFrac": 0.36487427556895236,
+    "is_control": false,
+    "bands": {
+      "interiorFrac": {
+        "value": 0.36487427556895236,
+        "sub": 1.0,
+        "weight": 3.0,
+        "breached": false
+      },
+      "exposedFrac": {
+        "value": 0.14097028678159823,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "longRunFrac": {
+        "value": 0.04490084985835694,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCountMin": {
+        "value": 1.0,
+        "sub": 0.5,
+        "weight": 1.5,
+        "breached": true
+      },
+      "routeCapacityFrac": {
+        "value": 0.04,
+        "sub": 0.68,
+        "weight": 2.0,
+        "breached": true
+      },
+      "chokeCount": {
+        "value": 15.0,
+        "sub": 0.0,
+        "weight": 1.0,
+        "breached": true
+      },
+      "chokeCoveredPenalty": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "collisionCoverRatio": {
+        "value": 1.5775723089060822,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "standRingOpenMin": {
+        "value": 1.0,
+        "sub": 0.37499999999999944,
+        "weight": 1.5,
+        "breached": true
+      },
+      "standRingSpread": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "standCoverSpread": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "midCrossCount": {
+        "value": 4.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "midOpenFrac": {
+        "value": 0.38810641627543035,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "detourMax": {
+        "value": 2.7327327327327327,
+        "sub": 0.0,
+        "weight": 1.0,
+        "breached": true
+      },
+      "visDegreeCv": {
+        "value": 0.39661081830502776,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      }
+    }
+  },
+  {
+    "lateFrac": 0.0,
+    "lateFrac_max": 0.0,
+    "_per_episode": {
+      "deadFloorFrac": [
+        0.7010885133199656,
+        0.7368948725293611,
+        0.7132626754511602,
+        0.7115439702091091,
+        0.7188484674878258
+      ],
+      "ticks_mean": [
+        3667.0,
+        1723.0,
+        3404.0,
+        3732.0,
+        3632.0
+      ],
+      "pace": [
+        11.998909190073629,
+        20.313406848520025,
+        12.044653349001175,
+        11.521972132904608,
+        12.114537444933921
+      ],
+      "balanceEntropy": [
+        0.9985090989176322,
+        0.863120568566631,
+        0.9961344835095797,
+        0.9807983646944296,
+        0.9865446300055645
+      ],
+      "steals_per_ep": [
+        0.0,
+        1.0,
+        2.0,
+        0.0,
+        1.0
+      ],
+      "captures_per_ep": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "closeContactFrac": [
+        0.3745093841432955,
+        0.45672490857375053,
+        0.44471660883173436,
+        0.32671066342480026,
+        0.39674556213017753
+      ]
+    },
+    "episodes": 5,
+    "ticks_all": [
+      3667,
+      1723,
+      3404,
+      3732,
+      3632
+    ],
+    "ticks_mean": 3231.6,
+    "captures_total": 0,
+    "captures_per_ep": 0.0,
+    "capture_rate": 0.0,
+    "steals_per_ep": 0.8,
+    "conversion": 0.0,
+    "deadFloorFrac": 0.4823832712689774,
+    "closeContactFrac": 0.39988142542075167,
+    "fightTimeFrac": 0.9905302307444309,
+    "pace": 13.598695793086671,
+    "balanceEntropy": 0.9650214291387673,
+    "deadFloor_perEp": 0.7163276997994844,
+    "label": "s1021a7",
+    "staticScore": 0.830661871828125,
+    "interiorFrac": 0.2032663571501041,
+    "is_control": false,
+    "bands": {
+      "interiorFrac": {
+        "value": 0.2032663571501041,
+        "sub": 0.7875743506822914,
+        "weight": 3.0,
+        "breached": true
+      },
+      "exposedFrac": {
+        "value": 0.14808352660256272,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "longRunFrac": {
+        "value": 0.09511251758087201,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCountMin": {
+        "value": 2.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCapacityFrac": {
+        "value": 0.08,
+        "sub": 0.8400000000000001,
+        "weight": 2.0,
+        "breached": true
+      },
+      "chokeCount": {
+        "value": 8.0,
+        "sub": 0.5,
+        "weight": 1.0,
+        "breached": true
+      },
+      "chokeCoveredPenalty": {
+        "value": 1.0,
+        "sub": 0.0,
+        "weight": 1.5,
+        "breached": true
+      },
+      "collisionCoverRatio": {
+        "value": 1.3600248700733168,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "standRingOpenMin": {
+        "value": 1.0,
+        "sub": 0.37499999999999944,
+        "weight": 1.5,
+        "breached": true
+      },
+      "standRingSpread": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "standCoverSpread": {
+        "value": 0.0002763641565693663,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "midCrossCount": {
+        "value": 4.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "midOpenFrac": {
+        "value": 0.6244131455399061,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "detourMax": {
+        "value": 1.4762456546929317,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "visDegreeCv": {
+        "value": 0.3598860627012854,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      }
+    }
+  },
+  {
+    "lateFrac": 0.0004,
+    "lateFrac_max": 0.001,
+    "_per_episode": {
+      "deadFloorFrac": [
+        0.7136863425925926,
+        0.7016782407407407,
+        0.7356770833333333,
+        0.6986400462962963,
+        0.7282986111111112
+      ],
+      "ticks_mean": [
+        1761.0,
+        3733.0,
+        1919.0,
+        2056.0,
+        2824.0
+      ],
+      "pace": [
+        22.714366837024418,
+        12.590409858023039,
+        21.88639916623241,
+        21.40077821011673,
+        15.580736543909348
+      ],
+      "balanceEntropy": [
+        0.9709505944546688,
+        0.9996734260048918,
+        0.9736680645496201,
+        0.9940302114769565,
+        0.9940302114769565
+      ],
+      "steals_per_ep": [
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "captures_per_ep": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "closeContactFrac": [
+        0.2999525841631105,
+        0.2703193332783233,
+        0.2877099991016081,
+        0.3739423242963219,
+        0.33740463752865574
+      ]
+    },
+    "episodes": 5,
+    "ticks_all": [
+      1761,
+      3733,
+      1919,
+      2056,
+      2824
+    ],
+    "ticks_mean": 2458.6,
+    "captures_total": 0,
+    "captures_per_ep": 0.0,
+    "capture_rate": 0.0,
+    "steals_per_ep": 0.4,
+    "conversion": 0.0,
+    "deadFloorFrac": 0.49233217592592593,
+    "closeContactFrac": 0.3138657756736039,
+    "fightTimeFrac": 0.9905699679928812,
+    "pace": 18.83453812306119,
+    "balanceEntropy": 0.9864705015926187,
+    "deadFloor_perEp": 0.7155960648148147,
+    "label": "s1003a0",
+    "staticScore": 0.8363710718715557,
+    "interiorFrac": 0.22022920789002415,
+    "is_control": false,
+    "bands": {
+      "interiorFrac": {
+        "value": 0.22022920789002415,
+        "sub": 0.864678217681928,
+        "weight": 3.0,
+        "breached": true
+      },
+      "exposedFrac": {
+        "value": 0.14937248956076438,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "longRunFrac": {
+        "value": 0.093811394891945,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCountMin": {
+        "value": 2.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCapacityFrac": {
+        "value": 0.08,
+        "sub": 0.8400000000000001,
+        "weight": 2.0,
+        "breached": true
+      },
+      "chokeCount": {
+        "value": 6.0,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "chokeCoveredPenalty": {
+        "value": 1.0,
+        "sub": 0.0,
+        "weight": 1.5,
+        "breached": true
+      },
+      "collisionCoverRatio": {
+        "value": 1.1163586649624413,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "standRingOpenMin": {
+        "value": 1.0,
+        "sub": 0.37499999999999944,
+        "weight": 1.5,
+        "breached": true
+      },
+      "standRingSpread": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "standCoverSpread": {
+        "value": 0.00036011790524150336,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "midCrossCount": {
+        "value": 2.0,
+        "sub": 0.6,
+        "weight": 1.5,
+        "breached": true
+      },
+      "midOpenFrac": {
+        "value": 0.6197183098591549,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "detourMax": {
+        "value": 1.295480880648899,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "visDegreeCv": {
+        "value": 0.3920388867857691,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      }
+    }
+  },
+  {
+    "lateFrac": 0.0002,
+    "lateFrac_max": 0.001,
+    "_per_episode": {
+      "deadFloorFrac": [
+        0.666135342703956,
+        0.7083031444718157,
+        0.7106216490363715,
+        0.695261556296189,
+        0.699753658890016
+      ],
+      "ticks_mean": [
+        4112.0,
+        2582.0,
+        2461.0,
+        3648.0,
+        4315.0
+      ],
+      "pace": [
+        11.429961089494164,
+        17.815646785437647,
+        18.285249898415277,
+        12.609649122807017,
+        10.89223638470452
+      ],
+      "balanceEntropy": [
+        0.9970590569034108,
+        1.0,
+        0.9996437496778561,
+        0.9986359641585718,
+        0.9996734260048918
+      ],
+      "steals_per_ep": [
+        3.0,
+        1.0,
+        2.0,
+        2.0,
+        3.0
+      ],
+      "captures_per_ep": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "closeContactFrac": [
+        0.37750182108293734,
+        0.3184123876479487,
+        0.36514342750509915,
+        0.341790680653818,
+        0.32881651863660516
+      ]
+    },
+    "episodes": 5,
+    "ticks_all": [
+      4112,
+      2582,
+      2461,
+      3648,
+      4315
+    ],
+    "ticks_mean": 3423.6,
+    "captures_total": 0,
+    "captures_per_ep": 0.0,
+    "capture_rate": 0.0,
+    "steals_per_ep": 2.2,
+    "conversion": 0.0,
+    "deadFloorFrac": 0.4803651644689175,
+    "closeContactFrac": 0.34633296710528166,
+    "fightTimeFrac": 0.9870601479882655,
+    "pace": 14.206548656171725,
+    "balanceEntropy": 0.999002439348946,
+    "deadFloor_perEp": 0.6960150702796696,
+    "label": "s1019a3",
+    "staticScore": 0.8592331048682247,
+    "interiorFrac": 0.22212317021107245,
+    "is_control": false,
+    "bands": {
+      "interiorFrac": {
+        "value": 0.22212317021107245,
+        "sub": 0.8732871373230566,
+        "weight": 3.0,
+        "breached": true
+      },
+      "exposedFrac": {
+        "value": 0.1613137576972337,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "longRunFrac": {
+        "value": 0.09304969145826567,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCountMin": {
+        "value": 2.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCapacityFrac": {
+        "value": 0.08,
+        "sub": 0.8400000000000001,
+        "weight": 2.0,
+        "breached": true
+      },
+      "chokeCount": {
+        "value": 11.0,
+        "sub": 0.0,
+        "weight": 1.0,
+        "breached": true
+      },
+      "chokeCoveredPenalty": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "collisionCoverRatio": {
+        "value": 1.2341868644465381,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "standRingOpenMin": {
+        "value": 1.0,
+        "sub": 0.37499999999999944,
+        "weight": 1.5,
+        "breached": true
+      },
+      "standRingSpread": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "standCoverSpread": {
+        "value": 0.00036011790524150336,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "midCrossCount": {
+        "value": 2.0,
+        "sub": 0.6,
+        "weight": 1.5,
+        "breached": true
+      },
+      "midOpenFrac": {
+        "value": 0.568075117370892,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "detourMax": {
+        "value": 1.295480880648899,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "visDegreeCv": {
+        "value": 0.3787604569142458,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      }
+    }
+  },
+  {
+    "lateFrac": 0.0,
+    "lateFrac_max": 0.0,
+    "_per_episode": {
+      "deadFloorFrac": [
+        0.7028975061265677,
+        0.698284561049445,
+        0.6979962519821248,
+        0.7318725673922445,
+        0.7338907308634857
+      ],
+      "ticks_mean": [
+        5149.0,
+        5121.0,
+        4827.0,
+        5121.0,
+        3707.0
+      ],
+      "pace": [
+        8.351136142940376,
+        8.006248779535246,
+        9.322560596643878,
+        8.201523140011716,
+        11.869436201780415
+      ],
+      "balanceEntropy": [
+        0.9902246902198684,
+        0.9995708393473225,
+        0.9910760598382221,
+        0.9934472383802027,
+        0.9985090989176322
+      ],
+      "steals_per_ep": [
+        6.0,
+        2.0,
+        2.0,
+        0.0,
+        0.0
+      ],
+      "captures_per_ep": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "closeContactFrac": [
+        0.2469891086664289,
+        0.284987494315598,
+        0.3714901629055584,
+        0.2919026899816654,
+        0.3084718818308273
+      ]
+    },
+    "episodes": 5,
+    "ticks_all": [
+      5149,
+      5121,
+      4827,
+      5121,
+      3707
+    ],
+    "ticks_mean": 4785.0,
+    "captures_total": 0,
+    "captures_per_ep": 0.0,
+    "capture_rate": 0.0,
+    "steals_per_ep": 2.0,
+    "conversion": 0.0,
+    "deadFloorFrac": 0.4367882369900533,
+    "closeContactFrac": 0.3007682675400156,
+    "fightTimeFrac": 0.9961028801261165,
+    "pace": 9.150180972182326,
+    "balanceEntropy": 0.9945655853406496,
+    "deadFloor_perEp": 0.7129883234827735,
+    "label": "s1027a0",
+    "staticScore": 0.8622520488096646,
+    "interiorFrac": 0.19641512232563432,
+    "is_control": false,
+    "bands": {
+      "interiorFrac": {
+        "value": 0.19641512232563432,
+        "sub": 0.7564323742074287,
+        "weight": 3.0,
+        "breached": true
+      },
+      "exposedFrac": {
+        "value": 0.09887574756954395,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "longRunFrac": {
+        "value": 0.08881366860090265,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCountMin": {
+        "value": 3.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCapacityFrac": {
+        "value": 0.12,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "chokeCount": {
+        "value": 5.0,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "chokeCoveredPenalty": {
+        "value": 1.0,
+        "sub": 0.0,
+        "weight": 1.5,
+        "breached": true
+      },
+      "collisionCoverRatio": {
+        "value": 1.2062515849953035,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "standRingOpenMin": {
+        "value": 1.0,
+        "sub": 0.37499999999999944,
+        "weight": 1.5,
+        "breached": true
+      },
+      "standRingSpread": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "standCoverSpread": {
+        "value": 0.00030270983484664143,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "midCrossCount": {
+        "value": 4.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "midOpenFrac": {
+        "value": 0.6338028169014085,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "detourMax": {
+        "value": 1.4762456546929317,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "visDegreeCv": {
+        "value": 0.3170610004292808,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      }
+    }
+  },
+  {
+    "lateFrac": 0.0,
+    "lateFrac_max": 0.0,
+    "_per_episode": {
+      "deadFloorFrac": [
+        0.7521379910131903,
+        0.7556167560516016,
+        0.7502536599507175,
+        0.7267719959414407,
+        0.7292361211769822
+      ],
+      "ticks_mean": [
+        3925.0,
+        3717.0,
+        5214.0,
+        4102.0,
+        5121.0
+      ],
+      "pace": [
+        11.210191082802547,
+        11.56846919558784,
+        8.438818565400844,
+        10.482691370063383,
+        8.006248779535246
+      ],
+      "balanceEntropy": [
+        1.0,
+        0.9902246902198684,
+        1.0,
+        0.999609836367807,
+        0.9995708393473225
+      ],
+      "steals_per_ep": [
+        1.0,
+        4.0,
+        1.0,
+        2.0,
+        0.0
+      ],
+      "captures_per_ep": [
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0
+      ],
+      "closeContactFrac": [
+        0.30192447924923116,
+        0.2414973533234017,
+        0.2816987230435013,
+        0.338502657177487,
+        0.25827776827947796
+      ]
+    },
+    "episodes": 5,
+    "ticks_all": [
+      3925,
+      3717,
+      5214,
+      4102,
+      5121
+    ],
+    "ticks_mean": 4415.8,
+    "captures_total": 1,
+    "captures_per_ep": 0.2,
+    "capture_rate": 0.2,
+    "steals_per_ep": 1.6,
+    "conversion": 0.125,
+    "deadFloorFrac": 0.49383968691114655,
+    "closeContactFrac": 0.28438019621461985,
+    "fightTimeFrac": 0.9965046480657975,
+    "pace": 9.941283798677972,
+    "balanceEntropy": 0.9978810731869995,
+    "deadFloor_perEp": 0.7428033048267866,
+    "label": "s1028a3",
+    "staticScore": 0.8715368221352804,
+    "interiorFrac": 0.21207544000150613,
+    "is_control": false,
+    "bands": {
+      "interiorFrac": {
+        "value": 0.21207544000150613,
+        "sub": 0.8276156363704824,
+        "weight": 3.0,
+        "breached": true
+      },
+      "exposedFrac": {
+        "value": 0.09280255579579702,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "longRunFrac": {
+        "value": 0.08636363636363636,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCountMin": {
+        "value": 3.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCapacityFrac": {
+        "value": 0.12,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "chokeCount": {
+        "value": 5.0,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "chokeCoveredPenalty": {
+        "value": 1.0,
+        "sub": 0.0,
+        "weight": 1.5,
+        "breached": true
+      },
+      "collisionCoverRatio": {
+        "value": 1.2050088959650993,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "standRingOpenMin": {
+        "value": 1.0,
+        "sub": 0.37499999999999944,
+        "weight": 1.5,
+        "breached": true
+      },
+      "standRingSpread": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "standCoverSpread": {
+        "value": 0.00030211950884259653,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "midCrossCount": {
+        "value": 4.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "midOpenFrac": {
+        "value": 0.6338028169014085,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "detourMax": {
+        "value": 1.4762456546929317,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "visDegreeCv": {
+        "value": 0.31159622432633866,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      }
+    }
+  },
+  {
+    "lateFrac": 0.0,
+    "lateFrac_max": 0.0,
+    "_per_episode": {
+      "deadFloorFrac": [
+        0.7117038332604577,
+        0.7135986007870573,
+        0.7310887625710538,
+        0.7184083952776563,
+        0.6692901909342661
+      ],
+      "ticks_mean": [
+        5121.0,
+        5121.0,
+        5121.0,
+        5121.0,
+        3111.0
+      ],
+      "pace": [
+        8.396797500488185,
+        7.615700058582308,
+        8.396797500488185,
+        8.396797500488185,
+        13.179042108646737
+      ],
+      "balanceEntropy": [
+        0.999609836367807,
+        0.9881108365218301,
+        0.9902246902198684,
+        0.999609836367807,
+        0.9788698505067783
+      ],
+      "steals_per_ep": [
+        0.0,
+        2.0,
+        1.0,
+        2.0,
+        5.0
+      ],
+      "captures_per_ep": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "closeContactFrac": [
+        0.4565612597618743,
+        0.3429721993110475,
+        0.37197619177633373,
+        0.38382761356873635,
+        0.46092042481145146
+      ]
+    },
+    "episodes": 5,
+    "ticks_all": [
+      5121,
+      5121,
+      5121,
+      5121,
+      3111
+    ],
+    "ticks_mean": 4719.0,
+    "captures_total": 0,
+    "captures_per_ep": 0.0,
+    "capture_rate": 0.0,
+    "steals_per_ep": 2.0,
+    "conversion": 0.0,
+    "deadFloorFrac": 0.43244425010931353,
+    "closeContactFrac": 0.40325153784588863,
+    "fightTimeFrac": 0.9951204486748109,
+    "pace": 9.197026933738721,
+    "balanceEntropy": 0.9912850099968182,
+    "deadFloor_perEp": 0.7088179565660981,
+    "label": "s1031a0",
+    "staticScore": 0.8728749798813094,
+    "interiorFrac": 0.2245991327331416,
+    "is_control": false,
+    "bands": {
+      "interiorFrac": {
+        "value": 0.2245991327331416,
+        "sub": 0.884541512423371,
+        "weight": 3.0,
+        "breached": true
+      },
+      "exposedFrac": {
+        "value": 0.14755319319162058,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "longRunFrac": {
+        "value": 0.08569206842923795,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCountMin": {
+        "value": 1.0,
+        "sub": 0.5,
+        "weight": 1.5,
+        "breached": true
+      },
+      "routeCapacityFrac": {
+        "value": 0.04,
+        "sub": 0.68,
+        "weight": 2.0,
+        "breached": true
+      },
+      "chokeCount": {
+        "value": 7.0,
+        "sub": 0.75,
+        "weight": 1.0,
+        "breached": true
+      },
+      "chokeCoveredPenalty": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "collisionCoverRatio": {
+        "value": 1.2755453353831812,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "standRingOpenMin": {
+        "value": 1.0,
+        "sub": 0.37499999999999944,
+        "weight": 1.5,
+        "breached": true
+      },
+      "standRingSpread": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "standCoverSpread": {
+        "value": 0.0003713340993183531,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "midCrossCount": {
+        "value": 4.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "midOpenFrac": {
+        "value": 0.6338028169014085,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "detourMax": {
+        "value": 1.4762456546929317,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "visDegreeCv": {
+        "value": 0.3650241797451272,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      }
+    }
+  },
+  {
+    "lateFrac": 0.0,
+    "lateFrac_max": 0.0,
+    "_per_episode": {
+      "deadFloorFrac": [
+        0.7052798615118292,
+        0.7313906520484709,
+        0.744806693594922,
+        0.7364396999422966,
+        0.701673398730525
+      ],
+      "ticks_mean": [
+        4337.0,
+        2879.0,
+        3250.0,
+        5121.0,
+        4416.0
+      ],
+      "pace": [
+        9.914687572054415,
+        13.893713094824593,
+        12.615384615384615,
+        8.006248779535246,
+        9.057971014492754
+      ],
+      "balanceEntropy": [
+        0.9902246902198684,
+        0.9837082626231857,
+        0.9788698505067783,
+        0.9961344835095797,
+        0.99819587904281
+      ],
+      "steals_per_ep": [
+        2.0,
+        2.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "captures_per_ep": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "closeContactFrac": [
+        0.33490421349097904,
+        0.29653072396332286,
+        0.3862208258527828,
+        0.2756252102725132,
+        0.3188624030457141
+      ]
+    },
+    "episodes": 5,
+    "ticks_all": [
+      4337,
+      2879,
+      3250,
+      5121,
+      4416
+    ],
+    "ticks_mean": 4000.6,
+    "captures_total": 1,
+    "captures_per_ep": 0.2,
+    "capture_rate": 0.2,
+    "steals_per_ep": 1.0,
+    "conversion": 0.2,
+    "deadFloorFrac": 0.4708597807270629,
+    "closeContactFrac": 0.32242867532506236,
+    "fightTimeFrac": 0.9936541014510146,
+    "pace": 10.697601015258325,
+    "balanceEntropy": 0.9894266331804443,
+    "deadFloor_perEp": 0.7239180611656088,
+    "label": "s1025a2",
+    "staticScore": 0.8758184954941085,
+    "interiorFrac": 0.2192971957333964,
+    "is_control": false,
+    "bands": {
+      "interiorFrac": {
+        "value": 0.2192971957333964,
+        "sub": 0.8604417987881654,
+        "weight": 3.0,
+        "breached": true
+      },
+      "exposedFrac": {
+        "value": 0.09498052572608544,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "longRunFrac": {
+        "value": 0.08609375,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCountMin": {
+        "value": 3.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCapacityFrac": {
+        "value": 0.12,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "chokeCount": {
+        "value": 5.0,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "chokeCoveredPenalty": {
+        "value": 1.0,
+        "sub": 0.0,
+        "weight": 1.5,
+        "breached": true
+      },
+      "collisionCoverRatio": {
+        "value": 1.2025033063544666,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "standRingOpenMin": {
+        "value": 1.0,
+        "sub": 0.37499999999999944,
+        "weight": 1.5,
+        "breached": true
+      },
+      "standRingSpread": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "standCoverSpread": {
+        "value": 0.0003088892151147868,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "midCrossCount": {
+        "value": 4.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "midOpenFrac": {
+        "value": 0.6338028169014085,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "detourMax": {
+        "value": 1.4762456546929317,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "visDegreeCv": {
+        "value": 0.35039361319794315,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      }
+    }
+  },
+  {
+    "lateFrac": 0.001,
+    "lateFrac_max": 0.001,
+    "_per_episode": {
+      "deadFloorFrac": [
+        0.6888427915246703,
+        0.7088457549266558,
+        0.7199585123722032,
+        0.6839531782486294,
+        0.6704696992146985
+      ],
+      "ticks_mean": [
+        2251.0,
+        2513.0,
+        5124.0,
+        5124.0,
+        3547.0
+      ],
+      "pace": [
+        19.102621057307864,
+        16.315161161957818,
+        8.391881342701016,
+        8.391881342701016,
+        13.250634338877925
+      ],
+      "balanceEntropy": [
+        0.9902246902198684,
+        0.9649567669505688,
+        0.996485989886783,
+        0.9807983646944296,
+        0.9839393951635758
+      ],
+      "steals_per_ep": [
+        2.0,
+        0.0,
+        1.0,
+        2.0,
+        2.0
+      ],
+      "captures_per_ep": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "closeContactFrac": [
+        0.49802860456126785,
+        0.4493195125811046,
+        0.36249254451986707,
+        0.33576537086169106,
+        0.5097052219888463
+      ]
+    },
+    "episodes": 5,
+    "ticks_all": [
+      2251,
+      2513,
+      5124,
+      5124,
+      3547
+    ],
+    "ticks_mean": 3711.8,
+    "captures_total": 0,
+    "captures_per_ep": 0.0,
+    "capture_rate": 0.0,
+    "steals_per_ep": 1.4,
+    "conversion": 0.0,
+    "deadFloorFrac": 0.4496962512964884,
+    "closeContactFrac": 0.43106225090255534,
+    "fightTimeFrac": 0.9401835503016626,
+    "pace": 13.090435848709129,
+    "balanceEntropy": 0.9832810413830451,
+    "deadFloor_perEp": 0.6944139872573714,
+    "label": "s1022a0",
+    "staticScore": 0.8834645981385111,
+    "interiorFrac": 0.2812306665544496,
+    "is_control": false,
+    "bands": {
+      "interiorFrac": {
+        "value": 0.2812306665544496,
+        "sub": 1.0,
+        "weight": 3.0,
+        "breached": false
+      },
+      "exposedFrac": {
+        "value": 0.1341997670019889,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "longRunFrac": {
+        "value": 0.04309290953545232,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCountMin": {
+        "value": 3.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCapacityFrac": {
+        "value": 0.12,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "chokeCount": {
+        "value": 1.0,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "chokeCoveredPenalty": {
+        "value": 1.0,
+        "sub": 0.0,
+        "weight": 1.5,
+        "breached": true
+      },
+      "collisionCoverRatio": {
+        "value": 1.2120947007850644,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "standRingOpenMin": {
+        "value": 1.0,
+        "sub": 0.37499999999999944,
+        "weight": 1.5,
+        "breached": true
+      },
+      "standRingSpread": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "standCoverSpread": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "midCrossCount": {
+        "value": 5.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "midOpenFrac": {
+        "value": 0.405320813771518,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "detourMax": {
+        "value": 1.015015015015015,
+        "sub": 0.7571857571857569,
+        "weight": 1.0,
+        "breached": true
+      },
+      "visDegreeCv": {
+        "value": 0.38672543336218174,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      }
+    }
+  },
+  {
+    "lateFrac": 0.0004,
+    "lateFrac_max": 0.001,
+    "_per_episode": {
+      "deadFloorFrac": [
+        0.7342453791296755,
+        0.7441420462814728,
+        0.7089215543588997,
+        0.69844273031582,
+        0.7224567020812109
+      ],
+      "ticks_mean": [
+        2338.0,
+        3724.0,
+        3563.0,
+        5121.0,
+        2888.0
+      ],
+      "pace": [
+        18.81950384944397,
+        12.352309344790548,
+        12.629806342969408,
+        8.006248779535246,
+        15.23545706371191
+      ],
+      "balanceEntropy": [
+        0.9760206482366149,
+        0.9876925088958033,
+        0.9910760598382221,
+        0.9474351361840307,
+        0.9865446300055645
+      ],
+      "steals_per_ep": [
+        0.0,
+        0.0,
+        0.0,
+        2.0,
+        0.0
+      ],
+      "captures_per_ep": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "closeContactFrac": [
+        0.31672254819782064,
+        0.28263743762528254,
+        0.2712053987547071,
+        0.18105400203781274,
+        0.31106217310944195
+      ]
+    },
+    "episodes": 5,
+    "ticks_all": [
+      2338,
+      3724,
+      3563,
+      5121,
+      2888
+    ],
+    "ticks_mean": 3526.8,
+    "captures_total": 0,
+    "captures_per_ep": 0.0,
+    "capture_rate": 0.0,
+    "steals_per_ep": 0.4,
+    "conversion": 0.0,
+    "deadFloorFrac": 0.4834812982098675,
+    "closeContactFrac": 0.27253631194501304,
+    "fightTimeFrac": 0.9914390510085912,
+    "pace": 13.408665076090216,
+    "balanceEntropy": 0.9777537966320471,
+    "deadFloor_perEp": 0.7216416824334159,
+    "label": "s1008a1",
+    "staticScore": 0.8875626589108632,
+    "interiorFrac": 0.22590568469632263,
+    "is_control": false,
+    "bands": {
+      "interiorFrac": {
+        "value": 0.22590568469632263,
+        "sub": 0.8904803849832847,
+        "weight": 3.0,
+        "breached": true
+      },
+      "exposedFrac": {
+        "value": 0.15222303434706858,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "longRunFrac": {
+        "value": 0.08792440743113389,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCountMin": {
+        "value": 2.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCapacityFrac": {
+        "value": 0.08,
+        "sub": 0.8400000000000001,
+        "weight": 2.0,
+        "breached": true
+      },
+      "chokeCount": {
+        "value": 12.0,
+        "sub": 0.0,
+        "weight": 1.0,
+        "breached": true
+      },
+      "chokeCoveredPenalty": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "collisionCoverRatio": {
+        "value": 1.2999011769630824,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "standRingOpenMin": {
+        "value": 1.0,
+        "sub": 0.37499999999999944,
+        "weight": 1.5,
+        "breached": true
+      },
+      "standRingSpread": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "standCoverSpread": {
+        "value": 0.00036011790524150336,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "midCrossCount": {
+        "value": 4.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "midOpenFrac": {
+        "value": 0.6181533646322379,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "detourMax": {
+        "value": 1.4762456546929317,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "visDegreeCv": {
+        "value": 0.37396152443511926,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      }
+    }
+  },
+  {
+    "lateFrac": 0.0,
+    "lateFrac_max": 0.0,
+    "_per_episode": {
+      "deadFloorFrac": [
+        0.6943807339449541,
+        0.694954128440367,
+        0.7280676605504588,
+        0.7025516055045872,
+        0.6975344036697247
+      ],
+      "ticks_mean": [
+        2622.0,
+        2661.0,
+        2559.0,
+        3372.0,
+        2447.0
+      ],
+      "pace": [
+        17.54385964912281,
+        16.535137166478766,
+        17.584994138335286,
+        13.938315539739028,
+        17.572537801389455
+      ],
+      "balanceEntropy": [
+        1.0,
+        0.9940302114769565,
+        0.9910760598382221,
+        0.9970590569034108,
+        0.9807983646944296
+      ],
+      "steals_per_ep": [
+        1.0,
+        0.0,
+        3.0,
+        1.0,
+        2.0
+      ],
+      "captures_per_ep": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "closeContactFrac": [
+        0.29057012970763646,
+        0.29897240877093617,
+        0.3153243798941336,
+        0.3204605984646718,
+        0.3022478482493524
+      ]
+    },
+    "episodes": 5,
+    "ticks_all": [
+      2622,
+      2661,
+      2559,
+      3372,
+      2447
+    ],
+    "ticks_mean": 2732.2,
+    "captures_total": 0,
+    "captures_per_ep": 0.0,
+    "capture_rate": 0.0,
+    "steals_per_ep": 1.4,
+    "conversion": 0.0,
+    "deadFloorFrac": 0.440223623853211,
+    "closeContactFrac": 0.3055150730173461,
+    "fightTimeFrac": 0.9874392695703651,
+    "pace": 16.634968859013068,
+    "balanceEntropy": 0.9925927385826038,
+    "deadFloor_perEp": 0.7034977064220185,
+    "label": "s1029a8",
+    "staticScore": 0.8917319310219769,
+    "interiorFrac": 0.191137856990401,
+    "is_control": false,
+    "bands": {
+      "interiorFrac": {
+        "value": 0.191137856990401,
+        "sub": 0.7324448045018228,
+        "weight": 3.0,
+        "breached": true
+      },
+      "exposedFrac": {
+        "value": 0.16107166237163242,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "longRunFrac": {
+        "value": 0.09771487039563438,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCountMin": {
+        "value": 3.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCapacityFrac": {
+        "value": 0.12,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "chokeCount": {
+        "value": 9.0,
+        "sub": 0.25,
+        "weight": 1.0,
+        "breached": true
+      },
+      "chokeCoveredPenalty": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "collisionCoverRatio": {
+        "value": 1.1427657228425774,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "standRingOpenMin": {
+        "value": 1.0,
+        "sub": 0.37499999999999944,
+        "weight": 1.5,
+        "breached": true
+      },
+      "standRingSpread": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "standCoverSpread": {
+        "value": 0.00036011790524150336,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "midCrossCount": {
+        "value": 4.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "midOpenFrac": {
+        "value": 0.6338028169014085,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "detourMax": {
+        "value": 1.295480880648899,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "visDegreeCv": {
+        "value": 0.3532578618768793,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      }
+    }
+  },
+  {
+    "lateFrac": 0.0016,
+    "lateFrac_max": 0.003,
+    "_per_episode": {
+      "deadFloorFrac": [
+        0.7627672209026128,
+        0.7672209026128266,
+        0.7785035629453682,
+        0.7768705463182898,
+        0.7605403800475059
+      ],
+      "ticks_mean": [
+        2333.0,
+        1572.0,
+        2140.0,
+        2064.0,
+        3494.0
+      ],
+      "pace": [
+        18.431204457779682,
+        24.80916030534351,
+        21.02803738317757,
+        20.348837209302324,
+        12.87922152261019
+      ],
+      "balanceEntropy": [
+        0.9902246902198684,
+        0.9182958340544896,
+        0.982474086838641,
+        0.9736680645496201,
+        0.9967916319816367
+      ],
+      "steals_per_ep": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "captures_per_ep": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "closeContactFrac": [
+        0.47606164945072965,
+        0.4479039370915467,
+        0.42657096305429565,
+        0.45390244899627946,
+        0.3402780149595273
+      ]
+    },
+    "episodes": 5,
+    "ticks_all": [
+      2333,
+      1572,
+      2140,
+      2064,
+      3494
+    ],
+    "ticks_mean": 2320.6,
+    "captures_total": 0,
+    "captures_per_ep": 0.0,
+    "capture_rate": 0.0,
+    "steals_per_ep": 0.0,
+    "conversion": 0.0,
+    "deadFloorFrac": 0.636728028503563,
+    "closeContactFrac": 0.42894340271047576,
+    "fightTimeFrac": 0.9915339635648955,
+    "pace": 19.49929217564266,
+    "balanceEntropy": 0.9722908615288512,
+    "deadFloor_perEp": 0.7691805225653207,
+    "label": "s1017a0",
+    "staticScore": 0.9027536231884057,
+    "interiorFrac": 0.34347540828220086,
+    "is_control": false,
+    "bands": {
+      "interiorFrac": {
+        "value": 0.34347540828220086,
+        "sub": 1.0,
+        "weight": 3.0,
+        "breached": false
+      },
+      "exposedFrac": {
+        "value": 0.13372787900599373,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "longRunFrac": {
+        "value": 0.027908189880020865,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCountMin": {
+        "value": 2.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCapacityFrac": {
+        "value": 0.08,
+        "sub": 0.8400000000000001,
+        "weight": 2.0,
+        "breached": true
+      },
+      "chokeCount": {
+        "value": 4.0,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "chokeCoveredPenalty": {
+        "value": 1.0,
+        "sub": 0.0,
+        "weight": 1.5,
+        "breached": true
+      },
+      "collisionCoverRatio": {
+        "value": 1.1751412252629712,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "standRingOpenMin": {
+        "value": 0.9722222222222222,
+        "sub": 0.7222222222222219,
+        "weight": 1.5,
+        "breached": true
+      },
+      "standRingSpread": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "standCoverSpread": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "midCrossCount": {
+        "value": 4.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "midOpenFrac": {
+        "value": 0.38497652582159625,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "detourMax": {
+        "value": 1.26246719160105,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "visDegreeCv": {
+        "value": 0.3970986615558459,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      }
+    }
+  },
+  {
+    "lateFrac": 0.0004,
+    "lateFrac_max": 0.001,
+    "_per_episode": {
+      "deadFloorFrac": [
+        0.6971595047341588,
+        0.6844865258557902,
+        0.7038601602330663,
+        0.6930808448652586,
+        0.7284777858703568
+      ],
+      "ticks_mean": [
+        3621.0,
+        5341.0,
+        3559.0,
+        2894.0,
+        2616.0
+      ],
+      "pace": [
+        12.427506213753107,
+        8.238157648380453,
+        12.644001123911211,
+        15.203870076019351,
+        15.672782874617736
+      ],
+      "balanceEntropy": [
+        0.9967916319816367,
+        0.9985090989176322,
+        0.9996437496778561,
+        0.9940302114769565,
+        0.9995708393473225
+      ],
+      "steals_per_ep": [
+        0.0,
+        2.0,
+        1.0,
+        0.0,
+        0.0
+      ],
+      "captures_per_ep": [
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "closeContactFrac": [
+        0.44037640606985945,
+        0.39145046377201237,
+        0.4173773987206823,
+        0.33064725760332725,
+        0.3302940948242415
+      ]
+    },
+    "episodes": 5,
+    "ticks_all": [
+      3621,
+      5341,
+      3559,
+      2894,
+      2616
+    ],
+    "ticks_mean": 3606.2,
+    "captures_total": 1,
+    "captures_per_ep": 0.2,
+    "capture_rate": 0.2,
+    "steals_per_ep": 0.6,
+    "conversion": 0.3333333333333333,
+    "deadFloorFrac": 0.45360524399126,
+    "closeContactFrac": 0.3820291241980246,
+    "fightTimeFrac": 0.9960448373976549,
+    "pace": 12.837263587336372,
+    "balanceEntropy": 0.9977091062802808,
+    "deadFloor_perEp": 0.7014129643117262,
+    "label": "s1027a2",
+    "staticScore": 0.9447967679936196,
+    "interiorFrac": 0.22564054868257183,
+    "is_control": false,
+    "bands": {
+      "interiorFrac": {
+        "value": 0.22564054868257183,
+        "sub": 0.8892752212844174,
+        "weight": 3.0,
+        "breached": true
+      },
+      "exposedFrac": {
+        "value": 0.14491056078800094,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "longRunFrac": {
+        "value": 0.08941901979876664,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCountMin": {
+        "value": 3.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCapacityFrac": {
+        "value": 0.12,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "chokeCount": {
+        "value": 6.0,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "chokeCoveredPenalty": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "collisionCoverRatio": {
+        "value": 1.3599713844591097,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "standRingOpenMin": {
+        "value": 1.0,
+        "sub": 0.37499999999999944,
+        "weight": 1.5,
+        "breached": true
+      },
+      "standRingSpread": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "standCoverSpread": {
+        "value": 0.00027933482936391,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "midCrossCount": {
+        "value": 4.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "midOpenFrac": {
+        "value": 0.6338028169014085,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "detourMax": {
+        "value": 1.4762456546929317,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "visDegreeCv": {
+        "value": 0.34633279537948614,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      }
+    }
+  },
+  {
+    "lateFrac": 0.0016,
+    "lateFrac_max": 0.003,
+    "_per_episode": {
+      "deadFloorFrac": [
+        0.7503660322108345,
+        0.7723279648609078,
+        0.7310395314787701,
+        0.7553440702781845,
+        0.7407027818448023
+      ],
+      "ticks_mean": [
+        2390.0,
+        1258.0,
+        1571.0,
+        1624.0,
+        1727.0
+      ],
+      "pace": [
+        19.665271966527197,
+        31.001589825119236,
+        27.37110120942075,
+        24.63054187192118,
+        24.319629415170816
+      ],
+      "balanceEntropy": [
+        0.9918207974218425,
+        0.961236604722876,
+        0.999609836367807,
+        0.9927744539878083,
+        0.9934472383802027
+      ],
+      "steals_per_ep": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "captures_per_ep": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "closeContactFrac": [
+        0.46206652869617887,
+        0.4591432462547976,
+        0.4386335336473391,
+        0.4180746172521429,
+        0.4729466357308585
+      ]
+    },
+    "episodes": 5,
+    "ticks_all": [
+      2390,
+      1258,
+      1571,
+      1624,
+      1727
+    ],
+    "ticks_mean": 1714.0,
+    "captures_total": 0,
+    "captures_per_ep": 0.0,
+    "capture_rate": 0.0,
+    "steals_per_ep": 0.0,
+    "conversion": 0.0,
+    "deadFloorFrac": 0.5686676427525622,
+    "closeContactFrac": 0.4501729123162634,
+    "fightTimeFrac": 0.9955449055727221,
+    "pace": 25.39762685763184,
+    "balanceEntropy": 0.9877777861761071,
+    "deadFloor_perEp": 0.7499560761346998,
+    "label": "s1040a7",
+    "staticScore": 0.9462881591119334,
+    "interiorFrac": 0.2751205324159923,
+    "is_control": false,
+    "bands": {
+      "interiorFrac": {
+        "value": 0.2751205324159923,
+        "sub": 1.0,
+        "weight": 3.0,
+        "breached": false
+      },
+      "exposedFrac": {
+        "value": 0.17306147956278345,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "longRunFrac": {
+        "value": 0.05282959711553535,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCountMin": {
+        "value": 4.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCapacityFrac": {
+        "value": 0.16,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "chokeCount": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "chokeCoveredPenalty": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "collisionCoverRatio": {
+        "value": 1.3528499525844562,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "standRingOpenMin": {
+        "value": 1.0,
+        "sub": 0.37499999999999944,
+        "weight": 1.5,
+        "breached": true
+      },
+      "standRingSpread": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "standCoverSpread": {
+        "value": 0.0006367956443177926,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "midCrossCount": {
+        "value": 4.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "midOpenFrac": {
+        "value": 0.40688575899843504,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "detourMax": {
+        "value": 0.9957446808510638,
+        "sub": 0.7021276595744679,
+        "weight": 1.0,
+        "breached": true
+      },
+      "visDegreeCv": {
+        "value": 0.3502823815546589,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      }
+    }
+  },
+  {
+    "lateFrac": 0.0012000000000000001,
+    "lateFrac_max": 0.002,
+    "_per_episode": {
+      "deadFloorFrac": [
+        0.7588131609870741,
+        0.7438307873090482,
+        0.7567567567567568,
+        0.7554347826086957,
+        0.7564629847238543
+      ],
+      "ticks_mean": [
+        1685.0,
+        2473.0,
+        1346.0,
+        1531.0,
+        1528.0
+      ],
+      "pace": [
+        21.958456973293767,
+        18.60088960776385,
+        27.488855869242197,
+        26.779882429784454,
+        26.17801047120419
+      ],
+      "balanceEntropy": [
+        0.9352691398683567,
+        0.9986359641585718,
+        0.9352691398683567,
+        0.9892452969285003,
+        0.954434002924965
+      ],
+      "steals_per_ep": [
+        3.0,
+        1.0,
+        0.0,
+        0.0,
+        2.0
+      ],
+      "captures_per_ep": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "closeContactFrac": [
+        0.4439956501475843,
+        0.4774743433640633,
+        0.4437394493276675,
+        0.4824348559974681,
+        0.5007470651013874
+      ]
+    },
+    "episodes": 5,
+    "ticks_all": [
+      1685,
+      2473,
+      1346,
+      1531,
+      1528
+    ],
+    "ticks_mean": 1712.6,
+    "captures_total": 0,
+    "captures_per_ep": 0.0,
+    "capture_rate": 0.0,
+    "steals_per_ep": 1.2,
+    "conversion": 0.0,
+    "deadFloorFrac": 0.5499412455934195,
+    "closeContactFrac": 0.46967827278763413,
+    "fightTimeFrac": 0.9838229713085743,
+    "pace": 24.20121907025769,
+    "balanceEntropy": 0.9625707087497501,
+    "deadFloor_perEp": 0.7542596944770859,
+    "label": "s1006a2",
+    "staticScore": 0.9479292203578381,
+    "interiorFrac": 0.34246063110476327,
+    "is_control": false,
+    "bands": {
+      "interiorFrac": {
+        "value": 0.34246063110476327,
+        "sub": 1.0,
+        "weight": 3.0,
+        "breached": false
+      },
+      "exposedFrac": {
+        "value": 0.10659772680281605,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "longRunFrac": {
+        "value": 0.04466019417475728,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCountMin": {
+        "value": 4.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCapacityFrac": {
+        "value": 0.16,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "chokeCount": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "chokeCoveredPenalty": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "collisionCoverRatio": {
+        "value": 1.2312532506970264,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "standRingOpenMin": {
+        "value": 1.0,
+        "sub": 0.37499999999999944,
+        "weight": 1.5,
+        "breached": true
+      },
+      "standRingSpread": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "standCoverSpread": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "midCrossCount": {
+        "value": 5.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "midOpenFrac": {
+        "value": 0.40219092331768386,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "detourMax": {
+        "value": 1.008955223880597,
+        "sub": 0.7398720682302768,
+        "weight": 1.0,
+        "breached": true
+      },
+      "visDegreeCv": {
+        "value": 0.40731057797602127,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      }
+    }
+  },
+  {
+    "lateFrac": 0.0002,
+    "lateFrac_max": 0.001,
+    "_per_episode": {
+      "deadFloorFrac": [
+        0.710831306338532,
+        0.7185577335813421,
+        0.7245671769924167,
+        0.7560452139075691,
+        0.7045356989555015
+      ],
+      "ticks_mean": [
+        3473.0,
+        5123.0,
+        5123.0,
+        2939.0,
+        5123.0
+      ],
+      "pace": [
+        13.245033112582782,
+        7.027132539527621,
+        7.807925043919578,
+        14.97107859816264,
+        8.979113800507514
+      ],
+      "balanceEntropy": [
+        0.9986359641585718,
+        0.9640787648082292,
+        1.0,
+        0.9760206482366149,
+        0.9986359641585718
+      ],
+      "steals_per_ep": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "captures_per_ep": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "closeContactFrac": [
+        0.4719779872224682,
+        0.2597224186347199,
+        0.4351801407016131,
+        0.5581095382987168,
+        0.5739354598254496
+      ]
+    },
+    "episodes": 5,
+    "ticks_all": [
+      3473,
+      5123,
+      5123,
+      2939,
+      5123
+    ],
+    "ticks_mean": 4356.2,
+    "captures_total": 0,
+    "captures_per_ep": 0.0,
+    "capture_rate": 0.0,
+    "steals_per_ep": 0.0,
+    "conversion": 0.0,
+    "deadFloorFrac": 0.491486621834311,
+    "closeContactFrac": 0.4597851089365935,
+    "fightTimeFrac": 0.9976985081328589,
+    "pace": 10.406056618940026,
+    "balanceEntropy": 0.9874742682723975,
+    "deadFloor_perEp": 0.7229074259550723,
+    "label": "s1035a5",
+    "staticScore": 0.9528166381245775,
+    "interiorFrac": 0.24251395715001492,
+    "is_control": false,
+    "bands": {
+      "interiorFrac": {
+        "value": 0.24251395715001492,
+        "sub": 0.9659725325000679,
+        "weight": 3.0,
+        "breached": true
+      },
+      "exposedFrac": {
+        "value": 0.16345175201309853,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "longRunFrac": {
+        "value": 0.0980489417989418,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCountMin": {
+        "value": 5.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCapacityFrac": {
+        "value": 0.2,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "chokeCount": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "chokeCoveredPenalty": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "collisionCoverRatio": {
+        "value": 1.5698472903999763,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "standRingOpenMin": {
+        "value": 0.9888888888888889,
+        "sub": 0.5138888888888878,
+        "weight": 1.5,
+        "breached": true
+      },
+      "standRingSpread": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "standCoverSpread": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "midCrossCount": {
+        "value": 5.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "midOpenFrac": {
+        "value": 0.4350547730829421,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "detourMax": {
+        "value": 1.011111111111111,
+        "sub": 0.7460317460317456,
+        "weight": 1.0,
+        "breached": true
+      },
+      "visDegreeCv": {
+        "value": 0.3407409214856263,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      }
+    }
+  },
+  {
+    "lateFrac": 0.0004,
+    "lateFrac_max": 0.001,
+    "_per_episode": {
+      "deadFloorFrac": [
+        0.7161591140900481,
+        0.7438438000874253,
+        0.71324493661664,
+        0.7062509106804604,
+        0.7445723444557774
+      ],
+      "ticks_mean": [
+        2331.0,
+        5122.0,
+        5121.0,
+        2491.0,
+        5121.0
+      ],
+      "pace": [
+        20.163020163020164,
+        6.833268254588051,
+        7.420425698105839,
+        16.86069851465275,
+        7.0298769771529
+      ],
+      "balanceEntropy": [
+        0.9996734260048918,
+        0.9852281360342516,
+        0.9919924034538556,
+        0.9736680645496201,
+        0.9798687566511528
+      ],
+      "steals_per_ep": [
+        0.0,
+        0.0,
+        1.0,
+        2.0,
+        0.0
+      ],
+      "captures_per_ep": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "closeContactFrac": [
+        0.5758789670192906,
+        0.17564023449552607,
+        0.3710495860411288,
+        0.4256505576208178,
+        0.2831929110981987
+      ]
+    },
+    "episodes": 5,
+    "ticks_all": [
+      2331,
+      5122,
+      5121,
+      2491,
+      5121
+    ],
+    "ticks_mean": 4037.2,
+    "captures_total": 0,
+    "captures_per_ep": 0.0,
+    "capture_rate": 0.0,
+    "steals_per_ep": 0.6,
+    "conversion": 0.0,
+    "deadFloorFrac": 0.5668075185778814,
+    "closeContactFrac": 0.3662824512549924,
+    "fightTimeFrac": 0.999912953213164,
+    "pace": 11.661457921503942,
+    "balanceEntropy": 0.9860861573387544,
+    "deadFloor_perEp": 0.7248142211860703,
+    "label": "s1006a7",
+    "staticScore": 0.9592391304347826,
+    "interiorFrac": 0.3313684987840315,
+    "is_control": false,
+    "bands": {
+      "interiorFrac": {
+        "value": 0.3313684987840315,
+        "sub": 1.0,
+        "weight": 3.0,
+        "breached": false
+      },
+      "exposedFrac": {
+        "value": 0.12473089519412614,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "longRunFrac": {
+        "value": 0.05441135541330364,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCountMin": {
+        "value": 3.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCapacityFrac": {
+        "value": 0.12,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "chokeCount": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "chokeCoveredPenalty": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "collisionCoverRatio": {
+        "value": 1.4129402659437327,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "standRingOpenMin": {
+        "value": 1.0,
+        "sub": 0.37499999999999944,
+        "weight": 1.5,
+        "breached": true
+      },
+      "standRingSpread": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "standCoverSpread": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "midCrossCount": {
+        "value": 5.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "midOpenFrac": {
+        "value": 0.39593114241001565,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "detourMax": {
+        "value": 1.6298507462686567,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "visDegreeCv": {
+        "value": 0.3943095414099729,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      }
+    }
+  },
+  {
+    "lateFrac": 0.001,
+    "lateFrac_max": 0.001,
+    "_per_episode": {
+      "deadFloorFrac": [
+        0.7478955007256893,
+        0.7091436865021771,
+        0.7660377358490567,
+        0.7669085631349782,
+        0.7534107402031931
+      ],
+      "ticks_mean": [
+        1954.0,
+        2600.0,
+        1635.0,
+        1707.0,
+        2858.0
+      ],
+      "pace": [
+        22.006141248720574,
+        16.53846153846154,
+        23.853211009174313,
+        24.01874633860574,
+        16.09517144856543
+      ],
+      "balanceEntropy": [
+        0.9902246902198684,
+        0.999609836367807,
+        0.9418285354475157,
+        0.9649567669505688,
+        0.9656361333706098
+      ],
+      "steals_per_ep": [
+        0.0,
+        1.0,
+        0.0,
+        1.0,
+        1.0
+      ],
+      "captures_per_ep": [
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "closeContactFrac": [
+        0.5096858516547635,
+        0.5163332960852237,
+        0.49282045907137617,
+        0.5041862899005756,
+        0.5635686102586585
+      ]
+    },
+    "episodes": 5,
+    "ticks_all": [
+      1954,
+      2600,
+      1635,
+      1707,
+      2858
+    ],
+    "ticks_mean": 2150.8,
+    "captures_total": 1,
+    "captures_per_ep": 0.2,
+    "capture_rate": 0.2,
+    "steals_per_ep": 0.6,
+    "conversion": 0.3333333333333333,
+    "deadFloorFrac": 0.562844702467344,
+    "closeContactFrac": 0.5173189013941195,
+    "fightTimeFrac": 0.9852956473859079,
+    "pace": 20.50234631670552,
+    "balanceEntropy": 0.972451192471274,
+    "deadFloor_perEp": 0.7486792452830189,
+    "label": "s1034a5",
+    "staticScore": 0.9637681159420289,
+    "interiorFrac": 0.36796914086008253,
+    "is_control": false,
+    "bands": {
+      "interiorFrac": {
+        "value": 0.36796914086008253,
+        "sub": 1.0,
+        "weight": 3.0,
+        "breached": false
+      },
+      "exposedFrac": {
+        "value": 0.09760653146457653,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "longRunFrac": {
+        "value": 0.03985657150737829,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCountMin": {
+        "value": 3.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCapacityFrac": {
+        "value": 0.12,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "chokeCount": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "chokeCoveredPenalty": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "collisionCoverRatio": {
+        "value": 1.3355933611522883,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "standRingOpenMin": {
+        "value": 0.9944444444444445,
+        "sub": 0.44444444444444364,
+        "weight": 1.5,
+        "breached": true
+      },
+      "standRingSpread": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "standCoverSpread": {
+        "value": 0.00035023760437478957,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "midCrossCount": {
+        "value": 4.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "midOpenFrac": {
+        "value": 0.35837245696400627,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "detourMax": {
+        "value": 1.3057607090103398,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "visDegreeCv": {
+        "value": 0.4267277833891029,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      }
+    }
+  },
+  {
+    "lateFrac": 0.0008,
+    "lateFrac_max": 0.001,
+    "_per_episode": {
+      "deadFloorFrac": [
+        0.7438772499262319,
+        0.7649749188551195,
+        0.8006786662732369,
+        0.7776630274417232,
+        0.7683682502213043
+      ],
+      "ticks_mean": [
+        4065.0,
+        2115.0,
+        1551.0,
+        3511.0,
+        1789.0
+      ],
+      "pace": [
+        11.562115621156211,
+        21.27659574468085,
+        22.56608639587363,
+        13.38649957277129,
+        25.712688652878704
+      ],
+      "balanceEntropy": [
+        0.9970590569034108,
+        0.9910760598382221,
+        0.863120568566631,
+        0.9918207974218425,
+        0.9986359641585718
+      ],
+      "steals_per_ep": [
+        3.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "captures_per_ep": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "closeContactFrac": [
+        0.4348166886379022,
+        0.48998357963875205,
+        0.47031437987131874,
+        0.4792855676452474,
+        0.5235784613935083
+      ]
+    },
+    "episodes": 5,
+    "ticks_all": [
+      4065,
+      2115,
+      1551,
+      3511,
+      1789
+    ],
+    "ticks_mean": 2606.2,
+    "captures_total": 0,
+    "captures_per_ep": 0.0,
+    "capture_rate": 0.0,
+    "steals_per_ep": 0.6,
+    "conversion": 0.0,
+    "deadFloorFrac": 0.6245205075243434,
+    "closeContactFrac": 0.47959573543734574,
+    "fightTimeFrac": 0.9883688701189597,
+    "pace": 18.900797197472137,
+    "balanceEntropy": 0.9683424893777357,
+    "deadFloor_perEp": 0.7711124225435231,
+    "label": "s1012a6",
+    "staticScore": 0.9796137008973755,
+    "interiorFrac": 0.34540304959498946,
+    "is_control": false,
+    "bands": {
+      "interiorFrac": {
+        "value": 0.34540304959498946,
+        "sub": 1.0,
+        "weight": 3.0,
+        "breached": false
+      },
+      "exposedFrac": {
+        "value": 0.10274469446549522,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "longRunFrac": {
+        "value": 0.028636557914232797,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCountMin": {
+        "value": 3.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCapacityFrac": {
+        "value": 0.12,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "chokeCount": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "chokeCoveredPenalty": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "collisionCoverRatio": {
+        "value": 1.365114212112562,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "standRingOpenMin": {
+        "value": 0.9722222222222222,
+        "sub": 0.7222222222222219,
+        "weight": 1.5,
+        "breached": true
+      },
+      "standRingSpread": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "standCoverSpread": {
+        "value": 0.0005094365154542334,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "midCrossCount": {
+        "value": 4.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "midOpenFrac": {
+        "value": 0.39593114241001565,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "detourMax": {
+        "value": 1.0817236255572065,
+        "sub": 0.9477817873063039,
+        "weight": 1.0,
+        "breached": true
+      },
+      "visDegreeCv": {
+        "value": 0.4073138527146611,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      }
+    }
+  },
+  {
+    "lateFrac": 0.0004,
+    "lateFrac_max": 0.001,
+    "_per_episode": {
+      "deadFloorFrac": [
+        0.7854269110415735,
+        0.7332737296975116,
+        0.7177767843838474,
+        0.7828937565191476,
+        0.7507077931753837
+      ],
+      "ticks_mean": [
+        1481.0,
+        2897.0,
+        2492.0,
+        1238.0,
+        2512.0
+      ],
+      "pace": [
+        27.00877785280216,
+        15.533310321021746,
+        17.656500802568218,
+        25.848142164781905,
+        18.312101910828027
+      ],
+      "balanceEntropy": [
+        0.9837082626231857,
+        0.9910760598382221,
+        0.9760206482366149,
+        0.7578784625383954,
+        0.9986359641585718
+      ],
+      "steals_per_ep": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "captures_per_ep": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "closeContactFrac": [
+        0.3740645463049579,
+        0.3513842515303283,
+        0.3718080075662043,
+        0.4147400611620795,
+        0.43521579638603325
+      ]
+    },
+    "episodes": 5,
+    "ticks_all": [
+      1481,
+      2897,
+      2492,
+      1238,
+      2512
+    ],
+    "ticks_mean": 2124.0,
+    "captures_total": 0,
+    "captures_per_ep": 0.0,
+    "capture_rate": 0.0,
+    "steals_per_ep": 0.0,
+    "conversion": 0.0,
+    "deadFloorFrac": 0.6119803308001788,
+    "closeContactFrac": 0.3894425325899206,
+    "fightTimeFrac": 0.9859522950851286,
+    "pace": 20.871766610400414,
+    "balanceEntropy": 0.941463879478998,
+    "deadFloor_perEp": 0.7540157949634927,
+    "label": "s1011a0",
+    "staticScore": 1.0,
+    "interiorFrac": 0.31814862313419545,
+    "is_control": false,
+    "bands": {
+      "interiorFrac": {
+        "value": 0.31814862313419545,
+        "sub": 1.0,
+        "weight": 3.0,
+        "breached": false
+      },
+      "exposedFrac": {
+        "value": 0.08788280906748364,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "longRunFrac": {
+        "value": 0.0392156862745098,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCountMin": {
+        "value": 4.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "routeCapacityFrac": {
+        "value": 0.16,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "chokeCount": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "chokeCoveredPenalty": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "collisionCoverRatio": {
+        "value": 1.1459003319092391,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "standRingOpenMin": {
+        "value": 0.9,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "standRingSpread": {
+        "value": 0.0,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "standCoverSpread": {
+        "value": 0.00018307874774136507,
+        "sub": 1.0,
+        "weight": 2.0,
+        "breached": false
+      },
+      "midCrossCount": {
+        "value": 5.0,
+        "sub": 1.0,
+        "weight": 1.5,
+        "breached": false
+      },
+      "midOpenFrac": {
+        "value": 0.48513302034428796,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "detourMax": {
+        "value": 1.301808066759388,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      },
+      "visDegreeCv": {
+        "value": 0.34415170467349604,
+        "sub": 1.0,
+        "weight": 1.0,
+        "breached": false
+      }
+    }
+  }
+]
