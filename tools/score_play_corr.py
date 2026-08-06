@@ -472,8 +472,8 @@ def cmd_extract(args):
 
     with ThreadPoolExecutor(max_workers=args.jobs) as pool:
         ok = sum(1 for r in pool.map(one, jobs) if r)
-    print(f"re-extracted {ok}/{len(jobs)} replay(s) into .win.json "
-          f"(window {cap} ticks)")
+    print(f"re-extracted {ok}/{len(jobs)} replay(s) into {suffix} "
+          + (f"(window {cap} ticks)" if cap else "(full episodes)"))
 
 
 def cmd_repeat(args):
