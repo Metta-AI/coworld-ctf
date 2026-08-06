@@ -74,3 +74,29 @@ If the two validity blockers land, 34/37 failures clear as a group and the suite
 failures, all of them genuine expectation re-derivations. That prediction is falsifiable and
 should be checked the moment both land — if the suite does not drop to ~3, something else is
 wrong and the cascade theory was hiding it.
+
+## OUTCOME, measured after both blockers landed
+
+Both landed (fcd2e04d for the 2-team small class, 157ce824 for 4-team). Full suite re-run on the
+merged tree:
+
+    37 failures -> 5 failures
+    raise cascade: 34 -> 0
+
+**Zero raises.** `generateCtfMap` no longer fails to produce a map anywhere in the suite. The
+cascade theory held: the 34 failures were one bug wearing 34 names, and they cleared as a group
+without any of those tests being touched.
+
+The prediction was 3 and the answer is 5. The two extra are not a surprise and not a miss — they
+are the two pool tests that CONVERTED from raises into real assertion failures, exactly as this
+document said they would once the pool started generating again:
+
+    generated-map validation matches the pre-refactor baseline   task 5aad43b3
+    mapPits locks an exact total; odd counts anchor the map center   task 78d0db3c
+    mapPitDensity scales the density draw                            task 78d0db3c
+    shared pool rendering matches the pre-extraction images           task c752704b
+    the curated pool sits below the hand-authored control             task c752704b
+
+All five are owned, all five are expectation re-derivations rather than defects, and none of them
+is a generator failure. That is the whole difference between a red suite and a red suite that
+means something.
