@@ -648,22 +648,44 @@ const
   CruiseDeadband = 8          # sloppier deadband for non-combat aim
   FightOutRadius = 260.0      # the breakout ring after a snatch: inside it the
                               # carrier keeps a point-blank gun (fight off the X)
-  CqbRange = 180.0            # ⭐ CQB plant-and-settle applies inside this range
-  CqbFireSlackPx = 6.0        # ...with the corridor halved: field census (24 real
-                              # arena episodes, 2026-08-04) — our locked heading is
-                              # OFF the body on 27% of point-blank shots vs the
-                              # field's 13%, and we fire while MOVING >8px during
-                              # the windup on 33% of them vs their 8%. Hit% falls
-                              # 59->20 with windup self-movement: the locked ray
-                              # parallel-shifts with the shooter. The field plants
-                              # to shoot; run-and-gun buys no defense (constant-
-                              # velocity strafe is fully lead-compensable — they
-                              # hit us 65.6% regardless). REF-slack refuted GLOBAL
-                              # knob tuning; this is the range-conditioned LOGIC
-                              # fork it prescribes, >=CqbRange untouched.
-  WindupPlantTicks = 5        # suppress movement this long after a CQB pull
-                              # (the fire windup: aim locks at pull, bullet
-                              # leaves 5 ticks later from wherever we drifted)
+  CqbRange = 180.0            # REFUTED AND UNREAD — a tombstone, not a knob.
+  CqbFireSlackPx = 6.0        # Nothing reads these (nor WindupPlantTicks below).
+                              # The CQB "plant-and-settle" fork they parameterize
+                              # was A/B'd and REVERTED (de33aca, 2026-08-04); its
+                              # use site was never committed. They are kept only
+                              # to stop the census below from being rediscovered
+                              # and re-tried. DO NOT wire them up.
+                              #
+                              # The census is REAL (24 arena episodes): our locked
+                              # heading is OFF the body on 27% of point-blank
+                              # shots vs the field's 13%, and we fire while MOVING
+                              # >8px during the windup on 33% of them vs their 8%.
+                              # The REMEDY is what was wrong. The field's
+                              # plant/hit correlation was a SIDE-COMPOSITION
+                              # confound — their planted shots at one end, our
+                              # moving shots at the other; the within-side
+                              # gradient was 8pp, not the pooled 39pp we chased.
+                              #
+                              # The 12-game frozen A/B executed the mechanism
+                              # perfectly and still lost: moving-while-firing 63%
+                              # -> 0.1%, CQB hit% 36.0 -> 36.1 (nothing), shots
+                              # -19%, hits -25%, kills -34%, deaths +34%, W-L-D
+                              # 1-9-2. Planting only made us a stationary target;
+                              # our shooter hits ~36% at CQB planted OR moving,
+                              # while the field hits ~65% against the same bots.
+                              #
+                              # The census's real cause was the AIM-STATE ESTIMATE
+                              # (a +-8-brad sprite readback ~= 19px of ray error),
+                              # and that fix IS live — see ownAimBrads() and the
+                              # resync block in decide(), which adopt the engine-
+                              # stated `own aim <brads>` marker outright.
+                              #
+                              # Note GV36 moved this corridor the OPPOSITE way:
+                              # inside 300px the engage branch WIDENS slack to a
+                              # 17px floor, where CqbFireSlackPx would halve it to
+                              # 6. See AUDITOR.md, "the CQB plant trap".
+  WindupPlantTicks = 5        # DEAD with the above: the movement suppression the
+                              # reverted plant applied after a CQB trigger pull.
   FireSlackPx = 11.0          # fire when the aim error's perpendicular miss
                               # at the target's range is inside this (the
                               # corridor half-width is ~14px; keep margin)
@@ -1910,9 +1932,10 @@ type
     lifeStart: int            # tick of this life's (re)spawn; shieldRush's
                               # opening window is per LIFE, since every respawn
                               # starts at the shield's own column
-    plantUntil: int           # CQB plant: movement suppressed until this tick
-                              # (set on a close-range trigger pull; the locked
-                              # ray must not parallel-shift during the windup)
+    plantUntil: int           # DEAD with the reverted CQB plant (see CqbRange):
+                              # zeroed in resetTransient, never set nonzero and
+                              # never read. Suppressed movement after a close-
+                              # range trigger pull; the A/B lost 1-9-2.
     role: Role
     tune: CombatTune          # fire/engage knobs; default == baseline consts
     tick: int                 # sim ticks, advanced by frames received
