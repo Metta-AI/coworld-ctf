@@ -1,5 +1,40 @@
 # The 4-team raise is budget arithmetic, not connectivity
 
+> ## ⚠️ CORRECTION, 2026-08-06, same day. The MECHANISM below is WRONG.
+>
+> The fill-floor clamp is **not** what was failing 4-team. On a rot90 board `structureCount` is
+> **0**, so the subtraction loop runs zero iterations and the clamp at `arena.nim:2073` never
+> fires at all. I read the arithmetic correctly and applied it to a branch that does not execute
+> it. The floor is left in place, unchanged, and remains untested at 2 teams where
+> `structureCount` is non-zero.
+>
+> **The OBSERVATIONS below are correct and they are what found the real bug**, so this document
+> stays rather than being deleted. Cover really is flat across a 2.2x density sweep; the density
+> knob really is disconnected; every failing seed really does fail "too clogged" and never
+> routing. Task 157ce824 took exactly those observations and asked the better question — *what
+> IS the cover made of, if not the fill?* — and rendered it:
+>
+> 1. **The terrain block was emitting NOTHING on 4-team.** `xMin` is `captureClear + 50`, an
+>    inset that holds terrain off the capture COLUMN of a 2-team *sides* board. A rot90 board has
+>    no such column. Applied anyway it left a 127x397 emission region inside a 408x408 quadrant,
+>    and the street grid then dropped **34 of 34 shapes on every attempt** (`survived=0`).
+> 2. **So the whole board was row cover.** On seed 1002, 51 of 53 shapes were pickets, and the
+>    pickets alone measured 141 of 178 permille against a 170 ceiling. *That* is why sweeping fill
+>    density 40%→140% moved cover by 4 permille — the density knob was not connected to anything.
+> 3. **The row cover clamped its scan to `min(sightlineHiX, center.x)` while the validator reads
+>    `sightlineLoX..sightlineHiX` unclamped.** A picket's rot180 image lands at x in [435,630] —
+>    inside the validator's band, outside the clamped one — so the pass never credited the row its
+>    own image already blocked, and laid about twice the pickets it needed.
+>
+> Result: 4-team validity 65% → **100%** (32/32), interiorFrac 0.098 → 0.252, staticScore
+> 0.861 → 0.984, with 2-team unregressed and three seeds rescued.
+>
+> The lesson I got right and the lesson I got wrong are the same lesson. I found a flat series and
+> correctly concluded a mechanism was inert — but I then named the first inert-looking mechanism I
+> could find in the source instead of rendering the board and asking what the cover actually was.
+> That is the identical error the task's own history records three times, committed a fourth time
+> by the person quoting it. **The flat series was the finding. The mechanism was a guess.**
+
 Measured 2026-08-06 on `maxwell/mapgen-rebuild` @ 4a013df, by the epic owner, before
 any epic-3757029c task landed. This is the THIRD standing diagnosis in this rewrite to be
 proven wrong by measurement, after "the suite takes 50 minutes" (it was 7.1 minutes plus
