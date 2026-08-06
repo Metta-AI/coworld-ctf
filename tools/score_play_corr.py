@@ -156,6 +156,18 @@ def play_one(entry, episodes, outroot, port):
 def cmd_run(args):
     plan = json.load(open(args.plan))
     entries = list(plan["control"]) + list(plan["maps"])
+    # PLAY ORDER MUST NOT TRACK SCORE. The plan is sorted by staticScore, so
+    # running it in order plays the low-scoring maps first and the high-scoring
+    # ones last. Fleet load drifts over a run — measured on batch 1, late-frame
+    # share climbed from 1.4% on the first map to 8.1% on a later one — and a
+    # confound between "when it was played" and "what it scored" is
+    # indistinguishable from the effect being measured. A seeded shuffle
+    # decouples them and stays reproducible.
+    order = list(range(len(entries)))
+    random.Random(args.shuffle_seed).shuffle(order)
+    entries = [entries[i] for i in order]
+    print(f"play order shuffled (seed {args.shuffle_seed}) so that time-of-play "
+          f"does not track staticScore")
     os.makedirs(args.out, exist_ok=True)
     print(f"playing {len(entries)} maps x {args.episodes} episodes "
           f"= {len(entries) * args.episodes} episodes, {args.jobs} at a time")
@@ -285,6 +297,31 @@ def spearman(xs, ys):
     from scipy import stats
     r = stats.spearmanr(xs, ys)
     return float(r.statistic), float(r.pvalue)
+
+
+def partial_spearman(xs, ys, zs):
+    """rho(x, y) with z held constant, on ranks.
+
+    Here z is the late-frame share. Batch 1 was played in plan order, which is
+    score order, while fleet load drifted upward over the run — so "what the
+    map scored" and "how contaminated its episodes were" are entangled in that
+    batch and a raw coefficient cannot tell them apart. Partialling z out is
+    the cheap correction; shuffling the play order (see cmd_run) is the real
+    one, and both are reported so they can disagree in the open.
+    """
+    from scipy import stats
+    import numpy as np
+    rx = stats.rankdata(xs)
+    ry = stats.rankdata(ys)
+    rz = stats.rankdata(zs)
+    def resid(a):
+        A = np.vstack([rz, np.ones_like(rz)]).T
+        beta, *_ = np.linalg.lstsq(A, a, rcond=None)
+        return a - A @ beta
+    ex, ey = resid(rx), resid(ry)
+    if ex.std() == 0 or ey.std() == 0:
+        return None
+    return float(np.corrcoef(ex, ey)[0, 1])
 
 
 def boot_ci(xs, ys, iters=4000, seed=20260806):
@@ -603,8 +640,12 @@ def cmd_analyze(args):
             aligned = "aligned" if rho * sign > 0 else "OPPOSITE"
             if lo is not None and lo <= 0 <= hi:
                 aligned = "no signal"
+            zs = [r.get("lateFrac") for r in rows_]
+            pr = (partial_spearman(xs, ys, zs)
+                  if all(z is not None for z in zs) else None)
+            ptxt = f" |late {pr:+.2f}" if pr is not None else ""
             print(f"{name:<34} {rho:>+7.3f} {ci:>18} {p:>8.3f} "
-                  f"{ceiling}  {aligned}")
+                  f"{ceiling}{ptxt}  {aligned}")
 
     report(rows, "staticScore vs play — ALL MAPS, control included")
     report(gen, "staticScore vs play — GENERATED ONLY (control excluded)")
@@ -680,6 +721,7 @@ def main():
     r.add_argument("--jobs", type=int, default=3)
     r.add_argument("--port", type=int, default=23000)
     r.add_argument("--out", default="/tmp/ctf-score-play")
+    r.add_argument("--shuffle-seed", type=int, default=20260806)
     r.set_defaults(func=cmd_run)
 
     p = sub.add_parser("repeat")
