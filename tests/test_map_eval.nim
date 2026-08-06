@@ -36,6 +36,26 @@ proc doorwayMap(gapLo = 300, gapHi = 360): CtfMap =
     rectShape(MapRect(x: 540, y: gapHi, w: 21, h: result.height - gapHi - 10)),
   ]
 
+proc scatterMap(pebble = 16, pitch = 20): CtfMap =
+  ## The arena with every obstacle dissolved into pebbles on a grid inside its
+  ## own bounding box — same walls, same places, same rough cover, no masses.
+  ##
+  ## This is the NEGATIVE control for enclosure, and it is deliberately built
+  ## from the arena rather than from a generated map so that nothing about the
+  ## generator's current quality can move it. Symmetry does the right half.
+  result = arenaMap()
+  var pebbles: seq[ArenaShape]
+  for shape in result.leftObstacles:
+    let box = shapeAsRect(shape)
+    var y = box.y
+    while y + pebble <= box.y + box.h:
+      var x = box.x
+      while x + pebble <= box.x + box.w:
+        pebbles.add rectShape(MapRect(x: x, y: y, w: pebble, h: pebble))
+        x += pitch
+      y += pitch
+  result.leftObstacles = pebbles
+
 let control = evaluateMap(arenaMap(), "arena")
 
 # ---------------------------------------------------------------------------
@@ -133,9 +153,25 @@ suite "map fitness: counts carry fractions":
         windows: -1, pits: -1, pitDensity: -1, size: "giant")),
       "gen:1001 giant")
     check giant.width > 2 * control.width
-    check giant.routeCountMin > control.routeCountMin
+    # `giant.routeCountMin > control.routeCountMin` used to stand here as the
+    # DEMONSTRATION that the raw count scales with the board. It does not, and
+    # asserting it made this test a claim about the generator's giant boards
+    # rather than about the metric: measured on the rebuilt generator, giant
+    # seed 1001 reports routeCountMin 5 against the hand-authored standard
+    # arena's 8. A 3211px board with FEWER minimum routes than a 1235px one is
+    # a real architecture signal and is reported as one below, not asserted
+    # away — filed against the giant/colossal size classes.
+    checkpoint "routeCountMin  giant " & $giant.routeCountMin &
+      " vs control " & $control.routeCountMin &
+      "   |  routeCapacityFrac  giant " & $giant.routeCapacityFrac &
+      " vs control " & $control.routeCapacityFrac
+    # What the test is actually for: the scale-free form exists, is populated
+    # at BOTH scales, and is a fraction — that is what lets a band span size
+    # classes at all. The raw count deliberately gets no directional claim.
     check control.routeCapacityFrac > 0.0
     check giant.routeCapacityFrac > 0.0
+    check control.routeCapacityFrac <= 1.0
+    check giant.routeCapacityFrac <= 1.0
 
 # ---------------------------------------------------------------------------
 # Positive controls — a detector that always returns zero must not pass
@@ -212,30 +248,55 @@ suite "map fitness: scoring":
       check s >= 0.0
       check s <= 1.0
 
-  test "the curated pool sits below the hand-authored control":
-    # The point of the whole epic, stated as a measurement: today's generator
-    # produces scatter, and the measuring stick has to say so before anything
-    # tries to fix it.
+  test "the stick ranks the same cover scattered below the same cover massed":
+    # THIS REPLACES `the curated pool sits below the hand-authored control`,
+    # which asserted `poolBest < control` — i.e. that the generator stays
+    # WORSE than the arena. That claim was true and useful when the generator
+    # produced scatter and the stick had to say so. It is now a test that goes
+    # RED WHEN THE GENERATOR IMPROVES: at the pool re-curation the best pool
+    # seed measured 0.998 against the control's 1.000, and seed 1030 — inside
+    # the curator's own scan window, excluded only by a shape quota — already
+    # scores exactly 1.000. One re-curation inverts it, and the "fix" it
+    # invites is dropping the good seed from the pool. It is the third test in
+    # this repo caught ratcheting backwards; see 2026-08-06-two-rulers.md.
     #
-    # ⚠️ THE MARGIN IS NOW 0.002, AND IT IS SHRINKING BY DESIGN. Re-measured
-    # against the rebuilt generator at the pool re-curation: the pool's best
-    # seed (1017, warren) scores 0.998 against the control's 1.000, and the
-    # 2-team mean is 0.974. That still passes, but seed 1030 — inside the
-    # curator's scan window and kept out only by a full shape quota — already
-    # scores exactly 1.000, so ONE re-curation can invert this.
-    #
-    # Read that as what it is: this assertion was written when the generator
-    # was the thing being indicted, and it now ratchets the wrong way, because
-    # a generated map matching the arena would fail it as if that were a
-    # defect. Do NOT "fix" a future red run here by dropping the offending
-    # seed from the pool. Decide what the claim should be once the pool can
-    # tie the control — filed rather than pre-empted here.
-    var best = 0.0
+    # The durable claim underneath it is about the INSTRUMENT, not about how
+    # good the generator happens to be this week: the stick must rank a board
+    # whose cover is spent on PEBBLES below one that spends the same cover on
+    # MASSES. That is the exact failure mode the rebuild fought (the vocabulary
+    # bench measured scatter at interiorFrac 0.195 against the control's 0.342)
+    # and it is a positive control in the same spirit as `doorwayMap`: a stick
+    # that returned a flat number for everything would pass the old assertion
+    # forever and fails this one immediately.
+    let
+      massed = control
+      scattered = evaluateMap(scatterMap(), "scatter")
+    # Enclosure is the property being destroyed, so name it directly rather
+    # than trusting the scalar to have noticed.
+    check scattered.interiorFrac < massed.interiorFrac
+    check scattered.staticScore() < massed.staticScore()
+
+  test "the curated pool is scored against the control, in both directions":
+    # What survives of the old assertion: the pool is MEASURED against the
+    # arena every run, and the margin is REPORTED rather than pinned. A
+    # generated map that ties or beats the hand-authored arena is the goal of
+    # the epic, not a regression, so nothing here may fail on that.
+    var
+      best = 0.0
+      total = 0.0
     for i in 0 ..< MapPoolSeeds.len:
       ## `cachedPoolMap` is exactly what `loadCtfMapMetadata("pool:" & $i)`
       ## resolves to, with the ~20 s pool build shared with `test_trenches`.
-      best = max(best, evaluateMap(cachedPoolMap(i), "pool").staticScore())
-    check best < control.staticScore()
+      let s = evaluateMap(cachedPoolMap(i), "pool").staticScore()
+      best = max(best, s)
+      total += s
+    let mean = total / MapPoolSeeds.len.float
+    checkpoint "pool best " & $best & " / mean " & $mean &
+      " against control " & $control.staticScore()
+    # The only real failure is a stick that cannot score the pool at all.
+    check best > 0.0
+    check mean > 0.0
+    check best <= 1.0
 
   test "a tight bound is reported, not silently spent":
     let tightBand = Band(

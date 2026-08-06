@@ -628,6 +628,29 @@ proc erodeToFootprint(grid: var BurrowGrid, r: int) =
               break scan
       if not fits: grid[x, y] = bcWall
 
+proc erodeUntilFragmented(grid: var BurrowGrid, maxR = 6): int =
+  ## Erode at escalating radii until the board is genuinely in pieces, and
+  ## return the radius that did it (0 = never fragmented, which is a failure
+  ## the caller must report rather than skip).
+  ##
+  ## This USED to be a bare `erodeToFootprint(1)` plus `check fragments > 1`,
+  ## which is a test that goes red when the GENERATOR IMPROVES: the rebuilt
+  ## generator's standard board survives an r=1 erosion as a single component,
+  ## so the digging path stopped being exercised and the assertion started
+  ## demanding a disconnected board as if connectivity were the defect. The
+  ## thing worth testing is the BURROW — that it reconnects a fragmented board
+  ## and digs exactly one tunnel per extra component — so the fragmentation is
+  ## now manufactured to whatever depth this board needs instead of being
+  ## borrowed from the board's shortcomings. It also survives the corridor
+  ## floor moving from 26 to 68, which changes `brush` under this test.
+  for r in 1 .. maxR:
+    var probe = grid
+    probe.erodeToFootprint(r)
+    if probe.componentCount > 1:
+      grid = probe
+      return r
+  0
+
 suite "burrow: real boards":
   test "standard and giant boards, end to end, with timings":
     const
@@ -666,7 +689,7 @@ suite "burrow: real boards":
       ## Dial's and the digging both run for real.
       block eroded:
         var grid = baseGrid
-        grid.erodeToFootprint(1)
+        let erodeR = grid.erodeUntilFragmented()
         let fragments = grid.componentCount
         var params = defaultBurrowParams(brush)
         params.artifacts = {baPaths}
@@ -674,8 +697,12 @@ suite "burrow: real boards":
           t0 = getMonoTime()
           report = grid.burrow(params)
           ms = float((getMonoTime() - t0).inMicroseconds) / 1000.0
-        echo "    footprint-eroded (", fragments, " components):  burrow ",
-          ms.formatFloat(ffDecimal, 2), " ms | ", report.summary
+        echo "    footprint-eroded r=", erodeR, " (", fragments,
+          " components):  burrow ", ms.formatFloat(ffDecimal, 2), " ms | ",
+          report.summary
+        ## r=0 means no erosion up to the cap could break this board apart, so
+        ## the digging path below never ran — a silent pass, not a good board.
+        check erodeR > 0
         check fragments > 1
         check report.ok
         check report.tunnels == fragments - 1
@@ -725,8 +752,12 @@ suite "burrow: real boards":
     var
       a = gridForMap(gameMap, CellSize).grid
       b = gridForMap(gameMap, CellSize).grid
-    a.erodeToFootprint(1)
-    b.erodeToFootprint(1)
+    ## Both halves must be eroded IDENTICALLY or the determinism claim below is
+    ## about the erosion, not the burrow — so derive the radius once from `a`
+    ## and apply the same one to `b`.
+    let erodeR = a.erodeUntilFragmented()
+    check erodeR > 0
+    b.erodeToFootprint(erodeR)
     check a.fingerprint == b.fingerprint
     let
       ra = a.burrow(defaultBurrowParams(brush))
