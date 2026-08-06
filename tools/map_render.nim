@@ -8,10 +8,14 @@
 import std/math, pixie, ../src/ctf/sim
 
 const
-  FloorColor = rgba(214, 189, 150, 255)
+  ## The three material colors are exported so a compositor (the contact
+  ## sheet) can tell floor from wall in a finished raster WITHOUT re-running
+  ## the geometry — one rasterizer, one palette, no second opinion about what
+  ## is stone.
+  FloorColor* = rgba(214, 189, 150, 255)
   ZoneColor = rgba(226, 205, 172, 255)
-  StoneColor = rgba(64, 48, 34, 255)
-  GlassColor = rgba(80, 220, 255, 255)
+  StoneColor* = rgba(64, 48, 34, 255)
+  GlassColor* = rgba(80, 220, 255, 255)
   RedColor = rgba(210, 60, 50, 255)
   BlueColor = rgba(60, 110, 220, 255)
   GreenColor = rgba(45, 155, 85, 255)
