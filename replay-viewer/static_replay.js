@@ -40,7 +40,9 @@
       offsetX: 0,
       offsetY: 0,
       nativeW: 1,
-      nativeH: 1
+      nativeH: 1,
+      zoom: 1,
+      fitScale: 1
     };
     var viewport = { width: 1, height: 1, dpr: window.devicePixelRatio || 1 };
     var offscreen;

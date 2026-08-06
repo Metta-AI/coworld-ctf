@@ -327,13 +327,17 @@
     }
 
     function notifyTransform() {
-      const next = { scale, offsetX, offsetY, nativeW, nativeH };
+      // Same shape as getTransform(): the worker mirrors this payload to the
+      // page, whose wheel handler reads `zoom` to decide if zoom-out may
+      // consume the scroll.
+      const next = { scale, offsetX, offsetY, nativeW, nativeH, zoom, fitScale };
       if (!lastTransform ||
           next.scale !== lastTransform.scale ||
           next.offsetX !== lastTransform.offsetX ||
           next.offsetY !== lastTransform.offsetY ||
           next.nativeW !== lastTransform.nativeW ||
-          next.nativeH !== lastTransform.nativeH) {
+          next.nativeH !== lastTransform.nativeH ||
+          next.zoom !== lastTransform.zoom) {
         lastTransform = next;
         onTransform(next);
       }
