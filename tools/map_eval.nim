@@ -9,10 +9,13 @@
 ##
 ## FIVE RULES, enforced here by the harness rather than by discipline —
 ##
-## 1. The default `arena` is the CONTROL in EVERY batch. It is prepended
+## 1. BOTH hand-authored maps are CONTROLS in EVERY batch. They are prepended
 ##    automatically; `--no-control` exists only so a test can prove the default
 ##    is on. A metric that flags the control is wrong, and a metric that skips
 ##    the control is worse, so nothing here may special-case a layout.
+##    `arena-large` was the skipped one — it is the second control as of the
+##    measuring-stick pass, and it breaches four bands, which is a finding
+##    about a 30% geometric upscale and not a licence to widen a bound.
 ## 2. No count without its fraction. Every count printed below has its
 ##    fraction on the same line.
 ## 3. >= 3 seeds before judging a DYNAMIC number. `--episodes` below 3 prints
@@ -23,7 +26,7 @@
 ##    remaining slack, marked `tight` when it is nearly spent.
 ##
 ## Usage:
-##   map_eval score   [gen:1003 pool:2 spec.json ...]   # static, always + arena
+##   map_eval score   [gen:1003 pool:2 spec.json ...]   # static, + both controls
 ##   map_eval pool                                       # the 20 curated seeds
 ##   map_eval rank    --seeds 1001-1060 [--top 8]        # generate + rank
 ##   map_eval control                                    # the arena's numbers
@@ -44,6 +47,13 @@ import
 const
   GameDir = currentSourcePath().parentDir().parentDir()
   ControlMapPath = "arena"
+  SecondControlMapPath = "arena-large"
+    ## THE OTHER hand-authored map, and until now it was never a control. Rule
+    ## 1 says a metric that skips the control is worse than one that flags it,
+    ## and scoring exactly one of the two hand-authored maps was that failure:
+    ## `arena-large` breaches four bands and nothing here has ever said so.
+    ## Prepended alongside `arena`; see `map_metrics.ArenaLargeControl` for the
+    ## evidence that this is a finding about the map, not about the bands.
 
 type CliError = object of CatchableError
 
@@ -127,7 +137,18 @@ proc detailReport(m: MapMetrics): string =
     &"covered {m.coveredFrac * 100:.1f}%  wide open {m.exposedFrac * 100:.1f}%"
   s.add &"    vision          open run p50 {m.openRunP50Px}px  " &
     &"p95 {m.openRunP95Px}px  max {m.openRunMaxPx}px  " &
-    &"over600 {m.longRunFrac * 100:.1f}%"
+    &"over600 {m.longRunFrac * 100:.1f}% ({m.longRunPxFrac * 100:.1f}% of px)"
+  # The diagonals, printed. They were measured and never shown, so a diagonal
+  # lane could not be seen even by someone reading the full report.
+  s.add &"    diagonals       p95 {m.diagRunP95Px}px  max {m.diagRunMaxPx}px  " &
+    &"over600 {m.diagLongRunFrac * 100:.1f}% " &
+    &"({m.diagLongRunPxFrac * 100:.1f}% of px)"
+  s.add &"    LONGEST LINE    {m.sightlineMaxPx}px on a {m.sightlineAxis} " &
+    &"from ({m.sightlineX},{m.sightlineY}); cap is GunRange {SightlineCapPx}px" &
+    (if m.sightlineMaxPx > SightlineCapPx:
+       &"  <-- OVER by {m.sightlineMaxPx - SightlineCapPx}px, a lane neither " &
+         "end can contest"
+     else: "")
   s.add &"    clearance       p50 {m.clearP50Px}px  p95 {m.clearP95Px}px"
   s.add &"    routes          capacity {m.routeCountMin}..{m.routeCountMax} " &
     &"(mean {m.routeCountMean:.1f}) in {RouteCellPx}px units; " &
@@ -139,7 +160,18 @@ proc detailReport(m: MapMetrics): string =
       for i in 0 ..< m.chokeX.len: pts.add &"({m.chokeX[i]},{m.chokeY[i]})"
       if pts.len == 0: "-" else: pts.join(" ")) &
     &"; one {IsovistRangePx}px isovist covers " &
-    &"""all: {(if m.chokeCovered: "YES at (" & $m.chokeCoverX & "," & $m.chokeCoverY & ")" else: "no")}"""
+    &"""all: {(if m.chokeCovered: "YES at (" & $m.chokeCoverX & "," & $m.chokeCoverY & ")" else: "no")}""" &
+    &""" (at the old {VisionPairRangePx}px reach: {(if m.chokeCoveredAtGunRange: "YES" else: "no")})"""
+  # The LENGTH of a pinch, without which a 40px doorway and a 40x400px
+  # shooting gallery are the same measurement.
+  s.add &"    pinch length    {m.pinchGateCount} gate(s), " &
+    &"{m.pinchMandatoryCount} unavoidable; widest sustained route " &
+    &"{m.routeWidthPx}px" &
+    (if m.pinchMandatoryCount > 0:
+       &"; worst holds {m.chokeExposedPx}px of unbroken sightline vs " &
+         &"{m.chokeAllowedPx}px clearable alive " &
+         &"({m.chokeExcessPx:+}px)"
+     else: "; no unavoidable pinch, so nothing to overrun")
   s.add &"    collision pt    ({m.collisionX},{m.collisionY}) spread " &
     &"{m.collisionSpreadPx}px, {m.collisionRoutes} frontier component(s); " &
     &"cover {m.collisionCoverFrac * 100:.1f}% = " &
@@ -149,6 +181,11 @@ proc detailReport(m: MapMetrics): string =
     "   ring open " &
     m.standRingOpen.mapIt(&"{it * 100:.1f}%").join(" / ") &
     "   arcs " & m.standRingArcs.mapIt($it).join("/")
+  # The ABSOLUTE floor, which a fairness spread structurally cannot express.
+  s.add "    stand cover gap " &
+    m.standCoverGapPx.mapIt(&"{it}px").join(" / ") &
+    &"   (bound is MaxExposedRunPx {MaxExposedRunPx}px — further than that " &
+    "and a carrier cannot break line of sight before dying)"
   s.add &"    midfield        {m.midCrossCount} crossing(s) across a seam " &
     &"""{m.midOpenFrac * 100:.1f}% open ({(if m.midAxisVertical: "vertical" else: "horizontal")})"""
   s.add &"    detour          {m.detourMin:.2f}..{m.detourMax:.2f} " &
@@ -161,19 +198,39 @@ proc detailReport(m: MapMetrics): string =
   s.join("\n")
 
 proc controlWarnings(control, m: MapMetrics): seq[string] =
-  ## Rule 1, made operational: a bound that the CONTROL breaches is a bug in
-  ## the bound, not a verdict on the map. Printed once per batch, loudly.
+  ## Rule 1, made operational — with the one caveat the second control forced.
+  ##
+  ## A bound the PRIMARY control breaches is a bug in the bound. That reading
+  ## does not transfer unexamined to `arena-large`: it is a 30% geometric
+  ## upscale of `arena` with the same obstacle inventory, so it is evidence
+  ## about what SCALE does to a metric, and four of its breaches were decided
+  ## on that evidence to be findings about the map. The banner therefore names
+  ## which control breached and stops short of prescribing the fix.
   for r in control.scoreBands():
     if r.breached:
-      result.add &"METRIC BUG: band '{r.band.name}' BREACHES THE CONTROL " &
-        &"(arena = {r.value:.3f}, band [{r.band.lo:.2f}..{r.band.hi:.2f}]). " &
-        "A metric that flags the control is wrong — fix the band, not the map."
+      result.add &"CONTROL BREACH: band '{r.band.name}' flags {control.name} " &
+        &"({r.value:.3f} outside [{r.band.lo:.2f}..{r.band.hi:.2f}]). " &
+        (if control.name == ControlMapPath:
+           "This is the PRIMARY control — a metric that flags it is wrong, " &
+             "so fix the band, not the map."
+         else:
+           "Second control (a 30% upscale of arena): decide on evidence " &
+             "whether the band or the map is at fault — see " &
+             "map_metrics.ArenaLargeControl for the four already decided.")
   discard m
 
 proc evaluateBatch(paths: seq[string], withControl: bool): seq[MapMetrics] =
-  ## Always evaluates the control FIRST so every downstream comparison has it.
+  ## Always evaluates the controls FIRST so every downstream comparison has
+  ## them. BOTH hand-authored maps, not just `arena` — see
+  ## `SecondControlMapPath`.
   var wanted = paths
-  if withControl and ControlMapPath notin wanted:
+  if withControl:
+    # Strip any caller-supplied copy first. Without this, naming a control on
+    # the command line leaves it wherever the caller put it and the leading
+    # rows stop being the controls every reader below assumes they are.
+    wanted = wanted.filterIt(it != ControlMapPath and
+                             it != SecondControlMapPath)
+    wanted.insert(SecondControlMapPath, 0)
     wanted.insert(ControlMapPath, 0)
   for path in wanted:
     let started = getMonoTime()
@@ -184,10 +241,16 @@ proc evaluateBatch(paths: seq[string], withControl: bool): seq[MapMetrics] =
 
 # --- commands ---------------------------------------------------------------
 
-proc printBatch(metrics: seq[MapMetrics], detail: bool) =
-  let control = metrics[0]
-  for w in controlWarnings(control, control):
-    echo w
+proc controlCount(a: Args): int =
+  ## How many leading rows of a batch are controls. Both hand-authored maps
+  ## unless `--no-control`, which exists only so a test can prove the default
+  ## is on.
+  if a.has("no-control"): 0 else: 2
+
+proc printBatch(metrics: seq[MapMetrics], detail: bool, controls = 1) =
+  for i in 0 ..< min(controls, metrics.len):
+    for w in controlWarnings(metrics[i], metrics[i]):
+      echo w
   echo ""
   if detail:
     for m in metrics:
@@ -197,14 +260,18 @@ proc printBatch(metrics: seq[MapMetrics], detail: bool) =
     for m in metrics:
       echo m.summaryLine()
   echo ""
-  echo "CONTROL is the first row (arena). Read every other row as a delta " &
-    "from it, never against an absolute idea of a good map."
+  echo "CONTROLS are the first " & $controls & " row(s) (arena, arena-large). " &
+    "Read every other row as a delta from them, never against an absolute " &
+    "idea of a good map. arena-large is a 30% geometric upscale of arena and " &
+    "breaches four bands: it is a control that shows what SCALE alone does to " &
+    "a metric, which is worth as much as the one that passes."
 
 proc cmdScore(a: Args) =
   var paths = a.positionals
   if paths.len == 0: paths = @[ControlMapPath]
   let metrics = evaluateBatch(paths, not a.has("no-control"))
-  printBatch(metrics, detail = a.has("detail") or paths.len == 1)
+  printBatch(metrics, detail = a.has("detail") or paths.len == 1,
+             controls = a.controlCount())
 
 proc cmdControl(a: Args) =
   let metrics = evaluateBatch(@[], withControl = true)
@@ -215,20 +282,22 @@ proc cmdPool(a: Args) =
   for i in 0 ..< MapPoolSeeds.len:
     paths.add "pool:" & $i
   let metrics = evaluateBatch(paths, not a.has("no-control"))
-  printBatch(metrics, detail = a.has("detail"))
+  let nControl = a.controlCount()
+  printBatch(metrics, detail = a.has("detail"), controls = nControl)
   # Rule 5: print the pool distribution against the control so a band that is
   # merely restating the pool's own median is visible as such.
   echo ""
   echo "pool vs control:"
   proc column(name: string, get: proc (m: MapMetrics): float) =
     var values: seq[float]
-    for m in metrics[1 .. ^1]: values.add get(m)
+    for m in metrics[nControl .. ^1]: values.add get(m)
     values.sort()
     let
       lo = values[0]
       mid = values[values.len div 2]
       hi = values[^1]
-    echo &"  {name:<20} arena {get(metrics[0]):8.3f}   " &
+    echo &"  {name:<20} arena {get(metrics[0]):8.3f}  " &
+      &"large {get(metrics[min(1, metrics.len - 1)]):8.3f}   " &
       &"pool min {lo:7.3f}  median {mid:7.3f}  max {hi:7.3f}"
   column("interiorFrac", proc (m: MapMetrics): float = m.interiorFrac)
   column("exposedFrac", proc (m: MapMetrics): float = m.exposedFrac)
@@ -249,6 +318,12 @@ proc cmdPool(a: Args) =
   column("midOpenFrac", proc (m: MapMetrics): float = m.midOpenFrac)
   column("detourMax", proc (m: MapMetrics): float = m.detourMax)
   column("visDegreeCv", proc (m: MapMetrics): float = m.visDegreeCv)
+  column("sightlineMaxPx", proc (m: MapMetrics): float = m.sightlineMaxPx.float)
+  column("diagLongRunPxFrac",
+    proc (m: MapMetrics): float = m.diagLongRunPxFrac)
+  column("chokeExcessPx", proc (m: MapMetrics): float = m.chokeExcessPx.float)
+  column("standCoverGapPx",
+    proc (m: MapMetrics): float = m.standCoverGapMaxPx.float)
   column("staticScore", proc (m: MapMetrics): float = m.staticScore())
 
 const ShiftMetrics = [
@@ -256,6 +331,9 @@ const ShiftMetrics = [
   "chokeCount", "collisionCoverRatio", "standRingOpenMin", "standRingSpread",
   "standCoverSpread", "midCrossCount", "midOpenFrac", "detourMax",
   "visDegreeCv", "coverPermille",
+  # The four corrections. A selection that moves the scalar without moving any
+  # of these is selecting on the same blind spots it always did.
+  "sightlineMaxPx", "diagLongRunPxFrac", "chokeExcessPx", "standCoverGapMaxPx",
 ]
   ## Every band-backed metric, so the best-of-K report is a DISTRIBUTION SHIFT
   ## across the whole rubric rather than one flattering example. A selection

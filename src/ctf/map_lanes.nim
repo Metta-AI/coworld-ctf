@@ -914,12 +914,25 @@ proc corridorPinchFailures*(
 
 proc chokepointsCovered*(
   wall: seq[bool], w, h: int, chokes: openArray[PinchRun],
-  rangePx = GunRange,
+  rangePx = LethalEnvelopePx,
 ): IsovistVerdict =
-  ## One vantage that watches every chokepoint is one camper who owns the map.
-  ## Range-capped at gun range: beyond it, watching is not covering.
+  ## One vantage that can KILL INTO every chokepoint is one camper who owns the
+  ## map. The ASSERTION a generator wants is `not covered`.
   ##
-  ## The ASSERTION a generator wants is `not covered`.
+  ## THE DEFAULT WAS `GunRange` = 1050 AND WAS THEREFORE ~4x TOO WIDE. Gun
+  ## range is a REACH, not an engagement range: aim is 32 discrete slots with
+  ## no assist and the shot is accepted against the 13px solid body, so
+  ## `P(hit)` is 0.47 at 300px and 0.14 at gun range. A camper who can SEE a
+  ## doorway 900px away and cannot hit anyone standing in it is not covering
+  ## it. `map_rules.LethalEnvelopePx` carries the derivation, and
+  ## `ChokepointSpacingPx` / `MinPickupSpacingPx` were already moved onto it.
+  ##
+  ## Changed here as well as in `map_metrics` because this proc has no caller
+  ## yet and was about to acquire one: the assertion would have been wired in
+  ## carrying the same 4x error.
+  ##
+  ## Note the DIRECTION: a tighter radius makes `covered` -- and therefore the
+  ## generator's rejection -- fire LESS often, not more.
   result.rangePx = rangePx
   if chokes.len <= 1:
     # A single forced doorway is trivially covered — by standing on it. That
