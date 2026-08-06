@@ -48,6 +48,58 @@ only one that matters until it is done.**
 
 ---
 
+## Update, later on 2026-08-05: the wiring is now de-risked and unblocked
+
+Three things changed since the above was written. The headline — the shipping
+generator still calls none of these modules — is UNCHANGED.
+
+**1. The lane blocker is fixed** (task `76332cf1`, commit `aae19bd`). The
+standing diagnosis was that `shapeRowSpan` over-claims for "some shape kind".
+It does not. `tools/lane_openrow_probe.nim` classifies every pixel of every
+surviving open row and reported `carved=0 empty=806` on all of them: the cover
+never arrived at all. The failure was also bigger than filed — 18-23 open rows
+on 3 of 3 seeds, in contiguous BANDS. Cause: every gate was centred on its
+lane's centreline, so a lane's openings all overlapped there and the centre
+rows threaded every one of them; and the fast lane had NO gates while the mid
+lane had one. **One gate cannot break its own lane.** Openings now alternate
+between the lane's two edges, every lane gets at least two, and the opening is
+clamped to `gw < W/2` — exactly when two openings at `+-(W-gw)/2` are disjoint.
+Open rows: **0 on 6 of 6 seeds**. The fast lane is no longer gate-free, which
+is a deliberate character change.
+
+**2. The architecture is measured, not assumed.** Neither layer stands alone:
+
+| composition | valid | note |
+|---|---|---|
+| biome fill ALONE (`biomekit table`) | **0/6 on every one of the five** | every failure an open sightline; openP95 639-1215px; interiorFrac 0.046-0.138 vs control 0.342 |
+| lanes ALONE | valid | structure-only cover 120-126 permille, 44-50 permille of headroom under the 170 ceiling |
+| **lanes + biome fill** | **29/30** (5 biomes x 6 seeds) | 0 open rows throughout, cover 120-163 permille |
+
+The lone failure is desert seed 2 at 172 permille — a budget to reconcile, not
+a structural defect. The seam already exists: `carveLanes(..., cover)` hands
+the fill through `clearLanes`. **This is the strongest evidence yet that
+"skeleton first, fill second" is right, and it is now a measurement rather
+than a design argument.**
+
+**3. Organic AND asymmetric AND fair is not a contradiction, and the rule is
+one line:** fairness is enforced by the LIFT, not by the shapes. Generate in
+the fundamental domain, lift by the orbit, and any amount of noise, dither or
+irregularity inside that domain is free — it lifts to an exactly fair board.
+What breaks fairness is noise applied AFTER the lift, which is why
+`ditherEdges` is symmetry-destroying by construction and REQUIRES a
+`fundamentalDomain`. Keep noise a TEXTURE layer downstream of structure (§8 of
+the brief: thresholded noise cannot make rooms at any threshold our cover cap
+allows); marching squares into `shapePolygon` is the sanctioned route.
+
+⚠️ **One defect found while measuring, filed as `8bc05407`:** `clearLanes`
+clips the ENTIRE city biome away — its cover contribution is zero on 5 of 6
+seeds, while caves/forest contribute 16-42 permille. It almost certainly
+REJECTS long axis-aligned blocks whole instead of trimming them. City is the
+closest thing we have to the brief's "blocks" archetype, so this silently
+collapses the fill vocabulary to pebble-shaped biomes.
+
+---
+
 ## What DID land, and is real
 
 | module | what it gives you |
