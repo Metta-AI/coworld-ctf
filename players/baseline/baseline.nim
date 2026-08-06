@@ -242,6 +242,44 @@ when defined(wbprobe):
   var wbHp1Deaths = 0      # ...ending in death
   var wbHp1Ticks = 0       # total ticks spent at hp 1 across closed segments
 
+when defined(rwprobe):
+  # -d:rwprobe ONLY (plan #squad-1, issue #20): the M1 DIFFERENTIAL row. Runs BOTH
+  # movement selectors (with and without the mid-lane pull) over the SAME frame state
+  # and counts where the EMITTED OCTANT STEP differs — not where the TARGET moved.
+  # `carrierHomeStretch` retargeted 99 of 99 frames and was still INERT because
+  # navSteer's cost field plus octantBits' 8-way quantization collapsed the output, so
+  # a target-diff row proves nothing. Gate eligibility (G1-G4) is evaluated
+  # TUNE-INDEPENDENTLY, so the same binary measures the counterfactual with RALLY unset
+  # (control trajectory) and the realised differential with RALLY=1. The disambiguating
+  # triple (the finishWounded lesson — `pickDiff == 0` reads the same for a broken probe
+  # and a real no-op): rwTargetDiff+mean shift says the target moved at all, rwSurvive/
+  # rwOverwritten says whether a later movement branch erased it, rwGate* says which gate
+  # closed. Summary printed at EXIT (never a modulo dump — the wbprobe lesson).
+  var rwFrames = 0         # decide frames reaching the plan-layer movement block
+  var rwElig = 0           # ...meeting G1-G4 (tune-independent)
+  var rwTargetDiff = 0     # ...where the pull actually moved target.y (> 0.5px)
+  var rwShiftSum = 0.0     # ...total |Δy| applied, for the mean shift
+  var rwStepDiff = 0       # ...where the EMITTED octant step differs (THE M1 ROW)
+  var rwSurvive = 0        # eligible frames whose target reached the nav emit intact
+  var rwOverwritten = 0    # ...where a later branch replaced the target (absorbed)
+  var rwEmitOther = 0      # ...that never reached the nav-target emit at all
+  var rwGateRole = 0       # gate rejections: sentry seat (Overwatch / HomeDefender)
+  var rwGateDepth = 0      # gate rejections: already past CenterX (enemy half)
+  var rwGateContact = 0    # gate rejections: a rival body fresh THIS frame within 300px
+  var rwGatePhase = 0      # gate rejections: PhOpen / PhDefend / PhEscort / PhForce
+  var rwGateCarry = 0      # gate rejections: carrying / our heart stolen / at the pocket
+  # Per-frame scratch. Set in the plan-layer movement block and read later in the SAME
+  # decide() call, so the shared-globals hazard (16 bots, one process) cannot bite: no
+  # value ever survives across bots. Floats, not a Vec — `vec()` is declared far below.
+  var rwArmedFrame = false
+  var rwNavHit = false
+  var rwStepFlag = false
+  var rwPostX = 0.0
+  var rwPostY = 0.0
+  var rwStepDiffSurv = 0   # stepDiff frames whose target ALSO reached the nav emit
+                           # intact — the strictest reading of "the lever changed the
+                           # movement the bot actually emitted" (<= rwStepDiff).
+
 when defined(scprobe):
   # -d:scprobe ONLY (v9): instrument the satCap redistribution as a FUNNEL so a
   # null A/B is diagnosable (pair-saturation never occurs in range vs occurs but
@@ -1119,6 +1157,13 @@ const
   OpenGroupPull = 200.0       # PhOpen: px of Y bias pulling the attack wave toward the
                               # shared mid lane so the opening clash lands as a GROUP,
                               # not eight bots trickling up their own lanes to be picked.
+  RallyContactPx = 300.0      # rallyWave (issue #20): a rival body seen THIS FRAME within
+                              # this radius means the seat is in/near contact, and the pull
+                              # is silent. The FEET LAW (failed.md: medSee/frontage/
+                              # woundedBank) is a CONTACT law — "the advance IS the gun",
+                              # 83% of shots land under 150px — so rallyWave is hard-gated
+                              # to the regime where there is no gun to tax. 300px is the
+                              # brief's own contact radius (the local-advantage window).
   EscortCollapseRange = 900.0 # PhEscort: a free gun within this of the carrier collapses
                               # onto its home lane to suppress chasers (body-block is void
                               # on this engine — CollisionW=1 — so escort value = kill the
@@ -1727,6 +1772,26 @@ type
                               # FORCE commits a grouped all-in before the −1 timeout. All
                               # phases are a pure fn of shared signals so the team flows
                               # branch→branch unanimously (no thrash / no split-decide).
+    rallyWave: bool           # ⭐ rallyWave (plan #squad-1 / issue #20, 2026-08-06): arm
+                              # PhOpen's EXISTING mid-lane pull for the RE-ENTRY MARCH.
+                              # Field truth (26 GV36 league episodes, free 7-vs-7 in-episode
+                              # control): on the arena only 44.9% of our alive seat-frames
+                              # sit in a mutual buddy pair within 120px vs focusfire's 62.3%;
+                              # we are locally outnumbered in 41.7% of contact frames vs his
+                              # 6.5%, at local advantage −0.06 vs +1.76. The mechanism that
+                              # builds that lattice is the re-entry trek: respawn→first
+                              # contact is 689px/283t for us vs 165px/77t for him at
+                              # IDENTICAL path efficiency (0.76 vs 0.75) — a DESTINATION
+                              # problem, and 69% of a 439-tick life. `OpenGroupPull` already
+                              # fixes exactly this ("we currently lose it 14-6 by trickling
+                              # to lane roles") and is armed for `elapsed < 600` only, i.e.
+                              # 12% of the game. This changes its ARMING WINDOW, not its
+                              # mechanism: same pull, same constant, same statement, applied
+                              # on the march back in when NO rival is within RallyContactPx.
+                              # Target is `CenterY`, a map constant, so seven seats converge
+                              # by identical inference with ZERO comms (no captain, no
+                              # thrash, none of the REF-comms turret tax). Roles, speed,
+                              # turret, aim and the fire gate are byte-untouched.
     defendTeeth: bool         # ⭐ PhDefend RECAPTURE TEETH (v29, 2026-07-29). v26 gave DEFEND
                               # an intercept target, but it aimed at `mateCarryPos` — the
                               # position of OUR mate carrying the ENEMY heart, NOT the thief
@@ -2361,6 +2426,7 @@ proc defaultCombatTune(): CombatTune =
     shieldTank: false,        # control: an escort never grabs a shield to body-block as a tank.
     shieldRush: false,        # control: the rusher never pre-grabs a shield to carry home at 6 HP.
     planLayer: false,         # control: flat scenario→play matrix, no contingency phase machine.
+    rallyWave: false,         # control: the mid-lane group pull is armed for PhOpen only.
     defendTeeth: false,       # control: PhDefend intercepts the WRONG entity (mateCarryPos).
     forceClockTick: ForceClockTickTuned,  # only consulted when forceTiming is on.
     forceTiming: false,       # control: PhForce stays at 3800 — measured 0 firing frames.
@@ -2758,6 +2824,13 @@ proc shippedCombatTune(): CombatTune =
   # timeout (PhForce commits before the clock). Movement-intent only; pure fn of shared
   # signals (the backstop-the-caller design — no unit must survive to hold the plan).
   result.planLayer = true
+  # ⭐ rallyWave (plan #squad-1 / issue #20): PhOpen's mid-lane group pull, armed for the
+  # RE-ENTRY MARCH as well as the opening. UNPROVEN — ENV-ARMED ONLY until the
+  # pre-registered A/B passes (the contaminated-control trap, failed.md: never bake an
+  # unproven lever into the champion tune). RALLY=1 arms it per-process for the env-server
+  # A/B rig; the in-process harness would arm BOTH sides, so any harness measurement of it
+  # is a mirror unless the driver re-stamps per team (RALLYTEAM, the SPINTEAM pattern).
+  result.rallyWave = getEnv("RALLY").len > 0
   # ── ⭐ ARC BREACHER (anti-line offense) + enemy-shield awareness. The plasma arc
   # is a MULTIKILL cone and a line is a cluster: when a line is called, the fixed
   # breacher seat (MidGuard) grabs the arc and cones the seam while the wave is base-
@@ -5645,6 +5718,84 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     of PhProbe:
       discard   # PROBE = the flank default above
 
+    # ⭐ rallyWave (plan #squad-1 / issue #20, 2026-08-06) — CROSS TOGETHER, don't queue.
+    # PhOpen above already pulls the wave onto the shared mid lane, and its own comment
+    # states the defect it fixes: "we currently lose it 14-6 by trickling to lane roles".
+    # It is armed by `elapsed < OpenPhaseTicks` alone — the first 600 of 5000 ticks, 12%
+    # of the game — while ~13.5 respawns per squad per episode each walk a 689px / 283t
+    # re-entry march up their OWN lane (measured, 26 GV36 league episodes, vs the rival
+    # squad's 165px / 77t at identical path efficiency 0.76 vs 0.75). Seven independent
+    # marches enter the enemy half as a QUEUE, which is why only 44.9% of our alive
+    # seat-frames sit in a buddy pair (his 62.3%) and we fight locally outnumbered 41.7%
+    # of contact frames (his 6.5%). So: same pull, same constant, same statement — a
+    # wider ARMING WINDOW, applied on the way back IN.
+    #   G1 no rival body seen THIS FRAME within RallyContactPx — `t.lastSeen == bot.tick`
+    #      is the frameAdvance-invariant "visible right now" (a tick-count window is
+    #      ~14.5x more generous on the speed-16 rig than in the league).
+    #   G2 still on OUR OWN side of CenterX (depth < 0) — frame-rate invariant, and it
+    #      keeps the lever pre-contact and out of the pocket by construction.
+    #   G3 not carrying (the enclosing `not iCarry`), our heart not stolen, and not
+    #      inside a phase that deliberately sets its own target (Open/Defend/Escort/
+    #      Force). A later pickup seek (`seekingPickup`) assigns `target` AFTER this
+    #      block and therefore still wins.
+    #   G4 sentries exempt: Overwatch and HomeDefender ARE their post [[AGG-E4]].
+    # ⚠️ THE FEET LAW (failed.md: learned-kits / woundedBank / medSee / frontage — four
+    # levers, 13-44% of our guns) is a CONTACT law: the vision cone rides the turret and
+    # 83% of shots land under 150px, so redirecting the feet DURING a fight points the
+    # gun away from it. G1 confines this to frames with no gun to tax. That is an
+    # ARGUMENT, not a measurement — M4 (travel per alive frame vs the NULL arm) and O1
+    # (kills) are pre-registered to catch it if it is wrong.
+    # No hold, no wait, no speed change, no role change, no headcount, no turret touch:
+    # the seat keeps walking to the same nav goal at the same speed; only the LANE moves.
+    # The pull target is CenterY, a MAP CONSTANT — not a mate, not an enemy — so seven
+    # seats converge by identical deterministic inference with zero comms, and it cannot
+    # dither or chase (frontage root cause 1).
+    let rallyOpen =
+      attacker and not ownStolen and
+      phase notin {PhOpen, PhDefend, PhEscort, PhForce} and
+      homeSign(bot.team) * (me.x - float(CenterX)) > 0.0 and
+      dist(me, stealTarget) > PocketRushRange
+    var rallyClear = false
+    if rallyOpen:
+      rallyClear = true
+      for t in bot.enemies:
+        if t.lastSeen == bot.tick and dist(t.pos, me) <= RallyContactPx:
+          rallyClear = false
+          break
+    when defined(rwprobe):
+      inc rwFrames
+      rwArmedFrame = false
+      rwNavHit = false
+      rwStepFlag = false
+      if not attacker: inc rwGateRole
+      elif ownStolen or dist(me, stealTarget) <= PocketRushRange: inc rwGateCarry
+      elif phase in {PhOpen, PhDefend, PhEscort, PhForce}: inc rwGatePhase
+      elif homeSign(bot.team) * (me.x - float(CenterX)) <= 0.0: inc rwGateDepth
+      elif not rallyClear: inc rwGateContact
+      else:
+        # M1 DIFFERENTIAL: both selectors, same frame state, EMITTED octant compared.
+        inc rwElig
+        let pre = target
+        let pulled = clamp(float(CenterY) - me.y, -OpenGroupPull, OpenGroupPull)
+        let post = vec(target.x, clamp(me.y + pulled, LaneTop, LaneBottom))
+        if abs(post.y - pre.y) > 0.5:
+          inc rwTargetDiff
+          rwShiftSum += abs(post.y - pre.y)
+        if octantBits(bot.navSteer(client, me, post)) !=
+            octantBits(bot.navSteer(client, me, pre)):
+          inc rwStepDiff
+          rwStepFlag = true
+        rwArmedFrame = true
+    if bot.tune.rallyWave and rallyOpen and rallyClear:
+      let midPull = clamp(float(CenterY) - me.y, -OpenGroupPull, OpenGroupPull)
+      target = vec(target.x, clamp(me.y + midPull, LaneTop, LaneBottom))
+    when defined(rwprobe):
+      # The target this block actually LEAVES (pulled when armed, untouched when not),
+      # so the emit-site survival check reads the same quantity in both runs.
+      if rwArmedFrame:
+        rwPostX = target.x
+        rwPostY = target.y
+
   # SENTRY DISPLACE: a sentry (overwatch / home defender) settled on its post
   # with no live target and no fresh intruder has been standing scanning. SEAL
   # doctrine — never a static target: after a dwell it slides laterally along the
@@ -7182,6 +7333,14 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       # invulnerable respawn nest at the pedestal and dies at ~2% of the run home
       # — the single biggest leak in the grab->capture funnel. The heart only
       # scores by reaching our edge, so the carrier NEVER trades ground for a kill.
+      when defined(rwprobe):
+        if rwArmedFrame:
+          rwNavHit = true
+          if abs(target.x - rwPostX) < 0.5 and abs(target.y - rwPostY) < 0.5:
+            inc rwSurvive
+            if rwStepFlag: inc rwStepDiffSurv
+          else:
+            inc rwOverwritten
       moveMask = octantBits(bot.navSteer(client, me, target))
     else:
       # offCone: OFF-CONE APPROACH (backlog #4, Battle Drill 6). Never close on
@@ -7447,6 +7606,14 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     else:
       # Navigate: cover-aware path steering plus soft repulsion from nearby
       # teammates so one burst (or our own shot) cannot hit two of us.
+      when defined(rwprobe):
+        if rwArmedFrame:
+          rwNavHit = true
+          if abs(target.x - rwPostX) < 0.5 and abs(target.y - rwPostY) < 0.5:
+            inc rwSurvive
+            if rwStepFlag: inc rwStepDiffSurv
+          else:
+            inc rwOverwritten
       var steer = norm(bot.navSteer(client, me, target))
       for t in bot.mates:
         if bot.tick - t.lastSeen > 12:
@@ -7714,6 +7881,11 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         " hp=" & $bot.ownHp & " engage=" & $engage &
         " homeDeepX=" & $int(homeDeepX(bot.team)) &
         " ownHome=" & $int(ownHome.x) & "," & $int(ownHome.y)
+  when defined(rwprobe):
+    # An eligible frame whose emitted step never came from the nav-target path at all
+    # (a jink/duck/peek/charge branch owned the mask): the pull cannot reach the output
+    # on that frame regardless of what it did to `target`.
+    if rwArmedFrame and not rwNavHit: inc rwEmitOther
   var mask = moveMask or rotBits
   if wantFire and not bot.firedLast:
     mask = moveMask or ButtonA

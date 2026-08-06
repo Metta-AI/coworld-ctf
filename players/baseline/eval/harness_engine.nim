@@ -164,6 +164,16 @@ when defined(ohshitprobe):
         if dd < nE: nE = dd
     (e: nE, m: nM)
 
+when defined(rwtruth):
+  proc slotTruth*(engine: EvalEngine, slot: int):
+      tuple[x, y: float, alive: bool, team: int] =
+    ## GROUND TRUTH position/liveness for one seat, straight off `sim.players` —
+    ## never the bot's own fogged perception (the 2026-08-05 field-metric rule:
+    ## a `-d:` probe that counts what the bot BELIEVES is not the field metric).
+    ## Probe builds only; the shipped player never sees this module.
+    let p = engine.sim.players[slot]
+    (x: float(p.x), y: float(p.y), alive: p.alive, team: ord(p.team))
+
 when defined(ssprobe):
   # v7-only: count accidental sword/shield possession (auto-disarm). The
   # hasSword/hasShield fields exist only on the GameVersion 7 engine, so this
