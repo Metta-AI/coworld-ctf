@@ -257,6 +257,23 @@ when defined(scprobe):
   var scMateRead = 0  # ...whose aim-dot line actually read back (mAim >= 0, diag)
   var scRayHit = 0    # (mate-ray, fresh-enemy) pairs where the ray covers it (diag)
 
+when defined(fiprobe):
+  # -d:fiprobe ONLY (issue #15, finishWounded): the DIFFERENTIAL probe. It runs BOTH
+  # selectors — the lever's and the control's — over the SAME frame state and counts the
+  # disagreements, which BOUNDS the A/B before any episode is bought: a pick identical to
+  # the control's cannot change an outcome (the -d:ncdiff technique, failed.md 2026-07-29).
+  # Counters are tune-dependent by design (they answer "does the lever fire and does it do
+  # what it claims"); the OUTCOME metric is ground truth from sim.players, in fisum.nim.
+  var fiElig = 0        # (frame, candidate) pairs meeting the lever's condition
+                        # (hp == FinishHpTarget, seen THIS frame, in engage range)
+  var fiSatFlip = 0     # ...of those, how many the CONTROL would have saturated (F1's bite)
+  var fiEngage = 0      # decide frames with finishWounded on and an engage pick made
+  var fiPickDiff = 0    # ...where the lever's argmin differs from the control's (M1)
+  var fiPickFin = 0     # ...and the newly chosen target is the 1-hp finish candidate
+  # M2 (enemy hp-1 segment fate), M3 (travel per alive frame) and M4 are GROUND TRUTH from
+  # sim.players in fisum.nim — not from the bot's own perception (2026-08-05 rule: a -d:
+  # probe that counts what the bot believes is not the field metric).
+
 when defined(arprobe):
   # -d:arprobe ONLY (v9): prove the aimRotRead sprite-id readback is LIVE and
   # measure its coverage — how many visible actors yield a bearing from the
@@ -514,6 +531,22 @@ const
                               # to swing the turret across the map
   FocusFireBonus = 45.0       # px of credit when a visible mate's aim line
                               # already covers the target (finish together)
+  FinishBonus = 140.0         # ⭐ finishWounded (issue #15): extra px of priority
+                              # credit on an enemy at EXACTLY FinishHpTarget hp that
+                              # we can see THIS FRAME. Sized on this function's own
+                              # scale (AimThreatBonus 120, DangerWoundedBonus 90,
+                              # HpFocusBonus 60/hp): stacked on hpFocus it is 260,
+                              # which outranks a mid-range facing threat (~224 at
+                              # 300px) and stays under a dead-on close one (410,
+                              # itself capped) — [[BLD-B1]]'s stated ordering
+                              # "aim-on-me > proximity > wounded". It is added to
+                              # `pull`, so stickyCommit's cap (commitBonus -
+                              # StickyDangerCap = 340) bounds it and it can NEVER
+                              # out-pull a kill we are already committed to.
+  FinishHpTarget = 1          # the hp at which ONE bullet ends it. Deliberately not
+                              # "wounded" (hp < MaxHp): a 2-hp enemy still needs two
+                              # hits, so distributed fire is correct there and satCap
+                              # keeps owning it.
   ShieldGunWeight = 1.5       # a shielded enemy (6-hp tank) counts as this many
                               # guns in the fire-superiority break math — more than
                               # a bare cog: it outlasts a normal exchange, so don't
@@ -1276,6 +1309,44 @@ type
                               # dead-on threat (-320 danger) out-scores the lock and our gun
                               # SWITCHES off the enemy we'd already wounded — it recovers and
                               # kills us. SEALs: commit to a target and FINISH it.
+    finishWounded: bool       # ⭐⭐ FINISH THE WOUNDED (issue #15) — PURE TARGET
+                              # SELECTION: it changes WHO we shoot and touches NO
+                              # movement, NO range, NO trigger. focusfire v25 banks
+                              # 13% of its wounded lives behind a 413px standoff, and
+                              # in a Lives=3 economy every banked life is a denied
+                              # wipe. Today we do worse than fail to punish that: the
+                              # instant ONE visible mate's 90px aim ray covers a 1-hp
+                              # enemy, satCap calls it SATURATED (satNeed==1), books a
+                              # +SatCapPenalty(220) debit and forfeits the hpFocus(120)
+                              # + focus(45) credit — a ~385px swing AWAY from the one
+                              # target that dies to a single bullet, which then
+                              # respawns at full 3/3 in respawnTicks(72), refunding the
+                              # two hits we already spent. This flag does two things,
+                              # both inside the existing priority loop:
+                              #   F1  a 1-hp enemy seen THIS FRAME is never "saturated"
+                              #       (the surgical form of the NOSATCAP isolation the
+                              #       2026-07-29 audit asked for and never got — it
+                              #       leaves distributed fire intact for 2/3-hp and
+                              #       shielded targets);
+                              #   F2  + FinishBonus of priority credit, added to `pull`
+                              #       so stickyCommit's cap (340 < commitBonus 400)
+                              #       bounds it — it CANNOT out-pull a committed kill.
+                              # ⭐ Because a 1-hp enemy whose gun is ON us already
+                              # pushes `pull` past the cap, F2 bites ONLY on the 1-hp
+                              # enemy whose gun is turned away — precisely the
+                              # DISENGAGING bot the brief-13 field read identified as
+                              # the leader's banking mechanism.
+                              # Doctrine: IMPLEMENTS [[BLD-B1]] ("score by aim-on-me >
+                              # proximity > WOUNDED" — the third term the code
+                              # currently inverts) and a first graduation of the
+                              # UNTESTED [[FFA-5]]; EXTENDS [[AGG-E3]] (a visible 1-hp
+                              # enemy with a clear ray IS maximum fire superiority, and
+                              # satCap breaks there on a head-count-shaped input) and
+                              # [[OBJ-1]] (conversion, not volume). Clear of
+                              # [[REF-hunt]] BY CONSTRUCTION: same candidate set, same
+                              # maxEngage bound, same clear-ray gate, strictly TIGHTER
+                              # freshness — no feet move that would not have moved, so
+                              # there is no off-objective travel to trade wins for.
     forceBalance: bool        # local numbers awareness (FALSIFIED 2026-07-14 as
                               # a win lever; kept behind this flag, OFF).
     outnumberMargin: int      # fall back when localEnemies - localFriends >= this
@@ -2272,6 +2343,7 @@ proc defaultCombatTune(): CombatTune =
     commit: false,            # the pure-baseline control: re-pick nearest each frame.
     commitBonus: CommitBonus,
     stickyCommit: false,      # control: satCap/dangerScore can pull the gun off a committed kill.
+    finishWounded: false,     # control: a 1-hp enemy one mate is lined on is ABANDONED (satCap).
     forceBalance: false,      # control: always press, no numbers awareness.
     outnumberMargin: OutnumberMargin,
     unstuckEngaged: false,    # control: shipped disables the jink when engaged.
@@ -2647,6 +2719,13 @@ proc shippedCombatTune(): CombatTune =
   result.armedRush = true
   result.holdVsGun = true
   result.stickyCommit = true
+  # ⭐⭐ finishWounded (issue #15, the counter to focusfire v25's banked lives). UNPROVEN —
+  # stays ENV-ARMED ONLY until the pre-registered A/B passes (the contaminated-control trap,
+  # failed.md: never bake an unproven lever into the champion tune, or CONTROL_SHIPPED runs it
+  # on BOTH sides and the A/B cannot see it even in principle). FINISH=1 arms it per-process
+  # for the env-server A/B rig; the in-process harness uses fisum's FINTEAM re-stamp instead
+  # (one process, 16 bots — an env knob alone would arm both sides and give a mirror).
+  result.finishWounded = getEnv("FINISH").len > 0
   # ⭐⭐ THE TOUCH LATCH (2026-07-29) — the COMPANION to smartGrab, not a rollback of it.
   # smartGrab fixed the APPROACH (no lone suicide dive into a stacked pocket) and it works.
   # It left the LAST 60px unfixed: GrabCommitRing marked "we are committed" but set no flag,
@@ -5913,6 +5992,10 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     blockedD = maxEngage
     anySaturated = false                # satCap: some in-range candidate was saturated
     engageSat = false                   # satCap: the FINAL pick was saturated
+  when defined(fiprobe):
+    var                                 # the CONTROL selector's parallel argmin (probe only)
+      fiEngCtl = -1
+      fiPrioCtl = maxEngage
   for i in 0 ..< bot.enemies.len:
     let t = bot.enemies[i]
     if bot.tick - t.lastSeen > bot.tune.freshShotTicks:
@@ -5943,6 +6026,9 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # targets, deliberately smaller than a real positional difference.
     var prio = d +
       float(abs(bradsErr(bradsOf(predicted - me), bot.estAim))) * TraversePxPerBrad
+    when defined(fiprobe):
+      let fiPrioBase = prio             # pre-penalty base, for the control counterfactual
+      var fiUnsat = 0.0                 # hpFocus + focus credit the else-branch actually added
     # satCap DISTRIBUTED FIRE: enough guns to kill is sufficient. A 1-hp enemy
     # needs one lined mate gun, anything else two (a pair of 1-damage hitscan
     # guns finishes a 3-hp target across their cycles). ⭐ A SHIELDED enemy is a
@@ -5960,7 +6046,22 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     let isLocked = bot.tune.commit and bot.tick <= bot.lockUntil and
       dist(t.pos, bot.lockPos) <= LockMatchDist
     let stick = bot.tune.stickyCommit and isLocked
-    let saturated = bot.tune.satCap and mateGuns[i] >= satNeed and not stick
+    # ⭐⭐ FINISH THE WOUNDED (issue #15) — pure target selection, no feet, no range.
+    # `t.lastSeen == bot.tick` is "seen on THIS frame", deliberately not a tick window:
+    # bot.tick advances by client.frameAdvance, which is 1 in the in-process harness but
+    # ~14 on the server rig at speed 16, so any tick-count window would be generous in the
+    # lab and structurally never open in the A/B (the speed=16 hysteresis-collapse gotcha
+    # wearing a new hat). This form is frameAdvance-invariant AND is the literal reading of
+    # the design constraint — act only on an enemy that is ALREADY visible right now, never
+    # on a stale hp memory.
+    let finishable = bot.tune.finishWounded and t.hp == FinishHpTarget and
+      t.lastSeen == bot.tick
+    let saturated = bot.tune.satCap and mateGuns[i] >= satNeed and not stick and
+      not finishable                       # F1: never call a one-bullet kill "covered"
+    when defined(fiprobe):
+      if bot.tune.finishWounded and t.hp == FinishHpTarget and t.lastSeen == bot.tick:
+        inc fiElig
+        if bot.tune.satCap and mateGuns[i] >= satNeed and not stick: inc fiSatFlip
     when defined(scprobe):
       if bot.tune.satCap:
         if mateGuns[i] >= 1: inc scCov1
@@ -5990,6 +6091,14 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           if bot.tune.planLayer and botPhase in {PhOpen, PhPress}: FocusFireBonus * 3.0
           else: FocusFireBonus
         pull += focus
+      when defined(fiprobe):
+        fiUnsat = pull                  # exactly the hpFocus + focus credit (pull was 0 here)
+      # F2: the finish credit. Inside `pull`, so stickyCommit's cap (340) bounds it —
+      # it can never out-pull the kill we are already committed to (CommitBonus 400).
+      # A 1-hp enemy whose gun IS on us already caps out on the danger term below, so
+      # this only ever bites on the one turning AWAY: the disengaging banker.
+      if finishable:
+        pull += FinishBonus
     # Greatest-threat-first: an enemy FACING us can shoot this instant, so it
     # is more dangerous than an equidistant one looking away (gated OFF).
     let facingMe =
@@ -6061,6 +6170,8 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # commitBonus (by the StickyDangerCap margin), so no stack of hp+focus+danger+arc credit can
     # out-pull the kill we're committed to. The committed target's pull is uncapped (it's the one
     # we finish). Off (stickyCommit false) => behaves exactly as before (no cap), shipped-identical.
+    when defined(fiprobe):
+      let fiPullPre = pull              # UNCAPPED total pull, for the counterfactual
     if bot.tune.stickyCommit and not isLocked:
       pull = min(pull, bot.tune.commitBonus - StickyDangerCap)
     prio -= pull
@@ -6069,9 +6180,32 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # and kill it, rather than one shot each spread across many wounded ones.
     if isLocked:
       prio -= bot.tune.commitBonus
+    when defined(fiprobe):
+      # The CONTROL selector's score for this same candidate, reconstructed exactly.
+      # The lever changes only three terms, all captured above: the SatCapPenalty the
+      # control would have booked, the hpFocus+focus credit that penalty forfeits, and
+      # FinishBonus. When `finishable` is false the two selectors are identical by
+      # construction, so the counterfactual is just the final `prio`.
+      var fiCtl = prio
+      if finishable:
+        let fiSatCtl = bot.tune.satCap and mateGuns[i] >= satNeed and not stick
+        var fiPullCtl = fiPullPre - FinishBonus
+        fiCtl = fiPrioBase
+        if fiSatCtl:
+          fiCtl += SatCapPenalty
+          fiPullCtl -= fiUnsat
+        if bot.tune.stickyCommit and not isLocked:
+          fiPullCtl = min(fiPullCtl, bot.tune.commitBonus - StickyDangerCap)
+        fiCtl -= fiPullCtl
+        if isLocked:
+          fiCtl -= bot.tune.commitBonus
     if client.pixelRayClear(me, predicted):
       if bot.friendlyBlocked(me, predicted, d):
         continue                        # prefer a target with an empty corridor
+      when defined(fiprobe):
+        if fiEngCtl < 0 or fiCtl < fiPrioCtl:
+          fiPrioCtl = fiCtl
+          fiEngCtl = i
       if engage < 0 or prio < engagePrio:
         engagePrio = prio
         engageD = d
@@ -6084,6 +6218,15 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       blockedAim = predicted
       blockedBody = t.pos
       haveBlocked = true
+
+  when defined(fiprobe):
+    if bot.tune.finishWounded and engage >= 0:
+      inc fiEngage
+      if fiEngCtl != engage:
+        inc fiPickDiff
+        let te = bot.enemies[engage]
+        if te.hp == FinishHpTarget and te.lastSeen == bot.tick:
+          inc fiPickFin
 
   when defined(scprobe):
     if bot.tune.satCap and engage >= 0:

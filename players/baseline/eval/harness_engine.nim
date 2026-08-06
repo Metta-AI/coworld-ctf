@@ -146,6 +146,17 @@ proc teamOfSlot*(engine: EvalEngine, slot: int): int =
 proc isPlaying*(engine: EvalEngine): bool =
   engine.sim.phase == Playing
 
+when defined(fiprobe):
+  proc slotTruth*(engine: EvalEngine, slot: int):
+      tuple[x, y, hp, lives: int, alive: bool, team: int] =
+    ## GROUND TRUTH for one seat (issue #15 probe only). The finishWounded metrics
+    ## are about what happens to the ENEMY's hit points, which no policy can observe
+    ## reliably through fog — so M2/M3/M4 are read straight off the sim, never off the
+    ## bot's own perception (the 2026-08-05 "a -d: probe that counts the bot's own
+    ## perception is not the field metric" rule).
+    let p = engine.sim.players[slot]
+    (x: p.x, y: p.y, hp: p.hp, lives: p.lives, alive: p.alive, team: ord(p.team))
+
 when defined(ohshitprobe):
   import std/math
   proc nearestEnemyMate*(engine: EvalEngine, slot: int): tuple[e, m: float] =
