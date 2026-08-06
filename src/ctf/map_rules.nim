@@ -304,6 +304,38 @@ const
     ## (`S` = MaxExposedRunPx), that is `W >= 47 px`. The hand-tuned 56 clears
     ## it by 19%; a 34 px piece (one body) would NOT.
 
+  AimHalfSlotDeg* = 360.0 / float(AimRotations) / 2.0            ## 5.625 deg
+  LethalEnvelopePx* = 259
+    ## THE ENGAGEMENT RANGE, as opposed to `GunRange`, which is a REACH.
+    ##
+    ## Aim is exactly `AimRotations` = 32 slots, 11.25 deg apart, and `sim`
+    ## reconstructs `aimBrads = slot * AimStepBrads` every tick, so an off-grid
+    ## angle cannot persist. There is no aim assist anywhere in the sim. A shot
+    ## is accepted against the 13 px SOLID body within `BulletHalfWidth`, so the
+    ## angular acceptance is `atan((PlayerHalf + BulletHalfWidth) / t)` against
+    ## a half-slot of 5.625 deg — and the jitter sigma of 0.596 deg is 9.4x
+    ## smaller than the half-slot, so THE LATTICE DOMINATES, not the jitter.
+    ##
+    ## Below `R_slot = 14 / tan(5.625 deg)` = 142 px a centred enemy cannot be
+    ## missed by the lattice at all; beyond it `P(hit) ~= atan(14/t) / 5.625`,
+    ## which is 0.47 at 300 px and 0.14 at `GunRange` — where TTK is over ten
+    ## seconds and nobody is fighting.
+    ##
+    ## Three independent constants converge on the same envelope, which is why
+    ## this is a constant and not a guess:
+    ##   * `FieldAccuracyPct` = 55 is achieved at 259 px;
+    ##   * `GrenadeMaxRange` = `GunRange div 4` = 262 px, agreeing to 1.1%;
+    ##   * the observed 1.0-1.9 s TTK band implies 142-225 px.
+    ##
+    ## UNVERIFIED DEPENDENCY: no hit-rate-versus-range measurement from the
+    ## field has been taken. One query against the league replay loop would
+    ## settle it. Everything gated on this constant moves together if it does.
+
+  EngagementWidthPx* = 2 * LethalEnvelopePx
+    ## The strip within which a moving player can actually KILL, not merely
+    ## see. `2 * lambda` (the awareness width) is 4x this, which is why any
+    ## encounter law computed on sightlines overstates lethal contact ~16x.
+
   StrafeWindowPx* = 2 * (PlayerHalf + int(BulletHalfWidth))
     ## 28 px. A shot's acceptance corridor is +-(PlayerHalf + BulletHalfWidth)
     ## = +-14 px, so 28 px of lateral displacement turns a locked-in hit into
@@ -320,19 +352,31 @@ const
     ## emits nothing longer than a 60 px stub, so it builds ZERO structural
     ## walls on any class.
 
-  ChokepointSpacingPx* = GunRange
+  ChokepointSpacingPx* = LethalEnvelopePx
     ## Two chokepoints are tactically distinct exactly when a defender holding
-    ## one cannot shoot into the other. REGIME-INVARIANT; the COUNT per route
-    ## is what a size class changes.
+    ## one cannot KILL into the other — which is `LethalEnvelopePx`, not
+    ## `GunRange`. This was 1050 and therefore about 4x too large, producing
+    ## about 4x too few chokepoints on every class. REGIME-INVARIANT; the COUNT
+    ## per route is what a size class changes.
 
-  MinPickupSpacingPx* = GunRange
-    ## Two pickups closer than a gun range are one pickup: a single camper
-    ## covers both. (Today's generator places its med-kit pair 211-448 px
+  MinPickupSpacingPx* = LethalEnvelopePx
+    ## Two pickups closer than this are one pickup: a single camper covers
+    ## both. COVERING is a lethality question, not an awareness one — a camper
+    ## who can see a second pickup but cannot hit anyone standing on it is not
+    ## covering it. (Today's generator places its med-kit pair 211-448 px
     ## apart on the standard board — inside one gun range. See the doc.)
 
   HubRadiusCapPx* = GunRange div 2
-    ## 525 px. A hub wider than this is two engagements, not one: players on
-    ## opposite rims cannot reach each other.
+    ## 525 px — deliberately still on the AWARENESS axis. A hub wider than this
+    ## is two engagements, not one: players on opposite rims cannot see each
+    ## other, so it stops being a single contested space.
+    ##
+    ## KNOWN TENSION, stated rather than resolved: the lethality reading of the
+    ## same rule would be `LethalEnvelopePx div 2` = 130 px, which is BELOW the
+    ## occupancy floor a 16-seat hub fight needs (215 px). The two criteria
+    ## disagree and there is no board on which both hold. Awareness wins here
+    ## because a hub is a place players converge on and read, and a 130 px hub
+    ## cannot physically hold the fight it exists to create.
 
   RecommendedCorridorWidthPx* = 2 * SoldierBodyPx
     ## 68 px — two DRAWN cog bodies abreast. `arena.MinCorridorWidth` is 26 px
@@ -854,3 +898,286 @@ func supportedSizeNames*(teamCount: int): seq[string] =
   for c in MapSizeClass:
     if mapRules(c, teamCount).supported:
       result.add c.sizeName()
+
+# ---------------------------------------------------------------------------
+# Population fit: how big a board a given (teamCount x unitsPerTeam) wants
+# ---------------------------------------------------------------------------
+#
+# The generator drew its size class UNIFORMLY over all five, and the team count
+# only ever chose the shell FAMILY. So a 1v1 landed on `giant` as often as on
+# `small`: 2,750,000 px^2 per player against the tuned board's 50,900, a factor
+# of 54.
+#
+# WHAT IS ACTUALLY TUNED. One configuration is known-good, having been played
+# and adjusted over many versions: 2 teams x 8 units on the standard board,
+# 1235 x 659 = 813,865 px^2. Everything below is anchored on it and nothing
+# else — a second "obvious" anchor would be a second assumption.
+#
+# WHY CONSTANT DENSITY IS WRONG. `A = 50,900 * P` puts a 1v1 on 101,733 px^2, a
+# 319 x 319 board — smaller in every dimension than the gun's 1050 px reach.
+# Two players there begin the match in range of each other and stay there:
+# there is no approach, no positioning and no map. The error is that constant
+# density has no floor, and the floor is set by the WEAPON, which does not care
+# how many people are holding one.
+#
+# THE LAW. Contact rate is kinetic: a player sweeping at `v_rel` with an
+# effective detection width `w` through `n_e` OPPONENTS spread over area `A`
+# meets one after
+#
+#     t_find = A / (n_e * w * v_rel)
+#
+# `n_e` is the count of ENEMIES, not the population — on 6 teams five sixths of
+# the field is hostile and on 2 teams only half is, and that difference is real.
+# So holding time-to-contact fixed gives `A ∝ n_e`, and the whole law is that
+# linear term hinged against the weapon floor:
+#
+#     A_target(n_e) = max( A_smallest_class , PxPerOpponent * n_e )
+#
+# with `PxPerOpponent` = 813,865 / 8 = 101,733 px^2 read straight off the tuned
+# configuration, and the floor being the smallest class we ship — the class
+# whose width DEFINED `GunRange` in the first place.
+#
+# THE EXPONENT, since a power law is the obvious thing to reach for and is the
+# wrong shape: the density term's exponent is exactly 1, the floor term's is
+# exactly 0, and the law is the hinge between them at `n_e` = 5.78 opponents.
+# Fitted as a power law across the realistic roster range (`n_e` 1..25) the
+# EFFECTIVE exponent is 0.455 — which is why "board area grows as roughly the
+# square root of headcount" is a decent slogan and a bad implementation. Below
+# six opponents the answer does not depend on population at all.
+#
+# COVER IS PART OF THE ANSWER, NOT A SEPARATE QUESTION. `w` is not a constant:
+# you detect at the distance terrain lets you see, so `w = 2 * lambda` with
+# `lambda = pi * m / phi` the mean free sightline. Substituting,
+#
+#     t_find = A * phi / (n_e * 2 * pi * m * v_rel)
+#
+# — time to contact is proportional to COVER FRACTION. A board that is bigger
+# than its population wants can buy the difference back by carrying LESS cover,
+# because longer sightlines find people sooner. That is the same conclusion the
+# visibility regimes reached from the other end (the range regime's cover band
+# is INVERTED and lower), and it is what makes an over-sized board recoverable
+# instead of merely sparse. It runs out when the compensation would take the
+# map under its own cover floor, and `coverCompensationSaturated` says when.
+
+const
+  TunedPlayfieldPx* = RectBaseWidth * RectBaseHeight   ## 813,865
+  TunedOpponents* = 8
+    ## The 2 x 8 standard board: the one configuration that has been played and
+    ## tuned rather than derived. `Red` faces 8 opponents.
+  PxPerOpponent* = TunedPlayfieldPx div TunedOpponents  ## 101,733 px^2
+
+  DetectionWidthPx* = EngagementWidthPx
+    ## The width of the strip a moving player effectively clears, on the
+    ## LETHALITY axis — `2 * LethalEnvelopePx`, not `2 * lambda`.
+    ##
+    ## Which axis this sits on is load-bearing, because every band below
+    ## compares the contact clock against ENGAGEMENT constants
+    ## (`FireCooldownTicks`, `RespawnTicks`, `TicksToKill`). Timing an
+    ## engagement clock against a SIGHTING event would be a category error and
+    ## would run ~4x fast: you can see a player at 1050 px and be unable to
+    ## kill them until 259.
+    ##
+    ## Note this does NOT disturb `PxPerOpponent`, which is read straight off
+    ## the tuned board and never touches a range constant. It sets the absolute
+    ## scale of `TunedContactTicks`, and therefore how wide the stress bands
+    ## are — the ratios themselves are unaffected.
+
+func relativeClosingRateNum(): float {.inline.} =
+  ## Two players on uncorrelated headings close at sqrt(2) times one speed.
+  sqrt(2.0) * float(MaxSpeed) / float(MotionScale)
+
+func contactTicks*(playfieldPx, opponents: int): float =
+  ## Expected ticks to first contact, kinetic estimate. Reported, not gated on.
+  if opponents <= 0: return Inf
+  float(playfieldPx) /
+    (float(opponents) * float(DetectionWidthPx) * relativeClosingRateNum())
+
+const
+  TunedContactTicks* = contactTicks(TunedPlayfieldPx, TunedOpponents)
+    ## ~24.9 ticks, about a second. This is what the shipped game feels like,
+    ## not a target anyone chose; every band below is a multiple of it.
+
+  DrawStressMin* = float(FireCooldownTicks) / TunedContactTicks       ## 0.48
+    ## Denser than this and contact arrives faster than one full shot cycle —
+    ## a permanent scrum in which position cannot be established.
+  DrawStressMax* = float(RespawnTicks) / TunedContactTicks            ## 2.89
+    ## Sparser than this and a player does not expect contact within one
+    ## respawn cycle, i.e. dying costs less than walking.
+  LegalStressMax* =
+    float(TicksToKill + RespawnTicks) / TunedContactTicks             ## 4.82
+    ## Where a configuration stops being a match at all. A player's loop is
+    ## spawn -> FIND -> fight -> die -> respawn, and every part of it except
+    ## the finding costs `TicksToKill + RespawnTicks` = 120 ticks. Once first
+    ## contact costs more than all the rest put together, over half of every
+    ## life is spent walking and the mode is a commute with occasional
+    ## shooting.
+    ##
+    ## Deliberately NOT derived from `MaxTicks`: 5000 is the safety cap, not a
+    ## match length (real games end around half of it), so a budget built on it
+    ## would be about twice as permissive as the game really is. The player
+    ## loop is made of constants that describe what a player actually does.
+
+type
+  PopulationVerdict* = enum
+    popGood         ## inside the draw band; the board fits the roster.
+    popStressed     ## outside the draw band but still playable.
+    popUnsupported  ## structurally broken — see `reason`.
+
+  PopulationFit* = object
+    ## What board one (teamCount x unitsPerTeam) configuration wants, and
+    ## whether it can have it. Resolve with `fitMapSize`.
+    teamCount*, unitsPerTeam*: int
+    population*, opponents*: int
+    family*: BoardFamily
+    targetPlayfieldPx*: int
+    floorBound*: bool
+      ## True when the weapon floor set the target rather than the population —
+      ## i.e. every roster under 6 opponents wants the same board.
+    separationClass*: MapSizeClass
+      ## Smallest class the TEAM COUNT allows (adjacent bases >= 1 gun range).
+    densityClass*: MapSizeClass
+      ## Class whose playfield is nearest the target, at or above the above.
+    sizeClass*: MapSizeClass          ## the resolved answer
+    legalClasses*: seq[MapSizeClass]  ## what the generator may draw from
+    densityStress*: float             ## resolved area / target area
+    contactTicks*: float
+    coverPermilleTarget*: int
+      ## The cover budget that restores tuned contact on the resolved board,
+      ## clamped into the class's own derived band.
+    coverCompensationSaturated*: bool
+      ## True when the clamp bound — the board is too big for its roster by
+      ## more than cover can pay back.
+    verdict*: PopulationVerdict
+    reason*: string                   ## empty when `popGood`
+
+func separationFloor*(teamCount: int): MapSizeClass =
+  ## The smallest class whose board keeps angularly adjacent bases at least one
+  ## gun range apart. A HARD constraint: below it, players are shot on the
+  ## spawn pad before they can act.
+  for c in MapSizeClass:
+    if mapRules(c, teamCount).supported:
+      return c
+  MapSizeClass.high
+
+func fitMapSize*(teamCount, unitsPerTeam: int): PopulationFit =
+  ## THE resolver. Board size for one game mode, from its roster.
+  ##
+  ## SEPARATION VS DENSITY, resolved explicitly because they genuinely
+  ## conflict: 6 teams need `giant` for base separation but 6 teams x 1 unit
+  ## wants `small` for density, a factor of 9.4 apart.
+  ##
+  ## **Separation wins, always.** The two failure modes are not comparable.
+  ## Violating separation produces a match that cannot be played — you are shot
+  ## on the pad, and no amount of skill or terrain recovers it. Violating
+  ## density produces a match that is merely sparse: still a valid game, just a
+  ## duller one, and one that cover compensation partly repairs. A hard
+  ## constraint beats a soft one.
+  ##
+  ## What we do NOT do is paper over it: when separation forces a board this
+  ## far past what the roster wants, the configuration is reported
+  ## `popStressed` or `popUnsupported` with the number attached, so the answer
+  ## is "6v1 FFA is a bad mode" rather than a quietly terrible map.
+  doAssert teamCount > 0 and unitsPerTeam > 0
+  result.teamCount = teamCount
+  result.unitsPerTeam = unitsPerTeam
+  result.population = teamCount * unitsPerTeam
+  result.opponents = (teamCount - 1) * unitsPerTeam
+  result.family = familyForTeams(teamCount)
+
+  result.separationClass = separationFloor(teamCount)
+  let floorPx = mszSmall.playfieldPx(result.family)
+  result.targetPlayfieldPx = max(floorPx, PxPerOpponent * result.opponents)
+  result.floorBound = PxPerOpponent * result.opponents <= floorPx
+
+  ## Nearest class AT OR ABOVE the separation floor.
+  var bestDelta = -1
+  for c in MapSizeClass:
+    if ord(c) < ord(result.separationClass):
+      continue
+    let delta = abs(c.playfieldPx(result.family) - result.targetPlayfieldPx)
+    if bestDelta < 0 or delta < bestDelta:
+      bestDelta = delta
+      result.densityClass = c
+  result.sizeClass =
+    if ord(result.densityClass) >= ord(result.separationClass):
+      result.densityClass
+    else:
+      result.separationClass
+
+  let resolvedPx = result.sizeClass.playfieldPx(result.family)
+  result.densityStress =
+    float(resolvedPx) / float(max(1, result.targetPlayfieldPx))
+  result.contactTicks = contactTicks(resolvedPx, result.opponents)
+
+  ## The draw set: every class at or above the separation floor whose stress
+  ## sits inside the band. Variety is worth keeping — this restricts the draw,
+  ## it does not collapse it to one answer.
+  for c in MapSizeClass:
+    if ord(c) < ord(result.separationClass):
+      continue
+    let stress =
+      float(c.playfieldPx(result.family)) / float(max(1, result.targetPlayfieldPx))
+    if stress >= DrawStressMin and stress <= DrawStressMax:
+      result.legalClasses.add c
+  if result.legalClasses.len == 0:
+    ## Nothing fits the band — the separation floor overshot it entirely. The
+    ## generator still has to produce a board, so it gets the single least-bad
+    ## one, and the verdict below says so.
+    result.legalClasses = @[result.sizeClass]
+
+  ## Cover compensation. `t_find` is proportional to cover fraction, so an
+  ## over-sized board buys contact back by carrying LESS cover. Clamped into
+  ## the class's own band; the clamp binding is itself the finding.
+  let rules = mapRules(result.sizeClass, teamCount)
+  let
+    midPermille = (rules.coverPermilleMin + rules.coverPermilleMax) div 2
+    wanted = int(round(float(midPermille) / max(0.001, result.densityStress)))
+  result.coverPermilleTarget =
+    clamp(wanted, rules.coverPermilleMin, rules.coverPermilleMax)
+  result.coverCompensationSaturated = wanted != result.coverPermilleTarget
+
+  ## Verdict.
+  result.verdict = popGood
+  if result.population > MaxPlayers:
+    result.verdict = popUnsupported
+    result.reason =
+      $result.population & " seats exceeds MaxPlayers = " & $MaxPlayers &
+        " (" & $teamCount & " teams tops out at " &
+        $(MaxPlayers div teamCount) & " units each)"
+  elif unitsPerTeam < 1:
+    result.verdict = popUnsupported
+    result.reason = "a team needs at least one unit"
+  elif result.densityStress > LegalStressMax:
+    result.verdict = popUnsupported
+    result.reason =
+      "board is " & formatFloat(result.densityStress, ffDecimal, 1) &
+        "x the area this roster wants; " & $teamCount &
+        " teams force the " & result.separationClass.sizeName() &
+        " class for base separation, and first contact would take " &
+        formatFloat(result.contactTicks / 24.0, ffDecimal, 1) &
+        " s, more than the fight and the respawn put together"
+  elif result.densityStress > DrawStressMax or
+      result.densityStress < DrawStressMin:
+    result.verdict = popStressed
+    result.reason =
+      "board is " & formatFloat(result.densityStress, ffDecimal, 2) &
+        "x the area this roster wants (comfortable band is " &
+        formatFloat(DrawStressMin, ffDecimal, 2) & ".." &
+        formatFloat(DrawStressMax, ffDecimal, 2) & ")"
+  if result.verdict == popGood and result.coverCompensationSaturated:
+    result.verdict = popStressed
+    result.reason =
+      "cover compensation saturated: the board wants " & $wanted &
+        " permille cover to restore tuned contact, outside the " &
+        result.sizeClass.sizeName() & " band of " &
+        $rules.coverPermilleMin & ".." & $rules.coverPermilleMax
+
+func fitMapSize*(teamCount: int): PopulationFit {.inline.} =
+  ## The shipping roster for a team count, when the caller does not know one.
+  fitMapSize(teamCount, max(1, nearestSeatPlan(teamCount) div teamCount))
+
+func legalSizeNames*(teamCount, unitsPerTeam: int): seq[string] =
+  ## The size classes the generator may draw from for one mode — what replaces
+  ## the uniform draw over all five in `arena.generateMapAttempt`.
+  for c in fitMapSize(teamCount, unitsPerTeam).legalClasses:
+    result.add c.sizeName()

@@ -243,6 +243,18 @@ structure pass:
 | huge | 4 | 5.1 | 78% |
 | giant | 2 | 2.7 | 74% |
 
+> **These 22-23% figures are PER CLASS and do NOT contradict the 47.3% in §1.**
+> They have already been relayed once as a correction to it, so, explicitly:
+> §1 is the AGGREGATE first-attempt rate over all five classes
+> (`tools/gen_validation_baseline.nim`, seeds 1000..1200, attempt 0); this
+> column is the PER-ATTEMPT rate for one class across all attempts. Weighting
+> this column by the uniform size draw gives ~51%, which is the same statement
+> as §1's 47.3%. 4-team validity is BIMODAL — dire on the two smallest classes,
+> fine on the three largest — and the aggregate hides that. Quote §1 when
+> asking "does the validator select at all"; quote this column when asking what
+> an attempt COSTS. Both were re-measured at `51d2b0e` and both still hold;
+> `nim c -d:release -r tools/gen_validation_baseline.nim` prints the aggregate.
+
 Small and standard 4-team boards spend a third to half of the 100-attempt
 budget to find K candidates; individual seeds hit 81 attempts. `selectBestMap`
 degrades correctly (it ships the best of however many it found), but the

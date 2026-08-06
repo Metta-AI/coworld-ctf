@@ -53,11 +53,23 @@ suite "procedural terrain":
       check gameMap.genSeed == seed
       check validateGeneratedMap(gameMap) == ""
       widths.add gameMap.width
-    ## The curated pool spans every size class, including the two oversize
-    ## ones (huge 2223, giant 3211 — the giant scale is the old "large"
-    ## ceiling doubled).
-    for w in [1050, 1235, 1606, 2223, 3211]:
-      check w in widths
+    ## The curated pool spans every size class the POOL'S OWN MODE can draw.
+    ##
+    ## That used to be all five, because the size draw was uniform and `teams`
+    ## chose only the shell family. It is now the classes whose area suits the
+    ## roster the pool is generated at — 2 teams at the shipping 8 per side,
+    ## for which `map_rules.legalSizeNames` is {small, standard}. A 16-player
+    ## match on a giant board is 6.8x the area that roster wants, and 22.7 s to
+    ## first contact at 6 teams x 1 was the reductio that motivated the change.
+    ##
+    ## Asserted against `legalSizeNames` rather than against a width list, so
+    ## this test cannot go stale the way the old literal list did.
+    let legal = legalSizeNames(2, fitMapSize(2).unitsPerTeam)
+    check legal.len >= 2
+    for name in legal:
+      check sizeClassOf(name).boardDims(boardRect2).width in widths
+    for w in widths:
+      check sizeClassOf(MapSizeClass(sizeClassOfWidth(w)).sizeName()).sizeName() in legal
 
   test "obstacle union is exact under the map's symmetry":
     for seed in [MapPoolSeeds[0], MapPoolSeeds[1], 777]:

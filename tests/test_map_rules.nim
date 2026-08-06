@@ -136,8 +136,8 @@ suite "tactical lengths are regime-invariant; counts are not":
       let r = mapRules(c, 2)
       check r.maxExposedRunPx == MaxExposedRunPx
       check r.wallSpanPx == WallSpanPx
-      check r.chokepointSpacingPx == GunRange
-      check r.minPickupSpacingPx == GunRange
+      check r.chokepointSpacingPx == LethalEnvelopePx
+      check r.minPickupSpacingPx == LethalEnvelopePx
       check r.gunRangePx == GunRange
       check r.visionRangePx == VisionRangePx
 
@@ -224,7 +224,9 @@ suite "routes: lanes, chokepoints, open runs":
     var counts: seq[int]
     for c in MapSizeClass:
       counts.add mapRules(c, 2).chokepointsPerRoute
-    check counts == @[1, 1, 2, 2, 3, 6]
+    # ~4x what they were: spacing moved from GunRange (a REACH) to
+    # LethalEnvelopePx (where a defender can actually kill into the next one).
+    check counts == @[4, 5, 6, 9, 12, 25]
 
 suite "trenches, pickups and the hub":
   test "the trench share rises as the regime opens up":
@@ -265,7 +267,9 @@ suite "trenches, pickups and the hub":
     # at (y1, H-1-y1), so the pair is 0.32H..0.68H apart — 211..448 px on the
     # standard board, well inside MinPickupSpacingPx. One camper covers both.
     let h = mszStandard.boardDims(boardRect2).height
-    check h * 68 div 100 < MinPickupSpacingPx
+    # The pair can be as close as 0.32H = 211 px, inside the 259 px envelope,
+    # so a single camper genuinely covers both on the tight end of the draw.
+    check h * 32 div 100 < MinPickupSpacingPx
 
   test "the hub is never wider than one engagement":
     for teams in [2, 3, 4, 6]:
@@ -433,3 +437,225 @@ suite "the two open decisions":
     # SoldierBodyPx = 34 against Source's 32-unit player is 1.06 px/unit, under
     # which TF2's 1024-unit medium-range cap lands within 4% of GunRange.
     check abs(1024 * SoldierBodyPx div 32 - GunRange) * 100 div GunRange <= 4
+
+suite "population fit: board area as a function of roster":
+  test "the law is anchored on the one tuned configuration":
+    check TunedPlayfieldPx == 1235 * 659
+    check TunedPlayfieldPx == 813865
+    check TunedOpponents == 8
+    check PxPerOpponent == TunedPlayfieldPx div TunedOpponents
+    check PxPerOpponent == 101733
+    # ...and it reproduces that configuration: 2 x 8 resolves to standard at
+    # stress 1.00. If this ever drifts, the anchor has moved.
+    let tuned = fitMapSize(2, 8)
+    check tuned.sizeClass == mszStandard
+    check abs(tuned.densityStress - 1.0) < 0.01
+    check tuned.verdict == popGood
+
+  test "constant density is refused: the weapon sets a floor":
+    # A = 50,900 * P would put a 1v1 on 101,733 px2 — a 319 px board, smaller
+    # in every dimension than the gun's own reach. The floor is why not.
+    check PxPerOpponent * 1 < mszSmall.playfieldPx(boardRect2)
+    let duel = fitMapSize(2, 1)
+    check duel.floorBound
+    check duel.targetPlayfieldPx == mszSmall.playfieldPx(boardRect2)
+    check duel.sizeClass == mszSmall          ## Maxwell's ask, directly
+    # Every roster under the hinge wants the same board, and the hinge is where
+    # the linear term overtakes the floor.
+    let hinge = mszSmall.playfieldPx(boardRect2) / PxPerOpponent
+    check hinge > 5.0 and hinge < 6.0
+    for units in 1 .. 4:
+      check fitMapSize(2, units).floorBound
+      check fitMapSize(2, units).sizeClass == mszSmall
+    check not fitMapSize(2, 8).floorBound
+
+  test "a 1v1 never lands on giant, which is the whole complaint":
+    let duel = fitMapSize(2, 1)
+    check mszGiant notin duel.legalClasses
+    check mszHuge notin duel.legalClasses
+    check duel.legalClasses == @[mszSmall, mszStandard]
+    # The old uniform draw offered all five.
+    check DrawableSizeNames.len == 5
+
+  test "the effective exponent is ~0.45, and the law is a hinge not a power":
+    # Quoted in the design doc, so pinned here: fitting A(n_e) as a power law
+    # over the realistic roster range gives ~0.45, but the true shape is a
+    # constant floor hinged to a linear term (exponents 0 and 1).
+    let
+      lo = float(fitMapSize(2, 1).targetPlayfieldPx)
+      hi = float(fitMapSize(6, 5).targetPlayfieldPx)
+      alpha = ln(hi / lo) / ln(25.0)
+    check alpha > 0.40 and alpha < 0.50
+
+  test "opponents drive the law, not population":
+    # 6 teams x 2 units and 2 teams x 2 units are both 4-and-12 players, but
+    # five sixths of a 6-team field is hostile and only half of a 2-team one is.
+    check fitMapSize(2, 6).opponents == 6
+    check fitMapSize(6, 2).opponents == 10
+    check fitMapSize(6, 2).population == 12
+    check fitMapSize(2, 6).population == 12
+    check fitMapSize(6, 2).targetPlayfieldPx >
+      fitMapSize(2, 6).targetPlayfieldPx
+
+  test "the roster cap is enforced, including Maxwell's own example":
+    # "FFA6 with 6 units each" is 36 seats and does not fit MaxPlayers = 32.
+    let over = fitMapSize(6, 6)
+    check over.population == 36
+    check over.population > MaxPlayers
+    check over.verdict == popUnsupported
+    check "MaxPlayers" in over.reason
+    check fitMapSize(6, 5).population == 30    ## the largest that does fit
+    check fitMapSize(6, 5).verdict != popUnsupported
+
+suite "population fit: separation versus density":
+  test "separation wins, and the resolved class is never below it":
+    for teams in [2, 3, 4, 6]:
+      for units in 1 .. (MaxPlayers div teams):
+        let f = fitMapSize(teams, units)
+        check ord(f.sizeClass) >= ord(f.separationClass)
+        for c in f.legalClasses:
+          check ord(c) >= ord(f.separationClass)
+
+  test "the conflict is reported with a number, never papered over":
+    # 6 teams are forced onto giant for base separation; 6 x 1 wants small.
+    let sparse = fitMapSize(6, 1)
+    check sparse.separationClass == mszGiant
+    check sparse.sizeClass == mszGiant
+    check sparse.densityStress > 9.0          ## 9.4x the area it wants
+    check sparse.verdict == popUnsupported
+    check sparse.reason.len > 0
+    check "separation" in sparse.reason
+
+  test "6-team FFA is only playable at a full roster":
+    # The resolution in one line: 6 teams work when you fill them.
+    # On the LETHALITY clock this is sharper than it first looked: 6-team FFA
+    # is viable only at a FULL 30-seat roster, and even that is stressed.
+    check fitMapSize(6, 1).verdict == popUnsupported
+    check fitMapSize(6, 2).verdict == popUnsupported
+    check fitMapSize(6, 4).verdict == popUnsupported
+    check fitMapSize(6, 5).verdict == popStressed
+    check fitMapSize(6, 5).densityStress < fitMapSize(6, 1).densityStress
+
+  test "3 teams inherit a milder version of the same conflict":
+    check fitMapSize(3, 4).separationClass == mszHuge
+    check fitMapSize(3, 4).verdict == popUnsupported
+    check fitMapSize(3, 8).verdict == popStressed
+    check fitMapSize(3, 8).densityStress < fitMapSize(3, 4).densityStress
+
+  test "the legality ceiling is the player's own loop, not the tick cap":
+    check LegalStressMax ==
+      float(TicksToKill + RespawnTicks) / TunedContactTicks
+    check LegalStressMax > 2.0 and LegalStressMax < 3.0
+    # MaxTicks is a safety cap, not a match length; building the budget on it
+    # would be about twice as permissive.
+    check (float(MaxTicks) / float(Lives)) / 4.0 / TunedContactTicks >
+      2.0 * LegalStressMax
+
+suite "population fit: cover is part of the answer":
+  test "an over-sized board compensates with LESS cover, not more":
+    # t_find is proportional to cover fraction, so longer sightlines find
+    # people sooner. Same conclusion the range regime reached from the other
+    # end, which is the consistency check that matters.
+    let
+      tuned = fitMapSize(2, 8)
+      stretched = fitMapSize(6, 4)
+      stretchedBand = mapRules(stretched.sizeClass, 6)
+    check stretched.densityStress > tuned.densityStress
+    check stretched.coverPermilleTarget <= stretchedBand.coverPermilleMax
+    check stretched.coverPermilleTarget >= stretchedBand.coverPermilleMin
+    # A board LARGER than its roster wants sits at the bottom of its band...
+    check stretched.coverPermilleTarget == stretchedBand.coverPermilleMin
+    # ...and a board SMALLER than its roster wants sits above the middle.
+    let crowded = fitMapSize(2, 10)
+    let crowdedBand = mapRules(crowded.sizeClass, 2)
+    check crowded.densityStress < 1.0
+    check crowded.coverPermilleTarget >
+      (crowdedBand.coverPermilleMin + crowdedBand.coverPermilleMax) div 2
+
+  test "saturation is reported when cover cannot pay the difference back":
+    check fitMapSize(6, 4).coverCompensationSaturated
+    check not fitMapSize(2, 8).coverCompensationSaturated
+    # And saturation alone is enough to stop calling a config good.
+    check fitMapSize(6, 4).verdict != popGood
+
+  test "the target cover always lands inside the class's own derived band":
+    for teams in [2, 3, 4, 6]:
+      for units in 1 .. (MaxPlayers div teams):
+        let
+          f = fitMapSize(teams, units)
+          band = mapRules(f.sizeClass, teams)
+        check f.coverPermilleTarget >= band.coverPermilleMin
+        check f.coverPermilleTarget <= band.coverPermilleMax
+
+suite "population fit: the generator's draw set":
+  test "the default rosters restrict the draw and drop the absurd classes":
+    check legalSizeNames(2, 8) == @["small", "standard"]
+    check legalSizeNames(4, 4) == @["small", "standard", "large"]
+    for teams in [2, 4]:
+      check legalSizeNames(teams, fitMapSize(teams).unitsPerTeam).len <
+        DrawableSizeNames.len
+
+  test "a draw set is never empty, even for a broken configuration":
+    for teams in [2, 3, 4, 6]:
+      for units in 1 .. (MaxPlayers div teams):
+        check legalSizeNames(teams, units).len >= 1
+
+  test "bigger rosters move the draw set upward, monotonically":
+    var lowest: seq[int]
+    for units in [1, 4, 8, 12, 16]:
+      lowest.add ord(fitMapSize(2, units).legalClasses[0])
+    for i in 1 ..< lowest.len:
+      check lowest[i] >= lowest[i - 1]
+
+  test "the shipping default agrees with the seat plans":
+    check fitMapSize(2).unitsPerTeam == 8      ## nearestSeatPlan(2) = 16
+    check fitMapSize(4).unitsPerTeam == 4      ## nearestSeatPlan(4) = 16
+
+suite "the two axes: awareness versus lethality":
+  ## `GunRange` is a REACH, not an engagement range. Aim is 32 discrete slots
+  ## and there is no aim assist, so beyond `14 / tan(5.625 deg)` = 142 px the
+  ## lattice — not the jitter — decides whether a shot connects. Every derived
+  ## number has to say which axis it lives on, because the two differ by 4x in
+  ## distance and 16x in area.
+  test "the lethal envelope is where the aim lattice puts it":
+    check AimRotations == 32
+    check abs(AimHalfSlotDeg - 5.625) < 1e-9
+    # R_slot: inside this a centred body cannot be missed by the lattice.
+    let rSlot = float(PlayerHalf + int(BulletHalfWidth)) /
+      tan(degToRad(AimHalfSlotDeg))
+    check abs(rSlot - 142.0) < 1.0
+    # The envelope itself is where field accuracy is actually achieved...
+    let pHit = radToDeg(arctan(
+      float(PlayerHalf + int(BulletHalfWidth)) / float(LethalEnvelopePx))) /
+      AimHalfSlotDeg
+    check abs(pHit - float(FieldAccuracyPct) / 100.0) < 0.01
+    # ...and it independently agrees with the shipped grenade reach to ~1%.
+    check abs(LethalEnvelopePx - GrenadeMaxRange) * 100 div GrenadeMaxRange <= 2
+    # The jitter is an order of magnitude smaller than the half-slot, which is
+    # why the LATTICE is what sets the envelope.
+    check LethalEnvelopePx < GunRange div 3
+
+  test "lethality quantities use the envelope, awareness ones use the range":
+    let r = mapRules(mszStandard, 2)
+    # Lethality: can a defender KILL into the next one / onto that pickup?
+    check r.chokepointSpacingPx == LethalEnvelopePx
+    check r.minPickupSpacingPx == LethalEnvelopePx
+    # Awareness: how far can anyone SEE? The regimes, the sightline band and
+    # the cover budget that follows from it are all sightline questions and
+    # keep the vision constants.
+    check r.visionRangePx == VisionRangePx
+    check r.meanFreeSightlineMaxPx == GunRange
+    check r.maxOpenRunPx == GunRange
+    check ConeAreaPx > 0
+
+  test "an encounter law on sightlines would overstate lethal contact ~16x":
+    # The reason this distinction had to be made explicit: areas, not lengths.
+    let ratio = (GunRange * GunRange) div
+      (LethalEnvelopePx * LethalEnvelopePx)
+    check ratio >= 12 and ratio <= 17
+
+  test "the exposed run survives the axis change":
+    # 132 px stands because TicksToKill = 48 corresponds to an engagement at
+    # ~237 px, which is inside the envelope rather than out at the reach.
+    check MaxExposedRunPx == 132
+    check MaxExposedRunPx < LethalEnvelopePx

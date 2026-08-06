@@ -21,16 +21,26 @@ import std/[os, strutils, strformat], ../src/ctf/[sim, map_metrics]
 const
   PoolSize = 20
   SizeQuota: array[MapSizeClass, int] = [
-    4,   ## small
-    5,   ## standard
-    4,   ## large
-    4,   ## huge
-    3,   ## giant
-    0,   ## colossal — override-only, never drawn, so never pooled.
+    10,  ## small
+    10,  ## standard
+    0,   ## large     — unreachable for this pool, see below
+    0,   ## huge      — unreachable
+    0,   ## giant     — unreachable
+    0,   ## colossal  — override-only, never drawn, so never pooled.
   ]
-    ## Keyed by the canonical class enum, not by a positional index into a
-    ## list of width literals. Adding a class to `map_rules.MapSizeClassTable`
-    ## adds a row here as a compile error rather than a runtime raise.
+    ## Keyed by the canonical class enum, not by a positional index into a list
+    ## of width literals, so adding a class to `map_rules.MapSizeClassTable`
+    ## shows up here as a compile error rather than a runtime raise.
+    ##
+    ## The three largest rows are 0 because they are now UNREACHABLE, not
+    ## because they are unwanted. This pool is generated 2-team at the shipping
+    ## roster, and `map_rules.legalSizeNames(2, 8)` is {small, standard} — a
+    ## 16-player match on a giant board is 6.8x the area that roster wants.
+    ## The old quota (4/5/4/4/3) asked for eleven maps the generator can no
+    ## longer draw, which is not a slow scan, it is an infinite one.
+    ##
+    ## If a future mode wants big boards in the pool, give it its OWN pool at
+    ## its own roster rather than widening this one back out.
   ShapeQuota = [10, 5, 5]      ## column, disc, square.
 
 proc shapeIndex(gameMap: CtfMap): int =

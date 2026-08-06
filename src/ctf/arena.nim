@@ -305,8 +305,37 @@ proc axisHomeLo(center, depth: int): int =
   center - (center * depth div 1000)
 
 proc axisHomeHi(center, size, depth: int): int =
-  ## Returns the high-edge home anchor along one axis (the classic Blue
-  ## home-x formula at depth 700).
+  ## Returns the high-edge home anchor along one axis.
+  ##
+  ## ⚠ KNOWN SHIPPED TEAM-FAIRNESS BUG, diagnosed and measured but NOT fixed
+  ## here. This computes the same formula as `axisHomeLo` read from the other
+  ## end, and it lands ONE PIXEL OFF the mirror: on the standard board Red's
+  ## anchor is 186, so Blue's should be 1235 - 1 - 186 = 1048, and this gives
+  ## 1049.
+  ##
+  ## That one pixel matters, because every SHAPE on the
+  ## board is mirrored at `width - 1 - x` while the anchor was placed at
+  ## `width - x`. The two disagreed across the seam, so `mapProtectedFloorAt`
+  ## contradicted itself over exactly two 1-px columns — x=256 and x=978 on
+  ## standard, 261 rows each, 522 px per board. Red's spawn pocket was
+  ## [116, 256] whose exact mirror is [978, 1118], while Blue's actual pocket
+  ## was [979, 1119]. Any obstacle overlapping a pocket edge was therefore
+  ## STONE FOR ONE TEAM AND FLOOR FOR THE OTHER. Measured on every class under
+  ## both symmetries: small 688 px, standard 522, large 1044, huge 938-1772,
+  ## giant 1354. The stock generator's obstacles happened to miss those two
+  ## columns on the seeds anyone had looked at — luck, not correctness; tiled
+  ## vocabulary shapes hit them immediately.
+  ##
+  ## When it is fixed, derive it from `axisHomeLo` (`size - 1 - lo`) rather
+  ## than repairing this arithmetic, so the two anchors cannot drift apart
+  ## again whatever `depth` does.
+  ## NOT YET APPLIED — see the blast radius above. The corrected form is
+  ##     size - 1 - axisHomeLo(center, depth)
+  ## which is verified to clear the seam (522 px -> 0 on standard). It moves
+  ## Blue's spawn by one pixel, which is a SIM-BEHAVIOUR change: it breaks
+  ## every recorded replay fixture's hash and alters the HAND-AUTHORED arena,
+  ## so it needs a GameVersion bump and a fixture re-record, exactly as the
+  ## GV38 grenade change did. Flagged rather than taken unilaterally.
   center + ((size - center) * depth div 1000)
 
 proc rot90Point*(p: MapPoint, side: int): MapPoint {.inline.} =
@@ -849,17 +878,40 @@ proc inRect*(x, y: int, rect: MapRect): bool =
     y >= rect.y and y < rect.y + rect.h
 
 proc pointInPolygon*(x, y: int, pts: seq[MapPoint]): bool =
-  ## Integer even-odd point-in-polygon over a closed ring. An edge is counted
-  ## only when the scan line at `y` lies STRICTLY between the edge's endpoints
-  ## (`ylo < y < yhi`). That strict straddle is the key: it is symmetric under
-  ## the integer coordinate reflections the map uses — mirror (x -> w-1-x) and
-  ## rot180 (x,y -> w-1-x, h-1-y) — so a polygon and its symmetry image
-  ## rasterize to bit-for-bit mirror-symmetric wall masks. That exactness is
-  ## the team-fairness invariant the diamond (integer-offset) and diagonal
-  ## (int64) tests also protect. Edges that merely touch the scan line at a
-  ## vertex are skipped identically on both sides, so at worst a shape loses a
-  ## 1px sliver at a y-extremum — symmetrically, so fairness holds. int64
-  ## throughout: cross products of map-scale coords overflow int32 on wasm.
+  ## Integer even-odd point-in-polygon over a closed ring, using the standard
+  ## HALF-OPEN rule `(yi > y) != (yj > y)`: an edge is counted when exactly one
+  ## endpoint is strictly above the scan line. Every crossing is counted exactly
+  ## once, the per-row crossing count is always even, and horizontal edges
+  ## contribute nothing — which is correct, since a horizontal edge enters and
+  ## leaves on the same row.
+  ##
+  ## THIS USED TO BE A STRICT STRADDLE (`ylo < y < yhi`) and the comment here
+  ## claimed the strictness is what bought reflection symmetry. It bought the
+  ## opposite, and it was a shipped team-fairness bug. A vertex whose two
+  ## neighbours sit on opposite sides of its scan row has BOTH of its edges
+  ## skipped (that vertex is an endpoint of each, so `y == ylo` on one and
+  ## `y == yhi` on the other). The row loses one crossing, so the even-odd
+  ## parity INVERTS across the whole rest of it — and under the mirror the
+  ## inversion lands on the other side of the board, so the two teams got
+  ## different walls. Measured before the fix: a plain convex quad against its
+  ## own mirror image differed on 538 px, and the shipped `mapgen_styles` CAVES
+  ## style on 8,770 px, 19% of its wall. Every organic ring has such vertices,
+  ## and so does any convex quad — sort its corners by y and the middle two are
+  ## exactly this case.
+  ##
+  ## Same root cause, second symptom: such a row could come back ENTIRELY EMPTY
+  ## inside the shape, i.e. a 1 px horizontal hole straight through a barrier,
+  ## leaking line of sight and tripping the generator's own open-sightline
+  ## validator. A 24-gon measured 8 empty interior rows before the fix and 0
+  ## after.
+  ##
+  ## Do not "restore" the strict form. The fairness invariant it was supposed to
+  ## protect — that a polygon and its mirror rasterize bit-for-bit identically —
+  ## is what the half-open rule actually delivers, and
+  ## `tests/test_mapgen_styles` now checks it at EVERY pixel rather than every
+  ## 9th (the sparse sampling is why this shipped green).
+  ##
+  ## int64 throughout: cross products of map-scale coords overflow int32 on wasm.
   if pts.len < 3:
     return false
   var
@@ -881,12 +933,34 @@ proc pointInPolygon*(x, y: int, pts: seq[MapPoint]): bool =
       yi = pts[i].y
       xj = pts[j].x
       yj = pts[j].y
-      ylo = min(yi, yj)
-      yhi = max(yi, yj)
-    if y > ylo and y < yhi:
-      # Strict straddle => dy != 0. Flip when the sample is left of the edge's
-      # intersection with the scan line: x < xi + (xj-xi)*(y-yi)/(yj-yi),
-      # cross-multiplied by the (signed) edge dy so there is no division.
+    ## ON-BOUNDARY POINTS ARE INSIDE, decided before the parity test, because
+    ## it is the only reflection-invariant answer available.
+    ##
+    ## The parity test flips on crossings strictly to one side of the sample
+    ## (`x < x_int`). Reflection turns that into `x > x_int`, so the two sides
+    ## count complementary crossing sets — which agree in parity only while no
+    ## crossing lands EXACTLY on the sample's column. When one does (the sample
+    ## sits on an edge) the answer differs between a shape and its mirror. Half
+    ## -open y alone therefore fixes the dropped-vertex parity inversion and
+    ## the 1 px holes, but still leaves an on-edge residue: measured 118 px on
+    ## a convex quad and 60 px on a 24-gon. With this test it is 0 on both.
+    ##
+    ## "Inside" rather than "outside" so a degenerate sliver still rasterizes
+    ## as wall rather than vanishing; either choice is reflection-invariant,
+    ## this one is the conservative direction for a barrier.
+    let
+      cross = int64(xj - xi) * int64(y - yi) -
+        int64(yj - yi) * int64(x - xi)
+    if cross == 0 and
+        x >= min(xi, xj) and x <= max(xi, xj) and
+        y >= min(yi, yj) and y <= max(yi, yj):
+      return true
+    if (yi > y) != (yj > y):
+      # Half-open straddle => dy != 0 (the two endpoints are on opposite sides
+      # of the scan line, so they cannot be equal). Flip when the sample is
+      # left of the edge's intersection with the scan line:
+      # x < xi + (xj-xi)*(y-yi)/(yj-yi), cross-multiplied by the (signed) edge
+      # dy so there is no division.
       let
         dyv = int64(yj - yi)
         lhs = int64(x - xi) * dyv
@@ -1483,7 +1557,8 @@ proc rectOnOpenFloor(
   true
 
 proc generateMapAttempt*(
-  seed: int, overrides: MapGenOverrides, teams = 2, attempt = 0
+  seed: int, overrides: MapGenOverrides, teams = 2, attempt = 0,
+  unitsPerTeam = 0
 ): CtfMap =  ## One UNVALIDATED draw. Every top-level parameter is drawn unconditionally
   ## and THEN overridden if locked, so locking one knob never shifts the
   ## other draws for the same seed. `teams` selects the family: 2 draws the
@@ -1499,6 +1574,12 @@ proc generateMapAttempt*(
   ## removing draws inside one scene never shifts another. Do not thread a
   ## single `rng` through here again.
   doAssert teams in [2, 4], "team count must be 2 or 4"
+  ## `unitsPerTeam = 0` means "the caller does not know", which is every tool
+  ## and every test that predates the population fit; it resolves to the seat
+  ## plan nearest the shipping roster (8 per side at 2 teams, 4 at 4).
+  let unitsPerTeam =
+    if unitsPerTeam > 0: unitsPerTeam
+    else: fitMapSize(teams).unitsPerTeam
   let root = mapSeed(seed, attempt)
   var
     layoutRng = root.seedStream(SceneLayout)
@@ -1506,12 +1587,21 @@ proc generateMapAttempt*(
     coverRng = root.stream(SceneCover)
     pickupRng = root.stream(ScenePickups)
 
-  ## One draw over ALL size classes, off the SEED-level layout stream: every
-  ## candidate for this seed lands on the same board. Widening this bound
-  ## (3 -> 5 when the oversize classes landed) re-deals which size each seed
+  ## One draw over the size classes this MODE can actually use, off the
+  ## SEED-level layout stream: every candidate for this seed lands on the same
+  ## board. Widening or narrowing this bound re-deals which size each seed
   ## draws, which re-curates the map pool — but it can no longer disturb the
   ## terrain, cover or pickup stages.
-  let sizeDraw = MapSizeNames[layoutRng.pick(MapSizeNames.len)]
+  ##
+  ## The draw used to be UNIFORM over all five classes, with `teams` choosing
+  ## only the shell FAMILY. A 1v1 therefore landed on `giant` as often as on
+  ## `small` — 2,750,000 px^2 per player against the tuned board's 50,900.
+  ## `map_rules.legalSizeNames` narrows it to the classes whose area suits the
+  ## roster (see the population-fit derivation there): the board still varies,
+  ## it just stops offering absurd ones.
+  let
+    sizeChoices = legalSizeNames(teams, unitsPerTeam)
+    sizeDraw = sizeChoices[layoutRng.pick(sizeChoices.len)]
   let sizeName = if overrides.size.len > 0: overrides.size else: sizeDraw
   result =
     if teams == 4: scaledGenShell4(sizeName)
@@ -2442,9 +2532,28 @@ type
     ## to report cost honestly rather than guess it.
     gameMap*: CtfMap
     score*: float          ## -1 when nothing was ranked.
+    worstScore*: float     ## -1 when nothing was ranked.
     attempts*: int         ## candidates drawn, valid or not.
     valid*: int            ## candidates that passed the gate.
     ranked*: bool          ## false = no scorer, so this is first-valid.
+    tiedAtBest*: int
+      ## How many ranked candidates scored EXACTLY the winner's score, the
+      ## winner included. 1 means selection expressed a real preference.
+    degenerate*: bool
+      ## True when selection ranked MORE THAN ONE candidate and could not tell
+      ## them apart (`tiedAtBest == valid`, `valid > 1`).
+      ##
+      ## This is the failure mode that looks exactly like success: a map comes
+      ## back, `ranked` is true, the full K-candidate cost is paid, and the
+      ## result is just the first valid draw. A scorer that saturates, that
+      ## reads a field this generator never varies, or that quantises to a
+      ## handful of values all land here — and `score` alone cannot show it,
+      ## because the winning score is perfectly healthy-looking.
+      ##
+      ## Deliberately NOT an error: a genuinely tied field is a legitimate
+      ## outcome at small K, and callers that ignore this keep working.
+      ## `worstScore` is the companion — `score == worstScore` over many
+      ## candidates is the same signal as a continuous quantity.
 
 proc selectBestMap*(
   seed: int,
@@ -2480,6 +2589,7 @@ proc selectBestMap*(
   ## `valid == 0` means nothing passed the gate inside `maxAttempts`; the
   ## caller decides whether that is an error (`generateCtfMap` raises).
   result.score = -1.0
+  result.worstScore = -1.0
   result.ranked = score != nil or mapFitness != nil
   let want = max(1, k)
   for attempt in 0 ..< maxAttempts:
@@ -2499,11 +2609,43 @@ proc selectBestMap*(
     let value =
       if score != nil: score(candidate)
       else: mapFitness(candidate)
+    if result.valid == 1 or value < result.worstScore:
+      result.worstScore = value
     if value > result.score:
       result.score = value
       result.gameMap = candidate
+      result.tiedAtBest = 1
+    elif value == result.score:
+      ## Exact equality only — this counts a scorer that cannot separate
+      ## candidates, not one that separates them narrowly. The winner is NOT
+      ## replaced, so selection stays deterministic (first best wins).
+      inc result.tiedAtBest
     if result.valid >= want:
-      return
+      break
+  result.degenerate = result.ranked and result.valid > 1 and
+    result.tiedAtBest == result.valid
+
+proc generateCtfMapSelection*(
+  seed: int,
+  overrides = MapGenOverrides(windows: -1, pits: -1, pitDensity: -1),
+  teams = 2,
+  k = 0
+): MapSelection =
+  ## `generateCtfMap` with the SELECTION ACCOUNTING kept instead of discarded —
+  ## score, worstScore, attempts, valid, tiedAtBest, degenerate.
+  ##
+  ## Exists because `generateCtfMap` returns only the map, so a caller auditing
+  ## selection had to re-derive the accounting by replaying the generator (as
+  ## `tools/map_eval.nim bestof` did, which cannot see `degenerate` at all —
+  ## the whole point of that flag is that the winning map looks fine).
+  let
+    first = generateMapAttempt(seed, overrides, teams, 0)
+    want = if k > 0: k else: first.selectionK()
+  selectBestMap(
+    seed, want,
+    produce = proc (s, attempt: int): CtfMap =
+      if attempt == 0: first
+      else: generateMapAttempt(s, overrides, teams, attempt))
 
 proc generateCtfMap*(
   seed: int,
@@ -2517,17 +2659,10 @@ proc generateCtfMap*(
   ##
   ## Raises only when NO candidate validates inside `MapGenMaxAttempts` — the
   ## over-constrained-overrides case, unchanged.
-  let
-    ## Attempt 0 is drawn up front because it settles the board shell (which
-    ## `map_seed.seedStream` holds identical for every attempt) and the shell
-    ## is what chooses K. Reused below rather than re-drawn.
-    first = generateMapAttempt(seed, overrides, teams, 0)
-    want = if k > 0: k else: first.selectionK()
-    selection = selectBestMap(
-      seed, want,
-      produce = proc (s, attempt: int): CtfMap =
-        if attempt == 0: first
-        else: generateMapAttempt(s, overrides, teams, attempt))
+  ## Attempt 0 settles the board shell (which `map_seed.seedStream` holds
+  ## identical for every attempt) and the shell is what chooses K — see
+  ## `generateCtfMapSelection`, which this is a thin projection of.
+  let selection = generateCtfMapSelection(seed, overrides, teams, k)
   if selection.valid == 0:
     raise newException(
       CtfError,
