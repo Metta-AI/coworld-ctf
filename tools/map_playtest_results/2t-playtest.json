@@ -1,0 +1,261 @@
+{
+ "arena": {
+  "map": "arena",
+  "episodes": 3,
+  "ticks": 6054,
+  "episodeTicks": [
+   1941,
+   1941,
+   2172
+  ],
+  "episodeCaptures": [
+   0,
+   0,
+   0
+  ],
+  "episodeSteals": [
+   2,
+   2,
+   1
+  ],
+  "deadPct": 0.4211292200232829,
+  "biggestDead": 308,
+  "biggestDeadPx2": 30800,
+  "openCells": 6872,
+  "visitedCells": 3978,
+  "exposure": 10.152357392316647,
+  "isControl": true,
+  "deaths": 129,
+  "spread": 210.30064868842348,
+  "kills": [
+   59,
+   70
+  ],
+  "balanceEntropy": 0.9947485647372365,
+  "pace": 21.308225966303272,
+  "fightTimeFrac": 0.9996273309730962,
+  "closeContactFrac": 0.46294093195923575,
+  "measuredTicks": 6054,
+  "tickCapped": false,
+  "steals": 5,
+  "captures": 0,
+  "capturesInZone": 0,
+  "conversion": 0.0,
+  "decidedFrac": 0.0,
+  "pedestalsReached": 2,
+  "pedestals": 2,
+  "pedestalEnemyTicks": 372,
+  "pedestalEnemyShare": 0.005332033769547207,
+  "pedestalRingPx": 70,
+  "episodeOutcomes": [
+   "elimination",
+   "elimination",
+   "elimination"
+  ],
+  "wonByCapture": 0,
+  "wonByElimination": 3,
+  "timedOut": 0,
+  "carrierInZoneTicks": 0,
+  "carrierInZonePer1000t": 0.0,
+  "teams": 2,
+  "heatmap": "/tmp/mapgal/2t/heat-arena.png",
+  "flags": [
+   "5 steals converted to ZERO captures. The carrier stood in its own capture zone on 0 tick(s) \u2014 if that is also 0 the objective was never reached; if it is large the carrier reached it and could not score, which is a RULES or BOT question before it is a map question"
+  ]
+ },
+ "gen:1006": {
+  "map": "gen:1006",
+  "episodes": 3,
+  "ticks": 14395,
+  "episodeTicks": [
+   5121,
+   5121,
+   4153
+  ],
+  "episodeCaptures": [
+   0,
+   0,
+   1
+  ],
+  "episodeSteals": [
+   2,
+   1,
+   2
+  ],
+  "deadPct": 0.578252671275927,
+  "biggestDead": 1008,
+  "biggestDeadPx2": 100800,
+  "openCells": 4773,
+  "visitedCells": 2013,
+  "exposure": 26.85564634401844,
+  "isControl": false,
+  "deaths": 107,
+  "spread": 253.92824547004926,
+  "kills": [
+   65,
+   41
+  ],
+  "balanceEntropy": 0.9626983787500768,
+  "pace": 7.3636679402570335,
+  "fightTimeFrac": 0.9999687943705045,
+  "closeContactFrac": 0.5938743349300214,
+  "measuredTicks": 14395,
+  "tickCapped": false,
+  "steals": 5,
+  "captures": 1,
+  "capturesInZone": 1,
+  "conversion": 0.2,
+  "decidedFrac": 0.3333333333333333,
+  "pedestalsReached": 2,
+  "pedestals": 2,
+  "pedestalEnemyTicks": 10872,
+  "pedestalEnemyShare": 0.0848169009689348,
+  "pedestalRingPx": 60,
+  "episodeOutcomes": [
+   "timeLimit",
+   "timeLimit",
+   "capture"
+  ],
+  "wonByCapture": 1,
+  "wonByElimination": 0,
+  "timedOut": 2,
+  "carrierInZoneTicks": 0,
+  "carrierInZonePer1000t": 0.0,
+  "teams": 2,
+  "heatmap": "/tmp/mapgal/2t/heat-gen-1006.png",
+  "flags": [
+   "58% dead floor vs the control's 42%, but exposure differs 2.65x (26.9 vs 10.2 alive seat-ticks per open cell) \u2014 NOT comparable, re-run both at the same seats and tick budget"
+  ]
+ },
+ "gen:1023": {
+  "map": "gen:1023",
+  "episodes": 3,
+  "ticks": 10613,
+  "episodeTicks": [
+   3599,
+   1893,
+   5121
+  ],
+  "episodeCaptures": [
+   0,
+   0,
+   0
+  ],
+  "episodeSteals": [
+   0,
+   0,
+   0
+  ],
+  "deadPct": 0.6068262411347518,
+  "biggestDead": 2938,
+  "biggestDeadPx2": 293800,
+  "openCells": 6768,
+  "visitedCells": 2661,
+  "exposure": 13.015366430260046,
+  "isControl": false,
+  "deaths": 130,
+  "spread": 191.8101213771627,
+  "kills": [
+   70,
+   60
+  ],
+  "balanceEntropy": 0.9957274520849257,
+  "pace": 12.249128427400358,
+  "fightTimeFrac": 0.9998637725910453,
+  "closeContactFrac": 0.45320588502406683,
+  "measuredTicks": 10613,
+  "tickCapped": false,
+  "steals": 0,
+  "captures": 0,
+  "capturesInZone": 0,
+  "conversion": null,
+  "decidedFrac": 0.0,
+  "pedestalsReached": 2,
+  "pedestals": 2,
+  "pedestalEnemyTicks": 187,
+  "pedestalEnemyShare": 0.002122877122877123,
+  "pedestalRingPx": 70,
+  "episodeOutcomes": [
+   "elimination",
+   "elimination",
+   "timeLimit"
+  ],
+  "wonByCapture": 0,
+  "wonByElimination": 2,
+  "timedOut": 1,
+  "carrierInZoneTicks": 0,
+  "carrierInZonePer1000t": 0.0,
+  "teams": 2,
+  "heatmap": "/tmp/mapgal/2t/heat-gen-1023.png",
+  "flags": [
+   "61% of open floor never visited against the control's 42% at 1.28x the same exposure \u2014 this map's geometry is decoration in a way the arena's is not",
+   "one unvisited region of ~293,800px\u00b2 \u2014 a whole wing nobody played",
+   "ZERO steals in 3 episode(s). An enemy stood inside 2/2 = 100% of the pedestal rings, for 0.212% of alive time (187 seat-ticks) \u2014 near 0 the objective was never approached, and no conversion number from this map means anything"
+  ]
+ },
+ "gen:1024": {
+  "map": "gen:1024",
+  "episodes": 3,
+  "ticks": 8170,
+  "episodeTicks": [
+   2649,
+   2768,
+   2753
+  ],
+  "episodeCaptures": [
+   0,
+   0,
+   0
+  ],
+  "episodeSteals": [
+   0,
+   0,
+   0
+  ],
+  "deadPct": 0.49848576620230167,
+  "biggestDead": 1379,
+  "biggestDeadPx2": 137900,
+  "openCells": 4953,
+  "visitedCells": 2484,
+  "exposure": 14.814253987482333,
+  "isControl": false,
+  "deaths": 135,
+  "spread": 121.055939409813,
+  "kills": [
+   58,
+   77
+  ],
+  "balanceEntropy": 0.98566403148856,
+  "pace": 16.523867809057528,
+  "fightTimeFrac": 0.9924224872231686,
+  "closeContactFrac": 0.40590119250425893,
+  "measuredTicks": 8170,
+  "tickCapped": false,
+  "steals": 0,
+  "captures": 0,
+  "capturesInZone": 0,
+  "conversion": null,
+  "decidedFrac": 0.0,
+  "pedestalsReached": 1,
+  "pedestals": 2,
+  "pedestalEnemyTicks": 12,
+  "pedestalEnemyShare": 0.0001635434412265758,
+  "pedestalRingPx": 60,
+  "episodeOutcomes": [
+   "elimination",
+   "elimination",
+   "elimination"
+  ],
+  "wonByCapture": 0,
+  "wonByElimination": 3,
+  "timedOut": 0,
+  "carrierInZoneTicks": 0,
+  "carrierInZonePer1000t": 0.0,
+  "teams": 2,
+  "heatmap": "/tmp/mapgal/2t/heat-gen-1024.png",
+  "flags": [
+   "50% dead floor vs the control's 42%, but exposure differs 1.46x (14.8 vs 10.2 alive seat-ticks per open cell) \u2014 NOT comparable, re-run both at the same seats and tick budget",
+   "ZERO steals in 3 episode(s). An enemy stood inside 1/2 = 50% of the pedestal rings, for 0.016% of alive time (12 seat-ticks) \u2014 near 0 the objective was never approached, and no conversion number from this map means anything"
+  ]
+ }
+}

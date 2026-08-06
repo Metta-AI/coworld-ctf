@@ -1,0 +1,98 @@
+
+=== arena  (3 episode(s), 6054 ticks total)
+    ep0:  1941t, 2 steal(s) -> 0 capture(s), won by wipeout
+    ep1:  1941t, 2 steal(s) -> 0 capture(s), won by wipeout
+    ep2:  2172t, 0 steal(s) -> 0 capture(s), won by wipeout
+    dead space 43% of open floor (3947/6872 cells visited; largest unvisited region 30,800px²)  [CONTROL — the reference, never the verdict]
+    exposure 9.9 alive seat-ticks per open cell (68,224 seat-ticks over 6,872 cells)
+    125 deaths, spread 209px
+    kills [58, 67]  balance 1.00  pace 22.0 kills/1000t  contact 100% in gun range / 46% within 262px
+    objective: 4 steals -> 0 captures (0 verified in zone) = 0% conversion, carrier in zone 0t (0.0 per 1000t)
+    how they ended: 0/3 0% on the objective, 3/3 100% by wipeout, 0/3 0% out of clock
+    heatmap /tmp/mapgal/2t-capped/heat-arena.png
+    FLAG: 4 steals converted to ZERO captures. The carrier stood in its own capture zone on 0 tick(s) — if that is also 0 the objective was never reached; if it is large the carrier reached it and could not score, which is a RULES or BOT question before it is a map question
+
+=== gen:1006  (3 episode(s), 14395 ticks total)
+    ep0:  5121t, 1 steal(s) -> 0 capture(s), ran out the clock, nobody won
+    ep1:  5121t, 0 steal(s) -> 0 capture(s), ran out the clock, nobody won
+    ep2:  4153t, 1 steal(s) -> 0 capture(s), WON ON THE OBJECTIVE
+    dead space 62% of open floor (1818/4773 cells visited; largest unvisited region 102,800px²)
+    exposure 13.6 alive seat-ticks per open cell (64,768 seat-ticks over 4,773 cells)
+    102 deaths, spread 254px
+    kills [63, 39]  balance 0.96  pace 18.0 kills/1000t  contact 100% in gun range / 60% within 262px
+    objective: 2 steals -> 0 captures (0 verified in zone) = 0% conversion, carrier in zone 0t (0.0 per 1000t)
+    how they ended: 1/3 33% on the objective, 0/3 0% by wipeout, 2/3 67% out of clock
+    heatmap /tmp/mapgal/2t-capped/heat-gen-1006.png
+    FLAG: 62% of open floor never visited against the control's 43% at 1.37x the same exposure — this map's geometry is decoration in a way the arena's is not
+    FLAG: one unvisited region of ~102,800px² — a whole wing nobody played
+    FLAG: 2 steals converted to ZERO captures. The carrier stood in its own capture zone on 0 tick(s) — if that is also 0 the objective was never reached; if it is large the carrier reached it and could not score, which is a RULES or BOT question before it is a map question
+
+=== gen:1023  (3 episode(s), 10613 ticks total)
+    ep0:  3599t, 0 steal(s) -> 0 capture(s), won by wipeout
+    ep1:  1893t, 0 steal(s) -> 0 capture(s), won by wipeout
+    ep2:  5121t, 0 steal(s) -> 0 capture(s), ran out the clock, nobody won
+    dead space 62% of open floor (2597/6768 cells visited; largest unvisited region 293,900px²)
+    exposure 10.3 alive seat-ticks per open cell (69,624 seat-ticks over 6,768 cells)
+    121 deaths, spread 178px
+    kills [68, 53]  balance 0.99  pace 21.3 kills/1000t  contact 100% in gun range / 54% within 262px
+    objective: 0 steals -> 0 captures (0 verified in zone) = - conversion, carrier in zone 0t (0.0 per 1000t)
+    how they ended: 0/3 0% on the objective, 2/3 67% by wipeout, 1/3 33% out of clock
+    heatmap /tmp/mapgal/2t-capped/heat-gen-1023.png
+    FLAG: 62% of open floor never visited against the control's 43% at 1.04x the same exposure — this map's geometry is decoration in a way the arena's is not
+    FLAG: one unvisited region of ~293,900px² — a whole wing nobody played
+    FLAG: ZERO steals in 3 episode(s). An enemy stood inside 2/2 = 100% of the pedestal rings, for 0.201% of alive time (140 seat-ticks) — near 0 the objective was never approached, and no conversion number from this map means anything
+
+=== gen:1024  (3 episode(s), 8170 ticks total)
+    ep0:  2649t, 0 steal(s) -> 0 capture(s), won by wipeout
+    ep1:  2768t, 0 steal(s) -> 0 capture(s), won by wipeout
+    ep2:  2753t, 0 steal(s) -> 0 capture(s), won by wipeout
+    dead space 51% of open floor (2442/4953 cells visited; largest unvisited region 137,900px²)
+    exposure 13.4 alive seat-ticks per open cell (66,204 seat-ticks over 4,953 cells)
+    122 deaths, spread 117px
+    kills [53, 69]  balance 0.99  pace 21.5 kills/1000t  contact 100% in gun range / 43% within 262px
+    objective: 0 steals -> 0 captures (0 verified in zone) = - conversion, carrier in zone 0t (0.0 per 1000t)
+    how they ended: 0/3 0% on the objective, 3/3 100% by wipeout, 0/3 0% out of clock
+    heatmap /tmp/mapgal/2t-capped/heat-gen-1024.png
+    FLAG: one unvisited region of ~137,900px² — a whole wing nobody played
+    FLAG: ZERO steals in 3 episode(s). An enemy stood inside 0/2 = 0% of the pedestal rings, for 0.000% of alive time (0 seat-ticks) — near 0 the objective was never approached, and no conversion number from this map means anything
+
+========================================================================================================
+ONE-PAGE COMPARISON — generated vs arena, per metric
+  MEASURED OVER A CAPPED WINDOW (1890t per episode). Dead space, contact and pace are comparable
+  here and only here. Steals, captures and conversion are TRUNCATED to the window — read those off the uncapped run.
+                                         arena*           gen:1006           gen:1023           gen:1024
+                                        CONTROL                                                         
+  teams                                       2                  2                  2                  2
+  episodes                                    3                  3                  3                  3
+  episode lengths             1941t 1941t 2172t  5121t 5121t 4153t  3599t 1893t 5121t  2649t 2768t 2753t
+  won on the objective                   0/3 0%            1/3 33%             0/3 0%             0/3 0%
+  won by wipeout                       3/3 100%             0/3 0%            2/3 67%           3/3 100%
+  out of clock, no winner                0/3 0%            2/3 67%            1/3 33%             0/3 0%
+
+  open floor (10px cells)                 6,872              4,773              6,768              4,953
+  visited                         3947/6872 57%      1818/4773 38%      2597/6768 38%      2442/4953 49%
+  DEAD SPACE                                43%                62%                62%                51%
+  largest dead region                 30,800px²         102,800px²         293,900px²         137,900px²
+  exposure (seat-t/cell)                    9.9               13.6               10.3               13.4
+
+  pedestals enemy reached              2/2 100%           2/2 100%           2/2 100%             0/2 0%
+  enemy time at pedestal             318 0.466%         842 1.300%         140 0.201%           0 0.000%
+  pedestal ring radius                     70px               60px               70px               60px
+  steals                                      4                  2                  0                  0
+  captures                                    0                  0                  0                  0
+  CONVERSION grab->cap                       0%                 0%                  -                  -
+  carrier in zone /1000t                    0.0                0.0                0.0                0.0
+
+  deaths                                    125                102                121                122
+  kills/1000t                              22.0               18.0               21.3               21.5
+  contact, gun range                       100%               100%               100%               100%
+  contact, close                            46%                60%                54%                43%
+  balance entropy                          1.00               0.96               0.99               0.99
+
+  DELTA FROM THE CONTROL  (generated - arena; pp = percentage points)
+    gen:1006     dead floor +19pp   conversion +0pp   decided +33pp   exposure 1.37x
+    gen:1023     dead floor +19pp   conversion n/a (no steals)   decided +0pp   exposure 1.04x
+    gen:1024     dead floor +8pp   conversion n/a (no steals)   decided +0pp   exposure 1.35x
+  Exposure outside 0.70..1.40x makes the dead-space delta beside it NOT comparable — see the per-map FLAG lines above.
+
+wrote /tmp/mapgal/2t-capped/playtest.json + heat-<map>.png
