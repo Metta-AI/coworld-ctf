@@ -7,13 +7,64 @@ _2026-08-05. Everything below is on branch `maxwell/mapgen-rebuild` in the workt
 
 ## If you are picking this up now, read this line first
 
-The generator IS wired (commits `68c32d0..f4fe6a8`) and it is NOT landed: the
-suite has 37 failures, ~32 of them 4-team tests that die on a generator RAISE
-before their assertions run. The ordered plan is
-**`docs/plans/2026-08-05-land-the-generator-epic.md`** (harness epic `3757029c`),
-which has the lane structure, the one blocking task, and what has already been
-tried and cost. Everything below this section is the state as of the rewrite and
-is still accurate as background.
+**A generated map can score 1.000 — tying the hand-authored control exactly — and be a map where
+the enemy heart is never taken.** That is measured, not feared: `gen:1023`, three full episodes,
+0 steals against the arena's 5, 62% of its floor never entered. Combat is at parity on it. The
+fight works and the objective does not, and every instrument this project had said the map was
+perfect.
+
+So the 2026-08-05 headline below ("fifty generated maps are still one map") is now the SECOND
+problem. The first is that we were steering by a number that does not measure whether a map plays.
+
+The generator IS wired (commits `68c32d0..f4fe6a8`) and it is NOT landed. The ordered plan is
+**`docs/plans/2026-08-05-land-the-generator-epic.md`** (harness epic `3757029c`), which has the
+lane structure, the one blocking task, and what has already been tried and cost. Everything
+below this section is the state as of the rewrite and is still accurate as background.
+
+### What 2026-08-06 proved wrong
+
+This document has been kept honest by leading with the failure, and by recording when a standing
+diagnosis turns out to be false. Two were already retired that way: the "50 minute suite" was 7.1
+minutes plus fleet load, and the lane blocker was not `shapeRowSpan`. **Three more went the same
+way in one day, and all three are one species of error — a mechanism believed active and measured
+inert.**
+
+1. **The 4-team raise was never a connectivity problem.** Every failing seed fails "too clogged",
+   not routing, and cover is FLAT (178/178/174/178/178pm) across a 2.2x fill-density range. The
+   density sweep — the generator's designed escape valve — is clamped inert by `FillFloorPermille`
+   on every 4-team attempt. The task's own fix direction (wire `burrow.nim`) would have repaired
+   the second gate while the first still rejected every candidate.
+   → `2026-08-06-fill-budget-floor-finding.md`
+2. **`bandHard` never rejected.** `routeCountMin` was the only band ever marked hard and NOTHING
+   read the field, so a 4-team corridor with ONE vertex-disjoint route scored 0.736 and could win
+   a best-of-K draw. Correcting it takes 4-team validity 11/16 (68%) → 8/16 (50%). Every 4-team
+   number recorded before that correction is optimistic.
+   → `2026-08-06-two-rulers.md`
+3. **`interiorFrac`, the epic's own acceptance criterion, ranks maps BACKWARDS.** Over 210
+   episodes on 41 maps it correlates **+0.638 with dead floor** (p<0.001), and maps passing the
+   ≥0.30 gate average 0.615 dead floor against 0.542 for maps that FAIL it. The arena passes the
+   criterion at 0.342, so enclosure is not the cause — our way of producing it is.
+   → `2026-08-06-acceptance-criterion-retarget.md`
+
+The cheap detector was identical in all three cases: **make the mechanism prove it fires**, by
+measuring the thing it is supposed to change, against a control you did not touch. None needed a
+rewrite to find. All three read correctly in the source.
+
+### One diagnosis that was NOT wrong, and is worse than written
+
+"Fifty generated maps are still one map" is fully confirmed, and at 4 teams it is worse than
+anyone had recorded: **ten seeds render one map with empty blocks**, visible at a glance. That is
+not a diversity nicety — it is the fill floor again. With the fill pinned to its minimum and the
+street grid deterministic, almost nothing seed-dependent survives into the geometry. Empty blocks,
+`interiorFrac` 0.095, seed collapse and "too clogged at the sparsest fill" are four separately
+filed problems with one cause.
+→ `2026-08-06-sheet-4team-before.md`
+
+At 2 teams the sheet passes every numeric criterion (20/20 valid, mean staticScore 0.957, mean
+`interiorFrac` 0.300) and is still twenty skins of one map, with the same centre plaza on 20/20
+tiles. **The "all the same shape" complaint has been treated throughout this epic as a 4-team
+problem. It is equally true at 2 teams**, on the branch that passes everything.
+→ `2026-08-06-sheet-2team-verdict.md`
 
 ## Start here
 
