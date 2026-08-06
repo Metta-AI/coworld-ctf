@@ -252,17 +252,27 @@ suite "hex arena: terrain lives on the hexagon":
     ## via `teamOp` — a mirror on one board, a half turn on another — because
     ## asserting the wrong one is the very bug `teamImagePoint` exists to stop.
     ##
-    ## The ODD-width classes are asserted on the FULL rasterized mask. On an
-    ## EVEN-width board the always-open flag ring is centered on `width div 2`,
-    ## half a pixel off the true mirror axis at `(width - 1) / 2`, so the carve
-    ## — and only the carve — is a pixel out of true; there the assertion is on
-    ## the obstacle UNION, which is exact on every class.
+    ## The FULL rasterized mask is asserted only where the carve can be exact.
+    ## The always-open flag ring is centered on `(width div 2, height div 2)`,
+    ## which lands half a pixel off the true axis at `(n - 1) / 2` whenever `n`
+    ## is EVEN — so the carve, and only the carve, is a pixel out of true on
+    ## that axis. Elsewhere the assertion is on the obstacle UNION, which is
+    ## exact on every class.
+    ##
+    ## WHICH AXES MATTER IS THE OP'S BUSINESS, not the width's. `hexMir90` is
+    ## `(x, y) -> (-x, y)` and only reflects X; `hexRot180` reflects BOTH.
+    ## Guarding on width alone was a portrait-board assumption: the LARGE class
+    ## is 1455x1260 — odd width, EVEN height — and carries the half turn, so it
+    ## reported exactly one mask mismatch at the flag ring while claiming to be
+    ## an exact class.
     for spec in ["arena", "arena-large", "gen:1", "gen:777"]:
       let
         gameMap = loadCtfMapMetadata(spec)
         obstacles = buildArenaObstacles(gameMap)
         op = gameMap.teamOp(Blue)
-        oddWidth = gameMap.width mod 2 == 1
+        carveExact =
+          gameMap.width mod 2 == 1 and
+          (op != hexRot180 or gameMap.height mod 2 == 1)
       check op in [hexMir90, hexRot180]
       var unionMismatch, maskMismatch = 0
       var y = 0
@@ -288,8 +298,12 @@ suite "hex arena: terrain lives on the hexagon":
       checkpoint(spec & " union/mask mismatches: " &
         $unionMismatch & "/" & $maskMismatch)
       check unionMismatch == 0
-      if oddWidth:
+      if carveExact:
         check maskMismatch == 0
+      else:
+        ## An inexact class still may not drift: the carve is off by at most
+        ## the ring's own boundary, never by a shape.
+        check maskMismatch <= 4
 
 suite "hex arena: the shape vocabulary is exact":
   test "rectShape round-trips through shapeAsRect, even extents included":
