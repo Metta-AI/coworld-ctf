@@ -88,6 +88,30 @@ jobs:
         # only fits wasm32 because oversize boards emit at 1x (see
         # MaxSupersampledMapPixels). Re-record on GameVersion bumps with:
         #   tools/record_colossal_demo.sh <out> 4242 1500 16
+        #
+        # BLOCKED SINCE GV38 (hex arena), and this job is red until it is
+        # fixed. The shipped file is a GameVersion 37 recording of the old
+        # 4992x4992 RECTANGLE ("layout":"corners", "endzone":"column" — tokens
+        # GV38 deleted) and no longer loads: "Replay game version does not
+        # match". It cannot be re-recorded, for two independent reasons:
+        #
+        #   1. FOUR TEAMS. `generateMapAttempt` raises "Hex Stage 2 generates
+        #      2-team maps only; 4 teams needs the cube-space orbit rasterizer
+        #      (Stage 2b)". Asserted deliberately in tests/test_mapgen.nim.
+        #   2. THE REPLAY STRING LIMIT, which two teams would not dodge. A
+        #      replay pins its resolved geometry as `mapSpec` inside the config
+        #      JSON, and bitworld's replay format length-prefixes a string with
+        #      a uint16 — 65535 bytes. The colossal hexagon (5819x5039) draws
+        #      769 obstacle shapes, whose mapSpec ALONE measures 67387 bytes
+        #      (68217 with the config around it). Measured per class: giant
+        #      16875, huge 10015, large 4178 — so only colossal is over, but it
+        #      is over by 4% before a single seat is added, which no team or
+        #      seat count can claw back.
+        #
+        # Fixing it means either a shape budget for the colossal class or a
+        # uint32 length prefix in bitworld's replay strings (a wire change).
+        # Until then this canary does not run, and wasm32's 2GB ceiling is
+        # untested at the top size class.
         run: |
           fail=0
           for replay in tests/replays/ctf.bitreplay \
