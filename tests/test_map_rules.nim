@@ -214,6 +214,27 @@ suite "routes: lanes, chokepoints, open runs":
         check r.laneCount >= 3
         check r.lanePitchPx == r.laneWidthPx + r.coverSizePx
 
+  test "the separator thins on a small board and never below legibility":
+    # A separator's thickness is a DENSITY, not a tactical length: the network
+    # costs `(laneCount + 1) * thick * halfTraverse * duty` out of a
+    # `crossSection * halfTraverse` domain, so the traverse cancels and its
+    # share of the board is set by the CROSS-SECTION alone. Held constant at
+    # the engine's free-space minimum it took the small class over the cover
+    # ceiling on structure ALONE — 132 permille of the half-domain against 113
+    # on standard, with no attempt in 100 landing under the 170 ceiling.
+    check mapRules(mszSmall, 2).laneSeparatorThickPx < BaseSeparatorThickPx
+    # ...but every class the budget was never tight on is left EXACTLY alone.
+    for c in [mszStandard, mszLarge, mszHuge, mszGiant, mszColossal]:
+      check mapRules(c, 2).laneSeparatorThickPx == BaseSeparatorThickPx
+    # The floor is LEGIBILITY, not physics — a 13 px footprint moving
+    # 2.75 px/tick cannot cross a wall of any positive thickness, and
+    # `lineOfSightClear` samples one pixel at a time, so no shot tunnels one.
+    for teams in [2, 4]:
+      for c in MapSizeClass:
+        let t = mapRules(c, teams).laneSeparatorThickPx
+        check t >= MinSeparatorThickPx
+        check t <= BaseSeparatorThickPx
+
   test "the max open run ramps from the gun range to the vision range":
     check mapRules(mszStandard, 2).maxOpenRunPx == GunRange
     check mapRules(mszColossal, 2).maxOpenRunPx == VisionRangePx

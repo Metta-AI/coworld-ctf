@@ -1180,9 +1180,7 @@ proc planLanes*(
     # the board shrank, which is what put the small class over the cover
     # ceiling on structure alone. `map_rules` scales it by
     # `crossSection / (laneCount + 1)`; standard is unchanged at 26.
-    thick =
-      when defined(abNoSepScale): EngineMinCorridorPx
-      else: rules.laneSeparatorThickPx
+    thick = rules.laneSeparatorThickPx
     jogAmp = rules.coverSizePx div 2
   result.sepThickPx = thick
   result.laneStartX = x0
@@ -1296,17 +1294,18 @@ proc planLanes*(
     # on 3 of 3 carved seeds, in bands sitting exactly on the un-gated and
     # single-gated lanes.
     #
-    # `chokepointsPerRoute` is a count PER ROUTE, and a route is this lane
-    # PLUS its mirror on the far side of the seam — so a half-field lane is
-    # entitled to half of it. Spending the whole figure here put twice the
-    # intended number of chokepoints on every full route, and gate shoulders
-    # are not free: they measured 52 permille of the small half-domain, 40% of
-    # its entire structural cost, against a budget the class was already over.
+    # NOTE (measured, left alone deliberately): `chokepointsPerRoute` is a
+    # count PER ROUTE and a route is this lane PLUS its mirror across the
+    # seam, so spending the whole figure in one half puts twice the intended
+    # chokepoints on every full route. Halving it here does cut structure —
+    # gate shoulders are 52 of the small class's 132 permille — but it is a
+    # net LOSS: measured over 20 seeds it took median interiorFrac 0.293 ->
+    # 0.267, because a gate shoulder is exactly the kind of architecture the
+    # enclosure metric is looking for. It also moves every class, and the
+    # classes above small are not in trouble. Filed as its own task instead.
     let want =
       case lane.role
-      of laneFlank:
-        when defined(abNoGateHalve): max(2, rules.chokepointsPerRoute)
-        else: max(2, (rules.chokepointsPerRoute + 1) div 2)
+      of laneFlank: max(2, rules.chokepointsPerRoute)
       of laneMid: 2
       of laneFast: 2
     # Gate x positions are STAGGERED per lane and aligned to the middle of a

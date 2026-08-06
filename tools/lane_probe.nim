@@ -73,8 +73,8 @@ proc sheet(count, teams: int) =
       let
         gm = generateCtfMap(seed, teams = teams)
         m = evaluateMap(gm, "gen")
-      line &= &"{gm.width}x{gm.height} " &
-        &"{(if m.valid: \"OK  \" else: \"FAIL\")} " &
+      line &= &"{gm.width}x{gm.height} {gm.symmetry} {gm.layout} " &
+        &"{gm.endzone} {(if m.valid: \"OK  \" else: \"FAIL\")} " &
         &"cover={m.coverPermille}pm int={m.interiorFrac:.3f} " &
         &"routes={m.routeCountMin}..{m.routeCountMax} " &
         &"score={m.staticScore():.3f}"

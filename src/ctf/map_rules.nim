@@ -369,7 +369,7 @@ const
     ##
     ## So unlike `wallSpanPx`, `maxExposedRunPx` and `chokepointSpacingPx`,
     ## which are regime-invariant because every input to them is fixed, this
-    ## one must SCALE. `separatorThickPx` below is the derivation.
+    ## one must SCALE. `MapRules.laneSeparatorThickPx` is the derivation.
 
   MinSeparatorThickPx* = 12
     ## The legibility floor. `map_lanes.laneSeparatorShapes` has clamped its
