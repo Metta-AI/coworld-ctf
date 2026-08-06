@@ -615,3 +615,173 @@ Produced by the module itself (`mapRules` over every class x team count).
   rather than derived, it lives in one place, and halving it doubles
   `maxExposedRunPx` and `wallSpanPx`. Everything else follows from
   `sim_types`.
+
+---
+
+# Addendum, 2026-08-05: population fit, and the two axes
+
+Three things landed after the original write-up, and two of them change numbers
+above rather than merely adding to them.
+
+## A1. `GunRange` is a REACH, not an engagement range
+
+Aim is exactly `AimRotations` = 32 slots, 11.25 deg apart, and the sim
+reconstructs `aimBrads = slot * AimStepBrads` every tick, so an off-grid angle
+cannot persist. There is no aim assist anywhere in the sim. A shot is accepted
+against the 13 px SOLID body within `BulletHalfWidth` = 8, so the angular
+acceptance is `atan(14/t)` against a half-slot of 5.625 deg — and the jitter
+sigma of 0.596 deg is **9.4x smaller than the half-slot**, so the LATTICE
+decides, not the jitter.
+
+    R_slot = 14 / tan(5.625 deg) = 142 px      (below this, a centred body
+                                                cannot be missed)
+    P(hit) ~= atan(14/t) / 5.625 deg           0.47 at 300 px, 0.14 at 1050 px
+
+Three independent constants converge on one envelope, which is why this is a
+constant and not a guess:
+
+| evidence | implies |
+|---|---|
+| `FieldAccuracyPct` = 55 is achieved at | **259 px** |
+| `GrenadeMaxRange` = `GunRange div 4` | 262 px (agrees to 1.1%) |
+| observed 1.0-1.9 s TTK band | 142-225 px |
+
+So `LethalEnvelopePx = 259`, and **every derived number now declares which
+axis it lives on**:
+
+- **Awareness** (what you can SEE) — `coneCoverage`, the visibility regimes,
+  the mean-free-sightline band and the entire cover budget that follows from
+  it. UNCHANGED. Sightlines were always the right clock for cover, which is
+  why the retro-validation against the shipped 40/170 band still holds.
+- **Lethality** (what you can KILL) — chokepoint spacing, pickup spacing, and
+  the contact clock the population law is banded against.
+
+Moved: `ChokepointSpacingPx` 1050 -> 259, which was ~4x too large and produced
+~4x too few chokepoints (per-route counts go 1/1/2/2/3/6 -> 4/5/6/9/12/25).
+`MinPickupSpacingPx` likewise, since COVERING a pickup is a lethality question.
+`MaxExposedRunPx` = 132 survives, because `TicksToKill` = 48 corresponds to a
+~237 px engagement — inside the envelope, not out at the reach.
+
+`HubRadiusCapPx` stays on the awareness axis, with the tension **stated rather
+than resolved**: the lethality reading gives 130 px, below the 215 px occupancy
+floor a 16-seat hub fight needs. No board satisfies both.
+
+**Open dependency, flagged in the constant itself:** no hit-rate-versus-range
+measurement from the field has been taken. Everything gated on
+`LethalEnvelopePx` moves together if one is.
+
+## A2. Board area as a function of roster
+
+Size was drawn UNIFORMLY over all five classes and `teams` chose only the shell
+FAMILY, so a 1v1 landed on giant as often as on small — 2,750,000 px^2 per
+player against the tuned board's 50,900, a factor of **54**.
+
+**The anchor.** One configuration is known-good because it has been played and
+tuned over many versions: 2 teams x 8 units on 1235x659 = 813,865 px^2.
+Everything derives from it and nothing else.
+
+**Why constant density is wrong.** `A = 50,900 * P` puts a 1v1 on 101,733 px^2
+— a 319 px board, smaller in every dimension than the gun's own reach. Constant
+density has no floor, and the floor is set by the WEAPON, which does not care
+how many people are holding one.
+
+**The law.** Contact is kinetic, `t_find = A / (n_e * w * v_rel)`, so holding
+time-to-contact fixed gives `A` proportional to `n_e` — the count of
+OPPONENTS, not of players, because five sixths of a 6-team field is hostile and
+only half of a 2-team one is. Hinged against the floor:
+
+    A_target(n_e) = max( smallest class , 101,733 * n_e )
+
+**The exponent.** The density term's exponent is exactly 1, the floor term's is
+exactly 0, and the law is the hinge between them at **5.78 opponents**. Fitted
+as a power law across the realistic roster range it comes out **0.455** — so
+"board area grows as the square root of headcount" is a decent slogan and a bad
+implementation, because below six opponents the answer does not depend on
+population at all.
+
+**Cover is part of the answer.** `w` is not a constant: you engage at the
+distance terrain allows, so substituting `lambda = pi*m/phi` gives
+`t_find ∝ A * phi`. Time to contact is proportional to COVER FRACTION, so an
+over-sized board buys contact back by carrying LESS cover — the same conclusion
+the visibility regimes reached from the other end. `coverPermilleTarget` is
+emitted clamped into the class band, with `coverCompensationSaturated` when the
+board is too big for its roster by more than cover can repay.
+
+## A3. Separation versus density, resolved
+
+| | |
+|---|---|
+| Separation | a HARD lower bound from team count (6 teams need giant) |
+| Density | a SOFT target from population (6x1 wants small) |
+| They differ by | **9.4x** at 6 teams x 1 unit |
+
+**Separation wins, always** — the failure modes are not comparable. Violating
+separation means being shot on the spawn pad, which no skill or terrain
+recovers. Violating density means a sparse but valid match, which cover
+compensation partly repairs. A hard constraint beats a soft one.
+
+It is then **reported, not papered over**. Bands, all derived from the player's
+own loop rather than from `MaxTicks` (5000 is a safety cap, not a match length):
+
+    draw band     [FireCooldownTicks, RespawnTicks] / t_tuned = [0.24, 1.43]
+    legality      (TicksToKill + RespawnTicks) / t_tuned      =  2.38
+
+i.e. a configuration stops being a match once first contact costs more than the
+fight and the respawn put together.
+
+### The legality matrix
+
+| mode | P | opponents | resolved | stress | contact | verdict |
+|---|---|---|---|---|---|---|
+| 2 x 1 | 2 | 1 | small | 1.00 | 12.2 s | good (floor-bound) |
+| 2 x 4 | 8 | 4 | small | 1.00 | 3.0 s | good |
+| 2 x 8 | 16 | 8 | **standard** | **1.00** | 2.1 s | good — reproduces the anchor |
+| 2 x 16 | 32 | 16 | large | 0.85 | 1.8 s | good |
+| 3 x 5 | 15 | 10 | huge | 2.59 | 5.4 s | UNSUPPORTED |
+| 3 x 8 | 24 | 16 | huge | 1.62 | 3.4 s | stressed |
+| 4 x 4 | 16 | 12 | standard | 0.75 | 1.6 s | good |
+| 4 x 8 | 32 | 24 | huge | 1.22 | 2.6 s | good |
+| 6 x 1 | 6 | 5 | giant | **9.37** | 22.7 s | UNSUPPORTED |
+| 6 x 4 | 24 | 20 | giant | 2.70 | 5.7 s | UNSUPPORTED |
+| 6 x 5 | 30 | 25 | giant | 2.16 | 4.5 s | stressed |
+| 6 x 6 | 36 | 30 | — | — | — | UNSUPPORTED (over `MaxPlayers`) |
+
+Conclusions that fall out rather than being asserted:
+
+- **A 1v1 gets `small`**, and its draw set is {small, standard}. Directly
+  Maxwell's ask.
+- **6-team FFA is viable only at a FULL 30-seat roster**, and even that is
+  stressed. 6x1, 6x2 and 6x4 are all unsupported.
+- **3-team FFA needs 8 units per side**, not 5.
+- **"FFA6 with 6 units each" does not fit `MaxPlayers` = 32** — it is 36 seats.
+  6 teams top out at 5 each.
+
+## A4. Wiring, and the churn
+
+`generateMapAttempt` gained `unitsPerTeam` (0 = "caller does not know",
+resolving to the seat plan nearest the shipping roster) and draws its size from
+`legalSizeNames(teams, unitsPerTeam)` instead of uniformly over five.
+
+Measured churn on `tests/fixtures/map-validation-baseline.tsv`:
+
+| | before | after |
+|---|---|---|
+| rows differing | — | **161 / 402 (40.0%)** |
+| verdicts flipped | — | 113 |
+| 2-team first-attempt pass | 92.0% | **79.1%** |
+| 4-team first-attempt pass | 47.3% | **36.8%** |
+
+**The pass rate DROPS, and that is expected rather than a regression.** The
+draw now concentrates on the smaller classes, and per section 5 those are
+exactly the ones the column generator is worst at (22-23% per attempt at 4
+teams, against 58-78% on the three largest). Best-of-K absorbs it —
+`MapSelectionK` is already 12 for small and 8 for standard — but attempt cost
+rises, and this is a direct message to the structure pass: **the classes real
+rosters actually want are the classes today's generator handles worst.**
+
+The curated pool was re-generated (41 seeds scanned, 0 rejected, mean
+`staticScore` 0.947) and is now 10 small + 10 standard. `SizeQuota`'s three
+largest rows are 0 because those classes are now UNREACHABLE for a 2-team
+pool at the shipping roster — the old 4/5/4/4/3 asked for eleven maps the
+generator can no longer draw, which is an infinite scan, not a slow one.
+`docs/pool-review.html` and the 20 `PoolRenderHashes` were regenerated with it.

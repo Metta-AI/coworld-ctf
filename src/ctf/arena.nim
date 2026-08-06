@@ -1557,7 +1557,8 @@ proc rectOnOpenFloor(
   true
 
 proc generateMapAttempt*(
-  seed: int, overrides: MapGenOverrides, teams = 2, attempt = 0
+  seed: int, overrides: MapGenOverrides, teams = 2, attempt = 0,
+  unitsPerTeam = 0
 ): CtfMap =  ## One UNVALIDATED draw. Every top-level parameter is drawn unconditionally
   ## and THEN overridden if locked, so locking one knob never shifts the
   ## other draws for the same seed. `teams` selects the family: 2 draws the
@@ -1573,6 +1574,12 @@ proc generateMapAttempt*(
   ## removing draws inside one scene never shifts another. Do not thread a
   ## single `rng` through here again.
   doAssert teams in [2, 4], "team count must be 2 or 4"
+  ## `unitsPerTeam = 0` means "the caller does not know", which is every tool
+  ## and every test that predates the population fit; it resolves to the seat
+  ## plan nearest the shipping roster (8 per side at 2 teams, 4 at 4).
+  let unitsPerTeam =
+    if unitsPerTeam > 0: unitsPerTeam
+    else: fitMapSize(teams).unitsPerTeam
   let root = mapSeed(seed, attempt)
   var
     layoutRng = root.seedStream(SceneLayout)
@@ -1580,12 +1587,21 @@ proc generateMapAttempt*(
     coverRng = root.stream(SceneCover)
     pickupRng = root.stream(ScenePickups)
 
-  ## One draw over ALL size classes, off the SEED-level layout stream: every
-  ## candidate for this seed lands on the same board. Widening this bound
-  ## (3 -> 5 when the oversize classes landed) re-deals which size each seed
+  ## One draw over the size classes this MODE can actually use, off the
+  ## SEED-level layout stream: every candidate for this seed lands on the same
+  ## board. Widening or narrowing this bound re-deals which size each seed
   ## draws, which re-curates the map pool — but it can no longer disturb the
   ## terrain, cover or pickup stages.
-  let sizeDraw = MapSizeNames[layoutRng.pick(MapSizeNames.len)]
+  ##
+  ## The draw used to be UNIFORM over all five classes, with `teams` choosing
+  ## only the shell FAMILY. A 1v1 therefore landed on `giant` as often as on
+  ## `small` — 2,750,000 px^2 per player against the tuned board's 50,900.
+  ## `map_rules.legalSizeNames` narrows it to the classes whose area suits the
+  ## roster (see the population-fit derivation there): the board still varies,
+  ## it just stops offering absurd ones.
+  let
+    sizeChoices = legalSizeNames(teams, unitsPerTeam)
+    sizeDraw = sizeChoices[layoutRng.pick(sizeChoices.len)]
   let sizeName = if overrides.size.len > 0: overrides.size else: sizeDraw
   result =
     if teams == 4: scaledGenShell4(sizeName)

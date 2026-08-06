@@ -10,11 +10,11 @@ const ValidationBaselinePath =
   currentSourcePath.parentDir / "fixtures" / "map-validation-baseline.tsv"
 
 const PoolRenderHashes = [
-  0x9f926a3c'u32, 0x54f76e63'u32, 0x2bdff721'u32, 0x8320fa3a'u32,
-  0x3aea36e4'u32, 0xe5106b5d'u32, 0x5d8209c7'u32, 0xcfccedf8'u32,
-  0xe1e3f179'u32, 0x51e49497'u32, 0x1304ed0b'u32, 0x97aaefba'u32,
-  0xe957511b'u32, 0xe2db79e5'u32, 0x3ce45262'u32, 0x795c4edf'u32,
-  0x09af8448'u32, 0x663dd06a'u32, 0x216ce37c'u32, 0x5183c782'u32,
+  0x9f926a3c'u32, 0x54f76e63'u32, 0x366dfdd8'u32, 0x1afb527f'u32,
+  0xd358d950'u32, 0x32fc127b'u32, 0x9a43bc84'u32, 0xcfccedf8'u32,
+  0x072ba946'u32, 0xab8c01e8'u32, 0xe4296201'u32, 0x7fd99d75'u32,
+  0x0d2bae93'u32, 0x432d117a'u32, 0xe85f8abd'u32, 0x1a98f3ce'u32,
+  0xb5718bb3'u32, 0x09af8448'u32, 0x7016d14b'u32, 0x25330ab8'u32
 ]
 
 var poolMapCache: array[20, CtfMap]
