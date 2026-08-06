@@ -216,6 +216,28 @@ when defined(wbprobe):
   var wbHp1Deaths = 0      # ...ending in death
   var wbHp1Ticks = 0       # total ticks spent at hp 1 across closed segments
 
+when defined(fnprobe):
+  # -d:fnprobe ONLY (plan #4): instrument `frontage` as a FUNNEL plus the
+  # EXPOSURE census the brief measured. The exposure counters run
+  # TUNE-INDEPENDENT, so on a four-team board one game with FRONT=1 on a single
+  # colour is its own common-mode control: candidate seats and control seats see
+  # literally the same frames. Printed as a FINAL summary at quit (gotchas
+  # 2026-08-05: never gate a dump on a rare perception read) with a periodic
+  # backup on fnAlive, which advances every alive frame. Never in the shipped build.
+  var fnAlive = 0      # alive decide frames (denominator + ALIVE-SHARE)
+  var fnNear0 = 0      # ...with a CLEAR frontage: 0 rival teams within 400px
+  var fnNear2 = 0      # ...with >=2 rival teams within 400px  <- THE 60.8% METRIC
+  var fnNear3 = 0      # ...with all 3 rival teams within 400px
+  var fnLine1 = 0      # ...with exactly 1 rival team holding a pixel LINE
+  var fnLine2 = 0      # ...with >=2 rival teams holding a pixel LINE (the trigger)
+  var fnEligible = 0   # frames passing the gate + exemptions (E1-E5)
+  var fnEntry = 0      # frames the lever actually owned the feet
+  var fnEngaged = 0    # ...that ALSO had a live engage target (gun still in it)
+  var fnCellFound = 0  # recomputes that yielded a cell
+  var fnCellNone = 0   # recomputes that yielded nothing
+  var fnImprove = 0    # sum of (teams before - teams at the chosen cell)
+  var fnSlot = -1      # this process's seat, stamped at connect
+
 when defined(scprobe):
   # -d:scprobe ONLY (v9): instrument the satCap redistribution as a FUNNEL so a
   # null A/B is diagnosable (pair-saturation never occurs in range vs occurs but
@@ -449,6 +471,31 @@ const
                               # nearest static kit spot (disengage-to-heal synergy)
   DominateGuardBand = 300.0   # #7: search the domination post within this x-band
                               # inside our half of the center line (toward home)
+  # --- frontage (plan #4): CHOOSE THE FRONTAGE on a multi-team board ---------
+  # AGG-E4 (point of domination) generalized off HomeDefender and off the
+  # two-team CenterX/homeSign geometry. Keyed on the number of DISTINCT RIVAL
+  # TEAMS holding a pixel line to a point — never on head count (REF-force) and
+  # never on our own hp (woundedBank). Brief #4 §2.8: we spend 60.8% of alive
+  # time with >=2 rival teams within 400px vs the winner's 38.4%, and eat 23.8
+  # damage per 1k alive frames vs 10.6.
+  FrontCrossRange = 400.0     # the brief's crossfire radius: a rival team counts
+                              # toward our frontage only inside this of the point
+  FrontFreshTtl = 24          # a rival track counts only if seen this recently
+                              # (the 45deg cone means the count always UNDER-reads,
+                              # which biases the lever toward doing nothing)
+  FrontSearchCells = 14       # frontage-cell search radius in nav cells (112px)
+  FrontMinStep = 24.0         # a frontage move must be a real step, not a jitter
+  FrontDriftCap = 48.0        # ⭐ THE ANTI-RETREAT GUARANTEE: the frontage cell may
+                              # not sit more than this much further from what this
+                              # seat was already doing. A radial withdrawal fails
+                              # it; a step ACROSS the angle passes. Deliberately NO
+                              # home-side bias (findBankCell's homeSign rule is
+                              # exactly what made woundedBank a retreat).
+  FrontRecalc = 12            # keep a chosen frontage cell this many ticks
+  FrontCommit = 16            # ...and keep steering to it this long after entry so
+                              # a half-finished lateral step is not abandoned open
+  FrontMateLambda = 0.25      # TEAM-G4 tiebreak: among equal frontages prefer the
+                              # cell nearer a fresh mate (move where a gun covers)
   MateSpacing = 40.0          # soft repulsion radius between teammates
   CorridorHalfWidth = 15.0    # friendly-fire corridor half width along the ray
   LeadTicks = 6.0             # aim this many ticks ahead of a moving enemy:
@@ -1180,6 +1227,11 @@ type
   Actor = object              # a player visible this frame
     pos: Vec
     facingRight: bool
+    team: int                 # frontage: index into TeamColorNames, -1 unknown.
+                              # actorsFor scans PER COLOR, so the colour is known
+                              # at scan time and used to be thrown away — this is
+                              # the input that lets a seat ask "how many distinct
+                              # rival TEAMS have a line on me" (never head count).
     hp: int                   # from the overhead pip bar; 0 = not read
     aimBrads: int             # gun bearing read from the aim-dot line; -1 unknown
     hasArc: bool              # carrying a plasma arc ("plasma arc carried" over
@@ -1194,6 +1246,7 @@ type
     pos, vel: Vec
     lastSeen: int
     facingRight: bool
+    team: int                 # frontage: owning colour index, -1 unknown
     hp: int                   # last observed hit points; 0 = never read
     aimBrads: int             # last observed gun bearing (aim dots); -1 unknown
     hasArc: bool              # last observed plasma-arc possession (disarmed)
@@ -1365,6 +1418,24 @@ type
                               # never bank (carrierFlee owns them). A banked 1-hp
                               # life still counts toward the lives/wipe economy and
                               # re-arms to FULL off a kit (sim heals to MaxHp).
+    frontage: bool            # ⭐ FRONTAGE SELECTION (plan #4). pointOfDomination
+                              # below is AGG-E4 as built for TWO teams and for ONE
+                              # seat: pickDominatePost returns immediately unless
+                              # role == HomeDefender, and its geometry is a single
+                              # CenterX mid-line + homeSign "our half" + chokeSpot,
+                              # none of which exist on a four-team board. So seven
+                              # of eight seats have NO positioning logic at all, and
+                              # its scoring rule (widest raw clear LOS) is inverted
+                              # here — the cell that sees the most ground is the cell
+                              # the most rival TEAMS can shoot into. frontage
+                              # generalizes the capability: on a multi-team board,
+                              # prefer a stance where exactly ONE rival team holds a
+                              # line to us, and step LATERALLY out of stances where
+                              # two or three do. Keyed on distinct rival TEAMS with a
+                              # line (never head count = REF-force, never own hp =
+                              # woundedBank), and the destination must KEEP a line to
+                              # at least one rival — it reduces incoming lines, never
+                              # outgoing fire. The trigger is never touched.
     pointOfDomination: bool   # #7 POINT OF DOMINATION: score overwatch posts by
                               # clear-LOS coverage of the cells where enemies
                               # ACTUALLY travel (baked from the occupancy heatmap),
@@ -1912,6 +1983,10 @@ type
     bankCellTick: int         # woundedBank: tick that cell was computed (BankRecalc)
     bankBlindSince: int       # woundedBank: last tick a fresh threat had a clear
                               # pixel ray to us (HOLD sub-mode after BankBlindTicks)
+    frontCell: int            # frontage: cached lateral frontage cell (-1 = none)
+    frontCellTick: int        # frontage: tick that cell was computed (FrontRecalc)
+    frontUntil: int           # frontage: keep steering to it until this tick so a
+                              # half-finished lateral step is not abandoned open
     when defined(wbprobe):
       pWasBanking: bool       # probe: banking state last frame (segment edges)
       pBankEnter: int         # probe: tick the current bank segment began
@@ -2217,6 +2292,7 @@ proc defaultCombatTune(): CombatTune =
     boundingOverwatch: false, # control: advance across open ground even on cooldown.
     holdVsGun: false,         # control: a solo gun-down bot strolls away from a live gun.
     woundedBank: false,       # control: a 1-hp bot fights on with its posture unchanged.
+    frontage: false,          # control: a seat fights wherever its objective left it.
     pointOfDomination: false, # control: overwatch posts scored by raw line length.
     tempoPress: false,        # control: always duck on cooldown, never press dead time.
     fireSuperiority: false,   # control: no press-vs-break judgement.
@@ -2586,6 +2662,12 @@ proc shippedCombatTune(): CombatTune =
   # control trap, failed.md: never bake an unproven lever into the champion
   # tune). WBANK=1 arms it per-process for the env-server A/B rig.
   result.woundedBank = getEnv("WBANK").len > 0
+  # ⭐ frontage (plan #4): multi-team frontage selection. UNPROVEN — stays
+  # ENV-ARMED ONLY until the pre-registered A/B passes (the contaminated-control
+  # trap: never bake an unproven lever into the champion tune). FRONT=1 arms it
+  # per-process for the env-server A/B rig. Structurally inert on a 2-team board
+  # (it requires activeColors() >= 3), so the arena gate cannot exercise it.
+  result.frontage = getEnv("FRONT").len > 0
   # ── COMMS BUS (C1/C2 + the WIPE coupling). Event-driven team plays over the one
   # shout channel: a bot classifies a LIVE scenario from its own fresh local reads
   # and broadcasts an opaque rotating 2-char codeword; teammates in earshot adopt it
@@ -2933,7 +3015,7 @@ proc actorsFor(client: ProtocolClient, color: string,
         if rot >= 0:
           ab = rotBrads(rot)
       result.add(Actor(pos: client.mapPos(o), facingRight: facingRight,
-        aimBrads: ab))
+        aimBrads: ab, team: TeamColorNames.find(color)))
   for hp in 1 .. MaxHp:
     for o in client.spriteObjectsWithLabel("hp " & $hp & "/" & $MaxHp):
       let p = client.mapPos(o)
@@ -3825,6 +3907,112 @@ proc findBankCell(bot: Bot, client: ProtocolClient, me: Vec,
         bestCost = cost
         result = nc
 
+proc rivalTeamMask(bot: Bot, client: ProtocolClient, p: Vec,
+                   requireLine: bool): uint8 =
+  ## frontage (plan #4 §1.2): a bit per DISTINCT RIVAL TEAM that is in a position
+  ## to shoot into `p`. Bit i is set when rival colour i has a track seen within
+  ## FrontFreshTtl, sitting within FrontCrossRange of `p`, and (with requireLine)
+  ## holding a clear pixel ray to it.
+  ##
+  ## ⭐ This counts TEAMS, never BODIES. Five enemies of one colour is a SINGLE
+  ## frontage and never triggers anything; two enemies of two colours is a
+  ## crossfire and does. That distinction is the whole REF-force firewall — the
+  ## refuted lever was keyed on head count, and the refuted woundedBank was keyed
+  ## on our own hp. Neither quantity appears here.
+  ##
+  ## `requireLine = false` reproduces the brief's proximity census (the 60.8%
+  ## number) for the probe; the LEVER runs on the line form, because a line is the
+  ## thing a step sideways can actually change.
+  result = 0
+  for t in bot.enemies:
+    if t.team < 0 or bot.tick - t.lastSeen > FrontFreshTtl:
+      continue
+    let bit = 1'u8 shl uint8(t.team and 7)
+    if (result and bit) != 0:
+      continue                            # this colour already counted
+    if dist(t.pos, p) > FrontCrossRange:
+      continue
+    if requireLine and not client.pixelRayClear(p, t.pos):
+      continue
+    result = result or bit
+
+proc teamCount(mask: uint8): int =
+  ## popcount of a rival-team mask.
+  var m = mask
+  while m != 0:
+    inc result
+    m = m and (m - 1)
+
+proc findFrontageCell(bot: Bot, client: ProtocolClient, me, objTarget: Vec,
+                      nowTeams: int): int =
+  ## frontage (plan #4 §1.4): the nearest directly-reachable cell that STRICTLY
+  ## reduces the number of distinct rival teams holding a line on us while still
+  ## leaving at least one of them shootable. -1 when no such cell exists.
+  ##
+  ## Three hard filters carry the whole design:
+  ##   • DRIFT CAP  — the cell may not sit meaningfully further from what this
+  ##     seat was already doing. A radial withdrawal fails it; a step ACROSS the
+  ##     angle passes. There is deliberately NO home-side bias (findBankCell's
+  ##     homeSign rule is exactly what turned woundedBank into a retreat), so
+  ##     this cannot decay into break-contact.
+  ##   • FIRE-PRESERVING FLOOR — the cell must keep >= 1 rival team in line.
+  ##     A cell that breaks EVERY line is refused: that is woundedBank, and
+  ##     "must not remove a gun from the fight" is the constraint its rejection
+  ##     bought. We reduce incoming lines, never outgoing fire.
+  ##   • STRICT IMPROVEMENT — fewer rival teams than we have right now, or nothing.
+  ## Because the first forbids opening range and the second forbids full cover,
+  ## the only cells that can win are ones that put a WALL between us and the other
+  ## teams while leaving one lane open — move across, use terrain (the arcStandoff
+  ## finding: equal 2.75px/tick speeds make radial retreat measurably useless).
+  ## Tiebreak toward a fresh mate (TEAM-G4: step where a gun already covers).
+  result = -1
+  let
+    c0 = cellOf(me)
+    cx0 = c0 mod GridW
+    cy0 = c0 div GridW
+    dObj = dist(me, objTarget)
+  var mate = vec(-1.0, -1.0)
+  var mateD = 1e18
+  for t in bot.mates:
+    if bot.tick - t.lastSeen > FrontFreshTtl:
+      continue
+    let d = dist(t.pos, me)
+    if d < mateD:
+      mateD = d
+      mate = t.pos
+  var bestTeams = nowTeams
+  var bestCost = 1e18
+  for dy in -FrontSearchCells .. FrontSearchCells:
+    for dx in -FrontSearchCells .. FrontSearchCells:
+      let
+        nx = cx0 + dx
+        ny = cy0 + dy
+      if nx < 0 or ny < 0 or nx >= GridW or ny >= GridH:
+        continue
+      let nc = ny * GridW + nx
+      if not bot.cellWalkable[nc]:
+        continue
+      let p = cellCenter(nc)
+      let step = dist(p, me)
+      if step < FrontMinStep:
+        continue                          # a jitter, not a reposition
+      if dist(p, objTarget) > dObj + FrontDriftCap:
+        continue                          # ⭐ DRIFT CAP: lateral only, never away
+      if not bot.gridRayClear(me, p):
+        continue                          # not directly reachable
+      let teams = teamCount(bot.rivalTeamMask(client, p, true))
+      if teams < 1:
+        continue                          # ⭐ would remove our gun from the fight
+      if teams >= nowTeams:
+        continue                          # ⭐ no STRICT reduction in incoming lines
+      if teams > bestTeams:
+        continue                          # a worse frontage than one already found
+      let cost = step + (if mate.x >= 0: FrontMateLambda * dist(p, mate) else: 0.0)
+      if teams < bestTeams or cost < bestCost:
+        bestTeams = teams
+        bestCost = cost
+        result = nc
+
 proc findPeekCell(bot: Bot, client: ProtocolClient, me, aim: Vec): int =
   ## The nearest directly-reachable cell that opens a firing line to `aim`
   ## within gun range; -1 when no sidestep grants the shot.
@@ -3919,11 +4107,13 @@ proc updateTracks(bot: Bot, tracks: var seq[Track], seen: seq[Actor]) =
       # Shield tracks the live marker (a carrier can burn it down / it drops on
       # death); refresh both ways so a track that lost its shield stops reading tank.
       tracks[best].hasShield = a.hasShield
+      if a.team >= 0: tracks[best].team = a.team   # frontage: colour is per-scan
       claimed[best] = true
     else:
       tracks.add(Track(
         pos: a.pos, lastSeen: bot.tick, facingRight: a.facingRight, hp: a.hp,
-        aimBrads: a.aimBrads, hasArc: a.hasArc, hasShield: a.hasShield))
+        aimBrads: a.aimBrads, hasArc: a.hasArc, hasShield: a.hasShield,
+        team: a.team))
       claimed.add(true)
   var kept: seq[Track]
   for t in tracks:
@@ -3972,6 +4162,9 @@ proc resetTransient(bot: Bot) =
   bot.bankCell = -1
   bot.bankCellTick = -100_000
   bot.bankBlindSince = bot.tick
+  bot.frontCell = -1           # frontage: 0 is a VALID cell index, so -1 or the
+  bot.frontCellTick = -100_000 # bot starts life steering at the map corner
+  bot.frontUntil = -100_000
   when defined(wbprobe):
     bot.pWasBanking = false
     bot.pBankEnter = 0
@@ -4528,7 +4721,8 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           if not known:
             bot.enemies.add(Track(pos: p, vel: vec(0, 0),
               lastSeen: bot.tick - FreshShotTicks - 1, hp: 0,
-              aimBrads: -1))  # a lead, not a shot — no gun bearing known
+              aimBrads: -1,   # a lead, not a shot — no gun bearing known
+              team: -1))      # frontage: a heard callout carries no colour
         # ⭐ Seeding the track above is the ALWAYS-ON intel intake — even a
         # committed carrier now KNOWS the called enemy. The REACTION (turn the
         # cone / move the feet) is separate: with the gate on, only STAGE the
@@ -6576,6 +6770,98 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       target = chosenEcon
       when defined(meprobe): inc meFireCount
 
+  # ── ⭐ FRONTAGE SELECTION (plan #4 §1.3). Placed LAST in the movement chain on
+  # purpose: it never replaces an objective, it only chooses a better LINE to the
+  # objective the chain already picked, because the drift cap below is measured
+  # against whatever `target` now holds (steal point, post, kit, lane). The gun is
+  # not touched anywhere in this block.
+  #
+  # Trigger: two or more DISTINCT RIVAL TEAMS hold a pixel line on us. On the
+  # measured giant boards we sit in that state 60.8% of our alive time against the
+  # winner's 38.4%, take 2.25x the incoming damage per alive tick, and are hit by
+  # 3.35 different teams at the lowest concentration on the board (brief #4 §2.8).
+  # A crossfire is not a fight we are losing — per alive frame we out-shoot every
+  # team on the board — it is a POSITION with too many open lanes into it.
+  #
+  # ⛔ Ledger firewalls, all structural rather than commented:
+  #   REF-force     — keyed on distinct rival TEAMS, never head count, never a
+  #                   head-count differential. Five enemies of one colour = one
+  #                   frontage = no trigger.
+  #   woundedBank   — own hp appears NOWHERE in entry or exit, and the chosen cell
+  #                   must KEEP a line to at least one rival, so the gun never
+  #                   leaves the fight. Damage does not scale with the shooter's
+  #                   hp; a removed gun is the one thing that lever proved costs
+  #                   more than the life it saves.
+  #   AGG-E3        — a fight we are winning is never broken: the trigger, the
+  #                   trigger gate, aimLock, commit and the fire slack are all
+  #                   untouched, and the feet stay inside FrontDriftCap of the
+  #                   objective, so this is a change of ANGLE, not of intent.
+  #   FFA-3         — no quota, no role reassignment; keyed to observed geometry.
+  var frontaging = false
+  when defined(fnprobe):
+    if alive:
+      inc fnAlive
+      let
+        nearMask = bot.rivalTeamMask(client, me, false)
+        lineMask = bot.rivalTeamMask(client, me, true)
+        nearN = teamCount(nearMask)
+        lineN = teamCount(lineMask)
+      if nearN == 0: inc fnNear0
+      if nearN >= 2: inc fnNear2
+      if nearN >= 3: inc fnNear3
+      if lineN == 1: inc fnLine1
+      if lineN >= 2: inc fnLine2
+  block frontageSelect:
+    if not bot.tune.frontage: break frontageSelect
+    if activeColors() < 3: break frontageSelect   # two-team board: no such thing
+    if iCarry or mateCarry or pocketRush or touchLatch or seekingPickup or
+        iHaveShield or iHaveSword or iHavePlasma:
+      break frontageSelect                        # a higher objective owns this bot
+    if dist(me, stealTarget) <= GrabCommitRing:
+      break frontageSelect                        # the touch ends the episode
+    if retreating or banking:
+      break frontageSelect                        # never double-own the frame
+    let nowTeams = teamCount(bot.rivalTeamMask(client, me, true))
+    if nowTeams < 2: break frontageSelect          # single frontage: press on
+    when defined(fnprobe): inc fnEligible
+    if bot.frontCell < 0 or bot.tick - bot.frontCellTick > FrontRecalc:
+      let cell = bot.findFrontageCell(client, me, target, nowTeams)
+      bot.frontCell = cell
+      bot.frontCellTick = bot.tick
+      when defined(fnprobe):
+        if cell >= 0:
+          inc fnCellFound
+          fnImprove += nowTeams -
+            teamCount(bot.rivalTeamMask(client, cellCenter(cell), true))
+        else:
+          inc fnCellNone
+      if cell >= 0:
+        bot.frontUntil = bot.tick + FrontCommit
+    if bot.frontCell < 0: break frontageSelect
+    if bot.tick > bot.frontUntil and dist(cellCenter(bot.frontCell), me) < FrontMinStep:
+      break frontageSelect                        # arrived and the commit lapsed
+    target = cellCenter(bot.frontCell)
+    frontaging = true
+    when defined(fnprobe):
+      inc fnEntry
+      if engage >= 0: inc fnEngaged
+    # ANG-F1: with no engage target the turret would sweep. Lead the angle we are
+    # opening instead — stage the orient on the nearest rival that will still be
+    # shootable from the new cell, so the muzzle is already there when it clears.
+    if engage < 0:
+      var lead = vec(-1.0, -1.0)
+      var leadD = 1e18
+      for t in bot.enemies:
+        if t.team < 0 or bot.tick - t.lastSeen > FrontFreshTtl:
+          continue
+        let d = dist(t.pos, me)
+        if d < leadD:
+          leadD = d
+          lead = t.pos
+      if lead.x >= 0:
+        bot.orientPos = lead
+        bot.orientUntil = bot.tick + 2
+
   # Grenade danger: a visible throw-target ring marks where an enemy's lob
   # will land, and an airborne grenade is seconds from bursting — anything
   # inside the blast radius eats 2 of 3 hit points. Fleeing the marked spot
@@ -6803,10 +7089,16 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           client.pixelRayClear(me, engageBody) and
           not bot.friendlyBlocked(me, engageBody, bodyD):
         wantFire = true
-    if retreating or banking or (bot.tune.carrierFlee and iCarry):
-      # Outnumbered (retreat) OR banking at 1 hp OR carrying the heart (flee):
-      # keep the gun on the
+    if retreating or banking or frontaging or
+        (bot.tune.carrierFlee and iCarry):
+      # Outnumbered (retreat) OR banking at 1 hp OR moving to a better FRONTAGE
+      # OR carrying the heart (flee): keep the gun on the
       # lined-up target and take the free trade, but MOVE toward our objective
+      # ⭐ frontage rides this exact line deliberately — the trigger, the aim and
+      # the fire slack are untouched, so the bot keeps SHOOTING the enemy it is
+      # lined up on while its feet step across to the cell where fewer rival
+      # TEAMS have a lane into it. Incoming lines down, outgoing fire unchanged:
+      # the one thing woundedBank got wrong (it removed the gun) cannot happen here.
       # (the regroup point / home capture edge) instead of advancing into the
       # enemy. A carrier that steps toward a point-blank respawner walks into the
       # invulnerable respawn nest at the pedestal and dies at ~2% of the run home
@@ -7422,6 +7714,8 @@ proc runBot(url: string) =
       # is the 2-team reading. buildNavGrid re-derives it once teams are stated.
     endpoint = ensureWsPath(url, WebSocketPath)
   randomize(slot * 7919 + 1)
+  when defined(fnprobe):
+    fnSlot = slot
   let bot = Bot(slot: slot, team: team, role: role, tune: shippedCombatTune(),
                 aimStepBrads: 40, prevStatedAim: -1, nadeLockAim: -1,
                 myColor: (if team == Red: "red" else: "blue"))
@@ -7497,6 +7791,20 @@ proc runBot(url: string) =
         # The game ended and the server went away: exit so the episode
         # runner sees a clean player shutdown.
         echo "game over, exiting: ", e.msg
+        when defined(fnprobe):
+          # FINAL summary (gotchas 2026-08-05: a modulo dump gated on a rare read
+          # never fires). One line per seat; the harness aggregates by slot mod 4,
+          # which on a four-team board makes the three non-candidate colours a
+          # common-mode control measured on literally the same frames.
+          stderr.writeLine "FNSUM slot=" & $fnSlot &
+            " front=" & (if getEnv("FRONT").len > 0: "1" else: "0") &
+            " alive=" & $fnAlive &
+            " near0=" & $fnNear0 & " near2=" & $fnNear2 & " near3=" & $fnNear3 &
+            " line1=" & $fnLine1 & " line2=" & $fnLine2 &
+            " elig=" & $fnEligible & " entry=" & $fnEntry &
+            " engaged=" & $fnEngaged &
+            " cell=" & $fnCellFound & " nocell=" & $fnCellNone &
+            " improve=" & $fnImprove
         quit(0)
       echo "connect retry: ", e.msg
       sleep(250)
