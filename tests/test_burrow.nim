@@ -667,6 +667,16 @@ suite "burrow: real boards":
       block eroded:
         var grid = baseGrid
         grid.erodeToFootprint(1)
+        ## WHETHER one erosion step fragments a board is a property of the
+        ## GENERATOR, not of the burrow. Seed 4242's giant board came apart
+        ## into five pockets before `map_archetypes` and stays whole after it,
+        ## which left this block asserting on an empty subject. Erode until
+        ## there is something to reconnect, so the test keeps testing the
+        ## digging rather than yesterday's terrain.
+        var erosion = 1
+        while grid.componentCount <= 1 and erosion < 4:
+          grid.erodeToFootprint(1)
+          inc erosion
         let fragments = grid.componentCount
         var params = defaultBurrowParams(brush)
         params.artifacts = {baPaths}
