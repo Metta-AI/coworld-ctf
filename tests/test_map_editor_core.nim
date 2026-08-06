@@ -31,6 +31,22 @@ proc poolMap(index: int): CtfMap =
   ## local `tests.nim` run is one binary holding all four.
   cachedPoolMap(index)
 
+proc firstRow(rows: seq[int]): int =
+  ## The first collected row, or -1 when the diagnostic collected nothing.
+  ## Subscript-free on purpose: an empty perception surface has to fail with
+  ## its own value printed, not with an IndexDefect that aborts the test and
+  ## hides every check after it. That crash is exactly what kept a 222-case
+  ## drift in the validation baseline invisible.
+  if rows.len > 0: rows[0] else: -1
+
+proc sightlineScanRows(height: int): int =
+  ## How many rows the validator's 4px sightline scan visits on a board of
+  ## this height — the count an obstacle-free board has to report as open.
+  var y = ArenaBorder + 2
+  while y < height - ArenaBorder:
+    inc result
+    y += 4
+
 proc poolRenderOptions(maxDimension = 0): MapRenderOptions =
   MapRenderOptions(
     maxDimension: maxDimension,
@@ -172,13 +188,28 @@ suite "map editor core":
       check gameMap.symmetryImages(shapeAsRect(gameMap.trenches[0])) ==
         trenchRects
 
-  test "generated-map validation matches the pre-refactor baseline":
+  test "generated-map validation matches the baseline on both code paths":
+    ## The fixture pins `validateGeneratedMap` for the generator's RAW first
+    ## draw across 402 (teams, seed) pairs. It is a regression pin, not a
+    ## quality claim: regenerate it with `tools/gen_validation_baseline.nim`
+    ## whenever the draws or the validators move, and report the pass rate it
+    ## prints.
+    ##
+    ## Every case is ALSO re-checked through the FULL diagnostic pass, so the
+    ## two implementations behind `collectMapDiagnostics` — the generator's
+    ## first-failure early exit and the editor's complete pass — cannot drift
+    ## apart. That used to be three hand-picked seeds ("one 2-team sightline
+    ## rejection, one 2-team cover rejection, one 4-team rejection"), and the
+    ## hand-picking is precisely what rotted: the generator moved, not one of
+    ## the three still failed for the reason it had been chosen for, and the
+    ## expectations they carried went stale with nothing to say so. All 402
+    ## costs ~12s more and has no seeds to re-pick.
     var
       cases = 0
       endzones2 = initHashSet[string]()
       layouts4 = initHashSet[string]()
       mismatches: seq[string]
-      collectedSightlineRows: seq[int]
+      openSightlineMaps: seq[string]
     for line in readFile(ValidationBaselinePath).splitLines():
       if line.len == 0 or line[0] == '#' or line.startsWith("teams\t"):
         continue
@@ -196,6 +227,7 @@ suite "map editor core":
           teams,
         )
         actual = validateGeneratedMap(gameMap)
+        diagnostics = mapDiagnostics(gameMap)
       inc cases
       if teams == 2:
         endzones2.incl fields[2]
@@ -206,26 +238,50 @@ suite "map editor core":
           "teams=" & $teams & " seed=" & $seed &
             " expected=" & expected.repr & " actual=" & actual.repr
         )
-      # Three seeds are re-checked through the FULL diagnostic pass (not the
-      # first-failure early exit) so the two code paths cannot drift apart:
-      # one 2-team sightline rejection, one 2-team cover rejection, one
-      # 4-team rejection. Re-picked when best-of-K re-dealt every seed.
-      if (teams, seed) in [(2, 1020), (2, 1029), (4, 1000)]:
-        let diagnostics = mapDiagnostics(gameMap)
-        if diagnostics.reason != expected:
-          mismatches.add(
-            "full diagnostics teams=" & $teams & " seed=" & $seed &
-              " expected=" & expected.repr &
-              " actual=" & diagnostics.reason.repr
-          )
-        if teams == 2 and seed == 1020:
-          collectedSightlineRows = diagnostics.openSightlineRows
+      if diagnostics.reason != actual:
+        mismatches.add(
+          "code paths disagree teams=" & $teams & " seed=" & $seed &
+            " early-exit=" & actual.repr &
+            " full-pass=" & diagnostics.reason.repr
+        )
+      if diagnostics.openSightlineRows.len > 0:
+        openSightlineMaps.add(
+          "teams=" & $teams & " seed=" & $seed &
+            " rows=" & $diagnostics.openSightlineRows
+        )
     check cases == 402
     check endzones2 == ["column", "disc", "square"].toHashSet()
     check layouts4 == ["corners", "plus"].toHashSet()
-    check collectedSightlineRows.len > 1
-    check collectedSightlineRows[0] == 12
-    check mismatches.len == 0
+    ## Compared as SEQUENCES, not lengths: `unittest` prints both operands, so
+    ## a red run names the seeds that drifted instead of only how many did.
+    check mismatches == newSeq[string]()
+
+    ## SIGHTLINE ROWS: RE-DERIVED, not re-pinned. This block used to assert
+    ## that seed 1020 collected MORE THAN ONE open sightline row, the first at
+    ## y=12 — a pin on the pre-rewrite generator, which shipped candidates
+    ## carrying open horizontal firing lanes for the validator to reject. The
+    ## rewrite's row-cover pass closes every row of the `sightlineLoX ..
+    ## sightlineHiX` band constructively, BEFORE validation runs, so all 402
+    ## draws now reach the validator with the lane already blocked: zero open
+    ## rows anywhere, zero sightline rejections in the fixture, and seed 1020
+    ## validating clean. The count is 0 BY DESIGN. The old y=12 was never a
+    ## property of seed 1020 either — it is `ArenaBorder + 2`, the first row
+    ## the 4px scan visits on any board.
+    ##
+    ## An empty perception surface is how this codebase has been blinded
+    ## before, so the re-derivation is a PAIR. The census above asserts the
+    ## emptiness is real; the positive control below asserts the diagnostic
+    ## still fires when a lane genuinely is open, so "collects nothing" can
+    ## never quietly become "no longer collects".
+    check openSightlineMaps == newSeq[string]()
+
+    var strippedMap = generateMapAttempt(
+      1020, MapGenOverrides(windows: -1, pits: -1, pitDensity: -1), 2
+    )
+    strippedMap.leftObstacles.setLen(0)
+    let strippedRows = mapDiagnostics(strippedMap).openSightlineRows
+    check strippedRows.len == sightlineScanRows(strippedMap.height)
+    check strippedRows.firstRow == ArenaBorder + 2
 
   test "every curated map spec round-trips byte-identically":
     for index in 0 ..< MapPoolSeeds.len:
