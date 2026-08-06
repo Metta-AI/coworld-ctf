@@ -179,18 +179,32 @@ proc normalizeLabel(label: string): string =
   # Numbers before words, so a color like "light blue" is not chopped up by a
   # stray digit substitution.
   #
-  # ONE exception, and it is the point of the hp check below: a "/<total>" tail
-  # keeps its literal number. The varying part of "hp 2/3" is the numerator (how
-  # much health is lit); the denominator is a FIXED contract value that two
-  # independent constants have to agree on (the engine's LabelHpBarSegments and
-  # the bot's own MaxHp). Normalizing it to <n> would erase exactly the drift
-  # this test exists to catch — "hp <n>/<n>" matches whether the total is 3 or
-  # 300, so the vocabulary diff would wave a retune straight through.
+  # ONE exception, and it is the point of the hp check below: on the HP LABEL a
+  # "/<total>" tail keeps its literal number. The varying part of "hp 2/3" is the
+  # numerator (how much health is lit); the denominator is a FIXED contract value
+  # that two independent constants have to agree on (the engine's
+  # LabelHpBarSegments and the bot's own MaxHp). Normalizing it to <n> would
+  # erase exactly the drift this test exists to catch — "hp <n>/<n>" matches
+  # whether the total is 3 or 300, so the vocabulary diff would wave a retune
+  # straight through.
+  #
+  # GATED ON THAT PREFIX, and the gate is load-bearing. Applied blanket-fashion
+  # the rule fires on any label with a slash, and the only other one is the
+  # scoreboard chip `team score <TEAM> <kills>/<deaths>` — where BOTH numbers are
+  # live counters and neither is a contract. That pinned one sweep's DEATH COUNT
+  # into the golden as `team score BLUE <n>/1`, making the manifest a snapshot of
+  # one tick's numbers for that family, which is precisely what this proc exists
+  # to prevent. It duly went off: a map-generator change made the sweep's last
+  # spray land a kill, Blue's deaths went 1 -> 2, and the guard reported
+  # `+ team score BLUE <n>/2` as a new label. Nothing had been renamed and no
+  # policy could see any difference. Keep the exception narrow — a new label with
+  # a genuine contract denominator opts IN here, by prefix, deliberately.
   var digitless = ""
   var i = 0
+  let contractDenominator = text.startsWith(LabelPrefixHp)
   while i < text.len:
     if text[i].isDigit:
-      let afterSlash = i > 0 and text[i - 1] == '/'
+      let afterSlash = contractDenominator and i > 0 and text[i - 1] == '/'
       if afterSlash:
         while i < text.len and text[i].isDigit:
           digitless.add(text[i])

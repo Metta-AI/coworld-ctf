@@ -3554,15 +3554,19 @@ proc addTeamScoreboard(
   # One "NAME k/d" text sprite per active team, laid out left to right in
   # enum order and centered as a group (the classic red-left/blue-right
   # strip is the 2-team case).
-  var chips: seq[tuple[team: Team, text: string,
+  var chips: seq[tuple[team: Team, label: string,
     sprite: tuple[width, height: int, pixels: seq[uint8]]]]
   var totalWidth = -TeamScoreGap
   for team in sim.teams():
-    let text = teamText(team).toUpperAscii() & " " &
-      $kills[team] & "/" & $deaths[team]
+    # labelTeamScore owns the one spelling of this family, and the chip DRAWS
+    # the label's tail — so the pixels a spectator reads and the label a scanner
+    # reads cannot drift apart.
+    let label = labelTeamScore(
+      teamText(team).toUpperAscii(), kills[team], deaths[team])
+    let text = label[LabelPrefixTeamScore.len .. ^1]
     let sprite = sim.buildSpriteProtocolTextSprite([text], teamColor(team))
     totalWidth += sprite.width + TeamScoreGap
-    chips.add((team: team, text: text, sprite: sprite))
+    chips.add((team: team, label: label, sprite: sprite))
   var x = max(0, (TeamScoreWidth - totalWidth) div 2)
   for chip in chips:
     let slot = ord(chip.team)
@@ -3572,7 +3576,7 @@ proc addTeamScoreboard(
       chip.sprite.width,
       chip.sprite.height,
       chip.sprite.pixels,
-      "team score " & chip.text
+      chip.label
     )
     currentIds.add(TeamScoreObjectBase + slot)
     packet.addBoardObject(
