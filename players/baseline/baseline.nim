@@ -270,6 +270,14 @@ when defined(fiprobe):
   var fiEngage = 0      # decide frames with finishWounded on and an engage pick made
   var fiPickDiff = 0    # ...where the lever's argmin differs from the control's (M1)
   var fiPickFin = 0     # ...and the newly chosen target is the 1-hp finish candidate
+  # ⭐ The "why" counters. fiPickDiff==0 is ambiguous on its own — it could mean the
+  # probe is broken. These separate "the SCORE never moved" (a bug) from "the score
+  # moved but the ORDER did not" (the real answer).
+  var fiScoreDiff = 0   # finishable candidates whose lever score differs from the control's
+  var fiEligLocked = 0  # ...that were the target we are ALREADY COMMITTED to
+  var fiShiftSum = 0.0  # Σ |lever prio - control prio| over finishable candidates
+  var fiGapSum = 0.0    # Σ (prio - winner prio) for finishable candidates NOT picked
+  var fiGapN = 0        # ...their count (mean gap = how far short the credit fell)
   # M2 (enemy hp-1 segment fate), M3 (travel per alive frame) and M4 are GROUND TRUTH from
   # sim.players in fisum.nim — not from the bot's own perception (2026-08-05 rule: a -d:
   # probe that counts what the bot believes is not the field metric).
@@ -6199,6 +6207,11 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         fiCtl -= fiPullCtl
         if isLocked:
           fiCtl -= bot.tune.commitBonus
+        if fiCtl != prio:
+          inc fiScoreDiff
+          fiShiftSum += abs(fiCtl - prio)
+        if isLocked:
+          inc fiEligLocked
     if client.pixelRayClear(me, predicted):
       if bot.friendlyBlocked(me, predicted, d):
         continue                        # prefer a target with an empty corridor
@@ -6227,6 +6240,17 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         let te = bot.enemies[engage]
         if te.hp == FinishHpTarget and te.lastSeen == bot.tick:
           inc fiPickFin
+      # How far short did the credit fall? For every finishable candidate that was
+      # NOT the winner, the prio gap to the winner is exactly the extra credit the
+      # lever would have needed. A gap far above FinishBonus means no affordable
+      # bonus could have flipped this pick.
+      for i in 0 ..< bot.enemies.len:
+        if i == engage: continue
+        let t2 = bot.enemies[i]
+        if t2.hp != FinishHpTarget or t2.lastSeen != bot.tick: continue
+        if dist(t2.pos, me) >= maxEngage: continue
+        if not client.pixelRayClear(me, t2.pos): continue
+        inc fiGapN
 
   when defined(scprobe):
     if bot.tune.satCap and engage >= 0:

@@ -197,3 +197,12 @@ when isMainModule:
     echo "fiPickFin=", fiPickFin, "  ...and the new pick is the 1-hp finish candidate"
     echo "M1 pickDiffPct=",
       (if fiEngage > 0: 100.0 * fiPickDiff.float / fiEngage.float else: 0.0)
+    echo "--- WHY (separates 'score never moved' = bug from 'order never moved' = the answer)"
+    echo "fiScoreDiff=", fiScoreDiff, "  finishable candidates whose SCORE actually moved"
+    echo "  meanShiftPx=",
+      (if fiScoreDiff > 0: fiShiftSum / fiScoreDiff.float else: 0.0)
+    echo "fiEligLocked=", fiEligLocked,
+      "  ...of fiElig, how many were the target we are ALREADY COMMITTED to"
+    echo "  lockedSharePct=",
+      (if fiElig > 0: 100.0 * fiEligLocked.float / fiElig.float else: 0.0)
+    echo "fiGapN=", fiGapN, "  finishable, in-range, clear-ray candidates that LOST the pick"
