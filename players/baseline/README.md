@@ -29,10 +29,9 @@ regardless of fog: the map, **both flag pedestals**, and **ourselves** via the
 distinct self marker. There is **no team radio** — a mate outside our cone and
 bubble is as invisible to us as an enemy, so any notion of where our team is
 has to be tracked and predicted, not read off the frame.
-**Aim is decoupled from movement** (a per-player angle on the 32-slot
-rotation grid, reported in brads as multiples of 8, 0 = east,
-counter-clockwise; B rotates CCW, Select CW one slot per tick, `AimRate` =
-8 brads/tick) and
+**Aim is decoupled from movement** (a continuous per-player angle in brads,
+0 = east, counter-clockwise; B rotates CCW, Select CW at `AimRate` = 5
+brads/tick) and
 only a **fresh A press** fires — the pull locks the aim angle and the bullet
 leaves after a ~5-tick windup. Labels we read:
 
@@ -208,7 +207,7 @@ the capture race stays on.
   the rotation of the last sent mask) — no observation label reads the aim
   angle back, so drift is uncorrected. Each tick it outputs the rotate button
   (B = CCW, Select = CW) that closes the shortest arc to the desired aim and stops
-  inside `CombatDeadband` (±4 brads, half of one 8-brad rotation slot).
+  inside `CombatDeadband` (±2 brads; `AimRate` = 5 cannot settle tighter).
 - **Fire gate**: fire only when the corridor covers the target at its range —
   the perpendicular miss of the current aim error, `range × sin(err)`, must
   be within `FireSlackPx` (11px of the ~14px corridor half-width). Closing
@@ -248,7 +247,7 @@ the capture race stays on.
 
 Strategic levers can be overridden at compile time with `-d:NAME=VALUE`;
 defaults preserve the current baseline behavior. `AimRate` must match the server's
-`aimTurnRate` config (default 1 slot = 8 brads). Role assignment is `roleForSeat`; lane
+`aimTurnRate` config (default 5). Role assignment is `roleForSeat`; lane
 via-points, `chokeSpot`, and `homeDeepX` encode the map geometry.
 
 | Name | Type | Default | What it does | Sane experimental range |

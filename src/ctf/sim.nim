@@ -1761,16 +1761,12 @@ proc applyInput*(
 
   # Aim rotation is decoupled from locomotion: holding B turns the aim
   # counter-clockwise, holding Select clockwise; holding both cancels out,
-  # and the d-pad never changes the aim. The aim steps through the 32
-  # rotation slots (aimTurnRate slots/tick); the arithmetic runs in slots
-  # and re-snaps to the grid, so an off-grid angle can never persist.
+  # and the d-pad never changes the aim.
   if input.b != input.select:
-    let steps =
+    let turn =
       if input.b: sim.config.aimTurnRate else: -sim.config.aimTurnRate
-    let slot = player.aimBrads div AimStepBrads
     player.aimBrads =
-      (((slot + steps) mod AimRotations + AimRotations) mod AimRotations) *
-        AimStepBrads
+      ((player.aimBrads + turn) mod AimBradsTurn + AimBradsTurn) mod AimBradsTurn
   # The sprite flip follows the aim: flipped while aiming left-ish.
   player.flipH =
     player.aimBrads > AimBradsTurn div 4 and

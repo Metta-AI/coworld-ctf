@@ -182,11 +182,11 @@ Non-config envelope consts (change in code): `BulletHalfWidth`=8.0,
 
 | Field | Type / default | Bounds | Effect |
 |---|---|---|---|
-| `aimTurnRate` | int / `1` | `>=1` | Rotation slots turned per tick (of 32). |
+| `aimTurnRate` | int / `5` | `>=1` | Aim rotation speed in brads per tick. |
 | `visionConeDeg` | int / `60` | `0..180` | Vision cone half-angle around aim. |
 | `visionBubble` | int / `90` | `>=0` | Omnidirectional vision radius (px). |
 
-Non-config: `AimRotations`=32, `FovCellSize`=8, `visionRange`=1.5×gunRange.
+Non-config: `FovCellSize`=8, `visionRange`=1.5×gunRange.
 
 ---
 

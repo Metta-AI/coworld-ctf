@@ -18,7 +18,15 @@ import
 
 const
   GameName* = "ctf"
-  GameVersion* = "39"  ## GV39 (map format): QUAD-MIRROR SYMMETRY — 4-team
+  GameVersion* = "40"  ## GV40 (aim rule): RESTORE CONTINUOUS TURRET AIM.
+    ## `aimBrads` again spans all 256 integer headings, and `aimTurnRate` is
+    ## again brads/tick (default 5, ~7 degrees/tick, full turn ~2.1s), exactly
+    ## as introduced with decoupled aim. GV36's reinterpretation of the same
+    ## config value as 32-way rotation slots made the published value 5 turn
+    ## 40 brads/tick, overshooting bot targets and trapping held actions.
+    ## GV39 replays do not re-simulate under the restored aim arithmetic.
+    ##
+    ## GV39 (map format): QUAD-MIRROR SYMMETRY — 4-team
     ## maps may be RECTANGULAR. A new `symQuadMirror` map symmetry authors the
     ## TOP-LEFT quadrant and completes the board by reflecting it across both
     ## center axes (mirrorX, mirrorY, and their composition rot180 — the
@@ -39,7 +47,8 @@ const
     ## GV37 (obstacle format): map obstacles and trenches
     ## may be `polygon` shapes (integer vertex rings), so curved / organic
     ## terrain is authorable. Older viewers cannot parse the new spec kind.
-                       ## The aim angle is one of 32 discrete slots (8 brads
+                       ## GV36 (superseded by GV40): the aim angle was changed
+                       ## to one of 32 discrete slots (8 brads
                        ## = 11.25 deg apart), the classic fixed-rotation-count
                        ## scheme. A held rotate button steps whole slots
                        ## (aimTurnRate slots/tick, default 1); spawn aims sit
@@ -377,19 +386,8 @@ const
                               ## after a death (cosmetic only, never in gameHash).
   CarrierSpeedPct* = 70       ## carrier moves at 70% speed.
   AimBradsTurn* = 256         ## aim angle units per full turn (binary radians).
-                              ## Brads are the WIRE unit only (events, labels,
-                              ## replays); the aim itself lives on the 32-slot
-                              ## rotation grid below.
-  AimRotations* = 32          ## discrete aim rotations per full turn. The aim
-                              ## is always one of these 32 slots — there are no
-                              ## finer-grained angles.
-  AimStepBrads* = AimBradsTurn div AimRotations
-                              ## brads between adjacent rotation slots (11.25
-                              ## deg); every aim value on the wire is a
-                              ## multiple of this.
-  AimTurnRate* = 1            ## rotation slots/tick a held rotate button turns
-                              ## the aim (11.25 deg/tick; a full turn takes 32
-                              ## ticks, ~1.3s).
+  AimTurnRate* = 5            ## brads/tick a held rotate button turns the aim
+                              ## (~7 deg/tick; a full turn takes ~2.1s).
   VisionConeDeg* = 60         ## vision cone half-angle around the aim angle.
   VisionBubble* = 90          ## omnidirectional vision radius in px.
 
@@ -883,8 +881,7 @@ type
     fireCooldownTicks*: int
     fireWindupTicks*: int
     carrierSpeedPct*: int
-    aimTurnRate*: int          ## rotation slots/tick a held rotate button
-                               ## turns the aim (of the AimRotations slots).
+    aimTurnRate*: int          ## brads/tick a held rotate button turns the aim.
     visionConeDeg*: int
     visionBubble*: int
     minPlayers*: int
@@ -939,9 +936,6 @@ type
     flipH*: bool
     aimBrads*: int             ## aim angle in brads, 0..255: 0 = east (+x),
                                ## counter-clockwise on screen (64 = north).
-                               ## ALWAYS one of the AimRotations slots (a
-                               ## multiple of AimStepBrads) — the aim is 32
-                               ## discrete rotations, not a free angle (GV36).
     team*: Team
     alive*: bool
     lives*: int
@@ -1414,4 +1408,3 @@ proc missPermilleFor*(config: GameConfig, team: Team): int =
   ## Fraction of a would-be gun hit dropped, in permille (0..500): 0 at no
   ## handicap, 500 (50%) at full. The caller draws RNG only when this is > 0.
   config.handicaps[team] div 2
-

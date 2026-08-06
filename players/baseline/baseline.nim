@@ -9,11 +9,9 @@
 ## visible: the static map, BOTH flag pedestals (teammates are fogged too),
 ## our own flag's state (an empty own pedestal means it is stolen), and
 ## ourselves via the distinct "self <color> right|left" marker. AIM IS
-## DECOUPLED FROM MOVEMENT: a per-player aim angle on a 32-slot rotation grid
-## (reported in brads, 0..255, always a multiple of 8; 0 = east,
-## counter-clockwise on screen) steps one slot (8 brads = 11.25 deg) per tick
-## while B (CCW) or Select (CW) is held; the d-pad never touches it (GV36:
-## the aim IS those 32 rotations, no finer angles exist). The aim drives the
+## DECOUPLED FROM MOVEMENT: a continuous per-player aim angle (0..255 brads,
+## 0 = east, counter-clockwise on screen) turns 5 brads per tick while B
+## (CCW) or Select (CW) is held; the d-pad never touches it. The aim drives the
 ## gun, the vision cone, and the sprite flip, so pointing it is THE core
 ## tactical decision. The bot keeps a persistent world model on top of that:
 ##
@@ -50,8 +48,8 @@
 ##   — captures are instant wins both ways, so the race stays on.
 ## - **Turret controller**: the bot reads its own aim from the engine's
 ##   `own aim <brads>` HUD marker each frame, dead-reckoning only BETWEEN
-##   frames (each held rotate button turns one 8-brad slot per tick
-##   server-side) and as the sole source on pre-marker engines.
+##   frames (each held rotate button turns 5 brads/tick server-side) and as
+##   the sole source on pre-marker engines.
 ##   Each tick it outputs the rotate button that traverses toward the desired
 ##   aim by the shortest arc, and fires only when the bullet corridor
 ##   (~14px half-width) covers the target at its range.
@@ -127,11 +125,9 @@ const
                               # flag; abandoning the hunt after ~1.7s is how
                               # campers walk flags home (daveey, R1693 review)
 
-  AimBrads = 256              # aim angle units per full turn (wire unit; the
-                              # aim itself sits on a 32-slot grid, GV36)
-  AimRate = 8                 # brads/tick a held rotate button turns the aim:
-                              # one 8-brad rotation slot per tick (matches the
-                              # server's aimTurnRate default of 1 slot/tick)
+  AimBrads = 256              # aim angle units per full turn
+  AimRate = 5                 # brads/tick a held rotate button turns the aim
+                              # (matches the server's aimTurnRate default)
   MaxHp = 3                   # hitPoints per life (config default); pip labels
                               # read "hp <n>/<MaxHp>"
   HpPipRadius = 22.0          # a player's overhead hp bar sits within this
@@ -143,10 +139,10 @@ const
   ThiefFocusBonus = float(tuneThiefFocusBonus)
                                 # dominates every positional tiebreak — killing
                               # the thief returns the flag instantly
-  TraversePxPerBrad = 1.0     # px of effective distance per brad of turret
+  TraversePxPerBrad = 1.6     # px of effective distance per brad of turret
                               # swing needed to lay on the target: err/AimRate
                               # ticks of traverse at ~8px of enemy closing
-                              # motion per tick = 8/8 px per brad
+                              # motion per tick = 8/5 px per brad
   ButtonC = 1'u8 shl 7        # grenade charge/throw (input mask bit 128)
   NadeMaxRange = 240.0        # full-charge throw distance (~fifth of the field)
   NadeMinRange = 78.0         # never lob inside this — the 58px blast + drift
@@ -195,10 +191,9 @@ const
                               # visible mate sits closer to is OUR carry
   CarrierEstSpeed = 1.0       # px/tick a fogged mate-carrier is assumed to
                               # advance homeward (carrier moves at ~70% speed)
-  CombatDeadband = 4          # stop the traverse within this error (brads):
-                              # half a rotation slot — the 8-brad grid cannot
-                              # settle tighter than +-4
-  CruiseDeadband = 8          # sloppier deadband for non-combat aim (one slot)
+  CombatDeadband = 2          # stop the traverse within this error (brads);
+                              # AimRate 5 cannot settle tighter than +-2
+  CruiseDeadband = 8          # sloppier deadband for non-combat aim
   FireSlackPx = 11.0          # fire when the aim error's perpendicular miss
                               # at the target's range is inside this (the
                               # corridor half-width is ~14px; keep margin)

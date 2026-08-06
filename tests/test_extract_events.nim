@@ -6,10 +6,10 @@ import
 
 const
   # The event-substrate fixture: a full 16-bot match recorded against the
-  # CURRENT gameplay rules (GameVersion 36, seed 905, lives 9:
-  #   record_fixture.sh tests/replays/ctf.bitreplay 905 10000 '{"lives":9}')
-  # — 43 kills across ALL THREE weapons (26 gun / 1 grenade / 16 spray),
-  # 5 steals, 2 heals, ending on a capture. (The GV32 recording ran the
+  # CURRENT gameplay rules (GameVersion 40, seed 908, lives 9:
+  #   record_fixture.sh tests/replays/ctf.bitreplay 908 10000 '{"lives":9}')
+  # — 30 kills across ALL THREE weapons (25 gun / 1 grenade / 4 spray),
+  # 5 steals, 5 heals, ending on a capture. (The GV32 recording ran the
   # server at speed 4 as a starvation guard; under GV33 the speed-4 runs
   # came back gun-only on this machine while the plain speed-16 recording
   # on an IDLE machine carried the full weapon mix — the idle-machine rule
@@ -19,6 +19,7 @@ const
   # GV31-33 sat on seed 900; the GV34 range-cap + aim-jitter re-record came
   # back grenade-less there, and the scan moved to 902. The GV36 32-rotation
   # aim re-record came back grenade-less on 902, and the scan moved to 905.
+  # Restoring continuous aim in GV40 moved it again to 908.
   # Expect the seed to move again on the next rules change.)
   #
   # Two things make this fixture easy to weaken by accident, both learned the
@@ -67,7 +68,9 @@ suite "tier-2 event extraction (tools/extract_events)":
       shotsBySlot = newSeq[int](slotCount)
       hitsBySlot = newSeq[int](slotCount)
       lastHp = newSeq[int](slotCount)  # -1 = unknown (start / just respawned)
-      sawKill = false
+      sawGunKill = false
+      sawSprayKill = false
+      sawGrenadeKill = false
       sawPlayingPhase = false
       sawGameOverPhase = false
     for slot in 0 ..< slotCount:
@@ -75,8 +78,12 @@ suite "tier-2 event extraction (tools/extract_events)":
     for event in extraction.events:
       case event.kind
       of Kill:
-        sawKill = true
         check event.weapon in ["gun", "spray", "grenade"]
+        case event.weapon
+        of "gun": sawGunKill = true
+        of "spray": sawSprayKill = true
+        of "grenade": sawGrenadeKill = true
+        else: discard
         check event.source >= 0 and event.source < slotCount
         check event.target >= 0 and event.target < slotCount
         inc killsBySlot[event.source]
@@ -123,7 +130,9 @@ suite "tier-2 event extraction (tools/extract_events)":
         check event.hp == -1
         # `blocked` is Damage-only; every other kind carries 0.
         check event.blocked == 0
-    check sawKill
+    check sawGunKill
+    check sawSprayKill
+    check sawGrenadeKill
     # The fixture plays a full match: it enters Playing and ends at GameOver.
     check sawPlayingPhase
     check sawGameOverPhase

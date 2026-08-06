@@ -143,7 +143,7 @@ suite "league manifest config_schema vs GameConfig":
     var config = defaultGameConfig()
     config.update(readFile(GameDir / "config.json"))
 
-  test "published variants use the baseline's one-slot aim rate":
+  test "published variants use the engine's aim rate":
     let expected = defaultGameConfig().aimTurnRate
     for name in ["coworld_manifest.json", "coworld_manifest_paintbot.json"]:
       check manifestSchema(name)["properties"]["aimTurnRate"]["default"].getInt ==

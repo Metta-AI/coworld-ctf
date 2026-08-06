@@ -207,16 +207,13 @@ square map:
 
 ## Aim
 
-- Every player's aim occupies one of **32 discrete rotation slots** (GV36) —
-  the classic fixed-rotation-count scheme; there are no finer-grained aim
-  angles. On the wire the aim is reported in **brads** (256 units per full
-  turn, integer — deterministic), so every aim value is a multiple of 8
-  (11.25°): **0 = east (+x)**, increasing **counter-clockwise on screen** in
-  map coordinates (64 = north, 128 = west, 192 = south).
+- Every player has a **continuous aim angle** reported in **brads** (256 units
+  per full turn, integer — deterministic): **0 = east (+x)**, increasing
+  **counter-clockwise on screen** in map coordinates (64 = north, 128 = west,
+  192 = south).
 - The aim is **decoupled from movement**. Hold **B** to rotate the aim
-  **counter-clockwise**, hold **Select** to rotate **clockwise**, stepping
-  `aimTurnRate` rotation slots per tick (default 1 slot = 11.25°/tick; a full
-  turn takes 32 ticks, ~1.3s).
+  **counter-clockwise**, hold **Select** to rotate **clockwise**, at
+  `aimTurnRate` brads per tick (default 5 ≈ 7°/tick; a full turn takes ~2.1s).
   Holding both rotate buttons cancels out. The d-pad **never** touches the aim.
 - The aim drives everything directional: the **gun** fires along it, the
   **vision cone** centers on it, and the sprite flip follows it (you face left
@@ -681,7 +678,7 @@ These are starting values, exposed in the game config and tuned in self-play.
 | Fire cooldown | ~0.5s | Minimum time between shots |
 | Carrier speed | ~70% | Movement penalty while holding the heart |
 | Body bounce (`playerBouncePct`) | 40% | Restitution of player-player collisions; bodies are always solid |
-| Aim turn rate (`aimTurnRate`) | 1 slot/tick | Rotation slots stepped per tick while B/Select is held (11.25°/tick; full turn 32 ticks ≈ 1.3s) |
+| Aim turn rate (`aimTurnRate`) | 5 brads/tick | Rotation speed while B/Select is held (~7°/tick; full turn ~2.1s) |
 | Vision cone (`visionConeDeg`) | ±60° | Fog-of-war forward vision half-angle; reaches 1.5× gun range (1575px stock), walls block |
 | Vision bubble (`visionBubble`) | 90px | Omnidirectional close-range vision regardless of aim |
 | Spray cone reach (`PlasmaArcReach`) | 170px (5 squares) | Forward cone reach along the centerline; one square = one 34px cog body |
@@ -769,8 +766,7 @@ interpolation formula.
 
 **So is your own aim.** Every player frame carries an invisible 1x1 HUD
 marker labeled `own aim <brads>`: your turret angle as of the rendered tick,
-in brads (256 per turn, 0 = east, counter-clockwise; always a multiple of 8
-— the aim sits on the 32-slot rotation grid). Match the prefix `own aim `
+in brads (256 per turn, 0 = east, counter-clockwise). Match the prefix `own aim `
 and parse the tail as an integer. Before this marker a policy had to dead-reckon its own aim
 open-loop from its rotate inputs; the marker caps that drift at one frame
 gap (integrate held rotation between frames, resync on each frame — see
