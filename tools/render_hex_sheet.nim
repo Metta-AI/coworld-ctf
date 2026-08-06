@@ -268,7 +268,8 @@ proc composeSheet(
     ## The label has to survive the sheet's own downscale: a 5-wide sheet is
     ## read at ~0.4x, so its type is sized up to land near 14px there.
     headFont = sheetFont(if cols >= 5: 36 else: 28, InkColor)
-    metaFont = sheetFont(if cols >= 5: 27 else: 23, DimColor)
+    metaFont = sheetFont(if cols >= 5: 24 else: 22, DimColor)
+    metaBox = vec2(float32(tw), float32(30))
   result.write(titleFont, title, float32(Pad + 4), 16)
   result.write(subFont, subtitle, float32(Pad + 4), 60)
   for i, tile in tiles:
@@ -277,7 +278,11 @@ proc composeSheet(
       cy = headH + (i div cols) * cellH
     result.draw(tile, translate(vec2(float32(cx + Pad), float32(cy + LabelH))))
     result.write(headFont, heads[i], float32(cx + Pad), float32(cy + 4))
-    result.write(metaFont, subs[i], float32(cx + Pad), float32(cy + 44))
+    ## Bounded so a long meta line CLIPS at the tile edge instead of running
+    ## into its neighbour's cell.
+    result.fillText(
+      metaFont, subs[i], translate(vec2(float32(cx + Pad), float32(cy + 46))),
+      metaBox)
 
 when isMainModule:
   let outDir = if paramCount() >= 1: paramStr(1) else: "hex50"
@@ -355,9 +360,12 @@ when isMainModule:
     statTable.add stats
     tiles.add renderTile(gameMap, TileWidth)
     heads.add &"#{i:02}  seed {pick.seed}  {pick.sizeName}"
-    subs.add &"{gameMap.width}x{gameMap.height}  {pick.symName}  " &
-      &"endzone r{gameMap.endzoneRadius}  base depth {depth}  " &
-      &"{gameMap.leftObstacles.len} shapes  {gameMap.trenches.len} pits"
+    ## Compact enough to fit one tile column at the 5-wide sheet's type size:
+    ## a meta line that runs into the next cell reads as a broken sheet.
+    subs.add &"{gameMap.width}x{gameMap.height} {pick.symName} ez r" &
+      &"{gameMap.endzoneRadius} depth {depth} " &
+      &"{gameMap.leftObstacles.len} shapes {gameMap.trenches.len} pits " &
+      &"cover {stats.overall} core {stats.core}"
     byClass.mgetOrPut(pick.sizeName, @[]).add i
     var kits = newJArray()
     for p in gameMap.medKitSpawns:
