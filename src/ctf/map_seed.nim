@@ -99,9 +99,20 @@ const
   ScenePickups* = "pickups"  ## med kits and any future item spawn.
   SceneBiome* = "biome"      ## surface skin; cosmetic, so drawn per SEED.
   SceneDecor* = "decor"      ## non-collidable dressing. Nothing draws it yet.
+  SceneArchetype* = "archetype"
+    ## WHICH route topology this map is — three-lane, blocks, ring, hub,
+    ## warren or field. Drawn with `seedStream`, because the archetype IS the
+    ## board: every best-of-K candidate for a seed has to be another try at the
+    ## same design, not a different one. See `map_archetypes`.
+  SceneTopology* = "topology"
+    ## The chosen archetype's own parameters — where the streets run, how far
+    ## the ring is inset, how coarse the warren's rooms are. Drawn with
+    ## `stream`, so selection genuinely searches over the topology instead of
+    ## re-rolling one fixed skeleton's fill nine times.
 
 const KnownScenes* = [
   SceneLayout, SceneTerrain, SceneCover, ScenePickups, SceneBiome, SceneDecor,
+  SceneArchetype, SceneTopology,
 ]
   ## The scenes that exist TODAY, for tooling and tests that want to enumerate
   ## something. Deliberately not an enum and not exhaustive: adding a scene

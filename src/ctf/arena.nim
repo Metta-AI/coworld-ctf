@@ -34,6 +34,11 @@ export map_seed
 import map_lanes
 import mapgen_biomes
 import mapgen_vocab
+# `map_archetypes` owns the ROUTE TOPOLOGY — which of six graphs a seed draws,
+# and the corridors it reserves before any fill is emitted. Re-exported so the
+# map tools can name a tile's archetype through `arena` alone.
+import map_archetypes
+export map_archetypes
 from std/random import Rand, initRand
 
 proc validateMapRect(name: string, rect: MapRect, width, height: int) =
@@ -1853,10 +1858,21 @@ proc generateMapAttempt*(
         if inShape(g.x + dx, g.y + dy, shape): return true
     false
 
-  ## The lane plan outlives the terrain block: the constructive row cover
-  ## below has to know where the routes are so it never plugs one.
+  ## WHICH MAP THIS IS. Off its own SEED-level stream, so it is a property of
+  ## the seed rather than of the candidate — every best-of-K try is another
+  ## attempt at the same design — and so adding the stage disturbed no
+  ## existing scene's draw order. See `map_archetypes`.
+  var archetypeRng = root.seedStream(SceneArchetype)
+  let archetype = archetypeRng.drawArchetype(teams)
+
+  ## The lane plan and the archetype plan both outlive the terrain block: the
+  ## constructive row cover below has to know where the routes are so it never
+  ## plugs one, and the centre feature has to know whether this archetype
+  ## wants a colonnade there at all.
   var lanePlan: LanePlan
   var haveLanes = false
+  var archPlan = ArchetypePlan(kind: archetype, fillPermille: 1000,
+    massLo: 2, massHi: 3, centre: centreColonnade)
   block terrain:
     let
       ## A rot90 board must not straddle EITHER centre line; mirror and rot180
@@ -1900,6 +1916,15 @@ proc generateMapAttempt*(
       break terrain
     var fill: seq[ArenaShape]
 
+    ## PLAN THE TOPOLOGY. The archetype KIND belongs to the seed; its
+    ## parameters — where the streets run, how far the ring is inset, how
+    ## coarse the warren is — belong to the CANDIDATE, so selection genuinely
+    ## searches over the topology instead of re-rolling one fixed skeleton's
+    ## fill nine times.
+    var topologyRng = root.stream(SceneTopology)
+    archPlan = planArchetype(archetype, topologyRng, board, region,
+      result.teamAnchor(Red), rules, quadrant = result.symmetry == symRot90)
+
     ## VOCABULARY MASSES FIRST, then the biome texture around them.
     ##
     ## Biome noise alone gives cover but not ENCLOSURE: measured at the same
@@ -1927,9 +1952,12 @@ proc generateMapAttempt*(
       ## as CONFETTI, and a crude mixture was the best-LOOKING map produced.
       ## So the low-enclosure items keep their place in the pool; they are
       ## simply drawn less often.
-      const Items = [viBunker, viBunker, viBunker, viSnake, viSnake,
-                     viCave, viCave, viBeam, viDorito, viCan,
-                     viMassif, viTemple]
+      ##
+      ## The pool is now the ARCHETYPE's, not one global list. That is the
+      ## skinning half of the brief's rule — the graph is chosen upstream and
+      ## the vocabulary only dresses it — and it is what stops a `warren` of
+      ## small rooms filling itself with landform-scale massifs.
+      let Items = archPlan.items
       let vp = vocabParams(rules)
       if region.h < 80 or region.w < 80: break masses
       var vocabRand = initRand(cast[int64](fillRng.next() or 1'u64))
@@ -1940,11 +1968,19 @@ proc generateMapAttempt*(
       ## than a fair density, and it measured like one (0.220 against a 0.30
       ## target). So each item gets the WHOLE domain and the layers overlap,
       ## which is also what stops the map reading as horizontal stripes.
-      let massCount = 2 + fillRng.pick(2)
+      let massCount = fillRng.pickRange(archPlan.massLo, archPlan.massHi)
+      ## ...and each item gets each of the ARCHETYPE's compartments — a city
+      ## block, a warren room, the ground inside a ring road — rather than the
+      ## whole domain. `three-lane` and `field` declare no compartments and so
+      ## still get the whole domain, which is the behaviour above.
+      var cells = archPlan.cells
+      if cells.len == 0: cells = @[region]
       for k in 0 ..< massCount:
         let item = Items[fillRng.pick(Items.len)]
-        for shape in emitVocab(item, vocabRand, region, vp):
-          fill.add shape
+        for cell in cells:
+          if cell.w < 60 or cell.h < 60: continue
+          for shape in emitVocab(item, vocabRand, cell, vp):
+            fill.add shape
 
     ## The biome texture goes in AFTER the masses, deliberately. The fill
     ## budget below is spent in emission order and SKIPS any shape too big for
@@ -1955,24 +1991,27 @@ proc generateMapAttempt*(
         defaultBiomeParams(style), domain):
       fill.add shape
 
-    ## The lane skeleton is a HALF-FIELD topology: three parallel routes from
-    ## a base out to the symmetry seam. A rot90 domain is a QUARTER of the
-    ## board, and putting those same three lanes in half the area and lifting
-    ## them x4 measured 187-235 permille cover against a 170 ceiling. The
-    ## STRUCTURE alone was over, so budgeting the fill could not rescue it —
-    ## tried, and it only starved the fill, costing 0.07 of interiorFrac on
-    ## 2-team for no validity at all.
+    ## THE TOPOLOGY. `archThreeLane` is the half-field lane grammar and comes
+    ## from `map_lanes`; the other five come from `map_archetypes` as a set of
+    ## RESERVED corridors plus the structure that makes them real.
     ##
-    ## So rot90 boards take the fill and the constructive row cover WITHOUT
-    ## the lane network. That is honest about what exists rather than forcing
-    ## a two-team grammar onto a four-team board: the brief is explicit that
-    ## 4-team topology must stop being radial-only, and a ring road, a grid of
-    ## blocks or a central keep are separate archetypes still to be built.
-    let useLanes = result.symmetry != symRot90
+    ## The lane skeleton is a HALF-FIELD topology and stays 2-team-only:
+    ## putting those same three lanes in a rot90 QUARTER of the board and
+    ## lifting them x4 measured 187-235 permille cover against a 170 ceiling.
+    ## The STRUCTURE alone was over, so budgeting the fill could not rescue it
+    ## — tried, and it only starved the fill, costing 0.07 of interiorFrac on
+    ## 2-team for no validity at all. `legalArchetypes` encodes that.
+    ##
+    ## Everything else shares ONE construction: reserve the corridors first,
+    ## drop any fill overlapping one. Cover falls (the corridors are empty)
+    ## and the routes hold by construction, which is the same
+    ## disjoint-pixel-set argument the lanes make — with topologies that suit
+    ## a four-fold board, because the brief is explicit that 4-team topology
+    ## must stop being radial-only.
     var
       emitted: seq[ArenaShape]
       structureCount = 0
-    if useLanes:
+    if archetype == archThreeLane:
       ## `carveLanes` emits separators, then gates, then the reconciled cover,
       ## then any pickets — so the split between STRUCTURE and FILL is
       ## positional, and the plan reproduces the structure counts exactly.
@@ -1984,61 +2023,52 @@ proc generateMapAttempt*(
         laneSeparatorShapes(carved.plan).len + laneGateShapes(carved.plan).len
       emitted = carved.shapes
     else:
-      ## STREETS — the rot90 archetype, and the route guarantee that the lane
-      ## network provides on a half-field.
-      ##
-      ## Without a reserved skeleton a 4-team board is caught between two
-      ## failures with no window between them: measured over 60 attempts,
-      ## sparse fills failed "no 26px route to the blue flag" at 125-167
-      ## permille and dense ones "too clogged" at 175-242. Connectivity was
-      ## accidental because nothing reserved a corridor.
-      ##
-      ## So a grid of streets is reserved BEFORE the fill lands, and anything
-      ## overlapping one is dropped. Cover falls (the streets are empty) and
-      ## the routes hold by construction, which is the same disjoint-pixel-set
-      ## argument the lanes make — only with a topology that suits a
-      ## four-fold board. The brief names "blocks: a grid of streets" as a
-      ## rot90-legal archetype precisely because it is not a pinwheel.
-      let
-        street = max(MinCorridorWidth, rules.minCorridorWidthPx)
-        streetsX = 1 + fillRng.pick(2)
-        streetsY = 1 + fillRng.pick(2)
-      var streets: seq[MapRect]
-      for k in 1 .. streetsX:
-        let sx = region.x + region.w * k div (streetsX + 1) - street div 2
-        streets.add MapRect(x: sx, y: region.y, w: street, h: region.h)
-      for k in 1 .. streetsY:
-        let sy = region.y + region.h * k div (streetsY + 1) - street div 2
-        streets.add MapRect(x: region.x, y: sy, w: region.w, h: street)
-      ## Plus a CROSS through the team's own anchor. Every route in or out of
-      ## a base uses it, and the rot90 lift hands each team the identical
-      ## approach. Without it the fill simply landed on the base — the
-      ## endzone-gate exclusion above only guards COMPACT endzones, so a
-      ## column-endzone 4-team board had nothing keeping its own flag
-      ## reachable, and all 60 attempts failed "no 26px route to the blue
-      ## flag" at a perfectly healthy 122-134 permille cover.
-      let anchor = result.teamAnchor(Red)
-      streets.add MapRect(x: region.x, y: anchor.y - street div 2,
-        w: region.w, h: street)
-      streets.add MapRect(x: anchor.x - street div 2, y: region.y,
-        w: street, h: region.h)
-      proc onStreet(shape: ArenaShape): bool =
+      ## The archetype's own walls spend FIRST, exactly like a lane separator:
+      ## a warren's rooms and a field's massifs are the map, not decoration on
+      ## it, and the budget below must not be able to drop them.
+      emitted = archPlan.structure
+      structureCount = emitted.len
+      ## Intrusion is tested on the SHAPE, not on its bounding box. A long
+      ## diagonal's box spans a whole city block while the wall itself is a
+      ## 26 px ribbon that may thread between two streets, and dropping it on
+      ## the box is how the first draft decimated its own fill.
+      proc intrudesOnReserved(shape: ArenaShape): bool =
         let b = shapeBounds(shape)
-        for st in streets:
-          if b.x0 <= st.x + st.w and b.x1 >= st.x and
-             b.y0 <= st.y + st.h and b.y1 >= st.y:
-            return true
+        if not archPlan.reservesBounds(b.x0, b.y0, b.x1, b.y1): return false
+        for r in archPlan.reserved:
+          let
+            x0 = max(b.x0, r.x)
+            x1 = min(b.x1, r.x + r.w - 1)
+            y0 = max(b.y0, r.y)
+            y1 = min(b.y1, r.y + r.h - 1)
+          if x1 < x0 or y1 < y0: continue
+          ## 4 px is well under the 26 px route grid the validator reads, so
+          ## anything this sampling misses cannot close a route.
+          var y = y0
+          while y <= y1:
+            var x = x0
+            while x <= x1:
+              if inShape(x, y, shape): return true
+              x += 4
+            if x - 4 != x1 and inShape(x1, y, shape): return true
+            y += 4
+          if y - 4 != y1:
+            var x = x0
+            while x <= x1:
+              if inShape(x, y1, shape): return true
+              x += 4
         false
-      var streetDropped {.used.} = 0
+      var reservedDropped {.used.} = 0
       for shape in fill:
-        if not onStreet(shape):
-          emitted.add shape
+        if intrudesOnReserved(shape):
+          inc reservedDropped
         else:
-          inc streetDropped
+          emitted.add shape
       when defined(mapdbg):
-        echo "  [dbg] region=", region.w, "x", region.h, " fill=", fill.len,
-          " streetDropped=", streetDropped, " survived=", emitted.len,
-          " streets=", streets.len, " (", streetsX, "v+", streetsY, "h+2anchor)"
+        echo "  [dbg] arch=", archetype, " region=", region.w, "x", region.h,
+          " fill=", fill.len, " reservedDropped=", reservedDropped,
+          " structure=", structureCount, " survived=", emitted.len,
+          " reserved=", archPlan.reserved.len
 
     ## BUDGET the fill. The structure spends first and the fill takes what is
     ## left, rather than both drawing freely and the validator refereeing.
@@ -2093,14 +2123,23 @@ proc generateMapAttempt*(
     ## drives size, layout and endzone, so reversing the density order changes
     ## WHICH board wins rather than how full one board is. 2-team interiorFrac
     ## went 0.301 -> 0.272 and 4-team did not move at all.
+    ##
+    ## The ARCHETYPE scales it. `field` is sparse because it is allowed 340
+    ## permille of the nominal budget, not because its pebbles are smaller —
+    ## which is the difference between a topology and a texture. The floor is
+    ## scaled with it, or a sparse archetype is rescued back up to a dense one
+    ## by the very guard that exists to stop a board being empty.
     let
       domainArea = region.w * region.h
       densityPct = 40 + 12 * (attempt mod 9)
+      archPermille = archPlan.fillPermille
     var budget =
-      domainArea * FillBudgetPermille div 1000 * densityPct div 100
+      domainArea * FillBudgetPermille div 1000 * densityPct div 100 *
+        archPermille div 1000
     for i in 0 ..< min(structureCount, emitted.len):
       budget -= approxArea(emitted[i])
-    budget = max(budget, domainArea * FillFloorPermille div 1000)
+    budget = max(budget,
+      domainArea * FillFloorPermille div 1000 * archPermille div 1000)
     when defined(mapdbg):
       var budgetSkipped {.used.} = 0
       let budget0 {.used.} = budget
@@ -2150,27 +2189,65 @@ proc generateMapAttempt*(
   ## Placed at a fixed inset from the axis rather than the old hard-coded
   ## 138px offset, which sat against a flag ring that IS scaled and therefore
   ## missed the centre entirely on every giant board.
+  ## THE CENTRE IS NOT A FIXTURE. The colonnade above used to be
+  ## unconditional, and it showed: it was the same bright shape in the same
+  ## place on 36 of 36 rendered tiles, both team counts, every size class, and
+  ## the 2-team sheet verdict names it the single strongest source of
+  ## sameness. So WHERE the spinners go is now the archetype's call — but they
+  ## still go SOMEWHERE, because the mechanic needs them (see CentrePolicy).
   block centreSpinners:
     const SpinInset = 40   ## inside DiamondSpinBand (80) at every size class.
-    let
-      sx = result.center.x - SpinInset
+    let sx = result.center.x - SpinInset
+    proc trySpinner(gameMap: var CtfMap, sy: int): bool =
+      ## Never on protected floor — it would be carved straight back out —
+      ## and never where it would seal a compact base's approach.
+      let d = ArenaShape(kind: shapeDiamond, cx: sx, cy: sy, radius: 28)
+      if mapProtectedFloorAt(gameMap, sx, sy) or gameMap.sealsEndzoneGate(d):
+        return false
+      gameMap.leftObstacles.add d
+      true
+    var placed = 0
+    case archPlan.centre
+    of centreColonnade:
       ## On rot90 the spin band is a CROSS (x or y near an axis), so a column
       ## here lifts into a full cross of stone through the middle of the
       ## board: the same column that took 2-team interiorFrac 0.233 -> 0.310
       ## took 4-team validity 81% -> 68% and its enclosure 0.127 -> 0.089.
       ## Four-fold boards therefore get a couple of spinners, not a colonnade.
-      step =
-        if result.symmetry == symRot90: max(2 * MinCorridorWidth, result.height div 2)
+      let step =
+        if result.symmetry == symRot90:
+          max(2 * MinCorridorWidth, result.height div 2)
         else: max(2 * MinCorridorWidth, result.height div 5)
-    var sy = ArenaBorder + step div 2
-    while sy < result.height - ArenaBorder:
-      ## Never on protected floor — it would be carved straight back out —
-      ## and never where it would seal a compact base's approach.
-      let d = ArenaShape(kind: shapeDiamond, cx: sx, cy: sy, radius: 28)
-      if not mapProtectedFloorAt(result, sx, sy) and
-         not result.sealsEndzoneGate(d):
-        result.leftObstacles.add d
-      sy += step
+      var sy = ArenaBorder + step div 2
+      while sy < result.height - ArenaBorder:
+        if result.trySpinner(sy): inc placed
+        sy += step
+    of centreCluster:
+      ## A `hub` keeps its middle walkable: the diamonds are furniture inside
+      ## the open space, set outside the always-open flag ring so they are not
+      ## carved back out.
+      for sy in [cy - result.flagRing - 70, cy + result.flagRing + 70]:
+        if sy > ArenaBorder and sy < result.height - ArenaBorder and
+            result.trySpinner(sy): inc placed
+    of centrePoles:
+      ## `ring`, `warren` and `field` leave the middle of the board ALONE.
+      ## One spinner near each end of the axis keeps the mechanic supplied
+      ## without putting a landmark where every other tile has one.
+      let inset = max(2 * MinCorridorWidth, result.height div 7)
+      for sy in [ArenaBorder + inset, result.height - ArenaBorder - inset]:
+        if result.trySpinner(sy): inc placed
+    if placed == 0:
+      ## Every policy's spots can be refused (a compact endzone's gates, a
+      ## protected pocket). An EMPTY selection is a live failure — the
+      ## spinning-diamond footprint test checks `chosen.len > 0` — so scan the
+      ## axis for the first spot that is legal rather than shipping a board
+      ## with no spinners at all.
+      var sy = ArenaBorder + 40
+      while sy < result.height - ArenaBorder:
+        if result.trySpinner(sy):
+          inc placed
+          break
+        sy += 40
 
   ## Endzone trench pit candidates, authored on the RED side (the symmetry
   ## image gives Blue the exact counterpart): BEHIND the pedestal toward
@@ -2416,10 +2493,19 @@ proc generateMapAttempt*(
           ## picket must never close. The relaxed pass drops only the route
           ## test, so a board with no legal gap still gets its row covered
           ## and the corridor audit judges the pinch on its merits.
+          ##
+          ## The RESERVED test is the archetype's half of that, and it was
+          ## missing: three 24x26 pickets stacked across a 68 px street is a
+          ## 24x78 plug that seals the street it was placed in, which is a
+          ## route the archetype promised and this pass quietly took back.
+          ## The archetype's own chicanes close those rows first, so in
+          ## practice this test now rarely has to fire.
           if not mapProtectedFloorAt(result, x + PicketW div 2, y) and
              not mapProtectedFloorAt(result, x, y) and
              not mapProtectedFloorAt(result, x + PicketW - 1, y) and
              not result.sealsEndzoneGate(candidate) and
+             (relaxed or not archPlan.reservesBounds(
+               x, py, x + PicketW - 1, py + picketH - 1)) and
              (relaxed or not haveLanes or not lanePlan.intrudesOnLane(candidate)):
             result.leftObstacles.add candidate
             ## Mark the picket AND every image the symmetry lift will make of
@@ -3006,6 +3092,17 @@ proc selectBestMap*(
       break
   result.degenerate = result.ranked and result.valid > 1 and
     result.tiedAtBest == result.valid
+
+proc mapArchetypeFor*(seed: int, teams = 2): MapArchetype =
+  ## Which route topology a seed draws — the same derivation the generator
+  ## uses, exposed so a tool can NAME a tile without regenerating it.
+  ##
+  ## Deliberately a pure function of (seed, teams) rather than a field on
+  ## `CtfMap`: the archetype is drawn from a seed-level stream and the legal
+  ## set depends only on the team count, so nothing has to ride the map spec,
+  ## the wire, or a GameVersion bump to make a map's design nameable.
+  var rng = mapSeed(seed).seedStream(SceneArchetype)
+  rng.drawArchetype(teams)
 
 proc generateCtfMapSelection*(
   seed: int,
