@@ -283,6 +283,42 @@ when defined(sgprobe):
   var sgDefended = 0  # ...and the pocket was DEFENDED (>=GrabStackDefenders fresh guns on it)
   var sgHold = 0      # ...and we HELD at standoff (no Captain advantage) — the suicide dive PREVENTED
   var sgCommit = 0    # ...and we COMMITTED the touch WITH advantage (pickEdge/PhForce/cover) — team push
+  # ── issue #18 (2026-08-05): STEP ZERO — does the latch actually HAPPEN on a
+  # four-team board, for how long, and which advantage source ever fires? The
+  # four counters above cannot answer any of the three. Ungated frame counter
+  # first (the wbprobe lesson: a dump keyed on a perception read never fires).
+  var sgFrames = 0     # EVERY decide frame this process ran
+  var sgApproach = 0   # frames wantPocketRush was true at all (inside PocketRushRange)
+  var sgAdvEdge = 0    # sgWant frames where pickEdge would grant the advantage
+  var sgAdvForce = 0   # ...where the planLayer/PhForce disjunct fires
+  var sgAdvCover = 0   # ...where coverMates >= 1
+  var sgDefAll = 0     # sum of defenders counted over the UNION of all rivals
+  var sgDefTgt = 0     # sum of VISIBLE defenders belonging to the RAID-TARGET team only
+  var sgDefVis = 0     # sum of VISIBLE defenders over the union (matched basis for sgDefTgt)
+  var sgTgtStack = 0   # sgWant frames where the TARGET team ALONE is stacked (>=2)
+  var sgVisStack = 0   # sgWant frames where the VISIBLE union is stacked (>=2)
+  var sgMateNear = 0   # sgWant frames with >=1 fresh mate within 250px (support exists, it is
+                       # just outside GrabCoverRange 110)
+  var sgHoldRun = 0    # current consecutive hold frames (this bot)
+  var sgHoldRunMax = 0 # longest hold episode
+  var sgHoldRuns = 0   # distinct hold episodes closed
+  var sgHoldDsum = 0.0 # sum of dist(me, stealTarget) over hold frames -> mean standoff
+  var sgRing = 0       # frames spent INSIDE GrabCommitRing of the steal target
+  var sgMinD = 1e18    # closest this process ever got to a steal target
+  # DIFFERENTIAL rows (the -d:ncdiff / finishWounded technique — the cheapest rows
+  # on the plan, run BEFORE buying an A/B): of the frames the shipped rule HOLDS,
+  # how many would each candidate rule commit instead?
+  var sgHoldNow = false # this frame is a hold frame (read at the fire emit below)
+  var sgHoldFire = 0   # hold frames that actually RELEASED a shot — the hold's whole
+                       # justification is "suppress the pocket from range", so a low
+                       # number means the standoff buys nothing at all
+  var sgTgtHold = 0    # HOLD frames the grabTeamStack rule would still hold (lever OFF:
+                       # the differential row; lever ON: identical to sgHold by construction)
+  var sgFlipTgt = 0    # ...where the RAID-TARGET team alone is not stacked (fix (a))
+  var sgFlipNoLine = 0 # ...where NO counted defender has a clear pixel ray (fix (d))
+  var sgFlipBox: array[4, int]  # ...where the hold has already run N frames (fix (c)),
+                                # for N = 2 / 4 / 8 / 12 decide frames
+  const SgBoxN = [2, 4, 8, 12]
 
 when defined(tcprobe):
   # -d:tcprobe ONLY (2026-07-29 touch latch): does the latch arm, and what did it PREEMPT?
@@ -901,6 +937,27 @@ const
                                 # fresh at the moment of the hold decision. At
                                 # LocalFreshTicks(20) the inbound count was
                                 # structurally 0 (gtprobe: noCover 144 -> FIRED 0).
+  # ⭐⭐ GRAB HOLD BOX (issue #18, 2026-08-05) — the hold is a SUPPRESSION WINDOW,
+  # not a STATE. `holdGrab` waits for an advantage that -d:sgprobe shows almost
+  # never arrives: over 30k decide frames on cfg_4ffa the hold fired on 73.3% of
+  # defended approach frames, and on the 32-seat giant board on 100.0% of them
+  # (zero commits in 4 episodes). Of its three release conditions the PhForce
+  # disjunct fired 0 times in 2,459 gate frames — it is dead code by design AND
+  # redundant, since the outer `not pushOut` guard already releases the hold on
+  # the same late clock — while pickEdge (19.9%) and cover-in-place (26.6%) ask
+  # the FRONTMOST attacker (wantPocketRush selects exactly that body) to wait for
+  # mates who, on a strided seat deal, are behind it and usually never arrive.
+  # AGG-E3 says break contact ONLY while fire superiority is unachievable; a hold
+  # with no clock asserts that forever. So: keep every existing condition, bound
+  # the wait. One budget per approach; after it, this body presses (armedRush
+  # keeps its gun up the whole way in, so the pressed touch is not the unarmed
+  # 2026-07-24 suicide dive the hold was built to stop).
+  GrabTargetOnlyStack = true    # documentation anchor for grabTeamStack (issue #18):
+                                # "stacked" must mean the HEART'S OWNER has guns on it.
+                                # Measured on cfg_4ffa, matched visible basis: union
+                                # 0.31 defenders/gate-frame vs target-team-only 0.22,
+                                # stacked-share 4.5% vs 2.6%. The 2-team control reads
+                                # 0.89 vs 0.89 exactly — it is structurally inert there.
 
   # --- holdLine (anti-over-extend vs a standing line) -------------------------
   # The h006 line-defense finding (2026-07-22 corpus): the #1 policy forms a line
@@ -1227,6 +1284,12 @@ type
 
   Actor = object              # a player visible this frame
     pos: Vec
+    team: int8                # index into TeamColorNames of the colour this actor
+                              # was scanned under; -1 when unknown (sound phantoms).
+                              # On a 2-team board this is a constant and nothing can
+                              # read it wrong; on a 4-team board it is the difference
+                              # between "the heart's OWNER is guarding it" and "two
+                              # OTHER teams are fighting over it".
     facingRight: bool
     hp: int                   # from the overhead pip bar; 0 = not read
     aimBrads: int             # gun bearing read from the aim-dot line; -1 unknown
@@ -1240,6 +1303,8 @@ type
 
   Track = object              # a remembered player
     pos, vel: Vec
+    team: int8                # colour index carried over from the Actor that last
+                              # refreshed this track; -1 = unknown (sound phantom)
     lastSeen: int
     facingRight: bool
     hp: int                   # last observed hit points; 0 = never read
@@ -1602,6 +1667,17 @@ type
                               # advantage read (pickEdge local numbers edge / PhForce grouped all-in /
                               # a mate covering in place); otherwise HOLD at a firing standoff and
                               # suppress the clustered pocket from range as a team. No lone suicide dive.
+    grabTeamStack: bool       # ⭐⭐ WHOSE POCKET IS IT? (issue #18, 2026-08-05). smartGrab counts
+                              # "defenders" as the union of every rival's fresh tracks near the
+                              # heart — a TWO-TEAM premise ("anyone by their heart is guarding it")
+                              # that is false the moment there are three rivals: on a 4-team board
+                              # bodies at a heart are as often two OTHER teams fighting over it,
+                              # which is the best moment to take it, not the worst. This counts only
+                              # tracks belonging to the raid TARGET's colour. Strictly monotone (it
+                              # can only lower the count, never raise it), so it cannot decay into
+                              # the refuted head-count break-contact rule — it removes reach from
+                              # one. Needs the Actor/Track `team` index this commit adds (the input
+                              # claims.md FFA-5 names as its blocker). See knowledge/plans/plan-18.
     touchCommit: bool         # ⭐⭐ THE TOUCH LATCH (2026-07-29, THE grab-conversion fix). FIELD-
                               # MEASURED on 123 GV26 league episodes: a steal is THE deciding
                               # axis (steal once -> we win 66.7%; never steal -> 26.4%), and we
@@ -2685,6 +2761,12 @@ proc shippedCombatTune(): CombatTune =
   # bot presenting its back to a live gun; stickyCommit keeps the gun finishing a committed kill.
   # grabGate/grabTiming left OFF (code kept for the record + their harness knobs).
   result.smartGrab = true
+  # ⭐⭐ grabTeamStack (issue #18): count pocket defenders by the raid TARGET's
+  # colour instead of the union of all three rivals. UNPROVEN — ENV-ARMED ONLY
+  # until the pre-registered A/B passes (the contaminated-control trap, failed.md:
+  # never bake an unproven lever into the champion tune). GRABTGT=1 arms it
+  # per-process for the env-server A/B rig.
+  result.grabTeamStack = getEnv("GRABTGT").len > 0
   result.armedRush = true
   result.holdVsGun = true
   result.stickyCommit = true
@@ -3117,7 +3199,7 @@ proc actorsFor(client: ProtocolClient, color: string,
         if rot >= 0:
           ab = rotBrads(rot)
       result.add(Actor(pos: client.mapPos(o), facingRight: facingRight,
-        aimBrads: ab))
+        aimBrads: ab, team: int8(TeamColorNames.find(color))))
   for hp in 1 .. MaxHp:
     for o in client.spriteObjectsWithLabel("hp " & $hp & "/" & $MaxHp):
       let p = client.mapPos(o)
@@ -4134,6 +4216,7 @@ proc updateTracks(bot: Bot, tracks: var seq[Track], seen: seq[Actor]) =
         clamp((tracks[best].vel.y + v.y) * 0.5, -3.0, 3.0)
       )
       tracks[best].pos = a.pos
+      tracks[best].team = a.team
       tracks[best].facingRight = a.facingRight
       tracks[best].lastSeen = bot.tick
       if a.hp > 0:
@@ -4147,6 +4230,7 @@ proc updateTracks(bot: Bot, tracks: var seq[Track], seen: seq[Actor]) =
     else:
       tracks.add(Track(
         pos: a.pos, lastSeen: bot.tick, facingRight: a.facingRight, hp: a.hp,
+        team: a.team,
         aimBrads: a.aimBrads, hasArc: a.hasArc, hasShield: a.hasShield))
       claimed.add(true)
   var kept: seq[Track]
@@ -4813,6 +4897,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           if not known:
             bot.enemies.add(Track(pos: p, vel: vec(0, 0),
               lastSeen: bot.tick - FreshShotTicks - 1, hp: 0,
+              team: -1,       # a muzzle sound carries no colour
               aimBrads: -1))  # a lead, not a shot — no gun bearing known
         # ⭐ Seeding the track above is the ALWAYS-ON intel intake — even a
         # committed carrier now KNOWS the called enemy. The REACTION (turn the
@@ -5884,10 +5969,26 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   if bot.tune.smartGrab and wantPocketRush and not pushOut and
       dist(me, stealTarget) > GrabCommitRing:
     # The pocket defense: fresh enemy guns clustered on the pedestal.
+    # ⭐⭐ WHOSE POCKET IS IT? (grabTeamStack, issue #18, 2026-08-05). The union
+    # count below encodes a TWO-TEAM premise — "a body near their heart is guarding
+    # it" — which is exactly true with one enemy and routinely false with three:
+    # `bot.enemies` is the union over every rival colour, so two GREEN bodies
+    # brawling with YELLOW over yellow's heart read as a stacked yellow defense and
+    # we decline the steal. On a four-team board that configuration is the BEST
+    # moment to take the heart, not the worst. So count only tracks belonging to the
+    # raid target's own colour. Sixth member of the two-team-premise family
+    # (chokeSpot / flagHome / homeDeepX / pointOfDomination / iCarry-vs-HeartHome).
+    # Strictly monotone: it can only LOWER `defenders`, never raise it, so it can
+    # only remove hold frames — it cannot become a new head-count break rule
+    # ([[REF-force]]). Structurally INERT on a 2-team board, where every rival
+    # track already carries the only enemy colour there is.
+    let tgtTeam = int8(TeamColorNames.find(enemyColor))
     var defenders = 0
     for t in bot.enemies:
       if bot.tick - t.lastSeen <= LocalFreshTicks and
           dist(t.pos, stealTarget) <= GrabStackRange:
+        if bot.tune.grabTeamStack and activeColors() > 2 and t.team != tgtTeam:
+          continue          # a rival of the heart's owner, not its guard
         inc defenders
     # Cover in place: a fresh mate AT the pocket with us (already trading, so the touch is
     # covered) releases the hold — that's a genuine team push, not a solo dive.
@@ -5910,6 +6011,96 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       if defenders >= GrabStackDefenders: inc sgDefended
       if defenders >= GrabStackDefenders and not haveAdvantage: inc sgHold
       if defenders >= GrabStackDefenders and haveAdvantage: inc sgCommit
+      # issue #18: WHICH source ever supplies the advantage, and is the union of
+      # three rival teams what inflates `defenders`? Re-scan the raid target's own
+      # colour (probe-only; the shipped read stays the union).
+      if pickEdge: inc sgAdvEdge
+      if bot.tune.planLayer and botPhase == PhForce: inc sgAdvForce
+      if coverMates >= 1: inc sgAdvCover
+      sgDefAll += defenders
+      # ⚠️ MEASUREMENT NOTE: `defenders` counts REMEMBERED tracks (lastSeen <= 20t)
+      # over the union of rivals; a per-colour re-scan sees only what is VISIBLE
+      # THIS FRAME. Comparing the two conflates memory with team attribution — the
+      # first cut of this probe read a 4.5x "union inflation" on a TWO-team board,
+      # where by construction there is no union. So count BOTH on the visible basis.
+      var tgtDef = 0
+      var visDef = 0
+      for ci in 0 ..< activeColors():
+        let c = TeamColorNames[ci]
+        if c == myColor: continue
+        var n = 0
+        for a in client.actorsFor(c, bot.tune.aimRotRead):
+          if dist(a.pos, stealTarget) <= GrabStackRange: inc n
+        visDef += n
+        if c == enemyColor: tgtDef += n
+      sgDefTgt += tgtDef
+      sgDefVis += visDef
+      if tgtDef >= GrabStackDefenders: inc sgTgtStack
+      if visDef >= GrabStackDefenders: inc sgVisStack
+      if holdGrab:
+        if tgtDef < GrabStackDefenders: inc sgFlipTgt
+        for k in 0 ..< SgBoxN.len:
+          if sgHoldRun >= SgBoxN[k]: inc sgFlipBox[k]
+        # ⭐ the DIFFERENTIAL row for grabTeamStack, on the REMEMBERED basis the
+        # shipped rule actually uses (the visible re-scan above conflates memory
+        # loss with team attribution and overstates the effect several-fold).
+        var remTgt = 0
+        for t in bot.enemies:
+          if bot.tick - t.lastSeen <= LocalFreshTicks and
+              dist(t.pos, stealTarget) <= GrabStackRange and
+              (activeColors() <= 2 or t.team == int8(TeamColorNames.find(enemyColor))):
+            inc remTgt
+        if remTgt >= GrabStackDefenders: inc sgTgtHold
+        # fix (d): can this hold SUPPRESS at all? The standoff's entire stated
+        # purpose is "keep the gun up and suppress the clustered pocket from
+        # range" — with no clear pixel ray to a single counted defender it is
+        # not a fire posture, it is waiting.
+        var anyLine = false
+        for t in bot.enemies:
+          if bot.tick - t.lastSeen <= LocalFreshTicks and
+              dist(t.pos, stealTarget) <= GrabStackRange and
+              client.pixelRayClear(me, t.pos):
+            anyLine = true
+            break
+        if not anyLine: inc sgFlipNoLine
+      for t in bot.mates:
+        if bot.tick - t.lastSeen <= GrabMateFreshTicks and dist(t.pos, me) <= 250.0:
+          inc sgMateNear
+          break
+
+  when defined(sgprobe):
+    # Frame-level bookkeeping — runs on EVERY decide frame so the dump always fires
+    # and a hold EPISODE can be closed the frame it ends (latch DURATION is the whole
+    # question: a one-frame hold is a pause, a 400-frame hold is a parked bot).
+    inc sgFrames
+    sgHoldNow = holdGrab
+    if wantPocketRush: inc sgApproach
+    let sgD = dist(me, stealTarget)
+    if sgD < sgMinD: sgMinD = sgD
+    if sgD <= GrabCommitRing: inc sgRing
+    if holdGrab:
+      inc sgHoldRun
+      sgHoldDsum += sgD
+    elif sgHoldRun > 0:
+      if sgHoldRun > sgHoldRunMax: sgHoldRunMax = sgHoldRun
+      inc sgHoldRuns
+      sgHoldRun = 0
+    if sgFrames mod 10 == 0:
+      stderr.writeLine "SGP slot=" & $bot.slot & " col=" & bot.myColor &
+        " tick=" & $bot.tick & " wpr=" & $wantPocketRush &
+        " frames=" & $sgFrames & " approach=" & $sgApproach & " want=" & $sgWant &
+        " defended=" & $sgDefended & " hold=" & $sgHold & " commit=" & $sgCommit &
+        " advEdge=" & $sgAdvEdge & " advForce=" & $sgAdvForce & " advCover=" & $sgAdvCover &
+        " defAll=" & $sgDefAll & " defTgt=" & $sgDefTgt & " defVis=" & $sgDefVis &
+        " tgtStack=" & $sgTgtStack & " visStack=" & $sgVisStack &
+        " mateNear=" & $sgMateNear & " runs=" & $sgHoldRuns & " runMax=" & $sgHoldRunMax &
+        " runNow=" & $sgHoldRun & " holdDsum=" & $sgHoldDsum.int &
+        " ring=" & $sgRing & " minD=" & $sgMinD.int &
+        " holdFire=" & $sgHoldFire & " tgtHold=" & $sgTgtHold &
+        " flipTgt=" & $sgFlipTgt & " flipNoLine=" & $sgFlipNoLine &
+        " flipB2=" & $sgFlipBox[0] &
+        " flipB4=" & $sgFlipBox[1] & " flipB8=" & $sgFlipBox[2] &
+        " flipB12=" & $sgFlipBox[3]
 
   if holdGrab:
     # Hold the gun up at a standoff ring off the pedestal (outside the defenders'
@@ -7719,6 +7910,8 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     mask = moveMask or ButtonA
     when defined(rngprobe):
       if rpBand >= 0: inc rpFire[rpSide][rpBand]
+    when defined(sgprobe):
+      if sgHoldNow: inc sgHoldFire
   when defined(rngprobe):
     rpBand = -1
     # Live-server dump: the bot processes are SIGTERM'd by the A/B script, so
