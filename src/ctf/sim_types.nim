@@ -18,7 +18,41 @@ import
 
 const
   GameName* = "ctf"
-  GameVersion* = "38"  ## GV38 (weapon reach): THE GRENADE AND THE SHOUT ARE
+  GameVersion* = "40"  ## GV40 (team fairness): BOTH TEAMS NOW GET THE SAME
+    ## BOARD. Two shipped defects made a map's protected geometry disagree
+    ## with its own symmetry image, so terrain overlapping a spawn-pocket edge
+    ## or the flag ring could be STONE FOR ONE TEAM AND FLOOR FOR THE OTHER.
+    ##
+    ## 1. THE ANCHOR SEAM. Every shape on the board mirrors at `width - 1 - x`,
+    ## but the far team's home anchor was computed independently and landed at
+    ## `width - x` — one pixel off its own mirror on EVERY size class and both
+    ## 2-team symmetries (522 px of contradiction on the standard board). The
+    ## anchor is now RED's carried across by the map's own symmetry, so the
+    ## two cannot drift apart by construction.
+    ##
+    ## 2. EVEN-SIDED BOARDS. Protected geometry anchored on
+    ## `center = size div 2`, whose exact mirror is `size - 1 - size div 2`;
+    ## those differ by one whenever a side is EVEN. The flag ring and the home
+    ## pocket therefore missed their own images by a pixel on the small, large,
+    ## huge and colossal classes. All of it now measures against the board's
+    ## TRUE axis in DOUBLED coordinates, the way the rot90 path and
+    ## `hex.HexBoard` already did. Odd sides are arithmetically unchanged.
+    ##
+    ## Measured over every pixel of every drawable class, both team counts and
+    ## every symmetry: 522-1772 asymmetric px per board before, 0 after.
+    ##
+    ## Blue's spawn (and on rot180 its row) moves by one pixel and the flag
+    ## ring shifts a half pixel on even-sided boards, so pre-GV40 replays do
+    ## not re-simulate.
+    ##
+    ## 39 IS SKIPPED HERE ON PURPOSE. `main` already shipped GV39 (quad-mirror
+    ## symmetry, PR #237) and a DIFFERENT GV38 (the spray-aim lock, PR #235)
+    ## than this branch's GV38 below; reusing 39 would let a main-recorded
+    ## replay load against this binary and re-simulate wrong, which is exactly
+    ## what the version gate exists to prevent. The 38 collision predates this
+    ## change and still needs reconciling when the branches meet.
+    ##
+    ## GV38 (weapon reach): THE GRENADE AND THE SHOUT ARE
     ## PINNED TO THE GUN, NOT TO THE BOARD. `GrenadeMaxRange` and `ShoutRange`
     ## were both `MapWidth div 5` and therefore grew with the field, while
     ## `GunRange` has been frozen at 1050 px since GV34 — so on a colossal

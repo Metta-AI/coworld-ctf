@@ -454,6 +454,25 @@ proc trenchSquareAt(cx, cy: int): MapRect =
     h: TrenchSize
   )
 
+proc centerTrench(width, height: int): MapRect =
+  ## The dead-center pit an ODD `mapPits` count anchors, sized so it is
+  ## EXACTLY its own image under mirror and rot180 — which the plain
+  ## `trenchSquareAt(center)` was not, and the rule text has always claimed.
+  ##
+  ## A rect [x, x + w - 1] is self-reflecting iff `2 * x + w - 1 == side - 1`,
+  ## so `w` must match the side's PARITY. `TrenchSize` is even, so on an ODD
+  ## side no even-width rect can sit on the axis: the pit landed half a pixel
+  ## off and its own mirror was one pixel away, handing one team 56 px of
+  ## trench the other did not have (111 px under rot180, where both axes miss).
+  ## Growing the pit by that one pixel on an odd side puts it back on the axis
+  ## and costs nothing anyone can feel. Measured 56/111 px of asymmetry before,
+  ## 0 after, on standard/large/huge/giant; the even-sided small board was
+  ## always exact and is unchanged.
+  let
+    w = TrenchSize + (width and 1)
+    h = TrenchSize + (height and 1)
+  MapRect(x: (width - w) div 2, y: (height - h) div 2, w: w, h: h)
+
 proc rectsIntersect(a, b: MapRect): bool =
   ## Returns true when the two rectangles overlap by at least one pixel.
   a.x < b.x + b.w and b.x < a.x + a.w and
@@ -1875,9 +1894,11 @@ proc generateMapAttempt*(
   ## Pit selection. DENSITY mode (default) rolls every candidate at its
   ## class chance scaled by pitDensity percent. COUNT mode (pits locked)
   ## shuffles the candidates and takes symmetric pairs until the requested
-  ## total is met — an ODD total anchors its extra pit at the exact map
-  ## center, the one spot that is its own image under mirror AND rot180,
-  ## so both parities stay exactly team-fair.
+  ## total is met — an ODD total anchors its extra pit on the board's exact
+  ## symmetry axis, the one place that is its own image under mirror AND
+  ## rot180, so both parities stay exactly team-fair. `centerTrench` is what
+  ## makes that true on an odd-sided board; before GV40 the pit was a fixed
+  ## even-sided square at `center`, which missed the axis by half a pixel.
   if overrides.pits < -1 or overrides.pits > 64:
     raise newException(CtfError, "Config field mapPits must be 0..64.")
   if overrides.pitDensity < -1 or overrides.pitDensity > 1000:
@@ -1885,7 +1906,7 @@ proc generateMapAttempt*(
       CtfError, "Config field mapPitDensity must be 0..1000.")
   let
     pitDensity = if overrides.pitDensity >= 0: overrides.pitDensity else: 100
-    centerPit = trenchSquareAt(result.center.x, result.center.y)
+    centerPit = centerTrench(result.width, result.height)
     oddCenterPit = overrides.pits >= 0 and overrides.pits mod 2 == 1
     pitPairsWanted = if overrides.pits >= 0: overrides.pits div 2 else: -1
   var obstacleRemoved = newSeq[bool](result.leftObstacles.len)

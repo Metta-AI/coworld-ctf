@@ -50,16 +50,16 @@ proc mirrorAsymmetry(
   ##
   ## THIS DELIBERATELY DOES NOT GO THROUGH `mapWallAt`, and the reason is a
   ## defect this test used to blame on the constructors. `mapWallAt` subtracts
-  ## `mapProtectedFloorAt`, and THAT is asymmetric on every size class and both
-  ## 2-team symmetries: the generator places team anchors at `width - x` while
-  ## every shape mirrors with `width - 1 - x`, so a team's spawn pocket sits
-  ## one pixel off its own mirror image. Measured: exactly two 1px columns of
-  ## 261 rows = 522 px on the standard board (x = 256 and x = 978 — Red's
-  ## pocket is [116,256], its exact mirror is [978,1118], but Blue's is
-  ## [979,1119]); 688 to 1,772 px on the other classes. Any obstacle
-  ## overlapping a pocket edge then reads as stone for one team and floor for
-  ## the other, whoever authored it. That is `arena`'s to fix. What a shape
-  ## constructor owns — and what this measures — is the obstacle union itself.
+  ## `mapProtectedFloorAt`, which was itself asymmetric on every size class and
+  ## both 2-team symmetries until GV40 — the generator placed team anchors at
+  ## `width - x` while every shape mirrors with `width - 1 - x`, so a team's
+  ## spawn pocket sat one pixel off its own mirror image (522 px on standard,
+  ## 688 to 1,772 on the other classes), and even-sided boards missed the flag
+  ## ring by another pixel. Both are closed now and pinned at ZERO by the
+  ## "protected floor is its own symmetry image" suite below. Keeping this
+  ## measurement on the raw obstacle union is still the right separation of
+  ## concerns: what a shape constructor owns is the union it emits, and a
+  ## regression in one should not be reported as a regression in the other.
   var base = generateMapAttempt(5, MapGenOverrides(
     size: sizeName, symmetry: symmetry, windows: 0, pits: 0, pitDensity: -1),
     teams)
@@ -302,66 +302,107 @@ suite "shape vocabulary: polygons":
 
 # ---------------------------------------------------------------------------
 
-suite "the arena defects this vocabulary has to live with":
-  test "the anchor seam is STILL open: it needs a GameVersion bump":
-    # PINNED SO IT CANNOT HIDE. `arena` places team anchors at `width - x`
-    # while it mirrors every SHAPE at `width - 1 - x`, so a spawn pocket sits
-    # one pixel off its own mirror and `mapProtectedFloorAt` contradicts itself
-    # across the seam. Any obstacle overlapping a pocket edge is then stone for
-    # one team and floor for the other.
-    #
-    # The fix is one line (`axisHomeHi` -> `size - 1 - axisHomeLo(...)`) and was
-    # verified to take standard from 522 asymmetric px to 0. It is NOT applied,
-    # because moving a spawn by one pixel is a SIM-BEHAVIOUR change: it breaks
-    # every recorded replay fixture hash and alters the hand-authored arena
-    # (22 test failures). That needs a GameVersion bump plus a fixture
-    # re-record, the same route the GV38 grenade change took.
-    #
-    # WHEN THAT LANDS: flip this to `anchors[1] == m.width - 1 - anchors[0]`,
-    # and the odd-width classes below to `bad == 0`.
-    for sizeName in ["small", "standard", "large", "huge", "giant"]:
-      let m = generateMapAttempt(5, MapGenOverrides(
-        size: sizeName, symmetry: "mirror", windows: 0, pits: 0,
-        pitDensity: -1))
-      var anchors: seq[int]
-      for t in m.teams(): anchors.add m.teamAnchor(t).x
-      check anchors.len >= 2
-      checkpoint(sizeName & ": anchors " & $anchors[0] & "/" & $anchors[1] &
-        ", exact mirror of first would be " & $(m.width - 1 - anchors[0]))
-      check anchors[1] == m.width - anchors[0]       ## the defect
-      check anchors[1] != m.width - 1 - anchors[0]   ## ...is exactly one px
+suite "the protected floor is its own symmetry image (GV40)":
+  ## Two shipped defects used to live here, both PINNED as `check bad > 0` so
+  ## they could not hide, both closed by the GV40 fairness bump:
+  ##
+  ##  1. THE ANCHOR SEAM. `arena` computed the far team's anchor independently
+  ##     and landed it at `width - x` while it mirrors every SHAPE at
+  ##     `width - 1 - x`, so a spawn pocket sat one pixel off its own mirror
+  ##     and `mapProtectedFloorAt` contradicted itself across the seam — 522 px
+  ##     on standard, up to 1,772 on huge/rot180. Any obstacle overlapping a
+  ##     pocket edge was then stone for one team and floor for the other.
+  ##     Anchors are now RED's carried across by `teamImagePoint`.
+  ##  2. EVEN-SIDED BOARDS. Protected geometry anchored on `center = size div 2`
+  ##     whose exact mirror is `size - 1 - size div 2`; those differ by one
+  ##     whenever a side is EVEN, so the flag ring missed its own image by a
+  ##     pixel (small 242 px, large 366 px under mirror; small 498, huge 838
+  ##     under rot180). `centerOffset2` now measures every symmetry against the
+  ##     board's TRUE axis in doubled coordinates.
+  ##
+  ## The bar is ZERO, not a budget, and it is checked at EVERY PIXEL of EVERY
+  ## drawable class under EVERY symmetry both team counts admit. A sparsely
+  ## sampled fairness test is how both of these shipped green in the first
+  ## place — `test_mapgen_styles`' mirror check samples every 9th pixel and was
+  ## green on a board that was in fact 522 px unfair.
 
-  test "a SECOND, independent defect lives on EVEN-sided boards":
-    # Found while measuring the anchor seam, and NOT the same bug: protected
-    # geometry is anchored on `center = size div 2`, whose mirror is
-    # `size - 1 - size div 2`, and those differ by one whenever the side is
-    # EVEN. Same hazard `rot90Point`'s own comment warns about — the true
-    # symmetry axis of an even side is a half pixel off the div-derived centre.
-    #
-    # Proof they are independent: applying the anchor fix locally took the
-    # ODD-width classes to exactly 0 (standard, huge-mirror, giant) and left
-    # every EVEN-sided one non-zero — small 242 px and large 366 px under
-    # mirror, and under rot180 the even-HEIGHT classes add their own share
-    # (small 498, huge 838). The correlation with parity is exact.
-    #
-    # Fix belongs with whoever moves protected geometry onto doubled
-    # coordinates, the way `hex.HexBoard` already does.
-    for sizeName in ["small", "large"]:
-      let m = generateMapAttempt(5, MapGenOverrides(
-        size: sizeName, symmetry: "mirror", windows: 0, pits: 0,
-        pitDensity: -1))
-      check m.width mod 2 == 0
-      var bad = 0
-      for y in 0 ..< m.height:
-        for x in 0 ..< m.width:
-          if mapProtectedFloorAt(m, x, y) !=
-             mapProtectedFloorAt(m, m.width - 1 - x, y):
-            inc bad
-      checkpoint(sizeName & ": protected-floor asymmetric px = " & $bad)
-      check bad > 0             ## both defects, awaiting their own fixes
-      # While the anchor seam is also open, the figure above is the SUM of the
-      # two. The isolation measurement is in the comment: with the anchor fix
-      # applied locally, the odd-width classes went to 0 and these did not.
+  test "anchors are EXACT images of each other, never one pixel off":
+    for sizeName in DrawableSizeNames:
+      for teams in [2, 4]:
+        for symmetry in (if teams == 4: @["rot90"]
+                         else: @["mirror", "rot180"]):
+          let m = generateMapAttempt(5, MapGenOverrides(
+            size: sizeName, symmetry: symmetry, windows: 0, pits: 0,
+            pitDensity: -1), teams)
+          let red = m.teamAnchor(Red)
+          for t in m.teams():
+            let
+              got = m.teamAnchor(t)
+              want = m.teamImagePoint(red, t)
+            checkpoint(sizeName & "/" & $teams & "team/" & symmetry & " " &
+              $t & ": anchor (" & $got.x & "," & $got.y & ") vs image (" &
+              $want.x & "," & $want.y & ")")
+            check got == want
+          ## Spelled out for the 2-team boards, where the seam actually was:
+          ## Blue is Red reflected at `width - 1 - x`, NOT at `width - x`.
+          if teams == 2:
+            let blue = m.teamAnchor(Blue)
+            check blue.x == m.width - 1 - red.x
+            if symmetry == "rot180":
+              check blue.y == m.height - 1 - red.y
+            else:
+              check blue.y == red.y
+
+  test "every protected-floor pixel agrees with its symmetry image":
+    for sizeName in DrawableSizeNames:
+      for teams in [2, 4]:
+        for symmetry in (if teams == 4: @["rot90"]
+                         else: @["mirror", "rot180"]):
+          let m = generateMapAttempt(5, MapGenOverrides(
+            size: sizeName, symmetry: symmetry, windows: 0, pits: 0,
+            pitDensity: -1), teams)
+          var bad = 0
+          for y in 0 ..< m.height:
+            for x in 0 ..< m.width:
+              ## One step of the symmetry group generates the whole orbit, so
+              ## a single quarter turn settles rot90 as surely as the single
+              ## reflection settles mirror.
+              let image =
+                case m.symmetry
+                of symMirror: MapPoint(x: m.width - 1 - x, y: y)
+                of symRot180: MapPoint(x: m.width - 1 - x, y: m.height - 1 - y)
+                of symRot90: MapPoint(x: m.width - 1 - y, y: x)
+              if mapProtectedFloorAt(m, x, y) !=
+                 mapProtectedFloorAt(m, image.x, image.y):
+                inc bad
+          checkpoint(sizeName & "/" & $teams & "team/" & symmetry &
+            " (" & $m.width & "x" & $m.height & "): asymmetric px = " & $bad)
+          check bad == 0
+
+  test "an EVEN side gets the true axis, not the div-derived centre":
+    # The regression guard for defect 2 specifically. On an even side there is
+    # no integer row that is its own reflection, so the ONLY way the geometry
+    # can be exact is to measure in doubled coordinates against `size - 1`.
+    # Odd sides must be arithmetically untouched — that is what keeps the
+    # standard, giant and hand-authored boards bit-identical.
+    var sawEven = false
+    for sizeName in DrawableSizeNames:
+      for teams in [2, 4]:
+        let m = generateMapAttempt(5, MapGenOverrides(
+          size: sizeName, symmetry: (if teams == 4: "rot90" else: "mirror"),
+          windows: 0, pits: 0, pitDensity: -1), teams)
+        if m.width mod 2 == 0 or m.height mod 2 == 0: sawEven = true
+        for (x, y) in [(0, 0), (m.width div 3, m.height div 4),
+                       (m.width - 1, m.height - 1)]:
+          let
+            (dx2, dy2) = m.centerOffset2(x, y)
+            (ix2, iy2) = m.centerOffset2(m.width - 1 - x, m.height - 1 - y)
+          check (dx2, dy2) == (-ix2, -iy2)   ## exactly antisymmetric
+          if m.width mod 2 == 1:
+            check dx2 == 2 * (x - m.center.x)   ## odd: unchanged arithmetic
+          if m.height mod 2 == 1:
+            check dy2 == 2 * (y - m.center.y)
+    check sawEven   ## the even case is actually exercised, not vacuous
 
 # ---------------------------------------------------------------------------
 
