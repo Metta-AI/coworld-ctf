@@ -1274,13 +1274,25 @@ proc planLanes*(
     lane.lengthPx = lane.laneLengthPx()
     # Gates. `map_rules` sizes the count by traverse over one gun range: two
     # gates are tactically distinct exactly when a defender holding one cannot
-    # shoot into the other. The exposed lane gets NONE — being fast and open
-    # is its whole character, and gating it would make it a third flank.
+    # shoot into the other.
+    #
+    # At least TWO per lane, always. One gate cannot break its own lane:
+    # whatever rows its opening spans run clear from base to seam. Two gates
+    # with DISJOINT openings (see the stagger below) leave no row that threads
+    # both, which is what turns "no unbroken sightline" from a validator
+    # complaint into a property of the construction.
+    #
+    # That is why the fast lane is no longer gate-free, which it was. It stays
+    # fast — two SHORT pinches add no arc length and it keeps the widest
+    # profile — but "exposed, wide, straight" cannot mean a clear 800px row
+    # with a map-wide gun on the board. Measured before this: 18-23 open rows
+    # on 3 of 3 carved seeds, in bands sitting exactly on the un-gated and
+    # single-gated lanes.
     let want =
       case lane.role
-      of laneFlank: max(1, rules.chokepointsPerRoute)
-      of laneMid: 1
-      of laneFast: 0
+      of laneFlank: max(2, rules.chokepointsPerRoute)
+      of laneMid: 2
+      of laneFast: 2
     # Gate x positions are STAGGERED per lane and aligned to the middle of a
     # separator run. Both matter and both were found by measurement:
     #   - Spacing them evenly per lane put all three gates of a three-lane
@@ -1305,11 +1317,28 @@ proc planLanes*(
           if snapped > x0 + EngineMinCorridorPx and
              snapped < xs - EngineMinCorridorPx: snapped
           else: wish
-        gw = gateWidthFor(rng, rules)
+        drawn = gateWidthFor(rng, rules)
+        ## A gate opening must be narrow enough that TWO of them, pushed to
+        ## opposite lane edges, do not overlap — otherwise a row threads every
+        ## gate in the lane and survives as an unbroken sightline. Two
+        ## openings at offsets +-(W - gw)/2 are disjoint exactly when
+        ## gw < W/2, so that is the clamp. It only ever binds on the tight
+        ## flank (W = the corridor floor), where it lands at the 30 px bottom
+        ## of the design band rather than outside it.
+        gw = max(EngineMinCorridorPx, min(drawn, (lane.widthPx - 2) div 2))
+        ## Alternate the opening between the lane's two edges. Every gate used
+        ## to be centred on the centreline (`y: lane.laneY(gx)`), so a lane's
+        ## openings all overlapped there and the centre rows passed through
+        ## the lot of them untouched — measured as bands of 8-23 open rows on
+        ## 3 of 3 carved seeds. Staggering is also what makes the pinch a real
+        ## decision: you enter through one opening, move ACROSS the lane, and
+        ## leave through the other.
+        offset = (lane.widthPx - gw) div 2
+        gy = lane.laneY(gx) + (if g mod 2 == 0: -offset else: offset)
       if gx <= x0 + EngineMinCorridorPx or gx >= xs - EngineMinCorridorPx:
         continue
       lane.gates.add LaneGate(
-        x: gx, y: lane.laneY(gx), widthPx: gw, runPx: maxGateRunPx(gw))
+        x: gx, y: gy, widthPx: gw, runPx: maxGateRunPx(gw))
     result.lanes.add lane
 
 proc laneSeparatorShapes*(plan: LanePlan, thickPx = 0): seq[ArenaShape] =
@@ -1391,17 +1420,36 @@ proc laneGateShapes*(plan: LanePlan): seq[ArenaShape] =
   ## This is the feature the length-aware rule exists to make legal. A global
   ## 68 px corridor floor would reject every one of these; the pinch rule
   ## accepts them precisely because they are SHORT.
+  ## The shoulders are measured from the LANE BAND, not from the gate's own
+  ## y. Once an opening is staggered off the centreline (which is what stops
+  ## a row threading every gate), a shoulder sized from the gate centre no
+  ## longer reaches the far edge of the lane, and the rows it fails to reach
+  ## are exactly the ones that stayed open. Each shoulder therefore runs from
+  ## the lane edge to the opening, and overruns the band by one engine
+  ## corridor so it keys into the separator instead of leaving a seam.
+  ## The overrun past the band is deliberately SMALL. A full engine corridor
+  ## on each side reads as "obviously safe" and costs
+  ## `2 * overrun * runPx` of wall per gate, which measured 186 permille cover
+  ## against a 180 ceiling — trading the sightline failure for a clogged one.
+  ## The shoulder only has to deny a player the seam between lane edge and
+  ## separator, so it is sized to the engine's own collision footprint.
+  const GateKeyPx = 8
   for lane in plan.lanes:
+    let half = lane.widthPx div 2
     for gate in lane.gates:
       let
-        half = max(lane.widthPx div 2, gate.widthPx div 2 + EngineMinCorridorPx)
+        cy = lane.laneY(gate.x)
         opening = gate.widthPx div 2
-        reach = half - opening
-      if reach < 6: continue
-      result.add ArenaShape(kind: shapeRect, rect: MapRect(
-        x: gate.x, y: gate.y - half, w: gate.runPx, h: reach))
-      result.add ArenaShape(kind: shapeRect, rect: MapRect(
-        x: gate.x, y: gate.y + opening, w: gate.runPx, h: reach))
+        bandLo = min(cy - half, gate.y - opening) - GateKeyPx
+        bandHi = max(cy + half, gate.y + opening) + GateKeyPx
+        upper = gate.y - opening - bandLo
+        lower = bandHi - (gate.y + opening)
+      if upper >= 6:
+        result.add ArenaShape(kind: shapeRect, rect: MapRect(
+          x: gate.x, y: bandLo, w: gate.runPx, h: upper))
+      if lower >= 6:
+        result.add ArenaShape(kind: shapeRect, rect: MapRect(
+          x: gate.x, y: gate.y + opening, w: gate.runPx, h: lower))
 
 proc intrudesOnLane*(plan: LanePlan, shape: ArenaShape): bool =
   ## Whether a piece of cover would narrow a lane below its designed width.
