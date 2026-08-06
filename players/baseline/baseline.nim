@@ -4239,7 +4239,11 @@ proc resetTransient(bot: Bot) =
   bot.ownPedSeen = false
   bot.plantUntil = 0
   bot.prevStatedAim = -1
-  if bot.aimStepBrads <= 0: bot.aimStepBrads = 40
+  # Default to the CONTINUOUS step (GV40). The failure modes are asymmetric:
+  # too SMALL a step just turns slower and still converges, while too LARGE
+  # overshoots forever. Seed with the safe one and let the inference raise it
+  # if we are on a slot engine.
+  if bot.aimStepBrads <= 0: bot.aimStepBrads = AimRate
   bot.enemies.setLen(0)
   bot.mates.setLen(0)
   bot.nadeCharge = 0
@@ -4571,7 +4575,16 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       # honest step is config-dependent and the config is not observable —
       # but its effect is, every frame.
       let d = bradsErr(stated, bot.prevStatedAim) * bot.rotSign
-      if d >= 8 and d <= 64 and d mod 8 == 0:
+      # ⭐ GV40 FIX (2026-08-06). This guard USED to be
+      # `d >= 8 and d <= 64 and d mod 8 == 0` — it could only ever learn a
+      # multiple of 8, because GV36's step always was one. GV40 restored
+      # CONTINUOUS aim at 5 brads/tick, and 5 fails BOTH clauses, so the
+      # "live step inference" silently never fired and aimStepBrads stayed at
+      # its compiled-in 40 — an 8x over-estimate that made the servo overshoot
+      # every target and, since the vision cone rides the turret, blinded us
+      # too. Accept any physical step so this survives the flip in EITHER
+      # direction; that is what the inference was always supposed to buy.
+      if d >= 1 and d <= 64:
         bot.aimStepBrads = d
     if stated >= 0:
       bot.prevStatedAim = stated
@@ -7804,7 +7817,23 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # Rotate toward the desired aim by the shortest arc; inside the deadband
   # (AimRate cannot settle tighter than +-AimRate/2) hold the turret still.
   var rotBits: uint8 = 0
-  if desiredAim >= 0:
+  # ⭐ GV40 (2026-08-06): the engine RESTORED CONTINUOUS TURRET AIM — aimBrads
+  # spans all 256 headings again and aimTurnRate is brads/tick (5), undoing
+  # GV36's 32-slot reinterpretation. Choose the servo off the OBSERVED step
+  # rather than a compiled-in assumption, so this survives the flip in either
+  # direction: a slot world always steps a multiple of 8 brads, and at least 8.
+  let aimSlotWorld = bot.aimStepBrads >= 8 and bot.aimStepBrads mod 8 == 0
+  if desiredAim >= 0 and not aimSlotWorld:
+    # CONTINUOUS SERVO: shortest signed arc, hold inside the deadband. There is
+    # no slot lattice to plan around, so the GV36 planner's whole reason to
+    # exist (gcd(5,32)=1 makes an adjacent slot cost 13 held ticks) is void —
+    # running it here is what produced the 8x overshoot. With step 5 and
+    # deadband 2, an error of 3-4 lands inside the band on the next tick, so it
+    # settles instead of hunting.
+    let err = bradsErr(desiredAim, bot.estAim)
+    if abs(err) > bot.tune.combatDeadband:
+      rotBits = (if err > 0: ButtonB else: ButtonSelect)
+  elif desiredAim >= 0:
     # ⭐ GV36 SLOT SERVO. The aim occupies 32 discrete slots and a held rotate
     # steps aimTurnRate SLOTS per tick (league config: 5 slots = 40 brads =
     # 56 degrees). Proportional shortest-arc turning cannot settle: gcd
@@ -8012,7 +8041,7 @@ proc runBot(url: string) =
     endpoint = ensureWsPath(url, WebSocketPath)
   randomize(slot * 7919 + 1)
   let bot = Bot(slot: slot, team: team, role: role, tune: shippedCombatTune(),
-                aimStepBrads: 40, prevStatedAim: -1, nadeLockAim: -1,
+                aimStepBrads: AimRate, prevStatedAim: -1, nadeLockAim: -1,
                 myColor: (if team == Red: "red" else: "blue"))
     # myColor is only the slot-PARITY guess here: the team count is not known
     # until the init markers arrive. buildNavGrid re-deals it on a 4-team board
