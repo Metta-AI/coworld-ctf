@@ -39,18 +39,26 @@
 
   /* ============================================================
      THE LEAGUE REPLAYER: a walled stone pit. The embedded replay
-     iframe is the lit floor in the middle; four dungeon walls rise
-     around it to a shared vanishing point; the REAL designed
-     scorebug + transport chroma (ported 1:1 from the broadcast
-     replay) plus the league KDA tables + division standings ride as
-     flat readable panels over the wall stone (no black bars — the
-     bars ARE walls, so the HUD floats on the stone).
+     iframe is the lit floor in the middle; SIX dungeon walls rise
+     around it — one per edge of the board's flat-top hexagon — to a
+     shared vanishing point; the REAL designed scorebug + transport
+     chroma (ported 1:1 from the broadcast replay) plus the league
+     KDA tables + division standings ride as flat readable panels
+     over the wall stone (no black bars — the bars ARE walls, so the
+     HUD floats on the stone).
      ============================================================ */
   #shell{position:fixed; inset:0; overflow:hidden;
     background:radial-gradient(120% 90% at 50% 42%, var(--stage-hi), var(--surround) 78%);}
 
-  /* the 4 projected dungeon walls (rebuilt by buildWalls on every layout) */
-  #walls{position:absolute; inset:0; z-index:1; pointer-events:none; overflow:hidden}
+  /* The 6 projected dungeon walls (rebuilt by buildWalls on every layout).
+     They sit ABOVE the floor, and that is deliberate: the embedded board's own
+     document still paints an opaque backdrop across its whole box, so the four
+     wedges between the board box and the hexagon inside it cannot be seen
+     THROUGH — the pit mouth has to OCCLUDE them. Painting the walls over the
+     board's outer edge is what makes the mouth a hexagon instead of the
+     hexagon's bounding rectangle. pointer-events stay off so the board keeps
+     every click; the HUD (z-index 5) still rides on top of the stone. */
+  #walls{position:absolute; inset:0; z-index:3; pointer-events:none; overflow:hidden}
   #walls .lv-wall{position:absolute; transform-origin:0 0;
     background-size:100% 100%; background-repeat:no-repeat;
     image-rendering:auto; filter:brightness(1.0) contrast(1.03) saturate(.96)}
@@ -428,10 +436,47 @@
 
   // ==========================================================================
   //  WALL GEOMETRY — projective homography, one shared vanishing point.
-  //  Each wall is the trapezoid from a SCREEN edge (outer, near) to the matching
-  //  BOARD edge (inner, far). Textures are oriented GRAVITY-UP: floor edge toward
-  //  the bottom of the screen, arches upright, so no wall is upside-down or
-  //  sideways. Adjacent walls share the screen-corner→board-corner diagonal.
+  //  The floor is a flat-top HEXAGON (the arena hull), so the pit around it has
+  //  SIX walls. Four walls converge on a RECTANGLE, which the hull fills except
+  //  for four corner wedges: the mouth of the pit then declares a shape the
+  //  floor does not have, which is the one thing left contradicting the hex
+  //  conversion. Each wall is the trapezoid from an OUTER edge (near, off past
+  //  the screen) to the matching HULL edge (inner, far). Textures are oriented
+  //  GRAVITY-UP in the wall's own plane: the image's bottom row is the course
+  //  that meets the floor, so every wall stands on its hull edge and none is
+  //  upside-down in its own frame. Adjacent walls share the whole
+  //  outer-vertex→hull-vertex diagonal, so the six seams are watertight.
+  //
+  //  The OUTER boundary is the smallest hexagon whose six edges are PARALLEL to
+  //  the hull's and which still contains the entire viewport — each edge pushed
+  //  out along its own normal just far enough to clear the furthest screen
+  //  corner, everything past the viewport clipped by #walls (overflow:hidden).
+  //  Parallel is the load-bearing word. It keeps every panel a trapezoid, i.e.
+  //  the honest projection of a flat wall standing on that edge; anchoring the
+  //  outer vertices to the screen RECTANGLE instead (a vertical outer edge
+  //  against a 60° inner one) twists the four slanted panels, and a twisted
+  //  panel reads as a warped photograph rather than as a wall. Feed this a
+  //  rectangular hull and it reproduces the old four-wall box exactly — the
+  //  offsets collapse to the four band thicknesses.
+  //
+  //  TEXTURE. wall_h/wall_v are named for SCREEN orientation and a hexagon has
+  //  six edge orientations, not two — but orientation here is carried by the
+  //  projection, not by the file, and the pair is really one WIDE elevation
+  //  (1536x672) and one TALL one (768x1344). So panels pick by PROPORTION: the
+  //  two flat panels (top/bottom) are wide and shallow -> wall_h, unchanged from
+  //  the box shell; the four slanted panels are deep and narrow, since they run
+  //  all the way out to the screen corners -> wall_v, which is the shape it was
+  //  drawn for. The alternatives are worse: stretching the 2.3:1 elevation into
+  //  a ~0.9:1 slanted panel smears its brick courses to three times their height
+  //  (REPLAY_DESIGN's "course sliced mid-pattern" artifact, in reverse), and
+  //  rotating ONE texture through all six orientations buys consistency at the
+  //  price of a course mismatch at every seam instead of at four. This keeps the
+  //  four h|v joins the box shell already had and makes the two NEW joins (at
+  //  the hull's left and right points) v|v between near-mirror-image panels,
+  //  where the courses very nearly line up. Both files happen to put an ARCH at
+  //  the base of the elevation, so the mix lands one doorway at the middle of
+  //  every hull edge — six exits round a hexagonal chamber. Keep that if either
+  //  texture is ever redrawn; it is most of why the mix reads as deliberate.
   // ==========================================================================
   function adj(m){return [m[4]*m[8]-m[5]*m[7],m[2]*m[7]-m[1]*m[8],m[1]*m[5]-m[2]*m[4],
     m[5]*m[6]-m[3]*m[8],m[0]*m[8]-m[2]*m[6],m[2]*m[3]-m[0]*m[5],
@@ -447,36 +492,82 @@
     return 'matrix3d('+[t[0],t[3],0,t[6], t[1],t[4],0,t[7], 0,0,1,0, t[2],t[5],0,t[8]].join(',')+')';
   }
   var wallsEl = $('walls');
+
+  // THE HULL, as a polygon: the board's flat-top hexagon, inscribed in the board
+  // box exactly as `fieldBoundaryPath()` inscribes it in replay_broadcast.html —
+  // vertices at the left and right edge midpoints, the flat edges along the top
+  // and bottom, the other four at one and three quarters of the width. The two
+  // pages MUST agree on this or the pit mouth stops matching the floor it
+  // frames, so it is written the same way in both. Wound CLOCKWISE on screen, so
+  // every panel's texture runs the same way round the pit and no panel comes out
+  // mirrored against its neighbour.
+  function hullPath(bx,by,bw,bh){
+    var my = by + bh/2;
+    return [[bx, my], [bx+bw*0.25, by], [bx+bw*0.75, by],
+            [bx+bw, my], [bx+bw*0.75, by+bh], [bx+bw*0.25, by+bh]];
+  }
+  // Hull edges 1 and 4 are the hexagon's flat top and bottom; the other four
+  // are the ±60° slants. (See the TEXTURE note above for why that matters.)
+  var FLAT_EDGE = [false, true, false, false, true, false];
+  // The mouth bites this many px off the board's outer edge. The walls paint
+  // OVER the board (see #walls), so a sub-pixel gap between panel and hull would
+  // show the board's own backdrop as a bright hairline; a hair of overlap onto
+  // the hull's boundary stone costs nothing and cannot gap.
+  var HULL_BITE = 1.5;
+
   function buildWalls(bx,by,bw,bh,vw,vh){
-    var bR=bx+bw, bB=by+bh;
-    // per-wall shade: a STEEP shadowbox — dark hugs the outer/near screen edge and
-    // falls off fast, so by the inner/board edge the stone is at floor brightness
+    var i, cx = bx+bw/2, cy = by+bh/2;
+    var hull = hullPath(bx,by,bw,bh).map(function(p){
+      var dx=p[0]-cx, dy=p[1]-cy, L=Math.hypot(dx,dy)||1;
+      var s=(L-HULL_BITE)/L;
+      return [cx+dx*s, cy+dy*s];
+    });
+    // One outward-pushed LINE per hull edge, n·(p-c) = c, parallel to that edge
+    // and far enough out to leave every screen corner inside it.
+    var corners=[[0,0],[vw,0],[vw,vh],[0,vh]], edge=[];
+    for (i=0;i<6;i++){
+      var a=hull[i], b=hull[(i+1)%6];
+      var ex=b[0]-a[0], ey=b[1]-a[1], eL=Math.hypot(ex,ey)||1;
+      var nx=ey/eL, ny=-ex/eL;                       // outward: hull is clockwise
+      var inner=nx*(a[0]-cx)+ny*(a[1]-cy), outer=inner;
+      for (var k=0;k<4;k++)
+        outer=Math.max(outer, nx*(corners[k][0]-cx)+ny*(corners[k][1]-cy));
+      edge.push({nx:nx, ny:ny, inner:inner, outer:Math.max(outer, inner+16)});
+    }
+    // Outer vertex j = where the two pushed lines that meet at hull vertex j
+    // cross. Sharing that point is what makes the seams watertight.
+    var rim=[];
+    for (i=0;i<6;i++){
+      var e0=edge[(i+5)%6], e1=edge[i];
+      var det=e0.nx*e1.ny - e0.ny*e1.nx;
+      if (Math.abs(det) < 1e-6){ rim.push(hull[i].slice()); continue; }
+      rim.push([cx + (e0.outer*e1.ny - e1.outer*e0.ny)/det,
+                cy + (e1.outer*e0.nx - e0.outer*e1.nx)/det]);
+    }
+    // per-wall shade: a STEEP shadowbox — dark hugs the outer/near edge and
+    // falls off fast, so by the inner/hull edge the stone is at floor brightness
     // (only a faint shadow remains) and the wall reads as the SAME world as the
     // floor, not a separate panel. The concentrated outer band still lets the HUD
-    // tables/scorebug pop off the stone.
+    // tables/scorebug pop off the stone. One gradient serves all six: in a
+    // panel's own space y=0 is always the outer edge and y=sh the hull.
     var g='rgba(5,3,2,.86)', mid='rgba(8,5,3,.22)', lit='rgba(8,5,3,0)';
+    var grad='linear-gradient(to top,'+lit+' 35%,'+mid+' 62%,'+g+')';
     // src rect corners: TL(0,0)->d0, TR(sw,0)->d1, BL(0,sh)->d2, BR(sw,sh)->d3.
-    function wall(tex,sw,sh, d0x,d0y,d1x,d1y,d2x,d2y,d3x,d3y, grad){
+    function wall(tex,sw,sh, d0x,d0y,d1x,d1y,d2x,d2y,d3x,d3y){
       return '<div class="lv-wall" style="background-image:url(\''+tex+'\');width:'+sw+'px;height:'+sh+
         'px;transform:'+proj(sw,sh,d0x,d0y,d1x,d1y,d2x,d2y,d3x,d3y)+
         '"><div class="lv-shade" style="background:'+grad+'"></div></div>';
     }
     var out='';
-    // TOP: unchanged (reads correctly). tex top→screen top, tex floor→board top.
-    out += wall(WALL_H, vw, by,        0,0,  vw,0,  bx,by, bR,by,
-                'linear-gradient(to top,'+lit+' 35%,'+mid+' 62%,'+g+')');
-    // BOTTOM: FLIPPED over its x-axis (was upside-down). Same trapezoid region;
-    //   src top row → outer/screen edge, src bottom row → inner/board edge.
-    out += wall(WALL_H, vw, vh-bB,     0,vh, vw,vh, bx,bB, bR,bB,
-                'linear-gradient(to bottom,'+g+','+mid+' 38%,'+lit+' 65%)');
-    // LEFT: rotated 90° COUNTER-CLOCKWISE within its trapezoid.
-    //   Because the tex is rotated, the DEPTH axis (screen→floor) is the source
-    //   Y axis: y=0→screen edge (outer,dark), y=sh→board edge (inner,light).
-    out += wall(WALL_V, bx, vh,        0,vh, 0,0,   bx,bB, bx,by,
-                'linear-gradient(to top,'+lit+' 35%,'+mid+' 62%,'+g+')');
-    // RIGHT: rotated 90° CLOCKWISE within its trapezoid.
-    out += wall(WALL_V, vw-bR, vh,     vw,0, vw,vh, bR,by, bR,bB,
-                'linear-gradient(to top,'+lit+' 35%,'+mid+' 62%,'+g+')');
+    for (i=0;i<6;i++){
+      var r0=rim[i], r1=rim[(i+1)%6], h0=hull[i], h1=hull[(i+1)%6];
+      // Source rect at true scale: the near/outer edge lands ~1:1 and the far
+      // edge is the one that gets minified, which is the right way round.
+      var sw=Math.max(16, Math.round(Math.hypot(r1[0]-r0[0], r1[1]-r0[1])));
+      var sh=Math.max(16, Math.round(edge[i].outer-edge[i].inner));
+      out += wall(FLAT_EDGE[i] ? WALL_H : WALL_V, sw, sh,
+                  r0[0],r0[1], r1[0],r1[1], h0[0],h0[1], h1[0],h1[1]);
+    }
     wallsEl.innerHTML = out;
   }
 
