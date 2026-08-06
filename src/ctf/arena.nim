@@ -25,6 +25,15 @@ export map_rules
 # and the map tools all reach `stream`/`spawn` through `arena` or `sim`.
 import map_seed
 export map_seed
+# The generator's two terrain layers. `map_lanes` owns the route SKELETON —
+# k-fold disjoint corridors with a Menger certificate, plus the gates that
+# make "no unbroken sightline" a property of the construction. `mapgen_biomes`
+# owns the organic FILL that sits in what the skeleton leaves. Neither works
+# alone: measured, fill alone is 0/30 valid (every failure an open sightline)
+# and skeleton+fill is 29/30.
+import map_lanes
+import mapgen_biomes
+from std/random import Rand, initRand
 
 proc validateMapRect(name: string, rect: MapRect, width, height: int) =
   ## Raises if one map rectangle is outside the map.
@@ -1782,100 +1791,122 @@ proc generateMapAttempt*(
     pitEndzone = 2
   var pitCandidates: seq[tuple[kind, obstacleIdx, x, y: int]]
 
-  for col in 0 ..< columns:
+  ## TERRAIN — a route SKELETON first, then organic FILL inside what it leaves.
+  ##
+  ## This replaces the column lattice, which was four `ColumnFamily` skins on
+  ## ONE slot: changing family changed the pixel and never the map, and fifty
+  ## seeds rendered as fifty copies of one design.
+  ##
+  ## The two layers have OPPOSITE monotonicity — route count rises only when
+  ## floor is OPENED, cover rises only when wall is ADDED — so each is given
+  ## its own duty rather than letting them fight. `carveLanes` owns the
+  ## routes, the gates and therefore the sightline guarantee; the biome owns
+  ## the texture inside the cells, reconciled against the lanes by
+  ## `clearLanes`. Measured with `tools/lane_openrow_probe.nim`: fill ALONE is
+  ## 0/30 valid, every failure an open horizontal sightline; skeleton+fill is
+  ## 29/30.
+  ##
+  ## The fill is emitted INSIDE the fundamental domain, and that is what lets
+  ## a map be organic and asymmetric AND exactly fair at once: fairness is
+  ## enforced by the LIFT, so any irregularity inside the domain is free.
+  ## `ditherEdges` is symmetry-destroying by construction and REQUIRES a
+  ## domain for precisely that reason.
+  ## A compact endzone must keep its four cardinal gates usable — a base you
+  ## can only reach from the field is a column endzone with extra steps, and
+  ## the validator rejects it. The old lattice avoided this by skipping any
+  ## slot inside an apron; lanes and organic fill do not come in slots, so the
+  ## test is applied to the emitted SHAPE instead. Cheap on purpose: a ring of
+  ## probes at the corridor radius, not a filled disc.
+  let gateReach = result.endzoneRadius + MinCorridorWidth div 2 + 4
+  proc sealsEndzoneGate(gameMap: CtfMap, shape: ArenaShape): bool =
+    if gameMap.endzone == ezColumn: return false
     let
-      colX = xMin + ((2 * col + 1) * (xMax - xMin)) div (2 * columns)
-      family = ColumnFamily(terrainRng.pick(4))
-      ## 4-team quadrant shapes replicate x4 (not x2), so slots spread out
-      ## to keep the same field density.
-      period =
-        if teams == 4: terrainRng.pickRange(130, 180)
-        else: terrainRng.pickRange(88, 120)
-      ## Phases are STRATIFIED across columns (like the hand-authored
-      ## arena's 0/+48/+24/+72 ladder) with a half-period jitter: fully
-      ## random phases leave rows every column misses, which the sightline
-      ## validator rejects — mirror-symmetric maps almost never survived.
-      phase = (period * col div columns +
-        terrainRng.pick(max(1, period div 2))) mod period
-    var slotYs: seq[int]
-    var slotY = slotBand.lo + phase
-    while slotY <= slotBand.hi:
-      slotYs.add slotY
-      slotY += period
-    if slotYs.len < (if result.layout == layoutSides: 3 else: 2):
-      continue
+      a = gameMap.teamAnchor(Red)
+      r = MinCorridorWidth div 2
+    for g in [MapPoint(x: a.x - gateReach, y: a.y),
+              MapPoint(x: a.x, y: a.y - gateReach),
+              MapPoint(x: a.x, y: a.y + gateReach),
+              MapPoint(x: a.x + gateReach, y: a.y)]:
+      if inShape(g.x, g.y, shape): return true
+      for (dx, dy) in [(-r, 0), (r, 0), (0, -r), (0, r),
+                       (-r, -r), (r, -r), (-r, r), (r, r)]:
+        if inShape(g.x + dx, g.y + dy, shape): return true
+    false
 
-    ## Clear-mask: drop each slot with probability 1/4, then guarantee at
-    ## least one gap (a solid picket walls the lane off) and at least half
-    ## the slots kept (a bare column gives no cover).
-    var cleared = newSeq[bool](slotYs.len)
-    var clearedCount = 0
-    for i in 0 ..< slotYs.len:
-      if terrainRng.pick(4) == 0:
-        cleared[i] = true
-        inc clearedCount
-    if clearedCount == 0:
-      cleared[terrainRng.pick(slotYs.len)] = true
-      clearedCount = 1
-    let minKept = (slotYs.len + 1) div 2
-    while slotYs.len - clearedCount < minKept and clearedCount > 1:
-      var idx = terrainRng.pick(slotYs.len)
-      while not cleared[idx]:
-        idx = (idx + 1) mod slotYs.len
-      cleared[idx] = false
-      dec clearedCount
-
-    var zig = terrainRng.coin()
-    for i, sy in slotYs:
-      ## Compact endzones keep an APRON of clear ground outside the ring:
-      ## terrain that crowded the scoring shape would seal the very
-      ## approaches that make an off-the-edge base worth building, and the
-      ## open-flank validator would reject the map anyway. Obstacle centers
-      ## reach ~30px, so an apron of radius + 60 leaves every cardinal gate
-      ## a full corridor's clearance.
-      if result.endzone != ezColumn and
-          endzoneFloorAt(colX, sy, redAnchorX, cy,
-            result.endzoneRadius + 60 - EndzoneWallMargin,
-            result.endzone == ezDisc):
-        continue
-      if cleared[i]:
-        ## A cleared gap can hold a dug pit BETWEEN the column's obstacles
-        ## — the corridor stays open to movement and fire.
-        pitCandidates.add (pitGap, -1, colX, sy)
-        continue
-      ## Every kept slot can dig a trench INSTEAD of raising its obstacle
-      ## — cover you stand in rather than behind. Selection below decides;
-      ## the sightline repair and the validators judge the thinner wall
-      ## set exactly as usual.
-      pitCandidates.add (pitInstead, result.leftObstacles.len, colX, sy)
-      case family
-      of colStubs:
-        ## Stub ends whose border gap would drop under the corridor minimum
-        ## anchor to the border instead — a sub-26px slit is impassable
-        ## anyway and reads as a wart.
-        var top = sy - 30
-        var bottom = sy + 30
-        if i == 0 and top - ArenaBorder < MinCorridorWidth:
-          top = ArenaBorder
-        if i == slotYs.len - 1 and result.layout == layoutSides and
-            result.height - ArenaBorder - bottom < MinCorridorWidth:
-          bottom = result.height - ArenaBorder
-        result.leftObstacles.add ArenaShape(kind: shapeRect,
-          rect: MapRect(x: colX - 9, y: top, w: 18, h: bottom - top))
-        eligible.add (result.leftObstacles.high, col, sy)
-      of colDiamonds:
-        result.leftObstacles.add ArenaShape(
-          kind: shapeDiamond, cx: colX, cy: sy, radius: 28)
-        eligible.add (result.leftObstacles.high, col, sy)
-      of colDiscs:
-        result.leftObstacles.add ArenaShape(
-          kind: shapeDisc, cx: colX, cy: sy, radius: 28)
-        eligible.add (result.leftObstacles.high, col, sy)
-      of colChevrons:
-        let (ya, yb) = if zig: (sy - 14, sy + 14) else: (sy + 14, sy - 14)
-        result.leftObstacles.add ArenaShape(kind: shapeDiagonal,
-          x0: colX - 14, y0: ya, x1: colX + 14, y1: yb, thickness: 12)
-        zig = not zig
+  ## The lane plan outlives the terrain block: the constructive row cover
+  ## below has to know where the routes are so it never plugs one.
+  var lanePlan: LanePlan
+  var haveLanes = false
+  block terrain:
+    let
+      ## A rot90 board must not straddle EITHER centre line; mirror and rot180
+      ## only the vertical one. `slotBand.hi` deliberately crosses cy on the
+      ## 4-team layouts (the lift used to fill the rest), so a rot90 domain is
+      ## clamped back to a strict quadrant.
+      domainHiY =
+        if result.symmetry == symRot90: cy - 1
+        else: result.height - ArenaBorder
+      ## The FULL playable band, not `slotBand`. That inset (border + 30)
+      ## existed to keep column slots off the wall; a lane network has to
+      ## reach the border, because the rows between the outermost lane and
+      ## the wall are rows like any other. Emitting into `slotBand` left them
+      ## empty and every one of them came back as an open sightline —
+      ## measured at y=12, 28, 104, 640, 644, i.e. exactly the margins.
+      domainLoY = ArenaBorder
+      region = MapRect(x: xMin, y: domainLoY,
+        w: max(1, xMax - xMin), h: max(1, domainHiY - domainLoY))
+      board = MapRect(x: 0, y: 0, w: result.width, h: result.height)
+      rules = mapRules(result.mapSizeClass(), teams)
+      styles = [biomeStyleCaves, biomeStyleForest, biomeStyleDesert,
+                biomeStyleCity, biomeStylePlains]
+    ## Its own sub-stream, so adding this stage shifted no existing scene.
+    var fillRng = root.stream("fill")
+    let style = styles[fillRng.pick(styles.len)]
+    ## `carveLanes` and the biome emitters take std/random's `Rand`; the
+    ## generator runs its own splitmix. Bridge by SEEDING one from the other,
+    ## which keeps every draw a pure function of (seed, attempt).
+    ## `cast`, not a conversion: half of all splitmix draws have the high bit
+    ## set and `int64(u)` raises RangeDefect on exactly those. The bit pattern
+    ## is what is wanted, and `or 1` keeps it off the zero seed.
+    var laneRand = initRand(cast[int64](fillRng.next() or 1'u64))
+    let fillSeed = int(fillRng.next() and 0x7fffffff'u64)
+    var domain: FundamentalDomain
+    try:
+      domain = fundamentalDomain(board, region, result.symmetry)
+    except ValueError:
+      ## A degenerate domain (an endzone or size lock that leaves no legal
+      ## interior) is a candidate this attempt cannot draw, not a crash: the
+      ## best-of-K loop simply ranks the others.
+      break terrain
+    let
+      fill = generateBiomeShapes(style, fillSeed, region,
+        defaultBiomeParams(style), domain)
+      carved = carveLanes(laneRand, region,
+        MapPoint(x: redAnchorX, y: cy), xMax, rules, fill)
+    ## `carveLanes` emits separators, then gates, then the reconciled cover,
+    ## then any pickets — so the split between STRUCTURE and FILL is
+    ## positional, and the plan reproduces the structure counts exactly.
+    lanePlan = carved.plan
+    haveLanes = true
+    let structureCount =
+      laneSeparatorShapes(carved.plan).len + laneGateShapes(carved.plan).len
+    for i, shape in carved.shapes:
+      if result.sealsEndzoneGate(shape): continue
+      result.leftObstacles.add shape
+      ## Window and trench candidates come from the FILL rather than from
+      ## lattice slots. A window wants a piece of COVER you can see past, and
+      ## a lane separator or a gate shoulder is structure — glazing one would
+      ## put a hole in the very wall that makes the route a route.
+      if i < structureCount: continue
+      let (sx, sy) =
+        case shape.kind
+        of shapeRect:
+          (shape.rect.x + shape.rect.w div 2, shape.rect.y + shape.rect.h div 2)
+        of shapeDisc, shapeDiamond: (shape.cx, shape.cy)
+        else: (0, 0)
+      if sx > 0:
+        eligible.add (result.leftObstacles.high, sx div 120, sy)
+        pitCandidates.add (pitInstead, result.leftObstacles.high, sx, sy)
 
   ## Endzone trench pit candidates, authored on the RED side (the symmetry
   ## image gives Blue the exact counterpart): BEHIND the pedestal toward
@@ -2001,80 +2032,75 @@ proc generateMapAttempt*(
   else:
     discard  # "ring": the center stays fully open.
 
-  ## Sightline repair. A horizontal ray survives when no obstacle blocks its
-  ## row: under MIRROR the right half repeats the left, so the LEFT half
-  ## alone must cover every row; under ROT180 the right half contributes the
-  ## flipped rows, so row y needs cover at y or height-1-y. Random layouts
-  ## almost never satisfy the mirror condition on their own (the first pool
-  ## scan came out 100% rot180), so plug the uncovered rows with diamonds in
-  ## drawn columns; the validators still judge the repaired result.
-  block sightlineRepair:
-    proc rowBlocked(gameMap: CtfMap, y: int): bool =
-      for x in gameMap.sightlineLoX .. gameMap.center.x:
-        if mapWallAt(gameMap, gameMap.leftObstacles, x, y):
-          return true
-      false
-    proc rowBlockedFull(gameMap: CtfMap, obstacles: seq[ArenaShape],
-        y: int): bool =
-      ## Full-width row scan against the COMPLETE symmetry-expanded set —
-      ## rot90 folds a quadrant into all four quarters, so no single-half
-      ## shortcut exists.
-      for x in gameMap.sightlineLoX .. gameMap.sightlineHiX:
-        if mapWallAt(gameMap, obstacles, x, y):
-          return true
-      false
-    ## The plug budget scales with the columns for the same reason the
-    ## columns scale: an oversize board has proportionally more rows to
-    ## cover (cols() is 1x on the classic classes, so their budget is the
-    ## historical 40).
-    var plugsLeft = cols(40)
-    while plugsLeft > 0:
-      var uncovered = -1
-      let fullSet =
-        if result.symmetry == symRot90: buildArenaObstacles(result)
-        else: @[]
-      var y = ArenaBorder + 2
-      while y < result.height - ArenaBorder:
-        let covered =
-          case result.symmetry
-          of symMirror:
-            result.rowBlocked(y)
-          of symRot180:
-            result.rowBlocked(y) or
-              result.rowBlocked(result.height - 1 - y)
-          of symRot90:
-            result.rowBlockedFull(fullSet, y)
-        if not covered:
-          uncovered = y
+  ## ROW COVER — an interval cover on the TRUE mask, not a repair loop.
+  ##
+  ## The prosthetic that used to live here dropped r28 diamonds at RANDOM
+  ## column x until no 4px row was unblocked, with a budget of cols(40). The
+  ## 300-seed audit measured it at 14-16% of a standard board's interior wall
+  ## and 50% at p90 on 4-team: pure validator appeasement, placed with no
+  ## regard for play, and it could still exhaust its budget and fail.
+  ##
+  ## The staggered gates in `map_lanes.planLanes` guarantee no row threads a
+  ## LANE. They cannot speak for the rest of the board, and one interaction
+  ## defeats any shape-level argument: `rasterizeWallMasks` carves protected
+  ## floor — spawn pockets, capture zones — back out of BOTH masks, so a wall
+  ## placed over protected ground blocks nothing. A cover computed on shapes
+  ## is therefore a cover of the wrong thing.
+  ##
+  ## So this computes the cover on the mask the validator itself reads, and
+  ## places exactly ONE picket per uncovered row, at the first x that is
+  ## neither protected floor nor inside a route. No randomness, no budget and
+  ## no retry — the difference between a construction and a repair.
+  block rowCover:
+    const PicketW = 24
+    let
+      w = result.width
+      ax = result.sightlineLoX
+      bx = min(result.sightlineHiX, result.center.x)
+      picketH = MinCorridorWidth
+      loX = max(xMin, ArenaBorder + 2)
+      hiX = min(xMax, result.center.x - PicketW - 2)
+    if hiX <= loX: break rowCover
+    var (maxWall, minWall) = rasterizeWallMasks(result, buildArenaObstacles(result))
+    maxWall.setLen(0)
+    var y = ArenaBorder + 2
+    while y < result.height - ArenaBorder:
+      var covered = false
+      for x in ax .. bx:
+        if minWall[y * w + x]:
+          covered = true
           break
-        y += 4
-      if uncovered < 0:
-        break sightlineRepair
-      let
-        plugCol = terrainRng.pick(columns)
-        plugX = xMin + ((2 * plugCol + 1) * (xMax - xMin)) div (2 * columns)
-        ## Under rot90 a quadrant shape at row y also covers row H-1-y (its
-        ## rot180 image), so an uncovered bottom-half row folds to its top
-        ## reflection before plugging; plugs may sit close to the border.
-        foldedRow =
-          if result.symmetry == symRot90 and uncovered > cy:
-            result.height - 1 - uncovered
-          else:
-            uncovered
-        plugY = clamp(
-          foldedRow + 24, ArenaBorder + 12, result.height - ArenaBorder - 12)
-      dec plugsLeft
-      ## A plug inside the endzone apron would seal an approach (and be
-      ## carved to a stump by the protected floor anyway); skip it and let
-      ## the next iteration try another column for the same row.
-      if result.endzone != ezColumn and
-          endzoneFloorAt(plugX, plugY, redAnchorX, cy,
-            result.endzoneRadius + 60 - EndzoneWallMargin,
-            result.endzone == ezDisc):
+      if covered:
+        inc y
         continue
-      result.leftObstacles.add ArenaShape(
-        kind: shapeDiamond, cx: plugX, cy: plugY, radius: 28)
-
+      ## Uncovered. Place one picket spanning this row, at the first legal x.
+      let
+        py = clamp(y - picketH div 2, ArenaBorder,
+                   result.height - ArenaBorder - picketH)
+      var placed = false
+      for relaxed in [false, true]:
+        var x = loX
+        while x <= hiX:
+          let candidate = ArenaShape(kind: shapeRect, rect: MapRect(
+            x: x, y: py, w: PicketW, h: picketH))
+          ## Protected floor would erase it, and a route is the one thing a
+          ## picket must never close. The relaxed pass drops only the route
+          ## test, so a board with no legal gap still gets its row covered
+          ## and the corridor audit judges the pinch on its merits.
+          if not mapProtectedFloorAt(result, x + PicketW div 2, y) and
+             not mapProtectedFloorAt(result, x, y) and
+             not mapProtectedFloorAt(result, x + PicketW - 1, y) and
+             not result.sealsEndzoneGate(candidate) and
+             (relaxed or not haveLanes or not lanePlan.intrudesOnLane(candidate)):
+            result.leftObstacles.add candidate
+            for yy in py ..< min(py + picketH, result.height):
+              for xx in x ..< x + PicketW:
+                minWall[yy * w + xx] = true
+            placed = true
+            break
+          x += 8
+        if placed: break
+      inc y
   ## Glass windows: fog sees through them, nothing passes them. Biased to
   ## the outermost column and the midline band, where sightlines matter.
   let windowsDraw =
