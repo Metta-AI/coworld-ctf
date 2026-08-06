@@ -438,9 +438,9 @@ def cmd_analyze(args):
         print("  a LATE frame is the sim stepping on stale bot input; this is "
               "how two runs of one map on one seed diverge")
 
-    def report(rows_, title):
+    def report(rows_, title, predictor="staticScore"):
         print(f"\n--- {title}  (n = {len(rows_)} maps) ---")
-        xs = [r["staticScore"] for r in rows_]
+        xs = [r[predictor] for r in rows_]
         print(f"{'outcome':<34} {'rho':>7} {'95% CI':>18} {'p':>8}  reading")
         for key, name, sign in OUTCOMES:
             ys = [r[key] for r in rows_]
@@ -451,7 +451,18 @@ def cmd_analyze(args):
             # range" is true essentially always. Ranking noise in the fourth
             # decimal is not a play outcome.
             spread = (max(ys) - min(ys)) / max(1e-9, abs(sum(ys) / len(ys)))
-            if len(set(ys)) < 3 or spread < 0.01:
+            distinct = len(set(round(v, 9) for v in ys))
+            if distinct < 3:
+                # The OPPOSITE problem to near-constant, and it must not be
+                # described as if it were the same: captures are mostly 0 with
+                # an occasional 1, so the values are wildly variable in
+                # relative terms and still carry only 2 levels. A rank
+                # correlation over 2 levels is a comparison of two groups
+                # wearing a correlation's clothes.
+                print(f"{name:<34}   (only {distinct} distinct value(s) across "
+                      f"maps — too coarse to rank)")
+                continue
+            if spread < 0.01:
                 print(f"{name:<34}   (near-constant across maps, "
                       f"relative spread {spread*100:.2f}% — cannot rank)")
                 continue
@@ -466,8 +477,38 @@ def cmd_analyze(args):
                 aligned = "no signal"
             print(f"{name:<34} {rho:>+7.3f} {ci:>18} {p:>8.3f}  {aligned}")
 
-    report(rows, "ALL MAPS, control included")
-    report(gen, "GENERATED ONLY (control excluded)")
+    report(rows, "staticScore vs play — ALL MAPS, control included")
+    report(gen, "staticScore vs play — GENERATED ONLY (control excluded)")
+
+    # interiorFrac gets its own pass because it is not just another band: it
+    # carries the largest single weight (3.0 of 23) AND it is the epic's
+    # acceptance criterion in its own right ("interiorFrac >= 0.30 on both
+    # team counts"). A criterion stated as a hard bound has to answer for
+    # itself, separately from the composite it feeds.
+    report(gen, "interiorFrac vs play — GENERATED ONLY", predictor="interiorFrac")
+
+    if gen:
+        met = [r for r in gen if r["interiorFrac"] >= 0.30]
+        missed = [r for r in gen if r["interiorFrac"] < 0.30]
+        if met and missed:
+            def mean(rs, k):
+                return sum(r[k] for r in rs) / len(rs)
+            print(f"\n--- the acceptance criterion as a GROUP TEST ---")
+            print(f"interiorFrac >= 0.30 : n={len(met):<3} "
+                  f"dead floor {mean(met,'deadFloorFrac'):.3f}  "
+                  f"steals/ep {mean(met,'steals_per_ep'):.2f}  "
+                  f"pace {mean(met,'pace'):.2f}")
+            print(f"interiorFrac <  0.30 : n={len(missed):<3} "
+                  f"dead floor {mean(missed,'deadFloorFrac'):.3f}  "
+                  f"steals/ep {mean(missed,'steals_per_ep'):.2f}  "
+                  f"pace {mean(missed,'pace'):.2f}")
+            from scipy import stats
+            u = stats.mannwhitneyu([r["deadFloorFrac"] for r in met],
+                                   [r["deadFloorFrac"] for r in missed])
+            print(f"dead floor, passing vs failing the criterion: "
+                  f"Mann-Whitney U p = {u.pvalue:.3f}")
+            print(f"control (arena) sits at interiorFrac "
+                  f"{ctrl['interiorFrac']:.3f}" if ctrl else "")
 
     # The score is a weighted mean, so a null on the whole can still hide a
     # band that works. Per-band rank correlations against the primary outcome
