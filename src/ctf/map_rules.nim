@@ -352,6 +352,30 @@ const
     ## emits nothing longer than a 60 px stub, so it builds ZERO structural
     ## walls on any class.
 
+  BaseSeparatorThickPx* = 26
+    ## The STANDARD class's lane-separator wall THICKNESS, and the only piece
+    ## of lane structure that is a density rather than a tactical length.
+    ##
+    ## It reads as `arena.MinCorridorWidth` because that is where it was taken
+    ## from, and that was a conflation: the engine minimum is a FREE-SPACE
+    ## width — the narrowest gap a 13 px solid footprint can walk down — and it
+    ## has nothing to say about how thick a WALL must be. There is no physics
+    ## floor under a separator at all. A player steps 2.75 px per tick and
+    ## collides at their destination, so crossing a wall of thickness T would
+    ## take a single step longer than `T + 13` px: every positive thickness is
+    ## already impassable, and `lineOfSightClear` walks one pixel at a time, so
+    ## no shot tunnels one either. What actually bounds it from below is
+    ## LEGIBILITY — a wall a player can see and read as structure.
+    ##
+    ## So unlike `wallSpanPx`, `maxExposedRunPx` and `chokepointSpacingPx`,
+    ## which are regime-invariant because every input to them is fixed, this
+    ## one must SCALE. `separatorThickPx` below is the derivation.
+
+  MinSeparatorThickPx* = 12
+    ## The legibility floor. `map_lanes.laneSeparatorShapes` has clamped its
+    ## own thickness to this since it was written; the scaling below may not
+    ## go under it.
+
   ChokepointSpacingPx* = LethalEnvelopePx
     ## Two chokepoints are tactically distinct exactly when a defender holding
     ## one cannot KILL into the other — which is `LethalEnvelopePx`, not
@@ -615,6 +639,10 @@ type
     laneCount*: int
     laneWidthPx*: int
     lanePitchPx*: int
+    laneSeparatorThickPx*: int
+      ## Drawn thickness of one lane separator wall. Scales DOWN with the
+      ## class; see `BaseSeparatorThickPx` for why this is a density and not a
+      ## tactical length.
     chokepointSpacingPx*: int
     chokepointsPerRoute*: int
     maxOpenRunPx*: int
@@ -791,6 +819,34 @@ func mapRules*(c: MapSizeClass, teamCount: int,
     ((perTeam + result.laneCount - 1) div result.laneCount) * SoldierBodyPx +
       2 * StrafeWindowPx)
   result.lanePitchPx = result.laneWidthPx + result.coverSizePx
+  # Separator thickness. `laneCount + 1` walls (one between each adjacent pair
+  # and one in each margin strip) run the half-traverse at some duty cycle D,
+  # so the network costs
+  #     (laneCount + 1) * thick * halfTraverse * D
+  # out of a `crossSection * halfTraverse` domain. The traverse CANCELS: the
+  # separator network's share of the board depends on the board's HEIGHT and
+  # not at all on its width, and it grows as the wall count does. Holding that
+  # share fixed is therefore
+  #     thick  ~  crossSection / (laneCount + 1)
+  # which is what this is, referred to the standard class so that `standard`
+  # keeps exactly the 26 px it has today.
+  #
+  # Measured, this is not a nicety. Structure ALONE — separators plus gate
+  # shoulders, before one piece of cover lands — ran 132 permille of the
+  # half-domain on small against 113 on standard and 78 on giant, and with the
+  # fill's own floor on top of it the small class had no attempt in 100 that
+  # came in under the 170 ceiling. Same absolute structure, smaller board.
+  #
+  # Capped at the base rather than scaled symmetrically: a large board's
+  # structure share is already 78-110 permille, well inside its budget, so
+  # thickening its walls would spend a budget it has no problem with and put
+  # classes that pass today back at risk. This scales DOWN only.
+  const RefSeparatorPitchPx = (RectBaseHeight - 2 * BorderPx) div 4
+    ## The standard 2-team class's `crossSection / (laneCount + 1)` = 159 px.
+  result.laneSeparatorThickPx = clamp(
+    BaseSeparatorThickPx * (result.crossSectionPx div
+      max(1, result.laneCount + 1)) div RefSeparatorPitchPx,
+    MinSeparatorThickPx, BaseSeparatorThickPx)
   result.chokepointSpacingPx = ChokepointSpacingPx
   result.chokepointsPerRoute =
     max(1, (result.traversePx + ChokepointSpacingPx div 2) div
