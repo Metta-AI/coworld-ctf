@@ -18,7 +18,7 @@
 ##     arms the 5-tick windup, exactly as the baseline self-pulses fire.
 
 import
-  std/[strutils],
+  std/[os, strutils],
   bitworld/spriteprotocol,
   ctf/sim,
   ctf/global
@@ -97,6 +97,18 @@ proc newEvalEngine*(numPlayers: int, seed: int, maxTicks: int): EvalEngine =
   config.seed = seed
   config.maxTicks = maxTicks
   config.maxGames = 0                # never auto-quit; harness owns the loop.
+  # Generated-board probes (plan #16): the league draws a NEW map every episode,
+  # and several policy reads (med-kit spots, shield spawns, endzones) are arena
+  # formulas that are only true on `arena`. These env overrides let a probe run
+  # the deterministic in-process rig on a GENERATED board. Unset = unchanged, so
+  # every existing gate/probe output stays byte-identical. Harness-only file: it
+  # is never compiled into /bin/baseline (the Dockerfile builds baseline.nim).
+  if getEnv("EVAL_MAP").len > 0:
+    config.mapPath = getEnv("EVAL_MAP")
+  if getEnv("EVAL_TEAMS").len > 0:
+    config.teams = parseInt(getEnv("EVAL_TEAMS"))
+  if getEnv("EVAL_SCORING").len > 0:
+    config.scoring = getEnv("EVAL_SCORING")
   result = EvalEngine(sim: initSimServer(config))
   result.sim.gameEventLoggingEnabled = false  # keep the run quiet (a SimServer
                                               # field, defaults true post-init).
