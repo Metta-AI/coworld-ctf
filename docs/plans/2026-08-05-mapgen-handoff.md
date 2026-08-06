@@ -157,8 +157,20 @@ untracked and builds fail without it.
 ## Working rules that were learned expensively
 
 - `nim c -d:release -r tests/tests.nim` from the worktree root. **ALWAYS `-d:release`** —
-  debug is 10-50x slower through per-pixel map code. ⚠️ The suite now takes ~50 minutes
-  (task `31d2bec3`) because pool sweeps generate at K=8; that regression is worth fixing.
+  debug is 10-50x slower through per-pixel map code. The suite is **7.1 minutes** (425 s,
+  734 tests) end to end, and the CI number is the slowest SHARD, ~3 minutes.
+  ⚠️ **This machine's wall-clock timings are worthless under fleet load.** The "~50 minutes"
+  that task `31d2bec3` was filed on is not reproducible: measured back to back, an UNCHANGED
+  shard drifted +10.4% in CPU time and 2.1x in wall clock purely from other agents running.
+  Measure CPU time (`/usr/bin/time -p`, user+sys), and re-measure a control you did not
+  change in the same batch — otherwise you will attribute the fleet to your own change.
+- The K=8-on-giant-boards diagnosis in that task was **wrong on both halves** and is worth
+  knowing about, because it is the shape of mistake this codebase invites: the pool holds NO
+  giant boards (the population resolver moved 2-team pool generation to {small, standard}),
+  and a full 20-map pool sweep is 23.3 s, so the three sweeps could not have been 50 minutes
+  of anything. `tests/timing_formatter.nim` + `tests/timed_shard_N.nim` answer "what is
+  actually slow" directly — use them before optimising. What they found was one duplicate
+  full-pool sweep in each slow shard, now shared through `helpers.cachedCtfMap`.
 - **Commit every green increment.** The machine sleeps without warning and usage limits hit
   mid-task. Several agents lost hours today; the ones that committed incrementally lost
   seconds. `git stash create` does NOT capture untracked files, so bank with a real commit.
