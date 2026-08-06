@@ -128,12 +128,15 @@ import burrow
 
 const
   EngineMinCorridorPx* = 26
-    ## Must equal `arena.MinCorridorWidth`, the narrowest corridor the 13 px
+    ## Must equal `arena.MinPassableWidth`, the narrowest floor the 13 px
     ## solid player footprint can use and the width the validator's own
-    ## erosion is calibrated to. `arena` would import THIS module, so the
-    ## dependency cannot point the other way; `tests/test_map_lanes.nim` pins
-    ## the two together, the same guard `map_rules.BorderPx` uses for
-    ## `arena.ArenaBorder`.
+    ## erosion is calibrated to. NOT `arena.MinCorridorWidth`, which is the
+    ## 68 px DESIGN floor this module enforces length-aware: `walkableMask`
+    ## below is a question about what a body can physically occupy, and if it
+    ## asked for 68 px every chokepoint would read as a wall. `arena` would
+    ## import THIS module, so the dependency cannot point the other way;
+    ## `tests/test_map_lanes.nim` pins the two together, the same guard
+    ## `map_rules.BorderPx` uses for `arena.ArenaBorder`.
 
   ChokeWidthMinPx* = 30
     ## Tight, but never impassable: clears the 26 px engine minimum by 4 px so

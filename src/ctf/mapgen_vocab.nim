@@ -33,7 +33,7 @@
 ## inside a bunker cluster, the mouth of a cave, the spacing between cans — is
 ## at least `VocabParams.corridorPx`, which `mapRules` sets to
 ## `RecommendedCorridorWidthPx` = 68 px: two DRAWN cog bodies abreast, NOT the
-## 26 px `MinCorridorWidth` collision floor. A gap you can only pass single
+## 26 px `arena.MinPassableWidth` collision floor. A gap you can only pass single
 ## file in a straight line is not a gap you fight through.
 
 import std/[math, random]

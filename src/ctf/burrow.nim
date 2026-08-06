@@ -272,9 +272,9 @@ func brushRadiusForCorridor*(minWidthPx, cellSize: int): int =
   ## direction, so the requirement is `(2r+1)*cellSize >= minWidthPx`.
   ##
   ## Sizing guidance: the player is 13 px solid (`PlayerHalf` = 6) and 34 px
-  ## drawn, `MinCorridorWidth` is 26 px today, and plan §4 argues for raising
-  ## it toward 68 px (two drawn cog bodies abreast). Pass whichever the caller
-  ## has decided on — this module does not pick for you.
+  ## drawn, so `arena.MinPassableWidth` is 26 px and `arena.MinCorridorWidth`
+  ## is 68 px (two drawn cog bodies abreast). Pass whichever the caller has
+  ## decided on — this module does not pick for you.
   if minWidthPx <= 0 or cellSize <= 0: return 0
   let widthCells = (minWidthPx + cellSize - 1) div cellSize
   widthCells div 2

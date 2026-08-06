@@ -21,7 +21,8 @@
 ## agent-sized tile. CTF has no tile grid, so the cell size is a decision, and
 ## it is the decision that makes or breaks the port. Two numbers bound it:
 ##
-##   `arena.MinCorridorWidth`      = 26 px  — enforced by the validator
+##   `arena.MinPassableWidth`      = 26 px  — the solid-footprint floor the
+##                                            connectivity flood is eroded to
 ##   `map_rules.RecommendedCorridorWidthPx` = 68 px  — two DRAWN cog bodies
 ##                                                     abreast (2 * 34)
 ##

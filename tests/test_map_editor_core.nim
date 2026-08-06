@@ -47,7 +47,7 @@ proc firstRow(rows: seq[int]): int =
   ## drift in the validation baseline invisible.
   if rows.len > 0: rows[0] else: -1
 
-const FirstOccupiableRow* = ArenaBorder + MinCorridorWidth div 2
+const FirstOccupiableRow* = ArenaBorder + MinPassableWidth div 2
   ## The first row a 13 px body can actually stand in. Spelled from the same
   ## two constants the validator uses rather than as a literal, so the scan
   ## and its control cannot drift apart silently again.

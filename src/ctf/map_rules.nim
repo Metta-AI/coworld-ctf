@@ -79,7 +79,7 @@ const
     ## Must equal `arena.ArenaBorder` (the perimeter wall thickness). `arena`
     ## imports THIS module, so the dependency cannot point the other way;
     ## `tests/test_map_rules.nim` pins the two together, the same guard
-    ## `tests/test_burrow.nim` uses for `MinCorridorWidth`.
+    ## `tests/test_burrow.nim` uses for `arena.MinPassableWidth`.
 
   RectBaseWidth* = 1235
   RectBaseHeight* = 659
@@ -356,7 +356,7 @@ const
     ## The STANDARD class's lane-separator wall THICKNESS, and the only piece
     ## of lane structure that is a density rather than a tactical length.
     ##
-    ## It reads as `arena.MinCorridorWidth` because that is where it was taken
+    ## It reads as `arena.MinPassableWidth` because that is where it was taken
     ## from, and that was a conflation: the engine minimum is a FREE-SPACE
     ## width — the narrowest gap a 13 px solid footprint can walk down — and it
     ## has nothing to say about how thick a WALL must be. There is no physics
@@ -403,15 +403,20 @@ const
     ## cannot physically hold the fight it exists to create.
 
   RecommendedCorridorWidthPx* = 2 * SoldierBodyPx
-    ## 68 px — two DRAWN cog bodies abreast. `arena.MinCorridorWidth` is 26 px
-    ## today, which clears the 13 px solid footprint (`PlayerHalf` = 6) but not
-    ## the 34 px silhouette, so two cogs in a minimum corridor overlap on
-    ## screen. Source's published minimum hallway is 64 units and the standard
-    ## rule is "at least double the player width"; matching `SoldierBodyPx` =
-    ## 34 to Source's 32-unit player gives 1 unit ~= 1.06 px, under which TF2's
-    ## 1024-unit medium-range cap = 1088 px lands within 4% of our 1050 px
-    ## `GunRange`. The correspondence is close enough that published metrics
-    ## transfer. NOT SHIPPED — see the doc for the measured pool churn.
+    ## 68 px — two DRAWN cog bodies abreast, and SHIPPED: `arena.MinCorridorWidth`
+    ## is this constant. `arena.MinPassableWidth` = 26 is the separate physics
+    ## number that clears the 13 px solid footprint (`PlayerHalf` = 6) but not
+    ## the 34 px silhouette, so two cogs in a merely-passable corridor overlap
+    ## on screen. Source's published minimum hallway is 64 units and the
+    ## standard rule is "at least double the player width"; matching
+    ## `SoldierBodyPx` = 34 to Source's 32-unit player gives 1 unit ~= 1.06 px,
+    ## under which TF2's 1024-unit medium-range cap = 1088 px lands within 4%
+    ## of our 1050 px `GunRange`. The correspondence is close enough that
+    ## published metrics transfer.
+    ##
+    ## It could only ship as a LENGTH-AWARE rule. As a flat minimum it rejects
+    ## the 30-45 px chokepoint outright, which is why the validator enforces it
+    ## through `map_lanes.corridorPinchFailures` and not through an erosion.
 
   GrenadeRangeFromGunPx* = GunRange div 4
     ## 262 px — the grenade range this module recommended and the sim now
