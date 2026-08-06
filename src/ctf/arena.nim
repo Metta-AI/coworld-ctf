@@ -2063,7 +2063,7 @@ proc generateMapAttempt*(
     ## different maps and the extremes are reachable well inside K.
     let
       domainArea = region.w * region.h
-      densityPct = 60 + 10 * (attempt mod 9)
+      densityPct = 40 + 12 * (attempt mod 9)
     var budget =
       domainArea * FillBudgetPermille div 1000 * densityPct div 100
     for i in 0 ..< min(structureCount, emitted.len):
@@ -2091,6 +2091,42 @@ proc generateMapAttempt*(
       if sx > 0:
         eligible.add (result.leftObstacles.high, sx div 120, sy)
         pitCandidates.add (pitInstead, result.leftObstacles.high, sx, sy)
+
+  ## CENTRE FEATURE — a column of spinning diamonds on the spin axis.
+  ##
+  ## Two things depend on this and both broke when the lattice went away. The
+  ## spinning-diamond MECHANIC selects `shapeDiamond` obstacles within
+  ## `DiamondSpinBand` of the symmetry axis, and the vocabulary almost never
+  ## emits a diamond, so the selected set came back empty and the live
+  ## footprint test failed with `chosen.len == 0`. And the 300-seed audit had
+  ## already measured 52% of 2-team maps with NO centre architecture at all,
+  ## which is the other half of the same hole: the fill region stops short of
+  ## the seam, so nothing was ever built where the two halves meet.
+  ##
+  ## Placed at a fixed inset from the axis rather than the old hard-coded
+  ## 138px offset, which sat against a flag ring that IS scaled and therefore
+  ## missed the centre entirely on every giant board.
+  block centreSpinners:
+    const SpinInset = 40   ## inside DiamondSpinBand (80) at every size class.
+    let
+      sx = result.center.x - SpinInset
+      ## On rot90 the spin band is a CROSS (x or y near an axis), so a column
+      ## here lifts into a full cross of stone through the middle of the
+      ## board: the same column that took 2-team interiorFrac 0.233 -> 0.310
+      ## took 4-team validity 81% -> 68% and its enclosure 0.127 -> 0.089.
+      ## Four-fold boards therefore get a couple of spinners, not a colonnade.
+      step =
+        if result.symmetry == symRot90: max(2 * MinCorridorWidth, result.height div 2)
+        else: max(2 * MinCorridorWidth, result.height div 5)
+    var sy = ArenaBorder + step div 2
+    while sy < result.height - ArenaBorder:
+      ## Never on protected floor — it would be carved straight back out —
+      ## and never where it would seal a compact base's approach.
+      let d = ArenaShape(kind: shapeDiamond, cx: sx, cy: sy, radius: 28)
+      if not mapProtectedFloorAt(result, sx, sy) and
+         not result.sealsEndzoneGate(d):
+        result.leftObstacles.add d
+      sy += step
 
   ## Endzone trench pit candidates, authored on the RED side (the symmetry
   ## image gives Blue the exact counterpart): BEHIND the pedestal toward
