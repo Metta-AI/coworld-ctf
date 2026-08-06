@@ -1641,6 +1641,17 @@ type
                               # revolutions (vision rides the aim). Cap the budget at 4
                               # ticks; settle on the best cheaply-reachable slot and let
                               # fire-gate slack govern the residual ≤1 slot (11.25°).
+    spinCapRangePx: float     # ⭐ RANGE-AWARE SPIN BUDGET (the spinCap logic fork). The
+                              # accepted residual is ANGULAR but the fire corridor is
+                              # LINEAR: perpMiss = D·sin(err). One slot of residual (8
+                              # brads) costs 0.195·D of miss, so past D=87px it exceeds
+                              # the 17px corridor and the trigger can NEVER open — the
+                              # budget is free in CQB and a fire-gate LOCKOUT at range.
+                              # Apply it only to combat traverses inside this range;
+                              # beyond it pay the exact plan (the v38 servo) so err→0 and
+                              # the corridor actually opens. Non-combat traverses always
+                              # keep the budget (nothing fires there, so the blind
+                              # multi-rev spin is pure cost). Inf == plain v39.
     shieldRush: bool          # ⭐⭐ SHIELD-RUSH CARRIER (2026-07-23, the grab→cap fix): the
                               # A/B + n=37 teardown proved we LOSE ON THE RUN HOME — 34 steals /
                               # 4 caps (12%) vs h006, carriers die at MIDFIELD crossing back. A
@@ -2716,6 +2727,47 @@ proc shippedCombatTune(): CombatTune =
   # gated-off path byte-identical to v38; nade release err >6 brads 4% -> 0%.
   result.nadeLob = true
   result.spinCap = true
+  # ⭐ spinCap RANGE FORK (issue #8 residual, 2026-08-05). Measured on the shipped
+  # trees: the 4-tick budget parks the turret at a ≤2-slot residual, and because
+  # perpMiss = D·sin(err) the 17px corridor then only opens inside ~87px — v39's
+  # shot-release range collapsed (median 247→113px, share beyond 300px 42%→19%)
+  # while the CQB arena A/B that proved the lever could not sample that axis. Two
+  # per-process knobs so ONE frozen binary can serve every arm of the giant-terrain
+  # A/B (the ab_aimfix.sh pattern — no in-process tune contamination):
+  #   NOSPINCAP=1   → drop the budget entirely (the v38 exact-plan servo).
+  #   SPINRANGE=<px>→ the LOGIC FORK: budget inside <px>, exact plan beyond it.
+  # Default stays Inf (plain v39) until the A/B pays for a change. [[REF-slack]]
+  # forbids tuning the fire-gate KNOB; this is the range-conditioned logic fork it
+  # prescribes instead, and it touches the TRAVERSE, not the trigger.
+  result.spinCapRangePx = Inf
+  if getEnv("NOSPINCAP").len > 0:
+    result.spinCap = false
+  let spinRange = getEnv("SPINRANGE")
+  if spinRange.len > 0:
+    result.spinCapRangePx = parseFloat(spinRange)
+
+
+when defined(rngprobe):
+  # ── RANGED-CORRIDOR PROBE (pure instrumentation, identical in every tree).
+  # Bands: 0=<150px 1=150-300 2=300-600 3=600-1000 4=>=1000
+  var
+    rpFrames*: array[2, array[5, int]]
+    rpOpen*: array[2, array[5, int]]
+    rpFire*: array[2, array[5, int]]
+    rpErrSum*: array[2, array[5, int]]
+    rpDistSum*: array[2, array[5, float]]
+    rpBand* = -1
+    rpSide* = 0
+    rpNextDump* = 0
+    rpCalls* = 0
+    rpCap*: array[2, int]
+    rpCapErr*: array[2, int]
+  proc rpBandOf*(d: float): int =
+    if d < 150.0: 0
+    elif d < 300.0: 1
+    elif d < 600.0: 2
+    elif d < 1000.0: 3
+    else: 4
 
 proc vec(x, y: float): Vec =
   Vec(x: x, y: y)
@@ -6716,6 +6768,9 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     acted = false
     holdStill = false
     nadeC = false
+    aimTargetD = -1.0         # range of the COMBAT traverse this tick (-1 = the
+                              # turret is not slewing onto a shootable target), the
+                              # conditioning variable for the spinCap range fork.
   if touchLatch and bot.nadeCharge == 0:
     # ⭐⭐ TOUCH LATCH wins the act-priority race. It is placed FIRST deliberately: the
     # grenade branch below used to own this slot and sets holdStill, so a bot 15px from the
@@ -6893,6 +6948,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # sit inside the ~14px bullet corridor. Advancing scales that miss down
     # linearly, so keep closing while the turret settles.
     desiredAim = bradsOf(aim - me)
+    aimTargetD = engageD      # this traverse is a SHOOTING traverse at this range
     let
       err = abs(bradsErr(desiredAim, bot.estAim))
       perpMiss = engageD * sin(float(err) * PI / float(AimBrads div 2))
@@ -6904,6 +6960,13 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     wantFire = perpMiss <=
       (if engageD < 300.0: max(bot.tune.fireSlackPx, 17.0)
        else: bot.tune.fireSlackPx)
+    when defined(rngprobe):
+      rpBand = rpBandOf(engageD)
+      rpSide = ord(bot.team)
+      inc rpFrames[rpSide][rpBand]
+      rpErrSum[rpSide][rpBand] += err
+      rpDistSum[rpSide][rpBand] += engageD
+      if wantFire: inc rpOpen[rpSide][rpBand]
     if bot.tune.fireOnRealBody:
       # Also open the trigger when the current aim's perp-miss to the target's
       # REAL last-seen position sits in the corridor (the lead phantom swings
@@ -7390,13 +7453,23 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       # budget, steer to the reachable slot with the least angular error
       # inside it (often: hold, accepting ≤1 slot = 11.25°) and let the
       # fire-gate slack + the target's own bearing drift close the rest.
+      # ⭐ THE RANGE FORK: the budget's accepted residual is ANGULAR, the fire
+      # corridor is LINEAR (perpMiss = D·sin err), so the same ≤2-slot residual
+      # that is invisible at 60px is a permanent trigger LOCKOUT at 600px. Spend
+      # the budget only where it is cheap; beyond spinCapRangePx pay the exact
+      # plan so the error actually reaches 0 and the corridor opens. A traverse
+      # with no shootable target (aimTargetD < 0) always keeps the budget — it
+      # cannot cost a shot, and the blind multi-rev spin is pure vision loss.
+      let spinBudgeted = bot.tune.spinCap and
+        (aimTargetD < 0.0 or aimTargetD <= bot.tune.spinCapRangePx)
       var capped = false
-      if bot.tune.spinCap:
+      if spinBudgeted:
         const SpinCapTicks = 4
         let kbest = (if kp >= 0 and (km < 0 or kp <= km): kp
                      elif km >= 0: km else: 99)
         if kbest > SpinCapTicks:
           capped = true
+          when defined(rngprobe): inc rpCap[ord(bot.team)]
           var bestJ = 0
           var bestErr = 99
           for jj in -SpinCapTicks .. SpinCapTicks:
@@ -7405,6 +7478,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
             if e < bestErr or (e == bestErr and abs(jj) < abs(bestJ)):
               bestErr = e
               bestJ = jj
+          when defined(rngprobe): rpCapErr[ord(bot.team)] += bestErr
           if bestJ > 0: rotBits = ButtonB
           elif bestJ < 0: rotBits = ButtonSelect
       if not capped:
@@ -7430,6 +7504,22 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   var mask = moveMask or rotBits
   if wantFire and not bot.firedLast:
     mask = moveMask or ButtonA
+    when defined(rngprobe):
+      if rpBand >= 0: inc rpFire[rpSide][rpBand]
+  when defined(rngprobe):
+    rpBand = -1
+    # Live-server dump: the bot processes are SIGTERM'd by the A/B script, so
+    # write a running tally every 500 ticks and read the LAST line per slot.
+    inc rpCalls
+    if rpCalls mod 50 == 0:
+      var s = "RNG slot=" & $bot.slot & " t=" & $bot.tick & " calls=" & $rpCalls
+      let sd = ord(bot.team)
+      for b in 0 .. 4:
+        s.add " b" & $b & "=" & $rpFrames[sd][b] & "/" & $rpOpen[sd][b] & "/" &
+          $rpFire[sd][b] & "/" & $rpErrSum[sd][b] & "/" & $int(rpDistSum[sd][b])
+      s.add " cap=" & $rpCap[sd] & " capErr=" & $rpCapErr[sd]
+      stderr.writeLine s
+      flushFile(stderr)
   if nadeC:
     mask = mask or ButtonC
   bot.firedLast = (mask and ButtonA) != 0
