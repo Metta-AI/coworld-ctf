@@ -1340,6 +1340,39 @@ type
                               # back-armor: a straight predictable line is a free shot in transit.
                               # A shallow weave (small amplitude, net homeward progress preserved)
                               # forces the gun to re-slew each beat. Movement-only.
+    carryAnyHeart: bool       # ⭐⭐ FOUR-TEAM CARRY BLINDNESS (2026-08-05, issue #17).
+                              # `enemyColorFor` re-picks the raid target every frame
+                              # and its first pass PREFERS a rival whose heart is
+                              # still on its pedestal (HeartHome). The instant WE
+                              # lift a heart that team's HeartHome goes false, so the
+                              # raid target re-points to a different rival on the very
+                              # next frame — and the flag scans below key off it:
+                              #   enemyPlanted = <enemyColor> flag planted
+                              #   if enemyPlanted.len > 0: discard  # "nobody carries"
+                              # A planted banner is NEVER fogged, so the new target's
+                              # banner is present forever after and iCarry stays FALSE
+                              # for the whole carry. Measured on 8 four-team corners lab
+                              # episodes: 631 of 668 physically-carrying frames (94.5%)
+                              # had iCarry=false; on the 2-team control 1 of 90 (1.1%),
+                              # because there `enemyColorFor` returns a CONSTANT and can
+                              # never re-point. The carrier therefore never enters the
+                              # carrier branch at all — no captureAim, no carrierFlee,
+                              # no home-stretch, no fight-out ring — and walks off to
+                              # raid a THIRD base hauling a heart at 70% speed.
+                              # FIX: while a rival's carried banner is centred on us,
+                              # PIN enemyColor to that colour. Everything downstream
+                              # then behaves exactly as on a 2-team board. Four-team
+                              # only (activeColors() > 2); no new movement code.
+    cornerDeep: bool          # ⭐ The subordinate half of issue #17. A `corner` capture
+                              # zone (layoutCorners) is a DIAGONAL L1 region and the
+                              # engine states its BOUNDING BOX; statedZone's box centre
+                              # therefore sits at L1 = diagLimit exactly — dead ON the
+                              # scoring threshold, margin 0, the farthest point of the
+                              # zone from safety. tools/ez_probe.nim over seeds 301-312
+                              # x 4 teams: 36 of 48 team-targets ON THE EDGE (every
+                              # corner team), 12 inside (arm, margin 82), 0 outside.
+                              # FIX: for the `corner` shape return a point at
+                              # L1 = diagLimit/2 from the map corner instead.
     carrierSprint: bool       # ⭐⭐ CAPTURE CONVERSION (survive=110t/drop@home=4%
                               # diagnosis): a carrier NEVER enters the combat branch
                               # (engage range 0, like pocketRush). It was burning
@@ -1923,6 +1956,12 @@ type
     wasCarrying: bool         # edge detector for our OWN carry (grabPos stamp)
     grabPos: Vec              # where THIS carry began: the fight-out breakout
                               # is measured from the actual snatch point
+    carryColor: string        # carryAnyHeart (#17): the colour of the heart whose
+                              # carried banner is centred on US. Pins enemyColor for
+                              # the duration of the carry so the raid-target re-pick
+                              # cannot blind the self-carry test. Per-BOT, not a module
+                              # global — the in-process harness shares globals and a
+                              # once-per-frame stamp there would cross bots.
     aimStepBrads: int         # GV36: brads the server turns per held rotate
                               # tick (aimTurnRate SLOTS x 8). Inferred live
                               # from own-aim marker deltas (default 40 = the
@@ -2291,6 +2330,8 @@ proc defaultCombatTune(): CombatTune =
     carrierFlee: false,       # control: carrier advances toward a point-blank enemy.
     carrierClearBand: false,  # control: carrier lane may sit in the respawn cone.
     carrierSerpentine: false, # control: carrier runs a straight predictable line home.
+    carryAnyHeart: false,     # control: carry is only detected on the current raid target.
+    cornerDeep: false,        # control: a corner zone's target is its bounding-box centre.
     carrierSprint: false,     # control: carrier fights (engage 110px) instead of running.
     carrierScreen: false,     # control: escort screens remembered threats, not the cone.
     carrierGrabDetect: false, # control: self-carry only when heart >16px off pedestal.
@@ -2674,6 +2715,13 @@ proc shippedCombatTune(): CombatTune =
   # control trap, failed.md: never bake an unproven lever into the champion
   # tune). WBANK=1 arms it per-process for the env-server A/B rig.
   result.woundedBank = getEnv("WBANK").len > 0
+  # ⭐⭐ carryAnyHeart + cornerDeep (plan #17): the four-team carry blindness and the
+  # corner-zone threshold target. UNPROVEN — ENV-ARMED ONLY until the pre-registered
+  # A/B passes (the contaminated-control trap, failed.md: never bake an unproven lever
+  # into the champion tune). FOURCARRY=1 / CORNERDEEP=1 arm them per-process for the
+  # env-server A/B rig. Both are four-team-only by construction.
+  result.carryAnyHeart = getEnv("FOURCARRY").len > 0
+  result.cornerDeep = getEnv("CORNERDEEP").len > 0
   # ── COMMS BUS (C1/C2 + the WIPE coupling). Event-driven team plays over the one
   # shout channel: a bot classifies a LIVE scenario from its own fresh local reads
   # and broadcasts an opaque rotating 2-char codeword; teammates in earshot adopt it
@@ -3271,6 +3319,35 @@ var SelfStrategyTeam = Red
   ## team-parameterised geometry procs can tell "ours" from "theirs" without
   ## threading the Bot through every call site (one bot per process).
 
+var CornerDeepOn = false
+  ## `tune.cornerDeep`, mirrored for the free geometry procs. RE-STAMPED at the
+  ## top of every decide() from bot.tune, exactly like SelfColor — the
+  ## in-process eval harness runs all 16 bots in ONE process, so a once-per-lock
+  ## global would hold the LAST bot's tune (gotchas 2026-08-04).
+
+proc cornerDeepPoint(x0, y0, x1, y1: float): Vec =
+  ## ⭐ A `corner` capture zone is a DIAGONAL L1 region — everything within
+  ## `diagLimit` of the team's MAP CORNER (arena.nim captureZone/layoutCorners,
+  ## inCaptureZone: |x-cornerX| + |y-cornerY| <= diagLimit) — but the engine
+  ## states only its BOUNDING BOX. The box centre is therefore at
+  ## L1 = diagLimit/2 + diagLimit/2 = diagLimit EXACTLY: dead on the scoring
+  ## hypotenuse, margin 0, the farthest point of the zone from safety. Measured
+  ## with tools/ez_probe.nim over seeds 301-312 x 4 teams: 36 of 48 team-targets
+  ## sat ON THE EDGE (every corner team), 12 inside (the `arm` layout, margin
+  ## 82), 0 outside. Aim at L1 = diagLimit/2 instead — margin diagLimit/2, and
+  ## the crossing still happens en route, so it costs no extra travel.
+  ##
+  ## The map corner is whichever box corner touches the board edge (the engine
+  ## asserts the limit is never clamped, so the box is exactly diagLimit square).
+  let
+    lim = max(x1 - x0, 1.0)
+    onLeft = x0 <= 1.0
+    onTop = y0 <= 1.0
+    cx = (if onLeft: x0 else: x1)
+    cy = (if onTop: y0 else: y1)
+  vec(cx + (if onLeft: lim * 0.25 else: -lim * 0.25),
+      cy + (if onTop: lim * 0.25 else: -lim * 0.25))
+
 proc statedZone(color: string): tuple[
     have: bool, compact: bool, c: Vec, x0, y0, x1, y1: float] =
   ## One team's capture region as the ENGINE states it, from the per-team
@@ -3281,7 +3358,10 @@ proc statedZone(color: string): tuple[
     if z.color == color:
       return (have: true,
               compact: z.shape != LabelEndzoneShapeColumn,
-              c: vec(float(z.x0 + z.x1) * 0.5, float(z.y0 + z.y1) * 0.5),
+              c: (if CornerDeepOn and z.shape == LabelEndzoneShapeCorner:
+                    cornerDeepPoint(float(z.x0), float(z.y0),
+                                    float(z.x1), float(z.y1))
+                  else: vec(float(z.x0 + z.x1) * 0.5, float(z.y0 + z.y1) * 0.5)),
               x0: float(z.x0), y0: float(z.y0),
               x1: float(z.x1), y1: float(z.y1))
 
@@ -3700,6 +3780,14 @@ proc buildNavGrid(bot: Bot, client: ProtocolClient) =
             if not bot.cellWalkable[ny * GridW + nx]:
               bot.coverCell[c] = true
               break adjacency
+  when defined(homeprobe):
+    echo "INIT slot=", bot.slot, " col=", bot.myColor, " parity=", bot.team,
+      " teams=", GameTeams, " map=", MapW, "x", MapH,
+      " grid=", GridW, "x", GridH, " marks=", EndzoneMarks.len
+    for z in EndzoneMarks:
+      echo "  MARK ", z.color, " ", z.shape, " ", z.x0, ",", z.y0,
+        "..", z.x1, ",", z.y1
+    flushFile(stdout)
   bot.exposure = newSeq[bool](GridW * GridH)
   bot.navDist = newSeq[int32](GridW * GridH)
   bot.navGoal = -1
@@ -4285,6 +4373,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   SelfColor = myColor
   SelfEnemyColor = enemyColorFor(myColor)
   SelfStrategyTeam = bot.team
+  CornerDeepOn = bot.tune.cornerDeep
     # Re-stamped EVERY decide, not just at the colour lock: the eval harness
     # runs all 16 bots in ONE process, so a once-per-lock global holds the
     # LAST locked bot's team and the `team == SelfStrategyTeam` discrimination
@@ -4295,9 +4384,63 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # one bot per process and never sees it; the re-stamp makes the harness
     # faithful and is a no-op live.
   let
-    enemyColor = enemyColorFor(myColor)
     alive = probe.alive
     me = probe.pos
+  var enemyColor = enemyColorFor(myColor)
+  if bot.tune.carryAnyHeart and activeColors() > 2 and alive:
+    # ⭐⭐ THE FOUR-TEAM CARRY PIN (issue #17). `enemyColorFor` re-picks the raid
+    # target EVERY frame and prefers a rival whose heart is still on its pedestal
+    # (HeartHome). The instant we lift a heart, that team's HeartHome goes false
+    # and the target re-points to a different rival — whose planted banner is
+    # NEVER fogged, so `enemyPlanted.len > 0` below takes the "nobody carries"
+    # branch and iCarry stays FALSE for the whole carry. Measured on 8 four-team
+    # corners lab episodes: 631 of 668 physically-carrying frames (94.5%) had
+    # iCarry=false, and iCarry was true in EXACTLY the 37 frames where the held
+    # heart happened to still be the designated target. On the 2-team control the
+    # same code scored 1 of 90 (1.1%) — there `enemyColorFor` returns a constant
+    # and cannot re-point, which is why the bug is four-team-only.
+    #
+    # The fix is to pin the raid target to the heart we are physically holding.
+    # Nothing downstream changes: enemyPlanted then reads empty (that heart is
+    # off its pedestal), enemyFlags holds our own carried banner, and the
+    # existing iCarry test — including its "a mate closer to the banner is the
+    # real carrier" veto, re-applied there with FRESH tracks — behaves exactly as
+    # it does on a two-team board.
+    var
+      pinned = ""
+      pinnedD = CarrySelfRadius + 1.0
+    for ci in 0 ..< activeColors():
+      let c = TeamColorNames[ci]
+      if c == myColor:
+        continue
+      for o in client.spriteObjectsWithLabel(c & " flag"):
+        let
+          fp = client.mapPos(o)
+          d = dist(fp, me)
+        if d > CarrySelfRadius or d >= pinnedD:
+          continue
+        # A rival team may also carry a THIRD team's heart, which a two-team
+        # board can never produce ("only our side can hold the enemy flag").
+        # Reject the banner if any tracked actor from last frame is closer to it
+        # than we are; the downstream test then re-decides with fresh tracks.
+        var otherCloser = false
+        for t in bot.enemies:
+          if bot.tick - t.lastSeen <= 2 and dist(t.pos, fp) < d:
+            otherCloser = true
+            break
+        if not otherCloser:
+          for t in bot.mates:
+            if bot.tick - t.lastSeen <= 2 and dist(t.pos, fp) < d:
+              otherCloser = true
+              break
+        if otherCloser:
+          continue
+        pinned = c
+        pinnedD = d
+    bot.carryColor = pinned
+    if pinned.len > 0:
+      enemyColor = pinned
+      SelfEnemyColor = pinned
   if not alive:
     # Dead: the view is fully fogged (only our corpse renders) and inputs
     # are ignored, so skip perception entirely.
@@ -4727,6 +4870,26 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       elapsed * CarrierEstSpeed
     )
     mateCarryPos = est
+  when defined(homeprobe):
+    ## Ground-truth-free carry audit (issue #17): scan EVERY rival colour's
+    ## carried banner, not just the one designated `enemyColor`, and report
+    ## when a banner is centred on US while `iCarry` says otherwise.
+    block hpCarryAudit:
+      for ci in 0 ..< max(GameTeams, 2):
+        let c = TeamColorNames[ci]
+        if c == myColor:
+          continue
+        for o in client.spriteObjectsWithLabel(c & " flag"):
+          if dist(client.mapPos(o), me) <= CarrySelfRadius:
+            echo "CARRYAUDIT t=", bot.tick, " slot=", bot.slot,
+              " me=", myColor, " holding=", c,
+              " designatedEnemy=", enemyColor,
+              " iCarry=", iCarry,
+              " enemyPlanted=", enemyPlanted.len,
+              " enemyFlags=", enemyFlags.len,
+              " pos=", int(me.x), ",", int(me.y)
+            flushFile(stdout)
+            break hpCarryAudit
   when defined(carryDebug):
     if bot.tick mod 50 == 0 and (iCarry or mateCarry):
       var fpS = "none"
@@ -7442,6 +7605,26 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         " tgt=", int(target.x), ",", int(target.y),
         " mask=", moveMask, " stuck=", bot.stuckTicks,
         " eng=", engage, " retreat=", retreating
+      flushFile(stdout)
+
+  when defined(homeprobe):
+    ## Four-team carrier diagnosis (issue #17): NO 2-team x-gate — the
+    ## carryDebug filter above is `abs(me.x - homeDeepX)` which hides every
+    ## four-team run. Prints the stated zone the target came from.
+    if iCarry:
+      let hz = statedZone(SelfColor)
+      echo "HOME t=", bot.tick, " slot=", bot.slot, " col=", SelfColor,
+        " parity=", bot.team, " teams=", GameTeams, " marks=", EndzoneMarks.len,
+        " me=", int(me.x), ",", int(me.y),
+        " tgt=", int(target.x), ",", int(target.y),
+        " zone=", (if hz.have: (if hz.compact: "compact" else: "column")
+                   else: "MISSING"),
+        " box=", int(hz.x0), ",", int(hz.y0), "..", int(hz.x1), ",", int(hz.y1),
+        " c=", int(hz.c.x), ",", int(hz.c.y),
+        " deepX=", int(homeDeepX(bot.team)),
+        " mask=", moveMask, " stuck=", bot.stuckTicks,
+        " eng=", engage, " retreat=", retreating, " grabD=",
+        int(dist(me, bot.grabPos))
       flushFile(stdout)
 
   # Rotate toward the desired aim by the shortest arc; inside the deadband
