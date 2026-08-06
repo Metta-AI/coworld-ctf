@@ -169,10 +169,10 @@
           "default": 70
         },
         "aimTurnRate": {
-          "description": "Aim rotation speed in brads (256ths of a turn) per tick while a rotate button is held. B rotates counter-clockwise, Select clockwise; movement never changes the aim.",
+          "description": "Aim rotation speed in 32-way rotation slots per tick while a rotate button is held. B rotates counter-clockwise, Select clockwise; movement never changes the aim.",
           "type": "integer",
           "minimum": 1,
-          "default": 5
+          "default": 1
         },
         "visionConeDeg": {
           "description": "Vision cone half-angle in degrees around the aim angle. Fog of war hides everything outside the cone, the vision bubble, and line of sight.",
@@ -559,7 +559,7 @@
         "gunRange": 1300,
         "fireCooldownTicks": 12,
         "carrierSpeedPct": 70,
-        "aimTurnRate": 5,
+        "aimTurnRate": 1,
         "visionConeDeg": 60,
         "visionBubble": 90,
         "startWaitTicks": 120,
@@ -687,7 +687,7 @@
         "gunRange": 1300,
         "fireCooldownTicks": 12,
         "carrierSpeedPct": 70,
-        "aimTurnRate": 5,
+        "aimTurnRate": 1,
         "visionConeDeg": 60,
         "visionBubble": 90,
         "startWaitTicks": 120,
@@ -911,7 +911,7 @@
         "gunRange": 1300,
         "fireCooldownTicks": 12,
         "carrierSpeedPct": 70,
-        "aimTurnRate": 5,
+        "aimTurnRate": 1,
         "visionConeDeg": 45,
         "visionBubble": 90,
         "startWaitTicks": 120,
@@ -1040,7 +1040,7 @@
         "gunRange": 1300,
         "fireCooldownTicks": 12,
         "carrierSpeedPct": 70,
-        "aimTurnRate": 5,
+        "aimTurnRate": 1,
         "visionConeDeg": 60,
         "visionBubble": 90,
         "startWaitTicks": 120,
@@ -1083,7 +1083,7 @@
         "gunRange": 1300,
         "fireCooldownTicks": 12,
         "carrierSpeedPct": 70,
-        "aimTurnRate": 5,
+        "aimTurnRate": 1,
         "visionConeDeg": 60,
         "visionBubble": 90,
         "startWaitTicks": 120,

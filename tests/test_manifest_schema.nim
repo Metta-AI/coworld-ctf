@@ -143,6 +143,14 @@ suite "league manifest config_schema vs GameConfig":
     var config = defaultGameConfig()
     config.update(readFile(GameDir / "config.json"))
 
+  test "published variants use the baseline's one-slot aim rate":
+    let expected = defaultGameConfig().aimTurnRate
+    for name in ["coworld_manifest.json", "coworld_manifest_paintbot.json"]:
+      check manifestSchema(name)["properties"]["aimTurnRate"]["default"].getInt ==
+        expected
+      for variant in parseFile(GameDir / name)["variants"]:
+        check variant["game_config"]["aimTurnRate"].getInt == expected
+
   test "ctf publishes a two-seat 1v1 custom-lobby variant":
     let
       variant = manifestVariant("coworld_manifest.json", "1v1")
