@@ -248,6 +248,16 @@ def aggregate(eps):
     return {
         "lateFrac": sum(lates) / len(lates) if lates else None,
         "lateFrac_max": max(lates) if lates else None,
+        # Kept per-episode so reliability can be estimated from the episodes
+        # already bought, instead of re-playing everything.
+        "_per_episode": {
+            "deadFloorFrac": [e["play"]["deadFloorFrac"] for e in eps],
+            "ticks_mean": [float(e["ticks"]) for e in eps],
+            "pace": [e["play"]["pace"] for e in eps],
+            "balanceEntropy": [e["play"]["balanceEntropy"] for e in eps],
+            "steals_per_ep": [float(e["steals"]) for e in eps],
+            "captures_per_ep": [float(e["captures"]) for e in eps],
+        },
         "episodes": len(eps),
         "ticks_all": ticks,
         "ticks_mean": sum(ticks) / len(ticks),
@@ -301,6 +311,46 @@ def boot_ci(xs, ys, iters=4000, seed=20260806):
     if rho.size < 100:
         return None, None
     return float(np.percentile(rho, 2.5)), float(np.percentile(rho, 97.5))
+
+
+def split_half_reliability(rows_, key):
+    """How much of a map's measured outcome is the MAP and how much is noise.
+
+    Each map's episodes are split odd/even, the outcome is computed on each
+    half, and the two halves are correlated ACROSS maps. That is the
+    test-retest reliability of a half-length measurement; Spearman-Brown steps
+    it up to the full episode count actually used.
+
+    This is the difference between the two readings a null result can have.
+    "staticScore does not predict play" and "our play measurement is too noisy
+    to tell" produce the identical rho of about zero, and only reliability
+    separates them: an observed correlation is bounded above by
+    sqrt(reliability), so a low reliability means the ceiling is low and the
+    null is uninformative rather than a finding.
+
+    Costs no extra episodes, which is why it is here rather than a re-run: the
+    episodes were played at different moments under different fleet load, so
+    the split already contains the load-induced variation.
+    """
+    from scipy import stats
+    a, b = [], []
+    for r in rows_:
+        per = r.get("_per_episode", {}).get(key)
+        if not per or len(per) < 4:
+            return None, None, 0
+        half1 = [v for i, v in enumerate(per) if i % 2 == 0]
+        half2 = [v for i, v in enumerate(per) if i % 2 == 1]
+        a.append(sum(half1) / len(half1))
+        b.append(sum(half2) / len(half2))
+    if len(a) < 4 or len(set(a)) < 3 or len(set(b)) < 3:
+        return None, None, 0
+    rh = float(stats.spearmanr(a, b).statistic)
+    if rh != rh:
+        return None, None, 0
+    # Spearman-Brown from half-length to full length (k = 2).
+    full = (2 * rh) / (1 + rh) if rh > -1 else 0.0
+    full = max(0.0, min(1.0, full))
+    return rh, full, len(a)
 
 
 OUTCOMES = [
@@ -441,7 +491,10 @@ def cmd_analyze(args):
     def report(rows_, title, predictor="staticScore"):
         print(f"\n--- {title}  (n = {len(rows_)} maps) ---")
         xs = [r[predictor] for r in rows_]
-        print(f"{'outcome':<34} {'rho':>7} {'95% CI':>18} {'p':>8}  reading")
+        print(f"{'outcome':<34} {'rho':>7} {'95% CI':>18} {'p':>8} "
+              f"{'ceil':>9}  reading")
+        print("  'ceil' = sqrt(split-half reliability): no correlation with "
+              "anything can exceed it")
         for key, name, sign in OUTCOMES:
             ys = [r[key] for r in rows_]
             # Near-constant by RELATIVE spread, not by distinct-value count.
@@ -469,13 +522,17 @@ def cmd_analyze(args):
             rho, p = spearman(xs, ys)
             lo, hi = boot_ci(xs, ys)
             ci = f"[{lo:+.2f}, {hi:+.2f}]" if lo is not None else "  (undefined)"
+            _, rel, _ = split_half_reliability(rows_, key)
+            ceiling = (f" ceil {rel ** 0.5:+.2f}"
+                       if rel and rel > 0 else " ceil    ?")
             # "aligned" = the score's ordering agrees with the direction we
             # would call better. The sign flip is applied to the READING, never
             # to the coefficient, so the printed rho is always the raw one.
             aligned = "aligned" if rho * sign > 0 else "OPPOSITE"
             if lo is not None and lo <= 0 <= hi:
                 aligned = "no signal"
-            print(f"{name:<34} {rho:>+7.3f} {ci:>18} {p:>8.3f}  {aligned}")
+            print(f"{name:<34} {rho:>+7.3f} {ci:>18} {p:>8.3f} "
+                  f"{ceiling}  {aligned}")
 
     report(rows, "staticScore vs play — ALL MAPS, control included")
     report(gen, "staticScore vs play — GENERATED ONLY (control excluded)")
