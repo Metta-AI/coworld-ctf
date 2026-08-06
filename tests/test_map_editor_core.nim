@@ -11,11 +11,19 @@ const ValidationBaselinePath =
   currentSourcePath.parentDir / "fixtures" / "map-validation-baseline.tsv"
 
 const PoolRenderHashes = [
-  0x9f926a3c'u32, 0x54f76e63'u32, 0x366dfdd8'u32, 0x1afb527f'u32,
-  0xd358d950'u32, 0x32fc127b'u32, 0x9a43bc84'u32, 0xcfccedf8'u32,
-  0x072ba946'u32, 0xab8c01e8'u32, 0xe4296201'u32, 0x7fd99d75'u32,
-  0x0d2bae93'u32, 0x432d117a'u32, 0xe85f8abd'u32, 0x1a98f3ce'u32,
-  0xb5718bb3'u32, 0x09af8448'u32, 0x7016d14b'u32, 0x25330ab8'u32
+  ## Re-pinned against the rebuilt generator (`maxwell/mapgen-rebuild`), which
+  ## re-deals every seed: all 20 moved. The SEED LIST did not — `gen_map_pool`
+  ## re-curates to the same 20 — so this pin is the only place the rewrite is
+  ## visible, which is exactly why it is not a mechanical update. Every one of
+  ## these 20 renders was looked at before the hash was written down: six
+  ## archetypes present (blocks 5, three-lane 5, field 4, warren 3, hub 2,
+  ## ring 1), symmetry visibly exact on all 20, no degenerate board. A hash
+  ## nobody has looked at makes a bad map the baseline for everyone after.
+  0x254b59b6'u32, 0x3439bd90'u32, 0x087a84d5'u32, 0xc615f7f9'u32,
+  0x01fd2cc7'u32, 0x86673849'u32, 0xd4eedbe0'u32, 0xac1b2e34'u32,
+  0xcab0a916'u32, 0x2c389334'u32, 0x178218cb'u32, 0xb38ec8dd'u32,
+  0xe1408202'u32, 0x837295a5'u32, 0xf1cab922'u32, 0x703f4aec'u32,
+  0x66a67465'u32, 0x30d4387b'u32, 0x3fdb8e76'u32, 0x1ba77a58'u32
 ]
 
 proc poolMap(index: int): CtfMap =
@@ -39,13 +47,26 @@ proc firstRow(rows: seq[int]): int =
   ## drift in the validation baseline invisible.
   if rows.len > 0: rows[0] else: -1
 
+const FirstOccupiableRow* = ArenaBorder + MinCorridorWidth div 2
+  ## The first row a 13 px body can actually stand in. Spelled from the same
+  ## two constants the validator uses rather than as a literal, so the scan
+  ## and its control cannot drift apart silently again.
+
 proc sightlineScanRows(height: int): int =
-  ## How many rows the validator's 4px sightline scan visits on a board of
-  ## this height — the count an obstacle-free board has to report as open.
-  var y = ArenaBorder + 2
-  while y < height - ArenaBorder:
+  ## How many rows the validator's sightline scan visits on a board of this
+  ## height — the count an obstacle-free board has to report as open.
+  ##
+  ## Both of this helper's numbers moved with the scan and NEITHER is a taste:
+  ## the stride went 4 -> 1 because a strided scan missed fully open rows on
+  ## seeds 1001 and 1014, and the start moved from `ArenaBorder + 2` to the
+  ## first OCCUPIABLE row because the ~10 px strip above it is open on every
+  ## map by construction and can hold neither a shooter nor a target. This
+  ## helper described the old scan, so the control it feeds was asserting the
+  ## validator still had the defect that was fixed.
+  var y = FirstOccupiableRow
+  while y < height - FirstOccupiableRow:
     inc result
-    y += 4
+    inc y
 
 proc poolRenderOptions(maxDimension = 0): MapRenderOptions =
   MapRenderOptions(
@@ -265,8 +286,9 @@ suite "map editor core":
     ## draws now reach the validator with the lane already blocked: zero open
     ## rows anywhere, zero sightline rejections in the fixture, and seed 1020
     ## validating clean. The count is 0 BY DESIGN. The old y=12 was never a
-    ## property of seed 1020 either — it is `ArenaBorder + 2`, the first row
-    ## the 4px scan visits on any board.
+    ## property of seed 1020 either — it was `ArenaBorder + 2`, the first row
+    ## the old 4px scan visited on any board, and it is now
+    ## `FirstOccupiableRow`, the first row the scan visits at stride 1.
     ##
     ## An empty perception surface is how this codebase has been blinded
     ## before, so the re-derivation is a PAIR. The census above asserts the
@@ -281,7 +303,7 @@ suite "map editor core":
     strippedMap.leftObstacles.setLen(0)
     let strippedRows = mapDiagnostics(strippedMap).openSightlineRows
     check strippedRows.len == sightlineScanRows(strippedMap.height)
-    check strippedRows.firstRow == ArenaBorder + 2
+    check strippedRows.firstRow == FirstOccupiableRow
 
   test "every curated map spec round-trips byte-identically":
     for index in 0 ..< MapPoolSeeds.len:

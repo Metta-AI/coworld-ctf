@@ -216,6 +216,20 @@ suite "map fitness: scoring":
     # The point of the whole epic, stated as a measurement: today's generator
     # produces scatter, and the measuring stick has to say so before anything
     # tries to fix it.
+    #
+    # ⚠️ THE MARGIN IS NOW 0.002, AND IT IS SHRINKING BY DESIGN. Re-measured
+    # against the rebuilt generator at the pool re-curation: the pool's best
+    # seed (1017, warren) scores 0.998 against the control's 1.000, and the
+    # 2-team mean is 0.974. That still passes, but seed 1030 — inside the
+    # curator's scan window and kept out only by a full shape quota — already
+    # scores exactly 1.000, so ONE re-curation can invert this.
+    #
+    # Read that as what it is: this assertion was written when the generator
+    # was the thing being indicted, and it now ratchets the wrong way, because
+    # a generated map matching the arena would fail it as if that were a
+    # defect. Do NOT "fix" a future red run here by dropping the offending
+    # seed from the pool. Decide what the claim should be once the pool can
+    # tie the control — filed rather than pre-empted here.
     var best = 0.0
     for i in 0 ..< MapPoolSeeds.len:
       ## `cachedPoolMap` is exactly what `loadCtfMapMetadata("pool:" & $i)`
