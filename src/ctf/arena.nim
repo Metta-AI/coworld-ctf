@@ -304,40 +304,6 @@ proc axisHomeLo(center, depth: int): int =
   ## At 700 this is exactly the historical `center * 7 div 10`.
   center - (center * depth div 1000)
 
-proc axisHomeHi(center, size, depth: int): int =
-  ## Returns the high-edge home anchor along one axis.
-  ##
-  ## ⚠ KNOWN SHIPPED TEAM-FAIRNESS BUG, diagnosed and measured but NOT fixed
-  ## here. This computes the same formula as `axisHomeLo` read from the other
-  ## end, and it lands ONE PIXEL OFF the mirror: on the standard board Red's
-  ## anchor is 186, so Blue's should be 1235 - 1 - 186 = 1048, and this gives
-  ## 1049.
-  ##
-  ## That one pixel matters, because every SHAPE on the
-  ## board is mirrored at `width - 1 - x` while the anchor was placed at
-  ## `width - x`. The two disagreed across the seam, so `mapProtectedFloorAt`
-  ## contradicted itself over exactly two 1-px columns — x=256 and x=978 on
-  ## standard, 261 rows each, 522 px per board. Red's spawn pocket was
-  ## [116, 256] whose exact mirror is [978, 1118], while Blue's actual pocket
-  ## was [979, 1119]. Any obstacle overlapping a pocket edge was therefore
-  ## STONE FOR ONE TEAM AND FLOOR FOR THE OTHER. Measured on every class under
-  ## both symmetries: small 688 px, standard 522, large 1044, huge 938-1772,
-  ## giant 1354. The stock generator's obstacles happened to miss those two
-  ## columns on the seeds anyone had looked at — luck, not correctness; tiled
-  ## vocabulary shapes hit them immediately.
-  ##
-  ## When it is fixed, derive it from `axisHomeLo` (`size - 1 - lo`) rather
-  ## than repairing this arithmetic, so the two anchors cannot drift apart
-  ## again whatever `depth` does.
-  ## NOT YET APPLIED — see the blast radius above. The corrected form is
-  ##     size - 1 - axisHomeLo(center, depth)
-  ## which is verified to clear the seam (522 px -> 0 on standard). It moves
-  ## Blue's spawn by one pixel, which is a SIM-BEHAVIOUR change: it breaks
-  ## every recorded replay fixture's hash and alters the HAND-AUTHORED arena,
-  ## so it needs a GameVersion bump and a fixture re-record, exactly as the
-  ## GV38 grenade change did. Flagged rather than taken unilaterally.
-  center + ((size - center) * depth div 1000)
-
 proc rot90Point*(p: MapPoint, side: int): MapPoint {.inline.} =
   ## One quarter turn clockwise about the center of a side x side square
   ## board: (x, y) -> (side - 1 - y, x).
@@ -406,32 +372,34 @@ proc teamAnchor*(gameMap: CtfMap, team: Team): MapPoint =
   ## Returns one team's home anchor: the center of its protected spawn
   ## pocket, where its pedestal stands.
   ##
-  ## 4-team anchors are RED's anchor walked around the rot90 orbit, so every
-  ## team's home is EXACTLY a quarter turn of every other team's. Deriving
-  ## the far anchors from axisHomeHi instead would place them symmetrically
-  ## about `center` — one pixel off the orbit on an even-sided board, which
-  ## is a fairness difference, not a rounding detail.
+  ## RED's anchor is the only one COMPUTED. Every other team's is Red's
+  ## carried across by the map's own symmetry (`teamImagePoint`), so an
+  ## anchor is the exact image of an anchor BY CONSTRUCTION and the two can
+  ## never drift apart, whatever `homeDepth` asks for or however the board
+  ## rounds. That is a fairness invariant, not a tidiness one: GV39 fixed a
+  ## shipped bug where the far anchor was computed independently as
+  ## `center + (size - center) * depth`, landing at `width - x` while every
+  ## SHAPE on the board mirrors at `width - 1 - x`. One pixel of disagreement
+  ## made `mapProtectedFloorAt` contradict itself over two 1-px columns
+  ## (522 px on the standard board), so an obstacle overlapping a spawn-pocket
+  ## edge was stone for one team and floor for the other.
+  ##
+  ## The same rule handles the EVEN-SIDED boards, which have no integer row
+  ## that is its own reflection: Red keeps `center`, and Blue gets
+  ## `height - 1 - center` under rot180 rather than `center` too.
   let
     cx = gameMap.center.x
     cy = gameMap.center.y
     d = gameMap.homeDepthOf()
-  case gameMap.layout
-  of layoutSides:
-    result =
-      case team
-      of Red:
+    ## Red seeds every layout: left on sides maps, top-left on corner maps,
+    ## west on plus maps.
+    red =
+      case gameMap.layout
+      of layoutSides, layoutPlus:
         MapPoint(x: axisHomeLo(cx, d), y: cy)
-      else:
-        MapPoint(x: axisHomeHi(cx, gameMap.width, d), y: cy)
-  of layoutCorners, layoutPlus:
-    ## Red seeds the orbit: top-left on corner maps, west on plus maps.
-    result =
-      if gameMap.layout == layoutCorners:
+      of layoutCorners:
         MapPoint(x: axisHomeLo(cx, d), y: axisHomeLo(cy, d))
-      else:
-        MapPoint(x: axisHomeLo(cx, d), y: cy)
-    for _ in 0 ..< gameMap.rot90Quarter(team):
-      result = result.rot90Point(gameMap.width)
+  gameMap.teamImagePoint(red, team)
 
 proc spawnPocketHalf*(gameMap: CtfMap, team: Team): tuple[w, h: int] =
   ## The half-extents of one team's protected spawn pocket, around its
@@ -1242,17 +1210,19 @@ proc endzoneFloorAt*(
 proc centerOffset2*(
   gameMap: CtfMap, x, y: int
 ): tuple[dx, dy: int] {.inline.} =
-  ## TWICE the offset of (x, y) from the map's symmetry center. Doubling is
-  ## what lets a rot90 board measure against its true axis at (side - 1)/2:
-  ## on an even side that axis is a half pixel off the div-derived `center`,
-  ## so a radius or band measured from `center` is not its own quarter turn.
-  ## Mirror and rot180 maps keep the historical integer center exactly —
-  ## every comparison below is the old one scaled by 4, so 2-team terrain is
-  ## bit-identical.
-  if gameMap.symmetry == symRot90:
-    (2 * x - (gameMap.width - 1), 2 * y - (gameMap.height - 1))
-  else:
-    (2 * (x - gameMap.center.x), 2 * (y - gameMap.center.y))
+  ## TWICE the offset of (x, y) from the board's TRUE symmetry axis, which
+  ## sits at ((width - 1)/2, (height - 1)/2) — half a pixel off the
+  ## div-derived `center` on an even side. Doubling is what lets that half
+  ## pixel be expressed in integers, so a radius or a band measured from here
+  ## is EXACTLY its own reflection, rotation and quarter turn.
+  ##
+  ## Every symmetry uses it, not just rot90. GV39 fixed a shipped bug where
+  ## mirror and rot180 boards measured from `center` instead: on an even side
+  ## the flag ring was then one pixel off its own image, and the ring plus the
+  ## home pocket disagreed by 242-838 px on every even-sided class. On an ODD
+  ## side `2 * (x - width div 2)` and `2 * x - (width - 1)` are identically
+  ## equal, so the standard, giant and hand-authored boards are untouched.
+  (2 * x - (gameMap.width - 1), 2 * y - (gameMap.height - 1))
 
 proc mapProtectedFloorAt*(gameMap: CtfMap, x, y: int): bool =
   ## isProtectedFloor for a map that is NOT installed as the process map:
@@ -1265,10 +1235,9 @@ proc mapProtectedFloorAt*(gameMap: CtfMap, x, y: int): bool =
       if endzoneFloorAt(x, y, anchor.x, anchor.y, gameMap.endzoneRadius,
           gameMap.endzone == ezDisc):
         return true
-    let
-      dcx = x - gameMap.center.x
-      dcy = y - gameMap.center.y
-    return dcx * dcx + dcy * dcy <= gameMap.flagRing * gameMap.flagRing
+    let (rdx2, rdy2) = gameMap.centerOffset2(x, y)
+    return rdx2 * rdx2 + rdy2 * rdy2 <=
+      4 * gameMap.flagRing * gameMap.flagRing
   let
     clear = gameMap.captureClear
     nearX = x < clear or x >= gameMap.width - clear
@@ -3127,18 +3096,22 @@ proc inShapeF*(x, y: float, shape: ArenaShape): bool =
     dx * dx + dy * dy <=
       float(shape.thickness * shape.thickness) * len2 * len2 / 4.0
 
-proc arenaCenterOffset2(x, y, cx, cy: int): tuple[dx, dy: int] {.inline.} =
-  ## The installed-map twin of CtfMap.centerOffset2: twice the offset from
-  ## the symmetry center, measured against a rot90 board's true axis at
-  ## (side - 1)/2 and against the integer center everywhere else.
-  if ArenaSymmetryG == symRot90:
-    (2 * x - (MapWidth - 1), 2 * y - (MapHeight - 1))
-  else:
-    (2 * (x - cx), 2 * (y - cy))
+proc arenaCenterOffset2(x, y: int): tuple[dx, dy: int] {.inline.} =
+  ## The installed-map twin of CtfMap.centerOffset2: twice the offset from the
+  ## board's TRUE symmetry axis at ((MapWidth - 1)/2, (MapHeight - 1)/2), for
+  ## every symmetry. See CtfMap.centerOffset2 for why the div-derived center
+  ## is the wrong anchor on an even side, and why odd sides are unaffected.
+  (2 * x - (MapWidth - 1), 2 * y - (MapHeight - 1))
 
 proc isProtectedFloor*(x, y, cx, cy: int): bool =
   ## Regions that MUST stay walkable: the flag ring, every spawn pocket,
   ## and each team's home capture approach. Walls are never carved here.
+  ##
+  ## `cx`/`cy` are vestigial: every map's `center` IS (width div 2,
+  ## height div 2), and since GV39 the symmetry math anchors on the board's
+  ## true axis instead, which the dimensions already give. They stay in the
+  ## signature because callers across the renderer, the bake and the tools
+  ## pass them.
   if ArenaEndzoneRadius > 0:
     ## COMPACT endzones: the shape around each base plus the center ring.
     ## The home border strips are ordinary field (see mapProtectedFloorAt).
@@ -3146,10 +3119,8 @@ proc isProtectedFloor*(x, y, cx, cy: int): bool =
       if endzoneFloorAt(x, y, ArenaAnchors[team].x, ArenaAnchors[team].y,
           ArenaEndzoneRadius, ArenaEndzoneDisc):
         return true
-    let
-      rdx = x - cx
-      rdy = y - cy
-    return rdx * rdx + rdy * rdy <= ArenaFlagRing * ArenaFlagRing
+    let (rdx2, rdy2) = arenaCenterOffset2(x, y)
+    return rdx2 * rdx2 + rdy2 * rdy2 <= 4 * ArenaFlagRing * ArenaFlagRing
   ## The classic column path below must stay pixel-for-pixel identical to
   ## mapProtectedFloorAt, which the generator and validators run on
   ## uninstalled candidates. 4-team maps always draw ezColumn, so the rot90
@@ -3157,7 +3128,7 @@ proc isProtectedFloor*(x, y, cx, cy: int): bool =
   let
     nearX = x < ArenaCaptureClear or x >= MapWidth - ArenaCaptureClear
     nearY = y < ArenaCaptureClear or y >= MapHeight - ArenaCaptureClear
-    (dx2, dy2) = arenaCenterOffset2(x, y, cx, cy)
+    (dx2, dy2) = arenaCenterOffset2(x, y)
     approach =
       case ArenaLayoutG
       of layoutSides:
@@ -3206,6 +3177,13 @@ proc mapProtectedFloorAtF*(
   ## Float-coordinate mapProtectedFloorAt for a map that is NOT installed as
   ## the process map. Render tools use this form so concurrent arbitrary-spec
   ## renders never read or mutate the installed arena globals.
+  ##
+  ## `cx`/`cy` are vestigial for the same reason they are on isProtectedFloor:
+  ## the symmetry math anchors on the board's true axis, read straight off the
+  ## dimensions.
+  let
+    fdx2 = 2.0 * x - float(gameMap.width - 1)
+    fdy2 = 2.0 * y - float(gameMap.height - 1)
   if gameMap.endzone != ezColumn:
     let grown = float(gameMap.endzoneRadius + EndzoneWallMargin)
     for team in gameMap.teams():
@@ -3218,24 +3196,16 @@ proc mapProtectedFloorAtF*(
       if gameMap.endzone != ezDisc or
           adx * adx + ady * ady <= grown * grown:
         return true
-    let
-      rdx = x - float(cx)
-      rdy = y - float(cy)
-    return rdx * rdx + rdy * rdy <=
-      float(gameMap.flagRing * gameMap.flagRing)
-  ## Carries the same doubled-coordinate center as the integer test so the
-  ## painted art cannot drift off the collision mask on a rot90 board.
+    return fdx2 * fdx2 + fdy2 * fdy2 <=
+      float(4 * gameMap.flagRing * gameMap.flagRing)
+  ## Carries the same doubled-coordinate axis as the integer test so the
+  ## painted art cannot drift off the collision mask on any board.
   let
     nearX = x < float(gameMap.captureClear) or
       x >= float(gameMap.width - gameMap.captureClear)
     nearY = y < float(gameMap.captureClear) or
       y >= float(gameMap.height - gameMap.captureClear)
-    (dx2, dy2) =
-      if gameMap.symmetry == symRot90:
-        (2.0 * x - float(gameMap.width - 1),
-          2.0 * y - float(gameMap.height - 1))
-      else:
-        (2.0 * (x - float(cx)), 2.0 * (y - float(cy)))
+    (dx2, dy2) = (fdx2, fdy2)
     approach =
       case gameMap.layout
       of layoutSides:
