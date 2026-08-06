@@ -242,8 +242,14 @@ play batch in this repo should shuffle.
 ## 5. What this does and does not establish
 
 **Does not**: prove `staticScore` is worthless. It buys real combat density
-(pace `+0.462`, close contact `+0.336`), and 39 of 41 maps here were *valid*, so
-the hard gates it sits behind are doing their job separately.
+(pace `+0.462`, close contact `+0.336`).
+
+**Does not**: say anything about the hard gates. All 41 maps here were selected
+from the *valid* population by construction, so this experiment never tested
+`validateGeneratedMap` and has no opinion on it. Note also that `staticScore`
+returns exactly `0.0` for an invalid map, so the "use the deliberately-bad end"
+route suggested for this task cannot work as a rank axis — every failing map
+ties at zero. The attempt sweep was used instead.
 
 **Does not**: prove "less dead floor" is the definition of a good map. A bare
 field would score perfectly on it. The reason dead floor carries weight here is
