@@ -23,7 +23,11 @@ suite "compact endzones":
       check gameMap.endzoneRadius == 0
       check gameMap.captureZone(Red).xLo == 0
     check loadCtfMapMetadata("arena").teamHomeX(Red) == 186
-    check loadCtfMapMetadata("arena").teamHomeX(Blue) == 1049
+    ## 1048, not 1049: GV40 put Blue's home on the EXACT mirror of Red's.
+    ## Every shape on the board reflects at `width - 1 - x`, so the anchor
+    ## has to as well. The old 1049 was `width - 186`, one pixel off the very
+    ## seam the walls were built against.
+    check loadCtfMapMetadata("arena").teamHomeX(Blue) == 1235 - 1 - 186
 
   test "both compact shapes generate, validate and are deterministic":
     for shape in ["disc", "square"]:

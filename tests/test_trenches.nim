@@ -53,15 +53,25 @@ suite "trenches":
     check ArenaTrenches.len == 0
     check trenchIndexAt(plain.gameMap.center.x, plain.gameMap.center.y) == -1
 
-  test "mapPits:1 anchors one walkable pit at the generated map's center":
+  test "mapPits:1 anchors one walkable pit on the map's symmetry axis":
     let sim = twoTeamGame()
     check ArenaTrenches.len == 1
     let
       cx = sim.gameMap.center.x
       cy = sim.gameMap.center.y
+      w = sim.gameMap.width
+      h = sim.gameMap.height
       trench = shapeAsRect(ArenaTrenches[0])
-    check trench.w == TrenchSize
-    check trench.h == TrenchSize
+    ## The lone odd pit is the ONE dig with no partner, so it has to be its
+    ## own image or a team gets a private trench. A rect is self-reflecting
+    ## only when `2*x + w - 1 == side - 1`, which needs its size to match the
+    ## side's PARITY — so on an odd-sided board the centre pit is 57 px, not
+    ## `TrenchSize`. Before GV40 it was always 56 and missed the axis by half
+    ## a pixel, handing one team 56 px of trench (111 px under rot180).
+    check trench.w == TrenchSize + (w and 1)
+    check trench.h == TrenchSize + (h and 1)
+    check 2 * trench.x + trench.w - 1 == w - 1     ## exactly on the axis
+    check 2 * trench.y + trench.h - 1 == h - 1
     check trenchIndexAt(cx, cy) == 0
     check trenchIndexAt(cx - TrenchSize, cy) == -1
     # Every pixel of the trench is walkable floor (it sits inside the open
