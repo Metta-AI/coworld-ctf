@@ -43,6 +43,7 @@ import argparse
 import json
 import os
 import random
+import re
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
@@ -180,6 +181,30 @@ def cmd_run(args):
 # analyze
 # --------------------------------------------------------------------------
 
+LATE_RE = re.compile(r"skipped (\d+) \([\d.]+%\), waited (\d+) \([\d.]+%\), "
+                     r"late (\d+) \(([\d.]+)%\)")
+
+
+def late_frac(replay_json_path):
+    """How much of this episode the sim ran on STALE bot input.
+
+    `server.runFrameLimiter` advances a frame when the wall-clock budget
+    elapses OR when every player reports ready. The first branch is a LATE
+    frame: a bot did not answer in time and the sim stepped anyway with
+    whatever that bot last said. Under fleet load this is common, and it is
+    the mechanism by which two runs of the SAME map on the SAME seed diverge.
+
+    The server already prints the tally ("Frame pacing: ... late N (X%)"), so
+    every episode carries its own contamination measure for free. Reporting a
+    play number without it is reporting a number whose error bar is unknown.
+    """
+    log = replay_json_path.replace(".play.json", ".server.log")
+    if not os.path.exists(log):
+        return None
+    m = LATE_RE.search(open(log, errors="ignore").read())
+    return float(m.group(4)) / 100.0 if m else None
+
+
 def load_evidence(root, label):
     d = os.path.join(root, label)
     if not os.path.isdir(d):
@@ -187,7 +212,10 @@ def load_evidence(root, label):
     out = []
     for f in sorted(os.listdir(d)):
         if f.endswith(".play.json"):
-            out.append(json.load(open(os.path.join(d, f))))
+            p = os.path.join(d, f)
+            e = json.load(open(p))
+            e["lateFrac"] = late_frac(p)
+            out.append(e)
     return out
 
 
@@ -216,7 +244,10 @@ def aggregate(eps):
     ticks = [e["ticks"] for e in eps]
     caps = [e["captures"] for e in eps]
     steals = [e["steals"] for e in eps]
+    lates = [e["lateFrac"] for e in eps if e.get("lateFrac") is not None]
     return {
+        "lateFrac": sum(lates) / len(lates) if lates else None,
+        "lateFrac_max": max(lates) if lates else None,
         "episodes": len(eps),
         "ticks_all": ticks,
         "ticks_mean": sum(ticks) / len(ticks),
@@ -371,15 +402,15 @@ def cmd_analyze(args):
     print(f"staticScore vs PLAY   base {plan.get('base_sha','?')[:12]}   "
           f"{plan['episodes']} episodes/map   size={plan.get('size')}")
     print("=" * 78)
-    print(f"{'map':<10} {'score':>6} {'intr':>6} {'dead':>6} {'fight':>6} "
-          f"{'cap/ep':>7} {'conv':>6} {'ticks':>7} {'pace':>6}")
+    print(f"{'map':<10} {'score':>6} {'intr':>6} {'dead':>6} "
+          f"{'steal':>6} {'cap/ep':>7} {'ticks':>7} {'pace':>6} {'late%':>6}")
     for r in sorted(rows, key=lambda r: r["staticScore"]):
         mark = "*" if r["is_control"] else " "
+        lf = "" if r.get("lateFrac") is None else f"{r['lateFrac']*100:>6.1f}"
         print(f"{mark}{r['label']:<9} {r['staticScore']:>6.3f} "
               f"{r['interiorFrac']:>6.3f} {r['deadFloorFrac']:>6.3f} "
-              f"{r['fightTimeFrac']:>6.3f} {r['captures_per_ep']:>7.2f} "
-              f"{r['conversion']:>6.2f} {r['ticks_mean']:>7.0f} "
-              f"{r['pace']:>6.2f}")
+              f"{r['steals_per_ep']:>6.1f} {r['captures_per_ep']:>7.2f} "
+              f"{r['ticks_mean']:>7.0f} {r['pace']:>6.2f} {lf}")
 
     if ctrl:
         worse = sum(1 for r in gen if r["deadFloorFrac"] < ctrl["deadFloorFrac"])
@@ -388,14 +419,35 @@ def cmd_analyze(args):
               f"/{len(gen) + 1}), dead floor {ctrl['deadFloorFrac']:.3f} "
               f"({worse} generated map(s) use MORE of their floor)")
 
+    # The contamination check. Episodes were played in an order unrelated to
+    # staticScore, so late-frame share should NOT track the score; if it does,
+    # the correlation below is partly a load artefact and not a map result.
+    lates = [r["lateFrac"] for r in rows if r.get("lateFrac") is not None]
+    if lates:
+        rho_l, p_l = spearman([r["staticScore"] for r in rows
+                               if r.get("lateFrac") is not None], lates)
+        print(f"\nload contamination: late frames {min(lates)*100:.1f}%.."
+              f"{max(lates)*100:.1f}% of ticks (mean {sum(lates)/len(lates)*100:.1f}%)"
+              f"  |  rho(staticScore, lateFrac) = {rho_l:+.3f} (p={p_l:.3f})")
+        print("  a LATE frame is the sim stepping on stale bot input; this is "
+              "how two runs of one map on one seed diverge")
+
     def report(rows_, title):
         print(f"\n--- {title}  (n = {len(rows_)} maps) ---")
         xs = [r["staticScore"] for r in rows_]
         print(f"{'outcome':<34} {'rho':>7} {'95% CI':>18} {'p':>8}  reading")
         for key, name, sign in OUTCOMES:
             ys = [r[key] for r in rows_]
-            if len(set(ys)) < 3:
-                print(f"{name:<34}   (outcome is near-constant, skipped)")
+            # Near-constant by RELATIVE spread, not by distinct-value count.
+            # fightTimeFrac reads 0.9995..0.9999 across every map — 20 distinct
+            # floats and no discrimination whatsoever, because GunRange
+            # (1050px) spans almost the whole 1235px board, so "an enemy is in
+            # range" is true essentially always. Ranking noise in the fourth
+            # decimal is not a play outcome.
+            spread = (max(ys) - min(ys)) / max(1e-9, abs(sum(ys) / len(ys)))
+            if len(set(ys)) < 3 or spread < 0.01:
+                print(f"{name:<34}   (near-constant across maps, "
+                      f"relative spread {spread*100:.2f}% — cannot rank)")
                 continue
             rho, p = spearman(xs, ys)
             lo, hi = boot_ci(xs, ys)
