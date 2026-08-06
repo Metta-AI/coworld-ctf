@@ -1,0 +1,16 @@
+
+CONTROL:
+  ok   arena          1235x659 2t score=1.000  interior=34.2% exposed=3.8%  routes=8/0.32(cut 208px)  chokes=0(tightest 0px, covered=no)  mid=5x/41.2%  stand=89.2-89.2%
+
+RANKED 32 candidates (top 8 shown):
+  #1  ok   gen:1013       816x816 4t score=0.999  interior=33.9% exposed=3.0%  routes=5/0.16(cut 130px)  chokes=2(tightest 78px, covered=no)  mid=6x/62.7%  stand=95.0-95.0%
+  #2  ok   gen:1020       960x960 4t score=0.997  interior=25.2% exposed=3.9%  routes=11/0.31(cut 286px)  chokes=0(tightest 0px, covered=no)  mid=8x/64.9%  stand=94.7-94.7%
+  #3  ok   gen:1007       960x960 4t score=0.997  interior=29.6% exposed=3.6%  routes=8/0.22(cut 208px)  chokes=0(tightest 0px, covered=no)  mid=7x/60.1%  stand=95.0-95.0%
+  #4  ok   gen:1002       816x816 4t score=0.997  interior=24.9% exposed=5.2%  routes=7/0.23(cut 182px)  chokes=2(tightest 78px, covered=no)  mid=5x/64.4%  stand=95.0-95.0%
+  #5  ok   gen:1018       816x816 4t score=0.994  interior=26.7% exposed=5.6%  routes=7/0.23(cut 182px)  chokes=2(tightest 78px, covered=no)  mid=5x/63.1%  stand=95.0-95.0%
+  #6  ok   gen:1009       960x960 4t score=0.994  interior=25.6% exposed=2.3%  routes=8/0.22(cut 208px)  chokes=0(tightest 0px, covered=no)  mid=6x/65.1%  stand=95.3-95.3%
+  #7  ok   gen:1022       816x816 4t score=0.994  interior=28.9% exposed=3.4%  routes=5/0.16(cut 130px)  chokes=2(tightest 78px, covered=no)  mid=6x/64.6%  stand=95.0-95.0%
+  #8  ok   gen:1012       816x816 4t score=0.994  interior=36.4% exposed=1.2%  routes=5/0.16(cut 130px)  chokes=0(tightest 0px, covered=no)  mid=8x/63.2%  stand=94.2-94.2%
+
+0 of 32 failed the sim's hard gates.
+(expect 0: `gen:<seed>` goes through generateCtfMap, which RE-ROLLS up to 100 attempts until a seed validates. A best-of-K ranker that wants to see rejections has to call generateMapAttempt directly — the validators are a crash guard, not a filter.)

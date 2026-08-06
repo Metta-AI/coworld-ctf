@@ -1,0 +1,96 @@
+{
+ "arena": {
+  "map": "arena",
+  "episodes": 3,
+  "ticks": 8421,
+  "episodeTicks": [
+   2771,
+   2719,
+   2931
+  ],
+  "episodeCaptures": [
+   0,
+   1,
+   1
+  ],
+  "episodeSteals": [
+   4,
+   3,
+   2
+  ],
+  "deadPct": 0.40235739231664724,
+  "biggestDead": 265,
+  "biggestDeadPx2": 26500,
+  "openCells": 6872,
+  "visitedCells": 4107,
+  "exposure": 11.719732246798603,
+  "isControl": true,
+  "baselineKind": "control",
+  "baselineMap": "arena",
+  "deaths": 137,
+  "spread": 241.00283561610087,
+  "kills": [
+   68,
+   65
+  ],
+  "balanceEntropy": 0.9996329539081623,
+  "pace": 15.793848711554448,
+  "fightTimeFrac": 0.999826169013385,
+  "closeContactFrac": 0.47423576448384613,
+  "measuredTicks": 8421,
+  "tickCapped": false,
+  "steals": 9,
+  "captures": 2,
+  "capturesInZone": 2,
+  "conversion": 0.2222222222222222,
+  "decidedFrac": 0.6666666666666666,
+  "pedestalsReached": 2,
+  "pedestals": 2,
+  "pedestalEnemyTicks": 614,
+  "pedestalEnemyShare": 0.007623730412972758,
+  "pedestalRingPx": 70,
+  "pedestalSeats": [
+   {
+    "team": 0,
+    "ticks": 356,
+    "approached": true,
+    "attackers": 1,
+    "possibleAttackers": 1,
+    "share": 0.004420273659638928,
+    "byEnemy": [
+     0,
+     356
+    ]
+   },
+   {
+    "team": 1,
+    "ticks": 258,
+    "approached": true,
+    "attackers": 1,
+    "possibleAttackers": 1,
+    "share": 0.00320345675333383,
+    "byEnemy": [
+     258,
+     0
+    ]
+   }
+  ],
+  "pedestalNeverApproached": [],
+  "pedestalPressureBalance": 0.9815447910978061,
+  "pedestalAttackPairs": 2,
+  "pedestalPossibleAttackPairs": 2,
+  "episodeOutcomes": [
+   "elimination",
+   "capture",
+   "capture"
+  ],
+  "wonByCapture": 2,
+  "wonByElimination": 1,
+  "timedOut": 0,
+  "carrierInZoneTicks": 0,
+  "carrierInZonePer1000t": 0.0,
+  "teams": 2,
+  "heatmap": "/tmp/m4c/gal2/heat-arena.png",
+  "flags": []
+ }
+}
