@@ -5,6 +5,16 @@ _2026-08-05. Everything below is on branch `maxwell/mapgen-rebuild` in the workt
 
 ---
 
+## If you are picking this up now, read this line first
+
+The generator IS wired (commits `68c32d0..f4fe6a8`) and it is NOT landed: the
+suite has 37 failures, ~32 of them 4-team tests that die on a generator RAISE
+before their assertions run. The ordered plan is
+**`docs/plans/2026-08-05-land-the-generator-epic.md`** (harness epic `3757029c`),
+which has the lane structure, the one blocking task, and what has already been
+tried and cost. Everything below this section is the state as of the rewrite and
+is still accurate as background.
+
 ## Start here
 
 1. **`docs/plans/2026-08-05-generator-rewrite-brief.md`** — the spec for the work that
