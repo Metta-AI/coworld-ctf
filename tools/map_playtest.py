@@ -17,14 +17,22 @@ was learned by producing a confidently wrong number:
     individually, never only their mean.
   * RUN THE CONTROL. Pass an `arena` evidence set in the same invocation and
     every flag is stated as a delta from it. Without one the report says so
-    instead of quietly comparing against a remembered number.
+    instead of quietly comparing against a remembered number. Where no
+    hand-authored map EXISTS — there is none at 4 teams — `--reference <map>`
+    names a generated map as the yardstick instead, and everything it heads is
+    stamped REFERENCE, never CONTROL. See `Baseline` for why that is enforced
+    in code and not left to the writeup.
   * NO COUNT WITHOUT ITS FRACTION.
+  * EVERY OBJECTIVE, SEPARATELY. `pedestal_reach` reports per pedestal, not
+    summed: a board can leave two of its four objectives untouched for three
+    whole episodes and score FAIR on every static symmetry metric there is.
 
 Usage:
   tools/map_eval play arena --episodes 3 --out /tmp/ev
   for r in /tmp/ev/*.bitreplay; do
     /tmp/map_playtest "$r" --name arena --out "${r%.bitreplay}.json"; done
   python3 tools/map_playtest.py /tmp/ev/*.json
+  python3 tools/map_playtest.py --reference gen:1020 /tmp/ev4/*.json
 """
 import json
 import math
@@ -224,31 +232,69 @@ def heatmap(data, name):
 
 
 def pedestal_reach(data):
-    """Enemy presence at each team's own pedestal — the step BEFORE the steal.
+    """PER-PEDESTAL enemy presence — was each objective ever even APPROACHED?
 
     "0 steals" has two completely different causes and the objective counters
     cannot separate them: either nobody ever got to the enemy pedestal, or they
     got there and kept dying on it. This walks the per-team occupancy grid over
-    the ring around each home and asks whether any OTHER team ever stood there.
+    the ring around each home and asks, of every OTHER team separately, whether
+    it ever stood there.
 
-    Returns (reached, total, seat_ticks) — homes an enemy reached, homes there
-    are, and enemy seat-ticks summed over all of them.
+    PER PEDESTAL, not summed, because the summed form hid the finding it was
+    built to catch. A rot90-symmetric board scores FAIR STATICALLY, and static
+    fairness is a claim about GEOMETRY — it says nothing about whether the
+    geometry is reachable in play. Two of four pedestals going untouched for
+    three whole episodes is invisible in a total that the other two inflate,
+    and at 4 teams even "reached" is too coarse: a pedestal one neighbour
+    wandered into is not the same objective as one all three enemies contested.
+
+    So three numbers per home, each answering a strictly harder question:
+      approached  — did ANY enemy ever stand on it (a zero here needs no
+                    control; zero is zero at any scale)
+      attackers   — how many of the N-1 possible enemies ever did
+      share       — enemy seat-ticks there as a fraction of alive time
+
+    and across the board, `pressureBalance`: the entropy of enemy seat-ticks
+    over the pedestals, base N, so 1.0 is pressure spread perfectly evenly over
+    every objective and a board whose symmetry survived only on paper falls
+    away from it. `attackPairs` is the same question at ordered-pair
+    resolution: of the N*(N-1) (attacker, target) pairs the rules allow, how
+    many actually happened.
     """
     gw, gh, cell = data["gw"], data["gh"], data["cell"]
     per_team = [np.array(t, float).reshape(gh, gw) for t in data["occTeam"]]
     radius = max(data.get("flagRing", 0) or data.get("captureRadius", 0), cell)
     ys, xs = np.mgrid[0:gh, 0:gw]
-    reached = seat_ticks = 0
     homes = data.get("homes", [])
+    alive = max(1, data.get("aliveTicks", 0))
+    seats = []
     for t, home in enumerate(homes):
         ring = ((xs * cell + cell / 2 - home["x"]) ** 2 +
                 (ys * cell + cell / 2 - home["y"]) ** 2) <= radius ** 2
-        enemy = sum(per_team[o][ring].sum()
-                    for o in range(len(per_team)) if o != t)
-        seat_ticks += int(enemy)
-        if enemy > 0:
-            reached += 1
-    return reached, len(homes), seat_ticks
+        # Per ENEMY, kept apart. Summing here is what made a pedestal only one
+        # neighbour ever touched read the same as a fully contested one.
+        by_enemy = [int(per_team[o][ring].sum()) if o != t else 0
+                    for o in range(len(per_team))]
+        ticks = sum(by_enemy)
+        seats.append(dict(
+            team=t, ticks=ticks, approached=ticks > 0,
+            attackers=sum(1 for v in by_enemy if v > 0),
+            possibleAttackers=max(0, len(per_team) - 1),
+            share=ticks / alive, byEnemy=by_enemy))
+    ticks_each = [s["ticks"] for s in seats]
+    pairs = sum(s["attackers"] for s in seats)
+    possible_pairs = len(homes) * max(0, len(per_team) - 1)
+    return dict(
+        seats=seats, homes=len(homes),
+        reached=sum(1 for s in seats if s["approached"]),
+        neverApproached=[s["team"] for s in seats if not s["approached"]],
+        ticks=sum(ticks_each), share=sum(ticks_each) / alive,
+        ringPx=radius,
+        # Balance over the OBJECTIVES, base = pedestal count, so a 4-team
+        # board's spread is directly comparable to a 2-team board's — the same
+        # normalisation `balanceEntropy` uses for kills.
+        pressureBalance=balance_entropy(ticks_each, max(2, len(homes))),
+        attackPairs=pairs, possibleAttackPairs=possible_pairs)
 
 
 def pct(x, width=0):
@@ -285,7 +331,53 @@ def _components(mask):
     return sizes
 
 
-def report(datas, control=None):
+class Baseline:
+    """The map every other map's numbers are stated against — and WHICH KIND.
+
+    There are two, they are not interchangeable, and the difference is the
+    whole reason this class exists rather than a bare dict:
+
+      CONTROL — a HAND-AUTHORED map (`arena`). Known-good, designed by a human,
+        and outside the population under test. A generated map that is 19pp
+        deader than the control is worse than a board we know plays; that is a
+        verdict, and it is the bar the epic asks for.
+
+      REFERENCE POINT — one GENERATED map, drawn from the very population being
+        judged, named as the yardstick because no hand-authored map exists at
+        this team count. It can only ever say "worse than the best of its own
+        kind". It CANNOT say a map is bad in absolute terms, because if the
+        whole population is bad the reference is bad too and every delta from
+        it reads zero. Calling one of these a control is the single mistake
+        that would make a 4-team scorecard dishonest, so the word is carried in
+        the data and printed on every line rather than left to a writeup.
+
+    A reference point therefore SUPPRESSES the absolute-form verdicts (the
+    dead-floor indictment) and keeps the comparative ones, and every table it
+    heads is stamped REFERENCE.
+    """
+
+    def __init__(self, data, kind):
+        assert kind in ("control", "reference")
+        self.data = data
+        self.kind = kind
+        self.map = data["map"]
+
+    @property
+    def word(self):
+        return "control" if self.kind == "control" else "reference point"
+
+    @property
+    def caveat(self):
+        return ("" if self.kind == "control" else
+                f" — and {self.map} is a GENERATED map from the same "
+                "population, a reference point, NOT a hand-authored control: "
+                "if the population is bad this delta reads zero")
+
+
+def report(datas, baseline=None):
+    """One map's verdict, stated against `baseline` — see `Baseline` above."""
+    control = baseline.data if baseline else None
+    kind = baseline.kind if baseline else None
     data = merge(datas)
     name = data["map"]
     wall, occ, heat_path = heatmap(data, name)
@@ -362,13 +454,13 @@ def report(datas, control=None):
             f"read 53% dead floor where three read 22%).")
     elif control is None:
         flags.append(
-            f"{dead_pct:.0%} dead floor, but NO CONTROL in this batch — "
-            "refusing the verdict. There is no absolute bar here: the arena "
-            "itself reads 24% dead at one long episode and 51% at three short "
-            "ones, so only a delta from the control at comparable exposure "
-            "means anything.")
+            f"{dead_pct:.0%} dead floor, but NO CONTROL AND NO REFERENCE in "
+            "this batch — refusing the verdict. There is no absolute bar here: "
+            "the arena itself reads 24% dead at one long episode and 51% at "
+            "three short ones, so only a delta from a named baseline at "
+            "comparable exposure means anything.")
     elif is_control:
-        pass          # the control is the reference; it is never the verdict
+        pass          # the baseline is the yardstick; it is never the verdict
     else:
         ctrl_open = int((~np.array(control["wall"], bool)).sum())
         ctrl_dead = 1.0 - int(
@@ -378,36 +470,97 @@ def report(datas, control=None):
         ratio = exposure / max(1e-9, ctrl_exposure)
         if not 0.7 <= ratio <= 1.4:
             flags.append(
-                f"{dead_pct:.0%} dead floor vs the control's {ctrl_dead:.0%}, "
-                f"but exposure differs {ratio:.2f}x ({exposure:.1f} vs "
-                f"{ctrl_exposure:.1f} alive seat-ticks per open cell) — NOT "
-                "comparable, re-run both at the same seats and tick budget")
+                f"{dead_pct:.0%} dead floor vs the {baseline.word}'s "
+                f"{ctrl_dead:.0%}, but exposure differs {ratio:.2f}x "
+                f"({exposure:.1f} vs {ctrl_exposure:.1f} alive seat-ticks per "
+                "open cell) — NOT comparable, re-run both at the same seats "
+                "and tick budget")
         elif dead_pct > ctrl_dead + 0.12:
+            # The ABSOLUTE form of this verdict ("decoration in a way the
+            # arena's is not") is licensed by the control being hand-authored
+            # and outside the population. A reference point is inside it, so
+            # the same delta only ever supports the comparative form.
             flags.append(
                 f"{dead_pct:.0%} of open floor never visited against the "
                 f"control's {ctrl_dead:.0%} at {ratio:.2f}x the same exposure "
                 "— this map's geometry is decoration in a way the arena's is "
-                "not")
+                "not"
+                if kind == "control" else
+                f"{dead_pct:.0%} of open floor never visited against "
+                f"{baseline.map}'s {ctrl_dead:.0%} at {ratio:.2f}x the same "
+                f"exposure — worse than the best board of its own kind, which "
+                "is NOT the same finding as worse than a known-good board"
+                f"{baseline.caveat}")
         if biggest_dead * cell * cell > 60000 and 0.7 <= ratio <= 1.4:
             flags.append(
                 f"one unvisited region of ~{biggest_dead * cell * cell:,}px² "
                 "— a whole wing nobody played")
-    reached, homes_n, reach_ticks = pedestal_reach(data)
+    ped = pedestal_reach(data)
+    reached, homes_n, reach_ticks = ped["reached"], ped["homes"], ped["ticks"]
     # As a SHARE of alive time, not a raw count. The ring radius is a map
     # property that varies 60..91px across the maps measured here, and episode
     # length varies 2.7x, so a bare seat-tick count compares three things at
     # once. The share removes the clock and the seat count and leaves the one
     # thing being asked about: how much of its life the enemy spent on the
     # objective rather than somewhere else.
-    reach_share = reach_ticks / max(1, data["aliveTicks"])
-    if data["steals"] == 0:
+    reach_share = ped["share"]
+    # AN UNAPPROACHED OBJECTIVE IS AN ABSOLUTE FAILURE, so this flag fires
+    # without a baseline. Every other verdict in this file is stated as a delta
+    # because none of them have an absolute bar — but zero is zero at any
+    # exposure, on any board size, at any team count. A map that seats N teams
+    # and only ever puts an enemy on some of its N objectives has not been
+    # measured as unfair, it has been measured as PARTLY UNPLAYED.
+    if ped["neverApproached"]:
+        names = ", ".join(f"team {t}" for t in ped["neverApproached"])
         flags.append(
-            f"ZERO steals in {episodes} episode(s). An enemy stood inside "
-            f"{reached}/{homes_n} = {reached / max(1, homes_n):.0%} of the "
-            f"pedestal rings, for {reach_share:.3%} of alive time "
-            f"({reach_ticks:,} seat-ticks) — near 0 the objective was never "
-            "approached, and no conversion number from this map means "
-            "anything")
+            f"{len(ped['neverApproached'])}/{homes_n} = "
+            f"{len(ped['neverApproached']) / max(1, homes_n):.0%} of the "
+            f"objectives were NEVER APPROACHED ({names}) across "
+            f"{episodes} episode(s). Not 'hard to take' — not once entered. "
+            "Static symmetry is a claim about geometry and cannot see this")
+    elif homes_n > 2 and ped["attackPairs"] < ped["possibleAttackPairs"]:
+        flags.append(
+            f"every objective was approached, but only "
+            f"{ped['attackPairs']}/{ped['possibleAttackPairs']} = "
+            f"{ped['attackPairs'] / max(1, ped['possibleAttackPairs']):.0%} of "
+            "the (attacker, target) pairs the rules allow ever happened — some "
+            "teams can reach the objective and some pairings never meet on it")
+    if homes_n >= 2 and reach_ticks > 0 and ped["pressureBalance"] < 0.80:
+        share_txt = " ".join(f"t{s['team']} {s['share']:.3%}"
+                             for s in ped["seats"])
+        flags.append(
+            f"enemy pressure is spread {ped['pressureBalance']:.2f} evenly over "
+            f"the objectives (1.0 is even): {share_txt}. A rot90/mirror board "
+            "scores FAIR STATICALLY; this is the same board measured on whether "
+            "that fairness is REACHABLE, and the two have come apart")
+    if data["steals"] == 0:
+        # ZERO STEALS SPLITS INTO TWO OPPOSITE FINDINGS with opposite remedies,
+        # and the reach number is the only thing that tells them apart. The
+        # flag used to assert the first one unconditionally — it read "near 0
+        # the objective was never approached" over a board where enemies had
+        # in fact stood on the pedestals for 18.6% of alive time, which is the
+        # precise opposite diagnosis. The split is anchored on the
+        # hand-authored arena's own measured 0.533%: at or under roughly twice
+        # that the objective was barely touched; far above it the pedestal was
+        # standing room and the steal STILL never happened, which is a rules or
+        # bot question before it is a map question.
+        seen = f"{reached}/{homes_n} = {reached / max(1, homes_n):.0%}"
+        if reach_share <= 0.01:
+            flags.append(
+                f"ZERO steals in {episodes} episode(s), and the objective was "
+                f"barely approached: an enemy stood inside {seen} of the "
+                f"pedestal rings for only {reach_share:.3%} of alive time "
+                f"({reach_ticks:,} seat-ticks), against the arena's 0.533%. "
+                "No conversion number from this map means anything — nobody "
+                "got far enough for the touch to be tested")
+        else:
+            flags.append(
+                f"ZERO steals in {episodes} episode(s) DESPITE the objective "
+                f"being reached constantly: an enemy stood inside {seen} of "
+                f"the pedestal rings for {reach_share:.3%} of alive time "
+                f"({reach_ticks:,} seat-ticks), {reach_share / 0.00533:.0f}x "
+                "the arena's 0.533%. They got there and did not take it, so "
+                "this is a RULES or BOT question before it is a map question")
     if data["captures"] == 0 and data["steals"] > 0:
         flags.append(f"{data['steals']} steals converted to ZERO captures. "
                      f"The carrier stood in its own capture zone on "
@@ -431,7 +584,7 @@ def report(datas, control=None):
         if close_frac < ctrl_close - 0.10:
             flags.append(
                 f"close contact {close_frac:.0%} of alive time against the "
-                f"control's {ctrl_close:.0%} (within "
+                f"{baseline.word}'s {ctrl_close:.0%} (within "
                 f"{data.get('closeRangePx', 0)}px) — the teams meet less here. "
                 "GunRange contact is 100% on every map at these sizes and "
                 "cannot see this")
@@ -439,9 +592,9 @@ def report(datas, control=None):
         if data["ticks"] / episodes < 0.6 * control["ticks"] / control["episodes"]:
             flags.append(
                 f"these games ran {data['ticks'] // episodes}t against the "
-                f"control's {control['ticks'] // control['episodes']}t — a "
-                "capture ENDS an episode, so dead space here is not "
-                "comparable to the control's")
+                f"{baseline.word}'s {control['ticks'] // control['episodes']}t "
+                "— a capture ENDS an episode, so dead space here is not "
+                f"comparable to {baseline.map}'s")
 
     print(f"\n=== {name}  ({episodes} episode(s), {data['ticks']} ticks total)")
     # Rule: each episode's length and result, individually. A mean hides that a
@@ -454,7 +607,12 @@ def report(datas, control=None):
                                          data["episodeSteals"], outcomes)):
         print(f"    ep{i}: {t:>5}t, {s} steal(s) -> {c} capture(s), "
               f"{ends.get(o, o)}")
-    role = "  [CONTROL — the reference, never the verdict]" if is_control else ""
+    role = ""
+    if is_control:
+        role = ("  [CONTROL, hand-authored — the yardstick, never the verdict]"
+                if kind == "control" else
+                "  [REFERENCE POINT, generated — NOT a hand-authored control; "
+                "it can only say 'worse than the best of its own kind']")
     print(f"    dead space {dead_pct:.0%} of open floor "
           f"({visited}/{open_cells} cells visited; largest unvisited region "
           f"{biggest_dead * cell * cell:,}px²){role}")
@@ -464,6 +622,20 @@ def report(datas, control=None):
     print(f"    kills {kills}  balance {balance:.2f}  "
           f"pace {pace:.1f} kills/1000t  contact {fight_frac:.0%} in gun range "
           f"/ {close_frac:.0%} within {data.get('closeRangePx', 0)}px")
+    # PER PEDESTAL, one line, because the aggregate above averages away the
+    # only thing this measure exists to show. `-` means never approached.
+    print(f"    per objective (ring {ped['ringPx']}px), enemy seat-time and "
+          f"how many of the {ped['seats'][0]['possibleAttackers'] if ped['seats'] else 0} "
+          "possible enemies came:")
+    for s in ped["seats"]:
+        mark = "NEVER APPROACHED" if not s["approached"] else (
+            f"{s['ticks']:>7,}t {s['share']:>7.3%}  "
+            f"{s['attackers']}/{s['possibleAttackers']} enemies")
+        print(f"      team {s['team']} pedestal  {mark}")
+    print(f"    pressure balance {ped['pressureBalance']:.2f} over "
+          f"{homes_n} objectives (1.0 = even), attack pairs "
+          f"{ped['attackPairs']}/{ped['possibleAttackPairs']} "
+          f"{ped['attackPairs'] / max(1, ped['possibleAttackPairs']):.0%}")
     print(f"    objective: {data['steals']} steals -> {data['captures']} "
           f"captures ({data['capturesInZone']} verified in zone) = "
           f"{pct(conversion)} conversion, carrier in zone "
@@ -485,7 +657,8 @@ def report(datas, control=None):
                 biggestDeadPx2=biggest_dead * cell * cell,
                 openCells=open_cells, visitedCells=visited,
                 exposure=exposure,
-                isControl=is_control,
+                isControl=is_control, baselineKind=kind,
+                baselineMap=baseline.map if baseline else None,
                 deaths=len(deaths), spread=spread,
                 kills=kills, balanceEntropy=balance, pace=pace,
                 fightTimeFrac=fight_frac, closeContactFrac=close_frac,
@@ -496,8 +669,15 @@ def report(datas, control=None):
                 pedestalsReached=reached, pedestals=homes_n,
                 pedestalEnemyTicks=reach_ticks,
                 pedestalEnemyShare=reach_share,
-                pedestalRingPx=max(data.get("flagRing", 0)
-                                   or data.get("captureRadius", 0), cell),
+                pedestalRingPx=ped["ringPx"],
+                # The per-objective detail, kept in the JSON as well as the
+                # table: an aggregate that lost this is what let a board with
+                # two untouched pedestals pass as merely hard to score on.
+                pedestalSeats=ped["seats"],
+                pedestalNeverApproached=ped["neverApproached"],
+                pedestalPressureBalance=ped["pressureBalance"],
+                pedestalAttackPairs=ped["attackPairs"],
+                pedestalPossibleAttackPairs=ped["possibleAttackPairs"],
                 episodeOutcomes=outcomes, wonByCapture=decided,
                 wonByElimination=by_elim, timedOut=timed_out,
                 carrierInZoneTicks=data["carrierInZoneTicks"],
@@ -522,6 +702,8 @@ def comparison(rows):
              [r["map"] for r in rows if not r["isControl"]])
     by = {r["map"]: r for r in rows}
     ctrl = next((r for r in rows if r["isControl"]), None)
+    kind = next((r["baselineKind"] for r in rows if r["baselineKind"]), None)
+    stamp = "REFERENCE" if kind == "reference" else "CONTROL"
     w = max(13, max(len(n) for n in names) + 2)
 
     def frac(n, d):
@@ -547,8 +729,20 @@ def comparison(rows):
         ("largest dead region", lambda r: f"{r['biggestDeadPx2']:,}px²"),
         ("exposure (seat-t/cell)", lambda r: f"{r['exposure']:.1f}"),
         None,
-        ("pedestals enemy reached", lambda r: frac(r["pedestalsReached"],
-                                                   r["pedestals"])),
+        ("objectives approached", lambda r: frac(r["pedestalsReached"],
+                                                 r["pedestals"])),
+        # The per-objective row is the whole point of the block. A board can
+        # show 4/4 approached and still be one team's private corner; a board
+        # can show 2/4 and be scored FAIR by every static metric there is.
+        ("  each, % of alive time", lambda r: " ".join(
+            f"{s['share']:.2%}" if s["approached"] else "NONE"
+            for s in r["pedestalSeats"])),
+        ("  each, enemies that came", lambda r: " ".join(
+            f"{s['attackers']}/{s['possibleAttackers']}"
+            for s in r["pedestalSeats"])),
+        ("attack pairs realized", lambda r: frac(
+            r["pedestalAttackPairs"], r["pedestalPossibleAttackPairs"])),
+        ("pressure balance", lambda r: f"{r['pedestalPressureBalance']:.2f}"),
         ("enemy time at pedestal", lambda r:
          f"{r['pedestalEnemyTicks']:,} {r['pedestalEnemyShare']:.3%}"),
         ("pedestal ring radius", lambda r: f"{r['pedestalRingPx']}px"),
@@ -569,7 +763,16 @@ def comparison(rows):
             [len(v) + 2 for _, vs in cells for v in vs])
 
     print("\n" + "=" * (28 + w * len(names)))
-    print("ONE-PAGE COMPARISON — generated vs arena, per metric")
+    # The header names the baseline it actually ran against. It used to say
+    # "vs arena" unconditionally, which is a lie on any batch with no arena in
+    # it — exactly the batch where the distinction matters most.
+    print("ONE-PAGE COMPARISON — " + (
+        f"generated vs {ctrl['map']}, A GENERATED REFERENCE POINT (no "
+        "hand-authored map exists at this team count)"
+        if kind == "reference" else
+        f"generated vs {ctrl['map']}, the hand-authored control"
+        if ctrl is not None else
+        "no baseline in this batch") + ", per metric")
     if any(r["tickCapped"] for r in rows):
         # The capped pass exists to make DEAD SPACE comparable, and truncation
         # makes the steal/capture COUNTS below wrong: a capture at 4153t inside
@@ -584,7 +787,7 @@ def comparison(rows):
     print(f"  {'':<26}" + "".join(
         f"{n + ('*' if by[n]['isControl'] else ''):>{w}}" for n in names))
     print(f"  {'':<26}" + "".join(
-        f"{'CONTROL' if by[n]['isControl'] else '':>{w}}" for n in names))
+        f"{stamp if by[n]['isControl'] else '':>{w}}" for n in names))
     idx = 0
     for entry in body:
         if entry is None:
@@ -596,11 +799,28 @@ def comparison(rows):
 
     print("")
     if ctrl is None:
-        print("  NO CONTROL COLUMN. There is no hand-authored map at this team "
-              "count, so every number above is readable only against the other "
-              "generated maps — not against a known-good board.")
+        print("  NO CONTROL AND NO REFERENCE COLUMN. There is no hand-authored "
+              "map at this team count, so every number above is readable only "
+              "against the other generated maps — not against a known-good "
+              "board. Name one of them with --reference to at least get a "
+              "labelled within-population yardstick.")
         return
-    print("  DELTA FROM THE CONTROL  (generated - arena; pp = percentage points)")
+    if kind == "reference":
+        # Printed HERE, above the deltas, because this is the line a reader
+        # skips when they lift the table into a scorecard. The distinction
+        # between a control and a reference point is not a caveat about the
+        # number; it changes which conclusions the number can carry.
+        print(f"  DELTA FROM THE REFERENCE POINT  (map - {ctrl['map']}; "
+              "pp = percentage points)")
+        print(f"  {ctrl['map']} IS A GENERATED MAP, NOT A HAND-AUTHORED "
+              "CONTROL. It is drawn from the same population as everything")
+        print("  beside it, so these deltas can say 'worse than the best of "
+              "its own kind' and CANNOT say 'worse than a board")
+        print("  we know plays'. If the whole population is bad, every delta "
+              "here reads zero and the table looks healthy.")
+    else:
+        print("  DELTA FROM THE CONTROL  (generated - arena; "
+              "pp = percentage points)")
     for n in names:
         r = by[n]
         if r["isControl"]:
@@ -619,7 +839,20 @@ def comparison(rows):
 
 
 def main():
-    paths = sys.argv[1:]
+    paths = []
+    want_reference = None
+    argv = sys.argv[1:]
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a.startswith("--reference="):
+            want_reference = a.split("=", 1)[1]
+        elif a == "--reference" and i + 1 < len(argv):
+            want_reference = argv[i + 1]
+            i += 1
+        else:
+            paths.append(a)
+        i += 1
     if not paths:
         raise SystemExit(__doc__)
     groups = {}
@@ -627,20 +860,38 @@ def main():
         d = json.loads(Path(p).read_text())
         groups.setdefault(d["map"], []).append(d)
 
-    # THE CONTROL. Every flag below is a delta from the hand-authored arena;
-    # without one in the batch the report says so rather than comparing
-    # against a number somebody remembers.
-    control = None
+    # THE BASELINE, and WHICH KIND — see `Baseline`. The hand-authored arena
+    # always wins if it is in the batch: it is the only yardstick that is
+    # outside the population under test, and every absolute-form verdict in
+    # `report` is licensed by that and by nothing else.
+    baseline = None
     for m, ds in groups.items():
         if m == "arena" or m.endswith("/arena"):
-            control = merge(ds)
-    if control is None:
+            baseline = Baseline(merge(ds), "control")
+    if baseline is None and want_reference:
+        # No hand-authored map at this team count. A NAMED generated map is a
+        # strictly better yardstick than none — a delta from something in the
+        # batch beats a delta from a number somebody remembers — but it is a
+        # different KIND of yardstick and is stamped as one everywhere.
+        if want_reference not in groups:
+            raise SystemExit(
+                f"--reference {want_reference} is not in this batch "
+                f"(have: {', '.join(sorted(groups))}). The reference point has "
+                "to be MEASURED in the same invocation; naming a map that was "
+                "not played is how a remembered number gets in.")
+        baseline = Baseline(merge(groups[want_reference]), "reference")
+        print(f"NO HAND-AUTHORED CONTROL AT THIS TEAM COUNT. Using "
+              f"{want_reference} as a labelled REFERENCE POINT: a generated "
+              "map from the\npopulation under test, named as the yardstick. "
+              "It supports 'worse than the best of its own kind' and NOT\n"
+              "'worse than a board we know plays'. Do not call it a control.")
+    if baseline is None:
         print("NO CONTROL IN THIS BATCH. Run the arena through the same "
               "episode count ('tools/map_eval play arena --episodes 3') and "
-              "pass its evidence here. A dynamic number without the control "
-              "beside it has no scale.")
+              "pass its evidence here, or name a --reference from the batch. "
+              "A dynamic number without a baseline beside it has no scale.")
 
-    out = {m: report(ds, control) for m, ds in sorted(groups.items())}
+    out = {m: report(ds, baseline) for m, ds in sorted(groups.items())}
     comparison(list(out.values()))
     GALLERY.mkdir(exist_ok=True, parents=True)
     (GALLERY / "playtest.json").write_text(json.dumps(out, indent=1))
