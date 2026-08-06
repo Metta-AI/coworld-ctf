@@ -376,7 +376,7 @@ proc teamAnchor*(gameMap: CtfMap, team: Team): MapPoint =
   ## carried across by the map's own symmetry (`teamImagePoint`), so an
   ## anchor is the exact image of an anchor BY CONSTRUCTION and the two can
   ## never drift apart, whatever `homeDepth` asks for or however the board
-  ## rounds. That is a fairness invariant, not a tidiness one: GV39 fixed a
+  ## rounds. That is a fairness invariant, not a tidiness one: GV40 fixed a
   ## shipped bug where the far anchor was computed independently as
   ## `center + (size - center) * depth`, landing at `width - x` while every
   ## SHAPE on the board mirrors at `width - 1 - x`. One pixel of disagreement
@@ -1235,7 +1235,7 @@ proc centerOffset2*(
   ## pixel be expressed in integers, so a radius or a band measured from here
   ## is EXACTLY its own reflection, rotation and quarter turn.
   ##
-  ## Every symmetry uses it, not just rot90. GV39 fixed a shipped bug where
+  ## Every symmetry uses it, not just rot90. GV40 fixed a shipped bug where
   ## mirror and rot180 boards measured from `center` instead: on an even side
   ## the flag ring was then one pixel off its own image, and the ring plus the
   ## home pocket disagreed by 242-838 px on every even-sided class. On an ODD
@@ -3129,7 +3129,7 @@ proc isProtectedFloor*(x, y, cx, cy: int): bool =
   ## and each team's home capture approach. Walls are never carved here.
   ##
   ## `cx`/`cy` are vestigial: every map's `center` IS (width div 2,
-  ## height div 2), and since GV39 the symmetry math anchors on the board's
+  ## height div 2), and since GV40 the symmetry math anchors on the board's
   ## true axis instead, which the dimensions already give. They stay in the
   ## signature because callers across the renderer, the bake and the tools
   ## pass them.
