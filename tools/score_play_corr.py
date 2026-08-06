@@ -50,7 +50,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MAP_EVAL = os.environ.get("MAP_EVAL", "/tmp/mapeval")
-MAP_PLAYTEST = os.environ.get("MAP_PLAYTEST", "/tmp/mapplaytest")
+MAP_PLAYTEST = os.environ.get("MAP_PLAYTEST", "/tmp/mapplaytest2")
 
 
 # --------------------------------------------------------------------------
@@ -205,16 +205,16 @@ def late_frac(replay_json_path):
     return float(m.group(4)) / 100.0 if m else None
 
 
-def load_evidence(root, label):
+def load_evidence(root, label, suffix=".play.json"):
     d = os.path.join(root, label)
     if not os.path.isdir(d):
         return []
     out = []
     for f in sorted(os.listdir(d)):
-        if f.endswith(".play.json"):
+        if f.endswith(suffix):
             p = os.path.join(d, f)
             e = json.load(open(p))
-            e["lateFrac"] = late_frac(p)
+            e["lateFrac"] = late_frac(p.replace(suffix, ".play.json"))
             out.append(e)
     return out
 
@@ -257,6 +257,8 @@ def aggregate(eps):
             "balanceEntropy": [e["play"]["balanceEntropy"] for e in eps],
             "steals_per_ep": [float(e["steals"]) for e in eps],
             "captures_per_ep": [float(e["captures"]) for e in eps],
+            "closeContactFrac": [e.get("closeTicks", 0) / max(1, e["aliveTicks"])
+                                 for e in eps],
         },
         "episodes": len(eps),
         "ticks_all": ticks,
@@ -267,6 +269,11 @@ def aggregate(eps):
         "steals_per_ep": sum(steals) / len(eps),
         "conversion": (sum(caps) / sum(steals)) if sum(steals) else 0.0,
         "deadFloorFrac": 1.0 - visited / max(1, open_cells),
+        # Contact at a radius that can actually separate maps. GunRange spans
+        # the board, so fightTimeFrac saturates; closeTicks is a quarter of it.
+        "closeContactFrac": sum(
+            e.get("closeTicks", 0) / max(1, e["aliveTicks"]) for e in eps
+        ) / len(eps),
         "fightTimeFrac": sum(e["play"]["fightTimeFrac"] for e in eps) / len(eps),
         "pace": sum(e["play"]["pace"] for e in eps) / len(eps),
         "balanceEntropy": sum(e["play"]["balanceEntropy"] for e in eps) / len(eps),
@@ -356,6 +363,7 @@ def split_half_reliability(rows_, key):
 OUTCOMES = [
     # (key, human name, sign: +1 if HIGHER is a better map, -1 if lower is)
     ("deadFloorFrac", "dead floor (union over episodes)", -1),
+    ("closeContactFrac", "close contact / alive time", +1),
     ("fightTimeFrac", "fight time / alive time", +1),
     ("captures_per_ep", "captures per episode", +1),
     ("capture_rate", "episodes that converted", +1),
@@ -365,6 +373,70 @@ OUTCOMES = [
     ("balanceEntropy", "kill balance across teams", +1),
     ("steals_per_ep", "steals per episode", +1),
 ]
+
+
+def cmd_extract(args):
+    """Re-derive play evidence from replays already on disk, in a MATCHED
+    measurement window.
+
+    Episode length is itself an outcome here (a capture ends the episode), and
+    it varies roughly two-fold across this sample. Dead-floor fraction rises
+    with watching time no matter what the geometry does, so an unwindowed
+    dead-floor number is partly a measure of how long the episode happened to
+    last. Measuring every episode over the same first N ticks removes that.
+
+    The cap is the smallest episode length in the pool, so every episode can
+    fill the window and none is padded. Replaying is what costs; re-extracting
+    is free, so there is no reason to leave the confound in.
+    """
+    plans = [json.load(open(p)) for p in args.plan]
+    jobs = []
+    for plan in plans:
+        for e in list(plan["control"]) + list(plan["maps"]):
+            d = os.path.join(plan["evidence_root"], e["label"])
+            if not os.path.isdir(d):
+                continue
+            for f in sorted(os.listdir(d)):
+                if f.endswith(".bitreplay"):
+                    jobs.append((e["label"], os.path.join(d, f)))
+
+    lengths = []
+    for label, src in jobs:
+        p = src.replace(".bitreplay", ".play.json")
+        if os.path.exists(p):
+            lengths.append(json.load(open(p))["ticks"])
+    if not lengths:
+        sys.exit("no existing .play.json to size the window from; run first")
+    cap = 0 if args.no_window else (args.ticks or min(lengths))
+    suffix = ".full.json" if args.no_window else ".win.json"
+    if cap:
+        print(f"{len(jobs)} replay(s); episode length {min(lengths)}.."
+              f"{max(lengths)} ticks -> matched window = first {cap} ticks")
+        short = sum(1 for t in lengths if t < cap)
+        if short:
+            print(f"  WARNING: {short} episode(s) are shorter than the window "
+                  f"and cannot fill it")
+    else:
+        # The confounded version, kept ON PURPOSE as the comparison. If the
+        # windowed and unwindowed answers differ, the difference IS the
+        # episode-length confound, quantified rather than argued about.
+        print(f"{len(jobs)} replay(s), FULL episodes (no matched window) -> "
+              f"{suffix}")
+
+    def one(job):
+        label, src = job
+        dst = src.replace(".bitreplay", suffix)
+        cmd = [MAP_PLAYTEST, src, "--name", label, "--out", dst]
+        if cap:
+            cmd += ["--ticks", str(cap)]
+        rc = subprocess.call(cmd, cwd=REPO, stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL)
+        return rc == 0
+
+    with ThreadPoolExecutor(max_workers=args.jobs) as pool:
+        ok = sum(1 for r in pool.map(one, jobs) if r)
+    print(f"re-extracted {ok}/{len(jobs)} replay(s) into .win.json "
+          f"(window {cap} ticks)")
 
 
 def cmd_repeat(args):
@@ -439,7 +511,7 @@ def cmd_analyze(args):
     rows = []
     for entry in entries:
         root = entry["_root"]
-        eps = load_evidence(root, entry["label"])
+        eps = load_evidence(root, entry["label"], args.suffix)
         agg = aggregate(eps)
         if not agg:
             print(f"  (no evidence for {entry['label']}, dropped)")
@@ -617,8 +689,19 @@ def main():
     p.add_argument("--port", type=int, default=25000)
     p.set_defaults(func=cmd_repeat)
 
+    x = sub.add_parser("extract")
+    x.add_argument("--plan", required=True, nargs="+")
+    x.add_argument("--ticks", type=int, default=0,
+                   help="matched window; 0 = the shortest episode in the pool")
+    x.add_argument("--jobs", type=int, default=6)
+    x.add_argument("--no-window", action="store_true",
+                   help="full episodes into .full.json, the confounded control")
+    x.set_defaults(func=cmd_extract)
+
     a = sub.add_parser("analyze")
     a.add_argument("--plan", required=True, nargs="+")
+    a.add_argument("--suffix", default=".play.json",
+                   help=".win.json to analyze the matched-window extraction")
     a.add_argument("--out", default="/tmp/ctf-score-play/rows.json")
     a.set_defaults(func=cmd_analyze)
 
