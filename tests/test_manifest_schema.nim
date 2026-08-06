@@ -204,7 +204,7 @@ suite "league manifest config_schema vs GameConfig":
       check sim.phase == GameOver
       check sim.winner == Red
 
-  test "paintbot publishes a two-seat 1v1 variant without changing league defaults":
+  test "paintbot publishes a full-teams 1v1 variant without changing league defaults":
     let
       manifest = parseFile(GameDir / "coworld_manifest_paintbot.json")
       variant = manifestVariant("coworld_manifest_paintbot.json", "1v1")
@@ -223,12 +223,15 @@ suite "league manifest config_schema vs GameConfig":
       check schema["properties"]["players"]["minItems"].getInt() == 2
       check schema["properties"]["tokens"]["maxItems"].getInt() == 32
       check schema["properties"]["players"]["maxItems"].getInt() == 32
-      check gameConfig["players"].len == 2
-      check gameConfig["slots"].len == 2
-      check gameConfig["slots"][0]["team"].getStr() == "red"
-      check gameConfig["slots"][1]["team"].getStr() == "blue"
-      check gameConfig["num_agents"].getInt() == 2
-      check gameConfig["minPlayers"].getInt() == 2
+      # 1v1 means one policy per team at full muster: 16 seats, 8 per team,
+      # alternating so entrant = slot mod 2 fields a whole team.
+      check gameConfig["players"].len == 16
+      check gameConfig["slots"].len == 16
+      for i in 0 ..< 16:
+        check gameConfig["slots"][i]["team"].getStr() ==
+          (if i mod 2 == 0: "red" else: "blue")
+      check gameConfig["num_agents"].getInt() == 16
+      check gameConfig["minPlayers"].getInt() == 16
       check gameConfig["teams"].getInt() == 2
       check gameConfig["mapPath"].getStr() == "gen"
       check gameConfig["scoring"].getStr() == "pot"
@@ -242,29 +245,31 @@ suite "league manifest config_schema vs GameConfig":
 
       var config = defaultGameConfig()
       config.update($gameConfig)
-      check config.minPlayers == 2
-      check config.slots.len == 2
-      check config.slots[0].team == Red
-      check config.slots[1].team == Blue
+      check config.minPlayers == 16
+      check config.slots.len == 16
+      for i in 0 ..< 16:
+        check config.slots[i].team == (if i mod 2 == 0: Red else: Blue)
       check config.mapPath == "gen"
       check config.scoring == PotScoring
 
       var sim = initCtfForTest(config)
-      let
-        red = sim.addPlayer("Player1")
-        blue = sim.addPlayer("Player2")
-      check sim.players[red].team == Red
-      check sim.players[blue].team == Blue
+      var seats: seq[int]
+      for i in 0 ..< 16:
+        seats.add sim.addPlayer("Player" & $(i + 1))
+      for i, seat in seats:
+        check sim.players[seat].team == (if i mod 2 == 0: Red else: Blue)
       for _ in 0 ..< config.startWaitTicks:
         sim.step(@[], @[])
       check sim.phase == Playing
-      check sim.players[red].alive
-      check sim.players[blue].alive
+      for seat in seats:
+        check sim.players[seat].alive
 
-      sim.players[blue].alive = false
-      sim.players[blue].lives = 0
+      for i, seat in seats:
+        if i mod 2 == 1:
+          sim.players[seat].alive = false
+          sim.players[seat].lives = 0
       sim.checkWinCondition()
       check sim.phase == GameOver
       check sim.winner == Red
-      check sim.players[red].reward == 2
-      check sim.players[blue].reward == -2
+      for i, seat in seats:
+        check sim.players[seat].reward == (if i mod 2 == 0: 2 else: -2)

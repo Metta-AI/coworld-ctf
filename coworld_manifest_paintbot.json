@@ -1055,8 +1055,8 @@
     },
     {
       "id": "1v1",
-      "name": "1v1 Duel",
-      "description": "Two-policy Paintbot duel for custom lobbies and campaign cells: one Red player versus one Blue player on random generated terrain with Paintbot's standard pot scoring and tuning.",
+      "name": "1v1 (8 per team)",
+      "description": "Two-policy Paintbot team battle for custom lobbies and campaign cells: one policy fields the full Red team of 8 versus the other fielding the full Blue team of 8 on random generated terrain with Paintbot's standard pot scoring and tuning.",
       "game_config": {
         "players": [
           {
@@ -1064,6 +1064,48 @@
           },
           {
             "name": "Player2"
+          },
+          {
+            "name": "Player3"
+          },
+          {
+            "name": "Player4"
+          },
+          {
+            "name": "Player5"
+          },
+          {
+            "name": "Player6"
+          },
+          {
+            "name": "Player7"
+          },
+          {
+            "name": "Player8"
+          },
+          {
+            "name": "Player9"
+          },
+          {
+            "name": "Player10"
+          },
+          {
+            "name": "Player11"
+          },
+          {
+            "name": "Player12"
+          },
+          {
+            "name": "Player13"
+          },
+          {
+            "name": "Player14"
+          },
+          {
+            "name": "Player15"
+          },
+          {
+            "name": "Player16"
           }
         ],
         "slots": [
@@ -1072,11 +1114,53 @@
           },
           {
             "team": "blue"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
           }
         ],
         "seed": 679961,
-        "num_agents": 2,
-        "minPlayers": 2,
+        "num_agents": 16,
+        "minPlayers": 16,
         "lives": 3,
         "hitPoints": 3,
         "respawnTicks": 72,
