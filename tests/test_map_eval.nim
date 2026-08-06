@@ -273,3 +273,137 @@ suite "map fitness: purity and cost":
     discard evaluateMap(loadCtfMapMetadata("pool:1"), "giant")
     let ms = (getMonoTime() - started).inMilliseconds
     check ms < 20000
+
+# ---------------------------------------------------------------------------
+# The measuring stick's own corrections. Every test below pins a blind spot the
+# suite had while claiming not to — see the module docs on each metric for the
+# measured numbers. These exist so a future change cannot quietly reopen one.
+# ---------------------------------------------------------------------------
+
+suite "map fitness: the corrected stick":
+  test "the SECOND control is scored, and it is the one that breaches":
+    # `map_eval` prepends `arena` and for a long time prepended only `arena`,
+    # so the repo's other hand-authored map was never a control at all. Rule 1
+    # says skipping a control is worse than flagging one.
+    let large = evaluateMap(loadCtfMapMetadata("arena-large"), "arena-large")
+    check large.valid
+    var breached: seq[string]
+    for r in large.scoreBands():
+      if r.breached: breached.add r.band.name
+    # Not an assertion that arena-large is BAD — it is a 30% geometric upscale
+    # of arena, so this is what scale alone does to a fraction-shaped metric.
+    # Pinned so that "the second control breaches nothing" can never be
+    # believed without someone re-deriving it.
+    check breached.len > 0
+    check "sightlineMaxPx" in breached
+
+  test "open runs are measured between places a player can stand":
+    # Before this, the longest run on every map sat in the ~10px border gutter,
+    # which nothing can occupy. The gutter is open for the map's whole width,
+    # so an unrestricted scan can never report less than that.
+    let m = control
+    check m.sightlineMaxPx > 0
+    check m.sightlineMaxPx < m.width - 2 * ArenaBorder
+    check m.sightlineAxis in ["row", "column", "diagonal"]
+
+  test "the DIAGONAL is the longest line on the control, and it gates":
+    # The exact hole the axis-only scan leaves: arena's longest open line is
+    # its diagonal, longer than its longest row, and nothing read it.
+    check control.diagRunMaxPx > control.openRunMaxPx
+    check control.sightlineAxis == "diagonal"
+    var gated = false
+    for r in control.scoreBands():
+      if r.band.name in ["sightlineMaxPx", "diagLongRunPxFrac"]: gated = true
+    check gated
+
+  test "the diagonal run-COUNT share could never have gated":
+    # Why the pixel-weighted twin had to exist: the diagonal scan emits a run
+    # per diagonal, most of them corner clips, so the count-share is an order
+    # of magnitude smaller than the axis one on the same map even though the
+    # diagonal is the LONGER line. A band cut on it would never fire.
+    check control.diagLongRunFrac < control.longRunFrac / 10.0
+    check control.diagRunMaxPx > control.openRunMaxPx
+
+  test "a chokepoint carries a LENGTH, not only a width":
+    # A 40px doorway and a 40x400px gallery were the same measurement.
+    let door = evaluateMap(doorwayMap(), "doorway")
+    check door.chokeCount > 0
+    check door.routeWidthPx > 0
+    # The doorway is short, so it is a chokepoint and not a kill box: its
+    # exposed run must sit inside what a player can clear alive at that width.
+    check door.chokeExcessPx <= 0
+
+  test "the arena's optional pinches are gates, not kill boxes":
+    # arena ships a straight 188px channel of 36px floor and plays well,
+    # because it is one lane among eight. Gates yes, MANDATORY gates no — the
+    # distinction the length rule turns on.
+    check control.pinchGateCount > 0
+    check control.pinchMandatoryCount == 0
+    check control.chokeExcessPx == 0
+
+  test "the isovist is cut at the LETHAL envelope, not at gun range":
+    check IsovistRangePx == LethalEnvelopePx
+    check IsovistRangePx * 4 < VisionPairRangePx * 2
+    # Both readings are kept so the re-cut stays a printed before/after.
+    # A tighter radius can only ever cover FEWER maps, never more.
+    let door = evaluateMap(doorwayMap(), "doorway")
+    if door.chokeCovered: check door.chokeCoveredAtGunRange
+
+  test "the stand-side cover FLOOR exists and is absolute":
+    # A fairness spread cannot express a floor: two equally naked stands both
+    # score a spread of 0 and pass. Both floors must be present as bands.
+    var names: seq[string]
+    for b in DefaultBands: names.add b.name
+    check "standCoverMin" in names
+    check "standCoverGapMaxPx" in names
+    # ...and the one with teeth is bounded by physics, not by a share of board.
+    for b in DefaultBands:
+      if b.name == "standCoverGapMaxPx":
+        check b.hi == float(MaxExposedRunPx)
+    check control.standCoverGapMaxPx > 0
+    check control.standCoverGapMaxPx <= MaxExposedRunPx
+
+  test "a naked stand fails the floor a fairness spread lets through":
+    # The defect stated directly: strip the cover from BOTH stands and the
+    # spread stays perfect while the floor must fire.
+    var naked = arenaMap()
+    naked.leftObstacles = @[]
+    let m = evaluateMap(naked, "naked")
+    check m.standCoverMax - m.standCoverMin < 0.04   # spread: still passes
+    var floorFired = false
+    for r in m.scoreBands():
+      if r.band.name in ["standCoverMin", "standCoverGapMaxPx"] and r.breached:
+        floorFired = true
+    check floorFired
+
+  test "the route band says which bound gates and which aspires":
+    var hard, soft: seq[Band]
+    for b in DefaultBands:
+      if b.name == "routeCountMin": hard.add b
+      if b.name == "routeCountDesign": soft.add b
+    check hard.len == 1
+    check soft.len == 1
+    check hard[0].kind == bandHard
+    check soft[0].kind == bandSoft
+    # The design asks for 3; the bound that REJECTS enforces 2. Both notes
+    # must name the other, or the next reader repeats the confusion.
+    check hard[0].lo == 2.0
+    check soft[0].lo == 3.0
+    check "routeCountDesign" in hard[0].note
+    check "routeCountMin" in soft[0].note
+
+  test "a breached bandHard actually rejects":
+    # `bandHard` was documented as "the map is REJECTED" and read by nothing,
+    # so a one-route board scored 0.736 and could win a best-of-K draw.
+    let hardBand = @[
+      Band(name: "routeCountMin", lo: 1.0e6, hi: 2.0e6, margin: 1.0,
+           weight: 1.0, kind: bandHard, control: 8.0, note: "forced breach"),
+      Band(name: "midOpenFrac", lo: -1.0, hi: 1.0e6, margin: 1.0,
+           weight: 1.0, kind: bandSoft, control: 0.4, note: "always inside"),
+    ]
+    check control.staticScore(hardBand) == 0.0
+    # ...and the same table with the hard band marked soft does NOT zero, so
+    # the test is pinning the KIND and not merely the breach.
+    var soften = hardBand
+    soften[0].kind = bandSoft
+    check control.staticScore(soften) > 0.0

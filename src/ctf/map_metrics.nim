@@ -377,7 +377,10 @@ type
     biggestDeadPx*: int
 
   BandKind* = enum
-    bandHard                      ## outside => the map is REJECTED
+    bandHard
+      ## Outside => `staticScore` is 0 and the map cannot win a best-of-K draw.
+      ## This was documented and unimplemented until 2026-08-06; see
+      ## `staticScore` for what making it real cost.
     bandSoft                      ## outside => the map scores badly
 
   Band* = object
@@ -1841,10 +1844,26 @@ proc staticScore*(m: MapMetrics, bands: seq[Band] = DefaultBands): float =
   ## satisfied. Deliberately a thin weighted mean of banded sub-scores so a
   ## downstream caller can re-weight without re-deriving anything.
   ##
-  ## An INVALID map scores 0: the hard gates are the validator's, not ours.
+  ## An INVALID map scores 0: the sim's own hard gates outrank every band here.
+  ##
+  ## ...AND SO DOES A BREACHED `bandHard`, which until now it did not. The
+  ## `BandKind` enum has always documented `bandHard` as "outside => the map is
+  ## REJECTED", exactly one band was ever marked with it (`routeCountMin`), and
+  ## NOTHING READ THE FIELD: `scoreBands` treats both kinds identically and this
+  ## proc averaged a hard breach in with everything else. A one-route 4-team
+  ## board therefore scored 0.736 and could win a best-of-K draw — a documented
+  ## rejection that never rejected, which is the epic's own failure mode
+  ## (passing a bar the suite claims to enforce) sitting inside the suite.
+  ##
+  ## Measured cost of making it real: at 2 teams nothing moves (the whole
+  ## measured population is at 3 routes or better, control 8). At 4 teams it
+  ## zeroes seeds 1001, 1007 and 1020, each of which offers exactly ONE
+  ## vertex-disjoint route between a base pair — which is a corridor, and is
+  ## the thing the band was written to stop.
   if not m.valid: return 0.0
   var total, weight = 0.0
   for r in m.scoreBands(bands):
+    if r.breached and r.band.kind == bandHard: return 0.0
     total += r.sub * r.band.weight
     weight += r.band.weight
   if weight <= 0.0: 0.0 else: total / weight
@@ -1856,7 +1875,10 @@ proc bandReport*(m: MapMetrics, bands: seq[Band] = DefaultBands): string =
   var lines: seq[string]
   for r in m.scoreBands(bands):
     let mark =
-      if r.breached: "BREACH"
+      # A hard breach zeroes the whole score, so it cannot read the same as a
+      # soft one that costs a few percent.
+      if r.breached and r.band.kind == bandHard: "REJECT"
+      elif r.breached: "BREACH"
       elif r.tight: "tight "
       else: "      "
     lines.add &"  {mark} {r.band.name:<20} {r.value:8.3f}  " &
