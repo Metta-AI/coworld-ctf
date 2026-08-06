@@ -65,6 +65,20 @@ def cmd_select(args):
     if not valid:
         sys.exit("no valid non-control maps in manifest")
 
+    # Extending an existing sample rather than replacing it. n = 20 maps only
+    # resolves |rho| >= ~0.45 (the null SD of Spearman is 1/sqrt(n-1)), so the
+    # honest move when the first batch comes back inconclusive is to buy more
+    # MAPS, not more episodes — the resampling unit is the map. Excluding the
+    # seeds already used keeps the second batch on fresh board shells.
+    if args.exclude:
+        prior = json.load(open(args.exclude))
+        seen = {m["label"] for m in prior["maps"]}
+        seen_seeds = {m["seed"] for m in prior["maps"]}
+        valid = [m for m in valid
+                 if m["label"] not in seen and m["seed"] not in seen_seeds]
+        print(f"excluding {len(seen)} already-planned maps on "
+              f"{len(seen_seeds)} seeds; {len(valid)} candidates left")
+
     # Stratified across the score range, and within a stratum preferring a seed
     # we have not used yet. Two attempts of one seed share a board shell, so a
     # sample that clustered on a few seeds would measure that shell as much as
@@ -266,11 +280,78 @@ OUTCOMES = [
 ]
 
 
-def cmd_analyze(args):
+def cmd_repeat(args):
+    """Replay maps we already played, on the SAME episode seeds, and diff.
+
+    This is the noise floor of the whole instrument, and it is NOT optional
+    here. `server.runFrameLimiter` advances a frame when the wall-clock budget
+    elapses OR when every player reports ready, so a bot that misses its
+    budget under fleet load hands the sim a stale command and the episode
+    forks. This machine runs 20+ agents at once and the load average sat above
+    30 for the whole batch, so "same map, same seed, same outcome" has to be
+    measured rather than assumed. Whatever this prints is the resolution below
+    which no per-map difference in the main table means anything.
+    """
     plan = json.load(open(args.plan))
     root = plan["evidence_root"]
+    targets = (list(plan["control"]) + list(plan["maps"]))[:args.maps]
+    repeat_root = root + "-repeat"
+    os.makedirs(repeat_root, exist_ok=True)
+    print(f"re-playing {len(targets)} map(s) x {plan['episodes']} episodes "
+          f"on identical seeds")
+    with ThreadPoolExecutor(max_workers=args.jobs) as pool:
+        list(pool.map(
+            lambda ie: play_one(ie[1], plan["episodes"], repeat_root,
+                                args.port + 40 * ie[0]),
+            enumerate(targets)))
+
+    print(f"\n{'map':<10} {'ep':>3} {'ticks A':>8} {'ticks B':>8} "
+          f"{'dead A':>7} {'dead B':>7} {'cap A':>6} {'cap B':>6}")
+    exact = total = 0
+    for entry in targets:
+        a = load_evidence(root, entry["label"])
+        b = load_evidence(repeat_root, entry["label"])
+        for i in range(min(len(a), len(b))):
+            total += 1
+            same = (a[i]["ticks"] == b[i]["ticks"]
+                    and a[i]["captures"] == b[i]["captures"])
+            if same:
+                exact += 1
+            print(f"{entry['label']:<10} {i:>3} {a[i]['ticks']:>8} "
+                  f"{b[i]['ticks']:>8} "
+                  f"{a[i]['play']['deadFloorFrac']:>7.3f} "
+                  f"{b[i]['play']['deadFloorFrac']:>7.3f} "
+                  f"{a[i]['captures']:>6} {b[i]['captures']:>6}"
+                  f"{'' if same else '   <-- FORKED'}")
+    print(f"\n{exact}/{total} episode(s) reproduced exactly "
+          f"(ticks AND captures identical)")
+    if total and exact == total:
+        print("The episode loop is deterministic under load: every per-map "
+              "difference in the main table is geometry, not scheduling.")
+    else:
+        print("The episode loop FORKS under load. Per-map outcomes carry "
+              "scheduling noise, so treat the per-map means as estimates with "
+              "this much slop and lean on the bootstrap interval, not on any "
+              "single map's position.")
+
+
+def cmd_analyze(args):
+    plans = [json.load(open(p)) for p in args.plan]
+    plan = plans[0]
+    # Batches are POOLED, not averaged: they are the same protocol on the same
+    # board scale with the same episode seeds, differing only in which maps the
+    # stratifier drew. The control is played once and belongs to the pool once.
+    entries, seen = [], set()
+    for p in plans:
+        for e in list(p["control"]) + list(p["maps"]):
+            if e["label"] in seen:
+                continue
+            seen.add(e["label"])
+            e["_root"] = p["evidence_root"]
+            entries.append(e)
     rows = []
-    for entry in list(plan["control"]) + list(plan["maps"]):
+    for entry in entries:
+        root = entry["_root"]
         eps = load_evidence(root, entry["label"])
         agg = aggregate(eps)
         if not agg:
@@ -361,6 +442,7 @@ def main():
     s = sub.add_parser("select")
     s.add_argument("--manifest", required=True)
     s.add_argument("--n", type=int, default=20)
+    s.add_argument("--exclude", help="a prior plan.json whose maps/seeds to skip")
     s.add_argument("--out", required=True)
     s.set_defaults(func=cmd_select)
 
@@ -372,8 +454,15 @@ def main():
     r.add_argument("--out", default="/tmp/ctf-score-play")
     r.set_defaults(func=cmd_run)
 
+    p = sub.add_parser("repeat")
+    p.add_argument("--plan", required=True)
+    p.add_argument("--maps", type=int, default=3)
+    p.add_argument("--jobs", type=int, default=3)
+    p.add_argument("--port", type=int, default=25000)
+    p.set_defaults(func=cmd_repeat)
+
     a = sub.add_parser("analyze")
-    a.add_argument("--plan", required=True)
+    a.add_argument("--plan", required=True, nargs="+")
     a.add_argument("--out", default="/tmp/ctf-score-play/rows.json")
     a.set_defaults(func=cmd_analyze)
 
