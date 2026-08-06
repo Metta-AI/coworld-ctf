@@ -1517,11 +1517,19 @@ const
     ## along a diagonal avenue looks like. Adjacent slabs that clip identically
     ## are merged back, so a lane running flat under a block still yields ONE
     ## rect, not five.
-  LaneTrimMinPx* = 16
-    ## The thinnest surviving sliver worth keeping. Below this a trimmed block
-    ## is a hairline against the street: it reads as grime rather than
-    ## structure, and it spends cover budget on something no player can stand
-    ## behind. Dropping it is the one case where deletion is right.
+  LaneTrimMinPx* = EngineMinCorridorPx
+    ## The thinnest surviving sliver worth keeping — the engine's own collision
+    ## footprint. Below this a trimmed block is a hairline against the street:
+    ## it reads as grime rather than structure, and no cog can stand behind a
+    ## piece of cover narrower than a cog. Dropping it is the one case where
+    ## deletion is right.
+    ##
+    ## It is also the knob that pays for the trim. `arena`'s fill budget is
+    ## spent in EMISSION ORDER and skips any shape too big for what is left, so
+    ## cutting one rejected block into several small ones lets the budget be
+    ## spent more completely and the shipping generator already runs at a
+    ## median 163 permille against a 170 ceiling. At 16 px the slivers cost
+    ## 2 valid seeds in 60; at the engine footprint they do not.
 
 func laneCoreOver*(lane: Lane, corridorMinPx, x0, x1: int): tuple[lo, hi: int] =
   ## The part of a lane that cover may NEVER touch, over an x range.
@@ -1543,10 +1551,33 @@ func laneCoreOver*(lane: Lane, corridorMinPx, x0, x1: int): tuple[lo, hi: int] =
   ##   E <  keep:  2h + E - 2keep = corridorMin + E
   ## and both are >= `corridorMinPx` for every E. No reroll, no audit — the
   ## arithmetic cannot produce a pinched lane.
-  let
-    band = lane.laneBandOver(x0, x1)
+  ##
+  ## A GATE HAS ALREADY SPENT THE SLACK. Over a gate's run the lane is not
+  ## `widthPx` wide, it is `gate.widthPx` wide — 30 to 45 px, one cog — and the
+  ## strip left open is STAGGERED off the centreline, so it need not even lie
+  ## inside the band. Charging the slack twice is exactly what happened when
+  ## this was written without the gate term: the trimmed blocks landed in the
+  ## mid lane's gate openings and the map came back "no 26px route to the
+  ## center" on 4 city seeds of 6. Over a gate, nothing is spendable.
+  let band = lane.laneBandOver(x0, x1)
+  var
     keep = max(0, (lane.widthPx - corridorMinPx) div 2)
-  (band.lo + keep, band.hi - keep)
+    lo = band.lo
+    hi = band.hi
+  for gate in lane.gates:
+    # The gate's reach is its run PLUS a funnel on each side, for the same
+    # reason `maxGateRunPx` budgets one: a cog leaving a staggered opening is
+    # off the centreline and needs a corridor width of run to rejoin the lane.
+    # Protecting only the run itself left cover sitting immediately downstream
+    # of the opening, where it met the shoulder at an angle and closed the
+    # route just as dead -- 4 city seeds of 6, and only the rendered mask
+    # showed which pixels did it.
+    if gate.x - corridorMinPx > x1: continue
+    if gate.x + gate.runPx + corridorMinPx < x0: continue
+    keep = 0
+    lo = min(lo, gate.y - gate.widthPx div 2)
+    hi = max(hi, gate.y + gate.widthPx div 2)
+  (lo + keep, hi - keep)
 
 func trimRectToLanes(rect: MapRect, window: bool, plan: LanePlan): seq[ArenaShape] =
   ## Cut a rect down to the parts of it lying outside every lane's core.

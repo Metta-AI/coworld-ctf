@@ -7,10 +7,11 @@
 ##
 ##   nim c -d:release -r tools/lane_clip_probe.nim --cover=city 1 2 3
 
-import std/[os, random, strformat, strutils]
+import std/[os, random, strformat, strutils], pixie
 import ../src/ctf/[sim, map_lanes, map_rules, mapgen_biomes, mapgen_styles]
 
 var coverStyle = "city"
+var pngDir = ""
 
 func areaOf(s: ArenaShape): int =
   case s.kind
@@ -74,13 +75,50 @@ proc probe(seed: int, verbose: bool) =
     for s in cover:
       echo &"    IN  {describe(s):<34} area={areaOf(s):<7} " &
         &"intrudes={plan.intrudesOnLane(s)}"
-      if s.kind == shapeRect:
-        for lane in plan.lanes:
-          let b = lane.laneBandOver(s.rect.x, s.rect.x + s.rect.w)
-          echo &"          vs {lane.role}: band {b.lo}..{b.hi} " &
-            &"(rect y {s.rect.y}..{s.rect.y + s.rect.h})"
     for s in kept:
       echo &"    OUT {describe(s):<34} area={areaOf(s)}"
+
+proc render(seed: int) =
+  ## The picture a human has to judge: the carved half-field with this biome
+  ## as its fill, mirrored into a whole board exactly as the sim rasterizes it.
+  ## Plain stone-on-floor, no lane overlay — a map that only reads as blocks
+  ## and streets once you draw the lanes on top of it does not read as blocks
+  ## and streets.
+  var gameMap = loadCtfMapMetadata("arena")
+  let
+    rules = mapRules("standard", 2)
+    base = gameMap.flagHome(Red)
+    seamX = gameMap.width div 2
+    region = MapRect(x: BorderPx, y: BorderPx,
+      w: seamX - BorderPx, h: gameMap.height - 2 * BorderPx)
+    coverRegion = MapRect(x: base.x + gameMap.spawnClearW + 30, y: BorderPx + 20,
+      w: seamX - (base.x + gameMap.spawnClearW + 30) - 10,
+      h: gameMap.height - 2 * BorderPx - 40)
+    style = parseBiomeStyle(coverStyle)
+    board = MapRect(x: 0, y: 0, w: gameMap.width, h: gameMap.height)
+    domain = fundamentalDomain(board, coverRegion, gameMap.symmetry)
+    cover = generateBiomeShapes(style, seed, coverRegion,
+      defaultBiomeParams(style), domain)
+  var rng = initRand(seed)
+  gameMap.leftObstacles = carveLanes(rng, region, base, seamX, rules, cover).shapes
+  gameMap.name = "carved"
+
+  let obstacles = buildArenaObstacles(gameMap)
+  var img = newImage(gameMap.width, gameMap.height)
+  let
+    floorC = rgba(232, 220, 200, 255)
+    stoneC = rgba(58, 49, 40, 255)
+  for y in 0 ..< gameMap.height:
+    for x in 0 ..< gameMap.width:
+      var solid = false
+      for s in obstacles:
+        if inShape(x, y, s):
+          solid = true
+          break
+      img.unsafe[x, y] = (if solid: stoneC else: floorC)
+  let path = &"{pngDir}/{coverStyle}-seed{seed}.png"
+  img.writeFile(path)
+  echo &"    wrote {path}"
 
 when isMainModule:
   var seeds: seq[int]
@@ -88,7 +126,10 @@ when isMainModule:
   for i in 1 .. paramCount():
     let a = paramStr(i)
     if a.startsWith("--cover="): coverStyle = a["--cover=".len .. ^1]
+    elif a.startsWith("--png="): pngDir = a["--png=".len .. ^1]
     elif a == "-v": verbose = true
     else: seeds.add parseInt(a)
   if seeds.len == 0: seeds = @[1, 2, 3]
-  for s in seeds: probe(s, verbose)
+  for s in seeds:
+    probe(s, verbose)
+    if pngDir.len > 0: render(s)
