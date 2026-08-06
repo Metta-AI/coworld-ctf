@@ -1,0 +1,64 @@
+
+=== 14 maps at 4 teams. First two rows are CONTROLS.
+!! 8 seed(s) THE GENERATOR COULD NOT SATISFY at 4 teams, absent from every number below: gen:1002 (Map generation found no valid layout in 100 attempts from seed 1002), gen:1005 (Map generation found no valid layout in 100 attempts from seed 1005), gen:1006 (Map generation found no valid layout in 100 attempts from seed 1006), gen:1012 (Map generation found no valid layout in 100 attempts from seed 1012), gen:1013 (Map generation found no valid layout in 100 attempts from seed 1013), gen:1017 (Map generation found no valid layout in 100 attempts from seed 1017), gen:1018 (Map generation found no valid layout in 100 attempts from seed 1018), gen:1019 (Map generation found no valid layout in 100 attempts from seed 1019)
+
+map                   size  score |  SIGHT     axis axLng% dgLng% |  chk wide  exp allw  exc cv259 cv1050 |  stCov% gapPx |  rts
+CTL arena       1235x659    1.000 |    758 diagonal  39.3%   1.0% |    0   36    0    0    0    no     no |    7.2%    83 |    8
+CTL arena-large 1606x858    0.905 |   1149 diagonal  46.2%  18.3% |    0   72    0    0    0    no     no |    2.6%   111 |   12
+gen:1001        960x960    0.000 |    702 diagonal   0.0%   2.2% |   16   40  192  132   60    no     no |   17.2%   116 |    1
+gen:1003        960x960    0.904 |    858 diagonal   0.0%   0.2% |    4   48   18   99  -81    no     no |   10.2%    73 |    3
+gen:1004        1248x1248   0.919 |    701 diagonal   0.0%   6.7% |    0   58    0    0    0    no     no |    6.6%    94 |    6
+gen:1007        960x960    0.000 |    835 diagonal   0.0%   0.2% |   18   26  111   66   45    no     no |   17.2%   116 |    1
+gen:1008        1248x1248   0.899 |   1132 diagonal   0.0%   9.8% |    0   60    0    0    0    no     no |    6.1%    94 |    9
+gen:1009        960x960    0.832 |    702 diagonal   0.0%   2.2% |    4   26   96   66   30    no     no |   16.8%   116 |    2
+gen:1010        1248x1248   0.926 |    697 diagonal   0.0%   7.3% |    0   46    0    0    0    no     no |    6.6%    94 |    7
+gen:1011        960x960    0.904 |    858 diagonal   0.0%   0.2% |    4   48   18   99  -81    no     no |   10.2%    73 |    3
+gen:1014        960x960    0.904 |    858 diagonal   0.0%   0.2% |    4   48   18   99  -81    no     no |   10.2%    73 |    3
+gen:1015        960x960    0.904 |    858 diagonal   0.0%   0.2% |    4   48   18   99  -81    no     no |   10.2%    73 |    3
+gen:1016        960x960    0.753 |    702 diagonal   0.0%   2.2% |   18   54  192  132   60    no     no |   17.2%   116 |    2
+gen:1020        960x960    0.000 |    835 diagonal   0.0%   0.2% |   18   26  111   66   45    no     no |   17.2%   116 |    1
+
+DISTRIBUTION over the non-control rows:
+  sightlineMaxPx       arena  758.000  large 1149.000   min  697.000  p25  702.000  med  835.000  p75  858.000  max 1132.000
+  axis runP95          arena  614.000  large  813.000   min  367.000  p25  367.000  med  367.000  p75  367.000  max  529.000
+  axis runMax          arena  638.000  large  843.000   min  382.000  p25  392.000  med  392.000  p75  392.000  max  530.000
+  longRunFrac          arena    0.104  large    0.169   min    0.000  p25    0.000  med    0.000  p75    0.000  max    0.000
+  longRunPxFrac        arena    0.393  large    0.462   min    0.000  p25    0.000  med    0.000  p75    0.000  max    0.000
+  diag runP95          arena  346.000  large  629.000   min  318.000  p25  318.000  med  318.000  p75  318.000  max  496.000
+  diag runMax          arena  758.000  large 1149.000   min  697.000  p25  702.000  med  835.000  p75  858.000  max 1132.000
+  diagLongRunFrac      arena    0.002  large    0.057   min    0.000  p25    0.000  med    0.005  p75    0.005  max    0.034
+  diagLongRunPxFrac    arena    0.010  large    0.183   min    0.002  p25    0.002  med    0.022  p75    0.022  max    0.098
+  routeWidthPx         arena   36.000  large   72.000   min   26.000  p25   40.000  med   48.000  p75   48.000  max   60.000
+  chokeCount           arena    0.000  large    0.000   min    0.000  p25    4.000  med    4.000  p75   16.000  max   18.000
+  pinchGateCount       arena   28.000  large    0.000   min    8.000  p25   12.000  med   12.000  p75   12.000  max   14.000
+  pinchMandatory       arena    0.000  large    0.000   min    0.000  p25    6.000  med    6.000  p75    6.000  max   12.000
+  chokeExposedPx       arena    0.000  large    0.000   min    0.000  p25   18.000  med   18.000  p75  111.000  max  192.000
+  chokeExcessPx        arena    0.000  large    0.000   min  -81.000  p25  -81.000  med    0.000  p75   45.000  max   60.000
+  covered @259         arena    0.000  large    0.000   min    0.000  p25    0.000  med    0.000  p75    0.000  max    0.000
+  covered @1050        arena    0.000  large    0.000   min    0.000  p25    0.000  med    0.000  p75    0.000  max    0.000
+  standCoverMin        arena    0.072  large    0.026   min    0.061  p25    0.102  med    0.102  p75    0.172  max    0.172
+  standCoverGapPx      arena   83.000  large  111.000   min   73.000  p25   73.000  med   94.000  p75  116.000  max  116.000
+  standCoverSpread     arena    0.000  large    0.000   min    0.000  p25    0.000  med    0.000  p75    0.000  max    0.000
+  routeCountMin        arena    8.000  large   12.000   min    1.000  p25    2.000  med    3.000  p75    3.000  max    9.000
+  visDegreeCv          arena    0.524  large    0.295   min    0.190  p25    0.217  med    0.241  p75    0.241  max    0.336
+  visLethalDegCv       arena    0.556  large    0.361   min    0.184  p25    0.210  med    0.210  p75    0.217  max    0.282
+  visSampleStride      arena   52.000  large   68.000   min   52.000  p25   52.000  med   52.000  p75   52.000  max   68.000
+  staticScore          arena    1.000  large    0.905   min    0.000  p25    0.753  med    0.904  p75    0.904  max    0.926
+
+HARD GATE (the sim's own validator, run on every row including both controls):
+  0 of 14 rejected.
+
+BAND BREACHES (the control's breaches are METRIC BUGS, not verdicts):
+  !! CONTROL CTL arena-large  interiorFrac=0.100  longRunFrac=0.169  sightlineMaxPx=1149.000  diagLongRunPxFrac=0.183  visDegreeCv=0.295
+     gen:1001         interiorFrac=0.131  routeCountMin=1.000  routeCountDesign=1.000  routeCapacityFrac=0.028  chokeCount=16.000  chokeExcessPx=60.000  standRingOpenMin=1.000  midOpenFrac=0.822  detourMax=2.557  visDegreeCv=0.190
+     gen:1003         interiorFrac=0.098  routeCapacityFrac=0.083  midCrossCount=2.000  midOpenFrac=0.091  visDegreeCv=0.241
+     gen:1004         interiorFrac=0.052
+     gen:1007         interiorFrac=0.122  routeCountMin=1.000  routeCountDesign=1.000  routeCapacityFrac=0.028  chokeCount=18.000  chokeExcessPx=45.000  standRingOpenMin=1.000  midOpenFrac=0.788  detourMax=2.170  visDegreeCv=0.217
+     gen:1008         interiorFrac=0.036  sightlineMaxPx=1132.000
+     gen:1009         interiorFrac=0.156  routeCountDesign=2.000  routeCapacityFrac=0.056  chokeExcessPx=30.000  standRingOpenMin=1.000  midOpenFrac=0.822  visDegreeCv=0.204
+     gen:1010         interiorFrac=0.067
+     gen:1011         interiorFrac=0.098  routeCapacityFrac=0.083  midCrossCount=2.000  midOpenFrac=0.091  visDegreeCv=0.241
+     gen:1014         interiorFrac=0.098  routeCapacityFrac=0.083  midCrossCount=2.000  midOpenFrac=0.091  visDegreeCv=0.241
+     gen:1015         interiorFrac=0.098  routeCapacityFrac=0.083  midCrossCount=2.000  midOpenFrac=0.091  visDegreeCv=0.241
+     gen:1016         interiorFrac=0.143  routeCountDesign=2.000  routeCapacityFrac=0.056  chokeCount=18.000  chokeExcessPx=60.000  standRingOpenMin=1.000  midOpenFrac=0.822  detourMax=2.557  visDegreeCv=0.198
+     gen:1020         interiorFrac=0.122  routeCountMin=1.000  routeCountDesign=1.000  routeCapacityFrac=0.028  chokeCount=18.000  chokeExcessPx=45.000  standRingOpenMin=1.000  midOpenFrac=0.788  detourMax=2.170  visDegreeCv=0.217
