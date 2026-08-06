@@ -22,7 +22,12 @@
 ##   nim c -d:release -r tools/lane_openrow_probe.nim [seeds...]
 
 import std/[os, random, strformat, strutils]
-import ../src/ctf/[sim, map_lanes, map_rules, mapgen_styles]
+import ../src/ctf/[sim, map_lanes, map_rules, mapgen_biomes, mapgen_styles]
+
+var coverStyle = "scatter"
+  ## "scatter" reproduces the original blocker report; a biome name feeds the
+  ## organic fill layer in as the lane network's cover instead, which is the
+  ## composition the rewrite brief actually specifies (skeleton then fill).
 
 proc carvedMap(seed: int, withCover = true): CtfMap =
   ## Same construction as `tools/lane_dbg.nim`, which is what the blocker was
@@ -44,9 +49,20 @@ proc carvedMap(seed: int, withCover = true): CtfMap =
   ## verdict on the full map cannot tell "the lanes are too thick" apart from
   ## "the probe asked for too much scatter".
   let cover =
-    if withCover: generateShapes(styleScatter, seed, coverRegion,
-      defaultParams(styleScatter))
-    else: @[]
+    if not withCover: @[]
+    elif coverStyle == "scatter":
+      generateShapes(styleScatter, seed, coverRegion, defaultParams(styleScatter))
+    else:
+      ## The fill layer, emitted INSIDE the fundamental domain so its dither —
+      ## which is symmetry-destroying by construction — lifts to an exactly
+      ## fair board. Organic look, exact fairness: the lift is what enforces
+      ## fairness, so any irregularity inside the domain is free.
+      let
+        style = parseBiomeStyle(coverStyle)
+        board = MapRect(x: 0, y: 0, w: gameMap.width, h: gameMap.height)
+        domain = fundamentalDomain(board, coverRegion, gameMap.symmetry)
+      generateBiomeShapes(style, seed, coverRegion,
+        defaultBiomeParams(style), domain)
   gameMap.leftObstacles = carveLanes(rng, region, base, seamX, rules, cover).shapes
   gameMap.name = "carved"
   gameMap
@@ -130,7 +146,10 @@ proc probe(seed: int) =
 when isMainModule:
   var seeds: seq[int]
   for i in 1 .. paramCount():
-    seeds.add parseInt(paramStr(i))
+    let a = paramStr(i)
+    if a.startsWith("--cover="): coverStyle = a["--cover=".len .. ^1]
+    else: seeds.add parseInt(a)
   if seeds.len == 0: seeds = @[1, 2, 3]
+  echo &"### cover layer: {coverStyle}"
   for s in seeds:
     probe(s)
