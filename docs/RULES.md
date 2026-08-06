@@ -848,6 +848,24 @@ disagree, the manifest is right and this document is stale — that is exactly h
 the `heart`/`flag` claim above went wrong. The label vocabulary itself lives in
 `src/ctf/labels.nim`, shared by the engine and the reference policy.
 
+**The scoreboard chip is a label too, and its numbers are COUNTERS.** The strip
+above the field carries one board/spectator-stream object per team labeled
+`team score <TEAM> <kills>/<deaths>`, the team word UPPERCASE unlike every
+`<color>` slot elsewhere. Both tallies are the team-wide running counts for the
+episode so far — the same kills and deaths the Scoring section says are recorded
+without awarding points. It is chrome: nothing in `players/baseline/` scans it,
+and the analysis event stream reports the same tallies in a parsed form.
+
+**The slash does not mean the same thing here as in `hp <n>/3`.** The hp bar's
+denominator is a FIXED contract value the engine and every policy must spell
+identically, which is why the manifest keeps it literal and a test compares the
+two implementations. The scoreboard's is a live count that moves every time
+anybody dies. Pinning it would be pinning a scoreboard reading — and the
+manifest once did exactly that, carrying `team score BLUE <n>/1` until a
+map-generator change made the contract test's fixture land one more kill and the
+vocabulary guard reported a phantom new label. Both scoreboard numbers now
+normalize to `<n>`; the hp label is the sole opt-in to a literal denominator.
+
 **Identity badges:** every living player carries a separate badge object
 labeled `identity <color> <name>` (`alpha`..`theta` — see Teams & spawns).
 Like the `hp <n>/3` bar, the badge is a distinct object centered on its
