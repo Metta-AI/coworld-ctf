@@ -237,6 +237,19 @@ when defined(fnprobe):
   var fnCellNone = 0   # recomputes that yielded nothing
   var fnImprove = 0    # sum of (teams before - teams at the chosen cell)
   var fnSlot = -1      # this process's seat, stamped at connect
+  var fnTravel = 0.0   # ⭐ TRAVEL per alive frame — the ERRAND red flag. Three
+                       # levers have now died of the same cause (woundedBank,
+                       # medSee, frontage): the feet ARE part of the weapon
+                       # system, because the vision cone rides the turret and,
+                       # in the CQB meta, the closing step IS the kill. So a
+                       # positional lever whose exposure metric only improves
+                       # when TRAVEL rises has not found a better position — it
+                       # has bought an errand, and the errand costs guns.
+                       # Pre-registration rule: report travel/alive-frame next to
+                       # every exposure number, and read a travel RISE as a
+                       # failure signature, not as evidence the lever is working.
+  var fnPrevX = -1.0   # last alive frame's position, for the travel integral
+  var fnPrevY = -1.0
 
 when defined(scprobe):
   # -d:scprobe ONLY (v9): instrument the satCap redistribution as a FUNNEL so a
@@ -6801,6 +6814,13 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   when defined(fnprobe):
     if alive:
       inc fnAlive
+      # travel integral: a jump means a respawn, not a walk — drop those.
+      if fnPrevX >= 0.0:
+        let step = dist(me, vec(fnPrevX, fnPrevY))
+        if step < 40.0:
+          fnTravel += step
+      fnPrevX = me.x
+      fnPrevY = me.y
       let
         nearMask = bot.rivalTeamMask(client, me, false)
         lineMask = bot.rivalTeamMask(client, me, true)
@@ -7804,7 +7824,8 @@ proc runBot(url: string) =
             " elig=" & $fnEligible & " entry=" & $fnEntry &
             " engaged=" & $fnEngaged &
             " cell=" & $fnCellFound & " nocell=" & $fnCellNone &
-            " improve=" & $fnImprove
+            " improve=" & $fnImprove &
+            " travel=" & $int(fnTravel)
         quit(0)
       echo "connect retry: ", e.msg
       sleep(250)
