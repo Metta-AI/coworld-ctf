@@ -1524,12 +1524,15 @@ const
     ## piece of cover narrower than a cog. Dropping it is the one case where
     ## deletion is right.
     ##
-    ## It is also the knob that pays for the trim. `arena`'s fill budget is
-    ## spent in EMISSION ORDER and skips any shape too big for what is left, so
-    ## cutting one rejected block into several small ones lets the budget be
-    ## spent more completely and the shipping generator already runs at a
-    ## median 163 permille against a 170 ceiling. At 16 px the slivers cost
-    ## 2 valid seeds in 60; at the engine footprint they do not.
+    ## Do NOT expect this to be the knob that pays for the trim — measured, it
+    ## is not. `arena`'s fill budget is spent in EMISSION ORDER and skips any
+    ## shape too big for what is left, so cutting one rejected block into
+    ## several smaller ones lets the budget be spent more completely, and the
+    ## shipping generator already runs at a median 162 permille against a 170
+    ## ceiling. Raising this floor from 16 px to the engine footprint moved
+    ## 2-team validity not at all (54/60 either way): the cover the trim adds
+    ## is in the pieces worth keeping, not in the slivers. The real coupling is
+    ## `arena`'s FillFloorPermille, and it has its own task.
 
 func laneCoreOver*(lane: Lane, corridorMinPx, x0, x1: int): tuple[lo, hi: int] =
   ## The part of a lane that cover may NEVER touch, over an x range.
@@ -1694,10 +1697,14 @@ proc clearLanes*(shapes: seq[ArenaShape], plan: LanePlan): seq[ArenaShape] =
       # two convex rings, and a 45° run minus a band is at most two runs -- but
       # measuring it first showed WHY that is not a free change: rejection has
       # been acting as the fill layer's density regulator. Clipping them lifted
-      # `caves` from 144/148/144/136/153/142 to 186/182/187/144/187/146 against
-      # a 170 ceiling (4 of 6 seeds newly invalid), and `forest` and `plains`
-      # the same way. The geometry fix is right; it has to land WITH a fill
-      # density that was tuned against it, which lives in `mapgen_biomes`.
+      # `caves` from 144/148/144/136/153/142 to 186/182/187/144/187/146 in
+      # `tools/lane_openrow_probe` against a 170 ceiling (4 of 6 seeds newly
+      # invalid), and `forest` and `plains` the same way. That probe has no
+      # fill budget, so it overstates what reaches a shipping board — but the
+      # direction is real, and the rect trim alone already costs 3 valid seeds
+      # in 100 on `gen_sweep`. The geometry fix is right; it has to land WITH
+      # the budget arithmetic it is coupled to (`arena.FillFloorPermille`,
+      # docs/plans/2026-08-06-fill-budget-floor-finding.md), not before it.
       discard
 
 
