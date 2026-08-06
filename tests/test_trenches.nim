@@ -364,6 +364,16 @@ suite "trenches":
     ## arrive after the roll — but it is narrow enough to catch both failures
     ## above (0.00 and 1.57 of budget). Measured on this pool: 114 dug against
     ## a 160 budget, 0.71, with 19 of 20 maps digging something.
+    ##
+    ## ⚠️ The budget itself is only exact at the STANDARD class. `map_rules`
+    ## derives `trenchCount` from `trenchSizePx = coverSizePx`, which scales
+    ## with the class, while the generator's `TrenchSize` is a fixed 56 at
+    ## every size — so the two agree only where coverSizePx happens to be 56.
+    ## Restated in real pits the derived area share wants 16 on large and 559
+    ## on colossal, not 13 and 107. This pool is small+standard, so the anchor
+    ## holds here; a large-board pool would need that settled first (it is the
+    ## same defect as the pinned "colossal's trench budget does not fit the
+    ## mapPits cap" finding in test_map_rules.nim).
     var dug, budget, mapsWithTrenches = 0
     for index in 0 ..< MapPoolSeeds.len:
       let gameMap = cachedPoolMap(index)   ## shared memo, no extra generation
