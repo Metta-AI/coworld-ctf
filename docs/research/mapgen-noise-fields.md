@@ -23,20 +23,26 @@ need *concavity*, and smoothing a noise field is precisely the operator that
 
 What noise **is** worth, honestly, in descending order of value:
 
-1. **A level set of a smooth field is a disjoint union of closed curves, and the
-   faces they cut the plane into form a TREE.** That is a hard theorem (§6.4).
-   Thicken the curves into walls, punch exactly one door per curve, and the
-   floor is connected **by construction** — no flood-fill repair, no
-   generate-and-test. And a thickened closed curve is a *ring*, whose interior is
-   8-of-8 blocked, which is exactly the `interiorFrac` structure we lack. This is
-   the single highest-value finding in my dimension and it is where noise
-   belongs.
+1. **Extract a contour from the field, keep a ≥270° ARC of it, thicken it into a
+   wall.** (§6.4b) A thickened simple arc is a closed *disc* — simply connected —
+   so a family of disjoint arcs cannot separate the plane: **floor connectivity,
+   no sealed pockets, and `chokeCount = 0` follow from a one-line proof, on every
+   seed.** Enforce a minimum gap `g` between arcs and `routeCountMin >=
+   floor(g/26)` follows too. And an arc is **concave**, which is the one thing a
+   noise-thresholded blob provably cannot be (§12.1) — `InteriorBlockedMin = 6`
+   of 8 is *literally* the 270° horseshoe threshold, and the mouth of the C is a
+   free door. This is the highest-value finding in my dimension.
+   *(§6.4/§6.4a develop the closed-loop version and the nesting-tree theorem
+   first; keep them as the reason loops **fail** — a tree of doors satisfies
+   `routeCountMin` on paper while leaving every route through the same rooms,
+   which is metric-gaming. The arcs supersede it.)*
 2. **Poisson-disk sampling's minimum-separation property is a hard invariant**
-   (§5.3), and with radius `R` and separation `r > 2R + MinCorridorWidth` it
-   upgrades to a one-line proof of *floor connectivity and no sealed pockets*
-   (§5.4). Our current `genScatter` has **no** such guarantee and can produce
-   overlapping clusters (§5.5) — swapping its jittered grid for Bridson is a
-   cheap, local, strictly-better change.
+   (§5.3), and with radius `R` and separation `r > 2R + g` it upgrades to the same
+   one-line proof of *floor connectivity and no sealed pockets* (§5.4). Our
+   current `genScatter` has **no** such guarantee — its own parameters admit
+   coincident discs (§5.5). At `r = lanePitchPx = 180` (which the partition
+   survey derived independently) we could afford **51 px** cover blobs, larger
+   than the 32 px we ship, *and* guarantee 78 px gaps. ~20 lines (§15.1).
 3. **You can solve for the threshold analytically instead of rolling dice**
    (§11). Cauchy's mean-chord formula plus Rice's level-crossing formula give
    closed forms for both cover fraction *and* mean free sightline as functions of
@@ -247,7 +253,8 @@ an (A) with no named property is not an (A).
 | 6.2 | **…at an empirical quantile** | **(A)** | **exact pre-carve cover fraction** | +O(N log N) sort | Turns the cover validator into a non-event (§11.5) |
 | 6.3 | **Hysteresis / double threshold** | **(B)** | — | +1 flood fill | Kills speckle, thickens features. Removes sub-corridor pinches *statistically* |
 | 6.4 | **Marching squares → `shapePolygon`** | **(A)** | **output is closed, simple, non-self-intersecting loops** (given consistent saddle resolution) | O(pixels) | Directly emits our native polygon primitive |
-| 6.4 | **Contour nesting tree + one door per contour** | **(A)** | **floor connectivity, by construction** | O(contours) | **The headline finding.** Rooms *and* connectivity from the same object |
+| 6.4 | **Contour nesting tree + doors** | **(A)** | floor connectivity; and `routeCountMin = min_i d_i` exactly | O(contours) | Superseded — the room graph stays a **tree**, so it passes the metric while every route uses the same rooms (§6.4b) |
+| **6.4b** | **Thickened ≥270° ARCS (not loops)** | **(A)** | **floor connectivity + no sealed pockets + `chokeCount = 0` + `routeCountMin >= floor(g/26)`** | O(contours) | **The headline finding.** Concave cover (so `interiorFrac` works) with the disjoint-discs proof (so connectivity works) and no door pass at all |
 | 6.5 | **RDP / Visvalingam simplification** | **(B)** | — | O(n log n) | Gets a 4000-vertex contour under the 48-vertex budget. **Does not preserve simplicity** — needs a guard |
 | 7.1 | **Curl noise** | **(C)** | divergence-free is (A), but of a property we do not care about | ×2 field evals | In 2D its streamlines *are* the level sets of the potential (§7.1) — same object as §6.4, no new information |
 | 7.2 | **Tensor fields / hyperstreamlines** | **(B)** | — | high | Genuine lane layout with designer control. The one technique here that thinks in terms of *routes* |
@@ -1130,6 +1137,83 @@ And simultaneously, from the same object:
 > excursion fraction 0.35, ribbon 20 px, the model predicts `interiorFrac ≈ 0.32`
 > at 150 permille cover — inside both bands, against a pool median of 0.118.
 
+### 6.4b The deeper problem the identity does NOT fix — and the construction that does
+
+Reconciling with the sibling surveys (`docs/research/mapgen-partition-geometry.md`
+§7 and `docs/research/mapgen-constructive.md` §4.6) forced me to look harder at my
+own result, and it has a flaw the metric cannot see. Stating it against myself
+before anyone else does:
+
+**`routeCountMin = min_i d_i` is a statement about the PIXEL min-cut. The room
+graph is still a tree.** Three doors in one wall give three vertex-disjoint
+*corridors* and the metric will happily read 3 — but every route visits **the same
+rooms in the same order**, and all three doors are on one wall, so **one defender
+standing back from that wall watches all of them.** That very likely trips
+`chokeCoveredPenalty` ("ONE 1050 px isovist watches every chokepoint"), and more
+to the point it is the map being a corridor while the number says otherwise. Our
+own generator history is that the validators pass 96% of first attempts — they are
+a crash guard, not a filter. **My identity would have been metric-gaming.**
+
+The siblings' answer is structurally right and I adopt it: **do not open a tree,
+close a triangulation.** Every plane triangulation with `n >= 4` vertices is
+**3-connected**, so by Menger there are 3 vertex-disjoint paths between *every*
+pair of nodes; start from the Delaunay/Voronoi partition with all doorways open
+(3-connected) and close doorways only while the check still passes. That delivers
+redundancy at the **room** level, which is the thing that matters.
+
+But that is a *partition* construction, and nesting contours are inherently a
+*hierarchy* — closed curves nest, they cannot form cycles. So rather than bolt a
+partition onto §6.4, there is a one-line change to the contour construction that
+dissolves the problem entirely:
+
+> **Cut the rings. Thicken ARCS, not loops.**
+
+Thicken only a contiguous **arc** of each extracted contour — 270° to 340° of the
+loop — and discard the rest. A thickened simple arc is homeomorphic to a **closed
+disc**: simply connected, and it does not separate the plane. Then:
+
+> **(A) HARD GUARANTEE — connectivity, with no doors at all.** If every wall
+> component is a thickened simple arc, components are pairwise disjoint, and none
+> touches the map border, then the wall set is a finite disjoint union of closed
+> topological discs, and the complement of such a union in a rectangle is
+> connected. **The floor is connected, there are no sealed pockets, and no wall is
+> a cut set — so `chokeCount` from walls is 0**, matching the arena's control of 0.
+> This is the *same one-line proof* as §5.4, now applied to concave pieces instead
+> of convex ones. Everything §5.4 gives scatter, arcs give too.
+
+> **(A) HARD GUARANTEE — route capacity.** Enforce a minimum gap `g` between any
+> two wall components and between any component and the border (a distance-
+> transform check, or Poisson-disk on the arc centres). Any cut separating the two
+> bases must cross at least one gap, and a gap of width `g` costs
+> `floor(g / RouteCellPx)` cells. So **`routeCountMin >= floor(g / 26)` by
+> construction.** Set `g = 78` (3 cells, comfortably above
+> `RecommendedCorridorWidthPx = 68`) and the hard band `routeCountMin >= 2` cannot
+> fail, with a full cell of margin.
+
+> **(A)-adjacent — `interiorFrac`, with an exact design rule.** An arc spanning
+> angle `theta` blocks about `8 * theta / 360` of the 8 probe directions from its
+> centre. `InteriorBlockedMin = 6` therefore lands at **`theta >= 270°`** — the
+> threshold at `map_metrics.nim:81` is *literally* a three-quarter horseshoe.
+> **Keep at least 270° of every contour; cut at most 90° out.** The pocket inside
+> the C counts as interior floor provided the arc's inner radius is
+> ≤ `EnclosureReachPx = 120 px`.
+
+The mouth of the C **is** the door, and it costs nothing: no door-punching pass,
+no distance-transform door siting, no laminar-family repair bookkeeping. The cut
+angle is a per-ring RNG draw, lifted by the orbit so every team's rooms have their
+mouths in matching places. A horseshoe bunker with an open mouth is also a
+thoroughly conventional FPS map element, so the output should read as designed
+rather than as generated.
+
+**What is lost:** the contour-nesting-tree theorem no longer does any work,
+because there is no tree — which is the point. Keep §6.4/§6.4a in the document as
+the reason the *loop* version fails, not as the recommendation. And leave
+room-level redundancy where the siblings put it: at the **partition** layer
+(Voronoi cells, Delaunay 3-connectivity), with contour arcs placed *inside* the
+cells as the concave cover. **The two dimensions compose exactly there** — their
+partition gives the lane network and the route redundancy; my arcs give the
+enclosed pockets that a convex-blob generator provably cannot (§12.1).
+
 **The failure modes, and the repair that PRESERVES the guarantee.** This is the
 part that makes it engineering rather than a nice theorem:
 
@@ -1653,7 +1737,107 @@ centre is correspondingly larger.
 
 ---
 
-## 11. Solving for the threshold instead of rolling dice
+### 10.6 The mirror-axis hazard, checked for every construction in this dimension
+
+`docs/research/mapgen-partition-geometry.md` §8 proves a sharp trap: **a mirror
+axis IS a Voronoi edge unless a seed sits on it**, because the axis is exactly the
+equidistant set between any seed and its mirror image. So a symmetric cell
+construction that leaves the axis unseeded lays a perfectly straight full-board
+feature down the middle of every 2-team map.
+
+I was asked whether the analogue holds for thresholded noise. **It does for some
+of my constructions and provably not for others**, and the dividing line is
+clean enough to be a design rule. Let `s` be the mirror about `x = x_c` and let
+`g` be the lifted (symmetric) field.
+
+**The general test.** A construction has the hazard iff its output places a
+*boundary* on the fixed-point set of the group by symmetry alone. So: ask what
+locus the construction draws, and ask whether symmetry forces that locus onto the
+axis.
+
+**(1) Worley / cellular F2−F1 — HAZARD, at full force.** `F2 − F1` *is* the
+Voronoi edge function, so this is not an analogue of the siblings' theorem, it is
+the same theorem. On the axis, the nearest seed and its mirror are equidistant, so
+`F1 = F2` and **`F2 − F1 = 0` exactly, along the entire axis, on every seed.**
+Both polarities are bad and you get to choose which: threshold walls as the *low*
+set of `F2 − F1` and the axis is a **straight full-board wall**; threshold them as
+the *high* set and the axis is a **straight full-board open corridor** with no
+cover for its entire length. Since `symMirror` folds across the *vertical* centre
+line, that corridor is vertical — which our **hard** sightline validator never
+looks at (§2.4, it scans rows only), so it would ship silently and only be scored
+softly by `longRunFrac`. **If we ever use cellular noise under a mirror lift, seeds
+must be placed ON the axis, exactly as the partition survey prescribes.**
+
+**(2) Point-placed cover (scatter, Poisson-disk) — HAZARD, and we already have
+it.** A disc at distance `d` from the axis and its mirror image leave a straight
+open channel of width `2d − 2R` centred on the axis; the axis itself is open
+unless some obstacle straddles it. `mapgen_styles.nim`'s own header says the
+placement region is *"already inset from … the symmetry seam"*, which makes this
+**deterministic rather than probabilistic**: every mirror map gets a straight open
+seam channel whose width is twice the inset. This is very likely part of why
+`verticalAnchors` draws its `x` from a mid-field band at all
+(`mapgen_styles.nim:130-133`), and it is a second, independent argument for
+letting shapes straddle the seam.
+
+**(3) Gradient-noise LEVEL SETS — NO HAZARD, and here is the proof.** This is the
+one that matters, because it is the recommendation.
+
+> *Claim.* For either symmetrisation, the mirror axis is neither systematically
+> wall nor systematically floor, and the density of wall crossings along the axis
+> equals the density along any other vertical line.
+>
+> *Proof.* **Marginal value.** Under folding, `g(x_c, y) = f(0, y)`; under
+> averaging, `g(x_c, y) = f(x_c, y)` since `s` fixes the axis pointwise. In both
+> cases the restriction of `g` to the axis is an ordinary sample of `f`, unit
+> variance, mean zero — **no bias toward or away from the threshold**.
+> **Along-axis derivative.** Under folding, `d g/dy (x_c, y) = d f/dy (0, y)`;
+> under averaging, `d g/dy (x_c, y) = d f/dy (x_c, y)`. Both have variance
+> `lambda2`, the generic value. By Rice (§11.1) the level-`u` crossing rate along
+> the axis is `(sqrt(lambda2)/pi) exp(-u^2/2)` — **identical to the rate along any
+> vertical line.** So the run-length distribution on the axis is the generic one.
+> **Transversality.** A contour can only lie *along* the axis if `grad g` is
+> perpendicular to it there. Under averaging, `grad g` on the axis is exactly
+> *parallel* to the axis (§10.3), so contours cross it at right angles; under
+> folding they cross in a V. Either way, transversally, at isolated points. ∎
+
+So the arc/contour construction of §6.4b is **structurally immune** to the
+sibling's trap. That is a third independent argument for it, and it is the kind of
+thing worth knowing *before* building, not after.
+
+One residual, for folding only: where `grad f` at the axis happens to point nearly
+along `x`, the contour runs nearly parallel to the axis and the fold produces a
+**long thin chevron hugging the seam** — a wall parallel to the axis, not an open
+lane, so it fails safe. Averaging removes even that, because `grad g` is exactly
+parallel to the axis there, which makes the near-parallel case impossible.
+
+**(4) Ridge, watershed and flow constructions (ridged multifractal §4.7, D8 §9.2)
+— PARTIAL HAZARD, and it is real.** Here the construction draws a *ridge/valley*
+locus, and symmetry does force that locus onto the axis. Under averaging,
+`d g/dn = 0` identically on the axis, so **every point of the axis is a critical
+point transverse to the axis** — the axis is a critical line, decomposing into
+alternating ridge segments (where `d^2 g/dn^2 < 0`) and valley segments. Water
+placed on the axis can only flow *along* it, so **the D8 flow network of a
+mirror-symmetrised heightfield always contains the axis.** Under folding the same
+thing happens as a crease.
+
+Quantitatively this is milder than the Voronoi case because the segments alternate
+rather than running the full board: the alternation scale is the field's
+correlation length `L0`, so segments are ~`L0` long with an exponential-ish tail.
+At the §11.2 design point `L0 ≈ 275 px`, `P(segment > LongRunPx = 600) ≈
+exp(-600/275) ≈ 0.11`, and with ~4 segments down a 1119 px board that is roughly
+**0.4 long straight mid-board features per map** — not every map, but far too
+often to ignore, and systematically in the worst possible place. **If we use
+ridged noise or an erosion-derived trench network under a mirror lift, the seam
+needs an explicit check and probably an explicit obstacle.**
+
+**Summary rule.** The hazard tracks *what locus the construction draws*:
+
+| Construction draws… | On the axis, symmetry forces… | Hazard |
+|---|---|---|
+| Voronoi edges (Worley F2−F1) | `F2 − F1 = 0` exactly, full board | **Severe** |
+| points, lifted in pairs | a straight gap between each pair and its mirror | **Severe** (and deterministic given a seam inset) |
+| ridge / valley / flow lines | a critical line ⇒ alternating ridge and valley segments | **Moderate**, ~`L0`-scale segments |
+| **level sets of a scalar field** | **nothing — generic crossing rate, transversal crossings** | **None** |
 
 *(Section order note: §11–§12 are the analysis that motivates the
 recommendation, and were written first because they are what the recommendation
@@ -1918,3 +2102,362 @@ one closed polygon per contour, thickened — also carries a **connectivity
 guarantee** (§6.4). That is the recommendation.
 
 ---
+
+---
+
+## 13. Sightlines: the weapon, and the hole in how we measure it
+
+### 13.1 A straight open row is a weapon — restating the stakes
+
+`GunRange` is a fixed 1050 px (`sim_types.nim:317`) and does not scale with the
+board. So an unbroken straight run longer than 1050 px is not "a long sightline",
+it is **a firing position that covers the entire run**. `map_rules.nim:382-401`
+frames the design quantity correctly as the **mean free sightline** with a
+per-regime band, and `map_metrics` enforces the tail of that distribution through
+`longRunFrac` (share of open axis runs over `LongRunPx = 600`, cap 0.15).
+
+The relevant academic framing is **isovists** (Benedikt, *To take hold of space:
+isovists and isovist fields*, Environment and Planning B 6(1):47–65, 1979): the
+isovist at a point is the polygon of everything visible from it, and its
+*max-radial* field is exactly what our validator thresholds. Worth knowing mostly
+because it names the complementary quantity — **occlusivity**, the length of an
+isovist's *occluding* boundary — which is a better proxy for "is there cover here"
+than area is.
+
+### 13.2 The hole: our run scan is 4-directional, and a diagonal lane is invisible
+
+This is a finding, not a survey point, and I verified it in the tree rather than
+assuming it.
+
+**`longRunFrac` scans rows and columns only.** `map_metrics.nim:781-797` is two
+loops: `for y … for x` accumulating horizontal runs, then `for x … for y`
+accumulating vertical runs. There is no diagonal pass. **And the hard validator is
+narrower still** — `arena.nim:2219-2237` scans **horizontal rows only**, at a
+stride of 4.
+
+So the measurement surface is:
+
+| Direction | Hard rejection | Soft band (`longRunFrac`) |
+|---|---|---|
+| Horizontal | **yes** | yes |
+| Vertical | no | yes |
+| Diagonal (either) | **no** | **no** |
+
+**A 900 px diagonal open lane is invisible to every metric we have.** On the
+standard rect board the diagonal is `sqrt(1235² + 659²) ≈ 1400 px` — *longer than
+`GunRange`* — so the single longest possible unbroken lane on the board is also
+the one nothing looks at.
+
+**Why this matters specifically for a noise generator, and not much for the
+current ones.** §4.2: classic Perlin's artefacts are aligned to the lattice axes
+**and the 45° diagonals**. Our validator catches the first family loudly and is
+blind to the second entirely. A field generator would therefore be *selected* —
+by best-of-K ranking against these very metrics — toward putting its long runs on
+the diagonal, because that is the only place they are free. **That is not a
+hypothetical; it is what an optimiser does to an incomplete objective.** The
+sibling search-based survey makes the same point in general terms; this is its
+concrete instance in my dimension.
+
+**Recommendation (small, and it should land before any field generator does):**
+add two diagonal passes to the run accumulation in `map_metrics.nim`. It is the
+same `O(w·h)` sweep shape as the existing two, walking anti-diagonals and
+diagonals; note the run *lengths* should be scaled by `sqrt(2)` to be comparable
+in pixels. Whether the hard validator should also gain a diagonal check is a
+design decision with real cost (it will reject maps that ship today), but
+**measuring** it is free and we currently cannot even tell how big the problem is.
+
+### 13.3 The trap in using any of this as a fitness function
+
+Two results from the search-based PCG literature that constrain how these metrics
+should be used, and that agree with our own measured history:
+
+- **A metric with a trivially reachable optimum selects nothing.** Togelius,
+  Preuss & Yannakakis' multiobjective map-generation work makes this point
+  structurally: geometric fitness terms that a degenerate map maximises will be
+  maximised by degenerate maps. Our own experience matches — the generator passes
+  ~96% of first attempts, which means the validators are a **crash guard, not a
+  filter**, and adding more of the same kind of term will not change that.
+- **Playability belongs as a hard CONSTRAINT, not as an objective term.** This is
+  already how `arena.nim` is built (`bandHard` vs `bandSoft`), and it is the right
+  shape. Liapis, Yannakakis & Togelius' feasible/infeasible two-population
+  approach goes one better: keep the *validator-failing* maps as breeding stock in
+  a second population rather than discarding them, since they are often one repair
+  away from being the most interesting maps in the pool.
+- **Count local maxima of the visibility field, not its mean.** Recent FPS-map
+  work (de Donato, Lanzi & Loiacono, MAP-Elites for FPS levels) uses the
+  visibility matrix and counts **local maxima** — because a local maximum of
+  visibility is a **sniper perch**, and the *mean* visibility of a map with three
+  dominating perches can look identical to a map with none. Our `visDegreeCv`
+  (spread of exposure, band `[0.30, 1.20]`) gestures at this; a perch *count*
+  would be sharper and is computable from the visibility sampling we already do
+  (`map_metrics.nim:189-193`).
+
+---
+
+## 14. The honest answer to "will Perlin fix it"
+
+**No. And the reason is not that Perlin is the wrong noise function — it is that
+noise is the wrong layer.**
+
+Maxwell's instinct is right about one thing and wrong about another, and the
+split is worth being precise about, because the right half is genuinely valuable.
+
+### 14.1 What noise cannot do, with the receipts
+
+1. **It cannot make rooms.** (§12) `interiorFrac` — our heaviest band (weight
+   3.0), the one the pool is furthest from (0.118 vs a 0.25 floor) — requires ≥6
+   of 8 directions blocked within 120 px. A convex obstacle subtends less than
+   180° from any exterior point, so it can block at most 4; the metric is a
+   **concavity** metric, not a density metric. And the excursion set `{f >= u}` of
+   a 2D Gaussian field has Euler-characteristic density proportional to
+   `u·exp(−u²/2)`, which is **strictly positive at every threshold our
+   170-permille cover cap permits** — the blob regime, provably no enclosed holes.
+   To get holes you would need `u < 0`, i.e. more than 50% wall, three times our
+   cap. **Thresholded noise cannot produce rooms at our cover budget, and this is
+   a topological obstruction, not a tuning problem.** No lacunarity, no octave
+   count, no domain warp changes it, because a warp is a diffeomorphism and
+   diffeomorphisms preserve topology.
+2. **It cannot guarantee connectivity, route count, or corridor width.** All three
+   come from combinatorics — disjointness (§5.4, §6.4b), Menger (§6.4a), min
+   separation (§5.3). Noise contributes nothing to any of them and can break all
+   three.
+3. **It is not automatically symmetry-safe.** (§10.6) Cellular noise under a
+   mirror lift puts a straight full-board feature on the axis *on every seed*.
+   Ridge- and flow-based constructions put alternating straight segments there.
+4. **It will actively exploit our measurement hole.** (§13.2) Perlin's second
+   artefact family is on the 45° diagonals, and diagonals are the one direction no
+   metric of ours scans.
+
+### 14.2 What noise genuinely does buy, and it is not nothing
+
+1. **Analytic calibration of two banded metrics.** (§11) Cauchy's mean-chord
+   formula plus Rice's level-crossing formula give closed forms for cover fraction
+   *and* mean free sightline in terms of two knobs (wavelength `L0`, threshold
+   `u`). Two equations, two unknowns, solved once. That is the difference between
+   *sampling until something passes* and *dialling a target* — and it is the
+   single most under-appreciated thing about using a continuous field at all.
+   Nothing in a tile-based or shape-scatter generator gives you this.
+2. **An exact cover and trench budget, for free.** (§11.5, §9.3) Threshold at an
+   **empirical quantile** and the wall fraction is exactly the target on every
+   seed, with no distributional assumption. Add a second quantile and the
+   `trenchSharePermille` budget is exact too. This is a real **(A)**, it is six
+   lines, and it exists only because the underlying object is a continuous field.
+3. **Shapes that read as designed rather than generated.** (§4.8) Domain warping
+   is the best aesthetic trick in procedural graphics. It guarantees nothing and
+   it is worth doing anyway — it is the difference between twelve rooms that look
+   like twelve instances of one room and twelve rooms that look like a place.
+4. **The safest possible place to spend randomness: trenches.** (§9.3) Trenches
+   are walkable, so they carry no connectivity or corridor-width obligation at
+   all. Organic, sinuous, noise-driven trench networks are pure upside.
+
+### 14.3 Where noise belongs in the pipeline
+
+The answer to "where" is: **downstream of every guarantee, upstream of the art.**
+
+```
+1. RULES        deterministic. size class -> regime -> laneCount, lanePitchPx,
+                corridor width, cover permille, trench share.   (map_rules.nim)
+                                       |
+2. PARTITION    maximal Poisson-disk seeds in the FUNDAMENTAL DOMAIN;
+                Voronoi cells; Delaunay doorway graph kept 3-connected.
+                <-- randomness enters here, already (A)-guarded
+                                       |
+3. STRUCTURE    per cell: a scalar field  psi = psi_design + eps*noise;
+                extract a contour; keep a >=270 deg ARC; thicken to a ribbon;
+                emit as a shapePolygon quad chain.
+                <-- NOISE, bounded by a design potential (7.2)
+                                       |
+4. DETAIL       domain warp; per-vertex wobble; biome art.
+                <-- NOISE, unbounded, purely (C)
+                                       |
+5. SYMMETRY     orbit lift (hex.nim). (A) by construction.
+                                       |
+6. VALIDATE     now a REGRESSION TEST, not a filter.
+```
+
+Noise appears at exactly two places, and at the load-bearing one (**3**) it is
+constrained: `psi = psi_design + eps·noise`, where by Morse structural stability a
+small enough `eps` cannot change the level-set topology of the design (§7.2). And
+the check is cheap and exact — extract the contours, compare the structure to the
+design's, halve `eps` if it differs. **That loop always terminates**, because at
+`eps = 0` the field *is* the design. It is not generate-and-test; it is
+**annealing the randomness down until the invariant holds**, on a monotone
+parameter with a guaranteed fixed point. If there is one sentence to give Maxwell,
+it is that one: *noise is a perturbation of a design, and its amplitude is a knob
+you turn down until the map is provably right — never the thing that decides
+whether the map is right.*
+
+### 14.4 The one-line version
+
+> Perlin will make our maps look like places instead of like scatter, and it will
+> let us dial cover and sightline to a number instead of sampling for them. It
+> will not make a single map playable that was not going to be playable anyway —
+> because every property we actually need is a statement about *disjointness,
+> separation and cuts*, and noise has nothing to say about any of them.
+
+---
+
+## 15. What I would build, in order
+
+Ranked by (guarantee gained) / (lines of code). The first two are small enough to
+do before deciding anything else.
+
+### 15.1 Replace `genScatter`'s placement with dart-throwing — ~20 lines, two (A)s
+
+**Why first:** it is the cheapest genuine hard guarantee available anywhere in
+this dimension, it touches one function, and it fixes a live defect. §5.5 shows
+the current parameters (`period 120, jitter 40, radMax 32`) admit **coincident
+discs** and 40 px centre gaps, so `genScatter` has *no* separation guarantee today
+and its own parameters are infeasible for one.
+
+Replace the jittered-grid loop with grid-accelerated dart throwing (§5.3 — simpler
+than Bridson and no worse), and assert the relation:
+
+```
+# min separation r, obstacle circumradius R, guaranteed gap g
+assert r >= 2*R + g
+```
+
+Numbers, reconciled with `docs/research/mapgen-partition-geometry.md` §5, which
+independently derived the same constant from the other direction:
+
+| knob | value | source |
+|---|---|---|
+| `r` (min separation) | **180 px** | `map_rules.lanePitchPx = laneWidthPx + coverSizePx = 124 + 56` |
+| `g` (guaranteed gap) | **78 px** | 3 × `RouteCellPx`, and > `RecommendedCorridorWidthPx = 68` |
+| `R` (max obstacle radius) | **≤ 51 px** | `(r − g)/2` |
+
+Note what that says: at `r = 180` we can afford obstacles **up to 51 px** in
+radius while still guaranteeing 78 px gaps — *larger* than the 32 px we ship
+today. The guarantee is not bought with smaller cover; it is bought with better
+placement. What we get, unconditionally, on every seed:
+
+- min separation ≥ 180 px (§5.3, by rejection)
+- floor connected, no sealed pockets (§5.4, `r > 2R`)
+- `routeCountMin >= 3` (§6.4b, `floor(78/26)`)
+- if the sampling is **maximal** (§5.6): every point within 180 px of an obstacle,
+  Voronoi inradius ≥ 90 px, circumradius ≤ 180 px, every Voronoi edge ≤ 360 px —
+  i.e. **bounded room size in both directions**, which is a direct bound on dead
+  floor.
+
+### 15.2 Threshold by empirical quantile — ~6 lines, one (A)
+
+(§11.5) Sort the sampled field, take the order statistic at the target fraction.
+Cover permille becomes exact on every seed, for any field, with no Gaussian
+assumption. Retires `CoverPermilleMin`/`Max` as a source of rejections. Add the
+second quantile for trenches (§9.3) and `trenchSharePermille` becomes exact too.
+
+### 15.3 Add the two diagonal passes to the run scan — ~10 lines
+
+(§13.2) We cannot currently see the longest lanes on the board, and a field
+generator will find them. Measure before building the thing that exploits it.
+
+### 15.4 The arc generator — the real build
+
+(§6.4b) A new `MapStyle` following the house convention
+`(rng, region, params) -> seq[ArenaShape]`:
+
+1. Sample `psi = psi_design + eps·fbm` on the fundamental domain, on a raster
+   padded one cell beyond the region with the outer ring forced below `u` (§6.4),
+   sampled in a **rotated frame** (§4.2) with **2–3 octaves only** (§11.3).
+2. Pick `u` by empirical quantile for the target cover (§15.2).
+3. Marching squares → closed simple loops (guaranteed, §6.4).
+4. Per loop: draw a cut angle, keep a contiguous arc of **≥ 270°** (§6.4b).
+5. Simplify with RDP at `eps_rdp = min(t/2, half the min inter-contour gap)` —
+   provably topology-safe (§6.6) using the distance transform we compute anyway.
+6. Thicken to a ribbon of thickness `t` and emit as a **quad chain of
+   `shapePolygon`s**, one 4-vertex integer ring per segment (§6.5). The mouth of
+   the C is simply the quads not emitted.
+7. Reject-and-delete any arc violating the min gap `g`; deleting an arc cannot
+   break anything, since the guarantee is disjointness.
+
+Starting parameters from the §12.3 model, to be calibrated against `map_eval`:
+wavelength `L0 ≈ 275 px`, excursion fraction 0.35, ribbon `t = 20 px`, predicted
+cover 150 permille and `interiorFrac ≈ 0.32` against a pool median of 0.118.
+Target ~100 shapes per fundamental domain (§6.5), so simplify to ~40–60 px
+segments.
+
+### 15.5 Then, and only then, the cosmetics
+
+Domain warping (§4.8) and per-vertex wobble. Both are (C). Both are what will make
+it look like a place. Neither should be touched until 15.1–15.4 measure well.
+
+### 15.6 What I would NOT build
+
+| | Why not |
+|---|---|
+| **Erosion simulation** | (§9.1) Highest cost in the survey; we render no height |
+| **Curl-noise streamline tracer** | (§7.1) In 2D it is the same object as contour extraction — building it twice |
+| **Gabor noise** | (§8.2) Anisotropic domain scaling gets ~all the benefit for two divides |
+| **Tensor-field lane design** | (§7.3) Genuinely the best route-first technique here, and far too much machinery for a first generator |
+| **Dual contouring** | (§6.7) Non-manifold at exactly the cells where marching squares is safe |
+| **Lloyd relaxation** | (§5.8) Guarantees nothing, and destroys a separation guarantee you already had |
+| **R2 / quasirandom for cover placement** | (§5.9) The min-separation claim is unproven; dart throwing has it by construction |
+
+---
+
+## 16. Sources
+
+Primary sources, with the caveat that a handful of URLs below are from memory
+rather than re-fetched in session — those are marked *(verify)*.
+
+**Gradient noise**
+- Perlin, *An Image Synthesizer*, SIGGRAPH '85, CG 19(3):287–296 — https://dl.acm.org/doi/10.1145/325165.325247
+- Perlin, *Improving Noise*, SIGGRAPH 2002, TOG 21(3):681–682 — https://dl.acm.org/doi/10.1145/566570.566636; reference impl https://cs.nyu.edu/~perlin/noise/
+- Gustavson, *Simplex noise demystified*, 2005 — https://weber.itn.liu.se/~stegu/simplexnoise/simplexnoise.pdf
+- Spencer, OpenSimplex2 — https://github.com/KdotJPG/OpenSimplex2
+- US Patent 6,867,776 B2, *Standard for perlin noise* — filed 2001, granted 2005, expired Jan 2022 *(verify)*
+- Musgrave, *Methods for Realistic Landscape Imaging*, PhD thesis, Yale 1993; and Ebert, Musgrave, Peachey, Perlin & Worley, *Texturing & Modeling: A Procedural Approach*, ch. 16
+- Quilez, *Domain warping* — https://iquilezles.org/articles/warp/ ; *fBM* — https://iquilezles.org/articles/fbm/
+- Lagae, Lefebvre, Cook, DeRose, Drettakis, Ebert, Lewis, Perlin & Zwicker, *A Survey of Procedural Noise Functions*, CGF 29(8):2579–2600, 2010
+
+**Point processes and blue noise**
+- Worley, *A Cellular Texture Basis Function*, SIGGRAPH '96, 291–294 — https://dl.acm.org/doi/10.1145/237170.237267
+- Bridson, *Fast Poisson Disk Sampling in Arbitrary Dimensions*, SIGGRAPH '07 sketches — https://www.cs.ubc.ca/~rbridson/docs/bridson-siggraph07-poissondisk.pdf
+- Kunimune, *Stop using Bridson's algorithm!*, 2025 — https://kunimune.blog/2025/06/29/stop-using-bridsons-algorithm/
+- Ebeida, Patney, Mitchell, Davidson, Knupp & Owens, *Efficient Maximal Poisson-Disk Sampling*, SIGGRAPH 2011 / TOG 30(4) — https://anjulpatney.com/docs/papers/2011_Ebeida_EMP.pdf
+- Ebeida, Mitchell, Patney, Davidson & Owens, *A Simple Algorithm for Maximal Poisson-Disk Sampling in High Dimensions*, CGF 31(2), 2012 — https://www.sandia.gov/files/samitch/files/eurographics_mps-final-with-appendix.pdf
+- Mitchell, Rand, Ebeida & Bajaj, *Variable Radii Poisson-Disk Sampling* — https://www.sandia.gov/files/samitch/files/VarRadiusPoissonDiskCCCG-bw2.pdf
+- Mitchell, *Spectrally Optimal Sampling for Distribution Ray Tracing*, SIGGRAPH '91 — https://my.eng.utah.edu/~cs6965/papers/p157-mitchell.pdf
+- Ulichney, *Dithering with Blue Noise*, Proc. IEEE 76(1):56–79, 1988; *The void-and-cluster method*, 1993 — https://cv.ulichney.com/papers/1993-void-cluster.pdf
+- Du, Faber & Gunzburger, *Centroidal Voronoi Tessellations*, SIAM Review 41(4):637–676, 1999; Du, Emelianenko & Ju, *Convergence of the Lloyd Algorithm*, SIAM J. Numer. Anal. 44(1), 2006 — https://math.gmu.edu/~memelian/pubs/pdfs/DEJ_SIAM_lloyd.pdf
+- Fortune, *Voronoi Diagrams and Delaunay Triangulations*, Handbook of Discrete and Computational Geometry ch. 27 — https://www.csun.edu/~ctoth/Handbook/chap27.pdf
+- Patel, *Polygonal Map Generation for Games* — http://www-cs-students.stanford.edu/~amitp/game-programming/polygon-map-generation/
+- Roberts, *The Unreasonable Effectiveness of Quasirandom Sequences* — http://extremelearning.com.au/unreasonable-effectiveness-of-quasirandom-sequences/
+- Haynes & Marklof, *A five distance theorem for Kronecker sequences* — https://arxiv.org/abs/2009.08444
+- Delone sets / r-nets: Vershynin, *High-Dimensional Probability* §4.2; https://en.wikipedia.org/wiki/Delone_set
+
+**Field → geometry**
+- Lorensen & Cline, *Marching Cubes*, SIGGRAPH '87 — https://dl.acm.org/doi/10.1145/37401.37422
+- Nielson & Hamann, *The Asymptotic Decider*, IEEE Visualization '91
+- Ju, Losasso, Schaefer & Warren, *Dual Contouring of Hermite Data*, SIGGRAPH 2002 — https://www.cs.wustl.edu/~taoju/research/dualContour.pdf
+- Saalfeld, *Topologically Consistent Line Simplification with the Douglas-Peucker Algorithm*, Cartography and GIS 26(1):7–18, 1999
+- Estkowski & Mitchell, *Simplifying a polygonal subdivision while keeping it simple*, SoCG '01
+- de Berg, van Kreveld & Schirra, *Topologically correct subdivision simplification using the bandwidth criterion*, 1998
+
+**Flow, directional noise, erosion**
+- Bridson, Hourihan & Nordenstam, *Curl-Noise for Procedural Fluid Flow*, SIGGRAPH 2007 — https://www.cs.ubc.ca/~rbridson/docs/bridson-siggraph2007-curlnoise.pdf
+- Chen, Esch, Wonka, Müller & Zhang, *Interactive Procedural Street Modeling*, SIGGRAPH 2008 — https://peterwonka.net/Publications/pdfs/2008.SG.Chen.InteractiveProceduralStreetModeling.final.pdf
+- Lewis, *Algorithms for Solid Noise Synthesis*, SIGGRAPH '89; van Wijk, *Spot Noise*, SIGGRAPH '91
+- Lagae, Lefebvre, Drettakis & Dutré, *Procedural Noise using Sparse Gabor Convolution*, SIGGRAPH 2009
+- Tricard et al., *Procedural Phasor Noise*, SIGGRAPH 2019
+- Musgrave, Kolb & Mace, *The Synthesis and Rendering of Eroded Fractal Terrains*, SIGGRAPH '89
+- Mei, Decaudin & Hu, *Fast Hydraulic Erosion Simulation and Visualization on GPU*, Pacific Graphics 2007
+- O'Callaghan & Mark, *The extraction of drainage networks from digital elevation data*, CVGIP 1984
+- Barnes, Lehman & Mulla, *Priority-Flood*, Computers & Geosciences 62:117–127, 2014 — https://arxiv.org/abs/1511.04463
+
+**Random-field theory (§11, §12)**
+- Rice, *Mathematical Analysis of Random Noise*, Bell System Technical Journal, 1944/45
+- Santaló, *Integral Geometry and Geometric Probability*, 1976 (Cauchy mean-chord)
+- Adler, *The Geometry of Random Fields*, 1981; Adler & Taylor, *Random Fields and Geometry*, Springer 2007 (Euler-characteristic densities)
+
+**Visibility and search-based PCG (§13)**
+- Benedikt, *To take hold of space: isovists and isovist fields*, Environment and Planning B 6(1):47–65, 1979
+- Togelius, Preuss & Yannakakis, multiobjective procedural map generation *(verify exact title/venue)*
+- Liapis, Yannakakis & Togelius, *Sentient Sketchbook*, FDG 2013; and the feasible/infeasible two-population approach
+- de Donato, Lanzi & Loiacono, MAP-Elites for FPS level generation *(verify exact title/venue)*
+
+**Sibling surveys in this repo**
+- `docs/research/mapgen-partition-geometry.md` — Voronoi/Delaunay partition, the 3-connectivity result, the mirror-axis Voronoi trap
+- `docs/research/mapgen-constructive.md` — monotone edits over a protected skeleton, k-fold disjoint burrow
+- `docs/research/mapgen-search-based.md`, `docs/research/mapgen-competitive-objective.md`
