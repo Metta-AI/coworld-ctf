@@ -270,31 +270,37 @@ def spearman(xs, ys):
     return float(r.statistic), float(r.pvalue)
 
 
-def boot_ci(xs, ys, iters=10000, seed=20260806):
+def boot_ci(xs, ys, iters=4000, seed=20260806):
     """Percentile bootstrap over MAPS — the unit that is independent.
 
     Episodes inside a map share its geometry, so resampling episodes would
     understate the interval. Resampling maps is the honest unit and is why the
     interval below is as wide as it is: n is small because each point costs
     `episodes` full games.
+
+    Vectorised, and the tie handling is the reason it has to be. A bootstrap
+    resample contains duplicate maps BY CONSTRUCTION, so ranks are tied in
+    every single iteration; taking argsort-of-argsort would break those ties
+    arbitrarily and inflate |rho|. `rankdata` averages them, which is what
+    Spearman is defined on. Doing that through 180k scipy.spearmanr calls took
+    longer than the episodes did — ranking the whole (iters x n) block at once
+    and finishing with a row-wise Pearson is the same number, in one pass.
     """
-    from scipy import stats
-    rng = random.Random(seed)
+    import numpy as np
+    from scipy.stats import rankdata
     n = len(xs)
-    out = []
-    for _ in range(iters):
-        idx = [rng.randrange(n) for _ in range(n)]
-        bx = [xs[i] for i in idx]
-        by = [ys[i] for i in idx]
-        if len(set(bx)) < 3 or len(set(by)) < 3:
-            continue
-        rho = stats.spearmanr(bx, by).statistic
-        if rho == rho:  # not NaN
-            out.append(float(rho))
-    out.sort()
-    if len(out) < 100:
+    rng = np.random.default_rng(seed)
+    idx = rng.integers(0, n, size=(iters, n))
+    bx = rankdata(np.asarray(xs, float)[idx], axis=1)
+    by = rankdata(np.asarray(ys, float)[idx], axis=1)
+    bx = bx - bx.mean(axis=1, keepdims=True)
+    by = by - by.mean(axis=1, keepdims=True)
+    denom = np.sqrt((bx * bx).sum(axis=1) * (by * by).sum(axis=1))
+    good = denom > 0          # a resample of one repeated map has no variance
+    rho = (bx * by).sum(axis=1)[good] / denom[good]
+    if rho.size < 100:
         return None, None
-    return out[int(0.025 * len(out))], out[int(0.975 * len(out))]
+    return float(np.percentile(rho, 2.5)), float(np.percentile(rho, 97.5))
 
 
 OUTCOMES = [
