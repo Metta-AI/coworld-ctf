@@ -12,9 +12,11 @@ confident published assertions with no evidence behind them.
 
 ---
 
-## 0. The three headline results
+## 0. The four headline results
 
 Read these first; the rest of the document is their derivation and their consequences.
+**Read 0.4 first — it is the largest single correction and it changes range-derived numbers
+throughout this epic.**
 
 **0.1 — Our movement metric is L∞ (Chebyshev), not Euclidean, and nothing in our metric suite
 knows it.** `sim.nim` clamps `velX` and `velY` independently to `±maxSpeed` with no diagonal
@@ -50,7 +52,20 @@ gives `f = 14.3%` and `f = 9.0%` respectively — the centre and the floor of th
 Setting `g` for a *non-carrier* at full speed (132 px / 187 px) gives 8.9% and 5.3%. That is why the
 invariant is *specific to the pedestal*: the pedestal is the only place where anyone is moving at
 0.7×. The global validator band (4–17%) is roughly right for full-speed traffic and fatally too loose
-at the stand. See §3.4 for the full derivation.
+at the stand. See §3.4 for the derivation and §3.6 for the version that also accounts for 0.4.
+
+**0.4 — `GunRange = 1050 px` is a REACH, not an engagement range; the aim lattice caps the real
+lethal envelope at ~140–260 px.** Aim is quantised to 32 slots 11.25° apart and re-snapped every
+tick; the gun hit test accepts a ray within `PlayerHalf + BulletHalfWidth = 14 px` of the *solid*
+13 px body (not the 34 px drawn one); there is no aim assist. One slot's worst-case pointing error
+equals that 14 px window at **`R_slot = 14 / tan(5.625°) = 142 px`**, and beyond it hit probability
+falls as `arctan(14/t) / 5.625°` — 0.47 at 300 px, **0.14 at `GunRange`**, where time-to-kill is
+10.5 s. Three independent engine constants agree on the envelope: `FieldAccuracyPct = 55` is
+achieved at 259 px, `GrenadeMaxRange = ShoutRange = GunRange/4 = 262 px`, and the observed 1.0–1.9 s
+TTK band implies 142–225 px. **You can see 6× further than you can kill.** §3.6 derives it from the
+simulator source and lists the numbers it invalidates — `ChokepointSpacingPx` (4× too large),
+`chokeCoveredPenalty`'s 1050 px isovist, `longRunFrac`'s 600 px cut, and any encounter-density law
+calibrated on gun or vision range (overstated 12–16×).
 
 ---
 
@@ -124,8 +139,13 @@ Two independent checks:
   ([Valve, *TF2 Mapper's Reference*](https://developer.valvesoftware.com/wiki/Team_Fortress_2/Mapper%27s_Reference)).
   Normalised by each game's own player width — the only defensible comparison — TF2's medium-range
   cap is `1024/49 = 20.9` body-widths, while our `GunRange` is `1050/34 = 30.9` body-widths.
-  **Our gun reaches ~48% further, relative to the player, than TF2's "medium range".** Applying the
-  32-HU bridge to a 49-HU game produced a spurious 4% match.
+  **Our gun *reaches* ~48% further, relative to the player, than TF2's "medium range".** Applying
+  the 32-HU bridge to a 49-HU game produced a spurious 4% match.
+
+  **But reach is not lethality.** §3.6 shows the aim lattice caps our *effective* engagement range at
+  ~260 px = 7.6 body-widths, against TF2's 20.9. Normalised properly, **our lethal envelope is
+  2.7× SHORTER than TF2's medium range, not 48% longer.** Both statements are true and they are about
+  different quantities; conflating them is how `ChokepointSpacingPx` came to be four times too large.
 
   This is not a small correction. It says our weapon is *long* by shooter conventions, which is
   exactly consistent with the occlusion-limited regime finding in §5: on our small/standard/large
@@ -381,7 +401,7 @@ They may still be true. They must not be encoded as generator constraints withou
 
 ---
 
-## 3. The math: five derivations that turn guidance into thresholds
+## 3. The math: six derivations that turn guidance into thresholds
 
 Everything in §4 that has a number behind it comes from one of these.
 
@@ -479,8 +499,14 @@ Solving for the maximum survivable span:
 | **carrier** (0.70×), shooter aimed | — | 48 | **92 px** | 131 px |
 | carrier, mean random bearing | 5 | 54.6 | 105 px | 148 px |
 
+**All of the above assumes the shooter can actually hit.** §3.6 shows that is only true inside
+~260 px; at 500 px the real TTK is 114 ticks and the exposure budget is 314 px axis / 444 px
+diagonal. So this table is the **short-range** table, and short range is where it matters — but do
+not apply it to a gap whose nearest threat position is 600 px away.
+
 `MaxExposedRunPx = 132` **[engine]** is therefore the *most conservative corner* of this table: an
-axis-aligned crossing by a full-speed runner against a pre-aimed shooter with no windup credit. It is
+axis-aligned crossing by a full-speed runner against a pre-aimed shooter at ~240 px with no windup
+credit. It is
 also **the wrong number for the phase that decides matches**, where the correct figure is the carrier
 row: **92 px**.
 
@@ -571,6 +597,144 @@ Neither quantity is in our metric suite. Both are static, cheap, and directly ac
 
 ---
 
+### 3.6 The aim lattice caps the real engagement range at ~142–260 px, not 1050 px
+
+**This is the most consequential thing in this document. It invalidates numbers throughout the
+epic.** It is derived from the simulator source, not from comments or documentation.
+
+#### The evidence, from `src/ctf/sim.nim` and `src/ctf/sim_types.nim`
+
+1. **The aim is quantised to 32 slots and re-snapped every tick.** `sim.nim` (movement update):
+
+   ```nim
+   let slot = player.aimBrads div AimStepBrads
+   player.aimBrads =
+     (((slot + steps) mod AimRotations + AimRotations) mod AimRotations) * AimStepBrads
+   ```
+
+   with `AimRotations = 32`, `AimBradsTurn = 256`, `AimStepBrads = 8` → **11.25° per slot**
+   (`sim_types.nim`: "The aim is always one of these 32 slots — there are no finer-grained angles").
+   The comment is confirmed by the arithmetic: the value is reconstructed as `slot * AimStepBrads`,
+   so an off-grid angle cannot persist.
+
+2. **The shot is fired down the snapped aim.** `sim.nim:968` → `sim.jitterDirection(headingBrads)`,
+   and every call site takes `headingBrads` from `player.aimBrads` / `attacker.aimBrads`
+   (`sim.nim:681, 756, 1216, 1234`). `jitterDirection` calls `aimVector(headingBrads)` and rotates it
+   by a Gaussian draw. **There is no aim assist and no snap-to-target anywhere in `sim.nim`** (grep
+   for `assist|snapTo|autoAim|aimAssist|nearestTarget` returns nothing).
+
+3. **The hit test uses the SOLID body, not the 34 px drawn body.** `selectFireTarget`:
+
+   ```nim
+   for off in countup(-PlayerHalf, PlayerHalf, ExposureSampleStep):   # PlayerHalf = 6
+     ...
+     if abs(vx * uy - vy * ux) > BulletHalfWidth: continue            # BulletHalfWidth = 8.0
+   ```
+
+   So a fully-exposed, centred body is hit iff the ray passes within
+   `PlayerHalf + BulletHalfWidth = 14 px` of its centre. The engine states this identity itself in
+   `aimJitterSigma`: "`PlayerHalf + BulletHalfWidth` is the corridor's continuous acceptance
+   half-window for a centered silhouette." The grenade blast uses the same solid box
+   (`sim.nim:1343–1350`, GV30). **Only the spray cone uses the 34 px drawn body.**
+
+4. **Jitter is an order of magnitude smaller than the lattice.**
+   `σ = asin(14 / 1050) / AimJitterCentralZ = 0.013333 / 1.2815516 = 0.010404 rad = 0.596°`,
+   calibrated so a fully visible body at max range is hit 80% of the time *given a perfectly aimed
+   ray*. The half-slot pointing error is 5.625° — **9.4× larger than σ**. The dominant source of
+   miss is therefore the lattice, not the jitter, and the jitter calibration never accounted for it.
+
+#### The quantity the coordinator asked for
+
+One slot's worst-case pointing error is half a slot, `δ = 5.625°`. Its lateral miss at range `t` is
+`t·tan δ = 0.09849·t`. Setting that equal to the acceptance window:
+
+```
+    R_slot  =  (PlayerHalf + BulletHalfWidth) / tan(5.625°)  =  14 / 0.098491  =  142 px
+    (strict "one body half-width", ignoring the bullet corridor:  6 / 0.098491 = 61 px)
+```
+
+**`R_slot` = 142 px is the range ceiling below which the aim lattice is guaranteed to be able to put
+the ray on a fully exposed body. Beyond it, whether you can hit at all depends on where the target
+happens to sit relative to the 32-slot grid.** For a target at a bearing uniform within its slot:
+
+```
+    P(hit | range t)  ≈  min(1,  arctan(14 / t) / 0.0981748 rad)
+    TTK(t)            =  FireCooldownTicks · (HitPoints / P(t) − 1)  =  12 · (3/P(t) − 1) ticks
+```
+
+| range t | P(hit) per shot | TTK | note |
+|---|---|---|---|
+| ≤ 142 px | **1.00** | 24 t = **1.00 s** | the fast end of the observed 1.0–1.9 s TTK band |
+| 200 px | 0.712 | 39 t = 1.61 s | inside the observed band |
+| **237 px** | 0.600 | **48 t = 2.00 s** | **exactly `TicksToKill`** |
+| **259 px** | **0.550** | 54 t = 2.24 s | **exactly `FieldAccuracyPct = 55`** |
+| 300 px | 0.475 | 64 t = 2.66 s | |
+| 500 px | 0.285 | 114 t = 4.76 s | |
+| 1050 px | 0.136 | 253 t = **10.5 s** | `GunRange`. Against a moving target, effectively never |
+
+Three independent constants land on the same answer, which is the strongest evidence that this is
+real and not an artefact of my model:
+
+- The engine's own **`FieldAccuracyPct = 55`** — the accuracy it *assumes* when deriving
+  `ShotsToKill` and `TicksToKill` — is achieved at **259 px**.
+- **`GrenadeMaxRange` = `ShoutRange` = `GunRange div 4` = 262 px**. Whoever set the grenade and shout
+  radii to a quarter of the gun range set them, by a completely different route, to the true lethal
+  radius. Agreement to 1.2%.
+- The **observed TTK band of 1.0–1.9 s** corresponds to engagement ranges of 142–225 px.
+
+**Conclusion: `GunRange = 1050 px` is a REACH, not an engagement range. The real lethal envelope of
+this game is ~140–260 px — one quarter of the gun and one sixth of the vision range.** Coworld CTF
+is a knife fight conducted inside an enormous see-but-cannot-hit band. This is consistent with the
+already-recorded field truth that after GV36 "ranged fire is dead" and the spray — a cone weapon that
+needs no pointing precision — became 51% of kills.
+
+**Caveats, stated honestly.** (a) A policy that *strafes to align a slot ray with its target* recovers
+range; the model assumes it does not, and the field evidence (spray dominance) says current policies
+mostly do not. (b) Against a laterally moving target, successive shots sample independent bearings,
+which the model already assumes. (c) The 80%-at-max-range jitter calibration means even a
+slot-aligned ray misses 20% at 1050 px, so the table is if anything optimistic at long range. **The
+one measurement that would settle it is hit-rate-versus-range from the free field-diagnosis loop, and
+that is cheap — run it.**
+
+#### What this invalidates
+
+| Number | Status | Correction |
+|---|---|---|
+| `ChokepointSpacingPx = GunRange` = 1050 px | **wrong by ~4×** | One defender can only *cover* ~260 px, not 1050. Chokepoints need to be ~260 px apart to be independently defensible; at 1050 px the generator produces ~4× too few chokepoints (`traversePx / 1050`) and a far more open board than intended |
+| `chokeCoveredPenalty` — "1 when ONE **1050 px** isovist watches every chokepoint" | **measuring the wrong thing** | At 1050 px a camper can *see* every chokepoint but can only *kill* at ~260 px. Compute the penalty on a **260 px** isovist. Keep the 1050 px version as a separate "watched" (information) metric — they are different design facts |
+| `longRunFrac` — share of open axis runs over **600 px** | **threshold 2.3× too long** | A 600 px run is not lethal; a 260 px run with a shooter at the end is. Re-cut at ~260 px, or better, at the heading-corrected `S_max` of §3.3 |
+| Visibility regimes (`coneCoverage` from the 1575 px cone) | **correct, but they are AWARENESS regimes** | Under an *engagement* metric (260 px disc) the areas fall by ~37×: small 4.42 → 0.12, colossal 0.118 → 0.003. **On the lethality axis every board is range-limited.** The occlusion/mixed/range trichotomy describes what players *know*, not where they can *kill* |
+| `MaxExposedRunPx = 132 px` | **survives, for a different reason** | `TicksToKill = 48` corresponds to a ~237 px engagement, so 132 px is the exposure budget *against a defender at ~240 px*. It is not "the run you can make under fire from anywhere in gun range" — beyond ~300 px the real budget is 2–8× larger |
+| Any encounter-rate or population-density law calibrated on `GunRange` or `visionRange` | **must be re-based** | The *lethal* disc is π·260² = 2.1×10⁵ px². The gun disc is 3.5×10⁶ px² (16×) and the vision cone 2.6×10⁶ px² (12×). A density law calibrated on either overstates the contact rate that matters by more than an order of magnitude |
+| §3.4's cover-cadence derivation | **strengthened, see below** | It is range-conditioned, and the range it implies is the real combat envelope |
+| `RecommendedCorridorWidthPx = 68`, `NominalLanePx = 124` | **unaffected** | These are legibility/traffic numbers built on the drawn body, which is the right anchor for them |
+| `visionRange = 1.5 × GunRange = 1575 px` | **unaffected, but reframe it** | You can see **6× further than you can kill**. That see-but-cannot-hit band is a first-class design primitive nobody has written down, and it is what makes shout (262 px) and the fog channel valuable |
+
+#### The cover band, re-derived with the lattice in it
+
+§3.4 required the cover gap `g` to be at most one time-to-kill of carrier travel. With TTK now a
+function of the *defender's* engagement range `t`, and carrier speed 1.925 px/tick:
+
+```
+    g(t) = 1.925 · TTK(t)          f = 56² / (g + 56)²
+```
+
+| defender at | TTK | carrier gap `g` | required cover fraction `f` |
+|---|---|---|---|
+| 162 px | 29 t | 56 px | **25%** ← top of the measured band |
+| 200 px | 39 t | 74 px | 19% |
+| 236 px | 48 t | 92 px | **14%** ← centre of the measured band |
+| 262 px | 54 t | 104 px | 12% |
+| 296 px | 63 t | 121 px | **10%** ← floor of the measured band |
+
+**The measured 10–25% stand-side band maps exactly onto defender engagement ranges of 162–296 px —
+which is the real combat envelope derived independently above (142–262 px).** The band is not a
+tuning constant. It is the cover density that keeps a carrier alive against a defender shooting from
+the only ranges at which shooting works. Two independent derivations, from opposite ends, meeting in
+the same 150–300 px window.
+
+---
+
 ## 4. The property set — what a generator must be *required* to guarantee
 
 **Evidence classes.** These are the whole point of the table; a threshold without one is an opinion.
@@ -606,18 +770,18 @@ Neither quantity is in our metric suite. Both are static, cheap, and directly ac
 | C2 | Equidistant frontier F (in L∞) is non-degenerate and does not coincide with any pedestal | dist(F, pedestal) ≥ `GunRange` | C† | all |
 | C3 | Cover fraction on F is in band | 5–9% (full-speed traffic, §3.4) | C† | occl. |
 | **D. Conversion — the phase that decides matches** ||||
-| D1 | Stand-side cover fraction within 200 px of each pedestal | **10–25%** | **N★** | all |
+| D1 | Stand-side cover fraction within 200 px of each pedestal | **10–25%** — *intent only; see §4.2* | **N★** | all |
 | D2 | Carry-route cover cadence: no exposed run > carrier budget anywhere on the shortest carry route | ≤ 92 px axis / 131 px diagonal ⇒ f ≥ 9–14% in a 200 px corridor | N⊢ | all |
-| D3 | Vertex-disjoint routes between each base pair **and** on the carry route | **k ≥ 3**; k = 1 fatal | **N★** | all |
+| D3 | Vertex-disjoint routes between each base pair **and** on the carry route | intent **k ≥ 3**; **shipped `routeCountMin ≥ 2`**; k = 1 fatal | **N★** | all |
 | D4 | Carry route contains no dead end | exact | N⊢ | all |
 | **E. Sightline and exposure** ||||
-| E1 | Max exposed run on any required route, heading- and acquire-corrected | see §3.3 table | N⊢ | occl. |
+| E1 | Max exposed run on any required route, heading-, acquire- **and range-**corrected | see §3.3 and §3.6 | N⊢ | occl. |
 | E2 | Angle count `A(p)` on required routes | `A ≤ 3`, and `A ≤ 2` on the carry route (proposed, untested) | C† | occl. |
 | E3 | Exposure fraction `Ω(p)` on required routes | `Ω ≤ 0.5` (proposed, untested) | C† | occl. |
-| E4 | No single position covers all chokepoints | exact | C† | all |
+| E4 | No single position covers all chokepoints | exact — **shipped as `chokeCoveredPenalty`, but on a 1050 px isovist; re-cut at 260 px (§3.6)** | C† | all |
 | E5 | Every power position has a D4-image counter-position | exact (free under B1) | C† | all |
 | **F. Architecture — shape, not density** ||||
-| F1 | `coverFrac` (components ≤ ~2 w) banded separately from `structureFrac` | cover 5–9% global, 10–25% stand; structure unbanded | N⊢ | all |
+| F1 | `coverFrac` (components ≤ ~2 w) banded separately from `structureFrac` | derived 5–9% global, 10–25% stand; **shipped is a single global `CoverPermille 40–170` (4–17%)** | N⊢ | all |
 | F2 | Free-sightline **tail**, not mean: 95th percentile of free-ray length | ≤ `GunRange` | C∼ | occl. |
 | F3 | Used space — floor on a shortest path between an objective pair | ≥ 50% (proposed; Güttler's failure case was < 50%) | C† | all |
 | F4 | Total wall coverage below the maze threshold | ≤ 35% | C† / F | all |
@@ -690,6 +854,33 @@ board sets the map's character, and it moves the mean by almost nothing. Band a 
 (p95) or the max instead, or band the mean *and* the tail. This is a small change with a large
 correctness gain and no new machinery.
 
+### 4.2 Shipped vs intent — the drift this section exists to catch
+
+Verified against `map_metrics.nim` / `map_rules.nim` on this branch. **Where design intent and the
+enforced band disagree, the enforced band is what ships and the intent is decoration.**
+
+| Property | Design intent | What the validator actually enforces | Verdict |
+|---|---|---|---|
+| Route count | `k ≥ 3` vertex-disjoint | `Band("routeCountMin", lo = 2.0, kind = bandHard)` — **`k ≥ 2`** | **Divergent.** k = 2 admits a two-corridor map; the intent was three. Either raise the band or stop citing 3 |
+| Stand-side cover | absolute **10–25%** within 200 px | **no absolute stand rule**. What ships is `standRingOpenMin` (0.25–0.95), `standRingSpread` (≤ 0.10) and `standCoverSpread` (≤ 0.04) — i.e. **fairness spreads between teams**, plus a global `CoverPermille 40–170` | **Divergent, and this is the highest-value gap in the suite.** A perfectly *symmetric* pair of naked stands scores 0 on both spreads and passes. The causally-established property (§6.1) is an **absolute floor**, and no absolute floor is enforced |
+| Cover fraction | 5–9% global / 10–25% stand (§3.4, §3.6) | one global band, 4–17% | **Under-specified**, not wrong. One band cannot express a phase-dependent requirement |
+| Chokepoint coverage | no position covers all chokepoints | `chokeCoveredPenalty`, computed on a **1050 px** isovist | **Present but mis-ranged** (§3.6). Re-cut at 260 px |
+| Chokepoint spacing | independently defensible | `ChokepointSpacingPx = GunRange = 1050` | **Wrong by ~4×** (§3.6) |
+| Collision-point cover | Güttler's principle | `collisionCoverRatio` 0.70–2.40, arena 1.46, **pool median 0.83, pool min 0.05** | **Present and well-calibrated.** The pool minimum of 0.05 says some generated maps have essentially no cover where the teams meet |
+| `interiorFrac` | architecture discriminator | banded 0.25–0.65 at **weight 3.0 — the highest weight in the set**, labelled "the single highest-value static metric" | **The Goodhart exposure in §6.3 is aimed at the most heavily weighted term in the score.** Treat as urgent |
+
+Two structural observations about the shipped band list, which is considerably better than the brief
+implied:
+
+- **It is already control-anchored.** Every band records the hand-authored arena's measured value in
+  `control:` and `map_eval` re-checks the control on every run. That is the right discipline and it
+  should not be lost in a rewrite.
+- **But every band is calibrated on `control` = the arena and `pool` = today's generator output.**
+  That is an *expressive-range* calibration (§7.12), not a *quality* calibration: it encodes "look
+  more like the arena and less like the current pool". §6.3 is the argument that this is exactly the
+  authorship confound, and the `interiorFrac` note — "arena 34.2%, pool median 11.8% — the
+  scatter-vs-buildings discriminator" — states the confound in its own words.
+
 ---
 
 ## 5. Per-visibility-regime differences
@@ -708,9 +899,19 @@ Regime cuts **[engine]**: occlusion-limited ≥ 1.4, mixed 0.25–1.4, range-lim
 
 ### 5.1 Occlusion-limited (small, standard, large)
 
-The gun reaches 85–100% of the long axis, and the small board's width is *exactly* `GunRange`
-**[engine]**. A sightline is essentially never range-limited; if you can see it you can shoot it.
-**Sightline control is the entire design problem** and every property in family E binds hard.
+The gun *reaches* 85–100% of the long axis, and the small board's width is *exactly* `GunRange`
+**[engine]**. But §3.6 splits this in two, and the split is the whole point of the regime idea:
+
+- **Awareness is unlimited.** A sightline is essentially never vision-range-limited. If geometry does
+  not cut the angle, you know where they are.
+- **Lethality is not.** At 400 px — a third of a standard board — a shot lands 36% of the time and
+  time-to-kill is over 3 s. **The board is one awareness zone containing several disjoint lethal
+  zones of ~260 px radius.**
+
+So "sightline control is the entire design problem" is half right and the wrong half is the dangerous
+one. Sightline control governs *information*; only **short-range** sightline control governs
+*killing*. Family E binds hard, but its thresholds must be cut at the lethal radius, not the gun
+range — which is precisely the `chokeCoveredPenalty` and `longRunFrac` bug in §4.2.
 
 - C1 (forcing contact) is free — do not spend generator effort on it.
 - E1/E2/E3 are the binding constraints. F2 (sightline tail) matters more than F1 (density).
@@ -813,7 +1014,7 @@ By this standard, exactly three of our properties are established:
 
 | Property | Intervention | Result |
 |---|---|---|
-| **D1** stand-side cover 10–25% | raised cover fraction into band | 0 captures → 18 steals / 6 captures, every episode ending in a capture. Failing maps outside the band: 0-of-21, 0-of-17, 0-of-10 |
+| **D1** stand-side cover 10–25% *(and it is **not** enforced — §4.2)* | raised cover fraction into band | 0 captures → 18 steals / 6 captures, every episode ending in a capture. Failing maps outside the band: 0-of-21, 0-of-17, 0-of-10 |
 | **A4** spawn clear of the capture circle | moved the spawn out of the circle | 0-of-22 → converts |
 | **A6** endzone read from the map | steered to the engine-stated endzone instead of `homeDeepX = 150` | grab→capture 0/6 → 3/4 |
 
@@ -908,6 +1109,13 @@ plus G1) and roughly a dozen that deserve to be bands.
 
 Ordered by expected value. Items 7.1–7.3 are computable today from data we already have.
 
+**Correction to the brief I was given:** the shipped band list in `map_metrics.nim` is considerably
+richer than I was told, and four things I would otherwise have listed as missing are in fact present
+— `collisionCoverRatio`, `chokeCoveredPenalty`, `visDegreeFrac`/`visDegreeCv`, and the
+`standRingSpread`/`standCoverSpread` fairness pair. Those are marked **[present]** below with what is
+actually still absent about them. Claiming a shipped metric is missing would be the worst possible
+error in a document like this, so each item below was re-checked against source.
+
 ### 7.1 Anything that knows travel is L∞
 
 Nothing in `map_metrics.nim` or `map_rules.nim` models the 41% heading anisotropy of §3.1. Every
@@ -917,7 +1125,11 @@ heading-aware `exposureBudget(θ, carrying)`. This is the cheapest large correct
 
 ### 7.2 Time-to-contact and the collision point
 
-We have `midfieldSeam` **[engine]**, which is a geometric seam. We do not have:
+**[present]** `collisionCoverRatio` — "cover within 200 px of the collision point vs map average",
+banded 0.70–2.40, arena 1.46 — is Güttler's principle, already implemented and already calibrated.
+`midCrossCount` and `midOpenFrac` describe the seam's permeability. So the *place* is modelled.
+
+What is missing is **time**, which is what Güttler's fairness test is actually about:
 
 - **`T_contact(i)`** — L∞ time from team *i*'s spawn to first mutual visibility with any opponent
   along a shortest route. Güttler's fairness test is `spread(T_contact) ≈ 0` **[lit]**, and it is a
@@ -928,8 +1140,11 @@ We have `midfieldSeam` **[engine]**, which is a geometric seam. We do not have:
   `pace = 2(1 + exp(−5 N_x / Σ T_e))⁻¹ − 1`, tuned so pace ≈ 0.9 at ~3 s mean time-to-engage.
 
 Güttler's `cs_citymall` failure is the canonical warning: the designed climax room went unused
-because the collision point landed elsewhere and "almost half the level wasn't used". We have no
-metric that would catch this.
+because the collision point landed elsewhere and "almost half the level wasn't used".
+`collisionCoverRatio` would catch a *badly covered* collision point; nothing we have would catch a
+collision point in *the wrong place*, because the seam is computed geometrically rather than as an
+L∞ isochrone. Note also that the pool's `collisionCoverRatio` minimum is **0.05** — some generated
+maps have essentially no cover where the teams first meet, which is Güttler's example A.
 
 ### 7.3 Angle count `A(p)` and exposure fraction `Ω(p)`; and the cone-restricted isovist
 
@@ -948,7 +1163,12 @@ metric that would catch this.
 
 ### 7.4 Visibility graph analysis proper
 
-Turner et al. (2001) **[lit]** give a mature toolkit we approximate with hand-rolled scalars:
+**[present]** `visDegreeFrac` and `visDegreeCv` (banded 0.30–1.20, "unevenness of exposure across
+the board; arena 0.52, pool median 0.28 — a uniform board has no good and bad ground") mean a
+visibility-degree field already exists and is already used well. The critique is not that it is
+absent but that only its *first two moments* are used.
+
+Turner et al. (2001) **[lit]** give a mature toolkit around the same field:
 **connectivity** (degree = isovist area), **integration** (inverse mean visual depth), **control**,
 and the **clustering coefficient** (local convexity/enclosure — the principled `interiorFrac`
 replacement, §6.3). The MAP-Elites paper's "visibility matrix ... for each tile the number of tiles
@@ -979,9 +1199,18 @@ as boards get bigger (§5.3), and the divergence is *maximal* on exactly the pat
 
 ### 7.7 The quality/balance pairing
 
-Liapis et al. pair **every** quality metric with a balance metric — `f_res`/`b_res`,
-`f_saf`/`b_saf`, `f_exp`/`b_exp` **[lit]**. We report means over the whole board and no spreads
-across teams. A map with an excellent mean stand-side cover fraction can have one team at 4% and the
+**[present, for two metrics]** `standRingSpread` (≤ 0.10) and `standCoverSpread` (≤ 0.04) are
+exactly Liapis's quality/balance pairing, applied to the stand ring. The idea is already in the
+codebase; it is simply not generalised.
+
+Liapis et al. pair **every** quality metric with a balance metric — `f_res`/`b_res`, `f_saf`/`b_saf`,
+`f_exp`/`b_exp` **[lit]**. We pair two, and report the rest as whole-board means.
+
+**A spread is not a substitute for a floor, and conflating them is the single most consequential
+mistake in the current suite.** `standCoverSpread ≤ 0.04` is satisfied perfectly by two *equally
+naked* stands. The causally-established property (§6.1) is an absolute minimum, and a fairness spread
+cannot express it. Every metric needs **both**: a floor/band on the level, and a spread on the
+difference. A map with an excellent mean stand-side cover fraction can have one team at 4% and the
 other at 22%; today it scores well. **Rule: for every P in the suite, also compute `spread(P)` across
 teams and band it.** Under exact D4 symmetry the spreads are identically zero, which makes this cheap
 insurance rather than a burden — and it is precisely the check that catches a symmetry bug.
@@ -990,9 +1219,14 @@ insurance rather than a burden — and it is precisely the check that catches a 
 
 Two constraints, both formalisable, both absent:
 
-- **No single position covers all chokepoints** (Level Design Book **[C†]**): for every candidate
-  `q`, `count{ c : ‖q−c‖ ≤ GunRange ∧ LOS(q,c) } < numChokepoints`. Our `chokepointSpacingPx =
-  GunRange` is a *pairwise* proxy, and pairwise spacing does not imply joint non-coverage.
+- **[present, mis-ranged]** `chokeCoveredPenalty` — "1 when ONE 1050 px isovist watches every
+  chokepoint — one camper owns every route" — already implements the joint-coverage test. But
+  1050 px is `GunRange`, and §3.6 shows a camper can only *kill* out to ~260 px. As written the
+  metric conflates watching with covering: it flags maps that are actually fine, and misses maps
+  where one position genuinely covers every chokepoint at lethal range. **Compute it at 260 px.**
+  Keeping the 1050 px version as a separate *information* metric is worthwhile — they are different
+  design facts and both matter. Separately, `chokepointSpacingPx = GunRange` is a pairwise proxy for
+  the same idea, and is wrong by 4× for the same reason.
 - **Every power position has a counter-position** (Hullett 2012 **[C†]**): "players in sniper
   locations must also be wary of counter attack from the complementary sniper location on the other
   side of the level". Free under exact D4 symmetry — which is a good argument for enforcing B1 by
@@ -1059,12 +1293,21 @@ statement that survives: *cover belongs wherever the decisive conflict is, and i
 decisive conflict is at the pedestal, not at the seam, because conversion decides matches and kills
 do not.*
 
-**8.2 — "Avoid long sightlines" is vacuous here.** The rule exists for games where weapon range ≪
-map size, so a long lane creates a *sniper* who outranges everyone. In our occlusion-limited regimes
-the gun reaches 85–100% of the long axis (§5.1), so "long sightline" is the default state and the
-rule forbids the map. The transferable statement is about **exposed run**, not sightline length: a
-1000 px sightline you can cross in under a TTK behind cover is fine; a 200 px sightline with no cover
-is not. These are different quantities and only one of them is a constraint.
+**8.2 — "Avoid long sightlines" reaches the right conclusion here for entirely the wrong reason.**
+The rule exists for games where weapon range ≪ map size, so a long lane creates a *sniper* who
+outranges everyone. Our gun nominally reaches 85–100% of the long axis, which would make the rule
+forbid the map — but §3.6 shows a shot at that range lands 14% of the time. **We have no snipers,
+because the aim lattice cannot resolve a body at range.** So long lanes are indeed harmless, but not
+because we obeyed the rule: because the mechanic that makes them dangerous elsewhere does not exist
+here.
+
+That matters for what we do next. The transferable statement is about **exposed run at lethal
+range**, not sightline length: a 1000 px sightline with no threat position inside 300 px of it is
+fine; a 200 px sightline with a defender at one end is not. `longRunFrac`'s 600 px cut is measuring
+the first thing and calling it the second (§4.2). And it means a *deliberate* long lane is a cheap,
+safe way to add legibility and orientation to a board (Güttler's "level orientation" heuristic
+**[lit]**) at almost no combat cost — an option no shooter-design source would offer, because in
+every other shooter it would be suicide.
 
 **8.3 — "Radial symmetry accommodates multiple teams" is false for k = 3 and 6 in this engine.**
 The Level Design Book presents radial symmetry as the natural multi-team answer **[C†]**. §3.2 shows
@@ -1169,19 +1412,30 @@ retire the Goodhart risk permanently.
 
 In descending order of expected value per unit of work:
 
-1. **`travelTime()` in L∞ and a heading-aware exposure budget** (§3.1, §3.3). One helper; corrects
-   every distance-derived threshold in the suite.
-2. **D2 — carry-route cover cadence** (§3.4, §7.6). The highest-value untested property, and it
+0. **Measure hit-rate versus range** off the free field-diagnosis loop. One query. It either
+   confirms §3.6 or refutes it, and §3.6 moves so many numbers that nothing else should be re-tuned
+   until it is settled.
+1. **Re-cut every `GunRange`-derived threshold at the ~260 px lethal radius** (§3.6): the
+   `chokeCoveredPenalty` isovist, `ChokepointSpacingPx`, `longRunFrac`'s 600 px, and any
+   encounter-density law. This is a search-and-replace over constants with an outsized effect.
+2. **Add an absolute stand-side cover FLOOR** to sit beside the existing `standCoverSpread`
+   (§4.2, §7.7). Today two equally naked stands pass. This is the only causally-established property
+   in the suite that the validator does not enforce.
+3. **`travelTime()` in L∞ and a heading-aware exposure budget** (§3.1, §3.3). One helper; corrects
+   every distance-derived threshold.
+4. **D2 — carry-route cover cadence** (§3.4, §7.6). The highest-value untested property, and it
    directly attacks the recorded "we steal now, the carrier dies" failure.
-3. **G1 — conversion feasibility** (§5.4). Two lines; potentially retires a whole size class.
-4. **Move C-class properties from the score into wide feasibility bands** (§6.5). Structural; kills
-   the best-of-K amplification.
-5. **`A(p)` and `Ω(p)`** (§3.5), replacing `interiorFrac` in the score and demoting it to a
-   diagnostic (§6.3).
-6. **Band the sightline tail, not the mean** (§4.1/F2). Small change, large correctness gain.
-7. **Spread-across-teams twin for every metric** (§7.7). Free under exact symmetry; catches symmetry
-   bugs.
-8. **Expressive-range plot of the current generator** (§7.12) before re-tuning any threshold.
+5. **G1 — conversion feasibility** (§5.4). Two lines; potentially retires a whole size class.
+6. **Move C-class properties from the score into wide feasibility bands** (§6.5), starting with
+   `interiorFrac` — currently the highest-weighted term in the score and the largest Goodhart
+   exposure (§4.2, §6.3).
+7. **Raise `routeCountMin` to 3, or stop claiming 3** (§4.2). Either is fine; the drift is not.
+8. **`A(p)` and `Ω(p)`** (§3.5), as the principled replacement for `interiorFrac`.
+9. **Band the sightline tail, not the mean** (§4.1/F2), and **give every metric a spread twin**
+   (§7.7).
+10. **Expressive-range plot of the current generator** (§7.12) before re-tuning any threshold — and
+    note that today's bands are calibrated *as* an expressive-range comparison (arena vs pool), which
+    is not the same thing as a quality calibration.
 
 ---
 
