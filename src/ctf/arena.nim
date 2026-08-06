@@ -2136,6 +2136,58 @@ proc generateMapAttempt*(
       echo "  [dbg] budgetSkipped=", budgetSkipped, " budgetLeft=", budget,
         " of ", budget0, " -> leftObstacles=", result.leftObstacles.len
 
+    ## GAP pits — the fill's NEGATIVE SPACE, which is the only ground a pit can
+    ## actually be dug in.
+    ##
+    ## On the lattice, swapping a kept slot's obstacle for a pit really did
+    ## open floor, because the slots were DISJOINT. The fill layers overlap by
+    ## construction (every vocabulary item tiles the whole domain — see the
+    ## `masses` block), so deleting one shape usually leaves the spot walled by
+    ## its neighbours. Measured with `tools/pit_candidate_probe.nim -d:mapdbg`:
+    ## seed 1002 at `pits:12` selected 6 `instead` digs per attempt and only
+    ## 1-4 survived `rectOnOpenFloor`, and seed 4242's density path lost 2 of 2
+    ## and dug NOTHING. `instead` alone therefore cannot honour the exact
+    ## `mapPits` lock, and the top-up pool it falls back on had quietly shrunk
+    ## to the three endzone spots when the lattice's `gap` class went away.
+    ##
+    ## A trench is walkable floor with a climb-out penalty — it moves no wall —
+    ## so a dig on already-open ground cannot touch a route, a sightline or the
+    ## cover budget. That makes the gaps the one candidate class that survives
+    ## the later repair pass by construction, which is exactly what an exact
+    ## count needs. Probed against shape BOUNDING BOXES: cheap (~80 shapes over
+    ## a lattice of ~90 cells), and over-claiming a wall only ever discards a
+    ## candidate, never invents one.
+    var gy = region.y + TrenchSize div 2
+    while gy + TrenchSize div 2 <= region.y + region.h:
+      var gx = region.x + TrenchSize div 2
+      ## Stepping by TrenchSize keeps any two gap candidates disjoint, and
+      ## stopping at `xMax` keeps every one of them strictly left of the seam,
+      ## so each stays distinct from its own symmetry image — the assumption
+      ## the count-mode pair accounting in `finalizeTrenches` rests on.
+      while gx + TrenchSize div 2 <= xMax:
+        let cell = trenchSquareAt(gx, gy)
+        ## Never on protected floor: those pixels are spawn pockets, flag rings
+        ## and capture zones, and the endzone class already authors the digs
+        ## that belong there.
+        var clear =
+          not mapProtectedFloorAt(result, gx, gy) and
+          not mapProtectedFloorAt(result, cell.x, cell.y) and
+          not mapProtectedFloorAt(result, cell.x + cell.w - 1, cell.y) and
+          not mapProtectedFloorAt(result, cell.x, cell.y + cell.h - 1) and
+          not mapProtectedFloorAt(
+            result, cell.x + cell.w - 1, cell.y + cell.h - 1)
+        if clear:
+          for shape in result.leftObstacles:
+            let b = shapeBounds(shape)
+            if b.x0 <= cell.x + cell.w and b.x1 >= cell.x and
+               b.y0 <= cell.y + cell.h and b.y1 >= cell.y:
+              clear = false
+              break
+        if clear:
+          pitCandidates.add (pitGap, -1, gx, gy)
+        gx += TrenchSize
+      gy += TrenchSize
+
   ## CENTRE FEATURE — a column of spinning diamonds on the spin axis.
   ##
   ## Two things depend on this and both broke when the lattice went away. The
@@ -2197,6 +2249,12 @@ proc generateMapAttempt*(
   pitCandidates.add (pitEndzone, -1, redHomeX - backOffset, cy)
   pitCandidates.add (pitEndzone, -1, redHomeX, cy - sideOffset)
   pitCandidates.add (pitEndzone, -1, redHomeX, cy + sideOffset)
+  when defined(mapdbg):
+    var pitKinds {.used.}: array[3, int]
+    for c in pitCandidates: inc pitKinds[c.kind]
+    echo "  [dbg] pitCandidates=", pitCandidates.len,
+      " instead=", pitKinds[pitInstead], " gap=", pitKinds[pitGap],
+      " endzone=", pitKinds[pitEndzone]
 
   ## Pit selection. DENSITY mode (default) rolls every candidate at its
   ## class chance scaled by pitDensity percent. COUNT mode (pits locked)
@@ -2251,6 +2309,9 @@ proc generateMapAttempt*(
     result.trenches.add rectShape(pit)
     if cand.kind == pitInstead:
       obstacleRemoved[cand.obstacleIdx] = true
+  when defined(mapdbg):
+    echo "  [dbg] pitsSelected=", result.trenches.len,
+      " wanted(pairs)=", pitPairsWanted, " density=", pitDensity
 
   ## Swap the chosen `instead` obstacles out of the wall set. Window
   ## eligibility indexes leftObstacles, so compact both together.
@@ -2549,8 +2610,12 @@ proc generateMapAttempt*(
       if image != trench:
         digs.add image
       true
+    var paired {.used.} = 0
     for trench in result.trenches:
-      discard result.addPair(digs, shapeAsRect(trench))
+      if result.addPair(digs, shapeAsRect(trench)): inc paired
+    when defined(mapdbg):
+      echo "  [dbg] pitsPaired=", paired, " of ", result.trenches.len,
+        " -> digs=", digs.len
     ## COUNT mode: pairs lost to sightline-repair walls are topped back up
     ## from the unused candidates that cannot change the wall set (gap and
     ## endzone spots; a late `instead` swap would dodge the repair pass).
@@ -2561,6 +2626,8 @@ proc generateMapAttempt*(
         if cand.kind == pitInstead:
           continue
         discard result.addPair(digs, trenchSquareAt(cand.x, cand.y))
+    when defined(mapdbg):
+      echo "  [dbg] pitsFinal=", digs.len, " requested=", overrides.pits
     result.trenches = @[]
     for d in digs:
       result.trenches.add rectShape(d)
