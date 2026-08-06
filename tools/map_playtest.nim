@@ -34,23 +34,44 @@ const
   EvidenceCellPx = 10
     ## Occupancy grid resolution. Matches the grid the heatmap draws on, so the
     ## visited-floor evidence and the picture are the same measurement.
+  CloseRangePx = GunRange div 4
+    ## The radius that actually separates maps.
+    ##
+    ## `fightTicks` below counts an enemy inside GunRange, and GunRange is
+    ## 1050px — WIDER THAN THE BOARD on every map this harness measures (the
+    ## arena is 1235x659, the small generated class 1050x560). Measured, it
+    ## reads 99-100% on the arena and on all three generated 2-team maps
+    ## alike, so its `< 0.15` flag is unfirable and the number is not evidence
+    ## of anything. It is kept because it IS the engine's own shooting range,
+    ## and a map big enough to break that saturation should still be caught;
+    ## `closeTicks` is the one that discriminates at these sizes.
 
 type MapPlaytestError = object of CatchableError
 
 proc fail(message: string) {.noreturn.} =
   raise newException(MapPlaytestError, message)
 
-proc parseArgs(): tuple[replay, name, outPath: string] =
+proc parseArgs(): tuple[replay, name, outPath: string, tickCap: int] =
   var params = commandLineParams()
   var i = 0
+  result.tickCap = 0
   while i < params.len:
     let arg = params[i]
-    if arg in ["--name", "--out"]:
+    if arg in ["--name", "--out", "--ticks"]:
       if i + 1 >= params.len: fail(arg & " requires a value")
       inc i
-      if arg == "--name": result.name = params[i] else: result.outPath = params[i]
+      case arg
+      of "--name": result.name = params[i]
+      of "--out": result.outPath = params[i]
+      else: result.tickCap = params[i].parseInt
     elif arg in ["-h", "--help"]:
-      echo "Usage: map_playtest <replay> [--name NAME] [--out out.json]"
+      echo "Usage: map_playtest <replay> [--name NAME] [--out out.json] " &
+        "[--ticks N]\n" &
+        "  --ticks N  stop accumulating evidence after N ticks, so maps whose\n" &
+        "             episodes ended at different lengths are measured over\n" &
+        "             the same window. A capture ENDS the episode, so without\n" &
+        "             this the map that got decided fast reads as more dead\n" &
+        "             floor purely because it was watched for less time."
       quit(0)
     elif arg.startsWith("--"):
       fail("unknown flag: " & arg)
@@ -84,7 +105,8 @@ proc main() =
     deaths = newJArray()
     carries = newJArray()
     steals, captures, capturesInZone, carrierInZoneTicks = 0
-    aliveTicks, fightTicks = 0
+    aliveTicks, fightTicks, closeTicks = 0
+    measuredTicks = 0
   for t in 0 ..< teamCount:
     occTeam[t] = newSeq[int](gw * gh)
 
@@ -96,6 +118,14 @@ proc main() =
 
   while replay.playing:
     replay.stepReplay(sim)
+    # The measurement window closes, but the re-simulation does NOT: stepping
+    # to the end is what validates the recording's hashes, and a run that
+    # stopped early would silently stop proving determinism — the one thing
+    # riding this loop that is free.
+    if args.tickCap > 0 and sim.tickCount > args.tickCap:
+      sim.events.setLen(0)
+      continue
+    measuredTicks = sim.tickCount
     for event in sim.events:
       case event.kind
       of Death:
@@ -135,17 +165,19 @@ proc main() =
       if player.carryingFlag:
         carries.add %*{"x": player.x, "y": player.y,
                        "team": ord(player.team)}
-      # Fight time: an alive enemy inside gun range. A map that keeps the
-      # teams apart reads as pace without contact, which is a map defect the
-      # kill count alone cannot show.
+      # Contact time at TWO radii. A map that keeps the teams apart reads as
+      # pace without contact, which is a map defect the kill count alone
+      # cannot show — but only the close radius can see it here, because
+      # GunRange spans the whole board (see CloseRangePx).
+      var nearest = high(int)
       for other in sim.players:
         if not other.alive or other.team == player.team: continue
         let
           dx = other.x - player.x
           dy = other.y - player.y
-        if dx * dx + dy * dy <= GunRange * GunRange:
-          inc fightTicks
-          break
+        nearest = min(nearest, dx * dx + dy * dy)
+      if nearest <= GunRange * GunRange: inc fightTicks
+      if nearest <= CloseRangePx * CloseRangePx: inc closeTicks
 
     # How long a live carrier stood inside their own capture zone WITHOUT the
     # game ending. Non-zero with zero captures is the "reached but never
@@ -190,12 +222,16 @@ proc main() =
     if wall[i].getInt() == 1: continue
     inc deadOpen
     if occupancy[i] > 0: inc deadVisited
+  # Rates divide by the MEASURED window, outcomes report the real episode
+  # length. Under --ticks those differ, and dividing a windowed kill count by
+  # the full episode length would understate pace by exactly the truncation.
+  let rateTicks = max(1, if args.tickCap > 0: measuredTicks else: sim.tickCount)
   let play = MapPlay(
     episodes: 1,
     ticks: @[sim.tickCount],
     captures: @[captures],
     balanceEntropy: balanceEntropy(kills, teamCount),
-    pace: 1000.0 * float(sum(kills)) / float(max(1, sim.tickCount)),
+    pace: 1000.0 * float(sum(kills)) / float(rateTicks),
     fightTimeFrac: float(fightTicks) / float(max(1, aliveTicks)),
     deadFloorFrac: 1.0 - float(deadVisited) / float(max(1, deadOpen)))
 
@@ -218,6 +254,10 @@ proc main() =
     "carrierInZoneTicks": carrierInZoneTicks,
     "aliveTicks": aliveTicks,
     "fightTicks": fightTicks,
+    "closeTicks": closeTicks,
+    "closeRangePx": CloseRangePx,
+    "measuredTicks": measuredTicks,
+    "tickCap": args.tickCap,
     "homes": homes,
     "spawns": spawns,
     "captureRadius": gameMap.endzoneRadius,

@@ -67,7 +67,8 @@ def merge(datas):
         base["carries"] = base["carries"] + d["carries"]
         base["kills"] = [a + b for a, b in zip(base["kills"], d["kills"])]
         for key in ("steals", "captures", "capturesInZone",
-                    "carrierInZoneTicks", "ticks", "aliveTicks", "fightTicks"):
+                    "carrierInZoneTicks", "ticks", "aliveTicks", "fightTicks",
+                    "closeTicks", "measuredTicks"):
             base[key] = base.get(key, 0) + d.get(key, 0)
     base["episodes"] = len(datas)
     return base
@@ -216,6 +217,16 @@ def heatmap(data, name):
     return wall, occ, path
 
 
+def pct(x, width=0):
+    """A fraction as a percentage, or an explicit '-' when it has no denominator.
+
+    `None` and `0.0` are DIFFERENT results here — 0 steals is not a 0%
+    conversion — and printing both as "0%" is the exact conflation this
+    harness exists to avoid.
+    """
+    return f"{'-' if x is None else f'{x * 100:.0f}%':>{width}}"
+
+
 def _components(mask):
     """Sizes of 4-connected True regions. Kept dependency-free (no scipy)."""
     h, w = mask.shape
@@ -268,9 +279,26 @@ def report(datas, control=None):
     teams = data["teams"]
     kills = data["kills"]
     balance = balance_entropy(kills, teams)
-    ticks = max(1, data["ticks"])
+    # Rates divide by the window actually MEASURED. Under `--ticks` that is
+    # shorter than the episode, and the episode length stays the outcome.
+    ticks = max(1, data.get("measuredTicks") or data["ticks"])
+    capped = bool(data.get("tickCap"))
     pace = 1000.0 * sum(kills) / ticks
     fight_frac = data["fightTicks"] / max(1, data["aliveTicks"])
+    close_frac = data.get("closeTicks", 0) / max(1, data["aliveTicks"])
+
+    # THE TOUCH, not the fight. The standing field finding is that combat sits
+    # at parity and the objective TOUCH is where games are lost — 71.8% against
+    # 94.9% conversion — so `captures / steals` is the number a map is judged
+    # on, and it is meaningless as the bare count pair the line below used to
+    # print. `conversion` is None (not 0.0) when nobody ever stole: no
+    # denominator is a different result from a failed conversion, and averaging
+    # the two together is how a map that is never even reached reads as a map
+    # that is merely hard to score on.
+    conversion = (data["captures"] / data["steals"]
+                  if data["steals"] > 0 else None)
+    zone_rate = 1000.0 * data["carrierInZoneTicks"] / ticks
+    decided = sum(1 for c in data["episodeCaptures"] if c > 0)
 
     # EXPOSURE, not episode count, is what actually drives dead space: it is
     # alive seat-ticks spread over the floor there is to cover. The same arena
@@ -341,6 +369,15 @@ def report(datas, control=None):
     if fight_frac < 0.15:
         flags.append(f"only {fight_frac:.0%} of alive time had an enemy in "
                      "gun range — the teams barely met")
+    if control is not None and not is_control:
+        ctrl_close = control.get("closeTicks", 0) / max(1, control["aliveTicks"])
+        if close_frac < ctrl_close - 0.10:
+            flags.append(
+                f"close contact {close_frac:.0%} of alive time against the "
+                f"control's {ctrl_close:.0%} (within "
+                f"{data.get('closeRangePx', 0)}px) — the teams meet less here. "
+                "GunRange contact is 100% on every map at these sizes and "
+                "cannot see this")
     if control is not None and control["map"] != name:
         if data["ticks"] / episodes < 0.6 * control["ticks"] / control["episodes"]:
             flags.append(
@@ -365,10 +402,14 @@ def report(datas, control=None):
           f"({data['aliveTicks']:,} seat-ticks over {open_cells:,} cells)")
     print(f"    {len(deaths)} deaths, spread {spread:.0f}px")
     print(f"    kills {kills}  balance {balance:.2f}  "
-          f"pace {pace:.1f} kills/1000t  fight time {fight_frac:.0%}")
+          f"pace {pace:.1f} kills/1000t  contact {fight_frac:.0%} in gun range "
+          f"/ {close_frac:.0%} within {data.get('closeRangePx', 0)}px")
     print(f"    objective: {data['steals']} steals -> {data['captures']} "
-          f"captures ({data['capturesInZone']} verified in zone), carrier in "
-          f"zone {data['carrierInZoneTicks']}t")
+          f"captures ({data['capturesInZone']} verified in zone) = "
+          f"{pct(conversion)} conversion, carrier in zone "
+          f"{data['carrierInZoneTicks']}t ({zone_rate:.1f} per 1000t)")
+    print(f"    decided by capture: {decided}/{episodes} episode(s) = "
+          f"{decided / episodes:.0%}")
     print(f"    heatmap {heat_path}")
     for f in flags:
         print(f"    FLAG: {f}")
@@ -377,15 +418,101 @@ def report(datas, control=None):
     return dict(map=name, episodes=episodes, ticks=data["ticks"],
                 episodeTicks=data["episodeTicks"],
                 episodeCaptures=data["episodeCaptures"],
-                deadPct=dead_pct, biggestDead=biggest_dead, exposure=exposure,
+                episodeSteals=data["episodeSteals"],
+                deadPct=dead_pct, biggestDead=biggest_dead,
+                biggestDeadPx2=biggest_dead * cell * cell,
+                openCells=open_cells, visitedCells=visited,
+                exposure=exposure,
                 isControl=is_control,
                 deaths=len(deaths), spread=spread,
                 kills=kills, balanceEntropy=balance, pace=pace,
-                fightTimeFrac=fight_frac,
+                fightTimeFrac=fight_frac, closeContactFrac=close_frac,
+                measuredTicks=ticks, tickCapped=capped,
                 steals=data["steals"], captures=data["captures"],
                 capturesInZone=data["capturesInZone"],
+                conversion=conversion, decidedFrac=decided / episodes,
                 carrierInZoneTicks=data["carrierInZoneTicks"],
+                carrierInZonePer1000t=zone_rate,
+                teams=teams,
                 heatmap=str(heat_path), flags=flags)
+
+
+def comparison(rows):
+    """The one-page table: every map as a column, the control's column first.
+
+    Transposed on purpose. The question this answers is "generated vs arena,
+    per metric", and a metric is only readable as a comparison when its values
+    sit on ONE line — a map-per-row table makes the reader scan across 14
+    columns to compare two numbers that differ by 24 points.
+
+    The control's column is first and marked, and the delta block below states
+    every headline number as an excess over it, because none of these have an
+    absolute bar (see the dead-space note in `report`).
+    """
+    names = ([r["map"] for r in rows if r["isControl"]] +
+             [r["map"] for r in rows if not r["isControl"]])
+    by = {r["map"]: r for r in rows}
+    ctrl = next((r for r in rows if r["isControl"]), None)
+    w = max(13, max(len(n) for n in names) + 2)
+
+    def line(label, fn):
+        print(f"  {label:<26}" + "".join(f"{fn(by[n]):>{w}}" for n in names))
+
+    print("\n" + "=" * (28 + w * len(names)))
+    print("ONE-PAGE COMPARISON — generated vs arena, per metric")
+    header = "".join(
+        f"{n + ('*' if by[n]['isControl'] else ''):>{w}}" for n in names)
+    print(f"  {'':<26}{header}")
+    print(f"  {'':<26}" + "".join(f"{'CONTROL' if by[n]['isControl'] else '':>{w}}"
+                                  for n in names))
+    print("")
+    line("teams", lambda r: r["teams"])
+    line("episodes", lambda r: r["episodes"])
+    line("median episode length", lambda r: f"{sorted(r['episodeTicks'])[len(r['episodeTicks']) // 2]}t")
+    line("decided by a capture", lambda r:
+         f"{sum(1 for c in r['episodeCaptures'] if c)}/{r['episodes']} "
+         f"{r['decidedFrac'] * 100:.0f}%")
+    print("")
+    line("open floor (10px cells)", lambda r: f"{r['openCells']:,}")
+    line("visited", lambda r:
+         f"{r['visitedCells']:,} {r['visitedCells'] / max(1, r['openCells']) * 100:.0f}%")
+    line("DEAD SPACE", lambda r: f"{r['deadPct'] * 100:.0f}%")
+    line("largest dead region", lambda r: f"{r['biggestDeadPx2']:,}px²")
+    line("exposure (seat-t/cell)", lambda r: f"{r['exposure']:.1f}")
+    print("")
+    line("steals", lambda r: r["steals"])
+    line("captures", lambda r: r["captures"])
+    line("CONVERSION grab->cap", lambda r: pct(r["conversion"]))
+    line("carrier in zone /1000t", lambda r: f"{r['carrierInZonePer1000t']:.1f}")
+    print("")
+    line("deaths", lambda r: r["deaths"])
+    line("kills/1000t", lambda r: f"{r['pace']:.1f}")
+    line("contact, gun range", lambda r: f"{r['fightTimeFrac'] * 100:.0f}%")
+    line("contact, close", lambda r: f"{r['closeContactFrac'] * 100:.0f}%")
+    line("balance entropy", lambda r: f"{r['balanceEntropy']:.2f}")
+
+    print("")
+    if ctrl is None:
+        print("  NO CONTROL COLUMN. There is no hand-authored map at this team "
+              "count, so every number above is readable only against the other "
+              "generated maps — not against a known-good board.")
+        return
+    print("  DELTA FROM THE CONTROL  (generated - arena; pp = percentage points)")
+    for n in names:
+        r = by[n]
+        if r["isControl"]:
+            continue
+        conv = ("conversion n/a (no steals)" if r["conversion"] is None
+                else "conversion " +
+                ("n/a vs control (control never stole)"
+                 if ctrl["conversion"] is None else
+                 f"{(r['conversion'] - ctrl['conversion']) * 100:+.0f}pp"))
+        print(f"    {n:<12} dead floor "
+              f"{(r['deadPct'] - ctrl['deadPct']) * 100:+.0f}pp   {conv}   "
+              f"decided {(r['decidedFrac'] - ctrl['decidedFrac']) * 100:+.0f}pp"
+              f"   exposure {r['exposure'] / max(1e-9, ctrl['exposure']):.2f}x")
+    print("  Exposure outside 0.70..1.40x makes the dead-space delta beside it "
+          "NOT comparable — see the per-map FLAG lines above.")
 
 
 def main():
@@ -411,6 +538,7 @@ def main():
               "beside it has no scale.")
 
     out = {m: report(ds, control) for m, ds in sorted(groups.items())}
+    comparison(list(out.values()))
     GALLERY.mkdir(exist_ok=True, parents=True)
     (GALLERY / "playtest.json").write_text(json.dumps(out, indent=1))
     print(f"\nwrote {GALLERY}/playtest.json + heat-<map>.png")
