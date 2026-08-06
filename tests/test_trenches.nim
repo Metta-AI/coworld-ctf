@@ -59,7 +59,7 @@ suite "trenches":
     let
       cx = sim.gameMap.center.x
       cy = sim.gameMap.center.y
-      trench = ArenaTrenches[0]
+      trench = shapeAsRect(ArenaTrenches[0])
     check trench.w == TrenchSize
     check trench.h == TrenchSize
     check trenchIndexAt(cx, cy) == 0
@@ -72,7 +72,7 @@ suite "trenches":
 
   test "the trench art edge is rough, bounded, and deterministic":
     discard twoTeamGame()
-    let trench = ArenaTrenches[0]
+    let trench = shapeAsRect(ArenaTrenches[0])
     # Along the top gameplay edge the rough cut line wanders: the signed
     # distance to it takes several values (a machined square would be one
     # constant) and never strays past the art pad.
@@ -218,7 +218,7 @@ suite "trenches":
     let
       cx = sim.gameMap.center.x
       cy = sim.gameMap.center.y
-      trench = ArenaTrenches[0]
+      trench = shapeAsRect(ArenaTrenches[0])
     sim.placeAt(1, cx, cy)
     sim.placeAt(0, cx + 50, cy)
     sim.players[0].aimBrads = 128
@@ -316,7 +316,8 @@ suite "trenches":
         obstacles = buildArenaObstacles(gameMap)
       if gameMap.trenches.len > 0:
         inc mapsWithTrenches
-      for trench in gameMap.trenches:
+      for trenchShape in gameMap.trenches:
+        let trench = shapeAsRect(trenchShape)
         check trench.w == TrenchSize
         check trench.h == TrenchSize
         var open = true
@@ -340,8 +341,9 @@ suite "trenches":
             x: gameMap.width - trench.x - trench.w,
             y: gameMap.height - trench.y - trench.h,
             w: trench.w, h: trench.h)
-          of symRot90: raiseAssert "trenches never place on rot90 maps"
-        check image in gameMap.trenches
+          of symRot90, symQuadMirror:
+            raiseAssert "trenches never place on 4-team maps"
+        check rectShape(image) in gameMap.trenches
     ## The drawn pool exercises the endzone and field placement classes.
     check mapsWithTrenches > 0
     check sawEndzone
@@ -362,7 +364,7 @@ suite "trenches":
         x: gameMap.center.x - TrenchSize div 2,
         y: gameMap.center.y - TrenchSize div 2,
         w: TrenchSize, h: TrenchSize)
-      check (center in gameMap.trenches) == (count mod 2 == 1)
+      check (rectShape(center) in gameMap.trenches) == (count mod 2 == 1)
 
   test "mapPitDensity scales the density draw":
     proc withDensity(density: int): CtfMap =
@@ -441,7 +443,8 @@ suite "trenches":
     check gameMap.trenches.len mod 2 == 0
     check gameMap.trenches.len > 12
     check gameMap.trenches.len < 64
-    for trench in gameMap.trenches:
+    for trenchShape in gameMap.trenches:
+      let trench = shapeAsRect(trenchShape)
       let image =
         case gameMap.symmetry
         of symMirror: MapRect(
@@ -451,8 +454,9 @@ suite "trenches":
           x: gameMap.width - trench.x - trench.w,
           y: gameMap.height - trench.y - trench.h,
           w: trench.w, h: trench.h)
-        of symRot90: raiseAssert "trenches never place on rot90 maps"
-      check image in gameMap.trenches
+        of symRot90, symQuadMirror:
+          raiseAssert "trenches never place on 4-team maps"
+      check rectShape(image) in gameMap.trenches
 
   test "out-of-range pit knobs raise config errors at config load":
     # update() resolves the gen map to pin its mapSpec, so a bad knob is
@@ -522,7 +526,7 @@ suite "trenches":
     let
       cx = sim.gameMap.center.x
       cy = sim.gameMap.center.y
-      trench = ArenaTrenches[0]
+      trench = shapeAsRect(ArenaTrenches[0])
     sim.throwFullChargeEastAt(0, cx, cy)
     check sim.paintStains.len > 0
     for stain in sim.paintStains:

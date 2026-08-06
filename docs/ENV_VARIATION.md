@@ -50,7 +50,7 @@ Definition [sim_types.nim:796](../src/ctf/sim_types.nim#L796). Zero/`-1`/`""` va
 | Field | Type / default | JSON key | Valid values / draw | Effect |
 |---|---|---|---|---|
 | `size` | string / `""` | `mapSize` | `small`/`standard`/`large`/`huge`/`giant` (scales 0.85/1.0/1.3/1.8/2.6 of 1235×659); `colossal`=5.2 override-only | Field dimensions. |
-| `symmetry` | string / `""` | `mapSymmetry` | 2-team: `mirror`/`rot180` (coin); 4-team forced `rot90` | How half/quadrant seed set completes. |
+| `symmetry` | string / `""` | `mapSymmetry` | 2-team: `mirror`/`rot180` (coin); 4-team draws `rot90` (square), `quadmirror` override = rectangular board completed by both reflections (GV39) | How half/quadrant seed set completes. |
 | `columns` | int / `0` | `mapColumns` | `3..24` (gen); draw 4-team 3–4, compact-endzone 6–8, else 4–6 | Obstacle column count per half. |
 | `windows` | int / `-1` | `mapWindows` | `0..6` per half; -1 = draw | Glass-window count (walls transparent to fog). |
 | `centerFeature` | string / `""` | `mapCenterFeature` | `bracket`/`ring`/`walls` | Central obstacle archetype. |
@@ -94,6 +94,21 @@ Per-map descriptor `CtfMap` [sim_types.nim:733](../src/ctf/sim_types.nim#L733) c
 | `minPlayers` | int / `16` | `1..32` | Players required to start; effectively sets roster size on open join. |
 | `closedRoster` | bool / `false` | needs ≥`minPlayers` named+tokened slots | Fixed named roster vs open join. |
 | `slots` | `seq[PlayerSlotConfig]` / `@[]` | ≤32; unique names/tokens; `team < teams` | Per-seat overrides. |
+| `handicaps` | `array[Team, int]` permille / all `0` | authored as `{team: 0.0..1.0}` | Per-team handicap: 0 = normal, 1 = 50% miss + 1 life + 1 hit point + ½ max speed, linearly interpolated. |
+
+**Per-team handicap** ([sim_types.nim `handicaps`](../src/ctf/sim_types.nim), accessors
+`hitPointsFor`/`livesFor`/`maxSpeedFor`/`missPermilleFor`): a single `0.0..1.0`
+knob per team, authored as a float map `"handicaps": {"red": 0.0, "blue": 0.6}`
+and stored internally as permille (`0..1000`) so every in-sim derivation is
+integer-only (native/wasm agree). At `0` a team plays normally (byte-identical to
+no handicap — no extra RNG, existing replays re-simulate unchanged); at `1` it
+gets 50% of would-be gun hits dropped, 1 life, 1 hit point, and half max speed;
+values between interpolate linearly from the base config toward that floor.
+Omitted/inactive teams stay at 0. Intended for a league (Campaign) to weaken a
+dominating team. Handicaps are OBSERVABLE to policies: the init snapshot
+carries one `handicap <color> <permille> hp <n> lives <n> spd <n> miss <n>`
+marker per team (every team, permille 0 included) stating the fraction and the
+engine-resolved deltas — see docs/RULES.md. Design: [docs/plans/2026-08-05-per-team-handicaps-design.md](plans/2026-08-05-per-team-handicaps-design.md).
 
 `Team` enum: Red, Blue, Green, Yellow ([sim_types.nim:637](../src/ctf/sim_types.nim#L637));
 active teams are always the prefix `Red..Team(teams-1)`. Hard caps `MaxPlayers`=32,
@@ -110,6 +125,11 @@ Per-slot config `PlayerSlotConfig` [sim_types.nim:787](../src/ctf/sim_types.nim#
 
 Counts are **not** individually config-numbered — they scale with `teams` and map
 layout, and trench count via `mapGen`. Spawn placement in `sim.nim`.
+
+Obstacles and trenches are `ArenaShape`s in five kinds: `rect`, `disc`,
+`diamond`, `diagonal`, and (GV37+) `polygon` — a closed ring of integer vertices
+for curved/organic terrain. Trenches are also `ArenaShape` (the generator emits
+`rect` pits; authored maps may use any shape).
 
 | Item | Count | Key consts (sim_types.nim) |
 |---|---|---|
@@ -162,11 +182,11 @@ Non-config envelope consts (change in code): `BulletHalfWidth`=8.0,
 
 | Field | Type / default | Bounds | Effect |
 |---|---|---|---|
-| `aimTurnRate` | int / `1` | `>=1` | Rotation slots turned per tick (of 32). |
+| `aimTurnRate` | int / `5` | `>=1` | Aim rotation speed in brads per tick. |
 | `visionConeDeg` | int / `60` | `0..180` | Vision cone half-angle around aim. |
 | `visionBubble` | int / `90` | `>=0` | Omnidirectional vision radius (px). |
 
-Non-config: `AimRotations`=32, `FovCellSize`=8, `visionRange`=1.5×gunRange.
+Non-config: `FovCellSize`=8, `visionRange`=1.5×gunRange.
 
 ---
 

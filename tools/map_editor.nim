@@ -129,7 +129,10 @@ proc parseMapSpec(node: JsonNode): CtfMap =
   except CatchableError as e:
     raiseRequestError("Could not parse map spec JSON: " & e.msg)
 
-proc parseTrenches(node: JsonNode, gameMap: CtfMap): seq[MapRect] =
+proc parseTrenches(node: JsonNode, gameMap: CtfMap): seq[ArenaShape] =
+  ## The editor authors rect pits (matching the generator); the field type is
+  ## shape-general so authored polygon pits round-trip via the mapSpec, but the
+  ## editor UI still submits [x, y, w, h] rectangles.
   if node.kind != JArray:
     raiseRequestError("Field trenches must be an array.")
   for i in 0 ..< node.len:
@@ -151,7 +154,7 @@ proc parseTrenches(node: JsonNode, gameMap: CtfMap): seq[MapRect] =
         rect.w > gameMap.width or rect.x > gameMap.width - rect.w or
         rect.h > gameMap.height or rect.y > gameMap.height - rect.h:
       raiseRequestError("Map trench " & $i & " is outside the map.")
-    result.add rect
+    result.add rectShape(rect)
 
 proc parseMedKits(node: JsonNode, gameMap: CtfMap): seq[MapPoint] =
   if node.kind != JArray:
@@ -400,13 +403,13 @@ proc symmetryResponseNode(body: string): JsonNode =
   let
     trenches = parseTrenches(request.requiredField("trenches"), gameMap)
     medKits = parseMedKits(request.requiredField("medKits"), gameMap)
-  if gameMap.symmetry == symRot90 and trenches.len > 0:
+  if gameMap.symmetry in {symRot90, symQuadMirror} and trenches.len > 0:
     raiseRequestError("Trenches are not supported on 4-team maps yet.")
   var
     trenchOrbits = newJArray()
     medKitOrbits = newJArray()
   for trench in trenches:
-    trenchOrbits.add mapRectsNode(gameMap.symmetryImages(trench))
+    trenchOrbits.add mapRectsNode(gameMap.symmetryImages(shapeAsRect(trench)))
   for medKit in medKits:
     medKitOrbits.add mapPointsNode(gameMap.symmetryImages(medKit))
   %*{

@@ -4,6 +4,24 @@
 (function() {
   'use strict';
 
+  // The native replay client runs this core in a Window. The static bundle
+  // runs the same parser/compositor in a Dedicated Worker with an
+  // OffscreenCanvas. Keep one implementation so protocol and rendering fixes
+  // cannot drift between the two delivery modes.
+  const globalScope = typeof window !== 'undefined' ? window : self;
+  const requestFrame = typeof globalScope.requestAnimationFrame === 'function'
+    ? globalScope.requestAnimationFrame.bind(globalScope)
+    : callback => setTimeout(() => callback(performance.now()), 1000 / 60);
+  const cancelFrame = typeof globalScope.cancelAnimationFrame === 'function'
+    ? globalScope.cancelAnimationFrame.bind(globalScope)
+    : clearTimeout;
+
+  function createCanvasSurface() {
+    if (typeof document !== 'undefined') return document.createElement('canvas');
+    if (typeof OffscreenCanvas !== 'undefined') return new OffscreenCanvas(1, 1);
+    throw new Error('Canvas rendering is unavailable in this execution context');
+  }
+
   // ========== Vendored SnappyJS (MIT) ==========
   // @license MIT (http://opensource.org/licenses/MIT)
   // author: Zhipeng Jia
@@ -100,7 +118,7 @@
 
   function ensureLayer(layers, id) {
     if (!layers.has(id)) {
-      const canvas = document.createElement('canvas');
+      const canvas = createCanvasSurface();
       const ctx = canvas.getContext('2d');
       ctx.imageSmoothingEnabled = false;
       layers.set(id, {
@@ -204,6 +222,7 @@
     const onFirstFrame = config.onFirstFrame || (() => {});
     const websocketEnabled = config.websocket !== false;
     const onSendPacket = config.onSendPacket || null;
+    const onTransform = config.onTransform || (() => {});
     const ctx = canvas.getContext('2d');
     ctx.imageSmoothingEnabled = false;
 
@@ -219,10 +238,20 @@
     let offscreenCtx = null;
     let nativeW = 1, nativeH = 1;
     let scale = 1, offsetX = 0, offsetY = 0;
+    let fitScale = 1;                 // scale that fits the whole board (zoom 1).
+    let zoom = 1;                     // multiplier over the fit, >= 1.
+    let focusX = 0, focusY = 0;       // map px held at the viewport center.
+    const maxZoom = 12;               // ~1 map px per 12 css px: past this the
+                                      // art is blocks, not detail.
     let reconnectDelay = 1000;
     const maxReconnectDelay = 8000;
     let reconnecting = false;
     let stopped = false;
+    let viewportWidth = Number(config.viewportWidth) || 0;
+    let viewportHeight = Number(config.viewportHeight) || 0;
+    let pixelRatio = Number(config.devicePixelRatio) ||
+      globalScope.devicePixelRatio || 1;
+    let lastTransform = null;
 
     // ---- Playout buffer (jitter absorption) ----
     // The stream leaves the server at a clean source cadence (~24fps), but the
@@ -282,7 +311,7 @@
       nativeW = size.w;
       nativeH = size.h;
       if (!offscreenCanvas) {
-        offscreenCanvas = document.createElement('canvas');
+        offscreenCanvas = createCanvasSurface();
         offscreenCtx = offscreenCanvas.getContext('2d');
         offscreenCtx.imageSmoothingEnabled = false;
       }
@@ -290,17 +319,108 @@
       if (offscreenCanvas.height !== nativeH) offscreenCanvas.height = nativeH;
     }
 
+    function canvasCssSize() {
+      return {
+        w: viewportWidth || canvas.clientWidth || canvas.width / pixelRatio,
+        h: viewportHeight || canvas.clientHeight || canvas.height / pixelRatio
+      };
+    }
+
+    function notifyTransform() {
+      // Same shape as getTransform(): the worker mirrors this payload to the
+      // page, whose wheel handler reads `zoom` to decide if zoom-out may
+      // consume the scroll.
+      const next = { scale, offsetX, offsetY, nativeW, nativeH, zoom, fitScale };
+      if (!lastTransform ||
+          next.scale !== lastTransform.scale ||
+          next.offsetX !== lastTransform.offsetX ||
+          next.offsetY !== lastTransform.offsetY ||
+          next.nativeW !== lastTransform.nativeW ||
+          next.nativeH !== lastTransform.nativeH ||
+          next.zoom !== lastTransform.zoom) {
+        lastTransform = next;
+        onTransform(next);
+      }
+    }
+
+    // View zoom. `zoom` multiplies the fit scale and `focusX/focusY` name the
+    // MAP-space point held at the viewport center, so the view survives every
+    // relayout: a container resize, a hudscale swing, or a mid-replay board
+    // change (a generated map can be 960x960 where the arena is 1235x659)
+    // recomputes the fit and keeps looking at the same part of the board.
+    // Zoom exists because a big map is unreadable letterboxed whole: a 4992px
+    // colossal board fits a ~760px stage at 0.15x, where a cog is one pixel.
+    function clampView() {
+      zoom = Math.min(maxZoom, Math.max(1, zoom));
+      const size = canvasCssSize();
+      // Half the viewport, in map px. At zoom 1 this covers the whole board on
+      // the fitted axis, so the focus pins to the center and the letterbox
+      // bands stay symmetric exactly as before.
+      const halfW = size.w / (fitScale * zoom) / 2;
+      const halfH = size.h / (fitScale * zoom) / 2;
+      // Never pan past the edges: if the viewport is wider than the board, the
+      // board stays centered on that axis instead of drifting into the void.
+      focusX = halfW * 2 >= nativeW ?
+        nativeW / 2 : Math.min(nativeW - halfW, Math.max(halfW, focusX));
+      focusY = halfH * 2 >= nativeH ?
+        nativeH / 2 : Math.min(nativeH - halfH, Math.max(halfH, focusY));
+    }
+
     function computeFit() {
-      const dpr = window.devicePixelRatio || 1;
-      const cssW = canvas.clientWidth || canvas.width / dpr;
-      const cssH = canvas.clientHeight || canvas.height / dpr;
+      const size = canvasCssSize();
+      const cssW = size.w;
+      const cssH = size.h;
       const scaleX = cssW / nativeW;
       const scaleY = cssH / nativeH;
-      scale = Math.min(scaleX, scaleY);
-      const drawW = nativeW * scale;
-      const drawH = nativeH * scale;
-      offsetX = (cssW - drawW) / 2;
-      offsetY = (cssH - drawH) / 2;
+      fitScale = Math.min(scaleX, scaleY);
+      if (!(focusX > 0) || !(focusY > 0)) {
+        focusX = nativeW / 2;
+        focusY = nativeH / 2;
+      }
+      clampView();
+      scale = fitScale * zoom;
+      // Place the focus point at the viewport center. At zoom 1 this reduces to
+      // the old centered letterbox, to the pixel.
+      offsetX = cssW / 2 - focusX * scale;
+      offsetY = cssH / 2 - focusY * scale;
+      notifyTransform();
+    }
+
+    function zoomAt(factor, cssX, cssY) {
+      // Zoom toward a point (the cursor, usually): hold the map pixel under it
+      // still, so the board grows out from what you are looking at rather than
+      // from the center.
+      if (!(factor > 0)) return;
+      const size = canvasCssSize();
+      const anchorX = typeof cssX === 'number' ? cssX : size.w / 2;
+      const anchorY = typeof cssY === 'number' ? cssY : size.h / 2;
+      const mapX = (anchorX - offsetX) / scale;
+      const mapY = (anchorY - offsetY) / scale;
+      const before = zoom;
+      zoom = Math.min(maxZoom, Math.max(1, zoom * factor));
+      if (zoom === before) return;
+      // Shift the focus so (mapX, mapY) lands back under the anchor.
+      const nextScale = fitScale * zoom;
+      focusX = mapX + (size.w / 2 - anchorX) / nextScale;
+      focusY = mapY + (size.h / 2 - anchorY) / nextScale;
+      computeFit();
+      scheduleDraw();
+    }
+
+    function panBy(cssDX, cssDY) {
+      if (zoom <= 1) return;          // fitted whole: there is nowhere to pan.
+      focusX -= cssDX / scale;
+      focusY -= cssDY / scale;
+      computeFit();
+      scheduleDraw();
+    }
+
+    function resetView() {
+      zoom = 1;
+      focusX = nativeW / 2;
+      focusY = nativeH / 2;
+      computeFit();
+      scheduleDraw();
     }
 
     // Static map-band cache. The full-board map bands (object ids 40 up, on
@@ -433,9 +553,10 @@
     }
 
     function draw() {
-      const dpr = window.devicePixelRatio || 1;
-      const cssW = canvas.clientWidth || canvas.width / dpr;
-      const cssH = canvas.clientHeight || canvas.height / dpr;
+      const dpr = pixelRatio;
+      const size = canvasCssSize();
+      const cssW = size.w;
+      const cssH = size.h;
       if (canvas.width !== cssW * dpr) canvas.width = cssW * dpr;
       if (canvas.height !== cssH * dpr) canvas.height = cssH * dpr;
 
@@ -466,7 +587,7 @@
 
     function scheduleDraw() {
       if (rafHandle) return;
-      rafHandle = requestAnimationFrame(() => {
+      rafHandle = requestFrame(() => {
         rafHandle = null;
         draw();
       });
@@ -622,7 +743,7 @@
       // throttles or fully stops in hidden/occluded tabs — the timer backstop
       // keeps presentation and backlog control running there. Whichever fires
       // first cancels the other.
-      if (!paceRaf) paceRaf = requestAnimationFrame(pacePumpRaf);
+      if (!paceRaf) paceRaf = requestFrame(pacePumpRaf);
       if (!paceTimer) {
         paceTimer = setTimeout(pacePumpTimer, Math.max(25, paceInterval * 1.5));
       }
@@ -640,7 +761,7 @@
     function pacePumpTimer() {
       paceTimer = null;
       if (paceRaf) {
-        cancelAnimationFrame(paceRaf);
+        cancelFrame(paceRaf);
         paceRaf = null;
       }
       pacePump(performance.now());
@@ -822,12 +943,22 @@
         offsetX,
         offsetY,
         nativeW,
-        nativeH
+        nativeH,
+        zoom,
+        fitScale
       };
     }
 
     function setViewportFit() {
       updateNativeSize();
+      computeFit();
+      scheduleDraw();
+    }
+
+    function setViewportSize(width, height, dpr) {
+      viewportWidth = Math.max(1, Number(width) || 1);
+      viewportHeight = Math.max(1, Number(height) || 1);
+      pixelRatio = Math.max(0.1, Number(dpr) || 1);
       computeFit();
       scheduleDraw();
     }
@@ -852,11 +983,11 @@
         socket = null;
       }
       if (rafHandle) {
-        cancelAnimationFrame(rafHandle);
+        cancelFrame(rafHandle);
         rafHandle = null;
       }
       if (paceRaf) {
-        cancelAnimationFrame(paceRaf);
+        cancelFrame(paceRaf);
         paceRaf = null;
       }
       if (paceTimer) {
@@ -882,7 +1013,11 @@
       clickMap,
       getTransform,
       setViewportFit,
+      setViewportSize,
       getPaceStats,
+      zoomAt,
+      panBy,
+      resetView,
       stop
     };
   }

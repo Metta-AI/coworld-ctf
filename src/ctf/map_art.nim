@@ -99,12 +99,17 @@ proc trenchArtColorAt(base: ColorRGBA, x, y: int): ColorRGBA =
   ## Cosmetic only — the collision masks and gameplay (trenchIndexAt) keep
   ## the exact square; the art wanders at most TrenchArtPadPx around it.
   for trench in ArenaTrenches:
-    if x < trench.x - TrenchArtPadPx or
-        x >= trench.x + trench.w + TrenchArtPadPx or
-        y < trench.y - TrenchArtPadPx or
-        y >= trench.y + trench.h + TrenchArtPadPx:
+    let tr = shapeAsRect(trench)
+    if x < tr.x - TrenchArtPadPx or
+        x >= tr.x + tr.w + TrenchArtPadPx or
+        y < tr.y - TrenchArtPadPx or
+        y >= tr.y + tr.h + TrenchArtPadPx:
       continue
-    let edge = trenchRoughEdge(trench, x, y)
+    # Rect pits get the rough dug edge; other kinds fill flat (inside only).
+    let edge =
+      if trench.kind == shapeRect: trenchRoughEdge(tr, x, y)
+      elif inShape(x, y, trench): float(TrenchBevelPx) + 1.0
+      else: -1.0
     if edge < 0:
       continue                # undug ground inside the pad ring
     if edge < 1:
@@ -526,6 +531,19 @@ proc shapeLogicalBounds(shape: ArenaShape): tuple[x0, y0, x1, y1: int] =
      min(shape.y0, shape.y1) - shape.thickness - 1,
      max(shape.x0, shape.x1) + shape.thickness + 1,
      max(shape.y0, shape.y1) + shape.thickness + 1)
+  of shapePolygon:
+    if shape.points.len == 0:
+      (0, 0, -1, -1)
+    else:
+      var
+        x0 = shape.points[0].x
+        y0 = shape.points[0].y
+        x1 = shape.points[0].x
+        y1 = shape.points[0].y
+      for p in shape.points:
+        x0 = min(x0, p.x); y0 = min(y0, p.y)
+        x1 = max(x1, p.x); y1 = max(y1, p.y)
+      (x0 - 1, y0 - 1, x1 + 1, y1 + 1)
 
 proc renderArenaRgbaPair*(
   gameMap: CtfMap,
@@ -769,10 +787,11 @@ proc loadMapLayers*(gameMap: CtfMap, withEndzoneGlow = true):
   ## per-pixel trench scan.
   var trenchNear = newSeq[bool](w * h)
   for trench in ArenaTrenches:
-    for y in max(0, trench.y - TrenchArtPadPx) ..<
-        min(h, trench.y + trench.h + TrenchArtPadPx):
-      for x in max(0, trench.x - TrenchArtPadPx) ..<
-          min(w, trench.x + trench.w + TrenchArtPadPx):
+    let tr = shapeAsRect(trench)
+    for y in max(0, tr.y - TrenchArtPadPx) ..<
+        min(h, tr.y + tr.h + TrenchArtPadPx):
+      for x in max(0, tr.x - TrenchArtPadPx) ..<
+          min(w, tr.x + tr.w + TrenchArtPadPx):
         trenchNear[y * w + x] = true
   ## The capture endzones: the exact score-columns from checkWinConditions'
   ## captureZoneXRange (Red's inclusive right threshold, Blue's inclusive left),

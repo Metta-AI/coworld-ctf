@@ -21,7 +21,7 @@ const
   # ending a seed produces is a property of the rules it was recorded under.
   # GV30 moved the pickups, and seed 7 — which captured under GV29 — now
   # runs to a time-limit draw, so the capture fixture moved to seed 1.
-  # Under GV36 (32-rotation aim) seed 1 still ends on a capture (Blue
+  # Under GV38 (locked spray cone) seed 1 still ends on a capture (Blue
   # captures the red heart, eliminating Red). The recording must ALSO keep
   # only one flag out from the last steal to the capture: the endzone fade
   # ramp test (test_replay_scan) watches this fixture just past the last
@@ -150,7 +150,7 @@ suite "broadcast state channel":
       check state["ph"].getStr == "gameover"
       check state.hasKey("over")
       # A capture win is not a draw and not a time-limit tiebreak. The winner
-      # is pinned to the current recording of the fixture (GameVersion 36,
+      # is pinned to the current recording of the fixture (GameVersion 40,
       # seed 1: Blue captures the red heart, eliminating Red).
       check state["over"]["draw"].getBool == false
       check state["over"]["timeLimit"].getBool == false

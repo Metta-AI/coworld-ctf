@@ -59,6 +59,7 @@ const SampleJson = """{
   "fireWindupTicks": {"fireWindupTicks": 9},
   "gameOverTicks": {"gameOverTicks": 100},
   "gunRange": {"gunRange": 500},
+  "handicaps": {"handicaps": {"red": 0.5}},
   "hitPoints": {"hitPoints": 5},
   "lives": {"lives": 2},
   "lobbyJoinTimeoutTicks": {"lobbyJoinTimeoutTicks": 50},
@@ -86,7 +87,15 @@ suite "league manifest config_schema vs GameConfig":
   let
     ctfSchema = manifestSchema("coworld_manifest.json")
     paintbotSchema = manifestSchema("coworld_manifest_paintbot.json")
-    samples = parseJson(SampleJson)
+    samples = block:
+      # mapSpec's payload must be a FULL, valid map object — config.update
+      # resolves it (mapFromSpecJson) rather than storing it blind — so build
+      # one from a generated map instead of inlining a huge literal.
+      var s = parseJson(SampleJson)
+      let spec = mapSpecJson(generateMapAttempt(
+        1, MapGenOverrides(size: "small", windows: -1, pits: -1, pitDensity: -1)))
+      s["mapSpec"] = %*{"mapSpec": parseJson(spec)}
+      s
 
   test "the ctf schema is a subset of the paintbot schema":
     # The two manifests share one game binary; paintbot's variants may expose
@@ -133,6 +142,14 @@ suite "league manifest config_schema vs GameConfig":
     # rejected value, so a clean call IS the validation.
     var config = defaultGameConfig()
     config.update(readFile(GameDir / "config.json"))
+
+  test "published variants use the engine's aim rate":
+    let expected = defaultGameConfig().aimTurnRate
+    for name in ["coworld_manifest.json", "coworld_manifest_paintbot.json"]:
+      check manifestSchema(name)["properties"]["aimTurnRate"]["default"].getInt ==
+        expected
+      for variant in parseFile(GameDir / name)["variants"]:
+        check variant["game_config"]["aimTurnRate"].getInt == expected
 
   test "ctf publishes a two-seat 1v1 custom-lobby variant":
     let
@@ -187,7 +204,7 @@ suite "league manifest config_schema vs GameConfig":
       check sim.phase == GameOver
       check sim.winner == Red
 
-  test "paintbot publishes a two-seat 1v1 variant without changing league defaults":
+  test "paintbot publishes a full-teams 1v1 variant without changing league defaults":
     let
       manifest = parseFile(GameDir / "coworld_manifest_paintbot.json")
       variant = manifestVariant("coworld_manifest_paintbot.json", "1v1")
@@ -206,12 +223,15 @@ suite "league manifest config_schema vs GameConfig":
       check schema["properties"]["players"]["minItems"].getInt() == 2
       check schema["properties"]["tokens"]["maxItems"].getInt() == 32
       check schema["properties"]["players"]["maxItems"].getInt() == 32
-      check gameConfig["players"].len == 2
-      check gameConfig["slots"].len == 2
-      check gameConfig["slots"][0]["team"].getStr() == "red"
-      check gameConfig["slots"][1]["team"].getStr() == "blue"
-      check gameConfig["num_agents"].getInt() == 2
-      check gameConfig["minPlayers"].getInt() == 2
+      # 1v1 means one policy per team at full muster: 16 seats, 8 per team,
+      # alternating so entrant = slot mod 2 fields a whole team.
+      check gameConfig["players"].len == 16
+      check gameConfig["slots"].len == 16
+      for i in 0 ..< 16:
+        check gameConfig["slots"][i]["team"].getStr() ==
+          (if i mod 2 == 0: "red" else: "blue")
+      check gameConfig["num_agents"].getInt() == 16
+      check gameConfig["minPlayers"].getInt() == 16
       check gameConfig["teams"].getInt() == 2
       check gameConfig["mapPath"].getStr() == "gen"
       check gameConfig["scoring"].getStr() == "pot"
@@ -225,29 +245,31 @@ suite "league manifest config_schema vs GameConfig":
 
       var config = defaultGameConfig()
       config.update($gameConfig)
-      check config.minPlayers == 2
-      check config.slots.len == 2
-      check config.slots[0].team == Red
-      check config.slots[1].team == Blue
+      check config.minPlayers == 16
+      check config.slots.len == 16
+      for i in 0 ..< 16:
+        check config.slots[i].team == (if i mod 2 == 0: Red else: Blue)
       check config.mapPath == "gen"
       check config.scoring == PotScoring
 
       var sim = initCtfForTest(config)
-      let
-        red = sim.addPlayer("Player1")
-        blue = sim.addPlayer("Player2")
-      check sim.players[red].team == Red
-      check sim.players[blue].team == Blue
+      var seats: seq[int]
+      for i in 0 ..< 16:
+        seats.add sim.addPlayer("Player" & $(i + 1))
+      for i, seat in seats:
+        check sim.players[seat].team == (if i mod 2 == 0: Red else: Blue)
       for _ in 0 ..< config.startWaitTicks:
         sim.step(@[], @[])
       check sim.phase == Playing
-      check sim.players[red].alive
-      check sim.players[blue].alive
+      for seat in seats:
+        check sim.players[seat].alive
 
-      sim.players[blue].alive = false
-      sim.players[blue].lives = 0
+      for i, seat in seats:
+        if i mod 2 == 1:
+          sim.players[seat].alive = false
+          sim.players[seat].lives = 0
       sim.checkWinCondition()
       check sim.phase == GameOver
       check sim.winner == Red
-      check sim.players[red].reward == 2
-      check sim.players[blue].reward == -2
+      for i, seat in seats:
+        check sim.players[seat].reward == (if i mod 2 == 0: 2 else: -2)

@@ -27,6 +27,38 @@ proc validateMapPoint(name: string, point: MapPoint, width, height: int) =
   if point.x < 0 or point.y < 0 or point.x >= width or point.y >= height:
     raise newException(CtfError, "Map " & name & " is outside the map.")
 
+proc rectShape*(r: MapRect): ArenaShape =
+  ## Wrap a rectangle as a rect-kind shape (trenches are stored as shapes).
+  ArenaShape(kind: shapeRect, rect: r)
+
+proc shapeAsRect*(s: ArenaShape): MapRect =
+  ## The rectangle for a rect-kind shape; the tight bounding box for any other
+  ## kind. Trench generation and the rect-edge trench art work in rectangles;
+  ## this bridges them to the shape-typed `trenches` field.
+  case s.kind
+  of shapeRect:
+    s.rect
+  of shapeDisc, shapeDiamond:
+    MapRect(x: s.cx - s.radius, y: s.cy - s.radius,
+            w: 2 * s.radius + 1, h: 2 * s.radius + 1)
+  of shapeDiagonal:
+    let half = s.thickness div 2 + 1
+    MapRect(x: min(s.x0, s.x1) - half, y: min(s.y0, s.y1) - half,
+            w: abs(s.x1 - s.x0) + 2 * half, h: abs(s.y1 - s.y0) + 2 * half)
+  of shapePolygon:
+    if s.points.len == 0:
+      MapRect(x: 0, y: 0, w: 0, h: 0)
+    else:
+      var
+        x0 = s.points[0].x
+        y0 = s.points[0].y
+        x1 = s.points[0].x
+        y1 = s.points[0].y
+      for p in s.points:
+        x0 = min(x0, p.x); y0 = min(y0, p.y)
+        x1 = max(x1, p.x); y1 = max(y1, p.y)
+      MapRect(x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1)
+
 proc maxEndzoneRadius*(width: int): int =
   ## The compact-endzone radius ceiling for a board of this width. The
   ## classic EndzoneRadiusMax was authored for the STANDARD 1235-wide field
@@ -43,11 +75,13 @@ proc validateMap(gameMap: CtfMap) =
     raise newException(CtfError, "Map dimensions must be positive.")
   case gameMap.layout
   of layoutSides:
-    if gameMap.symmetry == symRot90:
-      raise newException(CtfError, "Sides maps cannot use rot90 symmetry.")
+    if gameMap.symmetry in {symRot90, symQuadMirror}:
+      raise newException(
+        CtfError, "Sides maps cannot use a 4-team symmetry (rot90/quadmirror).")
   of layoutCorners, layoutPlus:
-    if gameMap.symmetry != symRot90:
-      raise newException(CtfError, "Corner/plus maps are rot90-only.")
+    if gameMap.symmetry notin {symRot90, symQuadMirror}:
+      raise newException(
+        CtfError, "Corner/plus maps need rot90 or quadmirror symmetry.")
   if gameMap.symmetry == symRot90 and gameMap.width != gameMap.height:
     ## rot90 rotates about the center of a SQUARE; a non-square board would
     ## silently produce team-unfair obstacle images.
@@ -80,7 +114,8 @@ proc validateMap(gameMap: CtfMap) =
       gameMap.height
     )
   for i, trench in gameMap.trenches:
-    validateMapRect("trench " & $i, trench, gameMap.width, gameMap.height)
+    validateMapRect(
+      "trench " & $i, shapeAsRect(trench), gameMap.width, gameMap.height)
 
 const
   ArenaName = "arena"
@@ -327,16 +362,50 @@ proc teamImagePoint*(gameMap: CtfMap, red: MapPoint, team: Team): MapPoint =
     if team == Red: red
     else: MapPoint(
       x: gameMap.width - 1 - red.x, y: gameMap.height - 1 - red.y)
+  of symQuadMirror:
+    ## Klein-four images. Corner maps carry Red's TL point by the group
+    ## itself: Blue = mirrorX (TR), Green = mirrorY (BL), Yellow = rot180
+    ## (BR) — the same team-to-quadrant assignment the rot90 orbit lands on.
+    ## Plus maps have NO group element carrying the west arm onto the north
+    ## one (on a rectangle the W/E and N/S arm pairs are two separate
+    ## congruence classes), so Green takes a pseudo-quarter-turn about the
+    ## integer center into the north arm and Yellow is Green's EXACT mirrorY
+    ## image in the south arm: W/E and N/S each stay bit-exact mirror pairs.
+    if gameMap.layout == layoutPlus:
+      let green = MapPoint(
+        x: gameMap.center.x - (red.y - gameMap.center.y), y: red.x)
+      case team
+      of Red: red
+      of Blue: MapPoint(x: gameMap.width - 1 - red.x, y: red.y)
+      of Green: green
+      of Yellow: MapPoint(x: green.x, y: gameMap.height - 1 - green.y)
+    else:
+      case team
+      of Red: red
+      of Blue: MapPoint(x: gameMap.width - 1 - red.x, y: red.y)
+      of Green: MapPoint(x: red.x, y: gameMap.height - 1 - red.y)
+      of Yellow: MapPoint(
+        x: gameMap.width - 1 - red.x, y: gameMap.height - 1 - red.y)
 
 proc teamAnchor*(gameMap: CtfMap, team: Team): MapPoint =
   ## Returns one team's home anchor: the center of its protected spawn
   ## pocket, where its pedestal stands.
   ##
-  ## 4-team anchors are RED's anchor walked around the rot90 orbit, so every
-  ## team's home is EXACTLY a quarter turn of every other team's. Deriving
-  ## the far anchors from axisHomeHi instead would place them symmetrically
-  ## about `center` — one pixel off the orbit on an even-sided board, which
-  ## is a fairness difference, not a rounding detail.
+  ## rot90 4-team anchors are RED's anchor walked around the rot90 orbit, so
+  ## every team's home is EXACTLY a quarter turn of every other team's.
+  ## Deriving the far anchors from axisHomeHi instead would place them
+  ## symmetrically about `center` — one pixel off the orbit on an even-sided
+  ## board, which is a fairness difference, not a rounding detail.
+  ##
+  ## QUAD-MIRROR anchors never walk the rot90 orbit (a quarter turn is not a
+  ## group element, and on a rectangle it does not even stay on the board).
+  ## Corner maps take the four reflections of Red's TL anchor, so all four
+  ## homes are exactly congruent. Plus maps author TWO seeds — Red at the
+  ## west arm mouth and Green at the north one — and reflect each across its
+  ## axis (Blue = mirrorX of Red, Yellow = mirrorY of Green): the W/E homes
+  ## are exact mirror twins and so are the N/S ones, two congruence classes
+  ## rather than rot90's single one, which is the honest fairness story on a
+  ## rectangle. The validator's per-team reachability still covers all four.
   let
     cx = gameMap.center.x
     cy = gameMap.center.y
@@ -350,7 +419,22 @@ proc teamAnchor*(gameMap: CtfMap, team: Team): MapPoint =
       else:
         MapPoint(x: axisHomeHi(cx, gameMap.width, d), y: cy)
   of layoutCorners, layoutPlus:
-    ## Red seeds the orbit: top-left on corner maps, west on plus maps.
+    if gameMap.symmetry == symQuadMirror:
+      if gameMap.layout == layoutCorners:
+        result = gameMap.teamImagePoint(
+          MapPoint(x: axisHomeLo(cx, d), y: axisHomeLo(cy, d)), team)
+      else:
+        let
+          red = MapPoint(x: axisHomeLo(cx, d), y: cy)
+          green = MapPoint(x: cx, y: axisHomeLo(cy, d))
+        result =
+          case team
+          of Red: red
+          of Blue: MapPoint(x: gameMap.width - 1 - red.x, y: red.y)
+          of Green: green
+          of Yellow: MapPoint(x: green.x, y: gameMap.height - 1 - green.y)
+      return
+    ## Red seeds the rot90 orbit: top-left on corner maps, west on plus maps.
     result =
       if gameMap.layout == layoutCorners:
         MapPoint(x: axisHomeLo(cx, d), y: axisHomeLo(cy, d))
@@ -368,9 +452,10 @@ proc spawnPocketHalf*(gameMap: CtfMap, team: Team): tuple[w, h: int] =
   ## rotational twins — on a 1248px board that is ~119k pixels, 7.6% of the
   ## board, where the protected floor disagrees with its own quarter turn.
   ##
-  ## Mirror and rot180 symmetries preserve the axes, so 2-team maps keep the
-  ## single upright box they always had.
-  if gameMap.rot90Quarter(team) mod 2 == 1:
+  ## Mirror, rot180 and quad-mirror symmetries preserve the axes, so 2-team
+  ## maps — and every quad-mirror team — keep the single upright box: the
+  ## reflections carry an upright W x H box onto an upright W x H box.
+  if gameMap.symmetry == symRot90 and gameMap.rot90Quarter(team) mod 2 == 1:
     (gameMap.spawnClearH, gameMap.spawnClearW)
   else:
     (gameMap.spawnClearW, gameMap.spawnClearH)
@@ -381,17 +466,21 @@ proc plusArmHalf*(gameMap: CtfMap): int =
   ## wider than the spawn pockets on every size class.
   19 * min(gameMap.width, gameMap.height) div 100
 
+proc plusArmBandOn*(gameMap: CtfMap, span: int): tuple[lo, hi: int] =
+  ## The inclusive span an arm occupies across one axis of length `span`,
+  ## centered on that axis's TRUE symmetry axis at (span - 1)/2 rather than
+  ## on the integer center. The two differ by a pixel on an even span, and a
+  ## band centered on `center` is not its own reflection — the west arm's
+  ## y-span would land one pixel off its mirrorY image. Identical to the
+  ## doubled comparison mapProtectedFloorAt carves the approach with. On the
+  ## (square) rot90 boards width and height agree; a RECTANGULAR quad-mirror
+  ## board passes height for the W/E arms and width for the N/S ones.
+  let lo = (span - 2 * gameMap.plusArmHalf()) div 2
+  (lo, span - 1 - lo)
+
 proc plusArmBand*(gameMap: CtfMap): tuple[lo, hi: int] =
-  ## The inclusive span an arm occupies across the board, centered on the
-  ## board's TRUE rot90 axis at (side - 1)/2 rather than on the integer
-  ## center. The two differ by a pixel on an even side, and a band centered
-  ## on `center` is not its own quarter turn — the west arm's y-span would
-  ## land one pixel off the north arm's x-span. Identical to the doubled
-  ## comparison mapProtectedFloorAt carves the approach with.
-  let
-    side = min(gameMap.width, gameMap.height)
-    lo = (side - 2 * gameMap.plusArmHalf()) div 2
-  (lo, side - 1 - lo)
+  ## The classic single-band form (square boards, where both axes agree).
+  gameMap.plusArmBandOn(min(gameMap.width, gameMap.height))
 
 proc teamHomeX*(gameMap: CtfMap, team: Team): int =
   ## Returns the home-edge x anchor for one team's spawn strip and pedestal.
@@ -451,12 +540,21 @@ proc defaultCtfRooms(gameMap: CtfMap): seq[Room] =
         anchor = gameMap.teamAnchor(team)
         half = gameMap.spawnPocketHalf(team)
         name = teamText(team)
+        ## Clamped to the board: on a RECTANGULAR quad-mirror map the
+        ## pocket box can overhang the near edge (the protected floor is
+        ## clipped by the border wall there anyway, identically for every
+        ## team by reflection). Square rot90 boards never clip, so their
+        ## rooms are byte-identical to before.
+        x0 = max(0, anchor.x - half.w)
+        y0 = max(0, anchor.y - half.h)
+        x1 = min(gameMap.width, anchor.x + half.w)
+        y1 = min(gameMap.height, anchor.y + half.h)
       result.add Room(
         name: name[0].toUpperAscii() & name[1 .. ^1] & " Base",
-        x: anchor.x - half.w,
-        y: anchor.y - half.h,
-        w: 2 * half.w,
-        h: 2 * half.h
+        x: x0,
+        y: y0,
+        w: x1 - x0,
+        h: y1 - y0
       )
 
 proc arenaCtfMap(): CtfMap =
@@ -568,24 +666,29 @@ proc captureZone*(gameMap: CtfMap, team: Team): CaptureZone =
   of layoutPlus:
     ## An arm-mouth box: past the anchor on the home axis, bounded to the
     ## arm span on the other (the corners are open field, not endzone).
-    let band = gameMap.plusArmBand()
+    ## The cross-axis band is computed on the axis it actually spans, so a
+    ## RECTANGULAR quad-mirror board centers the W/E mouths on the y axis
+    ## and the N/S mouths on the x axis (identical on square boards).
+    let
+      bandY = gameMap.plusArmBandOn(h)
+      bandX = gameMap.plusArmBandOn(w)
     case team
     of Red:
       result.xHi = anchor.x + half
-      result.yLo = band.lo
-      result.yHi = band.hi
+      result.yLo = bandY.lo
+      result.yHi = bandY.hi
     of Blue:
       result.xLo = anchor.x - half
-      result.yLo = band.lo
-      result.yHi = band.hi
+      result.yLo = bandY.lo
+      result.yHi = bandY.hi
     of Green:
       result.yHi = anchor.y + half
-      result.xLo = band.lo
-      result.xHi = band.hi
+      result.xLo = bandX.lo
+      result.xHi = bandX.hi
     of Yellow:
       result.yLo = anchor.y - half
-      result.xLo = band.lo
-      result.xHi = band.hi
+      result.xLo = bandX.lo
+      result.xHi = bandX.hi
 
 proc inCaptureZone*(zone: CaptureZone, x, y: int): bool =
   ## Returns whether a map point sits inside one capture zone.
@@ -600,11 +703,11 @@ proc inCaptureZone*(zone: CaptureZone, x, y: int): bool =
     return dx * dx + dy * dy <= zone.radius * zone.radius
   true
 
-proc mirrorX(rect: MapRect, width: int): MapRect =
+proc mirrorX*(rect: MapRect, width: int): MapRect =
   ## Mirrors one rectangle across the vertical center line of a width-px map.
   MapRect(x: width - rect.x - rect.w, y: rect.y, w: rect.w, h: rect.h)
 
-proc mirrorX(shape: ArenaShape, width: int): ArenaShape =
+proc mirrorX*(shape: ArenaShape, width: int): ArenaShape =
   ## Mirrors one arena shape across the vertical center line of a width-px map.
   case shape.kind
   of shapeRect:
@@ -636,6 +739,55 @@ proc mirrorX(shape: ArenaShape, width: int): ArenaShape =
       y1: shape.y1,
       thickness: shape.thickness
     )
+  of shapePolygon:
+    var pts = newSeq[MapPoint](shape.points.len)
+    for i, p in shape.points:
+      pts[i] = MapPoint(x: width - 1 - p.x, y: p.y)
+    ArenaShape(kind: shapePolygon, window: shape.window, points: pts)
+
+proc mirrorY*(rect: MapRect, height: int): MapRect =
+  ## Mirrors one rectangle across the horizontal center line of a height-px
+  ## map — mirrorX with the axes swapped, exactly.
+  MapRect(x: rect.x, y: height - rect.y - rect.h, w: rect.w, h: rect.h)
+
+proc mirrorY*(shape: ArenaShape, height: int): ArenaShape =
+  ## Mirrors one arena shape across the horizontal center line of a height-px
+  ## map — mirrorX with x<->y and width<->height, transform for transform.
+  case shape.kind
+  of shapeRect:
+    ArenaShape(kind: shapeRect, window: shape.window,
+      rect: shape.rect.mirrorY(height))
+  of shapeDisc:
+    ArenaShape(
+      kind: shapeDisc,
+      window: shape.window,
+      cx: shape.cx,
+      cy: height - 1 - shape.cy,
+      radius: shape.radius
+    )
+  of shapeDiamond:
+    ArenaShape(
+      kind: shapeDiamond,
+      window: shape.window,
+      cx: shape.cx,
+      cy: height - 1 - shape.cy,
+      radius: shape.radius
+    )
+  of shapeDiagonal:
+    ArenaShape(
+      kind: shapeDiagonal,
+      window: shape.window,
+      x0: shape.x0,
+      y0: height - 1 - shape.y0,
+      x1: shape.x1,
+      y1: height - 1 - shape.y1,
+      thickness: shape.thickness
+    )
+  of shapePolygon:
+    var pts = newSeq[MapPoint](shape.points.len)
+    for i, p in shape.points:
+      pts[i] = MapPoint(x: p.x, y: height - 1 - p.y)
+    ArenaShape(kind: shapePolygon, window: shape.window, points: pts)
 
 proc `==`*(a, b: ArenaShape): bool =
   ## Field-wise equality (Nim derives no `==` for case objects); lets whole
@@ -650,8 +802,10 @@ proc `==`*(a, b: ArenaShape): bool =
   of shapeDiagonal:
     a.x0 == b.x0 and a.y0 == b.y0 and a.x1 == b.x1 and a.y1 == b.y1 and
       a.thickness == b.thickness
+  of shapePolygon:
+    a.points == b.points
 
-proc rot180(rect: MapRect, width, height: int): MapRect =
+proc rot180*(rect: MapRect, width, height: int): MapRect =
   ## Rotates one rectangle 180 degrees about the map center.
   MapRect(
     x: width - rect.x - rect.w,
@@ -660,7 +814,7 @@ proc rot180(rect: MapRect, width, height: int): MapRect =
     h: rect.h
   )
 
-proc rot180(shape: ArenaShape, width, height: int): ArenaShape =
+proc rot180*(shape: ArenaShape, width, height: int): ArenaShape =
   ## Rotates one arena shape 180 degrees about the map center.
   case shape.kind
   of shapeRect:
@@ -692,6 +846,11 @@ proc rot180(shape: ArenaShape, width, height: int): ArenaShape =
       y1: height - 1 - shape.y1,
       thickness: shape.thickness
     )
+  of shapePolygon:
+    var pts = newSeq[MapPoint](shape.points.len)
+    for i, p in shape.points:
+      pts[i] = MapPoint(x: width - 1 - p.x, y: height - 1 - p.y)
+    ArenaShape(kind: shapePolygon, window: shape.window, points: pts)
 
 proc rot90(rect: MapRect, side: int): MapRect =
   ## Rotates one rectangle 90 degrees clockwise about the center of a
@@ -739,6 +898,11 @@ proc rot90(shape: ArenaShape, side: int): ArenaShape =
       y1: shape.x1,
       thickness: shape.thickness
     )
+  of shapePolygon:
+    var pts = newSeq[MapPoint](shape.points.len)
+    for i, p in shape.points:
+      pts[i] = MapPoint(x: side - 1 - p.y, y: p.x)
+    ArenaShape(kind: shapePolygon, window: shape.window, points: pts)
 
 proc symmetryImages*(gameMap: CtfMap, rect: MapRect): seq[MapRect] =
   ## Returns one rectangle's full orbit under the map's own symmetry,
@@ -762,6 +926,12 @@ proc symmetryImages*(gameMap: CtfMap, rect: MapRect): seq[MapRect] =
       image = image.rot90(gameMap.width)
       if image notin result:
         result.add image
+  of symQuadMirror:
+    for image in [rect.mirrorX(gameMap.width),
+        rect.mirrorY(gameMap.height),
+        rect.rot180(gameMap.width, gameMap.height)]:
+      if image notin result:
+        result.add image
 
 proc symmetryImages*(gameMap: CtfMap, point: MapPoint): seq[MapPoint] =
   ## Returns one point's full orbit under the map's own symmetry, original
@@ -780,11 +950,70 @@ proc symmetryImages*(gameMap: CtfMap, point: MapPoint): seq[MapPoint] =
       image = image.rot90Point(gameMap.width)
       if image notin result:
         result.add image
+  of symQuadMirror:
+    ## The pure Klein-four orbit: mirrorX, mirrorY and their composition.
+    ## (Team-OWNED geometry goes through teamImagePoint/teamAnchor instead,
+    ## where the plus layout's two-seed convention lives.)
+    for image in [
+        MapPoint(x: gameMap.width - 1 - point.x, y: point.y),
+        MapPoint(x: point.x, y: gameMap.height - 1 - point.y),
+        MapPoint(
+          x: gameMap.width - 1 - point.x, y: gameMap.height - 1 - point.y)]:
+      if image notin result:
+        result.add image
 
 proc inRect*(x, y: int, rect: MapRect): bool =
   ## Returns true when (x, y) lies inside the rectangle.
   x >= rect.x and x < rect.x + rect.w and
     y >= rect.y and y < rect.y + rect.h
+
+proc pointInPolygon*(x, y: int, pts: seq[MapPoint]): bool =
+  ## Integer even-odd point-in-polygon over a closed ring. An edge is counted
+  ## only when the scan line at `y` lies STRICTLY between the edge's endpoints
+  ## (`ylo < y < yhi`). That strict straddle is the key: it is symmetric under
+  ## the integer coordinate reflections the map uses — mirror (x -> w-1-x) and
+  ## rot180 (x,y -> w-1-x, h-1-y) — so a polygon and its symmetry image
+  ## rasterize to bit-for-bit mirror-symmetric wall masks. That exactness is
+  ## the team-fairness invariant the diamond (integer-offset) and diagonal
+  ## (int64) tests also protect. Edges that merely touch the scan line at a
+  ## vertex are skipped identically on both sides, so at worst a shape loses a
+  ## 1px sliver at a y-extremum — symmetrically, so fairness holds. int64
+  ## throughout: cross products of map-scale coords overflow int32 on wasm.
+  if pts.len < 3:
+    return false
+  var
+    minx = pts[0].x
+    maxx = pts[0].x
+    miny = pts[0].y
+    maxy = pts[0].y
+  for p in pts:
+    minx = min(minx, p.x); maxx = max(maxx, p.x)
+    miny = min(miny, p.y); maxy = max(maxy, p.y)
+  if x < minx or x > maxx or y < miny or y > maxy:
+    return false
+  var
+    inside = false
+    j = pts.len - 1
+  for i in 0 ..< pts.len:
+    let
+      xi = pts[i].x
+      yi = pts[i].y
+      xj = pts[j].x
+      yj = pts[j].y
+      ylo = min(yi, yj)
+      yhi = max(yi, yj)
+    if y > ylo and y < yhi:
+      # Strict straddle => dy != 0. Flip when the sample is left of the edge's
+      # intersection with the scan line: x < xi + (xj-xi)*(y-yi)/(yj-yi),
+      # cross-multiplied by the (signed) edge dy so there is no division.
+      let
+        dyv = int64(yj - yi)
+        lhs = int64(x - xi) * dyv
+        rhs = int64(xj - xi) * int64(y - yi)
+      if (if dyv > 0: lhs < rhs else: lhs > rhs):
+        inside = not inside
+    j = i
+  inside
 
 proc inShape*(x, y: int, shape: ArenaShape): bool =
   ## Returns true when (x, y) lies inside one arena shape.
@@ -798,6 +1027,8 @@ proc inShape*(x, y: int, shape: ArenaShape): bool =
     dx * dx + dy * dy <= shape.radius * shape.radius
   of shapeDiamond:
     abs(x - shape.cx) + abs(y - shape.cy) <= shape.radius
+  of shapePolygon:
+    pointInPolygon(x, y, shape.points)
   of shapeDiagonal:
     ## Bounding-box rejection first, then point-to-segment distance in
     ## integers: (x, y) is inside when its distance to the segment is at
@@ -827,8 +1058,9 @@ proc inShape*(x, y: int, shape: ArenaShape): bool =
 proc buildArenaObstacles*(gameMap: CtfMap): seq[ArenaShape] =
   ## The full obstacle set: every seed shape plus its image(s) under the
   ## map's symmetry (x-mirror or 180° rotation of the left half; 90/180/270°
-  ## rotations of the quadrant on rot90 maps), precomputed once per map
-  ## selection so the per-pixel wall test never re-mirrors.
+  ## rotations of the quadrant on rot90 maps; both reflections and rot180 of
+  ## the quadrant on quad-mirror maps), precomputed once per map selection so
+  ## the per-pixel wall test never re-mirrors.
   for shape in gameMap.leftObstacles:
     result.add shape
     case gameMap.symmetry
@@ -841,6 +1073,10 @@ proc buildArenaObstacles*(gameMap: CtfMap): seq[ArenaShape] =
       result.add quarter
       result.add shape.rot180(gameMap.width, gameMap.height)
       result.add quarter.rot180(gameMap.width, gameMap.height)
+    of symQuadMirror:
+      result.add shape.mirrorX(gameMap.width)
+      result.add shape.mirrorY(gameMap.height)
+      result.add shape.rot180(gameMap.width, gameMap.height)
 
 ## Spinning-diamond geometry lives up here, ahead of mapWallAt, because
 ## the terrain validator has to reason about the whole turn.
@@ -928,7 +1164,14 @@ proc isSpinningDiamond*(gameMap: CtfMap, shape: ArenaShape): bool {.inline.} =
   case gameMap.symmetry
   of symMirror, symRot180:
     nearSpinAxis(shape.cx, gameMap.width)
-  of symRot90:
+  of symRot90, symQuadMirror:
+    ## Both 4-team symmetries use the cross through the center. rot90 MUST:
+    ## the quarter turn maps the vertical band to the horizontal one, so the
+    ## cross is the band's closure. Quad-mirror's reflections preserve each
+    ## band separately, but the N/S teams' center approach runs through the
+    ## horizontal band exactly as the W/E teams' runs through the vertical
+    ## one — 4-team boards spin the whole cross so no lane class meets only
+    ## baked stone.
     nearSpinAxis(shape.cx, gameMap.width) or
       nearSpinAxis(shape.cy, gameMap.height)
 
@@ -1055,13 +1298,14 @@ proc centerOffset2*(
   gameMap: CtfMap, x, y: int
 ): tuple[dx, dy: int] {.inline.} =
   ## TWICE the offset of (x, y) from the map's symmetry center. Doubling is
-  ## what lets a rot90 board measure against its true axis at (side - 1)/2:
-  ## on an even side that axis is a half pixel off the div-derived `center`,
-  ## so a radius or band measured from `center` is not its own quarter turn.
+  ## what lets a 4-team board measure against its true axes at ((w-1)/2,
+  ## (h-1)/2): on an even side those axes are a half pixel off the
+  ## div-derived `center`, so a radius or band measured from `center` is not
+  ## its own quarter turn (rot90) or its own reflection (quad-mirror).
   ## Mirror and rot180 maps keep the historical integer center exactly —
   ## every comparison below is the old one scaled by 4, so 2-team terrain is
   ## bit-identical.
-  if gameMap.symmetry == symRot90:
+  if gameMap.symmetry in {symRot90, symQuadMirror}:
     (2 * x - (gameMap.width - 1), 2 * y - (gameMap.height - 1))
   else:
     (2 * (x - gameMap.center.x), 2 * (y - gameMap.center.y))
@@ -1173,6 +1417,19 @@ proc shapeBounds*(shape: ArenaShape): tuple[x0, y0, x1, y1: int] =
     let half = shape.thickness div 2 + 1
     (min(shape.x0, shape.x1) - half, min(shape.y0, shape.y1) - half,
       max(shape.x0, shape.x1) + half, max(shape.y0, shape.y1) + half)
+  of shapePolygon:
+    if shape.points.len == 0:
+      (0, 0, -1, -1)
+    else:
+      var
+        x0 = shape.points[0].x
+        y0 = shape.points[0].y
+        x1 = shape.points[0].x
+        y1 = shape.points[0].y
+      for p in shape.points:
+        x0 = min(x0, p.x); y0 = min(y0, p.y)
+        x1 = max(x1, p.x); y1 = max(y1, p.y)
+      (x0, y0, x1, y1)
 
 proc rasterizeWallMasks*(
   gameMap: CtfMap, obstacles: seq[ArenaShape]
@@ -1318,6 +1575,17 @@ proc rot90Orbit*(p: tuple[x, y: int], side: int):
     result[k] = (q.x, q.y)
     q = q.rot90Point(side)
 
+proc quadMirrorOrbit*(p: tuple[x, y: int], width, height: int):
+    array[4, tuple[x, y: int]] =
+  ## The four images of one point under the quad-mirror Klein four-group:
+  ## identity, mirrorX, mirrorY, rot180 — the quad-mirror twin of rot90Orbit,
+  ## legal on any rectangle. A generic seed yields four distinct points; a
+  ## seed ON an axis collapses pairs (callers pick seeds off the axes).
+  [(p.x, p.y),
+    (width - 1 - p.x, p.y),
+    (p.x, height - 1 - p.y),
+    (width - 1 - p.x, height - 1 - p.y)]
+
 proc sightlineLoX*(gameMap: CtfMap): int =
   ## The low x of the band no straight horizontal ray may cross unblocked.
   ## Column endzones exempt the protected home strips (nothing can be built
@@ -1330,6 +1598,20 @@ proc sightlineHiX*(gameMap: CtfMap): int =
   ## The high x of that band, the mirror of sightlineLoX.
   if gameMap.endzone != ezColumn: gameMap.width - ArenaBorder - 5
   else: gameMap.width - gameMap.captureClear - 5
+
+proc sightlineLoY*(gameMap: CtfMap): int =
+  ## The low y of the band no straight VERTICAL ray may cross unblocked —
+  ## sightlineLoX transposed. Only quad-mirror maps scan columns: a 2-team
+  ## board plays horizontally, and a rot90 board's row coverage carries onto
+  ## its columns by the quarter turn itself. A rectangular quad-mirror board
+  ## has no such carry, and its N/S teams fight along y.
+  if gameMap.endzone != ezColumn: ArenaBorder + 5
+  else: gameMap.captureClear + 5
+
+proc sightlineHiY*(gameMap: CtfMap): int =
+  ## The high y of that band, the mirror of sightlineLoY.
+  if gameMap.endzone != ezColumn: gameMap.height - ArenaBorder - 5
+  else: gameMap.height - gameMap.captureClear - 5
 
 proc rectOnOpenFloor(
   gameMap: CtfMap, obstacles: seq[ArenaShape], rect: MapRect
@@ -1371,21 +1653,28 @@ proc generateMapAttempt*(
   let sizeDraw = MapSizeNames[rng.pick(MapSizeNames.len)]
   let sizeName = if overrides.size.len > 0: overrides.size else: sizeDraw
   result =
-    if teams == 4: scaledGenShell4(sizeName)
-    else: scaledGenShell(sizeName)
+    if teams == 4 and overrides.symmetry != "quadmirror":
+      scaledGenShell4(sizeName)
+    else:
+      ## 2-team maps AND quad-mirror 4-team maps share the RECTANGULAR
+      ## classic shell: quad-mirror completes its quadrant by reflections,
+      ## which are legal on any rectangle — that is the whole point.
+      scaledGenShell(sizeName)
   result.name = "gen-" & $seed
   result.path = GenMapName
   result.genSeed = seed
 
   if teams == 4:
     ## The symmetry draw keeps its slot in the draw order (locking layout
-    ## must not shift later draws), but rot90 is the only 4-team symmetry —
-    ## a config that locks another one is a mistake, not a preference.
+    ## must not shift later draws), but the DRAW is always rot90 — the
+    ## default 4-team board stays the square it always was, byte for byte.
+    ## "quadmirror" is override-only and opts into the rectangular shell.
     discard rng.coin()
-    result.symmetry = symRot90
-    if overrides.symmetry notin ["", "rot90"]:
+    result.symmetry =
+      if overrides.symmetry == "quadmirror": symQuadMirror else: symRot90
+    if overrides.symmetry notin ["", "rot90", "quadmirror"]:
       raise newException(
-        CtfError, "4-team maps are rot90-only; got mapSymmetry: " &
+        CtfError, "4-team maps are rot90 or quadmirror; got mapSymmetry: " &
           overrides.symmetry)
     let layoutDraw = if rng.coin(): layoutCorners else: layoutPlus
     result.layout =
@@ -1684,13 +1973,13 @@ proc generateMapAttempt*(
     oddCenterPit = overrides.pits >= 0 and overrides.pits mod 2 == 1
     pitPairsWanted = if overrides.pits >= 0: overrides.pits div 2 else: -1
   var obstacleRemoved = newSeq[bool](result.leftObstacles.len)
-  if result.symmetry == symRot90:
+  if result.symmetry in {symRot90, symQuadMirror}:
     ## Trenches are a 2-team-map feature for now: the dig/image pair
-    ## accounting assumes one symmetry image per dig, and rot90 maps have
-    ## three. An explicit pit request errors; the density path digs nothing
-    ## (clearing the candidates keeps the loop from writing UNPAIRED digs
-    ## into result.trenches — finalize is what pairs them, and it is
-    ## skipped on rot90).
+    ## accounting assumes one symmetry image per dig, and both 4-team
+    ## symmetries have three. An explicit pit request errors; the density
+    ## path digs nothing (clearing the candidates keeps the loop from
+    ## writing UNPAIRED digs into result.trenches — finalize is what pairs
+    ## them, and it is skipped on 4-team symmetries).
     if overrides.pits > 0:
       raise newException(
         CtfError, "Trenches are not supported on 4-team maps yet.")
@@ -1712,12 +2001,12 @@ proc generateMapAttempt*(
     let pit = trenchSquareAt(cand.x, cand.y)
     var blocked = oddCenterPit and rectsIntersect(pit, centerPit)
     for accepted in result.trenches:
-      if rectsIntersect(accepted, pit):
+      if rectsIntersect(shapeAsRect(accepted), pit):
         blocked = true
         break
     if blocked:
       continue
-    result.trenches.add pit
+    result.trenches.add rectShape(pit)
     if cand.kind == pitInstead:
       obstacleRemoved[cand.obstacleIdx] = true
 
@@ -1803,7 +2092,11 @@ proc generateMapAttempt*(
           case result.symmetry
           of symMirror:
             result.rowBlocked(y)
-          of symRot180:
+          of symRot180, symQuadMirror:
+            ## Quad-mirror reads like rot180 here: the mirrorX images repeat
+            ## the seed rows on the right half, and the mirrorY/rot180
+            ## images contribute the y-flipped rows — so row y needs seed
+            ## cover at y or height-1-y, the same fold.
             result.rowBlocked(y) or
               result.rowBlocked(result.height - 1 - y)
           of symRot90:
@@ -1817,11 +2110,12 @@ proc generateMapAttempt*(
       let
         plugCol = rng.pick(columns)
         plugX = xMin + ((2 * plugCol + 1) * (xMax - xMin)) div (2 * columns)
-        ## Under rot90 a quadrant shape at row y also covers row H-1-y (its
-        ## rot180 image), so an uncovered bottom-half row folds to its top
-        ## reflection before plugging; plugs may sit close to the border.
+        ## Under both 4-team symmetries a quadrant shape at row y also
+        ## covers row H-1-y (its rot180 / mirrorY image), so an uncovered
+        ## bottom-half row folds to its top reflection before plugging;
+        ## plugs may sit close to the border.
         foldedRow =
-          if result.symmetry == symRot90 and uncovered > cy:
+          if result.symmetry in {symRot90, symQuadMirror} and uncovered > cy:
             result.height - 1 - uncovered
           else:
             uncovered
@@ -1836,8 +2130,84 @@ proc generateMapAttempt*(
             result.endzoneRadius + 60 - EndzoneWallMargin,
             result.endzone == ezDisc):
         continue
-      result.leftObstacles.add ArenaShape(
-        kind: shapeDiamond, cx: plugX, cy: plugY, radius: 28)
+      if result.symmetry == symQuadMirror:
+        ## Quad plugs are thin vertical bars (the bracket's 12px vocabulary):
+        ## reflections never rotate a quadrant shape into cross-coverage the
+        ## way rot90 does, so a quad board needs strictly more sightline
+        ## breakers — a bar buys the same row span as a diamond for under
+        ## half the wall pixels, which is what keeps the repaired board
+        ## inside the cover ceiling.
+        result.leftObstacles.add ArenaShape(kind: shapeRect,
+          rect: MapRect(
+            x: plugX - 6, y: max(ArenaBorder, foldedRow - 4), w: 12, h: 60))
+      else:
+        result.leftObstacles.add ArenaShape(
+          kind: shapeDiamond, cx: plugX, cy: plugY, radius: 28)
+
+  ## Vertical (column) sightline repair — QUAD-MIRROR ONLY. On the square
+  ## rot90 boards the quarter turn carries blocked rows onto blocked
+  ## columns, so the row repair above covers both; a rectangular quad-mirror
+  ## board has no such carry, and its N/S teams fight along y. The logic is
+  ## the row repair transposed: column x needs seed cover at x or W-1-x
+  ## (the mirrorX/rot180 images contribute the x-flipped columns), plugs
+  ## fold right-half columns to their left reflection, and the plug's free
+  ## coordinate (y) draws from the quadrant slot band. All draws sit inside
+  ## this symmetry gate, so non-quad seeds consume the exact RNG stream they
+  ## always did.
+  block columnSightlineRepair:
+    if result.symmetry != symQuadMirror:
+      break columnSightlineRepair
+    proc colBlocked(gameMap: CtfMap, x: int): bool =
+      ## Seed-set cover of column x anywhere in the scanned band. The y band
+      ## is scanned in FULL (not folded to the top half): seeds may sit past
+      ## cy, and the mirrorY images stay inside the band anyway because the
+      ## band is symmetric about the y axis — only the x fold is real.
+      ## spinAlways: the validator judges columns on the always-stone mask,
+      ## so a spinning diamond's resting edge must not count as cover here.
+      for y in gameMap.sightlineLoY .. gameMap.sightlineHiY:
+        if mapWallAt(gameMap, gameMap.leftObstacles, x, y,
+            spin = spinAlways):
+          return true
+      false
+    proc colFullyProtected(gameMap: CtfMap, x: int): bool =
+      ## A column whose entire scan band is protected floor can never hold
+      ## wall — on a plus map the columns inside the W/E capture reach run
+      ## through the arm's protected approach for the whole band. The
+      ## validator exempts them identically; demanding wall there would
+      ## make every plus board unbuildable. (Symmetric in x by the carve's
+      ## own reflection exactness, so the x fold needs no second call.)
+      for y in gameMap.sightlineLoY .. gameMap.sightlineHiY:
+        if not mapProtectedFloorAt(gameMap, x, y):
+          return false
+      true
+    var plugsLeft = cols(40)
+    while plugsLeft > 0:
+      var uncovered = -1
+      var x = ArenaBorder + 2
+      while x < result.width - ArenaBorder:
+        if not (result.colBlocked(x) or
+            result.colBlocked(result.width - 1 - x) or
+            result.colFullyProtected(x)):
+          uncovered = x
+          break
+        x += 4
+      if uncovered < 0:
+        break columnSightlineRepair
+      ## The plug is a thin horizontal bar over the folded column, its row
+      ## drawn INSIDE the scan band so no plug can miss the band and leave
+      ## a dead shape behind (see the row-plug note on why quad plugs are
+      ## bars, not diamonds).
+      let
+        foldedCol =
+          if uncovered > result.center.x: result.width - 1 - uncovered
+          else: uncovered
+        plugX = max(ArenaBorder, foldedCol - 4)
+        plugY = rng.pickRange(
+          result.sightlineLoY,
+          max(result.sightlineLoY + 1, result.sightlineHiY - 12))
+      dec plugsLeft
+      result.leftObstacles.add ArenaShape(kind: shapeRect,
+        rect: MapRect(x: plugX, y: plugY, w: 60, h: 12))
 
   ## Glass windows: fog sees through them, nothing passes them. Biased to
   ## the outermost column and the midline band, where sightlines matter.
@@ -1870,7 +2240,22 @@ proc generateMapAttempt*(
       ringLo = result.flagRing + 40
       ringHi = result.center.x - result.captureClear - 60
       d = rng.pickRange(ringLo, max(ringLo + 1, ringHi))
-      orbit = rot90Orbit((result.center.x + d, result.center.y), result.width)
+      ## rot90: one ring point east of center, walked round the quarter
+      ## turns. Quad-mirror: a point ON the y axis has a degenerate Klein
+      ## orbit (its mirrorX image is itself, half a pixel off), so the seed
+      ## moves onto the top-left DIAGONAL at the same L2 distance
+      ## (181/256 ~ 1/sqrt(2)) and the four reflections give one kit per
+      ## quadrant, exactly fair by construction. Same single draw either
+      ## way — the RNG stream never shifts.
+      orbit =
+        if result.symmetry == symQuadMirror:
+          let dd = max(1, d * 181 div 256)
+          quadMirrorOrbit(
+            (result.center.x - dd, result.center.y - dd),
+            result.width, result.height)
+        else:
+          rot90Orbit(
+            (result.center.x + d, result.center.y), result.width)
     result.medKitCandidates = @[]
     for point in orbit:
       result.medKitCandidates.add MapPoint(x: point.x, y: point.y)
@@ -1896,7 +2281,7 @@ proc generateMapAttempt*(
   ## the map's symmetry so neither team has a private pit; a dig that ended
   ## up under a wall (a sightline-repair plug can land on its slot) or on
   ## top of an already-accepted dig is dropped — and a dig whose image is
-  ## blocked drops WITH it, fairness before density. (rot90 maps reach
+  ## blocked drops WITH it, fairness before density. (4-team maps reach
   ## here with zero candidates and place nothing — see the guard above.)
   block finalizeTrenches:
     let obstacles = buildArenaObstacles(result)
@@ -1917,7 +2302,8 @@ proc generateMapAttempt*(
         case gameMap.symmetry
         of symMirror: trench.mirrorX(gameMap.width)
         of symRot180: trench.rot180(gameMap.width, gameMap.height)
-        of symRot90: raiseAssert "trenches never place on rot90 maps"
+        of symRot90, symQuadMirror:
+          raiseAssert "trenches never place on 4-team maps"
       if not rectOnOpenFloor(gameMap, obstacles, trench) or
           not rectOnOpenFloor(gameMap, obstacles, image):
         return false
@@ -1930,7 +2316,7 @@ proc generateMapAttempt*(
         digs.add image
       true
     for trench in result.trenches:
-      discard result.addPair(digs, trench)
+      discard result.addPair(digs, shapeAsRect(trench))
     ## COUNT mode: pairs lost to sightline-repair walls are topped back up
     ## from the unused candidates that cannot change the wall set (gap and
     ## endzone spots; a late `instead` swap would dodge the repair pass).
@@ -1941,7 +2327,9 @@ proc generateMapAttempt*(
         if cand.kind == pitInstead:
           continue
         discard result.addPair(digs, trenchSquareAt(cand.x, cand.y))
-    result.trenches = digs
+    result.trenches = @[]
+    for d in digs:
+      result.trenches.add rectShape(d)
   result.validateMap()
 
 type
@@ -2084,6 +2472,41 @@ proc collectMapDiagnostics(
         if stopAfterFirstFailure:
           return
       y += 4
+
+  ## Vertical sightlines — QUAD-MIRROR ONLY. rot90's row coverage carries
+  ## onto its columns by the quarter turn (the minWall mask is its own
+  ## rotation), and 2-team boards play horizontally; a rectangular
+  ## quad-mirror board's N/S teams fight along y, so its columns get the
+  ## transposed check. Gated so no existing map class changes validation
+  ## outcome.
+  if gameMap.symmetry == symQuadMirror:
+    block verticalSightlines:
+      let
+        ay = gameMap.sightlineLoY
+        by = gameMap.sightlineHiY
+      var x = ArenaBorder + 2
+      while x < w - ArenaBorder:
+        var blocked = false
+        for y in ay .. by:
+          if minWall[y * w + x]:
+            blocked = true
+            break
+        if not blocked:
+          ## A column whose whole band is protected floor can never hold
+          ## wall (a plus map's W/E capture reach); it is open by DESIGN,
+          ## exactly like the exempted home strips of the horizontal scan,
+          ## so it is no violation. Checked only on the rare open columns.
+          var canHoldWall = false
+          for y in ay .. by:
+            if not mapProtectedFloorAt(gameMap, x, y):
+              canHoldWall = true
+              break
+          if canHoldWall:
+            if result.reason.len == 0:
+              result.reason = "open vertical sightline at x=" & $x
+            if stopAfterFirstFailure:
+              return
+        x += 4
   if diagnosticWallMasks in artifacts:
     result.minWall = minWall
   else:
@@ -2294,6 +2717,12 @@ proc shapeSpecNode(shape: ArenaShape): JsonNode =
     result["x1"] = %shape.x1
     result["y1"] = %shape.y1
     result["t"] = %shape.thickness
+  of shapePolygon:
+    result["kind"] = %"polygon"
+    var pts = newJArray()
+    for p in shape.points:
+      pts.add %*[p.x, p.y]
+    result["points"] = pts
   if shape.window:
     result["window"] = %true
 
@@ -2318,6 +2747,11 @@ proc shapeFromSpecNode(node: JsonNode): ArenaShape =
       x0: node["x0"].getInt(), y0: node["y0"].getInt(),
       x1: node["x1"].getInt(), y1: node["y1"].getInt(),
       thickness: node["t"].getInt())
+  of "polygon":
+    var pts: seq[MapPoint]
+    for pt in node["points"]:
+      pts.add MapPoint(x: pt[0].getInt(), y: pt[1].getInt())
+    ArenaShape(kind: shapePolygon, window: window, points: pts)
   else:
     raise newException(
       CtfError, "Unknown map spec shape: " & node["kind"].getStr())
@@ -2351,6 +2785,9 @@ proc mapSpecJson*(gameMap: CtfMap): string =
   var shapes = newJArray()
   for shape in gameMap.leftObstacles:
     shapes.add shape.shapeSpecNode()
+  var trenchShapes = newJArray()
+  for trench in gameMap.trenches:
+    trenchShapes.add trench.shapeSpecNode()
   $(%*{
     "name": gameMap.name,
     "genSeed": gameMap.genSeed,
@@ -2365,7 +2802,8 @@ proc mapSpecJson*(gameMap: CtfMap): string =
       case gameMap.symmetry
       of symMirror: "mirror"
       of symRot180: "rot180"
-      of symRot90: "rot90"),
+      of symRot90: "rot90"
+      of symQuadMirror: "quadmirror"),
     "layout": (
       case gameMap.layout
       of layoutSides: "sides"
@@ -2381,8 +2819,9 @@ proc mapSpecJson*(gameMap: CtfMap): string =
     "medKitSpawns": pointsNode(gameMap.medKitSpawns),
     "medKitCandidates": pointsNode(gameMap.medKitCandidates),
     # Trenches are FULL-map (both halves), already symmetrized — playback
-    # re-reads them verbatim, no re-mirroring.
-    "trenches": rectsNode(gameMap.trenches),
+    # re-reads them verbatim, no re-mirroring. Serialized as shapes (the
+    # generator emits rect pits; authored maps may use any shape).
+    "trenches": trenchShapes,
     "leftObstacles": shapes,
   })
 
@@ -2418,6 +2857,7 @@ proc mapFromSpecJson*(text: string): CtfMap =
     of "mirror": symMirror
     of "rot180": symRot180
     of "rot90": symRot90
+    of "quadmirror": symQuadMirror
     else:
       raise newException(
         CtfError, "Unknown map spec symmetry: " & symmetryText)
@@ -2442,8 +2882,18 @@ proc mapFromSpecJson*(text: string): CtfMap =
   result.medKitSpawns = pointsFromNode(node["medKitSpawns"])
   result.medKitCandidates = pointsFromNode(node["medKitCandidates"])
   ## Optional: specs pinned before trenches existed carry none and replay
-  ## without them, exactly as recorded.
-  result.trenches = rectsFromNode(node{"trenches"})
+  ## without them, exactly as recorded. Back-compat: GV<=36 pinned trenches as
+  ## [x, y, w, h] arrays; GV37+ pins them as shape objects (any kind). Detect
+  ## per element so old replays and pool specs still load verbatim.
+  let trenchNode = node{"trenches"}
+  if not trenchNode.isNil and trenchNode.kind == JArray:
+    for item in trenchNode:
+      if item.kind == JArray:
+        result.trenches.add rectShape(MapRect(
+          x: item[0].getInt(), y: item[1].getInt(),
+          w: item[2].getInt(), h: item[3].getInt()))
+      else:
+        result.trenches.add item.shapeFromSpecNode()
   for item in node["leftObstacles"]:
     result.leftObstacles.add item.shapeFromSpecNode()
   result.rooms = result.defaultCtfRooms()
@@ -2490,7 +2940,9 @@ var
   ArenaFlagRing = 70
   ArenaCaptureClear = 210
   ArenaLayoutG = layoutSides
-  ArenaSymmetryG = symMirror
+  ArenaSymmetryG* = symMirror
+    ## The installed map's symmetry; diamondSpinFrame's default direction
+    ## rule reads it (exported for that default parameter).
   ArenaTeamCount = 2
   ArenaAnchors: array[Team, MapPoint]
   ArenaPocketHalf: array[Team, tuple[w, h: int]]
@@ -2500,11 +2952,12 @@ var
   ArenaObstacles*: seq[ArenaShape]
   AnimatedDiamonds*: seq[tuple[cx, cy, radius: int]]
   ArenaSpinMirrored* = true
-    ## True when this map's symmetry is a REFLECTION, so mirror-image diamonds
-    ## must spin in opposite directions. False on rotationally symmetric maps
-    ## (rot180 / rot90), where every diamond turns together — see
-    ## diamondSpinFrame.
-  ArenaTrenches*: seq[MapRect]
+    ## True when this map's symmetry is the classic x-REFLECTION, so
+    ## mirror-image diamonds must spin in opposite directions. False on
+    ## rotationally symmetric maps (rot180 / rot90), where every diamond
+    ## turns together, and on quad-mirror maps, whose per-axis direction
+    ## rule reads ArenaSymmetryG instead — see diamondSpinDir.
+  ArenaTrenches*: seq[ArenaShape]
 
 proc selectCtfMap(gameMap: CtfMap) =
   ## Installs one map as THE map for this process: dimensions, fog grid,
@@ -2592,7 +3045,7 @@ proc trenchIndexAt*(x, y: int): int =
   ## Returns the index of the trench containing map pixel (x, y), or -1 when
   ## the point is in the open field.
   for i, trench in ArenaTrenches:
-    if inRect(x, y, trench):
+    if inShape(x, y, trench):
       return i
   -1
 
@@ -2633,6 +3086,28 @@ proc inShapeF*(x, y: float, shape: ArenaShape): bool =
   of shapeDiamond:
     abs(x - float(shape.cx)) + abs(y - float(shape.cy)) <=
       float(shape.radius)
+  of shapePolygon:
+    ## Float even-odd for the render rasterizer. Render need not be bit-exact
+    ## with the integer predicate (they may disagree by <1px on the boundary,
+    ## as the doc for this proc notes); the integer `inShape` is what collision,
+    ## FOV, and symmetry use.
+    if shape.points.len < 3:
+      false
+    else:
+      var
+        inside = false
+        j = shape.points.len - 1
+      for i in 0 ..< shape.points.len:
+        let
+          xi = float(shape.points[i].x)
+          yi = float(shape.points[i].y)
+          xj = float(shape.points[j].x)
+          yj = float(shape.points[j].y)
+        if (yi > y) != (yj > y):
+          if x < xi + (xj - xi) * (y - yi) / (yj - yi):
+            inside = not inside
+        j = i
+      inside
   of shapeDiagonal:
     let
       vx = float(shape.x1 - shape.x0)
@@ -2648,9 +3123,9 @@ proc inShapeF*(x, y: float, shape: ArenaShape): bool =
 
 proc arenaCenterOffset2(x, y, cx, cy: int): tuple[dx, dy: int] {.inline.} =
   ## The installed-map twin of CtfMap.centerOffset2: twice the offset from
-  ## the symmetry center, measured against a rot90 board's true axis at
-  ## (side - 1)/2 and against the integer center everywhere else.
-  if ArenaSymmetryG == symRot90:
+  ## the symmetry center, measured against a 4-team board's true axes at
+  ## ((w-1)/2, (h-1)/2) and against the integer center everywhere else.
+  if ArenaSymmetryG in {symRot90, symQuadMirror}:
     (2 * x - (MapWidth - 1), 2 * y - (MapHeight - 1))
   else:
     (2 * (x - cx), 2 * (y - cy))
@@ -2671,8 +3146,8 @@ proc isProtectedFloor*(x, y, cx, cy: int): bool =
     return rdx * rdx + rdy * rdy <= ArenaFlagRing * ArenaFlagRing
   ## The classic column path below must stay pixel-for-pixel identical to
   ## mapProtectedFloorAt, which the generator and validators run on
-  ## uninstalled candidates. 4-team maps always draw ezColumn, so the rot90
-  ## boards are carved here and never by the compact branch above.
+  ## uninstalled candidates. 4-team maps always draw ezColumn, so the
+  ## rot90/quad-mirror boards are carved here, never by the compact branch.
   let
     nearX = x < ArenaCaptureClear or x >= MapWidth - ArenaCaptureClear
     nearY = y < ArenaCaptureClear or y >= MapHeight - ArenaCaptureClear
@@ -2743,14 +3218,14 @@ proc mapProtectedFloorAtF*(
     return rdx * rdx + rdy * rdy <=
       float(gameMap.flagRing * gameMap.flagRing)
   ## Carries the same doubled-coordinate center as the integer test so the
-  ## painted art cannot drift off the collision mask on a rot90 board.
+  ## painted art cannot drift off the collision mask on a 4-team board.
   let
     nearX = x < float(gameMap.captureClear) or
       x >= float(gameMap.width - gameMap.captureClear)
     nearY = y < float(gameMap.captureClear) or
       y >= float(gameMap.height - gameMap.captureClear)
     (dx2, dy2) =
-      if gameMap.symmetry == symRot90:
+      if gameMap.symmetry in {symRot90, symQuadMirror}:
         (2.0 * x - float(gameMap.width - 1),
           2.0 * y - float(gameMap.height - 1))
       else:
@@ -2815,12 +3290,11 @@ proc shapeWallAtF*(x, y: float, shape: ArenaShape, cx, cy: int): bool =
   ## applied, matching what the integer wall mask keeps of that shape.
   mapShapeWallAtF(ArenaMapG, x, y, shape, cx, cy)
 
-proc diamondSpinFrame*(
-  cx, tick: int, mirrored = ArenaSpinMirrored, width = MapWidth
+proc diamondSpinDir*(
+  cx, cy: int, symmetry: MapSymmetry, width, height: int
 ): int {.inline.} =
-  ## The spin frame of the diamond centered at map-x `cx` on one tick. The
-  ## frame derives only from the tick, so the renderer, the collision masks,
-  ## and every replay viewer read the SAME angle. Single source of truth.
+  ## The spin direction (+1 / -1) of the diamond centered at (cx, cy) under
+  ## one map symmetry.
   ##
   ## Direction has to follow the map's symmetry or the live footprint stops
   ## being symmetric even though the resting one is. A REFLECTION maps a
@@ -2832,11 +3306,38 @@ proc diamondSpinFrame*(
   ## halves of a rot180 map differ. On rotationally symmetric maps every
   ## diamond therefore turns together.
   ##
-  ## `mirrored` / `width` default to the installed map, which is what every
-  ## production caller wants; passing them explicitly lets the rule be checked
-  ## against a map that is not the process map.
-  let dir = if mirrored and 2 * cx >= width - 1: -1 else: 1
-  diamondFrameIndex((tick div DiamondSpinTicksPerFrame) * dir)
+  ## QUAD-MIRROR composes one reflection per axis, so the direction flips
+  ## once per axis crossing: sign(2cx-(w-1)) * sign(2cy-(h-1)) against the
+  ## true axes. The x-mirror and y-mirror images of a diamond counter-rotate
+  ## it and the rot180 image co-rotates it — exactly what each group element
+  ## demands. A diamond ON an axis (sign 0) takes +1: it is its own image
+  ## under that reflection, so either direction is self-consistent.
+  case symmetry
+  of symMirror:
+    if 2 * cx >= width - 1: -1 else: 1
+  of symRot180, symRot90:
+    1
+  of symQuadMirror:
+    (if 2 * cx > width - 1: -1 else: 1) *
+      (if 2 * cy > height - 1: -1 else: 1)
+
+proc diamondSpinFrame*(
+  cx, cy, tick: int,
+  symmetry = ArenaSymmetryG,
+  width = MapWidth,
+  height = MapHeight
+): int {.inline.} =
+  ## The spin frame of the diamond centered at (cx, cy) on one tick. The
+  ## frame derives only from the tick (direction from the symmetry rule in
+  ## diamondSpinDir), so the renderer, the collision masks, and every replay
+  ## viewer read the SAME angle. Single source of truth.
+  ##
+  ## `symmetry` / `width` / `height` default to the installed map, which is
+  ## what every production caller wants; passing them explicitly lets the
+  ## rule be checked against a map that is not the process map.
+  diamondFrameIndex(
+    (tick div DiamondSpinTicksPerFrame) *
+      diamondSpinDir(cx, cy, symmetry, width, height))
 
 proc animatedDiamondCovers*(
   spot: tuple[cx, cy, radius: int], frame, x, y: int

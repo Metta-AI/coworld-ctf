@@ -158,7 +158,11 @@ suite "map editor core":
         ),
       )
       check gameMap.trenches.len == 2
-      check gameMap.symmetryImages(gameMap.trenches[0]) == gameMap.trenches
+      var trenchRects: seq[MapRect]
+      for t in gameMap.trenches:
+        trenchRects.add shapeAsRect(t)
+      check gameMap.symmetryImages(shapeAsRect(gameMap.trenches[0])) ==
+        trenchRects
 
   test "generated-map validation matches the pre-refactor baseline":
     var

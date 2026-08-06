@@ -68,12 +68,13 @@ const AllPickupKinds* = {
 }
 
 proc mapSeedRegion*(gameMap: CtfMap): MapRect =
-  ## Returns the authored seed half (2-team) or quadrant (rot90) whose shapes
-  ## buildArenaObstacles expands into the complete symmetric obstacle set.
+  ## Returns the authored seed half (2-team) or top-left quadrant (rot90 /
+  ## quad-mirror) whose shapes buildArenaObstacles expands into the complete
+  ## symmetric obstacle set.
   case gameMap.symmetry
   of symMirror, symRot180:
     MapRect(x: 0, y: 0, w: gameMap.width div 2, h: gameMap.height)
-  of symRot90:
+  of symRot90, symQuadMirror:
     MapRect(
       x: 0, y: 0,
       w: gameMap.width div 2, h: gameMap.height div 2,
@@ -244,22 +245,27 @@ proc renderMap*(
 
   for trench in gameMap.trenches:
     let
-      x0 = max(0, outputCoordinate(trench.x - TrenchArtPadPx, scale))
-      y0 = max(0, outputCoordinate(trench.y - TrenchArtPadPx, scale))
+      tr = shapeAsRect(trench)
+      x0 = max(0, outputCoordinate(tr.x - TrenchArtPadPx, scale))
+      y0 = max(0, outputCoordinate(tr.y - TrenchArtPadPx, scale))
       x1 = min(
         outputWidth,
-        outputCoordinate(trench.x + trench.w + TrenchArtPadPx, scale),
+        outputCoordinate(tr.x + tr.w + TrenchArtPadPx, scale),
       )
       y1 = min(
         outputHeight,
-        outputCoordinate(trench.y + trench.h + TrenchArtPadPx, scale),
+        outputCoordinate(tr.y + tr.h + TrenchArtPadPx, scale),
       )
     for y in y0 ..< y1:
       let mapY = logicalPixel(y, gameMap.height, scale)
       for x in x0 ..< x1:
         let
           mapX = logicalPixel(x, gameMap.width, scale)
-          edge = trenchRoughEdge(trench, mapX, mapY)
+          # Rect trenches keep the rough-edge art; other kinds fill flat.
+          edge =
+            if trench.kind == shapeRect: trenchRoughEdge(tr, mapX, mapY)
+            elif inShape(mapX, mapY, trench): 5.0
+            else: -1.0
           existing = result.image.unsafe[x, y].rgba
         if edge < 0 or existing == StoneColor or existing == GlassColor:
           continue

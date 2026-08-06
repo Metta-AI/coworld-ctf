@@ -18,8 +18,37 @@ import
 
 const
   GameName* = "ctf"
-  GameVersion* = "36"  ## GV36 (aim rule): THE AIM HAS EXACTLY 32 ROTATIONS.
-                       ## The aim angle is one of 32 discrete slots (8 brads
+  GameVersion* = "40"  ## GV40 (aim rule): RESTORE CONTINUOUS TURRET AIM.
+    ## `aimBrads` again spans all 256 integer headings, and `aimTurnRate` is
+    ## again brads/tick (default 5, ~7 degrees/tick, full turn ~2.1s), exactly
+    ## as introduced with decoupled aim. GV36's reinterpretation of the same
+    ## config value as 32-way rotation slots made the published value 5 turn
+    ## 40 brads/tick, overshooting bot targets and trapping held actions.
+    ## GV39 replays do not re-simulate under the restored aim arithmetic.
+    ##
+    ## GV39 (map format): QUAD-MIRROR SYMMETRY — 4-team
+    ## maps may be RECTANGULAR. A new `symQuadMirror` map symmetry authors the
+    ## TOP-LEFT quadrant and completes the board by reflecting it across both
+    ## center axes (mirrorX, mirrorY, and their composition rot180 — the
+    ## Klein four-group), instead of rot90's quarter turns, which demand a
+    ## square. Reflections preserve congruence exactly, so team fairness stays
+    ## bit-exact; mirror-image spinning diamonds counter-rotate (the rot180
+    ## image co-rotates). Default 4-team draws stay rot90/square; the
+    ## "quadmirror" mapSymmetry override opts a map in. Older viewers cannot
+    ## parse "quadmirror" specs.
+    ##
+    ## GV38 (spray rule): THE SPRAY IS ONE DIRECTIONAL
+    ## SHOT, NOT A SWEEP. A fired cone locks its aim at the fire instant and
+    ## points that way for its whole active window (`arcAimBrads`): turning the
+    ## cog mid-spray no longer rotates the cone across a fan of targets. The
+    ## cone's ORIGIN still rides its owner, so a moving sprayer drags the stream
+    ## forward — only the rotation is pinned. GV37 replays do not re-simulate.
+    ##
+    ## GV37 (obstacle format): map obstacles and trenches
+    ## may be `polygon` shapes (integer vertex rings), so curved / organic
+    ## terrain is authorable. Older viewers cannot parse the new spec kind.
+                       ## GV36 (superseded by GV40): the aim angle was changed
+                       ## to one of 32 discrete slots (8 brads
                        ## = 11.25 deg apart), the classic fixed-rotation-count
                        ## scheme. A held rotate button steps whole slots
                        ## (aimTurnRate slots/tick, default 1); spawn aims sit
@@ -357,19 +386,8 @@ const
                               ## after a death (cosmetic only, never in gameHash).
   CarrierSpeedPct* = 70       ## carrier moves at 70% speed.
   AimBradsTurn* = 256         ## aim angle units per full turn (binary radians).
-                              ## Brads are the WIRE unit only (events, labels,
-                              ## replays); the aim itself lives on the 32-slot
-                              ## rotation grid below.
-  AimRotations* = 32          ## discrete aim rotations per full turn. The aim
-                              ## is always one of these 32 slots — there are no
-                              ## finer-grained angles.
-  AimStepBrads* = AimBradsTurn div AimRotations
-                              ## brads between adjacent rotation slots (11.25
-                              ## deg); every aim value on the wire is a
-                              ## multiple of this.
-  AimTurnRate* = 1            ## rotation slots/tick a held rotate button turns
-                              ## the aim (11.25 deg/tick; a full turn takes 32
-                              ## ticks, ~1.3s).
+  AimTurnRate* = 5            ## brads/tick a held rotate button turns the aim
+                              ## (~7 deg/tick; a full turn takes ~2.1s).
   VisionConeDeg* = 60         ## vision cone half-angle around the aim angle.
   VisionBubble* = 90          ## omnidirectional vision radius in px.
 
@@ -674,6 +692,7 @@ type
     shapeDisc
     shapeDiamond
     shapeDiagonal
+    shapePolygon
 
   ArenaShape* = object
     ## One arena obstacle. Discs and diamonds are center + radius (L2 and L1
@@ -689,6 +708,14 @@ type
       cx*, cy*, radius*: int
     of shapeDiagonal:
       x0*, y0*, x1*, y1*, thickness*: int
+    of shapePolygon:
+      ## A closed ring of INTEGER vertices. Curves (Beziers, metaballs,
+      ## superellipses) are flattened to one of these by the authoring tools
+      ## BEFORE they reach the sim, so the runtime never evaluates a curve —
+      ## only integer even-odd point-in-polygon (`inShape`). Integer vertices
+      ## keep symmetry transforms bit-exact, so a polygon and its mirror image
+      ## rasterize to exactly mirror-symmetric wall masks (team fairness).
+      points*: seq[MapPoint]
 
   MapPoint* = object
     x*, y*: int
@@ -724,11 +751,17 @@ type
     ## seed set. Mirror and rot180 complete a LEFT-half set across the
     ## vertical center line (2-team maps); rot90 completes a QUADRANT set by
     ## rotating it 90/180/270 degrees about the center (4-team maps, square
-    ## only). All are exactly team-fair; rot180 keeps diagonal lanes diagonal
-    ## instead of folding them into chevrons.
+    ## only); quadMirror completes a TOP-LEFT quadrant set by reflecting it
+    ## across both center axes (mirrorX, mirrorY, rot180 — 4-team maps, any
+    ## rectangle). All are exactly team-fair; rot180 keeps diagonal lanes
+    ## diagonal instead of folding them into chevrons.
+    ##
+    ## Ordinals are wire format (flatty stores them positionally in replay
+    ## keyframes): APPEND new members, never insert.
     symMirror
     symRot180
     symRot90
+    symQuadMirror
 
   CtfMap* = object
     name*: string
@@ -762,9 +795,15 @@ type
                                      ## generated maps; equals the active
                                      ## pair on hand-authored maps).
     leftObstacles*: seq[ArenaShape]
-    trenches*: seq[MapRect]    ## walkable dug-pit squares (config-gated trenches): standing
+    trenches*: seq[ArenaShape]  ## walkable dug pits (config-gated): standing
                                ## inside slows movement and fire, and most
-                               ## incoming gun shots fly straight over.
+                               ## incoming gun shots fly straight over. FULL-map
+                               ## (both halves, already symmetrized). The
+                               ## generator emits `rect` pits; authored maps may
+                               ## use any shape, including `polygon` (curved
+                               ## pits). Membership is `inShape`, so the mechanic
+                               ## is shape-agnostic; only the organic-edge ART is
+                               ## rect-specific (other kinds fill flat for now).
 
   CrewSprite* = ref object
     width*, height*: int
@@ -842,8 +881,7 @@ type
     fireCooldownTicks*: int
     fireWindupTicks*: int
     carrierSpeedPct*: int
-    aimTurnRate*: int          ## rotation slots/tick a held rotate button
-                               ## turns the aim (of the AimRotations slots).
+    aimTurnRate*: int          ## brads/tick a held rotate button turns the aim.
     visionConeDeg*: int
     visionBubble*: int
     minPlayers*: int
@@ -879,6 +917,16 @@ type
                               ## geometry and never re-runs the generator.
     closedRoster*: bool
     slots*: seq[PlayerSlotConfig]
+    handicaps*: array[Team, int]  ## per-team handicap in PERMILLE (0..1000),
+                                  ## authored as a 0.0..1.0 float. 0 = normal
+                                  ## (the default, byte-identical to no
+                                  ## handicap); 1000 = fully handicapped: 50%
+                                  ## of shots miss, 1 life, 1 hit point, half
+                                  ## max speed. Intermediate values interpolate
+                                  ## linearly (see hitPointsFor/livesFor/
+                                  ## maxSpeedFor/missPermilleFor). Integer
+                                  ## permille keeps every in-sim derivation
+                                  ## integer-only, so native and wasm agree.
 
   Player* = object
     x*, y*: int
@@ -888,9 +936,6 @@ type
     flipH*: bool
     aimBrads*: int             ## aim angle in brads, 0..255: 0 = east (+x),
                                ## counter-clockwise on screen (64 = north).
-                               ## ALWAYS one of the AimRotations slots (a
-                               ## multiple of AimStepBrads) — the aim is 32
-                               ## discrete rotations, not a free angle (GV36).
     team*: Team
     alive*: bool
     lives*: int
@@ -907,6 +952,11 @@ type
     hasPlasmaArc*: bool        ## each player carries at most one plasma arc.
     arcTicksLeft*: int         ## remaining active ticks of a fired spray
                                ## cone (0 = the cone is off).
+    arcAimBrads*: int          ## aim direction locked at the spray's fire
+                               ## instant, -1 = no active cone. The cone points
+                               ## this way for its whole active window: turning
+                               ## the cog mid-spray no longer sweeps it. (The
+                               ## cone's ORIGIN still rides the owner.)
     arcHitMask*: uint32        ## players already damaged by the current
                                ## activation: one hit per victim per firing.
     throwCharge*: int          ## ticks the throw button has been held.
@@ -1329,3 +1379,32 @@ proc teamColor*(team: Team): uint8 =
   of Yellow:
     YellowTeamColor
 
+# Per-team handicap accessors. The handicap is stored as a permille (0..1000);
+# every derivation below is pure integer math and returns the EXACT base config
+# value at permille 0, so an unhandicapped game (the default) is byte-identical
+# to one with no handicap field at all — no drift, no extra RNG. See
+# docs/plans/2026-08-05-per-team-handicaps-design.md.
+
+proc hitPointsFor*(config: GameConfig, team: Team): int =
+  ## Hit points for `team`: interpolates from config.hitPoints down to 1 as the
+  ## team's handicap rises from 0 to full.
+  let p = config.handicaps[team]
+  if p <= 0: config.hitPoints
+  else: max(1, config.hitPoints - (config.hitPoints - 1) * p div 1000)
+
+proc livesFor*(config: GameConfig, team: Team): int =
+  ## Lives for `team`: interpolates from config.lives down to 1.
+  let p = config.handicaps[team]
+  if p <= 0: config.lives
+  else: max(1, config.lives - (config.lives - 1) * p div 1000)
+
+proc maxSpeedFor*(config: GameConfig, team: Team): int =
+  ## Max speed for `team`: interpolates from config.maxSpeed down to half.
+  let p = config.handicaps[team]
+  if p <= 0: config.maxSpeed
+  else: config.maxSpeed * (2000 - p) div 2000
+
+proc missPermilleFor*(config: GameConfig, team: Team): int =
+  ## Fraction of a would-be gun hit dropped, in permille (0..500): 0 at no
+  ## handicap, 500 (50%) at full. The caller draws RNG only when this is > 0.
+  config.handicaps[team] div 2

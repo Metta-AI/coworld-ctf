@@ -1,15 +1,15 @@
 import
   helpers,
-  std/[json, os, unittest],
+  std/[json, os, strutils, unittest],
   ctf/[replays, sim],
   "../tools/extract_events"
 
 const
   # The event-substrate fixture: a full 16-bot match recorded against the
-  # CURRENT gameplay rules (GameVersion 36, seed 905, lives 9:
-  #   record_fixture.sh tests/replays/ctf.bitreplay 905 10000 '{"lives":9}')
-  # — 43 kills across ALL THREE weapons (26 gun / 1 grenade / 16 spray),
-  # 5 steals, 2 heals, ending on a capture. (The GV32 recording ran the
+  # CURRENT gameplay rules (GameVersion 40, seed 908, lives 9:
+  #   record_fixture.sh tests/replays/ctf.bitreplay 908 10000 '{"lives":9}')
+  # — 30 kills across ALL THREE weapons (25 gun / 1 grenade / 4 spray),
+  # 5 steals, 5 heals, ending on a capture. (The GV32 recording ran the
   # server at speed 4 as a starvation guard; under GV33 the speed-4 runs
   # came back gun-only on this machine while the plain speed-16 recording
   # on an IDLE machine carried the full weapon mix — the idle-machine rule
@@ -19,6 +19,7 @@ const
   # GV31-33 sat on seed 900; the GV34 range-cap + aim-jitter re-record came
   # back grenade-less there, and the scan moved to 902. The GV36 32-rotation
   # aim re-record came back grenade-less on 902, and the scan moved to 905.
+  # Restoring continuous aim in GV40 moved it again to 908.
   # Expect the seed to move again on the next rules change.)
   #
   # Two things make this fixture easy to weaken by accident, both learned the
@@ -67,7 +68,9 @@ suite "tier-2 event extraction (tools/extract_events)":
       shotsBySlot = newSeq[int](slotCount)
       hitsBySlot = newSeq[int](slotCount)
       lastHp = newSeq[int](slotCount)  # -1 = unknown (start / just respawned)
-      sawKill = false
+      sawGunKill = false
+      sawSprayKill = false
+      sawGrenadeKill = false
       sawPlayingPhase = false
       sawGameOverPhase = false
     for slot in 0 ..< slotCount:
@@ -75,8 +78,12 @@ suite "tier-2 event extraction (tools/extract_events)":
     for event in extraction.events:
       case event.kind
       of Kill:
-        sawKill = true
         check event.weapon in ["gun", "spray", "grenade"]
+        case event.weapon
+        of "gun": sawGunKill = true
+        of "spray": sawSprayKill = true
+        of "grenade": sawGrenadeKill = true
+        else: discard
         check event.source >= 0 and event.source < slotCount
         check event.target >= 0 and event.target < slotCount
         inc killsBySlot[event.source]
@@ -123,7 +130,9 @@ suite "tier-2 event extraction (tools/extract_events)":
         check event.hp == -1
         # `blocked` is Damage-only; every other kind carries 0.
         check event.blocked == 0
-    check sawKill
+    check sawGunKill
+    check sawSprayKill
+    check sawGrenadeKill
     # The fixture plays a full match: it enters Playing and ends at GameOver.
     check sawPlayingPhase
     check sawGameOverPhase
@@ -172,6 +181,54 @@ suite "tier-2 event extraction (tools/extract_events)":
       for field in ["tick", "kind", "source", "target", "weapon", "amount",
           "hp", "x", "y"]:
         check row.hasKey(field)
+
+  test "the summary names every seat and the outcome, so a scan stands alone":
+    # Ladder scouting attributes every tier-2 event to a league entrant. The
+    # roster travels WITH the events so a scan of the JSONL alone can do that:
+    # no second read of the league API, and — the part that matters as
+    # episodes grow past two teams — no inferring an entrant from its SEAT.
+    let
+      data = loadReplay(EventsFixture)
+      extraction = extractEvents(data)
+      results = parseJson(extraction.resultsJson)
+      slotCount = results["names"].len
+
+    check extraction.slotAddress.len == slotCount
+    check extraction.slotTeam.len == slotCount
+    var named = 0
+    for slot in 0 ..< slotCount:
+      # A seat the game never dealt reads "unknown" in the results snapshot and
+      # stays empty here; every seat that DID play must be named.
+      if results["team"][slot].getStr == "unknown":
+        continue
+      inc named
+      check extraction.slotAddress[slot].len > 0
+      # The team is whatever the sim dealt that seat — cross-checked against
+      # the results snapshot, NOT against a seat-parity rule. Parity only ever
+      # described a 2-team head-to-head; an episode can seat four teams.
+      check extraction.slotTeam[slot] == results["team"][slot].getStr
+    check named >= 2
+
+    # A finished match names exactly one winner, or is an explicit draw.
+    check extraction.finished
+    if extraction.isDraw:
+      check extraction.winner == ""
+    else:
+      check extraction.winner in extraction.slotTeam
+
+    # And all of it survives the trip through the JSONL summary row.
+    let
+      output = extractEventsJsonl(data)
+      lines = output.strip(chars = {'\n'}).split('\n')
+      summary = parseJson(lines[^1])
+    check summary["slot_address"].len == slotCount
+    check summary["slot_team"].len == slotCount
+    check summary["winner"].getStr == extraction.winner
+    check summary["draw"].getBool == extraction.isDraw
+    check summary["finished"].getBool == extraction.finished
+    # The shared four keys are still there: extras never displace the contract.
+    for field in ["type", "ticks", "events", "gameVersion"]:
+      check summary.hasKey(field)
 
   test "collectEvents defaults off: a live sim collects nothing":
     let previousDir = getCurrentDir()

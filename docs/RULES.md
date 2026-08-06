@@ -45,6 +45,12 @@ tasks, voting) with teams, guns, hearts, and fog-of-war vision.
   squares**, with the width grown to match so the **14° half-angle did not
   change**; the 5th square is exactly what it takes to cover the tip of the
   plume the game draws. See the Spray can section for the shape.
+- **GameVersion 38 makes the spray one directional shot, not a sweep.** A
+  fired cone now locks its aim at the moment of firing and keeps it for the
+  whole 5-tick window: spinning the cog after you press no longer rakes the
+  cone around you. The cone's origin still rides its owner, so a moving
+  sprayer drags the stream forward — only the rotation is pinned. See the
+  Spray can section.
 - **GameVersion 30 puts every team's pickups on the map's own symmetry.** A
   team's shield and spray can are Red's spots carried over by whichever
   symmetry the terrain was built with — mirrored, rotated 180°, or turned a
@@ -201,16 +207,13 @@ square map:
 
 ## Aim
 
-- Every player's aim occupies one of **32 discrete rotation slots** (GV36) —
-  the classic fixed-rotation-count scheme; there are no finer-grained aim
-  angles. On the wire the aim is reported in **brads** (256 units per full
-  turn, integer — deterministic), so every aim value is a multiple of 8
-  (11.25°): **0 = east (+x)**, increasing **counter-clockwise on screen** in
-  map coordinates (64 = north, 128 = west, 192 = south).
+- Every player has a **continuous aim angle** reported in **brads** (256 units
+  per full turn, integer — deterministic): **0 = east (+x)**, increasing
+  **counter-clockwise on screen** in map coordinates (64 = north, 128 = west,
+  192 = south).
 - The aim is **decoupled from movement**. Hold **B** to rotate the aim
-  **counter-clockwise**, hold **Select** to rotate **clockwise**, stepping
-  `aimTurnRate` rotation slots per tick (default 1 slot = 11.25°/tick; a full
-  turn takes 32 ticks, ~1.3s).
+  **counter-clockwise**, hold **Select** to rotate **clockwise**, at
+  `aimTurnRate` brads per tick (default 5 ≈ 7°/tick; a full turn takes ~2.1s).
   Holding both rotate buttons cancels out. The d-pad **never** touches the aim.
 - The aim drives everything directional: the **gun** fires along it, the
   **vision cone** centers on it, and the sprite flip follows it (you face left
@@ -421,9 +424,12 @@ What that means in practice:
   lengthwise — nothing the paint **engulfs** survives — but the mist still
   runs about **15 px wider** than the cone, so a cog can catch paint on its
   **edge** without taking damage. Closing that too would need a 31° cone.
-- **The cone stays on for 5 ticks**, tracking the attacker's position and
-  aim across the window, then the can takes **20 ticks to repressurize**
-  (one burst every 25 ticks). The cone shuts off if its owner dies.
+- **The cone stays on for 5 ticks**, riding the attacker's position but
+  **holding the aim it was fired at** (GameVersion 38): one press is one
+  directional shot, so turning the cog mid-spray no longer sweeps the cone
+  across a fan of targets — only the origin moves with you, not the direction.
+  Then the can takes **20 ticks to repressurize** (one burst every 25 ticks).
+  The cone shuts off if its owner dies.
 - **A touch removes 3 hit points, once per victim per burst** — instantly
   lethal to a bare 3 hp cog, while a 6 hp shield carrier survives the first
   touch with 3 hp left. The cone affects teammates too and requires line
@@ -672,7 +678,7 @@ These are starting values, exposed in the game config and tuned in self-play.
 | Fire cooldown | ~0.5s | Minimum time between shots |
 | Carrier speed | ~70% | Movement penalty while holding the heart |
 | Body bounce (`playerBouncePct`) | 40% | Restitution of player-player collisions; bodies are always solid |
-| Aim turn rate (`aimTurnRate`) | 1 slot/tick | Rotation slots stepped per tick while B/Select is held (11.25°/tick; full turn 32 ticks ≈ 1.3s) |
+| Aim turn rate (`aimTurnRate`) | 5 brads/tick | Rotation speed while B/Select is held (~7°/tick; full turn ~2.1s) |
 | Vision cone (`visionConeDeg`) | ±60° | Fog-of-war forward vision half-angle; reaches 1.5× gun range (1575px stock), walls block |
 | Vision bubble (`visionBubble`) | 90px | Omnidirectional close-range vision regardless of aim |
 | Spray cone reach (`PlasmaArcReach`) | 170px (5 squares) | Forward cone reach along the centerline; one square = one 34px cog body |
@@ -743,10 +749,24 @@ these markers restate the geometry the sim already plays; before they existed
 a policy had to reconstruct it from the room markers and its own copy of the
 zone formulas.
 
+**So are the handicaps.** The same init snapshot carries one invisible 1x1
+marker per team labeled
+`handicap <color> <permille> hp <n> lives <n> spd <n> miss <n>`: the team's
+authored handicap fraction in permille (0..1000, 0 = unhandicapped) plus the
+ENGINE-resolved gameplay deltas it interpolates to — hit points per life,
+lives, max speed as a percent of the base max speed (100 = full), and the
+percent of point-blank shots dropped (0..50). Match the prefix `handicap `;
+the tail splits on spaces into
+`["<color>", "<permille>", "hp", "<n>", "lives", "<n>", "spd", "<n>",
+"miss", "<n>"]` — the `hp`/`lives`/`spd`/`miss` tokens are fixed. The marker
+is emitted for EVERY team, permille 0 included, so an absent marker means an
+engine predating it, never "no handicap". The deltas are stated so a policy
+can adapt to a weakened team (its own or an enemy's) without re-deriving the
+interpolation formula.
+
 **So is your own aim.** Every player frame carries an invisible 1x1 HUD
 marker labeled `own aim <brads>`: your turret angle as of the rendered tick,
-in brads (256 per turn, 0 = east, counter-clockwise; always a multiple of 8
-— the aim sits on the 32-slot rotation grid). Match the prefix `own aim `
+in brads (256 per turn, 0 = east, counter-clockwise). Match the prefix `own aim `
 and parse the tail as an integer. Before this marker a policy had to dead-reckon its own aim
 open-loop from its rotate inputs; the marker caps that drift at one frame
 gap (integrate held rotation between frames, resync on each frame — see

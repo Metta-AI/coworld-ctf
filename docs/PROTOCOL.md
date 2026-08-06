@@ -54,10 +54,9 @@ The marker is exact only for the rendered tick, so a client still integrates
 between frames:
 
 - Spawn (and respawn) aim points toward the enemy side.
-- The aim occupies one of **32 discrete rotation slots** (GV36): every aim
-  value on the wire is a multiple of 8 brads (11.25 deg). Each held rotate
-  button steps the aim by the server's `aimTurnRate` slots (default 1 slot =
-  8 brads per tick) for **every elapsed sim tick** — including ticks you
+- Each held rotate button turns the continuous aim by the server's
+  `aimTurnRate` (default 5 brads per tick, about 7 degrees) for **every elapsed
+  sim tick** — including ticks you
   never saw a frame for. If you process frames with `frameAdvance > 1`
   (see below), integrate the rotation across all advanced ticks, then let the
   next frame's marker correct the estimate.

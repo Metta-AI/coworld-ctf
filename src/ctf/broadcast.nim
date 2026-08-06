@@ -245,6 +245,22 @@ proc teamStateJson(sim: SimServer, team: Team): JsonNode =
     "prog": sim.flagCarryProgress(team),
     "policies": sim.teamPoliciesJson(team)
   }
+  # Per-team handicap for the scorebug badge + its hover breakdown. Present only
+  # when the team is actually handicapped, so an unhandicapped team shows no
+  # badge. The resolved deltas are computed here (the one place the
+  # interpolation lives) so the viewer never re-derives them: `h` is the
+  # authored fraction in permille (0..1000); `spd` is max speed as a percent of
+  # base; `miss` is the percent of point-blank shots dropped (0..50).
+  if sim.config.handicaps[team] > 0:
+    result["hcap"] = %*{
+      "h": sim.config.handicaps[team],
+      "hp": sim.config.hitPointsFor(team),
+      "hp0": sim.config.hitPoints,
+      "lives": sim.config.livesFor(team),
+      "lives0": sim.config.lives,
+      "spd": sim.config.maxSpeedFor(team) * 100 div max(1, sim.config.maxSpeed),
+      "miss": sim.config.missPermilleFor(team) div 10
+    }
 
 proc rosterJson(sim: SimServer): JsonNode =
   ## Returns the per-player roster array keyed by stable join slot.

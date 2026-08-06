@@ -285,6 +285,37 @@
             "huge",
             "giant"
           ]
+        },
+        "handicaps": {
+          "description": "Per-team handicap that weakens a team, keyed by team name. Each value is 0..1: 0 = normal, 1 = 50% of shots miss, 1 life, 1 hit point, half max speed; values in between interpolate linearly. Omitted teams are unhandicapped. Intended for a league (e.g. Campaign) to level a dominating team.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "red": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "blue": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "green": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "yellow": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            }
+          }
+        },
+        "mapSpec": {
+          "description": "Full expanded map geometry (obstacles, trenches, endzones) as a JSON object. Pins an exact authored map — e.g. a campaign cell's custom organic terrain — overriding mapPath/mapSeed/mapSize. Same format the replay config carries.",
+          "type": "object"
         }
       }
     },
@@ -1016,15 +1047,16 @@
         "gameOverTicks": 360,
         "maxTicks": 5000,
         "maxGames": 1,
-        "mapPath": "arena",
+        "mapPath": "gen",
+        "teams": 2,
         "showPlayerLabels": true,
         "lobbyJoinTimeoutTicks": 2880
       }
     },
     {
       "id": "1v1",
-      "name": "1v1 Duel",
-      "description": "Two-policy Paintbot duel for custom lobbies and campaign cells: one Red player versus one Blue player on random generated terrain with Paintbot's standard pot scoring and tuning.",
+      "name": "1v1 (8 per team)",
+      "description": "Two-policy Paintbot team battle for custom lobbies and campaign cells: one policy fields the full Red team of 8 versus the other fielding the full Blue team of 8 on random generated terrain with Paintbot's standard pot scoring and tuning.",
       "game_config": {
         "players": [
           {
@@ -1032,6 +1064,48 @@
           },
           {
             "name": "Player2"
+          },
+          {
+            "name": "Player3"
+          },
+          {
+            "name": "Player4"
+          },
+          {
+            "name": "Player5"
+          },
+          {
+            "name": "Player6"
+          },
+          {
+            "name": "Player7"
+          },
+          {
+            "name": "Player8"
+          },
+          {
+            "name": "Player9"
+          },
+          {
+            "name": "Player10"
+          },
+          {
+            "name": "Player11"
+          },
+          {
+            "name": "Player12"
+          },
+          {
+            "name": "Player13"
+          },
+          {
+            "name": "Player14"
+          },
+          {
+            "name": "Player15"
+          },
+          {
+            "name": "Player16"
           }
         ],
         "slots": [
@@ -1040,11 +1114,53 @@
           },
           {
             "team": "blue"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
           }
         ],
         "seed": 679961,
-        "num_agents": 2,
-        "minPlayers": 2,
+        "num_agents": 16,
+        "minPlayers": 16,
         "lives": 3,
         "hitPoints": 3,
         "respawnTicks": 72,

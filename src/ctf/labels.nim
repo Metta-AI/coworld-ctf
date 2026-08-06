@@ -148,6 +148,15 @@ const
     ## stream also carries the endzone glow overlays,
     ## `endzone <color> power <n>` — match the third token against the shape
     ## vocabulary (or the `power` literal) before parsing corners.
+  LabelPrefixHandicap* = "handicap "
+    ## The per-team handicap marker,
+    ## `handicap <color> <permille> hp <n> lives <n> spd <n> miss <n>`: an
+    ## invisible 1x1 object in the init snapshot stating one team's authored
+    ## handicap fraction AND the resolved gameplay deltas it interpolates to,
+    ## so a policy adapts to a weakened (own or enemy) team without knowing
+    ## the interpolation formula. One marker per team in the game, emitted
+    ## even at permille 0 — absence means an old engine, not "no handicap".
+    ## See `labelHandicap` for the exact tail arity.
 
   # ---------------------------------------------------------------------------
   # Tokens that fill the interpolated slots above.
@@ -274,6 +283,22 @@ proc labelEndzone*(color, shape: string; x0, y0, x1, y1: int): string =
   doAssert shape in LabelEndzoneShapes, "unknown endzone shape token: " & shape
   LabelPrefixEndzone & color & " " & shape & " " &
     $x0 & "," & $y0 & " " & $x1 & "," & $y1
+
+proc labelHandicap*(color: string; permille, hp, lives, spdPct,
+    missPct: int): string =
+  ## One team's handicap marker label,
+  ## `handicap <color> <permille> hp <n> lives <n> spd <n> miss <n>`. A
+  ## consumer matches LabelPrefixHandicap and splits the tail on spaces into
+  ## exactly `["<color>", "<permille>", "hp", "<n>", "lives", "<n>", "spd",
+  ## "<n>", "miss", "<n>"]` — the `hp`/`lives`/`spd`/`miss` tokens are fixed.
+  ## `<permille>` is the authored handicap fraction in permille (0..1000,
+  ## 0 = unhandicapped); the four deltas are the ENGINE-resolved values the
+  ## sim actually plays (see hitPointsFor/livesFor/maxSpeedFor/
+  ## missPermilleFor): hit points per life, lives, max speed as a percent of
+  ## the base max speed (100 = full), and the percent of point-blank shots
+  ## dropped (0..50). Stated so a policy never re-derives the interpolation.
+  LabelPrefixHandicap & color & " " & $permille &
+    " hp " & $hp & " lives " & $lives & " spd " & $spdPct & " miss " & $missPct
 
 proc labelOwnAim*(brads: int): string =
   ## The own-aim marker label, `own aim <brads>`. A consumer matches

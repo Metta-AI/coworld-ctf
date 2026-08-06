@@ -88,6 +88,17 @@
   .wallnames.side-r .wallname{text-align:right}
   /* two stacked names shrink so both corners still read */
   .wallnames.stacked .wallname{font-size:calc(19*var(--u))}
+  /* name + handicap chip on one line; the chip sits toward the center clock */
+  .wallrow{display:flex; align-items:baseline; gap:calc(6*var(--u)); min-width:0}
+  .wallnames.side-l .wallrow{flex-direction:row}
+  .wallnames.side-r .wallrow{flex-direction:row-reverse}
+  .wallrow .wallname{flex:0 1 auto}
+  /* Handicap chip: an amber pill; the full delta breakdown rides in the native
+     `title` on hover (cursor:help). Hidden when the team is unhandicapped. */
+  .hcap{flex:none; font-family:var(--finefont); font-size:calc(11*var(--u));
+    letter-spacing:.04em; line-height:1; color:var(--ink); background:var(--amber);
+    border-radius:calc(4*var(--u)); padding:calc(3*var(--u)) calc(5*var(--u));
+    white-space:nowrap; cursor:help}
   .clock{flex:none; position:relative; display:flex; flex-direction:column; align-items:center;
     justify-content:center; gap:calc(3*var(--u))}
   .clock .time{font-family:var(--pixfont); font-size:calc(34*var(--u)); line-height:1; color:var(--paper);
@@ -346,6 +357,7 @@
   var otherTeam=C.otherTeam, stripSeatSuffix=C.stripSeatSuffix;
   var teamPolicies=C.teamPolicies, teamName=C.teamName, teamHeadline=C.teamHeadline;
   var rosterName=C.rosterName, setName=C.setName, esc=C.esc, fmt=C.fmt;
+  var setHandicap=C.setHandicap;
   var togglePov=C.togglePov, renderClock=C.renderClock, renderTransport=C.renderTransport;
   var ingestLullSpans=C.ingestLullSpans, renderLullSpans=C.renderLullSpans;
   var markBeat=C.markBeat, killMarkerTeam=C.killMarkerTeam, renderBeatMarkers=C.renderBeatMarkers;
@@ -614,11 +626,16 @@
     names[1].classList.toggle('stacked', teams.length>2);
     teams.forEach(function(team, i){
       var side=i%2;
+      var row=document.createElement('div');
+      row.className='wallrow '+team;
       var nm=document.createElement('div');
       nm.className='wallname '+team;
       nm.id='name-'+team;
       nm.textContent=team.toUpperCase();
-      names[side].appendChild(nm);
+      var hc=document.createElement('span');
+      hc.className='hcap'; hc.id='hcap-'+team; hc.style.display='none';
+      row.appendChild(nm); row.appendChild(hc);
+      names[side].appendChild(row);
       var pl=document.createElement('div');
       pl.className='plaque '+(side===0?'left':'right')+' '+team;
       pl.id='kda-'+team;
@@ -651,6 +668,7 @@
     teams.forEach(function(team){ lives[team]=(tr[team]&&tr[team].lives)||0; });
     teams.forEach(function(team){
       setName('name-'+team, teamName(s, team, team.toUpperCase()));
+      setHandicap('hcap-'+team, s, team);
       $('lives-'+team).textContent = tr[team] ? lives[team] : '—';
       updateFlag('flag-'+team, team, tr[team]||{}, s);
       // leader pulse when this team leads EVERY rival by >= 3

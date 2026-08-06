@@ -6,8 +6,10 @@ import
 
 proc tickOfFrame(cx, frame: int): int =
   ## The first tick on which the diamond centered at map-x `cx` shows `frame`.
+  ## (cy = 0: the installed default arena is a MIRROR map, whose direction
+  ## rule keys on cx alone.)
   for tick in 0 ..< DiamondSpinFrames * DiamondSpinTicksPerFrame:
-    if diamondSpinFrame(cx, tick) == frame:
+    if diamondSpinFrame(cx, 0, tick) == frame:
       return tick
   -1
 
@@ -34,7 +36,7 @@ suite "spinning center diamonds are real geometry":
       check tick >= 0
       sim.applyDiamondGeometry(tick)
       for spot in AnimatedDiamonds:
-        let spotFrame = diamondSpinFrame(spot.cx, tick)
+        let spotFrame = diamondSpinFrame(spot.cx, spot.cy, tick)
         for y in spot.cy - spot.radius - 1 .. spot.cy + spot.radius + 1:
           for x in spot.cx - spot.radius - 1 .. spot.cx + spot.radius + 1:
             let expected = sim.isArtWall(x, y) or
@@ -196,6 +198,11 @@ suite "spinning center diamonds are real geometry":
           for _ in 0 ..< 3:
             (x, y) = (m.width - 1 - y, x)
             result.add((x, y))
+        of symQuadMirror:
+          result = @[
+            (m.width - 1 - cx, cy),
+            (cx, m.height - 1 - cy),
+            (m.width - 1 - cx, m.height - 1 - cy)]
       for spec in [("arena", 0), ("arena-large", 0), ("gen:1046", 0),
                    ("gen:1002", 0), ("gen:1005", 0)]:
         let
@@ -236,8 +243,8 @@ suite "spinning center diamonds are real geometry":
             break
         pick
       tick = DiamondSpinTicksPerFrame
-    check diamondSpinFrame(left.cx, tick) == 1
-    check diamondSpinFrame(right.cx, tick) == DiamondSpinFrames - 1
+    check diamondSpinFrame(left.cx, left.cy, tick) == 1
+    check diamondSpinFrame(right.cx, right.cy, tick) == DiamondSpinFrames - 1
 
   test "the live footprint is symmetric on rot180 and rot90 maps too":
     ## The installed-map globals make it impractical to boot a generated map
@@ -255,7 +262,6 @@ suite "spinning center diamonds are real geometry":
         let
           chosen = buildAnimatedDiamonds(
             gameMap, buildArenaObstacles(gameMap))
-          mirrored = gameMap.symmetry == symMirror
         check chosen.len > 0
         check gameMap.symmetry in {symRot180, symRot90}
         ## Frames come from diamondSpinFrame, NOT from a constant: the whole
@@ -266,7 +272,8 @@ suite "spinning center diamonds are real geometry":
           for spot in chosen:
             if animatedDiamondCovers(
                 spot,
-                diamondSpinFrame(spot.cx, tick, mirrored, gameMap.width),
+                diamondSpinFrame(spot.cx, spot.cy, tick, gameMap.symmetry,
+                  gameMap.width, gameMap.height),
                 x, y):
               return true
           false

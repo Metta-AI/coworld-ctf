@@ -25,13 +25,31 @@ proc grenadeSpawnPoints*(gameMap: CtfMap): array[4, tuple[x, y: int]] =
       (gameMap.width - inset, inset),
       (gameMap.width - inset, gameMap.height - inset)]
   of layoutCorners:
-    rot90Orbit((gameMap.width div 2, inset), gameMap.width)
+    if gameMap.symmetry == symQuadMirror:
+      ## Quad-mirror's group is the reflections, so the set must be a Klein
+      ## orbit. The rot90 edge-MIDPOINT seed degenerates there (its mirrorX
+      ## image is itself, half a pixel off on an even width), so the seed
+      ## slides to a third of the top edge: the orbit is four distinct
+      ## points along the top and bottom edges, clear of the corner
+      ## endzones, and exactly fair by construction.
+      quadMirrorOrbit(
+        (gameMap.width div 3, inset), gameMap.width, gameMap.height)
+    else:
+      rot90Orbit((gameMap.width div 2, inset), gameMap.width)
   of layoutPlus:
     let arm = gameMap.plusArmHalf()
-    rot90Orbit(
-      (gameMap.center.x + arm - inset, gameMap.center.y + arm - inset),
-      gameMap.width
-    )
+    if gameMap.symmetry == symQuadMirror:
+      ## The same four inner corners of the center intersection as rot90,
+      ## built as the reflections of the bottom-right one — the group that
+      ## actually completes this map.
+      quadMirrorOrbit(
+        (gameMap.center.x + arm - inset, gameMap.center.y + arm - inset),
+        gameMap.width, gameMap.height)
+    else:
+      rot90Orbit(
+        (gameMap.center.x + arm - inset, gameMap.center.y + arm - inset),
+        gameMap.width
+      )
 
 proc teamOrbitPoints(gameMap: CtfMap, red: MapPoint): seq[tuple[x, y: int]] =
   ## Carries RED's chosen point to every active team by the map's own
@@ -157,6 +175,7 @@ proc resetPlasmaArcs*(sim: var SimServer) =
   for i in 0 ..< sim.players.len:
     sim.players[i].hasPlasmaArc = false
     sim.players[i].arcTicksLeft = 0
+    sim.players[i].arcAimBrads = -1
     sim.players[i].arcHitMask = 0
 
 proc startGame*(sim: var SimServer) =
@@ -173,8 +192,8 @@ proc startGame*(sim: var SimServer) =
   for i in 0 ..< sim.players.len:
     sim.players[i].lastShoutTick = -1
     sim.players[i].alive = true
-    sim.players[i].lives = sim.config.lives
-    sim.players[i].hp = sim.config.hitPoints
+    sim.players[i].lives = sim.config.livesFor(sim.players[i].team)
+    sim.players[i].hp = sim.config.hitPointsFor(sim.players[i].team)
     sim.players[i].respawnTimer = 0
     sim.players[i].fireCooldown = 0
     sim.players[i].fireWindup = 0
@@ -424,13 +443,14 @@ proc animatedDiamondAt*(sim: SimServer, x, y: int): int =
   for i in 0 ..< AnimatedDiamonds.len:
     let spot = AnimatedDiamonds[i]
     if animatedDiamondCovers(
-        spot, diamondSpinFrame(spot.cx, sim.tickCount), x, y):
+        spot, diamondSpinFrame(spot.cx, spot.cy, sim.tickCount), x, y):
       return i
   -1
 
 proc diamondSpinAngle*(sim: SimServer, diamond: int): float =
   ## Cosmetic angle derived from the geometry/render frame source of truth.
-  let frame = diamondSpinFrame(AnimatedDiamonds[diamond].cx, sim.tickCount)
+  let frame = diamondSpinFrame(
+    AnimatedDiamonds[diamond].cx, AnimatedDiamonds[diamond].cy, sim.tickCount)
   float(frame) / float(DiamondSpinFrames) * PI / 2.0
 
 proc seatInWall*(sim: SimServer, x, y: int, ux, uy: float): (int, int) =
@@ -565,6 +585,7 @@ proc killPlayer*(
   sim.players[targetIndex].shieldHp = 0
   sim.players[targetIndex].hasPlasmaArc = false
   sim.players[targetIndex].arcTicksLeft = 0
+  sim.players[targetIndex].arcAimBrads = -1
   sim.players[targetIndex].throwCharge = 0
   for team in sim.teams():
     if sim.flags[team].carrier == targetIndex:
@@ -656,8 +677,10 @@ proc selectArcVictims(
   attackerIndex: int
 ): seq[int] =
   ## Returns every living player whose BODY overlaps the attacker's forward
-  ## spray cone, computed from the attacker's CURRENT position and aim: a live
-  ## cone tracks its owner across the active window.
+  ## spray cone. The cone's ORIGIN is the attacker's CURRENT position (it rides
+  ## its owner across the active window), but its DIRECTION is the aim locked at
+  ## the fire instant (`arcAimBrads`) — turning the cog mid-spray never sweeps
+  ## the cone.
   ##
   ## The victim is a disc of PlasmaArcBodyRadius, not the bare point its
   ## 1px collision box would suggest, so the cone covers what the paint
@@ -669,7 +692,7 @@ proc selectArcVictims(
     attacker = sim.players[attackerIndex]
     ax = attacker.x + CollisionW div 2
     ay = attacker.y + CollisionH div 2
-    (ux, uy) = aimVector(attacker.aimBrads)
+    (ux, uy) = aimVector(attacker.arcAimBrads)
     reach = float(PlasmaArcReach)
     # The cone's half-width grows linearly with forward distance, hitting
     # PlasmaArcMaxWidth / 2 exactly at the reach cap.
@@ -704,6 +727,10 @@ proc startArcFire*(sim: var SimServer, attackerIndex: int) =
   sim.players[attackerIndex].fireCooldown =
     PlasmaArcActiveTicks + PlasmaArcResetTicks
   sim.players[attackerIndex].arcTicksLeft = PlasmaArcActiveTicks
+  # Lock the aim NOW: the cone keeps this direction for its whole active
+  # window, so turning the cog mid-spray no longer sweeps it around. One
+  # fire, one direction.
+  sim.players[attackerIndex].arcAimBrads = sim.players[attackerIndex].aimBrads
   sim.players[attackerIndex].arcHitMask = 0
   sim.players[attackerIndex].arcKillsThisFire = 0
   sim.logGameEvent(
@@ -731,7 +758,7 @@ proc resolveActiveArcCones*(sim: var SimServer) =
     sim.plasmaArcFlashes.add PlasmaArcFx(
       x: attacker.x + CollisionW div 2,
       y: attacker.y + CollisionH div 2,
-      aimBrads: attacker.aimBrads,
+      aimBrads: attacker.arcAimBrads,   ## the locked fire direction, not live aim
       tick: sim.tickCount,
       color: teamColor(attacker.team),
       attacker: arcFire.attacker
@@ -744,7 +771,7 @@ proc resolveActiveArcCones*(sim: var SimServer) =
       let
         ax = attacker.x + CollisionW div 2
         ay = attacker.y + CollisionH div 2
-        (ux, uy) = aimVector(attacker.aimBrads)
+        (ux, uy) = aimVector(attacker.arcAimBrads)
       for step in 1 .. PlasmaArcReach:
         let
           rx = ax + int(round(ux * float(step)))
@@ -837,11 +864,15 @@ proc resolveActiveArcCones*(sim: var SimServer) =
           SprayAction,
           sim.tickCount - (PlasmaArcActiveTicks - attacker.arcTicksLeft)
         ),
-        headingBrads = attacker.aimBrads,
+        headingBrads = attacker.arcAimBrads,
         damages = damages
       )
     if sim.players[arcFire.attacker].arcTicksLeft > 0:
       dec sim.players[arcFire.attacker].arcTicksLeft
+      # The cone just shut off: clear the locked aim so an idle owner carries
+      # no stale direction (matches how the gun clears windupBrads on release).
+      if sim.players[arcFire.attacker].arcTicksLeft == 0:
+        sim.players[arcFire.attacker].arcAimBrads = -1
 
 proc tryFireArc*(sim: var SimServer, attackerIndex: int) =
   ## Fires one spray burst immediately for direct callers and tests: ignites
@@ -927,6 +958,14 @@ proc selectFireTarget(
   # Walk the crossed bodies in ray order (index breaks exact ties, so the
   # walk is deterministic); the first body that does not duck is the hit.
   crossed.sort()
+  # A handicapped shooter's aim goes wide on a fraction of the shots that would
+  # otherwise connect. Rolled ONCE per shot, only when there is a body to hit
+  # AND the team carries a handicap — so an unhandicapped game draws no extra
+  # RNG and re-simulates byte-for-byte. On a miss the whole shot flies wide
+  # (it does not fall through to a body further down the ray).
+  let missPermille = sim.config.missPermilleFor(shooter.team)
+  if missPermille > 0 and crossed.len > 0 and sim.rng.rand(999) < missPermille:
+    return -1
   for candidate in crossed:
     let targetTrench = sim.playerTrench(candidate.index)
     if targetTrench >= 0 and targetTrench != shooterTrench and
@@ -1317,7 +1356,7 @@ proc explodeGrenade(sim: var SimServer, grenade: AirborneGrenade) =
       by = grenade.ty + oy
     if bx < 0 or by < 0 or bx >= MapWidth or by >= MapHeight:
       continue
-    if landingTrench >= 0 and not inRect(bx, by, ArenaTrenches[landingTrench]):
+    if landingTrench >= 0 and not inShape(bx, by, ArenaTrenches[landingTrench]):
       continue
     sim.addPaintStain(bx, by, throwerColor)
   sim.logGameEvent("grenade landed")
@@ -1512,12 +1551,13 @@ proc tryPickupMedKits*(sim: var SimServer, playerIndex: int) =
   ## kit is never wasted; a taken kit refills after MedKitRespawnTicks.
   if not sim.players[playerIndex].alive:
     return
-  if sim.players[playerIndex].hp >= sim.config.hitPoints:
+  let maxHp = sim.config.hitPointsFor(sim.players[playerIndex].team)
+  if sim.players[playerIndex].hp >= maxHp:
     return
   sim.pickupByTouch(playerIndex, medKitSpawns, MedKitPickupRange,
       MedKitRespawnTicks):
-    let healed = sim.config.hitPoints - sim.players[playerIndex].hp
-    sim.players[playerIndex].hp = sim.config.hitPoints
+    let healed = maxHp - sim.players[playerIndex].hp
+    sim.players[playerIndex].hp = maxHp
     sim.emitPickup(playerIndex, "med_kit", spawn.x, spawn.y)
     sim.emitEvent(
       Heal, source = playerIndex, amount = healed,
@@ -1721,16 +1761,12 @@ proc applyInput*(
 
   # Aim rotation is decoupled from locomotion: holding B turns the aim
   # counter-clockwise, holding Select clockwise; holding both cancels out,
-  # and the d-pad never changes the aim. The aim steps through the 32
-  # rotation slots (aimTurnRate slots/tick); the arithmetic runs in slots
-  # and re-snaps to the grid, so an off-grid angle can never persist.
+  # and the d-pad never changes the aim.
   if input.b != input.select:
-    let steps =
+    let turn =
       if input.b: sim.config.aimTurnRate else: -sim.config.aimTurnRate
-    let slot = player.aimBrads div AimStepBrads
     player.aimBrads =
-      (((slot + steps) mod AimRotations + AimRotations) mod AimRotations) *
-        AimStepBrads
+      ((player.aimBrads + turn) mod AimBradsTurn + AimBradsTurn) mod AimBradsTurn
   # The sprite flip follows the aim: flipped while aiming left-ish.
   player.flipH =
     player.aimBrads > AimBradsTurn div 4 and
@@ -1739,7 +1775,7 @@ proc applyInput*(
   let
     speedScale =
       if player.carryingFlag: sim.config.carrierSpeedPct else: 100
-    maxSpeed = sim.config.maxSpeed * speedScale div 100
+    maxSpeed = sim.config.maxSpeedFor(player.team) * speedScale div 100
     accel = sim.config.accel * speedScale div 100
     # CLIMBING OUT of a trench is slow; dropping in and moving around it
     # are not. While the center is inside a pit, each axis whose motion
@@ -1756,7 +1792,7 @@ proc applyInput*(
     negBoundY = -maxSpeed
   if trench >= 0:
     let
-      pit = ArenaTrenches[trench]
+      pit = shapeAsRect(ArenaTrenches[trench])
       relX = (player.x + CollisionW div 2) - (pit.x + pit.w div 2)
       relY = (player.y + CollisionH div 2) - (pit.y + pit.h div 2)
     if relX > 0: posBoundX = slowSpeed
@@ -2498,7 +2534,8 @@ proc applyDiamondGeometry*(sim: var SimServer, tick: int): bool
   ## No allocation on either pass: this runs every tick, and three ticks in
   ## four nothing has moved.
   for index in 0 ..< sim.diamondPatches.len:
-    let frame = diamondSpinFrame(AnimatedDiamonds[index].cx, tick)
+    let frame = diamondSpinFrame(
+      AnimatedDiamonds[index].cx, AnimatedDiamonds[index].cy, tick)
     if frame == sim.diamondPatches[index].frame:
       continue
     sim.diamondPatches[index].frame = frame
@@ -2550,7 +2587,7 @@ proc sweptByDiamond(sim: SimServer, px, py: int): bool =
   ## diamond's CURRENT footprint — i.e. the stone moved onto them, rather than
   ## their being unable to stand for some unrelated reason.
   for spot in AnimatedDiamonds:
-    let frame = diamondSpinFrame(spot.cx, sim.tickCount)
+    let frame = diamondSpinFrame(spot.cx, spot.cy, sim.tickCount)
     for dy in -PlayerHalf .. PlayerHalf:
       for dx in -PlayerHalf .. PlayerHalf:
         if animatedDiamondCovers(spot, frame, px + dx, py + dy):
@@ -2778,7 +2815,7 @@ proc respawnPlayers(sim: var SimServer) =
         let spawn = sim.randomEndzonePosition(sim.players[i].team)
         sim.placePlayer(i, spawn.x, spawn.y)
         sim.players[i].alive = true
-        sim.players[i].hp = sim.config.hitPoints
+        sim.players[i].hp = sim.config.hitPointsFor(sim.players[i].team)
         sim.players[i].aimBrads = sim.gameMap.spawnAimBrads(sim.players[i].team)
         sim.players[i].flipH = sim.gameMap.spawnFlipH(sim.players[i].team)
         sim.emitEvent(

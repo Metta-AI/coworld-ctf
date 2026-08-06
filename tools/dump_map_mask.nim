@@ -159,7 +159,8 @@ proc geometryJson*(gameMap: CtfMap): JsonNode =
 
   var trenches = newJArray()
   for t in gameMap.trenches:
-    trenches.add(%*{"x": t.x, "y": t.y, "w": t.w, "h": t.h})
+    let r = shapeAsRect(t)
+    trenches.add(%*{"x": r.x, "y": r.y, "w": r.w, "h": r.h})
   result["trenches"] = trenches
 
 when isMainModule:
