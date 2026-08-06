@@ -33,6 +33,7 @@ export map_seed
 # and skeleton+fill is 29/30.
 import map_lanes
 import mapgen_biomes
+import mapgen_vocab
 from std/random import Rand, initRand
 
 proc validateMapRect(name: string, rect: MapRect, width, height: int) =
@@ -1878,8 +1879,62 @@ proc generateMapAttempt*(
       ## interior) is a candidate this attempt cannot draw, not a crash: the
       ## best-of-K loop simply ranks the others.
       break terrain
-    let fill = generateBiomeShapes(style, fillSeed, region,
-      defaultBiomeParams(style), domain)
+    var fill: seq[ArenaShape]
+
+    ## VOCABULARY MASSES FIRST, then the biome texture around them.
+    ##
+    ## Biome noise alone gives cover but not ENCLOSURE: measured at the same
+    ## ~160 permille the hand-authored control spends, it returned
+    ## interiorFrac 0.178 against the control's 0.342. The gap is morphology,
+    ## not quantity — scattered pebbles where the control has masses you can
+    ## stand behind and rooms you can be inside. `mapgen_vocab`'s constructors
+    ## are sized from `map_rules` and ranked by enclosure per unit cover.
+    ##
+    ## ⚠️ Deliberately a MIX, and deliberately NOT the top-ranked item. The
+    ## best item per unit cover renders as a BARCODE of parallel stripes and
+    ## the second best as CONFETTI; a crude random mixture scored mid-table
+    ## and was the best-LOOKING map the vocabulary produced. Optimising this
+    ## ranking is how you win the metric and lose the game.
+    block masses:
+      ## WEIGHTED, not uniform. `tools/vocab_bench.nim table` measures each
+      ## item's enclosure on a real carved map: bunker 0.456, snake 0.450,
+      ## cave 0.355 all beat the hand-authored control's 0.342, while temple
+      ## 0.128 and massif 0.174 are near-scatter. A uniform draw over all
+      ## eight lands exactly on the bench's MIXED row (0.195) — which is what
+      ## it did here, 0.204.
+      ##
+      ## Still a MIX. The trap this repo has fallen into twice is that the
+      ## single best item per unit cover renders as a BARCODE and the second
+      ## as CONFETTI, and a crude mixture was the best-LOOKING map produced.
+      ## So the low-enclosure items keep their place in the pool; they are
+      ## simply drawn less often.
+      const Items = [viBunker, viBunker, viBunker, viSnake, viSnake,
+                     viCave, viCave, viBeam, viDorito, viCan,
+                     viMassif, viTemple]
+      let vp = vocabParams(rules)
+      if region.h < 80 or region.w < 80: break masses
+      var vocabRand = initRand(cast[int64](fillRng.next() or 1'u64))
+      ## Each constructor TILES itself across the region it is handed, at its
+      ## own `vocabFootprint` pitch — that is the density `vocab_bench`
+      ## measures its 0.456 at. Handing an item a thin band instead gave it
+      ## room for one or two instances, which is a degenerate layout rather
+      ## than a fair density, and it measured like one (0.220 against a 0.30
+      ## target). So each item gets the WHOLE domain and the layers overlap,
+      ## which is also what stops the map reading as horizontal stripes.
+      let massCount = 2 + fillRng.pick(2)
+      for k in 0 ..< massCount:
+        let item = Items[fillRng.pick(Items.len)]
+        for shape in emitVocab(item, vocabRand, region, vp):
+          fill.add shape
+
+    ## The biome texture goes in AFTER the masses, deliberately. The fill
+    ## budget below is spent in emission order and SKIPS any shape too big for
+    ## what is left, so whichever layer goes first is the layer that gets
+    ## bought. Texture-first spent the budget on pebbles and dropped the very
+    ## masses that carry the enclosure.
+    for shape in generateBiomeShapes(style, fillSeed, region,
+        defaultBiomeParams(style), domain):
+      fill.add shape
 
     ## The lane skeleton is a HALF-FIELD topology: three parallel routes from
     ## a base out to the symmetry seam. A rot90 domain is a QUARTER of the
@@ -1943,7 +1998,7 @@ proc generateMapAttempt*(
           acc += a.x * b.y - b.x * a.y
         abs(acc) div 2
     const
-      FillBudgetPermille = 160
+      FillBudgetPermille = 350
         ## Under the 170 ceiling with room for the pickets and the centre
         ## feature that are still to come.
       FillFloorPermille = 55

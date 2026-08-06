@@ -16,6 +16,7 @@ proc main() =
   var
     valid = 0
     scores, interiors: seq[float]
+    covers: seq[int]
     reasons: seq[string]
   for i in 0 ..< count:
     let seed = 1001 + i
@@ -37,7 +38,9 @@ proc main() =
       reasons.add &"seed {seed}: no valid layout; attempt reasons " &
         tally.join(" | ")
       continue
-    if m.valid: inc valid
+    if m.valid:
+      inc valid
+      covers.add m.coverPermille
     else: reasons.add &"seed {seed}: {m.reason}"
     scores.add m.staticScore()
     interiors.add m.interiorFrac
@@ -47,7 +50,8 @@ proc main() =
   echo &"{teams}-team, {count} seeds: valid={valid}/{count} " &
     &"({valid * 100 div max(1, count)}%)  " &
     &"median score={med(scores):.3f} (control {control.staticScore():.3f})  " &
-    &"median interiorFrac={med(interiors):.3f} (control {control.interiorFrac:.3f})"
+    &"median interiorFrac={med(interiors):.3f} (control {control.interiorFrac:.3f})  " &
+    &"median cover={(if covers.len > 0: sorted(covers)[covers.len div 2] else: 0)}pm (control {control.coverPermille}pm)"
   for r in reasons[0 ..< min(8, reasons.len)]: echo "   ", r
   if reasons.len > 8: echo &"   ... {reasons.len - 8} more"
 
