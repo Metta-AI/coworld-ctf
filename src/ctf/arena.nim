@@ -1767,6 +1767,25 @@ proc generateMapAttempt*(
     xMin =
       if result.endzone != ezColumn: ArenaBorder + 34
       else: result.captureClear + 50
+    ## ...but that `captureClear` inset is a SIDES-layout idea: it holds
+    ## terrain off the capture COLUMN that runs the full height of a 2-team
+    ## board's left edge. A rot90 board has no such column — its endzones are
+    ## per-arm, and protected floor is carved out of the wall mask regardless.
+    ## Applying it anyway cost the 4-team boards twice over, and both costs are
+    ## paid in the same currency: cover permille against a 170 ceiling.
+    ##
+    ##   1. It shrank the fill region to 127x397 inside a 408x408 quadrant, so
+    ##      the street grid — sized for a squarish region — dropped 34 of 34
+    ##      shapes on EVERY attempt. Measured `survived=0`: the terrain block
+    ##      contributed NOTHING, and the whole board was row cover.
+    ##   2. It pinned the row-cover pickets into x in [229,349]. A rot90 image
+    ##      lands at a ROW given by the original's X, so a 120px picket window
+    ##      put all four images into one 120-row band instead of spreading
+    ##      them down the board. That is why 38 pickets could not retire 796
+    ##      rows, and why the lift rendered as a box around the centre plaza.
+    terrainXMin =
+      if result.symmetry == symRot90: ArenaBorder + 34
+      else: xMin
     xMax = result.center.x - 52
     ## The vertical band the column slots may occupy: the full field on
     ## sides maps, the top-left quadrant on corner maps (rot90 fills the
@@ -1854,8 +1873,8 @@ proc generateMapAttempt*(
       ## empty and every one of them came back as an open sightline —
       ## measured at y=12, 28, 104, 640, 644, i.e. exactly the margins.
       domainLoY = ArenaBorder
-      region = MapRect(x: xMin, y: domainLoY,
-        w: max(1, xMax - xMin), h: max(1, domainHiY - domainLoY))
+      region = MapRect(x: terrainXMin, y: domainLoY,
+        w: max(1, xMax - terrainXMin), h: max(1, domainHiY - domainLoY))
       board = MapRect(x: 0, y: 0, w: result.width, h: result.height)
       rules = mapRules(result.mapSizeClass(), teams)
       styles = [biomeStyleCaves, biomeStyleForest, biomeStyleDesert,
@@ -2010,9 +2029,16 @@ proc generateMapAttempt*(
              b.y0 <= st.y + st.h and b.y1 >= st.y:
             return true
         false
+      var streetDropped {.used.} = 0
       for shape in fill:
         if not onStreet(shape):
           emitted.add shape
+        else:
+          inc streetDropped
+      when defined(mapdbg):
+        echo "  [dbg] region=", region.w, "x", region.h, " fill=", fill.len,
+          " streetDropped=", streetDropped, " survived=", emitted.len,
+          " streets=", streets.len, " (", streetsX, "v+", streetsY, "h+2anchor)"
 
     ## BUDGET the fill. The structure spends first and the fill takes what is
     ## left, rather than both drawing freely and the validator refereeing.
@@ -2061,6 +2087,12 @@ proc generateMapAttempt*(
     ## attempts" and took a schema test down with it. Nine steps from 60% to
     ## 140% of the nominal budget, so consecutive attempts are genuinely
     ## different maps and the extremes are reachable well inside K.
+    ##
+    ## Sweeping DOWNWARD (dense first, so the first validating attempt is the
+    ## densest that fits) was tried and is WORSE, not better: `attempt` also
+    ## drives size, layout and endzone, so reversing the density order changes
+    ## WHICH board wins rather than how full one board is. 2-team interiorFrac
+    ## went 0.301 -> 0.272 and 4-team did not move at all.
     let
       domainArea = region.w * region.h
       densityPct = 40 + 12 * (attempt mod 9)
@@ -2069,12 +2101,21 @@ proc generateMapAttempt*(
     for i in 0 ..< min(structureCount, emitted.len):
       budget -= approxArea(emitted[i])
     budget = max(budget, domainArea * FillFloorPermille div 1000)
+    when defined(mapdbg):
+      var budgetSkipped {.used.} = 0
+      let budget0 {.used.} = budget
+      echo "  [dbg] structureCount=", structureCount, " densityPct=", densityPct,
+        " domainArea=", domainArea, " budget=", budget,
+        " (", budget * 1000 div max(1, domainArea), "pm of domain)",
+        " floorWouldBe=", domainArea * FillFloorPermille div 1000
 
     for i, shape in emitted:
       if result.sealsEndzoneGate(shape): continue
       if i >= structureCount:
         let a = approxArea(shape)
-        if a > budget: continue
+        if a > budget:
+          when defined(mapdbg): inc budgetSkipped
+          continue
         budget -= a
       result.leftObstacles.add shape
       ## Window and trench candidates come from the FILL rather than from
@@ -2091,6 +2132,9 @@ proc generateMapAttempt*(
       if sx > 0:
         eligible.add (result.leftObstacles.high, sx div 120, sy)
         pitCandidates.add (pitInstead, result.leftObstacles.high, sx, sy)
+    when defined(mapdbg):
+      echo "  [dbg] budgetSkipped=", budgetSkipped, " budgetLeft=", budget,
+        " of ", budget0, " -> leftObstacles=", result.leftObstacles.len
 
   ## CENTRE FEATURE — a column of spinning diamonds on the spin axis.
   ##
@@ -2271,18 +2315,82 @@ proc generateMapAttempt*(
   ## places exactly ONE picket per uncovered row, at the first x that is
   ## neither protected floor nor inside a route. No randomness, no budget and
   ## no retry — the difference between a construction and a repair.
+  ##
+  ## THE PICKET IS NOT ONE PICKET. `buildArenaObstacles` lifts every seed shape
+  ## by the map's symmetry — x-mirror, 180°, or FOUR quadrant images on rot90 —
+  ## so placing one picket writes up to four rects onto the finished mask. The
+  ## scan used to credit only the seed rect, so every row that one picket's
+  ## IMAGES already covered still drew a fresh picket of its own.
+  ##
+  ## On a 4-team board that dominated the map: measured over seeds 1002/1005/
+  ## 1013, a failing candidate carried 43-52 pickets against 2-7 fill shapes,
+  ## and the pickets alone were 122-166 permille of a 174-203 total against a
+  ## 170 ceiling. The fill was not the problem and never had been — which is
+  ## why sweeping the fill density 40%->140% moved cover by 4 permille and why
+  ## every attempt failed "too clogged" at the sparse end of the sweep too.
+  ##
+  ## Crediting the images makes the scan honest about the geometry it is
+  ## actually building. It is a pure correctness fix, not a 4-team special
+  ## case: a mirror image lands on the SAME rows and so changes nothing, while
+  ## rot180 and rot90 images land on different rows and now count. Marking each
+  ## image's true footprint (rather than "this row is handled") keeps the
+  ## in-band test intact — an image that falls outside the `ax..bx` sightline
+  ## band is written where it really is, and correctly fails to cover the row.
   block rowCover:
     const PicketW = 24
     let
       w = result.width
       ax = result.sightlineLoX
-      bx = min(result.sightlineHiX, result.center.x)
+      ## CREDIT THE BAND THE VALIDATOR READS, exactly. `bx` used to be clamped
+      ## to `center.x`, so this scan called a row open while the validator —
+      ## which reads `sightlineLoX .. sightlineHiX` with no clamp — called it
+      ## blocked. On rot90 that mismatch is expensive rather than merely
+      ## pedantic: a picket's rot180 image lands at x = W-1-x-PicketW, which
+      ## for the placement window is x in [435,630]. That is inside the
+      ## validator's band and OUTSIDE the clamped one, so every picket failed
+      ## to be credited for the row its own image already blocked and the pass
+      ## placed roughly twice the pickets it needed. Measured on seed 1002:
+      ## 36 pickets costing 188 permille, against a 170 ceiling, on a board
+      ## whose fill was only 89.
+      bx = result.sightlineHiX
       picketH = MinCorridorWidth
-      loX = max(xMin, ArenaBorder + 2)
-      hiX = min(xMax, result.center.x - PicketW - 2)
+      ## The candidate window is clamped to the SIGHTLINE BAND. A picket
+      ## outside `ax..bx` does not cover the row it was placed for — the scan
+      ## only reads the band — so it is billed to the cover budget, buys
+      ## nothing, and the very next row places another. Taking first-legal-x
+      ## used to hide this by always landing in band; sweeping the window
+      ## exposed it as one picket PER ROW and took 4-team cover to 255
+      ## permille against a 170 ceiling.
+      loX = max(max(terrainXMin, ArenaBorder + 2), ax - PicketW + 1)
+      hiX = min(min(xMax, result.center.x - PicketW - 2), bx)
     if hiX <= loX: break rowCover
     var (maxWall, minWall) = rasterizeWallMasks(result, buildArenaObstacles(result))
     maxWall.setLen(0)
+    ## SPREAD THE PICKETS. Taking the first legal x every time is what turned
+    ## this pass into a wall: on seed 1005 all 43 pickets landed at x=229, a
+    ## solid 24px column the full height of the board, and the rot90 lift made
+    ## four of them into a box around the centre plaza. Rendering it is what
+    ## showed this — the shape-level reasoning above had said nothing about it.
+    ##
+    ## A rotating cursor over the legal window costs nothing, keeps the pass
+    ## RNG-free, and turns the column into a staircase of separate pieces:
+    ## cover you can fight around instead of a wall. It also makes crediting
+    ## the symmetry images (above) actually pay — images of a single stacked
+    ## column all land on the same rows and duplicate each other's work, while
+    ## images of a spread staircase land on rows spread just as widely, so one
+    ## picket now retires up to four row-bands instead of one.
+    ##
+    ## Only on rot90. The pathology the cursor fixes — four images of one
+    ## stacked column boxing in the centre plaza — is a four-fold-lift effect,
+    ## and a mirror board's images land on the SAME rows as their originals so
+    ## spreading buys it no coverage at all. Measured, it costs: sweeping the
+    ## cursor over 2-team took validity 90% -> 80% and interiorFrac
+    ## 0.315 -> 0.272, because first-legal-x packs 2-team's pickets against
+    ## terrain that is already there and a spread one starts fresh columns.
+    let
+      spreadPickets = result.symmetry == symRot90
+      slots = (hiX - loX) div 8 + 1
+    var cursor = 0
     var y = ArenaBorder + 2
     while y < result.height - ArenaBorder:
       var covered = false
@@ -2293,14 +2401,15 @@ proc generateMapAttempt*(
       if covered:
         inc y
         continue
-      ## Uncovered. Place one picket spanning this row, at the first legal x.
+      ## Uncovered. Place one picket spanning this row, at the first legal x
+      ## at or after the cursor, wrapping so the whole window stays reachable.
       let
         py = clamp(y - picketH div 2, ArenaBorder,
                    result.height - ArenaBorder - picketH)
       var placed = false
       for relaxed in [false, true]:
-        var x = loX
-        while x <= hiX:
+        for step in 0 ..< slots:
+          let x = loX + (((if spreadPickets: cursor else: 0) + step) mod slots) * 8
           let candidate = ArenaShape(kind: shapeRect, rect: MapRect(
             x: x, y: py, w: PicketW, h: picketH))
           ## Protected floor would erase it, and a route is the one thing a
@@ -2313,12 +2422,39 @@ proc generateMapAttempt*(
              not result.sealsEndzoneGate(candidate) and
              (relaxed or not haveLanes or not lanePlan.intrudesOnLane(candidate)):
             result.leftObstacles.add candidate
-            for yy in py ..< min(py + picketH, result.height):
-              for xx in x ..< x + PicketW:
-                minWall[yy * w + xx] = true
+            ## Mark the picket AND every image the symmetry lift will make of
+            ## it, mirroring `buildArenaObstacles` exactly. A picket is an
+            ## axis-aligned rect and all three transforms preserve that, so
+            ## `shapeBounds` is the exact footprint, not an approximation.
+            var images = @[candidate]
+            case result.symmetry
+            of symMirror:
+              images.add candidate.mirrorX(result.width)
+            of symRot180:
+              images.add candidate.rot180(result.width, result.height)
+            of symRot90:
+              let quarter = candidate.rot90(result.width)
+              images.add quarter
+              images.add candidate.rot180(result.width, result.height)
+              images.add quarter.rot180(result.width, result.height)
+            for img in images:
+              let b = shapeBounds(img)
+              for yy in max(b.y0, 0) .. min(b.y1, result.height - 1):
+                for xx in max(b.x0, 0) .. min(b.x1, w - 1):
+                  ## `rasterizeWallMasks` carves protected floor back out of
+                  ## both masks, so a picket over a spawn pocket or a capture
+                  ## zone blocks nothing. Crediting one would be a lie that
+                  ## leaves the row genuinely open on the mask the validator
+                  ## reads — the same wrong-thing-measured trap this block was
+                  ## written to escape.
+                  if not mapProtectedFloorAt(result, xx, yy):
+                    minWall[yy * w + xx] = true
+            ## Advance past this picket's own width so the next row starts
+            ## somewhere new rather than re-testing the slot just filled.
+            if spreadPickets:
+              cursor = (cursor + step + PicketW div 8) mod slots
             placed = true
             break
-          x += 8
         if placed: break
       inc y
   ## Glass windows: fog sees through them, nothing passes them. Biased to
