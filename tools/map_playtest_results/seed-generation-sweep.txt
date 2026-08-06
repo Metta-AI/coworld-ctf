@@ -1,0 +1,80 @@
+T2 seed=1001 OK   #1  ok   gen:1001       1235x659 2t score=0.995  interior=36.5% exposed=7.4%  routes=4/0.16(cut 104px)  chokes=0(tightest 0px, covered=no)  mid=4x/34.9%  stand=95.6-95.6%
+T2 seed=1002 OK   #1  ok   gen:1002       1235x659 2t score=0.986  interior=35.8% exposed=8.8%  routes=2/0.08(cut 52px)  chokes=0(tightest 0px, covered=no)  mid=3x/36.0%  stand=91.7-91.7%
+T2 seed=1003 OK   #1  ok   gen:1003       1235x659 2t score=0.940  interior=24.0% exposed=14.2%  routes=2/0.08(cut 52px)  chokes=4(tightest 24px, covered=no)  mid=4x/59.9%  stand=100.0-100.0%
+T2 seed=1004 OK   #1  ok   gen:1004       1235x659 2t score=0.944  interior=22.5% exposed=9.8%  routes=3/0.12(cut 78px)  chokes=5(tightest 22px, covered=no)  mid=4x/63.4%  stand=100.0-100.0%
+T2 seed=1005 OK   #1  ok   gen:1005       1050x560 2t score=0.894  interior=27.2% exposed=10.3%  routes=3/0.14(cut 78px)  chokes=3(tightest 39px, covered=YES)  mid=3x/34.3%  stand=100.0-100.0%
+T2 seed=1006 OK   #1  ok   gen:1006       1050x560 2t score=1.000  interior=49.4% exposed=6.1%  routes=3/0.14(cut 78px)  chokes=0(tightest 0px, covered=no)  mid=4x/39.1%  stand=89.4-89.4%
+T2 seed=1007 OK   #1  ok   gen:1007       1050x560 2t score=0.975  interior=36.2% exposed=9.5%  routes=4/0.19(cut 104px)  chokes=0(tightest 0px, covered=no)  mid=4x/40.6%  stand=97.8-97.8%
+T2 seed=1008 OK   #1  ok   gen:1008       1235x659 2t score=0.954  interior=24.1% exposed=9.0%  routes=3/0.12(cut 78px)  chokes=5(tightest 21px, covered=no)  mid=4x/63.4%  stand=100.0-100.0%
+T2 seed=1009 OK   #1  ok   gen:1009       1050x560 2t score=0.959  interior=26.0% exposed=11.3%  routes=3/0.14(cut 78px)  chokes=0(tightest 0px, covered=no)  mid=3x/37.0%  stand=100.0-100.0%
+T2 seed=1010 OK   #1  ok   gen:1010       1235x659 2t score=0.946  interior=22.8% exposed=10.2%  routes=3/0.12(cut 78px)  chokes=5(tightest 21px, covered=no)  mid=4x/63.4%  stand=100.0-100.0%
+T2 seed=1011 OK   #1  ok   gen:1011       1235x659 2t score=1.000  interior=31.8% exposed=8.8%  routes=4/0.16(cut 104px)  chokes=0(tightest 0px, covered=no)  mid=5x/48.5%  stand=90.0-90.0%
+T2 seed=1012 OK   #1  ok   gen:1012       1050x560 2t score=0.983  interior=31.5% exposed=10.7%  routes=4/0.19(cut 104px)  chokes=0(tightest 0px, covered=no)  mid=4x/38.7%  stand=96.9-97.2%
+T2 seed=1013 OK   #1  ok   gen:1013       1235x659 2t score=0.931  interior=22.6% exposed=14.9%  routes=2/0.08(cut 52px)  chokes=4(tightest 24px, covered=no)  mid=4x/62.4%  stand=100.0-100.0%
+T2 seed=1014 OK   #1  ok   gen:1014       1235x659 2t score=0.986  interior=34.4% exposed=9.1%  routes=6/0.24(cut 156px)  chokes=0(tightest 0px, covered=no)  mid=5x/46.3%  stand=92.5-92.5%
+T2 seed=1015 RAISE
+T2 seed=1016 OK   #1  ok   gen:1016       1050x560 2t score=0.972  interior=33.0% exposed=9.1%  routes=3/0.14(cut 78px)  chokes=0(tightest 0px, covered=no)  mid=4x/40.9%  stand=98.3-98.6%
+T2 seed=1017 OK   #1  ok   gen:1017       1235x659 2t score=1.000  interior=32.5% exposed=12.7%  routes=4/0.16(cut 104px)  chokes=0(tightest 0px, covered=no)  mid=4x/43.0%  stand=89.4-89.4%
+T2 seed=1018 OK   #1  ok   gen:1018       1235x659 2t score=0.928  interior=22.0% exposed=14.1%  routes=2/0.08(cut 52px)  chokes=6(tightest 18px, covered=no)  mid=4x/62.4%  stand=100.0-100.0%
+T2 seed=1019 OK   #1  ok   gen:1019       1235x659 2t score=0.931  interior=22.6% exposed=15.1%  routes=2/0.08(cut 52px)  chokes=5(tightest 24px, covered=no)  mid=4x/56.8%  stand=100.0-100.0%
+T2 seed=1020 RAISE
+T2 seed=1021 OK   #1  ok   gen:1021       1050x560 2t score=0.894  interior=25.1% exposed=11.2%  routes=3/0.14(cut 78px)  chokes=2(tightest 39px, covered=YES)  mid=3x/37.0%  stand=100.0-100.0%
+T2 seed=1022 OK   #1  ok   gen:1022       1050x560 2t score=1.000  interior=42.6% exposed=4.3%  routes=4/0.19(cut 104px)  chokes=0(tightest 0px, covered=no)  mid=4x/38.0%  stand=95.0-95.6%
+T2 seed=1023 OK   #1  ok   gen:1023       1235x659 2t score=1.000  interior=35.0% exposed=9.4%  routes=4/0.16(cut 104px)  chokes=0(tightest 0px, covered=no)  mid=5x/39.3%  stand=89.4-89.4%
+T2 seed=1024 OK   #1  ok   gen:1024       1050x560 2t score=0.864  interior=25.8% exposed=12.5%  routes=1/0.05(cut 26px)  chokes=7(tightest 13px, covered=no)  mid=2x/25.6%  stand=100.0-100.0%
+T2 seed=1025 OK   #1  ok   gen:1025       1235x659 2t score=0.943  interior=22.2% exposed=10.8%  routes=3/0.12(cut 78px)  chokes=5(tightest 22px, covered=no)  mid=4x/63.4%  stand=100.0-100.0%
+T2 seed=1026 OK   #1  ok   gen:1026       1050x560 2t score=1.000  interior=36.6% exposed=9.4%  routes=3/0.14(cut 78px)  chokes=0(tightest 0px, covered=no)  mid=3x/32.4%  stand=95.0-95.3%
+T2 seed=1027 OK   #1  ok   gen:1027       1235x659 2t score=0.945  interior=22.6% exposed=14.5%  routes=3/0.12(cut 78px)  chokes=6(tightest 22px, covered=no)  mid=4x/63.4%  stand=100.0-100.0%
+T2 seed=1028 RAISE
+T2 seed=1029 OK   #1  ok   gen:1029       1235x659 2t score=0.928  interior=22.1% exposed=15.0%  routes=2/0.08(cut 52px)  chokes=4(tightest 24px, covered=no)  mid=4x/61.2%  stand=100.0-100.0%
+T2 seed=1030 OK   #1  ok   gen:1030       1050x560 2t score=0.894  interior=25.1% exposed=11.1%  routes=3/0.14(cut 78px)  chokes=2(tightest 39px, covered=YES)  mid=3x/37.0%  stand=100.0-100.0%
+T2 seed=1031 OK   #1  ok   gen:1031       1235x659 2t score=0.928  interior=19.8% exposed=10.3%  routes=3/0.12(cut 78px)  chokes=6(tightest 21px, covered=no)  mid=4x/63.4%  stand=100.0-100.0%
+T2 seed=1032 OK   #1  ok   gen:1032       1235x659 2t score=0.904  interior=19.8% exposed=15.9%  routes=2/0.08(cut 52px)  chokes=7(tightest 15px, covered=no)  mid=4x/62.9%  stand=100.0-100.0%
+T2 seed=1033 OK   #1  ok   gen:1033       1050x560 2t score=0.972  interior=35.6% exposed=7.5%  routes=4/0.19(cut 104px)  chokes=0(tightest 0px, covered=no)  mid=4x/31.7%  stand=98.1-98.1%
+T2 seed=1034 OK   #1  ok   gen:1034       1235x659 2t score=0.982  interior=35.4% exposed=10.1%  routes=4/0.16(cut 104px)  chokes=0(tightest 0px, covered=no)  mid=4x/35.8%  stand=97.2-97.5%
+T2 seed=1035 OK   #1  ok   gen:1035       1235x659 2t score=1.000  interior=40.4% exposed=6.7%  routes=4/0.16(cut 104px)  chokes=0(tightest 0px, covered=no)  mid=4x/41.5%  stand=94.4-94.4%
+T2 seed=1036 OK   #1  ok   gen:1036       1235x659 2t score=1.000  interior=37.0% exposed=8.1%  routes=3/0.12(cut 78px)  chokes=0(tightest 0px, covered=no)  mid=4x/43.0%  stand=93.3-93.3%
+T2 seed=1037 OK   #1  ok   gen:1037       1235x659 2t score=1.000  interior=32.1% exposed=11.3%  routes=3/0.12(cut 78px)  chokes=0(tightest 0px, covered=no)  mid=5x/44.1%  stand=95.0-95.0%
+T2 seed=1038 RAISE
+T2 seed=1039 OK   #1  ok   gen:1039       1235x659 2t score=0.987  interior=30.4% exposed=9.8%  routes=4/0.16(cut 104px)  chokes=0(tightest 0px, covered=no)  mid=5x/46.9%  stand=95.3-95.3%
+T2 seed=1040 OK   #1  ok   gen:1040       1050x560 2t score=0.998  interior=32.1% exposed=9.8%  routes=3/0.14(cut 78px)  chokes=0(tightest 0px, covered=no)  mid=4x/40.2%  stand=93.9-94.2%
+T4 seed=1001 OK   #1  ok   gen:1001       960x960 4t score=0.710  interior=12.2% exposed=0.7%  routes=1/0.03(cut 26px)  chokes=18(tightest 13px, covered=no)  mid=5x/78.8%  stand=100.0-100.0%
+T4 seed=1002 RAISE
+T4 seed=1003 OK   #1  ok   gen:1003       960x960 4t score=0.861  interior=9.8% exposed=0.7%  routes=3/0.08(cut 78px)  chokes=4(tightest 30px, covered=no)  mid=2x/9.1%  stand=86.9-86.9%
+T4 seed=1004 OK   #1  ok   gen:1004       1248x1248 4t score=0.883  interior=5.2% exposed=9.2%  routes=6/0.12(cut 156px)  chokes=0(tightest 0px, covered=no)  mid=3x/19.8%  stand=92.8-92.8%
+T4 seed=1005 RAISE
+T4 seed=1006 RAISE
+T4 seed=1007 OK   #1  ok   gen:1007       960x960 4t score=0.710  interior=12.2% exposed=0.7%  routes=1/0.03(cut 26px)  chokes=18(tightest 13px, covered=no)  mid=5x/78.8%  stand=100.0-100.0%
+T4 seed=1008 OK   #1  ok   gen:1008       1248x1248 4t score=0.873  interior=3.6% exposed=9.2%  routes=9/0.19(cut 234px)  chokes=0(tightest 0px, covered=no)  mid=3x/18.7%  stand=92.8-92.8%
+T4 seed=1009 OK   #1  ok   gen:1009       960x960 4t score=0.841  interior=15.6% exposed=0.5%  routes=2/0.06(cut 52px)  chokes=4(tightest 20px, covered=no)  mid=5x/82.2%  stand=100.0-100.0%
+T4 seed=1010 OK   #1  ok   gen:1010       1248x1248 4t score=0.892  interior=6.7% exposed=8.6%  routes=7/0.15(cut 182px)  chokes=0(tightest 0px, covered=no)  mid=3x/20.7%  stand=92.8-92.8%
+T4 seed=1011 OK   #1  ok   gen:1011       960x960 4t score=0.861  interior=9.8% exposed=0.7%  routes=3/0.08(cut 78px)  chokes=4(tightest 30px, covered=no)  mid=2x/9.1%  stand=86.9-86.9%
+T4 seed=1012 RAISE
+T4 seed=1013 RAISE
+T4 seed=1014 OK   #1  ok   gen:1014       960x960 4t score=0.861  interior=9.8% exposed=0.7%  routes=3/0.08(cut 78px)  chokes=4(tightest 30px, covered=no)  mid=2x/9.1%  stand=86.9-86.9%
+T4 seed=1015 OK   #1  ok   gen:1015       960x960 4t score=0.861  interior=9.8% exposed=0.7%  routes=3/0.08(cut 78px)  chokes=4(tightest 30px, covered=no)  mid=2x/9.1%  stand=86.9-86.9%
+T4 seed=1016 OK   #1  ok   gen:1016       960x960 4t score=0.745  interior=14.3% exposed=0.4%  routes=2/0.06(cut 52px)  chokes=18(tightest 21px, covered=no)  mid=5x/82.2%  stand=100.0-100.0%
+T4 seed=1017 RAISE
+T4 seed=1018 RAISE
+T4 seed=1019 RAISE
+T4 seed=1020 OK   #1  ok   gen:1020       960x960 4t score=0.710  interior=12.2% exposed=0.7%  routes=1/0.03(cut 26px)  chokes=18(tightest 13px, covered=no)  mid=5x/78.8%  stand=100.0-100.0%
+T4 seed=1021 OK   #1  ok   gen:1021       1248x1248 4t score=0.835  interior=9.8% exposed=5.3%  routes=6/0.12(cut 156px)  chokes=8(tightest 57px, covered=no)  mid=6x/66.7%  stand=100.0-100.0%
+T4 seed=1022 RAISE
+T4 seed=1023 OK   #1  ok   gen:1023       960x960 4t score=0.861  interior=9.8% exposed=0.7%  routes=3/0.08(cut 78px)  chokes=4(tightest 30px, covered=no)  mid=2x/9.1%  stand=86.9-86.9%
+T4 seed=1024 OK   #1  ok   gen:1024       1248x1248 4t score=0.897  interior=22.3% exposed=5.1%  routes=3/0.06(cut 78px)  chokes=8(tightest 22px, covered=no)  mid=5x/56.5%  stand=100.0-100.0%
+T4 seed=1025 RAISE
+T4 seed=1026 OK   #1  ok   gen:1026       1248x1248 4t score=0.837  interior=18.1% exposed=5.4%  routes=2/0.04(cut 52px)  chokes=20(tightest 24px, covered=no)  mid=5x/60.7%  stand=100.0-100.0%
+T4 seed=1027 OK   #1  ok   gen:1027       1248x1248 4t score=0.831  interior=1.7% exposed=11.5%  routes=4/0.08(cut 104px)  chokes=0(tightest 0px, covered=no)  mid=2x/13.5%  stand=92.8-92.8%
+T4 seed=1028 OK   #1  ok   gen:1028       1248x1248 4t score=0.879  interior=16.0% exposed=6.0%  routes=3/0.06(cut 78px)  chokes=4(tightest 43px, covered=no)  mid=4x/69.1%  stand=100.0-100.0%
+T4 seed=1029 OK   #1  ok   gen:1029       1248x1248 4t score=0.876  interior=4.3% exposed=8.5%  routes=6/0.12(cut 156px)  chokes=0(tightest 0px, covered=no)  mid=3x/18.5%  stand=92.8-92.8%
+T4 seed=1030 RAISE
+T4 seed=1031 OK   #1  ok   gen:1031       960x960 4t score=0.861  interior=9.8% exposed=0.7%  routes=3/0.08(cut 78px)  chokes=4(tightest 30px, covered=no)  mid=2x/9.1%  stand=86.9-86.9%
+T4 seed=1032 OK   #1  ok   gen:1032       1248x1248 4t score=0.879  interior=4.6% exposed=9.1%  routes=6/0.12(cut 156px)  chokes=0(tightest 0px, covered=no)  mid=4x/17.2%  stand=92.8-92.8%
+T4 seed=1033 RAISE
+T4 seed=1034 OK   #1  ok   gen:1034       960x960 4t score=0.710  interior=12.2% exposed=0.7%  routes=1/0.03(cut 26px)  chokes=18(tightest 13px, covered=no)  mid=5x/78.8%  stand=100.0-100.0%
+T4 seed=1035 OK   #1  ok   gen:1035       1248x1248 4t score=0.839  interior=2.4% exposed=8.6%  routes=2/0.04(cut 52px)  chokes=0(tightest 0px, covered=no)  mid=3x/12.7%  stand=92.8-92.8%
+T4 seed=1036 RAISE
+T4 seed=1037 RAISE
+T4 seed=1038 OK   #1  ok   gen:1038       1248x1248 4t score=0.848  interior=7.1% exposed=7.9%  routes=4/0.08(cut 104px)  chokes=0(tightest 0px, covered=no)  mid=2x/10.5%  stand=92.8-92.8%
+T4 seed=1039 OK   #1  ok   gen:1039       1248x1248 4t score=0.819  interior=18.6% exposed=4.7%  routes=2/0.04(cut 52px)  chokes=20(tightest 15px, covered=no)  mid=5x/58.6%  stand=100.0-100.0%
+T4 seed=1040 OK   #1  ok   gen:1040       1248x1248 4t score=0.875  interior=17.3% exposed=6.0%  routes=4/0.08(cut 104px)  chokes=8(tightest 68px, covered=no)  mid=6x/67.4%  stand=100.0-100.0%
