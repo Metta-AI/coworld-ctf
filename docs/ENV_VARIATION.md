@@ -105,7 +105,10 @@ no handicap — no extra RNG, existing replays re-simulate unchanged); at `1` it
 gets 50% of would-be gun hits dropped, 1 life, 1 hit point, and half max speed;
 values between interpolate linearly from the base config toward that floor.
 Omitted/inactive teams stay at 0. Intended for a league (Campaign) to weaken a
-dominating team. Design: [docs/plans/2026-08-05-per-team-handicaps-design.md](plans/2026-08-05-per-team-handicaps-design.md).
+dominating team. Handicaps are OBSERVABLE to policies: the init snapshot
+carries one `handicap <color> <permille> hp <n> lives <n> spd <n> miss <n>`
+marker per team (every team, permille 0 included) stating the fraction and the
+engine-resolved deltas — see docs/RULES.md. Design: [docs/plans/2026-08-05-per-team-handicaps-design.md](plans/2026-08-05-per-team-handicaps-design.md).
 
 `Team` enum: Red, Blue, Green, Yellow ([sim_types.nim:637](../src/ctf/sim_types.nim#L637));
 active teams are always the prefix `Red..Team(teams-1)`. Hard caps `MaxPlayers`=32,

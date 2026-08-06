@@ -3227,7 +3227,11 @@ proc addMapMarkers(
   ## LabelPrefixGameParams) — so a policy reads the game shape at t=0 instead
   ## of inferring it from room markers and layer viewports — and one endzone
   ## marker per team stating its capture zone's shape and bounding-box
-  ## corners (see LabelPrefixEndzone).
+  ## corners (see LabelPrefixEndzone), and one handicap marker per team
+  ## stating the authored handicap fraction plus the engine-resolved deltas
+  ## (see LabelPrefixHandicap) — emitted for EVERY team, permille 0
+  ## included, so the vocabulary sweep covers the label and a policy can
+  ## tell "unhandicapped" from "old engine without the marker".
   var index = 0
   for room in sim.rooms:
     packet.addMapMarker(
@@ -3279,6 +3283,26 @@ proc addMapMarkers(
         zone.yLo,
         zone.xHi,
         zone.yHi
+      )
+    )
+    inc index
+  for team in sim.gameMap.teams():
+    # The deltas are resolved HERE, mirroring broadcast.nim's teamStateJson —
+    # the label states what the sim actually plays, never a re-derivation.
+    packet.addMapMarker(
+      spriteDefs,
+      index,
+      0,
+      0,
+      1,
+      1,
+      labelHandicap(
+        teamText(team),
+        sim.config.handicaps[team],
+        sim.config.hitPointsFor(team),
+        sim.config.livesFor(team),
+        sim.config.maxSpeedFor(team) * 100 div max(1, sim.config.maxSpeed),
+        sim.config.missPermilleFor(team) div 10
       )
     )
     inc index

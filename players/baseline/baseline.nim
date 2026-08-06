@@ -301,6 +301,15 @@ var
     # 2-team boards the bot still derives its tuned column geometry itself
     # (homeSign and the capture-column constants predate the marker); on
     # multi-team boards these zones ARE the geometry (deriveMultiFrame).
+  HandicapMarks: seq[tuple[color: string, permille, hp, lives, spdPct,
+      missPct: int]]
+    # every team's stated handicap, keyed by wire color token, from the
+    # per-team `handicap <color> <permille> hp <n> lives <n> spd <n> miss <n>`
+    # init markers (see LabelPrefixHandicap): the authored fraction in
+    # permille plus the ENGINE-resolved deltas (hit points, lives, speed as a
+    # percent of base, percent of point-blank shots dropped). Parsed and
+    # stored so strategy can weigh a weakened team (its own or an enemy's);
+    # nothing steers off it yet.
 
 const TeamColorNames = ["red", "blue", "green", "yellow"]
   ## Wire color tokens in engine seat-deal order: a game's active teams are
@@ -916,6 +925,33 @@ proc adoptEndzones(client: ProtocolClient) =
     except ValueError:
       discard
 
+proc adoptHandicaps(client: ProtocolClient) =
+  ## Reads every team's stated handicap off the per-team init markers
+  ## `handicap <color> <permille> hp <n> lives <n> spd <n> miss <n>` (see
+  ## LabelPrefixHandicap): the authored fraction in permille plus the
+  ## ENGINE-resolved deltas — hit points, lives, max speed as a percent of
+  ## base, and the percent of point-blank shots dropped. Stored per color so
+  ## strategy can weigh a weakened team (ours or an enemy's); nothing steers
+  ## off it yet. Emitted for every team, permille 0 included, so an ABSENT
+  ## color means an engine without the marker, not "no handicap".
+  HandicapMarks.setLen(0)
+  for o in client.spriteObjects():
+    if not o.label.startsWith(LabelPrefixHandicap):
+      continue
+    let parts = o.label[LabelPrefixHandicap.len .. ^1].split(' ')
+    if parts.len != 10 or parts[2] != "hp" or parts[4] != "lives" or
+        parts[6] != "spd" or parts[8] != "miss":
+      continue
+    try:
+      HandicapMarks.add (
+        color: parts[0],
+        permille: parseInt(parts[1]), hp: parseInt(parts[3]),
+        lives: parseInt(parts[5]), spdPct: parseInt(parts[7]),
+        missPct: parseInt(parts[9])
+      )
+    except ValueError:
+      discard
+
 proc deriveMultiFrame(bot: Bot) =
   ## Anchors the 2-team strategy frame onto this bot's REAL multi-team home.
   ## Our own endzone mark is home and capture zone; the raid target is the
@@ -967,6 +1003,7 @@ proc buildNavGrid(bot: Bot, client: ProtocolClient) {.measure.} =
   adoptMapSize(client)
   adoptGameParams(client)
   adoptEndzones(client)
+  adoptHandicaps(client)
   # Multi-team boards deal the seats round GameTeams colors (slot mod
   # teams) — the startup red/blue parity guess is wrong for half the seats
   # there, and a wrong color makes every label scan blind (the "statues on

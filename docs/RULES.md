@@ -752,6 +752,21 @@ these markers restate the geometry the sim already plays; before they existed
 a policy had to reconstruct it from the room markers and its own copy of the
 zone formulas.
 
+**So are the handicaps.** The same init snapshot carries one invisible 1x1
+marker per team labeled
+`handicap <color> <permille> hp <n> lives <n> spd <n> miss <n>`: the team's
+authored handicap fraction in permille (0..1000, 0 = unhandicapped) plus the
+ENGINE-resolved gameplay deltas it interpolates to — hit points per life,
+lives, max speed as a percent of the base max speed (100 = full), and the
+percent of point-blank shots dropped (0..50). Match the prefix `handicap `;
+the tail splits on spaces into
+`["<color>", "<permille>", "hp", "<n>", "lives", "<n>", "spd", "<n>",
+"miss", "<n>"]` — the `hp`/`lives`/`spd`/`miss` tokens are fixed. The marker
+is emitted for EVERY team, permille 0 included, so an absent marker means an
+engine predating it, never "no handicap". The deltas are stated so a policy
+can adapt to a weakened team (its own or an enemy's) without re-deriving the
+interpolation formula.
+
 **So is your own aim.** Every player frame carries an invisible 1x1 HUD
 marker labeled `own aim <brads>`: your turret angle as of the rendered tick,
 in brads (256 per turn, 0 = east, counter-clockwise; always a multiple of 8

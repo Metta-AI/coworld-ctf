@@ -1,8 +1,8 @@
 import
   helpers,
-  std/[json, unittest],
+  std/[json, sets, unittest],
   bitworld/spriteprotocol,
-  ctf/[broadcast, sim]
+  ctf/[broadcast, global, labels, sim]
 
 # Per-team handicaps: a single 0..1 knob per team (stored as permille 0..1000)
 # that interpolates a bundle of weakenings — 50% miss, 1 life, 1 hit point,
@@ -227,3 +227,49 @@ suite "handicap applied in the sim":
     check controlHits >= 190                 # ~all point-blank shots connect
     check handicapHits < controlHits         # the handicap drops shots
     check handicapHits in 60 .. 140          # centered on ~50% of 200
+
+suite "handicap init markers (stated to policies)":
+  # Both init streams carry one `handicap <color> ...` marker per team (see
+  # LabelPrefixHandicap) — RAW labels on purpose (no normalization), collected
+  # exactly the way the endzone-marker values test does, so the assertion pins
+  # the emitted bytes and not a re-derivation.
+  proc rawLabels(sim: var SimServer): seq[HashSet[string]] =
+    var
+      gstate = initGlobalViewerState()
+      pstate: PlayerViewerState
+    for stream in [sim.buildGlobalMessages(gstate),
+                   sim.buildPlayerMessages(0, pstate)]:
+      var raw: HashSet[string]
+      for message in stream:
+        if message.kind == spkSprite:
+          raw.incl(message.sprite.label)
+      result.add(raw)
+
+  test "both init streams state a handicapped team's exact deltas":
+    var sim = initCtfForTest(defaultGameConfig())
+    discard sim.addPlayer("red0")
+    discard sim.addPlayer("blue0")
+    sim.startGame()
+    sim.config.handicaps[Red] = 600
+    # Literal expected strings, not accessor round-trips: defaults are 3 hp,
+    # 3 lives, 704 speed, so 0.6 resolves to 2 hp, 2 lives, 69% speed
+    # (704*1400/2000 = 492 -> 492*100/704 = 69) and 30% point-blank miss.
+    check labelHandicap(teamText(Red), 600, 2, 2, 69, 30) ==
+      "handicap red 600 hp 2 lives 2 spd 69 miss 30"
+    for raw in sim.rawLabels():
+      check "handicap red 600 hp 2 lives 2 spd 69 miss 30" in raw
+      # The unhandicapped team is stated too — 0 means "no handicap",
+      # a MISSING marker would mean an engine without the contract.
+      check "handicap blue 0 hp 3 lives 3 spd 100 miss 0" in raw
+
+  test "an unhandicapped default game states base values for every team":
+    var sim = initCtfForTest(defaultGameConfig())
+    discard sim.addPlayer("red0")
+    discard sim.addPlayer("blue0")
+    sim.startGame()
+    for raw in sim.rawLabels():
+      for team in sim.gameMap.teams():
+        check labelHandicap(
+          teamText(team), 0,
+          sim.config.hitPoints, sim.config.lives, 100, 0
+        ) in raw

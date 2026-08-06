@@ -33,6 +33,7 @@ grenade
 grenade air
 grenade carried
 grenade sound
+handicap <color> <n> hp <n> lives <n> spd <n> miss <n>
 hit splat <color> stage <n>
 hp <n>/3
 identity <color> <name> gun
