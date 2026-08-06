@@ -1965,7 +1965,54 @@ proc generateMapAttempt*(
         laneSeparatorShapes(carved.plan).len + laneGateShapes(carved.plan).len
       emitted = carved.shapes
     else:
-      emitted = fill
+      ## STREETS — the rot90 archetype, and the route guarantee that the lane
+      ## network provides on a half-field.
+      ##
+      ## Without a reserved skeleton a 4-team board is caught between two
+      ## failures with no window between them: measured over 60 attempts,
+      ## sparse fills failed "no 26px route to the blue flag" at 125-167
+      ## permille and dense ones "too clogged" at 175-242. Connectivity was
+      ## accidental because nothing reserved a corridor.
+      ##
+      ## So a grid of streets is reserved BEFORE the fill lands, and anything
+      ## overlapping one is dropped. Cover falls (the streets are empty) and
+      ## the routes hold by construction, which is the same disjoint-pixel-set
+      ## argument the lanes make — only with a topology that suits a
+      ## four-fold board. The brief names "blocks: a grid of streets" as a
+      ## rot90-legal archetype precisely because it is not a pinwheel.
+      let
+        street = max(MinCorridorWidth, rules.minCorridorWidthPx)
+        streetsX = 1 + fillRng.pick(2)
+        streetsY = 1 + fillRng.pick(2)
+      var streets: seq[MapRect]
+      for k in 1 .. streetsX:
+        let sx = region.x + region.w * k div (streetsX + 1) - street div 2
+        streets.add MapRect(x: sx, y: region.y, w: street, h: region.h)
+      for k in 1 .. streetsY:
+        let sy = region.y + region.h * k div (streetsY + 1) - street div 2
+        streets.add MapRect(x: region.x, y: sy, w: region.w, h: street)
+      ## Plus a CROSS through the team's own anchor. Every route in or out of
+      ## a base uses it, and the rot90 lift hands each team the identical
+      ## approach. Without it the fill simply landed on the base — the
+      ## endzone-gate exclusion above only guards COMPACT endzones, so a
+      ## column-endzone 4-team board had nothing keeping its own flag
+      ## reachable, and all 60 attempts failed "no 26px route to the blue
+      ## flag" at a perfectly healthy 122-134 permille cover.
+      let anchor = result.teamAnchor(Red)
+      streets.add MapRect(x: region.x, y: anchor.y - street div 2,
+        w: region.w, h: street)
+      streets.add MapRect(x: anchor.x - street div 2, y: region.y,
+        w: street, h: region.h)
+      proc onStreet(shape: ArenaShape): bool =
+        let b = shapeBounds(shape)
+        for st in streets:
+          if b.x0 <= st.x + st.w and b.x1 >= st.x and
+             b.y0 <= st.y + st.h and b.y1 >= st.y:
+            return true
+        false
+      for shape in fill:
+        if not onStreet(shape):
+          emitted.add shape
 
     ## BUDGET the fill. The structure spends first and the fill takes what is
     ## left, rather than both drawing freely and the validator refereeing.
@@ -2006,8 +2053,19 @@ proc generateMapAttempt*(
         ## ENCLOSURE are different metrics, and squeezing the fill to nothing
         ## keeps a board legal while making it empty — which is exactly what
         ## the first attempt at this budget did.
-    let domainArea = region.w * region.h
-    var budget = domainArea * FillBudgetPermille div 1000
+    ## The budget SWEEPS with the attempt index rather than redrawing the same
+    ## density a hundred times. `attempt` is already the best-of-K knob, and a
+    ## seed whose overrides corner the generator (a locked size or endzone that
+    ## leaves an awkward interior) needs a way OUT of that corner, not another
+    ## identical roll: one such combination raised "no valid layout in 100
+    ## attempts" and took a schema test down with it. Nine steps from 60% to
+    ## 140% of the nominal budget, so consecutive attempts are genuinely
+    ## different maps and the extremes are reachable well inside K.
+    let
+      domainArea = region.w * region.h
+      densityPct = 60 + 10 * (attempt mod 9)
+    var budget =
+      domainArea * FillBudgetPermille div 1000 * densityPct div 100
     for i in 0 ..< min(structureCount, emitted.len):
       budget -= approxArea(emitted[i])
     budget = max(budget, domainArea * FillFloorPermille div 1000)
