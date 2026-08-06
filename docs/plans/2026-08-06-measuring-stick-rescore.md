@@ -259,3 +259,26 @@ walked route cannot be shorter than the straight line. It is cell-grid
 quantisation: the walk is counted in 26px cells and both endpoints round inward,
 so a long route can come in ~1% under. Harmless at this size, and stated here so
 the next person does not spend an afternoon on it.
+
+## Merge check
+
+Tested against the base tip as of writing (`maxwell/mapgen-rebuild` at 2e89398,
+which has moved on from the 4a013df fork point): **merges clean, builds, and all
+11 new tests pass on the merged tree.** Verified in a scratch worktree; this
+branch was not merged.
+
+The only shared file that moved underneath this work is `map_lanes.nim`
+(+202 lines from a sibling), which matters because `map_metrics` now calls
+`auditCorridorPinches` — the predicate is unchanged and the call still holds.
+
+Surface touched, for whoever merges:
+
+- `src/ctf/map_metrics.nim` — mine alone.
+- `src/ctf/arena.nim` — **surgical**, confined to `collectMapDiagnostics` and
+  the `MapDiagnostics` type. Nothing in `block terrain` (task 157ce824's area).
+- `src/ctf/map_lanes.nim` — one default parameter and its doc comment.
+- `tools/map_eval.nim`, `tools/stick_probe.nim`, `tools/scan_probe.nim`, tests.
+
+**Not done, deliberately:** `map_lanes.corridorPinchFailures` is NOT wired into
+`arena.collectMapDiagnostics`. That is task 49cb2dce's, per the brief — this lane
+did the metric side only, so the predicate is not wired twice.
