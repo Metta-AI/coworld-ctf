@@ -31,6 +31,17 @@ const
   # steal and its per-frame band allowance assumes a single powered-down
   # endzone — a double-steal ending ships both teams' bands at once and
   # busts the bound, so re-record until the last carry stands alone.
+  #
+  # BOTH conditions are now checkable instead of eyeballed — pipe a candidate
+  # through the recipe's own gate before installing it:
+  #   nim c -d:release -o:/tmp/expand tools/expand_replay.nim
+  #   /tmp/expand <candidate>.bitreplay | python3 tools/check_capture_fixture.py
+  # A recording is NOT deterministic (bots connect over websockets and their
+  # timing varies), so a bad roll and a rules change look identical from the
+  # test failures alone. Under GV40 seed 1 first rolled a double steal — nine
+  # bands in a frame against an allowance of five, plus a flipped winner — and
+  # simply re-rolling the SAME seed produced a clean red-capture ending. Check
+  # the candidate before concluding the seed has to move.
   CaptureFixture = FixtureDir / "capture-seed1.bitreplay"
   WipeFixture = FixtureDir / "wipe-lives1.bitreplay"
   DrawFixture = FixtureDir / "draw-nokill.bitreplay"
