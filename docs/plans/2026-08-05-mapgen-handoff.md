@@ -58,10 +58,15 @@ only one that matters until it is done.**
 
 ---
 
-## Update, later on 2026-08-05: the wiring is now de-risked and unblocked
+## Update, later on 2026-08-05: de-risked, then WIRED
 
-Three things changed since the above was written. The headline — the shipping
-generator still calls none of these modules — is UNCHANGED.
+⚠️ The section above is now HISTORY, not state. "The shipping generator calls
+none of them" was true when it was written and is no longer true: the wiring
+landed later the same day (`68c32d0..f4fe6a8`). Read it for how the problem was
+framed, not for where the code is. Current state and ordering live in
+`2026-08-05-land-the-generator-epic.md`.
+
+Three things changed before the wiring, and they are why it worked.
 
 **1. The lane blocker is fixed** (task `76332cf1`, commit `aae19bd`). The
 standing diagnosis was that `shapeRowSpan` over-claims for "some shape kind".
@@ -107,6 +112,23 @@ seeds, while caves/forest contribute 16-42 permille. It almost certainly
 REJECTS long axis-aligned blocks whole instead of trimming them. City is the
 closest thing we have to the brief's "blocks" archetype, so this silently
 collapses the fill vocabulary to pebble-shaped biomes.
+
+---
+
+### ...and then it was wired
+
+`arena.nim` calls `map_lanes`, `mapgen_biomes` and `mapgen_vocab`. The column
+lattice is gone and the sightline-repair prosthetic is DELETED, not
+reimplemented — replaced by a constructive interval cover computed on the mask
+the validator itself reads. That last detail is load-bearing:
+`rasterizeWallMasks` carves protected floor out of BOTH masks, so a wall placed
+over protected ground blocks nothing, and a cover computed on SHAPES is a cover
+of the wrong thing.
+
+Measured after wiring — 2-team 90% valid / staticScore 0.972 / interiorFrac
+**0.315** (clears the >= 0.30 bar) / cover 163pm; 4-team 68% / 0.861 / 0.098 /
+149pm; suite **37 failures**, of which ~32 are 4-team tests dying on a generator
+RAISE before their assertions run.
 
 ---
 
