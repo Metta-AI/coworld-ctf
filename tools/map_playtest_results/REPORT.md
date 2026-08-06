@@ -185,6 +185,14 @@ The 4-team rate matches the ~32% a sibling session is fixing; the **2-team
 10% raise rate** may be less well known. All skipped seeds are listed above;
 no measured seed was skipped for any other reason.
 
+Provenance: this sweep was taken at fork point 4a013df. `maxwell/mapgen-rebuild`
+has since advanced by 154ecc7 ("the 4-team raise is budget arithmetic, not
+connectivity") and bcf8722, so **the 4-team raise rate above may already have
+moved** — re-run the sweep against the current tip before acting on it. The
+2-team rate and the seed-diversity collapse below are untouched by those two
+commits. Every episode in this report was recorded on 4a013df; none of the
+gameplay numbers mix engine builds.
+
 A second thing the sweep shows: at 4 teams the generator has very low seed
 diversity. Seeds 1003, 1011, 1014, 1015, 1023 and 1031 all produce byte-identical
 metrics (score 0.861, interior 9.8%, 4 chokes at 30px), and 1001, 1007, 1020,
