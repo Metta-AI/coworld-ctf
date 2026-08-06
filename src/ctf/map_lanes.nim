@@ -1466,30 +1466,181 @@ proc laneGateShapes*(plan: LanePlan): seq[ArenaShape] =
         result.add ArenaShape(kind: shapeRect, rect: MapRect(
           x: gate.x, y: gate.y + opening, w: gate.runPx, h: lower))
 
+func laneBandOver*(lane: Lane, x0, x1: int): tuple[lo, hi: int] =
+  ## The vertical band this lane occupies over an x RANGE — the centreline's
+  ## own excursion across that range, widened by the half width.
+  ##
+  ## Exact, not sampled. `laneY` is piecewise linear, so its extrema over
+  ## `[x0, x1]` are attained at an endpoint or at a waypoint strictly inside,
+  ## and there are a handful of waypoints. The strided version this replaces
+  ## (`x += 14`) could step straight over a lane crossing, which is the same
+  ## class of bug as the one below but pointing the other way.
+  let half = lane.widthPx div 2
+  var
+    lo = min(lane.laneY(x0), lane.laneY(x1))
+    hi = max(lane.laneY(x0), lane.laneY(x1))
+  for p in lane.path:
+    if p.x > x0 and p.x < x1:
+      lo = min(lo, p.y)
+      hi = max(hi, p.y)
+  (lo - half, hi + half)
+
 proc intrudesOnLane*(plan: LanePlan, shape: ArenaShape): bool =
-  ## Whether a piece of cover would narrow a lane below its designed width.
-  ## Discs and diamonds test centre-to-profile; rects test their box against
-  ## the lane band over the x range they actually span.
+  ## Whether a piece of cover would narrow a lane below its DESIGNED width.
+  ## Discs and diamonds test centre-to-profile; rects test their span against
+  ## `laneBandOver` over the x range they actually cover.
+  ##
+  ## The rect branch used to walk x in strides of 14, which could step clean
+  ## over a lane crossing. `laneBandOver` answers the same question exactly and
+  ## costs less.
+  ##
+  ## Note this is the DESIGN-width question, not the legality question.
+  ## `clearLanes` asks the second one — how much of a lane may be spent before
+  ## the corridor floor is breached — and uses `laneCoreOver` for it.
   for lane in plan.lanes:
-    let half = lane.widthPx div 2
     case shape.kind
     of shapeDisc, shapeDiamond:
+      let half = lane.widthPx div 2
       if shape.cx < plan.region.x - shape.radius or shape.cx > plan.seamX: continue
       if abs(shape.cy - lane.laneY(shape.cx)) < half + shape.radius: return true
     of shapeRect:
-      var x = shape.rect.x
-      while x <= shape.rect.x + shape.rect.w:
-        let cy = lane.laneY(x)
-        if shape.rect.y <= cy + half and shape.rect.y + shape.rect.h >= cy - half:
-          return true
-        x += 14
+      let band = lane.laneBandOver(shape.rect.x, shape.rect.x + shape.rect.w)
+      if shape.rect.y <= band.hi and shape.rect.y + shape.rect.h >= band.lo:
+        return true
     of shapePolygon:
+      # KNOWN UNSOUND, deliberately left alone: see `clearLanes`. A vertex test
+      # both misses a triangle that straddles a lane with no vertex in it and
+      # condemns one that only clips a corner. Fixing it is coupled to the fill
+      # DENSITY and is tracked separately.
+      let half = lane.widthPx div 2
       for p in shape.points:
         if abs(p.y - lane.laneY(p.x)) < half: return true
     of shapeDiagonal:
+      let half = lane.widthPx div 2
       if abs(shape.y0 - lane.laneY(shape.x0)) < half: return true
       if abs(shape.y1 - lane.laneY(shape.x1)) < half: return true
   false
+
+const
+  LaneClipSlabPx* = 24
+    ## How finely a rect is cut when it is clipped against a SLOPED lane. One
+    ## band for the whole rect is correct but wasteful: `laneFlank` descends
+    ## 231 px across the half-field, so its band over a 120 px block is ~64 px
+    ## taller than the lane itself and eats the block whole. Cutting the block
+    ## into slabs lets each one see only its own local band, and the surviving
+    ## pieces step down alongside the lane — which is what a row of buildings
+    ## along a diagonal avenue looks like. Adjacent slabs that clip identically
+    ## are merged back, so a lane running flat under a block still yields ONE
+    ## rect, not five.
+  LaneTrimMinPx* = EngineMinCorridorPx
+    ## The thinnest surviving sliver worth keeping — the engine's own collision
+    ## footprint. Below this a trimmed block is a hairline against the street:
+    ## it reads as grime rather than structure, and no cog can stand behind a
+    ## piece of cover narrower than a cog. Dropping it is the one case where
+    ## deletion is right.
+    ##
+    ## It is also the knob that pays for the trim. `arena`'s fill budget is
+    ## spent in EMISSION ORDER and skips any shape too big for what is left, so
+    ## cutting one rejected block into several small ones lets the budget be
+    ## spent more completely and the shipping generator already runs at a
+    ## median 163 permille against a 170 ceiling. At 16 px the slivers cost
+    ## 2 valid seeds in 60; at the engine footprint they do not.
+
+func laneCoreOver*(lane: Lane, corridorMinPx, x0, x1: int): tuple[lo, hi: int] =
+  ## The part of a lane that cover may NEVER touch, over an x range.
+  ##
+  ## A lane is not a keep-out zone; it is a route with a WIDTH BUDGET. The
+  ## floor is `corridorMinPx`, and anything a lane carries above that floor is
+  ## slack it can spend on cover — which this module already asserts it should
+  ## ("a lane with NO cover in it is wrong by this repo's own rules", see the
+  ## disc branch of `clearLanes` and `map_rules.MaxExposedRunPx`). So the
+  ## protected core is the band shrunk by half the slack on each side, and the
+  ## complement of the core is where cover may live.
+  ##
+  ## THE CHANNEL THIS LEAVES IS A GUARANTEE, NOT A MEASUREMENT. Write the
+  ## lane's half width `h`, its centreline excursion across the range `E`, and
+  ## `keep = (2h - corridorMinPx) / 2`. The band is `[minCy - h, maxCy + h]`,
+  ## the core is that shrunk by `keep`, and cover lives outside the core. At
+  ## any single x the free part of the lane is `lane ∩ core`, whose height is
+  ##   E >= keep:  2h - keep      = corridorMin + (2h - corridorMin)/2
+  ##   E <  keep:  2h + E - 2keep = corridorMin + E
+  ## and both are >= `corridorMinPx` for every E. No reroll, no audit — the
+  ## arithmetic cannot produce a pinched lane.
+  ##
+  ## A GATE HAS ALREADY SPENT THE SLACK. Over a gate's run the lane is not
+  ## `widthPx` wide, it is `gate.widthPx` wide — 30 to 45 px, one cog — and the
+  ## strip left open is STAGGERED off the centreline, so it need not even lie
+  ## inside the band. Charging the slack twice is exactly what happened when
+  ## this was written without the gate term: the trimmed blocks landed in the
+  ## mid lane's gate openings and the map came back "no 26px route to the
+  ## center" on 4 city seeds of 6. Over a gate, nothing is spendable.
+  let band = lane.laneBandOver(x0, x1)
+  var
+    keep = max(0, (lane.widthPx - corridorMinPx) div 2)
+    lo = band.lo
+    hi = band.hi
+  for gate in lane.gates:
+    # The gate's reach is its run PLUS a funnel on each side, for the same
+    # reason `maxGateRunPx` budgets one: a cog leaving a staggered opening is
+    # off the centreline and needs a corridor width of run to rejoin the lane.
+    # Protecting only the run itself left cover sitting immediately downstream
+    # of the opening, where it met the shoulder at an angle and closed the
+    # route just as dead -- 4 city seeds of 6, and only the rendered mask
+    # showed which pixels did it.
+    if gate.x - corridorMinPx > x1: continue
+    if gate.x + gate.runPx + corridorMinPx < x0: continue
+    keep = 0
+    lo = min(lo, gate.y - gate.widthPx div 2)
+    hi = max(hi, gate.y + gate.widthPx div 2)
+  (lo + keep, hi - keep)
+
+func trimRectToLanes(rect: MapRect, window: bool, plan: LanePlan): seq[ArenaShape] =
+  ## Cut a rect down to the parts of it lying outside every lane's core.
+  ##
+  ## An axis-aligned rect minus a horizontal band is one or two axis-aligned
+  ## rects, so this loses no fidelity at all — unlike rejection, which loses
+  ## the whole piece. Slabs left to right, subtract each lane's local core from
+  ## each slab's surviving y spans, then coalesce.
+  var pieces: seq[MapRect]
+  let xEnd = rect.x + rect.w
+  var x = rect.x
+  while x < xEnd:
+    let xe = min(x + LaneClipSlabPx, xEnd)
+    var spans = @[(rect.y, rect.y + rect.h)]
+    for lane in plan.lanes:
+      let core = lane.laneCoreOver(plan.corridorMinPx, x, xe)
+      var kept: seq[(int, int)]
+      for s in spans:
+        if s[1] <= core.lo or s[0] >= core.hi:
+          kept.add s
+          continue
+        if core.lo - s[0] >= LaneTrimMinPx: kept.add (s[0], core.lo)
+        if s[1] - core.hi >= LaneTrimMinPx: kept.add (core.hi, s[1])
+      spans = kept
+    for s in spans:
+      pieces.add MapRect(x: x, y: s[0], w: xe - x, h: s[1] - s[0])
+    x = xe
+
+  for p in pieces:
+    var merged = false
+    for i in 0 ..< result.len:
+      let r = result[i].rect
+      if r.y != p.y or r.h != p.h or r.x + r.w != p.x: continue
+      # Only merge when the WIDER rect still clears every core. Two slabs can
+      # clip to the same y span on opposite sides of a steep lane, and welding
+      # those into one rect would lay it straight across the lane.
+      var safe = true
+      for lane in plan.lanes:
+        let core = lane.laneCoreOver(plan.corridorMinPx, r.x, p.x + p.w)
+        if r.y < core.hi and r.y + r.h > core.lo:
+          safe = false
+          break
+      if not safe: continue
+      result[i].rect.w = r.w + p.w
+      merged = true
+      break
+    if not merged:
+      result.add ArenaShape(kind: shapeRect, window: window, rect: p)
 
 proc clearLanes*(shapes: seq[ArenaShape], plan: LanePlan): seq[ArenaShape] =
   ## Push cover OUT of the lanes rather than deleting it.
@@ -1499,8 +1650,20 @@ proc clearLanes*(shapes: seq[ArenaShape], plan: LanePlan): seq[ArenaShape] =
   ## `CoverPermilleMin`) and it leaves the lane reading as a random absence.
   ## Sliding a disc perpendicular until it clears keeps the mass AND lines it
   ## up along the lane edge, so the lane reads as something carved through the
-  ## terrain — which is exactly what it is. Only shapes with nowhere to go are
-  ## dropped.
+  ## terrain — which is exactly what it is.
+  ##
+  ## SLIDING IS ONLY RIGHT FOR A PEBBLE. A disc has no interior structure, so
+  ## moving it whole loses nothing. An extended shape does: a city block is
+  ## 120 px on a side and the thing that makes it a BLOCK is where its edges
+  ## are, so the operation that preserves it is a CUT, not a shove. Dropping
+  ## the whole rect on any overlap made `city` — the only biome in the set
+  ## that can render the brief's "blocks" archetype — contribute exactly zero
+  ## cover on six seeds of six, because a lane network with three profiles
+  ## crosses every block somewhere. Trimming turns the same block into the
+  ## buildings that LINE the street, which is both the right geometry and the
+  ## right picture.
+  ##
+  ## Only shapes with nothing left after the cut are dropped.
   for shape in shapes:
     if not plan.intrudesOnLane(shape):
       result.add shape
@@ -1538,7 +1701,18 @@ proc clearLanes*(shapes: seq[ArenaShape], plan: LanePlan): seq[ArenaShape] =
           moved.cy - moved.radius > plan.region.y and
           moved.cy + moved.radius < plan.region.y + plan.region.h:
         result.add moved
+    of shapeRect:
+      result.add trimRectToLanes(shape.rect, shape.window, plan)
     else:
+      # Polygons and diagonals still reject whole. The same argument says they
+      # should be clipped -- a convex ring minus a horizontal band is at most
+      # two convex rings, and a 45° run minus a band is at most two runs -- but
+      # measuring it first showed WHY that is not a free change: rejection has
+      # been acting as the fill layer's density regulator. Clipping them lifted
+      # `caves` from 144/148/144/136/153/142 to 186/182/187/144/187/146 against
+      # a 170 ceiling (4 of 6 seeds newly invalid), and `forest` and `plains`
+      # the same way. The geometry fix is right; it has to land WITH a fill
+      # density that was tuned against it, which lives in `mapgen_biomes`.
       discard
 
 
