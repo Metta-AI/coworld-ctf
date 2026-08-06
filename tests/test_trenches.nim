@@ -350,6 +350,32 @@ suite "trenches":
     check sawEndzone
     check sawField
 
+  test "the density draw is anchored to the size class's derived budget":
+    ## `map_rules` derives `trenchCount` from a trench AREA SHARE of the
+    ## playfield, and `test_map_rules.nim` pins that number at 7..12 for the
+    ## standard class with a comment claiming it "matches what the generator
+    ## digs". Nothing measured the generator, so the generator was free to
+    ## drift off it — and did, in both directions inside one week: the fill
+    ## rewrite dug ZERO (the `pitGap` candidate class had silently gone empty),
+    ## and restoring that class un-normalised dug 14 against a budget of 9.
+    ##
+    ## So the claim is gated here. The band is deliberately wide — this is a
+    ## random draw, and digs are still lost to sightline-repair walls that
+    ## arrive after the roll — but it is narrow enough to catch both failures
+    ## above (0.00 and 1.57 of budget). Measured on this pool: 114 dug against
+    ## a 160 budget, 0.71, with 19 of 20 maps digging something.
+    var dug, budget, mapsWithTrenches = 0
+    for index in 0 ..< MapPoolSeeds.len:
+      let gameMap = cachedPoolMap(index)   ## shared memo, no extra generation
+      dug += gameMap.trenches.len
+      budget += mapRules(gameMap.mapSizeClass(), 2).trenchCount
+      if gameMap.trenches.len > 0:
+        inc mapsWithTrenches
+    check budget > 0
+    check dug * 100 >= budget * 40
+    check dug * 100 <= budget * 125
+    check mapsWithTrenches >= MapPoolSeeds.len * 3 div 4
+
   test "generated trenches are deterministic and survive the spec round-trip":
     let generated = generateCtfMap(4242)
     check generated.trenches == generateCtfMap(4242).trenches
@@ -443,24 +469,38 @@ suite "trenches":
       sim.config.fireCooldownTicks * TrenchFireSlowdown
 
   test "an over-request places as many pits as fit, still in fair pairs":
-    let gameMap = generateCtfMap(
-      4242, MapGenOverrides(windows: -1, pits: 64, pitDensity: -1))
-    check gameMap.trenches.len mod 2 == 0
-    check gameMap.trenches.len > 12
-    check gameMap.trenches.len < 64
-    for trenchShape in gameMap.trenches:
-      let trench = shapeAsRect(trenchShape)
-      let image =
-        case gameMap.symmetry
-        of symMirror: MapRect(
-          x: gameMap.width - trench.x - trench.w,
-          y: trench.y, w: trench.w, h: trench.h)
-        of symRot180: MapRect(
-          x: gameMap.width - trench.x - trench.w,
-          y: gameMap.height - trench.y - trench.h,
-          w: trench.w, h: trench.h)
-        of symRot90: raiseAssert "trenches never place on rot90 maps"
-      check rectShape(image) in gameMap.trenches
+    ## RE-DERIVED. This used to assert `< 64` on seed 4242 alone, which pinned
+    ## a generator LIMITATION rather than a rule: back when nearly every
+    ## candidate was an undiggable `instead` swap, no board could seat the cap.
+    ## A board with an honest candidate set can, and 4242's now does — exactly
+    ## 64. So the seed-specific number is gone and the two claims in the title
+    ## are asserted directly instead: the request is a CEILING that is never
+    ## exceeded, and whatever is dug is dug in fair pairs. The best-effort half
+    ## keeps a seed that genuinely runs out of room, so "as many as fit" stays
+    ## a real assertion and not a tautology.
+    var sawShort = false
+    for seed in [1003, 1005, 4242]:
+      let gameMap = generateCtfMap(
+        seed, MapGenOverrides(windows: -1, pits: 64, pitDensity: -1))
+      check gameMap.trenches.len mod 2 == 0
+      check gameMap.trenches.len <= 64
+      check gameMap.trenches.len > 12
+      if gameMap.trenches.len < 64:
+        sawShort = true
+      for trenchShape in gameMap.trenches:
+        let trench = shapeAsRect(trenchShape)
+        let image =
+          case gameMap.symmetry
+          of symMirror: MapRect(
+            x: gameMap.width - trench.x - trench.w,
+            y: trench.y, w: trench.w, h: trench.h)
+          of symRot180: MapRect(
+            x: gameMap.width - trench.x - trench.w,
+            y: gameMap.height - trench.y - trench.h,
+            w: trench.w, h: trench.h)
+          of symRot90: raiseAssert "trenches never place on rot90 maps"
+        check rectShape(image) in gameMap.trenches
+    check sawShort
 
   test "out-of-range pit knobs raise config errors at config load":
     # update() resolves the gen map to pin its mapSpec, so a bad knob is

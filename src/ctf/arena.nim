@@ -1810,6 +1810,9 @@ proc generateMapAttempt*(
     pitGap = 1
     pitEndzone = 2
   var pitCandidates: seq[tuple[kind, obstacleIdx, x, y: int]]
+  ## `instead` spots proposed by the fill, before the diggability check the
+  ## overlapping fill layers make necessary — see where they are resolved.
+  var insteadProposals: seq[tuple[idx, x, y: int]]
 
   ## TERRAIN — a route SKELETON first, then organic FILL inside what it leaves.
   ##
@@ -2131,10 +2134,34 @@ proc generateMapAttempt*(
         else: (0, 0)
       if sx > 0:
         eligible.add (result.leftObstacles.high, sx div 120, sy)
-        pitCandidates.add (pitInstead, result.leftObstacles.high, sx, sy)
+        insteadProposals.add (result.leftObstacles.high, sx, sy)
     when defined(mapdbg):
       echo "  [dbg] budgetSkipped=", budgetSkipped, " budgetLeft=", budget,
         " of ", budget0, " -> leftObstacles=", result.leftObstacles.len
+
+    ## An `instead` proposal only becomes a CANDIDATE if swapping its obstacle
+    ## for a pit would genuinely open floor.
+    ##
+    ## On the lattice that was automatic — one slot, one obstacle, disjoint. In
+    ## the fill the layers overlap, so deleting one shape usually leaves the
+    ## spot walled by its neighbours, and the dig dies later in
+    ## `rectOnOpenFloor`. Registering it anyway cost twice: the exact `mapPits`
+    ## lock could not be met from a candidate set most of which was undiggable,
+    ## and every such pick DELETED A PIECE OF COVER and then failed to put a
+    ## pit where it had been. Checked against every OTHER obstacle only —
+    ## its own is the one about to go.
+    for prop in insteadProposals:
+      let cell = trenchSquareAt(prop.x, prop.y)
+      var clear = true
+      for j, other in result.leftObstacles:
+        if j == prop.idx: continue
+        let b = shapeBounds(other)
+        if b.x0 <= cell.x + cell.w and b.x1 >= cell.x and
+           b.y0 <= cell.y + cell.h and b.y1 >= cell.y:
+          clear = false
+          break
+      if clear:
+        pitCandidates.add (pitInstead, prop.idx, prop.x, prop.y)
 
     ## GAP pits — the fill's NEGATIVE SPACE, which is the only ground a pit can
     ## actually be dug in.
@@ -2286,16 +2313,44 @@ proc generateMapAttempt*(
     pitCandidates.setLen(0)
   if pitPairsWanted >= 0:
     coverRng.shuffle(pitCandidates)
+  ## The 17/25/50 class chances are RELATIVE WEIGHTS, normalised to the budget
+  ## `map_rules` derives for the board — not absolute rates.
+  ##
+  ## They were absolute rates once, calibrated against the column lattice's
+  ## candidate population. The fill's negative space is a different and much
+  ## larger population, and rolling the same rates over it dug a mean of 14.1
+  ## pits on a standard board against the 9 that `mapRules().trenchCount`
+  ## derives. `test_map_rules.nim` asserts that budget is 7..12 and its comment
+  ## claims it "matches what the generator digs" — which nothing measured, so
+  ## the generator was free to drift away from it (and did, in both
+  ## directions: before the gap class came back it dug ZERO).
+  ##
+  ## Normalising here makes the claim true by construction and keeps it true
+  ## the next time the candidate population changes shape, which is exactly
+  ## what caught this feature out twice.
+  proc pitBaseChance(kind: int): int =
+    case kind
+    of pitInstead: 17
+    of pitGap: 25
+    else: 50
+  var chanceWeight = 0
+  for cand in pitCandidates:
+    chanceWeight += pitBaseChance(cand.kind)
+  let
+    ## Every accepted candidate is DUG IN PAIRS by `finalizeTrenches`, so the
+    ## budget in candidates is half the budget in trenches.
+    pitTarget =
+      max(1, mapRules(result.mapSizeClass(), teams).trenchCount div 2)
+    ## Scaled so the chances sum to `pitTarget` accepts. A pool too small to
+    ## reach the budget simply clamps at certainty and digs what it has.
+    pitChanceNum = pitTarget * 100
   for cand in pitCandidates:
     if pitPairsWanted >= 0:
       if result.trenches.len >= pitPairsWanted:
         break
     else:
       let baseChance =
-        case cand.kind
-        of pitInstead: 17
-        of pitGap: 25
-        else: 50
+        pitBaseChance(cand.kind) * pitChanceNum div max(1, chanceWeight)
       if coverRng.pick(100) >= clamp(baseChance * pitDensity div 100, 0, 100):
         continue
     let pit = trenchSquareAt(cand.x, cand.y)

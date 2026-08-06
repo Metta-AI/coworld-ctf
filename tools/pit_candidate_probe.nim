@@ -49,7 +49,9 @@ for seed in seeds:
   echo "=== seed ", seed, (if useAttempt: " (attempt 0)" else: " (best-of-K)")
   if density > -2:
     let m = gen(seed, MapGenOverrides(windows: -1, pits: -1, pitDensity: density))
-    echo "  density=", density, " -> trenches=", m.trenches.len
+    echo "  density=", density, " class=", m.mapSizeClass(),
+      " ruleBudget=", mapRules(m.mapSizeClass(), 2).trenchCount,
+      " -> trenches=", m.trenches.len
     continue
   ## An unlocked draw first: it reports the candidate set under -d:mapdbg
   ## without the count mode's early break truncating it.
