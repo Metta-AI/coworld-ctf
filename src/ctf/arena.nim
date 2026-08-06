@@ -1980,10 +1980,42 @@ proc generateMapAttempt*(
       ## argument the lanes make — only with a topology that suits a
       ## four-fold board. The brief names "blocks: a grid of streets" as a
       ## rot90-legal archetype precisely because it is not a pinwheel.
+      ## SIZE THE GRID TO THE REGION, and clip the fill into the blocks rather
+      ## than dropping anything that grazes a street.
+      ##
+      ## Measured on seed 1005 attempt 0 with the instrumented generator:
+      ##   region=127x397  fill=11  survivedStreets=0
+      ## ZERO of eleven. A rot90 fundamental domain is a thin sliver — 127 px
+      ## wide here — and the grid put two 26 px vertical streets across it, so
+      ## the blocks were 25 px and the bounding-box drop test caught every
+      ## shape. A 4-team board therefore carried NO fill at all: everything on
+      ## it was the centre spinners, the windows and 44 row-cover pickets.
+      ##
+      ## That is the whole 68% story, and it explains the two things that
+      ## looked contradictory. Cover was flat across a 2.2x fill-density sweep
+      ## because there was no fill for the density to scale. And the board
+      ## still failed "too clogged" at 174-204 permille because with no fill
+      ## no row was covered, so the row-cover pass had to picket essentially
+      ## every row, and those pickets (lifted x4) measured 122-166 permille of
+      ## the total — ablating them drops seed 1005 from 199 to 55.
+      ##
+      ## So the street count is capped to leave blocks worth filling, and the
+      ## reservation becomes a SUBTRACTION from each shape instead of a filter
+      ## over shapes. The street keeps its full width either way, so the route
+      ## guarantee it exists for is untouched; only the shape gives ground.
+      let street = max(MinCorridorWidth, rules.minCorridorWidthPx)
+      proc streetCap(extent: int): int =
+        ## Most streets that still leave every block at least `MinBlockPx`
+        ## across: with n streets there are n+1 blocks of
+        ## (extent - n*street) / (n+1). Capped at 2, which is what the
+        ## original drew from.
+        const MinBlockPx = 48   ## ~two player footprints of usable frontage.
+        result = 0
+        for n in 1 .. 2:
+          if (extent - n * street) div (n + 1) >= MinBlockPx: result = n
       let
-        street = max(MinCorridorWidth, rules.minCorridorWidthPx)
-        streetsX = 1 + fillRng.pick(2)
-        streetsY = 1 + fillRng.pick(2)
+        streetsX = min(1 + fillRng.pick(2), streetCap(region.w))
+        streetsY = min(1 + fillRng.pick(2), streetCap(region.h))
       var streets: seq[MapRect]
       for k in 1 .. streetsX:
         let sx = region.x + region.w * k div (streetsX + 1) - street div 2
@@ -2003,16 +2035,62 @@ proc generateMapAttempt*(
         w: region.w, h: street)
       streets.add MapRect(x: anchor.x - street div 2, y: region.y,
         w: street, h: region.h)
-      proc onStreet(shape: ArenaShape): bool =
-        let b = shapeBounds(shape)
-        for st in streets:
-          if b.x0 <= st.x + st.w and b.x1 >= st.x and
-             b.y0 <= st.y + st.h and b.y1 >= st.y:
-            return true
-        false
+      ## Every street is a FULL-SPAN band of the region — the vertical ones run
+      ## its whole height, the horizontal ones its whole width — so their
+      ## complement is exactly a grid of rectangular blocks and "clip to the
+      ## block containing this shape" is well defined rather than approximate.
+      var vBands, hBands: seq[tuple[lo, hi: int]]
+      for st in streets:
+        if st.h >= region.h: vBands.add (st.x, st.x + st.w)
+        else: hBands.add (st.y, st.y + st.h)
+      proc spanAt(bands: seq[tuple[lo, hi: int]], p, lo0, hi0: int):
+          tuple[lo, hi: int] =
+        ## The maximal gap around `p` between the bands; empty when `p` is
+        ## itself inside one.
+        result = (lo0, hi0)
+        for b in bands:
+          if p >= b.lo and p < b.hi: return (0, -1)
+          if b.hi <= p: result.lo = max(result.lo, b.hi)
+          if b.lo > p: result.hi = min(result.hi, b.lo)
+      const MinFillPx = 10
+        ## Below this a clipped remnant is a speck, not cover.
       for shape in fill:
-        if not onStreet(shape):
-          emitted.add shape
+        let
+          b = shapeBounds(shape)
+          sx = spanAt(vBands, (b.x0 + b.x1) div 2, region.x, region.x + region.w)
+          sy = spanAt(hBands, (b.y0 + b.y1) div 2, region.y, region.y + region.h)
+        if sx.hi <= sx.lo or sy.hi <= sy.lo: continue   ## centre is ON a street
+        case shape.kind
+        of shapeRect:
+          let
+            nx0 = max(shape.rect.x, sx.lo)
+            ny0 = max(shape.rect.y, sy.lo)
+            nx1 = min(shape.rect.x + shape.rect.w, sx.hi)
+            ny1 = min(shape.rect.y + shape.rect.h, sy.hi)
+          if nx1 - nx0 >= MinFillPx and ny1 - ny0 >= MinFillPx:
+            var clipped = shape
+            clipped.rect = MapRect(x: nx0, y: ny0, w: nx1 - nx0, h: ny1 - ny0)
+            emitted.add clipped
+        of shapeDisc, shapeDiamond:
+          ## Shrink the radius until it clears the street. Both norms sit
+          ## inside the L-infinity ball of the same radius, so this is exact
+          ## for the disc and conservative for the diamond.
+          let r = min(min(shape.cx - sx.lo, sx.hi - shape.cx),
+                      min(shape.cy - sy.lo, sy.hi - shape.cy))
+          if min(r, shape.radius) >= MinFillPx div 2:
+            var clipped = shape
+            clipped.radius = min(r, shape.radius)
+            emitted.add clipped
+        else:
+          ## Diagonals and polygons have no cheap exact clip, so they keep the
+          ## original all-or-nothing rule against their true bounds.
+          if b.x0 >= sx.lo and b.x1 <= sx.hi and
+             b.y0 >= sy.lo and b.y1 <= sy.hi:
+            emitted.add shape
+      when defined(w0dbg):
+        echo "  [w0] region=", region.w, "x", region.h, " fill=", fill.len,
+          " survivedStreets=", emitted.len, " streets=", streets.len,
+          " (", streetsX, "v+", streetsY, "h)"
 
     ## BUDGET the fill. The structure spends first and the fill takes what is
     ## left, rather than both drawing freely and the validator refereeing.
@@ -2070,12 +2148,20 @@ proc generateMapAttempt*(
       budget -= approxArea(emitted[i])
     budget = max(budget, domainArea * FillFloorPermille div 1000)
 
+    when defined(w0dbg):
+      var dbgGate, dbgBudget, dbgKept = 0
+      let dbgBudget0 = budget
     for i, shape in emitted:
-      if result.sealsEndzoneGate(shape): continue
+      if result.sealsEndzoneGate(shape):
+        when defined(w0dbg): inc dbgGate
+        continue
       if i >= structureCount:
         let a = approxArea(shape)
-        if a > budget: continue
+        if a > budget:
+          when defined(w0dbg): inc dbgBudget
+          continue
         budget -= a
+      when defined(w0dbg): inc dbgKept
       result.leftObstacles.add shape
       ## Window and trench candidates come from the FILL rather than from
       ## lattice slots. A window wants a piece of COVER you can see past, and
@@ -2091,6 +2177,10 @@ proc generateMapAttempt*(
       if sx > 0:
         eligible.add (result.leftObstacles.high, sx div 120, sy)
         pitCandidates.add (pitInstead, result.leftObstacles.high, sx, sy)
+    when defined(w0dbg):
+      echo "  [w0] emitted=", dbgGate + dbgBudget + dbgKept, " gateDropped=",
+        dbgGate, " budgetDropped=", dbgBudget, " kept=", dbgKept,
+        " budget0=", dbgBudget0, " density=", densityPct
 
   ## CENTRE FEATURE — a column of spinning diamonds on the spin axis.
   ##
@@ -2272,7 +2362,20 @@ proc generateMapAttempt*(
   ## neither protected floor nor inside a route. No randomness, no budget and
   ## no retry — the difference between a construction and a repair.
   block rowCover:
-    const PicketW = 24
+    ## The picket is billed once per SYMMETRY IMAGE. A mirror or 180 board
+    ## lifts each seed shape into 2, a rot90 board into 4, so an identical
+    ## picket costs a four-fold board twice what it costs a two-fold one —
+    ## and the row-cover column is the largest single consumer of a 4-team
+    ## board's cover budget. Scaling the width by the orbit keeps the COST
+    ## per covered row the same across symmetries instead of the width.
+    ##
+    ## Width is the only free dimension here: a picket exists to break a
+    ## horizontal ray, and the scan is satisfied by any blocked pixel in the
+    ## band, so height (which sets how many rows one picket retires) carries
+    ## the work and width only sets the price. Measured over 16 seeds, 24 ->
+    ## 12 on rot90 alone takes 4-team validity 11/16 to 16/16 and leaves
+    ## 2-team byte-identical, because the branch never runs on a 2-fold board.
+    let PicketW = if result.symmetry == symRot90: 12 else: 24
     let
       w = result.width
       ax = result.sightlineLoX
