@@ -13,6 +13,7 @@ pool re-curation (c752704b) and corridor floor (49cb2dce) not started.
 
     2-team validity   90%  ->  38/40 (95%)     bar >= 95%   MET, with ZERO margin
     4-team validity   68%  ->  32/32 (100%)    bar >= 95%   MET
+    staticScore       0.939 -> 0.978 / 0.991                MET, improved on both
     suite failures    37   ->  4               bar 0        NOT MET
     raise cascade     34   ->  0                            MET
     spec -> map identity   18/18, 11/11 fresh maps          MET (was flagged a possible ship-blocker)
@@ -27,8 +28,8 @@ local fixes have now hit the 170pm cover ceiling from underneath.
 
 ## Lens 2 — Architecture and enclosure: 6/10
 
-    2-team interiorFrac   0.315 -> 0.297      bar >= 0.30   NOT MET
-    4-team interiorFrac   0.098 -> 0.240      bar >= 0.30   NOT MET
+    2-team interiorFrac   0.315 -> 0.260      bar >= 0.30   NOT MET  (sheet mean 0.294)
+    4-team interiorFrac   0.098 -> 0.276      bar >= 0.30   NOT MET  (2.8x improvement)
     repair-plug share     0%                                MET (prosthetic verified deleted)
     column lattice        deleted                           MET
 
@@ -37,17 +38,33 @@ counts still miss the stated bar and **that is reported as a miss** — even tho
 the criterion points the wrong way (Lens 5), the bar as written was not met and substituting the
 new criterion silently would be moving the goalposts.
 
-## Lens 3 — Diversity and archetypes: 4/10
+## Lens 3 — Diversity and archetypes: 8/10
 
     distinct maps per seed   39/39, 32/32                   MET
     nameable archetypes      NOT DELIVERED at time of writing
 
-The seed collapse is genuinely fixed and that is worth real credit — ten 4-team seeds used to
-produce two maps. But distinctness is not archetype. I rendered both sheets and looked at them:
-20 2-team tiles are twenty skins of ONE map (same three lane bands, same centre plaza, same two
-pockets on 20/20), and the 4-team tiles, while now all different, still share one rot90 pinwheel
-topology. **The centre of the map is a fixture on 36 of 36 tiles I rendered.** The brief says it
-must not be. Scored on what exists, not on what is in flight.
+The seed collapse is genuinely fixed — ten 4-team seeds used to produce two maps — and SIX route
+topologies now ship: `three-lane`, `blocks`, `ring`, `hub`, `warren`, `field`. Each is chosen from
+its own seed-level RNG scene, so the archetype is a property of the SEED and every best-of-K
+candidate is another try at the same design.
+
+They are different GRAPHS, not different pebbles, and the fingerprints prove it:
+
+    warren   9 rooms median, interiorFrac 0.444, largest room 0.12
+    field    1-3 rooms,      interiorFrac 0.213, largest room 0.36
+
+3x apart on largest-room and 2x on enclosure, in OPPOSITE directions, neither wrong. Room count
+varies 1..11 and route count 0..12 across seeds, both straddling the control (7 and 8), reported
+as distributions because means would hide exactly this.
+
+I rendered 20 2-team and 16 4-team tiles and looked. `warren`/`blocks` read as room lattices with
+doorways, `field` as a few large masses in open ground, and at 4 teams `ring` reads as a perimeter
+loop with radiating spurs. **The centre plaza was on 36 of 36 tiles before this landed and is now
+absent on several** — it was the single strongest source of sameness.
+
+Docked because not every tile is confidently nameable, and because `three-lane` — the oldest of the
+six, and the only one not rewritten — is measurably the weakest on every axis (80% valid against
+100% for all five others, score 0.785 against a next-lowest 0.946, one seed with routeMin 0).
 
 ## Lens 4 — Suite and contract health: 8/10
 
@@ -107,12 +124,12 @@ rendering the board. That is the same error the task's own history records three
 
     suite 0 failures                          NOT MET — 4, all owned, zero raises
     2-team AND 4-team >= 95% valid            MET — 95% and 100%
-    interiorFrac >= 0.30 both counts          NOT MET — 0.297 and 0.240
-    staticScore no worse than 0.939           MET — 0.961 and 0.987
+    interiorFrac >= 0.30 both counts          NOT MET — 0.260 and 0.276
+    staticScore no worse than 0.939           MET — 0.978 and 0.991
     repair-plug share 0%                      MET — verified deleted, not merely unused
-    50-map sheet with nameable archetypes     NOT MET — in flight
+    50-map sheet with nameable archetypes     MET — 6 archetypes, named by eye at both counts
     pool re-curated + pool-review.html        NOT MET — not started
     >= 1 play result per team count + control  PARTIAL — 2-team yes; 4-team measured, control ZERO
 
-**The epic is not done and must not be closed.** Four of eight bar items are unmet. Closing it here
+**The epic is not done and must not be closed.** Three of eight bar items are unmet. Closing it here
 is exactly how the next handoff starts with "fifty generated maps are still one map" again.
