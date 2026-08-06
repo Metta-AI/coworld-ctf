@@ -1772,6 +1772,11 @@ type
                               # FORCE commits a grouped all-in before the −1 timeout. All
                               # phases are a pure fn of shared signals so the team flows
                               # branch→branch unanimously (no thrash / no split-decide).
+    aimLegacy: bool           # A/B ONLY (OLDAIM=1): reproduce the GV36 slot
+                              # servo + its mod-8 inference guard + the 40-brad
+                              # default, i.e. the SHIPPED-BROKEN aim, so the
+                              # GV40 fix can be measured head-to-head from one
+                              # frozen binary. Never set in a shipped tune.
     rallyWave: bool           # ⭐ rallyWave (plan #squad-1 / issue #20, 2026-08-06): arm
                               # PhOpen's EXISTING mid-lane pull for the RE-ENTRY MARCH.
                               # Field truth (26 GV36 league episodes, free 7-vs-7 in-episode
@@ -2426,6 +2431,7 @@ proc defaultCombatTune(): CombatTune =
     shieldTank: false,        # control: an escort never grabs a shield to body-block as a tank.
     shieldRush: false,        # control: the rusher never pre-grabs a shield to carry home at 6 HP.
     planLayer: false,         # control: flat scenario→play matrix, no contingency phase machine.
+    aimLegacy: false,         # default = the GV40 continuous servo.
     rallyWave: false,         # control: the mid-lane group pull is armed for PhOpen only.
     defendTeeth: false,       # control: PhDefend intercepts the WRONG entity (mateCarryPos).
     forceClockTick: ForceClockTickTuned,  # only consulted when forceTiming is on.
@@ -2830,6 +2836,7 @@ proc shippedCombatTune(): CombatTune =
   # unproven lever into the champion tune). RALLY=1 arms it per-process for the env-server
   # A/B rig; the in-process harness would arm BOTH sides, so any harness measurement of it
   # is a mirror unless the driver re-stamps per team (RALLYTEAM, the SPINTEAM pattern).
+  result.aimLegacy = getEnv("OLDAIM").len > 0
   result.rallyWave = getEnv("RALLY").len > 0
   # ── ⭐ ARC BREACHER (anti-line offense) + enemy-shield awareness. The plasma arc
   # is a MULTIKILL cone and a line is a cluster: when a line is called, the fixed
@@ -4243,7 +4250,8 @@ proc resetTransient(bot: Bot) =
   # too SMALL a step just turns slower and still converges, while too LARGE
   # overshoots forever. Seed with the safe one and let the inference raise it
   # if we are on a slot engine.
-  if bot.aimStepBrads <= 0: bot.aimStepBrads = AimRate
+  if bot.aimStepBrads <= 0:
+    bot.aimStepBrads = (if bot.tune.aimLegacy: 40 else: AimRate)
   bot.enemies.setLen(0)
   bot.mates.setLen(0)
   bot.nadeCharge = 0
@@ -4584,7 +4592,9 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       # every target and, since the vision cone rides the turret, blinded us
       # too. Accept any physical step so this survives the flip in EITHER
       # direction; that is what the inference was always supposed to buy.
-      if d >= 1 and d <= 64:
+      if bot.tune.aimLegacy:
+        if d >= 8 and d <= 64 and d mod 8 == 0: bot.aimStepBrads = d
+      elif d >= 1 and d <= 64:
         bot.aimStepBrads = d
     if stated >= 0:
       bot.prevStatedAim = stated
@@ -7822,7 +7832,8 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # GV36's 32-slot reinterpretation. Choose the servo off the OBSERVED step
   # rather than a compiled-in assumption, so this survives the flip in either
   # direction: a slot world always steps a multiple of 8 brads, and at least 8.
-  let aimSlotWorld = bot.aimStepBrads >= 8 and bot.aimStepBrads mod 8 == 0
+  let aimSlotWorld = bot.tune.aimLegacy or
+    (bot.aimStepBrads >= 8 and bot.aimStepBrads mod 8 == 0)
   if desiredAim >= 0 and not aimSlotWorld:
     # CONTINUOUS SERVO: shortest signed arc, hold inside the deadband. There is
     # no slot lattice to plan around, so the GV36 planner's whole reason to

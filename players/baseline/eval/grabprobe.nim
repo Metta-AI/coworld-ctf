@@ -96,6 +96,16 @@ proc newDriver(slot, team, episodeSeed: int): Driver =
     tune.holdLine = true
   if getEnv("GRABGATE") == "1":
     tune.grabGate = true
+  # ⭐ GV40 AIM A/B (2026-08-06). shippedCombatTune() reads OLDAIM from the
+  # process env and all 16 bots share ONE process, so a bare OLDAIM=1 would arm
+  # BOTH sides and the "A/B" would be a mirror — the same trap SPINTEAM and
+  # RALLYTEAM exist to avoid. AIMTEAM=red|blue gives that side the SHIPPED-
+  # BROKEN GV36 slot servo and leaves the other on the GV40 continuous fix,
+  # giving a deterministic, seat-rotatable head-to-head from one frozen binary.
+  let aimTeam = getEnv("AIMTEAM")
+  if aimTeam.len > 0:
+    tune.aimLegacy = (aimTeam == "red" and t == Red) or
+                     (aimTeam == "blue" and t == Blue)
   result.bot = Bot(slot: slot, team: t, role: role, tune: tune)
   result.bot.resetTransient()
   result.client = initProtocolClient()
