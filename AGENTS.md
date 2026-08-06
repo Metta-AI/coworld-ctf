@@ -170,6 +170,31 @@ symmetry, protected floor, or endzones — those live in `arena.nim`. Raw
 generation passes the validator ~55–65% of the time by design; the workflow is
 generate-many-then-curate/edit, not one-shot.
 
+### The two rules that keep a board team-fair (GV40)
+
+Both were shipped bugs. If you add geometry to `arena.nim`, follow them or you
+will ship team unfairness that nothing crashes on:
+
+- **Never compute a second team's anything.** Build RED's, then carry it across
+  with `teamImagePoint` / `rot90TeamPoint`. `teamAnchor` used to derive the far
+  home from its own formula and landed at `width - x` while every SHAPE mirrors
+  at `width - 1 - x` — one pixel, 522 px of self-contradictory protected floor
+  on a standard board, and any obstacle on that seam was stone for one team and
+  floor for the other.
+- **Measure from the TRUE axis in doubled coordinates, never from `center`.**
+  `centerOffset2` (and `mapProtectedFloorAtF`'s float twin) returns
+  `2*x - (width - 1)`, because an EVEN side has no pixel of its own on the axis
+  — `size div 2` is half a pixel off it. Anything that must be its own image
+  needs its SIZE to match the side's parity too; see `centerTrench`, which is
+  what makes the odd-`mapPits` centre pit self-symmetric.
+
+`tests/test_mapgen_vocab.nim`'s "the protected floor is its own symmetry image"
+suite sweeps EVERY pixel of every size class, both team counts and every
+symmetry, and the bar is 0. Do not re-introduce a stride: sparse sampling is how
+all of this shipped green (`test_mapgen_styles` sampled every 9th pixel and was
+green on a 522 px-unfair board). `tools/fairness_probe.nim` prints the same
+numbers per class, plus the wall-mask and trench surfaces, for a before/after.
+
 Obstacles and trenches are `ArenaShape`s in five kinds: `rect`/`disc`/`diamond`/
 `diagonal` and (GV37) `polygon` — a closed ring of INTEGER vertices for curved
 terrain. Curves are flattened to polygons in the authoring tools; the sim only

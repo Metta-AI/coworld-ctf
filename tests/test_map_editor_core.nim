@@ -10,11 +10,16 @@ const ValidationBaselinePath =
   currentSourcePath.parentDir / "fixtures" / "map-validation-baseline.tsv"
 
 const PoolRenderHashes = [
-  0x9f926a3c'u32, 0x54f76e63'u32, 0x366dfdd8'u32, 0x1afb527f'u32,
-  0xd358d950'u32, 0x32fc127b'u32, 0x9a43bc84'u32, 0xcfccedf8'u32,
-  0x072ba946'u32, 0xab8c01e8'u32, 0xe4296201'u32, 0x7fd99d75'u32,
-  0x0d2bae93'u32, 0x432d117a'u32, 0xe85f8abd'u32, 0x1a98f3ce'u32,
-  0xb5718bb3'u32, 0x09af8448'u32, 0x7016d14b'u32, 0x25330ab8'u32
+  ## Re-pinned at GV40: these renders carry the `overlayProtected` zone, and
+  ## the GV40 fairness fix moved the far team's spawn pocket one pixel onto
+  ## its own mirror (and the flag ring half a pixel on even-sided boards).
+  ## The three entries that did NOT change are the 4-team rot90 boards, whose
+  ## protected floor was already exact.
+  0x44d97cbb'u32, 0x54f76e63'u32, 0xb8b48952'u32, 0x2039af32'u32,
+  0xbd6fd7e0'u32, 0x1aae1a75'u32, 0x06ad8db5'u32, 0xe969ab79'u32,
+  0xe8803a67'u32, 0xf9850e51'u32, 0x6fcb3174'u32, 0x151164b7'u32,
+  0x9f791c22'u32, 0x432d117a'u32, 0x9858febb'u32, 0x5e9ee9af'u32,
+  0xb5718bb3'u32, 0xc8b971d5'u32, 0x099cacb2'u32, 0x852252ae'u32
 ]
 
 var poolMapCache: array[20, CtfMap]

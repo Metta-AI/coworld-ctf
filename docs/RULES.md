@@ -45,6 +45,17 @@ tasks, voting) with teams, guns, hearts, and fog-of-war vision.
   squares**, with the width grown to match so the **14° half-angle did not
   change**; the 5th square is exactly what it takes to cover the tip of the
   plume the game draws. See the Spray can section for the shape.
+- **GameVersion 40 makes the two boards actually identical.** The mirroring
+  promise above — "so neither team has a positional advantage" — had three
+  off-by-one holes in it. A team's spawn pocket sat one pixel off its own
+  mirror (the far home was computed from its own formula instead of being
+  Red's reflection); on a board with an EVEN side the flag ring missed the
+  true centre axis, which falls *between* two pixels; and the odd-`mapPits`
+  centre trench was not actually centred. Wherever terrain overlapped one of
+  those seams it was **stone for one team and floor for the other** — 522 to
+  1,772 px per board depending on size and symmetry, and now exactly 0 on
+  every size class, both team counts, all three endzone shapes and every
+  symmetry.
 - **GameVersion 30 puts every team's pickups on the map's own symmetry.** A
   team's shield and spray can are Red's spots carried over by whichever
   symmetry the terrain was built with — mirrored, rotated 180°, or turned a
@@ -500,11 +511,15 @@ What that means in practice:
   `mapSpec` like the rest of the geometry.
 - **Two runtime knobs steer the digging** (game config, generated maps
   only): `mapPits` locks the exact TOTAL pit count (0..64) — even counts
-  place symmetric pairs; an **odd count anchors its extra pit at the exact
-  map center**, the one spot that is its own image under both mirror and
-  rot180 symmetry, so odd and even counts are equally team-fair. When the
-  candidate spots can't host the full request the map places as many as
-  fit. `mapPitDensity` (0..1000, default 100) scales the per-class draw
+  place symmetric pairs; an **odd count anchors its extra pit on the board's
+  exact symmetry axis**, the one place that is its own image under both
+  mirror and rot180 symmetry, so odd and even counts are equally team-fair.
+  On a board whose side is an odd number of pixels that centre pit is one
+  pixel larger on that axis (57 rather than 56), which is what puts it on
+  the axis instead of half a pixel off it — before GameVersion 40 it was
+  always 56 and one team got up to 111 px of trench the other did not.
+  When the candidate spots can't host the full request the map places as
+  many as fit. `mapPitDensity` (0..1000, default 100) scales the per-class draw
   chances instead when no exact count is locked — 0 digs nothing, 200 digs
   roughly twice as much. `mapPits` wins over `mapPitDensity`.
 - You are "in" the trench exactly while your body center is inside the

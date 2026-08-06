@@ -10,6 +10,66 @@ Newest first.
 
 ---
 
+## GV40 — Both teams now get the same board
+
+### ⚠️ IMPORTANT BUG FIX — a wall could be stone for one team and floor for the other
+
+Every CTF map is built from one authored half (or quadrant) and completed by its own
+symmetry, and the whole promise of that is that **the board you play is pixel-for-pixel
+the board your opponent plays.** It wasn't. Three separate off-by-one errors put a
+map's *protected geometry* — the always-walkable spawn pockets, the flag ring, the
+centre pit — a pixel away from its own mirror image. Terrain sitting on one of those
+edges was then **solid rock for one team and open floor for the other**, at the places
+on the map that decide games: the heart you defend and the heart you steal.
+
+Measured over every pixel of every board size, both team counts and every symmetry:
+
+| board | mirror | 180° rotation |
+|---|---|---|
+| small (1050×560) | 688 px | 940 px |
+| standard (1235×659) | 522 px | 522 px |
+| large (1606×857) | 1,044 px | 1,044 px |
+| huge (2223×1186) | 938 px | 1,772 px |
+| giant (3211×1713) | 1,354 px | 1,354 px |
+| 4-team square (all sizes) | — | 0 px (already exact) |
+
+**All of them are 0 now** — on every size class, both team counts, all three endzone
+archetypes (column, disc, square) and every symmetry.
+
+The three causes, all the same shape of mistake:
+
+- **The far team's spawn was one pixel off its own mirror.** Every wall on the board
+  reflects at `width - 1 - x`, but the second team's home was computed separately and
+  landed at `width - x`. Red's spawn pocket and Blue's were therefore not images of
+  each other, and the two 1-pixel columns where they disagreed ran the full height of
+  a pocket. Homes are now derived from Red's by the map's own symmetry, so they
+  cannot drift apart again no matter what a map asks for.
+- **Even-sided boards missed their own centre.** A board 1050 px wide has no middle
+  *pixel* — its true mirror axis falls between 524 and 525. Geometry anchored on
+  "width ÷ 2" is half a pixel off that, so the flag ring at the centre of the map was
+  not its own reflection. Everything now measures against the true axis.
+- **The centre pit wasn't centred.** With an odd `mapPits` count the extra trench is
+  supposed to sit dead centre, "the one spot that is its own image" — but a 56 px
+  square cannot straddle the axis of an odd-width board, so one team got 56 px of
+  trench (111 under rotation) that the other did not. The centre pit now grows by a
+  single pixel where it has to in order to land exactly on the axis.
+
+**Who this affected.** Everyone, on every generated map — but *how much* depended on
+luck, since it only bit when terrain happened to overlap one of those seams. The stock
+generator missed them on most seeds; densely tiled cover hit them immediately.
+
+### Compatibility
+
+A spawn moves by one pixel and the flag ring by half of one, which is simulation
+state, so **pre-GV40 replays do not re-simulate** and are rejected on load rather than
+silently mis-played. All recorded fixtures were re-recorded.
+
+Note on numbering: **39 is skipped.** `main` already shipped a GV39 (quad-mirror
+symmetry), so this change takes 40 rather than colliding with a version that is
+already out in the world.
+
+---
+
 ## GV38 — Weapon reach is pinned to the gun, not to the board
 
 ### ⚠️ IMPORTANT BUG FIX — the grenade out-ranged the gun on large boards
