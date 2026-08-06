@@ -346,6 +346,27 @@ python3 tools/score_play_corr.py analyze --plan /tmp/plan.json /tmp/plan2.json \
   --suffix .win.json
 ```
 
+### Test status — the base branch is already red, identically
+
+This branch touches `tools/` only, and the map suites fail the **same way on
+base `4a013df`** as they do here, verified in a clean detached worktree:
+
+| suite | base `4a013df` | this branch |
+|---|---|---|
+| `test_mapgen` | 5 failed / 9 ok | 5 failed / 9 ok |
+| `test_map_eval` | 1 failed / 26 ok | 1 failed / 26 ok |
+| `test_map_rules`, `test_map_select` | pass | pass |
+
+The failing test *names* diff clean between the two. All six failures are one
+root cause — `Map generation found no valid layout in 100 attempts from seed
+{11, 13, 1015}` — which is the **same failure mode as the `size=small`
+finding** in section 1: the generator exhausting `MapGenMaxAttempts` without
+validating. That is filed separately and is not this task, but it corroborates
+it from a second direction, and the epic's "suite 0 failures" line is not
+currently met on its own base.
+
+### Provenance
+
 `tools/map_playtest.nim` here is taken unmodified from
 `maxwell/mapgen-play-harness` (`5d57407`, task `3811876a`) — its
 `CloseRangePx` and `--ticks` window are load-bearing for section 3.
