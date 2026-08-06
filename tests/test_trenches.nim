@@ -364,7 +364,7 @@ suite "trenches":
     let rebuilt = mapFromSpecJson(mapSpecJson(generated))
     check rebuilt.trenches == generated.trenches
 
-  test "mapPits locks an exact total; odd counts anchor the map center":
+  test "mapPits locks an exact total; odd counts anchor the symmetry axis":
     ## The lock is BEST-EFFORT — a board whose candidate spots cannot host the
     ## full request places as many as fit — so the seed here has to be one
     ## whose selected map can seat 12 (4242 seats only 8 after best-of-K
@@ -373,10 +373,15 @@ suite "trenches":
       let gameMap = generateCtfMap(
         1002, MapGenOverrides(windows: -1, pits: count, pitDensity: -1))
       check gameMap.trenches.len == count
-      let center = MapRect(
-        x: gameMap.center.x - TrenchSize div 2,
-        y: gameMap.center.y - TrenchSize div 2,
-        w: TrenchSize, h: TrenchSize)
+      ## The unpaired pit straddles the board's TRUE axis, so on an odd side
+      ## it is one pixel larger than `TrenchSize` — that parity match is the
+      ## only way an integer rect can be its own reflection (GV40).
+      let
+        cw = TrenchSize + (gameMap.width and 1)
+        ch = TrenchSize + (gameMap.height and 1)
+        center = MapRect(
+          x: (gameMap.width - cw) div 2, y: (gameMap.height - ch) div 2,
+          w: cw, h: ch)
       check (rectShape(center) in gameMap.trenches) == (count mod 2 == 1)
 
   test "mapPitDensity scales the density draw":
