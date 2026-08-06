@@ -1175,7 +1175,12 @@ proc planLanes*(
     usable = max(1, bottom - top)
     x0 = max(region.x, base.x)
     xs = max(x0 + 4 * EngineMinCorridorPx, seamX)
-    thick = EngineMinCorridorPx
+    # NOT `EngineMinCorridorPx`. That is a free-SPACE minimum and using it as a
+    # wall thickness held the separator network at a fixed absolute size while
+    # the board shrank, which is what put the small class over the cover
+    # ceiling on structure alone. `map_rules` scales it by
+    # `crossSection / (laneCount + 1)`; standard is unchanged at 26.
+    thick = rules.laneSeparatorThickPx
     jogAmp = rules.coverSizePx div 2
   result.sepThickPx = thick
   result.laneStartX = x0
@@ -1288,6 +1293,16 @@ proc planLanes*(
     # with a map-wide gun on the board. Measured before this: 18-23 open rows
     # on 3 of 3 carved seeds, in bands sitting exactly on the un-gated and
     # single-gated lanes.
+    #
+    # NOTE (measured, left alone deliberately): `chokepointsPerRoute` is a
+    # count PER ROUTE and a route is this lane PLUS its mirror across the
+    # seam, so spending the whole figure in one half puts twice the intended
+    # chokepoints on every full route. Halving it here does cut structure —
+    # gate shoulders are 52 of the small class's 132 permille — but it is a
+    # net LOSS: measured over 20 seeds it took median interiorFrac 0.293 ->
+    # 0.267, because a gate shoulder is exactly the kind of architecture the
+    # enclosure metric is looking for. It also moves every class, and the
+    # classes above small are not in trouble. Filed as its own task instead.
     let want =
       case lane.role
       of laneFlank: max(2, rules.chokepointsPerRoute)
