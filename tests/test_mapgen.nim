@@ -1,22 +1,15 @@
 import
   helpers,
-  std/[sequtils, tables, unittest],
+  std/[sequtils, unittest],
   ctf/sim, ctf/map_pool
-
-var mapCache = initTable[string, CtfMap]()
 
 proc cachedMap(seed: int,
     overrides = MapGenOverrides(windows: -1, pits: -1, pitDensity: -1),
     teams = 2): CtfMap =
-  ## generateCtfMap memoized per (seed, overrides, teams): generation is
-  ## deterministic (the "same seed" test pins that on every run), so the
-  ## tests that assert different properties of the SAME map share one build.
-  ## Determinism checks keep calling generateCtfMap directly — a cache hit
-  ## would make them vacuous.
-  let key = $seed & "|" & $teams & "|" & $overrides
-  if key notin mapCache:
-    mapCache[key] = generateCtfMap(seed, overrides, teams)
-  mapCache[key]
+  ## This module's local name for `helpers.cachedCtfMap`. The memo moved to
+  ## helpers so it is shared with the OTHER modules in this shard that sweep
+  ## the same pool — `test_endzone_shapes` was rebuilding all 20 maps.
+  cachedCtfMap(seed, overrides, teams)
 
 proc obstacleAt(obstacles: seq[ArenaShape], x, y: int): bool =
   ## Raw obstacle-union test (no border, no protected-floor carve). On

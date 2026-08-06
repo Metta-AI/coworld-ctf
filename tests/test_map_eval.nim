@@ -14,8 +14,10 @@
 ## detector; only a map with a known doorway can tell those apart.
 
 import
+  helpers,
   std/[monotimes, strutils, times, unittest],
   ctf/map_metrics,
+  ctf/map_pool,
   ctf/sim
 
 # ---------------------------------------------------------------------------
@@ -215,9 +217,10 @@ suite "map fitness: scoring":
     # produces scatter, and the measuring stick has to say so before anything
     # tries to fix it.
     var best = 0.0
-    for i in 0 ..< 20:
-      best = max(best, evaluateMap(
-        loadCtfMapMetadata("pool:" & $i), "pool").staticScore())
+    for i in 0 ..< MapPoolSeeds.len:
+      ## `cachedPoolMap` is exactly what `loadCtfMapMetadata("pool:" & $i)`
+      ## resolves to, with the ~20 s pool build shared with `test_trenches`.
+      best = max(best, evaluateMap(cachedPoolMap(i), "pool").staticScore())
     check best < control.staticScore()
 
   test "a tight bound is reported, not silently spent":

@@ -1,4 +1,5 @@
 import
+  helpers,
   std/[math, os, sets, strutils, unittest],
   crunchy/crc32,
   pixie,
@@ -17,7 +18,6 @@ const PoolRenderHashes = [
   0xb5718bb3'u32, 0x09af8448'u32, 0x7016d14b'u32, 0x25330ab8'u32
 ]
 
-var poolMapCache: array[20, CtfMap]
 proc poolMap(index: int): CtfMap =
   ## The map the pool actually SERVES — a full best-of-K selection, not the
   ## raw first draw. It used to be `generateMapAttempt`, which was the same
@@ -25,10 +25,11 @@ proc poolMap(index: int): CtfMap =
   ## `poolCtfMap` ranks candidates, pinning render hashes against attempt 0
   ## would pin an image nobody plays. Memoized because a selection costs ~1s
   ## and three tests below walk the whole pool.
-  doAssert poolMapCache.len == MapPoolSeeds.len
-  if poolMapCache[index].width == 0:
-    poolMapCache[index] = poolCtfMap(index)
-  poolMapCache[index]
+  ##
+  ## The memo lives in `helpers` rather than here so it is shared with the
+  ## other pool-sweeping modules: this module is alone in its SHARD, but the
+  ## local `tests.nim` run is one binary holding all four.
+  cachedPoolMap(index)
 
 proc poolRenderOptions(maxDimension = 0): MapRenderOptions =
   MapRenderOptions(

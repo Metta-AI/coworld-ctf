@@ -312,7 +312,9 @@ suite "trenches":
     var sawEndzone, sawField = false
     for index in 0 ..< MapPoolSeeds.len:
       let
-        gameMap = poolCtfMap(index)
+        ## Shared memo — `cachedPoolMap` IS `poolCtfMap` with the build
+        ## reused; `test_map_eval` sweeps the same 20 maps in this shard.
+        gameMap = cachedPoolMap(index)
         obstacles = buildArenaObstacles(gameMap)
       if gameMap.trenches.len > 0:
         inc mapsWithTrenches
