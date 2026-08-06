@@ -107,6 +107,12 @@ proc main() =
     steals, captures, capturesInZone, carrierInZoneTicks = 0
     aliveTicks, fightTicks, closeTicks = 0
     measuredTicks = 0
+    capturesAll = 0
+      ## Captures over the WHOLE episode, never truncated by --ticks. The
+      ## outcome classification below reads this one: an episode decided by a
+      ## capture at 4153t is still an episode decided by a capture when the
+      ## measurement window closed at 1890t, and calling it an elimination
+      ## because the window missed it would be a lie about the result.
   for t in 0 ..< teamCount:
     occTeam[t] = newSeq[int](gw * gh)
 
@@ -123,6 +129,8 @@ proc main() =
     # stopped early would silently stop proving determinism — the one thing
     # riding this loop that is free.
     if args.tickCap > 0 and sim.tickCount > args.tickCap:
+      for event in sim.events:
+        if event.kind == Capture: inc capturesAll
       sim.events.setLen(0)
       continue
     measuredTicks = sim.tickCount
@@ -141,6 +149,7 @@ proc main() =
       of FlagSteal: inc steals
       of Capture:
         inc captures
+        inc capturesAll
         # The geometry cross-check, evaluated on the SAME state the engine
         # scored from: was the credited scorer inside their own capture zone
         # on the capture tick? Checking the flag's `carrier` field instead
@@ -222,6 +231,19 @@ proc main() =
     if wall[i].getInt() == 1: continue
     inc deadOpen
     if occupancy[i] > 0: inc deadVisited
+  # HOW THE EPISODE ENDED, off the engine's own end state rather than guessed
+  # from the tick count. Without this the length column is unreadable: a 1940t
+  # episode and a 5120t episode are not "short" and "long", they are a game
+  # somebody WON and a game nobody won, and averaging them is meaningless. The
+  # tick-count guess ("under the cap = decided") is what this replaces — the
+  # cap is not in the replay at a fixed value and overshoots it by the game-over
+  # ceremony, so the guess is wrong at exactly the boundary that matters.
+  let outcome =
+    if sim.phase != GameOver: "unfinished"
+    elif sim.timeLimitReached: "timeLimit"
+    elif capturesAll > 0: "capture"
+    else: "elimination"
+
   # Rates divide by the MEASURED window, outcomes report the real episode
   # length. Under --ticks those differ, and dividing a windowed kill count by
   # the full episode length would understate pace by exactly the truncation.
@@ -258,6 +280,11 @@ proc main() =
     "closeRangePx": CloseRangePx,
     "measuredTicks": measuredTicks,
     "tickCap": args.tickCap,
+    "outcome": outcome,
+    "capturesAll": capturesAll,
+    "isDraw": sim.isDraw,
+    "winner": (if sim.phase == GameOver and not sim.isDraw: ord(sim.winner)
+               else: -1),
     "homes": homes,
     "spawns": spawns,
     "captureRadius": gameMap.endzoneRadius,
@@ -273,7 +300,7 @@ proc main() =
   if args.outPath.len > 0:
     writeFile(args.outPath, $evidence)
     stderr.writeLine "map_playtest: " & args.name & " " & $sim.tickCount &
-      "t  steals=" & $steals & " captures=" & $captures &
+      "t " & outcome & "  steals=" & $steals & " captures=" & $captures &
       " (of those, " & $capturesInZone & " verified inside the engine's own " &
       "capture zone; carrier stood in zone " & $carrierInZoneTicks &
       " tick(s)) -> " & args.outPath

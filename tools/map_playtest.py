@@ -28,13 +28,18 @@ Usage:
 """
 import json
 import math
+import os
 import sys
 from pathlib import Path
 
 import numpy as np
 from PIL import Image, ImageDraw
 
-GALLERY = Path("/tmp/ctf-map-gallery")
+GALLERY = Path(os.environ.get("CTF_MAP_GALLERY", "/tmp/ctf-map-gallery"))
+# One fixed gallery silently CLOBBERS across batches, and the collision is not
+# hypothetical: the same seed is a valid map at 2 and at 4 teams, so a 4-team
+# run of gen:1024 overwrites the 2-team run's heatmap and playtest.json with a
+# different board of the same name. Point CTF_MAP_GALLERY at a per-batch dir.
 
 # Team tints, in engine team order (Red, Blue, Green, Yellow).
 TEAM_RGB = [(176, 60, 40), (40, 96, 176), (52, 150, 78), (198, 158, 44)]
@@ -54,6 +59,7 @@ def merge(datas):
     base["episodeTicks"] = [d["ticks"] for d in datas]
     base["episodeCaptures"] = [d.get("captures", 0) for d in datas]
     base["episodeSteals"] = [d.get("steals", 0) for d in datas]
+    base["episodeOutcomes"] = [d.get("outcome", "?") for d in datas]
     for d in datas[1:]:
         if d["map"] != base["map"]:
             raise SystemExit(f"merge: {d['map']} != {base['map']}")
@@ -217,6 +223,34 @@ def heatmap(data, name):
     return wall, occ, path
 
 
+def pedestal_reach(data):
+    """Enemy presence at each team's own pedestal — the step BEFORE the steal.
+
+    "0 steals" has two completely different causes and the objective counters
+    cannot separate them: either nobody ever got to the enemy pedestal, or they
+    got there and kept dying on it. This walks the per-team occupancy grid over
+    the ring around each home and asks whether any OTHER team ever stood there.
+
+    Returns (reached, total, seat_ticks) — homes an enemy reached, homes there
+    are, and enemy seat-ticks summed over all of them.
+    """
+    gw, gh, cell = data["gw"], data["gh"], data["cell"]
+    per_team = [np.array(t, float).reshape(gh, gw) for t in data["occTeam"]]
+    radius = max(data.get("flagRing", 0) or data.get("captureRadius", 0), cell)
+    ys, xs = np.mgrid[0:gh, 0:gw]
+    reached = seat_ticks = 0
+    homes = data.get("homes", [])
+    for t, home in enumerate(homes):
+        ring = ((xs * cell + cell / 2 - home["x"]) ** 2 +
+                (ys * cell + cell / 2 - home["y"]) ** 2) <= radius ** 2
+        enemy = sum(per_team[o][ring].sum()
+                    for o in range(len(per_team)) if o != t)
+        seat_ticks += int(enemy)
+        if enemy > 0:
+            reached += 1
+    return reached, len(homes), seat_ticks
+
+
 def pct(x, width=0):
     """A fraction as a percentage, or an explicit '-' when it has no denominator.
 
@@ -298,7 +332,14 @@ def report(datas, control=None):
     conversion = (data["captures"] / data["steals"]
                   if data["steals"] > 0 else None)
     zone_rate = 1000.0 * data["carrierInZoneTicks"] / ticks
-    decided = sum(1 for c in data["episodeCaptures"] if c > 0)
+    # The engine's own end state, not a guess from the tick count. Three ways
+    # an episode can stop and they are three different results: somebody
+    # scored, somebody was wiped out, or nobody did anything for the whole
+    # clock. Only the first says the objective works on this map.
+    outcomes = data.get("episodeOutcomes", ["?"] * episodes)
+    decided = sum(1 for o in outcomes if o == "capture")
+    by_elim = sum(1 for o in outcomes if o == "elimination")
+    timed_out = sum(1 for o in outcomes if o == "timeLimit")
 
     # EXPOSURE, not episode count, is what actually drives dead space: it is
     # alive seat-ticks spread over the floor there is to cover. The same arena
@@ -351,6 +392,22 @@ def report(datas, control=None):
             flags.append(
                 f"one unvisited region of ~{biggest_dead * cell * cell:,}px² "
                 "— a whole wing nobody played")
+    reached, homes_n, reach_ticks = pedestal_reach(data)
+    # As a SHARE of alive time, not a raw count. The ring radius is a map
+    # property that varies 60..91px across the maps measured here, and episode
+    # length varies 2.7x, so a bare seat-tick count compares three things at
+    # once. The share removes the clock and the seat count and leaves the one
+    # thing being asked about: how much of its life the enemy spent on the
+    # objective rather than somewhere else.
+    reach_share = reach_ticks / max(1, data["aliveTicks"])
+    if data["steals"] == 0:
+        flags.append(
+            f"ZERO steals in {episodes} episode(s). An enemy stood inside "
+            f"{reached}/{homes_n} = {reached / max(1, homes_n):.0%} of the "
+            f"pedestal rings, for {reach_share:.3%} of alive time "
+            f"({reach_ticks:,} seat-ticks) — near 0 the objective was never "
+            "approached, and no conversion number from this map means "
+            "anything")
     if data["captures"] == 0 and data["steals"] > 0:
         flags.append(f"{data['steals']} steals converted to ZERO captures. "
                      f"The carrier stood in its own capture zone on "
@@ -389,11 +446,14 @@ def report(datas, control=None):
     print(f"\n=== {name}  ({episodes} episode(s), {data['ticks']} ticks total)")
     # Rule: each episode's length and result, individually. A mean hides that a
     # capture ended the episode.
-    for i, (t, c, s) in enumerate(zip(data["episodeTicks"],
-                                      data["episodeCaptures"],
-                                      data["episodeSteals"])):
-        outcome = f"{c} capture(s)" if c else "no capture"
-        print(f"    ep{i}: {t}t, {s} steal(s) -> {outcome}")
+    ends = {"capture": "WON ON THE OBJECTIVE", "elimination": "won by wipeout",
+            "timeLimit": "ran out the clock, nobody won",
+            "unfinished": "replay ends mid-game"}
+    for i, (t, c, s, o) in enumerate(zip(data["episodeTicks"],
+                                         data["episodeCaptures"],
+                                         data["episodeSteals"], outcomes)):
+        print(f"    ep{i}: {t:>5}t, {s} steal(s) -> {c} capture(s), "
+              f"{ends.get(o, o)}")
     role = "  [CONTROL — the reference, never the verdict]" if is_control else ""
     print(f"    dead space {dead_pct:.0%} of open floor "
           f"({visited}/{open_cells} cells visited; largest unvisited region "
@@ -408,8 +468,10 @@ def report(datas, control=None):
           f"captures ({data['capturesInZone']} verified in zone) = "
           f"{pct(conversion)} conversion, carrier in zone "
           f"{data['carrierInZoneTicks']}t ({zone_rate:.1f} per 1000t)")
-    print(f"    decided by capture: {decided}/{episodes} episode(s) = "
-          f"{decided / episodes:.0%}")
+    print(f"    how they ended: {decided}/{episodes} "
+          f"{decided / episodes:.0%} on the objective, {by_elim}/{episodes} "
+          f"{by_elim / episodes:.0%} by wipeout, {timed_out}/{episodes} "
+          f"{timed_out / episodes:.0%} out of clock")
     print(f"    heatmap {heat_path}")
     for f in flags:
         print(f"    FLAG: {f}")
@@ -431,6 +493,13 @@ def report(datas, control=None):
                 steals=data["steals"], captures=data["captures"],
                 capturesInZone=data["capturesInZone"],
                 conversion=conversion, decidedFrac=decided / episodes,
+                pedestalsReached=reached, pedestals=homes_n,
+                pedestalEnemyTicks=reach_ticks,
+                pedestalEnemyShare=reach_share,
+                pedestalRingPx=max(data.get("flagRing", 0)
+                                   or data.get("captureRadius", 0), cell),
+                episodeOutcomes=outcomes, wonByCapture=decided,
+                wonByElimination=by_elim, timedOut=timed_out,
                 carrierInZoneTicks=data["carrierInZoneTicks"],
                 carrierInZonePer1000t=zone_rate,
                 teams=teams,
@@ -455,41 +524,75 @@ def comparison(rows):
     ctrl = next((r for r in rows if r["isControl"]), None)
     w = max(13, max(len(n) for n in names) + 2)
 
-    def line(label, fn):
-        print(f"  {label:<26}" + "".join(f"{fn(by[n]):>{w}}" for n in names))
+    def frac(n, d):
+        return f"{n}/{d} {n / max(1, d) * 100:.0f}%"
+
+    # Built before it is printed so the column width can fit the widest cell.
+    # The episode-lengths row is several times wider than a percentage and a
+    # width guessed from the headers alone silently ran the columns together.
+    body = [
+        ("teams", lambda r: r["teams"]),
+        ("episodes", lambda r: r["episodes"]),
+        # Episode LENGTHS, all of them, never a mean: an episode stops when it
+        # is decided, so the spread IS the result and the average is an
+        # artefact of how many games ended early.
+        ("episode lengths", lambda r: " ".join(f"{t}t" for t in r["episodeTicks"])),
+        ("won on the objective", lambda r: frac(r["wonByCapture"], r["episodes"])),
+        ("won by wipeout", lambda r: frac(r["wonByElimination"], r["episodes"])),
+        ("out of clock, no winner", lambda r: frac(r["timedOut"], r["episodes"])),
+        None,
+        ("open floor (10px cells)", lambda r: f"{r['openCells']:,}"),
+        ("visited", lambda r: frac(r["visitedCells"], r["openCells"])),
+        ("DEAD SPACE", lambda r: f"{r['deadPct'] * 100:.0f}%"),
+        ("largest dead region", lambda r: f"{r['biggestDeadPx2']:,}px²"),
+        ("exposure (seat-t/cell)", lambda r: f"{r['exposure']:.1f}"),
+        None,
+        ("pedestals enemy reached", lambda r: frac(r["pedestalsReached"],
+                                                   r["pedestals"])),
+        ("enemy time at pedestal", lambda r:
+         f"{r['pedestalEnemyTicks']:,} {r['pedestalEnemyShare']:.3%}"),
+        ("pedestal ring radius", lambda r: f"{r['pedestalRingPx']}px"),
+        ("steals", lambda r: r["steals"]),
+        ("captures", lambda r: r["captures"]),
+        ("CONVERSION grab->cap", lambda r: pct(r["conversion"])),
+        ("carrier in zone /1000t", lambda r: f"{r['carrierInZonePer1000t']:.1f}"),
+        None,
+        ("deaths", lambda r: r["deaths"]),
+        ("kills/1000t", lambda r: f"{r['pace']:.1f}"),
+        ("contact, gun range", lambda r: f"{r['fightTimeFrac'] * 100:.0f}%"),
+        ("contact, close", lambda r: f"{r['closeContactFrac'] * 100:.0f}%"),
+        ("balance entropy", lambda r: f"{r['balanceEntropy']:.2f}"),
+    ]
+    cells = [(lab, [str(fn(by[n])) for n in names]) for lab, fn in
+             (b for b in body if b)]
+    w = max([len(n) + 3 for n in names] +
+            [len(v) + 2 for _, vs in cells for v in vs])
 
     print("\n" + "=" * (28 + w * len(names)))
     print("ONE-PAGE COMPARISON — generated vs arena, per metric")
-    header = "".join(
-        f"{n + ('*' if by[n]['isControl'] else ''):>{w}}" for n in names)
-    print(f"  {'':<26}{header}")
-    print(f"  {'':<26}" + "".join(f"{'CONTROL' if by[n]['isControl'] else '':>{w}}"
-                                  for n in names))
-    print("")
-    line("teams", lambda r: r["teams"])
-    line("episodes", lambda r: r["episodes"])
-    line("median episode length", lambda r: f"{sorted(r['episodeTicks'])[len(r['episodeTicks']) // 2]}t")
-    line("decided by a capture", lambda r:
-         f"{sum(1 for c in r['episodeCaptures'] if c)}/{r['episodes']} "
-         f"{r['decidedFrac'] * 100:.0f}%")
-    print("")
-    line("open floor (10px cells)", lambda r: f"{r['openCells']:,}")
-    line("visited", lambda r:
-         f"{r['visitedCells']:,} {r['visitedCells'] / max(1, r['openCells']) * 100:.0f}%")
-    line("DEAD SPACE", lambda r: f"{r['deadPct'] * 100:.0f}%")
-    line("largest dead region", lambda r: f"{r['biggestDeadPx2']:,}px²")
-    line("exposure (seat-t/cell)", lambda r: f"{r['exposure']:.1f}")
-    print("")
-    line("steals", lambda r: r["steals"])
-    line("captures", lambda r: r["captures"])
-    line("CONVERSION grab->cap", lambda r: pct(r["conversion"]))
-    line("carrier in zone /1000t", lambda r: f"{r['carrierInZonePer1000t']:.1f}")
-    print("")
-    line("deaths", lambda r: r["deaths"])
-    line("kills/1000t", lambda r: f"{r['pace']:.1f}")
-    line("contact, gun range", lambda r: f"{r['fightTimeFrac'] * 100:.0f}%")
-    line("contact, close", lambda r: f"{r['closeContactFrac'] * 100:.0f}%")
-    line("balance entropy", lambda r: f"{r['balanceEntropy']:.2f}")
+    if any(r["tickCapped"] for r in rows):
+        # The capped pass exists to make DEAD SPACE comparable, and truncation
+        # makes the steal/capture COUNTS below wrong: a capture at 4153t inside
+        # an 1890t window is real and invisible here. The three "how it ended"
+        # rows are safe — they read the engine's end state over the whole
+        # episode, not the windowed count.
+        print("  MEASURED OVER A CAPPED WINDOW ("
+              f"{max(r['measuredTicks'] // max(1, r['episodes']) for r in rows)}"
+              "t per episode). Dead space, contact and pace are comparable\n"
+              "  here and only here. Steals, captures and conversion are "
+              "TRUNCATED to the window — read those off the uncapped run.")
+    print(f"  {'':<26}" + "".join(
+        f"{n + ('*' if by[n]['isControl'] else ''):>{w}}" for n in names))
+    print(f"  {'':<26}" + "".join(
+        f"{'CONTROL' if by[n]['isControl'] else '':>{w}}" for n in names))
+    idx = 0
+    for entry in body:
+        if entry is None:
+            print("")
+            continue
+        lab, vals = cells[idx]
+        idx += 1
+        print(f"  {lab:<26}" + "".join(f"{v:>{w}}" for v in vals))
 
     print("")
     if ctrl is None:
