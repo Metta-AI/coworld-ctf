@@ -2458,8 +2458,19 @@ type
     reason*: string
     coverPermille*, minCoverPermille*: int
     openSightlineRows*: seq[int]
-      ## Every open row in the validator's historical 4px scan, not every
-      ## physical map row.
+      ## Every open row between the capture columns. Now EVERY occupiable row:
+      ## this was a 4px-strided scan starting inside the border gutter, so it
+      ## examined 3 of every 4 rows and the ones it did examine included rows
+      ## nothing can stand on.
+    maxOpenRunPx*: int
+      ## The longest unbroken open line inside the occupiable playfield, over
+      ## rows, columns AND both diagonals. REPORTED, never rejected — see the
+      ## note at the scan for what making it a rejection would cost. The rule
+      ## above can only see horizontal rays that cross an entire x-band whose
+      ## width varies with the endzone shape; this is the length the rule was
+      ## reaching for, on every axis.
+    maxOpenRunAxis*: string       ## "row", "column" or "diagonal"
+    maxOpenRunX*, maxOpenRunY*: int   ## where that line ends
     redHomeOnOpenFloor*: bool
     unreachableTeams*: seq[Team]
     centerReachable*: bool
@@ -2552,12 +2563,30 @@ proc collectMapDiagnostics(
 
   ## With map-wide guns no straight horizontal ray may survive between the
   ## capture columns (the property tests/test_map_los.nim pins for arena).
+  ##
+  ## THE SCAN HAD TWO HOLES, both closed here, neither of which changes the
+  ## rule itself:
+  ##
+  ##   * It stepped 4 px, so it never looked at 3 of every 4 rows. Measured
+  ##     (tools/scan_probe.nim): seeds 1001 and 1014 each ship a fully open row
+  ##     the scan has never examined. Stride is now 1.
+  ##   * It started at `ArenaBorder + 2`, inside the ~10 px strip between the
+  ##     border ring and the first floor a 13 px body can occupy. Rows in that
+  ##     strip are open on EVERY map by construction and can hold neither a
+  ##     shooter nor a target, so they were the only rows the exhaustive scan
+  ##     turned up. It now starts at the first occupiable row, which is what
+  ##     the rule always meant.
+  ##
+  ## Both changes together reject nothing that ships today — verified across
+  ## both hand-authored maps and the twenty curated pool seeds — while making
+  ## the rule check what it claims to check.
   block sightlines:
     let
       ax = gameMap.sightlineLoX
       bx = gameMap.sightlineHiX
-    var y = ArenaBorder + 2
-    while y < h - ArenaBorder:
+      firstOccupiable = ArenaBorder + MinCorridorWidth div 2
+    var y = firstOccupiable
+    while y < h - firstOccupiable:
       var blocked = false
       for x in ax .. bx:
         if minWall[y * w + x]:
@@ -2569,7 +2598,62 @@ proc collectMapDiagnostics(
           result.reason = "open horizontal sightline at y=" & $y
         if stopAfterFirstFailure:
           return
-      y += 4
+      inc y
+
+  ## THE LONGEST OPEN LINE, on all four axes. REPORTED, NOT REJECTED — read the
+  ## warning below before making it a failure.
+  ##
+  ## The rule above rejects a ray only when it crosses the ENTIRE
+  ## `sightlineLoX .. sightlineHiX` band, so the effective cap is that band's
+  ## width — 805 px on a column endzone but 1205 px on a compact one, i.e. the
+  ## cap moves with the endzone shape and on half the pool ends up WIDER THAN
+  ## THE GUN. It is also horizontal only, so a vertical or diagonal lane of any
+  ## length is invisible to it, and on 13 of 36 measured maps the longest open
+  ## line IS the diagonal.
+  ##
+  ## WHY THIS DOES NOT REJECT YET, stated rather than quietly chosen: a hard cap
+  ## at `GunRange` fails `arena-large` (1149 px, diagonal) and four curated pool
+  ## seeds (1074 px, horizontal). On the evidence that is a finding about those
+  ## maps and not about the cap — 1149 px of unbroken line on a board whose gun
+  ## reaches 1050 px is a lane neither end can contest, which is the exact
+  ## defect the horizontal rule exists to prevent. But flipping it to a
+  ## rejection retires a fifth of the curated pool and one of the two
+  ## hand-authored maps, and that is the epic owner's call to make with this
+  ## number in hand, not a side effect of measuring it. `map_metrics` bands
+  ## `sightlineMaxPx` at `GunRange` today, so the cost is already charged
+  ## against every map's score.
+  if not stopAfterFirstFailure:
+    ## Full-diagnostics path only: four O(w*h) scans is 24x the strided row
+    ## scan, and the generator's fast validator re-rolls up to 100 attempts.
+    ## Nothing rejects on this, so the fast path loses no verdict by skipping it.
+    let inset = ArenaBorder + MinCorridorWidth div 2
+    template scanRun(sx, sy, dx, dy: int, stepPx: float, axis: string) =
+      var
+        x = sx
+        y = sy
+        run = 0
+      while x >= 0 and x < w and y >= 0 and y < h:
+        if x < inset or y < inset or x >= w - inset or y >= h - inset or
+            minWall[y * w + x]:
+          run = 0
+        else:
+          inc run
+          let px = int(float(run) * stepPx)
+          if px > result.maxOpenRunPx:
+            result.maxOpenRunPx = px
+            result.maxOpenRunAxis = axis
+            result.maxOpenRunX = x
+            result.maxOpenRunY = y
+        x += dx
+        y += dy
+    for y in 0 ..< h:
+      scanRun(0, y, 1, 0, 1.0, "row")
+      scanRun(0, y, 1, 1, 1.41421356, "diagonal")
+      scanRun(0, y, 1, -1, 1.41421356, "diagonal")
+    for x in 0 ..< w:
+      scanRun(x, 0, 0, 1, 1.0, "column")
+      scanRun(x, 0, 1, 1, 1.41421356, "diagonal")
+      scanRun(x, h - 1, 1, -1, 1.41421356, "diagonal")
   if diagnosticWallMasks in artifacts:
     result.minWall = minWall
   else:

@@ -98,19 +98,21 @@ when isMainModule:
       &"{teams} teams, absent from every number below: " & ungenerated.join(", ")
   echo ""
   echo &"""{"map":<16}{"size":>10}{"score":>7} | """ &
-    &"""{"axP95":>6}{"axMax":>6}{"axLong":>7} | """ &
-    &"""{"dgP95":>6}{"dgMax":>6}{"dgLong":>7} | """ &
-    &"""{"chk":>4}{"tight":>6}{"exp":>6}{"allow":>6}{"cov":>4} | """ &
-    &"""{"stCovMin":>9}{"stCovMax":>9} | {"routes":>7}"""
+    &"""{"SIGHT":>6}{"axis":>9}{"axLng%":>7}{"dgLng%":>7} | """ &
+    &"""{"chk":>4}{"wide":>5}{"exp":>5}{"allw":>5}{"exc":>5}""" &
+    &"""{"cv259":>6}{"cv1050":>7} | """ &
+    &"""{"stCov%":>7}{"gapPx":>6} | {"rts":>4}"""
   for r in rows:
     let m = r.m
     echo &"{r.label:<16}{m.width}x{m.height:<5}{m.staticScore():7.3f} | " &
-      &"{m.openRunP95Px:6}{m.openRunMaxPx:6}{m.longRunFrac * 100:6.1f}% | " &
-      &"{m.diagRunP95Px:6}{m.diagRunMaxPx:6}{m.diagLongRunFrac * 100:6.1f}% | " &
-      &"{m.chokeCount:4}{m.chokeMinClearPx:6}{m.chokeExposed:6}" &
-      &"{m.chokeAllowed:6}{(if m.chokeCovered: \"YES\" else: \" no\"):>4} | " &
-      &"{m.standCoverMin * 100:8.1f}%{m.standCoverMax * 100:8.1f}% | " &
-      &"{m.routeCountMin:7}"
+      &"{m.sightlineMaxPx:6}{m.sightlineAxis:>9}" &
+      &"{m.longRunPxFrac * 100:6.1f}%{m.diagLongRunPxFrac * 100:6.1f}% | " &
+      &"{m.chokeCount:4}{m.routeWidthPx:5}{m.chokeExposed:5}" &
+      &"{m.chokeAllowed:5}{m.chokeExcess:5}" &
+      &"{(if m.chokeCovered: \"YES\" else: \"no\"):>6}" &
+      &"{(if m.chokeCoveredAtGunRange: \"YES\" else: \"no\"):>7} | " &
+      &"{m.standCoverMin * 100:6.1f}%{m.standCoverGapMaxPx:6} | " &
+      &"{m.routeCountMin:4}"
 
   echo ""
   echo "DISTRIBUTION over the non-control rows:"
@@ -120,23 +122,48 @@ when isMainModule:
     if v.len == 0: return
     echo &"  {name:<20} arena {get(rows[0].m):8.3f}  large {get(rows[1].m):8.3f}   " &
       v.spreadOf()
+  column("sightlineMaxPx", proc (m: MapMetrics): float = m.sightlineMaxPx.float)
   column("axis runP95", proc (m: MapMetrics): float = m.openRunP95Px.float)
   column("axis runMax", proc (m: MapMetrics): float = m.openRunMaxPx.float)
   column("longRunFrac", proc (m: MapMetrics): float = m.longRunFrac)
+  column("longRunPxFrac", proc (m: MapMetrics): float = m.longRunPxFrac)
   column("diag runP95", proc (m: MapMetrics): float = m.diagRunP95Px.float)
   column("diag runMax", proc (m: MapMetrics): float = m.diagRunMaxPx.float)
   column("diagLongRunFrac", proc (m: MapMetrics): float = m.diagLongRunFrac)
+  column("diagLongRunPxFrac",
+    proc (m: MapMetrics): float = m.diagLongRunPxFrac)
+  column("routeWidthPx", proc (m: MapMetrics): float = m.routeWidthPx.float)
   column("chokeCount", proc (m: MapMetrics): float = m.chokeCount.float)
+  column("pinchGateCount", proc (m: MapMetrics): float = m.pinchGateCount.float)
+  column("pinchMandatory",
+    proc (m: MapMetrics): float = m.pinchMandatoryCount.float)
   column("chokeExposedPx", proc (m: MapMetrics): float = m.chokeExposed.float)
   column("chokeExcessPx", proc (m: MapMetrics): float = m.chokeExcess.float)
-  column("chokeCovered", proc (m: MapMetrics): float =
+  column("covered @259", proc (m: MapMetrics): float =
     if m.chokeCount > 0 and m.chokeCovered: 1.0 else: 0.0)
+  column("covered @1050", proc (m: MapMetrics): float =
+    if m.chokeCount > 0 and m.chokeCoveredAtGunRange: 1.0 else: 0.0)
   column("standCoverMin", proc (m: MapMetrics): float = m.standCoverMin)
+  column("standCoverGapPx",
+    proc (m: MapMetrics): float = m.standCoverGapMaxPx.float)
   column("standCoverSpread",
     proc (m: MapMetrics): float = m.standCoverMax - m.standCoverMin)
   column("routeCountMin", proc (m: MapMetrics): float = m.routeCountMin.float)
   column("visDegreeCv", proc (m: MapMetrics): float = m.visDegreeCv)
+  column("visLethalDegCv", proc (m: MapMetrics): float = m.visLethalDegreeCv)
+  column("visSampleStride",
+    proc (m: MapMetrics): float = m.visSampleStridePx.float)
   column("staticScore", proc (m: MapMetrics): float = m.staticScore())
+
+  echo ""
+  echo "HARD GATE (the sim's own validator, run on every row including both " &
+    "controls):"
+  var gated = 0
+  for r in rows:
+    if not r.m.valid:
+      inc gated
+      echo &"  REJECTED {r.label:<16} {r.m.reason}"
+  echo &"  {gated} of {rows.len} rejected."
 
   echo ""
   echo "BAND BREACHES (the control's breaches are METRIC BUGS, not verdicts):"

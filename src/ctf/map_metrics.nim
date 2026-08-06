@@ -67,6 +67,11 @@
 
 import std/[algorithm, math, strformat, strutils]
 import sim_types, arena
+# `map_lanes` for the length-aware pinch predicate ONLY. It deliberately does
+# not import `arena` (that would be a cycle), so the dependency can point this
+# way and the chokepoint length is the same number the corridor rule uses
+# rather than a second implementation of it.
+import map_lanes
 
 # ---------------------------------------------------------------------------
 # Tunables. Every bound is calibrated against the hand-authored arena; see
@@ -85,9 +90,38 @@ const
   CoveredBlockedMin* = 3
   ExposedBlockedMax* = 1
   LongRunPx* = 600
-    ## An open axis run longer than this is a gallery shot.
+    ## An open run longer than this is a gallery shot. Hand-picked, and it
+    ## survives the lethality audit by luck rather than derivation: the derived
+    ## figure is `2 * LethalEnvelopePx` = 518 px (a lane in which two players
+    ## can engage from opposite ends and neither can leave), which 600 clears
+    ## by 16%. Left where it is because every band below is calibrated on it;
+    ## noted here so the next person does not have to re-derive it.
+  SightlineCapPx* = GunRange
+    ## THE HARD CAP on an unbroken open line, on any of the four scan axes.
+    ##
+    ## This is the arena validator's own horizontal rule, said as a LENGTH
+    ## instead of as a crossing. That rule rejects a ray only when it clears
+    ## the entire `sightlineLoX .. sightlineHiX` band — which is 805 px wide on
+    ## a column-endzone map but 1205 px on a compact-endzone one, so the
+    ## effective cap moved with the endzone shape and on half the pool ended up
+    ## WIDER THAN THE GUN. Four curated pool seeds ship an open row longer than
+    ## `GunRange` and every one of them passes today.
+    ##
+    ## A lane longer than the gun's own reach cannot be contested from either
+    ## end, which is the thing "with map-wide guns no straight ray may survive"
+    ## was reaching for.
   StandCoverRadiusPx* = 200
     ## The cover budget that decides whether a stolen flag can be defended.
+  StandCoverFloorPermille* = 15
+    ## THE ABSOLUTE stand-side cover floor, as permille of the 200px disc.
+    ##
+    ## Until this existed the objective carried only a fairness SPREAD, and a
+    ## spread cannot express a floor: two equally NAKED stands both score a
+    ## spread of 0 and pass. This is the one causally-established property in
+    ## the suite, and it was the one going unenforced.
+    ##
+    ## Calibrated as a NAKEDNESS detector, not a quality bar — see the band's
+    ## note for why the fraction cannot carry a quality bar at all.
   RouteCellPx* = 26
     ## Coarse routing cell. Mirrors arena.nim's (unexported) MinCorridorWidth
     ## = 26, the narrowest corridor the 13px player footprint can use, so one
@@ -99,9 +133,36 @@ const
     ## Ceiling on how many narrow cells get the (linear) cut test, taken
     ## narrowest-first. Bounds a giant board's cost without changing the answer
     ## on any board small enough to test exhaustively.
-  IsovistRangePx* = GunRange
-    ## 1050px. The range cap on the "can one vantage point watch every
-    ## chokepoint" test — beyond gun range, watching is not covering.
+  IsovistRangePx* = LethalEnvelopePx
+    ## 259px. The range cap on the "can one vantage point watch every
+    ## chokepoint" test.
+    ##
+    ## THIS WAS `GunRange` = 1050 AND WAS THEREFORE ABOUT 4x TOO WIDE. Gun range
+    ## is a REACH, not an engagement range: aim is 32 discrete slots 11.25 deg
+    ## apart with no aim assist, a shot is accepted against the 13px SOLID body,
+    ## and the jitter sigma is 9.4x smaller than the half-slot — so the LATTICE
+    ## decides, and `P(hit)` is 0.47 at 300px and 0.14 at gun range, where TTK
+    ## is over ten seconds and nobody is fighting. Covering a chokepoint means
+    ## being able to KILL into it; a camper who can see a doorway 900px away and
+    ## cannot hit anyone standing in it is not covering it.
+    ##
+    ## `map_rules.LethalEnvelopePx` carries the derivation and the three
+    ## independent constants that converge on it (FieldAccuracyPct is achieved
+    ## at 259px; `GrenadeMaxRange` = `GunRange div 4` = 262px; the observed
+    ## 1.0-1.9s TTK band implies 142-225px). `ChokepointSpacingPx` and
+    ## `MinPickupSpacingPx` were already moved onto it — this metric was the
+    ## straggler.
+    ##
+    ## DIRECTION OF THE CHANGE, stated because it is the counter-intuitive one:
+    ## a SMALLER isovist makes the "one camper owns every route" penalty fire
+    ## LESS often, not more. That is correct. The old radius was flagging maps
+    ## whose chokepoints merely fell in one field of view.
+  VisionPairRangePx* = GunRange
+    ## The pair cutoff for the visibility graph, deliberately still on the
+    ## AWARENESS axis: that graph asks who can SEE whom, and the answer changes
+    ## how a player reads a board even where they cannot shoot. The lethal-range
+    ## twin is measured alongside it (`visLethalDegree*`) and is the one to read
+    ## for any density or encounter claim — see the audit note on `MapMetrics`.
   LosStridePx* = 3
     ## Line-of-sight sampling stride. Finer than the thinnest wall feature
     ## (12px), the same rule `rectOnOpenFloor` samples by.
@@ -140,9 +201,42 @@ type
     exposedFrac*: float           ## <= 1 of 8
 
     # --- vision -------------------------------------------------------------
+    # EVERY open run below is measured BETWEEN OCCUPIABLE ENDS: the ray must
+    # cross no `minWall`, and its two endpoints must both be `corridorOpen`,
+    # i.e. floor a player can actually stand on. A line nobody can stand at
+    # either end of is not a firing lane.
+    #
+    # Every board carries a ~10px strip between the border ring's inner edge
+    # and the first floor a body can occupy, and it runs unbroken around the
+    # whole map — so before this condition the longest run on EVERY map,
+    # including both controls, was seeded in it: `arena`'s longest row at
+    # y = 10, its longest column at x = 10, its longest diagonal from (12,10).
+    #
+    # HOW MUCH IT MOVED, because the honest answer is "less than the seeding
+    # suggested": those runs are ANCHORED in the gutter but they travel through
+    # real playfield, so trimming the unoccupiable tails costs 3-4%, not the
+    # whole number. arena 663 -> 638 px row and 790 -> 758 px diagonal;
+    # arena-large 868 -> 843 and 1185 -> 1149. The condition matters because it
+    # makes the number mean what it says — NOT because it was hiding a lane,
+    # and anyone re-deriving a bound here should expect a trim, not a cliff.
     openRunP50Px*, openRunP95Px*, openRunMaxPx*: int
     longRunFrac*: float           ## share of axis runs over LongRunPx
+    longRunPxFrac*: float
+      ## Share of scanned open PIXELS lying on a run over LongRunPx.
+      ##
+      ## The count-share above cannot be compared between the axis and diagonal
+      ## scans, and that is not a nuance — it is the reason the diagonal
+      ## measurement could not gate. The diagonal scan emits a run for every one
+      ## of the ~2(w+h) diagonals, most of them short corner clips, so the same
+      ## board reads 11.0% long by axis count and 0.2% by diagonal count while
+      ## its longest diagonal is LONGER than its longest row. Weighting by pixel
+      ## makes the two scans the same measurement and makes both scale-free.
     clearP50Px*, clearP95Px*: int ## distance transform over open floor
+    sightlineMaxPx*: int
+      ## The longest open run found on ANY of the four scan axes — rows,
+      ## columns and both diagonals — the single number `SightlineCapPx` gates.
+    sightlineAxis*: string        ## which axis carried it, for a caller to look
+    sightlineX*, sightlineY*: int ## and where it starts
     diagRunP95Px*, diagRunMaxPx*: int
       ## The SAME open-run scan along both 45-degree diagonals, length scaled
       ## to px by sqrt(2) per step. Reported SEPARATELY from the axis runs on
@@ -159,7 +253,16 @@ type
       ## generator optimised against it would be rewarded for building one.
       ## Measure the hole first; fold it into the gate only once we know what
       ## the control actually scores.
+      ##
+      ## THE HOLE IS NOW MEASURED AND THE ANSWER WAS NOT THE OBVIOUS ONE. The
+      ## diagonal really is the longest line on both controls (arena 790px vs
+      ## 663px axis; arena-large 1185px vs 868px) — but every one of those runs
+      ## was seeded in the border gutter, and once runs are measured between
+      ## occupiable ends the picture changes. Read `diagLongRunPxFrac`, which is
+      ## the gated form; the count-share below is kept only because it is what
+      ## the axis band was historically calibrated on.
     diagLongRunFrac*: float       ## share of DIAGONAL runs over LongRunPx
+    diagLongRunPxFrac*: float     ## the pixel-weighted twin: the gated form
 
     # --- routes (vertex-disjoint max-flow per base pair) --------------------
     routeCountMin*, routeCountMax*: int
@@ -176,8 +279,33 @@ type
     chokeCount*: int
     chokeMinClearPx*: int
     chokeX*, chokeY*: seq[int]    ## where each one is, so a caller can look
-    chokeCovered*: bool           ## ONE 1050px isovist sees every chokepoint
+    chokeCovered*: bool           ## ONE 259px isovist sees every chokepoint
     chokeCoverX*, chokeCoverY*: int
+    chokeCoveredAtGunRange*: bool
+      ## The same test at the OLD 1050px radius, kept so the ~4x re-cut is a
+      ## printed before/after rather than a claim. Reported, never gated.
+
+    # --- chokepoint PINCH LENGTH (map_lanes.auditCorridorPinches) -----------
+    # A 40px doorway and a 40 x 400px shooting gallery are the same chokepoint
+    # to a detector that only measures WIDTH, and until these fields existed
+    # they scored identically. The length-aware predicate lives in `map_lanes`
+    # and is reused here rather than reimplemented (rule 3).
+    routeWidthPx*: int
+      ## The widest sustained corridor the map delivers between bases. READ
+      ## THIS FIRST when a pinch overruns: a board whose route width is 26px
+      ## does not have a chokepoint problem, it has no corridors.
+    pinchGateCount*: int          ## gates found across all independent routes
+    pinchMandatoryCount*: int     ## the subset that are genuine, unavoidable cuts
+    chokeExposedPx*: int
+      ## The worst UNBROKEN SIGHTLINE a mandatory pinch holds a player in.
+      ## Exposure, not arc length: a passage that bends resets the defender's
+      ## clock at every corner, and gating on walked length rejects the
+      ## hand-authored arena.
+    chokeAllowedPx*: int          ## `maxPinchRunPx` at that pinch's own width
+    chokeExcessPx*: int
+      ## `chokeExposedPx - chokeAllowedPx`. Positive is a kill box: an
+      ## unavoidable pinch longer than a player can clear alive at its width.
+      ## THE gated quantity — 0 when the map has no mandatory pinch at all.
 
     # --- the collision point: where a multi-source race from all N bases meets
     collisionX*, collisionY*: int
@@ -189,6 +317,18 @@ type
     # --- the objective, per team -------------------------------------------
     standCover*: seq[float]       ## wall fraction within 200px of each stand
     standCoverMin*, standCoverMax*: float
+    standCoverGapPx*: seq[int]
+      ## Distance from each stand to the NEAREST cover a carrier could break
+      ## line of sight behind, ignoring the board's own border ring. Capped at
+      ## `StandCoverRadiusPx + 1` when the disc holds no cover at all.
+      ##
+      ## This is the scale-free form of the same property, and it is the one
+      ## with causal force: `MaxExposedRunPx` = 132px is how far a player
+      ## travels while a shooter kills them, so a stand whose nearest cover is
+      ## further than that is a stand a carrier cannot leave alive. The area
+      ## FRACTION cannot say this — halve every obstacle's spacing and the
+      ## fraction is unchanged.
+    standCoverGapMaxPx*: int      ## the worst-served stand
     standRingOpen*: seq[float]    ## open fraction of the ring around each stand
     standRingArcs*: seq[int]      ## distinct walkable approaches
     standRingOpenMin*, standRingOpenMax*: float
@@ -203,11 +343,26 @@ type
     detourMin*, detourMax*, detourMean*: float
 
     # --- visibility graph ---------------------------------------------------
+    # AUDIT NOTE, since this is the other place a range constant sets a
+    # density: the graph below is cut at `VisionPairRangePx` = GunRange, which
+    # is the AWARENESS axis and is the right axis for "how evenly is this board
+    # seen". Any claim about ENCOUNTERS or LETHAL contact must be read off the
+    # `visLethalDegree*` twin instead — `2 * lambda` is 4x `EngagementWidthPx`,
+    # so an encounter law computed on sightlines overstates lethal contact
+    # ~16x. The twin is reported and not banded, for one honest reason: the
+    # sample stride grows with the board to hold the sample cap, so on a giant
+    # board a 259px cut leaves each sample only a handful of in-range partners
+    # and its CV is sampling noise. Fixing that needs a range-tied stride,
+    # which is a separate change.
     visSamples*: int
     visDegreeMean*: float
     visDegreeFrac*: float         ## mean degree / (samples - 1): scale-free
     visDegreeP10*, visDegreeP90*: float
     visDegreeCv*: float           ## std/mean — how uneven exposure is
+    visSampleStridePx*: int       ## what the cap forced; read it before the CV
+    visLethalDegreeMean*: float   ## the same graph cut at LethalEnvelopePx
+    visLethalDegreeFrac*: float
+    visLethalDegreeCv*: float
 
   MapPlay* = object
     ## DYNAMIC fitness, merged over >= 3 episodes. Populated by the playtest
@@ -790,72 +945,121 @@ proc evaluateMap*(gameMap: CtfMap, name = ""): MapMetrics =
   result.coveredFrac = covered.float / openF
   result.exposedFrac = exposed.float / openF
 
-  # --- open runs (vision: minWall, the mask a lane opens through) ---------
+  # --- open runs -----------------------------------------------------------
+  # WHICH PIXELS COUNT. The ray is traced on `minWall` (a lane that opens at
+  # any frame IS an open lane) but a run is only as long as the OCCUPIABLE
+  # floor at its two ends: a firing lane needs somewhere for the shooter to
+  # stand and somewhere for the target to be, and `corridorOpen` is the
+  # validator's own answer to where that is.
+  #
+  # Without that condition the scan measures the BORDER GUTTER. Every board
+  # here carries a 10px strip between the border ring's inner edge and the
+  # first floor a 13px body can occupy, and it runs unbroken around the whole
+  # map — so on `arena` the longest row (663px at y=10), the longest column
+  # (639px at x=10) and the longest diagonal (790px from (12,10)) were all in
+  # it. Those were the control's headline vision numbers, all three measured on
+  # ground no player has ever stood on, and every band cut from them inherited
+  # the error.
   var
     runHist = newSeq[int](max(w, h) + 2)
     runTotal, longRuns = 0
+    runPxTotal, longRunPx = 0
   template noteRun(length: int) =
+    ## `length` is already the occupiable-end-to-occupiable-end span, in px.
     if length > 0:
       inc runHist[min(length, runHist.len - 1)]
       inc runTotal
-      if length > LongRunPx: inc longRuns
-  for y in 0 ..< h:
-    var run = 0
-    for x in 0 ..< w:
-      if minWall[y * w + x]:
-        noteRun(run); run = 0
-      else: inc run
-    noteRun(run)
-  for x in 0 ..< w:
-    var run = 0
-    for y in 0 ..< h:
-      if minWall[y * w + x]:
-        noteRun(run); run = 0
-      else: inc run
-    noteRun(run)
-  # --- diagonal open runs (the axis scan above cannot see these at all) ----
-  # Same mask, same LongRunPx bar, but stepping (+1,+1) and (+1,-1). A run of
-  # n diagonal cells spans n*sqrt(2) px, so lengths are scaled before being
-  # histogrammed — otherwise a diagonal lane reads 29% shorter than the axis
-  # lane it is exactly as dangerous as.
-  var
-    diagHist = newSeq[int](int(float(max(w, h)) * 1.4143) + 2)
-    diagTotal, diagLong = 0
-  template noteDiag(cells: int) =
-    if cells > 0:
-      let px = int(float(cells) * 1.41421356)
-      inc diagHist[min(px, diagHist.len - 1)]
-      inc diagTotal
-      if px > LongRunPx: inc diagLong
-  template scanDiag(sx, sy, dy: int) =
+      runPxTotal += length
+      if length > LongRunPx:
+        inc longRuns
+        longRunPx += length
+  result.sightlineAxis = "none"
+
+  # One scan body for all four axes. `stepPx` is how far one step travels: 1 px
+  # along a row or column, sqrt(2) along a diagonal, so a diagonal lane is not
+  # reported 29% shorter than the axis lane it is exactly as dangerous as.
+  template scanLine(sx, sy, dx, dy: int, stepPx: float, axis: string,
+                    hist: var seq[int], total, long, pxTotal, longPx: var int) =
     var
       x = sx
       y = sy
-      run = 0
+      firstOcc = -1                ## step index of the first occupiable pixel
+      lastOcc = -1
+      ox, oy = 0                   ## and where that first one was
+      steps = 0
+    template flush() =
+      if firstOcc >= 0 and lastOcc > firstOcc:
+        let length = int(float(lastOcc - firstOcc) * stepPx)
+        if length > 0:
+          inc hist[min(length, hist.len - 1)]
+          inc total
+          pxTotal += length
+          if length > LongRunPx:
+            inc long
+            longPx += length
+          if length > result.sightlineMaxPx:
+            result.sightlineMaxPx = length
+            result.sightlineAxis = axis
+            result.sightlineX = ox
+            result.sightlineY = oy
+      firstOcc = -1
+      lastOcc = -1
     while x >= 0 and x < w and y >= 0 and y < h:
-      if minWall[y * w + x]:
-        noteDiag(run); run = 0
-      else: inc run
-      x += 1
+      let i = y * w + x
+      if minWall[i]:
+        flush()
+      elif corridor[i]:
+        if firstOcc < 0:
+          firstOcc = steps
+          ox = x
+          oy = y
+        lastOcc = steps
+      inc steps
+      x += dx
       y += dy
-    noteDiag(run)
+    flush()
+
+  for y in 0 ..< h:
+    scanLine(0, y, 1, 0, 1.0, "row", runHist, runTotal, longRuns,
+             runPxTotal, longRunPx)
+  for x in 0 ..< w:
+    scanLine(x, 0, 0, 1, 1.0, "column", runHist, runTotal, longRuns,
+             runPxTotal, longRunPx)
+
+  # --- diagonal open runs (the axis scan above cannot see these at all) ----
+  # Reported SEPARATELY because every axis band is calibrated on the axis
+  # histogram, and folding the diagonals into it would move every bound and the
+  # control with them, which is not a measurement.
+  var
+    diagHist = newSeq[int](int(float(max(w, h)) * 1.4143) + 2)
+    diagTotal, diagLong = 0
+    diagPxTotal, diagLongPx = 0
+  const Sqrt2 = 1.41421356
   for y in 0 ..< h:          # "\" diagonals, seeded down the left edge
-    scanDiag(0, y, 1)
+    scanLine(0, y, 1, 1, Sqrt2, "diagonal", diagHist, diagTotal, diagLong,
+             diagPxTotal, diagLongPx)
   for x in 1 ..< w:          # ...and along the top edge
-    scanDiag(x, 0, 1)
+    scanLine(x, 0, 1, 1, Sqrt2, "diagonal", diagHist, diagTotal, diagLong,
+             diagPxTotal, diagLongPx)
   for y in 0 ..< h:          # "/" diagonals, seeded down the left edge
-    scanDiag(0, y, -1)
+    scanLine(0, y, 1, -1, Sqrt2, "diagonal", diagHist, diagTotal, diagLong,
+             diagPxTotal, diagLongPx)
   for x in 1 ..< w:          # ...and along the bottom edge
-    scanDiag(x, h - 1, -1)
+    scanLine(x, h - 1, 1, -1, Sqrt2, "diagonal", diagHist, diagTotal, diagLong,
+             diagPxTotal, diagLongPx)
   result.diagRunP95Px = percentileOf(diagHist, diagTotal, 0.95)
   result.diagRunMaxPx = percentileOf(diagHist, diagTotal, 1.0)
   result.diagLongRunFrac =
     if diagTotal > 0: diagLong.float / diagTotal.float else: 0.0
+  result.diagLongRunPxFrac =
+    if diagPxTotal > 0: diagLongPx.float / diagPxTotal.float else: 0.0
 
   result.openRunP50Px = percentileOf(runHist, runTotal, 0.50)
   result.openRunP95Px = percentileOf(runHist, runTotal, 0.95)
   result.openRunMaxPx = percentileOf(runHist, runTotal, 1.0)
   result.longRunFrac = longRuns.float / max(1, runTotal).float
+  result.longRunPxFrac =
+    if runPxTotal > 0: longRunPx.float / runPxTotal.float else: 0.0
 
   # --- distance transform (chamfer 3-4 on maxWall, the validator's own) ---
   var dist = newSeq[int32](w * h)
@@ -1056,21 +1260,35 @@ proc evaluateMap*(gameMap: CtfMap, name = ""): MapMetrics =
   for home in anchors:
     var near, nearWall = 0
     let r = StandCoverRadiusPx
+    # ...and the distance to the nearest cover a carrier could actually use.
+    # The board's own BORDER RING is excluded: it is wall on every map, it is
+    # always within a stand's disc on a column endzone, and counting it would
+    # hand every naked stand a perfect score off the engine's own geometry —
+    # the same reason the route metric and the chokepoint detector cut out the
+    # protected spawn pocket.
+    var gap2 = (r + 1) * (r + 1)
     for y in max(0, home.y - r) .. min(h - 1, home.y + r):
       for x in max(0, home.x - r) .. min(w - 1, home.x + r):
         let
           dx = x - home.x
           dy = y - home.y
-        if dx * dx + dy * dy > r * r: continue
+          d2 = dx * dx + dy * dy
+        if d2 > r * r: continue
         inc near
-        if maxWall[y * w + x]: inc nearWall
+        if maxWall[y * w + x]:
+          inc nearWall
+          if x >= ArenaBorder and y >= ArenaBorder and
+              x < w - ArenaBorder and y < h - ArenaBorder and d2 < gap2:
+            gap2 = d2
     result.standCover.add nearWall.float / max(1, near).float
+    result.standCoverGapPx.add min(int(sqrt(gap2.float)), r + 1)
     let ring = standRing(maxWall, w, h, home.x, home.y, ringRadius)
     result.standRingOpen.add ring.openFrac
     result.standRingArcs.add ring.arcs
   if result.standCover.len > 0:
     result.standCoverMin = min(result.standCover)
     result.standCoverMax = max(result.standCover)
+    result.standCoverGapMaxPx = max(result.standCoverGapPx)
     result.standRingOpenMin = min(result.standRingOpen)
     result.standRingOpenMax = max(result.standRingOpen)
 
@@ -1211,43 +1429,86 @@ proc evaluateMap*(gameMap: CtfMap, name = ""): MapMetrics =
       tightest = min(tightest, g.clearPx[c])
     result.chokeMinClearPx = tightest
 
-  # One vantage that watches every chokepoint is one camper who owns the map.
-  # Range-capped at gun range: beyond it, watching is not covering.
+  # One vantage that can KILL INTO every chokepoint is one camper who owns the
+  # map. Range-capped at the LETHAL envelope, not at gun range: see
+  # `IsovistRangePx` for why that cap was ~4x too wide, and note the direction
+  # — a tighter cap makes this penalty fire LESS often, which is the point.
+  #
+  # Run at both radii so the re-cut is a printed before/after on every map
+  # rather than an assertion. The line-of-sight test is the expensive half and
+  # the range test is a subtraction, so the second radius is nearly free.
   block isovist:
     if chokes.len == 0:
       result.chokeCovered = false
+      result.chokeCoveredAtGunRange = false
       break isovist
     if chokes.len == 1:
-      # A single forced doorway is trivially covered — by standing on it.
+      # A single forced doorway is trivially covered — by standing on it. True
+      # at any radius, so both readings agree here by construction.
       result.chokeCovered = true
+      result.chokeCoveredAtGunRange = true
       result.chokeCoverX = g.cellX(chokes[0])
       result.chokeCoverY = g.cellY(chokes[0])
       break isovist
     for i in 0 ..< g.open.len:
       if not g.open[i]: continue
+      if result.chokeCovered and result.chokeCoveredAtGunRange: break
       let
         vx = g.cellX(i)
         vy = g.cellY(i)
-      var inRange = true
+      var
+        lethalRange = true
+        gunRange = true
       for c in chokes:
         let
           dx = g.cellX(c) - vx
           dy = g.cellY(c) - vy
-        if dx * dx + dy * dy > IsovistRangePx * IsovistRangePx:
-          inRange = false
-          break
-      if not inRange: continue
+          d2 = dx * dx + dy * dy
+        if d2 > IsovistRangePx * IsovistRangePx: lethalRange = false
+        if d2 > VisionPairRangePx * VisionPairRangePx: gunRange = false
+      if not gunRange: continue    ## the wider of the two: nothing to learn here
       var sees = true
       for c in chokes:
         if not losClear(minWall, w, h, vx, vy,
                         g.cellX(c), g.cellY(c)):
           sees = false
           break
-      if sees:
+      if not sees: continue
+      result.chokeCoveredAtGunRange = true
+      if lethalRange and not result.chokeCovered:
         result.chokeCovered = true
         result.chokeCoverX = vx
         result.chokeCoverY = vy
-        break isovist
+
+  # --- chokepoint PINCH LENGTH --------------------------------------------
+  # The detector above answers "is this floor a genuine cut, and how WIDE is
+  # it". That cannot tell a 40px doorway from a 40 x 400px shooting gallery:
+  # both are one cut at 40px clearance and they scored identically. The missing
+  # dimension is LENGTH, and the length that matters is unbroken sightline, not
+  # arc — a passage that bends resets the defender's clock at every corner.
+  #
+  # `map_lanes.auditCorridorPinches` is that predicate, already derived (66px
+  # allowed at a 30px pinch, grading to 132px at 62px+) and already calibrated
+  # against this same control. Reused whole rather than reimplemented, on the
+  # module's own rule 3, and run on `maxWall` — the pessimistic mask for
+  # movement, which is the mask its own doc string asks for.
+  block pinch:
+    if anchors.len < 2: break pinch
+    let audit = auditCorridorPinches(maxWall, w, h, anchors)
+    result.routeWidthPx = audit.routeWidthPx
+    result.pinchGateCount = audit.gates.len
+    result.pinchMandatoryCount = audit.chokepoints.len
+    # `chokepoints` is the MANDATORY subset — a gallery you can walk around is
+    # a flank, not a kill box, and the arena settles that: it ships a straight
+    # 188px channel of 36px floor and plays well because it is one optional
+    # lane among eight.
+    var worst = low(int)
+    for r in audit.chokepoints:
+      if r.excessPx > worst:
+        worst = r.excessPx
+        result.chokeExposedPx = r.exposedPx
+        result.chokeAllowedPx = r.allowedPx
+    result.chokeExcessPx = if worst == low(int): 0 else: worst
 
   # --- visibility graph ---------------------------------------------------
   block visibility:
@@ -1265,32 +1526,47 @@ proc evaluateMap*(gameMap: CtfMap, name = ""): MapMetrics =
       if sample.len <= VisibilitySampleCap or stride > max(w, h): break
       stride = int(float(stride) * 1.3) + 1
     result.visSamples = sample.len
+    result.visSampleStridePx = stride
     if sample.len < 4: break visibility
-    var degree = newSeq[float](sample.len)
+    var
+      degree = newSeq[float](sample.len)
+      lethalDegree = newSeq[float](sample.len)
     for a in 0 ..< sample.len:
       for b in a + 1 ..< sample.len:
         let
           dx = sample[a][0] - sample[b][0]
           dy = sample[a][1] - sample[b][1]
-        if dx * dx + dy * dy > IsovistRangePx * IsovistRangePx: continue
+          d2 = dx * dx + dy * dy
+        if d2 > VisionPairRangePx * VisionPairRangePx: continue
         if losClear(minWall, w, h, sample[a][0], sample[a][1],
                     sample[b][0], sample[b][1]):
           degree[a] += 1.0
           degree[b] += 1.0
-    var total = 0.0
-    for d in degree: total += d
-    result.visDegreeMean = total / sample.len.float
-    result.visDegreeFrac = result.visDegreeMean / float(sample.len - 1)
+          # The lethal twin rides the SAME line-of-sight test — the expensive
+          # half — so it costs one comparison. See the audit note on the type.
+          if d2 <= IsovistRangePx * IsovistRangePx:
+            lethalDegree[a] += 1.0
+            lethalDegree[b] += 1.0
+    proc summarize(d: seq[float]): tuple[mean, frac, cv: float] =
+      var total = 0.0
+      for v in d: total += v
+      let mean = total / d.len.float
+      var varSum = 0.0
+      for v in d:
+        let e = v - mean
+        varSum += e * e
+      (mean, mean / float(d.len - 1),
+       if mean > 0.0: sqrt(varSum / d.len.float) / mean else: 0.0)
+    let wide = summarize(degree)
+    result.visDegreeMean = wide.mean
+    result.visDegreeFrac = wide.frac
+    result.visDegreeCv = wide.cv
     result.visDegreeP10 = percentileOf(degree, 0.10)
     result.visDegreeP90 = percentileOf(degree, 0.90)
-    var varSum = 0.0
-    for d in degree:
-      let e = d - result.visDegreeMean
-      varSum += e * e
-    result.visDegreeCv =
-      if result.visDegreeMean > 0.0:
-        sqrt(varSum / sample.len.float) / result.visDegreeMean
-      else: 0.0
+    let lethal = summarize(lethalDegree)
+    result.visLethalDegreeMean = lethal.mean
+    result.visLethalDegreeFrac = lethal.frac
+    result.visLethalDegreeCv = lethal.cv
 
 # ---------------------------------------------------------------------------
 # Scoring: banded sub-scores, calibrated against the arena
@@ -1308,8 +1584,15 @@ proc metricValue*(m: MapMetrics, name: string): float =
   of "interiorFrac": m.interiorFrac
   of "exposedFrac": m.exposedFrac
   of "longRunFrac": m.longRunFrac
+  of "longRunPxFrac": m.longRunPxFrac
+  of "diagLongRunFrac": m.diagLongRunFrac
+  of "diagLongRunPxFrac": m.diagLongRunPxFrac
+  of "sightlineMaxPx": m.sightlineMaxPx.float
   of "openRunP95Px": m.openRunP95Px.float
-  of "routeCountMin": m.routeCountMin.float
+  of "chokeExcessPx": m.chokeExcessPx.float
+  of "standCoverGapMaxPx": m.standCoverGapMaxPx.float
+  of "visLethalDegreeCv": m.visLethalDegreeCv
+  of "routeCountMin", "routeCountDesign": m.routeCountMin.float
   of "routeCapacityFrac": m.routeCapacityFrac
   of "chokeCoveredPenalty":
     if m.chokeCount > 0 and m.chokeCovered: 1.0 else: 0.0
@@ -1329,7 +1612,41 @@ proc metricValue*(m: MapMetrics, name: string): float =
   of "coverPermille": m.coverPermille.float
   else: 0.0
 
-const ArenaControl* = "measured on the hand-authored arena, 2026-08-05"
+const ArenaControl* = "measured on the hand-authored arena, 2026-08-06"
+
+const ArenaLargeControl* = """
+THE SECOND CONTROL, AND IT BREACHES FOUR BANDS.
+
+`map_eval` prepends `arena` to every batch and has never scored `arena-large`,
+so the repo's other hand-authored map has never been a control at all. Scored
+as one (tools/stick_probe.nim), it breaches:
+
+  interiorFrac    0.100  [0.25..0.65]   arena 0.342
+  longRunFrac     0.169  [-1.00..0.15]  arena 0.104
+  visDegreeCv     0.295  [0.30..1.20]   arena 0.524
+  sightlineMaxPx  1149   [..1050]       arena 758
+
+DECIDED ON EVIDENCE, per the rule that a metric flagging the control is wrong
+and one that skips the control is worse — this is a finding about the CONTROL,
+not about the bands, and the reason is that arena-large is a 30% GEOMETRIC
+UPSCALE of arena. Same obstacle inventory, +69% area. Nothing was designed; the
+furniture simply moved apart. So its enclosure fraction falls, its open runs
+lengthen, and its exposure evens out, all without an authoring decision. The
+three fraction bands are measuring that dilution correctly.
+
+`sightlineMaxPx` is the one that is not a dilution artifact: 1149 px of
+unbroken open line between two places a player can stand, on a map whose gun
+reaches 1050 px. That is a lane neither end can contest, and it is exactly the
+defect the validator's horizontal rule exists to prevent — the rule misses it
+because it only ever looks along rows.
+
+WHAT WAS NOT DONE, and deliberately: the bands were NOT widened to admit
+arena-large. Widening interiorFrac to 0.10 would retire the single highest-
+weight discriminator in the suite (the pool's median is 0.12; the band exists
+to separate buildings from scatter). arena-large is evidence that the fraction
+bands are not scale-free, which is real and is filed as its own work — it is
+not a licence to spend them.
+"""
 
 let DefaultBands*: seq[Band] = @[
   # Every bound below is calibrated against TWO measured things: the
@@ -1355,13 +1672,52 @@ let DefaultBands*: seq[Band] = @[
   # Vision. Guns are map-wide (1050px), so what governs a fight is how far you
   # can see before geometry cuts the angle.
   Band(name: "longRunFrac", lo: -1.0, hi: 0.15, margin: 0.12, weight: 1.5,
-       kind: bandSoft, control: 0.110,
-       note: "share of open axis runs over 600px. arena 11%, pool median 17%"),
+       kind: bandSoft, control: 0.104,
+       note: "share of open axis runs over 600px. arena 10.4%, pool median " &
+         "3.3%. Control moved 11.0% -> 10.4% when runs stopped being measured " &
+         "through the unoccupiable border gutter; the bound did not move"),
+  # THE DIAGONAL, which until now was measured and did not gate at all. Two
+  # bands, because the two things worth stopping are different shapes.
+  Band(name: "sightlineMaxPx", lo: -1.0, hi: float(SightlineCapPx),
+       margin: 350.0, weight: 2.0, kind: bandSoft, control: 758.0,
+       note: "LONGEST unbroken open line between two standable points, on " &
+         "ANY of the four scan axes. Capped at GunRange=1050: a lane longer " &
+         "than the gun's own reach cannot be contested from either end. " &
+         "arena 758 (diagonal), pool median 818, pool max 1074. BREACHED BY " &
+         "arena-large at 1149 and by four curated pool seeds at 1074 — see " &
+         "ArenaLargeControl. Note the carrying axis: on 13 of 36 measured " &
+         "maps the longest line is DIAGONAL, which the axis scan and the " &
+         "hard validator are both blind to"),
+  Band(name: "diagLongRunPxFrac", lo: -1.0, hi: 0.15, margin: 0.15,
+       weight: 1.5, kind: bandSoft, control: 0.010,
+       note: "share of open floor sitting on a DIAGONAL line over 600px, " &
+         "pixel-weighted so it is the same measurement as the axis form. " &
+         "arena 1.0%, arena-large 18.3%, pool median 2.7%, pool max 14.3%. " &
+         "CALIBRATED ON AN AXIS-ALIGNED POPULATION and that is the caveat " &
+         "that matters: today's lattice generator cannot build a diagonal " &
+         "lane, so this bound has never been stressed. The moment the new " &
+         "generator emits shapeDiagonal and polygon masses the distribution " &
+         "moves and this bound must be re-cut against a FRESH population, " &
+         "not assumed to still separate anything"),
   # Routes. Capacity in 26px corridor units, measured base-approach to
   # base-approach so the engine's own spawn pocket is not the answer.
+  # TWO BANDS ON ONE NUMBER, and which is which is load-bearing. The design
+  # intends at least THREE vertex-disjoint routes; only the >= 2 band rejects.
+  # Build for 3, and read the hard one when asking what actually gates.
   Band(name: "routeCountMin", lo: 2.0, hi: 1.0e6, margin: 2.0, weight: 1.5,
        kind: bandHard, control: 8.0,
-       note: "a map with one route is a corridor"),
+       note: "THE GATE. A map with one route is a corridor. This is the " &
+         "bound that REJECTS, and it enforces 2 — one fewer than the design " &
+         "asks for. `routeCountDesign` below carries the intended 3 and only " &
+         "costs score. arena 8, arena-large 12, pool min 2"),
+  Band(name: "routeCountDesign", lo: 3.0, hi: 1.0e6, margin: 1.0, weight: 1.5,
+       kind: bandSoft, control: 8.0,
+       note: "THE INTENT, which does not gate: >= 3 vertex-disjoint routes, " &
+         "so that sealing one still leaves a choice rather than a corridor. " &
+         "Soft on purpose — three curated pool seeds ship at exactly 2 and " &
+         "making this hard would reject them today. Same number as " &
+         "`routeCountMin`; separate band so the report says out loud which " &
+         "bound is enforcing and which is aspiring"),
   Band(name: "routeCapacityFrac", lo: 0.12, hi: 0.50, margin: 0.25,
        weight: 2.0, kind: bandSoft, control: 0.316,
        note: "route capacity / board short side, in cells: the scale-free " &
@@ -1373,8 +1729,25 @@ let DefaultBands*: seq[Band] = @[
        note: "genuine cut vertices on a base-to-base route. arena 0"),
   Band(name: "chokeCoveredPenalty", lo: -1.0, hi: 0.0, margin: 1.0,
        weight: 1.5, kind: bandSoft, control: 0.0,
-       note: "1 when ONE 1050px isovist watches every chokepoint — one " &
-         "camper owns every route"),
+       note: "1 when ONE 259px isovist can KILL INTO every chokepoint — one " &
+         "camper owns every route. The radius was GunRange=1050 and was " &
+         "therefore ~4x too wide (P(hit) is 0.14 there); see IsovistRangePx. " &
+         "Re-cutting it took the flag off 3 of the 5 maps that carried it — " &
+         "those were maps whose chokepoints merely fell in one FIELD OF VIEW"),
+  # THE PINCH LENGTH. Until this band existed a 40px doorway and a 40 x 400px
+  # shooting gallery scored identically: the detector measured width and never
+  # length, so the difference between a chokepoint and a kill box was invisible.
+  Band(name: "chokeExcessPx", lo: -1.0e6, hi: 0.0,
+       margin: float(MaxExposedRunPx), weight: 2.0, kind: bandSoft,
+       control: 0.0,
+       note: "how far the worst UNAVOIDABLE pinch's unbroken sightline " &
+         "overruns what a player can clear alive at that pinch's own width " &
+         "(66px at 30px wide, grading to 132px at 62px+). Margin is one whole " &
+         "extra kill's travel. arena 0 and arena-large 0 — arena has 28 pinch " &
+         "gates and ZERO mandatory ones, which is the right answer: its 188px " &
+         "channel of 36px floor is one optional lane among eight. Four pool " &
+         "seeds breach, worst +83px. Exposure, not arc length: a passage that " &
+         "bends resets the defender's clock at every corner"),
   # Where the teams meet should have MORE cover than the map average, or the
   # first contact of every match is a sprint into open ground.
   Band(name: "collisionCoverRatio", lo: 0.70, hi: 2.40, margin: 0.60,
@@ -1395,7 +1768,35 @@ let DefaultBands*: seq[Band] = @[
          "A symmetric map must score 0 and the arena does"),
   Band(name: "standCoverSpread", lo: -1.0, hi: 0.04, margin: 0.08, weight: 2.0,
        kind: bandSoft, control: 0.0,
-       note: "stand cover gap between teams — objective fairness"),
+       note: "stand cover gap between teams — objective FAIRNESS, and a " &
+         "fairness measure CANNOT EXPRESS A FLOOR: two equally naked stands " &
+         "both score 0 here and pass. The two bands below are the floor this " &
+         "one structurally cannot be"),
+  # THE ABSOLUTE STAND-SIDE COVER FLOOR — the one causally-established property
+  # in the suite that was going unenforced. Two bands, because the fraction and
+  # the distance say different things and only one of them is scale-free.
+  Band(name: "standCoverMin", lo: float(StandCoverFloorPermille) / 1000.0,
+       hi: 1.0e6, margin: 0.015, weight: 1.5, kind: bandSoft, control: 0.072,
+       note: "wall fraction within 200px of the LEAST-COVERED stand. A pure " &
+         "NAKEDNESS detector and nothing more, and the reason it cannot be a " &
+         "quality bar is arena-large: the same furniture on a 69% bigger " &
+         "board drops from arena's 7.2% to 2.6% without one obstacle moving " &
+         "relative to the stand. So the fraction is not scale-free and any " &
+         "bar high enough to mean something would flag a control. Floor 1.5%, " &
+         "pool min 2.0% — it does NOT bite on today's population, and it is " &
+         "here so that a stand with literally nothing beside it cannot score " &
+         "a clean 0 on the fairness band and pass"),
+  Band(name: "standCoverGapMaxPx", lo: -1.0e6, hi: float(MaxExposedRunPx),
+       margin: float(MaxExposedRunPx), weight: 2.0, kind: bandSoft,
+       control: 83.0,
+       note: "THE FLOOR WITH TEETH: distance from the worst-served stand to " &
+         "the nearest cover, border ring excluded. Bounded by " &
+         "MaxExposedRunPx=132 — how far a player travels while a shooter " &
+         "kills them — so a stand whose nearest cover is further than that " &
+         "is a stand a carrier cannot leave alive. Scale-free, because 132px " &
+         "is physics and not a share of the board. arena 83 (37% slack), " &
+         "arena-large 111, pool median 125, pool max 176; seven measured maps " &
+         "breach. This is the band the objective was missing"),
   # Midfield: the count and the fraction, together, always.
   Band(name: "midCrossCount", lo: 3.0, hi: 12.0, margin: 2.5, weight: 1.5,
        kind: bandSoft, control: 5.0,
