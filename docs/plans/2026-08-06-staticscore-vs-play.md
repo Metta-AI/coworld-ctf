@@ -365,11 +365,19 @@ base `4a013df`** as they do here, verified in a clean detached worktree:
 
 The failing test *names* diff clean between the two. All six failures are one
 root cause — `Map generation found no valid layout in 100 attempts from seed
-{11, 13, 1015}` — which is the **same failure mode as the `size=small`
-finding** in section 1: the generator exhausting `MapGenMaxAttempts` without
-validating. That is filed separately and is not this task, but it corroborates
-it from a second direction, and the epic's "suite 0 failures" line is not
-currently met on its own base.
+{11, 13, 1015}`.
+
+The epic owner has since censused this properly on the same commit
+(`docs/plans/2026-08-06-suite-failure-census.md`, on `maxwell/mapgen-rebuild`
+after this branch point): **34 of 37 suite failures are that same raise
+cascade**, 3 are real assertions. So this is known and owned elsewhere; it is
+recorded here only to establish that this branch did not cause it.
+
+Worth connecting, though: that cascade is the **same failure mode as the
+`size=small` finding** in section 1 — the generator exhausting
+`MapGenMaxAttempts` without validating — and section 1 supplies a third source
+for it beyond the census's two (4-team seeds, and the pit tests): the **small
+size class, at 35 of 36 attempts gated on the cover budget**.
 
 ### Provenance
 
