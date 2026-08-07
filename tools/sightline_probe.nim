@@ -31,6 +31,11 @@ proc load(path: string, teams: int): CtfMap =
     loadCtfMapMetadata(path)
 
 when isMainModule:
+  ## `map_metrics` installs the best-of-K ranker at module-init time. A probe
+  ## that reaches `generateCtfMap` through `ctf/arena` ALONE silently selects
+  ## FIRST-VALID and measures a different map than the one that ships. Asserted
+  ## rather than assumed: that trap has produced a wrong answer here twice.
+  doAssert mapFitnessInstalled(), "ranker not linked: this measures first-valid"
   var
     teams = 2
     maps: seq[string]
