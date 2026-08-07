@@ -1,15 +1,15 @@
 ## pinch_probe — what the LENGTH-AWARE corridor rule says about real boards,
 ## measured BEFORE it is allowed anywhere near the validator.
 ##
-## `arena.MinCorridorWidth` is being raised 26 -> 68 and the 68 px floor cannot
-## be a flat minimum: a deliberate 30-45 px chokepoint would fail it, and the
+## `arena.MinCorridorWidth` is 68 px, and the 68 px floor cannot be a flat
+## minimum: a deliberate 30-45 px chokepoint would fail it, and the
 ## lane gates this generator builds ARE 30-45 px. `map_lanes.maxPinchRunPx`
 ## resolves that by length — a sub-corridor stretch is legal while its unbroken
 ## SIGHTLINE stays under what a player can clear alive at that width.
 ##
-## This probe prints, per map, the numbers that decide whether wiring
+## This probe prints, per map, the numbers that decided whether wiring
 ## `corridorPinchFailures` into `collectMapDiagnostics` rejects anything it
-## should not:
+## should not — and re-run, whether it still does not:
 ##
 ##   routeW    `routeWidthPx` — the widest sustained corridor the board
 ##             actually delivers. READ THIS FIRST: a board at 26 does not have
