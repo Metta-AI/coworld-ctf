@@ -1446,8 +1446,20 @@ proc activeTeams*(count: int): Slice[Team] =
   ## Returns the active-team slice for one team count. Active teams are
   ## always a prefix of the enum, so 2-team games iterate exactly Red..Blue
   ## — every historical loop, hash, and wire frame is unchanged.
-  doAssert count in [2, 3, 4],
-    "team count must be 2, 3, or 4 (6 needs the Team enum widened — Stage 4)"
+  ##
+  ## RAISES rather than asserts, and the difference is load-bearing. `count`
+  ## reaches here from UNTRUSTED data — a `teams` value in a league config, a
+  ## `layout: "hex6"` string in a replay's pinned `mapSpec` — so refusing it is
+  ## input validation, not an internal invariant. As a `doAssert` it produced
+  ## an AssertionDefect, which the `except CatchableError` that the config and
+  ## spec paths already wrap around exactly this kind of rejection cannot
+  ## catch: a six-team spec killed the server process instead of being turned
+  ## away as a bad map. Worse under `-d:danger`, where the assert is compiled
+  ## out entirely and `Team(5)` is an out-of-range enum on the wire path.
+  if count notin [2, 3, 4]:
+    raise newException(
+      CtfError, "Team count must be 2, 3, or 4; " & $count &
+        " needs the Team enum widened (hex Stage 4).")
   Red .. Team(count - 1)
 
 proc teams*(gameMap: CtfMap): Slice[Team] =

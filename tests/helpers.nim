@@ -47,42 +47,29 @@ proc none*(sim: SimServer): seq[InputState] =
   ## An all-idle input frame sized to the roster.
   newSeq[InputState](sim.players.len)
 
-proc hexTeamMap*(width = HexStandardWidth, height = HexStandardHeight,
-                 scaleNum = 1, scaleDen = 1): CtfMap =
-  ## A hand-authored 4-TEAM hexagon: bare field, Klein-four symmetry, one
+proc hexTeamMap*(cls = hxStandard): CtfMap =
+  ## The hand-authored 4-TEAM hexagon: bare field, Klein-four symmetry, one
   ## endzone disc per team.
+  ##
+  ## This USED to build the board here, field by field. It no longer does: the
+  ## same geometry now ships as the NAMED `arena-hex4` / `arena-hex4-giant`
+  ## maps, because the two live 4-team league variants need a board the engine
+  ## will resolve by name and a `mapSpec` blob pasted into a manifest is
+  ## geometry owned by data. Keeping a second copy here would be exactly the
+  ## reimplementation `AGENTS.md` warns about — the map code's fairness
+  ## invariants fail SILENTLY as team unfairness when restated elsewhere — so
+  ## the tests now run on the board production runs on.
   ##
   ## Hex Stage 2 GENERATES 2-team boards only (`generateMapAttempt` raises for
   ## every other count — the cube-space orbit rasterizer is Stage 2b), so the
   ## old `mapPath: "gen"` + `mapLayout: "corners"/"plus"` fixtures cannot
-  ## exist. This is a map the engine genuinely accepts: `validateMap` passes
-  ## it, `teamAnchor` / `teamImagePoint` / `captureZone` all resolve it, and it
+  ## exist. This one the engine genuinely accepts: `validateMap` passes it,
+  ## `teamAnchor` / `teamImagePoint` / `captureZone` all resolve it, and it
   ## rides the same `mapSpec` channel a replay pins its geometry through.
   ##
-  ## Clearances scale with the size class exactly as `scaledGenShell` scales
-  ## them, so the spawn pockets stay proportional on the bigger boards.
-  proc s(value: int): int = value * scaleNum div scaleDen
-  var m = mapFromSpecJson(mapSpecJson(loadCtfMapMetadata("")))
-  m.name = "hex4"
-  m.width = width
-  m.height = height
-  m.center = MapPoint(x: width div 2, y: height div 2)
-  m.symmetry = symKlein4
-  m.layout = layoutHex4
-  m.leftObstacles = @[]
-  m.trenches = @[]
-  m.rooms = @[]
-  m.homeDepth = ClassicHomeDepth
-  m.endzoneRadius = s(97)
-  m.flagRing = s(70)
-  m.captureClear = s(210)
-  m.spawnClearW = s(70)
-  m.spawnClearH = s(130)
-  m.medKitSpawns = @[]
-  m.medKitCandidates = @[]
-  ## Round-trip once so the value equals its own spec exactly — the rebuild is
-  ## what fills `path` and derives the rooms.
-  mapFromSpecJson(mapSpecJson(m))
+  ## Round-tripped through the spec so the value equals its own spec exactly.
+  mapFromSpecJson(mapSpecJson(arenaHex4CtfMap(
+    (if cls == hxGiant: "arena-hex4-giant" else: "arena-hex4"), cls)))
 
 proc fourTeamSpecJson*(gameMap = hexTeamMap()): string =
   ## The `mapSpec` config fragment that pins a 4-team hex board.

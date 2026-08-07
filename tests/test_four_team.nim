@@ -22,13 +22,14 @@ import
   ctf/[global, sim]
 
 proc fourTeamMap(): CtfMap =
-  ## The standard-class 4-team board: the same 969 x 1119 hexagon every other
-  ## test runs on. Built by `helpers.hexTeamMap`.
+  ## The standard-class 4-team board — `arena-hex4`, the board the `4ffa`
+  ## league variant actually seats. `helpers.hexTeamMap` round-trips it.
   hexTeamMap()
 
 proc giantFourTeamMap(): CtfMap =
-  ## The giant class (2.6x), for the 32-seat 4ffa8 shape.
-  hexTeamMap(HexSizes[hxGiant].width, HexSizes[hxGiant].height, 26, 10)
+  ## The giant class (2.6x) — `arena-hex4-giant`, which is what the 32-seat
+  ## `4ffa8` variant seats.
+  hexTeamMap(hxGiant)
 
 proc fourTeamConfig(gameMap = fourTeamMap()): GameConfig =
   result = defaultGameConfig()

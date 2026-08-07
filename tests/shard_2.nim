@@ -17,5 +17,7 @@ import
   test_shields,
   test_shot_accuracy,
   test_shouts,
-  test_spinning_diamonds
+  test_six_team,
+  test_spinning_diamonds,
+  test_three_team
 {.warning[UnusedImport]: on.}
