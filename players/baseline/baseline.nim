@@ -2576,6 +2576,26 @@ proc shippedCombatTune(): CombatTune =
   result.shieldRush = true
   result.sprayGrab = true
 
+
+when defined(rngprobe):
+  # ── RANGED-CORRIDOR PROBE (pure instrumentation, identical in every tree).
+  # Bands: 0=<150px 1=150-300 2=300-600 3=600-1000 4=>=1000
+  var
+    rpFrames*: array[5, int]
+    rpOpen*: array[5, int]
+    rpFire*: array[5, int]
+    rpErrSum*: array[5, int]
+    rpDistSum*: array[5, float]
+    rpBand* = -1
+    rpCap* = 0
+    rpCapErr* = 0
+  proc rpBandOf*(d: float): int =
+    if d < 150.0: 0
+    elif d < 300.0: 1
+    elif d < 600.0: 2
+    elif d < 1000.0: 3
+    else: 4
+
 proc vec(x, y: float): Vec =
   Vec(x: x, y: y)
 
@@ -6450,6 +6470,12 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     wantFire = perpMiss <=
       (if engageD < 300.0: max(bot.tune.fireSlackPx, 17.0)
        else: bot.tune.fireSlackPx)
+    when defined(rngprobe):
+      rpBand = rpBandOf(engageD)
+      inc rpFrames[rpBand]
+      rpErrSum[rpBand] += err
+      rpDistSum[rpBand] += engageD
+      if wantFire: inc rpOpen[rpBand]
     if bot.tune.fireOnRealBody:
       # Also open the trigger when the current aim's perp-miss to the target's
       # REAL last-seen position sits in the corridor (the lead phantom swings
@@ -6946,6 +6972,10 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   var mask = moveMask or rotBits
   if wantFire and not bot.firedLast:
     mask = moveMask or ButtonA
+    when defined(rngprobe):
+      if rpBand >= 0: inc rpFire[rpBand]
+  when defined(rngprobe):
+    rpBand = -1
   if nadeC:
     mask = mask or ButtonC
   bot.firedLast = (mask and ButtonA) != 0

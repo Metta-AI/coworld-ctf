@@ -171,6 +171,27 @@ proc main() =
   echo &"HITS  total  Red {totRedHit}  Blue {totBlueHit}"
   echo &"ACCURACY     Red {redAcc:.1f}%  Blue {blueAcc:.1f}%  " &
     &"(hits/shots — the wall-vs-body aim metric)"
+  when defined(rngprobe):
+    const bandName = ["<150", "150-300", "300-600", "600-1000", ">=1000"]
+    echo "--- RANGED CORRIDOR (all 16 bots pooled) ---"
+    echo "band       frames     open   open%     fire   fire%  meanErrBrads  meanD"
+    var tf, to, tfi = 0
+    for b in 0 .. 4:
+      let f = rpFrames[b]
+      tf += f; to += rpOpen[b]; tfi += rpFire[b]
+      let
+        op = (if f > 0: 100.0 * rpOpen[b].float / f.float else: 0.0)
+        fp = (if f > 0: 100.0 * rpFire[b].float / f.float else: 0.0)
+        me = (if f > 0: rpErrSum[b].float / f.float else: 0.0)
+        md = (if f > 0: rpDistSum[b] / f.float else: 0.0)
+      echo &"{bandName[b]:>9} {f:>9} {rpOpen[b]:>8} {op:>7.2f} {rpFire[b]:>8} {fp:>7.2f} {me:>13.2f} {md:>6.0f}"
+    echo &"    TOTAL {tf:>9} {to:>8} {100.0*to.float/max(1,tf).float:>7.2f} {tfi:>8} {100.0*tfi.float/max(1,tf).float:>7.2f}"
+    let farF = rpFrames[2] + rpFrames[3] + rpFrames[4]
+    let farO = rpOpen[2] + rpOpen[3] + rpOpen[4]
+    let farFi = rpFire[2] + rpFire[3] + rpFire[4]
+    echo &"BEYOND300  frames {farF}  open {farO} ({100.0*farO.float/max(1,farF).float:.2f}%)  fire {farFi}"
+    echo &"SHOTSHARE  fire<150 {rpFire[0]}  fire>=300 {farFi}  share>=300 {100.0*farFi.float/max(1,tfi).float:.2f}%"
+    echo &"SPINCAP    cappedFrames {rpCap}  sumSlotErr {rpCapErr}"
 
 when isMainModule:
   main()
