@@ -83,7 +83,8 @@ import
   whisky,
   baseline/protocols,
   baseline/artlog,
-  baseline/endzones
+  baseline/endzones,
+  baseline/lanes
 
 when defined(taunt):
   import baseline/taunts
@@ -259,7 +260,10 @@ const
                               # under fog the exposure model (enemy sniper
                               # posts + fresh tracks) is the only warning of
                               # watched lanes, so routes respect it hard
-  tuneFlankDepth {.intdefine.} = 260 # wide flankers cross this far past mid
+  tuneFlankDepth {.intdefine.} = lanes.FlankDepth
+    # wide flankers cross this far past mid. The DEFAULT is stated once, in
+    # baseline/lanes.nim, so tests/test_policy_lanes.nim measures the number
+    # this actually ships rather than a copy of it.
   FlankDepth = float(tuneFlankDepth)
   tuneWeaveBand {.intdefine.} = 280 # rushers serpentine within this x-band of mid
   WeaveBand = float(tuneWeaveBand)
@@ -272,16 +276,25 @@ const
     # generator draws, so the cut-in always starts OUTSIDE the ring.
   tuneExtraDefenders {.intdefine.} = 0 # promote flank/mid seats to defense
 
-  LaneTop = 40.0              # open corridor above the mirrored obstacles
+  LaneTop = float(lanes.LaneInset)
+    # open corridor above the mirrored obstacles; see baseline/lanes.nim for
+    # why the pair of them is worth a module of its own on a hexagon.
 
 ## Map dimensions, adopted at nav-grid build from the walkability sprite
-## (which spans the whole arena). The game supports multiple maps —
-## "arena" (1235x659, the default) and "arena-large" (1606x858) — and this
-## bot plays either; everything position-shaped below derives from these.
+## (which spans the whole BOUNDING BOX). The game ships several boards —
+## "arena" (1119x969, the default), "arena-large" (1455x1260), the 4-team
+## "arena-hex4" / "arena-hex4-giant", and generated seeds across six size
+## classes from 951x824 to 5819x5039 — and this bot plays any of them;
+## everything position-shaped below derives from these.
+##
+## The sprite spans the box, and since GV38 the PLAYFIELD is the hexagon
+## inscribed in it: on the default arena the box is 1,084,311 px and the floor
+## is 62.3% of that. So a dimension read here bounds every coordinate, and
+## says nothing about whether a given coordinate is on the field.
 ## Initialized to the default arena.
 var
-  MapW = 1235
-  MapH = 659
+  MapW = 1119
+  MapH = 969
   CenterX = MapW div 2
   CenterY = MapH div 2
   GridW = (MapW + NavCell - 1) div NavCell
@@ -289,10 +302,21 @@ var
   LaneMid = float(CenterY)
   LaneBottom = float(MapH) - LaneTop  # open corridor below the obstacles
   FireRange = float(MapW) + 15.0
-    # engage distance: every map's gun range is comfortably over its own
-    # width (1300 on the 1235px arena, 1690 on the 1606px arena-large), so
-    # a hair past a map-width is always inside it. 1250.0 on the default
-    # arena — the value this bot always used.
+    # engage distance. The premise below is DEAD and the number is now wrong
+    # on every board; left alone deliberately, because moving it moves every
+    # engagement in the game and that needs an A/B, not a sweep.
+    #
+    # It read: "every map's gun range is comfortably over its own width (1300
+    # on the 1235px arena, 1690 on the 1606px arena-large), so a hair past a
+    # map-width is always inside it". Gun range stopped scaling with the field
+    # at GV34 — `GunRange` is a flat 1050px on every map (sim_types.nim:361,
+    # arena.nim:1159 "fixed, never scaled with the field"). So this engages
+    # PAST the gun on every board that exists: 1134 vs 1050 on the default
+    # arena, 1470 on arena-large, 2924 on a giant seed — nearly 3x the reach.
+    #
+    # It predates the hexagon (the 1235px arena was already 1250 vs 1050), so
+    # it is not a hex regression; the hexagon's size classes widened it. The
+    # right value is the map's own `gunRange`, which the wire states.
   GameTeams = 2
     # how many teams share the arena, from the `game teams <n> map <w>x<h>`
     # init marker. On 2-team boards the classic mirrored-arena constants
@@ -856,14 +880,52 @@ proc nearestOpenCell(bot: Bot, cell: int): int =
           return ny * GridW + nx
   cell
 
+proc snapToOpen(bot: Bot, p: Vec): Vec =
+  ## `p` if it is walkable, else the nearest walkable nav cell's centre.
+  ##
+  ## A NO-OP wherever the destination is already floor, which is the point: it
+  ## rescues a target that has left the playfield without quantising every
+  ## other target onto a cell centre and re-tuning behaviour that works.
+  ##
+  ## It exists because the flank lanes are ABSOLUTE pixel offsets — `LaneTop`
+  ## is y = 40 and the flank posts sit `FlankDepth` = 260px either side of
+  ## centre — while the hexagon's width at those rows is a function of the SIZE
+  ## CLASS. Measured with `tools/policy_lane_probe.nim` over 11 boards: at the
+  ## standard class and up, all 8 posts are floor (the flat top edge reaches
+  ## 280px from centre, giving 20px of margin at standard and more above). On
+  ## the SMALL class, 951px wide, that edge reaches only ~238px — so all four
+  ## `FlankTop`/`FlankBottom` posts land in the hull's border ring, on BOTH
+  ## seeds tested. Structural, not terrain.
+  ##
+  ## Nothing crashed and nothing logged: two of six seats simply walked at a
+  ## wall for the whole episode. That is the hex failure family exactly, and
+  ## the margin at the standard class is 20px, so this is not only about the
+  ## small board.
+  if not bot.navBuilt:
+    return p
+  let c0 = cellOf(p)
+  if bot.cellWalkable[c0]:
+    return p
+  let c = bot.nearestOpenCell(c0)
+  if bot.cellWalkable[c]: cellCenter(c) else: p
+
 proc snapToCover(bot: Bot, p: Vec): Vec =
-  ## The nearest cover cell within a few cells of a point, else the point.
+  ## The nearest cover cell within a few cells of a point, else the nearest
+  ## point that is at least WALKABLE.
+  ##
+  ## The fallback used to be `p` itself. That is fine when `p` is floor and
+  ## merely uncovered, and wrong when `p` is wall: the counter-punch stations
+  ## are `(CenterX +/- 200, LaneTop|LaneBottom)`, and `policy_lane_probe`
+  ## finds those in wall on generated boards where an obstacle happens to sit
+  ## on the lane — one measured seed puts 2 of 8 posts inside terrain. Falling
+  ## back to open ground costs nothing where the old fallback was already
+  ## right.
   let
     c0 = bot.nearestOpenCell(cellOf(p))
     cx = c0 mod GridW
     cy = c0 div GridW
   var bestD = 1e18
-  result = p
+  result = bot.snapToOpen(p)
   for dy in -6 .. 6:
     for dx in -6 .. 6:
       let
@@ -2463,10 +2525,18 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 {.measure.} =
   elif counterPunch and not pushOut:
     # Home-side stations: one gun per lane on our half, second choke on the
     # pedestal approach. Combat below runs at full FireRange (not rushing).
-    let sx = float(CenterX) + homeSign(bot.team) * 200.0
+    ## The lane stations clamp inside the hull for the same reason the flank
+    ## run does; the two MID stations sit on the centre band, which is the
+    ## hexagon's widest row, so they never needed it.
+    let
+      sx = float(CenterX) + homeSign(bot.team) * float(StandoffDepth)
+      topX = float(CenterX) + homeSign(bot.team) *
+        float(laneDepth(StandoffDepth, MapW, MapH, int(LaneTop)))
+      bottomX = float(CenterX) + homeSign(bot.team) *
+        float(laneDepth(StandoffDepth, MapW, MapH, int(LaneBottom)))
     case bot.role
-    of FlankTop: target = bot.snapToCover(vec(sx, LaneTop))
-    of FlankBottom: target = bot.snapToCover(vec(sx, LaneBottom))
+    of FlankTop: target = bot.snapToCover(vec(topX, LaneTop))
+    of FlankBottom: target = bot.snapToCover(vec(bottomX, LaneBottom))
     of MidTop: target = bot.snapToCover(vec(sx, LaneMid - 90.0))
     of MidBottom: target = bot.snapToCover(vec(sx, LaneMid + 90.0))
     else: target = bot.snapToCover(bot.chokeHold + vec(0.0, -64.0))
@@ -2490,7 +2560,14 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 {.measure.} =
       # trickling in.
       let laneY = (if bot.role == FlankTop: LaneTop else: LaneBottom)
       if not bot.behindLines and dist(me, stealTarget) > 170.0:
-        target = vec(float(CenterX) - homeSign(bot.team) * FlankDepth, laneY)
+        ## `laneDepth` clamps the offset inside the hull and `snapToOpen`
+        ## clears any terrain left on the spot. Both are no-ops wherever the
+        ## post is already standable floor, which is every class from standard
+        ## up — see baseline/lanes.nim.
+        let depth = float(laneDepth(
+          tuneFlankDepth, MapW, MapH, int(laneY)))
+        target = bot.snapToOpen(
+          vec(float(CenterX) - homeSign(bot.team) * depth, laneY))
     else:
       discard
 

@@ -14,6 +14,7 @@ import
   test_map_metrics,
   test_movement_slide,
   test_policy_endzones,
+  test_policy_lanes,
   test_replay_controls,
   test_trenches,
   test_weapon_observability,

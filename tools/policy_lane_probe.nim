@@ -13,9 +13,15 @@
 ## clear run on it. Run before changing the policy's lanes — the point is to
 ## measure, not to assume.
 ##
-##   nim c -d:release -r tools/policy_lane_probe.nim
+##   nim c -d:release --path:src -r tools/policy_lane_probe.nim
+##
+## `--path:src` because it imports the POLICY's own `baseline/lanes`, which
+## reads the engine's hull predicate from `ctf/hex` — the same path
+## `players/baseline/config.nims` sets up for the bot itself. A probe carrying
+## its own copy of the lane offsets would measure the copy.
 
-import std/[strformat, strutils], ../src/ctf/sim
+import std/[strformat, strutils], ../src/ctf/sim,
+  ../players/baseline/baseline/lanes
 
 const
   LaneTopY = 40      ## baseline.nim's `LaneTop`, on the real board height.
@@ -43,19 +49,23 @@ proc laneStats(gameMap: CtfMap, obstacles: seq[ArenaShape],
       run = 0
 
 proc flankTargets(w, h: int): seq[tuple[name: string, x, y: int]] =
-  ## The concrete points `baseline.nim`'s FLANK roles steer to. Unlike the
-  ## carrier's lane pick — which since GV38 charges a lane for every
-  ## unwalkable sample and so retires a wall lane on its own — these are
-  ## unconditional: `FlankTop`/`FlankBottom` head for
-  ## `(CenterX -/+ FlankDepth, LaneTop|LaneBottom)` and the standoff post for
-  ## `(CenterX +/- 200, LaneTop|LaneBottom)`, with no walkability term.
-  const FlankDepth = 260
-  const StandoffX = 200
+  ## The concrete points `baseline.nim`'s FLANK roles steer to, read from
+  ## `baseline/lanes.nim` rather than restated here — a probe carrying its own
+  ## copy of the offsets measures the copy, which is how this file first
+  ## reported four wall posts that the shipped policy had already clamped away.
+  ## Unlike the carrier's lane pick (which since GV38 charges a lane for every
+  ## unwalkable sample), these are unconditional targets.
+  lanePosts(w, h)
+
+proc rawFlankTargets(w, h: int): seq[tuple[name: string, x, y: int]] =
+  ## The same posts with the hull clamp REMOVED — what the policy would steer
+  ## to if `laneDepth` were dropped. Printed beside the shipped set so the
+  ## clamp's effect is visible rather than merely absent.
   let cx = w div 2
-  for (label, dx) in [("flank", FlankDepth), ("standoff", StandoffX)]:
+  for (label, dx) in [("flank", FlankDepth), ("standoff", StandoffDepth)]:
     for sign in [-1, 1]:
-      for (laneName, y) in [("Top", LaneTopY), ("Bottom", h - LaneTopY)]:
-        result.add((label & laneName & (if sign < 0: "-W" else: "-E"),
+      for (lane, y) in [("Top", LaneInset), ("Bottom", h - LaneInset)]:
+        result.add((label & lane & (if sign < 0: "W" else: "E"),
                     cx + sign * dx, y))
 
 proc main() =
@@ -79,14 +89,17 @@ proc main() =
       let label = (if source == "gen": source & ":" & $seed else: source)
       echo &"{label:<16} {w:>4}x{h:<4}  {name:<10} {y:>4}  " &
         &"{(100.0 * float(open) / float(w)):>6.1f}  {longest:>6}"
-    var wallTargets: seq[string]
+    var shipped, raw: seq[string]
     for (name, x, y) in flankTargets(w, h):
       if gameMap.mapWallAt(obstacles, x, y):
-        wallTargets.add &"{name}({x},{y})"
-    let label = (if source == "gen": source & ":" & $seed else: source)
-    echo &"  -> flank/standoff targets in WALL: " &
-      (if wallTargets.len == 0: "none" else: wallTargets.join(" ")) &
-      &"   [{wallTargets.len}/8]"
+        shipped.add &"{name}({x},{y})"
+    for (name, x, y) in rawFlankTargets(w, h):
+      if gameMap.mapWallAt(obstacles, x, y):
+        raw.add &"{name}({x},{y})"
+    echo &"  -> SHIPPED posts in wall [{shipped.len}/8]: " &
+      (if shipped.len == 0: "none" else: shipped.join(" "))
+    echo &"  -> unclamped posts in wall [{raw.len}/8]: " &
+      (if raw.len == 0: "none" else: raw.join(" "))
 
 when isMainModule:
   main()
