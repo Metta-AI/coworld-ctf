@@ -7,6 +7,9 @@ import
   test_endzone_shapes,
   test_fast_mode,
   test_first_person_pip,
+  # test_hex_safety installs generated maps and restores the default arena at
+  # module end, exactly as test_hex_arena does in shard 1.
+  test_hex_safety,
   test_lull_spans,
   test_mapgen,
   test_player_collision,

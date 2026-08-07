@@ -57,16 +57,41 @@ SKIPPED_GV = collections.Counter()
 SKIPPED_BUILD = collections.Counter()  # (GameVersion, coworld_version) -> n
 
 
+# Where GameVersion has lived. It moved sim.nim -> sim_types.nim in the sim
+# split (docs/plans/2026-08-01-sim-split.md); both are searched, so this still
+# resolves against an older extractor checkout.
+GV_SOURCES = ("src/ctf/sim_types.nim", "src/ctf/sim.nim")
+
+
 def our_game_version():
+    """The GameVersion of the extractor's checkout.
+
+    RAISES rather than returning None when the constant cannot be found. The
+    caller skips replays recorded on a different engine, and the skip reads
+    `if gv and OUR_GV and gv != OUR_GV` — so a None turns the horizon check
+    OFF, every episode is re-simulated on the wrong engine, and plausible
+    numbers come out the far end with nothing logged. That is precisely what
+    happened when the constant moved to sim_types.nim while this still read
+    sim.nim: the check was dead, and a dead check reads as "nothing to skip".
+    """
     d = os.path.dirname(os.path.dirname(EXTRACT_BIN))
-    try:
-        with open(f"{d}/src/ctf/sim.nim") as f:
-            for line in f:
-                if "GameVersion* =" in line:
-                    return line.split('"')[1]
-    except OSError:
-        pass
-    return None
+    tried = []
+    for rel in GV_SOURCES:
+        path = f"{d}/{rel}"
+        tried.append(path)
+        try:
+            with open(path) as f:
+                for line in f:
+                    if "GameVersion* =" in line:
+                        return line.split('"')[1]
+        except OSError:
+            continue
+    raise SystemExit(
+        "scout: cannot read GameVersion from the extractor's checkout "
+        f"(tried {', '.join(tried)}). Without it the engine-horizon check is "
+        "dead and every replay is re-simulated regardless of the engine that "
+        "recorded it. Point CTF_SCOUT_BIN at a bin/ inside a real checkout."
+    )
 
 
 def _dirs():

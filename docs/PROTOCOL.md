@@ -87,12 +87,30 @@ reference client treats "map object deleted" as leave-game (reset transient
 state) and "map object defined" as enter-game. The walkability mask arrives
 as its own labeled sprite (see `RULES.md`) and is only valid in-game.
 
+**Box versus playfield — which channel is authoritative.** Since GV38 the
+playfield is a HEXAGON inscribed in the bounding box, so two things the
+rectangular board kept identical have come apart, and neither channel reports
+an error when a policy confuses them:
+
+- The `game teams <n> map <W>x<H>` init marker is authoritative for the
+  **coordinate space**: `<W>`×`<H>` is the extent every wire coordinate lives
+  in, so `0 <= x < W` still bounds every object. It is the right number for
+  sizing a buffer or normalizing a position.
+- The **walkability sprite is authoritative for the shape**, and is the only
+  channel that carries it. The hexagon covers 71.8% of its box — 779019 of
+  1084311 px on the standard 1119×969 class, playable extent 1095×949 — and
+  the box's six corners are permanent void.
+
+A policy that reads the marker as a playable extent aims into terrain it can
+never reach, silently.
+
 ## Observation render scale
 
 - **Player/POV streams are 1× map resolution.** Object coordinates and sprite
   pixel sizes are map pixels directly: an object's center
-  (`object.x + sprite.width / 2`, same for y) IS its map point on the
-  1235×659 map. No divisor is needed.
+  (`object.x + sprite.width / 2`, same for y) IS its map point in the map's
+  bounding box (1119×969 on the standard class since GV38; the box, not the
+  playfield — see below). No divisor is needed.
 - **Only the global/spectator/replay stream supersamples**, shipping its
   zoomable board layers at 2× (`RenderScale`); its viewport announces the
   scaled size. The sim, the gameHash, and every value quoted in `RULES.md`

@@ -745,7 +745,7 @@ These are starting values, exposed in the game config and tuned in self-play.
 | Endzone radius (`mapEndzoneRadius`) | 0 (drawn 110-140, size-scaled) | Compact endzones only: scoring radius / half-extent in px, 90..220. Needs `mapEndzone` |
 | Base depth (`mapBaseDepth`) | 0 (drawn 520-620) | Compact endzones only: home anchor permille of the half-field, 400..800; SMALLER sets the base further from the edge. Needs `mapEndzone` |
 | Time limit (`MaxTicks`) | 5000 ticks (~3.5 min) | Round length cap before the lose-lose draw |
-| Map size | 1235×659 (default) | Varies by map class; the actual size and team count are stated in the `game teams <count> map <width>x<height>` init marker |
+| Map bounding box | 1119×969 (standard hex class) | Varies by map class; the box and the team count are stated in the `game teams <count> map <width>x<height>` init marker. The PLAYFIELD is the hexagon inscribed in that box — 71.8% of it — and only the walkability sprite carries the shape |
 
 Engine tick rate is **24 ticks/sec** (inherited from Crewrift); all
 second-based values above convert at that rate.
@@ -755,20 +755,32 @@ is **1x map resolution** -- object coordinates and sprite pixel sizes are map
 pixels directly, so an object's center IS its map point:
 `map_x = object.x + sprite.width / 2` (same for y), no divisor. Only the
 SPECTATOR/replay stream supersamples its zoomable board layers (2x,
-`RenderScale`); the sim, the gameHash, and everything above (map size
-1235x659, ranges, speeds) stay in map pixels. A 0.6.0-era build shipped the
-wire at 3x -- any advice about dividing coordinates by 3 is stale. The
-invisible `walkability map` sprite is 1235x659 in every stream.
+`RenderScale`); the sim, the gameHash, and everything above (bounding box
+1119x969 on the standard class, ranges, speeds) stay in map pixels. A
+0.6.0-era build shipped the wire at 3x -- any advice about dividing
+coordinates by 3 is stale. The invisible `walkability map` sprite spans the
+whole bounding box in every stream, with the out-of-hexagon corners marked
+unwalkable.
 
 **The episode parameters are stated outright at t=0.** The init snapshot
 carries an invisible 1x1 marker labeled
 `game teams <count> map <width>x<height>` — the number of teams sharing the
-arena (2 or 4) and the exact map size in map pixels for THIS episode. Match
-the prefix `game teams `; the tail splits on spaces into
+arena (2 or 4) and the map's BOUNDING BOX in map pixels for THIS episode.
+Match the prefix `game teams `; the tail splits on spaces into
 `["<count>", "map", "<width>x<height>"]`. Generated maps come in several size
 classes and team layouts, so a policy should read this marker (or fall back to
 the walkability sprite's dimensions and counting `Room <color> Base` markers)
 instead of assuming the classic 1235x659 two-team arena.
+
+**`<width>x<height>` is the BOX, not the field.** The two were the same number
+until GV38 made the playfield a hexagon; they are not the same number now, and
+nothing on the wire flags the difference. Read the marker for the coordinate
+space — every object satisfies `0 <= x < width` — and read the **walkability
+sprite for the shape**, which is the only channel that carries it. On the
+standard class the hexagon covers 779019 of the box's 1084311 px (71.8%), its
+playable extent is 1095x949 rather than 1119x969, and the box's six corners
+are permanent void. A policy that treats the marker as a playable extent will
+path and aim into ground it can never reach.
 
 **So are the endzones.** The same init snapshot carries one invisible 1x1
 marker per team labeled `endzone <color> <shape> <x0>,<y0> <x1>,<y1>`: the

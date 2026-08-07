@@ -18,7 +18,37 @@ import
 
 const
   GameName* = "ctf"
-  GameVersion* = "38"  ## GV38 (HEX ARENA): the playfield is a HEXAGON, not a
+  GameVersion* = "41"  ## GV41 (HEX SAFETY): three rules that were written
+    ## against a RECTANGULAR playfield and quietly meant something else on a
+    ## hexagon. All three are silent — they compile, run, and produce wrong
+    ## behaviour — so they get a version event rather than a patch:
+    ##
+    ##  * A grenade's landing point is clamped to the HULL, not to the bounding
+    ##    box. Aim at any of the six corners and the old per-axis clamp resolved
+    ##    into the void: unreachable ground, drawn as a legal charge ring, and
+    ##    still dealing blast damage back through the map edge because
+    ##    `explodeGrenade` has no line-of-sight test. Measured over every aim
+    ##    slot from a 60px grid of thrower positions: 19.8-20.4% of full-charge
+    ##    throws landed off the playfield on every size class, now 0%. A throw
+    ##    that would leave the field now falls SHORT along the same aim.
+    ##  * `GrenadeMaxRange` and `ShoutRange` read the SHORT axis. `selectCtfMap`
+    ##    assigned `MapWidth div 5`, inherited from the rectangular board where
+    ##    width WAS the short axis; after the landscape flip that is the
+    ##    point-to-point diagonal. Every player had a 15.5% longer throw and a
+    ##    15.5% louder shout than the declaration below specifies (arena 223
+    ##    against 193, giant 581 against 503).
+    ##  * The blocked-movement slide scan floors at 2 (`MovementSlideMinScan`),
+    ##    because a hull edge meets the x axis at 60 degrees and costs 1.73px of
+    ##    perpendicular travel per px along it. A pulsing policy travelled 1px
+    ##    in 60 ticks along such a face where flat floor gave 30px.
+    ##
+    ## GV38-40 were assigned on main (spray-can aim lock, quad-mirror 4-team
+    ## maps, restored continuous aim) while this line still read "38" for the
+    ## hex arena — two incompatible contracts under one string, which the
+    ## version check cannot catch because the string never moved. "41" is the
+    ## first value free on both lines. See docs/HEX_SHIP_GATE.md §4B.
+    ##
+    ## GV38 (HEX ARENA): the playfield is a HEXAGON, not a
     ## rectangle. The board is LANDSCAPE (standard 1119x969, a flat-top hull:
     ## vertices left and right, flat walls top and bottom, aspect 2/sqrt(3)),
     ## the bounding box's six corners are permanent void, the shape vocabulary
@@ -289,6 +319,24 @@ const
   FrictionDen* = 256
   MaxSpeed* = 704
   StopThreshold* = 8
+  MovementSlideMinScan* = 2
+    ## Floor on the blocked-step slide scan, in px of perpendicular offset.
+    ##
+    ## Two, not one, because the hexagonal hull's slanted edges make a
+    ## 60-DEGREE angle with the x axis: advancing 1px along such a face costs
+    ## tan(60) = 1.73px perpendicular, so a scan radius of 1 can never take the
+    ## step and the mover stops dead (`applyMomentumAxis` sets `carry = 0`).
+    ## The rectangular board only ever had 45-degree diagonals, which cost
+    ## exactly 1px and fit inside a radius of 1 — which is why this never
+    ## surfaced before the hex.
+    ##
+    ## `slideScanRadius` scales with speed, so a player at pace already scans
+    ## 2-3 and slides the hull fine. The regime that breaks is LOW speed, and
+    ## a policy that PULSES its d-pad — a common shape — never leaves it.
+    ## Measured on a synthetic 60-degree face, `right` held one tick in two,
+    ## 60 ticks from rest: 30px of travel on flat floor, 30px on a 45-degree
+    ## face, and 1px on the 60-degree face. With the floor at 2 all three
+    ## agree. See `tests/test_hex_safety.nim`.
   MovementSlideMaxScan* = 3
   PlayerSolidSpan* = 2 * PlayerHalf  ## centers this close (Chebyshev) means
                                      ## two player footprints overlap.

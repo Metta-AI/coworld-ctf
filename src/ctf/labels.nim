@@ -123,11 +123,31 @@ const
   LabelPrefixGameParams* = "game teams "
     ## The episode-parameter marker, `game teams <count> map <width>x<height>`:
     ## an invisible 1x1 object in the init snapshot stating the match setup
-    ## outright — how many teams share the arena (2 or 4) and the exact map
-    ## size in map pixels. Before it existed a policy had to INFER both: the
-    ## team count from counting room markers or pedestals, the map size from
-    ## the walkability sprite's dimensions. Those channels still work; this
-    ## label is the stated-value contract for them.
+    ## outright — how many teams share the arena (2 or 4) and the map's
+    ## BOUNDING BOX in map pixels. Before it existed a policy had to INFER
+    ## both: the team count from counting room markers or pedestals, the map
+    ## size from the walkability sprite's dimensions. Those channels still
+    ## work; this label is the stated-value contract for them.
+    ##
+    ## WHICH CHANNEL IS AUTHORITATIVE FOR WHAT, since GV38 made the playfield a
+    ## hexagon and split two things the rectangle had kept identical:
+    ##
+    ##  * This marker is authoritative for the COORDINATE SPACE. `<width>` and
+    ##    `<height>` are the extent of the space every wire coordinate is
+    ##    expressed in, so `0 <= x < width` still bounds every object, and this
+    ##    is the right number for sizing a buffer or normalizing a position.
+    ##  * The walkability sprite is authoritative for the SHAPE, and it is the
+    ##    ONLY channel that carries it (`global.nim`, `walkability map`). The
+    ##    hexagon is inscribed in the box, so the box is ~28% larger than the
+    ##    field: 779019 playfield pixels of 1084311 on the standard 1119x969
+    ##    class — 71.8% — with a playable extent of 1095x949 and six permanently
+    ##    void corners.
+    ##
+    ## This label never meant "the field is this big and rectangular". On the
+    ## rectangular board the two readings coincided; the hexagon merely
+    ## separated them. A policy that takes it for a playable extent walks into
+    ## a wall well short of the corners, and nothing reports an error when it
+    ## does — the wire stays perfectly well-formed.
   LabelPrefixOwnAim* = "own aim "
     ## The own-aim readback, `own aim <brads>`: an invisible 1x1 HUD marker on
     ## the PLAYER stream whose label states your own turret angle in brads

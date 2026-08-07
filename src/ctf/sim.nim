@@ -269,12 +269,19 @@ proc signOf(value: int): int {.inline.} =
 
 proc slideScanRadius(sim: SimServer, carry, velocity: int): int =
   ## Returns the perpendicular scan radius for blocked movement.
+  ##
+  ## Floored at `MovementSlideMinScan` (2), not at 1: a hex hull edge meets the
+  ## x axis at 60 degrees and costs 1.73px of perpendicular travel per px along
+  ## it, so a radius of 1 cannot take the step at all and the mover stops dead
+  ## below the speed at which the scan widens on its own. See the constant's
+  ## declaration in `sim_types` for the measurement.
   let
     pending = abs(carry) div sim.config.motionScale
     speed = (
       abs(velocity) + sim.config.motionScale - 1
     ) div sim.config.motionScale
-  clamp(max(1, max(pending, speed)), 1, MovementSlideMaxScan)
+  clamp(max(MovementSlideMinScan, max(pending, speed)),
+    MovementSlideMinScan, MovementSlideMaxScan)
 
 proc playersOverlapAt(sim: SimServer, movingIndex, x, y: int): bool =
   ## True when a player footprint centered at (x, y) would overlap another
@@ -1247,10 +1254,45 @@ proc grenadePosition*(grenade: AirborneGrenade, tick: int): tuple[x, y: int] =
   (grenade.sx + (grenade.tx - grenade.sx) * t div grenade.flightTicks,
     grenade.sy + (grenade.ty - grenade.sy) * t div grenade.flightTicks)
 
-proc throwTarget*(player: Player): tuple[x, y: int] =
-  ## Where a charging player's throw would currently land, along their aim at
-  ## the charge-picked distance. Shares throwGrenade's exact math so the render
-  ## charge-ring can never disagree with where the grenade will actually go.
+const ThrowLandingMargin = 2
+  ## How far inside the border ring a grenade is allowed to land, in px. The
+  ## rectangular board spelled this as `ArenaBorder + 2 .. MapWidth -
+  ## ArenaBorder - 2`; the hex form below is the same margin measured off the
+  ## real hull instead of off the bounding box.
+
+proc landingIsOnPlayfield(x, y: int): bool {.inline.} =
+  ## Whether a throw may land on this pixel: inside the map, and clear of the
+  ## border ring by `ThrowLandingMargin`. Reads `ArenaBoardG.hexEdgeDist`, THE
+  ## boundary rule (`isArenaBorderWall` is the same call at margin 0), so this
+  ## cannot drift away from where the wall actually is.
+  x >= 0 and y >= 0 and x < MapWidth and y < MapHeight and
+    ArenaBoardG.hexEdgeDist(x, y) >= float(ArenaBorder + ThrowLandingMargin)
+
+proc throwLanding*(player: Player): tuple[x, y: int] =
+  ## Where a charging player's throw lands: along their aim, at the
+  ## charge-picked distance, SHORTENED until the landing point is on the
+  ## playfield.
+  ##
+  ## The rectangular board clamped each axis independently into
+  ## `ArenaBorder + 2 .. MapWidth - ArenaBorder - 2`. On a hexagon that box is
+  ## 28% larger than the hull, so an aim toward any of the six corners
+  ## resolved to a point in the VOID: legal-looking, drawn as a charge ring,
+  ## and — because `explodeGrenade` has no line-of-sight test — still dealing
+  ## blast damage back through the map edge to anyone standing inside. Swept
+  ## every aim slot from a 60px grid of thrower positions, 20% of full-charge
+  ## throws landed off the playfield on every size class, up to 223px past the
+  ## border ring on the standard arena.
+  ##
+  ## Shortening rather than projecting: the aim is the player's, and a throw
+  ## that falls short reads as "the wall stopped it", where a sideways
+  ## projection would send the grenade somewhere nobody aimed. The set of legal
+  ## landings is an intersection of half-planes and therefore convex, and the
+  ## thrower stands inside it, so walking `t` down from full strength crosses
+  ## the boundary exactly once — a 1px march, not a search, so the result is
+  ## exact rather than a bisection artifact and mirrors cleanly.
+  ##
+  ## `throwGrenade` calls THIS, so the render's charge ring can never disagree
+  ## with where the grenade actually goes.
   let
     charge = clamp(player.throwCharge, 0, GrenadeChargeTicks)
     strength = GrenadeMinRange +
@@ -1258,10 +1300,21 @@ proc throwTarget*(player: Player): tuple[x, y: int] =
     (ux, uy) = aimVector(player.aimBrads)
     sx = player.x + CollisionW div 2
     sy = player.y + CollisionH div 2
-  (clamp(sx + int(round(ux * float(strength))),
-      ArenaBorder + 2, MapWidth - ArenaBorder - 2),
-    clamp(sy + int(round(uy * float(strength))),
-      ArenaBorder + 2, MapHeight - ArenaBorder - 2))
+  for t in countdown(strength, 0):
+    let
+      tx = sx + int(round(ux * float(t)))
+      ty = sy + int(round(uy * float(t)))
+    if landingIsOnPlayfield(tx, ty):
+      return (tx, ty)
+  ## The thrower is itself inside the border ring — not reachable in a normal
+  ## game, since floor requires `hexEdgeDist >= ArenaBorder`, but a scripted
+  ## placement can do it. Drop the grenade at their feet, on the map.
+  (clamp(sx, 0, MapWidth - 1), clamp(sy, 0, MapHeight - 1))
+
+proc throwTarget*(player: Player): tuple[x, y: int] =
+  ## Where a charging player's throw would currently land. Kept as the name the
+  ## render and the tools call; `throwLanding` is the one implementation.
+  throwLanding(player)
 
 proc throwGrenade(sim: var SimServer, playerIndex: int) =
   ## Releases the charged throw along the thrower's current aim. The charge
@@ -1270,20 +1323,9 @@ proc throwGrenade(sim: var SimServer, playerIndex: int) =
   ## deliberately silent: no sound FX is recorded here.
   let
     player = sim.players[playerIndex]
-    charge = clamp(player.throwCharge, 0, GrenadeChargeTicks)
-    strength = GrenadeMinRange +
-      (GrenadeMaxRange - GrenadeMinRange) * charge div GrenadeChargeTicks
-    (ux, uy) = aimVector(player.aimBrads)
     sx = player.x + CollisionW div 2
     sy = player.y + CollisionH div 2
-    tx = clamp(
-      sx + int(round(ux * float(strength))),
-      ArenaBorder + 2, MapWidth - ArenaBorder - 2
-    )
-    ty = clamp(
-      sy + int(round(uy * float(strength))),
-      ArenaBorder + 2, MapHeight - ArenaBorder - 2
-    )
+    (tx, ty) = throwLanding(player)
     # Fixed fuse: the burst comes exactly GrenadeFlightMultiple shot-windups
     # after release, near or far. The visible arc just moves faster on long
     # throws; the threat window is constant and readable.
@@ -2680,11 +2722,39 @@ proc initSimServer*(config: GameConfig): SimServer =
       let pixel = walkImage[x, y]
       result.walkMask[mapIndex(x, y)] = pixel.a > 0
 
+  ## THE VOID IS WALL — asserted, not assumed. Three separate contracts stand
+  ## on it and every one of them fails SILENTLY if it stops holding:
+  ##
+  ##  * `buildFovBlocked` downsamples 8x8 pixels to one occlusion cell on a
+  ##    `walls * 2 >= pixels` rule. A cell that is 30-49% wall is TRANSPARENT,
+  ##    so if the staircased 60-degree hull edge left floor outside the hull,
+  ##    shadowcasting would propagate straight past the boundary into the void
+  ##    and the edge fog contract would quietly become approximate. With the
+  ##    void wall, a cell wholly outside is 100% wall and therefore opaque by
+  ##    construction — proof, not a sample. (Measured on 7 boards including
+  ##    both hand-authored arenas and the giant class: 0 transparent void
+  ##    cells. This assertion is what keeps that true.)
+  ##  * `arena.nim`'s connectivity BFS steps `-1/+1` across a flat index and
+  ##    says in a comment that row wrap "can't happen: the border ring is wall,
+  ##    so open[] is false along every edge". It asserts that itself now.
+  ##  * Every rect-clamped coordinate that survives anywhere reads as floor if
+  ##    the void ever opens.
+  ##
+  ## The predicate only runs on FLOOR pixels, and `isArenaBorderWall` is THE
+  ## boundary rule rather than a second copy of it.
   result.wallMask = newSeq[bool](MapWidth * MapHeight)
   for y in 0 ..< MapHeight:
     for x in 0 ..< MapWidth:
       let pixel = wallImage[x, y]
-      result.wallMask[mapIndex(x, y)] = pixel.a > 0
+      let wall = pixel.a > 0
+      if not wall and isArenaBorderWall(x, y):
+        raise newException(CtfError,
+          "map bake left FLOOR at (" & $x & ", " & $y & "), which is inside " &
+          "the border ring or outside the hull (edge distance " &
+          $ArenaBoardG.hexEdgeDist(x, y) & " against a border of " &
+          $ArenaBorder & "). The fog downsample and the connectivity BFS both " &
+          "require the void to be wall.")
+      result.wallMask[mapIndex(x, y)] = wall
 
   ## The fog occlusion grid builds from the OPAQUE walls only: glass window
   ## pixels stay in wallMask (movement/bullets/spray cones) but drop out here, so
