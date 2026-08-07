@@ -261,12 +261,23 @@ window.ChromeCommon = function (ctx) {
       default: return name;
     }
   }
+  var warnedPerks = {};
   function perkIconsHtml(perks, mods) {
-    // The badge strip markup for one perk list (wire names, unknown skipped).
+    // The badge strip markup for one perk list (wire names). An unknown name
+    // is skipped but warned once: the client ships with the engine (splice /
+    // bundle), so a name this table doesn't know is a PerkNames drift, not
+    // version skew — silence would hide a perk that alters gameplay with no
+    // badge at all.
     var html = '';
     (perks || []).forEach(function (p) {
       var ico = PERK_ICONS[p];
-      if (!ico) return;
+      if (!ico) {
+        if (!warnedPerks[p]) {
+          warnedPerks[p] = true;
+          try { console.warn('scorebug: unknown perk name "' + p + '"'); } catch (e) {}
+        }
+        return;
+      }
       html += '<span class="perk-ico" style="color:' + ico.color + '" title="' +
         esc(perkTitle(p, mods)) + '">' + ico.svg + '</span>';
     });
@@ -296,24 +307,31 @@ window.ChromeCommon = function (ctx) {
   }
   function renderTeamMeters(el, s, team) {
     // Renders one team's life meter(s) + perk badges into `el` (a plate's
-    // `.meters` slot). Single policy (or pre-roster): the classic "Lives N"
-    // team meter with the perk badges beyond the numeral. CTF-Doubles
-    // (exactly two policies): one meter per policy, MIRRORED — the two
-    // numerals sit adjacent at the cluster's center and each policy's badges
-    // flank outside its own numeral. DOM order is fixed; the page's existing
-    // side-reversal CSS (extended to .meters/.pgrp) flips the whole cluster
-    // on mirrored plates, so the numerals stay innermost on both sides.
+    // `.meters` slot; used by the league shell — the broadcast client's
+    // meter is its squad-pip strip). Single policy (or pre-roster): the
+    // classic "Lives N" team meter with the badges beyond the numeral, and
+    // the el gains class `single` so a page may mirror that one case.
+    // CTF-Doubles (exactly two policies): one meter per policy in the
+    // headline's policy order, fixed DOM order `icons,num | num,icons`, so
+    // the two numerals sit adjacent at the cluster's center with each
+    // policy's badges flanking outside its own numeral — no side-dependent
+    // CSS. Three or more distinct policies (local self-play) fall back to
+    // the single team meter and show NO badges: per-policy sets can differ
+    // there, and badging the whole team with one policy's set would lie.
     // Persistent-DOM discipline: rebuild only when the group shape changes,
     // update numerals in place every frame.
     var tr = s.teams && s.teams[team];
     var groups = teamPerkGroups(s, team);
     var split = groups.length === 2;
+    // Exactly one policy may badge the team meter; 3+ shows none (see above).
+    var badged = groups.length === 1 ? groups[0].perks : [];
     var key = split
       ? 'split:' + groups.map(function (g) {
           return g.pol + '=' + g.perks.join('+');
         }).join('|')
-      : 'single:' + (groups.length ? groups[0].perks.join('+') : '');
+      : 'single:' + badged.join('+');
     if (el._key !== key) {
+      el.classList.toggle('single', !split);
       var html;
       if (split) {
         html =
@@ -329,8 +347,8 @@ window.ChromeCommon = function (ctx) {
         html =
           '<span class="lives-label">Lives</span>' +
           '<span class="lives-num"></span>' +
-          (groups.length && groups[0].perks.length
-            ? '<span class="perk-icos">' + perkIconsHtml(groups[0].perks, s.pmods) + '</span>'
+          (badged.length
+            ? '<span class="perk-icos">' + perkIconsHtml(badged, s.pmods) + '</span>'
             : '');
       }
       el.innerHTML = html;

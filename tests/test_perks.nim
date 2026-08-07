@@ -2,7 +2,7 @@ import
   helpers,
   std/[json, sets, unittest],
   bitworld/spriteprotocol,
-  ctf/[broadcast, global, labels, sim]
+  ctf/[broadcast, global, labels, replays, sim]
 
 # Team perks: named, config-assigned buffs — armor (+hp), scope (tighter aim),
 # grenade (longer throws), thruster (faster top speed), luck (double-damage
@@ -86,6 +86,21 @@ suite "perk config parsing":
     var cfg = defaultGameConfig()
     expect CtfError:
       cfg.update("""{"perks": ["armor"]}""")
+
+  test "a flat empty perk array is rejected (omit the team instead)":
+    # An empty flat array would otherwise register as one empty group and
+    # flip the has-perks gates (pmods, marker content) on a perk-free team.
+    var cfg = defaultGameConfig()
+    expect CtfError:
+      cfg.update("""{"perks": {"red": []}}""")
+    # An empty NESTED group stays legal: "this policy gets nothing".
+    cfg.update("""{"perks": {"red": [["armor"], []]}}""")
+    check cfg.perks[Red] == @[{PerkArmor}, PerkSet({})]
+
+  test "an absurd integer perk mod is rejected":
+    var cfg = defaultGameConfig()
+    expect CtfError:
+      cfg.update("""{"perkMods": {"armorHp": 1000000}}""")
 
   test "perkMods parses fractions to permille and counts to ints":
     var cfg = defaultGameConfig()
@@ -186,6 +201,37 @@ suite "perk group resolution at join (2v2 policies)":
       discard sim.addPlayer(address)
     check sim.players[4].perks == {PerkScope}          # polE (Red) clamps
 
+  test "live joins and trusted playback joins deal identical groups":
+    # Replay playback re-runs joins via the trusted-slot path
+    # (addPlayer(name, slot, token, trusted = true), replays.nim); a perked
+    # replay is only deterministic if that path resolves the same groups the
+    # live path did. Same addresses, both paths, seat for seat.
+    let addresses = ["polA", "polC", "polB", "polD", "polA_(2)", "polC_(2)"]
+    var live = perkedSim(
+      """{"red": [["armor"], ["scope", "luck"]],
+          "blue": [["thruster"], ["grenade"]]}""")
+    for address in addresses:
+      discard live.addPlayer(address)
+    var played = perkedSim(
+      """{"red": [["armor"], ["scope", "luck"]],
+          "blue": [["thruster"], ["grenade"]]}""")
+    for slot, address in addresses:
+      discard played.addPlayer(address, slot, "", trusted = true)
+    for i in 0 ..< addresses.len:
+      check played.players[i].perks == live.players[i].perks
+
+  test "a seat's perks survive the replay keyframe round-trip":
+    var sim = perkedSim("""{"red": ["armor", "luck"], "blue": ["scope"]}""")
+    discard sim.addPlayer("red0")
+    discard sim.addPlayer("blue0")
+    sim.startGame()
+    let bytes = sim.serializeReplaySim()
+    var restored = deserializeReplaySim(bytes, sim)
+    check restored.players[0].perks == {PerkArmor, PerkLuck}
+    check restored.players[1].perks == {PerkScope}
+    check restored.players[0].hp ==
+      restored.config.maxHpFor(Red, restored.players[0].perks)
+
 suite "perks applied in the sim":
   test "an armored team spawns, respawns, and heals at +1 hp":
     var config = defaultGameConfig()
@@ -201,6 +247,15 @@ suite "perks applied in the sim":
     sim.players[0].x = sim.medKitSpawns[0].x - CollisionW div 2
     sim.players[0].y = sim.medKitSpawns[0].y - CollisionH div 2
     sim.tryPickupMedKits(0)
+    check sim.players[0].hp == sim.config.hitPoints + 1
+    # A killed armored player respawns at the ARMORED max too (respawnPlayers
+    # is its own maxHpFor call site).
+    sim.killPlayer(0, 1)
+    check not sim.players[0].alive
+    sim.players[0].respawnTimer = 1
+    var prev = sim.none()
+    sim.step(sim.none(), prev)
+    check sim.players[0].alive
     check sim.players[0].hp == sim.config.hitPoints + 1
 
   test "a thruster team tops out 10% faster":
@@ -218,6 +273,33 @@ suite "perks applied in the sim":
       sim.applyInput(blue, InputState(right: true))
     check sim.players[blue].velX == 704
     check sim.players[red].velX == 774                  # 704 * 1100 / 1000
+
+  test "a real full-charge throw lands at the perked distance":
+    # throwGrenade resolves its own maxRange (independently of throwTarget's
+    # preview math), so the actual airborne target is asserted too.
+    var config = defaultGameConfig()
+    config.update("""{"perks": {"red": ["grenade"]}}""")
+    var sim = initCtfForTest(config)
+    discard sim.addPlayer("red0")
+    discard sim.addPlayer("blue0")
+    sim.startGame()
+    sim.blockAll()
+    sim.openField(40, 40, 1000, 500)
+    for i in [0, 1]:
+      sim.placeStill(i, 300 - CollisionW div 2, (200 + i * 200) - CollisionH div 2)
+      sim.players[i].aimBrads = 0
+      sim.players[i].hasGrenade = true
+    # Each throw is asserted right after its release: a grenade's flight is
+    # far shorter than the next throw's charge, so the two are never airborne
+    # together.
+    sim.chargeAndThrow(0, GrenadeChargeTicks + 2)
+    let perkedRange =
+      sim.config.grenadeRangeFor(GrenadeMaxRange, sim.players[0].perks)
+    check sim.airborneGrenades.len == 1
+    check sim.airborneGrenades[0].tx == 300 + perkedRange
+    sim.chargeAndThrow(1, GrenadeChargeTicks + 2)
+    check sim.airborneGrenades.len >= 1
+    check sim.airborneGrenades[^1].tx == 300 + GrenadeMaxRange
 
   test "a grenade-perked throw ring and throw reach 25% further":
     var config = defaultGameConfig()

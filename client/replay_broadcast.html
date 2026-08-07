@@ -244,10 +244,11 @@ html, body {
 }
 /* Team-perk badges, riding the squad-pip strip (the pip strip IS the life
    meter — see renderSquad). Each policy's pips form one .squad-pol block
-   with that policy's badges beside them; side-l reverses the strip so, in
-   CTF-Doubles, the two pip groups sit adjacent at the strip's center with
-   each policy's badges flanking OUTSIDE its own group on both sides of the
-   clock. Badges keep each perk's own fixed color (never team-tinted). */
+   with that policy's badges beside them; the center-adjacent pips with
+   badges flanking OUTSIDE come from renderSquad's fixed DOM order
+   (group 0: icons,pips; group 1: pips,icons), never from side-reversal CSS
+   — see the .squad-pol comment below for why mirroring was removed. Badges
+   keep each perk's own fixed color (never team-tinted). */
 .plate .perk-icos {
   display: flex;
   align-items: center;

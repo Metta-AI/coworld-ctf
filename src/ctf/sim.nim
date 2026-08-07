@@ -1285,9 +1285,11 @@ proc grenadePosition*(grenade: AirborneGrenade, tick: int): tuple[x, y: int] =
 proc throwTarget*(player: Player, maxRange: int): tuple[x, y: int] =
   ## Where a charging player's throw would currently land, along their aim at
   ## the charge-picked distance. `maxRange` is the seat's resolved full-charge
-  ## distance (config.grenadeRangeFor — the grenade perk stretches it); both
-  ## callers pass the same value, so the render charge-ring can never disagree
-  ## with where the grenade will actually go.
+  ## distance (config.grenadeRangeFor — the grenade perk stretches it). The
+  ## render charge-ring caller (global.nim) resolves it the same way
+  ## throwGrenade below does, and throwGrenade duplicates this strength
+  ## formula inline — keep the two in lockstep so the ring never disagrees
+  ## with where the grenade actually goes.
   let
     charge = clamp(player.throwCharge, 0, GrenadeChargeTicks)
     strength = GrenadeMinRange +

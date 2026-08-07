@@ -62,18 +62,18 @@ proc) so roster can use it.
 
 ## Read sites (accessor-routed, exact base at default)
 
-- **armor** — `playerMaxHp(sim, i)` = `hitPointsFor(team) + perkArmorHp` when
-  armored: join, startGame reset, respawn, med-kit full-heal cap, and the
-  broadcast hp-bar denominator (global.nim).
+- **armor** — `maxHpFor(config, team, perks)` = `hitPointsFor(team) +
+  perkArmorHp` when armored: join, startGame reset, respawn, med-kit
+  full-heal cap, and the broadcast hp-bar denominator (global.nim).
 - **thruster** — movement tick max speed: `maxSpeedFor(team) *
   (1000 + perkThrusterPermille) div 1000` when perked (integer, composes with
   the handicap interpolation and carrier scaling unchanged).
-- **scope** — `aimJitterSigma(sim, shooter)`: sigma `* (1000 -
+- **scope** — `aimJitterSigma(sim, perks)`: sigma `* (1000 -
   perkScopePermille) / 1000` when perked. Float scale is fine: the jitter path
   is already float and the scale only applies when the perk is present, so the
   default RNG draw and value are untouched.
-- **grenade** — `grenadeMaxRangeFor(config, perks)` replaces the raw
-  `GrenadeMaxRange` in `throwGrenade` and `throwTarget` (which gains a
+- **grenade** — `grenadeRangeFor(config, GrenadeMaxRange, perks)` replaces the
+  raw `GrenadeMaxRange` in `throwGrenade` and `throwTarget` (which gains a
   `maxRange` parameter; the render charge-ring caller passes the same resolved
   value, so the ring can never disagree with the throw).
 - **luck** — in `applyFire`, on a landed hit only: when the shooter carries
@@ -106,11 +106,12 @@ magnitude ("scope - +50% accuracy"), read from the frame's `pmods` block
 team has perks).
 
 - Broadcast client: the squad-pip strip IS the life meter, so the badges ride
-  it. Pips group per policy (`.squad-pol`); a lone policy keeps its badges on
-  the strip's outer end, and a two-policy team (CTF-Doubles) **mirrors within
-  the strip** — the two pip groups sit adjacent at its center with each
-  policy's badges flanking outside its own group. Group order is ALWAYS the
-  headline's left-to-right policy order, on both plates: an early version
+  it. Pips group per policy (`.squad-pol`); a lone policy's badges trail its
+  pips, and a two-policy team (CTF-Doubles) **mirrors within the strip** via
+  fixed DOM order (group 0: icons,pips; group 1: pips,icons) — the two pip
+  groups sit adjacent at its center with each policy's badges flanking
+  outside its own group. Group order is ALWAYS the headline's left-to-right
+  policy order, on both plates, with no side-reversal CSS: an early version
   clock-mirrored the whole strip on left plates, which visually attached the
   left badges to the wrong policy name. The lives-line numeral stays the
   classic single team count.
@@ -123,4 +124,18 @@ team has perks).
 Old replays carry no `perks` key → every accessor returns the exact base
 value, no extra RNG is drawn, gameHash is byte-identical. Guarded by the
 existing test_replay hash check plus a new default-equivalence test in
-test_perks.nim.
+test_perks.nim. The guarantee is one-directional (the handicaps precedent):
+a PERKED replay re-simulated on an older engine of the same GameVersion
+silently ignores the unknown config keys and hash-mismatches rather than
+refusing cleanly.
+
+## Known limitations (follow-up candidates)
+
+- Group→policy assignment is by CONNECTION order: with two nested groups, an
+  operator cannot say which policy receives which group — whichever policy
+  seats first takes group 0. Deterministic under replay; a slot-keyed
+  assignment (closedRoster names) would pin it.
+- Resolved magnitudes ship to VIEWERS (`pmods` in the state frame) but the
+  policy marker label states perk names only — a bot cannot read a
+  non-default `perkMods` from its observation. Appending resolved deltas to
+  the label tail (the handicap marker's precedent) is the natural extension.

@@ -13,8 +13,13 @@ proc perkSetForJoin*(sim: SimServer, team: Team, address: string): PerkSet =
   ## configured groups (config.perks) deal to its distinct POLICIES in join
   ## order — a seat of an already-seated policy shares that policy's group, a
   ## new policy takes the next one (clamped to the last, so a lone group is
-  ## simply team-wide). Pure function of config + the replayed join stream,
-  ## so playback resolves identically and a later leave never reshuffles.
+  ## simply team-wide). Pure function of config + the join AND leave stream
+  ## (both replay), so playback resolves identically and already-seated
+  ## players never reshuffle. Caveat under churn: ranks derive from the
+  ## CURRENT roster, so if a policy's seats all leave, the next new policy
+  ## inherits its rank — seats of one policy are only guaranteed a shared
+  ## group while the team's policy lineup stays stable (always true for
+  ## league rosters, which seat once at start).
   let groups = sim.config.perks[team]
   if groups.len == 0:
     return {}

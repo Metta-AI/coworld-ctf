@@ -845,8 +845,8 @@ per team labeled `perks <color> <group> [<group> …]`: each `<group>` is the
 comma-joined perk names one policy seat on that team carries — the vocabulary
 is `armor` (extra hit point), `scope` (tighter gun aim), `grenade` (longer
 throws), `thruster` (faster top speed), `luck` (a fraction of landed gun shots
-deal double damage); magnitudes are config (`perkMods`) — or the literal `-`
-for none. One group means the whole team shares it; two or more deal to the
+deal extra damage, default double); magnitudes are config (`perkMods`) — or
+the literal `-` for none. One group means the whole team shares it; two or more deal to the
 team's distinct policies in join order (CTF-Doubles). Match the prefix
 `perks `; the tail splits on spaces into `["<color>", "<group>", …]`, each
 group splitting again on commas. The marker is emitted for EVERY team, `-`

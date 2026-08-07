@@ -386,7 +386,18 @@ proc readConfigPerks(node: JsonNode, config: var GameConfig) =
           " must be an array of perk names or an array of groups."
       )
     var groups: seq[PerkSet]
-    if value.len > 0 and value[0].kind == JArray:
+    if value.len == 0:
+      # A flat empty array has no meaning ("no perks" is spelled by omitting
+      # the team) and would otherwise register as one empty group — flipping
+      # the has-perks gates (pmods, marker content) on a perk-free team.
+      # An empty NESTED group ([["armor"], []]) stays legal: it means "this
+      # policy gets nothing".
+      raise newException(
+        CtfError,
+        "Config field perks." & teamName &
+          " is an empty array; omit the team instead."
+      )
+    elif value[0].kind == JArray:
       for group in value:
         groups.add readPerkGroup(group, teamName)
     else:
@@ -417,14 +428,15 @@ proc readPerkModPermille(node: JsonNode, name: string, value: var int) =
   value = int(f * 1000.0 + 0.5)
 
 proc readPerkModInt(node: JsonNode, name: string, value: var int) =
-  ## Reads one optional non-negative integer perk mod.
+  ## Reads one optional integer perk mod, sanity-capped at 100 so a
+  ## fat-fingered extra digit errors instead of shipping an absurd game.
   if not node.hasKey(name):
     return
   let item = node[name]
-  if item.kind != JInt or item.getInt() < 0:
+  if item.kind != JInt or item.getInt() < 0 or item.getInt() > 100:
     raise newException(
       CtfError,
-      "Config field perkMods." & name & " must be a non-negative integer."
+      "Config field perkMods." & name & " must be an integer in 0..100."
     )
   value = item.getInt()
 
@@ -434,6 +446,8 @@ proc readConfigPerkMods(node: JsonNode, config: var GameConfig) =
   ##  "thrusterSpeed": 0.1, "luckChance": 0.1, "luckDamage": 2}.
   ## Fractions are authored 0..1 and stored as integer permille (the
   ## handicaps rule), so every in-sim derivation stays integer or perk-gated.
+  ## Mods without a `perks` block are accepted and inert (nothing reads them
+  ## until a seat carries the perk), mirroring the inactive-team tolerance.
   if not node.hasKey("perkMods"):
     return
   let mods = node["perkMods"]

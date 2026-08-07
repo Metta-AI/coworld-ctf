@@ -62,6 +62,8 @@ const SampleJson = """{
   "gameOverTicks": {"gameOverTicks": 100},
   "gunRange": {"gunRange": 500},
   "handicaps": {"handicaps": {"red": 0.5}},
+  "perks": {"perks": {"red": [["armor"], ["scope", "luck"]]}},
+  "perkMods": {"perkMods": {"luckChance": 0.25}},
   "hitPoints": {"hitPoints": 5},
   "lives": {"lives": 2},
   "lobbyJoinTimeoutTicks": {"lobbyJoinTimeoutTicks": 50},

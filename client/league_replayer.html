@@ -137,10 +137,15 @@
     text-transform:uppercase; color:var(--paper-dim); flex:none; text-shadow:0 calc(1*var(--u)) 0 #000}
   .team-head.leader .lives-num{animation:leaderpulse 1.9s ease-in-out infinite}
   /* Team-perk badges + CTF-Doubles split meters (chrome_common's
-     renderTeamMeters fills .meters). Mirrors on the right plaque via the same
-     row-reverse rule as the lives-line, so split numerals stay adjacent and
-     each policy's badges flank outside its own numeral. */
+     renderTeamMeters fills .meters). Split meters keep a FIXED DOM order
+     (icons,num | num,icons) in headline policy order on both plaques —
+     numerals adjacent at the cluster center, badges outside, no
+     side-dependent CSS. Only the classic single team meter (renderTeamMeters
+     stamps .single) mirrors on the right plaque, preserving the old
+     "N Lives" innermost-numeral read the lives-line row-reverse used to
+     provide before the meter markup moved into .meters. */
   .team-head .meters{display:flex; align-items:baseline; gap:calc(5*var(--u))}
+  .plaque.right .team-head .meters.single{flex-direction:row-reverse}
   .team-head .pgrp{display:flex; align-items:baseline; gap:calc(4*var(--u))}
   .team-head .perk-icos{display:flex; align-items:center; gap:calc(3*var(--u));
     align-self:center}

@@ -57,3 +57,4 @@ pool-preview/
 /arena/.nimcache/
 /arena/*.wasm
 data/replays/
+perks-2v2-demo.bitreplay

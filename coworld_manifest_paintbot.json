@@ -317,6 +317,30 @@
           "description": "Full expanded map geometry (obstacles, trenches, endzones) as a JSON object. Pins an exact authored map \u2014 e.g. a campaign cell's custom organic terrain \u2014 overriding mapPath/mapSeed/mapSize. Same format the replay config carries.",
           "type": "object"
         },
+        "perks": {
+          "description": "Per-team perk buffs, keyed by team name. Vocabulary: armor (+1 max hp), scope (50% tighter gun aim), grenade (+25% throw range), thruster (+10% max speed), luck (10% of landed gun shots deal 2 damage) \u2014 magnitudes tunable via perkMods. A team's value is either a flat array of perk names (the whole team shares them) or an array of such arrays: per-policy groups for 2v2 seats (CTF-Doubles), dealt to the team's distinct policies in join order. Omitted teams have no perks.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "red": { "type": "array" },
+            "blue": { "type": "array" },
+            "green": { "type": "array" },
+            "yellow": { "type": "array" }
+          }
+        },
+        "perkMods": {
+          "description": "Perk magnitude overrides. Fractions are 0..1: scopeAim = fraction of aim deviation removed, grenadeRange/thrusterSpeed = extra range/speed, luckChance = chance a landed shot is lucky; armorHp/luckDamage are hit-point counts (0..100).",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "armorHp": { "type": "integer", "minimum": 0, "maximum": 100 },
+            "scopeAim": { "type": "number", "minimum": 0, "maximum": 1 },
+            "grenadeRange": { "type": "number", "minimum": 0, "maximum": 1 },
+            "thrusterSpeed": { "type": "number", "minimum": 0, "maximum": 1 },
+            "luckChance": { "type": "number", "minimum": 0, "maximum": 1 },
+            "luckDamage": { "type": "integer", "minimum": 1, "maximum": 100 }
+          }
+        },
         "barrageMaxPerSec": {
           "description": "Grenade-barrage endgame: the launch rate the bombardment ramps up to, in grenades/second across the whole board. 0 disables the mode; requires maxTicks > 0 when set. With the barrage on, the time limit no longer ends the game \u2014 it plays past 0:00 under full bombardment until one team is wiped.",
           "type": "integer",

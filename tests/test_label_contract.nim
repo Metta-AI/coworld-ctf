@@ -51,6 +51,12 @@ proc fullFeatureGame(teams4 = false): SimServer =
   # covers every state), while no environment shells rain on the posed
   # frame during the sweep's few steps.
   config.barrageMaxPerSec = 15
+  # Team perks, one team per authored shape (flat = team-wide, nested =
+  # per-policy groups): the PERKED marker patterns enter the vocabulary, so a
+  # rename inside PerkNames diffs the manifest instead of slipping through.
+  # The 4-team run keeps green/yellow bare, covering the unperked `-` form.
+  config.perks[Red] = @[{PerkArmor, PerkScope}]
+  config.perks[Blue] = @[{PerkGrenade}, {PerkThruster, PerkLuck}]
   result = initCtfForTest(config)
   for i in 0 ..< 6:
     discard result.addPlayer("p" & $i)

@@ -97,12 +97,12 @@ Per-map descriptor `CtfMap` [sim_types.nim:733](../src/ctf/sim_types.nim#L733) c
 | `slots` | `seq[PlayerSlotConfig]` / `@[]` | ≤32; unique names/tokens; `team < teams` | Per-seat overrides. |
 | `handicaps` | `array[Team, int]` permille / all `0` | authored as `{team: 0.0..1.0}` | Per-team handicap: 0 = normal, 1 = 50% miss + 1 life + 1 hit point + ½ max speed, linearly interpolated. |
 | `perks` | `array[Team, seq[PerkSet]]` / all empty | perk names `armor scope grenade thruster luck`; flat list or list-of-groups | Per-team perk groups: one group = team-wide, N groups = per-policy (CTF-Doubles), dealt to distinct policies in join order. |
-| `perkArmorHp` | int / `1` | `>= 0`, authored `perkMods.armorHp` | armor perk: extra max hit points per bot. |
+| `perkArmorHp` | int / `1` | `0..100`, authored `perkMods.armorHp` | armor perk: extra max hit points per bot. |
 | `perkScopePermille` | int / `500` | authored `perkMods.scopeAim` `0.0..1.0` | scope perk: fraction of the gun's aim-jitter sigma removed. |
 | `perkGrenadePermille` | int / `250` | authored `perkMods.grenadeRange` `0.0..1.0` | grenade perk: extra max throw range. |
 | `perkThrusterPermille` | int / `100` | authored `perkMods.thrusterSpeed` `0.0..1.0` | thruster perk: extra max speed. |
 | `perkLuckPermille` | int / `100` | authored `perkMods.luckChance` `0.0..1.0` | luck perk: chance a landed gun shot is lucky. |
-| `perkLuckDamage` | int / `2` | `>= 1`, authored `perkMods.luckDamage` | luck perk: hit points a lucky shot removes. |
+| `perkLuckDamage` | int / `2` | `1..100`, authored `perkMods.luckDamage` | luck perk: hit points a lucky shot removes. |
 | `puddleDamagePct` | int / `10` | `0..100` | Percent chance of 1 damage per full second of continuous paint-puddle occupancy; inert on maps without puddles (`mapPuddles`). |
 
 **Per-team handicap** ([sim_types.nim `handicaps`](../src/ctf/sim_types.nim), accessors
