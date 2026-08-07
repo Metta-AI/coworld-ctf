@@ -33,6 +33,17 @@ proc newDriver(slot, team, episodeSeed: int): Driver =
   #   NOFIX=1        → strip the fixes from BOTH teams (mirror control).
   #   FIXTEAM=red    → only Red gets the fixes; Blue is stripped (seat-rotated A/B).
   #   FIXTEAM=blue   → only Blue gets them; Red stripped.
+  # ⭐ spinCap RANGE FORK isolation (issue #8). shippedCombatTune() reads
+  # NOSPINCAP / SPINRANGE from the process env, but the harness runs all 16
+  # bots in ONE process — so without this the "A/B" is a mirror. SPINTEAM
+  # picks which side gets the candidate traverse and RE-STAMPS the other side
+  # back to plain v39, giving a deterministic, per-tick, seat-rotatable A/B.
+  let spinTeam = getEnv("SPINTEAM")
+  if spinTeam.len > 0:
+    let mine = (spinTeam == "red" and t == Red) or (spinTeam == "blue" and t == Blue)
+    if not mine:
+      tune.spinCap = true
+      tune.spinCapRangePx = Inf
   let fixTeam = getEnv("FIXTEAM")
   let stripFix =
     getEnv("NOFIX") == "1" or
@@ -171,6 +182,50 @@ proc main() =
   echo &"HITS  total  Red {totRedHit}  Blue {totBlueHit}"
   echo &"ACCURACY     Red {redAcc:.1f}%  Blue {blueAcc:.1f}%  " &
     &"(hits/shots — the wall-vs-body aim metric)"
+  when defined(rngprobe):
+    const bandName = ["<150", "150-300", "300-600", "600-1000", ">=1000"]
+    for side in 0 .. 1:
+      echo "--- RANGED CORRIDOR  team ", (if side == 0: "RED" else: "BLUE"),
+        "   cappedTraverses ", rpCap[side],
+        "  meanCapSlotErr ", (if rpCap[side] > 0: rpCapErr[side] / rpCap[side] else: 0.0)
+      echo "band       frames     open   open%     fire   fire%  meanErrBrads  meanD"
+      var tf2, to2, tfi2 = 0
+      for b in 0 .. 4:
+        let f = rpFrames[side][b]
+        tf2 += f; to2 += rpOpen[side][b]; tfi2 += rpFire[side][b]
+        let
+          op = (if f > 0: 100.0 * rpOpen[side][b].float / f.float else: 0.0)
+          fp = (if f > 0: 100.0 * rpFire[side][b].float / f.float else: 0.0)
+          me = (if f > 0: rpErrSum[side][b].float / f.float else: 0.0)
+          md = (if f > 0: rpDistSum[side][b] / f.float else: 0.0)
+        echo &"{bandName[b]:>9} {f:>9} {rpOpen[side][b]:>8} {op:>7.2f} {rpFire[side][b]:>8} {fp:>7.2f} {me:>13.2f} {md:>6.0f}"
+      let
+        farF2 = rpFrames[side][2] + rpFrames[side][3] + rpFrames[side][4]
+        farO2 = rpOpen[side][2] + rpOpen[side][3] + rpOpen[side][4]
+        farFi2 = rpFire[side][2] + rpFire[side][3] + rpFire[side][4]
+      echo &"    TOTAL {tf2:>9} {to2:>8} {100.0*to2.float/max(1,tf2).float:>7.2f} {tfi2:>8} {100.0*tfi2.float/max(1,tf2).float:>7.2f}"
+      echo &"BEYOND300  frames {farF2}  open {farO2} ({100.0*farO2.float/max(1,farF2).float:.2f}%)  fire {farFi2}  shareOfShots {100.0*farFi2.float/max(1,tfi2).float:.2f}%"
+    echo "--- RANGED CORRIDOR (all 16 bots pooled) ---"
+    echo "band       frames     open   open%     fire   fire%  meanErrBrads  meanD"
+    var tf, to, tfi = 0
+    for b in 0 .. 4:
+      let f = rpFrames[0][b] + rpFrames[1][b]
+      tf += f; to += rpOpen[0][b] + rpOpen[1][b]; tfi += rpFire[0][b] + rpFire[1][b]
+      let
+        ob = rpOpen[0][b] + rpOpen[1][b]
+        fb = rpFire[0][b] + rpFire[1][b]
+        op = (if f > 0: 100.0 * ob.float / f.float else: 0.0)
+        fp = (if f > 0: 100.0 * fb.float / f.float else: 0.0)
+        me = (if f > 0: (rpErrSum[0][b] + rpErrSum[1][b]).float / f.float else: 0.0)
+        md = (if f > 0: (rpDistSum[0][b] + rpDistSum[1][b]) / f.float else: 0.0)
+      echo &"{bandName[b]:>9} {f:>9} {ob:>8} {op:>7.2f} {fb:>8} {fp:>7.2f} {me:>13.2f} {md:>6.0f}"
+    echo &"    TOTAL {tf:>9} {to:>8} {100.0*to.float/max(1,tf).float:>7.2f} {tfi:>8} {100.0*tfi.float/max(1,tf).float:>7.2f}"
+    let farF = rpFrames[0][2]+rpFrames[1][2]+rpFrames[0][3]+rpFrames[1][3]+rpFrames[0][4]+rpFrames[1][4]
+    let farO = rpOpen[0][2]+rpOpen[1][2]+rpOpen[0][3]+rpOpen[1][3]+rpOpen[0][4]+rpOpen[1][4]
+    let farFi = rpFire[0][2]+rpFire[1][2]+rpFire[0][3]+rpFire[1][3]+rpFire[0][4]+rpFire[1][4]
+    echo &"BEYOND300  frames {farF}  open {farO} ({100.0*farO.float/max(1,farF).float:.2f}%)  fire {farFi}"
+    echo &"SHOTSHARE  fire<150 {rpFire[0][0]+rpFire[1][0]}  fire>=300 {farFi}  share>=300 {100.0*farFi.float/max(1,tfi).float:.2f}%"
+    echo &"SPINCAP    cappedFrames {rpCap[0]+rpCap[1]}  sumSlotErr {rpCapErr[0]+rpCapErr[1]}"
 
 when isMainModule:
   main()

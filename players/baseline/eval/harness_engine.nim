@@ -18,7 +18,7 @@
 ##     arms the 5-tick windup, exactly as the baseline self-pulses fire.
 
 import
-  std/[strutils],
+  std/[os, strutils],
   bitworld/spriteprotocol,
   ctf/sim,
   ctf/global
@@ -96,6 +96,18 @@ proc newEvalEngine*(numPlayers: int, seed: int, maxTicks: int): EvalEngine =
   var config = defaultGameConfig()
   config.seed = seed
   config.maxTicks = maxTicks
+  # ⚠️⚠️ LEAGUE PHYSICS, NOT ENGINE DEFAULTS. `defaultGameConfig()` ships
+  # aimTurnRate = 1 slot/tick and gunRange = 1050, but every live paintbot
+  # config (cfg_default/cfg_4ffa/cfg_4ffa8 + the hosted league) passes
+  # aimTurnRate = 5 and gunRange = 1300. At rate 1 the GV36 slot servo is a
+  # plain shortest-arc turn and the whole spin-budget family is INERT, so a
+  # harness on the defaults silently measures nothing for any aim lever.
+  # Override to the league values; AIMRATE / GUNRANGE reproduce the old runs.
+  let
+    aimRateEnv = getEnv("AIMRATE")
+    gunRangeEnv = getEnv("GUNRANGE")
+  config.aimTurnRate = (if aimRateEnv.len > 0: parseInt(aimRateEnv) else: 5)
+  config.gunRange = (if gunRangeEnv.len > 0: parseInt(gunRangeEnv) else: 1300)
   config.maxGames = 0                # never auto-quit; harness owns the loop.
   result = EvalEngine(sim: initSimServer(config))
   result.sim.gameEventLoggingEnabled = false  # keep the run quiet (a SimServer
