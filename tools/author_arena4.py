@@ -147,10 +147,17 @@ CHEVRON = [
     # between two corner boxes, which is where the bot's target rule sends
     # everyone — at four increasing depths, and their transposes furnish the
     # left strip identically.
-    ("chevron", shape(DIAM, 250, 37, 53), True),     # rows 11..63
-    ("chevron", shape(DIAM, 300, 89, 53), True),     # rows 63..115
-    ("chevron", shape(DIAM, 350, 141, 53), True),    # rows 115..167
-    ("chevron", shape(DIAM, 390, 193, 53), True),    # rows 167..219
+    #
+    # Their DEPTHS (the first coordinate) are staggered on purpose and the
+    # stagger is free: the band an entry closes depends only on the second
+    # coordinate, so long as the first clears 215. An earlier draft ran them
+    # 250/300/350/390 — monotonic — and four diamonds on a straight 45-degree
+    # line became a continuous diagonal WALL across the raid lane once the
+    # images were drawn. Same rows closed, same cover, much worse board.
+    ("chevron", shape(DIAM, 240, 37, 49), True),     # rows 13..61
+    ("chevron", shape(DIAM, 375, 86, 49), True),     # rows 62..110
+    ("chevron", shape(DIAM, 285, 135, 49), True),    # rows 111..159
+    ("chevron", shape(DIAM, 395, 184, 49), True),    # rows 160..208
     # --- the interior entries. Both coordinates clear 215, so each closes the
     # band at BOTH of them. Coordinates inside 399.5..559.5 are the spin band
     # and must not be diamonds — a diamond there becomes an ANIMATED obstacle.
@@ -176,6 +183,8 @@ TERRAIN = [
     # corner plaza that can hold no wall at all, so the nearest cover to any
     # pedestal is necessarily just outside that box — this is it.
     ("ward", shape(DIAM, 250, 300, 53), True),
+    # Between the ward and the plaza, over the gap the chevron leaves.
+    ("ward", shape(DIAM, 330, 250, 49), True),
 ]
 
 QUADRANT = CHEVRON + TERRAIN
