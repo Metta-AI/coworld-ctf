@@ -469,10 +469,28 @@ type SeamAxis = object
   nx, ny: float
 
 const
-  RoofSeamAxis = SeamAxis(nx: 1.0, ny: 1.0)
-    ## Roof membrane seams: level sets of x + y, running down-left.
-  GlassSheenAxis = SeamAxis(nx: 1.0, ny: -1.0)
-    ## Glass sheen streaks: level sets of x − y, running down-right.
+  Sqrt2 = 1.4142135623730951
+  Sqrt6Half = 1.224744871391589       ## sqrt(2) * sqrt(3) / 2
+
+  RoofSeamAxis = SeamAxis(nx: 0.0, ny: Sqrt2)
+    ## Roof membrane seams: level sets of y, running EAST-WEST — parallel to
+    ## the hull's flat top and bottom edges (normal at 90 degrees).
+  GlassSheenAxis = SeamAxis(nx: Sqrt6Half, ny: Sqrt2 * 0.5)
+    ## Glass sheen streaks: normal at 30 degrees, so the streaks run parallel
+    ## to the hull's upper-right edge. 60 degrees off the roof seams.
+    ##
+    ## BOTH WERE 45-DEGREE FAMILIES (x + y and x − y) until the hull became a
+    ## hexagon. That pairing is perpendicular, which is the right answer for a
+    ## SQUARE lattice and belongs to no hex axis at all: on this hull a 45
+    ## degree seam meets four of the six edges at 15 or 75 degrees and reads as
+    ## a pattern laid over the shape rather than with it. These two are hull
+    ## axes — the family of the flat edges, and the family of the upper-right
+    ## edge.
+    ##
+    ## Both vectors keep LENGTH sqrt(2), which the old pair also had, because
+    ## `seamPhase` mods nx·x + ny·y by the period: the stripe SPACING is
+    ## period / |n|. Normalising to unit length here would have silently
+    ## widened every roof seam by a factor of sqrt(2). Only the angle moves.
 
 ## DESIGN INTENT, kept as a contract: the two stripe families must stay well
 ## APART in angle, or a window and the roof it is set into read as one
