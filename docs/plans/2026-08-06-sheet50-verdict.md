@@ -58,10 +58,23 @@ different pebbles.
 
 So the bar is scored **MET WITH RESERVATION** at both counts: the strong
 families are nameable by eye and the sameness charge is retired, but a
-plurality of tiles are nameable only by their texture. The remaining work is
-not more variety — it is spending the same cover budget on masses instead of
-pebbles, which is task `b7f44fb5` and is exactly what `interiorFrac` is
-failing to reach.
+plurality of tiles are nameable only by their texture.
+
+> **⚠️ CORRECTION, same day.** The next sentence used to read "the remaining work
+> is spending the same cover budget on masses instead of pebbles". Measured
+> directly in `2026-08-06-what-the-cover-is-made-of.md`, that is wrong twice
+> over. Speck share does not separate maps that clear the `interiorFrac` bar
+> from maps that miss it (2-team 20.5% against 21.9% of footprint), and at 4
+> teams the PASSING maps carry more specks, not fewer (45.1% against 28.7%).
+> Adding masses is worse still: passing maps carry about a THIRD the mass share
+> of failing ones at both counts, and the hand-authored control has none at all.
+>
+> The observation above stands — the texture really is what a plurality of tiles
+> read as, and the eye really does see it first. What was wrong was inferring
+> the *cause of the number* from it. Specks are 74-92% of the shape COUNT and a
+> contact sheet cannot show footprint, so the eye was reading the loudest signal
+> rather than the load-bearing one. The separator is footprint at 34-68px, the
+> arena's only bucket.
 
 ## Method note
 

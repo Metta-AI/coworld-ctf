@@ -91,8 +91,17 @@ captions; at 4 teams a real street grid, a radial pinwheel, a diagonal star and 
 The sameness charge is retired. But **across 48 2-team tiles the single most repeated visual
 element is a texture of small equal-sized dark squares**, and a plurality of tiles read as that
 texture first and as their archetype second — the CONFETTI mode the enclosure work named. At 4
-teams a small square ring around the centre recurs on a large share of tiles. Picture and number
-agree for once: cover spent on pebbles buys no enclosure, and that IS the Lens 2 miss.
+teams a small square ring around the centre recurs on a large share of tiles.
+
+**And then the picture and the number were measured against each other, and they disagree.** I
+wrote here that "cover spent on pebbles buys no enclosure, and that IS the Lens 2 miss". It is not.
+Splitting the same 59 maps by the `interiorFrac >= 0.30` bar
+(`2026-08-06-what-the-cover-is-made-of.md`) shows speck share does not separate pass from fail at
+2 teams (20.5% of footprint against 21.9%) and runs BACKWARDS at 4 teams (passing 45.1%, failing
+28.7%). What separates them is footprint at **34-68 px — the hand-authored arena's only bucket,
+98.2% of its footprint** — and mass above 120 px, which passing maps carry about a third as much of
+and the arena has none of. The eye read the loudest signal, not the load-bearing one: specks are
+74-92% of the shape COUNT, and a contact sheet cannot show footprint.
 
 ## Lens 4 — Suite and contract health: 9/10
 
@@ -177,7 +186,14 @@ better position than the three-of-eight this document opened with — but "bette
 Closing it here is exactly how the next handoff starts with "fifty generated maps are still one
 map" again.
 
-The two open items have the same cause and one owner. `interiorFrac` misses because cover is spent
-on pebbles instead of masses; the sheet's reservation is that those same pebbles are what a
-plurality of tiles read as. Task `b7f44fb5` is that work, it is Lane A, and it is queued behind the
-corridor floor rather than skipped.
+The `interiorFrac` miss now has a measured direction and it is the OPPOSITE of the one this
+document and task `b7f44fb5`'s brief both assumed. Maps that clear the bar spend their footprint at
+34-68 px — the arena's only bucket — and carry about a third the mass share of maps that miss it,
+at both team counts. The experiment nobody has run is to move footprint OUT of the >=120 px bucket
+into 34-68 px with cover permille held fixed. `b7f44fb5` is that work, it is Lane A, and it is
+queued behind the corridor floor rather than skipped.
+
+**20 of 59 seeds already clear the bar** (11/29 at 2 teams, 9/30 at 4), and the best 2-team seed
+measures 0.548 — 1.6x the hand-authored control. The generator can already build boards more
+enclosed than the arena; it does not do it reliably. That is a much cheaper problem than the mean
+suggests, and the mean is what the definition of done is written against.
