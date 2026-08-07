@@ -22,15 +22,13 @@ out_path = pathlib.Path(sys.argv[2]) if len(sys.argv) > 2 else repo / "docs" / "
 
 manifest = json.loads((render_dir / "manifest.json").read_text())
 
-# WIDTHS of the HEX size classes (ctf/hex.nim HexSizes). The board is a regular
-# flat-top hexagon inscribed in width x height, LANDSCAPE, so these replaced the
-# old rectangular 1050/1235/1606/2223/3211 set outright — and then the flat-top
-# flip swapped the axes again, which is why these are 951/1119/... and not the
-# short-axis 824/969/... a portrait board reported. `colossal` is override-only
-# and never appears in a random pool draw, but it is listed so an override-built
-# pool still labels correctly.
-SIZE_NAMES = {951: "small", 1119: "standard", 1455: "large",
-              2014: "huge", 2909: "giant", 5819: "colossal"}
+# Widths of the HEX size classes (ctf/hex.nim HexSizes). The board is a regular
+# hexagon inscribed in width x height, portrait, so these replaced the old
+# rectangular 1050/1235/1606/2223/3211 set outright. `colossal` is
+# override-only and never appears in a random pool draw, but it is listed so an
+# override-built pool still labels correctly.
+SIZE_NAMES = {824: "small", 969: "standard", 1260: "large",
+              1744: "huge", 2519: "giant", 5039: "colossal"}
 SIZE_ORDER = ["small", "standard", "large", "huge", "giant", "colossal"]
 # Wire tokens from mapSpecJson. `mirror` is the legacy spelling the loader
 # still accepts, so an older manifest keeps rendering under the right chip.
@@ -54,20 +52,6 @@ for m in manifest:
     zone_note = f"{endzone} r{m['endzoneRadius']} home x{m['homeX']}"
     if "homeDepth" in m:
         zone_note += f" depth {m['homeDepth']}‰"
-    # The pool is curated BY SCORE, so the score is on the card. Interior
-    # fraction rides beside it with the control's own figure, because that is
-    # the one number the fitness harness measured every pre-ranking pool map
-    # as failing (9.9-17.9%, against 32.5% for the same arena on the square
-    # board and 38.0% for it on the landscape hexagon).
-    score_note = ""
-    if "score" in m:
-        interior = m.get("interiorFrac", 0) * 100
-        control_interior = m.get("controlInteriorFrac", 0) * 100
-        verdict = "ge" if interior >= control_interior else "lt"
-        score_note = (
-            f'<span class="chip chip-score">score {m["score"] * 100:.0f}</span>'
-            f'<span class="chip chip-{verdict}">interior {interior:.0f}% '
-            f'vs arena {control_interior:.0f}%</span>')
     cards.append(f'''
 <article class="card" data-size="{size}" data-sym="{m['symmetry']}" data-endzone="{endzone}">
   <header class="card-head">
@@ -76,7 +60,6 @@ for m in manifest:
     <span class="chip chip-{size}">{size} {m['width']}&times;{m['height']}</span>
     <span class="chip chip-sym">{m['symmetry']}</span>
     <span class="chip chip-sym">{zone_note}</span>
-    {score_note}
     <span class="meta">{m['obstacles']} left-half shapes &middot; {m.get('trenches', 0)} trenches &middot; kits {kits}</span>
   </header>
   <div class="viewer" tabindex="0">
@@ -107,20 +90,6 @@ zones_present = sorted(k for k in counts
 summary = " &middot; ".join(part for part in (
     tally(sizes_present), tally(syms_present),
     tally(zones_present) + " endzones" if zones_present else "") if part)
-
-# The headline the curation change has to answer for: how many of these
-# maps are at least as ENCLOSED as the arena. Pre-ranking the answer was
-# zero — every pool map measured flatter than the control.
-score_summary = ""
-scored = [m for m in manifest if "score" in m]
-if scored:
-    beats = sum(1 for m in scored
-                if m.get("interiorFrac", 0) >= m.get("controlInteriorFrac", 1))
-    lo = min(m["score"] for m in scored) * 100
-    hi = max(m["score"] for m in scored) * 100
-    score_summary = (f" &middot; score {lo:.0f}&ndash;{hi:.0f} vs the arena "
-                     f"&middot; {beats}/{len(scored)} at least as enclosed "
-                     f"as the arena")
 filter_buttons = "\n    ".join(
     f'<button data-f="{group}:{name}" aria-pressed="false">{name}</button>'
     for group, names in (("size", sizes_present), ("sym", syms_present),
@@ -164,11 +133,6 @@ h1 .gv {{ color:var(--glass); }}
 .seed {{ font-weight:700; }}
 .chip {{ border:1px solid var(--line); border-radius:2px; padding:0 .4rem; color:var(--muted); }}
 .chip-sym {{ color:var(--ink); }}
-.chip-score {{ color:var(--ink); font-weight:700; }}
-/* Interior fraction against the CONTROL's own reading: the discriminator
-   the fitness harness measured every pre-ranking pool map as failing. */
-.chip-ge {{ color:#7fbf7f; border-color:#7fbf7f; }}
-.chip-lt {{ color:#c98a5a; border-color:#c98a5a; }}
 .meta {{ color:var(--muted); margin-left:auto; }}
 .viewer {{ position:relative; height:420px; overflow:hidden; cursor:grab; background:#0f0b08; }}
 .viewer:active {{ cursor:grabbing; }}
@@ -181,7 +145,7 @@ h1 .gv {{ color:var(--glass); }}
 <div class="wrap">
 <header class="top"><div>
   <h1>CTF terrain pool <span class="gv">config-gated (mapPath "pool")</span></h1>
-  <span class="sub">{len(manifest)} maps &middot; {summary}{score_summary}</span>
+  <span class="sub">{len(manifest)} maps &middot; {summary}</span>
   <span class="filters">
     {filter_buttons}
   </span>

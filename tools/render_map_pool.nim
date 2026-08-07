@@ -13,11 +13,6 @@ import
 when isMainModule:
   let outDir = if paramCount() >= 1: paramStr(1) else: "pool-preview"
   createDir(outDir)
-  ## The pool is curated BY SCORE now, so the review page has to show the
-  ## score — otherwise the reader has no way to tell a curated pool from the
-  ## first twenty valid seeds, which is exactly what the pool used to be.
-  ## Measured against the arena, in the same run, per meta-rule 1.
-  let control = controlMetrics()
   var manifest = newJArray()
   for i, seed in MapPoolSeeds:
     let
@@ -28,8 +23,6 @@ when isMainModule:
         pickupKinds: {pickupMedKitActive, pickupMedKitCandidate},
       )
     doAssert gameMap.genSeed == seed, "pool seed rolled forward: " & $seed
-    let metrics = computeMapMetrics(
-      gameMap, withChokepoints = false, withValidation = false)
     let img = renderMap(gameMap, renderOptions).image
     ## The manifest reports the map's own SPEC tokens rather than a second
     ## hand-written vocabulary. `mapSpecJson` is the one place the wire names
@@ -61,15 +54,7 @@ when isMainModule:
       "trenches": gameMap.trenches.len,
       "medKitSpawns": kits,
       "medKitCandidates": candidates,
-      "score": metrics.scoreMap(control).score,
-      "interiorFrac": metrics.interiorFrac,
-      "controlInteriorFrac": control.interiorFrac,
-      "wallFrac": metrics.wallFrac,
-      "p95ClearancePx": metrics.p95ClearancePx,
     }
-    echo &"rendered {name}  score=" &
-      &"{metrics.scoreMap(control).score * 100:.1f} " &
-      &"interior={metrics.interiorFrac * 100:.1f}% " &
-      &"(control {control.interiorFrac * 100:.1f}%)"
+    echo "rendered ", name
   writeFile(outDir / "manifest.json", pretty(manifest))
   echo "wrote ", outDir / "manifest.json"
