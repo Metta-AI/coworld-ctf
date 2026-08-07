@@ -1821,6 +1821,125 @@ let DefaultBands*: seq[Band] = @[
          "pool median 0.28 — a uniform board has no good and bad ground"),
 ]
 
+# ---------------------------------------------------------------------------
+# THE FAIRNESS ASSERTION, moved OUT of the score.
+#
+# `standRingSpread` and `standCoverSpread` measure team-vs-team fairness: the
+# gap between the two teams' stand rings. Measured over the 118 valid maps of
+# the attempt sweep committed under docs/evidence/, they are tautological.
+# `standRingSpread` runs 0.000..0.0056 against a <= 0.10 bound and
+# `standCoverSpread` runs 0.000..0.0007 against <= 0.04 — the worst map in the
+# population spends 5.6% and 1.75% of the respective allowance, and 0 of 118
+# maps breach either. They cannot be breached because the generator only emits
+# symmetric boards (`symMirror` + `symRot180`, `layoutSides` 118/118), so the
+# gap is zero BY CONSTRUCTION.
+#
+# Scoring a constructive guarantee is a category error with a measurable cost:
+# the two bands carry 4.0 of DefaultBands' 23.0 weight (17.4%) and, being
+# constant, act as a constant term in a weighted mean — they dilute every band
+# that CAN rank by 17.4% while ranking nothing themselves.
+#
+# The correct home is a hard assertion. A fairness violation is not worth a few
+# points off a quality number; it is a map that must not ship. This proc is
+# that assertion. The bounds are DefaultBands' own, unchanged, so promoting it
+# rejects exactly the maps the bands were written to reject and no others.
+#
+# NOT WIRED IN, DELIBERATELY. The generator's hard gate is
+# `arena.validateGeneratedMap`, and this branch (lane D of epic 3757029c) is
+# under instruction not to touch `src/ctf/arena.nim` while another agent holds
+# it serially. Promoting this is one line at the end of that proc:
+#
+#   for v in gameMap.evaluateMap().fairnessViolations(): return v
+#
+# and it is the epic owner's call, not this lane's. Until then the check is
+# exercised by `tests/test_band_reweight.nim`.
+const
+  FairnessRingSpreadMax* = 0.10
+    ## `standRingSpread` bound, lifted verbatim from the DefaultBands entry.
+  FairnessCoverSpreadMax* = 0.04
+    ## `standCoverSpread` bound, lifted verbatim from the DefaultBands entry.
+
+proc fairnessViolations*(m: MapMetrics): seq[string] =
+  ## Team-vs-team fairness as PASS/FAIL. Empty means fair.
+  ##
+  ## Returns strings shaped like `validateGeneratedMap`'s so the call site can
+  ## forward one straight out as a rejection reason.
+  let
+    ringSpread = m.standRingOpenMax - m.standRingOpenMin
+    coverSpread = m.standCoverMax - m.standCoverMin
+  if ringSpread > FairnessRingSpreadMax:
+    result.add "unfair stand rings: openness spread " &
+      &"{ringSpread:.4f} exceeds {FairnessRingSpreadMax:.2f}"
+  if coverSpread > FairnessCoverSpreadMax:
+    result.add "unfair stand cover: cover spread " &
+      &"{coverSpread:.4f} exceeds {FairnessCoverSpreadMax:.2f}"
+
+# ---------------------------------------------------------------------------
+# ControlSeparationBands — the evidence-derived alternative to DefaultBands.
+#
+# DERIVED IN: docs/plans/2026-08-06-staticscore-band-partition.md
+# DERIVED FROM: the 118-map attempt sweep and the 210 stored episodes under
+# docs/evidence/, via tools/band_reweight.py. Re-derivable offline; it plays
+# nothing.
+#
+# READ THE HEADLINE BEFORE READING THE WEIGHTS. Over the 40 generated maps
+# with play data, the best NON-NEGATIVE re-weighting of DefaultBands' bands
+# reaches a held-out rank correlation against play of rho = +0.109, 95% CI
+# [-0.25, +0.43], p = 0.503, n = 40. That is indistinguishable from zero. No
+# re-weighting of these bands ranks play, so this set is NOT offered as one.
+#
+# What it IS: the only stick tested that does not tie the hand-authored control
+# with a generated map on which the objective never happened. Under
+# DefaultBands the arena scores 1.0000 and so do `s1036a0` and `s1011a0` — and
+# `s1011a0` recorded ZERO steals across five full episodes while the arena
+# recorded eight. A ranker that cannot separate those two cannot rank.
+#
+# CONSTRUCTION, and it has zero parameters fitted to play: each surviving bound
+# is set AT THE CONTROL'S OWN MEASURED VALUE, on the side the control sits.
+# That is this file's existing calibration doctrine (`Band.control`: "a bound
+# can never drift away from the thing that justified it") applied literally,
+# and it buys a property worth having on purpose — the arena scores 1.000 by
+# construction, so this stick cannot flag the control by accident. Two bands
+# survive the partition. That is the finding, not an oversight.
+let ControlSeparationBands*: seq[Band] = @[
+  # arena 0.0384; the 40 played generated maps run 0.0809..0.1731, so the
+  # control sits 2.1x below the generated MINIMUM — the separation is total,
+  # 0 of 40. Direction agrees with the cap DefaultBands already had here and
+  # with the sign of dead floor (-0.173), which is inside the n=40 resolution
+  # floor of |rho| >= 0.31 and so is not itself evidence, but is not
+  # contradicted by the control either.
+  # The bound is 0.0385, not the control's 0.038442: a bound set at EXACTLY
+  # the control's value leaves it on the boundary, and this file's own suite
+  # asserts the control is never breached. One rounding step of slack on the
+  # control's side keeps that true without moving the bound anywhere the
+  # population can reach (nearest generated value 0.0809, 2.1x away).
+  Band(name: "exposedFrac", lo: -1.0, hi: 0.0385, margin: 0.15, weight: 1.0,
+       kind: bandSoft, control: 0.038,
+       note: "wide-open floor (<=1 of 8 blocked), cut AT the control. " &
+         "DefaultBands capped this at 0.20 and 0 of 118 maps ever reached " &
+         "it — a bound no member of the population can breach ranks nothing"),
+  # arena 0.3200; the 40 played generated maps run 0.0400..0.2000, so the
+  # control is 1.6x above the generated maximum, 0 of 40. Over the wider
+  # 118-map sweep exactly ONE map ties the arena at 0.32 and 117 sit strictly
+  # below, so the separation is 117/118 rather than total — weaker than
+  # `exposedFrac`, where 0 of 118 reach the control.
+  # FLAGGED HONESTLY: the within-population sign does NOT support this
+  # direction (rho = +0.222 against dead floor, i.e. the wrong way). That is
+  # inside the n=40 resolution floor and so is not counter-evidence, but this
+  # band is carried on control separation alone and is the weaker of the two.
+  # 0.3190 rather than the control's 0.3200, for the same boundary reason.
+  # `control:` is 0.320, the arena's MEASURED value here and in the stored
+  # evidence. DefaultBands' own entry for this metric records 0.316, which no
+  # longer matches what `evaluateMap` returns for the arena — a small
+  # provenance drift, caught by this file's "records the control value" test
+  # when the bound moved next to it, and reported rather than propagated.
+  Band(name: "routeCapacityFrac", lo: 0.3190, hi: 1.0e6, margin: 0.30,
+       weight: 1.0, kind: bandSoft, control: 0.320,
+       note: "route capacity / board short side, cut AT the control. " &
+         "DefaultBands' 0.12 floor is breached by 47 of 118 maps (39.8%) " &
+         "and its 0.50 ceiling by none of them (population max 0.32)"),
+]
+
 proc scoreBands*(
   m: MapMetrics, bands: seq[Band] = DefaultBands
 ): seq[BandResult] =

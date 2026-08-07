@@ -2,6 +2,7 @@
 {.warning[UnusedImport]: off.}
 import
   test_agent_skins,
+  test_band_reweight,
   test_broadcast_state,
   test_burrow,
   test_corpse_label,
