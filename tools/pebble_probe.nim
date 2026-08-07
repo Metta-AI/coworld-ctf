@@ -90,21 +90,48 @@ proc main() =
     agg: Row
     raised = 0
     interiors: seq[float]
+    ## The mean is the wrong summary when the miss is concentrated: 11 of 29
+    ## 2-team seeds already clear the >= 0.30 bar and the best measures 0.548,
+    ## 1.6x the control. Splitting the same population by its own bar is the
+    ## cheapest evidence available for what a PASSING configuration looks like,
+    ## and it costs one extra accumulator.
+    passing, failing: Row
+    passSeeds, failSeeds: seq[int]
   agg.label = "MEAN"
+  passing.label = "PASS >=0.30"
+  failing.label = "FAIL <0.30"
   for i in 0 ..< count:
+    let seed = 1001 + i
     var gameMap: CtfMap
     try:
-      gameMap = generateCtfMap(1001 + i, teams = teams)
+      gameMap = generateCtfMap(seed, teams = teams)
     except CtfError:
       inc raised
       continue
-    let r = profile(gameMap, "gen:" & $(1001 + i))
+    let r = profile(gameMap, "gen:" & $seed)
     for b in 0 ..< 4:
       agg.counts[b] += r.counts[b]
       agg.areas[b] += r.areas[b]
     agg.shapes += r.shapes
     agg.coverPm += r.coverPm
     interiors.add r.interior
+    ## `template` would be tidier; written out so each side is greppable.
+    if r.interior >= 0.30:
+      for b in 0 ..< 4:
+        passing.counts[b] += r.counts[b]
+        passing.areas[b] += r.areas[b]
+      passing.shapes += r.shapes
+      passing.coverPm += r.coverPm
+      passing.interior += r.interior
+      passSeeds.add seed
+    else:
+      for b in 0 ..< 4:
+        failing.counts[b] += r.counts[b]
+        failing.areas[b] += r.areas[b]
+      failing.shapes += r.shapes
+      failing.coverPm += r.coverPm
+      failing.interior += r.interior
+      failSeeds.add seed
 
   let generated = count - raised
   if generated == 0:
@@ -126,5 +153,24 @@ proc main() =
   echo &"  interiorFrac  min {sorted[0]:.3f}  " &
     &"median {sorted[sorted.len div 2]:.3f}  max {sorted[^1]:.3f}   " &
     &"below 0.30: {sorted.filterIt(it < 0.30).len}/{generated}"
+
+  ## The whole point of the split: the two profiles are printed ADJACENT so a
+  ## bucket that differs between them is visible without arithmetic. If they
+  ## are indistinguishable, granularity is not what separates pass from fail
+  ## and this probe has ruled itself out — which is also a result.
+  echo ""
+  echo "SPLIT BY THE BAR — same population, same batch, same control"
+  for side in [passing, failing]:
+    var r = side
+    let n = if r.label.startsWith("PASS"): passSeeds.len else: failSeeds.len
+    if n == 0:
+      echo &"  {r.label}: 0/{generated} seeds — nothing to profile."
+      continue
+    r.coverPm = r.coverPm div n
+    r.interior = r.interior / n.float
+    r.label = &"{r.label} ({n}/{generated})"
+    emit r
+  echo &"    passing seeds: {passSeeds}"
+  echo &"    failing seeds: {failSeeds}"
 
 main()
