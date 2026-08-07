@@ -190,6 +190,55 @@ TERRAIN = [
 QUADRANT = CHEVRON + TERRAIN
 
 
+# === THE DROPS ==============================================================
+# The one lure a MAP AUTHOR actually controls, and the size of it.
+#
+# Of the three pickups, only the med kit is authorable. `shieldSpawnPoints` and
+# `plasmaArcSpawnPoints` are DERIVED from the layout in src/ctf/sim.nim — on a
+# corners board the shield is pinned to `(inset, teamAnchor(Red).y)` and carried
+# round the orbit — so no mapSpec can move them. `medKitSpawns` is the only
+# pickup field the spec carries, and `mapFromSpecJson` reads it verbatim.
+#
+# HOW BIG A LURE IS IT? `bestKitDetour` in players/baseline/baseline.nim scores
+# a kit by EXTRA PATH, not by distance:
+#
+#     cost = dist(me, kit) + dist(kit, dest) - dist(me, dest)   < budget
+#
+# with budget = MedKitDetour 80px (MedKitCarrierBudget 90 for a hurt carrier,
+# MedKitCriticalReach 180 at 1hp). That inequality is an ELLIPSE with foci at
+# the bot and its destination — a corridor hugging a route the bot ALREADY
+# walks, pinching to nothing at both ends. So a drop cannot create traffic in a
+# dead region; it can only BEND a route that already passes near it.
+#
+# WHICH IS WHY THE PLAZA WAS DEAD. The kits inherited from the gen:1007 base sat
+# at radius 151 on the axes. Measured against the real Red->Blue raid route,
+# that costs 87px of extra path against an 80px budget — it misses the lure by
+# SEVEN PIXELS, and the first play batch duly recorded a centre nobody visited.
+#
+# Radius 200 costs 46px and lures. It is also still inside the generator's own
+# draw range for this field (ringLo 110 .. ringHi 209), so this is a placement
+# the generator could have rolled and didn't — not a special case.
+MEDKIT_RADIUS = 200
+
+
+def medkit_orbit(radius):
+    """The rot90 orbit of one kit, exactly as the generator builds it.
+
+    Kept as an ORBIT rather than four typed points because anything else gives
+    some team a kit its quarter-turn twin does not have.
+    """
+    pts, p = [], (SIDE // 2 - 1 + radius, SIDE // 2 - 1)
+    for _ in range(4):
+        pts.append(p)
+        p = (SIDE - 1 - p[1], p[0])
+    return pts
+
+
+def lure_cost(kit, src, dst):
+    """`bestKitDetour`'s score: extra path over going straight there."""
+    return (math.dist(src, kit) + math.dist(kit, dst) - math.dist(src, dst))
+
+
 def transpose(s):
     """Reflection about the quadrant's main diagonal: (x, y) -> (y, x)."""
     t = dict(s)
@@ -263,6 +312,20 @@ def main():
     spec["trenches"] = []        # rot90 boards never carry trenches
     spec["leftObstacles"] = [s for _, s in shapes]
 
+    # The drops. Verified against the raid route rather than asserted: the
+    # bot's target rule sends every team at the enemy with the largest |dx|,
+    # which on this board is the corner box centre 651px away along an edge.
+    kits = medkit_orbit(MEDKIT_RADIUS)
+    spec["medKitSpawns"] = [[x, y] for x, y in kits]
+    spec["medKitCandidates"] = [[x, y] for x, y in kits]
+    red_box, blue_box = (154.0, 154.0), (805.0, 154.0)
+    best = min(lure_cost(k, red_box, blue_box) for k in kits)
+    if best >= 80:
+        raise SystemExit(
+            f"med kits are OUT OF LURE RANGE: cheapest detour {best:.0f}px "
+            "against MedKitDetour's 80px budget. A kit outside the ellipse is "
+            "scenery — this is exactly the defect radius 151 shipped with.")
+
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     Path(args.out).write_text(json.dumps(spec, indent=1) + "\n")
 
@@ -274,6 +337,9 @@ def main():
           f"max {sides[-1]}   (arena's only bucket is 34-68)")
     print(f"  quadrant bbox footprint {area}px = "
           f"{1000 * area // (QUAD * QUAD)}pm of the quadrant (pre-carve)")
+    print(f"  med kits at radius {MEDKIT_RADIUS}: {kits}")
+    print(f"    cheapest raid-route detour {best:.0f}px "
+          f"(MedKitDetour budget 80px; radius 151 cost 87px and lured nobody)")
     print(f"  wrote {args.out}")
 
 
