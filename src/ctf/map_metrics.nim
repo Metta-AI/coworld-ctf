@@ -1708,10 +1708,17 @@ hits on a board-length one rode its diagonal. The px cap was `GunRange`, a
 REACH — the same mistake `IsovistRangePx` was corrected for — and it flagged
 this control while passing three boards open across 0.88-0.90 of themselves.
 
-So this control breaches THREE bands, not four, and the fourth was a bug in the
-band. The scale-free replacement is `sightlineOpenFrac`, on which arena-large
-scores 0.631 against a 0.85 cap and passes ON ITS MERITS rather than by
-exemption. The remaining three breaches stand exactly as written above.
+So the sightline breach was a bug in the BAND, and the scale-free replacement
+is `sightlineOpenFrac`, on which arena-large scores 0.631 against a 0.85 cap
+and passes ON ITS MERITS rather than by exemption.
+
+The other three above stand exactly as written. Re-measured on the current
+tree, the control's live breach set is FOUR — `interiorFrac` 0.100,
+`longRunFrac` 0.169, `diagLongRunPxFrac` 0.183, `visDegreeCv` 0.295 — because
+`diagLongRunPxFrac` postdates the list at the top of this note and was never
+added to it. It is a dilution artifact of the same upscale and belongs with the
+other three; it is NOT re-derived here, and its own band note still says it
+must be re-cut against a non-axis-aligned population.
 
 WHAT WAS NOT DONE, and deliberately: the bands were NOT widened to admit
 arena-large. Widening interiorFrac to 0.10 would retire the single highest-
