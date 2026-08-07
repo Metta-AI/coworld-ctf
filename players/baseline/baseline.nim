@@ -2036,6 +2036,31 @@ type
                               # treat the nearest fresh enemy in reach with clear LOS as a valid
                               # single-target cone shot instead of standing disarmed and mute.
                               # Default ON; NOSPRAYSINGLE=1 turns it off for the A/B.
+    homeDirNav: bool          # ⭐⭐ HOMEDIR NAV (TERRA-4, 2026-08-07): homeSign(team) is a
+                              # 2-value east/west SCALAR (`if team == Red: -1.0 else: 1.0`),
+                              # used at retreat/regroup/rally/depth-gate call sites to mean
+                              # "toward our own edge". The Team enum is only ever Red/Blue —
+                              # green and yellow seats keep the slot-mod-teams PARITY GUESS for
+                              # bot.team, so on a 4-team corner-layout board their steering axis
+                              # is a coin flip and can be wrong IN KIND, not just in degree.
+                              # Live exhibit (r809 ereq_cd54db84, tables in
+                              # /tmp/paintbot/forensics/wallstuck/): a yellow slot-3 seat rotated
+                              # to due-west — the wrong-parity bearing — and held it BIT-FOR-BIT
+                              # for 1643 ticks pinned against the west wall in the GREEN corner,
+                              # wasting a heart steal and dying without ever turning.
+                              # Replaces the scalar with homeDirVec(bot), a unit VECTOR derived
+                              # from the engine-stated zone geometry (statedZone — the same
+                              # source chokeSpot/homeDeepX already trust over the Red/Blue
+                              # mirror math), falling back to the old scalar axis when the zone
+                              # isn't stated yet. On a 2-team board statedZone gives the classic
+                              # east/west column zones, so homeDirVec reduces to ±x within
+                              # tolerance and every migrated call site is behavior-preserving
+                              # there — this is a 4-team-only fix by construction. STAGED
+                              # REFACTOR: only the highest-traffic call sites move this wave
+                              # (retreat fallback, disengaged aim, arc-seam hold, RegroupPush/
+                              # HoldLine rally points, depth gates, flanker grenade-lane test);
+                              # the rest of the ~52 homeSign(team) sites are left for a later
+                              # wave. Default ON; NOHOMEDIRNAV=1 turns it off for the A/B.
 
   Bot = ref object
     slot: int
@@ -2099,6 +2124,20 @@ type
     postReady: bool
     enemyPosts: seq[Vec]      # the mirrored ENEMY sniper peek cells
     chokeHold: Vec            # defender hold point snapped to cover
+    homeDir: Vec              # ⭐ homeDirNav: this frame's cached homeDirVec(bot) —
+                              # a unit vector "which way is home", stamped once per
+                              # decide() call (immediately after SelfColor/
+                              # SelfStrategyTeam are restamped, same spot as
+                              # CornerDeepOn) so every migrated call site reads a
+                              # single cheap field instead of re-deriving it. Re-
+                              # stamped EVERY frame rather than cached-once-per-lock
+                              # for the same reason CornerDeepOn is: the in-process
+                              # eval harness runs all 16 bots in ONE process, so a
+                              # once-per-lock value would go stale across bots. This
+                              # also means the anchorRelock correction frame (myColor
+                              # flips) is covered for free — the very next stamp
+                              # already reads the corrected color, no separate
+                              # recompute hook needed.
     funnelThroat: Vec         # fatalFunnel: center of the narrowest walkable
                               # passage on the enemy's approach axis to our
                               # pedestal (pure deterministic map geometry,
@@ -2492,6 +2531,7 @@ proc defaultCombatTune(): CombatTune =
                               # still outrank the 12px touch (the 71.8%-vs-94.9% conversion gap).
     anchorRelock: false,      # control: the five nav anchors never re-run off a corrected color.
     spraySingle: false,       # control: the arc breacher never fires the cone on a lone target.
+    homeDirNav: false,        # control: homeSign(team) stays the 2-value east/west scalar.
   )
 
 proc shippedCombatTune(): CombatTune =
@@ -2952,6 +2992,11 @@ proc shippedCombatTune(): CombatTune =
   # NOSPRAYSINGLE=1 hold each OFF (the pre-fix behavior) so a frozen binary can A/B them.
   result.anchorRelock = getEnv("NOANCHORRELOCK").len == 0
   result.spraySingle = getEnv("NOSPRAYSINGLE").len == 0
+  # ⭐⭐ HOMEDIR NAV (TERRA-4, 4-team geometry fix, 2026-08-07). Also a pure bug fix
+  # (homeDirVec reduces to the old homeSign scalar within tolerance on 2-team boards,
+  # see homeDirVec's doc comment) so it ships DEFAULT ON too. NOHOMEDIRNAV=1 holds it
+  # OFF (the pre-fix homeSign-scalar behavior) so a frozen binary can A/B it.
+  result.homeDirNav = getEnv("NOHOMEDIRNAV").len == 0
 
 
 when defined(rngprobe):
@@ -3573,6 +3618,36 @@ proc chokeSpot(team: Team): Vec =
       return z.c + away * (ChokeOffset / d)
     return z.c
   if team == Red: vec(390, 340) else: vec(float(MapW - 1) - 390.0, 340)
+
+proc homeDirVec(bot: Bot): Vec =
+  ## ⭐⭐ HOMEDIR NAV (TERRA-4, 2026-08-07): a unit VECTOR "which way is home",
+  ## replacing the homeSign(team) 2-value scalar at the highest-traffic call
+  ## sites (see the CombatTune.homeDirNav doc comment for the full bug writeup
+  ## and the live wall-stuck exhibit).
+  ##
+  ## Derived the same way chokeSpot derives its post: off the engine-STATED
+  ## zone geometry rather than the Red/Blue mirror math. chokeSpot's `away`
+  ## points from our zone centroid TOWARD the board centre (out of our
+  ## territory, onto the approach); this is the opposite — FROM the centre
+  ## TOWARD our own zone centroid, i.e. literally "which way is home". Falls
+  ## back to the old scalar axis, as a vector, when the zone isn't stated yet
+  ## (label not seen this frame) so early frames degrade to exactly today's
+  ## behavior instead of a zero vector that would stall every steering call.
+  ##
+  ## ⭐ 2-TEAM INVARIANT: on the classic stock arena statedZone reports the
+  ## full-height east/west column zones, whose centroid sits level (or within
+  ## a symmetric border inset) with the board's vertical centre — so
+  ## `z.c - centre` is already ~±x with a ~zero y component, and homeDirVec
+  ## reduces to vec(homeSign(team), 0) WITHIN TOLERANCE. Every call site
+  ## migrated to homeDirVec is therefore near-behavior-preserving on 2-team
+  ## boards by construction, not by approximation — verified with a
+  ## seed-matched OLD-vs-NEW probe (see the homeDirNav A/B notes).
+  let z = statedZone(SelfColor)
+  if z.have:
+    let d = z.c - vec(float(CenterX), float(CenterY))
+    if d.len() > 1.0:
+      return d.norm()
+  vec(homeSign(bot.team), 0.0)
 
 proc ownShieldSpawn(team: Team): Vec =
   ## Our team's endzone shield spawn — a STATIC known point (sim resetShields:
@@ -4542,6 +4617,11 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # grab-no-cap DRAW in the v32-v35 gates was this artifact. Production has
     # one bot per process and never sees it; the re-stamp makes the harness
     # faithful and is a no-op live.
+  bot.homeDir = homeDirVec(bot)
+    # ⭐ homeDirNav: re-stamped every decide, same reasoning as CornerDeepOn
+    # right above (the in-process harness gotcha) — and it means the
+    # anchorRelock color correction just below is covered for free, since the
+    # very next frame's stamp already reads the corrected SelfColor.
   # ⭐⭐ ANCHOR RELOCK (audit finding #1, worst). buildNavGrid runs on the first
   # walkabilityReady frame and resolves five tactical anchors — pickPost,
   # findEnemyPosts, pickDominatePost, chokeHold (via chokeSpot(bot.team)), and
@@ -5307,7 +5387,11 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # The fall-back point: regroup on the nearest fresh mate who is NOT deeper in
   # enemy territory than we are (two guns beat the 1-vs-N), else withdraw toward
   # our own side.
-  var regroupTo = vec(me.x + homeSign(bot.team) * RetreatStep, me.y)
+  # ⭐ homeDirNav (site a): the old x-only step is a special case of stepping
+  # along the full homeDirVec — identical on 2-team boards (homeDir.y ~ 0).
+  var regroupTo =
+    if bot.tune.homeDirNav: me + bot.homeDir * RetreatStep
+    else: vec(me.x + homeSign(bot.team) * RetreatStep, me.y)
   if retreating:
     var bestD = RegroupRadius
     for t in bot.mates:
@@ -5879,10 +5963,19 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # The pull target is CenterY, a MAP CONSTANT — not a mate, not an enemy — so seven
     # seats converge by identical deterministic inference with zero comms, and it cannot
     # dither or chase (frontage root cause 1).
+    # ⭐ homeDirNav (site d, rwGateDepth): "still on our own side of CenterX" as
+    # a projection onto homeDirVec instead of the x-only homeSign scalar —
+    # identical on 2-team boards (homeDir.y ~ 0 collapses the dot product to
+    # exactly the old x-only test).
+    let sideOfHome =
+      if bot.tune.homeDirNav:
+        dot(me - vec(float(CenterX), float(CenterY)), bot.homeDir)
+      else:
+        homeSign(bot.team) * (me.x - float(CenterX))
     let rallyOpen =
       attacker and not ownStolen and
       phase notin {PhOpen, PhDefend, PhEscort, PhForce} and
-      homeSign(bot.team) * (me.x - float(CenterX)) > 0.0 and
+      sideOfHome > 0.0 and
       dist(me, stealTarget) > PocketRushRange
     var rallyClear = false
     if rallyOpen:
@@ -5899,7 +5992,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       if not attacker: inc rwGateRole
       elif ownStolen or dist(me, stealTarget) <= PocketRushRange: inc rwGateCarry
       elif phase in {PhOpen, PhDefend, PhEscort, PhForce}: inc rwGatePhase
-      elif homeSign(bot.team) * (me.x - float(CenterX)) <= 0.0: inc rwGateDepth
+      elif sideOfHome <= 0.0: inc rwGateDepth
       elif not rallyClear: inc rwGateContact
       else:
         # M1 DIFFERENTIAL: both selectors, same frame state, EMITTED octant compared.
@@ -5978,7 +6071,13 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       bot.role in {MidTop, MidBottom, MidGuard} and
       dist(me, stealTarget) >= PocketRushRange:
     # Depth INTO the enemy half: 0 at center, grows toward the enemy pedestal.
-    let depth = -homeSign(bot.team) * (me.x - float(CenterX))
+    # ⭐ homeDirNav (site d): projected onto homeDirVec instead of the x-only
+    # homeSign scalar — identical on 2-team boards (homeDir.y ~ 0).
+    let depth =
+      if bot.tune.homeDirNav:
+        -dot(me - vec(float(CenterX), float(CenterY)), bot.homeDir)
+      else:
+        -homeSign(bot.team) * (me.x - float(CenterX))
     var packMates = 0        # fresh mates grouped near me RIGHT NOW
     var joinMates = 0        # fresh mates homeward of me — support genuinely inbound
     for t in bot.mates:
@@ -6036,8 +6135,13 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       bot.regroupHoldUntil = bot.tick + RegroupPushCommit
       # Rally line: a shallow point just inside the enemy half at our current
       # height (the lane we advanced up), so strung-out mates converge on it.
-      let rallyX = float(CenterX) - homeSign(bot.team) * RegroupPushRallyDepth
-      target = vec(rallyX, me.y)
+      # ⭐ homeDirNav (site c): project along homeDirVec instead of the x axis
+      # — identical to the old x-only rally point on 2-team boards.
+      target =
+        if bot.tune.homeDirNav:
+          vec(float(CenterX), me.y) - bot.homeDir * RegroupPushRallyDepth
+        else:
+          vec(float(CenterX) - homeSign(bot.team) * RegroupPushRallyDepth, me.y)
       when defined(rgprobe):
         inc rgFireCount
 
@@ -6064,7 +6168,13 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     when defined(hlprobe):
       inc hlReach
     # Depth INTO the enemy half: 0 at center, grows toward the enemy pedestal.
-    let depth = -homeSign(bot.team) * (me.x - float(CenterX))
+    # ⭐ homeDirNav (site d): projected onto homeDirVec instead of the x-only
+    # homeSign scalar — identical on 2-team boards (homeDir.y ~ 0).
+    let depth =
+      if bot.tune.homeDirNav:
+        -dot(me - vec(float(CenterX), float(CenterY)), bot.homeDir)
+      else:
+        -homeSign(bot.team) * (me.x - float(CenterX))
     var freshMatesNear = 0   # fresh mates within our local pack radius RIGHT NOW
     var joinMates = 0        # fresh mates homeward of me — support genuinely inbound
     for t in bot.mates:
@@ -6120,8 +6230,13 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       bot.holdLineHoldUntil = bot.tick + HoldLineCommit
       # Rally line: a shallow point just inside the enemy half at our current height
       # (the lane we advanced up), so the strung-out wave converges before the line.
-      let rallyX = float(CenterX) - homeSign(bot.team) * HoldLineRallyDepth
-      target = vec(rallyX, me.y)
+      # ⭐ homeDirNav (site c): project along homeDirVec instead of the x axis
+      # — identical to the old x-only rally point on 2-team boards.
+      target =
+        if bot.tune.homeDirNav:
+          vec(float(CenterX), me.y) - bot.homeDir * HoldLineRallyDepth
+        else:
+          vec(float(CenterX) - homeSign(bot.team) * HoldLineRallyDepth, me.y)
       when defined(commsprobe):
         if heardLine and not line: inc csLineArm  # cross-fog line convergence fired
       when defined(hlprobe):
@@ -6810,16 +6925,22 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # Collect a pickup: anyone grabs one within a short detour, and the two
     # flankers own their lane's friendly-side corner spawn — it sits right on
     # their border route, so they arm up on the way out every respawn cycle.
+    # ⭐ homeDirNav (site e): "our side" as a sign of the projection onto
+    # homeDirVec instead of the x-only homeSign scalar — identical on
+    # 2-team boards (homeDir.y ~ 0 collapses the dot product to the same
+    # x-only test).
+    let ndCentre = vec(float(CenterX), float(CenterY))
+    proc ndOnOurSide(p: Vec): bool =
+      if bot.tune.homeDirNav: dot(p - ndCentre, bot.homeDir) > 0.0
+      else: homeSign(bot.team) * (p.x - float(CenterX)) > 0.0
     for o in client.spriteObjectsWithLabel(LabelGrenade):
       let p = client.mapPos(o)
       if p.x < 40.0 or p.y < 40.0 or p.x > float(MapW - 40) or
           p.y > float(MapH - 40):
         continue                     # HUD indicator shares the label
       let laneMatch =
-        (bot.role == FlankTop and p.y < float(CenterY) and
-         homeSign(bot.team) * (p.x - float(CenterX)) > 0) or
-        (bot.role == FlankBottom and p.y > float(CenterY) and
-         homeSign(bot.team) * (p.x - float(CenterX)) > 0)
+        (bot.role == FlankTop and p.y < float(CenterY) and ndOnOurSide(p)) or
+        (bot.role == FlankBottom and p.y > float(CenterY) and ndOnOurSide(p))
       let reach = if laneMatch: 1e9 else: NadePickupDetour
       if dist(p, me) <= reach:
         when defined(nadeDebug):
@@ -6999,7 +7120,14 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # block owns the bot (iHavePlasma) and carries the cone to the cluster regardless of depth.
   let teamSeat = clamp(bot.slot div 2, 0, 7)
   let iAmBreacher = bot.tune.arcBreach and teamSeat == ArcBreachSeat
-  let breachDepth = -homeSign(bot.team) * (me.x - float(CenterX))   # + = into enemy half
+  # ⭐ homeDirNav (site d, arc-breacher SEEK depth): projected onto homeDirVec
+  # instead of the x-only homeSign scalar — identical on 2-team boards
+  # (homeDir.y ~ 0).
+  let breachDepth =
+    if bot.tune.homeDirNav:
+      -dot(me - vec(float(CenterX), float(CenterY)), bot.homeDir)
+    else:
+      -homeSign(bot.team) * (me.x - float(CenterX))   # + = into enemy half
   # Remember that a line was seen (this bot's own classification OR a heard call) — the
   # proof this OPPONENT plays defensive lines. Opponent-adaptivity hinges on this memory.
   if iAmBreacher and lineLive:
@@ -7363,7 +7491,14 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         fireCluster = cluster
         fireTgt = tp
         fireAim = bradsOf(tp - me)
-    let depth = -homeSign(bot.team) * (me.x - float(CenterX))   # how deep we are (+ = enemy half)
+    # ⭐ homeDirNav (site d, arc-breacher FIRE-block depth): projected onto
+    # homeDirVec instead of the x-only homeSign scalar — identical on
+    # 2-team boards (homeDir.y ~ 0).
+    let depth =
+      if bot.tune.homeDirNav:
+        -dot(me - vec(float(CenterX), float(CenterY)), bot.homeDir)
+      else:
+        -homeSign(bot.team) * (me.x - float(CenterX))   # how deep we are (+ = enemy half)
     if fireAim >= 0 and fireCluster >= ArcConeMinCluster:
       # A real cluster IN REACH: close onto it and CONE it (the multikill this weapon is for).
       when defined(arcprobe): inc apInReach
@@ -7432,14 +7567,25 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       # disarmed unit has no gun to trade.
       when defined(arcprobe): inc apCharge
       if depth < ArcSeamHoldDepth:
-        let seam = vec(float(CenterX) - homeSign(bot.team) * ArcSeamHoldDepth, me.y)
+        # ⭐ homeDirNav (site c, arc-seam hold): project along homeDirVec
+        # instead of the x axis — identical to the old x-only seam point on
+        # 2-team boards (homeDir.y ~ 0).
+        let seam =
+          if bot.tune.homeDirNav:
+            vec(float(CenterX), me.y) - bot.homeDir * ArcSeamHoldDepth
+          else:
+            vec(float(CenterX) - homeSign(bot.team) * ArcSeamHoldDepth, me.y)
         moveMask = octantBits(bot.navSteer(client, me, seam))
         desiredAim = bradsOf(seam - me)
       elif nearFoe >= 0:
         # At the threat line: hold depth, keep the cone on the nearest foe (poised to cone).
         desiredAim = bradsOf(bot.enemies[nearFoe].pos - me)
       else:
-        desiredAim = bradsOf(vec(-homeSign(bot.team), 0.0))  # face the enemy half
+        # ⭐ homeDirNav (site b, disengaged fallback aim): face along -homeDirVec
+        # instead of the x-only -homeSign axis — identical on 2-team boards.
+        desiredAim =
+          if bot.tune.homeDirNav: bradsOf(bot.homeDir * -1.0)  # face the enemy half
+          else: bradsOf(vec(-homeSign(bot.team), 0.0))   # face the enemy half
     acted = true
   elif engage >= 0 and shotReady:
     # Traverse onto the target and fire once the corridor covers it: the
