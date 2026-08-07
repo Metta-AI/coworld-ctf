@@ -164,8 +164,11 @@ nim c -d:release -o:/tmp/mapkit tools/mapkit.nim
 
 Generators must stay pure and fairness-agnostic: they never reason about
 symmetry, protected floor, or endzones — those live in `arena.nim`. Raw
-generation passes the validator ~55–65% of the time by design; the workflow is
-generate-many-then-curate/edit, not one-shot.
+generation passes the validator 97.5–100% of the time per size class (measured;
+`tests/fixtures/map-validation-baseline.tsv` is 199 pass / 1 reject over 200
+seeds). Read that as the validators being a CRASH GUARD, not a quality filter —
+which is exactly why `generateCtfMap` ranks best-of-K instead of shipping the
+first valid draw. The workflow is generate-many-then-curate/edit, not one-shot.
 
 Obstacles and trenches are `ArenaShape`s in five kinds: `rect`/`disc`/`diamond`/
 `diagonal` and (GV37) `polygon` — a closed ring of INTEGER vertices for curved

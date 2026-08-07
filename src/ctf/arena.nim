@@ -919,8 +919,10 @@ const
     ## OFFLINE curation, where the wall clock is nobody's latency —
     ## `gen_map_pool` does exactly that.
   MapRankMaxK* = 64
-    ## The attempt budget is 100 and the pass rate is ~80%, so a K much
-    ## above this cannot be met and would silently ship best-of-fewer.
+    ## The attempt budget is 100 and the first-attempt pass rate is 97.5-100%
+    ## per class (measured; tests/fixtures/map-validation-baseline.tsv is
+    ## 199/200), so a K much above this cannot be met and would silently ship
+    ## best-of-fewer.
   MapSizeNames = ["small", "standard", "large", "huge", "giant"]
   CenterFeatureNames = ["bracket", "ring", "walls"]
   ## ------------------------------------------------------------------------
@@ -2633,7 +2635,7 @@ proc generateCtfMap*(
   ##
   ## The old loop returned the first candidate that passed, which is a
   ## uniformly random valid map — the 50th percentile of the generator's own
-  ## quality range, because at a 80-96% first-attempt pass rate the
+  ## quality range, because at a 97.5-100% first-attempt pass rate the
   ## validators are a crash guard, not a quality filter. Collecting K valid
   ## candidates and shipping the best lifts that to the K/(K+1) percentile:
   ## K=8 is the 89th, K=32 the 97th, for K/passRate attempts.
@@ -2658,7 +2660,8 @@ proc generateCtfMap*(
   ## them. It is deliberately not scaled by K: a layout whose terrain rarely
   ## validates should ship best-of-however-many-it-found rather than spend
   ## proportionally longer chasing the quota, and 100 attempts at the
-  ## measured ~77% mean pass rate reaches even MapRankMaxK comfortably. The
+  ## measured 97.5-100% per-class pass rate (the committed validation
+  ## baseline is 199/200) reaches even MapRankMaxK comfortably. The
   ## degradation is graceful and observable — `tools/map_rank_probe.nim`
   ## reports candidates per map beside K.
   var candidates: seq[CtfMap]

@@ -1,6 +1,6 @@
 ## Scratch probe: how many rows carry a full horizontal crossing, for a few
 ## candidate scan columns on the landscape hull.
-import std/[os, strformat], ctf/sim, "../tests/helpers"
+import std/[os, strformat], ../src/ctf/sim, "../tests/helpers"
 
 setCurrentDir(getAppDir() / "..")
 let game = initSimServer(defaultGameConfig())

@@ -32,6 +32,20 @@ jobs:
           restore-keys: |
             nimcache-${{ runner.os }}-${{ hashFiles('nimby.lock') }}-
       - run: nim check src/ctf.nim
+      - name: Compile the baseline player and every tool
+        # `nim check src/ctf.nim` covers the SERVER only. players/ was compiled
+        # nowhere but the post-merge Docker build, and tools/ was compiled
+        # nowhere at all — so two new probes (hex_los_probe, hex_scene_probe)
+        # sat broken on `import ctf/sim` with CI fully green. --path:src is
+        # what tests/config.nims gives the suite; a tool that pulls in
+        # tests/helpers needs the same.
+        run: |
+          nim check players/baseline/baseline.nim
+          fail=0
+          for f in tools/*.nim; do
+            nim check --path:src "$f" || { echo "::error::$f does not compile"; fail=1; }
+          done
+          exit $fail
       - name: Compile test shards (release)
         run: |
           for i in 1 2 3 4; do

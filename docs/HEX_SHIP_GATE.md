@@ -60,7 +60,24 @@ reading is wrong. `dc715bf` itself was already safe on
 
 ## 3. Fixed on this branch
 
-Four fixes, none of which touch the sim, so the branch stays green.
+Seven fixes, none of which touch the sim, so the branch stays green.
+
+* **Two new tools did not compile, with CI fully green.**
+  `tools/hex_los_probe.nim` and `tools/hex_scene_probe.nim` used
+  `import ctf/sim`, which needs `--path:src`; every other tool uses
+  `../src/ctf/…`. CI ran `nim check src/ctf.nim` and nothing else, so
+  `players/` was compiled only by the post-merge Docker build and `tools/`
+  (~2,500 new lines here) was compiled nowhere at all. Both imports fixed, and
+  the build job now checks the baseline player and all 54 tools — verified all
+  54 pass before the step was added, so it goes in green.
+* **Four documented validator pass rates were wrong by 20–45 points.**
+  `AGENTS.md` said ~55–65%, `arena.nim` said ~80%, 80–96%, and a "measured
+  ~77% mean". Measured: **97.5–100% per class**, and the branch's own committed
+  baseline is 199 pass / 1 reject over 200 seeds. The ~77% figure was
+  load-bearing — it is the stated reason `MapGenMaxAttempts` is not scaled by
+  K. Corrected to the measured value with the baseline cited, and `AGENTS.md`
+  now draws the conclusion the number actually supports: the validators are a
+  crash guard, not a quality filter, which is *why* best-of-K exists.
 
 * **No preflight on the replay format's uint16 string cap.** A colossal
   mapSpec is 67387 bytes against 65535, so the episode died with a bare
@@ -204,6 +221,37 @@ window and deserves its own verification pass.
 Related, same area: `arena.nim:2849` passes config overrides straight into
 `poolCtfMap`, so `mapPath: "pool"` + `mapRankK: 4` silently serves a map the
 pool was never curated for. Should raise in `sim_config.update`.
+
+**G. `hardGates` — documented as the reject-outright layer — is never called by
+the runtime generator.** `map_score.nim:59` calls itself "Layer 1: reject
+outright … a map that fails one cannot be played fairly at all", and adds the
+two gates the repo never had (fewer than 2 vertex-disjoint routes, unreachable
+base). Its only callers are `gen_map_pool`, `map_eval`, `hex_metrics_probe` and
+a test — `generateCtfMap` and `rankCtfMapCandidates` deliberately run
+`computeMapMetrics(…, withValidation = false)`. A generated map with a single
+route loses score points and ships anyway. It also rejects 0 of 40 shipped maps,
+so making it a real gate is a behaviour change, not a no-op.
+
+**H. `tools/hex_cover_probe.nim` ran with the ranker silently absent.** It
+imports `arena` directly rather than `sim`, so `mapCandidateRanker` is nil and
+`arena.nim:2655` collapses default K to 1 — the probe measures FIRST-VALID maps.
+Proven: same probe body, 12 seeds, `import ctf/sim` → 8/12 maps differ between
+default-K and K=1; `import ctf/[sim_types, arena, hex]` → 0/12. This is the
+probe used to derive the shipped hex cover band (`f544358`, `4da6bed`), and its
+own comment claims it renders "ACCEPTED maps … so the thing being looked at is
+the thing that ships". It is not. The band should be re-derived.
+
+Two false cost claims ride with it: `arena.nim:2612` says "every binary that
+builds a game ranks" (false — see above), and `arena.nim:2616` says the wasm
+replay viewer "never imports [map_score] and pays neither the code size nor the
+milliseconds" — but `replay-viewer/ctf_replay.nim` imports `ctf/sim`, which
+imports `map_metrics, map_score`. The whole scorer IS in the wasm bundle, on the
+branch that just declared the wasm address-space canary blocked.
+
+**I. `BarAxisFlat` (`arena.nim:31`) is a tombstone** — exported, carrying an
+8-line justification and an untested rotation-closure claim, with exactly one
+reference in the repo: its own declaration. Left in place rather than deleted;
+whether it is unwired-yet or reverted-from is its author's call, not mine.
 
 ---
 

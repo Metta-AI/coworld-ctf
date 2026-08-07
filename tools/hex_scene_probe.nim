@@ -2,7 +2,7 @@
 ## tests pin, so they can be RE-MEASURED off the installed map instead of
 ## re-derived by hand. Run from the repo root:
 ##   nim c -d:release -r tools/hex_scene_probe.nim
-import std/[os, strformat], ctf/sim
+import std/[os, strformat], ../src/ctf/sim
 
 let previousDir = getCurrentDir()
 setCurrentDir(getAppDir() / "..")
