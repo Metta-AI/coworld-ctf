@@ -3,7 +3,7 @@ import
   std/[base64, json, os, strutils, unittest],
   bitworld/spriteprotocol,
   pixie,
-  ctf/[sim_types, team_colors]
+  ctf/[shimmer, sim_types, team_colors]
 
 # The display-color funnel (docs/COLOR_CONTRACT.md).
 #
@@ -273,3 +273,189 @@ suite "team display art":
     for entry in TeamPalette:
       check js.contains("\"" & entry.slug & "\"")
       check js.contains("\"" & entry.gameHex & "\"")
+
+# ---------------------------------------------------------------------------
+# DELIVERY-PATH ROUTING (docs/COLOR_CONTRACT.md §5.1)
+#
+# The funnel itself is covered above. What this suite pins is the WIRING that
+# carries a `?colors=` value INTO the funnel on each of the two shipping paths
+# — and every failure mode here is SILENT. A viewer that never calls the funnel
+# renders a perfectly good stock board; nothing logs, nothing throws, no test
+# above goes red. The bugs this catches were all found by hand:
+#
+#  - the wasm call drifting away from `ctf_load_replay` (it must sit AFTER
+#    emscripten's callMain, which runs Nim's module initializers and resets the
+#    mapping to stock, and BEFORE the load, which bakes the first frame);
+#  - the league shell dropping `?colors=` when it composes the board iframe src;
+#  - the native entrypoint losing its env read, or calling it after the server
+#    loop has already baked;
+#  - the Dockerfile not shipping `static_replay.js` (the whole wasm hand-off) or
+#    green/yellow front art into `dist/`, which 404s only in the static bundle
+#    and only on 4-team boards (CODEBASE_AUDIT.md flagged exactly this).
+#
+# These are source-text assertions on purpose: the delivery seams are JS, HTML
+# and a Dockerfile, none of which the Nim suite can execute, and a grep-shaped
+# pin is worth far more than no pin at all on a path that fails quietly.
+
+const
+  StaticReplayJs = staticRead("../replay-viewer/static_replay.js")
+  ReplayViewerNim = staticRead("../replay-viewer/ctf_replay.nim")
+  LeagueReplayerHtml = staticRead("../client/league_replayer.html")
+  ServerEntrypointNim = staticRead("../src/ctf.nim")
+  ViewerDockerfile = staticRead("../Dockerfile.replay-viewer")
+
+proc orderedIn(haystack: string, needles: varargs[string]): bool =
+  ## True when every needle appears, each strictly after the previous one.
+  var cursor = 0
+  for needle in needles:
+    let at = haystack.find(needle, cursor)
+    if at < 0:
+      return false
+    cursor = at + needle.len
+  true
+
+suite "team color delivery paths":
+
+  test "the wasm bundle reads ?colors= and hands it to the engine":
+    check StaticReplayJs.contains("params.get('colors')")
+    check ReplayViewerNim.contains("exportc: \"ctf_set_team_colors\"")
+    check StaticReplayJs.contains("Module._ctf_set_team_colors")
+
+  test "the wasm color call sits between callMain and the first bake":
+    # AFTER `await fetch` (so past emscripten's callMain, which re-runs Nim's
+    # module initializers and would reset the mapping) and BEFORE
+    # `_ctf_load_replay` (which bakes every team-colored sprite, once).
+    check StaticReplayJs.orderedIn(
+      "await fetch", "Module._ctf_set_team_colors", "Module._ctf_load_replay")
+
+  test "the league shell forwards ?colors= onto the board iframe":
+    # The mapping must ride the SRC, not a postMessage: a message can only land
+    # after the board has loaded and started baking.
+    check LeagueReplayerHtml.contains("params.get('colors')")
+    check LeagueReplayerHtml.contains("'&colors=' + encodeURIComponent(colorsParam)")
+    check LeagueReplayerHtml.orderedIn(
+      "colorsParam", "'&colors=' + encodeURIComponent(colorsParam)",
+      "$('game').src = src")
+
+  test "the native server reads CTF_TEAM_COLORS before it serves":
+    check ServerEntrypointNim.contains("\"CTF_TEAM_COLORS\"")
+    check ServerEntrypointNim.orderedIn(
+      "setTeamDisplayColors(getEnv(TeamColorsEnv))",
+      "installPayloadShimmer()",
+      "runServerLoop(")
+
+  test "both paths install the shimmer channel next to the colors":
+    # A payload may carry `shimmer` with no `teams` at all (§5), so every caller
+    # of setTeamDisplayColors must also call installPayloadShimmer — otherwise a
+    # shimmer-only payload silently does nothing.
+    check ServerEntrypointNim.orderedIn(
+      "setTeamDisplayColors(", "installPayloadShimmer()")
+    check ReplayViewerNim.orderedIn(
+      "setTeamDisplayColors(", "installPayloadShimmer()")
+
+  test "the static bundle ships the hand-off and all four teams' front art":
+    # static_replay.js IS the wasm hand-off; without it the bundle renders a
+    # stock board. The green/yellow front masters 404 only in the static bundle
+    # and only on 4-team boards, so nothing but this list catches their loss.
+    check ViewerDockerfile.contains("static_replay.js")
+    for team in ["red", "blue", "green", "yellow"]:
+      check ViewerDockerfile.contains("soldier_" & team & "_front.png")
+      check ViewerDockerfile.contains("soldier_" & team & "_front_gun.png")
+
+  test "no viewer asset path is rooted at the origin":
+    # The viewer is served at THREE path depths and prod's static bundle 404s on
+    # a leading slash — silently, because cogArtReady() just falls back to the
+    # procedural chassis. Two legal shapes only: a `./`-relative path, or a
+    # `/client/...` route concatenated onto a pathname-derived ROUTE_BASE.
+    for src in [LeagueReplayerHtml, StaticReplayJs]:
+      check not src.contains("src=\"/")
+      check not src.contains("href=\"/")
+      # Every `/client/` string literal must be joined onto ROUTE_BASE.
+      var cursor = 0
+      while true:
+        let at = src.find("'/client/", cursor)
+        if at < 0:
+          break
+        check src[max(0, at - 24) ..< at].contains("ROUTE_BASE")
+        cursor = at + 9
+    # The wasm runtime resolves its own siblings (.wasm/.data) relatively too.
+    check StaticReplayJs.contains("Module.locateFile")
+    check StaticReplayJs.contains("return './' + path")
+
+suite "four-team payloads":
+  ## §5's worked example remaps two teams. A 4-team board remaps all four, and
+  ## that is the shape the platform actually sends for ffa4 — the case where a
+  ## half-applied mapping would corrupt the paint-stain score read.
+
+  teardown:
+    resetTeamDisplayColorsForTests()
+    setShimmerPolicy("")
+
+  test "all four teams remap at once, with the shimmer riding along":
+    const payload = """{"v":1,"palette":1,"shimmer":"picasso","teams":{
+      "red":{"slug":"orange"},"blue":{"slug":"teal"},
+      "green":{"slug":"purple"},"yellow":{"slug":"magenta"}}}"""
+    check install(encodePayload(payload))
+    installPayloadShimmer()
+    check teamDisplayColor(Red) == rgba(0xe0, 0x8a, 0x2e, 255)
+    check teamDisplayColor(Blue) == rgba(0x35, 0xa8, 0xa8, 255)
+    check teamDisplayColor(Green) == rgba(0x84, 0x52, 0xcf, 255)
+    check teamDisplayColor(Yellow) == rgba(0xd1, 0x5a, 0x9e, 255)
+    # Every displayed color is distinct: the platform's §5 guarantee, and the
+    # property the paint-stain scoreboard depends on.
+    let shown = [teamDisplayColor(Red), teamDisplayColor(Blue),
+                 teamDisplayColor(Green), teamDisplayColor(Yellow)]
+    for i in 0 ..< shown.len:
+      for j in i + 1 ..< shown.len:
+        check shown[i] != shown[j]
+    check shimmerPolicy() == "picasso"
+
+  test "the wire words survive a full four-team remap":
+    # 15 label families parse these; a rename blinds every league policy.
+    const payload = """{"v":1,"teams":{"red":{"slug":"orange"},"blue":{"slug":"teal"},
+      "green":{"slug":"purple"},"yellow":{"slug":"magenta"}}}"""
+    check install(encodePayload(payload))
+    check teamText(Red) == "red"
+    check teamText(Blue) == "blue"
+    check teamText(Green) == "green"
+    check teamText(Yellow) == "yellow"
+
+suite "the embed cookbook is executable":
+  ## §8 hands the webpage window four base64 strings to copy. If one of them
+  ## ever stopped parsing, the other team would integrate against a dead
+  ## example and see a stock board with nothing logged. Decode each one here so
+  ## the doc and the parser cannot drift apart.
+
+  teardown:
+    resetTeamDisplayColorsForTests()
+    setShimmerPolicy("")
+
+  test "8.2(b) two teams recolored":
+    const B = "eyJ2IjoxLCJwYWxldHRlIjoxLCJ0ZWFtcyI6eyJyZWQiOnsic2x1ZyI6Im9y" &
+              "YW5nZSJ9LCJibHVlIjp7InNsdWciOiJ0ZWFsIn19fQ=="
+    check install(B)
+    check teamDisplaySlug(Red) == "orange"
+    check teamDisplaySlug(Blue) == "teal"
+    check teamDisplaySlug(Green) == "green"
+    check payloadShimmerPolicy() == ""
+
+  test "8.2(c) all four teams recolored, with the league #1 marked":
+    const C = "eyJ2IjoxLCJwYWxldHRlIjoxLCJzaGltbWVyIjoicGljYXNzbyIsInRlYW1z" &
+              "Ijp7InJlZCI6eyJzbHVnIjoib3JhbmdlIn0sImJsdWUiOnsic2x1ZyI6InRl" &
+              "YWwifSwiZ3JlZW4iOnsic2x1ZyI6InB1cnBsZSJ9LCJ5ZWxsb3ciOnsic2x1" &
+              "ZyI6Im1hZ2VudGEifX19"
+    check install(C)
+    installPayloadShimmer()
+    check teamDisplaySlug(Red) == "orange"
+    check teamDisplaySlug(Blue) == "teal"
+    check teamDisplaySlug(Green) == "purple"
+    check teamDisplaySlug(Yellow) == "magenta"
+    check shimmerPolicy() == "picasso"
+
+  test "8.2(d) shimmer only, no teams":
+    const D = "eyJ2IjoxLCJzaGltbWVyIjoicGljYXNzbyJ9"
+    check not install(D)          # nothing was re-COLORED...
+    installPayloadShimmer()
+    check shimmerPolicy() == "picasso"   # ...but the mark still lands.
+    for team in Team:
+      check not teamDisplayIsRecolored(team)

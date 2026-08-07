@@ -327,3 +327,168 @@ Any 4-subset of the palette can be live in one episode, so the **worst pair over
 whole palette** is the number that matters, not the average. For calibration: the
 stock four's own worst pair (green/yellow) is 30.1 — threshold 20 keeps additions in
 the same legibility class the game already ships.
+
+---
+
+## 8. Embed cookbook (for the webpage window)
+
+Everything below was executed end-to-end against a real 4-team replay on both
+delivery paths before it was written down — the base64 strings are the exact
+ones that were driven, not hand-typed examples. Copy them; they work.
+
+You do not need to read this repo's code to integrate. You need §2 (the palette
+you vendor), §3–§4 (the resolve you run), and this section (what you put in the
+URL).
+
+### 8.1 The two URL shapes
+
+`<base>` is wherever the viewer bundle is served from. It may sit at any path
+depth; every asset inside is relative, so **do not** rewrite paths.
+
+| What you want | URL |
+|---|---|
+| The **board** alone (an iframe you frame yourself) | `<base>/index.html?replay=<replay-url>&colors=<b64>` |
+| The **league shell** (board + surrounding broadcast chrome) | `<base>/league.html?replay=<replay-url>&colors=<b64>` |
+
+The shell forwards `colors` onto the board iframe's `src` verbatim, so you set
+it in exactly one place either way. Add `&embed=1` to the board URL if you are
+framing it yourself and want the chrome-less composition.
+
+`<replay-url>` may be relative to `<base>` or absolute; it is fetched with
+`mode: 'cors'`, so an absolute one needs CORS headers.
+
+**URL-encode the base64** when you build the string — it can contain `+ / =`:
+
+```js
+const url = `${base}/league.html?replay=${encodeURIComponent(replayUrl)}`
+          + `&colors=${encodeURIComponent(payloadB64)}`;
+```
+
+### 8.2 Four payloads that cover every case
+
+Encode with `btoa(unescape(encodeURIComponent(JSON.stringify(payload))))`.
+
+**(a) The common case — nobody's color changed, nobody is the #1.**
+Send **no `colors` param at all**. Every team renders stock. Do not send an
+identity mapping "to be explicit"; an absent param is the tested default.
+
+**(b) A 2-team board, two players won their picks.**
+
+```json
+{"v":1,"palette":1,"teams":{"red":{"slug":"orange"},"blue":{"slug":"teal"}}}
+```
+```
+?colors=eyJ2IjoxLCJwYWxldHRlIjoxLCJ0ZWFtcyI6eyJyZWQiOnsic2x1ZyI6Im9yYW5nZSJ9LCJibHVlIjp7InNsdWciOiJ0ZWFsIn19fQ%3D%3D
+```
+
+**(c) An ffa4 board, all four teams recolored, and the league #1 is playing.**
+This is the payload the screenshots in this repo were taken with.
+
+```json
+{"v":1,"palette":1,"shimmer":"picasso","teams":{
+  "red":{"slug":"orange"},"blue":{"slug":"teal"},
+  "green":{"slug":"purple"},"yellow":{"slug":"magenta"}}}
+```
+```
+?colors=eyJ2IjoxLCJwYWxldHRlIjoxLCJzaGltbWVyIjoicGljYXNzbyIsInRlYW1zIjp7InJlZCI6eyJzbHVnIjoib3JhbmdlIn0sImJsdWUiOnsic2x1ZyI6InRlYWwifSwiZ3JlZW4iOnsic2x1ZyI6InB1cnBsZSJ9LCJ5ZWxsb3ciOnsic2x1ZyI6Im1hZ2VudGEifX19
+```
+
+**(d) Shimmer only — the #1 is in this match but nobody picked a color.**
+Legal and common; the two channels are independent.
+
+```json
+{"v":1,"shimmer":"picasso"}
+```
+```
+?colors=eyJ2IjoxLCJzaGltbWVyIjoicGljYXNzbyJ9
+```
+
+### 8.3 Turning §3's grants into a payload
+
+`resolve()` gives you **grants keyed by PLAYER**. The payload is keyed by
+**wire team word**. The join is the episode roster, and it is yours to make —
+the viewer has no idea which player sat on which team.
+
+```js
+function buildColorsPayload(episode, grants, leagueTopPolicy, paletteVersion) {
+  const WIRE = ['red', 'blue', 'green', 'yellow'];   // fixed order, always
+  const teams = {};
+
+  // 1. Explicit grants first. These are promises the picker already made to a
+  //    player and must never be moved (§5).
+  const taken = new Set();
+  for (const wire of WIRE) {
+    const player = episode.ownerOf(wire);            // YOUR roster join
+    const grant = player && grants[player];
+    if (grant && grant.granted) {
+      teams[wire] = { slug: grant.granted };
+      taken.add(grant.granted);
+    }
+  }
+
+  // 2. Then walk any UNCLAIMED team whose STOCK slug collides with a grant.
+  //    Fixed wire order, each result feeding the next — a later team can
+  //    collide with an earlier team's already-bumped slug, not just a grant.
+  for (const wire of WIRE) {
+    if (teams[wire]) continue;                       // had a grant
+    if (!episode.hasTeam(wire)) continue;            // 2-team board: skip
+    let i = PALETTE.findIndex(c => c.slug === wire); // stock slug == wire word
+    while (taken.has(PALETTE[i].slug)) i = (i + 1) % PALETTE.length;
+    taken.add(PALETTE[i].slug);
+    if (PALETTE[i].slug !== wire) teams[wire] = { slug: PALETTE[i].slug };
+  }
+
+  const payload = { v: 1, palette: paletteVersion };
+  // Root level, never per team. Strip the hosted " (N)" / "_(N)" seat suffix.
+  if (leagueTopPolicy) payload.shimmer = stripSeatSuffix(leagueTopPolicy);
+  if (Object.keys(teams).length) payload.teams = teams;
+  return payload;
+}
+```
+
+Omit `teams` entirely when it comes out empty (that is case **d**); omit the
+whole param when there is also no shimmer (case **a**).
+
+### 8.4 What you must supply that we cannot
+
+Three things are **team-keyed** and only the platform can produce them. The
+viewer will render a clean stock board if any is missing, so a mistake here is
+silent — check these first if a board looks unrecolored.
+
+- **The player → wire-team join.** `grants` is keyed by player, `teams` by
+  `red|blue|green|yellow`. Only you know who sat where in this episode. Get the
+  seat mapping from the same episode record you got the replay URL from.
+- **Which teams exist.** A 2-team board has only `red` and `blue`. Emitting
+  `green`/`yellow` keys is harmless (the viewer ignores unknown teams) but the
+  §5 distinctness guarantee is yours to hold **over the teams actually playing**
+  — do not let a 4-team walk hand two live teams the same slug.
+- **The `shimmer` policy string.** The league's #1-ranked competitor, stripped
+  of any seat suffix, or omitted. **At most one, league-wide, per payload.**
+  Never one per team: it is a recognition mark and only reads as one because it
+  is rare. Naming a policy that is not in this episode is fine and marks nobody.
+
+Two more things worth knowing:
+
+- **Provenance never reaches the viewer.** The §4 snapshot (`requested`,
+  `granted`, `takenBy`) is picker-only. Do not put it in the payload — an
+  unknown key is ignored, but it bloats every embed URL for nothing.
+- **The payload is immutable per page load.** Colors are applied before the
+  first frame and never re-read. Changing them means re-navigating the iframe,
+  not posting a message.
+
+### 8.5 Checking your work
+
+```bash
+# Round-trip a payload you built:
+printf '%s' '<your base64>' | base64 -d
+```
+
+Or drive it: any board URL from §8.1 exposes `window.CtfTeamColors` once the
+page has booted. `{"changed": true, "teams": [...]}` means the payload was
+accepted and applied; `changed: false` means the viewer fell back to stock —
+your payload was absent, malformed, or version-skewed.
+
+`scripts/resolve_reference.py` implements §3 + §5 exactly, and
+`tests/resolver_vectors.json` carries 15 golden vectors. **Port the vectors as
+tests in your repo** — an implementation that passes all 15 is contract-
+equivalent, and that is the only conformance bar there is.
