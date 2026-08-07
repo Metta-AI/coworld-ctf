@@ -125,11 +125,28 @@ different denominator than at version 1, silently.
   reach. It predates the hexagon (the 1235px arena was already 1250 vs 1050),
   so it is not a hex regression. Moving it moves every engagement in the game
   and needs an A/B, not a sweep.
-* **`gen-colossal-4team.bitreplay` is the one fixture not re-recorded.** It is
-  a GENERATED 4-team map, which this branch cannot produce at all. It is
-  reachable now via `arena-hex4-giant`, but that is a different board and
-  re-recording it against a different geometry would quietly retire the
-  wasm32 address-space canary it exists to be.
+* **`gen-colossal-4team.bitreplay` is the one fixture not re-recorded**, and
+  the named 4-team boards do NOT unblock it. `build.yml` already documents two
+  independent reasons, and only the first is about team count:
+  1. the generator is 2-team — which `arena-hex4-giant` now sidesteps;
+  2. **the replay format's uint16 string length prefix.** A replay pins its
+     resolved geometry as `mapSpec`, and the colossal hexagon (5819×5039)
+     draws 769 shapes whose mapSpec alone is 67,387 bytes against a 65,535
+     ceiling. Over by 4% before a single seat is added, and no team or seat
+     count claws that back.
+
+  So the canary stays parked, and wasm32's 2GB ceiling stays untested at the
+  top size class. Fixing it needs a shape budget for the colossal class or a
+  uint32 prefix in bitworld's replay strings — a wire change. Note the giant
+  class measures 16,875 bytes, comfortably under, so `arena-hex4-giant` is
+  recordable; it is simply a 7.3M-pixel board rather than a 29M-pixel one and
+  therefore not the same test.
+
+  **New coordinate expressions audited for wasm32** (int is 32 bits there):
+  `laneDepth`'s hull scan runs through `hexEdgeDist`, which is int64
+  internally; `arenaHex4CtfMap`'s largest intermediate is
+  `210 * 5039 = 1,058,190`; the hull vertices peak at `3 * 5818 = 17,454`.
+  None approach int32. No new allocation is proportional to board area.
 
 ## Two plan docs were cited by shipped code and absent from the tree
 
