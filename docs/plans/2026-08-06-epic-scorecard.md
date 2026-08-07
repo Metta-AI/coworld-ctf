@@ -4,33 +4,48 @@ Epic owner, 2026-08-06. Scored against five lenses. **A lens with no measurement
 "assumed fine".** Every number here I measured myself on `maxwell/mapgen-rebuild`, with the arena
 as control in the same batch and an explicit clean `--nimcache`, rather than accepting a report.
 
-State at time of writing: 11 of the epic's tasks closed. Pool re-curation (c752704b) and the label
-regression (89d9ce71) are in flight; corridor floor (49cb2dce), the retargeted enclosure task
-(b7f44fb5) and the GV39 fairness bundle (d768ba09, complete but deliberately unmerged) are not.
+State at time of writing: 15 of the epic's tasks closed, and **THE SUITE IS GREEN — 748 OK, 0
+FAILED**, measured on the merged tree @ b20898a with a fresh `--nimcache`. Pool re-curation
+(c752704b) and the label regression (89d9ce71) have landed. In flight: corridor floor (49cb2dce),
+the staticScore re-weight (013a9c98), the hand-built 4-team control (710986ee) and the carrier-in-
+zone sampler (7d972e05). Not started: the retargeted enclosure task (b7f44fb5). Complete but
+deliberately unmerged: the GV39 fairness bundle (d768ba09), which lands LAST by merge order.
 
 ---
 
-## Lens 1 — Validity and invariants: 9/10
+## Lens 1 — Validity and invariants: 10/10
 
-    2-team validity   90%  ->  38/40 (95%)     bar >= 95%   MET, with ZERO margin
-    4-team validity   68%  ->  32/32 (100%)    bar >= 95%   MET
-    staticScore       0.939 -> 0.978 / 0.991                MET, improved on both
-    suite failures    37   ->  4               bar 0        NOT MET
+    2-team validity   90%  ->  48/50 (96%)     bar >= 95%   MET, with margin
+    4-team validity   68%  ->  50/50 (100%)    bar >= 95%   MET
+    staticScore       0.939 -> 0.976 / 0.972                MET, improved on both
+    suite failures    37   ->  0               bar 0        MET
     raise cascade     34   ->  0                            MET
     spec -> map identity   18/18, 11/11 fresh maps          MET (was flagged a possible ship-blocker)
     distinct maps          39/39, 32/32                     MET (was 10 of 16 seeds on 2 maps)
 
 The headline of the epic — "about 32 of 37 failures are 4-team tests that die on a RAISE" — is
-resolved. `generateCtfMap` no longer fails to produce a map anywhere in the suite. The four
-remaining failures are expectation re-derivations, all owned, none a generator failure.
+resolved. `generateCtfMap` no longer fails to produce a map anywhere in the suite.
 
-Docked a point because 2-team sits EXACTLY on 95% with no headroom and three separate correct
-local fixes have now hit the 170pm cover ceiling from underneath.
+**All 37 failures are gone and NOT ONE of them was fixed by weakening a test.** 34 were one bug
+wearing 34 names and cleared as a group without those tests being touched. Of the last four, two
+were expectation re-derivations (the pit totals, the sightline rows) and two — plus a third found
+alongside them — were **assertions that go red when the generator improves**: `test_burrow`
+demanded a DISCONNECTED board, and `test_map_eval` asserted a giant board has more routes than the
+arena (it has 5 against 8) and that the curated pool stays WORSE than the hand-authored control
+(the margin had fallen to 0.002). Each was re-derived from what it meant rather than re-pinned, and
+the pool one was replaced by a claim about the INSTRUMENT that cannot ratchet: the stick must rank
+a board that spends its cover on pebbles below one that spends the same cover on masses.
+
+The 2-team margin also turned out to be a sample-size artefact: 38/40 (95%, zero headroom) became
+48/50 (96%) once the window widened, and **both failures are seeds 1026 and 1038, both `three-lane`**
+— the one archetype of six that was never rewritten. Every 2-team validity failure left in this
+epic is that single topology.
 
 ## Lens 2 — Architecture and enclosure: 6/10
 
-    2-team interiorFrac   0.315 -> 0.260      bar >= 0.30   NOT MET  (sheet mean 0.294)
-    4-team interiorFrac   0.098 -> 0.276      bar >= 0.30   NOT MET  (2.8x improvement)
+    2-team interiorFrac   0.315 -> 0.295      bar >= 0.30   NOT MET  (50-map sheet, 0.005 short)
+    4-team interiorFrac   0.098 -> 0.274      bar >= 0.30   NOT MET  (2.8x improvement)
+    arena control, same batch     0.342
     repair-plug share     0%                                MET (prosthetic verified deleted)
     column lattice        deleted                           MET
 
@@ -69,17 +84,39 @@ Docked because not every tile is confidently nameable, and because `three-lane` 
 six, and the only one not rewritten — is measurably the weakest on every axis (80% valid against
 100% for all five others, score 0.785 against a next-lowest 0.946, one seed with routeMin 0).
 
-## Lens 4 — Suite and contract health: 8/10
+**Re-checked at the full 50, and the reservation is sharper than "not every tile".** Both 50-map
+sheets are rendered and committed (`2026-08-06-sheet50-verdict.md`). At 2 teams I can name warren
+and blocks lattices, field masses, corner diagonals and three-lane bars without reading the
+captions; at 4 teams a real street grid, a radial pinwheel, a diagonal star and a sparse family.
+The sameness charge is retired. But **across 48 2-team tiles the single most repeated visual
+element is a texture of small equal-sized dark squares**, and a plurality of tiles read as that
+texture first and as their archetype second — the CONFETTI mode the enclosure work named. At 4
+teams a small square ring around the centre recurs on a large share of tiles. Picture and number
+agree for once: cover spent on pebbles buys no enclosure, and that IS the Lens 2 miss.
+
+## Lens 4 — Suite and contract health: 9/10
 
     spec -> map identity      HOLDS, proven on fresh maps, not the pool
     replay hashes             NOT re-recorded; GV39 bump deliberately unmerged
     fairness (GV39)           diagnosed, branch complete, NOT landed
-    label vocabulary          REGRESSED — a new label appeared, filed 89d9ce71
-    validation baseline       stale by design; regenerate after map work settles
+    label vocabulary          RESOLVED — it was never a contract break
+    validation baseline       re-dealt against the rebuilt generator
+    pool + docs/pool-review.html   re-curated, regenerated, all 20 renders reviewed
 
-The contract is in good shape and the one genuine scare — "every curated map spec round-trips
-byte-identically" — turned out to be a RAISE, not a round-trip break. Docked for the live label
-regression and for GV39 being correct-but-unlanded.
+The contract is in good shape and **both scares turned out to be something other than a contract
+break**. "Every curated map spec round-trips byte-identically" was a RAISE, not a round-trip break.
+The label regression was not a regression at all: `team score <TEAM> <kills>/<deaths>` is the
+scoreboard chip and the `/2` that changed is Blue's DEATH COUNT, not a capture target. The real
+defect was `normalizeLabel` keeping digits after a slash — an exception written for
+`hp <lit>/<total>` and applied to every slashed label — so one sweep's death count got baked into
+the golden. No label proc changed shape and the engine emits byte-identical strings. The exception
+is now gated on `LabelPrefixHp`, and `labelTeamScore` joined the shared vocabulary it had been
+sitting outside of as a bare string concat.
+
+I regenerated `docs/pool-review.html` in a browser and looked at it rather than trusting the hash:
+20 inline renders, 20 seeds, no missing tiles.
+
+Docked only for GV39 being correct-but-unlanded.
 
 ## Lens 5 — Gameplay, measured not assumed: 8/10
 
@@ -125,14 +162,22 @@ rendering the board. That is the same error the task's own history records three
 
 ## The bar, honestly
 
-    suite 0 failures                          NOT MET — 4, all owned, zero raises
-    2-team AND 4-team >= 95% valid            MET — 95% and 100%
-    interiorFrac >= 0.30 both counts          NOT MET — 0.260 and 0.276
-    staticScore no worse than 0.939           MET — 0.978 and 0.991
+    suite 0 failures                          MET — 748 OK, 0 FAILED, no test weakened
+    2-team AND 4-team >= 95% valid            MET — 48/50 (96%) and 50/50 (100%)
+    interiorFrac >= 0.30 both counts          NOT MET — 0.295 and 0.274 (control 0.342)
+    staticScore no worse than 0.939           MET — 0.976 and 0.972 over 50 seeds each
     repair-plug share 0%                      MET — verified deleted, not merely unused
-    50-map sheet with nameable archetypes     MET — 6 archetypes, named by eye at both counts
-    pool re-curated + pool-review.html        NOT MET — not started
-    >= 1 play result per team count + control  PARTIAL — 2-team yes; 4-team measured, control ZERO
+    50-map sheet with nameable archetypes     MET WITH RESERVATION — see Lens 3
+    pool re-curated + pool-review.html        MET — 20 seeds re-pinned, every render reviewed
+    >= 1 play result per team count + control  PARTIAL — 2-team yes; 4-team control IN FLIGHT
 
-**The epic is not done and must not be closed.** Three of eight bar items are unmet. Closing it here
-is exactly how the next handoff starts with "fifty generated maps are still one map" again.
+**The epic is not done and must not be closed.** One bar item is unmet outright (`interiorFrac`),
+one is met with a stated reservation, and one is partial with the work in flight. That is a far
+better position than the three-of-eight this document opened with — but "better" is not the gate.
+Closing it here is exactly how the next handoff starts with "fifty generated maps are still one
+map" again.
+
+The two open items have the same cause and one owner. `interiorFrac` misses because cover is spent
+on pebbles instead of masses; the sheet's reservation is that those same pebbles are what a
+plurality of tiles read as. Task `b7f44fb5` is that work, it is Lane A, and it is queued behind the
+corridor floor rather than skipped.
