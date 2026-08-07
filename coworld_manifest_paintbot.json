@@ -12,7 +12,7 @@
     "replay_viewer": {
       "bundle": "static-replay-viewer"
     },
-    "description": "Paintbot: paintball-flavored capture-the-heart, AI bots only. Every episode seats FOUR entrant policies, alternating three shapes on randomly generated terrain: 2v2 - the classic two-sided game with each team split between two policies (4 agents each, allies you don't control; coordination via shouts matters double) - 4ffa - 16 seats, four teams (red, blue, green, yellow), one policy per team (4 agents each), each defending its own heart on a square corner or plus map, where every team antes a point and the winner takes the pot (+4 to the winner, -1 to each loser; 2v2 pays +2/-2) - and 4ffa8 - the same four-team game at double muster: 32 seats, 8 agents per team, always on a giant map. Core rules are identical to ctf. A two-team capture-the-heart shooter with fog-of-war vision. Red and Blue spawn on opposite edges, each guarding a heart on its home pedestal. Steal the enemy heart and carry it home - or wipe the enemy team. Two med kits on the center line heal the hurt back to full and respawn after 30 seconds. Grenade pickups wait in the corners: charged throws sail over walls and burst on landing, heard but not seen through the fog. Two plasma arcs spawn high in the side back columns: a carried arc disables your gun and turns the trigger into a forward plasma cone - 5 squares of reach, 2.5 squares wide at the tip - that stays lit for 5 ticks, takes 20 ticks to reset, and deals 3 damage per touch (lethal to a bare cog; a shield carrier survives one). One shield sits low in each endzone's back column, vertically opposite the plasma arcs: carrying it grants 6 hit points but makes your fire rate 3x slower. Both are lost on death and respawn 30 seconds after being taken (see docs/RULES.md, Plasma arc and Shields). Aim is decoupled from movement and carries your vision cone; guns are 3-hit-point hitscan with a trigger windup, a fixed 1050px range on every map, and lightly fuzzed aim (80% to hit a fully visible target at max range, near-certain closer in); the vision cone reaches 1.5x the gun range, teammates are fogged like enemies, and unseen gunfire is heard as a jittered sound ring - never pinpointed. Players can shout: 10-character messages heard within a fifth of the field, tagged by player and team at jittered coordinates and drawn as speech bubbles in replays. Rendered in painted high-resolution art: player observation coordinates are 1x map scale, and the grenade throw is player-input bit 7 / value 128 (see docs/PROTOCOL.md).",
+    "description": "Paintbot: paintball-flavored capture-the-heart, AI bots only. Every episode seats FOUR entrant policies, alternating three shapes on randomly generated terrain: 2v2 - the classic two-sided game with each team split between two policies (4 agents each, allies you don't control; coordination via shouts matters double) - 4ffa - 16 seats, four teams (red, blue, green, yellow), one policy per team (4 agents each), each defending its own heart in its own quadrant of the hexagon, where every team antes a point and the winner takes the pot (+4 to the winner, -1 to each loser; 2v2 pays +2/-2) - and 4ffa8 - the same four-team game at double muster: 32 seats, 8 agents per team, on the giant-class four-team hexagon. Core rules are identical to ctf. A two-team capture-the-heart shooter with fog-of-war vision. Red and Blue spawn on opposite edges, each guarding a heart on its home pedestal. Steal the enemy heart and carry it home - or wipe the enemy team. Two med kits on the center line heal the hurt back to full and respawn after 30 seconds. Grenade pickups wait in the corners: charged throws sail over walls and burst on landing, heard but not seen through the fog. Two plasma arcs spawn high in the side back columns: a carried arc disables your gun and turns the trigger into a forward plasma cone - 5 squares of reach, 2.5 squares wide at the tip - that stays lit for 5 ticks, takes 20 ticks to reset, and deals 3 damage per touch (lethal to a bare cog; a shield carrier survives one). One shield sits low in each endzone's back column, vertically opposite the plasma arcs: carrying it grants 6 hit points but makes your fire rate 3x slower. Both are lost on death and respawn 30 seconds after being taken (see docs/RULES.md, Plasma arc and Shields). Aim is decoupled from movement and carries your vision cone; guns are 3-hit-point hitscan with a trigger windup, a fixed 1050px range on every map, and lightly fuzzed aim (80% to hit a fully visible target at max range, near-certain closer in); the vision cone reaches 1.5x the gun range, teammates are fogged like enemies, and unseen gunfire is heard as a jittered sound ring - never pinpointed. Players can shout: 10-character messages heard within a fifth of the field, tagged by player and team at jittered coordinates and drawn as speech bubbles in replays. Rendered in painted high-resolution art: player observation coordinates are 1x map scale, and the grenade throw is player-input bit 7 / value 128 (see docs/PROTOCOL.md).",
     "owner": "treeform@softmax.com",
     "runnable": {
       "type": "game",
@@ -228,7 +228,7 @@
           "default": true
         },
         "mapPath": {
-          "description": "Arena map identifier (procedurally generated).",
+          "description": "Map identifier: the hand-authored hexagons \"arena\" (2-team standard), \"arena-large\", \"arena-hex4\" and \"arena-hex4-giant\" (4-team), \"gen\" to generate from mapSeed, or \"pool\" to draw from the curated pool. \"gen\" and \"pool\" are 2-team only.",
           "type": "string",
           "default": "arena"
         },
@@ -246,7 +246,7 @@
           "default": 5
         },
         "teams": {
-          "description": "Active team count: 2 (classic sides) or 4 (corner/plus free-for-all).",
+          "description": "Active team count: 2 (opposed sides) or 4 (free-for-all). The board is a HEXAGON: 2 teams are carried by a mirror or half-turn, 4 by the Klein-four group, so a 4-team game needs the named arena-hex4 / arena-hex4-giant board (the generator is 2-team until the cube-space orbit rasterizer lands).",
           "type": "integer",
           "enum": [
             2,
@@ -549,7 +549,7 @@
     {
       "id": "4ffa",
       "name": "4-team free-for-all",
-      "description": "Four teams \u2014 red, blue, green, yellow \u2014 one entrant policy per team (slot mod 4), each defending its own heart on a generated square corner or plus map. Steal any enemy heart and carry it home; last team standing wins a wipe; every team antes a point and the winner takes the pot: +4 to the winning policy, -1 to each of the three losers.",
+      "description": "Four teams \u2014 red, blue, green, yellow \u2014 one entrant policy per team (slot mod 4), each defending its own heart in its own quadrant of the four-team hexagon. Steal any enemy heart and carry it home; last team standing wins a wipe; every team antes a point and the winner takes the pot: +4 to the winning policy, -1 to each of the three losers.",
       "game_config": {
         "players": [
           {
@@ -667,7 +667,7 @@
         "gameOverTicks": 360,
         "maxTicks": 5000,
         "maxGames": 1,
-        "mapPath": "gen",
+        "mapPath": "arena-hex4",
         "showPlayerLabels": true,
         "teams": 4,
         "scoring": "pot",
@@ -677,7 +677,7 @@
     {
       "id": "4ffa8",
       "name": "4-team free-for-all (8 per team)",
-      "description": "Four teams \u2014 red, blue, green, yellow \u2014 one entrant policy per team (slot mod 4) at double muster: 32 seats, 8 agents per team, always on a giant generated corner or plus map. Rules and scoring match 4ffa: steal any enemy heart and carry it home, last team standing wins a wipe, and every team antes a point with the winner taking the pot: +4 to the winning policy, -1 to each of the three losers.",
+      "description": "Four teams \u2014 red, blue, green, yellow \u2014 one entrant policy per team (slot mod 4) at double muster: 32 seats, 8 agents per team, on the giant-class four-team hexagon. Rules and scoring match 4ffa: steal any enemy heart and carry it home, last team standing wins a wipe, and every team antes a point with the winner taking the pot: +4 to the winning policy, -1 to each of the three losers.",
       "game_config": {
         "players": [
           {
@@ -891,12 +891,11 @@
         "gameOverTicks": 360,
         "maxTicks": 7500,
         "maxGames": 1,
-        "mapPath": "gen",
+        "mapPath": "arena-hex4-giant",
         "showPlayerLabels": true,
         "teams": 4,
         "scoring": "pot",
-        "lobbyJoinTimeoutTicks": 2880,
-        "mapSize": "giant"
+        "lobbyJoinTimeoutTicks": 2880
       }
     },
     {

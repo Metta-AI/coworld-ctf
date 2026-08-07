@@ -44,6 +44,19 @@ proc manifestVariant(name, variantId: string): JsonNode =
       return variant
   nil
 
+proc publishedVariants(name: string): seq[tuple[id: string, config: JsonNode]] =
+  ## Every variant a league operator can actually launch, with the manifest's
+  ## own `game_config` verbatim.
+  let manifest = parseFile(GameDir / name)
+  if not manifest.hasKey("variants"):
+    return
+  for variant in manifest["variants"]:
+    if variant.hasKey("game_config"):
+      let id =
+        if variant.hasKey("id"): variant["id"].getStr()
+        else: variant{"name"}.getStr("<unnamed>")
+      result.add((id, variant["game_config"]))
+
 # One payload per schema property, each carrying a NON-DEFAULT value for its
 # key (plus companion keys where update()'s cross-field validation demands
 # them — the whole-object inequality below still proves the target key
@@ -142,6 +155,40 @@ suite "league manifest config_schema vs GameConfig":
     for key in PlatformOnlyKeys:
       let description = ctfSchema["properties"][key]["description"].getStr
       check "platform" in description
+
+  test "every published variant RESOLVES A MAP the engine will seat":
+    ## The gap this closes cost the hex branch its two live 4-team leagues.
+    ## Every test above reads the config_schema — the list of knobs an operator
+    ## MAY set — and none of them ever ran a published variant's own
+    ## `game_config` through the engine. So when the hexagon's generator began
+    ## refusing every team count but 2, `coworld_manifest_paintbot.json` went on
+    ## declaring `4ffa` and `4ffa8` as `teams: 4, mapPath: "gen"`, the server
+    ## died at boot with exit 1 and no listener, every seated bot timed out —
+    ## and the suite stayed green, because a manifest is data and nothing was
+    ## reading it.
+    ##
+    ## `resolveCtfMapMetadata` is the exact call that raised, and it also
+    ## carries the team-count cross-check, so resolving is enough to catch the
+    ## whole family. Deliberately NOT a full `initSimServer`: the 32-seat
+    ## variant is a giant-class board and baking it per test run costs minutes
+    ## for no extra coverage of THIS contract.
+    for manifest in ["coworld_manifest.json", "coworld_manifest_paintbot.json"]:
+      for (id, gameConfig) in publishedVariants(manifest):
+        var config = defaultGameConfig()
+        var resolved = ""
+        try:
+          config.update($gameConfig)
+          let gameMap = resolveCtfMapMetadata(config)
+          resolved = gameMap.name & " " & $gameMap.width & "x" &
+            $gameMap.height & " seating " & $gameMap.teamCount()
+        except CatchableError as err:
+          resolved = ""
+          checkpoint manifest & " variant '" & id & "' does not boot: " &
+            err.msg
+        check resolved.len > 0
+        if resolved.len > 0:
+          checkpoint manifest & " variant '" & id & "' -> " & resolved
+          check config.teams == resolveCtfMapMetadata(config).teamCount()
 
   test "the repo's local config.json loads and validates":
     # update() runs the full field validation internally and raises on any

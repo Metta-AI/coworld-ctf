@@ -259,6 +259,13 @@ proc validateMap(gameMap: CtfMap) =
 const
   ArenaName = "arena"
   ArenaLargeName = "arena-large"
+  ArenaHex4Name = "arena-hex4"
+  ArenaHex4GiantName = "arena-hex4-giant"
+    ## The hand-authored FOUR-TEAM boards. Named maps rather than pinned
+    ## `mapSpec` blobs so the geometry stays where the fairness invariants
+    ## live — a spec pasted into a league manifest is geometry owned by data,
+    ## which is the failure mode `docs/AGENTS.md` names for the map editor's
+    ## browser half.
   ArenaBorder* = 10            ## perimeter wall thickness in px.
   MinCorridorWidth* = 26
     ## Narrowest corridor for the 13px footprint. Declared HERE, with the
@@ -2883,6 +2890,71 @@ proc arenaLargeCtfMap(): CtfMap =
   ## The arena-large variant: the same layout on the LARGE class, 1260x1455.
   arenaHexCtfMap(ArenaLargeName, hxLarge)
 
+proc arenaHex4CtfMap*(name: string, cls: HexSizeClass): CtfMap =
+  ## A hand-authored FOUR-TEAM hexagon: bare field, Klein-four symmetry, one
+  ## endzone disc per team on the board's diagonals.
+  ##
+  ## This exists because `generateMapAttempt` refuses every team count but 2 —
+  ## the 3- and 6-team orbits need the cube-space rasterizer (Stage 2b), and
+  ## 4-team generation was never built on top of V4 even though V4 IS
+  ## pixel-exact. Without a named 4-team board, `teams: 4` is reachable ONLY
+  ## through a pinned `mapSpec`, which is how both live 4-team league variants
+  ## came to declare `mapPath: "gen"` and kill the server at boot: exit 1, no
+  ## listener, every seated bot timing out, and nothing in the suite red,
+  ## because a manifest is data and nothing was reading it.
+  ##
+  ## It is deliberately BARE. The 2-team arena's furniture
+  ## (`arenaHexObstacles`) seeds a HALF-PLANE and is mirrored across one axis;
+  ## V4 carries a QUADRANT to four images, so that slalom cannot be reused
+  ## without re-authoring it, and a wrong reuse is silently team-unfair rather
+  ## than visibly broken. A bare hull is honest: it is the same geometry for
+  ## every team, and terrain arrives when 4-team generation does.
+  let board = hexBoardOf(cls)
+  result.name = name
+  result.path = name
+  result.width = board.width
+  result.height = board.height
+  result.mapLayer = 0
+  result.walkLayer = 1
+  result.wallLayer = 2
+  result.center = MapPoint(x: result.width div 2, y: result.height div 2)
+  ## Scaled off the SHORT axis, exactly as `arenaHexCtfMap` does, so the
+  ## clearances stay proportional across size classes instead of leaving the
+  ## bigger boards with standard-class pockets.
+  proc s(value: int): int = value * board.height div HexStandardHeight
+  result.flagRing = s(70)
+  result.captureClear = s(210)
+  result.spawnClearW = s(70)
+  result.spawnClearH = s(130)
+  result.gunRange = GunRange
+  result.symmetry = symKlein4
+  result.layout = layoutHex4
+  result.endzone = ezDisc
+  result.endzoneRadius = board.height * 101 div 1000
+  ## Solved from the budgets rather than carried over, for the same reason the
+  ## 2-team arena solves it: the 4-team anchor sits on the DIAGONAL (V4's
+  ## equal-gap seed is at 45 degrees), so the hull clearance behind a base is a
+  ## different function of depth than it is on the 2-team vertex ray.
+  let window = result.homeDepthWindow()
+  doAssert window.lo <= window.hi,
+    "the " & name & " class affords no legal base depth"
+  result.homeDepth = (window.lo + window.hi) div 2
+  result.leftObstacles = @[]
+  result.trenches = @[]
+  result.medKitSpawns = @[]
+  result.medKitCandidates = @[]
+  result.rooms = result.defaultCtfRooms()
+  result.validateMap()
+
+proc arenaHex4Map(): CtfMap =
+  ## `arena-hex4`: the 4-team board on the STANDARD class.
+  arenaHex4CtfMap(ArenaHex4Name, hxStandard)
+
+proc arenaHex4GiantMap(): CtfMap =
+  ## `arena-hex4-giant`: the same board on the GIANT class, which is the size
+  ## the 32-seat league variant asks for.
+  arenaHex4CtfMap(ArenaHex4GiantName, hxGiant)
+
 proc poolCtfMap*(
   index: int, overrides = MapGenOverrides(windows: -1, pits: -1, pitDensity: -1)
 ): CtfMap =
@@ -3145,8 +3217,10 @@ proc mapFromSpecJson*(text: string): CtfMap =
 proc resolveCtfMapMetadata*(config: GameConfig): CtfMap =
   ## The effective map for one config: an explicit mapSpec wins (replay
   ## exactness), then the named maps, then the generator / curated pool.
-  ## The resolved map's team count must match the config's `teams` knob —
-  ## a 4-team game needs a generated corner/plus map (or a pinned spec).
+  ## The resolved map's team count must match the config's `teams` knob. The
+  ## square board's `corners`/`plus` layouts went with C4, so on the hexagon a
+  ## 4-team game needs the named `arena-hex4` / `arena-hex4-giant` board or a
+  ## pinned `mapSpec`; the generator is 2-team until Stage 2b.
   result =
     if config.mapSpec.len > 0:
       mapFromSpecJson(config.mapSpec)
@@ -3157,6 +3231,8 @@ proc resolveCtfMapMetadata*(config: GameConfig): CtfMap =
       case name
       of ArenaName: arenaCtfMap()
       of ArenaLargeName: arenaLargeCtfMap()
+      of ArenaHex4Name: arenaHex4Map()
+      of ArenaHex4GiantName: arenaHex4GiantMap()
       of GenMapName: generateCtfMap(genSeed, config.mapGen, config.teams)
       of PoolMapName:
         if config.teams != 2:
@@ -3257,6 +3333,8 @@ proc loadCtfMapMetadata*(path = ""): CtfMap =
   case name
   of ArenaName: arenaCtfMap()
   of ArenaLargeName: arenaLargeCtfMap()
+  of ArenaHex4Name: arenaHex4Map()
+  of ArenaHex4GiantName: arenaHex4GiantMap()
   else:
     let parts = name.split(':')
     var suffix = 0

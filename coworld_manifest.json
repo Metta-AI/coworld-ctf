@@ -223,7 +223,7 @@
           "default": true
         },
         "mapPath": {
-          "description": "Arena map identifier (procedurally generated).",
+          "description": "Map identifier: the hand-authored hexagons \"arena\" (2-team standard), \"arena-large\", \"arena-hex4\" and \"arena-hex4-giant\" (4-team), \"gen\" to generate from mapSeed, or \"pool\" to draw from the curated pool. \"gen\" and \"pool\" are 2-team only.",
           "type": "string",
           "default": "arena"
         },
@@ -241,7 +241,7 @@
           "default": 5
         },
         "teams": {
-          "description": "Active team count: 2 (classic sides) or 4 (corner/plus free-for-all).",
+          "description": "Active team count: 2 (opposed sides) or 4 (free-for-all). The board is a HEXAGON: 2 teams are carried by a mirror or half-turn, 4 by the Klein-four group, so a 4-team game needs the named arena-hex4 / arena-hex4-giant board (the generator is 2-team until the cube-space orbit rasterizer lands).",
           "type": "integer",
           "enum": [
             2,
