@@ -255,6 +255,89 @@ whether it is unwired-yet or reverted-from is its author's call, not mine.
 
 ---
 
+## 4b. Round three — six adversarial lenses
+
+Six lenses ran in parallel against the branch: DETERMINISM, GEOMETRY,
+CONTRACT, BOUNDS, GATE, DELIVERY. Eleven defects fixed. Two claims from
+earlier rounds were **corrected by measurement**, and one of the corrections
+invalidated a measurement made during this very round — recorded below,
+because the mechanism that caused it is the most important finding here.
+
+### The deepest one: the ranker is a LINK-TIME property
+
+`map_score` installs the best-of-K ranker from a top-level statement, so
+whether best-of-K happens at all depends on whether a **binary** links that
+module — nothing the caller writes. A binary without it silently returns the
+first VALID candidate: a different board for the same seed, measured on 3 of 7
+pool seeds. This has already shipped one wrong constant (the cover band was
+derived by `hex_cover_probe` with the ranker absent), and during this audit it
+silently corrupted a fresh stride-1 symmetry sweep run from a probe importing
+only `arena` — that run's `gen:*` numbers measured maps the server never
+builds, and were withdrawn. Two independent errors, same cause, months apart.
+
+Fixed at the root: `generateCtfMap` now RAISES when no ranker is linked unless
+the caller passes `rankK = 1` deliberately, and `ctf/map_score` was linked into
+the five tools that lacked it (`hex_arena_check`, `hex_connectivity_probe`,
+`hex_cover_probe`, `hex_gen_probe`, `hex_range_probe`). The remaining exposure
+is the goldens themselves — see the filed follow-up.
+
+### Fixed
+
+1. **The board never went transparent on the league path.** The branch's
+   headline visual change did not reach the screen. Every other link was
+   plumbed right — `map_art` writes alpha 0 outside the hull, `broadcast_core`
+   switched to `clearRect`, the shell cleared `#floor` *and* `#floor iframe` —
+   but an iframe ELEMENT's background paints behind its DOCUMENT, so the
+   embedded page's `#120d09` stayed opaque over the whole box. Proven by pixel
+   sampling: the corner inside the board rect was exactly `(18,13,9)` before
+   and is `(24,17,11)` after, the shell's lit floor showing through.
+2. **The uint16 mapSpec ceiling was checked on one path only.** The guard was
+   gated on "we just generated this spec", so an EXPLICIT `mapSpec` — the
+   hosted path, and the one blocker A's own remediation prescribes — was never
+   measured. Verified after the fix: 70031- and 66927-byte colossal specs are
+   now refused at config resolve, naming the byte count, instead of dying later
+   in `openReplayWriter` with the bare `ReplayError` this guard exists to
+   replace. Found independently by two lenses.
+3. **Both manifests advertised layouts the engine rejects.** `mapLayout`
+   published `enum: [sides, corners, plus]` while `arena.nim` now raises
+   `CtfError` for anything outside `[sides, hex2]` — so `corners`/`plus` crash
+   the server and `hex2` fails the platform's own validator. `test_manifest_
+   schema.nim` already SAMPLED `hex2`, which is how far apart the two had
+   drifted. Also added `mapRankK`, the branch's headline knob, which had no
+   schema entry at all — no league episode could set it.
+4. **A ratchet wearing a different name.** `check reasons.len > 0` is true iff
+   `failures > 0`, so it is precisely the assertion the comment 25 lines above
+   it deletes as a ratchet, and it hangs on the same single seed.
+5. **A "visible" number that printed nothing.** `test_mapgen_styles` reported
+   its validator pass rate with `checkpoint`, which unittest only flushes on
+   FAILURE — so a green run printed nothing and the pass rate went from gated
+   to invisible. The sibling file documents the correct idiom verbatim.
+6. **Four unchecked index sites and a non-object spec** in the mapSpec parser.
+   A truncated spec raised `IndexDefect` and a well-formed `[1,2,3]` raised an
+   `AssertionDefect` from inside json.nim. Both are *Defects*: no upstream
+   `except CatchableError` on the config or replay-load path can catch them.
+7. **`buildMapMasks` with a non-positive cell.** 0 was a `DivByZeroDefect`;
+   NEGATIVE was worse than a crash — every grid loop ran zero times and it
+   returned an all-zero `MapMasks` that `scoreMap` ranks as a real map.
+8. **`AUTHORABLE_OBSTACLES`** — dead, and wrong (it omits `barAngled`, so it
+   would have broken the 60° bar button the moment anything read it).
+   Tombstone-checked: one commit added it, nothing ever read it.
+
+### Two earlier claims corrected by measurement
+
+- **"Flag-ring carve asymmetric on even dimensions; the test is green only
+  because it strides by 3."** The stride is real, but it is not hiding this.
+  Swept at stride 1: `mask=0` on `arena` and `arena-large` (hand-authored, so
+  the ranker cannot affect them). The asymmetry is real only on the `huge` and
+  `colossal` classes the test never loads — 506-714 protected-floor pixels on
+  a 2014x1744 board. The defect is COVERAGE, not tolerance.
+- **"Spawn asymmetry is a hex regression."** It is INHERITED — main has the
+  identical `anchor.x + stepMinor` in absolute screen coordinates. But this
+  branch AMPLIFIES it: 12px on main's rectangular mirror boards, ~144px on
+  rot180 hex boards, because the y-stagger is never rotated. Filed for GV41.
+
+---
+
 ## 5. Verdict
 
 The 2-team hex arena is real, correct where it counts, and looks good on the
@@ -264,3 +347,11 @@ is done.
 It is **not deployable**: 4-team boots crash (A), and the GameVersion collides
 with main's (B). Neither is a code-quality problem; both are integration work
 that needs a decision from you, not from me.
+
+Round three does not change that verdict, but it sharpens one thing: the
+generator's own measuring instruments were not all pointed at the map the
+server ships. That is now loud instead of silent, and the remaining pieces —
+the pool goldens, the two rectangular metrics still gating selection, and the
+host-libm dependence in selection geometry — are filed rather than fixed,
+because each one changes which candidate wins best-of-K and therefore has to
+land together with a golden re-derivation, not at 3am on a ship night.

@@ -9,6 +9,7 @@
 
 import std/strutils
 import ../src/ctf/[sim_types, arena]
+import ../src/ctf/map_score  ## installs the best-of-K ranker at module init
 
 proc report(name: string, gameMap: CtfMap) =
   let d = mapDiagnostics(gameMap)

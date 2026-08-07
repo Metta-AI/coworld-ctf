@@ -29,6 +29,7 @@
 import std/[math, os, strutils, strformat, algorithm, tables, bitops, sets]
 import pixie
 import ../src/ctf/[sim_types, arena, hex]
+import ../src/ctf/map_score  ## installs the best-of-K ranker at module init
 import map_render
 
 const

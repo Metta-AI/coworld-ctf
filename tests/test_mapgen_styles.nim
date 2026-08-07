@@ -137,7 +137,10 @@ suite "mapgen styles":
         check buildArenaObstacles(base).len >= base.leftObstacles.len
         if validateGeneratedMap(base).len == 0:
           inc passed
-      checkpoint($style & ": " & $passed & "/16 seeds pass the validator")
+      ## `echo`, not `checkpoint`: unittest only flushes checkpoints when the
+      ## test FAILS, so a green run printed nothing and the "moves visibly"
+      ## above was false — the pass rate went from gated to invisible.
+      echo "  [", style, "] ", passed, "/16 seeds pass the validator"
 
 suite "polygon obstacles":
   test "pointInPolygon matches a known square":

@@ -72,6 +72,7 @@ const SampleJsonTemplate = """{
   "lobbyJoinTimeoutTicks": {"lobbyJoinTimeoutTicks": 50},
   "mapLayout": {"mapLayout": "hex2", "teams": 2, "mapPath": "gen"},
   "mapPath": {"mapPath": "gen"},
+  "mapRankK": {"mapRankK": 4, "mapPath": "gen"},
   "mapSeed": {"mapSeed": 12345, "mapPath": "gen"},
   "mapSize": {"mapSize": "small", "mapPath": "gen"},
   "maxGames": {"maxGames": 3},

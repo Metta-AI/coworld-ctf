@@ -10,6 +10,7 @@
 
 import std/[math, strformat, strutils]
 import ../src/ctf/[sim_types, arena, hex]
+import ../src/ctf/map_score  ## installs the best-of-K ranker at module init
 
 proc classReport() =
   echo "=== SIZE CLASSES (flat-top, landscape) ==="

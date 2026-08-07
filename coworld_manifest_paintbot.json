@@ -254,13 +254,17 @@
           ]
         },
         "mapLayout": {
-          "description": "Generated-map layout lock: sides, corners, or plus. Empty draws corners/plus from the map seed for 4-team games.",
+          "description": "Generated-map layout lock. The board is a HEXAGON: \"sides\" and its explicit spelling \"hex2\" are the two-team opposed-sides layout. The old rectangular \"corners\"/\"plus\" layouts are gone and the engine now rejects them.",
           "type": "string",
           "enum": [
             "sides",
-            "corners",
-            "plus"
+            "hex2"
           ]
+        },
+        "mapRankK": {
+          "description": "Best-of-K terrain selection: generate K valid candidates for the seed and ship the highest-scoring one. 0 uses the built-in default; 1 restores first-valid.",
+          "type": "integer",
+          "minimum": 0
         },
         "mapSeed": {
           "description": "Terrain seed for mapPath gen/pool; -1 derives from the per-episode game seed.",

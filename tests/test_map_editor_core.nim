@@ -244,7 +244,10 @@ suite "map editor core":
       " reject over ", BaselineSeeds.len, " seeds"
     check sizes.len >= 3
     check symmetries == ["symMirrorHex", "symRot180"].toHashSet()
-    check reasons.len > 0
+    ## NOT `check reasons.len > 0` either — `reasons` is filled ONLY in the
+    ## `else` branch above, so it is the same ratchet the comment 25 lines up
+    ## deletes, wearing a different name: reasons.len > 0 iff failures > 0.
+    ## The `sealed` negative control is what carries that intent.
 
     ## And the SUMMARY path agrees with the FULL diagnostics path on every
     ## seed it is spot-checked against — two code paths, one verdict.

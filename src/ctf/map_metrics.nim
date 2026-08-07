@@ -223,6 +223,16 @@ proc buildMapMasks*(gameMap: CtfMap, cell = AnalysisCell): MapMasks
   ## Rasterizes both masks once. `wallPix` comes from the same
   ## `rasterizeRestWallMask` the art bake and `dump_map_mask --raw` use, so
   ## the terrain measured here is the terrain a bullet meets.
+  ##
+  ## `cell` is exported and reaches this from tools and from the ranker, and
+  ## both bad values fail badly: 0 is a DivByZeroDefect at the `gw`/`gh`
+  ## rounding below, and a NEGATIVE cell is worse than a crash — `gw`/`gh` go
+  ## negative, every grid loop runs zero times, and this returns an all-zero
+  ## MapMasks that `scoreMap` happily ranks as if it were a real map. Refuse
+  ## both here rather than emit silent garbage.
+  if cell <= 0:
+    raise newException(CtfError,
+      "buildMapMasks needs a positive analysis cell, got " & $cell & ".")
   let
     w = gameMap.width
     h = gameMap.height

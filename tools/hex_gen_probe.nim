@@ -8,6 +8,7 @@
 
 import std/[os, strutils, tables, times]
 import ../src/ctf/[sim_types, arena]
+import ../src/ctf/map_score  ## installs the best-of-K ranker at module init
 
 proc main() =
   let

@@ -2652,6 +2652,23 @@ proc generateCtfMap*(
   if overrides.rankK < 0 or overrides.rankK > MapRankMaxK:
     raise newException(
       CtfError, "Config field mapRankK must be 0.." & $MapRankMaxK & ".")
+  ## THE RANKER IS A LINK-TIME PROPERTY, AND ITS ABSENCE MUST BE LOUD.
+  ## `map_score` installs it from a top-level statement, so whether best-of-K
+  ## happens at all depends on whether this BINARY links that module — not on
+  ## anything the caller wrote. A binary without it silently returns the first
+  ## VALID candidate, which is a different board for the same seed: measured,
+  ## 3 of 7 pool seeds name a different map with and without the link. That
+  ## silence has already shipped one wrong constant (the cover band was
+  ## derived by hex_cover_probe with the ranker absent), and it makes any
+  ## probe's numbers unattributable. A caller that genuinely wants first-valid
+  ## still says so with rankK = 1; anything else is a link error.
+  if mapCandidateRanker == nil and overrides.rankK != 1:
+    raise newException(CtfError,
+      "No map candidate ranker is installed, so this binary would ship the " &
+      "first VALID map for a seed instead of the best of " &
+      $MapRankDefaultK & " — a different board than the server builds. " &
+      "Add `import ctf/map_score` (its module init installs the ranker), or " &
+      "pass mapRankK = 1 to ask for first-valid deliberately.")
   let rankK =
     if overrides.rankK > 0: overrides.rankK
     elif mapCandidateRanker == nil: 1
@@ -2935,6 +2952,9 @@ proc shapeFromSpecNode(node: JsonNode): ArenaShape =
   of "polygon":
     var pts: seq[MapPoint]
     for pt in node["points"]:
+      if pt.kind != JArray or pt.len < 2:
+        raise newException(CtfError,
+          "Polygon vertex must be an [x, y] array, got " & $pt & ".")
       pts.add MapPoint(x: pt[0].getInt(), y: pt[1].getInt())
     ArenaShape(kind: shapePolygon, window: window, points: pts)
   else:
@@ -2948,6 +2968,12 @@ proc pointsNode(points: seq[MapPoint]): JsonNode =
 
 proc pointsFromNode(node: JsonNode): seq[MapPoint] =
   for item in node:
+    ## A short element is an unchecked index into a JArray, and IndexDefect is
+    ## a Defect: it kills the process past every `except CatchableError` on the
+    ## config and replay-load paths. A truncated spec must be a named error.
+    if item.kind != JArray or item.len < 2:
+      raise newException(CtfError,
+        "Map spec point must be a [x, y] array, got " & $item & ".")
     result.add MapPoint(x: item[0].getInt(), y: item[1].getInt())
 
 proc rectsNode(rects: seq[MapRect]): JsonNode =
@@ -2959,6 +2985,9 @@ proc rectsFromNode(node: JsonNode): seq[MapRect] =
   if node.isNil or node.kind != JArray:
     return
   for item in node:
+    if item.kind != JArray or item.len < 4:
+      raise newException(CtfError,
+        "Map spec rect must be an [x, y, w, h] array, got " & $item & ".")
     result.add MapRect(
       x: item[0].getInt(), y: item[1].getInt(),
       w: item[2].getInt(), h: item[3].getInt()
@@ -3018,6 +3047,15 @@ proc mapFromSpecJson*(text: string): CtfMap =
     node = fromJson(text)
   except jsony.JsonError as e:
     raise newException(CtfError, "Could not parse map spec JSON: " & e.msg)
+  ## Parsing succeeding does not make it an OBJECT. std/json's `[]` only
+  ## `assert`s the kind, so a well-formed `[1,2,3]` reaches `node["name"]`
+  ## and dies on an AssertionDefect from inside json.nim — a Defect, so no
+  ## `except CatchableError` upstream can turn it into a readable message.
+  ## The config path happens to check this at sim_config.nim:450, but the
+  ## replay loader and the map editor call this proc directly.
+  if node.kind != JObject:
+    raise newException(CtfError,
+      "Map spec must be a JSON object, got " & $node.kind & ".")
   result.name = node["name"].getStr()
   result.path = GenMapName
   result.genSeed = node{"genSeed"}.getInt(0)
@@ -3074,6 +3112,9 @@ proc mapFromSpecJson*(text: string): CtfMap =
   if not trenchNode.isNil and trenchNode.kind == JArray:
     for item in trenchNode:
       if item.kind == JArray:
+        if item.len < 4:
+          raise newException(CtfError,
+            "GV<=36 trench must be an [x, y, w, h] array, got " & $item & ".")
         result.trenches.add rectShape(MapRect(
           x: item[0].getInt(), y: item[1].getInt(),
           w: item[2].getInt(), h: item[3].getInt()))  # GV<=36 [x,y,w,h]

@@ -1257,8 +1257,6 @@ class MapViewport {
 //
 // `rect` survives ONLY as an internal UI proxy for trench authoring, which the
 // service still exchanges as [x, y, w, h] arrays.
-const AUTHORABLE_OBSTACLES = ['bar', 'disc', 'hex', 'diagonal'];
-
 function obstacleFields(shape) {
   switch (shape.kind) {
     case 'rect': return ['x', 'y', 'w', 'h'];   // trench proxy only

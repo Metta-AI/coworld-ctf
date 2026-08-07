@@ -20,6 +20,7 @@
 
 import std/[os, strutils]
 import ../src/ctf/[sim_types, arena]
+import ../src/ctf/map_score  ## installs the best-of-K ranker at module init
 
 type Bucket = enum
   bRim      ## within 80px of the hull — the ring road

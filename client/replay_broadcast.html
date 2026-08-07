@@ -1275,6 +1275,16 @@ body[data-embed] #lightpool,
 body[data-embed] #grain,
 body[data-embed] #status { display: none !important; }
 body[data-embed] #board { top: 0; height: 100%; }
+/* The SHELL owns the backdrop. Standalone, #120d09 is the intended letterbox;
+   embedded, that same fill paints an opaque rectangle over the pit floor and
+   the hull loses its silhouette — which is the whole point of the hex hull.
+   The rest of the chain is already transparent (map_art writes alpha 0 outside
+   the hexagon, broadcast_core clearRect()s the frame, and the shell sets both
+   #floor and #floor iframe to transparent), so an iframe's DOCUMENT background
+   is the last opaque layer: an element background paints BEHIND the document,
+   never over it, so clearing #floor iframe alone cannot reach this. */
+html:has(body[data-embed]),
+body[data-embed] { background: transparent; }
 </style>
 </head>
 <body>
