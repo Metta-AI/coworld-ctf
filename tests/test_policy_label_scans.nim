@@ -11,10 +11,10 @@ import
 # the guard only ever covered the labels somebody remembered to add.
 #
 # This test closes that gap from the other end. It DERIVES the scanned set by
-# reading `players/baseline/baseline.nim` itself — every `spriteObjectsWithLabel`
-# argument, resolved to the manifest pattern it builds — and asserts each one
-# is a label the engine actually emits. Nothing to remember, nothing to
-# register: add a scan and it is covered on the next run.
+# reading the policy package itself — every `spriteObjectsWithLabel` argument
+# and every `.label ==` comparison, resolved to the manifest pattern it builds
+# — and asserts each one is a label the engine actually emits. Nothing to
+# remember, nothing to register: add a scan and it is covered on the next run.
 #
 # Why it matters, concretely. An exact-match scan for a label the engine no
 # longer emits returns an EMPTY SEQ, forever, and nothing else breaks: no
@@ -26,9 +26,9 @@ import
 # somebody noticed the field was collecting spray cans 5x more often than we
 # were.
 #
-# The test is pure text analysis over two source files and the manifest: no
-# sim, no renderer, no assets. It is deliberately STRICT — an argument
-# expression it cannot resolve is a FAILURE, not a skip, because a silent skip
+# The test is pure text analysis over the policy sources, labels.nim and the
+# manifest: no sim, no renderer, no assets. It is deliberately STRICT — an
+# argument it cannot resolve is a FAILURE, not a skip, because a silent skip
 # would reintroduce exactly the blind spot this exists to remove. If you write
 # a scan in a shape the resolver does not know, teach the resolver.
 
@@ -36,8 +36,26 @@ const
   RepoRoot = currentSourcePath.parentDir.parentDir
   ManifestPath = currentSourcePath.parentDir / "label_manifest.txt"
   LabelsPath = RepoRoot / "src" / "ctf" / "labels.nim"
-  PolicyPath = RepoRoot / "players" / "baseline" / "baseline.nim"
+  PolicyDir = RepoRoot / "players" / "baseline"
   ScanProc = "spriteObjectsWithLabel("
+  LabelEquals = ".label == "
+
+const PolicySources = [
+  ## The WHOLE policy package, not just the bot file. The decision code is in
+  ## baseline.nim, but the sprite-protocol client under baseline/ does its own
+  ## exact matching, and that is not a lesser surface: `protocols.nim` matches
+  ## the walkability-mask label to decide whether to decode the navigation
+  ## mask at all. Miss that one and the bot has no walkability map — no
+  ## pathfinding — and the failure is quieter than any other, because an
+  ## unrecognised label is just a sprite the client never decodes.
+  ##
+  ## A first cut of this test read only baseline.nim and would have blessed a
+  ## walkability rename without a murmur. Sweep the package.
+  "baseline.nim",
+  "baseline/protocols.nim",
+  "baseline/artlog.nim",
+  "baseline/taunts.nim",
+]
 
 const PolicyColorVars = [
   ## Identifiers the policy uses to hold a TEAM COLOR token, which the manifest
@@ -223,24 +241,76 @@ proc argExprs(source: string, callStart: int): seq[string] =
       return @[list]
   @[expr]                                      # unbound: fail downstream
 
+proc equalsExpr(source: string, at: int): string =
+  ## The right-hand side of a `<something>.label == <expr>` comparison. There
+  ## are no brackets to balance here, so the expression runs to the first
+  ## top-level boolean operator, comma, colon or end of line — which covers
+  ## every shape the policy uses and stops short of swallowing the rest of a
+  ## compound condition.
+  var
+    depth = 0
+    inStr = false
+    i = at
+    cur = ""
+  while i < source.len:
+    let ch = source[i]
+    if inStr:
+      cur.add(ch)
+      if ch == '"': inStr = false
+      inc i
+      continue
+    if ch == '"':
+      inStr = true
+      cur.add(ch)
+      inc i
+      continue
+    if ch in {'(', '['}: inc depth
+    elif ch in {')', ']'}: dec depth
+    if ch == '\n' or (depth <= 0 and ch in {',', ':'}) or depth < 0:
+      break
+    if depth == 0 and (source.continuesWith(" and ", i) or
+        source.continuesWith(" or ", i)):
+      break
+    cur.add(ch)
+    inc i
+  cur.splitWhitespace().join(" ")
+
 type Scan = object
   expr: string
+  file: string
   line: int
   pattern: string
 
 proc policyScans(consts: Table[string, string]): seq[Scan] =
-  ## Every exact-match label scan in the reference policy, resolved.
-  let source = readFile(PolicyPath)
-  var search = 0
-  while true:
-    let at = source.find(ScanProc, start = search)
-    if at < 0:
-      break
-    search = at + ScanProc.len
-    let lineNo = source[0 ..< at].count('\n') + 1
-    for expr in source.argExprs(search):
-      result.add(Scan(
-        expr: expr, line: lineNo, pattern: expr.resolveExpr(consts)))
+  ## Every EXACT-match label read in the policy package, resolved. Two forms,
+  ## because the package uses two: `spriteObjectsWithLabel(<expr>)` in the bot
+  ## and a bare `sprite.label == <expr>` in the protocol client. A sweep that
+  ## knew only the first would miss the walkability-mask read entirely.
+  ##
+  ## Prefix reads (`label.startsWith(LabelPrefix...)`) are deliberately NOT
+  ## collected: their tails interpolate, so they cannot be checked against a
+  ## manifest line, and labels.nim covers that family through the vocabulary
+  ## diff instead.
+  for relPath in PolicySources:
+    let
+      path = PolicyDir / relPath
+      source = readFile(path)
+    for needle in [ScanProc, LabelEquals]:
+      var search = 0
+      while true:
+        let at = source.find(needle, start = search)
+        if at < 0:
+          break
+        search = at + needle.len
+        let lineNo = source[0 ..< at].count('\n') + 1
+        let exprs =
+          if needle == ScanProc: source.argExprs(search)
+          else: @[source.equalsExpr(search)]
+        for expr in exprs:
+          if expr.len == 0:
+            continue
+          result.add(Scan(expr: expr, file: relPath, line: lineNo,
+            pattern: expr.resolveExpr(consts)))
 
 proc readManifest(): HashSet[string] =
   for rawLine in readFile(ManifestPath).splitLines():
@@ -259,10 +329,12 @@ suite "policy label scans":
     # moves, gets renamed, or wraps its scans in a helper, every check below
     # passes over an EMPTY list and reports green while covering nothing.
     # Pin a floor so that failure is loud.
-    check fileExists(PolicyPath)
+    for relPath in PolicySources:
+      check fileExists(PolicyDir / relPath)
     check consts.len >= 10
     check manifest.len >= 50
-    checkpoint("resolved " & $scans.len & " scan sites in " & PolicyPath)
+    checkpoint("resolved " & $scans.len & " exact-match label reads across " &
+      $PolicySources.len & " policy source files")
     check scans.len >= 20
 
   test "every scanned label expression resolves to a manifest pattern":
@@ -272,7 +344,7 @@ suite "policy label scans":
     var bad: seq[string]
     for scan in scans:
       if scan.pattern.len == 0:
-        bad.add("  baseline.nim:" & $scan.line & "  " & scan.expr)
+        bad.add("  " & scan.file & ":" & $scan.line & "  " & scan.expr)
     if bad.len > 0:
       checkpoint("\nUNRESOLVABLE LABEL EXPRESSIONS:\n" & bad.join("\n") & """
 
@@ -289,7 +361,7 @@ suite "policy label scans":
       if scan.pattern.len == 0 or scan.pattern in retired:
         continue
       if scan.pattern notin manifest:
-        bad.add("  baseline.nim:" & $scan.line & "  " & scan.expr &
+        bad.add("  " & scan.file & ":" & $scan.line & "  " & scan.expr &
           "\n      -> \"" & scan.pattern & "\"")
     if bad.len > 0:
       bad.sort()
@@ -330,6 +402,6 @@ suite "policy label scans":
     for entry in RetiredScans:
       if entry.pattern notin seen:
         checkpoint("\nSTALE RetiredScans ENTRY: \"" & entry.pattern &
-          "\"\n    No scan in " & PolicyPath & " resolves to it any more." &
+          "\"\n    No scan in the policy package resolves to it any more." &
           " Delete the entry.")
         fail()

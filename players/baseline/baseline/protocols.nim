@@ -1,6 +1,7 @@
 import
   std/[algorithm, options, strutils],
   bitworld/[profile, spriteprotocol, server],
+  ctf/labels,
   pixie, supersnappy, whisky
 
 const
@@ -344,8 +345,13 @@ proc applySpritePacket(
           # keep the metadata, skip pixel decoding, and keep waiting for a
           # full payload if this sprite's pixels are ever actually needed.
           pixelFree = sprite.compressedPixels.len == 0
+          # Via the shared const, NOT a hand-written string. This is the most
+          # load-bearing exact match in the whole policy — miss it and the bot
+          # has no walkability mask, i.e. no navigation at all — and it is the
+          # one that would fail most quietly, because an unrecognised label is
+          # simply a sprite we never decode.
           shouldDecodeWalkability =
-            sprite.label == "walkability map" and not pixelFree
+            sprite.label == LabelWalkabilityMap and not pixelFree
           shouldDecodePixels = decodePixels and not pixelFree
         var
           compressed = ""
