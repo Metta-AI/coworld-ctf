@@ -397,6 +397,17 @@ when defined(ffprobe):
   var ffIdle = 0      # ...with NO fresh enemy track (eligible to pre-lay)
   var ffPreLay = 0    # ...where the turret actually pre-laid on the throat
 
+when defined(cgprobe):
+  # -d:cgprobe ONLY (2026-08-06): comboGrab mechanism proof. The co-carry
+  # counters are TUNE-INDEPENDENT (self-observed item state, no fog) so a
+  # NOCOMBOGRAB run of the SAME binary is a fair same-seed control; the fire
+  # counter is tune-DEPENDENT (only the new block increments it). Dumped
+  # periodically to stderr like wbprobe. Never compiled into the shipped player.
+  var cgFrames = 0         # decide()-frames reaching the item-state read (dump clock)
+  var cgCoShieldCan = 0    # ...with iHaveShield AND iHavePlasma both true (2a realized)
+  var cgCoNadeCan = 0      # ...with carryingNade AND iHavePlasma both true (2b realized)
+  var cgShieldGrabFire = 0 # comboGrab's new shield-grab-for-can-carrier block fired
+
 ## ── PAINTBOT: the map and the match shape are drawn per EPISODE ──────────────
 ## Everything position-shaped derives from these. They used to be compile-time
 ## consts pinned to the old 1235x659 league arena; paintbot generates a new map
@@ -639,6 +650,13 @@ const
                               # — a quick opening grab, never mid-game backtracking.
   ShieldOnSpotPx = 20.0       # "on the spawn spot": if we're this close and no shield is
                               # visible here, it's already taken → give up and rush.
+  ComboGrabSeat = 4           # ⭐⭐ comboGrab's designated seat (mirrors ShieldRushSeat's
+                              # single-seat pattern above) — team-seat 4, MidBottom
+                              # (roleForSeat), a plain trailing attacker not already claimed
+                              # by ShieldRushSeat(3, the opening rusher) or ArcBreachSeat(1,
+                              # MidGuard). Only this ONE seat runs the sequenced shield-then-
+                              # can grab; every other seat keeps today's single-item
+                              # discipline (shieldTank/sprayGrab/shieldRush unchanged).
   SwordGrabDetour = 90.0      # swordAmbush: grab a sword within this detour when boxed.
   SwordReach = 26.0           # sword melee arc range (mirrors SwordRange in sim.nim).
   SwordCloseRange = 70.0      # swordAmbush only engages an enemy within this (charge-in).
@@ -2036,6 +2054,54 @@ type
                               # treat the nearest fresh enemy in reach with clear LOS as a valid
                               # single-target cone shot instead of standing disarmed and mute.
                               # Default ON; NOSPRAYSINGLE=1 turns it off for the A/B.
+    comboGrab: bool           # ⭐⭐⭐ COMBO GRAB (2026-08-06, item-stacking insight: shield/
+                              # spray-can/grenade are separate state bits and STACK on one
+                              # agent — nothing in the engine forces a choice). SHARPENED per
+                              # captain-brain audit course-correction: not a population-wide
+                              # opportunistic grab, but ONE designated seat (ComboGrabSeat,
+                              # mirrors ShieldRushSeat) that runs a SEQUENCED shield-then-can
+                              # grab with a done-latch (comboGrabDone, mirrors shieldRushDone).
+                              # Pure movement (never touches the trigger) except the
+                              # wantPocketRush gate below. Every other seat keeps today's single-item
+                              # discipline untouched (sprayGrab explicitly excludes this seat
+                              # so the two never race).
+                              #   PHASE 1: not iHaveShield -> route to the nearest known
+                              #     shield (ShieldGrabDetour budget, same as shieldTank).
+                              #   PHASE 2: iHaveShield, not iHavePlasma -> route to the
+                              #     nearest known can (SprayGrabDetour budget, same as
+                              #     sprayGrab) — the case the general sprayGrab gate's own
+                              #     `not iHaveShield` term refuses; this seat gets its own
+                              #     dedicated can-seek instead of a shared exception.
+                              # Also exempts JUST this seat from avoidDisarm's plasma-pickup
+                              # repel (it always wants the can eventually, so it should never
+                              # be pushed away from one), and gates wantPocketRush's push-
+                              # commit on comboGrabDone (never dives the pedestal mid-gear-up).
+                              # Default ON; NOCOMBOGRAB=1 turns it off for the A/B.
+    aggro: float              # ⭐⭐ AGGRO SCALAR (2026-08-06, the defHold meta): one
+                              # multiplier threaded through the engagement/commit range, the
+                              # fire-superiority retreat threshold + hold time, the arc
+                              # breacher's proactive-arm depth, and the endgame pushOut
+                              # patience — a single knob that sweeps posture from press (>1)
+                              # to hold (<1) without a bespoke lever per point. 1.0 = today's
+                              # shipped behavior exactly (every multiply site is a no-op at
+                              # 1.0, so the control arm is byte-identical). defHold preset:
+                              # AGGRO=0.65 — env-tunable ONLY, never baked into the shipped
+                              # default (see shippedCombatTune).
+    medPeel: bool             # ⭐⭐ MEDPEEL (2026-08-07, Alex Smith forensics): medEcon's
+                              # failure is the CONDITION GATE, not the destination — the
+                              # kit coordinates (X) are exact, so this does NOT touch the
+                              # destination formula (that ground is closed, same as medSee).
+                              # Two changes to the in-contact light-break gate:
+                              #   (1) RANGE-GATE aimedAtUs — an aimed enemy only vetoes the
+                              #       detour when INSIDE effective engagement range (~260px,
+                              #       FinishRange). 83% of shots land under 150px, so a gun
+                              #       aimed at us from 358px+ (where Alex routinely peels) is
+                              #       a paper threat, not a real veto.
+                              #   (2) WIDEN MedKitLightContactHp from 1 to 2, so the peel can
+                              #       fire before the bot is one hit from death (Alex breaks
+                              #       at 2 of 3 hp, median, per parameter_table.csv).
+                              # Directional evidence only (n=7-8 peels) — stays behind its own
+                              # A/B before any ship. Default ON; NOMEDPEEL=1 turns it off.
 
   Bot = ref object
     slot: int
@@ -2151,6 +2217,9 @@ type
       pHp1Since: int          # probe: tick own hp became 1 (-1 = not at hp 1)
     shieldRushDone: bool      # shieldRush: latched once we grabbed the opening shield OR
                               # gave up (mate took it) — stops re-detouring mid-run
+    comboGrabDone: bool       # comboGrab: latched once the ComboGrabSeat holds BOTH the
+                              # shield and the can — stops re-detouring after that (same
+                              # shape as shieldRushDone)
     assaultUntil: int         # assaultThrough: near-ambush charge committed until
                               # this tick (Battle Drill 4 — never turn your back
                               # at knife range once the charge is on)
@@ -2492,6 +2561,9 @@ proc defaultCombatTune(): CombatTune =
                               # still outrank the 12px touch (the 71.8%-vs-94.9% conversion gap).
     anchorRelock: false,      # control: the five nav anchors never re-run off a corrected color.
     spraySingle: false,       # control: the arc breacher never fires the cone on a lone target.
+    comboGrab: false,         # control: sprayGrab's iHaveShield gate stays, no can-carrier shield-seek.
+    aggro: 1.0,               # control: today's shipped posture exactly (every multiply is a no-op).
+    medPeel: false,           # control: medEcon's aimedAtUs veto is unranged, MedKitLightContactHp stays 1.
   )
 
 proc shippedCombatTune(): CombatTune =
@@ -2710,10 +2782,14 @@ proc shippedCombatTune(): CombatTune =
   # rests on the funnel + heal ratio + both-seatings K-D, per the null-calibration
   # rule. Keeps its MEDECON knob for bisection.
   result.medEcon = true
-  # ⭐ medSee (plan #16): medEcon's candidate set gains the kits we can SEE. UNPROVEN —
-  # stays ENV-ARMED ONLY until the pre-registered A/B passes (the contaminated-control
-  # trap, failed.md: never bake an unproven lever into the champion tune). MEDSEE=1 arms
-  # it per-process for the env-server A/B rig.
+  # ⭐ LEVER 1 DROPPED (2026-08-06, captain-brain audit course-correction): medSee
+  # was briefly baked ON here as "medkitSeek", but the med-kit ROUTING family is
+  # formally CLOSED — ~/.ctf/knowledge/experiments/hypotheses.md:507-516 records
+  # three designs (medTopOff/medEcon variants including medSee) that all LOST,
+  # medSee specifically costing the holder 13% of its kills (the FEET LAW: any
+  # lever that steers feet toward a computed destination taxes guns 13-44%).
+  # Reverted to env-armed-only, unproven, off by default — exactly as it shipped
+  # before tonight. MEDSEE=1 still arms it per-process for anyone re-measuring.
   result.medSee = getEnv("MEDSEE").len > 0
   # ⭐ satCap RETIRED (2026-07-29 audit), SATCAP=1 restores it. Past "enough guns are already
   # on this target" it re-assigns a free gun to the highest-danger UNCOVERED enemy — but the
@@ -2952,6 +3028,27 @@ proc shippedCombatTune(): CombatTune =
   # NOSPRAYSINGLE=1 hold each OFF (the pre-fix behavior) so a frozen binary can A/B them.
   result.anchorRelock = getEnv("NOANCHORRELOCK").len == 0
   result.spraySingle = getEnv("NOSPRAYSINGLE").len == 0
+  # ⭐⭐⭐ COMBO GRAB (2026-08-06): see the comboGrab field doc — ONE designated
+  # seat (ComboGrabSeat) runs a sequenced shield-then-can grab with a done-
+  # latch; every other seat is untouched. Default ON; NOCOMBOGRAB=1 turns it
+  # off for the A/B.
+  result.comboGrab = getEnv("NOCOMBOGRAB").len == 0
+  # ⭐⭐ AGGRO SCALAR (2026-08-06): see the aggro field doc. Stays 1.0 here —
+  # byte-identical to today — no matter what; AGGRO=<float> overrides per-
+  # process for the A/B and the defHold preset (AGGRO=0.65). Never anything
+  # but 1.0 baked into the shipped default.
+  result.aggro = 1.0
+  block aggroEnvParse:
+    let aggroEnv = getEnv("AGGRO")
+    if aggroEnv.len == 0: break aggroEnvParse
+    try:
+      result.aggro = parseFloat(aggroEnv)
+    except ValueError:
+      result.aggro = 1.0
+  # ⭐⭐ MEDPEEL (2026-08-07): see the medPeel field doc — Alex Smith forensics,
+  # directional evidence only (n=7-8 peels). Default ON; NOMEDPEEL=1 turns it
+  # off for the A/B.
+  result.medPeel = getEnv("NOMEDPEEL").len == 0
 
 
 when defined(rngprobe):
@@ -3890,6 +3987,19 @@ proc buildNavGrid(bot: Bot, client: ProtocolClient) =
   ## Erodes the pixel walkability mask into a footprint-safe nav grid, then
   ## derives the cover model (cover cells, overwatch post, defender choke).
   adoptMapSize(client)
+  # ⭐⭐ FIRERANGE RESYNC BUG FIX (2026-08-06, captain-brain audit finding,
+  # independent of the aggro lever): `bot.tune.fireRange` is copied from the
+  # module var FireRange ONCE, at Bot() construction (shippedCombatTune, before
+  # any map is known) — the hardcoded 1250.0 literal. adoptMapSize just
+  # recomputed the REAL module FireRange for THIS episode's map (paintbot draws
+  # a fresh size every game, `min(GunRangePx, boardDiagonal)`), and every other
+  # geometry read in this file (post scoring, nav cost, etc.) already reads
+  # that live module var directly — only the actual COMBAT engage-range
+  # decision (`bot.tune.fireRange`, the default case in the maxEngage select)
+  # was silently stuck on the stale construction-time value for the bot's
+  # whole process lifetime. Resync here, once per episode, right after the
+  # value it copies is freshened.
+  bot.tune.fireRange = FireRange
   adoptGameParams(client)
   adoptEndzones(client)
   # ⭐⭐ THE STATUE FIX. A 4-team board deals seats round the teams (slot mod
@@ -4355,6 +4465,7 @@ proc resetTransient(bot: Bot) =
     bot.pBroke = false
     bot.pHp1Since = -1
   bot.shieldRushDone = false
+  bot.comboGrabDone = false
   bot.assaultUntil = -100_000
   bot.arcBreachUntil = -100_000
   bot.arcLinePos = vec(-1, -1)
@@ -4656,6 +4767,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # 3x, so a shielded carrier pays nothing and gains 3 hp (the proven
     # shieldRush premise, now per life instead of once).
     bot.shieldRushDone = false
+    bot.comboGrabDone = false
     bot.lifeStart = bot.tick
   # Absolute turret fix: our own rendered aim-indicator dots show the actual
   # aim every frame, capping any dead-reckoning drift (mask-apply races).
@@ -5258,8 +5370,18 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   #   • carrying — carrierFlee + the fight-out ring own carriers (a banked
   #     carrier forfeits the capture). Exit is implicit: a kit heals to FULL
   #     (hp >= 2 fails the entry read next frame) and death re-reads 3.
+  # ⭐⭐ aggro — WOUNDED BANK DISENGAGE THRESHOLD (2026-08-06, captain-brain
+  # course-correction, tune-field tier): own hp is a DISCRETE 0..MaxHp value
+  # (3 on this engine), so a smooth multiplier can't move a boundary — this
+  # generalizes the fixed `ownHp == 1` entry gate to `ownHp <= bankHpThreshold`
+  # (1.0/aggro, rounded, capped at MaxHp-1). At aggro=1.0 (shipped default)
+  # threshold=round(1/1)=1, so this is BYTE-IDENTICAL to `== 1` — a true no-op.
+  # At AGGRO=0.65 (defHold) threshold=round(1/0.65)=2, so a defHold bot also
+  # disengages-to-heal at hp=2 (any wound), not only at the critical hp=1 —
+  # earlier retreat, exactly the defHold framing.
+  let bankHpThreshold = min(MaxHp - 1, int(round(1.0 / bot.tune.aggro)))
   var banking = false
-  if bot.tune.woundedBank and bot.ownHp == 1 and not iCarry and
+  if bot.tune.woundedBank and bot.ownHp in 1 .. bankHpThreshold and not iCarry and
       dist(me, stealTarget) > GrabCommitRing:
     banking = true
     for t in bot.enemies:
@@ -6146,8 +6268,14 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # `not banking` (plan #13 §1.5): a 1-hp attacker outside GrabCommitRing is a
   # fed life, not an attacker — steal pursuit is overridden while banking (the
   # imminent-grab exemption already keeps a bot inside the ring out of BANK).
+  # ⭐⭐⭐ comboGrab: gate the ComboGrabSeat's push-commit on holding BOTH items —
+  # while still gearing up (not comboGrabDone) it never wants the pocket rush,
+  # so it can't dive the pedestal mid-sequence and die before completing the
+  # durable close-range breacher loadout the combo is FOR.
   let wantPocketRush = not iCarry and not mateCarry and not banking and
     bot.role in {MidTop, MidBottom, MidGuard, FlankTop, FlankBottom} and
+    not (bot.tune.comboGrab and bot.role == roleForSeat(ComboGrabSeat, bot.team) and
+         not bot.comboGrabDone) and
     dist(me, stealTarget) < PocketRushRange and
     dist(me, stealTarget) < nearestMateToSteal + 8.0
   # ⭐⭐ SMART GRAB (2026-07-24, THE dive-death fix — Maxwell's adaptive-Captain directive).
@@ -6253,6 +6381,19 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   if iCarry and not bot.wasCarrying:
     bot.grabPos = me
   bot.wasCarrying = iCarry
+  # ⭐⭐ aggro — ENGAGEMENT/COMMIT RANGE (2026-08-06, captain-brain course-
+  # correction: tune-field tier ONLY, not a blanket post-selection multiply,
+  # and NOT threaded through outnumberMargin/breakMargin — a blunt press-
+  # harder toggle on THAT axis was already FALSIFIED, see gv21Press). Scales
+  # each of the four engage-range tune fields at the point they're read:
+  # fireRange, carrierFireRange, rushEngageRange, escortEngageRange. Formula
+  # (0.7+0.6*aggro), normalized by /1.3 so aggro=1.0 (the shipped default) is
+  # an EXACT 1.0x no-op — the raw (0.7+0.6*aggro) would put the untouched
+  # default at 1.3x (30% WIDER than today), silently perturbing every other
+  # v43 arm including the comboGrab-only A/B, which must isolate JUST that
+  # lever. Floors near 0.7/1.3=0.54x as aggro -> 0 (never a degenerate zero
+  # engage range).
+  let aggroScale = (0.7 + 0.6 * bot.tune.aggro) / 1.3
   var maxEngage =
     if disarmedRush: 0.0         # ONLY an uncontested pocket touch disarms; a DEFENDED
                                  # pocket keeps the gun up (armedPocket) and fights its way in
@@ -6265,16 +6406,16 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       # disarmed at the instant of the grab. The disarmed sprint stays proven
       # for the RUN; the first 260px after the snatch is a breakout, not a
       # run. Point-blank gun until clear, then sprint.
-      (if dist(me, bot.grabPos) < FightOutRadius: bot.tune.carrierFireRange
+      (if dist(me, bot.grabPos) < FightOutRadius: bot.tune.carrierFireRange * aggroScale
        else: 0.0)                # ⭐⭐ past the ring: carrier never fights:
       # the diagnosis showed carriers survive ~110t but travel ~4% of the run —
       # PINNED firing at the invulnerable spawn-protected respawner (wasted) while
       # advancing into the nest. Engage 0 drops the combat branch so the carrier
       # pure-navigates home at full speed, turret free (still nav-steered).
-    elif iCarry: bot.tune.carrierFireRange
-    elif rushing: bot.tune.rushEngageRange
-    elif mateCarry: bot.tune.escortEngageRange
-    else: bot.tune.fireRange
+    elif iCarry: bot.tune.carrierFireRange * aggroScale
+    elif rushing: bot.tune.rushEngageRange * aggroScale
+    elif mateCarry: bot.tune.escortEngageRange * aggroScale
+    else: bot.tune.fireRange * aggroScale
   # ⭐⭐ PLAN-LAYER COMBAT TEETH: the phase drives ENGAGEMENT, not just movement, so a
   # called play actually WINS its fight instead of gently repositioning. PhOpen/PhPress
   # widen the attacker's engage range so the grouped opening clash + the man-advantage
@@ -6858,6 +6999,14 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     if dist(client.mapPos(o), me) <= 30.0:
       iHavePlasma = true
       break
+  when defined(cgprobe):
+    inc cgFrames
+    if iHaveShield and iHavePlasma: inc cgCoShieldCan
+    if carryingNade and iHavePlasma: inc cgCoNadeCan
+    if cgFrames mod 2000 == 0:
+      stderr.writeLine "CGPROBE frames=" & $cgFrames &
+        " coShieldCan=" & $cgCoShieldCan & " coNadeCan=" & $cgCoNadeCan &
+        " shieldGrabFire=" & $cgShieldGrabFire
   # Pickup points in view (each filtered against the HUD indicator that shares
   # the label, exactly like the grenade pickup scan).
   var
@@ -6876,7 +7025,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       if p.x < 40.0 or p.y < 40.0 or p.x > float(MapW - 40) or p.y > float(MapH - 40):
         continue
       plasmaPickups.add(p)
-  if bot.tune.shieldTank or bot.tune.shieldRush:  # shield = 6 HP (no longer a disarm)
+  if bot.tune.shieldTank or bot.tune.shieldRush or bot.tune.comboGrab:  # shield = 6 HP (no longer a disarm)
     for o in client.spriteObjectsWithLabel(LabelShield):
       let p = client.mapPos(o)
       if p.x < 40.0 or p.y < 40.0 or p.x > float(MapW - 40) or p.y > float(MapH - 40):
@@ -6907,10 +7056,14 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # anyway, so the swap is currently FREE. Our per-carry efficiency already
   # beats focusfire's; we simply never picked one up (1% carry time).
   # Opportunistic and VISIBLE-ONLY (no spawn-coordinate guessing — the kit
-  # lesson): any free attacker seat that sees a can nearby grabs it.
+  # lesson): any free attacker seat that sees a can nearby grabs it. The
+  # ComboGrabSeat is EXCLUDED below — its shield-then-can sequencing is owned
+  # entirely by the dedicated comboGrab block right after this one, so the two
+  # never race for the same target.
   if bot.tune.sprayGrab and not seekingPickup and not iHavePlasma and
       not banking and
       not iHaveShield and not iCarry and not mateCarry and not ownStolen and
+      not (bot.tune.comboGrab and bot.role == roleForSeat(ComboGrabSeat, bot.team)) and
       bot.role in {MidTop, MidBottom, MidGuard, FlankTop, FlankBottom}:
     var best = 1e18
     for p in plasmaPickups:
@@ -6919,6 +7072,48 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         best = d
         target = p
         seekingPickup = true
+  # ⭐⭐⭐ COMBO GRAB (2026-08-06, sharpened per captain-brain audit course-
+  # correction from the original unrestricted design): item-stacking insight —
+  # shield/spray-can/grenade are separate state bits and STACK on one agent,
+  # the engine forces no choice — but a population-wide opportunistic grab
+  # risks diluting single-item discipline everywhere sprayGrab/shieldTank
+  # already work. Instead: ONE designated seat (ComboGrabSeat, mirrors
+  # ShieldRushSeat's single-seat pattern) runs a SEQUENCED shield-THEN-can
+  # grab with a done-latch (mirrors shieldRushDone), reusing the SAME
+  # ShieldGrabDetour/SprayGrabDetour budgets shieldTank/sprayGrab already
+  # proved. Everyone else keeps today's single-item discipline untouched.
+  #   PHASE 1 (not iHaveShield): route to the nearest known shield.
+  #   PHASE 2 (iHaveShield, not iHavePlasma): route to the nearest known can —
+  #     this is exactly the case the general sprayGrab block above refuses
+  #     (its own `not iHaveShield` term), so this seat is carved out of that
+  #     block entirely and gets its own can-seek here instead of a "lifted"
+  #     shared condition (no risk of leaking the exception to any other seat).
+  # Latches comboGrabDone once BOTH are held, so the seat then plays its
+  # normal combat posture (can+shield = the durable close-range breacher) and
+  # never re-detours mid-fight for a replacement after a drop/death (reset
+  # alongside shieldRushDone, per life).
+  if bot.tune.comboGrab and not bot.comboGrabDone and not seekingPickup and
+      bot.role == roleForSeat(ComboGrabSeat, bot.team) and
+      not iCarry and not mateCarry and not ownStolen and not banking:
+    if iHaveShield and iHavePlasma:
+      bot.comboGrabDone = true                # loadout complete: hand off to combat
+    elif not iHaveShield:
+      var best = ShieldGrabDetour
+      for p in shieldPickups:
+        let d = dist(p, me)
+        if d <= best:
+          best = d
+          target = p
+          seekingPickup = true
+    elif not iHavePlasma:                     # iHaveShield and not iHavePlasma
+      var best = SprayGrabDetour
+      for p in plasmaPickups:
+        let d = dist(p, me)
+        if d <= best:
+          best = d
+          target = p
+          seekingPickup = true
+          when defined(cgprobe): inc cgShieldGrabFire
   # ⭐⭐ shieldRush: the rusher grabs OUR OWN endzone shield BEFORE the steal so it
   # carries the heart home at 6 HP (survive 6 hits vs 3 = the grab→cap fix). Gated to
   # the rusher seats, only while still home-side (ShieldRushMaxDepth) and not already
@@ -7107,15 +7302,26 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     when defined(meprobe): inc meFree
 
     # Contact rule. Out of contact: always free to top off (the medTopOff intent).
-    # In contact: only a bot at MedKitLightContactHp may disengage, and only from a
-    # threat that is NOT pointing at it. Anything else keeps fighting.
+    # In contact: only a bot at the light-contact threshold may disengage, and
+    # only from a threat that is NOT pointing at it. Anything else keeps fighting.
     if engage >= 0 or nearThreat >= 0:
-      if bot.ownHp > MedKitLightContactHp: break medKitEcon
+      # ⭐⭐ MEDPEEL (2026-08-07, Alex Smith forensics): medEcon's failure is the
+      # CONDITION gate, not the destination (kit coords stay untouched). Two
+      # tune-gated changes:
+      #   (1) light-contact threshold 1 -> 2: the peel can fire before the bot
+      #       is one hit from death (Alex breaks at 2 of 3 hp, median).
+      #   (2) aimedAtUs is RANGE-GATED to FinishRange (~260px): 83% of shots
+      #       land under 150px, so a gun aimed at us from well beyond effective
+      #       range is a paper threat, not a real veto on the walk.
+      let lightContactHp = if bot.tune.medPeel: 2 else: MedKitLightContactHp
+      if bot.ownHp > lightContactHp: break medKitEcon
       var aimedAtUs = false
       for i in 0 ..< bot.enemies.len:
         let t = bot.enemies[i]
         if bot.tick - t.lastSeen > HoldVsGunTtl or t.aimBrads < 0:
           continue
+        if bot.tune.medPeel and dist(t.pos, me) > FinishRange:
+          continue                                     # too far to punish the walk right now
         # Widened by AimFuzzBrads (GV24): this gate decides whether a WOUNDED bot turns its
         # back and walks to a kit. A fuzzed read that says "not on us" when the gun really is
         # buys a free shot in the back, so the error bar belongs on the SAFE side here.
@@ -7780,8 +7986,12 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       # (auto-pickup on 12px touch => canFire=false, gun lost until fired+dropped).
       # Repointed off the dead sword + no-longer-disarming shield: the arc is the
       # only disarm on v15. Skip when we already hold the arc, or are deliberately
-      # seeking a pickup (shieldTank sets seekingPickup).
-      if bot.tune.avoidDisarm and not seekingPickup and not iHavePlasma:
+      # seeking a pickup (shieldTank sets seekingPickup). ⭐⭐⭐ comboGrab: also skip
+      # for the ComboGrabSeat outright — that ONE seat always wants the can
+      # eventually (it is mid-sequence toward it even during its shield phase),
+      # so it should never be pushed away from a nearby one.
+      if bot.tune.avoidDisarm and not seekingPickup and not iHavePlasma and
+          not (bot.tune.comboGrab and bot.role == roleForSeat(ComboGrabSeat, bot.team)):
         for p in plasmaPickups:
           let d = dist(p, me)
           if d < DisarmAvoidRadius and d > 0.5:
@@ -8257,6 +8467,14 @@ proc runBot(url: string) =
       if everConnected:
         # The game ended and the server went away: exit so the episode
         # runner sees a clean player shutdown.
+        when defined(cgprobe):
+          # Guaranteed final flush: a short local episode may never cross a
+          # cgFrames mod-2000 boundary, so print the last cumulative tally
+          # here too (harmless double-print with the periodic one; the A/B
+          # collector just reads the LAST CGPROBE line per bot).
+          stderr.writeLine "CGPROBE frames=" & $cgFrames &
+            " coShieldCan=" & $cgCoShieldCan & " coNadeCan=" & $cgCoNadeCan &
+            " shieldGrabFire=" & $cgShieldGrabFire
         echo "game over, exiting: ", e.msg
         quit(0)
       echo "connect retry: ", e.msg
