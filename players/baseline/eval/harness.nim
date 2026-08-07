@@ -312,6 +312,18 @@ proc hunterTune(): CombatTune =
   # state, 72-82% of our carriers die there). Default OFF (not in shippedCombatTune);
   # asymmetric so the mirror measures grab->cap. A/B: SHIPBASE=1 GRABGATE=1 vs CONTROL_SHIPPED=1.
   result.grabGate     = envInt("GRABGATE",     (if result.grabGate: 1 else: 0)) != 0
+  # pocketThreat / hpGate (2026-08-07, the GV40 carrier-death re-diagnosis). The
+  # grab threat model counts fresh guns within 150px at a bar of 2, but 68.6% of
+  # the enemies who actually killed our carrier stood OUTSIDE that radius (median
+  # 201px): pocketThreat widens the count to 300px AND drops the bar to 1 while we
+  # are uncovered. hpGate refuses the disarmed touch at 1 hp (converts 6.5% vs
+  # 43.0% at full hp). Both default to the value already in `result` — which under
+  # SHIPBASE=1 is whatever POCKET/HPGATE gave shippedCombatTune — so these knobs
+  # are the explicit, self-documenting way to move ONE arm at a time.
+  # ⚠️ THREE cells, not two: they hold more often for INDEPENDENT reasons, so run
+  # POCKET=1 alone, HPGATE=1 alone, and both, against the same control.
+  result.pocketThreat = envInt("POCKET",       (if result.pocketThreat: 1 else: 0)) != 0
+  result.hpGate       = envInt("HPGATE",       (if result.hpGate: 1 else: 0)) != 0
   # medTopOff (2026-07-20, v9 med-kit): a wounded, out-of-contact bot detours to a
   # visible center med kit (heals to full on a 12px touch; a healthy bot never
   # consumes one, so the kit is never wasted). Pure-upside MOVEMENT lever, default
@@ -453,6 +465,16 @@ proc runEpisode(seed, maxTicks, numPlayers: int, hunterSlots: seq[int]):
   var baseTune =
     if envInt("CONTROL_SHIPPED", 0) != 0: shippedCombatTune()
     else: defaultCombatTune()
+  # ⭐ THE FALSE-NO-OP TRAP, closed explicitly. pocketThreat/hpGate (like touchCommit)
+  # are armed by reading POCKET/HPGATE from the ENV *inside* shippedCombatTune(), so
+  # under CONTROL_SHIPPED=1 the control tune picks the SAME env up and both teams run
+  # the lever. The A/B then compares a policy against itself and reports a clean,
+  # meaningless null — the exact shape of a result that gets believed. The control is
+  # by definition the champion AS SHIPPED, and both of these ship OFF, so force them
+  # off here regardless of the environment. Use the hunter-side POCKET/HPGATE knobs
+  # (hunterTune) to move an arm; this line is what makes that arm asymmetric.
+  baseTune.pocketThreat = false
+  baseTune.hpGate = false
   # CONTROL_COMMIT=1 gives the CONTROL side target commitment too, so an A/B
   # isolates a NEW fork (e.g. force balance) as the ONLY delta from the current
   # shipped Picasso (which already runs commit). Left off => pure-baseline control.
@@ -830,6 +852,29 @@ proc main() =
       &"attacker {dtAttacker} -> teethOn {dtOn}  (the tier that zeroes NAMES the gate)"
     echo &"  DEFTEETH steer: {dtTot} frames  fresh-fix {dtFresh}  " &
       &"stale-crossing {dtStale}  blind-mid {dtBlind}"
+  when defined(ptprobe):
+    # The pocketThreat/hpGate census. baseline.nim's own final flush lives in
+    # runBot's shutdown path, which this driver NEVER executes (it calls decide()
+    # directly), and the pocket gate is reached on far too few frames to cross the
+    # periodic mod-2000 boundary — so without this the levers read as a silent
+    # zero, which is indistinguishable from "never fired". Report it here.
+    #
+    # `flip` is the only number that matters: frames where the ARMED gate holds
+    # and the SHIPPED gate would not. oldHold==newHold with flip=0 means the lever
+    # is inert on this corpus and any A/B running it is measuring nothing.
+    # Re-derive both tunes here (they are locals of runEpisode) so the census
+    # states, in the same breath as the counters, whether the arm was even ON —
+    # a flip=0 from an UNARMED run is a wiring bug, not a null result.
+    let ptHT = hunterTune()
+    echo &"  PT-PROBE armed?  hunter.pocketThreat={ptHT.pocketThreat} " &
+      &"hunter.hpGate={ptHT.hpGate}  (control forced OFF by design)"
+    let flipPct = (if ptFrames > 0: 100.0 * ptFlipHold.float / ptFrames.float else: 0.0)
+    echo &"  PT-PROBE gate frames {ptFrames}  oldHold {ptOldHold} -> newHold {ptNewHold}" &
+      &"  ⭐ flip {ptFlipHold} ({flipPct:.1f}% of gate frames)"
+    echo &"  PT-PROBE sentry-band (fresh gun 150-300px, invisible to GrabStackRange) " &
+      &"{ptSentry} frames   hpGate-only blocks {ptHpBlock}"
+    echo &"    (flip=0 => the lever changed NO decision: an A/B on it measures nothing. " &
+      &"sentry=0 => the 150-300px shell is empty in the mirror and pocketThreat is inert here.)"
 
 when isMainModule and not defined(tuneCheck):
   main()
