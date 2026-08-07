@@ -55,7 +55,7 @@ logs or replay links, and the smallest repro.
 - **Spray cans** spawn one per team, inside that team's own endzone just above
   its pedestal (the shield sits the same distance below), and respawn 30 seconds
   after pickup. Carrying one disables the gun (and a carrier visibly holds the
-  can); press **A** to spray a forward paint cone — 4 squares of reach, 2
+  can); press **A** to spray a forward paint cone — 5 squares of reach, 2.5
   squares wide at the tip — that stays on for 5 ticks and takes 20 ticks to
   repressurize. A touch deals 3 damage (lethal to a bare cog; a shield carrier
   survives one), hits teammates too, credits kills to the attacker, and the can
