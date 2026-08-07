@@ -158,6 +158,30 @@ Restored, and marked SUPERSEDED IN PART with a table of what the proposal says
 against what shipped — the largest gap being that the plan opens by declaring
 3-team and 6-team modes are added, and neither exists.
 
+## Surfaces checked and found ALREADY handled
+
+Named so the next sweep does not redo them, each with the thing that would go
+red:
+
+* **`tools/` (item 5).** `build.yml` already compiles every tool and the
+  baseline player with `nim check --path:src` — added in an earlier round
+  after two probes sat broken with CI fully green. Run locally over all ~90
+  tools plus `players/baseline`: **0 failures**, including this sweep's new
+  `policy_lane_probe.nim` (which needs `--path:src`, exactly what that step
+  provides).
+* **The map editor's zone vocabulary.** `map_editor.nim` already emits
+  `disc`/`anchorX`/`anchorY`/`radius` and documents the retired C4 keys;
+  `editor.js` carries no `rot90`, `corners` or `plus`. `test_map_editor.nim`
+  and `test_map_editor_core.nim` are the guard.
+* **`build_pool_review.py`'s SIZE_NAMES.** Already returns `f"{width}px"`
+  rather than raising — "an unrecognised width is a fact worth SHOWING".
+* **`docs/pool-review.html` (item 10).** Not regenerated, and should not be:
+  this branch touches no generator, validator, RNG stream or `MapPoolSeeds`,
+  so every pool render is byte-identical. Regenerating it would produce a
+  diff that misrepresents what changed.
+* **`tools/four_team_map_probe.nim`** no longer exists; the 4-team probing it
+  did lives in `ez_probe_aacf.nim` and `test_four_team.nim`.
+
 ## Not settled here
 
 * **The generator is 2-team.** Rectangular boards alongside hex, and hex at
