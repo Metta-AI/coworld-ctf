@@ -196,6 +196,34 @@ when defined(meprobe):
   var meSafe = 0       # ...and cleared the contact rule (out of contact or light-break)
   var meFireCount = 0  # ...and a known kit sits within MedKitEconDetour => fired
 
+when defined(msprobe):
+  # -d:msprobe ONLY (plan #16): instrument medSee — does routing medEcon at a kit
+  # we can SEE actually change the chosen target, and does it convert into heals?
+  # Two families of counter:
+  #   * AVAILABILITY (msVis*) runs whether or not the tune bit is set, so one
+  #     binary measures ON and OFF apples-to-apples on the same seeds;
+  #   * PICK (msPick*) counts which family supplied the target medEcon committed to.
+  # Plus a tune-INDEPENDENT heal funnel in damageSense, so heals/10k wounded frames
+  # is comparable to the FIELD unit (ours 2.4, richard 7.0). Never shipped.
+  var msScan = 0        # medEcon frames that cleared every veto and reached the scan
+  var msVisAny = 0      # ...with >=1 HUD-filtered visible kit sprite in view
+  var msVisNear = 0     # ...with >=1 visible kit inside MedKitEconDetour
+  var msVisOffSpot = 0  # ...with >=1 visible kit inside the detour and OFF both formula spots
+  var msFire = 0        # ...and medEcon actually set a target (either family)
+  var msPickSpot = 0    # ...target came from the two hard-coded formula spots
+  var msPickVis = 0     # ...target came from the VISIBLE family (the new branch)
+  var msPickVisOff = 0  # ...and that visible kit is NOT at a formula spot  <= THE counter
+  var msWoundedFrames = 0  # tune-independent: frames our own hp read 1..<MaxHp
+  var msHeals = 0          # tune-independent: wounded -> full transitions (a kit taken)
+  var msTgtSeq = 0      # consecutive-frame pairs where medEcon set a target twice
+  var msTgtJump = 0     # ...and the target MOVED >40px between them (dithering)
+
+const MedSeeProbeScan* = defined(msprobe)
+  ## Compile-time only: under -d:msprobe the medEcon block walks the VISIBLE-kit
+  ## scan even with the lever OFF, so ONE binary measures availability ON and OFF
+  ## on the same seeds. It never selects a target unless bot.tune.medSee is set,
+  ## and folds to `false` in every shipped build.
+
 when defined(wbprobe):
   # -d:wbprobe ONLY (plan #13): instrument woundedBank as a FUNNEL plus the
   # hp-1 SEGMENT FATE metric (the plan's §3.1 mechanism probe). Counters are
@@ -1705,6 +1733,28 @@ type
                               # Mirror-measurable for the same reason medTopOff was: it is a
                               # resource RACE, not a coordination lever, so self-play scores
                               # it (heals, deaths, K-D) — unlike comms.
+    medSee: bool              # ⭐⭐ medSee (2026-08-05, issue #16): give medEcon its EYES.
+                              # medEcon above buys the RIGHT doctrine with a TWO-TEAM ARENA
+                              # coordinate: its candidate set is exactly the two formula spots
+                              # (MapW/2, MapH/3) and (MapW/2, 2*MapH/3), and its only use of
+                              # the kit SPRITE is the on-spot presence check — so it can never
+                              # route to a kit it can SEE. On a generated board (every paintbot
+                              # episode) the formula is wrong: the generator DRAWS the pair's y
+                              # per map from a random band, and on a 4-team board there are FOUR
+                              # kits in a rot90 orbit that is nowhere near the centre line.
+                              # A wounded bot therefore walks to an empty patch of floor while a
+                              # real kit sits in its vision cone (Maxwell's replay read).
+                              # medSee makes the candidate set {VISIBLE kit sprites} UNION {the
+                              # known formula spots}, nearest wins, both capped by
+                              # MedKitEconDetour. It changes NOTHING else: same hp gate, same
+                              # higher-objective yields, same in-contact rule, same aimedAtUs
+                              # hold-vs-gun rule, same HUD-indicator edge filter, and the formula
+                              # spots keep their on-spot presence check (a visible sprite needs
+                              # none — seeing it IS presence).
+                              # ⚠️ It adds ZERO new disengagement: a bot walking under medSee was
+                              # ALREADY walking under the champion, just to the wrong place. That
+                              # is the discriminator from woundedBank / learned-kit-spots, which
+                              # both removed a gun from the fight and lost.
     satCap: bool              # ⭐ DISTRIBUTED FIRE (2026-07-20, backlog #2, FM 3-90
                               # fire-distribution): "destroy the greatest threat first,
                               # THEN distribute fires — avoid target overkill." Enough
@@ -1918,6 +1968,9 @@ type
       pHadLine: bool          # probe: a fresh threat line existed this segment
       pBroke: bool            # probe: that line was broken this segment
       pHp1Since: int          # probe: tick own hp became 1 (-1 = not at hp 1)
+    when defined(msprobe):
+      pMsTgt: Vec             # probe: last frame's medEcon target (target STABILITY —
+      pMsHad: bool            # a kit-routing lever that DITHERS never arrives)
     shieldRushDone: bool      # shieldRush: latched once we grabbed the opening shield OR
                               # gave up (mate took it) — stops re-detouring mid-run
     assaultUntil: int         # assaultThrough: near-ambush charge committed until
@@ -2244,6 +2297,7 @@ proc defaultCombatTune(): CombatTune =
     swordAmbush: false,       # control: a boxed-in bot never grabs a sword for a melee kill.
     medTopOff: false,         # control: a wounded bot never detours to a center med kit.
     medEcon: false,           # control: no static-coord kit routing (fog-visible kits only).
+    medSee: false,            # control: medEcon's candidates are the two formula spots only.
     satCap: false,            # control: a free gun dogpiles the nearest enemy, no saturation cap.
     noMask: false,            # control: a mover walks through a mate's live gun-line.
     assaultThrough: false,    # control: a surprise at knife range triggers the retreat/duck jink.
@@ -2472,6 +2526,11 @@ proc shippedCombatTune(): CombatTune =
   # rests on the funnel + heal ratio + both-seatings K-D, per the null-calibration
   # rule. Keeps its MEDECON knob for bisection.
   result.medEcon = true
+  # ⭐ medSee (plan #16): medEcon's candidate set gains the kits we can SEE. UNPROVEN —
+  # stays ENV-ARMED ONLY until the pre-registered A/B passes (the contaminated-control
+  # trap, failed.md: never bake an unproven lever into the champion tune). MEDSEE=1 arms
+  # it per-process for the env-server A/B rig.
+  result.medSee = getEnv("MEDSEE").len > 0
   # ⭐ satCap RETIRED (2026-07-29 audit), SATCAP=1 restores it. Past "enough guns are already
   # on this target" it re-assigns a free gun to the highest-danger UNCOVERED enemy — but the
   # saturation read is GEOMETRIC (is a mate's aim ray near the target), and that ray is now
@@ -4337,6 +4396,12 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       break damageSense
     let prevHp = bot.ownHp
     bot.ownHp = hp
+    when defined(msprobe):
+      # plan #16 heal funnel, TUNE-INDEPENDENT so a MEDSEE-unset run of the SAME
+      # binary is the control. A death reads hp as unread (0) on the dead path, so
+      # a respawn cannot masquerade as a heal: only wounded -> full counts.
+      if hp in 1 ..< MaxHp: inc msWoundedFrames
+      if prevHp in 1 ..< MaxHp and hp >= MaxHp: inc msHeals
     when defined(wbprobe):
       # hp-1 SEGMENT FATE (tune-independent — a WBANK-unset run is the control):
       # a segment opens the frame hp reads 1 and closes on a heal-to-full here
@@ -6551,6 +6616,51 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     var bestEcon = MedKitEconDetour
     var haveEconKit = false
     var chosenEcon: Vec
+    var pickedVisible = false      # which family supplied the target (probe/mechanism)
+    var pickedVisOffSpot = false   # ...and that visible kit is NOT at a formula spot
+
+    # ── ⭐⭐ medSee (plan #16): the kits we can SEE are candidates too.
+    # The two formula spots below are an ARENA truth: on a generated board the
+    # generator draws the pair's y per map, and a 4-team board carries FOUR kits
+    # in a rot90 orbit — so a wounded bot walks to empty floor while a real kit
+    # sits in its cone. A visible sprite needs no presence check (seeing it IS
+    # presence) but keeps the SAME HUD-indicator edge filter and the SAME
+    # MedKitEconDetour cap; nearest across both families wins. Nothing above this
+    # point changes — same hp gate, same objective yields, same in-contact and
+    # aimedAtUs rules — so this adds no new disengagement, only a better address.
+    if bot.tune.medSee or MedSeeProbeScan:
+      var visAny = false
+      var visNear = false
+      var visOff = false
+      for o in client.spriteObjectsWithLabel(LabelMedKit):
+        let p = client.mapPos(o)
+        if p.x < 40.0 or p.y < 40.0 or p.x > float(MapW - 40) or
+            p.y > float(MapH - 40):
+          continue                                     # HUD indicator shares the label
+        visAny = true
+        let d = dist(p, me)
+        if d >= MedKitEconDetour:
+          continue                                     # outside the detour budget
+        visNear = true
+        let offSpot = dist(p, vec(MedKitAX, MedKitAY)) > MedKitOnSpotPx and
+                      dist(p, vec(MedKitBX, MedKitBY)) > MedKitOnSpotPx
+        if offSpot:
+          visOff = true
+        if not bot.tune.medSee:
+          continue                                     # probe build, lever off: count only
+        if d >= bestEcon:
+          continue
+        bestEcon = d
+        chosenEcon = p
+        haveEconKit = true
+        pickedVisible = true
+        pickedVisOffSpot = offSpot
+      when defined(msprobe):
+        inc msScan
+        if visAny: inc msVisAny
+        if visNear: inc msVisNear
+        if visOff: inc msVisOffSpot
+
     for spot in [vec(MedKitAX, MedKitAY), vec(MedKitBX, MedKitBY)]:
       let d = dist(spot, me)
       if d >= bestEcon:
@@ -6572,9 +6682,27 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       bestEcon = d
       chosenEcon = spot
       haveEconKit = true
+      pickedVisible = false
+      pickedVisOffSpot = false
     if haveEconKit:
       target = chosenEcon
       when defined(meprobe): inc meFireCount
+      when defined(msprobe):
+        inc msFire
+        if pickedVisible:
+          inc msPickVis
+          if pickedVisOffSpot: inc msPickVisOff
+        else:
+          inc msPickSpot
+        # Target STABILITY, comparable ON vs OFF: a routing lever that flips its
+        # destination frame to frame walks a zigzag and arrives nowhere.
+        if bot.pMsHad:
+          inc msTgtSeq
+          if dist(chosenEcon, bot.pMsTgt) > 40.0: inc msTgtJump
+        bot.pMsTgt = chosenEcon
+        bot.pMsHad = true
+    else:
+      when defined(msprobe): bot.pMsHad = false
 
   # Grenade danger: a visible throw-target ring marks where an enemy's lob
   # will land, and an airborne grenade is seconds from bursting — anything
