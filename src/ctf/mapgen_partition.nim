@@ -73,8 +73,8 @@ func rectPoly*(r: MapRect): seq[PtF] =
 # Half-plane clipping
 # ---------------------------------------------------------------------------
 
-proc clipHalfPlane(poly: var seq[PtF], owner: var seq[int],
-                   nx, ny, c: float, tag: int) =
+proc clipHalfPlane*(poly: var seq[PtF], owner: var seq[int],
+                    nx, ny, c: float, tag: int) =
   ## Sutherland-Hodgman against `nx*x + ny*y <= c`, carrying the per-edge
   ## owner tag through. The edge INTRODUCED by the cut is tagged `tag`; every
   ## surviving edge keeps the tag it had. A convex ring crosses a line at most
@@ -200,6 +200,42 @@ proc insetCell*(cell: ConvexCell, d: float): ConvexCell =
 # ---------------------------------------------------------------------------
 # Convex-cell queries
 # ---------------------------------------------------------------------------
+
+proc insetCellEdges*(cell: ConvexCell, dInner, dBoundary: float): ConvexCell =
+  ## `insetCell` with a per-edge distance: `dInner` where the edge faces a
+  ## neighbouring cell, `dBoundary` where it is the board border.
+  ##
+  ## The boundary case is not a detail. A cell inset on its border edge leaves
+  ## a clear lane hugging the map edge — and the hard validator's very first
+  ## horizontal scan row sits two pixels inside the border, so that lane is
+  ## an instant rejection. Structures on the rim must run right up to it;
+  ## there is no neighbour there to make room for.
+  result.site = cell.site
+  result.siteIndex = cell.siteIndex
+  if cell.poly.len < 3: return
+  var
+    x0 = cell.poly[0].x
+    x1 = cell.poly[0].x
+    y0 = cell.poly[0].y
+    y1 = cell.poly[0].y
+  for p in cell.poly:
+    x0 = min(x0, p.x); x1 = max(x1, p.x)
+    y0 = min(y0, p.y); y1 = max(y1, p.y)
+  var
+    poly = rectPoly(MapRect(x: int(x0) - 4, y: int(y0) - 4,
+                            w: int(x1 - x0) + 8, h: int(y1 - y0) + 8))
+    owner = @[-1, -1, -1, -1]
+  for i in 0 ..< cell.poly.len:
+    let
+      a = cell.poly[i]
+      b = cell.poly[(i + 1) mod cell.poly.len]
+      (nx, ny, c) = edgeNormal(a, b)
+    if nx == 0.0 and ny == 0.0: continue
+    let d = if cell.owner[i] < 0: dBoundary else: dInner
+    clipHalfPlane(poly, owner, nx, ny, c - d, cell.owner[i])
+    if poly.len == 0: return
+  result.poly = poly
+  result.owner = owner
 
 func area*(cell: ConvexCell): float =
   if cell.poly.len < 3: return 0.0

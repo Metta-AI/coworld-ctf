@@ -25,6 +25,14 @@ export map_rules
 # and the map tools all reach `stream`/`spawn` through `arena` or `sim`.
 import map_seed
 export map_seed
+# THE terrain pass. `mapgen_rooms` is a leaf over `mapgen_sym`,
+# `mapgen_partition`, `mapgen_vocab`, `mapgen_biomes`, `map_lanes` and
+# `map_rules` — it never imports `arena` back, which is why
+# `generateMapAttempt` can simply call it instead of installing it through a
+# hook. A hook would have the split-brain failure this codebase already met
+# once: a binary importing `arena` alone would silently generate no terrain.
+import mapgen_rooms
+export mapgen_rooms
 
 proc validateMapRect(name: string, rect: MapRect, width, height: int) =
   ## Raises if one map rectangle is outside the map.
@@ -1556,6 +1564,74 @@ proc rectOnOpenFloor(
         return false
   true
 
+proc terrainHostFor*(shell: CtfMap, teams: int): TerrainHost =
+  ## Everything `mapgen_rooms` needs from `arena`, handed over explicitly.
+  ##
+  ## Passing the predicates in (rather than letting the terrain pass import
+  ## `arena` back) is what keeps the module graph acyclic AND avoids the hook
+  ## pattern's split-brain failure, where a binary that imports `arena` alone
+  ## silently gets no terrain at all. Exported because tooling reproduces a
+  ## map's terrain STATS from its finished shell — the closures below read
+  ## only shell geometry, never `leftObstacles`, so a finished map is as good
+  ## an input as a bare one.
+  var anchors: seq[MapPoint]
+  for team in shell.teams():
+    anchors.add shell.teamAnchor(team)
+  ## The cover budget is measured over the band `collectMapDiagnostics` itself
+  ## uses, or the generator aims at a permille the validator never computes.
+  let interiorPx =
+    if shell.endzone != ezColumn or shell.layout != layoutSides:
+      (shell.width - 2 * ArenaBorder) * (shell.height - 2 * ArenaBorder)
+    else:
+      (shell.width - 2 * shell.captureClear) * (shell.height - 2 * ArenaBorder)
+  ## Where terrain may usefully go: everything inside the border, minus the
+  ## protected capture strips a column endzone pins to each home border. A
+  ## site inside those is a site whose cell gets carved to a sliver.
+  let buildRegion =
+    if shell.endzone == ezColumn and shell.layout == layoutSides:
+      MapRect(x: shell.captureClear - 8, y: ArenaBorder,
+              w: shell.width - 2 * (shell.captureClear - 8),
+              h: shell.height - 2 * ArenaBorder)
+    else:
+      MapRect(x: ArenaBorder, y: ArenaBorder,
+              w: shell.width - 2 * ArenaBorder,
+              h: shell.height - 2 * ArenaBorder)
+  TerrainHost(
+    width: shell.width, height: shell.height, border: ArenaBorder,
+    symmetry: shell.symmetry, center: shell.center, anchors: anchors,
+    scanLoX: shell.sightlineLoX, scanHiX: shell.sightlineHiX,
+    buildRegion: buildRegion, interiorPx: interiorPx,
+    coverPermilleMin: CoverPermilleMin, coverPermilleMax: CoverPermilleMax,
+    sizeClass: shell.mapSizeClass(), teams: teams,
+    kitCandidates: shell.medKitCandidates,
+    protectedAt: proc (x, y: int): bool =
+      ## Protected floor, PLUS a keep-clear ring around a compact endzone.
+      ## A compact base must stay open-flanked — a base you can only reach
+      ## from the field side is a column endzone with extra steps, and the
+      ## validator rejects it ("endzone gate behind is sealed"). The engine
+      ## does not protect that ring, so the generator has to leave it alone;
+      ## reporting it as protected here is exactly that instruction, and it
+      ## is conservative everywhere else it is read.
+      if shell.mapProtectedFloorAt(x, y): return true
+      if shell.endzone == ezColumn: return false
+      let reach = shell.endzoneRadius + MinCorridorWidth + 18
+      for team in shell.teams():
+        let a = shell.teamAnchor(team)
+        if abs(x - a.x) <= reach and abs(y - a.y) <= reach: return true
+      false,
+    inShapeAt: proc (x, y: int, s: ArenaShape): bool =
+      inShape(x, y, s),
+    shapeBox: proc (s: ArenaShape): tuple[x0, y0, x1, y1: int] =
+      shapeBounds(s),
+    wallAt: proc (x, y: int, shapes: seq[ArenaShape]): bool =
+      mapWallAt(shell, shapes, x, y),
+    lift: proc (shapes: seq[ArenaShape]): seq[ArenaShape] =
+      var lifted = shell
+      lifted.leftObstacles = shapes
+      buildArenaObstacles(lifted),
+    liftRect: proc (r: MapRect): seq[MapRect] =
+      shell.symmetryImages(r))
+
 proc generateMapAttempt*(
   seed: int, overrides: MapGenOverrides, teams = 2, attempt = 0,
   unitsPerTeam = 0
@@ -1706,411 +1782,57 @@ proc generateMapAttempt*(
           $EndzoneRadiusMin & ".." & $maxEndzoneRadius(result.width) & ".")
   result.rooms = result.defaultCtfRooms()
 
-  let featureDraw = CenterFeatureNames[terrainRng.pick(3)]
-  let feature =
-    if overrides.centerFeature.len > 0: overrides.centerFeature
-    else: featureDraw
-  if feature notin CenterFeatureNames:
-    raise newException(CtfError, "Unknown map center feature: " & feature)
-
-  ## Compact-endzone maps spread their columns over the whole half-field
-  ## (the home border strip is wilderness now, not a protected column), so
-  ## they draw MORE of them to hold the same field density. Same single draw
-  ## either way — the terrain stream never shifts.
+  ## ---------------------------------------------------------------------
+  ## TERRAIN. Everything below here used to be a column lattice: four
+  ## "families" (stubs / diamonds / discs / chevrons) that were four SKINS ON
+  ## ONE SLOT, a hard-coded centre feature, a random-diamond sightline-repair
+  ## prosthetic worth 14-16% of a standard board's interior wall, and blind
+  ## window / trench / pickup placement on top of them. Fifty seeds rendered
+  ## as one design, and the rubric scored that 0.939/1.000 and was content.
   ##
-  ## The column counts were tuned on the standard field, and column x-slots
-  ## spread over the width: an OVERSIZE board with the standard count would
-  ## space its cover ~2x apart and fall to the floor of the cover budget.
-  ## So huge/giant multiply the draw bounds by their field scale. The three
-  ## classic classes keep factor 1 exactly — their bounds (and so their
-  ## draws) are byte-identical to the pre-oversize generator.
-  let columnScale =
-    if sizeName in ["huge", "giant", "colossal"]: mapSizeScale(sizeName)
-    else: 1.0
-  proc cols(value: int): int = int(round(float(value) * columnScale))
-  let columnsDraw =
-    if teams == 4: terrainRng.pickRange(cols(3), cols(4))
-    elif result.endzone != ezColumn: terrainRng.pickRange(cols(6), cols(8))
-    else: terrainRng.pickRange(cols(4), cols(6))
-  let columns =
-    if overrides.columns > 0: overrides.columns else: columnsDraw
-  ## The ceiling has to admit the generator's OWN widest draw, or a size class
-  ## rejects itself: the flat 24 this bound used to carry predated the oversize
-  ## classes, and at colossal's 5.2x a compact-endzone board draws cols(8) = 42,
-  ## so 32 of 40 two-team colossal seeds raised here instead of generating. (The
-  ## 4-team draw tops out at cols(4) = 21, which is why record_colossal_demo.sh
-  ## never hit it.) Deriving the ceiling from the same cols() the draw uses keeps
-  ## any future class in range automatically; small/standard/large scale by 1, so
-  ## their bound stays exactly 24.
-  let maxColumns = max(24, cols(8))
-  if columns < 3 or columns > maxColumns:
+  ## It is now `mapgen_rooms.buildRoomTerrain`: Poisson-seeded Voronoi rooms
+  ## in the fundamental domain, streets and walls on DISJOINT pixel sets, a
+  ## 1-D interval cover in place of the prosthetic, and cover composed from
+  ## `mapgen_vocab` + `mapgen_biomes`. See that module's header for why.
+  ##
+  ## What stays here is the SHELL — size class, symmetry, endzone archetype,
+  ## pedestals, capture geometry — plus symmetry lifting, validation and the
+  ## mapSpec round-trip, none of which the terrain pass may touch.
+  ## ---------------------------------------------------------------------
+
+  ## Config locks that named parts of the lattice are still VALIDATED, so a
+  ## config with an out-of-range value raises exactly as it used to instead of
+  ## being silently accepted by a generator that no longer has columns.
+  if overrides.centerFeature.len > 0 and
+      overrides.centerFeature notin CenterFeatureNames:
     raise newException(
-      CtfError, "Config field mapColumns must be 3.." & $maxColumns & ".")
-
-  let
-    cy = result.center.y
-    redAnchorX = result.teamHomeX(Red)
-    ## Obstacle columns live between the home approach and the flag-ring
-    ## flank; the ring and the endzones carve any overlap back out of the
-    ## wall mask. A compact endzone frees the border strip, so the columns
-    ## start just inside the wall and terrain wraps the base on every side.
-    xMin =
-      if result.endzone != ezColumn: ArenaBorder + 34
-      else: result.captureClear + 50
-    xMax = result.center.x - 52
-    ## The vertical band the column slots may occupy: the full field on
-    ## sides maps, the top-left quadrant on corner maps (rot90 fills the
-    ## rest), the west arm on plus maps (the corner blocks own the rest).
-    slotBand =
-      case result.layout
-      of layoutSides:
-        (lo: ArenaBorder + 30, hi: result.height - ArenaBorder - 30)
-      of layoutCorners, layoutPlus:
-        ## The full quadrant, crossing the centerline: the rot90 images
-        ## fill the other side, and slots near cy are what covers the
-        ## central horizontal band. Both 4-team layouts are fully open
-        ## square boards — they differ only in where the teams live.
-        (lo: ArenaBorder + 30, hi: cy + 60)
-  ## Window-eligible shapes: (obstacle index, column, slot y).
-  var eligible: seq[tuple[idx, col, y: int]]
-  ## Trench pit candidates, resolved into actual digs after the columns
-  ## exist: `instead` swaps its obstacle for a pit, `gap` sits in a
-  ## cleared slot's corridor, `endzone` hugs the pedestal.
-  const
-    pitInstead = 0
-    pitGap = 1
-    pitEndzone = 2
-  var pitCandidates: seq[tuple[kind, obstacleIdx, x, y: int]]
-
-  for col in 0 ..< columns:
-    let
-      colX = xMin + ((2 * col + 1) * (xMax - xMin)) div (2 * columns)
-      family = ColumnFamily(terrainRng.pick(4))
-      ## 4-team quadrant shapes replicate x4 (not x2), so slots spread out
-      ## to keep the same field density.
-      period =
-        if teams == 4: terrainRng.pickRange(130, 180)
-        else: terrainRng.pickRange(88, 120)
-      ## Phases are STRATIFIED across columns (like the hand-authored
-      ## arena's 0/+48/+24/+72 ladder) with a half-period jitter: fully
-      ## random phases leave rows every column misses, which the sightline
-      ## validator rejects — mirror-symmetric maps almost never survived.
-      phase = (period * col div columns +
-        terrainRng.pick(max(1, period div 2))) mod period
-    var slotYs: seq[int]
-    var slotY = slotBand.lo + phase
-    while slotY <= slotBand.hi:
-      slotYs.add slotY
-      slotY += period
-    if slotYs.len < (if result.layout == layoutSides: 3 else: 2):
-      continue
-
-    ## Clear-mask: drop each slot with probability 1/4, then guarantee at
-    ## least one gap (a solid picket walls the lane off) and at least half
-    ## the slots kept (a bare column gives no cover).
-    var cleared = newSeq[bool](slotYs.len)
-    var clearedCount = 0
-    for i in 0 ..< slotYs.len:
-      if terrainRng.pick(4) == 0:
-        cleared[i] = true
-        inc clearedCount
-    if clearedCount == 0:
-      cleared[terrainRng.pick(slotYs.len)] = true
-      clearedCount = 1
-    let minKept = (slotYs.len + 1) div 2
-    while slotYs.len - clearedCount < minKept and clearedCount > 1:
-      var idx = terrainRng.pick(slotYs.len)
-      while not cleared[idx]:
-        idx = (idx + 1) mod slotYs.len
-      cleared[idx] = false
-      dec clearedCount
-
-    var zig = terrainRng.coin()
-    for i, sy in slotYs:
-      ## Compact endzones keep an APRON of clear ground outside the ring:
-      ## terrain that crowded the scoring shape would seal the very
-      ## approaches that make an off-the-edge base worth building, and the
-      ## open-flank validator would reject the map anyway. Obstacle centers
-      ## reach ~30px, so an apron of radius + 60 leaves every cardinal gate
-      ## a full corridor's clearance.
-      if result.endzone != ezColumn and
-          endzoneFloorAt(colX, sy, redAnchorX, cy,
-            result.endzoneRadius + 60 - EndzoneWallMargin,
-            result.endzone == ezDisc):
-        continue
-      if cleared[i]:
-        ## A cleared gap can hold a dug pit BETWEEN the column's obstacles
-        ## — the corridor stays open to movement and fire.
-        pitCandidates.add (pitGap, -1, colX, sy)
-        continue
-      ## Every kept slot can dig a trench INSTEAD of raising its obstacle
-      ## — cover you stand in rather than behind. Selection below decides;
-      ## the sightline repair and the validators judge the thinner wall
-      ## set exactly as usual.
-      pitCandidates.add (pitInstead, result.leftObstacles.len, colX, sy)
-      case family
-      of colStubs:
-        ## Stub ends whose border gap would drop under the corridor minimum
-        ## anchor to the border instead — a sub-26px slit is impassable
-        ## anyway and reads as a wart.
-        var top = sy - 30
-        var bottom = sy + 30
-        if i == 0 and top - ArenaBorder < MinCorridorWidth:
-          top = ArenaBorder
-        if i == slotYs.len - 1 and result.layout == layoutSides and
-            result.height - ArenaBorder - bottom < MinCorridorWidth:
-          bottom = result.height - ArenaBorder
-        result.leftObstacles.add ArenaShape(kind: shapeRect,
-          rect: MapRect(x: colX - 9, y: top, w: 18, h: bottom - top))
-        eligible.add (result.leftObstacles.high, col, sy)
-      of colDiamonds:
-        result.leftObstacles.add ArenaShape(
-          kind: shapeDiamond, cx: colX, cy: sy, radius: 28)
-        eligible.add (result.leftObstacles.high, col, sy)
-      of colDiscs:
-        result.leftObstacles.add ArenaShape(
-          kind: shapeDisc, cx: colX, cy: sy, radius: 28)
-        eligible.add (result.leftObstacles.high, col, sy)
-      of colChevrons:
-        let (ya, yb) = if zig: (sy - 14, sy + 14) else: (sy + 14, sy - 14)
-        result.leftObstacles.add ArenaShape(kind: shapeDiagonal,
-          x0: colX - 14, y0: ya, x1: colX + 14, y1: yb, thickness: 12)
-        zig = not zig
-
-  ## Endzone trench pit candidates, authored on the RED side (the symmetry
-  ## image gives Blue the exact counterpart): BEHIND the pedestal toward
-  ## the home edge, and ABOVE and BELOW it — each clear of the pedestal
-  ## art. Endzone floor is protected (never walled), so endzone digs
-  ## always survive the open-floor prune below.
-  let
-    redHomeX = redAnchorX
-    pedestalClear = PedestalCoverSize div 2 + TrenchSize div 2
-    ## How far off the pedestal an endzone dig sits. Column endzones have the
-    ## whole home strip to work with; a COMPACT zone clamps the offset so the
-    ## pit stays on its protected floor (clear of the pedestal art at the
-    ## floor, inside the ring at the ceiling) instead of being pruned later.
-    compactPitOffset =
-      max(pedestalClear,
-        min(pedestalClear + 20,
-          result.endzoneRadius - TrenchSize div 2 - EndzoneWallMargin))
-    backOffset =
-      if result.endzone == ezColumn: pedestalClear + 12
-      else: compactPitOffset
-    sideOffset =
-      if result.endzone == ezColumn: pedestalClear + 20
-      else: compactPitOffset
-  pitCandidates.add (pitEndzone, -1, redHomeX - backOffset, cy)
-  pitCandidates.add (pitEndzone, -1, redHomeX, cy - sideOffset)
-  pitCandidates.add (pitEndzone, -1, redHomeX, cy + sideOffset)
-
-  ## Pit selection. DENSITY mode (default) rolls every candidate at its
-  ## class chance scaled by pitDensity percent. COUNT mode (pits locked)
-  ## shuffles the candidates and takes symmetric pairs until the requested
-  ## total is met — an ODD total anchors its extra pit at the exact map
-  ## center, the one spot that is its own image under mirror AND rot180,
-  ## so both parities stay exactly team-fair.
+      CtfError, "Unknown map center feature: " & overrides.centerFeature)
+  if overrides.columns != 0 and
+      (overrides.columns < 3 or overrides.columns > 42):
+    raise newException(CtfError, "Config field mapColumns must be 3..42.")
+  if overrides.windows > 6:
+    raise newException(CtfError, "Config field mapWindows must be 0..6.")
   if overrides.pits < -1 or overrides.pits > 64:
     raise newException(CtfError, "Config field mapPits must be 0..64.")
   if overrides.pitDensity < -1 or overrides.pitDensity > 1000:
     raise newException(
       CtfError, "Config field mapPitDensity must be 0..1000.")
-  let
-    pitDensity = if overrides.pitDensity >= 0: overrides.pitDensity else: 100
-    centerPit = trenchSquareAt(result.center.x, result.center.y)
-    oddCenterPit = overrides.pits >= 0 and overrides.pits mod 2 == 1
-    pitPairsWanted = if overrides.pits >= 0: overrides.pits div 2 else: -1
-  var obstacleRemoved = newSeq[bool](result.leftObstacles.len)
-  if result.symmetry == symRot90:
-    ## Trenches are a 2-team-map feature for now: the dig/image pair
-    ## accounting assumes one symmetry image per dig, and rot90 maps have
-    ## three. An explicit pit request errors; the density path digs nothing
-    ## (clearing the candidates keeps the loop from writing UNPAIRED digs
-    ## into result.trenches — finalize is what pairs them, and it is
-    ## skipped on rot90).
-    if overrides.pits > 0:
-      raise newException(
-        CtfError, "Trenches are not supported on 4-team maps yet.")
-    pitCandidates.setLen(0)
-  if pitPairsWanted >= 0:
-    coverRng.shuffle(pitCandidates)
-  for cand in pitCandidates:
-    if pitPairsWanted >= 0:
-      if result.trenches.len >= pitPairsWanted:
-        break
-    else:
-      let baseChance =
-        case cand.kind
-        of pitInstead: 17
-        of pitGap: 25
-        else: 50
-      if coverRng.pick(100) >= clamp(baseChance * pitDensity div 100, 0, 100):
-        continue
-    let pit = trenchSquareAt(cand.x, cand.y)
-    var blocked = oddCenterPit and rectsIntersect(pit, centerPit)
-    for accepted in result.trenches:
-      if rectsIntersect(shapeAsRect(accepted), pit):
-        blocked = true
-        break
-    if blocked:
-      continue
-    result.trenches.add rectShape(pit)
-    if cand.kind == pitInstead:
-      obstacleRemoved[cand.obstacleIdx] = true
+  if result.symmetry == symRot90 and overrides.pits > 0:
+    raise newException(
+      CtfError, "Trenches are not supported on 4-team maps yet.")
 
-  ## Swap the chosen `instead` obstacles out of the wall set. Window
-  ## eligibility indexes leftObstacles, so compact both together.
-  block removeSwappedObstacles:
-    var remap = newSeq[int](result.leftObstacles.len)
-    var compacted: seq[ArenaShape]
-    for i, shape in result.leftObstacles:
-      if obstacleRemoved[i]:
-        remap[i] = -1
-      else:
-        remap[i] = compacted.len
-        compacted.add shape
-    result.leftObstacles = compacted
-    var remappedEligible: seq[tuple[idx, col, y: int]]
-    for entry in eligible:
-      if remap[entry.idx] >= 0:
-        remappedEligible.add (remap[entry.idx], entry.col, entry.y)
-    eligible = remappedEligible
-
-  ## Center feature, straddling the horizontal midline just outside the
-  ## flag ring ("[" here; its symmetry image closes the right side).
-  let bx = result.center.x - 138
-  case feature
-  of "bracket":
-    ## The GV16 windowed bracket: mid lane closed to movement and fire,
-    ## glass pane over the midline for a fogless center sightline.
-    result.leftObstacles.add ArenaShape(kind: shapeRect,
-      rect: MapRect(x: bx, y: cy - 53, w: 28, h: 12))
-    result.leftObstacles.add ArenaShape(kind: shapeRect,
-      rect: MapRect(x: bx, y: cy - 41, w: 12, h: 24))
-    result.leftObstacles.add ArenaShape(kind: shapeRect, window: true,
-      rect: MapRect(x: bx, y: cy - 17, w: 12, h: 36))
-    result.leftObstacles.add ArenaShape(kind: shapeRect,
-      rect: MapRect(x: bx, y: cy + 19, w: 12, h: 23))
-    result.leftObstacles.add ArenaShape(kind: shapeRect,
-      rect: MapRect(x: bx, y: cy + 42, w: 28, h: 12))
-  of "walls":
-    ## Solid bar pair with an open (glassless) midline gap.
-    result.leftObstacles.add ArenaShape(kind: shapeRect,
-      rect: MapRect(x: bx, y: cy - 100, w: 12, h: 80))
-    result.leftObstacles.add ArenaShape(kind: shapeRect,
-      rect: MapRect(x: bx, y: cy + 20, w: 12, h: 80))
-  else:
-    discard  # "ring": the center stays fully open.
-
-  ## Sightline repair. A horizontal ray survives when no obstacle blocks its
-  ## row: under MIRROR the right half repeats the left, so the LEFT half
-  ## alone must cover every row; under ROT180 the right half contributes the
-  ## flipped rows, so row y needs cover at y or height-1-y. Random layouts
-  ## almost never satisfy the mirror condition on their own (the first pool
-  ## scan came out 100% rot180), so plug the uncovered rows with diamonds in
-  ## drawn columns; the validators still judge the repaired result.
-  block sightlineRepair:
-    proc rowBlocked(gameMap: CtfMap, y: int): bool =
-      for x in gameMap.sightlineLoX .. gameMap.center.x:
-        if mapWallAt(gameMap, gameMap.leftObstacles, x, y):
-          return true
-      false
-    proc rowBlockedFull(gameMap: CtfMap, obstacles: seq[ArenaShape],
-        y: int): bool =
-      ## Full-width row scan against the COMPLETE symmetry-expanded set —
-      ## rot90 folds a quadrant into all four quarters, so no single-half
-      ## shortcut exists.
-      for x in gameMap.sightlineLoX .. gameMap.sightlineHiX:
-        if mapWallAt(gameMap, obstacles, x, y):
-          return true
-      false
-    ## The plug budget scales with the columns for the same reason the
-    ## columns scale: an oversize board has proportionally more rows to
-    ## cover (cols() is 1x on the classic classes, so their budget is the
-    ## historical 40).
-    var plugsLeft = cols(40)
-    while plugsLeft > 0:
-      var uncovered = -1
-      let fullSet =
-        if result.symmetry == symRot90: buildArenaObstacles(result)
-        else: @[]
-      var y = ArenaBorder + 2
-      while y < result.height - ArenaBorder:
-        let covered =
-          case result.symmetry
-          of symMirror:
-            result.rowBlocked(y)
-          of symRot180:
-            result.rowBlocked(y) or
-              result.rowBlocked(result.height - 1 - y)
-          of symRot90:
-            result.rowBlockedFull(fullSet, y)
-        if not covered:
-          uncovered = y
-          break
-        y += 4
-      if uncovered < 0:
-        break sightlineRepair
-      let
-        plugCol = terrainRng.pick(columns)
-        plugX = xMin + ((2 * plugCol + 1) * (xMax - xMin)) div (2 * columns)
-        ## Under rot90 a quadrant shape at row y also covers row H-1-y (its
-        ## rot180 image), so an uncovered bottom-half row folds to its top
-        ## reflection before plugging; plugs may sit close to the border.
-        foldedRow =
-          if result.symmetry == symRot90 and uncovered > cy:
-            result.height - 1 - uncovered
-          else:
-            uncovered
-        plugY = clamp(
-          foldedRow + 24, ArenaBorder + 12, result.height - ArenaBorder - 12)
-      dec plugsLeft
-      ## A plug inside the endzone apron would seal an approach (and be
-      ## carved to a stump by the protected floor anyway); skip it and let
-      ## the next iteration try another column for the same row.
-      if result.endzone != ezColumn and
-          endzoneFloorAt(plugX, plugY, redAnchorX, cy,
-            result.endzoneRadius + 60 - EndzoneWallMargin,
-            result.endzone == ezDisc):
-        continue
-      result.leftObstacles.add ArenaShape(
-        kind: shapeDiamond, cx: plugX, cy: plugY, radius: 28)
-
-  ## Glass windows: fog sees through them, nothing passes them. Biased to
-  ## the outermost column and the midline band, where sightlines matter.
-  let windowsDraw =
-    if teams == 4: coverRng.pickRange(1, 2)
-    else: coverRng.pickRange(2, 4)
-  let windowCount =
-    if overrides.windows >= 0: overrides.windows else: windowsDraw
-  if windowCount > 6:
-    raise newException(CtfError, "Config field mapWindows must be 0..6.")
-  var preferred, rest: seq[tuple[idx, col, y: int]]
-  for entry in eligible:
-    if entry.col == 0 or abs(entry.y - cy) < 70:
-      preferred.add entry
-    else:
-      rest.add entry
-  coverRng.shuffle(preferred)
-  coverRng.shuffle(rest)
-  let ranked = preferred & rest
-  for i in 0 ..< min(windowCount, ranked.len):
-    result.leftObstacles[ranked[i].idx].window = true
-
-  ## Med kits. Sides maps: two complementary (y, H-1-y) center-line pairs
-  ## are drawn as candidates and ONE pair goes active — a top/bottom pair on
-  ## x = W/2 is invariant under both mirror and rot180, so pickup fairness
-  ## is exact. 4-team maps: one kit per team as the rot90 orbit of a single
-  ## drawn ring point, which is fair by the same symmetry argument.
+  ## Med-kit CANDIDATE SEEDS. Sides maps draw two complementary (y, H-1-y)
+  ## centre-line pairs; 4-team maps draw one ring point. The terrain pass
+  ## walks each seed onto floor it actually left open, and the ORBIT is
+  ## rebuilt from the walked point below — relocating each member of a pair
+  ## independently would quietly break pickup fairness.
   if teams == 4:
     let
       ringLo = result.flagRing + 40
       ringHi = result.center.x - result.captureClear - 60
       d = pickupRng.pickRange(ringLo, max(ringLo + 1, ringHi))
-      orbit = rot90Orbit((result.center.x + d, result.center.y), result.width)
-    result.medKitCandidates = @[]
-    for point in orbit:
-      result.medKitCandidates.add MapPoint(x: point.x, y: point.y)
-    result.medKitSpawns = result.medKitCandidates
+    result.medKitCandidates = @[MapPoint(x: result.center.x + d,
+                                         y: result.center.y)]
   else:
     let
       mid = result.width div 2
@@ -2119,69 +1841,47 @@ proc generateMapAttempt*(
       y2 = pickupRng.pickRange(
         result.height * 36 div 100, result.height * 47 div 100)
     result.medKitCandidates = @[
-      MapPoint(x: mid, y: y1),
-      MapPoint(x: mid, y: result.height - 1 - y1),
-      MapPoint(x: mid, y: y2),
-      MapPoint(x: mid, y: result.height - 1 - y2),
-    ]
-    result.medKitSpawns =
-      if pickupRng.coin():
-        @[result.medKitCandidates[0], result.medKitCandidates[1]]
-      else:
-        @[result.medKitCandidates[2], result.medKitCandidates[3]]
+      MapPoint(x: mid, y: y1), MapPoint(x: mid, y: y2)]
+  let firstPair = pickupRng.coin()
 
-  ## Finalize the trenches. Every left-half dig gets its image under
-  ## the map's symmetry so neither team has a private pit; a dig that ended
-  ## up under a wall (a sightline-repair plug can land on its slot) or on
-  ## top of an already-accepted dig is dropped — and a dig whose image is
-  ## blocked drops WITH it, fairness before density. (rot90 maps reach
-  ## here with zero candidates and place nothing — see the guard above.)
-  block finalizeTrenches:
-    let obstacles = buildArenaObstacles(result)
-    var digs: seq[MapRect]
-    if oddCenterPit:
-      ## The odd pit sits dead center, inside the always-open flag ring.
-      digs.add centerPit
-    proc addPair(
-      gameMap: CtfMap, digs: var seq[MapRect], trench: MapRect
-    ): bool =
-      ## Accepts one left-half dig plus its symmetry image when both sit
-      ## on open floor clear of every accepted dig. Count-mode parity
-      ## rests on every candidate being distinct from its own image —
-      ## true because column candidates cap at center.x - 52 and endzone
-      ## candidates hug the red home; a future center-adjacent candidate
-      ## class would break the exact-count accounting here.
-      let image =
-        case gameMap.symmetry
-        of symMirror: trench.mirrorX(gameMap.width)
-        of symRot180: trench.rot180(gameMap.width, gameMap.height)
-        of symRot90: raiseAssert "trenches never place on rot90 maps"
-      if not rectOnOpenFloor(gameMap, obstacles, trench) or
-          not rectOnOpenFloor(gameMap, obstacles, image):
-        return false
-      for accepted in digs:
-        if rectsIntersect(accepted, trench) or
-            rectsIntersect(accepted, image):
-          return false
-      digs.add trench
-      if image != trench:
-        digs.add image
-      true
-    for trench in result.trenches:
-      discard result.addPair(digs, shapeAsRect(trench))
-    ## COUNT mode: pairs lost to sightline-repair walls are topped back up
-    ## from the unused candidates that cannot change the wall set (gap and
-    ## endzone spots; a late `instead` swap would dodge the repair pass).
-    if pitPairsWanted >= 0:
-      for cand in pitCandidates:
-        if digs.len >= overrides.pits:
-          break
-        if cand.kind == pitInstead:
-          continue
-        discard result.addPair(digs, trenchSquareAt(cand.x, cand.y))
-    result.trenches = @[]
-    for d in digs:
-      result.trenches.add rectShape(d)
+  block terrainPass:
+    let
+      host = terrainHostFor(result, teams)
+      built = buildRoomTerrain(host, seed, attempt)
+    result.leftObstacles = built.shapes
+    result.trenches = built.trenches
+    result.biome =
+      case built.biome
+      of biomeStyleCaves: biomeCaves
+      of biomeStyleForest: biomeForest
+      of biomeStyleDesert: biomeDesert
+      of biomeStyleCity: biomeCity
+      of biomeStylePlains: biomePlains
+
+    ## `mapWindows: 0` still means "no glass", and `mapPits: 0` still means
+    ## "no trenches" — the two locks whose zero value a config uses to ask for
+    ## a plain board.
+    if overrides.windows == 0:
+      for i in 0 ..< result.leftObstacles.len:
+        result.leftObstacles[i].window = false
+    if overrides.pits == 0:
+      result.trenches = @[]
+
+    ## Pickups: rebuild each walked seed's ORBIT, so a pair is exactly a
+    ## symmetry image of itself and pickup fairness is structural.
+    var kits: seq[MapPoint]
+    for walked in built.kits:
+      for img in result.symmetryImages(walked):
+        kits.add img
+    if kits.len == 0: kits = result.medKitCandidates
+    result.medKitCandidates = kits
+    result.medKitSpawns =
+      if teams == 4: kits
+      elif kits.len >= 4:
+        if firstPair: @[kits[0], kits[1]] else: @[kits[2], kits[3]]
+      elif kits.len >= 2: @[kits[0], kits[1]]
+      else: kits
+
   result.validateMap()
 
 type
