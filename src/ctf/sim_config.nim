@@ -51,7 +51,11 @@ proc defaultGameConfig*(): GameConfig =
     perkGrenadePermille: PerkGrenadePermilleDefault,
     perkThrusterPermille: PerkThrusterPermilleDefault,
     perkLuckPermille: PerkLuckPermilleDefault,
-    perkLuckDamage: PerkLuckDamageDefault
+    perkLuckDamage: PerkLuckDamageDefault,
+    barrageMaxPerSec: 0,
+    barrageStartPerSec: BarrageStartPerSec,
+    barrageStartSec: BarrageStartSec,
+    barrageSaturateSec: BarrageSaturateSec
   )
 
 proc readConfigInt(node: JsonNode, name: string, value: var int) =
@@ -519,6 +523,29 @@ proc validate(config: GameConfig) =
     raise newException(CtfError, "Timer config fields must not be negative.")
   if config.gameOverTicks < 0 or config.maxTicks < 0 or config.maxGames < 0:
     raise newException(CtfError, "Timer config fields must not be negative.")
+  if config.barrageMaxPerSec < 0 or config.barrageMaxPerSec > BarrageAbsMaxPerSec:
+    raise newException(
+      CtfError,
+      "Config field barrageMaxPerSec must be 0.." & $BarrageAbsMaxPerSec & ".")
+  if config.barrageMaxPerSec > 0:
+    if config.maxTicks <= 0:
+      raise newException(
+        CtfError,
+        "Config field barrageMaxPerSec requires a time limit (maxTicks > 0): " &
+          "the barrage starts off the game clock."
+      )
+    if config.barrageStartPerSec < 1 or
+        config.barrageStartPerSec > config.barrageMaxPerSec:
+      raise newException(
+        CtfError,
+        "Config field barrageStartPerSec must be 1..barrageMaxPerSec."
+      )
+    if config.barrageStartSec < 1:
+      raise newException(
+        CtfError, "Config field barrageStartSec must be at least 1.")
+    if config.barrageSaturateSec < 1:
+      raise newException(
+        CtfError, "Config field barrageSaturateSec must be at least 1.")
   if config.slots.len > MaxPlayers:
     raise newException(CtfError, "Config field slots cannot have more than 8 entries.")
   if config.closedRoster and config.slots.len < config.minPlayers:
@@ -591,6 +618,10 @@ proc update*(config: var GameConfig, jsonText: string) =
   node.readConfigInt("maxTicks", config.maxTicks)
   node.readConfigInt("maxGameTicks", config.maxTicks)
   node.readConfigInt("maxGames", config.maxGames)
+  node.readConfigInt("barrageMaxPerSec", config.barrageMaxPerSec)
+  node.readConfigInt("barrageStartPerSec", config.barrageStartPerSec)
+  node.readConfigInt("barrageStartSec", config.barrageStartSec)
+  node.readConfigInt("barrageSaturateSec", config.barrageSaturateSec)
   node.readConfigBool("showPlayerLabels", config.showPlayerLabels)
   node.readConfigBool("fastMode", config.fastMode)
   node.readConfigInt("teams", config.teams)
@@ -766,6 +797,13 @@ proc configJson*(config: GameConfig): string =
       "luckChance": config.perkLuckPermille.float / 1000.0,
       "luckDamage": config.perkLuckDamage
     }
+  # Echo the barrage keys only when the mode is on, so a default game's
+  # replay config stays byte-identical to the pre-barrage echo.
+  if config.barrageMaxPerSec > 0:
+    node["barrageMaxPerSec"] = %config.barrageMaxPerSec
+    node["barrageStartPerSec"] = %config.barrageStartPerSec
+    node["barrageStartSec"] = %config.barrageStartSec
+    node["barrageSaturateSec"] = %config.barrageSaturateSec
   if config.mapSpec.len > 0:
     node["mapSpec"] = fromJson(config.mapSpec)
   $node

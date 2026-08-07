@@ -174,12 +174,17 @@ pits (trenches), or edit the per-map spawn lists / consts in code.
 | Field | Type / default | JSON key | Bounds | Effect |
 |---|---|---|---|---|
 | `scoring` | string / `"classic"` | `scoring` | `"classic"` or `"pot"` | Reward rule: classic (+1 win / −1 loss) vs pot (ante/pot split). |
-| `maxTicks` | int / `5000` | `maxGameTicks` | `>=0` | Time limit per game (0 = unlimited). |
+| `maxTicks` | int / `7200` (5:00) | `maxGameTicks` | `>=0` | Scheduled game end (0 = unlimited); with the barrage on it is not a hard end. |
 | `gameOverTicks` | int / `360` | | `>=0` | End-screen dwell ticks. |
 | `maxGames` | int / `0` | | `>=0` | Games before server stops (0 = unlimited). |
+| `barrageMaxPerSec` | int / `0` (off) | | `0..50`; `>0` needs `maxTicks>0` | Grenade-barrage endgame: environment grenades rain from the edges inward, ramping to this rate across the whole board (see RULES.md "Grenade barrage"). |
+| `barrageStartPerSec` | int / `4` | | `1..barrageMaxPerSec` | Launch rate at the latch, targeting a 40px band inside every edge. |
+| `barrageStartSec` | int / `30` | | `>=1` | Clock seconds remaining that latch the barrage (4:30 elapsed on the default 5:00 clock). |
+| `barrageSaturateSec` | int / `30` | | `>=1` | Seconds from latch to full saturation (whole board at `barrageMaxPerSec`); defaults land it exactly at the scheduled end. |
 
 Reward consts: `WinReward`=+1, `LossReward`=−1, `TimeoutReward`=−1 (draw penalty).
-`ActionClockFloorTicks`=500 keeps a timed game from ending mid-action. Win logic:
+GV41 removed the action-floor overtime: the clock never extends, and a game with
+the barrage configured ignores `maxTicks` entirely (it ends only on capture/wipe). Win logic:
 capturing a heart eliminates that team; last team standing wins; 2-team ends on
 first capture.
 

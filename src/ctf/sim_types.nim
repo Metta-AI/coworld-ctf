@@ -18,7 +18,17 @@ import
 
 const
   GameName* = "ctf"
-  GameVersion* = "40"  ## GV40 (aim rule): RESTORE CONTINUOUS TURRET AIM.
+  GameVersion* = "41"  ## GV41 (clock rule): NO MORE OVERTIME. The GV23
+    ## action floor (kills/heart steals guaranteeing 500 ticks of clock,
+    ## banked as overtimeTicks) is removed outright: the clock only ever
+    ## counts down, and `maxTicks` is the exact scheduled draw ceiling.
+    ## With the grenade-barrage endgame configured the ceiling does not end
+    ## the game at all — the bombardment grinds on past 0:00 until at most
+    ## one team stands, so a draw needs the last players of two teams to
+    ## die on the same tick. overtimeTicks left the hash, so every replay
+    ## re-simulates differently: fixtures re-recorded.
+    ##
+    ## Previously GV40 (aim rule): RESTORE CONTINUOUS TURRET AIM.
     ## `aimBrads` again spans all 256 integer headings, and `aimTurnRate` is
     ## again brads/tick (default 5, ~7 degrees/tick, full turn ~2.1s), exactly
     ## as introduced with decoupled aim. GV36's reinterpretation of the same
@@ -253,9 +263,9 @@ const
                        ## sides, self included) — exact aim is never readable
                        ## off a sprite; broadcast board unaffected.
                        ## GV23: a depleted shield layer breaks the shield
-                       ## outright (icon + fire slowdown end with the bubble),
-                       ## and kills/heart-steals floor the game clock at
-                       ## ActionClockFloorTicks remaining.
+                       ## outright (icon + fire slowdown end with the bubble).
+                       ## (GV23 also floored the clock on kills/steals; that
+                       ## action-floor overtime was removed in GV41.)
   ReplayFps* = 24
   DefaultMapPath* = "arena"
   DarkBgPath* = "data/darkbg.aseprite"
@@ -395,10 +405,26 @@ const
 
   StartWaitTicks* = 5 * TargetFps
   GameOverTicks* = 360
-  MaxTicks* = 5_000  ## 0 = no limit.
-  ActionClockFloorTicks* = 500  ## a kill or heart steal leaves at least this
-                                ## many ticks on the clock, so a timed game
-                                ## never ends mid-action.
+  MaxTicks* = 7_200  ## a 5:00 game at 24 ticks/sec; 0 = no limit.
+  BarrageStartSec* = 30       ## grenade-barrage default: the barrage latches
+                              ## on with this many clock seconds remaining
+                              ## (config barrageStartSec; the mode itself
+                              ## arms via barrageMaxPerSec > 0). On the
+                              ## default 5:00 clock that is 4:30 elapsed.
+  BarrageSaturateSec* = 30    ## grenade-barrage default: seconds from the
+                              ## latch to full saturation (whole board at
+                              ## barrageMaxPerSec). Start 30 + saturate 30
+                              ## = fully saturated exactly at 5:00 on the
+                              ## default clock.
+  BarrageStartPerSec* = 4     ## grenade-barrage default: launch rate at the
+                              ## latch, grenades/second along the map edges.
+  BarrageAbsMaxPerSec* = 50   ## config ceiling on barrageMaxPerSec: keeps
+                              ## the concurrent airborne count (rate x the
+                              ## ~10-tick flight) inside the drawn-orb pool.
+  BarrageEdgeBandPx* = 40     ## the strip of map inside every edge the
+                              ## barrage targets at latch; the band deepens
+                              ## linearly to full coverage as the ramp
+                              ## completes.
   MaxGames* = 0  ## 0 = no limit.
   MaxPlayers* = 32
   MinPlayers* = 16
@@ -930,6 +956,26 @@ type
                               ## geometry and never re-runs the generator.
     closedRoster*: bool
     slots*: seq[PlayerSlotConfig]
+    barrageMaxPerSec*: int    ## grenade-barrage endgame: the launch rate the
+                              ## barrage ramps UP to, in grenades/second.
+                              ## 0 = the mode is off — the default,
+                              ## byte-identical to the pre-barrage game.
+                              ## Requires maxTicks > 0 when set; capped at
+                              ## BarrageAbsMaxPerSec.
+    barrageStartPerSec*: int  ## grenade-barrage endgame: the launch rate at
+                              ## the moment the barrage latches (default
+                              ## BarrageStartPerSec); ramps linearly to
+                              ## barrageMaxPerSec over barrageSaturateSec.
+    barrageStartSec*: int     ## grenade-barrage endgame: the barrage latches
+                              ## on when the game clock has this many seconds
+                              ## remaining (default BarrageStartSec — 4:30
+                              ## elapsed on the default 5:00 clock). Once
+                              ## latched it only ever escalates.
+    barrageSaturateSec*: int  ## grenade-barrage endgame: seconds from the
+                              ## latch until the ramp completes — whole
+                              ## board targeted at barrageMaxPerSec
+                              ## (default BarrageSaturateSec, landing full
+                              ## saturation exactly at the scheduled end).
     handicaps*: array[Team, int]  ## per-team handicap in PERMILLE (0..1000),
                                   ## authored as a 0.0..1.0 float. 0 = normal
                                   ## (the default, byte-identical to no
@@ -1310,8 +1356,17 @@ type
     winner*: Team
     gameOverTimer*: int
     timeLimitReached*: bool
-    overtimeTicks*: int        ## clock extension banked by the action floor
-                               ## (kills / heart steals); resets each game.
+    barrageStartTick*: int     ## tickCount at which the grenade barrage
+                               ## latched on; -1 before. Deterministic
+                               ## (derived from the clock), so replays
+                               ## re-derive it; mixed into gameHash only once
+                               ## latched, keeping barrage-off games
+                               ## hash-identical.
+    barrageAccum*: int         ## fractional-launch accumulator in permille-
+                               ## grenade-seconds: each Playing tick adds the
+                               ## current rate (permille grenades/second) and
+                               ## every TargetFps*1000 drained launches one
+                               ## shell. Hashed alongside barrageStartTick.
     isDraw*: bool
     needsReregister*: bool
     gameEventLoggingEnabled*: bool

@@ -31,6 +31,7 @@ fog
 game teams <n> map <n>x<n>
 grenade
 grenade air
+grenade barrage depth <n> rate <n> start <n> sat <n>
 grenade carried
 grenade sound
 handicap <color> <n> hp <n> lives <n> spd <n> miss <n>

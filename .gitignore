@@ -56,3 +56,4 @@ pool-preview/
 # Arena Component Model build outputs (generated bindings remain tracked).
 /arena/.nimcache/
 /arena/*.wasm
+data/replays/

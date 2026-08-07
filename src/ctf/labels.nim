@@ -166,6 +166,19 @@ const
     ## in join order (CTF-Doubles). One marker per team in the game, emitted
     ## even when unperked — absence means an old engine, not "no perks". See
     ## `labelPerks` for the exact format.
+  LabelPrefixBarrage* = "grenade barrage depth "
+    ## The stated grenade-barrage marker,
+    ## `grenade barrage depth <n> rate <n> start <n> sat <n>`: an invisible
+    ## 1x1 marker on both streams, present whenever the barrage endgame is
+    ## configured (barrageMaxPerSec > 0), stating how deep inside every map
+    ## edge the shells currently land (`depth` map px, 0 until the barrage
+    ## latches; full board once the escalation completes), the CURRENT
+    ## launch rate in grenades/second (`rate`), the clock threshold in
+    ## seconds that latches it (`start`), and the seconds from latch to
+    ## full saturation (`sat`). Absence means the mode is off (or an old
+    ## engine). The shells themselves carry the ordinary grenade labels
+    ## (`grenade air`, `blast stage <n>`), so an incoming barrage reads
+    ## like any other lob — this marker is the escalation schedule.
   LabelPrefixTrench* = "trench "
     ## One trench's bounding-box marker, `trench <x0>,<y0> <x1>,<y1>`: an
     ## invisible 1x1 object in the init snapshot stating one dug pit's
@@ -346,6 +359,17 @@ proc labelTrench*(x0, y0, x1, y1: int): string =
   ## comma. The corners are the INCLUSIVE bounding box of the trench in map
   ## pixels.
   LabelPrefixTrench & $x0 & "," & $y0 & " " & $x1 & "," & $y1
+
+proc labelBarrage*(depth, perSec, startSec, saturateSec: int): string =
+  ## The grenade-barrage marker label,
+  ## `grenade barrage depth <n> rate <n> start <n> sat <n>`. A consumer
+  ## matches LabelPrefixBarrage and splits the tail on spaces into exactly
+  ## `["<depth>", "rate", "<n>", "start", "<n>", "sat", "<n>"]` — the
+  ## `rate`/`start`/`sat` tokens are fixed. Shells land only within `depth`
+  ## map px of some map edge on the rendered tick, at `rate`
+  ## grenades/second; the ramp completes `sat` seconds after the latch.
+  LabelPrefixBarrage & $depth &
+    " rate " & $perSec & " start " & $startSec & " sat " & $saturateSec
 
 proc labelOwnAim*(brads: int): string =
   ## The own-aim marker label, `own aim <brads>`. A consumer matches

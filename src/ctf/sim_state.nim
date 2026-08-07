@@ -160,7 +160,12 @@ proc gameHash*(sim: SimServer): uint64 =
   result.mixHashInt(sim.gameStartTick)
   result.mixHashInt(sim.startWaitTimer)
   result.mixHashBool(sim.timeLimitReached)
-  result.mixHashInt(sim.overtimeTicks)
+  # Mixed only once the barrage latches: a barrage-off game contributes
+  # nothing here, while a latched barrage pins its start tick and launch
+  # accumulator into every replay hash from that tick on.
+  if sim.barrageStartTick >= 0:
+    result.mixHashInt(sim.barrageStartTick)
+    result.mixHashInt(sim.barrageAccum)
   result.mixHashBool(sim.isDraw)
   result.mixHashBool(sim.needsReregister)
   result.mixHashInt(sim.nextJoinOrder)

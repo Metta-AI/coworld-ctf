@@ -45,6 +45,12 @@ proc fullFeatureGame(teams4 = false): SimServer =
     config.mapGen.layout = "corners"
     config.mapSeed = 42
   config.slots.setLen(6)
+  # The grenade-barrage endgame, configured ON but not latched: the stated
+  # marker (`grenade barrage depth ...`) enters the vocabulary on both
+  # streams (its digits normalize to <n>, so the unlatched depth-0 pattern
+  # covers every state), while no environment shells rain on the posed
+  # frame during the sweep's few steps.
+  config.barrageMaxPerSec = 15
   result = initCtfForTest(config)
   for i in 0 ..< 6:
     discard result.addPlayer("p" & $i)

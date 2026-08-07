@@ -452,6 +452,14 @@ const
                                ## the client's static-band cache stays valid (it
                                ## requires every dynamic object to sort strictly
                                ## above the bands).
+  ## --- Grenade-barrage endgame marker (BOARD + POV) ---
+  ## The barrage itself renders through the ordinary grenade visuals (orbs,
+  ## blasts, stains); the only barrage-specific emission is one invisible
+  ## 1x1 stated marker per stream declaring the current target depth, launch
+  ## rate, and start threshold outright (see LabelPrefixBarrage), so a
+  ## policy reads the escalation without inferring it from shell traffic.
+  BarrageMarkerSpriteId* = 35200 ## in the stain/diamond-paint gap.
+  BarrageMarkerObjectId* = 36300 ## in the trench-marker/damage-pop gap.
   DamagePopSpriteBase = 31000  ## floating "-N" damage-number sprites keyed
                                ## color×bucket×stage: 31000..31255 (above tracers).
                                ## The bucket is NOT amount-1: the amounts in
@@ -718,6 +726,7 @@ const
     ("rig wheels", RigWheelObjectBase, MaxPlayers * 3),
     ("rig guns", RigGunObjectBase, MaxPlayers),
     ("paint stains", StainObjectBase, StainMaxCount),
+    ("barrage marker", BarrageMarkerObjectId, 1),
   ]
 
 static:
@@ -823,6 +832,7 @@ const
       16 * DamagePopBucketCount * DamagePopStages),
     ("kill pops", KillPopSpriteBase, 16 * DamagePopStages),
     ("paint stains", StainSpriteBase, StainMaxCount),
+    ("barrage marker", BarrageMarkerSpriteId, 1),
     ("diamond paint", DiamondPaintSpriteBase, 8 * 16),
   ]
 
@@ -5871,6 +5881,38 @@ proc addPaintStains(
     )
     inc state.stainsSent
 
+proc addBarrageMarker(
+  sim: SimServer,
+  spriteDefs: var seq[SpriteDefinition],
+  currentIds: var seq[int],
+  packet: var seq[uint8]
+) {.measure.} =
+  ## Emits the grenade-barrage stated marker on this stream whenever the
+  ## mode is configured on: an invisible 1x1 object whose label declares the
+  ## current target depth (0 until the barrage latches), the current launch
+  ## rate in grenades/second, and the clock threshold that latches it (see
+  ## labelBarrage). The shells themselves ride the ordinary grenade
+  ## emissions. Label-carried like the own-aim readback: the 1x1 sprite
+  ## re-sends only on ticks the stated numbers actually changed.
+  if sim.config.barrageMaxPerSec <= 0:
+    return
+  currentIds.add(BarrageMarkerObjectId)
+  packet.addBoardSpriteChanged(
+    spriteDefs,
+    BarrageMarkerSpriteId,
+    1,
+    1,
+    newRgbaPixels(1, 1),
+    labelBarrage(
+      sim.barrageDepth(),
+      sim.barrageRatePermille() div 1000,
+      sim.config.barrageStartSec,
+      sim.config.barrageSaturateSec
+    )
+  )
+  packet.addBoardObject(
+    BarrageMarkerObjectId, 0, 0, 0, MapLayerId, BarrageMarkerSpriteId)
+
 proc damagePopBucket(amount: int): int =
   ## Maps a "-N" pop's HP-loss amount to one of DamagePopBucketCount sprite
   ## buckets. The amounts actually in play are sparse (1 shot/grenade-splash,
@@ -6112,6 +6154,10 @@ proc buildSpriteProtocolPlayerUpdates*(
         MapLayerId,
         spriteId
       )
+
+    # The grenade-barrage stated marker: endgame escalation is world
+    # knowledge every player viewer (bots included) reads outright.
+    sim.addBarrageMarker(nextState.spriteDefs, currentIds, result)
 
     sim.addAimIndicators(
       nextState.spriteDefs,
@@ -7030,6 +7076,7 @@ proc buildSpriteProtocolUpdates*(
   # Permanent terrain paint: incremental (only stains this viewer lacks) and
   # intentionally NOT tracked in currentIds, so it persists like the map bands.
   sim.addPaintStains(nextState, result)
+  sim.addBarrageMarker(nextState.spriteDefs, currentIds, result)
   sim.addSplatters(nextState.spriteDefs, currentIds, result)
   sim.addDamagePops(nextState.spriteDefs, currentIds, result)
   sim.addShotTracers(nextState.spriteDefs, currentIds, result)

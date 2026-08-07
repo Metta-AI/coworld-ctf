@@ -11,6 +11,7 @@ import
   test_perks,
   test_label_contract,
   test_map_export,
+  test_barrage,
   test_movement_slide,
   test_replay_controls,
   test_trenches,

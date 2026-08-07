@@ -314,8 +314,33 @@
           }
         },
         "mapSpec": {
-          "description": "Full expanded map geometry (obstacles, trenches, endzones) as a JSON object. Pins an exact authored map — e.g. a campaign cell's custom organic terrain — overriding mapPath/mapSeed/mapSize. Same format the replay config carries.",
+          "description": "Full expanded map geometry (obstacles, trenches, endzones) as a JSON object. Pins an exact authored map \u2014 e.g. a campaign cell's custom organic terrain \u2014 overriding mapPath/mapSeed/mapSize. Same format the replay config carries.",
           "type": "object"
+        },
+        "barrageMaxPerSec": {
+          "description": "Grenade-barrage endgame: the launch rate the bombardment ramps up to, in grenades/second across the whole board. 0 disables the mode; requires maxTicks > 0 when set. With the barrage on, the time limit no longer ends the game \u2014 it plays past 0:00 under full bombardment until one team is wiped.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 50,
+          "default": 0
+        },
+        "barrageStartPerSec": {
+          "description": "Grenade-barrage launch rate at the latch, along the map edges, grenades/second.",
+          "type": "integer",
+          "minimum": 1,
+          "default": 4
+        },
+        "barrageStartSec": {
+          "description": "Clock seconds remaining that latch the barrage on (30 = starts at 4:30 on a 5:00 clock).",
+          "type": "integer",
+          "minimum": 1,
+          "default": 30
+        },
+        "barrageSaturateSec": {
+          "description": "Seconds from the latch until full saturation: whole board targeted at barrageMaxPerSec (30 = saturated exactly at 5:00 with the default start).",
+          "type": "integer",
+          "minimum": 1,
+          "default": 30
         }
       }
     },
@@ -564,13 +589,17 @@
         "visionBubble": 90,
         "startWaitTicks": 120,
         "gameOverTicks": 360,
-        "maxTicks": 5000,
+        "maxTicks": 7200,
         "maxGames": 1,
         "mapPath": "gen",
         "showPlayerLabels": true,
         "teams": 2,
         "scoring": "pot",
-        "lobbyJoinTimeoutTicks": 2880
+        "lobbyJoinTimeoutTicks": 2880,
+        "barrageMaxPerSec": 15,
+        "barrageStartPerSec": 4,
+        "barrageStartSec": 30,
+        "barrageSaturateSec": 30
       }
     },
     {
@@ -692,13 +721,17 @@
         "visionBubble": 90,
         "startWaitTicks": 120,
         "gameOverTicks": 360,
-        "maxTicks": 5000,
+        "maxTicks": 7200,
         "maxGames": 1,
         "mapPath": "gen",
         "showPlayerLabels": true,
         "teams": 4,
         "scoring": "pot",
-        "lobbyJoinTimeoutTicks": 2880
+        "lobbyJoinTimeoutTicks": 2880,
+        "barrageMaxPerSec": 15,
+        "barrageStartPerSec": 4,
+        "barrageStartSec": 30,
+        "barrageSaturateSec": 30
       }
     },
     {
@@ -923,7 +956,11 @@
         "teams": 4,
         "scoring": "pot",
         "lobbyJoinTimeoutTicks": 2880,
-        "mapSize": "giant"
+        "mapSize": "giant",
+        "barrageMaxPerSec": 15,
+        "barrageStartPerSec": 4,
+        "barrageStartSec": 30,
+        "barrageSaturateSec": 30
       }
     },
     {
@@ -1045,12 +1082,16 @@
         "visionBubble": 90,
         "startWaitTicks": 120,
         "gameOverTicks": 360,
-        "maxTicks": 5000,
+        "maxTicks": 7200,
         "maxGames": 1,
         "mapPath": "gen",
         "teams": 2,
         "showPlayerLabels": true,
-        "lobbyJoinTimeoutTicks": 2880
+        "lobbyJoinTimeoutTicks": 2880,
+        "barrageMaxPerSec": 15,
+        "barrageStartPerSec": 4,
+        "barrageStartSec": 30,
+        "barrageSaturateSec": 30
       }
     },
     {
@@ -1172,13 +1213,17 @@
         "visionBubble": 90,
         "startWaitTicks": 120,
         "gameOverTicks": 360,
-        "maxTicks": 5000,
+        "maxTicks": 7200,
         "maxGames": 1,
         "mapPath": "gen",
         "showPlayerLabels": true,
         "teams": 2,
         "scoring": "pot",
-        "lobbyJoinTimeoutTicks": 2880
+        "lobbyJoinTimeoutTicks": 2880,
+        "barrageMaxPerSec": 15,
+        "barrageStartPerSec": 4,
+        "barrageStartSec": 30,
+        "barrageSaturateSec": 30
       }
     },
     {
@@ -1299,11 +1344,15 @@
         "visionBubble": 90,
         "startWaitTicks": 120,
         "gameOverTicks": 360,
-        "maxTicks": 5000,
+        "maxTicks": 7200,
         "maxGames": 1,
         "mapPath": "arena",
         "showPlayerLabels": true,
-        "lobbyJoinTimeoutTicks": 2880
+        "lobbyJoinTimeoutTicks": 2880,
+        "barrageMaxPerSec": 15,
+        "barrageStartPerSec": 4,
+        "barrageStartSec": 30,
+        "barrageSaturateSec": 30
       }
     },
     {
@@ -1340,12 +1389,16 @@
         "visionBubble": 90,
         "startWaitTicks": 120,
         "gameOverTicks": 360,
-        "maxTicks": 5000,
+        "maxTicks": 7200,
         "maxGames": 1,
         "mapPath": "arena",
         "showPlayerLabels": true,
         "teams": 2,
-        "lobbyJoinTimeoutTicks": 2880
+        "lobbyJoinTimeoutTicks": 2880,
+        "barrageMaxPerSec": 15,
+        "barrageStartPerSec": 4,
+        "barrageStartSec": 30,
+        "barrageSaturateSec": 30
       }
     }
   ],

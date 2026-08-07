@@ -6,10 +6,12 @@ import
 
 const
   # The event-substrate fixture: a full 16-bot match recorded against the
-  # CURRENT gameplay rules (GameVersion 40, seed 908, lives 9:
-  #   record_fixture.sh tests/replays/ctf.bitreplay 908 10000 '{"lives":9}')
-  # — 30 kills across ALL THREE weapons (25 gun / 1 grenade / 4 spray),
-  # 5 steals, 5 heals, ending on a capture. (The GV32 recording ran the
+  # CURRENT gameplay rules (GameVersion 41, seed 907, lives 9:
+  #   record_fixture.sh tests/replays/ctf.bitreplay 907 10000 '{"lives":9}')
+  # — kills across ALL THREE weapons, steals and heals, ending at the time
+  # limit (a scoreless draw exercises the draw verdict path too; seed 908's
+  # GV40 recording lost its spray kill under the GV41 no-overtime clock, so
+  # the seed moved). (The GV32 recording ran the
   # server at speed 4 as a starvation guard; under GV33 the speed-4 runs
   # came back gun-only on this machine while the plain speed-16 recording
   # on an IDLE machine carried the full weapon mix — the idle-machine rule

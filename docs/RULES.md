@@ -622,10 +622,45 @@ A round ends immediately when either condition is met:
 If neither happens before the **time limit**, the round is a **lose-lose
 draw** — there is no tiebreak, and both sides are penalized.
 
-**Action floors the clock** (GV23): every kill and every heart steal
-guarantees at least **500 ticks** remain on the clock, extending the time
-limit if needed — a timed round never ends in the middle of a fight or a
-heart run. The broadcast clock counts down against the extended limit.
+**The clock only counts down** (GV41): nothing extends it — the GV23
+"action floor" (kills and heart steals banking overtime) is gone. `maxTicks`
+is the exact scheduled end, and the broadcast clock counts honestly to 0:00.
+With the grenade barrage configured, 0:00 does not end the round at all (see
+below); without it, the scheduled end is still the scoreless-draw ceiling.
+
+## Grenade barrage (config-gated endgame)
+
+An anti-stalling mode that makes timeout draws effectively impossible. Off by
+default; a league turns it on with `barrageMaxPerSec > 0` (requires a time
+limit).
+
+- When the game clock reaches **`barrageStartSec` seconds remaining**
+  (default 30 — 4:30 elapsed on the default 5:00 clock), environment
+  grenades start raining onto the field: **4 per second**
+  (`barrageStartPerSec`) landing within a **40px band inside every map
+  edge** at first.
+- The barrage **escalates linearly over `barrageSaturateSec` seconds**
+  (default 30): the target band deepens until it covers the **whole
+  board**, and the rate ramps to **`barrageMaxPerSec`** (10-20/s
+  recommended, hard cap 50) — with the defaults, the entire arena is under
+  maximum bombardment exactly as the clock reads 5:00 / 0:00 remaining.
+- Shells are **ordinary paint-bomb blasts** (same radius, damage, trench
+  rules, shield soak, and floor stains as a player lob) with nobody to
+  credit: no kill/multi-kill stats for the environment, and a victim's death
+  logs `shelled by the grenade barrage`. Deaths, lives, heart return, and
+  respawns behave like any blast death.
+- **The clock is not the end** (GV41): with the barrage on, a round ignores
+  the time limit entirely. Past 0:00 the whole board stays under maximum
+  bombardment until at most one team has live players — the survivor wins,
+  and a **draw requires the last players of two teams to die on the same
+  tick**. (Without the barrage, a timed round still ends at the limit as a
+  scoreless draw.)
+- **Observability**: incoming shells are ordinary `grenade air` orbs and
+  `blast stage <n>` landings on both streams, and an invisible marker states
+  the escalation outright: `grenade barrage depth <n> rate <n> start <n>`,
+  present from the first tick whenever the mode is on (depth and rate 0
+  until the barrage latches). Shells only land within `depth` map pixels of
+  some edge.
 
 ## Scoring
 
@@ -700,7 +735,11 @@ These are starting values, exposed in the game config and tuned in self-play.
 | Endzone shape (`mapEndzone`) | "" (drawn) | Generated 2-team maps: `column` (classic home strip), `disc` or `square` (compact zone around a base set back from the edge) |
 | Endzone radius (`mapEndzoneRadius`) | 0 (drawn 110-140, size-scaled) | Compact endzones only: scoring radius / half-extent in px, 90..220. Needs `mapEndzone` |
 | Base depth (`mapBaseDepth`) | 0 (drawn 520-620) | Compact endzones only: home anchor permille of the half-field, 400..800; SMALLER sets the base further from the edge. Needs `mapEndzone` |
-| Time limit (`MaxTicks`) | 5000 ticks (~3.5 min) | Round length cap before the lose-lose draw |
+| Time limit (`MaxTicks`) | 7200 ticks (5:00) | Scheduled end; the scoreless-draw ceiling without the barrage, ignored with it |
+| Barrage max rate (`barrageMaxPerSec`) | 0 (off) | Endgame grenade rain ramps up to this many shells/s (cap 50); see "Grenade barrage". Needs a time limit |
+| Barrage start rate (`barrageStartPerSec`) | 4/s | Launch rate at the latch, along the map edges |
+| Barrage start (`barrageStartSec`) | 30s | Clock seconds remaining that latch the barrage (4:30 elapsed on the 5:00 clock); it only escalates once latched |
+| Barrage saturation (`barrageSaturateSec`) | 30s | Seconds from latch to full saturation — whole board at max rate, landing exactly at 5:00 with the defaults |
 | Map size | 1235×659 (default) | Varies by map class; the actual size and team count are stated in the `game teams <count> map <width>x<height>` init marker |
 
 Engine tick rate is **24 ticks/sec** (inherited from Crewrift); all

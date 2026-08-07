@@ -48,6 +48,10 @@ proc manifestVariant(variantId: string): JsonNode =
 # landed, since companions only ever change the object further).
 const SampleJson = """{
   "aimTurnRate": {"aimTurnRate": 7},
+  "barrageMaxPerSec": {"barrageMaxPerSec": 15},
+  "barrageStartPerSec": {"barrageStartPerSec": 9},
+  "barrageStartSec": {"barrageStartSec": 45},
+  "barrageSaturateSec": {"barrageSaturateSec": 45},
   "carrierSpeedPct": {"carrierSpeedPct": 55},
   "closedRoster": {"closedRoster": true, "minPlayers": 1,
                    "slots": [{"token": "tok1"}],
