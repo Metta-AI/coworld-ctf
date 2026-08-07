@@ -137,6 +137,16 @@ const
     ## board above 0.77, and narrowing this needs more of them. 0.85 is the
     ## midpoint of an interval, not a threshold anybody has measured.
     ##
+    ## THIS BAND IS ALSO THE RANKER (`staticScore` is installed as
+    ## `arena.mapFitness`), so moving it moves what the generator SHIPS, not
+    ## just what it reports. Measured at 4 teams over 60 seeds: breaches fall
+    ## 5/60 to 3/60 once the corrected band is doing the selecting — seeds 1037
+    ## and 1047 stop shipping 0.90-open boards (1038 px -> 566 px, 1019 px ->
+    ## 586 px) because a better candidate now outscores them, while 1019, 1028
+    ## and 1054 have no better candidate inside K. Expect `sightlineMaxPx` in px
+    ## to RISE (8.3% to 18.3% over the old cap): the generator stops spending
+    ## candidates avoiding long-but-not-open lines, which is the point.
+    ##
     ## NOT A QUALITY BAR. Like `StandCoverFloorPermille` this is a NAKEDNESS
     ## detector: inside the bound it says nothing about whether a board is
     ## good. It is inert on today's 2-team population (0 of 59 and 0 of 58),

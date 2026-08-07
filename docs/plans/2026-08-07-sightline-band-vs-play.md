@@ -243,22 +243,43 @@ and lane-clip work already merged.
 
 ### Under the corrected band (`sightlineOpenFrac > 0.85`)
 
-| batch | generated breaching | arena | arena-large |
-|---|---|---|---|
-| 2 teams, pre-clip | 0/59 = **0.0%** | ok (0.541) | ok (0.631) |
-| 2 teams, post-clip | 0/58 = **0.0%** | ok | ok |
-| 4 teams, pre-clip | 3/60 = **5.0%** | ok | ok |
-| 4 teams, post-clip | 5/60 = **8.3%** | ok | ok |
+**This band is also the best-of-K RANKER** (`map_metrics` installs
+`staticScore` as `arena.mapFitness`), so correcting it does not merely re-label
+maps — it changes which candidate each seed ships. Both readings are given
+because they answer different questions.
 
-Note the direction of the 4-team change under the corrected band: **the
-population got WORSE, not better.** The px cap reported 20.0% → 8.3% and the
-corrected band reports 5.0% → 8.3%, because the recent generator work lowered
-the median while making the tail heavier — the two 1701 px boards do not exist
-in the pre-clip batch at all. The band that flagged less was hiding a
-regression.
+| batch | maps selected by | px > 1050 | openFrac > 0.85 | mean score |
+|---|---|---|---|---|
+| 2 teams, pre-clip | old band | 16/59 = 27.1% | **0/59 = 0.0%** | 0.9597 |
+| 2 teams, post-clip | old band | 12/58 = 20.7% | **0/58 = 0.0%** | 0.9747 |
+| 2 teams, post-clip | **new band** | 15/58 = 25.9% | **0/58 = 0.0%** | 0.9767 |
+| 4 teams, pre-clip | old band | 12/60 = 20.0% | **3/60 = 5.0%** | 0.9568 |
+| 4 teams, post-clip | old band | 5/60 = 8.3% | **5/60 = 8.3%** | 0.9701 |
+| 4 teams, post-clip | **new band** | 11/60 = 18.3% | **3/60 = 5.0%** | 0.9732 |
 
-`arena-large`'s score moves 0.905 → 0.921 because it stops paying for a breach
-that was a bug in the band. `arena` is unchanged at 1.000.
+Controls in every batch, exempted from none: `arena` 758 px / 0.541 / 1.000;
+`arena-large` 1149 px / 0.631, score **0.905 → 0.921** because it stops paying
+for a breach that was a bug in the band.
+
+Three things to read off that table:
+
+- **The 4-team population got WORSE under the correction's own measure, not
+  better.** The px cap reported 20.0% → 8.3% across the recent generator work;
+  the corrected band reports 5.0% → 8.3% on those same two trees. The recent
+  work lowered the median and made the TAIL heavier — the two 1701 px boards do
+  not exist in the pre-clip batch at all. The band that flagged less was hiding
+  a regression.
+- **Selection then removes some of it, and cannot remove all of it.** Once the
+  corrected band is also doing the ranking, 4-team breaches fall 5/60 → 3/60:
+  seeds 1037 and 1047 stop shipping their 0.90-open boards (1038 px → 566 px,
+  1019 px → 586 px) because a better candidate now outscores them. Seeds 1019,
+  1028 and 1054 have no better candidate inside K. That is best-of-K moving the
+  measure without moving the support, exactly as advertised.
+- **`px > 1050` goes UP under the new selection** (8.3% → 18.3% at 4 teams,
+  20.7% → 25.9% at 2). That is the change working as intended, not a
+  regression: the generator stops spending candidates avoiding long-but-not-open
+  lines, which play says cost nothing, and spends them on openness instead.
+  Anyone still reading the px number will see it rise.
 
 ---
 
@@ -289,9 +310,28 @@ that was a bug in the band. `arena` is unchanged at 1.000.
   one; that is still true and still open. It breaches on 16.7% of the current
   4-team population.
 - **The hard gate still rejects none of this**, at either team count, on either
-  tree. `arena.collectMapDiagnostics` reports the longest line and does not act
-  on it; its comment is corrected here to say what the corrected band is cut on,
-  but flipping it to a rejection remains the epic owner's call.
+  tree (0 of 62 rejected in the live 4-team batch, both controls included).
+  `arena.collectMapDiagnostics` reports the longest line and does not act on it;
+  its comment is corrected here to say what the corrected band is cut on, but
+  flipping it to a rejection remains the epic owner's call.
+- **Three 4-team seeds still ship a near-open board and selection cannot fix
+  them** (1019 at 0.880, 1028 and 1054 at 0.964). Best-of-K moved the measure,
+  not the support: the generator has no better candidate for those shells
+  inside K. gen:1028's is a `corners` layout whose open main diagonal runs Red
+  pedestal → centre → Yellow pedestal, so it is an objective-to-objective
+  corridor rather than an incidental sliver. That is generator work, not band
+  work, and it is now visible to the score for the first time.
+
+### Test status
+
+`test_map_eval` 39, `test_map_select` 26, `test_map_rules` 61, `test_mapgen` 14,
+`test_map_lanes` 37, `test_mapgen_graph` 9 — **186 ok, 0 failed**, and no test
+was weakened to get there. `test_map_eval`'s `check "sightlineMaxPx" in
+breached` was a test that ratcheted BACKWARDS — it asserted the control stayed
+flagged, so correcting the band would have turned it red. It was re-derived from
+what it meant (the second control is scored against every band and exempted from
+none) into three checks: the band is not breached, the value is inside the
+bound, and the band is present in the control's scored set at all.
 
 ---
 
