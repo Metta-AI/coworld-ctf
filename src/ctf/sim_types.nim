@@ -940,12 +940,19 @@ type
     ## Per-parameter locks for the terrain generator. Zero-value ("" / 0,
     ## windows -1) = unlocked, drawn from the map seed. Locking a parameter
     ## replaces its draw without shifting the other draws.
-    size*: string          ## "small" | "standard" | "large"
-    symmetry*: string      ## "mirror" | "rot180"
+    size*: string          ## "small" | "standard" | "large" | "huge" |
+                           ## "giant"; "colossal" is override-only.
+    symmetry*: string      ## "mirrorHex" (legacy alias "mirror") |
+                           ## "rot180". "rot120"/"rot60"/"klein4" parse but
+                           ## the generator raises: those orbits need the
+                           ## cube-space rasterizer (hex Stage 2b).
     columns*: int          ## obstacle column count per half, 3..8
     windows*: int          ## glass-window count per half, 0..6; -1 = draw
     centerFeature*: string ## "bracket" | "ring" | "walls"
-    layout*: string        ## 4-team maps: "corners" | "plus"; "" = draw.
+    layout*: string        ## "hex2" (legacy alias "sides"); "" = draw. The
+                           ## square board's "corners"/"plus" went with C4 and
+                           ## are rejected. 4-team play is the named
+                           ## arena-hex4 boards, not a generated draw.
     pits*: int             ## requested TOTAL trench count, 0..64; -1 =
                            ## density draw. Best-effort: when the candidate
                            ## spots can't host the full request, the map
