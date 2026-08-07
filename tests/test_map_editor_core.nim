@@ -19,11 +19,19 @@ const PoolRenderHashes = [
   ## archetypes present (blocks 5, three-lane 5, field 4, warren 3, hub 2,
   ## ring 1), symmetry visibly exact on all 20, no degenerate board. A hash
   ## nobody has looked at makes a bad map the baseline for everyone after.
-  0x254b59b6'u32, 0x3439bd90'u32, 0x087a84d5'u32, 0xc615f7f9'u32,
+  ##
+  ## Moved again when `blocks` grew courtyard buildings and `ring` grew a
+  ## walled inner keep — the two archetypes that measured fine and did not
+  ## READ as their own names at full size. Exactly SIX entries changed, and
+  ## they are exactly the five `blocks` seeds (1, 9, 11, 17, 18) and the one
+  ## `ring` seed (14); the other fourteen are byte-identical, which is the
+  ## check that the change touched the two topologies it claims to and no
+  ## others. Those six were rendered and looked at.
+  0x254b59b6'u32, 0x99fcdcd3'u32, 0x087a84d5'u32, 0xc615f7f9'u32,
   0x01fd2cc7'u32, 0x86673849'u32, 0xd4eedbe0'u32, 0xac1b2e34'u32,
-  0xcab0a916'u32, 0x2c389334'u32, 0x178218cb'u32, 0xb38ec8dd'u32,
-  0xe1408202'u32, 0x837295a5'u32, 0xf1cab922'u32, 0x703f4aec'u32,
-  0x66a67465'u32, 0x30d4387b'u32, 0x3fdb8e76'u32, 0x1ba77a58'u32
+  0xcab0a916'u32, 0x2f45235f'u32, 0x178218cb'u32, 0x34a7ab35'u32,
+  0xe1408202'u32, 0x837295a5'u32, 0xb2920624'u32, 0x703f4aec'u32,
+  0x66a67465'u32, 0x7f1ab38d'u32, 0x77272386'u32, 0x1ba77a58'u32
 ]
 
 proc poolMap(index: int): CtfMap =
