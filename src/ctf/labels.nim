@@ -157,6 +157,20 @@ const
     ## the interpolation formula. One marker per team in the game, emitted
     ## even at permille 0 — absence means an old engine, not "no handicap".
     ## See `labelHandicap` for the exact tail arity.
+  LabelPrefixTrench* = "trench "
+    ## One trench's bounding-box marker, `trench <x0>,<y0> <x1>,<y1>`: an
+    ## invisible 1x1 object in the init snapshot stating one dug pit's
+    ## bounding box outright, in inclusive map-pixel corners — one marker per
+    ## entry in `gameMap.trenches`. Before this marker existed, trenches were
+    ## invisible to every policy: `LabelWalkabilityMap` is a BINARY mask, and
+    ## a trench floor reads identically to open floor on it. Trenches are
+    ## stored as `ArenaShape` polygons (a 56x56 walkable pit, its edge cut
+    ## with rough noise — see TrenchSize / trenchRoughEdge); the marker states
+    ## the shape's tight bounding box, so a non-rect trench reads as slightly
+    ## LOOSE (conservative) geometry rather than exact membership. Absent
+    ## entirely on 4-team maps (trenches are a 2-team-map feature) and on any
+    ## map that rolled zero pits — zero markers, not an empty-box marker. See
+    ## `labelTrench` for the exact tail arity.
 
   # ---------------------------------------------------------------------------
   # Tokens that fill the interpolated slots above.
@@ -299,6 +313,14 @@ proc labelHandicap*(color: string; permille, hp, lives, spdPct,
   ## dropped (0..50). Stated so a policy never re-derives the interpolation.
   LabelPrefixHandicap & color & " " & $permille &
     " hp " & $hp & " lives " & $lives & " spd " & $spdPct & " miss " & $missPct
+
+proc labelTrench*(x0, y0, x1, y1: int): string =
+  ## One trench's bounding-box marker label, `trench <x0>,<y0> <x1>,<y1>`. A
+  ## consumer matches LabelPrefixTrench and splits the tail on spaces into
+  ## exactly `["<x0>,<y0>", "<x1>,<y1>"]`; each corner splits once more on the
+  ## comma. The corners are the INCLUSIVE bounding box of the trench in map
+  ## pixels.
+  LabelPrefixTrench & $x0 & "," & $y0 & " " & $x1 & "," & $y1
 
 proc labelOwnAim*(brads: int): string =
   ## The own-aim marker label, `own aim <brads>`. A consumer matches
