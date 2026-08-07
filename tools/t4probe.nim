@@ -1,5 +1,12 @@
-## Throwaway: what layout / anchors / endzone-box centers does a 4-team board
-## have, and which pedestal does the baseline bot's "largest |dx|" rule pick?
+## What layout / anchors / endzone-box centers does a 4-team board have, and
+## which pedestal does the baseline bot's "largest |dx|" raid rule pick?
+##
+## This is the evidence behind docs/plans/2026-08-06-attackpairs-measures-the-bot.md:
+## on BOTH 4-team layouts the rule ties between two enemies, so only two of the
+## four pedestals are ever an intentional target and attackPairs is capped at
+## 4/12 by the BOT, not by the map.
+##
+##   tools/t4probe maps/arena4.json 1003 1007
 import std/[strformat, os, strutils]
 import ../src/ctf/sim
 
