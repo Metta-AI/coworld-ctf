@@ -58,14 +58,27 @@ SKIPPED_BUILD = collections.Counter()  # (GameVersion, coworld_version) -> n
 
 
 def our_game_version():
+    """The GameVersion of the checkout the extractor was built from.
+
+    ⚠️ The constant MOVED: it lived in src/ctf/sim.nim through GV27 and now
+    lives in src/ctf/sim_types.nim. Reading only the old path returned None,
+    which does not fail loudly — it silently DISABLES the version-skip guard
+    below, so replays recorded on an engine we cannot re-simulate stopped being
+    reported up front and instead fell through to N opaque subprocess failures.
+    Both paths are checked, newest first, and a None result is now surfaced.
+    """
     d = os.path.dirname(os.path.dirname(EXTRACT_BIN))
-    try:
-        with open(f"{d}/src/ctf/sim.nim") as f:
-            for line in f:
-                if "GameVersion* =" in line:
-                    return line.split('"')[1]
-    except OSError:
-        pass
+    for rel in ("src/ctf/sim_types.nim", "src/ctf/sim.nim"):
+        try:
+            with open(f"{d}/{rel}") as f:
+                for line in f:
+                    if "GameVersion* =" in line:
+                        return line.split('"')[1]
+        except OSError:
+            continue
+    print(f"  ⚠️  could not read GameVersion from {d} — the engine-horizon "
+          f"guard is OFF and mismatched replays will fail opaquely",
+          file=sys.stderr)
     return None
 
 

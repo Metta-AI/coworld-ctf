@@ -371,6 +371,12 @@ when defined(ptprobe):
                       #    band pocketThreat exists to see, invisible to GrabStackRange
   var ptHpBlock = 0   # ⭐ ...frames hpGate alone forced the hold (1 hp, no cover, pocket
                       #    not clear) on a frame the shipped gate waved through
+  # hpGate FUNNEL — the tier that zeroes NAMES the reason. A 0-fire lever is
+  # either correctly gated, field-only, or dead code, and only the funnel tells
+  # which. Each counter is a superset of the next.
+  var ptHpLow = 0     # ...gate frames where we are AT or below HpGateTouchHp
+  var ptHpLowSolo = 0 # ...and no mate is covering
+  var ptHpLowArmed = 0 # ...and the pocket is not clear (>=1 fresh gun in range)
 
 when defined(tcprobe):
   # -d:tcprobe ONLY (2026-07-29 touch latch): does the latch arm, and what did it PREEMPT?
@@ -6594,6 +6600,11 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       if holdGrab: inc ptNewHold
       if holdGrab and not oldHold: inc ptFlipHold
       if shell > 0: inc ptSentry
+      if bot.ownHp <= HpGateTouchHp:
+        inc ptHpLow
+        if coverMates == 0:
+          inc ptHpLowSolo
+          if defenders >= 1: inc ptHpLowArmed
       if bot.tune.hpGate and bot.ownHp <= HpGateTouchHp and
           coverMates == 0 and defenders >= 1 and not oldHold:
         inc ptHpBlock

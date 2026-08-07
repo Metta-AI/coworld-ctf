@@ -873,6 +873,8 @@ proc main() =
       &"  ⭐ flip {ptFlipHold} ({flipPct:.1f}% of gate frames)"
     echo &"  PT-PROBE sentry-band (fresh gun 150-300px, invisible to GrabStackRange) " &
       &"{ptSentry} frames   hpGate-only blocks {ptHpBlock}"
+    echo &"  PT-PROBE hpGate funnel: gate {ptFrames} -> lowHp {ptHpLow} -> solo " &
+      &"{ptHpLowSolo} -> pocket-armed {ptHpLowArmed} -> FIRED {ptHpBlock}"
     echo &"    (flip=0 => the lever changed NO decision: an A/B on it measures nothing. " &
       &"sentry=0 => the 150-300px shell is empty in the mirror and pocketThreat is inert here.)"
 
