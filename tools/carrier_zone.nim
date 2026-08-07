@@ -15,6 +15,57 @@
 ## The answer, once controlled: the population really is empty, and it is
 ## empty by construction rather than by accident — see `carriersInOwnZone`.
 ## `approachPx` is the measurement that replaces it.
+##
+## THE BLAST RADIUS — what else map_playtest reports through this code path.
+##
+## The defect is NOT "reads a flag field". Both halves of the dead predicate
+## are individually fine: `flags[].carrier` is populated for thousands of
+## consecutive ticks (4,569 of capture-seed1's 8,955), and `inCaptureZone` is
+## exercised correctly by `capturesInZone`. It is the CONJUNCTION that is
+## empty, and the reason generalises to a rule worth applying to any new
+## metric here:
+##
+##   A between-steps sampler whose predicate IS an engine trigger condition
+##   reads zero forever, because `step()` creates and consumes that state
+##   before the tool is ever handed control.
+##
+## `checkWinCondition` is the last gameplay call in `step()`, after
+## `tryPickupFlags` and `updateFlags`, so carry-and-standing-in-own-zone is
+## born and consumed inside one step. Every reported metric classified against
+## that rule, and then checked empirically over the five committed fixtures:
+##
+##   EVENT-DRAINED — structurally immune. `steals`, `captures`,
+##   `capturesInZone`, `capturesAll`, `kills`, `deaths`, and the `pace` /
+##   `balanceEntropy` derived from them. Events RECORD the transition instead
+##   of sampling the state behind it, and the engine never clears `sim.events`
+##   — only the consumer does. A trigger firing is exactly what puts a row on
+##   this channel, so the case that empties a sampler is the case that fills
+##   this one. `capturesInZone` is the proof: same predicate, event channel,
+##   and it fires 1-for-1 with `captures`.
+##
+##   PERSISTENT STATE — safe, because the state outlives a step boundary.
+##   `aliveTicks` (a corpse waits out `respawnTimer`, many ticks),
+##   `occupancy` / `occTeam` / `deadFloorFrac` / `exposure` and the whole
+##   pedestal-reach block built on the same grid, `fightTicks` / `closeTicks`
+##   (proximity is not a trigger — shooting does not consume it), `carries`,
+##   and `carrierTicks` / `approachPx` here. Nothing in `step()` clears any of
+##   them on the tick it sets them.
+##
+##   TRIGGER-CONDITION STATE — the defect. `carrierInZoneTicks`, and only it.
+##
+## Empirically, sweeping every scalar across all five fixtures: exactly two
+## read 0 on all of them. One is `carrierInZoneTicks`. The other is
+## `captureRadius`, which is NOT this bug and must not be reported as it —
+## it is `gameMap.endzoneRadius` read ONCE as a map constant, never sampled,
+## and 0 is its meaningful value (`> 0` selects the compact-endzone rules,
+## which none of these maps use). Every other metric varies across the
+## fixtures, so nothing else shares the empty population.
+##
+## One nearby caveat that is real but is not this defect: `fightTicks` sits
+## within 0.02% of `aliveTicks` on the four small maps because GunRange spans
+## the whole board, and only separates on gen-colossal-4team (77%) whose board
+## is 4992px wide. That is the documented saturation `CloseRangePx` exists to
+## work around, not an empty sample.
 
 import
   std/math,
