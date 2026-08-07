@@ -50,6 +50,42 @@ The cheap detector was identical in all three cases: **make the mechanism prove 
 measuring the thing it is supposed to change, against a control you did not touch. None needed a
 rewrite to find. All three read correctly in the source.
 
+### Three MORE went the same way, and two of them were mine
+
+Same day, written by the person who got them wrong — a handoff that only records other people's
+retired diagnoses is not being kept honest.
+
+4. **The fill-floor mechanism — my own correction to (1) above — was itself wrong.** On a rot90
+   board `structureCount` is **0**, so the subtraction loop runs zero times and the clamp never
+   fires at all. The OBSERVATIONS in (1) were right and are what found the real bug; the mechanism
+   named was just the first inert-looking thing in the source. The actual cause was
+   `xMin = captureClear + 50` — a 2-team *sides* inset applied to a rot90 board — which left the
+   street grid dropping **34 of 34 shapes on every attempt**. I found a flat series, correctly
+   concluded something was inert, then guessed which thing instead of rendering the board. That is
+   the identical error this document records three times above, committed a fourth time by the
+   person quoting it.
+   → `2026-08-06-fill-budget-floor-finding.md`, correction block at the top
+5. **"The `interiorFrac` miss is cover spent on pebbles."** Also mine, read off the 50-map contact
+   sheet. Speck share does **not** separate maps that clear the bar from maps that miss it (2-team
+   20.5% of footprint against 21.9%), and at 4 teams the PASSING maps carry more, not fewer (45.1%
+   against 28.7%). The eye ranked by shape COUNT — specks are 74-92% of it — and a contact sheet
+   cannot show footprint.
+   → `2026-08-06-what-the-cover-is-made-of.md`
+6. **"So it is the masses instead."** True but downstream, and the confound was flagged unchecked
+   in the same document that claimed it. Checking it: order the six archetypes by median
+   largest-room fraction and `interiorFrac` comes out in **exact reverse**, 5 of 6 at 2 teams and
+   4 of 5 at 4 teams. `warren` (largest room 0.12) clears the bar on **6 of 6** seeds at 0.444,
+   1.3x the hand-authored arena; `field` (0.34), `hub` and `ring` clear it on **0 of 10**. At 2
+   teams the enclosure miss is not the generator's — it is one archetype's, and the population mean
+   is a weighted average over a MIX that is a design choice rather than a tuning parameter.
+   → `2026-08-06-largest-room-is-the-lever.md`
+
+Running tally: **six standing diagnoses retired by measurement in two days, half of them written by
+the epic owner.** The pattern is not carelessness. A plausible mechanism read off the source is
+free and a measurement is not, so the guess gets published and the check does not. The only
+defence that has worked is the one already in the working rules — run the control in the same
+batch, and look at the output.
+
 ### One diagnosis that was NOT wrong, and is worse than written
 
 "Fifty generated maps are still one map" is fully confirmed, and at 4 teams it is worse than
