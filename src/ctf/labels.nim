@@ -157,6 +157,15 @@ const
     ## the interpolation formula. One marker per team in the game, emitted
     ## even at permille 0 — absence means an old engine, not "no handicap".
     ## See `labelHandicap` for the exact tail arity.
+  LabelPrefixPerks* = "perks "
+    ## The per-team perk marker, `perks <color> <group> [<group> …]`: an
+    ## invisible 1x1 object in the init snapshot stating one team's perk
+    ## groups outright — each group is the comma-joined perk names one policy
+    ## seat carries (`armor,scope`), or `-` for none. One group means the
+    ## whole team shares it; two or more deal to the team's distinct policies
+    ## in join order (CTF-Doubles). One marker per team in the game, emitted
+    ## even when unperked — absence means an old engine, not "no perks". See
+    ## `labelPerks` for the exact format.
   LabelPrefixTrench* = "trench "
     ## One trench's bounding-box marker, `trench <x0>,<y0> <x1>,<y1>`: an
     ## invisible 1x1 object in the init snapshot stating one dug pit's
@@ -313,6 +322,22 @@ proc labelHandicap*(color: string; permille, hp, lives, spdPct,
   ## dropped (0..50). Stated so a policy never re-derives the interpolation.
   LabelPrefixHandicap & color & " " & $permille &
     " hp " & $hp & " lives " & $lives & " spd " & $spdPct & " miss " & $missPct
+
+proc labelPerks*(color: string; groups: seq[string]): string =
+  ## One team's perk marker label, `perks <color> <group> [<group> …]`. A
+  ## consumer matches LabelPrefixPerks and splits the tail on spaces: the
+  ## first token is the team color, each further token one perk GROUP — the
+  ## comma-joined perk names (PerkNames vocabulary, e.g. `armor,scope`) that
+  ## one policy seat on the team carries, or the literal `-` for none. A
+  ## single group is team-wide; several deal to the team's distinct policies
+  ## in join order. An unperked team reads `perks <color> -`.
+  result = LabelPrefixPerks & color
+  if groups.len == 0:
+    result.add " -"
+  else:
+    for group in groups:
+      result.add " "
+      result.add (if group.len > 0: group else: "-")
 
 proc labelTrench*(x0, y0, x1, y1: int): string =
   ## One trench's bounding-box marker label, `trench <x0>,<y0> <x1>,<y1>`. A

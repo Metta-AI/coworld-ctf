@@ -8,6 +8,7 @@ import
   test_grenades,
   test_handicaps,
   test_identity_badges,
+  test_perks,
   test_label_contract,
   test_map_export,
   test_movement_slide,

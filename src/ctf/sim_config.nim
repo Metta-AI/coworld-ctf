@@ -45,7 +45,13 @@ proc defaultGameConfig*(): GameConfig =
     mapGen: MapGenOverrides(windows: -1, pits: -1, pitDensity: -1),
     mapSpec: "",
     closedRoster: false,
-    slots: @[]
+    slots: @[],
+    perkArmorHp: PerkArmorHpDefault,
+    perkScopePermille: PerkScopePermilleDefault,
+    perkGrenadePermille: PerkGrenadePermilleDefault,
+    perkThrusterPermille: PerkThrusterPermilleDefault,
+    perkLuckPermille: PerkLuckPermilleDefault,
+    perkLuckDamage: PerkLuckDamageDefault
   )
 
 proc readConfigInt(node: JsonNode, name: string, value: var int) =
@@ -292,8 +298,8 @@ proc readConfigTokens(
     if closedRoster and slots[i].name.len == 0:
       slots[i].name = defaultSlotName(i)
 
-proc readHandicapTeam(text: string): Team =
-  ## Reads one handicap-map team key.
+proc readTeamKey(text, field: string): Team =
+  ## Reads one team-keyed map key (handicaps, perks).
   case text.strip().toLowerAscii()
   of "red":
     Red
@@ -306,7 +312,7 @@ proc readHandicapTeam(text: string): Team =
   else:
     raise newException(
       CtfError,
-      "Config field handicaps has key " & text &
+      "Config field " & field & " has key " & text &
         "; expected red, blue, green, or yellow."
     )
 
@@ -332,6 +338,117 @@ proc readHandicapPermille(value: JsonNode, teamName: string): int =
   # exactly 0.0 maps to 0 (the byte-identical no-handicap path).
   int(f * 1000.0 + 0.5)
 
+proc readPerkGroup(value: JsonNode, teamName: string): PerkSet =
+  ## Reads one perk group: an array of perk name strings.
+  if value.kind != JArray:
+    raise newException(
+      CtfError,
+      "Config field perks." & teamName & " group must be an array of perk names."
+    )
+  for item in value:
+    if item.kind != JString:
+      raise newException(
+        CtfError,
+        "Config field perks." & teamName & " has a non-string perk name."
+      )
+    try:
+      result.incl(parsePerk(item.getStr()))
+    except CtfError:
+      raise newException(
+        CtfError,
+        "Config field perks." & teamName & " has unknown perk " &
+          item.getStr() & "; expected armor, scope, grenade, thruster, or luck."
+      )
+
+proc readConfigPerks(node: JsonNode, config: var GameConfig) =
+  ## Reads the optional per-team perk map. A team's value is either a flat
+  ## array of perk names (one group, the whole team shares it) or an array of
+  ## such arrays (per-policy groups, CTF-Doubles):
+  ## {"red": ["armor", "scope"], "blue": [["grenade"], ["thruster", "luck"]]}.
+  ## Omitted teams keep no perks. Like handicaps, a perk set named for an
+  ## inactive team is accepted and simply never applies.
+  if not node.hasKey("perks"):
+    return
+  let perks = node["perks"]
+  if perks.kind != JObject:
+    raise newException(CtfError, "Config field perks must be an object.")
+  for teamName, value in perks.pairs:
+    let team = readTeamKey(teamName, "perks")
+    if value.kind != JArray:
+      raise newException(
+        CtfError,
+        "Config field perks." & teamName &
+          " must be an array of perk names or an array of groups."
+      )
+    var groups: seq[PerkSet]
+    if value.len > 0 and value[0].kind == JArray:
+      for group in value:
+        groups.add readPerkGroup(group, teamName)
+    else:
+      groups.add readPerkGroup(value, teamName)
+    config.perks[team] = groups
+
+proc readPerkModPermille(node: JsonNode, name: string, value: var int) =
+  ## Reads one optional 0.0..1.0 perk-mod fraction into a permille.
+  if not node.hasKey(name):
+    return
+  let item = node[name]
+  var f: float
+  case item.kind
+  of JFloat:
+    f = item.getFloat()
+  of JInt:
+    f = float(item.getInt())
+  else:
+    raise newException(
+      CtfError,
+      "Config field perkMods." & name & " must be a number between 0 and 1."
+    )
+  if f < 0.0 or f > 1.0:
+    raise newException(
+      CtfError,
+      "Config field perkMods." & name & " must be between 0 and 1."
+    )
+  value = int(f * 1000.0 + 0.5)
+
+proc readPerkModInt(node: JsonNode, name: string, value: var int) =
+  ## Reads one optional non-negative integer perk mod.
+  if not node.hasKey(name):
+    return
+  let item = node[name]
+  if item.kind != JInt or item.getInt() < 0:
+    raise newException(
+      CtfError,
+      "Config field perkMods." & name & " must be a non-negative integer."
+    )
+  value = item.getInt()
+
+proc readConfigPerkMods(node: JsonNode, config: var GameConfig) =
+  ## Reads the optional perk-magnitude overrides, e.g.
+  ## {"armorHp": 1, "scopeAim": 0.5, "grenadeRange": 0.25,
+  ##  "thrusterSpeed": 0.1, "luckChance": 0.1, "luckDamage": 2}.
+  ## Fractions are authored 0..1 and stored as integer permille (the
+  ## handicaps rule), so every in-sim derivation stays integer or perk-gated.
+  if not node.hasKey("perkMods"):
+    return
+  let mods = node["perkMods"]
+  if mods.kind != JObject:
+    raise newException(CtfError, "Config field perkMods must be an object.")
+  for key in mods.keys:
+    if key notin ["armorHp", "scopeAim", "grenadeRange", "thrusterSpeed",
+        "luckChance", "luckDamage"]:
+      raise newException(
+        CtfError, "Config field perkMods has unknown key " & key & ".")
+  mods.readPerkModInt("armorHp", config.perkArmorHp)
+  mods.readPerkModPermille("scopeAim", config.perkScopePermille)
+  mods.readPerkModPermille("grenadeRange", config.perkGrenadePermille)
+  mods.readPerkModPermille("thrusterSpeed", config.perkThrusterPermille)
+  mods.readPerkModPermille("luckChance", config.perkLuckPermille)
+  mods.readPerkModInt("luckDamage", config.perkLuckDamage)
+  if config.perkLuckDamage < 1:
+    raise newException(
+      CtfError, "Config field perkMods.luckDamage must be at least 1.")
+
 proc readConfigHandicaps(node: JsonNode, config: var GameConfig) =
   ## Reads the optional per-team handicap map, e.g. {"red": 0.0, "blue": 0.6}.
   ## Omitted teams stay at 0 (no handicap). A handicap named for an inactive
@@ -343,7 +460,7 @@ proc readConfigHandicaps(node: JsonNode, config: var GameConfig) =
   if handicaps.kind != JObject:
     raise newException(CtfError, "Config field handicaps must be an object.")
   for teamName, value in handicaps.pairs:
-    config.handicaps[readHandicapTeam(teamName)] =
+    config.handicaps[readTeamKey(teamName, "handicaps")] =
       readHandicapPermille(value, teamName)
 
 proc validate(config: GameConfig) =
@@ -509,6 +626,8 @@ proc update*(config: var GameConfig, jsonText: string) =
     config.gunRange = mapMeta.gunRange
   node.readConfigSlots(config.slots)
   node.readConfigHandicaps(config)
+  node.readConfigPerks(config)
+  node.readConfigPerkMods(config)
   node.readConfigBool("closedRoster", config.closedRoster)
   node.readConfigTokens(config.slots, config.closedRoster)
   node.readConfigPlayers(config.slots)
@@ -613,6 +732,40 @@ proc configJson*(config: GameConfig): string =
       handicaps[teamText(team)] = %(config.handicaps[team].float / 1000.0)
   if handicaps.len > 0:
     node["handicaps"] = handicaps
+  # Echo only the perked teams — one flat name array for a single group,
+  # nested arrays for per-policy groups — so a default (perk-free) game's
+  # replay config carries no perks key.
+  var perks = newJObject()
+  for team in Red .. Yellow:
+    if config.perks[team].len == 0:
+      continue
+    var groups = newJArray()
+    for group in config.perks[team]:
+      var names = newJArray()
+      for perk in Perk:
+        if perk in group:
+          names.add(%perkText(perk))
+      groups.add(names)
+    perks[teamText(team)] =
+      if config.perks[team].len == 1: groups[0] else: groups
+  if perks.len > 0:
+    node["perks"] = perks
+  # Echo perkMods only when some magnitude differs from its default, as the
+  # authored shapes (fractions as 0..1 floats, counts as integers).
+  if config.perkArmorHp != PerkArmorHpDefault or
+      config.perkScopePermille != PerkScopePermilleDefault or
+      config.perkGrenadePermille != PerkGrenadePermilleDefault or
+      config.perkThrusterPermille != PerkThrusterPermilleDefault or
+      config.perkLuckPermille != PerkLuckPermilleDefault or
+      config.perkLuckDamage != PerkLuckDamageDefault:
+    node["perkMods"] = %*{
+      "armorHp": config.perkArmorHp,
+      "scopeAim": config.perkScopePermille.float / 1000.0,
+      "grenadeRange": config.perkGrenadePermille.float / 1000.0,
+      "thrusterSpeed": config.perkThrusterPermille.float / 1000.0,
+      "luckChance": config.perkLuckPermille.float / 1000.0,
+      "luckDamage": config.perkLuckDamage
+    }
   if config.mapSpec.len > 0:
     node["mapSpec"] = fromJson(config.mapSpec)
   $node

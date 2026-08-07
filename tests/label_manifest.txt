@@ -50,6 +50,7 @@ name p<n>
 name p<n> flag <n>
 own aim <n>
 paint stain <color> variant <n>
+perks <color> -
 player <color>
 player <color> <side>
 score p<n> <n> color <n>

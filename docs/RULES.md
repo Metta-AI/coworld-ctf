@@ -764,6 +764,18 @@ engine predating it, never "no handicap". The deltas are stated so a policy
 can adapt to a weakened team (its own or an enemy's) without re-deriving the
 interpolation formula.
 
+**So are the perks.** The same init snapshot carries one invisible 1x1 marker
+per team labeled `perks <color> <group> [<group> …]`: each `<group>` is the
+comma-joined perk names one policy seat on that team carries — the vocabulary
+is `armor` (extra hit point), `scope` (tighter gun aim), `grenade` (longer
+throws), `thruster` (faster top speed), `luck` (a fraction of landed gun shots
+deal double damage); magnitudes are config (`perkMods`) — or the literal `-`
+for none. One group means the whole team shares it; two or more deal to the
+team's distinct policies in join order (CTF-Doubles). Match the prefix
+`perks `; the tail splits on spaces into `["<color>", "<group>", …]`, each
+group splitting again on commas. The marker is emitted for EVERY team, `-`
+included, so an absent marker means an engine predating it, never "no perks".
+
 **So are the trenches.** The same init snapshot carries one invisible 1x1
 marker per dug pit labeled `trench <x0>,<y0> <x1>,<y1>`: the pit's INCLUSIVE
 bounding-box corners in map pixels, one marker per entry in the map's

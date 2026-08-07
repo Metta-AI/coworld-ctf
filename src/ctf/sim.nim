@@ -193,7 +193,8 @@ proc startGame*(sim: var SimServer) =
     sim.players[i].lastShoutTick = -1
     sim.players[i].alive = true
     sim.players[i].lives = sim.config.livesFor(sim.players[i].team)
-    sim.players[i].hp = sim.config.hitPointsFor(sim.players[i].team)
+    sim.players[i].hp =
+      sim.config.maxHpFor(sim.players[i].team, sim.players[i].perks)
     sim.players[i].respawnTimer = 0
     sim.players[i].fireCooldown = 0
     sim.players[i].fireWindup = 0
@@ -882,16 +883,22 @@ proc tryFireArc*(sim: var SimServer, attackerIndex: int) =
   sim.startArcFire(attackerIndex)
   sim.resolveActiveArcCones()
 
-proc aimJitterSigma(sim: SimServer): float =
+proc aimJitterSigma(sim: SimServer, perks: PerkSet): float =
   ## The per-shot Gaussian aim-noise sigma, in radians (GV34): calibrated
   ## against the LIVE config.gunRange so that a fully visible body at max
   ## range is hit exactly 80% of the time — see AimJitterCentralZ for the
   ## derivation. PlayerHalf + BulletHalfWidth is the corridor's continuous
-  ## acceptance half-window for a centered silhouette.
+  ## acceptance half-window for a centered silhouette. A scope-perked shooter
+  ## deviates less: sigma shrinks by perkScopePermille (the scale applies
+  ## only when the perk is present, so a perk-free shot's draw is untouched).
   let window = (float(PlayerHalf) + BulletHalfWidth) / float(sim.config.gunRange)
-  arcsin(min(1.0, window)) / AimJitterCentralZ
+  result = arcsin(min(1.0, window)) / AimJitterCentralZ
+  if PerkScope in perks:
+    result = result * float(1000 - sim.config.perkScopePermille) / 1000.0
 
-proc jitterDirection(sim: var SimServer, headingBrads: int): tuple[x, y: float] =
+proc jitterDirection(
+  sim: var SimServer, headingBrads: int, perks: PerkSet
+): tuple[x, y: float] =
   ## The actual unit direction of one released shot: the locked aim rotated
   ## by a Gaussian draw on the deterministic sim RNG (like the trench duck,
   ## it is part of the hashed game, so replays re-roll identically). The
@@ -899,7 +906,7 @@ proc jitterDirection(sim: var SimServer, headingBrads: int): tuple[x, y: float] 
   ## where the paint lands is where the viewer sees it fly.
   let
     (bx, by) = aimVector(headingBrads)
-    jitter = gauss(sim.rng, 0.0, sim.aimJitterSigma())
+    jitter = gauss(sim.rng, 0.0, sim.aimJitterSigma(perks))
     cj = cos(jitter)
     sj = sin(jitter)
   # aimVector is (cos a, -sin a) (screen y down), so adding jitter to the
@@ -995,7 +1002,7 @@ proc selectGunShot(sim: var SimServer, shooterIndex: int): PendingGunShot =
         sim.tickCount - sim.config.fireWindupTicks
       else:
         sim.tickCount
-    (ux, uy) = sim.jitterDirection(headingBrads)
+    (ux, uy) = sim.jitterDirection(headingBrads, shooter.perks)
   PendingGunShot(
     shooterIndex: shooterIndex,
     targetIndex: sim.selectFireTarget(shooterIndex, ux, uy),
@@ -1101,7 +1108,14 @@ proc applyFire(sim: var SimServer, shot: PendingGunShot) =
     # unchanged.)
     let bubbleUp = sim.players[targetIndex].hasShield and
       sim.players[targetIndex].shieldHp > 0
-    let blocked = sim.absorbDamage(targetIndex, 1)
+    # A lucky shot (luck perk) deals perkLuckDamage instead of 1. Rolled once
+    # per LANDED hit, only when the shooter carries the perk, so a perk-free
+    # game draws no extra RNG and re-simulates byte-for-byte.
+    var damage = 1
+    if PerkLuck in shooter.perks and
+        sim.rng.rand(999) < sim.config.perkLuckPermille:
+      damage = sim.config.perkLuckDamage
+    let blocked = sim.absorbDamage(targetIndex, damage)
     # Paintball paint marks the body only when the shield bubble ISN'T eating it
     # (a bubble dent draws no body paint). Stamp so the EYES-PiP visor splat
     # fires for THIS paint hit — and only for a PAINT hit (gun/grenade). The
@@ -1110,7 +1124,7 @@ proc applyFire(sim: var SimServer, shot: PendingGunShot) =
       sim.players[targetIndex].paintHitTick = sim.tickCount
     sim.emitEvent(
       Damage, source = shooterIndex, target = targetIndex, weapon = "gun",
-      amount = 1, hp = max(0, sim.players[targetIndex].hp),
+      amount = damage, hp = max(0, sim.players[targetIndex].hp),
       blocked = blocked,
       x = float(sim.players[targetIndex].x + CollisionW div 2),
       y = float(sim.players[targetIndex].y + CollisionH div 2)
@@ -1129,7 +1143,7 @@ proc applyFire(sim: var SimServer, shot: PendingGunShot) =
         damages = @[
           sim.eventDamage(
             targetIndex,
-            1,
+            damage,
             max(0, sim.players[targetIndex].hp),
             blocked
           )
@@ -1155,7 +1169,7 @@ proc applyFire(sim: var SimServer, shot: PendingGunShot) =
       x: sim.players[targetIndex].x + CollisionW div 2,
       y: sim.players[targetIndex].y + CollisionH div 2,
       tick: sim.tickCount,
-      amount: 1,
+      amount: damage,
       color: sim.players[targetIndex].color
     )
     if sim.players[targetIndex].hp <= 0:
@@ -1164,7 +1178,7 @@ proc applyFire(sim: var SimServer, shot: PendingGunShot) =
       sim.recordTeamKill(shooterIndex, targetIndex)
       sim.emitEvent(
         Kill, source = shooterIndex, target = targetIndex, weapon = "gun",
-        amount = 1,
+        amount = damage,
         x = float(sim.players[targetIndex].x + CollisionW div 2),
         y = float(sim.players[targetIndex].y + CollisionH div 2)
       )
@@ -1235,14 +1249,16 @@ proc grenadePosition*(grenade: AirborneGrenade, tick: int): tuple[x, y: int] =
   (grenade.sx + (grenade.tx - grenade.sx) * t div grenade.flightTicks,
     grenade.sy + (grenade.ty - grenade.sy) * t div grenade.flightTicks)
 
-proc throwTarget*(player: Player): tuple[x, y: int] =
+proc throwTarget*(player: Player, maxRange: int): tuple[x, y: int] =
   ## Where a charging player's throw would currently land, along their aim at
-  ## the charge-picked distance. Shares throwGrenade's exact math so the render
-  ## charge-ring can never disagree with where the grenade will actually go.
+  ## the charge-picked distance. `maxRange` is the seat's resolved full-charge
+  ## distance (config.grenadeRangeFor — the grenade perk stretches it); both
+  ## callers pass the same value, so the render charge-ring can never disagree
+  ## with where the grenade will actually go.
   let
     charge = clamp(player.throwCharge, 0, GrenadeChargeTicks)
     strength = GrenadeMinRange +
-      (GrenadeMaxRange - GrenadeMinRange) * charge div GrenadeChargeTicks
+      (maxRange - GrenadeMinRange) * charge div GrenadeChargeTicks
     (ux, uy) = aimVector(player.aimBrads)
     sx = player.x + CollisionW div 2
     sy = player.y + CollisionH div 2
@@ -1259,8 +1275,9 @@ proc throwGrenade(sim: var SimServer, playerIndex: int) =
   let
     player = sim.players[playerIndex]
     charge = clamp(player.throwCharge, 0, GrenadeChargeTicks)
+    maxRange = sim.config.grenadeRangeFor(GrenadeMaxRange, player.perks)
     strength = GrenadeMinRange +
-      (GrenadeMaxRange - GrenadeMinRange) * charge div GrenadeChargeTicks
+      (maxRange - GrenadeMinRange) * charge div GrenadeChargeTicks
     (ux, uy) = aimVector(player.aimBrads)
     sx = player.x + CollisionW div 2
     sy = player.y + CollisionH div 2
@@ -1551,7 +1568,8 @@ proc tryPickupMedKits*(sim: var SimServer, playerIndex: int) =
   ## kit is never wasted; a taken kit refills after MedKitRespawnTicks.
   if not sim.players[playerIndex].alive:
     return
-  let maxHp = sim.config.hitPointsFor(sim.players[playerIndex].team)
+  let maxHp = sim.config.maxHpFor(
+    sim.players[playerIndex].team, sim.players[playerIndex].perks)
   if sim.players[playerIndex].hp >= maxHp:
     return
   sim.pickupByTouch(playerIndex, medKitSpawns, MedKitPickupRange,
@@ -1775,7 +1793,8 @@ proc applyInput*(
   let
     speedScale =
       if player.carryingFlag: sim.config.carrierSpeedPct else: 100
-    maxSpeed = sim.config.maxSpeedFor(player.team) * speedScale div 100
+    maxSpeed =
+      sim.config.maxSpeedFor(player.team, player.perks) * speedScale div 100
     accel = sim.config.accel * speedScale div 100
     # CLIMBING OUT of a trench is slow; dropping in and moving around it
     # are not. While the center is inside a pit, each axis whose motion
@@ -2815,7 +2834,8 @@ proc respawnPlayers(sim: var SimServer) =
         let spawn = sim.randomEndzonePosition(sim.players[i].team)
         sim.placePlayer(i, spawn.x, spawn.y)
         sim.players[i].alive = true
-        sim.players[i].hp = sim.config.hitPointsFor(sim.players[i].team)
+        sim.players[i].hp =
+          sim.config.maxHpFor(sim.players[i].team, sim.players[i].perks)
         sim.players[i].aimBrads = sim.gameMap.spawnAimBrads(sim.players[i].team)
         sim.players[i].flipH = sim.gameMap.spawnFlipH(sim.players[i].team)
         sim.emitEvent(

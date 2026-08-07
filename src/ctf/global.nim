@@ -3293,7 +3293,9 @@ proc addMapMarkers(
   ## stating the authored handicap fraction plus the engine-resolved deltas
   ## (see LabelPrefixHandicap) — emitted for EVERY team, permille 0
   ## included, so the vocabulary sweep covers the label and a policy can
-  ## tell "unhandicapped" from "old engine without the marker".
+  ## tell "unhandicapped" from "old engine without the marker" — and one
+  ## perk marker per team stating its perk groups (see LabelPrefixPerks),
+  ## emitted for every team on the same absence-means-old-engine rule.
   var index = 0
   for room in sim.rooms:
     packet.addMapMarker(
@@ -3366,6 +3368,17 @@ proc addMapMarkers(
         sim.config.maxSpeedFor(team) * 100 div max(1, sim.config.maxSpeed),
         sim.config.missPermilleFor(team) div 10
       )
+    )
+    inc index
+  for team in sim.gameMap.teams():
+    packet.addMapMarker(
+      spriteDefs,
+      index,
+      0,
+      0,
+      1,
+      1,
+      labelPerks(teamText(team), sim.config.perkGroupTexts(team))
     )
     inc index
   ## One stated bounding-box marker per trench (see LabelPrefixTrench):
@@ -5307,7 +5320,8 @@ proc addGrenades(
     # broadcast keeps the grenade in-hand (the carried marker) and shows the lob
     # by the airborne orb + the landing splat, never the aim-preview ring.
     if player.throwCharge > 0 and viewer >= 0:
-      let (tx, ty) = throwTarget(player)
+      let (tx, ty) = throwTarget(
+        player, sim.config.grenadeRangeFor(GrenadeMaxRange, player.perks))
       if spriteDefs.spriteDefinitionIndex(ThrowTargetSpriteId) < 0:
         packet.addBoardSpriteChanged(
           spriteDefs, ThrowTargetSpriteId,
@@ -5634,7 +5648,7 @@ proc addHpPips(
     # the hit-point config, so a 99-hp game reads the same 14px 3-chunk bar.
     # The denominator is the player's OWN team max, so a handicapped team's
     # smaller bar still reads full when topped up.
-    let maxHp = max(1, sim.config.hitPointsFor(player.team))
+    let maxHp = max(1, sim.config.maxHpFor(player.team, player.perks))
     let effectiveHp = player.hp + player.shieldHp
     let litSegments = min(HpBarSegments,
       max(1, (effectiveHp * HpBarSegments + maxHp - 1) div maxHp))

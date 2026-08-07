@@ -8,6 +8,29 @@ import
   std/json,
   sim_types, sim_state
 
+proc perkSetForJoin*(sim: SimServer, team: Team, address: string): PerkSet =
+  ## The perk group for a seat about to join `team` as `address`: the team's
+  ## configured groups (config.perks) deal to its distinct POLICIES in join
+  ## order — a seat of an already-seated policy shares that policy's group, a
+  ## new policy takes the next one (clamped to the last, so a lone group is
+  ## simply team-wide). Pure function of config + the replayed join stream,
+  ## so playback resolves identically and a later leave never reshuffles.
+  let groups = sim.config.perks[team]
+  if groups.len == 0:
+    return {}
+  var seen: seq[string]
+  for p in sim.players:
+    if p.team != team:
+      continue
+    let pol = policyName(p.address)
+    if pol notin seen:
+      seen.add pol
+  let pol = policyName(address)
+  var index = seen.find(pol)
+  if index < 0:
+    index = seen.len
+  groups[min(index, groups.high)]
+
 proc teamForSlot*(sim: SimServer, order: int): Team =
   ## Returns the configured or default team for one slot: slots deal round
   ## the active teams in enum order (the classic red/blue alternation on
@@ -457,6 +480,7 @@ proc addPlayer*(
       else:
         teamColor(team)
     accountIndex = sim.ensureRewardAccount(address)
+    perks = sim.perkSetForJoin(team, address)
   let spawn = sim.spawnPosition(team, order div sim.gameMap.teamCount())
   sim.bindRewardAccountSlot(accountIndex, order)
   sim.rewardAccounts[accountIndex].hasTeam = false
@@ -474,7 +498,8 @@ proc addPlayer*(
     team: team,
     alive: true,
     lives: sim.config.livesFor(team),
-    hp: sim.config.hitPointsFor(team),
+    hp: sim.config.maxHpFor(team, perks),
+    perks: perks,
     joinOrder: order,
     address: address,
     color: color,

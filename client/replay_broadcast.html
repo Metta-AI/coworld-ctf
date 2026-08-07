@@ -242,6 +242,23 @@ html, body {
   color: var(--paper-dim);
   flex: none;
 }
+/* Team-perk badges, riding the squad-pip strip (the pip strip IS the life
+   meter — see renderSquad). Each policy's pips form one .squad-pol block
+   with that policy's badges beside them; side-l reverses the strip so, in
+   CTF-Doubles, the two pip groups sit adjacent at the strip's center with
+   each policy's badges flanking OUTSIDE its own group on both sides of the
+   clock. Badges keep each perk's own fixed color (never team-tinted). */
+.plate .perk-icos {
+  display: flex;
+  align-items: center;
+  gap: calc(3 * var(--u));
+}
+.plate .perk-ico { display: inline-flex; }
+.plate .perk-ico svg {
+  width: calc(10 * var(--u));
+  height: calc(10 * var(--u));
+  display: block;
+}
 /* Handicap chip: an amber pill next to the team name when that team is
    weakened. The full delta breakdown rides in the native `title` on hover
    (cursor:help hints it). Hidden entirely for an unhandicapped team. */
@@ -265,10 +282,20 @@ html, body {
    is clickable → POV lens (fog-honesty). */
 .squad {
   display: flex;
-  gap: calc(3 * var(--u));
+  gap: calc(6 * var(--u));
   margin-top: calc(3 * var(--u));
 }
 .plate.side-r .squad { justify-content: flex-end; }
+/* Policy groups keep the HEADLINE's left-to-right order on BOTH plates — the
+   first-named policy's pips are always the left group, so a badge reads as
+   belonging to the name it sits under. (No side mirroring: an early version
+   reversed the strip on side-l for clock-symmetry, which visually attached
+   the left badges to the wrong policy name.) */
+.squad-pol {
+  display: flex;
+  align-items: center;
+  gap: calc(3 * var(--u));
+}
 .squad-pip {
   width: calc(9 * var(--u));
   height: calc(9 * var(--u));
@@ -1592,6 +1619,7 @@ body[data-embed] #board { top: 0; height: 100%; }
   var teamPolicies = C.teamPolicies, teamName = C.teamName, teamHeadline = C.teamHeadline;
   var rosterName = C.rosterName, setName = C.setName, esc = C.esc, fmt = C.fmt;
   var setHandicap = C.setHandicap;
+  var teamPerkGroups = C.teamPerkGroups, perkIconsHtml = C.perkIconsHtml;
   var togglePov = C.togglePov, renderClock = C.renderClock, renderTransport = C.renderTransport;
   var ingestLullSpans = C.ingestLullSpans, renderLullSpans = C.renderLullSpans;
   var markBeat = C.markBeat, killMarkerTeam = C.killMarkerTeam, renderBeatMarkers = C.renderBeatMarkers;
@@ -2042,20 +2070,49 @@ body[data-embed] #board { top: 0; height: 100%; }
   function seatLivesLeft(p) {
     return (p.lives || 0) + (p.alive ? 1 : 0);
   }
-  function renderSquad(el, players, pov) {
-    var key = players.map(function (p) { return p.s; }).join(',');
+  function renderSquad(el, s, team, pov) {
+    // The pip strip IS the team's life meter, grouped by policy: each policy's
+    // pips sit in one .squad-pol block with that policy's perk badges beside
+    // them. CTF-Doubles (two policies) mirrors WITHIN the strip — the two pip
+    // groups sit adjacent at its center with each policy's badges flanking
+    // OUTSIDE its own group — while the group order stays the headline's
+    // left-to-right policy order on both plates, so a badge always sits on
+    // the side of the name it belongs to. Persistent DOM keyed by seats +
+    // perks; pips update in place every frame.
+    var groups = teamPerkGroups(s, team);
+    var split = groups.length === 2;
+    var key = groups.map(function (g) {
+      return g.pol + '=' + (g.perks || []).join('+') + ':' +
+        g.players.map(function (p) { return p.s; }).join(',');
+    }).join('|');
     if (el._key !== key) {
       el.innerHTML = ''; el._pips = {};
-      players.forEach(function (p) {
-        var pip = document.createElement('span');
-        pip.className = 'squad-pip';
-        pip.title = shortName(p.name);
-        pip.addEventListener('click', function () { togglePov(p.s); });
-        el.appendChild(pip);
-        el._pips[p.s] = pip;
+      groups.forEach(function (g, gi) {
+        var block = document.createElement('span');
+        block.className = 'squad-pol';
+        var iconsFirst = split && gi === 0;
+        var icos = null;
+        if (g.perks && g.perks.length) {
+          icos = document.createElement('span');
+          icos.className = 'perk-icos';
+          icos.innerHTML = perkIconsHtml(g.perks, s.pmods);
+        }
+        if (icos && iconsFirst) block.appendChild(icos);
+        g.players.forEach(function (p) {
+          var pip = document.createElement('span');
+          pip.className = 'squad-pip';
+          pip.title = shortName(p.name);
+          pip.addEventListener('click', function () { togglePov(p.s); });
+          block.appendChild(pip);
+          el._pips[p.s] = pip;
+        });
+        if (icos && !iconsFirst) block.appendChild(icos);
+        el.appendChild(block);
       });
       el._key = key;
     }
+    var players = [];
+    groups.forEach(function (g) { players = players.concat(g.players); });
     players.forEach(function (p) {
       if (seatLivesLeft(p) > squadMaxLives) squadMaxLives = seatLivesLeft(p);
     });
@@ -2117,21 +2174,15 @@ body[data-embed] #board { top: 0; height: 100%; }
       lives[team] = (tr[team] && tr[team].lives) || 0;
     });
 
-    // squad pips per team (one per player), sorted by stable join slot
-    var byTeam = {};
-    teams.forEach(function (team) { byTeam[team] = []; });
-    (s.roster || []).forEach(function (p) {
-      if (byTeam[p.team]) byTeam[p.team].push(p);
-    });
-
     teams.forEach(function (team) {
       setName('name-' + team, teamName(s, team, team.toUpperCase()));
       setHandicap('hcap-' + team, s, team);
       // '—' until the frame actually carries this team's entry (a pre-roster
       // frame would otherwise read as a real 0). Matches the league shell.
       $('lives-' + team).textContent = tr[team] ? lives[team] : '—';
-      var players = byTeam[team].sort(function (a, b) { return a.s - b.s; });
-      renderSquad($('squad-' + team), players, s.pov);
+      // Squad pips grouped by policy with perk badges around each group
+      // (the pip strip is the life meter; see renderSquad).
+      renderSquad($('squad-' + team), s, team, s.pov);
       updateFlag('flag-' + team, team, tr[team] || {}, s);
       // leader pulse when this team leads EVERY rival by >= 3
       var bestRival = -Infinity;
