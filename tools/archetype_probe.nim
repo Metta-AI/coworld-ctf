@@ -147,8 +147,12 @@ proc main() =
     (row.rooms, row.largest) = roomCount(gameMap)
     rows.add row
     if raw:
+      ## `largest` is printed PER SEED, not only per archetype group. The group
+      ## medians alone are 6 points, and a rank claim over 6 points is weak
+      ## evidence — which is the one stated weakness of
+      ## 2026-08-06-largest-room-is-the-lever.md. Per seed it is n = the sweep.
       echo &"  {seed} {arch:<10} valid={row.valid} cover={row.cover}pm " &
-        &"int={row.interior:.3f} rooms={row.rooms} " &
+        &"int={row.interior:.3f} rooms={row.rooms} largest={row.largest:.3f} " &
         &"routes={row.routeMin}/{row.routeMean:.1f} {row.reason}"
 
   echo ""
