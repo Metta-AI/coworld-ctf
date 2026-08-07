@@ -171,6 +171,22 @@ when defined(ssprobe):
   var ssAmbushSeek = 0    # frames swordAmbush steered toward a sword pickup
   var ssAmbushSwing = 0   # frames swordAmbush actually pressed the melee swing
 
+when defined(canprobe):
+  # -d:canprobe ONLY: separate PERCEPTION from BEHAVIOUR on the spray-can
+  # pickup path, which is the one place a renamed label has burned this policy
+  # (0.7.x renamed `plasma arc` -> `spray can`; the pickup scans kept the old
+  # name and matched nothing, silently, for weeks).
+  #
+  # The distinction is the whole point. "We rarely carry a can" has two totally
+  # different causes with the same symptom: the SCAN comes back empty (we are
+  # blind), or the scan works and the SEEK gate declines (we are choosy). A
+  # pickup count alone cannot tell them apart — cpSeen can, because it counts
+  # the label read itself, before any policy judgement is applied.
+  var cpGate = 0      # decide frames where the pickup scan was actually run
+  var cpSeen = 0      # ...and the `spray can` scan came back NON-EMPTY
+  var cpObjs = 0      # total pickup objects the scan returned (summed over frames)
+  var cpSeek = 0      # ...and sprayGrab committed the steer to one
+
 when defined(mtprobe):
   # -d:mtprobe ONLY (v9): instrument the medTopOff gate as a FUNNEL so a 0-fire
   # result is diagnosable (correctly gated & rare vs dead code / a logic bug).
@@ -7025,6 +7041,11 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       if p.x < 40.0 or p.y < 40.0 or p.x > float(MapW - 40) or p.y > float(MapH - 40):
         continue
       plasmaPickups.add(p)
+    when defined(canprobe):
+      inc cpGate
+      if plasmaPickups.len > 0:
+        inc cpSeen
+        cpObjs += plasmaPickups.len
   if bot.tune.shieldTank or bot.tune.shieldRush or bot.tune.comboGrab:  # shield = 6 HP (no longer a disarm)
     for o in client.spriteObjectsWithLabel(LabelShield):
       let p = client.mapPos(o)
@@ -7072,6 +7093,8 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         best = d
         target = p
         seekingPickup = true
+    when defined(canprobe):
+      if seekingPickup: inc cpSeek
   # ⭐⭐⭐ COMBO GRAB (2026-08-06, sharpened per captain-brain audit course-
   # correction from the original unrestricted design): item-stacking insight —
   # shield/spray-can/grenade are separate state bits and STACK on one agent,

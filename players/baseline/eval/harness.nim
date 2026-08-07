@@ -415,6 +415,17 @@ when defined(ssprobe):
   var ssPrevSword: array[64, bool]
   var ssPrevShield: array[64, bool]
 
+when defined(canprobe):
+  # -d:canprobe: engine-truth spray-can possession, to sit beside the policy's
+  # own cpGate/cpSeen/cpSeek funnel. Held-ticks and rising-edge pickup EVENTS,
+  # split Red/Blue so a one-sided A/B (HUNTER_SLOTS) is readable.
+  var cpRedHeldTk = 0
+  var cpBlueHeldTk = 0
+  var cpRedPickEv = 0
+  var cpBluePickEv = 0
+  var cpAliveTk = 0
+  var cpPrevCan: array[64, bool]
+
 proc runEpisode(seed, maxTicks, numPlayers: int, hunterSlots: seq[int]):
     EpisodeResult =
   ## Runs one headless game. Seats listed in hunterSlots run the HUNTER tune
@@ -472,6 +483,19 @@ proc runEpisode(seed, maxTicks, numPlayers: int, hunterSlots: seq[int]):
         engine.applyShout(slot, drivers[slot].bot.shoutWant)
         drivers[slot].bot.shoutWant = ""
     engine.advance()
+    when defined(canprobe):
+      for slot in 0 ..< drivers.len:
+        let sp = engine.sprayOf(slot)
+        if not sp.alive:
+          cpPrevCan[slot] = false   # a death DROPS the can; do not re-count it
+          continue
+        inc cpAliveTk
+        let red = engine.teamOfSlot(slot) == 0
+        if sp.can:
+          if red: inc cpRedHeldTk else: inc cpBlueHeldTk
+          if not cpPrevCan[slot]:
+            if red: inc cpRedPickEv else: inc cpBluePickEv
+        cpPrevCan[slot] = sp.can
     when defined(ssprobe):
       for slot in 0 ..< drivers.len:
         let ss = engine.swordShieldOf(slot)
@@ -718,6 +742,19 @@ proc main() =
     echo &"    (satSeen=0 => pair-saturation never occurs in range (lever inert); " &
       &"redirect>0 => the cap actually spreads fire; dogpile = commit-held or lone target; " &
       &"cov1>0 cov2=0 => a PAIR of readable mate lines never forms — threshold unreachable)"
+  when defined(canprobe):
+    let
+      canPerK = (if cpAliveTk > 0: 1000.0 * (cpRedHeldTk + cpBlueHeldTk).float / cpAliveTk.float else: 0.0)
+      seenPct = (if cpGate > 0: 100.0 * cpSeen.float / cpGate.float else: 0.0)
+      seekPct = (if cpSeen > 0: 100.0 * cpSeek.float / cpSeen.float else: 0.0)
+    echo &"  CAN-PROBE perception: scan-frames {cpGate}  non-empty {cpSeen} ({seenPct:.1f}%)  " &
+      &"objects {cpObjs}  -> sprayGrab seek {cpSeek} ({seekPct:.1f}% of non-empty)"
+    echo &"  CAN-PROBE engine truth: alive-ticks {cpAliveTk}  can held-ticks RED {cpRedHeldTk} " &
+      &"BLUE {cpBlueHeldTk}  pickups RED {cpRedPickEv} BLUE {cpBluePickEv}  " &
+      &"({canPerK:.2f} can-ticks per 1k alive)"
+    echo &"    (non-empty=0 with scan-frames>0 => the `spray can` label read is BLIND — the " &
+      &"exact 0.7.x rename failure. non-empty>0 with seek=0 => perception fine, gate declines. " &
+      &"pickups>0 with non-empty=0 => we only ever get cans by ACCIDENT.)"
   when defined(ssprobe):
     let
       swPerK = (if ssAliveTk > 0: 1000.0 * (ssRedSwordTk + ssBlueSwordTk).float / ssAliveTk.float else: 0.0)

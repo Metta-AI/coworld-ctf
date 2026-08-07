@@ -11,6 +11,7 @@ import
   test_label_contract,
   test_map_export,
   test_movement_slide,
+  test_policy_label_scans,
   test_replay_controls,
   test_trenches,
   test_weapon_observability,

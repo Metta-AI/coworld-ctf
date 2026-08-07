@@ -183,6 +183,16 @@ when defined(ssprobe):
     let p = engine.sim.players[slot]
     (sword: p.hasSword, shield: p.hasShield, alive: p.alive)
 
+when defined(canprobe):
+  # -d:canprobe: engine-side TRUTH for the spray-can pickup path — whether the
+  # slot is actually holding a can this tick. Paired with the policy-side
+  # cpSeen/cpSeek counters this splits "never saw one" from "saw one, declined"
+  # from "sought one and missed". The field name is still the pre-0.7.x
+  # `hasPlasmaArc`; only the WIRE label was renamed to `spray can`.
+  proc sprayOf*(engine: EvalEngine, slot: int): tuple[can, alive: bool] =
+    let p = engine.sim.players[slot]
+    (can: p.hasPlasmaArc, alive: p.alive)
+
 proc frameFor*(engine: EvalEngine, slot: int): string =
   ## The exact sprite packet blob the live server would send this slot this
   ## tick: real fogged view, delta-encoded against the slot's retained viewer.
