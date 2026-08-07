@@ -331,6 +331,22 @@ def _components(mask):
     return sizes
 
 
+HAND_AUTHORED = ("arena", "arena-large", "arena4")
+"""The maps a human placed every shape on, and therefore the only ones this
+script will call a CONTROL. Read `Baseline` below for why the distinction is
+carried in code.
+
+This tuple is the entire basis for the word "control" in this file, so the one
+change that would make every 4-team verdict dishonest is adding a `gen:` or
+`pool:` name to it. A generated map belongs on the `--reference` flag, which
+stamps REFERENCE on everything it heads precisely so it cannot be mistaken for
+this. Membership here is a claim about PROVENANCE, not about quality: `arena4`
+is listed because a person authored its 21 seed shapes in
+`tools/author_arena4.py`, not because it measured well — at the time it was
+added it had not been played at all.
+"""
+
+
 class Baseline:
     """The map every other map's numbers are stated against — and WHICH KIND.
 
@@ -819,8 +835,8 @@ def comparison(rows):
         print("  we know plays'. If the whole population is bad, every delta "
               "here reads zero and the table looks healthy.")
     else:
-        print("  DELTA FROM THE CONTROL  (generated - arena; "
-              "pp = percentage points)")
+        print(f"  DELTA FROM THE CONTROL  (generated - {ctrl['map']}, the "
+              "hand-authored board; pp = percentage points)")
     for n in names:
         r = by[n]
         if r["isControl"]:
@@ -860,14 +876,26 @@ def main():
         d = json.loads(Path(p).read_text())
         groups.setdefault(d["map"], []).append(d)
 
-    # THE BASELINE, and WHICH KIND — see `Baseline`. The hand-authored arena
-    # always wins if it is in the batch: it is the only yardstick that is
-    # outside the population under test, and every absolute-form verdict in
-    # `report` is licensed by that and by nothing else.
+    # THE BASELINE, and WHICH KIND — see `Baseline`. A hand-authored map always
+    # wins if it is in the batch: it is the only yardstick that is outside the
+    # population under test, and every absolute-form verdict in `report` is
+    # licensed by that and by nothing else.
+    #
+    # A hand-authored map from the WRONG TEAM COUNT is not a control either —
+    # four objectives and three enemies is a different game — so when several
+    # are present the one whose home count matches the batch wins.
+    merged = {m: merge(ds) for m, ds in groups.items()}
+    authored = [m for m in merged
+                if any(m == n or m.endswith("/" + n) for n in HAND_AUTHORED)]
     baseline = None
-    for m, ds in groups.items():
-        if m == "arena" or m.endswith("/arena"):
-            baseline = Baseline(merge(ds), "control")
+    if authored:
+        played = [len(d.get("homes", [])) for m, d in merged.items()
+                  if m not in authored]
+        want_homes = max(set(played), key=played.count) if played else None
+        match = [m for m in authored
+                 if len(merged[m].get("homes", [])) == want_homes]
+        pick = (match or authored)[0]
+        baseline = Baseline(merged[pick], "control")
     if baseline is None and want_reference:
         # No hand-authored map at this team count. A NAMED generated map is a
         # strictly better yardstick than none — a delta from something in the

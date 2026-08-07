@@ -54,6 +54,22 @@ const
     ## `arena-large` breaches four bands and nothing here has ever said so.
     ## Prepended alongside `arena`; see `map_metrics.ArenaLargeControl` for the
     ## evidence that this is a finding about the map, not about the bands.
+  FourTeamControlPath = GameDir / "maps/arena4.json"
+    ## The HAND-AUTHORED 4-TEAM control, and the reason controls are now chosen
+    ## by TEAM COUNT instead of prepended unconditionally.
+    ##
+    ## `arena` and `arena-large` are 2-team `layoutSides` boards. Heading a
+    ## 4-team batch with them is not a control — it is a different game (four
+    ## objectives instead of two, three enemies instead of one), so a delta
+    ## from it cannot separate "this board plays badly" from "this board has
+    ## four teams on it". That gap is why the 4-team scorecard has been running
+    ## on a GENERATED reference point, which can only ever say "worse than the
+    ## best of its own kind".
+    ##
+    ## It lives as a mapSpec .json rather than in `src/ctf/arena.nim` because
+    ## `loadCandidate` already resolves a spec path, so the board is authored,
+    ## played and measured as DATA. Promoting it to a named map beside `arena`
+    ## is a separate change with a validation-baseline and map-pool cost.
 
 type CliError = object of CatchableError
 
@@ -219,33 +235,47 @@ proc controlWarnings(control, m: MapMetrics): seq[string] =
              "map_metrics.ArenaLargeControl for the four already decided.")
   discard m
 
-proc evaluateBatch(paths: seq[string], withControl: bool): seq[MapMetrics] =
+proc evaluateBatch(
+  paths: seq[string], withControl: bool
+): tuple[metrics: seq[MapMetrics], controls: int] =
   ## Always evaluates the controls FIRST so every downstream comparison has
-  ## them. BOTH hand-authored maps, not just `arena` — see
-  ## `SecondControlMapPath`.
+  ## them, and evaluates the controls that MATCH THE BATCH'S TEAM COUNT.
+  ##
+  ## Team count is not a detail to average over. `arena` and `arena-large` are
+  ## 2-team boards; `arena4` is the hand-authored 4-team one. A batch gets the
+  ## controls that play the same game it does, and a MIXED batch gets all
+  ## three, in that order — so `metrics[0]` and `metrics[1]` are still arena
+  ## and arena-large for every reader that assumes it.
   var wanted = paths
   if withControl:
     # Strip any caller-supplied copy first. Without this, naming a control on
     # the command line leaves it wherever the caller put it and the leading
     # rows stop being the controls every reader below assumes they are.
     wanted = wanted.filterIt(it != ControlMapPath and
-                             it != SecondControlMapPath)
-    wanted.insert(SecondControlMapPath, 0)
-    wanted.insert(ControlMapPath, 0)
+                             it != SecondControlMapPath and
+                             it != FourTeamControlPath)
+  var loaded: seq[(string, CtfMap)]
   for path in wanted:
+    loaded.add (path, loadCandidate(path))
+  if withControl:
+    ## An empty batch is the `control` command asking for the 2-team pair.
+    var controls: seq[string]
+    if loaded.len == 0 or loaded.anyIt(it[1].layout == layoutSides):
+      controls.add ControlMapPath
+      controls.add SecondControlMapPath
+    if loaded.anyIt(it[1].layout != layoutSides):
+      controls.add FourTeamControlPath
+    for i in countdown(controls.high, 0):
+      loaded.insert (controls[i], loadCandidate(controls[i])), 0
+    result.controls = controls.len
+  for (path, gameMap) in loaded:
     let started = getMonoTime()
-    var m = evaluateMap(loadCandidate(path), path)
+    var m = evaluateMap(gameMap, path)
     let ms = (getMonoTime() - started).inMilliseconds
     stderr.writeLine &"  scored {path} in {ms}ms"
-    result.add m
+    result.metrics.add m
 
 # --- commands ---------------------------------------------------------------
-
-proc controlCount(a: Args): int =
-  ## How many leading rows of a batch are controls. Both hand-authored maps
-  ## unless `--no-control`, which exists only so a test can prove the default
-  ## is on.
-  if a.has("no-control"): 0 else: 2
 
 proc printBatch(metrics: seq[MapMetrics], detail: bool, controls = 1) =
   for i in 0 ..< min(controls, metrics.len):
@@ -260,29 +290,32 @@ proc printBatch(metrics: seq[MapMetrics], detail: bool, controls = 1) =
     for m in metrics:
       echo m.summaryLine()
   echo ""
-  echo "CONTROLS are the first " & $controls & " row(s) (arena, arena-large). " &
-    "Read every other row as a delta from them, never against an absolute " &
-    "idea of a good map. arena-large is a 30% geometric upscale of arena and " &
-    "breaches four bands: it is a control that shows what SCALE alone does to " &
-    "a metric, which is worth as much as the one that passes."
+  echo "CONTROLS are the first " & $controls & " row(s), and they are the " &
+    "HAND-AUTHORED maps that play the same game as the batch: arena and " &
+    "arena-large at 2 teams, arena4 at 4. Read every other row as a delta " &
+    "from them, never against an absolute idea of a good map. arena-large is " &
+    "a 30% geometric upscale of arena and breaches four bands: it is a " &
+    "control that shows what SCALE alone does to a metric, which is worth as " &
+    "much as the one that passes."
 
 proc cmdScore(a: Args) =
   var paths = a.positionals
   if paths.len == 0: paths = @[ControlMapPath]
-  let metrics = evaluateBatch(paths, not a.has("no-control"))
-  printBatch(metrics, detail = a.has("detail") or paths.len == 1,
-             controls = a.controlCount())
+  let batch = evaluateBatch(paths, not a.has("no-control"))
+  printBatch(batch.metrics, detail = a.has("detail") or paths.len == 1,
+             controls = batch.controls)
 
 proc cmdControl(a: Args) =
-  let metrics = evaluateBatch(@[], withControl = true)
-  echo metrics[0].detailReport()
+  let batch = evaluateBatch(@[], withControl = true)
+  echo batch.metrics[0].detailReport()
 
 proc cmdPool(a: Args) =
   var paths: seq[string]
   for i in 0 ..< MapPoolSeeds.len:
     paths.add "pool:" & $i
-  let metrics = evaluateBatch(paths, not a.has("no-control"))
-  let nControl = a.controlCount()
+  let batch = evaluateBatch(paths, not a.has("no-control"))
+  let metrics = batch.metrics
+  let nControl = batch.controls
   printBatch(metrics, detail = a.has("detail"), controls = nControl)
   # Rule 5: print the pool distribution against the control so a band that is
   # merely restating the pool's own median is visible as such.
