@@ -1,9 +1,12 @@
 # Coworld CTF — AI Capture-the-Flag Shooter
 
-Coworld CTF is a two-team capture-the-flag shooter for the Coworld platform. Two
-teams (Red and Blue) start on opposite edges of a symmetric arena, each with its
-own flag on a home pedestal. Players move, take cover behind obstacles, and
-shoot. Steal the enemy flag and carry it home — or wipe the enemy team — to win.
+Coworld CTF is a two-team capture-the-flag shooter for the Coworld platform. The
+arena is a flat-top **hexagon** inscribed in a bounding box (1119×969 px on the
+standard size class); the box's six corners are permanent void, so the playfield
+is 71.8% of the box. Two teams (Red and Blue) start at opposite points of that
+hexagon, each with its own flag on a home pedestal. Players move, take cover
+behind obstacles, and shoot. Steal the enemy flag and carry it home — or wipe the
+enemy team — to win.
 Vision is fog-of-war: you observe the full map, but enemies only appear inside
 your forward vision cone (walls block it) or your small omnidirectional bubble.
 
@@ -22,8 +25,9 @@ logs or replay links, and the smallest repro.
 
 ## Rules at a glance
 
-- **8 vs 8.** Red spawns on the **left** edge, Blue on the **right**. Each team's
-  flag sits on a pedestal inside its spawn pocket.
+- **8 vs 8.** Red spawns at the hexagon's **left** point, Blue at the **right** —
+  the board's longest axis. Each team's flag sits on a pedestal at the center of
+  its spawn pocket, set in from the hull with open field behind it.
 - **Move** with the d-pad — locomotion only; it never changes where you aim.
 - **Aim** with a continuous per-player **aim angle** (256 brads per turn, 0 =
   east, counter-clockwise): hold **B** to rotate counter-clockwise, **Select**
@@ -32,9 +36,10 @@ logs or replay links, and the smallest repro.
 - **Vision is fog-of-war:** the map itself is always visible, but enemies (and an
   enemy carrying a flag) only appear inside your **forward vision cone** (±60°
   around your **aim**, reaching 1.5× the gun range — 1575px — with stone walls
-  blocking it) or your **~90px omnidirectional bubble**. Six wall stubs are **glass windows** (the
-  second-from-top, middle, and second-from-bottom stubs of each half's outer
-  stub column): they block
+  blocking it) or your **~90px omnidirectional bubble**. A few obstacles per map
+  are **glass windows** — a generated map marks 2–4 of them on each authored half
+  (capped at 6, biased to the outermost column and the midline band), and the
+  hand-authored arena's is the center pane of the mid-lane bracket: they block
   movement and bullets like any wall but are **transparent to vision**. Your aim carries your vision — you see where you
   point, not where you walk. Both pedestals, your own flag's state, and your
   own position (a distinct self marker) are always visible — teammates are
@@ -47,20 +52,23 @@ logs or replay links, and the smallest repro.
   target at max range is hit 80% of the time, near-certainly when closer.
   Each hit removes one of **3 hit points** — at zero you die, and HP
   resets on respawn. **Friendly fire is on.**
-- **Spray cans** spawn high in the side back columns and respawn 30 seconds
+- **Spray cans** spawn one per team, inside that team's own endzone just above
+  its pedestal (the shield sits the same distance below), and respawn 30 seconds
   after pickup. Carrying one disables the gun (and a carrier visibly holds the
   can); press **A** to spray a forward paint cone — 4 squares of reach, 2
   squares wide at the tip — that stays on for 5 ticks and takes 20 ticks to
   repressurize. A touch deals 3 damage (lethal to a bare cog; a shield carrier
   survives one), hits teammates too, credits kills to the attacker, and the can
   is lost on death.
-- **Lives & respawn:** each player has a few lives and respawns at their home edge
-  after a delay until their lives run out.
+- **Lives & respawn:** each player has a few lives and respawns after a delay at
+  a random spot inside their own endzone — so a fixed respawn point can't be
+  camped — until their lives run out.
 - **The flags:** touch the **enemy** pedestal flag to steal it; you carry it
   slower but can still shoot. If the carrier dies, the flag returns instantly to
   its own pedestal.
-- **Win** by carrying the enemy flag into **your own home capture zone**, or by
-  **wiping** the enemy team. Scoring: winners **+1**, losers **-1**; a
+- **Win** by carrying the enemy flag into **your own home capture zone** — a disc
+  centered on your pedestal, which scores the instant your center enters it from
+  any side — or by **wiping** the enemy team. Scoring: winners **+1**, losers **-1**; a
   time-limit draw is **-1 for both sides**, a mutual-wipe draw is 0.
 
 See [`docs/RULES.md`](docs/RULES.md) for exact mechanics and tuning defaults.
@@ -199,16 +207,21 @@ nim c --threads:on --mm:orc -r tools/map_editor.nim 8099
 Then open <http://localhost:8099>. It loads any curated pool entry, generator
 seed with the full override set, or pasted map spec, renders it through the real
 game geometry, and reports the play-quality validators live — cover budget, open
-sightlines, corridor connectivity, and endzone access. Failures are **locatable**:
-click an open sightline and it draws a rule across the board where the validator
-found it, so "why was this candidate rejected" has a visible answer rather than a
-sentence.
+sightlines, corridor connectivity, and endzone access. The sightline rule scans
+all six of the hexagon's chord families (0/30/60/90/120/150°); the horizontal one
+is the only family indexable by a row, so that is the one whose failures are
+**locatable** — click an open sightline and it draws a rule across the board
+where the validator found it. A lane on one of the five slanted families is
+reported by name in the rejection reason only.
 
 You can also edit: add and reshape obstacles, place trenches and med kits, change
 the map parameters, and export the result as a `mapSpec` you can drop straight
-into a config. Maps are authored for one half (or one quadrant on 4-team boards)
-and the server derives the rest, so team fairness is structural — you cannot
-accidentally give one side more cover than the other.
+into a config. A 2-team map — the only kind the generator emits — is authored for
+the left half of the bounding box and the server derives the rest through the
+map's own symmetry (a mirror across the vertical center line, or a half turn about
+the center), so team
+fairness is structural: you cannot accidentally give one side more cover than the
+other.
 
 For a static, zoomable view of the whole curated pool without running anything,
 open [`docs/pool-review.html`](docs/pool-review.html).

@@ -461,13 +461,17 @@ const
   HomeDepthMin* = 400         ## depth bounds. Below the floor the bases
   HomeDepthMax* = 800         ## crowd the center; above it they clip the
                               ## border.
-  EndzoneRadiusMin* = 90      ## compact-endzone radius bounds. The floor
-  EndzoneRadiusMax* = 220     ## keeps the pedestal art and its endzone pits
-                              ## inside the zone; the ceiling keeps the two
-                              ## zones clear of the center ring ON THE
-                              ## STANDARD 1235-WIDE FIELD — wider boards get
-                              ## a proportionally larger ceiling, see
-                              ## maxEndzoneRadius.
+  EndzoneRadiusMin* = 90      ## endzone radius ANCHORS, not the live bounds.
+  EndzoneRadiusMax* = 220     ## Neither is what the generator validates
+                              ## against: `minEndzoneRadius` /
+                              ## `maxEndzoneRadius` scale both ends by the
+                              ## board's SHORT axis against
+                              ## `HexStandardHeight`, so on the small class
+                              ## the real window is 60..220 and on colossal it
+                              ## is 90..1144. The floor keeps the pedestal art
+                              ## and its endzone pits inside the zone; the
+                              ## ceiling keeps the two zones clear of the
+                              ## center ring on the STANDARD class.
   EndzoneWallMargin* = 6      ## px of protected floor past the scoring ring,
                               ## the compact echo of the classic column's
                               ## 210-clear vs 206-threshold gap.
@@ -965,15 +969,22 @@ type
                            ## pit chances (100 = default feel, 0 = none,
                            ## 200 = twice as digging-happy); -1 = default.
                            ## Ignored when `pits` locks an exact count.
-    endzone*: string       ## "column" | "disc" | "square"; "" = draw. The
-                           ## two COMPACT shapes wrap the base and open the
-                           ## home border strip up as wilderness.
-    endzoneRadius*: int    ## compact endzone scoring radius in px,
-                           ## EndzoneRadiusMin..EndzoneRadiusMax; 0 = draw.
-                           ## Ignored on `ezColumn` maps.
+    endzone*: string       ## "disc"; "" = draw. The hex arena is ALL-DISC —
+                           ## "column" and "square" went with the rectangle
+                           ## and the generator raises on both. The disc wraps
+                           ## the base and opens the hull behind it up as
+                           ## wilderness.
+    endzoneRadius*: int    ## endzone scoring radius in px; 0 = draw. The
+                           ## legal window is `minEndzoneRadius(height)..
+                           ## maxEndzoneRadius(height)`, NOT the flat
+                           ## EndzoneRadiusMin..Max pair — both ends scale
+                           ## with the board's short axis, so a value legal
+                           ## on one size class is rejected on another.
     baseDepth*: int        ## home anchor depth permille (see CtfMap.
                            ## homeDepth), HomeDepthMin..HomeDepthMax;
-                           ## 0 = draw (700 on column maps).
+                           ## 0 SOLVES a window against the board
+                           ## (`homeDepthWindow`) rather than drawing from a
+                           ## fixed range.
     rankK*: int            ## best-of-K: how many VALID candidates
                            ## `generateCtfMap` collects and scores before
                            ## shipping the highest scorer, 1..MapRankMaxK.

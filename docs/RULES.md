@@ -1,8 +1,8 @@
 # Coworld CTF — Game Rules
 
 Coworld CTF is a two-team capture-the-heart shooter for the Coworld platform. Two
-teams start on opposite edges of a symmetric arena, each with its own heart on a
-home pedestal. Players move, take cover behind obstacles, and shoot. Steal the
+teams start at the opposite VERTICES of a symmetric hexagonal arena, each with
+its own heart on a home pedestal. Players move, take cover behind obstacles, and shoot. Steal the
 enemy heart and carry it home — or eliminate the enemy team — to win. Vision is
 fog-of-war: the map is always visible, but enemies only appear inside your
 forward vision cone or your small omnidirectional bubble.
@@ -80,19 +80,22 @@ tasks, voting) with teams, guns, hearts, and fog-of-war vision.
   plume the game draws. See the Spray can section for the shape.
 - **GameVersion 30 puts every team's pickups on the map's own symmetry.** A
   team's shield and spray can are Red's spots carried over by whichever
-  symmetry the terrain was built with — mirrored, rotated 180°, or turned a
-  quarter at a time on the 4-team boards. Only that image lands in equivalent
+  symmetry the terrain was built with — mirrored or rotated 180° on a 2-team
+  board, carried by the Klein four-group on a 4-team one (the quarter turn
+  that used to do this went with `rot90`). Only that image lands in equivalent
   terrain: a mirrored copy on a rotational map sits in the rotation of Red's
   *other* pickup, so one team's shield had cover and sightlines the other's
   did not. See "Shields" and "Spray can".
 - **GameVersion 29 extends the live spin to generated terrain**, fairly. Which
   diamonds spin is decided by a band down the center column, and that choice
-  is **closed under each map's own symmetry** — on the 90°-rotational 4-team
-  boards the band's closure is a cross, so a diamond never turns while its
-  quarter-turn twin sits as solid stone. Spin **direction** follows the same
-  logic: a mirror map turns its two halves opposite ways (a reflection
-  reverses a rotation), while a 180°- or 90°-rotational map turns **every**
-  diamond the same way, because a rotation does not. The terrain generator
+  is **closed under each map's own symmetry**, so a diamond never turns while
+  its twin under that symmetry sits as solid stone. Spin **direction** follows
+  the same logic: a mirror map turns its two halves opposite ways (a reflection
+  reverses a rotation), while a 180°-rotational map turns **every** diamond the
+  same way, because a rotation does not. (None of this reaches four-team play
+  today: the hand-authored four-team boards carry no obstacles at all, so there
+  are no diamonds on them to spin. The 90°-rotational boards this was written
+  for are deleted.) The terrain generator
   also judges a spinning diamond from both ends of its turn — sightlines and
   the cover floor against its **narrowest** footprint, corridors and the
   cover ceiling against its **widest** — so a map cannot pass validation on
@@ -235,10 +238,29 @@ teams — **Red, Blue, Green, Yellow** — in a free-for-all:
 - **Labels are unchanged in shape**: the same `player <color> <side>`,
   `<color> flag [planted]`, shout, and identity vocabulary — `green` and
   `yellow` simply appear as team color tokens alongside `red` and `blue`.
-- Med kits become a rot90-fair diamond of four; each team gets one shield
-  and one spray-can pickup near its endzone; the four grenade pickups move
-  to the edge midpoints (corners layout) or a rot90 orbit around the
-  center (plus layout).
+- **Pickups, as the four-team boards actually place them** (measured on
+  `arena-hex4`, 1119x969, by booting it):
+  - **Shield and spray can: one per team, four of each.** Red's spot is the
+    only one chosen; the other three are its images under the board's own
+    Klein-four symmetry (`teamImagePoint`), so no team's pickup sits in
+    terrain the others' do not get. Both sit INSIDE that team's endzone disc
+    — the can two thirds of a radius above the pedestal, the shield the same
+    distance below, because a hex endzone is a disc with no back column to
+    hide a pickup in.
+  - **Med kits: TWO, not four, and they are neutral.** The hand-authored
+    four-team boards carry no med-kit spawns of their own, so the sim falls
+    back to the center line at one third and two thirds of the board height —
+    (559,323) and (559,646) on the standard board. They are contested ground
+    for all four teams rather than one-per-team, and the count does not scale
+    with the team count.
+  - **Grenades: four, at four VERTICES of the hexagon** (60, 120, 240 and
+    300 degrees — the left and right vertices are dropped because they sit
+    directly behind a base). The set is closed under the board's Klein-four
+    group, so all four are exact images of one another.
+  - **The four-team boards are BARE**: no obstacles, no trenches. The
+    two-team slalom seeds a half-plane and V4 needs a quadrant, so it cannot
+    be reused without re-authoring, and a wrong reuse is silently team-unfair
+    rather than visibly broken.
 
 ## Movement
 
@@ -744,14 +766,91 @@ These are starting values, exposed in the game config and tuned in self-play.
 | Trench miss chance (`TrenchMissPct`) | 70% | Incoming gun shots that fly over an occupant and carry on (same-trench shots exempt) |
 | Pit count (`mapPits`) | -1 (unset) | Generated maps: exact total pits (0..64); odd counts anchor one at map center |
 | Pit density (`mapPitDensity`) | 100 | Generated maps: percent multiplier on per-class dig chances; used when `mapPits` is unset |
-| Endzone shape (`mapEndzone`) | "" (drawn) | Generated 2-team maps: `column` (classic home strip), `disc` or `square` (compact zone around a base set back from the edge) |
-| Endzone radius (`mapEndzoneRadius`) | 0 (drawn 110-140, size-scaled) | Compact endzones only: scoring radius / half-extent in px, 90..220. Needs `mapEndzone` |
-| Base depth (`mapBaseDepth`) | 0 (drawn 520-620) | Compact endzones only: home anchor permille of the half-field, 400..800; SMALLER sets the base further from the edge. Needs `mapEndzone` |
+| Endzone shape (`mapEndzone`) | "" (drawn) | Generated maps: the home capture region's shape. What the engine accepts is listed in [Generated-map vocabulary](#generated-map-vocabulary) below, and it is no longer what this row used to publish |
+| Endzone radius (`mapEndzoneRadius`) | 0 (drawn) | Scoring radius of the endzone disc, in px. The legal window is NOT one number — it is keyed on the board's SHORT axis, so it differs per size class; the per-class windows are in [Generated-map vocabulary](#generated-map-vocabulary) |
+| Base depth (`mapBaseDepth`) | 0 (solved, not drawn) | Home anchor permille of the half-field; SMALLER sets the base further from the edge, deeper into the wilderness behind it. Bounds in [Generated-map vocabulary](#generated-map-vocabulary) |
 | Time limit (`MaxTicks`) | 5000 ticks (~3.5 min) | Round length cap before the lose-lose draw |
 | Map bounding box | 1119×969 (standard hex class) | Varies by map class; the box and the team count are stated in the `game teams <count> map <width>x<height>` init marker. The PLAYFIELD is the hexagon inscribed in that box — 71.8% of it — and only the walkability sprite carries the shape |
 
 Engine tick rate is **24 ticks/sec** (inherited from Crewrift); all
 second-based values above convert at that rate.
+
+### Generated-map vocabulary
+
+**This table is not written, it is ASKED.** Everything between the two markers
+below is emitted by `tools/map_contract.nim`, which feeds every candidate token
+to the real `generateMapAttempt` / `mapFromSpecJson` and publishes the verdict
+the engine actually returns — including, verbatim, the engine's own rejection
+message. `tests/test_doc_contract.nim` regenerates it and fails when this file
+and the engine disagree.
+
+That is not ceremony. Until GameVersion 38 this document published
+`mapEndzone: "column"` and `mapEndzone: "square"` as legal values, and it kept
+publishing them for the whole hex migration, because no test in this repo reads
+a markdown file and a 599-green suite has nothing to say about a sentence.
+A downstream config or decoder written against that row built the wrong thing
+and got no error until the engine raised. The vocabulary is generated now so
+that the next retirement breaks a test instead of a reader.
+
+Regenerate with `nim c -r -d:release tools/map_contract.nim --write`.
+
+<!-- BEGIN GENERATED map-vocabulary (tools/map_contract.nim) -->
+
+| Config field | Values the engine ACCEPTS |
+|---|---|
+| `mapSize` | `small` · `standard` · `large` · `huge` · `giant` · `colossal` |
+| `mapSymmetry` | `""` (draw) · `mirror` · `mirrorHex` · `rot180` |
+| `mapLayout` | `""` (draw) · `hex2` · `sides` |
+| `mapEndzone` | `""` (draw) · `disc` |
+| `mapCenterFeature` | `""` (draw) · `bracket` · `ring` · `walls` |
+
+| Config field | Value the engine REJECTS | The engine's own message |
+|---|---|---|
+| `mapSize` | `medium` | Unknown hex map size: medium |
+| `mapSymmetry` | `rot60` | Map symmetry rot60 needs 3, 4, or 6 teams (hex Stage 2b). |
+| `mapSymmetry` | `rot90` | Unknown map symmetry: rot90 |
+| `mapSymmetry` | `rot120` | Map symmetry rot120 needs 3, 4, or 6 teams (hex Stage 2b). |
+| `mapSymmetry` | `klein4` | Map symmetry klein4 needs 3, 4, or 6 teams (hex Stage 2b). |
+| `mapLayout` | `hex3` | Map layout hex3 is not a 2-team layout. |
+| `mapLayout` | `hex4` | Map layout hex4 is not a 2-team layout. |
+| `mapLayout` | `hex6` | Map layout hex6 is not a 2-team layout. |
+| `mapLayout` | `corners` | Map layout corners is not a 2-team layout. |
+| `mapLayout` | `plus` | Map layout plus is not a 2-team layout. |
+| `mapEndzone` | `column` | The hex arena is all-disc; unknown map endzone: column |
+| `mapEndzone` | `square` | The hex arena is all-disc; unknown map endzone: square |
+| `mapEndzone` | `sector` | The hex arena is all-disc; unknown map endzone: sector |
+| `mapCenterFeature` | `cross` | Unknown map center feature: cross |
+
+Size classes and the BOUNDING BOX each one builds (`hex.nim`, `HexSizes`). The playfield is the hexagon inscribed in the box, not the box:
+
+| `mapSize` | Bounding box | Field scale | Drawn at random? | `mapEndzoneRadius` accepted here |
+|---|---|---|---|---|
+| `small` | 951x824 | 0.85 | yes | 60..220 px |
+| `standard` | 1119x969 | 1.0 | yes | 70..220 px |
+| `large` | 1455x1260 | 1.3 | yes | 90..286 px |
+| `huge` | 2014x1744 | 1.8 | yes | 90..395 px |
+| `giant` | 2909x2519 | 2.6 | yes | 90..571 px |
+| `colossal` | 5819x5039 | 5.2 | no — override only | 90..1144 px |
+
+`mapEndzoneRadius` is keyed on the SHORT axis, so its legal window moves with the size class — a value legal on one board is rejected on another. `mapBaseDepth` is scale-free: **400..800** permille on every class, and `0` does not draw from a fixed range but SOLVES a window against the board (see `homeDepthWindow`), so no draw interval is published here — there is not one number to publish.
+
+A PINNED `mapSpec` — what a replay carries and what a decoder reads — parses against a WIDER vocabulary than the generator draws from, so a spec may legally name a board `"mapPath": "gen"` will never produce:
+
+| `mapSpec` key | Parses on a 2-team spec | Parses, but needs a board this spec is not | UNKNOWN token — deleted |
+|---|---|---|---|
+| `symmetry` | `mirror` · `mirrorHex` · `rot180` | `rot60` · `rot120` · `klein4` | `rot90` |
+| `layout` | `hex2` · `sides` | `hex3` · `hex4` · `hex6` | `corners` · `plus` |
+| `endzone` | `disc` | — | `column` · `square` |
+
+<!-- END GENERATED map-vocabulary -->
+
+Two of those rejections are worth reading twice. The generator's `mapLayout`
+guard is a CATCH-ALL — it answers "`corners` is not a 2-team layout" for a
+token that was deleted and for one that simply needs more teams, so its message
+cannot be used to tell a typo from a future board. And `mapSize` is the one
+knob whose bad value does not raise `CtfError` like every other row here; it
+raises `ValueError` out of `hexSizeClass`, so an operator's typo arrives under
+a different exception type and a message that does not name the config field.
 
 **Observation render scale:** the PLAYER observation stream (what bots parse)
 is **1x map resolution** -- object coordinates and sprite pixel sizes are map

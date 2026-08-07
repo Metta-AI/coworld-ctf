@@ -634,15 +634,19 @@ proc rotatingDiamondPixels*(
   (size, pixels)
 
 ## --- Capture endzones (the floor a carrier must reach to score) ---
-## The win condition is a full-height vertical column at each home edge: a live
-## carrier scores the instant its center-x crosses the inner threshold, at ANY
-## height (captureZoneXRange / checkWinConditions). We make that legible by
-## painting the endzone INTO the floor — an in-world "painted endzone", not HUD
-## chrome — so it rides the board sprite and scales with the locked composition.
+## The win condition is a DISC around each team's base anchor: a live carrier
+## scores the instant its center enters the disc, from ANY bearing
+## (`captureZone` / `inCaptureZone`, arena.nim). Until GameVersion 41 this
+## comment described a full-height column at a home EDGE and cited
+## `captureZoneXRange` / `checkWinConditions` — two procs that no longer exist
+## anywhere in `src/`. A hexagon has no straight home edge to pin a column to.
+## We make the real rule legible by painting the endzone INTO the floor — an
+## in-world "painted endzone", not HUD chrome — so it rides the board sprite and
+## scales with the locked composition.
 ## The old broad half-board territory wash was removed for muddying the flagstone
 ## into "gradient columns" (L98 #4); this is the opposite: a CONFINED tint inside
-## the narrow scoring column only, anchored by a crisp bright threshold line at
-## the exact x a carrier must cross. Cosmetic over mapImage → hash-safe.
+## the scoring disc only, anchored by a crisp bright ring at the exact rim a
+## carrier must cross. Cosmetic over mapImage → hash-safe.
 const
   EndzoneCrackGlow = 165         ## ember alpha on the darkest crack pixels (kept
                                  ## below the pedestal glow so the flag home
@@ -709,11 +713,18 @@ proc endzoneColorAt(
   playLoY, playHiY: int
 ): ColorRGBA =
   ## Tints one floor pixel if it sits inside a capture endzone. Team ember
-  ## seeps up through the tile cracks, brightest at the pedestal (the inner
-  ## threshold edge) and floored so the whole zone still glows; the exact
-  ## threshold a carrier must cross gets a crisp solid line. Sides maps
-  ## reproduce the classic two-column paint exactly; corner boxes fade on
-  ## both axes and line both inner edges.
+  ## seeps up through the tile cracks, FLOORED at `EndzoneGlowFloor` against
+  ## the pedestal so the middle of the zone still glows and brightening
+  ## outward with distance from the anchor; the rim a carrier must cross gets
+  ## a crisp solid ring `EndzoneLineW` px wide.
+  ##
+  ## The straight-edged branch below (`boundLoX`/`boundHiX`/`boundLoY`/
+  ## `boundHiY`) is DEAD on a hex board and has been since GameVersion 38:
+  ## `captureZone` is the only `CaptureZone` constructor and it always sets
+  ## `disc: true`, so the column-and-corner paint it reproduces cannot run.
+  ## It is kept rather than deleted because the shape vocabulary is where a
+  ## future sector zone would land; it is NOT a live code path, and anything
+  ## it says about "the classic two-column paint" describes retired geometry.
   for tint in tints:
     if not tint.zone.inCaptureZone(x, y):
       continue
@@ -1077,9 +1088,10 @@ proc loadMapLayers*(gameMap: CtfMap, withEndzoneGlow = true):
       for x in max(0, tr.x - TrenchArtPadPx) ..<
           min(w, tr.x + tr.w + TrenchArtPadPx):
         trenchNear[y * w + x] = true
-  ## The capture endzones: the exact score-columns from checkWinConditions'
-  ## captureZoneXRange (Red's inclusive right threshold, Blue's inclusive left),
-  ## painted into the FLOOR below so a carrier can read where to run.
+  ## The capture endzones: the exact scoring DISCS the sim tests with
+  ## `inCaptureZone` — one per team, radius `endzoneRadius` on that team's
+  ## anchor — painted into the FLOOR below so a carrier can read where to run.
+  ## The art and the rule share one predicate, so the paint IS the rule.
   let
     tints = endzoneTints(gameMap)
     playLo = ArenaBorder                     # inner playfield edges: the glow

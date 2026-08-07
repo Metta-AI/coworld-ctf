@@ -132,15 +132,19 @@ composited into the server-streamed board (see the WIRING note below); each veri
   half muddied the floor into "gradient columns"); broad team identity stays diegetic (pedestals + flags +
   scorebug).
 - **Capture endzones** (`endzoneColorAt` + `emberThroughCracks`) — the ONE deliberate floor tint, confined
-  to the narrow score-columns from `checkWinConditions` (Red `x≤teamHomeX(Red)+20`, Blue
-  `x≥teamHomeX(Blue)−20`; a live carrier scores the instant its center-x crosses the threshold, at any
-  height). Painted IN the floor (not HUD chrome) so it rides the board sprite and scales with the locked
-  composition (§2). This is the OPPOSITE of the removed flat wash: team ember seeps up only through the
-  DARK crack/seam pixels (luminance-gated, cubed) with a home-anchored falloff — brightest at the pedestal
-  edge, dimming toward a crisp solid team **capture line** at the exact threshold x a carrier must cross.
-  Lit stone faces keep their flagstone hue, so it reads as "the pedestal lighting its endzone", not a
-  gradient column. Cosmetic over `mapImage` → collision masks + `gameHash` untouched; verified legible from
-  the 1400-wide stage down to the 640×360 floor.
+  to the scoring DISC from `captureZone`: radius `gameMap.endzoneRadius` centred on the team's own anchor
+  (`teamAnchor`, whose x is what `teamHomeX` returns). The art and the rules read the SAME predicate,
+  `inCaptureZone`, so the paint is the rule: a live carrier scores the instant its collision-box CENTER
+  enters the disc, from ANY bearing — there is no threshold x and no "at any height" any more, because a
+  hexagonal board has no straight home edge to pin a column to. Painted IN the floor (not HUD chrome) so it
+  rides the board sprite and scales with the locked composition (§2). This is the OPPOSITE of the removed
+  flat wash: team ember seeps up only through the DARK crack/seam pixels (luminance-gated, squared) with a
+  RADIAL falloff — floored at 0.82 against the pedestal so the middle of the zone still glows, brightening
+  outward with distance to a crisp solid team **capture ring**, the 3px line at the disc's rim that is the
+  exact edge a carrier must cross. Lit stone faces keep their flagstone hue, and the ember alpha stays
+  under the pedestal glow, so it reads as "the pedestal lighting its endzone", not a wash. Cosmetic over
+  `mapImage` → collision masks + `gameHash` untouched; verified legible from the 1400-wide stage down to
+  the 640×360 floor.
 - **Walls = ONE procedural carved-stone material** (`carvedStoneColor`, not a texture PNG). Every wall pixel
   — border frame, `shapeRect` stub, `shapeDiamond`, `shapeDisc`, `shapeDiagonal` chevron alike — is shaded
   from its distance to the nearest floor pixel: a warm-ink carve line at the floor seam, a graded highlight
