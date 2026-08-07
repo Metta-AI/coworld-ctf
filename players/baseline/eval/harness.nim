@@ -538,6 +538,18 @@ proc main() =
   echo &"CTF eval harness: games={games} baseSeed={baseSeed} " &
     &"maxTicks={maxTicks} players={numPlayers} " &
     &"hunterSlots={(if hunterSlots.len == 0: \"none (control)\" else: $hunterSlots)}"
+  # STATE THE BASE TUNE, every run. "hunterSlots=none (control)" is not enough:
+  # it says the two SIDES match, not WHICH policy they are. Without
+  # CONTROL_SHIPPED=1 the base tune is defaultCombatTune, where most champion
+  # levers are OFF — so a plain `--games N` run measures a policy nobody ships,
+  # and any lever-targeted probe reads a clean zero that looks like a null
+  # result rather than a lever that never ran. That has burned a measurement
+  # before; the funnel counters are what caught it. Cheap to print, so print it.
+  let baseIsShipped = envInt("CONTROL_SHIPPED", 0) != 0
+  echo &"  base tune: " &
+    (if baseIsShipped: "shippedCombatTune (CONTROL_SHIPPED=1) — the CHAMPION"
+     else: "defaultCombatTune — most champion levers OFF. " &
+           "Set CONTROL_SHIPPED=1 to measure the shipped policy.")
   if hunterSlots.len > 0:
     let h = hunterTune()
     echo &"  hunter tune: fresh={h.freshShotTicks} slack={h.fireSlackPx} " &
