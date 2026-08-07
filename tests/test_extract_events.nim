@@ -6,17 +6,24 @@ import
 
 const
   # The event-substrate fixture: a full 16-bot match recorded against the
-  # CURRENT gameplay rules (GameVersion 38 — the HEX arena — seed 905, lives 9:
-  #   record_fixture.sh tests/replays/ctf.bitreplay 905 10000 '{"lives":9}')
-  # — 3688 ticks, 58 kills across ALL THREE WEAPONS (19 gun / 38 spray /
-  # 1 grenade), 4 steals, 3 returns, 16 pickups, 2 grenade throws, a capture
-  # and a win.
+  # CURRENT gameplay rules (GameVersion 41 — hex safety — seed 906, lives 9:
+  #   record_fixture.sh tests/replays/ctf.bitreplay 906 10000 '{"lives":9}')
+  # — 12902 ticks, 134 kills across ALL THREE WEAPONS (35 gun / 97 spray /
+  # 2 grenade), 9 steals, 8 returns, 3 heals, a capture and a win.
   #
-  # This take is the LANDSCAPE re-record: the flat-top flip moved every wall,
-  # so the portrait recording no longer re-simulates (a hash mismatch at tick
-  # 1) and every consumer of this fixture failed at once. It is shorter than
-  # the portrait take (3688 ticks against 9771) because the capture lands
-  # earlier, and it carries a GRENADE KILL, which the portrait take did not —
+  # THE SEED MOVED 905 -> 906. GV41 changed three movement/throw rules, so the
+  # 905 recording no longer re-simulates, and the fresh 905 take came back
+  # GRENADE-LESS (20 gun / 22 spray over 3256 ticks) — the exact "silently
+  # ships narrower coverage" failure the note below warns about. Scanned
+  # 905-909 with tools/scan_event_seeds.sh; 906 was the only one carrying all
+  # three weapons, and it is a longer, richer episode than the take it
+  # replaces (12902 ticks against 3688).
+  #
+  # The GV38 take was the LANDSCAPE re-record: the flat-top flip moved every
+  # wall, so the portrait recording no longer re-simulated (a hash mismatch at
+  # tick 1) and every consumer of this fixture failed at once. It was shorter
+  # than the portrait take (3688 ticks against 9771) because the capture landed
+  # earlier, and it carried a GRENADE KILL, which the portrait take did not —
   # the coverage gap that used to be documented here is closed. Grenades are
   # ~2% of kills field-wide, so that is luck, not a property of the seed:
   # if you re-record, run tools/scan_event_seeds.sh first and take a seed that

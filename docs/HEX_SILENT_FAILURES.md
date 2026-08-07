@@ -179,6 +179,28 @@ two incompatible contracts under one string that the version check cannot catch
 because the string never moved. Bumped to **`"41"`**, the first value free on
 both lines, and the five recordable fixtures are re-recorded against it.
 
+**The event-substrate fixture's seed moved 905 → 906.** The fresh 905 take came
+back GRENADE-LESS (20 gun / 22 spray over 3256 ticks) — exactly the "silently
+ships narrower coverage" failure `test_extract_events.nim` warns about, and
+nothing would have failed: the weapon assertion is a membership test, so the
+fixture would just have quietly tested less. Scanned 905–909 with
+`tools/scan_event_seeds.sh`; 906 was the only seed carrying all three weapons
+(35 gun / 97 spray / 2 grenade, 9 steals, 8 returns, 3 heals, a capture), and
+it is a longer episode than the take it replaces — 12902 ticks against 3688.
+
+`capture-seed4` still ends BLUE captures the red heart, so the pinned winner in
+`test_broadcast_state` does not move. It is a shorter episode than its GV38
+predecessor (1917 ticks against 4718): under GV41 the capture simply lands
+earlier. Recording was done at load ~6 after an earlier take at load ~30 came
+back at 1248 ticks — this repo's "record on an idle machine" rule is real, and
+a starved take passes every assertion while testing far less.
+
+**Verified as a user:** the release binary boots on a re-recorded GV41 replay
+and the board renders correctly at 1500×950 — flat-top hexagon, void corners,
+both pedestals with capture rings, 16 cogs, paint, working transport bar. That
+also exercises the new boot-time void-is-wall assertion on the real path, and
+five full 16-bot episodes recorded end to end without it firing.
+
 ## What this sweep did NOT settle
 
 * The 4-team boot crash (ship gate blocker A) and the rebase onto main
