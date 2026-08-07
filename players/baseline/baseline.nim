@@ -53,7 +53,11 @@
 ##   choke, cooldown ducks) sweep the aim back and forth across the watch arc
 ##   with genuine rotate-button sweeps, raking the vision cone over it while
 ##   standing perfectly still. On the move, the aim leads the movement
-##   direction when no target demands it, so attackers watch down-lane.
+##   direction when no target demands it, so attackers watch down-lane — UNLESS
+##   sectorWatch is on: a bot with a nearby living mate and no fresh enemy in
+##   range instead watches the flank/rear bearing the local cluster's
+##   deterministic partition assigned it (solo, the single best-covered
+##   bearing), so a moving group doesn't leave its own back uncovered.
 ## - **Peek-and-shoot**: the default combat mode. With the gun up and a
 ##   remembered enemy blocked by a wall, PRE-LAY the aim on the firing line
 ##   while stepping sideways to the nearest cell that opens it — the shot is
@@ -396,6 +400,18 @@ when defined(ffprobe):
   var ffHold = 0      # sentry hold frames with fatalFunnel on (the population)
   var ffIdle = 0      # ...with NO fresh enemy track (eligible to pre-lay)
   var ffPreLay = 0    # ...where the turret actually pre-laid on the throat
+
+when defined(swprobe):
+  # -d:swprobe ONLY: instrument the sectorWatch call site as a FUNNEL so a
+  # null A/B is diagnosable (never reached vs reached-but-solo-always vs
+  # reached-and-actually-picking-a-bearing). Never compiled into the shipped
+  # player.
+  var swReached = 0   # frames the sectorWatch check itself ran (tune on,
+                      # idle, not engaged, mayHunt) -- the gate population
+  var swSolo = 0      # ...where no living mate qualified (K=1 path)
+  var swClustered = 0 # ...where >=1 mate qualified (K>=2 partition path)
+  var swFired = 0     # ...where a bearing was actually returned (>= 0) and
+                      # WON the turret this tick (desiredAim got set)
 
 ## ── PAINTBOT: the map and the match shape are drawn per EPISODE ──────────────
 ## Everything position-shaped derives from these. They used to be compile-time
@@ -1095,6 +1111,47 @@ const
                               # watched lanes, so routes respect it hard
   FlankDepth = 260.0          # wide flankers cross this far past mid
   WeaveBand = 280.0           # rushers serpentine within this x-band of mid
+
+  # ── SECTOR WATCH (2026-08-06, "watch lines of sight and each other's
+  # backs"): idle aim currently just leads the movement direction (see the
+  # module doc header, "On the move, the aim leads the movement direction"),
+  # so a moving CLUSTER of bots all point the SAME way — the field-observed
+  # bug ("group up and all point forward, then get shot or grenaded from the
+  # side"). These tune the idle-only replacement (sectorClusterAim below):
+  # never touches engaged/aimLock/huntSweep/orient aim, which all outrank it.
+  SectorClusterRadius = 400.0 # a mate track this close joins the local idle-
+                               # watch cluster (piece #1's "local cluster")
+  SectorMateFreshTtl = 20     # a mate track staler than this doesn't count as
+                               # "currently in the huddle" (mirrors the other
+                               # short mate-freshness windows: MateSpacing's
+                               # 12-tick repel, the focus-fire dot's 2-tick read)
+  SectorDirCount = 16         # candidate watch bearings sampled evenly around
+                               # the compass (AimBrads/SectorDirCount = 16
+                               # brads = 22.5° apart)
+  SectorMinSepBrads = AimBrads div 8  # 45°: target angular gap between two
+                               # PICKED bearings so the cluster doesn't stack
+                               # two seats on the same lane; relaxes by one
+                               # candidate step at a time if the map's open
+                               # lines don't leave room for full separation
+  SectorRayStep = 10.0        # walkability sampling step for the sector
+                               # raycast (openLineLen reuse, same primitive
+                               # scanPost/pickDominatePost already raycast with)
+  SectorBackWeight = 0.5      # ADVANTAGE AIM ratio (piece #2): a bearing's
+                               # score is its forward open length MINUS this
+                               # fraction of the open length looking the other
+                               # way from the same spot — a short "behind us"
+                               # line means cover sits close on our back on
+                               # that axis (our advantage) while the forward
+                               # line stays the long approach lane (their
+                               # exposure). Simple v1 ratio, not a repositioning
+                               # search: FEET LAW — this only picks where the
+                               # existing turret looks, never where feet go.
+  SectorRecomputeTicks = 15   # cache the idle sector bearing this many ticks
+                               # (RepathTicks-style throttle): bounds the
+                               # raycast cost and damps any tick-to-tick fog-
+                               # driven disagreement between cluster members
+                               # into a converged pick within a fraction of a
+                               # second, instead of thrashing every frame.
 
   LaneTop = 40.0              # open corridor above the mirrored obstacles
   # LaneMid / LaneBottom are map-derived (adoptMapSize).
@@ -2036,6 +2093,20 @@ type
                               # treat the nearest fresh enemy in reach with clear LOS as a valid
                               # single-target cone shot instead of standing disarmed and mute.
                               # Default ON; NOSPRAYSINGLE=1 turns it off for the A/B.
+    sectorWatch: bool         # ⭐⭐ SECTOR WATCH (2026-08-06, "watch lines of sight and each
+                              # other's backs"): IDLE aim only — engaged/aimLock/huntSweep/
+                              # orient all still outrank it, unchanged (see decide()). When no
+                              # fresh enemy is in engagement range and >=1 living mate sits
+                              # within SectorClusterRadius, the local cluster deterministically
+                              # PARTITIONS watch bearings off the walkability grid (long open
+                              # sightline = an approach lane worth a set of eyes) instead of
+                              # every idle bot's aim defaulting to the movement direction — the
+                              # field-observed "group up and all point forward, then get shot or
+                              # grenaded from the side" bug. Solo (no nearby mate) still swaps
+                              # the blind forward-lean for the single best-scoring bearing.
+                              # No comms: every bot derives the SAME cluster/bearings from
+                              # positions it observes directly (see sectorClusterAim). Default
+                              # ON; NOSECTORWATCH=1 turns it off for the A/B.
 
   Bot = ref object
     slot: int
@@ -2199,6 +2270,10 @@ type
                               # arc vs opponents that ACTUALLY play defensive lines (h006-style).
                               # vs an aggressive no-line field it stays a full gun (dormant),
                               # never paying the disarm cost for a line that never comes.
+    sectorAim: int             # SECTOR WATCH: cached idle watch bearing (brads,
+                              # -1 = none computed yet / nothing to contribute)
+    sectorAimStamp: int        # tick sectorAim was last (re)computed; refreshed
+                              # at most every SectorRecomputeTicks while idle
 
 proc roleForSeat(seat: int, team: Team): Role =
   ## Deterministic role spread over the 8 per-team seats. Seats 2 and 3 both
@@ -2492,6 +2567,9 @@ proc defaultCombatTune(): CombatTune =
                               # still outrank the 12px touch (the 71.8%-vs-94.9% conversion gap).
     anchorRelock: false,      # control: the five nav anchors never re-run off a corrected color.
     spraySingle: false,       # control: the arc breacher never fires the cone on a lone target.
+    sectorWatch: false,       # control: idle aim always leads the movement direction — a
+                              # clustered group all points the same way, watching nothing off
+                              # its own nose.
   )
 
 proc shippedCombatTune(): CombatTune =
@@ -2952,6 +3030,12 @@ proc shippedCombatTune(): CombatTune =
   # NOSPRAYSINGLE=1 hold each OFF (the pre-fix behavior) so a frozen binary can A/B them.
   result.anchorRelock = getEnv("NOANCHORRELOCK").len == 0
   result.spraySingle = getEnv("NOSPRAYSINGLE").len == 0
+  # ⭐⭐ SECTOR WATCH (2026-08-06). Ships DEFAULT ON, same class as the pair above:
+  # it only ever fills in IDLE aim (nothing else claimed the turret this tick — see
+  # the tune.sectorWatch read in decide()), so a frozen binary that never goes idle
+  # (e.g. a constant-contact mirror rig) is byte-identical either way. NOSECTORWATCH=1
+  # holds it off (the pre-fix "aim = movement direction" default) for the A/B.
+  result.sectorWatch = getEnv("NOSECTORWATCH").len == 0
 
 
 when defined(rngprobe):
@@ -3445,6 +3529,124 @@ proc openLineLen(client: ProtocolClient, a, dir: Vec, maxLen, step: float): floa
       return l - step
     l += step
   maxLen
+
+proc sectorClusterMembers(bot: Bot, me: Vec): seq[Vec] =
+  ## SECTOR WATCH piece #1: self plus every teammate track fresh and close
+  ## enough to count as "in the huddle right now". Teammate identity is
+  ## fogged exactly like enemy identity (module doc header: "teammates are
+  ## fogged too") — there is no wire field that says "that blob is seat 5" —
+  ## so this is necessarily each bot's OWN fog-limited view, not a shared
+  ## roster. For the scenario this lever targets (a physically tight group)
+  ## members sit inside each other's omnidirectional vision bubble or shared
+  ## forward cone most of the time, so independent per-bot views converge in
+  ## practice; SectorRecomputeTicks throttles the recompute so a one-tick fog
+  ## flicker damps out instead of thrashing the assignment every frame.
+  result.add(me)
+  for t in bot.mates:
+    if bot.tick - t.lastSeen > SectorMateFreshTtl:
+      continue
+    if dist(t.pos, me) <= SectorClusterRadius:
+      result.add(t.pos)
+
+proc sectorBearingScore(client: ProtocolClient, origin, dir: Vec): float =
+  ## Scores one candidate idle-watch bearing, combining both levers in one
+  ## reusable read (openLineLen — the same primitive scanPost/pickDominatePost
+  ## raycast their firing lines with):
+  ##   - piece #1 (SECTOR ASSIGNMENT): the open sightline length looking OUT
+  ##     along `dir` — a long unobstructed line is an approach lane worth a
+  ##     set of eyes, so it dominates the score.
+  ##   - piece #2 (ADVANTAGE AIM): the open length looking the OPPOSITE way
+  ##     from the SAME spot is subtracted at a fraction (SectorBackWeight) —
+  ##     a short "behind us" line means cover sits close on our own back on
+  ##     that axis (our advantage), so between two similarly-open lanes this
+  ##     prefers the one where THEY have to cross open ground and WE don't.
+  ##     A simple v1 ratio (linear combination), no repositioning search: this
+  ##     only scores where the turret looks, never where the feet go.
+  let farLen = openLineLen(client, origin, dir, FireRange, SectorRayStep)
+  let backLen = openLineLen(client, origin, dir * -1.0, FireRange, SectorRayStep)
+  farLen - backLen * SectorBackWeight
+
+proc pickSectorBearings(client: ProtocolClient, origin: Vec, k: int): seq[int] =
+  ## The K best (piece #1 open-line + piece #2 advantage) watch bearings out
+  ## of SectorDirCount evenly-spaced candidates around `origin`, greedily kept
+  ## angle-separated so the cluster doesn't stack two seats on one lane.
+  ## Always returns EXACTLY k entries, ascending by angle — relaxing the
+  ## separation target, then cycling the best candidates, so the seat<->
+  ## bearing zip in sectorClusterAim never runs short.
+  var cand: seq[tuple[brads: int, score: float]]
+  for i in 0 ..< SectorDirCount:
+    let brads = (i * AimBrads) div SectorDirCount
+    cand.add((brads: brads, score: sectorBearingScore(client, origin, bradsDir(brads))))
+  cand.sort(proc(a, b: tuple[brads: int, score: float]): int =
+    if a.score > b.score: -1 elif a.score < b.score: 1 else: 0)
+  var minSep = SectorMinSepBrads
+  while result.len < k and minSep > 0:
+    result.setLen(0)
+    for c in cand:
+      var ok = true
+      for r in result:
+        if abs(bradsErr(c.brads, r)) < minSep:
+          ok = false
+          break
+      if ok:
+        result.add(c.brads)
+      if result.len >= k:
+        break
+    minSep -= max(1, AimBrads div SectorDirCount)
+  var idx = 0
+  while result.len < k:
+    result.add(cand[idx mod cand.len].brads)
+    inc idx
+  result.sort()
+
+proc sectorClusterAimInner(bot: Bot, client: ProtocolClient, me: Vec): int =
+  ## SECTOR WATCH entry point (idle aim only — see the tune.sectorWatch call
+  ## site in decide(), which only reaches this once engaged/aimLock/huntSweep/
+  ## orient have all declined the turret this tick). -1 = nothing to
+  ## contribute yet (no nav grid).
+  if not bot.navBuilt:
+    return -1
+  let members = bot.sectorClusterMembers(me)
+  if members.len <= 1:
+    # ADVANTAGE AIM, solo case: no living mate within SectorClusterRadius —
+    # pick the single best-scoring bearing directly instead of defaulting to
+    # the movement direction.
+    when defined(swprobe): inc swSolo
+    return pickSectorBearings(client, me, 1)[0]
+  when defined(swprobe): inc swClustered
+  # SECTOR ASSIGNMENT: partition K = members.len watch bearings across the
+  # cluster from its centroid, then zip THIS bot's rank among the cluster's
+  # own positions (sorted ascending x,y — a deterministic, comms-free stand-in
+  # for "seat order": no bot can read another's literal seat number off the
+  # wire, but every member independently sorting the SAME observed positions
+  # is the identical computation, no message ever sent) to the bearings sorted
+  # by angle. The bearings — and therefore every seat's assignment — recompute
+  # from the CURRENT centroid, so they follow the cluster as it moves instead
+  # of camping a fixed compass direction.
+  var centroid = vec(0.0, 0.0)
+  for p in members:
+    centroid = centroid + p
+  centroid = centroid * (1.0 / float(members.len))
+  let bearings = pickSectorBearings(client, centroid, members.len)
+  var sorted = members
+  sorted.sort(proc(a, b: Vec): int =
+    if a.x < b.x: -1 elif a.x > b.x: 1
+    elif a.y < b.y: -1 elif a.y > b.y: 1 else: 0)
+  var myRank = 0
+  for i, p in sorted:
+    if dist(p, me) < 0.5:
+      myRank = i
+      break
+  bearings[myRank]
+
+proc sectorClusterAim(bot: Bot, client: ProtocolClient, me: Vec): int =
+  ## Cached wrapper: recomputes at most every SectorRecomputeTicks (bounds the
+  ## per-tick raycast cost to idle bots only, and damps fog-driven flicker —
+  ## see sectorClusterMembers).
+  if bot.tick - bot.sectorAimStamp >= SectorRecomputeTicks:
+    bot.sectorAim = bot.sectorClusterAimInner(client, me)
+    bot.sectorAimStamp = bot.tick
+  bot.sectorAim
 
 proc homeSign(team: Team): float =
   ## -1 toward Red's home edge (left), +1 toward Blue's (right).
@@ -4366,6 +4568,8 @@ proc resetTransient(bot: Bot) =
   bot.orientUntil = -100_000
   bot.sentrySince = bot.tick
   bot.sentryShift = 0.0
+  bot.sectorAim = -1
+  bot.sectorAimStamp = -100_000
 
 proc scanAim(bot: Bot, watch: Vec, me: Vec = vec(-1, -1)): int =
   ## The scan-sweep aim while holding a position: rake the vision cone back
@@ -7890,6 +8094,21 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         # (turn-and-watch) so we pick the threat up instead of walking blind.
         desiredAim = bradsOf(bot.orientPos - me)
         deadband = CruiseDeadband
+      if desiredAim < 0 and mayHunt and engage < 0 and bot.tune.sectorWatch:
+        # SECTOR WATCH: nothing else claimed the turret this tick — no
+        # engaged target, no paid-for lock/hunt bearing, no heard-contact
+        # orient. Instead of defaulting blind to the movement direction
+        # (below — the "group up and all point forward" bug), watch the
+        # flank/rear lane the local cluster's deterministic partition
+        # assigned this seat, or (solo) the single best-covered bearing. See
+        # sectorClusterAim; -1 = nothing to contribute yet (no nav grid), so
+        # this falls through to the unchanged movement-direction default.
+        when defined(swprobe): inc swReached
+        let watchBrads = bot.sectorClusterAim(client, me)
+        if watchBrads >= 0:
+          desiredAim = watchBrads
+          deadband = CruiseDeadband
+          when defined(swprobe): inc swFired
       if desiredAim < 0:
         # No target demands the turret: the aim leads the movement direction
         # so the vision cone watches down-lane where we are heading. Movement
@@ -8076,6 +8295,12 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           $rpFire[sd][b] & "/" & $rpErrSum[sd][b] & "/" & $int(rpDistSum[sd][b])
       s.add " cap=" & $rpCap[sd] & " capErr=" & $rpCapErr[sd]
       stderr.writeLine s
+      flushFile(stderr)
+  when defined(swprobe):
+    if bot.tick mod 200 == 0:
+      stderr.writeLine "SW slot=" & $bot.slot & " t=" & $bot.tick &
+        " reached=" & $swReached & " solo=" & $swSolo &
+        " clustered=" & $swClustered & " fired=" & $swFired
       flushFile(stderr)
   if nadeC:
     mask = mask or ButtonC
