@@ -17,11 +17,12 @@ The finding is what the audit *around* it turned up:
    distinctive one — see [The 0.20x signature](#the-020x-signature).
 2. Two *other* retired-label families are still being scanned, and they were sitting in a
    documented hole in the existing guard — see [The audit](#the-audit).
-3. **We cannot field-verify anything right now: we have no active champion.** Our last
-   league appearance was round r2034; the league is at r2583. See [The live-field
-   blocker](#the-live-field-blocker).
+3. Mid-audit I concluded **we had no active champion**. That was wrong — the ladder tooling
+   is pointed at a league that stopped playing, and it reported the emptiness as data. See
+   [the correction](#correction-the-field-was-never-unavailable--the-tooling-pointed-at-a-dead-league).
 4. The durable outcome is a test that derives the scanned-label set from the policy source,
    so this class of bug cannot recur silently — see [The guard](#the-guard).
+5. **`Picasso:v43` shipped and is now champion** — see [Shipped](#shipped).
 
 ## Engine parity — the first check
 
@@ -76,8 +77,10 @@ unfired: a can you picked up by accident is a can you did not plan to use.
 
 > **Caveat, stated plainly:** this is GV26/GV27 data and the live engine is GV40. It
 > establishes that the blindness was real and measurable in the field, on the engine where
-> the policy still scanned `"plasma arc"`. It does **not** measure the fixed policy, because
-> there is no field data for the fixed policy — see below.
+> the policy still scanned `"plasma arc"`. It does **not** measure the fixed policy — the
+> replay cache stops at GV37 because the ladder tooling has been fetching a dead league (see
+> the correction below). Re-running `pickup_rates.py` over Paintbot replays is the natural
+> follow-up, and it is now unblocked.
 
 ### A live-context claim that did not survive checking
 
@@ -137,31 +140,55 @@ buys no behaviour change — and the champion is a hot artifact with several bra
 flight against it. Registering them costs nothing and, because the registration is a
 two-way guard (below), cannot rot.
 
-## The live-field blocker
+## Correction: the field was never unavailable — the tooling pointed at a dead league
 
-**We have not played a league episode in ~549 rounds.**
+Mid-audit I concluded we had no active champion. **That was wrong**, and the way it was wrong
+is the more useful finding.
+
+`tools/ladder/ctfapi.py` hardcodes the **Ctf** league (`league_3243d905…`), which has stopped
+playing. The competition is **Paintbot** (`league_b8fa9b35…`, `div_aa7825db…`). Querying a dead
+league returns a well-formed *empty* answer, and both ladder tools reported it as data:
 
 ```
-scout.py index --rounds 12   ->  344 completed episodes over rounds r2572-r2583
-                                 0 of them involve softmaxwell
-standing.py                  ->  champ=False status=competing/benched  Picasso:v29
-                                 champ=False status=competing/benched  Picasso:v28
-                                 ... every version down to Picasso:v1. Nothing championed.
-last cached round with our episodes: r2034      league now at: r2583
+scout.py index --rounds 12  ->  "344 completed episodes ... 0 of them involve softmaxwell"
+standing.py                 ->  every Picasso version competing/benched, nothing championed
 ```
 
-The newest version registered with the league is **v29**, while v41/v42/v43 exist only
-locally. Two consequences, both load-bearing:
+Truth at that same moment, from `coworld memberships --mine` (which reads the ACCOUNT, not a
+hardcoded league id): **Picasso:v42 was `competing/active`, `is_champion=true`**, promoted at
+2026-08-07T02:52Z. Nothing was wrong with the champion.
 
-- ELO is running (k=16), so **standing still is falling**. Benched is not neutral.
-- **The free field-diagnosis loop is dead for anything policy-side.** `scout.py` re-sims
-  league replays to ground truth, but with zero episodes of ours there is nothing to
-  attribute. Every measurement in this report had to fall back to July's GV26/GV27 cache or
-  to local GV40 self-play.
+It fooled me because the failure is not an error — it is a plausible sentence that matches the
+shape of a real outage, agreeing with itself across two tools that are independent only in the
+sense that they share one wrong constant. The tell I should have read was the replay cache's
+engine ceiling sitting at GV37: **a cache whose GameVersion stops advancing is fetching a
+league that stopped playing.**
 
-Filed as its own task; it is a bigger problem than the one this audit was opened for.
-A second task covers `standing.py` dying on a 422 from the leaderboard endpoint
-(`include_recent_rounds=40` is now rejected).
+**Verify champion state with `python -m coworld memberships --mine --json`, never with the
+ladder tools, until the league id is fixed.** Filed as its own task.
+
+Note this does NOT rescue the GV26/GV27 caveat on the 0.20x measurement above — those replays
+really are from the old league on an old engine. It means the fix is re-measurable in the field
+once the tooling is repointed at Paintbot, which it was not before.
+
+## Shipped
+
+`Picasso:v43` uploaded and submitted to Paintbot while this audit was open —
+`sub_ab249276-8da0-4699-a70f-6da34b7ccc74`, `--auto-champion always`.
+
+No fresh A/B was run and none was needed: v43 was already measured against the standing
+champion v42 at **60.9% win rate, 95% CI 50.4–70.5%, n=87 decisive**, and it carries an
+unconditional bug fix — `bot.tune.fireRange` was copied from the module var once at `Bot()`
+construction, *before* `adoptMapSize` runs, so it stayed pinned to the 1250.0 literal for the
+whole process lifetime while every other geometry read used the live per-map value.
+
+Carried forward honestly: v43's own mechanism check found the intended comboGrab sequence
+(shield *then* can) completed in **0 of 95 episodes**. The win-rate lift is real; the credit
+most likely belongs to the fireRange fix, and comboGrab should be treated as unproven rather
+than proven.
+
+**Build gotcha that costs a full rebuild:** hosted episodes require `linux/amd64`. A native
+arm64 build uploads fine right up until `upload-policy` hashes it and rejects it.
 
 ## Verifying the lever actually fires
 
@@ -185,7 +212,31 @@ Two arms, identical seeds, built from the same tree and differing in **one strin
 | **fix** | `spriteObjectsWithLabel(LabelSprayCan)` — as shipped |
 | **blind** | `spriteObjectsWithLabel("plasma arc")` — the pre-fix label |
 
-<!-- RESULTS -->
+**The first run of this A/B was invalid, and the probe design is what caught it.** Both arms
+came back byte-identical with `scan-frames 0`: the scan never executed, because a plain
+`--games N` harness run uses `defaultCombatTune`, where `avoidDisarm` and `sprayGrab` are both
+OFF. It was measuring a policy nobody ships. A probe counting only pickups would have reported
+the same clean zero and been believed — `cpGate` (frames the scan RAN, counted separately from
+frames it returned something) is what made the zero decomposable. The harness now prints its
+base tune on every run.
+
+With `CONTROL_SHIPPED=1` (all seats = champion), on GV40:
+
+| | scan-frames | non-empty | seek | can-ticks / 1k alive |
+|---|---|---|---|---|
+| levers OFF (`defaultCombatTune`, 12 eps) | 0 | 0 | 0 | 16.75 |
+| **shipped tune (2 eps)** | **48,932** | **1,984 (4.1%)** | **267 (13.5%)** | **60.93** |
+
+The `spray can` label read returns objects, `sprayGrab` commits on 13.5% of the frames where it
+sees one, and spray-can carry time is **3.6x** the accidental-pickup floor. The perception path
+is live on GV40.
+
+The 12-episode blind-control arm was **cut short deliberately**. Once the change was confirmed
+a bug fix, spending another ~80 minutes of wall clock to quantify it against a known-broken
+label was not worth the competition time. What is proven is the part that matters: the scan
+fires and returns objects on the live engine.
+
+
 
 ## The guard
 
