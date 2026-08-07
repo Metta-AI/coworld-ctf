@@ -573,6 +573,14 @@ proc runEpisode(seed, maxTicks, numPlayers: int, hunterSlots: seq[int]):
     rhGameNearPct.add((seed: seed, redPct: redPct, bluePct: bluePct,
       redShots: rh.redShotsNear, redHits: rh.redHitsNear,
       blueShots: rh.blueShotsNear, blueHits: rh.blueHitsNear))
+    # PER-GAME line (not just the end-of-run aggregate below) so a sharded
+    # multi-process A/B (workers > 1, each running a SUBSET of games) can be
+    # aggregated correctly afterward by parsing every worker's log, rather
+    # than averaging each worker's own partial mean/sd (which would weight
+    # workers unequally and lose the true per-game distribution).
+    echo &"RHGAME seed={seed} redShotsNear={rh.redShotsNear} redHitsNear={rh.redHitsNear} " &
+      &"redPct={redPct:.2f} blueShotsNear={rh.blueShotsNear} blueHitsNear={rh.blueHitsNear} " &
+      &"bluePct={bluePct:.2f}"
   result = engine.result()
 
 proc main() =
