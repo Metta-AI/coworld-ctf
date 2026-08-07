@@ -1983,6 +1983,30 @@ type
                               # concentration still gets its 2 guns; the 3rd+ just stops
                               # dogpiling. Mirror-measurable (changes which enemies die and
                               # how many free shots we eat), no comms.
+    mateAimPos: bool          # ⭐ MATE-POS PROXY (2026-08-07, v45, captain-brain audit
+                              # Audit 2). satCap/FocusFireBonus/noMask's supportRays all
+                              # read `mateTargeted`/`mateGuns`, computed by ray-casting a
+                              # mate's DECODED aim bearing (mateAimBrads / m.aimBrads) —
+                              # and m.aimBrads rides the same soldier-sprite rotation
+                              # channel GV24 (commit d2526eb) deliberately fuzzes ±14
+                              # brads (~±19.7°) in every player view, "enemy, teammate,
+                              # corpse, and self marker alike." At the current
+                              # MateAimRayLen=90px trust distance that fuzz alone produces
+                              # up to ~30px of lateral ray error — already past
+                              # MateAimHitSlack=22px beyond ~65px — so the geometric
+                              # "is a mate's gun on this enemy" read can misfire in both
+                              # directions for a third of its own trust envelope. This is
+                              # the standing aimRotRead-is-poisoned doctrine (OTHERS' aim
+                              # must never gate a decision), just newly found to apply to
+                              # MATE aim too, not only enemy aim. When true, the coverage
+                              # test below drops the angular ray entirely and uses
+                              # proximity + LOS (pixelRayClear, non-aim) + gun-up
+                              # (mateGunDown, a muzzle-bloom read, non-aim) instead — same
+                              # mateTargeted/mateGuns/supportRays output shape, so all
+                              # three downstream consumers repair from one input swap.
+                              # LEVER-CLASS: env-gated OFF by default (MATEPOS=1 arms it)
+                              # pending its own A/B — the diagnosis is proven, the fix is
+                              # a behavior change and needs the gate before shipping.
     noMask: bool              # ⭐ DON'T MASK FIRES — mover-side (2026-07-20, backlog #3,
                               # ATP 3-21.8): "the moving element must not mask the fires of
                               # the base-of-fire element." friendlyBlocked handles this only
@@ -2230,6 +2254,18 @@ type
                               # never read. Suppressed movement after a close-
                               # range trigger pull; the A/B lost 1-9-2.
     role: Role
+    teamSeat: int              # ⭐ SEAT-IDENTITY FIX (2026-08-07, v45): the physical
+                              # team-seat (slot div teams, same formula that picks
+                              # `role` below) — the STABLE identity a "one designated
+                              # seat" lever (shieldRush/comboGrab/sprayGrab's own-seat
+                              # exclusion) must key on. roleForSeat's table assigns the
+                              # SAME role to two different seats per team (MidBottom ==
+                              # seat 2 and seat 4 for Red, seat 3 and seat 4 for Blue —
+                              # verified by enumerating every case branch), so any check
+                              # written as `bot.role == roleForSeat(N, team)` silently
+                              # matches BOTH physical seats whenever N collides with
+                              # another seat's role. Comparing `bot.teamSeat == N`
+                              # directly sidesteps the whole role table.
     tune: CombatTune          # fire/engage knobs; default == baseline consts
     tick: int                 # sim ticks, advanced by frames received
     navBuilt: bool
@@ -2643,6 +2679,7 @@ proc defaultCombatTune(): CombatTune =
     medEcon: false,           # control: no static-coord kit routing (fog-visible kits only).
     medSee: false,            # control: medEcon's candidates are the two formula spots only.
     satCap: false,            # control: a free gun dogpiles the nearest enemy, no saturation cap.
+    mateAimPos: false,        # control: the angular mate-aim ray (v44 behavior, byte-identical).
     noMask: false,            # control: a mover walks through a mate's live gun-line.
     assaultThrough: false,    # control: a surprise at knife range triggers the retreat/duck jink.
     offCone: false,           # control: an attacker beelines straight down the enemy's gun axis.
@@ -2903,6 +2940,10 @@ proc shippedCombatTune(): CombatTune =
   # Stays ON (= v28 behaviour) so v30 is a genuine single-variable delta; NOSATCAP=1 turns it
   # off for the isolation run that has to happen before it can ship either way.
   result.satCap = getEnv("NOSATCAP").len == 0
+  # ⭐ MATE-POS PROXY (2026-08-07, v45, Audit 2 finding — LEVER-CLASS, gated
+  # OFF by default pending its own A/B). MATEPOS=1 arms it per-process. See
+  # the mateAimPos field doc for the full mechanism/citation.
+  result.mateAimPos = getEnv("MATEPOS").len > 0
   result.noMask = true
   result.assaultThrough = true
   # ⭐ fireOnRealBody MEASURED AND REJECTED (2026-07-29). The audit ranked it a top fix — the
@@ -4093,6 +4134,19 @@ proc adoptEndzones(client: ProtocolClient) =
     except ValueError:
       discard
 
+when defined(seatprobe):
+  # -d:seatprobe (2026-08-07, diagnostic only — v45 seat-identity fix
+  # verification): per-(team, teamSeat) tallies of the wantPocketRush
+  # suppression, so the probe can show the comboGrab-seat suppression is
+  # CONFINED to the designated seat (not leaking onto every same-role bot,
+  # the v44 bug) and that other attacker seats' pocket-rush desire is
+  # unaffected by comboGrabDone state.
+  var
+    spWantTrue: array[Team, array[8, int]]      # wantPocketRush evaluated true
+    spWantFalse: array[Team, array[8, int]]     # wantPocketRush evaluated false
+    spSuppressedByCombo: array[Team, array[8, int]] # false SPECIFICALLY because
+                                                     # of the comboGrab-seat term
+
 proc buildNavGrid(bot: Bot, client: ProtocolClient) =
   ## Erodes the pixel walkability mask into a footprint-safe nav grid, then
   ## derives the cover model (cover cells, overwatch post, defender choke).
@@ -4126,7 +4180,20 @@ proc buildNavGrid(bot: Bot, client: ProtocolClient) =
   # reading is only correct on a 2-team board, and on a 32-seat four-team board
   # it ran off the end of the role table and clamped four seats onto
   # HomeDefender.
-  bot.role = roleForSeat(clamp(bot.slot div max(GameTeams, 2), 0, 7), bot.team)
+  bot.teamSeat = clamp(bot.slot div max(GameTeams, 2), 0, 7)
+  bot.role = roleForSeat(bot.teamSeat, bot.team)
+  when defined(seatprobe):
+    # Runs once per bot (guarded by the `not bot.navBuilt` caller below) — the
+    # full seat/role/designation identity table the v45 seat-identity fix is
+    # supposed to produce.
+    let comboDesignated = bot.teamSeat == ComboGrabSeat
+    let shieldRushDesignated = bot.teamSeat == ShieldRushSeat
+    let sprayRoleOk = bot.role in {MidTop, MidBottom, MidGuard, FlankTop, FlankBottom}
+    echo "SEATPROBE slot=" & $bot.slot & " team=" & $bot.team &
+      " teamSeat=" & $bot.teamSeat & " role=" & $bot.role &
+      " comboDesignated=" & $comboDesignated &
+      " sprayEligible=" & $(sprayRoleOk and not (bot.tune.comboGrab and comboDesignated)) &
+      " shieldRushDesignated=" & $shieldRushDesignated
   bot.cellWalkable = newSeq[bool](GridW * GridH)
   for cy in 0 ..< GridH:
     for cx in 0 ..< GridW:
@@ -6383,12 +6450,20 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # while still gearing up (not comboGrabDone) it never wants the pocket rush,
   # so it can't dive the pedestal mid-sequence and die before completing the
   # durable close-range breacher loadout the combo is FOR.
+  # ⭐ SEAT-IDENTITY FIX (v45): teamSeat, not role (see the sprayGrab exclusion
+  # comment ~L7192 for why the role-equality form is wrong).
   let wantPocketRush = not iCarry and not mateCarry and not banking and
     bot.role in {MidTop, MidBottom, MidGuard, FlankTop, FlankBottom} and
-    not (bot.tune.comboGrab and bot.role == roleForSeat(ComboGrabSeat, bot.team) and
+    not (bot.tune.comboGrab and bot.teamSeat == ComboGrabSeat and
          not bot.comboGrabDone) and
     dist(me, stealTarget) < PocketRushRange and
     dist(me, stealTarget) < nearestMateToSteal + 8.0
+  when defined(seatprobe):
+    let comboSuppressing = bot.tune.comboGrab and bot.teamSeat == ComboGrabSeat and
+      not bot.comboGrabDone
+    if wantPocketRush: inc spWantTrue[bot.team][bot.teamSeat]
+    else: inc spWantFalse[bot.team][bot.teamSeat]
+    if comboSuppressing: inc spSuppressedByCombo[bot.team][bot.teamSeat]
   # ⭐⭐ SMART GRAB (2026-07-24, THE dive-death fix — Maxwell's adaptive-Captain directive).
   # The OLD grabTiming/grabGate were HARD-THRESHOLD gates with a fatal carve-out: a solo,
   # outgunned body with no inbound mate "dives NOW" (theory: a suicide grab forces the enemy
@@ -6569,6 +6644,33 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       continue                          # dots exist only while the mate is visible
     when defined(scprobe):
       if bot.tune.satCap: inc scMateFresh
+    if bot.tune.mateAimPos:
+      # ⭐ MATE-POS PROXY (v45, MATEPOS=1 only — see the mateAimPos field doc).
+      # Same mateTargeted/mateGuns/supportRays OUTPUT SHAPE as the angular-ray
+      # branch below, but the coverage test itself never reads a mate's
+      # decoded aim: proximity (within MateAimRayLen, the same trust distance
+      # the ray branch already used) + clear LOS (pixelRayClear — geometry,
+      # not aim) + gun up (mateGunDown — a muzzle-bloom read, not aim).
+      var bestD = -1.0
+      var bestDir: Vec
+      for i in 0 ..< bot.enemies.len:
+        if bot.tick - bot.enemies[i].lastSeen > FreshShotTicks:
+          continue
+        let d = dist(bot.enemies[i].pos, m.pos)
+        if d > MateAimRayLen:
+          continue
+        if not client.pixelRayClear(m.pos, bot.enemies[i].pos):
+          continue
+        mateTargeted[i] = true
+        inc mateGuns[i]
+        when defined(scprobe):
+          if bot.tune.satCap: inc scRayHit
+        if bestD < 0.0 or d < bestD:
+          bestD = d
+          bestDir = norm(bot.enemies[i].pos - m.pos)
+      if bot.tune.noMask and bestD >= 0.0 and not client.mateGunDown(m.pos):
+        supportRays.add((origin: m.pos, dir: bestDir, length: bestD))
+      continue                          # skip the angular-ray branch entirely
     var mAim = client.mateAimBrads(m.pos, me, myColor)
     if mAim < 0 and bot.tune.aimRotRead:
       mAim = m.aimBrads                 # v9: the dots are retired; the track's
@@ -7175,11 +7277,16 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # lesson): any free attacker seat that sees a can nearby grabs it. The
   # ComboGrabSeat is EXCLUDED below — its shield-then-can sequencing is owned
   # entirely by the dedicated comboGrab block right after this one, so the two
-  # never race for the same target.
+  # never race for the same target. ⭐ SEAT-IDENTITY FIX (v45): this used to
+  # compare bot.role == roleForSeat(ComboGrabSeat, team), which excludes every
+  # bot whose ROLE happens to match — and roleForSeat's table assigns MidBottom
+  # to TWO seats per team (seat 2 AND 4 for Red, seat 3 AND 4 for Blue), so on
+  # Red's canonical strided subset {0,2,4,6} this silently excluded 2 of 4 held
+  # bots instead of 1. bot.teamSeat is the physical seat; compare that instead.
   if bot.tune.sprayGrab and not seekingPickup and not iHavePlasma and
       not banking and
       not iHaveShield and not iCarry and not mateCarry and not ownStolen and
-      not (bot.tune.comboGrab and bot.role == roleForSeat(ComboGrabSeat, bot.team)) and
+      not (bot.tune.comboGrab and bot.teamSeat == ComboGrabSeat) and
       bot.role in {MidTop, MidBottom, MidGuard, FlankTop, FlankBottom}:
     var best = 1e18
     for p in plasmaPickups:
@@ -7210,8 +7317,10 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # normal combat posture (can+shield = the durable close-range breacher) and
   # never re-detours mid-fight for a replacement after a drop/death (reset
   # alongside shieldRushDone, per life).
+  # ⭐ SEAT-IDENTITY FIX (v45): teamSeat, not role — see the sprayGrab exclusion
+  # comment above for why the role-equality form double-fires on Red/Blue.
   if bot.tune.comboGrab and not bot.comboGrabDone and not seekingPickup and
-      bot.role == roleForSeat(ComboGrabSeat, bot.team) and
+      bot.teamSeat == ComboGrabSeat and
       not iCarry and not mateCarry and not ownStolen and not banking:
     if iHaveShield and iHavePlasma:
       bot.comboGrabDone = true                # loadout complete: hand off to combat
@@ -7237,10 +7346,17 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # the rusher seats, only while still home-side (ShieldRushMaxDepth) and not already
   # carrying/shielded/seeking — a cheap detour toward home, never a backtrack once
   # forward. The shield sits at our endzone (¾ height), so it's on the way out.
+  # ⭐ SEAT-IDENTITY FIX (v45): teamSeat, not role. roleForSeat(ShieldRushSeat=3,
+  # Blue) = MidBottom, the SAME role ComboGrabSeat(4) maps to on Blue — the old
+  # role-equality check matched BOTH physical seats on Blue, and because
+  # comboGrab runs earlier in source order and shares the `seekingPickup` guard,
+  # it silently preempted this block for both, so shieldRush's own designated
+  # seat never got to run its "grab our home shield before the steal" behavior
+  # on Blue whenever comboGrab was on (the default).
   if bot.tune.shieldRush and not bot.shieldRushDone and not seekingPickup and
       not banking and
       not iHaveShield and not iCarry and not mateCarry and not ownStolen and
-      bot.role == roleForSeat(ShieldRushSeat, bot.team) and
+      bot.teamSeat == ShieldRushSeat and
       bot.tick - max(bot.gameStart, bot.lifeStart) <= ShieldRushWindow:
     # Navigate to the STATIC known shield spawn (no LOS needed — VisionBubble is 90px
     # and the shield sits behind the spawn cone, so the see-it scan fired 0). One
@@ -8112,8 +8228,9 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       # for the ComboGrabSeat outright — that ONE seat always wants the can
       # eventually (it is mid-sequence toward it even during its shield phase),
       # so it should never be pushed away from a nearby one.
+      # ⭐ SEAT-IDENTITY FIX (v45): teamSeat, not role (see ~L7192).
       if bot.tune.avoidDisarm and not seekingPickup and not iHavePlasma and
-          not (bot.tune.comboGrab and bot.role == roleForSeat(ComboGrabSeat, bot.team)):
+          not (bot.tune.comboGrab and bot.teamSeat == ComboGrabSeat):
         for p in plasmaPickups:
           let d = dist(p, me)
           if d < DisarmAvoidRadius and d > 0.5:

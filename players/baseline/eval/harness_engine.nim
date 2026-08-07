@@ -25,6 +25,10 @@ import
 
 export spriteprotocol.InputState, spriteprotocol.decodeInputMask
 
+when defined(rangehitprobe):
+  import std/math
+  const RangeHitNearPx = 150.0  ## the study's own band: 0-150px hit%.
+
 type
   EvalEngine* = ref object
     sim: SimServer
@@ -51,6 +55,17 @@ type
                                      ## pedestal (-1 when home), to age the run.
     survivalSum: array[Team, int]    ## Σ ticks a carrier lived after grabbing
     survivalCount: array[Team, int]  ## before a non-scoring death, per stealer.
+    when defined(rangehitprobe):
+      # -d:rangehitprobe (2026-08-07, v45 A/B reporting): range-banded shots/
+      # hits, split at RangeHitNearPx (150px — the study's own band, "24pp vs
+      # 3pp accuracy variance" was measured close-in). ShotFx already carries
+      # the tracer's own (x0,y0)-(x1,y1) endpoints and whether it connected
+      # (`hit`), so the range comes straight off the existing cosmetic tracer
+      # — no engine change needed.
+      redShotsNear, blueShotsNear: int
+      redHitsNear, blueHitsNear: int
+      redShotsFar, blueShotsFar: int
+      redHitsFar, blueHitsFar: int
 
   SlotStat* = object
     slot*: int
@@ -124,6 +139,13 @@ proc newEvalEngine*(numPlayers: int, seed: int, maxTicks: int): EvalEngine =
   result = EvalEngine(sim: initSimServer(config))
   result.sim.gameEventLoggingEnabled = false  # keep the run quiet (a SimServer
                                               # field, defaults true post-init).
+  when defined(wkprobe):
+    # -d:wkprobe (2026-08-07, kept permanently like canprobe/ssprobe): turn on
+    # the tier-2 event sink so weaponKillCounts() below can read weapon-
+    # attributed Kill events (weapon="gun"/"spray"/"grenade"). Off by default
+    # (collectEvents costs real allocation), so every other probe build stays
+    # exactly as fast.
+    result.sim.collectEvents = true
   for i in 0 ..< numPlayers:
     discard result.sim.addPlayer("bot" & $i, trusted = true)
   result.sim.startGame()
@@ -183,6 +205,34 @@ when defined(ssprobe):
     let p = engine.sim.players[slot]
     (sword: p.hasSword, shield: p.hasShield, alive: p.alive)
 
+when defined(wkprobe):
+  # -d:wkprobe (2026-08-07, kept permanently — the utility-weapon kill-share
+  # audit tool): drains the tier-2 event stream ONCE at episode end and
+  # tallies weapon-attributed Kill events (weapon="gun"/"spray"/"grenade")
+  # per team. `source` on a SimEvent is the killer's stable JOIN slot
+  # (sim_state.eventSlot / player.joinOrder), not necessarily the raw player
+  # index, so build the join-slot->team map the same way
+  # tools/extract_events.nim does (slotTeam[player.joinOrder] = player.team)
+  # rather than assuming they match.
+  proc weaponKillCounts*(engine: EvalEngine): tuple[
+      redGun, blueGun, redSpray, blueSpray, redNade, blueNade: int] =
+    var teamOfJoinSlot = newSeq[Team](engine.sim.players.len)
+    for p in engine.sim.players:
+      if p.joinOrder >= 0 and p.joinOrder < teamOfJoinSlot.len:
+        teamOfJoinSlot[p.joinOrder] = p.team
+    for e in engine.sim.events:
+      if e.kind != Kill: continue
+      if e.source < 0 or e.source >= teamOfJoinSlot.len: continue
+      let isRed = teamOfJoinSlot[e.source] == Red
+      case e.weapon
+      of "gun":
+        if isRed: inc result.redGun else: inc result.blueGun
+      of "spray":
+        if isRed: inc result.redSpray else: inc result.blueSpray
+      of "grenade":
+        if isRed: inc result.redNade else: inc result.blueNade
+      else: discard
+
 when defined(canprobe):
   # -d:canprobe: engine-side TRUTH for the spray-can pickup path — whether the
   # slot is actually holding a can this tick. Paired with the policy-side
@@ -230,6 +280,26 @@ proc advance*(engine: EvalEngine) =
     if shot.firedTick == firedTick:
       if shot.color == teamColor(Red): inc engine.redShots
       elif shot.color == teamColor(Blue): inc engine.blueShots
+      when defined(rangehitprobe):
+        # ShotFx's own tracer endpoints give the shot's range directly — no
+        # cross-referencing against damagePops needed, and `hit` already
+        # says whether THIS shot connected.
+        let rng = hypot(float(shot.x1 - shot.x0), float(shot.y1 - shot.y0))
+        let near = rng < RangeHitNearPx
+        if shot.color == teamColor(Red):
+          if near:
+            inc engine.redShotsNear
+            if shot.hit: inc engine.redHitsNear
+          else:
+            inc engine.redShotsFar
+            if shot.hit: inc engine.redHitsFar
+        elif shot.color == teamColor(Blue):
+          if near:
+            inc engine.blueShotsNear
+            if shot.hit: inc engine.blueHitsNear
+          else:
+            inc engine.blueShotsFar
+            if shot.hit: inc engine.blueHitsFar
   # Gun-hit tally: a fresh "-1" damage pop (amount 1 = a bullet, not the amount-2
   # grenade blast) landed on a body THIS tick. Credit the SHOOTER = the enemy of
   # the victim's color, so redHits counts Red's bullets that connected. Paired
@@ -278,6 +348,15 @@ proc advance*(engine: EvalEngine) =
         engine.survivalSum[Blue] += lived
         inc engine.survivalCount[Blue]
     engine.prevCarrier[team] = carrier
+
+when defined(rangehitprobe):
+  proc rangeHitCounts*(engine: EvalEngine): tuple[
+      redShotsNear, redHitsNear, blueShotsNear, blueHitsNear,
+      redShotsFar, redHitsFar, blueShotsFar, blueHitsFar: int] =
+    (redShotsNear: engine.redShotsNear, redHitsNear: engine.redHitsNear,
+     blueShotsNear: engine.blueShotsNear, blueHitsNear: engine.blueHitsNear,
+     redShotsFar: engine.redShotsFar, redHitsFar: engine.redHitsFar,
+     blueShotsFar: engine.blueShotsFar, blueHitsFar: engine.blueHitsFar)
 
 proc result*(engine: EvalEngine): EpisodeResult =
   ## Snapshots the scoreboard from live sim fields (all authoritative — the

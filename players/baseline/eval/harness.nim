@@ -438,6 +438,20 @@ when defined(canprobe):
   var cpAliveTk = 0
   var cpPrevCan: array[64, bool]
 
+when defined(wkprobe):
+  # -d:wkprobe (kept permanently — utility-weapon kill-share audit tool):
+  # per-team, per-weapon KILL totals across the whole run, drained from the
+  # engine's tier-2 event stream. Never spray_use.amount (always 0).
+  var wkRedGun, wkBlueGun, wkRedSpray, wkBlueSpray, wkRedNade, wkBlueNade: int
+
+when defined(rangehitprobe):
+  # -d:rangehitprobe (2026-08-07, v45 A/B reporting): range-banded shots/hits
+  # per PER-GAME (not just pooled) so the caller can compute accuracy VARIANCE
+  # across games, not just an aggregate mean — that per-game spread is the
+  # study's own key metric (ours measured 24pp vs daveey's 3pp).
+  var rhGameNearPct: seq[tuple[seed: int, redPct, bluePct: float,
+    redShots, redHits, blueShots, blueHits: int]]
+
 proc runEpisode(seed, maxTicks, numPlayers: int, hunterSlots: seq[int]):
     EpisodeResult =
   ## Runs one headless game. Seats listed in hunterSlots run the HUNTER tune
@@ -446,7 +460,20 @@ proc runEpisode(seed, maxTicks, numPlayers: int, hunterSlots: seq[int]):
   ## the shipped decide), so paired seeds isolate the hunter's fire discipline.
   let
     engine = newEvalEngine(numPlayers, seed, maxTicks)
-    huntTune = hunterTune()
+    # HUNTER_MATEPOS=1 (2026-08-07, v45 Audit-2 A/B): repurposes the existing
+    # hunterSlots per-slot-tune mechanism to isolate JUST the mate-pos proxy —
+    # hunterSlots' side gets shippedCombatTune() with mateAimPos forced true,
+    # every other field identical to the (CONTROL_SHIPPED=1) control side, so
+    # the ONLY delta between the two arms is the satCap/FocusFireBonus/noMask
+    # input channel the proxy replaces. Distinct from hunterTune() (a totally
+    # different fire-discipline hypothesis) — existing HUNT_* workflows are
+    # untouched unless this flag is set.
+    huntTune =
+      if envInt("HUNTER_MATEPOS", 0) != 0:
+        var t = shippedCombatTune()
+        t.mateAimPos = true
+        t
+      else: hunterTune()
   # CONTROL_SHIPPED=1 makes the CONTROL side the full SHIPPED v3 champion, so a
   # v4 A/B pits (v3 + SEAL4) against v3 alone — the ONLY delta is the six new
   # levers. Takes precedence over CONTROL_COMMIT.
@@ -534,6 +561,18 @@ proc runEpisode(seed, maxTicks, numPlayers: int, hunterSlots: seq[int]):
         ssPrevSword[slot] = ss.sword
         ssPrevShield[slot] = ss.shield
     inc tick
+  when defined(wkprobe):
+    let wk = engine.weaponKillCounts()
+    wkRedGun += wk.redGun; wkBlueGun += wk.blueGun
+    wkRedSpray += wk.redSpray; wkBlueSpray += wk.blueSpray
+    wkRedNade += wk.redNade; wkBlueNade += wk.blueNade
+  when defined(rangehitprobe):
+    let rh = engine.rangeHitCounts()
+    let redPct = (if rh.redShotsNear > 0: 100.0 * rh.redHitsNear.float / rh.redShotsNear.float else: 0.0)
+    let bluePct = (if rh.blueShotsNear > 0: 100.0 * rh.blueHitsNear.float / rh.blueShotsNear.float else: 0.0)
+    rhGameNearPct.add((seed: seed, redPct: redPct, bluePct: bluePct,
+      redShots: rh.redShotsNear, redHits: rh.redHitsNear,
+      blueShots: rh.blueShotsNear, blueHits: rh.blueHitsNear))
   result = engine.result()
 
 proc main() =
@@ -572,11 +611,15 @@ proc main() =
      else: "defaultCombatTune — most champion levers OFF. " &
            "Set CONTROL_SHIPPED=1 to measure the shipped policy.")
   if hunterSlots.len > 0:
-    let h = hunterTune()
-    echo &"  hunter tune: fresh={h.freshShotTicks} slack={h.fireSlackPx} " &
-      &"lead={h.leadTicks} dead={h.combatDeadband} range={h.fireRange} " &
-      &"commit={h.commit} commitBonus={h.commitBonus} " &
-      &"forceBalance={h.forceBalance} margin={h.outnumberMargin}"
+    if envInt("HUNTER_MATEPOS", 0) != 0:
+      echo "  hunter tune: shippedCombatTune (CONTROL_SHIPPED=1) + mateAimPos=true " &
+        "— the MATEPOS proxy A/B, every other field identical to the control side"
+    else:
+      let h = hunterTune()
+      echo &"  hunter tune: fresh={h.freshShotTicks} slack={h.fireSlackPx} " &
+        &"lead={h.leadTicks} dead={h.combatDeadband} range={h.fireRange} " &
+        &"commit={h.commit} commitBonus={h.commitBonus} " &
+        &"forceBalance={h.forceBalance} margin={h.outnumberMargin}"
   echo "seed  ticks  over  winner  redK blueK  redC blueC  redS blueS  " &
     "redHit% blueHit%"
 
@@ -796,6 +839,53 @@ proc main() =
     echo &"    (non-empty=0 with scan-frames>0 => the `spray can` label read is BLIND — the " &
       &"exact 0.7.x rename failure. non-empty>0 with seek=0 => perception fine, gate declines. " &
       &"pickups>0 with non-empty=0 => we only ever get cans by ACCIDENT.)"
+  when defined(wkprobe):
+    let
+      wkRedTot = wkRedGun + wkRedSpray + wkRedNade
+      wkBlueTot = wkBlueGun + wkBlueSpray + wkBlueNade
+      wkRedSprayPct = (if wkRedTot > 0: 100.0 * wkRedSpray.float / wkRedTot.float else: 0.0)
+      wkBlueSprayPct = (if wkBlueTot > 0: 100.0 * wkBlueSpray.float / wkBlueTot.float else: 0.0)
+    echo &"  WK-PROBE kills by weapon: RED gun={wkRedGun} spray={wkRedSpray} " &
+      &"grenade={wkRedNade} total={wkRedTot}  (spray share {wkRedSprayPct:.1f}%)"
+    echo &"  WK-PROBE kills by weapon: BLUE gun={wkBlueGun} spray={wkBlueSpray} " &
+      &"grenade={wkBlueNade} total={wkBlueTot}  (spray share {wkBlueSprayPct:.1f}%)"
+    echo &"    (compare spray-share vs the daveey-game field number ~16.7%; MIRROR so both " &
+      &"sides run the same policy — the question is whether the machinery fires at all.)"
+  when defined(rangehitprobe):
+    # Pooled 0-150px hit% (all shots, all games) AND the per-game spread
+    # (mean/stdev of each game's own hit%) — the study's key metric was the
+    # VARIANCE across games (24pp ours vs daveey's 3pp), not just a pooled mean.
+    var
+      totRedSN, totRedHN, totBlueSN, totBlueHN = 0
+      redPcts, bluePcts: seq[float]
+    for g in rhGameNearPct:
+      totRedSN += g.redShots; totRedHN += g.redHits
+      totBlueSN += g.blueShots; totBlueHN += g.blueHits
+      redPcts.add(g.redPct)
+      bluePcts.add(g.bluePct)
+    proc meanOf(xs: seq[float]): float =
+      if xs.len == 0: return 0.0
+      var s = 0.0
+      for x in xs: s += x
+      s / xs.len.float
+    proc stdevOf(xs: seq[float]): float =
+      if xs.len < 2: return 0.0
+      let m = meanOf(xs)
+      var ss = 0.0
+      for x in xs: ss += (x - m) * (x - m)
+      sqrt(ss / (xs.len - 1).float)
+    let
+      pooledRedPct = (if totRedSN > 0: 100.0 * totRedHN.float / totRedSN.float else: 0.0)
+      pooledBluePct = (if totBlueSN > 0: 100.0 * totBlueHN.float / totBlueSN.float else: 0.0)
+      redMean = meanOf(redPcts)
+      redSd = stdevOf(redPcts)
+      blueMean = meanOf(bluePcts)
+      blueSd = stdevOf(bluePcts)
+    echo &"  RANGE-HIT-PROBE 0-150px hit%: RED shots={totRedSN} pooled={pooledRedPct:.1f}% " &
+      &"per-game mean={redMean:.1f}% sd={redSd:.1f}pp  BLUE shots={totBlueSN} " &
+      &"pooled={pooledBluePct:.1f}% per-game mean={blueMean:.1f}% sd={blueSd:.1f}pp"
+    echo "    (per-game sd is the study's key metric: our spread was measured at 24pp vs " &
+      "daveey's 3pp)"
   when defined(ssprobe):
     let
       swPerK = (if ssAliveTk > 0: 1000.0 * (ssRedSwordTk + ssBlueSwordTk).float / ssAliveTk.float else: 0.0)
@@ -809,6 +899,15 @@ proc main() =
     echo &"  SS-PROBE levers: avoid-repel-frames {ssAvoidActive}  tank-seek {ssTankSeek}  " &
       &"ambush-seek {ssAmbushSeek}  ambush-swing {ssAmbushSwing}"
     echo &"    (proves the gated v7 levers are LIVE code: >0 => firing even when grabs are ~0)"
+  when defined(seatprobe):
+    echo "  SEAT-PROBE pocketRush suppression by (team, teamSeat) — wantTrue / wantFalse / " &
+      "suppressedByCombo (suppressedByCombo>0 should appear ONLY on ComboGrabSeat's own row):"
+    for team in Team:
+      for s in 0 .. 7:
+        let tot = spWantTrue[team][s] + spWantFalse[team][s]
+        if tot == 0: continue
+        echo "    " & $team & " seat" & $s & ": true=" & $spWantTrue[team][s] &
+          " false=" & $spWantFalse[team][s] & " suppressedByCombo=" & $spSuppressedByCombo[team][s]
   when defined(phprobe):
     # ⭐ v29 PHASE OCCUPANCY — the empirical premise for PhForce timing + PhDefend teeth.
     # Answers what the v21 design doc could only guess: which phases the team actually
