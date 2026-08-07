@@ -30,6 +30,15 @@ const
                                              ## may reach; must stay >=
                                              ## WaveAmp + ChipAmp.
 
+  PuddleRimColor = rgba(88, 24, 108, 255)    ## dark violet edge line tracing
+                                             ## the spill — deliberately NO
+                                             ## team's paint color, so the
+                                             ## hazard reads neutral.
+  PuddleFillTint = rgba(158, 48, 186, 235)   ## the near-opaque wet paint body.
+  PuddleGlossTint = rgba(226, 150, 240, 90)  ## soft off-center sheen so the
+                                             ## surface reads WET, not dyed
+                                             ## floor.
+
 proc overTint(base, tint: ColorRGBA): ColorRGBA =
   ## Alpha-composites a translucent tint over an opaque base color.
   ## (Moved from arena.nim in the round-2 audit: pure color math, art-only.)
@@ -119,6 +128,46 @@ proc trenchArtColorAt(base: ColorRGBA, x, y: int): ColorRGBA =
       alpha = float(TrenchLipAlpha) -
         float(TrenchLipAlpha - TrenchFloorAlpha) * depth / float(TrenchBevelPx)
     return overTint(base, rgba(12, 9, 5, uint8(alpha)))
+  base
+
+proc puddleArtColorAt(base: ColorRGBA, x, y: int): ColorRGBA =
+  ## Returns the floor color with paint-puddle art applied at logical (x, y).
+  ## A puddle is a UNION of overlapping paint discs (the splat silhouette),
+  ## and the spill outline IS the gameplay shape: pixels outside every disc
+  ## stay clean floor, the union boundary's inner 2px trace a dark rim, and
+  ## the body is near-opaque violet with an off-center sheen so the surface
+  ## reads wet. The painted area therefore matches the damage area exactly.
+  for puddle in ArenaPuddles:
+    let pr = puddleBounds(puddle)
+    if x < pr.x - 1 or x >= pr.x + pr.w + 1 or
+        y < pr.y - 1 or y >= pr.y + pr.h + 1:
+      continue
+    ## Depth into the union: the deepest any single disc submerges the
+    ## pixel (its radius minus the distance to its center). Negative =
+    ## outside every disc; the union's boundary is depth 0.
+    var depth = -1.0
+    for s in puddle.spots:
+      let
+        dx = float(x - s.cx)
+        dy = float(y - s.cy)
+      depth = max(depth, float(s.r) - sqrt(dx * dx + dy * dy))
+    if depth < 0.0:
+      continue                # clean floor: the paint never leaves the splat
+    if depth < 2.0:
+      return PuddleRimColor
+    var color = overTint(base, PuddleFillTint)
+    # The sheen: an off-center inner ellipse, brightest toward its middle.
+    let
+      gx = float(x - (pr.x + pr.w * 2 div 5))
+      gy = float(y - (pr.y + pr.h * 2 div 5))
+      gr = float(min(pr.w, pr.h)) * 0.32
+      gd = (gx * gx + gy * gy) / (gr * gr)
+    if gd < 1.0:
+      color = overTint(color, rgba(
+        PuddleGlossTint.r, PuddleGlossTint.g, PuddleGlossTint.b,
+        uint8(float(PuddleGlossTint.a) * (1.0 - gd))
+      ))
+    return color
   base
 
 proc tileSample(tex: Image, x, y: int): ColorRGBA =
@@ -673,6 +722,10 @@ proc renderArenaRgbaPair*(
         # variants; it sits at the center, well clear of the endzone glow.
         coldColor = trenchArtColorAt(coldColor, lx, ly)
         hotColor = trenchArtColorAt(hotColor, lx, ly)
+        # Paint puddles (config-gated hazards) spill over the floor the same
+        # way, on top of any trench art they abut.
+        coldColor = puddleArtColorAt(coldColor, lx, ly)
+        hotColor = puddleArtColorAt(hotColor, lx, ly)
       if onBorder:
         hotColor = overTint(hotColor, ArenaBorderColor)
         coldColor = overTint(coldColor, ArenaBorderColor)
@@ -793,6 +846,13 @@ proc loadMapLayers*(gameMap: CtfMap, withEndzoneGlow = true):
       for x in max(0, tr.x - TrenchArtPadPx) ..<
           min(w, tr.x + tr.w + TrenchArtPadPx):
         trenchNear[y * w + x] = true
+  ## Same fast-skip mask for the puddle spills.
+  var puddleNear = newSeq[bool](w * h)
+  for puddle in ArenaPuddles:
+    let pr = puddleBounds(puddle)
+    for y in max(0, pr.y - 1) ..< min(h, pr.y + pr.h + 1):
+      for x in max(0, pr.x - 1) ..< min(w, pr.x + pr.w + 1):
+        puddleNear[y * w + x] = true
   ## The capture endzones: the exact score-columns from checkWinConditions'
   ## captureZoneXRange (Red's inclusive right threshold, Blue's inclusive left),
   ## painted into the FLOOR below so a carrier can read where to run.
@@ -826,6 +886,9 @@ proc loadMapLayers*(gameMap: CtfMap, withEndzoneGlow = true):
         # The trench pit (config-gated trenches) paints over the finished floor; it never
         # overlaps a wall (it sits inside the open center ring).
         color = trenchArtColorAt(color, x, y)
+      if not wall and puddleNear[y * w + x]:
+        # Paint puddles spill over the floor the same way.
+        color = puddleArtColorAt(color, x, y)
       if onBorder:
         color = overTint(color, ArenaBorderColor)
       result.mapImage[x, y] = color

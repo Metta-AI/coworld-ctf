@@ -567,6 +567,19 @@ const
                               ## on down the ray. Shots fired from inside the
                               ## same trench never miss this way.
 
+  PuddleSize* = 64            ## nominal diameter of a paint-puddle splat
+                              ## (the core disc; lobes reach a little
+                              ## further — see arena.nim's PuddleMaxRadiusPx).
+                              ## Like obstacles and trenches, puddles never
+                              ## scale with the map's size class.
+  PuddleRollTicks* = TargetFps  ## one damage roll per full SECOND of
+                              ## continuous puddle occupancy (24 ticks).
+  DefaultPuddleDamagePct* = 10  ## default percent chance the per-second
+                              ## occupancy roll deals 1 damage.
+  MaxPuddles* = 64            ## hard cap on mapPuddles requests, matching
+                              ## the trench cap (and sizing the stated-marker
+                              ## sprite/object pool).
+
   BubbleImpactTicks* = 8      ## ~0.33s the bubble's blink/dent impact FX
                               ## lasts (cosmetic only, like HitFlashTicks).
 
@@ -726,6 +739,21 @@ type
   MapRect* = object
     x*, y*, w*, h*: int
 
+  PuddleSpot* = object
+    ## One disc of a paint puddle's splat cluster.
+    cx*, cy*, r*: int
+
+  Puddle* = object
+    ## A paint puddle: the UNION of a handful of overlapping paint discs —
+    ## the classic splat silhouette. Discs (not polygons) because disc
+    ## membership is pure integer math that transforms BIT-EXACTLY under the
+    ## map symmetries (mirror/rot180 move a center, never change a
+    ## distance), so a puddle pair — and the stitched center puddle — is
+    ## exactly team-fair; the polygon scanline rule would drop whole pixel
+    ## rows at pass-through vertices (see pointInPolygon's strict-straddle
+    ## doc).
+    spots*: seq[PuddleSpot]
+
   ArenaShapeKind* = enum
     shapeRect
     shapeDisc
@@ -843,6 +871,14 @@ type
                                ## pits). Membership is `inShape`, so the mechanic
                                ## is shape-agnostic; only the organic-edge ART is
                                ## rect-specific (other kinds fill flat for now).
+    puddles*: seq[Puddle]      ## paint-puddle hazards (config-gated): every
+                               ## full second a cog's center spends
+                               ## continuously inside one rolls a
+                               ## puddleDamagePct chance of 1 damage. Pure
+                               ## floor hazard — no movement, fire, or vision
+                               ## effect. FULL-map (both halves, already
+                               ## symmetrized), pinned into replay specs like
+                               ## trenches.
 
   CrewSprite* = ref object
     width*, height*: int
@@ -893,6 +929,13 @@ type
                            ## pit chances (100 = default feel, 0 = none,
                            ## 200 = twice as digging-happy); -1 = default.
                            ## Ignored when `pits` locks an exact count.
+    puddles*: int          ## requested TOTAL paint-puddle count, 0..64.
+                           ## <= 0 = none (the default — puddles have no
+                           ## density draw, so the zero object default and
+                           ## an explicit 0 mean the same thing).
+                           ## Best-effort like pits: places as many as fit.
+                           ## Even counts place symmetric pairs; an odd
+                           ## count anchors its extra puddle dead center.
     endzone*: string       ## "column" | "disc" | "square"; "" = draw. The
                            ## two COMPACT shapes wrap the base and open the
                            ## home border strip up as wilderness.
@@ -1003,6 +1046,13 @@ type
                                ## permille (default 100 = 10%).
     perkLuckDamage*: int       ## luck: hit points a lucky shot removes
                                ## (default 2; an unlucky shot removes 1).
+    puddleDamagePct*: int         ## percent chance (0..100) that one full
+                                  ## second of continuous paint-puddle
+                                  ## occupancy deals 1 damage. Default 10.
+                                  ## Inert on maps without puddles (the roll
+                                  ## — and its RNG draw — only happens while
+                                  ## a cog stands in one, so the default
+                                  ## path stays byte-identical: no GV bump).
 
   Player* = object
     x*, y*: int
@@ -1036,6 +1086,16 @@ type
     arcHitMask*: uint32        ## players already damaged by the current
                                ## activation: one hit per victim per firing.
     throwCharge*: int          ## ticks the throw button has been held.
+    puddleTicks*: int          ## consecutive ticks this cog's center has
+                               ## stood inside a paint puddle; at
+                               ## PuddleRollTicks the damage roll fires and
+                               ## the counter restarts. Resets on exit and
+                               ## on death. Deterministic gameplay state,
+                               ## but NOT mixed into gameHash: hashing a new
+                               ## always-zero field would shift every
+                               ## pre-puddle replay's hash chain (keyframe
+                               ## scrub still restores it exactly via the
+                               ## flatty sim snapshot).
     lastShoutTick*: int        ## tick of this player's latest shout, -1 = never.
     paintHitTick*: int         ## tick of the latest PAINT hit taken. Every
                                ## weapon throws paint — gun, grenade, and the

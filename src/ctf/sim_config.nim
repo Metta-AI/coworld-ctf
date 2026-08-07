@@ -52,6 +52,7 @@ proc defaultGameConfig*(): GameConfig =
     perkThrusterPermille: PerkThrusterPermilleDefault,
     perkLuckPermille: PerkLuckPermilleDefault,
     perkLuckDamage: PerkLuckDamageDefault,
+    puddleDamagePct: DefaultPuddleDamagePct,
     barrageMaxPerSec: 0,
     barrageStartPerSec: BarrageStartPerSec,
     barrageStartSec: BarrageStartSec,
@@ -508,6 +509,8 @@ proc validate(config: GameConfig) =
     raise newException(CtfError, "Config field aimTurnRate must be at least 1.")
   if config.visionConeDeg < 0 or config.visionConeDeg > 180:
     raise newException(CtfError, "Config field visionConeDeg must be between 0 and 180.")
+  if config.puddleDamagePct < 0 or config.puddleDamagePct > 100:
+    raise newException(CtfError, "Config field puddleDamagePct must be 0..100.")
   if config.visionBubble < 0:
     raise newException(CtfError, "Config field visionBubble must be non-negative.")
   if config.speed notin [1, 2, 3, 4, 8, 16]:
@@ -636,6 +639,8 @@ proc update*(config: var GameConfig, jsonText: string) =
   node.readConfigInt("mapWindows", config.mapGen.windows)
   node.readConfigInt("mapPits", config.mapGen.pits)
   node.readConfigInt("mapPitDensity", config.mapGen.pitDensity)
+  node.readConfigInt("mapPuddles", config.mapGen.puddles)
+  node.readConfigInt("puddleDamagePct", config.puddleDamagePct)
   node.readConfigString("mapCenterFeature", config.mapGen.centerFeature)
   node.readConfigString("mapLayout", config.mapGen.layout)
   node.readConfigString("mapEndzone", config.mapGen.endzone)
@@ -755,6 +760,14 @@ proc configJson*(config: GameConfig): string =
   }
   if includePlayers:
     node["players"] = players
+  # Echo the puddle keys only when the mode departs from the default, so a
+  # puddle-free game's replay config stays byte-identical to pre-puddle
+  # builds (same rule as the handicaps echo below).
+  if config.mapGen.puddles > 0:
+    node["mapPuddles"] = %config.mapGen.puddles
+  if config.mapGen.puddles > 0 or
+      config.puddleDamagePct != DefaultPuddleDamagePct:
+    node["puddleDamagePct"] = %config.puddleDamagePct
   # Echo only the handicapped teams, as their authored 0..1 floats, so a
   # default (unhandicapped) game's replay config carries no handicaps key.
   var handicaps = newJObject()

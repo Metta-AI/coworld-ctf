@@ -904,6 +904,47 @@ proc rot90(shape: ArenaShape, side: int): ArenaShape =
       pts[i] = MapPoint(x: side - 1 - p.y, y: p.x)
     ArenaShape(kind: shapePolygon, window: shape.window, points: pts)
 
+proc mirrorX*(puddle: Puddle, width: int): Puddle =
+  ## Mirrors one paint puddle across the vertical center line: each disc's
+  ## center reflects, radii are untouched — membership transforms bit-exactly
+  ## (a reflected distance is the same distance).
+  for s in puddle.spots:
+    result.spots.add PuddleSpot(cx: width - 1 - s.cx, cy: s.cy, r: s.r)
+
+proc rot180*(puddle: Puddle, width, height: int): Puddle =
+  ## Rotates one paint puddle 180 degrees about the map center; bit-exact
+  ## like the mirror above.
+  for s in puddle.spots:
+    result.spots.add PuddleSpot(
+      cx: width - 1 - s.cx, cy: height - 1 - s.cy, r: s.r)
+
+proc inPuddle*(x, y: int, puddle: Puddle): bool =
+  ## Returns true when map pixel (x, y) lies inside the puddle — inside ANY
+  ## of its overlapping paint discs. Pure integer math.
+  for s in puddle.spots:
+    let
+      dx = x - s.cx
+      dy = y - s.cy
+    if dx * dx + dy * dy <= s.r * s.r:
+      return true
+  false
+
+proc puddleBounds*(puddle: Puddle): MapRect =
+  ## The tight bounding box of the puddle's disc union.
+  if puddle.spots.len == 0:
+    return MapRect()
+  var
+    x0 = puddle.spots[0].cx - puddle.spots[0].r
+    y0 = puddle.spots[0].cy - puddle.spots[0].r
+    x1 = puddle.spots[0].cx + puddle.spots[0].r
+    y1 = puddle.spots[0].cy + puddle.spots[0].r
+  for s in puddle.spots:
+    x0 = min(x0, s.cx - s.r)
+    y0 = min(y0, s.cy - s.r)
+    x1 = max(x1, s.cx + s.r)
+    y1 = max(y1, s.cy + s.r)
+  MapRect(x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1)
+
 proc symmetryImages*(gameMap: CtfMap, rect: MapRect): seq[MapRect] =
   ## Returns one rectangle's full orbit under the map's own symmetry,
   ## original first. Images are deduplicated after applying the canonical
@@ -1245,6 +1286,66 @@ proc shuffle[T](rng: var MapRng, items: var seq[T]) =
   for i in countdown(items.high, 1):
     let j = rng.pick(i + 1)
     swap(items[i], items[j])
+
+const
+  PuddleMaxRadiusPx* = 45       ## hard bound on a puddle pixel's distance
+                                ## from the splat's anchor: the widest lobe
+                                ## offset (20) plus the largest lobe radius
+                                ## (24), or the core disc's 30 — rounded up.
+                                ## Placement margins and tests lean on this.
+
+proc puddleSplatAt(rng: var MapRng, cx, cy: int): Puddle =
+  ## An organic paint splat anchored at (cx, cy): one core disc under 2..4
+  ## smaller lobes flung a short way off-center, all drawn from the map rng.
+  ## Overlapping discs make the classic spill silhouette — bulges and
+  ## pinches, never a square. A splat's symmetry image comes from the
+  ## engine's own Puddle transforms, so a placed pair is exactly team-fair.
+  result.spots.add PuddleSpot(cx: cx, cy: cy, r: rng.pickRange(26, 30))
+  let lobes = rng.pickRange(2, 4)
+  for _ in 0 ..< lobes:
+    let
+      dist = rng.pickRange(10, 20)
+      angle = float(rng.pick(3600)) * PI / 1800.0
+    result.spots.add PuddleSpot(
+      cx: cx + int(round(float(dist) * cos(angle))),
+      cy: cy + int(round(float(dist) * sin(angle))),
+      r: rng.pickRange(14, 24)
+    )
+
+proc centerPuddleSplat(rng: var MapRng, gameMap: CtfMap): Puddle =
+  ## The odd-count CENTER puddle. Exact self-symmetry by construction: draw
+  ## half the discs freely near the center, then union them with their own
+  ## engine-transform images — the disc set then maps to itself under the
+  ## map's symmetry, the splat analogue of the rect center pit's
+  ## width-x-w self-image. (A disc dead on the center pairs with a twin one
+  ## pixel over; the two melt into one core visually.)
+  let
+    cx = gameMap.center.x
+    cy = gameMap.center.y
+  var half: Puddle
+  half.spots.add PuddleSpot(
+    cx: cx - rng.pickRange(2, 8),
+    cy: cy + rng.pickRange(-6, 6),
+    r: rng.pickRange(22, 27)
+  )
+  for _ in 0 ..< 2:
+    let
+      dist = rng.pickRange(8, 18)
+      angle = float(rng.pick(3600)) * PI / 1800.0
+    half.spots.add PuddleSpot(
+      cx: cx + int(round(float(dist) * cos(angle))),
+      cy: cy + int(round(float(dist) * sin(angle))),
+      r: rng.pickRange(13, 19)
+    )
+  let image =
+    case gameMap.symmetry
+    of symMirror: half.mirrorX(gameMap.width)
+    of symRot180: half.rot180(gameMap.width, gameMap.height)
+    of symRot90, symQuadMirror:
+      raiseAssert "puddles never place on 4-team maps"
+  result = half
+  for s in image.spots:
+    result.spots.add s
 
 proc mapSizeScale(sizeName: string): float =
   ## Field-scale factor for one size class. The two OVERSIZE classes are
@@ -1964,6 +2065,9 @@ proc generateMapAttempt*(
   ## so both parities stay exactly team-fair.
   if overrides.pits < -1 or overrides.pits > 64:
     raise newException(CtfError, "Config field mapPits must be 0..64.")
+  if overrides.puddles > MaxPuddles:
+    raise newException(
+      CtfError, "Config field mapPuddles must be 0.." & $MaxPuddles & ".")
   if overrides.pitDensity < -1 or overrides.pitDensity > 1000:
     raise newException(
       CtfError, "Config field mapPitDensity must be 0..1000.")
@@ -1983,6 +2087,10 @@ proc generateMapAttempt*(
     if overrides.pits > 0:
       raise newException(
         CtfError, "Trenches are not supported on 4-team maps yet.")
+    if overrides.puddles > 0:
+      ## Same pair accounting as trenches: one symmetry image per blob.
+      raise newException(
+        CtfError, "Puddles are not supported on 4-team maps yet.")
     pitCandidates.setLen(0)
   if pitPairsWanted >= 0:
     rng.shuffle(pitCandidates)
@@ -2330,6 +2438,92 @@ proc generateMapAttempt*(
     result.trenches = @[]
     for d in digs:
       result.trenches.add rectShape(d)
+
+  ## Place the paint puddles. COUNT mode only, and AFTER the trench set is
+  ## final so acceptance sees every dug pit: sample random left-half spots
+  ## from the map rng and accept a spot when the blob AND its symmetry
+  ## image sit on open floor, clear of every trench, every accepted
+  ## puddle, and every team's base pocket. An odd request anchors its
+  ## extra puddle dead center (its own image under mirror AND rot180),
+  ## like the odd center pit. Best-effort like pits: when the attempts run
+  ## out the map ships with as many as fit. (4-team symmetries raise on an
+  ## explicit request above and place nothing here.)
+  block finalizePuddles:
+    if overrides.puddles <= 0 or
+        result.symmetry in {symRot90, symQuadMirror}:
+      break finalizePuddles
+    let
+      obstacles = buildArenaObstacles(result)
+      margin = PuddleMaxRadiusPx + 8
+    var baseRooms: seq[MapRect]
+    for room in result.defaultCtfRooms():
+      if room.name != "Center":
+        baseRooms.add MapRect(x: room.x, y: room.y, w: room.w, h: room.h)
+    ## Acceptance works on tight bounding boxes: conservative for the open
+    ## floor test (a bbox clipping a wall rejects even when the blob's ring
+    ## clears it), and cheap for the overlap tests.
+    proc addPuddlePair(
+      gameMap: CtfMap, splats: var seq[Puddle], splat: Puddle
+    ): bool =
+      ## Accepts one left-half splat plus its symmetry image when both sit
+      ## on open floor clear of everything above. A splat whose image is
+      ## blocked drops WITH it — fairness before density, as with trenches.
+      let image =
+        case gameMap.symmetry
+        of symMirror: splat.mirrorX(gameMap.width)
+        of symRot180: splat.rot180(gameMap.width, gameMap.height)
+        of symRot90, symQuadMirror:
+          raiseAssert "puddles never place on 4-team maps"
+      let
+        splatBox = puddleBounds(splat)
+        imageBox = puddleBounds(image)
+      if rectsIntersect(splatBox, imageBox):
+        return false
+      for candBox in [splatBox, imageBox]:
+        if not rectOnOpenFloor(gameMap, obstacles, candBox):
+          return false
+        for trench in gameMap.trenches:
+          if rectsIntersect(shapeAsRect(trench), candBox):
+            return false
+        for base in baseRooms:
+          if rectsIntersect(base, candBox):
+            return false
+      for accepted in splats:
+        let accBox = puddleBounds(accepted)
+        if rectsIntersect(accBox, splatBox) or
+            rectsIntersect(accBox, imageBox):
+          return false
+      splats.add splat
+      splats.add image
+      true
+    var splats: seq[Puddle]
+    if overrides.puddles mod 2 == 1:
+      ## The odd splat sits dead center, inside the always-open flag ring —
+      ## unless an odd PIT request already dug the center out (paint on a
+      ## trench floor would double-stack the two hazards' art and rules).
+      ## Its disc set is stitched self-symmetric (see centerPuddleSplat),
+      ## so it is its own image and joins the set alone.
+      let center = rng.centerPuddleSplat(result)
+      var centerOpen = true
+      for trench in result.trenches:
+        if rectsIntersect(shapeAsRect(trench), puddleBounds(center)):
+          centerOpen = false
+          break
+      if centerOpen:
+        splats.add center
+    ## Bounded rejection sampling: enough tries that a normal board fills
+    ## the request, deterministic from the map seed either way. Anchors cap
+    ## at PuddleMaxRadiusPx short of the center line, so a splat and its
+    ## mirror image can never touch.
+    var attempts = overrides.puddles * 40
+    while splats.len < overrides.puddles and attempts > 0:
+      dec attempts
+      let
+        cxHi = result.center.x - PuddleMaxRadiusPx - 4
+        cx = rng.pickRange(margin, max(margin, cxHi))
+        cy = rng.pickRange(margin, max(margin, result.height - margin))
+      discard result.addPuddlePair(splats, rng.puddleSplatAt(cx, cy))
+    result.puddles = splats
   result.validateMap()
 
 type
@@ -2788,7 +2982,7 @@ proc mapSpecJson*(gameMap: CtfMap): string =
   var trenchShapes = newJArray()
   for trench in gameMap.trenches:
     trenchShapes.add trench.shapeSpecNode()
-  $(%*{
+  let spec = %*{
     "name": gameMap.name,
     "genSeed": gameMap.genSeed,
     "width": gameMap.width,
@@ -2823,7 +3017,21 @@ proc mapSpecJson*(gameMap: CtfMap): string =
     # generator emits rect pits; authored maps may use any shape).
     "trenches": trenchShapes,
     "leftObstacles": shapes,
-  })
+  }
+  ## Puddles pin only when present: an unconditional (empty) key would
+  ## change every puddle-free pinned spec — and with it every default
+  ## fixture's config echo — for nothing.
+  if gameMap.puddles.len > 0:
+    ## Each puddle pins as its disc list, [[cx, cy, r], ...] — the exact
+    ## splat cluster, so playback re-derives identical membership.
+    var puddleNodes = newJArray()
+    for puddle in gameMap.puddles:
+      var spots = newJArray()
+      for s in puddle.spots:
+        spots.add %*[s.cx, s.cy, s.r]
+      puddleNodes.add spots
+    spec["puddles"] = puddleNodes
+  $spec
 
 proc mapFromSpecJson*(text: string): CtfMap =
   ## Rebuilds one map from its expanded replay spec. Rooms are derived from
@@ -2894,6 +3102,16 @@ proc mapFromSpecJson*(text: string): CtfMap =
           w: item[2].getInt(), h: item[3].getInt()))
       else:
         result.trenches.add item.shapeFromSpecNode()
+  ## Optional like trenches: specs pinned before puddles existed carry none
+  ## and replay without them, exactly as recorded.
+  let puddleNode = node{"puddles"}
+  if not puddleNode.isNil and puddleNode.kind == JArray:
+    for item in puddleNode:
+      var puddle: Puddle
+      for spot in item:
+        puddle.spots.add PuddleSpot(
+          cx: spot[0].getInt(), cy: spot[1].getInt(), r: spot[2].getInt())
+      result.puddles.add puddle
   for item in node["leftObstacles"]:
     result.leftObstacles.add item.shapeFromSpecNode()
   result.rooms = result.defaultCtfRooms()
@@ -2958,6 +3176,7 @@ var
     ## turns together, and on quad-mirror maps, whose per-axis direction
     ## rule reads ArenaSymmetryG instead — see diamondSpinDir.
   ArenaTrenches*: seq[ArenaShape]
+  ArenaPuddles*: seq[Puddle]
 
 proc selectCtfMap(gameMap: CtfMap) =
   ## Installs one map as THE map for this process: dimensions, fog grid,
@@ -2988,6 +3207,7 @@ proc selectCtfMap(gameMap: CtfMap) =
   AnimatedDiamonds = buildAnimatedDiamonds(gameMap, ArenaObstacles)
   ArenaSpinMirrored = gameMap.symmetry == symMirror
   ArenaTrenches = gameMap.trenches
+  ArenaPuddles = gameMap.puddles
 
 proc installDefaultArena*() =
   ## Installs the hand-tuned default arena into the process-wide map globals.
@@ -3054,6 +3274,23 @@ proc playerTrench*(sim: SimServer, playerIndex: int): int =
   ## or -1 in the open field. Occupancy is instantaneous: the slowdowns and
   ## the fly-over shot misses apply exactly while the center is inside.
   trenchIndexAt(
+    sim.players[playerIndex].x + CollisionW div 2,
+    sim.players[playerIndex].y + CollisionH div 2
+  )
+
+proc puddleIndexAt*(x, y: int): int =
+  ## Returns the index of the puddle containing map pixel (x, y), or -1 when
+  ## the point is on clean floor.
+  for i, puddle in ArenaPuddles:
+    if inPuddle(x, y, puddle):
+      return i
+  -1
+
+proc playerPuddle*(sim: SimServer, playerIndex: int): int =
+  ## Returns the index of the puddle the player's center is standing in, or
+  ## -1 on clean floor. Center-based like trench occupancy: the damage clock
+  ## runs exactly while the center is inside.
+  puddleIndexAt(
     sim.players[playerIndex].x + CollisionW div 2,
     sim.players[playerIndex].y + CollisionH div 2
   )

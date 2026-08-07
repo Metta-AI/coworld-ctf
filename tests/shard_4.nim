@@ -13,6 +13,7 @@ import
   test_map_export,
   test_barrage,
   test_movement_slide,
+  test_puddles,
   test_replay_controls,
   test_trenches,
   test_weapon_observability,

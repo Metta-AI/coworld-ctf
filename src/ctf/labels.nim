@@ -193,6 +193,19 @@ const
     ## entirely on 4-team maps (trenches are a 2-team-map feature) and on any
     ## map that rolled zero pits — zero markers, not an empty-box marker. See
     ## `labelTrench` for the exact tail arity.
+  LabelPrefixPuddle* = "puddle "
+    ## One paint puddle's bounding-box marker, `puddle <x0>,<y0> <x1>,<y1>`:
+    ## an invisible 1x1 object in the init snapshot stating one hazard blob's
+    ## bounding box outright, in inclusive map-pixel corners — one marker per
+    ## entry in `gameMap.puddles`, same contract as the trench marker above.
+    ## Puddles are ORGANIC disc-union splats (see puddleSplatAt), so the box
+    ## is slightly loose (conservative) geometry, exactly like a non-rect
+    ## trench's marker.
+    ## Standing inside rolls a puddleDamagePct (default 10%) chance of 1
+    ## damage per full second of continuous occupancy; the puddle never slows
+    ## movement or fire and never blocks shots or vision. Absent entirely on
+    ## 4-team maps and on any map without puddles (the default) — zero
+    ## markers, not an empty-box marker. See `labelPuddle` for the tail arity.
 
   # ---------------------------------------------------------------------------
   # Tokens that fill the interpolated slots above.
@@ -359,6 +372,14 @@ proc labelTrench*(x0, y0, x1, y1: int): string =
   ## comma. The corners are the INCLUSIVE bounding box of the trench in map
   ## pixels.
   LabelPrefixTrench & $x0 & "," & $y0 & " " & $x1 & "," & $y1
+
+proc labelPuddle*(x0, y0, x1, y1: int): string =
+  ## One paint puddle's bounding-box marker label,
+  ## `puddle <x0>,<y0> <x1>,<y1>`. Same tail contract as `labelTrench`: the
+  ## tail splits on spaces into exactly `["<x0>,<y0>", "<x1>,<y1>"]`, each
+  ## corner splitting once more on the comma; the corners are the INCLUSIVE
+  ## bounding box of the puddle in map pixels.
+  LabelPrefixPuddle & $x0 & "," & $y0 & " " & $x1 & "," & $y1
 
 proc labelBarrage*(depth, perSec, startSec, saturateSec: int): string =
   ## The grenade-barrage marker label,

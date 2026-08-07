@@ -620,6 +620,7 @@ proc killPlayer*(
   sim.players[targetIndex].arcTicksLeft = 0
   sim.players[targetIndex].arcAimBrads = -1
   sim.players[targetIndex].throwCharge = 0
+  sim.players[targetIndex].puddleTicks = 0
   for team in sim.teams():
     if sim.flags[team].carrier == targetIndex:
       sim.players[targetIndex].carryingFlag = false
@@ -2350,6 +2351,54 @@ proc eliminateTeam(sim: var SimServer, team: Team, killerIndex: int) =
     if sim.players[i].alive:
       sim.killPlayer(i, killerIndex, elimination = true)
 
+proc updatePuddles*(sim: var SimServer) =
+  ## One tick of the paint-puddle hazard: every full second (PuddleRollTicks
+  ## ticks) a cog's center spends CONTINUOUSLY inside a puddle rolls a
+  ## puddleDamagePct chance of 1 damage — through the shield layer first,
+  ## like every weapon. Dipping out (or dying) restarts the second. The RNG
+  ## draws ONLY on a completed second of occupancy, so a puddle-free map
+  ## plays byte-identical to a build without this mechanic (no GV bump).
+  if ArenaPuddles.len == 0 or sim.phase != Playing:
+    return
+  for i in 0 ..< sim.players.len:
+    if not sim.players[i].alive:
+      sim.players[i].puddleTicks = 0
+      continue
+    if sim.playerPuddle(i) < 0:
+      sim.players[i].puddleTicks = 0
+      continue
+    inc sim.players[i].puddleTicks
+    if sim.players[i].puddleTicks < PuddleRollTicks:
+      continue
+    sim.players[i].puddleTicks = 0
+    if sim.rng.rand(99) >= sim.config.puddleDamagePct:
+      continue
+    let
+      px = sim.players[i].x + CollisionW div 2
+      py = sim.players[i].y + CollisionH div 2
+      bubbleUp = sim.players[i].hasShield and sim.players[i].shieldHp > 0
+      blocked = sim.absorbDamage(i, 1)
+    # Puddle paint marks the body the same way weapon paint does — unless
+    # the shield bubble ate the hit (a bubble dent draws no body paint).
+    if not bubbleUp:
+      sim.players[i].paintHitTick = sim.tickCount
+    sim.emitEvent(
+      Damage, source = -1, target = i, weapon = "puddle",
+      amount = 1, hp = max(0, sim.players[i].hp),
+      blocked = blocked,
+      x = float(px), y = float(py)
+    )
+    # A floating "-1" rises from the victim so the hazard's bite reads at a
+    # glance (cosmetic only, never in gameHash).
+    sim.damagePops.add DamageFx(
+      x: px, y: py,
+      tick: sim.tickCount,
+      amount: 1,
+      color: sim.players[i].color
+    )
+    if sim.players[i].hp <= 0:
+      sim.killPlayer(i, -1, cause = "dissolved in a paint puddle")
+
 proc launchBarrageShell(sim: var SimServer) =
   ## Launches one environment grenade: the landing point is drawn from the
   ## deterministic sim RNG inside the current target band (within
@@ -3092,6 +3141,9 @@ proc step*(
     sim.tryPickupPlasmaArcs(playerIndex)
   sim.updateFlags()
   sim.respawnPlayers()
+  # Puddle damage resolves after movement and pickups, before the win check,
+  # so a lethal roll feeds the same tick's wipe resolution.
+  sim.updatePuddles()
   sim.updateBarrage()
 
   sim.checkWinCondition()

@@ -641,6 +641,23 @@ const
                                   ## asserting, so a future map that exceeds
                                   ## even this loses trench MARKERS past the
                                   ## pool, never crashes the server.
+  PuddleMarkerSpriteBase = 36500  ## one invisible 1x1 marker per paint
+                                  ## puddle, in the same free gap as the
+                                  ## trench pool above (trenches end at
+                                  ## 36255; the gap runs to the debug pool
+                                  ## at 40000 on the sprite side).
+  PuddleMarkerObjectBase = 36500 ## Same value on the object side (the gap
+                                  ## runs to the damage-pop pool at 38000
+                                  ## there); sharing one base value is
+                                  ## convention only, as with the trench
+                                  ## marker bases above.
+  PuddleMarkerPoolWidth = MaxPuddles  ## Unlike trenches, puddles have NO
+                                  ## density mode: mapPuddles is COUNT-mode
+                                  ## only, validated 0..MaxPuddles (64), so
+                                  ## this pool IS a derived ceiling for
+                                  ## generated maps. addMapMarkers still
+                                  ## clamps defensively — an authored spec
+                                  ## can pin any number of puddles.
   ProtocolTextSpriteBase = 9000
   ProtocolTextObjectBase = 9000
   ProtocolTextZ = 30010
@@ -717,6 +734,7 @@ const
     ("shield bubbles", ShieldBubbleObjectBase, MaxPlayers),
     ("map markers", MapMarkerObjectBase, 1000),
     ("trench markers", TrenchMarkerObjectBase, TrenchMarkerPoolWidth),
+    ("puddle markers", PuddleMarkerObjectBase, PuddleMarkerPoolWidth),
     ("fog runs", FogObjectBase, FogMaxRuns),
     ("tracer dots", TracerDotObjectBase, TracerMaxDots),
     ("damage pops", DamagePopObjectBase, DamagePopMaxCount),
@@ -826,6 +844,7 @@ const
     ("hit splats", HitSpriteBase, 64),
     ("map markers", MapMarkerSpriteBase, 1000),
     ("trench markers", TrenchMarkerSpriteBase, TrenchMarkerPoolWidth),
+    ("puddle markers", PuddleMarkerSpriteBase, PuddleMarkerPoolWidth),
     ("fog runs", FogRunSpriteBase, 1000),
     ("shout bubbles", ShoutSpriteBase, ShoutMaxCount),
     ("damage pops", DamagePopSpriteBase,
@@ -3272,6 +3291,36 @@ proc addTrenchMarker(
   )
   packet.addBoardObject(objectId, x, y, MapMarkerZ, MapLayerId, spriteId)
 
+proc puddleMarkerSpriteId(index: int): int =
+  ## Returns the stable sprite id for one puddle marker.
+  PuddleMarkerSpriteBase + index
+
+proc puddleMarkerObjectId(index: int): int =
+  ## Returns the stable object id for one puddle marker.
+  PuddleMarkerObjectBase + index
+
+proc addPuddleMarker(
+  packet: var seq[uint8],
+  spriteDefs: var seq[SpriteDefinition],
+  index, x, y: int,
+  label: string
+) {.measure.} =
+  ## Adds one invisible labeled puddle-bbox marker object to the map layer,
+  ## from the reserved PuddleMarkerObjectBase/-SpriteBase range (its own
+  ## pool, like the trench markers above).
+  let
+    spriteId = puddleMarkerSpriteId(index)
+    objectId = puddleMarkerObjectId(index)
+  packet.addBoardSpriteChanged(
+    spriteDefs,
+    spriteId,
+    1,
+    1,
+    newRgbaPixels(1, 1),
+    label
+  )
+  packet.addBoardObject(objectId, x, y, MapMarkerZ, MapLayerId, spriteId)
+
 proc endzoneShapeToken(gameMap: CtfMap, zone: CaptureZone): string =
   ## Maps one team's capture zone onto the closed shape vocabulary of the
   ## endzone marker (see LabelEndzoneShapes). The zone's own refinement flags
@@ -3411,6 +3460,20 @@ proc addMapMarkers(
       box.x,
       box.y,
       labelTrench(box.x, box.y, box.x + box.w - 1, box.y + box.h - 1)
+    )
+  ## One stated bounding-box marker per paint puddle (see LabelPrefixPuddle):
+  ## empty on every map without puddles — the default — so this loop emits
+  ## nothing there. Clamped defensively like the trench loop: mapPuddles caps
+  ## generated maps at the pool width, but an authored spec can pin more.
+  let markedPuddles = min(sim.gameMap.puddles.len, PuddleMarkerPoolWidth)
+  for i in 0 ..< markedPuddles:
+    let box = puddleBounds(sim.gameMap.puddles[i])
+    packet.addPuddleMarker(
+      spriteDefs,
+      i,
+      box.x,
+      box.y,
+      labelPuddle(box.x, box.y, box.x + box.w - 1, box.y + box.h - 1)
     )
 
 proc buildFogRunSprite(widthCells: int): seq[uint8] {.measure.} =

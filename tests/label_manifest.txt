@@ -54,6 +54,7 @@ paint stain <color> variant <n>
 perks <color> -
 player <color>
 player <color> <side>
+puddle <n>,<n> <n>,<n>
 score p<n> <n> color <n>
 score pip <color>
 selected player <color> <side>

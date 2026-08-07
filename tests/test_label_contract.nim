@@ -366,6 +366,25 @@ suite "sprite label contract":
         let normalized = message.sprite.label.normalizeLabel()
         if normalized.startsWith(LabelPrefixTrench):
           emitted.incl(normalized)
+    # Puddles are config-gated exactly like trenches — no fixture above has
+    # any — so the `puddle <n>,<n> <n>,<n>` marker family gets the same
+    # minimal treatment: mapPuddles:1 anchors its odd puddle dead center
+    # (deterministic regardless of seed), and only the `puddle ` family is
+    # merged in.
+    var puddleConfig = defaultGameConfig()
+    puddleConfig.update("""{"mapPath": "gen", "mapSeed": 4242, "mapPuddles": 1}""")
+    var puddleGame = initCtfForTest(puddleConfig)
+    discard puddleGame.addPlayer("p0")
+    discard puddleGame.addPlayer("p1")
+    puddleGame.startGame()
+    doAssert puddleGame.gameMap.puddles.len == 1,
+      "puddle label fixture placed zero puddles — recheck the seed"
+    var puddleViewer = initGlobalViewerState()
+    for message in puddleGame.buildGlobalMessages(puddleViewer):
+      if message.kind == spkSprite:
+        let normalized = message.sprite.label.normalizeLabel()
+        if normalized.startsWith(LabelPrefixPuddle):
+          emitted.incl(normalized)
     # Regenerating: `nim r -d:writeLabelManifest tests/test_label_contract.nim`
     # rewrites the golden from what the engine emits NOW, and the resulting git
     # diff is the artifact to review. Deliberately opt-in — if the test could

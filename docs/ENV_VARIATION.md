@@ -57,6 +57,7 @@ Definition [sim_types.nim:796](../src/ctf/sim_types.nim#L796). Zero/`-1`/`""` va
 | `layout` | string / `""` | `mapLayout` | 4-team: `corners`/`plus` (coin); 2-team `""`/`sides` | Team placement (4-team). |
 | `pits` | int / `-1` | `mapPits` | `0..64` (gen); -1 = density draw; even = symmetric pairs, odd = center pit; 4-team supports only 0/-1 | Exact trench count. |
 | `pitDensity` | int / `-1` | `mapPitDensity` | `0..1000` percent (gen); -1 = 100; ignored if `pits` set | Trench density multiplier. |
+| `puddles` | int / `0` | `mapPuddles` | `0..64` (gen), COUNT mode only — ≤0 = none (the default, no density draw); even = symmetric pairs, odd = center puddle; 4-team supports only ≤0 | Exact paint-puddle count (damage-over-time floor hazards; see `puddleDamagePct`). |
 | `endzone` | string / `""` | `mapEndzone` | `column`/`disc`/`square`; 2-team draw ¼ disc / ¼ square / ½ column; 4-team forced column | Home capture-region shape. |
 | `endzoneRadius` | int / `0` | `mapEndzoneRadius` | `90..width` (gen); needs disc/square; 0 = draw | Compact endzone scoring radius. |
 | `baseDepth` | int / `0` | `mapBaseDepth` | `400..800` permille (gen); needs disc/square; 0 = draw | Home anchor depth. |
@@ -102,6 +103,7 @@ Per-map descriptor `CtfMap` [sim_types.nim:733](../src/ctf/sim_types.nim#L733) c
 | `perkThrusterPermille` | int / `100` | authored `perkMods.thrusterSpeed` `0.0..1.0` | thruster perk: extra max speed. |
 | `perkLuckPermille` | int / `100` | authored `perkMods.luckChance` `0.0..1.0` | luck perk: chance a landed gun shot is lucky. |
 | `perkLuckDamage` | int / `2` | `>= 1`, authored `perkMods.luckDamage` | luck perk: hit points a lucky shot removes. |
+| `puddleDamagePct` | int / `10` | `0..100` | Percent chance of 1 damage per full second of continuous paint-puddle occupancy; inert on maps without puddles (`mapPuddles`). |
 
 **Per-team handicap** ([sim_types.nim `handicaps`](../src/ctf/sim_types.nim), accessors
 `hitPointsFor`/`livesFor`/`maxSpeedFor`/`missPermilleFor`): a single `0.0..1.0`
@@ -163,6 +165,7 @@ for curved/organic terrain. Trenches are also `ArenaShape` (the generator emits
 | Shields | 1 per team endzone | `ShieldRespawnTicks`=720, `ShieldLayerHp`=3, `ShieldFireSlowdown`=3 |
 | Plasma arcs (spray) | 1 per team endzone | `PlasmaArcRespawnTicks`=720, `PlasmaArcReach`=5, `PlasmaArcDamage`=3 |
 | Trenches | via `mapGen.pits`/`pitDensity` | `TrenchSize`=56, `TrenchSpeedDivisor`=5, `TrenchFireSlowdown`=3, `TrenchMissPct`=70 |
+| Paint puddles | via `mapGen.puddles` (`mapPuddles`) | `PuddleSize`=64, `PuddleRollTicks`=24, `DefaultPuddleDamagePct`=10 (config `puddleDamagePct`), `MaxPuddles`=64 |
 
 To vary item counts today: change `teams` (scales per-team items), change `mapGen`
 pits (trenches), or edit the per-map spawn lists / consts in code.

@@ -23,6 +23,8 @@ const
   PlasmaArcColor = rgba(180, 70, 210, 255)
   TrenchColor = rgba(120, 96, 62, 255)
   TrenchRimColor = rgba(88, 66, 38, 255)
+  PuddleColor = rgba(168, 58, 196, 255)
+  PuddleRimColor = rgba(96, 28, 116, 255)
   SpinTint = rgba(235, 150, 40, 110)
   SeedRegionTint = rgba(60, 110, 220, 150)
   SightlineTint = rgba(230, 45, 45, 190)
@@ -271,6 +273,34 @@ proc renderMap*(
           continue
         result.image.unsafe[x, y] =
           if edge < 3: TrenchRimColor else: TrenchColor
+
+  for puddle in gameMap.puddles:
+    ## Paint puddles are organic disc-union splats: the gameplay outline is
+    ## the spill itself, drawn in the hazard's violet (rim by union depth)
+    ## so previews tell them apart from the brown trenches.
+    let
+      pr = puddleBounds(puddle)
+      x0 = max(0, outputCoordinate(pr.x - 1, scale))
+      y0 = max(0, outputCoordinate(pr.y - 1, scale))
+      x1 = min(outputWidth, outputCoordinate(pr.x + pr.w + 1, scale))
+      y1 = min(outputHeight, outputCoordinate(pr.y + pr.h + 1, scale))
+    for y in y0 ..< y1:
+      let mapY = logicalPixel(y, gameMap.height, scale)
+      for x in x0 ..< x1:
+        let mapX = logicalPixel(x, gameMap.width, scale)
+        var depth = -1.0
+        for s in puddle.spots:
+          let
+            dx = float(mapX - s.cx)
+            dy = float(mapY - s.cy)
+          depth = max(depth, float(s.r) - sqrt(dx * dx + dy * dy))
+        if depth < 0.0:
+          continue
+        let existing = result.image.unsafe[x, y].rgba
+        if existing == StoneColor or existing == GlassColor:
+          continue
+        result.image.unsafe[x, y] =
+          if depth < 3.0: PuddleRimColor else: PuddleColor
 
   if overlayReachability in options.overlays:
     var unreachableOpen = newSeq[bool](gameMap.width * gameMap.height)
