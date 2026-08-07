@@ -433,6 +433,21 @@ var
     ## `endzone <color> <shape> <x0>,<y0> <x1>,<y1>` init markers. On a
     ## generated board these markers ARE the scoring geometry — we no longer
     ## reconstruct it from our own copy of the zone formulas.
+  TrenchMarks: seq[tuple[x0, y0, x1, y1: int]]
+    ## ⭐ TRENCHCRAFT (2026-08-06, plan: expose trench geometry to policies).
+    ## Every dug pit's stated bounding box, from the `trench <x0>,<y0>
+    ## <x1>,<y1>` init markers (LabelPrefixTrench, additive engine label —
+    ## see the paired engine PR). Before this marker existed trenches were
+    ## LITERALLY INVISIBLE to this bot: `walkability map` is a binary mask,
+    ## and a trench floor reads identically to open floor on it — nothing
+    ## in this file could tell "standing in a pit" from "standing on open
+    ## ground". THE DORMANCY GUARANTEE: this seq is empty until
+    ## adoptTrenches finds at least one marker, so every trenchCraft-gated
+    ## branch below is a hard no-op against an engine build (or a map) that
+    ## never emits the label — proven by the TRENCHPROBE counter in
+    ## buildNavGrid and the A/B's own no-label control batch. Absent on
+    ## every 4-team map (trenches are a 2-team-map feature) and on the
+    ## hand-authored default arena.
 
 var
   HeartHome: array[4, bool]     ## per-colour: that team's heart is ON its
@@ -1093,6 +1108,14 @@ const
                               # under fog the exposure model (enemy sniper
                               # posts + fresh tracks) is the only warning of
                               # watched lanes, so routes respect it hard
+  TrenchClimbOutMultiplier = 5'i32  # ⭐ TRENCHCRAFT: matches the sim's own
+                              # climb-out speed/5 (moving away from a
+                              # trench's center while inside it, GV37+) —
+                              # see computeFieldInner.
+  TrenchExposedDiscountPct = 30'i32 # ⭐ TRENCHCRAFT: a trench occupant ducks
+                              # 70% of incoming gun shots (engine truth), so
+                              # ExposedCost inside a trench is cut to this
+                              # percent of the open-ground surcharge.
   FlankDepth = 260.0          # wide flankers cross this far past mid
   WeaveBand = 280.0           # rushers serpentine within this x-band of mid
 
@@ -2036,6 +2059,31 @@ type
                               # treat the nearest fresh enemy in reach with clear LOS as a valid
                               # single-target cone shot instead of standing disarmed and mute.
                               # Default ON; NOSPRAYSINGLE=1 turns it off for the A/B.
+    trenchCraft: bool         # ⭐ TRENCHCRAFT (2026-08-06): adapt to dug-pit cover now that
+                              # `trench <x0>,<y0> <x1>,<y1>` init markers state it outright (see
+                              # TrenchMarks). Four small, independently-gated pieces, all no-ops
+                              # when TrenchMarks is empty (absent label OR no pits on this map):
+                              #   nav cost   — computeFieldInner charges 5x StepCost to climb OUT
+                              #                of a trench (away from its center); entering or
+                              #                crossing stays normal, mirroring the sim's own
+                              #                climb-out speed/5 rule (engine truth, GV37+).
+                              #   fire gate  — maxEngage clamps to 0 while we are inside a trench
+                              #                and our own movement target is outward: never open
+                              #                a fight at the one moment we are slow and exposed.
+                              #   pursuit    — huntCarrier's fresh-fix intercept stops
+                              #                extrapolating a fleeing thief PAST a trench's far
+                              #                lip: chasing into the pit only pays our own
+                              #                climb-out while the gap keeps opening.
+                              #   exposure   — a trench cell's ExposedCost is cut to 30% (the
+                              #                sim's 70% incoming-shot duck), so under fire the
+                              #                path field prefers routing through cover instead
+                              #                of around it.
+                              # ⛔ MEASURED AND REJECTED (2026-08-07): a 94-episode color-swapped
+                              # A/B lost 36/94 (38.3%) vs the v42 control's 52/94 (55.3%), Wilson
+                              # 95% CI [29.1%, 48.4%] — does not reach 50%, a real loss. See
+                              # shippedCombatTune for the full mechanism writeup. Default OFF;
+                              # TRENCHCRAFT=1 arms it (opt-IN, inverted from the NOxxx=1
+                              # convention above, because this one ships off).
 
   Bot = ref object
     slot: int
@@ -2092,6 +2140,11 @@ type
     cellWalkable: seq[bool]   # eroded walkability, GridW x GridH
     coverCell: seq[bool]      # walkable cells hugging an obstacle
     exposure: seq[bool]       # cells a remembered enemy could shoot into
+    trenchCell: seq[int8]     # ⭐ TRENCHCRAFT: TrenchMarks index a cell's
+                              # center sits inside, or -1. Empty seq (never
+                              # sized) whenever trenchCraft is off or
+                              # TrenchMarks is empty — computeFieldInner's
+                              # gate checks the length before ever indexing.
     navDist: seq[int32]       # cost field toward navGoal
     navGoal: int              # goal cell of the current field, -1 = stale
     navStamp: int             # tick the field was computed
@@ -2492,6 +2545,10 @@ proc defaultCombatTune(): CombatTune =
                               # still outrank the 12px touch (the 71.8%-vs-94.9% conversion gap).
     anchorRelock: false,      # control: the five nav anchors never re-run off a corrected color.
     spraySingle: false,       # control: the arc breacher never fires the cone on a lone target.
+    trenchCraft: false,       # control: a trench is invisible terrain — no nav cost, no fire
+                              # gate, no pursuit-abort, no exposure discount. Byte-identical to
+                              # pre-TRENCHCRAFT behavior, and also what an old engine build (no
+                              # label) collapses to at runtime regardless of this flag.
   )
 
 proc shippedCombatTune(): CombatTune =
@@ -2952,6 +3009,23 @@ proc shippedCombatTune(): CombatTune =
   # NOSPRAYSINGLE=1 hold each OFF (the pre-fix behavior) so a frozen binary can A/B them.
   result.anchorRelock = getEnv("NOANCHORRELOCK").len == 0
   result.spraySingle = getEnv("NOSPRAYSINGLE").len == 0
+  # ⛔ TRENCHCRAFT MEASURED AND REJECTED (2026-08-07). Ships default OFF —
+  # NOT the "structural no-op, safe to default ON" class anchorRelock/
+  # spraySingle are. Local 2-team 8v8 duel A/B, "gen" maps at default pit
+  # density (trenches genuinely present, engine PR #248 merged to main so
+  # the label is live), color-swapped, 94 episodes: trenchcraft 36/94
+  # (38.3%, Wilson 95% CI [29.1%, 48.4%]) vs v42 52/94 (55.3%, CI [45.3%,
+  # 65.0%]), 6 draws — a real loss, the CI doesn't reach 50%, not noise.
+  # Mechanism: trenchcraft bots spent LESS total time in trenches than v42
+  # (111650 vs 157739 seat-ticks) and a smaller share of that time climbing
+  # out under fire (30.3% vs 33.4%) — the climb-out nav surcharge and fire
+  # gate are doing what they were built to do narrowly, but net the bot
+  # avoids trench cover more than it exploits it, and that costs more than
+  # the climb-out safety buys back. Do not flip this back ON without a new
+  # A/B; TRENCHCRAFT=1 arms it per-process for exactly that re-measurement
+  # (inverted from every other lever's NOxxx=1 convention on purpose — this
+  # one ships OFF, so the harness knob for bisection has to be opt-IN).
+  result.trenchCraft = getEnv("TRENCHCRAFT").len > 0
 
 
 when defined(rngprobe):
@@ -2998,6 +3072,23 @@ proc dot(a, b: Vec): float =
 
 proc cross(a, b: Vec): float =
   a.x * b.y - a.y * b.x
+
+proc trenchAt(p: Vec): int =
+  ## Index into TrenchMarks whose stated bounding box contains `p`, or -1.
+  ## Pure bbox membership — the same conservative approximation the label
+  ## itself states for a non-rect (e.g. rough-edged) pit. Empty TrenchMarks
+  ## (no label adopted, or a map with zero pits) returns -1 for every point,
+  ## which is the whole dormancy guarantee for every trenchCraft branch.
+  for i, t in TrenchMarks:
+    if p.x >= float(t.x0) and p.x <= float(t.x1) and
+        p.y >= float(t.y0) and p.y <= float(t.y1):
+      return i
+  -1
+
+proc trenchCenterOf(i: int): Vec =
+  ## Midpoint of one trench's stated bounding box.
+  vec(float(TrenchMarks[i].x0 + TrenchMarks[i].x1) * 0.5,
+      float(TrenchMarks[i].y0 + TrenchMarks[i].y1) * 0.5)
 
 proc octantBits(d: Vec): uint8 =
   ## D-pad bits for the 8-way direction nearest to `d`. The worst-case aim
@@ -3886,12 +3977,41 @@ proc adoptEndzones(client: ProtocolClient) =
     except ValueError:
       discard
 
+proc adoptTrenches(client: ProtocolClient) =
+  ## Reads every trench's stated bounding box off the `trench <x0>,<y0>
+  ## <x1>,<y1>` init markers (LabelPrefixTrench). ABSENT LABEL = EMPTY
+  ## TrenchMarks: an engine build that predates the marker, or a map with
+  ## zero pits, simply never adds anything here — the dormancy property
+  ## every trenchCraft branch depends on, with no separate opt-out needed.
+  TrenchMarks.setLen(0)
+  for o in client.spriteObjects():
+    if not o.label.startsWith(LabelPrefixTrench):
+      continue
+    let parts = o.label[LabelPrefixTrench.len .. ^1].split(' ')
+    if parts.len != 2:
+      continue
+    let
+      lo = parts[0].split(',')
+      hi = parts[1].split(',')
+    if lo.len != 2 or hi.len != 2:
+      continue
+    try:
+      TrenchMarks.add (
+        x0: parseInt(lo[0]), y0: parseInt(lo[1]),
+        x1: parseInt(hi[0]), y1: parseInt(hi[1]))
+    except ValueError:
+      discard
+  when defined(trenchprobe):
+    stderr.writeLine "TRENCHPROBE adopted=" & $TrenchMarks.len
+    flushFile(stderr)
+
 proc buildNavGrid(bot: Bot, client: ProtocolClient) =
   ## Erodes the pixel walkability mask into a footprint-safe nav grid, then
   ## derives the cover model (cover cells, overwatch post, defender choke).
   adoptMapSize(client)
   adoptGameParams(client)
   adoptEndzones(client)
+  adoptTrenches(client)
   # ⭐⭐ THE STATUE FIX. A 4-team board deals seats round the teams (slot mod
   # teams, roster.teamForSlot), so the classic red/blue parity guess is wrong
   # for half of them — and a wrong color makes EVERY label scan blind,
@@ -3939,6 +4059,19 @@ proc buildNavGrid(bot: Bot, client: ProtocolClient) =
       echo "  MARK ", z.color, " ", z.shape, " ", z.x0, ",", z.y0,
         "..", z.x1, ",", z.y1
     flushFile(stdout)
+  # ⭐ TRENCHCRAFT: precompute each cell's trench membership once per nav
+  # build (like cellWalkable/coverCell above) instead of re-scanning
+  # TrenchMarks per graph edge in the Dijkstra below. Left at its default
+  # empty seq — never sized — when the flag is off or nothing was adopted,
+  # so computeFieldInner's `bot.trenchCell.len > 0` gate is a real skip, not
+  # just an all-(-1) scan.
+  bot.trenchCell = @[]
+  if bot.tune.trenchCraft and TrenchMarks.len > 0:
+    bot.trenchCell = newSeq[int8](GridW * GridH)
+    for cy in 0 ..< GridH:
+      for cx in 0 ..< GridW:
+        let c = cy * GridW + cx
+        bot.trenchCell[c] = int8(trenchAt(cellCenter(c)))
   bot.exposure = newSeq[bool](GridW * GridH)
   bot.navDist = newSeq[int32](GridW * GridH)
   bot.navGoal = -1
@@ -3990,6 +4123,9 @@ proc computeFieldInner(bot: Bot, client: ProtocolClient, goal: int) =
   ## StepCost/DiagCost and entering a threat-exposed cell adds ExposedCost, so
   ## paths prefer segments that keep obstacles between us and known enemies.
   ## Diagonal steps require both orthogonal neighbors open (no corner cuts).
+  ## trenchCraft (bot.trenchCell.len > 0 only when both the flag is on AND
+  ## TrenchMarks was adopted) additionally directionally surcharges
+  ## climb-out edges and discounts exposure inside a trench — see below.
   bot.rebuildExposure(client)
   for i in 0 ..< bot.navDist.len:
     bot.navDist[i] = -1
@@ -4019,8 +4155,33 @@ proc computeFieldInner(bot: Bot, client: ProtocolClient, goal: int) =
                bot.cellWalkable[ny * GridW + cx]):
         continue
       var step = (if dx != 0 and dy != 0: DiagCost else: StepCost)
+      # ⭐ TRENCHCRAFT directional climb-out. This Dijkstra is sourced AT the
+      # goal (navDist[goal]=0, expanding outward), so `cur` is always the
+      # already-settled, closer-to-goal endpoint and `nc` the newly-relaxed,
+      # farther one — meaning a REAL bot's gradient-descent walk (navSteer:
+      # always step to the neighbor with the SMALLER navDist) traverses this
+      # exact edge as nc -> cur. If nc sits inside a trench and cur is
+      # FARTHER from that trench's stated center than nc is, the real step
+      # is a climb-out: the sim divides speed by 5 for movement away from a
+      # trench's center while inside it (engine truth, GV37+), so charge
+      # the matching multiplier here. Entering a trench (nc outside) or
+      # moving toward/along its center (cur no farther than nc) stays at
+      # the plain step cost — only the outward-climbing edge is expensive.
+      var trenchExposedDiscount = false
+      if bot.trenchCell.len > 0 and bot.trenchCell[nc] >= 0:
+        let center = trenchCenterOf(bot.trenchCell[nc])
+        if dist(cellCenter(cur), center) > dist(cellCenter(nc), center):
+          step *= TrenchClimbOutMultiplier
+        trenchExposedDiscount = true
       if bot.exposure[nc]:
-        step += ExposedCost
+        # ⭐ TRENCHCRAFT exposure discount: the sim ducks 70% of incoming gun
+        # shots fired at a trench occupant (engine truth), so an exposed
+        # trench cell is substantially safer than exposed open ground —
+        # scale its ExposedCost surcharge down to match instead of scoring
+        # every exposed cell alike.
+        step += (if trenchExposedDiscount:
+          ExposedCost * TrenchExposedDiscountPct div 100
+        else: ExposedCost)
       let nd = bot.navDist[cur] + step
       if bot.navDist[nc] < 0 or nd < bot.navDist[nc]:
         bot.navDist[nc] = nd
@@ -5464,6 +5625,21 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       # Converge on the thief's predicted path toward the enemy capture edge.
       var predicted = bot.carrierPos +
         bot.carrierVel * float(18 + bot.tick - bot.carrierSeen)
+      # ⭐ TRENCHCRAFT pursuit-abort: the thief's last fix sat inside a
+      # trench and its velocity carries it AWAY from that trench's stated
+      # center — it is already clearing the far lip at full speed while
+      # anyone following pays the sim's climb-out speed/5 (engine truth,
+      # GV37+). Converging on the raw velocity extrapolation would aim us
+      # PAST the lip, into the pit, chasing a gap that only widens because
+      # we are the one paying the toll. Fall back to the last RAW fix
+      # instead of the extrapolated point — close the distance that exists
+      # without diving into ground that eats our speed for it.
+      if bot.tune.trenchCraft:
+        let ti = trenchAt(bot.carrierPos)
+        if ti >= 0:
+          let center = trenchCenterOf(ti)
+          if dist(predicted, center) > dist(bot.carrierPos, center):
+            predicted = bot.carrierPos
       predicted.x += -homeSign(bot.team) * 40.0
       target = vec(clamp(predicted.x, 20.0, float(MapW - 20)),
                    clamp(predicted.y, 20.0, float(MapH - 20)))
@@ -6300,6 +6476,22 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       # must remove enemy guns, not gently reposition. Every seat widens to fireRange.
       maxEngage = max(maxEngage, bot.tune.fireRange)
     else: discard
+  # ⭐ TRENCHCRAFT: never INITIATE a fight while inside a trench and
+  # actively climbing OUT of it (our own movement target this tick sits
+  # farther from the trench's stated center than we already are). This is
+  # the sim's own worst-timing window — climb-out divides our speed by 5
+  # (engine truth, GV37+), so opening a NEW engagement right there trades
+  # from the slowest, most exposed footing available. A hard override
+  # (last, past planLayer's widening) rather than another branch in the
+  # role chain above, so it clamps every objective's ceiling uniformly —
+  # carrier, rusher, escort, or plain fireRange — the same way disarmedRush
+  # already clamps the pocket-touch case.
+  if bot.tune.trenchCraft:
+    let selfTrench = trenchAt(me)
+    if selfTrench >= 0:
+      let selfTrenchCenter = trenchCenterOf(selfTrench)
+      if dist(target, selfTrenchCenter) > dist(me, selfTrenchCenter):
+        maxEngage = 0.0
   # Focus-fire intel: which remembered enemies sit on a visible mate's aim
   # line right now. A mate's rendered aim dots are an absolute readback of
   # where it is about to shoot; piling our shot onto the same target converts
