@@ -344,6 +344,18 @@ proc hunterTune(): CombatTune =
   # keeps the champion unless COUNTERARC=1. Needs dangerScore (sharpens it).
   # A/B: SHIPBASE=1 COUNTERARC=1 vs CONTROL_SHIPPED=1 (full v16), seat-rotated.
   result.counterArc     = envInt("COUNTERARC", (if result.counterArc: 1 else: 0)) != 0
+  # arcStandoff (2026-08-07): the MOVEMENT companion to counterArc — back off a DISARMED
+  # enemy arc-carrier to just past its 136px cone (ArcStandoffRing 196px) and keep shooting,
+  # since one cone touch == MaxHp == instant death while its own gun is dead for life.
+  # Movement-intent only; requires COUNTERARC (same sprite read) so ARCSTANDOFF=1 alone is
+  # inert by design. Default = shipped value (ON) so SHIPBASE=1 keeps it unless ARCSTANDOFF=0.
+  # Verify not-blind with -d:asoprobe (asoNear>0 = carriers came in range; asoBack>0 = the
+  # feet reacted; asoInCone should fall vs the lever OFF).
+  result.arcStandoff    = envInt("ARCSTANDOFF", (if result.arcStandoff: 1 else: 0)) != 0
+  # arcAlways (DIAGNOSTIC ONLY, 2026-08-07): arm the breacher unconditionally, ignoring the
+  # line-memory gate. Never shipped (shippedCombatTune never sets it); exists solely so the
+  # ARCFOE rig below can field a real cone for arcStandoff to react to in self-play.
+  result.arcAlways      = envInt("ARCALWAYS", (if result.arcAlways: 1 else: 0)) != 0
   # arcBreach (2026-07-22, anti-line OFFENSE): on a called line the fixed breacher
   # seat grabs the plasma arc and cones the cluster. Default = shipped value so
   # SHIPBASE=1 keeps it unless ARCBREACH moves it. Needs commsPlay (the line read).
@@ -453,6 +465,15 @@ proc runEpisode(seed, maxTicks, numPlayers: int, hunterSlots: seq[int]):
   # (the mirror can't produce a line — both teams attack — so holdLine fires ~0 there).
   # Diagnostic only; win-rate vs a turtle is not a league signal, the HL-PROBE fire is.
   let turtle = envInt("TURTLE", 0) != 0
+  # ARCFOE=1 (2026-08-07): force the CONTROL team to field an ARMED plasma-arc carrier —
+  # its breacher seat runs arcBreach with the line-memory gate removed (arcAlways), so it
+  # grabs the arc and walks the cone at us all game. Same diagnostic class as TURTLE: the
+  # mirror otherwise produces NO enemy arc-carrier at all (no opponent policy grabs one),
+  # so arcStandoff would read as blind for want of a stimulus rather than a real defect.
+  # Win-rate under ARCFOE is not a league signal — the ASO-PROBE funnel is the reading.
+  if envInt("ARCFOE", 0) != 0:
+    baseTune.arcBreach = true
+    baseTune.arcAlways = true
   var drivers: seq[BotDriver]
   for slot in 0 ..< engine.playerCount():
     let tune = (if slot in hunterSlots: huntTune else: baseTune)
@@ -728,6 +749,14 @@ proc main() =
     echo &"  CA-PROBE: arcAttrib {caArcAttrib}  seen {caSeen}  bump {caBump}"
     echo &"    (arcAttrib=0 => no plasma-arc carrier ever occurs in self-play (lever " &
       &"field-only, expected in mirror); bump>0 => a disarmed carrier got the credit)"
+  when defined(asoprobe):
+    echo &"  ASO-PROBE: near {asoNear}  backOff {asoBack}  deadBandHold {asoHold}  " &
+      &"caughtInCone {asoInCone}"
+    echo &"    (near/caughtInCone are counted whenever COUNTERARC=1, NOT gated on ARCSTANDOFF, so " &
+      &"both A/B arms measure the same world. near=0 => no arc-carrier ever came within the 236px " &
+      &"band, so there was no stimulus (expected in a plain mirror — run ARCFOE=1 to field one); " &
+      &"backOff>0 => the feet actually broke contact; caughtInCone should FALL with ARCSTANDOFF=1 " &
+      &"vs 0 — inside 136px one cone touch == MaxHp == instant death)"
   when defined(nmprobe):
     echo &"  NM-PROBE: navFrames {nmNavFrames}  supportRays {nmRays}  repel {nmRepel}"
     echo &"    (rays=0 => no live mate gun-line ever forms (mateGunDown/aim-read dead); " &
