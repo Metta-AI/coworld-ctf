@@ -158,8 +158,41 @@ one cell, and no 1 px runs anywhere.
 **Tests:** 7 new in `tests/test_map_lanes.nim`, and the guarantee is checked in
 PIXELS, not bounding boxes — nothing `clearLanes` hands back may paint a pixel
 inside a lane's protected core, asked column by column. That assertion is what
-caught trap 2; a bounding-box test would have passed. `shard_4` 399 OK / 0
-FAILED, `shard_3` clean.
+caught trap 2; a bounding-box test would have passed.
+
+Full suite **755 OK / 0 FAILED** across all four shards. Two seed-pinned
+goldens went red first, and both were checked against a CONTROL BUILD at the
+merge base (8418626, green there) before anything was touched — a red golden
+after a generator change is only a bad dice roll until the base says otherwise:
+
+- `map-validation-baseline.tsv` pins `validateGeneratedMap` on the RAW FIRST
+  DRAW for 402 (teams, seed) pairs, and its own comment says to regenerate with
+  `tools/gen_validation_baseline.nim` when the draws move and report the pass
+  rate. Regenerated. **2-team first-attempt pass 144/201 (71.6%) -> 140/201
+  (69.7%); 4-team unmoved at 126/201.** 15 of 402 rows changed. That -4 is the
+  honest cost of admitting ring area: a first draw is likelier to sit over the
+  170 ceiling. It does NOT reach the shipping map, because the nine-step
+  density sweep across attempts is exactly the escape valve for this, and
+  `gen_sweep` — which runs the real best-of-K — comes out +1 over 200 seeds.
+  The 4-team column staying still is the control.
+- `PoolRenderHashes` pins the 20 curated-pool renders, under a rule written
+  into the constant: a hash nobody has looked at makes a bad map the baseline
+  for everyone after. Five moved (indices 3, 6, 10, 12, 13 — the pool's
+  three-lane draws); the other fifteen are byte-identical. All five were
+  rendered before and after and REVIEWED, not re-pinned: symmetry exact
+  (largest stone delta 0.046%, every mismatch a 1 px line on the axis),
+  walkable space one connected component with both bases on it, cover
+  14.1-16.6%, stone blob counts down on all five.
+
+That review found one thing the hash cannot say, and it is worth more than the
+hashes: pool-wide the WINDOW count falls **57 -> 50**, and **two panes now
+overlap the border ring, against zero before**. It is not the clip. `arena`'s
+window-anchor switch gives polygons and diagonals `(0, 0)` and the `sx > 0`
+guard then skips them, so only rects, discs and diamonds can be glazed —
+re-dealing the fill re-deals the anchors, and the anchor step has never had a
+border test. A latent hole in the window stage, newly triggered. Recorded, not
+fixed: fixing it belongs to the window stage and would move these hashes again
+for a reason that has nothing to do with lanes.
 
 ## Left standing, deliberately
 

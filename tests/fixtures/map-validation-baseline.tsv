@@ -1,19 +1,19 @@
-# validateGeneratedMap baseline from fee70edbb06be4feeb9d0cb4fc42394e7c96f44b
+# validateGeneratedMap baseline from 484bb99c57576be9311628ce501cf93f83906a2a
 teams	seed	endzone	layout	reason
 2	1000	column	sides	
 2	1001	square	sides	
 2	1002	square	sides	too clogged: 186 permille cover
 2	1003	column	sides	
-2	1004	column	sides	
+2	1004	column	sides	too clogged: 172 permille cover
 2	1005	column	sides	
 2	1006	disc	sides	
-2	1007	square	sides	too clogged: 173 permille cover
+2	1007	square	sides	too clogged: 172 permille cover
 2	1008	column	sides	
 2	1009	column	sides	
 2	1010	column	sides	
 2	1011	disc	sides	
 2	1012	square	sides	too clogged: 176 permille cover
-2	1013	column	sides	too clogged: 176 permille cover
+2	1013	column	sides	too clogged: 181 permille cover
 2	1014	disc	sides	
 2	1015	column	sides	
 2	1016	square	sides	
@@ -26,7 +26,7 @@ teams	seed	endzone	layout	reason
 2	1023	disc	sides	
 2	1024	column	sides	
 2	1025	column	sides	
-2	1026	square	sides	too clogged: 178 permille cover
+2	1026	square	sides	too clogged: 185 permille cover
 2	1027	column	sides	
 2	1028	column	sides	
 2	1029	column	sides	too clogged: 178 permille cover
@@ -37,8 +37,8 @@ teams	seed	endzone	layout	reason
 2	1034	square	sides	
 2	1035	disc	sides	
 2	1036	disc	sides	
-2	1037	square	sides	no route around the endzone from behind the base
-2	1038	column	sides	too clogged: 194 permille cover
+2	1037	square	sides	
+2	1038	column	sides	too clogged: 191 permille cover
 2	1039	square	sides	
 2	1040	square	sides	
 2	1041	disc	sides	
@@ -73,7 +73,7 @@ teams	seed	endzone	layout	reason
 2	1070	column	sides	too clogged: 174 permille cover
 2	1071	disc	sides	endzone gate below is sealed
 2	1072	column	sides	
-2	1073	square	sides	
+2	1073	square	sides	no route around the endzone from behind the base
 2	1074	column	sides	
 2	1075	column	sides	
 2	1076	square	sides	
@@ -100,19 +100,19 @@ teams	seed	endzone	layout	reason
 2	1097	column	sides	too clogged: 179 permille cover
 2	1098	column	sides	
 2	1099	disc	sides	
-2	1100	square	sides	too clogged: 179 permille cover
+2	1100	square	sides	too clogged: 187 permille cover
 2	1101	square	sides	too clogged: 172 permille cover
 2	1102	square	sides	endzone gate ahead is sealed
 2	1103	column	sides	
-2	1104	column	sides	too clogged: 176 permille cover
+2	1104	column	sides	too clogged: 182 permille cover
 2	1105	square	sides	no route around the endzone from behind the base
 2	1106	column	sides	
 2	1107	disc	sides	
 2	1108	square	sides	too clogged: 179 permille cover
 2	1109	disc	sides	
 2	1110	disc	sides	
-2	1111	column	sides	too clogged: 185 permille cover
-2	1112	column	sides	
+2	1111	column	sides	too clogged: 194 permille cover
+2	1112	column	sides	too clogged: 173 permille cover
 2	1113	square	sides	endzone gate above is sealed
 2	1114	disc	sides	
 2	1115	square	sides	too clogged: 172 permille cover
@@ -159,21 +159,21 @@ teams	seed	endzone	layout	reason
 2	1156	disc	sides	too clogged: 177 permille cover
 2	1157	square	sides	
 2	1158	square	sides	
-2	1159	column	sides	too clogged: 171 permille cover
+2	1159	column	sides	too clogged: 182 permille cover
 2	1160	disc	sides	too clogged: 181 permille cover
 2	1161	square	sides	
-2	1162	square	sides	
+2	1162	square	sides	too clogged: 177 permille cover
 2	1163	column	sides	too clogged: 183 permille cover
 2	1164	column	sides	too clogged: 172 permille cover
 2	1165	column	sides	too clogged: 179 permille cover
 2	1166	column	sides	
 2	1167	disc	sides	
-2	1168	square	sides	
+2	1168	square	sides	too clogged: 183 permille cover
 2	1169	column	sides	
 2	1170	square	sides	too clogged: 177 permille cover
 2	1171	disc	sides	
 2	1172	column	sides	
-2	1173	column	sides	too clogged: 193 permille cover
+2	1173	column	sides	too clogged: 196 permille cover
 2	1174	column	sides	
 2	1175	column	sides	
 2	1176	column	sides	too clogged: 174 permille cover

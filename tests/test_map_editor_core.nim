@@ -19,10 +19,29 @@ const PoolRenderHashes = [
   ## archetypes present (blocks 5, three-lane 5, field 4, warren 3, hub 2,
   ## ring 1), symmetry visibly exact on all 20, no degenerate board. A hash
   ## nobody has looked at makes a bad map the baseline for everyone after.
-  0x254b59b6'u32, 0x3439bd90'u32, 0x087a84d5'u32, 0xc615f7f9'u32,
-  0x01fd2cc7'u32, 0x86673849'u32, 0xd4eedbe0'u32, 0xac1b2e34'u32,
-  0xcab0a916'u32, 0x2c389334'u32, 0x178218cb'u32, 0xb38ec8dd'u32,
-  0xe1408202'u32, 0x837295a5'u32, 0xf1cab922'u32, 0x703f4aec'u32,
+  ##
+  ## FIVE MOVED AGAIN when `clearLanes` started cutting polygons and diagonals
+  ## instead of dropping them whole, and closed the gate-mouth hole in the rect
+  ## trim (task eea795c7). Indices 3, 6, 10, 12, 13 — seeds 1004, 1007, 1011,
+  ## 1013, 1014 — are exactly the pool's three-lane draws; the other fifteen are
+  ## byte-identical, which is the control that says the change reached only what
+  ## it claims to touch. All five were rendered before and after and looked at:
+  ## symmetry exact (largest left/right stone delta 0.046%, and every mismatch
+  ## a 1 px line ON the axis, i.e. rasterizer rounding), walkable space one
+  ## connected component with both bases on it, blocking cover 14.1-16.6%, and
+  ## stone blob counts DOWN on all five (fewer, larger masses — not confetti).
+  ##
+  ## The review also found what the hash cannot say: pool-wide the WINDOW count
+  ## falls 57 -> 50 and two panes now overlap the border ring (0 before). That
+  ## is not the clip. Window anchors are drawn from fill shapes that are rect,
+  ## disc or diamond — `arena`'s anchor switch gives polygons and diagonals
+  ## (0, 0) and the `sx > 0` guard then skips them — so re-dealing the fill
+  ## re-deals the anchors, and the anchor step has never had a border test.
+  ## Recorded here rather than fixed here: it is the window stage's bug.
+  0x254b59b6'u32, 0x3439bd90'u32, 0x087a84d5'u32, 0x3027d369'u32,
+  0x01fd2cc7'u32, 0x86673849'u32, 0xf66dd776'u32, 0xac1b2e34'u32,
+  0xcab0a916'u32, 0x2c389334'u32, 0xe87734f9'u32, 0xb38ec8dd'u32,
+  0x38c717dd'u32, 0x5b54f609'u32, 0xf1cab922'u32, 0x703f4aec'u32,
   0x66a67465'u32, 0x30d4387b'u32, 0x3fdb8e76'u32, 0x1ba77a58'u32
 ]
 
