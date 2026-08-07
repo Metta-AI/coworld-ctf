@@ -357,6 +357,21 @@ when defined(sgprobe):
   var sgHold = 0      # ...and we HELD at standoff (no Captain advantage) — the suicide dive PREVENTED
   var sgCommit = 0    # ...and we COMMITTED the touch WITH advantage (pickEdge/PhForce/cover) — team push
 
+when defined(ptprobe):
+  # -d:ptprobe ONLY (2026-08-07): the pocketThreat/hpGate census. The point is NOT
+  # "did the code run" but "did the gate CHANGE A DECISION" — a lever that fires on
+  # frames the old logic already held is a no-op wearing a counter, and that is the
+  # exact way a null result gets believed. So every counter below is a DELTA against
+  # what the shipped gate would have decided on the same frame.
+  var ptFrames = 0    # decide()-frames that reached the smartGrab pocket gate at all
+  var ptOldHold = 0   # ...the SHIPPED gate would have held (>=2 fresh guns within 150px)
+  var ptNewHold = 0   # ...the ARMED gate holds (whatever knobs are on this process)
+  var ptFlipHold = 0  # ⭐ ...frames the armed gate holds and the shipped one would NOT
+  var ptSentry = 0    # ...frames with a fresh gun in the 150-300px shell: the sentry
+                      #    band pocketThreat exists to see, invisible to GrabStackRange
+  var ptHpBlock = 0   # ⭐ ...frames hpGate alone forced the hold (1 hp, no cover, pocket
+                      #    not clear) on a frame the shipped gate waved through
+
 when defined(tcprobe):
   # -d:tcprobe ONLY (2026-07-29 touch latch): does the latch arm, and what did it PREEMPT?
   # The point is not just "did we grab" but "which branch would otherwise have stolen the
@@ -1002,6 +1017,55 @@ const
                                 # a coin-flip death — hold for a covering mate.
   GrabStackRange = 150.0        # count pocket defenders within this of the pedestal
                                 # (a gun this close to the heart covers the touch)
+
+  # --- pocketThreat (2026-08-07): the threat model was the WRONG SHAPE --------
+  # GV40 ground truth, 144 free league episodes (r2582-r2583, coworld 0.7.207),
+  # 148 steals: 48/70 (68.6%) of carrier-killers stood MORE than GrabStackRange
+  # from the pedestal when they fired — median 201px, p75 347px. A 150px count
+  # therefore reads the pocket as EMPTY in 61% of the touches that got the
+  # carrier killed: what kills a carrier is usually not a body IN the pocket, it
+  # is a sentry covering it from outside. (The same measurement at GV27 read
+  # 48/69, so the premise survived the GV40 continuous-aim change intact.)
+  #
+  # Widening alone does NOT fix it, and neither does lowering the bar alone.
+  # Scored on the SPREAD between a gate's flag-rate on fatal steals and on ones
+  # that captured — a gate that suppresses both equally is not a threat model,
+  # it is just refusing to grab — the 2x2 is:
+  #     >=1 within 150px   21.4% fatal / 25.0% capture    -3.6pp  (anti-signal)
+  #     >=2 within 150px   10.0% fatal /  4.2% capture    +5.8pp  (today)
+  #     >=2 within 300px   15.7% fatal / 12.5% capture    +3.2pp
+  #     >=1 within 300px   52.9% fatal / 33.3% capture   +19.5pp  <-- this pair
+  # Only the PAIR discriminates, which is why these two knobs are ONE lever and
+  # neither ships alone. Reproduce with tools/ladder/pocket_diag.py; the write-up
+  # is docs/pocket_gv40_diagnosis.md.
+  PocketThreatRange = 300.0     # pocketThreat: count pocket defenders within THIS
+                                # instead, covering the 201px median kill range.
+                                # Not wider: 30% of killers stand beyond 300px too,
+                                # and chasing that tail collapses the spread (every
+                                # extra px flags capturing dives as fast as fatal
+                                # ones). 300 buys 38.6% of what 150 misses, cheaply.
+  PocketThreatSoloDefenders = 1 # pocketThreat: when NO mate is covering us, ONE
+                                # fresh gun on the pocket is enough to call it
+                                # defended. Solo-vs-one at the pedestal is exactly
+                                # the coin-flip GrabStackDefenders=2 was meant to
+                                # refuse; at 300px that single gun is the sentry
+                                # that actually does the killing.
+
+  # --- hpGate (2026-08-07): a 1-HP touch is worth almost nothing --------------
+  # Same GV40 corpus: conversion from steal to capture, split by the carrier's
+  # reconstructed HP at the moment of the steal —
+  #     1 hp:  31 steals ->  2 captures ( 6.5%), 23 killed, median life  37 ticks
+  #     2 hp:  38 steals -> 12 captures (31.6%)
+  #     3 hp:  79 steals -> 34 captures (43.0%),            median life 162 ticks
+  # A 6.6x conversion gap, and 1-HP steals are 21% of all steals. Unlike the
+  # pocket count this needs NO position estimate — a bot knows its own HP
+  # exactly — so it is the higher-confidence half of the pair.
+  HpGateTouchHp = 1             # hpGate: at or below this HP, do not take a
+                                # DISARMED touch into a pocket that has any fresh
+                                # gun on it and no mate covering. Hold the standoff
+                                # (which also frees medKitEcon, already keyed to
+                                # ownHp <= 1) and come back at full HP, where the
+                                # same touch converts 6.6x better.
   GrabCommitRing = 60.0         # once inside this of the pedestal we are committed —
                                 # a hold here just feeds ticks, so dive through it.
   GrabHoldStandoff = 150.0      # hold the gun up at this radius off the pedestal
@@ -1746,6 +1810,45 @@ type
                               # Deliberately NOT a return to the suicide dive smartGrab fixed —
                               # the latch arms only INSIDE the ring, where the body is already
                               # committed and the cheapest way out is forward onto the heart.
+    pocketThreat: bool        # ⭐⭐ THE GRAB THREAT MODEL IS THE WRONG SHAPE (2026-08-07).
+                              # smartGrab asks "is the pocket stacked?" with a 150px
+                              # count and a bar of 2. Re-measured on the CURRENT engine
+                              # (144 GV40 league episodes, 148 steals), that question is
+                              # aimed at the wrong bodies: 68.6% of the enemies who
+                              # actually killed our carrier were standing OUTSIDE 150px
+                              # when they fired (median 201px), so in 61% of fatal touches
+                              # the pocket scored as empty and smartGrab waved the dive
+                              # through. pocketThreat widens the count to
+                              # PocketThreatRange (300) AND, when no mate is covering us,
+                              # drops the bar to PocketThreatSoloDefenders (1) — a solo
+                              # body against one fresh sentry is the coin-flip the stack
+                              # test was written to refuse. It changes NO destination and
+                              # adds no branch: it re-aims the existing standoff-suppress
+                              # hold at the sentry that does the killing, by making that
+                              # sentry count as a defender in the first place.
+                              # Both knobs or neither: at 300px a bar of 2 is +3.2pp and
+                              # at 150px a bar of 1 is NEGATIVE (-3.6pp); only the pair
+                              # reaches +19.5pp of fatal-vs-capturing spread.
+                              # ⚠️ Composes with touchCommit, does not fight it:
+                              # holdGrab is floored at `> GrabCommitRing`, so pocketThreat
+                              # governs the APPROACH outside 60px while the touch latch
+                              # owns everything inside it. The combined arm is therefore
+                              # its own A/B cell, not the sum of two.
+    hpGate: bool              # ⭐⭐ NO DISARMED TOUCH ON ONE HP (2026-08-07). Same GV40
+                              # corpus: a steal taken at 1 hp converts to a capture 6.5%
+                              # of the time (2 of 31) against 43.0% at full hp, and the
+                              # 1-hp carrier lives a median 37 ticks vs 162. Those 31
+                              # steals are 21% of every steal in the corpus and returned
+                              # two captures for 23 deaths — the body is spent reaching a
+                              # heart it cannot carry home. hpGate refuses the disarmed
+                              # touch at or below HpGateTouchHp unless a mate is covering
+                              # or the pocket is genuinely clear, and holds the standoff
+                              # instead (which also un-blocks medKitEcon, already keyed to
+                              # ownHp <= 1, so the bot heals and comes back at 3 hp).
+                              # Higher confidence than pocketThreat and independent of it:
+                              # own HP is known exactly, with no track-staleness estimate
+                              # anywhere in the read. Same commit-ring floor, so it too
+                              # leaves the touch latch alone inside 60px.
     armedRush: bool           # ⭐ NEVER DISARM INTO A STACK (2026-07-24, THE dive-death fix).
                               # pocketRush's maxEngage=0 (gun OFF, no duck/dodge) rests on an
                               # OBSOLETE premise — that pedestal respawners are spawn-protected
@@ -2659,6 +2762,8 @@ proc defaultCombatTune(): CombatTune =
     comboGrab: false,         # control: sprayGrab's iHaveShield gate stays, no can-carrier shield-seek.
     aggro: 1.0,               # control: today's shipped posture exactly (every multiply is a no-op).
     medPeel: false,           # control: medEcon's aimedAtUs veto is unranged, MedKitLightContactHp stays 1.
+    pocketThreat: false,      # control: the grab threat model stays 150px / bar 2 (blind to the sentry).
+    hpGate: false,            # control: a 1-hp body still takes the disarmed touch it converts 6.5% of.
   )
 
 proc shippedCombatTune(): CombatTune =
@@ -3005,6 +3110,29 @@ proc shippedCombatTune(): CombatTune =
   # upside was field-only. TOUCH=1 arms it for the hosted ASYMMETRIC A/B that is the correct
   # gate. Do not flip this default without that field result.
   result.touchCommit = getEnv("TOUCH").len > 0
+  # ⭐⭐ pocketThreat + hpGate (2026-08-07) ship GATED OFF, same discipline as the
+  # touch latch above and for the same reason. Both premises are FIELD-measured on
+  # the CURRENT engine — 144 GV40 league episodes, 148 steals, 144/144 extracted
+  # clean (tools/ladder/pocket_diag.py, docs/pocket_gv40_diagnosis.md) — and both
+  # re-measurements held: 68.6% of carrier-killers stand outside the 150px threat
+  # radius, and a 1-hp steal converts 6.5% against 43.0% at full hp.
+  #
+  # But neither can be scored by a MIRROR. They are symmetric changes to how a
+  # pocket is read, so self-play hands both sides the same caution and the
+  # marginal advantage cancels — the null-that-flips-sign the touch latch already
+  # taught us. The correct gate is a hosted ASYMMETRIC A/B, and it needs THREE
+  # arms, not two: pocketThreat alone, hpGate alone, and both. They compose (the
+  # pocket read and the HP read are independent) but the combined arm is its own
+  # cell, because pocketThreat's whole effect is to hold more often and hpGate's
+  # is to hold more often — stacked, they could easily cross from caution into
+  # simply not grabbing, which is the failure mode of every gate in this family.
+  #
+  # POCKET=1 / HPGATE=1 arm them per-process for that rig. Do NOT flip either
+  # default without the field result; a 30-40% suppression of dives that WOULD
+  # have captured is the measured cost being bought here, and only the field can
+  # say whether the deferred grab comes back.
+  result.pocketThreat = getEnv("POCKET").len > 0
+  result.hpGate = getEnv("HPGATE").len > 0
   # ⭐ woundedBank (plan #13): the hp-keyed wounded survival posture. UNPROVEN —
   # stays ENV-ARMED ONLY until the pre-registered A/B passes (the contaminated-
   # control trap, failed.md: never bake an unproven lever into the champion
@@ -6403,10 +6531,16 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   if bot.tune.smartGrab and wantPocketRush and not pushOut and
       dist(me, stealTarget) > GrabCommitRing:
     # The pocket defense: fresh enemy guns clustered on the pedestal.
+    # ⭐⭐ pocketThreat widens WHERE we look. The 150px count answers "is anyone
+    # standing on the heart", but the GV40 corpus says the bodies that kill our
+    # carrier are at a median 201px — outside it — so the old radius scored 61%
+    # of fatal pockets as empty. Same loop, same freshness, longer reach.
+    let threatRange =
+      if bot.tune.pocketThreat: PocketThreatRange else: GrabStackRange
     var defenders = 0
     for t in bot.enemies:
       if bot.tick - t.lastSeen <= LocalFreshTicks and
-          dist(t.pos, stealTarget) <= GrabStackRange:
+          dist(t.pos, stealTarget) <= threatRange:
         inc defenders
     # Cover in place: a fresh mate AT the pocket with us (already trading, so the touch is
     # covered) releases the hold — that's a genuine team push, not a solo dive.
@@ -6423,7 +6557,51 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # uncontested touch). This is the chess-not-checkers pocket: the Captain calls the push.
     let haveAdvantage = pickEdge or (bot.tune.planLayer and botPhase == PhForce) or
       coverMates >= 1
-    holdGrab = defenders >= GrabStackDefenders and not haveAdvantage
+    # ⭐⭐ pocketThreat also lowers the BAR, but only while we are alone. With a
+    # mate covering, two guns is still the right definition of "stacked" and the
+    # dive is a team push; solo, one fresh sentry at 300px is already the
+    # coin-flip death GrabStackDefenders=2 was written to refuse. Widening the
+    # radius without this is worth +3.2pp and lowering the bar without the
+    # widening is an ANTI-signal (-3.6pp) — the pair is the lever.
+    let stackBar =
+      if bot.tune.pocketThreat and coverMates == 0: PocketThreatSoloDefenders
+      else: GrabStackDefenders
+    holdGrab = defenders >= stackBar and not haveAdvantage
+    # ⭐⭐ hpGate is a separate refusal, not a term in the stack test: at 1 hp the
+    # touch converts 6.5% vs 43.0% at full hp, and that is true whether or not we
+    # hold a local numbers edge — so it deliberately OUTRANKS haveAdvantage.
+    # It keeps the two carve-outs that make it a delay and not an abandonment:
+    # a covering mate still releases it, and a genuinely CLEAR pocket (no fresh
+    # gun at all) is still taken at any hp. The enclosing `> GrabCommitRing`
+    # floor means a body already inside the ring is untouched — touchCommit owns
+    # that ground, and a 1-hp bot two steps from the heart should still finish.
+    if bot.tune.hpGate and bot.ownHp <= HpGateTouchHp and
+        coverMates == 0 and defenders >= 1:
+      holdGrab = true
+    when defined(ptprobe):
+      # Re-derive the SHIPPED decision on this same frame (150px, bar 2, no hp
+      # term) so the census reports the DELTA rather than the absolute rate.
+      var oldDef = 0
+      var shell = 0
+      for t in bot.enemies:
+        if bot.tick - t.lastSeen > LocalFreshTicks: continue
+        let d = dist(t.pos, stealTarget)
+        if d <= GrabStackRange: inc oldDef
+        elif d <= PocketThreatRange: inc shell
+      let oldHold = oldDef >= GrabStackDefenders and not haveAdvantage
+      inc ptFrames
+      if oldHold: inc ptOldHold
+      if holdGrab: inc ptNewHold
+      if holdGrab and not oldHold: inc ptFlipHold
+      if shell > 0: inc ptSentry
+      if bot.tune.hpGate and bot.ownHp <= HpGateTouchHp and
+          coverMates == 0 and defenders >= 1 and not oldHold:
+        inc ptHpBlock
+      if ptFrames mod 2000 == 0:
+        stderr.writeLine "PTPROBE frames=" & $ptFrames &
+          " oldHold=" & $ptOldHold & " newHold=" & $ptNewHold &
+          " flip=" & $ptFlipHold & " sentry=" & $ptSentry &
+          " hpBlock=" & $ptHpBlock
     when defined(sgprobe):
       inc sgWant
       if defenders >= GrabStackDefenders: inc sgDefended
@@ -8692,6 +8870,15 @@ proc runBot(url: string) =
           stderr.writeLine "CGPROBE frames=" & $cgFrames &
             " coShieldCan=" & $cgCoShieldCan & " coNadeCan=" & $cgCoNadeCan &
             " shieldGrabFire=" & $cgShieldGrabFire
+        when defined(ptprobe):
+          # Same guaranteed final flush — the pocket gate is reached on far
+          # fewer frames than cgprobe counts, so a whole episode can finish
+          # without ever crossing the mod-2000 boundary. Without this a real
+          # firing lever reads as a silent zero.
+          stderr.writeLine "PTPROBE frames=" & $ptFrames &
+            " oldHold=" & $ptOldHold & " newHold=" & $ptNewHold &
+            " flip=" & $ptFlipHold & " sentry=" & $ptSentry &
+            " hpBlock=" & $ptHpBlock
         echo "game over, exiting: ", e.msg
         quit(0)
       echo "connect retry: ", e.msg
