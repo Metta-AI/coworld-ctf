@@ -260,11 +260,6 @@ const
   ArenaName = "arena"
   ArenaLargeName = "arena-large"
   ArenaBorder* = 10            ## perimeter wall thickness in px.
-  MinCorridorWidth* = 26
-    ## Narrowest corridor for the 13px footprint. Declared HERE, with the
-    ## other clearances, rather than down in the generator's const block: the
-    ## base-depth budget (`homeDepthWindow`) has to reserve a corridor's width
-    ## of buildable ground, and it runs long before the generator does.
 
   EndzoneApron* = 60
     ## How far past the scoring ring terrain is kept out, so the base's
@@ -389,44 +384,15 @@ proc teamAnchor*(gameMap: CtfMap, team: Team): MapPoint =
   ## difference, not a rounding detail.
   gameMap.teamAnchorAt(team, gameMap.homeDepthOf())
 
-proc flagRingKeepOut*(gameMap: CtfMap, relaxed = false): int {.inline.} =
-  ## The radius around the board centre inside which the sightline repair
-  ## refuses to build. It exists so the repair cannot answer every ray through
-  ## the middle by ringing the flag and sealing it (19 of 19 connectivity
-  ## rejections, once). ONE definition, because `homeDepthWindow` reserves
-  ## room outside it and a second copy would silently drift.
-  ##
-  ## `relaxed` drops the belt-and-braces margin, leaving only a corridor's
-  ## width of clear ground outside the flag ring itself. The repair falls back
-  ## to it ONLY on a ray where nothing else on the whole run is legal — which
-  ## on a hexagon is a real case, not a theoretical one: the row through both
-  ## bases has the endzone aprons closing in from each side and the keep-out
-  ## from the middle, and at the strict radius they can meet with no buildable
-  ## ground between them at all. Connectivity is still the RULE that decides
-  ## whether the centre got sealed; this radius is only the preference.
-  gameMap.flagRing + MinCorridorWidth + (if relaxed: 0 else: 30)
-
 proc homeDepthWindow*(gameMap: CtfMap): tuple[lo, hi: int] =
   ## The depth permilles at which this map's base anchor satisfies BOTH
   ## budgets at once:
   ##
-  ## - IN FRONT: the endzone apron, the flag ring's keep-out, and a corridor's
-  ##   width of BUILDABLE ground between them — or the two bases fight over
-  ##   the middle.
+  ## - IN FRONT: apron, then the scoring ring, then a corridor of real field
+  ##   before the center ring — or the two bases fight over the middle.
   ## - BEHIND: apron, then room for one obstacle between the endzone and the
   ##   hull — or the base is flush against the wall and its back approaches
   ##   vanish.
-  ##
-  ## THE BUILDABLE TERM IS LOAD-BEARING and was missing. The row through both
-  ## bases is the hexagon's longest chord; the only ground on it where the
-  ## repair may place a plug is the gap between the apron and the ring
-  ## keep-out, and if those two overlap the lane cannot be interrupted BY
-  ## CONSTRUCTION — no budget, no granularity, no number of attempts helps.
-  ## Measured on small/seed 2001 under the old budget: anchor 257px from
-  ## centre, apron reaching 363 (`endzoneFloorAt` grows the passed radius by
-  ## `EndzoneWallMargin`, which the old `+ 50` slack did not cover) against a
-  ## keep-out starting at 359. Four pixels of overlap, and the generator's own
-  ## repair had nowhere legal to stand on the board's longest chord.
   ##
   ## Solved by SCANNING the legal permilles and evaluating each candidate
   ## through the real `teamAnchorAt` + `hexEdgeDist`, not by trigonometry.
@@ -438,8 +404,7 @@ proc homeDepthWindow*(gameMap: CtfMap): tuple[lo, hi: int] =
   ## run once per map build.
   let
     reserved = gameMap.endzoneRadius + EndzoneApron
-    front = reserved + gameMap.flagRingKeepOut(relaxed = true) +
-      MinCorridorWidth
+    front = reserved + gameMap.flagRing + 50
     behind = float(reserved + 40)
     board = gameMap.mapBoard()
   result = (lo: 0, hi: -1)
@@ -909,117 +874,17 @@ proc buildAnimatedDiamonds*(
 const
   GenMapName* = "gen"
   PoolMapName* = "pool"
+  MinCorridorWidth = 26      ## narrowest corridor for the 13px footprint.
   MapGenMaxAttempts = 100
-  MapRankDefaultK* = 8
-    ## Best-of-K candidates per generated map. E[max of K] = K/(K+1), so 8
-    ## is the 89th percentile of the generator's own quality range against
-    ## first-valid's 50th. 8 rather than 32 (the 97th) because the curve is
-    ## a logarithm and the clock is not: on the standard hexagon 8 costs
-    ## ~0.2s and 32 costs ~0.9s for four more percentiles. Raise it for
-    ## OFFLINE curation, where the wall clock is nobody's latency —
-    ## `gen_map_pool` does exactly that.
-  MapRankMaxK* = 64
-    ## The attempt budget is 100 and the pass rate is ~80%, so a K much
-    ## above this cannot be met and would silently ship best-of-fewer.
   MapSizeNames = ["small", "standard", "large", "huge", "giant"]
   CenterFeatureNames = ["bracket", "ring", "walls"]
-  ## ------------------------------------------------------------------------
   ## Interior cover budget, in permille of the non-protected interior that is
-  ## obstacle wall. Layouts outside the band play too open or too clogged and
-  ## are re-rolled.
-  ##
-  ## THE TWO BOUNDS SCALE DIFFERENTLY, and that is the whole reason a single
-  ## pair of numbers could not survive the move to a hexagon:
-  ##
-  ##   The FLOOR is lane geometry. The wall that interrupts a hull's chords is
-  ##     a CURTAIN — a one-dimensional structure whose length grows with the
-  ##     hull while its thickness is fixed by the obstacle vocabulary, which
-  ##     never scales (a colossal board gets the same 28px pebbles, just more
-  ##     of them). Wall area therefore grows as L and interior as L^2, so the
-  ##     floor goes as 1/L. `coverPermilleMin` applies that; `CoverPermilleMin`
-  ##     is its value on the standard class.
-  ##   The CEILING is combat density, and `GunRange` — the length that decides
-  ##     whether a field reads as an arena or a maze — is FIXED at 1050px and
-  ##     explicitly never scales with the board (GV34). So the ceiling is
-  ##     scale-free: one number for every class.
-  ##
-  ## Both are DERIVED below rather than fitted to a pass rate. Re-derive with
-  ## `tools/hex_cover_probe.nim geom`, which measures every figure quoted here
-  ## over the real hull through the real validator iterators.
-  ## ------------------------------------------------------------------------
-  CoverSkeletonPermille* = 140
-    ## MEASURED: the least interior cover that interrupts every scanned chord
-    ## of all SIX families on the standard hex hull, built from the
-    ## generator's own repair primitive — a 28px hex plug. Greedy set cover
-    ## over the hull, verified against `sightlineOpenRun`: 25 plugs, mirrored
-    ## to 50 shapes, 98,161 px^2 of a 697,012 px^2 interior.
-    ##
-    ## THIS IS THE NUMBER THE OLD CEILING OF 170 WAS UP AGAINST. On the SMALL
-    ## class the same skeleton costs 163 permille, so a small hexagonal board
-    ## had to spend 163 of its 170 permille closing its own lanes before it
-    ## could place one piece of designed terrain — 4% of the budget left for
-    ## the map itself. That, not the lane rule, is why the generator stopped
-    ## producing maps: 170 was calibrated on a RECTANGLE, where only the
-    ## horizontal family had to be interrupted because the other two board
-    ## edges were the top and bottom walls.
-    ##
-    ## The six-family cost is close to the three-family one — an optimal
-    ## skeleton for three families very nearly blocks six already, because
-    ## three curtains at 0/60/120 degrees project onto all six perpendicular
-    ## axes. What was expensive was never the sixth family; it was a repair
-    ## pass buying one plug per ray (see `plugOpenSightlines`).
-  CoverPermilleMin* = 44
-    ## The floor on the STANDARD class, and a NECESSARY condition rather than
-    ## a taste: below it no arrangement of wall the generator can express
-    ## interrupts every chord, so the map cannot pass the sightline rule
-    ## either way.
-    ##
-    ## `CoverSkeletonPermille` is what the skeleton costs in the repair
-    ## primitive; the floor prices the SAME skeleton in the vocabulary's
-    ## THINNEST feature, because a floor must never reject a map that found a
-    ## better-shaped blocker. A hex plug of circumradius 28 has area
-    ## `(3*sqrt3/2)*28^2 = 2037 px^2` and mean shadow `perimeter/pi = 6*28/pi
-    ## = 53.5 px`, i.e. an effective thickness of `2037/53.5 = 38.1 px`. The
-    ## thinnest wall feature the generator authors is 12px, so the same
-    ## blocking curtain drawn at 12px costs `140 * 12/38.1 = 44 permille`.
-    ##
-    ## 40 was the inherited rectangle figure, and landing within 4 permille of
-    ## it on the standard class is a coincidence of that class only: the
-    ## derived floor is 51 on small and 16 on giant — and the measured
-    ## skeletons, priced the same way, come out at 51 / 44 / 34 / 24 / 16 / 8
-    ## across the six classes, which is the same numbers. So the flat 40 was
-    ## simultaneously too slack for the smallest board and 2.5x too strict for
-    ## the largest.
-  CoverPermilleMax* = 266
-    ## The ceiling, scale-free. A field of convex cover at area fraction `c`
-    ## leaves a mean free path between obstacles of `g * (1 - c) / c`, where
-    ## `g = area / mean width` is the cover's grain — `2037/53.5 = 38.1 px`
-    ## for the 28px plug that is this generator's characteristic cover piece.
-    ##
-    ## Anchor: a straight run must average at least a TENTH OF GUN RANGE
-    ## (`1050/10 = 105 px`) of open ground between cover. Below that the gun
-    ## is never usable beyond knife range and the interior is a maze, not an
-    ## arena. `c <= 38.1 / (38.1 + 105) = 0.266`.
-    ##
-    ## Gun range is the right anchor precisely because it does not scale with
-    ## the board, which is what makes this bound one number instead of six.
-    ##
-    ## It brackets AUTHORING as much as generation: at 266 the shipping
-    ## repair pass's own output before it was fixed (658 permille on a bare
-    ## standard hull) is refused outright, and so is a mapkit `maze` or
-    ## `caves` draw that fills its half. What it no longer refuses is the
-    ## hand-authored arena, which measures 194 permille on the standard class
-    ## and 217 on small — both OUTSIDE the old 170 ceiling, which is to say
-    ## the band had come to reject its own design target.
-    ##
-    ## WHAT A GLOBAL PERMILLE CANNOT SEE is where the wall went. Now that the
-    ## repair spends a fifth of what it used to, it no longer sprays the
-    ## WILDERNESS BEHIND EACH BASE with plugs by accident, and 2 of 16 sampled
-    ## standard seeds come out with literally zero cover in the strip between
-    ## the hull and the endzone (median 10%, best 21%) while sitting
-    ## comfortably inside this band. `test_endzone_shapes` is the rule that
-    ## catches it, per map rather than per family; selecting against it belongs
-    ## to whatever scores the curated pool, not to a density bound.
+  ## obstacle wall. The hand-tuned arena sits inside this band; layouts
+  ## outside it play too open or too clogged and are re-rolled. Public so
+  ## tooling can report a measured figure against the band it is judged by
+  ## rather than restating the numbers.
+  CoverPermilleMin* = 40
+  CoverPermilleMax* = 170
 
 type
   MapRng = object
@@ -1039,46 +904,6 @@ proc next(rng: var MapRng): uint64 =
   z = (z xor (z shr 27)) * 0x94D049BB133111EB'u64
   z xor (z shr 31)
 
-proc splitmix(value: uint64): uint64 =
-  ## The splitmix64 finalizer on its own, used to AVALANCHE a stream key so
-  ## neighbouring seeds start in unrelated places. `next` mixes on the way
-  ## out, so a raw `state = seed` would make seeds 1000 and 1001 produce
-  ## first draws one golden-ratio step apart — fine for one stream, wrong
-  ## the moment several streams are derived from the same integer.
-  var z = value
-  z = (z xor (z shr 30)) * 0xBF58476D1CE4E5B9'u64
-  z = (z xor (z shr 27)) * 0x94D049BB133111EB'u64
-  z xor (z shr 31)
-
-proc streamKey(name: static string): uint64 =
-  ## FNV-1a of a stage name, folded at compile time. Naming the streams
-  ## rather than numbering them is the point: a stage's stream must not
-  ## move when a stage is inserted before it.
-  const key = block:
-    var h = 0xCBF29CE484222325'u64
-    for ch in name:
-      h = (h xor uint64(ord(ch))) * 0x100000001B3'u64
-    h
-  key
-
-proc mapSubStream(seed: int, name: static string, attempt = 0): MapRng =
-  ## ONE DERIVED SUB-STREAM PER GENERATOR STAGE.
-  ##
-  ## The generator used to run off a single flat splitmix64 stream, which
-  ## made every draw position load-bearing: inserting a draw at position k
-  ## re-dealt every map from every seed, re-curated the pool, and moved
-  ## every regression baseline. The endzone archetype escaped that once via
-  ## `seed xor <const>`, and that escape hatch is what let compact endzones
-  ## ship with 29 of 29 column maps byte-identical and no GameVersion bump.
-  ## This makes the hatch structural: any stage can gain, lose, or reorder
-  ## draws without disturbing any other stage.
-  ##
-  ## `attempt` is the retry index, and it deliberately reaches only the
-  ## TERRAIN-side streams — see `generateMapAttempt`.
-  MapRng(state: splitmix(
-    uint64(seed) xor streamKey(name) xor
-      (uint64(attempt) * 0x9E3779B97F4A7C15'u64)))
-
 proc pick(rng: var MapRng, bound: int): int =
   ## Uniform 0..bound-1 (modulo bias is immaterial at these bounds).
   int(rng.next() mod uint64(bound))
@@ -1093,31 +918,6 @@ proc shuffle[T](rng: var MapRng, items: var seq[T]) =
   for i in countdown(items.high, 1):
     let j = rng.pick(i + 1)
     swap(items[i], items[j])
-
-proc coverPermilleMin*(gameMap: CtfMap): int =
-  ## The cover FLOOR for this hull: `CoverPermilleMin` scaled as `1/L`.
-  ##
-  ## The wall that interrupts a hull's chords is a curtain, so its area grows
-  ## with the hull's linear size while the interior grows with the square —
-  ## and the obstacle vocabulary that sets the curtain's THICKNESS does not
-  ## scale at all. A colossal board is 5.2x across and needs 5.2x the curtain,
-  ## spread over 27x the field: the same geometry, at 8 permille instead of
-  ## 44.
-  ##
-  ## Keyed to `height`, the board's SHORT axis, for the same reason
-  ## `endzoneRadius` and the shout/grenade ranges are: it is twice the
-  ## apothem, the orientation-independent measure of how much field a class
-  ## has, and it does not jump 15% when the hull turns landscape. Read off the
-  ## hull rather than looked up in `HexSizes` so an authored or mapkit board
-  ## between two classes gets the floor its own geometry earns.
-  ##
-  ## Measured skeletons for the six shipped classes, and what this returns:
-  ##   small 156 -> 51    standard 141 -> 44    large 109 -> 33
-  ##   huge   77 -> 24    giant     52 -> 16    colossal 26 -> 8
-  ## (left column: `tools/hex_cover_probe.nim geom`, priced in 28px plugs;
-  ## right: the same skeleton priced in the 12px thinnest wall feature, which
-  ## is the bound a map can never legally sit below.)
-  max(1, CoverPermilleMin * HexStandardHeight div max(1, gameMap.height))
 
 proc mapSizeScale(sizeName: string): float =
   ## Field-scale factor for one size class, shared with `hex.nim`'s
@@ -1335,27 +1135,6 @@ proc rasterizeWallMasks*(
         minWall[i] = false
   (maxWall, minWall)
 
-proc stampShapeIntoMask*(
-  gameMap: CtfMap, mask: var seq[bool], shape: ArenaShape
-) =
-  ## Paints ONE already-placed shape into an existing wall mask, in
-  ## `rasterizeWallMasks`' precedence — protected floor stays floor whatever
-  ## covers it. This is the incremental form of the full rasterize, for a
-  ## caller that adds obstacles one at a time and must see its own work
-  ## without re-sweeping the board (`plugOpenSightlines`). Not for spinning
-  ## diamonds: those are not one shape, and a repair pass never places one.
-  let
-    w = gameMap.width
-    bounds = shapeBounds(shape)
-    x0 = max(bounds.x0, 0)
-    y0 = max(bounds.y0, 0)
-    x1 = min(bounds.x1, w - 1)
-    y1 = min(bounds.y1, gameMap.height - 1)
-  for y in y0 .. y1:
-    for x in x0 .. x1:
-      if inShape(x, y, shape) and not mapProtectedFloorAt(gameMap, x, y):
-        mask[y * w + x] = true
-
 proc rasterizeRestWallMask*(
   gameMap: CtfMap,
   obstacles: seq[ArenaShape],
@@ -1397,18 +1176,12 @@ proc rasterizeRestWallMask*(
         result[i] = false
 
 const
-  SightlineAxisCount* = 6
-    ## A hexagon has SIX families of parallel chords, in two kinds, and this
-    ## validator scans ALL of them.
-    ##
-    ##   axes 0-2, EDGE-TO-EDGE — 90, 30 and 150 degrees on the flat-top hull.
-    ##     Each joins an opposite pair of parallel edges and maxes out at
-    ##     `2 * apothem` (968px on the standard class).
-    ##   axes 3-5, VERTEX-TO-VERTEX — 0, 60 and 120 degrees. Each joins an
-    ##     opposite pair of corners and reaches `2 * circumradius` = 1118px.
-    ##
-    ## `sightlinePixels` carries each family's parametrization; the two kinds
-    ## are the same three lines with x and y exchanged.
+  SightlineAxisCount* = 3
+    ## A hexagon has SIX families of parallel chords, in two kinds. This
+    ## validator scans the three EDGE-TO-EDGE ones — 90, 30 and 150 degrees on
+    ## the flat-top hull — each of which runs between an opposite pair of
+    ## parallel edges and maxes out at `2 * apothem` (968px on the standard
+    ## class). `sightlinePixels` carries each family's parametrization.
     ##
     ## THESE ANGLES ARE A PROPERTY OF THE HULL AND TURN WITH IT. While the hull
     ## was pointy-top the edge-to-edge family was 0/60/120; the landscape flip
@@ -1418,25 +1191,27 @@ const
     ## `tools/hex_range_probe.nim` caught exactly that, measuring a 950px open
     ## run at 87 degrees on a board whose validator was still scanning 0/60/120.
     ##
-    ## WHY ALL SIX, when scanning six was tried on three axes' worth of cover
-    ## budget and took the accept rate to 0 of 3197 seeds: the LONGEST family on
-    ## a landscape hull is the horizontal one, red base to blue base, and it was
-    ## the one going unscanned. `hex_range_probe` measured a 1033px open run
-    ## down it against a 1050px gun range — a real cross-field firing lane with
-    ## 17px of margin. The earlier zero-accept result was a cover-budget defect,
-    ## not a geometry verdict: `CoverPermilleMax` had been calibrated on a
-    ## rectangle, where only ONE family had to be interrupted. Re-derived from
-    ## the hull (see `CoverPermilleMin`), the sixth family costs about 3% more
-    ## wall than the third, because an optimal blocking skeleton for three
-    ## families very nearly blocks six already.
-  SightlineAxisDeg*: array[SightlineAxisCount, int] = [90, 30, 150, 0, 60, 120]
-    ## The direction of each family's lines, in degrees, for diagnostics. NOT
-    ## `60 * axis` — that was the pointy-top numbering and it survived the
-    ## landscape flip only inside an error string.
+    ## THE OTHER THREE FAMILIES ARE STILL UNSCANNED, and that is now a MEASURED
+    ## gap rather than an unexamined one. The vertex-to-vertex families (0, 60,
+    ## 120 degrees on this hull) run corner to corner and reach
+    ## `2 * circumradius` = 1118px. On the portrait board the unscanned long
+    ## family ran vertically, ACROSS the play axis, so it cost little. On the
+    ## landscape board it is the HORIZONTAL one — red base to blue base — and
+    ## `hex_range_probe` measures a 1033px open run down it against a 1050px
+    ## gun range: a real cross-field firing lane, with 17px of margin.
+    ##
+    ## Scanning all six was tried and REVERTED, with the number: the plug pass
+    ## then adds roughly twice the cover and the generator's accept rate goes to
+    ## 0 of 3197 seeds (61% rejected "too clogged", 18% still on sightlines).
+    ## That is the tension the Stage 2 report already named — enforcing many
+    ## axes against a `CoverPermilleMax` calibrated for ONE — and closing it
+    ## needs the cover budget re-derived, which belongs to the generator epic.
+    ## Raising the ceiling blind to make the sixth family fit would be trading a
+    ## measured lane for an unmeasured one.
   SightlineStep* = 5
     ## Spacing between scanned lines, in intercept units. On the slanted axes
     ## one unit of intercept is 0.866 px of perpendicular separation, so this
-    ## is the historical ~4px scan on all six.
+    ## is the historical ~4px scan on all three.
 
 proc sightlineMinSpan*(gameMap: CtfMap): int =
   ## How long an unblocked run has to be before it counts as a lane. On a
@@ -1471,82 +1246,36 @@ iterator sightlinePixels*(
   ## outside the hexagon are both already `true` in every wall mask (see
   ## `mapBorderWallAt`), so a run clips itself at the hull.
   ##
-  ## The EDGE-TO-EDGE half. Axis 0 is the VERTICAL family (top edge to bottom
-  ## edge), indexed by column. Axes 1 and 2 are the 30- and 150-degree ones,
-  ## parametrized `y = intercept +- 153*x div 265` — slope `+-tan 30`, so they
-  ## run faster than they rise and x is the axis to step.
-  ##
-  ## The VERTEX-TO-VERTEX half (axes 3-5) is the same three lines with x and y
-  ## exchanged: axis 3 is HORIZONTAL, indexed by row, and axes 4/5 are the 60-
-  ## and 120-degree ones, `x = intercept +- 153*y div 265`, stepped along y.
-  ## Exchanging the axes is exactly the 90-degree rotation that carries one
-  ## kind of family into the other on a hull whose bounding box is
-  ## `2/sqrt(3)` — which is why no second parametrization is needed.
-  case axis
-  of 0:
+  ## Axis 0 is the VERTICAL family (top edge to bottom edge), indexed by
+  ## column. The slanted families are the 30- and 150-degree ones, parametrized
+  ## `y = intercept +- 153*x div 265` — slope `+-tan 30`, so they run faster
+  ## than they rise and x is the axis to step.
+  if axis == 0:
     for y in 0 ..< gameMap.height:
       yield (intercept, y)
-  of 1, 2:
+  else:
     let sign = if axis == 1: 1 else: -1
     for x in 0 ..< gameMap.width:
       let y = intercept + sign * (Sqrt3Den * x) div Sqrt3Num
       if y >= 0 and y < gameMap.height:
         yield (x, y)
-  of 3:
-    for x in 0 ..< gameMap.width:
-      yield (x, intercept)
-  else:
-    let sign = if axis == 4: 1 else: -1
-    for y in 0 ..< gameMap.height:
-      let x = intercept + sign * (Sqrt3Den * y) div Sqrt3Num
-      if x >= 0 and x < gameMap.width:
-        yield (x, y)
 
 iterator sightlineIntercepts*(gameMap: CtfMap, axis: int): int =
   ## The intercepts to scan on one axis, spaced `SightlineStep` apart. Axis 0
-  ## is indexed by COLUMN and axis 3 by ROW; the four slanted axes sweep an
-  ## intercept range wide enough to carry every line that crosses the board.
-  case axis
-  of 0:
+  ## is indexed by COLUMN; the slanted axes sweep a y-intercept range wide
+  ## enough to carry every line that crosses the board.
+  if axis == 0:
     var x = ArenaBorder + 2
     while x < gameMap.width - ArenaBorder:
       yield x
       x += 4
-  of 3:
-    var y = ArenaBorder + 2
-    while y < gameMap.height - ArenaBorder:
-      yield y
-      y += 4
-  of 1, 2:
+  else:
     let reach = (Sqrt3Den * gameMap.width) div Sqrt3Num + 2
     var c = (if axis == 1: -reach else: 0)
     let hi = (if axis == 1: gameMap.height else: gameMap.height + reach)
     while c < hi:
       yield c
       c += SightlineStep
-  else:
-    let reach = (Sqrt3Den * gameMap.height) div Sqrt3Num + 2
-    var c = (if axis == 4: -reach else: 0)
-    let hi = (if axis == 4: gameMap.width else: gameMap.width + reach)
-    while c < hi:
-      yield c
-      c += SightlineStep
-
-proc sightlineRunPixels*(axis, steps: int): int {.inline.} =
-  ## A scan run's TRUE length in pixels, from the number of pixels the walk
-  ## yielded. `sightlinePixels` steps one pixel of the line's LONGER axis at a
-  ## time, so on the four SLANTED families each step also advances 0.577 px
-  ## along the other axis: `2/sqrt(3) = 1.1547` px of line per step.
-  ##
-  ## Counting steps as pixels — which is what this did before the six-family
-  ## scan made the discrepancy load-bearing — holds the four slanted families
-  ## to a lane 15% longer than the two straight ones: 895px against 775px on
-  ## the standard class. Both are inside `GunRange`, so nothing was visibly
-  ## broken; it is the same silent class of error as scanning the wrong
-  ## angles, and just as invisible, because a step count still looks like a
-  ## length.
-  if axis == 0 or axis == 3: steps
-  else: (2 * Sqrt3Den * steps) div Sqrt3Num
 
 proc sightlineOpenRun*(
   gameMap: CtfMap, wall: seq[bool], axis, intercept: int
@@ -1573,7 +1302,7 @@ proc sightlineOpenRun*(
     if runLen > bestLen:
       bestLen = runLen
       bestX0 = startX; bestY0 = startY; bestX1 = x; bestY1 = y
-  if sightlineRunPixels(axis, bestLen) >= gameMap.sightlineMinSpan():
+  if bestLen >= gameMap.sightlineMinSpan():
     return (true, bestX0, bestY0, bestX1, bestY1)
   (false, 0, 0, 0, 0)
 
@@ -1603,31 +1332,18 @@ proc rectOnOpenFloor(
 
 proc plugOpenSightlines*(gameMap: var CtfMap, budget: int) =
   ## Closes every straight lane at least `sightlineMinSpan` long on ANY of the
-  ## hexagon's six chord families, by adding hexagonal cover to the map's SEED
-  ## half.
+  ## hexagon's three axes, by adding hexagonal cover to the map's SEED half.
   ##
-  ## A hexagon has six families of chords — three edge-to-edge, three
-  ## vertex-to-vertex — where a rectangle had one that mattered, so the old
-  ## "does the left half cover every row" shortcut no longer applies: this
-  ## works against the fully symmetrized wall mask and re-rasterizes between
-  ## passes.
+  ## A hexagon has three families of chords joining opposite edges where a
+  ## rectangle had one that mattered, so the old "does the left half cover
+  ## every row" shortcut no longer applies: this works against the fully
+  ## symmetrized wall mask and re-rasterizes between passes.
   ##
   ## Plugs go on the ray's midpoint where they can (an obstacle anywhere on a
   ## straight ray blocks it, and the middle splits it most evenly), folded
   ## into the seed half when the midpoint lands on the far side — a ray and
   ## its symmetry image are either both open or both blocked, so plugging the
   ## image plugs the original too.
-  ##
-  ## EVERY PLUG IS STAMPED BACK INTO THE WORKING MASK the instant it is
-  ## placed. Without that the pass re-reads a mask that predates its own work
-  ## and buys one plug per open ray, when a single 28px plug already closes
-  ## about twelve neighbouring rays in its own family and a further ten in
-  ## each of the other five. Measured on a bare standard hull
-  ## (`tools/hex_cover_probe.nim geom`, 856 lanes to close): 865 plugs and 658
-  ## permille of cover before, 48 plugs and 220 permille after, for the same
-  ## zero open lanes — against a greedy-optimal skeleton of 25 plugs and 140
-  ## permille. That single stale re-read was most of the reason a hexagonal
-  ## board looked structurally too clogged to generate.
   ##
   ## Shared by the generator AND the hand-authored arena. The generator's
   ## validators never run on an authored map, so without this the default
@@ -1638,15 +1354,15 @@ proc plugOpenSightlines*(gameMap: var CtfMap, budget: int) =
     cy = gameMap.center.y
     redAnchorX = gameMap.teamHomeX(Red)
     apron = gameMap.endzoneRadius + EndzoneApron - EndzoneWallMargin
-    group = gameMap.mapGroup()
   var plugsLeft = budget
   for repairPass in 0 ..< 24:
     if plugsLeft <= 0:
       break
-    let obstacles = buildArenaObstacles(gameMap)
-    var masks = rasterizeWallMasks(gameMap, obstacles)
+    let
+      obstacles = buildArenaObstacles(gameMap)
+      masks = rasterizeWallMasks(gameMap, obstacles)
     var plugged = 0
-    for axis in 0 ..< SightlineAxisCount:
+    for axis in 0 .. 2:
       for intercept in gameMap.sightlineIntercepts(axis):
         if plugsLeft <= 0:
           break
@@ -1664,79 +1380,52 @@ proc plugOpenSightlines*(gameMap: var CtfMap, budget: int) =
         ## hypothetical: it was 19 of 19 connectivity rejections, every one with
         ## 95-98% of the eroded floor reachable and only the core cut off.
         ## Rotating the order scatters them along the rays instead.
-        ##
-        ## TWO GRANULARITIES, coarse first. The coarse sweep is the scatter
-        ## above: 2*halfSteps+1 positions, roughly 8px apart on a
-        ## board-crossing ray. The fine sweep — every pixel of the run — only
-        ## runs when the coarse one found nowhere legal at all, and it exists
-        ## because on a hexagonal board the two keep-outs can very nearly
-        ## MEET. Measured on small/seed 2001: the row through both bases is a
-        ## 763px lane, and along it the red endzone apron reaches x=357 while
-        ## the flag-ring keep-out starts at x=359 — a ONE-PIXEL window that an
-        ## 8px sweep steps straight over, so the generator's own repair could
-        ## not close its longest lane and the seed was rejected for a lane it
-        ## had somewhere legal to plug all along. Anchor-to-centre is 257px
-        ## against an apron of 139 and a keep-out of 116: 2px of slack.
         var placed = false
         let
-          runSteps = max(abs(run.x1 - run.x0), abs(run.y1 - run.y0))
-          halfSteps = runSteps div 16
-        for granularity in 0 .. 2:
+          halfSteps = max(abs(run.x1 - run.x0), abs(run.y1 - run.y0)) div 16
+          spread = 2 * halfSteps + 1
+        for t in 0 ..< max(1, spread):
           if placed:
             break
-          let
-            den = (if granularity == 0: 2 * halfSteps else: runSteps)
-            spread = den + 1
-            ringKeepOut = gameMap.flagRingKeepOut(relaxed = granularity == 2)
-          if den == 0:
-            continue
-          for t in 0 ..< spread:
-            if placed:
-              break
-            block tryOne:
-              let
-                ## POSITIVE modulo, deliberately. Nim's `mod` takes the sign
-                ## of its dividend, and the slanted axes sweep NEGATIVE
-                ## intercepts — so the plain form yields a negative `num`,
-                ## which extrapolates the plug BEFORE the run's start instead
-                ## of interpolating along it, and drops hexes hundreds of
-                ## pixels off the board.
-                rot = (intercept div SightlineStep + t) mod spread
-                num = (rot + spread) mod spread
-              var
-                px = run.x0 + (run.x1 - run.x0) * num div den
-                py = run.y0 + (run.y1 - run.y0) * num div den
-              if px > gameMap.center.x:
-                px = gameMap.width - 1 - px
-                if gameMap.symmetry == symRot180:
-                  py = gameMap.height - 1 - py
-              ## Protected floor (the flag ring and every endzone disc) is never
-              ## walled, and the endzone APRON must stay clear or the map loses
-              ## the open flanks the validator demands.
-              if mapProtectedFloorAt(gameMap, px, py):
-                break tryOne
-              if endzoneFloorAt(px, py, redAnchorX, cy, apron, true):
-                break tryOne
-              ## Keep a corridor's worth of clear ground OUTSIDE the flag ring,
-              ## so the rotated order above cannot rebuild the ring it exists to
-              ## avoid. Belt and braces, deliberately: the scatter alone fixed
-              ## the measured failures, but the two together took connectivity
-              ## rejections from 19 in 200 seeds to ZERO.
-              let
-                rdx = px - gameMap.center.x
-                rdy = py - gameMap.center.y
-              if rdx * rdx + rdy * rdy <= ringKeepOut * ringKeepOut:
-                break tryOne
-              let plug = hexShape(px, py, 28)
-              gameMap.leftObstacles.add plug
-              ## The plug and every symmetry image of it become stone NOW, in
-              ## the mask this pass is still reading, so the twenty-odd other
-              ## rays it just closed are seen as closed instead of each buying a
-              ## plug of its own.
-              for op in group:
-                gameMap.stampShapeIntoMask(
-                  masks.minWall, plug.pixelImage(op, gameMap.width, gameMap.height))
-              placed = true
+          block tryOne:
+            let
+              ## POSITIVE modulo, deliberately. Nim's `mod` takes the sign of
+              ## its dividend, and the slanted axes sweep NEGATIVE intercepts —
+              ## so the plain form yields a negative `num`, which extrapolates
+              ## the plug BEFORE the run's start instead of interpolating along
+              ## it, and drops hexes hundreds of pixels off the board.
+              rot = (intercept div SightlineStep + t) mod max(1, spread)
+              num = (rot + spread) mod max(1, spread)
+              den = 2 * halfSteps
+            if den == 0:
+              break tryOne
+            var
+              px = run.x0 + (run.x1 - run.x0) * num div den
+              py = run.y0 + (run.y1 - run.y0) * num div den
+            if px > gameMap.center.x:
+              px = gameMap.width - 1 - px
+              if gameMap.symmetry == symRot180:
+                py = gameMap.height - 1 - py
+            ## Protected floor (the flag ring and every endzone disc) is never
+            ## walled, and the endzone APRON must stay clear or the map loses
+            ## the open flanks the validator demands.
+            if mapProtectedFloorAt(gameMap, px, py):
+              break tryOne
+            if endzoneFloorAt(px, py, redAnchorX, cy, apron, true):
+              break tryOne
+            ## Keep a corridor's worth of clear ground OUTSIDE the flag ring,
+            ## so the rotated order above cannot rebuild the ring it exists to
+            ## avoid. Belt and braces, deliberately: the scatter alone fixed
+            ## the measured failures, but the two together took connectivity
+            ## rejections from 19 in 200 seeds to ZERO.
+            let
+              rdx = px - gameMap.center.x
+              rdy = py - gameMap.center.y
+              ringKeepOut = gameMap.flagRing + MinCorridorWidth + 30
+            if rdx * rdx + rdy * rdy <= ringKeepOut * ringKeepOut:
+              break tryOne
+            gameMap.leftObstacles.add hexShape(px, py, 28)
+            placed = true
         if not placed:
           continue
         dec plugsLeft
@@ -1766,7 +1455,7 @@ proc columnBand*(gameMap: CtfMap, x, margin: int): tuple[lo, hi: int] =
   (lo, hi)
 
 proc generateMapAttempt*(
-  seed: int, overrides: MapGenOverrides, teams = 2, attempt = 0
+  seed: int, overrides: MapGenOverrides, teams = 2
 ): CtfMap =  ## One UNVALIDATED draw. Every top-level parameter is drawn unconditionally
   ## and THEN overridden if locked, so locking one knob never shifts the
   ## other draws for the same seed.
@@ -1776,38 +1465,14 @@ proc generateMapAttempt*(
   ## orbits) is a separate epic; this is the minimal adaptation that emits a
   ## VALID hex map — terrain inside the hull, symmetric under the map's group,
   ## passing the validators.
-  ##
-  ## THE ATTEMPT INDEX REACHES THE TERRAIN, NOT THE BOARD. `layout` and
-  ## `endzone` are functions of the SEED alone; every terrain-side stream is
-  ## a function of `(seed, attempt)`. So a retry — and every candidate the
-  ## best-of-K ranker compares — is genuinely "this map, redrawn", on the
-  ## same board, at the same size class, with the same pedestals. Two
-  ## consequences, both wanted:
-  ##
-  ##   * `mapSeed 1002` MEANS something. The old retry was `seed + attempt`,
-  ##     so attempt 1 of seed 1002 was literally attempt 0 of seed 1003 —
-  ##     rejected seeds aliased onto their neighbours, at a different board
-  ##     size, which is why `gen_map_pool` had to insist on first-attempt
-  ##     validity and `render_map_pool` asserts the seed never rolled
-  ##     forward.
-  ##   * the ranker cannot buy its score with the size class. If the size
-  ##     were redrawn per attempt, best-of-K would quietly converge on
-  ##     whichever class scores best under the rubric and the pool's
-  ##     size-class quota would become unfillable.
   if teams != 2:
     raise newException(
       CtfError, "Hex Stage 2 generates 2-team maps only; " & $teams &
         " teams needs the cube-space orbit rasterizer (Stage 2b).")
-  var
-    layoutRng = mapSubStream(seed, "layout")
-    terrainRng = mapSubStream(seed, "terrain", attempt)
-    coverRng = mapSubStream(seed, "cover", attempt)
-    trenchRng = mapSubStream(seed, "trench", attempt)
-    decorRng = mapSubStream(seed, "decor", attempt)
-    pickupRng = mapSubStream(seed, "pickups", attempt)
+  var rng = MapRng(state: uint64(seed))
 
-  ## One draw over ALL size classes.
-  let sizeDraw = MapSizeNames[layoutRng.pick(MapSizeNames.len)]
+  ## One draw over ALL size classes, in its historical stream slot.
+  let sizeDraw = MapSizeNames[rng.pick(MapSizeNames.len)]
   let sizeName = if overrides.size.len > 0: overrides.size else: sizeDraw
   result = scaledGenShell(sizeName)
   result.name = "gen-" & $seed
@@ -1815,7 +1480,7 @@ proc generateMapAttempt*(
   result.genSeed = seed
   result.layout = layoutHex2
 
-  let symDraw = if layoutRng.coin(): symRot180 else: symMirrorHex
+  let symDraw = if rng.coin(): symRot180 else: symMirrorHex
   result.symmetry =
     case overrides.symmetry
     of "": symDraw
@@ -1834,16 +1499,15 @@ proc generateMapAttempt*(
 
   ## Endzone. Every hex endzone is a DISC (the one rotation-invariant shape),
   ## so what used to be an archetype draw is now only its radius and the base
-  ## depth. Both come from the endzone SUB-STREAM — the original `seed xor
-  ## <const>` escape hatch, now one named stream among six — and it is keyed
-  ## on the seed alone, because where the pedestals sit is part of the board
-  ## a seed names, not part of the terrain a retry redraws.
+  ## depth. Both still come from the SEPARATE stream keyed off the same seed,
+  ## so the main draw order never shifts.
   block endzoneDraw:
     if overrides.endzone notin ["", "disc"]:
       raise newException(
         CtfError, "The hex arena is all-disc; unknown map endzone: " &
           overrides.endzone)
-    var ezRng = mapSubStream(seed, "endzone")
+    var ezRng = MapRng(state: uint64(seed) xor 0x5A17E9D3C0FFEE11'u64)
+    discard ezRng.pick(4)      ## the retired archetype draw keeps its slot.
     result.endzone = ezDisc
     let
       ## The radius keeps a fraction of the board WIDTH; the DEPTH is then
@@ -1913,7 +1577,7 @@ proc generateMapAttempt*(
           $maxEndzoneRadius(result.height) & ".")
   result.rooms = result.defaultCtfRooms()
 
-  let featureDraw = CenterFeatureNames[terrainRng.pick(3)]
+  let featureDraw = CenterFeatureNames[rng.pick(3)]
   let feature =
     if overrides.centerFeature.len > 0: overrides.centerFeature
     else: featureDraw
@@ -1927,7 +1591,7 @@ proc generateMapAttempt*(
     if sizeName in ["huge", "giant", "colossal"]: mapSizeScale(sizeName)
     else: 1.0
   proc cols(value: int): int = int(round(float(value) * columnScale))
-  let columnsDraw = terrainRng.pickRange(cols(5), cols(7))
+  let columnsDraw = rng.pickRange(cols(5), cols(7))
   let columns =
     if overrides.columns > 0: overrides.columns else: columnsDraw
   let maxColumns = max(24, cols(8))
@@ -1958,13 +1622,13 @@ proc generateMapAttempt*(
   for col in 0 ..< columns:
     let
       colX = xMin + ((2 * col + 1) * (xMax - xMin)) div (2 * columns)
-      family = ColumnFamily(coverRng.pick(4))
-      period = coverRng.pickRange(88, 120)
+      family = ColumnFamily(rng.pick(4))
+      period = rng.pickRange(88, 120)
       ## Phases are STRATIFIED across columns (like the hand-authored arena's
       ## 0/+48/+24/+72 ladder) with a half-period jitter: fully random phases
       ## leave rows every column misses, which the sightline validator rejects.
       phase = (period * col div columns +
-        coverRng.pick(max(1, period div 2))) mod period
+        rng.pick(max(1, period div 2))) mod period
       ## THE hex change: each column's usable span is the hexagon's own
       ## vertical extent at that x, not a board-wide constant.
       band = result.columnBand(colX, ArenaBorder + 30)
@@ -1982,21 +1646,21 @@ proc generateMapAttempt*(
     var cleared = newSeq[bool](slotYs.len)
     var clearedCount = 0
     for i in 0 ..< slotYs.len:
-      if coverRng.pick(4) == 0:
+      if rng.pick(4) == 0:
         cleared[i] = true
         inc clearedCount
     if clearedCount == 0:
-      cleared[coverRng.pick(slotYs.len)] = true
+      cleared[rng.pick(slotYs.len)] = true
       clearedCount = 1
     let minKept = (slotYs.len + 1) div 2
     while slotYs.len - clearedCount < minKept and clearedCount > 1:
-      var idx = coverRng.pick(slotYs.len)
+      var idx = rng.pick(slotYs.len)
       while not cleared[idx]:
         idx = (idx + 1) mod slotYs.len
       cleared[idx] = false
       dec clearedCount
 
-    var zig = coverRng.coin()
+    var zig = rng.coin()
     for i, sy in slotYs:
       ## The endzone keeps an APRON of clear ground outside its ring: terrain
       ## that crowded the scoring disc would seal the very approaches that make
@@ -2085,7 +1749,7 @@ proc generateMapAttempt*(
     pitPairsWanted = if overrides.pits >= 0: overrides.pits div 2 else: -1
   var obstacleRemoved = newSeq[bool](result.leftObstacles.len)
   if pitPairsWanted >= 0:
-    trenchRng.shuffle(pitCandidates)
+    rng.shuffle(pitCandidates)
   for cand in pitCandidates:
     if pitPairsWanted >= 0:
       if result.trenches.len >= pitPairsWanted:
@@ -2096,7 +1760,7 @@ proc generateMapAttempt*(
         of pitInstead: 17
         of pitGap: 25
         else: 50
-      if trenchRng.pick(100) >= clamp(baseChance * pitDensity div 100, 0, 100):
+      if rng.pick(100) >= clamp(baseChance * pitDensity div 100, 0, 100):
         continue
     let pit = trenchSquareAt(cand.x, cand.y)
     var blocked = oddCenterPit and rectsIntersect(pit, centerPit)
@@ -2160,7 +1824,7 @@ proc generateMapAttempt*(
 
   ## Glass windows: fog sees through them, nothing passes them. Biased to
   ## the outermost column and the midline band, where sightlines matter.
-  let windowsDraw = decorRng.pickRange(2, 4)
+  let windowsDraw = rng.pickRange(2, 4)
   let windowCount =
     if overrides.windows >= 0: overrides.windows else: windowsDraw
   if windowCount > 6:
@@ -2171,8 +1835,8 @@ proc generateMapAttempt*(
       preferred.add entry
     else:
       rest.add entry
-  decorRng.shuffle(preferred)
-  decorRng.shuffle(rest)
+  rng.shuffle(preferred)
+  rng.shuffle(rest)
   let ranked = preferred & rest
   for i in 0 ..< min(windowCount, ranked.len):
     result.leftObstacles[ranked[i].idx].window = true
@@ -2196,8 +1860,8 @@ proc generateMapAttempt*(
   ## on-axis pair was meant to be, while giving the group nothing to fix.
   let
     axisX = result.width div 2 - 1
-    y1 = pickupRng.pickRange(result.height * 16 div 100, result.height * 34 div 100)
-    y2 = pickupRng.pickRange(result.height * 36 div 100, result.height * 47 div 100)
+    y1 = rng.pickRange(result.height * 16 div 100, result.height * 34 div 100)
+    y2 = rng.pickRange(result.height * 36 div 100, result.height * 47 div 100)
   proc kitOrbit(gameMap: CtfMap, seedPoint: MapPoint): seq[MapPoint] =
     ## One kit seed's full orbit, with its SIZE checked. A short orbit means
     ## the seed landed on a symmetry axis and the map would ship with fewer
@@ -2212,7 +1876,7 @@ proc generateMapAttempt*(
     for image in result.kitOrbit(seedPoint):
       result.medKitCandidates.add image
   result.medKitSpawns =
-    if pickupRng.coin():
+    if rng.coin():
       result.kitOrbit(MapPoint(x: axisX, y: y1))
     else:
       result.kitOrbit(MapPoint(x: axisX, y: y2))
@@ -2263,20 +1927,6 @@ proc generateMapAttempt*(
     result.trenches = @[]
     for d in digs:
       result.trenches.add rectShape(d)
-
-  ## SECOND sightline repair, after the pits. `pitInstead` digs a trench
-  ## INSTEAD of raising a column obstacle, so the pit pass DELETES wall — and
-  ## it runs after the first repair, which therefore closed lanes that were
-  ## then re-opened behind its back. On the small class that was 30 of 120
-  ## seeds rejected for an open axis-0 lane the generator had already fixed
-  ## once. Re-running the repair rather than re-ordering the passes keeps the
-  ## column/window/pit draw order — and so every seed's structural map —
-  ## exactly where it was.
-  ##
-  ## Trenches are FINAL by now, and a plug landing on one is harmless: a
-  ## trench is a hole in the floor, not cover, so it never blocked a ray and
-  ## the wall over it reads as ordinary cover.
-  result.plugOpenSightlines(cols(40))
   result.validateMap()
 
 type
@@ -2306,10 +1956,6 @@ type
     ## when their matching MapDiagnosticArtifact is requested.
     reason*: string
     coverPermille*, minCoverPermille*: int
-    coverPermilleFloor*, coverPermilleCeiling*: int
-      ## The band THIS hull was judged against. The floor is class-dependent
-      ## (`coverPermilleMin`), so a caller that restated the consts would
-      ## report the wrong bound on every class but `standard`.
     openSightlineRows*: seq[int]
       ## Every open row in the validator's historical 4px scan, not every
       ## physical map row.
@@ -2367,27 +2013,6 @@ proc collectMapDiagnostics(
       ## outside the hexagon is excluded by the same predicate that walls it,
       ## so the budget is measured against the PLAYFIELD (75% of the bounding
       ## box), never against the box.
-      ##
-      ## MEASURE AND BOUND MUST AGREE ON WHAT "INTERIOR" IS. The pre-hex band
-      ## was measured over a layout-cased interior that cut an x-band off both
-      ## ends (`captureClear` inward), which is where the map is emptiest — so
-      ## the same map read HIGHER then than it does now. The hex definition
-      ## here is hull-minus-protected for every layout, and `CoverPermilleMin`
-      ## / `CoverPermilleMax` are derived against exactly this denominator.
-      ##
-      ## NOT the BUILDABLE area, deliberately. More ground than the protected
-      ## floor is off limits to the generator — the endzone aprons and the
-      ## flag-ring keep-out are field no pass will build on, and they are
-      ## 22% of a small hull's interior against 3% of a colossal one
-      ## (`hex_cover_probe geom` prints both). Measuring cover over the
-      ## buildable area would be the right question to ask a GENERATOR, and
-      ## the wrong one to ask a MAP: a player walking the apron is walking
-      ## open ground, and that open ground genuinely dilutes the density the
-      ## cover ceiling is about. What matters is that the band was derived
-      ## over this denominator too — the skeleton in `CoverSkeletonPermille`
-      ## is measured on the same hull with the same aprons in place — so the
-      ## class-dependence that survives in the floor is lane geometry and not
-      ## a denominator artifact.
       let interior =
         not gameMap.mapBorderWallAt(x, y) and
           not mapProtectedFloorAt(gameMap, x, y)
@@ -2406,32 +2031,26 @@ proc collectMapDiagnostics(
     minPermille = minCoverPixels * 1000 div max(1, interiorPixels)
   result.coverPermille = permille
   result.minCoverPermille = minPermille
-  result.coverPermilleFloor = gameMap.coverPermilleMin()
-  result.coverPermilleCeiling = CoverPermilleMax
-  if minPermille < result.coverPermilleFloor:
-    recordFailure("too open: " & $minPermille & " permille cover (floor " &
-      $result.coverPermilleFloor & ")")
-  if permille > result.coverPermilleCeiling:
-    recordFailure("too clogged: " & $permille & " permille cover (ceiling " &
-      $result.coverPermilleCeiling & ")")
+  if minPermille < CoverPermilleMin:
+    recordFailure("too open: " & $minPermille & " permille cover")
+  if permille > CoverPermilleMax:
+    recordFailure("too clogged: " & $permille & " permille cover")
 
   ## With map-wide guns no straight ray may survive a full lane down ANY of
-  ## the hexagon's six chord families. On the rectangle only the horizontal
-  ## family mattered, because the other two board edges were the top and bottom
-  ## walls; a hexagon has three pairs of opposite EDGES and three pairs of
-  ## opposite VERTICES, and a lane down any of the six is the same cross-field
-  ## snipe. The longest of them on a landscape hull is the horizontal one, red
-  ## base to blue base. `sightlineMinSpan` is what keeps the short chords near
-  ## the corners from failing every map ever drawn.
+  ## the hexagon's three axes. On the rectangle only the horizontal family
+  ## mattered, because the other two board edges were the top and bottom
+  ## walls; a hexagon has three pairs of opposite edges and a lane down any of
+  ## them is the same cross-field snipe. `sightlineMinSpan` is what keeps the
+  ## short chords near the two vertices from failing every map ever drawn.
   block sightlines:
-    for axis in 0 ..< SightlineAxisCount:
+    for axis in 0 .. 2:
       for intercept in gameMap.sightlineIntercepts(axis):
         if gameMap.sightlineOpenRun(minWall, axis, intercept).open:
           if axis == 0:
             result.openSightlineRows.add intercept
           if result.reason.len == 0:
-            result.reason = "open sightline on axis " &
-              $SightlineAxisDeg[axis] & " deg at intercept " & $intercept
+            result.reason = "open sightline on axis " & $(60 * axis) &
+              " deg at intercept " & $intercept
           if stopAfterFirstFailure:
             return
   if diagnosticWallMasks in artifacts:
@@ -2597,88 +2216,18 @@ proc validateGeneratedMap*(gameMap: CtfMap): string =
   ## not in the draws: anything that passes is fair game.
   collectMapDiagnostics(gameMap, {}, stopAfterFirstFailure = true).reason
 
-type
-  MapCandidateRanker* = proc (candidates: openArray[CtfMap]): int
-    {.nimcall, gcsafe.}
-    ## Picks the index of the best map among K VALID candidates.
-
-var mapCandidateRanker: MapCandidateRanker = nil
-  ## THE INVERTED DEPENDENCY, and why it is a hook rather than an import.
-  ##
-  ## The scorer (`ctf/map_score`, over `ctf/map_metrics`) reads this
-  ## module's rasterizer and validators, so `arena` importing it back would
-  ## cycle. Rather than move the generator or duplicate the metrics, the
-  ## generator advertises a seam and the scoring layer fills it in at module
-  ## initialization. `sim.nim` imports `map_score`, so every binary that
-  ## builds a game ranks; the wasm replay viewer, which only ever replays a
-  ## pinned `mapSpec`, never imports it and pays neither the code size nor
-  ## the milliseconds.
-  ##
-  ## Set once, before any thread exists, and read-only afterwards — and
-  ## `{.nimcall.}` keeps it a bare function pointer rather than a closure,
-  ## so it holds no GC'd environment. With no ranker installed the generator
-  ## degrades to the historical first-valid behaviour instead of failing.
-
-proc installMapCandidateRanker*(ranker: MapCandidateRanker) =
-  ## Installs the best-of-K ranker. Called once, at module init, by
-  ## `ctf/map_score`.
-  mapCandidateRanker = ranker
-
 proc generateCtfMap*(
   seed: int,
   overrides = MapGenOverrides(windows: -1, pits: -1, pitDensity: -1),
   teams = 2
 ): CtfMap =
-  ## Generates a VALIDATED map: BEST OF K, not first-valid.
-  ##
-  ## The old loop returned the first candidate that passed, which is a
-  ## uniformly random valid map — the 50th percentile of the generator's own
-  ## quality range, because at a 80-96% first-attempt pass rate the
-  ## validators are a crash guard, not a quality filter. Collecting K valid
-  ## candidates and shipping the best lifts that to the K/(K+1) percentile:
-  ## K=8 is the 89th, K=32 the 97th, for K/passRate attempts.
-  ##
-  ## Every candidate is the SAME BOARD (see `generateMapAttempt`): same size
-  ## class, same symmetry, same pedestals. Only the terrain is redrawn, so
-  ## the ranker is choosing between layouts of one map rather than between
-  ## map sizes — which is both the honest comparison and the only one that
-  ## leaves the pool's size-class quota fillable.
-  ##
-  ## K=1 restores first-valid exactly, and so does a build with no ranker
-  ## installed. A locked-parameter combination that can never pass still
-  ## errors out after MapGenMaxAttempts.
-  if overrides.rankK < 0 or overrides.rankK > MapRankMaxK:
-    raise newException(
-      CtfError, "Config field mapRankK must be 0.." & $MapRankMaxK & ".")
-  let rankK =
-    if overrides.rankK > 0: overrides.rankK
-    elif mapCandidateRanker == nil: 1
-    else: MapRankDefaultK
-  ## ONE budget for both jobs — finding a valid map and collecting K of
-  ## them. It is deliberately not scaled by K: a layout whose terrain rarely
-  ## validates should ship best-of-however-many-it-found rather than spend
-  ## proportionally longer chasing the quota, and 100 attempts at the
-  ## measured ~77% mean pass rate reaches even MapRankMaxK comfortably. The
-  ## degradation is graceful and observable — `tools/map_rank_probe.nim`
-  ## reports candidates per map beside K.
-  var candidates: seq[CtfMap]
+  ## Generates a VALIDATED map: attempts seeds seed, seed+1, ... until one
+  ## passes every validator. A locked-parameter combination that can never
+  ## pass errors out after MapGenMaxAttempts.
   for attempt in 0 ..< MapGenMaxAttempts:
-    let candidate = generateMapAttempt(seed, overrides, teams, attempt)
-    if validateGeneratedMap(candidate).len != 0:
-      continue
-    if rankK <= 1 or mapCandidateRanker == nil:
+    let candidate = generateMapAttempt(seed + attempt, overrides, teams)
+    if validateGeneratedMap(candidate).len == 0:
       return candidate
-    candidates.add candidate
-    if candidates.len >= rankK:
-      break
-  if candidates.len > 0:
-    ## The seed the CALLER asked for, not the attempt that happened to win.
-    ## `gen:<seed>` has to round-trip, and the pool stores seeds.
-    result = candidates[clamp(mapCandidateRanker(candidates), 0,
-      candidates.high)]
-    result.genSeed = seed
-    result.name = "gen-" & $seed
-    return
   raise newException(
     CtfError,
     "Map generation found no valid layout in " & $MapGenMaxAttempts &
@@ -2838,7 +2387,7 @@ proc arenaHexCtfMap*(name: string, cls: HexSizeClass): CtfMap =
   result.rooms = result.defaultCtfRooms()
   result.validateMap()
 
-proc arenaCtfMap*(): CtfMap =
+proc arenaCtfMap(): CtfMap =
   ## The default arena: the hand-tuned STANDARD hexagon, 969x1119.
   arenaHexCtfMap(ArenaName, hxStandard)
 

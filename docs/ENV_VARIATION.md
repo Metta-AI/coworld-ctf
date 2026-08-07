@@ -60,30 +60,13 @@ Definition [sim_types.nim:796](../src/ctf/sim_types.nim#L796). Zero/`-1`/`""` va
 | `endzone` | string / `""` | `mapEndzone` | `disc` ONLY — the hex arena is all-disc; `column` and `square` are DELETED | Home capture-region shape. |
 | `endzoneRadius` | int / `0` | `mapEndzoneRadius` | `minEndzoneRadius(width)..maxEndzoneRadius(width)`; both scale with the board (the flat 90 floor sat ABOVE what the small hex class draws); 0 = draw 8.9%–11.3% of width | Endzone scoring radius. |
 | `baseDepth` | int / `0` | `mapBaseDepth` | `400..800` permille (gen); 0 = draw 600–700. Deeper than the old 520–620 draw: the hex board is 22% narrower at equal playfield area, and a shallower base puts its protected apron INTO the flag ring, leaving the row through both bases a permanently open lane | Home anchor depth. |
-| `rankK` | int / `0` | `mapRankK` | `0..64`; 0 = `MapRankDefaultK` (8), 1 = the historical first-valid map. NOT a lock like the rows above — it does not replace a draw, it buys a better one: `generateCtfMap` collects K VALID candidates of the SAME board and ships the highest static scorer, so E[max of K] = the K/(K+1) percentile of the generator's own quality range | Best-of-K ranking depth. |
-
-**`mapRankK` costs wall clock at map resolution**, which nothing else in this
-table does. Measured on this machine (300 seeds, release): K=1 is 376 ms per
-map and K=8 is 3.4 s, i.e. ~10 validated draws plus 8 scorings. That is paid
-once when a game resolves its map, never per tick, and never on replay
-playback (which reads the pinned `mapSpec`). Raise it for OFFLINE curation
-(`tools/gen_map_pool.nim` deliberately does not — the pool must be curated at
-the K the runtime ships, or its seeds name a different map than they were
-picked for); lower it to 1 to reproduce a pre-ranking map.
 
 Generator internals (all `arena.nim`, config-gated, no GameVersion bump; change in code):
-`MapGenMaxAttempts`=100 (the attempt budget, now shared by re-rolls AND the
-best-of-K collection), `MapRankDefaultK`=8, `MapRankMaxK`=64,
-`MinCorridorWidth`=26,
-cover-density band `coverPermilleMin(map)`..`CoverPermilleMax`=266 — the floor is
-class-dependent, `CoverPermilleMin`=44 on the standard class scaled as `1/L`
-(51 small … 8 colossal), because the wall that interrupts a hull's chords is a
-curtain whose length scales with the board while the obstacle vocabulary does
-not; the ceiling is scale-free because `GunRange` never scales,
+`MapGenMaxAttempts`=100 (re-rolls until validators pass), `MinCorridorWidth`=26,
+cover-density band `CoverPermilleMin`=40..`CoverPermilleMax`=170,
 `ColumnFamily` per column = one of `colStubs`/`colDiamonds`/`colDiscs`/`colChevrons`
 (`colDiamonds` now emits a hexagon — the diamond was a C4 shape), the sightline rule
-is `sightlineMinSpan` = 80% of the board's SHORT axis on all SIX hex chord
-families (three edge-to-edge, three vertex-to-vertex),
+is `sightlineMinSpan` = 80% of board width on each of the THREE hex axes,
 pit-candidate kinds `pitInstead`/`pitGap`/`pitEndzone`, curated `MapPoolSeeds` = 20 seeds.
 
 ### Hand-authored arenas (fixed geometry, selected by `mapPath`)
