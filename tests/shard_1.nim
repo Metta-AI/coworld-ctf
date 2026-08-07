@@ -14,6 +14,7 @@ import
   test_identity_privacy,
   test_input_buffer,
   test_lobby_join_timeout,
+  test_decoder_contract,
   test_manifest_schema,
   test_map_editor,
   test_map_editor_core,

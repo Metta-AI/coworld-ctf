@@ -16,6 +16,13 @@ name: build-decoder
 #
 # Release tag: decoder-gv<GameVersion>-<shortsha>. Pin consumers via
 # cogames/ctf/team/bin/fetch-decoder.sh in daveey/cogamer.
+#
+# dump_map_mask's OUTPUT SCHEMA is versioned separately from GameVersion, as
+# --geom's "formatVersion" -- GameVersion moves for unrelated reasons and did
+# not move when the board became a hexagon. Before cutting a release, read
+# docs/DECODER_CONTRACT.md: it carries the version table, what a stale consumer
+# gets wrong, and the notify step. tests/test_decoder_contract.nim holds the
+# schema to it.
 on:
   workflow_dispatch:
     inputs:

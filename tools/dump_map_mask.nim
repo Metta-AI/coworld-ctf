@@ -31,8 +31,38 @@
 ## Demo/audit tooling; not part of the server.
 import std/[json, os, strutils], pixie, ../src/ctf/sim
 
-const UsageText =
-  "Usage: dump_map_mask <out.png> [mapName] [--raw <path>] [--geom <path>]"
+const
+  UsageText =
+    "Usage: dump_map_mask <out.png> [mapName] [--raw <path>] [--geom <path>]"
+
+  DecoderFormatVersion* = 2
+    ## The EXPORT SCHEMA's version, independent of `GameVersion`.
+    ##
+    ## This tool is an external contract: `build-decoder.yml` publishes it as
+    ## `decoder-gv<N>-<sha>` and `cogames/ctf/team/bin/fetch-decoder.sh` in
+    ## daveey/cogamer pins a build. Consumers therefore parse output from a
+    ## binary they chose, not the one in this tree, and they need a way to tell
+    ## a SCHEMA change from a rules change. `GameVersion` cannot serve: it moves
+    ## for unrelated reasons, and — the case that motivated this — it did NOT
+    ## move when the board became a hexagon and the C4-era capture-zone keys
+    ## were deleted.
+    ##
+    ##   1 — the rectangular era: `boardShape` absent (read it as "rect"), and
+    ##       capture zones could carry `diag` / `cornerX` / `cornerY` /
+    ##       `diagLimit` for the corner layouts.
+    ##   2 — the hexagon. Those four keys are GONE (no hex zone can produce the
+    ##       shape they described); `boardShape`, `hullOrientation`,
+    ##       `hullVertices`, `circumradius` and `apothem` are added; every
+    ##       capture zone is a disc. `--raw` keeps its byte classes and its
+    ##       length (still `width * height`, row-major, the full BOUNDING BOX)
+    ##       — but roughly 28% of those bytes are now hull VOID reported as
+    ##       stone (1), so any statistic taken over the whole array, an open
+    ##       fraction above all, has a different denominator than it did at
+    ##       version 1.
+    ##
+    ## Bump on any key removed, renamed, or given a new meaning. Adding a key
+    ## is additive and does not need one. `tests/test_decoder_contract.nim`
+    ## pins what this version promises.
 
 proc parseArgs(): tuple[pngPath, mapName, rawPath, geomPath: string] =
   ## Splits the positional out.png / mapName from the optional side exports.
@@ -107,6 +137,12 @@ proc geometryJson*(gameMap: CtfMap): JsonNode =
   ## Everything here reads off CtfMap or a pure accessor, so no SimServer is
   ## built and generated maps export exactly like hand-authored ones.
   result = newJObject()
+  ## VERSION THE FORMAT, not just the game. `gameVersion` moves for reasons
+  ## that have nothing to do with this schema (an aim change bumps it), and it
+  ## did NOT move when the C4-era zone keys were deleted — so a pinned consumer
+  ## had no way to ask "did the thing I parse change shape?". `formatVersion`
+  ## answers exactly that and nothing else.
+  result["formatVersion"] = %DecoderFormatVersion
   result["gameVersion"] = %GameVersion
   result["name"] = %gameMap.name
   result["path"] = %gameMap.path
@@ -114,12 +150,31 @@ proc geometryJson*(gameMap: CtfMap): JsonNode =
   result["height"] = %gameMap.height
   result["center"] = point(gameMap.center)
   result["border"] = %ArenaBorder
-  ## The playfield is the regular HEXAGON inscribed in width x height (pointy
-  ## top), not the box: `border` is the wall ring measured from the hexagon's
-  ## EDGE, and the six corners of the box outside the hull are permanent
-  ## stone. Additive key, so an existing consumer keeps parsing — but one that
-  ## assumed a rectangular arena is now wrong, and this is what says so.
+  ## The playfield is the regular HEXAGON inscribed in width x height, not the
+  ## box: `border` is the wall ring measured from the hexagon's EDGE, and the
+  ## six corners of the box outside the hull are permanent stone. Additive
+  ## keys, so an existing consumer keeps parsing — but one that assumed a
+  ## rectangular arena is now wrong, and this is what says so.
   result["boardShape"] = %"hexagon"
+  ## FLAT-TOP, and saying so is not decoration: this key read "pointy top"
+  ## while `HexBoard` has always built the other one, and a consumer that
+  ## believed it would reconstruct a hull rotated 30 degrees — every
+  ## off-board test wrong, in a way that looks like a plausible map.
+  ## The six vertices are given outright so nobody has to re-derive them from
+  ## an adjective: on a flat-top hexagon inscribed in the box they are the two
+  ## side midpoints and the four ends of the top and bottom edges.
+  result["hullOrientation"] = %"flat-top"
+  let
+    board = gameMap.mapBoard()
+    x1 = gameMap.width - 1
+    y1 = gameMap.height - 1
+  var hull = newJArray()
+  for (vx, vy) in [(0, y1 div 2), (x1 div 4, 0), (3 * x1 div 4, 0),
+                   (x1, y1 div 2), (3 * x1 div 4, y1), (x1 div 4, y1)]:
+    hull.add(point(vx, vy))
+  result["hullVertices"] = hull
+  result["circumradius"] = %board.circumradius()
+  result["apothem"] = %board.apothem()
   result["symmetry"] = %($gameMap.symmetry)
   result["layout"] = %($gameMap.layout)
   result["genSeed"] = %gameMap.genSeed
