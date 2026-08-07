@@ -282,15 +282,32 @@ const
 
 proc fpMapWallsJson*(sim: SimServer): JsonNode =
   ## Static wall silhouette for the EYES minimap, sent ONCE per viewer. A coarse
-  ## row-major grid downsampled from the real wall mask, three states —
-  ## 0 = floor, 1 = stone (opaque), 2 = glass (see-through window) — run-length
-  ## encoded as a flat [state, count, state, count, …] array. The minimap is a
-  ## deliberately un-fogged spectator aid, so terrain is full knowledge.
+  ## row-major grid downsampled from the real wall mask, four states —
+  ## 0 = floor, 1 = stone (opaque), 2 = glass (see-through window),
+  ## 3 = VOID (outside the hull) — run-length encoded as a flat
+  ## [state, count, state, count, …] array. The minimap is a deliberately
+  ## un-fogged spectator aid, so terrain is full knowledge.
+  ##
+  ## The void state exists because `isWall` is TRUE outside the hexagon: the
+  ## corners of the bounding box are permanent wall in both collision layers,
+  ## exactly as the boundary rule says. Reported as stone they baked the inset
+  ## as a full rectangle of terrain with the playfield cut out of it, which
+  ## reads as a rectangular arena with solid corner blocks and hides the shape
+  ## change entirely. The viewer paints state 3 as nothing at all, so the
+  ## inset's silhouette IS the hull — the same answer `ArenaVoidNote`
+  ## (map_art.nim) reached for the board bake.
+  ##
+  ## A rectangular board has no void: `hexEdgeDist` is the rectangle's own
+  ## inset distance there, every sampled cell is inside, and state 3 is simply
+  ## never emitted. Older viewers that only know three states are unaffected on
+  ## those boards, and on a hex fall back to their `pal[0]` (floor) default
+  ## rather than mis-indexing.
   let
     gw = (MapWidth + FpMapCell - 1) div FpMapCell
     gh = (MapHeight + FpMapCell - 1) div FpMapCell
     mcx = sim.gameMap.center.x
     mcy = sim.gameMap.center.y
+    board = sim.gameMap.mapBoard()
   var
     rle = newJArray()
     runState = -1
@@ -301,7 +318,9 @@ proc fpMapWallsJson*(sim: SimServer): JsonNode =
         sx = min(gx * FpMapCell + FpMapCell div 2, MapWidth - 1)
         sy = min(gy * FpMapCell + FpMapCell div 2, MapHeight - 1)
       var st = 0
-      if sim.isWall(sx, sy):
+      if not board.insideHex(sx, sy):
+        st = 3
+      elif sim.isWall(sx, sy):
         st = if isArenaWindowPixel(sx, sy, mcx, mcy): 2 else: 1
       if st == runState:
         inc runLen

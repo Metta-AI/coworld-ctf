@@ -274,29 +274,67 @@ suite "first-person picture-in-picture":
     check here["coneDeg"].getInt() == game.config.visionConeDeg
     check here["bubble"].getInt() == game.config.visionBubble
 
-  test "static minimap wall silhouette encodes floor/stone/glass":
+  test "static minimap wall silhouette encodes floor/stone/glass/void":
     var game = initCtfForTest(defaultGameConfig())
     discard game.addPlayer("red0")
     game.startGame()
     let walls = game.fpMapWallsJson()
     check walls["w"].getInt() == MapWidth
     check walls["h"].getInt() == MapHeight
-    # RLE is a flat [state, count, …] list; states are 0/1/2 and reconstruct to
-    # exactly gw*gh cells.
+    # RLE is a flat [state, count, …] list; states are 0/1/2/3 and reconstruct
+    # to exactly gw*gh cells.
     let
       gw = walls["gw"].getInt()
       gh = walls["gh"].getInt()
+      cell = walls["cell"].getInt()
       rle = walls["rle"]
     check rle.len mod 2 == 0
-    var total = 0
-    var sawStone = false
+    var
+      total = 0
+      sawStone = false
+      sawVoid = false
+      grid = newSeq[int](gw * gh)
     for k in countup(0, rle.len - 2, 2):
-      let st = rle[k].getInt()
-      check st in 0 .. 2
+      let
+        st = rle[k].getInt()
+        run = rle[k + 1].getInt()
+      check st in 0 .. 3
       if st == 1: sawStone = true
-      total += rle[k + 1].getInt()
+      if st == 3: sawVoid = true
+      for r in 0 ..< run:
+        if total + r < grid.len:
+          grid[total + r] = st
+      total += run
     check total == gw * gh
     check sawStone                              # the arena has stone walls
+    check sawVoid                               # ...and a hexagonal hull
+
+    # THE invariant the void state exists for: state 3 is EXACTLY the cells
+    # whose sampled pixel lies outside the hull, no more and no less. `isWall`
+    # is true out there — the corners of the bounding box are permanent wall in
+    # both collision layers — so without a void state the corners report as
+    # STONE, and the inset bakes a full rectangle of terrain with the playfield
+    # punched out of it. That is the shape change made invisible.
+    let board = game.gameMap.mapBoard()
+    var
+      voidCells = 0
+      mismatched = 0
+    for gy in 0 ..< gh:
+      for gx in 0 ..< gw:
+        let
+          sx = min(gx * cell + cell div 2, MapWidth - 1)
+          sy = min(gy * cell + cell div 2, MapHeight - 1)
+          outside = not board.insideHex(sx, sy)
+        if outside: inc voidCells
+        if outside != (grid[gy * gw + gx] == 3):
+          inc mismatched
+    check mismatched == 0
+    # A hexagon inscribed in its bounding box leaves a quarter of it outside
+    # (four corner triangles). Pinning the count between an eighth and a half
+    # stops the check above passing vacuously if the hull ever collapses to the
+    # full rectangle (no void at all) or to nothing.
+    check voidCells > (gw * gh) div 8
+    check voidCells < (gw * gh) div 2
 
   test "self.paintTick advances on a PAINT hit — gun AND spray can":
     # The EYES-PiP visor splat keys off self.paintTick. EVERY weapon in this game
