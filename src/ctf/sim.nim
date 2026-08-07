@@ -2553,6 +2553,29 @@ proc applyDiamondGeometry*(sim: var SimServer, tick: int): bool
     for i in 0 ..< sim.fovCaches.len:
       sim.fovCaches[i].valid = false
 
+proc restampDiamondGeometry*(sim: var SimServer) =
+  ## Rewrites every spinning diamond's footprint into the collision and
+  ## vision masks at the frame the patches already hold. Exists for keyframe
+  ## restores (deserializeReplaySim): the walk/wall/fov masks arrive from a
+  ## donor sim whose stamps are at the DONOR tick's spin frame, while the
+  ## restored diamondPatches carry the keyframe tick's frames — and
+  ## applyDiamondGeometry skips a diamond whose frame "has not changed", so
+  ## the donor's stale stone would otherwise survive any seek whose target
+  ## sits inside the restored keyframe's spin frame — fewer than
+  ## DiamondSpinTicksPerFrame ticks stepped after the restore, so no stepped
+  ## tick advances the spin and nothing restamps. Each stamp writes base OR
+  ## stone over the whole window, so this cleans any foreign footprint the
+  ## donor left behind.
+  ##
+  ## fovCaches are deliberately NOT invalidated: on the keyframe path the
+  ## restored caches were recorded against the very masks this restamp
+  ## reproduces, so they are valid by construction. A future caller whose
+  ## caches were built against OTHER masks must invalidate them itself.
+  for index in 0 ..< sim.diamondPatches.len:
+    if sim.diamondPatches[index].frame < 0:
+      continue                          # nothing stamped yet.
+    sim.stampDiamondPatch(index, sim.diamondPatches[index].frame)
+
 proc nearestFreeBody(
   sim: SimServer, playerIndex, x, y: int
 ): tuple[x, y: int, found: bool] =
