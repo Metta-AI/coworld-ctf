@@ -59,7 +59,11 @@ suite "grenades":
     check game.grenadeSpawns[1].present
 
   test "charge picks the distance and max is a fifth of the field":
-    check GrenadeMaxRange == MapWidth div 5
+    ## The SHORT axis. This pinned `MapWidth` — the value selectCtfMap actually
+    ## installed — rather than the `MapHeight` its own declaration promises, so
+    ## the test held the bug green instead of catching it. Assert the intent.
+    check GrenadeMaxRange == MapHeight div 5
+    check ShoutRange == MapHeight div 5
     var game = twoTeamGame()
     game.players[0].x = 300
     game.players[0].y = 300

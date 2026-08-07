@@ -112,11 +112,17 @@ jobs:
         # uint32 length prefix in bitworld's replay strings (a wire change).
         # Until then this canary does not run, and wasm32's 2GB ceiling is
         # untested at the top size class.
+        #
+        # THE FIXTURE IS OMITTED FROM THE LOOP BELOW, not merely described as
+        # not running. It was still listed, so the whole step exited 1 on every
+        # PR — which made a GENUINE regression in either of the two fixtures
+        # that DO work indistinguishable from the known failure. A canary that
+        # is always red is a canary nobody reads. Add it back to the loop in
+        # the same commit that fixes the blocker.
         run: |
           fail=0
           for replay in tests/replays/ctf.bitreplay \
-              tests/fixtures/gen-small-pits.bitreplay \
-              tests/fixtures/gen-colossal-4team.bitreplay; do
+              tests/fixtures/gen-small-pits.bitreplay; do
             echo "::group::$replay"
             node tools/wasm_replay_smoke.cjs replay-viewer/dist "$replay" 300 || fail=1
             echo "::endgroup::"

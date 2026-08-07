@@ -851,7 +851,14 @@
   function showLoadFailure(){
     if(lastState) return; // frames arrived after all — nothing to escalate
     var el=$('status'); el.classList.add('show','err');
-    var direct=(ROUTE_BASE||'')+'/client/replay'+location.search;
+    // Must branch on STATIC_BUNDLE exactly like the iframe src above: in the
+    // static bundle ROUTE_BASE's regex (/\/client\/[^/]*$/) cannot match, so
+    // it retains the whole pathname INCLUDING the filename and this link 404s.
+    // This is the escape hatch handed to a user whose replay already failed —
+    // it is the one link that must not be dead.
+    var direct = STATIC_BUNDLE
+      ? './index.html?replay=' + encodeURIComponent(staticReplayUri)
+      : (ROUTE_BASE||'') + '/client/replay' + location.search;
     el.innerHTML='';
     var head=document.createElement('div'); head.textContent='Replay didn’t load';
     var sub=document.createElement('span'); sub.className='st-sub';

@@ -7,6 +7,12 @@ import
   jsony,
   sim_types, arena
 
+const
+  MapSpecMaxBytes* = 65535
+    ## The replay format length-prefixes a string with a uint16, so this is a
+    ## hard wire ceiling, not a tuning knob. Lives here because `mapSpec` is
+    ## pinned here and this is the first place the size is knowable.
+
 proc defaultGameConfig*(): GameConfig =
   ## Returns the default CTF gameplay config.
   GameConfig(
@@ -452,6 +458,25 @@ proc update*(config: var GameConfig, jsonText: string) =
   let mapMeta = resolveCtfMapMetadata(config)
   if config.mapSpec.len == 0 and mapMeta.path == GenMapName:
     config.mapSpec = mapSpecJson(mapMeta)
+    ## The replay format length-prefixes every string with a UINT16, so a spec
+    ## over 65535 bytes cannot be recorded at all. Obstacle SIZES do not scale
+    ## with the board but the hull area grows as L^2, so the shape count — and
+    ## the spec with it — grows quadratically: small 2879 bytes, standard 3499,
+    ## large 4178, huge 10015, giant 16875, colossal 68217. Only the top class
+    ## is over, and it is over before a single seat is added.
+    ##
+    ## Caught HERE, at config resolve, rather than at the writer: the writer
+    ## raises a bare `ReplayError: Replay string is too long` from inside
+    ## `openReplayWriter`, outside any try, AFTER the full map-generation cost
+    ## — a stack trace that names neither the field, nor the byte count, nor
+    ## the size class that caused it.
+    if config.mapSpec.len > MapSpecMaxBytes:
+      raise newException(CtfError,
+        "Map spec is " & $config.mapSpec.len & " bytes, over the replay " &
+        "format's " & $MapSpecMaxBytes & "-byte ceiling (uint16 string " &
+        "length). This board is " & $mapMeta.width & "x" & $mapMeta.height &
+        " with " & $mapMeta.leftObstacles.len & " seed obstacles and cannot " &
+        "be recorded. Pick a smaller mapSize.")
   if not node.hasKey("gunRange"):
     config.gunRange = mapMeta.gunRange
   node.readConfigSlots(config.slots)

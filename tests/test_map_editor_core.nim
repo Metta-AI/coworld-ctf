@@ -221,7 +221,27 @@ suite "map editor core":
         reasons.incl fields[3].split(" at ")[0]
     check passes + failures == BaselineSeeds.len
     check passes > 0
-    check failures > 0
+    ## NOT `check failures > 0`. The 200-seed sweep currently rejects exactly
+    ## ONE seed (1189, "too clogged: 280 permille cover"), so that assertion
+    ## was a guard hanging on a single draw: the day the generator improves
+    ## enough for 1189 to pass, a BETTER generator turns this test RED. That is
+    ## the "tests that ratchet backwards" trap this repo has paid for three
+    ## times — a test asserting the generator stays bad.
+    ##
+    ## The real intent is "the validator can still say no, and the baseline can
+    ## still show it". Assert that against a map that is invalid BY
+    ## CONSTRUCTION and can never become valid: pushing the base against the
+    ## hull puts its behind-gate off the board. Improvement can never turn this
+    ## one green, so it is a negative control rather than a ratchet.
+    let sealed = generateMapAttempt(4242, MapGenOverrides(
+      windows: -1, pits: -1, pitDensity: -1, size: "standard",
+      endzone: "disc", endzoneRadius: 97, baseDepth: HomeDepthMax))
+    check validateGeneratedMap(sealed) == "endzone gate behind is off the map"
+    ## The sweep's own rejection count is REPORTED, not gated, so a drift from
+    ## 1 is visible in the log without being able to fail the build. `echo`,
+    ## not `checkpoint` — unittest only prints a checkpoint on failure.
+    echo "  [baseline] ", passes, " pass / ", failures,
+      " reject over ", BaselineSeeds.len, " seeds"
     check sizes.len >= 3
     check symmetries == ["symMirrorHex", "symRot180"].toHashSet()
     check reasons.len > 0
