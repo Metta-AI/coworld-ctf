@@ -19,11 +19,26 @@ const PoolRenderHashes = [
   ## archetypes present (blocks 5, three-lane 5, field 4, warren 3, hub 2,
   ## ring 1), symmetry visibly exact on all 20, no degenerate board. A hash
   ## nobody has looked at makes a bad map the baseline for everyone after.
+  ##
+  ## 2026-08-07, centre spinners: EXACTLY TEN moved, and WHICH ten is the
+  ## claim being checked rather than a count. The spinner radius now comes
+  ## from `map_rules.coverSizePx`, which is 56 at `standard` BY CONSTRUCTION,
+  ## so a standard board is unmoved to the pixel and only the other classes
+  ## may change. `tools/pool_class_probe.nim` says this pool is ten `standard`
+  ## (indices 0,1,2,3,7,9,10,12,13,16) and ten `small` (4,5,6,8,11,14,15,17,
+  ## 18,19) — and the ten hashes that moved are the ten `small` ones, every
+  ## `standard` hash below byte-identical. That is the intended blast radius
+  ## EXHIBITED rather than asserted. The ten new renders were looked at:
+  ## mirror symmetry exact on all ten, none degenerate, archetypes still
+  ## legible (field at 1006/1041, a room lattice at 1007/1016, lane bands at
+  ## 1005/1009/1012/1015), and the axis colonnade still there — smaller, as
+  ## intended, but present, which is what the spinning-diamond footprint test
+  ## needs.
   0x254b59b6'u32, 0x3439bd90'u32, 0x087a84d5'u32, 0xc615f7f9'u32,
-  0x01fd2cc7'u32, 0x86673849'u32, 0xd4eedbe0'u32, 0xac1b2e34'u32,
-  0xcab0a916'u32, 0x2c389334'u32, 0x178218cb'u32, 0xb38ec8dd'u32,
-  0xe1408202'u32, 0x837295a5'u32, 0xf1cab922'u32, 0x703f4aec'u32,
-  0x66a67465'u32, 0x30d4387b'u32, 0x3fdb8e76'u32, 0x1ba77a58'u32
+  0x94b4b37c'u32, 0x92851ac7'u32, 0x21b1f5fe'u32, 0xac1b2e34'u32,
+  0x7b5fa304'u32, 0x2c389334'u32, 0x178218cb'u32, 0x8af8d960'u32,
+  0xe1408202'u32, 0x837295a5'u32, 0x4bf99631'u32, 0x999da82d'u32,
+  0x66a67465'u32, 0xd5b7cdbc'u32, 0xf6989e1f'u32, 0x779191bc'u32
 ]
 
 proc poolMap(index: int): CtfMap =
