@@ -119,3 +119,32 @@ suite "band re-weight: Nim and the offline analysis agree":
     # pointless and this test says so before the doc goes stale.
     check ControlSeparationBands.len == 2
     check DefaultBands.len == 21
+
+  test "the DECISIVE pair separates: arena vs s1011a0":
+    # s1011a0 is the generated map that tied the hand-authored control at
+    # staticScore 1.0000 under DefaultBands while recording ZERO steals across
+    # five full episodes, against the arena's eight. It is the single case this
+    # whole re-weight exists to fix, so it is pinned here rather than left in a
+    # doc that cannot fail.
+    #
+    # Values are s1011a0's own, read out of
+    # docs/evidence/staticscore-play-rows-full.json.
+    var m = control
+    m.exposedFrac = 0.0879          # arena 0.0384 -- 2.3x apart
+    m.routeCapacityFrac = 0.1600    # arena 0.3200 -- 2.0x apart
+
+    # THE SATURATION, made concrete. Both metrics differ from the control by
+    # more than 2x and DefaultBands scores both of them a perfect 1.0 anyway:
+    # its bounds are wider than the population, so the difference cannot reach
+    # the score. This is the failure, asserted rather than described.
+    for r in m.scoreBands(DefaultBands):
+      if r.band.name in ["exposedFrac", "routeCapacityFrac"]:
+        check r.sub == 1.0
+
+    # Under the new stick the same two numbers do reach the score.
+    # exposedFrac       (0.0879 - 0.0385) / 0.15 = 0.329 over -> sub 0.671
+    # routeCapacityFrac (0.3190 - 0.1600) / 0.30 = 0.530 under -> sub 0.470
+    # equal weights -> 0.5704, which is what band_reweight.py prints.
+    let sep = m.staticScore(ControlSeparationBands)
+    check abs(sep - 0.5704) < 1e-3
+    check control.staticScore(ControlSeparationBands) - sep > 0.40

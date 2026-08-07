@@ -302,7 +302,7 @@ def set_default():
     return {k: (v[0], v[1], v[2], v[3]) for k, v in BANDS_15.items()}
 
 
-# EvidenceBands. Built by SUBTRACTION plus one rule, and the rule has zero
+# ControlSeparationBands. Built by SUBTRACTION plus one rule, and the rule has zero
 # parameters fitted to play: every surviving bound is set at the CONTROL's own
 # measured value, on the side the control sits. That is this repo's stated
 # calibration doctrine (`Band.control`, "a bound can never drift away from the
@@ -310,7 +310,7 @@ def set_default():
 # the control scores exactly 1.000 BY CONSTRUCTION, so this stick cannot flag
 # the arena by accident. Two bands survive. That is the finding, not an
 # oversight; see the doc for why the other thirteen do not.
-def set_evidence():
+def set_control_separation():
     return {
         # arena 0.0384; the 40 generated maps run 0.0809..0.1731, so the
         # control is 2.1x below the generated MINIMUM. Direction agrees with
@@ -375,7 +375,7 @@ def cmd_compare(args):
     _, valid = load_manifest()
     rows = load_rows(False)
     c = control(rows)
-    sets = {"DefaultBands": set_default(), "EvidenceBands": set_evidence()}
+    sets = {"DefaultBands": set_default(), "ControlSeparationBands": set_control_separation()}
 
     print(f"=== how the {len(valid)} valid maps re-order ===\n")
     for name, bs in sets.items():
@@ -394,16 +394,16 @@ def cmd_compare(args):
     # Rank agreement between the two sticks over the same population.
     from scipy.stats import spearmanr
     a = [score_map(m["bands"], sets["DefaultBands"]) for m in valid]
-    b = [score_map(m["bands"], sets["EvidenceBands"]) for m in valid]
+    b = [score_map(m["bands"], sets["ControlSeparationBands"]) for m in valid]
     r = spearmanr(a, b)
-    print(f"rho(DefaultBands, EvidenceBands) over {len(valid)} maps = "
+    print(f"rho(DefaultBands, ControlSeparationBands) over {len(valid)} maps = "
           f"{r.statistic:+.3f} -- the two sticks are {'nearly the same' if abs(r.statistic)>0.8 else 'DIFFERENT'} ruler")
 
     print(f"\n=== the played maps, both sticks, control in the same batch ===")
     print(f"{'label':10s} {'Default':>8s} {'rank':>5s} {'Evidence':>9s} {'rank':>5s} "
           f"{'dead':>6s} {'steal/1k':>9s}")
     dr = sorted(rows, key=lambda r: -score_map(r["bands"], sets["DefaultBands"]))
-    er = sorted(rows, key=lambda r: -score_map(r["bands"], sets["EvidenceBands"]))
+    er = sorted(rows, key=lambda r: -score_map(r["bands"], sets["ControlSeparationBands"]))
     drank = {r["label"]: i + 1 for i, r in enumerate(dr)}
     erank = {r["label"]: i + 1 for i, r in enumerate(er)}
     for r in dr:
@@ -411,7 +411,7 @@ def cmd_compare(args):
         if r["label"] == "s1011a0":
             tag = "  <== the 1.000 / ZERO-steal map"
         print(f"{r['label']:10s} {score_map(r['bands'], sets['DefaultBands']):8.4f} "
-              f"{drank[r['label']]:5d} {score_map(r['bands'], sets['EvidenceBands']):9.4f} "
+              f"{drank[r['label']]:5d} {score_map(r['bands'], sets['ControlSeparationBands']):9.4f} "
               f"{erank[r['label']]:5d} {r['deadFloorFrac']:6.3f} {r['stealRate']:9.3f}{tag}")
 
 
@@ -462,7 +462,7 @@ def cmd_crossval(args):
         tied = sum(1 for s in sc if abs(s - a) <= 1e-9) - 1
         return better + 1, tied
 
-    fixed = {"DefaultBands": set_default(), "EvidenceBands": set_evidence()}
+    fixed = {"DefaultBands": set_default(), "ControlSeparationBands": set_control_separation()}
     print(f"{'band set':18s} {'rho vs play':>12s} {'95% CI':>18s} {'p':>7s} "
           f"{'arena':>8s} {'rank':>7s} {'tied':>6s}  fitted params")
     for name, bs in fixed.items():
@@ -580,7 +580,7 @@ def cmd_crossval(args):
           f"(tied with {a_tied}) -- the map that beat")
     print(f"all 40 generated maps on BOTH play axes, 0/40 and 0/40.")
     for nm, bs in [("DefaultBands", set_default()),
-                   ("EvidenceBands", set_evidence()),
+                   ("ControlSeparationBands", set_control_separation()),
                    ("ReweightBands", fitted_set)]:
         s11 = next(r for r in rows if r["label"] == "s1011a0")
         print(f"  {nm:14s} arena {score_map(c['bands'], bs):.4f} vs "
