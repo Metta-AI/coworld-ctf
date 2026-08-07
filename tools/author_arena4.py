@@ -215,10 +215,31 @@ QUADRANT = CHEVRON + TERRAIN
 # that costs 87px of extra path against an 80px budget — it misses the lure by
 # SEVEN PIXELS, and the first play batch duly recorded a centre nobody visited.
 #
-# Radius 200 costs 46px and lures. It is also still inside the generator's own
-# draw range for this field (ringLo 110 .. ringHi 209), so this is a placement
-# the generator could have rolled and didn't — not a special case.
-MEDKIT_RADIUS = 200
+# SO IT WAS MOVED IN TO RADIUS 200 (46px of detour, comfortably inside the
+# budget) AND MEASURED, AND IT MADE THE BOARD WORSE. Same terrain byte for byte,
+# only the drops moved, 3 episodes each:
+#
+#                       r=151        r=200
+#     pressure balance   0.68   ->    0.54     WORSE
+#     attack pairs       9/12   ->    7/12     WORSE
+#     dead space          43%   ->     47%     WORSE (exposure 1.20x, comparable)
+#     steals                1   ->        3    better
+#     kills/1000t        11.9   ->     20.5    nearly doubled
+#     total ticks      11,650   ->    6,552    games ended 44% sooner
+#
+# The lure fired — contact almost doubled — but it fired ON THE LANE THE TEAMS
+# ALREADY FIGHT IN, so it concentrated an already-concentrated fight, ended
+# games by elimination sooner, and left LESS of the board walked.
+#
+# And the reach is smaller than the ellipse suggests, which the heatmap shows.
+# `dest` in that inequality is the bot's CURRENT errand, and for most of an
+# episode that is a nearby combat target, not the far pedestal — so the ellipse
+# is tiny for most of the game and the kit only bends the opening traverse.
+#
+# Kept at the inherited 150 on the evidence. The lesson for the next board is
+# not "kits do not work", it is that a drop is worth placing where it pulls
+# traffic OFF the crowded lane, not further into it.
+MEDKIT_RADIUS = 150
 
 
 def medkit_orbit(radius):
@@ -227,7 +248,10 @@ def medkit_orbit(radius):
     Kept as an ORBIT rather than four typed points because anything else gives
     some team a kit its quarter-turn twin does not have.
     """
-    pts, p = [], (SIDE // 2 - 1 + radius, SIDE // 2 - 1)
+    # Seeded from the INTEGER center (width div 2), not from the true rot90
+    # axis at (side-1)/2, because that is what arena.nim's own pickup block
+    # does. Using the true axis here shifts all four kits by one pixel.
+    pts, p = [], (SIDE // 2 + radius, SIDE // 2)
     for _ in range(4):
         pts.append(p)
         p = (SIDE - 1 - p[1], p[0])
@@ -320,11 +344,6 @@ def main():
     spec["medKitCandidates"] = [[x, y] for x, y in kits]
     red_box, blue_box = (154.0, 154.0), (805.0, 154.0)
     best = min(lure_cost(k, red_box, blue_box) for k in kits)
-    if best >= 80:
-        raise SystemExit(
-            f"med kits are OUT OF LURE RANGE: cheapest detour {best:.0f}px "
-            "against MedKitDetour's 80px budget. A kit outside the ellipse is "
-            "scenery — this is exactly the defect radius 151 shipped with.")
 
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     Path(args.out).write_text(json.dumps(spec, indent=1) + "\n")
@@ -338,8 +357,11 @@ def main():
     print(f"  quadrant bbox footprint {area}px = "
           f"{1000 * area // (QUAD * QUAD)}pm of the quadrant (pre-carve)")
     print(f"  med kits at radius {MEDKIT_RADIUS}: {kits}")
-    print(f"    cheapest raid-route detour {best:.0f}px "
-          f"(MedKitDetour budget 80px; radius 151 cost 87px and lured nobody)")
+    print(f"    cheapest raid-route detour {best:.0f}px vs the 80px "
+          f"MedKitDetour budget -> {'LURES' if best < 80 else 'does not lure'}"
+          f" on the opening traverse")
+    print("    (reported, not enforced: r=200 lures and MEASURED WORSE — "
+          "0.54 pressure balance vs 0.68. See the note above MEDKIT_RADIUS.)")
     print(f"  wrote {args.out}")
 
 

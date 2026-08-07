@@ -101,6 +101,63 @@ one at four teams, where nothing pushes a team off its edge route.
 next 4-team board should spend the same 160pm budget on shapes that block the
 edge routes and open the middle, not on shapes spread evenly over both.
 
+## The drops were tried as a lure, and the lure made it WORSE
+
+Raised as a design lever: use med kits and weapon drops to pull teams into the
+areas they ignore. It is a real lever, it is smaller than it looks, and pointing
+it at this board's problem backfired. Worth the run — the mechanism is now
+measured rather than assumed.
+
+**Only the med kit is authorable.** `shieldSpawnPoints` and
+`plasmaArcSpawnPoints` are derived from the layout in `src/ctf/sim.nim` — on a
+corners board the shield is pinned to `(inset, teamAnchor(Red).y)` and carried
+round the orbit — so no mapSpec can move them. Which is a pity, because the
+shield is the strongest lure in the game: `ShieldStealDetour` is **480px**
+against the med kit's 80.
+
+**The lure is an ellipse, not a radius.** `bestKitDetour` scores a kit by EXTRA
+PATH: `dist(me,kit) + dist(kit,dest) - dist(me,dest) < 80`
+(`MedKitCarrierBudget` 90 for a hurt carrier, `MedKitCriticalReach` 180 at 1hp).
+That inequality is an ellipse with foci at the bot and its destination — a
+corridor hugging a route the bot ALREADY walks, pinching to nothing at both
+ends. **A drop cannot create traffic in a dead region; it can only bend a route
+that already passes near it.**
+
+That diagnosed the dead plaza exactly. The kits inherited from the gen:1007 base
+sit at radius 150; against the real Red->Blue raid route that costs **87px of
+extra path against an 80px budget — a miss by seven pixels.**
+
+So they were moved to radius 200 (46px, comfortably inside, and still within the
+generator's own draw range of 110..209) and re-played. Same terrain byte for
+byte, only the drops moved, 3 episodes each:
+
+| | kits r=150 | kits r=200 | |
+|---|---|---|---|
+| pressure balance | **0.68** | 0.54 | WORSE |
+| attack pairs | **9/12 75%** | 7/12 58% | WORSE |
+| dead space | **43%** | 47% | WORSE (exposure 1.20x, so comparable) |
+| steals | 1 | **3** | better |
+| kills/1000t | 11.9 | **20.5** | nearly doubled |
+| total ticks | 11,650 | 6,552 | games ended 44% sooner |
+
+**The lure fired.** Contact almost doubled and steals tripled. But it fired on
+the lane the teams already fight in, so it concentrated an already-concentrated
+fight, ended games by elimination sooner, and left LESS of the board walked —
+`heat-arena4-kits200.png` shows the top lane denser and the plaza emptier than
+before.
+
+And the reach is smaller than the ellipse implies, which is the reusable part:
+`dest` in that inequality is the bot's CURRENT errand, and for most of an episode
+that is a nearby combat target, not the far pedestal. The ellipse is tiny for
+most of the game, so a kit only bends the OPENING TRAVERSE.
+
+Reverted to radius 150 on the evidence. The lesson is not "drops do not work" —
+it is that a drop is worth placing where it pulls traffic OFF the crowded lane,
+not further into it, and that on this engine the med kit is a nudge to the
+opening approach rather than a way to populate dead ground. n = 3 episodes on one
+seed set, so treat the magnitudes as provisional; the direction matches the
+mechanism. Raw: `4t-ab-medkit-radius.txt`.
+
 ## Follow-ups (addenda, not new tasks)
 
 1. Break the 1261px diagonal — the one unambiguous defect.
