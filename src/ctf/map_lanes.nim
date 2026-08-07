@@ -121,6 +121,7 @@ import std/[algorithm, math, random, strutils]
 import sim_types
 import map_rules
 import burrow
+import mapgen_vocab  # MaxPolygonVerts: what `arena.pointInPolygon` will accept
 
 # ---------------------------------------------------------------------------
 # Constants this module must agree with, and cannot import
@@ -1498,14 +1499,121 @@ func laneBandOver*(lane: Lane, x0, x1: int): tuple[lo, hi: int] =
       hi = max(hi, p.y)
   (lo - half, hi + half)
 
+const
+  LaneClipSlabPx* = 24
+    ## How finely an extended shape is cut when it is clipped against a SLOPED
+    ## lane. One band for the whole rect is correct but wasteful: `laneFlank`
+    ## descends 231 px across the half-field, so its band over a 120 px block
+    ## is ~64 px taller than the lane itself and eats the block whole. Cutting
+    ## the block into slabs lets each one see only its own local band, and the
+    ## surviving pieces step down alongside the lane — which is what a row of
+    ## buildings along a diagonal avenue looks like. Adjacent slabs that clip
+    ## identically are merged back, so a lane running flat under a block still
+    ## yields ONE rect, not five. A diagonal run is slabbed along its DOMINANT
+    ## axis for the same reason and merged back the same way.
+  LaneTrimMinPx* = EngineMinCorridorPx
+    ## The thinnest surviving sliver worth keeping — the engine's own collision
+    ## footprint. Below this a trimmed block is a hairline against the street:
+    ## it reads as grime rather than structure, and no cog can stand behind a
+    ## piece of cover narrower than a cog. Dropping it is the one case where
+    ## deletion is right.
+    ##
+    ## Do NOT expect this to be the knob that pays for the trim — measured, it
+    ## is not. `arena`'s fill budget is spent in EMISSION ORDER and skips any
+    ## shape too big for what is left, so cutting one rejected block into
+    ## several smaller ones lets the budget be spent more completely, and the
+    ## shipping generator already runs at a median 162 permille against a 170
+    ## ceiling. Raising this floor from 16 px to the engine footprint moved
+    ## 2-team validity not at all (54/60 either way): the cover the trim adds
+    ## is in the pieces worth keeping, not in the slivers.
+    ##
+    ## The coupling this comment used to name — `arena`'s `FillFloorPermille`
+    ## clamp — was MEASURED AND REFUTED before the polygon and diagonal trims
+    ## below landed: on the rot90 path `structureCount` is 0, so the
+    ## subtraction the clamp was supposed to be repairing runs zero iterations
+    ## and the clamp never fires (`budget=7058` against `floorWouldBe=2773`,
+    ## `budgetSkipped=0`). What was actually holding cover at the ceiling was
+    ## the row cover not crediting its own mirror images, and that is fixed.
+    ## See docs/plans/2026-08-06-w0-rowcover-image-credit-finding.md.
+
+func polyBounds*(points: openArray[MapPoint]): tuple[x0, y0, x1, y1: int] =
+  ## A ring's integer bounding box. Every vertex counts: `arena.pointInPolygon`
+  ## reads a point ON an edge as inside, so the box is exact rather than
+  ## conservative.
+  result = (high(int), high(int), low(int), low(int))
+  for p in points:
+    result.x0 = min(result.x0, p.x)
+    result.y0 = min(result.y0, p.y)
+    result.x1 = max(result.x1, p.x)
+    result.y1 = max(result.y1, p.y)
+
+func diagHalfPx*(shape: ArenaShape): int {.inline.} =
+  ## How far a diagonal's wall reaches off its own centre line — the same
+  ## half-width `arena.inShape` accepts around the segment, so a clip that
+  ## uses it cannot leave a pixel of wall behind where it promised floor.
+  shape.thickness div 2 + 1
+
+func diagBounds*(shape: ArenaShape): tuple[x0, y0, x1, y1: int] =
+  ## A diagonal is a CAPSULE, not a segment: its footprint is the segment box
+  ## grown by the half width on every side, caps included.
+  let h = shape.diagHalfPx
+  (min(shape.x0, shape.x1) - h, min(shape.y0, shape.y1) - h,
+   max(shape.x0, shape.x1) + h, max(shape.y0, shape.y1) + h)
+
+iterator runSlabs(shape: ArenaShape, slabPx: int): tuple[t0, t1: int] =
+  ## A diagonal's parameter range cut into slabs, in the same spirit as
+  ## `LaneClipSlabPx` cuts a rect: over one slab the run's own y excursion is
+  ## small, so its local band is the lane and not the lane's whole descent.
+  ##
+  ## Parameterised on the DOMINANT axis rather than on x, so a steep run — a
+  ## dune at 80 degrees, say — is cut along its length instead of collapsing
+  ## into one slab.
+  let
+    dx = abs(shape.x1 - shape.x0)
+    dy = abs(shape.y1 - shape.y0)
+    span = max(dx, dy)
+  var t = 0
+  while t < span:
+    yield (t, min(t + slabPx, span))
+    t += slabPx
+
+func runPointAt(shape: ArenaShape, t, span: int): tuple[x, y: int] =
+  ## The point `t` slabs along the run, in integers. `span` is the dominant
+  ## axis' extent, so one of the two divisions below is exact and the other
+  ## rounds by at most half a pixel — well inside the half width the capsule
+  ## already carries.
+  if span <= 0: return (shape.x0, shape.y0)
+  (shape.x0 + (shape.x1 - shape.x0) * t div span,
+   shape.y0 + (shape.y1 - shape.y0) * t div span)
+
+func runSlabBounds(
+    shape: ArenaShape, t0, t1: int
+): tuple[x0, y0, x1, y1: int] =
+  ## The capsule footprint of ONE slab of a run.
+  let
+    span = max(abs(shape.x1 - shape.x0), abs(shape.y1 - shape.y0))
+    a = shape.runPointAt(t0, span)
+    b = shape.runPointAt(t1, span)
+    h = shape.diagHalfPx
+  (min(a.x, b.x) - h, min(a.y, b.y) - h, max(a.x, b.x) + h, max(a.y, b.y) + h)
+
 proc intrudesOnLane*(plan: LanePlan, shape: ArenaShape): bool =
   ## Whether a piece of cover would narrow a lane below its DESIGNED width.
-  ## Discs and diamonds test centre-to-profile; rects test their span against
-  ## `laneBandOver` over the x range they actually cover.
+  ## Discs and diamonds test centre-to-profile; every extended kind tests its
+  ## span against `laneBandOver` over the x range it actually covers.
   ##
   ## The rect branch used to walk x in strides of 14, which could step clean
   ## over a lane crossing. `laneBandOver` answers the same question exactly and
   ## costs less.
+  ##
+  ## POLYGONS AND DIAGONALS USED TO BE TESTED ON THEIR VERTICES, and that was
+  ## wrong in BOTH directions: a triangle can straddle a lane with no vertex
+  ## inside it (missed — cover left sitting in the lane) and a ring that only
+  ## clips a corner was condemned whole. Both now answer the same span question
+  ## the rect branch does, against the footprint `arena.inShape` really paints:
+  ## a ring's exact vertex box, and a capsule's segment box grown by its half
+  ## width. A run is asked slab by slab, because a 300 px dune's box against a
+  ## descending lane's box is a question about two boxes and not about the map.
   ##
   ## Note this is the DESIGN-width question, not the legality question.
   ## `clearLanes` asks the second one — how much of a lane may be spent before
@@ -1521,46 +1629,17 @@ proc intrudesOnLane*(plan: LanePlan, shape: ArenaShape): bool =
       if shape.rect.y <= band.hi and shape.rect.y + shape.rect.h >= band.lo:
         return true
     of shapePolygon:
-      # KNOWN UNSOUND, deliberately left alone: see `clearLanes`. A vertex test
-      # both misses a triangle that straddles a lane with no vertex in it and
-      # condemns one that only clips a corner. Fixing it is coupled to the fill
-      # DENSITY and is tracked separately.
-      let half = lane.widthPx div 2
-      for p in shape.points:
-        if abs(p.y - lane.laneY(p.x)) < half: return true
+      let
+        b = shape.points.polyBounds
+        band = lane.laneBandOver(b.x0, b.x1)
+      if b.y0 <= band.hi and b.y1 >= band.lo: return true
     of shapeDiagonal:
-      let half = lane.widthPx div 2
-      if abs(shape.y0 - lane.laneY(shape.x0)) < half: return true
-      if abs(shape.y1 - lane.laneY(shape.x1)) < half: return true
+      for (t0, t1) in shape.runSlabs(LaneClipSlabPx):
+        let
+          b = shape.runSlabBounds(t0, t1)
+          band = lane.laneBandOver(b.x0, b.x1)
+        if b.y0 <= band.hi and b.y1 >= band.lo: return true
   false
-
-const
-  LaneClipSlabPx* = 24
-    ## How finely a rect is cut when it is clipped against a SLOPED lane. One
-    ## band for the whole rect is correct but wasteful: `laneFlank` descends
-    ## 231 px across the half-field, so its band over a 120 px block is ~64 px
-    ## taller than the lane itself and eats the block whole. Cutting the block
-    ## into slabs lets each one see only its own local band, and the surviving
-    ## pieces step down alongside the lane — which is what a row of buildings
-    ## along a diagonal avenue looks like. Adjacent slabs that clip identically
-    ## are merged back, so a lane running flat under a block still yields ONE
-    ## rect, not five.
-  LaneTrimMinPx* = EngineMinCorridorPx
-    ## The thinnest surviving sliver worth keeping — the engine's own collision
-    ## footprint. Below this a trimmed block is a hairline against the street:
-    ## it reads as grime rather than structure, and no cog can stand behind a
-    ## piece of cover narrower than a cog. Dropping it is the one case where
-    ## deletion is right.
-    ##
-    ## Do NOT expect this to be the knob that pays for the trim — measured, it
-    ## is not. `arena`'s fill budget is spent in EMISSION ORDER and skips any
-    ## shape too big for what is left, so cutting one rejected block into
-    ## several smaller ones lets the budget be spent more completely, and the
-    ## shipping generator already runs at a median 162 permille against a 170
-    ## ceiling. Raising this floor from 16 px to the engine footprint moved
-    ## 2-team validity not at all (54/60 either way): the cover the trim adds
-    ## is in the pieces worth keeping, not in the slivers. The real coupling is
-    ## `arena`'s FillFloorPermille, and it has its own task.
 
 func laneCoreOver*(lane: Lane, corridorMinPx, x0, x1: int): tuple[lo, hi: int] =
   ## The part of a lane that cover may NEVER touch, over an x range.
@@ -1658,6 +1737,128 @@ func trimRectToLanes(rect: MapRect, window: bool, plan: LanePlan): seq[ArenaShap
     if not merged:
       result.add ArenaShape(kind: shapeRect, window: window, rect: p)
 
+func clipRingAtRow(
+    points: seq[MapPoint], yCut: int, keepAbove: bool
+): seq[MapPoint] =
+  ## Sutherland-Hodgman against ONE horizontal half-plane, in integers.
+  ## `keepAbove` keeps `y <= yCut` (above on screen), else `y >= yCut`.
+  ##
+  ## INTEGER VERTICES ONLY, which `sim_types` states as a contract: a polygon
+  ## and its mirror image must rasterize to exactly mirror-symmetric masks, and
+  ## that holds only if no vertex carries a fraction for the transform to round
+  ## differently on the two sides. The cut y is exact by construction; the cut
+  ## x rounds by under a pixel ALONG the cut line, which cannot move a vertex
+  ## across it. Both new vertices of a cut land on the SAME row, which is the
+  ## parity-neutral arrangement `mapgen_vocab.wedgePolygon` documents at
+  ## length — a lone pass-through vertex is what tears a mirror pair.
+  ##
+  ## The subject ring need not be convex. A ring that pokes across the cut in
+  ## several places comes back as one ring with zero-width bridges lying ON the
+  ## cut row; even-odd reads that as the right area, and the caller keeps the
+  ## cut row clear of the lane core by a pixel so the bridge cannot be wall
+  ## inside a lane.
+  if points.len < 3: return
+  proc inHalf(p: MapPoint): bool =
+    if keepAbove: p.y <= yCut else: p.y >= yCut
+  var prev = points[^1]
+  for cur in points:
+    if inHalf(prev) != inHalf(cur):
+      # A straddling edge has dy != 0, so the division below is safe.
+      let
+        dy = cur.y - prev.y
+        dx = cur.x - prev.x
+      result.add MapPoint(x: prev.x + dx * (yCut - prev.y) div dy, y: yCut)
+    if inHalf(cur): result.add cur
+    prev = cur
+  # Consecutive duplicates cost vertices against the ceiling and buy nothing.
+  var deduped: seq[MapPoint]
+  for i, p in result:
+    if deduped.len > 0 and deduped[^1] == p: continue
+    deduped.add p
+  if deduped.len > 1 and deduped[0] == deduped[^1]: deduped.setLen(deduped.len - 1)
+  result = deduped
+
+func ringWorthKeeping(points: seq[MapPoint]): bool =
+  ## The same sliver rule the rect trim applies, plus what
+  ## `arena.pointInPolygon` needs from a ring: three or more vertices, a
+  ## non-degenerate box, and no more vertices than `MaxPolygonVerts`. A cut
+  ## adds two vertices per crossing, so a wavy ridge CAN come back over the
+  ## ceiling; dropping that piece is the honest answer, not shipping a ring the
+  ## rasterizer's own contract excludes.
+  if points.len < 3 or points.len > MaxPolygonVerts: return false
+  let b = points.polyBounds
+  b.x1 - b.x0 >= LaneTrimMinPx and b.y1 - b.y0 >= LaneTrimMinPx
+
+func trimPolygonToLanes(shape: ArenaShape, plan: LanePlan): seq[ArenaShape] =
+  ## Cut a ring down to the parts of it lying outside every lane's core.
+  ##
+  ## A ring minus a horizontal band is at most two rings, and the vocabulary's
+  ## rings are simple by construction (`mapgen_vocab.ridgeHull` scans a profile
+  ## rather than tracing a contour), so the cut keeps the silhouette that made
+  ## the mass worth emitting instead of deleting it.
+  var rings = @[shape.points]
+  for lane in plan.lanes:
+    var next: seq[seq[MapPoint]]
+    for ring in rings:
+      let
+        b = ring.polyBounds
+        core = lane.laneCoreOver(plan.corridorMinPx, b.x0, b.x1)
+      ## THE DUPLICATION TRAP. Emitting both halves of a ring this lane never
+      ## touched hands back TWO copies of it, and after three lanes EIGHT. The
+      ## cover mask cannot see the difference — the copies are coincident — but
+      ## the fill BUDGET is spent per shape, so the map would pay eight times
+      ## for one mass and stop emitting long before it was full.
+      if b.y1 <= core.lo or b.y0 >= core.hi:
+        next.add ring
+        continue
+      ## Cut a pixel clear of the core on each side. `trimRectToLanes` keeps
+      ## rows up to `core.lo - 1`, and `pointInPolygon` counts a point ON an
+      ## edge as inside, so cutting AT `core.lo` would leave one row of wall
+      ## the rect trim would not.
+      for half in [ring.clipRingAtRow(core.lo - 1, keepAbove = true),
+                   ring.clipRingAtRow(core.hi + 1, keepAbove = false)]:
+        if half.ringWorthKeeping: next.add half
+    rings = next
+  for ring in rings:
+    result.add ArenaShape(
+      kind: shapePolygon, window: shape.window, points: ring)
+
+func trimDiagonalToLanes(shape: ArenaShape, plan: LanePlan): seq[ArenaShape] =
+  ## Cut a run down to the sub-runs of the SAME line lying outside every core.
+  ##
+  ## Exact in integers and with no new shape kinds: a capsule minus a band is
+  ## capsules. The run is walked in slabs along its dominant axis so a long
+  ## dune is judged against the lane where it actually is, and adjacent
+  ## surviving slabs are welded back so an untouched run re-emits as ONE shape
+  ## with its original endpoints, not as thirteen stubs.
+  let span = max(abs(shape.x1 - shape.x0), abs(shape.y1 - shape.y0))
+  if span <= 0: return @[shape]
+  var kept: seq[(int, int)]
+  for (t0, t1) in shape.runSlabs(LaneClipSlabPx):
+    let b = shape.runSlabBounds(t0, t1)
+    var blocked = false
+    for lane in plan.lanes:
+      let core = lane.laneCoreOver(plan.corridorMinPx, b.x0, b.x1)
+      # `runSlabBounds` is already grown by the capsule's half width, so a slab
+      # that clears this test clears it CAPS INCLUDED.
+      if b.y0 <= core.hi and b.y1 >= core.lo:
+        blocked = true
+        break
+    if blocked: continue
+    if kept.len > 0 and kept[^1][1] == t0: kept[^1][1] = t1
+    else: kept.add (t0, t1)
+  for (t0, t1) in kept:
+    ## A stub shorter than its own half width is a blob, not a ridge — the
+    ## desert emitter applies the same rule to the runs it draws in the first
+    ## place — and one thinner than a cog is the sliver `LaneTrimMinPx` names.
+    if t1 - t0 < max(LaneTrimMinPx, shape.thickness div 2): continue
+    let
+      a = shape.runPointAt(t0, span)
+      b = shape.runPointAt(t1, span)
+    result.add ArenaShape(
+      kind: shapeDiagonal, window: shape.window,
+      x0: a.x, y0: a.y, x1: b.x, y1: b.y, thickness: shape.thickness)
+
 proc clearLanes*(shapes: seq[ArenaShape], plan: LanePlan): seq[ArenaShape] =
   ## Push cover OUT of the lanes rather than deleting it.
   ##
@@ -1679,13 +1880,30 @@ proc clearLanes*(shapes: seq[ArenaShape], plan: LanePlan): seq[ArenaShape] =
   ## buildings that LINE the street, which is both the right geometry and the
   ## right picture.
   ##
+  ## EVERY EXTENDED KIND IS CUT, not just rects. A ring minus a horizontal band
+  ## is at most two rings and a capsule minus a band is capsules, so the same
+  ## argument that made the rect trim right makes these right; they were held
+  ## back only because rejection had been doing the fill layer's density
+  ## regulation and the map had no cover headroom to give them. It does now —
+  ## see `LaneTrimMinPx` on which coupling that turned out to be.
+  ##
   ## Only shapes with nothing left after the cut are dropped.
+  ##
+  ## THE CUT KINDS ARE NOT SHORT-CIRCUITED ON `intrudesOnLane`, and that is a
+  ## fix, not an oversight. The band that answers the design-width question is
+  ## NOT a superset of the protected core: over a gate the core takes the
+  ## opening's own y span, and a staggered opening need not lie inside the
+  ## band at all. A shape that cleared the band was therefore passed through
+  ## whole and could still be sitting in a gate mouth — measured at 175 to 450
+  ## wall pixels inside a core, per shape, on the arena plan. Every cut kind
+  ## now goes through its trim, which asks `laneCoreOver` and so sees the
+  ## gates; a shape that touches no core re-emits byte-identical.
   for shape in shapes:
-    if not plan.intrudesOnLane(shape):
-      result.add shape
-      continue
     case shape.kind
     of shapeDisc, shapeDiamond:
+      if not plan.intrudesOnLane(shape):
+        result.add shape
+        continue
       var moved = shape
       var placed = false
       for lane in plan.lanes:
@@ -1719,21 +1937,10 @@ proc clearLanes*(shapes: seq[ArenaShape], plan: LanePlan): seq[ArenaShape] =
         result.add moved
     of shapeRect:
       result.add trimRectToLanes(shape.rect, shape.window, plan)
-    else:
-      # Polygons and diagonals still reject whole. The same argument says they
-      # should be clipped -- a convex ring minus a horizontal band is at most
-      # two convex rings, and a 45° run minus a band is at most two runs -- but
-      # measuring it first showed WHY that is not a free change: rejection has
-      # been acting as the fill layer's density regulator. Clipping them lifted
-      # `caves` from 144/148/144/136/153/142 to 186/182/187/144/187/146 in
-      # `tools/lane_openrow_probe` against a 170 ceiling (4 of 6 seeds newly
-      # invalid), and `forest` and `plains` the same way. That probe has no
-      # fill budget, so it overstates what reaches a shipping board — but the
-      # direction is real, and the rect trim alone already costs 3 valid seeds
-      # in 100 on `gen_sweep`. The geometry fix is right; it has to land WITH
-      # the budget arithmetic it is coupled to (`arena.FillFloorPermille`,
-      # docs/plans/2026-08-06-fill-budget-floor-finding.md), not before it.
-      discard
+    of shapePolygon:
+      result.add trimPolygonToLanes(shape, plan)
+    of shapeDiagonal:
+      result.add trimDiagonalToLanes(shape, plan)
 
 
 # ---------------------------------------------------------------------------

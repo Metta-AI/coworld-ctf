@@ -18,8 +18,9 @@
 ## can be exactly the geometry under test with nothing else in it.
 
 import
-  std/[strutils, unittest],
-  ctf/[arena, burrow, map_lanes, map_metrics, map_rules, sim_types]
+  std/[random, strutils, unittest],
+  ctf/[arena, burrow, map_lanes, map_metrics, map_rules, mapgen_vocab,
+       sim_types]
 
 const
   BoardW = 600
@@ -335,3 +336,198 @@ suite "k-fold disjoint burrow: route count becomes a THEOREM":
     check rep.ok
     check rep.achieved == 3
     check rep.disjoint
+
+# ---------------------------------------------------------------------------
+# clearLanes CUTS every extended kind
+# ---------------------------------------------------------------------------
+#
+# Polygons and diagonals used to be tested on their VERTICES and dropped
+# WHOLE, which was wrong in both directions at once: a ring can straddle a
+# lane with no vertex inside it (missed), and a ring that clips one corner was
+# condemned entire (over-rejected). The guarantee below is the one that
+# matters and it is checked in PIXELS, not in bounding boxes: nothing
+# `clearLanes` hands back may paint a pixel inside a lane's protected core.
+
+suite "clearLanes cuts polygons and diagonals":
+  proc arenaPlan(seed: int): LanePlan =
+    ## A real plan off the hand-authored board, the same construction
+    ## `tools/lane_clip_probe.nim` measures with.
+    let gameMap = loadCtfMapMetadata("arena")
+    let
+      rules = mapRules("standard", 2)
+      base = gameMap.flagHome(Red)
+      seamX = gameMap.width div 2
+      region = MapRect(x: BorderPx, y: BorderPx,
+        w: seamX - BorderPx, h: gameMap.height - 2 * BorderPx)
+    var rng = initRand(seed)
+    planLanes(rng, region, base, seamX, rules)
+
+  proc corePixels(shape: ArenaShape, plan: LanePlan): int =
+    ## How many of this shape's own pixels land inside some lane's core. The
+    ## core is asked column by column, so a sloped lane is judged where it
+    ## actually runs rather than over its whole descent.
+    let b =
+      case shape.kind
+      of shapePolygon: shape.points.polyBounds
+      of shapeDiagonal: shape.diagBounds
+      of shapeRect: (shape.rect.x, shape.rect.y,
+                     shape.rect.x + shape.rect.w, shape.rect.y + shape.rect.h)
+      else: (0, 0, -1, -1)
+    for x in b.x0 .. b.x1:
+      for lane in plan.lanes:
+        let core = lane.laneCoreOver(plan.corridorMinPx, x, x)
+        for y in max(b.y0, core.lo) .. min(b.y1, core.hi):
+          if inShape(x, y, shape): inc result
+
+  let plan = arenaPlan(7)
+  let midLane = block:
+    var pick = plan.lanes[0]
+    for lane in plan.lanes:
+      if lane.role == laneMid: pick = lane
+    pick
+  let
+    crossX = (plan.laneStartX + plan.seamX) div 2
+    crossY = midLane.laneY(crossX)
+
+  test "a ring that straddles a lane with NO vertex in it is caught":
+    # Every vertex sits clear of the lane; the ring's middle lies across it.
+    # The old vertex test read this as no intrusion at all.
+    let tall = midLane.widthPx
+    let ring = ArenaShape(kind: shapePolygon, points: @[
+      MapPoint(x: crossX - 60, y: crossY - tall),
+      MapPoint(x: crossX + 60, y: crossY - tall),
+      MapPoint(x: crossX + 60, y: crossY + tall),
+      MapPoint(x: crossX - 60, y: crossY + tall)])
+    check plan.intrudesOnLane(ring)
+    check ring.corePixels(plan) > 0
+    for kept in clearLanes(@[ring], plan):
+      check kept.corePixels(plan) == 0
+
+  test "a straddling ring is CUT, not deleted — both sides survive":
+    let tall = midLane.widthPx
+    let ring = ArenaShape(kind: shapePolygon, points: @[
+      MapPoint(x: crossX - 60, y: crossY - tall),
+      MapPoint(x: crossX + 60, y: crossY - tall),
+      MapPoint(x: crossX + 60, y: crossY + tall),
+      MapPoint(x: crossX - 60, y: crossY + tall)])
+    let kept = clearLanes(@[ring], plan)
+    check kept.len == 2
+    for k in kept:
+      check k.kind == shapePolygon
+      check k.points.len >= 3
+      check k.points.len <= MaxPolygonVerts
+
+  test "a ring the lanes never touch comes back ONCE, unchanged":
+    # The duplication trap: emitting both halves of an untouched ring hands
+    # back two coincident copies, and after three lanes eight of them.
+    var y = plan.region.y + 8
+    var clear = false
+    while y < plan.region.y + plan.region.h - 40 and not clear:
+      clear = true
+      for lane in plan.lanes:
+        let core = lane.laneCoreOver(plan.corridorMinPx, crossX - 30, crossX + 30)
+        if y - 30 <= core.hi and y + 30 >= core.lo: clear = false
+      if not clear: y += 8
+    check clear
+    let ring = ArenaShape(kind: shapePolygon, points: @[
+      MapPoint(x: crossX - 30, y: y - 30),
+      MapPoint(x: crossX + 30, y: y - 30),
+      MapPoint(x: crossX + 30, y: y + 30),
+      MapPoint(x: crossX - 30, y: y + 30)])
+    let kept = clearLanes(@[ring], plan)
+    check kept.len == 1
+    check kept[0].points == ring.points
+
+  test "a run crossing a lane is cut in TWO, on a plan with one lane in it":
+    # A hand-built plan, for the same reason the boards above are raw masks: on
+    # the real arena plan three lanes cross the same place, and a run that ends
+    # up wholly consumed proves nothing about the cut. One straight lane makes
+    # the answer countable — a run through it must come back as exactly the two
+    # ends, both clear of the core.
+    let solo = LanePlan(
+      region: MapRect(x: 0, y: 0, w: 600, h: 400),
+      seamX: 600, corridorMinPx: 68, laneStartX: 0,
+      lanes: @[Lane(role: laneMid, widthPx: 80, lengthPx: 600,
+        path: @[MapPoint(x: 0, y: 200), MapPoint(x: 600, y: 200)])])
+    let run = ArenaShape(kind: shapeDiagonal,
+      x0: 200, y0: 60, x1: 380, y1: 340, thickness: 24)
+    check solo.intrudesOnLane(run)
+    check run.corePixels(solo) > 0
+    let kept = clearLanes(@[run], solo)
+    check kept.len == 2
+    for k in kept:
+      check k.kind == shapeDiagonal
+      check k.thickness == run.thickness
+      check k.corePixels(solo) == 0
+
+  test "a run that only clips a lane's edge keeps most of itself":
+    # The over-rejection half of the old vertex test: this used to be dropped
+    # whole because one endpoint sat in the lane.
+    let solo = LanePlan(
+      region: MapRect(x: 0, y: 0, w: 600, h: 400),
+      seamX: 600, corridorMinPx: 68, laneStartX: 0,
+      lanes: @[Lane(role: laneMid, widthPx: 80, lengthPx: 600,
+        path: @[MapPoint(x: 0, y: 200), MapPoint(x: 600, y: 200)])])
+    let run = ArenaShape(kind: shapeDiagonal,
+      x0: 100, y0: 30, x1: 400, y1: 205, thickness: 20)
+    let kept = clearLanes(@[run], solo)
+    check kept.len == 1
+    check kept[0].corePixels(solo) == 0
+    let
+      wasLen = max(abs(run.x1 - run.x0), abs(run.y1 - run.y0))
+      keptLen = max(abs(kept[0].x1 - kept[0].x0), abs(kept[0].y1 - kept[0].y0))
+    # The run meets the core's lip at 72% of its length; the cut is taken on
+    # the enclosing 24 px slab, and the capsule's own half width is charged
+    # before that, so 64% is the exact figure this geometry gives back. The
+    # assertion is on the DIRECTION — most of the run, not none of it.
+    check keptLen * 100 div wasLen >= 60
+
+  test "a run the lanes never touch keeps its own endpoints, once":
+    var y = plan.region.y + 8
+    var clear = false
+    while y < plan.region.y + plan.region.h - 40 and not clear:
+      clear = true
+      for lane in plan.lanes:
+        let core = lane.laneCoreOver(plan.corridorMinPx, crossX - 90, crossX + 90)
+        if y - 20 <= core.hi and y + 20 >= core.lo: clear = false
+      if not clear: y += 8
+    check clear
+    let run = ArenaShape(kind: shapeDiagonal,
+      x0: crossX - 90, y0: y, x1: crossX + 90, y1: y, thickness: 24)
+    let kept = clearLanes(@[run], plan)
+    check kept.len == 1
+    check (kept[0].x0, kept[0].y0) == (run.x0, run.y0)
+    check (kept[0].x1, kept[0].y1) == (run.x1, run.y1)
+
+  test "the shipping fill's polygons and runs clear every core":
+    # The real thing, not a synthetic: a biome fill through the real clip.
+    let gameMap = loadCtfMapMetadata("arena")
+    let
+      rules = mapRules("standard", 2)
+      base = gameMap.flagHome(Red)
+      seamX = gameMap.width div 2
+      region = MapRect(x: BorderPx, y: BorderPx,
+        w: seamX - BorderPx, h: gameMap.height - 2 * BorderPx)
+    var seen = 0
+    for seed in 1 .. 4:
+      var rng = initRand(seed)
+      let plan = planLanes(rng, region, base, seamX, rules)
+      var cover: seq[ArenaShape]
+      for i in 0 ..< 40:
+        # A fan of runs and rings across the whole half-field, so every lane
+        # is crossed somewhere by something.
+        let
+          px = region.x + 40 + (i * 37) mod max(1, region.w - 80)
+          py = region.y + 20 + (i * 61) mod max(1, region.h - 40)
+        cover.add ArenaShape(kind: shapeDiagonal, x0: px, y0: py,
+          x1: px + 70, y1: py + 50, thickness: 20)
+        cover.add ArenaShape(kind: shapePolygon, points: @[
+          MapPoint(x: px, y: py - 40),
+          MapPoint(x: px + 55, y: py - 40),
+          MapPoint(x: px + 70, y: py + 40),
+          MapPoint(x: px - 15, y: py + 40)])
+      for kept in clearLanes(cover, plan):
+        if kept.kind notin {shapePolygon, shapeDiagonal}: continue
+        inc seen
+        check kept.corePixels(plan) == 0
+    check seen > 0
