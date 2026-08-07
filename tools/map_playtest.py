@@ -96,6 +96,50 @@ def merge(datas):
     return base
 
 
+def zero_conversion_flag(data):
+    """Steals that never scored — and WHICH of the three failures it was.
+
+    This used to send the reader to `carrierInZoneTicks`: "if that is also 0
+    the objective was never reached; if it is large the carrier reached it and
+    could not score". That number is 0 on every episode ever measured,
+    INCLUDING both fixtures that captured, so the advice always resolved to
+    "never reached" no matter what the map did — it pointed every reader at
+    the wrong diagnosis by construction. `carrierApproachPx` is the number
+    that can actually separate the cases (tools/carrier_zone.nim).
+
+    A function rather than three inline branches so the branches can be
+    asserted directly; the doorstep case is the one no committed fixture
+    currently produces, which is exactly why it needs a test.
+    """
+    approach = data.get("carrierApproachPx", -1)
+    approach = None if approach is None or approach < 0 else approach
+    carry_ticks = data.get("carrierTicks", 0)
+    steals = data["steals"]
+    if approach is None:
+        return (f"{steals} steals converted to ZERO captures, and no steal "
+                "ever became a live carry — the heart was taken and lost "
+                "again on the spot, so this is a FIGHT question at the "
+                "pedestal, not a run-home question")
+    # "Doorstep" is one PEDESTAL RING, not a fixed px count: the ring is the
+    # radius at which this report already calls a player AT an objective, and
+    # it scales with the board (70px on the 1235x659 class, 364px on the
+    # 4992x4992 one), so the same verdict means the same thing on a map 4x the
+    # size. A px threshold would call the big board's near miss a blowout.
+    ring = data.get("flagRing", 0) or 70
+    if approach <= ring:
+        return (f"{steals} steals converted to ZERO captures and the carrier "
+                f"DIED ON THE DOORSTEP: the best run home got within "
+                f"{approach}px of scoring, inside one {ring}px pedestal ring, "
+                f"over {carry_ticks:,} carry-ticks. Reaching the line and not "
+                "scoring is a RULES or BOT question before it is a map "
+                "question")
+    return (f"{steals} steals converted to ZERO captures and THE CARRIER "
+            f"NEVER GOT CLOSE: the best run home still had {approach}px to "
+            f"cover, {approach / ring:.1f}x the {ring}px pedestal ring, over "
+            f"{carry_ticks:,} carry-ticks. The run home is where this map "
+            "loses the objective")
+
+
 def balance_entropy(counts, teams):
     """B = -sum (k_i/K) log_N (k_i/K), log base N = TEAM COUNT.
 
@@ -581,40 +625,7 @@ def report(datas, baseline=None):
                 "the arena's 0.533%. They got there and did not take it, so "
                 "this is a RULES or BOT question before it is a map question")
     if data["captures"] == 0 and data["steals"] > 0:
-        # This used to send the reader to `carrierInZoneTicks`, which is 0 on
-        # every episode ever measured INCLUDING the ones that captured, so the
-        # advice always resolved to "the objective was never reached" no matter
-        # what the map did. The approach distance is the number that can
-        # actually tell the two apart.
-        if approach is None:
-            flags.append(
-                f"{data['steals']} steals converted to ZERO captures, and no "
-                "steal ever became a live carry — the heart was taken and lost "
-                "again on the spot, so this is a FIGHT question at the "
-                "pedestal, not a run-home question")
-        else:
-            # "Doorstep" is one PEDESTAL RING, not a fixed px count: the ring is
-            # the radius at which this report already calls a player AT an
-            # objective, and it scales with the board (70px on the 1235x659
-            # class, 364px on the 4992x4992 one), so the same verdict means the
-            # same thing on a map 4x the size.
-            ring = data.get("flagRing", 0) or 70
-            if approach <= ring:
-                flags.append(
-                    f"{data['steals']} steals converted to ZERO captures and "
-                    f"the carrier DIED ON THE DOORSTEP: the best run home got "
-                    f"within {approach}px of scoring, inside one {ring}px "
-                    f"pedestal ring, over {carry_ticks:,} carry-ticks. "
-                    "Reaching the line and not scoring is a RULES or BOT "
-                    "question before it is a map question")
-            else:
-                flags.append(
-                    f"{data['steals']} steals converted to ZERO captures and "
-                    f"THE CARRIER NEVER GOT CLOSE: the best run home still had "
-                    f"{approach}px to cover, {approach / ring:.1f}x the "
-                    f"{ring}px pedestal ring, over {carry_ticks:,} "
-                    "carry-ticks. The run home is where this map loses the "
-                    "objective")
+        flags.append(zero_conversion_flag(data))
     if data["captures"] != data["capturesInZone"]:
         flags.append(f"HARNESS BUG: {data['captures']} engine captures but "
                      f"{data['capturesInZone']} verified inside the engine's "
