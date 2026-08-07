@@ -663,6 +663,9 @@ proc main() =
       &"ARMED>0 => the pickup landed (arc held); charge>0 => armed & driving the seam for a cluster; " &
       &"inReach>0 => a cluster sat in cone reach; FIRE>0 => it pressed the multikill cone. " &
       &"A stage that zeroes names the gate. TURTLE=1 makes the control team stand a line to breach.)"
+    echo &"  SPRAY-SINGLE (fix C): single-FIRE {apSingleFire}  single-CHARGE {apSingleCharge}  " &
+      &"(spraySingle: cluster gate found NOTHING >= ArcConeMinCluster, so the lone-target fallback " &
+      &"fired/closed instead of falling to the mute DRY branch — the 87%-unfired-can fix.)"
   when defined(sgprobe):
     let held = (if sgDefended > 0: 100.0 * sgHold.float / sgDefended.float else: 0.0)
     echo &"  SG-PROBE (dive-death fix): want {sgWant} -> defended {sgDefended} -> " &

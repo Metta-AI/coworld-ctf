@@ -358,6 +358,9 @@ when defined(arcprobe):
   var apFire = 0       # ...=> pressed the cone on-bearing (the multikill press)
   var apClusterSum = 0 # sum of cluster sizes at each fire (mean multikill = sum/apFire)
   var apMaxCluster = 0 # the fattest cluster ever coned (a true multikill proof)
+  var apSingleFire = 0   # spraySingle: pressed the cone on a lone in-reach target
+                        # (no qualifying cluster existed at all)
+  var apSingleCharge = 0 # spraySingle: closed the gap on a lone out-of-reach target
 
 when defined(nmprobe):
   # -d:nmprobe ONLY (v9): instrument the noMask mover-side repel as a FUNNEL so
@@ -2008,6 +2011,31 @@ type
                               # only trips at a WIDER enemy overmatch (gv21OutnumberMargin),
                               # so a lone gun keeps trading instead of ceding the firefight
                               # that the clock now forces us to win. Pure combat posture.
+    anchorRelock: bool        # ⭐⭐ ANCHOR RELOCK (4-team audit finding #1, 2026-08-06):
+                              # buildNavGrid resolves five tactical anchors (overwatch post,
+                              # mirrored enemy posts, point-of-domination, defender choke,
+                              # funnel throat) off bot.myColor/bot.team on the FIRST
+                              # walkabilityReady frame — before the self-marker color lock in
+                              # decide() can correct the initial slot-mod-teams parity guess on
+                              # a 4-team board. bot.navBuilt never resets, so a wrong guess
+                              # caches anchors pointed at a RIVAL's base for the whole episode.
+                              # Re-runs the five computations once, right when the lock flips to
+                              # a color they were not built for. Pure bug fix: a no-op on 2-team
+                              # boards (the guess already matches) and a no-op once the anchors
+                              # were already correct. Default ON; NOANCHORRELOCK=1 turns it off
+                              # for the A/B.
+    spraySingle: bool         # ⭐⭐ SPRAY SINGLE (4-team can-conversion fix, 2026-08-06): the arc
+                              # breacher fire block only cones a CLUSTER (>= ArcConeMinCluster
+                              # fresh enemies) — "coning a singleton is a net DPS loss" doctrine
+                              # that assumed the GUN stayed available as the fallback. It does
+                              # not: canFire=false for the whole time the can is held, so a
+                              # disarmed carrier facing only a singleton currently just walks
+                              # past unarmed and silent. Field truth: winners convert can pickups
+                              # into 5.28 kills/ep, we convert into 0.50, and 87% of our pickups
+                              # die WITHOUT EVER FIRING it. When no qualifying cluster exists,
+                              # treat the nearest fresh enemy in reach with clear LOS as a valid
+                              # single-target cone shot instead of standing disarmed and mute.
+                              # Default ON; NOSPRAYSINGLE=1 turns it off for the A/B.
 
   Bot = ref object
     slot: int
@@ -2049,6 +2077,18 @@ type
     tune: CombatTune          # fire/engage knobs; default == baseline consts
     tick: int                 # sim ticks, advanced by frames received
     navBuilt: bool
+    navBuiltColor: string     # ⭐ anchorRelock: the color buildNavGrid resolved
+                              # the five tactical anchors (post/enemyPosts/
+                              # dominatePost/chokeHold/funnelThroat) FOR. On a
+                              # 4-team board buildNavGrid runs on the first
+                              # walkabilityReady frame, often before the self-
+                              # marker color lock in decide() corrects the
+                              # initial slot-mod-teams parity guess — compared
+                              # against bot.myColor once the lock lands so a
+                              # stale guess can trigger exactly one re-run.
+    anchorsRelocked: bool     # one-shot guard: the anchorRelock re-run has
+                              # already happened (or was checked and not
+                              # needed) this episode, so it never repeats.
     cellWalkable: seq[bool]   # eroded walkability, GridW x GridH
     coverCell: seq[bool]      # walkable cells hugging an obstacle
     exposure: seq[bool]       # cells a remembered enemy could shoot into
@@ -2450,6 +2490,8 @@ proc defaultCombatTune(): CombatTune =
     gv21Press: false,         # control: fire-superiority break uses the standard outnumberMargin.
     touchCommit: false,       # control: inside GrabCommitRing the grenade/engage/duck/peek branches
                               # still outrank the 12px touch (the 71.8%-vs-94.9% conversion gap).
+    anchorRelock: false,      # control: the five nav anchors never re-run off a corrected color.
+    spraySingle: false,       # control: the arc breacher never fires the cone on a lone target.
   )
 
 proc shippedCombatTune(): CombatTune =
@@ -2903,6 +2945,13 @@ proc shippedCombatTune(): CombatTune =
   let spinRange = getEnv("SPINRANGE")
   if spinRange.len > 0:
     result.spinCapRangePx = parseFloat(spinRange)
+  # ⭐⭐ ANCHOR RELOCK + SPRAY SINGLE (4-team audit fixes, 2026-08-06). Both are pure
+  # bug fixes (relock is a no-op whenever the first guess was already right; spraySingle
+  # only fires when the fallback today is silence), so both ship DEFAULT ON — same class
+  # as medEcon/carrierFlee, not an UNPROVEN plan-#N lever. NOANCHORRELOCK=1 /
+  # NOSPRAYSINGLE=1 hold each OFF (the pre-fix behavior) so a frozen binary can A/B them.
+  result.anchorRelock = getEnv("NOANCHORRELOCK").len == 0
+  result.spraySingle = getEnv("NOSPRAYSINGLE").len == 0
 
 
 when defined(rngprobe):
@@ -3643,9 +3692,17 @@ proc findFunnelThroat(bot: Bot) =
   ## pedestal band; the column whose best run is NARROWEST is the funnel, and
   ## the throat is that run's center.
   bot.funnelReady = false
+  # ⭐ STATED ZONE, NOT flagHome (audit finding #3): flagHome returns the classic
+  # arena's hardcoded (186,329)/(1049,329) pedestal — meaningless on a generated
+  # 4-team board up to ~2496px. Same observed-first-fallback pattern as the
+  # "PEDESTALS ARE OBSERVED, NOT ASSUMED" block below: prefer the engine-stated
+  # endzone centre for our own colour, falling back to flagHome only when no
+  # marker was ever read (e.g. the classic 2-team arena, which byte-preserves
+  # the old behavior since it never emits endzone markers).
   let
     sign = homeSign(bot.team)
-    ped = flagHome(bot.team)
+    homeZone = statedZone(bot.myColor)
+    ped = (if homeZone.have: homeZone.c else: flagHome(bot.team))
     x0 = cellOf(vec(min(ped.x + sign * 40.0, float(CenterX)), 0.0)) mod GridW
     x1 = cellOf(vec(max(ped.x + sign * 40.0, float(CenterX)), 0.0)) mod GridW
   var bestWidth = int.high
@@ -3702,7 +3759,14 @@ proc findEnemyPosts(bot: Bot, client: ProtocolClient) =
   let post = bot.scanPost(client, homeSign(bot.team), float(CenterY) + 60.0)
   if post.ready:
     bot.enemyPosts.add(post.peek)
-  bot.enemyPosts.add(flagHome(enemy(bot.team)))
+  # ⭐ STATED ZONE, NOT flagHome (audit finding #3): same observed-first-fallback
+  # pattern as the "PEDESTALS ARE OBSERVED, NOT ASSUMED" block — the rival's
+  # colour is resolved the same way SelfEnemyColor is (enemyColorFor), not
+  # read off a possibly-stale global, since this can run before decide() has
+  # stamped one for the frame (the first buildNavGrid call, and the anchorRelock
+  # re-run happens before the per-frame flag bookkeeping that would refresh it).
+  let enemyZone = statedZone(enemyColorFor(bot.myColor))
+  bot.enemyPosts.add(if enemyZone.have: enemyZone.c else: flagHome(enemy(bot.team)))
 
 proc dominateApproach(): array[6, (float, float)] =
   ## #7: the ground an intruder MUST cross to reach our pedestal — waypoints on
@@ -3884,6 +3948,7 @@ proc buildNavGrid(bot: Bot, client: ProtocolClient) =
   bot.chokeHold = bot.snapToCover(chokeSpot(bot.team))
   bot.findFunnelThroat()
   bot.navBuilt = true
+  bot.navBuiltColor = bot.myColor      # anchorRelock's baseline for comparison
 
 const NavNeighbors = [
   (1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)
@@ -4242,6 +4307,8 @@ proc resetTransient(bot: Bot) =
   ## Drops per-game memory between rounds (lobby / game-over interstitials).
   bot.colorLocked = false      # re-earn the lock from the next game's self
                                # marker; the dealt guess persists as the seed
+  bot.anchorsRelocked = false  # re-earn the anchorRelock check next game too
+  bot.navBuiltColor = ""
   bot.stealPedSeen = false     # pedestals are per-episode geometry
   bot.ownPedSeen = false
   bot.plantUntil = 0
@@ -4475,6 +4542,32 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # grab-no-cap DRAW in the v32-v35 gates was this artifact. Production has
     # one bot per process and never sees it; the re-stamp makes the harness
     # faithful and is a no-op live.
+  # ⭐⭐ ANCHOR RELOCK (audit finding #1, worst). buildNavGrid runs on the first
+  # walkabilityReady frame and resolves five tactical anchors — pickPost,
+  # findEnemyPosts, pickDominatePost, chokeHold (via chokeSpot(bot.team)), and
+  # findFunnelThroat — through bot.myColor / bot.team. On a 4-team board that
+  # first color is only the slot-mod-teams PARITY GUESS; the self-marker color
+  # lock above (the authoritative read) frequently lands a few frames LATER,
+  # once our own sprite is actually visible. bot.navBuilt never resets after
+  # that first build, so a green/yellow seat whose opening guess was wrong
+  # caches anchors pointed at a RIVAL's base for the rest of the episode. Once
+  # the lock is in and disagrees with the color the anchors were built for,
+  # re-run the five computations exactly once. Gated on colorLocked itself
+  # (not just navBuilt): the lock can land several frames AFTER navBuilt, and
+  # spending the one-shot guard before the lock arrives would consume it on
+  # the still-provisional parity guess and skip the real correction later.
+  # No-op on 2-team boards (the parity guess already matches the lock there)
+  # and a no-op once the anchors were already built with the correct color.
+  if bot.tune.anchorRelock and bot.navBuilt and bot.colorLocked and
+      not bot.anchorsRelocked:
+    bot.anchorsRelocked = true
+    if bot.navBuiltColor != bot.myColor:
+      bot.pickPost(client)
+      bot.findEnemyPosts(client)
+      bot.pickDominatePost(client)
+      bot.chokeHold = bot.snapToCover(chokeSpot(bot.team))
+      bot.findFunnelThroat()
+      bot.navBuiltColor = bot.myColor
   let
     alive = probe.alive
     me = probe.pos
@@ -5388,7 +5481,16 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       # ⚠️ NOTE (A/B 2026-07-17): this branch NEVER fires in the self-play mirror —
       # the 41–240t stale-fix window it needs is a FIELD-only scenario (self-play
       # kills enemy carriers before the fix goes stale). Validate hosted, not in lab.
-      let capEdgeX = flagHome(enemy(bot.team)).x
+      # ⭐ STATED ZONE, NOT flagHome (audit finding #3): reuse `stealTarget`, the
+      # same observed-pedestal/statedZone/flagHome fallback chain the "PEDESTALS
+      # ARE OBSERVED" block already computed this frame for our own raid target.
+      # On a 2-team board the thief can only be the one enemy, so this is exactly
+      # the value `enemy(bot.team)` names. On a 4-team board there is no signal
+      # that identifies WHICH rival stole our flag (bot.carrierPos is a bare
+      # position fix, no colour attribution), so this is the best available
+      # proxy — the same approximation the GameTeams>2 branch just below makes
+      # ("cover the two most probable [zones] by seat parity").
+      let capEdgeX = stealTarget.x
       target = vec(clamp(capEdgeX + homeSign(bot.team) * HuntCarrierStandoff,
                          20.0, float(MapW - 20)),
                    clamp(bot.carrierPos.y, 20.0, float(MapH - 20)))
@@ -5720,15 +5822,19 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
             # this by standing at mid at the bot's own height, which is where an attacker
             # already was — the reason the "collapse" was invisible.
             # But the thief's ROUTE is STATIC GEOMETRY, no fog read needed: it must run from
-            # OUR pedestal (flagHome, a known constant) to ITS OWN capture edge. Cut that
-            # line at the mid crossing instead of loitering at our own height — the same
-            # move that made medEcon work (route to known coords, don't wait to see it).
-            # Both pedestals sit at the same height (flagHome y=329 either side), so the
-            # route IS the pedestal lane — guard the crossing at THAT height, not ours.
-            # Spread the seats into a PICKET across the crossing rather than stacking all
-            # six on one pixel: a cluster is what area weapons farm (the grenade lesson
-            # from the anti-line work), and a picket covers the lane the thief may drift to.
-            let lane = flagHome(bot.team).y
+            # OUR pedestal to ITS OWN capture edge. Cut that line at the mid crossing instead
+            # of loitering at our own height — the same move that made medEcon work (route to
+            # known coords, don't wait to see it). On the classic 2-team arena both pedestals
+            # sit at the same height (flagHome y=329 either side), so the route IS the
+            # pedestal lane. ⭐ STATED ZONE, NOT flagHome (audit finding #3): that equal-
+            # height assumption is arena-specific and false on a generated 4-team board, so
+            # reuse `ownHome` — the same observed-pedestal/statedZone/flagHome fallback the
+            # "PEDESTALS ARE OBSERVED" block already computed this frame for OUR OWN colour —
+            # instead of the hardcoded constant. Spread the seats into a PICKET across the
+            # crossing rather than stacking all six on one pixel: a cluster is what area
+            # weapons farm (the grenade lesson from the anti-line work), and a picket covers
+            # the lane the thief may drift to.
+            let lane = ownHome.y
             let spread = float((ord(bot.role) mod 3) - 1) * DefendPicketSpread
             target = vec(float(CenterX) + homeSign(bot.team) * DefendCrossGuard,
                          clamp(lane + spread, LaneTop, LaneBottom))
@@ -7280,6 +7386,32 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       when defined(arcprobe): inc apCharge
       moveMask = octantBits(approachTgt - me)
       desiredAim = bradsOf(approachTgt - me)
+    elif bot.tune.spraySingle and nearFoe >= 0 and nearD <= ArcBreachFireReach and
+        client.pixelRayClear(me, bot.enemies[nearFoe].pos):
+      # ⭐⭐ SPRAY SINGLE (fix C, 2026-08-06). No qualifying CLUSTER exists (both branches
+      # above required >= ArcConeMinCluster) — ArcConeMinCluster's "coning a singleton is
+      # a net DPS loss" doctrine was written when the GUN stayed available as the
+      # alternative ("a 25t-recharge weapon vs one cog we'd have shot anyway"). It is not:
+      # canFire=false for the entire time the can is held, so today this singleton case
+      # falls straight through to the DRY branch below, which never fires — a disarmed
+      # body that stands mute. Field truth: winners convert can pickups into 5.28 kills/ep,
+      # we convert into 0.50, and 87% of our pickups die WITHOUT EVER FIRING the cone. Take
+      # the nearest fresh enemy in reach with clear LOS: same on-bearing gate as the cluster
+      # fire above, same fire-reach + LOS gate the sim itself uses for the cone.
+      when defined(arcprobe): inc apSingleFire
+      let tgt = bot.enemies[nearFoe].pos
+      desiredAim = bradsOf(tgt - me)
+      moveMask = octantBits(tgt - me)
+      let err = abs(bradsErr(desiredAim, bot.estAim))
+      wantFire = err <= ArcBreachConeBrads
+      when defined(commsprobe):
+        if wantFire: inc csArcFire
+    elif bot.tune.spraySingle and nearFoe >= 0 and nearD <= ArcApproachRadius:
+      # Lone target still out of cone reach: close the gap the same way we would for a
+      # distant cluster, so the fire branch above opens as soon as we're in range.
+      when defined(arcprobe): inc apSingleCharge
+      moveMask = octantBits(bot.enemies[nearFoe].pos - me)
+      desiredAim = bradsOf(bot.enemies[nearFoe].pos - me)
     elif bot.arcLinePos.x >= 0 and bot.tick - bot.arcLineTick <= CommsPlayTtl and
         dist(bot.arcLinePos, me) > ArcBreachFireReach:
       # ⭐ CONVERGE on the CALLED line (Captain-coordinated). We can't SEE the cluster yet
