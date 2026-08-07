@@ -4,16 +4,9 @@
 ## Every number here is a PURE function of one `CtfMap`. Like
 ## `tools/map_render.nim`, this module never installs a map and never reads
 ## the process-global arena (`MapWidth`, `ArenaObstacles`, `obstacleWallAtF`,
-## ...) — the map editor serves renders from a mummy thread pool, the
-## best-of-K ranking loop in `generateCtfMap` scores candidates that were
-## never selected, and both would be corrupted by a process-wide install.
-##
-## It lives in `src/ctf/` rather than `tools/` because the GENERATOR calls it
-## (`map_score.nim` installs it as `generateCtfMap`'s candidate scorer). The
-## purity invariant is what makes that safe: a `{.gcsafe.}` function of its
-## argument can be called from a mummy request thread and from the boot path
-## alike. It imports `arena` and nothing above it, so the dependency runs one
-## way — the sim never imports the measuring stick.
+## ...) — the map editor serves renders from a mummy thread pool, the future
+## best-of-K ranking loop scores candidates that were never selected, and
+## both would be corrupted by a process-wide install.
 ##
 ## What is measured and why (the calibration source is the MW2 study; the
 ## default `arena` is the control in every batch — see tools/map_eval.nim):
@@ -44,8 +37,7 @@
 ##
 ## Rule followed throughout: never a count without its fraction, and never a
 ## threshold that was not picked against the control.
-import std/[algorithm, math], sim_types, arena
-export sim_types, arena
+import std/[algorithm, math], ../src/ctf/sim
 
 const
   AnalysisCell* = FovCellSize
@@ -98,16 +90,11 @@ type
     coverFrac*: float             ## wall fraction within StandRadius.
     protectedFrac*: float         ## ...of that annulus that is PROTECTED
                                   ## floor, where terrain may not be built.
-                                  ## On a legacy column endzone this is most
-                                  ## of it, which is why `coverFrac` reads
-                                  ## structurally low there.
+                                  ## A large endzone radius makes this most of
+                                  ## the annulus, which is why `coverFrac`
+                                  ## reads structurally low on those maps.
     ringRadius*: int              ## px the ring was sampled at.
     ringOpen*: float              ## fraction of the ring that is walkable.
-    ringProtectedFrac*: float     ## ...of the ring that is PROTECTED floor.
-                                  ## 1.0 on every hex map: the ring radius
-                                  ## (endzoneRadius + 30) sits inside the
-                                  ## 60px endzone apron, so `ringOpen` is
-                                  ## decided by EndzoneApron, not by terrain.
     ringArcs*: int                ## distinct arcs wide enough to walk.
 
   RouteMetric* = object
@@ -151,17 +138,11 @@ type
     teamCount*: int
     cell*: int
     genSeed*: int
-    compactEndzone*: bool         ## capture AT the stand rather than in a
-                                  ## full-height home column. The MW2 stand
-                                  ## rules were measured on
+    compactEndzone*: bool         ## capture AT the stand (disc/square) as
+                                  ## opposed to the legacy home column. The
+                                  ## MW2 stand rules were measured on
                                   ## capture-at-the-stand maps and only
-                                  ## govern conversion there. The hex arena
-                                  ## is ALL-DISC (`EndzoneShape` has one
-                                  ## member), so this is true on every map
-                                  ## today; it is kept because the reading it
-                                  ## gates is regime-specific, and a future
-                                  ## `ezHex` sector must arrive as a decision
-                                  ## rather than a silent fallthrough.
+                                  ## govern conversion there.
     validationReason*: string     ## "" when the shipped validators pass.
     freeCells*, wallCells*: int
     wallFrac*: float              ## wall pixels / interior pixels.
@@ -177,7 +158,6 @@ type
     standCoverMin*, standCoverMax*: float
     standRingMin*, standRingMax*: float
     standRingDelta*: float        ## max inter-team ring gap.
-    standRingProtectedMax*: float ## worst team's `ringProtectedFrac`.
     routes*: seq[RouteMetric]
     minRoutes*: int
     minCutPx*: int
@@ -187,39 +167,15 @@ type
     chokeCoveredByOnePoint*: bool ## a single isovist sees them all.
     collision*: CollisionMetric
     crossings*: seq[CrossingMetric]
-    rectShapeFrac*: float         ## share of obstacles that are plain rects.
+    rectShapeFrac*: float         ## share of obstacles that are plain bars
+                                  ## (GV38 `shapeBar` subsumes the old
+                                  ## `shapeRect`/`shapeDiamond` pair exactly).
     shapeCount*: int
     trenchCount*: int
 
 # ---------------------------------------------------------------- masks ----
 
-proc noTerrainAt*(gameMap: CtfMap, x, y: int): bool =
-  ## Whether this pixel is ground the GENERATOR MAY NOT BUILD ON — which is
-  ## strictly more than `mapProtectedFloorAt` reports, and the difference is
-  ## the entire endzone APRON.
-  ##
-  ## `mapProtectedFloorAt` is the sim's rule (the scoring discs plus the
-  ## centre flag ring). The generator additionally keeps terrain out to
-  ## `endzoneRadius + EndzoneApron` around every pedestal, so the approaches
-  ## that make an off-the-edge base playable stay open. Asking the sim's
-  ## predicate "could terrain have been here?" therefore under-reports by an
-  ## annulus 60px wide — on the standard arena it answered 0% for a ring
-  ## that is 100% unbuildable, which is exactly how a band ends up scoring
-  ## maps on ground no draw could have changed.
-  if mapProtectedFloorAt(gameMap, x, y):
-    return true
-  for team in gameMap.teams():
-    let
-      anchor = gameMap.teamAnchor(team)
-      reach = gameMap.endzoneRadius + EndzoneApron
-      dx = x - anchor.x
-      dy = y - anchor.y
-    if dx * dx + dy * dy <= reach * reach:
-      return true
-  false
-
-proc buildMapMasks*(gameMap: CtfMap, cell = AnalysisCell): MapMasks
-    {.gcsafe.} =
+proc buildMapMasks*(gameMap: CtfMap, cell = AnalysisCell): MapMasks =
   ## Rasterizes both masks once. `wallPix` comes from the same
   ## `rasterizeRestWallMask` the art bake and `dump_map_mask --raw` use, so
   ## the terrain measured here is the terrain a bullet meets.
@@ -230,19 +186,8 @@ proc buildMapMasks*(gameMap: CtfMap, cell = AnalysisCell): MapMasks
   result.width = w
   result.height = h
   result.cell = cell
-  ## THE PURITY INVARIANT, ASSERTED TO THE COMPILER. `rasterizeRestWallMask`
-  ## takes its protected-floor rule as an untyped closure because the
-  ## INSTALLED map answers it from the Arena globals — so Nim must treat
-  ## every call as potentially global-reading, and the whole measurement
-  ## stack comes out non-gcsafe. The closure passed HERE is
-  ## `mapProtectedFloorAt` on the argument map: it reads the `CtfMap` it was
-  ## handed and nothing else. That is the module's stated invariant, and it
-  ## is what lets the generator's ranker and the editor's mummy thread pool
-  ## both call this. Widening the parameter type to `{.gcsafe.}` instead
-  ## would break `map_art`, whose closure legitimately does read the globals.
-  {.cast(gcsafe).}:
-    result.wallPix = rasterizeRestWallMask(gameMap, obstacles,
-      proc (x, y: int): bool = mapProtectedFloorAt(gameMap, x, y))
+  result.wallPix = rasterizeRestWallMask(gameMap, obstacles,
+    proc (x, y: int): bool = mapProtectedFloorAt(gameMap, x, y))
 
   ## An integral image answers "is any pixel in this box a wall?" in O(1),
   ## which is what the 13x13 footprint test needs at every cell centre.
@@ -503,7 +448,7 @@ proc standMetric(
       inc total
       if masks.wallPix[y * w + x]:
         inc wallCount
-      if noTerrainAt(gameMap, x, y):
+      if mapProtectedFloorAt(gameMap, x, y):
         inc protectedCount
   result.coverFrac = wallCount.float / max(total, 1).float
   ## Protected floor is where the generator is FORBIDDEN to build, so an
@@ -520,28 +465,17 @@ proc standMetric(
   result.ringRadius = radius
   const Steps = 180
   var ring = newSeq[bool](Steps)
-  var ringProtected = 0
   for i in 0 ..< Steps:
     let
       theta = 2.0 * PI * float(i) / float(Steps)
       x = int(round(float(home.x) + float(radius) * cos(theta)))
       y = int(round(float(home.y) + float(radius) * sin(theta)))
-      onBoard = x >= 0 and y >= 0 and x < w and y < h
-    ring[i] = onBoard and not masks.wallPix[y * w + x]
-    if onBoard and noTerrainAt(gameMap, x, y):
-      inc ringProtected
+    ring[i] = x >= 0 and y >= 0 and x < w and y < h and
+      not masks.wallPix[y * w + x]
   var open = 0
   for v in ring:
     if v: inc open
   result.ringOpen = open.float / float(Steps)
-  ## The same question the annulus asks, asked of the ring: how much of it
-  ## is ground no generator may build on (`noTerrainAt`, so the endzone
-  ## apron counts)? On the hexagon this is 100% by construction —
-  ## `StandRingPad` is 30px and `EndzoneApron` is 60px, so the ring sampled
-  ## here sits INSIDE the apron on every disc-endzone map — and without this
-  ## number the resulting flat 100% openness reads as a map property instead
-  ## of an arithmetic one.
-  result.ringProtectedFrac = ringProtected.float / float(Steps)
   if open == Steps:
     result.ringArcs = 1
     return
@@ -1024,9 +958,8 @@ proc crossingMetric(
 # ------------------------------------------------------------- assembly ----
 
 proc computeMapMetrics*(
-  gameMap: CtfMap, cell = AnalysisCell, withChokepoints = true,
-  withValidation = true
-): MapMetrics {.gcsafe.} =
+  gameMap: CtfMap, cell = AnalysisCell, withChokepoints = true
+): MapMetrics =
   ## The full static evidence set for one map. `withChokepoints` is the one
   ## expensive stage (a flood per candidate); the ranking loop can drop it.
   let masks = buildMapMasks(gameMap, cell)
@@ -1037,24 +970,13 @@ proc computeMapMetrics*(
   result.teamCount = gameMap.teamCount()
   result.genSeed = gameMap.genSeed
   result.cell = cell
-  result.compactEndzone = gameMap.endzone == ezDisc
-  ## The ranking loop has ALREADY validated every candidate it scores, and
-  ## re-validating is the single most expensive thing this proc could do
-  ## (a flood fill and a distance transform at pixel resolution). It passes
-  ## `withValidation = false`; every other caller wants the reading.
-  if withValidation:
-    result.validationReason = validateGeneratedMap(gameMap)
+  result.compactEndzone = gameMap.endzoneRadius > 0
+  result.validationReason = validateGeneratedMap(gameMap)
   result.trenchCount = gameMap.trenches.len
 
-  ## "No more than half your shapes should be plain rectangles." The hex
-  ## conversion deleted `shapeRect` and `shapeDiamond` in favour of one
-  ## oriented `shapeBar`, so "plain rectangle" now means an AXIS-ALIGNED bar
-  ## — a bar on the (1,1) axis is the old diamond and reads as a diamond.
-  ## Asking for `kind == shapeBar` would have quietly counted every diamond
-  ## as a rectangle and doubled the reading.
   var rects = 0
   for shape in gameMap.leftObstacles:
-    if shape.kind == shapeBar and (shape.axisX == 0 or shape.axisY == 0):
+    if shape.kind == shapeBar:
       inc rects
   result.shapeCount = gameMap.leftObstacles.len
   result.rectShapeFrac = rects.float / max(result.shapeCount, 1).float
@@ -1104,8 +1026,6 @@ proc computeMapMetrics*(
     result.standCoverMax = max(result.standCoverMax, stand.coverFrac)
     result.standRingMin = min(result.standRingMin, stand.ringOpen)
     result.standRingMax = max(result.standRingMax, stand.ringOpen)
-    result.standRingProtectedMax =
-      max(result.standRingProtectedMax, stand.ringProtectedFrac)
   result.standRingDelta = result.standRingMax - result.standRingMin
 
   var distances: seq[seq[int]]
@@ -1140,10 +1060,10 @@ proc computeMapMetrics*(
   result.collision =
     collisionMetric(masks, distances, dt, gameMap.teamCount())
   result.crossings.add crossingMetric(masks, "vertical")
-  ## On a left/right pair the horizontal midline is not midfield at all — it
-  ## runs THROUGH both bases, so "ways across it" measures the wrong thing.
-  ## Every other team count separates its bases in both axes and wants both.
   if gameMap.layout != layoutHex2:
+    ## `layoutHex2` is the left/right pair: the vertical midline is the only
+    ## line a run home must cross. Every wider layout seats teams around the
+    ## hex, so the horizontal midline is a real crossing too.
     result.crossings.add crossingMetric(masks, "horizontal")
 
   if withChokepoints:

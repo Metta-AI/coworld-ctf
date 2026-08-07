@@ -86,15 +86,8 @@ suite "map editor service":
     check validation["reason"].kind == JString
     check validation["coverPermille"].kind == JInt
     check validation["minCoverPermille"].kind == JInt
-    ## The band THIS hull was judged against, not the module consts: the cover
-    ## FLOOR is class-dependent (`coverPermilleMin`, which scales as 1/L
-    ## because a lane-blocking curtain grows with the board while the obstacle
-    ## vocabulary does not), so a pinned 44 here would be wrong on every class
-    ## but `standard`.
-    ## `smallMapSpec` is a SMALL hull: 44 * 969/824 = 51.
-    check validation["coverPermilleMin"].getInt() ==
-      CoverPermilleMin * HexStandardHeight div HexSizes[hxSmall].height
-    check validation["coverPermilleMax"].getInt() == CoverPermilleMax
+    check validation["coverPermilleMin"].getInt() == 40
+    check validation["coverPermilleMax"].getInt() == 170
     check validation["openSightlineRows"].kind == JArray
     check validation["unreachableTeams"].kind == JArray
     check validation["centerReachable"].kind == JBool

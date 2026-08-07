@@ -919,16 +919,6 @@ type
     baseDepth*: int        ## home anchor depth permille (see CtfMap.
                            ## homeDepth), HomeDepthMin..HomeDepthMax;
                            ## 0 = draw (700 on column maps).
-    rankK*: int            ## best-of-K: how many VALID candidates
-                           ## `generateCtfMap` collects and scores before
-                           ## shipping the highest scorer, 1..MapRankMaxK.
-                           ## 0 = MapRankDefaultK. 1 disables ranking and
-                           ## restores the historical first-valid map. This
-                           ## is not a lock like the fields above — it does
-                           ## not replace a draw, it buys a better one, so
-                           ## the E[max of K] = K/(K+1) percentile is the
-                           ## thing being bought and the wall clock is the
-                           ## price.
 
   GameConfig* = object
     motionScale*: int
