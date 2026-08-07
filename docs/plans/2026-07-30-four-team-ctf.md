@@ -1,5 +1,18 @@
 # Four-team CTF (red / blue / green / yellow)
 
+> **SUPERSEDED IN ITS GEOMETRY — kept as history, and because the RULES half of
+> it still holds.** The scoring, elimination, seating-by-slot and zero-sum rules
+> below are what the engine plays today. Everything about the BOARD is gone:
+> this plan builds four-team play on `rot90` — a generated quadrant replicated
+> by quarter turns on a square board — and **C4 is not a subgroup of D6**, so a
+> quarter turn does not map a hexagon onto itself. It was deleted, not ported.
+> The replacement is the Klein four-group V4 on the hand-authored
+> `arena-hex4` / `arena-hex4-giant` boards, and the generator still refuses
+> every team count but 2. The `corners` and `plus` layouts named here are
+> rejected tokens. Read `2026-08-04-hex-arena-conversion.md` and the four-team
+> section of `docs/RULES.md`, which states the pickup placement as measured
+> rather than as designed.
+
 STATUS: implemented on this branch. Design points that moved during the
 build (with daveey, 2026-07-29/30) — where this plan and the code disagree,
 the CODE is what shipped:

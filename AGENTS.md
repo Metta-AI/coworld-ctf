@@ -135,15 +135,16 @@ returns a Nim-rendered board plus live validation, and edits it: obstacles,
 trenches, med kits, and the tier-1 map parameters, with undo/redo.
 
 Authoring places a seed item ONCE; `POST /api/symmetry` returns its full
-deduplicated orbit and the editor writes that into the spec. Trench authoring is
-refused on rot90 maps because `finalizeTrenches` never places them there.
+deduplicated orbit and the editor writes that into the spec. (The trench-authoring
+refusal this used to describe was keyed to `rot90` maps, which no longer
+exist — C4 is not a subgroup of D6, so the token is rejected.)
 
 Two invariants to keep if you touch it:
 
 - **The browser never owns geometry.** It renders what the service sends and
   draws markers on top; it must not compute walls, symmetry images, or
-  capture zones. The map code's fairness invariants (doubled rot90
-  coordinates, `int64` in the diagonal test for wasm, integer-offset diamond
+  capture zones. The map code's fairness invariants (the pixel-exact D6
+  images, `int64` in the diagonal test for wasm, integer-offset diamond
   sampling) fail silently as team unfairness when reimplemented.
 - **No map installation on the request path.** See `tools/map_render.nim`
   above.

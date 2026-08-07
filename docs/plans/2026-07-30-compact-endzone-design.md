@@ -1,5 +1,17 @@
 # Compact endzones: deep bases, disc/square zones, wilderness all around (2026-07-30)
 
+> **SUPERSEDED — kept as history, not as a contract.** Its central idea won so
+> completely that the alternatives it was arguing against are gone: GameVersion
+> 38 made EVERY endzone a disc. The `column` archetype this plan adds a second
+> option beside no longer exists, `square` no longer exists, and
+> `arena.nim` raises `CtfError` on both tokens — the disc is the one shape
+> already invariant under every rotation a hexagon admits, so it needs no
+> separate fairness argument. The radius bounds here (a flat 90..220) are also
+> stale: they now scale with the board's short axis. Read
+> `2026-08-04-hex-arena-conversion.md`; the accepted vocabulary and the real
+> per-class radius windows are generated into `docs/RULES.md` by
+> `tools/map_contract.nim`.
+
 Confirmed with daveey. Adds a second terrain archetype to the generator: the
 base sits well off the home edge, the endzone is a **disc or square around the
 base** instead of a full-height border column, and the freed border strip

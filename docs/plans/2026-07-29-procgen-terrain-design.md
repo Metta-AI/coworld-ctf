@@ -1,5 +1,15 @@
 # Procedural Terrain Design (2026-07-29)
 
+> **SUPERSEDED — kept as history, not as a contract.** This describes the
+> generator on the RECTANGULAR board. GameVersion 38 replaced that board with a
+> hexagon and GameVersion 41 shipped the current generator on top of it, so the
+> field dimensions, the symmetry group, the endzone vocabulary and the
+> validator thresholds below no longer describe anything the engine does.
+> Read `2026-08-04-hex-arena-conversion.md` for the board and
+> `2026-08-04-map-generator-rebuild.md` for the generator. The values the
+> engine ACTUALLY accepts are generated into `docs/RULES.md` by
+> `tools/map_contract.nim` and held by `tests/test_doc_contract.nim`.
+
 Confirmed with daveey. Replaces the two hand-authored arenas as the canonical
 map source with a seeded generator + curated pool.
 

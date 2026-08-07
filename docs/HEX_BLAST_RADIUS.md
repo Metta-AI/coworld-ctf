@@ -11,6 +11,13 @@ RED if it regressed, or reported as not handled. The starting suite was
 **578 tests green**, which is exactly why a green suite could not be taken as
 the answer to anything.
 
+> **The sweep missed a surface, and the miss was in this report rather than in
+> the tree.** The published contract documents were never swept, and their
+> absence here made the work read as more complete than it was — which is what
+> a review failed it for. That surface is now the fifth broken thing below, and
+> "Not settled here" at the end of this file is the authoritative list of what
+> remains, including two items nobody has verified.
+
 ## What was already done, and is not re-litigated here
 
 Rounds one through three had already landed `tests/helpers.nim`, the geometry
@@ -182,7 +189,67 @@ red:
 * **`tools/four_team_map_probe.nim`** no longer exists; the 4-team probing it
   did lives in `ez_probe_aacf.nim` and `test_four_team.nim`.
 
+## The fifth thing, which a review found after this report was written
+
+**The PUBLISHED DOCS still described the pre-hex arena — and this report did
+not say so.**
+
+Added 2026-08-07, after a review FAILED the sweep on this and this alone. The
+sweep found and fixed four things, disclosed a fifth as blocked, and read as
+complete. It was not: the external contract documents had never been swept at
+all, and their absence from this report was the actual reason for the failure.
+**An undisclosed gap is worse than a disclosed one**, because a reader budgets
+against the report rather than against the tree.
+
+What was wrong, each item independently confirmed before it was touched:
+
+* `docs/RULES.md` published `mapEndzone: "column"` and `mapEndzone: "square"`.
+  `arena.nim:1851` raises `CtfError` on both. The contract named values the
+  engine rejects.
+* `docs/RULES.md`'s four-team bullet specified `rot90`, `corners` and `plus` —
+  **six lines under** the paragraph in the same document declaring those tokens
+  deleted. The file contradicted itself.
+* `README.md` was never touched by the hex migration. `docs/MAPKIT.md`
+  contained zero occurrences of "hex". `REPLAY_DESIGN.md` specified score
+  columns from `checkWinConditions` / `captureZoneXRange` — two symbols that
+  exist nowhere in `src/`, along with three comments in `map_art.nim` citing
+  the same dead pair.
+* Three plan docs (`2026-07-29-procgen-terrain-design`,
+  `2026-07-30-compact-endzone-design`, `2026-07-30-four-team-ctf`) carried no
+  supersession header.
+
+**Why no test caught it, and what changed.** No test in this repo read a
+markdown file, so the drift was not merely unfixed — it was UNDETECTABLE, and
+a 599-green suite was silent on it by construction. The fix is not a careful
+re-transcription, which would drift again on the next retirement. The
+vocabulary is now GENERATED: `tools/map_contract.nim` feeds every candidate
+token to the real `generateMapAttempt` / `mapFromSpecJson` and publishes the
+verdict the engine returns, and `tests/test_doc_contract.nim` regenerates the
+block and fails on disagreement. A second check refuses any published doc that
+names a retired token without saying it is gone.
+
+Both checks were mutation-tested against the verbatim pre-fix text and go red
+on it. The first attempt did **not**, and the reason is worth keeping: at
+paragraph granularity the offending four-team bullet borrowed the "DELETED"
+disclaimer from a neighbouring bullet in the same list, and matching only
+backticked tokens missed `corners layout` / `rot90 orbit`, which is the form
+the real bug took. A gate has to be shown failing on the actual defect, not on
+a defect shaped like it.
+
+Beyond the reported items, the probe surfaced four more published numbers that
+were wrong: `mapEndzoneRadius` is not a flat `90..220` (it is keyed on the
+board's short axis — 60..220 on small, 90..1144 on colossal, so a legal value
+on one class is rejected on another); `mapBaseDepth` does not "draw 520-620"
+but SOLVES a window against the board; the four-team pickup bullet was wrong in
+every clause (measured by booting `arena-hex4`: two NEUTRAL med kits on the
+centre line, not a diamond of four); and `MAPKIT.md`'s "~55-65% validator pass
+rate" and "40-170 permille cover budget" both contradict the committed
+`map-validation-baseline.tsv`.
+
 ## Not settled here
+
+Everything below is OUTSTANDING. Nothing in this list is fixed, and two of the
+items were never verified by anyone — they are named rather than implied.
 
 * **The generator is 2-team.** Rectangular boards alongside hex, and hex at
   2/3/4/6 teams, is the stated target end state. It is generator work — the
@@ -191,5 +258,38 @@ red:
   C) — plus Stage 2b and the `Team` enum. `test_three_team.nim` and
   `test_six_team.nim` are the acceptance checklist: they go red, item by item,
   as each blocker lifts.
+* **The wasm32 CI gate was NEVER RUN — by this sweep or the review.** The
+  `wasm-replay-viewer` job in `.github/workflows/build.yml` is the only thing
+  that can catch the 32-bit-`int` and 2 GB-address-space class of bug, which
+  has reached production twice. It builds the exact observatory bundle through
+  `Dockerfile.replay-viewer` (pinned emsdk + nim). **No emscripten toolchain
+  was stood up on this machine, so the job has been reasoned about and not
+  executed.** Its two live fixtures will run on push; until a green run exists,
+  treat the wasm path as unverified rather than passing. Separately and
+  independently, `gen-colossal-4team.bitreplay` remains OMITTED from that
+  job's loop for the two documented reasons above, so the top size class is
+  untested even when the job is green.
 * **Cutting the decoder release and notifying the consumer** is left to a
-  human. Publishing is public and hard to undo.
+  human, deliberately. Publishing is public, is cached and indexed downstream,
+  and is hard to undo; a pinned consumer (`fetch-decoder.sh` in
+  daveey/cogamer) chooses when to move. `docs/DECODER_CONTRACT.md` and
+  `DecoderFormatVersion` are updated and tested, so the repo side is ready —
+  the release itself is not cut.
+* **Four findings from the docs sweep were left as findings**, because each is
+  an engine change and this was a contract pass:
+  1. `mapSize` is the one generator knob whose bad value does not raise
+     `CtfError`. It raises `ValueError` out of `hexSizeClass`, with a message
+     that never names the config field.
+  2. The generator's `mapLayout` guard is a catch-all: it answers "corners is
+     not a 2-team layout" for a DELETED token and for one that merely needs
+     more teams. Its message cannot distinguish a typo from a future board.
+     The spec path can, and the generated block reports the two separately.
+  3. `map_art.nim`'s straight-edged endzone paint branch is UNREACHABLE —
+     `captureZone` is the only `CaptureZone` constructor and always sets
+     `disc: true`. Commented as dead rather than deleted, since the shape
+     vocabulary is where a future sector zone would land.
+  4. The four-team med-kit fallback is the one pickup family not routed
+     through `teamImagePoint`, and lands 1px off V4-exact (`h div 3` = 323
+     against the mirror of `2h div 3` = 646, which is 645). It is 0.2px of
+     reach asymmetry — negligible in play, and the exact class of bug
+     `walkableGrenadePoints` was written to avoid.
