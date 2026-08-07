@@ -1171,7 +1171,10 @@ const
     ## 88-120 px around 56-60 px obstacles, so no adjacent-slot gap exceeds
     ## 64 px. Raising this belongs to the structure pass, not here. Exported so
     ## tools and tests stop re-declaring it.
-  MapGenMaxAttempts = 100
+  MapGenMaxAttempts* = 100
+    ## Exported for the same reason as the const above: a probe that mirrors
+    ## `generateCtfMapSelection` has to draw to the SAME cap, and one that
+    ## re-declared it measured the first K draws instead of the first K passes.
   MapSizeNames = DrawableSizeNames
     ## Derived from `map_rules.MapSizeClassTable`, not typed. The generator
     ## indexes this with ONE rng draw, so its length and order are part of the
@@ -1571,6 +1574,34 @@ proc rectOnOpenFloor(
         return false
   true
 
+when defined(maptrace):
+  type MapGenTrace* = object
+    ## WHICH LAYER SPENT THE COVER. `leftObstacles` is emitted in four layers
+    ## — topology structure, budgeted fill, the centre feature, then the
+    ## constructive row cover — and only the second of them has a budget. A
+    ## "too clogged" verdict therefore names a map and not a cause, which is
+    ## how three separate pieces of work each hit the 170 permille ceiling
+    ## without anyone being able to say whose permille they were.
+    ##
+    ## The counts are PREFIX BOUNDARIES into the finished `leftObstacles`, so
+    ## a probe can rasterise `[0 ..< structureEnd]` and read that layer's own
+    ## cover off the same mask the validator reads, rather than summing shape
+    ## areas that overlap. Debug-only: `-d:maptrace`, see
+    ## `tools/three_lane_probe.nim`.
+    arch*: string
+    structureEnd*: int      ## [0 ..< structureEnd) — topology walls
+    fillEnd*: int           ## [structureEnd ..< fillEnd) — budgeted fill
+    centreEnd*: int         ## [fillEnd ..< centreEnd) — centre feature
+    rowPickets*: int        ## [centreEnd ..< len) — constructive row cover
+    lanePickets*: int       ## of the fill, `map_lanes.plugOpenRows` pickets
+    fillOffered*: int       ## shapes the vocabulary and biome produced
+    fillDropped*: int       ## ... dropped for intruding on a reserved corridor
+    budgetSkipped*: int     ## ... skipped for want of fill budget
+
+  var lastMapGenTrace*: MapGenTrace
+    ## The trace of the LAST candidate `generateMapAttempt` drew. Not
+    ## thread-safe and not meant to be: a probe generates on one thread.
+
 proc generateMapAttempt*(
   seed: int, overrides: MapGenOverrides, teams = 2, attempt = 0,
   unitsPerTeam = 0
@@ -1819,6 +1850,12 @@ proc generateMapAttempt*(
   ## overlapping fill layers make necessary — see where they are resolved.
   var insteadProposals: seq[tuple[idx, x, y: int]]
 
+  when defined(maptrace):
+    ## Reset the LAYER attribution for this candidate. See `MapGenTrace`: the
+    ## cover budget is spent by four different layers and until this existed
+    ## a "too clogged" verdict could not say which one spent it.
+    lastMapGenTrace = MapGenTrace()
+
   ## TERRAIN — a route SKELETON first, then organic FILL inside what it leaves.
   ##
   ## This replaces the column lattice, which was four `ColumnFamily` skins on
@@ -2025,6 +2062,12 @@ proc generateMapAttempt*(
       structureCount =
         laneSeparatorShapes(carved.plan).len + laneGateShapes(carved.plan).len
       emitted = carved.shapes
+      when defined(maptrace):
+        lastMapGenTrace.fillOffered = fill.len
+        ## `carveLanes` is separators + gates + reconciled cover + pickets, so
+        ## whatever is left over after the first three IS the picket run.
+        lastMapGenTrace.lanePickets =
+          carved.shapes.len - structureCount - clearLanes(fill, carved.plan).len
     else:
       ## The archetype's own walls spend FIRST, exactly like a lane separator:
       ## a warren's rooms and a field's massifs are the map, not decoration on
@@ -2067,6 +2110,9 @@ proc generateMapAttempt*(
           inc reservedDropped
         else:
           emitted.add shape
+      when defined(maptrace):
+        lastMapGenTrace.fillOffered = fill.len
+        lastMapGenTrace.fillDropped = reservedDropped
       when defined(mapdbg):
         echo "  [dbg] arch=", archetype, " region=", region.w, "x", region.h,
           " fill=", fill.len, " reservedDropped=", reservedDropped,
@@ -2157,8 +2203,14 @@ proc generateMapAttempt*(
         let a = approxArea(shape)
         if a > budget:
           when defined(mapdbg): inc budgetSkipped
+          when defined(maptrace): inc lastMapGenTrace.budgetSkipped
           continue
         budget -= a
+      else:
+        ## Structure is emitted first and unconditionally, so the kept
+        ## structure is exactly the prefix of `leftObstacles`.
+        when defined(maptrace):
+          lastMapGenTrace.structureEnd = result.leftObstacles.len + 1
       result.leftObstacles.add shape
       ## Window and trench candidates come from the FILL rather than from
       ## lattice slots. A window wants a piece of COVER you can see past, and
@@ -2177,6 +2229,9 @@ proc generateMapAttempt*(
     when defined(mapdbg):
       echo "  [dbg] budgetSkipped=", budgetSkipped, " budgetLeft=", budget,
         " of ", budget0, " -> leftObstacles=", result.leftObstacles.len
+    when defined(maptrace):
+      lastMapGenTrace.arch = $archetype
+      lastMapGenTrace.fillEnd = result.leftObstacles.len
 
     ## An `instead` proposal only becomes a CANDIDATE if swapping its obstacle
     ## for a pit would genuinely open floor.
@@ -2276,11 +2331,25 @@ proc generateMapAttempt*(
   ## still go SOMEWHERE, because the mechanic needs them (see CentrePolicy).
   block centreSpinners:
     const SpinInset = 40   ## inside DiamondSpinBand (80) at every size class.
-    let sx = result.center.x - SpinInset
+    let
+      sx = result.center.x - SpinInset
+      ## ONE PIECE OF TERRAIN, at this class's size. `map_rules` already owns
+      ## that number and its doc says out loud what this literal used to be:
+      ## "the generator's discs and diamonds carry radius 28, so a piece is 56
+      ## px across". Nothing read it back, so the spinners were a FIXED
+      ## absolute size on a board that shrinks — the same defect
+      ## `laneSeparatorThickPx` was written to fix for the separators, and the
+      ## same symptom: measured, the colonnade costs 21-35 permille on a
+      ## standard board and 41-48 on a `small` one, against a 170 ceiling,
+      ## because a spinner is unchanged while the interior it is measured
+      ## against is 0.72x. `coverSizePx` is 56 at `standard` BY CONSTRUCTION,
+      ## so every standard board — the curated pool included — is unmoved to
+      ## the pixel; only the other classes see this.
+      spinRadius = mapRules(result.mapSizeClass(), teams).coverSizePx div 2
     proc trySpinner(gameMap: var CtfMap, sy: int): bool =
       ## Never on protected floor — it would be carved straight back out —
       ## and never where it would seal a compact base's approach.
-      let d = ArenaShape(kind: shapeDiamond, cx: sx, cy: sy, radius: 28)
+      let d = ArenaShape(kind: shapeDiamond, cx: sx, cy: sy, radius: spinRadius)
       if mapProtectedFloorAt(gameMap, sx, sy) or gameMap.sealsEndzoneGate(d):
         return false
       gameMap.leftObstacles.add d
@@ -2327,6 +2396,8 @@ proc generateMapAttempt*(
           inc placed
           break
         sy += 40
+  when defined(maptrace):
+    lastMapGenTrace.centreEnd = result.leftObstacles.len
 
   ## Endzone trench pit candidates, authored on the RED side (the symmetry
   ## image gives Blue the exact counterpart): BEHIND the pedestal toward
@@ -2651,6 +2722,7 @@ proc generateMapAttempt*(
                   ## written to escape.
                   if not mapProtectedFloorAt(result, xx, yy):
                     minWall[yy * w + xx] = true
+            when defined(maptrace): inc lastMapGenTrace.rowPickets
             ## Advance past this picket's own width so the next row starts
             ## somewhere new rather than re-testing the slot just filled.
             if spreadPickets:
