@@ -1,0 +1,173 @@
+=== arena4  (3 episode(s), 11650 ticks total)
+    ep0:  3279t, 1 steal(s) -> 0 capture(s), won by wipeout
+    ep1:  5123t, 0 steal(s) -> 0 capture(s), ran out the clock, nobody won
+    ep2:  3248t, 0 steal(s) -> 0 capture(s), won by wipeout
+    dead space 43% of open floor (4413/7772 cells visited; largest unvisited region 47,300px²)  [CONTROL, hand-authored — the yardstick, never the verdict]
+    exposure 9.4 alive seat-ticks per open cell (73,345 seat-ticks over 7,772 cells)
+    139 deaths, spread 346px
+    kills [53, 31, 23, 32]  balance 0.97  pace 11.9 kills/1000t  contact 100% in gun range / 43% within 262px
+    per objective (ring 70px), enemy seat-time and how many of the 3 possible enemies came:
+      team 0 pedestal    4,577t  6.240%  3/3 enemies
+      team 1 pedestal      774t  1.055%  3/3 enemies
+      team 2 pedestal       47t  0.064%  1/3 enemies
+      team 3 pedestal    2,852t  3.888%  2/3 enemies
+    pressure balance 0.68 over 4 objectives (1.0 = even), attack pairs 9/12 75%
+    objective: 1 steals -> 0 captures (0 verified in zone) = 0% conversion, carrier in zone 0t (0.0 per 1000t)
+    how they ended: 0/3 0% on the objective, 2/3 67% by wipeout, 1/3 33% out of clock
+    heatmap /tmp/ctf4ctl/gallery/heat-arena4.png
+    FLAG: every objective was approached, but only 9/12 = 75% of the (attacker, target) pairs the rules allow ever happened — some teams can reach the objective and some pairings never meet on it
+    FLAG: enemy pressure is spread 0.68 evenly over the objectives (1.0 is even): t0 6.240% t1 1.055% t2 0.064% t3 3.888%. A rot90/mirror board scores FAIR STATICALLY; this is the same board measured on whether that fairness is REACHABLE, and the two have come apart
+    FLAG: 1 steals converted to ZERO captures. The carrier stood in its own capture zone on 0 tick(s) — if that is also 0 the objective was never reached; if it is large the carrier reached it and could not score, which is a RULES or BOT question before it is a map question
+
+=== gen:1003  (3 episode(s), 5909 ticks total)
+    ep0:  2510t, 2 steal(s) -> 0 capture(s), won by wipeout
+    ep1:  1711t, 0 steal(s) -> 0 capture(s), won by wipeout
+    ep2:  1688t, 0 steal(s) -> 0 capture(s), won by wipeout
+    dead space 55% of open floor (3541/7840 cells visited; largest unvisited region 82,800px²)
+    exposure 6.7 alive seat-ticks per open cell (52,919 seat-ticks over 7,840 cells)
+    132 deaths, spread 220px
+    kills [45, 23, 40, 24]  balance 0.97  pace 22.3 kills/1000t  contact 100% in gun range / 50% within 262px
+    per objective (ring 70px), enemy seat-time and how many of the 3 possible enemies came:
+      team 0 pedestal      664t  1.255%  2/3 enemies
+      team 1 pedestal    1,516t  2.865%  2/3 enemies
+      team 2 pedestal      680t  1.285%  1/3 enemies
+      team 3 pedestal  NEVER APPROACHED
+    pressure balance 0.73 over 4 objectives (1.0 = even), attack pairs 5/12 42%
+    objective: 2 steals -> 0 captures (0 verified in zone) = 0% conversion, carrier in zone 0t (0.0 per 1000t)
+    how they ended: 0/3 0% on the objective, 3/3 100% by wipeout, 0/3 0% out of clock
+    heatmap /tmp/ctf4ctl/gallery/heat-gen-1003.png
+    FLAG: one unvisited region of ~82,800px² — a whole wing nobody played
+    FLAG: 1/4 = 25% of the objectives were NEVER APPROACHED (team 3) across 3 episode(s). Not 'hard to take' — not once entered. Static symmetry is a claim about geometry and cannot see this
+    FLAG: enemy pressure is spread 0.73 evenly over the objectives (1.0 is even): t0 1.255% t1 2.865% t2 1.285% t3 0.000%. A rot90/mirror board scores FAIR STATICALLY; this is the same board measured on whether that fairness is REACHABLE, and the two have come apart
+    FLAG: 2 steals converted to ZERO captures. The carrier stood in its own capture zone on 0 tick(s) — if that is also 0 the objective was never reached; if it is large the carrier reached it and could not score, which is a RULES or BOT question before it is a map question
+    FLAG: these games ran 1969t against the control's 3883t — a capture ENDS an episode, so dead space here is not comparable to arena4's
+
+=== gen:1007  (3 episode(s), 9438 ticks total)
+    ep0:  2181t, 0 steal(s) -> 0 capture(s), won by wipeout
+    ep1:  5123t, 0 steal(s) -> 0 capture(s), ran out the clock, nobody won
+    ep2:  2134t, 0 steal(s) -> 0 capture(s), won by wipeout
+    dead space 43% of open floor (4399/7755 cells visited; largest unvisited region 29,300px²)
+    exposure 11.6 alive seat-ticks per open cell (89,847 seat-ticks over 7,755 cells)
+    128 deaths, spread 316px
+    kills [43, 42, 24, 19]  balance 0.96  pace 13.6 kills/1000t  contact 100% in gun range / 44% within 262px
+    per objective (ring 70px), enemy seat-time and how many of the 3 possible enemies came:
+      team 0 pedestal    7,437t  8.277%  2/3 enemies
+      team 1 pedestal    3,676t  4.091%  3/3 enemies
+      team 2 pedestal  NEVER APPROACHED
+      team 3 pedestal  NEVER APPROACHED
+    pressure balance 0.46 over 4 objectives (1.0 = even), attack pairs 5/12 42%
+    objective: 0 steals -> 0 captures (0 verified in zone) = - conversion, carrier in zone 0t (0.0 per 1000t)
+    how they ended: 0/3 0% on the objective, 2/3 67% by wipeout, 1/3 33% out of clock
+    heatmap /tmp/ctf4ctl/gallery/heat-gen-1007.png
+    FLAG: 2/4 = 50% of the objectives were NEVER APPROACHED (team 2, team 3) across 3 episode(s). Not 'hard to take' — not once entered. Static symmetry is a claim about geometry and cannot see this
+    FLAG: enemy pressure is spread 0.46 evenly over the objectives (1.0 is even): t0 8.277% t1 4.091% t2 0.000% t3 0.000%. A rot90/mirror board scores FAIR STATICALLY; this is the same board measured on whether that fairness is REACHABLE, and the two have come apart
+    FLAG: ZERO steals in 3 episode(s) DESPITE the objective being reached constantly: an enemy stood inside 2/4 = 50% of the pedestal rings for 12.369% of alive time (11,113 seat-ticks), 23x the arena's 0.533%. They got there and did not take it, so this is a RULES or BOT question before it is a map question
+
+=== gen:1010  (3 episode(s), 5929 ticks total)
+    ep0:  2053t, 4 steal(s) -> 0 capture(s), won by wipeout
+    ep1:  2126t, 2 steal(s) -> 0 capture(s), won by wipeout
+    ep2:  1750t, 2 steal(s) -> 0 capture(s), won by wipeout
+    dead space 64% of open floor (4909/13639 cells visited; largest unvisited region 517,100px²)
+    exposure 4.4 alive seat-ticks per open cell (60,198 seat-ticks over 13,639 cells)
+    129 deaths, spread 265px
+    kills [34, 30, 33, 32]  balance 1.00  pace 21.8 kills/1000t  contact 100% in gun range / 37% within 262px
+    per objective (ring 91px), enemy seat-time and how many of the 3 possible enemies came:
+      team 0 pedestal    2,825t  4.693%  3/3 enemies
+      team 1 pedestal      464t  0.771%  2/3 enemies
+      team 2 pedestal  NEVER APPROACHED
+      team 3 pedestal      344t  0.571%  1/3 enemies
+    pressure balance 0.49 over 4 objectives (1.0 = even), attack pairs 6/12 50%
+    objective: 8 steals -> 0 captures (0 verified in zone) = 0% conversion, carrier in zone 0t (0.0 per 1000t)
+    how they ended: 0/3 0% on the objective, 3/3 100% by wipeout, 0/3 0% out of clock
+    heatmap /tmp/ctf4ctl/gallery/heat-gen-1010.png
+    FLAG: 64% dead floor vs the control's 43%, but exposure differs 0.47x (4.4 vs 9.4 alive seat-ticks per open cell) — NOT comparable, re-run both at the same seats and tick budget
+    FLAG: 1/4 = 25% of the objectives were NEVER APPROACHED (team 2) across 3 episode(s). Not 'hard to take' — not once entered. Static symmetry is a claim about geometry and cannot see this
+    FLAG: enemy pressure is spread 0.49 evenly over the objectives (1.0 is even): t0 4.693% t1 0.771% t2 0.000% t3 0.571%. A rot90/mirror board scores FAIR STATICALLY; this is the same board measured on whether that fairness is REACHABLE, and the two have come apart
+    FLAG: 8 steals converted to ZERO captures. The carrier stood in its own capture zone on 0 tick(s) — if that is also 0 the objective was never reached; if it is large the carrier reached it and could not score, which is a RULES or BOT question before it is a map question
+    FLAG: these games ran 1976t against the control's 3883t — a capture ENDS an episode, so dead space here is not comparable to arena4's
+
+=== gen:1013  (3 episode(s), 11974 ticks total)
+    ep0:  1728t, 1 steal(s) -> 1 capture(s), WON ON THE OBJECTIVE
+    ep1:  5123t, 3 steal(s) -> 0 capture(s), ran out the clock, nobody won
+    ep2:  5123t, 1 steal(s) -> 0 capture(s), ran out the clock, nobody won
+    dead space 40% of open floor (3421/5745 cells visited; largest unvisited region 31,000px²)
+    exposure 13.1 alive seat-ticks per open cell (74,975 seat-ticks over 5,745 cells)
+    134 deaths, spread 290px
+    kills [26, 33, 40, 34]  balance 0.99  pace 11.1 kills/1000t  contact 100% in gun range / 41% within 262px
+    per objective (ring 60px), enemy seat-time and how many of the 3 possible enemies came:
+      team 0 pedestal    1,228t  1.638%  3/3 enemies
+      team 1 pedestal    1,135t  1.514%  3/3 enemies
+      team 2 pedestal    7,078t  9.440%  1/3 enemies
+      team 3 pedestal    5,283t  7.046%  1/3 enemies
+    pressure balance 0.81 over 4 objectives (1.0 = even), attack pairs 8/12 67%
+    objective: 5 steals -> 1 captures (1 verified in zone) = 20% conversion, carrier in zone 0t (0.0 per 1000t)
+    how they ended: 1/3 33% on the objective, 0/3 0% by wipeout, 2/3 67% out of clock
+    heatmap /tmp/ctf4ctl/gallery/heat-gen-1013.png
+    FLAG: every objective was approached, but only 8/12 = 67% of the (attacker, target) pairs the rules allow ever happened — some teams can reach the objective and some pairings never meet on it
+
+=== gen:1020  (3 episode(s), 7405 ticks total)
+    ep0:  1842t, 0 steal(s) -> 0 capture(s), won by wipeout
+    ep1:  2793t, 0 steal(s) -> 0 capture(s), won by wipeout
+    ep2:  2770t, 0 steal(s) -> 0 capture(s), won by wipeout
+    dead space 45% of open floor (4358/7905 cells visited; largest unvisited region 49,500px²)
+    exposure 8.6 alive seat-ticks per open cell (67,838 seat-ticks over 7,905 cells)
+    135 deaths, spread 330px
+    kills [37, 35, 37, 26]  balance 0.99  pace 18.2 kills/1000t  contact 100% in gun range / 42% within 262px
+    per objective (ring 70px), enemy seat-time and how many of the 3 possible enemies came:
+      team 0 pedestal      780t  1.150%  3/3 enemies
+      team 1 pedestal    1,422t  2.096%  2/3 enemies
+      team 2 pedestal       82t  0.121%  1/3 enemies
+      team 3 pedestal      210t  0.310%  2/3 enemies
+    pressure balance 0.72 over 4 objectives (1.0 = even), attack pairs 8/12 67%
+    objective: 0 steals -> 0 captures (0 verified in zone) = - conversion, carrier in zone 0t (0.0 per 1000t)
+    how they ended: 0/3 0% on the objective, 3/3 100% by wipeout, 0/3 0% out of clock
+    heatmap /tmp/ctf4ctl/gallery/heat-gen-1020.png
+    FLAG: every objective was approached, but only 8/12 = 67% of the (attacker, target) pairs the rules allow ever happened — some teams can reach the objective and some pairings never meet on it
+    FLAG: enemy pressure is spread 0.72 evenly over the objectives (1.0 is even): t0 1.150% t1 2.096% t2 0.121% t3 0.310%. A rot90/mirror board scores FAIR STATICALLY; this is the same board measured on whether that fairness is REACHABLE, and the two have come apart
+    FLAG: ZERO steals in 3 episode(s) DESPITE the objective being reached constantly: an enemy stood inside 4/4 = 100% of the pedestal rings for 3.676% of alive time (2,494 seat-ticks), 7x the arena's 0.533%. They got there and did not take it, so this is a RULES or BOT question before it is a map question
+
+==================================================================================================================================================================================
+ONE-PAGE COMPARISON — generated vs arena4, the hand-authored control, per metric
+                                              arena4*                 gen:1003                 gen:1007                 gen:1010                 gen:1013                 gen:1020
+                                              CONTROL                                                                                                                             
+  teams                                             4                        4                        4                        4                        4                        4
+  episodes                                          3                        3                        3                        3                        3                        3
+  episode lengths                   3279t 5123t 3248t        2510t 1711t 1688t        2181t 5123t 2134t        2053t 2126t 1750t        1728t 5123t 5123t        1842t 2793t 2770t
+  won on the objective                         0/3 0%                   0/3 0%                   0/3 0%                   0/3 0%                  1/3 33%                   0/3 0%
+  won by wipeout                              2/3 67%                 3/3 100%                  2/3 67%                 3/3 100%                   0/3 0%                 3/3 100%
+  out of clock, no winner                     1/3 33%                   0/3 0%                  1/3 33%                   0/3 0%                  2/3 67%                   0/3 0%
+
+  open floor (10px cells)                       7,772                    7,840                    7,755                   13,639                    5,745                    7,905
+  visited                               4413/7772 57%            3541/7840 45%            4399/7755 57%           4909/13639 36%            3421/5745 60%            4358/7905 55%
+  DEAD SPACE                                      43%                      55%                      43%                      64%                      40%                      45%
+  largest dead region                       47,300px²                82,800px²                29,300px²               517,100px²                31,000px²                49,500px²
+  exposure (seat-t/cell)                          9.4                      6.7                     11.6                      4.4                     13.1                      8.6
+
+  objectives approached                      4/4 100%                  3/4 75%                  2/4 50%                  3/4 75%                 4/4 100%                 4/4 100%
+    each, % of alive time     6.24% 1.06% 0.06% 3.89%   1.25% 2.86% 1.28% NONE    8.28% 4.09% NONE NONE   4.69% 0.77% NONE 0.57%  1.64% 1.51% 9.44% 7.05%  1.15% 2.10% 0.12% 0.31%
+    each, enemies that came           3/3 3/3 1/3 2/3          2/3 2/3 1/3 0/3          2/3 3/3 0/3 0/3          3/3 2/3 0/3 1/3          3/3 3/3 1/3 1/3          3/3 2/3 1/3 2/3
+  attack pairs realized                      9/12 75%                 5/12 42%                 5/12 42%                 6/12 50%                 8/12 67%                 8/12 67%
+  pressure balance                               0.68                     0.73                     0.46                     0.49                     0.81                     0.72
+  enemy time at pedestal                8,250 11.248%             2,860 5.404%           11,113 12.369%             3,633 6.035%           14,724 19.639%             2,494 3.676%
+  pedestal ring radius                           70px                     70px                     70px                     91px                     60px                     70px
+  steals                                            1                        2                        0                        8                        5                        0
+  captures                                          0                        0                        0                        0                        1                        0
+  CONVERSION grab->cap                             0%                       0%                        -                       0%                      20%                        -
+  carrier in zone /1000t                          0.0                      0.0                      0.0                      0.0                      0.0                      0.0
+
+  deaths                                          139                      132                      128                      129                      134                      135
+  kills/1000t                                    11.9                     22.3                     13.6                     21.8                     11.1                     18.2
+  contact, gun range                             100%                     100%                     100%                     100%                     100%                     100%
+  contact, close                                  43%                      50%                      44%                      37%                      41%                      42%
+  balance entropy                                0.97                     0.97                     0.96                     1.00                     0.99                     0.99
+
+  DELTA FROM THE CONTROL  (generated - arena4, the hand-authored board; pp = percentage points)
+    gen:1003     dead floor +12pp   conversion +0pp   decided +0pp   exposure 0.72x
+    gen:1007     dead floor +0pp   conversion n/a (no steals)   decided +0pp   exposure 1.23x
+    gen:1010     dead floor +21pp   conversion +0pp   decided +0pp   exposure 0.47x
+    gen:1013     dead floor -3pp   conversion +20pp   decided +33pp   exposure 1.38x
+    gen:1020     dead floor +2pp   conversion n/a (no steals)   decided +0pp   exposure 0.91x
+  Exposure outside 0.70..1.40x makes the dead-space delta beside it NOT comparable — see the per-map FLAG lines above.
+
+wrote /tmp/ctf4ctl/gallery/playtest.json + heat-<map>.png
+EXIT=0
