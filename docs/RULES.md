@@ -172,41 +172,44 @@ tasks, voting) with teams, guns, hearts, and fog-of-war vision.
 
 ## Four-team mode (config-gated)
 
-> **SUSPENDED at GameVersion 38 (hex arena).** Four-team play was built on
-> `rot90` symmetry: a generated quadrant replicated by quarter turns on a
-> square board. **C4 is not a subgroup of D6**, so a quarter turn does not map
-> a hexagon onto itself and that construction has no hex analogue — it is
+> **REBUILT on the hexagon, and NOT generated.** Four-team play used to be
+> built on `rot90` symmetry: a generated quadrant replicated by quarter turns
+> on a square board. **C4 is not a subgroup of D6**, so a quarter turn does not
+> map a hexagon onto itself and that construction has no hex analogue — it is
 > deleted, not ported. The replacement is the **Klein four-group**
 > V4 = {identity, mirror-x, mirror-y, half turn}, which IS a subgroup of D6,
 > acts freely on four spawns, and (because all four of its elements are exact
 > on a square pixel lattice) is exactly as fair as the rot90 boards it
-> replaces. The geometry for it is in place — `symKlein4` / `layoutHex4`,
-> `teamAnchor`, `teamImagePoint` and `captureZone` all work — but the
-> GENERATOR does not emit 4-team maps yet, so `"teams": 4` currently raises.
-> The one real cost to plan for is **handedness**: two of the four teams reach
-> their seat through a MIRROR, so a learned route flips chirality for them.
+> replaces.
 >
-> The rest of this section describes the retired square boards and is kept as
-> the record of what 4-team play meant.
+> **What works today:** `"teams": 4` on the hand-authored boards
+> `"mapPath": "arena-hex4"` (1119x969) or `"arena-hex4-giant"` (2909x2519).
+> Both are real maps — `validateMap` accepts them, `teamAnchor`,
+> `teamImagePoint` and `captureZone` all resolve them — and they are what the
+> `4ffa` and `4ffa8` league variants seat.
+>
+> **What does not:** the GENERATOR still emits 2-team boards only, so
+> `"teams": 4` with `"mapPath": "gen"` raises. The four-team boards are
+> therefore BARE — hull, border ring and four endzone discs, no obstacles.
+> The 2-team slalom seeds a half-plane and V4 needs a quadrant, so that
+> furniture cannot be reused without re-authoring it, and a wrong reuse is
+> silently team-unfair rather than visibly broken.
+>
+> The one cost to plan for is **handedness**: two of the four teams reach
+> their seat through a MIRROR, so a learned route flips chirality for them.
 
 The default game is the classic 2-team arena above; nothing changes unless a
-config opts in. With `"teams": 4` (and `"mapPath": "gen"`), the game seated
-FOUR teams — **Red, Blue, Green, Yellow** — in a free-for-all on a generated
-square map:
+config opts in. With `"teams": 4` and a four-team board, the game seats FOUR
+teams — **Red, Blue, Green, Yellow** — in a free-for-all:
 
-- **Layouts** (`"mapLayout"`, or drawn from the map seed): `"corners"` puts a
-  team in each corner (Red top-left, Blue top-right, Green bottom-left,
-  Yellow bottom-right) with a DIAGONAL endzone — a 45-degree threshold line
-  cut across the corner; `"plus"` puts a team at each edge midpoint (Red
-  west, Blue east, Green north, Yellow south) with an arm-mouth endzone —
-  the corners are open battlefield. Both are fully open square boards whose
-  terrain replicates a generated quadrant by 90-degree rotation, so all
-  four quarters are exactly fair: the WALL MASK a team plays against is
-  pixel-for-pixel the quarter turn of every other team's, homes included.
-  Each team's spawn pocket rotates with its home, so the north and south
-  pockets of a plus board lie on their sides relative to the east and west
-  ones — a pocket that stayed upright everywhere would be a different
-  shape than its own rotational twin.
+- **Seating.** The four homes are one V4 orbit of a single seed point on the
+  board's DIAGONAL: V4 carries a seed at angle *t* to {*t*, −*t*, 180−*t*,
+  180+*t*}, whose gaps are equal only at *t* = 45 degrees. On the standard
+  board that puts Red at (355,280), Blue at (355,688), Green at (763,280) and
+  Yellow at (763,688) about the (559,484) centre — each an exact pixel image
+  of Red's under the map's own group, homes and capture discs alike.
+  `"mapLayout"` is `"hex4"`; the retired square layouts `"corners"` and
+  `"plus"` are DELETED and the engine rejects both tokens.
 - **Every team has its own heart** on its own pedestal, and its own capture
   zone behind it. Steal ANY other team's heart and carry it into your own
   zone to **eliminate that team** (GV32): its players all die for good and

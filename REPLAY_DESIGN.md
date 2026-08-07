@@ -51,7 +51,7 @@ wide → the box goes PORTRAIT ~0.5:1.
 **Responsive model = ONE fixed-aspect composition (LOCKED).** The board AND every overlay are a single
 unit that scales together, so overlays never drift from the graphics inside an arbitrary Observatory
 embed container. `#viewport` fills the iframe box (`inset:0`, flex-centered) and `relayout()` sizes an
-inner `#stage` in px to the board aspect (1235:659) with a contain-fit; the canvas fills the stage and
+inner `#stage` in px to the board aspect (1119:969 on the default hexagon, and read from the replay rather than assumed — every size class is 2/sqrt(3) but the 4-team and generated boards differ in absolute size) with a contain-fit; the canvas fills the stage and
 `--hudscale = clamp(0.5, 1.6, stageW/760)` derives ALL chrome sizing from the stage width, so scorebug,
 kill feed, banner, and transport ride the composition at every size. Leftover embed space is a warm
 near-black letterbox (`#120d09`, NEVER pure #000) — not a reflow. This SUPERSEDES the earlier

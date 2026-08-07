@@ -63,9 +63,9 @@ That costs us in three places:
 
 - **Nim owns the geometry.** `inShape`, `mapWallAt`, `isProtectedFloor`, the
   symmetry expansion, and the validators carry subtleties that a reimplementation
-  would silently re-break: doubled coordinates so a rot90 board measures against
-  its true axis at `(side-1)/2`; `int64` in the diagonal test because the
-  intermediate overflows `int32` on wasm; integer-offset sampling in the diamond
+  would silently re-break: doubled coordinates so an even-dimension board
+  measures against its true axis at `(side-1)/2`; `int64` in the diagonal test
+  because the intermediate overflows `int32` on wasm; integer-offset sampling in the diamond
   predicate because a half-pixel offset breaks exact mirror symmetry. These are
   team-fairness invariants, and their failure mode is subtle unfairness rather
   than a visible crash.
@@ -114,14 +114,14 @@ round-trip everything authorable; rooms are re-derived on load.
 ```json
 {
   "name": "...", "genSeed": 0,
-  "width": 1235, "height": 659,
+  "width": 1119, "height": 969,
   "flagRing": 70, "captureClear": 210,
   "spawnClearW": 70, "spawnClearH": 130,
   "gunRange": 1050,
-  "symmetry": "mirror|rot180|rot90",
-  "layout": "sides|corners|plus",
-  "endzone": "column|disc|square",
-  "endzoneRadius": 0, "homeDepth": 700,
+  "symmetry": "mirrorHex|rot180|klein4",
+  "layout": "hex2|hex4",
+  "endzone": "disc",
+  "endzoneRadius": 0, "homeDepth": 544,
   "medKitSpawns": [[x, y]], "medKitCandidates": [[x, y]],
   "trenches": [[x, y, w, h]],
   "leftObstacles": [ ... ]
@@ -144,8 +144,8 @@ glass flag (blocks movement, bullets, and spray; transparent to fog-of-war):
 
 ### Two conventions the editor must hide
 
-- `leftObstacles` is a **seed set** — one half of a sides map, roughly one
-  quadrant of a rot90 map — expanded by `buildArenaObstacles`. `trenches` are
+- `leftObstacles` is a **seed set** — one half of a `hex2` map, one quadrant of
+  a `hex4` (Klein-four) map — expanded by `buildArenaObstacles`. `trenches` are
   **full-map and already symmetrized**.
 
   An earlier draft of this document said the editor should place a trench once
@@ -156,14 +156,13 @@ glass flag (blocks movement, bullets, and spray; transparent to fog-of-war):
   and med-kit points as read-only** — rendered, labeled, and exported verbatim,
   but not editable. Authoring them is Phase 2 work and is blocked on a service
   operation that expands a seed placement into its symmetry images. Note also
-  that `finalizeTrenches` never places trenches on rot90 maps at all.
+  that `finalizeTrenches` never places trenches on 4-team maps at all.
 
 - **`seedRegion` is advisory, not a fence.** It marks where new shapes are
   placed by default and where authoring is conventional. It must **not** hard-block
   edits outside itself, because the generator itself authors past the band: the
-  rot90 slot band runs to `cy + 60`, sixty pixels beyond the horizontal
-  midline (`arena.nim:1484`). An editor that refused to move such a shape could
-  not edit generator output.
+  slot band runs past the seed half's own midline (`arena.nim`). An editor
+  that refused to move such a shape could not edit generator output.
 - **The protected-floor carve is invisible but load-bearing.** Any shape is
   subtracted wherever it overlaps the flag ring, spawn pockets, or capture
   approaches. The editor must render the *carved* result, never the authored

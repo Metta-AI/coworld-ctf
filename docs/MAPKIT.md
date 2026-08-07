@@ -50,7 +50,7 @@ Override any style param with repeated `--param k=v` (e.g.
 
 ## How fairness is guaranteed
 
-- **Symmetry** — a style fills only the seed half (or quadrant on rot90); the
+- **Symmetry** — a style fills only the seed half (or quadrant on a Klein-four 4-team board); the
   sim expands it into an exactly team-fair whole via `buildArenaObstacles`.
 - **Carve** — the sim subtracts any shape overlapping a flag ring, spawn
   pocket, or capture lane, so generators never special-case protected floor.

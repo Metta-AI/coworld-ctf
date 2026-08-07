@@ -36,7 +36,7 @@ Pick an arena with `mapPath`, then (for `gen`/`pool`) shape terrain with `mapSee
 
 | Field | Type / default | JSON key | Bounds | Effect |
 |---|---|---|---|---|
-| `mapPath` | string / `"arena"` | `map`, `mapPath` | resolved | Which arena: `"arena"`, `"arena-large"` (hand-authored), `"gen"` (procedural), `"pool"` (curated seeds). |
+| `mapPath` | string / `"arena"` | `map`, `mapPath` | resolved | Which arena: `"arena"`, `"arena-large"`, `"arena-hex4"`, `"arena-hex4-giant"` (hand-authored), `"gen"` (procedural), `"pool"` (curated seeds). The two `hex4` boards are the ONLY way to reach `teams: 4`; `gen` and `pool` are 2-team. |
 | `mapSeed` | int / `-1` | `mapSeed` | -1 = derive from game `seed` | Terrain seed for gen/pool maps. |
 | `mapPoolIndex` | int / `-1` | `mapPoolIndex` | -1 = `mapSeed mod 20` | Explicit pool pick (pool = 20 seeds, `map_pool.nim:5`). |
 | `mapGen` | `MapGenOverrides` | (per-field below) | per-field | Per-parameter generator locks. |
@@ -98,7 +98,16 @@ and both run `plugOpenSightlines` so the authored map holds the same published
   `homeDepth`=544 (solved from the base budgets, not tabled), 6 obstacle columns + windowed center bracket + 2 spinning
   diamonds per half, 2 med-kit spawns.
 - **`arena-large`** (`arenaLargeCtfMap()`): the same layout on the LARGE class,
-  1260×1455, `flagRing`=91, `endzone`=disc r=127.
+  1455×1260 (width×height, landscape like every class), `flagRing`=91,
+  `endzone`=disc r=127.
+- **`arena-hex4`** (`arenaHex4CtfMap()`): the FOUR-TEAM board, STANDARD class,
+  1119×969, `symmetry`=klein4, `layout`=hex4, `endzone`=disc r=97,
+  `homeDepth`=599 (solved from the base budgets). Deliberately BARE — no
+  obstacles, no trenches, no med kits: the 2-team slalom seeds a half-plane
+  and V4 needs a quadrant, so reusing it would be silently team-unfair.
+- **`arena-hex4-giant`** (`arenaHex4CtfMap()`): the same board on the GIANT
+  class, 2909×2519, `endzone`=disc r=254, `homeDepth`=590 — the size the
+  32-seat `4ffa8` league variant seats.
 
 Per-map descriptor `CtfMap` [sim_types.nim:733](../src/ctf/sim_types.nim#L733) carries
 `width`/`height`, `flagRing`, `captureClear`, `spawnClearW/H`, `gunRange`, `endzone`
@@ -114,7 +123,7 @@ Per-map descriptor `CtfMap` [sim_types.nim:733](../src/ctf/sim_types.nim#L733) c
 
 | Field | Type / default | Bounds | Effect |
 |---|---|---|---|
-| `teams` | int / `2` | must be `2` (4 raises until hex Stage 2b) | Active team count. |
+| `teams` | int / `2` | `2`, or `4` on a `hex4` board / pinned `mapSpec` (`gen`+4 raises until hex Stage 2b; 3 and 6 raise outright) | Active team count. |
 | `minPlayers` | int / `16` | `1..32` | Players required to start; effectively sets roster size on open join. |
 | `closedRoster` | bool / `false` | needs ≥`minPlayers` named+tokened slots | Fixed named roster vs open join. |
 | `slots` | `seq[PlayerSlotConfig]` / `@[]` | ≤32; unique names/tokens; `team < teams` | Per-seat overrides. |
