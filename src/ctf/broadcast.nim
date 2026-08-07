@@ -712,12 +712,12 @@ proc buildStateJson*(
       hasPerks = true
   if hasPerks:
     state["pmods"] = %*{
-      "armorHp": sim.config.perkArmorHp,
-      "scope": sim.config.perkScopePermille,
-      "grenade": sim.config.perkGrenadePermille,
-      "thruster": sim.config.perkThrusterPermille,
-      "luck": sim.config.perkLuckPermille,
-      "luckDamage": sim.config.perkLuckDamage
+      "armorHp": sim.config.perkMods.armorHp,
+      "scope": sim.config.perkMods.scopeAim,
+      "grenade": sim.config.perkMods.grenadeRange,
+      "thruster": sim.config.perkMods.thrusterSpeed,
+      "luck": sim.config.perkMods.luckChance,
+      "luckDamage": sim.config.perkMods.luckDamage
     }
 
   # First-person picture-in-picture: the selected seat's raycast view, present

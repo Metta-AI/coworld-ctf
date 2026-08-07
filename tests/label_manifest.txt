@@ -52,8 +52,8 @@ name p<n> flag <n>
 own aim <n>
 paint stain <color> variant <n>
 perks <color> -
-perks <color> armor,scope
-perks <color> grenade thruster,luck
+perks <color> armor,scope mods hp <n> aim <n> nade <n> spd <n> luck <n> dmg <n>
+perks <color> grenade thruster,luck mods hp <n> aim <n> nade <n> spd <n> luck <n> dmg <n>
 player <color>
 player <color> <side>
 puddle <n>,<n> <n>,<n>

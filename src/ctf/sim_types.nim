@@ -717,13 +717,37 @@ type
     ## Assignment and magnitudes are config (`GameConfig.perks` / the perkMods
     ## knobs); a default config carries none and plays byte-identical to an
     ## engine without perks.
-    PerkArmor     ## +perkArmorHp max hit points per bot.
-    PerkScope     ## gun aim-jitter sigma reduced by perkScopePermille.
-    PerkGrenade   ## grenade max throw range +perkGrenadePermille.
-    PerkThruster  ## max speed +perkThrusterPermille.
-    PerkLuck      ## perkLuckPermille of landed gun shots deal perkLuckDamage.
+    PerkArmor     ## +perkMods.armorHp max hit points per bot.
+    PerkScope     ## gun aim-jitter sigma reduced by perkMods.scopeAim.
+    PerkGrenade   ## grenade max throw range +perkMods.grenadeRange.
+    PerkThruster  ## max speed +perkMods.thrusterSpeed.
+    PerkLuck      ## perkMods.luckChance of landed gun shots deal luckDamage.
 
   PerkSet* = set[Perk]
+
+  PerkGroup* = object
+    ## One perk group of a team: the set one policy seat carries, optionally
+    ## PINNED to a policy by name. `pol == ""` = unnamed, dealt to the team's
+    ## distinct policies in join order; a named group goes to exactly the
+    ## policy whose policyName matches. A team's groups are all-named (object
+    ## config form) or all-unnamed (array form) — the parser enforces it.
+    pol*: string
+    perks*: PerkSet
+
+  PerkMods* = object
+    ## The perk magnitudes ("mods"), config-tunable as one block. Fractions
+    ## are integer permille (the handicaps rule) so every in-sim derivation
+    ## is integer or perk-gated; counts are plain hit points. Only read when
+    ## a seat actually carries the perk, so the values never touch a
+    ## perk-free game. Compared as ONE value against DefaultPerkMods for the
+    ## config echo, so adding a knob here cannot be silently dropped from
+    ## replay configs.
+    armorHp*: int        ## armor: extra max hit points.
+    scopeAim*: int       ## scope: fraction of aim-jitter sigma removed, permille.
+    grenadeRange*: int   ## grenade: extra max throw range, permille.
+    thrusterSpeed*: int  ## thruster: extra max speed, permille.
+    luckChance*: int     ## luck: chance a landed gun shot is lucky, permille.
+    luckDamage*: int     ## luck: hit points a lucky shot removes.
 
   CtfError* = object of ValueError
 
@@ -1029,23 +1053,16 @@ type
                                   ## maxSpeedFor/missPermilleFor). Integer
                                   ## permille keeps every in-sim derivation
                                   ## integer-only, so native and wasm agree.
-    perks*: array[Team, seq[PerkSet]]
+    perks*: array[Team, seq[PerkGroup]]
       ## Per-team perk GROUPS. Empty (the default) = no perks, byte-identical
-      ## to an engine without the field. One group = the whole team shares it;
-      ## two or more = CTF-Doubles: the Nth distinct POLICY to seat on the
-      ## team (join order, policyName collapse) gets group N, clamped to the
-      ## last group. See docs/plans/2026-08-07-team-perks-design.md.
-    perkArmorHp*: int          ## armor: extra max hit points (default 1).
-    perkScopePermille*: int    ## scope: fraction of the gun's aim-jitter
-                               ## sigma removed, permille (default 500 = 50%).
-    perkGrenadePermille*: int  ## grenade: extra max throw range, permille
-                               ## (default 250 = +25%).
-    perkThrusterPermille*: int ## thruster: extra max speed, permille
-                               ## (default 100 = +10%).
-    perkLuckPermille*: int     ## luck: chance a landed gun shot is lucky,
-                               ## permille (default 100 = 10%).
-    perkLuckDamage*: int       ## luck: hit points a lucky shot removes
-                               ## (default 2; an unlucky shot removes 1).
+      ## to an engine without the field. One unnamed group = the whole team
+      ## shares it; several unnamed = CTF-Doubles: the Nth distinct POLICY to
+      ## seat on the team (join order, policyName collapse) gets group N,
+      ## clamped to the last. NAMED groups (object config form) pin a group
+      ## to its policy exactly; an unmatched policy gets nothing. See
+      ## docs/plans/2026-08-07-team-perks-design.md.
+    perkMods*: PerkMods        ## the perk magnitudes; DefaultPerkMods unless
+                               ## the config's perkMods block overrides.
     puddleDamagePct*: int         ## percent chance (0..100) that one full
                                   ## second of continuous paint-puddle
                                   ## occupancy deals 1 damage. Default 10.
@@ -1569,16 +1586,14 @@ const PerkNames*: array[Perk, string] = [
   ## The authored/wire name of each perk (config JSON, broadcast roster `pk`,
   ## marker labels, scorebug icon keys).
 
-const
-  # Default perk magnitudes ("mods"), overridable via the config's perkMods
-  # block. Only read when a seat actually carries the perk, so their values
-  # never touch a perk-free game.
-  PerkArmorHpDefault* = 1        ## armor: +1 max hit point.
-  PerkScopePermilleDefault* = 500    ## scope: 50% less aim deviation.
-  PerkGrenadePermilleDefault* = 250  ## grenade: +25% throw range.
-  PerkThrusterPermilleDefault* = 100 ## thruster: +10% max speed.
-  PerkLuckPermilleDefault* = 100     ## luck: 10% of landed shots are lucky.
-  PerkLuckDamageDefault* = 2         ## luck: a lucky shot deals 2 hp.
+const DefaultPerkMods* = PerkMods(
+  armorHp: 1,         # armor: +1 max hit point.
+  scopeAim: 500,      # scope: 50% less aim deviation.
+  grenadeRange: 250,  # grenade: +25% throw range.
+  thrusterSpeed: 100, # thruster: +10% max speed.
+  luckChance: 100,    # luck: 10% of landed shots are lucky.
+  luckDamage: 2       # luck: a lucky shot deals 2 hp.
+)
 
 proc perkText*(perk: Perk): string =
   ## Returns one perk's authored/wire name.
@@ -1596,7 +1611,7 @@ proc maxHpFor*(config: GameConfig, team: Team, perks: PerkSet): int =
   ## plus the armor bonus when the seat carries the perk.
   result = config.hitPointsFor(team)
   if PerkArmor in perks:
-    result += config.perkArmorHp
+    result += config.perkMods.armorHp
 
 proc maxSpeedFor*(config: GameConfig, team: Team, perks: PerkSet): int =
   ## One seat's max speed: the team's (handicap-interpolated) max speed,
@@ -1604,14 +1619,14 @@ proc maxSpeedFor*(config: GameConfig, team: Team, perks: PerkSet): int =
   ## and wasm agree.
   result = config.maxSpeedFor(team)
   if PerkThruster in perks:
-    result = result * (1000 + config.perkThrusterPermille) div 1000
+    result = result * (1000 + config.perkMods.thrusterSpeed) div 1000
 
 proc grenadeRangeFor*(config: GameConfig, maxRange: int, perks: PerkSet): int =
   ## One seat's max grenade throw distance, given the map's base
   ## GrenadeMaxRange: boosted by the grenade perk when carried.
   result = maxRange
   if PerkGrenade in perks:
-    result = result * (1000 + config.perkGrenadePermille) div 1000
+    result = result * (1000 + config.perkMods.grenadeRange) div 1000
 
 proc perkGroupTexts*(config: GameConfig, team: Team): seq[string] =
   ## Each of one team's perk groups as comma-joined perk names in Perk enum
@@ -1621,7 +1636,7 @@ proc perkGroupTexts*(config: GameConfig, team: Team): seq[string] =
   for group in config.perks[team]:
     var names = ""
     for perk in Perk:
-      if perk in group:
+      if perk in group.perks:
         if names.len > 0:
           names.add ","
         names.add perkText(perk)

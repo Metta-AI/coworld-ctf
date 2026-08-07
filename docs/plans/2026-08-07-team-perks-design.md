@@ -21,15 +21,18 @@ following the per-team-handicaps pattern
 
 `GameConfig` gains:
 
-- `perks*: array[Team, seq[PerkSet]]` — per-team perk **groups**. Empty seq
-  (default) = no perks. One group = the whole team shares it. Two or more
-  groups = CTF-Doubles: the Nth **distinct policy** to seat on that team (in
-  join order, `policyName` collapse) gets group N (clamped to the last group).
-- Mod knobs, integer-stored (permille where fractional) so every in-sim
-  derivation is integer or perk-gated: `perkArmorHp` (1), `perkScopePermille`
-  (500 = fraction of jitter sigma removed), `perkGrenadePermille` (250 = extra
-  range), `perkThrusterPermille` (100 = extra speed), `perkLuckPermille`
-  (100 = lucky-shot chance), `perkLuckDamage` (2 = a lucky shot's hp).
+- `perks*: array[Team, seq[PerkGroup]]` — per-team perk **groups**
+  (`PerkGroup = (pol, perks)`). Empty seq (default) = no perks. One unnamed
+  group = the whole team shares it. Two or more unnamed = CTF-Doubles: the
+  Nth **distinct policy** to seat on that team (in join order, `policyName`
+  collapse) gets group N (clamped to the last group). Named groups (object
+  config form) pin a group to its policy exactly.
+- `perkMods*: PerkMods` — one struct of magnitudes, integer-stored (permille
+  where fractional) so every in-sim derivation is integer or perk-gated:
+  `armorHp` (1), `scopeAim` (500 = fraction of jitter sigma removed),
+  `grenadeRange` (250 = extra range), `thrusterSpeed` (100 = extra speed),
+  `luckChance` (100 = lucky-shot chance), `luckDamage` (2 = a lucky shot's
+  hp). `DefaultPerkMods` is the reference the config echo compares against.
 
 Authored JSON:
 
@@ -129,13 +132,19 @@ a PERKED replay re-simulated on an older engine of the same GameVersion
 silently ignores the unknown config keys and hash-mismatches rather than
 refusing cleanly.
 
-## Known limitations (follow-up candidates)
+## Revisions since first landing
 
-- Group→policy assignment is by CONNECTION order: with two nested groups, an
-  operator cannot say which policy receives which group — whichever policy
-  seats first takes group 0. Deterministic under replay; a slot-keyed
-  assignment (closedRoster names) would pin it.
-- Resolved magnitudes ship to VIEWERS (`pmods` in the state frame) but the
-  policy marker label states perk names only — a bot cannot read a
-  non-default `perkMods` from its observation. Appending resolved deltas to
-  the label tail (the handicap marker's precedent) is the natural extension.
+- **Named groups**: a team's `perks` value may also be an object keyed by
+  policy name (`{"blue": {"botA": ["grenade"], "botB": ["luck"]}}`), pinning
+  each group to exactly that policy (unmatched policies get nothing) — so an
+  operator is not at the mercy of connection order. Unnamed array forms keep
+  the join-order dealing.
+- **Mods in the marker label**: the per-team `perks` label carries the
+  engine-resolved magnitudes after a fixed `mods` token
+  (`… mods hp <n> aim <n> nade <n> spd <n> luck <n> dmg <n>`), the handicap
+  marker's precedent — a policy never assumes the defaults. Unperked teams
+  stay `perks <color> -` with no tail.
+- **`PerkMods` struct**: the six magnitude knobs live in one `PerkMods`
+  object on GameConfig (`DefaultPerkMods` const); the config echo compares
+  the whole struct, so a future knob cannot be silently dropped from replay
+  configs.

@@ -96,13 +96,8 @@ Per-map descriptor `CtfMap` [sim_types.nim:733](../src/ctf/sim_types.nim#L733) c
 | `closedRoster` | bool / `false` | needs ≥`minPlayers` named+tokened slots | Fixed named roster vs open join. |
 | `slots` | `seq[PlayerSlotConfig]` / `@[]` | ≤32; unique names/tokens; `team < teams` | Per-seat overrides. |
 | `handicaps` | `array[Team, int]` permille / all `0` | authored as `{team: 0.0..1.0}` | Per-team handicap: 0 = normal, 1 = 50% miss + 1 life + 1 hit point + ½ max speed, linearly interpolated. |
-| `perks` | `array[Team, seq[PerkSet]]` / all empty | perk names `armor scope grenade thruster luck`; flat list or list-of-groups | Per-team perk groups: one group = team-wide, N groups = per-policy (CTF-Doubles), dealt to distinct policies in join order. |
-| `perkArmorHp` | int / `1` | `0..100`, authored `perkMods.armorHp` | armor perk: extra max hit points per bot. |
-| `perkScopePermille` | int / `500` | authored `perkMods.scopeAim` `0.0..1.0` | scope perk: fraction of the gun's aim-jitter sigma removed. |
-| `perkGrenadePermille` | int / `250` | authored `perkMods.grenadeRange` `0.0..1.0` | grenade perk: extra max throw range. |
-| `perkThrusterPermille` | int / `100` | authored `perkMods.thrusterSpeed` `0.0..1.0` | thruster perk: extra max speed. |
-| `perkLuckPermille` | int / `100` | authored `perkMods.luckChance` `0.0..1.0` | luck perk: chance a landed gun shot is lucky. |
-| `perkLuckDamage` | int / `2` | `1..100`, authored `perkMods.luckDamage` | luck perk: hit points a lucky shot removes. |
+| `perks` | `array[Team, seq[PerkGroup]]` / all empty | perk names `armor scope grenade thruster luck`; flat list, list-of-groups, or policy-name object | Per-team perk groups: one unnamed group = team-wide, N unnamed = per-policy (CTF-Doubles) dealt to distinct policies in join order, named (object form) = pinned to exact policies. |
+| `perkMods` | `PerkMods` struct / `DefaultPerkMods` | `armorHp` `0..100`, `luckDamage` `1..100`, fractions authored `0.0..1.0` (permille-stored) | Perk magnitudes: `armorHp` (1) extra hp, `scopeAim` (0.5) aim-sigma cut, `grenadeRange` (0.25) extra throw range, `thrusterSpeed` (0.1) extra speed, `luckChance` (0.1) lucky-shot odds, `luckDamage` (2) lucky-shot hp. |
 | `puddleDamagePct` | int / `10` | `0..100` | Percent chance of 1 damage per full second of continuous paint-puddle occupancy; inert on maps without puddles (`mapPuddles`). |
 
 **Per-team handicap** ([sim_types.nim `handicaps`](../src/ctf/sim_types.nim), accessors
@@ -122,10 +117,12 @@ engine-resolved deltas — see docs/RULES.md. Design: [docs/plans/2026-08-05-per
 **Team perks** ([sim_types.nim `Perk`](../src/ctf/sim_types.nim), accessors
 `maxHpFor`/`maxSpeedFor(team, perks)`/`grenadeRangeFor`; join resolution
 `roster.nim perkSetForJoin`): named buffs assigned per team as
-`"perks": {"red": ["armor", "scope"]}` (one team-wide group) or
-`"perks": {"blue": [["grenade"], ["thruster", "luck"]]}` (per-policy groups,
-CTF-Doubles: the Nth distinct policy to seat on the team gets group N, clamped
-to the last). Magnitudes are the `perkMods` block
+`"perks": {"red": ["armor", "scope"]}` (one team-wide group),
+`"perks": {"blue": [["grenade"], ["thruster", "luck"]]}` (unnamed per-policy
+groups, CTF-Doubles: the Nth distinct policy to seat on the team gets group N,
+clamped to the last), or `"perks": {"blue": {"botA": ["grenade"], "botB":
+["luck"]}}` (groups PINNED to policy names; an unmatched policy gets nothing).
+Magnitudes are the `perkMods` block
 (`{"armorHp": 1, "scopeAim": 0.5, "grenadeRange": 0.25, "thrusterSpeed": 0.1,
 "luckChance": 0.1, "luckDamage": 2}`), fractions stored as integer permille.
 armor = +hp per bot; scope = tighter gun aim; grenade = longer throws;

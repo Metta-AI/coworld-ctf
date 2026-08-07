@@ -922,12 +922,12 @@ proc aimJitterSigma(sim: SimServer, perks: PerkSet): float =
   ## range is hit exactly 80% of the time — see AimJitterCentralZ for the
   ## derivation. PlayerHalf + BulletHalfWidth is the corridor's continuous
   ## acceptance half-window for a centered silhouette. A scope-perked shooter
-  ## deviates less: sigma shrinks by perkScopePermille (the scale applies
+  ## deviates less: sigma shrinks by perkMods.scopeAim (the scale applies
   ## only when the perk is present, so a perk-free shot's draw is untouched).
   let window = (float(PlayerHalf) + BulletHalfWidth) / float(sim.config.gunRange)
   result = arcsin(min(1.0, window)) / AimJitterCentralZ
   if PerkScope in perks:
-    result = result * float(1000 - sim.config.perkScopePermille) / 1000.0
+    result = result * float(1000 - sim.config.perkMods.scopeAim) / 1000.0
 
 proc jitterDirection(
   sim: var SimServer, headingBrads: int, perks: PerkSet
@@ -1141,13 +1141,13 @@ proc applyFire(sim: var SimServer, shot: PendingGunShot) =
     # unchanged.)
     let bubbleUp = sim.players[targetIndex].hasShield and
       sim.players[targetIndex].shieldHp > 0
-    # A lucky shot (luck perk) deals perkLuckDamage instead of 1. Rolled once
+    # A lucky shot (luck perk) deals perkMods.luckDamage instead of 1. Rolled once
     # per LANDED hit, only when the shooter carries the perk, so a perk-free
     # game draws no extra RNG and re-simulates byte-for-byte.
     var damage = 1
     if PerkLuck in shooter.perks and
-        sim.rng.rand(999) < sim.config.perkLuckPermille:
-      damage = sim.config.perkLuckDamage
+        sim.rng.rand(999) < sim.config.perkMods.luckChance:
+      damage = sim.config.perkMods.luckDamage
     let blocked = sim.absorbDamage(targetIndex, damage)
     # Paintball paint marks the body only when the shield bubble ISN'T eating it
     # (a bubble dent draws no body paint). Stamp so the EYES-PiP visor splat

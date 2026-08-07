@@ -27,19 +27,19 @@ suite "perk accessors (pure math)":
   test "armor adds perkArmorHp to max hit points":
     var cfg = baseConfig()
     check cfg.maxHpFor(Red, {PerkArmor}) == 4
-    cfg.perkArmorHp = 3
+    cfg.perkMods.armorHp = 3
     check cfg.maxHpFor(Red, {PerkArmor}) == 6
 
   test "thruster boosts max speed by perkThrusterPermille":
     var cfg = baseConfig()
     check cfg.maxSpeedFor(Red, {PerkThruster}) == 774   # 704 * 1100 / 1000
-    cfg.perkThrusterPermille = 500
+    cfg.perkMods.thrusterSpeed = 500
     check cfg.maxSpeedFor(Red, {PerkThruster}) == 1056  # 704 * 1500 / 1000
 
   test "grenade stretches the throw range by perkGrenadePermille":
     var cfg = baseConfig()
     check cfg.grenadeRangeFor(240, {PerkGrenade}) == 300  # +25%
-    cfg.perkGrenadePermille = 1000
+    cfg.perkMods.grenadeRange = 1000
     check cfg.grenadeRangeFor(240, {PerkGrenade}) == 480  # double
 
   test "an unrelated perk changes nothing":
@@ -58,14 +58,16 @@ suite "perk config parsing":
   test "a flat name array is one team-wide group":
     var cfg = defaultGameConfig()
     cfg.update("""{"perks": {"red": ["armor", "scope"]}}""")
-    check cfg.perks[Red] == @[{PerkArmor, PerkScope}]
+    check cfg.perks[Red] == @[PerkGroup(perks: {PerkArmor, PerkScope})]
     check cfg.perks[Blue].len == 0
 
   test "nested arrays are per-policy groups":
     var cfg = defaultGameConfig()
     cfg.update(
       """{"perks": {"blue": [["grenade"], ["thruster", "luck"]]}}""")
-    check cfg.perks[Blue] == @[{PerkGrenade}, {PerkThruster, PerkLuck}]
+    check cfg.perks[Blue] == @[
+      PerkGroup(perks: {PerkGrenade}),
+      PerkGroup(perks: {PerkThruster, PerkLuck})]
 
   test "the default config has no perks":
     let cfg = defaultGameConfig()
@@ -95,7 +97,24 @@ suite "perk config parsing":
       cfg.update("""{"perks": {"red": []}}""")
     # An empty NESTED group stays legal: "this policy gets nothing".
     cfg.update("""{"perks": {"red": [["armor"], []]}}""")
-    check cfg.perks[Red] == @[{PerkArmor}, PerkSet({})]
+    check cfg.perks[Red] == @[PerkGroup(perks: {PerkArmor}), PerkGroup()]
+
+  test "a policy-name object pins groups to policies":
+    var cfg = defaultGameConfig()
+    cfg.update(
+      """{"perks": {"red": {"alpha": ["armor"], "bravo": ["scope", "luck"]}}}""")
+    check cfg.perks[Red].len == 2
+    for group in cfg.perks[Red]:
+      if group.pol == "alpha":
+        check group.perks == {PerkArmor}
+      else:
+        check group.pol == "bravo"
+        check group.perks == {PerkScope, PerkLuck}
+
+  test "an empty policy-name object is rejected":
+    var cfg = defaultGameConfig()
+    expect CtfError:
+      cfg.update("""{"perks": {"red": {}}}""")
 
   test "an absurd integer perk mod is rejected":
     var cfg = defaultGameConfig()
@@ -107,12 +126,9 @@ suite "perk config parsing":
     cfg.update("""{"perkMods": {"armorHp": 2, "scopeAim": 0.8,
       "grenadeRange": 0.5, "thrusterSpeed": 0.2, "luckChance": 1,
       "luckDamage": 3}}""")
-    check cfg.perkArmorHp == 2
-    check cfg.perkScopePermille == 800
-    check cfg.perkGrenadePermille == 500
-    check cfg.perkThrusterPermille == 200
-    check cfg.perkLuckPermille == 1000
-    check cfg.perkLuckDamage == 3
+    check cfg.perkMods == PerkMods(
+      armorHp: 2, scopeAim: 800, grenadeRange: 500, thrusterSpeed: 200,
+      luckChance: 1000, luckDamage: 3)
 
   test "an unknown perkMods key is rejected":
     var cfg = defaultGameConfig()
@@ -155,6 +171,17 @@ suite "perk config echo (configJson)":
     reparsed.update(configJson(cfg))
     check reparsed.perks == cfg.perks
 
+  test "named groups round-trip as a policy-name object":
+    var cfg = defaultGameConfig()
+    cfg.update(
+      """{"perks": {"red": {"alpha": ["armor"], "bravo": ["luck"]}}}""")
+    let echoed = configJson(cfg).parseJson()
+    check echoed["perks"]["red"]["alpha"] == %*["armor"]
+    check echoed["perks"]["red"]["bravo"] == %*["luck"]
+    var reparsed = defaultGameConfig()
+    reparsed.update(configJson(cfg))
+    check reparsed.perks == cfg.perks
+
   test "non-default perkMods round-trip":
     var cfg = defaultGameConfig()
     cfg.update("""{"perkMods": {"luckChance": 0.25}}""")
@@ -162,8 +189,8 @@ suite "perk config echo (configJson)":
     check abs(echoed["perkMods"]["luckChance"].getFloat() - 0.25) < 1e-9
     var reparsed = defaultGameConfig()
     reparsed.update(configJson(cfg))
-    check reparsed.perkLuckPermille == 250
-    check reparsed.perkLuckDamage == cfg.perkLuckDamage
+    check reparsed.perkMods.luckChance == 250
+    check reparsed.perkMods.luckDamage == cfg.perkMods.luckDamage
 
 suite "perk group resolution at join (2v2 policies)":
   proc perkedSim(perksJson: string): SimServer =
@@ -200,6 +227,21 @@ suite "perk group resolution at join (2v2 policies)":
     for address in ["polA", "polC", "polB", "polD", "polE"]:
       discard sim.addPlayer(address)
     check sim.players[4].perks == {PerkScope}          # polE (Red) clamps
+
+  test "named groups pin policies regardless of join order":
+    var sim = perkedSim(
+      """{"red": {"polB": ["armor"], "polA": ["scope"]},
+          "blue": {"polC": ["luck"]}}""")
+    # polA joins Red FIRST but is pinned to scope; polB second, pinned to
+    # armor — connection order no longer decides. polD (Blue) matches no
+    # named group and gets nothing.
+    for address in ["polA", "polC", "polB", "polD", "polA_(2)"]:
+      discard sim.addPlayer(address)
+    check sim.players[0].perks == {PerkScope}          # polA (joined first)
+    check sim.players[2].perks == {PerkArmor}          # polB
+    check sim.players[4].perks == {PerkScope}          # polA's second seat
+    check sim.players[1].perks == {PerkLuck}           # polC
+    check sim.players[3].perks == {}                   # polD: unmatched
 
   test "live joins and trusted playback joins deal identical groups":
     # Replay playback re-runs joins via the trusted-slot path
@@ -419,11 +461,15 @@ suite "scope perk: tighter aim at range":
 
 suite "perks stated to viewers and policies":
   test "labelPerks formats groups and the unperked dash":
-    check labelPerks("red", @[]) == "perks red -"
-    check labelPerks("red", @["armor,scope"]) == "perks red armor,scope"
-    check labelPerks("blue", @["grenade", "thruster,luck"]) ==
-      "perks blue grenade thruster,luck"
-    check labelPerks("blue", @["", "luck"]) == "perks blue - luck"
+    check labelPerks("red", @[], 1, 500, 250, 100, 100, 2) == "perks red -"
+    check labelPerks("red", @["armor,scope"], 1, 500, 250, 100, 100, 2) ==
+      "perks red armor,scope mods hp 1 aim 500 nade 250 spd 100 luck 100 dmg 2"
+    check labelPerks("blue", @["grenade", "thruster,luck"], 1, 500, 250, 100, 100, 2) ==
+      "perks blue grenade thruster,luck mods hp 1 aim 500 nade 250 spd 100 luck 100 dmg 2"
+    check labelPerks("blue", @["", "luck"], 1, 500, 250, 100, 100, 2) ==
+      "perks blue - luck mods hp 1 aim 500 nade 250 spd 100 luck 100 dmg 2"
+    check labelPerks("red", @["luck"], 2, 100, 300, 50, 250, 3) ==
+      "perks red luck mods hp 2 aim 100 nade 300 spd 50 luck 250 dmg 3"
 
   test "both init streams state every team's perk groups":
     var config = defaultGameConfig()
@@ -441,7 +487,7 @@ suite "perks stated to viewers and policies":
       for message in stream:
         if message.kind == spkSprite:
           raw.incl(message.sprite.label)
-      check "perks red armor,scope thruster" in raw
+      check "perks red armor,scope thruster" & " mods hp 1 aim 500 nade 250 spd 100 luck 100 dmg 2" in raw
       check "perks blue -" in raw
 
   test "the broadcast roster carries each perked seat's pk, omits others":

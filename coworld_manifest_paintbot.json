@@ -318,14 +318,14 @@
           "type": "object"
         },
         "perks": {
-          "description": "Per-team perk buffs, keyed by team name. Vocabulary: armor (+1 max hp), scope (50% tighter gun aim), grenade (+25% throw range), thruster (+10% max speed), luck (10% of landed gun shots deal 2 damage) \u2014 magnitudes tunable via perkMods. A team's value is either a flat array of perk names (the whole team shares them) or an array of such arrays: per-policy groups for 2v2 seats (CTF-Doubles), dealt to the team's distinct policies in join order. Omitted teams have no perks.",
+          "description": "Per-team perk buffs, keyed by team name. Vocabulary: armor (+1 max hp), scope (50% tighter gun aim), grenade (+25% throw range), thruster (+10% max speed), luck (10% of landed gun shots deal 2 damage) \u2014 magnitudes tunable via perkMods. A team's value is a flat array of perk names (the whole team shares them), an array of such arrays (per-policy groups for 2v2 seats, dealt to the team's distinct policies in join order), or an object keyed by policy name pinning each group to exactly that policy (unmatched policies get nothing). Omitted teams have no perks.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "red": { "type": "array" },
-            "blue": { "type": "array" },
-            "green": { "type": "array" },
-            "yellow": { "type": "array" }
+            "red": { "type": ["array", "object"] },
+            "blue": { "type": ["array", "object"] },
+            "green": { "type": ["array", "object"] },
+            "yellow": { "type": ["array", "object"] }
           }
         },
         "perkMods": {

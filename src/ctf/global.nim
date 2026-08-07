@@ -3437,7 +3437,16 @@ proc addMapMarkers(
       0,
       1,
       1,
-      labelPerks(teamText(team), sim.config.perkGroupTexts(team))
+      labelPerks(
+        teamText(team),
+        sim.config.perkGroupTexts(team),
+        sim.config.perkMods.armorHp,
+        sim.config.perkMods.scopeAim,
+        sim.config.perkMods.grenadeRange,
+        sim.config.perkMods.thrusterSpeed,
+        sim.config.perkMods.luckChance,
+        sim.config.perkMods.luckDamage
+      )
     )
     inc index
   ## One stated bounding-box marker per trench (see LabelPrefixTrench):

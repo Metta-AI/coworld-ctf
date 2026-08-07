@@ -9,11 +9,14 @@ import
   sim_types, sim_state
 
 proc perkSetForJoin*(sim: SimServer, team: Team, address: string): PerkSet =
-  ## The perk group for a seat about to join `team` as `address`: the team's
-  ## configured groups (config.perks) deal to its distinct POLICIES in join
-  ## order — a seat of an already-seated policy shares that policy's group, a
-  ## new policy takes the next one (clamped to the last, so a lone group is
-  ## simply team-wide). Pure function of config + the join AND leave stream
+  ## The perk group for a seat about to join `team` as `address`. NAMED
+  ## groups (object config form) match the seat's policyName exactly — an
+  ## unmatched policy gets nothing, so an operator can pin which policy
+  ## receives which buffs. Unnamed groups (array form) deal to the team's
+  ## distinct POLICIES in join order — a seat of an already-seated policy
+  ## shares that policy's group, a new policy takes the next one (clamped to
+  ## the last, so a lone group is simply team-wide). Pure function of
+  ## config + the join AND leave stream
   ## (both replay), so playback resolves identically and already-seated
   ## players never reshuffle. Caveat under churn: ranks derive from the
   ## CURRENT roster, so if a policy's seats all leave, the next new policy
@@ -23,18 +26,26 @@ proc perkSetForJoin*(sim: SimServer, team: Team, address: string): PerkSet =
   let groups = sim.config.perks[team]
   if groups.len == 0:
     return {}
+  let pol = policyName(address)
+  # A NAMED group pins its perks to exactly that policy; a policy no named
+  # group claims gets nothing on an all-named team. (The parser guarantees a
+  # team's groups are all-named or all-unnamed.)
+  if groups[0].pol.len > 0:
+    for group in groups:
+      if group.pol == pol:
+        return group.perks
+    return {}
   var seen: seq[string]
   for p in sim.players:
     if p.team != team:
       continue
-    let pol = policyName(p.address)
-    if pol notin seen:
-      seen.add pol
-  let pol = policyName(address)
+    let seatedPol = policyName(p.address)
+    if seatedPol notin seen:
+      seen.add seatedPol
   var index = seen.find(pol)
   if index < 0:
     index = seen.len
-  groups[min(index, groups.high)]
+  groups[min(index, groups.high)].perks
 
 proc teamForSlot*(sim: SimServer, order: int): Team =
   ## Returns the configured or default team for one slot: slots deal round

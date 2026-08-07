@@ -158,14 +158,18 @@ const
     ## even at permille 0 — absence means an old engine, not "no handicap".
     ## See `labelHandicap` for the exact tail arity.
   LabelPrefixPerks* = "perks "
-    ## The per-team perk marker, `perks <color> <group> [<group> …]`: an
-    ## invisible 1x1 object in the init snapshot stating one team's perk
-    ## groups outright — each group is the comma-joined perk names one policy
-    ## seat carries (`armor,scope`), or `-` for none. One group means the
-    ## whole team shares it; two or more deal to the team's distinct policies
-    ## in join order (CTF-Doubles). One marker per team in the game, emitted
-    ## even when unperked — absence means an old engine, not "no perks". See
-    ## `labelPerks` for the exact format.
+    ## The per-team perk marker,
+    ## `perks <color> <group> [<group> …] mods hp <n> aim <n> nade <n>
+    ## spd <n> luck <n> dmg <n>`: an invisible 1x1 object in the init
+    ## snapshot stating one team's perk groups outright — each group is the
+    ## comma-joined perk names one policy seat carries (`armor,scope`), or
+    ## `-` for none — plus, after the fixed `mods` token, the ENGINE-RESOLVED
+    ## magnitudes (perkMods), so a policy adapts to tuned mods without
+    ## assuming the defaults. One group means the whole team shares it; two
+    ## or more deal to the team's distinct policies in join order
+    ## (CTF-Doubles). One marker per team in the game, emitted even when
+    ## unperked (`perks <color> -`, no mods tail) — absence means an old
+    ## engine, not "no perks". See `labelPerks` for the exact format.
   LabelPrefixBarrage* = "grenade barrage depth "
     ## The stated grenade-barrage marker,
     ## `grenade barrage depth <n> rate <n> start <n> sat <n>`: an invisible
@@ -349,14 +353,27 @@ proc labelHandicap*(color: string; permille, hp, lives, spdPct,
   LabelPrefixHandicap & color & " " & $permille &
     " hp " & $hp & " lives " & $lives & " spd " & $spdPct & " miss " & $missPct
 
-proc labelPerks*(color: string; groups: seq[string]): string =
-  ## One team's perk marker label, `perks <color> <group> [<group> …]`. A
-  ## consumer matches LabelPrefixPerks and splits the tail on spaces: the
-  ## first token is the team color, each further token one perk GROUP — the
-  ## comma-joined perk names (PerkNames vocabulary, e.g. `armor,scope`) that
-  ## one policy seat on the team carries, or the literal `-` for none. A
-  ## single group is team-wide; several deal to the team's distinct policies
-  ## in join order. An unperked team reads `perks <color> -`.
+proc labelPerks*(color: string; groups: seq[string];
+    armorHp, scopeAim, grenadeRange, thrusterSpeed, luckChance,
+    luckDamage: int): string =
+  ## One team's perk marker label,
+  ## `perks <color> <group> [<group> …] mods hp <n> aim <n> nade <n> spd <n>
+  ## luck <n> dmg <n>`. A consumer matches LabelPrefixPerks and splits the
+  ## tail on spaces: the first token is the team color, each further token
+  ## one perk GROUP — the comma-joined perk names (PerkNames vocabulary,
+  ## e.g. `armor,scope`) that one policy seat on the team carries, or the
+  ## literal `-` for none — until the fixed `mods` token. A single group is
+  ## team-wide; several deal to the team's distinct policies in join order
+  ## (named config groups emit in config order, without names — a consumer
+  ## maps groups to policies via the roster, exactly as the sim does). After
+  ## `mods` come the ENGINE-RESOLVED magnitudes the sim actually plays, so a
+  ## policy never assumes the defaults: `hp` armor's extra hit points,
+  ## `aim` the aim-sigma reduction in permille, `nade` the extra throw range
+  ## in permille, `spd` the extra max speed in permille, `luck` the lucky-
+  ## shot chance in permille, `dmg` a lucky shot's hit points. An unperked
+  ## team reads `perks <color> -` with NO mods tail (nothing to resolve).
+  ## Plain-int magnitudes, not the PerkMods struct: this module keeps ZERO
+  ## imports (see the module header), exactly like labelHandicap's deltas.
   result = LabelPrefixPerks & color
   if groups.len == 0:
     result.add " -"
@@ -364,6 +381,9 @@ proc labelPerks*(color: string; groups: seq[string]): string =
     for group in groups:
       result.add " "
       result.add (if group.len > 0: group else: "-")
+    result.add " mods hp " & $armorHp & " aim " & $scopeAim &
+      " nade " & $grenadeRange & " spd " & $thrusterSpeed &
+      " luck " & $luckChance & " dmg " & $luckDamage
 
 proc labelTrench*(x0, y0, x1, y1: int): string =
   ## One trench's bounding-box marker label, `trench <x0>,<y0> <x1>,<y1>`. A

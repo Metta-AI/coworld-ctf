@@ -46,12 +46,7 @@ proc defaultGameConfig*(): GameConfig =
     mapSpec: "",
     closedRoster: false,
     slots: @[],
-    perkArmorHp: PerkArmorHpDefault,
-    perkScopePermille: PerkScopePermilleDefault,
-    perkGrenadePermille: PerkGrenadePermilleDefault,
-    perkThrusterPermille: PerkThrusterPermilleDefault,
-    perkLuckPermille: PerkLuckPermilleDefault,
-    perkLuckDamage: PerkLuckDamageDefault,
+    perkMods: DefaultPerkMods,
     puddleDamagePct: DefaultPuddleDamagePct,
     barrageMaxPerSec: 0,
     barrageStartPerSec: BarrageStartPerSec,
@@ -366,10 +361,13 @@ proc readPerkGroup(value: JsonNode, teamName: string): PerkSet =
       )
 
 proc readConfigPerks(node: JsonNode, config: var GameConfig) =
-  ## Reads the optional per-team perk map. A team's value is either a flat
-  ## array of perk names (one group, the whole team shares it) or an array of
-  ## such arrays (per-policy groups, CTF-Doubles):
-  ## {"red": ["armor", "scope"], "blue": [["grenade"], ["thruster", "luck"]]}.
+  ## Reads the optional per-team perk map. A team's value is one of:
+  ##   a flat array  — {"red": ["armor", "scope"]} — one team-wide group;
+  ##   nested arrays — {"blue": [["grenade"], ["thruster", "luck"]]} —
+  ##     unnamed per-policy groups dealt in join order (CTF-Doubles);
+  ##   an object     — {"blue": {"botA": ["grenade"], "botB": ["luck"]}} —
+  ##     groups PINNED to policy names (policyName match; an unmatched
+  ##     policy gets nothing).
   ## Omitted teams keep no perks. Like handicaps, a perk set named for an
   ## inactive team is accepted and simply never applies.
   if not node.hasKey("perks"):
@@ -379,29 +377,47 @@ proc readConfigPerks(node: JsonNode, config: var GameConfig) =
     raise newException(CtfError, "Config field perks must be an object.")
   for teamName, value in perks.pairs:
     let team = readTeamKey(teamName, "perks")
-    if value.kind != JArray:
-      raise newException(
-        CtfError,
-        "Config field perks." & teamName &
-          " must be an array of perk names or an array of groups."
-      )
-    var groups: seq[PerkSet]
-    if value.len == 0:
-      # A flat empty array has no meaning ("no perks" is spelled by omitting
-      # the team) and would otherwise register as one empty group — flipping
-      # the has-perks gates (pmods, marker content) on a perk-free team.
-      # An empty NESTED group ([["armor"], []]) stays legal: it means "this
-      # policy gets nothing".
-      raise newException(
-        CtfError,
-        "Config field perks." & teamName &
-          " is an empty array; omit the team instead."
-      )
-    elif value[0].kind == JArray:
-      for group in value:
-        groups.add readPerkGroup(group, teamName)
+    var groups: seq[PerkGroup]
+    case value.kind
+    of JObject:
+      # Named groups, pinned to their policies.
+      if value.len == 0:
+        raise newException(
+          CtfError,
+          "Config field perks." & teamName &
+            " is an empty object; omit the team instead."
+        )
+      for pol, group in value.pairs:
+        if pol.len == 0:
+          raise newException(
+            CtfError,
+            "Config field perks." & teamName & " has an empty policy name."
+          )
+        groups.add PerkGroup(pol: pol, perks: readPerkGroup(group, teamName))
+    of JArray:
+      if value.len == 0:
+        # A flat empty array has no meaning ("no perks" is spelled by
+        # omitting the team) and would otherwise register as one empty group
+        # — flipping the has-perks gates (pmods, marker content) on a
+        # perk-free team. An empty NESTED group ([["armor"], []]) stays
+        # legal: it means "this policy gets nothing".
+        raise newException(
+          CtfError,
+          "Config field perks." & teamName &
+            " is an empty array; omit the team instead."
+        )
+      elif value[0].kind == JArray:
+        for group in value:
+          groups.add PerkGroup(perks: readPerkGroup(group, teamName))
+      else:
+        groups.add PerkGroup(perks: readPerkGroup(value, teamName))
     else:
-      groups.add readPerkGroup(value, teamName)
+      raise newException(
+        CtfError,
+        "Config field perks." & teamName &
+          " must be an array of perk names, an array of groups, or a " &
+          "policy-name object."
+      )
     config.perks[team] = groups
 
 proc readPerkModPermille(node: JsonNode, name: string, value: var int) =
@@ -458,13 +474,13 @@ proc readConfigPerkMods(node: JsonNode, config: var GameConfig) =
         "luckChance", "luckDamage"]:
       raise newException(
         CtfError, "Config field perkMods has unknown key " & key & ".")
-  mods.readPerkModInt("armorHp", config.perkArmorHp)
-  mods.readPerkModPermille("scopeAim", config.perkScopePermille)
-  mods.readPerkModPermille("grenadeRange", config.perkGrenadePermille)
-  mods.readPerkModPermille("thrusterSpeed", config.perkThrusterPermille)
-  mods.readPerkModPermille("luckChance", config.perkLuckPermille)
-  mods.readPerkModInt("luckDamage", config.perkLuckDamage)
-  if config.perkLuckDamage < 1:
+  mods.readPerkModInt("armorHp", config.perkMods.armorHp)
+  mods.readPerkModPermille("scopeAim", config.perkMods.scopeAim)
+  mods.readPerkModPermille("grenadeRange", config.perkMods.grenadeRange)
+  mods.readPerkModPermille("thrusterSpeed", config.perkMods.thrusterSpeed)
+  mods.readPerkModPermille("luckChance", config.perkMods.luckChance)
+  mods.readPerkModInt("luckDamage", config.perkMods.luckDamage)
+  if config.perkMods.luckDamage < 1:
     raise newException(
       CtfError, "Config field perkMods.luckDamage must be at least 1.")
 
@@ -790,39 +806,42 @@ proc configJson*(config: GameConfig): string =
       handicaps[teamText(team)] = %(config.handicaps[team].float / 1000.0)
   if handicaps.len > 0:
     node["handicaps"] = handicaps
-  # Echo only the perked teams — one flat name array for a single group,
-  # nested arrays for per-policy groups — so a default (perk-free) game's
-  # replay config carries no perks key.
+  # Echo only the perked teams, in their authored shape — a policy-name
+  # object for named (pinned) groups, one flat name array for a single
+  # unnamed group, nested arrays for several — so a default (perk-free)
+  # game's replay config carries no perks key.
   var perks = newJObject()
   for team in Red .. Yellow:
     if config.perks[team].len == 0:
       continue
-    var groups = newJArray()
-    for group in config.perks[team]:
-      var names = newJArray()
+    proc groupNames(group: PerkGroup): JsonNode =
+      result = newJArray()
       for perk in Perk:
-        if perk in group:
-          names.add(%perkText(perk))
-      groups.add(names)
-    perks[teamText(team)] =
-      if config.perks[team].len == 1: groups[0] else: groups
+        if perk in group.perks:
+          result.add(%perkText(perk))
+    if config.perks[team][0].pol.len > 0:
+      var named = newJObject()
+      for group in config.perks[team]:
+        named[group.pol] = groupNames(group)
+      perks[teamText(team)] = named
+    else:
+      var groups = newJArray()
+      for group in config.perks[team]:
+        groups.add(groupNames(group))
+      perks[teamText(team)] =
+        if config.perks[team].len == 1: groups[0] else: groups
   if perks.len > 0:
     node["perks"] = perks
   # Echo perkMods only when some magnitude differs from its default, as the
   # authored shapes (fractions as 0..1 floats, counts as integers).
-  if config.perkArmorHp != PerkArmorHpDefault or
-      config.perkScopePermille != PerkScopePermilleDefault or
-      config.perkGrenadePermille != PerkGrenadePermilleDefault or
-      config.perkThrusterPermille != PerkThrusterPermilleDefault or
-      config.perkLuckPermille != PerkLuckPermilleDefault or
-      config.perkLuckDamage != PerkLuckDamageDefault:
+  if config.perkMods != DefaultPerkMods:
     node["perkMods"] = %*{
-      "armorHp": config.perkArmorHp,
-      "scopeAim": config.perkScopePermille.float / 1000.0,
-      "grenadeRange": config.perkGrenadePermille.float / 1000.0,
-      "thrusterSpeed": config.perkThrusterPermille.float / 1000.0,
-      "luckChance": config.perkLuckPermille.float / 1000.0,
-      "luckDamage": config.perkLuckDamage
+      "armorHp": config.perkMods.armorHp,
+      "scopeAim": config.perkMods.scopeAim.float / 1000.0,
+      "grenadeRange": config.perkMods.grenadeRange.float / 1000.0,
+      "thrusterSpeed": config.perkMods.thrusterSpeed.float / 1000.0,
+      "luckChance": config.perkMods.luckChance.float / 1000.0,
+      "luckDamage": config.perkMods.luckDamage
     }
   # Echo the barrage keys only when the mode is on, so a default game's
   # replay config stays byte-identical to the pre-barrage echo.
