@@ -235,6 +235,17 @@ proc controlWarnings(control, m: MapMetrics): seq[string] =
              "map_metrics.ArenaLargeControl for the four already decided.")
   discard m
 
+proc sameMapPath(a, b: string): bool =
+  ## Path equality for the control filter. Named maps ("arena") compare as
+  ## strings; spec paths compare RESOLVED, so `maps/arena4.json` and the
+  ## GameDir-rooted absolute form are recognised as one map.
+  if a == b:
+    true
+  elif a.endsWith(".json") and b.endsWith(".json"):
+    absolutePath(a) == absolutePath(b)
+  else:
+    false
+
 proc evaluateBatch(
   paths: seq[string], withControl: bool
 ): tuple[metrics: seq[MapMetrics], controls: int] =
@@ -251,9 +262,14 @@ proc evaluateBatch(
     # Strip any caller-supplied copy first. Without this, naming a control on
     # the command line leaves it wherever the caller put it and the leading
     # rows stop being the controls every reader below assumes they are.
-    wanted = wanted.filterIt(it != ControlMapPath and
-                             it != SecondControlMapPath and
-                             it != FourTeamControlPath)
+    #
+    # Compared as RESOLVED paths, not as strings. `FourTeamControlPath` is
+    # GameDir-rooted and absolute while a caller naturally types the relative
+    # `maps/arena4.json`, so a string compare misses — and the control is then
+    # scored TWICE, once as the control row and once as a candidate beside it.
+    wanted = wanted.filterIt(not it.sameMapPath(ControlMapPath) and
+                             not it.sameMapPath(SecondControlMapPath) and
+                             not it.sameMapPath(FourTeamControlPath))
   var loaded: seq[(string, CtfMap)]
   for path in wanted:
     loaded.add (path, loadCandidate(path))

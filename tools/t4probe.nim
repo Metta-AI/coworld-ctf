@@ -37,10 +37,26 @@ proc describe(gameMap: CtfMap, label: string) =
     echo &"  RAID {me.t:<8} -> {pick:<8} (|dx|={best:.1f})"
 
 when isMainModule:
-  for arg in commandLineParams():
+  ## `--dump-spec <dir>` also writes each generated 4-team board out as a
+  ## mapSpec .json, which is what lets `map_eval score` compare a generated
+  ## 4-team board against arena4 — `score` resolves a spec path but has no
+  ## --teams flag, so a bare `gen:1007` there is the TWO-team board.
+  var dumpDir = ""
+  let argv = commandLineParams()
+  for i, arg in argv:
+    if arg == "--dump-spec" and i + 1 < argv.len:
+      dumpDir = argv[i + 1]
+  for i, arg in argv:
+    if arg == "--dump-spec" or (i > 0 and argv[i - 1] == "--dump-spec"):
+      continue
     if arg.endsWith(".json"):
       describe(mapFromSpecJson(readFile(arg)), arg)
     else:
-      let seed = arg.parseInt
-      describe(generateCtfMap(seed,
-        MapGenOverrides(windows: -1, pits: -1, pitDensity: -1), 4), "gen:" & arg)
+      let
+        seed = arg.parseInt
+        gameMap = generateCtfMap(seed,
+          MapGenOverrides(windows: -1, pits: -1, pitDensity: -1), 4)
+      describe(gameMap, "gen:" & arg)
+      if dumpDir.len > 0:
+        createDir(dumpDir)
+        writeFile(dumpDir / ("gen4-" & arg & ".json"), mapSpecJson(gameMap))
