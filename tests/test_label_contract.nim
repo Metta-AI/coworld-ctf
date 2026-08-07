@@ -43,7 +43,8 @@ proc fullFeatureGame(teams4 = false): SimServer =
     config.teams = 4
     config.mapPath = "gen"
     config.mapGen.layout = "corners"
-    config.mapSeed = 42
+    config.mapSeed = 44
+    # Seed 44, not 42 — see tests/test_four_team.nim.
   config.slots.setLen(6)
   result = initCtfForTest(config)
   for i in 0 ..< 6:
@@ -488,7 +489,8 @@ neither failure surfaces until a league round comes back wrong.
       config.slots.setLen(6)
       config.teams = teams
       config.mapPath = "gen"
-      config.mapSeed = 42
+      config.mapSeed = 44
+      # Seed 44, not 42 — see tests/test_four_team.nim.
       config.mapGen.endzone = endzone
       config.mapGen.layout = layout
       result = initCtfForTest(config)

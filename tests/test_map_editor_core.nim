@@ -11,19 +11,27 @@ const ValidationBaselinePath =
   currentSourcePath.parentDir / "fixtures" / "map-validation-baseline.tsv"
 
 const PoolRenderHashes = [
-  ## Re-pinned against the rebuilt generator (`maxwell/mapgen-rebuild`), which
-  ## re-deals every seed: all 20 moved. The SEED LIST did not — `gen_map_pool`
-  ## re-curates to the same 20 — so this pin is the only place the rewrite is
-  ## visible, which is exactly why it is not a mechanical update. Every one of
-  ## these 20 renders was looked at before the hash was written down: six
-  ## archetypes present (blocks 5, three-lane 5, field 4, warren 3, hub 2,
-  ## ring 1), symmetry visibly exact on all 20, no degenerate board. A hash
-  ## nobody has looked at makes a bad map the baseline for everyone after.
+  ## ONE of the twenty moved: index 18, seed 1021. The 68 px length-aware
+  ## corridor floor rejected the candidate best-of-K used to pick there — the
+  ## validation baseline names it, "kill box at (523,392): an UNAVOIDABLE pinch
+  ## holds 112px of unbroken sightline in floor only 26px wide" — and selection
+  ## fell through to the next one. The other nineteen hashes are BYTE-IDENTICAL
+  ## to the pin the pool re-curation landed, and `gen_map_pool` re-curates to
+  ## the same 20 seeds, so this one number is the whole visible footprint of
+  ## the corridor rule on the shipping pool.
+  ##
+  ## All 20 renders were looked at again before this was written down, and the
+  ## one that moved was diffed against its predecessor side by side: the old
+  ## 1021 put three tall thin bars either side of the centre disc, making
+  ## 26 px slots you file through; the new one carries rounder, better-spaced
+  ## cover and leaves the disc open on every side. Symmetry visibly exact on
+  ## all 20, six archetypes still present, no degenerate board. A hash nobody
+  ## has looked at makes a bad map the baseline for everyone after.
   0x254b59b6'u32, 0x3439bd90'u32, 0x087a84d5'u32, 0xc615f7f9'u32,
   0x01fd2cc7'u32, 0x86673849'u32, 0xd4eedbe0'u32, 0xac1b2e34'u32,
   0xcab0a916'u32, 0x2c389334'u32, 0x178218cb'u32, 0xb38ec8dd'u32,
   0xe1408202'u32, 0x837295a5'u32, 0xf1cab922'u32, 0x703f4aec'u32,
-  0x66a67465'u32, 0x30d4387b'u32, 0x3fdb8e76'u32, 0x1ba77a58'u32
+  0x66a67465'u32, 0x30d4387b'u32, 0xee9e1cf8'u32, 0x1ba77a58'u32
 ]
 
 proc poolMap(index: int): CtfMap =

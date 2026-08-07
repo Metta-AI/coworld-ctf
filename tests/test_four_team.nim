@@ -9,7 +9,15 @@ proc fourTeamConfig(layout: string): GameConfig =
   result.teams = 4
   result.mapPath = "gen"
   result.mapGen.layout = layout
-  result.mapSeed = 42
+  result.mapSeed = 44
+  ## Seed 44, not 42. Seed 42's `corners` board validated on 2 of 100 draws
+  ## (98 rejected "too clogged"), so it was one validator tightening away from
+  ## taking every test that builds it with it — which is what happened when the
+  ## 68 px corridor floor landed. Measured with tools/valid_probe.nim: at
+  ## layout=corners seed 44 validates on 24/100 draws and at layout=plus on
+  ## 13/100, against 0/100 and 0/100 for seed 42. The underlying weakness is the
+  ## 4-team cover budget, not the corridor rule: the pinch predicate costs
+  ## exactly ONE seed in 60 at this layout (56/60 -> 55/60) and it was this one.
 
 proc fourTeamGame(layout = "corners"): SimServer =
   ## A started 4-team game with one player per team (slots deal mod 4).
