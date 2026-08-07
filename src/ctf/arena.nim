@@ -2955,17 +2955,20 @@ proc collectMapDiagnostics(
   ## length is invisible to it, and on 13 of 36 measured maps the longest open
   ## line IS the diagonal.
   ##
-  ## WHY THIS DOES NOT REJECT YET, stated rather than quietly chosen: a hard cap
-  ## at `GunRange` fails `arena-large` (1149 px, diagonal) and four curated pool
-  ## seeds (1074 px, horizontal). On the evidence that is a finding about those
-  ## maps and not about the cap — 1149 px of unbroken line on a board whose gun
-  ## reaches 1050 px is a lane neither end can contest, which is the exact
-  ## defect the horizontal rule exists to prevent. But flipping it to a
-  ## rejection retires a fifth of the curated pool and one of the two
-  ## hand-authored maps, and that is the epic owner's call to make with this
-  ## number in hand, not a side effect of measuring it. `map_metrics` bands
-  ## `sightlineMaxPx` at `GunRange` today, so the cost is already charged
-  ## against every map's score.
+  ## WHY THIS DOES NOT REJECT, and what a rejection would have to be cut on.
+  ## This used to read that a hard cap at `GunRange` "fails arena-large
+  ## (1149 px) and four curated pool seeds (1074 px)", and that those were
+  ## findings about the MAPS because "a lane neither end can contest is the
+  ## exact defect the horizontal rule exists to prevent". THAT WAS REASONING
+  ## FROM GEOMETRY AND PLAY REFUTED IT: across 35,335 resolved shots nothing
+  ## damaged anybody past 832 px, and a played 4-team board carrying a 1318 px
+  ## diagonal produced ZERO hits past 900 px in five episodes. `GunRange` is a
+  ## reach, not an engagement range — the same correction `IsovistRangePx`
+  ## already took. `map_metrics` now bands the SCALE-FREE form,
+  ## `sightlineOpenFrac`, at 0.85 of the board diagonal; see
+  ## `map_metrics.SightlineOpenFracCap` for the measurement behind that number.
+  ## A rejection here would have to be cut on THAT and not on px, and it is
+  ## still the epic owner's call rather than a side effect of measuring.
   if not stopAfterFirstFailure:
     ## Full-diagnostics path only: four O(w*h) scans is 24x the strided row
     ## scan, and the generator's fast validator re-rolls up to 100 attempts.

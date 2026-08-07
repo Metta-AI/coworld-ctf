@@ -60,6 +60,7 @@ when isMainModule:
       "staticScore": m.staticScore(),
       "sightlineMaxPx": m.sightlineMaxPx,
       "sightlineAxis": m.sightlineAxis,
+      "sightlineOpenFrac": m.sightlineOpenFrac,
       "sightlineX": m.sightlineX, "sightlineY": m.sightlineY,
       "openRunP95Px": m.openRunP95Px, "openRunMaxPx": m.openRunMaxPx,
       "longRunFrac": m.longRunFrac, "longRunPxFrac": m.longRunPxFrac,

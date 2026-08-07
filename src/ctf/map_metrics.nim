@@ -96,20 +96,53 @@ const
     ## can engage from opposite ends and neither can leave), which 600 clears
     ## by 16%. Left where it is because every band below is calibrated on it;
     ## noted here so the next person does not have to re-derive it.
-  SightlineCapPx* = GunRange
-    ## THE HARD CAP on an unbroken open line, on any of the four scan axes.
+  SightlineOpenFracCap* = 0.85
+    ## THE CAP on an unbroken open line, as a share of the board's own diagonal.
     ##
-    ## This is the arena validator's own horizontal rule, said as a LENGTH
-    ## instead of as a crossing. That rule rejects a ray only when it clears
-    ## the entire `sightlineLoX .. sightlineHiX` band — which is 805 px wide on
-    ## a column-endzone map but 1205 px on a compact-endzone one, so the
-    ## effective cap moved with the endzone shape and on half the pool ended up
-    ## WIDER THAN THE GUN. Four curated pool seeds ship an open row longer than
-    ## `GunRange` and every one of them passes today.
+    ## THIS REPLACED A CAP OF `GunRange` = 1050 PX, AND THE OLD CAP WAS WRONG IN
+    ## BOTH DIRECTIONS AT ONCE — which is the epic's own test for a broken
+    ## metric. It flagged the `arena-large` CONTROL (1149 px, an entirely
+    ## ordinary 0.631 of its diagonal) and it passed three 816x816 boards whose
+    ## line runs 0.88-0.90 of the way across them, two of which score a PERFECT
+    ## `staticScore` of 1.000. Skipping the control is worse than flagging it,
+    ## and this bound did both.
     ##
-    ## A lane longer than the gun's own reach cannot be contested from either
-    ## end, which is the thing "with map-wide guns no straight ray may survive"
-    ## was reaching for.
+    ## The old cap's rationale was "a lane longer than the gun's own reach
+    ## cannot be contested from either end". That premise is REFUTED by play,
+    ## not by argument. Over 35,335 resolved shots in 210 stored episodes, not
+    ## one damaged anybody past 832 px, and `P(hit)` measured 13% at 750-900 px
+    ## and 0 of 7 at 900-1050. `GunRange` is a reach; the gun is a ~260 px
+    ## weapon (`map_rules.LethalEnvelopePx`), and `IsovistRangePx` was moved off
+    ## `GunRange` for exactly this reason. This band was the last straggler.
+    ##
+    ## Directly tested at 4 teams, 5 episodes each, on the boards themselves:
+    ##
+    ##   longest line          share of hits >600px   >900px   longest hit
+    ##   944 px  (0.53 diag)          1.59%            0.00%       878 px
+    ##   1318 px (0.75 diag)          0.81%            0.00%       766 px
+    ##   1701 px (0.96 diag)          4.44%            0.63%      1003 px
+    ##
+    ## So a 1318 px lane produces NOTHING and a board-length one does. On the
+    ## 1701 px board the two longest hits of the batch (1003 and 978 px) both
+    ## travel on a 45-degree heading, and diagonals carry 29% of its hits over
+    ## 600 px against a 9% base rate — the open diagonal is being used. On the
+    ## 1318 px board 0 of 5 long hits are diagonal: that lane is not.
+    ##
+    ## 0.85 is cut between those two measured regimes, at the protective end:
+    ## above every value MEASURED IN PLAY to produce nothing (the 40 played
+    ## 2-team boards top out at 0.767, the played 1318 px 4-team board is
+    ## 0.747; arena-large is 0.631 but has never been played) and below the
+    ## only value measured to produce something (0.964). THE INTERVAL
+    ## (0.767, 0.964] IS NOT RESOLVED FURTHER — there is exactly ONE played
+    ## board above 0.77, and narrowing this needs more of them. 0.85 is the
+    ## midpoint of an interval, not a threshold anybody has measured.
+    ##
+    ## NOT A QUALITY BAR. Like `StandCoverFloorPermille` this is a NAKEDNESS
+    ## detector: inside the bound it says nothing about whether a board is
+    ## good. It is inert on today's 2-team population (0 of 59 and 0 of 58),
+    ## which is the correct reading of a population no board of which has ever
+    ## produced a long-range engagement — but it does mean the band buys
+    ## nothing at 2 teams and must be re-checked when that generator moves.
   StandCoverRadiusPx* = 200
     ## The cover budget that decides whether a stolen flag can be defended.
   StandCoverFloorPermille* = 15
@@ -234,9 +267,25 @@ type
     clearP50Px*, clearP95Px*: int ## distance transform over open floor
     sightlineMaxPx*: int
       ## The longest open run found on ANY of the four scan axes — rows,
-      ## columns and both diagonals — the single number `SightlineCapPx` gates.
+      ## columns and both diagonals. REPORTED IN PX AND NOT GATED IN PX: the
+      ## gated form is `sightlineOpenFrac` below, and the reason is measured
+      ## rather than argued — see `SightlineOpenFracCap`.
     sightlineAxis*: string        ## which axis carried it, for a caller to look
     sightlineX*, sightlineY*: int ## and where it starts
+    sightlineOpenFrac*: float
+      ## `sightlineMaxPx` as a share of the board's own DIAGONAL, which is the
+      ## longest line the board could physically hold. THE GATED FORM.
+      ##
+      ## Scale-free, and it has to be: the longest line on a board is close to
+      ## a fixed multiple of that diagonal on every map anyone here has built.
+      ## Over 240 measured maps at both team counts the median sits at
+      ## 0.53-0.60 across a 1.53x range of board sizes, and the two
+      ## hand-authored maps sit at 0.541 (arena) and 0.631 (arena-large). A cap
+      ## in PX therefore measures how big the board is, not how it is built.
+      ##
+      ## What this asks instead is whether the obstacle field interrupted the
+      ## board at all. At 0.88+ it did not: the line runs nearly corner to
+      ## corner.
     diagRunP95Px*, diagRunMaxPx*: int
       ## The SAME open-run scan along both 45-degree diagonals, length scaled
       ## to px by sqrt(2) per step. Reported SEPARATELY from the axis runs on
@@ -1064,6 +1113,17 @@ proc evaluateMap*(gameMap: CtfMap, name = ""): MapMetrics =
   result.longRunPxFrac =
     if runPxTotal > 0: longRunPx.float / runPxTotal.float else: 0.0
 
+  ## The scale-free form of `sightlineMaxPx`, over BOTH scans, against the
+  ## longest line the board could physically hold. Denominator is the board
+  ## diagonal and not the longest achievable RUN (which on a wide board is the
+  ## full row, not the diagonal): a 1132px row on a 1235x659 board is 0.95 of
+  ## the achievable run but 0.81 of the diagonal, and the play evidence puts it
+  ## with the harmless population, not with the corner-to-corner ones. Getting
+  ## that denominator wrong collapses the two regimes this bound separates.
+  result.sightlineOpenFrac =
+    result.sightlineMaxPx.float /
+      max(1.0, sqrt(float(w) * float(w) + float(h) * float(h)))
+
   # --- distance transform (chamfer 3-4 on maxWall, the validator's own) ---
   var dist = newSeq[int32](w * h)
   for i in 0 ..< w * h:
@@ -1591,6 +1651,7 @@ proc metricValue*(m: MapMetrics, name: string): float =
   of "diagLongRunFrac": m.diagLongRunFrac
   of "diagLongRunPxFrac": m.diagLongRunPxFrac
   of "sightlineMaxPx": m.sightlineMaxPx.float
+  of "sightlineOpenFrac": m.sightlineOpenFrac
   of "openRunP95Px": m.openRunP95Px.float
   of "chokeExcessPx": m.chokeExcessPx.float
   of "standCoverGapMaxPx": m.standCoverGapMaxPx.float
@@ -1627,7 +1688,7 @@ as one (tools/stick_probe.nim), it breaches:
   interiorFrac    0.100  [0.25..0.65]   arena 0.342
   longRunFrac     0.169  [-1.00..0.15]  arena 0.104
   visDegreeCv     0.295  [0.30..1.20]   arena 0.524
-  sightlineMaxPx  1149   [..1050]       arena 758
+  sightlineMaxPx  1149   [..1050]       arena 758   <- RETIRED, see below
 
 DECIDED ON EVIDENCE, per the rule that a metric flagging the control is wrong
 and one that skips the control is worse — this is a finding about the CONTROL,
@@ -1637,11 +1698,20 @@ furniture simply moved apart. So its enclosure fraction falls, its open runs
 lengthen, and its exposure evens out, all without an authoring decision. The
 three fraction bands are measuring that dilution correctly.
 
-`sightlineMaxPx` is the one that is not a dilution artifact: 1149 px of
-unbroken open line between two places a player can stand, on a map whose gun
-reaches 1050 px. That is a lane neither end can contest, and it is exactly the
-defect the validator's horizontal rule exists to prevent — the rule misses it
-because it only ever looks along rows.
+THE FOURTH BREACH WAS RE-DERIVED AND IT WENT THE OTHER WAY. This section used
+to read: "`sightlineMaxPx` is the one that is not a dilution artifact: 1149 px
+of unbroken open line ... a lane neither end can contest." That was reasoning
+from geometry, and it is refuted by play. Across 35,335 resolved shots in 210
+stored episodes not one damaged anybody past 832 px, and a 4-team board with a
+1318 px lane produced ZERO hits past 900 px in 5 episodes while the two longest
+hits on a board-length one rode its diagonal. The px cap was `GunRange`, a
+REACH — the same mistake `IsovistRangePx` was corrected for — and it flagged
+this control while passing three boards open across 0.88-0.90 of themselves.
+
+So this control breaches THREE bands, not four, and the fourth was a bug in the
+band. The scale-free replacement is `sightlineOpenFrac`, on which arena-large
+scores 0.631 against a 0.85 cap and passes ON ITS MERITS rather than by
+exemption. The remaining three breaches stand exactly as written above.
 
 WHAT WAS NOT DONE, and deliberately: the bands were NOT widened to admit
 arena-large. Widening interiorFrac to 0.10 would retire the single highest-
@@ -1681,16 +1751,19 @@ let DefaultBands*: seq[Band] = @[
          "through the unoccupiable border gutter; the bound did not move"),
   # THE DIAGONAL, which until now was measured and did not gate at all. Two
   # bands, because the two things worth stopping are different shapes.
-  Band(name: "sightlineMaxPx", lo: -1.0, hi: float(SightlineCapPx),
-       margin: 350.0, weight: 2.0, kind: bandSoft, control: 758.0,
+  Band(name: "sightlineOpenFrac", lo: -1.0, hi: SightlineOpenFracCap,
+       margin: 0.10, weight: 2.0, kind: bandSoft, control: 0.541,
        note: "LONGEST unbroken open line between two standable points, on " &
-         "ANY of the four scan axes. Capped at GunRange=1050: a lane longer " &
-         "than the gun's own reach cannot be contested from either end. " &
-         "arena 758 (diagonal), pool median 818, pool max 1074. BREACHED BY " &
-         "arena-large at 1149 and by four curated pool seeds at 1074 — see " &
-         "ArenaLargeControl. Note the carrying axis: on 13 of 36 measured " &
-         "maps the longest line is DIAGONAL, which the axis scan and the " &
-         "hard validator are both blind to"),
+         "ANY of the four scan axes, as a share of the board's own diagonal. " &
+         "arena 0.541, arena-large 0.631, 2-team population max 0.809, " &
+         "4-team median 0.535. THE PX FORM OF THIS BAND WAS CUT AT " &
+         "GunRange=1050 AND FLAGGED THE arena-large CONTROL WHILE PASSING " &
+         "THREE 816x816 BOARDS OPEN ACROSS 0.88-0.90 OF THEMSELVES, two of " &
+         "which score staticScore 1.000. See SightlineOpenFracCap for the " &
+         "play measurement that retired the px cap and for what 0.85 does " &
+         "and does not rest on. Note the carrying axis: the longest line is " &
+         "DIAGONAL on most measured maps, which the axis scan and the hard " &
+         "validator are both blind to"),
   Band(name: "diagLongRunPxFrac", lo: -1.0, hi: 0.15, margin: 0.15,
        weight: 1.5, kind: bandSoft, control: 0.010,
        note: "share of open floor sitting on a DIAGONAL line over 600px, " &

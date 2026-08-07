@@ -144,10 +144,10 @@ proc detailReport(m: MapMetrics): string =
     &"over600 {m.diagLongRunFrac * 100:.1f}% " &
     &"({m.diagLongRunPxFrac * 100:.1f}% of px)"
   s.add &"    LONGEST LINE    {m.sightlineMaxPx}px on a {m.sightlineAxis} " &
-    &"from ({m.sightlineX},{m.sightlineY}); cap is GunRange {SightlineCapPx}px" &
-    (if m.sightlineMaxPx > SightlineCapPx:
-       &"  <-- OVER by {m.sightlineMaxPx - SightlineCapPx}px, a lane neither " &
-         "end can contest"
+    &"from ({m.sightlineX},{m.sightlineY}) = {m.sightlineOpenFrac:.3f} of the " &
+    &"board diagonal; cap {SightlineOpenFracCap:.2f}" &
+    (if m.sightlineOpenFrac > SightlineOpenFracCap:
+       "  <-- the obstacle field did not interrupt this board"
      else: "")
   s.add &"    clearance       p50 {m.clearP50Px}px  p95 {m.clearP95Px}px"
   s.add &"    routes          capacity {m.routeCountMin}..{m.routeCountMax} " &
@@ -333,7 +333,8 @@ const ShiftMetrics = [
   "visDegreeCv", "coverPermille",
   # The four corrections. A selection that moves the scalar without moving any
   # of these is selecting on the same blind spots it always did.
-  "sightlineMaxPx", "diagLongRunPxFrac", "chokeExcessPx", "standCoverGapMaxPx",
+  "sightlineOpenFrac", "diagLongRunPxFrac", "chokeExcessPx",
+  "standCoverGapMaxPx",
 ]
   ## Every band-backed metric, so the best-of-K report is a DISTRIBUTION SHIFT
   ## across the whole rubric rather than one flattering example. A selection

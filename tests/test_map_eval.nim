@@ -370,7 +370,20 @@ suite "map fitness: the corrected stick":
     # Pinned so that "the second control breaches nothing" can never be
     # believed without someone re-deriving it.
     check breached.len > 0
-    check "sightlineMaxPx" in breached
+    # THIS LINE USED TO READ `check "sightlineMaxPx" in breached`, and it was a
+    # test that ratcheted BACKWARDS: it asserted the control stayed flagged, so
+    # correcting the band would have turned it red. Re-derived from what it
+    # meant — the second control is scored against every band and exempted from
+    # none — plus the finding that retired that particular breach. The px cap
+    # was `GunRange`, a REACH; play says nothing damages anybody past 832px, so
+    # arena-large's 1149px line is not the defect the cap named. It now passes
+    # the scale-free band ON ITS MERITS, which is a different thing from being
+    # exempted, and both halves are checked separately.
+    check "sightlineOpenFrac" notin breached
+    check large.sightlineOpenFrac < SightlineOpenFracCap
+    var scored: seq[string]
+    for r in large.scoreBands(): scored.add r.band.name
+    check "sightlineOpenFrac" in scored
 
   test "open runs are measured between places a player can stand":
     # Before this, the longest run on every map sat in the ~10px border gutter,
@@ -388,7 +401,7 @@ suite "map fitness: the corrected stick":
     check control.sightlineAxis == "diagonal"
     var gated = false
     for r in control.scoreBands():
-      if r.band.name in ["sightlineMaxPx", "diagLongRunPxFrac"]: gated = true
+      if r.band.name in ["sightlineOpenFrac", "diagLongRunPxFrac"]: gated = true
     check gated
 
   test "the diagonal run-COUNT share could never have gated":

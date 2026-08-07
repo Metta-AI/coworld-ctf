@@ -98,14 +98,14 @@ when isMainModule:
       &"{teams} teams, absent from every number below: " & ungenerated.join(", ")
   echo ""
   echo &"""{"map":<16}{"size":>10}{"score":>7} | """ &
-    &"""{"SIGHT":>6}{"axis":>9}{"axLng%":>7}{"dgLng%":>7} | """ &
+    &"""{"SIGHT":>6}{"open":>7}{"axis":>9}{"axLng%":>7}{"dgLng%":>7} | """ &
     &"""{"chk":>4}{"wide":>5}{"exp":>5}{"allw":>5}{"exc":>5}""" &
     &"""{"cv259":>6}{"cv1050":>7} | """ &
     &"""{"stCov%":>7}{"gapPx":>6} | {"rts":>4}"""
   for r in rows:
     let m = r.m
     echo &"{r.label:<16}{m.width}x{m.height:<5}{m.staticScore():7.3f} | " &
-      &"{m.sightlineMaxPx:6}{m.sightlineAxis:>9}" &
+      &"{m.sightlineMaxPx:6}{m.sightlineOpenFrac:7.3f}{m.sightlineAxis:>9}" &
       &"{m.longRunPxFrac * 100:6.1f}%{m.diagLongRunPxFrac * 100:6.1f}% | " &
       &"{m.chokeCount:4}{m.routeWidthPx:5}{m.chokeExposed:5}" &
       &"{m.chokeAllowed:5}{m.chokeExcess:5}" &
@@ -123,6 +123,7 @@ when isMainModule:
     echo &"  {name:<20} arena {get(rows[0].m):8.3f}  large {get(rows[1].m):8.3f}   " &
       v.spreadOf()
   column("sightlineMaxPx", proc (m: MapMetrics): float = m.sightlineMaxPx.float)
+  column("sightlineOpenFrac", proc (m: MapMetrics): float = m.sightlineOpenFrac)
   column("axis runP95", proc (m: MapMetrics): float = m.openRunP95Px.float)
   column("axis runMax", proc (m: MapMetrics): float = m.openRunMaxPx.float)
   column("longRunFrac", proc (m: MapMetrics): float = m.longRunFrac)
