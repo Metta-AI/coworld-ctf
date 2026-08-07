@@ -94,7 +94,7 @@ Ranked by drama:
 ## Tempo map
 
 24 ticks/s (`ReplayFps`). `maxTicks 10000` ≈ 6:56 of game time (config.json:13 — but certification runs
-`maxTicks 300` ≈ 12.5s, coworld_manifest.json:638, so the clock derives from `sim.config.maxTicks`,
+`maxTicks 300` ≈ 12.5s in `coworld_manifest_paintbot.json` certification, so the clock derives from `sim.config.maxTicks`,
 never a hardcode). Engine playback speeds `[1,2,3,4,8,16]` (replays.nim:40). Dead time = both flags
 home, no contact — where speed collapses; contact windows and any beat hold their read time
 (DEPTH_TARGET tempo levers).

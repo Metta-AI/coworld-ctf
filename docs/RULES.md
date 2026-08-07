@@ -904,7 +904,7 @@ This section is a build plan, not player-facing rules.
   image with walk/wall layers. Red/Blue spawn strips on the left/right edges,
   heart pedestal at center, obstacles mirrored across the vertical axis, home-edge
   capture zones at the leftmost/rightmost columns.
-- New team-based `config.json` and `coworld_manifest.json` (slots carry `team`
+- New team-based `config.json` and `coworld_manifest_paintbot.json` (slots carry `team`
   instead of `role`; results schema reports team/kills/deaths/captures).
 - A **baseline bot** (Crewrift's `notsus` equivalent) speaking Sprite v1.
 - A **CTF grader** scoring episodes from wins.

@@ -1,17 +1,11 @@
-name: Upload Coworld Paintbot
+name: Upload Coworld
 
-# Builds the same game/player images as upload-coworld.yml and uploads them as a
-# new paintbot version to Softmax after the test workflow ("Github Actions")
-# passes on main — a red test run blocks the upload — keeping the Paintbot
-# league's game rules in lockstep with the singles league. The two uploads share
-# compose.yaml and differ only in the manifest template: paintbot declares the
-# league shapes — 2v2 (each 8-seat parity team split between two policies, 4
-# policies per episode), 4ffa (four teams of 4, one policy per team), and 4ffa8
-# (four teams of 8 on a giant board, 32 seats). Seating is configured by the
-# platform ladder service (team_n, slot mod 4), which owns this league's
-# scheduling.
+# Builds the game/player images and uploads one paintbot Coworld version after
+# the test workflow ("Github Actions") passes on main. That Coworld serves both
+# the Paintbot and CTF leagues: existing Paintbot variant ids stay unchanged,
+# while CTF uses the ctf-default and ctf-1v1 variants.
 #
-# Auth: the same SOFTMAX_TOKEN repo secret as upload-coworld.yml.
+# Auth: the SOFTMAX_TOKEN repo secret for the coworld-ctf-ci user credential.
 
 on:
   workflow_run:

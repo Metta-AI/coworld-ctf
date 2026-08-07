@@ -48,7 +48,7 @@ players/modulabot/test/parity
 /data/rig_real/*.png
 
 # Local coworld package build output. CI builds the real package to build/ from
-# the tracked coworld_manifest.json; dist/ is a local convenience artifact.
+# the tracked coworld_manifest_paintbot.json; dist/ is a local convenience artifact.
 /dist/
 trench-demo.bitreplay
 pool-preview/

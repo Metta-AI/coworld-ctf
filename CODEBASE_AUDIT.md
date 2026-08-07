@@ -68,7 +68,7 @@ You would not rewrite this codebase. The fundamental bets — Nim, input-based r
 - **`sim.nim` internal**: the pickup quartet (`tryPickup{Grenades,MedKits,Shields,PlasmaArcs}`), the respawn-refill triple, the reset quartet, near-duplicate spawn-point pair, `rigGunPixels`/`rigSprayCanPixels` pair, 7 near-identical FX prune loops in `step`, axis-swapped `canSlideHorizontal/Vertical`. (Refactor byte-identically; `gameHash`/GameVersion gate replay compat. In passing: `startGame` calls all resets *except* `resetMedKits` while `initSimServer`/`resetToLobby` call all four — confirm intended.)
 - **`server.nim` internal**: pending-join resolution loop twice (:1274 vs :1434), per-player frame-send block twice (:1486 vs :1572) — and the reset-path copy **lacks the `try`/`markSocketClosed` guard**, so consolidating fixes a latent silent-failure path.
 - **Cross-language constants synced by comment only** (drift table verified): chrome sprite id 4090, `PlaybackSpeeds` [1,2,3,4,8,16] (+ speed-char map), 24 fps, board 1235×659, `ShotFxTicks` 12, `TrailFalloff` 1.6, seat-suffix regex, the full command vocabulary, and the entire state-JSON schema — all re-typed in both HTML files. Nim-internal versions of the same disease: `MaxSmoothStepTicks = 16` (global.nim:6137) duplicating the top of `PlaybackSpeeds`; `ChunkCap` (frame_size_audit.nim:26) mirroring `MaxWsFrameBytes`; the Bedrock model ID duplicated between `taunts.nim` and (dead) `bedrock.nim`; `replays.nim`'s speed mapping duplicated within itself (:547 vs :637).
-- **Two ~1,600-line league manifests hand-synced** (`coworld_manifest.json` vs `coworld_manifest_paintbot.json`) — with real divergence, see §4.
+- **Resolved 2026-08-06:** one `coworld_manifest_paintbot.json` now serves both leagues; CTF variants are namespaced in the Paintbot schema.
 
 ---
 
@@ -106,9 +106,9 @@ A schema'd semantic observation protocol (typed entities, own aim included), wit
 
 ## 4. Config / docs / CI drift (live, user-visible)
 
-1. **The hosted league plays 45° vision; every prose source says 60°.** Both manifests pinned `visionConeDeg: 45` in every variant (`coworld_manifest.json` variants[0], all three paintbot variants), while the sim default (`sim.nim:263`), `config.json:10`, `README.md:33` (±60°), and `docs/RULES.md:220,652` (config table, "±60°") all say 60. **Resolved 2026-08-01: owner confirmed 60° is the intended game; all four manifest pins changed 45 → 60 on this branch.** Note this is a live gameplay change for the hosted leagues on the next upload (bots tuned against 45° will see a wider cone).
-2. **Four-team play is locked out of the ctf league by schema.** `coworld_manifest.json`'s `config_schema` has `additionalProperties: false` and no `teams`/`scoring` keys (the paintbot manifest has both) — the platform cannot configure the GV32 four-team mode for the ctf league at all.
-3. **A red test run does not stop a league upload.** `upload-coworld.yml` triggers on every push to main with no dependency on the build/test workflow; the only test it runs is the version-picker's own unit test. Gate the upload on the test workflow.
+1. **The hosted league played 45° vision while every prose source said 60°. Resolved 2026-08-01:** the owner confirmed 60° is intended and every variant now pins 60°.
+2. **The CTF schema lacked Paintbot's four-team fields. Resolved 2026-08-06:** both leagues now use the Paintbot superset schema.
+3. **A red test run did not stop the CTF upload. Resolved 2026-08-06:** the single Paintbot upload runs only after the test workflow succeeds on current `main`.
 4. Doc drift, minor: REPLAY_DESIGN.md calls the broadcast client "single self-contained file" (it fetches font.ttf + up to 8 PNGs); `window_audit.nim` claims GV13; `render_plasma_frame.nim` carries `render_frame`'s header; the server comment claiming top-down PNGs are a live fallback.
 
 ---
@@ -159,7 +159,7 @@ in the same round:
 - **CI upload pwn-request path**: the `workflow_run` `branches` filter
   matches the triggering run's *head* branch, so a fork PR from a branch
   named `main` could have fired a production league upload — with repo
-  secrets — of unreviewed fork code. Both upload workflows now require
+  secrets — of unreviewed fork code. The upload workflow now requires
   `event == 'push'` and `head_repository == this repo`, plus a freshness
   step that skips (with a `::notice::`) when the certified SHA is no longer
   main's HEAD (re-running an old green run must not republish old code).
