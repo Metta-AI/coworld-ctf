@@ -3179,16 +3179,29 @@ proc shippedCombatTune(): CombatTune =
   # latch; every other seat is untouched. Default ON; NOCOMBOGRAB=1 turns it
   # off for the A/B.
   result.comboGrab = getEnv("NOCOMBOGRAB").len == 0
-  # ⭐⭐ AGGRO SCALAR (2026-08-07, v44 home-ground posture): the Andre study
-  # confirms the home-ground meta (88.3% defense rate, 89-97% own-half dwell,
-  # boundary fights = fighting inside your own cover network), so the shipped
-  # default moves from 1.0 to 0.5: aggroScale=(0.7+0.3*0.5)/1.3≈0.77 (~23%
-  # shorter engagement/commit ranges — fight nearer home cover, don't chase)
-  # and bankHpThreshold=min(MaxHp-1, round(1/0.5))=2 (wounded bots peel at 2hp
-  # instead of 1 — survive, reach kits, refight). Both are the intended
-  # posture, not side effects. AGGRO=<float> still overrides per-process for
-  # the A/B and any other preset (e.g. AGGRO=1.0 to isolate this change).
-  result.aggro = 0.5
+  # ⭐⭐ AGGRO SCALAR — REVERTED to 1.0 (2026-08-07, v45, impl-v44ab arm A/B).
+  # The v44 aggro=0.5 home-ground posture (below, kept for the record) was
+  # shipped on the Andre study's premise but never isolated from v44's other
+  # changes. impl-v44ab's arm A (aggro=0.5, this champion as-shipped) vs arm B
+  # (identical build, AGGRO=1.0 override — the ONLY delta) came back
+  # DECISIVE: arm A win rate 40.0%, arm B 52.2% at DEAD PARITY, K/D exactly
+  # 1.000. aggro=0.5 is a regression, not a posture win — the shorter
+  # engagement/commit ranges cost more than the home-ground framing gained.
+  # arcStandoff is EXONERATED by the same A/B (unaffected, both arms carry it
+  # ON) and stays on. Reverting the default to 1.0 (byte-identical to
+  # defaultCombatTune's aggroScale=1.0/bankHpThreshold=1 no-op) undoes the
+  # regression the live v44 champion is currently carrying. AGGRO=<float>
+  # keeps working exactly as before for any future re-measurement.
+  # ⭐⭐ AGGRO SCALAR (2026-08-07, v44 home-ground posture, SUPERSEDED above):
+  # the Andre study confirmed the home-ground meta (88.3% defense rate,
+  # 89-97% own-half dwell, boundary fights = fighting inside your own cover
+  # network), so the shipped default moved from 1.0 to 0.5: aggroScale=
+  # (0.7+0.3*0.5)/1.3≈0.77 (~23% shorter engagement/commit ranges — fight
+  # nearer home cover, don't chase) and bankHpThreshold=min(MaxHp-1,
+  # round(1/0.5))=2 (wounded bots peel at 2hp instead of 1 — survive, reach
+  # kits, refight). Both were intended as posture, not side effects — the A/B
+  # above shows the net effect was negative regardless of intent.
+  result.aggro = 1.0
   block aggroEnvParse:
     let aggroEnv = getEnv("AGGRO")
     if aggroEnv.len == 0: break aggroEnvParse
