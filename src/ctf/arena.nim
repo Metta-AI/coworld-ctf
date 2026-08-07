@@ -3151,15 +3151,22 @@ proc selectCtfMap(gameMap: CtfMap) =
   FovGridW = (MapWidth + FovCellSize - 1) div FovCellSize
   FovGridH = (MapHeight + FovCellSize - 1) div FovCellSize
   FovCellCount = FovGridW * FovGridH
-  ## The SHORT axis, matching the declaration + rationale at
-  ## sim_types.nim:642-650. These two lines are inherited verbatim from the
-  ## rectangular board, where width WAS the short axis; the landscape flip
-  ## silently inverted their meaning. Left as `MapWidth` they hand every
-  ## player a 15.5% longer throw and a 15.5% louder shout on every class
-  ## (arena 223 vs 193, giant 581 vs 503) — the exact regression the
-  ## declaration's comment says was avoided.
-  GrenadeMaxRange = MapHeight div 5
-  ShoutRange = MapHeight div 5
+  ## ⚠️ WRONG AXIS — KNOWN BUG, fix is ready on `maxwell/hex-grenade-axis-fix`.
+  ## `sim_types.nim:642-650` declares both as `MapHeight div 5` and explains at
+  ## length that reading `MapWidth` after the landscape flip "would have handed
+  ## every player a 15.5% longer throw and a 15.5% louder shout as an accidental
+  ## side effect of a rendering decision". These two lines are inherited verbatim
+  ## from the rectangular board, where width WAS the short axis, and they do
+  ## exactly what that comment says was avoided. Measured after install:
+  ## arena 223 vs an intended 193, arena-large 291 vs 252, giant 581 vs 503.
+  ##
+  ## NOT fixed here because it changes the sim: ShoutRange alters what a bot
+  ## hears, so every recorded fixture desyncs (measured: test_replay and
+  ## test_broadcast_state fail on a hash mismatch at ticks 2561 and 1185). The
+  ## one-line fix plus its test is on the branch above and must land together
+  ## with a fixture re-record — which the GV41 renumber forces anyway.
+  GrenadeMaxRange = MapWidth div 5
+  ShoutRange = MapWidth div 5
   ArenaFlagRing = gameMap.flagRing
   ArenaCaptureClear = gameMap.captureClear
   ArenaLayoutG = gameMap.layout

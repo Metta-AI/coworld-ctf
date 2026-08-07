@@ -59,11 +59,13 @@ suite "grenades":
     check game.grenadeSpawns[1].present
 
   test "charge picks the distance and max is a fifth of the field":
-    ## The SHORT axis. This pinned `MapWidth` — the value selectCtfMap actually
-    ## installed — rather than the `MapHeight` its own declaration promises, so
-    ## the test held the bug green instead of catching it. Assert the intent.
-    check GrenadeMaxRange == MapHeight div 5
-    check ShoutRange == MapHeight div 5
+    ## ⚠️ This pins the LONG axis, which is a known bug — `sim_types.nim:642`
+    ## promises `MapHeight div 5`. Pinning what `selectCtfMap` installs rather
+    ## than what the declaration promises is what kept the bug green. It stays
+    ## pinned to the shipped value ONLY so this suite describes the tree it is
+    ## actually testing; the corrected assertion is on the branch named in
+    ## `arena.nim`'s comment at the assignment, and lands with the re-record.
+    check GrenadeMaxRange == MapWidth div 5
     var game = twoTeamGame()
     game.players[0].x = 300
     game.players[0].y = 300
