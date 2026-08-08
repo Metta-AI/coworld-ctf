@@ -186,6 +186,13 @@ proc deserializeReplaySim*(bytes: string, donor: var SimServer): SimServer =
   var bakes: ReplayStaticBakes
   donor.swapStaticBakes(bakes)
   result.swapStaticBakes(bakes)
+  ## The donated walk/wall/fov masks are NOT fully static: the spinning
+  ## diamonds stamp tick-dependent stone into them, and the donor's stamps
+  ## are at ITS tick's spin frame — not the keyframe's. The restored
+  ## diamondPatches may disagree silently (applyDiamondGeometry skips frames
+  ## that "have not changed"), so restamp every diamond at its restored
+  ## frame over the diamond-free base the keyframe carried.
+  result.restampDiamondGeometry()
 
 proc initReplayPlayer*(data: ReplayData): ReplayPlayer =
   ## Builds replay playback state.

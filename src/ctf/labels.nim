@@ -56,6 +56,13 @@ const
     ## One mist puff of a firing spray cone; a burst emits a run of them.
   LabelGrenade* = "grenade"
     ## Corner paint-bomb pickup on the floor, fog-gated by map position.
+  LabelBarrier* = "barrier"
+    ## Folded cardboard barrier pickup on the floor (config-gated:
+    ## barrierPickups > 0), fog-gated by map position. Carrying one blocks
+    ## picking up a grenade and vice versa — both use button C.
+  LabelBarrierCarried* = "barrier carried"
+    ## Marker floating over a barrier carrier you can see. Press C to unfold
+    ## the cardboard where you stand, flat side across your aim.
   LabelGrenadeAir* = "grenade air"
     ## A grenade in flight. It travels OVER walls, so an airborne orb is a
     ## threat even with no line of sight to the thrower.
@@ -162,6 +169,79 @@ const
     ## change that made the fixture's last shot land bumped Blue's deaths 1 -> 2
     ## and the vocabulary guard reported a phantom new label. See
     ## `labelTeamScore` and the normalizer in tests/test_label_contract.nim.
+  LabelPrefixHandicap* = "handicap "
+    ## The per-team handicap marker,
+    ## `handicap <color> <permille> hp <n> lives <n> spd <n> miss <n>`: an
+    ## invisible 1x1 object in the init snapshot stating one team's authored
+    ## handicap fraction AND the resolved gameplay deltas it interpolates to,
+    ## so a policy adapts to a weakened (own or enemy) team without knowing
+    ## the interpolation formula. One marker per team in the game, emitted
+    ## even at permille 0 — absence means an old engine, not "no handicap".
+    ## See `labelHandicap` for the exact tail arity.
+  LabelPrefixPerks* = "perks "
+    ## The per-team perk marker,
+    ## `perks <color> <group> [<group> …] mods hp <n> aim <n> nade <n>
+    ## spd <n> luck <n> dmg <n>`: an invisible 1x1 object in the init
+    ## snapshot stating one team's perk groups outright — each group is the
+    ## comma-joined perk names one policy seat carries (`armor,scope`), or
+    ## `-` for none — plus, after the fixed `mods` token, the ENGINE-RESOLVED
+    ## magnitudes (perkMods), so a policy adapts to tuned mods without
+    ## assuming the defaults. One group means the whole team shares it; two
+    ## or more deal to the team's distinct policies in join order
+    ## (CTF-Doubles). One marker per team in the game, emitted even when
+    ## unperked (`perks <color> -`, no mods tail) — absence means an old
+    ## engine, not "no perks". See `labelPerks` for the exact format.
+  LabelPrefixBarrage* = "grenade barrage depth "
+    ## The stated grenade-barrage marker,
+    ## `grenade barrage depth <n> rate <n> start <n> sat <n>`: an invisible
+    ## 1x1 marker on both streams, present whenever the barrage endgame is
+    ## configured (barrageMaxPerSec > 0), stating how deep inside every map
+    ## edge the shells currently land (`depth` map px, 0 until the barrage
+    ## latches; full board once the escalation completes), the CURRENT
+    ## launch rate in grenades/second (`rate`), the clock threshold in
+    ## seconds that latches it (`start`), and the seconds from latch to
+    ## full saturation (`sat`). Absence means the mode is off (or an old
+    ## engine). The shells themselves carry the ordinary grenade labels
+    ## (`grenade air`, `blast stage <n>`), so an incoming barrage reads
+    ## like any other lob — this marker is the escalation schedule.
+  LabelPrefixTrench* = "trench "
+    ## One trench's bounding-box marker, `trench <x0>,<y0> <x1>,<y1>`: an
+    ## invisible 1x1 object in the init snapshot stating one dug pit's
+    ## bounding box outright, in inclusive map-pixel corners — one marker per
+    ## entry in `gameMap.trenches`. Before this marker existed, trenches were
+    ## invisible to every policy: `LabelWalkabilityMap` is a BINARY mask, and
+    ## a trench floor reads identically to open floor on it. Trenches are
+    ## stored as `ArenaShape` polygons (a 56x56 walkable pit, its edge cut
+    ## with rough noise — see TrenchSize / trenchRoughEdge); the marker states
+    ## the shape's tight bounding box, so a non-rect trench reads as slightly
+    ## LOOSE (conservative) geometry rather than exact membership. Absent
+    ## entirely on 4-team maps (trenches are a 2-team-map feature) and on any
+    ## map that rolled zero pits — zero markers, not an empty-box marker. See
+    ## `labelTrench` for the exact tail arity.
+  LabelPrefixBarrierUp* = "barrier up "
+    ## One STANDING cardboard barrier,
+    ## `barrier up <x>,<y> f<brads> hp <n>`: the visible half-hex sprite's
+    ## own label (not an invisible marker), fog-gated by the barrier's center.
+    ## `<x>,<y>` is the placement center in map pixels, `f<brads>` the
+    ## placer's aim at placement (0..255, the flat middle side faces that
+    ## way, BarrierRadius=24px out), and `hp <n>` the paintball hits it can
+    ## still take (starts at 10). The band blocks every PAINT path — gun and
+    ## spray — but never sight, movement, or grenades; any cog that drives
+    ## into the band flattens it instantly. See `labelBarrierUp` for the
+    ## exact tail arity.
+  LabelPrefixPuddle* = "puddle "
+    ## One paint puddle's bounding-box marker, `puddle <x0>,<y0> <x1>,<y1>`:
+    ## an invisible 1x1 object in the init snapshot stating one hazard blob's
+    ## bounding box outright, in inclusive map-pixel corners — one marker per
+    ## entry in `gameMap.puddles`, same contract as the trench marker above.
+    ## Puddles are ORGANIC disc-union splats (see puddleSplatAt), so the box
+    ## is slightly loose (conservative) geometry, exactly like a non-rect
+    ## trench's marker.
+    ## Standing inside rolls a puddleDamagePct (default 10%) chance of 1
+    ## damage per full second of continuous occupancy; the puddle never slows
+    ## movement or fire and never blocks shots or vision. Absent entirely on
+    ## 4-team maps and on any map without puddles (the default) — zero
+    ## markers, not an empty-box marker. See `labelPuddle` for the tail arity.
 
   # ---------------------------------------------------------------------------
   # Tokens that fill the interpolated slots above.
@@ -303,6 +383,89 @@ proc labelEndzone*(color, shape: string; x0, y0, x1, y1: int): string =
   LabelPrefixEndzone & color & " " & shape & " " &
     $x0 & "," & $y0 & " " & $x1 & "," & $y1
 
+proc labelHandicap*(color: string; permille, hp, lives, spdPct,
+    missPct: int): string =
+  ## One team's handicap marker label,
+  ## `handicap <color> <permille> hp <n> lives <n> spd <n> miss <n>`. A
+  ## consumer matches LabelPrefixHandicap and splits the tail on spaces into
+  ## exactly `["<color>", "<permille>", "hp", "<n>", "lives", "<n>", "spd",
+  ## "<n>", "miss", "<n>"]` — the `hp`/`lives`/`spd`/`miss` tokens are fixed.
+  ## `<permille>` is the authored handicap fraction in permille (0..1000,
+  ## 0 = unhandicapped); the four deltas are the ENGINE-resolved values the
+  ## sim actually plays (see hitPointsFor/livesFor/maxSpeedFor/
+  ## missPermilleFor): hit points per life, lives, max speed as a percent of
+  ## the base max speed (100 = full), and the percent of point-blank shots
+  ## dropped (0..50). Stated so a policy never re-derives the interpolation.
+  LabelPrefixHandicap & color & " " & $permille &
+    " hp " & $hp & " lives " & $lives & " spd " & $spdPct & " miss " & $missPct
+
+proc labelBarrierUp*(x, y, facingBrads, hp: int): string =
+  ## One standing barrier's label, `barrier up <x>,<y> f<brads> hp <n>`. A
+  ## consumer matches LabelPrefixBarrierUp and splits the tail on spaces into
+  ## exactly `["<x>,<y>", "f<brads>", "hp", "<n>"]`; the corner splits once
+  ## more on the comma. The hp tail doubles as the render-cache buster: a hit
+  ## changes the label, which re-ships the (newly dented) sprite definition.
+  LabelPrefixBarrierUp & $x & "," & $y & " f" & $facingBrads & " hp " & $hp
+
+proc labelPerks*(color: string; groups: seq[string];
+    armorHp, scopeAim, grenadeRange, thrusterSpeed, luckChance,
+    luckDamage: int): string =
+  ## One team's perk marker label,
+  ## `perks <color> <group> [<group> …] mods hp <n> aim <n> nade <n> spd <n>
+  ## luck <n> dmg <n>`. A consumer matches LabelPrefixPerks and splits the
+  ## tail on spaces: the first token is the team color, each further token
+  ## one perk GROUP — the comma-joined perk names (PerkNames vocabulary,
+  ## e.g. `armor,scope`) that one policy seat on the team carries, or the
+  ## literal `-` for none — until the fixed `mods` token. A single group is
+  ## team-wide; several deal to the team's distinct policies in join order
+  ## (named config groups emit in config order, without names — a consumer
+  ## maps groups to policies via the roster, exactly as the sim does). After
+  ## `mods` come the ENGINE-RESOLVED magnitudes the sim actually plays, so a
+  ## policy never assumes the defaults: `hp` armor's extra hit points,
+  ## `aim` the aim-sigma reduction in permille, `nade` the extra throw range
+  ## in permille, `spd` the extra max speed in permille, `luck` the lucky-
+  ## shot chance in permille, `dmg` a lucky shot's hit points. An unperked
+  ## team reads `perks <color> -` with NO mods tail (nothing to resolve).
+  ## Plain-int magnitudes, not the PerkMods struct: this module keeps ZERO
+  ## imports (see the module header), exactly like labelHandicap's deltas.
+  result = LabelPrefixPerks & color
+  if groups.len == 0:
+    result.add " -"
+  else:
+    for group in groups:
+      result.add " "
+      result.add (if group.len > 0: group else: "-")
+    result.add " mods hp " & $armorHp & " aim " & $scopeAim &
+      " nade " & $grenadeRange & " spd " & $thrusterSpeed &
+      " luck " & $luckChance & " dmg " & $luckDamage
+
+proc labelTrench*(x0, y0, x1, y1: int): string =
+  ## One trench's bounding-box marker label, `trench <x0>,<y0> <x1>,<y1>`. A
+  ## consumer matches LabelPrefixTrench and splits the tail on spaces into
+  ## exactly `["<x0>,<y0>", "<x1>,<y1>"]`; each corner splits once more on the
+  ## comma. The corners are the INCLUSIVE bounding box of the trench in map
+  ## pixels.
+  LabelPrefixTrench & $x0 & "," & $y0 & " " & $x1 & "," & $y1
+
+proc labelPuddle*(x0, y0, x1, y1: int): string =
+  ## One paint puddle's bounding-box marker label,
+  ## `puddle <x0>,<y0> <x1>,<y1>`. Same tail contract as `labelTrench`: the
+  ## tail splits on spaces into exactly `["<x0>,<y0>", "<x1>,<y1>"]`, each
+  ## corner splitting once more on the comma; the corners are the INCLUSIVE
+  ## bounding box of the puddle in map pixels.
+  LabelPrefixPuddle & $x0 & "," & $y0 & " " & $x1 & "," & $y1
+
+proc labelBarrage*(depth, perSec, startSec, saturateSec: int): string =
+  ## The grenade-barrage marker label,
+  ## `grenade barrage depth <n> rate <n> start <n> sat <n>`. A consumer
+  ## matches LabelPrefixBarrage and splits the tail on spaces into exactly
+  ## `["<depth>", "rate", "<n>", "start", "<n>", "sat", "<n>"]` — the
+  ## `rate`/`start`/`sat` tokens are fixed. Shells land only within `depth`
+  ## map px of some map edge on the rendered tick, at `rate`
+  ## grenades/second; the ramp completes `sat` seconds after the latch.
+  LabelPrefixBarrage & $depth &
+    " rate " & $perSec & " start " & $startSec & " sat " & $saturateSec
+
 proc labelOwnAim*(brads: int): string =
   ## The own-aim marker label, `own aim <brads>`. A consumer matches
   ## LabelPrefixOwnAim and parses the tail as the integer aim angle.
@@ -388,6 +551,8 @@ const PolicyScannedLabels* = [
   LabelGrenade,
   LabelGrenadeAir,
   LabelGrenadeCarried,
+  LabelBarrier,
+  LabelBarrierCarried,
   LabelThrowTarget,
   labelFlag("red"),
   labelFlag("blue"),

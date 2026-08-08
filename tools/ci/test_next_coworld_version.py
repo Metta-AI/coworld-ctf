@@ -2,7 +2,7 @@
 """Fixture tests for the next_coworld_version picker (stdlib only, no network).
 
 Run from anywhere: python3 tools/ci/test_next_coworld_version.py
-The upload workflows run this before every version computation.
+The upload workflow runs this before every version computation.
 """
 
 import sys

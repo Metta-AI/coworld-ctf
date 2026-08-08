@@ -13,6 +13,9 @@ Room Center
 Room Green Base
 Room Red Base
 Room Yellow Base
+barrier
+barrier carried
+barrier up <n>,<n> f<n> hp <n>
 blast stage <n>
 cog arm <color>
 cog gun <color>
@@ -31,8 +34,10 @@ fog
 game teams <n> map <n>x<n>
 grenade
 grenade air
+grenade barrage depth <n> rate <n> start <n> sat <n>
 grenade carried
 grenade sound
+handicap <color> <n> hp <n> lives <n> spd <n> miss <n>
 hit splat <color> stage <n>
 hp <n>/3
 identity <color> <name> gun
@@ -49,8 +54,12 @@ name p<n>
 name p<n> flag <n>
 own aim <n>
 paint stain <color> variant <n>
+perks <color> -
+perks <color> armor,scope mods hp <n> aim <n> nade <n> spd <n> luck <n> dmg <n>
+perks <color> grenade thruster,luck mods hp <n> aim <n> nade <n> spd <n> luck <n> dmg <n>
 player <color>
 player <color> <side>
+puddle <n>,<n> <n>,<n>
 score p<n> <n> color <n>
 score pip <color>
 selected player <color> <side>
@@ -69,6 +78,7 @@ team score GREEN <n>/<n>
 team score RED <n>/<n>
 team score YELLOW <n>/<n>
 throw target
+trench <n>,<n> <n>,<n>
 walkability map
 weapon gun
 weapon spray

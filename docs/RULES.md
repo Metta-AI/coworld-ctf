@@ -45,6 +45,12 @@ tasks, voting) with teams, guns, hearts, and fog-of-war vision.
   squares**, with the width grown to match so the **14° half-angle did not
   change**; the 5th square is exactly what it takes to cover the tip of the
   plume the game draws. See the Spray can section for the shape.
+- **GameVersion 38 makes the spray one directional shot, not a sweep.** A
+  fired cone now locks its aim at the moment of firing and keeps it for the
+  whole 5-tick window: spinning the cog after you press no longer rakes the
+  cone around you. The cone's origin still rides its owner, so a moving
+  sprayer drags the stream forward — only the rotation is pinned. See the
+  Spray can section.
 - **GameVersion 30 puts every team's pickups on the map's own symmetry.** A
   team's shield and spray can are Red's spots carried over by whichever
   symmetry the terrain was built with — mirrored, rotated 180°, or turned a
@@ -81,6 +87,12 @@ tasks, voting) with teams, guns, hearts, and fog-of-war vision.
   feature**: the default arena has none; generated maps (below) place them
   procedurally, steered by `mapPits` / `mapPitDensity`. See the Trenches
   section for their rules.
+- **Paint puddles** — damage-over-time floor hazards — are a **config-gated
+  terrain feature**: no map has any unless `mapPuddles` requests them. See
+  the Paint puddles section for their rules.
+- **Cardboard barriers** — placeable paint-blocking cover — are a
+  **config-gated pickup**: no map has any unless `barrierPickups` requests
+  them. See the Cardboard barriers section for their rules.
 - **Procedurally generated terrain is available as a config option**
   (`mapPath: "pool"` draws from a curated 20-map pool, `"gen"` + `mapSeed`
   generates directly; `mapSize` / `mapSymmetry` / `mapColumns` /
@@ -201,16 +213,13 @@ square map:
 
 ## Aim
 
-- Every player's aim occupies one of **32 discrete rotation slots** (GV36) —
-  the classic fixed-rotation-count scheme; there are no finer-grained aim
-  angles. On the wire the aim is reported in **brads** (256 units per full
-  turn, integer — deterministic), so every aim value is a multiple of 8
-  (11.25°): **0 = east (+x)**, increasing **counter-clockwise on screen** in
-  map coordinates (64 = north, 128 = west, 192 = south).
+- Every player has a **continuous aim angle** reported in **brads** (256 units
+  per full turn, integer — deterministic): **0 = east (+x)**, increasing
+  **counter-clockwise on screen** in map coordinates (64 = north, 128 = west,
+  192 = south).
 - The aim is **decoupled from movement**. Hold **B** to rotate the aim
-  **counter-clockwise**, hold **Select** to rotate **clockwise**, stepping
-  `aimTurnRate` rotation slots per tick (default 1 slot = 11.25°/tick; a full
-  turn takes 32 ticks, ~1.3s).
+  **counter-clockwise**, hold **Select** to rotate **clockwise**, at
+  `aimTurnRate` brads per tick (default 5 ≈ 7°/tick; a full turn takes ~2.1s).
   Holding both rotate buttons cancels out. The d-pad **never** touches the aim.
 - The aim drives everything directional: the **gun** fires along it, the
   **vision cone** centers on it, and the sprite flip follows it (you face left
@@ -425,9 +434,12 @@ What that means in practice:
   lengthwise — nothing the paint **engulfs** survives — but the mist still
   runs about **15 px wider** than the cone, so a cog can catch paint on its
   **edge** without taking damage. Closing that too would need a 31° cone.
-- **The cone stays on for 5 ticks**, tracking the attacker's position and
-  aim across the window, then the can takes **20 ticks to repressurize**
-  (one burst every 25 ticks). The cone shuts off if its owner dies.
+- **The cone stays on for 5 ticks**, riding the attacker's position but
+  **holding the aim it was fired at** (GameVersion 38): one press is one
+  directional shot, so turning the cog mid-spray no longer sweeps the cone
+  across a fan of targets — only the origin moves with you, not the direction.
+  Then the can takes **20 ticks to repressurize** (one burst every 25 ticks).
+  The cone shuts off if its owner dies.
 - **A touch removes 3 hit points, once per victim per burst** — instantly
   lethal to a bare 3 hp cog, while a 6 hp shield carrier survives the first
   touch with 3 hp left. The cone affects teammates too and requires line
@@ -544,6 +556,37 @@ What that means in practice:
 - Occupants are still subject to normal fog-of-war visibility — the trench
   itself grants no concealment.
 
+## Paint puddles
+
+- A **paint puddle is an organic splat-shaped floor hazard, nominally ~64 px
+  across** — a union of overlapping paint discs (one core plus a few flung
+  lobes, reaching at most 45 px from the anchor) drawn as a violet spill on
+  the ground. The painted spill IS the gameplay footprint — you take the
+  damage roll exactly where you see paint. It never blocks movement,
+  bullets, or vision, and never slows anything — its only rule is damage
+  over time.
+- **Every full second (24 ticks) your body center spends CONTINUOUSLY
+  inside a puddle rolls a `puddleDamagePct` (default 10%) chance of 1
+  damage.** The roll's damage goes through the shield layer first, like
+  every weapon's. Stepping out — even for one tick — restarts the second;
+  dying resets it too.
+- A lethal puddle roll is an **environmental death**: no player is credited
+  with the kill (the log reads "dissolved in a paint puddle"), but it counts
+  as a normal combat death for lives and respawn.
+- **Puddles are config-gated and ship in NO map by default.** `mapPuddles`
+  (0..64, COUNT mode only — there is no density mode) places that many on a
+  2-team generated map: even counts place mirror-symmetric pairs, an odd
+  count anchors its extra puddle dead center. Each blob's shape is drawn
+  from the map seed; a placed pair is the blob plus its exact symmetry image
+  (bit-exact integer transforms), and the center blob's ring is stitched
+  self-symmetric, so the hazard is always team-fair. Spots land on open
+  floor clear of walls, trenches, other puddles, and both teams' base
+  pockets; the exact set is pinned in the replay's `mapSpec`, so playback
+  never re-rolls it. 4-team maps do not support puddles yet (an explicit
+  request errors).
+- Each puddle is stated to policies as an init-snapshot marker,
+  `puddle <x0>,<y0> <x1>,<y1>` — see the stated-marker section below.
+
 ## Med kits
 
 - **Two med kits sit on the center line** — at one third and two thirds of
@@ -591,6 +634,43 @@ What that means in practice:
   grenade pickups: you see one only where you have vision, and a small
   marker floats over a shield carrier you can see.
 
+## Cardboard barriers
+
+- **Config-gated** (`barrierPickups`, default 0 = none): when on, each team
+  gets that many folded-cardboard pickups (1 or 2), staged on the line from
+  the team's base anchor toward map center — one at the midpoint, two at the
+  thirds — nudged to the nearest walkable floor. Every other team's spots
+  are Red's under the map's own symmetry, like the shields and spray cans.
+- **Touch a pickup to carry one folded barrier.** Either team may take
+  either side's pickups. **A barrier and a grenade cannot be carried
+  together** — both are spent with button C — so a grenade carrier walks
+  over the pickup untouched and vice versa. A taken pickup **respawns 30
+  seconds later**; the carried sheet is **lost when you die** (never
+  dropped).
+- **Press C to place it where you stand.** The cardboard unfolds instantly
+  into a **standing half-hex** — three sides of a hexagon, vertices
+  `BarrierRadius` (24px) from your center at aim −90°/−30°/+30°/+90° — with
+  the **flat middle side across your aim** (~21px in front), wrapping your
+  front. Placement is a press-edge, no charge; the grenade's hold-to-charge
+  lives on the same button but the mutually-exclusive carry keeps the press
+  unambiguous.
+- **Cardboard blocks paint, never sight.** The ~5px band stops gun shots
+  and the spray cone (both damage and the drawn mist) exactly like a wall —
+  but fog-of-war vision, movement, and grenades (which fly over every
+  obstacle) ignore it entirely. Cover you can see through and walk through.
+- **It takes 10 paintball hits** (`BarrierHp`): each blocked gun shot splats
+  on the cardboard and chips one hit; the tenth shreds it. The spray cone is
+  blocked but does no damage to it; grenade blasts ignore it.
+- **Any cog that drives into the band flattens it instantly** — including
+  the placer walking forward through their own front wall. Standing inside
+  the half-hex is safe: the band is ~21px out, well clear of a body.
+- At most **16 barriers stand at once** (`MaxBarriersPlaced`); placing past
+  the cap folds the oldest standing barrier.
+- Observation labels: `barrier` (folded pickup, fog-gated), `barrier
+  carried` (marker over a carrier you can see), and the standing half-hex
+  itself: `barrier up <x>,<y> f<brads> hp <n>` — placement center, facing,
+  and hits left, updated live as it takes paint.
+
 ## Lives & respawn
 
 - Each player has a fixed number of **lives**.
@@ -623,10 +703,45 @@ A round ends immediately when either condition is met:
 If neither happens before the **time limit**, the round is a **lose-lose
 draw** — there is no tiebreak, and both sides are penalized.
 
-**Action floors the clock** (GV23): every kill and every heart steal
-guarantees at least **500 ticks** remain on the clock, extending the time
-limit if needed — a timed round never ends in the middle of a fight or a
-heart run. The broadcast clock counts down against the extended limit.
+**The clock only counts down** (GV41): nothing extends it — the GV23
+"action floor" (kills and heart steals banking overtime) is gone. `maxTicks`
+is the exact scheduled end, and the broadcast clock counts honestly to 0:00.
+With the grenade barrage configured, 0:00 does not end the round at all (see
+below); without it, the scheduled end is still the scoreless-draw ceiling.
+
+## Grenade barrage (config-gated endgame)
+
+An anti-stalling mode that makes timeout draws effectively impossible. Off by
+default; a league turns it on with `barrageMaxPerSec > 0` (requires a time
+limit).
+
+- When the game clock reaches **`barrageStartSec` seconds remaining**
+  (default 30 — 4:30 elapsed on the default 5:00 clock), environment
+  grenades start raining onto the field: **4 per second**
+  (`barrageStartPerSec`) landing within a **40px band inside every map
+  edge** at first.
+- The barrage **escalates linearly over `barrageSaturateSec` seconds**
+  (default 30): the target band deepens until it covers the **whole
+  board**, and the rate ramps to **`barrageMaxPerSec`** (10-20/s
+  recommended, hard cap 50) — with the defaults, the entire arena is under
+  maximum bombardment exactly as the clock reads 5:00 / 0:00 remaining.
+- Shells are **ordinary paint-bomb blasts** (same radius, damage, trench
+  rules, shield soak, and floor stains as a player lob) with nobody to
+  credit: no kill/multi-kill stats for the environment, and a victim's death
+  logs `shelled by the grenade barrage`. Deaths, lives, heart return, and
+  respawns behave like any blast death.
+- **The clock is not the end** (GV41): with the barrage on, a round ignores
+  the time limit entirely. Past 0:00 the whole board stays under maximum
+  bombardment until at most one team has live players — the survivor wins,
+  and a **draw requires the last players of two teams to die on the same
+  tick**. (Without the barrage, a timed round still ends at the limit as a
+  scoreless draw.)
+- **Observability**: incoming shells are ordinary `grenade air` orbs and
+  `blast stage <n>` landings on both streams, and an invisible marker states
+  the escalation outright: `grenade barrage depth <n> rate <n> start <n>`,
+  present from the first tick whenever the mode is on (depth and rate 0
+  until the barrage latches). Shells only land within `depth` map pixels of
+  some edge.
 
 ## Scoring
 
@@ -679,7 +794,7 @@ These are starting values, exposed in the game config and tuned in self-play.
 | Fire cooldown | ~0.5s | Minimum time between shots |
 | Carrier speed | ~70% | Movement penalty while holding the heart |
 | Body bounce (`playerBouncePct`) | 40% | Restitution of player-player collisions; bodies are always solid |
-| Aim turn rate (`aimTurnRate`) | 1 slot/tick | Rotation slots stepped per tick while B/Select is held (11.25°/tick; full turn 32 ticks ≈ 1.3s) |
+| Aim turn rate (`aimTurnRate`) | 5 brads/tick | Rotation speed while B/Select is held (~7°/tick; full turn ~2.1s) |
 | Vision cone (`visionConeDeg`) | ±60° | Fog-of-war forward vision half-angle; reaches 1.5× gun range (1575px stock), walls block |
 | Vision bubble (`visionBubble`) | 90px | Omnidirectional close-range vision regardless of aim |
 | Spray cone reach (`PlasmaArcReach`) | 170px (5 squares) | Forward cone reach along the centerline; one square = one 34px cog body |
@@ -698,10 +813,20 @@ These are starting values, exposed in the game config and tuned in self-play.
 | Trench miss chance (`TrenchMissPct`) | 70% | Incoming gun shots that fly over an occupant and carry on (same-trench shots exempt) |
 | Pit count (`mapPits`) | -1 (unset) | Generated maps: exact total pits (0..64); odd counts anchor one at map center |
 | Pit density (`mapPitDensity`) | 100 | Generated maps: percent multiplier on per-class dig chances; used when `mapPits` is unset |
+| Puddle size (`PuddleSize`) | 64px | Nominal diameter of a paint-puddle splat (disc union; spill reaches at most 45px from its anchor) |
+| Puddle count (`mapPuddles`) | 0 (none) | Generated maps: exact total puddles (0..64); odd counts anchor one at map center |
+| Puddle damage chance (`puddleDamagePct`) | 10% | Chance of 1 damage per full second of continuous puddle occupancy (rolled at each completed second; shield soaks first) |
+| Barrier pickups (`barrierPickups`) | 0 (none) | Folded cardboard barriers per team (0..2), staged between base and center; carrying one excludes carrying a grenade |
+| Barrier strength (`BarrierHp`) | 10 hits | Gun shots a standing half-hex soaks before shredding; any cog driving into it flattens it instantly |
+| Barrier radius (`BarrierRadius`) | 24px | Center-to-vertex of the placed half-hex; the flat side stands one apothem (~21px) down the placer's aim |
 | Endzone shape (`mapEndzone`) | "" (drawn) | Generated 2-team maps: `column` (classic home strip), `disc` or `square` (compact zone around a base set back from the edge) |
 | Endzone radius (`mapEndzoneRadius`) | 0 (drawn 110-140, size-scaled) | Compact endzones only: scoring radius / half-extent in px, 90..220. Needs `mapEndzone` |
 | Base depth (`mapBaseDepth`) | 0 (drawn 520-620) | Compact endzones only: home anchor permille of the half-field, 400..800; SMALLER sets the base further from the edge. Needs `mapEndzone` |
-| Time limit (`MaxTicks`) | 5000 ticks (~3.5 min) | Round length cap before the lose-lose draw |
+| Time limit (`MaxTicks`) | 7200 ticks (5:00) | Scheduled end; the scoreless-draw ceiling without the barrage, ignored with it |
+| Barrage max rate (`barrageMaxPerSec`) | 0 (off) | Endgame grenade rain ramps up to this many shells/s (cap 50); see "Grenade barrage". Needs a time limit |
+| Barrage start rate (`barrageStartPerSec`) | 4/s | Launch rate at the latch, along the map edges |
+| Barrage start (`barrageStartSec`) | 30s | Clock seconds remaining that latch the barrage (4:30 elapsed on the 5:00 clock); it only escalates once latched |
+| Barrage saturation (`barrageSaturateSec`) | 30s | Seconds from latch to full saturation — whole board at max rate, landing exactly at 5:00 with the defaults |
 | Map size | 1235×659 (default) | Varies by map class; the actual size and team count are stated in the `game teams <count> map <width>x<height>` init marker |
 
 Engine tick rate is **24 ticks/sec** (inherited from Crewrift); all
@@ -750,10 +875,80 @@ these markers restate the geometry the sim already plays; before they existed
 a policy had to reconstruct it from the room markers and its own copy of the
 zone formulas.
 
+**So are the handicaps.** The same init snapshot carries one invisible 1x1
+marker per team labeled
+`handicap <color> <permille> hp <n> lives <n> spd <n> miss <n>`: the team's
+authored handicap fraction in permille (0..1000, 0 = unhandicapped) plus the
+ENGINE-resolved gameplay deltas it interpolates to — hit points per life,
+lives, max speed as a percent of the base max speed (100 = full), and the
+percent of point-blank shots dropped (0..50). Match the prefix `handicap `;
+the tail splits on spaces into
+`["<color>", "<permille>", "hp", "<n>", "lives", "<n>", "spd", "<n>",
+"miss", "<n>"]` — the `hp`/`lives`/`spd`/`miss` tokens are fixed. The marker
+is emitted for EVERY team, permille 0 included, so an absent marker means an
+engine predating it, never "no handicap". The deltas are stated so a policy
+can adapt to a weakened team (its own or an enemy's) without re-deriving the
+interpolation formula.
+
+**So are the perks.** The same init snapshot carries one invisible 1x1 marker
+per team labeled `perks <color> <group> [<group> …] mods hp <n> aim <n>
+nade <n> spd <n> luck <n> dmg <n>`: each `<group>` is the comma-joined perk
+names one policy seat on that team carries — the vocabulary is `armor` (extra
+hit point), `scope` (tighter gun aim), `grenade` (longer throws), `thruster`
+(faster top speed), `luck` (a fraction of landed gun shots deal extra damage,
+default double) — or the literal `-` for none. One group means the whole team
+shares it; two or more deal to the team's distinct policies in join order
+(CTF-Doubles; policy-name-pinned config groups emit in config order, without
+names). After the fixed `mods` token come the ENGINE-RESOLVED magnitudes the
+sim actually plays, so a policy never assumes the defaults: `hp` armor's
+extra hit points, `aim`/`nade`/`spd`/`luck` the scope/grenade/thruster/luck
+fractions in permille, `dmg` a lucky shot's hit points. Match the prefix
+`perks `; the tail splits on spaces into `["<color>", "<group>", …]` up to
+the `mods` literal, each group splitting again on commas. The marker is
+emitted for EVERY team — an unperked team reads `perks <color> -` with no
+mods tail — so an absent marker means an engine predating it, never
+"no perks".
+
+**So are the trenches.** The same init snapshot carries one invisible 1x1
+marker per dug pit labeled `trench <x0>,<y0> <x1>,<y1>`: the pit's INCLUSIVE
+bounding-box corners in map pixels, one marker per entry in the map's
+trench list. Match the prefix `trench `; the tail splits on spaces into
+`["<x0>,<y0>", "<x1>,<y1>"]`, each corner splitting once more on the comma.
+Trenches are dug pits you can stand in for cover: climbing OUT (moving away
+from the pit's center) costs 1/5 max speed, firing from inside triples your
+cooldown, and an incoming gun shot has a 70% chance to be ducked while you're
+inside — none of that changes line of sight. Before this marker existed,
+trenches were invisible to a policy: the `walkability map` sprite is a
+BINARY mask, and a trench floor reads identically to open floor on it — a
+policy could stand in one, or walk through one under fire, with no signal it
+was there at all. Trenches are a 2-team generated-map feature (never on
+4-team maps, and the hand-authored default `arena` never digs any); a map
+that rolled zero pits emits zero markers, not an empty-box one. The marker
+pool holds up to 256 trenches per match — a wide empirical margin (an
+explicit `mapPits` count locks 0..64, but the default DENSITY roll has no
+fixed cap and can exceed that on a large generated map) — and a map that
+somehow rolls past even that loses markers for the overflow trenches rather
+than dropping the whole snapshot.
+
+**So are the paint puddles.** The same init snapshot carries one invisible
+1x1 marker per puddle labeled `puddle <x0>,<y0> <x1>,<y1>`: the blob's
+INCLUSIVE bounding-box corners in map pixels, one marker per entry in the
+map's puddle list, with exactly the trench marker's tail contract (split the
+tail on spaces, each corner on the comma). Puddles are organic disc-union
+splats, so the box is slightly LOOSE (conservative) geometry — treat the
+whole box as hazardous rather than trying to trace the spill's exact edge. A puddle is a pure floor hazard:
+standing inside rolls a `puddleDamagePct` (default 10%) chance of 1 damage
+per full second of continuous occupancy, and it never slows movement or
+fire, never blocks shots or vision. Like the trench floor, a puddle reads
+identically to open floor on the binary `walkability map` sprite — this
+marker is the only signal it is there. Puddles are a config-gated 2-team
+generated-map feature (no map has any by default); a map without puddles
+emits zero markers, not an empty-box one. The marker pool holds 64 — the
+`mapPuddles` cap.
+
 **So is your own aim.** Every player frame carries an invisible 1x1 HUD
 marker labeled `own aim <brads>`: your turret angle as of the rendered tick,
-in brads (256 per turn, 0 = east, counter-clockwise; always a multiple of 8
-— the aim sits on the 32-slot rotation grid). Match the prefix `own aim `
+in brads (256 per turn, 0 = east, counter-clockwise). Match the prefix `own aim `
 and parse the tail as an integer. Before this marker a policy had to dead-reckon its own aim
 open-loop from its rotate inputs; the marker caps that drift at one frame
 gap (integrate held rotation between frames, resync on each frame — see
@@ -909,7 +1104,7 @@ This section is a build plan, not player-facing rules.
   image with walk/wall layers. Red/Blue spawn strips on the left/right edges,
   heart pedestal at center, obstacles mirrored across the vertical axis, home-edge
   capture zones at the leftmost/rightmost columns.
-- New team-based `config.json` and `coworld_manifest.json` (slots carry `team`
+- New team-based `config.json` and `coworld_manifest_paintbot.json` (slots carry `team`
   instead of `role`; results schema reports team/kills/deaths/captures).
 - A **baseline bot** (Crewrift's `notsus` equivalent) speaking Sprite v1.
 - A **CTF grader** scoring episodes from wins.

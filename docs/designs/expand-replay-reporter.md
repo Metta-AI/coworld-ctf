@@ -39,7 +39,7 @@ document gives the reasoning behind each.
    `report_output` (an empty `[]` when there are no events); a missing /
    unfetchable / undecodable replay, or a hash-validation failure, →
    `report_failed`. (§5.4)
-7. **Manifest: defer + document.** Leave `coworld_manifest.json` untouched;
+7. **Manifest: defer + document.** Leave `coworld_manifest_paintbot.json` untouched;
    document the intended `reporter[]` entry in the reporter README and wire it
    when the platform runtime and the new manifest schema land here. (§5.5)
 8. **Testing: unit tests + mock WS client.** The platform reporter runtime is
@@ -255,7 +255,7 @@ tools/expand_replay.nim         # + structured `--format ndjson` mode (decision 
 4. **Empty / failed episodes.** Emit a well-formed zero-row payload (the spec
    wants no missing-file special case), or `report_failed`? I lean zero-row for
    success-with-no-events, `report_failed` for "no replay".
-5. **Manifest version gap.** The crewrift `coworld_manifest.json` reporter entry
+5. **Manifest version gap.** The crewrift `coworld_manifest_paintbot.json` reporter entry
    (`default-reporter`) predates `purpose`/`output_format`; it does **not** match
    the metta_3 schema. Do we (a) add a *new* reporter entry in the new shape and
    leave `default-reporter` alone, (b) replace it, or (c) leave the manifest

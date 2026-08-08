@@ -2,12 +2,14 @@
 {.warning[UnusedImport]: off.}
 import
   test_agent_skins,
+  test_barrage,
   test_broadcast_state,
   test_burrow,
   test_corpse_label,
   test_extract_events,
   test_grenades,
   test_hex,
+  test_handicaps,
   test_identity_badges,
   test_label_contract,
   test_map_biome,
@@ -19,6 +21,8 @@ import
   test_map_select,
   test_mapgen_vocab,
   test_movement_slide,
+  test_perks,
+  test_puddles,
   test_replay_controls,
   test_trenches,
   test_weapon_observability,

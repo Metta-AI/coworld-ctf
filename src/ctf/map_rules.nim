@@ -304,32 +304,27 @@ const
     ## (`S` = MaxExposedRunPx), that is `W >= 47 px`. The hand-tuned 56 clears
     ## it by 19%; a 34 px piece (one body) would NOT.
 
-  AimHalfSlotDeg* = 360.0 / float(AimRotations) / 2.0            ## 5.625 deg
   LethalEnvelopePx* = 259
     ## THE ENGAGEMENT RANGE, as opposed to `GunRange`, which is a REACH.
     ##
-    ## Aim is exactly `AimRotations` = 32 slots, 11.25 deg apart, and `sim`
-    ## reconstructs `aimBrads = slot * AimStepBrads` every tick, so an off-grid
-    ## angle cannot persist. There is no aim assist anywhere in the sim. A shot
-    ## is accepted against the 13 px SOLID body within `BulletHalfWidth`, so the
-    ## angular acceptance is `atan((PlayerHalf + BulletHalfWidth) / t)` against
-    ## a half-slot of 5.625 deg — and the jitter sigma of 0.596 deg is 9.4x
-    ## smaller than the half-slot, so THE LATTICE DOMINATES, not the jitter.
-    ##
-    ## Below `R_slot = 14 / tan(5.625 deg)` = 142 px a centred enemy cannot be
-    ## missed by the lattice at all; beyond it `P(hit) ~= atan(14/t) / 5.625`,
-    ## which is 0.47 at 300 px and 0.14 at `GunRange` — where TTK is over ten
-    ## seconds and nobody is fighting.
-    ##
-    ## Three independent constants converge on the same envelope, which is why
-    ## this is a constant and not a guess:
+    ## Two independent constants converge on this envelope, which is why it is
+    ## a constant and not a guess:
     ##   * `FieldAccuracyPct` = 55 is achieved at 259 px;
     ##   * `GrenadeMaxRange` = `GunRange div 4` = 262 px, agreeing to 1.1%;
     ##   * the observed 1.0-1.9 s TTK band implies 142-225 px.
     ##
-    ## UNVERIFIED DEPENDENCY: no hit-rate-versus-range measurement from the
-    ## field has been taken. One query against the league replay loop would
-    ## settle it. Everything gated on this constant moves together if it does.
+    ## A third anchor RETIRED at GV40. This derivation was authored under the
+    ## GV36 32-slot aim lattice, where the half-slot of 5.625 deg dominated
+    ## the jitter (sigma 0.596 deg) and set `P(hit) ~= atan(14/t) / 5.625`.
+    ## GV40 restored continuous 256-brad aim, so the lattice bound is gone
+    ## and pointwise accuracy at range is jitter-limited instead. The two
+    ## surviving anchors both stand on their own; the envelope keeps its
+    ## value until the field re-measurement below moves it.
+    ##
+    ## UNVERIFIED DEPENDENCY (now the binding one): no hit-rate-versus-range
+    ## measurement from the field has been taken SINCE GV40 restored
+    ## continuous aim. One query against the league replay loop would settle
+    ## it. Everything gated on this constant moves together if it does.
 
   EngagementWidthPx* = 2 * LethalEnvelopePx
     ## The strip within which a moving player can actually KILL, not merely

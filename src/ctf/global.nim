@@ -89,16 +89,36 @@ const
   HpBarWidth = HpBarSegments * HpBarSegW +
     (HpBarSegments - 1) * HpBarSegGap  ## 14px total — sized to the crew sprite.
   IdentityBadgeSpriteBase = 4200 ## Greek identity badges keyed
-                                 ## ord(team)*IdentityNames.len + identity:
-                                 ## 4200..4231 (the endzone fade crops that
-                                 ## used to sit at 4100..4131 moved to the
-                                 ## banded pool at 36600+).
+                                 ## (ord(team)*IdentityNames.len + identity) *
+                                 ## SoldierRotations + aim step: 4200..4711
+                                 ## (the endzone fade crops that used to sit at
+                                 ## 4100..4131 moved to the banded pool at
+                                 ## 36600+; the player HUD starts at 5000).
+                                 ## One id per AIM STEP because the glyph is
+                                 ## baked turned to the aim — it is painted ON
+                                 ## the cog, not floating upright over it.
   IdentityBadgeObjectBase = 19040  ## identity badge object pool: one per
                                    ## player, 19040..19071 (clear of the hp
                                    ## pips at 19000 and impact rings at 19120).
   IdentityBadgeSize = 11         ## px badge disc diameter.
+  IdentityBadgeBackPx = 5        ## px the BOARD badge rides BEHIND the cog's
+                                 ## rotation hub, along the aim. The hub is the
+                                 ## head cube's center and the cube's leading
+                                 ## face is the VISOR — a hub-centered badge sat
+                                 ## squarely on the cog's face. The bare plate
+                                 ## behind the visor spans ~1.7px forward to
+                                 ## ~11px back of the hub, so a 5px step back
+                                 ## drops the 11px disc onto the middle of it
+                                 ## with the face left clear.
   IdentityGlyphW = 5             ## px width of one hand-drawn Greek glyph.
   IdentityGlyphH = 7             ## px height of one hand-drawn Greek glyph.
+  IdentityGlyphSuper = 4         ## supersample factor the rotated glyph is
+                                 ## rasterized at before it is boxed back down:
+                                 ## a 5x7 bitmap turned to an arbitrary angle
+                                 ## needs the extra samples to keep clean edges
+                                 ## at this footprint. An axis-aligned step
+                                 ## (the upright POV badge) boxes back down to
+                                 ## the exact source mask, unchanged.
   FlagBannerW = 20             ## px width of the carried heart-gem sprite (square).
   FlagBannerH = 20             ## px height of the carried heart-gem sprite (square).
   PlantedFlagScale = 3         ## the HOME heart is drawn this many x bigger so it
@@ -283,6 +303,30 @@ const
                                  ## few fading per-tick snapshots and respawns
                                  ## let carriers overlap, so size to the
                                  ## player count like every shooter pool.
+  ## Cardboard barriers (config-gated pickups + standing half-hexes).
+  ## Static sprites sit in the 1488..1499 gap (above the bubble deform
+  ## variants at 1424..1487, clear of the corpses at 1500); the standing pool
+  ## sits at 16200 (above the hit splats at 16100..16163, clear of the
+  ## splatter/hit families below 16164). Objects take a fresh 36600 zone
+  ## (above the puddle markers at 36500..36563, clear of the damage pops at
+  ## 38000).
+  BarrierPickupSpriteId = 1490   ## folded cardboard sheet on its spawn.
+  BarrierCarrySpriteId = 1491    ## the "barrier carried" marker over a carrier.
+  BarrierUpSpriteBase = 16200    ## per-instance standing half-hex art:
+                                 ## 16200..16215 (MaxBarriersPlaced). The pixels
+                                 ## are baked from the barrier's OWN vertex
+                                 ## geometry (facing included) and its damage
+                                 ## state; the label carries x,y/facing/hp, so
+                                 ## a state change re-ships the definition —
+                                 ## the rotating-diamond idiom.
+  BarrierPickupSize = 18         ## px footprint of the folded pickup sheet.
+  BarrierCarrySize = 10          ## px footprint of the carried marker.
+  BarrierPickupObjectBase = 36600  ## pickup spawns: up to 2 per team on a
+                                 ## 4-team map (8), width 8.
+  BarrierCarryObjectBase = 36620 ## carried markers: one per player,
+                                 ## 36620..36651.
+  BarrierUpObjectBase = 36660    ## standing barriers: 36660..36675
+                                 ## (MaxBarriersPlaced).
   RotDiamondSpriteBase = 1401    ## spinning diamond frames: 1401..1416;
                                  ## 850 collided with CorpseSpriteBase.
   RotDiamondObjectBase = 19610   ## spinning center diamonds: 19610..19617;
@@ -432,6 +476,14 @@ const
                                ## the client's static-band cache stays valid (it
                                ## requires every dynamic object to sort strictly
                                ## above the bands).
+  ## --- Grenade-barrage endgame marker (BOARD + POV) ---
+  ## The barrage itself renders through the ordinary grenade visuals (orbs,
+  ## blasts, stains); the only barrage-specific emission is one invisible
+  ## 1x1 stated marker per stream declaring the current target depth, launch
+  ## rate, and start threshold outright (see LabelPrefixBarrage), so a
+  ## policy reads the escalation without inferring it from shell traffic.
+  BarrageMarkerSpriteId* = 35200 ## in the stain/diamond-paint gap.
+  BarrageMarkerObjectId* = 36300 ## in the trench-marker/damage-pop gap.
   DamagePopSpriteBase = 31000  ## floating "-N" damage-number sprites keyed
                                ## color×bucket×stage: 31000..31255 (above tracers).
                                ## The bucket is NOT amount-1: the amounts in
@@ -583,6 +635,53 @@ const
   MapMarkerSpriteBase = 20000
   MapMarkerObjectBase = 20000
   MapMarkerZ = -32767
+  TrenchMarkerSpriteBase = 36000  ## one invisible 1x1 marker per trench, in
+                                  ## the free gap between the tracer-dot and
+                                  ## damage-pop sprite pools (own reserved
+                                  ## range rather than sharing the general
+                                  ## map-marker pool's `index` counter — see
+                                  ## the pool audit below).
+  TrenchMarkerObjectBase = 36000 ## Same value on the object side, in the
+                                  ## free gap between the tracer-dot and
+                                  ## damage-pop OBJECT pools; the two
+                                  ## namespaces are independent (see the pool
+                                  ## audits below) so sharing one base value
+                                  ## is convention only, mirroring
+                                  ## MapMarkerSpriteBase/-ObjectBase above.
+  TrenchMarkerPoolWidth = 256     ## ⚠️ NOT a proven ceiling: the mapPits
+                                  ## COUNT-mode override caps a match at 64
+                                  ## trenches, but DENSITY mode (mapPitDensity,
+                                  ## what an unadorned "gen" map path actually
+                                  ## uses — see arena.nim's pit-selection block)
+                                  ## has no such cap at all; candidate count
+                                  ## scales with map size/columns. An empirical
+                                  ## sweep of 3000 generated-map seeds found 549
+                                  ## (18%) over 64 and a max of 144 — so 64 was
+                                  ## WRONG (2026-08-07: crashed the server on
+                                  ## ~1 in 5 generated maps). 256 is a wide
+                                  ## empirical margin over that observed max,
+                                  ## not a derived bound — addMapMarkers below
+                                  ## still clamps defensively rather than
+                                  ## asserting, so a future map that exceeds
+                                  ## even this loses trench MARKERS past the
+                                  ## pool, never crashes the server.
+  PuddleMarkerSpriteBase = 36500  ## one invisible 1x1 marker per paint
+                                  ## puddle, in the same free gap as the
+                                  ## trench pool above (trenches end at
+                                  ## 36255; the gap runs to the debug pool
+                                  ## at 40000 on the sprite side).
+  PuddleMarkerObjectBase = 36500 ## Same value on the object side (the gap
+                                  ## runs to the damage-pop pool at 38000
+                                  ## there); sharing one base value is
+                                  ## convention only, as with the trench
+                                  ## marker bases above.
+  PuddleMarkerPoolWidth = MaxPuddles  ## Unlike trenches, puddles have NO
+                                  ## density mode: mapPuddles is COUNT-mode
+                                  ## only, validated 0..MaxPuddles (64), so
+                                  ## this pool IS a derived ceiling for
+                                  ## generated maps. addMapMarkers still
+                                  ## clamps defensively — an authored spec
+                                  ## can pin any number of puddles.
   ProtocolTextSpriteBase = 9000
   ProtocolTextObjectBase = 9000
   ProtocolTextZ = 30010
@@ -658,6 +757,11 @@ const
     ("shield carry markers", ShieldCarryObjectBase, MaxPlayers),
     ("shield bubbles", ShieldBubbleObjectBase, MaxPlayers),
     ("map markers", MapMarkerObjectBase, 1000),
+    ("trench markers", TrenchMarkerObjectBase, TrenchMarkerPoolWidth),
+    ("puddle markers", PuddleMarkerObjectBase, PuddleMarkerPoolWidth),
+    ("barrier pickups", BarrierPickupObjectBase, 8),
+    ("barrier carry markers", BarrierCarryObjectBase, MaxPlayers),
+    ("barriers standing", BarrierUpObjectBase, MaxBarriersPlaced),
     ("fog runs", FogObjectBase, FogMaxRuns),
     ("tracer dots", TracerDotObjectBase, TracerMaxDots),
     ("damage pops", DamagePopObjectBase, DamagePopMaxCount),
@@ -667,6 +771,7 @@ const
     ("rig wheels", RigWheelObjectBase, MaxPlayers * 3),
     ("rig guns", RigGunObjectBase, MaxPlayers),
     ("paint stains", StainObjectBase, StainMaxCount),
+    ("barrage marker", BarrageMarkerObjectId, 1),
   ]
 
 static:
@@ -765,12 +870,17 @@ const
     ("splatters", SplatterSpriteBase, 64),
     ("hit splats", HitSpriteBase, 64),
     ("map markers", MapMarkerSpriteBase, 1000),
+    ("trench markers", TrenchMarkerSpriteBase, TrenchMarkerPoolWidth),
+    ("puddle markers", PuddleMarkerSpriteBase, PuddleMarkerPoolWidth),
+    ("barrier statics", BarrierPickupSpriteId, 2),
+    ("barriers standing", BarrierUpSpriteBase, MaxBarriersPlaced),
     ("fog runs", FogRunSpriteBase, 1000),
     ("shout bubbles", ShoutSpriteBase, ShoutMaxCount),
     ("damage pops", DamagePopSpriteBase,
       16 * DamagePopBucketCount * DamagePopStages),
     ("kill pops", KillPopSpriteBase, 16 * DamagePopStages),
     ("paint stains", StainSpriteBase, StainMaxCount),
+    ("barrage marker", BarrageMarkerSpriteId, 1),
     ("diamond paint", DiamondPaintSpriteBase, 8 * 16),
   ]
 
@@ -1775,43 +1885,108 @@ const IdentityGlyphs: array[8, array[IdentityGlyphH, uint8]] = [
   [0b01110'u8, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b01110], # Θ
 ]
 
+proc identityBadgeSpriteId(team: Team, identityIndex, rot: int): int =
+  ## Sprite id for one identity badge baked at aim step `rot`.
+  IdentityBadgeSpriteBase +
+    (ord(team) * IdentityNames.len + identityIndex) * SoldierRotations +
+    ((rot mod SoldierRotations) + SoldierRotations) mod SoldierRotations
+
 proc buildIdentityBadgeSprite(
   team: Team,
-  identityIndex: int
+  identityIndex, rot: int,
+  scale = 1
 ): seq[uint8] {.measure.} =
-  ## Builds one identity badge: a dark ink disc with a team-tinted rim and the
+  ## Builds one identity badge at aim step `rot`, rasterized at `scale`x its
+  ## logical footprint: a dark ink disc with a team-tinted rim and the
   ## identity's Greek glyph in the team color mixed toward white (the aim-dot
   ## treatment), so the letter reads over the disc at board scale.
-  result = newRgbaPixels(IdentityBadgeSize, IdentityBadgeSize)
+  ## The disc is a circle, so only the GLYPH turns — and it turns by exactly the
+  ## angle the cog's own art uses (soldierRotPixels' bodyMat), so the letter
+  ## reads as PAINTED ON the head plate: it rides the cog around instead of
+  ## floating upright over a body that rotated out from under it.
   let
+    size = IdentityBadgeSize * scale
     base = Palette[teamColor(team) and 0x0f]
-    c = float(IdentityBadgeSize - 1) / 2
-  for y in 0 ..< IdentityBadgeSize:
-    for x in 0 ..< IdentityBadgeSize:
+    c = float(size - 1) / 2
+  result = newRgbaPixels(size, size)
+  for y in 0 ..< size:
+    for x in 0 ..< size:
       let d = sqrt((float(x) - c) * (float(x) - c) +
         (float(y) - c) * (float(y) - c))
       if d > c:
         continue
-      let i = y * IdentityBadgeSize + x
-      if d >= c - 1.2:
+      let i = y * size + x
+      if d >= c - 1.2 * float(scale):
         result.putRawRgbaPixel(i, base.r, base.g, base.b, 220)
       else:
         result.putRawRgbaPixel(i, 24, 22, 20, 215)
+  # The glyph rides a supersampled canvas, turned about the badge center, then
+  # boxes back down onto the disc: a 5x7 bitmap at an arbitrary angle needs the
+  # extra samples to keep clean edges this small. The upright step lands
+  # axis-aligned, so it averages back to the exact source mask.
   let
-    gx0 = (IdentityBadgeSize - IdentityGlyphW) div 2
-    gy0 = (IdentityBadgeSize - IdentityGlyphH) div 2
+    cell = scale * IdentityGlyphSuper
+    ss = size * IdentityGlyphSuper
+    gw = IdentityGlyphW * cell
+    gh = IdentityGlyphH * cell
     glyph = IdentityGlyphs[identityIndex]
+    ink = rgba(
+      uint8((base.r.int + 255) div 2),
+      uint8((base.g.int + 255) div 2),
+      uint8((base.b.int + 255) div 2),
+      255
+    ).rgbx()
+  var mask = newImage(gw, gh)
   for gy in 0 ..< IdentityGlyphH:
     for gx in 0 ..< IdentityGlyphW:
       if (glyph[gy] shr (IdentityGlyphW - 1 - gx) and 1) == 0:
         continue
-      result.putRawRgbaPixel(
-        (gy0 + gy) * IdentityBadgeSize + gx0 + gx,
-        uint8((base.r.int + 255) div 2),
-        uint8((base.g.int + 255) div 2),
-        uint8((base.b.int + 255) div 2),
-        255
-      )
+      for py in gy * cell ..< (gy + 1) * cell:
+        for px in gx * cell ..< (gx + 1) * cell:
+          mask.data[py * gw + px] = ink
+  # aim increases CCW (0=east) and screen y is down, so a positive step turns
+  # the art clockwise in image space; the extra -90° is the same
+  # master-faces-SOUTH turn soldierRotPixels applies to the body, which is what
+  # keeps the glyph square to the head plate at every step.
+  let angle = float(rot) * 2.0 * PI / float(SoldierRotations)
+  var canvas = newImage(ss, ss)
+  canvas.draw(
+    mask,
+    translate(vec2(float32(ss) / 2, float32(ss) / 2)) *
+      rotate(float32(-angle - PI / 2)) *
+      translate(vec2(float32(-gw) / 2, float32(-gh) / 2))
+  )
+  let samples = IdentityGlyphSuper * IdentityGlyphSuper
+  for y in 0 ..< size:
+    for x in 0 ..< size:
+      var sr, sg, sb, sa = 0
+      for sy in 0 ..< IdentityGlyphSuper:
+        for sx in 0 ..< IdentityGlyphSuper:
+          # pixie stores premultiplied, which is what a box average wants.
+          let p = canvas.data[
+            (y * IdentityGlyphSuper + sy) * ss + x * IdentityGlyphSuper + sx]
+          sr += p.r.int
+          sg += p.g.int
+          sb += p.b.int
+          sa += p.a.int
+      let srcA = sa div samples
+      if srcA == 0:
+        continue
+      # Source-over the disc pixel already written, in premultiplied space
+      # (out = src + dst*(1-srcA)), then back to the wire's straight alpha.
+      let
+        i = (y * size + x) * 4
+        dstA = result[i + 3].int
+        keep = 255 - srcA
+        outA = srcA + dstA * keep div 255
+        srcRgb = [sr div samples, sg div samples, sb div samples]
+      if outA == 0:
+        continue
+      for ch in 0 .. 2:
+        let dstPm = result[i + ch].int * dstA div 255
+        result[i + ch] = uint8(clamp(
+          (srcRgb[ch] + dstPm * keep div 255) * 255 div outA, 0, 255))
+      result[i + 3] = uint8(outA)
 
 proc buildSoundRingSprite(): seq[uint8] {.measure.} =
   ## Builds the semi-transparent white "sound" ring: a faint filled circle
@@ -3115,6 +3290,66 @@ proc addMapMarker(
   )
   packet.addBoardObject(objectId, x, y, MapMarkerZ, MapLayerId, spriteId)
 
+proc trenchMarkerSpriteId(index: int): int =
+  ## Returns the stable sprite id for one trench marker.
+  TrenchMarkerSpriteBase + index
+
+proc trenchMarkerObjectId(index: int): int =
+  ## Returns the stable object id for one trench marker.
+  TrenchMarkerObjectBase + index
+
+proc addTrenchMarker(
+  packet: var seq[uint8],
+  spriteDefs: var seq[SpriteDefinition],
+  index, x, y: int,
+  label: string
+) {.measure.} =
+  ## Adds one invisible labeled trench-bbox marker object to the map layer,
+  ## from the reserved TrenchMarkerObjectBase/-SpriteBase range (its own pool,
+  ## not the shared map-marker `index` counter — see the pool audits above).
+  let
+    spriteId = trenchMarkerSpriteId(index)
+    objectId = trenchMarkerObjectId(index)
+  packet.addBoardSpriteChanged(
+    spriteDefs,
+    spriteId,
+    1,
+    1,
+    newRgbaPixels(1, 1),
+    label
+  )
+  packet.addBoardObject(objectId, x, y, MapMarkerZ, MapLayerId, spriteId)
+
+proc puddleMarkerSpriteId(index: int): int =
+  ## Returns the stable sprite id for one puddle marker.
+  PuddleMarkerSpriteBase + index
+
+proc puddleMarkerObjectId(index: int): int =
+  ## Returns the stable object id for one puddle marker.
+  PuddleMarkerObjectBase + index
+
+proc addPuddleMarker(
+  packet: var seq[uint8],
+  spriteDefs: var seq[SpriteDefinition],
+  index, x, y: int,
+  label: string
+) {.measure.} =
+  ## Adds one invisible labeled puddle-bbox marker object to the map layer,
+  ## from the reserved PuddleMarkerObjectBase/-SpriteBase range (its own
+  ## pool, like the trench markers above).
+  let
+    spriteId = puddleMarkerSpriteId(index)
+    objectId = puddleMarkerObjectId(index)
+  packet.addBoardSpriteChanged(
+    spriteDefs,
+    spriteId,
+    1,
+    1,
+    newRgbaPixels(1, 1),
+    label
+  )
+  packet.addBoardObject(objectId, x, y, MapMarkerZ, MapLayerId, spriteId)
+
 proc endzoneShapeToken(gameMap: CtfMap, zone: CaptureZone): string =
   ## Maps one team's capture zone onto the closed shape vocabulary of the
   ## endzone marker (see LabelEndzoneShapes). The zone's own refinement flags
@@ -3142,7 +3377,13 @@ proc addMapMarkers(
   ## LabelPrefixGameParams) — so a policy reads the game shape at t=0 instead
   ## of inferring it from room markers and layer viewports — and one endzone
   ## marker per team stating its capture zone's shape and bounding-box
-  ## corners (see LabelPrefixEndzone).
+  ## corners (see LabelPrefixEndzone), and one handicap marker per team
+  ## stating the authored handicap fraction plus the engine-resolved deltas
+  ## (see LabelPrefixHandicap) — emitted for EVERY team, permille 0
+  ## included, so the vocabulary sweep covers the label and a policy can
+  ## tell "unhandicapped" from "old engine without the marker" — and one
+  ## perk marker per team stating its perk groups (see LabelPrefixPerks),
+  ## emitted for every team on the same absence-means-old-engine rule.
   var index = 0
   for room in sim.rooms:
     packet.addMapMarker(
@@ -3197,6 +3438,81 @@ proc addMapMarkers(
       )
     )
     inc index
+  for team in sim.gameMap.teams():
+    # The deltas are resolved HERE, mirroring broadcast.nim's teamStateJson —
+    # the label states what the sim actually plays, never a re-derivation.
+    packet.addMapMarker(
+      spriteDefs,
+      index,
+      0,
+      0,
+      1,
+      1,
+      labelHandicap(
+        teamText(team),
+        sim.config.handicaps[team],
+        sim.config.hitPointsFor(team),
+        sim.config.livesFor(team),
+        sim.config.maxSpeedFor(team) * 100 div max(1, sim.config.maxSpeed),
+        sim.config.missPermilleFor(team) div 10
+      )
+    )
+    inc index
+  for team in sim.gameMap.teams():
+    packet.addMapMarker(
+      spriteDefs,
+      index,
+      0,
+      0,
+      1,
+      1,
+      labelPerks(
+        teamText(team),
+        sim.config.perkGroupTexts(team),
+        sim.config.perkMods.armorHp,
+        sim.config.perkMods.scopeAim,
+        sim.config.perkMods.grenadeRange,
+        sim.config.perkMods.thrusterSpeed,
+        sim.config.perkMods.luckChance,
+        sim.config.perkMods.luckDamage
+      )
+    )
+    inc index
+  ## One stated bounding-box marker per trench (see LabelPrefixTrench):
+  ## empty on the hand-authored default arena and on every 4-team map
+  ## (trenches are a 2-team generated-map feature — arena.nim never fills
+  ## `trenches` on symRot90/symQuadMirror symmetry), so this loop runs zero
+  ## times there and emits nothing. Own reserved id range
+  ## (TrenchMarkerObjectBase/-SpriteBase), not the shared marker `index`.
+  ## Clamped defensively at TrenchMarkerPoolWidth rather than asserted: a
+  ## map whose DENSITY-mode roll (unbounded, unlike the mapPits COUNT-mode
+  ## cap of 64 — see TrenchMarkerPoolWidth's doc) exceeds the pool loses
+  ## markers for the overflow trenches, never crashes the server. A short
+  ## marker set is still strictly additive over today's zero.
+  let markedTrenches = min(sim.gameMap.trenches.len, TrenchMarkerPoolWidth)
+  for i in 0 ..< markedTrenches:
+    let box = shapeAsRect(sim.gameMap.trenches[i])
+    packet.addTrenchMarker(
+      spriteDefs,
+      i,
+      box.x,
+      box.y,
+      labelTrench(box.x, box.y, box.x + box.w - 1, box.y + box.h - 1)
+    )
+  ## One stated bounding-box marker per paint puddle (see LabelPrefixPuddle):
+  ## empty on every map without puddles — the default — so this loop emits
+  ## nothing there. Clamped defensively like the trench loop: mapPuddles caps
+  ## generated maps at the pool width, but an authored spec can pin more.
+  let markedPuddles = min(sim.gameMap.puddles.len, PuddleMarkerPoolWidth)
+  for i in 0 ..< markedPuddles:
+    let box = puddleBounds(sim.gameMap.puddles[i])
+    packet.addPuddleMarker(
+      spriteDefs,
+      i,
+      box.x,
+      box.y,
+      labelPuddle(box.x, box.y, box.x + box.w - 1, box.y + box.h - 1)
+    )
 
 proc buildFogRunSprite(widthCells: int): seq[uint8] {.measure.} =
   ## Builds one translucent dark fog run sprite covering `widthCells`
@@ -4675,7 +4991,7 @@ proc addRotatingDiamonds(
   for i in 0 ..< AnimatedDiamonds.len:
     let
       spot = AnimatedDiamonds[i]
-      frame = diamondSpinFrame(spot.cx, sim.tickCount)
+      frame = diamondSpinFrame(spot.cx, spot.cy, sim.tickCount)
       # Pixels are fetched lazily inside the define branches below: the
       # cached-frame return copies a full pixel buffer, and on the steady
       # path (sprite already defined) nothing needs it.
@@ -4788,14 +5104,14 @@ proc plasmaArcRenderPose*(
 ): tuple[x, y, aimBrads: int] =
   ## The pose a spray snapshot is DRAWN at: its firing player's MOST RECENT
   ## snapshot (latest tick; ties broken by later emission), NOT its own captured
-  ## pose. One burst emits a snapshot per active tick, each capturing the owner's
-  ## live pose, and each lingers PlasmaArcFxTicks — drawn at their own poses, a
-  ## burst that swings its aim fans out into several divergent plumes and reads
-  ## as two simultaneous sprays. Collapsing every snapshot of a burst onto its
-  ## newest pose keeps the jet/fade animation (still driven by each snapshot's
-  ## own age) while showing exactly one cone that tracks the current aim. Since
-  ## the newest snapshot was captured this tick, that pose IS the owner's live
-  ## pose during the burst and freezes at the last-sprayed pose as it fades.
+  ## pose. One burst emits a snapshot per active tick; the aim is LOCKED at the
+  ## fire instant (GV38, `arcAimBrads`) so every snapshot shares it, but the
+  ## POSITION rides the moving owner. Each snapshot lingers PlasmaArcFxTicks —
+  ## drawn at their own positions, a burst whose owner walks fans out into
+  ## several divergent plumes and reads as two simultaneous sprays. Collapsing
+  ## every snapshot of a burst onto its newest pose keeps the jet/fade animation
+  ## (still driven by each snapshot's own age) while showing exactly one cone
+  ## that sits at the owner's current position and freezes there as it fades.
   let flash = sim.plasmaArcFlashes[flashIndex]
   result = (flash.x, flash.y, flash.aimBrads)
   var best = (tick: flash.tick, idx: flashIndex)
@@ -4847,11 +5163,11 @@ proc addPlasmaArcFlashes(
         diameter = plasmaPulseDiameter(pulse, stage)
         px = pose.x + int(round(ux * forward + rx * right))
         py = pose.y + int(round(uy * forward + ry * right))
-      # The damage cone is blocked by walls (selectArcVictims runs a
-      # line-of-sight test per victim), so the animation must not sail
-      # through them either: stop placing mist puffs at the first wall
-      # along the aim ray.
-      if not sim.lineOfSightClear(pose.x, pose.y, px, py):
+      # The damage cone is blocked by walls and standing cardboard
+      # (selectArcVictims runs the paint-path test per victim), so the
+      # animation must not sail through either: stop placing mist puffs at
+      # the first wall or barrier along the aim ray.
+      if not sim.paintPathClear(pose.x, pose.y, px, py):
         break
       if spriteDefs.spriteDefinitionIndex(spriteId) < 0:
         packet.addBoardSpriteChanged(
@@ -5119,7 +5435,8 @@ proc addGrenades(
     # broadcast keeps the grenade in-hand (the carried marker) and shows the lob
     # by the airborne orb + the landing splat, never the aim-preview ring.
     if player.throwCharge > 0 and viewer >= 0:
-      let (tx, ty) = throwTarget(player)
+      let (tx, ty) = throwTarget(
+        player, sim.config.grenadeRangeFor(GrenadeMaxRange, player.perks))
       if spriteDefs.spriteDefinitionIndex(ThrowTargetSpriteId) < 0:
         packet.addBoardSpriteChanged(
           spriteDefs, ThrowTargetSpriteId,
@@ -5186,6 +5503,195 @@ proc addGrenades(
         blast.y + dy - SoundRingSize div 2,
         30000, MapLayerId, SoundRingSpriteId
       )
+
+proc barrierTeamTint(team: Team): (uint8, uint8, uint8) =
+  ## The team display color for a barrier's tape stripe, from the exported
+  ## endzone colors (the canonical "new team-colored art tints from these").
+  let c =
+    case team
+    of Red: RedEndzoneColor
+    of Blue: BlueEndzoneColor
+    of Green: GreenEndzoneColor
+    of Yellow: YellowEndzoneColor
+  (c.r, c.g, c.b)
+
+proc buildBarrierSheetSprite(): seq[uint8] =
+  ## The folded pickup: a flat cardboard sheet lying on the floor — a tan
+  ## rectangle with a darker rim and two fold creases.
+  const
+    size = BarrierPickupSize
+    left = 1
+    right = size - 2
+    top = 5
+    bottom = size - 6
+  result = newRgbaPixels(size, size)
+  for y in top .. bottom:
+    for x in left .. right:
+      let rim = x == left or x == right or y == top or y == bottom
+      let crease = (x - left) == (right - left) div 3 or
+        (x - left) == 2 * (right - left) div 3
+      if rim:
+        result.putRawRgbaPixel(y * size + x, 128, 99, 62, 255)
+      elif crease:
+        result.putRawRgbaPixel(y * size + x, 168, 133, 86, 255)
+      else:
+        result.putRawRgbaPixel(y * size + x, 205, 168, 112, 255)
+
+proc buildBarrierCarrySprite(): seq[uint8] =
+  ## The carried marker: a mini folded sheet over the carrier's head.
+  const size = BarrierCarrySize
+  result = newRgbaPixels(size, size)
+  for y in 2 .. size - 3:
+    for x in 0 ..< size:
+      let rim = x == 0 or x == size - 1 or y == 2 or y == size - 3
+      if rim:
+        result.putRawRgbaPixel(y * size + x, 128, 99, 62, 255)
+      else:
+        result.putRawRgbaPixel(y * size + x, 205, 168, 112, 255)
+
+proc buildBarrierUpSprite(barrier: PlacedBarrier): (int, int, seq[uint8]) =
+  ## Rasterizes one standing barrier's half-hex band into an RGBA buffer the
+  ## exact size of its coverage bbox, from the SAME integer vertex geometry
+  ## the sim tests paint against — the art can never disagree with the
+  ## blocking. Cardboard tan with a dark rim, a team-color tape stripe along
+  ## the flat middle side, and one dark dent per paintball hit taken.
+  let
+    w = barrier.maxX - barrier.minX + 1
+    h = barrier.maxY - barrier.minY + 1
+    (tr, tg, tb) = barrierTeamTint(barrier.team)
+  const
+    bandSq = BarrierHalfThick * BarrierHalfThick
+    coreSq = (BarrierHalfThick - 1) * (BarrierHalfThick - 1)
+  var pixels = newRgbaPixels(w, h)
+  # Dent centers: one per hit taken, walking deterministic spots along the
+  # three sides (purely cosmetic, derived from the hit count alone).
+  var dents: seq[(int, int)] = @[]
+  for k in 0 ..< clamp(BarrierHp - barrier.hp, 0, BarrierHp):
+    let
+      side = k mod 3
+      (ax, ay) = barrier.verts[side]
+      (bx, by) = barrier.verts[side + 1]
+      num = (k div 3) * 2 + 1
+      den = 2 * ((BarrierHp + 2) div 3)
+    dents.add((ax + (bx - ax) * num div den, ay + (by - ay) * num div den))
+  for py in 0 ..< h:
+    for px in 0 ..< w:
+      let
+        mx = barrier.minX + px
+        my = barrier.minY + py
+      var inBand = false
+      var inCore = false
+      var onTape = false
+      for side in 0 .. 2:
+        let
+          (ax, ay) = barrier.verts[side]
+          (bx, by) = barrier.verts[side + 1]
+        if segDistSqWithin(mx, my, ax, ay, bx, by, bandSq):
+          inBand = true
+          if segDistSqWithin(mx, my, ax, ay, bx, by, coreSq):
+            inCore = true
+            if side == 1:
+              onTape = true
+      if not inBand:
+        continue
+      var (r, g, b) = (uint8(205), uint8(168), uint8(112))
+      if not inCore:
+        (r, g, b) = (uint8(128), uint8(99), uint8(62))
+      elif onTape:
+        (r, g, b) = (tr, tg, tb)
+      for dent in dents:
+        if distSq(mx, my, dent[0], dent[1]) <= 4:
+          (r, g, b) = (uint8(84), uint8(64), uint8(40))
+          break
+      pixels.putRawRgbaPixel(py * w + px, r, g, b, 255)
+  (w, h, pixels)
+
+proc addBarriers(
+  sim: SimServer,
+  spriteDefs: var seq[SpriteDefinition],
+  currentIds: var seq[int],
+  packet: var seq[uint8],
+  viewerIndex = -1
+) {.measure.} =
+  ## Places every cardboard-barrier visual for one view: folded pickups and
+  ## standing half-hexes fog-gated by map position, the carried marker gated
+  ## by seeing that player — the same contract as addGrenades. All-quiet on
+  ## default configs: no spawns, no carriers, no placements, nothing emitted.
+  let viewer = viewerIndex
+  template mapVisible(mx, my: int): bool =
+    viewer < 0 or sim.fovVisibleAt(viewer, mx, my)
+
+  # Folded pickups on their spawns.
+  for i in 0 ..< sim.barrierSpawns.len:
+    let spawn = sim.barrierSpawns[i]
+    if not spawn.present or not mapVisible(spawn.x, spawn.y):
+      continue
+    if spriteDefs.spriteDefinitionIndex(BarrierPickupSpriteId) < 0:
+      packet.addBoardSpriteChanged(
+        spriteDefs, BarrierPickupSpriteId,
+        BarrierPickupSize, BarrierPickupSize,
+        buildBarrierSheetSprite(), LabelBarrier
+      )
+    let objectId = BarrierPickupObjectBase + i
+    currentIds.add(objectId)
+    packet.addBoardObject(
+      objectId,
+      spawn.x - BarrierPickupSize div 2,
+      spawn.y - BarrierPickupSize div 2,
+      spawn.y, MapLayerId, BarrierPickupSpriteId
+    )
+
+  # Carried markers over the heads of carriers the viewer can see.
+  for i in 0 ..< sim.players.len:
+    let player = sim.players[i]
+    if not player.alive or not player.hasBarrier:
+      continue
+    if viewer >= 0 and i != viewer and not sim.playerVisibleTo(viewer, i):
+      continue
+    if spriteDefs.spriteDefinitionIndex(BarrierCarrySpriteId) < 0:
+      packet.addBoardSpriteChanged(
+        spriteDefs, BarrierCarrySpriteId,
+        BarrierCarrySize, BarrierCarrySize,
+        buildBarrierCarrySprite(), LabelBarrierCarried
+      )
+    let objectId = BarrierCarryObjectBase + i
+    currentIds.add(objectId)
+    packet.addBoardObject(
+      objectId,
+      player.x + CollisionW div 2 + HpBarWidth div 2 - BarrierCarrySize div 2,
+      player.overheadAnchorY() - OverheadYOffset - BarrierCarrySize,
+      30006, MapLayerId, BarrierCarrySpriteId
+    )
+
+  # Standing barriers: per-instance art baked from the instance's own vertex
+  # geometry. The label carries x,y/facing/hp, so a hit (new label) re-ships
+  # the dented definition — the rotating-diamond idiom; addSpriteChanged
+  # dedups when nothing changed.
+  for i in 0 ..< min(sim.placedBarriers.len, MaxBarriersPlaced):
+    let barrier = sim.placedBarriers[i]
+    if not mapVisible(barrier.x, barrier.y):
+      continue
+    let
+      spriteId = BarrierUpSpriteBase + i
+      label = labelBarrierUp(
+        barrier.x, barrier.y, barrier.facingBrads, barrier.hp)
+      cached = spriteDefs.spriteDefinitionIndex(spriteId)
+    if cached < 0 or spriteDefs[cached].label != label:
+      # Only rasterize when the definition will actually ship (first sight of
+      # this slot, or the hp/geometry label moved); the label mismatch makes
+      # addSpriteChanged re-send without a force flag.
+      let (w, h, pixels) = buildBarrierUpSprite(barrier)
+      packet.addBoardSpriteChanged(
+        spriteDefs, spriteId, w, h, pixels, label
+      )
+    let objectId = BarrierUpObjectBase + i
+    currentIds.add(objectId)
+    packet.addBoardObject(
+      objectId,
+      barrier.minX,
+      barrier.minY,
+      barrier.maxY, MapLayerId, spriteId
+    )
 
 proc shoutOffset(shout: Shout): (int, int) =
   ## The deterministic jitter for one shout's heard position, salted apart
@@ -5434,7 +5940,6 @@ proc addHpPips(
   ## viewer index and only receives the bars of players it can see (a wounded
   ## enemy's hp is readable intel). Object ids are a fixed pool keyed by player
   ## index; stale bars fall to the delete sweep.
-  let maxHp = max(1, sim.config.hitPoints)
   for i in 0 ..< sim.players.len:
     let player = sim.players[i]
     if not player.alive:
@@ -5445,6 +5950,9 @@ proc addHpPips(
     # Map remaining hit points onto 3 thirds (ceil, so any living player keeps
     # at least one lit segment). The bar's pixel size is constant regardless of
     # the hit-point config, so a 99-hp game reads the same 14px 3-chunk bar.
+    # The denominator is the player's OWN team max, so a handicapped team's
+    # smaller bar still reads full when topped up.
+    let maxHp = max(1, sim.config.maxHpFor(player.team, player.perks))
     let effectiveHp = player.hp + player.shieldHp
     let litSegments = min(HpBarSegments,
       max(1, (effectiveHp * HpBarSegments + maxHp - 1) div maxHp))
@@ -5476,9 +5984,14 @@ proc addIdentityBadges(
   viewerIndex = -1
 ) {.measure.} =
   ## Places each living player's identity badge (a Greek letter, alpha..theta
-  ## by slot order within the team) centered on the soldier body. The body
-  ## rotates with the aim, so the center — its rotation pivot — is the only
-  ## spot that stays on the cog at every heading.
+  ## by slot order within the team) on the soldier body.
+  ## On the BROADCAST BOARD the badge is painted onto the cog's head plate: it
+  ## sits a few px BEHIND the rotation hub, clear of the visor (the cog's
+  ## face), and its glyph is baked to the same aim step the head is, so it
+  ## turns with the cog instead of hovering upright over it. A PLAYER view
+  ## keeps the badge centered and upright — RULES.md documents it as "centered
+  ## on its player's body: attach it by proximity", and a bot's observation
+  ## contract is not a place to spend a cosmetic change.
   ## The label is `identity <color> <name>[ shield][ nade][ arc]` — the
   ## suffixes carry the wearer's current loadout so an observing agent can
   ## read weapon state at a glance (the surviving half of the reverted #77
@@ -5496,9 +6009,15 @@ proc addIdentityBadges(
         not sim.playerVisibleTo(viewerIndex, i):
       continue
     let
+      onBoard = viewerIndex < 0
       identityIndex = sim.slotIdentityIndex(player.joinOrder)
-      spriteId = IdentityBadgeSpriteBase +
-        ord(player.team) * IdentityNames.len + identityIndex
+      # The board glues the glyph to the cog's true aim step (spectators see
+      # true aim anyway); a player view keeps the upright badge, which is the
+      # master's own pose — aim south, the step the art is drawn at.
+      rot =
+        if onBoard: soldierRotIndex(player.aimBrads)
+        else: SoldierRotations * 3 div 4
+      spriteId = identityBadgeSpriteId(player.team, identityIndex, rot)
     # labelIdentity owns the ordering invariant (flags in fixed order, weapon
     # token always LAST and always present, so observers never infer a weapon
     # from absence).
@@ -5509,20 +6028,34 @@ proc addIdentityBadges(
       nade = player.hasGrenade,
       weapon = (if player.hasPlasmaArc: LabelWeaponSpray else: LabelWeaponGun)
     )
-    packet.addBoardSpriteChanged(
-      spriteDefs,
-      spriteId,
-      IdentityBadgeSize,
-      IdentityBadgeSize,
-      buildIdentityBadgeSprite(player.team, identityIndex),
-      label
-    )
-    let objectId = IdentityBadgeObjectBase + i
+    # 16 aim steps x identity means the pixels are worth building only when this
+    # id is genuinely new or its loadout tail moved; addBoardSpriteChanged would
+    # drop a rebuilt-but-identical sprite on the floor after paying for it.
+    let defIndex = spriteDefs.spriteDefinitionIndex(spriteId)
+    if defIndex < 0 or spriteDefs[defIndex].label != label:
+      packet.addBoardSpriteChanged(
+        spriteDefs,
+        spriteId,
+        IdentityBadgeSize,
+        IdentityBadgeSize,
+        buildIdentityBadgeSprite(player.team, identityIndex, rot, boardScale),
+        label,
+        native = boardScale
+      )
+    # On the board, step BACK along the aim onto the bare plate behind the
+    # visor; a player view keeps the badge dead-centered on the body.
+    let
+      back =
+        if onBoard: aimVector(rot * (AimBradsTurn div SoldierRotations))
+        else: (x: 0.0, y: 0.0)
+      objectId = IdentityBadgeObjectBase + i
     currentIds.add(objectId)
     packet.addBoardObject(
       objectId,
-      player.overheadAnchorX() + (SoldierBodyPx - IdentityBadgeSize) div 2,
-      player.overheadAnchorY() + (SoldierBodyPx - IdentityBadgeSize) div 2,
+      player.overheadAnchorX() + (SoldierBodyPx - IdentityBadgeSize) div 2 -
+        int(round(back.x * float(IdentityBadgeBackPx))),
+      player.overheadAnchorY() + (SoldierBodyPx - IdentityBadgeSize) div 2 -
+        int(round(back.y * float(IdentityBadgeBackPx))),
       player.y + 1,
       MapLayerId,
       spriteId
@@ -5641,6 +6174,38 @@ proc addPaintStains(
       spriteId
     )
     inc state.stainsSent
+
+proc addBarrageMarker(
+  sim: SimServer,
+  spriteDefs: var seq[SpriteDefinition],
+  currentIds: var seq[int],
+  packet: var seq[uint8]
+) {.measure.} =
+  ## Emits the grenade-barrage stated marker on this stream whenever the
+  ## mode is configured on: an invisible 1x1 object whose label declares the
+  ## current target depth (0 until the barrage latches), the current launch
+  ## rate in grenades/second, and the clock threshold that latches it (see
+  ## labelBarrage). The shells themselves ride the ordinary grenade
+  ## emissions. Label-carried like the own-aim readback: the 1x1 sprite
+  ## re-sends only on ticks the stated numbers actually changed.
+  if sim.config.barrageMaxPerSec <= 0:
+    return
+  currentIds.add(BarrageMarkerObjectId)
+  packet.addBoardSpriteChanged(
+    spriteDefs,
+    BarrageMarkerSpriteId,
+    1,
+    1,
+    newRgbaPixels(1, 1),
+    labelBarrage(
+      sim.barrageDepth(),
+      sim.barrageRatePermille() div 1000,
+      sim.config.barrageStartSec,
+      sim.config.barrageSaturateSec
+    )
+  )
+  packet.addBoardObject(
+    BarrageMarkerObjectId, 0, 0, 0, MapLayerId, BarrageMarkerSpriteId)
 
 proc damagePopBucket(amount: int): int =
   ## Maps a "-N" pop's HP-loss amount to one of DamagePopBucketCount sprite
@@ -5884,6 +6449,10 @@ proc buildSpriteProtocolPlayerUpdates*(
         spriteId
       )
 
+    # The grenade-barrage stated marker: endgame escalation is world
+    # knowledge every player viewer (bots included) reads outright.
+    sim.addBarrageMarker(nextState.spriteDefs, currentIds, result)
+
     sim.addAimIndicators(
       nextState.spriteDefs,
       currentIds,
@@ -5929,6 +6498,12 @@ proc buildSpriteProtocolPlayerUpdates*(
       viewerIndex = playerIndex
     )
     sim.addGrenades(
+      nextState.spriteDefs,
+      currentIds,
+      result,
+      viewerIndex = playerIndex
+    )
+    sim.addBarriers(
       nextState.spriteDefs,
       currentIds,
       result,
@@ -6801,6 +7376,7 @@ proc buildSpriteProtocolUpdates*(
   # Permanent terrain paint: incremental (only stains this viewer lacks) and
   # intentionally NOT tracked in currentIds, so it persists like the map bands.
   sim.addPaintStains(nextState, result)
+  sim.addBarrageMarker(nextState.spriteDefs, currentIds, result)
   sim.addSplatters(nextState.spriteDefs, currentIds, result)
   sim.addDamagePops(nextState.spriteDefs, currentIds, result)
   sim.addShotTracers(nextState.spriteDefs, currentIds, result)
@@ -6809,6 +7385,7 @@ proc buildSpriteProtocolUpdates*(
   sim.addMedKits(nextState.spriteDefs, currentIds, result)
   sim.addShields(nextState.spriteDefs, currentIds, result)
   sim.addGrenades(nextState.spriteDefs, currentIds, result)
+  sim.addBarriers(nextState.spriteDefs, currentIds, result)
   sim.addPlasmaArcs(nextState.spriteDefs, currentIds, result)
   sim.addPlasmaArcFlashes(nextState.spriteDefs, currentIds, result)
   sim.addBoardShouts(nextState, currentIds, result)

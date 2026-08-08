@@ -33,6 +33,12 @@ proc spawnAimBrads*(gameMap: CtfMap, team: Team): int =
   ## Returns the spawn/respawn aim angle: toward the map center, so every
   ## team wakes facing the fight. Sides maps keep the classic east/west pair;
   ## corner teams face the diagonal, plus arms face along their arm.
+  ##
+  ## The table keys on layout + team only, and that already serves BOTH
+  ## 4-team symmetries: the corner aims are exactly the reflections of Red's
+  ## south-east (Blue = its x-mirror SW, Green = its y-mirror NE, Yellow =
+  ## its rot180 NW), which is what quad-mirror demands, and they equal the
+  ## rot90 quarter turns of it too. Plus aims point along each arm either way.
   case gameMap.layout
   of layoutSides:
     if team == Red:
@@ -154,7 +160,12 @@ proc gameHash*(sim: SimServer): uint64 =
   result.mixHashInt(sim.gameStartTick)
   result.mixHashInt(sim.startWaitTimer)
   result.mixHashBool(sim.timeLimitReached)
-  result.mixHashInt(sim.overtimeTicks)
+  # Mixed only once the barrage latches: a barrage-off game contributes
+  # nothing here, while a latched barrage pins its start tick and launch
+  # accumulator into every replay hash from that tick on.
+  if sim.barrageStartTick >= 0:
+    result.mixHashInt(sim.barrageStartTick)
+    result.mixHashInt(sim.barrageAccum)
   result.mixHashBool(sim.isDraw)
   result.mixHashBool(sim.needsReregister)
   result.mixHashInt(sim.nextJoinOrder)
@@ -189,6 +200,7 @@ proc gameHash*(sim: SimServer): uint64 =
     result.mixHashInt(player.shieldHp)
     result.mixHashBool(player.hasPlasmaArc)
     result.mixHashInt(player.arcTicksLeft)
+    result.mixHashInt(player.arcAimBrads)
     # A 32-seat board can set bit 31 of the arc-hit mask; converting through
     # `int` overflows on wasm32 (same class as the color fix below). Widening
     # to uint64 hashes the identical value on both 32- and 64-bit targets.

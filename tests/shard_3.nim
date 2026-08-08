@@ -2,6 +2,7 @@
 {.warning[UnusedImport]: off.}
 import
   test_artlog,
+  test_barriers,
   test_blocked_damage,
   test_debug_overlay,
   test_endzone_shapes,
@@ -11,6 +12,7 @@ import
   test_mapgen,
   test_player_collision,
   test_player_fog,
+  test_quad_mirror,
   test_replay,
   test_mapgen_graph,
   test_replay_scan,

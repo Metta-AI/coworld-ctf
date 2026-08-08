@@ -46,7 +46,7 @@ proc testRegion(base: CtfMap): MapRect =
   of symMirror, symRot180:
     MapRect(x: hMargin, y: vMargin,
             w: halfW - hMargin - seam, h: base.height - 2 * vMargin)
-  of symRot90:
+  of symRot90, symQuadMirror:
     MapRect(x: hMargin, y: vMargin,
             w: halfW - hMargin - seam, h: base.height div 2 - vMargin - seam)
 

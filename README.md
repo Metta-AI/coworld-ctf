@@ -15,6 +15,11 @@ server, and replay infrastructure, and replaces the social-deduction game layer
 The **full, authoritative ruleset lives in [`docs/RULES.md`](docs/RULES.md)**. The
 summary below is just an orientation.
 
+This repo publishes one `paintbot` Coworld manifest for both products. Paintbot
+keeps its established variant ids (`2v2`, `4ffa`, `4ffa8`, `default`, `1v1`),
+while the CTF leagues select `ctf-default` or `ctf-1v1`. The leagues remain
+independent; they share only the versioned game artifact and schema.
+
 If docs, commands, runtime behavior, logs, or replays disagree while you are
 building or submitting a CTF policy, preserve the evidence and file a GitHub issue
 instead of silently working around it. Include the command, league/Coworld ids,

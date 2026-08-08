@@ -45,6 +45,23 @@ proc fullFeatureGame(teams4 = false): SimServer =
     config.mapGen.layout = "corners"
     config.mapSeed = 42
   config.slots.setLen(6)
+  # The grenade-barrage endgame, configured ON but not latched: the stated
+  # marker (`grenade barrage depth ...`) enters the vocabulary on both
+  # streams (its digits normalize to <n>, so the unlatched depth-0 pattern
+  # covers every state), while no environment shells rain on the posed
+  # frame during the sweep's few steps.
+  config.barrageMaxPerSec = 15
+  # Team perks, one team per authored shape (flat = team-wide, nested =
+  # per-policy groups): the PERKED marker patterns enter the vocabulary, so a
+  # rename inside PerkNames diffs the manifest instead of slipping through.
+  # The 4-team run keeps green/yellow bare, covering the unperked `-` form.
+  config.perks[Red] = @[PerkGroup(perks: {PerkArmor, PerkScope})]
+  config.perks[Blue] = @[
+    PerkGroup(perks: {PerkGrenade}),
+    PerkGroup(perks: {PerkThruster, PerkLuck})]
+  # One cardboard-barrier pickup per team, so the folded-pickup label enters
+  # the sweep (the stop list hovers next to barrierSpawns[0]).
+  config.barrierPickups = 1
   result = initCtfForTest(config)
   for i in 0 ..< 6:
     discard result.addPlayer("p" & $i)
@@ -70,6 +87,33 @@ proc fullFeatureGame(teams4 = false): SimServer =
   result.players[4].x = cx - 90
   result.players[4].y = cy + 20
   result.players[4].hasPlasmaArc = true
+  # The shield carrier also carries a folded cardboard barrier, so the
+  # `barrier carried` marker renders (a barrier excludes a GRENADE, not a
+  # shield — seat 2 keeps the grenade).
+  result.players[1].hasBarrier = true
+  # A STANDING half-hex in the viewer's cone: injected directly with the
+  # east-facing vertex set placeBarrier derives (the input path needs a
+  # press-edge step this posed frame never takes). Its label carries
+  # x,y/facing/hp, all of which normalize to <n>.
+  block:
+    let
+      bx = cx + 30
+      by = cy - 40
+    var standing = PlacedBarrier(
+      x: bx, y: by, facingBrads: 0, hp: BarrierHp, team: Blue,
+      placedTick: result.tickCount
+    )
+    standing.verts = [
+      (bx, by - BarrierRadius),
+      (bx + 21, by - BarrierRadius div 2),
+      (bx + 21, by + BarrierRadius div 2),
+      (bx, by + BarrierRadius)
+    ]
+    standing.minX = bx - BarrierHalfThick - 1
+    standing.maxX = bx + 21 + BarrierHalfThick + 1
+    standing.minY = by - BarrierRadius - BarrierHalfThick - 1
+    standing.maxY = by + BarrierRadius + BarrierHalfThick + 1
+    result.placedBarriers.add standing
   # A CHARGING thrower right next to the viewer: `throw target` is drawn only
   # in a player view, only while throwCharge > 0, and only for a player the
   # viewer can see — three gates that a normal frame passes through untouched.
@@ -295,6 +339,7 @@ proc collectLabels(sim: var SimServer): HashSet[string] =
     (sim.shieldSpawns[0].x, sim.shieldSpawns[0].y),
     (sim.plasmaArcSpawns[0].x, sim.plasmaArcSpawns[0].y),
     (sim.medKitSpawns[0].x, sim.medKitSpawns[0].y),
+    (sim.barrierSpawns[0].x, sim.barrierSpawns[0].y),
   ]
   for stop in stops:
     # Hover NEXT TO each spawn, never on it, so nothing is picked up (a pickup
@@ -345,6 +390,54 @@ suite "sprite label contract":
     var emitted = game.collectLabels()
     for label in emitted4:
       emitted.incl(label)
+    # Trenches never appear in EITHER fixture above: the hand-authored
+    # default arena ships none (see test_trenches.nim, "the default arena
+    # digs no trenches") and 4-team maps never dig any either — so the
+    # `trench <n>,<n> <n>,<n>` marker family needs its own minimal fixture.
+    # Reuses test_trenches.nim's exact deterministic recipe (mapPits:1,
+    # mapSeed 4242 — one pit, anchored at the generated map's center by the
+    # odd-count rule) and just the INIT snapshot (the marker is stated once
+    # at t=0, in addMapMarkers, not re-emitted per frame — the full
+    # collectLabels() walk is unneeded here). Player names match "p0"/"p1"
+    # (fullFeatureGame's convention): a literal "red"/"blue" name collides
+    # with the color-token normalization pass below and salts in unrelated
+    # ADDED lines. Only the `trench ` family is merged in — this fixture's
+    # 2-player roster also emits a differently-shaped team-score denominator
+    # than fullFeatureGame's 6-player one, which is roster noise this
+    # addition has no business dragging into the golden vocabulary.
+    var trenchConfig = defaultGameConfig()
+    trenchConfig.update("""{"mapPath": "gen", "mapSeed": 4242, "mapPits": 1}""")
+    var trenchGame = initCtfForTest(trenchConfig)
+    discard trenchGame.addPlayer("p0")
+    discard trenchGame.addPlayer("p1")
+    trenchGame.startGame()
+    doAssert trenchGame.gameMap.trenches.len == 1,
+      "trench label fixture rolled zero trenches — recheck the seed"
+    var trenchViewer = initGlobalViewerState()
+    for message in trenchGame.buildGlobalMessages(trenchViewer):
+      if message.kind == spkSprite:
+        let normalized = message.sprite.label.normalizeLabel()
+        if normalized.startsWith(LabelPrefixTrench):
+          emitted.incl(normalized)
+    # Puddles are config-gated exactly like trenches — no fixture above has
+    # any — so the `puddle <n>,<n> <n>,<n>` marker family gets the same
+    # minimal treatment: mapPuddles:1 anchors its odd puddle dead center
+    # (deterministic regardless of seed), and only the `puddle ` family is
+    # merged in.
+    var puddleConfig = defaultGameConfig()
+    puddleConfig.update("""{"mapPath": "gen", "mapSeed": 4242, "mapPuddles": 1}""")
+    var puddleGame = initCtfForTest(puddleConfig)
+    discard puddleGame.addPlayer("p0")
+    discard puddleGame.addPlayer("p1")
+    puddleGame.startGame()
+    doAssert puddleGame.gameMap.puddles.len == 1,
+      "puddle label fixture placed zero puddles — recheck the seed"
+    var puddleViewer = initGlobalViewerState()
+    for message in puddleGame.buildGlobalMessages(puddleViewer):
+      if message.kind == spkSprite:
+        let normalized = message.sprite.label.normalizeLabel()
+        if normalized.startsWith(LabelPrefixPuddle):
+          emitted.incl(normalized)
     # Regenerating: `nim r -d:writeLabelManifest tests/test_label_contract.nim`
     # rewrites the golden from what the engine emits NOW, and the resulting git
     # diff is the artifact to review. Deliberately opt-in — if the test could

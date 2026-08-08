@@ -50,13 +50,14 @@ Definition [sim_types.nim:796](../src/ctf/sim_types.nim#L796). Zero/`-1`/`""` va
 | Field | Type / default | JSON key | Valid values / draw | Effect |
 |---|---|---|---|---|
 | `size` | string / `""` | `mapSize` | `small`/`standard`/`large`/`huge`/`giant` (scales 0.85/1.0/1.3/1.8/2.6 of 1235×659); `colossal`=5.2 override-only | Field dimensions. |
-| `symmetry` | string / `""` | `mapSymmetry` | 2-team: `mirror`/`rot180` (coin); 4-team forced `rot90` | How half/quadrant seed set completes. |
+| `symmetry` | string / `""` | `mapSymmetry` | 2-team: `mirror`/`rot180` (coin); 4-team draws `rot90` (square), `quadmirror` override = rectangular board completed by both reflections (GV39) | How half/quadrant seed set completes. |
 | `columns` | int / `0` | `mapColumns` | `3..24` (gen); draw 4-team 3–4, compact-endzone 6–8, else 4–6 | Obstacle column count per half. |
 | `windows` | int / `-1` | `mapWindows` | `0..6` per half; -1 = draw | Glass-window count (walls transparent to fog). |
 | `centerFeature` | string / `""` | `mapCenterFeature` | `bracket`/`ring`/`walls` | Central obstacle archetype. |
 | `layout` | string / `""` | `mapLayout` | 4-team: `corners`/`plus` (coin); 2-team `""`/`sides` | Team placement (4-team). |
 | `pits` | int / `-1` | `mapPits` | `0..64` (gen); -1 = density draw; even = symmetric pairs, odd = center pit; 4-team supports only 0/-1 | Exact trench count. |
 | `pitDensity` | int / `-1` | `mapPitDensity` | `0..1000` percent (gen); -1 = 100; ignored if `pits` set | Trench density multiplier. |
+| `puddles` | int / `0` | `mapPuddles` | `0..64` (gen), COUNT mode only — ≤0 = none (the default, no density draw); even = symmetric pairs, odd = center puddle; 4-team supports only ≤0 | Exact paint-puddle count (damage-over-time floor hazards; see `puddleDamagePct`). |
 | `endzone` | string / `""` | `mapEndzone` | `column`/`disc`/`square`; 2-team draw ¼ disc / ¼ square / ½ column; 4-team forced column | Home capture-region shape. |
 | `endzoneRadius` | int / `0` | `mapEndzoneRadius` | `90..width` (gen); needs disc/square; 0 = draw | Compact endzone scoring radius. |
 | `baseDepth` | int / `0` | `mapBaseDepth` | `400..800` permille (gen); needs disc/square; 0 = draw | Home anchor depth. |
@@ -106,6 +107,44 @@ Per-map descriptor `CtfMap` [sim_types.nim:733](../src/ctf/sim_types.nim#L733) c
 | `minPlayers` | int / `16` | `1..32` | Players required to start; effectively sets roster size on open join. |
 | `closedRoster` | bool / `false` | needs ≥`minPlayers` named+tokened slots | Fixed named roster vs open join. |
 | `slots` | `seq[PlayerSlotConfig]` / `@[]` | ≤32; unique names/tokens; `team < teams` | Per-seat overrides. |
+| `handicaps` | `array[Team, int]` permille / all `0` | authored as `{team: 0.0..1.0}` | Per-team handicap: 0 = normal, 1 = 50% miss + 1 life + 1 hit point + ½ max speed, linearly interpolated. |
+| `perks` | `array[Team, seq[PerkGroup]]` / all empty | perk names `armor scope grenade thruster luck`; flat list, list-of-groups, or policy-name object | Per-team perk groups: one unnamed group = team-wide, N unnamed = per-policy (CTF-Doubles) dealt to distinct policies in join order, named (object form) = pinned to exact policies. |
+| `perkMods` | `PerkMods` struct / `DefaultPerkMods` | `armorHp` `0..100`, `luckDamage` `1..100`, fractions authored `0.0..1.0` (permille-stored) | Perk magnitudes: `armorHp` (1) extra hp, `scopeAim` (0.5) aim-sigma cut, `grenadeRange` (0.25) extra throw range, `thrusterSpeed` (0.1) extra speed, `luckChance` (0.1) lucky-shot odds, `luckDamage` (2) lucky-shot hp. |
+| `puddleDamagePct` | int / `10` | `0..100` | Percent chance of 1 damage per full second of continuous paint-puddle occupancy; inert on maps without puddles (`mapPuddles`). |
+| `barrierPickups` | int / `0` | `0..2` ([sim_config.nim](../src/ctf/sim_config.nim) validate, cap `MaxBarrierPickupsPerTeam`) | Cardboard-barrier pickups PER TEAM, staged between base anchor and map center ([sim.nim `barrierSpawnPoints`](../src/ctf/sim.nim)); 0 = none (the default — echo omitted, no GV bump). |
+
+**Per-team handicap** ([sim_types.nim `handicaps`](../src/ctf/sim_types.nim), accessors
+`hitPointsFor`/`livesFor`/`maxSpeedFor`/`missPermilleFor`): a single `0.0..1.0`
+knob per team, authored as a float map `"handicaps": {"red": 0.0, "blue": 0.6}`
+and stored internally as permille (`0..1000`) so every in-sim derivation is
+integer-only (native/wasm agree). At `0` a team plays normally (byte-identical to
+no handicap — no extra RNG, existing replays re-simulate unchanged); at `1` it
+gets 50% of would-be gun hits dropped, 1 life, 1 hit point, and half max speed;
+values between interpolate linearly from the base config toward that floor.
+Omitted/inactive teams stay at 0. Intended for a league (Campaign) to weaken a
+dominating team. Handicaps are OBSERVABLE to policies: the init snapshot
+carries one `handicap <color> <permille> hp <n> lives <n> spd <n> miss <n>`
+marker per team (every team, permille 0 included) stating the fraction and the
+engine-resolved deltas — see docs/RULES.md. Design: [docs/plans/2026-08-05-per-team-handicaps-design.md](plans/2026-08-05-per-team-handicaps-design.md).
+
+**Team perks** ([sim_types.nim `Perk`](../src/ctf/sim_types.nim), accessors
+`maxHpFor`/`maxSpeedFor(team, perks)`/`grenadeRangeFor`; join resolution
+`roster.nim perkSetForJoin`): named buffs assigned per team as
+`"perks": {"red": ["armor", "scope"]}` (one team-wide group),
+`"perks": {"blue": [["grenade"], ["thruster", "luck"]]}` (unnamed per-policy
+groups, CTF-Doubles: the Nth distinct policy to seat on the team gets group N,
+clamped to the last), or `"perks": {"blue": {"botA": ["grenade"], "botB":
+["luck"]}}` (groups PINNED to policy names; an unmatched policy gets nothing).
+Magnitudes are the `perkMods` block
+(`{"armorHp": 1, "scopeAim": 0.5, "grenadeRange": 0.25, "thrusterSpeed": 0.1,
+"luckChance": 0.1, "luckDamage": 2}`), fractions stored as integer permille.
+armor = +hp per bot; scope = tighter gun aim; grenade = longer throws;
+thruster = faster top speed; luck = a fraction of landed gun shots deal
+`luckDamage`. Defaults (no perks) are byte-identical to an engine without the
+feature — no extra RNG, existing replays re-simulate unchanged. Perks are
+OBSERVABLE: one `perks <color> <group> [<group>…]` marker per team in the init
+snapshot and per-seat `pk` arrays in the broadcast roster — see docs/RULES.md.
+Design: [docs/plans/2026-08-07-team-perks-design.md](plans/2026-08-07-team-perks-design.md).
 
 `Team` enum: Red, Blue, Green, Yellow ([sim_types.nim:637](../src/ctf/sim_types.nim#L637));
 active teams are always the prefix `Red..Team(teams-1)`. Hard caps `MaxPlayers`=32,
@@ -136,6 +175,8 @@ for curved/organic terrain. Trenches are also `ArenaShape` (the generator emits
 | Shields | 1 per team endzone | `ShieldRespawnTicks`=720, `ShieldLayerHp`=3, `ShieldFireSlowdown`=3 |
 | Plasma arcs (spray) | 1 per team endzone | `PlasmaArcRespawnTicks`=720, `PlasmaArcReach`=5, `PlasmaArcDamage`=3 |
 | Trenches | via `mapGen.pits`/`pitDensity` | `TrenchSize`=56, `TrenchSpeedDivisor`=5, `TrenchFireSlowdown`=3, `TrenchMissPct`=70 |
+| Paint puddles | via `mapGen.puddles` (`mapPuddles`) | `PuddleSize`=64, `PuddleRollTicks`=24, `DefaultPuddleDamagePct`=10 (config `puddleDamagePct`), `MaxPuddles`=64 |
+| Cardboard barriers | via `barrierPickups` (per team) | `BarrierHp`=10, `BarrierRadius`=24, `BarrierHalfThick`=2, `BarrierRespawnTicks`=720, `MaxBarriersPlaced`=16 ([sim_types.nim](../src/ctf/sim_types.nim)) |
 
 To vary item counts today: change `teams` (scales per-team items), change `mapGen`
 pits (trenches), or edit the per-map spawn lists / consts in code.
@@ -147,12 +188,17 @@ pits (trenches), or edit the per-map spawn lists / consts in code.
 | Field | Type / default | JSON key | Bounds | Effect |
 |---|---|---|---|---|
 | `scoring` | string / `"classic"` | `scoring` | `"classic"` or `"pot"` | Reward rule: classic (+1 win / −1 loss) vs pot (ante/pot split). |
-| `maxTicks` | int / `5000` | `maxGameTicks` | `>=0` | Time limit per game (0 = unlimited). |
+| `maxTicks` | int / `7200` (5:00) | `maxGameTicks` | `>=0` | Scheduled game end (0 = unlimited); with the barrage on it is not a hard end. |
 | `gameOverTicks` | int / `360` | | `>=0` | End-screen dwell ticks. |
 | `maxGames` | int / `0` | | `>=0` | Games before server stops (0 = unlimited). |
+| `barrageMaxPerSec` | int / `0` (off) | | `0..50`; `>0` needs `maxTicks>0` | Grenade-barrage endgame: environment grenades rain from the edges inward, ramping to this rate across the whole board (see RULES.md "Grenade barrage"). |
+| `barrageStartPerSec` | int / `4` | | `1..barrageMaxPerSec` | Launch rate at the latch, targeting a 40px band inside every edge. |
+| `barrageStartSec` | int / `30` | | `>=1` | Clock seconds remaining that latch the barrage (4:30 elapsed on the default 5:00 clock). |
+| `barrageSaturateSec` | int / `30` | | `>=1` | Seconds from latch to full saturation (whole board at `barrageMaxPerSec`); defaults land it exactly at the scheduled end. |
 
 Reward consts: `WinReward`=+1, `LossReward`=−1, `TimeoutReward`=−1 (draw penalty).
-`ActionClockFloorTicks`=500 keeps a timed game from ending mid-action. Win logic:
+GV41 removed the action-floor overtime: the clock never extends, and a game with
+the barrage configured ignores `maxTicks` entirely (it ends only on capture/wipe). Win logic:
 capturing a heart eliminates that team; last team standing wins; 2-team ends on
 first capture.
 
@@ -179,11 +225,11 @@ Non-config envelope consts (change in code): `BulletHalfWidth`=8.0,
 
 | Field | Type / default | Bounds | Effect |
 |---|---|---|---|
-| `aimTurnRate` | int / `1` | `>=1` | Rotation slots turned per tick (of 32). |
+| `aimTurnRate` | int / `5` | `>=1` | Aim rotation speed in brads per tick. |
 | `visionConeDeg` | int / `60` | `0..180` | Vision cone half-angle around aim. |
 | `visionBubble` | int / `90` | `>=0` | Omnidirectional vision radius (px). |
 
-Non-config: `AimRotations`=32, `FovCellSize`=8, `visionRange`=1.5×gunRange.
+Non-config: `FovCellSize`=8, `visionRange`=1.5×gunRange.
 
 ---
 

@@ -34,13 +34,31 @@ proc grenadeSpawnPoints*(gameMap: CtfMap): array[4, tuple[x, y: int]] =
       (gameMap.width - inset, inset),
       (gameMap.width - inset, gameMap.height - inset)]
   of layoutCorners:
-    rot90Orbit((gameMap.width div 2, inset), gameMap.width)
+    if gameMap.symmetry == symQuadMirror:
+      ## Quad-mirror's group is the reflections, so the set must be a Klein
+      ## orbit. The rot90 edge-MIDPOINT seed degenerates there (its mirrorX
+      ## image is itself, half a pixel off on an even width), so the seed
+      ## slides to a third of the top edge: the orbit is four distinct
+      ## points along the top and bottom edges, clear of the corner
+      ## endzones, and exactly fair by construction.
+      quadMirrorOrbit(
+        (gameMap.width div 3, inset), gameMap.width, gameMap.height)
+    else:
+      rot90Orbit((gameMap.width div 2, inset), gameMap.width)
   of layoutPlus:
     let arm = gameMap.plusArmHalf()
-    rot90Orbit(
-      (gameMap.center.x + arm - inset, gameMap.center.y + arm - inset),
-      gameMap.width
-    )
+    if gameMap.symmetry == symQuadMirror:
+      ## The same four inner corners of the center intersection as rot90,
+      ## built as the reflections of the bottom-right one — the group that
+      ## actually completes this map.
+      quadMirrorOrbit(
+        (gameMap.center.x + arm - inset, gameMap.center.y + arm - inset),
+        gameMap.width, gameMap.height)
+    else:
+      rot90Orbit(
+        (gameMap.center.x + arm - inset, gameMap.center.y + arm - inset),
+        gameMap.width
+      )
 
 proc teamOrbitPoints(gameMap: CtfMap, red: MapPoint): seq[tuple[x, y: int]] =
   ## Carries RED's chosen point to every active team by the map's own
@@ -105,6 +123,24 @@ proc plasmaArcSpawnPoints*(gameMap: CtfMap): seq[tuple[x, y: int]] =
           MapPoint(x: inset, y: gameMap.center.y - gameMap.plusArmHalf() div 2)
   gameMap.teamOrbitPoints(red)
 
+proc barrierSpawnPoints*(gameMap: CtfMap, perTeam: int): seq[tuple[x, y: int]] =
+  ## `perTeam` cardboard barrier pickup points per team (config-gated; empty
+  ## by default). RED's spots are staged on the line from its anchor toward
+  ## map center — the walk out of the base every attacker and defender makes —
+  ## and every other team's are its images under the map's own symmetry
+  ## (`teamImagePoint` via teamOrbitPoints), so no team's pickup sits in
+  ## terrain the others' don't get. One spot lands at the midpoint; two
+  ## split the line in thirds.
+  let
+    anchor = gameMap.teamAnchor(Red)
+    center = gameMap.center
+  for k in 0 ..< perTeam:
+    let red = MapPoint(
+      x: anchor.x + (center.x - anchor.x) * (k + 1) div (perTeam + 1),
+      y: anchor.y + (center.y - anchor.y) * (k + 1) div (perTeam + 1)
+    )
+    result.add(gameMap.teamOrbitPoints(red))
+
 template placeWalkablePickups(
   sim: var SimServer,
   spawnsField: untyped,
@@ -166,7 +202,20 @@ proc resetPlasmaArcs*(sim: var SimServer) =
   for i in 0 ..< sim.players.len:
     sim.players[i].hasPlasmaArc = false
     sim.players[i].arcTicksLeft = 0
+    sim.players[i].arcAimBrads = -1
     sim.players[i].arcHitMask = 0
+
+proc resetBarriers*(sim: var SimServer) =
+  ## Places the config-gated barrier pickups (none by default), clears every
+  ## standing barrier off the field, and empties every cog's hands of
+  ## cardboard.
+  sim.placeWalkablePickups(
+    barrierSpawns,
+    sim.gameMap.barrierSpawnPoints(sim.config.barrierPickups)
+  )
+  sim.placedBarriers = @[]
+  for i in 0 ..< sim.players.len:
+    sim.players[i].hasBarrier = false
 
 proc startGame*(sim: var SimServer) =
   sim.logGameEvent("game started: players=" & $sim.players.len)
@@ -182,8 +231,9 @@ proc startGame*(sim: var SimServer) =
   for i in 0 ..< sim.players.len:
     sim.players[i].lastShoutTick = -1
     sim.players[i].alive = true
-    sim.players[i].lives = sim.config.lives
-    sim.players[i].hp = sim.config.hitPoints
+    sim.players[i].lives = sim.config.livesFor(sim.players[i].team)
+    sim.players[i].hp =
+      sim.config.maxHpFor(sim.players[i].team, sim.players[i].perks)
     sim.players[i].respawnTimer = 0
     sim.players[i].fireCooldown = 0
     sim.players[i].fireWindup = 0
@@ -207,11 +257,13 @@ proc startGame*(sim: var SimServer) =
   sim.resetGrenades()
   sim.resetShields()
   sim.resetPlasmaArcs()
+  sim.resetBarriers()
   sim.emitPhaseChange(Playing)
   sim.phase = Playing
   sim.gameStartTick = sim.tickCount
   sim.timeLimitReached = false
-  sim.overtimeTicks = 0
+  sim.barrageStartTick = -1
+  sim.barrageAccum = 0
   sim.isDraw = false
   sim.lastLobbyPlayersLogged = -1
   sim.lastLobbyNeededLogged = -1
@@ -433,13 +485,14 @@ proc animatedDiamondAt*(sim: SimServer, x, y: int): int =
   for i in 0 ..< AnimatedDiamonds.len:
     let spot = AnimatedDiamonds[i]
     if animatedDiamondCovers(
-        spot, diamondSpinFrame(spot.cx, sim.tickCount), x, y):
+        spot, diamondSpinFrame(spot.cx, spot.cy, sim.tickCount), x, y):
       return i
   -1
 
 proc diamondSpinAngle*(sim: SimServer, diamond: int): float =
   ## Cosmetic angle derived from the geometry/render frame source of truth.
-  let frame = diamondSpinFrame(AnimatedDiamonds[diamond].cx, sim.tickCount)
+  let frame = diamondSpinFrame(
+    AnimatedDiamonds[diamond].cx, AnimatedDiamonds[diamond].cy, sim.tickCount)
   float(frame) / float(DiamondSpinFrames) * PI / 2.0
 
 proc seatInWall*(sim: SimServer, x, y: int, ux, uy: float): (int, int) =
@@ -519,6 +572,99 @@ proc lineOfSightClear*(sim: SimServer, ax, ay, bx, by: int): bool =
       return false
   true
 
+proc segDistSqWithin*(px, py, ax, ay, bx, by, maxDistSq: int): bool =
+  ## True when the point is within sqrt(maxDistSq) of the segment. All-integer
+  ## (int64 intermediates so wasm32 and native agree bit-for-bit): the closest
+  ## point a + (t/len2)*d is compared without the division by scaling both
+  ## sides by len2^2.
+  let
+    dx = int64(bx - ax)
+    dy = int64(by - ay)
+    len2 = dx * dx + dy * dy
+    apx = int64(px - ax)
+    apy = int64(py - ay)
+  if len2 == 0:
+    return apx * apx + apy * apy <= int64(maxDistSq)
+  let t = clamp(apx * dx + apy * dy, 0'i64, len2)
+  let
+    ex = apx * len2 - t * dx
+    ey = apy * len2 - t * dy
+  ex * ex + ey * ey <= int64(maxDistSq) * len2 * len2
+
+proc barrierIndexAt*(sim: SimServer, mx, my: int): int =
+  ## Index of the standing barrier whose cardboard band covers this map pixel,
+  ## or -1. A pixel is covered when it lies within BarrierHalfThick of one of
+  ## the three half-hex sides.
+  const bandSq = BarrierHalfThick * BarrierHalfThick
+  for i in 0 ..< sim.placedBarriers.len:
+    let b = sim.placedBarriers[i]
+    if mx < b.minX or mx > b.maxX or my < b.minY or my > b.maxY:
+      continue
+    for side in 0 .. 2:
+      if segDistSqWithin(mx, my, b.verts[side].x, b.verts[side].y,
+          b.verts[side + 1].x, b.verts[side + 1].y, bandSq):
+        return i
+  -1
+
+proc playerTouchesBarrier(sim: SimServer, playerIndex, barrierIndex: int): bool =
+  ## True when the player's solid footprint reaches the barrier's cardboard
+  ## band (the footprint box is treated as a disc of PlayerHalf — the same
+  ## radius, deterministic, and a hair forgiving on the corners, which reads
+  ## right for "drove into the cardboard").
+  const reachSq = (PlayerHalf + BarrierHalfThick) * (PlayerHalf + BarrierHalfThick)
+  let
+    b = sim.placedBarriers[barrierIndex]
+    px = sim.players[playerIndex].x + CollisionW div 2
+    py = sim.players[playerIndex].y + CollisionH div 2
+  if px < b.minX - PlayerHalf or px > b.maxX + PlayerHalf or
+      py < b.minY - PlayerHalf or py > b.maxY + PlayerHalf:
+    return false
+  for side in 0 .. 2:
+    if segDistSqWithin(px, py, b.verts[side].x, b.verts[side].y,
+        b.verts[side + 1].x, b.verts[side + 1].y, reachSq):
+      return true
+  false
+
+proc paintPathClear*(sim: SimServer, ax, ay, bx, by: int): bool =
+  ## The check every PAINT path uses (gun corridor samples, spray cone): like
+  ## lineOfSightClear, but also stopped by standing cardboard barriers.
+  ## Vision (fog shadowcast and the render-side LOS) keeps the wall-only
+  ## test — cardboard blocks paint, never sight. Zero extra cost when no
+  ## barrier stands.
+  if not sim.lineOfSightClear(ax, ay, bx, by):
+    return false
+  if sim.placedBarriers.len == 0:
+    return true
+  let
+    dx = bx - ax
+    dy = by - ay
+    steps = max(abs(dx), abs(dy))
+  for s in 1 .. steps:
+    if sim.barrierIndexAt(ax + dx * s div steps, ay + dy * s div steps) >= 0:
+      return false
+  true
+
+proc flattenBarrier(sim: var SimServer, index: int, color: uint8,
+                    cause: string) =
+  ## Removes one standing barrier with a crumple splatter at its center
+  ## (cosmetic only) and a log line; `color` picks the splatter/log actor.
+  let b = sim.placedBarriers[index]
+  sim.splatters.add SplatterFx(
+    x: b.x, y: b.y, tick: sim.tickCount, color: color, hit: false
+  )
+  sim.logGameEvent(playerColorText(color) & " " & cause)
+  sim.placedBarriers.delete(index)
+
+proc damageBarrier(sim: var SimServer, index, hitX, hitY: int, color: uint8) =
+  ## Applies one paintball hit to a standing barrier: a splat on the
+  ## cardboard, and after BarrierHp hits the barrier is gone.
+  sim.splatters.add SplatterFx(
+    x: hitX, y: hitY, tick: sim.tickCount, color: color, hit: false
+  )
+  dec sim.placedBarriers[index].hp
+  if sim.placedBarriers[index].hp <= 0:
+    sim.flattenBarrier(index, color, "shredded a cardboard barrier")
+
 proc gameTicksElapsed*(sim: SimServer): int =
   ## Returns ticks elapsed since the current game left the lobby.
   if sim.gameStartTick < 0:
@@ -526,28 +672,55 @@ proc gameTicksElapsed*(sim: SimServer): int =
   max(0, sim.tickCount - sim.gameStartTick)
 
 proc effectiveMaxTicks*(sim: SimServer): int =
-  ## Returns the game's tick limit including banked action-floor overtime
-  ## (0 stays "no limit").
-  if sim.config.maxTicks <= 0:
-    return 0
-  sim.config.maxTicks + sim.overtimeTicks
+  ## Returns the game's scheduled tick limit (0 = no limit). GV41 removed
+  ## the action-floor overtime, so this is exactly config.maxTicks; kept as
+  ## a proc because the broadcast chrome reads the schedule through it.
+  max(0, sim.config.maxTicks)
 
-proc floorGameClock(sim: var SimServer) =
-  ## Guarantees at least ActionClockFloorTicks of clock remain. Kills and
-  ## heart steals call this so a timed game never ends mid-action; the
-  ## extension banks into overtimeTicks (per-game, part of gameHash).
-  if sim.config.maxTicks <= 0 or sim.phase != Playing:
-    return
-  let remaining = sim.effectiveMaxTicks() - sim.gameTicksElapsed()
-  if remaining < ActionClockFloorTicks:
-    sim.overtimeTicks += ActionClockFloorTicks - remaining
+proc barrageFullDepth*(): int =
+  ## The edge depth at which the four target bands cover the whole board:
+  ## past half the shorter axis the two bands on that axis meet.
+  min(MapWidth, MapHeight) div 2 + 1
+
+proc barrageProgressPermille*(sim: SimServer): int =
+  ## Returns how far the barrage has escalated, 0..1000: 0 at the latch,
+  ## 1000 once barrageSaturateSec has elapsed — at the default settings
+  ## (latch 30s before the end, saturate in 30s) the whole board is under
+  ## maximum bombardment exactly when the clock reads 0:00. Pure integer
+  ## math off deterministic state (latch tick + tick count), so native,
+  ## wasm, and replays all agree.
+  if sim.barrageStartTick < 0 or sim.config.barrageMaxPerSec <= 0:
+    return 0
+  let rampTicks = max(1, sim.config.barrageSaturateSec * TargetFps)
+  min(1000, (sim.tickCount - sim.barrageStartTick) * 1000 div rampTicks)
+
+proc barrageDepth*(sim: SimServer): int =
+  ## Returns how deep inside every map edge the barrage currently targets,
+  ## in px; 0 while the barrage is off or not yet latched. Starts at
+  ## BarrageEdgeBandPx and deepens linearly to full board coverage.
+  if sim.barrageStartTick < 0:
+    return 0
+  let progress = sim.barrageProgressPermille()
+  BarrageEdgeBandPx +
+    (barrageFullDepth() - BarrageEdgeBandPx) * progress div 1000
+
+proc barrageRatePermille*(sim: SimServer): int =
+  ## Returns the current launch rate in permille grenades/second: the
+  ## configured start rate at the latch, ramping linearly to the max rate as
+  ## the escalation completes.
+  if sim.barrageStartTick < 0:
+    return 0
+  sim.config.barrageStartPerSec * 1000 +
+    (sim.config.barrageMaxPerSec - sim.config.barrageStartPerSec) *
+      sim.barrageProgressPermille()
 
 proc killPlayer*(
   sim: var SimServer,
   targetIndex,
   killerIndex: int,
   killerSlot = -1,
-  elimination = false
+  elimination = false,
+  cause = ""
 ) =
   ## Applies a fatal hit: return any carried flag to its pedestal, decrement
   ## lives, start respawn. GV35: an `elimination` death (the team's heart was
@@ -560,12 +733,16 @@ proc killPlayer*(
   if not sim.players[targetIndex].alive:
     return
   if not elimination:
-    sim.logGameEvent(
-      playerColorText(sim.players[targetIndex].color) &
-        " killed by " & sim.playerText(killerIndex)
-    )
-  # A kill is action: keep at least ActionClockFloorTicks on the clock.
-  sim.floorGameClock()
+    # An environmental death (cause text, no killer) logs its own line; a
+    # combat death keeps the classic "killed by" attribution.
+    if cause.len > 0:
+      sim.logGameEvent(
+        playerColorText(sim.players[targetIndex].color) & " " & cause)
+    else:
+      sim.logGameEvent(
+        playerColorText(sim.players[targetIndex].color) &
+          " killed by " & sim.playerText(killerIndex)
+      )
   # A dying trigger pull never releases, and a carried grenade is lost.
   sim.players[targetIndex].fireWindup = 0
   sim.players[targetIndex].windupBrads = -1
@@ -574,7 +751,10 @@ proc killPlayer*(
   sim.players[targetIndex].shieldHp = 0
   sim.players[targetIndex].hasPlasmaArc = false
   sim.players[targetIndex].arcTicksLeft = 0
+  sim.players[targetIndex].arcAimBrads = -1
   sim.players[targetIndex].throwCharge = 0
+  sim.players[targetIndex].hasBarrier = false  # carried cardboard is lost too.
+  sim.players[targetIndex].puddleTicks = 0
   for team in sim.teams():
     if sim.flags[team].carrier == targetIndex:
       sim.players[targetIndex].carryingFlag = false
@@ -665,8 +845,10 @@ proc selectArcVictims(
   attackerIndex: int
 ): seq[int] =
   ## Returns every living player whose BODY overlaps the attacker's forward
-  ## spray cone, computed from the attacker's CURRENT position and aim: a live
-  ## cone tracks its owner across the active window.
+  ## spray cone. The cone's ORIGIN is the attacker's CURRENT position (it rides
+  ## its owner across the active window), but its DIRECTION is the aim locked at
+  ## the fire instant (`arcAimBrads`) — turning the cog mid-spray never sweeps
+  ## the cone.
   ##
   ## The victim is a disc of PlasmaArcBodyRadius, not the bare point its
   ## 1px collision box would suggest, so the cone covers what the paint
@@ -678,7 +860,7 @@ proc selectArcVictims(
     attacker = sim.players[attackerIndex]
     ax = attacker.x + CollisionW div 2
     ay = attacker.y + CollisionH div 2
-    (ux, uy) = aimVector(attacker.aimBrads)
+    (ux, uy) = aimVector(attacker.arcAimBrads)
     reach = float(PlasmaArcReach)
     # The cone's half-width grows linearly with forward distance, hitting
     # PlasmaArcMaxWidth / 2 exactly at the reach cap.
@@ -695,7 +877,7 @@ proc selectArcVictims(
       continue
     if perpendicular > forward * halfWidthSlope + float(PlasmaArcBodyRadius):
       continue
-    if not sim.lineOfSightClear(
+    if not sim.paintPathClear(
       ax,
       ay,
       sim.players[i].x + CollisionW div 2,
@@ -713,6 +895,10 @@ proc startArcFire*(sim: var SimServer, attackerIndex: int) =
   sim.players[attackerIndex].fireCooldown =
     PlasmaArcActiveTicks + PlasmaArcResetTicks
   sim.players[attackerIndex].arcTicksLeft = PlasmaArcActiveTicks
+  # Lock the aim NOW: the cone keeps this direction for its whole active
+  # window, so turning the cog mid-spray no longer sweeps it around. One
+  # fire, one direction.
+  sim.players[attackerIndex].arcAimBrads = sim.players[attackerIndex].aimBrads
   sim.players[attackerIndex].arcHitMask = 0
   sim.players[attackerIndex].arcKillsThisFire = 0
   sim.logGameEvent(
@@ -740,7 +926,7 @@ proc resolveActiveArcCones*(sim: var SimServer) =
     sim.plasmaArcFlashes.add PlasmaArcFx(
       x: attacker.x + CollisionW div 2,
       y: attacker.y + CollisionH div 2,
-      aimBrads: attacker.aimBrads,
+      aimBrads: attacker.arcAimBrads,   ## the locked fire direction, not live aim
       tick: sim.tickCount,
       color: teamColor(attacker.team),
       attacker: arcFire.attacker
@@ -753,7 +939,7 @@ proc resolveActiveArcCones*(sim: var SimServer) =
       let
         ax = attacker.x + CollisionW div 2
         ay = attacker.y + CollisionH div 2
-        (ux, uy) = aimVector(attacker.aimBrads)
+        (ux, uy) = aimVector(attacker.arcAimBrads)
       for step in 1 .. PlasmaArcReach:
         let
           rx = ax + int(round(ux * float(step)))
@@ -846,11 +1032,15 @@ proc resolveActiveArcCones*(sim: var SimServer) =
           SprayAction,
           sim.tickCount - (PlasmaArcActiveTicks - attacker.arcTicksLeft)
         ),
-        headingBrads = attacker.aimBrads,
+        headingBrads = attacker.arcAimBrads,
         damages = damages
       )
     if sim.players[arcFire.attacker].arcTicksLeft > 0:
       dec sim.players[arcFire.attacker].arcTicksLeft
+      # The cone just shut off: clear the locked aim so an idle owner carries
+      # no stale direction (matches how the gun clears windupBrads on release).
+      if sim.players[arcFire.attacker].arcTicksLeft == 0:
+        sim.players[arcFire.attacker].arcAimBrads = -1
 
 proc tryFireArc*(sim: var SimServer, attackerIndex: int) =
   ## Fires one spray burst immediately for direct callers and tests: ignites
@@ -860,16 +1050,22 @@ proc tryFireArc*(sim: var SimServer, attackerIndex: int) =
   sim.startArcFire(attackerIndex)
   sim.resolveActiveArcCones()
 
-proc aimJitterSigma(sim: SimServer): float =
+proc aimJitterSigma(sim: SimServer, perks: PerkSet): float =
   ## The per-shot Gaussian aim-noise sigma, in radians (GV34): calibrated
   ## against the LIVE config.gunRange so that a fully visible body at max
   ## range is hit exactly 80% of the time — see AimJitterCentralZ for the
   ## derivation. PlayerHalf + BulletHalfWidth is the corridor's continuous
-  ## acceptance half-window for a centered silhouette.
+  ## acceptance half-window for a centered silhouette. A scope-perked shooter
+  ## deviates less: sigma shrinks by perkMods.scopeAim (the scale applies
+  ## only when the perk is present, so a perk-free shot's draw is untouched).
   let window = (float(PlayerHalf) + BulletHalfWidth) / float(sim.config.gunRange)
-  arcsin(min(1.0, window)) / AimJitterCentralZ
+  result = arcsin(min(1.0, window)) / AimJitterCentralZ
+  if PerkScope in perks:
+    result = result * float(1000 - sim.config.perkMods.scopeAim) / 1000.0
 
-proc jitterDirection(sim: var SimServer, headingBrads: int): tuple[x, y: float] =
+proc jitterDirection(
+  sim: var SimServer, headingBrads: int, perks: PerkSet
+): tuple[x, y: float] =
   ## The actual unit direction of one released shot: the locked aim rotated
   ## by a Gaussian draw on the deterministic sim RNG (like the trench duck,
   ## it is part of the hashed game, so replays re-roll identically). The
@@ -877,7 +1073,7 @@ proc jitterDirection(sim: var SimServer, headingBrads: int): tuple[x, y: float] 
   ## where the paint lands is where the viewer sees it fly.
   let
     (bx, by) = aimVector(headingBrads)
-    jitter = gauss(sim.rng, 0.0, sim.aimJitterSigma())
+    jitter = gauss(sim.rng, 0.0, sim.aimJitterSigma(perks))
     cj = cos(jitter)
     sj = sin(jitter)
   # aimVector is (cos a, -sin a) (screen y down), so adding jitter to the
@@ -929,13 +1125,21 @@ proc selectFireTarget(
         continue
       if abs(vx * uy - vy * ux) > BulletHalfWidth:
         continue
-      if not sim.lineOfSightClear(sx, sy, int(round(px)), int(round(py))):
+      if not sim.paintPathClear(sx, sy, int(round(px)), int(round(py))):
         continue
       crossed.add((t, i))
       break
   # Walk the crossed bodies in ray order (index breaks exact ties, so the
   # walk is deterministic); the first body that does not duck is the hit.
   crossed.sort()
+  # A handicapped shooter's aim goes wide on a fraction of the shots that would
+  # otherwise connect. Rolled ONCE per shot, only when there is a body to hit
+  # AND the team carries a handicap — so an unhandicapped game draws no extra
+  # RNG and re-simulates byte-for-byte. On a miss the whole shot flies wide
+  # (it does not fall through to a body further down the ray).
+  let missPermille = sim.config.missPermilleFor(shooter.team)
+  if missPermille > 0 and crossed.len > 0 and sim.rng.rand(999) < missPermille:
+    return -1
   for candidate in crossed:
     let targetTrench = sim.playerTrench(candidate.index)
     if targetTrench >= 0 and targetTrench != shooterTrench and
@@ -965,7 +1169,7 @@ proc selectGunShot(sim: var SimServer, shooterIndex: int): PendingGunShot =
         sim.tickCount - sim.config.fireWindupTicks
       else:
         sim.tickCount
-    (ux, uy) = sim.jitterDirection(headingBrads)
+    (ux, uy) = sim.jitterDirection(headingBrads, shooter.perks)
   PendingGunShot(
     shooterIndex: shooterIndex,
     targetIndex: sim.selectFireTarget(shooterIndex, ux, uy),
@@ -1033,10 +1237,19 @@ proc applyFire(sim: var SimServer, shot: PendingGunShot) =
       wallX = 0
       wallY = 0
       struckWall = false
+      struckBarrier = -1
     for step in 1 .. maxRange:
       let
         rx = sx + int(round(ux * float(step)))
         ry = sy + int(round(uy * float(step)))
+      # Cardboard before stone: a standing barrier soaks the paintball (one
+      # of its BarrierHp hits) where a wall would merely wear the stain.
+      if sim.placedBarriers.len > 0:
+        struckBarrier = sim.barrierIndexAt(rx, ry)
+        if struckBarrier >= 0:
+          wallX = rx
+          wallY = ry
+          break
       if sim.isWall(rx, ry):
         struckWall = true
         wallX = rx
@@ -1045,6 +1258,12 @@ proc applyFire(sim: var SimServer, shot: PendingGunShot) =
       lastClear = step
     ex = sx + int(round(ux * float(lastClear)))
     ey = sy + int(round(uy * float(lastClear)))
+    if struckBarrier >= 0:
+      # The tracer visibly ends ON the cardboard, and the hit splat lands
+      # there; the paint never reaches the terrain behind it.
+      ex = wallX
+      ey = wallY
+      sim.damageBarrier(struckBarrier, wallX, wallY, shooter.color)
     # Paint that MISSES every cog carries on until it hits geometry, and dries
     # there for the rest of the match. The mark goes on the WALL PIXEL it
     # struck — not the last clear pixel in front of it, which would leave the
@@ -1071,7 +1290,14 @@ proc applyFire(sim: var SimServer, shot: PendingGunShot) =
     # unchanged.)
     let bubbleUp = sim.players[targetIndex].hasShield and
       sim.players[targetIndex].shieldHp > 0
-    let blocked = sim.absorbDamage(targetIndex, 1)
+    # A lucky shot (luck perk) deals perkMods.luckDamage instead of 1. Rolled once
+    # per LANDED hit, only when the shooter carries the perk, so a perk-free
+    # game draws no extra RNG and re-simulates byte-for-byte.
+    var damage = 1
+    if PerkLuck in shooter.perks and
+        sim.rng.rand(999) < sim.config.perkMods.luckChance:
+      damage = sim.config.perkMods.luckDamage
+    let blocked = sim.absorbDamage(targetIndex, damage)
     # Paintball paint marks the body only when the shield bubble ISN'T eating it
     # (a bubble dent draws no body paint). Stamp so the EYES-PiP visor splat
     # fires for THIS paint hit — and only for a PAINT hit (gun/grenade). The
@@ -1080,7 +1306,7 @@ proc applyFire(sim: var SimServer, shot: PendingGunShot) =
       sim.players[targetIndex].paintHitTick = sim.tickCount
     sim.emitEvent(
       Damage, source = shooterIndex, target = targetIndex, weapon = "gun",
-      amount = 1, hp = max(0, sim.players[targetIndex].hp),
+      amount = damage, hp = max(0, sim.players[targetIndex].hp),
       blocked = blocked,
       x = float(sim.players[targetIndex].x + CollisionW div 2),
       y = float(sim.players[targetIndex].y + CollisionH div 2)
@@ -1099,7 +1325,7 @@ proc applyFire(sim: var SimServer, shot: PendingGunShot) =
         damages = @[
           sim.eventDamage(
             targetIndex,
-            1,
+            damage,
             max(0, sim.players[targetIndex].hp),
             blocked
           )
@@ -1125,7 +1351,7 @@ proc applyFire(sim: var SimServer, shot: PendingGunShot) =
       x: sim.players[targetIndex].x + CollisionW div 2,
       y: sim.players[targetIndex].y + CollisionH div 2,
       tick: sim.tickCount,
-      amount: 1,
+      amount: damage,
       color: sim.players[targetIndex].color
     )
     if sim.players[targetIndex].hp <= 0:
@@ -1134,7 +1360,7 @@ proc applyFire(sim: var SimServer, shot: PendingGunShot) =
       sim.recordTeamKill(shooterIndex, targetIndex)
       sim.emitEvent(
         Kill, source = shooterIndex, target = targetIndex, weapon = "gun",
-        amount = 1,
+        amount = damage,
         x = float(sim.players[targetIndex].x + CollisionW div 2),
         y = float(sim.players[targetIndex].y + CollisionH div 2)
       )
@@ -1205,14 +1431,18 @@ proc grenadePosition*(grenade: AirborneGrenade, tick: int): tuple[x, y: int] =
   (grenade.sx + (grenade.tx - grenade.sx) * t div grenade.flightTicks,
     grenade.sy + (grenade.ty - grenade.sy) * t div grenade.flightTicks)
 
-proc throwTarget*(player: Player): tuple[x, y: int] =
+proc throwTarget*(player: Player, maxRange: int): tuple[x, y: int] =
   ## Where a charging player's throw would currently land, along their aim at
-  ## the charge-picked distance. Shares throwGrenade's exact math so the render
-  ## charge-ring can never disagree with where the grenade will actually go.
+  ## the charge-picked distance. `maxRange` is the seat's resolved full-charge
+  ## distance (config.grenadeRangeFor — the grenade perk stretches it). The
+  ## render charge-ring caller (global.nim) resolves it the same way
+  ## throwGrenade below does, and throwGrenade duplicates this strength
+  ## formula inline — keep the two in lockstep so the ring never disagrees
+  ## with where the grenade actually goes.
   let
     charge = clamp(player.throwCharge, 0, GrenadeChargeTicks)
     strength = GrenadeMinRange +
-      (GrenadeMaxRange - GrenadeMinRange) * charge div GrenadeChargeTicks
+      (maxRange - GrenadeMinRange) * charge div GrenadeChargeTicks
     (ux, uy) = aimVector(player.aimBrads)
     sx = player.x + CollisionW div 2
     sy = player.y + CollisionH div 2
@@ -1229,8 +1459,9 @@ proc throwGrenade(sim: var SimServer, playerIndex: int) =
   let
     player = sim.players[playerIndex]
     charge = clamp(player.throwCharge, 0, GrenadeChargeTicks)
+    maxRange = sim.config.grenadeRangeFor(GrenadeMaxRange, player.perks)
     strength = GrenadeMinRange +
-      (GrenadeMaxRange - GrenadeMinRange) * charge div GrenadeChargeTicks
+      (maxRange - GrenadeMinRange) * charge div GrenadeChargeTicks
     (ux, uy) = aimVector(player.aimBrads)
     sx = player.x + CollisionW div 2
     sy = player.y + CollisionH div 2
@@ -1273,6 +1504,71 @@ proc throwGrenade(sim: var SimServer, playerIndex: int) =
   sim.players[playerIndex].throwCharge = 0
   sim.logGameEvent(playerColorText(player.color) & " threw a grenade")
 
+proc placeBarrier(sim: var SimServer, playerIndex: int) =
+  ## Unfolds the carried cardboard into a standing half-hex centered on the
+  ## placer, flat side across their aim: vertices at aim -90/-30/+30/+90
+  ## degrees, BarrierRadius out, snapped to map pixels (every later coverage
+  ## test is integer-only). The apothem (~21px) clears the placer's own
+  ## 6px-half footprint, so placing never crushes the fresh barrier — walking
+  ## forward into it afterwards does.
+  const vertAngles = [-PI / 2.0, -PI / 6.0, PI / 6.0, PI / 2.0]
+  let
+    player = sim.players[playerIndex]
+    cx = player.x + CollisionW div 2
+    cy = player.y + CollisionH div 2
+    (ux, uy) = aimVector(player.aimBrads)
+  var barrier = PlacedBarrier(
+    x: cx,
+    y: cy,
+    facingBrads: player.aimBrads,
+    hp: BarrierHp,
+    team: player.team,
+    placedTick: sim.tickCount
+  )
+  for k in 0 .. 3:
+    let
+      c = cos(vertAngles[k])
+      s = sin(vertAngles[k])
+    barrier.verts[k] = (
+      cx + int(round(float(BarrierRadius) * (ux * c - uy * s))),
+      cy + int(round(float(BarrierRadius) * (ux * s + uy * c)))
+    )
+  barrier.minX = barrier.verts[0].x
+  barrier.maxX = barrier.verts[0].x
+  barrier.minY = barrier.verts[0].y
+  barrier.maxY = barrier.verts[0].y
+  for k in 1 .. 3:
+    barrier.minX = min(barrier.minX, barrier.verts[k].x)
+    barrier.maxX = max(barrier.maxX, barrier.verts[k].x)
+    barrier.minY = min(barrier.minY, barrier.verts[k].y)
+    barrier.maxY = max(barrier.maxY, barrier.verts[k].y)
+  barrier.minX -= BarrierHalfThick + 1
+  barrier.minY -= BarrierHalfThick + 1
+  barrier.maxX += BarrierHalfThick + 1
+  barrier.maxY += BarrierHalfThick + 1
+  # The pool is bounded (it sizes the render id block): past the cap the
+  # OLDEST standing barrier folds so the new one can stand.
+  if sim.placedBarriers.len >= MaxBarriersPlaced:
+    sim.placedBarriers.delete(0)
+  sim.placedBarriers.add(barrier)
+  sim.players[playerIndex].hasBarrier = false
+  sim.logGameEvent(
+    playerColorText(player.color) & " placed a cardboard barrier")
+
+proc applyBarrierInput(
+  sim: var SimServer,
+  playerIndex: int,
+  input, prev: InputState
+) =
+  ## Press C to unfold a carried barrier where you stand — instant, no
+  ## charge. C is the grenade button too, but a cog never holds both
+  ## (pickups are mutually exclusive), so the press is unambiguous.
+  if not sim.players[playerIndex].alive or
+      not sim.players[playerIndex].hasBarrier:
+    return
+  if input.c and not prev.c:
+    sim.placeBarrier(playerIndex)
+
 proc applyGrenadeInput(
   sim: var SimServer,
   playerIndex: int,
@@ -1306,7 +1602,15 @@ proc explodeGrenade(sim: var SimServer, grenade: AirborneGrenade) =
     legacyThrowerIndex = sim.legacyGrenadeThrowerIndex(grenade)
     throwerSlot = sim.grenadeThrowerSlot(grenade)
     throwerIndex = sim.playerIndexForSlot(throwerSlot)
-    throwerColor = teamColor(sim.teamForSlot(throwerSlot))
+    # An environment shell (grenade barrage, throwerSlot -1) has no owning
+    # team: its splat cycles the ACTIVE team colors by launch tick, staying
+    # inside the same team-keyed blast sprite pool a player lob uses.
+    # (teamForSlot(-1) would index Team(-1) — never call it for a shell.)
+    throwerColor =
+      if throwerSlot < 0:
+        teamColor(Team(grenade.launchTick mod sim.gameMap.teamCount()))
+      else:
+        teamColor(sim.teamForSlot(throwerSlot))
     landingTrench = trenchIndexAt(grenade.tx, grenade.ty)
   sim.recentBlasts.add BlastFx(
     x: grenade.tx, y: grenade.ty, tick: sim.tickCount, color: throwerColor,
@@ -1396,7 +1700,12 @@ proc explodeGrenade(sim: var SimServer, grenade: AirborneGrenade) =
       amount: dmg, color: sim.players[i].color
     )
     if sim.players[i].hp <= 0:
-      sim.killPlayer(i, throwerIndex, throwerSlot)
+      # An environment shell logs its own death line instead of the combat
+      # "killed by" attribution (there is nobody to credit).
+      sim.killPlayer(
+        i, throwerIndex, throwerSlot,
+        cause = (if throwerSlot < 0: "shelled by the grenade barrage" else: "")
+      )
       if throwerSlot >= 0 and throwerSlot != sim.eventSlot(i):
         if grenade.throwerAccount >= 0 and
             grenade.throwerAccount < sim.rewardAccounts.len:
@@ -1495,8 +1804,12 @@ template refillElapsedPickups(sim: var SimServer, spawnsField: untyped) =
 
 proc tryPickupGrenades*(sim: var SimServer, playerIndex: int) =
   ## Lets a living player pick up a corner grenade by touch (one carried
-  ## grenade max; either team may take either side's pickups).
-  if not sim.players[playerIndex].alive or sim.players[playerIndex].hasGrenade:
+  ## grenade max; either team may take either side's pickups). A cog carrying
+  ## a cardboard barrier walks over the pickup untouched — grenade and
+  ## barrier share button C, so a cog holds one or the other, never both.
+  if not sim.players[playerIndex].alive or
+      sim.players[playerIndex].hasGrenade or
+      sim.players[playerIndex].hasBarrier:
     return
   sim.pickupByTouch(playerIndex, grenadeSpawns, GrenadePickupRange,
       GrenadeRespawnTicks):
@@ -1521,12 +1834,14 @@ proc tryPickupMedKits*(sim: var SimServer, playerIndex: int) =
   ## kit is never wasted; a taken kit refills after MedKitRespawnTicks.
   if not sim.players[playerIndex].alive:
     return
-  if sim.players[playerIndex].hp >= sim.config.hitPoints:
+  let maxHp = sim.config.maxHpFor(
+    sim.players[playerIndex].team, sim.players[playerIndex].perks)
+  if sim.players[playerIndex].hp >= maxHp:
     return
   sim.pickupByTouch(playerIndex, medKitSpawns, MedKitPickupRange,
       MedKitRespawnTicks):
-    let healed = sim.config.hitPoints - sim.players[playerIndex].hp
-    sim.players[playerIndex].hp = sim.config.hitPoints
+    let healed = maxHp - sim.players[playerIndex].hp
+    sim.players[playerIndex].hp = maxHp
     sim.emitPickup(playerIndex, "med_kit", spawn.x, spawn.y)
     sim.emitEvent(
       Heal, source = playerIndex, amount = healed,
@@ -1578,6 +1893,45 @@ proc tryPickupPlasmaArcs*(sim: var SimServer, playerIndex: int) =
       playerColorText(sim.players[playerIndex].color) &
         " picked up a spray can"
     )
+
+proc tryPickupBarriers*(sim: var SimServer, playerIndex: int) =
+  ## Lets a living player pick up one folded cardboard barrier by touch. The
+  ## grenade shares button C, so carrying either blocks picking up the other
+  ## (the grenade side of the gate lives in tryPickupGrenades).
+  if not sim.players[playerIndex].alive or
+      sim.players[playerIndex].hasBarrier or
+      sim.players[playerIndex].hasGrenade:
+    return
+  sim.pickupByTouch(playerIndex, barrierSpawns, BarrierPickupRange,
+      BarrierRespawnTicks):
+    sim.players[playerIndex].hasBarrier = true
+    sim.emitPickup(playerIndex, "barrier", spawn.x, spawn.y)
+    sim.logGameEvent(
+      playerColorText(sim.players[playerIndex].color) &
+        " picked up a cardboard barrier"
+    )
+
+proc updateBarriers*(sim: var SimServer) =
+  ## Refills barrier pickups whose respawn timer elapsed, then flattens any
+  ## standing barrier a cog drove into this tick — cardboard stops paint,
+  ## not a rolling bot. Runs after movement, so the crush lands the same
+  ## tick as the contact.
+  sim.refillElapsedPickups(barrierSpawns)
+  if sim.placedBarriers.len == 0:
+    return
+  var index = 0
+  while index < sim.placedBarriers.len:
+    var crusher = -1
+    for playerIndex in 0 ..< sim.players.len:
+      if sim.players[playerIndex].alive and
+          sim.playerTouchesBarrier(playerIndex, index):
+        crusher = playerIndex
+        break
+    if crusher >= 0:
+      sim.flattenBarrier(
+        index, sim.players[crusher].color, "flattened a cardboard barrier")
+    else:
+      inc index
 
 proc sanitizeShout*(text: string): string =
   ## Reduces raw chat text to a legal shout: printable ASCII only, at most
@@ -1675,8 +2029,6 @@ proc tryPickupFlags*(sim: var SimServer, playerIndex: int) =
     if distSq(px, py, sim.flags[flagTeam].x, sim.flags[flagTeam].y) <= rangeSq:
       sim.flags[flagTeam].carrier = playerIndex
       sim.players[playerIndex].carryingFlag = true
-      # A steal is action: keep at least ActionClockFloorTicks on the clock.
-      sim.floorGameClock()
       sim.emitEvent(
         FlagSteal, source = playerIndex,
         x = float(sim.flags[flagTeam].x), y = float(sim.flags[flagTeam].y)
@@ -1730,16 +2082,12 @@ proc applyInput*(
 
   # Aim rotation is decoupled from locomotion: holding B turns the aim
   # counter-clockwise, holding Select clockwise; holding both cancels out,
-  # and the d-pad never changes the aim. The aim steps through the 32
-  # rotation slots (aimTurnRate slots/tick); the arithmetic runs in slots
-  # and re-snaps to the grid, so an off-grid angle can never persist.
+  # and the d-pad never changes the aim.
   if input.b != input.select:
-    let steps =
+    let turn =
       if input.b: sim.config.aimTurnRate else: -sim.config.aimTurnRate
-    let slot = player.aimBrads div AimStepBrads
     player.aimBrads =
-      (((slot + steps) mod AimRotations + AimRotations) mod AimRotations) *
-        AimStepBrads
+      ((player.aimBrads + turn) mod AimBradsTurn + AimBradsTurn) mod AimBradsTurn
   # The sprite flip follows the aim: flipped while aiming left-ish.
   player.flipH =
     player.aimBrads > AimBradsTurn div 4 and
@@ -1748,7 +2096,8 @@ proc applyInput*(
   let
     speedScale =
       if player.carryingFlag: sim.config.carrierSpeedPct else: 100
-    maxSpeed = sim.config.maxSpeed * speedScale div 100
+    maxSpeed =
+      sim.config.maxSpeedFor(player.team, player.perks) * speedScale div 100
     accel = sim.config.accel * speedScale div 100
     # CLIMBING OUT of a trench is slow; dropping in and moving around it
     # are not. While the center is inside a pit, each axis whose motion
@@ -2159,7 +2508,13 @@ proc finishGame*(sim: var SimServer, winner: Team, isDraw = false, timeLimitReac
       sim.rewardAccounts[i].reward += lossReward
 
 proc maxTicksReached(sim: SimServer): bool =
-  sim.config.maxTicks > 0 and sim.phase == Playing and
+  ## Whether the scheduled draw ceiling ends the game this tick. A game
+  ## with the grenade barrage configured has NO draw ceiling: past the
+  ## deadline the clock reads 0:00 and the full-intensity bombardment
+  ## grinds on until at most one team stands (GV41) — a draw then needs
+  ## the last players of two teams to die on the same tick.
+  sim.config.barrageMaxPerSec <= 0 and
+    sim.config.maxTicks > 0 and sim.phase == Playing and
     sim.gameTicksElapsed() >= sim.effectiveMaxTicks()
 
 proc teamLivesRemaining*(sim: SimServer, team: Team): int =
@@ -2254,6 +2609,134 @@ proc eliminateTeam(sim: var SimServer, team: Team, killerIndex: int) =
     sim.players[i].respawnTimer = 0
     if sim.players[i].alive:
       sim.killPlayer(i, killerIndex, elimination = true)
+
+proc updatePuddles*(sim: var SimServer) =
+  ## One tick of the paint-puddle hazard: every full second (PuddleRollTicks
+  ## ticks) a cog's center spends CONTINUOUSLY inside a puddle rolls a
+  ## puddleDamagePct chance of 1 damage — through the shield layer first,
+  ## like every weapon. Dipping out (or dying) restarts the second. The RNG
+  ## draws ONLY on a completed second of occupancy, so a puddle-free map
+  ## plays byte-identical to a build without this mechanic (no GV bump).
+  if ArenaPuddles.len == 0 or sim.phase != Playing:
+    return
+  for i in 0 ..< sim.players.len:
+    if not sim.players[i].alive:
+      sim.players[i].puddleTicks = 0
+      continue
+    if sim.playerPuddle(i) < 0:
+      sim.players[i].puddleTicks = 0
+      continue
+    inc sim.players[i].puddleTicks
+    if sim.players[i].puddleTicks < PuddleRollTicks:
+      continue
+    sim.players[i].puddleTicks = 0
+    if sim.rng.rand(99) >= sim.config.puddleDamagePct:
+      continue
+    let
+      px = sim.players[i].x + CollisionW div 2
+      py = sim.players[i].y + CollisionH div 2
+      bubbleUp = sim.players[i].hasShield and sim.players[i].shieldHp > 0
+      blocked = sim.absorbDamage(i, 1)
+    # Puddle paint marks the body the same way weapon paint does — unless
+    # the shield bubble ate the hit (a bubble dent draws no body paint).
+    if not bubbleUp:
+      sim.players[i].paintHitTick = sim.tickCount
+    sim.emitEvent(
+      Damage, source = -1, target = i, weapon = "puddle",
+      amount = 1, hp = max(0, sim.players[i].hp),
+      blocked = blocked,
+      x = float(px), y = float(py)
+    )
+    # A floating "-1" rises from the victim so the hazard's bite reads at a
+    # glance (cosmetic only, never in gameHash).
+    sim.damagePops.add DamageFx(
+      x: px, y: py,
+      tick: sim.tickCount,
+      amount: 1,
+      color: sim.players[i].color
+    )
+    if sim.players[i].hp <= 0:
+      sim.killPlayer(i, -1, cause = "dissolved in a paint puddle")
+
+proc launchBarrageShell(sim: var SimServer) =
+  ## Launches one environment grenade: the landing point is drawn from the
+  ## deterministic sim RNG inside the current target band (within
+  ## barrageDepth of some map edge), and the shell arcs in from the nearest
+  ## point of that edge with the same fixed fuse a player lob has. Thrower
+  ## -1 marks it environmental: no kill credit, no rewards, no multi-kills.
+  let
+    depth = max(1, sim.barrageDepth())
+    side = sim.rng.rand(3)
+    inset = sim.rng.rand(depth - 1)
+  var tx, ty, sx, sy: int
+  case side
+  of 0:                                  # north edge, raining downward.
+    tx = sim.rng.rand(MapWidth - 1)
+    ty = inset
+    sx = tx
+    sy = 0
+  of 1:                                  # south edge.
+    tx = sim.rng.rand(MapWidth - 1)
+    ty = MapHeight - 1 - inset
+    sx = tx
+    sy = MapHeight - 1
+  of 2:                                  # west edge.
+    ty = sim.rng.rand(MapHeight - 1)
+    tx = inset
+    sx = 0
+    sy = ty
+  else:                                  # east edge.
+    ty = sim.rng.rand(MapHeight - 1)
+    tx = MapWidth - 1 - inset
+    sx = MapWidth - 1
+    sy = ty
+  tx = clamp(tx, ArenaBorder + 2, MapWidth - ArenaBorder - 2)
+  ty = clamp(ty, ArenaBorder + 2, MapHeight - ArenaBorder - 2)
+  sim.airborneGrenades.add AirborneGrenade(
+    sx: sx,
+    sy: sy,
+    tx: tx,
+    ty: ty,
+    launchTick: sim.tickCount,
+    flightTicks: max(1, GrenadeFlightMultiple * sim.config.fireWindupTicks),
+    thrower: -1,
+    throwerSlot: -1,
+    throwerAccount: -1
+  )
+
+proc updateBarrage*(sim: var SimServer) =
+  ## One tick of the grenade-barrage endgame: latch when the game clock
+  ## drops to barrageStartSec remaining, then rain environment grenades —
+  ## barrageStartPerSec along the map edges at first, ramping linearly to
+  ## barrageMaxPerSec across the whole board as the escalation completes
+  ## (barrageProgressPermille). The shells land through the ordinary
+  ## grenade pipeline, so blast kills bank action-floor overtime; the
+  ## latched barrage only ever escalates through the extension, so a timed
+  ## game ends on a wipe or capture instead of a timeout draw.
+  if sim.config.barrageMaxPerSec <= 0 or sim.config.maxTicks <= 0:
+    return
+  if sim.phase != Playing:
+    return
+  if sim.barrageStartTick < 0:
+    let remaining = sim.effectiveMaxTicks() - sim.gameTicksElapsed()
+    if remaining <= sim.config.barrageStartSec * TargetFps:
+      sim.barrageStartTick = sim.tickCount
+      sim.barrageAccum = 0
+      sim.logGameEvent("grenade barrage incoming")
+    return
+  # Fractional launch pacing: the rate is permille grenades/second, one
+  # grenade costs TargetFps*1000 accumulator units, so any integer rate
+  # spreads its launches evenly with zero drift.
+  const UnitsPerGrenade = TargetFps * 1000
+  sim.barrageAccum += sim.barrageRatePermille()
+  while sim.barrageAccum >= UnitsPerGrenade:
+    sim.barrageAccum -= UnitsPerGrenade
+    # The drawn-orb pool holds MaxPlayers in-flight grenades; at the config
+    # ceiling (BarrageAbsMaxPerSec x the ~10-tick fuse) the barrage stays
+    # well inside it, so this cap is a belt-and-suspenders skip, and the
+    # accumulator still drains so a capped stretch never banks a burst.
+    if sim.airborneGrenades.len < MaxPlayers:
+      sim.launchBarrageShell()
 
 proc checkWinCondition*(sim: var SimServer) {.measure.} =
   ## Resolves capture and wipe win conditions.
@@ -2507,7 +2990,8 @@ proc applyDiamondGeometry*(sim: var SimServer, tick: int): bool
   ## No allocation on either pass: this runs every tick, and three ticks in
   ## four nothing has moved.
   for index in 0 ..< sim.diamondPatches.len:
-    let frame = diamondSpinFrame(AnimatedDiamonds[index].cx, tick)
+    let frame = diamondSpinFrame(
+      AnimatedDiamonds[index].cx, AnimatedDiamonds[index].cy, tick)
     if frame == sim.diamondPatches[index].frame:
       continue
     sim.diamondPatches[index].frame = frame
@@ -2524,6 +3008,29 @@ proc applyDiamondGeometry*(sim: var SimServer, tick: int): bool
     ## Vision was computed against the old stone; every viewer re-casts.
     for i in 0 ..< sim.fovCaches.len:
       sim.fovCaches[i].valid = false
+
+proc restampDiamondGeometry*(sim: var SimServer) =
+  ## Rewrites every spinning diamond's footprint into the collision and
+  ## vision masks at the frame the patches already hold. Exists for keyframe
+  ## restores (deserializeReplaySim): the walk/wall/fov masks arrive from a
+  ## donor sim whose stamps are at the DONOR tick's spin frame, while the
+  ## restored diamondPatches carry the keyframe tick's frames — and
+  ## applyDiamondGeometry skips a diamond whose frame "has not changed", so
+  ## the donor's stale stone would otherwise survive any seek whose target
+  ## sits inside the restored keyframe's spin frame — fewer than
+  ## DiamondSpinTicksPerFrame ticks stepped after the restore, so no stepped
+  ## tick advances the spin and nothing restamps. Each stamp writes base OR
+  ## stone over the whole window, so this cleans any foreign footprint the
+  ## donor left behind.
+  ##
+  ## fovCaches are deliberately NOT invalidated: on the keyframe path the
+  ## restored caches were recorded against the very masks this restamp
+  ## reproduces, so they are valid by construction. A future caller whose
+  ## caches were built against OTHER masks must invalidate them itself.
+  for index in 0 ..< sim.diamondPatches.len:
+    if sim.diamondPatches[index].frame < 0:
+      continue                          # nothing stamped yet.
+    sim.stampDiamondPatch(index, sim.diamondPatches[index].frame)
 
 proc nearestFreeBody(
   sim: SimServer, playerIndex, x, y: int
@@ -2559,7 +3066,7 @@ proc sweptByDiamond(sim: SimServer, px, py: int): bool =
   ## diamond's CURRENT footprint — i.e. the stone moved onto them, rather than
   ## their being unable to stand for some unrelated reason.
   for spot in AnimatedDiamonds:
-    let frame = diamondSpinFrame(spot.cx, sim.tickCount)
+    let frame = diamondSpinFrame(spot.cx, spot.cy, sim.tickCount)
     for dy in -PlayerHalf .. PlayerHalf:
       for dx in -PlayerHalf .. PlayerHalf:
         if animatedDiamondCovers(spot, frame, px + dx, py + dy):
@@ -2695,12 +3202,15 @@ proc initSimServer*(config: GameConfig): SimServer =
   result.gameStartTick = -1
   result.startWaitTimer = 0
   result.lobbyWaitTimer = 0
+  result.barrageStartTick = -1
+  result.barrageAccum = 0
   result.gameEventLoggingEnabled = true
   result.resetFlags()
   result.resetGrenades()
   result.resetMedKits()
   result.resetShields()
   result.resetPlasmaArcs()
+  result.resetBarriers()
   result.lastLobbyPlayersLogged = -1
   result.lastLobbyNeededLogged = -1
   result.lastLobbySecondsLogged = -1
@@ -2724,6 +3234,7 @@ proc resetToLobby*(sim: var SimServer) =
   sim.resetMedKits()
   sim.resetShields()
   sim.resetPlasmaArcs()
+  sim.resetBarriers()
   sim.recentBlasts = @[]
   sim.plasmaArcFlashes = @[]
   sim.recentShouts = @[]
@@ -2739,7 +3250,8 @@ proc resetToLobby*(sim: var SimServer) =
   sim.startWaitTimer = 0
   sim.lobbyWaitTimer = 0
   sim.timeLimitReached = false
-  sim.overtimeTicks = 0
+  sim.barrageStartTick = -1
+  sim.barrageAccum = 0
   sim.isDraw = false
   sim.needsReregister = true
   sim.resetFlags()
@@ -2787,7 +3299,8 @@ proc respawnPlayers(sim: var SimServer) =
         let spawn = sim.randomEndzonePosition(sim.players[i].team)
         sim.placePlayer(i, spawn.x, spawn.y)
         sim.players[i].alive = true
-        sim.players[i].hp = sim.config.hitPoints
+        sim.players[i].hp =
+          sim.config.maxHpFor(sim.players[i].team, sim.players[i].perks)
         sim.players[i].aimBrads = sim.gameMap.spawnAimBrads(sim.players[i].team)
         sim.players[i].flipH = sim.gameMap.spawnFlipH(sim.players[i].team)
         sim.emitEvent(
@@ -2861,6 +3374,7 @@ proc step*(
       else: InputState()
     sim.applyInput(playerIndex, input)
     sim.applyGrenadeInput(playerIndex, input, prev)
+    sim.applyBarrierInput(playerIndex, input, prev)
     if input.attack and not prev.attack:
       if sim.players[playerIndex].hasPlasmaArc:
         if sim.canFireArc(playerIndex):
@@ -2880,6 +3394,7 @@ proc step*(
   sim.updateMedKits()
   sim.updateShields()
   sim.updatePlasmaArcs()
+  sim.updateBarriers()
 
   for playerIndex in 0 ..< sim.players.len:
     sim.tryPickupFlags(playerIndex)
@@ -2887,8 +3402,13 @@ proc step*(
     sim.tryPickupMedKits(playerIndex)
     sim.tryPickupShields(playerIndex)
     sim.tryPickupPlasmaArcs(playerIndex)
+    sim.tryPickupBarriers(playerIndex)
   sim.updateFlags()
   sim.respawnPlayers()
+  # Puddle damage resolves after movement and pickups, before the win check,
+  # so a lethal roll feeds the same tick's wipe resolution.
+  sim.updatePuddles()
+  sim.updateBarrage()
 
   sim.checkWinCondition()
   sim.checkMaxTicks()

@@ -18,7 +18,7 @@ import
 
 const
   GameName* = "ctf"
-  GameVersion* = "38"  ## GV38 (weapon reach): THE GRENADE AND THE SHOUT ARE
+  GameVersion* = "42"  ## GV42 (weapon reach): THE GRENADE AND THE SHOUT ARE
     ## PINNED TO THE GUN, NOT TO THE BOARD. `GrenadeMaxRange` and `ShoutRange`
     ## were both `MapWidth div 5` and therefore grew with the field, while
     ## `GunRange` has been frozen at 1050 px since GV34 — so on a colossal
@@ -27,12 +27,50 @@ const
     ## of the standard arena's historical 247 px (small/standard/large play
     ## as they always did; huge/giant/colossal lose the board-scaled reach
     ## they were never meant to have). A grenade's target coordinates are
-    ## hashed state, so pre-GV38 replays do not re-simulate.
+    ## hashed state, so pre-GV42 replays do not re-simulate. (Authored as
+    ## "GV38" on the mapgen line before main independently spent 38-41;
+    ## renumbered at the T0 merge.)
+    ##
+    ## Previously GV41 (clock rule): NO MORE OVERTIME. The GV23
+    ## banked as overtimeTicks) is removed outright: the clock only ever
+    ## counts down, and `maxTicks` is the exact scheduled draw ceiling.
+    ## With the grenade-barrage endgame configured the ceiling does not end
+    ## the game at all — the bombardment grinds on past 0:00 until at most
+    ## one team stands, so a draw needs the last players of two teams to
+    ## die on the same tick. overtimeTicks left the hash, so every replay
+    ## re-simulates differently: fixtures re-recorded.
+    ##
+    ## Previously GV40 (aim rule): RESTORE CONTINUOUS TURRET AIM.
+    ## `aimBrads` again spans all 256 integer headings, and `aimTurnRate` is
+    ## again brads/tick (default 5, ~7 degrees/tick, full turn ~2.1s), exactly
+    ## as introduced with decoupled aim. GV36's reinterpretation of the same
+    ## config value as 32-way rotation slots made the published value 5 turn
+    ## 40 brads/tick, overshooting bot targets and trapping held actions.
+    ## GV39 replays do not re-simulate under the restored aim arithmetic.
+    ##
+    ## GV39 (map format): QUAD-MIRROR SYMMETRY — 4-team
+    ## maps may be RECTANGULAR. A new `symQuadMirror` map symmetry authors the
+    ## TOP-LEFT quadrant and completes the board by reflecting it across both
+    ## center axes (mirrorX, mirrorY, and their composition rot180 — the
+    ## Klein four-group), instead of rot90's quarter turns, which demand a
+    ## square. Reflections preserve congruence exactly, so team fairness stays
+    ## bit-exact; mirror-image spinning diamonds counter-rotate (the rot180
+    ## image co-rotates). Default 4-team draws stay rot90/square; the
+    ## "quadmirror" mapSymmetry override opts a map in. Older viewers cannot
+    ## parse "quadmirror" specs.
+    ##
+    ## GV38 (spray rule): THE SPRAY IS ONE DIRECTIONAL
+    ## SHOT, NOT A SWEEP. A fired cone locks its aim at the fire instant and
+    ## points that way for its whole active window (`arcAimBrads`): turning the
+    ## cog mid-spray no longer rotates the cone across a fan of targets. The
+    ## cone's ORIGIN still rides its owner, so a moving sprayer drags the stream
+    ## forward — only the rotation is pinned. GV37 replays do not re-simulate.
     ##
     ## GV37 (obstacle format): map obstacles and trenches
     ## may be `polygon` shapes (integer vertex rings), so curved / organic
     ## terrain is authorable. Older viewers cannot parse the new spec kind.
-                       ## The aim angle is one of 32 discrete slots (8 brads
+                       ## GV36 (superseded by GV40): the aim angle was changed
+                       ## to one of 32 discrete slots (8 brads
                        ## = 11.25 deg apart), the classic fixed-rotation-count
                        ## scheme. A held rotate button steps whole slots
                        ## (aimTurnRate slots/tick, default 1); spawn aims sit
@@ -237,9 +275,9 @@ const
                        ## sides, self included) — exact aim is never readable
                        ## off a sprite; broadcast board unaffected.
                        ## GV23: a depleted shield layer breaks the shield
-                       ## outright (icon + fire slowdown end with the bubble),
-                       ## and kills/heart-steals floor the game clock at
-                       ## ActionClockFloorTicks remaining.
+                       ## outright (icon + fire slowdown end with the bubble).
+                       ## (GV23 also floored the clock on kills/steals; that
+                       ## action-floor overtime was removed in GV41.)
   ReplayFps* = 24
   DefaultMapPath* = "arena"
   DarkBgPath* = "data/darkbg.aseprite"
@@ -370,19 +408,8 @@ const
                               ## after a death (cosmetic only, never in gameHash).
   CarrierSpeedPct* = 70       ## carrier moves at 70% speed.
   AimBradsTurn* = 256         ## aim angle units per full turn (binary radians).
-                              ## Brads are the WIRE unit only (events, labels,
-                              ## replays); the aim itself lives on the 32-slot
-                              ## rotation grid below.
-  AimRotations* = 32          ## discrete aim rotations per full turn. The aim
-                              ## is always one of these 32 slots — there are no
-                              ## finer-grained angles.
-  AimStepBrads* = AimBradsTurn div AimRotations
-                              ## brads between adjacent rotation slots (11.25
-                              ## deg); every aim value on the wire is a
-                              ## multiple of this.
-  AimTurnRate* = 1            ## rotation slots/tick a held rotate button turns
-                              ## the aim (11.25 deg/tick; a full turn takes 32
-                              ## ticks, ~1.3s).
+  AimTurnRate* = 5            ## brads/tick a held rotate button turns the aim
+                              ## (~7 deg/tick; a full turn takes ~2.1s).
   VisionConeDeg* = 60         ## vision cone half-angle around the aim angle.
   VisionBubble* = 90          ## omnidirectional vision radius in px.
 
@@ -390,10 +417,26 @@ const
 
   StartWaitTicks* = 5 * TargetFps
   GameOverTicks* = 360
-  MaxTicks* = 5_000  ## 0 = no limit.
-  ActionClockFloorTicks* = 500  ## a kill or heart steal leaves at least this
-                                ## many ticks on the clock, so a timed game
-                                ## never ends mid-action.
+  MaxTicks* = 7_200  ## a 5:00 game at 24 ticks/sec; 0 = no limit.
+  BarrageStartSec* = 30       ## grenade-barrage default: the barrage latches
+                              ## on with this many clock seconds remaining
+                              ## (config barrageStartSec; the mode itself
+                              ## arms via barrageMaxPerSec > 0). On the
+                              ## default 5:00 clock that is 4:30 elapsed.
+  BarrageSaturateSec* = 30    ## grenade-barrage default: seconds from the
+                              ## latch to full saturation (whole board at
+                              ## barrageMaxPerSec). Start 30 + saturate 30
+                              ## = fully saturated exactly at 5:00 on the
+                              ## default clock.
+  BarrageStartPerSec* = 4     ## grenade-barrage default: launch rate at the
+                              ## latch, grenades/second along the map edges.
+  BarrageAbsMaxPerSec* = 50   ## config ceiling on barrageMaxPerSec: keeps
+                              ## the concurrent airborne count (rate x the
+                              ## ~10-tick flight) inside the drawn-orb pool.
+  BarrageEdgeBandPx* = 40     ## the strip of map inside every edge the
+                              ## barrage targets at latch; the band deepens
+                              ## linearly to full coverage as the ramp
+                              ## completes.
   MaxGames* = 0  ## 0 = no limit.
   MaxPlayers* = 32
   MinPlayers* = 16
@@ -546,6 +589,28 @@ const
                               ## rate. Shield+heart do not stack (max, not
                               ## product).
 
+  BarrierPickupRange* = 12    ## touch radius to pick a cardboard barrier up.
+  BarrierRespawnTicks* = 30 * ReplayFps  ## a taken barrier pickup refills after 30s.
+  BarrierHp* = 10             ## paintball hits a placed barrier soaks before
+                              ## it is gone. Only the gun chips it; the spray
+                              ## cone is merely blocked, and grenades fly
+                              ## over it like every other obstacle.
+  BarrierRadius* = 24         ## half-hex circumradius in px: the distance
+                              ## from the placement center (the placer's own
+                              ## center) to each of the four vertices. The
+                              ## flat middle side sits at the apothem
+                              ## (~0.87R = 21px) straight down the placer's
+                              ## aim, so the cardboard wraps their front.
+  BarrierHalfThick* = 2       ## half-thickness of the cardboard band: a map
+                              ## pixel within this distance of one of the
+                              ## three sides is covered (band ~5px wide, so
+                              ## a 1px-stepped paint ray can never lace
+                              ## through it diagonally).
+  MaxBarriersPlaced* = 16     ## most placed barriers standing at once
+                              ## (sizes the render pools); placing past the
+                              ## cap flattens the OLDEST standing barrier.
+  MaxBarrierPickupsPerTeam* = 2  ## cap on the barrierPickups config knob.
+
   TrenchSize* = 56            ## side length of the walkable trench square
                               ## open flag ring (corner reach ~40px < the
                               ## 70px ring), so it never touches a wall.
@@ -564,6 +629,19 @@ const
                               ## (deterministic sim RNG); the bullet carries
                               ## on down the ray. Shots fired from inside the
                               ## same trench never miss this way.
+
+  PuddleSize* = 64            ## nominal diameter of a paint-puddle splat
+                              ## (the core disc; lobes reach a little
+                              ## further — see arena.nim's PuddleMaxRadiusPx).
+                              ## Like obstacles and trenches, puddles never
+                              ## scale with the map's size class.
+  PuddleRollTicks* = TargetFps  ## one damage roll per full SECOND of
+                              ## continuous puddle occupancy (24 ticks).
+  DefaultPuddleDamagePct* = 10  ## default percent chance the per-second
+                              ## occupancy roll deals 1 damage.
+  MaxPuddles* = 64            ## hard cap on mapPuddles requests, matching
+                              ## the trench cap (and sizing the stated-marker
+                              ## sprite/object pool).
 
   BubbleImpactTicks* = 8      ## ~0.33s the bubble's blink/dent impact FX
                               ## lasts (cosmetic only, like HitFlashTicks).
@@ -714,6 +792,43 @@ type
     DefaultSkin
     CrownSkin
 
+  Perk* = enum
+    ## Named, icon-badged team buffs (docs/plans/2026-08-07-team-perks-design.md).
+    ## Assignment and magnitudes are config (`GameConfig.perks` / the perkMods
+    ## knobs); a default config carries none and plays byte-identical to an
+    ## engine without perks.
+    PerkArmor     ## +perkMods.armorHp max hit points per bot.
+    PerkScope     ## gun aim-jitter sigma reduced by perkMods.scopeAim.
+    PerkGrenade   ## grenade max throw range +perkMods.grenadeRange.
+    PerkThruster  ## max speed +perkMods.thrusterSpeed.
+    PerkLuck      ## perkMods.luckChance of landed gun shots deal luckDamage.
+
+  PerkSet* = set[Perk]
+
+  PerkGroup* = object
+    ## One perk group of a team: the set one policy seat carries, optionally
+    ## PINNED to a policy by name. `pol == ""` = unnamed, dealt to the team's
+    ## distinct policies in join order; a named group goes to exactly the
+    ## policy whose policyName matches. A team's groups are all-named (object
+    ## config form) or all-unnamed (array form) — the parser enforces it.
+    pol*: string
+    perks*: PerkSet
+
+  PerkMods* = object
+    ## The perk magnitudes ("mods"), config-tunable as one block. Fractions
+    ## are integer permille (the handicaps rule) so every in-sim derivation
+    ## is integer or perk-gated; counts are plain hit points. Only read when
+    ## a seat actually carries the perk, so the values never touch a
+    ## perk-free game. Compared as ONE value against DefaultPerkMods for the
+    ## config echo, so adding a knob here cannot be silently dropped from
+    ## replay configs.
+    armorHp*: int        ## armor: extra max hit points.
+    scopeAim*: int       ## scope: fraction of aim-jitter sigma removed, permille.
+    grenadeRange*: int   ## grenade: extra max throw range, permille.
+    thrusterSpeed*: int  ## thruster: extra max speed, permille.
+    luckChance*: int     ## luck: chance a landed gun shot is lucky, permille.
+    luckDamage*: int     ## luck: hit points a lucky shot removes.
+
   CtfError* = object of ValueError
 
   GamePhase* = enum
@@ -727,6 +842,21 @@ type
 
   MapRect* = object
     x*, y*, w*, h*: int
+
+  PuddleSpot* = object
+    ## One disc of a paint puddle's splat cluster.
+    cx*, cy*, r*: int
+
+  Puddle* = object
+    ## A paint puddle: the UNION of a handful of overlapping paint discs —
+    ## the classic splat silhouette. Discs (not polygons) because disc
+    ## membership is pure integer math that transforms BIT-EXACTLY under the
+    ## map symmetries (mirror/rot180 move a center, never change a
+    ## distance), so a puddle pair — and the stitched center puddle — is
+    ## exactly team-fair; the polygon scanline rule would drop whole pixel
+    ## rows at pass-through vertices (see pointInPolygon's strict-straddle
+    ## doc).
+    spots*: seq[PuddleSpot]
 
   ArenaShapeKind* = enum
     shapeRect
@@ -792,11 +922,17 @@ type
     ## seed set. Mirror and rot180 complete a LEFT-half set across the
     ## vertical center line (2-team maps); rot90 completes a QUADRANT set by
     ## rotating it 90/180/270 degrees about the center (4-team maps, square
-    ## only). All are exactly team-fair; rot180 keeps diagonal lanes diagonal
-    ## instead of folding them into chevrons.
+    ## only); quadMirror completes a TOP-LEFT quadrant set by reflecting it
+    ## across both center axes (mirrorX, mirrorY, rot180 — 4-team maps, any
+    ## rectangle). All are exactly team-fair; rot180 keeps diagonal lanes
+    ## diagonal instead of folding them into chevrons.
+    ##
+    ## Ordinals are wire format (flatty stores them positionally in replay
+    ## keyframes): APPEND new members, never insert.
     symMirror
     symRot180
     symRot90
+    symQuadMirror
 
   MapBiome* = enum
     ## A map's surface SKIN: which floor texture the art bake tiles the board
@@ -862,6 +998,14 @@ type
                                ## pits). Membership is `inShape`, so the mechanic
                                ## is shape-agnostic; only the organic-edge ART is
                                ## rect-specific (other kinds fill flat for now).
+    puddles*: seq[Puddle]      ## paint-puddle hazards (config-gated): every
+                               ## full second a cog's center spends
+                               ## continuously inside one rolls a
+                               ## puddleDamagePct chance of 1 damage. Pure
+                               ## floor hazard — no movement, fire, or vision
+                               ## effect. FULL-map (both halves, already
+                               ## symmetrized), pinned into replay specs like
+                               ## trenches.
 
   CrewSprite* = ref object
     width*, height*: int
@@ -912,6 +1056,13 @@ type
                            ## pit chances (100 = default feel, 0 = none,
                            ## 200 = twice as digging-happy); -1 = default.
                            ## Ignored when `pits` locks an exact count.
+    puddles*: int          ## requested TOTAL paint-puddle count, 0..64.
+                           ## <= 0 = none (the default — puddles have no
+                           ## density draw, so the zero object default and
+                           ## an explicit 0 mean the same thing).
+                           ## Best-effort like pits: places as many as fit.
+                           ## Even counts place symmetric pairs; an odd
+                           ## count anchors its extra puddle dead center.
     endzone*: string       ## "column" | "disc" | "square"; "" = draw. The
                            ## two COMPACT shapes wrap the base and open the
                            ## home border strip up as wilderness.
@@ -939,8 +1090,7 @@ type
     fireCooldownTicks*: int
     fireWindupTicks*: int
     carrierSpeedPct*: int
-    aimTurnRate*: int          ## rotation slots/tick a held rotate button
-                               ## turns the aim (of the AimRotations slots).
+    aimTurnRate*: int          ## brads/tick a held rotate button turns the aim.
     visionConeDeg*: int
     visionBubble*: int
     minPlayers*: int
@@ -976,6 +1126,60 @@ type
                               ## geometry and never re-runs the generator.
     closedRoster*: bool
     slots*: seq[PlayerSlotConfig]
+    barrageMaxPerSec*: int    ## grenade-barrage endgame: the launch rate the
+                              ## barrage ramps UP to, in grenades/second.
+                              ## 0 = the mode is off — the default,
+                              ## byte-identical to the pre-barrage game.
+                              ## Requires maxTicks > 0 when set; capped at
+                              ## BarrageAbsMaxPerSec.
+    barrageStartPerSec*: int  ## grenade-barrage endgame: the launch rate at
+                              ## the moment the barrage latches (default
+                              ## BarrageStartPerSec); ramps linearly to
+                              ## barrageMaxPerSec over barrageSaturateSec.
+    barrageStartSec*: int     ## grenade-barrage endgame: the barrage latches
+                              ## on when the game clock has this many seconds
+                              ## remaining (default BarrageStartSec — 4:30
+                              ## elapsed on the default 5:00 clock). Once
+                              ## latched it only ever escalates.
+    barrageSaturateSec*: int  ## grenade-barrage endgame: seconds from the
+                              ## latch until the ramp completes — whole
+                              ## board targeted at barrageMaxPerSec
+                              ## (default BarrageSaturateSec, landing full
+                              ## saturation exactly at the scheduled end).
+    handicaps*: array[Team, int]  ## per-team handicap in PERMILLE (0..1000),
+                                  ## authored as a 0.0..1.0 float. 0 = normal
+                                  ## (the default, byte-identical to no
+                                  ## handicap); 1000 = fully handicapped: 50%
+                                  ## of shots miss, 1 life, 1 hit point, half
+                                  ## max speed. Intermediate values interpolate
+                                  ## linearly (see hitPointsFor/livesFor/
+                                  ## maxSpeedFor/missPermilleFor). Integer
+                                  ## permille keeps every in-sim derivation
+                                  ## integer-only, so native and wasm agree.
+    perks*: array[Team, seq[PerkGroup]]
+      ## Per-team perk GROUPS. Empty (the default) = no perks, byte-identical
+      ## to an engine without the field. One unnamed group = the whole team
+      ## shares it; several unnamed = CTF-Doubles: the Nth distinct POLICY to
+      ## seat on the team (join order, policyName collapse) gets group N,
+      ## clamped to the last. NAMED groups (object config form) pin a group
+      ## to its policy exactly; an unmatched policy gets nothing. See
+      ## docs/plans/2026-08-07-team-perks-design.md.
+    perkMods*: PerkMods        ## the perk magnitudes; DefaultPerkMods unless
+                               ## the config's perkMods block overrides.
+    puddleDamagePct*: int         ## percent chance (0..100) that one full
+                                  ## second of continuous paint-puddle
+                                  ## occupancy deals 1 damage. Default 10.
+                                  ## Inert on maps without puddles (the roll
+                                  ## — and its RNG draw — only happens while
+                                  ## a cog stands in one, so the default
+                                  ## path stays byte-identical: no GV bump).
+    barrierPickups*: int          ## cardboard barrier pickups PER TEAM
+                                  ## (0..MaxBarrierPickupsPerTeam), staged on
+                                  ## the line from each team's anchor toward
+                                  ## map center. 0 = the mode is off — the
+                                  ## default, byte-identical to the
+                                  ## pre-barrier game (no spawns, no carries,
+                                  ## no placements, no new RNG draws).
 
   Player* = object
     x*, y*: int
@@ -985,9 +1189,6 @@ type
     flipH*: bool
     aimBrads*: int             ## aim angle in brads, 0..255: 0 = east (+x),
                                ## counter-clockwise on screen (64 = north).
-                               ## ALWAYS one of the AimRotations slots (a
-                               ## multiple of AimStepBrads) — the aim is 32
-                               ## discrete rotations, not a free angle (GV36).
     team*: Team
     alive*: bool
     lives*: int
@@ -1004,9 +1205,24 @@ type
     hasPlasmaArc*: bool        ## each player carries at most one plasma arc.
     arcTicksLeft*: int         ## remaining active ticks of a fired spray
                                ## cone (0 = the cone is off).
+    arcAimBrads*: int          ## aim direction locked at the spray's fire
+                               ## instant, -1 = no active cone. The cone points
+                               ## this way for its whole active window: turning
+                               ## the cog mid-spray no longer sweeps it. (The
+                               ## cone's ORIGIN still rides the owner.)
     arcHitMask*: uint32        ## players already damaged by the current
                                ## activation: one hit per victim per firing.
     throwCharge*: int          ## ticks the throw button has been held.
+    puddleTicks*: int          ## consecutive ticks this cog's center has
+                               ## stood inside a paint puddle; at
+                               ## PuddleRollTicks the damage roll fires and
+                               ## the counter restarts. Resets on exit and
+                               ## on death. Deterministic gameplay state,
+                               ## but NOT mixed into gameHash: hashing a new
+                               ## always-zero field would shift every
+                               ## pre-puddle replay's hash chain (keyframe
+                               ## scrub still restores it exactly via the
+                               ## flatty sim snapshot).
     lastShoutTick*: int        ## tick of this player's latest shout, -1 = never.
     paintHitTick*: int         ## tick of the latest PAINT hit taken. Every
                                ## weapon throws paint — gun, grenade, and the
@@ -1036,6 +1252,21 @@ type
     arcKillsThisFire*: int     ## kills scored by the current spray
                                ## activation; transient multi-kill
                                ## bookkeeping, excluded from gameHash.
+    perks*: PerkSet            ## this seat's perks, resolved ONCE at join
+                               ## from config.perks + the policy's rank among
+                               ## the team's distinct policies (roster.nim).
+                               ## Pure function of config + the replayed join
+                               ## stream, so excluded from gameHash.
+    hasBarrier*: bool          ## carrying one folded cardboard barrier
+                               ## (config-gated). Mutually exclusive with
+                               ## hasGrenade — both place/throw on button C,
+                               ## so a cog holds one or the other, never
+                               ## both. Deterministic gameplay state, but NOT
+                               ## mixed into gameHash: hashing a new
+                               ## always-false field would shift every
+                               ## pre-barrier replay's hash chain (keyframe
+                               ## scrub still restores it exactly via the
+                               ## flatty sim snapshot — the puddleTicks rule).
 
   PlayerFov* = object
     ## One player's cached fog-of-war visibility grid (FovGridW x FovGridH
@@ -1247,6 +1478,25 @@ type
     present*: bool
     respawnAt*: int            ## tick the pickup refills (when not present).
 
+  PlacedBarrier* = object
+    ## One standing cardboard barrier: three sides of a hexagon (a half-hex)
+    ## whose flat middle side faces where the placer was aiming. It blocks
+    ## every PAINT path (gun corridor and spray cone) but never sight, never
+    ## movement, and never grenades. The four vertices are snapped to map
+    ## pixels at placement, so every later coverage test is integer-only and
+    ## native/wasm agree.
+    x*, y*: int                ## placement center (the placer's center).
+    facingBrads*: int          ## the placer's aim at placement (render/label).
+    verts*: array[4, tuple[x, y: int]]  ## half-hex vertices at aim -90,
+                               ## -30, +30, +90 degrees; the three sides are
+                               ## the consecutive pairs, the middle one flat
+                               ## across the aim.
+    minX*, minY*, maxX*, maxY*: int  ## coverage bounding box (band included)
+                               ## for cheap point rejection.
+    hp*: int                   ## paintball hits left (starts at BarrierHp).
+    team*: Team                ## the placer's team (tints the tape stripe).
+    placedTick*: int
+
   AirborneGrenade* = object
     ## One thrown grenade in flight: it flies OVER walls in a straight line
     ## from the throw point to the target and explodes on landing.
@@ -1322,8 +1572,17 @@ type
     winner*: Team
     gameOverTimer*: int
     timeLimitReached*: bool
-    overtimeTicks*: int        ## clock extension banked by the action floor
-                               ## (kills / heart steals); resets each game.
+    barrageStartTick*: int     ## tickCount at which the grenade barrage
+                               ## latched on; -1 before. Deterministic
+                               ## (derived from the clock), so replays
+                               ## re-derive it; mixed into gameHash only once
+                               ## latched, keeping barrage-off games
+                               ## hash-identical.
+    barrageAccum*: int         ## fractional-launch accumulator in permille-
+                               ## grenade-seconds: each Playing tick adds the
+                               ## current rate (permille grenades/second) and
+                               ## every TargetFps*1000 drained launches one
+                               ## shell. Hashed alongside barrageStartTick.
     isDraw*: bool
     needsReregister*: bool
     gameEventLoggingEnabled*: bool
@@ -1334,6 +1593,19 @@ type
     lastLobbyPlayersLogged*: int
     lastLobbyNeededLogged*: int
     lastLobbySecondsLogged*: int
+    barrierSpawns*: seq[PickupSpawn]  ## config-gated cardboard barrier
+                               ## pickups (barrierPickups per team); empty on
+                               ## default configs. Appended at the END of the
+                               ## type: keyframes are flatty-positional, and
+                               ## they are derived in-process (never read
+                               ## from a replay file), so appending is safe
+                               ## without a GameVersion bump.
+    placedBarriers*: seq[PlacedBarrier]  ## standing cardboard barriers,
+                               ## oldest first (the placement cap flattens
+                               ## index 0). Deterministic gameplay state,
+                               ## kept OUT of gameHash like puddleTicks so
+                               ## barrier-free games hash identically to
+                               ## pre-barrier builds.
 
 
 # Team endzone display colors (shared by the map bake and the paint FX).
@@ -1426,3 +1698,117 @@ proc teamColor*(team: Team): uint8 =
   of Yellow:
     YellowTeamColor
 
+# Per-team handicap accessors. The handicap is stored as a permille (0..1000);
+# every derivation below is pure integer math and returns the EXACT base config
+# value at permille 0, so an unhandicapped game (the default) is byte-identical
+# to one with no handicap field at all — no drift, no extra RNG. See
+# docs/plans/2026-08-05-per-team-handicaps-design.md.
+
+proc hitPointsFor*(config: GameConfig, team: Team): int =
+  ## Hit points for `team`: interpolates from config.hitPoints down to 1 as the
+  ## team's handicap rises from 0 to full.
+  let p = config.handicaps[team]
+  if p <= 0: config.hitPoints
+  else: max(1, config.hitPoints - (config.hitPoints - 1) * p div 1000)
+
+proc livesFor*(config: GameConfig, team: Team): int =
+  ## Lives for `team`: interpolates from config.lives down to 1.
+  let p = config.handicaps[team]
+  if p <= 0: config.lives
+  else: max(1, config.lives - (config.lives - 1) * p div 1000)
+
+proc maxSpeedFor*(config: GameConfig, team: Team): int =
+  ## Max speed for `team`: interpolates from config.maxSpeed down to half.
+  let p = config.handicaps[team]
+  if p <= 0: config.maxSpeed
+  else: config.maxSpeed * (2000 - p) div 2000
+
+proc missPermilleFor*(config: GameConfig, team: Team): int =
+  ## Fraction of a would-be gun hit dropped, in permille (0..500): 0 at no
+  ## handicap, 500 (50%) at full. The caller draws RNG only when this is > 0.
+  config.handicaps[team] div 2
+
+# Perk accessors. Like the handicap accessors above, every derivation returns
+# the EXACT base value when the perk is absent (no arithmetic, no drift, no
+# extra RNG), so a perk-free game — the default — is byte-identical to an
+# engine without perks. See docs/plans/2026-08-07-team-perks-design.md.
+
+const PerkNames*: array[Perk, string] = [
+  "armor", "scope", "grenade", "thruster", "luck"]
+  ## The authored/wire name of each perk (config JSON, broadcast roster `pk`,
+  ## marker labels, scorebug icon keys).
+
+const DefaultPerkMods* = PerkMods(
+  armorHp: 1,         # armor: +1 max hit point.
+  scopeAim: 500,      # scope: 50% less aim deviation.
+  grenadeRange: 250,  # grenade: +25% throw range.
+  thrusterSpeed: 100, # thruster: +10% max speed.
+  luckChance: 100,    # luck: 10% of landed shots are lucky.
+  luckDamage: 2       # luck: a lucky shot deals 2 hp.
+)
+
+proc perkText*(perk: Perk): string =
+  ## Returns one perk's authored/wire name.
+  PerkNames[perk]
+
+proc parsePerk*(text: string): Perk =
+  ## Parses one authored perk name; raises CtfError on an unknown name.
+  for perk in Perk:
+    if PerkNames[perk] == text:
+      return perk
+  raise newException(CtfError, "Unknown perk name: " & text)
+
+proc maxHpFor*(config: GameConfig, team: Team, perks: PerkSet): int =
+  ## One seat's max hit points: the team's (handicap-interpolated) hit points
+  ## plus the armor bonus when the seat carries the perk.
+  result = config.hitPointsFor(team)
+  if PerkArmor in perks:
+    result += config.perkMods.armorHp
+
+proc maxSpeedFor*(config: GameConfig, team: Team, perks: PerkSet): int =
+  ## One seat's max speed: the team's (handicap-interpolated) max speed,
+  ## boosted by the thruster perk when carried. Integer permille, so native
+  ## and wasm agree.
+  result = config.maxSpeedFor(team)
+  if PerkThruster in perks:
+    result = result * (1000 + config.perkMods.thrusterSpeed) div 1000
+
+proc grenadeRangeFor*(config: GameConfig, maxRange: int, perks: PerkSet): int =
+  ## One seat's max grenade throw distance, given the map's base
+  ## GrenadeMaxRange: boosted by the grenade perk when carried.
+  result = maxRange
+  if PerkGrenade in perks:
+    result = result * (1000 + config.perkMods.grenadeRange) div 1000
+
+proc perkGroupTexts*(config: GameConfig, team: Team): seq[string] =
+  ## Each of one team's perk groups as comma-joined perk names in Perk enum
+  ## order ("" for an empty group); the empty seq when the team has none.
+  ## The shared source for the marker label (labelPerks) and the broadcast
+  ## scorebug, so the two streams can never disagree.
+  for group in config.perks[team]:
+    var names = ""
+    for perk in Perk:
+      if perk in group.perks:
+        if names.len > 0:
+          names.add ","
+        names.add perkText(perk)
+    result.add names
+
+proc policyName*(address: string): string =
+  ## The policy identity behind one seat's connection name: the hosted runtime
+  ## appends a per-connection " (N)" suffix to the SAME policy's multiple seats
+  ## ("softmaxwell (2)", "softmaxwell (7)"…), so stripping it collapses every
+  ## seat of one policy to a single shared name. The join path converts spaces
+  ## to underscores (server.nim cleanPlayerName), so by the time the name is a
+  ## player address the separator reads "_(N)" — accept either. Names without
+  ## the suffix (local self-play "Player1"…) pass through unchanged.
+  result = address
+  if result.len >= 4 and result[^1] == ')':
+    var i = result.len - 2
+    while i >= 0 and result[i] in {'0' .. '9'}:
+      dec i
+    if i >= 1 and i < result.len - 2 and result[i] == '(' and
+        result[i - 1] in {' ', '_'}:
+      result = result[0 ..< i - 1]
+      while result.len > 0 and result[^1] in {' ', '_'}:
+        result.setLen(result.len - 1)

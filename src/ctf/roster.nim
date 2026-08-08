@@ -8,6 +8,45 @@ import
   std/json,
   sim_types, sim_state
 
+proc perkSetForJoin*(sim: SimServer, team: Team, address: string): PerkSet =
+  ## The perk group for a seat about to join `team` as `address`. NAMED
+  ## groups (object config form) match the seat's policyName exactly — an
+  ## unmatched policy gets nothing, so an operator can pin which policy
+  ## receives which buffs. Unnamed groups (array form) deal to the team's
+  ## distinct POLICIES in join order — a seat of an already-seated policy
+  ## shares that policy's group, a new policy takes the next one (clamped to
+  ## the last, so a lone group is simply team-wide). Pure function of
+  ## config + the join AND leave stream
+  ## (both replay), so playback resolves identically and already-seated
+  ## players never reshuffle. Caveat under churn: ranks derive from the
+  ## CURRENT roster, so if a policy's seats all leave, the next new policy
+  ## inherits its rank — seats of one policy are only guaranteed a shared
+  ## group while the team's policy lineup stays stable (always true for
+  ## league rosters, which seat once at start).
+  let groups = sim.config.perks[team]
+  if groups.len == 0:
+    return {}
+  let pol = policyName(address)
+  # A NAMED group pins its perks to exactly that policy; a policy no named
+  # group claims gets nothing on an all-named team. (The parser guarantees a
+  # team's groups are all-named or all-unnamed.)
+  if groups[0].pol.len > 0:
+    for group in groups:
+      if group.pol == pol:
+        return group.perks
+    return {}
+  var seen: seq[string]
+  for p in sim.players:
+    if p.team != team:
+      continue
+    let seatedPol = policyName(p.address)
+    if seatedPol notin seen:
+      seen.add seatedPol
+  var index = seen.find(pol)
+  if index < 0:
+    index = seen.len
+  groups[min(index, groups.high)].perks
+
 proc teamForSlot*(sim: SimServer, order: int): Team =
   ## Returns the configured or default team for one slot: slots deal round
   ## the active teams in enum order (the classic red/blue alternation on
@@ -457,6 +496,7 @@ proc addPlayer*(
       else:
         teamColor(team)
     accountIndex = sim.ensureRewardAccount(address)
+    perks = sim.perkSetForJoin(team, address)
   let spawn = sim.spawnPosition(team, order div sim.gameMap.teamCount())
   sim.bindRewardAccountSlot(accountIndex, order)
   sim.rewardAccounts[accountIndex].hasTeam = false
@@ -470,10 +510,12 @@ proc addPlayer*(
     aimBrads: sim.gameMap.spawnAimBrads(team),
     flipH: sim.gameMap.spawnFlipH(team),
     windupBrads: -1,
+    arcAimBrads: -1,
     team: team,
     alive: true,
-    lives: sim.config.lives,
-    hp: sim.config.hitPoints,
+    lives: sim.config.livesFor(team),
+    hp: sim.config.maxHpFor(team, perks),
+    perks: perks,
     joinOrder: order,
     address: address,
     color: color,

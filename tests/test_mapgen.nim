@@ -80,6 +80,7 @@ suite "procedural terrain":
             of symMirror: (w - 1 - x, y)
             of symRot180: (w - 1 - x, h - 1 - y)
             of symRot90: (w - 1 - y, x)
+            of symQuadMirror: (w - 1 - x, y)
           check obstacleAt(obstacles, x, y) ==
             obstacleAt(obstacles, sx, sy)
           y += 13
@@ -249,6 +250,7 @@ suite "procedural terrain":
           of symMirror: (w - 1 - points[0].x, points[0].y)
           of symRot180: (w - 1 - points[0].x, h - 1 - points[0].y)
           of symRot90: (w - 1 - points[0].y, points[0].x)
+          of symQuadMirror: (w - 1 - points[0].x, points[0].y)
         check points[1] == image
         ## Each team still keeps its own pickups on its own side.
         check points[0].x < gameMap.center.x

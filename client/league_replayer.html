@@ -88,6 +88,17 @@
   .wallnames.side-r .wallname{text-align:right}
   /* two stacked names shrink so both corners still read */
   .wallnames.stacked .wallname{font-size:calc(19*var(--u))}
+  /* name + handicap chip on one line; the chip sits toward the center clock */
+  .wallrow{display:flex; align-items:baseline; gap:calc(6*var(--u)); min-width:0}
+  .wallnames.side-l .wallrow{flex-direction:row}
+  .wallnames.side-r .wallrow{flex-direction:row-reverse}
+  .wallrow .wallname{flex:0 1 auto}
+  /* Handicap chip: an amber pill; the full delta breakdown rides in the native
+     `title` on hover (cursor:help). Hidden when the team is unhandicapped. */
+  .hcap{flex:none; font-family:var(--finefont); font-size:calc(11*var(--u));
+    letter-spacing:.04em; line-height:1; color:var(--ink); background:var(--amber);
+    border-radius:calc(4*var(--u)); padding:calc(3*var(--u)) calc(5*var(--u));
+    white-space:nowrap; cursor:help}
   .clock{flex:none; position:relative; display:flex; flex-direction:column; align-items:center;
     justify-content:center; gap:calc(3*var(--u))}
   .clock .time{font-family:var(--pixfont); font-size:calc(34*var(--u)); line-height:1; color:var(--paper);
@@ -125,6 +136,22 @@
   .lives-label{font-family:var(--finefont); font-size:calc(8*var(--u)); letter-spacing:.14em;
     text-transform:uppercase; color:var(--paper-dim); flex:none; text-shadow:0 calc(1*var(--u)) 0 #000}
   .team-head.leader .lives-num{animation:leaderpulse 1.9s ease-in-out infinite}
+  /* Team-perk badges + CTF-Doubles split meters (chrome_common's
+     renderTeamMeters fills .meters). Split meters keep a FIXED DOM order
+     (icons,num | num,icons) in headline policy order on both plaques —
+     numerals adjacent at the cluster center, badges outside, no
+     side-dependent CSS. Only the classic single team meter (renderTeamMeters
+     stamps .single) mirrors on the right plaque, preserving the old
+     "N Lives" innermost-numeral read the lives-line row-reverse used to
+     provide before the meter markup moved into .meters. */
+  .team-head .meters{display:flex; align-items:baseline; gap:calc(5*var(--u))}
+  .plaque.right .team-head .meters.single{flex-direction:row-reverse}
+  .team-head .pgrp{display:flex; align-items:baseline; gap:calc(4*var(--u))}
+  .team-head .perk-icos{display:flex; align-items:center; gap:calc(3*var(--u));
+    align-self:center}
+  .team-head .perk-ico{display:inline-flex}
+  .team-head .perk-ico svg{width:calc(11*var(--u)); height:calc(11*var(--u)); display:block}
+  .team-head .lives-num.sub{font-size:calc(16*var(--u))}
   @keyframes leaderpulse{0%,100%{text-shadow:0 calc(2*var(--u)) 0 var(--ink)}
     50%{text-shadow:0 0 calc(11*var(--u)) var(--amber)}}
 
@@ -346,6 +373,7 @@
   var otherTeam=C.otherTeam, stripSeatSuffix=C.stripSeatSuffix;
   var teamPolicies=C.teamPolicies, teamName=C.teamName, teamHeadline=C.teamHeadline;
   var rosterName=C.rosterName, setName=C.setName, esc=C.esc, fmt=C.fmt;
+  var setHandicap=C.setHandicap, renderTeamMeters=C.renderTeamMeters;
   var togglePov=C.togglePov, renderClock=C.renderClock, renderTransport=C.renderTransport;
   var ingestLullSpans=C.ingestLullSpans, renderLullSpans=C.renderLullSpans;
   var markBeat=C.markBeat, killMarkerTeam=C.killMarkerTeam, renderBeatMarkers=C.renderBeatMarkers;
@@ -614,11 +642,16 @@
     names[1].classList.toggle('stacked', teams.length>2);
     teams.forEach(function(team, i){
       var side=i%2;
+      var row=document.createElement('div');
+      row.className='wallrow '+team;
       var nm=document.createElement('div');
       nm.className='wallname '+team;
       nm.id='name-'+team;
       nm.textContent=team.toUpperCase();
-      names[side].appendChild(nm);
+      var hc=document.createElement('span');
+      hc.className='hcap'; hc.id='hcap-'+team; hc.style.display='none';
+      row.appendChild(nm); row.appendChild(hc);
+      names[side].appendChild(row);
       var pl=document.createElement('div');
       pl.className='plaque '+(side===0?'left':'right')+' '+team;
       pl.id='kda-'+team;
@@ -626,8 +659,7 @@
         '<div class="team-head '+team+'" data-team="'+team+'">'+
         '<div class="flagicon" id="flag-'+team+'"></div>'+
         '<div class="lives-line">'+
-        '<span class="lives-label">Lives</span>'+
-        '<span class="lives-num" id="lives-'+team+'">—</span>'+
+        '<span class="meters" id="meters-'+team+'"></span>'+
         '</div>'+
         '</div>'+
         '<div class="khead"><span>Name</span><span>K</span><span>D</span><span>Lives</span></div>'+
@@ -651,7 +683,11 @@
     teams.forEach(function(team){ lives[team]=(tr[team]&&tr[team].lives)||0; });
     teams.forEach(function(team){
       setName('name-'+team, teamName(s, team, team.toUpperCase()));
-      $('lives-'+team).textContent = tr[team] ? lives[team] : '—';
+      setHandicap('hcap-'+team, s, team);
+      // Life meter(s) + perk badges — shared chrome (chrome_common.js
+      // renderTeamMeters): the classic single "Lives N", or per-policy split
+      // meters in CTF-Doubles.
+      renderTeamMeters($('meters-'+team), s, team);
       updateFlag('flag-'+team, team, tr[team]||{}, s);
       // leader pulse when this team leads EVERY rival by >= 3
       var bestRival=-Infinity;

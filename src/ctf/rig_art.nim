@@ -14,7 +14,7 @@ import
   pixie,
   sim_types
 
-when not defined(emscripten):
+when not defined(emscripten) and not defined(arenaComponent):
   import bitworld/client as bitworldClient
 
 proc gameDir*(): string =
@@ -23,7 +23,7 @@ proc gameDir*(): string =
 
 proc clientDataDir*(): string =
   ## Returns the shared client data directory.
-  when defined(emscripten):
+  when defined(emscripten) or defined(arenaComponent):
     gameDir() / "data"
   else:
     bitworldClient.clientDir() / "data"
@@ -797,4 +797,3 @@ proc clampBaseHeading*(headingBrads, aimBrads: int): int =
   let d = clamp(bradDiff(headingBrads, aimBrads),
     -RigBaseMaxDivergeBrads, RigBaseMaxDivergeBrads)
   ((aimBrads + d) mod AimBradsTurn + AimBradsTurn) mod AimBradsTurn
-

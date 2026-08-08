@@ -248,16 +248,15 @@ suite "ctf game":
     check not sim.players[1].alive     # still hit along the original aim
     check sim.players[0].windupBrads == -1
 
-  test "rotate buttons step the aim through the 32 rotation slots; movement never does":
+  test "rotate buttons turn the continuous aim; movement never does":
     var sim = twoTeamGame()
-    let stepBrads = sim.config.aimTurnRate * AimStepBrads
+    let stepBrads = sim.config.aimTurnRate
     check sim.players[0].aimBrads == 0     # Red spawns aiming east.
     check sim.players[1].aimBrads == 128   # Blue spawns aiming west.
 
     var inputs = newSeq[InputState](sim.players.len)
     let noInput = newSeq[InputState](sim.players.len)
-    # Holding B rotates counter-clockwise by aimTurnRate rotation slots
-    # (aimTurnRate * 8 brads) per tick.
+    # Holding B rotates counter-clockwise by aimTurnRate brads per tick.
     inputs[0] = InputState(b: true)
     sim.step(inputs, noInput)
     check sim.players[0].aimBrads == stepBrads
@@ -277,8 +276,27 @@ suite "ctf game":
       sim.step(inputs, noInput)
     check (sim.players[0].x, sim.players[0].y) != (x0, y0)
     check sim.players[0].aimBrads == (256 - stepBrads) mod 256
-    # The aim never leaves the 32-slot grid, wherever it lands.
-    check sim.players[0].aimBrads mod AimStepBrads == 0
+    # Five-brad steps restore headings outside the old 8-brad slot grid.
+    check sim.players[0].aimBrads mod 8 != 0
+
+  test "the default aim rate lets shortest-arc control settle":
+    var sim = twoTeamGame()
+    let target = 37
+    var inputs = newSeq[InputState](sim.players.len)
+    let noInput = newSeq[InputState](sim.players.len)
+    for _ in 1 .. AimBradsTurn:
+      let err =
+        (target - sim.players[0].aimBrads + AimBradsTurn +
+          AimBradsTurn div 2) mod AimBradsTurn - AimBradsTurn div 2
+      if abs(err) <= 2:
+        break
+      inputs[0] =
+        if err > 0: InputState(b: true) else: InputState(select: true)
+      sim.step(inputs, noInput)
+    let finalErr =
+      (target - sim.players[0].aimBrads + AimBradsTurn +
+        AimBradsTurn div 2) mod AimBradsTurn - AimBradsTurn div 2
+    check abs(finalErr) <= 2
 
   test "fire direction comes from the aim angle (32 = northeast)":
     var sim = twoTeamGame()

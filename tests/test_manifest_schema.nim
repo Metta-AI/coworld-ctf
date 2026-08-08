@@ -1,15 +1,16 @@
-## The league manifests' config_schema is the platform's contract for what a
+## The league manifest's config_schema is the platform's contract for what a
 ## league operator may configure — and nothing type-checks it against
-## GameConfig. This suite makes drift impossible in both directions:
-## the two manifests must stay in lockstep, and every schema property must be
+## GameConfig. This suite makes drift impossible: every schema property must be
 ## PROVABLY consumed by config.update (a non-default sample for the key must
 ## change the parsed config). A GameConfig field added without a schema entry
 ## stays a local-only knob by design; a schema entry the game stopped reading
 ## fails here instead of becoming a dead platform knob.
 
-import helpers, std/[json, os, sets, strutils, unittest], ctf/sim
+import helpers, std/[json, os, strutils, unittest], ctf/sim
 
-const PlatformOnlyKeys = ["num_agents"]
+const
+  ManifestName = "coworld_manifest_paintbot.json"
+  PlatformOnlyKeys = ["num_agents"]
   ## Schema keys the game deliberately never reads: documented as consumed by
   ## the platform (ladder seating) in the schema description itself, which
   ## this suite asserts so the exemption stays honest.
@@ -34,15 +35,12 @@ proc manifestSchema(name: string): JsonNode =
   result = findConfigSchema(parseFile(GameDir / name))
   doAssert result != nil, name & " has no config_schema"
 
-proc manifestVariant(name, variantId: string): JsonNode =
-  ## Returns one published variant by id, or nil when it is absent.
-  let manifest = parseFile(GameDir / name)
-  if not manifest.hasKey("variants"):
-    return nil
+proc manifestVariant(variantId: string): JsonNode =
+  let manifest = parseFile(GameDir / ManifestName)
   for variant in manifest["variants"]:
-    if variant.hasKey("id") and variant["id"].getStr() == variantId:
+    if variant["id"].getStr() == variantId:
       return variant
-  nil
+  doAssert false, ManifestName & " has no " & variantId & " variant"
 
 # One payload per schema property, each carrying a NON-DEFAULT value for its
 # key (plus companion keys where update()'s cross-field validation demands
@@ -50,6 +48,10 @@ proc manifestVariant(name, variantId: string): JsonNode =
 # landed, since companions only ever change the object further).
 const SampleJson = """{
   "aimTurnRate": {"aimTurnRate": 7},
+  "barrageMaxPerSec": {"barrageMaxPerSec": 15},
+  "barrageStartPerSec": {"barrageStartPerSec": 9},
+  "barrageStartSec": {"barrageStartSec": 45},
+  "barrageSaturateSec": {"barrageSaturateSec": 45},
   "carrierSpeedPct": {"carrierSpeedPct": 55},
   "closedRoster": {"closedRoster": true, "minPlayers": 1,
                    "slots": [{"token": "tok1"}],
@@ -59,6 +61,9 @@ const SampleJson = """{
   "fireWindupTicks": {"fireWindupTicks": 9},
   "gameOverTicks": {"gameOverTicks": 100},
   "gunRange": {"gunRange": 500},
+  "handicaps": {"handicaps": {"red": 0.5}},
+  "perks": {"perks": {"red": [["armor"], ["scope", "luck"]]}},
+  "perkMods": {"perkMods": {"luckChance": 0.25}},
   "hitPoints": {"hitPoints": 5},
   "lives": {"lives": 2},
   "lobbyJoinTimeoutTicks": {"lobbyJoinTimeoutTicks": 50},
@@ -84,28 +89,19 @@ const SampleJson = """{
 
 suite "league manifest config_schema vs GameConfig":
   let
-    ctfSchema = manifestSchema("coworld_manifest.json")
-    paintbotSchema = manifestSchema("coworld_manifest_paintbot.json")
-    samples = parseJson(SampleJson)
-
-  test "the ctf schema is a subset of the paintbot schema":
-    # The two manifests share one game binary; paintbot's variants may expose
-    # MORE knobs (generated-map locks like mapSize, 32-seat caps) but never
-    # fewer — a key the singles league can set must exist for doubles too.
-    var ctfKeys, paintbotKeys: HashSet[string]
-    for key, _ in ctfSchema["properties"]:
-      ctfKeys.incl key
-    for key, _ in paintbotSchema["properties"]:
-      paintbotKeys.incl key
-    check ctfKeys <= paintbotKeys
+    schema = manifestSchema(ManifestName)
+    samples = block:
+      # mapSpec's payload must be a FULL, valid map object — config.update
+      # resolves it (mapFromSpecJson) rather than storing it blind — so build
+      # one from a generated map instead of inlining a huge literal.
+      var s = parseJson(SampleJson)
+      let spec = mapSpecJson(generateMapAttempt(
+        1, MapGenOverrides(size: "small", windows: -1, pits: -1, pitDensity: -1)))
+      s["mapSpec"] = %*{"mapSpec": parseJson(spec)}
+      s
 
   test "every schema property is consumed by config.update":
-    var unionKeys: HashSet[string]
-    for key, _ in ctfSchema["properties"]:
-      unionKeys.incl key
-    for key, _ in paintbotSchema["properties"]:
-      unionKeys.incl key
-    for key in unionKeys:
+    for key, _ in schema["properties"]:
       if key in PlatformOnlyKeys:
         continue
       check samples.hasKey(key)  # every schema key needs a payload below
@@ -120,12 +116,11 @@ suite "league manifest config_schema vs GameConfig":
 
   test "every sample corresponds to a schema property (no stale samples)":
     for key, _ in samples:
-      check ctfSchema["properties"].hasKey(key) or
-        paintbotSchema["properties"].hasKey(key)
+      check schema["properties"].hasKey(key)
 
   test "platform-only keys are documented as such in the schema":
     for key in PlatformOnlyKeys:
-      let description = ctfSchema["properties"][key]["description"].getStr
+      let description = schema["properties"][key]["description"].getStr
       check "platform" in description
 
   test "the repo's local config.json loads and validates":
@@ -134,15 +129,24 @@ suite "league manifest config_schema vs GameConfig":
     var config = defaultGameConfig()
     config.update(readFile(GameDir / "config.json"))
 
-  test "ctf publishes a two-seat 1v1 custom-lobby variant":
+  test "published variants use the engine's aim rate":
+    let expected = defaultGameConfig().aimTurnRate
+    check schema["properties"]["aimTurnRate"]["default"].getInt == expected
+    for variant in parseFile(GameDir / ManifestName)["variants"]:
+      check variant["game_config"]["aimTurnRate"].getInt == expected
+
+  test "one manifest preserves Paintbot ids and namespaces CTF ids":
+    var variantIds: seq[string]
+    for variant in parseFile(GameDir / ManifestName)["variants"]:
+      variantIds.add variant["id"].getStr()
+    check variantIds == @["2v2", "4ffa", "4ffa8", "default", "1v1",
+      "ctf-default", "ctf-1v1"]
+
+  test "ctf publishes namespaced default and two-seat custom-lobby variants":
     let
-      variant = manifestVariant("coworld_manifest.json", "1v1")
-      defaultVariant = manifestVariant("coworld_manifest.json", "default")
-      schema = manifestSchema("coworld_manifest.json")
-      found = not variant.isNil
-    check found
-    check not defaultVariant.isNil
-    if found and not defaultVariant.isNil:
+      variant = manifestVariant("ctf-1v1")
+      defaultVariant = manifestVariant("ctf-default")
+    block:
       let gameConfig = variant["game_config"]
       check schema["properties"]["tokens"]["minItems"].getInt() == 2
       check schema["properties"]["players"]["minItems"].getInt() == 2
@@ -187,31 +191,30 @@ suite "league manifest config_schema vs GameConfig":
       check sim.phase == GameOver
       check sim.winner == Red
 
-  test "paintbot publishes a two-seat 1v1 variant without changing league defaults":
+  test "paintbot publishes a full-teams 1v1 variant without changing league defaults":
     let
-      manifest = parseFile(GameDir / "coworld_manifest_paintbot.json")
-      variant = manifestVariant("coworld_manifest_paintbot.json", "1v1")
-      leagueVariant = manifestVariant("coworld_manifest_paintbot.json", "2v2")
-      schema = manifestSchema("coworld_manifest_paintbot.json")
-      found = not variant.isNil
+      manifest = parseFile(GameDir / ManifestName)
+      variant = manifestVariant("1v1")
+      leagueVariant = manifestVariant("2v2")
     check manifest["variants"][0]["id"].getStr() == "2v2"
     check manifest["certification"]["players"].len == 16
     check manifest["certification"]["game_config"]["players"].len == 16
     check manifest["certification"]["game_config"]["minPlayers"].getInt() == 16
-    check found
-    check not leagueVariant.isNil
-    if found and not leagueVariant.isNil:
+    block:
       let gameConfig = variant["game_config"]
       check schema["properties"]["tokens"]["minItems"].getInt() == 2
       check schema["properties"]["players"]["minItems"].getInt() == 2
       check schema["properties"]["tokens"]["maxItems"].getInt() == 32
       check schema["properties"]["players"]["maxItems"].getInt() == 32
-      check gameConfig["players"].len == 2
-      check gameConfig["slots"].len == 2
-      check gameConfig["slots"][0]["team"].getStr() == "red"
-      check gameConfig["slots"][1]["team"].getStr() == "blue"
-      check gameConfig["num_agents"].getInt() == 2
-      check gameConfig["minPlayers"].getInt() == 2
+      # 1v1 means one policy per team at full muster: 16 seats, 8 per team,
+      # alternating so entrant = slot mod 2 fields a whole team.
+      check gameConfig["players"].len == 16
+      check gameConfig["slots"].len == 16
+      for i in 0 ..< 16:
+        check gameConfig["slots"][i]["team"].getStr() ==
+          (if i mod 2 == 0: "red" else: "blue")
+      check gameConfig["num_agents"].getInt() == 16
+      check gameConfig["minPlayers"].getInt() == 16
       check gameConfig["teams"].getInt() == 2
       check gameConfig["mapPath"].getStr() == "gen"
       check gameConfig["scoring"].getStr() == "pot"
@@ -225,29 +228,31 @@ suite "league manifest config_schema vs GameConfig":
 
       var config = defaultGameConfig()
       config.update($gameConfig)
-      check config.minPlayers == 2
-      check config.slots.len == 2
-      check config.slots[0].team == Red
-      check config.slots[1].team == Blue
+      check config.minPlayers == 16
+      check config.slots.len == 16
+      for i in 0 ..< 16:
+        check config.slots[i].team == (if i mod 2 == 0: Red else: Blue)
       check config.mapPath == "gen"
       check config.scoring == PotScoring
 
       var sim = initCtfForTest(config)
-      let
-        red = sim.addPlayer("Player1")
-        blue = sim.addPlayer("Player2")
-      check sim.players[red].team == Red
-      check sim.players[blue].team == Blue
+      var seats: seq[int]
+      for i in 0 ..< 16:
+        seats.add sim.addPlayer("Player" & $(i + 1))
+      for i, seat in seats:
+        check sim.players[seat].team == (if i mod 2 == 0: Red else: Blue)
       for _ in 0 ..< config.startWaitTicks:
         sim.step(@[], @[])
       check sim.phase == Playing
-      check sim.players[red].alive
-      check sim.players[blue].alive
+      for seat in seats:
+        check sim.players[seat].alive
 
-      sim.players[blue].alive = false
-      sim.players[blue].lives = 0
+      for i, seat in seats:
+        if i mod 2 == 1:
+          sim.players[seat].alive = false
+          sim.players[seat].lives = 0
       sim.checkWinCondition()
       check sim.phase == GameOver
       check sim.winner == Red
-      check sim.players[red].reward == 2
-      check sim.players[blue].reward == -2
+      for i, seat in seats:
+        check sim.players[seat].reward == (if i mod 2 == 0: 2 else: -2)

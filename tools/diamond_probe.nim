@@ -15,7 +15,7 @@ when isMainModule:
     simServer.applyDiamondGeometry(tick)
     for spot in AnimatedDiamonds:
       let
-        spotFrame = diamondSpinFrame(spot.cx, tick)
+        spotFrame = diamondSpinFrame(spot.cx, spot.cy, tick)
         leftX = spot.cx - spot.radius - 8
         rightX = spot.cx + spot.radius + 8
         y = spot.cy

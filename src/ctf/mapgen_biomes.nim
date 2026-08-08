@@ -282,7 +282,7 @@ proc symmetryOrder*(symmetry: MapSymmetry): int =
   ## How many copies of the fundamental domain tile the board.
   case symmetry
   of symMirror, symRot180: 2
-  of symRot90: 4
+  of symRot90, symQuadMirror: 4
 
 proc fundamentalDomain*(
     board, region: MapRect, symmetry: MapSymmetry
@@ -292,7 +292,7 @@ proc fundamentalDomain*(
   ##
   ## - it lies inside the board;
   ## - it does not straddle a symmetry axis (the vertical centre line for
-  ##   mirror/rot180; both centre lines for rot90) — a region that straddles is
+  ##   mirror/rot180; both centre lines for rot90/quad-mirror) — a region that straddles is
   ##   its own mirror image in part, so a dither flip there lands on top of
   ##   itself and cannot be lifted fairly;
   ## - `area * order` fits inside the board, which is what makes handing this
@@ -316,7 +316,8 @@ proc fundamentalDomain*(
   if region.x < midX and region.x + region.w > midX:
     raise newException(ValueError,
       "fundamental domain straddles the vertical symmetry axis at x=" & $midX)
-  if symmetry == symRot90 and region.y < midY and region.y + region.h > midY:
+  if symmetry in {symRot90, symQuadMirror} and
+      region.y < midY and region.y + region.h > midY:
     raise newException(ValueError,
       "fundamental domain straddles the horizontal symmetry axis at y=" & $midY)
   FundamentalDomain(rect: region, board: board, order: order)

@@ -2,7 +2,37 @@ import
   helpers,
   std/[sequtils, strutils, tables, unittest],
   bitworld/spriteprotocol,
-  ctf/sim
+  ctf/[global, sim]
+
+proc boardMessages(sim: var SimServer): seq[SpritePacketMessage] =
+  ## One spectator/board frame from throwaway viewer state, the board twin of
+  ## `playerMessages`.
+  var state = initGlobalViewerState()
+  sim.buildGlobalMessages(state)
+
+proc badgePlacement(
+  messages: openArray[SpritePacketMessage],
+  prefix: string
+): tuple[x, y, size, spriteId: int] =
+  ## Where the drawn badge whose label starts with `prefix` landed, plus the
+  ## wire size of its sprite (badges are square) and the sprite id it drew.
+  var
+    idLabels: Table[int, string]
+    idSizes: Table[int, int]
+  for m in messages:
+    if m.kind == spkSprite:
+      idLabels[m.sprite.id.int] = m.sprite.label
+      idSizes[m.sprite.id.int] = m.sprite.width.int
+  for m in messages:
+    if m.kind == spkObject and
+        idLabels.getOrDefault(m.objectDef.spriteId.int).startsWith(prefix):
+      return (
+        m.objectDef.x.int,
+        m.objectDef.y.int,
+        idSizes.getOrDefault(m.objectDef.spriteId.int),
+        m.objectDef.spriteId.int
+      )
+  raise newException(ValueError, "no badge object for " & prefix)
 
 proc presentLabels(messages: openArray[SpritePacketMessage]): seq[string] =
   ## Labels of every sprite referenced by a present object.
@@ -89,6 +119,57 @@ suite "identity badges":
     game.players[viewer].hasPlasmaArc = true
     labels = game.playerMessages(viewer).presentLabels()
     check "identity red alpha spray" in labels
+
+  test "the board badge rides behind the visor and turns with the cog":
+    # The cog's face LEADS its aim, so a badge centered on the rotation hub sat
+    # squarely on the visor. On the board it steps back onto the bare head
+    # plate — always opposite the aim — and its glyph is baked per aim step, so
+    # a turning cog carries the letter around instead of spinning under it.
+    var game = initCtfForTest(defaultGameConfig())
+    let me = game.addPlayer("red0")
+    discard game.addPlayer("blue0")
+    game.startGame()
+    game.players[me].team = Red
+    game.players[me].x = game.gameMap.center.x
+    game.players[me].y = game.gameMap.center.y
+    var spriteIds: seq[int]
+    for brads in [0, 64, 128, 192]:
+      game.players[me].aimBrads = brads
+      let
+        badge = game.boardMessages().badgePlacement("identity red alpha")
+        aim = aimVector(brads)
+        # Board placements ship at RenderScale x map pixels.
+        dx = float(badge.x + badge.size div 2) -
+          float(game.players[me].x * RenderScale)
+        dy = float(badge.y + badge.size div 2) -
+          float(game.players[me].y * RenderScale)
+        along = (dx * aim.x + dy * aim.y) / float(RenderScale)
+        across = (dx * aim.y - dy * aim.x) / float(RenderScale)
+      # Behind the hub by a few px, and dead on the aim line (never sideways).
+      check along <= -3.0
+      check along >= -8.0
+      check abs(across) <= 1.0
+      spriteIds.add(badge.spriteId)
+    # One baked sprite per aim step: four headings, four distinct letters.
+    check spriteIds.deduplicate().len == 4
+
+  test "a player view keeps the badge centered and upright":
+    # RULES.md documents the badge as centered on its player's body ("attach it
+    # by proximity"), so the board's head-plate offset must NOT reach the
+    # observation stream — same object position and same sprite at every aim.
+    var game = initCtfForTest(defaultGameConfig())
+    let me = game.addPlayer("red0")
+    discard game.addPlayer("blue0")
+    game.startGame()
+    game.players[me].team = Red
+    game.players[me].x = game.gameMap.center.x
+    game.players[me].y = game.gameMap.center.y
+    var placements: seq[(int, int, int)]
+    for brads in [0, 64, 128, 192]:
+      game.players[me].aimBrads = brads
+      let badge = game.playerMessages(me).badgePlacement("identity red alpha")
+      placements.add((badge.x, badge.y, badge.spriteId))
+    check placements.deduplicate().len == 1
 
   test "a dead player's identity badge disappears":
     var game = initCtfForTest(defaultGameConfig())

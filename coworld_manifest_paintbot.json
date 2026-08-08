@@ -285,6 +285,86 @@
             "huge",
             "giant"
           ]
+        },
+        "handicaps": {
+          "description": "Per-team handicap that weakens a team, keyed by team name. Each value is 0..1: 0 = normal, 1 = 50% of shots miss, 1 life, 1 hit point, half max speed; values in between interpolate linearly. Omitted teams are unhandicapped. Intended for a league (e.g. Campaign) to level a dominating team.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "red": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "blue": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "green": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "yellow": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            }
+          }
+        },
+        "mapSpec": {
+          "description": "Full expanded map geometry (obstacles, trenches, endzones) as a JSON object. Pins an exact authored map \u2014 e.g. a campaign cell's custom organic terrain \u2014 overriding mapPath/mapSeed/mapSize. Same format the replay config carries.",
+          "type": "object"
+        },
+        "perks": {
+          "description": "Per-team perk buffs, keyed by team name. Vocabulary: armor (+1 max hp), scope (50% tighter gun aim), grenade (+25% throw range), thruster (+10% max speed), luck (10% of landed gun shots deal 2 damage) \u2014 magnitudes tunable via perkMods. A team's value is a flat array of perk names (the whole team shares them), an array of such arrays (per-policy groups for 2v2 seats, dealt to the team's distinct policies in join order), or an object keyed by policy name pinning each group to exactly that policy (unmatched policies get nothing). Omitted teams have no perks.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "red": { "type": ["array", "object"] },
+            "blue": { "type": ["array", "object"] },
+            "green": { "type": ["array", "object"] },
+            "yellow": { "type": ["array", "object"] }
+          }
+        },
+        "perkMods": {
+          "description": "Perk magnitude overrides. Fractions are 0..1: scopeAim = fraction of aim deviation removed, grenadeRange/thrusterSpeed = extra range/speed, luckChance = chance a landed shot is lucky; armorHp/luckDamage are hit-point counts (0..100).",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "armorHp": { "type": "integer", "minimum": 0, "maximum": 100 },
+            "scopeAim": { "type": "number", "minimum": 0, "maximum": 1 },
+            "grenadeRange": { "type": "number", "minimum": 0, "maximum": 1 },
+            "thrusterSpeed": { "type": "number", "minimum": 0, "maximum": 1 },
+            "luckChance": { "type": "number", "minimum": 0, "maximum": 1 },
+            "luckDamage": { "type": "integer", "minimum": 1, "maximum": 100 }
+          }
+        },
+        "barrageMaxPerSec": {
+          "description": "Grenade-barrage endgame: the launch rate the bombardment ramps up to, in grenades/second across the whole board. 0 disables the mode; requires maxTicks > 0 when set. With the barrage on, the time limit no longer ends the game \u2014 it plays past 0:00 under full bombardment until one team is wiped.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 50,
+          "default": 0
+        },
+        "barrageStartPerSec": {
+          "description": "Grenade-barrage launch rate at the latch, along the map edges, grenades/second.",
+          "type": "integer",
+          "minimum": 1,
+          "default": 4
+        },
+        "barrageStartSec": {
+          "description": "Clock seconds remaining that latch the barrage on (30 = starts at 4:30 on a 5:00 clock).",
+          "type": "integer",
+          "minimum": 1,
+          "default": 30
+        },
+        "barrageSaturateSec": {
+          "description": "Seconds from the latch until full saturation: whole board targeted at barrageMaxPerSec (30 = saturated exactly at 5:00 with the default start).",
+          "type": "integer",
+          "minimum": 1,
+          "default": 30
         }
       }
     },
@@ -533,13 +613,17 @@
         "visionBubble": 90,
         "startWaitTicks": 120,
         "gameOverTicks": 360,
-        "maxTicks": 5000,
+        "maxTicks": 7200,
         "maxGames": 1,
         "mapPath": "gen",
         "showPlayerLabels": true,
         "teams": 2,
         "scoring": "pot",
-        "lobbyJoinTimeoutTicks": 2880
+        "lobbyJoinTimeoutTicks": 2880,
+        "barrageMaxPerSec": 15,
+        "barrageStartPerSec": 4,
+        "barrageStartSec": 30,
+        "barrageSaturateSec": 30
       }
     },
     {
@@ -661,13 +745,17 @@
         "visionBubble": 90,
         "startWaitTicks": 120,
         "gameOverTicks": 360,
-        "maxTicks": 5000,
+        "maxTicks": 7200,
         "maxGames": 1,
         "mapPath": "gen",
         "showPlayerLabels": true,
         "teams": 4,
         "scoring": "pot",
-        "lobbyJoinTimeoutTicks": 2880
+        "lobbyJoinTimeoutTicks": 2880,
+        "barrageMaxPerSec": 15,
+        "barrageStartPerSec": 4,
+        "barrageStartSec": 30,
+        "barrageSaturateSec": 30
       }
     },
     {
@@ -892,7 +980,11 @@
         "teams": 4,
         "scoring": "pot",
         "lobbyJoinTimeoutTicks": 2880,
-        "mapSize": "giant"
+        "mapSize": "giant",
+        "barrageMaxPerSec": 15,
+        "barrageStartPerSec": 4,
+        "barrageStartSec": 30,
+        "barrageSaturateSec": 30
       }
     },
     {
@@ -1014,17 +1106,283 @@
         "visionBubble": 90,
         "startWaitTicks": 120,
         "gameOverTicks": 360,
-        "maxTicks": 5000,
+        "maxTicks": 7200,
         "maxGames": 1,
-        "mapPath": "arena",
+        "mapPath": "gen",
+        "teams": 2,
         "showPlayerLabels": true,
-        "lobbyJoinTimeoutTicks": 2880
+        "lobbyJoinTimeoutTicks": 2880,
+        "barrageMaxPerSec": 15,
+        "barrageStartPerSec": 4,
+        "barrageStartSec": 30,
+        "barrageSaturateSec": 30
       }
     },
     {
       "id": "1v1",
-      "name": "1v1 Duel",
-      "description": "Two-policy Paintbot duel for custom lobbies and campaign cells: one Red player versus one Blue player on random generated terrain with Paintbot's standard pot scoring and tuning.",
+      "name": "1v1 (8 per team)",
+      "description": "Two-policy Paintbot team battle for custom lobbies and campaign cells: one policy fields the full Red team of 8 versus the other fielding the full Blue team of 8 on random generated terrain with Paintbot's standard pot scoring and tuning.",
+      "game_config": {
+        "players": [
+          {
+            "name": "Player1"
+          },
+          {
+            "name": "Player2"
+          },
+          {
+            "name": "Player3"
+          },
+          {
+            "name": "Player4"
+          },
+          {
+            "name": "Player5"
+          },
+          {
+            "name": "Player6"
+          },
+          {
+            "name": "Player7"
+          },
+          {
+            "name": "Player8"
+          },
+          {
+            "name": "Player9"
+          },
+          {
+            "name": "Player10"
+          },
+          {
+            "name": "Player11"
+          },
+          {
+            "name": "Player12"
+          },
+          {
+            "name": "Player13"
+          },
+          {
+            "name": "Player14"
+          },
+          {
+            "name": "Player15"
+          },
+          {
+            "name": "Player16"
+          }
+        ],
+        "slots": [
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          }
+        ],
+        "seed": 679961,
+        "num_agents": 16,
+        "minPlayers": 16,
+        "lives": 3,
+        "hitPoints": 3,
+        "respawnTicks": 72,
+        "gunRange": 1300,
+        "fireCooldownTicks": 12,
+        "carrierSpeedPct": 70,
+        "aimTurnRate": 5,
+        "visionConeDeg": 60,
+        "visionBubble": 90,
+        "startWaitTicks": 120,
+        "gameOverTicks": 360,
+        "maxTicks": 7200,
+        "maxGames": 1,
+        "mapPath": "gen",
+        "showPlayerLabels": true,
+        "teams": 2,
+        "scoring": "pot",
+        "lobbyJoinTimeoutTicks": 2880,
+        "barrageMaxPerSec": 15,
+        "barrageStartPerSec": 4,
+        "barrageStartSec": 30,
+        "barrageSaturateSec": 30
+      }
+    },
+    {
+      "id": "ctf-default",
+      "name": "CTF Default",
+      "description": "Sixteen-player 8v8 CTF episode using the default balanced game settings.",
+      "game_config": {
+        "players": [
+          {
+            "name": "Player1"
+          },
+          {
+            "name": "Player2"
+          },
+          {
+            "name": "Player3"
+          },
+          {
+            "name": "Player4"
+          },
+          {
+            "name": "Player5"
+          },
+          {
+            "name": "Player6"
+          },
+          {
+            "name": "Player7"
+          },
+          {
+            "name": "Player8"
+          },
+          {
+            "name": "Player9"
+          },
+          {
+            "name": "Player10"
+          },
+          {
+            "name": "Player11"
+          },
+          {
+            "name": "Player12"
+          },
+          {
+            "name": "Player13"
+          },
+          {
+            "name": "Player14"
+          },
+          {
+            "name": "Player15"
+          },
+          {
+            "name": "Player16"
+          }
+        ],
+        "slots": [
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          },
+          {
+            "team": "red"
+          },
+          {
+            "team": "blue"
+          }
+        ],
+        "num_agents": 16,
+        "minPlayers": 16,
+        "lives": 3,
+        "hitPoints": 3,
+        "respawnTicks": 72,
+        "gunRange": 1300,
+        "fireCooldownTicks": 12,
+        "carrierSpeedPct": 70,
+        "aimTurnRate": 5,
+        "visionConeDeg": 60,
+        "visionBubble": 90,
+        "startWaitTicks": 120,
+        "gameOverTicks": 360,
+        "maxTicks": 7200,
+        "maxGames": 1,
+        "mapPath": "arena",
+        "showPlayerLabels": true,
+        "lobbyJoinTimeoutTicks": 2880,
+        "barrageMaxPerSec": 15,
+        "barrageStartPerSec": 4,
+        "barrageStartSec": 30,
+        "barrageSaturateSec": 30
+      }
+    },
+    {
+      "id": "ctf-1v1",
+      "name": "CTF 1v1 Duel",
+      "description": "Two-player custom-lobby duel: one Red player versus one Blue player on the default arena with the standard CTF rules and tuning.",
       "game_config": {
         "players": [
           {
@@ -1042,7 +1400,6 @@
             "team": "blue"
           }
         ],
-        "seed": 679961,
         "num_agents": 2,
         "minPlayers": 2,
         "lives": 3,
@@ -1056,13 +1413,16 @@
         "visionBubble": 90,
         "startWaitTicks": 120,
         "gameOverTicks": 360,
-        "maxTicks": 5000,
+        "maxTicks": 7200,
         "maxGames": 1,
-        "mapPath": "gen",
+        "mapPath": "arena",
         "showPlayerLabels": true,
         "teams": 2,
-        "scoring": "pot",
-        "lobbyJoinTimeoutTicks": 2880
+        "lobbyJoinTimeoutTicks": 2880,
+        "barrageMaxPerSec": 15,
+        "barrageStartPerSec": 4,
+        "barrageStartSec": 30,
+        "barrageSaturateSec": 30
       }
     }
   ],

@@ -168,6 +168,206 @@ window.ChromeCommon = function (ctx) {
   }
   function setName(id, txt) { var el = $(id); if (el.textContent !== txt) el.textContent = txt; }
 
+  // Per-team handicap badge. The chrome carries teams[team].hcap ONLY for a
+  // handicapped team, with the deltas already resolved server-side (the sim is
+  // the single source of the interpolation), so here we just format: `h` is the
+  // authored fraction in permille, `spd` a percent of base speed, `miss` a
+  // percent of point-blank shots dropped. Returns null for an unhandicapped
+  // team so the caller hides the badge.
+  function handicapInfo(s, team) {
+    var tr = s && s.teams && s.teams[team];
+    var h = tr && tr.hcap;
+    if (!h || !h.h) return null;
+    var pct = Math.round(h.h / 10);
+    return {
+      text: 'HCP ' + pct + '%',
+      title: 'Handicap ' + pct + '% — HP ' + h.hp0 + '→' + h.hp +
+        ' · Lives ' + h.lives0 + '→' + h.lives +
+        ' · Speed ' + h.spd + '% · Miss ' + h.miss + '%'
+    };
+  }
+  // Update a badge element in place: text is the compact "HCP 60%", the native
+  // `title` is the full delta breakdown on hover (the codebase's one tooltip
+  // idiom). Hidden entirely when the team is unhandicapped.
+  function setHandicap(id, s, team) {
+    var el = $(id); if (!el) return;
+    var info = handicapInfo(s, team);
+    if (!info) {
+      if (el.style.display !== 'none') el.style.display = 'none';
+      if (el.title) el.title = '';
+      if (el.textContent) el.textContent = '';
+      return;
+    }
+    if (el.style.display === 'none') el.style.display = '';
+    if (el.textContent !== info.text) el.textContent = info.text;
+    if (el.title !== info.title) el.title = info.title;
+  }
+
+  // ---- perks ---------------------------------------------------------------
+  // Team perk badges (docs/plans/2026-08-07-team-perks-design.md). The sim
+  // resolves a seat's perks at join and ships them per roster seat as `pk`
+  // (wire names); every seat of one policy shares a set, so a team's badges
+  // group by policy. Each perk keeps ONE fixed color on every plate — the
+  // icon identifies the perk, the plate identifies the team — so the badges
+  // are never team-tinted. Tooltips state the perk name plus its resolved
+  // magnitude from the frame's `pmods` (permille ints, sim-resolved).
+  var PERK_ICONS = {
+    armor: { color: '#9aa7b8', svg:
+      '<svg viewBox="0 0 16 16" fill="currentColor">' +
+      '<path d="M8 1l6 2v5c0 3.7-2.6 6.3-6 7.5C4.6 14.3 2 11.7 2 8V3l6-2z"/>' +
+      '</svg>' },
+    scope: { color: '#f2e8d8', svg:
+      '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6">' +
+      '<circle cx="8" cy="8" r="4.6"/>' +
+      '<path d="M8 .8V4M8 12v3.2M.8 8H4M12 8h3.2"/>' +
+      '<circle cx="8" cy="8" r="1.2" fill="currentColor" stroke="none"/>' +
+      '</svg>' },
+    grenade: { color: '#8a9a5b', svg:
+      '<svg viewBox="0 0 16 16" fill="currentColor">' +
+      '<rect x="6" y="2.2" width="4" height="3"/>' +
+      '<path d="M10 3.2h2.6v1.6H10z"/>' +
+      '<circle cx="8" cy="10" r="5"/>' +
+      '</svg>' },
+    thruster: { color: '#e8a33d', svg:
+      '<svg viewBox="0 0 16 16" fill="currentColor">' +
+      '<path d="M8 .8C9.8 3.6 13 5.8 13 9.6a5 5 0 0 1-10 0C3 5.8 6.2 3.6 8 .8z"/>' +
+      '<path d="M8 15.4a2.6 2.6 0 0 1-2.6-2.6C5.4 11 7 9.8 8 8.6c1 1.2 2.6 2.4 2.6 4.2A2.6 2.6 0 0 1 8 15.4z" fill="rgba(0,0,0,0.35)"/>' +
+      '</svg>' },
+    luck: { color: '#45a85e', svg:
+      '<svg viewBox="0 0 16 16" fill="currentColor">' +
+      '<circle cx="5.4" cy="5.4" r="2.8"/><circle cx="10.6" cy="5.4" r="2.8"/>' +
+      '<circle cx="5.4" cy="10.6" r="2.8"/><circle cx="10.6" cy="10.6" r="2.8"/>' +
+      '<path d="M8.6 8.6c.6 2.2 1.6 3.8 3 5.2l-1.2 1.2C9 13.6 8 11.8 7.4 9.8z"/>' +
+      '</svg>' }
+  };
+  // Defaults mirror the engine's perkMods defaults; used only when a frame
+  // predates `pmods` so a tooltip never reads blank.
+  var PERK_MOD_DEFAULTS = {
+    armorHp: 1, scope: 500, grenade: 250, thruster: 100,
+    luck: 100, luckDamage: 2
+  };
+  function pct(permille) { return Math.round(permille / 10) + '%'; }
+  function perkTitle(name, mods) {
+    // "scope - +50% accuracy" — the perk name plus its resolved magnitude.
+    var m = mods || PERK_MOD_DEFAULTS;
+    function v(key) { return m[key] != null ? m[key] : PERK_MOD_DEFAULTS[key]; }
+    switch (name) {
+      case 'armor': return 'armor - +' + v('armorHp') + ' hp';
+      case 'scope': return 'scope - +' + pct(v('scope')) + ' accuracy';
+      case 'grenade': return 'grenade - +' + pct(v('grenade')) + ' throw range';
+      case 'thruster': return 'thruster - +' + pct(v('thruster')) + ' speed';
+      case 'luck': return 'luck - ' + pct(v('luck')) + ' of shots deal ' +
+        v('luckDamage') + ' damage';
+      default: return name;
+    }
+  }
+  var warnedPerks = {};
+  function perkIconsHtml(perks, mods) {
+    // The badge strip markup for one perk list (wire names). An unknown name
+    // is skipped but warned once: the client ships with the engine (splice /
+    // bundle), so a name this table doesn't know is a PerkNames drift, not
+    // version skew — silence would hide a perk that alters gameplay with no
+    // badge at all.
+    var html = '';
+    (perks || []).forEach(function (p) {
+      var ico = PERK_ICONS[p];
+      if (!ico) {
+        if (!warnedPerks[p]) {
+          warnedPerks[p] = true;
+          try { console.warn('scorebug: unknown perk name "' + p + '"'); } catch (e) {}
+        }
+        return;
+      }
+      html += '<span class="perk-ico" style="color:' + ico.color + '" title="' +
+        esc(perkTitle(p, mods)) + '">' + ico.svg + '</span>';
+    });
+    return html;
+  }
+  function teamPerkGroups(s, team) {
+    // One entry per distinct policy seated on `team`, in join-slot order:
+    // {pol, perks, lives, players}. `lives` uses the squad-pip rule (p.lives
+    // counts SPARE respawns; the current life is the alive flag), so the two
+    // split meters always sum to the team numeral. Every seat of one policy
+    // shares its perk set, so the policy's first seat carries the badges;
+    // `players` is the group's roster seats in join-slot order.
+    var groups = [], byPol = {};
+    (s.roster || []).filter(function (p) { return p.team === team; })
+      .sort(function (a, b) { return a.s - b.s; })
+      .forEach(function (p) {
+        var pol = p.pol != null ? p.pol : stripSeatSuffix(p.name);
+        var g = byPol[pol];
+        if (!g) {
+          g = byPol[pol] = { pol: pol, perks: p.pk || [], lives: 0, players: [] };
+          groups.push(g);
+        }
+        g.lives += (p.lives || 0) + (p.alive ? 1 : 0);
+        g.players.push(p);
+      });
+    return groups;
+  }
+  function renderTeamMeters(el, s, team) {
+    // Renders one team's life meter(s) + perk badges into `el` (a plate's
+    // `.meters` slot; used by the league shell — the broadcast client's
+    // meter is its squad-pip strip). Single policy (or pre-roster): the
+    // classic "Lives N" team meter with the badges beyond the numeral, and
+    // the el gains class `single` so a page may mirror that one case.
+    // CTF-Doubles (exactly two policies): one meter per policy in the
+    // headline's policy order, fixed DOM order `icons,num | num,icons`, so
+    // the two numerals sit adjacent at the cluster's center with each
+    // policy's badges flanking outside its own numeral — no side-dependent
+    // CSS. Three or more distinct policies (local self-play) fall back to
+    // the single team meter and show NO badges: per-policy sets can differ
+    // there, and badging the whole team with one policy's set would lie.
+    // Persistent-DOM discipline: rebuild only when the group shape changes,
+    // update numerals in place every frame.
+    var tr = s.teams && s.teams[team];
+    var groups = teamPerkGroups(s, team);
+    var split = groups.length === 2;
+    // Exactly one policy may badge the team meter; 3+ shows none (see above).
+    var badged = groups.length === 1 ? groups[0].perks : [];
+    var key = split
+      ? 'split:' + groups.map(function (g) {
+          return g.pol + '=' + g.perks.join('+');
+        }).join('|')
+      : 'single:' + badged.join('+');
+    if (el._key !== key) {
+      el.classList.toggle('single', !split);
+      var html;
+      if (split) {
+        html =
+          '<span class="pgrp">' +
+          '<span class="perk-icos">' + perkIconsHtml(groups[0].perks, s.pmods) + '</span>' +
+          '<span class="lives-num sub" title="' + esc(groups[0].pol) + '"></span>' +
+          '</span>' +
+          '<span class="pgrp">' +
+          '<span class="lives-num sub" title="' + esc(groups[1].pol) + '"></span>' +
+          '<span class="perk-icos">' + perkIconsHtml(groups[1].perks, s.pmods) + '</span>' +
+          '</span>';
+      } else {
+        html =
+          '<span class="lives-label">Lives</span>' +
+          '<span class="lives-num"></span>' +
+          (badged.length
+            ? '<span class="perk-icos">' + perkIconsHtml(badged, s.pmods) + '</span>'
+            : '');
+      }
+      el.innerHTML = html;
+      el._key = key;
+    }
+    var nums = el.querySelectorAll('.lives-num');
+    if (split) {
+      for (var i = 0; i < 2; i++) {
+        var t = tr ? String(groups[i].lives) : '—';
+        if (nums[i] && nums[i].textContent !== t) nums[i].textContent = t;
+      }
+    } else if (nums[0]) {
+      // '—' until the frame actually carries this team's entry (a pre-roster
+      // frame would otherwise read as a real 0).
+      var txt = tr ? String(tr.lives || 0) : '—';
+      if (nums[0].textContent !== txt) nums[0].textContent = txt;
+    }
+  }
+
   function rosterName(s, slot) {
     if (!s.roster) return '#' + slot;
     for (var i = 0; i < s.roster.length; i++) {
@@ -622,6 +822,9 @@ window.ChromeCommon = function (ctx) {
     teamCol: teamCol, activeTeams: activeTeams, teamOf: teamOf, otherTeam: otherTeam,
     stripSeatSuffix: stripSeatSuffix, teamPolicies: teamPolicies, teamName: teamName,
     teamHeadline: teamHeadline, rosterName: rosterName, setName: setName,
+    handicapInfo: handicapInfo, setHandicap: setHandicap,
+    perkIconsHtml: perkIconsHtml, teamPerkGroups: teamPerkGroups,
+    renderTeamMeters: renderTeamMeters,
     esc: esc, fmt: fmt, togglePov: togglePov,
     renderClock: renderClock, renderTransport: renderTransport,
     ingestLullSpans: ingestLullSpans, renderLullSpans: renderLullSpans,

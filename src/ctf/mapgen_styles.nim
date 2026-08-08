@@ -42,6 +42,10 @@ type
     # maze
     wallThick*: int       ## maze wall thickness (px)
     braid*: float         ## fraction of dead-ends to open (0 = perfect maze)
+    # all styles
+    noAnchors*: bool      ## drop the styles' blind mid-field row anchors —
+                          ## for callers (quad-mirror boards) that place their
+                          ## own carve-aware anchors instead
 
 proc defaultParams*(style: MapStyle): StyleParams =
   case style
@@ -88,7 +92,7 @@ proc clampCenter(region: MapRect, cx, cy, radius: int): (int, int) =
     y = clamp(cy, region.y + radius, region.y + region.h - radius)
   (x, y)
 
-proc blobPolygon(
+proc blobPolygon*(
     r: var Rand, region: MapRect, cx, cy, radius, verts: int
 ): ArenaShape =
   ## An organic closed blob: a base radius wobbled by two low-frequency
@@ -154,7 +158,16 @@ proc verticalAnchors(
 
 proc genScatter(r: var Rand, region: MapRect, p: StyleParams): seq[ArenaShape] =
   let period = max(48, p.period)
-  result.add verticalAnchors(r, region, period, 18, akRect)
+  if not p.noAnchors:
+    result.add verticalAnchors(r, region, period, 18, akRect)
+  # A `diamond` whose center lands within the map's central spin band becomes a
+  # rotating "spinning diamond" — an AUTHORED-arena feature whose renderer
+  # (buildPaintedDiamondPixels) assumes the arena's fixed diamond size and
+  # overflows on an arbitrary one. The seam is the map center, so keep diamonds
+  # clear of the last SpinSafe px before it; everything there falls back to a
+  # disc (never spinning). Comfortably wider than DiamondSpinBand (80).
+  const SpinSafe = 100
+  let diamondMaxX = region.x + region.w - SpinSafe
   var gy = region.y
   while gy <= region.y + region.h:
     var gx = region.x
@@ -167,7 +180,7 @@ proc genScatter(r: var Rand, region: MapRect, p: StyleParams): seq[ArenaShape] =
             cx = gx + ri(r, -p.jitter, p.jitter + 1)
             cy = gy + ri(r, -p.jitter, p.jitter + 1)
             (x, y) = clampCenter(region, cx, cy, radius)
-          if rand(r, 1.0) < 0.5:
+          if rand(r, 1.0) < 0.5 or x > diamondMaxX:
             result.add discShape(x, y, radius)
           else:
             result.add diamondShape(x, y, radius)
@@ -204,7 +217,8 @@ proc genCaves(r: var Rand, region: MapRect, p: StyleParams): seq[ArenaShape] =
           if wall[idx(c, row)]: n >= p.death
           else: n >= p.birth
     wall = nextGrid
-  result.add verticalAnchors(r, region, cell, 15, akBlob)
+  if not p.noAnchors:
+    result.add verticalAnchors(r, region, cell, 15, akBlob)
   let radius = max(6, int(float(cell) * p.blobScale))
   for row in 0 ..< rows:
     for c in 0 ..< cols:
@@ -260,7 +274,8 @@ proc genMaze(r: var Rand, region: MapRect, p: StyleParams): seq[ArenaShape] =
   # A perfect maze can carve a straight horizontal corridor spanning the width,
   # which reads as an open sightline. The staggered mid-field anchors guarantee
   # every row is broken without walling off cross-map routes.
-  result.add verticalAnchors(r, region, cell, thick, akRect)
+  if not p.noAnchors:
+    result.add verticalAnchors(r, region, cell, thick, akRect)
   # Emit every NON-carved internal edge as a wall segment.
   let half = thick div 2
   for row in 0 ..< rows:
@@ -305,7 +320,8 @@ proc genBsp(r: var Rand, region: MapRect, p: StyleParams): seq[ArenaShape] =
     door = max(40, p.radMin)
   # Room walls give most of the coverage; staggered anchors close the gaps
   # between rooms and at door rows that could otherwise be open sightlines.
-  result.add verticalAnchors(r, region, minCell div 2, thick, akRect)
+  if not p.noAnchors:
+    result.add verticalAnchors(r, region, minCell div 2, thick, akRect)
   for leaf in bspSplit(r, region, minCell):
     # Room walls inset from the leaf, with a centered door gap per side.
     let

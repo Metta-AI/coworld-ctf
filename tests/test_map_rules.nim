@@ -633,27 +633,15 @@ suite "population fit: the generator's draw set":
     check fitMapSize(4).unitsPerTeam == 4      ## nearestSeatPlan(4) = 16
 
 suite "the two axes: awareness versus lethality":
-  ## `GunRange` is a REACH, not an engagement range. Aim is 32 discrete slots
-  ## and there is no aim assist, so beyond `14 / tan(5.625 deg)` = 142 px the
-  ## lattice — not the jitter — decides whether a shot connects. Every derived
-  ## number has to say which axis it lives on, because the two differ by 4x in
-  ## distance and 16x in area.
-  test "the lethal envelope is where the aim lattice puts it":
-    check AimRotations == 32
-    check abs(AimHalfSlotDeg - 5.625) < 1e-9
-    # R_slot: inside this a centred body cannot be missed by the lattice.
-    let rSlot = float(PlayerHalf + int(BulletHalfWidth)) /
-      tan(degToRad(AimHalfSlotDeg))
-    check abs(rSlot - 142.0) < 1.0
-    # The envelope itself is where field accuracy is actually achieved...
-    let pHit = radToDeg(arctan(
-      float(PlayerHalf + int(BulletHalfWidth)) / float(LethalEnvelopePx))) /
-      AimHalfSlotDeg
-    check abs(pHit - float(FieldAccuracyPct) / 100.0) < 0.01
-    # ...and it independently agrees with the shipped grenade reach to ~1%.
+  ## `GunRange` is a REACH, not an engagement range. Every derived number has
+  ## to say which axis it lives on, because the two differ by 4x in distance
+  ## and 16x in area. (The GV36-era 32-slot aim-lattice derivation of the
+  ## envelope retired with GV40's continuous aim; the surviving anchors are
+  ## asserted below.)
+  test "the lethal envelope stands on its surviving anchors":
+    # It independently agrees with the shipped grenade reach to ~1%...
     check abs(LethalEnvelopePx - GrenadeMaxRange) * 100 div GrenadeMaxRange <= 2
-    # The jitter is an order of magnitude smaller than the half-slot, which is
-    # why the LATTICE is what sets the envelope.
+    # ...and stays an ENGAGEMENT range, far inside the gun's reach.
     check LethalEnvelopePx < GunRange div 3
 
   test "lethality quantities use the envelope, awareness ones use the range":

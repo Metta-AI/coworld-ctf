@@ -19,7 +19,9 @@
 
 import
   std/[algorithm, json, math, strutils],
-  sim
+  sim,
+  global   # boardRenderScaleFor: the per-board supersample factor the chrome
+           # frame reports so the viewer can convert board px <-> world px
 
 type
   BroadcastTracker* = object
@@ -40,24 +42,8 @@ proc initBroadcastTracker*(): BroadcastTracker =
   for team in Team:
     result.carriers[team] = -1
 
-proc policyName*(address: string): string =
-  ## The policy identity behind one seat's connection name: the hosted runtime
-  ## appends a per-connection " (N)" suffix to the SAME policy's multiple seats
-  ## ("softmaxwell (2)", "softmaxwell (7)"…), so stripping it collapses every
-  ## seat of one policy to a single shared name. The join path converts spaces
-  ## to underscores (server.nim cleanPlayerName), so by the time the name is a
-  ## player address the separator reads "_(N)" — accept either. Names without
-  ## the suffix (local self-play "Player1"…) pass through unchanged.
-  result = address
-  if result.len >= 4 and result[^1] == ')':
-    var i = result.len - 2
-    while i >= 0 and result[i] in {'0' .. '9'}:
-      dec i
-    if i >= 1 and i < result.len - 2 and result[i] == '(' and
-        result[i - 1] in {' ', '_'}:
-      result = result[0 ..< i - 1]
-      while result.len > 0 and result[^1] in {' ', '_'}:
-        result.setLen(result.len - 1)
+# policyName moved to sim_types.nim (the join path needs it to resolve perk
+# groups); re-exported through `import sim`, so every consumer still sees it.
 
 proc slotOf(sim: SimServer, index: int): int =
   ## Returns the stable join slot for a player index, or -1.
@@ -245,12 +231,28 @@ proc teamStateJson(sim: SimServer, team: Team): JsonNode =
     "prog": sim.flagCarryProgress(team),
     "policies": sim.teamPoliciesJson(team)
   }
+  # Per-team handicap for the scorebug badge + its hover breakdown. Present only
+  # when the team is actually handicapped, so an unhandicapped team shows no
+  # badge. The resolved deltas are computed here (the one place the
+  # interpolation lives) so the viewer never re-derives them: `h` is the
+  # authored fraction in permille (0..1000); `spd` is max speed as a percent of
+  # base; `miss` is the percent of point-blank shots dropped (0..50).
+  if sim.config.handicaps[team] > 0:
+    result["hcap"] = %*{
+      "h": sim.config.handicaps[team],
+      "hp": sim.config.hitPointsFor(team),
+      "hp0": sim.config.hitPoints,
+      "lives": sim.config.livesFor(team),
+      "lives0": sim.config.lives,
+      "spd": sim.config.maxSpeedFor(team) * 100 div max(1, sim.config.maxSpeed),
+      "miss": sim.config.missPermilleFor(team) div 10
+    }
 
 proc rosterJson(sim: SimServer): JsonNode =
   ## Returns the per-player roster array keyed by stable join slot.
   result = newJArray()
   for p in sim.players:
-    result.add(%*{
+    let item = %*{
       "s": p.joinOrder,
       "team": teamText(p.team),
       "name": p.address,
@@ -266,7 +268,18 @@ proc rosterJson(sim: SimServer): JsonNode =
       "mk2": p.multiKills2,
       "mk3": p.multiKills3,
       "tk": p.teamKills
-    })
+    }
+    # This seat's perks, wire-named (PerkNames), present only when it has any
+    # — so a perk-free game's roster is byte-identical and the scorebug can
+    # group a team's perk badges by policy (every seat of one policy shares
+    # the same set).
+    if p.perks != {}:
+      var pk = newJArray()
+      for perk in Perk:
+        if perk in p.perks:
+          pk.add(%perkText(perk))
+      item["pk"] = pk
+    result.add(item)
 
 const
   FpColumns = 96              ## raycast columns per first-person frame.
@@ -472,6 +485,7 @@ proc firstPersonJson(sim: SimServer, playerIndex: int): JsonNode =
     for sp in sim.medKitSpawns: addPickup("medkit", sp)
     for sp in sim.shieldSpawns: addPickup("shield", sp)
     for sp in sim.plasmaArcSpawns: addPickup("spray", sp)
+    for sp in sim.barrierSpawns: addPickup("barrier", sp)
 
     # --- paintball beams in flight (sim.recentShots; cosmetic, never hashed) ---
     # A hitscan shot has no travelling body, so the board draws it as a COMET: a
@@ -560,6 +574,7 @@ proc firstPersonJson(sim: SimServer, playerIndex: int): JsonNode =
   if self.hasGrenade: carriedItems.add(%"grenade")
   if self.hasShield: carriedItems.add(%"shield")
   if self.hasPlasmaArc: carriedItems.add(%"spray")
+  if self.hasBarrier: carriedItems.add(%"barrier")
   let selfJson = %*{
     "hp": self.hp,
     "lives": self.lives,
@@ -607,6 +622,7 @@ proc firstPersonJson(sim: SimServer, playerIndex: int): JsonNode =
   for sp in sim.medKitSpawns: addMapItem("medkit", sp)
   for sp in sim.shieldSpawns: addMapItem("shield", sp)
   for sp in sim.plasmaArcSpawns: addMapItem("spray", sp)
+  for sp in sim.barrierSpawns: addMapItem("barrier", sp)
 
   let mapJson = %*{
     "w": MapWidth,
@@ -675,11 +691,37 @@ proc buildStateJson*(
     "ff": fastForwarding,
     "en": transportEnabled,
     "mm": mismatchTick,
+    # BOARD pixels per LOGICAL map pixel. Everything the viewer positions with —
+    # the letterbox transform, click-to-select, the minimap — lives in board
+    # pixels, so a control that has to move a fixed WORLD distance (the viewer's
+    # arrow-key pan cell) can only do it by multiplying through this. It cannot
+    # be a wire constant: it is per-BOARD, because an oversize map renders at 1x
+    # rather than blow the wasm32 viewer's address space (see
+    # MaxSupersampledMapPixels), while every normal board renders at RenderScale.
+    "bs": boardRenderScaleFor(sim.gameMap.width, sim.gameMap.height),
     "pov": povSlot,
     "teams": teams,
     "roster": sim.rosterJson(),
     "events": (if events.isNil: newJArray() else: events)
   }
+
+  # Resolved perk magnitudes for the scorebug icon tooltips (the sim is the
+  # single source of the mods, like the handicap deltas). Fractions are
+  # permille ints; present only when some active team actually has perks, so
+  # a perk-free game's frame is unchanged.
+  var hasPerks = false
+  for team in sim.teams():
+    if sim.config.perks[team].len > 0:
+      hasPerks = true
+  if hasPerks:
+    state["pmods"] = %*{
+      "armorHp": sim.config.perkMods.armorHp,
+      "scope": sim.config.perkMods.scopeAim,
+      "grenade": sim.config.perkMods.grenadeRange,
+      "thruster": sim.config.perkMods.thrusterSpeed,
+      "luck": sim.config.perkMods.luckChance,
+      "luckDamage": sim.config.perkMods.luckDamage
+    }
 
   # First-person picture-in-picture: the selected seat's raycast view, present
   # only while a player is in POV. The client shows/hides its overlay canvas off

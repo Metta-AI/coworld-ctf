@@ -470,6 +470,12 @@ proc renderSpriteFrame(client: ProtocolClient) =
   ## Renders the retained sprite scene into client-owned buffers.
   client.renderSpriteFrame(client.unpacked, client.packed)
 
+proc applyFrame*(client: ProtocolClient, message: string) {.measure.} =
+  ## Applies one game-to-player frame without a transport.
+  if not client.applySpritePacket(message, false):
+    raise newException(ValueError, "Malformed sprite protocol packet.")
+  client.frameAdvance = 1
+
 proc acceptPlayerMessage(
   ws: WebSocket,
   message: Message,

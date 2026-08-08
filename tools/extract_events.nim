@@ -96,6 +96,19 @@ type
     resultsJson*: string       ## playerResultsJson at the final tick.
     slotShotsFired*: seq[int]  ## final in-sim accuracy counters by slot.
     slotShotsHit*: seq[int]
+    slotAddress*: seq[string]  ## each slot's recorded join name. A hosted
+                               ## league replay records the league player name
+                               ## here, so attribution never has to ASSUME a
+                               ## slot-to-entrant mapping. Read this, never a
+                               ## seat-parity rule: parity only ever described
+                               ## a 2-team head-to-head, and an episode can
+                               ## seat four policies across four teams.
+    slotTeam*: seq[string]     ## each slot's team, from the sim's own
+                               ## assignment ("red"/"blue"/"green"/"yellow").
+    winner*: string            ## the winning team's color, or "" when the
+                               ## match drew or never finished.
+    isDraw*: bool
+    finished*: bool            ## whether the replay reached GameOver.
     frames*: string            ## per-tick seat state; empty unless requested.
     frameCount*: int           ## records in `frames`.
     frameSlots*: int           ## seats per frame record.
@@ -286,10 +299,22 @@ proc extractEvents*(data: ReplayData, captureFrames = false): ExtractResult =
     let resultSlotCount = parseJson(result.resultsJson)["names"].len
     result.slotShotsFired = newSeq[int](resultSlotCount)
     result.slotShotsHit = newSeq[int](resultSlotCount)
+    result.slotAddress = newSeq[string](resultSlotCount)
+    result.slotTeam = newSeq[string](resultSlotCount)
     for player in sim.players:
       if player.joinOrder >= 0 and player.joinOrder < resultSlotCount:
         result.slotShotsFired[player.joinOrder] = player.shotsFired
         result.slotShotsHit[player.joinOrder] = player.shotsHit
+        # Both come from the SIM, not from the seat index: the recorded join
+        # name is the league entrant, and the team is whatever the config
+        # actually dealt that seat (2-team alternation is one layout of
+        # several, not a rule to infer from).
+        result.slotAddress[player.joinOrder] = player.address
+        result.slotTeam[player.joinOrder] = teamText(player.team)
+    result.finished = sim.phase == GameOver
+    result.isDraw = sim.isDraw
+    if result.finished and not sim.isDraw:
+      result.winner = teamText(sim.winner)
   finally:
     setCurrentDir(previousDir)
 
@@ -298,9 +323,22 @@ proc extractEventsJsonl*(
 ): string =
   ## Returns the full JSON-lines extraction: one row per event plus a final
   ## summary object. Captured frames, if any, come back through `framesOut`.
+  ##
+  ## The summary carries the ROSTER and the OUTCOME on top of the shared four
+  ## keys, so a scan of the JSONL alone can attribute every event to a league
+  ## entrant and say who won — without re-reading the league API and without
+  ## inferring an entrant from its seat index.
   let extraction = extractEvents(data, captureFrames)
   framesOut = extraction.frames
-  extraction.events.eventsJsonl(extraction.ticks)
+  var roster = newJObject()
+  roster["finished"] = %extraction.finished
+  roster["draw"] = %extraction.isDraw
+  roster["winner"] = %extraction.winner
+  roster["slot_address"] = %extraction.slotAddress
+  roster["slot_team"] = %extraction.slotTeam
+  roster["slot_shots_fired"] = %extraction.slotShotsFired
+  roster["slot_shots_hit"] = %extraction.slotShotsHit
+  extraction.events.eventsJsonl(extraction.ticks, roster)
 
 proc extractEventsJsonl*(data: ReplayData): string =
   ## Event-stream-only overload: the shape every existing caller uses.
