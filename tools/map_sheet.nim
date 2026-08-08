@@ -11,6 +11,13 @@
 ## where the best-scoring shapes rendered as a barcode and as confetti.
 ##
 ## Usage: nim c -d:release -r tools/map_sheet.nim [count] [out.png] [teams]
+##                                                 [--label]
+##
+## `--label` prints each tile's ARCHETYPE in the caption. It is off by
+## default on purpose: the brief's acceptance test is that an observer can
+## point at a tile and say which archetype it is FROM THE PICTURE, and a
+## caption that answers the question voids the test. Render the plain sheet
+## first, name the tiles, then render the labelled one as the answer key.
 ## Demo/curation tooling; not part of the server.
 import
   std/[os, strformat, strutils],
@@ -51,7 +58,11 @@ when isMainModule:
   let
     count = if paramCount() >= 1: parseInt(paramStr(1)) else: 50
     outPath = if paramCount() >= 2: paramStr(2) else: "map-sheet.png"
-    teams = if paramCount() >= 3: parseInt(paramStr(3)) else: 2
+    teams =
+      if paramCount() >= 3 and not paramStr(3).startsWith("--"):
+        parseInt(paramStr(3))
+      else: 2
+    label = "--label" in commandLineParams()
     rows = (count + Cols - 1) div Cols
     sheetW = Cols * (CellW + Pad) + Pad
     sheetH = rows * (CellH + CaptionH + Pad) + Pad
@@ -95,7 +106,10 @@ when isMainModule:
              scale(vec2(scale, scale))
     sheet.draw(img, tf)
     let sizeName = gameMap.mapSizeClass()
-    sheet.drawText(font, &"{seed} {sizeName}", x0, y0 + CellH + 4, Ink)
+    let caption =
+      if label: &"{seed} {sizeName} {mapArchetypeFor(seed, teams)}"
+      else: &"{seed} {sizeName}"
+    sheet.drawText(font, caption, x0, y0 + CellH + 4, Ink)
     sheet.drawText(font, &"s{score:.3f} i{m.interiorFrac:.3f}",
       x0, y0 + CellH + 14, Ink)
 

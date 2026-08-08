@@ -57,7 +57,7 @@
 ## row is closed by the same geometry that keeps the route open, which is what
 ## lets the picket pass leave reserved ground alone.
 
-import std/math
+import std/[algorithm, math]
 import sim_types
 import map_rules
 import map_seed
@@ -275,6 +275,45 @@ proc wallWithDoors(
     reserved.add gap
     cursor += seg
 
+proc courtyard(
+  dst: var seq[ArenaShape], reserved: var seq[MapRect], rng: var MapRng,
+  cell: MapRect, wallPx, door: int, bounds: MapRect
+) =
+  ## One building on one city block: a hollow perimeter with two OPPOSED
+  ## doors, so the courtyard is somewhere you pass through and hold rather
+  ## than a dead end. Hollow because solid is unaffordable — filling the
+  ## blocks of a standard board would be 16% of the domain in stone from the
+  ## buildings alone — and because being INSIDE something is what a blocks
+  ## map's enclosure is made of.
+  let plot = MapRect(x: cell.x + wallPx, y: cell.y + wallPx,
+                     w: cell.w - 2 * wallPx, h: cell.h - 2 * wallPx)
+  if plot.w < 2 * wallPx + door or plot.h < 2 * wallPx + door: return
+  let
+    vertical = rng.coin()      ## which pair of walls the doors are cut in.
+    ## Off-centre, so neighbouring blocks do not line their doors up into one
+    ## straight shot across the map.
+    gapX = plot.x + wallPx + rng.pick(max(1, plot.w - 2 * wallPx - door))
+    gapY = plot.y + wallPx + rng.pick(max(1, plot.h - 2 * wallPx - door))
+  template wall(r: MapRect) =
+    let clipped = r.clipTo(bounds)
+    if not clipped.isEmpty: dst.add rectShapeOf(clipped)
+  if vertical:
+    for y in [plot.y, plot.y + plot.h - wallPx]:
+      wall(MapRect(x: plot.x, y: y, w: gapX - plot.x, h: wallPx))
+      wall(MapRect(x: gapX + door, y: y,
+                   w: plot.x + plot.w - gapX - door, h: wallPx))
+      reserved.add MapRect(x: gapX, y: y - wallPx, w: door, h: 3 * wallPx)
+    for x in [plot.x, plot.x + plot.w - wallPx]:
+      wall(MapRect(x: x, y: plot.y, w: wallPx, h: plot.h))
+  else:
+    for x in [plot.x, plot.x + plot.w - wallPx]:
+      wall(MapRect(x: x, y: plot.y, w: wallPx, h: gapY - plot.y))
+      wall(MapRect(x: x, y: gapY + door, w: wallPx,
+                   h: plot.y + plot.h - gapY - door))
+      reserved.add MapRect(x: x - wallPx, y: gapY, w: 3 * wallPx, h: door)
+    for y in [plot.y, plot.y + plot.h - wallPx]:
+      wall(MapRect(x: plot.x, y: y, w: plot.w, h: wallPx))
+
 proc blobPolygon(
   rng: var MapRng, cx, cy, rx, ry, lobes: int
 ): ArenaShape =
@@ -331,40 +370,54 @@ proc planArchetype*(
                      viMassif, viTemple]
 
   of archBlocks:
-    ## STREETS. Reserved on a board-centred lattice rather than a
+    ## STREETS AND BUILDINGS. Reserved on a board-centred lattice rather than a
     ## domain-relative one: the same grid then lifts to itself under mirror,
     ## rot180 and rot90 alike, so a 4-team board reads as a city and not as
     ## four rotated copies of a quarter of one.
-    ## A 68 px street on a 659 px board cannot have SMALL blocks without being
-    ## mostly street: five horizontal streets is 31% of the board's height in
-    ## tarmac before a single vertical one is drawn, which measured as a
-    ## barcode — 136 permille cover at 0.204 enclosure, the emptiest of the
-    ## six. So the short axis takes three streets and only the LONG axis may
-    ## take five.
+    ##
+    ## Two things had to change before a tile READ as a street grid rather
+    ## than merely measuring like one. Rendered at 620 px, the first version
+    ## was scattered rectangles with no legible street in it.
+    ##
+    ##   1. The blocks were too small. Pitching the streets at `board.h/4`
+    ##      left 97 px blocks between 68 px streets — a board that is 40%
+    ##      tarmac has no blocks in it. The block size is now DRAWN as a
+    ##      multiple of the street and the lane count derived from it, so a
+    ##      building is always wider than the road it faces.
+    ##   2. Empty blocks do not define a street. What makes a city legible is
+    ##      the BUILDINGS, so each block gets one: a courtyard perimeter with
+    ##      two opposed doors. Hollow rather than solid because solid is
+    ##      unaffordable — a 204 px block filled is 16% of the domain in stone
+    ##      from the buildings alone — and because a courtyard is somewhere to
+    ##      BE, which is where a blocks map's enclosure comes from.
     let
-      lanesY = 1
-      lanesX = if quadrant: lanesY else: 1 + rng.pick(2)
-      pitchX = board.w div (2 * lanesX + 2)
-      pitchY = if quadrant: pitchX else: board.h div (2 * lanesY + 2)
-    for j in -lanesX .. lanesX:
-      result.reserved.add vRun(0, board.h, cx + j * pitchX, street)
-    for j in -lanesY .. lanesY:
-      let run = hRun(0, board.w, cy + j * pitchY, street)
-      result.reserved.add run
-      ## Only the horizontal runs cross the sightline band end to end.
-      chicane(result.structure, rng, run, bounds, horizontal = true)
-    ## The BLOCKS themselves are the fill compartments.
-    for jx in -lanesX - 1 .. lanesX:
-      for jy in -lanesY - 1 .. lanesY:
-        ## Inset by HALF a street on each side, because the street is CENTRED
-        ## on the grid line. Insetting by a whole one left 29 px blocks on a
-        ## 659 px board, every one of them below the minimum cell size, so
-        ## `blocks` silently emitted no masses at all and fell to 0.187
-        ## enclosure — lower than before it had compartments.
-        let cell = MapRect(
-          x: cx + jx * pitchX + street div 2, y: cy + jy * pitchY + street div 2,
-          w: pitchX - street, h: pitchY - street).clipTo(bounds)
-        if not cell.isEmpty: result.cells.add cell
+      ## A rot90 lift builds four of every building, so a four-fold board
+      ## takes thinner walls and less furniture. Measured at the 2-team wall
+      ## thickness, 4-team `blocks` failed "too clogged" on 3 of 8 seeds.
+      blockPx = street * rng.pickRange(3, 4)
+      pitch = blockPx + street
+      lanesX = max(1, (board.w div 2 - street) div pitch)
+      lanesY =
+        if quadrant: lanesX else: max(1, (board.h div 2 - street) div pitch)
+      wallPx = max(12, rules.coverSizePx div (if quadrant: 4 else: 3))
+      door = max(MinRouteWidthPx + 8, rules.minCorridorWidthPx * 3 div 4)
+    ## Streets on the HALF-offsets, so neither centre axis is a road. A road
+    ## down the seam is one more thing every tile would share, and the centre
+    ## block straddling it is what gives the archetype a middle of its own.
+    var xEdges, yEdges: seq[int]
+    for k in 1 .. lanesX:
+      for sign in [-1, 1]:
+        let at = cx + sign * (2 * k - 1) * pitch div 2
+        result.reserved.add vRun(0, board.h, at, street)
+        xEdges.add at
+    for k in 1 .. lanesY:
+      for sign in [-1, 1]:
+        let at = cy + sign * (2 * k - 1) * pitch div 2
+        let run = hRun(0, board.w, at, street)
+        result.reserved.add run
+        yEdges.add at
+        ## Only the horizontal runs cross the sightline band end to end.
+        chicane(result.structure, rng, run, bounds, horizontal = true)
     ## Plus a cross through the team's own anchor: every route in or out of a
     ## base uses it, and the lift hands each team the identical approach.
     ## Without it the fill simply lands on the base — measured, all 60
@@ -374,25 +427,57 @@ proc planArchetype*(
     result.reserved.add anchorRun
     result.reserved.add vRun(0, board.h, anchor.x, street)
     chicane(result.structure, rng, anchorRun, bounds, horizontal = true)
-    ## A rot90 lift doubles what the same lattice costs, so the four-fold
-    ## board spends less: measured at the 2-team budget one seed in eight
-    ## failed "too clogged" at 217 permille.
-    result.fillPermille = if quadrant: 800 else: 1200
-    result.massLo = 3
-    result.massHi = 4
-    ## Blocky, and weighted to the items `vocab_bench` measures as ENCLOSING:
-    ## bunker 0.456 and cave 0.355 against temple 0.128. A city block you can
-    ## be inside is the difference between this and a car park.
-    result.items = @[viBunker, viBunker, viBunker, viCave, viTemple, viCan,
-                     viDorito]
+    ## The BLOCKS are the spans between streets, and each is both a building
+    ## plot and a fill compartment.
+    xEdges.add [-street, board.w + street]
+    yEdges.add [-street, board.h + street]
+    xEdges.sort()
+    yEdges.sort()
+    for i in 1 ..< xEdges.len:
+      for j in 1 ..< yEdges.len:
+        let cell = MapRect(
+          x: xEdges[i - 1] + street div 2, y: yEdges[j - 1] + street div 2,
+          w: xEdges[i] - xEdges[i - 1] - street,
+          h: yEdges[j] - yEdges[j - 1] - street).clipTo(bounds)
+        if cell.w < 3 * wallPx + door or cell.h < 3 * wallPx + door: continue
+        result.cells.add cell
+        ## Only a PLOT-SIZED cell gets a building. The outermost spans run
+        ## from a street to the board edge and the centre span can be a whole
+        ## pitch wide; a courtyard on one of those is a walled compound around
+        ## the middle of the board, which is how a 476 px plot took 4-team
+        ## `blocks` to 191 permille and route counts of 0 and 1.
+        ## ...and not every plot is built on. A vacant lot is what a city
+        ## looks like anyway, it gives the fill somewhere to go, and it is the
+        ## knob that brought the four-fold board (which builds four of every
+        ## building) back under the cover ceiling.
+        if cell.w <= blockPx * 13 div 10 and cell.h <= blockPx * 13 div 10 and
+            rng.pick(100) >= (if quadrant: 45 else: 20):
+          courtyard(result.structure, result.reserved, rng, cell, wallPx,
+                    door, bounds)
+    ## The buildings ARE the cover, so the vocabulary only furnishes them.
+    result.fillPermille = if quadrant: 220 else: 520
+    result.massLo = 2
+    result.massHi = 3
+    result.items = @[viBunker, viCan, viDorito, viTemple]
 
   of archRing:
     ## A PERIMETER LOOP. Two long ways round from base to base, and a centre
     ## reached only by a spur — contested, but never on the fast path.
+    ##
+    ## The loop is inset from the FILL REGION, not from the board edge. Taking
+    ## it as a fraction of the board put the left run at x = 130 on a
+    ## column-endzone map, i.e. inside the 210 px protected capture column
+    ## where nothing can be built: the loop was invisible because half of it
+    ## ran through ground that is always open anyway.
     let
-      inset = rng.pickRange(short div 9, short div 5)
-      sx = cx - inset
-      sy = cy - inset
+      availX = max(3 * street, cx - region.x)
+      availY = max(3 * street, cy - region.y)
+      bandPct = rng.pickRange(26, 44)
+      bandX = clamp(availX * bandPct div 100, street, availX - 2 * street)
+      bandY = clamp(availY * bandPct div 100, street, availY - 2 * street)
+      ## rot90 needs the loop square, or its own images do not land on it.
+      sx = if quadrant: min(availX - bandX, availY - bandY) else: availX - bandX
+      sy = if quadrant: sx else: availY - bandY
       runs = [hRun(cx - sx, cx + sx, cy - sy, street),
               hRun(cx - sx, cx + sx, cy + sy, street),
               vRun(cy - sy, cy + sy, cx - sx, street),
@@ -409,6 +494,36 @@ proc planArchetype*(
     let spurX = cx - (sx * rng.pickRange(35, 60)) div 100
     result.reserved.add vRun(cy - sy, cy, spurX, street)
     result.reserved.add hRun(spurX, cx, cy, street)
+    ## A WALL along the inside of the loop, with doors. Without it a ring is
+    ## an idea rather than a picture: rendered at 620 px the first version was
+    ## indistinguishable from scattered cover, because an empty corridor
+    ## through open ground is not a corridor you can SEE. Walling the inner
+    ## edge makes the loop the outer road and the middle a keep you enter
+    ## through gates, which is also the archetype's own sentence — the centre
+    ## contested, but optional.
+    block innerWall:
+      let
+        thick = max(12, rules.coverSizePx div 3)
+        door = max(MinRouteWidthPx + 8, rules.minCorridorWidthPx * 3 div 4)
+        ## A rot90 lift builds four of this wall, so a four-fold board takes
+        ## a shorter bay pitch — one door per 102 px instead of per 204 — and
+        ## therefore about half as much wall. Measured at the 2-team pitch,
+        ## 4-team `ring` failed "too clogged" on 2 of 8 seeds at 183-197
+        ## permille.
+        gate =
+          if quadrant: rng.pickRange(3, 4) * street div 2
+          else: rng.pickRange(5, 7) * street div 2
+        (ix0, iy0) = (cx - sx + street, cy - sy + street)
+        (ix1, iy1) = (cx + sx - street, cy + sy - street)
+      if ix1 - ix0 < 4 * street or iy1 - iy0 < 4 * street: break innerWall
+      for at in [iy0, iy1]:
+        wallWithDoors(result.structure, result.reserved, rng,
+          vertical = false, at = at, lo = ix0, hi = ix1,
+          thick = thick, pitch = gate, door = door, bounds = bounds)
+      for at in [ix0, ix1]:
+        wallWithDoors(result.structure, result.reserved, rng,
+          vertical = true, at = at, lo = iy0, hi = iy1,
+          thick = thick, pitch = gate, door = door, bounds = bounds)
     ## Two compartments: the ground INSIDE the loop, and the margin outside
     ## it. Both get cover; neither gets a route the loop does not grant.
     for cell in [MapRect(x: cx - sx + street, y: cy - sy + street,
@@ -418,7 +533,7 @@ proc planArchetype*(
                  MapRect(x: 0, y: cy + sy + street, w: board.w, h: board.h)]:
       let clipped = cell.clipTo(bounds)
       if clipped.w > 48 and clipped.h > 48: result.cells.add clipped
-    result.fillPermille = if quadrant: 1000 else: 1250
+    result.fillPermille = if quadrant: 500 else: 900
     result.massLo = if quadrant: 3 else: 4
     result.massHi = if quadrant: 4 else: 6
     result.items = @[viCave, viCave, viSnake, viSnake, viBunker, viMassif,

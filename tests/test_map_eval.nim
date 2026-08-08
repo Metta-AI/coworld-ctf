@@ -148,10 +148,20 @@ suite "map fitness: counts carry fractions":
     # size classes. The board is LOCKED to a size class rather than read off a
     # pool index: which index holds a big map is a fact about today's curation,
     # and pinning it here made this test fail when the pool was re-curated.
-    let giant = evaluateMap(
-      generateCtfMap(1001, MapGenOverrides(
-        windows: -1, pits: -1, pitDensity: -1, size: "giant")),
-      "gen:1001 giant")
+    # The comparison holds the ARCHITECTURE fixed by holding the seed fixed:
+    # since `map_archetypes` a seed draws one of six route topologies, and a
+    # `warren`'s raw count is bounded by its doorways however big the board
+    # is. Against the hand-authored arena the claim was simply false — seed
+    # 1001 draws a warren, whose min-cut is 5 against the arena's 8. Against
+    # the SAME seed at a smaller class it is the claim the comment makes.
+    proc atSize(name: string): MapMetrics =
+      evaluateMap(
+        generateCtfMap(1001, MapGenOverrides(
+          windows: -1, pits: -1, pitDensity: -1, size: name)),
+        "gen:1001 " & name)
+    let
+      giant = atSize("giant")
+      standard = atSize("standard")
     check giant.width > 2 * control.width
     # `giant.routeCountMin > control.routeCountMin` used to stand here as the
     # DEMONSTRATION that the raw count scales with the board. It does not, and
