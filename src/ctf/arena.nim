@@ -1390,6 +1390,19 @@ const
   ## rather than restating the numbers.
   CoverPermilleMin* = 40
   CoverPermilleMax* = 170
+  QuadMirrorCoverPermilleMax* = 260
+    ## The ceiling for quad-mirror boards ONLY. The 170 band was calibrated
+    ## on boards that must block ONE axis of sightlines: 2-team scans rows
+    ## alone, and rot90's quarter-turn carries its row cover onto its columns
+    ## for free. Quad-mirror is the first symmetry that pays for BOTH axes —
+    ## reflections never rotate a shape 90 degrees, so column cover is new
+    ## spend (measured: minimal candidates die at 171-226 permille against
+    ## the one-axis ceiling — the exact §3.5.1 failure mode, "axes of
+    ## lane-blocking collide with a ceiling calibrated for one"). 260 = 26%
+    ## structure, inside the MW2 study's measured 18-30% healthy band and
+    ## clear of its ~35% maze bound. NOT a tuning knob: the epic's cover-band
+    ## re-derivation (map_rules mean-free-sightline law, per symmetry) owns
+    ## the principled number and should replace this constant when it lands.
 
 type
   ColumnFamily = enum
@@ -2198,7 +2211,8 @@ proc generateMapAttempt*(
   ## attempt at the same design — and so adding the stage disturbed no
   ## existing scene's draw order. See `map_archetypes`.
   var archetypeRng = root.seedStream(SceneArchetype)
-  let archetype = archetypeRng.drawArchetype(teams)
+  let archetype = archetypeRng.drawArchetype(
+    teams, quadMirror = (teams == 4 and overrides.symmetry == "quadmirror"))
 
   ## The lane plan and the archetype plan both outlive the terrain block: the
   ## constructive row cover below has to know where the routes are so it never
@@ -2965,22 +2979,95 @@ proc generateMapAttempt*(
       ## at center.x meets its own mirrorX image starting there, so the
       ## centre seam holds wall — stopping short leaves a permanently open
       ## central corridor no seed shape could ever cover.
-      let
+      var
         rx = max(ArenaBorder, x - 2)
         rw = min(RibbonWMax, result.center.x - rx)
-      if rw < 8: break columnCover
+      ## A column INSIDE a reserved vertical corridor gets a CHICANE piece,
+      ## not a ribbon: a half-width blocker anchored to the corridor's near
+      ## edge, leaving MinRouteWidthPx of floor beside it — the corridor
+      ## stays a route (the archetypes build exactly these), the column is
+      ## covered, and the never-relaxing street guard below is satisfied
+      ## because the piece is not ON reserved ground it seals. Parity
+      ## alternates with the cursor so consecutive pieces in one corridor
+      ## do not stack into a wall along one edge.
+      ## A column that passes through a reserved VERTICAL corridor gets a
+      ## CHICANE piece seated inside that corridor's overlap with the band
+      ## — a half-width blocker against one corridor edge, leaving
+      ## MinPassableWidth of floor beside it (the archetypes' own corridor
+      ## vocabulary), instead of a full-width ribbon the never-relaxing
+      ## corridor guard must refuse. The corridor need NOT span the whole
+      ## band: a hub dog-leg or ring side that covers part of it is
+      ## exactly where the open column threads through (measured: x=284
+      ## crossed three such segments and no full-band corridor at all).
+      ## Near/far edge choice by x so the piece is guaranteed to cover
+      ## the column; seatLo/seatHi confine the seat search to the overlap.
+      var inCorridor = false
+      var seatLo = max(10 + 2, ay)
+      var seatHi = min(min(result.center.y - RibbonH - 2,
+                           result.height - 10 - RibbonH), by)
+      for r in archPlan.reserved:
+        if r.h > r.w and r.x <= x and x < r.x + r.w:
+          let
+            oLo = max(r.y, seatLo)
+            oHi = min(r.y + r.h - RibbonH, seatHi)
+          if oHi - oLo < RibbonH: continue
+          let depth = r.w - MinPassableWidth
+          if depth < 10: continue
+          inCorridor = true
+          if x < r.x + depth:
+            rx = r.x
+          else:
+            rx = r.x + r.w - depth
+          rw = depth
+          seatLo = oLo
+          seatHi = oHi
+          break
+      if not inCorridor:
+        ## Respect EVERY reserved corridor that touches the seat window —
+        ## not only full-band ones. The measured failure: a ribbon at
+        ## x=282..349 poked into a NEIGHBOURING vertical corridor
+        ## (x309..377, y183..329) that spans only part of the band, so
+        ## `reservesBounds` vetoed every seat and the column stayed open.
+        ## A corridor ahead truncates the ribbon; one containing its start
+        ## slides it forward. A narrower ribbon still covers column x.
+        for r in archPlan.reserved:
+          if r.h > r.w and r.y <= seatHi + RibbonH and r.y + r.h >= seatLo:
+            if r.x <= rx and rx < r.x + r.w and rx + rw > r.x + r.w:
+              rx = r.x + r.w
+            if r.x > rx and r.x < rx + rw:
+              rw = r.x - rx
+        rw = min(rw, result.center.x - rx)
+        if rx > x or rx + rw <= x:
+          ## The clamps slid the ribbon off the open column itself: fall
+          ## back to the widest window that still covers x.
+          rx = max(ArenaBorder, x - 2)
+          rw = min(RibbonWMax, result.center.x - rx)
+          for r in archPlan.reserved:
+            if r.h > r.w and r.y <= seatHi + RibbonH and
+                r.y + r.h >= seatLo and r.x > x and r.x < rx + rw:
+              rw = r.x - rx
+      if rw < 8:
+        x += 4
+        continue
       var placed = false
       for relaxed in [false, true]:
-        for step in 0 ..< ((hiY - loY) div 8 + 1):
-          let ry = loY + step * 8
-          if ry > hiY: break
+        for step in 0 ..< ((seatHi - seatLo) div 8 + 1):
+          let ry = seatLo + step * 8
+          if ry > seatHi: break
           let candidate = ArenaShape(kind: shapeRect, rect: MapRect(
             x: rx, y: ry, w: rw, h: RibbonH))
           if not mapProtectedFloorAt(result, rx, ry + RibbonH div 2) and
              not mapProtectedFloorAt(result, rx + rw - 1, ry + RibbonH div 2) and
              not mapProtectedFloorAt(result, rx + rw div 2, ry) and
              not result.sealsEndzoneGate(candidate) and
-             (relaxed or not archPlan.reservesBounds(
+             ## The STREET guard never relaxes for a FULL-WIDTH ribbon: a
+             ## plug across a 68px promise is what corridor68's kill-box
+             ## rule exists to refuse. An in-corridor CHICANE piece is
+             ## exempt — it leaves MinPassableWidth beside it by
+             ## construction, which is the archetypes' own corridor
+             ## vocabulary. A column with no legal seat either way stays
+             ## open and the validator judges it on its merits.
+             (inCorridor or not archPlan.reservesBounds(
                rx, ry, rx + rw - 1, ry + RibbonH - 1)) and
              (relaxed or not haveLanes or not lanePlan.intrudesOnLane(candidate)):
             result.leftObstacles.add candidate
@@ -3491,7 +3578,10 @@ proc collectMapDiagnostics(
   result.minCoverPermille = minPermille
   if minPermille < CoverPermilleMin:
     recordFailure("too open: " & $minPermille & " permille cover")
-  if permille > CoverPermilleMax:
+  let coverCeiling =
+    if gameMap.symmetry == symQuadMirror: QuadMirrorCoverPermilleMax
+    else: CoverPermilleMax
+  if permille > coverCeiling:
     recordFailure("too clogged: " & $permille & " permille cover")
 
   ## With map-wide guns no straight horizontal ray may survive between the

@@ -143,7 +143,7 @@ type
     items*: seq[VocabItem]     ## the vocabulary this archetype draws from.
     centre*: CentrePolicy
 
-func legalArchetypes*(teams: int): seq[MapArchetype] =
+func legalArchetypes*(teams: int, quadMirror = false): seq[MapArchetype] =
   ## Which topologies a team count can actually carry.
   ##
   ## `archThreeLane` is 2-team only, and that is a measurement rather than a
@@ -152,16 +152,35 @@ func legalArchetypes*(teams: int): seq[MapArchetype] =
   ## alone was over budget, so no amount of fill budgeting could rescue it.
   ## The brief is explicit that 4-team topology must stop being radial-only,
   ## and the other five are all rot90-legal by construction.
-  if teams == 4:
+  ##
+  ## QUAD-MIRROR is the same kind of measurement, made 2026-08-08: its
+  ## validator reads columns as well as rows (reflections never carry row
+  ## coverage onto columns the way rot90's quarter-turn does), and an
+  ## archetype whose skeleton is built from tall vertical corridors ships
+  ## an open column by construction. Measured over 40 seeds x 60 attempts
+  ## with the column-cover pass ON: field 8/8 seeds valid, ring 3/8,
+  ## blocks 1/10, hub 0/9, warren 0/5 — and ring's survivors die at the
+  ## kill-box rule once the cover pass seats pieces in its sides. So a
+  ## quad-mirror board draws the one archetype that measures VALID, and
+  ## the corridor-skeleton archetypes return as their discipline gains a
+  ## second axis (the epic's structure-pass work, filed on the tracking
+  ## issue), never by relaxing the validator. Quad-mirror is override-only
+  ## with no live seed contract, so the narrow pool re-deals nothing.
+  if quadMirror:
+    @[archField]
+  elif teams == 4:
     @[archBlocks, archRing, archHub, archWarren, archField]
   else:
     @[archThreeLane, archBlocks, archRing, archHub, archWarren, archField]
 
-func drawArchetype*(rng: var MapRng, teams: int): MapArchetype =
+func drawArchetype*(rng: var MapRng, teams: int,
+                    quadMirror = false): MapArchetype =
   ## The archetype draw. One uniform pick off its own seed-level stream, so
   ## adding this stage disturbed no existing scene and every candidate for a
-  ## seed is another try at the SAME design.
-  let legal = legalArchetypes(teams)
+  ## seed is another try at the SAME design. The quad-mirror pool differs,
+  ## which re-deals archetypes ONLY on quad-mirror boards — override-only,
+  ## no live seed contract behind them.
+  let legal = legalArchetypes(teams, quadMirror)
   legal[rng.pick(legal.len)]
 
 # ---------------------------------------------------------------------------
