@@ -49,11 +49,31 @@ const PoolRenderHashes = [
   ## (0, 0) and the `sx > 0` guard then skips them — so re-dealing the fill
   ## re-deals the anchors, and the anchor step has never had a border test.
   ## Recorded here rather than fixed here: it is the window stage's bug.
-  0x254b59b6'u32, 0x3439bd90'u32, 0x087a84d5'u32, 0x3027d369'u32,
-  0x01fd2cc7'u32, 0x86673849'u32, 0xf66dd776'u32, 0xac1b2e34'u32,
-  0xcab0a916'u32, 0x2c389334'u32, 0xe87734f9'u32, 0xb38ec8dd'u32,
-  0x38c717dd'u32, 0x5b54f609'u32, 0xf1cab922'u32, 0x703f4aec'u32,
-  0x66a67465'u32, 0x30d4387b'u32, 0x3fdb8e76'u32, 0x1ba77a58'u32
+  ##
+  ## T3 CLOSEOUT NOTE (007c28e): the pin was last written on the T1 base and
+  ## the generator moved through T2c..T2f (GV42 renumber, quad-mirror cover
+  ## fixes, corridor-aware column cover) without this pin being re-verified —
+  ## the T2a/T2b notes above re-pinned on their OWN bases, not on the folded
+  ## tip. THIRTEEN moved here — indices 1, 4, 5, 6, 8, 9, 11, 13, 14, 15, 17,
+  ## 18, 19 (seeds 1002, 1005, 1006, 1007, 1009, 1010, 1012, 1014, 1015, 1016,
+  ## 1020, 1021, 1041); the other SEVEN (indices 0, 2, 3, 7, 10, 12, 16 —
+  ## seeds 1001, 1003, 1004, 1008, 1011, 1013, 1017) are byte-identical, the
+  ## control that says the render change reached only what it touched. The
+  ## SEED LIST did not move — `gen_map_pool` re-curates to the SAME 20 seeds by
+  ## score+quota (verified byte-identical against the committed pool), so this
+  ## pin is again the only place the change is visible. Both render runs agree
+  ## byte-for-byte, so the hash is deterministic, not fleet-jittered. Renders
+  ## were LOOKED AT before writing these down (a spread across all archetypes,
+  ## both size classes, and the mirror/rot180 symmetries, including moved seeds
+  ## 1002/1007/1015/1020/1041): symmetry visibly exact on every one, distinct
+  ## archetype character (blocks, three-lane, hub, field, warren, ring — not
+  ## twenty skins of one map), no degenerate/barcode/empty-block board.
+  ## `docs/pool-review.html` regenerated in the same change (AGENTS.md).
+  0x254b59b6'u32, 0x99fcdcd3'u32, 0x087a84d5'u32, 0x3027d369'u32,
+  0x94b4b37c'u32, 0x92851ac7'u32, 0xa6b26372'u32, 0xac1b2e34'u32,
+  0x09e37205'u32, 0x2f45235f'u32, 0xe87734f9'u32, 0xa8499c21'u32,
+  0x38c717dd'u32, 0xd4a4ec24'u32, 0x2617d05a'u32, 0x999da82d'u32,
+  0x66a67465'u32, 0xe6c17791'u32, 0xded17dc7'u32, 0x779191bc'u32
 ]
 
 proc poolMap(index: int): CtfMap =
