@@ -26,6 +26,11 @@ const PoolRenderHashes = [
   ## ring 1), symmetry visibly exact on all 20, no degenerate board. A hash
   ## nobody has looked at makes a bad map the baseline for everyone after.
   ##
+  ## T2b MERGE NOTE (three-lane): on its own base that branch moved the ten
+  ## SMALL-class pool renders (coverSizePx now scales sqrt(class), 56 at
+  ## standard by construction — small is the only drawable class below 1.0).
+  ## This merged tree re-verifies the pin below via the suite; on any move,
+  ## render and LOOK before re-pinning.
   ## FIVE MOVED AGAIN when `clearLanes` started cutting polygons and diagonals
   ## instead of dropping them whole, and closed the gate-mouth hole in the rect
   ## trim (task eea795c7). Indices 3, 6, 10, 12, 13 — seeds 1004, 1007, 1011,
