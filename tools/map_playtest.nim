@@ -17,8 +17,20 @@
 ## event, and `capturesInZone` independently re-evaluates the engine's own
 ## `inCaptureZone` predicate against the credited scorer's position ON THAT
 ## TICK. Equal counts mean the geometry model and the engine agree; a gap is a
-## harness bug and prints as one. `carrierInZoneTicks` is the separate
-## "reached the zone but never converted" signal.
+## harness bug and prints as one.
+##
+## "REACHED THE ZONE BUT NEVER CONVERTED" IS AN EMPTY CATEGORY, and finding
+## that out is what `carrierApproachPx` is here for. `carrierInZoneTicks` used
+## to be the signal for it and read 0 on all 18 episodes ever measured,
+## including both that captured. It is not blind — `tests/test_carrier_zone.nim`
+## fires the same predicate on a planted carrier and on the real capture-tick
+## position of a real scorer — the state simply cannot be sampled: the engine
+## captures the instant a live carrier's point is inside its own zone, with no
+## precondition, and clears the carrier in that same tick. So a carrier can
+## never be caught standing on its own line, and a map cannot be blamed for a
+## conversion failure that the rules make impossible. What CAN be measured, and
+## is the number that actually separates "never got near" from "died on the
+## doorstep", is HOW CLOSE the best carry run got: `carrierApproachPx`.
 ##
 ## Usage:
 ##   nim c -d:release -o:/tmp/mapplaytest tools/map_playtest.nim
@@ -28,7 +40,7 @@
 import
   std/[json, math, os, strutils],
   ../src/ctf/[map_metrics, sim],
-  toolutil
+  carrier_zone, toolutil
 
 const
   EvidenceCellPx = 10
@@ -106,6 +118,15 @@ proc main() =
     carries = newJArray()
     steals, captures, capturesInZone, carrierInZoneTicks = 0
     aliveTicks, fightTicks, closeTicks = 0
+    carrierTicks = 0
+      ## Ticks with at least one live carrier — the DENOMINATOR the approach
+      ## minimum needs. A 40px best approach off 3000 carry-ticks and one off
+      ## 12 are not the same map result, and the bare minimum cannot tell them
+      ## apart.
+    carrierApproachPx = -1
+      ## Closest any live carrier came to its own zone, in px along the run
+      ## home. -1 means NOBODY EVER CARRIED, which is a different result from
+      ## 0 and must not be folded into one.
     measuredTicks = 0
     capturesAll = 0
       ## Captures over the WHOLE episode, never truncated by --ticks. The
@@ -188,16 +209,25 @@ proc main() =
       if nearest <= GunRange * GunRange: inc fightTicks
       if nearest <= CloseRangePx * CloseRangePx: inc closeTicks
 
-    # How long a live carrier stood inside their own capture zone WITHOUT the
-    # game ending. Non-zero with zero captures is the "reached but never
-    # converted" signature (own flag away, or the carrier died on the line) —
-    # a map can be blamed for the first and must not be for the second.
-    for team in gameMap.teams():
-      let carrier = sim.flags[team].carrier
-      if carrier < 0 or carrier >= sim.players.len: continue
-      let holder = sim.players[carrier]
-      if zones[ord(holder.team)].inCaptureZone(holder.x, holder.y):
-        inc carrierInZoneTicks
+    # The TRIPWIRE, not a measurement (see the module header and
+    # carrier_zone.carriersInOwnZone): this is 0 on every episode by
+    # construction. It is still counted because the day the engine grows a
+    # precondition on capture — own heart home, a channel timer, a contested
+    # zone — a carrier CAN start standing on its own line, this goes non-zero,
+    # and the approach numbers below stop being the whole story.
+    carrierInZoneTicks += sim.carriersInOwnZone(zones)
+
+    # THE MEASUREMENT. How much further the closest live carrier still had to
+    # run at its own base before the engine would have scored it. The episode
+    # MINIMUM is the number a map is judged on: it separates a board where
+    # carriers never got out of midfield from one where a carrier died on the
+    # doorstep, which is the distinction the "steals converted to zero
+    # captures" flag needs and could never get from a count that is always 0.
+    let approach = sim.carrierApproach(zones)
+    if approach >= 0:
+      inc carrierTicks
+      if carrierApproachPx < 0 or approach < carrierApproachPx:
+        carrierApproachPx = approach
 
   var wall = newJArray()
   block:
@@ -274,6 +304,8 @@ proc main() =
     "captures": captures,
     "capturesInZone": capturesInZone,
     "carrierInZoneTicks": carrierInZoneTicks,
+    "carrierApproachPx": carrierApproachPx,
+    "carrierTicks": carrierTicks,
     "aliveTicks": aliveTicks,
     "fightTicks": fightTicks,
     "closeTicks": closeTicks,
@@ -302,8 +334,10 @@ proc main() =
     stderr.writeLine "map_playtest: " & args.name & " " & $sim.tickCount &
       "t " & outcome & "  steals=" & $steals & " captures=" & $captures &
       " (of those, " & $capturesInZone & " verified inside the engine's own " &
-      "capture zone; carrier stood in zone " & $carrierInZoneTicks &
-      " tick(s)) -> " & args.outPath
+      "capture zone; closest carrier approach " &
+      (if carrierApproachPx < 0: "n/a, nobody carried"
+       else: $carrierApproachPx & "px over " & $carrierTicks & " carry-ticks") &
+      ") -> " & args.outPath
   else:
     echo evidence
 

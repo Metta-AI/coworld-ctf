@@ -137,10 +137,85 @@ def test_baseline_kinds_are_not_interchangeable():
         raise SystemExit("FAIL: Baseline accepted an unknown kind")
 
 
+def test_closest_run_home_merges_as_a_minimum_not_a_sum():
+    """`carrierApproachPx` is a distance, and -1 is NOT a short one.
+
+    The metric it replaced, `carrierInZoneTicks`, was a COUNT and merged by
+    summing. Carrying that habit over would be wrong in two ways that both
+    produce a plausible-looking number: three carry-less episodes would merge
+    to -3 and read as a carrier PAST its own line, and a carry-less FIRST
+    episode would win the minimum and mask a real run home in a later one.
+    """
+    def ep(approach, carry_ticks):
+        return dict(map="m", gw=9, gh=9, ticks=100, occupancy=[0] * 81,
+                    occTeam=[[0] * 81], deaths=[], carries=[], kills=[0],
+                    carrierApproachPx=approach, carrierTicks=carry_ticks)
+
+    mixed = mp.merge([ep(837, 865), ep(44, 300), ep(-1, 0)])
+    check("closest of three episodes", mixed["carrierApproachPx"], 44)
+    check("carry-ticks still SUM", mixed["carrierTicks"], 1165)
+
+    none = mp.merge([ep(-1, 0), ep(-1, 0)])
+    check("no carry anywhere stays -1", none["carrierApproachPx"], -1)
+    check("...and never sums to -2", none["carrierTicks"], 0)
+
+    late = mp.merge([ep(-1, 0), ep(120, 50)])
+    check("a carry-less first episode cannot win the min",
+          late["carrierApproachPx"], 120)
+
+
+def test_zero_conversion_flag_separates_the_three_real_cases():
+    """The whole point of the metric: this flag must say WHICH failure it was.
+
+    It used to route the reader to `carrierInZoneTicks`, which is 0 on every
+    episode ever measured — including both fixtures that CAPTURED — so its
+    advice always resolved to "the objective was never reached" whatever the
+    map did. The numbers below are the real fixture ones: gen-colossal-4team
+    missed by 756px against a 364px ring, draw-nokill by 837px against a 70px
+    ring, and both must read as the same VERDICT despite a 4x board size gap.
+    """
+    def flag_for(approach, ring, carry_ticks=865, steals=2):
+        return mp.zero_conversion_flag(dict(
+            steals=steals, captures=0, flagRing=ring,
+            carrierApproachPx=approach, carrierTicks=carry_ticks))
+
+    doorstep = flag_for(42, 70)
+    for want in ("DOORSTEP", "42px", "RULES or BOT"):
+        if want not in doorstep:
+            raise SystemExit(f"FAIL: want {want!r} in doorstep: {doorstep}")
+    print("  ok  inside the ring reads DIED ON THE DOORSTEP, not a map fault")
+
+    far = flag_for(756, 364, carry_ticks=5346)
+    for want in ("NEVER GOT CLOSE", "2.1x", "run home is where this map loses"):
+        if want not in far:
+            raise SystemExit(f"FAIL: want {want!r} in far miss: {far}")
+    print("  ok  outside the ring reads NEVER GOT CLOSE, and IS a map verdict")
+
+    # The verdict is a ring MULTIPLE, so the small board's 837px and the big
+    # board's 756px land on opposite sides of nothing — both are far — but the
+    # multiple reported differs by the ring, not by the raw px.
+    if "12.0x" not in flag_for(837, 70):
+        raise SystemExit("FAIL: the ring multiple must track the ring")
+    print("  ok  the verdict scales to the ring, not to a px threshold")
+    # Same px, bigger ring: a near miss on a big board must not read as a rout.
+    if "DOORSTEP" not in flag_for(300, 364):
+        raise SystemExit("FAIL: 300px inside a 364px ring is a doorstep")
+    print("  ok  ...so 300px is a doorstep on the board whose ring is 364px")
+
+    none = flag_for(-1, 70, carry_ticks=0)
+    if "ever became a live carry" not in none:
+        raise SystemExit(f"FAIL: -1 is not a distance: {none}")
+    if "0px" in none or "-1" in none:
+        raise SystemExit(f"FAIL: 'nobody carried' printed a distance: {none}")
+    print("  ok  no carry at all is a FIGHT question, never 0px from scoring")
+
+
 if __name__ == "__main__":
     for fn in (test_unapproached_pedestal_is_visible_per_seat,
                test_attack_pairs_see_what_reached_cannot,
                test_two_team_shape_still_works,
+               test_closest_run_home_merges_as_a_minimum_not_a_sum,
+               test_zero_conversion_flag_separates_the_three_real_cases,
                test_baseline_kinds_are_not_interchangeable):
         print(fn.__name__)
         fn()

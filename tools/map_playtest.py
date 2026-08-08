@@ -82,10 +82,62 @@ def merge(datas):
         base["kills"] = [a + b for a, b in zip(base["kills"], d["kills"])]
         for key in ("steals", "captures", "capturesInZone",
                     "carrierInZoneTicks", "ticks", "aliveTicks", "fightTicks",
-                    "closeTicks", "measuredTicks"):
+                    "closeTicks", "measuredTicks", "carrierTicks"):
             base[key] = base.get(key, 0) + d.get(key, 0)
+        # The closest approach is a MINIMUM over episodes, not a sum, and -1
+        # ("nobody carried") is not a distance — summing it would turn three
+        # carry-less episodes into -3, and letting it win the min would report
+        # a carrier past the line. A map is judged on its best run home.
+        near = d.get("carrierApproachPx", -1)
+        if near >= 0 and (base.get("carrierApproachPx", -1) < 0
+                          or near < base["carrierApproachPx"]):
+            base["carrierApproachPx"] = near
     base["episodes"] = len(datas)
     return base
+
+
+def zero_conversion_flag(data):
+    """Steals that never scored — and WHICH of the three failures it was.
+
+    This used to send the reader to `carrierInZoneTicks`: "if that is also 0
+    the objective was never reached; if it is large the carrier reached it and
+    could not score". That number is 0 on every episode ever measured,
+    INCLUDING both fixtures that captured, so the advice always resolved to
+    "never reached" no matter what the map did — it pointed every reader at
+    the wrong diagnosis by construction. `carrierApproachPx` is the number
+    that can actually separate the cases (tools/carrier_zone.nim).
+
+    A function rather than three inline branches so the branches can be
+    asserted directly; the doorstep case is the one no committed fixture
+    currently produces, which is exactly why it needs a test.
+    """
+    approach = data.get("carrierApproachPx", -1)
+    approach = None if approach is None or approach < 0 else approach
+    carry_ticks = data.get("carrierTicks", 0)
+    steals = data["steals"]
+    if approach is None:
+        return (f"{steals} steals converted to ZERO captures, and no steal "
+                "ever became a live carry — the heart was taken and lost "
+                "again on the spot, so this is a FIGHT question at the "
+                "pedestal, not a run-home question")
+    # "Doorstep" is one PEDESTAL RING, not a fixed px count: the ring is the
+    # radius at which this report already calls a player AT an objective, and
+    # it scales with the board (70px on the 1235x659 class, 364px on the
+    # 4992x4992 one), so the same verdict means the same thing on a map 4x the
+    # size. A px threshold would call the big board's near miss a blowout.
+    ring = data.get("flagRing", 0) or 70
+    if approach <= ring:
+        return (f"{steals} steals converted to ZERO captures and the carrier "
+                f"DIED ON THE DOORSTEP: the best run home got within "
+                f"{approach}px of scoring, inside one {ring}px pedestal ring, "
+                f"over {carry_ticks:,} carry-ticks. Reaching the line and not "
+                "scoring is a RULES or BOT question before it is a map "
+                "question")
+    return (f"{steals} steals converted to ZERO captures and THE CARRIER "
+            f"NEVER GOT CLOSE: the best run home still had {approach}px to "
+            f"cover, {approach / ring:.1f}x the {ring}px pedestal ring, over "
+            f"{carry_ticks:,} carry-ticks. The run home is where this map "
+            "loses the objective")
 
 
 def balance_entropy(counts, teams):
@@ -424,6 +476,17 @@ def report(datas, baseline=None):
     conversion = (data["captures"] / data["steals"]
                   if data["steals"] > 0 else None)
     zone_rate = 1000.0 * data["carrierInZoneTicks"] / ticks
+    # HOW CLOSE THE BEST RUN HOME GOT, in px still to cover along the carrier's
+    # ray to its own base. This is what separates "never got near the zone"
+    # from "died on the doorstep"; `carrierInZoneTicks` cannot, because it is
+    # structurally 0 — the engine scores the instant a live carrier's point is
+    # inside its own zone and clears the carry in that same tick, so no
+    # between-steps sample can ever catch the state (tools/carrier_zone.nim,
+    # positive-controlled in tests/test_carrier_zone.nim). None means NOBODY
+    # EVER CARRIED, which is not a distance and must not read as one.
+    approach = data.get("carrierApproachPx", -1)
+    approach = None if approach is None or approach < 0 else approach
+    carry_ticks = data.get("carrierTicks", 0)
     # The engine's own end state, not a guess from the tick count. Three ways
     # an episode can stop and they are three different results: somebody
     # scored, somebody was wiped out, or nobody did anything for the whole
@@ -562,12 +625,7 @@ def report(datas, baseline=None):
                 "the arena's 0.533%. They got there and did not take it, so "
                 "this is a RULES or BOT question before it is a map question")
     if data["captures"] == 0 and data["steals"] > 0:
-        flags.append(f"{data['steals']} steals converted to ZERO captures. "
-                     f"The carrier stood in its own capture zone on "
-                     f"{data['carrierInZoneTicks']} tick(s) — if that is also "
-                     "0 the objective was never reached; if it is large the "
-                     "carrier reached it and could not score, which is a "
-                     "RULES or BOT question before it is a map question")
+        flags.append(zero_conversion_flag(data))
     if data["captures"] != data["capturesInZone"]:
         flags.append(f"HARNESS BUG: {data['captures']} engine captures but "
                      f"{data['capturesInZone']} verified inside the engine's "
@@ -638,8 +696,9 @@ def report(datas, baseline=None):
           f"{ped['attackPairs'] / max(1, ped['possibleAttackPairs']):.0%}")
     print(f"    objective: {data['steals']} steals -> {data['captures']} "
           f"captures ({data['capturesInZone']} verified in zone) = "
-          f"{pct(conversion)} conversion, carrier in zone "
-          f"{data['carrierInZoneTicks']}t ({zone_rate:.1f} per 1000t)")
+          f"{pct(conversion)} conversion, closest run home "
+          + ("n/a, nobody carried" if approach is None else
+             f"{approach}px over {carry_ticks:,} carry-ticks"))
     print(f"    how they ended: {decided}/{episodes} "
           f"{decided / episodes:.0%} on the objective, {by_elim}/{episodes} "
           f"{by_elim / episodes:.0%} by wipeout, {timed_out}/{episodes} "
@@ -680,8 +739,17 @@ def report(datas, baseline=None):
                 pedestalPossibleAttackPairs=ped["possibleAttackPairs"],
                 episodeOutcomes=outcomes, wonByCapture=decided,
                 wonByElimination=by_elim, timedOut=timed_out,
+                # carrierInZoneTicks is kept in the JSON as a TRIPWIRE, not a
+                # measurement: it is 0 by construction today (see the comment
+                # on `approach` above), and the day it goes non-zero the engine
+                # has grown a precondition on capture and every conversion
+                # verdict here needs re-reading. It is deliberately NOT a
+                # column in the comparison table any more — a column that is 0
+                # on every map reads as a measured tie instead of a dead metric.
                 carrierInZoneTicks=data["carrierInZoneTicks"],
                 carrierInZonePer1000t=zone_rate,
+                carrierApproachPx=approach,
+                carrierTicks=carry_ticks,
                 teams=teams,
                 heatmap=str(heat_path), flags=flags)
 
@@ -749,7 +817,16 @@ def comparison(rows):
         ("steals", lambda r: r["steals"]),
         ("captures", lambda r: r["captures"]),
         ("CONVERSION grab->cap", lambda r: pct(r["conversion"])),
-        ("carrier in zone /1000t", lambda r: f"{r['carrierInZonePer1000t']:.1f}"),
+        # Replaces "carrier in zone /1000t", which was 0.0 in every column on
+        # every map ever measured — including the ones that CAPTURED — and so
+        # read as a measured tie rather than the dead metric it was. The
+        # closest run home is the number that separates a board where carriers
+        # never left midfield from one where they died on the line, and it is
+        # shown WITH its carry-tick denominator: one 40px approach off 12
+        # carry-ticks is not the same map result as one off 3,000.
+        ("closest run home", lambda r: "no carry" if r["carrierApproachPx"] is None
+         else f"{r['carrierApproachPx']}px"),
+        ("  over carry-ticks", lambda r: f"{r['carrierTicks']:,}t"),
         None,
         ("deaths", lambda r: r["deaths"]),
         ("kills/1000t", lambda r: f"{r['pace']:.1f}"),
