@@ -2154,12 +2154,16 @@ proc generateMapAttempt*(
     massLo: 2, massHi: 3, centre: centreColonnade)
   block terrain:
     let
-      ## A rot90 board must not straddle EITHER centre line; mirror and rot180
-      ## only the vertical one. `slotBand.hi` deliberately crosses cy on the
-      ## 4-team layouts (the lift used to fill the rest), so a rot90 domain is
-      ## clamped back to a strict quadrant.
+      ## A four-fold board (rot90 or quad-mirror) must not straddle EITHER
+      ## centre line; mirror and rot180 only the vertical one. `slotBand.hi`
+      ## deliberately crosses cy on the 4-team layouts (the lift used to fill
+      ## the rest), so a four-fold domain is clamped back to a strict
+      ## quadrant. Quad-mirror missing from this clamp was why it generated
+      ## NO terrain at all: fundamentalDomain (rightly) refused the
+      ## axis-straddling region, the terrain block broke out, and the board
+      ## went to validation as bare cover pickets.
       domainHiY =
-        if result.symmetry == symRot90: cy - 1
+        if result.symmetry in {symRot90, symQuadMirror}: cy - 1
         else: result.height - ArenaBorder
       ## The FULL playable band, not `slotBand`. That inset (border + 30)
       ## existed to keep column slots off the wall; a lane network has to
@@ -2202,7 +2206,8 @@ proc generateMapAttempt*(
     ## fill nine times.
     var topologyRng = root.stream(SceneTopology)
     archPlan = planArchetype(archetype, topologyRng, board, region,
-      result.teamAnchor(Red), rules, quadrant = result.symmetry == symRot90)
+      result.teamAnchor(Red), rules,
+      quadrant = result.symmetry in {symRot90, symQuadMirror})
 
     ## VOCABULARY MASSES FIRST, then the biome texture around them.
     ##
@@ -2812,6 +2817,105 @@ proc generateMapAttempt*(
   ## image's true footprint (rather than "this row is handled") keeps the
   ## in-band test intact — an image that falls outside the `ax..bx` sightline
   ## band is written where it really is, and correctly fails to cover the row.
+  ## COLUMN COVER — the row cover transposed, quad-mirror only, and it runs
+  ## FIRST so the row pass credits its wall. rot90's row coverage carries onto
+  ## its columns by the quarter turn; a rectangular quad-mirror board has no
+  ## such carry and its N/S teams fight along y, so its columns get the same
+  ## interval-cover CONSTRUCTION the rows do (one placement per uncovered
+  ## interval, computed on the true mask, no RNG, no budget) — never main's
+  ## old random-plug repair.
+  ##
+  ## Three cost decisions, because a second axis is a second bill and the
+  ## cover ceiling was cut on a one-axis board (the §3.5.1 lesson — make the
+  ## necessary spend minimal before you argue about the band):
+  ##   * fold to the LEFT half: the lifted mask is mirrorX-symmetric, so an
+  ##     uncovered right-half column is its left reflection's problem and the
+  ##     seed's own image retires it for free;
+  ##   * RIBBONS, not pickets: a 12 px-tall horizontal bar buys ~6 px of wall
+  ##     per column retired against a 26x24 picket's ~24 px — the same reason
+  ##     main's quad plugs used "the bracket's 12 px vocabulary";
+  ##   * capped at street width (68 px) with the same lane/reserved/endzone
+  ##     guards as the row pass, so cover stays punctuation, never a wall.
+  block columnCover:
+    if result.symmetry != symQuadMirror:
+      break columnCover
+    const
+      RibbonH = 12
+      RibbonWMax = 68
+    let
+      w = result.width
+      ay = result.sightlineLoY
+      by = result.sightlineHiY
+      loY = max(ArenaBorder + 2, ay)
+      hiY = min(result.center.y - RibbonH - 2, by)
+    if hiY <= loY: break columnCover
+    var (maxWallC, minWallC) = rasterizeWallMasks(
+      result, buildArenaObstacles(result))
+    maxWallC.setLen(0)
+    proc colOpen(gm: CtfMap, x: int): bool =
+      ## Open = no always-wall anywhere in the band AND the column could
+      ## legally hold wall (an all-protected column is open by DESIGN and the
+      ## validator exempts it — see the vertical scan there). Takes the map
+      ## as a parameter: inside a nested proc `result` is the proc's own.
+      for y in ay .. by:
+        if minWallC[y * w + x]:
+          return false
+      for y in ay .. by:
+        if not mapProtectedFloorAt(gm, x, y):
+          return true
+      false
+    var x = ArenaBorder + 2
+    while x < result.center.x:
+      if not colOpen(result, x):
+        x += 4
+        continue
+      ## The ribbon starts a hair before the open column and spans toward the
+      ## centre, retiring the whole uncovered run it can reach in one piece.
+      ## It may TOUCH the symmetry axis (never straddle it): a ribbon ending
+      ## at center.x meets its own mirrorX image starting there, so the
+      ## centre seam holds wall — stopping short leaves a permanently open
+      ## central corridor no seed shape could ever cover.
+      let
+        rx = max(ArenaBorder, x - 2)
+        rw = min(RibbonWMax, result.center.x - rx)
+      if rw < 8: break columnCover
+      var placed = false
+      for relaxed in [false, true]:
+        for step in 0 ..< ((hiY - loY) div 8 + 1):
+          let ry = loY + step * 8
+          if ry > hiY: break
+          let candidate = ArenaShape(kind: shapeRect, rect: MapRect(
+            x: rx, y: ry, w: rw, h: RibbonH))
+          if not mapProtectedFloorAt(result, rx, ry + RibbonH div 2) and
+             not mapProtectedFloorAt(result, rx + rw - 1, ry + RibbonH div 2) and
+             not mapProtectedFloorAt(result, rx + rw div 2, ry) and
+             not result.sealsEndzoneGate(candidate) and
+             (relaxed or not archPlan.reservesBounds(
+               rx, ry, rx + rw - 1, ry + RibbonH - 1)) and
+             (relaxed or not haveLanes or not lanePlan.intrudesOnLane(candidate)):
+            result.leftObstacles.add candidate
+            ## Credit the ribbon and its three Klein images on this scan's
+            ## mask; the row pass rebuilds its own mask from leftObstacles a
+            ## few lines down, so the rows it covers are credited there too.
+            for img in [candidate,
+                        candidate.mirrorX(result.width),
+                        candidate.mirrorY(result.height),
+                        candidate.rot180(result.width, result.height)]:
+              let b = shapeBounds(img)
+              for yy in max(b.y0, 0) .. min(b.y1, result.height - 1):
+                for xx in max(b.x0, 0) .. min(b.x1, w - 1):
+                  if not mapProtectedFloorAt(result, xx, yy):
+                    minWallC[yy * w + xx] = true
+            placed = true
+            break
+        if placed: break
+      if placed:
+        x = max(x + 4, rx + rw)
+      else:
+        ## No legal seat even relaxed (all protected / endzone gate): the
+        ## validator will exempt or reject this column on its merits.
+        x += 4
+
   block rowCover:
     const PicketW = 24
     let
@@ -2946,6 +3050,7 @@ proc generateMapAttempt*(
             break
         if placed: break
       inc y
+
   ## Glass windows: fog sees through them, nothing passes them. Biased to
   ## the outermost column and the midline band, where sightlines matter.
   let windowsDraw =
