@@ -3043,9 +3043,15 @@ proc shippedCombatTune(): CombatTune =
   # once armedRush got its range floor). But a MIRROR cannot score it: the change is symmetric,
   # so both sides get the same latch and the marginal advantage cancels — measured as a null
   # that flips sign across seatings. Same category as medEcon/shieldTank/avoidDisarm, whose
-  # upside was field-only. TOUCH=1 arms it for the hosted ASYMMETRIC A/B that is the correct
-  # gate. Do not flip this default without that field result.
-  result.touchCommit = getEnv("TOUCH").len > 0
+  # upside was field-only. TOUCH=1 armed it for the hosted ASYMMETRIC A/B that is the correct
+  # gate — and that gate PASSED (v30, 2026-07-30: 800-ep hosted field A/B, +2.7pp win rate,
+  # caps +29%, positive in 4/4 cells; see tournaments/submissions.md + the results ledger).
+  # v30 then shipped it via a container `ENV TOUCH=1` in a THROWAWAY /tmp build context that
+  # never entered git — so every git-built image since the 07-22 import ran with this lever
+  # silently DARK (discovered by the 2026-08-08 progression audit: image env inspection of
+  # picasso:v44/v45 shows no TOUCH). Promotion earned, promotion executed: default ON in
+  # code, NOTOUCH=1 is the opt-out. Never gate a shipped lever on container env again.
+  result.touchCommit = getEnv("NOTOUCH").len == 0
   # ⭐ woundedBank (plan #13): the hp-keyed wounded survival posture. UNPROVEN —
   # stays ENV-ARMED ONLY until the pre-registered A/B passes (the contaminated-
   # control trap, failed.md: never bake an unproven lever into the champion
