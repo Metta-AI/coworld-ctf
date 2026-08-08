@@ -126,18 +126,88 @@ suite "polygon obstacles":
       MapPoint(x: 210, y: 150), MapPoint(x: 268, y: 172),
       MapPoint(x: 252, y: 262), MapPoint(x: 188, y: 250),
       MapPoint(x: 172, y: 198)])]
-    let obstacles = buildArenaObstacles(base)
-    var sawWall = false
-    var y = 30
-    while y < base.height - 30:
-      var x = 30
-      while x < base.width - 30:
-        let inside = mapWallAt(base, obstacles, x, y)
-        check inside == mapWallAt(base, obstacles, base.width - 1 - x, y)
+    ##
+    ## EVERY pixel, not every 9th. The stride this used to walk is why a real
+    ## fairness bug shipped GREEN: `pointInPolygon` counted edges on a strict
+    ## straddle, which dropped BOTH edges at any vertex whose neighbours
+    ## straddled its row and inverted the even-odd parity across the rest of
+    ## that row — 274 asymmetric px in this very fixture, 8,770 in the CAVES
+    ## style — and a 9 px stride stepped over all of them. A fairness test that
+    ## samples sparsely is worse than no test, because it gets believed.
+    ##
+    ## Compares the POLYGON RASTERIZATION against its own mirror image, not
+    ## `mapWallAt` — `mapProtectedFloorAt` carries a separate, older asymmetry
+    ## of its own (522 px on a standard column-endzone board, present on maps
+    ## with no polygon in them at all), and folding that in here would blame
+    ## this primitive for someone else's bug. Map-wide wall symmetry on real
+    ## generated boards is asserted below, where it is exactly 0.
+    let
+      obstacles = buildArenaObstacles(base)
+      left = obstacles[0]
+      right = obstacles[1]
+    var
+      sawWall = false
+      asymmetric = 0
+    for y in 0 ..< base.height:
+      for x in 0 ..< base.width:
+        let inside = pointInPolygon(x, y, left.points)
+        if inside != pointInPolygon(base.width - 1 - x, y, right.points):
+          inc asymmetric
         if inside: sawWall = true
-        x += 9
-      y += 9
+    check asymmetric == 0
     check sawWall
+
+  test "a polygon with vertices alone on their scan row is exactly symmetric":
+    ## The shape that used to break. Sort ANY convex quad's corners by y and
+    ## the middle two sit alone on their rows, so this is not an exotic input,
+    ## it is the general one. Measured 538 asymmetric px before the fix, 0
+    ## after.
+    var base = generateMapAttempt(5, MapGenOverrides(
+      size: "standard", symmetry: "mirror", windows: -1, pits: 0,
+      pitDensity: -1))
+    base.leftObstacles = @[ArenaShape(kind: shapePolygon, points: @[
+      MapPoint(x: 180, y: 120), MapPoint(x: 300, y: 190),
+      MapPoint(x: 260, y: 330), MapPoint(x: 150, y: 240)])]
+    let
+      obstacles = buildArenaObstacles(base)
+      left = obstacles[0]
+      right = obstacles[1]
+    var
+      asymmetric = 0
+      wall = 0
+      emptyInteriorRows = 0
+    for y in 0 ..< base.height:
+      var rowWall = 0
+      for x in 0 ..< base.width:
+        let inside = pointInPolygon(x, y, left.points)
+        if inside:
+          inc wall
+          inc rowWall
+        if inside != pointInPolygon(base.width - 1 - x, y, right.points):
+          inc asymmetric
+      ## Second symptom, same root cause: a row INSIDE the shape that comes
+      ## back empty is a 1 px horizontal hole straight through a barrier — it
+      ## leaks line of sight and trips the open-sightline validator.
+      if y > 121 and y < 329 and rowWall == 0:
+        inc emptyInteriorRows
+    check wall > 0
+    check asymmetric == 0
+    check emptyInteriorRows == 0
+
+  test "a point exactly on a polygon edge is inside, from either side":
+    ## The on-edge residue, which the half-open y rule alone does NOT fix: the
+    ## parity test flips on crossings strictly to one side of the sample, and
+    ## reflection swaps which side, so a sample sitting exactly on an edge
+    ## differed between a shape and its mirror (118 px on a quad, 60 on a
+    ## 24-gon, even after half-open). Deciding on-boundary explicitly is the
+    ## only reflection-invariant answer.
+    let tri = @[MapPoint(x: 0, y: 0), MapPoint(x: 100, y: 0),
+                MapPoint(x: 0, y: 100)]
+    check pointInPolygon(0, 0, tri)        ## a vertex
+    check pointInPolygon(50, 0, tri)       ## the horizontal edge
+    check pointInPolygon(0, 50, tri)       ## the vertical edge
+    check pointInPolygon(50, 50, tri)      ## the diagonal itself
+    check not pointInPolygon(51, 50, tri)  ## just outside it
 
   test "a polygon obstacle round-trips through mapSpec":
     var base = generateMapAttempt(
@@ -150,3 +220,31 @@ suite "polygon obstacles":
     let rt = mapFromSpecJson(mapSpecJson(base))
     check rt.leftObstacles == @[poly]
     check rt.trenches == @[poly]
+
+suite "generated boards are exactly wall-symmetric":
+  test "every real generated map mirrors its walls bit for bit":
+    ## The end-to-end form of the `pointInPolygon` fairness fix, at EVERY pixel
+    ## on real generator output. Measured 0 asymmetric wall px across these
+    ## seeds and both symmetries after the fix.
+    ##
+    ## KNOWN SEPARATE DEFECT, deliberately not asserted here: the same sweep
+    ## finds `mapProtectedFloorAt` asymmetric by 522 px on a standard
+    ## column-endzone board and 1012 px on a square-endzone one, on maps
+    ## containing no polygons at all. Different function, different root cause,
+    ## not fixed by this change — see the commit message.
+    for seed in [5, 1000, 1003]:
+      for sym in ["mirror", "rot180"]:
+        let base = generateMapAttempt(seed, MapGenOverrides(
+          size: "standard", symmetry: sym, windows: -1, pits: 0,
+          pitDensity: -1))
+        let obstacles = buildArenaObstacles(base)
+        var asymmetric = 0
+        for y in 0 ..< base.height:
+          for x in 0 ..< base.width:
+            let (mx, my) =
+              if sym == "mirror": (base.width - 1 - x, y)
+              else: (base.width - 1 - x, base.height - 1 - y)
+            if mapWallAt(base, obstacles, x, y) !=
+                mapWallAt(base, obstacles, mx, my):
+              inc asymmetric
+        check asymmetric == 0

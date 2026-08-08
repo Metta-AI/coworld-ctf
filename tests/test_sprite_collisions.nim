@@ -143,7 +143,8 @@ suite "sprite id collisions":
     config.teams = 4
     config.mapPath = "gen"
     config.mapGen.layout = "corners"
-    config.mapSeed = 42
+    config.mapSeed = 44
+    # Seed 44, not 42 — see tests/test_four_team.nim.
     var game = initCtfForTest(config)
     for i in 0 ..< 8:
       discard game.addPlayer("p" & $i)
@@ -222,7 +223,8 @@ suite "sprite id collisions":
     config.teams = 4
     config.mapPath = "gen"
     config.mapGen.layout = "corners"
-    config.mapSeed = 42
+    config.mapSeed = 44
+    # Seed 44, not 42 — see tests/test_four_team.nim.
     var game = initCtfForTest(config)
     for i in 0 ..< 8:
       discard game.addPlayer("p" & $i)

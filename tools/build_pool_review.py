@@ -21,13 +21,49 @@ render_dir = pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else repo / "pool-pr
 out_path = pathlib.Path(sys.argv[2]) if len(sys.argv) > 2 else repo / "docs" / "pool-review.html"
 
 manifest = json.loads((render_dir / "manifest.json").read_text())
-SIZE_NAMES = {1050: "small", 1235: "standard", 1606: "large",
-              2223: "huge", 3211: "giant"}
+
+
+def size_of(entry):
+    """The map's size class, named by Nim in the manifest.
+
+    This used to be a width -> name dict living here, which meant the review
+    page KeyError'd on any width it had not been told about and a new size
+    class could not ship. The canonical table is
+    src/ctf/map_rules.nim MapSizeClassTable; tools/render_map_pool.nim reads
+    it and writes the resolved name into the manifest, so this file now has
+    no map knowledge at all.
+    """
+    name = entry.get("sizeClass")
+    if not name:
+        raise SystemExit(
+            f"manifest entry {entry.get('index', '?')} has no 'sizeClass'. "
+            "Re-render with a current tools/render_map_pool.nim:\n"
+            f"  nim c -r tools/render_map_pool.nim {render_dir}")
+    return name
+
+
+# Every class, symmetry and endzone the manifest actually contains — so a class
+# added to the Nim table shows up in the summary line and the filter bar
+# without touching this file. Sizes order by the width they were rendered at
+# (small -> colossal, derived from the data rather than from a list here);
+# the rest order alphabetically.
+def observed(key_fn, sort_key=None):
+    seen = {}
+    for entry in manifest:
+        value = key_fn(entry)
+        seen.setdefault(value, entry)
+    order = sort_key or (lambda kv: kv[0])
+    return [k for k, _ in sorted(seen.items(), key=order)]
+
+
+sizes = observed(size_of, sort_key=lambda kv: kv[1]["width"])
+symmetries = observed(lambda m: m["symmetry"])
+endzones = observed(lambda m: m.get("endzone", "column"))
 
 cards = []
 for m in manifest:
     b64 = base64.b64encode((render_dir / m["file"]).read_bytes()).decode()
-    size = SIZE_NAMES[m["width"]]
+    size = size_of(m)
     kits = ", ".join(f"({x},{y})" for x, y in m["medKitSpawns"])
     endzone = m.get("endzone", "column")
     zone_note = (
@@ -48,12 +84,33 @@ for m in manifest:
   </div>
 </article>''')
 
-counts = {"small": 0, "standard": 0, "large": 0, "huge": 0, "giant": 0,
-          "mirror": 0, "rot180": 0, "column": 0, "disc": 0, "square": 0}
+counts = {}
 for m in manifest:
-    counts[SIZE_NAMES[m["width"]]] += 1
-    counts[m["symmetry"]] += 1
-    counts[m.get("endzone", "column")] += 1
+    for key in (size_of(m), m["symmetry"], m.get("endzone", "column")):
+        counts[key] = counts.get(key, 0) + 1
+
+
+def summary(keys, label):
+    return " / ".join(f"{counts.get(k, 0)} {k}" for k in keys) + f" {label}"
+
+
+def filter_buttons(kind, keys):
+    return "\n    ".join(
+        f'<button data-f="{kind}:{k}" aria-pressed="false">{k}</button>'
+        for k in keys)
+
+
+head_line = " &middot; ".join([
+    f"{len(manifest)} maps",
+    summary(sizes, "").strip(),
+    summary(symmetries, "").strip(),
+    summary(endzones, "endzones"),
+])
+buttons = "\n    ".join([
+    filter_buttons("size", sizes),
+    filter_buttons("sym", symmetries),
+    filter_buttons("endzone", endzones),
+])
 
 html = f'''<!doctype html>
 <html lang="en">
@@ -104,18 +161,9 @@ h1 .gv {{ color:var(--glass); }}
 <div class="wrap">
 <header class="top"><div>
   <h1>CTF terrain pool <span class="gv">config-gated (mapPath "pool")</span></h1>
-  <span class="sub">{len(manifest)} maps &middot; {counts['small']} small / {counts['standard']} standard / {counts['large']} large / {counts['huge']} huge / {counts['giant']} giant &middot; {counts['mirror']} mirror / {counts['rot180']} rot180 &middot; {counts['column']} column / {counts['disc']} disc / {counts['square']} square endzones</span>
+  <span class="sub">{head_line}</span>
   <span class="filters">
-    <button data-f="size:small" aria-pressed="false">small</button>
-    <button data-f="size:standard" aria-pressed="false">standard</button>
-    <button data-f="size:large" aria-pressed="false">large</button>
-    <button data-f="size:huge" aria-pressed="false">huge</button>
-    <button data-f="size:giant" aria-pressed="false">giant</button>
-    <button data-f="sym:mirror" aria-pressed="false">mirror</button>
-    <button data-f="sym:rot180" aria-pressed="false">rot180</button>
-    <button data-f="endzone:column" aria-pressed="false">column</button>
-    <button data-f="endzone:disc" aria-pressed="false">disc</button>
-    <button data-f="endzone:square" aria-pressed="false">square</button>
+    {buttons}
   </span>
 </div></header>
 <p class="hint">scroll to zoom &middot; drag to pan &middot; double-click to reset &middot; filters narrow the grid &middot; regenerate: tools/render_map_pool.nim + tools/build_pool_review.py</p>

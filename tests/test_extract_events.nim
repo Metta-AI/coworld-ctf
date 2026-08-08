@@ -6,8 +6,10 @@ import
 
 const
   # The event-substrate fixture: a full 16-bot match recorded against the
-  # CURRENT gameplay rules (GameVersion 41, seed 907, lives 9:
-  #   record_fixture.sh tests/replays/ctf.bitreplay 907 10000 '{"lives":9}')
+  # CURRENT gameplay rules (GameVersion 42, seed 907, lives 9:
+  #   record_fixture.sh tests/replays/ctf.bitreplay 907 10000 '{"lives":9,"barrageMaxPerSec":0}')
+  # (barrageMaxPerSec:0 — config.json now defaults the barrage on; pin it off
+  # so the match ends at the time limit instead of the barrage grinding on.)
   # — kills across ALL THREE weapons, steals and heals, ending at the time
   # limit (a scoreless draw exercises the draw verdict path too; seed 908's
   # GV40 recording lost its spray kill under the GV41 no-overtime clock, so

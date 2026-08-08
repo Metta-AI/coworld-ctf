@@ -1,22 +1,15 @@
 import
   helpers,
-  std/[sequtils, tables, unittest],
+  std/[sequtils, unittest],
   ctf/sim, ctf/map_pool
-
-var mapCache = initTable[string, CtfMap]()
 
 proc cachedMap(seed: int,
     overrides = MapGenOverrides(windows: -1, pits: -1, pitDensity: -1),
     teams = 2): CtfMap =
-  ## generateCtfMap memoized per (seed, overrides, teams): generation is
-  ## deterministic (the "same seed" test pins that on every run), so the
-  ## tests that assert different properties of the SAME map share one build.
-  ## Determinism checks keep calling generateCtfMap directly — a cache hit
-  ## would make them vacuous.
-  let key = $seed & "|" & $teams & "|" & $overrides
-  if key notin mapCache:
-    mapCache[key] = generateCtfMap(seed, overrides, teams)
-  mapCache[key]
+  ## This module's local name for `helpers.cachedCtfMap`. The memo moved to
+  ## helpers so it is shared with the OTHER modules in this shard that sweep
+  ## the same pool — `test_endzone_shapes` was rebuilding all 20 maps.
+  cachedCtfMap(seed, overrides, teams)
 
 proc obstacleAt(obstacles: seq[ArenaShape], x, y: int): bool =
   ## Raw obstacle-union test (no border, no protected-floor carve). On
@@ -35,18 +28,41 @@ suite "procedural terrain":
   test "same seed generates the same map":
     check generateCtfMap(4242) == generateCtfMap(4242)
 
-  test "every pool seed validates on its first attempt":
+  test "every pool seed ships a valid map under its own seed":
+    ## Renamed from "validates on its first attempt". `cachedMap` goes through
+    ## `generateCtfMap`, so what this has always actually checked is the
+    ## SHIPPED map — and first-attempt validity is no longer the curation rule
+    ## (`tools/gen_map_pool.nim` curates on the shipped best-of-K map now).
+    ##
+    ## `genSeed == seed` is the load-bearing half. The old re-roll walked
+    ## `seed + attempt`, so a pool entry needing one re-roll silently became a
+    ## DIFFERENT seed on a different board size — the first draw off the flat
+    ## stream was the size class. That is why the pool used to have to demand
+    ## first-attempt validity. It is structural now: every candidate for a
+    ## seed is the same board, under the same seed.
     var widths: seq[int]
     for seed in MapPoolSeeds:
       let gameMap = cachedMap(seed)
       check gameMap.genSeed == seed
       check validateGeneratedMap(gameMap) == ""
       widths.add gameMap.width
-    ## The curated pool spans every size class, including the two oversize
-    ## ones (huge 2223, giant 3211 — the giant scale is the old "large"
-    ## ceiling doubled).
-    for w in [1050, 1235, 1606, 2223, 3211]:
-      check w in widths
+    ## The curated pool spans every size class the POOL'S OWN MODE can draw.
+    ##
+    ## That used to be all five, because the size draw was uniform and `teams`
+    ## chose only the shell family. It is now the classes whose area suits the
+    ## roster the pool is generated at — 2 teams at the shipping 8 per side,
+    ## for which `map_rules.legalSizeNames` is {small, standard}. A 16-player
+    ## match on a giant board is 6.8x the area that roster wants, and 22.7 s to
+    ## first contact at 6 teams x 1 was the reductio that motivated the change.
+    ##
+    ## Asserted against `legalSizeNames` rather than against a width list, so
+    ## this test cannot go stale the way the old literal list did.
+    let legal = legalSizeNames(2, fitMapSize(2).unitsPerTeam)
+    check legal.len >= 2
+    for name in legal:
+      check sizeClassOf(name).boardDims(boardRect2).width in widths
+    for w in widths:
+      check sizeClassOf(MapSizeClass(sizeClassOfWidth(w)).sizeName()).sizeName() in legal
 
   test "obstacle union is exact under the map's symmetry":
     for seed in [MapPoolSeeds[0], MapPoolSeeds[1], 777]:

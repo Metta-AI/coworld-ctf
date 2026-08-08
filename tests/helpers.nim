@@ -8,11 +8,50 @@
 ## call, exactly like every local copy did.
 
 import
-  std/os,
+  std/[os, tables],
   bitworld/spriteprotocol,
-  ctf/[global, sim]
+  ctf/[global, map_pool, sim]
 
 const GameDir* = currentSourcePath.parentDir.parentDir
+
+# ---------------------------------------------------------------------------
+# Generated-map memo
+#
+# `generateCtfMap` is a best-of-K search — 12 candidates on a small board, 8 on
+# a standard one — and one call measures 0.7-2.2 s. Several modules assert
+# different properties of the SAME maps, and a shard is ONE binary, so an
+# uncached sweep pays that cost once per module rather than once per run.
+#
+# Measured on this tree with `tests/timed_shard_N.nim`: the two slowest shards
+# each carried exactly one duplicate full-pool sweep — shard 3 regenerated the
+# pool in `test_endzone_shapes` (18.1 s) after `test_mapgen` had already built
+# it, shard 4 in `test_map_eval` (20.2 s) after `test_trenches`. Both are the
+# identical 20 maps: `poolCtfMap(i)`, `loadCtfMapMetadata("pool:" & $i)` and
+# `generateCtfMap(MapPoolSeeds[i])` all resolve to the same call with the same
+# default overrides.
+#
+# Generation is deterministic (pinned by "same seed generates the same map"),
+# so sharing one build is sound. Determinism checks must keep calling
+# `generateCtfMap` DIRECTLY — a cache hit would make them vacuous.
+
+var generatedMapCache = initTable[string, CtfMap]()
+
+proc cachedCtfMap*(seed: int,
+    overrides = MapGenOverrides(windows: -1, pits: -1, pitDensity: -1),
+    teams = 2): CtfMap =
+  ## `generateCtfMap` memoized per (seed, overrides, teams), shared across
+  ## every test module in the shard binary.
+  let key = $seed & "|" & $teams & "|" & $overrides
+  if key notin generatedMapCache:
+    generatedMapCache[key] = generateCtfMap(seed, overrides, teams)
+  generatedMapCache[key]
+
+proc cachedPoolMap*(index: int): CtfMap =
+  ## One curated-pool map, memoized. Keyed through `cachedCtfMap` on the pool
+  ## SEED rather than on the index, so a caller sweeping `MapPoolSeeds`
+  ## directly shares the entry with one sweeping indices.
+  let n = MapPoolSeeds.len
+  cachedCtfMap(MapPoolSeeds[((index mod n) + n) mod n])
 
 proc initCtfForTest*(config = defaultGameConfig()): SimServer =
   ## Initializes the CTF sim from the game directory (so data/ resolves).

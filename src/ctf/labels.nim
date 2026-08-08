@@ -155,6 +155,20 @@ const
     ## stream also carries the endzone glow overlays,
     ## `endzone <color> power <n>` — match the third token against the shape
     ## vocabulary (or the `power` literal) before parsing corners.
+  LabelPrefixTeamScore* = "team score "
+    ## The scoreboard chip above the field, `team score <TEAM> <kills>/<deaths>`
+    ## — one per team in the game, board/spectator stream only. The team token is
+    ## UPPERCASE (`RED`, not `red`), unlike every `<color>` slot above.
+    ##
+    ## BOTH numbers are LIVE COUNTERS, and the `/` is a separator, not the fixed
+    ## contract denominator it is in `hp <lit>/<total>`. That distinction is the
+    ## whole reason this family got a home here: the label was a bare string
+    ## concat in global.nim, outside this vocabulary, and the contract test's
+    ## "digits after a slash are literal" rule — written for the hp denominator —
+    ## silently pinned one sweep's DEATH COUNT into the golden manifest. A map
+    ## change that made the fixture's last shot land bumped Blue's deaths 1 -> 2
+    ## and the vocabulary guard reported a phantom new label. See
+    ## `labelTeamScore` and the normalizer in tests/test_label_contract.nim.
   LabelPrefixHandicap* = "handicap "
     ## The per-team handicap marker,
     ## `handicap <color> <permille> hp <n> lives <n> spd <n> miss <n>`: an
@@ -334,6 +348,20 @@ proc labelHp*(lit: int): string =
   ## `total` parameter would preserve exactly that — two callers, two beliefs,
   ## still no check — so the total is not a parameter at all.
   LabelPrefixHp & $lit & "/" & $LabelHpBarSegments
+
+proc labelTeamScore*(teamName: string; kills, deaths: int): string =
+  ## One team's scoreboard chip label, `team score <TEAM> <kills>/<deaths>`,
+  ## where `teamName` is the UPPERCASE team word. A consumer matches
+  ## LabelPrefixTeamScore and splits the tail on the space into
+  ## `["<TEAM>", "<kills>/<deaths>"]`, then splits the tally on the slash.
+  ##
+  ## Both tallies are team-wide running counts for the episode so far, so
+  ## neither is a fixed value anything may pin — contrast `labelHp`, whose
+  ## denominator is a contract constant two independent implementations have to
+  ## agree on. Nothing in players/baseline/ scans this label: it is scoreboard
+  ## chrome, and the per-team kill/death tallies it states are also readable
+  ## from the analysis event stream.
+  LabelPrefixTeamScore & teamName & " " & $kills & "/" & $deaths
 
 proc labelGameParams*(teams, mapWidth, mapHeight: int): string =
   ## The episode-parameter marker label,

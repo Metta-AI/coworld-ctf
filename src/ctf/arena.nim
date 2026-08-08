@@ -13,6 +13,33 @@ import
   sim_types
 
 import map_pool
+# `map_rules` owns the canonical size-class table and the derived per-regime /
+# per-team-count design parameters. Re-exported so everything that already
+# imports `arena` (or `sim`, which re-exports it) reaches them without a new
+# import — including `tools/gen_map_pool.nim`, which used to carry its own copy
+# of the class widths as five literals that RAISED on any sixth.
+import map_rules
+export map_rules
+# `map_seed` owns the generator's randomness: one root seed, one derived
+# sub-stream per stage. Re-exported for the same reason — the structure pass
+# and the map tools all reach `stream`/`spawn` through `arena` or `sim`.
+import map_seed
+export map_seed
+# The generator's two terrain layers. `map_lanes` owns the route SKELETON —
+# k-fold disjoint corridors with a Menger certificate, plus the gates that
+# make "no unbroken sightline" a property of the construction. `mapgen_biomes`
+# owns the organic FILL that sits in what the skeleton leaves. Neither works
+# alone: measured, fill alone is 0/30 valid (every failure an open sightline)
+# and skeleton+fill is 29/30.
+import map_lanes
+import mapgen_biomes
+import mapgen_vocab
+# `map_archetypes` owns the ROUTE TOPOLOGY — which of six graphs a seed draws,
+# and the corridors it reserves before any fill is emitted. Re-exported so the
+# map tools can name a tile's archetype through `arena` alone.
+import map_archetypes
+export map_archetypes
+from std/random import Rand, initRand
 
 proc validateMapRect(name: string, rect: MapRect, width, height: int) =
   ## Raises if one map rectangle is outside the map.
@@ -295,8 +322,37 @@ proc axisHomeLo(center, depth: int): int =
   center - (center * depth div 1000)
 
 proc axisHomeHi(center, size, depth: int): int =
-  ## Returns the high-edge home anchor along one axis (the classic Blue
-  ## home-x formula at depth 700).
+  ## Returns the high-edge home anchor along one axis.
+  ##
+  ## ⚠ KNOWN SHIPPED TEAM-FAIRNESS BUG, diagnosed and measured but NOT fixed
+  ## here. This computes the same formula as `axisHomeLo` read from the other
+  ## end, and it lands ONE PIXEL OFF the mirror: on the standard board Red's
+  ## anchor is 186, so Blue's should be 1235 - 1 - 186 = 1048, and this gives
+  ## 1049.
+  ##
+  ## That one pixel matters, because every SHAPE on the
+  ## board is mirrored at `width - 1 - x` while the anchor was placed at
+  ## `width - x`. The two disagreed across the seam, so `mapProtectedFloorAt`
+  ## contradicted itself over exactly two 1-px columns — x=256 and x=978 on
+  ## standard, 261 rows each, 522 px per board. Red's spawn pocket was
+  ## [116, 256] whose exact mirror is [978, 1118], while Blue's actual pocket
+  ## was [979, 1119]. Any obstacle overlapping a pocket edge was therefore
+  ## STONE FOR ONE TEAM AND FLOOR FOR THE OTHER. Measured on every class under
+  ## both symmetries: small 688 px, standard 522, large 1044, huge 938-1772,
+  ## giant 1354. The stock generator's obstacles happened to miss those two
+  ## columns on the seeds anyone had looked at — luck, not correctness; tiled
+  ## vocabulary shapes hit them immediately.
+  ##
+  ## When it is fixed, derive it from `axisHomeLo` (`size - 1 - lo`) rather
+  ## than repairing this arithmetic, so the two anchors cannot drift apart
+  ## again whatever `depth` does.
+  ## NOT YET APPLIED — see the blast radius above. The corrected form is
+  ##     size - 1 - axisHomeLo(center, depth)
+  ## which is verified to clear the seam (522 px -> 0 on standard). It moves
+  ## Blue's spawn by one pixel, which is a SIM-BEHAVIOUR change: it breaks
+  ## every recorded replay fixture's hash and alters the HAND-AUTHORED arena,
+  ## so it needs a GameVersion bump and a fixture re-record, exactly as the
+  ## GV38 grenade change did. Flagged rather than taken unilaterally.
   center + ((size - center) * depth div 1000)
 
 proc rot90Point*(p: MapPoint, side: int): MapPoint {.inline.} =
@@ -1009,17 +1065,40 @@ proc inRect*(x, y: int, rect: MapRect): bool =
     y >= rect.y and y < rect.y + rect.h
 
 proc pointInPolygon*(x, y: int, pts: seq[MapPoint]): bool =
-  ## Integer even-odd point-in-polygon over a closed ring. An edge is counted
-  ## only when the scan line at `y` lies STRICTLY between the edge's endpoints
-  ## (`ylo < y < yhi`). That strict straddle is the key: it is symmetric under
-  ## the integer coordinate reflections the map uses — mirror (x -> w-1-x) and
-  ## rot180 (x,y -> w-1-x, h-1-y) — so a polygon and its symmetry image
-  ## rasterize to bit-for-bit mirror-symmetric wall masks. That exactness is
-  ## the team-fairness invariant the diamond (integer-offset) and diagonal
-  ## (int64) tests also protect. Edges that merely touch the scan line at a
-  ## vertex are skipped identically on both sides, so at worst a shape loses a
-  ## 1px sliver at a y-extremum — symmetrically, so fairness holds. int64
-  ## throughout: cross products of map-scale coords overflow int32 on wasm.
+  ## Integer even-odd point-in-polygon over a closed ring, using the standard
+  ## HALF-OPEN rule `(yi > y) != (yj > y)`: an edge is counted when exactly one
+  ## endpoint is strictly above the scan line. Every crossing is counted exactly
+  ## once, the per-row crossing count is always even, and horizontal edges
+  ## contribute nothing — which is correct, since a horizontal edge enters and
+  ## leaves on the same row.
+  ##
+  ## THIS USED TO BE A STRICT STRADDLE (`ylo < y < yhi`) and the comment here
+  ## claimed the strictness is what bought reflection symmetry. It bought the
+  ## opposite, and it was a shipped team-fairness bug. A vertex whose two
+  ## neighbours sit on opposite sides of its scan row has BOTH of its edges
+  ## skipped (that vertex is an endpoint of each, so `y == ylo` on one and
+  ## `y == yhi` on the other). The row loses one crossing, so the even-odd
+  ## parity INVERTS across the whole rest of it — and under the mirror the
+  ## inversion lands on the other side of the board, so the two teams got
+  ## different walls. Measured before the fix: a plain convex quad against its
+  ## own mirror image differed on 538 px, and the shipped `mapgen_styles` CAVES
+  ## style on 8,770 px, 19% of its wall. Every organic ring has such vertices,
+  ## and so does any convex quad — sort its corners by y and the middle two are
+  ## exactly this case.
+  ##
+  ## Same root cause, second symptom: such a row could come back ENTIRELY EMPTY
+  ## inside the shape, i.e. a 1 px horizontal hole straight through a barrier,
+  ## leaking line of sight and tripping the generator's own open-sightline
+  ## validator. A 24-gon measured 8 empty interior rows before the fix and 0
+  ## after.
+  ##
+  ## Do not "restore" the strict form. The fairness invariant it was supposed to
+  ## protect — that a polygon and its mirror rasterize bit-for-bit identically —
+  ## is what the half-open rule actually delivers, and
+  ## `tests/test_mapgen_styles` now checks it at EVERY pixel rather than every
+  ## 9th (the sparse sampling is why this shipped green).
+  ##
+  ## int64 throughout: cross products of map-scale coords overflow int32 on wasm.
   if pts.len < 3:
     return false
   var
@@ -1041,12 +1120,34 @@ proc pointInPolygon*(x, y: int, pts: seq[MapPoint]): bool =
       yi = pts[i].y
       xj = pts[j].x
       yj = pts[j].y
-      ylo = min(yi, yj)
-      yhi = max(yi, yj)
-    if y > ylo and y < yhi:
-      # Strict straddle => dy != 0. Flip when the sample is left of the edge's
-      # intersection with the scan line: x < xi + (xj-xi)*(y-yi)/(yj-yi),
-      # cross-multiplied by the (signed) edge dy so there is no division.
+    ## ON-BOUNDARY POINTS ARE INSIDE, decided before the parity test, because
+    ## it is the only reflection-invariant answer available.
+    ##
+    ## The parity test flips on crossings strictly to one side of the sample
+    ## (`x < x_int`). Reflection turns that into `x > x_int`, so the two sides
+    ## count complementary crossing sets — which agree in parity only while no
+    ## crossing lands EXACTLY on the sample's column. When one does (the sample
+    ## sits on an edge) the answer differs between a shape and its mirror. Half
+    ## -open y alone therefore fixes the dropped-vertex parity inversion and
+    ## the 1 px holes, but still leaves an on-edge residue: measured 118 px on
+    ## a convex quad and 60 px on a 24-gon. With this test it is 0 on both.
+    ##
+    ## "Inside" rather than "outside" so a degenerate sliver still rasterizes
+    ## as wall rather than vanishing; either choice is reflection-invariant,
+    ## this one is the conservative direction for a barrier.
+    let
+      cross = int64(xj - xi) * int64(y - yi) -
+        int64(yj - yi) * int64(x - xi)
+    if cross == 0 and
+        x >= min(xi, xj) and x <= max(xi, xj) and
+        y >= min(yi, yj) and y <= max(yi, yj):
+      return true
+    if (yi > y) != (yj > y):
+      # Half-open straddle => dy != 0 (the two endpoints are on opposite sides
+      # of the scan line, so they cannot be equal). Flip when the sample is
+      # left of the edge's intersection with the scan line:
+      # x < xi + (xj-xi)*(y-yi)/(yj-yi), cross-multiplied by the (signed) edge
+      # dy so there is no division.
       let
         dyv = int64(yj - yi)
         lhs = int64(x - xi) * dyv
@@ -1242,9 +1343,45 @@ proc buildAnimatedDiamonds*(
 const
   GenMapName* = "gen"
   PoolMapName* = "pool"
-  MinCorridorWidth = 26      ## narrowest corridor for the 13px footprint.
+  MinPassableWidth* = 26
+    ## PHYSICS, not design. The narrowest floor the 13 px SOLID footprint
+    ## (`PlayerHalf` = 6) can occupy, and the width every erosion in this file
+    ## is calibrated to. Below it the board stops being a board; at it, a map
+    ## is merely traversable, which is a crash guard and not a quality bar.
+    ##
+    ## THIS IS THE NUMBER THE CONNECTIVITY FLOOD MUST KEEP, and it is the one
+    ## thing the corridor raise may not touch. A deliberate 30-45 px chokepoint
+    ## is a LEGAL feature — it is the feature the structure pass exists to
+    ## create — so a flood eroded to the 68 px corridor floor would sever every
+    ## gated route and reject exactly what the generator is built to produce.
+    ## The 68 px rule is enforced instead by `MinCorridorWidth` below, which is
+    ## LENGTH-AWARE and therefore able to tell a corridor from a doorway.
+    ##
+    ## Exported so tools and tests stop re-declaring it.
+  MinCorridorWidth* = RecommendedCorridorWidthPx
+    ## DESIGN. 68 px — two DRAWN cog bodies (`map_rules.SoldierBodyPx` = 34)
+    ## abreast, so two cogs can share a corridor without their silhouettes
+    ## overlapping. `MinPassableWidth` = 26 clears the solid collision footprint
+    ## and nothing else, which is why this is a separate number rather than a
+    ## bigger value of that one.
+    ##
+    ## NOT a flat minimum, and it must never become one: as a global floor it
+    ## contradicts the 30-45 px chokepoint outright. It is enforced by
+    ## `map_lanes.corridorPinchFailures` (wired into `collectMapDiagnostics`
+    ## below), which applies it to SUSTAINED width only and permits a
+    ## sub-corridor pinch for as long as `map_lanes.maxPinchRunPx` says a
+    ## player can clear it alive — 66 px at a 30 px pinch, grading to 132 px at
+    ## 62 px and up, where it meets `map_rules.MaxExposedRunPx` with no cliff.
+    ##
+    ## The scale bridge: `SoldierBodyPx` = 34 against Source's 32-unit player
+    ## is 1.06 px/unit, under which Source's published 64-unit minimum hallway
+    ## is 68 px and TF2's 1024-unit medium-range cap lands within 4% of
+    ## `GunRange`.
   MapGenMaxAttempts = 100
-  MapSizeNames = ["small", "standard", "large", "huge", "giant"]
+  MapSizeNames = DrawableSizeNames
+    ## Derived from `map_rules.MapSizeClassTable`, not typed. The generator
+    ## indexes this with ONE rng draw, so its length and order are part of the
+    ## seed contract — adding a drawable class re-deals every seed's size.
   CenterFeatureNames = ["bracket", "ring", "walls"]
   ## Interior cover budget, in permille of the non-protected interior that is
   ## obstacle wall. The hand-tuned arena sits inside this band; layouts
@@ -1253,39 +1390,26 @@ const
   ## rather than restating the numbers.
   CoverPermilleMin* = 40
   CoverPermilleMax* = 170
+  QuadMirrorCoverPermilleMax* = 260
+    ## The ceiling for quad-mirror boards ONLY. The 170 band was calibrated
+    ## on boards that must block ONE axis of sightlines: 2-team scans rows
+    ## alone, and rot90's quarter-turn carries its row cover onto its columns
+    ## for free. Quad-mirror is the first symmetry that pays for BOTH axes —
+    ## reflections never rotate a shape 90 degrees, so column cover is new
+    ## spend (measured: minimal candidates die at 171-226 permille against
+    ## the one-axis ceiling — the exact §3.5.1 failure mode, "axes of
+    ## lane-blocking collide with a ceiling calibrated for one"). 260 = 26%
+    ## structure, inside the MW2 study's measured 18-30% healthy band and
+    ## clear of its ~35% maze bound. NOT a tuning knob: the epic's cover-band
+    ## re-derivation (map_rules mean-free-sightline law, per symmetry) owns
+    ## the principled number and should replace this constant when it lands.
 
 type
-  MapRng = object
-    state: uint64
-
   ColumnFamily = enum
     colStubs        ## 18px-wide rect stubs, border-anchored at the ends.
     colDiamonds
     colDiscs
     colChevrons     ## 45-degree zigzag wall segments.
-
-proc next(rng: var MapRng): uint64 =
-  ## splitmix64: tiny, statistically solid, identical on every target.
-  rng.state = rng.state + 0x9E3779B97F4A7C15'u64
-  var z = rng.state
-  z = (z xor (z shr 30)) * 0xBF58476D1CE4E5B9'u64
-  z = (z xor (z shr 27)) * 0x94D049BB133111EB'u64
-  z xor (z shr 31)
-
-proc pick(rng: var MapRng, bound: int): int =
-  ## Uniform 0..bound-1 (modulo bias is immaterial at these bounds).
-  int(rng.next() mod uint64(bound))
-
-proc pickRange(rng: var MapRng, lo, hi: int): int =
-  lo + rng.pick(hi - lo + 1)
-
-proc coin(rng: var MapRng): bool =
-  (rng.next() and 1'u64) == 1
-
-proc shuffle[T](rng: var MapRng, items: var seq[T]) =
-  for i in countdown(items.high, 1):
-    let j = rng.pick(i + 1)
-    swap(items[i], items[j])
 
 const
   PuddleMaxRadiusPx* = 45       ## hard bound on a puddle pixel's distance
@@ -1348,18 +1472,32 @@ proc centerPuddleSplat(rng: var MapRng, gameMap: CtfMap): Puddle =
     result.spots.add s
 
 proc mapSizeScale(sizeName: string): float =
-  ## Field-scale factor for one size class. The two OVERSIZE classes are
-  ## newer than the original three: "giant" doubles the old "large" ceiling
-  ## (1.3 -> 2.6), twice the map on each axis.
-  case sizeName
-  of "small": 0.85
-  of "standard": 1.0
-  of "large": 1.3
-  of "huge": 1.8
-  of "giant": 2.6
-  of "colossal": 5.2  ## override-only (not in MapSizeNames): 2x giant.
-  else:
+  ## Field-scale factor for one size class, read from the canonical table in
+  ## `map_rules`. The two OVERSIZE classes are newer than the original three:
+  ## "giant" doubles the old "large" ceiling (1.3 -> 2.6), twice the map on
+  ## each axis; "colossal" is override-only (not in MapSizeNames), 2x giant.
+  let index = findSizeClass(sizeName)
+  if index < 0:
     raise newException(CtfError, "Unknown map size: " & sizeName)
+  MapSizeClass(index).sizeScale()
+
+proc mapSizeClass*(gameMap: CtfMap): MapSizeClass =
+  ## Which size class a generated map belongs to, DERIVED from the class
+  ## table rather than matched against width literals. Answers for any class
+  ## in `MapSizeClassTable`, including one added tomorrow — which is exactly
+  ## what `tools/gen_map_pool.nim`'s old five-arm `case` could not do.
+  ## The rect, square and hex shell widths never collide across the whole
+  ## table (pinned by `tests/test_map_rules.nim`), so the width alone names
+  ## the class and no caller has to know which family it is holding.
+  let index = sizeClassOfWidth(gameMap.width)
+  if index < 0:
+    raise newException(
+      CtfError, "Unexpected map width: " & $gameMap.width &
+        " (known shell widths: " & knownWidths() & ")")
+  MapSizeClass(index)
+
+proc mapSizeClassName*(gameMap: CtfMap): string {.inline.} =
+  gameMap.mapSizeClass().sizeName()
 
 proc scaledGenShell(sizeName: string): CtfMap =
   ## Field dimensions and clearances for one size class: the standard-arena
@@ -1738,20 +1876,80 @@ proc rectOnOpenFloor(
         return false
   true
 
+when defined(maptrace):
+  type MapGenTrace* = object
+    ## WHICH LAYER SPENT THE COVER. `leftObstacles` is emitted in four layers
+    ## — topology structure, budgeted fill, the centre feature, then the
+    ## constructive row cover — and only the second of them has a budget. A
+    ## "too clogged" verdict therefore names a map and not a cause, which is
+    ## how three separate pieces of work each hit the 170 permille ceiling
+    ## without anyone being able to say whose permille they were.
+    ##
+    ## The counts are PREFIX BOUNDARIES into the finished `leftObstacles`, so
+    ## a probe can rasterise `[0 ..< structureEnd]` and read that layer's own
+    ## cover off the same mask the validator reads, rather than summing shape
+    ## areas that overlap. Debug-only: `-d:maptrace`, see
+    ## `tools/three_lane_probe.nim`.
+    arch*: string
+    structureEnd*: int      ## [0 ..< structureEnd) — topology walls
+    fillEnd*: int           ## [structureEnd ..< fillEnd) — budgeted fill
+    centreEnd*: int         ## [fillEnd ..< centreEnd) — centre feature
+    rowPickets*: int        ## [centreEnd ..< len) — constructive row cover
+    lanePickets*: int       ## of the fill, `map_lanes.plugOpenRows` pickets
+    fillOffered*: int       ## shapes the vocabulary and biome produced
+    fillDropped*: int       ## ... dropped for intruding on a reserved corridor
+    budgetSkipped*: int     ## ... skipped for want of fill budget
+
+  var lastMapGenTrace*: MapGenTrace
+    ## The trace of the LAST candidate `generateMapAttempt` drew. Not
+    ## thread-safe and not meant to be: a probe generates on one thread.
+
 proc generateMapAttempt*(
-  seed: int, overrides: MapGenOverrides, teams = 2
+  seed: int, overrides: MapGenOverrides, teams = 2, attempt = 0,
+  unitsPerTeam = 0
 ): CtfMap =  ## One UNVALIDATED draw. Every top-level parameter is drawn unconditionally
   ## and THEN overridden if locked, so locking one knob never shifts the
   ## other draws for the same seed. `teams` selects the family: 2 draws the
   ## classic left/right half-map, 4 draws a square rot90 corner/plus map.
+  ##
+  ## `attempt` names one best-of-K candidate. It reaches the `stream` scenes
+  ## and NOT the `seedStream` ones — the board SHELL (size class, symmetry,
+  ## team layout, endzone archetype) belongs to the seed and is identical
+  ## across every attempt, so "map 1002, another try" really is another try at
+  ## map 1002 rather than a differently-sized map 1003.
+  ##
+  ## Each scene draws from its OWN sub-stream (`map_seed`), so adding or
+  ## removing draws inside one scene never shifts another. Do not thread a
+  ## single `rng` through here again.
   doAssert teams in [2, 4], "team count must be 2 or 4"
-  var rng = MapRng(state: uint64(seed))
+  ## `unitsPerTeam = 0` means "the caller does not know", which is every tool
+  ## and every test that predates the population fit; it resolves to the seat
+  ## plan nearest the shipping roster (8 per side at 2 teams, 4 at 4).
+  let unitsPerTeam =
+    if unitsPerTeam > 0: unitsPerTeam
+    else: fitMapSize(teams).unitsPerTeam
+  let root = mapSeed(seed, attempt)
+  var
+    layoutRng = root.seedStream(SceneLayout)
+    terrainRng = root.stream(SceneTerrain)
+    coverRng = root.stream(SceneCover)
+    pickupRng = root.stream(ScenePickups)
 
-  ## One draw over ALL size classes. Widening this bound (3 -> 5 when the
-  ## oversize classes landed) re-dealt which size each seed draws, which
-  ## re-curated the map pool — but the draw still consumes exactly one
-  ## stream slot, so every draw after it stays in its historical position.
-  let sizeDraw = MapSizeNames[rng.pick(MapSizeNames.len)]
+  ## One draw over the size classes this MODE can actually use, off the
+  ## SEED-level layout stream: every candidate for this seed lands on the same
+  ## board. Widening or narrowing this bound re-deals which size each seed
+  ## draws, which re-curates the map pool — but it can no longer disturb the
+  ## terrain, cover or pickup stages.
+  ##
+  ## The draw used to be UNIFORM over all five classes, with `teams` choosing
+  ## only the shell FAMILY. A 1v1 therefore landed on `giant` as often as on
+  ## `small` — 2,750,000 px^2 per player against the tuned board's 50,900.
+  ## `map_rules.legalSizeNames` narrows it to the classes whose area suits the
+  ## roster (see the population-fit derivation there): the board still varies,
+  ## it just stops offering absurd ones.
+  let
+    sizeChoices = legalSizeNames(teams, unitsPerTeam)
+    sizeDraw = sizeChoices[layoutRng.pick(sizeChoices.len)]
   let sizeName = if overrides.size.len > 0: overrides.size else: sizeDraw
   result =
     if teams == 4 and overrides.symmetry != "quadmirror":
@@ -1770,14 +1968,14 @@ proc generateMapAttempt*(
     ## must not shift later draws), but the DRAW is always rot90 — the
     ## default 4-team board stays the square it always was, byte for byte.
     ## "quadmirror" is override-only and opts into the rectangular shell.
-    discard rng.coin()
+    discard layoutRng.coin()
     result.symmetry =
       if overrides.symmetry == "quadmirror": symQuadMirror else: symRot90
     if overrides.symmetry notin ["", "rot90", "quadmirror"]:
       raise newException(
         CtfError, "4-team maps are rot90 or quadmirror; got mapSymmetry: " &
           overrides.symmetry)
-    let layoutDraw = if rng.coin(): layoutCorners else: layoutPlus
+    let layoutDraw = if layoutRng.coin(): layoutCorners else: layoutPlus
     result.layout =
       case overrides.layout
       of "": layoutDraw
@@ -1787,7 +1985,7 @@ proc generateMapAttempt*(
         raise newException(
           CtfError, "Unknown map layout: " & overrides.layout)
   else:
-    let symDraw = if rng.coin(): symRot180 else: symMirror
+    let symDraw = if layoutRng.coin(): symRot180 else: symMirror
     result.symmetry =
       case overrides.symmetry
       of "": symDraw
@@ -1800,9 +1998,12 @@ proc generateMapAttempt*(
       raise newException(
         CtfError, "Map layout " & overrides.layout & " needs teams: 4.")
 
-  ## Endzone archetype. Drawn from a SEPARATE stream keyed off the same seed
-  ## so the main draw order never shifts: a seed that lands on the classic
-  ## column generates the exact map it always did, byte for byte.
+  ## Endzone archetype. Part of the board SHELL, so it draws from the same
+  ## seed-level layout stream as the size class: every best-of-K candidate for
+  ## a seed keeps the same endzone. (This used to be a hand-rolled second
+  ## stream, `seed xor 0x5A17E9D3C0FFEE11`, added so the archetype could ship
+  ## without shifting the main draw order — `map_seed` is that trick made
+  ## structural, and the constant survives there as the namespace salt.)
   block endzoneDraw:
     ## The compact knobs only mean anything on a compact endzone, and which
     ## shape a seed DRAWS is not something a config should have to guess:
@@ -1813,11 +2014,10 @@ proc generateMapAttempt*(
       raise newException(
         CtfError,
         "mapEndzoneRadius / mapBaseDepth need mapEndzone: disc or square.")
-    var ezRng = MapRng(state: uint64(seed) xor 0x5A17E9D3C0FFEE11'u64)
     let shapeDraw =
       if teams == 4: ezColumn      ## 4-team layouts own their own geometry.
       else:
-        case ezRng.pick(4)
+        case layoutRng.pick(4)
         of 0, 1: ezColumn          ## half the pool stays the classic arena.
         of 2: ezDisc
         else: ezSquare
@@ -1843,8 +2043,8 @@ proc generateMapAttempt*(
     ## becomes wilderness — and wrap it in a scoring shape whose radius
     ## scales with the size class exactly like every other clearance.
     let
-      depthDraw = ezRng.pickRange(520, 620)
-      radiusDraw = result.width * ezRng.pickRange(110, 140) div 1235
+      depthDraw = layoutRng.pickRange(520, 620)
+      radiusDraw = result.width * layoutRng.pickRange(110, 140) div 1235
     result.homeDepth =
       if overrides.baseDepth > 0: overrides.baseDepth else: depthDraw
     result.endzoneRadius =
@@ -1860,7 +2060,7 @@ proc generateMapAttempt*(
           $EndzoneRadiusMin & ".." & $maxEndzoneRadius(result.width) & ".")
   result.rooms = result.defaultCtfRooms()
 
-  let featureDraw = CenterFeatureNames[rng.pick(3)]
+  let featureDraw = CenterFeatureNames[terrainRng.pick(3)]
   let feature =
     if overrides.centerFeature.len > 0: overrides.centerFeature
     else: featureDraw
@@ -1870,7 +2070,7 @@ proc generateMapAttempt*(
   ## Compact-endzone maps spread their columns over the whole half-field
   ## (the home border strip is wilderness now, not a protected column), so
   ## they draw MORE of them to hold the same field density. Same single draw
-  ## either way — the RNG stream never shifts.
+  ## either way — the terrain stream never shifts.
   ##
   ## The column counts were tuned on the standard field, and column x-slots
   ## spread over the width: an OVERSIZE board with the standard count would
@@ -1883,9 +2083,9 @@ proc generateMapAttempt*(
     else: 1.0
   proc cols(value: int): int = int(round(float(value) * columnScale))
   let columnsDraw =
-    if teams == 4: rng.pickRange(cols(3), cols(4))
-    elif result.endzone != ezColumn: rng.pickRange(cols(6), cols(8))
-    else: rng.pickRange(cols(4), cols(6))
+    if teams == 4: terrainRng.pickRange(cols(3), cols(4))
+    elif result.endzone != ezColumn: terrainRng.pickRange(cols(6), cols(8))
+    else: terrainRng.pickRange(cols(4), cols(6))
   let columns =
     if overrides.columns > 0: overrides.columns else: columnsDraw
   ## The ceiling has to admit the generator's OWN widest draw, or a size class
@@ -1911,6 +2111,25 @@ proc generateMapAttempt*(
     xMin =
       if result.endzone != ezColumn: ArenaBorder + 34
       else: result.captureClear + 50
+    ## ...but that `captureClear` inset is a SIDES-layout idea: it holds
+    ## terrain off the capture COLUMN that runs the full height of a 2-team
+    ## board's left edge. A rot90 board has no such column — its endzones are
+    ## per-arm, and protected floor is carved out of the wall mask regardless.
+    ## Applying it anyway cost the 4-team boards twice over, and both costs are
+    ## paid in the same currency: cover permille against a 170 ceiling.
+    ##
+    ##   1. It shrank the fill region to 127x397 inside a 408x408 quadrant, so
+    ##      the street grid — sized for a squarish region — dropped 34 of 34
+    ##      shapes on EVERY attempt. Measured `survived=0`: the terrain block
+    ##      contributed NOTHING, and the whole board was row cover.
+    ##   2. It pinned the row-cover pickets into x in [229,349]. A rot90 image
+    ##      lands at a ROW given by the original's X, so a 120px picket window
+    ##      put all four images into one 120-row band instead of spreading
+    ##      them down the board. That is why 38 pickets could not retire 796
+    ##      rows, and why the lift rendered as a box around the centre plaza.
+    terrainXMin =
+      if result.symmetry == symRot90: ArenaBorder + 34
+      else: xMin
     xMax = result.center.x - 52
     ## The vertical band the column slots may occupy: the full field on
     ## sides maps, the top-left quadrant on corner maps (rot90 fills the
@@ -1935,101 +2154,564 @@ proc generateMapAttempt*(
     pitGap = 1
     pitEndzone = 2
   var pitCandidates: seq[tuple[kind, obstacleIdx, x, y: int]]
+  ## `instead` spots proposed by the fill, before the diggability check the
+  ## overlapping fill layers make necessary — see where they are resolved.
+  var insteadProposals: seq[tuple[idx, x, y: int]]
 
-  for col in 0 ..< columns:
+  when defined(maptrace):
+    ## Reset the LAYER attribution for this candidate. See `MapGenTrace`: the
+    ## cover budget is spent by four different layers and until this existed
+    ## a "too clogged" verdict could not say which one spent it.
+    lastMapGenTrace = MapGenTrace()
+
+  ## TERRAIN — a route SKELETON first, then organic FILL inside what it leaves.
+  ##
+  ## This replaces the column lattice, which was four `ColumnFamily` skins on
+  ## ONE slot: changing family changed the pixel and never the map, and fifty
+  ## seeds rendered as fifty copies of one design.
+  ##
+  ## The two layers have OPPOSITE monotonicity — route count rises only when
+  ## floor is OPENED, cover rises only when wall is ADDED — so each is given
+  ## its own duty rather than letting them fight. `carveLanes` owns the
+  ## routes, the gates and therefore the sightline guarantee; the biome owns
+  ## the texture inside the cells, reconciled against the lanes by
+  ## `clearLanes`. Measured with `tools/lane_openrow_probe.nim`: fill ALONE is
+  ## 0/30 valid, every failure an open horizontal sightline; skeleton+fill is
+  ## 29/30.
+  ##
+  ## The fill is emitted INSIDE the fundamental domain, and that is what lets
+  ## a map be organic and asymmetric AND exactly fair at once: fairness is
+  ## enforced by the LIFT, so any irregularity inside the domain is free.
+  ## `ditherEdges` is symmetry-destroying by construction and REQUIRES a
+  ## domain for precisely that reason.
+  ## A compact endzone must keep its four cardinal gates usable — a base you
+  ## can only reach from the field is a column endzone with extra steps, and
+  ## the validator rejects it. The old lattice avoided this by skipping any
+  ## slot inside an apron; lanes and organic fill do not come in slots, so the
+  ## test is applied to the emitted SHAPE instead. Cheap on purpose: a ring of
+  ## probes at the corridor radius, not a filled disc.
+  let gateReach = result.endzoneRadius + MinPassableWidth div 2 + 4
+  proc sealsEndzoneGate(gameMap: CtfMap, shape: ArenaShape): bool =
+    if gameMap.endzone == ezColumn: return false
     let
-      colX = xMin + ((2 * col + 1) * (xMax - xMin)) div (2 * columns)
-      family = ColumnFamily(rng.pick(4))
-      ## 4-team quadrant shapes replicate x4 (not x2), so slots spread out
-      ## to keep the same field density.
-      period =
-        if teams == 4: rng.pickRange(130, 180)
-        else: rng.pickRange(88, 120)
-      ## Phases are STRATIFIED across columns (like the hand-authored
-      ## arena's 0/+48/+24/+72 ladder) with a half-period jitter: fully
-      ## random phases leave rows every column misses, which the sightline
-      ## validator rejects — mirror-symmetric maps almost never survived.
-      phase = (period * col div columns +
-        rng.pick(max(1, period div 2))) mod period
-    var slotYs: seq[int]
-    var slotY = slotBand.lo + phase
-    while slotY <= slotBand.hi:
-      slotYs.add slotY
-      slotY += period
-    if slotYs.len < (if result.layout == layoutSides: 3 else: 2):
-      continue
+      a = gameMap.teamAnchor(Red)
+      r = MinPassableWidth div 2
+    for g in [MapPoint(x: a.x - gateReach, y: a.y),
+              MapPoint(x: a.x, y: a.y - gateReach),
+              MapPoint(x: a.x, y: a.y + gateReach),
+              MapPoint(x: a.x + gateReach, y: a.y)]:
+      if inShape(g.x, g.y, shape): return true
+      for (dx, dy) in [(-r, 0), (r, 0), (0, -r), (0, r),
+                       (-r, -r), (r, -r), (-r, r), (r, r)]:
+        if inShape(g.x + dx, g.y + dy, shape): return true
+    false
 
-    ## Clear-mask: drop each slot with probability 1/4, then guarantee at
-    ## least one gap (a solid picket walls the lane off) and at least half
-    ## the slots kept (a bare column gives no cover).
-    var cleared = newSeq[bool](slotYs.len)
-    var clearedCount = 0
-    for i in 0 ..< slotYs.len:
-      if rng.pick(4) == 0:
-        cleared[i] = true
-        inc clearedCount
-    if clearedCount == 0:
-      cleared[rng.pick(slotYs.len)] = true
-      clearedCount = 1
-    let minKept = (slotYs.len + 1) div 2
-    while slotYs.len - clearedCount < minKept and clearedCount > 1:
-      var idx = rng.pick(slotYs.len)
-      while not cleared[idx]:
-        idx = (idx + 1) mod slotYs.len
-      cleared[idx] = false
-      dec clearedCount
+  ## WHICH MAP THIS IS. Off its own SEED-level stream, so it is a property of
+  ## the seed rather than of the candidate — every best-of-K try is another
+  ## attempt at the same design — and so adding the stage disturbed no
+  ## existing scene's draw order. See `map_archetypes`.
+  var archetypeRng = root.seedStream(SceneArchetype)
+  let archetype = archetypeRng.drawArchetype(
+    teams, quadMirror = (teams == 4 and overrides.symmetry == "quadmirror"))
 
-    var zig = rng.coin()
-    for i, sy in slotYs:
-      ## Compact endzones keep an APRON of clear ground outside the ring:
-      ## terrain that crowded the scoring shape would seal the very
-      ## approaches that make an off-the-edge base worth building, and the
-      ## open-flank validator would reject the map anyway. Obstacle centers
-      ## reach ~30px, so an apron of radius + 60 leaves every cardinal gate
-      ## a full corridor's clearance.
-      if result.endzone != ezColumn and
-          endzoneFloorAt(colX, sy, redAnchorX, cy,
-            result.endzoneRadius + 60 - EndzoneWallMargin,
-            result.endzone == ezDisc):
-        continue
-      if cleared[i]:
-        ## A cleared gap can hold a dug pit BETWEEN the column's obstacles
-        ## — the corridor stays open to movement and fire.
-        pitCandidates.add (pitGap, -1, colX, sy)
-        continue
-      ## Every kept slot can dig a trench INSTEAD of raising its obstacle
-      ## — cover you stand in rather than behind. Selection below decides;
-      ## the sightline repair and the validators judge the thinner wall
-      ## set exactly as usual.
-      pitCandidates.add (pitInstead, result.leftObstacles.len, colX, sy)
-      case family
-      of colStubs:
-        ## Stub ends whose border gap would drop under the corridor minimum
-        ## anchor to the border instead — a sub-26px slit is impassable
-        ## anyway and reads as a wart.
-        var top = sy - 30
-        var bottom = sy + 30
-        if i == 0 and top - ArenaBorder < MinCorridorWidth:
-          top = ArenaBorder
-        if i == slotYs.len - 1 and result.layout == layoutSides and
-            result.height - ArenaBorder - bottom < MinCorridorWidth:
-          bottom = result.height - ArenaBorder
-        result.leftObstacles.add ArenaShape(kind: shapeRect,
-          rect: MapRect(x: colX - 9, y: top, w: 18, h: bottom - top))
-        eligible.add (result.leftObstacles.high, col, sy)
-      of colDiamonds:
-        result.leftObstacles.add ArenaShape(
-          kind: shapeDiamond, cx: colX, cy: sy, radius: 28)
-        eligible.add (result.leftObstacles.high, col, sy)
-      of colDiscs:
-        result.leftObstacles.add ArenaShape(
-          kind: shapeDisc, cx: colX, cy: sy, radius: 28)
-        eligible.add (result.leftObstacles.high, col, sy)
-      of colChevrons:
-        let (ya, yb) = if zig: (sy - 14, sy + 14) else: (sy + 14, sy - 14)
-        result.leftObstacles.add ArenaShape(kind: shapeDiagonal,
-          x0: colX - 14, y0: ya, x1: colX + 14, y1: yb, thickness: 12)
-        zig = not zig
+  ## The lane plan and the archetype plan both outlive the terrain block: the
+  ## constructive row cover below has to know where the routes are so it never
+  ## plugs one, and the centre feature has to know whether this archetype
+  ## wants a colonnade there at all.
+  var lanePlan: LanePlan
+  var haveLanes = false
+  var archPlan = ArchetypePlan(kind: archetype, fillPermille: 1000,
+    massLo: 2, massHi: 3, centre: centreColonnade)
+  block terrain:
+    let
+      ## A four-fold board (rot90 or quad-mirror) must not straddle EITHER
+      ## centre line; mirror and rot180 only the vertical one. `slotBand.hi`
+      ## deliberately crosses cy on the 4-team layouts (the lift used to fill
+      ## the rest), so a four-fold domain is clamped back to a strict
+      ## quadrant. Quad-mirror missing from this clamp was why it generated
+      ## NO terrain at all: fundamentalDomain (rightly) refused the
+      ## axis-straddling region, the terrain block broke out, and the board
+      ## went to validation as bare cover pickets.
+      domainHiY =
+        if result.symmetry in {symRot90, symQuadMirror}: cy - 1
+        else: result.height - ArenaBorder
+      ## The FULL playable band, not `slotBand`. That inset (border + 30)
+      ## existed to keep column slots off the wall; a lane network has to
+      ## reach the border, because the rows between the outermost lane and
+      ## the wall are rows like any other. Emitting into `slotBand` left them
+      ## empty and every one of them came back as an open sightline —
+      ## measured at y=12, 28, 104, 640, 644, i.e. exactly the margins.
+      domainLoY = ArenaBorder
+      region = MapRect(x: terrainXMin, y: domainLoY,
+        w: max(1, xMax - terrainXMin), h: max(1, domainHiY - domainLoY))
+      board = MapRect(x: 0, y: 0, w: result.width, h: result.height)
+      rules = mapRules(result.mapSizeClass(), teams)
+      styles = [biomeStyleCaves, biomeStyleForest, biomeStyleDesert,
+                biomeStyleCity, biomeStylePlains]
+    ## Its own sub-stream, so adding this stage shifted no existing scene.
+    var fillRng = root.stream("fill")
+    let style = styles[fillRng.pick(styles.len)]
+    ## `carveLanes` and the biome emitters take std/random's `Rand`; the
+    ## generator runs its own splitmix. Bridge by SEEDING one from the other,
+    ## which keeps every draw a pure function of (seed, attempt).
+    ## `cast`, not a conversion: half of all splitmix draws have the high bit
+    ## set and `int64(u)` raises RangeDefect on exactly those. The bit pattern
+    ## is what is wanted, and `or 1` keeps it off the zero seed.
+    var laneRand = initRand(cast[int64](fillRng.next() or 1'u64))
+    let fillSeed = int(fillRng.next() and 0x7fffffff'u64)
+    var domain: FundamentalDomain
+    try:
+      domain = fundamentalDomain(board, region, result.symmetry)
+    except ValueError:
+      ## A degenerate domain (an endzone or size lock that leaves no legal
+      ## interior) is a candidate this attempt cannot draw, not a crash: the
+      ## best-of-K loop simply ranks the others.
+      break terrain
+    var fill: seq[ArenaShape]
+
+    ## PLAN THE TOPOLOGY. The archetype KIND belongs to the seed; its
+    ## parameters — where the streets run, how far the ring is inset, how
+    ## coarse the warren is — belong to the CANDIDATE, so selection genuinely
+    ## searches over the topology instead of re-rolling one fixed skeleton's
+    ## fill nine times.
+    var topologyRng = root.stream(SceneTopology)
+    archPlan = planArchetype(archetype, topologyRng, board, region,
+      result.teamAnchor(Red), rules,
+      quadrant = result.symmetry in {symRot90, symQuadMirror})
+
+    ## VOCABULARY MASSES FIRST, then the biome texture around them.
+    ##
+    ## Biome noise alone gives cover but not ENCLOSURE: measured at the same
+    ## ~160 permille the hand-authored control spends, it returned
+    ## interiorFrac 0.178 against the control's 0.342. The gap is morphology,
+    ## not quantity — scattered pebbles where the control has masses you can
+    ## stand behind and rooms you can be inside. `mapgen_vocab`'s constructors
+    ## are sized from `map_rules` and ranked by enclosure per unit cover.
+    ##
+    ## ⚠️ Deliberately a MIX, and deliberately NOT the top-ranked item. The
+    ## best item per unit cover renders as a BARCODE of parallel stripes and
+    ## the second best as CONFETTI; a crude random mixture scored mid-table
+    ## and was the best-LOOKING map the vocabulary produced. Optimising this
+    ## ranking is how you win the metric and lose the game.
+    block masses:
+      ## WEIGHTED, not uniform. `tools/vocab_bench.nim table` measures each
+      ## item's enclosure on a real carved map: bunker 0.456, snake 0.450,
+      ## cave 0.355 all beat the hand-authored control's 0.342, while temple
+      ## 0.128 and massif 0.174 are near-scatter. A uniform draw over all
+      ## eight lands exactly on the bench's MIXED row (0.195) — which is what
+      ## it did here, 0.204.
+      ##
+      ## Still a MIX. The trap this repo has fallen into twice is that the
+      ## single best item per unit cover renders as a BARCODE and the second
+      ## as CONFETTI, and a crude mixture was the best-LOOKING map produced.
+      ## So the low-enclosure items keep their place in the pool; they are
+      ## simply drawn less often.
+      ##
+      ## The pool is now the ARCHETYPE's, not one global list. That is the
+      ## skinning half of the brief's rule — the graph is chosen upstream and
+      ## the vocabulary only dresses it — and it is what stops a `warren` of
+      ## small rooms filling itself with landform-scale massifs.
+      let Items = archPlan.items
+      let vp = vocabParams(rules)
+      if region.h < 80 or region.w < 80: break masses
+      var vocabRand = initRand(cast[int64](fillRng.next() or 1'u64))
+      ## Each constructor TILES itself across the region it is handed, at its
+      ## own `vocabFootprint` pitch — that is the density `vocab_bench`
+      ## measures its 0.456 at. Handing an item a thin band instead gave it
+      ## room for one or two instances, which is a degenerate layout rather
+      ## than a fair density, and it measured like one (0.220 against a 0.30
+      ## target). So each item gets the WHOLE domain and the layers overlap,
+      ## which is also what stops the map reading as horizontal stripes.
+      let massCount = fillRng.pickRange(archPlan.massLo, archPlan.massHi)
+      ## ...and each item gets each of the ARCHETYPE's compartments — a city
+      ## block, a warren room, the ground inside a ring road — rather than the
+      ## whole domain. `three-lane` and `field` declare no compartments and so
+      ## still get the whole domain, which is the behaviour above.
+      var cells = archPlan.cells
+      if cells.len == 0: cells = @[region]
+      for k in 0 ..< massCount:
+        let item = Items[fillRng.pick(Items.len)]
+        for cell in cells:
+          if cell.w < 60 or cell.h < 60: continue
+          for shape in emitVocab(item, vocabRand, cell, vp):
+            fill.add shape
+
+    ## The biome texture goes in AFTER the masses, deliberately. The fill
+    ## budget below is spent in emission order and SKIPS any shape too big for
+    ## what is left, so whichever layer goes first is the layer that gets
+    ## bought. Texture-first spent the budget on pebbles and dropped the very
+    ## masses that carry the enclosure.
+    for shape in generateBiomeShapes(style, fillSeed, region,
+        defaultBiomeParams(style), domain):
+      fill.add shape
+
+    ## THE TOPOLOGY. `archThreeLane` is the half-field lane grammar and comes
+    ## from `map_lanes`; the other five come from `map_archetypes` as a set of
+    ## RESERVED corridors plus the structure that makes them real.
+    ##
+    ## The lane skeleton is a HALF-FIELD topology and stays 2-team-only:
+    ## putting those same three lanes in a rot90 QUARTER of the board and
+    ## lifting them x4 measured 187-235 permille cover against a 170 ceiling.
+    ## The STRUCTURE alone was over, so budgeting the fill could not rescue it
+    ## — tried, and it only starved the fill, costing 0.07 of interiorFrac on
+    ## 2-team for no validity at all. `legalArchetypes` encodes that.
+    ##
+    ## Everything else shares ONE construction: reserve the corridors first,
+    ## drop any fill overlapping one. Cover falls (the corridors are empty)
+    ## and the routes hold by construction, which is the same
+    ## disjoint-pixel-set argument the lanes make — with topologies that suit
+    ## a four-fold board, because the brief is explicit that 4-team topology
+    ## must stop being radial-only.
+    var
+      emitted: seq[ArenaShape]
+      structureCount = 0
+    if archetype == archThreeLane:
+      ## `carveLanes` emits separators, then gates, then the reconciled cover,
+      ## then any pickets — so the split between STRUCTURE and FILL is
+      ## positional, and the plan reproduces the structure counts exactly.
+      let carved = carveLanes(laneRand, region,
+        MapPoint(x: redAnchorX, y: cy), xMax, rules, fill)
+      lanePlan = carved.plan
+      haveLanes = true
+      structureCount =
+        laneSeparatorShapes(carved.plan).len + laneGateShapes(carved.plan).len
+      emitted = carved.shapes
+      when defined(maptrace):
+        lastMapGenTrace.fillOffered = fill.len
+        ## `carveLanes` is separators + gates + reconciled cover + pickets, so
+        ## whatever is left over after the first three IS the picket run.
+        lastMapGenTrace.lanePickets =
+          carved.shapes.len - structureCount - clearLanes(fill, carved.plan).len
+    else:
+      ## The archetype's own walls spend FIRST, exactly like a lane separator:
+      ## a warren's rooms and a field's massifs are the map, not decoration on
+      ## it, and the budget below must not be able to drop them.
+      emitted = archPlan.structure
+      structureCount = emitted.len
+      ## Intrusion is tested on the SHAPE, not on its bounding box. A long
+      ## diagonal's box spans a whole city block while the wall itself is a
+      ## 26 px ribbon that may thread between two streets, and dropping it on
+      ## the box is how the first draft decimated its own fill.
+      proc intrudesOnReserved(shape: ArenaShape): bool =
+        let b = shapeBounds(shape)
+        if not archPlan.reservesBounds(b.x0, b.y0, b.x1, b.y1): return false
+        for r in archPlan.reserved:
+          let
+            x0 = max(b.x0, r.x)
+            x1 = min(b.x1, r.x + r.w - 1)
+            y0 = max(b.y0, r.y)
+            y1 = min(b.y1, r.y + r.h - 1)
+          if x1 < x0 or y1 < y0: continue
+          ## 4 px is well under the 26 px route grid the validator reads, so
+          ## anything this sampling misses cannot close a route.
+          var y = y0
+          while y <= y1:
+            var x = x0
+            while x <= x1:
+              if inShape(x, y, shape): return true
+              x += 4
+            if x - 4 != x1 and inShape(x1, y, shape): return true
+            y += 4
+          if y - 4 != y1:
+            var x = x0
+            while x <= x1:
+              if inShape(x, y1, shape): return true
+              x += 4
+        false
+      var reservedDropped {.used.} = 0
+      for shape in fill:
+        if intrudesOnReserved(shape):
+          inc reservedDropped
+        else:
+          emitted.add shape
+      when defined(maptrace):
+        lastMapGenTrace.fillOffered = fill.len
+        lastMapGenTrace.fillDropped = reservedDropped
+      when defined(mapdbg):
+        echo "  [dbg] arch=", archetype, " region=", region.w, "x", region.h,
+          " fill=", fill.len, " reservedDropped=", reservedDropped,
+          " structure=", structureCount, " survived=", emitted.len,
+          " reserved=", archPlan.reserved.len
+
+    ## BUDGET the fill. The structure spends first and the fill takes what is
+    ## left, rather than both drawing freely and the validator refereeing.
+    ##
+    ## This is what the symmetry order costs: a mirror domain is HALF the
+    ## board and a rot90 domain is a QUARTER, but `planLanes` puts at least
+    ## three lanes in either. Same absolute structure in half the area is
+    ## double the density, and after a x4 lift 4-team boards measured 189-261
+    ## permille against a 170 ceiling while 2-team sat comfortably inside it.
+    ## Budgeting against the DOMAIN's own area makes the two cases one case.
+    ##
+    ## Dropping fill cannot re-open a sightline row, because the constructive
+    ## row cover below runs on the finished mask and closes whatever is left.
+    proc approxArea(shape: ArenaShape): int =
+      case shape.kind
+      of shapeRect: max(0, shape.rect.w * shape.rect.h)
+      of shapeDisc: (314 * shape.radius * shape.radius) div 100
+      of shapeDiamond: 2 * shape.radius * shape.radius
+      of shapeDiagonal:
+        let
+          dx = shape.x1 - shape.x0
+          dy = shape.y1 - shape.y0
+        shape.thickness * (abs(dx) + abs(dy))
+      of shapePolygon:
+        var acc = 0
+        for i in 0 ..< shape.points.len:
+          let
+            a = shape.points[i]
+            b = shape.points[(i + 1) mod shape.points.len]
+          acc += a.x * b.y - b.x * a.y
+        abs(acc) div 2
+    const
+      FillBudgetPermille = 350
+        ## Under the 170 ceiling with room for the pickets and the centre
+        ## feature that are still to come.
+      FillFloorPermille = 55
+        ## ...but the fill is never starved to buy structure. Cover and
+        ## ENCLOSURE are different metrics, and squeezing the fill to nothing
+        ## keeps a board legal while making it empty — which is exactly what
+        ## the first attempt at this budget did.
+    ## The budget SWEEPS with the attempt index rather than redrawing the same
+    ## density a hundred times. `attempt` is already the best-of-K knob, and a
+    ## seed whose overrides corner the generator (a locked size or endzone that
+    ## leaves an awkward interior) needs a way OUT of that corner, not another
+    ## identical roll: one such combination raised "no valid layout in 100
+    ## attempts" and took a schema test down with it. Nine steps from 60% to
+    ## 140% of the nominal budget, so consecutive attempts are genuinely
+    ## different maps and the extremes are reachable well inside K.
+    ##
+    ## Sweeping DOWNWARD (dense first, so the first validating attempt is the
+    ## densest that fits) was tried and is WORSE, not better: `attempt` also
+    ## drives size, layout and endzone, so reversing the density order changes
+    ## WHICH board wins rather than how full one board is. 2-team interiorFrac
+    ## went 0.301 -> 0.272 and 4-team did not move at all.
+    ##
+    ## The ARCHETYPE scales it. `field` is sparse because it is allowed 340
+    ## permille of the nominal budget, not because its pebbles are smaller —
+    ## which is the difference between a topology and a texture. The floor is
+    ## scaled with it, or a sparse archetype is rescued back up to a dense one
+    ## by the very guard that exists to stop a board being empty.
+    let
+      domainArea = region.w * region.h
+      densityPct = 40 + 12 * (attempt mod 9)
+      archPermille = archPlan.fillPermille
+    var budget =
+      domainArea * FillBudgetPermille div 1000 * densityPct div 100 *
+        archPermille div 1000
+    for i in 0 ..< min(structureCount, emitted.len):
+      budget -= approxArea(emitted[i])
+    budget = max(budget,
+      domainArea * FillFloorPermille div 1000 * archPermille div 1000)
+    when defined(mapdbg):
+      var budgetSkipped {.used.} = 0
+      let budget0 {.used.} = budget
+      echo "  [dbg] structureCount=", structureCount, " densityPct=", densityPct,
+        " domainArea=", domainArea, " budget=", budget,
+        " (", budget * 1000 div max(1, domainArea), "pm of domain)",
+        " floorWouldBe=", domainArea * FillFloorPermille div 1000
+
+    for i, shape in emitted:
+      if result.sealsEndzoneGate(shape): continue
+      if i >= structureCount:
+        let a = approxArea(shape)
+        if a > budget:
+          when defined(mapdbg): inc budgetSkipped
+          when defined(maptrace): inc lastMapGenTrace.budgetSkipped
+          continue
+        budget -= a
+      else:
+        ## Structure is emitted first and unconditionally, so the kept
+        ## structure is exactly the prefix of `leftObstacles`.
+        when defined(maptrace):
+          lastMapGenTrace.structureEnd = result.leftObstacles.len + 1
+      result.leftObstacles.add shape
+      ## Window and trench candidates come from the FILL rather than from
+      ## lattice slots. A window wants a piece of COVER you can see past, and
+      ## a lane separator or a gate shoulder is structure — glazing one would
+      ## put a hole in the very wall that makes the route a route.
+      if i < structureCount: continue
+      let (sx, sy) =
+        case shape.kind
+        of shapeRect:
+          (shape.rect.x + shape.rect.w div 2, shape.rect.y + shape.rect.h div 2)
+        of shapeDisc, shapeDiamond: (shape.cx, shape.cy)
+        else: (0, 0)
+      if sx > 0:
+        eligible.add (result.leftObstacles.high, sx div 120, sy)
+        insteadProposals.add (result.leftObstacles.high, sx, sy)
+    when defined(mapdbg):
+      echo "  [dbg] budgetSkipped=", budgetSkipped, " budgetLeft=", budget,
+        " of ", budget0, " -> leftObstacles=", result.leftObstacles.len
+    when defined(maptrace):
+      lastMapGenTrace.arch = $archetype
+      lastMapGenTrace.fillEnd = result.leftObstacles.len
+
+    ## An `instead` proposal only becomes a CANDIDATE if swapping its obstacle
+    ## for a pit would genuinely open floor.
+    ##
+    ## On the lattice that was automatic — one slot, one obstacle, disjoint. In
+    ## the fill the layers overlap, so deleting one shape usually leaves the
+    ## spot walled by its neighbours, and the dig dies later in
+    ## `rectOnOpenFloor`. Registering it anyway cost twice: the exact `mapPits`
+    ## lock could not be met from a candidate set most of which was undiggable,
+    ## and every such pick DELETED A PIECE OF COVER and then failed to put a
+    ## pit where it had been. Checked against every OTHER obstacle only —
+    ## its own is the one about to go.
+    for prop in insteadProposals:
+      let cell = trenchSquareAt(prop.x, prop.y)
+      var clear = true
+      for j, other in result.leftObstacles:
+        if j == prop.idx: continue
+        let b = shapeBounds(other)
+        if b.x0 <= cell.x + cell.w and b.x1 >= cell.x and
+           b.y0 <= cell.y + cell.h and b.y1 >= cell.y:
+          clear = false
+          break
+      if clear:
+        pitCandidates.add (pitInstead, prop.idx, prop.x, prop.y)
+
+    ## GAP pits — the fill's NEGATIVE SPACE, which is the only ground a pit can
+    ## actually be dug in.
+    ##
+    ## On the lattice, swapping a kept slot's obstacle for a pit really did
+    ## open floor, because the slots were DISJOINT. The fill layers overlap by
+    ## construction (every vocabulary item tiles the whole domain — see the
+    ## `masses` block), so deleting one shape usually leaves the spot walled by
+    ## its neighbours. Measured with `tools/pit_candidate_probe.nim -d:mapdbg`:
+    ## seed 1002 at `pits:12` selected 6 `instead` digs per attempt and only
+    ## 1-4 survived `rectOnOpenFloor`, and seed 4242's density path lost 2 of 2
+    ## and dug NOTHING. `instead` alone therefore cannot honour the exact
+    ## `mapPits` lock, and the top-up pool it falls back on had quietly shrunk
+    ## to the three endzone spots when the lattice's `gap` class went away.
+    ##
+    ## A trench is walkable floor with a climb-out penalty — it moves no wall —
+    ## so a dig on already-open ground cannot touch a route, a sightline or the
+    ## cover budget. That makes the gaps the one candidate class that survives
+    ## the later repair pass by construction, which is exactly what an exact
+    ## count needs. Probed against shape BOUNDING BOXES: cheap (~80 shapes over
+    ## a lattice of ~90 cells), and over-claiming a wall only ever discards a
+    ## candidate, never invents one.
+    var gy = region.y + TrenchSize div 2
+    while gy + TrenchSize div 2 <= region.y + region.h:
+      var gx = region.x + TrenchSize div 2
+      ## Stepping by TrenchSize keeps any two gap candidates disjoint, and
+      ## stopping at `xMax` keeps every one of them strictly left of the seam,
+      ## so each stays distinct from its own symmetry image — the assumption
+      ## the count-mode pair accounting in `finalizeTrenches` rests on.
+      while gx + TrenchSize div 2 <= xMax:
+        let cell = trenchSquareAt(gx, gy)
+        ## Never on protected floor: those pixels are spawn pockets, flag rings
+        ## and capture zones, and the endzone class already authors the digs
+        ## that belong there.
+        var clear =
+          not mapProtectedFloorAt(result, gx, gy) and
+          not mapProtectedFloorAt(result, cell.x, cell.y) and
+          not mapProtectedFloorAt(result, cell.x + cell.w - 1, cell.y) and
+          not mapProtectedFloorAt(result, cell.x, cell.y + cell.h - 1) and
+          not mapProtectedFloorAt(
+            result, cell.x + cell.w - 1, cell.y + cell.h - 1)
+        if clear:
+          for shape in result.leftObstacles:
+            let b = shapeBounds(shape)
+            if b.x0 <= cell.x + cell.w and b.x1 >= cell.x and
+               b.y0 <= cell.y + cell.h and b.y1 >= cell.y:
+              clear = false
+              break
+        if clear:
+          pitCandidates.add (pitGap, -1, gx, gy)
+        gx += TrenchSize
+      gy += TrenchSize
+
+  ## CENTRE FEATURE — a column of spinning diamonds on the spin axis.
+  ##
+  ## Two things depend on this and both broke when the lattice went away. The
+  ## spinning-diamond MECHANIC selects `shapeDiamond` obstacles within
+  ## `DiamondSpinBand` of the symmetry axis, and the vocabulary almost never
+  ## emits a diamond, so the selected set came back empty and the live
+  ## footprint test failed with `chosen.len == 0`. And the 300-seed audit had
+  ## already measured 52% of 2-team maps with NO centre architecture at all,
+  ## which is the other half of the same hole: the fill region stops short of
+  ## the seam, so nothing was ever built where the two halves meet.
+  ##
+  ## Placed at a fixed inset from the axis rather than the old hard-coded
+  ## 138px offset, which sat against a flag ring that IS scaled and therefore
+  ## missed the centre entirely on every giant board.
+  ## THE CENTRE IS NOT A FIXTURE. The colonnade above used to be
+  ## unconditional, and it showed: it was the same bright shape in the same
+  ## place on 36 of 36 rendered tiles, both team counts, every size class, and
+  ## the 2-team sheet verdict names it the single strongest source of
+  ## sameness. So WHERE the spinners go is now the archetype's call — but they
+  ## still go SOMEWHERE, because the mechanic needs them (see CentrePolicy).
+  block centreSpinners:
+    const SpinInset = 40   ## inside DiamondSpinBand (80) at every size class.
+    let
+      sx = result.center.x - SpinInset
+      ## ONE PIECE OF TERRAIN, at this class's size. `map_rules` already owns
+      ## that number and its doc says out loud what this literal used to be:
+      ## "the generator's discs and diamonds carry radius 28, so a piece is 56
+      ## px across". Nothing read it back, so the spinners were a FIXED
+      ## absolute size on a board that shrinks — the same defect
+      ## `laneSeparatorThickPx` was written to fix for the separators, and the
+      ## same symptom: measured, the colonnade costs 21-35 permille on a
+      ## standard board and 41-48 on a `small` one, against a 170 ceiling,
+      ## because a spinner is unchanged while the interior it is measured
+      ## against is 0.72x. `coverSizePx` is 56 at `standard` BY CONSTRUCTION,
+      ## so every standard board — the curated pool included — is unmoved to
+      ## the pixel; only the other classes see this.
+      spinRadius = mapRules(result.mapSizeClass(), teams).coverSizePx div 2
+    proc trySpinner(gameMap: var CtfMap, sy: int): bool =
+      ## Never on protected floor — it would be carved straight back out —
+      ## and never where it would seal a compact base's approach.
+      let d = ArenaShape(kind: shapeDiamond, cx: sx, cy: sy, radius: spinRadius)
+      if mapProtectedFloorAt(gameMap, sx, sy) or gameMap.sealsEndzoneGate(d):
+        return false
+      gameMap.leftObstacles.add d
+      true
+    var placed = 0
+    case archPlan.centre
+    of centreColonnade:
+      ## On rot90 the spin band is a CROSS (x or y near an axis), so a column
+      ## here lifts into a full cross of stone through the middle of the
+      ## board: the same column that took 2-team interiorFrac 0.233 -> 0.310
+      ## took 4-team validity 81% -> 68% and its enclosure 0.127 -> 0.089.
+      ## Four-fold boards therefore get a couple of spinners, not a colonnade.
+      let step =
+        if result.symmetry == symRot90:
+          max(2 * MinPassableWidth, result.height div 2)
+        else: max(2 * MinPassableWidth, result.height div 5)
+      var sy = ArenaBorder + step div 2
+      while sy < result.height - ArenaBorder:
+        if result.trySpinner(sy): inc placed
+        sy += step
+    of centreCluster:
+      ## A `hub` keeps its middle walkable: the diamonds are furniture inside
+      ## the open space, set outside the always-open flag ring so they are not
+      ## carved back out.
+      for sy in [cy - result.flagRing - 70, cy + result.flagRing + 70]:
+        if sy > ArenaBorder and sy < result.height - ArenaBorder and
+            result.trySpinner(sy): inc placed
+    of centrePoles:
+      ## `ring`, `warren` and `field` leave the middle of the board ALONE.
+      ## One spinner near each end of the axis keeps the mechanic supplied
+      ## without putting a landmark where every other tile has one.
+      let inset = max(2 * MinPassableWidth, result.height div 7)
+      for sy in [ArenaBorder + inset, result.height - ArenaBorder - inset]:
+        if result.trySpinner(sy): inc placed
+    if placed == 0:
+      ## Every policy's spots can be refused (a compact endzone's gates, a
+      ## protected pocket). An EMPTY selection is a live failure — the
+      ## spinning-diamond footprint test checks `chosen.len > 0` — so scan the
+      ## axis for the first spot that is legal rather than shipping a board
+      ## with no spinners at all.
+      var sy = ArenaBorder + 40
+      while sy < result.height - ArenaBorder:
+        if result.trySpinner(sy):
+          inc placed
+          break
+        sy += 40
+  when defined(maptrace):
+    lastMapGenTrace.centreEnd = result.leftObstacles.len
 
   ## Endzone trench pit candidates, authored on the RED side (the symmetry
   ## image gives Blue the exact counterpart): BEHIND the pedestal toward
@@ -2056,6 +2738,12 @@ proc generateMapAttempt*(
   pitCandidates.add (pitEndzone, -1, redHomeX - backOffset, cy)
   pitCandidates.add (pitEndzone, -1, redHomeX, cy - sideOffset)
   pitCandidates.add (pitEndzone, -1, redHomeX, cy + sideOffset)
+  when defined(mapdbg):
+    var pitKinds {.used.}: array[3, int]
+    for c in pitCandidates: inc pitKinds[c.kind]
+    echo "  [dbg] pitCandidates=", pitCandidates.len,
+      " instead=", pitKinds[pitInstead], " gap=", pitKinds[pitGap],
+      " endzone=", pitKinds[pitEndzone]
 
   ## Pit selection. DENSITY mode (default) rolls every candidate at its
   ## class chance scaled by pitDensity percent. COUNT mode (pits locked)
@@ -2093,18 +2781,46 @@ proc generateMapAttempt*(
         CtfError, "Puddles are not supported on 4-team maps yet.")
     pitCandidates.setLen(0)
   if pitPairsWanted >= 0:
-    rng.shuffle(pitCandidates)
+    coverRng.shuffle(pitCandidates)
+  ## The 17/25/50 class chances are RELATIVE WEIGHTS, normalised to the budget
+  ## `map_rules` derives for the board — not absolute rates.
+  ##
+  ## They were absolute rates once, calibrated against the column lattice's
+  ## candidate population. The fill's negative space is a different and much
+  ## larger population, and rolling the same rates over it dug a mean of 14.1
+  ## pits on a standard board against the 9 that `mapRules().trenchCount`
+  ## derives. `test_map_rules.nim` asserts that budget is 7..12 and its comment
+  ## claims it "matches what the generator digs" — which nothing measured, so
+  ## the generator was free to drift away from it (and did, in both
+  ## directions: before the gap class came back it dug ZERO).
+  ##
+  ## Normalising here makes the claim true by construction and keeps it true
+  ## the next time the candidate population changes shape, which is exactly
+  ## what caught this feature out twice.
+  proc pitBaseChance(kind: int): int =
+    case kind
+    of pitInstead: 17
+    of pitGap: 25
+    else: 50
+  var chanceWeight = 0
+  for cand in pitCandidates:
+    chanceWeight += pitBaseChance(cand.kind)
+  let
+    ## Every accepted candidate is DUG IN PAIRS by `finalizeTrenches`, so the
+    ## budget in candidates is half the budget in trenches.
+    pitTarget =
+      max(1, mapRules(result.mapSizeClass(), teams).trenchCount div 2)
+    ## Scaled so the chances sum to `pitTarget` accepts. A pool too small to
+    ## reach the budget simply clamps at certainty and digs what it has.
+    pitChanceNum = pitTarget * 100
   for cand in pitCandidates:
     if pitPairsWanted >= 0:
       if result.trenches.len >= pitPairsWanted:
         break
     else:
       let baseChance =
-        case cand.kind
-        of pitInstead: 17
-        of pitGap: 25
-        else: 50
-      if rng.pick(100) >= clamp(baseChance * pitDensity div 100, 0, 100):
+        pitBaseChance(cand.kind) * pitChanceNum div max(1, chanceWeight)
+      if coverRng.pick(100) >= clamp(baseChance * pitDensity div 100, 0, 100):
         continue
     let pit = trenchSquareAt(cand.x, cand.y)
     var blocked = oddCenterPit and rectsIntersect(pit, centerPit)
@@ -2117,6 +2833,9 @@ proc generateMapAttempt*(
     result.trenches.add rectShape(pit)
     if cand.kind == pitInstead:
       obstacleRemoved[cand.obstacleIdx] = true
+  when defined(mapdbg):
+    echo "  [dbg] pitsSelected=", result.trenches.len,
+      " wanted(pairs)=", pitPairsWanted, " density=", pitDensity
 
   ## Swap the chosen `instead` obstacles out of the wall set. Window
   ## eligibility indexes leftObstacles, so compact both together.
@@ -2162,166 +2881,359 @@ proc generateMapAttempt*(
   else:
     discard  # "ring": the center stays fully open.
 
-  ## Sightline repair. A horizontal ray survives when no obstacle blocks its
-  ## row: under MIRROR the right half repeats the left, so the LEFT half
-  ## alone must cover every row; under ROT180 the right half contributes the
-  ## flipped rows, so row y needs cover at y or height-1-y. Random layouts
-  ## almost never satisfy the mirror condition on their own (the first pool
-  ## scan came out 100% rot180), so plug the uncovered rows with diamonds in
-  ## drawn columns; the validators still judge the repaired result.
-  block sightlineRepair:
-    proc rowBlocked(gameMap: CtfMap, y: int): bool =
-      for x in gameMap.sightlineLoX .. gameMap.center.x:
-        if mapWallAt(gameMap, gameMap.leftObstacles, x, y):
-          return true
-      false
-    proc rowBlockedFull(gameMap: CtfMap, obstacles: seq[ArenaShape],
-        y: int): bool =
-      ## Full-width row scan against the COMPLETE symmetry-expanded set —
-      ## rot90 folds a quadrant into all four quarters, so no single-half
-      ## shortcut exists.
-      for x in gameMap.sightlineLoX .. gameMap.sightlineHiX:
-        if mapWallAt(gameMap, obstacles, x, y):
-          return true
-      false
-    ## The plug budget scales with the columns for the same reason the
-    ## columns scale: an oversize board has proportionally more rows to
-    ## cover (cols() is 1x on the classic classes, so their budget is the
-    ## historical 40).
-    var plugsLeft = cols(40)
-    while plugsLeft > 0:
-      var uncovered = -1
-      let fullSet =
-        if result.symmetry == symRot90: buildArenaObstacles(result)
-        else: @[]
-      var y = ArenaBorder + 2
-      while y < result.height - ArenaBorder:
-        let covered =
-          case result.symmetry
-          of symMirror:
-            result.rowBlocked(y)
-          of symRot180, symQuadMirror:
-            ## Quad-mirror reads like rot180 here: the mirrorX images repeat
-            ## the seed rows on the right half, and the mirrorY/rot180
-            ## images contribute the y-flipped rows — so row y needs seed
-            ## cover at y or height-1-y, the same fold.
-            result.rowBlocked(y) or
-              result.rowBlocked(result.height - 1 - y)
-          of symRot90:
-            result.rowBlockedFull(fullSet, y)
-        if not covered:
-          uncovered = y
-          break
-        y += 4
-      if uncovered < 0:
-        break sightlineRepair
-      let
-        plugCol = rng.pick(columns)
-        plugX = xMin + ((2 * plugCol + 1) * (xMax - xMin)) div (2 * columns)
-        ## Under both 4-team symmetries a quadrant shape at row y also
-        ## covers row H-1-y (its rot180 / mirrorY image), so an uncovered
-        ## bottom-half row folds to its top reflection before plugging;
-        ## plugs may sit close to the border.
-        foldedRow =
-          if result.symmetry in {symRot90, symQuadMirror} and uncovered > cy:
-            result.height - 1 - uncovered
-          else:
-            uncovered
-        plugY = clamp(
-          foldedRow + 24, ArenaBorder + 12, result.height - ArenaBorder - 12)
-      dec plugsLeft
-      ## A plug inside the endzone apron would seal an approach (and be
-      ## carved to a stump by the protected floor anyway); skip it and let
-      ## the next iteration try another column for the same row.
-      if result.endzone != ezColumn and
-          endzoneFloorAt(plugX, plugY, redAnchorX, cy,
-            result.endzoneRadius + 60 - EndzoneWallMargin,
-            result.endzone == ezDisc):
-        continue
-      if result.symmetry == symQuadMirror:
-        ## Quad plugs are thin vertical bars (the bracket's 12px vocabulary):
-        ## reflections never rotate a quadrant shape into cross-coverage the
-        ## way rot90 does, so a quad board needs strictly more sightline
-        ## breakers — a bar buys the same row span as a diamond for under
-        ## half the wall pixels, which is what keeps the repaired board
-        ## inside the cover ceiling.
-        result.leftObstacles.add ArenaShape(kind: shapeRect,
-          rect: MapRect(
-            x: plugX - 6, y: max(ArenaBorder, foldedRow - 4), w: 12, h: 60))
-      else:
-        result.leftObstacles.add ArenaShape(
-          kind: shapeDiamond, cx: plugX, cy: plugY, radius: 28)
-
-  ## Vertical (column) sightline repair — QUAD-MIRROR ONLY. On the square
-  ## rot90 boards the quarter turn carries blocked rows onto blocked
-  ## columns, so the row repair above covers both; a rectangular quad-mirror
-  ## board has no such carry, and its N/S teams fight along y. The logic is
-  ## the row repair transposed: column x needs seed cover at x or W-1-x
-  ## (the mirrorX/rot180 images contribute the x-flipped columns), plugs
-  ## fold right-half columns to their left reflection, and the plug's free
-  ## coordinate (y) draws from the quadrant slot band. All draws sit inside
-  ## this symmetry gate, so non-quad seeds consume the exact RNG stream they
-  ## always did.
-  block columnSightlineRepair:
+  ## ROW COVER — an interval cover on the TRUE mask, not a repair loop.
+  ##
+  ## The prosthetic that used to live here dropped r28 diamonds at RANDOM
+  ## column x until no 4px row was unblocked, with a budget of cols(40). The
+  ## 300-seed audit measured it at 14-16% of a standard board's interior wall
+  ## and 50% at p90 on 4-team: pure validator appeasement, placed with no
+  ## regard for play, and it could still exhaust its budget and fail.
+  ##
+  ## The staggered gates in `map_lanes.planLanes` guarantee no row threads a
+  ## LANE. They cannot speak for the rest of the board, and one interaction
+  ## defeats any shape-level argument: `rasterizeWallMasks` carves protected
+  ## floor — spawn pockets, capture zones — back out of BOTH masks, so a wall
+  ## placed over protected ground blocks nothing. A cover computed on shapes
+  ## is therefore a cover of the wrong thing.
+  ##
+  ## So this computes the cover on the mask the validator itself reads, and
+  ## places exactly ONE picket per uncovered row, at the first x that is
+  ## neither protected floor nor inside a route. No randomness, no budget and
+  ## no retry — the difference between a construction and a repair.
+  ##
+  ## THE PICKET IS NOT ONE PICKET. `buildArenaObstacles` lifts every seed shape
+  ## by the map's symmetry — x-mirror, 180°, or FOUR quadrant images on rot90 —
+  ## so placing one picket writes up to four rects onto the finished mask. The
+  ## scan used to credit only the seed rect, so every row that one picket's
+  ## IMAGES already covered still drew a fresh picket of its own.
+  ##
+  ## On a 4-team board that dominated the map: measured over seeds 1002/1005/
+  ## 1013, a failing candidate carried 43-52 pickets against 2-7 fill shapes,
+  ## and the pickets alone were 122-166 permille of a 174-203 total against a
+  ## 170 ceiling. The fill was not the problem and never had been — which is
+  ## why sweeping the fill density 40%->140% moved cover by 4 permille and why
+  ## every attempt failed "too clogged" at the sparse end of the sweep too.
+  ##
+  ## Crediting the images makes the scan honest about the geometry it is
+  ## actually building. It is a pure correctness fix, not a 4-team special
+  ## case: a mirror image lands on the SAME rows and so changes nothing, while
+  ## rot180 and rot90 images land on different rows and now count. Marking each
+  ## image's true footprint (rather than "this row is handled") keeps the
+  ## in-band test intact — an image that falls outside the `ax..bx` sightline
+  ## band is written where it really is, and correctly fails to cover the row.
+  ## COLUMN COVER — the row cover transposed, quad-mirror only, and it runs
+  ## FIRST so the row pass credits its wall. rot90's row coverage carries onto
+  ## its columns by the quarter turn; a rectangular quad-mirror board has no
+  ## such carry and its N/S teams fight along y, so its columns get the same
+  ## interval-cover CONSTRUCTION the rows do (one placement per uncovered
+  ## interval, computed on the true mask, no RNG, no budget) — never main's
+  ## old random-plug repair.
+  ##
+  ## Three cost decisions, because a second axis is a second bill and the
+  ## cover ceiling was cut on a one-axis board (the §3.5.1 lesson — make the
+  ## necessary spend minimal before you argue about the band):
+  ##   * fold to the LEFT half: the lifted mask is mirrorX-symmetric, so an
+  ##     uncovered right-half column is its left reflection's problem and the
+  ##     seed's own image retires it for free;
+  ##   * RIBBONS, not pickets: a 12 px-tall horizontal bar buys ~6 px of wall
+  ##     per column retired against a 26x24 picket's ~24 px — the same reason
+  ##     main's quad plugs used "the bracket's 12 px vocabulary";
+  ##   * capped at street width (68 px) with the same lane/reserved/endzone
+  ##     guards as the row pass, so cover stays punctuation, never a wall.
+  block columnCover:
     if result.symmetry != symQuadMirror:
-      break columnSightlineRepair
-    proc colBlocked(gameMap: CtfMap, x: int): bool =
-      ## Seed-set cover of column x anywhere in the scanned band. The y band
-      ## is scanned in FULL (not folded to the top half): seeds may sit past
-      ## cy, and the mirrorY images stay inside the band anyway because the
-      ## band is symmetric about the y axis — only the x fold is real.
-      ## spinAlways: the validator judges columns on the always-stone mask,
-      ## so a spinning diamond's resting edge must not count as cover here.
-      for y in gameMap.sightlineLoY .. gameMap.sightlineHiY:
-        if mapWallAt(gameMap, gameMap.leftObstacles, x, y,
-            spin = spinAlways):
+      break columnCover
+    const
+      RibbonH = 12
+      RibbonWMax = 68
+    let
+      w = result.width
+      ay = result.sightlineLoY
+      by = result.sightlineHiY
+      loY = max(ArenaBorder + 2, ay)
+      hiY = min(result.center.y - RibbonH - 2, by)
+    if hiY <= loY: break columnCover
+    var (maxWallC, minWallC) = rasterizeWallMasks(
+      result, buildArenaObstacles(result))
+    maxWallC.setLen(0)
+    proc colOpen(gm: CtfMap, x: int): bool =
+      ## Open = no always-wall anywhere in the band AND the column could
+      ## legally hold wall (an all-protected column is open by DESIGN and the
+      ## validator exempts it — see the vertical scan there). Takes the map
+      ## as a parameter: inside a nested proc `result` is the proc's own.
+      for y in ay .. by:
+        if minWallC[y * w + x]:
+          return false
+      for y in ay .. by:
+        if not mapProtectedFloorAt(gm, x, y):
           return true
       false
-    proc colFullyProtected(gameMap: CtfMap, x: int): bool =
-      ## A column whose entire scan band is protected floor can never hold
-      ## wall — on a plus map the columns inside the W/E capture reach run
-      ## through the arm's protected approach for the whole band. The
-      ## validator exempts them identically; demanding wall there would
-      ## make every plus board unbuildable. (Symmetric in x by the carve's
-      ## own reflection exactness, so the x fold needs no second call.)
-      for y in gameMap.sightlineLoY .. gameMap.sightlineHiY:
-        if not mapProtectedFloorAt(gameMap, x, y):
-          return false
-      true
-    var plugsLeft = cols(40)
-    while plugsLeft > 0:
-      var uncovered = -1
-      var x = ArenaBorder + 2
-      while x < result.width - ArenaBorder:
-        if not (result.colBlocked(x) or
-            result.colBlocked(result.width - 1 - x) or
-            result.colFullyProtected(x)):
-          uncovered = x
-          break
+    var x = ArenaBorder + 2
+    while x < result.center.x:
+      if not colOpen(result, x):
         x += 4
-      if uncovered < 0:
-        break columnSightlineRepair
-      ## The plug is a thin horizontal bar over the folded column, its row
-      ## drawn INSIDE the scan band so no plug can miss the band and leave
-      ## a dead shape behind (see the row-plug note on why quad plugs are
-      ## bars, not diamonds).
+        continue
+      ## The ribbon starts a hair before the open column and spans toward the
+      ## centre, retiring the whole uncovered run it can reach in one piece.
+      ## It may TOUCH the symmetry axis (never straddle it): a ribbon ending
+      ## at center.x meets its own mirrorX image starting there, so the
+      ## centre seam holds wall — stopping short leaves a permanently open
+      ## central corridor no seed shape could ever cover.
+      var
+        rx = max(ArenaBorder, x - 2)
+        rw = min(RibbonWMax, result.center.x - rx)
+      ## A column INSIDE a reserved vertical corridor gets a CHICANE piece,
+      ## not a ribbon: a half-width blocker anchored to the corridor's near
+      ## edge, leaving MinRouteWidthPx of floor beside it — the corridor
+      ## stays a route (the archetypes build exactly these), the column is
+      ## covered, and the never-relaxing street guard below is satisfied
+      ## because the piece is not ON reserved ground it seals. Parity
+      ## alternates with the cursor so consecutive pieces in one corridor
+      ## do not stack into a wall along one edge.
+      ## A column that passes through a reserved VERTICAL corridor gets a
+      ## CHICANE piece seated inside that corridor's overlap with the band
+      ## — a half-width blocker against one corridor edge, leaving
+      ## MinPassableWidth of floor beside it (the archetypes' own corridor
+      ## vocabulary), instead of a full-width ribbon the never-relaxing
+      ## corridor guard must refuse. The corridor need NOT span the whole
+      ## band: a hub dog-leg or ring side that covers part of it is
+      ## exactly where the open column threads through (measured: x=284
+      ## crossed three such segments and no full-band corridor at all).
+      ## Near/far edge choice by x so the piece is guaranteed to cover
+      ## the column; seatLo/seatHi confine the seat search to the overlap.
+      var inCorridor = false
+      var seatLo = max(10 + 2, ay)
+      var seatHi = min(min(result.center.y - RibbonH - 2,
+                           result.height - 10 - RibbonH), by)
+      for r in archPlan.reserved:
+        if r.h > r.w and r.x <= x and x < r.x + r.w:
+          let
+            oLo = max(r.y, seatLo)
+            oHi = min(r.y + r.h - RibbonH, seatHi)
+          if oHi - oLo < RibbonH: continue
+          let depth = r.w - MinPassableWidth
+          if depth < 10: continue
+          inCorridor = true
+          if x < r.x + depth:
+            rx = r.x
+          else:
+            rx = r.x + r.w - depth
+          rw = depth
+          seatLo = oLo
+          seatHi = oHi
+          break
+      if not inCorridor:
+        ## Respect EVERY reserved corridor that touches the seat window —
+        ## not only full-band ones. The measured failure: a ribbon at
+        ## x=282..349 poked into a NEIGHBOURING vertical corridor
+        ## (x309..377, y183..329) that spans only part of the band, so
+        ## `reservesBounds` vetoed every seat and the column stayed open.
+        ## A corridor ahead truncates the ribbon; one containing its start
+        ## slides it forward. A narrower ribbon still covers column x.
+        for r in archPlan.reserved:
+          if r.h > r.w and r.y <= seatHi + RibbonH and r.y + r.h >= seatLo:
+            if r.x <= rx and rx < r.x + r.w and rx + rw > r.x + r.w:
+              rx = r.x + r.w
+            if r.x > rx and r.x < rx + rw:
+              rw = r.x - rx
+        rw = min(rw, result.center.x - rx)
+        if rx > x or rx + rw <= x:
+          ## The clamps slid the ribbon off the open column itself: fall
+          ## back to the widest window that still covers x.
+          rx = max(ArenaBorder, x - 2)
+          rw = min(RibbonWMax, result.center.x - rx)
+          for r in archPlan.reserved:
+            if r.h > r.w and r.y <= seatHi + RibbonH and
+                r.y + r.h >= seatLo and r.x > x and r.x < rx + rw:
+              rw = r.x - rx
+      if rw < 8:
+        x += 4
+        continue
+      var placed = false
+      for relaxed in [false, true]:
+        for step in 0 ..< ((seatHi - seatLo) div 8 + 1):
+          let ry = seatLo + step * 8
+          if ry > seatHi: break
+          let candidate = ArenaShape(kind: shapeRect, rect: MapRect(
+            x: rx, y: ry, w: rw, h: RibbonH))
+          if not mapProtectedFloorAt(result, rx, ry + RibbonH div 2) and
+             not mapProtectedFloorAt(result, rx + rw - 1, ry + RibbonH div 2) and
+             not mapProtectedFloorAt(result, rx + rw div 2, ry) and
+             not result.sealsEndzoneGate(candidate) and
+             ## The STREET guard never relaxes for a FULL-WIDTH ribbon: a
+             ## plug across a 68px promise is what corridor68's kill-box
+             ## rule exists to refuse. An in-corridor CHICANE piece is
+             ## exempt — it leaves MinPassableWidth beside it by
+             ## construction, which is the archetypes' own corridor
+             ## vocabulary. A column with no legal seat either way stays
+             ## open and the validator judges it on its merits.
+             (inCorridor or not archPlan.reservesBounds(
+               rx, ry, rx + rw - 1, ry + RibbonH - 1)) and
+             (relaxed or not haveLanes or not lanePlan.intrudesOnLane(candidate)):
+            result.leftObstacles.add candidate
+            ## Credit the ribbon and its three Klein images on this scan's
+            ## mask; the row pass rebuilds its own mask from leftObstacles a
+            ## few lines down, so the rows it covers are credited there too.
+            for img in [candidate,
+                        candidate.mirrorX(result.width),
+                        candidate.mirrorY(result.height),
+                        candidate.rot180(result.width, result.height)]:
+              let b = shapeBounds(img)
+              for yy in max(b.y0, 0) .. min(b.y1, result.height - 1):
+                for xx in max(b.x0, 0) .. min(b.x1, w - 1):
+                  if not mapProtectedFloorAt(result, xx, yy):
+                    minWallC[yy * w + xx] = true
+            placed = true
+            break
+        if placed: break
+      if placed:
+        x = max(x + 4, rx + rw)
+      else:
+        ## No legal seat even relaxed (all protected / endzone gate): the
+        ## validator will exempt or reject this column on its merits.
+        x += 4
+
+  block rowCover:
+    const PicketW = 24
+    let
+      w = result.width
+      ax = result.sightlineLoX
+      ## CREDIT THE BAND THE VALIDATOR READS, exactly. `bx` used to be clamped
+      ## to `center.x`, so this scan called a row open while the validator —
+      ## which reads `sightlineLoX .. sightlineHiX` with no clamp — called it
+      ## blocked. On rot90 that mismatch is expensive rather than merely
+      ## pedantic: a picket's rot180 image lands at x = W-1-x-PicketW, which
+      ## for the placement window is x in [435,630]. That is inside the
+      ## validator's band and OUTSIDE the clamped one, so every picket failed
+      ## to be credited for the row its own image already blocked and the pass
+      ## placed roughly twice the pickets it needed. Measured on seed 1002:
+      ## 36 pickets costing 188 permille, against a 170 ceiling, on a board
+      ## whose fill was only 89.
+      bx = result.sightlineHiX
+      picketH = MinPassableWidth
+      ## The candidate window is clamped to the SIGHTLINE BAND. A picket
+      ## outside `ax..bx` does not cover the row it was placed for — the scan
+      ## only reads the band — so it is billed to the cover budget, buys
+      ## nothing, and the very next row places another. Taking first-legal-x
+      ## used to hide this by always landing in band; sweeping the window
+      ## exposed it as one picket PER ROW and took 4-team cover to 255
+      ## permille against a 170 ceiling.
+      loX = max(max(terrainXMin, ArenaBorder + 2), ax - PicketW + 1)
+      hiX = min(min(xMax, result.center.x - PicketW - 2), bx)
+    if hiX <= loX: break rowCover
+    var (maxWall, minWall) = rasterizeWallMasks(result, buildArenaObstacles(result))
+    maxWall.setLen(0)
+    ## SPREAD THE PICKETS. Taking the first legal x every time is what turned
+    ## this pass into a wall: on seed 1005 all 43 pickets landed at x=229, a
+    ## solid 24px column the full height of the board, and the rot90 lift made
+    ## four of them into a box around the centre plaza. Rendering it is what
+    ## showed this — the shape-level reasoning above had said nothing about it.
+    ##
+    ## A rotating cursor over the legal window costs nothing, keeps the pass
+    ## RNG-free, and turns the column into a staircase of separate pieces:
+    ## cover you can fight around instead of a wall. It also makes crediting
+    ## the symmetry images (above) actually pay — images of a single stacked
+    ## column all land on the same rows and duplicate each other's work, while
+    ## images of a spread staircase land on rows spread just as widely, so one
+    ## picket now retires up to four row-bands instead of one.
+    ##
+    ## Only on rot90. The pathology the cursor fixes — four images of one
+    ## stacked column boxing in the centre plaza — is a four-fold-lift effect,
+    ## and a mirror board's images land on the SAME rows as their originals so
+    ## spreading buys it no coverage at all. Measured, it costs: sweeping the
+    ## cursor over 2-team took validity 90% -> 80% and interiorFrac
+    ## 0.315 -> 0.272, because first-legal-x packs 2-team's pickets against
+    ## terrain that is already there and a spread one starts fresh columns.
+    let
+      spreadPickets = result.symmetry == symRot90
+      slots = (hiX - loX) div 8 + 1
+    var cursor = 0
+    var y = ArenaBorder + 2
+    while y < result.height - ArenaBorder:
+      var covered = false
+      for x in ax .. bx:
+        if minWall[y * w + x]:
+          covered = true
+          break
+      if covered:
+        inc y
+        continue
+      ## Uncovered. Place one picket spanning this row, at the first legal x
+      ## at or after the cursor, wrapping so the whole window stays reachable.
       let
-        foldedCol =
-          if uncovered > result.center.x: result.width - 1 - uncovered
-          else: uncovered
-        plugX = max(ArenaBorder, foldedCol - 4)
-        plugY = rng.pickRange(
-          result.sightlineLoY,
-          max(result.sightlineLoY + 1, result.sightlineHiY - 12))
-      dec plugsLeft
-      result.leftObstacles.add ArenaShape(kind: shapeRect,
-        rect: MapRect(x: plugX, y: plugY, w: 60, h: 12))
+        py = clamp(y - picketH div 2, ArenaBorder,
+                   result.height - ArenaBorder - picketH)
+      var placed = false
+      for relaxed in [false, true]:
+        for step in 0 ..< slots:
+          let x = loX + (((if spreadPickets: cursor else: 0) + step) mod slots) * 8
+          let candidate = ArenaShape(kind: shapeRect, rect: MapRect(
+            x: x, y: py, w: PicketW, h: picketH))
+          ## Protected floor would erase it, and a route is the one thing a
+          ## picket must never close. The relaxed pass drops only the route
+          ## test, so a board with no legal gap still gets its row covered
+          ## and the corridor audit judges the pinch on its merits.
+          ##
+          ## The RESERVED test is the archetype's half of that, and it was
+          ## missing: three 24x26 pickets stacked across a 68 px street is a
+          ## 24x78 plug that seals the street it was placed in, which is a
+          ## route the archetype promised and this pass quietly took back.
+          ## The archetype's own chicanes close those rows first, so in
+          ## practice this test now rarely has to fire.
+          if not mapProtectedFloorAt(result, x + PicketW div 2, y) and
+             not mapProtectedFloorAt(result, x, y) and
+             not mapProtectedFloorAt(result, x + PicketW - 1, y) and
+             not result.sealsEndzoneGate(candidate) and
+             (relaxed or not archPlan.reservesBounds(
+               x, py, x + PicketW - 1, py + picketH - 1)) and
+             (relaxed or not haveLanes or not lanePlan.intrudesOnLane(candidate)):
+            result.leftObstacles.add candidate
+            ## Mark the picket AND every image the symmetry lift will make of
+            ## it, mirroring `buildArenaObstacles` exactly. A picket is an
+            ## axis-aligned rect and all three transforms preserve that, so
+            ## `shapeBounds` is the exact footprint, not an approximation.
+            var images = @[candidate]
+            case result.symmetry
+            of symMirror:
+              images.add candidate.mirrorX(result.width)
+            of symRot180:
+              images.add candidate.rot180(result.width, result.height)
+            of symRot90:
+              let quarter = candidate.rot90(result.width)
+              images.add quarter
+              images.add candidate.rot180(result.width, result.height)
+              images.add quarter.rot180(result.width, result.height)
+            of symQuadMirror:
+              images.add candidate.mirrorX(result.width)
+              images.add candidate.mirrorY(result.height)
+              images.add candidate.rot180(result.width, result.height)
+            for img in images:
+              let b = shapeBounds(img)
+              for yy in max(b.y0, 0) .. min(b.y1, result.height - 1):
+                for xx in max(b.x0, 0) .. min(b.x1, w - 1):
+                  ## `rasterizeWallMasks` carves protected floor back out of
+                  ## both masks, so a picket over a spawn pocket or a capture
+                  ## zone blocks nothing. Crediting one would be a lie that
+                  ## leaves the row genuinely open on the mask the validator
+                  ## reads — the same wrong-thing-measured trap this block was
+                  ## written to escape.
+                  if not mapProtectedFloorAt(result, xx, yy):
+                    minWall[yy * w + xx] = true
+            when defined(maptrace): inc lastMapGenTrace.rowPickets
+            ## Advance past this picket's own width so the next row starts
+            ## somewhere new rather than re-testing the slot just filled.
+            if spreadPickets:
+              cursor = (cursor + step + PicketW div 8) mod slots
+            placed = true
+            break
+        if placed: break
+      inc y
 
   ## Glass windows: fog sees through them, nothing passes them. Biased to
   ## the outermost column and the midline band, where sightlines matter.
   let windowsDraw =
-    if teams == 4: rng.pickRange(1, 2)
-    else: rng.pickRange(2, 4)
+    if teams == 4: coverRng.pickRange(1, 2)
+    else: coverRng.pickRange(2, 4)
   let windowCount =
     if overrides.windows >= 0: overrides.windows else: windowsDraw
   if windowCount > 6:
@@ -2332,8 +3244,8 @@ proc generateMapAttempt*(
       preferred.add entry
     else:
       rest.add entry
-  rng.shuffle(preferred)
-  rng.shuffle(rest)
+  coverRng.shuffle(preferred)
+  coverRng.shuffle(rest)
   let ranked = preferred & rest
   for i in 0 ..< min(windowCount, ranked.len):
     result.leftObstacles[ranked[i].idx].window = true
@@ -2347,7 +3259,7 @@ proc generateMapAttempt*(
     let
       ringLo = result.flagRing + 40
       ringHi = result.center.x - result.captureClear - 60
-      d = rng.pickRange(ringLo, max(ringLo + 1, ringHi))
+      d = pickupRng.pickRange(ringLo, max(ringLo + 1, ringHi))
       ## rot90: one ring point east of center, walked round the quarter
       ## turns. Quad-mirror: a point ON the y axis has a degenerate Klein
       ## orbit (its mirrorX image is itself, half a pixel off), so the seed
@@ -2371,8 +3283,10 @@ proc generateMapAttempt*(
   else:
     let
       mid = result.width div 2
-      y1 = rng.pickRange(result.height * 16 div 100, result.height * 34 div 100)
-      y2 = rng.pickRange(result.height * 36 div 100, result.height * 47 div 100)
+      y1 = pickupRng.pickRange(
+        result.height * 16 div 100, result.height * 34 div 100)
+      y2 = pickupRng.pickRange(
+        result.height * 36 div 100, result.height * 47 div 100)
     result.medKitCandidates = @[
       MapPoint(x: mid, y: y1),
       MapPoint(x: mid, y: result.height - 1 - y1),
@@ -2380,7 +3294,7 @@ proc generateMapAttempt*(
       MapPoint(x: mid, y: result.height - 1 - y2),
     ]
     result.medKitSpawns =
-      if rng.coin():
+      if pickupRng.coin():
         @[result.medKitCandidates[0], result.medKitCandidates[1]]
       else:
         @[result.medKitCandidates[2], result.medKitCandidates[3]]
@@ -2423,8 +3337,12 @@ proc generateMapAttempt*(
       if image != trench:
         digs.add image
       true
+    var paired {.used.} = 0
     for trench in result.trenches:
-      discard result.addPair(digs, shapeAsRect(trench))
+      if result.addPair(digs, shapeAsRect(trench)): inc paired
+    when defined(mapdbg):
+      echo "  [dbg] pitsPaired=", paired, " of ", result.trenches.len,
+        " -> digs=", digs.len
     ## COUNT mode: pairs lost to sightline-repair walls are topped back up
     ## from the unused candidates that cannot change the wall set (gap and
     ## endzone spots; a late `instead` swap would dodge the repair pass).
@@ -2435,6 +3353,8 @@ proc generateMapAttempt*(
         if cand.kind == pitInstead:
           continue
         discard result.addPair(digs, trenchSquareAt(cand.x, cand.y))
+    when defined(mapdbg):
+      echo "  [dbg] pitsFinal=", digs.len, " requested=", overrides.pits
     result.trenches = @[]
     for d in digs:
       result.trenches.add rectShape(d)
@@ -2452,6 +3372,10 @@ proc generateMapAttempt*(
     if overrides.puddles <= 0 or
         result.symmetry in {symRot90, symQuadMirror}:
       break finalizePuddles
+    ## Puddles are a late main-line addition; they draw from their own
+    ## sub-stream so the earlier scenes' draw order stays untouched (the
+    ## sub-stream law: a stage gains draws without disturbing the others).
+    var puddleRng = root.stream("puddles")
     let
       obstacles = buildArenaObstacles(result)
       margin = PuddleMaxRadiusPx + 8
@@ -2503,7 +3427,7 @@ proc generateMapAttempt*(
       ## trench floor would double-stack the two hazards' art and rules).
       ## Its disc set is stitched self-symmetric (see centerPuddleSplat),
       ## so it is its own image and joins the set alone.
-      let center = rng.centerPuddleSplat(result)
+      let center = puddleRng.centerPuddleSplat(result)
       var centerOpen = true
       for trench in result.trenches:
         if rectsIntersect(shapeAsRect(trench), puddleBounds(center)):
@@ -2520,9 +3444,9 @@ proc generateMapAttempt*(
       dec attempts
       let
         cxHi = result.center.x - PuddleMaxRadiusPx - 4
-        cx = rng.pickRange(margin, max(margin, cxHi))
-        cy = rng.pickRange(margin, max(margin, result.height - margin))
-      discard result.addPuddlePair(splats, rng.puddleSplatAt(cx, cy))
+        cx = puddleRng.pickRange(margin, max(margin, cxHi))
+        cy = puddleRng.pickRange(margin, max(margin, result.height - margin))
+      discard result.addPuddlePair(splats, puddleRng.puddleSplatAt(cx, cy))
     result.puddles = splats
   result.validateMap()
 
@@ -2554,8 +3478,19 @@ type
     reason*: string
     coverPermille*, minCoverPermille*: int
     openSightlineRows*: seq[int]
-      ## Every open row in the validator's historical 4px scan, not every
-      ## physical map row.
+      ## Every open row between the capture columns. Now EVERY occupiable row:
+      ## this was a 4px-strided scan starting inside the border gutter, so it
+      ## examined 3 of every 4 rows and the ones it did examine included rows
+      ## nothing can stand on.
+    maxOpenRunPx*: int
+      ## The longest unbroken open line inside the occupiable playfield, over
+      ## rows, columns AND both diagonals. REPORTED, never rejected — see the
+      ## note at the scan for what making it a rejection would cost. The rule
+      ## above can only see horizontal rays that cross an entire x-band whose
+      ## width varies with the endzone shape; this is the length the rule was
+      ## reaching for, on every axis.
+    maxOpenRunAxis*: string       ## "row", "column" or "diagonal"
+    maxOpenRunX*, maxOpenRunY*: int   ## where that line ends
     redHomeOnOpenFloor*: bool
     unreachableTeams*: seq[Team]
     centerReachable*: bool
@@ -2643,17 +3578,38 @@ proc collectMapDiagnostics(
   result.minCoverPermille = minPermille
   if minPermille < CoverPermilleMin:
     recordFailure("too open: " & $minPermille & " permille cover")
-  if permille > CoverPermilleMax:
+  let coverCeiling =
+    if gameMap.symmetry == symQuadMirror: QuadMirrorCoverPermilleMax
+    else: CoverPermilleMax
+  if permille > coverCeiling:
     recordFailure("too clogged: " & $permille & " permille cover")
 
   ## With map-wide guns no straight horizontal ray may survive between the
   ## capture columns (the property tests/test_map_los.nim pins for arena).
+  ##
+  ## THE SCAN HAD TWO HOLES, both closed here, neither of which changes the
+  ## rule itself:
+  ##
+  ##   * It stepped 4 px, so it never looked at 3 of every 4 rows. Measured
+  ##     (tools/scan_probe.nim): seeds 1001 and 1014 each ship a fully open row
+  ##     the scan has never examined. Stride is now 1.
+  ##   * It started at `ArenaBorder + 2`, inside the ~10 px strip between the
+  ##     border ring and the first floor a 13 px body can occupy. Rows in that
+  ##     strip are open on EVERY map by construction and can hold neither a
+  ##     shooter nor a target, so they were the only rows the exhaustive scan
+  ##     turned up. It now starts at the first occupiable row, which is what
+  ##     the rule always meant.
+  ##
+  ## Both changes together reject nothing that ships today — verified across
+  ## both hand-authored maps and the twenty curated pool seeds — while making
+  ## the rule check what it claims to check.
   block sightlines:
     let
       ax = gameMap.sightlineLoX
       bx = gameMap.sightlineHiX
-    var y = ArenaBorder + 2
-    while y < h - ArenaBorder:
+      firstOccupiable = ArenaBorder + MinPassableWidth div 2
+    var y = firstOccupiable
+    while y < h - firstOccupiable:
       var blocked = false
       for x in ax .. bx:
         if minWall[y * w + x]:
@@ -2665,7 +3621,7 @@ proc collectMapDiagnostics(
           result.reason = "open horizontal sightline at y=" & $y
         if stopAfterFirstFailure:
           return
-      y += 4
+      inc y
 
   ## Vertical sightlines — QUAD-MIRROR ONLY. rot90's row coverage carries
   ## onto its columns by the quarter turn (the minWall mask is its own
@@ -2701,15 +3657,81 @@ proc collectMapDiagnostics(
             if stopAfterFirstFailure:
               return
         x += 4
+
+
+  ## THE LONGEST OPEN LINE, on all four axes. REPORTED, NOT REJECTED — read the
+  ## warning below before making it a failure.
+  ##
+  ## The rule above rejects a ray only when it crosses the ENTIRE
+  ## `sightlineLoX .. sightlineHiX` band, so the effective cap is that band's
+  ## width — 805 px on a column endzone but 1205 px on a compact one, i.e. the
+  ## cap moves with the endzone shape and on half the pool ends up WIDER THAN
+  ## THE GUN. It is also horizontal only, so a vertical or diagonal lane of any
+  ## length is invisible to it, and on 13 of 36 measured maps the longest open
+  ## line IS the diagonal.
+  ##
+  ## WHY THIS DOES NOT REJECT, and what a rejection would have to be cut on.
+  ## This used to read that a hard cap at `GunRange` "fails arena-large
+  ## (1149 px) and four curated pool seeds (1074 px)", and that those were
+  ## findings about the MAPS because "a lane neither end can contest is the
+  ## exact defect the horizontal rule exists to prevent". THAT WAS REASONING
+  ## FROM GEOMETRY AND PLAY REFUTED IT: across 35,335 resolved shots nothing
+  ## damaged anybody past 832 px, and a played 4-team board carrying a 1318 px
+  ## diagonal produced ZERO hits past 900 px in five episodes. `GunRange` is a
+  ## reach, not an engagement range — the same correction `IsovistRangePx`
+  ## already took. `map_metrics` now bands the SCALE-FREE form,
+  ## `sightlineOpenFrac`, at 0.85 of the board diagonal; see
+  ## `map_metrics.SightlineOpenFracCap` for the measurement behind that number.
+  ## A rejection here would have to be cut on THAT and not on px, and it is
+  ## still the epic owner's call rather than a side effect of measuring.
+  if not stopAfterFirstFailure:
+    ## Full-diagnostics path only: four O(w*h) scans is 24x the strided row
+    ## scan, and the generator's fast validator re-rolls up to 100 attempts.
+    ## Nothing rejects on this, so the fast path loses no verdict by skipping it.
+    let inset = ArenaBorder + MinPassableWidth div 2
+    template scanRun(sx, sy, dx, dy: int, stepPx: float, axis: string) =
+      var
+        x = sx
+        y = sy
+        run = 0
+      while x >= 0 and x < w and y >= 0 and y < h:
+        if x < inset or y < inset or x >= w - inset or y >= h - inset or
+            minWall[y * w + x]:
+          run = 0
+        else:
+          inc run
+          let px = int(float(run) * stepPx)
+          if px > result.maxOpenRunPx:
+            result.maxOpenRunPx = px
+            result.maxOpenRunAxis = axis
+            result.maxOpenRunX = x
+            result.maxOpenRunY = y
+        x += dx
+        y += dy
+    for y in 0 ..< h:
+      scanRun(0, y, 1, 0, 1.0, "row")
+      scanRun(0, y, 1, 1, 1.41421356, "diagonal")
+      scanRun(0, y, 1, -1, 1.41421356, "diagonal")
+    for x in 0 ..< w:
+      scanRun(x, 0, 0, 1, 1.0, "column")
+      scanRun(x, 0, 1, 1, 1.41421356, "diagonal")
+      scanRun(x, h - 1, 1, -1, 1.41421356, "diagonal")
   if diagnosticWallMasks in artifacts:
     result.minWall = minWall
   else:
     minWall.setLen(0)
 
   ## Corridor + connectivity: chamfer 3-4 distance to the nearest wall,
-  ## eroded by half the corridor minimum, then a flood fill — both flags and
-  ## the center must connect through corridors the player footprint can
-  ## actually use.
+  ## eroded by half the PASSABILITY minimum, then a flood fill — both flags and
+  ## the center must connect through floor the player footprint can actually
+  ## use.
+  ##
+  ## THIS EROSION IS 26 px AND MUST STAY THERE. The corridor floor is 68 px
+  ## (`MinCorridorWidth`), but a flood eroded to 68 would sever every route
+  ## through a 30-45 px chokepoint and report the board disconnected — it would
+  ## reject exactly the feature the structure pass exists to build. The 68 px
+  ## rule is a statement about SUSTAINED width and is enforced separately, and
+  ## length-awarely, by the pinch audit at the end of this proc.
   var dist = newSeq[int32](w * h)
   for i in 0 ..< w * h:
     dist[i] = if maxWall[i]: 0'i32 else: int32.high div 2
@@ -2735,15 +3757,11 @@ proc collectMapDiagnostics(
       if x < w - 1 and y < h - 1: d = min(d, dist[i + w + 1] + 4)
       if x > 0 and y < h - 1: d = min(d, dist[i + w - 1] + 4)
       dist[i] = d
-  let minChamfer = int32((MinCorridorWidth div 2) * 3)
+  let minChamfer = int32((MinPassableWidth div 2) * 3)
   var open = newSeq[bool](w * h)
   for i in 0 ..< w * h:
     open[i] = dist[i] >= minChamfer
   dist.setLen(0)
-  if diagnosticWallMasks in artifacts:
-    result.maxWall = maxWall
-  else:
-    maxWall.setLen(0)
 
   let
     redHome = gameMap.flagHome(Red)
@@ -2776,14 +3794,14 @@ proc collectMapDiagnostics(
       result.unreachableTeams.add team
       let message =
         if gameMap.teamCount() == 2:
-          "no " & $MinCorridorWidth & "px route between the flags"
+          "no " & $MinPassableWidth & "px route between the flags"
         else:
-          "no " & $MinCorridorWidth & "px route to the " &
+          "no " & $MinPassableWidth & "px route to the " &
             teamText(team) & " flag"
       recordFailure(message)
   result.centerReachable = reached[gameMap.center.y * w + gameMap.center.x]
   if not result.centerReachable:
-    recordFailure("no " & $MinCorridorWidth & "px route to the center")
+    recordFailure("no " & $MinPassableWidth & "px route to the center")
 
   ## Compact endzones must stay OPEN-FLANKED: a base you can only be reached
   ## from the field side is just a column endzone with extra steps. Checked
@@ -2791,7 +3809,7 @@ proc collectMapDiagnostics(
   if gameMap.endzone != ezColumn:
     let
       anchor = gameMap.teamAnchor(Red)
-      gate = gameMap.endzoneRadius + MinCorridorWidth div 2 + 4
+      gate = gameMap.endzoneRadius + MinPassableWidth div 2 + 4
       gates = [
         (name: "behind", point: MapPoint(x: anchor.x - gate, y: anchor.y)),
         (name: "above", point: MapPoint(x: anchor.x, y: anchor.y - gate)),
@@ -2840,6 +3858,47 @@ proc collectMapDiagnostics(
       if not result.rearGateReachesCenterWithoutEndzone:
         recordFailure("no route around the endzone from behind the base")
 
+  ## THE CORRIDOR FLOOR, and the only place in this file that enforces 68 px.
+  ##
+  ## Everything above is calibrated to `MinPassableWidth` = 26, which asks only
+  ## whether a body fits. `MinCorridorWidth` = 68 asks whether TWO fit — the
+  ## sustained two-abreast width that lets players escort, overtake and trade —
+  ## and it cannot be asked the same way. A 68 px erosion would sever every
+  ## route through a 30-45 px chokepoint and reject the boards this generator
+  ## is built to make.
+  ##
+  ## So the rule is LENGTH-AWARE. `map_lanes.corridorPinchFailures` finds the
+  ## route a player would really take, cuts it into maximal sub-68 px
+  ## stretches, and fails the map only when an UNAVOIDABLE stretch holds more
+  ## unbroken sightline than `maxPinchRunPx` says a player can clear alive at
+  ## that width (66 px at a 30 px pinch, 99 px at 45 px, 132 px at 62 px and
+  ## up, where it meets `map_rules.MaxExposedRunPx` with no cliff). A short
+  ## gate passes. A tunnel does not. See `map_lanes`' header for the
+  ## derivation and for the two control failures it is designed against.
+  ##
+  ## RUN LAST, deliberately, and not at the call site `map_lanes` documents.
+  ## It is by far the most expensive check here — a widest-path join plus
+  ## several Dial's passes plus a cut test per candidate gate — and the fast
+  ## validator re-rolls up to `MapGenMaxAttempts` candidates, so it must only
+  ## be paid by a map that has already cleared every cheap gate. It also
+  ## presumes a connected board, which is the check immediately above it.
+  block corridorFloor:
+    ## Its only output is `reason`, and `recordFailure` keeps the FIRST one, so
+    ## a map that has already failed cannot learn anything from this pass —
+    ## skipping it there is observationally identical and free. (In the fast
+    ## path `recordFailure` has already returned, so this only ever fires on
+    ## the full-diagnostics path.)
+    if result.reason.len > 0: break corridorFloor
+    var anchors: seq[MapPoint]
+    for team in gameMap.teams():
+      anchors.add gameMap.flagHome(team)
+    for r in corridorPinchFailures(maxWall, w, h, anchors, MinCorridorWidth):
+      recordFailure(r)
+
+  if diagnosticWallMasks in artifacts:
+    result.maxWall = maxWall
+  else:
+    maxWall.setLen(0)
   if diagnosticCorridorOpen in artifacts:
     result.corridorOpen = open
   if diagnosticReachable in artifacts:
@@ -2864,28 +3923,207 @@ proc validateGeneratedMap*(gameMap: CtfMap): string =
   ## not in the draws: anything that passes is fair game.
   collectMapDiagnostics(gameMap, {}, stopAfterFirstFailure = true).reason
 
+type MapFitness* = proc (gameMap: CtfMap): float {.nimcall, gcsafe, raises: [].}
+  ## A [0,1] play-quality score for one map. `map_metrics.staticScore` is the
+  ## implementation; this indirection exists only to break an import cycle
+  ## (`map_metrics` measures maps and therefore imports `arena`, so `arena`
+  ## cannot import it back).
+
+var
+  mapFitness: MapFitness = nil
+  mapFitnessName = ""
+
+proc setMapFitness*(fn: MapFitness, name: string) =
+  ## Installs the ranking function used by `generateCtfMap`. Called once, at
+  ## module-init time, by `map_metrics`. `sim` imports `map_metrics`, so every
+  ## consumer of `ctf/sim` — the server, the tools, the tests, the wasm replay
+  ## bundle — selects the same map for the same seed. `tests/test_map_select`
+  ## pins that; a binary that imported `ctf/arena` ALONE would fall back to
+  ## first-valid and generate a different map, which is exactly the split
+  ## brain that assertion is there to catch.
+  mapFitness = fn
+  mapFitnessName = name
+
+proc mapFitnessInstalled*(): bool = mapFitness != nil
+proc mapFitnessLabel*(): string =
+  if mapFitness == nil: "none (first-valid)" else: mapFitnessName
+
+proc selectionK*(gameMap: CtfMap): int =
+  ## How many valid candidates a map of this shell ranks. Per size class
+  ## because the cost is per size class; see `map_rules.MapSelectionK`.
+  selectionK(gameMap.mapSizeClass())
+
+type
+  MapCandidateFn* = proc (seed, attempt: int): CtfMap {.closure.}
+    ## Draws candidate `attempt` for `seed`. THE generator seam: whatever
+    ## builds maps — today's column lattice, tomorrow's scene graph — is one
+    ## of these, and `selectBestMap` never learns which.
+  MapAcceptFn* = proc (gameMap: CtfMap): bool {.closure.}
+    ## The hard gate. Defaults to `validateGeneratedMap`.
+  MapScoreFn* = proc (gameMap: CtfMap): float {.closure.}
+    ## The soft ranking. Defaults to the installed `MapFitness`.
+
+  MapSelection* = object
+    ## The outcome of one best-of-K search, with the accounting a caller needs
+    ## to report cost honestly rather than guess it.
+    gameMap*: CtfMap
+    score*: float          ## -1 when nothing was ranked.
+    worstScore*: float     ## -1 when nothing was ranked.
+    attempts*: int         ## candidates drawn, valid or not.
+    valid*: int            ## candidates that passed the gate.
+    ranked*: bool          ## false = no scorer, so this is first-valid.
+    tiedAtBest*: int
+      ## How many ranked candidates scored EXACTLY the winner's score, the
+      ## winner included. 1 means selection expressed a real preference.
+    degenerate*: bool
+      ## True when selection ranked MORE THAN ONE candidate and could not tell
+      ## them apart (`tiedAtBest == valid`, `valid > 1`).
+      ##
+      ## This is the failure mode that looks exactly like success: a map comes
+      ## back, `ranked` is true, the full K-candidate cost is paid, and the
+      ## result is just the first valid draw. A scorer that saturates, that
+      ## reads a field this generator never varies, or that quantises to a
+      ## handful of values all land here — and `score` alone cannot show it,
+      ## because the winning score is perfectly healthy-looking.
+      ##
+      ## Deliberately NOT an error: a genuinely tied field is a legitimate
+      ## outcome at small K, and callers that ignore this keep working.
+      ## `worstScore` is the companion — `score == worstScore` over many
+      ## candidates is the same signal as a continuous quantity.
+
+proc selectBestMap*(
+  seed: int,
+  k: int,
+  produce: MapCandidateFn,
+  accept: MapAcceptFn = nil,
+  score: MapScoreFn = nil,
+  maxAttempts = MapGenMaxAttempts,
+): MapSelection =
+  ## BEST-OF-K: draw candidates 0, 1, 2 … for ONE seed, keep the ones that pass
+  ## the gate, and return the highest-scoring of the first `k` of them.
+  ##
+  ## Why selection at all: `validateGeneratedMap` passes ~92% of 2-team and
+  ## ~47% of 4-team first attempts, so returning the first valid draw returns a
+  ## uniformly random map — the 50th percentile of the generator's own quality
+  ## range. The validators are a crash guard, not a filter. E[max of K] =
+  ## K/(K+1) of that range, so ranking a handful of candidates is the cheapest
+  ## quality any generator here can buy.
+  ##
+  ## This proc is deliberately GENERATOR-AGNOSTIC. It knows nothing about
+  ## columns, scenes, or how `produce` spends its randomness — only that
+  ## candidate `attempt` of `seed` is reproducible and that candidates of one
+  ## seed are comparable. A replacement generator drives the identical ranker
+  ## by passing a different `produce`; a generator with its own extra gates
+  ## passes its own `accept`. Keep it that way: the moment this function calls
+  ## a specific generator by name, the next generator has to rewrite it.
+  ##
+  ## Cheap-to-vary contract for `produce`: candidates of one seed should differ
+  ## only in what selection is meant to search over. `map_seed.seedStream` is
+  ## how today's generator holds the board SHELL fixed across attempts, which
+  ## is what lets a caller pick `k` from the size class before any work starts.
+  ##
+  ## `valid == 0` means nothing passed the gate inside `maxAttempts`; the
+  ## caller decides whether that is an error (`generateCtfMap` raises).
+  result.score = -1.0
+  result.worstScore = -1.0
+  result.ranked = score != nil or mapFitness != nil
+  let want = max(1, k)
+  for attempt in 0 ..< maxAttempts:
+    let candidate = produce(seed, attempt)
+    inc result.attempts
+    let passed =
+      if accept != nil: accept(candidate)
+      else: validateGeneratedMap(candidate).len == 0
+    if not passed:
+      continue
+    inc result.valid
+    if not result.ranked:
+      ## No scorer anywhere: first valid candidate wins, exactly as before
+      ## selection existed. Never silently "best of K" against a fake score.
+      result.gameMap = candidate
+      return
+    let value =
+      if score != nil: score(candidate)
+      else: mapFitness(candidate)
+    if result.valid == 1 or value < result.worstScore:
+      result.worstScore = value
+    if value > result.score:
+      result.score = value
+      result.gameMap = candidate
+      result.tiedAtBest = 1
+    elif value == result.score:
+      ## Exact equality only — this counts a scorer that cannot separate
+      ## candidates, not one that separates them narrowly. The winner is NOT
+      ## replaced, so selection stays deterministic (first best wins).
+      inc result.tiedAtBest
+    if result.valid >= want:
+      break
+  result.degenerate = result.ranked and result.valid > 1 and
+    result.tiedAtBest == result.valid
+
+proc mapArchetypeFor*(seed: int, teams = 2): MapArchetype =
+  ## Which route topology a seed draws — the same derivation the generator
+  ## uses, exposed so a tool can NAME a tile without regenerating it.
+  ##
+  ## Deliberately a pure function of (seed, teams) rather than a field on
+  ## `CtfMap`: the archetype is drawn from a seed-level stream and the legal
+  ## set depends only on the team count, so nothing has to ride the map spec,
+  ## the wire, or a GameVersion bump to make a map's design nameable.
+  var rng = mapSeed(seed).seedStream(SceneArchetype)
+  rng.drawArchetype(teams)
+
+proc generateCtfMapSelection*(
+  seed: int,
+  overrides = MapGenOverrides(windows: -1, pits: -1, pitDensity: -1),
+  teams = 2,
+  k = 0
+): MapSelection =
+  ## `generateCtfMap` with the SELECTION ACCOUNTING kept instead of discarded —
+  ## score, worstScore, attempts, valid, tiedAtBest, degenerate.
+  ##
+  ## Exists because `generateCtfMap` returns only the map, so a caller auditing
+  ## selection had to re-derive the accounting by replaying the generator (as
+  ## `tools/map_eval.nim bestof` did, which cannot see `degenerate` at all —
+  ## the whole point of that flag is that the winning map looks fine).
+  let
+    first = generateMapAttempt(seed, overrides, teams, 0)
+    want = if k > 0: k else: first.selectionK()
+  selectBestMap(
+    seed, want,
+    produce = proc (s, attempt: int): CtfMap =
+      if attempt == 0: first
+      else: generateMapAttempt(s, overrides, teams, attempt))
+
 proc generateCtfMap*(
   seed: int,
   overrides = MapGenOverrides(windows: -1, pits: -1, pitDensity: -1),
-  teams = 2
+  teams = 2,
+  k = 0
 ): CtfMap =
-  ## Generates a VALIDATED map: attempts seeds seed, seed+1, ... until one
-  ## passes every validator. A locked-parameter combination that can never
-  ## pass errors out after MapGenMaxAttempts.
-  for attempt in 0 ..< MapGenMaxAttempts:
-    let candidate = generateMapAttempt(seed + attempt, overrides, teams)
-    if validateGeneratedMap(candidate).len == 0:
-      return candidate
-  raise newException(
-    CtfError,
-    "Map generation found no valid layout in " & $MapGenMaxAttempts &
-      " attempts from seed " & $seed & " (over-constrained overrides?)."
-  )
+  ## The shipping map for one seed: `generateMapAttempt` driven through
+  ## `selectBestMap`. `k = 0` reads the per-size-class default from
+  ## `map_rules.MapSelectionK`; any positive `k` overrides it.
+  ##
+  ## Raises only when NO candidate validates inside `MapGenMaxAttempts` — the
+  ## over-constrained-overrides case, unchanged.
+  ## Attempt 0 settles the board shell (which `map_seed.seedStream` holds
+  ## identical for every attempt) and the shell is what chooses K — see
+  ## `generateCtfMapSelection`, which this is a thin projection of.
+  let selection = generateCtfMapSelection(seed, overrides, teams, k)
+  if selection.valid == 0:
+    raise newException(
+      CtfError,
+      "Map generation found no valid layout in " & $MapGenMaxAttempts &
+        " attempts from seed " & $seed & " (over-constrained overrides?)."
+    )
+  selection.gameMap
 
 proc poolCtfMap*(
   index: int, overrides = MapGenOverrides(windows: -1, pits: -1, pitDensity: -1)
 ): CtfMap =
-  ## One curated-pool map; the index wraps around the pool.
+  ## One curated-pool map; the index wraps around the pool. This is a full
+  ## best-of-K selection (~1s on a standard board, and the pool holds giants),
+  ## so a caller that wants the whole pool should memoize — several tests do.
   let n = MapPoolSeeds.len
   generateCtfMap(MapPoolSeeds[((index mod n) + n) mod n], overrides)
 
@@ -2982,7 +4220,7 @@ proc mapSpecJson*(gameMap: CtfMap): string =
   var trenchShapes = newJArray()
   for trench in gameMap.trenches:
     trenchShapes.add trench.shapeSpecNode()
-  let spec = %*{
+  var spec = %*{
     "name": gameMap.name,
     "genSeed": gameMap.genSeed,
     "width": gameMap.width,
@@ -3018,6 +4256,13 @@ proc mapSpecJson*(gameMap: CtfMap): string =
     "trenches": trenchShapes,
     "leftObstacles": shapes,
   }
+  # The biome is cosmetic (it picks the floor texture; it never moves a wall),
+  # and biomeArena is the zero value every map built before biomes existed
+  # carries. Emitting the key ONLY for a non-arena biome keeps every classic
+  # map's spec byte-identical, which is what lets the 402-row validation
+  # baseline and tools/dump_map_specs.nim stay pinned across this change.
+  if gameMap.biome != biomeArena:
+    spec["biome"] = %($gameMap.biome)
   ## Puddles pin only when present: an unconditional (empty) key would
   ## change every puddle-free pinned spec — and with it every default
   ## fixture's config echo — for nothing.
@@ -3085,6 +4330,23 @@ proc mapFromSpecJson*(text: string): CtfMap =
     of "square": ezSquare
     else:
       raise newException(CtfError, "Unknown map spec endzone: " & endzoneText)
+  ## Same contract as the three above, and for the same reason: a MISSING key
+  ## means a spec pinned before biomes existed, which really was the classic
+  ## concrete, so it defaults. An unknown NON-EMPTY value is a typo or a spec
+  ## from the future — raise rather than silently reinterpreting it. Note this
+  ## deliberately does NOT use `biomeFromName`: that parser is tolerant by
+  ## design for the generator/CLI boundary, and tolerance is wrong here.
+  let biomeText = node{"biome"}.getStr("arena")
+  result.biome =
+    case biomeText
+    of "arena": biomeArena
+    of "caves": biomeCaves
+    of "forest": biomeForest
+    of "desert": biomeDesert
+    of "city": biomeCity
+    of "plains": biomePlains
+    else:
+      raise newException(CtfError, "Unknown map spec biome: " & biomeText)
   result.endzoneRadius = node{"endzoneRadius"}.getInt(0)
   result.homeDepth = node{"homeDepth"}.getInt(ClassicHomeDepth)
   result.medKitSpawns = pointsFromNode(node["medKitSpawns"])
@@ -3180,7 +4442,10 @@ var
 
 proc selectCtfMap(gameMap: CtfMap) =
   ## Installs one map as THE map for this process: dimensions, fog grid,
-  ## map-relative ranges, layout clearances, and the mirrored obstacle set.
+  ## layout clearances, and the mirrored obstacle set. No WEAPON REACH is
+  ## installed here — the gun, the grenade and the shout are the same pixel
+  ## distances on every board (GameVersion 38), which is what gives each size
+  ## class its own visibility regime.
   ## Runs before any sim, mask, or render work; the render bakes in
   ## global.nim assume the arena never changes afterward.
   ArenaMapG = gameMap
@@ -3189,8 +4454,6 @@ proc selectCtfMap(gameMap: CtfMap) =
   FovGridW = (MapWidth + FovCellSize - 1) div FovCellSize
   FovGridH = (MapHeight + FovCellSize - 1) div FovCellSize
   FovCellCount = FovGridW * FovGridH
-  GrenadeMaxRange = MapWidth div 5
-  ShoutRange = MapWidth div 5
   ArenaFlagRing = gameMap.flagRing
   ArenaCaptureClear = gameMap.captureClear
   ArenaLayoutG = gameMap.layout

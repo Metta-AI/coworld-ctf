@@ -144,7 +144,15 @@ const
                               # ticks of traverse at ~8px of enemy closing
                               # motion per tick = 8/5 px per brad
   ButtonC = 1'u8 shl 7        # grenade charge/throw (input mask bit 128)
-  NadeMaxRange = 240.0        # full-charge throw distance (~fifth of the field)
+  NadeMaxRange = 262.0        # full-charge throw distance == the sim's
+                              # GrenadeMaxRange (GV38: GunRange div 4, the SAME
+                              # on every board). Was 240.0 back when reach was
+                              # MapWidth div 5 — that only ever matched a
+                              # standard 2-team board, and was wildly wrong
+                              # elsewhere (1284 on colossal). Charge ticks are
+                              # back-solved from this, so a stale value throws
+                              # long at full charge and never plans the last
+                              # 22px of reach.
   NadeMinRange = 78.0         # never lob inside this — the 58px blast + drift
                               # would clip us (GV17: blast 40 -> 52; GV31: the
                               # blast tests BODIES, so its reach is 52 + 6)

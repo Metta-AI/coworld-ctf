@@ -1,0 +1,37 @@
+   1 [FAILED] wiping a team retires its heart and the game goes on
+   1 [FAILED] wiping a team drops its heart off an enemy carrier's back
+   1 [FAILED] the game continues at two teams and ends on the last survivor
+   1 [FAILED] the endzone markers state each team's capture zone exactly
+   1 [FAILED] the emitted label vocabulary matches tests/label_manifest.txt
+   1 [FAILED] the curated pool sits below the hand-authored control
+   1 [FAILED] shared pool rendering matches the pre-extraction images
+   1 [FAILED] seats deal round all four teams
+   1 [FAILED] scoring round-trips through replay JSON and rejects unknown rules
+   1 [FAILED] plus layout anchors the four teams on the four arms
+   1 [FAILED] mapPits locks an exact total; odd counts anchor the map center
+   1 [FAILED] mapPitDensity scales the density draw
+   1 [FAILED] generated-map validation matches the pre-refactor baseline
+   1 [FAILED] generated maps dig walkable, team-symmetric trenches
+   1 [FAILED] four teams pay the winner +4 and each loser -1
+   1 [FAILED] every schema property is consumed by config.update
+   1 [FAILED] every pool seed ships a valid map under its own seed
+   1 [FAILED] every curated map spec round-trips byte-identically
+   1 [FAILED] every compact pool seed keeps its flanks open
+   1 [FAILED] elimination deaths never count in the stats (GV35)
+   1 [FAILED] eliminating a carrier's team returns the heart it was carrying
+   1 [FAILED] corner endzones are diagonal
+   1 [FAILED] config round-trips teams and layout through replay JSON
+   1 [FAILED] classic scoring is the default and is untouched
+   1 [FAILED] capturing all three rival hearts pays the winner +3 and each loser -1
+   1 [FAILED] any enemy flag can be stolen, never your own
+   1 [FAILED] all four flags start home on their own pedestals
+   1 [FAILED] a time-limit draw still costs every player one point
+   1 [FAILED] a stepped 4-team episode is deterministic and respawns in-zone
+   1 [FAILED] a captured heart cannot be stolen again
+   1 [FAILED] a capture eliminates the captured team and the game goes on
+   1 [FAILED] a 4-team frame defines no colliding sprite ids
+   1 [FAILED] 4-team rig sprites stay inside the dynamic wire window
+   1 [FAILED] 4-team pickups are exact under a quarter turn
+   1 [FAILED] 4-team maps are exactly rot90-fair and deterministic
+   1 [FAILED] 4-team homes and pockets are a rot90 orbit
+   1 [FAILED] 4-team capture zones are exact under a quarter turn

@@ -95,7 +95,9 @@ suite "compact endzones":
   test "every compact pool seed keeps its flanks open":
     var compact = 0
     for seed in MapPoolSeeds:
-      let gameMap = generateCtfMap(seed)
+      ## Shared memo: `test_mapgen` builds these same 20 maps earlier in the
+      ## shard, and a full pool sweep is ~20 s of best-of-K generation.
+      let gameMap = cachedCtfMap(seed)
       if gameMap.endzone == ezColumn:
         continue
       inc compact
