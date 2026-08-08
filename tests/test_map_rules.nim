@@ -441,19 +441,26 @@ suite "the two open decisions":
     check GrenadeRangeFromGunPx == GrenadeMaxRange
     check abs(GrenadeRangeFromGunPx - 1235 div 5) * 100 div (1235 div 5) < 7
 
-  test "the corridor minimum is recommended, not raised, in this task":
-    # 26 px clears the 13 px SOLID footprint but not the 34 px drawn body.
-    # The measured churn of moving to 68 is in the design doc; the column
-    # generator physically cannot serve it (slot period 88-120 around 56-60 px
-    # obstacles leaves no adjacent gap over 64 px), so the raise belongs to the
-    # structure pass.
-    check MinCorridorWidth == 26
-    check MinCorridorWidth > 2 * PlayerHalf
-    check MinCorridorWidth < SoldierBodyPx
+  test "the corridor floor is the DRAWN body; passability is a separate number":
+    # The raise landed, and it landed as TWO constants rather than one bigger
+    # one. A single global 68 px minimum would reject the 30-45 px chokepoint
+    # the structure pass exists to build, so:
+    #   MinPassableWidth  = 26  physics — what the flood erodes to
+    #   MinCorridorWidth  = 68  design  — SUSTAINED width, enforced
+    #                                     length-aware by map_lanes
+    check MinPassableWidth == 26
+    check MinPassableWidth > 2 * PlayerHalf
+    check MinPassableWidth < SoldierBodyPx
+    check MinCorridorWidth == RecommendedCorridorWidthPx
+    check MinCorridorWidth == 2 * SoldierBodyPx
     check RecommendedCorridorWidthPx == 2 * SoldierBodyPx
     check RecommendedCorridorWidthPx == 68
+    # Generator and validator now name the SAME number. That agreement is the
+    # whole point: the lane plan built 68 px corridors while the validator
+    # accepted 26 px ones, and nothing connected the two.
     for c in MapSizeClass:
       check mapRules(c, 2).minCorridorWidthPx == RecommendedCorridorWidthPx
+      check mapRules(c, 2).minCorridorWidthPx == MinCorridorWidth
     # The scale bridge that makes published level-design metrics usable here:
     # SoldierBodyPx = 34 against Source's 32-unit player is 1.06 px/unit, under
     # which TF2's 1024-unit medium-range cap lands within 4% of GunRange.

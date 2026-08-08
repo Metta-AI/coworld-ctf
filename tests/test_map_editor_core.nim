@@ -11,6 +11,12 @@ const ValidationBaselinePath =
   currentSourcePath.parentDir / "fixtures" / "map-validation-baseline.tsv"
 
 const PoolRenderHashes = [
+  ## T2a MERGE NOTE (corridor68): on its own base that branch moved exactly
+  ## one hash — index 18, seed 1021 — because the 68 px length-aware corridor
+  ## floor rejected best-of-K's pick ("kill box at (523,392)") and selection
+  ## fell through. On THIS merged tree the pin below is re-verified by the
+  ## suite; if the floor moves a pool pick again, render and LOOK before
+  ## re-pinning (the law above stands).
   ## Re-pinned against the rebuilt generator (`maxwell/mapgen-rebuild`), which
   ## re-deals every seed: all 20 moved. The SEED LIST did not — `gen_map_pool`
   ## re-curates to the same 20 — so this pin is the only place the rewrite is
@@ -66,7 +72,7 @@ proc firstRow(rows: seq[int]): int =
   ## drift in the validation baseline invisible.
   if rows.len > 0: rows[0] else: -1
 
-const FirstOccupiableRow* = ArenaBorder + MinCorridorWidth div 2
+const FirstOccupiableRow* = ArenaBorder + MinPassableWidth div 2
   ## The first row a 13 px body can actually stand in. Spelled from the same
   ## two constants the validator uses rather than as a literal, so the scan
   ## and its control cannot drift apart silently again.

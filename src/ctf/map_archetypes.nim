@@ -66,7 +66,7 @@ import mapgen_vocab
 const
   MinRouteWidthPx* = 30
     ## The narrowest a chicaned corridor is ever left. Above the validator's
-    ## 26 px route-grid cell, below `RecommendedCorridorWidthPx` (68) — a
+    ## 26 px passability floor, below `RecommendedCorridorWidthPx` (68) — a
     ## chicane is a squeeze you fight through, not a boulevard.
 
 type

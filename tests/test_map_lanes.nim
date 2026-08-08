@@ -86,11 +86,16 @@ suite "the maximum pinch length is derived, not typed in":
       maxPinchRunPx(ChokeWidthMaxPx) == LethalUnit
 
 suite "the module agrees with the constants it cannot import":
-  test "EngineMinCorridorPx is arena.MinCorridorWidth":
+  test "EngineMinCorridorPx is arena.MinPassableWidth, NOT MinCorridorWidth":
     # map_lanes must not import arena (arena adopts corridorPinchFailures), so
     # the constant is duplicated and pinned here — the same guard
     # map_rules.BorderPx uses for arena.ArenaBorder.
-    check EngineMinCorridorPx == MinCorridorWidth
+    check EngineMinCorridorPx == MinPassableWidth
+    # And it is deliberately NOT the design floor: `walkableMask` asks what a
+    # body can occupy, and at 68 px every 30-45 px chokepoint would read as a
+    # wall — the audit would report a disconnected board instead of a gate.
+    check MinCorridorWidth == RecommendedCorridorWidthPx
+    check EngineMinCorridorPx < MinCorridorWidth
 
 suite "NEGATIVE control: open ground has no chokepoint":
   setup:

@@ -433,7 +433,7 @@ suite "shape vocabulary: sizes are derived from the board":
           vocabParams("standard", 2).doritoRadius.hi * 3 div 2
 
   test "the passability floor is the DRAWN corridor, not the collision floor":
-    # 68 px = two drawn cog bodies abreast. `arena.MinCorridorWidth` is 26,
+    # 68 px = two drawn cog bodies abreast. `arena.MinPassableWidth` is 26,
     # and designing gaps to that number is how you get a map you can only
     # cross single file.
     for name in ["small", "standard", "giant"]:

@@ -1343,18 +1343,40 @@ proc buildAnimatedDiamonds*(
 const
   GenMapName* = "gen"
   PoolMapName* = "pool"
-  MinCorridorWidth* = 26
-    ## Narrowest corridor for the 13 px SOLID footprint (`PlayerHalf` = 6).
-    ## It does NOT clear the 34 px DRAWN silhouette, so two cogs abreast in a
-    ## minimum corridor visually overlap; `map_rules.RecommendedCorridorWidthPx`
-    ## = 68 is the derived target and `docs/plans/2026-08-05-map-size-class-
-    ## rules.md` carries the measured churn of moving there (at 68 px, 222 of
-    ## the 402 pinned baseline rows change verdict, first-attempt pass falls
-    ## 76% -> 28%, and 13 of the 20 curated pool seeds stop validating). The
-    ## column generator physically cannot serve 68 px — its slot period is
-    ## 88-120 px around 56-60 px obstacles, so no adjacent-slot gap exceeds
-    ## 64 px. Raising this belongs to the structure pass, not here. Exported so
-    ## tools and tests stop re-declaring it.
+  MinPassableWidth* = 26
+    ## PHYSICS, not design. The narrowest floor the 13 px SOLID footprint
+    ## (`PlayerHalf` = 6) can occupy, and the width every erosion in this file
+    ## is calibrated to. Below it the board stops being a board; at it, a map
+    ## is merely traversable, which is a crash guard and not a quality bar.
+    ##
+    ## THIS IS THE NUMBER THE CONNECTIVITY FLOOD MUST KEEP, and it is the one
+    ## thing the corridor raise may not touch. A deliberate 30-45 px chokepoint
+    ## is a LEGAL feature — it is the feature the structure pass exists to
+    ## create — so a flood eroded to the 68 px corridor floor would sever every
+    ## gated route and reject exactly what the generator is built to produce.
+    ## The 68 px rule is enforced instead by `MinCorridorWidth` below, which is
+    ## LENGTH-AWARE and therefore able to tell a corridor from a doorway.
+    ##
+    ## Exported so tools and tests stop re-declaring it.
+  MinCorridorWidth* = RecommendedCorridorWidthPx
+    ## DESIGN. 68 px — two DRAWN cog bodies (`map_rules.SoldierBodyPx` = 34)
+    ## abreast, so two cogs can share a corridor without their silhouettes
+    ## overlapping. `MinPassableWidth` = 26 clears the solid collision footprint
+    ## and nothing else, which is why this is a separate number rather than a
+    ## bigger value of that one.
+    ##
+    ## NOT a flat minimum, and it must never become one: as a global floor it
+    ## contradicts the 30-45 px chokepoint outright. It is enforced by
+    ## `map_lanes.corridorPinchFailures` (wired into `collectMapDiagnostics`
+    ## below), which applies it to SUSTAINED width only and permits a
+    ## sub-corridor pinch for as long as `map_lanes.maxPinchRunPx` says a
+    ## player can clear it alive — 66 px at a 30 px pinch, grading to 132 px at
+    ## 62 px and up, where it meets `map_rules.MaxExposedRunPx` with no cliff.
+    ##
+    ## The scale bridge: `SoldierBodyPx` = 34 against Source's 32-unit player
+    ## is 1.06 px/unit, under which Source's published 64-unit minimum hallway
+    ## is 68 px and TF2's 1024-unit medium-range cap lands within 4% of
+    ## `GunRange`.
   MapGenMaxAttempts = 100
   MapSizeNames = DrawableSizeNames
     ## Derived from `map_rules.MapSizeClassTable`, not typed. The generator
@@ -2121,12 +2143,12 @@ proc generateMapAttempt*(
   ## slot inside an apron; lanes and organic fill do not come in slots, so the
   ## test is applied to the emitted SHAPE instead. Cheap on purpose: a ring of
   ## probes at the corridor radius, not a filled disc.
-  let gateReach = result.endzoneRadius + MinCorridorWidth div 2 + 4
+  let gateReach = result.endzoneRadius + MinPassableWidth div 2 + 4
   proc sealsEndzoneGate(gameMap: CtfMap, shape: ArenaShape): bool =
     if gameMap.endzone == ezColumn: return false
     let
       a = gameMap.teamAnchor(Red)
-      r = MinCorridorWidth div 2
+      r = MinPassableWidth div 2
     for g in [MapPoint(x: a.x - gateReach, y: a.y),
               MapPoint(x: a.x, y: a.y - gateReach),
               MapPoint(x: a.x, y: a.y + gateReach),
@@ -2576,8 +2598,8 @@ proc generateMapAttempt*(
       ## Four-fold boards therefore get a couple of spinners, not a colonnade.
       let step =
         if result.symmetry == symRot90:
-          max(2 * MinCorridorWidth, result.height div 2)
-        else: max(2 * MinCorridorWidth, result.height div 5)
+          max(2 * MinPassableWidth, result.height div 2)
+        else: max(2 * MinPassableWidth, result.height div 5)
       var sy = ArenaBorder + step div 2
       while sy < result.height - ArenaBorder:
         if result.trySpinner(sy): inc placed
@@ -2593,7 +2615,7 @@ proc generateMapAttempt*(
       ## `ring`, `warren` and `field` leave the middle of the board ALONE.
       ## One spinner near each end of the axis keeps the mechanic supplied
       ## without putting a landmark where every other tile has one.
-      let inset = max(2 * MinCorridorWidth, result.height div 7)
+      let inset = max(2 * MinPassableWidth, result.height div 7)
       for sy in [ArenaBorder + inset, result.height - ArenaBorder - inset]:
         if result.trySpinner(sy): inc placed
     if placed == 0:
@@ -2933,7 +2955,7 @@ proc generateMapAttempt*(
       ## 36 pickets costing 188 permille, against a 170 ceiling, on a board
       ## whose fill was only 89.
       bx = result.sightlineHiX
-      picketH = MinCorridorWidth
+      picketH = MinPassableWidth
       ## The candidate window is clamped to the SIGHTLINE BAND. A picket
       ## outside `ax..bx` does not cover the row it was placed for — the scan
       ## only reads the band — so it is billed to the cover budget, buys
@@ -3426,7 +3448,7 @@ proc collectMapDiagnostics(
     let
       ax = gameMap.sightlineLoX
       bx = gameMap.sightlineHiX
-      firstOccupiable = ArenaBorder + MinCorridorWidth div 2
+      firstOccupiable = ArenaBorder + MinPassableWidth div 2
     var y = firstOccupiable
     while y < h - firstOccupiable:
       var blocked = false
@@ -3507,7 +3529,7 @@ proc collectMapDiagnostics(
     ## Full-diagnostics path only: four O(w*h) scans is 24x the strided row
     ## scan, and the generator's fast validator re-rolls up to 100 attempts.
     ## Nothing rejects on this, so the fast path loses no verdict by skipping it.
-    let inset = ArenaBorder + MinCorridorWidth div 2
+    let inset = ArenaBorder + MinPassableWidth div 2
     template scanRun(sx, sy, dx, dy: int, stepPx: float, axis: string) =
       var
         x = sx
@@ -3541,9 +3563,16 @@ proc collectMapDiagnostics(
     minWall.setLen(0)
 
   ## Corridor + connectivity: chamfer 3-4 distance to the nearest wall,
-  ## eroded by half the corridor minimum, then a flood fill — both flags and
-  ## the center must connect through corridors the player footprint can
-  ## actually use.
+  ## eroded by half the PASSABILITY minimum, then a flood fill — both flags and
+  ## the center must connect through floor the player footprint can actually
+  ## use.
+  ##
+  ## THIS EROSION IS 26 px AND MUST STAY THERE. The corridor floor is 68 px
+  ## (`MinCorridorWidth`), but a flood eroded to 68 would sever every route
+  ## through a 30-45 px chokepoint and report the board disconnected — it would
+  ## reject exactly the feature the structure pass exists to build. The 68 px
+  ## rule is a statement about SUSTAINED width and is enforced separately, and
+  ## length-awarely, by the pinch audit at the end of this proc.
   var dist = newSeq[int32](w * h)
   for i in 0 ..< w * h:
     dist[i] = if maxWall[i]: 0'i32 else: int32.high div 2
@@ -3569,15 +3598,11 @@ proc collectMapDiagnostics(
       if x < w - 1 and y < h - 1: d = min(d, dist[i + w + 1] + 4)
       if x > 0 and y < h - 1: d = min(d, dist[i + w - 1] + 4)
       dist[i] = d
-  let minChamfer = int32((MinCorridorWidth div 2) * 3)
+  let minChamfer = int32((MinPassableWidth div 2) * 3)
   var open = newSeq[bool](w * h)
   for i in 0 ..< w * h:
     open[i] = dist[i] >= minChamfer
   dist.setLen(0)
-  if diagnosticWallMasks in artifacts:
-    result.maxWall = maxWall
-  else:
-    maxWall.setLen(0)
 
   let
     redHome = gameMap.flagHome(Red)
@@ -3610,14 +3635,14 @@ proc collectMapDiagnostics(
       result.unreachableTeams.add team
       let message =
         if gameMap.teamCount() == 2:
-          "no " & $MinCorridorWidth & "px route between the flags"
+          "no " & $MinPassableWidth & "px route between the flags"
         else:
-          "no " & $MinCorridorWidth & "px route to the " &
+          "no " & $MinPassableWidth & "px route to the " &
             teamText(team) & " flag"
       recordFailure(message)
   result.centerReachable = reached[gameMap.center.y * w + gameMap.center.x]
   if not result.centerReachable:
-    recordFailure("no " & $MinCorridorWidth & "px route to the center")
+    recordFailure("no " & $MinPassableWidth & "px route to the center")
 
   ## Compact endzones must stay OPEN-FLANKED: a base you can only be reached
   ## from the field side is just a column endzone with extra steps. Checked
@@ -3625,7 +3650,7 @@ proc collectMapDiagnostics(
   if gameMap.endzone != ezColumn:
     let
       anchor = gameMap.teamAnchor(Red)
-      gate = gameMap.endzoneRadius + MinCorridorWidth div 2 + 4
+      gate = gameMap.endzoneRadius + MinPassableWidth div 2 + 4
       gates = [
         (name: "behind", point: MapPoint(x: anchor.x - gate, y: anchor.y)),
         (name: "above", point: MapPoint(x: anchor.x, y: anchor.y - gate)),
@@ -3674,6 +3699,47 @@ proc collectMapDiagnostics(
       if not result.rearGateReachesCenterWithoutEndzone:
         recordFailure("no route around the endzone from behind the base")
 
+  ## THE CORRIDOR FLOOR, and the only place in this file that enforces 68 px.
+  ##
+  ## Everything above is calibrated to `MinPassableWidth` = 26, which asks only
+  ## whether a body fits. `MinCorridorWidth` = 68 asks whether TWO fit — the
+  ## sustained two-abreast width that lets players escort, overtake and trade —
+  ## and it cannot be asked the same way. A 68 px erosion would sever every
+  ## route through a 30-45 px chokepoint and reject the boards this generator
+  ## is built to make.
+  ##
+  ## So the rule is LENGTH-AWARE. `map_lanes.corridorPinchFailures` finds the
+  ## route a player would really take, cuts it into maximal sub-68 px
+  ## stretches, and fails the map only when an UNAVOIDABLE stretch holds more
+  ## unbroken sightline than `maxPinchRunPx` says a player can clear alive at
+  ## that width (66 px at a 30 px pinch, 99 px at 45 px, 132 px at 62 px and
+  ## up, where it meets `map_rules.MaxExposedRunPx` with no cliff). A short
+  ## gate passes. A tunnel does not. See `map_lanes`' header for the
+  ## derivation and for the two control failures it is designed against.
+  ##
+  ## RUN LAST, deliberately, and not at the call site `map_lanes` documents.
+  ## It is by far the most expensive check here — a widest-path join plus
+  ## several Dial's passes plus a cut test per candidate gate — and the fast
+  ## validator re-rolls up to `MapGenMaxAttempts` candidates, so it must only
+  ## be paid by a map that has already cleared every cheap gate. It also
+  ## presumes a connected board, which is the check immediately above it.
+  block corridorFloor:
+    ## Its only output is `reason`, and `recordFailure` keeps the FIRST one, so
+    ## a map that has already failed cannot learn anything from this pass —
+    ## skipping it there is observationally identical and free. (In the fast
+    ## path `recordFailure` has already returned, so this only ever fires on
+    ## the full-diagnostics path.)
+    if result.reason.len > 0: break corridorFloor
+    var anchors: seq[MapPoint]
+    for team in gameMap.teams():
+      anchors.add gameMap.flagHome(team)
+    for r in corridorPinchFailures(maxWall, w, h, anchors, MinCorridorWidth):
+      recordFailure(r)
+
+  if diagnosticWallMasks in artifacts:
+    result.maxWall = maxWall
+  else:
+    maxWall.setLen(0)
   if diagnosticCorridorOpen in artifacts:
     result.corridorOpen = open
   if diagnosticReachable in artifacts:

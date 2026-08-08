@@ -63,7 +63,8 @@ const
   DecorativeDepthPx = 100
     ## Below this a pane looks through a pocket, not a lane.
   StandDepthPx = 26
-    ## `MinCorridorWidth`. Below this nobody can stand on that side at all, so
+    ## `arena.MinPassableWidth`. Below this nobody can stand on that side at
+    ## all, so
     ## the glass has no viewer and no target: the pane is inert.
 
 # ---------------------------------------------------------------------------

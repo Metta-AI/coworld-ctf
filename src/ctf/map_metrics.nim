@@ -166,8 +166,8 @@ const
     ## Calibrated as a NAKEDNESS detector, not a quality bar — see the band's
     ## note for why the fraction cannot carry a quality bar at all.
   RouteCellPx* = 26
-    ## Coarse routing cell. Mirrors arena.nim's (unexported) MinCorridorWidth
-    ## = 26, the narrowest corridor the 13px player footprint can use, so one
+    ## Coarse routing cell. Mirrors `arena.MinPassableWidth` = 26, the
+    ## narrowest floor the 13px player footprint can use, so one
     ## min-cut cell IS one minimum-width corridor and `cut * RouteCellPx` is a
     ## bottleneck in px.
   ChokeMaxClearPx* = 90

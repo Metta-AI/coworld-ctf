@@ -8,7 +8,7 @@ import std/[os, strformat, strutils, sequtils]
 import ../src/ctf/[arena, map_metrics, sim]
 
 proc isPicket(s: ArenaShape): bool =
-  ## rowCover emits exactly PicketW=24 x MinCorridorWidth=26 rects, and on a
+  ## rowCover emits exactly PicketW=24 x MinPassableWidth=26 rects, and on a
   ## rot90 board the lane pickets never run, so the signature is unambiguous.
   s.kind == shapeRect and s.rect.w == 24 and s.rect.h == 26
 
