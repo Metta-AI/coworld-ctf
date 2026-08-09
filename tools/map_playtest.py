@@ -677,9 +677,24 @@ def report(datas, baseline=None):
     print(f"    exposure {exposure:.1f} alive seat-ticks per open cell "
           f"({data['aliveTicks']:,} seat-ticks over {open_cells:,} cells)")
     print(f"    {len(deaths)} deaths, spread {spread:.0f}px")
+    # Contact density, ALWAYS with its control delta — not only when a flag
+    # trips. `fightTimeFrac` (enemy in gun range) saturates near 100% at these
+    # board sizes and does not discriminate; `closeContactFrac` (within
+    # closeRangePx) is the one that separates maps, so both are named here with
+    # the delta a re-measure needs, rather than left for a reader to derive from
+    # the flags block. cf. the two rules the tool already enforces: run the
+    # control, and no count without its context.
+    def _delta(frac, key):
+        if control is None:
+            return ""
+        c = control.get(key, 0) / max(1, control["aliveTicks"])
+        return f" ({frac - c:+.0%} vs control {c:.0%})"
     print(f"    kills {kills}  balance {balance:.2f}  "
-          f"pace {pace:.1f} kills/1000t  contact {fight_frac:.0%} in gun range "
-          f"/ {close_frac:.0%} within {data.get('closeRangePx', 0)}px")
+          f"pace {pace:.1f} kills/1000t")
+    print(f"    contact: fightTimeFrac {fight_frac:.0%} in gun range"
+          f"{_delta(fight_frac, 'fightTicks')}"
+          f"; closeContactFrac {close_frac:.0%} within "
+          f"{data.get('closeRangePx', 0)}px{_delta(close_frac, 'closeTicks')}")
     # PER PEDESTAL, one line, because the aggregate above averages away the
     # only thing this measure exists to show. `-` means never approached.
     print(f"    per objective (ring {ped['ringPx']}px), enemy seat-time and "
