@@ -12,7 +12,7 @@
 ## not scanned. They are named explicitly because the quota scan cannot target a
 ## playtype, so it would never pick them.
 
-const MapPoolSeeds*: array[23, int] = [
+const MapPoolSeeds*: array[26, int] = [
   1001, 1002, 1003, 1004, 1005, 1006, 1007, 1008, 1009, 1010,
   1011, 1012, 1013, 1014, 1015, 1016, 1017, 1020, 1021, 1041,
   # --- seed-hunt additions (tasks#49): fill empty siege / rush cells ---
@@ -21,4 +21,10 @@ const MapPoolSeeds*: array[23, int] = [
          ## chokeCount soft-cap de-selects pinch-heavy candidates)
   1256,  ## three-lane / small / rush — chokeCount 0, routeMin 2, score 0.949
   1946,  ## three-lane / small / rush — chokeCount 0, routeMin 2, score 0.921
+  # --- seed-hunt additions (tasks#49, bonus): thin reachable cells ---
+  # overwatch was the pool's thinnest reachable playtype (1/20); these three
+  # are perfect / near-perfect scorers filling empty archetype x playtype cells.
+  2974,  ## ring / standard / overwatch — staticScore 1.000, choke 0, routeMin 8
+  2902,  ## warren / standard / overwatch — staticScore 1.000, choke 0, routeMin 5
+  1783,  ## field / standard / skirmish — staticScore 0.999, choke 0, routeMin 4
 ]

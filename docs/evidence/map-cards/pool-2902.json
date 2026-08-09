@@ -1,0 +1,32 @@
+{
+  "map_id": "pool:2902@gv42",
+  "schema_version": "map-card/v0",
+  "kind": {
+    "seed": 2902,
+    "game_version": "gv42",
+    "size_class": "standard",
+    "width": 1235,
+    "height": 659,
+    "teams": 2,
+    "symmetry": "mirror",
+    "style": null,
+    "biome": "caves",
+    "game_mode": "ctf",
+    "static_score": 1.0,
+    "valid": true,
+    "archetype": "warren",
+    "playtype": "overwatch",
+    "pacing": "standard",
+    "metrics": {
+      "interiorFrac": 0.3311815977925141,
+      "chokeCount": 0,
+      "routeCountMin": 5,
+      "longRunFrac": 0.10698689956331878,
+      "visDegreeCv": 0.46955081941206034,
+      "coverPermille": 149,
+      "contactTicks": 50.49925065552733
+    }
+  },
+  "live": null,
+  "grades": null
+}

@@ -80,12 +80,21 @@ const PoolRenderHashes = [
   ## hub with the pinch shelf that makes it siege (choke 8); 1256/1946 are open
   ## three-lane boards with choke 0, route-min 2 (rush). Determinism: both a
   ## release-mode pin run and the suite agree byte-for-byte.
+  ##
+  ## tasks#49 BONUS ADDITIONS (indices 23-25, seeds 2974/2902/1783): fill the
+  ## pool's thinnest reachable playtype (overwatch was 1/20) and an empty
+  ## field/standard/skirmish cell. Same discipline — RENDERED WITH THESE EXACT
+  ## OPTIONS AND LOOKED AT before pinning: symmetry visibly exact (all three
+  ## mirror), both bases on one connected floor, cover real masses, no
+  ## degenerate board. 2974 ring/overwatch and 2902 warren/overwatch score
+  ## 1.000; 1783 field/skirmish scores 0.999.
   0x254b59b6'u32, 0x99fcdcd3'u32, 0x087a84d5'u32, 0x3027d369'u32,
   0x94b4b37c'u32, 0x92851ac7'u32, 0xa6b26372'u32, 0xac1b2e34'u32,
   0x09e37205'u32, 0x2f45235f'u32, 0xe87734f9'u32, 0xa8499c21'u32,
   0x38c717dd'u32, 0xd4a4ec24'u32, 0x2617d05a'u32, 0x999da82d'u32,
   0x66a67465'u32, 0xe6c17791'u32, 0xded17dc7'u32, 0x779191bc'u32,
-  0x1c53586d'u32, 0x7e1a66b7'u32, 0xed171f13'u32   # 1306, 1256, 1946
+  0x1c53586d'u32, 0x7e1a66b7'u32, 0xed171f13'u32,  # 1306, 1256, 1946
+  0x23629653'u32, 0x46e13355'u32, 0xd9d86c23'u32   # 2974, 2902, 1783
 ]
 
 proc poolMap(index: int): CtfMap =

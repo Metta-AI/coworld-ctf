@@ -1,0 +1,32 @@
+{
+  "map_id": "pool:2974@gv42",
+  "schema_version": "map-card/v0",
+  "kind": {
+    "seed": 2974,
+    "game_version": "gv42",
+    "size_class": "standard",
+    "width": 1235,
+    "height": 659,
+    "teams": 2,
+    "symmetry": "mirror",
+    "style": null,
+    "biome": "plains",
+    "game_mode": "ctf",
+    "static_score": 1.0,
+    "valid": true,
+    "archetype": "ring",
+    "playtype": "overwatch",
+    "pacing": "standard",
+    "metrics": {
+      "interiorFrac": 0.2817754703623453,
+      "chokeCount": 0,
+      "routeCountMin": 8,
+      "longRunFrac": 0.09915164369034994,
+      "visDegreeCv": 0.46620123667435265,
+      "coverPermille": 148,
+      "contactTicks": 50.49925065552733
+    }
+  },
+  "live": null,
+  "grades": null
+}
