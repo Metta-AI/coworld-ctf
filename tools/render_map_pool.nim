@@ -21,6 +21,9 @@ when isMainModule:
         maxDimension: 0,
         overlays: {overlayProtected, overlayPickups},
         pickupKinds: {pickupMedKitActive, pickupMedKitCandidate},
+        # Preview-only: skin the floor by biome so the review page shows the
+        # six archetypes as six different places. Cosmetic — see map_render.
+        biomeFloor: true,
       )
     doAssert gameMap.genSeed == seed, "pool seed rolled forward: " & $seed
     let img = renderMap(gameMap, renderOptions).image
@@ -43,6 +46,8 @@ when isMainModule:
       # and KeyError'd on any width it had not been told about, which is why a
       # new size class could not ship.
       "sizeClass": gameMap.mapSizeClassName(),
+      "biome": $gameMap.biome,
+      "archetype": $mapArchetypeFor(seed),
       "symmetry": (
         if gameMap.symmetry == symMirror: "mirror" else: "rot180"),
       "endzone": (

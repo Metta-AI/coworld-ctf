@@ -59,6 +59,7 @@ def observed(key_fn, sort_key=None):
 sizes = observed(size_of, sort_key=lambda kv: kv[1]["width"])
 symmetries = observed(lambda m: m["symmetry"])
 endzones = observed(lambda m: m.get("endzone", "column"))
+biomes = observed(lambda m: m.get("biome", "arena"))
 
 cards = []
 for m in manifest:
@@ -69,13 +70,18 @@ for m in manifest:
     zone_note = (
         f"{endzone} r{m['endzoneRadius']} home x{m['homeX']}"
         if endzone != "column" else f"column home x{m.get('homeX', '?')}")
+    # Archetype + biome, defaulted so an older manifest (pre-biome) still
+    # renders — the chip just falls back to the historic "arena" concrete.
+    archetype = m.get("archetype", "?")
+    biome = m.get("biome", "arena")
     cards.append(f'''
-<article class="card" data-size="{size}" data-sym="{m['symmetry']}" data-endzone="{endzone}">
+<article class="card" data-size="{size}" data-sym="{m['symmetry']}" data-endzone="{endzone}" data-arch="{archetype}" data-biome="{biome}">
   <header class="card-head">
     <span class="idx">#{m['index']:02d}</span>
     <span class="seed">seed {m['seed']}</span>
     <span class="chip chip-{size}">{size} {m['width']}&times;{m['height']}</span>
     <span class="chip chip-sym">{m['symmetry']}</span>
+    <span class="chip chip-arch">{archetype} &middot; {biome}</span>
     <span class="chip chip-sym">{zone_note}</span>
     <span class="meta">{m['obstacles']} left-half shapes &middot; {m.get('trenches', 0)} trenches &middot; kits {kits}</span>
   </header>
@@ -86,7 +92,8 @@ for m in manifest:
 
 counts = {}
 for m in manifest:
-    for key in (size_of(m), m["symmetry"], m.get("endzone", "column")):
+    for key in (size_of(m), m["symmetry"], m.get("endzone", "column"),
+                m.get("biome", "arena")):
         counts[key] = counts.get(key, 0) + 1
 
 
@@ -105,11 +112,13 @@ head_line = " &middot; ".join([
     summary(sizes, "").strip(),
     summary(symmetries, "").strip(),
     summary(endzones, "endzones"),
+    summary(biomes, "biomes"),
 ])
 buttons = "\n    ".join([
     filter_buttons("size", sizes),
     filter_buttons("sym", symmetries),
     filter_buttons("endzone", endzones),
+    filter_buttons("biome", biomes),
 ])
 
 html = f'''<!doctype html>
@@ -149,6 +158,7 @@ h1 .gv {{ color:var(--glass); }}
 .seed {{ font-weight:700; }}
 .chip {{ border:1px solid var(--line); border-radius:2px; padding:0 .4rem; color:var(--muted); }}
 .chip-sym {{ color:var(--ink); }}
+.chip-arch {{ color:var(--glass); border-color:color-mix(in srgb,var(--glass) 45%,var(--line)); }}
 .meta {{ color:var(--muted); margin-left:auto; }}
 .viewer {{ position:relative; height:420px; overflow:hidden; cursor:grab; background:#0f0b08; }}
 .viewer:active {{ cursor:grabbing; }}
@@ -226,7 +236,8 @@ document.querySelectorAll('.filters button').forEach(b => {{
       const okSize = !active.size || c.dataset.size === active.size;
       const okSym = !active.sym || c.dataset.sym === active.sym;
       const okZone = !active.endzone || c.dataset.endzone === active.endzone;
-      c.classList.toggle('hidden', !(okSize && okSym && okZone));
+      const okBiome = !active.biome || c.dataset.biome === active.biome;
+      c.classList.toggle('hidden', !(okSize && okSym && okZone && okBiome));
     }});
   }});
 }});

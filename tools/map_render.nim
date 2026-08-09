@@ -55,6 +55,16 @@ type
     maxDimension*: int
     overlays*: set[MapOverlay]
     pickupKinds*: set[PickupKind]
+    biomeFloor*: bool
+      ## Tint the open floor (and its protected-zone shade) by the map's
+      ## `biome`, so a schematic render reads as the same place the server's
+      ## art bake would texture. OFF by default: with it off every floor is
+      ## the classic concrete swatch and the render is byte-identical to what
+      ## it produced before biomes existed — which is what the pinned pool
+      ## render-hash test (`PoolRenderHashes`) checks. This is a preview knob,
+      ## not the biome itself: the biome lives on `CtfMap.biome`, is chosen by
+      ## the generator, and drives the SERVER's floor texture regardless of
+      ## this flag. See `biomeFloorColor`.
 
   MapRenderResult* = object
     ## The rendered image and the exact spec-pixel to image-pixel scale used.
@@ -90,6 +100,21 @@ proc overTint(base, tint: ColorRGBA): ColorRGBA =
     uint8((int(tint.b) * alpha + int(base.b) * (255 - alpha)) div 255),
     255,
   )
+
+proc biomeFloorColor(biome: MapBiome): tuple[floor, zone: ColorRGBA] =
+  ## Preview floor/zone swatches per biome. NOT the game texture — the server
+  ## tiles `data/arena_floor_<biome>.png`; this is a flat schematic stand-in so
+  ## the pool review reads as six different places. `zone` is the protected-area
+  ## shade, kept a few steps lighter than `floor` exactly as the concrete pair
+  ## (FloorColor / ZoneColor) is. `biomeArena` returns that classic pair
+  ## unchanged, so an arena-biome map renders byte-identically either way.
+  case biome
+  of biomeArena:  (FloorColor, ZoneColor)
+  of biomeCaves:  (rgba(120, 112, 104, 255), rgba(140, 132, 124, 255))
+  of biomeForest: (rgba(120, 150, 96, 255), rgba(140, 168, 116, 255))
+  of biomeDesert: (rgba(224, 198, 136, 255), rgba(236, 214, 162, 255))
+  of biomeCity:   (rgba(160, 158, 150, 255), rgba(180, 178, 170, 255))
+  of biomePlains: (rgba(150, 176, 110, 255), rgba(170, 194, 132, 255))
 
 proc renderScale(gameMap: CtfMap, maxDimension: int): float =
   if maxDimension == 0:
@@ -223,6 +248,9 @@ proc renderMap*(
           if shape.window:
             window[index] = true
 
+  let (floorColor, zoneColor) =
+    if options.biomeFloor: biomeFloorColor(gameMap.biome)
+    else: (FloorColor, ZoneColor)
   for y in 0 ..< outputHeight:
     let
       fy = logicalCoordinate(y, scale)
@@ -232,7 +260,7 @@ proc renderMap*(
         fx = logicalCoordinate(x, scale)
         mapX = logicalPixel(x, gameMap.width, scale)
         index = y * outputWidth + x
-      var color = FloorColor
+      var color = floorColor
       if window[index]:
         color = GlassColor
       elif wall[index]:
@@ -242,7 +270,7 @@ proc renderMap*(
             mapProtectedFloorAt(gameMap, mapX, mapY)
           else:
             mapProtectedFloorAtF(gameMap, fx, fy, cx, cy)):
-        color = ZoneColor
+        color = zoneColor
       result.image.unsafe[x, y] = color
 
   for trench in gameMap.trenches:

@@ -127,13 +127,17 @@ suite "map biomes: failure modes":
     ## silently replays as concrete. The key is emitted only for a non-arena
     ## biome so every classic map's spec stays byte-identical — that is what
     ## keeps the 402-row validation baseline and dump_map_specs pinned.
-    let classic = generateCtfMap(1001)
+    ##
+    ## The hand-authored arena is the canonical arena-biome map: the pool
+    ## generator now skins every seed by archetype (`biomeForArchetype`), so a
+    ## generated map is deliberately NOT the arena-omits-the-key case anymore.
+    let classic = loadCtfMap("arena")
     check classic.biome == biomeArena
     let classicSpec = mapSpecJson(classic)
     check "\"biome\"" notin classicSpec
     check mapFromSpecJson(classicSpec).biome == biomeArena
 
-    var skinned = generateCtfMap(1001)
+    var skinned = loadCtfMap("arena")
     skinned.biome = biomeDesert
     let skinnedSpec = mapSpecJson(skinned)
     check "\"biome\":\"desert\"" in skinnedSpec

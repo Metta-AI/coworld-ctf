@@ -2214,6 +2214,15 @@ proc generateMapAttempt*(
   let archetype = archetypeRng.drawArchetype(
     teams, quadMirror = (teams == 4 and overrides.symmetry == "quadmirror"))
 
+  ## The map's SKIN follows its archetype. This is the whole biome change: a
+  ## floor texture, chosen from a field the geometry, spawns, scoring and
+  ## `gameHash` never read (`sim_types.MapBiome`). It draws NOTHING from any
+  ## RNG stream — it is a pure function of the archetype, which is itself a pure
+  ## function of the seed — so it cannot disturb a single downstream draw and
+  ## every best-of-K candidate for a seed keeps the same skin. See
+  ## `map_archetypes.biomeForArchetype`.
+  result.biome = biomeForArchetype(archetype)
+
   ## The lane plan and the archetype plan both outlive the terrain block: the
   ## constructive row cover below has to know where the routes are so it never
   ## plugs one, and the centre feature has to know whether this archetype

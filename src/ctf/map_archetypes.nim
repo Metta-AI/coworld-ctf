@@ -183,6 +183,28 @@ func drawArchetype*(rng: var MapRng, teams: int,
   let legal = legalArchetypes(teams, quadMirror)
   legal[rng.pick(legal.len)]
 
+func biomeForArchetype*(arch: MapArchetype): MapBiome =
+  ## The COSMETIC skin an archetype wears. A biome is a floor texture and
+  ## nothing else (`sim_types.MapBiome`, `map_art.biomeFloorPath`): it never
+  ## reaches geometry, spawns, scoring or `gameHash`, so this mapping is a pure
+  ## naming choice with no gameplay consequence. It exists so the six route
+  ## topologies read as six visibly different places rather than one concrete
+  ## arena reskinned — the archetype already IS a pure function of the seed
+  ## (`mapArchetypeFor`), so deriving the skin from it keeps the biome a
+  ## property of the seed too, identical across every best-of-K candidate.
+  ##
+  ## The grouping is the taxonomy brief's: the enclosed room-maze reads as
+  ## caves, the street grids as a built environment (three-lane the dense
+  ## downtown, blocks the greener low-rise), the perimeter loop as open plains,
+  ## the funnel hub as forest, the sparse-cover field as desert.
+  case arch
+  of archWarren:    biomeCaves
+  of archThreeLane: biomeCity
+  of archBlocks:    biomeForest
+  of archRing:      biomePlains
+  of archHub:       biomeForest
+  of archField:     biomeDesert
+
 # ---------------------------------------------------------------------------
 # Geometry helpers. Everything here is integer and axis-aligned, so a shape
 # and its symmetry image rasterize to exactly mirror-symmetric masks.
